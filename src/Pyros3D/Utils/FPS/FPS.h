@@ -1,0 +1,33 @@
+//============================================================================
+// Name        : FPS.h
+// Author      : Duarte Peixinho
+// Version     : 0.2
+// Copyright   : ;)
+// Description : FPS counter
+//============================================================================
+
+#ifndef FPS_H
+#define	FPS_H
+
+#include "../../Core/Math/Math.h"
+#include <sstream>
+#include <iostream>
+#include <math.h>
+
+namespace p3d {
+
+    class FPS {
+        public:
+            FPS();
+            void setFPS(const f32 &time);
+            uint32 getFPS();
+            virtual ~FPS();
+        private:
+            f32 seconds, lastFrameMS,MS;
+            int32 fps, countFPS;
+    };
+
+}
+
+#endif	/* FPS_H */
+
