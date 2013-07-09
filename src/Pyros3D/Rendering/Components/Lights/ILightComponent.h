@@ -12,6 +12,7 @@
 #include "../../../Components/IComponent.h"
 #include "../../../Core/Math/Math.h"
 #include <vector>
+#include <map>
 
 namespace p3d {
     
@@ -30,6 +31,7 @@ namespace p3d {
             virtual void Unregister(SceneGraph* Scene);
             
             static std::vector<IComponent*> GetComponents();
+            static std::vector<IComponent*> GetComponentsOnScene(SceneGraph* Scene);
             const Vec4 &GetLightColor() const;
             
         protected:
@@ -37,8 +39,10 @@ namespace p3d {
             // Light Color
             Vec4 Color;
             
-            // Components
+            // INTERNAL - List of Lights
             static std::vector<IComponent*> Components;
+            // Internal - Lights on Scene
+            static std::map<SceneGraph*, std::vector<IComponent*> > LightsOnScene;
             
     };
     

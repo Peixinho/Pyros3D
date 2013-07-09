@@ -66,7 +66,7 @@ namespace p3d {
         std::vector<RenderingMesh*> rmesh = RenderingComponent::GetRenderingMeshes(Scene);
         
         // Get Lights List
-        std::vector<IComponent*> lcomps = ILightComponent::GetComponents();
+        std::vector<IComponent*> lcomps = ILightComponent::GetComponentsOnScene(Scene);
         
         // Pack Lights
         Lights.clear();
