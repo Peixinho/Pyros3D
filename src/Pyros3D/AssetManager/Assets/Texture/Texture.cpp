@@ -351,7 +351,7 @@ namespace p3d {
         glBindTexture(mode, GL_ID);
         
         GLfloat l_ClampColor[] = {1.0, 1.0, 1.0, 1.0};
-        glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, l_ClampColor);
+        glTexParameterfv(mode, GL_TEXTURE_BORDER_COLOR, l_ClampColor);
         
         // This is to allow usage of shadow2DProj function in the shader
         glTexParameteri(mode,GL_TEXTURE_COMPARE_MODE,GL_COMPARE_R_TO_TEXTURE);
@@ -378,7 +378,7 @@ namespace p3d {
         if (isMipMap == true)
         {
             glGenerateMipmap(mode);
-			if (GLEW_VERSION_2_1)
+            if (GLEW_VERSION_2_1)
             {
                 glGenerateMipmap(mode);
             } else {
@@ -421,7 +421,7 @@ namespace p3d {
         if (isMipMap == true)
         {
             glGenerateMipmap(mode);
-			if (GLEW_VERSION_2_1)
+            if (GLEW_VERSION_2_1)
             {
                 glGenerateMipmap(mode);
             } else {
