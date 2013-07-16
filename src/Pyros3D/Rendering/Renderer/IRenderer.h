@@ -11,6 +11,7 @@
 
 #include "../../Core/Math/Math.h"
 #include "../../SceneGraph/SceneGraph.h"
+#include "../../Core/Projection/Projection.h"
 #include "../../Materials/IMaterial.h"
 #include "../../AssetManager/AssetManager.h"
 #include "../Components/Rendering/RenderingComponent.h"
@@ -50,7 +51,7 @@ namespace p3d {
             void DeactivateCulling();
         
             // Render Scene
-            virtual void RenderScene(const Matrix &Projection, GameObject* Camera, SceneGraph* Scene);
+        virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene);
         
         protected:
             
@@ -95,8 +96,8 @@ namespace p3d {
             GameObject*
                                 Camera;
             // Projection Matrix
-            Matrix
-                                Projection;
+            Projection
+                                projection;
             
             // Depth Bias
             Vec2 
@@ -111,7 +112,7 @@ namespace p3d {
             bool CullingSphereTest(RenderingMesh* rmesh);
             bool CullingPointTest(RenderingMesh* rmesh);
             bool CullingBoxTest(RenderingMesh* rmesh);
-            void UpdateCulling(const Matrix &view, const Matrix &projection);
+            void UpdateCulling(const Matrix &view, const p3d::Projection &projection);
             bool 
                                 IsCulling;            
             FrustumCulling*
@@ -173,7 +174,7 @@ namespace p3d {
                                 ShadowMapsUnits;
             std::vector<Matrix>
                                 ShadowMatrix;
-            Vec4 
+            Vec4
                                 ShadowFar;
             uint32 
                                 NumberOfShadows;

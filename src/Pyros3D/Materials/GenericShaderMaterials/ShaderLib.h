@@ -34,7 +34,8 @@ namespace p3d
             SpecularColor       = 0x200,
             ShadowMaterial      = 0x400,
             CastShadows         = 0x800,
-            Diffuse             = 0x1000
+            Diffuse             = 0x1000,
+            ShadowMaterialGPU   = 0x2000
         };
     };        
     

@@ -7,7 +7,6 @@
 //============================================================================
 
 #include "FrustumCulling.h"
-#include "../../../Core/Math/Math.h"
 #include <iostream>
 
 namespace  p3d {
@@ -16,10 +15,10 @@ namespace  p3d {
 
     FrustumCulling::~FrustumCulling() {}
 
-    void FrustumCulling::Update(const Matrix& View, const Matrix& Projection)
+    void FrustumCulling::Update(const Matrix& View, const p3d::Projection& Projection)
     {
         
-        Matrix Clip = (Projection * View);
+        Matrix Clip = (Projection.m * View);
         Vec4 vec;
         f32 Magnitude = 0.0f;
         

@@ -48,7 +48,7 @@ namespace p3d {
             FrameBuffer();      
             virtual ~FrameBuffer();
             
-            void Init(const uint32 &width, const uint32 &height, const uint32 &frameBufferType, const uint32 &internalAttatchmentFormat, bool mipmapping = false);
+            void Init(const uint32 &width, const uint32 &height, const uint32 &frameBufferType, const uint32 &internalAttatchmentFormat, bool mipmapping = false, bool RenderBuffer = false, bool DrawBuffers = true);
             void AddAttach(const uint32 &internalAttatchmentFormat, bool mipmapping = false);
             void Resize(const uint32 &width, const uint32 &height);
             void Bind();
@@ -74,8 +74,8 @@ namespace p3d {
             uint32 fbo;
             // render buffer object
             uint32 rbo;
+            // Flags
             bool useRenderBuffer;
-            // Flag
             bool FBOInitialized;
 
             // FBO "texture"

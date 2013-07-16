@@ -14,7 +14,19 @@ namespace p3d {
     std::vector<IComponent*> ILightComponent::Components;
     std::map<SceneGraph*, std::vector<IComponent*> > ILightComponent::LightsOnScene;
     
-    ILightComponent::ILightComponent() {}
+    ILightComponent::ILightComponent() 
+    {
+        isCastingShadows = false;
+        shadowsFBO = NULL;
+    }
+    
+    ILightComponent::~ILightComponent()
+    {
+        if (isCastingShadows)
+        {
+            delete shadowsFBO;
+        }
+    }
     
     void ILightComponent::Register(SceneGraph* Scene)
     {
@@ -61,4 +73,22 @@ namespace p3d {
         return Color;
     }
     
+    void ILightComponent::DisableCastShadows()
+    {
+        if (isCastingShadows)
+        {
+            isCastingShadows = false;
+            delete shadowsFBO;
+        }
+    }
+    
+    FrameBuffer* ILightComponent::GetShadowFBO()
+    {
+        if (isCastingShadows)
+        {
+            return shadowsFBO;
+        }
+        else echo ("ERROR: Frame Buffer Is Not Created");
+        return NULL;
+    }
 };

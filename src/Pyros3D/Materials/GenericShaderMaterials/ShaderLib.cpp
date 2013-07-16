@@ -98,6 +98,40 @@ namespace p3d
             fragmentShaderBody+="diffuse.xyz*=vec3(shadowCoef);\n";
 
         }
+        if (option & ShaderUsage::ShadowMaterialGPU)
+        {
+            // Vertex Header
+            vertexShaderHeader+="varying vec4 vPos;\n";
+
+            // PCF
+            fragmentShaderHeader+="float ShadowValue(sampler2DShadow shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) {\n";
+            fragmentShaderHeader+="vec4 coord = sMatrix * pos;\n";
+            fragmentShaderHeader+="if (MoreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(width,height);\n";
+            fragmentShaderHeader+="float shadow = 0.0;\n";
+            fragmentShaderHeader+="float x,y;\n";
+            fragmentShaderHeader+="for (y = -1.5 ; y <=1.5 ; y+=1.0)\n";
+            fragmentShaderHeader+="for (x = -1.5 ; x <=1.5 ; x+=1.0)\n";
+            fragmentShaderHeader+="shadow += shadow2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;\n";
+            fragmentShaderHeader+="shadow /= 16.0;\n";
+            fragmentShaderHeader+="return shadow;\n";
+            fragmentShaderHeader+="}\n";
+            // Vertex Fragment
+            vertexShaderBody+="vPos = uModelMatrix * vec4(aPosition,1.0);\n";
+            // Fragment Header
+            fragmentShaderHeader+="uniform sampler2DShadow uShadowmaps[4];\n";
+            fragmentShaderHeader+="uniform mat4 uDepthsMVP[4];\n";
+            fragmentShaderHeader+="uniform vec4 uShadowFar;\n";
+            fragmentShaderHeader+="varying vec4 vPos;\n";
+            
+            // Fragment Body
+            fragmentShaderBody+="float visibility = 1.0;\n";
+            fragmentShaderBody+="bool MoreThanOneCascade = (uShadowFar.y>0.0?true:false);\n";
+            fragmentShaderBody+="if (gl_FragCoord.z<uShadowFar.x) visibility = ShadowValue( uShadowmaps[0], 0.0, 0.0, uDepthsMVP[0],0.0001,vPos, MoreThanOneCascade);\n";
+            fragmentShaderBody+="else if (gl_FragCoord.z<uShadowFar.y) visibility = ShadowValue( uShadowmaps[0], 0.5,0.0, uDepthsMVP[1],0.0001,vPos, MoreThanOneCascade);\n";
+            fragmentShaderBody+="else if (gl_FragCoord.z<uShadowFar.z) visibility = ShadowValue( uShadowmaps[0], 0.0, 0.5, uDepthsMVP[2],0.0001,vPos, MoreThanOneCascade);\n";
+            fragmentShaderBody+="else if (gl_FragCoord.z<uShadowFar.w) visibility = ShadowValue( uShadowmaps[0], 0.5,0.5, uDepthsMVP[3],0.0001,vPos, MoreThanOneCascade);\n";
+            fragmentShaderBody+="diffuse.xyz*=vec3(visibility+0.5);\n";
+        }
         if (option & ShaderUsage::CastShadows)
         {
             if (!usingVertexWorldPos)

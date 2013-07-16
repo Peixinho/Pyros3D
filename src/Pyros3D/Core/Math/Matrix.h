@@ -32,9 +32,6 @@ namespace p3d {
                 // vars
                 f32 m[16];
 
-                // for projection only
-                f32 Near, Far, Left, Right, Top, Bottom;
-
                 // methods
                 Matrix();
                 Matrix(const f32 n11,const f32 n21,const f32 n31,const f32 n41,const f32 n12,const f32 n22,const f32 n32,const f32 n42,const f32 n13,const f32 n23,const f32 n33,const f32 n43,const f32 n14,const f32 n24,const f32 n34,const f32 n44);

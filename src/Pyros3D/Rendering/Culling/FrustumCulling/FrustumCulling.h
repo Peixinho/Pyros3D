@@ -11,6 +11,7 @@
 
 #include "../Culling.h"
 #include "../../../Core/Math/Math.h"
+#include "../../../Core/Projection/Projection.h"
 
 namespace p3d {
     
@@ -22,7 +23,7 @@ namespace p3d {
             // Frustum Planes
             FrustumPlane pl[6];
             
-            void Update(const Matrix &View, const Matrix &Projection);            
+            void Update(const Matrix &View, const p3d::Projection &Projection);
             bool PointInFrustum(const Vec3 &p);
             bool SphereInFrustum(const Vec3 &p, const f32 &radius);
             bool ABoxInFrustum(AABox box);

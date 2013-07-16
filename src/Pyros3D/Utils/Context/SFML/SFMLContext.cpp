@@ -31,11 +31,11 @@ namespace p3d {
         modes = sf::VideoMode::getFullscreenModes();
         
         sf::ContextSettings settings = sf::ContextSettings(32);
-//        settings.depthBits = 24;
-//        settings.stencilBits = 1;
-//        settings.antialiasingLevel = 1;
-//        settings.majorVersion = 2;
-//        settings.minorVersion = 0;
+        settings.depthBits = 24;
+        settings.stencilBits = 0;
+        settings.antialiasingLevel = 0;
+        settings.majorVersion = 0;
+        settings.minorVersion = 0;
 
         if (fullScreen == true)
             rview.create(modes[0], title, type, settings);

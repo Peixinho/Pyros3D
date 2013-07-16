@@ -121,7 +121,7 @@ namespace p3d {
                 mode=GL_TEXTURE_2D;
                 internalFormat=GL_DEPTH_COMPONENT;
                 internalFormat2=GL_DEPTH_COMPONENT;
-                internalFormat3=GL_FLOAT;
+                internalFormat3=GL_UNSIGNED_BYTE;
                 break;
             case TextureSubType::FloatingPointTexture16F:
                 mode=GL_TEXTURE_2D;
@@ -348,11 +348,15 @@ namespace p3d {
     {
         // USED ONLY FOR DEPTH MAPS
         // Bind
-        glBindTexture(mode, ID);
+        glBindTexture(mode, GL_ID);
         
-        glTexParameteri(mode,GL_TEXTURE_COMPARE_MODE,GL_COMPARE_REF_TO_TEXTURE);
+        GLfloat l_ClampColor[] = {1.0, 1.0, 1.0, 1.0};
+        glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, l_ClampColor);
+        
+        // This is to allow usage of shadow2DProj function in the shader
+        glTexParameteri(mode,GL_TEXTURE_COMPARE_MODE,GL_COMPARE_R_TO_TEXTURE);
         glTexParameteri(mode,GL_TEXTURE_COMPARE_FUNC,GL_LEQUAL);
-        glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_TEXTURE_MODE, GL_INTENSITY);
+        glTexParameteri(mode, GL_DEPTH_TEXTURE_MODE, GL_INTENSITY);
         
         // Unbind
         glBindTexture(mode, 0);
@@ -360,7 +364,7 @@ namespace p3d {
     void Texture::SetTransparency(const f32& Transparency)
     {
         
-        this->Transparency  = Transparency;
+        this->Transparency = Transparency;
         
     }
     
@@ -396,7 +400,7 @@ namespace p3d {
             if (isMipMap == true)
             {
                 glGenerateMipmap(mode);
-                            if (GLEW_VERSION_2_1)
+                if (GLEW_VERSION_2_1)
                 {
                     glGenerateMipmap(mode);
                 } else {

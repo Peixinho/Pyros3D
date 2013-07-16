@@ -6,7 +6,6 @@
 // Description : Creates a Context
 //============================================================================
 
-#include <SFML/Graphics/RenderWindow.hpp>
 #include "Context.h"
 
 namespace p3d {

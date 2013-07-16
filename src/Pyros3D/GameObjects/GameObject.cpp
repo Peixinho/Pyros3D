@@ -136,6 +136,10 @@ namespace p3d {
     {
         return _LocalMatrix;
     }
+    Vec3 GameObject::GetDirection()
+    {
+        return Vec3(_WorldMatrix.m[8],_WorldMatrix.m[9],_WorldMatrix.m[10]);
+    }
     void GameObject::SetTransformationMatrix(const Matrix& transformation)
     {
         _LocalMatrixUserEntered = transformation;

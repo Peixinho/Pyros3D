@@ -39,9 +39,9 @@ namespace p3d
         AddUniform(Uniform::Uniform("uNormalMatrix",Uniform::DataUsage::NormalMatrix));
 
         // Default Opacity
-		f32 opacity = 1.0;
-		AddUniform(Uniform::Uniform("uOpacity",Uniform::DataType::Float,&opacity));
-		SetOpacity(opacity);
+        f32 opacity = 1.0;
+        AddUniform(Uniform::Uniform("uOpacity",Uniform::DataType::Float,&opacity));
+        SetOpacity(opacity);
 
         if (options & ShaderUsage::Diffuse)
         {
@@ -66,6 +66,14 @@ namespace p3d
         }
 
         if (options & ShaderUsage::ShadowMaterial)
+        {
+            // Shadows
+            AddUniform(Uniform::Uniform("uShadowmaps",Uniform::DataUsage::ShadowMap));
+            AddUniform(Uniform::Uniform("uDepthsMVP",Uniform::DataUsage::ShadowMatrix));
+            AddUniform(Uniform::Uniform("uShadowFar",Uniform::DataUsage::ShadowFar));
+        }
+        
+        if (options & ShaderUsage::ShadowMaterialGPU)
         {
             // Shadows
             AddUniform(Uniform::Uniform("uShadowmaps",Uniform::DataUsage::ShadowMap));

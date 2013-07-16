@@ -46,7 +46,8 @@ namespace p3d {
             Vec3 GetPosition();
             Vec3 GetRotation();
             Vec3 GetScale();
-            
+            Vec3 GetDirection();
+        
             // World Space
             Matrix GetWorldTransformation();
             Vec3 GetWorldPosition();

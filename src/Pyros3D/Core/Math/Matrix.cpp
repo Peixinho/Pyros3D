@@ -321,9 +321,6 @@ namespace p3d {
             mp.m[1] = 0;  mp.m[5] = h;  mp.m[9] = 0;   mp.m[13] = 0;
             mp.m[2] = 0;  mp.m[6] = 0;  mp.m[10] = (far+near)/neg_depth;   mp.m[14] = 2.0f*(near*far)/neg_depth;
             mp.m[3] = 0;  mp.m[7] = 0;  mp.m[11] = -1;   mp.m[15] = 0;
-
-            mp.Near = near;
-            mp.Far = far;
             
             return mp;
         }
@@ -337,9 +334,6 @@ namespace p3d {
             mp.m[1] = 0;  mp.m[5] = h;  mp.m[9] = 0;   mp.m[13] = 0;
             mp.m[2] = 0;  mp.m[6] = 0;  mp.m[10] = (far+near)/neg_depth;   mp.m[14] = 2.0f*(near*far)/neg_depth;
             mp.m[3] = 0;  mp.m[7] = 0;  mp.m[11] = -1;   mp.m[15] = 0;
-
-            mp.Near = near;
-            mp.Far = far;
             
             return mp;
         }
@@ -359,13 +353,6 @@ namespace p3d {
             mp.m[1] = 0;  mp.m[5] = y;  mp.m[9] = 0;   mp.m[13] = 0;
             mp.m[2] = a;  mp.m[6] = b;  mp.m[10] = c;   mp.m[14] = d;
             mp.m[3] = 0;  mp.m[7] = 0;  mp.m[11] = -1;   mp.m[15] = 0;
-
-            mp.Near = near;
-            mp.Far = far;
-            mp.Left = left;
-            mp.Right = right;
-            mp.Top = top;
-            mp.Bottom = bottom;
             
             return mp;
         }
@@ -377,13 +364,6 @@ namespace p3d {
             mo.m[1] = 0;                          mo.m[5] = 2/(top-bottom);       mo.m[9] = 0;                 mo.m[13] = -(top+bottom)/(top-bottom);
             mo.m[2] = 0;                          mo.m[6] = 0;                        mo.m[10] = -2/(near-far);    mo.m[14] = -(far+near)/(near-far);
             mo.m[3] = 0;                          mo.m[7] = 0;                        mo.m[11] = 0;                 mo.m[15] = 1;
-
-            mo.Near = near;
-            mo.Far = far;
-            mo.Left = left;
-            mo.Right = right;
-            mo.Top = top;
-            mo.Bottom = bottom;
                
             return mo;
         }
@@ -394,14 +374,7 @@ namespace p3d {
             mo.m[0] = 2/(right-left);             mo.m[4] = 0;                       mo.m[8] = 0;                 mo.m[12] = -(right+left)/(right-left);
             mo.m[1] = 0;                          mo.m[5] = 2/(top-bottom);       mo.m[9] = 0;                 mo.m[13] = -(top+bottom)/(top-bottom);
             mo.m[2] = 0;                          mo.m[6] = 0;                        mo.m[10] = -2/(far-near);    mo.m[14] = -(far+near)/(far-near);
-            mo.m[3] = 0;                          mo.m[7] = 0;                        mo.m[11] = 0;                 mo.m[15] = 1;
-
-            mo.Near = near;
-            mo.Far = far;
-            mo.Left = left;
-            mo.Right = right;
-            mo.Top = top;
-            mo.Bottom = bottom;               
+            mo.m[3] = 0;                          mo.m[7] = 0;                        mo.m[11] = 0;                 mo.m[15] = 1;             
                
             return mo;
         }

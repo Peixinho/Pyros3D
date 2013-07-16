@@ -7,7 +7,6 @@
 //============================================================================
 
 #include "FrameBuffer.h"
-#include "SFML/Window/VideoMode.hpp"
 #include "GL/glew.h"
 
 namespace p3d {
@@ -33,12 +32,15 @@ namespace p3d {
         FBOInitialized = false;
     }
     
-    void FrameBuffer::Init(const uint32& width, const uint32& height, const uint32& frameBufferType, const uint32& internalAttatchmentFormat, bool mipmapping)
+    void FrameBuffer::Init(const uint32& width, const uint32& height, const uint32& frameBufferType, const uint32& internalAttatchmentFormat, bool mipmapping, bool RenderBuffer, bool DrawBuffers)
     {                
         
         // Save Dimensions
         Width = width;
-        Height = height;        
+        Height = height;
+        
+        // Use Render Buffer
+        useRenderBuffer = RenderBuffer;
         
         if (FBOInitialized==true)
         {
@@ -68,12 +70,10 @@ namespace p3d {
                 framebufferFormat = GL_RGBA8;
                 break;                
             case FrameBufferTypes::Depth:
-                framebufferFormat = GL_DEPTH_COMPONENT24;
-                useRenderBuffer = true;
+                framebufferFormat = GL_DEPTH_COMPONENT;
                 break;               
             case FrameBufferTypes::Stencil:
                 framebufferFormat = GL_STENCIL_INDEX;
-                useRenderBuffer = true;
                 break;
         };        
         
@@ -87,11 +87,22 @@ namespace p3d {
             glBindRenderbuffer(GL_RENDERBUFFER, rbo);                        
             glRenderbufferStorage(GL_RENDERBUFFER, framebufferFormat, Width, Height);
             glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rbo);
+            glBindRenderbuffer(GL_RENDERBUFFER, 0);
         }
         
+        glBindFramebuffer(GL_FRAMEBUFFER,0);
+        
+        // Add Attachment
         AddAttach(internalAttatchmentFormat, mipmapping);
 
-        #if _DEBUG
+        glBindFramebuffer(GL_FRAMEBUFFER,fbo);
+
+        if (!DrawBuffers)
+        {
+            glDrawBuffer(GL_NONE);
+            glReadBuffer(GL_NONE);
+        }
+        
         switch ( glCheckFramebufferStatus( GL_FRAMEBUFFER ) )
         {
             case GL_FRAMEBUFFER_COMPLETE:
@@ -121,12 +132,12 @@ namespace p3d {
             }
             case GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER:
             {
-                echo("FBO: An attachment point referenced by GL.DrawBuffers() doesnt have an attachment.");
+                echo("FBO: An attachment point referenced by GL.DrawBuffers() doesn't have an attachment.");
                 break;
             }
             case GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER:
             {
-                echo("FBO: The attachment point referenced by GL.ReadBuffers() doesnt have an attachment.");
+                echo("FBO: The attachment point referenced by GL.ReadBuffers() doesn't have an attachment.");
                 break;
             }
             case GL_FRAMEBUFFER_UNSUPPORTED:
@@ -140,7 +151,6 @@ namespace p3d {
                 break;
             }
         }
-        #endif
 
         // unbind FBO and RBO  
         if (useRenderBuffer==true)
@@ -182,10 +192,9 @@ namespace p3d {
                     attach.texture.CreateTexture(TextureType::Texture,TextureSubType::NormalTexture, Width, Height, mipmapping);
                     break;
             };
-
             // bind FBO
             glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-            glFramebufferTexture2D(GL_FRAMEBUFFER, attach.AttachmentFormat, GL_TEXTURE_2D, attach.texture.GetID() , 0);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, attach.AttachmentFormat, GL_TEXTURE_2D, attach.texture.GetBindID() , 0);
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
             // Add Texture

@@ -15,7 +15,8 @@ namespace p3d {
     {
     
         ActivateCulling(CullingMode::FrustumCulling);
-    
+        shadowMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows);
+        
     }
     
     ForwardRenderer::~ForwardRenderer()
@@ -24,6 +25,8 @@ namespace p3d {
         {
             delete culling;
         }
+        
+        delete shadowMaterial;
     }
     
     void ForwardRenderer::GroupAndSortAssets()
@@ -33,34 +36,8 @@ namespace p3d {
          
     }
     
-    void ForwardRenderer::RenderScene(const Matrix& Projection, GameObject* Camera, SceneGraph* Scene)
+    void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
     {
-        // Update Culling
-        UpdateCulling(Camera->GetWorldTransformation().Inverse(),Projection);
-        
-        // Save Values for Cache
-        // Saves Scene
-        this->Scene = Scene;
-        
-        // Saves Camera
-        this->Camera = Camera;
-        this->CameraPosition = this->Camera->GetPosition();
-        
-        // Saves Projection
-        this->Projection = Projection;
-        
-        // Universal Cache
-        ProjectionMatrix = Projection;
-        NearFarPlane = Vec2(Projection.Near, Projection.Far);
-        
-        // View Matrix and Position
-        ViewMatrix = Camera->GetWorldTransformation().Inverse();
-        CameraPosition = Camera->GetPosition();
-        
-        // Flags
-        ViewMatrixInverseIsDirty = true;
-        ProjectionMatrixInverseIsDirty = true;
-        ViewProjectionMatrixIsDirty = true;
         
         // Get Rendering Components List
         std::vector<RenderingMesh*> rmesh = RenderingComponent::GetRenderingMeshes(Scene);
@@ -68,10 +45,16 @@ namespace p3d {
         // Get Lights List
         std::vector<IComponent*> lcomps = ILightComponent::GetComponentsOnScene(Scene);
         
-        // Pack Lights
+        // Prepare and Pack Lights to Send to Shaders
         Lights.clear();
+        
         if (lcomps.size()>0) 
         {
+            // ShadowMaps
+            ShadowMapsTextures.clear();
+            ShadowMatrix.clear();
+            NumberOfShadows = 0;
+            
             for (std::vector<IComponent*>::iterator i = lcomps.begin();i!=lcomps.end();i++)
             {
                 if (DirectionalLight* d = dynamic_cast<DirectionalLight*>((*i))) {
@@ -94,6 +77,91 @@ namespace p3d {
                     directionalLight.m[15] = type;
                     
                     Lights.push_back(directionalLight);
+                    
+                    // Shadows
+                    if (d->IsCastingShadows())
+                    {
+                        // Increase Number of Shadows
+                        NumberOfShadows+=4;
+
+                        // Bind FBO
+                        d->GetShadowFBO()->Bind();
+
+                        // Clear Screen
+                        ClearScreen(Buffer_Bit::Depth);
+                        EnableDepthTest();
+
+                        // Enable Depth Bias
+                        glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
+                        glPolygonOffset (3.1f, 9.0f);
+                        
+                        ViewMatrix = d->GetLightViewMatrix();
+                        
+                        // Get Lights Shadow Map Texture
+                        for (uint32 i=0;i<d->GetNumberCascades();i++)
+                        {
+                            d->UpdateCascadeFrustumPoints(i,Camera->GetWorldPosition(),Camera->GetDirection());
+                            ProjectionMatrix = d->GetLightProjection(i,rmesh);
+                                                        
+                            // Set Viewport
+                            glViewport(((float)(i % 2) * d->GetShadowWidth()), ((i <= 1 ? 0.0f : 1.f) * d->GetShadowHeight()), d->GetShadowWidth(), d->GetShadowHeight());
+
+                            // Flags
+                            LastProgramUsed = -1;
+                            InternalDrawType = -1;
+                            
+                            // Render Scene with Objects Material
+                            for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
+                            {
+
+//                                if ((*k)->renderingComponent->GetOwner()!=NULL)
+//                                {
+//                                    // Culling Test
+//                                    bool cullingTest = false;
+//                                    switch((*k)->CullingGeometry)
+//                                    {
+//                                        case CullingGeometry::Box:
+//                                            cullingTest = CullingBoxTest(*k);
+//                                            break;
+//                                        case CullingGeometry::Sphere:
+//                                        default:
+//                                            cullingTest = CullingSphereTest(*k);
+//                                            break;
+//                                    }
+//                                    if (cullingTest)
+                                        RenderObject((*k),shadowMaterial);
+//                                }
+                            }
+
+                            ShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
+
+                        }
+
+                        // Get Texture (only 1)
+                        ShadowMapsTextures.push_back(d->GetShadowFBO()->GetTexture(0));
+
+                        // Set Shadow Far
+                        Vec4 _ShadowFar;
+                        if (d->GetNumberCascades()>0) _ShadowFar.x = d->GetCascade(0).Far;
+                        if (d->GetNumberCascades()>1) _ShadowFar.y = d->GetCascade(1).Far;
+                        if (d->GetNumberCascades()>2) _ShadowFar.z = d->GetCascade(2).Far;
+                        if (d->GetNumberCascades()>3) _ShadowFar.w = d->GetCascade(3).Far;
+                        
+                        ShadowFar.x = 0.5f*(-_ShadowFar.x*projection.m.m[10]+projection.m.m[14])/_ShadowFar.x + 0.5f;
+                        ShadowFar.y = 0.5f*(-_ShadowFar.y*projection.m.m[10]+projection.m.m[14])/_ShadowFar.y + 0.5f;
+                        ShadowFar.z = 0.5f*(-_ShadowFar.z*projection.m.m[10]+projection.m.m[14])/_ShadowFar.z + 0.5f;
+                        ShadowFar.w = 0.5f*(-_ShadowFar.w*projection.m.m[10]+projection.m.m[14])/_ShadowFar.w + 0.5f;
+
+                        // Unbind Material
+                        glUseProgram(0);
+
+                        // Disable Depth Bias
+                        glDisable(GL_POLYGON_OFFSET_FILL);
+
+
+                        // Unbind FBO
+                        d->GetShadowFBO()->UnBind();
+                    }
                     
                 } else if (PointLight* p = dynamic_cast<PointLight*>((*i))) {
                     
@@ -143,6 +211,34 @@ namespace p3d {
         // Update Lights Position and Direction to ViewSpace
         NumberOfLights = Lights.size();
         
+        
+        // Update Culling
+        UpdateCulling(Camera->GetWorldTransformation().Inverse(),projection);
+        
+        // Save Values for Cache
+        // Saves Scene
+        this->Scene = Scene;
+        
+        // Saves Camera
+        this->Camera = Camera;
+        this->CameraPosition = this->Camera->GetWorldPosition();
+        
+        // Saves Projection
+        this->projection = projection;
+        
+        // Universal Cache
+        ProjectionMatrix = projection.m;
+        NearFarPlane = Vec2(projection.Near, projection.Far);
+        
+        // View Matrix and Position
+        ViewMatrix = Camera->GetWorldTransformation().Inverse();
+        CameraPosition = Camera->GetWorldPosition();
+        
+        // Flags
+        ViewMatrixInverseIsDirty = true;
+        ProjectionMatrixInverseIsDirty = true;
+        ViewProjectionMatrixIsDirty = true;
+        
         // Group and Sort Meshes
         GroupAndSortAssets();
         
@@ -180,7 +276,7 @@ namespace p3d {
                         break;
                     case CullingGeometry::Sphere:
                     default:
-                        cullingTest =CullingSphereTest(*i);
+                        cullingTest = CullingSphereTest(*i);
                         break;
                 }
                 if (cullingTest)

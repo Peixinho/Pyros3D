@@ -10,6 +10,7 @@
 #define FORWARDRENDERER_H
 
 #include "../IRenderer.h"
+#include "../../../Core/Projection/Projection.h"
 
 namespace p3d {
 
@@ -23,10 +24,10 @@ namespace p3d {
             
             virtual void GroupAndSortAssets();
             
-            virtual void RenderScene(const Matrix &Projection, GameObject* Camera, SceneGraph* Scene);
+        virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene);
             
         private:
-            
+            GenericShaderMaterial* shadowMaterial;
         protected:
             
     };

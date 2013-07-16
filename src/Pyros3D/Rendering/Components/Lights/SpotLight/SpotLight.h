@@ -31,6 +31,11 @@ namespace p3d {
             const f32 &GetLightCosOutterCone() const { return CosOutterCone; }
             const f32 &GetLightRadius() const { return Radius; }
             
+            void EnableCastShadows(const uint32 &Width, const uint32 &Height)
+            {
+                
+            }
+            
         protected :
             
             // Light Direction
