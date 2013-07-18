@@ -87,10 +87,21 @@ namespace p3d {
                         // Bind FBO
                         d->GetShadowFBO()->Bind();
 
-                        // Clear Screen
-                        ClearScreen(Buffer_Bit::Depth);
-                        EnableDepthTest();
-
+                        
+                        if (d->IsUsingGPUShadows())
+                        {
+                            // GPU Shadows
+                            // Clear Screen
+                            ClearScreen(Buffer_Bit::Depth);
+                            EnableDepthTest();
+                        }
+                        else {
+                            // Regular Shadow Maps
+                            // Clear Screen
+                            ClearScreen(Buffer_Bit::Depth | Buffer_Bit::Color);
+                            EnableDepthTest();
+                        }
+                        
                         // Enable Depth Bias
                         glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
                         glPolygonOffset (3.1f, 9.0f);
@@ -138,7 +149,7 @@ namespace p3d {
                         }
 
                         // Get Texture (only 1)
-                        ShadowMapsTextures.push_back(d->GetShadowFBO()->GetTexture(0));
+                        ShadowMapsTextures.push_back(*d->GetShadowMapTexture());
 
                         // Set Shadow Far
                         Vec4 _ShadowFar;
@@ -182,6 +193,85 @@ namespace p3d {
                     pointLight.m[15] = type;
                     
                     Lights.push_back(pointLight);
+                    
+                    // Shadows
+                    if (p->IsCastingShadows())
+                    {
+                        // Increase Number of Shadows
+                        NumberOfShadows+=1;
+                        
+                        // Bind FBO
+                        p->GetShadowFBO()->Bind();
+                        glEnable( GL_TEXTURE_CUBE_MAP );
+
+                        ViewMatrix = Camera->GetWorldTransformation().Inverse();
+                        
+                        // Get Lights Shadow Map Texture
+                        for (uint32 i=0;i<6;i++)
+                        {
+                            
+                            glFramebufferTexture2DEXT( GL_FRAMEBUFFER_EXT, GL_DEPTH_ATTACHMENT, GL_TEXTURE_CUBE_MAP_POSITIVE_X_EXT + i, p->GetShadowFBO()->fbo, 0 );
+
+                            
+                            // Clear Screen
+                            ClearScreen(Buffer_Bit::Depth);
+                            EnableDepthTest();
+                            
+                            // Enable Depth Bias
+                            glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
+                            glPolygonOffset (3.1f, 9.0f);
+                        
+                            ProjectionMatrix = projection.m;
+                            
+                            // Set Viewport
+                            glViewport(0,0, p->GetShadowWidth(), p->GetShadowHeight());
+                            
+                            // Flags
+                            LastProgramUsed = -1;
+                            InternalDrawType = -1;
+                            
+                            // Render Scene with Objects Material
+                            for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
+                            {
+                                
+                                
+                                
+                                //                                if ((*k)->renderingComponent->GetOwner()!=NULL)
+                                //                                {
+                                //                                    // Culling Test
+                                //                                    bool cullingTest = false;
+                                //                                    switch((*k)->CullingGeometry)
+                                //                                    {
+                                //                                        case CullingGeometry::Box:
+                                //                                            cullingTest = CullingBoxTest(*k);
+                                //                                            break;
+                                //                                        case CullingGeometry::Sphere:
+                                //                                        default:
+                                //                                            cullingTest = CullingSphereTest(*k);
+                                //                                            break;
+                                //                                    }
+                                //                                    if (cullingTest)
+                                RenderObject((*k),shadowMaterial);
+                                //                                }
+                            }
+                            
+                            ShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
+                            
+                        }
+                        
+                        // Get Texture (only 1)
+                        ShadowMapsTextures.push_back(*p->GetShadowMapTexture());
+                        glDisable( GL_TEXTURE_CUBE_MAP );
+                        // Unbind Material
+                        glUseProgram(0);
+                        
+                        // Disable Depth Bias
+                        glDisable(GL_POLYGON_OFFSET_FILL);
+                        
+                        
+                        // Unbind FBO
+                        p->GetShadowFBO()->UnBind();
+                    }
                     
                 } else if (SpotLight* s = dynamic_cast<SpotLight*>((*i))) {
                     

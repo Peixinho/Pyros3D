@@ -23,7 +23,7 @@ namespace p3d {
             // FileName
             std::string FileName;
             uint32 Type;
-            uint32 SubType;
+            uint32 DataType;
             int32 Width;
             int32 Height;
             sf::Image Image;
@@ -36,8 +36,9 @@ namespace p3d {
             uint32 MagFilter;
             uint32 SRepeat;
             uint32 TRepeat;
-            uint32 mode;
-            uint32 subMode;
+            uint32 RRepeat;
+            uint32 mode, GLMode;
+            uint32 subMode, GLSubMode;
             uint32 internalFormat, internalFormat2, internalFormat3;
             f32 Anysotropic;
         
@@ -47,11 +48,11 @@ namespace p3d {
             Texture();
             
             // Texture
-            bool LoadTexture(const std::string& FileName, const uint32 &Type,const uint32 &SubType, bool Mipmapping = true); 
-            bool CreateTexture(const uint32 &Type,const uint32 &SubType, const int32 &width = 0, const int32 &height = 0, bool Mipmapping = true);
+            bool LoadTexture(const std::string& FileName, const uint32 &Type,bool Mipmapping = true); 
+            bool CreateTexture(const uint32 &Type, const uint32 &DataType, const int32 &width = 0, const int32 &height = 0, bool Mipmapping = true);
             bool CreateTexture(bool Mipmapping = true);
             void SetMinMagFilter(const uint32 &MinFilter,const uint32 &MagFilter);
-            void SetRepeat(const uint32 &WrapS,const uint32 &WrapT);
+            void SetRepeat(const uint32 &WrapS,const uint32 &WrapT, const int32 &WrapR = -1);
             void EnableCompareMode();
             void SetAnysotropy(const f32 &Anysotropic);
             void SetTransparency(const f32 &Transparency);

@@ -25,6 +25,7 @@ namespace p3d {
         if (isCastingShadows)
         {
             delete shadowsFBO;
+            AssetManager::DeleteAsset(ShadowMapID);
         }
     }
     
@@ -90,5 +91,10 @@ namespace p3d {
         }
         else echo ("ERROR: Frame Buffer Is Not Created");
         return NULL;
+    }
+    
+    bool ILightComponent::IsUsingGPUShadows()
+    {
+        return isUsingGPUShadows;
     }
 };

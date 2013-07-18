@@ -227,10 +227,10 @@ namespace p3d {
         }
     }
     
-    uint32 AssetManager::LoadTexture(const std::string& FileName, const uint32& Type, const uint32& SubType, bool Mipmapping)
+    uint32 AssetManager::LoadTexture(const std::string& FileName, const uint32& Type, bool Mipmapping)
     {
         Texture* texture = new Texture();
-        if (texture->LoadTexture(FileName,Type,SubType,Mipmapping)) AssetsCount++;
+        if (texture->LoadTexture(FileName,Type,Mipmapping)) AssetsCount++;
         AssetsList[AssetsCount]=new Asset();
         AssetsList[AssetsCount]->AssetPTR = texture;
         AssetsList[AssetsCount]->Type = AssetType::Texture;
@@ -239,17 +239,34 @@ namespace p3d {
         return AssetsCount;
     }
     
-    uint32 AssetManager::CreateTexture(const uint32& Type, const uint32& SubType, const int32& width, const int32& height, bool Mipmapping)
+    void AssetManager::LoadAddTexture(const uint32 &Handle, const std::string& FileName, const uint32& Type, bool Mipmapping)
+    {
+        if (AssetsList.find(Handle)!=AssetsList.end())
+        {
+            Texture* texture = static_cast<Texture*>(AssetsList[Handle]->AssetPTR);
+            texture->LoadTexture(FileName,Type,Mipmapping);
+        }
+    }
+    
+    uint32 AssetManager::CreateTexture(const uint32& Type, const uint32& DataType, const int32& width, const int32& height, bool Mipmapping)
     {
         AssetsCount++;
         Texture* texture = new Texture();
-        texture->CreateTexture(Type,SubType,width,height,Mipmapping);
+        texture->CreateTexture(Type,DataType,width,height,Mipmapping);
         AssetsList[AssetsCount]=new Asset();
         AssetsList[AssetsCount]->AssetPTR = texture;
         AssetsList[AssetsCount]->Type = AssetType::Texture;
         AssetsList[AssetsCount]->Using = 0;
         
         return AssetsCount;
+    }
+    void AssetManager::AddTexture(const uint32 &Handle, const uint32& Type, const uint32& DataType, const int32& width, const int32& height, bool Mipmapping)
+    {
+        if (AssetsList.find(Handle)!=AssetsList.end())
+        {
+            Texture* texture = static_cast<Texture*>(AssetsList[Handle]->AssetPTR);
+            texture->CreateTexture(Type,DataType,width,height,Mipmapping);        
+        } else echo("ERROR: Texture Not Found");
     }
     
     void AssetManager::SetAnysotropy(const uint32 &Handle, const f32& Anysotropic)

@@ -145,7 +145,7 @@ namespace p3d {
             virtual void Update() {};
             virtual void Destroy() {};
             
-            void EnableCastShadows(const uint32 &Width, const uint32 &Height, const Projection &projection, const f32 &Near, const f32 &Far, const uint32 &Cascades = 1)
+            void EnableCastShadows(const uint32 &Width, const uint32 &Height, const Projection &projection, const f32 &Near, const f32 &Far, const uint32 &Cascades = 1, bool GPU = true)
             {
                 if (!isCastingShadows)
                 {
@@ -173,15 +173,34 @@ namespace p3d {
                         ShadowHeightFBO = Height*2;
                     }
 
-                    // Create Frame Buffer and Add Depth Attchament
-                    shadowsFBO->Init(ShadowWidthFBO,ShadowHeightFBO,FrameBufferTypes::Depth,FrameBufferAttachmentFormat::Depth_Attachment,false,false,false);
-                    shadowsFBO->GetTexture(0).SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
-                    shadowsFBO->GetTexture(0).SetRepeat(TextureRepeat::ClampToBorder,TextureRepeat::ClampToBorder);
-                    shadowsFBO->GetTexture(0).EnableCompareMode();
+                    // Set Flag
+                    isUsingGPUShadows = GPU;
                     
+                    // Regular Shadow Maps
+                    if (!GPU)
+                    {
+                        // Create Texture, Frame Buffer and Set the Texture as Attachment
+                        ShadowMapID = AssetManager::CreateTexture(TextureType::Texture,TextureDataType::FloatingPointTexture16F,ShadowWidthFBO,ShadowHeightFBO,false);
+                        ShadowMap = static_cast<Texture*> (AssetManager::GetAsset(ShadowMapID)->AssetPTR);
+                        ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+                        ShadowMap->SetRepeat(TextureRepeat::Clamp,TextureRepeat::Clamp);
+                        shadowsFBO->Init(FrameBufferAttachmentFormat::Color_Attachment_Floating_Point_16F,TextureType::Texture,ShadowMap,true);
+                        shadowsFBO->AddRenderBuffer(RenderBufferType::Depth,ShadowWidthFBO,ShadowHeightFBO);
+                    }
+                    // GPU Shadow Maps
+                    else {
+                       // Create Texture, Frame Buffer and Set the Texture as Attachment
+                       ShadowMapID = AssetManager::CreateTexture(TextureType::Texture,TextureDataType::DepthComponent,ShadowWidthFBO,ShadowHeightFBO,false);
+                       ShadowMap = static_cast<Texture*> (AssetManager::GetAsset(ShadowMapID)->AssetPTR);
+                       ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+                       ShadowMap->SetRepeat(TextureRepeat::ClampToBorder,TextureRepeat::ClampToBorder);
+                       ShadowMap->EnableCompareMode();
+                       shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::Texture,ShadowMap,false);
+                    }
                     // Near and Far Clip Planes
                     ShadowNear = Near;
                     ShadowFar = Far;
+                    
                     // View Projection Matrix
                     ShadowProjection = projection.m;
 
@@ -230,15 +249,15 @@ namespace p3d {
             {
                 return Cascades[Cascade];
             }
-            
+                        
         private:
 
             // Shadow Cast
             uint32 ShadowCascades;
-            f32 ShadowNear, ShadowFar;
             Matrix ShadowProjection;
             Cascade Cascades[4];
             Matrix ShadowViewMatrix;
+            bool shadowsOnGPU;
         
     };
 

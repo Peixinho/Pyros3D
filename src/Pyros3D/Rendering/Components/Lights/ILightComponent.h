@@ -41,6 +41,8 @@ namespace p3d {
             
             FrameBuffer* GetShadowFBO();
             
+            Texture* GetShadowMapTexture() { return ShadowMap; }
+            
             uint32 GetShadowWidth()
             {
                 return ShadowWidth;
@@ -51,14 +53,24 @@ namespace p3d {
                 return ShadowHeight;
             }
             
+            bool IsUsingGPUShadows();
+            
         protected:
             
-            // Cast Shadows
+            // Shadows Mapping
+            // FrameBuffer
             FrameBuffer* shadowsFBO;
+            // Dimensions
             uint32 ShadowWidth, ShadowHeight;
+            // Shadow Map Texture
+            Texture* ShadowMap;
+            // Shadow Map Handle (Asset Manager)
+            uint32 ShadowMapID;
+            // Far ane Near for Projection
+            f32 ShadowNear, ShadowFar;
+            // Flag
             bool isCastingShadows;
-            
-            
+            bool isUsingGPUShadows;
             // Light Color
             Vec4 Color;
             

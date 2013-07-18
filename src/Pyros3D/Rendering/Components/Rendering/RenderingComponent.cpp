@@ -60,21 +60,21 @@ namespace p3d {
                     if (renderable->Geometries[i]->materialProperties.haveColorMap) 
                     {
                         Texture colorMap;
-                        colorMap.LoadTexture(renderable->Geometries[i]->materialProperties.colorMap, TextureType::Texture, TextureSubType::NormalTexture);
+                        colorMap.LoadTexture(renderable->Geometries[i]->materialProperties.colorMap, TextureType::Texture);
                         colorMap.SetMinMagFilter(TextureFilter::LinearMipmapNearest,TextureFilter::LinearMipmapNearest);
                         genMat->SetColorMap(colorMap);
                     }
                     if (renderable->Geometries[i]->materialProperties.haveSpecularMap) 
                     {
                         Texture specularMap;
-                        specularMap.LoadTexture(renderable->Geometries[i]->materialProperties.specularMap, TextureType::Texture, TextureSubType::NormalTexture);
+                        specularMap.LoadTexture(renderable->Geometries[i]->materialProperties.specularMap, TextureType::Texture);
                         specularMap.SetMinMagFilter(TextureFilter::LinearMipmapNearest,TextureFilter::LinearMipmapNearest);
                         genMat->SetSpecularMap(specularMap);
                     }
                     if (renderable->Geometries[i]->materialProperties.haveNormalMap) 
                     {
                         Texture normalMap;
-                        normalMap.LoadTexture(renderable->Geometries[i]->materialProperties.normalMap, TextureType::Texture, TextureSubType::NormalTexture);
+                        normalMap.LoadTexture(renderable->Geometries[i]->materialProperties.normalMap, TextureType::Texture);
                         normalMap.SetMinMagFilter(TextureFilter::LinearMipmapNearest,TextureFilter::LinearMipmapNearest);
                         genMat->SetNormalMap(normalMap);
                     }
@@ -159,7 +159,7 @@ namespace p3d {
     
     void RenderingComponent::SetCullingGeometry(const uint32& Geometry)
     {
-        // Set Culling Geometry to all Sub Meshes
+        // Set Culling Geometry to all  Meshes
         CullingGeometry = Geometry;
         for (std::vector<RenderingMesh*>::iterator i=Meshes.begin();i!=Meshes.end();i++)
         {

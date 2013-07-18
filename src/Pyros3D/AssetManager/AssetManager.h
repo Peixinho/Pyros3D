@@ -20,13 +20,6 @@
 #include <SFML/Graphics/Image.hpp>
 
 namespace p3d {
-    
-    namespace TextureType {
-        enum {
-            Texture = 0,            
-            Cubemap
-        };
-    }
 
     namespace TextureTransparency {
         enum {
@@ -55,18 +48,24 @@ namespace p3d {
         };
     }
 
-    namespace TextureSubType {
+    namespace TextureDataType {
         enum {
-            CubemapPositive_X = 0,            
-            CubemapNegative_X,        
+            RGBA = 0,
+            DepthComponent,
+            FloatingPointTexture16F,
+            FloatingPointTexture32F
+        };
+    }
+    
+    namespace TextureType {
+        enum {
+            CubemapPositive_X = 0,
+            CubemapNegative_X,
             CubemapPositive_Y,
             CubemapNegative_Y,
             CubemapPositive_Z,
             CubemapNegative_Z,
-            NormalTexture,
-            DepthComponent,
-            FloatingPointTexture16F,
-            FloatingPointTexture32F
+            Texture
         };
     }
     
@@ -106,8 +105,10 @@ namespace p3d {
             static void DeleteAsset(const uint32 &Handle);
 
             // Texture
-            static uint32 LoadTexture(const std::string& FileName, const uint32 &Type,const uint32 &SubType, bool Mipmapping = true); 
-            static uint32 CreateTexture(const uint32 &Type,const uint32 &SubType, const int32&width = 0, const int32&height = 0, bool Mipmapping = true);
+            static uint32 LoadTexture(const std::string& FileName, const uint32 &Type, bool Mipmapping = true); 
+            static void LoadAddTexture(const uint32 &Handle, const std::string& FileName, const uint32 &Type, bool Mipmapping = true); 
+            static uint32 CreateTexture(const uint32 &Type, const uint32 &DataType, const int32&width = 0, const int32&height = 0, bool Mipmapping = true);
+            static void AddTexture(const uint32 &Handle, const uint32 &Type, const uint32 &DataType, const int32&width = 0, const int32&height = 0, bool Mipmapping = true);
             static uint32 CreateTexture(bool Mipmapping = true);
             static void SetMinMagFilter(const uint32 &Handle, const uint32 &MinFilter,const uint32 &MagFilter);
             static void SetRepeat(const uint32 &Handle, const uint32 &WrapS,const uint32 &WrapT);

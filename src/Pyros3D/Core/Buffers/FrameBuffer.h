@@ -17,14 +17,6 @@
 #define GLCHECK() { int32 error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } }
 
 namespace p3d {
-
-    namespace FrameBufferTypes {
-        enum {            
-            Color = 0,
-            Depth,
-            Stencil
-        };
-    };
     
     namespace FrameBufferAttachmentFormat
     {
@@ -37,10 +29,20 @@ namespace p3d {
         };
     }
     
+    namespace RenderBufferType
+    {
+        enum {
+            Color = 0,
+            Depth,
+            Stencil
+        };
+    }
+    
     struct Attachment
     {
-        Texture texture;
+        Texture *TexturePTR;
         uint32 AttachmentFormat;
+        uint32 TextureType;
     };
     
     class FrameBuffer {
@@ -48,34 +50,32 @@ namespace p3d {
             FrameBuffer();      
             virtual ~FrameBuffer();
             
-            void Init(const uint32 &width, const uint32 &height, const uint32 &frameBufferType, const uint32 &internalAttatchmentFormat, bool mipmapping = false, bool RenderBuffer = false, bool DrawBuffers = true);
-            void AddAttach(const uint32 &internalAttatchmentFormat, bool mipmapping = false);
-            void Resize(const uint32 &width, const uint32 &height);
+            void Init(const uint32 &attachmentFormat, const uint32 &TextureType, Texture* attachment, bool DrawBuffers = true);
+            void AddAttach(const uint32& attachmentFormat, const uint32 &TextureType, Texture* attachment);
+            void AddRenderBuffer(const uint32& BufferFormat, const uint32 &width, const uint32 &height);
+            void ResizeRenderBuffer(const uint32 &width, const uint32 &height);
             void Bind();
             void UnBind();
             
-            Texture GetTexture(const uint32 &TextureNumber);
-            
-            const uint32 &GetWidth() const;
-            const uint32 &GetHeight() const;
             const uint32 &GetFrameBufferFormat() const;
             
             bool IsInitialized() { return FBOInitialized; }
+            uint32 fbo;
             
         private:
-            
-            // dimensions
-            uint32 Width, Height;
+
             // FBO Type
             uint32 type;
             // Internal Format
             uint32 framebufferFormat;
             // Frame Buffer Object
-            uint32 fbo;
-            // render buffer object
+            
+            // RenderBuffer
             uint32 rbo;
+            uint32 rboType;
+            bool isUsingRenderBuffer;
+            
             // Flags
-            bool useRenderBuffer;
             bool FBOInitialized;
 
             // FBO "texture"

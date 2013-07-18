@@ -14,7 +14,6 @@ namespace p3d {
     FrameBuffer::FrameBuffer() 
     {
         FBOInitialized = false;
-        useRenderBuffer = false;
     }
 
     FrameBuffer::~FrameBuffer() 
@@ -22,36 +21,23 @@ namespace p3d {
         // destroy fbo and rbo
         glDeleteFramebuffers(1, (GLuint*)&fbo);
         
-        if (useRenderBuffer==true)
-            glDeleteRenderbuffers(1, (GLuint*)&rbo);
-        
-        for (int32 i=0;i<attachments.size();i++) 
-            attachments[i].texture.DeleteTexture();
-        
         // flag FBO Stoped
         FBOInitialized = false;
+        
+        if (isUsingRenderBuffer)
+        {
+            glDeleteRenderbuffers(1, (GLuint*)&rbo);
+        }
+        
     }
     
-    void FrameBuffer::Init(const uint32& width, const uint32& height, const uint32& frameBufferType, const uint32& internalAttatchmentFormat, bool mipmapping, bool RenderBuffer, bool DrawBuffers)
+    void FrameBuffer::Init(const uint32& attachmentFormat, const uint32 &TextureType, Texture* attachment, bool DrawBuffers)
     {                
-        
-        // Save Dimensions
-        Width = width;
-        Height = height;
-        
-        // Use Render Buffer
-        useRenderBuffer = RenderBuffer;
-        
+
         if (FBOInitialized==true)
         {
             // destroy fbo and rbo
             glDeleteFramebuffers(1, (GLuint*)&fbo);
-
-            if (useRenderBuffer==true)
-                glDeleteRenderbuffers(1, (GLuint*)&rbo);
-
-            for (int32 i=0;i<attachments.size();i++) 
-                attachments[i].texture.DeleteTexture();
         
             // flag FBO Stoped
             FBOInitialized = false;
@@ -60,43 +46,14 @@ namespace p3d {
         // flag FBO Initialized
         FBOInitialized = true;
 
-        // Save Type
-        this->type = frameBufferType;
-
-        // Get Internal Format
-        switch(frameBufferType)
-        {
-            case FrameBufferTypes::Color:
-                framebufferFormat = GL_RGBA8;
-                break;                
-            case FrameBufferTypes::Depth:
-                framebufferFormat = GL_DEPTH_COMPONENT;
-                break;               
-            case FrameBufferTypes::Stencil:
-                framebufferFormat = GL_STENCIL_INDEX;
-                break;
-        };        
-        
         glGenFramebuffers(1, (GLuint*)&fbo);
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
         
-        // create RBO
-        if (useRenderBuffer==true)
-        {
-            glGenRenderbuffers(1, (GLuint*)&rbo);
-            glBindRenderbuffer(GL_RENDERBUFFER, rbo);                        
-            glRenderbufferStorage(GL_RENDERBUFFER, framebufferFormat, Width, Height);
-            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rbo);
-            glBindRenderbuffer(GL_RENDERBUFFER, 0);
-        }
+        // Add Attach
+        AddAttach(attachmentFormat, TextureType, attachment);
         
-        glBindFramebuffer(GL_FRAMEBUFFER,0);
-        
-        // Add Attachment
-        AddAttach(internalAttatchmentFormat, mipmapping);
-
-        glBindFramebuffer(GL_FRAMEBUFFER,fbo);
-
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         if (!DrawBuffers)
         {
             glDrawBuffer(GL_NONE);
@@ -151,110 +108,88 @@ namespace p3d {
                 break;
             }
         }
-
-        // unbind FBO and RBO  
-        if (useRenderBuffer==true)
-            glBindRenderbuffer(GL_RENDERBUFFER, 0);
  
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         
     }
     
-    void FrameBuffer::AddAttach(const uint32& internalAttatchmentFormat, bool mipmapping)
+    void FrameBuffer::AddAttach(const uint32& attachmentFormat, const uint32 &TextureType, Texture* attachment)
     {
+        // Add Attachment
+        Attachment attach;
+        attach.AttachmentFormat = attachmentFormat;
+        attach.TexturePTR = attachment;
+        attach.TextureType = TextureType;
 
-        if (FBOInitialized==true)
+        // Get Attatchment Format
+        switch(attach.AttachmentFormat)
         {
-            // Temporary Texture
-            Attachment attach;                        
-            
-            // Get Attatchment Format
-            switch(internalAttatchmentFormat)
-            {
-                case FrameBufferAttachmentFormat::Color_Attachment:
-                    attach.AttachmentFormat= GL_COLOR_ATTACHMENT0 + attachments.size();
-                    attach.texture.CreateTexture(TextureType::Texture,TextureSubType::NormalTexture, Width, Height, mipmapping);
-                    break;
-                case FrameBufferAttachmentFormat::Color_Attachment_Floating_Point_16F:
-                    attach.AttachmentFormat= GL_COLOR_ATTACHMENT0 + attachments.size();
-                    attach.texture.CreateTexture(TextureType::Texture,TextureSubType::FloatingPointTexture16F, Width, Height, mipmapping);
-                    break;
-                case FrameBufferAttachmentFormat::Color_Attachment_Floating_Point_32F:
-                    attach.AttachmentFormat= GL_COLOR_ATTACHMENT0 + attachments.size();
-                    attach.texture.CreateTexture(TextureType::Texture,TextureSubType::FloatingPointTexture32F, Width, Height, mipmapping);
-                    break;
-                case FrameBufferAttachmentFormat::Depth_Attachment:
-                    attach.AttachmentFormat= GL_DEPTH_ATTACHMENT;
-                    attach.texture.CreateTexture(TextureType::Texture,TextureSubType::DepthComponent, Width, Height, mipmapping);
-                    break;
-                case FrameBufferAttachmentFormat::Stencil_Attachment:
-                    attach.AttachmentFormat= GL_STENCIL_ATTACHMENT;
-                    attach.texture.CreateTexture(TextureType::Texture,TextureSubType::NormalTexture, Width, Height, mipmapping);
-                    break;
-            };
-            // bind FBO
-            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-            glFramebufferTexture2D(GL_FRAMEBUFFER, attach.AttachmentFormat, GL_TEXTURE_2D, attach.texture.GetBindID() , 0);
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            case FrameBufferAttachmentFormat::Color_Attachment:
+            case FrameBufferAttachmentFormat::Color_Attachment_Floating_Point_16F:
+            case FrameBufferAttachmentFormat::Color_Attachment_Floating_Point_32F:
+                attach.AttachmentFormat= GL_COLOR_ATTACHMENT0 + attachments.size();
+                break;
+            case FrameBufferAttachmentFormat::Depth_Attachment:
+                attach.AttachmentFormat= GL_DEPTH_ATTACHMENT;
+                break;
+            case FrameBufferAttachmentFormat::Stencil_Attachment:
+                attach.AttachmentFormat= GL_STENCIL_ATTACHMENT;
+                break;
+        };
 
-            // Add Texture
-            attachments.push_back(attach);
+        switch(TextureType)
+        {
+            case TextureType::CubemapNegative_X:
+                attach.TextureType=GL_TEXTURE_CUBE_MAP_NEGATIVE_X;
+                break;
+            case TextureType::CubemapNegative_Y:
+                attach.TextureType=GL_TEXTURE_CUBE_MAP_NEGATIVE_Y;
+                break;
+            case TextureType::CubemapNegative_Z:
+                attach.TextureType=GL_TEXTURE_CUBE_MAP_NEGATIVE_Z;
+                break;
+            case TextureType::CubemapPositive_X:
+                attach.TextureType=GL_TEXTURE_CUBE_MAP_POSITIVE_X;
+                break;
+            case TextureType::CubemapPositive_Y:
+                attach.TextureType=GL_TEXTURE_CUBE_MAP_POSITIVE_Y;
+                break;
+            case TextureType::CubemapPositive_Z:
+                attach.TextureType=GL_TEXTURE_CUBE_MAP_POSITIVE_Z;
+                break;
+            case TextureType::Texture:
+            default:
+                attach.TextureType=GL_TEXTURE_2D;
+                break;
         }
         
+        attachments.push_back(attach);
+        
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        
+        // Add Attach
+        glFramebufferTexture2D(GL_FRAMEBUFFER, attach.AttachmentFormat, attach.TextureType, attach.TexturePTR->GetBindID() , 0);
+        
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
     
-    void FrameBuffer::Resize(const uint32& width, const uint32& height)
-    {        
-        
-        if (FBOInitialized==true)
-        {
-            // Save Dimensions
-            Width = width;
-            Height = height;
-                                    
-            // bind FBO
-            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-            
-            // bind RBO
-            if (useRenderBuffer==true)
-            {
-                glBindRenderbuffer(GL_RENDERBUFFER, rbo);
-                glRenderbufferStorage(GL_RENDERBUFFER, framebufferFormat, Width, Height);                
-            }
-            
-            for (uint32 i=0;i<attachments.size();i++)
-            {
-                attachments[i].texture.Resize(Width,Height);
-            }
-
-            // unbind RBO
-            if (useRenderBuffer==true)
-            {
-                glBindRenderbuffer(GL_RENDERBUFFER, 0);
-            }            
-            
-            // unbind FBO        
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);            
-            
-        }
-              
-    }        
     void FrameBuffer::Bind()
     {
         // bind fbo
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         
-        // Set ViewPort
-        glViewport(0,0,Width,Height);
-        
         if (attachments.size()>1)
         {
             std::vector<GLenum> BufferIDs;
 
+            uint32 k = 0;
             for(uint32 i = 0; i < attachments.size(); i++)
             {
                 if (attachments[i].AttachmentFormat!=GL_DEPTH_ATTACHMENT && attachments[i].AttachmentFormat!=GL_STENCIL_ATTACHMENT)
-                BufferIDs.push_back(GL_COLOR_ATTACHMENT0 + i);
+                {
+                    BufferIDs.push_back(GL_COLOR_ATTACHMENT0 + k);
+                    k++;
+                }
             };
 
             glDrawBuffers(BufferIDs.size(), &BufferIDs[0]);
@@ -267,22 +202,48 @@ namespace p3d {
         glDrawBuffer(GL_BACK);
         
         for (int32 i=0;i<attachments.size();i++) 
-            attachments[i].texture.UpdateMipmap();
-    }    
-    Texture FrameBuffer::GetTexture(const uint32 &TextureNumber)
-    {
-        // get Texture
-        return attachments[TextureNumber].texture;
+            attachments[i].TexturePTR->UpdateMipmap();
     }
     
-    const uint32 &FrameBuffer::GetWidth() const
+    void FrameBuffer::AddRenderBuffer(const uint32& BufferFormat, const uint32 &width, const uint32 &height)
     {
-        return Width;
+        if(!isUsingRenderBuffer)
+        {
+            switch(BufferFormat)
+            {
+                case RenderBufferType::Color:
+                    rboType = GL_RGBA8;
+                    break; 
+                case RenderBufferType::Depth:
+                    rboType = GL_DEPTH_COMPONENT;
+                    break;
+                case RenderBufferType::Stencil:
+                    rboType = GL_STENCIL_ATTACHMENT;
+                    break;                
+            };
+            
+            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+            glGenRenderbuffers(1, (GLuint*)&rbo);
+            glBindRenderbuffer(GL_RENDERBUFFER, rbo);                        
+            glRenderbufferStorage(GL_RENDERBUFFER, rboType, width,height);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rbo);
+            glBindRenderbuffer(GL_RENDERBUFFER, 0);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            
+            isUsingRenderBuffer = true;
+        }
     }
-    const uint32 &FrameBuffer::GetHeight() const
+    
+    void FrameBuffer::ResizeRenderBuffer(const uint32& width, const uint32& height)
     {
-        return Height;
+        if (isUsingRenderBuffer)
+        {            
+            glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+            glRenderbufferStorage(GL_RENDERBUFFER, rboType, width, height);
+            glBindRenderbuffer(GL_RENDERBUFFER, 0); 
+        }
     }
+    
     const uint32 &FrameBuffer::GetFrameBufferFormat() const
     {
         return framebufferFormat;

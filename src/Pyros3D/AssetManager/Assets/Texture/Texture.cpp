@@ -25,7 +25,7 @@ namespace p3d {
 
     Texture::~Texture() {}   
     
-    bool Texture::LoadTexture(const std::string& FileName, const uint32 &Type,const uint32 &SubType, bool Mipmapping)
+    bool Texture::LoadTexture(const std::string& FileName, const uint32 &Type, bool Mipmapping)
     {
         bool failed = false;
         
@@ -47,7 +47,6 @@ namespace p3d {
             this->Image=image;
             this->haveImage=true;
             this->Type=Type;
-            this->SubType=SubType;
             this->Transparency=TextureTransparency::Opaque;
             if (this->GL_ID==-1) {
                 glGenTextures(1, (GLuint*)&this->GL_ID);
@@ -72,118 +71,103 @@ namespace p3d {
     
     bool Texture::CreateTexture(bool Mipmapping)
     {
+        
         // default texture
-        switch(SubType) {
-            case TextureSubType::CubemapNegative_X:
-                subMode=GL_TEXTURE_CUBE_MAP_NEGATIVE_X;
-                mode=GL_TEXTURE_CUBE_MAP;
-                internalFormat=GL_RGBA8;
-                internalFormat2=GL_RGBA;
-                internalFormat3=GL_UNSIGNED_BYTE;
-                break;
-            case TextureSubType::CubemapNegative_Y:
-                subMode=GL_TEXTURE_CUBE_MAP_NEGATIVE_Y;
-                mode=GL_TEXTURE_CUBE_MAP;
-                internalFormat=GL_RGBA8;
-                internalFormat2=GL_RGBA;
-                internalFormat3=GL_UNSIGNED_BYTE;
-                break;
-            case TextureSubType::CubemapNegative_Z:
-                subMode=GL_TEXTURE_CUBE_MAP_NEGATIVE_Z;
-                mode=GL_TEXTURE_CUBE_MAP;
-                internalFormat=GL_RGBA8;
-                internalFormat2=GL_RGBA;
-                internalFormat3=GL_UNSIGNED_BYTE;
-                break;
-            case TextureSubType::CubemapPositive_X:
-                subMode=GL_TEXTURE_CUBE_MAP_POSITIVE_X;
-                mode=GL_TEXTURE_CUBE_MAP;
-                internalFormat=GL_RGBA8;
-                internalFormat2=GL_RGBA;
-                internalFormat3=GL_UNSIGNED_BYTE;
-                break;
-            case TextureSubType::CubemapPositive_Y:
-                subMode=GL_TEXTURE_CUBE_MAP_POSITIVE_Y;
-                mode=GL_TEXTURE_CUBE_MAP;
-                internalFormat=GL_RGBA8;
-                internalFormat2=GL_RGBA;
-                internalFormat3=GL_UNSIGNED_BYTE;
-                break;
-            case TextureSubType::CubemapPositive_Z:
-                subMode=GL_TEXTURE_CUBE_MAP_POSITIVE_Z;
-                mode=GL_TEXTURE_CUBE_MAP;
-                internalFormat=GL_RGBA8;
-                internalFormat2=GL_RGBA;
-                internalFormat3=GL_UNSIGNED_BYTE;
-                break;
-            case TextureSubType::DepthComponent:
-                subMode=GL_TEXTURE_2D;                
-                mode=GL_TEXTURE_2D;
-                internalFormat=GL_DEPTH_COMPONENT;
-                internalFormat2=GL_DEPTH_COMPONENT;
-                internalFormat3=GL_UNSIGNED_BYTE;
-                break;
-            case TextureSubType::FloatingPointTexture16F:
-                mode=GL_TEXTURE_2D;
-                subMode=GL_TEXTURE_2D;
-                internalFormat=GL_RGBA16F;
-                internalFormat2=GL_RGBA;
-                internalFormat3=GL_FLOAT;
-                break;
-            case TextureSubType::FloatingPointTexture32F:
-                mode=GL_TEXTURE_2D;
-                subMode=GL_TEXTURE_2D;
-                internalFormat=GL_RGBA32F;
-                internalFormat2=GL_RGBA;
-                internalFormat3=GL_FLOAT;
-                break;
-            case TextureSubType::NormalTexture:
+        switch(Type) {
+            case TextureType::CubemapNegative_X:
+                GLMode=GL_TEXTURE_CUBE_MAP_NEGATIVE_X;
+                GLSubMode=GL_TEXTURE_CUBE_MAP;
+            break;
+            case TextureType::CubemapNegative_Y:
+                GLMode=GL_TEXTURE_CUBE_MAP_NEGATIVE_Y;
+                GLSubMode=GL_TEXTURE_CUBE_MAP;
+            break;
+            case TextureType::CubemapNegative_Z:
+                GLMode=GL_TEXTURE_CUBE_MAP_NEGATIVE_Z;
+                GLSubMode=GL_TEXTURE_CUBE_MAP;
+            break;
+            case TextureType::CubemapPositive_X:
+                GLMode=GL_TEXTURE_CUBE_MAP_POSITIVE_X;
+                GLSubMode=GL_TEXTURE_CUBE_MAP;
+            break;
+            case TextureType::CubemapPositive_Y:
+                GLMode=GL_TEXTURE_CUBE_MAP_POSITIVE_Y;
+                GLSubMode=GL_TEXTURE_CUBE_MAP;
+            break;
+            case TextureType::CubemapPositive_Z:
+                GLMode=GL_TEXTURE_CUBE_MAP_POSITIVE_Z;
+                GLSubMode=GL_TEXTURE_CUBE_MAP;
+            break;
+            case TextureType::Texture:
             default:
-                mode=GL_TEXTURE_2D;
-                subMode=GL_TEXTURE_2D;
-                internalFormat=GL_RGBA8;
-                internalFormat2=GL_RGBA;
-                internalFormat3=GL_UNSIGNED_BYTE;
+                GLMode=GL_TEXTURE_2D;
+                GLSubMode=GL_TEXTURE_2D;
                 break;
         }
         
+        switch(DataType)
+        {
+            case TextureDataType::DepthComponent:
+                internalFormat=GL_DEPTH_COMPONENT;
+                internalFormat2=GL_DEPTH_COMPONENT;
+                internalFormat3=GL_FLOAT;
+            break;
+            case TextureDataType::FloatingPointTexture16F:
+                internalFormat=GL_RGBA16F;
+                internalFormat2=GL_RGBA;
+                internalFormat3=GL_FLOAT;
+            break;
+            case TextureDataType::FloatingPointTexture32F:
+                internalFormat=GL_RGBA32F;
+                internalFormat2=GL_RGBA;
+                internalFormat3=GL_FLOAT;
+            break;
+            default:
+                internalFormat=GL_RGBA8;
+                internalFormat2=GL_RGBA;
+                internalFormat3=GL_UNSIGNED_BYTE;
+            break;
+        }
+        
         // bind
-        glBindTexture(mode, GL_ID);
-
+        glBindTexture(GLSubMode, GL_ID);
+        
         if (Mipmapping == true)
         {
             if (GLEW_VERSION_2_1)
             {
-                glTexImage2D(subMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:Image.getPixelsPtr()));
-                glGenerateMipmap(mode);
+                glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:Image.getPixelsPtr()));
+                glGenerateMipmap(GLMode);
             } else {
-                gluBuild2DMipmaps(subMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:Image.getPixelsPtr()));
+                gluBuild2DMipmaps(GLMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:Image.getPixelsPtr()));
             }
             isMipMap = true;
         } else {
-            glTexImage2D(subMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:Image.getPixelsPtr()));
+            glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:Image.getPixelsPtr()));
+            GLCHECK();
         }
         
         // default values
-        glTexParameteri(mode, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(mode, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexParameteri(mode, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(mode, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexParameteri(GLSubMode, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         
         // unbind
-        glBindTexture(mode, 0);
-        
+        glBindTexture(GLSubMode, 0);
+//        
         return true;
     }
     
-    bool Texture::CreateTexture(const uint32& Type, const uint32& SubType, const int& width, const int& height, bool Mipmapping)
+    bool Texture::CreateTexture(const uint32& Type, const uint32& TextureDataType, const int32& width, const int32& height, bool Mipmapping)
     {
                        
         Width=width;
         Height=height;
         this->Type=Type;
-        this->SubType=SubType;
-
+        this->DataType=TextureDataType;
+        this->haveImage = false;
+        
         if (GL_ID==-1) {
             glGenTextures(1, (GLuint*)&GL_ID);
         }
@@ -200,7 +184,7 @@ namespace p3d {
     void Texture::SetAnysotropy(const f32& Anysotropic)
     {
         // bind
-         glBindTexture(mode, GL_ID);
+         glBindTexture(GLSubMode, GL_ID);
          
          this->Anysotropic = Anysotropic;
          
@@ -209,63 +193,83 @@ namespace p3d {
             f32 AnysotropicMax;
             glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &AnysotropicMax);
             if (AnysotropicMax>Anysotropic)
-                glTexParameteri(mode, GL_TEXTURE_MAX_ANISOTROPY_EXT, Anysotropic);
+                glTexParameteri(GLSubMode, GL_TEXTURE_MAX_ANISOTROPY_EXT, Anysotropic);
             else if (AnysotropicMax>0.0)
-                glTexParameteri(mode, GL_TEXTURE_MAX_ANISOTROPY_EXT, AnysotropicMax);
+                glTexParameteri(GLSubMode, GL_TEXTURE_MAX_ANISOTROPY_EXT, AnysotropicMax);
         } else {
-             glTexParameteri(mode, GL_TEXTURE_MAX_ANISOTROPY_EXT, 0);
+             glTexParameteri(GLSubMode, GL_TEXTURE_MAX_ANISOTROPY_EXT, 0);
         }
          
          // unbind
-         glBindTexture(mode, 0);
+         glBindTexture(GLSubMode, 0);
          
     }
     
-    void Texture::SetRepeat(const uint32& WrapS, const uint32& WrapT)
+    void Texture::SetRepeat(const uint32& WrapS, const uint32& WrapT, const int32& WrapR)
     {
         
         SRepeat = WrapS;
         TRepeat = WrapT;
+        if (WrapR>-1) RRepeat = WrapR;
         
         // bind
-         glBindTexture(mode, GL_ID);
+         glBindTexture(GLSubMode, GL_ID);
         
          switch (SRepeat)
         {
             case TextureRepeat::ClampToEdge:
-                glTexParameteri(mode, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
                 break;
             case TextureRepeat::ClampToBorder:
-                glTexParameteri(mode, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+                glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
                 break;    
             case TextureRepeat::Clamp:
-                glTexParameteri(mode, GL_TEXTURE_WRAP_S, GL_CLAMP);
+                glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_CLAMP);
                 break;
             case TextureRepeat::Repeat:
             default:
-                glTexParameteri(mode, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_REPEAT);
                 break;
-        }
+        };
 
         switch (TRepeat)
         {
             case TextureRepeat::ClampToEdge:
-                glTexParameteri(mode, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
                 break;
             case TextureRepeat::ClampToBorder:
-                glTexParameteri(mode, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+                glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
                 break;                
             case TextureRepeat::Clamp:
-                glTexParameteri(mode, GL_TEXTURE_WRAP_T, GL_CLAMP);
+                glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_CLAMP);
                 break;
             case TextureRepeat::Repeat:
             default:
-                glTexParameteri(mode, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_REPEAT);
                 break;
-        }
+        };
         
+        if (WrapR>-1 && GLMode==GL_TEXTURE_CUBE_MAP)
+        {
+            switch (RRepeat)
+            {
+                case TextureRepeat::ClampToEdge:
+                    glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+                    break;
+                case TextureRepeat::ClampToBorder:
+                    glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
+                    break;                
+                case TextureRepeat::Clamp:
+                    glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_R, GL_CLAMP);
+                    break;
+                case TextureRepeat::Repeat:
+                default:
+                    glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_R, GL_REPEAT);
+                    break;
+            };
+        }
         // unbind
-         glBindTexture(mode, 0);
+         glBindTexture(GLSubMode, 0);
         
     }
     
@@ -276,36 +280,36 @@ namespace p3d {
         this->MagFilter = MagFilter;
         
         // bind
-        glBindTexture(mode, GL_ID);
+        glBindTexture(GLSubMode, GL_ID);
         
         switch (MagFilter)
         {
             case TextureFilter::Nearest:
             case TextureFilter::NearestMipmapNearest:
                 if (isMipMap == true)
-                    glTexParameteri(mode, GL_TEXTURE_MAG_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+                    glTexParameteri(GLSubMode, GL_TEXTURE_MAG_FILTER, GL_NEAREST_MIPMAP_NEAREST);
                 else 
-                    glTexParameteri(mode, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                    glTexParameteri(GLSubMode, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
                 break;
             case TextureFilter::NearestMipmapLinear:
                 if (isMipMap == true)
-                    glTexParameteri(mode, GL_TEXTURE_MAG_FILTER, GL_NEAREST_MIPMAP_LINEAR);
+                    glTexParameteri(GLSubMode, GL_TEXTURE_MAG_FILTER, GL_NEAREST_MIPMAP_LINEAR);
                 else 
-                    glTexParameteri(mode, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                    glTexParameteri(GLSubMode, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
                 break; 
             case TextureFilter::LinearMipmapNearest:
                 if (isMipMap == true)
-                    glTexParameteri(mode, GL_TEXTURE_MAG_FILTER, GL_LINEAR_MIPMAP_NEAREST);
+                    glTexParameteri(GLSubMode, GL_TEXTURE_MAG_FILTER, GL_LINEAR_MIPMAP_NEAREST);
                 else
-                    glTexParameteri(mode, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                    glTexParameteri(GLSubMode, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 break;
             case TextureFilter::Linear:
             case TextureFilter::LinearMipmapLinear:
             default:
                 if (isMipMap == true)
-                    glTexParameteri(mode, GL_TEXTURE_MAG_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+                    glTexParameteri(GLSubMode, GL_TEXTURE_MAG_FILTER, GL_LINEAR_MIPMAP_LINEAR);
                 else
-                    glTexParameteri(mode, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                    glTexParameteri(GLSubMode, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 break;                
         }
         
@@ -314,52 +318,52 @@ namespace p3d {
             case TextureFilter::Nearest:
             case TextureFilter::NearestMipmapNearest:
                 if (isMipMap == true)
-                    glTexParameteri(mode, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+                    glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
                 else 
-                    glTexParameteri(mode, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                    glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
                 break;
             case TextureFilter::NearestMipmapLinear:
                 if (isMipMap == true)
-                    glTexParameteri(mode, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
+                    glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
                 else 
-                    glTexParameteri(mode, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                    glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
                 break; 
             case TextureFilter::LinearMipmapNearest:
                 if (isMipMap == true)
-                    glTexParameteri(mode, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
+                    glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
                 else
-                    glTexParameteri(mode, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                    glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 break;
             case TextureFilter::Linear:
             case TextureFilter::LinearMipmapLinear:
             default:
                 if (isMipMap == true)
-                    glTexParameteri(mode, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+                    glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
                 else
-                    glTexParameteri(mode, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                    glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 break;                
         }
         
         // unbind
-         glBindTexture(mode, 0);        
+         glBindTexture(GLSubMode, 0);        
         
     }
     void Texture::EnableCompareMode()
     {
         // USED ONLY FOR DEPTH MAPS
         // Bind
-        glBindTexture(mode, GL_ID);
+        glBindTexture(GLSubMode, GL_ID);
         
         GLfloat l_ClampColor[] = {1.0, 1.0, 1.0, 1.0};
-        glTexParameterfv(mode, GL_TEXTURE_BORDER_COLOR, l_ClampColor);
+        glTexParameterfv(GLSubMode, GL_TEXTURE_BORDER_COLOR, l_ClampColor);
         
         // This is to allow usage of shadow2DProj function in the shader
-        glTexParameteri(mode,GL_TEXTURE_COMPARE_MODE,GL_COMPARE_R_TO_TEXTURE);
-        glTexParameteri(mode,GL_TEXTURE_COMPARE_FUNC,GL_LEQUAL);
-        glTexParameteri(mode, GL_DEPTH_TEXTURE_MODE, GL_INTENSITY);
+        glTexParameteri(GLSubMode,GL_TEXTURE_COMPARE_MODE,GL_COMPARE_R_TO_TEXTURE);
+        glTexParameteri(GLSubMode,GL_TEXTURE_COMPARE_FUNC,GL_LEQUAL);
+        glTexParameteri(GLSubMode, GL_DEPTH_TEXTURE_MODE, GL_INTENSITY);
         
         // Unbind
-        glBindTexture(mode, 0);
+        glBindTexture(GLSubMode, 0);
     }
     void Texture::SetTransparency(const f32& Transparency)
     {
@@ -370,23 +374,23 @@ namespace p3d {
     
     void Texture::Resize(const uint32& Width, const uint32& Height)
     {
-        glBindTexture(mode, GL_ID);
+        glBindTexture(GLSubMode, GL_ID);
         this->Width=Width;
         this->Height=Height;
-        glTexImage2D(subMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:Image.getPixelsPtr()));
+        glTexImage2D(GLSubMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:Image.getPixelsPtr()));
         
         if (isMipMap == true)
         {
-            glGenerateMipmap(mode);
+            glGenerateMipmap(GLSubMode);
             if (GLEW_VERSION_2_1)
             {
-                glGenerateMipmap(mode);
+                glGenerateMipmap(GLSubMode);
             } else {
-                gluBuild2DMipmaps(subMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:Image.getPixelsPtr()));
+                gluBuild2DMipmaps(GLSubMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:Image.getPixelsPtr()));
             }
         }
         
-        glBindTexture(mode, 0);
+        glBindTexture(GLSubMode, 0);
     }
     
     void Texture::UpdateData(void* srcPTR)
@@ -394,49 +398,49 @@ namespace p3d {
         if (GL_ID>0)
         {
             // bind
-            glBindTexture(mode, GL_ID);
-            glTexImage2D(subMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, srcPTR);
+            glBindTexture(GLSubMode, GL_ID);
+            glTexImage2D(GLSubMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, srcPTR);
             
             if (isMipMap == true)
             {
-                glGenerateMipmap(mode);
+                glGenerateMipmap(GLSubMode);
                 if (GLEW_VERSION_2_1)
                 {
-                    glGenerateMipmap(mode);
+                    glGenerateMipmap(GLSubMode);
                 } else {
-                    gluBuild2DMipmaps(subMode,internalFormat,Width,Height,internalFormat2,internalFormat3, srcPTR);
+                    gluBuild2DMipmaps(GLSubMode,internalFormat,Width,Height,internalFormat2,internalFormat3, srcPTR);
                 }
             }
             
             // unbind
-            glBindTexture(mode, 0);
+            glBindTexture(GLSubMode, 0);
         }
     }
     
     void Texture::UpdateMipmap()
     {
         // bind
-        glBindTexture(mode, GL_ID);
+        glBindTexture(GLSubMode, GL_ID);
         
         if (isMipMap == true)
         {
-            glGenerateMipmap(mode);
+            glGenerateMipmap(GLSubMode);
             if (GLEW_VERSION_2_1)
             {
-                glGenerateMipmap(mode);
+                glGenerateMipmap(GLSubMode);
             } else {
-                gluBuild2DMipmaps(subMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:Image.getPixelsPtr()));
+                gluBuild2DMipmaps(GLSubMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:Image.getPixelsPtr()));
             }
         }
         
         // unbind
-        glBindTexture(mode, 0);           
+        glBindTexture(GLSubMode, 0);           
     }
     
     void Texture::Bind()
     {
         glActiveTexture(GL_TEXTURE0 + UnitBinded);
-        glBindTexture(mode, GL_ID);
+        glBindTexture(GLSubMode, GL_ID);
         // For Transparency
         if (Transparency==TextureTransparency::Transparent)
         {
@@ -455,7 +459,7 @@ namespace p3d {
         
         if (Transparency==TextureTransparency::Transparent) glDisable(GL_BLEND);
         glActiveTexture(GL_TEXTURE0 + UnitBinded);
-        glBindTexture(mode, 0);
+        glBindTexture(GLSubMode, 0);
 
         // Save Last Unit Binded
         LastUnitBinded = UnitBinded;
