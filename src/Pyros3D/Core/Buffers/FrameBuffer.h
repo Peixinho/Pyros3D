@@ -51,8 +51,8 @@ namespace p3d {
             virtual ~FrameBuffer();
             
             void Init(const uint32 &attachmentFormat, const uint32 &TextureType, Texture* attachment, bool DrawBuffers = true);
+            void Init(const uint32 &attachmentFormat, const uint32 &TextureType, Texture* attachment, const uint32& BufferFormat, const uint32 &width, const uint32 &height, bool DrawBuffers);
             void AddAttach(const uint32& attachmentFormat, const uint32 &TextureType, Texture* attachment);
-            void AddRenderBuffer(const uint32& BufferFormat, const uint32 &width, const uint32 &height);
             void ResizeRenderBuffer(const uint32 &width, const uint32 &height);
             void Bind();
             uint32 GetBindID();
@@ -76,6 +76,8 @@ namespace p3d {
             // RenderBuffer
             uint32 rbo;
             uint32 rboType;
+            uint32 rboAttachment;
+            uint32 rboWidth,rboHeight;
             bool isUsingRenderBuffer;
             
             // Flags

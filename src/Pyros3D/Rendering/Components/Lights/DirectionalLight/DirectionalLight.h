@@ -184,8 +184,7 @@ namespace p3d {
                         ShadowMap = static_cast<Texture*> (AssetManager::GetAsset(ShadowMapID)->AssetPTR);
                         ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
                         ShadowMap->SetRepeat(TextureRepeat::Clamp,TextureRepeat::Clamp);
-                        shadowsFBO->Init(FrameBufferAttachmentFormat::Color_Attachment_Floating_Point_16F,TextureType::Texture,ShadowMap,true);
-                        shadowsFBO->AddRenderBuffer(RenderBufferType::Depth,ShadowWidthFBO,ShadowHeightFBO);
+                        shadowsFBO->Init(FrameBufferAttachmentFormat::Color_Attachment_Floating_Point_16F,TextureType::Texture,ShadowMap,RenderBufferType::Depth,ShadowWidthFBO,ShadowHeightFBO,true);
                     }
                     // GPU Shadow Maps
                     else {

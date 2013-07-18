@@ -18,8 +18,6 @@ namespace p3d {
 
     FrameBuffer::~FrameBuffer() 
     {
-        // destroy fbo and rbo
-        glDeleteFramebuffers(1, (GLuint*)&fbo);
         
         // flag FBO Stoped
         FBOInitialized = false;
@@ -28,6 +26,9 @@ namespace p3d {
         {
             glDeleteRenderbuffers(1, (GLuint*)&rbo);
         }
+        
+        // destroy fbo and rbo
+        glDeleteFramebuffers(1, (GLuint*)&fbo);
         
     }
     
@@ -48,12 +49,18 @@ namespace p3d {
 
         glGenFramebuffers(1, (GLuint*)&fbo);
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        
+        if (isUsingRenderBuffer)
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+            glGenRenderbuffers(1, (GLuint*)&rbo);
+            glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+            glRenderbufferStorage(GL_RENDERBUFFER, rboType, rboWidth, rboHeight);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, rboAttachment, GL_RENDERBUFFER, rbo);
+        }
         
         // Add Attach
         AddAttach(attachmentFormat, TextureType, attachment);
-        
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         
         // Save Flag
         drawBuffers = DrawBuffers;
@@ -106,9 +113,40 @@ namespace p3d {
                 break;
             }
         }
- 
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
         
+        if (isUsingRenderBuffer)
+        {
+            glBindRenderbuffer(GL_RENDERBUFFER, 0);
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        
+    }
+    
+    void FrameBuffer::Init(const uint32 &attachmentFormat, const uint32 &TextureType, p3d::Texture *attachment, const uint32 &BufferFormat, const uint32 &width, const uint32 &height, bool DrawBuffers)
+    {
+        switch(BufferFormat)
+        {
+            case RenderBufferType::Depth:
+                rboType = GL_DEPTH_COMPONENT;
+                rboAttachment = GL_DEPTH_ATTACHMENT;
+                break;
+            case RenderBufferType::Stencil:
+                rboType = GL_STENCIL_INDEX;
+                rboAttachment = GL_STENCIL_ATTACHMENT;
+                break;
+            case RenderBufferType::Color:
+            default:
+                rboType = GL_RGBA8;
+                rboAttachment = GL_RGBA;
+                break;
+        };
+        
+        isUsingRenderBuffer = true;
+        rboWidth = width;
+        rboHeight = height;
+    
+        Init(attachmentFormat, TextureType, attachment,DrawBuffers);
+
     }
     
     void FrameBuffer::AddAttach(const uint32& attachmentFormat, const uint32 &TextureType, Texture* attachment)
@@ -211,35 +249,6 @@ namespace p3d {
         
         for (int32 i=0;i<attachments.size();i++) 
             attachments[i].TexturePTR->UpdateMipmap();
-    }
-    
-    void FrameBuffer::AddRenderBuffer(const uint32& BufferFormat, const uint32 &width, const uint32 &height)
-    {
-        if(!isUsingRenderBuffer)
-        {
-            switch(BufferFormat)
-            {
-                case RenderBufferType::Color:
-                    rboType = GL_RGBA8;
-                    break; 
-                case RenderBufferType::Depth:
-                    rboType = GL_DEPTH_COMPONENT;
-                    break;
-                case RenderBufferType::Stencil:
-                    rboType = GL_STENCIL_ATTACHMENT;
-                    break;                
-            };
-            
-            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-            glGenRenderbuffers(1, (GLuint*)&rbo);
-            glBindRenderbuffer(GL_RENDERBUFFER, rbo);                        
-            glRenderbufferStorage(GL_RENDERBUFFER, rboType, width,height);
-            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rbo);
-            glBindRenderbuffer(GL_RENDERBUFFER, 0);
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            
-            isUsingRenderBuffer = true;
-        }
     }
     
     void FrameBuffer::ResizeRenderBuffer(const uint32& width, const uint32& height)
