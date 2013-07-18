@@ -210,7 +210,7 @@ namespace p3d {
                         for (uint32 i=0;i<6;i++)
                         {
                             
-                            glFramebufferTexture2DEXT( GL_FRAMEBUFFER_EXT, GL_DEPTH_ATTACHMENT, GL_TEXTURE_CUBE_MAP_POSITIVE_X_EXT + i, p->GetShadowFBO()->fbo, 0 );
+                            glFramebufferTexture2DEXT( GL_FRAMEBUFFER_EXT, GL_DEPTH_ATTACHMENT, GL_TEXTURE_CUBE_MAP_POSITIVE_X_EXT + i, p->GetShadowFBO()->GetBindID(), 0 );
 
                             
                             // Clear Screen

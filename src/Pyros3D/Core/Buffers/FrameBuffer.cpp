@@ -54,11 +54,9 @@ namespace p3d {
         AddAttach(attachmentFormat, TextureType, attachment);
         
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-        if (!DrawBuffers)
-        {
-            glDrawBuffer(GL_NONE);
-            glReadBuffer(GL_NONE);
-        }
+        
+        // Save Flag
+        drawBuffers = DrawBuffers;
         
         switch ( glCheckFramebufferStatus( GL_FRAMEBUFFER ) )
         {
@@ -178,6 +176,12 @@ namespace p3d {
         // bind fbo
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         
+        if (!drawBuffers)
+        {
+            glDrawBuffer(GL_NONE);
+            glReadBuffer(GL_NONE);
+        }
+        
         if (attachments.size()>1)
         {
             std::vector<GLenum> BufferIDs;
@@ -194,6 +198,10 @@ namespace p3d {
 
             glDrawBuffers(BufferIDs.size(), &BufferIDs[0]);
         };
+    }
+    uint32 FrameBuffer::GetBindID()
+    {
+        return fbo;
     }
     void FrameBuffer::UnBind()
     {

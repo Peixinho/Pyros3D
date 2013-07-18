@@ -55,12 +55,13 @@ namespace p3d {
             void AddRenderBuffer(const uint32& BufferFormat, const uint32 &width, const uint32 &height);
             void ResizeRenderBuffer(const uint32 &width, const uint32 &height);
             void Bind();
+            uint32 GetBindID();
             void UnBind();
             
             const uint32 &GetFrameBufferFormat() const;
             
             bool IsInitialized() { return FBOInitialized; }
-            uint32 fbo;
+            
             
         private:
 
@@ -69,7 +70,9 @@ namespace p3d {
             // Internal Format
             uint32 framebufferFormat;
             // Frame Buffer Object
-            
+            uint32 fbo;
+            // DrawBuffers
+            bool drawBuffers;
             // RenderBuffer
             uint32 rbo;
             uint32 rboType;
