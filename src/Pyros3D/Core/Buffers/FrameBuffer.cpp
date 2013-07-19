@@ -14,6 +14,7 @@ namespace p3d {
     FrameBuffer::FrameBuffer() 
     {
         FBOInitialized = false;
+        isBinded = false;
     }
 
     FrameBuffer::~FrameBuffer() 
@@ -156,14 +157,57 @@ namespace p3d {
         attach.AttachmentFormat = attachmentFormat;
         attach.TexturePTR = attachment;
         attach.TextureType = TextureType;
-
+        
         // Get Attatchment Format
         switch(attach.AttachmentFormat)
         {
-            case FrameBufferAttachmentFormat::Color_Attachment:
-            case FrameBufferAttachmentFormat::Color_Attachment_Floating_Point_16F:
-            case FrameBufferAttachmentFormat::Color_Attachment_Floating_Point_32F:
-                attach.AttachmentFormat= GL_COLOR_ATTACHMENT0 + attachments.size();
+            case FrameBufferAttachmentFormat::Color_Attachment0:
+                attach.AttachmentFormat= GL_COLOR_ATTACHMENT0;
+                break;
+            case FrameBufferAttachmentFormat::Color_Attachment1:
+                attach.AttachmentFormat= GL_COLOR_ATTACHMENT1;
+                break;
+            case FrameBufferAttachmentFormat::Color_Attachment2:
+                attach.AttachmentFormat= GL_COLOR_ATTACHMENT2;
+                break;
+            case FrameBufferAttachmentFormat::Color_Attachment3:
+                attach.AttachmentFormat= GL_COLOR_ATTACHMENT3;
+                break;
+            case FrameBufferAttachmentFormat::Color_Attachment4:
+                attach.AttachmentFormat= GL_COLOR_ATTACHMENT4;
+                break;
+            case FrameBufferAttachmentFormat::Color_Attachment5:
+                attach.AttachmentFormat= GL_COLOR_ATTACHMENT5;
+                break;
+            case FrameBufferAttachmentFormat::Color_Attachment6:
+                attach.AttachmentFormat= GL_COLOR_ATTACHMENT6;
+                break;
+            case FrameBufferAttachmentFormat::Color_Attachment7:
+                attach.AttachmentFormat= GL_COLOR_ATTACHMENT7;
+                break;
+            case FrameBufferAttachmentFormat::Color_Attachment8:
+                attach.AttachmentFormat= GL_COLOR_ATTACHMENT8;
+                break;
+            case FrameBufferAttachmentFormat::Color_Attachment9:
+                attach.AttachmentFormat= GL_COLOR_ATTACHMENT9;
+                break;
+            case FrameBufferAttachmentFormat::Color_Attachment10:
+                attach.AttachmentFormat= GL_COLOR_ATTACHMENT10;
+                break;
+            case FrameBufferAttachmentFormat::Color_Attachment11:
+                attach.AttachmentFormat= GL_COLOR_ATTACHMENT11;
+                break;
+            case FrameBufferAttachmentFormat::Color_Attachment12:
+                attach.AttachmentFormat= GL_COLOR_ATTACHMENT12;
+                break;
+            case FrameBufferAttachmentFormat::Color_Attachment13:
+                attach.AttachmentFormat= GL_COLOR_ATTACHMENT13;
+                break;
+            case FrameBufferAttachmentFormat::Color_Attachment14:
+                attach.AttachmentFormat= GL_COLOR_ATTACHMENT14;
+                break;
+            case FrameBufferAttachmentFormat::Color_Attachment15:
+                attach.AttachmentFormat= GL_COLOR_ATTACHMENT15;
                 break;
             case FrameBufferAttachmentFormat::Depth_Attachment:
                 attach.AttachmentFormat= GL_DEPTH_ATTACHMENT;
@@ -199,14 +243,16 @@ namespace p3d {
                 break;
         }
         
-        attachments.push_back(attach);
+        attachments[attachmentFormat] = attach;
         
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        if (!isBinded)
+            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         
         // Add Attach
         glFramebufferTexture2D(GL_FRAMEBUFFER, attach.AttachmentFormat, attach.TextureType, attach.TexturePTR->GetBindID() , 0);
         
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        if (!isBinded)
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
     
     void FrameBuffer::Bind()
@@ -220,22 +266,19 @@ namespace p3d {
             glReadBuffer(GL_NONE);
         }
         
-        if (attachments.size()>1)
+        if (attachments.size()>1 && drawBuffers)
         {
             std::vector<GLenum> BufferIDs;
 
-            uint32 k = 0;
-            for(uint32 i = 0; i < attachments.size(); i++)
+            for(uint32 i = FrameBufferAttachmentFormat::Color_Attachment0; i < FrameBufferAttachmentFormat::Color_Attachment15; i++)
             {
-                if (attachments[i].AttachmentFormat!=GL_DEPTH_ATTACHMENT && attachments[i].AttachmentFormat!=GL_STENCIL_ATTACHMENT)
-                {
-                    BufferIDs.push_back(GL_COLOR_ATTACHMENT0 + k);
-                    k++;
-                }
+                BufferIDs.push_back(GL_COLOR_ATTACHMENT0 + i);
             };
 
             glDrawBuffers(BufferIDs.size(), &BufferIDs[0]);
         };
+        
+        isBinded = true;
     }
     uint32 FrameBuffer::GetBindID()
     {
@@ -246,11 +289,16 @@ namespace p3d {
         // unbind fbo
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glDrawBuffer(GL_BACK);
+        glReadBuffer(GL_BACK);
+        for (std::map<uint32, Attachment>::iterator i = attachments.begin();i!=attachments.end();i++) 
+            (*i).second.TexturePTR->UpdateMipmap();
         
-        for (int32 i=0;i<attachments.size();i++) 
-            attachments[i].TexturePTR->UpdateMipmap();
+        isBinded = false;
     }
-    
+    bool FrameBuffer::IsBinded()
+    {
+        return isBinded;
+    }
     void FrameBuffer::ResizeRenderBuffer(const uint32& width, const uint32& height)
     {
         if (isUsingRenderBuffer)

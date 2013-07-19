@@ -21,9 +21,22 @@ namespace p3d {
     namespace FrameBufferAttachmentFormat
     {
         enum {
-            Color_Attachment = 0,
-            Color_Attachment_Floating_Point_16F,
-            Color_Attachment_Floating_Point_32F,
+            Color_Attachment0 = 0,
+            Color_Attachment1,
+            Color_Attachment2,
+            Color_Attachment3,
+            Color_Attachment4,
+            Color_Attachment5,
+            Color_Attachment6,
+            Color_Attachment7,
+            Color_Attachment8,
+            Color_Attachment9,
+            Color_Attachment10,
+            Color_Attachment11,
+            Color_Attachment12,
+            Color_Attachment13,
+            Color_Attachment14,
+            Color_Attachment15,
             Depth_Attachment,
             Stencil_Attachment
         };
@@ -55,6 +68,7 @@ namespace p3d {
             void AddAttach(const uint32& attachmentFormat, const uint32 &TextureType, Texture* attachment);
             void ResizeRenderBuffer(const uint32 &width, const uint32 &height);
             void Bind();
+            bool IsBinded();
             uint32 GetBindID();
             void UnBind();
             
@@ -65,6 +79,9 @@ namespace p3d {
             
         private:
 
+            // Binded
+            bool isBinded;
+            
             // FBO Type
             uint32 type;
             // Internal Format
@@ -84,7 +101,7 @@ namespace p3d {
             bool FBOInitialized;
 
             // FBO "texture"
-            std::vector<Attachment> attachments;
+            std::map<uint32, Attachment> attachments;
             
     };
 

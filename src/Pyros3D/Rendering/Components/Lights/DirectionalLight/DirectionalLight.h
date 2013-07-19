@@ -184,7 +184,7 @@ namespace p3d {
                         ShadowMap = static_cast<Texture*> (AssetManager::GetAsset(ShadowMapID)->AssetPTR);
                         ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
                         ShadowMap->SetRepeat(TextureRepeat::Clamp,TextureRepeat::Clamp);
-                        shadowsFBO->Init(FrameBufferAttachmentFormat::Color_Attachment_Floating_Point_16F,TextureType::Texture,ShadowMap,RenderBufferType::Depth,ShadowWidthFBO,ShadowHeightFBO,true);
+                        shadowsFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0,TextureType::Texture,ShadowMap,RenderBufferType::Depth,ShadowWidthFBO,ShadowHeightFBO,true);
                     }
                     // GPU Shadow Maps
                     else {
@@ -192,7 +192,7 @@ namespace p3d {
                        ShadowMapID = AssetManager::CreateTexture(TextureType::Texture,TextureDataType::DepthComponent,ShadowWidthFBO,ShadowHeightFBO,false);
                        ShadowMap = static_cast<Texture*> (AssetManager::GetAsset(ShadowMapID)->AssetPTR);
                        ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
-                       ShadowMap->SetRepeat(TextureRepeat::ClampToBorder,TextureRepeat::ClampToBorder);
+                       ShadowMap->SetRepeat(TextureRepeat::Clamp,TextureRepeat::Clamp);
                        ShadowMap->EnableCompareMode();
                        shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::Texture,ShadowMap,false);
                     }

@@ -202,6 +202,7 @@ namespace p3d {
                         
                         // Bind FBO
                         p->GetShadowFBO()->Bind();
+                        
                         glEnable( GL_TEXTURE_CUBE_MAP );
 
                         ViewMatrix = Camera->GetWorldTransformation().Inverse();
@@ -209,13 +210,24 @@ namespace p3d {
                         // Get Lights Shadow Map Texture
                         for (uint32 i=0;i<6;i++)
                         {
-                            
-                            glFramebufferTexture2DEXT( GL_FRAMEBUFFER_EXT, GL_DEPTH_ATTACHMENT, GL_TEXTURE_CUBE_MAP_POSITIVE_X_EXT + i, p->GetShadowFBO()->GetBindID(), 0 );
-
-                            
-                            // Clear Screen
-                            ClearScreen(Buffer_Bit::Depth);
-                            EnableDepthTest();
+                            if (p->IsUsingGPUShadows())
+                            {
+                                // GPU Shadows
+                                p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_X+i,p->GetShadowMapTexture());
+                                
+                                // Clear Screen
+                                ClearScreen(Buffer_Bit::Depth);
+                                EnableDepthTest();
+                            }
+                            else {
+                                // Regular Shadow Maps
+                                // Clear Screen
+                                p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0,TextureType::CubemapPositive_X+i,p->GetShadowMapTexture());
+                                
+                                // Clear Screen
+                                ClearScreen(Buffer_Bit::Depth | Buffer_Bit::Color);
+                                EnableDepthTest();
+                            }
                             
                             // Enable Depth Bias
                             glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
@@ -261,7 +273,9 @@ namespace p3d {
                         
                         // Get Texture (only 1)
                         ShadowMapsTextures.push_back(*p->GetShadowMapTexture());
+                        
                         glDisable( GL_TEXTURE_CUBE_MAP );
+                        
                         // Unbind Material
                         glUseProgram(0);
                         

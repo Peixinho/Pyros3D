@@ -144,7 +144,6 @@ namespace p3d {
             isMipMap = true;
         } else {
             glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:Image.getPixelsPtr()));
-            GLCHECK();
         }
         
         // default values
