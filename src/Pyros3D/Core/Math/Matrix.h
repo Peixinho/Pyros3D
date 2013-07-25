@@ -36,8 +36,7 @@ namespace p3d {
                 Matrix();
                 Matrix(const f32 n11,const f32 n21,const f32 n31,const f32 n41,const f32 n12,const f32 n22,const f32 n32,const f32 n42,const f32 n13,const f32 n23,const f32 n33,const f32 n43,const f32 n14,const f32 n24,const f32 n34,const f32 n44);
                 void identity();
-                void LookAtRH(const Vec3 &eye, const Vec3 &center, const Vec3 &up);
-                void LookAtLH(const Vec3 &eye, const Vec3 &center, const Vec3 &up);
+                void LookAt(const Vec3 &eye, const Vec3 &center, const Vec3 &up);
                 void Translate(const f32 &x, const f32 &y, const f32 &z);
                 void Translate(const Vec3 &xyz);
                 void TranslateX(const f32 &x);
@@ -67,12 +66,9 @@ namespace p3d {
                 Matrix Transpose() const;
                 Matrix Inverse() const;
 
-                // LH
-                static Matrix PerspectiveMatrixLH(const f32 &fov, const f32 &aspect, const f32 &near, const f32 &far);
-                static Matrix OrthoMatrixLH(const f32 &left, const f32 &right, const f32 &bottom, const f32 &top, const f32 &near, const f32 &far);
                 // RH
-                static Matrix PerspectiveMatrixRH(const f32 &fov, const f32 &aspect, const f32 &near, const f32 &far);
-                static Matrix OrthoMatrixRH(const f32 &left, const f32 &right, const f32 &bottom, const f32 &top, const f32 &near, const f32 &far);
+                static Matrix PerspectiveMatrix(const f32 &fov, const f32 &aspect, const f32 &near, const f32 &far);
+                static Matrix OrthoMatrix(const f32 &left, const f32 &right, const f32 &bottom, const f32 &top, const f32 &near, const f32 &far);
 
                 Quaternion ConvertToQuaternion() const;
 

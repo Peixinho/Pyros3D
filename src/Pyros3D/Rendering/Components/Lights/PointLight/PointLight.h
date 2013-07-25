@@ -24,10 +24,12 @@ namespace p3d {
             virtual void Start() {};
             virtual void Update() {};
             virtual void Destroy() {};
-            
+        
+            Matrix GetLightProjection() { return ShadowProjection; }
+        
             const f32 &GetLightRadius() const { return Radius; }
             
-            void EnableCastShadows(const uint32 &Width, const uint32 &Height, const float &Near, const float &Far, bool GPU = true)
+            void EnableCastShadows(const uint32 &Width, const uint32 &Height, const float &Near = 0.1f, bool GPU = true)
             {
 
                 ShadowWidth = Width;
@@ -47,12 +49,12 @@ namespace p3d {
                 {
                     // Regular Shadows
                     // Create Texture (CubeMap), Frame Buffer and Set the Texture as Attachment
-                    ShadowMapID = AssetManager::CreateTexture(TextureType::CubemapNegative_X,TextureDataType::FloatingPointTexture16F,ShadowWidth,ShadowHeight,false);
-                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapNegative_Y,TextureDataType::FloatingPointTexture16F,ShadowWidth,ShadowHeight,false);
-                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapNegative_Z,TextureDataType::FloatingPointTexture16F,ShadowWidth,ShadowHeight,false);
-                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_X,TextureDataType::FloatingPointTexture16F,ShadowWidth,ShadowHeight,false);
-                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_Y,TextureDataType::FloatingPointTexture16F,ShadowWidth,ShadowHeight,false);
-                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_Z,TextureDataType::FloatingPointTexture16F,ShadowWidth,ShadowHeight,false);
+                    ShadowMapID = AssetManager::CreateTexture(TextureType::CubemapNegative_X,TextureDataType::RG32F,ShadowWidth,ShadowHeight,false);
+                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapNegative_Y,TextureDataType::RG32F,ShadowWidth,ShadowHeight,false);
+                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapNegative_Z,TextureDataType::RG32F,ShadowWidth,ShadowHeight,false);
+                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_X,TextureDataType::RG32F,ShadowWidth,ShadowHeight,false);
+                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_Y,TextureDataType::RG32F,ShadowWidth,ShadowHeight,false);
+                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_Z,TextureDataType::RG32F,ShadowWidth,ShadowHeight,false);
 
                     ShadowMap = static_cast<Texture*> (AssetManager::GetAsset(ShadowMapID)->AssetPTR);
                     ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
@@ -79,8 +81,8 @@ namespace p3d {
 
                     ShadowMap = static_cast<Texture*> (AssetManager::GetAsset(ShadowMapID)->AssetPTR);
                     ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
-                    ShadowMap->SetRepeat(TextureRepeat::ClampToBorder,TextureRepeat::ClampToBorder,TextureRepeat::ClampToBorder);
-//                    ShadowMap->EnableCompareMode();
+                    ShadowMap->SetRepeat(TextureRepeat::ClampToBorder,TextureRepeat::Clamp,TextureRepeat::Clamp);
+                    ShadowMap->EnableCompareMode();
 
                     // Initialize Frame Buffer
                     shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapNegative_X,ShadowMap,false);
@@ -93,13 +95,18 @@ namespace p3d {
                 }
                 // Near and Far Clip Planes
                 ShadowNear = Near;
-                ShadowFar = Far;
+                ShadowFar = Radius;
+                
+                // Create Projection Matrix
+                ShadowProjection = Matrix::PerspectiveMatrix(90.f, 1.0, ShadowNear, ShadowFar);
             }
             
         protected:
             
             // Attenuation
             f32 Radius;
+            
+            Matrix ShadowProjection;
 
     };
 

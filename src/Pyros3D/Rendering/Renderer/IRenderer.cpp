@@ -58,7 +58,6 @@ namespace p3d {
         ModelViewMatrixInverseIsDirty = true;
         ModelMatrixInverseTransposeIsDirty = true;
         
-        
         // Render Mesh
         unsigned materialID = Material->GetShader();
         if (rmesh->ShadersAttributesCache.find(materialID)==rmesh->ShadersAttributesCache.end())
@@ -454,10 +453,10 @@ namespace p3d {
                         break;
                     case Uniform::DataUsage::ShadowMap:
                         if (ShadowMapsUnits.size()>0)
-                            Shader::SendUniform((*k),&ShadowMapsUnits[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],NumberOfShadows);
+                            Shader::SendUniform((*k),&ShadowMapsUnits[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],ShadowMapsUnits.size());
                         break;
                     case Uniform::DataUsage::ShadowMatrix:
-                            Shader::SendUniform((*k),&ShadowMatrix[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],NumberOfShadows);
+                            Shader::SendUniform((*k),&ShadowMatrix[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],ShadowMatrix.size());
                         break;
                     case Uniform::DataUsage::ShadowFar:
                             Shader::SendUniform((*k),&ShadowFar,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);

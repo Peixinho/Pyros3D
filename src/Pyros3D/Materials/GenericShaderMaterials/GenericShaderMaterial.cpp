@@ -36,7 +36,6 @@ namespace p3d
         AddUniform(Uniform::Uniform("uProjectionMatrix",Uniform::DataUsage::ProjectionMatrix));
         AddUniform(Uniform::Uniform("uViewMatrix",Uniform::DataUsage::ViewMatrix));
         AddUniform(Uniform::Uniform("uModelMatrix",Uniform::DataUsage::ModelMatrix));
-        AddUniform(Uniform::Uniform("uNormalMatrix",Uniform::DataUsage::NormalMatrix));
 
         // Default Opacity
         f32 opacity = 1.0;
@@ -79,7 +78,15 @@ namespace p3d
             AddUniform(Uniform::Uniform("uShadowmaps",Uniform::DataUsage::ShadowMap));
             AddUniform(Uniform::Uniform("uDepthsMVP",Uniform::DataUsage::ShadowMatrix));
             AddUniform(Uniform::Uniform("uShadowFar",Uniform::DataUsage::ShadowFar));
-        };
+        }
+        
+        if (options & ShaderUsage::EnvMap)
+        {
+            AddUniform(Uniform::Uniform("uCameraPos",Uniform::DataUsage::CameraPosition));
+            // Set Default Reflectivity
+            Reflectivity = 1.0;
+            AddUniform(Uniform::Uniform("uReflectivity",Uniform::DataType::Float,&Reflectivity));
+        }
 
     }
     
@@ -89,7 +96,7 @@ namespace p3d
         this->Ka = Ka;
         this->Kd = Kd;
         this->Ks = Ks;
-		this->Shininess = shininess;
+        this->Shininess = shininess;
         SetUniformValue("uKe",&this->Ke);
         SetUniformValue("uKe",&this->Ka);
         SetUniformValue("uKe",&this->Kd);
@@ -164,6 +171,10 @@ namespace p3d
         // Set Uniform
         AddUniform(Uniform::Uniform("uEnvmap",Uniform::DataType::Int,&id));
     }
+    void GenericShaderMaterial::SetReflectivity(const f32& reflectivity)
+    {
+        Reflectivity = reflectivity;
+    }
     void GenericShaderMaterial::SetRefractMap(const Texture &refractmap)
     {
         uint32 id = Textures.size();
@@ -178,9 +189,9 @@ namespace p3d
         // Save on List
         Textures[id] = skyboxmap;
         // Set Uniform
-        AddUniform(Uniform::Uniform("uSkybox",Uniform::DataType::Int,&id));
+        AddUniform(Uniform::Uniform("uSkybox",Uniform::DataType::Int,id));
         // Cullface
-        cullFace = CullFace::FrontFace;
+//        cullFace = CullFace::FrontFace;
     }
     void GenericShaderMaterial::PreRender()
     {

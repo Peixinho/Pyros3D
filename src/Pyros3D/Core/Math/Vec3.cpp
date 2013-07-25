@@ -54,6 +54,12 @@ namespace p3d {
             vcross.x = y*v.z-z*v.y;
             vcross.y = z*v.x-x*v.z;
             vcross.z = x*v.y-y*v.x;
+            
+            // avoid -0 value
+            vcross.x=vcross.x==-0?0:vcross.x;
+            vcross.y=vcross.y==-0?0:vcross.y;
+            vcross.z=vcross.z==-0?0:vcross.z;
+            
             return vcross;
         }
 

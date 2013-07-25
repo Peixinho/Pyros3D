@@ -20,6 +20,7 @@ namespace p3d
         
         // Flags
         bool usingNormal = false;
+        bool usingCameraPosition = false;
         bool usingTexcoords = false;
         bool usingVertexWorldPos = false;
         bool usingVertexLocalPos = false;
@@ -72,82 +73,139 @@ namespace p3d
         }
         if (option & ShaderUsage::ShadowMaterial)
         {
-            // Vertex Header
-            vertexShaderHeader+="varying vec4 vPos;\n";
             
-            // Vertex Fragment
-            vertexShaderBody+="vPos = uModelMatrix * vec4(aPosition,1.0);\n";
+            if (!usingVertexWorldPos)
+            {
+                usingVertexWorldPos = true;
+                vertexShaderHeader+="varying vec4 vWorldPosition;\n";
+                vertexShaderBody+="vWorldPosition=uModelMatrix * vec4(aPosition,1.0);\n";
+                fragmentShaderHeader+="varying vec4 vWorldPosition;\n";
+            }
             
-            fragmentShaderHeader+="float bias = 0.001;\n";
+//            // Directional Lights
+//            
+//            fragmentShaderHeader+="float bias = 0.001;\n";
+//            
+//            // Fragment Header
+//            fragmentShaderHeader+="uniform sampler2D uShadowmaps[4];\n";
+//            fragmentShaderHeader+="uniform mat4 uDepthsMVP[4];\n";
+//            fragmentShaderHeader+="uniform vec4 uShadowFar;\n";         
+//            
+//            // PCF
+//            fragmentShaderHeader+="float ShadowValue(sampler2D shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) {\n";
+//            fragmentShaderHeader+="vec4 coord = sMatrix * pos;\n";
+//            fragmentShaderHeader+="if (MoreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(width,height);\n";
+//            fragmentShaderHeader+="float shadow = 0.0;\n";
+//            fragmentShaderHeader+="float x,y;\n";
+//            fragmentShaderHeader+="for (y = -1.5 ; y <=1.5 ; y+=1.0)\n";
+//            fragmentShaderHeader+="for (x = -1.5 ; x <=1.5 ; x+=1.0)\n";
+//            fragmentShaderHeader+="{\n";
+//            fragmentShaderHeader+="shadow += (texture2D( shadowMap, coord.xy + (vec2(x,y)*scale) ).r - coord.z+bias>0.0?1.0:0.0);\n";
+//            fragmentShaderHeader+="}\n";
+//            fragmentShaderHeader+="shadow /= 16.0;\n";
+//            fragmentShaderHeader+="return shadow;\n";
+//            fragmentShaderHeader+="}\n";
+//            
+//            // Fragment Body
+//            fragmentShaderBody+="float visibility = 1.0;\n";
+//            fragmentShaderBody+="bool MoreThanOneCascade = (uShadowFar.y>0.0);\n";
+//            fragmentShaderBody+="if (gl_FragCoord.z<uShadowFar.x) visibility = ShadowValue( uShadowmaps[0], 0.0, 0.0, uDepthsMVP[0],0.0001,vWorldPosition, MoreThanOneCascade);\n";
+//            fragmentShaderBody+="else if (gl_FragCoord.z<uShadowFar.y) visibility = ShadowValue( uShadowmaps[0], 0.5,0.0, uDepthsMVP[1],0.0001,vWorldPosition, MoreThanOneCascade);\n";
+//            fragmentShaderBody+="else if (gl_FragCoord.z<uShadowFar.z) visibility = ShadowValue( uShadowmaps[0], 0.0, 0.5, uDepthsMVP[2],0.0001,vWorldPosition, MoreThanOneCascade);\n";
+//            fragmentShaderBody+="else if (gl_FragCoord.z<uShadowFar.w) visibility = ShadowValue( uShadowmaps[0], 0.5,0.5, uDepthsMVP[3],0.0001,vWorldPosition, MoreThanOneCascade);\n";
+//            fragmentShaderBody+="diffuse.xyz*=vec3(visibility+0.5);\n";
+
+            
+            
+            
+            // Point Lights
             
             // Fragment Header
-            fragmentShaderHeader+="uniform sampler2D uShadowmaps[4];\n";
+            fragmentShaderHeader+="uniform samplerCube uShadowmaps;\n";
             fragmentShaderHeader+="uniform mat4 uDepthsMVP[4];\n";
-            fragmentShaderHeader+="uniform vec4 uShadowFar;\n";
-            fragmentShaderHeader+="varying vec4 vPos;\n";            
-            
-            // PCF
-            fragmentShaderHeader+="float ShadowValue(sampler2D shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) {\n";
-            fragmentShaderHeader+="vec4 coord = sMatrix * pos;\n";
-            fragmentShaderHeader+="if (MoreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(width,height);\n";
-            fragmentShaderHeader+="float shadow = 0.0;\n";
-            fragmentShaderHeader+="float x,y;\n";
-            fragmentShaderHeader+="for (y = -1.5 ; y <=1.5 ; y+=1.0)\n";
-            fragmentShaderHeader+="for (x = -1.5 ; x <=1.5 ; x+=1.0)\n";
-            fragmentShaderHeader+="{\n";
-            fragmentShaderHeader+="shadow += (texture2D( shadowMap, coord.xy + (vec2(x,y)*scale) ).r - coord.z+bias>0.0?1.0:0.0);\n";
-            fragmentShaderHeader+="}\n";
-            fragmentShaderHeader+="shadow /= 16.0;\n";
-            fragmentShaderHeader+="return shadow;\n";
-            fragmentShaderHeader+="}\n";
-            
-            // Fragment Body
-            fragmentShaderBody+="float visibility = 1.0;\n";
-            fragmentShaderBody+="bool MoreThanOneCascade = (uShadowFar.y>0.0);\n";
-            fragmentShaderBody+="if (gl_FragCoord.z<uShadowFar.x) visibility = ShadowValue( uShadowmaps[0], 0.0, 0.0, uDepthsMVP[0],0.0001,vPos, MoreThanOneCascade);\n";
-            fragmentShaderBody+="else if (gl_FragCoord.z<uShadowFar.y) visibility = ShadowValue( uShadowmaps[0], 0.5,0.0, uDepthsMVP[1],0.0001,vPos, MoreThanOneCascade);\n";
-            fragmentShaderBody+="else if (gl_FragCoord.z<uShadowFar.z) visibility = ShadowValue( uShadowmaps[0], 0.0, 0.5, uDepthsMVP[2],0.0001,vPos, MoreThanOneCascade);\n";
-            fragmentShaderBody+="else if (gl_FragCoord.z<uShadowFar.w) visibility = ShadowValue( uShadowmaps[0], 0.5,0.5, uDepthsMVP[3],0.0001,vPos, MoreThanOneCascade);\n";
-            fragmentShaderBody+="diffuse.xyz*=vec3(visibility+0.5);\n";
+            fragmentShaderHeader+="uniform vec3 uLightPos;\n";
+            fragmentShaderHeader+="float bias = 0.7;\n";
 
+            // Fragment Body
+            fragmentShaderBody+="vec3 to_light = vec3(0,0,0) - vWorldPosition.xyz;\n";
+            fragmentShaderBody+="float shadows = textureCube( uShadowmaps, -to_light).g;\n";
+            fragmentShaderBody+="float shadow = (shadows - length( to_light ) + bias) < 0.0 ? 0.0 : 1.0;\n";
+            fragmentShaderBody+="diffuse.xyz*=vec3(shadow+0.5);\n";
+            
         }
         if (option & ShaderUsage::ShadowMaterialGPU)
         {
-            // Vertex Header
-            vertexShaderHeader+="varying vec4 vPos;\n";
-
-            // PCF
-            fragmentShaderHeader+="float ShadowValue(sampler2DShadow shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) {\n";
-            fragmentShaderHeader+="vec4 coord = sMatrix * pos;\n";
-            fragmentShaderHeader+="if (MoreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(width,height);\n";
-            fragmentShaderHeader+="float shadow = 0.0;\n";
-            fragmentShaderHeader+="float x,y;\n";
-            fragmentShaderHeader+="for (y = -1.5 ; y <=1.5 ; y+=1.0)\n";
-            fragmentShaderHeader+="for (x = -1.5 ; x <=1.5 ; x+=1.0)\n";
-            fragmentShaderHeader+="shadow += shadow2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;\n";
-            fragmentShaderHeader+="shadow /= 16.0;\n";
-            fragmentShaderHeader+="return shadow;\n";
-            fragmentShaderHeader+="}\n";
-            // Vertex Fragment
-            vertexShaderBody+="vPos = uModelMatrix * vec4(aPosition,1.0);\n";
-            // Fragment Header
-            fragmentShaderHeader+="uniform sampler2DShadow uShadowmaps[4];\n";
-            fragmentShaderHeader+="uniform mat4 uDepthsMVP[4];\n";
-            fragmentShaderHeader+="uniform vec4 uShadowFar;\n";
-            fragmentShaderHeader+="varying vec4 vPos;\n";
             
-            // Fragment Body
-            fragmentShaderBody+="float visibility = 1.0;\n";
-            fragmentShaderBody+="bool MoreThanOneCascade = (uShadowFar.y>0.0);\n";
-            fragmentShaderBody+="if (gl_FragCoord.z<uShadowFar.x) visibility = ShadowValue( uShadowmaps[0], 0.0, 0.0, uDepthsMVP[0],0.0001,vPos, MoreThanOneCascade);\n";
-            fragmentShaderBody+="else if (gl_FragCoord.z<uShadowFar.y) visibility = ShadowValue( uShadowmaps[0], 0.5,0.0, uDepthsMVP[1],0.0001,vPos, MoreThanOneCascade);\n";
-            fragmentShaderBody+="else if (gl_FragCoord.z<uShadowFar.z) visibility = ShadowValue( uShadowmaps[0], 0.0, 0.5, uDepthsMVP[2],0.0001,vPos, MoreThanOneCascade);\n";
-            fragmentShaderBody+="else if (gl_FragCoord.z<uShadowFar.w) visibility = ShadowValue( uShadowmaps[0], 0.5,0.5, uDepthsMVP[3],0.0001,vPos, MoreThanOneCascade);\n";
-            fragmentShaderBody+="diffuse.xyz*=vec3(visibility+0.5);\n";
+            if (!usingVertexWorldPos)
+            {
+                usingVertexWorldPos = true;
+                vertexShaderHeader+="varying vec4 vWorldPosition;\n";
+                vertexShaderBody+="vWorldPosition=uModelMatrix * vec4(aPosition,1.0);\n";
+                fragmentShaderHeader+="varying vec4 vWorldPosition;\n";
+            }
+            
+//            // Directional Lights
+//
+//            // PCF
+//            fragmentShaderHeader+="float ShadowValue(sampler2DShadow shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) {\n";
+//            fragmentShaderHeader+="vec4 coord = sMatrix * pos;\n";
+//            fragmentShaderHeader+="if (MoreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(width,height);\n";
+//            fragmentShaderHeader+="float shadow = 0.0;\n";
+//            fragmentShaderHeader+="float x,y;\n";
+//            fragmentShaderHeader+="for (y = -1.5 ; y <=1.5 ; y+=1.0)\n";
+//            fragmentShaderHeader+="for (x = -1.5 ; x <=1.5 ; x+=1.0)\n";
+//            fragmentShaderHeader+="shadow += shadow2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;\n";
+//            fragmentShaderHeader+="shadow /= 16.0;\n";
+//            fragmentShaderHeader+="return shadow;\n";
+//            fragmentShaderHeader+="}\n";
+//
+//            // Fragment Header
+//            fragmentShaderHeader+="uniform sampler2DShadow uShadowmaps[4];\n";
+//            fragmentShaderHeader+="uniform mat4 uDepthsMVP[4];\n";
+//            fragmentShaderHeader+="uniform vec4 uShadowFar;\n";
+//            
+//            // Fragment Body
+//            fragmentShaderBody+="float visibility = 1.0;\n";
+//            fragmentShaderBody+="bool MoreThanOneCascade = (uShadowFar.y>0.0);\n";
+//            fragmentShaderBody+="if (gl_FragCoord.z<uShadowFar.x) visibility = ShadowValue( uShadowmaps[0], 0.0, 0.0, uDepthsMVP[0],0.0001,vWorldPosition, MoreThanOneCascade);\n";
+//            fragmentShaderBody+="else if (gl_FragCoord.z<uShadowFar.y) visibility = ShadowValue( uShadowmaps[0], 0.5,0.0, uDepthsMVP[1],0.0001,vWorldPosition, MoreThanOneCascade);\n";
+//            fragmentShaderBody+="else if (gl_FragCoord.z<uShadowFar.z) visibility = ShadowValue( uShadowmaps[0], 0.0, 0.5, uDepthsMVP[2],0.0001,vWorldPosition, MoreThanOneCascade);\n";
+//            fragmentShaderBody+="else if (gl_FragCoord.z<uShadowFar.w) visibility = ShadowValue( uShadowmaps[0], 0.5,0.5, uDepthsMVP[3],0.0001,vWorldPosition, MoreThanOneCascade);\n";
+//            fragmentShaderBody+="diffuse.xyz*=vec3(visibility+0.5);\n";
+            
+            // Point Lights
+            
+            // Vertex Header
+            vertexShaderHeader+="#extension GL_EXT_gpu_shader4 : require\n";
+            
+            // Fragment Header
+            fragmentShaderHeader+="#extension GL_EXT_gpu_shader4 : require\n";
+            fragmentShaderHeader+="uniform samplerCubeShadow uShadowmaps;\n";
+            fragmentShaderHeader+="uniform mat4 uDepthsMVP[4];\n";
+            
+            // shadow map test
+            fragmentShaderBody+="vec4 position_ls = uDepthsMVP[1] * vWorldPosition;\n";
+            fragmentShaderBody+="position_ls.xyz/=position_ls.w;\n";
+            fragmentShaderBody+="vec4 abs_position = abs(position_ls);\n";
+            fragmentShaderBody+="float fs_z = -max(abs_position.x, max(abs_position.y, abs_position.z));\n";
+            fragmentShaderBody+="vec4 clip = uDepthsMVP[0] * vec4(0.0, 0.0, fs_z, 1.0);\n";
+            fragmentShaderBody+="float depth = (clip.z / clip.w) * 0.5 + 0.5;\n";
+            fragmentShaderBody+="float result = shadowCube(uShadowmaps, vec4(position_ls.xyz, depth)).x;\n";
+            fragmentShaderBody+="diffuse.xyz*=vec3(result+0.5);\n";
+            
+            
         }
         if (option & ShaderUsage::CastShadows)
         {
-            fragmentShaderBody+="diffuse=vec4(gl_FragCoord.z,gl_FragCoord.z,gl_FragCoord.z,1.0);\n";
+            if (!usingVertexWorldPos)
+            {
+                usingVertexWorldPos = true;
+                vertexShaderHeader+="varying vec4 vWorldPosition;\n";
+                vertexShaderBody+="vWorldPosition=uModelMatrix * vec4(aPosition,1.0);\n";
+                fragmentShaderHeader+="varying vec4 vWorldPosition;\n";
+            }
+            fragmentShaderBody+="diffuse.x=gl_FragCoord.z;\n";
+            fragmentShaderBody+="diffuse.y=length(vWorldPosition);\n";
         }
         if (option & ShaderUsage::BumpMapping)
         {
@@ -222,6 +280,16 @@ namespace p3d
         }
         if (option & ShaderUsage::EnvMap)
         {
+            if (!usingCameraPosition)
+            {
+                usingCameraPosition = true;
+                // Vertex Header
+                vertexShaderHeader+="uniform vec3 uCameraPos;\n";
+                vertexShaderHeader+="varying vec3 vCameraPos;\n";
+                vertexShaderBody+="vCameraPos = uCameraPos;\n";
+                // Fragment Header
+                fragmentShaderHeader+="varying vec3 vCameraPos;\n";
+            }
             if (!usingVertexLocalPos)
             {
                 usingVertexLocalPos = true;
@@ -244,7 +312,7 @@ namespace p3d
                 // Vertex Header
                 vertexShaderHeader+="varying vec3 vReflection;\n";
                 // Vertex Body
-                vertexShaderBody+="vReflection = reflect((vLocalPosition.xyz - uCameraPos),vNormal);\n";
+                vertexShaderBody+="vReflection = reflect(vLocalPosition.xyz - (uViewMatrix * vec4(uCameraPos,1.0)).xyz,vNormal);\n";
                 
                 // Fragment Header
                 fragmentShaderHeader+="varying vec3 vReflection;\n";
@@ -253,8 +321,10 @@ namespace p3d
             // Fragment Header
             fragmentShaderHeader+="uniform samplerCube uEnvmap;\n";
             fragmentShaderHeader+="uniform float uReflectivity;\n";
+            
             // Fragment Body
             fragmentShaderBody+="if (!diffuseIsSet) {diffuse=(textureCube(uEnvmap,vReflection))*uReflectivity; diffuseIsSet=true;} else diffuse *= (textureCube(uEnvmap,vReflection))*uReflectivity;\n";
+            fragmentShaderBody+="diffuse=(textureCube(uEnvmap,vReflection));\n";
         }
         if (option & ShaderUsage::Skybox)
         {
@@ -272,6 +342,16 @@ namespace p3d
         }
         if (option & ShaderUsage::Refraction)
         {
+            if (!usingCameraPosition)
+            {
+                usingCameraPosition = true;
+                // Vertex Header
+                vertexShaderHeader+="uniform vec3 uCameraPos;\n";
+                vertexShaderHeader+="varying vec3 vCameraPos;\n";
+                vertexShaderBody+="vCameraPos = uCameraPos;\n";
+                // Fragment Header
+                fragmentShaderHeader+="varying vec3 vCameraPos;\n";
+            }
             if (!usingVertexLocalPos)
             {
                 usingVertexLocalPos = true;

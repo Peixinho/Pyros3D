@@ -112,15 +112,55 @@ namespace p3d {
                 internalFormat2=GL_DEPTH_COMPONENT;
                 internalFormat3=GL_FLOAT;
             break;
-            case TextureDataType::FloatingPointTexture16F:
+            case TextureDataType::R16F:
+                internalFormat=GL_R16F;
+                internalFormat2=GL_RED;
+                internalFormat3=GL_FLOAT;
+            break;
+            case TextureDataType::R32F:
+                internalFormat=GL_R32F;
+                internalFormat2=GL_RED;
+                internalFormat3=GL_FLOAT;
+            break;
+            case TextureDataType::RG16F:
+                internalFormat=GL_RG16F;
+                internalFormat2=GL_RG;
+                internalFormat3=GL_FLOAT;
+            break;
+            case TextureDataType::RG32F:
+                internalFormat=GL_RG32F;
+                internalFormat2=GL_RG;
+                internalFormat3=GL_FLOAT;
+            break;
+            case TextureDataType::RGB16F:
+                internalFormat=GL_RGB16F;
+                internalFormat2=GL_RGB;
+                internalFormat3=GL_FLOAT;
+            break;
+            case TextureDataType::RGB32F:
+                internalFormat=GL_RGB32F;
+                internalFormat2=GL_RGB;
+                internalFormat3=GL_FLOAT;
+            break;
+            case TextureDataType::RGBA16F:
                 internalFormat=GL_RGBA16F;
                 internalFormat2=GL_RGBA;
                 internalFormat3=GL_FLOAT;
             break;
-            case TextureDataType::FloatingPointTexture32F:
+            case TextureDataType::RGBA32F:
                 internalFormat=GL_RGBA32F;
                 internalFormat2=GL_RGBA;
                 internalFormat3=GL_FLOAT;
+            break;
+            case TextureDataType::R16I:
+                internalFormat=GL_R16I;
+                internalFormat2=GL_R;
+                internalFormat3=GL_UNSIGNED_BYTE;
+            break;
+            case TextureDataType::R32I:
+                internalFormat=GL_R32I;
+                internalFormat2=GL_R;
+                internalFormat3=GL_UNSIGNED_BYTE;
             break;
             default:
                 internalFormat=GL_RGBA8;
@@ -359,7 +399,8 @@ namespace p3d {
         // This is to allow usage of shadow2DProj function in the shader
         glTexParameteri(GLSubMode,GL_TEXTURE_COMPARE_MODE,GL_COMPARE_R_TO_TEXTURE);
         glTexParameteri(GLSubMode,GL_TEXTURE_COMPARE_FUNC,GL_LEQUAL);
-        glTexParameteri(GLSubMode, GL_DEPTH_TEXTURE_MODE, GL_INTENSITY);
+        // glTexParameteri(GLSubMode, GL_DEPTH_TEXTURE_MODE, GL_INTENSITY); // Not used Anymore
+        glTexParameteri(GLSubMode, GL_DEPTH_TEXTURE_MODE, GL_LUMINANCE);
         
         // Unbind
         glBindTexture(GLSubMode, 0);

@@ -94,7 +94,7 @@ namespace p3d {
 
             // Make Ortho
             Matrix ortho;
-            ortho = ortho.OrthoMatrixRH(-1.0,1.0,-1.0,1.0,-maxZ,-minZ);
+            ortho = ortho.OrthoMatrix(-1.0,1.0,-1.0,1.0,-maxZ,-minZ);
             Matrix mvp = ortho * viewMatrix;
             
             // find the extends of the frustum slice as projected in light's homogeneous coordinates        
@@ -180,7 +180,7 @@ namespace p3d {
                     if (!GPU)
                     {
                         // Create Texture, Frame Buffer and Set the Texture as Attachment
-                        ShadowMapID = AssetManager::CreateTexture(TextureType::Texture,TextureDataType::FloatingPointTexture16F,ShadowWidthFBO,ShadowHeightFBO,false);
+                        ShadowMapID = AssetManager::CreateTexture(TextureType::Texture,TextureDataType::R32F,ShadowWidthFBO,ShadowHeightFBO,false);
                         ShadowMap = static_cast<Texture*> (AssetManager::GetAsset(ShadowMapID)->AssetPTR);
                         ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
                         ShadowMap->SetRepeat(TextureRepeat::Clamp,TextureRepeat::Clamp);
@@ -230,7 +230,7 @@ namespace p3d {
             Matrix GetLightViewMatrix()
             {
                 ShadowViewMatrix.identity();
-                ShadowViewMatrix.LookAtRH(Vec3::ZERO,(GetOwner()->GetWorldPosition().normalize()*-1.f),Vec3(0.f,0.f,-1.f));
+                ShadowViewMatrix.LookAt(Vec3::ZERO,(GetOwner()->GetWorldPosition().normalize()*-1.f),Vec3(0.f,0.f,-1.f));
                 return ShadowViewMatrix;
             }
             Matrix GetLightProjection(const uint32 &Cascade, const std::vector<RenderingMesh*> RCompList)

@@ -73,10 +73,12 @@ namespace p3d {
             std::vector<uchar> Value;
 
             Uniform() { ElementCount = 0; Usage = 20; /* Usage = Other */ }
-            Uniform(const std::string &name, const uint32 &usage)
+
+            Uniform(const std::string &name, const uint32 &usage, const uint32 &type = 0)
             {
                 Name=name;
                 Usage = usage;
+                Type = type;
                 ElementCount = 0;
                 
                 switch (usage)
@@ -153,7 +155,7 @@ namespace p3d {
                 };
             
             }
-            Uniform(const std::string &name, const uint32 &type, void* value, uint32 elementCount = 1) { Name=name; Usage = 20; Type = type; ElementCount = elementCount; SetValue(value); }
+            Uniform(const std::string &name, const uint32 &type, void* value, const uint32 &elementCount = 1) { Name=name; Usage = 20; Type = type; ElementCount = elementCount; SetValue(value); }
 
             void SetValue(void* value, uint32 elementCount = 1)
             {

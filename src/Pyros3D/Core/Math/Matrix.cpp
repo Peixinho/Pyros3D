@@ -1,6 +1,6 @@
 //============================================================================
 // Name        : Matrix.cpp
-// Author      : Duarte Peixinho
+// Author      : Duarm Peixinho
 // Version     :
 // Copyright   : ;)
 // Description : Matrix
@@ -42,28 +42,23 @@ namespace p3d {
             m[3] = 0; m[7] = 0; m[11] = 0; m[15] = 1;    
         }
 
-        void Matrix::LookAtRH(const Vec3 &eye, const Vec3 &center, const Vec3 &up)
+        void Matrix::LookAt(const Vec3 &eye, const Vec3 &center, const Vec3 &up)
         {
+            
             Vec3 zAxis = (eye - center).normalize();
             Vec3 xAxis = up.cross(zAxis).normalize();
-            Vec3 yAxis = zAxis.cross(xAxis).normalize();
-
+            Vec3 yAxis = zAxis.cross(xAxis);
+            
+            if (xAxis.magnitude()==0)
+            {
+                zAxis.x = 0.0001;
+                xAxis = up.cross(zAxis).normalize();
+            }
+            
             m[0] = xAxis.x;                  m[1] = yAxis.x;                      m[2] = zAxis.x;                  m[3] = 0;
             m[4] = xAxis.y;                  m[5] = yAxis.y;                      m[6] = zAxis.y;                  m[7] = 0;
             m[8] = xAxis.z;                  m[9] = yAxis.z;                      m[10] = zAxis.z;                  m[11] = 0;
-            m[12] = -xAxis.dotProduct(eye);   m[13] = -yAxis.dotProduct(eye);       m[14] = -zAxis.dotProduct(eye);   m[15] = 1;
-        }
-
-        void Matrix::LookAtLH(const Vec3 &eye, const Vec3 &center, const Vec3 &up)
-        {
-            Vec3 zAxis = (center - eye).normalize();
-            Vec3 xAxis = up.cross(zAxis).normalize();
-            Vec3 yAxis = zAxis.cross(xAxis).normalize();
-
-            m[0] = xAxis.x;                  m[1] = yAxis.x;                      m[2] = zAxis.x;                  m[3] = 0;
-            m[4] = xAxis.y;                  m[5] = yAxis.y;                      m[6] = zAxis.y;                  m[7] = 0;
-            m[8] = xAxis.z;                  m[9] = yAxis.z;                      m[10] = zAxis.z;                  m[11] = 0;
-            m[12] = -xAxis.dotProduct(eye);   m[13] = -yAxis.dotProduct(eye);       m[14] = -zAxis.dotProduct(eye);   m[15] = 1;
+            m[12] = xAxis.dotProduct(eye.negate());   m[13] = yAxis.dotProduct(eye.negate());       m[14] = zAxis.dotProduct(eye.negate());   m[15] = 1;
         }
 
         void Matrix::Translate(const f32 &x, const f32 &y, const f32 &z)
@@ -310,21 +305,7 @@ namespace p3d {
             return q;
         }
 
-        Matrix Matrix::PerspectiveMatrixLH(const f32 &fov, const f32 &aspect, const f32 &near, const f32 &far)
-        {
-
-            const f32 h = (f32)(1.0f/tan(fov*PI/360));
-            f32 neg_depth = far-near;
-
-            Matrix mp;   
-            mp.m[0] = h/aspect;  mp.m[4] = 0;  mp.m[8] = 0;   mp.m[12] = 0;
-            mp.m[1] = 0;  mp.m[5] = h;  mp.m[9] = 0;   mp.m[13] = 0;
-            mp.m[2] = 0;  mp.m[6] = 0;  mp.m[10] = (far+near)/neg_depth;   mp.m[14] = 2.0f*(near*far)/neg_depth;
-            mp.m[3] = 0;  mp.m[7] = 0;  mp.m[11] = -1;   mp.m[15] = 0;
-            
-            return mp;
-        }
-        Matrix Matrix::PerspectiveMatrixRH(const f32 &fov, const f32 &aspect, const f32 &near, const f32 &far)
+        Matrix Matrix::PerspectiveMatrix(const f32 &fov, const f32 &aspect, const f32 &near, const f32 &far)
         {    
             const f32 h = (f32)(1.0f/tan(fov*PI/360));
             f32 neg_depth = near-far;
@@ -356,18 +337,7 @@ namespace p3d {
             
             return mp;
         }
-        Matrix Matrix::OrthoMatrixLH(const f32 &left, const f32 &right, const f32 &bottom, const f32 &top, const f32 &near, const f32 &far)
-        {
-            Matrix mo;
-
-            mo.m[0] = 2/(right-left);             mo.m[4] = 0;                       mo.m[8] = 0;                 mo.m[12] = -(right+left)/(right-left);
-            mo.m[1] = 0;                          mo.m[5] = 2/(top-bottom);       mo.m[9] = 0;                 mo.m[13] = -(top+bottom)/(top-bottom);
-            mo.m[2] = 0;                          mo.m[6] = 0;                        mo.m[10] = -2/(near-far);    mo.m[14] = -(far+near)/(near-far);
-            mo.m[3] = 0;                          mo.m[7] = 0;                        mo.m[11] = 0;                 mo.m[15] = 1;
-               
-            return mo;
-        }
-        Matrix Matrix::OrthoMatrixRH(const f32 &left, const f32 &right, const f32 &bottom, const f32 &top, const f32 &near, const f32 &far)
+        Matrix Matrix::OrthoMatrix(const f32 &left, const f32 &right, const f32 &bottom, const f32 &top, const f32 &near, const f32 &far)
         {
             Matrix mo;
 
@@ -467,10 +437,10 @@ namespace p3d {
         std::string Matrix::toString() const {
                std::ostringstream toStr;
 
-               toStr << m[0] << "| " << m[4] << " | " << m[8] << " | " << m[12] << " |\n" <<
-                        m[1] << "| " << m[5] << " | " << m[9] << " | " << m[13] << " |\n" <<
-                        m[2] << "| " << m[6] << " | " << m[10] << " | " << m[14] << " |\n" <<
-                        m[3] << "| " << m[7] << " | " << m[11] << " | " << m[15] << " |";
+               toStr << m[0] << "| " << m[1] << " | " << m[2] << " | " << m[3] << " |\n" <<
+                        m[4] << "| " << m[5] << " | " << m[6] << " | " << m[7] << " |\n" <<
+                        m[8] << "| " << m[9] << " | " << m[10] << " | " << m[11] << " |\n" <<
+                        m[12] << "| " << m[13] << " | " << m[14] << " | " << m[15] << " |";
 
                return "Matrix\n" + toStr.str();
         }
@@ -588,7 +558,7 @@ namespace p3d {
                 };
 
         }
-        Vec3 Matrix::GetEulerFromRotationMatrix(const uint32 &order) 
+        Vec3 Matrix::GetEulerFromRotationMatrix(const uint32 &order)
         {
 
                 Vec3 euler;

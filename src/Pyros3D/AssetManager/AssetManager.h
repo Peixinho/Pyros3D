@@ -52,8 +52,16 @@ namespace p3d {
         enum {
             RGBA = 0,
             DepthComponent,
-            FloatingPointTexture16F,
-            FloatingPointTexture32F
+            R16F,
+            R32F,
+            RG16F,
+            RG32F,
+            RGB16F,
+            RGB32F,
+            RGBA16F,
+            RGBA32F,
+            R16I,
+            R32I,
         };
     }
     

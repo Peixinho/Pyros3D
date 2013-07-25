@@ -125,23 +125,23 @@ namespace p3d {
                             for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
                             {
 
-//                                if ((*k)->renderingComponent->GetOwner()!=NULL)
-//                                {
-//                                    // Culling Test
-//                                    bool cullingTest = false;
-//                                    switch((*k)->CullingGeometry)
-//                                    {
-//                                        case CullingGeometry::Box:
-//                                            cullingTest = CullingBoxTest(*k);
-//                                            break;
-//                                        case CullingGeometry::Sphere:
-//                                        default:
-//                                            cullingTest = CullingSphereTest(*k);
-//                                            break;
-//                                    }
-//                                    if (cullingTest)
+                                if ((*k)->renderingComponent->GetOwner()!=NULL)
+                                {
+                                    // Culling Test
+                                    bool cullingTest = false;
+                                    switch((*k)->CullingGeometry)
+                                    {
+                                        case CullingGeometry::Box:
+                                            cullingTest = CullingBoxTest(*k);
+                                            break;
+                                        case CullingGeometry::Sphere:
+                                        default:
+                                            cullingTest = CullingSphereTest(*k);
+                                            break;
+                                    }
+                                    if (cullingTest)
                                         RenderObject((*k),shadowMaterial);
-//                                }
+                                }
                             }
 
                             ShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
@@ -203,13 +203,32 @@ namespace p3d {
                         // Bind FBO
                         p->GetShadowFBO()->Bind();
                         
-                        glEnable( GL_TEXTURE_CUBE_MAP );
-
-                        ViewMatrix = Camera->GetWorldTransformation().Inverse();
+                        ProjectionMatrix = p->GetLightProjection();
                         
                         // Get Lights Shadow Map Texture
                         for (uint32 i=0;i<6;i++)
                         {
+                            // Clean View Matrix
+                            ViewMatrix.identity();
+                            
+                            // Create Light View Matrix For Rendering Each Face of the Cubemap
+                            if (i==0)
+                                ViewMatrix.LookAt(Vec3::ZERO, Vec3(1.0, 0.0, 0.0), Vec3(0.0,-1.0,0.0)); // +X
+                            if (i==1)
+                                ViewMatrix.LookAt(Vec3::ZERO, Vec3(-1.0, 0.0, 0.0), Vec3(0.0,-1.0,0.0)); // -X
+                            if (i==2)
+                                ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, 1.0, 0.0), Vec3(0.0,0.0,1.0)); // +Y
+                            if (i==3)
+                                ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, -1.0, 0.0), Vec3(0.0,0.0,-1.0)); // -Y
+                            if (i==4)
+                                ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, 0.0, 1.0), Vec3(0.0,-1.0,0.0)); // +Z
+                            if (i==5)
+                                ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, 0.0, -1.0), Vec3(0.0,-1.0,0.0)); // -Z
+                            
+                            // Translate Light View Matrix
+                            Matrix m;
+                            ViewMatrix *= p->GetOwner()->GetWorldTransformation().Inverse();
+                            
                             if (p->IsUsingGPUShadows())
                             {
                                 // GPU Shadows
@@ -232,8 +251,6 @@ namespace p3d {
                             // Enable Depth Bias
                             glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
                             glPolygonOffset (3.1f, 9.0f);
-                        
-                            ProjectionMatrix = projection.m;
                             
                             // Set Viewport
                             glViewport(0,0, p->GetShadowWidth(), p->GetShadowHeight());
@@ -248,33 +265,35 @@ namespace p3d {
                                 
                                 
                                 
-                                //                                if ((*k)->renderingComponent->GetOwner()!=NULL)
-                                //                                {
-                                //                                    // Culling Test
-                                //                                    bool cullingTest = false;
-                                //                                    switch((*k)->CullingGeometry)
-                                //                                    {
-                                //                                        case CullingGeometry::Box:
-                                //                                            cullingTest = CullingBoxTest(*k);
-                                //                                            break;
-                                //                                        case CullingGeometry::Sphere:
-                                //                                        default:
-                                //                                            cullingTest = CullingSphereTest(*k);
-                                //                                            break;
-                                //                                    }
-                                //                                    if (cullingTest)
-                                RenderObject((*k),shadowMaterial);
-                                //                                }
+//                                if ((*k)->renderingComponent->GetOwner()!=NULL)
+//                                {
+//                                    // Culling Test
+//                                    bool cullingTest = false;
+//                                    switch((*k)->CullingGeometry)
+//                                    {
+//                                        case CullingGeometry::Box:
+//                                            cullingTest = CullingBoxTest(*k);
+//                                            break;
+//                                        case CullingGeometry::Sphere:
+//                                        default:
+//                                            cullingTest = CullingSphereTest(*k);
+//                                            break;
+//                                    }
+//                                    if (cullingTest)
+                                        RenderObject((*k),shadowMaterial);
+//                                }
                             }
-                            
-                            ShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
-                            
                         }
+                        
+                        // Set Light Projection
+                        ShadowMatrix.push_back(((p->GetLightProjection())));
+                        // Set Light View Matrix
+                        Matrix m;
+                        m.Translate(p->GetOwner()->GetWorldPosition().negate());
+                        ShadowMatrix.push_back(m);
                         
                         // Get Texture (only 1)
                         ShadowMapsTextures.push_back(*p->GetShadowMapTexture());
-                        
-                        glDisable( GL_TEXTURE_CUBE_MAP );
                         
                         // Unbind Material
                         glUseProgram(0);
@@ -285,6 +304,7 @@ namespace p3d {
                         
                         // Unbind FBO
                         p->GetShadowFBO()->UnBind();
+
                     }
                     
                 } else if (SpotLight* s = dynamic_cast<SpotLight*>((*i))) {
@@ -315,10 +335,6 @@ namespace p3d {
         // Update Lights Position and Direction to ViewSpace
         NumberOfLights = Lights.size();
         
-        
-        // Update Culling
-        UpdateCulling(Camera->GetWorldTransformation().Inverse(),projection);
-        
         // Save Values for Cache
         // Saves Scene
         this->Scene = Scene;
@@ -337,6 +353,9 @@ namespace p3d {
         // View Matrix and Position
         ViewMatrix = Camera->GetWorldTransformation().Inverse();
         CameraPosition = Camera->GetWorldPosition();
+        
+        // Update Culling
+        UpdateCulling(ViewMatrix,projection);
         
         // Flags
         ViewMatrixInverseIsDirty = true;

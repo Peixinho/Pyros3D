@@ -31,6 +31,7 @@ namespace p3d
             void SetSpecularMap(const Texture &specular);
             void SetNormalMap(const Texture &normalmap);
             void SetEnvMap(const Texture &envmap);
+            void SetReflectivity(const f32 &reflectivity);
             void SetRefractMap(const Texture &refractmap);
             void SetSkyboxMap(const Texture &skyboxmap);
             // Lights
@@ -61,6 +62,9 @@ namespace p3d
             Vec4 Kd;
             Vec4 Ks;
             f32 Shininess, UseLights;
+            
+            // Environment Cube
+            f32 Reflectivity;
     };
 }
 

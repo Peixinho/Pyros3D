@@ -96,28 +96,24 @@ namespace p3d {
                 target = Vec3::ZERO;
             }
 
-            // only executes this if its pointing to
-            // a different location than its position
-            if (target!=_Position)
-            {
-                // Transformation    
-                Matrix TransfMatrix = _LocalMatrixThread;
+            // Transformation    
+            Matrix TransfMatrix = _LocalMatrixThread;
 
-                // Translation value
-                Vec3 Translation = TransfMatrix.GetTranslation();
+            // Translation value
+            Vec3 Translation = TransfMatrix.GetTranslation();
 
-                // Look at Position (Right Handed)
-                TransfMatrix.LookAtRH(Translation,target,Vec3::UP);
+            // Look at Position (Right Handed)
+            TransfMatrix.LookAt(Translation,target,Vec3::UP);
 
-                TransfMatrix=TransfMatrix.Inverse();
+            TransfMatrix=TransfMatrix.Inverse();
 
-                TransfMatrix.Translate(Translation);
+            TransfMatrix.Translate(Translation);
 
-                _LocalMatrixThread = TransfMatrix;
-                
-                // Save Rotation After LookAt
-                _Rotation = _LocalMatrixThread.GetRotation(_Scale).GetEulerFromRotationMatrix();
-            }
+            _LocalMatrixThread = TransfMatrix;
+
+            // Save Rotation After LookAt
+            _Rotation = _LocalMatrixThread.GetRotation(_Scale).GetEulerFromRotationMatrix();
+            
         }
         _IsDirty = false;
         
