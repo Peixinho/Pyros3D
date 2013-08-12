@@ -61,6 +61,9 @@ namespace p3d {
         // Update Culling
         UpdateCulling(ViewMatrix,projection);
         
+        // Group and Sort Meshes
+        GroupAndSortAssets();
+        
         // Flags
         ViewMatrixInverseIsDirty = true;
         ProjectionMatrixInverseIsDirty = true;
@@ -305,7 +308,7 @@ namespace p3d {
                         ShadowMatrix.push_back(((p->GetLightProjection())));
                         // Set Light View Matrix
                         Matrix m;
-                        m.Translate(p->GetOwner()->GetWorldPosition().negate()/4.0);
+                        m.Translate(p->GetOwner()->GetWorldPosition().negate());
                         ShadowMatrix.push_back(m);
                         
                         // Get Texture (only 1)
@@ -332,7 +335,7 @@ namespace p3d {
                     // Spot Lights
                     Vec4 color = s->GetLightColor();
                     Vec3 position = ViewMatrix * (s->GetOwner()->GetWorldPosition());                   
-                    Vec3 LDirection = s->GetOwner()->GetWorldPosition().normalize();
+                    Vec3 LDirection = s->GetLightDirection().normalize();
                     Vec4 direction = ViewMatrix * Vec4(LDirection.x,LDirection.y,LDirection.z,0.f);
                     f32 attenuation = s->GetLightRadius();
                     Vec2 cones = Vec2(s->GetLightCosInnerCone(),s->GetLightCosOutterCone());
@@ -367,11 +370,8 @@ namespace p3d {
                         // Clean View Matrix
                         ViewMatrix.identity();
 
-                        // Create Light View Matrix For Rendering Each Face of the Cubemap
-                        ViewMatrix.LookAt(Vec3::ZERO, Vec3(1.0, 0.0, 0.0), Vec3(0.0,-1.0,0.0)); // +X
-
-                        // Translate Light View Matrix
-                        ViewMatrix *= s->GetOwner()->GetWorldTransformation().Inverse();
+                        // Create Light View Matrix For Rendering the ShadowMap
+                        ViewMatrix.LookAt(s->GetOwner()->GetWorldPosition(),(s->GetOwner()->GetWorldPosition()+s->GetLightDirection()),Vec3(0,0,1));
 
                         // Clear Screen
                         ClearScreen(Buffer_Bit::Depth);
@@ -416,7 +416,7 @@ namespace p3d {
                         ShadowMatrix.push_back(((s->GetLightProjection())));
                         // Set Light View Matrix
                         Matrix m;
-                        m.Translate(s->GetOwner()->GetWorldPosition().negate()/4.0);
+                        m.Translate(s->GetOwner()->GetWorldPosition().negate());
                         ShadowMatrix.push_back(m);
                         
                         // Get Texture (only 1)
@@ -427,8 +427,7 @@ namespace p3d {
                         
                         // Disable Depth Bias
                         glDisable(GL_POLYGON_OFFSET_FILL);
-                        
-                        
+
                         // Unbind FBO
                         s->GetShadowFBO()->UnBind();
                         
@@ -444,9 +443,6 @@ namespace p3d {
         
         // Update Lights Position and Direction to ViewSpace
         NumberOfLights = Lights.size();
-        
-        // Group and Sort Meshes
-        GroupAndSortAssets();
         
         // Set ViewPort
         glViewport(0,0,Width,Height);

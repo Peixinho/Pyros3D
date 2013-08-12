@@ -23,7 +23,7 @@ namespace p3d
         bool usingCameraPosition = false;
         bool usingTexcoords = false;
         bool usingVertexWorldPos = false;
-		bool usingVertexViewPos = false;
+        bool usingVertexViewPos = false;
         bool usingVertexLocalPos = false;
         bool usingReflect = false;
         bool usingTangentMatrix = false;

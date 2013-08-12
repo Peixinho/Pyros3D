@@ -25,8 +25,8 @@ namespace p3d {
                 Radius = radius;
                 innerCone = InnerCone;
                 outterCone = OutterCone;
-                CosOutterCone = 0.7;
-                CosInnerCone=0.2;
+                CosOutterCone = cosf(OutterCone);
+                CosInnerCone=cosf(InnerCone);
                 Direction = direction;
             }
             virtual ~SpotLight() {}
