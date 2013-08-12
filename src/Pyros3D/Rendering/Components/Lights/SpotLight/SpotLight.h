@@ -19,7 +19,7 @@ namespace p3d {
         public:
             
             SpotLight() { Color = Vec4(1,1,1,1); Radius = 1.f; }
-            SpotLight(const Vec4 &color, const f32 &radius) { Color = color; Radius = radius; }
+            SpotLight(const Vec4 &color, const f32 &radius, const Vec3 &direction, const f32 &OutterCone, const f32 &InnerCone) { Color = color; Radius = radius; CosOutterCone = OutterCone; CosInnerCone=InnerCone; Direction = direction; }
             virtual ~SpotLight() {}
 
             virtual void Start() {};

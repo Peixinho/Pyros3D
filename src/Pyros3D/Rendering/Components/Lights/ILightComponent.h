@@ -53,8 +53,6 @@ namespace p3d {
                 return ShadowHeight;
             }
             
-            bool IsUsingGPUShadows();
-            
         protected:
             
             // Shadows Mapping
@@ -70,7 +68,7 @@ namespace p3d {
             f32 ShadowNear, ShadowFar;
             // Flag
             bool isCastingShadows;
-            bool isUsingGPUShadows;
+
             // Light Color
             Vec4 Color;
             

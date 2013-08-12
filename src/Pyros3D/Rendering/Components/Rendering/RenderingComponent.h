@@ -83,6 +83,10 @@ namespace p3d {
             
             void SetCullingGeometry(const uint32 &Geometry);
             
+            void EnableCastShadows();
+            void DisableCastShadows();
+            bool IsCastingShadows();
+            
             // Get Model's Meshes
             std::vector<RenderingMesh*> GetMeshes();
             
@@ -95,6 +99,9 @@ namespace p3d {
 
             // Keep Asset ID in use
             uint32 AssetID;
+
+            // Casting Shadows
+            bool isCastingShadows;
             
             std::vector<RenderingMesh*> Meshes;
             

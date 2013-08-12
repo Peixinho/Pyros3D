@@ -16,7 +16,7 @@ namespace p3d {
     
         ActivateCulling(CullingMode::FrustumCulling);
         shadowMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows);
-        
+        shadowMaterial->SetCullFace(CullFace::FrontFace);
     }
     
     ForwardRenderer::~ForwardRenderer()
@@ -87,21 +87,11 @@ namespace p3d {
                         // Bind FBO
                         d->GetShadowFBO()->Bind();
 
-                        
-                        if (d->IsUsingGPUShadows())
-                        {
-                            // GPU Shadows
-                            // Clear Screen
-                            ClearScreen(Buffer_Bit::Depth);
-                            EnableDepthTest();
-                        }
-                        else {
-                            // Regular Shadow Maps
-                            // Clear Screen
-                            ClearScreen(Buffer_Bit::Depth | Buffer_Bit::Color);
-                            EnableDepthTest();
-                        }
-                        
+                        // GPU Shadows
+                        // Clear Screen
+                        ClearScreen(Buffer_Bit::Depth);
+                        EnableDepthTest();
+
                         // Enable Depth Bias
                         glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
                         glPolygonOffset (3.1f, 9.0f);
@@ -226,27 +216,14 @@ namespace p3d {
                                 ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, 0.0, -1.0), Vec3(0.0,-1.0,0.0)); // -Z
                             
                             // Translate Light View Matrix
-                            Matrix m;
                             ViewMatrix *= p->GetOwner()->GetWorldTransformation().Inverse();
-                            
-                            if (p->IsUsingGPUShadows())
-                            {
-                                // GPU Shadows
-                                p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_X+i,p->GetShadowMapTexture());
+
+							// GPU Shadows
+							p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_X+i,p->GetShadowMapTexture());
                                 
-                                // Clear Screen
-                                ClearScreen(Buffer_Bit::Depth);
-                                EnableDepthTest();
-                            }
-                            else {
-                                // Regular Shadow Maps
-                                // Clear Screen
-                                p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0,TextureType::CubemapPositive_X+i,p->GetShadowMapTexture());
-                                
-                                // Clear Screen
-                                ClearScreen(Buffer_Bit::Depth | Buffer_Bit::Color);
-                                EnableDepthTest();
-                            }
+							// Clear Screen
+							ClearScreen(Buffer_Bit::Depth);
+							EnableDepthTest();
                             
                             // Enable Depth Bias
                             glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
@@ -265,23 +242,24 @@ namespace p3d {
                                 
                                 
                                 
-//                                if ((*k)->renderingComponent->GetOwner()!=NULL)
-//                                {
-//                                    // Culling Test
-//                                    bool cullingTest = false;
-//                                    switch((*k)->CullingGeometry)
-//                                    {
-//                                        case CullingGeometry::Box:
-//                                            cullingTest = CullingBoxTest(*k);
-//                                            break;
-//                                        case CullingGeometry::Sphere:
-//                                        default:
-//                                            cullingTest = CullingSphereTest(*k);
-//                                            break;
-//                                    }
-//                                    if (cullingTest)
-                                        RenderObject((*k),shadowMaterial);
-//                                }
+                                if ((*k)->renderingComponent->GetOwner()!=NULL)
+                                {
+                                    // Culling Test
+                                    bool cullingTest = false;
+                                    switch((*k)->CullingGeometry)
+                                    {
+                                        case CullingGeometry::Box:
+                                            cullingTest = CullingBoxTest(*k);
+                                            break;
+                                        case CullingGeometry::Sphere:
+                                        default:
+                                            cullingTest = CullingSphereTest(*k);
+                                            break;
+                                    }
+                                    if (cullingTest)
+                                        if ((*k)->renderingComponent->IsCastingShadows())
+                                            RenderObject((*k),shadowMaterial);
+                                }
                             }
                         }
                         
@@ -289,7 +267,7 @@ namespace p3d {
                         ShadowMatrix.push_back(((p->GetLightProjection())));
                         // Set Light View Matrix
                         Matrix m;
-                        m.Translate(p->GetOwner()->GetWorldPosition().negate());
+                        m.Translate(p->GetOwner()->GetWorldPosition().negate()/4.0);
                         ShadowMatrix.push_back(m);
                         
                         // Get Texture (only 1)

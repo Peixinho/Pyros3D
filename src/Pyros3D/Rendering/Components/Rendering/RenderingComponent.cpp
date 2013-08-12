@@ -16,6 +16,9 @@ namespace p3d {
     
     RenderingComponent::RenderingComponent(const uint32 &AssetID, IMaterial* Material) 
     {
+        // By Default Is Casting Shadows
+        isCastingShadows = true;
+        
         // Keep Asset ID
         this->AssetID = AssetID;
 
@@ -37,6 +40,7 @@ namespace p3d {
                 r_submesh->Material = Material;
                 r_submesh->OwnMaterial = false;
             } else {
+
                 if (Materialsvector.find(renderable->Geometries[i]->materialProperties.id)==Materialsvector.end())
                 {
                     // From Properties
@@ -167,6 +171,18 @@ namespace p3d {
         }
     }
     
+    void RenderingComponent::EnableCastShadows()
+    {
+        isCastingShadows = true;
+    }
+    void RenderingComponent::DisableCastShadows()
+    {
+        isCastingShadows = false;
+    }
+    bool RenderingComponent::IsCastingShadows()
+    {
+        return isCastingShadows;
+    }
     void RenderingComponent::Destroy()
     {
 //        for (std::vector<RenderingMesh*>::iterator i=Meshes.begin();i!=Meshes.end();i++)

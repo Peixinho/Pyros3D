@@ -145,7 +145,7 @@ namespace p3d {
             virtual void Update() {};
             virtual void Destroy() {};
             
-            void EnableCastShadows(const uint32 &Width, const uint32 &Height, const Projection &projection, const f32 &Near, const f32 &Far, const uint32 &Cascades = 1, bool GPU = true)
+            void EnableCastShadows(const uint32 &Width, const uint32 &Height, const Projection &projection, const f32 &Near, const f32 &Far, const uint32 &Cascades = 1)
             {
                 if (!isCastingShadows)
                 {
@@ -172,30 +172,16 @@ namespace p3d {
                         ShadowWidthFBO = Width*2;
                         ShadowHeightFBO = Height*2;
                     }
-
-                    // Set Flag
-                    isUsingGPUShadows = GPU;
                     
-                    // Regular Shadow Maps
-                    if (!GPU)
-                    {
-                        // Create Texture, Frame Buffer and Set the Texture as Attachment
-                        ShadowMapID = AssetManager::CreateTexture(TextureType::Texture,TextureDataType::R32F,ShadowWidthFBO,ShadowHeightFBO,false);
-                        ShadowMap = static_cast<Texture*> (AssetManager::GetAsset(ShadowMapID)->AssetPTR);
-                        ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
-                        ShadowMap->SetRepeat(TextureRepeat::Clamp,TextureRepeat::Clamp);
-                        shadowsFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0,TextureType::Texture,ShadowMap,RenderBufferType::Depth,ShadowWidthFBO,ShadowHeightFBO,true);
-                    }
                     // GPU Shadow Maps
-                    else {
-                       // Create Texture, Frame Buffer and Set the Texture as Attachment
-                       ShadowMapID = AssetManager::CreateTexture(TextureType::Texture,TextureDataType::DepthComponent,ShadowWidthFBO,ShadowHeightFBO,false);
-                       ShadowMap = static_cast<Texture*> (AssetManager::GetAsset(ShadowMapID)->AssetPTR);
-                       ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
-                       ShadowMap->SetRepeat(TextureRepeat::Clamp,TextureRepeat::Clamp);
-                       ShadowMap->EnableCompareMode();
-                       shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::Texture,ShadowMap,false);
-                    }
+                    // Create Texture, Frame Buffer and Set the Texture as Attachment
+                    ShadowMapID = AssetManager::CreateTexture(TextureType::Texture,TextureDataType::DepthComponent,ShadowWidthFBO,ShadowHeightFBO,false);
+                    ShadowMap = static_cast<Texture*> (AssetManager::GetAsset(ShadowMapID)->AssetPTR);
+                    ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+                    ShadowMap->SetRepeat(TextureRepeat::Clamp,TextureRepeat::Clamp);
+                    ShadowMap->EnableCompareMode();
+                    shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::Texture,ShadowMap,false);
+
                     // Near and Far Clip Planes
                     ShadowNear = Near;
                     ShadowFar = Far;
