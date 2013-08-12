@@ -89,13 +89,15 @@ namespace p3d {
         // Material Pre Render Function
         Material->PreRender();
         
-        ShadowMapsUnits.clear();
-        for (std::vector<Texture>::iterator i = ShadowMapsTextures.begin(); i!=ShadowMapsTextures.end(); i++)
-        {
-            (*i).Bind();
-            ShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
-        }
-        
+		if (Material->IsCastingShadows())
+		{
+			ShadowMapsUnits.clear();
+			for (std::vector<Texture>::iterator i = ShadowMapsTextures.begin(); i!=ShadowMapsTextures.end(); i++)
+			{
+				(*i).Bind();
+				ShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
+			}
+		}
         // ################### SHADERS #########################
 
         
@@ -254,11 +256,13 @@ namespace p3d {
         }
         
         // Shadows
-        for (std::vector<Texture>::reverse_iterator i = ShadowMapsTextures.rbegin(); i!=ShadowMapsTextures.rend(); i++)
-        {
-            (*i).Unbind();
-        }        
-        
+		if (Material->IsCastingShadows())
+		{
+			for (std::vector<Texture>::reverse_iterator i = ShadowMapsTextures.rbegin(); i!=ShadowMapsTextures.rend(); i++)
+			{
+				(*i).Unbind();
+			}        
+		}
         // Material AfterRender Function
         Material->AfterRender();
 

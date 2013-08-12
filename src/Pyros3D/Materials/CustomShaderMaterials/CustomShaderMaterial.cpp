@@ -11,7 +11,7 @@
 namespace p3d
 {
     
-    std::map<uint32, Shaders*> CustomShaderMaterial::ShadersList;    
+    std::map<uint32, Shaders*> CustomShaderMaterial::ShadersList;
     
     CustomShaderMaterial::CustomShaderMaterial(const std::string& vertexShaderFile, const std::string& fragmentShaderFile) : IMaterial()
     {
@@ -33,14 +33,17 @@ namespace p3d
         }
         
         // Save Shader Location
-        shaderID = number;
+		shaderID = number;
         
         // Add Counter
         ShadersList[number]->currentMaterials++;
         
         // Get Shader Program
         shaderProgram = ShadersList[number]->shaderProgram;
-        
+
+		f32 opacity = 1.0;
+        AddUniform(Uniform::Uniform("uOpacity",Uniform::DataType::Float,&opacity));
+        SetOpacity(opacity);
     }
     
     CustomShaderMaterial::~CustomShaderMaterial()

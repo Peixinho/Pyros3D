@@ -29,7 +29,7 @@ namespace p3d {
         
             const f32 &GetLightRadius() const { return Radius; }
             
-            void EnableCastShadows(const uint32 &Width, const uint32 &Height, const float &Near = 0.1f, bool GPU = true)
+            void EnableCastShadows(const uint32 &Width, const uint32 &Height, const float &Near = 0.1f)
             {
 
                 ShadowWidth = Width;
@@ -41,58 +41,23 @@ namespace p3d {
                 // Initiate FBO
                 shadowsFBO = new FrameBuffer();
 
-                // Set Flag
-                isUsingGPUShadows = GPU;
+                // GPU Shadows
+                // Create Texture (CubeMap), Frame Buffer and Set the Texture as Attachment
+                ShadowMapID = AssetManager::CreateTexture(TextureType::CubemapNegative_X,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
+                AssetManager::AddTexture(ShadowMapID,TextureType::CubemapNegative_Y,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
+                AssetManager::AddTexture(ShadowMapID,TextureType::CubemapNegative_Z,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
+                AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_X,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
+                AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_Y,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
+                AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_Z,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
 
-                // Regular Shadow Maps
-                if (!GPU)
-                {
-                    // Regular Shadows
-                    // Create Texture (CubeMap), Frame Buffer and Set the Texture as Attachment
-                    ShadowMapID = AssetManager::CreateTexture(TextureType::CubemapNegative_X,TextureDataType::RG32F,ShadowWidth,ShadowHeight,false);
-                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapNegative_Y,TextureDataType::RG32F,ShadowWidth,ShadowHeight,false);
-                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapNegative_Z,TextureDataType::RG32F,ShadowWidth,ShadowHeight,false);
-                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_X,TextureDataType::RG32F,ShadowWidth,ShadowHeight,false);
-                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_Y,TextureDataType::RG32F,ShadowWidth,ShadowHeight,false);
-                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_Z,TextureDataType::RG32F,ShadowWidth,ShadowHeight,false);
+                ShadowMap = static_cast<Texture*> (AssetManager::GetAsset(ShadowMapID)->AssetPTR);
+                ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+                ShadowMap->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
+                ShadowMap->EnableCompareMode();
 
-                    ShadowMap = static_cast<Texture*> (AssetManager::GetAsset(ShadowMapID)->AssetPTR);
-                    ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
-                    ShadowMap->SetRepeat(TextureRepeat::ClampToBorder,TextureRepeat::Clamp,TextureRepeat::Clamp);
+                // Initialize Frame Buffer
+                shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapNegative_X,ShadowMap,false);
 
-                    // Initialize Frame Buffer
-                    shadowsFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0,TextureType::CubemapNegative_X,ShadowMap,RenderBufferType::Color,ShadowWidth,ShadowHeight,true);
-//                    shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment,TextureType::CubemapNegative_Y,ShadowMap);
-//                    shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment,TextureType::CubemapNegative_Z,ShadowMap);
-//                    shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment,TextureType::CubemapPositive_X,ShadowMap);
-//                    shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment,TextureType::CubemapPositive_Y,ShadowMap);
-//                    shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment,TextureType::CubemapPositive_Z,ShadowMap);
-                }
-                 
-                else {
-                    // GPU Shadows
-                    // Create Texture (CubeMap), Frame Buffer and Set the Texture as Attachment
-                    ShadowMapID = AssetManager::CreateTexture(TextureType::CubemapNegative_X,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapNegative_Y,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapNegative_Z,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_X,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_Y,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-                    AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_Z,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-
-                    ShadowMap = static_cast<Texture*> (AssetManager::GetAsset(ShadowMapID)->AssetPTR);
-                    ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
-                    ShadowMap->SetRepeat(TextureRepeat::ClampToBorder,TextureRepeat::Clamp,TextureRepeat::Clamp);
-                    ShadowMap->EnableCompareMode();
-
-                    // Initialize Frame Buffer
-                    shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapNegative_X,ShadowMap,false);
-//                    shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapNegative_Y,ShadowMap);
-//                    shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapNegative_Z,ShadowMap);
-//                    shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_X,ShadowMap);
-//                    shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_Y,ShadowMap);
-//                    shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_Z,ShadowMap);
-                    
-                }
                 // Near and Far Clip Planes
                 ShadowNear = Near;
                 ShadowFar = Radius;

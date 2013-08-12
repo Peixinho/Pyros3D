@@ -24,8 +24,7 @@ namespace p3d
         
             CustomShaderMaterial(const std::string &vertexShaderFile, const std::string &fragmentShaderFile);
             virtual ~CustomShaderMaterial();
-        private:
-        
+
         protected:
             // Shaders List
             static std::map<uint32, Shaders*> ShadersList;

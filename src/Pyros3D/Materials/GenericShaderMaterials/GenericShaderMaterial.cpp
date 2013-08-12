@@ -70,14 +70,8 @@ namespace p3d
             AddUniform(Uniform::Uniform("uShadowmaps",Uniform::DataUsage::ShadowMap));
             AddUniform(Uniform::Uniform("uDepthsMVP",Uniform::DataUsage::ShadowMatrix));
             AddUniform(Uniform::Uniform("uShadowFar",Uniform::DataUsage::ShadowFar));
-        }
-        
-        if (options & ShaderUsage::ShadowMaterialGPU)
-        {
-            // Shadows
-            AddUniform(Uniform::Uniform("uShadowmaps",Uniform::DataUsage::ShadowMap));
-            AddUniform(Uniform::Uniform("uDepthsMVP",Uniform::DataUsage::ShadowMatrix));
-            AddUniform(Uniform::Uniform("uShadowFar",Uniform::DataUsage::ShadowFar));
+
+			isCastingShadows = true;
         }
         
         if (options & ShaderUsage::EnvMap)
