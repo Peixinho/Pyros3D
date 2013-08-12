@@ -19,7 +19,16 @@ namespace p3d {
         public:
             
             SpotLight() { Color = Vec4(1,1,1,1); Radius = 1.f; }
-            SpotLight(const Vec4 &color, const f32 &radius, const Vec3 &direction, const f32 &OutterCone, const f32 &InnerCone) { Color = color; Radius = radius; CosOutterCone = OutterCone; CosInnerCone=InnerCone; Direction = direction; }
+            SpotLight(const Vec4 &color, const f32 &radius, const Vec3 &direction, const f32 &OutterCone, const f32 &InnerCone) 
+            { 
+                Color = color;
+                Radius = radius;
+                innerCone = InnerCone;
+                outterCone = OutterCone;
+                CosOutterCone = 0.7;
+                CosInnerCone=0.2;
+                Direction = direction;
+            }
             virtual ~SpotLight() {}
 
             virtual void Start() {};
@@ -29,11 +38,40 @@ namespace p3d {
             const Vec3 &GetLightDirection() const { return Direction; }
             const f32 &GetLightCosInnerCone() const { return CosInnerCone; }
             const f32 &GetLightCosOutterCone() const { return CosOutterCone; }
+            const f32 &GetLightInnerCone() const { return innerCone; }
+            const f32 &GetLightOutterCone() const { return outterCone; }
             const f32 &GetLightRadius() const { return Radius; }
             
-            void EnableCastShadows(const uint32 &Width, const uint32 &Height)
+            Matrix GetLightProjection() { return ShadowProjection; }
+            
+            void EnableCastShadows(const uint32 &Width, const uint32 &Height, const f32 &Near = 0.1f)
             {
+                ShadowWidth = Width;
+                ShadowHeight = Height;
+
+                // Set Flag
+                isCastingShadows = true;
+
+                // Initiate FBO
+                shadowsFBO = new FrameBuffer();
                 
+                // GPU Shadows
+                ShadowMapID = AssetManager::CreateTexture(TextureType::Texture,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
+
+                ShadowMap = static_cast<Texture*> (AssetManager::GetAsset(ShadowMapID)->AssetPTR);
+                ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+                ShadowMap->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
+                ShadowMap->EnableCompareMode();
+
+                // Initialize Frame Buffer
+                shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::Texture,ShadowMap,false);
+
+                // Near and Far Clip Planes
+                ShadowNear = Near;
+                ShadowFar = Radius;
+                
+                // Create Projection Matrix
+                ShadowProjection = Matrix::PerspectiveMatrix(90.f, 1.0, ShadowNear, ShadowFar);
             }
             
         protected :
@@ -41,9 +79,11 @@ namespace p3d {
             // Light Direction
             Vec3 Direction;
             // Cone
-            f32 CosOutterCone, CosInnerCone; 
+            f32 outterCone, CosOutterCone, innerCone, CosInnerCone;
             // Attenuation
             f32 Radius;
+            // Shadow Projection
+            Matrix ShadowProjection;
 
     };
 

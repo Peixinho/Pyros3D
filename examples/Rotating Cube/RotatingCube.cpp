@@ -7,8 +7,6 @@
 //============================================================================
 
 #include "RotatingCube.h"
-#include "Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h"
-#include "Pyros3D/Rendering/Components/Rendering/RenderingComponent.h"
 
 using namespace p3d;
 
@@ -28,16 +26,15 @@ void RotatingCube::Init()
         Renderer = new ForwardRenderer(1024,768);
 
         // Projection
-        Projection = Matrix::PerspectiveMatrixRH(70.f,1024.f/768.f,1.f,100.f);
+        projection.Perspective(70.f,1024.f/768.f,1.f,100.f);
         
         // Create Camera
         Camera = new GameObject();
         Camera->SetPosition(Vec3(0,10,80));
         
-        
         // Create Game Object
         Cube = new GameObject();
-        cubeID = AssetManager::CreateCube(10,10,10);
+        cubeID = AssetManager::CreateCube(30,30,30);
         rCube = new RenderingComponent(cubeID);
         Cube->Add(rCube);
         
@@ -60,7 +57,7 @@ void RotatingCube::Update()
         Cube->SetRotation(Vec3(0,GetTime(),0));
 
         // Render Scene
-        Renderer->RenderScene(Projection,Camera,Scene);
+        Renderer->RenderScene(projection,Camera,Scene);
 
         // Info on Window
         // Should come in the End

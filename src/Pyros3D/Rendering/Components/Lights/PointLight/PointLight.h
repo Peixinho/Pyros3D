@@ -29,7 +29,7 @@ namespace p3d {
         
             const f32 &GetLightRadius() const { return Radius; }
             
-            void EnableCastShadows(const uint32 &Width, const uint32 &Height, const float &Near = 0.1f)
+            void EnableCastShadows(const uint32 &Width, const uint32 &Height, const f32 &Near = 0.1f)
             {
 
                 ShadowWidth = Width;

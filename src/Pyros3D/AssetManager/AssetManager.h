@@ -101,7 +101,7 @@ namespace p3d {
             // Renderables
             static uint32 LoadModel(const std::string &ModelPath, bool smooth = false);
             static uint32 CreateCube(const f32 &width, const f32 &height, const f32 &depth, bool smooth = false);
-            static uint32 CreateSphere(const f32 &radius, const uint32 &segmentsW, const uint32 &segmentsH, bool smooth = false, bool HalfSphere = false);
+            static uint32 CreateSphere(const f32 &radius, const uint32 &segmentsW = 16, const uint32 &segmentsH = 8, bool smooth = false, bool HalfSphere = false);
             static uint32 CreateCone(const f32 &radius, const f32 &height, const uint32 &segmentsW, const uint32 &segmentsH, const bool &openEnded, bool smooth = false);
             static uint32 CreateCylinder(const f32 &radius, const f32 &height, const uint32 &segmentsW, const uint32 &segmentsH, const bool &openEnded, bool smooth = false);
             static uint32 CreateCapsule(const f32 &radius, const f32 &height, const uint32 &numRings, const uint32 &segmentsW, const uint32 &segmentsH, bool smooth = false);

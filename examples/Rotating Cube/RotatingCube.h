@@ -14,6 +14,8 @@
 #include "Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h"
 #include "Pyros3D/Utils/Colors/Colors.h"
 #include "Pyros3D/Rendering/Components/Rendering/RenderingComponent.h"
+#include "Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h"
+#include "Pyros3D/Rendering/Components/Rendering/RenderingComponent.h"
 
 using namespace p3d;
 
@@ -34,7 +36,7 @@ class RotatingCube : public SFMLContext {
         // Renderer
         ForwardRenderer* Renderer;
         // Projection
-        Matrix Projection;
+        Projection projection;
         // Camera - Its a regular GameObject
         GameObject* Camera;
         // GameObject

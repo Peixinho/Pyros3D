@@ -39,11 +39,39 @@ namespace p3d {
     void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
     {
         
+        // Save Values for Cache
+        // Saves Scene
+        this->Scene = Scene;
+        
+        // Saves Camera
+        this->Camera = Camera;
+        this->CameraPosition = this->Camera->GetWorldPosition();
+        
+        // Saves Projection
+        this->projection = projection;
+        
+        // Universal Cache
+        ProjectionMatrix = projection.m;
+        NearFarPlane = Vec2(projection.Near, projection.Far);
+        
+        // View Matrix and Position
+        ViewMatrix = Camera->GetWorldTransformation().Inverse();
+        CameraPosition = Camera->GetWorldPosition();
+        
+        // Update Culling
+        UpdateCulling(ViewMatrix,projection);
+        
+        // Flags
+        ViewMatrixInverseIsDirty = true;
+        ProjectionMatrixInverseIsDirty = true;
+        ViewProjectionMatrixIsDirty = true;
+        
         // Get Rendering Components List
         std::vector<RenderingMesh*> rmesh = RenderingComponent::GetRenderingMeshes(Scene);
         
         // Get Lights List
         std::vector<IComponent*> lcomps = ILightComponent::GetComponentsOnScene(Scene);
+        
         
         // Prepare and Pack Lights to Send to Shaders
         Lights.clear();
@@ -64,9 +92,9 @@ namespace p3d {
                     Vec3 position;
                     Vec3 LDirection = d->GetOwner()->GetWorldPosition().normalize();
                     Vec4 direction = ViewMatrix * Vec4(LDirection.x,LDirection.y,LDirection.z,0.f);
-                    float attenuation = 1.f;
+                    f32 attenuation = 1.f;
                     Vec2 cones;
-                    int type = 1;
+                    int32 type = 1;
                     
                     Matrix directionalLight = Matrix();
                     directionalLight.m[0] = color.x;         directionalLight.m[1] = color.y;             directionalLight.m[2] = color.z;             directionalLight.m[3] = color.w;
@@ -95,6 +123,10 @@ namespace p3d {
                         // Enable Depth Bias
                         glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
                         glPolygonOffset (3.1f, 9.0f);
+                        
+                        // Save View and Projection Matrix for Usage after ShadowMapping
+                        Matrix _ViewMatrix = ViewMatrix;
+                        Matrix _ProjectionMatrix = ProjectionMatrix;
                         
                         ViewMatrix = d->GetLightViewMatrix();
                         
@@ -162,6 +194,10 @@ namespace p3d {
 
                         // Unbind FBO
                         d->GetShadowFBO()->UnBind();
+                        
+                        // Restore View and Projection Matrix
+                        ViewMatrix = _ViewMatrix;
+                        ProjectionMatrix = _ProjectionMatrix;
                     }
                     
                 } else if (PointLight* p = dynamic_cast<PointLight*>((*i))) {
@@ -170,9 +206,9 @@ namespace p3d {
                     Vec4 color = p->GetLightColor();
                     Vec3 position = ViewMatrix * (p->GetOwner()->GetWorldPosition());
                     Vec3 direction;
-                    float attenuation = p->GetLightRadius();
+                    f32 attenuation = p->GetLightRadius();
                     Vec2 cones;
-                    int type = 2;
+                    int32 type = 2;
                     
                     Matrix pointLight = Matrix();
                     pointLight.m[0] = color.x;       pointLight.m[1] = color.y;           pointLight.m[2] = color.z;           pointLight.m[3] = color.w;
@@ -194,6 +230,10 @@ namespace p3d {
                         p->GetShadowFBO()->Bind();
                         
                         ProjectionMatrix = p->GetLightProjection();
+                        
+                        // Save View and Projection Matrix for Usage after ShadowMapping
+                        Matrix _ViewMatrix = ViewMatrix;
+                        Matrix _ProjectionMatrix = ProjectionMatrix;
                         
                         // Get Lights Shadow Map Texture
                         for (uint32 i=0;i<6;i++)
@@ -218,12 +258,12 @@ namespace p3d {
                             // Translate Light View Matrix
                             ViewMatrix *= p->GetOwner()->GetWorldTransformation().Inverse();
 
-							// GPU Shadows
-							p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_X+i,p->GetShadowMapTexture());
-                                
-							// Clear Screen
-							ClearScreen(Buffer_Bit::Depth);
-							EnableDepthTest();
+                            // GPU Shadows
+                            p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_X+i,p->GetShadowMapTexture());
+
+                            // Clear Screen
+                            ClearScreen(Buffer_Bit::Depth);
+                            EnableDepthTest();
                             
                             // Enable Depth Bias
                             glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
@@ -239,8 +279,6 @@ namespace p3d {
                             // Render Scene with Objects Material
                             for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
                             {
-                                
-                                
                                 
                                 if ((*k)->renderingComponent->GetOwner()!=NULL)
                                 {
@@ -283,6 +321,10 @@ namespace p3d {
                         // Unbind FBO
                         p->GetShadowFBO()->UnBind();
 
+                        // Restore View and Projection Matrix
+                        ProjectionMatrix = _ProjectionMatrix;
+                        ViewMatrix = _ViewMatrix;
+                        
                     }
                     
                 } else if (SpotLight* s = dynamic_cast<SpotLight*>((*i))) {
@@ -290,11 +332,11 @@ namespace p3d {
                     // Spot Lights
                     Vec4 color = s->GetLightColor();
                     Vec3 position = ViewMatrix * (s->GetOwner()->GetWorldPosition());                   
-                    Vec3 LDirection = d->GetOwner()->GetWorldPosition().normalize();
+                    Vec3 LDirection = s->GetOwner()->GetWorldPosition().normalize();
                     Vec4 direction = ViewMatrix * Vec4(LDirection.x,LDirection.y,LDirection.z,0.f);
-                    float attenuation = s->GetLightRadius();
+                    f32 attenuation = s->GetLightRadius();
                     Vec2 cones = Vec2(s->GetLightCosInnerCone(),s->GetLightCosOutterCone());
-                    int type = 3;
+                    int32 type = 3;
                     
                     Matrix spotLight = Matrix();
                     spotLight.m[0] = color.x;        spotLight.m[1] = color.y;            spotLight.m[2] = color.z;            spotLight.m[3] = color.w;
@@ -306,39 +348,102 @@ namespace p3d {
                     
                     Lights.push_back(spotLight);
                     
+                    // Shadows
+                    if (s->IsCastingShadows())
+                    {
+                        
+                        // Save View and Projection Matrix for Usage after ShadowMapping
+                        Matrix _ViewMatrix = ViewMatrix;
+                        Matrix _ProjectionMatrix = ProjectionMatrix;
+                        
+                        // Increase Number of Shadows
+                        NumberOfShadows+=1;
+                        
+                        // Bind FBO
+                        s->GetShadowFBO()->Bind();
+                        
+                        ProjectionMatrix = s->GetLightProjection();
+
+                        // Clean View Matrix
+                        ViewMatrix.identity();
+
+                        // Create Light View Matrix For Rendering Each Face of the Cubemap
+                        ViewMatrix.LookAt(Vec3::ZERO, Vec3(1.0, 0.0, 0.0), Vec3(0.0,-1.0,0.0)); // +X
+
+                        // Translate Light View Matrix
+                        ViewMatrix *= s->GetOwner()->GetWorldTransformation().Inverse();
+
+                        // Clear Screen
+                        ClearScreen(Buffer_Bit::Depth);
+                        EnableDepthTest();
+
+                        // Enable Depth Bias
+                        glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
+                        glPolygonOffset (3.1f, 9.0f);
+
+                        // Set Viewport
+                        glViewport(0,0, s->GetShadowWidth(), s->GetShadowHeight());
+
+                        // Flags
+                        LastProgramUsed = -1;
+                        InternalDrawType = -1;
+
+                        // Render Scene with Objects Material
+                        for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
+                        {
+
+                            if ((*k)->renderingComponent->GetOwner()!=NULL)
+                            {
+                                // Culling Test
+                                bool cullingTest = false;
+                                switch((*k)->CullingGeometry)
+                                {
+                                    case CullingGeometry::Box:
+                                        cullingTest = CullingBoxTest(*k);
+                                        break;
+                                    case CullingGeometry::Sphere:
+                                    default:
+                                        cullingTest = CullingSphereTest(*k);
+                                        break;
+                                }
+                                if (cullingTest)
+                                    if ((*k)->renderingComponent->IsCastingShadows())
+                                        RenderObject((*k),shadowMaterial);
+                            }
+                        }
+                        
+                        // Set Light Projection
+                        ShadowMatrix.push_back(((s->GetLightProjection())));
+                        // Set Light View Matrix
+                        Matrix m;
+                        m.Translate(s->GetOwner()->GetWorldPosition().negate()/4.0);
+                        ShadowMatrix.push_back(m);
+                        
+                        // Get Texture (only 1)
+                        ShadowMapsTextures.push_back(*s->GetShadowMapTexture());
+                        
+                        // Unbind Material
+                        glUseProgram(0);
+                        
+                        // Disable Depth Bias
+                        glDisable(GL_POLYGON_OFFSET_FILL);
+                        
+                        
+                        // Unbind FBO
+                        s->GetShadowFBO()->UnBind();
+                        
+                        // Restore View and Projection Matrix
+                        ProjectionMatrix = _ProjectionMatrix;
+                        ViewMatrix = _ViewMatrix;
+
+                    }
+                    
                 }
             }
         }
         
         // Update Lights Position and Direction to ViewSpace
         NumberOfLights = Lights.size();
-        
-        // Save Values for Cache
-        // Saves Scene
-        this->Scene = Scene;
-        
-        // Saves Camera
-        this->Camera = Camera;
-        this->CameraPosition = this->Camera->GetWorldPosition();
-        
-        // Saves Projection
-        this->projection = projection;
-        
-        // Universal Cache
-        ProjectionMatrix = projection.m;
-        NearFarPlane = Vec2(projection.Near, projection.Far);
-        
-        // View Matrix and Position
-        ViewMatrix = Camera->GetWorldTransformation().Inverse();
-        CameraPosition = Camera->GetWorldPosition();
-        
-        // Update Culling
-        UpdateCulling(ViewMatrix,projection);
-        
-        // Flags
-        ViewMatrixInverseIsDirty = true;
-        ProjectionMatrixInverseIsDirty = true;
-        ViewProjectionMatrixIsDirty = true;
         
         // Group and Sort Meshes
         GroupAndSortAssets();
