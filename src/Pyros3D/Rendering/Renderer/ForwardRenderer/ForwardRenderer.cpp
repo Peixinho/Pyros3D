@@ -39,35 +39,8 @@ namespace p3d {
     void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
     {
         
-        // Save Values for Cache
-        // Saves Scene
-        this->Scene = Scene;
-        
-        // Saves Camera
-        this->Camera = Camera;
-        this->CameraPosition = this->Camera->GetWorldPosition();
-        
-        // Saves Projection
-        this->projection = projection;
-        
-        // Universal Cache
-        ProjectionMatrix = projection.m;
-        NearFarPlane = Vec2(projection.Near, projection.Far);
-        
-        // View Matrix and Position
-        ViewMatrix = Camera->GetWorldTransformation().Inverse();
-        CameraPosition = Camera->GetWorldPosition();
-        
-        // Update Culling
-        UpdateCulling(ViewMatrix,projection);
-        
         // Group and Sort Meshes
         GroupAndSortAssets();
-        
-        // Flags
-        ViewMatrixInverseIsDirty = true;
-        ProjectionMatrixInverseIsDirty = true;
-        ViewProjectionMatrixIsDirty = true;
         
         // Get Rendering Components List
         std::vector<RenderingMesh*> rmesh = RenderingComponent::GetRenderingMeshes(Scene);
@@ -127,10 +100,6 @@ namespace p3d {
                         glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
                         glPolygonOffset (3.1f, 9.0f);
                         
-                        // Save View and Projection Matrix for Usage after ShadowMapping
-                        Matrix _ViewMatrix = ViewMatrix;
-                        Matrix _ProjectionMatrix = ProjectionMatrix;
-                        
                         ViewMatrix = d->GetLightViewMatrix();
                         
                         // Get Lights Shadow Map Texture
@@ -146,6 +115,9 @@ namespace p3d {
                             LastProgramUsed = -1;
                             InternalDrawType = -1;
                             
+							// Update Culling
+							UpdateCulling(ViewMatrix,projection);
+
                             // Render Scene with Objects Material
                             for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
                             {
@@ -197,10 +169,7 @@ namespace p3d {
 
                         // Unbind FBO
                         d->GetShadowFBO()->UnBind();
-                        
-                        // Restore View and Projection Matrix
-                        ViewMatrix = _ViewMatrix;
-                        ProjectionMatrix = _ProjectionMatrix;
+
                     }
                     
                 } else if (PointLight* p = dynamic_cast<PointLight*>((*i))) {
@@ -234,10 +203,6 @@ namespace p3d {
                         
                         ProjectionMatrix = p->GetLightProjection();
                         
-                        // Save View and Projection Matrix for Usage after ShadowMapping
-                        Matrix _ViewMatrix = ViewMatrix;
-                        Matrix _ProjectionMatrix = ProjectionMatrix;
-                        
                         // Get Lights Shadow Map Texture
                         for (uint32 i=0;i<6;i++)
                         {
@@ -260,6 +225,9 @@ namespace p3d {
                             
                             // Translate Light View Matrix
                             ViewMatrix *= p->GetOwner()->GetWorldTransformation().Inverse();
+
+							// Update Culling
+							UpdateCulling(ViewMatrix,projection);
 
                             // GPU Shadows
                             p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_X+i,p->GetShadowMapTexture());
@@ -323,10 +291,6 @@ namespace p3d {
                         
                         // Unbind FBO
                         p->GetShadowFBO()->UnBind();
-
-                        // Restore View and Projection Matrix
-                        ProjectionMatrix = _ProjectionMatrix;
-                        ViewMatrix = _ViewMatrix;
                         
                     }
                     
@@ -355,10 +319,6 @@ namespace p3d {
                     if (s->IsCastingShadows())
                     {
                         
-                        // Save View and Projection Matrix for Usage after ShadowMapping
-                        Matrix _ViewMatrix = ViewMatrix;
-                        Matrix _ProjectionMatrix = ProjectionMatrix;
-                        
                         // Increase Number of Shadows
                         NumberOfShadows+=1;
                         
@@ -371,7 +331,10 @@ namespace p3d {
                         ViewMatrix.identity();
 
                         // Create Light View Matrix For Rendering the ShadowMap
-                        ViewMatrix.LookAt(s->GetOwner()->GetWorldPosition(),(s->GetOwner()->GetWorldPosition()+s->GetLightDirection()),Vec3(0,0,1));
+                        ViewMatrix.LookAt(s->GetOwner()->GetWorldPosition(),(s->GetOwner()->GetWorldPosition()+s->GetLightDirection()),Vec3(0,1,0));
+
+						// Update Culling
+						UpdateCulling(ViewMatrix,projection);
 
                         // Clear Screen
                         ClearScreen(Buffer_Bit::Depth);
@@ -412,12 +375,8 @@ namespace p3d {
                             }
                         }
                         
-                        // Set Light Projection
-                        ShadowMatrix.push_back(((s->GetLightProjection())));
-                        // Set Light View Matrix
-                        Matrix m;
-                        m.Translate(s->GetOwner()->GetWorldPosition().negate());
-                        ShadowMatrix.push_back(m);
+                        // Set Light Matrix
+                        ShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
                         
                         // Get Texture (only 1)
                         ShadowMapsTextures.push_back(*s->GetShadowMapTexture());
@@ -430,10 +389,6 @@ namespace p3d {
 
                         // Unbind FBO
                         s->GetShadowFBO()->UnBind();
-                        
-                        // Restore View and Projection Matrix
-                        ProjectionMatrix = _ProjectionMatrix;
-                        ViewMatrix = _ViewMatrix;
 
                     }
                     
@@ -441,6 +396,33 @@ namespace p3d {
             }
         }
         
+        // Save Values for Cache
+        // Saves Scene
+        this->Scene = Scene;
+        
+        // Saves Camera
+        this->Camera = Camera;
+        this->CameraPosition = this->Camera->GetWorldPosition();
+        
+        // Saves Projection
+        this->projection = projection;
+        
+        // Universal Cache
+        ProjectionMatrix = projection.m;
+        NearFarPlane = Vec2(projection.Near, projection.Far);
+        
+        // View Matrix and Position
+        ViewMatrix = Camera->GetWorldTransformation().Inverse();
+        CameraPosition = Camera->GetWorldPosition();
+        
+        // Update Culling
+		UpdateCulling(ViewMatrix,projection);
+
+        // Flags
+        ViewMatrixInverseIsDirty = true;
+        ProjectionMatrixInverseIsDirty = true;
+        ViewProjectionMatrixIsDirty = true;
+
         // Update Lights Position and Direction to ViewSpace
         NumberOfLights = Lights.size();
         
@@ -482,7 +464,6 @@ namespace p3d {
                         break;
                 }
                 if (cullingTest)
-                    //RenderObject((*i),(Material!=NULL?Material:(*i)->Material)); // If it had a material default defined like cast shadows
                     RenderObject((*i),(*i)->Material);
             }
         }

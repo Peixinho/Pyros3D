@@ -84,7 +84,8 @@ namespace p3d {
             float mouseX, mouseY;
             
             // Text
-            sf::Text Text;            
+            sf::Text Text;
+			sf::Font Font;
             
             // Fullscreen Modes
             std::vector<sf::VideoMode> modes;

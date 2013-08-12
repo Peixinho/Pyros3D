@@ -160,8 +160,14 @@ namespace p3d {
     // private
     void SFMLContext::DisplayInfo(const std::string& text, const Vec2& scale, const Vec4& color)
     {
+
+		Font = sf::Font();
+		Font.loadFromFile("font/verdana.ttf");
+		
+		Text = sf::Text(text,Font);
+		Text.setFont(Font);
+
         // Draw Text
-        Text = sf::Text(text);        
         Text.setColor(sf::Color(color.x*255,color.y*255,color.z*255));
         Text.scale(scale.x, scale.y);
         

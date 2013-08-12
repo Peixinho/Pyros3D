@@ -21,6 +21,8 @@
 
 namespace p3d {
 
+	using namespace Renderables;
+
     namespace TextureTransparency {
         enum {
             Opaque = 0,

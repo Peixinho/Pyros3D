@@ -131,7 +131,18 @@ namespace p3d
 //            fragmentShaderBody+="float result = shadowCube(uShadowmaps, vec4(position_ls.xyz, depth)).x;\n";
 //            fragmentShaderBody+="diffuse.xyz*=vec3(result+0.5);\n";
             
+            // Spot Lights
+
+			// Fragment Header
+            fragmentShaderHeader+="uniform sampler2DShadow uShadowmaps[4];\n";
+            fragmentShaderHeader+="uniform mat4 uDepthsMVP[4];\n";
+            fragmentShaderHeader+="uniform vec4 uShadowFar;\n";
             
+            // Fragment Body
+			fragmentShaderBody+="vec4 coords = uDepthsMVP[0] * vWorldPosition;\n";
+			fragmentShaderBody+="coords.xyz /= coords.w;\n";
+            fragmentShaderBody+="float visibility = shadow2D(uShadowmaps[0], coords.xyz).x;\n";
+            fragmentShaderBody+="diffuse.xyz*=vec3(visibility+0.5);\n";
         }
         if (option & ShaderUsage::CastShadows)
         {
@@ -499,6 +510,7 @@ namespace p3d
             fragmentShaderBody+="vec3 HalfVec = TangentMatrix * normalize(EyeVec + LightDir);\n";
             fragmentShaderBody+="vec3 LightVec = TangentMatrix * LightDir;\n";
             
+			fragmentShaderBody+="if (!gl_FrontFacing) Normal *= vec3(-1.0,-1.0,-1.0);\n";
             fragmentShaderBody+="float specularLight = 0.0;\n";
             fragmentShaderBody+="float diffuseLight = max(dot(LightVec,Normal),0.0);\n";
             fragmentShaderBody+="_intensity += max(dot(LightVec,Normal),0.0);\n";
