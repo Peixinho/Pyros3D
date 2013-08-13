@@ -60,7 +60,20 @@ namespace p3d {
             m[8] = xAxis.z;                  m[9] = yAxis.z;                      m[10] = zAxis.z;                  m[11] = 0;
             m[12] = xAxis.dotProduct(eye.negate());   m[13] = yAxis.dotProduct(eye.negate());       m[14] = zAxis.dotProduct(eye.negate());   m[15] = 1;
         }
-
+        void Matrix::LookAt(const Vec3 &eye, const Vec3 &center)
+        {
+            Vec3 dir = center - eye;
+            Vec3 up;
+            if (dir.y>0.99 || dir.y<-0.99)
+            {
+                up = Vec3(0,0,1);
+            } else 
+            {
+                up = Vec3(0,1,0);
+            }
+            LookAt(eye,center,up);
+        }
+        
         void Matrix::Translate(const f32 &x, const f32 &y, const f32 &z)
         {
             m[12] = x; m[13] = y; m[14] = z;

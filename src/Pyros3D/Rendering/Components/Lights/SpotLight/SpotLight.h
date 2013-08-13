@@ -13,22 +13,23 @@
 
 namespace p3d {
 
-        
     class SpotLight : public ILightComponent {
         
         public:
             
             SpotLight() { Color = Vec4(1,1,1,1); Radius = 1.f; }
+            
             SpotLight(const Vec4 &color, const f32 &radius, const Vec3 &direction, const f32 &OutterCone, const f32 &InnerCone) 
             { 
                 Color = color;
                 Radius = radius;
                 innerCone = InnerCone;
                 outterCone = OutterCone;
-                CosOutterCone = cosf(OutterCone);
-                CosInnerCone=cosf(InnerCone);
+                CosOutterCone = cosf(DEGTORAD(OutterCone));
+                CosInnerCone= cosf(DEGTORAD(InnerCone));
                 Direction = direction;
             }
+            
             virtual ~SpotLight() {}
 
             virtual void Start() {};
@@ -71,7 +72,7 @@ namespace p3d {
                 ShadowFar = Radius;
                 
                 // Create Projection Matrix
-                ShadowProjection = Matrix::PerspectiveMatrix(90.f, 1.0, ShadowNear, ShadowFar);
+                ShadowProjection = Matrix::PerspectiveMatrix(2*outterCone, 1.0, ShadowNear, ShadowFar);
             }
             
         protected :

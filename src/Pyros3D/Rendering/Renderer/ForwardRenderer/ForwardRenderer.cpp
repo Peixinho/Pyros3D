@@ -115,8 +115,8 @@ namespace p3d {
                             LastProgramUsed = -1;
                             InternalDrawType = -1;
                             
-							// Update Culling
-							UpdateCulling(ViewMatrix,projection);
+                            // Update Culling
+                            UpdateCulling(ViewMatrix,projection);
 
                             // Render Scene with Objects Material
                             for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
@@ -226,8 +226,8 @@ namespace p3d {
                             // Translate Light View Matrix
                             ViewMatrix *= p->GetOwner()->GetWorldTransformation().Inverse();
 
-							// Update Culling
-							UpdateCulling(ViewMatrix,projection);
+                            // Update Culling
+                            UpdateCulling(ViewMatrix,projection);
 
                             // GPU Shadows
                             p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_X+i,p->GetShadowMapTexture());
@@ -331,10 +331,10 @@ namespace p3d {
                         ViewMatrix.identity();
 
                         // Create Light View Matrix For Rendering the ShadowMap
-                        ViewMatrix.LookAt(s->GetOwner()->GetWorldPosition(),(s->GetOwner()->GetWorldPosition()+s->GetLightDirection()),Vec3(0,1,0));
+                        ViewMatrix.LookAt(s->GetOwner()->GetWorldPosition(),(s->GetOwner()->GetWorldPosition()+s->GetLightDirection()));
 
-						// Update Culling
-						UpdateCulling(ViewMatrix,projection);
+                        // Update Culling
+                        UpdateCulling(ViewMatrix,projection);
 
                         // Clear Screen
                         ClearScreen(Buffer_Bit::Depth);

@@ -82,6 +82,15 @@ namespace p3d
                 fragmentShaderHeader+="varying vec4 vWorldPosition;\n";
             }
             
+            // Fragment Header
+            fragmentShaderHeader+="uniform sampler2DShadow uShadowmaps[8];\n";
+            fragmentShaderHeader+="uniform mat4 uDepthsMVP[16];\n";
+            fragmentShaderHeader+="uniform vec4 uShadowFar;\n";
+            
+            
+            
+            
+            
 //            // Directional Lights
 //
 //            // PCF
@@ -96,11 +105,6 @@ namespace p3d
 //            fragmentShaderHeader+="shadow /= 16.0;\n";
 //            fragmentShaderHeader+="return shadow;\n";
 //            fragmentShaderHeader+="}\n";
-//
-//            // Fragment Header
-//            fragmentShaderHeader+="uniform sampler2DShadow uShadowmaps[4];\n";
-//            fragmentShaderHeader+="uniform mat4 uDepthsMVP[4];\n";
-//            fragmentShaderHeader+="uniform vec4 uShadowFar;\n";
 //            
 //            // Fragment Body
 //            fragmentShaderBody+="float visibility = 1.0;\n";
@@ -110,16 +114,11 @@ namespace p3d
 //            fragmentShaderBody+="else if (gl_FragCoord.z<uShadowFar.z) visibility = ShadowValue( uShadowmaps[0], 0.0, 0.5, uDepthsMVP[2],0.0001,vWorldPosition, MoreThanOneCascade);\n";
 //            fragmentShaderBody+="else if (gl_FragCoord.z<uShadowFar.w) visibility = ShadowValue( uShadowmaps[0], 0.5,0.5, uDepthsMVP[3],0.0001,vWorldPosition, MoreThanOneCascade);\n";
 //            fragmentShaderBody+="diffuse.xyz*=vec3(visibility+0.5);\n";
-            
-//            // Point Lights
 //            
-//            // Vertex Header
-//            vertexShaderHeader+="#extension GL_EXT_gpu_shader4 : require\n";
+//            // Point Lights
 //            
 //            // Fragment Header
 //            fragmentShaderHeader+="#extension GL_EXT_gpu_shader4 : require\n";
-//            fragmentShaderHeader+="uniform samplerCubeShadow uShadowmaps;\n";
-//            fragmentShaderHeader+="uniform mat4 uDepthsMVP[4];\n";
 //            
 //            // shadow map test
 //            fragmentShaderBody+="vec4 position_ls = uDepthsMVP[1] * vWorldPosition;\n";
@@ -132,15 +131,10 @@ namespace p3d
 //            fragmentShaderBody+="diffuse.xyz*=vec3(result+0.5);\n";
             
             // Spot Lights
-
-			// Fragment Header
-            fragmentShaderHeader+="uniform sampler2DShadow uShadowmaps[4];\n";
-            fragmentShaderHeader+="uniform mat4 uDepthsMVP[4];\n";
-            fragmentShaderHeader+="uniform vec4 uShadowFar;\n";
             
             // Fragment Body
-			fragmentShaderBody+="vec4 coords = uDepthsMVP[0] * vWorldPosition;\n";
-			fragmentShaderBody+="coords.xyz /= coords.w;\n";
+            fragmentShaderBody+="vec4 coords = uDepthsMVP[0] * vWorldPosition;\n";
+            fragmentShaderBody+="coords.xyz /= coords.w;\n";
             fragmentShaderBody+="float visibility = shadow2D(uShadowmaps[0], coords.xyz).x;\n";
             fragmentShaderBody+="diffuse.xyz*=vec3(visibility+0.5);\n";
         }
@@ -443,9 +437,13 @@ namespace p3d
             // SpotLight Cones
             fragmentShaderHeader+="float DualConeSpotLight(vec3 Vertex, vec3 SpotLightPosition, vec3 SpotLightDirection, float cosOutterCone, float cosInnerCone)\n";
             fragmentShaderHeader+="{\n";
-            fragmentShaderHeader+="vec3 LightDir = normalize(SpotLightPosition-Vertex);\n";
-            fragmentShaderHeader+="float cosDirection = dot(-LightDir, normalize(SpotLightDirection));\n";
-            fragmentShaderHeader+="return smoothstep(cosOutterCone, cosInnerCone, cosDirection);\n";
+            fragmentShaderHeader+="vec3 to_light = normalize(SpotLightPosition-Vertex);\n";
+            fragmentShaderHeader+="float cosCurAngle = dot(-to_light, normalize(SpotLightDirection));\n";
+            fragmentShaderHeader+="float cosInnerMinusOutterAngle = cosInnerCone - cosOutterCone;\n";
+            fragmentShaderHeader+="if (cosCurAngle>cosInnerCone) return 1.0;\n";
+            fragmentShaderHeader+="else if( cosCurAngle > cosOutterCone ) {\n";
+            fragmentShaderHeader+="return ((cosCurAngle - cosOutterCone) / cosInnerMinusOutterAngle);\n";
+            fragmentShaderHeader+="}\n";
             fragmentShaderHeader+="}\n";
             
             // Uniforms
@@ -510,7 +508,7 @@ namespace p3d
             fragmentShaderBody+="vec3 HalfVec = TangentMatrix * normalize(EyeVec + LightDir);\n";
             fragmentShaderBody+="vec3 LightVec = TangentMatrix * LightDir;\n";
             
-			fragmentShaderBody+="if (!gl_FrontFacing) Normal *= vec3(-1.0,-1.0,-1.0);\n";
+            fragmentShaderBody+="if (!gl_FrontFacing) Normal *= vec3(-1.0,-1.0,-1.0);\n";
             fragmentShaderBody+="float specularLight = 0.0;\n";
             fragmentShaderBody+="float diffuseLight = max(dot(LightVec,Normal),0.0);\n";
             fragmentShaderBody+="_intensity += max(dot(LightVec,Normal),0.0);\n";
@@ -529,7 +527,6 @@ namespace p3d
                 fragmentShaderBody+="_diffuse += LightColor * diffuseLight * attenuation * spotEffect;\n";
                 fragmentShaderBody+="_specular += LightColor * specularLight * attenuation * spotEffect;\n";
                 fragmentShaderBody+="finalColor.xyz += vec3((diffuse * (_diffuse * uKd)) + (specular *(_specular * uKs)));\n";
-                //                fragmentShaderBody+="finalColor.xyz = vec3(Normal);\n";
             }
             fragmentShaderBody+="}\n";
             fragmentShaderBody+="}\n";
@@ -547,7 +544,7 @@ namespace p3d
         
         shader->vertexShader->loadShaderText(vertex);
         shader->fragmentShader->loadShaderText(fragment);
-		
+        
         shader->vertexShader->compileShader(&shader->shaderProgram);
         shader->fragmentShader->compileShader(&shader->shaderProgram);
     }

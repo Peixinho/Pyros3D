@@ -37,6 +37,7 @@ namespace p3d {
                 Matrix(const f32 n11,const f32 n21,const f32 n31,const f32 n41,const f32 n12,const f32 n22,const f32 n32,const f32 n42,const f32 n13,const f32 n23,const f32 n33,const f32 n43,const f32 n14,const f32 n24,const f32 n34,const f32 n44);
                 void identity();
                 void LookAt(const Vec3 &eye, const Vec3 &center, const Vec3 &up);
+                void LookAt(const Vec3 &eye, const Vec3 &center);
                 void Translate(const f32 &x, const f32 &y, const f32 &z);
                 void Translate(const Vec3 &xyz);
                 void TranslateX(const f32 &x);
