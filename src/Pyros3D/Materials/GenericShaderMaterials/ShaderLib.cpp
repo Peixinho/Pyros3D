@@ -438,12 +438,10 @@ namespace p3d
             fragmentShaderHeader+="float DualConeSpotLight(vec3 Vertex, vec3 SpotLightPosition, vec3 SpotLightDirection, float cosOutterCone, float cosInnerCone)\n";
             fragmentShaderHeader+="{\n";
             fragmentShaderHeader+="vec3 to_light = normalize(SpotLightPosition-Vertex);\n";
-            fragmentShaderHeader+="float cosCurAngle = dot(-to_light, normalize(SpotLightDirection));\n";
-            fragmentShaderHeader+="float cosInnerMinusOutterAngle = cosInnerCone - cosOutterCone;\n";
-            fragmentShaderHeader+="if (cosCurAngle>cosInnerCone) return 1.0;\n";
-            fragmentShaderHeader+="else if( cosCurAngle > cosOutterCone ) {\n";
-            fragmentShaderHeader+="return ((cosCurAngle - cosOutterCone) / cosInnerMinusOutterAngle);\n";
-            fragmentShaderHeader+="}\n";
+            fragmentShaderHeader+="float angle = dot(to_light, normalize(SpotLightDirection));\n";
+            fragmentShaderHeader+="float funcX = 1.0/(cosInnerCone-cosOutterCone);\n";
+            fragmentShaderHeader+="float funcY = funcX * cosOutterCone;\n";
+            fragmentShaderHeader+="return saturate(angle*funcX+funcY);\n";
             fragmentShaderHeader+="}\n";
             
             // Uniforms
