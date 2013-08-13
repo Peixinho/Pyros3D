@@ -441,7 +441,7 @@ namespace p3d
             fragmentShaderHeader+="float angle = dot(to_light, normalize(SpotLightDirection));\n";
             fragmentShaderHeader+="float funcX = 1.0/(cosInnerCone-cosOutterCone);\n";
             fragmentShaderHeader+="float funcY = funcX * cosOutterCone;\n";
-            fragmentShaderHeader+="return saturate(angle*funcX+funcY);\n";
+            fragmentShaderHeader+="return clamp(angle*funcX+funcY,0.0,1.0);\n";
             fragmentShaderHeader+="}\n";
             
             // Uniforms
