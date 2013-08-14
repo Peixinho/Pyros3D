@@ -88,7 +88,7 @@ namespace p3d
             fragmentShaderHeader+="uniform vec4 uShadowFar;\n";
             
             
-            fragmentShaderHeader+="float shadowSampleUsage = 0;\n";
+            fragmentShaderHeader+="float shadowSampleUsage = 0.0;\n";
             
             
 //            // Directional Lights
