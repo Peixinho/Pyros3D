@@ -88,9 +88,7 @@ namespace p3d {
                 {
                     for (uint32 i=0;i<geometry->tNormal.size();i++)
                     {
-                        std::cout << geometry->tNormal[i].toString() << std::endl;
                         geometry->tNormal[i].negateSelf();
-                        std::cout << geometry->tNormal[i].toString() << std::endl;
                     }
                 }
                 

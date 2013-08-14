@@ -72,15 +72,15 @@ namespace p3d {
                 }
                 rmesh->ShadersAttributesCache[materialID].push_back(attribs);
             }
-            for (std::list<Uniform::Uniform>::iterator k = rmesh->Material->GlobalUniforms.begin();k!=rmesh->Material->GlobalUniforms.end();k++) 
+            for (std::list<Uniform::Uniform>::iterator k = Material->GlobalUniforms.begin();k!=Material->GlobalUniforms.end();k++) 
             {
                 rmesh->ShadersGlobalCache[materialID].push_back(-2);
             }
-            for (std::list<Uniform::Uniform>::iterator k = rmesh->Material->ModelUniforms.begin();k!=rmesh->Material->ModelUniforms.end();k++) 
+            for (std::list<Uniform::Uniform>::iterator k = Material->ModelUniforms.begin();k!=Material->ModelUniforms.end();k++) 
             {
                 rmesh->ShadersModelCache[materialID].push_back(-2);
             }
-            for (std::map<StringID,Uniform::Uniform>::iterator k = rmesh->Material->UserUniforms.begin();k!=rmesh->Material->UserUniforms.end();k++) 
+            for (std::map<StringID,Uniform::Uniform>::iterator k = Material->UserUniforms.begin();k!=Material->UserUniforms.end();k++) 
             {
                 rmesh->ShadersUserCache[materialID].push_back(-2);
             }
@@ -120,9 +120,9 @@ namespace p3d {
             // #################################################
 
             // Check if Material is DoubleSided
-            if (rmesh->Material->GetCullFace() != cullFace)
+            if (Material->GetCullFace() != cullFace)
             {
-                switch(rmesh->Material->GetCullFace())
+                switch(Material->GetCullFace())
                 {
                     case CullFace::FrontFace:
                         glEnable(GL_CULL_FACE);
@@ -137,11 +137,11 @@ namespace p3d {
                         glCullFace(GL_BACK);
                         break;
                 }
-                cullFace = rmesh->Material->GetCullFace();
+                cullFace = Material->GetCullFace();
             }
             
             // Check if Material is WireFrame
-            if (rmesh->Material->IsWireFrame()==true)
+            if (Material->IsWireFrame()==true)
             {
                 glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
             } else {
@@ -181,7 +181,7 @@ namespace p3d {
         InternalDrawType = rmesh->GetDrawingType();
         
         // Material On Render Function
-        rmesh->Material->Render();
+        Material->Render();
 
         // #################### ATTRIBUTES #####################
 

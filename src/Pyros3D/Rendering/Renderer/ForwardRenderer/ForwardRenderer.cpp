@@ -391,11 +391,10 @@ namespace p3d {
                         s->GetShadowFBO()->UnBind();
 
                     }
-                    
                 }
             }
         }
-        
+
         // Save Values for Cache
         // Saves Scene
         this->Scene = Scene;
