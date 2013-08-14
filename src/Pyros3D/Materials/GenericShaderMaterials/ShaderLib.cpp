@@ -443,7 +443,7 @@ namespace p3d
             fragmentShaderHeader+="float funcY = funcX * cosOutterCone;\n";
             fragmentShaderHeader+="return clamp(angle*funcX+funcY,0.0,1.0);\n";
             fragmentShaderHeader+="}\n";
-            
+              
             // Uniforms
             fragmentShaderHeader+="uniform mat4 uLights[MAX_LIGHTS];\n";
             fragmentShaderHeader+="uniform int uNumberOfLights;\n";
