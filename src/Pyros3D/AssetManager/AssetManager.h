@@ -102,14 +102,14 @@ namespace p3d {
             
             // Renderables
             static uint32 LoadModel(const std::string &ModelPath, bool smooth = false);
-            static uint32 CreateCube(const f32 &width, const f32 &height, const f32 &depth, bool smooth = false);
-            static uint32 CreateSphere(const f32 &radius, const uint32 &segmentsW = 16, const uint32 &segmentsH = 8, bool smooth = false, bool HalfSphere = false);
-            static uint32 CreateCone(const f32 &radius, const f32 &height, const uint32 &segmentsW, const uint32 &segmentsH, const bool &openEnded, bool smooth = false);
-            static uint32 CreateCylinder(const f32 &radius, const f32 &height, const uint32 &segmentsW, const uint32 &segmentsH, const bool &openEnded, bool smooth = false);
-            static uint32 CreateCapsule(const f32 &radius, const f32 &height, const uint32 &numRings, const uint32 &segmentsW, const uint32 &segmentsH, bool smooth = false);
-            static uint32 CreateTorus(const f32 &radius, const f32 &tube, const uint32 &segmentsW = 60, const uint32 segmentsH = 6, bool smooth = false);
-            static uint32 CreateTorusKnot(const f32 &radius, const f32 &tube, const uint32 &segmentsW = 60, const uint32 &segmentsH = 6, const f32 &p = 2, const f32 &q = 3, const uint32 &heightscale = 1, bool smooth = false);
-            static uint32 CreatePlane(const f32 &width, const f32 &height, bool smooth = false);
+            static uint32 CreateCube(const f32 &width, const f32 &height, const f32 &depth, bool smooth = false, bool flip = false);
+            static uint32 CreateSphere(const f32 &radius, const uint32 &segmentsW = 16, const uint32 &segmentsH = 8, bool smooth = false, bool HalfSphere = false, bool flip = false);
+            static uint32 CreateCone(const f32 &radius, const f32 &height, const uint32 &segmentsW, const uint32 &segmentsH, const bool &openEnded, bool smooth = false, bool flip = false);
+            static uint32 CreateCylinder(const f32 &radius, const f32 &height, const uint32 &segmentsW, const uint32 &segmentsH, const bool &openEnded, bool smooth = false, bool flip = false);
+            static uint32 CreateCapsule(const f32 &radius, const f32 &height, const uint32 &numRings, const uint32 &segmentsW, const uint32 &segmentsH, bool smooth = false, bool flip = false);
+            static uint32 CreateTorus(const f32 &radius, const f32 &tube, const uint32 &segmentsW = 60, const uint32 segmentsH = 6, bool smooth = false, bool flip = false);
+            static uint32 CreateTorusKnot(const f32 &radius, const f32 &tube, const uint32 &segmentsW = 60, const uint32 &segmentsH = 6, const f32 &p = 2, const f32 &q = 3, const uint32 &heightscale = 1, bool smooth = false, bool flip = false);
+            static uint32 CreatePlane(const f32 &width, const f32 &height, bool smooth = false, bool flip = false);
             static uint32 CreateCustom(Renderables::Renderable* Custom);
             static Asset* GetAsset(const uint32 &Handle);
             static void DeleteAsset(const uint32 &Handle);

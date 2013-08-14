@@ -40,74 +40,74 @@ namespace p3d {
         
         return AssetsCount;
     }
-    uint32 AssetManager::CreateCube(const f32& width, const f32& height, const f32& depth, bool smooth)
+    uint32 AssetManager::CreateCube(const f32& width, const f32& height, const f32& depth, bool smooth, bool flip)
     {
         AssetsCount++;
         AssetsList[AssetsCount] = new Asset();
-        AssetsList[AssetsCount]->AssetPTR = new Cube(width,height,depth,smooth);
+        AssetsList[AssetsCount]->AssetPTR = new Cube(width,height,depth,smooth,flip);
         AssetsList[AssetsCount]->Using = 0;
         
         return AssetsCount;
     }
-    uint32 AssetManager::CreateCapsule(const f32& radius, const f32& height, const uint32& numRings, const uint32& segmentsW, const uint32& segmentsH, bool smooth)
+    uint32 AssetManager::CreateCapsule(const f32& radius, const f32& height, const uint32& numRings, const uint32& segmentsW, const uint32& segmentsH, bool smooth, bool flip)
     {
         AssetsCount++;
         AssetsList[AssetsCount] = new Asset();
-        AssetsList[AssetsCount]->AssetPTR = new Capsule(radius,height,numRings,segmentsW,segmentsH,smooth);
+        AssetsList[AssetsCount]->AssetPTR = new Capsule(radius,height,numRings,segmentsW,segmentsH,smooth,flip);
         AssetsList[AssetsCount]->Using = 0;
         
         return AssetsCount;
     }
-    uint32 AssetManager::CreateCone(const f32& radius, const f32& height, const uint32& segmentsW, const uint32& segmentsH, const bool& openEnded, bool smooth)
+    uint32 AssetManager::CreateCone(const f32& radius, const f32& height, const uint32& segmentsW, const uint32& segmentsH, const bool& openEnded, bool smooth, bool flip)
     {
         AssetsCount++;
         AssetsList[AssetsCount] = new Asset();
-        AssetsList[AssetsCount]->AssetPTR = new Cone(radius,height,segmentsW,segmentsH,openEnded,smooth);
+        AssetsList[AssetsCount]->AssetPTR = new Cone(radius,height,segmentsW,segmentsH,openEnded,smooth,flip);
         AssetsList[AssetsCount]->Using = 0;
         
         return AssetsCount;
     }
-    uint32 AssetManager::CreateCylinder(const f32& radius, const f32& height, const uint32& segmentsW, const uint32& segmentsH, const bool& openEnded, bool smooth)
+    uint32 AssetManager::CreateCylinder(const f32& radius, const f32& height, const uint32& segmentsW, const uint32& segmentsH, const bool& openEnded, bool smooth,bool flip)
     {
         AssetsCount++;
         AssetsList[AssetsCount] = new Asset();
-        AssetsList[AssetsCount]->AssetPTR = new Cylinder(radius,height,segmentsW,segmentsH,openEnded,smooth);
+        AssetsList[AssetsCount]->AssetPTR = new Cylinder(radius,height,segmentsW,segmentsH,openEnded,smooth,flip);
         AssetsList[AssetsCount]->Using = 0;
         
         return AssetsCount;
     }
-    uint32 AssetManager::CreateSphere(const f32& radius, const uint32& segmentsW, const uint32& segmentsH, bool smooth, bool HalfSphere)
+    uint32 AssetManager::CreateSphere(const f32& radius, const uint32& segmentsW, const uint32& segmentsH, bool smooth, bool HalfSphere,bool flip)
     {
         AssetsCount++;
         AssetsList[AssetsCount] = new Asset();
-        AssetsList[AssetsCount]->AssetPTR = new Sphere(radius,segmentsW,segmentsH,smooth,HalfSphere);
+        AssetsList[AssetsCount]->AssetPTR = new Sphere(radius,segmentsW,segmentsH,smooth,HalfSphere,flip);
         AssetsList[AssetsCount]->Using = 0;
         
         return AssetsCount;
     }
-    uint32 AssetManager::CreateTorus(const f32& radius, const f32& tube, const uint32& segmentsW, const uint32 segmentsH, bool smooth)
+    uint32 AssetManager::CreateTorus(const f32& radius, const f32& tube, const uint32& segmentsW, const uint32 segmentsH, bool smooth,bool flip)
     {
         AssetsCount++;
         AssetsList[AssetsCount] = new Asset();
-        AssetsList[AssetsCount]->AssetPTR = new Torus(radius,tube,segmentsW,segmentsH,smooth);
+        AssetsList[AssetsCount]->AssetPTR = new Torus(radius,tube,segmentsW,segmentsH,smooth,flip);
         AssetsList[AssetsCount]->Using = 0;
         
         return AssetsCount;
     }
-    uint32 AssetManager::CreateTorusKnot(const f32& radius, const f32& tube, const uint32& segmentsW, const uint32& segmentsH, const f32& p, const f32& q, const uint32& heightscale, bool smooth)
+    uint32 AssetManager::CreateTorusKnot(const f32& radius, const f32& tube, const uint32& segmentsW, const uint32& segmentsH, const f32& p, const f32& q, const uint32& heightscale, bool smooth,bool flip)
     {
         AssetsCount++;
         AssetsList[AssetsCount] = new Asset();
-        AssetsList[AssetsCount]->AssetPTR = new TorusKnot(radius,tube,segmentsW,segmentsH,p,q,heightscale,smooth);
+        AssetsList[AssetsCount]->AssetPTR = new TorusKnot(radius,tube,segmentsW,segmentsH,p,q,heightscale,smooth,flip);
         AssetsList[AssetsCount]->Using = 0;
         
         return AssetsCount;
     }
-    uint32 AssetManager::CreatePlane(const f32& width, const f32& height, bool smooth)
+    uint32 AssetManager::CreatePlane(const f32& width, const f32& height, bool smooth,bool flip)
     {
         AssetsCount++;
         AssetsList[AssetsCount] = new Asset();
-        AssetsList[AssetsCount]->AssetPTR = new Plane(width,height,smooth);
+        AssetsList[AssetsCount]->AssetPTR = new Plane(width,height,smooth,flip);
         AssetsList[AssetsCount]->Using = 0;
         
         return AssetsCount;

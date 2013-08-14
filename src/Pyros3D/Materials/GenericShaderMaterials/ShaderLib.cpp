@@ -88,7 +88,7 @@ namespace p3d
             fragmentShaderHeader+="uniform vec4 uShadowFar;\n";
             
             
-            
+            fragmentShaderHeader+="float shadowSampleUsage = 0;\n";
             
             
 //            // Directional Lights
@@ -438,9 +438,9 @@ namespace p3d
             fragmentShaderHeader+="float DualConeSpotLight(vec3 Vertex, vec3 SpotLightPosition, vec3 SpotLightDirection, float cosOutterCone, float cosInnerCone)\n";
             fragmentShaderHeader+="{\n";
             fragmentShaderHeader+="vec3 to_light = normalize(SpotLightPosition-Vertex);\n";
-            fragmentShaderHeader+="float angle = dot(to_light, normalize(SpotLightDirection));\n";
+            fragmentShaderHeader+="float angle = dot(-to_light, normalize(SpotLightDirection));\n";
             fragmentShaderHeader+="float funcX = 1.0/(cosInnerCone-cosOutterCone);\n";
-            fragmentShaderHeader+="float funcY = funcX * cosOutterCone;\n";
+            fragmentShaderHeader+="float funcY = -funcX * cosOutterCone;\n";
             fragmentShaderHeader+="return clamp(angle*funcX+funcY,0.0,1.0);\n";
             fragmentShaderHeader+="}\n";
               
@@ -499,14 +499,13 @@ namespace p3d
             fragmentShaderBody+="LightDir = normalize(L.Position - Vertex);\n";
             fragmentShaderBody+="LightColor = L.Color;\n";
             fragmentShaderBody+="attenuation = Attenuation(Vertex, L.Position, L.Radius);\n";
-            fragmentShaderBody+="spotEffect = DualConeSpotLight(Vertex, L.Position, L.Direction, L.Cones.x, L.Cones.y);\n";
+            fragmentShaderBody+="spotEffect = 1.0 - DualConeSpotLight(Vertex, L.Position, L.Direction, L.Cones.x, L.Cones.y);\n";
             fragmentShaderBody+="}\n";
             
             fragmentShaderBody+="Vertex = normalize(Vertex);\n";
             fragmentShaderBody+="vec3 HalfVec = TangentMatrix * normalize(EyeVec + LightDir);\n";
             fragmentShaderBody+="vec3 LightVec = TangentMatrix * LightDir;\n";
             
-            fragmentShaderBody+="if (!gl_FrontFacing) Normal *= vec3(-1.0,-1.0,-1.0);\n";
             fragmentShaderBody+="float specularLight = 0.0;\n";
             fragmentShaderBody+="float diffuseLight = max(dot(LightVec,Normal),0.0);\n";
             fragmentShaderBody+="_intensity += max(dot(LightVec,Normal),0.0);\n";

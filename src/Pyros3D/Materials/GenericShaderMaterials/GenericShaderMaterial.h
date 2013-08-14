@@ -35,7 +35,12 @@ namespace p3d
             void SetRefractMap(const Texture &refractmap);
             void SetSkyboxMap(const Texture &skyboxmap);
             // Lights
-            void ChangeLightingProperties(const Vec4 &Ke, const Vec4 &Ka, const Vec4 &Kd, const Vec4 &Ks, const f32 &shininess);
+            void SetLightingProperties(const Vec4 &Ke, const Vec4 &Ka, const Vec4 &Kd, const Vec4 &Ks, const f32 &shininess);
+            void SetKe(const Vec4 &Ke);
+            void SetKa(const Vec4 &Ka);
+            void SetKd(const Vec4 &Kd);
+            void SetKs(const Vec4 &Ks);
+            void SetShininess(const f32 &shininess);
 
             // Render
             virtual void PreRender();

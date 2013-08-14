@@ -77,10 +77,14 @@ namespace p3d {
             x/=m, y/=m, z/=m;
         }
 
+        void Vec3::negateSelf()
+        {
+            x*=-1.f;y*=-1.f;z*=-1.f;
+        }
         Vec3 Vec3::negate() const
         {
             return Vec3(-x,-y,-z);
-        }
+        }        
 
         Vec3 Vec3::operator+(const Vec3 &v) const
         {

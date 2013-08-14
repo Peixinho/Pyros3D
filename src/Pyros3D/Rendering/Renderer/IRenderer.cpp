@@ -89,15 +89,15 @@ namespace p3d {
         // Material Pre Render Function
         Material->PreRender();
         
-		if (Material->IsCastingShadows())
-		{
-			ShadowMapsUnits.clear();
-			for (std::vector<Texture>::iterator i = ShadowMapsTextures.begin(); i!=ShadowMapsTextures.end(); i++)
-			{
-				(*i).Bind();
-				ShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
-			}
-		}
+        if (Material->IsCastingShadows())
+        {
+            ShadowMapsUnits.clear();
+            for (std::vector<Texture>::iterator i = ShadowMapsTextures.begin(); i!=ShadowMapsTextures.end(); i++)
+            {
+                (*i).Bind();
+                ShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
+            }
+        }
         // ################### SHADERS #########################
 
         
@@ -219,12 +219,13 @@ namespace p3d {
                     if (rmesh->ShadersAttributesCache[materialID][counterBuffers][counter]>=0)
                     {
                         glVertexAttribPointer(
-                                rmesh->ShadersAttributesCache[materialID][counterBuffers][counter],
-                                Buffer::Attribute::GetTypeCount((*l)->Type),
-                                Buffer::Attribute::GetType((*l)->Type),
-                                GL_FALSE,
-                                (*k)->attributeSize,
-                                BUFFER_OFFSET((*l)->Offset));
+                                                rmesh->ShadersAttributesCache[materialID][counterBuffers][counter],
+                                                Buffer::Attribute::GetTypeCount((*l)->Type),
+                                                Buffer::Attribute::GetType((*l)->Type),
+                                                GL_FALSE,
+                                                (*k)->attributeSize,
+                                                BUFFER_OFFSET((*l)->Offset)
+                                            );
 
                         // Enable Attribute
                         glEnableVertexAttribArray(rmesh->ShadersAttributesCache[materialID][counterBuffers][counter]);
@@ -256,13 +257,13 @@ namespace p3d {
         }
         
         // Shadows
-		if (Material->IsCastingShadows())
-		{
-			for (std::vector<Texture>::reverse_iterator i = ShadowMapsTextures.rbegin(); i!=ShadowMapsTextures.rend(); i++)
-			{
-				(*i).Unbind();
-			}        
-		}
+        if (Material->IsCastingShadows())
+        {
+            for (std::vector<Texture>::reverse_iterator i = ShadowMapsTextures.rbegin(); i!=ShadowMapsTextures.rend(); i++)
+            {
+                (*i).Unbind();
+            }
+        }
         // Material AfterRender Function
         Material->AfterRender();
 
@@ -568,7 +569,7 @@ namespace p3d {
 //                    {
 //                        Shader::SendUniform((*k),&sub->SkinningBones[0],sub->SkinningBones.size());
 //                    }                        
-                    break;                    
+                    break;
                 }
             }
             counter++;

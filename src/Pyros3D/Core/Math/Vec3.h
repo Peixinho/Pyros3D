@@ -38,6 +38,7 @@ namespace p3d {
                 Vec3 normalize() const;
                 void normalizeSelf();
                 Vec3 negate() const;
+                void negateSelf();
                 Vec3 Abs() const;
                 
                 // toString

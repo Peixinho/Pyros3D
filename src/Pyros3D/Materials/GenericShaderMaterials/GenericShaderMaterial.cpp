@@ -84,7 +84,7 @@ namespace p3d
 
     }
     
-    void GenericShaderMaterial::ChangeLightingProperties(const Vec4 &Ke, const Vec4 &Ka, const Vec4 &Kd, const Vec4 &Ks, const f32 &shininess)
+    void GenericShaderMaterial::SetLightingProperties(const Vec4 &Ke, const Vec4 &Ka, const Vec4 &Kd, const Vec4 &Ks, const f32 &shininess)
     {
         this->Ke = Ke;
         this->Ka = Ka;
@@ -95,6 +95,31 @@ namespace p3d
         SetUniformValue("uKe",&this->Ka);
         SetUniformValue("uKe",&this->Kd);
         SetUniformValue("uKe",&this->Ks);
+        SetUniformValue("uShininess",&this->Shininess);
+    }
+    void GenericShaderMaterial::SetKe(const Vec4 &Ke)
+    {
+        this->Ke = Ke;
+        SetUniformValue("uKe",&this->Ke);
+    }
+    void GenericShaderMaterial::SetKa(const Vec4 &Ka)
+    {
+        this->Ka = Ka;
+        SetUniformValue("uKa",&this->Ka);
+    }
+    void GenericShaderMaterial::SetKd(const Vec4 &Kd)
+    {
+        this->Kd = Kd;
+        SetUniformValue("uKd",&this->Kd);
+    }
+    void GenericShaderMaterial::SetKs(const Vec4 &Ks)
+    {
+        this->Ks = Ks;
+        SetUniformValue("uKs",&this->Ks);
+    }
+    void GenericShaderMaterial::SetShininess(const f32 &shininess)
+    {
+        this->Shininess = shininess;
         SetUniformValue("uShininess",&this->Shininess);
     }
     GenericShaderMaterial::~GenericShaderMaterial()

@@ -416,7 +416,7 @@ namespace p3d {
         CameraPosition = Camera->GetWorldPosition();
         
         // Update Culling
-		UpdateCulling(ViewMatrix,projection);
+        UpdateCulling(ViewMatrix,projection);
 
         // Flags
         ViewMatrixInverseIsDirty = true;
