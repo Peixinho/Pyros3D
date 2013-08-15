@@ -45,8 +45,8 @@ namespace p3d
         if (options & ShaderUsage::Diffuse)
         {
             // Default Lighting Values
-            Ke = Vec4(0.2f,0.2f,0.2f,0.2f);
-            Ka = Vec4(0.2f,0.2f,0.2f,0.2f);
+            Ke = Vec4(0.2f,0.2f,0.2f,1.0f);
+            Ka = Vec4(0.2f,0.2f,0.2f,1.0f);
             Kd = Vec4(1.0f,1.0f,1.0f,1.0f);
             Ks = Vec4(1.0f,1.0f,1.0f,1.0f);
             Shininess = 50.f;

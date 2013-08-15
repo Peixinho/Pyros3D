@@ -114,39 +114,34 @@ namespace p3d {
             // Send Global Uniforms
             SendGlobalUniforms(rmesh,Material);
 
-            // Process Uniforms and other Material Stuff
-            // on the Render function            
-
-            // #################################################
-
-            // Check if Material is DoubleSided
-            if (Material->GetCullFace() != cullFace)
+		}
+        // Check if Material is DoubleSided
+        if (Material->GetCullFace() != cullFace)
+        {
+            switch(Material->GetCullFace())
             {
-                switch(Material->GetCullFace())
-                {
-                    case CullFace::FrontFace:
-                        glEnable(GL_CULL_FACE);
-                        glCullFace(GL_FRONT);
-                        break;
-                    case CullFace::DoubleSided:
-                        glDisable(GL_CULL_FACE);
-                        break;
-                    case CullFace::BackFace:
-                    default:
-                        glEnable(GL_CULL_FACE);
-                        glCullFace(GL_BACK);
-                        break;
-                }
-                cullFace = Material->GetCullFace();
+                case CullFace::FrontFace:
+                    glEnable(GL_CULL_FACE);
+                    glCullFace(GL_FRONT);
+                    break;
+                case CullFace::DoubleSided:
+                    glDisable(GL_CULL_FACE);
+                    break;
+                case CullFace::BackFace:
+                default:
+                    glEnable(GL_CULL_FACE);
+                    glCullFace(GL_BACK);
+                    break;
             }
+            cullFace = Material->GetCullFace();
+        }
             
-            // Check if Material is WireFrame
-            if (Material->IsWireFrame()==true)
-            {
-                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-            } else {
-                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            }
+        // Check if Material is WireFrame
+        if (Material->IsWireFrame()==true)
+        {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        } else {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
         
         // ################## Draw #########################
