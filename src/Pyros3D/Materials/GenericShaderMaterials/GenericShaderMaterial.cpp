@@ -64,14 +64,35 @@ namespace p3d
             AddUniform(Uniform::Uniform("uUseLights",Uniform::DataType::Float,&UseLights));
         }
 
-        if (options & ShaderUsage::ShadowMaterial)
+        if (options & ShaderUsage::DirectionalShadow)
         {
             // Shadows
-            AddUniform(Uniform::Uniform("uShadowmaps",Uniform::DataUsage::ShadowMap));
-            AddUniform(Uniform::Uniform("uDepthsMVP",Uniform::DataUsage::ShadowMatrix));
-            AddUniform(Uniform::Uniform("uShadowFar",Uniform::DataUsage::ShadowFar));
+            AddUniform(Uniform::Uniform("uDirectionalShadowMaps",Uniform::DataUsage::DirectionalShadowMap));
+            AddUniform(Uniform::Uniform("uDirectionalDepthsMVP",Uniform::DataUsage::DirectionalShadowMatrix));
+            AddUniform(Uniform::Uniform("uDirectionalShadowFar",Uniform::DataUsage::DirectionalShadowFar));
+            AddUniform(Uniform::Uniform("uNumberOfDirectionalShadows",Uniform::DataUsage::NumberOfDirectionalShadows));
+            
+            isCastingShadows = true;
+        }
+        
+        if (options & ShaderUsage::PointShadow)
+        {
+            // Shadows
+            AddUniform(Uniform::Uniform("uPointShadowMaps",Uniform::DataUsage::PointShadowMap));
+            AddUniform(Uniform::Uniform("uPointDepthsMVP",Uniform::DataUsage::PointShadowMatrix));
+            AddUniform(Uniform::Uniform("uNumberOfPointShadows",Uniform::DataUsage::NumberOfPointShadows));
 
-			isCastingShadows = true;
+            isCastingShadows = true;
+        }
+        
+        if (options & ShaderUsage::SpotShadow)
+        {
+            // Shadows
+            AddUniform(Uniform::Uniform("uSpotShadowMaps",Uniform::DataUsage::SpotShadowMap));
+            AddUniform(Uniform::Uniform("uSpotDepthsMVP",Uniform::DataUsage::SpotShadowMatrix));
+            AddUniform(Uniform::Uniform("uNumberOfSpotShadows",Uniform::DataUsage::NumberOfSpotShadows));
+
+            isCastingShadows = true;
         }
         
         if (options & ShaderUsage::EnvMap)

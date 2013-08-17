@@ -12,6 +12,7 @@
 #include <string.h>
 #include <iostream>
 #include "Shaders.h"
+
 namespace p3d {
 
     namespace Uniform {
@@ -30,23 +31,31 @@ namespace p3d {
                 Lights = 8,
                 NumberOfLights = 9,
                 NearFarPlane = 10,
-                ShadowMap = 11,
-                ShadowMatrix = 12,
-                NumberOfShadows = 13,
-                ShadowFar = 14,
+                
+                // Shadow Mapping
+                DirectionalShadowMap = 11,
+                PointShadowMap = 12,
+                SpotShadowMap = 13,
+                DirectionalShadowMatrix = 14,
+                PointShadowMatrix = 15,
+                SpotShadowMatrix = 16,
+                DirectionalShadowFar = 17,
+                NumberOfDirectionalShadows = 18,
+                NumberOfPointShadows = 19,
+                NumberOfSpotShadows = 20,
 
                 // User Uniforms
-                Other = 20,
+                Other = 200,
                 
                 // Model Specific
-                ModelMatrix = 30,
-                NormalMatrix = 31,
-                ModelViewMatrix = 32,
-                ModelViewProjectionMatrix = 33,
-                ModelMatrixInverse = 34,
-                ModelViewMatrixInverse = 35,
-                ModelMatrixInverseTranspose = 36,
-                SkinningBones = 37
+                ModelMatrix = 300,
+                NormalMatrix = 301,
+                ModelViewMatrix = 302,
+                ModelViewProjectionMatrix = 303,
+                ModelMatrixInverse = 304,
+                ModelViewMatrixInverse = 305,
+                ModelMatrixInverseTranspose = 306,
+                SkinningBones = 307
             };
         };
 
@@ -72,7 +81,7 @@ namespace p3d {
             uint32 ElementCount;
             std::vector<uchar> Value;
 
-            Uniform() { ElementCount = 0; Usage = 20; /* Usage = Other */ }
+            Uniform() { ElementCount = 0; Usage = 200; /* Usage = Other */ }
 
             Uniform(const std::string &name, const uint32 &usage, const uint32 &type = 0)
             {
@@ -116,18 +125,36 @@ namespace p3d {
                     case DataUsage::NearFarPlane:
                         Type = DataType::Vec2;
                         break;
-                    case DataUsage::ShadowMap:
+                    case DataUsage::DirectionalShadowMap:
                         Type = DataType::Int;
                         break;
-                    case DataUsage::ShadowMatrix:
+                    case DataUsage::DirectionalShadowMatrix:
                         Type = DataType::Matrix;
                         break;
-                    case DataUsage::NumberOfShadows:
-                        Type = DataType::Int;
-                        break;
-                    case DataUsage::ShadowFar:
+                    case DataUsage::DirectionalShadowFar:
                         Type = DataType::Vec4;
                         break;
+                    case DataUsage::NumberOfDirectionalShadows:
+                        Type = DataType::Int;
+                        break;
+                    case DataUsage::PointShadowMap:
+                        Type = DataType::Int;
+                        break;
+                    case DataUsage::PointShadowMatrix:
+                        Type = DataType::Matrix;
+                        break;
+                    case DataUsage::NumberOfPointShadows:
+                        Type = DataType::Int;
+                        break;                        
+                    case DataUsage::SpotShadowMap:
+                        Type = DataType::Int;
+                        break;
+                    case DataUsage::SpotShadowMatrix:
+                        Type = DataType::Matrix;
+                        break;
+                    case DataUsage::NumberOfSpotShadows:
+                        Type = DataType::Int;
+                        break;                        
                     case DataUsage::ModelMatrix:
                         Type = DataType::Matrix;
                         break;
@@ -155,7 +182,7 @@ namespace p3d {
                 };
             
             }
-            Uniform(const std::string &name, const uint32 &type, void* value, const uint32 &elementCount = 1) { Name=name; Usage = 20; Type = type; ElementCount = elementCount; SetValue(value); }
+            Uniform(const std::string &name, const uint32 &type, void* value, const uint32 &elementCount = 1) { Name=name; Usage = 200; Type = type; ElementCount = elementCount; SetValue(value); }
 
             void SetValue(void* value, uint32 elementCount = 1)
             {
@@ -204,7 +231,7 @@ namespace p3d {
                         memcpy(&Value[0],value,sizeof(Matrix)*ElementCount);
                         break;
                     }
-                }
+                };
             }
         };
     };

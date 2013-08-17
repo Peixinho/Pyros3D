@@ -169,15 +169,15 @@ namespace p3d {
             
             // Shadow Casting
             std::vector<Texture> 
-                                ShadowMapsTextures;
+                                DirectionalShadowMapsTextures, PointShadowMapsTextures, SpotShadowMapsTextures;
             std::vector<uint32>
-                                ShadowMapsUnits;
+                                DirectionalShadowMapsUnits, PointShadowMapsUnits, SpotShadowMapsUnits;
             std::vector<Matrix>
-                                ShadowMatrix;
-            Vec4
-                                ShadowFar;
+                                DirectionalShadowMatrix, PointShadowMatrix, SpotShadowMatrix;
+            std::vector<Vec4>
+                                DirectionalShadowFar;
             uint32 
-                                NumberOfShadows;
+                                NumberOfDirectionalShadows, NumberOfPointShadows, NumberOfSpotShadows;
             
         private:
             

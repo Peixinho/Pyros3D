@@ -89,13 +89,28 @@ namespace p3d {
         // Material Pre Render Function
         Material->PreRender();
         
+        // Bind Shadows Textures
         if (Material->IsCastingShadows())
         {
-            ShadowMapsUnits.clear();
-            for (std::vector<Texture>::iterator i = ShadowMapsTextures.begin(); i!=ShadowMapsTextures.end(); i++)
+            DirectionalShadowMapsUnits.clear();
+            for (std::vector<Texture>::iterator i = DirectionalShadowMapsTextures.begin(); i!=DirectionalShadowMapsTextures.end(); i++)
             {
                 (*i).Bind();
-                ShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
+                DirectionalShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
+            }
+            
+            PointShadowMapsUnits.clear();
+            for (std::vector<Texture>::iterator i = PointShadowMapsTextures.begin(); i!=PointShadowMapsTextures.end(); i++)
+            {
+                (*i).Bind();
+                PointShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
+            }
+            
+            SpotShadowMapsUnits.clear();
+            for (std::vector<Texture>::iterator i = SpotShadowMapsTextures.begin(); i!=SpotShadowMapsTextures.end(); i++)
+            {
+                (*i).Bind();
+                SpotShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
             }
         }
         // ################### SHADERS #########################
@@ -114,7 +129,7 @@ namespace p3d {
             // Send Global Uniforms
             SendGlobalUniforms(rmesh,Material);
 
-		}
+        }
         // Check if Material is DoubleSided
         if (Material->GetCullFace() != cullFace)
         {
@@ -254,7 +269,18 @@ namespace p3d {
         // Shadows
         if (Material->IsCastingShadows())
         {
-            for (std::vector<Texture>::reverse_iterator i = ShadowMapsTextures.rbegin(); i!=ShadowMapsTextures.rend(); i++)
+            // Spot Lights
+            for (std::vector<Texture>::reverse_iterator i = SpotShadowMapsTextures.rbegin(); i!=SpotShadowMapsTextures.rend(); i++)
+            {
+                (*i).Unbind();
+            }
+            // Point Lights
+            for (std::vector<Texture>::reverse_iterator i = PointShadowMapsTextures.rbegin(); i!=PointShadowMapsTextures.rend(); i++)
+            {
+                (*i).Unbind();
+            }
+            // Directional Lights
+            for (std::vector<Texture>::reverse_iterator i = DirectionalShadowMapsTextures.rbegin(); i!=DirectionalShadowMapsTextures.rend(); i++)
             {
                 (*i).Unbind();
             }
@@ -451,18 +477,37 @@ namespace p3d {
                     case Uniform::DataUsage::NearFarPlane:
                         Shader::SendUniform((*k),&NearFarPlane,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::ShadowMap:
-                        if (ShadowMapsUnits.size()>0)
-                            Shader::SendUniform((*k),&ShadowMapsUnits[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],ShadowMapsUnits.size());
+                    case Uniform::DataUsage::DirectionalShadowMap:
+                        if (DirectionalShadowMapsUnits.size()>0)
+                            Shader::SendUniform((*k),&DirectionalShadowMapsUnits[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],DirectionalShadowMapsUnits.size());
                         break;
-                    case Uniform::DataUsage::ShadowMatrix:
-                            Shader::SendUniform((*k),&ShadowMatrix[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],ShadowMatrix.size());
+                    case Uniform::DataUsage::DirectionalShadowMatrix:
+                            Shader::SendUniform((*k),&DirectionalShadowMatrix[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],DirectionalShadowMatrix.size());
                         break;
-                    case Uniform::DataUsage::ShadowFar:
-                            Shader::SendUniform((*k),&ShadowFar,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
+                    case Uniform::DataUsage::DirectionalShadowFar:
+                            Shader::SendUniform((*k),&DirectionalShadowFar[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],DirectionalShadowFar.size());
                         break;
-                    case Uniform::DataUsage::NumberOfShadows:
-                        Shader::SendUniform((*k),&NumberOfShadows,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
+                    case Uniform::DataUsage::NumberOfDirectionalShadows:
+                        Shader::SendUniform((*k),&NumberOfDirectionalShadows,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
+                        break;
+                    case Uniform::DataUsage::PointShadowMap:
+                        if (PointShadowMapsUnits.size()>0)
+                            Shader::SendUniform((*k),&PointShadowMapsUnits[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],PointShadowMapsUnits.size());
+                        break;
+                    case Uniform::DataUsage::PointShadowMatrix:
+                        Shader::SendUniform((*k),&PointShadowMatrix[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],PointShadowMatrix.size());
+                        break;
+                    case Uniform::DataUsage::NumberOfPointShadows:
+                        Shader::SendUniform((*k),&NumberOfPointShadows,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
+                        break;
+                    case Uniform::DataUsage::SpotShadowMap:
+                            Shader::SendUniform((*k),&SpotShadowMapsUnits[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],SpotShadowMapsUnits.size());
+                        break;
+                    case Uniform::DataUsage::SpotShadowMatrix:
+                        Shader::SendUniform((*k),&SpotShadowMatrix[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],SpotShadowMatrix.size());
+                        break;
+                    case Uniform::DataUsage::NumberOfSpotShadows:
+                        Shader::SendUniform((*k),&NumberOfSpotShadows,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
                     default:
                         Shader::SendUniform((*k),rmesh->ShadersGlobalCache[Material->GetShader()][counter]);

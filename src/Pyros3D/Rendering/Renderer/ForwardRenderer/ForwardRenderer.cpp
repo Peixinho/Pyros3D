@@ -14,6 +14,8 @@ namespace p3d {
     ForwardRenderer::ForwardRenderer(const uint32& Width, const uint32& Height) : IRenderer(Width,Height) 
     {
     
+        echo("SUCCESS: Forward Renderer Created");
+        
         ActivateCulling(CullingMode::FrustumCulling);
         shadowMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows);
         shadowMaterial->SetCullFace(CullFace::FrontFace);
@@ -55,9 +57,18 @@ namespace p3d {
         if (lcomps.size()>0) 
         {
             // ShadowMaps
-            ShadowMapsTextures.clear();
-            ShadowMatrix.clear();
-            NumberOfShadows = 0;
+            DirectionalShadowMapsTextures.clear();
+            DirectionalShadowMatrix.clear();
+            DirectionalShadowFar.clear();
+            NumberOfDirectionalShadows = 0;
+            
+            PointShadowMapsTextures.clear();
+            PointShadowMatrix.clear();
+            NumberOfPointShadows = 0;
+            
+            SpotShadowMapsTextures.clear();
+            SpotShadowMatrix.clear();
+            NumberOfSpotShadows = 0;
             
             for (std::vector<IComponent*>::iterator i = lcomps.begin();i!=lcomps.end();i++)
             {
@@ -86,7 +97,7 @@ namespace p3d {
                     if (d->IsCastingShadows())
                     {
                         // Increase Number of Shadows
-                        NumberOfShadows+=4;
+                        NumberOfDirectionalShadows++;
 
                         // Bind FBO
                         d->GetShadowFBO()->Bind();
@@ -141,12 +152,12 @@ namespace p3d {
                                 }
                             }
 
-                            ShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
+                            DirectionalShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
 
                         }
 
                         // Get Texture (only 1)
-                        ShadowMapsTextures.push_back(*d->GetShadowMapTexture());
+                        DirectionalShadowMapsTextures.push_back(*d->GetShadowMapTexture());
 
                         // Set Shadow Far
                         Vec4 _ShadowFar;
@@ -155,17 +166,18 @@ namespace p3d {
                         if (d->GetNumberCascades()>2) _ShadowFar.z = d->GetCascade(2).Far;
                         if (d->GetNumberCascades()>3) _ShadowFar.w = d->GetCascade(3).Far;
                         
+                        Vec4 ShadowFar;
                         ShadowFar.x = 0.5f*(-_ShadowFar.x*projection.m.m[10]+projection.m.m[14])/_ShadowFar.x + 0.5f;
                         ShadowFar.y = 0.5f*(-_ShadowFar.y*projection.m.m[10]+projection.m.m[14])/_ShadowFar.y + 0.5f;
                         ShadowFar.z = 0.5f*(-_ShadowFar.z*projection.m.m[10]+projection.m.m[14])/_ShadowFar.z + 0.5f;
                         ShadowFar.w = 0.5f*(-_ShadowFar.w*projection.m.m[10]+projection.m.m[14])/_ShadowFar.w + 0.5f;
+                        DirectionalShadowFar.push_back(ShadowFar);
 
                         // Unbind Material
                         glUseProgram(0);
 
                         // Disable Depth Bias
                         glDisable(GL_POLYGON_OFFSET_FILL);
-
 
                         // Unbind FBO
                         d->GetShadowFBO()->UnBind();
@@ -196,7 +208,7 @@ namespace p3d {
                     if (p->IsCastingShadows())
                     {
                         // Increase Number of Shadows
-                        NumberOfShadows+=1;
+                        NumberOfPointShadows++;
                         
                         // Bind FBO
                         p->GetShadowFBO()->Bind();
@@ -273,14 +285,14 @@ namespace p3d {
                         }
                         
                         // Set Light Projection
-                        ShadowMatrix.push_back(((p->GetLightProjection())));
+                        PointShadowMatrix.push_back(((p->GetLightProjection())));
                         // Set Light View Matrix
                         Matrix m;
                         m.Translate(p->GetOwner()->GetWorldPosition().negate());
-                        ShadowMatrix.push_back(m);
+                        PointShadowMatrix.push_back(m);
                         
                         // Get Texture (only 1)
-                        ShadowMapsTextures.push_back(*p->GetShadowMapTexture());
+                        PointShadowMapsTextures.push_back(*p->GetShadowMapTexture());
                         
                         // Unbind Material
                         glUseProgram(0);
@@ -298,7 +310,7 @@ namespace p3d {
                     
                     // Spot Lights
                     Vec4 color = s->GetLightColor();
-                    Vec3 position = ViewMatrix * (s->GetOwner()->GetWorldPosition());                   
+                    Vec3 position = ViewMatrix * (s->GetOwner()->GetWorldPosition());
                     Vec3 LDirection = s->GetLightDirection().normalize();
                     Vec4 direction = ViewMatrix * Vec4(LDirection.x,LDirection.y,LDirection.z,0.f);
                     f32 attenuation = s->GetLightRadius();
@@ -320,11 +332,12 @@ namespace p3d {
                     {
                         
                         // Increase Number of Shadows
-                        NumberOfShadows+=1;
+                        NumberOfSpotShadows++;
                         
                         // Bind FBO
                         s->GetShadowFBO()->Bind();
                         
+                        // Get Light Projection
                         ProjectionMatrix = s->GetLightProjection();
 
                         // Clean View Matrix
@@ -332,7 +345,7 @@ namespace p3d {
 
                         // Create Light View Matrix For Rendering the ShadowMap
                         ViewMatrix.LookAt(s->GetOwner()->GetWorldPosition(),(s->GetOwner()->GetWorldPosition()+s->GetLightDirection()));
-
+                        
                         // Update Culling
                         UpdateCulling(ViewMatrix,projection);
 
@@ -375,12 +388,6 @@ namespace p3d {
                             }
                         }
                         
-                        // Set Light Matrix
-                        ShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
-                        
-                        // Get Texture (only 1)
-                        ShadowMapsTextures.push_back(*s->GetShadowMapTexture());
-                        
                         // Unbind Material
                         glUseProgram(0);
                         
@@ -389,12 +396,25 @@ namespace p3d {
 
                         // Unbind FBO
                         s->GetShadowFBO()->UnBind();
+                        
+                        // Set Light Matrix
+                        SpotShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
+                        
+                        // Get Texture (only 1)
+                        SpotShadowMapsTextures.push_back(*s->GetShadowMapTexture());
 
                     }
                 }
+                // Universal Cache
+                ProjectionMatrix = projection.m;
+                NearFarPlane = Vec2(projection.Near, projection.Far);
+
+                // View Matrix and Position
+                ViewMatrix = Camera->GetWorldTransformation().Inverse();
+                CameraPosition = Camera->GetWorldPosition();
             }
         }
-
+        
         // Save Values for Cache
         // Saves Scene
         this->Scene = Scene;
@@ -433,13 +453,6 @@ namespace p3d {
         SetBackground(Vec4::ZERO);
         EnableDepthTest();
         
-        // Enable Depth Bias
-        if (IsUsingDepthBias)
-        {
-            glEnable(GL_DEPTH_BIAS);
-            glPolygonOffset(DepthBias.x,DepthBias.y);
-        }
-        
         // Flags
         LastProgramUsed = -1;
         InternalDrawType = -1;
@@ -475,9 +488,6 @@ namespace p3d {
         
         // Unbind Material
         glUseProgram(0);
-        
-        // Disable Depth Bias
-        if (IsUsingDepthBias) glDisable(GL_DEPTH_BIAS);
     }
     
 };
