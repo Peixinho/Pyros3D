@@ -25,7 +25,7 @@ namespace p3d {
             virtual void Update() {};
             virtual void Destroy() {};
         
-            Matrix GetLightProjection() { return ShadowProjection; }
+            Projection GetLightProjection() { return ShadowProjection; }
         
             const f32 &GetLightRadius() const { return Radius; }
             
@@ -63,7 +63,7 @@ namespace p3d {
                 ShadowFar = Radius;
                 
                 // Create Projection Matrix
-                ShadowProjection = Matrix::PerspectiveMatrix(90.f, 1.0, ShadowNear, ShadowFar);
+                ShadowProjection.Perspective(90.f, 1.0, ShadowNear, ShadowFar);
             }
             
         protected:
@@ -71,7 +71,8 @@ namespace p3d {
             // Attenuation
             f32 Radius;
             
-            Matrix ShadowProjection;
+            // Projection
+            Projection ShadowProjection;
 
     };
 

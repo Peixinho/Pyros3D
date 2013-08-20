@@ -43,7 +43,7 @@ namespace p3d {
             const f32 &GetLightOutterCone() const { return outterCone; }
             const f32 &GetLightRadius() const { return Radius; }
             
-            Matrix GetLightProjection() { return ShadowProjection; }
+            Projection GetLightProjection() { return ShadowProjection; }
             
             void EnableCastShadows(const uint32 &Width, const uint32 &Height, const f32 &Near = 0.1f)
             {
@@ -65,14 +65,14 @@ namespace p3d {
                 ShadowMap->EnableCompareMode();
 
                 // Initialize Frame Buffer
-				shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::Texture,ShadowMap,false);
+                shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::Texture,ShadowMap,false);
 
                 // Near and Far Clip Planes
                 ShadowNear = Near;
                 ShadowFar = Radius;
                 
                 // Create Projection Matrix
-                ShadowProjection = Matrix::PerspectiveMatrix(2*outterCone, 1.0, ShadowNear, ShadowFar);
+                ShadowProjection.Perspective(2*outterCone, 1.0, ShadowNear, ShadowFar);
             }
             
         protected :
@@ -84,7 +84,7 @@ namespace p3d {
             // Attenuation
             f32 Radius;
             // Shadow Projection
-            Matrix ShadowProjection;
+            Projection ShadowProjection;
 
     };
 

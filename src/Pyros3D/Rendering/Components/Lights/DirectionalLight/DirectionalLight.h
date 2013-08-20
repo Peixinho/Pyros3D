@@ -29,6 +29,7 @@ namespace p3d {
         f32 Fov;
         Vec3 point[8];
         Matrix CropMatrix;
+        Projection ortho;
 
         void UpdateFrustumPoints(const Vec3& position, const Vec3& direction)
         {
@@ -93,9 +94,9 @@ namespace p3d {
             }
 
             // Make Ortho
-            Matrix ortho;
-            ortho = ortho.OrthoMatrix(-1.0,1.0,-1.0,1.0,-maxZ,-minZ);
-            Matrix mvp = ortho * viewMatrix;
+            ortho.Ortho(-1.0,1.0,-1.0,1.0,-maxZ,-minZ);
+            
+            Matrix mvp = ortho.GetProjectionMatrix() * viewMatrix;
             
             // find the extends of the frustum slice as projected in light's homogeneous coordinates        
             for(unsigned i=0; i<8; i++)
@@ -122,7 +123,7 @@ namespace p3d {
             crop.TranslateX(offsetX);
             crop.TranslateY(offsetY);
 
-            CropMatrix = crop * ortho;
+            CropMatrix = crop * ortho.GetProjectionMatrix();
 
             return CropMatrix;
         }

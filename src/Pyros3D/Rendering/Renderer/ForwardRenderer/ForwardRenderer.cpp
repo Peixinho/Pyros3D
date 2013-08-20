@@ -127,7 +127,7 @@ namespace p3d {
                             InternalDrawType = -1;
                             
                             // Update Culling
-                            UpdateCulling(ViewMatrix,projection);
+                            UpdateCulling(ViewMatrix,d->GetCascade(i).ortho);
 
                             // Render Scene with Objects Material
                             for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
@@ -213,7 +213,7 @@ namespace p3d {
                         // Bind FBO
                         p->GetShadowFBO()->Bind();
                         
-                        ProjectionMatrix = p->GetLightProjection();
+                        ProjectionMatrix = p->GetLightProjection().GetProjectionMatrix();
                         
                         // Get Lights Shadow Map Texture
                         for (uint32 i=0;i<6;i++)
@@ -239,7 +239,7 @@ namespace p3d {
                             ViewMatrix *= p->GetOwner()->GetWorldTransformation().Inverse();
 
                             // Update Culling
-                            UpdateCulling(ViewMatrix,projection);
+                            UpdateCulling(ViewMatrix,p->GetLightProjection());
 
                             // GPU Shadows
                             p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_X+i,p->GetShadowMapTexture());
@@ -285,7 +285,7 @@ namespace p3d {
                         }
                         
                         // Set Light Projection
-                        PointShadowMatrix.push_back(((p->GetLightProjection())));
+                        PointShadowMatrix.push_back(p->GetLightProjection().GetProjectionMatrix());
                         // Set Light View Matrix
                         Matrix m;
                         m.Translate(p->GetOwner()->GetWorldPosition().negate());
@@ -338,7 +338,7 @@ namespace p3d {
                         s->GetShadowFBO()->Bind();
                         
                         // Get Light Projection
-                        ProjectionMatrix = s->GetLightProjection();
+                        ProjectionMatrix = s->GetLightProjection().GetProjectionMatrix();
 
                         // Clean View Matrix
                         ViewMatrix.identity();
@@ -347,7 +347,7 @@ namespace p3d {
                         ViewMatrix.LookAt(s->GetOwner()->GetWorldPosition(),(s->GetOwner()->GetWorldPosition()+s->GetLightDirection()));
                         
                         // Update Culling
-                        UpdateCulling(ViewMatrix,projection);
+                        UpdateCulling(ViewMatrix,s->GetLightProjection());
 
                         // Clear Screen
                         ClearScreen(Buffer_Bit::Depth);
