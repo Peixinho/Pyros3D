@@ -44,10 +44,10 @@ namespace p3d {
 
             // these heights and widths are half the heights and widths of
             // the near and far plane rectangles
-            float near_height = tan(Fov/2.0f) * Near;
-            float near_width = near_height * Ratio;
-            float far_height = tan(Fov/2.0f) * Far;
-            float far_width = far_height * Ratio;
+            f32 near_height = tan(Fov/2.0f) * Near;
+            f32 near_width = near_height * Ratio;
+            f32 far_height = tan(Fov/2.0f) * Far;
+            f32 far_width = far_height * Ratio;
 
             point[0] = nc - up*near_height - right*near_width;
             point[1] = nc + up*near_height - right*near_width;
@@ -67,12 +67,12 @@ namespace p3d {
         Matrix CreateCropMatrix(const Matrix &viewMatrix, std::vector<RenderingMesh*> rcomps)
         {
                 
-            float maxX = -10000.0f;
-            float maxY = -10000.0f;
-            float maxZ;
-            float minX =  10000.0f;
-            float minY =  10000.0f;
-            float minZ;
+            f32 maxX = -10000.0f;
+            f32 maxY = -10000.0f;
+            f32 maxZ;
+            f32 minX =  10000.0f;
+            f32 minY =  10000.0f;
+            f32 minZ;
 
             Vec4 transf;
             transf = viewMatrix * Vec4(point[0].x,point[0].y,point[0].z,1.0f);
@@ -112,10 +112,10 @@ namespace p3d {
                 if(transf.y < minY) minY = transf.y;
             }
 
-            float scaleX = 2.0f/(maxX - minX);
-            float scaleY = 2.0f/(maxY - minY);
-            float offsetX = -0.5f*(maxX + minX)*scaleX;
-            float offsetY = -0.5f*(maxY + minY)*scaleY;
+            f32 scaleX = 2.0f/(maxX - minX);
+            f32 scaleY = 2.0f/(maxY - minY);
+            f32 offsetX = -0.5f*(maxX + minX)*scaleX;
+            f32 offsetY = -0.5f*(maxY + minY)*scaleY;
 
             Matrix crop;            
             crop.ScaleX(scaleX);

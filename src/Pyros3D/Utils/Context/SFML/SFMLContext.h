@@ -65,11 +65,11 @@ namespace p3d {
             void TextEntered(const unsigned &Code);
             void MouseButtonPressed(const unsigned &button);
             void MouseButtonReleased(const unsigned &button);                            
-            void MouseMove(const float &mousex, const float &mousey);                
-            void MouseWheel(const float &delta);
+            void MouseMove(const f32 &mousex, const f32 &mousey);                
+            void MouseWheel(const f32 &delta);
             void JoypadButtonReleased(const unsigned &JoypadID, const unsigned &Button);
             void JoypadButtonPressed(const unsigned &JoypadID, const unsigned &Button);
-            void JoypadMove(const unsigned &JoypadID, const unsigned &Axis, const float &Value);
+            void JoypadMove(const unsigned &JoypadID, const unsigned &Axis, const f32 &Value);
 
             // SFMLContext Timer
             sf::Clock clock;
@@ -81,7 +81,7 @@ namespace p3d {
             FPS fps;
             
             // save mouse positions
-            float mouseX, mouseY;
+            f32 mouseX, mouseY;
             
             // Text
             sf::Text Text;

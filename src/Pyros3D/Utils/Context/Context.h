@@ -23,7 +23,7 @@ namespace p3d {
 
             long double GetTime();
             long double GetTimeInterval();
-            void ActivateBulletTime(const float &factor);
+            void ActivateBulletTime(const f32 &factor);
             void DeactivateBulletTime();
             void Pause();
             void Resume();
@@ -50,13 +50,13 @@ namespace p3d {
             virtual void KeyReleased(const unsigned &key) = 0;
             virtual void MouseButtonPressed(const unsigned &button) = 0;
             virtual void MouseButtonReleased(const unsigned &button) = 0;
-            virtual void MouseMove(const float &mousex, const float &mousey) = 0;
-            virtual void MouseWheel(const float &delta) = 0;
+            virtual void MouseMove(const f32 &mousex, const f32 &mousey) = 0;
+            virtual void MouseWheel(const f32 &delta) = 0;
             virtual void JoypadButtonPressed(const unsigned &JoypadID, const unsigned &Button) = 0;
             virtual void JoypadButtonReleased(const unsigned &JoypadID, const unsigned &Button) = 0;
-            virtual void JoypadMove(const unsigned &JoypadID, const unsigned &Button, const float &Value) = 0;
+            virtual void JoypadMove(const unsigned &JoypadID, const unsigned &Button, const f32 &Value) = 0;
 
-            void SetTime(const float &Timer);
+            void SetTime(const f32 &Timer);
 
             // Window Size
             unsigned int Width, Height;

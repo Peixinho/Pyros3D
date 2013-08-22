@@ -24,7 +24,7 @@ namespace p3d {
         {
             return deltaTime.GetTimeInterval();
         }
-        void Context::ActivateBulletTime(const float& factor)
+        void Context::ActivateBulletTime(const f32& factor)
         {
             deltaTime.StartBulletTime(factor);
         }
@@ -32,7 +32,7 @@ namespace p3d {
         {
             deltaTime.StopBulletTime();
         }
-        void Context::SetTime(const float &Timer)
+        void Context::SetTime(const f32 &Timer)
         {
             // Update Clock
             deltaTime.Update(Timer);

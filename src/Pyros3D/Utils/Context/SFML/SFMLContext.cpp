@@ -57,7 +57,7 @@ namespace p3d {
         
         // resize application
         glViewport(0,0,Width,Height);
-        sf::View TheView(sf::FloatRect(0, 0, (float)Width, (float)Height));
+        sf::View TheView(sf::FloatRect(0, 0, (f32)Width, (f32)Height));
         rview.setView(TheView);                
 
     }
@@ -161,11 +161,11 @@ namespace p3d {
     void SFMLContext::DisplayInfo(const std::string& text, const Vec2& scale, const Vec4& color)
     {
 
-		Font = sf::Font();
-		Font.loadFromFile("font/verdana.ttf");
-		
-		Text = sf::Text(text,Font);
-		Text.setFont(Font);
+        Font = sf::Font();
+        Font.loadFromFile("font/verdana.ttf");
+
+        Text = sf::Text(text,Font);
+        Text.setFont(Font);
 
         // Draw Text
         Text.setColor(sf::Color(color.x*255,color.y*255,color.z*255));
@@ -223,12 +223,12 @@ namespace p3d {
                 break;
         }
     }
-    void SFMLContext::MouseMove(const float &mousex, const float &mousey)
+    void SFMLContext::MouseMove(const f32 &mousex, const f32 &mousey)
     {
         // Mouse Moving
         InputManager::SetMousePosition(mousex,mousey);
     }
-    void SFMLContext::MouseWheel(const float &delta)
+    void SFMLContext::MouseWheel(const f32 &delta)
     {
         // Mouse Wheel
         InputManager::SetMouseWheel(delta);
@@ -249,7 +249,7 @@ namespace p3d {
     {
         InputManager::JoypadButtonReleased(JoypadID, Button);
     }
-    void SFMLContext::JoypadMove(const unsigned& JoypadID, const unsigned& Axis, const float &Value)
+    void SFMLContext::JoypadMove(const unsigned& JoypadID, const unsigned& Axis, const f32 &Value)
     {
         InputManager::JoypadMove(JoypadID, Axis, Value);
     }

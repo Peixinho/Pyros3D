@@ -106,7 +106,7 @@ namespace  p3d {
         }
         return result;
     }
-    bool FrustumCulling::SphereInFrustum(const Vec3& p, const float& radius)
+    bool FrustumCulling::SphereInFrustum(const Vec3& p, const f32& radius)
     {
         for( int32 i = 0; i < 6; ++i )
         {

@@ -60,14 +60,14 @@ namespace p3d {
             c = normal.z;
             d = -normal.dotProduct(Point);
         }
-        float Distance(const Vec3 &point) 
+        f32 Distance(const Vec3 &point) 
         {
             normal = Vec3(a,b,c);            
            return normal.dotProduct(point)+d;
         }
         unsigned ClassifyPoint(const Vec3 &v) const
         {
-            float Dot = v.dotProduct(Vec3(a, b, c)) + d;
+            f32 Dot = v.dotProduct(Vec3(a, b, c)) + d;
 
             if(Dot > EPSILON)
             {
@@ -85,7 +85,7 @@ namespace p3d {
     
     struct AABox {
 
-        float xmax,ymax,zmax,xmin,ymin,zmin;
+        f32 xmax,ymax,zmax,xmin,ymin,zmin;
         AABox(Vec3* v)
         {
             xmax=xmin=v[0].x;ymax=ymin=v[0].y;zmax=zmin=v[0].z;
