@@ -62,7 +62,7 @@ namespace p3d {
             virtual IComponent* CreateTriangleMesh(RenderingComponent* rcomp, const f32 &mass = 0.f) = 0;
             virtual IComponent* CreateTriangleMesh(const std::vector<unsigned> &index, const std::vector<Vec3> &vertex, const f32 &mass = 0.f) = 0;
             virtual IComponent* CreateVehicle(IPhysicsComponent* ChassisShape) = 0;
-            
+            virtual void AddWheel(IPhysicsComponent *pcomp, const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 &WheelRadius, const f32 &WheelWidth, const f32 &WheelFriction, const f32 &WheelRollInfluence, const Vec3 &Position, bool isFrontWheel) = 0;
         protected:
             
             virtual void CreatePhysicsComponent(IPhysicsComponent* pcomp) = 0;

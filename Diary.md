@@ -31,17 +31,23 @@ Diaries:
 		I removed the supersmartpointers and until now, not a single memory problem, the code seems more stable and clean, and I have a better clue what's happening under the hood (something that I didn't know previously).
 		I have implemented a system that allow me also to have components with any type without having to write code on the interface, or in the scenegraph etc. On the other engine I would have to change the scenegraph so it could register the components. Now that happens but its done completely different, so each new type of component must have its own "sub engine".
 
-TODO List
-	On the rendering part I have to compare the rendering list with the gameobjects on the scene to render, and render only the ones that are on that list. 
-	Probably I can make a list for each scene to speed up.
+	2nd - August 22, 2013:
+
+		2 months after starting the project, I've reached the level that my previous version had, and plus. At this time, I've started implementing physics, so its on the same development phase that I was on the previous version when I decided to rewrite. But I've added some more features that the previous engine didn't have, so it now supports 1 Directional Lights Shadows (Cascade Shadow Mapping [4 Cascades Max]), 4 Point Light Shadows (CubeMap Shadow Maps) and 4 Spot Light Shadows. I was going to support Regular and GPU shadow maps, but nowadays, any GPU supports HW Shadows so I removed regular shadow maps from the engine. (Its always possible to implement over the engine, extending it)
+		One thing is not implemented yet, like I had on the previous version, and that is mesh sorting, so for now, I can't sort opaque from translucid meshes (materials) but thats on a todo list, and I wanna go further, and implement even better sorts, to optimize performance.
+		
+
+TODO List:
+	On the rendering part I have to compare the rendering list with the gameobjects on the scene to render, and render only the ones that are on that list. - DONE
+	Probably I can make a list for each scene to speed up. - DONE
 
 	Try some sort stuff to boost rendering pipeline.
 
-	Work on the lighting part again, mainly is copy the old code and try to optimize, but most of the code is ready to go
+	Work on the lighting part again, mainly is copy the old code and try to optimize, but most of the code is ready to go - DONE
 
-	Work on shadows again, reimplment cascade shadows, and probably start working on other shadow types, or at least prepare engine to work on that later.
+	Work on shadows again, reimplment cascade shadows, and probably start working on other shadow types, or at least prepare engine to work on that later. - DONE
 
-	Reimplement Physics as I had 
+	Reimplement Physics as I had - DONE
 
 	Redo Car Game
 
