@@ -13,21 +13,17 @@ namespace p3d {
 
     PhysicsTriangleMesh::PhysicsTriangleMesh(IPhysics* engine, RenderingComponent* rcomp, const f32 &mass) : IPhysicsComponent(mass,CollisionShapes::TriangleMesh,engine) 
     {
-        // Build the triangle mesh from IRendering 
-        // If there are many subs, add them as childs
-//        if (rcomp->HaveSubComponents())
-//        {
-//            unsigned indexCount = 0;
-//            for (unsigned k=0;k<rcomp->GetSubComponents().size();k++)
-//            {
-//				IRenderingComponent* rc = (IRenderingComponent*) rcomp->GetSubComponents()[k].Get();
-//                for (unsigned i=0;i<rc->GetIndexData().size();i++)
-//                {
-//                    index.push_back(indexCount++);
-//                    vertex.push_back(rc->GetVertexData()[rc->GetIndexData()[i]]);
-//                }
-//            }
-//        }
+        // Build the triangle mesh from Rendering Component
+        unsigned indexCount = 0;
+        for (unsigned k=0;k<rcomp->GetMeshes().size();k++)
+        {
+            RenderingMesh* rc = (RenderingMesh*) rcomp->GetMeshes()[k];
+            for (unsigned i=0;i<rc->Geometry->GetIndexData().size();i++)
+            {
+                index.push_back(indexCount++);
+                vertex.push_back(rc->Geometry->GetVertexData()[rc->Geometry->GetIndexData()[i]]);
+            }
+        }
     }
     
     PhysicsTriangleMesh::PhysicsTriangleMesh(IPhysics* engine, const std::vector<unsigned> &index, const std::vector<Vec3> &vertex, const f32 &mass) : IPhysicsComponent(mass,CollisionShapes::TriangleMesh,engine) 
