@@ -22,7 +22,9 @@ namespace p3d {
   
         class _LOG {
             public:
+                #ifdef LOG_TO_FILE
                 static std::ofstream outputFile;
+                #endif
                 static bool _initiated;
                 static void _message(const std::string &Message)
                 {
@@ -30,10 +32,18 @@ namespace p3d {
 
                         outputFile << Message << std::endl;
 
-                    #else
+                        #else
+                        #ifdef LOG_DISABLE
 
-                        std::cout << Message << std::endl;
+                            // NONE
+                        
+                        #else
+                            #ifdef LOG_TO_CONSOLE
 
+                                std::cout << Message << std::endl;
+
+                            #endif
+                        #endif
                     #endif
                 }
                 static void _echo(const std::string &Message)

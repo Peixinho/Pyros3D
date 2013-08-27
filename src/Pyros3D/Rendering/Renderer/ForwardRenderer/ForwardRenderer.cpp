@@ -41,6 +41,9 @@ namespace p3d {
     void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
     {
         
+        // Initialize Renderer
+        InitRender();
+        
         // Group and Sort Meshes
         GroupAndSortAssets();
         
@@ -121,10 +124,6 @@ namespace p3d {
                                                         
                             // Set Viewport
                             glViewport(((float)(i % 2) * d->GetShadowWidth()), ((i <= 1 ? 0.0f : 1.f) * d->GetShadowHeight()), d->GetShadowWidth(), d->GetShadowHeight());
-
-                            // Flags
-                            LastProgramUsed = -1;
-                            InternalDrawType = -1;
                             
                             // Update Culling
                             UpdateCulling(ViewMatrix,d->GetCascade(i).ortho);
@@ -255,10 +254,6 @@ namespace p3d {
                             // Set Viewport
                             glViewport(0,0, p->GetShadowWidth(), p->GetShadowHeight());
                             
-                            // Flags
-                            LastProgramUsed = -1;
-                            InternalDrawType = -1;
-                            
                             // Render Scene with Objects Material
                             for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
                             {
@@ -360,10 +355,6 @@ namespace p3d {
                         // Set Viewport
                         glViewport(0,0, s->GetShadowWidth(), s->GetShadowHeight());
 
-                        // Flags
-                        LastProgramUsed = -1;
-                        InternalDrawType = -1;
-
                         // Render Scene with Objects Material
                         for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
                         {
@@ -453,10 +444,6 @@ namespace p3d {
         SetBackground(Vec4::ZERO);
         EnableDepthTest();
         
-        // Flags
-        LastProgramUsed = -1;
-        InternalDrawType = -1;
-        
         // Render Scene with Objects Material
         for (std::vector<RenderingMesh*>::iterator i=rmesh.begin();i!=rmesh.end();i++)
         {
@@ -486,8 +473,7 @@ namespace p3d {
         // Set Default Polygon Mode
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         
-        // Unbind Material
-        glUseProgram(0);
+        EndRender();
     }
     
 };

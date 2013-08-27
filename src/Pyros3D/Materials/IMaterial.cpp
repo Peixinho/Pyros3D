@@ -10,13 +10,21 @@
 
 namespace p3d {    
     
-   IMaterial::IMaterial()
+    uint32 IMaterial::_InternalID = 0;
+    
+    IMaterial::IMaterial()
     {
         // Values By Default
         isTransparent = false;
         isWireFrame = false;
         isCastingShadows = false;
         cullFace = CullFace::BackFace;
+        
+        // Set Internal ID
+        materialID = _InternalID;
+        
+        // Increase Internal ID
+        _InternalID++;
     }
     void IMaterial::SetOpacity(const f32 &opacity)
     {
@@ -124,4 +132,8 @@ namespace p3d {
         return shaderProgram;
     }
 
+    uint32 IMaterial::GetInternalID()
+    {
+        return materialID;
+    }
 }

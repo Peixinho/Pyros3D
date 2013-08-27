@@ -46,10 +46,35 @@ namespace p3d {
         
     }
     
+    void IRenderer::InitRender()
+    {
+        LastProgramUsed = -1;
+        LastMaterialUsed = -1;
+        LastMeshRendered = -1;
+        InternalDrawType = -1;
+        LastMaterialPTR = NULL;
+        LastMeshRenderedPTR = NULL;
+    }
+    
+    void IRenderer::EndRender()
+    {
+        if (LastMeshRenderedPTR!=NULL)
+        {
+            // Unbind Index Buffer
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+            UnbindMesh();
+            UnbindShadowMaps();
+            LastMaterialPTR->AfterRender();
+            glUseProgram(0);
+            LastMaterialPTR = NULL;
+            LastMeshRenderedPTR = NULL;
+        }
+    }
+    
     void IRenderer::RenderObject(RenderingMesh* rmesh, IMaterial* Material)
     {
         // model cache 
-        ModelMatrix = rmesh->renderingComponent->GetOwner()->GetWorldTransformation();
+        ModelMatrix = rmesh->renderingComponent->GetOwner()->GetWorldTransformation() * rmesh->Pivot;
 
         NormalMatrixIsDirty = true;
         ModelViewMatrixIsDirty = true;
@@ -58,256 +83,231 @@ namespace p3d {
         ModelViewMatrixInverseIsDirty = true;
         ModelMatrixInverseTransposeIsDirty = true;
         
-        // Render Mesh
-        unsigned materialID = Material->GetShader();
-        if (rmesh->ShadersAttributesCache.find(materialID)==rmesh->ShadersAttributesCache.end())
+        if (LastMaterialUsed==-1 || LastMaterialUsed!=Material->GetInternalID())
         {
-            // Reset Attribute IDs
-            for (std::vector<Renderables::AttributeBuffer*>::iterator i=rmesh->Geometry->AttributesBuffer.begin();i!=rmesh->Geometry->AttributesBuffer.end();i++)
+            if ((LastProgramUsed==-1 || LastProgramUsed!=Material->GetShader()) || (LastMeshRendered==-1 || LastMeshRendered!=LastMeshRenderedPTR->Geometry->GetInternalID()))
             {
-                std::vector<int> attribs;
-                for (std::list<Renderables::VertexAttribute*>::iterator k=(*i)->Attributes.begin();k!=(*i)->Attributes.end();k++)
+                // Different Material, Different Shader Program - DEFAULT
+                
+                if (LastProgramUsed!=-1) // Its Binded
                 {
-                    attribs.push_back(-2);
-                }
-                rmesh->ShadersAttributesCache[materialID].push_back(attribs);
-            }
-            for (std::list<Uniform::Uniform>::iterator k = Material->GlobalUniforms.begin();k!=Material->GlobalUniforms.end();k++) 
-            {
-                rmesh->ShadersGlobalCache[materialID].push_back(-2);
-            }
-            for (std::list<Uniform::Uniform>::iterator k = Material->ModelUniforms.begin();k!=Material->ModelUniforms.end();k++) 
-            {
-                rmesh->ShadersModelCache[materialID].push_back(-2);
-            }
-            for (std::map<StringID,Uniform::Uniform>::iterator k = Material->UserUniforms.begin();k!=Material->UserUniforms.end();k++) 
-            {
-                rmesh->ShadersUserCache[materialID].push_back(-2);
-            }
-        }
-        
-        // Material Pre Render Function
-        Material->PreRender();
-        
-        // Bind Shadows Textures
-        if (Material->IsCastingShadows())
-        {
-            DirectionalShadowMapsUnits.clear();
-            for (std::vector<Texture>::iterator i = DirectionalShadowMapsTextures.begin(); i!=DirectionalShadowMapsTextures.end(); i++)
-            {
-                (*i).Bind();
-                DirectionalShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
-            }
-            
-            PointShadowMapsUnits.clear();
-            for (std::vector<Texture>::iterator i = PointShadowMapsTextures.begin(); i!=PointShadowMapsTextures.end(); i++)
-            {
-                (*i).Bind();
-                PointShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
-            }
-            
-            SpotShadowMapsUnits.clear();
-            for (std::vector<Texture>::iterator i = SpotShadowMapsTextures.begin(); i!=SpotShadowMapsTextures.end(); i++)
-            {
-                (*i).Bind();
-                SpotShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
-            }
-        }
-        // ################### SHADERS #########################
-
-        
-        // Run Shader Program
-        if (LastProgramUsed==-1 || LastProgramUsed!=materialID)
-        {
-            
-            LastProgramUsed = materialID;
-
-            // Use Program
-            glUseProgram(LastProgramUsed);
-
-            // UNIFORMS
-            // Send Global Uniforms
-            SendGlobalUniforms(rmesh,Material);
-
-        }
-        // Check if Material is DoubleSided
-        if (Material->GetCullFace() != cullFace)
-        {
-            switch(Material->GetCullFace())
-            {
-                case CullFace::FrontFace:
-                    glEnable(GL_CULL_FACE);
-                    glCullFace(GL_FRONT);
-                    break;
-                case CullFace::DoubleSided:
-                    glDisable(GL_CULL_FACE);
-                    break;
-                case CullFace::BackFace:
-                default:
-                    glEnable(GL_CULL_FACE);
-                    glCullFace(GL_BACK);
-                    break;
-            }
-            cullFace = Material->GetCullFace();
-        }
-            
-        // Check if Material is WireFrame
-        if (Material->IsWireFrame()==true)
-        {
-            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        } else {
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        }
-        
-        // ################## Draw #########################
-
-        if (InternalDrawType==-1 || InternalDrawType!=rmesh->GetDrawingType())
-        // getting material drawing type
-        switch(rmesh->GetDrawingType())
-        {
-            case DrawingType::Lines:
-                DrawType = GL_LINES;
-                break;
-            case DrawingType::Polygons:
-                DrawType = GL_POLYGON;
-                break;
-            case DrawingType::Points:
-                DrawType = GL_POINTS;
-                break;
-            case DrawingType::Quads:
-                DrawType = GL_QUADS;
-                break;
-            case DrawingType::Triangles_Fan:
-                DrawType = GL_TRIANGLE_FAN;
-                break;
-            case DrawingType::Triangles_Strip:
-                DrawType = GL_TRIANGLE_STRIP;
-                break;
-            case DrawingType::Triangles:
-            default:
-                DrawType = GL_TRIANGLES;
-                break;
-        }
-        InternalDrawType = rmesh->GetDrawingType();
-        
-        // Material On Render Function
-        Material->Render();
-
-        // #################### ATTRIBUTES #####################
-
-        // Check if custom Attributes exists
-        if (rmesh->Geometry->AttributesBuffer.size()>0)
-        {
-            uint32 materialID = Material->GetShader();
-            uint32 counterBuffers = 0;
-            for (std::vector<Renderables::AttributeBuffer*>::iterator k=rmesh->Geometry->AttributesBuffer.begin();k!=rmesh->Geometry->AttributesBuffer.end();k++)
-            {
-                // Bind VAO
-                glBindBuffer(GL_ARRAY_BUFFER, (*k)->Buffer->ID);
-
-                // Get Struct Data
-                if ((*k)->attributeSize==0)
-                {
-                    for (std::list<Renderables::VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
-                    {
-                        (*k)->attributeSize+=(*l)->byteSize;
-                    }
+                    // Unbind Index Buffer
+                    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+                    
+                    // Unbind Mesh
+                    UnbindMesh();
+                    // Unbind Shadow Maps
+                    UnbindShadowMaps();
+                    // Material Stuff After Render 
+                    LastMaterialPTR->AfterRender();
                 }
                 
-                // Counter
-                unsigned counter = 0;
-                for (std::list<Renderables::VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
+                // Bind Shader Program
+                if (LastMaterialUsed!=Material->GetShader()) glUseProgram(Material->GetShader());
+                
+                LastProgramUsed = Material->GetShader();
+                LastMaterialPTR = Material;
+                LastMaterialUsed = Material->GetInternalID();
+                LastMeshRendered = rmesh->Geometry->GetInternalID();
+                LastMeshRenderedPTR = rmesh;
+                
+                // Bind Attributes
+                BindMesh();
+                
+                // Send Global Uniforms
+                SendGlobalUniforms(LastMeshRenderedPTR,LastMaterialPTR);
+                // Send User Uniforms
+                SendUserUniforms(LastMeshRenderedPTR,LastMaterialPTR);
+                
+                // Material Stuff Pre Render
+                LastMaterialPTR->PreRender();
+                
+                // Bind Shadow Map Textures
+                BindShadowMaps();
+
+                // Check if Material is DoubleSided
+                if (Material->GetCullFace() != cullFace)
                 {
-                    // Check if is not set
-                    if (rmesh->ShadersAttributesCache[materialID][counterBuffers][counter]==-2)
+                    switch(Material->GetCullFace())
                     {
-                        // set VAO ID
-                        rmesh->ShadersAttributesCache[materialID][counterBuffers][counter] = Shader::GetAttributeLocation(materialID,(*l)->Name);
-                        
+                        case CullFace::FrontFace:
+                            glEnable(GL_CULL_FACE);
+                            glCullFace(GL_FRONT);
+                            break;
+                        case CullFace::DoubleSided:
+                            glDisable(GL_CULL_FACE);
+                            break;
+                        case CullFace::BackFace:
+                        default:
+                            glEnable(GL_CULL_FACE);
+                            glCullFace(GL_BACK);
+                            break;
                     }
-                    // If exists in shader
-                    if (rmesh->ShadersAttributesCache[materialID][counterBuffers][counter]>=0)
-                    {
-                        glVertexAttribPointer(
-                                                rmesh->ShadersAttributesCache[materialID][counterBuffers][counter],
-                                                Buffer::Attribute::GetTypeCount((*l)->Type),
-                                                Buffer::Attribute::GetType((*l)->Type),
-                                                GL_FALSE,
-                                                (*k)->attributeSize,
-                                                BUFFER_OFFSET((*l)->Offset)
-                                            );
-
-                        // Enable Attribute
-                        glEnableVertexAttribArray(rmesh->ShadersAttributesCache[materialID][counterBuffers][counter]);
-                    }
-                    counter++;
+                    cullFace = LastMaterialPTR->GetCullFace();
                 }
-                counterBuffers++;
+                
+                // Check if Material is WireFrame
+                if (LastMaterialPTR->IsWireFrame()==true)
+                {
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                } else {
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                }
+                
+                if (InternalDrawType==-1 || InternalDrawType!=LastMeshRenderedPTR->GetDrawingType())
+                // getting material drawing type
+                switch(LastMeshRenderedPTR->GetDrawingType())
+                {
+                    case DrawingType::Lines:
+                        DrawType = GL_LINES;
+                        break;
+                    case DrawingType::Polygons:
+                        DrawType = GL_POLYGON;
+                        break;
+                    case DrawingType::Points:
+                        DrawType = GL_POINTS;
+                        break;
+                    case DrawingType::Quads:
+                        DrawType = GL_QUADS;
+                        break;
+                    case DrawingType::Triangles_Fan:
+                        DrawType = GL_TRIANGLE_FAN;
+                        break;
+                    case DrawingType::Triangles_Strip:
+                        DrawType = GL_TRIANGLE_STRIP;
+                        break;
+                    case DrawingType::Triangles:
+                    default:
+                        DrawType = GL_TRIANGLES;
+                        break;
+                }
+                InternalDrawType = LastMeshRenderedPTR->GetDrawingType();
+                
+                // Material Render
+                LastMaterialPTR->Render();
+                
+                // Send Vertex Attributes
+                SendAttributes();
+                
+                // Bind Index Buffer
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,LastMeshRenderedPTR->Geometry->IndexBuffer->ID);
+                
+            } else if (rmesh==LastMeshRenderedPTR)
+            {
+                    
+                    // Different Material, Different Shader Program, Same Mesh
+                    UnbindShadowMaps();
+                    LastMaterialPTR->AfterRender();
+                    
+                    LastMaterialPTR = Material;
+                    LastMaterialUsed = Material->GetInternalID();
+                    LastProgramUsed = Material->GetShader();
+                    
+                    glUseProgram(LastProgramUsed);
+                    
+                    // Send Global Uniforms
+                    SendGlobalUniforms(LastMeshRenderedPTR,LastMaterialPTR);
+                    // Send User Uniforms
+                    SendUserUniforms(LastMeshRenderedPTR,LastMaterialPTR);
+                    
+                    BindMesh();
+                    
+                    LastMaterialPTR->PreRender();
+                    
+                    BindShadowMaps();
+
+                    // Check if Material is DoubleSided
+                    if (LastMaterialPTR->GetCullFace() != cullFace)
+                    {
+                        switch(LastMaterialPTR->GetCullFace())
+                        {
+                            case CullFace::FrontFace:
+                                glEnable(GL_CULL_FACE);
+                                glCullFace(GL_FRONT);
+                                break;
+                            case CullFace::DoubleSided:
+                                glDisable(GL_CULL_FACE);
+                                break;
+                            case CullFace::BackFace:
+                            default:
+                                glEnable(GL_CULL_FACE);
+                                glCullFace(GL_BACK);
+                                break;
+                        }
+                        cullFace = LastMaterialPTR->GetCullFace();
+                    }
+                    // Check if Material is WireFrame
+                    if (LastMaterialPTR->IsWireFrame()==true)
+                    {
+                        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                    } else {
+                        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                    }
+
+                    LastMaterialPTR->Render();
+                    
+                    SendAttributes();
             }
-        }
-
-        // Check if index buffer exists
-        if (rmesh->Geometry->IndexBuffer!=NULL) 
+        } else if (LastMeshRendered==-1 || LastMeshRendered!=rmesh->Geometry->GetInternalID())
         {
-            // Bind Index Buffer
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,rmesh->Geometry->IndexBuffer->ID);
+                
+                // Same Material, Same Shader Program, Different Mesh
+                
+                /// Unbind Last Attributes
+                // Bind Attributes
+                // Send User Uniforms
+                // Send Model Uniforms
+                
+                // Unbind Index Buffer
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+                
+                UnbindMesh();
+                
+                LastMeshRendered = rmesh->Geometry->GetInternalID();
+                LastMeshRenderedPTR = rmesh;
+                
+                BindMesh();
 
-            // Draw Rendering Component
-            // Send Model Specific Uniforms
-            SendModelUniforms(rmesh, Material);
+                if (InternalDrawType==-1 || InternalDrawType!=LastMeshRenderedPTR->GetDrawingType())
+                // getting material drawing type
+                switch(LastMeshRenderedPTR->GetDrawingType())
+                {
+                    case DrawingType::Lines:
+                        DrawType = GL_LINES;
+                        break;
+                    case DrawingType::Polygons:
+                        DrawType = GL_POLYGON;
+                        break;
+                    case DrawingType::Points:
+                        DrawType = GL_POINTS;
+                        break;
+                    case DrawingType::Quads:
+                        DrawType = GL_QUADS;
+                        break;
+                    case DrawingType::Triangles_Fan:
+                        DrawType = GL_TRIANGLE_FAN;
+                        break;
+                    case DrawingType::Triangles_Strip:
+                        DrawType = GL_TRIANGLE_STRIP;
+                        break;
+                    case DrawingType::Triangles:
+                    default:
+                        DrawType = GL_TRIANGLES;
+                        break;
+                }
+                InternalDrawType = LastMeshRenderedPTR->GetDrawingType();
 
-            // Send User Specific Uniforms
-            SendUserUniforms(rmesh,Material);
-            
-            // Draw
-            glDrawElements(DrawType,rmesh->Geometry->IndexBuffer->GetGeometryData().size()/sizeof(int),GL_UNSIGNED_INT,BUFFER_OFFSET(0));                    
-            
-            // Unbind Index Buffer
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+                SendAttributes();
+                
+                // Bind Index Buffer
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,LastMeshRenderedPTR->Geometry->IndexBuffer->ID);
+                
         }
         
-        // Shadows
-        if (Material->IsCastingShadows())
-        {
-            // Spot Lights
-            for (std::vector<Texture>::reverse_iterator i = SpotShadowMapsTextures.rbegin(); i!=SpotShadowMapsTextures.rend(); i++)
-            {
-                (*i).Unbind();
-            }
-            // Point Lights
-            for (std::vector<Texture>::reverse_iterator i = PointShadowMapsTextures.rbegin(); i!=PointShadowMapsTextures.rend(); i++)
-            {
-                (*i).Unbind();
-            }
-            // Directional Lights
-            for (std::vector<Texture>::reverse_iterator i = DirectionalShadowMapsTextures.rbegin(); i!=DirectionalShadowMapsTextures.rend(); i++)
-            {
-                (*i).Unbind();
-            }
-        }
-        // Material AfterRender Function
-        Material->AfterRender();
-
-        // Disable Attributes
-        if (rmesh->Geometry->AttributesBuffer.size()>0)
-        {
-            unsigned counterBuffers = 0;
-            for (std::vector<Renderables::AttributeBuffer*>::iterator k=rmesh->Geometry->AttributesBuffer.begin();k!=rmesh->Geometry->AttributesBuffer.end();k++)
-            {
-                unsigned counter = 0;
-                for (std::list<Renderables::VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
-                {                     
-                    // If exists in shader
-                    if (rmesh->ShadersAttributesCache[materialID][counterBuffers][counter]>=0)
-                    {
-                        glDisableVertexAttribArray(rmesh->ShadersAttributesCache[materialID][counterBuffers][counter]);
-                    }
-                    counter++;
-                }
-                counterBuffers++;
-            }
-            glBindBuffer(GL_ARRAY_BUFFER, 0);
-        }
+        SendModelUniforms(LastMeshRenderedPTR, LastMaterialPTR);
+        
+        // Draw
+        glDrawElements(DrawType,LastMeshRenderedPTR->Geometry->IndexBuffer->GetGeometryData().size()/sizeof(int),GL_UNSIGNED_INT,BUFFER_OFFSET(0));                    
         
     }
     
@@ -615,4 +615,162 @@ namespace p3d {
             counter++;
         }
     }
+    
+    void IRenderer::BindMesh()
+    {
+        
+        if (LastMeshRenderedPTR->ShadersAttributesCache.find(LastProgramUsed)==LastMeshRenderedPTR->ShadersAttributesCache.end())
+        {
+            // Reset Attribute IDs
+            for (std::vector<Renderables::AttributeBuffer*>::iterator i=LastMeshRenderedPTR->Geometry->AttributesBuffer.begin();i!=LastMeshRenderedPTR->Geometry->AttributesBuffer.end();i++)
+            {
+                std::vector<int> attribs;
+                for (std::list<Renderables::VertexAttribute*>::iterator k=(*i)->Attributes.begin();k!=(*i)->Attributes.end();k++)
+                {
+                    attribs.push_back(-2);
+                }
+                LastMeshRenderedPTR->ShadersAttributesCache[LastProgramUsed].push_back(attribs);
+            }
+            for (std::list<Uniform::Uniform>::iterator k = LastMaterialPTR->GlobalUniforms.begin();k!=LastMaterialPTR->GlobalUniforms.end();k++) 
+            {
+                LastMeshRenderedPTR->ShadersGlobalCache[LastProgramUsed].push_back(-2);
+            }
+            for (std::list<Uniform::Uniform>::iterator k = LastMaterialPTR->ModelUniforms.begin();k!=LastMaterialPTR->ModelUniforms.end();k++) 
+            {
+                LastMeshRenderedPTR->ShadersModelCache[LastProgramUsed].push_back(-2);
+            }
+            for (std::map<StringID,Uniform::Uniform>::iterator k = LastMaterialPTR->UserUniforms.begin();k!=LastMaterialPTR->UserUniforms.end();k++) 
+            {
+                LastMeshRenderedPTR->ShadersUserCache[LastProgramUsed].push_back(-2);
+            }
+        }
+    }
+    void IRenderer::UnbindMesh()
+    {        
+        // Disable Attributes
+        if (LastMeshRenderedPTR->Geometry->AttributesBuffer.size()>0)
+        {
+            unsigned counterBuffers = 0;
+            for (std::vector<Renderables::AttributeBuffer*>::iterator k=LastMeshRenderedPTR->Geometry->AttributesBuffer.begin();k!=LastMeshRenderedPTR->Geometry->AttributesBuffer.end();k++)
+            {
+                unsigned counter = 0;
+                for (std::list<Renderables::VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
+                {                     
+                    // If exists in shader
+                    if (LastMeshRenderedPTR->ShadersAttributesCache[LastProgramUsed][counterBuffers][counter]>=0)
+                    {
+                        glDisableVertexAttribArray(LastMeshRenderedPTR->ShadersAttributesCache[LastProgramUsed][counterBuffers][counter]);
+                    }
+                    counter++;
+                }
+                counterBuffers++;
+            }
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
+        }        
+    }
+    
+    void IRenderer::BindShadowMaps()
+    {
+        // Bind Shadows Textures
+        if (LastMaterialPTR->IsCastingShadows())
+        {
+            DirectionalShadowMapsUnits.clear();
+            for (std::vector<Texture>::iterator i = DirectionalShadowMapsTextures.begin(); i!=DirectionalShadowMapsTextures.end(); i++)
+            {
+                (*i).Bind();
+                DirectionalShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
+            }
+            
+            PointShadowMapsUnits.clear();
+            for (std::vector<Texture>::iterator i = PointShadowMapsTextures.begin(); i!=PointShadowMapsTextures.end(); i++)
+            {
+                (*i).Bind();
+                PointShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
+            }
+            
+            SpotShadowMapsUnits.clear();
+            for (std::vector<Texture>::iterator i = SpotShadowMapsTextures.begin(); i!=SpotShadowMapsTextures.end(); i++)
+            {
+                (*i).Bind();
+                SpotShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
+            }
+        }
+    }
+    
+    void IRenderer::UnbindShadowMaps()
+    {
+        // Unbind Shadows Textures
+        if (LastMaterialPTR->IsCastingShadows())
+        {
+            // Spot Lights
+            for (std::vector<Texture>::reverse_iterator i = SpotShadowMapsTextures.rbegin(); i!=SpotShadowMapsTextures.rend(); i++)
+            {
+                (*i).Unbind();
+            }
+            // Point Lights
+            for (std::vector<Texture>::reverse_iterator i = PointShadowMapsTextures.rbegin(); i!=PointShadowMapsTextures.rend(); i++)
+            {
+                (*i).Unbind();
+            }
+            // Directional Lights
+            for (std::vector<Texture>::reverse_iterator i = DirectionalShadowMapsTextures.rbegin(); i!=DirectionalShadowMapsTextures.rend(); i++)
+            {
+                (*i).Unbind();
+            }
+        }
+    }
+    
+    void IRenderer::SendAttributes()
+    {
+        // Check if custom Attributes exists
+        if (LastMeshRenderedPTR->Geometry->AttributesBuffer.size()>0)
+        {
+            uint32 counterBuffers = 0;
+            for (std::vector<Renderables::AttributeBuffer*>::iterator k=LastMeshRenderedPTR->Geometry->AttributesBuffer.begin();k!=LastMeshRenderedPTR->Geometry->AttributesBuffer.end();k++)
+            {
+                // Bind VAO
+                glBindBuffer(GL_ARRAY_BUFFER, (*k)->Buffer->ID);
+
+                // Get Struct Data
+                if ((*k)->attributeSize==0)
+                {
+                    for (std::list<Renderables::VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
+                    {
+                        (*k)->attributeSize+=(*l)->byteSize;
+                    }
+                }
+                
+                // Counter
+                unsigned counter = 0;
+                for (std::list<Renderables::VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
+                {
+                    // Check if is not set
+                    if (LastMeshRenderedPTR->ShadersAttributesCache[LastProgramUsed][counterBuffers][counter]==-2)
+                    {
+                        // set VAO ID
+                        LastMeshRenderedPTR->ShadersAttributesCache[LastProgramUsed][counterBuffers][counter] = Shader::GetAttributeLocation(LastProgramUsed,(*l)->Name);
+                        
+                    }
+                    // If exists in shader
+                    if (LastMeshRenderedPTR->ShadersAttributesCache[LastProgramUsed][counterBuffers][counter]>=0)
+                    {
+                        glVertexAttribPointer(
+                                                LastMeshRenderedPTR->ShadersAttributesCache[LastProgramUsed][counterBuffers][counter],
+                                                Buffer::Attribute::GetTypeCount((*l)->Type),
+                                                Buffer::Attribute::GetType((*l)->Type),
+                                                GL_FALSE,
+                                                (*k)->attributeSize,
+                                                BUFFER_OFFSET((*l)->Offset)
+                                            );
+
+                        // Enable Attribute
+                        glEnableVertexAttribArray(LastMeshRenderedPTR->ShadersAttributesCache[LastProgramUsed][counterBuffers][counter]);
+                    }
+                    counter++;
+                }
+                counterBuffers++;
+            }
+        }
+    }
+    
 };

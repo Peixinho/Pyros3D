@@ -51,7 +51,7 @@ namespace p3d {
             void DeactivateCulling();
         
             // Render Scene
-        virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene);
+            virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene);
         
         protected:
             
@@ -66,8 +66,14 @@ namespace p3d {
             // Sort Assets (mostly the Translucent ones)
             virtual void GroupAndSortAssets() = 0;
             
+            // Reset
+            void InitRender();
+            
             // Render Object
             void RenderObject(RenderingMesh* rmesh, IMaterial* Material);
+            
+            // End Rendering
+            void EndRender();
             
             // Send Uniforms
             void SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material);
@@ -159,10 +165,7 @@ namespace p3d {
                                 ModelViewProjectionMatrixIsDirty,
                                 ModelMatrixInverseIsDirty,
                                 ModelViewMatrixInverseIsDirty,
-                                ModelMatrixInverseTransposeIsDirty;
-            // Last Program Used
-            lint32
-                                LastProgramUsed;
+                                ModelMatrixInverseTransposeIsDirty;            
             bool
                                 ProjectionMatrixDirty,
                                 ViewMatrixDirty;
@@ -180,6 +183,25 @@ namespace p3d {
                                 NumberOfDirectionalShadows, NumberOfPointShadows, NumberOfSpotShadows;
             
         private:
+            
+            void BindMesh();
+            void UnbindMesh();
+            void SendAttributes();
+            void BindShadowMaps();
+            void UnbindShadowMaps();
+            
+            // Last Mesh Rendered
+            lint32
+                                LastMeshRendered;
+            RenderingMesh*
+                                LastMeshRenderedPTR;
+            
+            // Last Material Used
+            lint32
+                                LastMaterialUsed,
+                                LastProgramUsed;
+            IMaterial*
+                                LastMaterialPTR;
             
     };
     

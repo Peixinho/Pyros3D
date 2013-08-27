@@ -66,6 +66,9 @@ namespace p3d {
             // Culling Method
             uint32 CullingGeometry;
             
+            // Pivot
+            Matrix Pivot;
+            
     };
     
     class RenderingComponent : public IComponent {

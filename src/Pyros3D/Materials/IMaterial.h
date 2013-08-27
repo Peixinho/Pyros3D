@@ -88,6 +88,9 @@ namespace p3d {
         // Get Shader Program
         uint32 GetShader();
         
+        // Get Internal ID
+        uint32 GetInternalID();
+        
     protected :
         
         //Casting Shadows
@@ -104,6 +107,12 @@ namespace p3d {
         
         // Shader program        
         uint32 shaderProgram;
+        
+        // Internal ID
+        uint32 materialID;
+        
+    private:
+        static uint32 _InternalID;
         
     };
     

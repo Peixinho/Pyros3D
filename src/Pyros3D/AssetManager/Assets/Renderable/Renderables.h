@@ -1,9 +1,9 @@
 //============================================================================
-// Name        : Rendering Cone Component.h
+// Name        : Renderables.h
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
-// Description : Rendering Cone Component
+// Description : Renderables
 //============================================================================
 
 #ifndef RENDERABLES_H
@@ -173,6 +173,11 @@ namespace p3d {
             
             public:
                 
+                IGeometry() {
+                    ID = _InternalID;
+                    _InternalID++;
+                }
+                
                 // Index Buffer
                 GeometryBuffer* IndexBuffer;
                 // Index Data
@@ -220,11 +225,17 @@ namespace p3d {
                     }
                 }
                 
+                uint32 GetInternalID() { return ID; }
+                
             protected:
                 
                 f32 BoundingSphereRadius;
                 Vec3 BoundingSphereCenter;
                 Vec3 maxBounds, minBounds;
+                
+                // Internal ID
+                static uint32 _InternalID;
+                uint32 ID;
                 
         };
 
