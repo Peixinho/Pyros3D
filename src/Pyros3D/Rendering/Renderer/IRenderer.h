@@ -184,11 +184,11 @@ namespace p3d {
             
         private:
             
-            void BindMesh();
-            void UnbindMesh();
-            void SendAttributes();
-            void BindShadowMaps();
-            void UnbindShadowMaps();
+            void BindMesh(RenderingMesh* rmesh, IMaterial* material);
+            void UnbindMesh(RenderingMesh* rmesh, IMaterial* material);
+            void SendAttributes(RenderingMesh* rmesh, IMaterial* material);
+            void BindShadowMaps(IMaterial* material);
+            void UnbindShadowMaps(IMaterial* material);
             
             // Last Mesh Rendered
             lint32

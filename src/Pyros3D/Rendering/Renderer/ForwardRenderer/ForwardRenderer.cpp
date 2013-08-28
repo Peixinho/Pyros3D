@@ -473,6 +473,7 @@ namespace p3d {
         // Set Default Polygon Mode
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         
+        // End Rendering
         EndRender();
     }
     
