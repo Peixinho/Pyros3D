@@ -189,18 +189,21 @@ namespace p3d {
         if (LastMaterialPTR!=Material)
             Material->Render();
         
+        // Send User Uniforms
+        if (LastMaterialPTR!=Material) SendUserUniforms(rmesh, Material);
+        
+        // Send Model Specific Uniforms
+        SendModelUniforms(rmesh, Material);
+        
+        // Draw
+        glDrawElements(DrawType,rmesh->Geometry->IndexBuffer->GetGeometryData().size()/sizeof(int),GL_UNSIGNED_INT,BUFFER_OFFSET(0));                    
+        
+        // Save Last Material and Mesh
         LastProgramUsed = Material->GetShader();
         LastMaterialPTR = Material;
         LastMaterialUsed = Material->GetInternalID();
         LastMeshRendered = rmesh->Geometry->GetInternalID();
         LastMeshRenderedPTR = rmesh;
-        
-        // Send Model Specific Uniforms
-        SendModelUniforms(rmesh, Material);
-        // Send User Uniforms
-        SendUserUniforms(rmesh, Material);
-        // Draw
-        glDrawElements(DrawType,rmesh->Geometry->IndexBuffer->GetGeometryData().size()/sizeof(int),GL_UNSIGNED_INT,BUFFER_OFFSET(0));                    
         
     }
     
