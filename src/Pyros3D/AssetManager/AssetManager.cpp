@@ -20,14 +20,15 @@
 #include "Assets/Renderable/Primitives/Shapes/Torus.h"
 #include "Assets/Renderable/Primitives/Shapes/Capsule.h"
 #include "Assets/Renderable/Primitives/Shapes/Plane.h"
+#include "Assets/Renderable/Text/Text.h"
 #include "Assets/Texture/Texture.h"
+#include "Assets/Font/Font.h"
 
 namespace p3d {
     
     // Assets List
     std::map<uint32, Asset*> AssetManager::AssetsList;
-    // Models and Textures List for Fast Access
-    std::list<uint32> AssetManager::ModelsInUse, AssetManager::TexturesInUse;
+    
     // Assets Count
     uint32 AssetManager::AssetsCount = 0;
     
@@ -37,7 +38,7 @@ namespace p3d {
         AssetsList[AssetsCount] = new Asset();
         AssetsList[AssetsCount]->AssetPTR = new Model(ModelPath);
         AssetsList[AssetsCount]->Using = 0;
-        
+
         return AssetsCount;
     }
     uint32 AssetManager::CreateCube(const f32& width, const f32& height, const f32& depth, bool smooth, bool flip)
@@ -46,7 +47,7 @@ namespace p3d {
         AssetsList[AssetsCount] = new Asset();
         AssetsList[AssetsCount]->AssetPTR = new Cube(width,height,depth,smooth,flip);
         AssetsList[AssetsCount]->Using = 0;
-        
+
         return AssetsCount;
     }
     uint32 AssetManager::CreateCapsule(const f32& radius, const f32& height, const uint32& numRings, const uint32& segmentsW, const uint32& segmentsH, bool smooth, bool flip)
@@ -55,7 +56,7 @@ namespace p3d {
         AssetsList[AssetsCount] = new Asset();
         AssetsList[AssetsCount]->AssetPTR = new Capsule(radius,height,numRings,segmentsW,segmentsH,smooth,flip);
         AssetsList[AssetsCount]->Using = 0;
-        
+
         return AssetsCount;
     }
     uint32 AssetManager::CreateCone(const f32& radius, const f32& height, const uint32& segmentsW, const uint32& segmentsH, const bool& openEnded, bool smooth, bool flip)
@@ -64,7 +65,7 @@ namespace p3d {
         AssetsList[AssetsCount] = new Asset();
         AssetsList[AssetsCount]->AssetPTR = new Cone(radius,height,segmentsW,segmentsH,openEnded,smooth,flip);
         AssetsList[AssetsCount]->Using = 0;
-        
+
         return AssetsCount;
     }
     uint32 AssetManager::CreateCylinder(const f32& radius, const f32& height, const uint32& segmentsW, const uint32& segmentsH, const bool& openEnded, bool smooth,bool flip)
@@ -73,7 +74,7 @@ namespace p3d {
         AssetsList[AssetsCount] = new Asset();
         AssetsList[AssetsCount]->AssetPTR = new Cylinder(radius,height,segmentsW,segmentsH,openEnded,smooth,flip);
         AssetsList[AssetsCount]->Using = 0;
-        
+
         return AssetsCount;
     }
     uint32 AssetManager::CreateSphere(const f32& radius, const uint32& segmentsW, const uint32& segmentsH, bool smooth, bool HalfSphere,bool flip)
@@ -82,7 +83,7 @@ namespace p3d {
         AssetsList[AssetsCount] = new Asset();
         AssetsList[AssetsCount]->AssetPTR = new Sphere(radius,segmentsW,segmentsH,smooth,HalfSphere,flip);
         AssetsList[AssetsCount]->Using = 0;
-        
+
         return AssetsCount;
     }
     uint32 AssetManager::CreateTorus(const f32& radius, const f32& tube, const uint32& segmentsW, const uint32 segmentsH, bool smooth,bool flip)
@@ -91,7 +92,7 @@ namespace p3d {
         AssetsList[AssetsCount] = new Asset();
         AssetsList[AssetsCount]->AssetPTR = new Torus(radius,tube,segmentsW,segmentsH,smooth,flip);
         AssetsList[AssetsCount]->Using = 0;
-        
+
         return AssetsCount;
     }
     uint32 AssetManager::CreateTorusKnot(const f32& radius, const f32& tube, const uint32& segmentsW, const uint32& segmentsH, const f32& p, const f32& q, const uint32& heightscale, bool smooth,bool flip)
@@ -100,7 +101,7 @@ namespace p3d {
         AssetsList[AssetsCount] = new Asset();
         AssetsList[AssetsCount]->AssetPTR = new TorusKnot(radius,tube,segmentsW,segmentsH,p,q,heightscale,smooth,flip);
         AssetsList[AssetsCount]->Using = 0;
-        
+
         return AssetsCount;
     }
     uint32 AssetManager::CreatePlane(const f32& width, const f32& height, bool smooth,bool flip)
@@ -109,7 +110,7 @@ namespace p3d {
         AssetsList[AssetsCount] = new Asset();
         AssetsList[AssetsCount]->AssetPTR = new Plane(width,height,smooth,flip);
         AssetsList[AssetsCount]->Using = 0;
-        
+
         return AssetsCount;
     }
     uint32 AssetManager::CreateCustom(Renderables::Renderable* Custom)
@@ -118,47 +119,36 @@ namespace p3d {
         AssetsList[AssetsCount] = new Asset();
         AssetsList[AssetsCount]->AssetPTR = Custom;
         AssetsList[AssetsCount]->Using = 0;
-        AssetsList[AssetsCount]->Type = AssetType::Model;
+
         
         return AssetsCount;
     }
+    
+    uint32 AssetManager::CreateFont(const std::string& font, const f32& size)
+    {
+        AssetsCount++;
+        AssetsList[AssetsCount] = new Asset();
+        AssetsList[AssetsCount]->AssetPTR = new Font(font,size);
+        AssetsList[AssetsCount]->Using = 0;
+        
+        return AssetsCount;
+    }
+    
+    uint32 AssetManager::CreateText(const uint32& Handle, const std::string& text, const f32 &charWidth, const f32 &charHeight)
+    {
+        AssetsCount++;
+        AssetsList[AssetsCount] = new Asset();
+        AssetsList[AssetsCount]->AssetPTR = new Text(Handle,text,charWidth,charHeight);
+        AssetsList[AssetsCount]->Using = 0;
+        return AssetsCount;
+    }
+    
     Asset* AssetManager::UseAsset(const uint32 &Handle)
     {
         try {
             if (AssetsList.find(Handle)!=AssetsList.end())
             {
                 AssetsList[Handle]->Using++;
-                switch(AssetsList[Handle]->Type)
-                {
-                    case AssetType::Model:
-                    {
-                        bool found = false;
-                        for (std::list<uint32>::iterator i=ModelsInUse.begin();i!=ModelsInUse.end();i++)
-                        {
-                            if ((*i)==Handle) 
-                            {
-                                found = true;
-                                break;
-                            }
-                        }
-                        if (!found) ModelsInUse.push_back(Handle);
-                    }
-                    break;
-                    case AssetType::Texture:
-                    {
-                        bool found = false;
-                        for (std::list<uint32>::iterator i=TexturesInUse.begin();i!=TexturesInUse.end();i++)
-                        {
-                            if ((*i)==Handle) 
-                            {
-                                found = true;
-                                break;
-                            }
-                        }
-                        if (!found) TexturesInUse.push_back(Handle);
-                    }
-                    break;
-                }
                 return AssetsList[Handle];
             }
             throw "ERROR: Asset Not Found";
@@ -233,7 +223,6 @@ namespace p3d {
         if (texture->LoadTexture(FileName,Type,Mipmapping)) AssetsCount++;
         AssetsList[AssetsCount]=new Asset();
         AssetsList[AssetsCount]->AssetPTR = texture;
-        AssetsList[AssetsCount]->Type = AssetType::Texture;
         AssetsList[AssetsCount]->Using = 0;
         
         return AssetsCount;
@@ -255,7 +244,6 @@ namespace p3d {
         texture->CreateTexture(Type,DataType,width,height,Mipmapping);
         AssetsList[AssetsCount]=new Asset();
         AssetsList[AssetsCount]->AssetPTR = texture;
-        AssetsList[AssetsCount]->Type = AssetType::Texture;
         AssetsList[AssetsCount]->Using = 0;
         
         return AssetsCount;
@@ -291,6 +279,12 @@ namespace p3d {
     {
         Texture* texture = static_cast<Texture*> (AssetsList[Handle]->AssetPTR);
         texture->EnableCompareMode();
+    }
+    
+    void AssetManager::SetTextureByteAlignment(const uint32& Handle, const uint32& Value)
+    {
+        Texture* texture = static_cast<Texture*> (AssetsList[Handle]->AssetPTR);
+        texture->SetTextureByteAlignment(Value);
     }
     
     void AssetManager::SetTransparency(const uint32 &Handle,const f32& Transparency)

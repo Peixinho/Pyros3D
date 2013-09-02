@@ -128,7 +128,7 @@ namespace p3d {
 
             void SendBuffer()
             {
-                uint32 offset=0;
+                uint32 offset = 0;
                 uint32 count = 0;
                 for (std::list<VertexAttribute*>::iterator k = Attributes.begin();k!=Attributes.end();k++)
                 {
@@ -153,7 +153,7 @@ namespace p3d {
                 // Create Buffer
                 Buffer = new GeometryBuffer(bufferType,bufferDraw);
                 // Send Buffer
-                Buffer->Init(&Data[0],Data.size());      
+                Buffer->Init(&Data[0],Data.size());
             }
             
             void Dispose()
@@ -223,6 +223,7 @@ namespace p3d {
                         // Delete Pointer
                         delete *i;
                     }
+                    AttributesBuffer.clear();
                 }
                 
                 uint32 GetInternalID() { return ID; }
@@ -257,7 +258,7 @@ namespace p3d {
                         // Dispose Buffer
                         (*i)->Dispose();
                         // Delete Pointer
-                        delete *i;
+                        delete (*i);
                     }
                 }
                 

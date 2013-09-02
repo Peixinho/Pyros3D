@@ -122,6 +122,11 @@ namespace p3d {
                 internalFormat2=GL_RED;
                 internalFormat3=GL_FLOAT;
             break;
+            case TextureDataType::RG:
+                internalFormat=GL_RG8;
+                internalFormat2=GL_RG;
+                internalFormat3=GL_UNSIGNED_BYTE;
+            break;
             case TextureDataType::RG16F:
                 internalFormat=GL_RG16F;
                 internalFormat2=GL_RG;
@@ -131,6 +136,11 @@ namespace p3d {
                 internalFormat=GL_RG32F;
                 internalFormat2=GL_RG;
                 internalFormat3=GL_FLOAT;
+            break;
+            case TextureDataType::RGB:
+                internalFormat=GL_RGB8;
+                internalFormat2=GL_RGB;
+                internalFormat3=GL_UNSIGNED_BYTE;
             break;
             case TextureDataType::RGB16F:
                 internalFormat=GL_RGB16F;
@@ -152,6 +162,11 @@ namespace p3d {
                 internalFormat2=GL_RGBA;
                 internalFormat3=GL_FLOAT;
             break;
+            case TextureDataType::R:
+                internalFormat=GL_R8;
+                internalFormat2=GL_R;
+                internalFormat3=GL_UNSIGNED_BYTE;
+            break;
             case TextureDataType::R16I:
                 internalFormat=GL_R16I;
                 internalFormat2=GL_R;
@@ -160,6 +175,11 @@ namespace p3d {
             case TextureDataType::R32I:
                 internalFormat=GL_R32I;
                 internalFormat2=GL_R;
+                internalFormat3=GL_UNSIGNED_BYTE;
+            break;
+            case TextureDataType::ALPHA:
+                internalFormat=GL_ALPHA;
+                internalFormat2=GL_ALPHA;
                 internalFormat3=GL_UNSIGNED_BYTE;
             break;
             default:
@@ -433,6 +453,15 @@ namespace p3d {
         glBindTexture(GLSubMode, 0);
     }
     
+    void Texture::SetTextureByteAlignment(const uint32& Value)
+    {
+        glBindTexture(GLSubMode, GL_ID);
+        
+        glPixelStorei(GL_UNPACK_ALIGNMENT, Value);
+        
+        glBindTexture(GLSubMode, 0);
+    }
+    
     void Texture::UpdateData(void* srcPTR)
     {
         if (GL_ID>0)
@@ -510,6 +539,14 @@ namespace p3d {
         return LastUnitBinded;
     }
     
+    const uint32 Texture::GetWidth() const
+    {
+        return Width;
+    }
+    const uint32 Texture::GetHeight() const
+    {
+        return Height;
+    }
     void Texture::DeleteTexture()
     {
         if (GL_ID!=-1)

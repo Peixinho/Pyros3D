@@ -10,6 +10,8 @@
 #define	MATH_H
 
 // Type Definition
+typedef unsigned char uint8;
+typedef unsigned short uint16;
 typedef int int32;
 typedef long int lint32;
 typedef short int sint32;

@@ -36,7 +36,8 @@ namespace p3d
             PointShadow                         = 0x800,
             SpotShadow                          = 0x1000,
             CastShadows                         = 0x2000,
-            Diffuse                             = 0x4000
+            Diffuse                             = 0x4000,
+            TextRendering                       = 0x8000
         };
     };        
     

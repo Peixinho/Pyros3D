@@ -19,6 +19,8 @@
 #include <list>
 #include <SFML/Graphics/Image.hpp>
 
+#undef CreateFont
+
 namespace p3d {
 
 	using namespace Renderables;
@@ -54,16 +56,20 @@ namespace p3d {
         enum {
             RGBA = 0,
             DepthComponent,
+            R,
             R16F,
             R32F,
+            RG,
             RG16F,
             RG32F,
+            RGB,
             RGB16F,
             RGB32F,
             RGBA16F,
             RGBA32F,
             R16I,
             R32I,
+            ALPHA
         };
     }
     
@@ -78,14 +84,6 @@ namespace p3d {
             Texture
         };
     }
-    
-    // Asset Types
-    namespace AssetType {
-        enum {
-            Texture = 0,
-            Model
-        };
-    };
     
     struct Asset {
         uint32 ID;
@@ -111,6 +109,11 @@ namespace p3d {
             static uint32 CreateTorusKnot(const f32 &radius, const f32 &tube, const uint32 &segmentsW = 60, const uint32 &segmentsH = 6, const f32 &p = 2, const f32 &q = 3, const uint32 &heightscale = 1, bool smooth = false, bool flip = false);
             static uint32 CreatePlane(const f32 &width, const f32 &height, bool smooth = false, bool flip = false);
             static uint32 CreateCustom(Renderables::Renderable* Custom);
+            
+            static uint32 CreateFont(const std::string &font,const f32 &size);
+            static uint32 CreateText(const uint32 &Handle, const std::string &text, const f32 &charWidth, const f32 &charHeight);
+            
+            // Get and Delete Asset
             static Asset* GetAsset(const uint32 &Handle);
             static void DeleteAsset(const uint32 &Handle);
 
@@ -128,6 +131,8 @@ namespace p3d {
             static void UpdateData(const uint32 &Handle, void* srcPTR);
             static void UpdateMipmap(const uint32 &Handle);
             static void EnableCompareMode(const uint32 &Handle);
+            static void SetTextureByteAlignment(const uint32 &Handle, const uint32 &Value);
+            
             // Use Asset
             static void BindTexture(const uint32 &Handle);
             static void UnbindTexture(const uint32 &Handle);
@@ -148,8 +153,6 @@ namespace p3d {
             
             // List Of Assets
             static std::map<uint32, Asset*> AssetsList;
-            static std::list<uint32> ModelsInUse; // For Fast Access
-            static std::list<uint32> TexturesInUse; // For Fast Access
             static uint32 AssetsCount;        
 
             // Texture Unit Binded

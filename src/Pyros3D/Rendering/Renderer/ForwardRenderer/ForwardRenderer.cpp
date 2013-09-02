@@ -466,7 +466,6 @@ namespace p3d {
                     RenderObject((*i),(*i)->Material);
             }
         }
-        
         // Disable Cull Face
         glDisable(GL_CULL_FACE);
         

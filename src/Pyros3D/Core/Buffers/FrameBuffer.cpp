@@ -119,7 +119,7 @@ namespace p3d {
         {
             glBindRenderbuffer(GL_RENDERBUFFER, 0);
         }
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
         
     }
     

@@ -59,9 +59,10 @@ namespace p3d {
             void Resize(const uint32 &Width, const uint32 &Height);
             void UpdateData(void* srcPTR);
             void UpdateMipmap();
-            
+            void SetTextureByteAlignment(const uint32 &Value);
             const uint32 GetBindID() const;
-            
+            const uint32 GetWidth() const;
+            const uint32 GetHeight() const;
             // Use Asset
             void Bind();
             void Unbind();
