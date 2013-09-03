@@ -74,6 +74,14 @@ namespace p3d
         }
         if (option & ShaderUsage::TextRendering)
         {
+            if (!usingNormal)
+            {
+                usingNormal = true;
+                vertexShaderHeader+="varying vec3 vNormal;\n";
+                vertexShaderBody+="vNormal = aNormal;\n";
+                fragmentShaderHeader+="varying vec3 vNormal;\n";
+                fragmentShaderBody+="vec3 Normal = vNormal;\n";
+            }
             if (!usingTexcoords)
             {
                 usingTexcoords = true;
@@ -86,7 +94,7 @@ namespace p3d
                 fragmentShaderHeader+="vec2 Texcoord = vTexcoord;\n";
             }
             fragmentShaderHeader+="uniform sampler2D uColormap;\n";
-            fragmentShaderBody+="if (!diffuseIsSet) {diffuse=vec4(vec3(texture2D(uColormap,Texcoord).a),1.0); diffuseIsSet=true;} else diffuse *= vec4(vec3(texture2D(uColormap,Texcoord).a),1.0);\n";
+            fragmentShaderBody+="if (!diffuseIsSet) {diffuse=vec4(Normal*texture2D(uColormap,Texcoord).a,1.0); diffuseIsSet=true;} else diffuse *= vec4(Normal*texture2D(uColormap,Texcoord).a,1.0);\n";
         }
         if (option & ShaderUsage::DirectionalShadow)
         {

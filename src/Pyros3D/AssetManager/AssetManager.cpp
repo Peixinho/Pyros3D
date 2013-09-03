@@ -134,11 +134,20 @@ namespace p3d {
         return AssetsCount;
     }
     
-    uint32 AssetManager::CreateText(const uint32& Handle, const std::string& text, const f32 &charWidth, const f32 &charHeight)
+    uint32 AssetManager::CreateText(const uint32& Handle, const std::string& text, const f32& charWidth, const f32& charHeight, const Vec4& color)
     {
         AssetsCount++;
         AssetsList[AssetsCount] = new Asset();
-        AssetsList[AssetsCount]->AssetPTR = new Text(Handle,text,charWidth,charHeight);
+        AssetsList[AssetsCount]->AssetPTR = new Text(Handle,text,charWidth,charHeight,color);
+        AssetsList[AssetsCount]->Using = 0;
+        return AssetsCount;
+    }
+    
+    uint32 AssetManager::CreateText(const uint32& Handle, const std::string& text, const f32& charWidth, const f32& charHeight, const std::vector<Vec4>& Colors)
+    {
+        AssetsCount++;
+        AssetsList[AssetsCount] = new Asset();
+        AssetsList[AssetsCount]->AssetPTR = new Text(Handle,text,charWidth,charHeight,Colors);
         AssetsList[AssetsCount]->Using = 0;
         return AssetsCount;
     }

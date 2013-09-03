@@ -82,7 +82,8 @@ namespace p3d {
                 
                 TextGeometry* geometry;
 
-                Text(const uint32 &Handle, const std::string& text, const f32 &charWidth, const f32 &charHeight);
+                Text(const uint32 &Handle, const std::string& text, const f32 &charWidth, const f32 &charHeight, const Vec4 &color = Vec4(1,1,1,1));
+                Text(const uint32 &Handle, const std::string& text, const f32 &charWidth, const f32 &charHeight, const std::vector<Vec4> &color);
                 
                 virtual ~Text();
             
@@ -102,7 +103,8 @@ namespace p3d {
                     
                 };
             
-                void UpdateText(const std::string &text);
+                void UpdateText(const std::string &text, const Vec4 &color = Vec4(1,1,1,1));
+                void UpdateText(const std::string &text, const std::vector<Vec4> &color);
                 
             private:
                 

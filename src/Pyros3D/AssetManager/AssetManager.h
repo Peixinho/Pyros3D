@@ -111,7 +111,8 @@ namespace p3d {
             static uint32 CreateCustom(Renderables::Renderable* Custom);
             
             static uint32 CreateFont(const std::string &font,const f32 &size);
-            static uint32 CreateText(const uint32 &Handle, const std::string &text, const f32 &charWidth, const f32 &charHeight);
+            static uint32 CreateText(const uint32 &Handle, const std::string &text, const f32 &charWidth, const f32 &charHeight, const Vec4 &color = Vec4(1,1,1,1));
+            static uint32 CreateText(const uint32 &Handle, const std::string &text, const f32 &charWidth, const f32 &charHeight, const std::vector<Vec4> &Color);
             
             // Get and Delete Asset
             static Asset* GetAsset(const uint32 &Handle);
