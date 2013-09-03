@@ -203,7 +203,7 @@ namespace p3d {
                         
                         // Set Color
                         Vec3 normal = Vec3(colors[i].x,colors[i].y,colors[i].z);
-                        std::cout << normal.toString() << std::endl;
+                        
                         geometry->tVertex.push_back(a);   geometry->tNormal.push_back(normal);
                         geometry->tVertex.push_back(b);   geometry->tNormal.push_back(normal);
                         geometry->tVertex.push_back(c);   geometry->tNormal.push_back(normal);
