@@ -35,13 +35,19 @@ Diaries:
 
 		2 months after starting the project, I've reached the level that my previous version had, and plus. At this time, I've started implementing physics, so its on the same development phase that I was on the previous version when I decided to rewrite. But I've added some more features that the previous engine didn't have, so it now supports 1 Directional Lights Shadows (Cascade Shadow Mapping [4 Cascades Max]), 4 Point Light Shadows (CubeMap Shadow Maps) and 4 Spot Light Shadows. I was going to support Regular and GPU shadow maps, but nowadays, any GPU supports HW Shadows so I removed regular shadow maps from the engine. (Its always possible to implement over the engine, extending it)
 		One thing is not implemented yet, like I had on the previous version, and that is mesh sorting, so for now, I can't sort opaque from translucid meshes (materials) but thats on a todo list, and I wanna go further, and implement even better sorts, to optimize performance.
-		
+	
+
+	3rd - September, 2013:
+
+		1 month after my last update on this file, I have 2 features implemented that worth to be mentioned. The forward renderer is faster than ever, and when I have sorting implemented, the performance will increase even more. My first achievment when rewriting this new version is complete, I have now a much better performance on screen.
+		The other feature is finally, text rendering. Its now possible to load a font, create the rendering component and render to the screen.
+		There was a lot of bug fixing and cleaning!
 
 TODO List:
 	On the rendering part I have to compare the rendering list with the gameobjects on the scene to render, and render only the ones that are on that list. - DONE
 	Probably I can make a list for each scene to speed up. - DONE
 
-	Try some sort stuff to boost rendering pipeline.
+	Try some sort stuff to boost rendering pipeline. - PARTLY DONE
 
 	Work on the lighting part again, mainly is copy the old code and try to optimize, but most of the code is ready to go - DONE
 

@@ -46,6 +46,9 @@ namespace p3d {
             void EnableDepthBias(const Vec2 &Bias);
             void DisableDepthBias();
             
+            // Resize
+            void Resize(const uint32 &Width, const uint32 &Height);
+            
             // culling
             void ActivateCulling(const unsigned &cullingType);
             void DeactivateCulling();

@@ -44,9 +44,8 @@ namespace p3d {
             virtual void Shutdown();
             virtual void GetEvents();
             virtual void Draw();
-            virtual void Resize(const int& width, const int& height);                       
             virtual bool IsRunning() const;
-            virtual void OnResize(const int &width, const int &height);
+            virtual void OnResize(const uint32 &width, const uint32 &height);
             void Close();
 
             // methods

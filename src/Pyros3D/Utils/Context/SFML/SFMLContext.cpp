@@ -50,23 +50,15 @@ namespace p3d {
     {
         rview.close();
     }
-    void SFMLContext::Resize(const int& width, const int& height)
+    
+    void SFMLContext::OnResize(const uint32 &width, const uint32 &height)
     {
         Width = width;
         Height = height;
         
         // resize application
-        glViewport(0,0,Width,Height);
         sf::View TheView(sf::FloatRect(0, 0, (f32)Width, (f32)Height));
-        rview.setView(TheView);                
-
-    }
-    void SFMLContext::OnResize(const int &width, const int &height)
-    {
-        Width = width;
-        Height = height;
-        
-        Resize(Width, Height);
+        rview.setView(TheView);
     }
     bool SFMLContext::IsRunning() const
     {

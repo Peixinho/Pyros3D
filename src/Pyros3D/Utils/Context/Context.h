@@ -39,7 +39,7 @@ namespace p3d {
             // Draw
             virtual void Draw() = 0;
             // Resize
-            virtual void OnResize(const int &width, const int &height) = 0;            
+            virtual void OnResize(const uint32 &width, const uint32 &height) = 0;
             // Is Running		
             virtual bool IsRunning() const = 0;
 

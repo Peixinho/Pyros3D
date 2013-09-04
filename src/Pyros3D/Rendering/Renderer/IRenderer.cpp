@@ -30,6 +30,13 @@ namespace p3d {
         
     }
     
+    void IRenderer::Resize(const uint32& Width, const uint32& Height)
+    {
+        // Save Dimensions
+        this->Width = Width;
+        this->Height = Height;
+    }
+    
     IRenderer::~IRenderer()
     {
         
