@@ -64,7 +64,7 @@ namespace p3d {
         return Components;
     }
     
-    std::vector<IComponent*> ILightComponent::GetComponentsOnScene(SceneGraph* Scene)
+    std::vector<IComponent*> ILightComponent::GetLightsOnScene(SceneGraph* Scene)
     {
         return LightsOnScene[Scene];
     }

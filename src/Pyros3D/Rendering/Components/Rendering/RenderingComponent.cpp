@@ -51,7 +51,7 @@ namespace p3d {
                     if (renderable->Geometries[i]->materialProperties.haveColorMap) options = options | ShaderUsage::Texture;
                     if (renderable->Geometries[i]->materialProperties.haveSpecularMap) options = options | ShaderUsage::SpecularMap;
                     if (renderable->Geometries[i]->materialProperties.haveNormalMap) options = options | ShaderUsage::BumpMapping;
-//                    options = options | ShaderUsage::Diffuse | ShaderUsage::ShadowMaterial;
+                    options = options | ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow;
 
                     r_submesh->Material = new GenericShaderMaterial(options);
                     GenericShaderMaterial* genMat = static_cast<GenericShaderMaterial*> (r_submesh->Material);

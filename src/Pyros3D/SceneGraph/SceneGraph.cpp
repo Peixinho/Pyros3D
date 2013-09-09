@@ -76,13 +76,16 @@ namespace p3d {
         {
             // Update GameObject - User Change
             (*i)->Update();
+			// Update Transformation
+			(*i)->InternalUpdate();
+			(*i)->CloneTransform();
             // Register Components
             (*i)->RegisterComponents(this);
             // Update Components
             (*i)->UpdateComponents();
         }
         
-        if (!_ThreadIsUpdating && _ThreadSync)
+        if (!_ThreadIsUpdating && !_ThreadSync)
         {
             // Copy GameObjects to Thread
             _GameObjectList.resize(_GameObjectList.size());
@@ -91,18 +94,19 @@ namespace p3d {
             ThreadID = Thread::AddThread(UpdateTransformations);
                     
         } else {
-            if (!_ThreadIsUpdating && !_ThreadSync)
+            if (_ThreadIsUpdating && !_ThreadSync)
             {
                 // Remove Thread
-		Thread::RemoveThread(ThreadID);
+				Thread::RemoveThread(ThreadID);
 
-                // Copy From Thread to GameObjects
-                _ThreadSync = true;
-                for (std::vector<GameObject*>::iterator i=_GameObjectList.begin();i!=_GameObjectList.end();i++)
-                {
-                    // Copy from Thread
-                    (*i)->CloneTransform();
-                }
+				// Copy From Thread to GameObjects
+				_ThreadSync = true;
+				for (std::vector<GameObject*>::iterator i=_GameObjectList.begin();i!=_GameObjectList.end();i++)
+				{
+					// Copy from Thread
+					(*i)->CloneTransform();
+				}
+				_ThreadSync = false;
             }
         }
     }
@@ -118,7 +122,6 @@ namespace p3d {
         }
         // Unset Flag
         _ThreadIsUpdating = false;
-        _ThreadSync = false;
 
         return NULL;
     }

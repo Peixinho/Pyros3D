@@ -49,7 +49,6 @@ namespace p3d {
             void Close();
 
             // methods
-            void DisplayInfo(const std::string &text, const Vec2 &scale = Vec2(1.0,1.0), const Vec4 &color = Vec4(1.0,1.0,1.0,1.0));
             sf::Window GetWindow();            
             void HideMouse();
             void ShowMouse();
@@ -82,16 +81,9 @@ namespace p3d {
             // save mouse positions
             f32 mouseX, mouseY;
             
-            // Text
-            sf::Text Text;
-			sf::Font Font;
-            
             // Fullscreen Modes
             std::vector<sf::VideoMode> modes;
             sf::View view;
-            
-            // Display Info
-            bool displayInfo;
             
     };
 

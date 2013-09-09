@@ -85,7 +85,7 @@ namespace p3d {
         }
         
         // Apply this ONLY if is Looking At
-        if (_IsLookingAtGameObject==true || _IsLookingAtPosition==true)
+        if (_IsLookingAtGameObject || _IsLookingAtPosition)
         {
             Vec3 target;
             if (_IsLookingAtGameObject==true)
@@ -323,10 +323,13 @@ namespace p3d {
     void GameObject::RegisterComponents(SceneGraph* Scene)
     {
         if (_ComponentsChanged)
-        for(std::vector<IComponent*>::iterator i=Components.begin();i!=Components.end();i++)
-        {
-            (*i)->Register(Scene);
-        }
+		{
+			for(std::vector<IComponent*>::iterator i=Components.begin();i!=Components.end();i++)
+			{
+				(*i)->Register(Scene);
+			}
+			_ComponentsChanged = false;
+		}
     }
     void GameObject::UnregisterComponents(SceneGraph* Scene)
     {

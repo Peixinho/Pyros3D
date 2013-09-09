@@ -21,7 +21,7 @@ namespace p3d {
     {
 
         // Load Model
-        assimp_model = aiImportFile(Filename.c_str(),aiProcessPreset_TargetRealtime_Fast | aiProcess_OptimizeMeshes | aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
+		assimp_model = aiImportFile(Filename.c_str(),aiProcessPreset_TargetRealtime_Fast | aiProcess_OptimizeMeshes | aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
 
         if (!assimp_model)
         {

@@ -13,10 +13,7 @@ namespace p3d {
     
     #define GLCHECK() { int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } }
     SFMLContext::SFMLContext(const int &width, const int &height, const std::string &title, const unsigned int &windowType) : Context(width,height) 
-    {        
-        
-        // Display Info
-        displayInfo = false;
+    {
         
         unsigned type = 0;
         bool fullScreen = false;
@@ -44,7 +41,7 @@ namespace p3d {
         
         // Initialize GLew
         glewInit();
-        
+		
     }
     SFMLContext::~SFMLContext() 
     {
@@ -127,12 +124,6 @@ namespace p3d {
         // Push States
         rview.pushGLStates();                
         
-        // Display Text and Logo
-        if (displayInfo == true)
-        {
-            rview.draw(Text);
-        }
-        
         // use sfml display
         rview.display();
 
@@ -147,25 +138,6 @@ namespace p3d {
     void SFMLContext::ShowMouse()
     {
         rview.setMouseCursorVisible(true);
-    }
-    
-    // private
-    void SFMLContext::DisplayInfo(const std::string& text, const Vec2& scale, const Vec4& color)
-    {
-
-        Font = sf::Font();
-        Font.loadFromFile("font/verdana.ttf");
-
-        Text = sf::Text(text,Font);
-        Text.setFont(Font);
-
-        // Draw Text
-        Text.setColor(sf::Color(color.x*255,color.y*255,color.z*255));
-        Text.scale(scale.x, scale.y);
-        
-        // Show Display Info
-        displayInfo = true;
-        
     }
     
     // Buttons and Mouse

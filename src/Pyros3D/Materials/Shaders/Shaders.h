@@ -48,8 +48,8 @@ namespace p3d {
             static long GetAttributeLocation(const int32& program, const std::string &name);
 
             // Uniforms          
-            static void SendUniform(Uniform::Uniform uniform, const int32 &Handle);
-            static void SendUniform(Uniform::Uniform uniform, void* data, const int32 &Handle, const uint32 &elementCount = 1);
+            static void SendUniform(const Uniform::Uniform &uniform, const int32 &Handle);
+            static void SendUniform(const Uniform::Uniform &uniform, void* data, const int32 &Handle, const uint32 &elementCount = 1);
 
         private:
 

@@ -51,7 +51,7 @@ namespace p3d {
         std::vector<RenderingMesh*> rmesh = RenderingComponent::GetRenderingMeshes(Scene);
         
         // Get Lights List
-        std::vector<IComponent*> lcomps = ILightComponent::GetComponentsOnScene(Scene);
+        std::vector<IComponent*> lcomps = ILightComponent::GetLightsOnScene(Scene);
         
         
         // Prepare and Pack Lights to Send to Shaders
@@ -172,9 +172,6 @@ namespace p3d {
                         ShadowFar.w = 0.5f*(-_ShadowFar.w*projection.m.m[10]+projection.m.m[14])/_ShadowFar.w + 0.5f;
                         DirectionalShadowFar.push_back(ShadowFar);
 
-                        // Unbind Material
-                        glUseProgram(0);
-
                         // Disable Depth Bias
                         glDisable(GL_POLYGON_OFFSET_FILL);
 
@@ -289,9 +286,6 @@ namespace p3d {
                         // Get Texture (only 1)
                         PointShadowMapsTextures.push_back(*p->GetShadowMapTexture());
                         
-                        // Unbind Material
-                        glUseProgram(0);
-                        
                         // Disable Depth Bias
                         glDisable(GL_POLYGON_OFFSET_FILL);
                         
@@ -378,9 +372,6 @@ namespace p3d {
                                         RenderObject((*k),shadowMaterial);
                             }
                         }
-                        
-                        // Unbind Material
-                        glUseProgram(0);
                         
                         // Disable Depth Bias
                         glDisable(GL_POLYGON_OFFSET_FILL);

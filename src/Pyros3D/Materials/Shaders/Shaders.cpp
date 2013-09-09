@@ -141,7 +141,7 @@ namespace p3d {
         return glGetAttribLocation(program, name.c_str());
     }
 
-    void Shader::SendUniform(Uniform::Uniform uniform, const int32 &Handle)
+    void Shader::SendUniform(const Uniform::Uniform &uniform, const int32 &Handle)
     {
         if (Handle>-1 && uniform.ElementCount>0)
         switch(uniform.Type)
@@ -179,7 +179,7 @@ namespace p3d {
         }
     }
     
-    void Shader::SendUniform(Uniform::Uniform uniform, void* data, const int32 &Handle, const uint32 &elementCount)
+    void Shader::SendUniform(const Uniform::Uniform &uniform, void* data, const int32 &Handle, const uint32 &elementCount)
     {
         if (Handle>-1 && elementCount>0)
         {
