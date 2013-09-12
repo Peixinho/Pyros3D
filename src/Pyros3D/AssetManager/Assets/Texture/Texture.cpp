@@ -18,7 +18,7 @@ namespace p3d {
     uint32 Texture::UnitBinded = 0;
     uint32 Texture::LastUnitBinded = 0;
     
-    Texture::Texture() : GL_ID(-1), haveImage(false), isMipMap(false)
+    Texture::Texture() : GL_ID(-1), haveImage(false), isMipMap(false), pixelsRetrieved(false)
     {
         
     }
@@ -108,7 +108,18 @@ namespace p3d {
         switch(DataType)
         {
             case TextureDataType::DepthComponent:
-                internalFormat=GL_DEPTH_COMPONENT;
+            case TextureDataType::DepthComponent24:    
+                internalFormat=GL_DEPTH_COMPONENT24;
+                internalFormat2=GL_DEPTH_COMPONENT;
+                internalFormat3=GL_FLOAT;
+            break;
+            case TextureDataType::DepthComponent16:
+                internalFormat=GL_DEPTH_COMPONENT16;
+                internalFormat2=GL_DEPTH_COMPONENT;
+                internalFormat3=GL_FLOAT;
+            break;
+            case TextureDataType::DepthComponent32:    
+                internalFormat=GL_DEPTH_COMPONENT32;
                 internalFormat2=GL_DEPTH_COMPONENT;
                 internalFormat3=GL_FLOAT;
             break;
@@ -122,6 +133,16 @@ namespace p3d {
                 internalFormat2=GL_RED;
                 internalFormat3=GL_FLOAT;
             break;
+            case TextureDataType::R16I:
+                internalFormat=GL_R16I;
+                internalFormat2=GL_R;
+                internalFormat3=GL_UNSIGNED_BYTE;
+            break;
+            case TextureDataType::R32I:
+                internalFormat=GL_R32I;
+                internalFormat2=GL_R;
+                internalFormat3=GL_UNSIGNED_BYTE;
+            break;            
             case TextureDataType::RG:
                 internalFormat=GL_RG8;
                 internalFormat2=GL_RG;
@@ -136,6 +157,16 @@ namespace p3d {
                 internalFormat=GL_RG32F;
                 internalFormat2=GL_RG;
                 internalFormat3=GL_FLOAT;
+            break;
+            case TextureDataType::RG16I:
+                internalFormat=GL_RG16I;
+                internalFormat2=GL_RG;
+                internalFormat3=GL_UNSIGNED_BYTE;
+            break;
+            case TextureDataType::RG32I:
+                internalFormat=GL_RG32I;
+                internalFormat2=GL_RG;
+                internalFormat3=GL_UNSIGNED_BYTE;
             break;
             case TextureDataType::RGB:
                 internalFormat=GL_RGB8;
@@ -152,6 +183,16 @@ namespace p3d {
                 internalFormat2=GL_RGB;
                 internalFormat3=GL_FLOAT;
             break;
+                case TextureDataType::RGB16I:
+                internalFormat=GL_RGB16I;
+                internalFormat2=GL_RGB;
+                internalFormat3=GL_UNSIGNED_BYTE;
+            break;
+            case TextureDataType::RGB32I:
+                internalFormat=GL_RGB32I;
+                internalFormat2=GL_RGB;
+                internalFormat3=GL_UNSIGNED_BYTE;
+            break;
             case TextureDataType::RGBA16F:
                 internalFormat=GL_RGBA16F;
                 internalFormat2=GL_RGBA;
@@ -162,18 +203,18 @@ namespace p3d {
                 internalFormat2=GL_RGBA;
                 internalFormat3=GL_FLOAT;
             break;
+                case TextureDataType::RGBA16I:
+                internalFormat=GL_RGBA16I;
+                internalFormat2=GL_RGBA;
+                internalFormat3=GL_UNSIGNED_BYTE;
+            break;
+            case TextureDataType::RGBA32I:
+                internalFormat=GL_RGBA32I;
+                internalFormat2=GL_RGBA;
+                internalFormat3=GL_UNSIGNED_BYTE;
+            break;            
             case TextureDataType::R:
                 internalFormat=GL_R8;
-                internalFormat2=GL_R;
-                internalFormat3=GL_UNSIGNED_BYTE;
-            break;
-            case TextureDataType::R16I:
-                internalFormat=GL_R16I;
-                internalFormat2=GL_R;
-                internalFormat3=GL_UNSIGNED_BYTE;
-            break;
-            case TextureDataType::R32I:
-                internalFormat=GL_R32I;
                 internalFormat2=GL_R;
                 internalFormat3=GL_UNSIGNED_BYTE;
             break;
@@ -556,6 +597,90 @@ namespace p3d {
     const uint32 Texture::GetBindID() const
     {
         return GL_ID;
+    }
+    
+    std::vector<uchar> Texture::GetTextureData()
+    {
+        switch(internalFormat)
+        {
+            case GL_DEPTH_COMPONENT16:
+                pixels.resize(sizeof(uchar)*2*Width*Height);
+            break;
+            case GL_DEPTH_COMPONENT24:
+                pixels.resize(sizeof(uchar)*3*Width*Height);
+            break;
+            case GL_DEPTH_COMPONENT32:
+                pixels.resize(sizeof(f32)*Width*Height);
+            break;
+            case GL_R16F:
+                pixels.resize(sizeof(uchar)*2*Width*Height);
+            break;
+            case GL_R32F:
+                pixels.resize(sizeof(f32)*Width*Height);
+            break;
+            case GL_RG8:
+                pixels.resize(sizeof(uchar)*Width*Height*2);
+            break;
+            case GL_R16I:
+                pixels.resize(sizeof(uchar)*2*Width*Height);
+            break;
+            case GL_R32I:
+                pixels.resize(sizeof(int32)*Width*Height);
+            break;
+            case GL_RG16F:
+                pixels.resize(sizeof(uchar)*2*Width*Height*2);
+            break;
+            case GL_RG32F:
+                pixels.resize(sizeof(f32)*Width*Height*2);
+            break;
+            case GL_RG16I:
+                pixels.resize(sizeof(uchar)*2*Width*Height);
+            break;
+            case GL_RG32I:
+                pixels.resize(sizeof(int32)*Width*Height*2);
+            break;
+            case GL_RGB8:
+                pixels.resize(sizeof(uchar)*Width*Height*2);
+            break;
+            case GL_RGB16F:
+                pixels.resize(sizeof(uchar)*2*Width*Height*3);
+            break;
+            case GL_RGB32F:
+                pixels.resize(sizeof(f32)*Width*Height*3);
+            break;
+            case GL_RGB16I:
+                pixels.resize(sizeof(uchar)*2*Width*Height*3);
+            break;
+            case GL_RGB32I:
+                pixels.resize(sizeof(int32)*Width*Height*3);
+            break;
+            case GL_RGBA16F:
+                pixels.resize(sizeof(uchar)*2*Width*Height*4);
+            break;
+            case GL_RGBA32F:
+                pixels.resize(sizeof(f32)*Width*Height*4);
+            break;
+            case GL_RGBA16I:
+                pixels.resize(sizeof(uchar)*2*Width*Height*4);
+            break;
+            case GL_RGBA32I:
+                pixels.resize(sizeof(int32)*Width*Height*4);
+            break;
+            case GL_R8:
+                pixels.resize(sizeof(uchar)*Width*Height*4);
+            break;
+            case GL_ALPHA:
+                pixels.resize(sizeof(uchar)*Width*Height);
+            break;
+            default:
+                pixels.resize(sizeof(uchar)*Width*Height*4);
+            break;
+        }
+        glBindTexture(GLSubMode, GL_ID);
+        glGetTexImage(GLMode,0,internalFormat2,internalFormat3,&pixels[0]);
+        glBindTexture(GLSubMode, 0);
+        pixelsRetrieved = true;
+        return pixels;
     }
     
     void Texture::Dispose()

@@ -1,21 +1,21 @@
 //============================================================================
-// Name        : RotatingCube.cpp
+// Name        : RotatingCubeWithLighting.cpp
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
 // Description : Game Example
 //============================================================================
 
-#include "RotatingCube.h"
+#include "RotatingCubeWithLighting.h"
 
 using namespace p3d;
 
-RotatingCube::RotatingCube() : SFMLContext(1024,768,"Pyros3D - Rotating Cube",WindowType::Close)
+RotatingCubeWithLighting::RotatingCubeWithLighting() : SFMLContext(1024,768,"Pyros3D - Rotating Cube With Lighting",WindowType::Close)
 {
     
 }
 
-void RotatingCube::OnResize(const uint32 &width, const uint32 &height)
+void RotatingCubeWithLighting::OnResize(const uint32 &width, const uint32 &height)
 {
     // Execute Parent Resize Function
     SFMLContext::OnResize(width, height);
@@ -25,7 +25,7 @@ void RotatingCube::OnResize(const uint32 &width, const uint32 &height)
     projection.Perspective(70.f,(f32)width/(f32)height,1.f,100.f);
 }
 
-void RotatingCube::Init()
+void RotatingCubeWithLighting::Init()
 {
     // Initialization
     
@@ -42,10 +42,23 @@ void RotatingCube::Init()
         Camera = new GameObject();
         Camera->SetPosition(Vec3(0,10,80));
         
+        // Material
+        Diffuse = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::Diffuse);
+        Diffuse->SetColor(Vec4(1,0,0,1));
+        
+        // Add a Directional Light
+        Light = new GameObject();
+        dLight = new DirectionalLight(Vec4(1,1,1,1));
+        Light->Add(dLight);
+        // Set Light Position (Direction is Position Normalized)
+        Light->SetPosition(Vec3(100,100,0));
+        
+        Scene->Add(Light);
+        
         // Create Game Object
         Cube = new GameObject();
         cubeID = AssetManager::CreateCube(30,30,30);
-        rCube = new RenderingComponent(cubeID);
+        rCube = new RenderingComponent(cubeID, Diffuse);
         Cube->Add(rCube);
         
         // Add Camera to Scene
@@ -56,7 +69,7 @@ void RotatingCube::Init()
 
 }
 
-void RotatingCube::Update()
+void RotatingCubeWithLighting::Update()
 {
     // Update - Game Loop
         
@@ -72,25 +85,30 @@ void RotatingCube::Update()
         // Info on Window
         // Should come in the End
         std::ostringstream x; x << fps.getFPS();
-        rview.setTitle("Pyros3D - Rotating Cube - FPS: " + x.str());
+        rview.setTitle("Pyros3D - Rotating Cube With Lighting - FPS: " + x.str());
 }
 
-void RotatingCube::Shutdown()
+void RotatingCubeWithLighting::Shutdown()
 {
     // All your Shutdown Code Here
     
         // Remove GameObjects From Scene
         Scene->Remove(Cube);
         Scene->Remove(Camera);
+        Scene->Remove(Light);
         
         Cube->Remove(rCube);
-    
+        Light->Remove(dLight);
+        
         // Delete
         delete rCube;
         delete Cube;
+        delete dLight;
+        delete Light;
+        delete Diffuse;
         delete Camera;
         delete Renderer;
         delete Scene;
 }
 
-RotatingCube::~RotatingCube() {}
+RotatingCubeWithLighting::~RotatingCubeWithLighting() {}

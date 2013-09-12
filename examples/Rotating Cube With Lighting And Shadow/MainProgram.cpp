@@ -7,7 +7,7 @@
 //============================================================================
 
 #include "Pyros3D/Utils/Context/SFML/SFMLContext.h"
-#include "RotatingCube.h"
+#include "RotatingCubeWithLightingAndShadow.h"
 
 using namespace std;
 using namespace p3d;
@@ -19,7 +19,7 @@ using namespace p3d::Math;
 int main(int argc, char** argv) {
 
     // Create Context Window
-    RotatingCube* window = new RotatingCube();
+    RotatingCubeWithLightingAndShadow* window = new RotatingCubeWithLightingAndShadow();
     
     // Initialize
     window->Init();

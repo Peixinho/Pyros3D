@@ -7,7 +7,7 @@
 //============================================================================
 
 #include "Pyros3D/Utils/Context/SFML/SFMLContext.h"
-#include "RotatingCube.h"
+#include "PickingExamplePainterMethod.h"
 
 using namespace std;
 using namespace p3d;
@@ -19,12 +19,12 @@ using namespace p3d::Math;
 int main(int argc, char** argv) {
 
     // Create Context Window
-    RotatingCube* window = new RotatingCube();
+    PickingExamplePainterMethod* window = new PickingExamplePainterMethod();
     
     // Initialize
     window->Init();
 
-    // Game Loop
+    // PickingExamplePainterMethod Loop
     while(window->IsRunning())
     {
         // Get Events

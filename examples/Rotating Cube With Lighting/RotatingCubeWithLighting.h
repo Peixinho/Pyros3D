@@ -1,13 +1,13 @@
 //============================================================================
-// Name        : RotatingCube.h
+// Name        : RotatingCubeWithLighting.h
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
-// Description : Rotating Cube Example
+// Description : Rotating Cube With Light Example
 //============================================================================
 
-#ifndef ROTATINGCUBE_H
-#define	ROTATINGCUBE_H
+#ifndef ROTATINGCUBEWITHLIGHT_H
+#define	ROTATINGCUBEWITHLIGHT_H
 
 #include "Pyros3D/Utils/Context/SFML/SFMLContext.h"
 #include "Pyros3D/SceneGraph/SceneGraph.h"
@@ -16,14 +16,15 @@
 #include "Pyros3D/Rendering/Components/Rendering/RenderingComponent.h"
 #include "Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h"
 #include "Pyros3D/Rendering/Components/Rendering/RenderingComponent.h"
+#include "Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h"
 
 using namespace p3d;
 
-class RotatingCube : public SFMLContext {
+class RotatingCubeWithLighting : public SFMLContext {
     public:
         
-        RotatingCube();   
-        virtual ~RotatingCube();
+        RotatingCubeWithLighting();   
+        virtual ~RotatingCubeWithLighting();
         
         virtual void Init();
         virtual void Update();
@@ -40,14 +41,19 @@ class RotatingCube : public SFMLContext {
         Projection projection;
         // Camera - Its a regular GameObject
         GameObject* Camera;
+        // Light
+        GameObject* Light;
+        DirectionalLight* dLight;
         // GameObject
         GameObject* Cube;
         // Model Handle
         uint32 cubeID;
         // Rendering Component
         RenderingComponent* rCube;
+        // Material
+        GenericShaderMaterial* Diffuse;
 
 };
 
-#endif	/* ROTATINGCUBE_H */
+#endif	/* ROTATINGCUBEWITHLIGHT_H */
 

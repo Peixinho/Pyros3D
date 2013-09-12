@@ -113,6 +113,7 @@ namespace p3d {
             
             // INTERNAL - Components of this Type
             static std::vector<IComponent*> Components;
+            
             // INTERNAL - Renderables on the Scene
             static std::map<SceneGraph*, std::vector<RenderingMesh*> > MeshesOnScene;
             

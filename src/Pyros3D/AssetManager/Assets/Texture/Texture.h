@@ -29,6 +29,9 @@ namespace p3d {
             sf::Image Image;
             bool haveImage;
             bool isMipMap;
+            // Image Data
+            std::vector<uchar> pixels;
+            bool pixelsRetrieved;
 
             // GL Properties
             uint32 Transparency;
@@ -66,7 +69,10 @@ namespace p3d {
             // Use Asset
             void Bind();
             void Unbind();
-            void DeleteTexture();            
+            void DeleteTexture();  
+            
+            // Get Texture Data
+            std::vector<uchar> GetTextureData();
             
             // Get Last Binded Texture
             static uint32 GetLastBindedUnit();

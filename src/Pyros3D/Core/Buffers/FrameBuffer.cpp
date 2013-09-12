@@ -35,6 +35,8 @@ namespace p3d {
     
     void FrameBuffer::Init(const uint32& attachmentFormat, const uint32 &TextureType, Texture* attachment, bool DrawBuffers)
     {                
+		// Set RenderBuffer Flag
+		isUsingRenderBuffer = DrawBuffers;
 
         if (FBOInitialized==true)
         {
@@ -56,8 +58,9 @@ namespace p3d {
             glBindFramebuffer(GL_FRAMEBUFFER, fbo);
             glGenRenderbuffers(1, (GLuint*)&rbo);
             glBindRenderbuffer(GL_RENDERBUFFER, rbo);
-            glRenderbufferStorage(GL_RENDERBUFFER, rboType, rboWidth, rboHeight);
-            glFramebufferRenderbuffer(GL_FRAMEBUFFER, rboAttachment, GL_RENDERBUFFER, rbo);
+            rboType = GL_DEPTH_COMPONENT;
+            glRenderbufferStorage(GL_RENDERBUFFER, rboType, attachment->GetWidth(), attachment->GetHeight());
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rbo);
         }
         
         // Add Attach

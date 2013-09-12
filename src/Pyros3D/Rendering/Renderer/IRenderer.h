@@ -45,7 +45,7 @@ namespace p3d {
             void SetGlobalLight(const Vec4 &Light);
             void EnableDepthBias(const Vec2 &Bias);
             void DisableDepthBias();
-            
+            void SetViewPort(const uint32 &initX, const uint32 &initY, const uint32 &endX, const uint32 &endY);
             // Resize
             void Resize(const uint32 &Width, const uint32 &Height);
             
@@ -206,6 +206,12 @@ namespace p3d {
             IMaterial*
                                 LastMaterialPTR;
             
+            // Internal ViewPort Dimension
+            static uint32
+                                _viewPortStartX,
+                                _viewPortStartY,
+                                _viewPortEndX,
+                                _viewPortEndY;
     };
     
 };

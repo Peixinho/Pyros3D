@@ -18,7 +18,7 @@ namespace p3d {
         
         ActivateCulling(CullingMode::FrustumCulling);
         shadowMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows);
-        shadowMaterial->SetCullFace(CullFace::FrontFace);
+        shadowMaterial->SetCullFace(CullFace::DoubleSided);
     }
     
     ForwardRenderer::~ForwardRenderer()
@@ -123,7 +123,7 @@ namespace p3d {
                             ProjectionMatrix = d->GetLightProjection(i,rmesh);
                                                         
                             // Set Viewport
-                            glViewport(((float)(i % 2) * d->GetShadowWidth()), ((i <= 1 ? 0.0f : 1.f) * d->GetShadowHeight()), d->GetShadowWidth(), d->GetShadowHeight());
+                            SetViewPort(((float)(i % 2) * d->GetShadowWidth()), ((i <= 1 ? 0.0f : 1.f) * d->GetShadowHeight()), d->GetShadowWidth(), d->GetShadowHeight());
                             
                             // Update Culling
                             UpdateCulling(ViewMatrix,d->GetCascade(i).ortho);
@@ -249,7 +249,7 @@ namespace p3d {
                             glPolygonOffset (3.1f, 9.0f);
                             
                             // Set Viewport
-                            glViewport(0,0, p->GetShadowWidth(), p->GetShadowHeight());
+                            SetViewPort(0,0, p->GetShadowWidth(), p->GetShadowHeight());
                             
                             // Render Scene with Objects Material
                             for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
@@ -347,7 +347,7 @@ namespace p3d {
                         glPolygonOffset (3.1f, 9.0f);
 
                         // Set Viewport
-                        glViewport(0,0, s->GetShadowWidth(), s->GetShadowHeight());
+                        SetViewPort(0,0, s->GetShadowWidth(), s->GetShadowHeight());
 
                         // Render Scene with Objects Material
                         for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
@@ -428,7 +428,7 @@ namespace p3d {
         NumberOfLights = Lights.size();
         
         // Set ViewPort
-        glViewport(0,0,Width,Height);
+        SetViewPort(0,0,Width,Height);
         
         // Clear Screen
         ClearScreen(Buffer_Bit::Color | Buffer_Bit::Depth);

@@ -11,6 +11,12 @@
 
 namespace p3d {
     
+    // ViewPort Dimension
+    uint32 IRenderer::_viewPortStartX = 0;
+    uint32 IRenderer::_viewPortStartY = 0;
+    uint32 IRenderer::_viewPortEndX = 0;
+    uint32 IRenderer::_viewPortEndY = 0;
+    
     IRenderer::IRenderer() {}
     
     IRenderer::IRenderer(const uint32 &Width, const uint32 &Height)
@@ -35,6 +41,18 @@ namespace p3d {
         // Save Dimensions
         this->Width = Width;
         this->Height = Height;
+    }
+    
+    void IRenderer::SetViewPort(const uint32& initX, const uint32& initY, const uint32& endX, const uint32& endY)
+    {
+        if (initX!=_viewPortStartX || initY!=_viewPortStartY || endX!=_viewPortEndX || endY != _viewPortEndY)
+        {
+            _viewPortStartX = initX;
+            _viewPortStartY = initY;
+            _viewPortEndX = endX;
+            _viewPortEndY = endY;
+            glViewport(initX,initY,endX,endY);
+        }
     }
     
     IRenderer::~IRenderer()
@@ -65,22 +83,25 @@ namespace p3d {
     
     void IRenderer::EndRender()
     {
-        // Unbind Index Buffer
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-        // Unbind Vertex Attributes
-        UnbindMesh(LastMeshRenderedPTR,LastMaterialPTR);
-        // Unbind Shadow Maps
-        UnbindShadowMaps(LastMaterialPTR);
-        // Material After Render
-        LastMaterialPTR->AfterRender();
-        // Unbind Shader Program
-        glUseProgram(0);
-        // Unset Pointers
-        LastMaterialPTR = NULL;
-        LastMeshRenderedPTR = NULL;
-        LastProgramUsed = -1;
-        LastMaterialUsed = -1;
-        LastMeshRendered = -1;
+        if (LastMeshRenderedPTR!=NULL && LastMaterialPTR!=NULL)
+        {
+            // Unbind Index Buffer
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+            // Unbind Vertex Attributes
+            UnbindMesh(LastMeshRenderedPTR,LastMaterialPTR);
+            // Unbind Shadow Maps
+            UnbindShadowMaps(LastMaterialPTR);
+            // Material After Render
+            LastMaterialPTR->AfterRender();
+            // Unbind Shader Program
+            glUseProgram(0);
+            // Unset Pointers
+            LastMaterialPTR = NULL;
+            LastMeshRenderedPTR = NULL;
+            LastProgramUsed = -1;
+            LastMaterialUsed = -1;
+            LastMeshRendered = -1;
+        }
     }
     
     void IRenderer::RenderObject(RenderingMesh* rmesh, IMaterial* Material)
@@ -157,10 +178,7 @@ namespace p3d {
             } else {
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             }
-            
-            // Send User Uniforms
-            SendUserUniforms(rmesh, Material);
-            
+                        
             Material->Render();
         }
 
@@ -195,6 +213,9 @@ namespace p3d {
             InternalDrawType = rmesh->GetDrawingType();
         }
     
+        // Send User Uniforms
+        SendUserUniforms(rmesh, Material);
+
         // Send Model Specific Uniforms
         SendModelUniforms(rmesh, Material);
         
