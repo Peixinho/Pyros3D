@@ -50,7 +50,14 @@ namespace p3d {
             if ((*i)==this)
             {
                 Components.erase(i);
-                LightsOnScene[Scene].erase(i);
+				for (std::vector<IComponent*>::iterator k=LightsOnScene[Scene].begin();k!=LightsOnScene[Scene].end();k++)
+				{
+					if ((*k)==this) 
+					{
+							LightsOnScene[Scene].erase(k);
+							break;
+					}
+				}
                 break;
             }
         }

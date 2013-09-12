@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-RotatingCubeWithLightingAndShadow::RotatingCubeWithLightingAndShadow() : SFMLContext(1024,768,"Pyros3D - Rotating Cube With Lighting And Shadow",WindowType::Close)
+RotatingCubeWithLightingAndShadow::RotatingCubeWithLightingAndShadow() : SFMLContext(1024,768,"Pyros3D - Rotating Cube With Lighting And Shadow",WindowType::Close | WindowType::Resize)
 {
     
 }
@@ -22,7 +22,7 @@ void RotatingCubeWithLightingAndShadow::OnResize(const uint32 &width, const uint
     
     // Resize
     Renderer->Resize(width, height);
-    projection.Perspective(70.f,(f32)width/(f32)height,1.f,100.f);
+    projection.Perspective(70.f,(f32)width/(f32)height,1.f,200.f);
 }
 
 void RotatingCubeWithLightingAndShadow::Init()
@@ -36,7 +36,7 @@ void RotatingCubeWithLightingAndShadow::Init()
         Renderer = new ForwardRenderer(Width,Height);
 
         // Projection
-        projection.Perspective(70.f,(f32)Width/(f32)Height,1.f,100.f);
+        projection.Perspective(70.f,(f32)Width/(f32)Height,1.f,200.f);
         
         // Create Camera
         Camera = new GameObject();
@@ -53,7 +53,7 @@ void RotatingCubeWithLightingAndShadow::Init()
         dLight->EnableCastShadows(512,512,projection,0.1,200.0,1);
         Light->Add(dLight);
         // Set Light Position (Direction is Position Normalized)
-        Light->SetPosition(Vec3(100,100,0));
+        Light->SetPosition(Vec3(100,100,100));
         
         // Add Light to Scene
         Scene->Add(Light);
@@ -65,7 +65,7 @@ void RotatingCubeWithLightingAndShadow::Init()
         // Create Floor
         Floor = new GameObject();
         // Create Floor Geometry
-        floorHandle = AssetManager::CreatePlane(50,50);
+        floorHandle = AssetManager::CreatePlane(100,150);
         rFloor = new RenderingComponent(floorHandle,FloorMaterial);
         
         // Add Rendering Component To GameObject
@@ -77,7 +77,7 @@ void RotatingCubeWithLightingAndShadow::Init()
         // Rotate Floor
         Floor->SetRotation(Vec3(-1.57,0,0));
         // Translate Floor
-        Floor->SetPosition(Vec3(0,-20,0));
+        Floor->SetPosition(Vec3(0,-20,-20));
         
         // Create Game Object
         Cube = new GameObject();

@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-RotatingCubeWithLighting::RotatingCubeWithLighting() : SFMLContext(1024,768,"Pyros3D - Rotating Cube With Lighting",WindowType::Close)
+RotatingCubeWithLighting::RotatingCubeWithLighting() : SFMLContext(1024,768,"Pyros3D - Rotating Cube With Lighting",WindowType::Close | WindowType::Resize)
 {
     
 }
