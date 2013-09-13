@@ -121,7 +121,7 @@ namespace p3d {
             bool CullingSphereTest(RenderingMesh* rmesh);
             bool CullingPointTest(RenderingMesh* rmesh);
             bool CullingBoxTest(RenderingMesh* rmesh);
-            void UpdateCulling(const Matrix &view, const p3d::Projection &projection);
+            void UpdateCulling(const Matrix &ViewProjectionMatrix);
             bool 
                                 IsCulling;            
             FrustumCulling*

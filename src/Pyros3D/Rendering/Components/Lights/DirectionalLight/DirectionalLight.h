@@ -27,6 +27,8 @@ namespace p3d {
         f32 Far;
         f32 Ratio;
         f32 Fov;
+        f32 Width;
+        f32 Height;
         Vec3 point[8];
         Matrix CropMatrix;
         Projection ortho;
@@ -94,7 +96,7 @@ namespace p3d {
             }
 
             // Make Ortho
-            ortho.Ortho(-1.0,1.0,-1.0,1.0,-maxZ,-minZ);
+            ortho.Ortho(0,Width,0,Height,-maxZ,-minZ);
             
             Matrix mvp = ortho.GetProjectionMatrix() * viewMatrix;
             
@@ -201,6 +203,8 @@ namespace p3d {
                     f32 lambda = SPLIT_WEIGHT;
                     f32 ratio = Far/Near;
                     this->Cascades[0].Near = Near;
+                    this->Cascades[0].Width = Width;
+                    this->Cascades[0].Height = Height;
                     
                     for (uint32 i=1; i<ShadowCascades; i++)
                     {
@@ -208,9 +212,13 @@ namespace p3d {
                         
                         this->Cascades[i].Near = lambda*(Near*powf(ratio, si)) + (1.f-lambda)*(Near + (Far - Near)*si);
                         this->Cascades[i-1].Far = this->Cascades[i].Near * 1.005f;
+                        this->Cascades[i].Width = Width;
+                        this->Cascades[i].Height = Height;
                     }
                     // Set Far on Last Split
                     this->Cascades[ShadowCascades-1].Far = Far;
+                    this->Cascades[ShadowCascades-1].Width = Width;
+                    this->Cascades[ShadowCascades-1].Height = Height;
                 }
             }
         

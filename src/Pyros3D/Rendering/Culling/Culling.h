@@ -29,57 +29,36 @@ namespace p3d {
         };
     };
     
-    namespace PlanePointClassifications
-    {
-        enum {
-            Front = 0,
-            Back,
-            On_Plane
-        };
-    };
-    
     struct FrustumPlane {
-        f32 a, b, c, d;
+        f32 constant;
         Vec3 normal;
+        
         void Set3Points(const Vec3 &A, const Vec3 &B, const Vec3 &C) 
         {
-            normal = (B - A).cross(C - A).normalize();        
-            
-            a = normal.x;
-            b = normal.y;
-            c = normal.z;            
-            d = -normal.dotProduct(A);
+            normal = (B - A).cross(C - A).normalize();    
+            constant = -normal.dotProduct(A);
                         
         }
         void SetNormalAndPoint(const Vec3 &Normal, const Vec3 &Point)
         {
             normal = Normal;
-            
-            a = normal.x;
-            b = normal.y;
-            c = normal.z;
-            d = -normal.dotProduct(Point);
+            constant = -normal.dotProduct(Point);
+        }
+        void SetNormalAndConstant(const f32 &a, const f32 &b, const f32 &c, const f32 &w)
+        {
+            normal = Vec3(a,b,c);
+            constant = w;
         }
         f32 Distance(const Vec3 &point) 
         {
-            normal = Vec3(a,b,c);            
-           return normal.dotProduct(point)+d;
+           return normal.dotProduct(point)+constant;
         }
-        unsigned ClassifyPoint(const Vec3 &v) const
+        void normalize() 
         {
-            f32 Dot = v.dotProduct(Vec3(a, b, c)) + d;
-
-            if(Dot > EPSILON)
-            {
-                    return PlanePointClassifications::Front;
-            }
-            else if(Dot < -EPSILON)
-            {
-                    return PlanePointClassifications::Back;
-            };
-
-            return PlanePointClassifications::On_Plane;
-        };
+            f32 inverseNormalLength = 1.0 / this->normal.magnitude();
+            this->normal *= inverseNormalLength;
+            this->constant *= inverseNormalLength;
+	}
         
     };
     

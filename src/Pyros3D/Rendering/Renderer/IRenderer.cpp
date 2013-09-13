@@ -326,9 +326,9 @@ namespace p3d {
     {
         return culling->PointInFrustum(rmesh->renderingComponent->GetOwner()->GetWorldPosition());
     }    
-    void IRenderer::UpdateCulling(const Matrix& view, const p3d::Projection& projection)
+    void IRenderer::UpdateCulling(const Matrix& ViewProjectionMatrix)
     {
-        culling->Update(view,projection);
+        culling->Update(ViewProjectionMatrix);
     }
     
     void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)

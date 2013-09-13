@@ -15,85 +15,27 @@ namespace  p3d {
 
     FrustumCulling::~FrustumCulling() {}
 
-    void FrustumCulling::Update(const Matrix& View, const p3d::Projection& Projection)
+    void FrustumCulling::Update(const Matrix &ViewProjectionMatrix)
     {
+        Matrix m = ViewProjectionMatrix;
         
-        Matrix Clip = (Projection.m * View);
-        Vec4 vec;
-        f32 Magnitude = 0.0f;
-        
-        //Plane 0
-        vec = Vec4(Clip.m[3] - Clip.m[0],
-        Clip.m[7] - Clip.m[4], Clip.m[11] - Clip.m[8],
-        Clip.m[15] - Clip.m[12]);
-        Magnitude = Vec3(vec.x, vec.y, vec.z).magnitude();
+        f32 me0 = m.m[0], me1 = m.m[1], me2 = m.m[2], me3 = m.m[3];
+        f32 me4 = m.m[4], me5 = m.m[5], me6 = m.m[6], me7 = m.m[7];
+        f32 me8 = m.m[8], me9 = m.m[9], me10 = m.m[10], me11 = m.m[11];
+        f32 me12 = m.m[12], me13 = m.m[13], me14 = m.m[14], me15 = m.m[15];
 
-        pl[0].a = vec.x / Magnitude;
-        pl[0].b = vec.y / Magnitude;
-        pl[0].c = vec.z / Magnitude;
-        pl[0].d = vec.w / Magnitude;
-//        std::cout <<"Plane0: "<< vec.toString() << std::endl;
-
-        //Plane 1
-        vec = Vec4(Clip.m[3] + Clip.m[0],
-        Clip.m[7] + Clip.m[4], Clip.m[11] + Clip.m[8],
-        Clip.m[15] + Clip.m[12]);
-        Magnitude = Vec3(vec.x, vec.y, vec.z).magnitude();
-
-        pl[1].a = vec.x / Magnitude;
-        pl[1].b = vec.y / Magnitude;
-        pl[1].c = vec.z / Magnitude;
-        pl[1].d = vec.w / Magnitude;
-//        std::cout <<"Plane1: "<< vec.toString() << std::endl;
-
-        //Plane 2
-        vec = Vec4(Clip.m[3] + Clip.m[1],
-        Clip.m[7] + Clip.m[5],
-        Clip.m[11] + Clip.m[9],
-        Clip.m[15] + Clip.m[13]);
-        Magnitude = Vec3(vec.x, vec.y, vec.z).magnitude();
-
-        pl[2].a = vec.x / Magnitude;
-        pl[2].b = vec.y / Magnitude;
-        pl[2].c = vec.z / Magnitude;
-        pl[2].d = vec.w / Magnitude;
-//        std::cout <<"Plane2: "<< vec.toString() << std::endl;
-        
-        //Plane 3
-        vec = Vec4(Clip.m[3] - Clip.m[1],
-        Clip.m[7] - Clip.m[5], Clip.m[11] - Clip.m[9],
-        Clip.m[15] - Clip.m[13]);
-        Magnitude = Vec3(vec.x, vec.y, vec.z).magnitude();
-
-        pl[3].a = vec.x / Magnitude;
-        pl[3].b = vec.y / Magnitude;
-        pl[3].c = vec.z / Magnitude;
-        pl[3].d = vec.w / Magnitude;
-//        std::cout <<"Plane3: "<< vec.toString() << std::endl;
-        
-        //Plane 4
-        vec = Vec4(Clip.m[3] - Clip.m[2],
-        Clip.m[7] - Clip.m[6], Clip.m[11] - Clip.m[10],
-        Clip.m[15] - Clip.m[14]);
-        Magnitude = Vec3(vec.x, vec.y, vec.z).magnitude();
-        
-        pl[4].a = vec.x / Magnitude;
-        pl[4].b = vec.y / Magnitude;
-        pl[4].c = vec.z / Magnitude;
-        pl[4].d = vec.w / Magnitude;
-//        std::cout <<"Plane4: "<< vec.toString() << std::endl;
-        
-        //Plane 5
-        vec = Vec4(Clip.m[3] + Clip.m[2],
-        Clip.m[7] + Clip.m[6], Clip.m[11] + Clip.m[10],
-        Clip.m[15] + Clip.m[14]);
-        Magnitude = Vec3(vec.x, vec.y, vec.z).magnitude();
-
-        pl[5].a = vec.x / Magnitude;
-        pl[5].b = vec.y / Magnitude;
-        pl[5].c = vec.z / Magnitude;
-        pl[5].d = vec.w / Magnitude;        
-//        std::cout <<"Plane5: "<< vec.toString() << std::endl;
+        pl[0].SetNormalAndConstant( me3 - me0, me7 - me4, me11 - me8, me15 - me12 );
+        pl[0].normalize();
+        pl[1].SetNormalAndConstant( me3 + me0, me7 + me4, me11 + me8, me15 + me12 );
+        pl[1].normalize();
+        pl[2].SetNormalAndConstant( me3 + me1, me7 + me5, me11 + me9, me15 + me13 );
+        pl[2].normalize();
+        pl[3].SetNormalAndConstant( me3 - me1, me7 - me5, me11 - me9, me15 - me13 );
+        pl[3].normalize();
+        pl[4].SetNormalAndConstant( me3 - me2, me7 - me6, me11 - me10, me15 - me14 );
+        pl[4].normalize();
+        pl[5].SetNormalAndConstant( me3 + me2, me7 + me6, me11 + me10, me15 + me14 );
+        pl[5].normalize();
     }
 
     bool FrustumCulling::PointInFrustum(const Vec3& p)
@@ -102,7 +44,7 @@ namespace  p3d {
 
         for (int32 i=0; i<6; i++)
         {
-            if (pl[i].ClassifyPoint(p)==PlanePointClassifications::Back) return false;
+            if (pl[i].Distance(p) < 0) return false;
         }
         return result;
     }
@@ -110,43 +52,33 @@ namespace  p3d {
     {
         for( int32 i = 0; i < 6; ++i )
         {
-            if(pl[i].a * p.x + pl[i].b * p.y + pl[i].c * p.z + pl[i].d <= -radius )
+            f32 distance = pl[i].Distance(p);
+            if (distance < -radius)
                 return false;
         };
         return true;
     }
     bool FrustumCulling::ABoxInFrustum(AABox box)
     {
+        Vec3 p1,p2;
         for(uint32 i = 0; i < 6; i++)
         {
-                Vec4 Positive(
-                        pl[i].a > 0 ? box.xmax : box.xmin,
-                        pl[i].b > 0 ? box.ymax : box.ymin,
-                        pl[i].c > 0 ? box.zmax : box.zmin,
-                        1.0
-                        );
+            p1.x = pl[i].normal.x > 0 ? box.xmin : box.xmax;
+            p2.x = pl[i].normal.x > 0 ? box.xmax : box.xmin;
+            p1.y = pl[i].normal.y > 0 ? box.ymin : box.ymax;
+            p2.y = pl[i].normal.y > 0 ? box.ymax : box.ymin;
+            p1.z = pl[i].normal.z > 0 ? box.zmin : box.zmax;
+            p2.z = pl[i].normal.z > 0 ? box.zmax : box.zmin;
 
-                Vec4 Negative(
-                        pl[i].a < 0 ? box.xmax : box.xmin,
-                        pl[i].b < 0 ? box.ymax : box.ymin,
-                        pl[i].c < 0 ? box.zmax : box.zmin,
-                        1.0
-                        );
+            f32 d1 = pl[i].Distance( p1 );
+            f32 d2 = pl[i].Distance( p2 );
 
-                f32 t = Positive.dotProduct(*(Vec4*)&pl[i]);
-
-                // invisible
-                if(t < 0)
-                    return false;
-
-                t = Negative.dotProduct(*(Vec4*)&pl[i]);
-
-                // Intersecting
-                if(t < 0)
-                    return true;
-        };
-
-        return true;
+            // if both outside plane, no intersection
+            if ( d1 < 0 && d2 < 0 ) {
+                return false;
+            }
+            return true;
+        }
     }
     bool FrustumCulling::OBoxInFrustum(OBBox box)
     {

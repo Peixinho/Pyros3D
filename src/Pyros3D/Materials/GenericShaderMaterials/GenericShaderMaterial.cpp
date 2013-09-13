@@ -7,6 +7,8 @@
 //============================================================================
 
 #include "GenericShaderMaterial.h"
+#include "../../AssetManager/Assets/Font/Font.h"
+#include "../../AssetManager/AssetManager.h"
 
 namespace p3d
 {
@@ -232,6 +234,13 @@ namespace p3d
         AddUniform(Uniform::Uniform("uSkybox",Uniform::DataType::Int,id));
         // Cullface
 //        cullFace = CullFace::FrontFace;
+    }
+    void GenericShaderMaterial::SetTextFont(const uint32& FontHandle)
+    {
+        p3d::Font* font = (p3d::Font*)AssetManager::GetAsset(FontHandle)->AssetPTR;
+        uint32 id = Textures.size();
+        Textures[id] = font->GetTexture();
+        AddUniform(Uniform::Uniform("uColormap",Uniform::DataType::Int,id));
     }
     void GenericShaderMaterial::PreRender()
     {

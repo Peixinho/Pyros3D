@@ -54,7 +54,7 @@ namespace p3d {
             FT_Face face;
             
         public:
-
+            
             // Create Font
             Font(const std::string &font, const f32 &size);
             

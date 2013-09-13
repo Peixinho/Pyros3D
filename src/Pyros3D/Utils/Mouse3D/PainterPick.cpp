@@ -90,7 +90,8 @@ namespace p3d {
         ProjectionMatrixInverseIsDirty = true;
         ViewProjectionMatrixIsDirty = true;
         
-        UpdateCulling(ViewMatrix,projection);
+        // Update Culling Information
+        UpdateCulling(ProjectionMatrix*ViewMatrix);
         
         // Initialize Rendering
         InitRender();

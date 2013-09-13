@@ -126,7 +126,7 @@ namespace p3d {
                             SetViewPort(((float)(i % 2) * d->GetShadowWidth()), ((i <= 1 ? 0.0f : 1.f) * d->GetShadowHeight()), d->GetShadowWidth(), d->GetShadowHeight());
                             
                             // Update Culling
-                            UpdateCulling(ViewMatrix,d->GetCascade(i).ortho);
+                            UpdateCulling(d->GetCascade(i).ortho.GetProjectionMatrix()*ViewMatrix);
 
                             // Render Scene with Objects Material
                             for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
@@ -235,7 +235,7 @@ namespace p3d {
                             ViewMatrix *= p->GetOwner()->GetWorldTransformation().Inverse();
 
                             // Update Culling
-                            UpdateCulling(ViewMatrix,p->GetLightProjection());
+                            UpdateCulling(p->GetLightProjection().GetProjectionMatrix()*ViewMatrix);
 
                             // GPU Shadows
                             p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_X+i,p->GetShadowMapTexture());
@@ -336,7 +336,7 @@ namespace p3d {
                         ViewMatrix.LookAt(s->GetOwner()->GetWorldPosition(),(s->GetOwner()->GetWorldPosition()+s->GetLightDirection()));
                         
                         // Update Culling
-                        UpdateCulling(ViewMatrix,s->GetLightProjection());
+                        UpdateCulling(s->GetLightProjection().GetProjectionMatrix()*ViewMatrix);
 
                         // Clear Screen
                         ClearScreen(Buffer_Bit::Depth);
@@ -417,7 +417,7 @@ namespace p3d {
         CameraPosition = Camera->GetWorldPosition();
         
         // Update Culling
-        UpdateCulling(ViewMatrix,projection);
+        UpdateCulling(ProjectionMatrix*ViewMatrix);
 
         // Flags
         ViewMatrixInverseIsDirty = true;

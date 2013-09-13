@@ -60,14 +60,17 @@ namespace p3d {
             virtual void SetAngularVelocity(const Vec3 &velocity);
             virtual void SetLinearVelocity(const Vec3 &velocity);
             virtual void Activate();
-        
+            
+            virtual ~IPhysicsComponent();
+            
         protected:
             
             // Add Wheel to Vehicle
             void InternalAddWheel(const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 &WheelRadius, const f32 &WheelWidth, const f32 &WheelFriction, const f32 &WheelRollInfluence, const Vec3 &Position, bool isFrontWheel);
             
+            // Protected Constructor
             IPhysicsComponent(const f32 &Mass, const unsigned &shape, IPhysics* engine) : mass(Mass), Shape(shape), rigidBodyRegistered(false), PhysicsEngine(engine) {}
-            virtual ~IPhysicsComponent();
+            
 
             // Keep Shape Type
             unsigned Shape;

@@ -42,6 +42,9 @@ namespace p3d
             void SetKs(const Vec4 &Ks);
             void SetShininess(const f32 &shininess);
 
+            // Text
+            void SetTextFont(const uint32 &FontHandle);
+            
             // Render
             virtual void PreRender();
             virtual void AfterRender();
