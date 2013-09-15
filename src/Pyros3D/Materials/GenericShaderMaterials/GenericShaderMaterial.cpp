@@ -44,6 +44,9 @@ namespace p3d
         AddUniform(Uniform::Uniform("uOpacity",Uniform::DataType::Float,&opacity));
         SetOpacity(opacity);
 
+		// Default PCF Texel Size
+		PCFTexelSize = 0.0001;
+
         if (options & ShaderUsage::Diffuse)
         {
             // Default Lighting Values
@@ -73,7 +76,7 @@ namespace p3d
             AddUniform(Uniform::Uniform("uDirectionalDepthsMVP",Uniform::DataUsage::DirectionalShadowMatrix));
             AddUniform(Uniform::Uniform("uDirectionalShadowFar",Uniform::DataUsage::DirectionalShadowFar));
             AddUniform(Uniform::Uniform("uNumberOfDirectionalShadows",Uniform::DataUsage::NumberOfDirectionalShadows));
-            
+            AddUniform(Uniform::Uniform("uPCFTexelSize",Uniform::DataType::Float,&PCFTexelSize));
             isCastingShadows = true;
         }
         
@@ -83,6 +86,7 @@ namespace p3d
             AddUniform(Uniform::Uniform("uPointShadowMaps",Uniform::DataUsage::PointShadowMap));
             AddUniform(Uniform::Uniform("uPointDepthsMVP",Uniform::DataUsage::PointShadowMatrix));
             AddUniform(Uniform::Uniform("uNumberOfPointShadows",Uniform::DataUsage::NumberOfPointShadows));
+			AddUniform(Uniform::Uniform("uPCFTexelSize",Uniform::DataType::Float,&PCFTexelSize));
 
             isCastingShadows = true;
         }
@@ -93,6 +97,7 @@ namespace p3d
             AddUniform(Uniform::Uniform("uSpotShadowMaps",Uniform::DataUsage::SpotShadowMap));
             AddUniform(Uniform::Uniform("uSpotDepthsMVP",Uniform::DataUsage::SpotShadowMatrix));
             AddUniform(Uniform::Uniform("uNumberOfSpotShadows",Uniform::DataUsage::NumberOfSpotShadows));
+			AddUniform(Uniform::Uniform("uPCFTexelSize",Uniform::DataType::Float,&PCFTexelSize));
 
             isCastingShadows = true;
         }
@@ -250,4 +255,9 @@ namespace p3d
     {
         UnbindTextures();
     }
+
+	void GenericShaderMaterial::SetPCFTexelSize(const f32 &texel)
+	{
+		PCFTexelSize = texel;
+	}
 }

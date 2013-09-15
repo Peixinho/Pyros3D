@@ -112,7 +112,7 @@ namespace p3d {
 
                         // Enable Depth Bias
                         glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
-                        glPolygonOffset (3.1f, 9.0f);
+                        glPolygonOffset (d->GetShadowBiasFactor(), d->GetShadowBiasUnits());
                         
                         ViewMatrix = d->GetLightViewMatrix();
                         
@@ -246,7 +246,7 @@ namespace p3d {
                             
                             // Enable Depth Bias
                             glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
-                            glPolygonOffset (3.1f, 9.0f);
+                            glPolygonOffset (p->GetShadowBiasFactor(), p->GetShadowBiasUnits());
                             
                             // Set Viewport
                             SetViewPort(0,0, p->GetShadowWidth(), p->GetShadowHeight());
@@ -344,7 +344,7 @@ namespace p3d {
 
                         // Enable Depth Bias
                         glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
-                        glPolygonOffset (3.1f, 9.0f);
+                        glPolygonOffset (s->GetShadowBiasFactor(), s->GetShadowBiasUnits());
 
                         // Set Viewport
                         SetViewPort(0,0, s->GetShadowWidth(), s->GetShadowHeight());

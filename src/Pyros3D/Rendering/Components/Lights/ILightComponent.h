@@ -53,6 +53,20 @@ namespace p3d {
                 return ShadowHeight;
             }
             
+			void SetShadowBias(const f32 &factor, const f32 &units)
+			{
+				ShadowBiasFactor = factor;
+				ShadowBiasUnits = units;
+			}
+			const f32 &GetShadowBiasFactor() const
+			{
+				return ShadowBiasFactor;
+			}
+
+			const f32 &GetShadowBiasUnits() const
+			{
+				return ShadowBiasUnits;
+			}
         protected:
             
             // Shadows Mapping
@@ -68,6 +82,8 @@ namespace p3d {
             f32 ShadowNear, ShadowFar;
             // Flag
             bool isCastingShadows;
+			// Bias Offset
+			f32 ShadowBiasFactor, ShadowBiasUnits;
 
             // Light Color
             Vec4 Color;

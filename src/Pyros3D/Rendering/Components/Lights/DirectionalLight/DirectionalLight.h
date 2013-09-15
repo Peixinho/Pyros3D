@@ -96,7 +96,7 @@ namespace p3d {
             }
 
             // Make Ortho
-            ortho.Ortho(0,Width,0,Height,-maxZ,-minZ);
+            ortho.Ortho(-1,1,-1,1,-maxZ,-minZ);
             
             Matrix mvp = ortho.GetProjectionMatrix() * viewMatrix;
             

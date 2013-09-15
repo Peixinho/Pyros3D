@@ -53,6 +53,9 @@ namespace p3d
             void BindTextures();
             void UnbindTextures();
         
+			// Shadows
+			void SetPCFTexelSize(const f32 &texel);
+
         private:
         
             // List of Tetxures
@@ -71,6 +74,9 @@ namespace p3d
             Vec4 Ks;
             f32 Shininess, UseLights;
             
+			// Shadows
+			f32 PCFTexelSize;
+
             // Environment Cube
             f32 Reflectivity;
     };
