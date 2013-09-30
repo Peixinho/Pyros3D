@@ -94,8 +94,8 @@ namespace p3d
                 fragmentShaderHeader+="varying vec2 vTexcoord;\n";
                 fragmentShaderHeader+="vec2 Texcoord = vTexcoord;\n";
             }
-            fragmentShaderHeader+="uniform sampler2D uColormap;\n";
-            fragmentShaderBody+="if (!diffuseIsSet) {diffuse=vec4(Normal*texture2D(uColormap,Texcoord).a,1.0); diffuseIsSet=true;} else diffuse *= vec4(Normal*texture2D(uColormap,Texcoord).a,1.0);\n";
+            fragmentShaderHeader+="uniform sampler2D uFontmap;\n";
+            fragmentShaderBody+="if (!diffuseIsSet) {diffuse=vec4(Normal*texture2D(uFontmap,Texcoord).a,1.0); diffuseIsSet=true;} else diffuse *= vec4(Normal*texture2D(uFontmap,Texcoord).a,1.0);\n";
         }
         if (option & ShaderUsage::DirectionalShadow)
         {

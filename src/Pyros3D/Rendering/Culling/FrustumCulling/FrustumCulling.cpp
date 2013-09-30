@@ -36,6 +36,28 @@ namespace  p3d {
         pl[4].normalize();
         pl[5].SetNormalAndConstant( me3 + me2, me7 + me6, me11 + me10, me15 + me14 );
         pl[5].normalize();
+        
+        
+        // Extracting Corners from Ortho
+//        Vec4 viewFrustumCorners[8];
+//
+//        viewFrustumCorners[0] = Vec4(-1.0f, 1.0f, 0.0f, 1.0f);
+//        viewFrustumCorners[1] = Vec4(1.0f, 1.0f, 0.0f, 1.0f);
+//        viewFrustumCorners[2] = Vec4(1.0f, -1.0f, 0.0f, 1.0f);
+//        viewFrustumCorners[3] = Vec4(-1.0f, -1.0f, 0.0f, 1.0f);
+//        viewFrustumCorners[4] = Vec4(-1.0f, 1.0f, 1.0f, 1.0f);
+//        viewFrustumCorners[5] = Vec4(1.0f, 1.0f, 1.0f, 1.0f);
+//        viewFrustumCorners[6] = Vec4(1.0f, -1.0f, 1.0f, 1.0f);
+//        viewFrustumCorners[7] = Vec4(-1.0f, -1.0f, 1.0f, 1.0f);
+//
+//        for (uint32 i = 0; i < 8; i++)
+//        {
+//            viewFrustumCorners[i] = ViewProjectionMatrix.Inverse() * viewFrustumCorners[i];
+//
+//            viewFrustumCorners[i].x /= viewFrustumCorners[i].w;
+//            viewFrustumCorners[i].y /= viewFrustumCorners[i].w;
+//            viewFrustumCorners[i].z /= viewFrustumCorners[i].w;
+//        }
     }
 
     bool FrustumCulling::PointInFrustum(const Vec3& p)
@@ -79,6 +101,7 @@ namespace  p3d {
             }
             return true;
         }
+        return false;
     }
     bool FrustumCulling::OBoxInFrustum(OBBox box)
     {

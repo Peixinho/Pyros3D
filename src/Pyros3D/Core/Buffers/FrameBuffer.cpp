@@ -15,9 +15,23 @@ namespace p3d {
     {
         FBOInitialized = false;
         isBinded = false;
+        // FBO Type
+        type = 0;
+        // Internal Format
+        framebufferFormat = 0;
+        // Frame Buffer Object
+        fbo = 0;
+        // DrawBuffers
+        drawBuffers = 0;
+        // RenderBuffer
+        rbo = 0;
+        rboType = 0;
+        rboAttachment = 0;
+        rboWidth = 0;
+        rboHeight = 0;
     }
 
-    FrameBuffer::~FrameBuffer() 
+    FrameBuffer::~FrameBuffer()
     {
         
         // flag FBO Stoped
@@ -30,6 +44,11 @@ namespace p3d {
         
         // destroy fbo and rbo
         glDeleteFramebuffers(1, (GLuint*)&fbo);
+        
+        for (std::map<uint32, Attachment*>::iterator i=attachments.begin();i!=attachments.end();i++)
+            delete (*i).second;
+        
+        attachments.clear();
         
     }
     
@@ -156,93 +175,93 @@ namespace p3d {
     void FrameBuffer::AddAttach(const uint32& attachmentFormat, const uint32 &TextureType, Texture* attachment)
     {
         // Add Attachment
-        Attachment attach;
-        attach.AttachmentFormat = attachmentFormat;
-        attach.TexturePTR = attachment;
-        attach.TextureType = TextureType;
+        Attachment* attach = new Attachment();
+        attach->AttachmentFormat = attachmentFormat;
+        attach->TexturePTR = attachment;
+        attach->TextureType = TextureType;
         
         // Get Attatchment Format
-        switch(attach.AttachmentFormat)
+        switch(attach->AttachmentFormat)
         {
             case FrameBufferAttachmentFormat::Color_Attachment0:
-                attach.AttachmentFormat= GL_COLOR_ATTACHMENT0;
+                attach->AttachmentFormat= GL_COLOR_ATTACHMENT0;
                 break;
             case FrameBufferAttachmentFormat::Color_Attachment1:
-                attach.AttachmentFormat= GL_COLOR_ATTACHMENT1;
+                attach->AttachmentFormat= GL_COLOR_ATTACHMENT1;
                 break;
             case FrameBufferAttachmentFormat::Color_Attachment2:
-                attach.AttachmentFormat= GL_COLOR_ATTACHMENT2;
+                attach->AttachmentFormat= GL_COLOR_ATTACHMENT2;
                 break;
             case FrameBufferAttachmentFormat::Color_Attachment3:
-                attach.AttachmentFormat= GL_COLOR_ATTACHMENT3;
+                attach->AttachmentFormat= GL_COLOR_ATTACHMENT3;
                 break;
             case FrameBufferAttachmentFormat::Color_Attachment4:
-                attach.AttachmentFormat= GL_COLOR_ATTACHMENT4;
+                attach->AttachmentFormat= GL_COLOR_ATTACHMENT4;
                 break;
             case FrameBufferAttachmentFormat::Color_Attachment5:
-                attach.AttachmentFormat= GL_COLOR_ATTACHMENT5;
+                attach->AttachmentFormat= GL_COLOR_ATTACHMENT5;
                 break;
             case FrameBufferAttachmentFormat::Color_Attachment6:
-                attach.AttachmentFormat= GL_COLOR_ATTACHMENT6;
+                attach->AttachmentFormat= GL_COLOR_ATTACHMENT6;
                 break;
             case FrameBufferAttachmentFormat::Color_Attachment7:
-                attach.AttachmentFormat= GL_COLOR_ATTACHMENT7;
+                attach->AttachmentFormat= GL_COLOR_ATTACHMENT7;
                 break;
             case FrameBufferAttachmentFormat::Color_Attachment8:
-                attach.AttachmentFormat= GL_COLOR_ATTACHMENT8;
+                attach->AttachmentFormat= GL_COLOR_ATTACHMENT8;
                 break;
             case FrameBufferAttachmentFormat::Color_Attachment9:
-                attach.AttachmentFormat= GL_COLOR_ATTACHMENT9;
+                attach->AttachmentFormat= GL_COLOR_ATTACHMENT9;
                 break;
             case FrameBufferAttachmentFormat::Color_Attachment10:
-                attach.AttachmentFormat= GL_COLOR_ATTACHMENT10;
+                attach->AttachmentFormat= GL_COLOR_ATTACHMENT10;
                 break;
             case FrameBufferAttachmentFormat::Color_Attachment11:
-                attach.AttachmentFormat= GL_COLOR_ATTACHMENT11;
+                attach->AttachmentFormat= GL_COLOR_ATTACHMENT11;
                 break;
             case FrameBufferAttachmentFormat::Color_Attachment12:
-                attach.AttachmentFormat= GL_COLOR_ATTACHMENT12;
+                attach->AttachmentFormat= GL_COLOR_ATTACHMENT12;
                 break;
             case FrameBufferAttachmentFormat::Color_Attachment13:
-                attach.AttachmentFormat= GL_COLOR_ATTACHMENT13;
+                attach->AttachmentFormat= GL_COLOR_ATTACHMENT13;
                 break;
             case FrameBufferAttachmentFormat::Color_Attachment14:
-                attach.AttachmentFormat= GL_COLOR_ATTACHMENT14;
+                attach->AttachmentFormat= GL_COLOR_ATTACHMENT14;
                 break;
             case FrameBufferAttachmentFormat::Color_Attachment15:
-                attach.AttachmentFormat= GL_COLOR_ATTACHMENT15;
+                attach->AttachmentFormat= GL_COLOR_ATTACHMENT15;
                 break;
             case FrameBufferAttachmentFormat::Depth_Attachment:
-                attach.AttachmentFormat= GL_DEPTH_ATTACHMENT;
+                attach->AttachmentFormat= GL_DEPTH_ATTACHMENT;
                 break;
             case FrameBufferAttachmentFormat::Stencil_Attachment:
-                attach.AttachmentFormat= GL_STENCIL_ATTACHMENT;
+                attach->AttachmentFormat= GL_STENCIL_ATTACHMENT;
                 break;
         };
 
         switch(TextureType)
         {
             case TextureType::CubemapNegative_X:
-                attach.TextureType=GL_TEXTURE_CUBE_MAP_NEGATIVE_X;
+                attach->TextureType=GL_TEXTURE_CUBE_MAP_NEGATIVE_X;
                 break;
             case TextureType::CubemapNegative_Y:
-                attach.TextureType=GL_TEXTURE_CUBE_MAP_NEGATIVE_Y;
+                attach->TextureType=GL_TEXTURE_CUBE_MAP_NEGATIVE_Y;
                 break;
             case TextureType::CubemapNegative_Z:
-                attach.TextureType=GL_TEXTURE_CUBE_MAP_NEGATIVE_Z;
+                attach->TextureType=GL_TEXTURE_CUBE_MAP_NEGATIVE_Z;
                 break;
             case TextureType::CubemapPositive_X:
-                attach.TextureType=GL_TEXTURE_CUBE_MAP_POSITIVE_X;
+                attach->TextureType=GL_TEXTURE_CUBE_MAP_POSITIVE_X;
                 break;
             case TextureType::CubemapPositive_Y:
-                attach.TextureType=GL_TEXTURE_CUBE_MAP_POSITIVE_Y;
+                attach->TextureType=GL_TEXTURE_CUBE_MAP_POSITIVE_Y;
                 break;
             case TextureType::CubemapPositive_Z:
-                attach.TextureType=GL_TEXTURE_CUBE_MAP_POSITIVE_Z;
+                attach->TextureType=GL_TEXTURE_CUBE_MAP_POSITIVE_Z;
                 break;
             case TextureType::Texture:
             default:
-                attach.TextureType=GL_TEXTURE_2D;
+                attach->TextureType=GL_TEXTURE_2D;
                 break;
         }
         
@@ -252,7 +271,7 @@ namespace p3d {
             glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         
         // Add Attach
-        glFramebufferTexture2D(GL_FRAMEBUFFER, attach.AttachmentFormat, attach.TextureType, attach.TexturePTR->GetBindID() , 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, attach->AttachmentFormat, attach->TextureType, attach->TexturePTR->GetBindID() , 0);
         
         if (!isBinded)
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -293,8 +312,8 @@ namespace p3d {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glDrawBuffer(GL_BACK);
         glReadBuffer(GL_BACK);
-        for (std::map<uint32, Attachment>::iterator i = attachments.begin();i!=attachments.end();i++) 
-            (*i).second.TexturePTR->UpdateMipmap();
+        for (std::map<uint32, Attachment*>::iterator i = attachments.begin();i!=attachments.end();i++)
+            (*i).second->TexturePTR->UpdateMipmap();
         
         isBinded = false;
     }

@@ -54,7 +54,7 @@ namespace p3d {
         Height = height;
         
         // resize application
-        sf::View TheView(sf::FloatRect(0, 0, (f32)Width, (f32)Height));
+        sf::View TheView(sf::FloatRect(0,0, (f32)Width, (f32)Height));
         rview.setView(TheView);
     }
     bool SFMLContext::IsRunning() const
@@ -64,9 +64,7 @@ namespace p3d {
     }
     void SFMLContext::GetEvents()
     {
-        // Get Events
-        sf::Event event;
-
+        
         // Get Events
         while (rview.pollEvent(event)) {
 			

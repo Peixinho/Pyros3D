@@ -17,8 +17,9 @@ namespace p3d {
         // Frame Buffer
         fbo = new FrameBuffer();
         // Texture Creation
-        textureHandle = AssetManager::CreateTexture(TextureType::Texture,TextureDataType::RGBA,Width,Height,false);
-        texture = static_cast<Texture*>(AssetManager::GetAsset(textureHandle)->AssetPTR);
+        texture = new Texture();
+        texture->CreateTexture(TextureType::Texture,TextureDataType::RGBA,Width,Height,false);
+        
         // Frame Buffer Creation
         fbo->Init(FrameBufferAttachmentFormat::Color_Attachment0,TextureType::Texture,texture,true);
         
@@ -28,7 +29,7 @@ namespace p3d {
     void PainterPick::Resize(const uint32& Width, const uint32& Height)
     {
         IRenderer::Resize(Width,Height);
-        AssetManager::Resize(textureHandle,Width,Height);
+        texture->Resize(Width,Height);
         fbo->ResizeRenderBuffer(Width,Height);
     }
     PainterPick::~PainterPick() 
@@ -38,7 +39,7 @@ namespace p3d {
         // Delete FBO
         delete fbo;
         // Delete Texture
-        AssetManager::DeleteAsset(textureHandle);
+        delete texture;
     }
 
     RenderingMesh* PainterPick::PickObject(const f32& mouseX, const f32& mouseY, Projection projection, GameObject* Camera, SceneGraph* Scene)

@@ -57,10 +57,8 @@ namespace p3d {
                 shadowsFBO = new FrameBuffer();
                 
                 // GPU Shadows
-                ShadowMapID = AssetManager::CreateTexture(TextureType::Texture,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-
-                ShadowMap = static_cast<Texture*> (AssetManager::GetAsset(ShadowMapID)->AssetPTR);
-                ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+                ShadowMap = new Texture();
+                ShadowMap->CreateTexture(TextureType::Texture,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
                 ShadowMap->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
                 ShadowMap->EnableCompareMode();
 

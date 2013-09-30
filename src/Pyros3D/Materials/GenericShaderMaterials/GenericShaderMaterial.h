@@ -11,7 +11,7 @@
 
 #include "../IMaterial.h"
 #include "ShaderLib.h"
-
+#include "../../AssetManager/Assets/Font/Font.h"
 #include <iostream>
 #include <map>
 
@@ -27,13 +27,13 @@ namespace p3d
             void SetColor(const Vec4 &color);
             void SetSpecular(const Vec4 &specularColor);
             // Set Textures
-            void SetColorMap(const Texture &colormap);
-            void SetSpecularMap(const Texture &specular);
-            void SetNormalMap(const Texture &normalmap);
-            void SetEnvMap(const Texture &envmap);
+            void SetColorMap(Texture* colormap);
+            void SetSpecularMap(Texture* specular);
+            void SetNormalMap(Texture* normalmap);
+            void SetEnvMap(Texture* envmap);
             void SetReflectivity(const f32 &reflectivity);
-            void SetRefractMap(const Texture &refractmap);
-            void SetSkyboxMap(const Texture &skyboxmap);
+            void SetRefractMap(Texture* refractmap);
+            void SetSkyboxMap(Texture* skyboxmap);
             // Lights
             void SetLightingProperties(const Vec4 &Ke, const Vec4 &Ka, const Vec4 &Kd, const Vec4 &Ks, const f32 &shininess);
             void SetKe(const Vec4 &Ke);
@@ -43,7 +43,7 @@ namespace p3d
             void SetShininess(const f32 &shininess);
 
             // Text
-            void SetTextFont(const uint32 &FontHandle);
+            void SetTextFont(Font* font);
             
             // Render
             virtual void PreRender();
@@ -53,13 +53,13 @@ namespace p3d
             void BindTextures();
             void UnbindTextures();
         
-			// Shadows
-			void SetPCFTexelSize(const f32 &texel);
+            // Shadows
+            void SetPCFTexelSize(const f32 &texel);
 
         private:
         
             // List of Tetxures
-            std::map<uint32, Texture> Textures;
+            std::map<uint32, Texture*> Textures;
         
         protected:
             // Shaders List

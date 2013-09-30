@@ -25,31 +25,31 @@ namespace p3d {
     // Stores Positions
     struct PositionData {
         // Time
-        d64 Time;
+        f64 Time;
         // Position
         Vec3 Pos;
         PositionData() {}
-        PositionData(const d64 &time, const Vec3 &pos) : Time(time), Pos(pos) {}
+        PositionData(const f64 &time, const Vec3 &pos) : Time(time), Pos(pos) {}
     };
     
     // Stores Rotations
     struct RotationData {
         // Time
-        d64 Time;
+        f64 Time;
         // Rotation
         Quaternion Rot;
         RotationData() {}
-        RotationData(const d64 &time, const Quaternion &rot) : Time(time), Rot(rot) {}
+        RotationData(const f64 &time, const Quaternion &rot) : Time(time), Rot(rot) {}
     };
     
     // Stores Scaling
     struct ScalingData {
         // Time
-        d64 Time;
+        f64 Time;
         // Scale
         Vec3 Scale;
         ScalingData() {}
-        ScalingData(const d64 &time, const Vec3 &scale) : Time(time), Scale(scale) {}
+        ScalingData(const f64 &time, const Vec3 &scale) : Time(time), Scale(scale) {}
     };
     
     // Channel Struct
@@ -74,7 +74,7 @@ namespace p3d {
         // Animation Duration
         uint32 Duration;
         // Ticks per Second
-        d64 TicksPerSecond;
+        f64 TicksPerSecond;
         
     };
     

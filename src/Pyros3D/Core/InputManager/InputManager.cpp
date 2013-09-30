@@ -109,8 +109,7 @@ namespace p3d {
     
     void InputManager::CharEntered(const uint32& e)
     {
-        // Could be on Pressed or Released, there is nothing different from them        
-        uchar Code = e;
+        // Could be on Pressed or Released, there is nothing different from them
         Event::Input::Info kPress;
         kPress.Type = Event::Type::OnPress;
         kPress.Input = e;        

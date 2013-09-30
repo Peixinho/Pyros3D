@@ -27,8 +27,8 @@ namespace p3d {
     // Bone Structure
     struct Bone {
         std::string name;
-        sint32 self;
-        sint32 parent;
+        int32 self;
+        int32 parent;
         Vec3 pos;
         Quaternion rot;
         Vec3 scale;        
@@ -61,8 +61,8 @@ namespace p3d {
         
         // Map Bone IDs
         // Original ID - Internal ID
-        std::map<sint32, sint32> MapBoneIDs;
-        std::map<sint32, Matrix> BoneOffsetMatrix;
+        std::map<int32, int32> MapBoneIDs;
+        std::map<int32, Matrix> BoneOffsetMatrix;
         
         // Materials
         uint32 materialID;
@@ -82,7 +82,7 @@ namespace p3d {
             // Skeleton
             std::map<StringID, Bone> skeleton;
             // Materials
-            std::vector<Renderables::MaterialProperties> materials;
+            std::vector<MaterialProperties> materials;
             
             // Skinning
             uint32 GetBoneID(const std::string &BoneName);
@@ -102,7 +102,7 @@ namespace p3d {
             // aux function to show sekeleton
             void GetBoneChilds(std::map<StringID, Bone> Skeleton, const int32 &id, const uint32 &iterations);
             // aux function to construct skeleton            
-            void GetBone(aiNode *bone, const sint32 &parentID = -1); 
+            void GetBone(aiNode *bone, const int32 &parentID = -1); 
     };
 
 }

@@ -21,10 +21,10 @@ namespace p3d {
         fontSize = size;
         
         // Create Texture
-        glyphMapHandle = AssetManager::CreateTexture(TextureType::Texture,TextureDataType::ALPHA,MAP_SIZE,MAP_SIZE,true);
-        glyphMap = *static_cast<Texture*> (AssetManager::GetAsset(glyphMapHandle)->AssetPTR);
-        glyphMap.SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
-        glyphMap.SetTextureByteAlignment(1);
+        glyphMap = new Texture();
+        glyphMap->CreateTexture(TextureType::Texture,TextureDataType::ALPHA,MAP_SIZE,MAP_SIZE,true);
+        glyphMap->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
+        glyphMap->SetTextureByteAlignment(1);
         
         // Free Type Initialization
         if (FT_Init_FreeType(&ft)) echo("ERROR: Couldn't Start Freetype Lib");
@@ -32,7 +32,7 @@ namespace p3d {
         if (FT_Set_Char_Size(face,0,fontSize*64,300,300)) echo("ERROR: Couldn't Set Char Size");
         if (FT_Set_Pixel_Sizes(face,0,fontSize)) echo("ERROR: Couldn't Set Pixel Size");
         
-        glyphMap.UpdateData(glyphMapData);
+        glyphMap->UpdateData(glyphMapData);
         
         lastGlyphWidth = lastGlyphRow = 0;
     }
@@ -105,7 +105,7 @@ namespace p3d {
                         glyphs[text[i]]=glp;
                         
                     }
-                    glyphMap.UpdateData(glyphMapData);
+                    glyphMap->UpdateData(glyphMapData);
                     
                     
                 break;
@@ -125,10 +125,10 @@ namespace p3d {
     
     void Font::Dispose()
     {
-        
+	delete glyphMap;
     }
     
-    Texture Font::GetTexture()
+    Texture* Font::GetTexture()
     {
         return glyphMap;
     }

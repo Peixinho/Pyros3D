@@ -8,7 +8,7 @@
 
 #include "IMaterial.h"
 
-namespace p3d {    
+namespace p3d {
     
     uint32 IMaterial::_InternalID = 0;
     
@@ -127,7 +127,7 @@ namespace p3d {
         return isWireFrame;
     }
     
-    uint32 IMaterial::GetShader()
+    const uint32 &IMaterial::GetShader() const
     {
         return shaderProgram;
     }

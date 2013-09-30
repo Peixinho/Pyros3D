@@ -12,10 +12,6 @@
 
 namespace p3d {
     
-    bool SceneGraph::_ThreadIsUpdating = false;
-    bool SceneGraph::_ThreadSync = true;
-    std::vector<GameObject*> SceneGraph::_GameObjectList;
-    
     SceneGraph::SceneGraph() 
     {
         echo("SUCCESS: Scene Created");
@@ -70,20 +66,31 @@ namespace p3d {
         else echo("SUCCESS: GameObject Removed from Scene");
     }
     
-    void SceneGraph::Update()
+    void SceneGraph::Update(const f64 &Timer)
     {
+        // Save Time
+        timer = Timer;
+        
         for (std::vector<GameObject*>::iterator i=_GameObjectList.begin();i!=_GameObjectList.end();i++)
         {
             // Update GameObject - User Change
             (*i)->Update();
-			// Update Transformation
-			(*i)->InternalUpdate();
-			(*i)->CloneTransform();
             // Register Components
             (*i)->RegisterComponents(this);
             // Update Components
             (*i)->UpdateComponents();
+            
+#ifndef MULTI_THREAD
+            
+            // NOT MULTI THREADED
+            
+            // Update Transforms Not Using Threads
+            (*i)->InternalUpdate();
+            (*i)->CloneTransform();
+            
         }
+#else
+        // MULTI THREADED
         
         if (!_ThreadIsUpdating && !_ThreadSync)
         {
@@ -97,33 +104,40 @@ namespace p3d {
             if (_ThreadIsUpdating && !_ThreadSync)
             {
                 // Remove Thread
-				Thread::RemoveThread(ThreadID);
+                Thread::RemoveThread(ThreadID);
 
-				// Copy From Thread to GameObjects
-				_ThreadSync = true;
-				for (std::vector<GameObject*>::iterator i=_GameObjectList.begin();i!=_GameObjectList.end();i++)
-				{
-					// Copy from Thread
-					(*i)->CloneTransform();
-				}
-				_ThreadSync = false;
+                // Copy From Thread to GameObjects
+                _ThreadSync = true;
+                for (std::vector<GameObject*>::iterator i=_GameObjectList.begin();i!=_GameObjectList.end();i++)
+                {
+                    // Copy from Thread
+                    (*i)->CloneTransform();
+                }
+                _ThreadSync = false;
             }
         }
+#endif
+
     }
   
     // Thread Function
-    void* SceneGraph::UpdateTransformations(void*)
+    void* SceneGraph::UpdateTransformations(SceneGraph* Scene)
     {
         // Set Flag
-        _ThreadIsUpdating = true;
-        for (std::vector<GameObject*>::iterator i=_GameObjectList.begin();i!=_GameObjectList.end();i++)
+        Scene->_ThreadIsUpdating = true;
+        for (std::vector<GameObject*>::iterator i=Scene->_GameObjectList.begin();i!=Scene->_GameObjectList.end();i++)
         {
             (*i)->InternalUpdate();
         }
         // Unset Flag
-        _ThreadIsUpdating = false;
+        Scene->_ThreadIsUpdating = false;
 
         return NULL;
+    }
+    
+    const f64 &SceneGraph::GetTime() const 
+    {
+        return timer;
     }
     
 };

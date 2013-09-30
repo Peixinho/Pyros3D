@@ -49,7 +49,6 @@ namespace p3d {
         
         // Texture
         Texture* texture;
-        uint32 textureHandle;
         f32 mouseX, mouseY;
 
         // Colors

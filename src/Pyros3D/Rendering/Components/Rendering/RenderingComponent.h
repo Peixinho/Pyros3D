@@ -42,10 +42,12 @@ namespace p3d {
             
             RenderingMesh() : drawingType(DrawingType::Triangles), CullingGeometry(0) {} // Triangles by Default
 
-            virtual ~RenderingMesh() { if (OwnMaterial) delete Material; }
+            virtual ~RenderingMesh() {}
+            
             uint32 GetDrawingType() { return drawingType; }
+        
             // Pointer to Geometry
-            Renderables::IGeometry* Geometry;
+            IGeometry* Geometry;
             
             // Shaders Cache
             std::map<uint32, std::vector< std::vector<int32> > > ShadersAttributesCache;
@@ -55,7 +57,6 @@ namespace p3d {
             
             // Materials
             IMaterial* Material;
-            bool OwnMaterial;
             
             // Drawing Type
             uint32 drawingType;
@@ -75,13 +76,13 @@ namespace p3d {
         
         public:
             
-            RenderingComponent(const uint32 &AssetID, IMaterial* Material = NULL);
-            virtual ~RenderingComponent() {}
-            
+            RenderingComponent(Renderable* renderable, IMaterial* Material = NULL);
+            virtual ~RenderingComponent();
+        
             virtual void Register(SceneGraph* Scene);
             virtual void Init() {}
             virtual void Update() {}
-            virtual void Destroy();
+            virtual void Destroy() {}
             virtual void Unregister(SceneGraph* Scene);
             
             void SetCullingGeometry(const uint32 &Geometry);
@@ -100,12 +101,10 @@ namespace p3d {
             
         protected:
 
-            // Keep Asset ID in use
-            uint32 AssetID;
-
             // Casting Shadows
             bool isCastingShadows;
-            
+        
+            // List of Meshes of this Model
             std::vector<RenderingMesh*> Meshes;
             
             // Culling Geometry

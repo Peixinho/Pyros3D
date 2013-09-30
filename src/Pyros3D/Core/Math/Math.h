@@ -12,14 +12,13 @@
 // Type Definition
 typedef unsigned char uint8;
 typedef unsigned short uint16;
-typedef int int32;
-typedef long int lint32;
-typedef short int sint32;
+typedef signed long int int32;
+typedef long long int64;
 typedef long unsigned uint32;
 typedef float f32;
 typedef unsigned char uchar;
-typedef double d64;
-typedef long double ld64;
+typedef double f64;
+typedef long double f96;
 
 #include "Vec2.h"
 #include "Vec3.h"

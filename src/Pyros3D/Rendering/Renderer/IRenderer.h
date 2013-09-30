@@ -54,7 +54,7 @@ namespace p3d {
             void DeactivateCulling();
         
             // Render Scene
-            virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene);
+            virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, bool clearScreen = true);
         
         protected:
             
@@ -149,9 +149,9 @@ namespace p3d {
             std::vector<Matrix>
                                 Lights;
             
-            unsigned 
+            uint32
                                 NumberOfLights;
-            d64
+            f64
                                 Timer;
             // Model Specific Cache
             Matrix
@@ -174,13 +174,13 @@ namespace p3d {
                                 ViewMatrixDirty;
             
             // Shadow Casting
-            std::vector<Texture> 
+            std::vector<Texture*>
                                 DirectionalShadowMapsTextures, PointShadowMapsTextures, SpotShadowMapsTextures;
             std::vector<uint32>
                                 DirectionalShadowMapsUnits, PointShadowMapsUnits, SpotShadowMapsUnits;
             std::vector<Matrix>
                                 DirectionalShadowMatrix, PointShadowMatrix, SpotShadowMatrix;
-            std::vector<Vec4>
+            Vec4
                                 DirectionalShadowFar;
             uint32 
                                 NumberOfDirectionalShadows, NumberOfPointShadows, NumberOfSpotShadows;
@@ -194,13 +194,13 @@ namespace p3d {
             void UnbindShadowMaps(IMaterial* material);
             
             // Last Mesh Rendered
-            lint32
+            int32
                                 LastMeshRendered;
             RenderingMesh*
                                 LastMeshRenderedPTR;
             
             // Last Material Used
-            lint32
+            int32
                                 LastMaterialUsed,
                                 LastProgramUsed;
             IMaterial*

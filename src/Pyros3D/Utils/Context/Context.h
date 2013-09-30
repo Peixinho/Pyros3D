@@ -21,8 +21,8 @@ namespace p3d {
             Context(const unsigned int &width, const unsigned int &height);            
             virtual ~Context();
 
-            long double GetTime();
-            long double GetTimeInterval();
+            f64 GetTime();
+            f64 GetTimeInterval();
             void ActivateBulletTime(const f32 &factor);
             void DeactivateBulletTime();
             void Pause();

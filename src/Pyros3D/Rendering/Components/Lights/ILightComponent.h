@@ -76,8 +76,6 @@ namespace p3d {
             uint32 ShadowWidth, ShadowHeight;
             // Shadow Map Texture
             Texture* ShadowMap;
-            // Shadow Map Handle (Asset Manager)
-            uint32 ShadowMapID;
             // Far ane Near for Projection
             f32 ShadowNear, ShadowFar;
             // Flag

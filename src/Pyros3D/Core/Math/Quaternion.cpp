@@ -135,7 +135,7 @@ namespace p3d {
             void Quaternion::AxisToQuaternion(const Vec3 &v, const f32 angle)
             {
                     f32 x,y,z; // temp vars of Vector
-                    d64 rad, scale; // temp vars
+                    f64 rad, scale; // temp vars
 
                     if (v == Vec3(0,0,0)) // if axis is zero, then return quaternion (1,0,0,0)
                     {

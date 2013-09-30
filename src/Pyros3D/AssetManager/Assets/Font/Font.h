@@ -9,7 +9,6 @@
 #ifndef FONT_H
 #define FONT_H
 
-#include "../IAsset.h"
 #include "../Texture/Texture.h"
 #include "../../../Core/Logs/Log.h"
 #include <ft2build.h>
@@ -27,7 +26,7 @@ namespace p3d {
         Vec2 startingPoint;
     };
     
-    class Font : public IAsset {
+    class Font {
         
         private:
             
@@ -37,8 +36,7 @@ namespace p3d {
             f32 fontSize;
             
             // Font Map
-            uint32 glyphMapHandle;
-            Texture glyphMap;
+            Texture* glyphMap;
         
             // Glyph Map Data
             uchar glyphMapData[MAP_SIZE*MAP_SIZE];
@@ -66,7 +64,7 @@ namespace p3d {
             
             virtual void Dispose();
             
-            Texture GetTexture();
+            Texture* GetTexture();
         
             f32 GetFontSize();
         

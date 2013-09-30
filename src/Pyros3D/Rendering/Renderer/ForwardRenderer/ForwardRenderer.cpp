@@ -17,6 +17,7 @@ namespace p3d {
         echo("SUCCESS: Forward Renderer Created");
         
         ActivateCulling(CullingMode::FrustumCulling);
+
         shadowMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows);
         shadowMaterial->SetCullFace(CullFace::DoubleSided);
     }
@@ -38,7 +39,7 @@ namespace p3d {
          
     }
     
-    void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
+    void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, bool clearScreen)
     {
         
         // Initialize Renderer
@@ -53,7 +54,12 @@ namespace p3d {
         // Get Lights List
         std::vector<IComponent*> lcomps = ILightComponent::GetLightsOnScene(Scene);
         
+        // Save Time
+        Timer = Scene->GetTime();
         
+		if (rmesh.size()>0)
+		{
+
         // Prepare and Pack Lights to Send to Shaders
         Lights.clear();
         
@@ -62,7 +68,6 @@ namespace p3d {
             // ShadowMaps
             DirectionalShadowMapsTextures.clear();
             DirectionalShadowMatrix.clear();
-            DirectionalShadowFar.clear();
             NumberOfDirectionalShadows = 0;
             
             PointShadowMapsTextures.clear();
@@ -73,6 +78,7 @@ namespace p3d {
             SpotShadowMatrix.clear();
             NumberOfSpotShadows = 0;
             
+            ViewMatrix = Camera->GetWorldTransformation().Inverse();
             for (std::vector<IComponent*>::iterator i = lcomps.begin();i!=lcomps.end();i++)
             {
                 if (DirectionalLight* d = dynamic_cast<DirectionalLight*>((*i))) {
@@ -156,7 +162,7 @@ namespace p3d {
                         }
 
                         // Get Texture (only 1)
-                        DirectionalShadowMapsTextures.push_back(*d->GetShadowMapTexture());
+                        DirectionalShadowMapsTextures.push_back(d->GetShadowMapTexture());
 
                         // Set Shadow Far
                         Vec4 _ShadowFar;
@@ -170,7 +176,7 @@ namespace p3d {
                         ShadowFar.y = 0.5f*(-_ShadowFar.y*projection.m.m[10]+projection.m.m[14])/_ShadowFar.y + 0.5f;
                         ShadowFar.z = 0.5f*(-_ShadowFar.z*projection.m.m[10]+projection.m.m[14])/_ShadowFar.z + 0.5f;
                         ShadowFar.w = 0.5f*(-_ShadowFar.w*projection.m.m[10]+projection.m.m[14])/_ShadowFar.w + 0.5f;
-                        DirectionalShadowFar.push_back(ShadowFar);
+                        DirectionalShadowFar = ShadowFar;
 
                         // Disable Depth Bias
                         glDisable(GL_POLYGON_OFFSET_FILL);
@@ -181,6 +187,8 @@ namespace p3d {
                     }
                     
                 } else if (PointLight* p = dynamic_cast<PointLight*>((*i))) {
+                    
+                    ViewMatrix = Camera->GetWorldTransformation().Inverse();
                     
                     // Point Lights
                     Vec4 color = p->GetLightColor();
@@ -284,7 +292,7 @@ namespace p3d {
                         PointShadowMatrix.push_back(m);
                         
                         // Get Texture (only 1)
-                        PointShadowMapsTextures.push_back(*p->GetShadowMapTexture());
+                        PointShadowMapsTextures.push_back(p->GetShadowMapTexture());
                         
                         // Disable Depth Bias
                         glDisable(GL_POLYGON_OFFSET_FILL);
@@ -296,6 +304,8 @@ namespace p3d {
                     }
                     
                 } else if (SpotLight* s = dynamic_cast<SpotLight*>((*i))) {
+                    
+                    ViewMatrix = Camera->GetWorldTransformation().Inverse();
                     
                     // Spot Lights
                     Vec4 color = s->GetLightColor();
@@ -383,7 +393,7 @@ namespace p3d {
                         SpotShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
                         
                         // Get Texture (only 1)
-                        SpotShadowMapsTextures.push_back(*s->GetShadowMapTexture());
+                        SpotShadowMapsTextures.push_back(s->GetShadowMapTexture());
 
                     }
                 }
@@ -430,10 +440,13 @@ namespace p3d {
         // Set ViewPort
         SetViewPort(0,0,Width,Height);
         
-        // Clear Screen
-        ClearScreen(Buffer_Bit::Color | Buffer_Bit::Depth);
-        SetBackground(Vec4::ZERO);
-        EnableDepthTest();
+        if (clearScreen)
+        {
+            // Clear Screen
+            ClearScreen(Buffer_Bit::Color | Buffer_Bit::Depth);
+            SetBackground(Vec4::ZERO);
+            EnableDepthTest();
+        }
         
         // Render Scene with Objects Material
         for (std::vector<RenderingMesh*>::iterator i=rmesh.begin();i!=rmesh.end();i++)
@@ -465,6 +478,7 @@ namespace p3d {
         
         // End Rendering
         EndRender();
+		}
     }
     
 };

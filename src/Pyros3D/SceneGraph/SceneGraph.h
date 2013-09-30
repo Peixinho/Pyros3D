@@ -27,21 +27,27 @@ namespace p3d {
             SceneGraph();
             
             // Update
-            void Update();
+            void Update(const f64 &Timer);
             // Add Child to Scene
             void Add(GameObject* GO);
             // Remove Child from Scene
             void Remove(GameObject* GO);
             
+            // Get Time
+            const f64 &GetTime() const;
+            
         private:
             
             // GameObject List
-            static std::vector<GameObject*> _GameObjectList;
+            std::vector<GameObject*> _GameObjectList;
             
             // Update Transformations Thread
-            static bool _ThreadIsUpdating, _ThreadSync;
-            static void *UpdateTransformations(void*);
+            bool _ThreadIsUpdating, _ThreadSync;
+            static void *UpdateTransformations(SceneGraph* Scene);
             uint32 ThreadID;
+            
+            // Time
+            f64 timer;
     };
     
 };

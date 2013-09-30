@@ -86,7 +86,7 @@ namespace p3d {
         void Destroy();
         
         // Get Shader Program
-        uint32 GetShader();
+        const uint32 &GetShader() const;
         
         // Get Internal ID
         uint32 GetInternalID();
@@ -108,10 +108,12 @@ namespace p3d {
         // Shader program        
         uint32 shaderProgram;
         
-        // Internal ID
+        // Material Options
         uint32 materialID;
         
     private:
+
+		// Internal ID
         static uint32 _InternalID;
         
     };

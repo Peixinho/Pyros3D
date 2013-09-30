@@ -24,7 +24,7 @@ namespace p3d
             ShadersList[options]->currentMaterials = 0;
             ShaderLib::BuildShader(options, ShadersList[options]);
         }
-        
+		
         // Save Shader Location
         shaderID = options;
         
@@ -44,8 +44,8 @@ namespace p3d
         AddUniform(Uniform::Uniform("uOpacity",Uniform::DataType::Float,&opacity));
         SetOpacity(opacity);
 
-		// Default PCF Texel Size
-		PCFTexelSize = 0.0001;
+        // Default PCF Texel Size
+        PCFTexelSize = 0.0001;
 
         if (options & ShaderUsage::Diffuse)
         {
@@ -86,7 +86,7 @@ namespace p3d
             AddUniform(Uniform::Uniform("uPointShadowMaps",Uniform::DataUsage::PointShadowMap));
             AddUniform(Uniform::Uniform("uPointDepthsMVP",Uniform::DataUsage::PointShadowMatrix));
             AddUniform(Uniform::Uniform("uNumberOfPointShadows",Uniform::DataUsage::NumberOfPointShadows));
-			AddUniform(Uniform::Uniform("uPCFTexelSize",Uniform::DataType::Float,&PCFTexelSize));
+            AddUniform(Uniform::Uniform("uPCFTexelSize",Uniform::DataType::Float,&PCFTexelSize));
 
             isCastingShadows = true;
         }
@@ -97,7 +97,7 @@ namespace p3d
             AddUniform(Uniform::Uniform("uSpotShadowMaps",Uniform::DataUsage::SpotShadowMap));
             AddUniform(Uniform::Uniform("uSpotDepthsMVP",Uniform::DataUsage::SpotShadowMatrix));
             AddUniform(Uniform::Uniform("uNumberOfSpotShadows",Uniform::DataUsage::NumberOfSpotShadows));
-			AddUniform(Uniform::Uniform("uPCFTexelSize",Uniform::DataType::Float,&PCFTexelSize));
+            AddUniform(Uniform::Uniform("uPCFTexelSize",Uniform::DataType::Float,&PCFTexelSize));
 
             isCastingShadows = true;
         }
@@ -109,7 +109,6 @@ namespace p3d
             Reflectivity = 1.0;
             AddUniform(Uniform::Uniform("uReflectivity",Uniform::DataType::Float,&Reflectivity));
         }
-
     }
     
     void GenericShaderMaterial::SetLightingProperties(const Vec4 &Ke, const Vec4 &Ka, const Vec4 &Kd, const Vec4 &Ks, const f32 &shininess)
@@ -152,26 +151,34 @@ namespace p3d
     }
     GenericShaderMaterial::~GenericShaderMaterial()
     {
+        
+        // Delete Shaders
         if (ShadersList.find(shaderID)!=ShadersList.end())
         {
             ShadersList[shaderID]->currentMaterials--;
             if (ShadersList[shaderID]->currentMaterials==0)
                 delete ShadersList[shaderID];
         }
+        
+        // Delete Textures
+        for (std::map<uint32,Texture*>::iterator i=Textures.begin();i!=Textures.end();i++)
+        {
+            delete (*i).second;
+        }
     }
     
     void GenericShaderMaterial::BindTextures()
     {
-        for (std::map<uint32, Texture>::iterator i = Textures.begin(); i!= Textures.end(); i++)
+        for (std::map<uint32, Texture*>::iterator i = Textures.begin(); i!= Textures.end(); i++)
         {
-            (*i).second.Bind();
+            (*i).second->Bind();
         }
     }
     void GenericShaderMaterial::UnbindTextures()
     {
-        for (std::map<uint32, Texture>::reverse_iterator i = Textures.rbegin(); i!= Textures.rend(); i++)
+        for (std::map<uint32, Texture*>::reverse_iterator i = Textures.rbegin(); i!= Textures.rend(); i++)
         {
-            (*i).second.Unbind();
+            (*i).second->Unbind();
         }
     }
     
@@ -186,15 +193,15 @@ namespace p3d
         AddUniform(Uniform::Uniform("uSpecular",Uniform::DataType::Vec4,&Specular));
     }
     
-    void GenericShaderMaterial::SetColorMap(const Texture &colormap)
+    void GenericShaderMaterial::SetColorMap(Texture* colormap)
     {
         uint32 id = Textures.size();
-        // Save on List
+        // Save on Lirest
         Textures[id] = colormap;
         // Set Uniform
         AddUniform(Uniform::Uniform("uColormap",Uniform::DataType::Int,&id));
     }
-    void GenericShaderMaterial::SetSpecularMap(const Texture &specular)
+    void GenericShaderMaterial::SetSpecularMap(Texture* specular)
     {
         uint32 id = Textures.size();
         // Save on List
@@ -202,7 +209,7 @@ namespace p3d
         // Set Uniform
         AddUniform(Uniform::Uniform("uSpecularmap",Uniform::DataType::Int,&id));
     }
-    void GenericShaderMaterial::SetNormalMap(const Texture &normalmap)
+    void GenericShaderMaterial::SetNormalMap(Texture* normalmap)
     {
         uint32 id = Textures.size();
         // Save on List
@@ -210,7 +217,7 @@ namespace p3d
         // Set Uniform
         AddUniform(Uniform::Uniform("uNormalmap",Uniform::DataType::Int,&id));
     }
-    void GenericShaderMaterial::SetEnvMap(const Texture &envmap)
+    void GenericShaderMaterial::SetEnvMap(Texture* envmap)
     {
         uint32 id = Textures.size();
         // Save on List
@@ -222,7 +229,7 @@ namespace p3d
     {
         Reflectivity = reflectivity;
     }
-    void GenericShaderMaterial::SetRefractMap(const Texture &refractmap)
+    void GenericShaderMaterial::SetRefractMap(Texture* refractmap)
     {
         uint32 id = Textures.size();
         // Save on List
@@ -230,22 +237,21 @@ namespace p3d
         // Set Uniform
         AddUniform(Uniform::Uniform("uRefractmap",Uniform::DataType::Int,&id));
     }
-    void GenericShaderMaterial::SetSkyboxMap(const Texture& skyboxmap)
+    void GenericShaderMaterial::SetSkyboxMap(Texture* skyboxmap)
     {
         uint32 id = Textures.size();
         // Save on List
         Textures[id] = skyboxmap;
         // Set Uniform
-        AddUniform(Uniform::Uniform("uSkybox",Uniform::DataType::Int,id));
-        // Cullface
-//        cullFace = CullFace::FrontFace;
+        AddUniform(Uniform::Uniform("uSkybox",Uniform::DataType::Int,&id));
     }
-    void GenericShaderMaterial::SetTextFont(const uint32& FontHandle)
+    void GenericShaderMaterial::SetTextFont(Font* font)
     {
-        p3d::Font* font = (p3d::Font*)AssetManager::GetAsset(FontHandle)->AssetPTR;
         uint32 id = Textures.size();
+        // Save on List
         Textures[id] = font->GetTexture();
-        AddUniform(Uniform::Uniform("uColormap",Uniform::DataType::Int,id));
+        // Set Uniform
+        AddUniform(Uniform::Uniform("uFontmap",Uniform::DataType::Int,&id));
     }
     void GenericShaderMaterial::PreRender()
     {
@@ -255,9 +261,8 @@ namespace p3d
     {
         UnbindTextures();
     }
-
-	void GenericShaderMaterial::SetPCFTexelSize(const f32 &texel)
-	{
-		PCFTexelSize = texel;
-	}
+    void GenericShaderMaterial::SetPCFTexelSize(const f32 &texel)
+    {
+        PCFTexelSize = texel;
+    }
 }

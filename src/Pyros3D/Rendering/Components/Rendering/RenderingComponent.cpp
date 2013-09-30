@@ -7,26 +7,19 @@
 //============================================================================
 
 #include "RenderingComponent.h"
-
+#include "GL/glew.h"
+#define GLCHECK() { int32 error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } }
 namespace p3d {
     
     // Initialize Rendering Components and Meshes vector
     std::vector<IComponent*> RenderingComponent::Components;
     std::map<SceneGraph*, std::vector<RenderingMesh*> > RenderingComponent::MeshesOnScene;
     
-    RenderingComponent::RenderingComponent(const uint32 &AssetID, IMaterial* Material) 
+    RenderingComponent::RenderingComponent(Renderable* renderable, IMaterial* Material)
     {
         // By Default Is Casting Shadows
         isCastingShadows = true;
         
-        // Keep Asset ID
-        this->AssetID = AssetID;
-
-        // Materials vector
-        std::map <uint32, IMaterial*> Materialsvector;
-        
-        // Get Model from AssetManager
-        Renderables::Renderable* renderable = static_cast<Renderables::Renderable*> (AssetManager::UseAsset(AssetID)->AssetPTR);
         for (uint32 i=0;i<renderable->Geometries.size();i++)
         {
             // Rendering Mesh Instance
@@ -38,56 +31,10 @@ namespace p3d {
             if (Material!=NULL) 
             {
                 r_submesh->Material = Material;
-                r_submesh->OwnMaterial = false;
+                
             } else {
-
-                if (Materialsvector.find(renderable->Geometries[i]->materialProperties.id)==Materialsvector.end())
-                {
-                    // From Properties
-                    uint32 options = 0;
-                    // Get Material Options
-                    if (renderable->Geometries[i]->materialProperties.haveColor) options = options | ShaderUsage::Color;
-                    if (renderable->Geometries[i]->materialProperties.haveSpecular) options = options | ShaderUsage::SpecularColor;
-                    if (renderable->Geometries[i]->materialProperties.haveColorMap) options = options | ShaderUsage::Texture;
-                    if (renderable->Geometries[i]->materialProperties.haveSpecularMap) options = options | ShaderUsage::SpecularMap;
-                    if (renderable->Geometries[i]->materialProperties.haveNormalMap) options = options | ShaderUsage::BumpMapping;
-                    options = options | ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow;
-
-                    r_submesh->Material = new GenericShaderMaterial(options);
-                    GenericShaderMaterial* genMat = static_cast<GenericShaderMaterial*> (r_submesh->Material);
-
-                    // Material Properties
-                    if (renderable->Geometries[i]->materialProperties.Twosided) genMat->SetCullFace(CullFace::DoubleSided);       
-                    if (renderable->Geometries[i]->materialProperties.haveColor) { genMat->SetColor(renderable->Geometries[i]->materialProperties.Color); }
-                    if (renderable->Geometries[i]->materialProperties.haveSpecular) { genMat->SetSpecular(renderable->Geometries[i]->materialProperties.Specular); }
-                    if (renderable->Geometries[i]->materialProperties.Opacity) { genMat->SetOpacity(renderable->Geometries[i]->materialProperties.Opacity); }
-                    if (renderable->Geometries[i]->materialProperties.haveColorMap) 
-                    {
-                        Texture colorMap;
-                        colorMap.LoadTexture(renderable->Geometries[i]->materialProperties.colorMap, TextureType::Texture);
-                        colorMap.SetMinMagFilter(TextureFilter::LinearMipmapNearest,TextureFilter::LinearMipmapNearest);
-                        genMat->SetColorMap(colorMap);
-                    }
-                    if (renderable->Geometries[i]->materialProperties.haveSpecularMap) 
-                    {
-                        Texture specularMap;
-                        specularMap.LoadTexture(renderable->Geometries[i]->materialProperties.specularMap, TextureType::Texture);
-                        specularMap.SetMinMagFilter(TextureFilter::LinearMipmapNearest,TextureFilter::LinearMipmapNearest);
-                        genMat->SetSpecularMap(specularMap);
-                    }
-                    if (renderable->Geometries[i]->materialProperties.haveNormalMap) 
-                    {
-                        Texture normalMap;
-                        normalMap.LoadTexture(renderable->Geometries[i]->materialProperties.normalMap, TextureType::Texture);
-                        normalMap.SetMinMagFilter(TextureFilter::LinearMipmapNearest,TextureFilter::LinearMipmapNearest);
-                        genMat->SetNormalMap(normalMap);
-                    }
-                    Materialsvector[renderable->Geometries[i]->materialProperties.id] = genMat;
-                }
-                else {
-                    r_submesh->Material = Materialsvector[renderable->Geometries[i]->materialProperties.id];
-                    r_submesh->OwnMaterial = true;
-                }
+                
+                r_submesh->Material = renderable->Geometries[i]->Material;
             }
             
             // Own this Mothafuckah!
@@ -183,22 +130,14 @@ namespace p3d {
     {
         return isCastingShadows;
     }
-    void RenderingComponent::Destroy()
+    RenderingComponent::~RenderingComponent()
     {
-//        for (std::vector<RenderingMesh*>::iterator i=Meshes.begin();i!=Meshes.end();i++)
-//        {
-//            for (std::vector<RenderingMesh*>::iterator k=RenderingMeshes.begin();k!=RenderingMeshes.end();k++)
-//            {
-//                if ((*k)==(*i)) 
-//                {
-//                    RenderingMeshes.erase(k);
-//                }
-//            }
-//            // Delete Mesh
-//            delete (*i);
-//        }
+        for (std::vector<RenderingMesh*>::iterator i=Meshes.begin();i!=Meshes.end();i++)
+        {
+            // Delete Mesh
+            delete (*i);
+        }
         // Clear Meshes List
         Meshes.clear();
     }
-    
 };

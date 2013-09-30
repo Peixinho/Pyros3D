@@ -26,7 +26,7 @@ namespace p3d {
         if (isCastingShadows)
         {
             delete shadowsFBO;
-            AssetManager::DeleteAsset(ShadowMapID);
+            delete ShadowMap;
         }
     }
     

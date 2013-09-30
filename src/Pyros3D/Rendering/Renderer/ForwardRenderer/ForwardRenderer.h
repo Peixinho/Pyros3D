@@ -24,7 +24,7 @@ namespace p3d {
             
             virtual void GroupAndSortAssets();
             
-        virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene);
+        virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, bool clearScreen = true);
             
         private:
             GenericShaderMaterial* shadowMaterial;

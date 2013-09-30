@@ -9,6 +9,7 @@
 #include "Shaders.h"
 #include <stdlib.h>
 #include "GL/glew.h"
+#include "../../Core/Buffers/FrameBuffer.h"
 
 namespace p3d {
 
@@ -93,8 +94,8 @@ namespace p3d {
             free(log);
 
             if (*ProgramObject==0) 
-                *ProgramObject = glCreateProgram();
-
+                *ProgramObject = (uint32)glCreateProgram();
+			
             // Attach shader
             glAttachShader(*ProgramObject, shader);
             // Link Program
@@ -134,10 +135,10 @@ namespace p3d {
     }
 
     // Get positions
-    long Shader::GetUniformLocation(const int32 &program, const std::string &name) {
+    int32 Shader::GetUniformLocation(const uint32 &program, const std::string &name) {
         return glGetUniformLocation(program, name.c_str());
     }
-    long Shader::GetAttributeLocation(const int32 &program, const std::string &name) {
+    int32 Shader::GetAttributeLocation(const uint32 &program, const std::string &name) {
         return glGetAttribLocation(program, name.c_str());
     }
 

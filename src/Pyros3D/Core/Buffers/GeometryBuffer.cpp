@@ -13,7 +13,7 @@
 
 namespace p3d {
 
-	GeometryBuffer::GeometryBuffer() : ID(-1) {}
+	GeometryBuffer::GeometryBuffer() : ID(-1), DataLength(0) {}
 
 	GeometryBuffer::GeometryBuffer(const uint32& bufferType, const uint32& bufferDraw) : ID(-1) 
 	{

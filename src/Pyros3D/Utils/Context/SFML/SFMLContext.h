@@ -13,7 +13,6 @@
 #include <SFML/OpenGL.hpp>
 #include <SFML/System.hpp>
 #include <SFML/Graphics.hpp>
-#include <assert.h>
 
 #include "../Context.h"
 #include "../../../Utils/FPS/FPS.h"
@@ -84,6 +83,9 @@ namespace p3d {
             // Fullscreen Modes
             std::vector<sf::VideoMode> modes;
             sf::View view;
+            
+            // Get Events
+            sf::Event event;
             
     };
 

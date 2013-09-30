@@ -21,7 +21,7 @@ namespace p3d {
     {
 
         // Load Model
-		assimp_model = aiImportFile(Filename.c_str(),aiProcessPreset_TargetRealtime_Fast | aiProcess_OptimizeMeshes | aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
+        assimp_model = aiImportFile(Filename.c_str(),aiProcessPreset_TargetRealtime_Fast | aiProcess_OptimizeMeshes | aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
 
         if (!assimp_model)
         {
@@ -120,7 +120,7 @@ namespace p3d {
                         _offsetMatrix.m[8] = mesh->mBones[k]->mOffsetMatrix.a3; _offsetMatrix.m[9] = mesh->mBones[k]->mOffsetMatrix.b3; _offsetMatrix.m[10] = mesh->mBones[k]->mOffsetMatrix.c3; _offsetMatrix.m[11] = mesh->mBones[k]->mOffsetMatrix.d3;
                         _offsetMatrix.m[12] = mesh->mBones[k]->mOffsetMatrix.a4;_offsetMatrix.m[13] = mesh->mBones[k]->mOffsetMatrix.b4;_offsetMatrix.m[14] = mesh->mBones[k]->mOffsetMatrix.c4; _offsetMatrix.m[15] = mesh->mBones[k]->mOffsetMatrix.d4;
 
-                        sint32 boneID = GetBoneID(mesh->mBones[k]->mName.data);
+                        int32 boneID = GetBoneID(mesh->mBones[k]->mName.data);
                         subMesh.BoneOffsetMatrix[boneID] = _offsetMatrix;
                         subMesh.MapBoneIDs[boneID] = count;
                         count++;
@@ -164,7 +164,7 @@ namespace p3d {
             // Build Materials List
             for (uint32 i=0;i<assimp_model->mNumMaterials;++i)
             {
-                Renderables::MaterialProperties material;
+                MaterialProperties material;
                 // Get Material
                 const aiMaterial* pMaterial = assimp_model->mMaterials[i];
                 material.id = i;
@@ -275,7 +275,7 @@ namespace p3d {
         }
     }
     
-    void ModelLoader::GetBone(aiNode* bone, const sint32 &parentID)
+    void ModelLoader::GetBone(aiNode* bone, const int32 &parentID)
     {
 
         aiVector3D _bonePos, _boneScale;
@@ -334,7 +334,7 @@ namespace p3d {
         }
     }
     
-    void ModelLoader::GetBoneChilds(std::map<StringID,Bone> Skeleton, const int& id, const uint32& iterations)
+    void ModelLoader::GetBoneChilds(std::map<StringID,Bone> Skeleton, const int32& id, const uint32& iterations)
     {
         for (std::map<StringID, Bone>::iterator i=Skeleton.begin();i!=Skeleton.end();i++)
         {            

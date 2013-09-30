@@ -8,7 +8,6 @@
 
 #ifndef FRAMEBUFFER_H
 #define FRAMEBUFFER_H
-
 #include "../../Materials/Shaders/Shaders.h"
 #include "../../AssetManager/AssetManager.h"
 #include "../../AssetManager/Assets/Texture/Texture.h"
@@ -101,7 +100,7 @@ namespace p3d {
             bool FBOInitialized;
 
             // FBO "texture"
-            std::map<uint32, Attachment> attachments;
+            std::map<uint32, Attachment*> attachments;
             
     };
 

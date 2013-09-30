@@ -27,32 +27,32 @@ namespace p3d {
             void StopBulletTime();
             bool IsBulletTime();
             
-            ld64 GetTime();
-            ld64 GetTimeInterval();
+            f96 GetTime();
+            f96 GetTimeInterval();
             
-            void Update(const ld64 &time);
+            void Update(const f96 &time);
             
         private:
             
             // save internal time
-            ld64 internalTime;
+            f96 internalTime;
             // save external time
-            ld64 externalTime;
+            f96 externalTime;
             // save external interval
             f32 externalTimeInterval;
             
             // pause vars
             bool isPaused;
-            ld64 pauseTime;
-            ld64 pauseTimeStart;
+            f96 pauseTime;
+            f96 pauseTimeStart;
             
             bool isBulletTime;
-            ld64 bulletTime;
-            ld64 bulletTimeStart;
+            f96 bulletTime;
+            f96 bulletTimeStart;
             f32 bulletFactor;
       
             // Time Interval
-            ld64 timeInterval;
+            f96 timeInterval;
             
     };
 

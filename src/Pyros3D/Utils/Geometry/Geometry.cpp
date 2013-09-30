@@ -119,7 +119,7 @@ void Geometry::CreateBoundingBox(const Vec3& minBound, const Vec3& maxBound, std
     for (uint32 i=0;i<tVertex.size();i++)
     {
         Index.push_back(i);
-        std::cout << tVertex[i].toString() << std::endl;
+
     } 
     
     index->resize(Index.size());

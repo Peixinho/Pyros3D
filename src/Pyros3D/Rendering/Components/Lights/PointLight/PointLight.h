@@ -43,15 +43,13 @@ namespace p3d {
 
                 // GPU Shadows
                 // Create Texture (CubeMap), Frame Buffer and Set the Texture as Attachment
-                ShadowMapID = AssetManager::CreateTexture(TextureType::CubemapNegative_X,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-                AssetManager::AddTexture(ShadowMapID,TextureType::CubemapNegative_Y,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-                AssetManager::AddTexture(ShadowMapID,TextureType::CubemapNegative_Z,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-                AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_X,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-                AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_Y,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-                AssetManager::AddTexture(ShadowMapID,TextureType::CubemapPositive_Z,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-
-                ShadowMap = static_cast<Texture*> (AssetManager::GetAsset(ShadowMapID)->AssetPTR);
-                ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+                ShadowMap = new Texture();
+                ShadowMap->CreateTexture(TextureType::CubemapNegative_X,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
+                ShadowMap->CreateTexture(TextureType::CubemapNegative_Y,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
+                ShadowMap->CreateTexture(TextureType::CubemapNegative_Z,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
+                ShadowMap->CreateTexture(TextureType::CubemapPositive_X,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
+                ShadowMap->CreateTexture(TextureType::CubemapPositive_Y,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
+                ShadowMap->CreateTexture(TextureType::CubemapPositive_Z,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
                 ShadowMap->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
                 ShadowMap->EnableCompareMode();
 

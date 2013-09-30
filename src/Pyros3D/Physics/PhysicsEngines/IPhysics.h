@@ -74,7 +74,7 @@ namespace p3d {
             bool physicsInitialized;
             
             // Timer
-            ld64 lastTime, nowTime, timeInterval;
+            f96 lastTime, nowTime, timeInterval;
     };
     
 };

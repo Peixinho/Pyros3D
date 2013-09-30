@@ -15,12 +15,12 @@ namespace p3d {
         
         Context::~Context() {}
        
-        long double Context::GetTime()
+        f64 Context::GetTime()
         {
             return deltaTime.GetTime();
         }
         
-        long double Context::GetTimeInterval()
+        f64 Context::GetTimeInterval()
         {
             return deltaTime.GetTimeInterval();
         }

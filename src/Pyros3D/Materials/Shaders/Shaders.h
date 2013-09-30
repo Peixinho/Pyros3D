@@ -44,8 +44,8 @@ namespace p3d {
             static void DeleteProgram(uint32* ProgramObject);
 
             // Get Location
-            static long GetUniformLocation(const int32& program, const std::string &name);
-            static long GetAttributeLocation(const int32& program, const std::string &name);
+            static int32 GetUniformLocation(const uint32& program, const std::string &name);
+            static int32 GetAttributeLocation(const uint32& program, const std::string &name);
 
             // Uniforms          
             static void SendUniform(const Uniform::Uniform &uniform, const int32 &Handle);
