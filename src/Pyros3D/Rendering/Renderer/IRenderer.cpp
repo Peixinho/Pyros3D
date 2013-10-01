@@ -335,7 +335,7 @@ namespace p3d {
     {
         // Send Global Uniforms
         unsigned counter = 0;
-        for (std::list<Uniform::Uniform>::iterator k = Material->GlobalUniforms.begin();k!=Material->GlobalUniforms.end();k++)
+        for (std::vector<Uniform::Uniform>::iterator k = Material->GlobalUniforms.begin();k!=Material->GlobalUniforms.end();k++)
         {
             if (rmesh->ShadersGlobalCache[Material->GetShader()][counter] ==-2)
             {
@@ -435,7 +435,6 @@ namespace p3d {
             }
             counter++;
         }
-        
     }
     
     void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
@@ -461,7 +460,7 @@ namespace p3d {
     void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
     {
         unsigned counter = 0;
-        for (std::list<Uniform::Uniform>::iterator k = Material->ModelUniforms.begin();k!=Material->ModelUniforms.end();k++)
+        for (std::vector<Uniform::Uniform>::iterator k = Material->ModelUniforms.begin();k!=Material->ModelUniforms.end();k++)
         {
             if (rmesh->ShadersModelCache[Material->GetShader()][counter]==-2)
             {
@@ -538,30 +537,29 @@ namespace p3d {
     
     void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
     {
-        
         if (rmesh->ShadersAttributesCache.find(material->GetShader())==rmesh->ShadersAttributesCache.end())
         {
             // Reset Attribute IDs
             for (std::vector<AttributeBuffer*>::iterator i=rmesh->Geometry->AttributesBuffer.begin();i!=rmesh->Geometry->AttributesBuffer.end();i++)
             {
                 std::vector<int32> attribs;
-                for (std::list<VertexAttribute*>::iterator k=(*i)->Attributes.begin();k!=(*i)->Attributes.end();k++)
+                for (std::vector<VertexAttribute*>::iterator k=(*i)->Attributes.begin();k!=(*i)->Attributes.end();k++)
                 {
-                    attribs.push_back(-2);
+                    attribs.push_back(Shader::GetAttributeLocation(material->GetShader(),(*k)->Name));
                 }
                 rmesh->ShadersAttributesCache[material->GetShader()].push_back(attribs);
             }
-            for (std::list<Uniform::Uniform>::iterator k = material->GlobalUniforms.begin();k!=material->GlobalUniforms.end();k++)
+            for (std::vector<Uniform::Uniform>::iterator k = material->GlobalUniforms.begin();k!=material->GlobalUniforms.end();k++)
             {
-                rmesh->ShadersGlobalCache[material->GetShader()].push_back(-2);
+                rmesh->ShadersGlobalCache[material->GetShader()].push_back(Shader::GetUniformLocation(material->GetShader(),(*k).Name));
             }
-            for (std::list<Uniform::Uniform>::iterator k = material->ModelUniforms.begin();k!=material->ModelUniforms.end();k++)
+            for (std::vector<Uniform::Uniform>::iterator k = material->ModelUniforms.begin();k!=material->ModelUniforms.end();k++)
             {
-                rmesh->ShadersModelCache[material->GetShader()].push_back(-2);
+                rmesh->ShadersModelCache[material->GetShader()].push_back(Shader::GetUniformLocation(material->GetShader(),(*k).Name));
             }
             for (std::map<StringID,Uniform::Uniform>::iterator k = material->UserUniforms.begin();k!=material->UserUniforms.end();k++)
             {
-                rmesh->ShadersUserCache[material->GetShader()].push_back(-2);
+                rmesh->ShadersUserCache[material->GetShader()].push_back(Shader::GetUniformLocation(material->GetShader(),(*k).second.Name));
             }
         }
     }
@@ -574,7 +572,7 @@ namespace p3d {
             for (std::vector<AttributeBuffer*>::iterator k=rmesh->Geometry->AttributesBuffer.begin();k!=rmesh->Geometry->AttributesBuffer.end();k++)
             {
                 unsigned counter = 0;
-                for (std::list<VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
+                for (std::vector<VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
                 {
                     // If exists in shader
                     if (rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]>=0)
@@ -654,7 +652,7 @@ namespace p3d {
                 // Get Struct Data
                 if ((*k)->attributeSize==0)
                 {
-                    for (std::list<VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
+                    for (std::vector<VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
                     {
                         (*k)->attributeSize+=(*l)->byteSize;
                     }
@@ -662,7 +660,7 @@ namespace p3d {
                 
                 // Counter
                 unsigned counter = 0;
-                for (std::list<VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
+                for (std::vector<VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
                 {
                     // Check if is not set
                     if (rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]==-2)

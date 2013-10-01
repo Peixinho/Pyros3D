@@ -107,7 +107,7 @@ namespace p3d {
         uint32 bufferType;
         uint32 bufferDraw;
         // Attributes List
-        std::list<VertexAttribute*> Attributes;
+        std::vector<VertexAttribute*> Attributes;
         // Data
         std::vector<uchar> Data;
         // Offset
@@ -128,7 +128,7 @@ namespace p3d {
         {
             uint32 offset = 0;
             uint32 count = 0;
-            for (std::list<VertexAttribute*>::iterator k = Attributes.begin();k!=Attributes.end();k++)
+            for (std::vector<VertexAttribute*>::iterator k = Attributes.begin();k!=Attributes.end();k++)
             {
                 (*k)->Offset = offset;
                 offset += (*k)->byteSize;
@@ -143,7 +143,7 @@ namespace p3d {
             {                
                 offset = BufferOffset*l;               
                 // Run through all attributes
-                for (std::list<VertexAttribute*>::iterator k = Attributes.begin();k!=Attributes.end();k++)
+                for (std::vector<VertexAttribute*>::iterator k = Attributes.begin();k!=Attributes.end();k++)
                 {
                     memcpy(&Data[offset+(*k)->Offset],&(*k)->Data[(l*(*k)->byteSize)],(*k)->byteSize);
                 }
@@ -157,7 +157,7 @@ namespace p3d {
         void Dispose()
         {
             // Loop Through each Vertex Attribute and Delete Them
-            for (std::list<VertexAttribute*>::iterator k = Attributes.begin();k!=Attributes.end();k++)
+            for (std::vector<VertexAttribute*>::iterator k = Attributes.begin();k!=Attributes.end();k++)
             {
                 // Delete Vertex Attribute
                 delete *k;

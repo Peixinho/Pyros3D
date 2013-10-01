@@ -58,8 +58,8 @@ namespace p3d {
         void SetTransparencyFlag(bool transparency);
 
         // Uniforms        
-        std::list<Uniform::Uniform> GlobalUniforms;
-        std::list<Uniform::Uniform> ModelUniforms;
+        std::vector<Uniform::Uniform> GlobalUniforms;
+        std::vector<Uniform::Uniform> ModelUniforms;
         std::map<StringID, Uniform::Uniform> UserUniforms;
 
         // Send Uniforms
