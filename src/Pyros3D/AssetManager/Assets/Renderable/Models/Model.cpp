@@ -51,72 +51,140 @@ namespace p3d {
 
     Model::Model(const std::string ModelPath)
     {
-         mesh = new ModelLoader();
-         mesh->Load(ModelPath);
+        mesh = new ModelLoader();
+        mesh->Load(ModelPath);
 
-         // List of Material Properties
-         std::vector<MaterialProperties> materialProperties;
-         // Build Materials
-         for (uint32 i=0;i<mesh->materials.size();i++)
-         {
-             materialProperties.push_back(mesh->materials[i]);
-         }
+        std::map<uint32, ModelGeometry*> meshes;
+        
+        // List of Material Properties
+        std::vector<MaterialProperties> materialProperties;
+        // Build Materials
+        for (uint32 i=0;i<mesh->materials.size();i++)
+        {
+            materialProperties.push_back(mesh->materials[i]);
+        }
 
-         for (uint32 i=0;i<mesh->subMeshes.size();i++)
-         {
+        for (uint32 i=0;i<mesh->subMeshes.size();i++)
+        {
 
             if (mesh->subMeshes[i].tIndex.size()>0)
             {
-                ModelGeometry* c_submesh = new ModelGeometry();
-
-                // Set Material From ID
-                c_submesh->materialProperties = materialProperties[mesh->subMeshes[i].materialID];
-                c_submesh->index.resize(mesh->subMeshes[i].tIndex.size());
-                memcpy(&c_submesh->index[0],&mesh->subMeshes[i].tIndex[0],mesh->subMeshes[i].tIndex.size()*sizeof(uint32));
-
-                if (mesh->subMeshes[i].hasVertex==true)
+                
+                if (meshes.find(mesh->subMeshes[i].materialID)==meshes.end())
                 {
-                    c_submesh->tVertex.resize(mesh->subMeshes[i].tVertex.size());
-                    memcpy(&c_submesh->tVertex[0],&mesh->subMeshes[i].tVertex[0],mesh->subMeshes[i].tVertex.size()*sizeof(Vec3));
-                }
-                if (mesh->subMeshes[i].hasNormal==true)
-                {
-                    c_submesh->tNormal.resize(mesh->subMeshes[i].tNormal.size());
-                    memcpy(&c_submesh->tNormal[0],&mesh->subMeshes[i].tNormal[0],mesh->subMeshes[i].tNormal.size()*sizeof(Vec3));
-                }
-                if (mesh->subMeshes[i].hasTexcoord==true)
-                {
-                    c_submesh->tTexcoord.resize(mesh->subMeshes[i].tTexcoord.size());
-                    memcpy(&c_submesh->tTexcoord[0],&mesh->subMeshes[i].tTexcoord[0],mesh->subMeshes[i].tTexcoord.size()*sizeof(Vec2));
-                }
-                if (mesh->subMeshes[i].hasTangentBitangent==true)
-                {
-                    c_submesh->tTangent.resize(mesh->subMeshes[i].tTangent.size());
-                    memcpy(&c_submesh->tTangent[0],&mesh->subMeshes[i].tTangent[0],mesh->subMeshes[i].tTangent.size()*sizeof(Vec3));
+                
+                    ModelGeometry* c_submesh = new ModelGeometry();
 
-                    c_submesh->tBitangent.resize(mesh->subMeshes[i].tBitangent.size());
-                    memcpy(&c_submesh->tBitangent[0],&mesh->subMeshes[i].tBitangent[0],mesh->subMeshes[i].tBitangent.size()*sizeof(Vec3));
+                    // Set Material From ID
+                    c_submesh->materialProperties = materialProperties[mesh->subMeshes[i].materialID];
+                    c_submesh->index.resize(mesh->subMeshes[i].tIndex.size());
+                    memcpy(&c_submesh->index[0],&mesh->subMeshes[i].tIndex[0],mesh->subMeshes[i].tIndex.size()*sizeof(uint32));
+
+                    if (mesh->subMeshes[i].hasVertex==true)
+                    {
+                        c_submesh->tVertex.resize(mesh->subMeshes[i].tVertex.size());
+                        memcpy(&c_submesh->tVertex[0],&mesh->subMeshes[i].tVertex[0],mesh->subMeshes[i].tVertex.size()*sizeof(Vec3));
+                    }
+                    if (mesh->subMeshes[i].hasNormal==true)
+                    {
+                        c_submesh->tNormal.resize(mesh->subMeshes[i].tNormal.size());
+                        memcpy(&c_submesh->tNormal[0],&mesh->subMeshes[i].tNormal[0],mesh->subMeshes[i].tNormal.size()*sizeof(Vec3));
+                    }
+                    if (mesh->subMeshes[i].hasTexcoord==true)
+                    {
+                        c_submesh->tTexcoord.resize(mesh->subMeshes[i].tTexcoord.size());
+                        memcpy(&c_submesh->tTexcoord[0],&mesh->subMeshes[i].tTexcoord[0],mesh->subMeshes[i].tTexcoord.size()*sizeof(Vec2));
+                    }
+                    if (mesh->subMeshes[i].hasTangentBitangent==true)
+                    {
+                        c_submesh->tTangent.resize(mesh->subMeshes[i].tTangent.size());
+                        memcpy(&c_submesh->tTangent[0],&mesh->subMeshes[i].tTangent[0],mesh->subMeshes[i].tTangent.size()*sizeof(Vec3));
+
+                        c_submesh->tBitangent.resize(mesh->subMeshes[i].tBitangent.size());
+                        memcpy(&c_submesh->tBitangent[0],&mesh->subMeshes[i].tBitangent[0],mesh->subMeshes[i].tBitangent.size()*sizeof(Vec3));
+                    }
+                    if (mesh->subMeshes[i].hasBones==true)
+                    {
+                        c_submesh->tBonesID.resize(mesh->subMeshes[i].tVertex.size());
+                        memcpy(&c_submesh->tBonesID[0],&mesh->subMeshes[i].tBonesID[0],mesh->subMeshes[i].tBonesID.size()*sizeof(Vec4));
+
+                        c_submesh->tBonesWeight.resize(mesh->subMeshes[i].tVertex.size());
+                        memcpy(&c_submesh->tBonesWeight[0],&mesh->subMeshes[i].tBonesWeight[0],mesh->subMeshes[i].tBonesWeight.size()*sizeof(Vec4));
+
+                        // Save SubMesh Map
+                        c_submesh->MapBoneIDs = mesh->subMeshes[i].MapBoneIDs;
+                        // Save SubMesh Bones Offset Matrix
+                        c_submesh->BoneOffsetMatrix = mesh->subMeshes[i].BoneOffsetMatrix;
+                        // Set Skinning Flag on
+                        c_submesh->materialProperties.haveBones = true;
+                    }
+                    
+                    meshes[mesh->subMeshes[i].materialID] = c_submesh;
+                    
+                } else {
+                    
+                    // JOIN MESHES
+                    
+                    // Set Material From ID
+                    ModelGeometry* c_submesh = meshes[mesh->subMeshes[i].materialID];
+                    
+                    uint32 offset = c_submesh->tVertex.size();
+                    
+                    for (uint32 k=0;k<mesh->subMeshes[i].tIndex.size();k++)
+                    {
+                        c_submesh->index.push_back(mesh->subMeshes[i].tIndex[k]+offset);
+                    }
+                    
+                    if (mesh->subMeshes[i].hasVertex==true)
+                    {
+                        c_submesh->tVertex.resize(offset + mesh->subMeshes[i].tVertex.size());
+                        memcpy(&c_submesh->tVertex[offset],&mesh->subMeshes[i].tVertex[0],mesh->subMeshes[i].tVertex.size()*sizeof(Vec3));
+                    }
+                    if (mesh->subMeshes[i].hasNormal==true)
+                    {
+                        c_submesh->tNormal.resize(offset + mesh->subMeshes[i].tNormal.size());
+                        memcpy(&c_submesh->tNormal[offset],&mesh->subMeshes[i].tNormal[0],mesh->subMeshes[i].tNormal.size()*sizeof(Vec3));
+                    }
+                    if (mesh->subMeshes[i].hasTexcoord==true)
+                    {
+                        c_submesh->tTexcoord.resize(offset + mesh->subMeshes[i].tTexcoord.size());
+                        memcpy(&c_submesh->tTexcoord[offset],&mesh->subMeshes[i].tTexcoord[0],mesh->subMeshes[i].tTexcoord.size()*sizeof(Vec2));
+                    }
+                    if (mesh->subMeshes[i].hasTangentBitangent==true)
+                    {
+                        c_submesh->tTangent.resize(offset + mesh->subMeshes[i].tTangent.size());
+                        memcpy(&c_submesh->tTangent[offset],&mesh->subMeshes[i].tTangent[0],mesh->subMeshes[i].tTangent.size()*sizeof(Vec3));
+                        
+                        c_submesh->tBitangent.resize(offset + mesh->subMeshes[i].tBitangent.size());
+                        memcpy(&c_submesh->tBitangent[offset],&mesh->subMeshes[i].tBitangent[0],mesh->subMeshes[i].tBitangent.size()*sizeof(Vec3));
+                    }
+                    if (mesh->subMeshes[i].hasBones==true)
+                    {
+                        c_submesh->tBonesID.resize(offset + mesh->subMeshes[i].tVertex.size());
+                        memcpy(&c_submesh->tBonesID[offset],&mesh->subMeshes[i].tBonesID[0],mesh->subMeshes[i].tBonesID.size()*sizeof(Vec4));
+                        
+                        c_submesh->tBonesWeight.resize(offset + mesh->subMeshes[i].tVertex.size());
+                        memcpy(&c_submesh->tBonesWeight[offset],&mesh->subMeshes[i].tBonesWeight[0],mesh->subMeshes[i].tBonesWeight.size()*sizeof(Vec4));
+                        
+                        // Save SubMesh Map
+                        c_submesh->MapBoneIDs = mesh->subMeshes[i].MapBoneIDs;
+                        // Save SubMesh Bones Offset Matrix
+                        c_submesh->BoneOffsetMatrix = mesh->subMeshes[i].BoneOffsetMatrix;
+                        // Set Skinning Flag on
+                        c_submesh->materialProperties.haveBones = true;
+                    }
                 }
-                if (mesh->subMeshes[i].hasBones==true)
-                {
-                    c_submesh->tBonesID.resize(mesh->subMeshes[i].tVertex.size());
-                    memcpy(&c_submesh->tBonesID[0],&mesh->subMeshes[i].tBonesID[0],mesh->subMeshes[i].tBonesID.size()*sizeof(Vec4));
-
-                    c_submesh->tBonesWeight.resize(mesh->subMeshes[i].tVertex.size());
-                    memcpy(&c_submesh->tBonesWeight[0],&mesh->subMeshes[i].tBonesWeight[0],mesh->subMeshes[i].tBonesWeight.size()*sizeof(Vec4));
-
-                    // Save SubMesh Map
-                    c_submesh->MapBoneIDs = mesh->subMeshes[i].MapBoneIDs;
-                    // Save SubMesh Bones Offset Matrix
-                    c_submesh->BoneOffsetMatrix = mesh->subMeshes[i].BoneOffsetMatrix;
-                    // Set Skinning Flag on
-                    c_submesh->materialProperties.haveBones = true;
-                }
-
-                Geometries.push_back(c_submesh);
             }
         }
-         Build();
+        
+        // Add Merged Meshes
+        for (std::map<uint32, ModelGeometry*>::iterator i = meshes.begin();i!=meshes.end();i++)
+        {
+            Geometries.push_back((*i).second);
+        }
+        
+        // Build Meshes
+        Build();
 
          // Save Skeleton
          skeleton = mesh->skeleton;

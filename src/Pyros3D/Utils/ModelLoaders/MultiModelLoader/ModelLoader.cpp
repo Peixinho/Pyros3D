@@ -12,10 +12,7 @@ namespace p3d {
 
     ModelLoader::ModelLoader() {}
 
-    ModelLoader::~ModelLoader() 
-    {
-
-    }
+    ModelLoader::~ModelLoader() {}
 
     void ModelLoader::Load(const std::string& Filename)
     {
