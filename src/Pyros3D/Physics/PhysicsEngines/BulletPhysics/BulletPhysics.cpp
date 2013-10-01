@@ -80,11 +80,13 @@ namespace p3d {
         m_dynamicsWorld->setDebugDrawer(m_debugDraw);
         m_debugDraw->setDebugMode(btIDebugDraw::DBG_MAX_DEBUG_DRAW_MODE);
     }
-    void BulletPhysics::RenderDebugDraw(f32* Projection, f32* Camera)
+    void BulletPhysics::RenderDebugDraw(Projection projection, GameObject* Camera)
     {
-        m_debugDraw->SetProjectionMatrix(Projection);
-        m_debugDraw->SetCameraMatrix(Camera);
+        m_debugDraw->StartDebugRendering();
+        m_debugDraw->SetProjectionMatrix(projection.m);
+        m_debugDraw->SetCameraMatrix(Camera->GetWorldTransformation().Inverse());
         m_dynamicsWorld->debugDrawWorld();
+        m_debugDraw->EndDebugRendering();
     }
     void BulletPhysics::DisableDebugDraw()
     {

@@ -16,8 +16,6 @@
 #include "../Ext/StringIDs/StringID.hpp"
 #include "../AssetManager/Assets/Texture/Texture.h"
 
-#include <list>
-
 namespace p3d {    
     
     // Culling

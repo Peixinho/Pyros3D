@@ -11,8 +11,7 @@
 
 #include "../../Core/Math/Math.h"
 #include "../../Rendering/Components/Rendering/RenderingComponent.h"
-//#include "../Components/IPhysicsComponent.h"
-#include <list>
+#include "../../Core/Projection/Projection.h"
 
 namespace p3d {
     
@@ -31,7 +30,7 @@ namespace p3d {
             virtual void InitPhysics() = 0;
             virtual void Update(const double &time, const unsigned &steps) = 0;
             virtual void EnableDebugDraw() = 0;
-            virtual void RenderDebugDraw(f32* Projection, f32* Camera) = 0;
+            virtual void RenderDebugDraw(Projection projection, GameObject* Camera) = 0;
             virtual void DisableDebugDraw() = 0;
             virtual void EndPhysics() = 0;
 

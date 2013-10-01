@@ -33,7 +33,7 @@ namespace p3d {
             virtual void InitPhysics();
             virtual void Update(const double &time, const unsigned &steps = 10);
             virtual void EnableDebugDraw();
-            virtual void RenderDebugDraw(f32* Projection, f32* Camera);
+            virtual void RenderDebugDraw(Projection projection, GameObject* Camera);
             virtual void DisableDebugDraw();
             virtual void EndPhysics();
             

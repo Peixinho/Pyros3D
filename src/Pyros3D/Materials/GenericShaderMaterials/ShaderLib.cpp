@@ -27,7 +27,7 @@ namespace p3d
         bool usingVertexLocalPos = false;
         bool usingReflect = false;
         bool usingTangentMatrix = false;
-		bool usingPCFTexelSize = false;
+        bool usingPCFTexelSize = false;
         
         // Aux Strings
         std::string fragmentShaderHeader, fragmentShaderBody;
@@ -57,6 +57,16 @@ namespace p3d
             // Fragment Body
             fragmentShaderBody+="if (!diffuseIsSet) {diffuse=uColor; diffuseIsSet=true;} else diffuse *= uColor;\n";
         }
+        if (option & ShaderUsage::PhysicsDebug)
+        {
+            // Fragment Header
+            vertexShaderHeader+="attribute vec4 aColor;\n";
+            vertexShaderHeader+="varying vec4 vColor;\n";
+            vertexShaderBody+="vColor = aColor;\n";
+            // Fragment Body
+            fragmentShaderHeader+="varying vec4 vColor;\n";
+            fragmentShaderBody+="if (!diffuseIsSet) {diffuse=vColor; diffuseIsSet=true;} else diffuse *= vColor;\n";
+        }        
         if (option & ShaderUsage::Texture)
         {
             if (!usingTexcoords)
@@ -107,10 +117,10 @@ namespace p3d
                 fragmentShaderHeader+="varying vec4 vWorldPosition;\n";
             }
 
-			if (!usingPCFTexelSize)
-			{
-				fragmentShaderHeader+="uniform float uPCFTexelSize;\n";
-			}
+            if (!usingPCFTexelSize)
+            {
+                    fragmentShaderHeader+="uniform float uPCFTexelSize;\n";
+            }
             
             // Fragment Header
             fragmentShaderHeader+="uniform mat4 uDirectionalDepthsMVP[4];\n";

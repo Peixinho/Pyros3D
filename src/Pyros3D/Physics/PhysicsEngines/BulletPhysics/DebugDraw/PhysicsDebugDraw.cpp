@@ -5,30 +5,100 @@
 
 namespace p3d {
     
-    PhysicsDebugDraw::PhysicsDebugDraw():m_debugMode(0) {}
-
-    PhysicsDebugDraw::~PhysicsDebugDraw() {}
-
-    void PhysicsDebugDraw::SetProjectionMatrix(const f32 *projection)
+    PhysicsDebugDraw::PhysicsDebugDraw():m_debugMode(0) 
     {
-        glMatrixMode(GL_PROJECTION);
-        glLoadMatrixf(projection);
+        physicsDebugMaterial = new GenericShaderMaterial(ShaderUsage::PhysicsDebug);
     }
 
-    void PhysicsDebugDraw::SetCameraMatrix(const f32* camera)
+    PhysicsDebugDraw::~PhysicsDebugDraw() 
     {
-        glMatrixMode(GL_MODELVIEW);
-        glLoadMatrixf(camera);
+        delete physicsDebugMaterial;
     }
 
+    void PhysicsDebugDraw::SetProjectionMatrix(const Matrix projection)
+    {
+        projectionMatrix = projection;
+    }
+
+    void PhysicsDebugDraw::SetCameraMatrix(const Matrix camera)
+    {
+        viewMatrix = camera;
+    }
+
+    void PhysicsDebugDraw::StartDebugRendering()
+    {
+        // clean values
+        vertexLines.clear();
+        colorLines.clear();
+        vertexTriangles.clear();
+        colorTriangles.clear();
+        vertexQuadStrip.clear();
+        colorQuadStrip.clear();
+    }
+    
+    void PhysicsDebugDraw::EndDebugRendering()
+    {
+        glUseProgram(physicsDebugMaterial->GetShader());
+        
+        uint32 vertexHandle = Shader::GetAttributeLocation(physicsDebugMaterial->GetShader(),"aPosition");
+        uint32 colorHandle = Shader::GetAttributeLocation(physicsDebugMaterial->GetShader(),"aColor");
+
+        uint32 projectionHandle = Shader::GetUniformLocation(physicsDebugMaterial->GetShader(),"uProjectionMatrix");
+        uint32 viewMatrixHandle = Shader::GetUniformLocation(physicsDebugMaterial->GetShader(),"uViewMatrix");
+        uint32 modelMatrixHandle = Shader::GetUniformLocation(physicsDebugMaterial->GetShader(),"uModelMatrix");
+        uint32 opacityHandle = Shader::GetUniformLocation(physicsDebugMaterial->GetShader(),"uOpacity");
+        
+        Shader::SendUniform(Uniform::Uniform("uProjectionMatrix",Uniform::DataType::Matrix,&projectionMatrix.m[0]),projectionHandle);
+        Shader::SendUniform(Uniform::Uniform("uViewMatrix",Uniform::DataType::Matrix,&viewMatrix.m[0]),viewMatrixHandle);
+        Shader::SendUniform(Uniform::Uniform("uModelMatrix",Uniform::DataType::Matrix,&modelMatrix.m[0]),modelMatrixHandle);
+        f32 opacity = 1.f;
+        Shader::SendUniform(Uniform::Uniform("uOpacity",Uniform::DataType::Float,&opacity),opacityHandle);
+        
+        // Send Attributes
+        glEnableVertexAttribArray(vertexHandle);        
+        glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexLines[0]);
+        
+        glEnableVertexAttribArray(colorHandle);        
+        glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorLines[0]);
+        
+        // Draw Quad
+        glDrawArrays(GL_LINES, 0, vertexLines.size());
+
+        // Disable Attributes
+        glDisableVertexAttribArray(colorHandle);
+        glDisableVertexAttribArray(vertexHandle);
+        
+        // Send Attributes
+        glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexTriangles[0]);
+        glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorTriangles[0]);
+        
+        // Draw Quad
+        glDrawArrays(GL_TRIANGLES, 0, vertexTriangles.size());
+
+        // Disable Attributes
+        glDisableVertexAttribArray(colorHandle);
+        glDisableVertexAttribArray(vertexHandle);
+        
+        // Send Attributes
+        glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexQuadStrip[0]);
+        glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorQuadStrip[0]);
+        
+        // Draw Quad
+        glDrawArrays(GL_QUAD_STRIP, 0, vertexQuadStrip.size());
+
+        // Disable Attributes
+        glDisableVertexAttribArray(colorHandle);
+        glDisableVertexAttribArray(vertexHandle);        
+        
+        glUseProgram(0);
+    }
+    
     void PhysicsDebugDraw::drawLine(const btVector3& from,const btVector3& to,const btVector3& fromColor, const btVector3& toColor)
     {
-        glBegin(GL_LINES);
-        glColor3f(fromColor.getX(), fromColor.getY(), fromColor.getZ());
-        glVertex3d(from.getX(), from.getY(), from.getZ());
-        glColor3f(toColor.getX(), toColor.getY(), toColor.getZ());
-        glVertex3d(to.getX(), to.getY(), to.getZ());
-        glEnd();
+        vertexLines.push_back(Vec3(from.getX(), from.getY(), from.getZ()));
+        vertexLines.push_back(Vec3(to.getX(), to.getY(), to.getZ()));
+        colorLines.push_back(Vec4(fromColor.getX(), fromColor.getY(), fromColor.getZ(), 1.f));
+        colorLines.push_back(Vec4(toColor.getX(), toColor.getY(), toColor.getZ(), 1.f));
     }
 
     void PhysicsDebugDraw::drawLine(const btVector3& from,const btVector3& to,const btVector3& color)
@@ -36,17 +106,16 @@ namespace p3d {
         drawLine(from,to,color,color);
     }
 
-    void PhysicsDebugDraw::drawSphere (const btVector3& p, btScalar radius, const btVector3& color)
+    void PhysicsDebugDraw::drawSphere(const btVector3& p, btScalar radius, const btVector3& color)
     {
-        glColor4f (color.getX(), color.getY(), color.getZ(), btScalar(1.0f));
-        glPushMatrix ();
-        glTranslatef (p.getX(), p.getY(), p.getZ());
+        Vec3 pos = Vec3(p.getX(), p.getY(), p.getZ());
 
         int lats = 5;
         int longs = 5;
 
         int i, j;
-        for(i = 0; i <= lats; i++) {
+        for(i = 0; i <= lats; i++) 
+        {
             btScalar lat0 = SIMD_PI * (-btScalar(0.5) + (btScalar) (i - 1) / lats);
             btScalar z0  = radius*sin(lat0);
             btScalar zr0 =  radius*cos(lat0);
@@ -56,36 +125,37 @@ namespace p3d {
             btScalar zr1 = radius*cos(lat1);
 
             glBegin(GL_QUAD_STRIP);
-            for(j = 0; j <= longs; j++) {
+            for(j = 0; j <= longs; j++) 
+            {
                 btScalar lng = 2 * SIMD_PI * (btScalar) (j - 1) / longs;
                 btScalar x = cos(lng);
                 btScalar y = sin(lng);
 
-                glNormal3f(x * zr0, y * zr0, z0);
-                glVertex3f(x * zr0, y * zr0, z0);
-                glNormal3f(x * zr1, y * zr1, z1);
-                glVertex3f(x * zr1, y * zr1, z1);
+                vertexQuadStrip.push_back(pos+Vec3(x * zr0, y * zr0, z0));
+                vertexQuadStrip.push_back(pos+Vec3(x * zr1, y * zr1, z1));
+                colorQuadStrip.push_back(Vec4(color.getX(), color.getY(), color.getZ(), btScalar(1.0f)));
+                colorQuadStrip.push_back(Vec4(color.getX(), color.getY(), color.getZ(), btScalar(1.0f)));
+                
+//                glNormal3f(x * zr0, y * zr0, z0);
+//                glNormal3f(x * zr1, y * zr1, z1);
             }
-            glEnd();
         }
-
-        glPopMatrix();
     }
-
-
 
     void PhysicsDebugDraw::drawTriangle(const btVector3& a,const btVector3& b,const btVector3& c,const btVector3& color,btScalar alpha)
     {
     //	if (m_debugMode > 0)
         {
-                const btVector3	n=btCross(b-a,c-a).normalized();
-                glBegin(GL_TRIANGLES);		
-                glColor4f(color.getX(), color.getY(), color.getZ(),alpha);
-                glNormal3d(n.getX(),n.getY(),n.getZ());
-                glVertex3d(a.getX(),a.getY(),a.getZ());
-                glVertex3d(b.getX(),b.getY(),b.getZ());
-                glVertex3d(c.getX(),c.getY(),c.getZ());
-                glEnd();
+            const btVector3 n=btCross(b-a,c-a).normalized();
+            
+            colorTriangles.push_back(Vec4(color.getX(), color.getY(), color.getZ(),1.f));
+            colorTriangles.push_back(Vec4(color.getX(), color.getY(), color.getZ(),1.f));
+            colorTriangles.push_back(Vec4(color.getX(), color.getY(), color.getZ(),1.f));
+            
+//            glNormal3d(n.getX(),n.getY(),n.getZ());
+            vertexTriangles.push_back(Vec3(a.getX(),a.getY(),a.getZ()));
+            vertexTriangles.push_back(Vec3(b.getX(),b.getY(),b.getZ()));
+            vertexTriangles.push_back(Vec3(c.getX(),c.getY(),c.getZ()));
         }
     }
 
@@ -106,17 +176,12 @@ namespace p3d {
 
     void PhysicsDebugDraw::drawContactPoint(const btVector3& pointOnB,const btVector3& normalOnB,btScalar distance,int lifeTime,const btVector3& color)
     {
-
-        {
-            btVector3 to=pointOnB+normalOnB*1;//distance;
-            const btVector3&from = pointOnB;
-            glColor4f(color.getX(), color.getY(), color.getZ(),1.f);
-            //glColor4f(0,0,0,1.f);
-            glBegin(GL_LINES);
-            glVertex3d(from.getX(), from.getY(), from.getZ());
-            glVertex3d(to.getX(), to.getY(), to.getZ());
-            glEnd();
-        }
+        btVector3 to=pointOnB+normalOnB*1;//distance;
+        const btVector3&from = pointOnB;
+        vertexLines.push_back(Vec3(from.getX(), from.getY(), from.getZ()));
+        vertexLines.push_back(Vec3(to.getX(), to.getY(), to.getZ()));
+        colorLines.push_back(Vec4(color.getX(), color.getY(), color.getZ(),1.f));
+        colorLines.push_back(Vec4(color.getX(), color.getY(), color.getZ(),1.f));
     }
 
 };
