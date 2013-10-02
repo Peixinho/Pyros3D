@@ -47,7 +47,9 @@ namespace p3d {
         {
             if ((*k)->Material->IsTransparent())
             {
-                _TranslucidMeshes[(Camera->GetPosition().distanceSQR((*k)->renderingComponent->GetOwner()->GetWorldPosition()))] = (*k);
+                f32 index = Camera->GetPosition().distanceSQR((*k)->renderingComponent->GetOwner()->GetWorldPosition());
+                while(_TranslucidMeshes.find(index)!=_TranslucidMeshes.end()) index+=0.0001;
+                _TranslucidMeshes[index] = (*k);
             }
             else _OpaqueMeshes.push_back((*k));
         }
