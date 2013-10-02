@@ -67,7 +67,7 @@ namespace p3d {
             // the rendering list is changed.
             // e.g. Add/Remove Models
             // Sort Assets (mostly the Translucent ones)
-            virtual void GroupAndSortAssets() = 0;
+            virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera) = 0;
             
             // Reset
             void InitRender();
@@ -212,6 +212,8 @@ namespace p3d {
                                 _viewPortStartY,
                                 _viewPortEndX,
                                 _viewPortEndY;
+            
+            bool Blending;
     };
     
 };

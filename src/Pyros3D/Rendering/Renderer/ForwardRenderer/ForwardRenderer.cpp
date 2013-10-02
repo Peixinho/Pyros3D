@@ -32,10 +32,33 @@ namespace p3d {
         delete shadowMaterial;
     }
     
-    void ForwardRenderer::GroupAndSortAssets()
+    
+    
+    std::vector<RenderingMesh*> ForwardRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera)
     {
         
         // Sort and Group Objects From Scene
+        
+        std::vector<RenderingMesh*> _OpaqueMeshes;
+        std::map<f32,RenderingMesh*> _TranslucidMeshes;
+        
+        std::vector<RenderingMesh*> rmeshes = RenderingComponent::GetRenderingMeshes(Scene);
+        
+        for (std::vector<RenderingMesh*>::iterator k=rmeshes.begin();k!=rmeshes.end();k++)
+        {
+            if ((*k)->Material->IsTransparent())
+            {
+                _TranslucidMeshes[(Camera->GetPosition().distanceSQR((*k)->renderingComponent->GetOwner()->GetWorldPosition()))] = (*k);
+            }
+            else _OpaqueMeshes.push_back((*k));
+        }
+        
+        for (std::map<f32,RenderingMesh*>::iterator i=_TranslucidMeshes.begin();i!=_TranslucidMeshes.end();i++)
+        {
+            _OpaqueMeshes.push_back((*i).second);
+        }
+        
+        return _OpaqueMeshes;
          
     }
     
@@ -46,10 +69,7 @@ namespace p3d {
         InitRender();
         
         // Group and Sort Meshes
-        GroupAndSortAssets();
-        
-        // Get Rendering Components List
-        std::vector<RenderingMesh*> rmesh = RenderingComponent::GetRenderingMeshes(Scene);
+        std::vector<RenderingMesh*> rmesh = GroupAndSortAssets(Scene, Camera);
         
         // Get Lights List
         std::vector<IComponent*> lcomps = ILightComponent::GetLightsOnScene(Scene);
@@ -57,212 +77,314 @@ namespace p3d {
         // Save Time
         Timer = Scene->GetTime();
         
-		if (rmesh.size()>0)
-		{
-
-        // Prepare and Pack Lights to Send to Shaders
-        Lights.clear();
-        
-        if (lcomps.size()>0) 
+        if (rmesh.size()>0)
         {
-            // ShadowMaps
-            DirectionalShadowMapsTextures.clear();
-            DirectionalShadowMatrix.clear();
-            NumberOfDirectionalShadows = 0;
-            
-            PointShadowMapsTextures.clear();
-            PointShadowMatrix.clear();
-            NumberOfPointShadows = 0;
-            
-            SpotShadowMapsTextures.clear();
-            SpotShadowMatrix.clear();
-            NumberOfSpotShadows = 0;
-            
-            ViewMatrix = Camera->GetWorldTransformation().Inverse();
-            for (std::vector<IComponent*>::iterator i = lcomps.begin();i!=lcomps.end();i++)
+
+            // Prepare and Pack Lights to Send to Shaders
+            Lights.clear();
+
+            if (lcomps.size()>0) 
             {
-                if (DirectionalLight* d = dynamic_cast<DirectionalLight*>((*i))) {
-                    
-                    // Directional Lights
-                    Vec4 color = d->GetLightColor();
-                    Vec3 position;
-                    Vec3 LDirection = d->GetOwner()->GetWorldPosition().normalize();
-                    Vec4 direction = ViewMatrix * Vec4(LDirection.x,LDirection.y,LDirection.z,0.f);
-                    f32 attenuation = 1.f;
-                    Vec2 cones;
-                    int32 type = 1;
-                    
-                    Matrix directionalLight = Matrix();
-                    directionalLight.m[0] = color.x;         directionalLight.m[1] = color.y;             directionalLight.m[2] = color.z;             directionalLight.m[3] = color.w;
-                    directionalLight.m[4] = position.x;      directionalLight.m[5] = position.y;          directionalLight.m[6] = position.z; 
-                    directionalLight.m[7] = direction.x;     directionalLight.m[8] = direction.y;         directionalLight.m[9] = direction.z;
-                    directionalLight.m[10] = attenuation;   //directionalLight.m[11] = attenuation.y;       directionalLight.m[12] = attenuation.z;
-                    directionalLight.m[13] = cones.x;         directionalLight.m[14] = cones.y;
-                    directionalLight.m[15] = type;
-                    
-                    Lights.push_back(directionalLight);
-                    
-                    // Shadows
-                    if (d->IsCastingShadows())
-                    {
-                        // Increase Number of Shadows
-                        NumberOfDirectionalShadows++;
+                // ShadowMaps
+                DirectionalShadowMapsTextures.clear();
+                DirectionalShadowMatrix.clear();
+                NumberOfDirectionalShadows = 0;
 
-                        // Bind FBO
-                        d->GetShadowFBO()->Bind();
+                PointShadowMapsTextures.clear();
+                PointShadowMatrix.clear();
+                NumberOfPointShadows = 0;
 
-                        // GPU Shadows
-                        // Clear Screen
-                        ClearScreen(Buffer_Bit::Depth);
-                        EnableDepthTest();
+                SpotShadowMapsTextures.clear();
+                SpotShadowMatrix.clear();
+                NumberOfSpotShadows = 0;
 
-                        // Enable Depth Bias
-                        glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
-                        glPolygonOffset (d->GetShadowBiasFactor(), d->GetShadowBiasUnits());
-                        
-                        ViewMatrix = d->GetLightViewMatrix();
-                        
-                        // Get Lights Shadow Map Texture
-                        for (uint32 i=0;i<d->GetNumberCascades();i++)
+                ViewMatrix = Camera->GetWorldTransformation().Inverse();
+                for (std::vector<IComponent*>::iterator i = lcomps.begin();i!=lcomps.end();i++)
+                {
+                    if (DirectionalLight* d = dynamic_cast<DirectionalLight*>((*i))) {
+
+                        // Directional Lights
+                        Vec4 color = d->GetLightColor();
+                        Vec3 position;
+                        Vec3 LDirection = d->GetOwner()->GetWorldPosition().normalize();
+                        Vec4 direction = ViewMatrix * Vec4(LDirection.x,LDirection.y,LDirection.z,0.f);
+                        f32 attenuation = 1.f;
+                        Vec2 cones;
+                        int32 type = 1;
+
+                        Matrix directionalLight = Matrix();
+                        directionalLight.m[0] = color.x;         directionalLight.m[1] = color.y;             directionalLight.m[2] = color.z;             directionalLight.m[3] = color.w;
+                        directionalLight.m[4] = position.x;      directionalLight.m[5] = position.y;          directionalLight.m[6] = position.z; 
+                        directionalLight.m[7] = direction.x;     directionalLight.m[8] = direction.y;         directionalLight.m[9] = direction.z;
+                        directionalLight.m[10] = attenuation;   //directionalLight.m[11] = attenuation.y;       directionalLight.m[12] = attenuation.z;
+                        directionalLight.m[13] = cones.x;         directionalLight.m[14] = cones.y;
+                        directionalLight.m[15] = type;
+
+                        Lights.push_back(directionalLight);
+
+                        // Shadows
+                        if (d->IsCastingShadows())
                         {
-                            d->UpdateCascadeFrustumPoints(i,Camera->GetWorldPosition(),Camera->GetDirection());
-                            ProjectionMatrix = d->GetLightProjection(i,rmesh);
-                                                        
-                            // Set Viewport
-                            SetViewPort(((float)(i % 2) * d->GetShadowWidth()), ((i <= 1 ? 0.0f : 1.f) * d->GetShadowHeight()), d->GetShadowWidth(), d->GetShadowHeight());
-                            
-                            // Update Culling
-                            UpdateCulling(d->GetCascade(i).ortho.GetProjectionMatrix()*ViewMatrix);
+                            // Increase Number of Shadows
+                            NumberOfDirectionalShadows++;
 
-                            // Render Scene with Objects Material
-                            for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
+                            // Bind FBO
+                            d->GetShadowFBO()->Bind();
+
+                            // GPU Shadows
+                            // Clear Screen
+                            ClearScreen(Buffer_Bit::Depth);
+                            EnableDepthTest();
+
+                            // Enable Depth Bias
+                            glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
+                            glPolygonOffset (d->GetShadowBiasFactor(), d->GetShadowBiasUnits());
+
+                            ViewMatrix = d->GetLightViewMatrix();
+
+                            // Get Lights Shadow Map Texture
+                            for (uint32 i=0;i<d->GetNumberCascades();i++)
                             {
+                                d->UpdateCascadeFrustumPoints(i,Camera->GetWorldPosition(),Camera->GetDirection());
+                                ProjectionMatrix = d->GetLightProjection(i,rmesh);
 
-                                if ((*k)->renderingComponent->GetOwner()!=NULL)
+                                // Set Viewport
+                                SetViewPort(((float)(i % 2) * d->GetShadowWidth()), ((i <= 1 ? 0.0f : 1.f) * d->GetShadowHeight()), d->GetShadowWidth(), d->GetShadowHeight());
+
+                                // Update Culling
+                                UpdateCulling(d->GetCascade(i).ortho.GetProjectionMatrix()*ViewMatrix);
+
+                                // Render Scene with Objects Material
+                                for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
                                 {
-                                    // Culling Test
-                                    bool cullingTest = false;
-                                    switch((*k)->CullingGeometry)
+
+                                    if ((*k)->renderingComponent->GetOwner()!=NULL)
                                     {
-                                        case CullingGeometry::Box:
-                                            cullingTest = CullingBoxTest(*k);
-                                            break;
-                                        case CullingGeometry::Sphere:
-                                        default:
-                                            cullingTest = CullingSphereTest(*k);
-                                            break;
+                                        // Culling Test
+                                        bool cullingTest = false;
+                                        switch((*k)->CullingGeometry)
+                                        {
+                                            case CullingGeometry::Box:
+                                                cullingTest = CullingBoxTest(*k);
+                                                break;
+                                            case CullingGeometry::Sphere:
+                                            default:
+                                                cullingTest = CullingSphereTest(*k);
+                                                break;
+                                        }
+                                        if (cullingTest && !(*k)->Material->IsTransparent() && (*k)->renderingComponent->IsCastingShadows())
+                                            RenderObject((*k),shadowMaterial);
+                                        else break;
                                     }
-                                    if (cullingTest)
-                                        RenderObject((*k),shadowMaterial);
                                 }
+
+                                DirectionalShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
+
                             }
 
-                            DirectionalShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
+                            // Get Texture (only 1)
+                            DirectionalShadowMapsTextures.push_back(d->GetShadowMapTexture());
+
+                            // Set Shadow Far
+                            Vec4 _ShadowFar;
+                            if (d->GetNumberCascades()>0) _ShadowFar.x = d->GetCascade(0).Far;
+                            if (d->GetNumberCascades()>1) _ShadowFar.y = d->GetCascade(1).Far;
+                            if (d->GetNumberCascades()>2) _ShadowFar.z = d->GetCascade(2).Far;
+                            if (d->GetNumberCascades()>3) _ShadowFar.w = d->GetCascade(3).Far;
+
+                            Vec4 ShadowFar;
+                            ShadowFar.x = 0.5f*(-_ShadowFar.x*projection.m.m[10]+projection.m.m[14])/_ShadowFar.x + 0.5f;
+                            ShadowFar.y = 0.5f*(-_ShadowFar.y*projection.m.m[10]+projection.m.m[14])/_ShadowFar.y + 0.5f;
+                            ShadowFar.z = 0.5f*(-_ShadowFar.z*projection.m.m[10]+projection.m.m[14])/_ShadowFar.z + 0.5f;
+                            ShadowFar.w = 0.5f*(-_ShadowFar.w*projection.m.m[10]+projection.m.m[14])/_ShadowFar.w + 0.5f;
+                            DirectionalShadowFar = ShadowFar;
+
+                            // Disable Depth Bias
+                            glDisable(GL_POLYGON_OFFSET_FILL);
+
+                            // Unbind FBO
+                            d->GetShadowFBO()->UnBind();
 
                         }
 
-                        // Get Texture (only 1)
-                        DirectionalShadowMapsTextures.push_back(d->GetShadowMapTexture());
+                    } else if (PointLight* p = dynamic_cast<PointLight*>((*i))) {
 
-                        // Set Shadow Far
-                        Vec4 _ShadowFar;
-                        if (d->GetNumberCascades()>0) _ShadowFar.x = d->GetCascade(0).Far;
-                        if (d->GetNumberCascades()>1) _ShadowFar.y = d->GetCascade(1).Far;
-                        if (d->GetNumberCascades()>2) _ShadowFar.z = d->GetCascade(2).Far;
-                        if (d->GetNumberCascades()>3) _ShadowFar.w = d->GetCascade(3).Far;
-                        
-                        Vec4 ShadowFar;
-                        ShadowFar.x = 0.5f*(-_ShadowFar.x*projection.m.m[10]+projection.m.m[14])/_ShadowFar.x + 0.5f;
-                        ShadowFar.y = 0.5f*(-_ShadowFar.y*projection.m.m[10]+projection.m.m[14])/_ShadowFar.y + 0.5f;
-                        ShadowFar.z = 0.5f*(-_ShadowFar.z*projection.m.m[10]+projection.m.m[14])/_ShadowFar.z + 0.5f;
-                        ShadowFar.w = 0.5f*(-_ShadowFar.w*projection.m.m[10]+projection.m.m[14])/_ShadowFar.w + 0.5f;
-                        DirectionalShadowFar = ShadowFar;
+                        ViewMatrix = Camera->GetWorldTransformation().Inverse();
 
-                        // Disable Depth Bias
-                        glDisable(GL_POLYGON_OFFSET_FILL);
+                        // Point Lights
+                        Vec4 color = p->GetLightColor();
+                        Vec3 position = ViewMatrix * (p->GetOwner()->GetWorldPosition());
+                        Vec3 direction;
+                        f32 attenuation = p->GetLightRadius();
+                        Vec2 cones;
+                        int32 type = 2;
 
-                        // Unbind FBO
-                        d->GetShadowFBO()->UnBind();
+                        Matrix pointLight = Matrix();
+                        pointLight.m[0] = color.x;       pointLight.m[1] = color.y;           pointLight.m[2] = color.z;           pointLight.m[3] = color.w;
+                        pointLight.m[4] = position.x;    pointLight.m[5] = position.y;        pointLight.m[6] = position.z; 
+                        pointLight.m[7] = direction.x;   pointLight.m[8] = direction.y;       pointLight.m[9] = direction.z;
+                        pointLight.m[10] = attenuation; //pointLight.m[11] = attenuation.y;     pointLight.m[12] = attenuation.z;
+                        pointLight.m[13] = cones.x;       pointLight.m[14] = cones.y;
+                        pointLight.m[15] = type;
 
-                    }
-                    
-                } else if (PointLight* p = dynamic_cast<PointLight*>((*i))) {
-                    
-                    ViewMatrix = Camera->GetWorldTransformation().Inverse();
-                    
-                    // Point Lights
-                    Vec4 color = p->GetLightColor();
-                    Vec3 position = ViewMatrix * (p->GetOwner()->GetWorldPosition());
-                    Vec3 direction;
-                    f32 attenuation = p->GetLightRadius();
-                    Vec2 cones;
-                    int32 type = 2;
-                    
-                    Matrix pointLight = Matrix();
-                    pointLight.m[0] = color.x;       pointLight.m[1] = color.y;           pointLight.m[2] = color.z;           pointLight.m[3] = color.w;
-                    pointLight.m[4] = position.x;    pointLight.m[5] = position.y;        pointLight.m[6] = position.z; 
-                    pointLight.m[7] = direction.x;   pointLight.m[8] = direction.y;       pointLight.m[9] = direction.z;
-                    pointLight.m[10] = attenuation; //pointLight.m[11] = attenuation.y;     pointLight.m[12] = attenuation.z;
-                    pointLight.m[13] = cones.x;       pointLight.m[14] = cones.y;
-                    pointLight.m[15] = type;
-                    
-                    Lights.push_back(pointLight);
-                    
-                    // Shadows
-                    if (p->IsCastingShadows())
-                    {
-                        // Increase Number of Shadows
-                        NumberOfPointShadows++;
-                        
-                        // Bind FBO
-                        p->GetShadowFBO()->Bind();
-                        
-                        ProjectionMatrix = p->GetLightProjection().GetProjectionMatrix();
-                        
-                        // Get Lights Shadow Map Texture
-                        for (uint32 i=0;i<6;i++)
+                        Lights.push_back(pointLight);
+
+                        // Shadows
+                        if (p->IsCastingShadows())
                         {
+                            // Increase Number of Shadows
+                            NumberOfPointShadows++;
+
+                            // Bind FBO
+                            p->GetShadowFBO()->Bind();
+
+                            ProjectionMatrix = p->GetLightProjection().GetProjectionMatrix();
+
+                            // Get Lights Shadow Map Texture
+                            for (uint32 i=0;i<6;i++)
+                            {
+                                // Clean View Matrix
+                                ViewMatrix.identity();
+
+                                // Create Light View Matrix For Rendering Each Face of the Cubemap
+                                if (i==0)
+                                    ViewMatrix.LookAt(Vec3::ZERO, Vec3(1.0, 0.0, 0.0), Vec3(0.0,-1.0,0.0)); // +X
+                                if (i==1)
+                                    ViewMatrix.LookAt(Vec3::ZERO, Vec3(-1.0, 0.0, 0.0), Vec3(0.0,-1.0,0.0)); // -X
+                                if (i==2)
+                                    ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, 1.0, 0.0), Vec3(0.0,0.0,1.0)); // +Y
+                                if (i==3)
+                                    ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, -1.0, 0.0), Vec3(0.0,0.0,-1.0)); // -Y
+                                if (i==4)
+                                    ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, 0.0, 1.0), Vec3(0.0,-1.0,0.0)); // +Z
+                                if (i==5)
+                                    ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, 0.0, -1.0), Vec3(0.0,-1.0,0.0)); // -Z
+
+                                // Translate Light View Matrix
+                                ViewMatrix *= p->GetOwner()->GetWorldTransformation().Inverse();
+
+                                // Update Culling
+                                UpdateCulling(p->GetLightProjection().GetProjectionMatrix()*ViewMatrix);
+
+                                // GPU Shadows
+                                p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_X+i,p->GetShadowMapTexture());
+
+                                // Clear Screen
+                                ClearScreen(Buffer_Bit::Depth);
+                                EnableDepthTest();
+
+                                // Enable Depth Bias
+                                glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
+                                glPolygonOffset (p->GetShadowBiasFactor(), p->GetShadowBiasUnits());
+
+                                // Set Viewport
+                                SetViewPort(0,0, p->GetShadowWidth(), p->GetShadowHeight());
+
+                                // Render Scene with Objects Material
+                                for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
+                                {
+
+                                    if ((*k)->renderingComponent->GetOwner()!=NULL)
+                                    {
+                                        // Culling Test
+                                        bool cullingTest = false;
+                                        switch((*k)->CullingGeometry)
+                                        {
+                                            case CullingGeometry::Box:
+                                                cullingTest = CullingBoxTest(*k);
+                                                break;
+                                            case CullingGeometry::Sphere:
+                                            default:
+                                                cullingTest = CullingSphereTest(*k);
+                                                break;
+                                        }
+                                        if (cullingTest && !(*k)->Material->IsTransparent() && (*k)->renderingComponent->IsCastingShadows())
+                                            RenderObject((*k),shadowMaterial);
+                                        else break;
+                                            
+                                    }
+                                }
+                            }
+
+                            // Set Light Projection
+                            PointShadowMatrix.push_back(p->GetLightProjection().GetProjectionMatrix());
+                            // Set Light View Matrix
+                            Matrix m;
+                            m.Translate(p->GetOwner()->GetWorldPosition().negate());
+                            PointShadowMatrix.push_back(m);
+
+                            // Get Texture (only 1)
+                            PointShadowMapsTextures.push_back(p->GetShadowMapTexture());
+
+                            // Disable Depth Bias
+                            glDisable(GL_POLYGON_OFFSET_FILL);
+
+
+                            // Unbind FBO
+                            p->GetShadowFBO()->UnBind();
+
+                        }
+
+                    } else if (SpotLight* s = dynamic_cast<SpotLight*>((*i))) {
+
+                        ViewMatrix = Camera->GetWorldTransformation().Inverse();
+
+                        // Spot Lights
+                        Vec4 color = s->GetLightColor();
+                        Vec3 position = ViewMatrix * (s->GetOwner()->GetWorldPosition());
+                        Vec3 LDirection = s->GetLightDirection().normalize();
+                        Vec4 direction = ViewMatrix * Vec4(LDirection.x,LDirection.y,LDirection.z,0.f);
+                        f32 attenuation = s->GetLightRadius();
+                        Vec2 cones = Vec2(s->GetLightCosInnerCone(),s->GetLightCosOutterCone());
+                        int32 type = 3;
+
+                        Matrix spotLight = Matrix();
+                        spotLight.m[0] = color.x;        spotLight.m[1] = color.y;            spotLight.m[2] = color.z;            spotLight.m[3] = color.w;
+                        spotLight.m[4] = position.x;     spotLight.m[5] = position.y;         spotLight.m[6] = position.z; 
+                        spotLight.m[7] = direction.x;    spotLight.m[8] = direction.y;        spotLight.m[9] = direction.z;
+                        spotLight.m[10] = attenuation;  //spotLight.m[11] = attenuation.y;      spotLight.m[12] = attenuation.z;
+                        spotLight.m[13] = cones.x;        spotLight.m[14] = cones.y;
+                        spotLight.m[15] = type;
+
+                        Lights.push_back(spotLight);
+
+                        // Shadows
+                        if (s->IsCastingShadows())
+                        {
+
+                            // Increase Number of Shadows
+                            NumberOfSpotShadows++;
+
+                            // Bind FBO
+                            s->GetShadowFBO()->Bind();
+
+                            // Get Light Projection
+                            ProjectionMatrix = s->GetLightProjection().GetProjectionMatrix();
+
                             // Clean View Matrix
                             ViewMatrix.identity();
-                            
-                            // Create Light View Matrix For Rendering Each Face of the Cubemap
-                            if (i==0)
-                                ViewMatrix.LookAt(Vec3::ZERO, Vec3(1.0, 0.0, 0.0), Vec3(0.0,-1.0,0.0)); // +X
-                            if (i==1)
-                                ViewMatrix.LookAt(Vec3::ZERO, Vec3(-1.0, 0.0, 0.0), Vec3(0.0,-1.0,0.0)); // -X
-                            if (i==2)
-                                ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, 1.0, 0.0), Vec3(0.0,0.0,1.0)); // +Y
-                            if (i==3)
-                                ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, -1.0, 0.0), Vec3(0.0,0.0,-1.0)); // -Y
-                            if (i==4)
-                                ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, 0.0, 1.0), Vec3(0.0,-1.0,0.0)); // +Z
-                            if (i==5)
-                                ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, 0.0, -1.0), Vec3(0.0,-1.0,0.0)); // -Z
-                            
-                            // Translate Light View Matrix
-                            ViewMatrix *= p->GetOwner()->GetWorldTransformation().Inverse();
+
+                            // Create Light View Matrix For Rendering the ShadowMap
+                            ViewMatrix.LookAt(s->GetOwner()->GetWorldPosition(),(s->GetOwner()->GetWorldPosition()+s->GetLightDirection()));
 
                             // Update Culling
-                            UpdateCulling(p->GetLightProjection().GetProjectionMatrix()*ViewMatrix);
-
-                            // GPU Shadows
-                            p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_X+i,p->GetShadowMapTexture());
+                            UpdateCulling(s->GetLightProjection().GetProjectionMatrix()*ViewMatrix);
 
                             // Clear Screen
                             ClearScreen(Buffer_Bit::Depth);
                             EnableDepthTest();
-                            
+
                             // Enable Depth Bias
                             glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
-                            glPolygonOffset (p->GetShadowBiasFactor(), p->GetShadowBiasUnits());
-                            
+                            glPolygonOffset (s->GetShadowBiasFactor(), s->GetShadowBiasUnits());
+
                             // Set Viewport
-                            SetViewPort(0,0, p->GetShadowWidth(), p->GetShadowHeight());
-                            
+                            SetViewPort(0,0, s->GetShadowWidth(), s->GetShadowHeight());
+
                             // Render Scene with Objects Material
                             for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
                             {
-                                
+
                                 if ((*k)->renderingComponent->GetOwner()!=NULL)
                                 {
                                     // Culling Test
@@ -277,208 +399,108 @@ namespace p3d {
                                             cullingTest = CullingSphereTest(*k);
                                             break;
                                     }
-                                    if (cullingTest)
-                                        if ((*k)->renderingComponent->IsCastingShadows())
-                                            RenderObject((*k),shadowMaterial);
-                                }
-                            }
-                        }
-                        
-                        // Set Light Projection
-                        PointShadowMatrix.push_back(p->GetLightProjection().GetProjectionMatrix());
-                        // Set Light View Matrix
-                        Matrix m;
-                        m.Translate(p->GetOwner()->GetWorldPosition().negate());
-                        PointShadowMatrix.push_back(m);
-                        
-                        // Get Texture (only 1)
-                        PointShadowMapsTextures.push_back(p->GetShadowMapTexture());
-                        
-                        // Disable Depth Bias
-                        glDisable(GL_POLYGON_OFFSET_FILL);
-                        
-                        
-                        // Unbind FBO
-                        p->GetShadowFBO()->UnBind();
-                        
-                    }
-                    
-                } else if (SpotLight* s = dynamic_cast<SpotLight*>((*i))) {
-                    
-                    ViewMatrix = Camera->GetWorldTransformation().Inverse();
-                    
-                    // Spot Lights
-                    Vec4 color = s->GetLightColor();
-                    Vec3 position = ViewMatrix * (s->GetOwner()->GetWorldPosition());
-                    Vec3 LDirection = s->GetLightDirection().normalize();
-                    Vec4 direction = ViewMatrix * Vec4(LDirection.x,LDirection.y,LDirection.z,0.f);
-                    f32 attenuation = s->GetLightRadius();
-                    Vec2 cones = Vec2(s->GetLightCosInnerCone(),s->GetLightCosOutterCone());
-                    int32 type = 3;
-                    
-                    Matrix spotLight = Matrix();
-                    spotLight.m[0] = color.x;        spotLight.m[1] = color.y;            spotLight.m[2] = color.z;            spotLight.m[3] = color.w;
-                    spotLight.m[4] = position.x;     spotLight.m[5] = position.y;         spotLight.m[6] = position.z; 
-                    spotLight.m[7] = direction.x;    spotLight.m[8] = direction.y;        spotLight.m[9] = direction.z;
-                    spotLight.m[10] = attenuation;  //spotLight.m[11] = attenuation.y;      spotLight.m[12] = attenuation.z;
-                    spotLight.m[13] = cones.x;        spotLight.m[14] = cones.y;
-                    spotLight.m[15] = type;
-                    
-                    Lights.push_back(spotLight);
-                    
-                    // Shadows
-                    if (s->IsCastingShadows())
-                    {
-                        
-                        // Increase Number of Shadows
-                        NumberOfSpotShadows++;
-                        
-                        // Bind FBO
-                        s->GetShadowFBO()->Bind();
-                        
-                        // Get Light Projection
-                        ProjectionMatrix = s->GetLightProjection().GetProjectionMatrix();
-
-                        // Clean View Matrix
-                        ViewMatrix.identity();
-
-                        // Create Light View Matrix For Rendering the ShadowMap
-                        ViewMatrix.LookAt(s->GetOwner()->GetWorldPosition(),(s->GetOwner()->GetWorldPosition()+s->GetLightDirection()));
-                        
-                        // Update Culling
-                        UpdateCulling(s->GetLightProjection().GetProjectionMatrix()*ViewMatrix);
-
-                        // Clear Screen
-                        ClearScreen(Buffer_Bit::Depth);
-                        EnableDepthTest();
-
-                        // Enable Depth Bias
-                        glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
-                        glPolygonOffset (s->GetShadowBiasFactor(), s->GetShadowBiasUnits());
-
-                        // Set Viewport
-                        SetViewPort(0,0, s->GetShadowWidth(), s->GetShadowHeight());
-
-                        // Render Scene with Objects Material
-                        for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
-                        {
-
-                            if ((*k)->renderingComponent->GetOwner()!=NULL)
-                            {
-                                // Culling Test
-                                bool cullingTest = false;
-                                switch((*k)->CullingGeometry)
-                                {
-                                    case CullingGeometry::Box:
-                                        cullingTest = CullingBoxTest(*k);
-                                        break;
-                                    case CullingGeometry::Sphere:
-                                    default:
-                                        cullingTest = CullingSphereTest(*k);
-                                        break;
-                                }
-                                if (cullingTest)
-                                    if ((*k)->renderingComponent->IsCastingShadows())
+                                    if (cullingTest && !(*k)->Material->IsTransparent() && (*k)->renderingComponent->IsCastingShadows())
                                         RenderObject((*k),shadowMaterial);
+                                    else break;
+                                }
                             }
+
+                            // Disable Depth Bias
+                            glDisable(GL_POLYGON_OFFSET_FILL);
+
+                            // Unbind FBO
+                            s->GetShadowFBO()->UnBind();
+
+                            // Set Light Matrix
+                            SpotShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
+
+                            // Get Texture (only 1)
+                            SpotShadowMapsTextures.push_back(s->GetShadowMapTexture());
+
                         }
-                        
-                        // Disable Depth Bias
-                        glDisable(GL_POLYGON_OFFSET_FILL);
-
-                        // Unbind FBO
-                        s->GetShadowFBO()->UnBind();
-                        
-                        // Set Light Matrix
-                        SpotShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
-                        
-                        // Get Texture (only 1)
-                        SpotShadowMapsTextures.push_back(s->GetShadowMapTexture());
-
                     }
+                    // Universal Cache
+                    ProjectionMatrix = projection.m;
+                    NearFarPlane = Vec2(projection.Near, projection.Far);
+
+                    // View Matrix and Position
+                    ViewMatrix = Camera->GetWorldTransformation().Inverse();
+                    CameraPosition = Camera->GetWorldPosition();
                 }
-                // Universal Cache
-                ProjectionMatrix = projection.m;
-                NearFarPlane = Vec2(projection.Near, projection.Far);
-
-                // View Matrix and Position
-                ViewMatrix = Camera->GetWorldTransformation().Inverse();
-                CameraPosition = Camera->GetWorldPosition();
             }
-        }
-        
-        // Save Values for Cache
-        // Saves Scene
-        this->Scene = Scene;
-        
-        // Saves Camera
-        this->Camera = Camera;
-        this->CameraPosition = this->Camera->GetWorldPosition();
-        
-        // Saves Projection
-        this->projection = projection;
-        
-        // Universal Cache
-        ProjectionMatrix = projection.m;
-        NearFarPlane = Vec2(projection.Near, projection.Far);
-        
-        // View Matrix and Position
-        ViewMatrix = Camera->GetWorldTransformation().Inverse();
-        CameraPosition = Camera->GetWorldPosition();
-        
-        // Update Culling
-        UpdateCulling(ProjectionMatrix*ViewMatrix);
 
-        // Flags
-        ViewMatrixInverseIsDirty = true;
-        ProjectionMatrixInverseIsDirty = true;
-        ViewProjectionMatrixIsDirty = true;
+            // Save Values for Cache
+            // Saves Scene
+            this->Scene = Scene;
 
-        // Update Lights Position and Direction to ViewSpace
-        NumberOfLights = Lights.size();
-        
-        // Set ViewPort
-        SetViewPort(0,0,Width,Height);
-        
-        if (clearScreen)
-        {
-            // Clear Screen
-            ClearScreen(Buffer_Bit::Color | Buffer_Bit::Depth);
-            SetBackground(Vec4::ZERO);
-            EnableDepthTest();
-        }
-        
-        // Render Scene with Objects Material
-        for (std::vector<RenderingMesh*>::iterator i=rmesh.begin();i!=rmesh.end();i++)
-        {
-            
-            if ((*i)->renderingComponent->GetOwner()!=NULL)
+            // Saves Camera
+            this->Camera = Camera;
+            this->CameraPosition = this->Camera->GetWorldPosition();
+
+            // Saves Projection
+            this->projection = projection;
+
+            // Universal Cache
+            ProjectionMatrix = projection.m;
+            NearFarPlane = Vec2(projection.Near, projection.Far);
+
+            // View Matrix and Position
+            ViewMatrix = Camera->GetWorldTransformation().Inverse();
+            CameraPosition = Camera->GetWorldPosition();
+
+            // Update Culling
+            UpdateCulling(ProjectionMatrix*ViewMatrix);
+
+            // Flags
+            ViewMatrixInverseIsDirty = true;
+            ProjectionMatrixInverseIsDirty = true;
+            ViewProjectionMatrixIsDirty = true;
+
+            // Update Lights Position and Direction to ViewSpace
+            NumberOfLights = Lights.size();
+
+            // Set ViewPort
+            SetViewPort(0,0,Width,Height);
+
+            if (clearScreen)
             {
-                // Culling Test
-                bool cullingTest = false;
-                switch((*i)->CullingGeometry)
-                {
-                    case CullingGeometry::Box:
-                        cullingTest = CullingBoxTest(*i);
-                        break;
-                    case CullingGeometry::Sphere:
-                    default:
-                        cullingTest = CullingSphereTest(*i);
-                        break;
-                }
-                if (cullingTest)
-                    RenderObject((*i),(*i)->Material);
+                // Clear Screen
+                ClearScreen(Buffer_Bit::Color | Buffer_Bit::Depth);
+                SetBackground(Vec4::ZERO);
+                EnableDepthTest();
             }
+
+            // Render Scene with Objects Material
+            for (std::vector<RenderingMesh*>::iterator i=rmesh.begin();i!=rmesh.end();i++)
+            {
+
+                if ((*i)->renderingComponent->GetOwner()!=NULL)
+                {
+                    // Culling Test
+                    bool cullingTest = false;
+                    switch((*i)->CullingGeometry)
+                    {
+                        case CullingGeometry::Box:
+                            cullingTest = CullingBoxTest(*i);
+                            break;
+                        case CullingGeometry::Sphere:
+                        default:
+                            cullingTest = CullingSphereTest(*i);
+                            break;
+                    }
+                    if (cullingTest)
+                        RenderObject((*i),(*i)->Material);
+                }
+            }
+            // Disable Cull Face
+            glDisable(GL_CULL_FACE);
+
+            // Set Default Polygon Mode
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+            // End Rendering
+            EndRender();
         }
-        // Disable Cull Face
-        glDisable(GL_CULL_FACE);
-        
-        // Set Default Polygon Mode
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        
-        // End Rendering
-        EndRender();
-		}
     }
     
 };

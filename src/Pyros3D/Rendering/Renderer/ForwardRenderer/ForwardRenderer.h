@@ -13,7 +13,7 @@
 #include "../../../Core/Projection/Projection.h"
 
 namespace p3d {
-
+    
     class ForwardRenderer : public IRenderer {
         
         public:
@@ -22,9 +22,9 @@ namespace p3d {
             
             ~ForwardRenderer();
             
-            virtual void GroupAndSortAssets();
+            virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera);
             
-        virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, bool clearScreen = true);
+            virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, bool clearScreen = true);
             
         private:
             GenericShaderMaterial* shadowMaterial;

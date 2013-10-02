@@ -34,6 +34,9 @@ namespace p3d {
         // Depth Bias
         IsUsingDepthBias = false;
         
+        // Blending
+        Blending = false;
+        
     }
     
     void IRenderer::Resize(const uint32& Width, const uint32& Height)
@@ -58,11 +61,6 @@ namespace p3d {
     IRenderer::~IRenderer()
     {
         
-    }
-    
-    void IRenderer::GroupAndSortAssets()
-    {
-        // Group and Sort
     }
     
     // Internal Function
@@ -101,6 +99,14 @@ namespace p3d {
             LastProgramUsed = -1;
             LastMaterialUsed = -1;
             LastMeshRendered = -1;
+            
+            if (Blending)
+            {
+                // Unset Flag
+                Blending = false;
+                // Disables Blending
+                glDisable(GL_BLEND);
+            }
         }
     }
     
@@ -218,6 +224,15 @@ namespace p3d {
         
         // Send Model Specific Uniforms
         SendModelUniforms(rmesh, Material);
+        
+        if (rmesh->Material->IsTransparent() && !Blending)
+        {
+            Blending = true;
+            
+            // Enable Blending
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        }
         
         // Draw
         glDrawElements(DrawType,rmesh->Geometry->IndexBuffer->GetGeometryData().size()/sizeof(int32),GL_UNSIGNED_INT,BUFFER_OFFSET(0));
