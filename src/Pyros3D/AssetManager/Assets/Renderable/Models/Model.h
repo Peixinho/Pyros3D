@@ -49,7 +49,7 @@ namespace p3d {
 
         public:
 
-            Model(const std::string ModelPath);            
+            Model(const std::string ModelPath, bool mergeMeshes = true);            
 
             virtual ~Model() {}
 

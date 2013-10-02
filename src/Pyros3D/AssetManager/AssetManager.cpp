@@ -35,13 +35,13 @@ namespace p3d {
     std::map<uint32, Font*> AssetManager::__FontList;
     std::map<uint32, uint32> AssetManager::__FontUsage;
     
-    Renderable* AssetManager::LoadModel(const std::string& ModelPath, bool smooth)
+    Renderable* AssetManager::LoadModel(const std::string& ModelPath, bool smooth, bool mergeMeshes)
     {
         uint32 ID = MakeStringID(ModelPath);
         
         if (__ModelList.find(ID)==__ModelList.end())
         {
-            __ModelList[ID] = new Model(ModelPath);
+            __ModelList[ID] = new Model(ModelPath,mergeMeshes);
             __ModelUsage[ID] = 0;
         }
         
