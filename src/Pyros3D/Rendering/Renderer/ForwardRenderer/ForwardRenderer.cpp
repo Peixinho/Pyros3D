@@ -48,7 +48,7 @@ namespace p3d {
             if ((*k)->Material->IsTransparent())
             {
                 f32 index = Camera->GetPosition().distanceSQR((*k)->renderingComponent->GetOwner()->GetWorldPosition());
-                while(_TranslucidMeshes.find(index)!=_TranslucidMeshes.end()) index+=0.0001;
+                while(_TranslucidMeshes.find(index)!=_TranslucidMeshes.end()) index+=1.f;
                 _TranslucidMeshes[index] = (*k);
             }
             else _OpaqueMeshes.push_back((*k));
@@ -172,7 +172,7 @@ namespace p3d {
                                                 cullingTest = CullingSphereTest(*k);
                                                 break;
                                         }
-                                        if (cullingTest && !(*k)->Material->IsTransparent() && (*k)->renderingComponent->IsCastingShadows())
+                                        if (!(*k)->Material->IsTransparent() && (*k)->renderingComponent->IsCastingShadows())
                                             RenderObject((*k),shadowMaterial);
                                         else break;
                                     }
