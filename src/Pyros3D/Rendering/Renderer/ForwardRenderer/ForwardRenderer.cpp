@@ -38,7 +38,6 @@ namespace p3d {
     {
         
         // Sort and Group Objects From Scene
-        
         std::vector<RenderingMesh*> _OpaqueMeshes;
         std::map<f32,RenderingMesh*> _TranslucidMeshes;
         
@@ -137,8 +136,7 @@ namespace p3d {
                             EnableDepthTest();
 
                             // Enable Depth Bias
-                            glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
-                            glPolygonOffset (d->GetShadowBiasFactor(), d->GetShadowBiasUnits());
+                            EnableDepthBias(Vec2(d->GetShadowBiasFactor(), d->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
 
                             ViewMatrix = d->GetLightViewMatrix();
 
@@ -200,7 +198,7 @@ namespace p3d {
                             DirectionalShadowFar = ShadowFar;
 
                             // Disable Depth Bias
-                            glDisable(GL_POLYGON_OFFSET_FILL);
+                            DisableDepthBias();
 
                             // Unbind FBO
                             d->GetShadowFBO()->UnBind();
@@ -274,8 +272,7 @@ namespace p3d {
                                 EnableDepthTest();
 
                                 // Enable Depth Bias
-                                glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
-                                glPolygonOffset (p->GetShadowBiasFactor(), p->GetShadowBiasUnits());
+                                EnableDepthBias(Vec2(p->GetShadowBiasFactor(), p->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
 
                                 // Set Viewport
                                 SetViewPort(0,0, p->GetShadowWidth(), p->GetShadowHeight());
@@ -317,7 +314,7 @@ namespace p3d {
                             PointShadowMapsTextures.push_back(p->GetShadowMapTexture());
 
                             // Disable Depth Bias
-                            glDisable(GL_POLYGON_OFFSET_FILL);
+                            DisableDepthBias();
 
 
                             // Unbind FBO
@@ -375,8 +372,7 @@ namespace p3d {
                             EnableDepthTest();
 
                             // Enable Depth Bias
-                            glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
-                            glPolygonOffset (s->GetShadowBiasFactor(), s->GetShadowBiasUnits());
+                            EnableDepthBias(Vec2(s->GetShadowBiasFactor(), s->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
 
                             // Set Viewport
                             SetViewPort(0,0, s->GetShadowWidth(), s->GetShadowHeight());
@@ -406,7 +402,7 @@ namespace p3d {
                             }
 
                             // Disable Depth Bias
-                            glDisable(GL_POLYGON_OFFSET_FILL);
+                            DisableDepthBias();
 
                             // Unbind FBO
                             s->GetShadowFBO()->UnBind();

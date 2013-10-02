@@ -83,6 +83,16 @@ namespace p3d {
             void SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material);
             void SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material);
             
+            // Blending
+            void EnableBlending();
+            void DisableBlending();
+            bool Blending;
+            
+            // WireFrame
+            void EnableWireFrame();
+            void DisableWireFrame();
+            bool WireFrame;
+            
             // Properties
             Vec4 
                                 BackgroundColor;
@@ -212,8 +222,6 @@ namespace p3d {
                                 _viewPortStartY,
                                 _viewPortEndX,
                                 _viewPortEndY;
-            
-            bool Blending;
     };
     
 };

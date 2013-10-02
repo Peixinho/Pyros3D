@@ -100,13 +100,7 @@ namespace p3d {
             LastMaterialUsed = -1;
             LastMeshRendered = -1;
             
-            if (Blending)
-            {
-                // Unset Flag
-                Blending = false;
-                // Disables Blending
-                glDisable(GL_BLEND);
-            }
+            DisableBlending();
         }
     }
     
@@ -152,6 +146,7 @@ namespace p3d {
             // Send Vertex Attributes
             SendAttributes(rmesh,Material);
             
+            // Bind Index Buffer
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,rmesh->Geometry->IndexBuffer->ID);
         }
         if (LastMaterialPTR!=Material)
@@ -178,13 +173,9 @@ namespace p3d {
             }
             
             // Check if Material is WireFrame
-            if (Material->IsWireFrame()==true)
-            {
-                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-            } else {
-                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            }
+            (Material->IsWireFrame()?EnableWireFrame():DisableWireFrame());
             
+            // Material Render Method
             Material->Render();
         }
         
@@ -225,14 +216,8 @@ namespace p3d {
         // Send Model Specific Uniforms
         SendModelUniforms(rmesh, Material);
         
-        if (rmesh->Material->IsTransparent() && !Blending)
-        {
-            Blending = true;
-            
-            // Enable Blending
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        }
+        // Enable / Disable Blending
+        (rmesh->Material->IsTransparent()?EnableBlending():DisableBlending());
         
         // Draw
         glDrawElements(DrawType,rmesh->Geometry->IndexBuffer->GetGeometryData().size()/sizeof(int32),GL_UNSIGNED_INT,BUFFER_OFFSET(0));
@@ -271,13 +256,62 @@ namespace p3d {
     
     void IRenderer::EnableDepthBias(const Vec2& Bias)
     {
-        DepthBias = Bias;
-        IsUsingDepthBias = true;
+        if (!IsUsingDepthBias)
+        {
+            IsUsingDepthBias = true;
+            glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
+        }
+        glPolygonOffset (Bias.x,Bias.y);
     }
     
     void IRenderer::DisableDepthBias()
     {
-        IsUsingDepthBias = false;
+        if (IsUsingDepthBias)
+        {
+            IsUsingDepthBias = false;
+            glDisable(GL_POLYGON_OFFSET_FILL);
+        }
+    }
+    
+    void IRenderer::EnableBlending()
+    {
+        if (!Blending)
+        {
+            Blending = true;
+            
+            // Enable Blending
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        }
+    }
+    
+    void IRenderer::DisableBlending()
+    {
+        if (Blending)
+        {
+            Blending = false;
+
+            // Disables Blending
+            glDisable(GL_BLEND);
+        }
+    }
+    
+    void IRenderer::EnableWireFrame()
+    {
+        if (!WireFrame)
+        {
+            WireFrame = true;
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        }
+    }
+     
+    void IRenderer::DisableWireFrame()
+    {
+        if (WireFrame)
+        {
+            WireFrame = false;
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        }
     }
     
     void IRenderer::SetBackground(const Vec4& Color)
