@@ -45,12 +45,14 @@ void RotatingCubeWithLightingAndShadow::Init()
         // Material
         Diffuse = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
         Diffuse->SetColor(Vec4(1,0,0,1));
+        Diffuse->SetPCFTexelSize(0.0001f);
         
         // Add a Directional Light
         Light = new GameObject();
         dLight = new DirectionalLight(Vec4(1,1,1,1));
         // Enable Shadow Casting
         dLight->EnableCastShadows(512,512,projection,0.1,200.0,1);
+        dLight->SetShadowBias(1.f,3.f);
         Light->Add(dLight);
         // Set Light Position (Direction is Position Normalized)
         Light->SetPosition(Vec3(100,100,100));
@@ -64,9 +66,8 @@ void RotatingCubeWithLightingAndShadow::Init()
         
         // Create Floor
         Floor = new GameObject();
-        // Create Floor Geometry
-        floorHandle = AssetManager::CreatePlane(100,150);
-        rFloor = new RenderingComponent(floorHandle,FloorMaterial);
+        // Create Floor Rendering Component
+        rFloor = new RenderingComponent(AssetManager::CreatePlane(100,150),FloorMaterial);
         
         // Add Rendering Component To GameObject
         Floor->Add(rFloor);
@@ -81,8 +82,8 @@ void RotatingCubeWithLightingAndShadow::Init()
         
         // Create Game Object
         Cube = new GameObject();
-        cubeID = AssetManager::CreateCube(30,30,30);
-        rCube = new RenderingComponent(cubeID, Diffuse);
+        // Create Cube Rendering Component
+        rCube = new RenderingComponent(AssetManager::CreateCube(30,30,30), Diffuse);
         Cube->Add(rCube);
         
         // Add Camera to Scene
@@ -98,7 +99,7 @@ void RotatingCubeWithLightingAndShadow::Update()
     // Update - Game Loop
         
         // Update Scene
-        Scene->Update();
+        Scene->Update(GetTime());
         
         // Game Logic Here
         Cube->SetRotation(Vec3(0,GetTime(),0));
@@ -108,8 +109,7 @@ void RotatingCubeWithLightingAndShadow::Update()
 
         // Info on Window
         // Should come in the End
-        std::ostringstream x; x << fps.getFPS();
-        rview.setTitle("Pyros3D - Rotating Cube With Lighting And Shadow - FPS: " + x.str());
+        // std::ostringstream x; x << fps.getFPS();
 }
 
 void RotatingCubeWithLightingAndShadow::Shutdown()

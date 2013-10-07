@@ -46,8 +46,6 @@ class RotatingCubeWithLighting : public SFMLContext {
         DirectionalLight* dLight;
         // GameObject
         GameObject* Cube;
-        // Model Handle
-        uint32 cubeID;
         // Rendering Component
         RenderingComponent* rCube;
         // Material

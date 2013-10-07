@@ -53,6 +53,7 @@ void SimplePhysics::Init()
     Light = new GameObject();
     dLight = new DirectionalLight(Vec4(1,1,1,1));
     dLight->EnableCastShadows(1024,1024,projection,1,500,1);
+    dLight->SetShadowBias(1.f,3.f);
     Light->Add(dLight);
     // Set Light Position (Direction is Position Normalized)
     Light->SetPosition(Vec3(100,100,0));
@@ -71,7 +72,7 @@ void SimplePhysics::Init()
     srand( time( NULL ) );
 
     // Create Geometry
-    uint32 cubeHandle = AssetManager::CreateCube(10,10,10);
+    Renderable* cubeHandle = AssetManager::CreateCube(10,10,10);
 
     // Create 100 Cubes
     for (uint32 i=0;i<100;i++)
@@ -101,8 +102,7 @@ void SimplePhysics::Init()
     // Create Floor
     Floor = new GameObject();
     // Create Floor Geometry
-    floorHandle = AssetManager::CreateCube(200,5,200);
-    rFloor = new RenderingComponent(floorHandle,Diffuse);
+    rFloor = new RenderingComponent(AssetManager::CreateCube(200,5,200),Diffuse);
 
     // Create Floor Physics
     pFloor = (IPhysicsComponent*)physics->CreateBox(100,2.5,100,0);
@@ -128,15 +128,14 @@ void SimplePhysics::Update()
     physics->Update(GetTime(),10);
     
     // Update Scene
-    Scene->Update();
+    Scene->Update(GetTime());
 
     // Render Scene
     Renderer->RenderScene(projection,Camera,Scene);
     
     // Info on Window
     // Should come in the End
-    std::ostringstream x; x << fps.getFPS();
-    rview.setTitle("CODENAME: Pyros3D - Simple Physics - FPS: " + x.str());
+    // std::ostringstream x; x << fps.getFPS();
     
 }
 
@@ -175,6 +174,7 @@ void SimplePhysics::Shutdown()
         Floor->Remove(rFloor);
         
         // Delete All Components and GameObjects
+	AssetManager::DestroyAssets();
         delete dLight;
         delete Light;
         delete rFloor;

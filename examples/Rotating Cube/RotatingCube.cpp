@@ -44,8 +44,7 @@ void RotatingCube::Init()
         
         // Create Game Object
         Cube = new GameObject();
-        cubeID = AssetManager::CreateCube(30,30,30);
-        rCube = new RenderingComponent(cubeID);
+        rCube = new RenderingComponent(AssetManager::CreateCube(30,30,30));
         Cube->Add(rCube);
         
         // Add Camera to Scene
@@ -61,7 +60,7 @@ void RotatingCube::Update()
     // Update - Game Loop
         
         // Update Scene
-        Scene->Update();
+        Scene->Update(GetTime());
         
         // Game Logic Here
         Cube->SetRotation(Vec3(0,GetTime(),0));
@@ -71,8 +70,7 @@ void RotatingCube::Update()
 
         // Info on Window
         // Should come in the End
-        std::ostringstream x; x << fps.getFPS();
-        rview.setTitle("Pyros3D - Rotating Cube - FPS: " + x.str());
+        // std::ostringstream x; x << fps.getFPS();
 }
 
 void RotatingCube::Shutdown()
@@ -86,6 +84,7 @@ void RotatingCube::Shutdown()
         Cube->Remove(rCube);
     
         // Delete
+	AssetManager::DestroyAssets();
         delete rCube;
         delete Cube;
         delete Camera;

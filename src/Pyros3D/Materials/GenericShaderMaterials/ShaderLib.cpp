@@ -119,7 +119,10 @@ namespace p3d
 
             if (!usingPCFTexelSize)
             {
-                    fragmentShaderHeader+="uniform float uPCFTexelSize;\n";
+                    fragmentShaderHeader+="uniform float uPCFTexelSize1;\n";
+                    fragmentShaderHeader+="uniform float uPCFTexelSize2;\n";
+                    fragmentShaderHeader+="uniform float uPCFTexelSize3;\n";
+                    fragmentShaderHeader+="uniform float uPCFTexelSize4;\n";
             }
             
             // Fragment Header
@@ -146,10 +149,10 @@ namespace p3d
             // Fragment Body
             fragmentShaderBody+="float DirectionalShadow = 1.0;\n";
             fragmentShaderBody+="bool MoreThanOneCascade = (uDirectionalShadowFar[0].y>0.0);\n";
-            fragmentShaderBody+="if (gl_FragCoord.z<uDirectionalShadowFar[0].x) DirectionalShadow = PCF( uDirectionalShadowMaps, 0.0, 0.0, uDirectionalDepthsMVP[0],uPCFTexelSize,vWorldPosition, MoreThanOneCascade);\n";
-            fragmentShaderBody+="else if (gl_FragCoord.z<uDirectionalShadowFar[0].y) DirectionalShadow = PCF( uDirectionalShadowMaps, 0.5,0.0, uDirectionalDepthsMVP[1],uPCFTexelSize,vWorldPosition, MoreThanOneCascade);\n";
-            fragmentShaderBody+="else if (gl_FragCoord.z<uDirectionalShadowFar[0].z) DirectionalShadow = PCF( uDirectionalShadowMaps, 0.0, 0.5, uDirectionalDepthsMVP[2],uPCFTexelSize,vWorldPosition, MoreThanOneCascade);\n";
-            fragmentShaderBody+="else if (gl_FragCoord.z<uDirectionalShadowFar[0].w) DirectionalShadow = PCF( uDirectionalShadowMaps, 0.5,0.5, uDirectionalDepthsMVP[3],uPCFTexelSize,vWorldPosition, MoreThanOneCascade);\n";
+            fragmentShaderBody+="if (gl_FragCoord.z<uDirectionalShadowFar[0].x) DirectionalShadow = PCF( uDirectionalShadowMaps, 0.0, 0.0, uDirectionalDepthsMVP[0],uPCFTexelSize1,vWorldPosition, MoreThanOneCascade);\n";
+            fragmentShaderBody+="else if (gl_FragCoord.z<uDirectionalShadowFar[0].y) DirectionalShadow = PCF( uDirectionalShadowMaps, 0.5,0.0, uDirectionalDepthsMVP[1],uPCFTexelSize2,vWorldPosition, MoreThanOneCascade);\n";
+            fragmentShaderBody+="else if (gl_FragCoord.z<uDirectionalShadowFar[0].z) DirectionalShadow = PCF( uDirectionalShadowMaps, 0.0, 0.5, uDirectionalDepthsMVP[2],uPCFTexelSize3,vWorldPosition, MoreThanOneCascade);\n";
+            fragmentShaderBody+="else if (gl_FragCoord.z<uDirectionalShadowFar[0].w) DirectionalShadow = PCF( uDirectionalShadowMaps, 0.5,0.5, uDirectionalDepthsMVP[3],uPCFTexelSize4,vWorldPosition, MoreThanOneCascade);\n";
             fragmentShaderBody+="diffuse.xyz*=vec3(DirectionalShadow+0.5);\n";
 
         }
@@ -163,10 +166,10 @@ namespace p3d
                 fragmentShaderHeader+="varying vec4 vWorldPosition;\n";
             }
             
-			if (!usingPCFTexelSize)
-			{
-				fragmentShaderHeader+="uniform float uPCFTexelSize;\n";
-			}
+            if (!usingPCFTexelSize)
+            {
+                fragmentShaderHeader+="uniform float uPCFTexelSize1;\n";
+            }
 
             fragmentShaderHeader+="#extension GL_EXT_gpu_shader4 : require\n";
             
@@ -199,7 +202,7 @@ namespace p3d
             fragmentShaderBody+="float PointShadow = 0.0;\n";
             fragmentShaderBody+="for (int i=0;i<4;i++)\n";
             fragmentShaderBody+="if (i<uNumberOfPointShadows) {\n";
-            fragmentShaderBody+="PointShadow+=PCF(uPointShadowMaps[i],uPointDepthsMVP[(i*2)],uPointDepthsMVP[(i*2+1)],uPCFTexelSize,vWorldPosition);\n";
+            fragmentShaderBody+="PointShadow+=PCF(uPointShadowMaps[i],uPointDepthsMVP[(i*2)],uPointDepthsMVP[(i*2+1)],uPCFTexelSize1,vWorldPosition);\n";
             fragmentShaderBody+="}\n";
             fragmentShaderBody+="diffuse.xyz*=vec3(PointShadow+0.5);\n";
         }
@@ -213,10 +216,10 @@ namespace p3d
                 fragmentShaderHeader+="varying vec4 vWorldPosition;\n";
             }
             
-			if (!usingPCFTexelSize)
-			{
-				fragmentShaderHeader+="uniform float uPCFTexelSize;\n";
-			}
+            if (!usingPCFTexelSize)
+            {
+                fragmentShaderHeader+="uniform float uPCFTexelSize1;\n";
+            }
 
             // PCF
             fragmentShaderHeader+="float PCF(sampler2DShadow shadowMap, mat4 sMatrix, float scale, vec4 pos) {\n";
@@ -240,7 +243,7 @@ namespace p3d
             fragmentShaderBody+="float SpotShadow = 0.0;\n";
             fragmentShaderBody+="for (int i=0;i<4;i++)\n";
             fragmentShaderBody+="if (i<2) {\n";
-            fragmentShaderBody+="SpotShadow+=PCF(uSpotShadowMaps[i],uSpotDepthsMVP[i],uPCFTexelSize,vWorldPosition);\n";
+            fragmentShaderBody+="SpotShadow+=PCF(uSpotShadowMaps[i],uSpotDepthsMVP[i],uPCFTexelSize1,vWorldPosition);\n";
             fragmentShaderBody+="}\n";
             fragmentShaderBody+="diffuse.xyz*=vec3(SpotShadow+0.5);\n";
         }

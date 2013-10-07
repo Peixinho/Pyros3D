@@ -48,9 +48,7 @@ class SimplePhysics : public SFMLContext {
         // Light
         GameObject* Light;
         DirectionalLight* dLight;
-        
-        // Floor Model Handle
-        uint32 floorHandle;
+	
         // Floor GameObject
         GameObject* Floor;
         // Floor Rendering Component

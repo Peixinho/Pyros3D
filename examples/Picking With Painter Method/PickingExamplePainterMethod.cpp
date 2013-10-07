@@ -72,7 +72,7 @@ void PickingExamplePainterMethod::Init()
         srand( time( NULL ) );
         
         // Create Geometry
-        uint32 cubeHandle = AssetManager::CreateCube(10,10,10);
+        Renderable* cubeHandle = AssetManager::CreateCube(10,10,10);
         
         // Create 100 Cubes
         for (uint32 i=0;i<100;i++)
@@ -105,15 +105,14 @@ void PickingExamplePainterMethod::Update()
     // Update - Game Loop
         
     // Update Scene
-    Scene->Update();
+    Scene->Update(GetTime());
 
     // Render Scene
     Renderer->RenderScene(projection,Camera,Scene);
     
     // Info on Window
     // Should come in the End
-    std::ostringstream x; x << fps.getFPS();
-    rview.setTitle("CODENAME: Pyros3D - Picking With Painter Method - FPS: " + x.str());
+    // std::ostringstream x; x << fps.getFPS();
     
 }
 
@@ -143,6 +142,7 @@ void PickingExamplePainterMethod::Shutdown()
         Light->Remove(dLight);
         
         // Delete All Components and GameObjects
+	AssetManager::DestroyAssets();
         delete dLight;
         delete Light;
         delete picking;

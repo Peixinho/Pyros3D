@@ -55,6 +55,7 @@ namespace p3d
         
             // Shadows
             void SetPCFTexelSize(const f32 &texel);
+            void SetPCFTexelCascadesSize(const f32 &texel1,const f32 &texel2 = 0.0001f,const f32 &texel3 = 0.0001f,const f32 &texel4 = 0.0001f);
 
         private:
         
@@ -74,8 +75,11 @@ namespace p3d
             Vec4 Ks;
             f32 Shininess, UseLights;
             
-			// Shadows
-			f32 PCFTexelSize;
+            // Shadows
+            f32 PCFTexelSize1;
+            f32 PCFTexelSize2;
+            f32 PCFTexelSize3;
+            f32 PCFTexelSize4;
 
             // Environment Cube
             f32 Reflectivity;

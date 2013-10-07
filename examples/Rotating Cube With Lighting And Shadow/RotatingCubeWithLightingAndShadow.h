@@ -46,10 +46,6 @@ class RotatingCubeWithLightingAndShadow : public SFMLContext {
         DirectionalLight* dLight;
         // Cube GameObject
         GameObject* Cube;
-        // Cube Model Handle
-        uint32 cubeID;
-        // Floor Model Handle
-        uint32 floorHandle;
         // Floor GameObject
         GameObject* Floor;
         // Floor Rendering Component

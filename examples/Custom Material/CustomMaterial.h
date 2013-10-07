@@ -66,8 +66,6 @@ class RotatingCube : public SFMLContext {
         GameObject* Camera;
         // GameObject
         GameObject* Cube;
-        // Model Handle
-        uint32 cubeID;
         // Rendering Component
         RenderingComponent* rCube;
         // Custom Material
