@@ -84,7 +84,8 @@ namespace p3d {
         if (LastMeshRenderedPTR!=NULL && LastMaterialPTR!=NULL)
         {
             // Unbind Index Buffer
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+            if (LastMeshRenderedPTR->Geometry->GetGeometryType()==GeometryType::BUFFER)
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
             // Unbind Vertex Attributes
             UnbindMesh(LastMeshRenderedPTR,LastMaterialPTR);
             // Unbind Shadow Maps
@@ -116,10 +117,11 @@ namespace p3d {
         ModelViewMatrixInverseIsDirty = true;
         ModelMatrixInverseTransposeIsDirty = true;
         
-        if ((LastMeshRenderedPTR!=rmesh || LastMaterialPTR!=Material) && LastProgramUsed!=-1)
+        if ((LastMeshRenderedPTR!=rmesh || LastMaterialPTR!=Material || LastMeshRenderedPTR->Geometry->GetGeometryType()==GeometryType::ARRAY) && LastProgramUsed!=-1)
         {
             // Unbind Index Buffer
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+            if (LastMeshRenderedPTR->Geometry->GetGeometryType()==GeometryType::BUFFER)
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
             // Unbind Mesh
             UnbindMesh(LastMeshRenderedPTR,LastMaterialPTR);
             // Material Stuff After Render
@@ -129,7 +131,7 @@ namespace p3d {
         }
         if (LastProgramUsed!=Material->GetShader()) glUseProgram(Material->GetShader());
         
-        if (LastMeshRenderedPTR!=rmesh || LastMaterialPTR!=Material)
+        if (LastMeshRenderedPTR!=rmesh || LastMaterialPTR!=Material || LastMeshRenderedPTR->Geometry->GetGeometryType()==GeometryType::ARRAY)
         {
             // Bind Mesh
             BindMesh(rmesh,Material);
@@ -147,7 +149,8 @@ namespace p3d {
             SendAttributes(rmesh,Material);
             
             // Bind Index Buffer
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,rmesh->Geometry->IndexBuffer->ID);
+            if (rmesh->Geometry->GetGeometryType()==GeometryType::BUFFER)
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,rmesh->Geometry->IndexBuffer->ID);
         }
         if (LastMaterialPTR!=Material)
         {
@@ -220,7 +223,10 @@ namespace p3d {
         (rmesh->Material->IsTransparent()?EnableBlending():DisableBlending());
         
         // Draw
-        glDrawElements(DrawType,rmesh->Geometry->IndexBuffer->GetGeometryData().size()/sizeof(int32),GL_UNSIGNED_INT,BUFFER_OFFSET(0));
+        if (rmesh->Geometry->GetGeometryType()==GeometryType::BUFFER)
+            glDrawElements(DrawType,rmesh->Geometry->IndexBuffer->GetGeometryData().size()/sizeof(int32),GL_UNSIGNED_INT,BUFFER_OFFSET(0));
+        else 
+            glDrawElements(DrawType,rmesh->Geometry->index.size(),GL_UNSIGNED_INT,&rmesh->Geometry->index[0]);
         
         // Save Last Material and Mesh
         LastProgramUsed = Material->GetShader();
@@ -589,7 +595,7 @@ namespace p3d {
         if (rmesh->ShadersAttributesCache.find(material->GetShader())==rmesh->ShadersAttributesCache.end())
         {
             // Reset Attribute IDs
-            for (std::vector<AttributeBuffer*>::iterator i=rmesh->Geometry->AttributesBuffer.begin();i!=rmesh->Geometry->AttributesBuffer.end();i++)
+            for (std::vector<IAttribute*>::iterator i=rmesh->Geometry->Attributes.begin();i!=rmesh->Geometry->Attributes.end();i++)
             {
                 std::vector<int32> attribs;
                 for (std::vector<VertexAttribute*>::iterator k=(*i)->Attributes.begin();k!=(*i)->Attributes.end();k++)
@@ -615,10 +621,10 @@ namespace p3d {
     void IRenderer::UnbindMesh(RenderingMesh* rmesh, IMaterial* material)
     {
         // Disable Attributes
-        if (rmesh->Geometry->AttributesBuffer.size()>0)
+        if (rmesh->Geometry->Attributes.size()>0)
         {
             unsigned counterBuffers = 0;
-            for (std::vector<AttributeBuffer*>::iterator k=rmesh->Geometry->AttributesBuffer.begin();k!=rmesh->Geometry->AttributesBuffer.end();k++)
+            for (std::vector<IAttribute*>::iterator k=rmesh->Geometry->Attributes.begin();k!=rmesh->Geometry->Attributes.end();k++)
             {
                 unsigned counter = 0;
                 for (std::vector<VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
@@ -632,7 +638,8 @@ namespace p3d {
                 }
                 counterBuffers++;
             }
-            glBindBuffer(GL_ARRAY_BUFFER, 0);
+            if (rmesh->Geometry->GetGeometryType()==GeometryType::BUFFER)
+                glBindBuffer(GL_ARRAY_BUFFER, 0);
         }
     }
     
@@ -690,52 +697,100 @@ namespace p3d {
     void IRenderer::SendAttributes(RenderingMesh* rmesh, IMaterial* material)
     {
         // Check if custom Attributes exists
-        if (rmesh->Geometry->AttributesBuffer.size()>0)
+        if (rmesh->Geometry->Attributes.size()>0)
         {
-            uint32 counterBuffers = 0;
-            for (std::vector<AttributeBuffer*>::iterator k=rmesh->Geometry->AttributesBuffer.begin();k!=rmesh->Geometry->AttributesBuffer.end();k++)
+            if (rmesh->Geometry->GetGeometryType()==GeometryType::BUFFER)
             {
-                // Bind VAO
-                glBindBuffer(GL_ARRAY_BUFFER, (*k)->Buffer->ID);
                 
-                // Get Struct Data
-                if ((*k)->attributeSize==0)
+                // VBO
+                uint32 counterBuffers = 0;
+                for (std::vector<IAttribute*>::iterator k=rmesh->Geometry->Attributes.begin();k!=rmesh->Geometry->Attributes.end();k++)
                 {
+
+                    AttributeBuffer* bf = (AttributeBuffer*) (*k);
+
+                    // Bind VAO
+                    glBindBuffer(GL_ARRAY_BUFFER, bf->Buffer->ID);
+
+                    // Get Struct Data
+                    if (bf->attributeSize==0)
+                    {
+                        for (std::vector<VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
+                        {
+                            bf->attributeSize+=(*l)->byteSize;
+                        }
+                    }
+
+                    // Counter
+                    unsigned counter = 0;
                     for (std::vector<VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
                     {
-                        (*k)->attributeSize+=(*l)->byteSize;
+                        // Check if is not set
+                        if (rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]==-2)
+                        {
+                            // set VAO ID
+                            rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter] = Shader::GetAttributeLocation(material->GetShader(),(*l)->Name);
+
+                        }
+                        // If exists in shader
+                        if (rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]>=0)
+                        {
+                            AttributeBuffer* bf = (AttributeBuffer*) (*k);
+                            glVertexAttribPointer(
+                                                  rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter],
+                                                  Buffer::Attribute::GetTypeCount((*l)->Type),
+                                                  Buffer::Attribute::GetType((*l)->Type),
+                                                  GL_FALSE,
+                                                  bf->attributeSize,
+                                                  BUFFER_OFFSET((*l)->Offset)
+                                                  );
+
+                            // Enable Attribute
+                            glEnableVertexAttribArray(rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]);
+                        }
+                        counter++;
                     }
+                    counterBuffers++;
                 }
+            } else {
                 
-                // Counter
-                unsigned counter = 0;
-                for (std::vector<VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
+                // Arrays
+                uint32 counterBuffers = 0;
+                for (std::vector<IAttribute*>::iterator k=rmesh->Geometry->Attributes.begin();k!=rmesh->Geometry->Attributes.end();k++)
                 {
-                    // Check if is not set
-                    if (rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]==-2)
+                    
+                    // Counter
+                    unsigned counter = 0;
+                    for (std::vector<VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
                     {
-                        // set VAO ID
-                        rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter] = Shader::GetAttributeLocation(material->GetShader(),(*l)->Name);
-                        
+                        // Check if is not set
+                        if (rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]==-2)
+                        {
+                            // set VAO ID
+                            rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter] = Shader::GetAttributeLocation(material->GetShader(),(*l)->Name);
+
+                        }
+                        // If exists in shader
+                        if (rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]>=0)
+                        {
+                            
+                            glEnableVertexAttribArray(rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]);
+                            glVertexAttribPointer(
+                                                    rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter],
+                                                    Buffer::Attribute::GetTypeCount((*l)->Type),
+                                                    Buffer::Attribute::GetType((*l)->Type),
+                                                    GL_FALSE,
+                                                    0,
+                                                    &(*l)->Data[0]
+                                                );
+
+                            // Enable Attribute
+                            glEnableVertexAttribArray(rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]);
+                        }
+                        counter++;
                     }
-                    // If exists in shader
-                    if (rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]>=0)
-                    {
-                        glVertexAttribPointer(
-                                              rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter],
-                                              Buffer::Attribute::GetTypeCount((*l)->Type),
-                                              Buffer::Attribute::GetType((*l)->Type),
-                                              GL_FALSE,
-                                              (*k)->attributeSize,
-                                              BUFFER_OFFSET((*l)->Offset)
-                                              );
-                        
-                        // Enable Attribute
-                        glEnableVertexAttribArray(rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]);
-                    }
-                    counter++;
+                    counterBuffers++;
                 }
-                counterBuffers++;
             }
         }
     }

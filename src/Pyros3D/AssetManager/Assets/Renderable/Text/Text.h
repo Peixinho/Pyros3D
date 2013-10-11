@@ -23,19 +23,21 @@ namespace p3d {
             std::vector<Vec3> tVertex, tNormal;
             std::vector<Vec2> tTexcoord;
 
+            TextGeometry() : IGeometry(GeometryType::BUFFER) {}
+            
             void CreateBuffers()
             {
                 // Calculate Bounding Sphere Radius
                 CalculateBounding();
-                if (AttributesBuffer.size()==0)
+                if (Attributes.size()==0)
                 {
-                // Create and Set Attribute Buffer
-                AttributeBuffer* Vertex  = new AttributeBuffer(Buffer::Type::Attribute,Buffer::Draw::Dynamic);
-                Vertex->AddAttribute("aPosition", Buffer::Attribute::Type::Vec3,&tVertex[0],tVertex.size());
-                Vertex->AddAttribute("aNormal", Buffer::Attribute::Type::Vec3,&tNormal[0],tNormal.size());
-                Vertex->AddAttribute("aTexcoord", Buffer::Attribute::Type::Vec2,&tTexcoord[0],tTexcoord.size());
-                // Add Buffer to Attributes Buffer List
-                AttributesBuffer.push_back(Vertex);
+                    // Create and Set Attribute Buffer
+                    AttributeBuffer* Vertex = new AttributeBuffer(Buffer::Type::Attribute,Buffer::Draw::Static);
+                    Vertex->AddAttribute("aPosition", Buffer::Attribute::Type::Vec3,&tVertex[0],tVertex.size());
+                    Vertex->AddAttribute("aNormal", Buffer::Attribute::Type::Vec3,&tNormal[0],tNormal.size());
+                    Vertex->AddAttribute("aTexcoord", Buffer::Attribute::Type::Vec2,&tTexcoord[0],tTexcoord.size());
+                    // Add Buffer to Attributes Buffer List
+                    Attributes.push_back(Vertex);
                 }
             }
 
@@ -87,7 +89,6 @@ namespace p3d {
 
             void Build() 
             {
-
                 // Create Attributes Buffers
                 geometry->CreateBuffers();
                 // Send Buffers

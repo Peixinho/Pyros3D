@@ -18,7 +18,7 @@ namespace p3d {
     {
         public:
 
-            ModelGeometry() : IGeometry() {}
+            ModelGeometry() : IGeometry(GeometryType::BUFFER) {}
 
             // Adds Bones List
             void SetSkinningBones(const std::vector<Matrix> &Bones) {}

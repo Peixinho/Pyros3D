@@ -13,57 +13,56 @@
 
 namespace p3d {
 
-	GeometryBuffer::GeometryBuffer() : ID(-1), DataLength(0) {}
+    GeometryBuffer::GeometryBuffer() : ID(-1), DataLength(0) {}
 
-	GeometryBuffer::GeometryBuffer(const uint32& bufferType, const uint32& bufferDraw) : ID(-1) 
-	{
-	
-            // getting buffer type
-            switch (bufferType)
-            {
+    GeometryBuffer::GeometryBuffer(const uint32& bufferType, const uint32& bufferDraw) : ID(-1) 
+    {
 
-                case Buffer::Type::Index:
-                        this->bufferType=GL_ELEMENT_ARRAY_BUFFER;
-                        break;
-                case Buffer::Type::Vertex:
-                        this->bufferType=GL_ARRAY_BUFFER; 
-                        break;
-                case Buffer::Type::Attribute:
-                        this->bufferType=GL_ARRAY_BUFFER; 
-                        break;
+        // getting buffer type
+        switch (bufferType)
+        {
 
-            }
+            case Buffer::Type::Index:
+                    this->bufferType=GL_ELEMENT_ARRAY_BUFFER;
+                    break;
+            case Buffer::Type::Vertex:
+                    this->bufferType=GL_ARRAY_BUFFER; 
+                    break;
+            case Buffer::Type::Attribute:
+                    this->bufferType=GL_ARRAY_BUFFER; 
+                    break;
 
-            // getting buffer draw type            
-            switch (bufferDraw)
-            {
+        }
 
-                case Buffer::Draw::Static:
-                        this->bufferDraw=GL_STATIC_DRAW;
-                        break;
-                case Buffer::Draw::Dynamic:
-                        this->bufferDraw=GL_DYNAMIC_DRAW; 
-                        break;
-                case Buffer::Draw::Stream:
-                        this->bufferDraw=GL_STREAM_DRAW; 
-                        break;
+        // getting buffer draw type            
+        switch (bufferDraw)
+        {
 
-            }
-	}
+            case Buffer::Draw::Static:
+                    this->bufferDraw=GL_STATIC_DRAW;
+                    break;
+            case Buffer::Draw::Dynamic:
+                    this->bufferDraw=GL_DYNAMIC_DRAW; 
+                    break;
+            case Buffer::Draw::Stream:
+                    this->bufferDraw=GL_STREAM_DRAW; 
+                    break;
 
-	GeometryBuffer::~GeometryBuffer() 
-	{
-            if (ID!=-1) {
-                glBindBuffer(this->bufferType, ID);
-                glDeleteBuffers(1, (GLuint*)&ID);
-                glBindBuffer(this->bufferType, 0);
-                ID=-1;
-            }
-	}
+        }
+    }
 
-	void GeometryBuffer::Init(const void* GeometryData, uint32 length)
-    {    
-    
+    GeometryBuffer::~GeometryBuffer() 
+    {
+        if (ID!=-1) {
+            glBindBuffer(this->bufferType, ID);
+            glDeleteBuffers(1, (GLuint*)&ID);
+            glBindBuffer(this->bufferType, 0);
+            ID=-1;
+        }
+    }
+
+    void GeometryBuffer::Init(const void* GeometryData, uint32 length)
+    {
         // Destroy buffer if exists
         if (ID!=-1) {
             glBindBuffer(this->bufferType, ID);
@@ -71,7 +70,7 @@ namespace p3d {
             glBindBuffer(this->bufferType, 0);
             ID=-1;
         }
-                      
+        
         // creating buffer
         glGenBuffers(1, (GLuint*)&ID);
         glBindBuffer(this->bufferType, ID); 

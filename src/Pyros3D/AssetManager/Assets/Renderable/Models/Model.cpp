@@ -22,7 +22,7 @@ namespace p3d {
          if (tBitangent.size()>0) Vertex->AddAttribute("aBitangent", Buffer::Attribute::Type::Vec3,&tBitangent[0],tBitangent.size());
          if (tBonesID.size()>0) Vertex->AddAttribute("aBonesID", Buffer::Attribute::Type::Vec4,&tBonesID[0],tBonesID.size());
          if (tBonesWeight.size()>0) Vertex->AddAttribute("aBonesWeight", Buffer::Attribute::Type::Vec4,&tBonesWeight[0],tBonesWeight.size());
-         AttributesBuffer.push_back(Vertex);
+         Attributes.push_back(Vertex);
     }
 
     void ModelGeometry::CalculateBounding()

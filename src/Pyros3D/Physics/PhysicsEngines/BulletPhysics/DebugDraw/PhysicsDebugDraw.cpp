@@ -55,10 +55,10 @@ namespace p3d {
         Shader::SendUniform(Uniform::Uniform("uOpacity",Uniform::DataType::Float,&opacity),opacityHandle);
         
         // Send Attributes
-        glEnableVertexAttribArray(vertexHandle);        
+        glEnableVertexAttribArray(vertexHandle);
         glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexLines[0]);
         
-        glEnableVertexAttribArray(colorHandle);        
+        glEnableVertexAttribArray(colorHandle);
         glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorLines[0]);
         
         // Draw Quad

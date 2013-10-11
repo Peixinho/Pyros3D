@@ -32,7 +32,7 @@ namespace p3d {
                 Vertex->AddAttribute("aNormal", Buffer::Attribute::Type::Vec3,&tNormal[0],tNormal.size());
                 Vertex->AddAttribute("aTexcoord", Buffer::Attribute::Type::Vec2,&tTexcoord[0],tTexcoord.size());
                 // Add Buffer to Attributes Buffer List
-                AttributesBuffer.push_back(Vertex);
+                Attributes.push_back(Vertex);
             }
 
             virtual std::vector<uint32> &GetIndexData()
