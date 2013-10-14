@@ -45,8 +45,8 @@ namespace p3d {
             
             // Font and Text Rendering
             static Font* CreateFont(const std::string &font,const f32 &size);
-            static Renderable* CreateText(Font* font, const std::string &text, const f32 &charWidth, const f32 &charHeight, const Vec4 &color = Vec4(1,1,1,1));
-            static Renderable* CreateText(Font* font, const std::string &text, const f32 &charWidth, const f32 &charHeight, const std::vector<Vec4> &Color);
+            static Renderable* CreateText(Font* font, const std::string &text, const f32 &charWidth, const f32 &charHeight, const Vec4 &color = Vec4(1,1,1,1), bool DynamicText = false);
+            static Renderable* CreateText(Font* font, const std::string &text, const f32 &charWidth, const f32 &charHeight, const std::vector<Vec4> &Color, bool DynamicText = false);
             
             // Texture
             static Texture* LoadTexture(const std::string& FileName, const uint32 &Type, bool Mipmapping = true); 

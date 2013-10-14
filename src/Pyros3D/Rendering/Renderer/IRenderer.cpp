@@ -595,7 +595,7 @@ namespace p3d {
         if (rmesh->ShadersAttributesCache.find(material->GetShader())==rmesh->ShadersAttributesCache.end())
         {
             // Reset Attribute IDs
-            for (std::vector<IAttribute*>::iterator i=rmesh->Geometry->Attributes.begin();i!=rmesh->Geometry->Attributes.end();i++)
+            for (std::vector<AttributeArray*>::iterator i=rmesh->Geometry->Attributes.begin();i!=rmesh->Geometry->Attributes.end();i++)
             {
                 std::vector<int32> attribs;
                 for (std::vector<VertexAttribute*>::iterator k=(*i)->Attributes.begin();k!=(*i)->Attributes.end();k++)
@@ -624,7 +624,7 @@ namespace p3d {
         if (rmesh->Geometry->Attributes.size()>0)
         {
             unsigned counterBuffers = 0;
-            for (std::vector<IAttribute*>::iterator k=rmesh->Geometry->Attributes.begin();k!=rmesh->Geometry->Attributes.end();k++)
+            for (std::vector<AttributeArray*>::iterator k=rmesh->Geometry->Attributes.begin();k!=rmesh->Geometry->Attributes.end();k++)
             {
                 unsigned counter = 0;
                 for (std::vector<VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
@@ -704,7 +704,7 @@ namespace p3d {
                 
                 // VBO
                 uint32 counterBuffers = 0;
-                for (std::vector<IAttribute*>::iterator k=rmesh->Geometry->Attributes.begin();k!=rmesh->Geometry->Attributes.end();k++)
+                for (std::vector<AttributeArray*>::iterator k=rmesh->Geometry->Attributes.begin();k!=rmesh->Geometry->Attributes.end();k++)
                 {
 
                     AttributeBuffer* bf = (AttributeBuffer*) (*k);
@@ -756,7 +756,7 @@ namespace p3d {
                 
                 // Arrays
                 uint32 counterBuffers = 0;
-                for (std::vector<IAttribute*>::iterator k=rmesh->Geometry->Attributes.begin();k!=rmesh->Geometry->Attributes.end();k++)
+                for (std::vector<AttributeArray*>::iterator k=rmesh->Geometry->Attributes.begin();k!=rmesh->Geometry->Attributes.end();k++)
                 {
                     
                     // Counter

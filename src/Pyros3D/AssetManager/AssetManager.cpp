@@ -225,7 +225,7 @@ namespace p3d {
         return __FontList[ID];
     }
     
-    Renderable* AssetManager::CreateText(Font* font, const std::string& text, const f32& charWidth, const f32& charHeight, const Vec4& color)
+    Renderable* AssetManager::CreateText(Font* font, const std::string& text, const f32& charWidth, const f32& charHeight, const Vec4& color, bool DynamicText)
     {
         std::stringstream str;
         str  << "TEXT" << text << "_" << charWidth << "_" << charHeight;
@@ -233,7 +233,7 @@ namespace p3d {
         
         if (__ModelList.find(ID)==__ModelList.end())
         {
-            __ModelList[ID] = new Text(font,text,charWidth,charHeight,color);
+            __ModelList[ID] = new Text(font,text,charWidth,charHeight,color,DynamicText);
             __ModelUsage[ID] = 0;
         }
 
@@ -244,7 +244,7 @@ namespace p3d {
         return __ModelList[ID];
     }
     
-    Renderable* AssetManager::CreateText(Font* font, const std::string& text, const f32& charWidth, const f32& charHeight, const std::vector<Vec4>& Colors)
+    Renderable* AssetManager::CreateText(Font* font, const std::string& text, const f32& charWidth, const f32& charHeight, const std::vector<Vec4>& Colors, bool DynamicText)
     {
         std::stringstream str;
         str  << text << "_" << charWidth << "_" << charHeight;
@@ -252,7 +252,7 @@ namespace p3d {
         
         if (__ModelList.find(ID)==__ModelList.end())
         {
-            __ModelList[ID] = new Text(font,text,charWidth,charHeight,Colors);
+            __ModelList[ID] = new Text(font,text,charWidth,charHeight,Colors,DynamicText);
             __ModelUsage[ID] = 0;
         }
 

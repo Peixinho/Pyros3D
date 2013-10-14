@@ -232,10 +232,10 @@ namespace p3d {
         
         // Add Merged Meshes
         if (mergeMeshes)
-        for (std::map<uint32, ModelGeometry*>::iterator i = meshes.begin();i!=meshes.end();i++)
-        {
-            Geometries.push_back((*i).second);
-        }
+            for (std::map<uint32, ModelGeometry*>::iterator i = meshes.begin();i!=meshes.end();i++)
+            {
+                Geometries.push_back((*i).second);
+            }
         
         // Build Meshes
         Build();

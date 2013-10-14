@@ -19,6 +19,13 @@
 
 namespace p3d {
     
+    namespace GeometryType {
+        enum {
+            BUFFER,
+            ARRAY
+        };
+    };    
+    
     // Store Each Submesh Material Properties
     struct MaterialProperties
     {
@@ -100,8 +107,8 @@ namespace p3d {
         }
     };
 
-    class IAttribute
-    {
+    // Attribute Array
+    class AttributeArray {
         
         public:
             // Attributes List
@@ -113,7 +120,7 @@ namespace p3d {
                 Attributes.push_back(v);
             }
 
-            void SendBuffer() {}
+            virtual void SendBuffer() {}
 
             virtual void Dispose()
             {
@@ -126,14 +133,9 @@ namespace p3d {
             }
     };
     
-    class AttributeArray : public IAttribute 
-    {
-        public:
-            AttributeArray() : IAttribute() {}
-    };
-    
     // Attributes Buffer
-    class AttributeBuffer : public IAttribute  {
+    class AttributeBuffer : public AttributeArray {
+        
         public:
             // Buffer
             GeometryBuffer* Buffer;
@@ -146,7 +148,7 @@ namespace p3d {
             // Attributes Size
             uint32 attributeSize;
 
-            AttributeBuffer() : attributeSize(0), IAttribute() {}
+            AttributeBuffer() : attributeSize(0), AttributeArray() {}
             AttributeBuffer(const uint32 &type, const uint32 &draw) : attributeSize(0) { bufferDraw = draw; bufferType = type; }
 
             virtual void SendBuffer()
@@ -163,6 +165,7 @@ namespace p3d {
 
                 // Resize Data
                 Data.resize(BufferOffset*count);
+                
                 // Run through attributes data            
                 for (uint32 l=0;l<count;l++)
                 {                
@@ -173,8 +176,10 @@ namespace p3d {
                         memcpy(&Data[offset+(*k)->Offset],&(*k)->Data[(l*(*k)->byteSize)],(*k)->byteSize);
                     }
                 }
+                
                 // Create Buffer
                 Buffer = new GeometryBuffer(bufferType,bufferDraw);
+                
                 // Send Buffer
                 Buffer->Init(&Data[0],Data.size());
             }
@@ -188,13 +193,6 @@ namespace p3d {
                     delete *k;
                 }
             }
-    };
-    
-    namespace GeometryType {
-        enum {
-            BUFFER,
-            ARRAY
-        };
     };
     
     // Geometry Interface Keeps Index and Attributes Buffer
@@ -213,7 +211,7 @@ namespace p3d {
             GeometryBuffer* IndexBuffer;
             
             // Attributes Buffer
-            std::vector<IAttribute*> Attributes;
+            std::vector<AttributeArray*> Attributes;
 
             IGeometry(const uint32 Type = GeometryType::BUFFER) {
                 
@@ -244,7 +242,7 @@ namespace p3d {
             
             const uint32 &GetGeometryType() const { return Type; }
 
-            void SendBuffers()
+            virtual void SendBuffers()
             {
                 if (Type==GeometryType::BUFFER)
                 {
@@ -253,7 +251,7 @@ namespace p3d {
                     IndexBuffer->Init( &index[0], sizeof(uint32)*index.size());
 
                     // send attribute buffers
-                    for (std::vector<IAttribute*>::iterator i=Attributes.begin();i!=Attributes.end();i++)
+                    for (std::vector<AttributeArray*>::iterator i=Attributes.begin();i!=Attributes.end();i++)
                     {
                         AttributeBuffer* bf = (AttributeBuffer*) (*i);
                         bf->SendBuffer();
@@ -261,13 +259,13 @@ namespace p3d {
                 }
             }
 
-            void Dispose()
+            virtual void Dispose()
             {
                 // Delete Index Buffer
                 if (Type==GeometryType::BUFFER)
                     delete IndexBuffer;
                 // Loop Through Attributes Buffer and Delete Each One
-                for (std::vector<IAttribute*>::iterator i=Attributes.begin();i!=Attributes.end();i++)
+                for (std::vector<AttributeArray*>::iterator i=Attributes.begin();i!=Attributes.end();i++)
                 {
                     // Dipose Vertex Attributes
                     (*i)->Dispose();
@@ -277,10 +275,12 @@ namespace p3d {
                 Attributes.clear();
             }
 
+            // Get Internal ID
             uint32 GetInternalID() { return ID; }
 
         protected:
 
+            // Bounding Properties
             f32 BoundingSphereRadius;
             Vec3 BoundingSphereCenter;
             Vec3 maxBounds, minBounds;
@@ -300,8 +300,19 @@ namespace p3d {
             std::map <uint32, IMaterial*> Materialsvector;
             
             Renderable() {}
-            virtual ~Renderable() {}
+            
+            virtual ~Renderable() 
+            {
+                for(std::vector<IGeometry*>::iterator i = Geometries.begin();i!=Geometries.end();i++)
+                {
+                    // Dispose Buffer
+                    (*i)->Dispose();
+                    // Delete Pointer
+                    delete (*i);
+                }
+            }
 
+            // Build Renderable
             virtual void Build();
             
             // Vector of Buffers
@@ -324,7 +335,7 @@ namespace p3d {
                 for(std::vector<IGeometry*>::iterator i = Geometries.begin();i!=Geometries.end();i++)
                 {
                     if ((*i)->GetBoundingMaxValue()>maxBounds) maxBounds = (*i)->GetBoundingMaxValue();
-                    if ((*i)->GetBoundingMinValue()>minBounds) minBounds = (*i)->GetBoundingMinValue();
+                    if ((*i)->GetBoundingMinValue()<minBounds) minBounds = (*i)->GetBoundingMinValue();
                 }
                 // Set Sphere Radius and Bounds
                 BoundingSphereCenter = maxBounds-minBounds;
