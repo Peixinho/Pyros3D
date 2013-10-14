@@ -17,7 +17,6 @@ namespace p3d {
         this->charWidth = charWidth;
         this->charHeight = charHeight;
         this->font = font;
-        this->DynamicText = DynamicText;
         this->Initialized = false;
         
         geometry = new TextGeometry(DynamicText);
@@ -33,9 +32,8 @@ namespace p3d {
         this->charWidth = charWidth;
         this->charHeight = charHeight;
         this->font = font;
-        this->DynamicText = DynamicText;
         this->Initialized = false;
-        
+
         geometry = new TextGeometry(DynamicText);
 
         // Generate Font
@@ -52,11 +50,14 @@ namespace p3d {
 
             if (Initialized)
             {
-                delete geometry;
-                geometry = new TextGeometry(DynamicText);
+                geometry->Dispose();
+                geometry->index.clear();
+                geometry->tVertex.clear();
+                geometry->tNormal.clear();
+                geometry->tTexcoord.clear();
             }
-            // Generate Font
-            font->CreateText(text);
+            
+            Initialized = true;
 
             f32 width = 0.0f;
             f32 height = 0.0f;
@@ -133,6 +134,8 @@ namespace p3d {
                     break;
                 }
             }
+
+            // Build and Send Buffers
             Build();
         }
     }
@@ -145,11 +148,14 @@ namespace p3d {
 
             if (Initialized)
             {
-                delete geometry;
-                geometry = new TextGeometry(DynamicText);
+                geometry->Dispose();
+                geometry->index.clear();
+                geometry->tVertex.clear();
+                geometry->tNormal.clear();
+                geometry->tTexcoord.clear();
             }
-            // Generate Font
-            font->CreateText(text);
+            
+            Initialized = true;
 
             f32 width = 0.0f;
             f32 height = 0.0f;
@@ -227,92 +233,27 @@ namespace p3d {
                     break;
                 }
             }
-            Build();
-        }
-    }
-    
-    void Text::Build()
-    {
-        // Create Attributes Buffers
-        geometry->CreateBuffers();
 
-        // Clean Geometries List
-        Geometries.clear();
-
-        // Add To Geometry List
-        Geometries.push_back(geometry);
-
-        // Calculate Mesh Bounding Box
-        CalculateBounding();
-
-        if (!Initialized)
-        {
-            // Execute Parent Build
-            Renderable::Build();
-
-            // Set Flag
-            Initialized = true;
-        }
-    }
-    
-    void TextGeometry::CreateBuffers()
-    {
-        if (Type==GeometryType::BUFFER)
-        {
-
-            // Create and Set Attribute Buffer
-            AttributeBuffer* Vertex = new AttributeBuffer(Buffer::Type::Attribute,Buffer::Draw::Static);
-            Vertex->AddAttribute("aPosition", Buffer::Attribute::Type::Vec3,&tVertex[0],tVertex.size());
-            Vertex->AddAttribute("aNormal", Buffer::Attribute::Type::Vec3,&tNormal[0],tNormal.size());
-            Vertex->AddAttribute("aTexcoord", Buffer::Attribute::Type::Vec2,&tTexcoord[0],tTexcoord.size());
-            // Add Buffer to Attributes Buffer List
-            Vertex->SendBuffer();
-            Attributes.push_back(Vertex);
-
-            // create and send index buffer
-            IndexBuffer = new GeometryBuffer(Buffer::Type::Index, Buffer::Draw::Static);
-            IndexBuffer->Init( &index[0], sizeof(uint32)*index.size());
-
-        } else {
-
-            // Create and Set Attribute Buffer
-            AttributeArray* Vertex = new AttributeArray();
-            Vertex->AddAttribute("aPosition", Buffer::Attribute::Type::Vec3,&tVertex[0],tVertex.size());
-            Vertex->AddAttribute("aNormal", Buffer::Attribute::Type::Vec3,&tNormal[0],tNormal.size());
-            Vertex->AddAttribute("aTexcoord", Buffer::Attribute::Type::Vec2,&tTexcoord[0],tTexcoord.size());
-            // Add Buffer to Attributes Buffer List
-            Attributes.push_back(Vertex);
-
-        }
-        
-        // Calculate Bounding Sphere Radius
-        CalculateBounding();
-    }
-    
-    void TextGeometry::CalculateBounding()
-    {
-
-        // Bounding Box
-        for (uint32 i=0;i<tVertex.size();i++)
-        {
-            if (i==0) {
-                minBounds = tVertex[i];
-                maxBounds = tVertex[i];
+            if (geometry->GetGeometryType()==GeometryType::ARRAY)
+            {
+                // Update Vertex Attributes Using Vertex Arrays Only
+                geometry->Attributes[0]->Attributes[0]->Data.resize(geometry->tVertex.size());
+                geometry->Attributes[0]->Attributes[1]->Data.resize(geometry->tVertex.size());
+                geometry->Attributes[0]->Attributes[2]->Data.resize(geometry->tVertex.size());
+                memcpy(&geometry->Attributes[0]->Attributes[0]->Data[0],&geometry->tVertex[0],geometry->tVertex.size());
+                memcpy(&geometry->Attributes[0]->Attributes[1]->Data[0],&geometry->tNormal[0],geometry->tVertex.size());
+                memcpy(&geometry->Attributes[0]->Attributes[2]->Data[0],&geometry->tTexcoord[0],geometry->tVertex.size());
             } else {
-                if (tVertex[i].x<minBounds.x) minBounds.x = tVertex[i].x;
-                if (tVertex[i].y<minBounds.y) minBounds.y = tVertex[i].y;
-                if (tVertex[i].z<minBounds.z) minBounds.z = tVertex[i].z;
-                if (tVertex[i].x>maxBounds.x) maxBounds.x = tVertex[i].x;
-                if (tVertex[i].y>maxBounds.y) maxBounds.y = tVertex[i].y;
-                if (tVertex[i].z>maxBounds.z) maxBounds.z = tVertex[i].z;
+                // ReBuild and Send Buffers (VBOS)
+                Build();
             }
         }
-        // Bounding Sphere
-        BoundingSphereCenter = maxBounds-minBounds;
-        f32 a = maxBounds.distance(BoundingSphereCenter);
-        f32 b = minBounds.distance(BoundingSphereCenter);        
-        BoundingSphereRadius = (a>b?a:b);
-            
+    }        
+
+    Text::~Text()
+    {
+
+
+
     }
-    
 };

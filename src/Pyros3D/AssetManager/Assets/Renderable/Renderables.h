@@ -19,13 +19,6 @@
 
 namespace p3d {
     
-    namespace GeometryType {
-        enum {
-            BUFFER,
-            ARRAY
-        };
-    };    
-    
     // Store Each Submesh Material Properties
     struct MaterialProperties
     {
@@ -107,8 +100,8 @@ namespace p3d {
         }
     };
 
-    // Attribute Array
-    class AttributeArray {
+    class AttributeArray
+    {
         
         public:
             // Attributes List
@@ -134,8 +127,7 @@ namespace p3d {
     };
     
     // Attributes Buffer
-    class AttributeBuffer : public AttributeArray {
-        
+    class AttributeBuffer : public AttributeArray  {
         public:
             // Buffer
             GeometryBuffer* Buffer;
@@ -148,7 +140,7 @@ namespace p3d {
             // Attributes Size
             uint32 attributeSize;
 
-            AttributeBuffer() : attributeSize(0), AttributeArray() {}
+            AttributeBuffer() : attributeSize(0) {}
             AttributeBuffer(const uint32 &type, const uint32 &draw) : attributeSize(0) { bufferDraw = draw; bufferType = type; }
 
             virtual void SendBuffer()
@@ -165,7 +157,6 @@ namespace p3d {
 
                 // Resize Data
                 Data.resize(BufferOffset*count);
-                
                 // Run through attributes data            
                 for (uint32 l=0;l<count;l++)
                 {                
@@ -176,10 +167,8 @@ namespace p3d {
                         memcpy(&Data[offset+(*k)->Offset],&(*k)->Data[(l*(*k)->byteSize)],(*k)->byteSize);
                     }
                 }
-                
                 // Create Buffer
                 Buffer = new GeometryBuffer(bufferType,bufferDraw);
-                
                 // Send Buffer
                 Buffer->Init(&Data[0],Data.size());
             }
@@ -193,6 +182,13 @@ namespace p3d {
                     delete *k;
                 }
             }
+    };
+    
+    namespace GeometryType {
+        enum {
+            BUFFER = 0,
+            ARRAY
+        };
     };
     
     // Geometry Interface Keeps Index and Attributes Buffer
@@ -275,12 +271,10 @@ namespace p3d {
                 Attributes.clear();
             }
 
-            // Get Internal ID
             uint32 GetInternalID() { return ID; }
 
         protected:
 
-            // Bounding Properties
             f32 BoundingSphereRadius;
             Vec3 BoundingSphereCenter;
             Vec3 maxBounds, minBounds;
@@ -300,8 +294,7 @@ namespace p3d {
             std::map <uint32, IMaterial*> Materialsvector;
             
             Renderable() {}
-            
-            virtual ~Renderable() 
+            virtual ~Renderable()
             {
                 for(std::vector<IGeometry*>::iterator i = Geometries.begin();i!=Geometries.end();i++)
                 {
@@ -312,22 +305,10 @@ namespace p3d {
                 }
             }
 
-            // Build Renderable
-            virtual void Build();
+            virtual void BuildMaterials();
             
             // Vector of Buffers
             std::vector<IGeometry*> Geometries;
-
-            virtual void Dispose()
-            {
-                for(std::vector<IGeometry*>::iterator i = Geometries.begin();i!=Geometries.end();i++)
-                {
-                    // Dispose Buffer
-                    (*i)->Dispose();
-                    // Delete Pointer
-                    delete (*i);
-                }
-            }
 
             virtual void CalculateBounding() 
             { 
@@ -335,7 +316,7 @@ namespace p3d {
                 for(std::vector<IGeometry*>::iterator i = Geometries.begin();i!=Geometries.end();i++)
                 {
                     if ((*i)->GetBoundingMaxValue()>maxBounds) maxBounds = (*i)->GetBoundingMaxValue();
-                    if ((*i)->GetBoundingMinValue()<minBounds) minBounds = (*i)->GetBoundingMinValue();
+                    if ((*i)->GetBoundingMinValue()>minBounds) minBounds = (*i)->GetBoundingMinValue();
                 }
                 // Set Sphere Radius and Bounds
                 BoundingSphereCenter = maxBounds-minBounds;

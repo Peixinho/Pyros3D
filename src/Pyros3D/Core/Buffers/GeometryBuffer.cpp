@@ -54,10 +54,7 @@ namespace p3d {
     GeometryBuffer::~GeometryBuffer() 
     {
         if (ID!=-1) {
-            glBindBuffer(this->bufferType, ID);
             glDeleteBuffers(1, (GLuint*)&ID);
-            glBindBuffer(this->bufferType, 0);
-            ID=-1;
         }
     }
 
@@ -92,10 +89,8 @@ namespace p3d {
         this->GeometryData.resize(DataLength);
         memcpy(&this->GeometryData[0], GeometryData, DataLength);
         
-        // Updating buffer                
-        glBindBuffer(this->bufferType, ID); 
+        // Updating buffer
         glBufferData(this->bufferType, DataLength, GeometryData, this->bufferDraw);
-        glBindBuffer(this->bufferType, 0);
 
     }
 

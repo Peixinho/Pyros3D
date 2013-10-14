@@ -111,7 +111,7 @@ class Primitive : public Renderable {
             CalculateBounding();
             
             // Execute Parent Build
-            Renderable::Build();
+            BuildMaterials();
         }
 
     protected:

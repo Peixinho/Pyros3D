@@ -13,7 +13,7 @@ namespace p3d {
 
     uint32 IGeometry::_InternalID = 0;
 
-    void Renderable::Build() 
+    void Renderable::BuildMaterials() 
     {   
         for (std::vector<IGeometry*>::iterator i=Geometries.begin();i!=Geometries.end();i++)
         {
