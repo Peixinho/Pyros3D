@@ -256,18 +256,18 @@ namespace p3d {
         // bind
         glBindTexture(GLSubMode, GL_ID);
         
-        if (Mipmapping && haveImage)
+        if (Mipmapping)
         {
             if (GLEW_VERSION_2_1)
             {
-                glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, __Textures[TextureInternalID].Image.getPixelsPtr());
+                glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].Image.getPixelsPtr()));
                 glGenerateMipmap(GLMode);
             } else {
-                gluBuild2DMipmaps(GLMode,internalFormat,Width,Height,internalFormat2,internalFormat3, __Textures[TextureInternalID].Image.getPixelsPtr());
+                gluBuild2DMipmaps(GLMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].Image.getPixelsPtr()));
             }
             isMipMap = true;
         } else {
-            glTexImage2D(GLSubMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].Image.getPixelsPtr()));
+            glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].Image.getPixelsPtr()));
         }
         // default values
         glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_REPEAT);

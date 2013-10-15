@@ -172,7 +172,7 @@ namespace p3d {
                                                 cullingTest = CullingSphereTest(*k);
                                                 break;
                                         }
-                                        if (!(*k)->Material->IsTransparent() && (*k)->renderingComponent->IsCastingShadows())
+                                        if (!(*k)->Material->IsTransparent() && (*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
                                             RenderObject((*k),shadowMaterial);
                                         else break;
                                     }
@@ -297,7 +297,7 @@ namespace p3d {
                                                 cullingTest = CullingSphereTest(*k);
                                                 break;
                                         }
-                                        if (cullingTest && !(*k)->Material->IsTransparent() && (*k)->renderingComponent->IsCastingShadows())
+                                        if (cullingTest && !(*k)->Material->IsTransparent() && (*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
                                             RenderObject((*k),shadowMaterial);
                                         else break;
                                             
@@ -397,7 +397,7 @@ namespace p3d {
                                             cullingTest = CullingSphereTest(*k);
                                             break;
                                     }
-                                    if (cullingTest && !(*k)->Material->IsTransparent() && (*k)->renderingComponent->IsCastingShadows())
+                                    if (cullingTest && !(*k)->Material->IsTransparent() && (*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
                                         RenderObject((*k),shadowMaterial);
                                     else break;
                                 }
@@ -486,7 +486,7 @@ namespace p3d {
                             cullingTest = CullingSphereTest(*i);
                             break;
                     }
-                    if (cullingTest)
+                    if (cullingTest && (*i)->renderingComponent->IsActive())
                         RenderObject((*i),(*i)->Material);
                 }
             }

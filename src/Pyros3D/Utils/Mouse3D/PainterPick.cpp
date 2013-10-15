@@ -129,7 +129,7 @@ namespace p3d {
                         cullingTest = CullingSphereTest(*i);
                         break;
                 }
-                if (cullingTest)
+                if (cullingTest && (*i)->renderingComponent->IsActive())
                 {
                     colors++;
                     Vec4 color = Rgba8ToVec4(colors);

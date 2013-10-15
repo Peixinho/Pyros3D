@@ -286,6 +286,14 @@ namespace p3d {
         
         return __TextureList[AssetsCount];
     }
+    Texture* AssetManager::CreateTexture(bool Mipmapping)
+    {
+        
+        uint32 AssetsCount = __TextureList.size();
+        __TextureList[AssetsCount] = new Texture();
+        
+        return __TextureList[AssetsCount];
+    }
     void AssetManager::AddTexture(const uint32 &Handle, const uint32& Type, const uint32& DataType, const int32& width, const int32& height, bool Mipmapping)
     {
         __TextureList[Handle]->CreateTexture(Type,DataType,width,height,Mipmapping);

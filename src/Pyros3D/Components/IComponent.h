@@ -25,7 +25,7 @@ namespace p3d {
         
         public:
             
-            IComponent() { Owner = NULL; Registered = false; }
+            IComponent() { Owner = NULL; Registered = false; active = true; }
             virtual ~IComponent() {}
             
             virtual void Register(SceneGraph* Scene) = 0;
@@ -35,12 +35,18 @@ namespace p3d {
             virtual void Unregister(SceneGraph* Scene) = 0;
             
             GameObject* GetOwner() { return Owner; }
+
+            bool IsActive() { return active; }
+            void Disable() { active = false; }
+            void Enable() { active = true; }
             
         protected:
         
             GameObject* Owner;
             
             bool Registered;
+            
+            bool active;
             
     };
     

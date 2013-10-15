@@ -442,7 +442,8 @@ namespace p3d {
                         Shader::SendUniform((*k),&GlobalLight,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
                     case Uniform::DataUsage::Lights:
-                        Shader::SendUniform((*k), &Lights[0], rmesh->ShadersGlobalCache[Material->GetShader()][counter], NumberOfLights);
+                        if (Lights.size()>0)
+                            Shader::SendUniform((*k), &Lights[0], rmesh->ShadersGlobalCache[Material->GetShader()][counter], NumberOfLights);
                         break;
                     case Uniform::DataUsage::NumberOfLights:
                         Shader::SendUniform((*k),&NumberOfLights,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
