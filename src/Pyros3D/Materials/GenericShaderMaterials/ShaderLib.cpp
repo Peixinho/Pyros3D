@@ -28,7 +28,7 @@ namespace p3d
         bool usingReflect = false;
         bool usingTangentMatrix = false;
         bool usingPCFTexelSize = false;
-        
+        bool show = false;
         // Aux Strings
         std::string fragmentShaderHeader, fragmentShaderBody;
         std::string vertexShaderHeader, vertexShaderBody;
@@ -334,32 +334,26 @@ namespace p3d
                 // Fragment Header
                 fragmentShaderHeader+="varying vec3 vCameraPos;\n";
             }
-            if (!usingVertexLocalPos)
+            if (!usingVertexWorldPos)
             {
-                usingVertexLocalPos = true;
-                vertexShaderHeader+="varying vec4 vLocalPosition;\n";
-                vertexShaderBody+="vLocalPosition=uViewMatrix * uModelMatrix * vec4(aPosition,1.0);\n";
-                fragmentShaderHeader+="varying vec4 vLocalPosition;\n";
+                usingVertexWorldPos = true;
+                vertexShaderHeader+="varying vec4 vWorldPosition;\n";
+                vertexShaderBody+="vWorldPosition=uModelMatrix * vec4(aPosition,1.0);\n";
+                fragmentShaderHeader+="varying vec4 vWorldPosition;\n";
             }
             if (!usingNormal)
             {
                 usingNormal = true;
                 vertexShaderHeader+="varying vec3 vNormal;\n";
-                vertexShaderBody+="vNormal = normalize((uViewMatrix * uModelMatrix * vec4(aNormal,0.0)).xyz);\n";
+                vertexShaderBody+="vNormal = normalize(uModelMatrix * vec4(aNormal,0.0)).xyz;\n";
                 fragmentShaderHeader+="varying vec3 vNormal;\n";
-                fragmentShaderBody+="vec3 Normal = vNormal;\n";
+                fragmentShaderBody+="vec3 Normal = normalize(vNormal);\n";
             }
             if (!usingReflect)
             {
                 usingReflect = true;
-                
-                // Vertex Header
-                vertexShaderHeader+="varying vec3 vReflection;\n";
                 // Vertex Body
-                vertexShaderBody+="vReflection = reflect(vLocalPosition.xyz - (uViewMatrix * vec4(uCameraPos,1.0)).xyz,vNormal);\n";
-                
-                // Fragment Header
-                fragmentShaderHeader+="varying vec3 vReflection;\n";
+                fragmentShaderBody+="vec3 Reflection = reflect(normalize(vWorldPosition.xyz - (vec4(vCameraPos,1.0)).xyz),normalize(vNormal));\n";
             }
             
             // Fragment Header
@@ -367,8 +361,7 @@ namespace p3d
             fragmentShaderHeader+="uniform float uReflectivity;\n";
             
             // Fragment Body
-            fragmentShaderBody+="if (!diffuseIsSet) {diffuse=(textureCube(uEnvmap,vReflection))*uReflectivity; diffuseIsSet=true;} else diffuse *= (textureCube(uEnvmap,vReflection))*uReflectivity;\n";
-            fragmentShaderBody+="diffuse=(textureCube(uEnvmap,vReflection));\n";
+            fragmentShaderBody+="if (!diffuseIsSet) {diffuse=(textureCube(uEnvmap,Reflection))*uReflectivity; diffuseIsSet=true;} else diffuse *= (textureCube(uEnvmap,Reflection))*uReflectivity;\n";
         }
         if (option & ShaderUsage::Skybox)
         {
@@ -380,9 +373,9 @@ namespace p3d
             
             // Fragment Header
             fragmentShaderHeader+="varying vec3 v3Texcoord;\n";
-            fragmentShaderHeader+="uniform samplerCube uSkybox;\n";
+            fragmentShaderHeader+="uniform samplerCube uSkyboxmap;\n";
             // Fragment Body
-            fragmentShaderBody+="if (!diffuseIsSet) {diffuse=textureCube(uSkybox,v3Texcoord); diffuseIsSet=true;} else diffuse *= textureCube(uSkybox,v3Texcoord);\n";
+            fragmentShaderBody+="if (!diffuseIsSet) {diffuse=textureCube(uSkyboxmap,v3Texcoord); diffuseIsSet=true;} else diffuse *= textureCube(uSkyboxmap,v3Texcoord);\n";
         }
         if (option & ShaderUsage::Refraction)
         {
@@ -396,32 +389,26 @@ namespace p3d
                 // Fragment Header
                 fragmentShaderHeader+="varying vec3 vCameraPos;\n";
             }
-            if (!usingVertexLocalPos)
+            if (!usingVertexWorldPos)
             {
-                usingVertexLocalPos = true;
-                vertexShaderHeader+="varying vec4 vLocalPosition;\n";
-                vertexShaderBody+="vLocalPosition=uViewMatrix * uModelMatrix * vec4(aPosition,1.0);\n";
-                fragmentShaderHeader+="varying vec4 vLocalPosition;\n";
+                usingVertexWorldPos = true;
+                vertexShaderHeader+="varying vec4 vWorldPosition;\n";
+                vertexShaderBody+="vWorldPosition=uModelMatrix * vec4(aPosition,1.0);\n";
+                fragmentShaderHeader+="varying vec4 vWorldPosition;\n";
             }
             if (!usingNormal)
             {
                 usingNormal = true;
                 vertexShaderHeader+="varying vec3 vNormal;\n";
-                vertexShaderBody+="vNormal = normalize((uViewMatrix * uModelMatrix * vec4(aNormal,0.0)).xyz);\n";
+                vertexShaderBody+="vNormal = normalize(uModelMatrix * vec4(aNormal,0.0)).xyz;\n";
                 fragmentShaderHeader+="varying vec3 vNormal;\n";
-                fragmentShaderBody+="vec3 Normal = vNormal;\n";
+                fragmentShaderBody+="vec3 Normal = normalize(vNormal);\n";
             }
             if (!usingReflect)
             {
                 usingReflect = true;
-                
-                // Vertex Header
-                vertexShaderHeader+="varying vec3 vReflection;\n";
                 // Vertex Body
-                vertexShaderBody+="vReflection = reflect((vLocalPosition.xyz - uCameraPos),vNormal);\n";
-                
-                // Fragment Header
-                fragmentShaderHeader+="varying vec3 vReflection;\n";
+                fragmentShaderBody+="vec3 Reflection = reflect(normalize(vWorldPosition.xyz - (vec4(vCameraPos,1.0)).xyz),normalize(vNormal));\n";
             }
             
             vertexShaderHeader+="varying vec3 vTRed, vTGreen, vTBlue;\n";
@@ -429,15 +416,16 @@ namespace p3d
             vertexShaderBody+="float fresnelBias, fresnelScale, fresnelPower;\n";
             vertexShaderBody+="vec3 etaRatio;\n";
             vertexShaderBody+="fresnelBias = 0.9; fresnelScale=0.7; fresnelPower=1.0; etaRatio=vec3(0.943,0.949,0.945);\n";
-            vertexShaderBody+="vec3 I = normalize(vLocalPosition.xyz - uCameraPos);\n";
-            vertexShaderBody+="vTRed = refract(I,vNormal,etaRatio.x);vTGreen =  refract(I,vNormal,etaRatio.y);vTBlue = refract(I,vNormal,etaRatio.z);\n";
+            vertexShaderBody+="vec3 I = normalize(vWorldPosition.xyz - uCameraPos);\n";
+            vertexShaderBody+="vTRed = refract(I,vNormal,etaRatio.x);\n";
+            vertexShaderBody+="vTGreen =  refract(I,vNormal,etaRatio.y);vTBlue = refract(I,vNormal,etaRatio.z);\n";
             vertexShaderBody+="vReflectionFactor = fresnelBias + fresnelScale * pow(1.0+dot(I,vNormal),fresnelPower);";
             
             fragmentShaderHeader+="uniform samplerCube uRefractmap;\n";
             fragmentShaderHeader+="varying float vReflectionFactor;\n";
             fragmentShaderHeader+="varying vec3 vTRed, vTGreen, vTBlue;\n";
-            fragmentShaderBody+="vec4 reflectedColor = textureCube( uRefractmap, vReflection);\n";
-            fragmentShaderBody+="vec4 refractedColor;\n";
+            fragmentShaderBody+="vec4 reflectedColor = textureCube( uRefractmap, Reflection);\n";
+            fragmentShaderBody+="vec4 refractedColor = vec4(0,0,0,1);\n";
             fragmentShaderBody+="refractedColor.x = (textureCube( uRefractmap, vTRed)).x;\n";
             fragmentShaderBody+="refractedColor.y = (textureCube( uRefractmap, vTGreen)).y;\n";
             fragmentShaderBody+="refractedColor.z = (textureCube( uRefractmap, vTBlue)).z;\n";
@@ -638,7 +626,11 @@ namespace p3d
         
         vertex = vertexShaderHeader; vertex+=vertexShaderBody;
         fragment = fragmentShaderHeader; fragment+=fragmentShaderBody;
-        
+        if (show)
+        {
+            std::cout << vertex << std::endl;
+            std::cout << fragment << std::endl;
+        }
         shader->vertexShader->loadShaderText(vertex);
         shader->fragmentShader->loadShaderText(fragment);
         

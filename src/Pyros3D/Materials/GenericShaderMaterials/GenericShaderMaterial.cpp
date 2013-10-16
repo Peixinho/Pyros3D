@@ -115,6 +115,14 @@ namespace p3d
             Reflectivity = 1.0;
             AddUniform(Uniform::Uniform("uReflectivity",Uniform::DataType::Float,&Reflectivity));
         }
+
+        if (options & ShaderUsage::Refraction)
+        {
+            AddUniform(Uniform::Uniform("uCameraPos",Uniform::DataUsage::CameraPosition));
+            // Set Default Reflectivity
+            Reflectivity = 1.0;
+            AddUniform(Uniform::Uniform("uReflectivity",Uniform::DataType::Float,&Reflectivity));
+        }        
     }
     
     void GenericShaderMaterial::SetLightingProperties(const Vec4 &Ke, const Vec4 &Ka, const Vec4 &Kd, const Vec4 &Ks, const f32 &shininess)
@@ -249,7 +257,7 @@ namespace p3d
         // Save on List
         Textures[id] = skyboxmap;
         // Set Uniform
-        AddUniform(Uniform::Uniform("uSkybox",Uniform::DataType::Int,&id));
+        AddUniform(Uniform::Uniform("uSkyboxmap",Uniform::DataType::Int,&id));
     }
     void GenericShaderMaterial::SetTextFont(Font* font)
     {
