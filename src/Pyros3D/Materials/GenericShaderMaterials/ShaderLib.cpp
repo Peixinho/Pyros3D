@@ -341,27 +341,25 @@ namespace p3d
                 vertexShaderBody+="vWorldPosition=uModelMatrix * vec4(aPosition,1.0);\n";
                 fragmentShaderHeader+="varying vec4 vWorldPosition;\n";
             }
-            if (!usingNormal)
-            {
-                usingNormal = true;
-                vertexShaderHeader+="varying vec3 vNormal;\n";
-                vertexShaderBody+="vNormal = normalize(uModelMatrix * vec4(aNormal,0.0)).xyz;\n";
-                fragmentShaderHeader+="varying vec3 vNormal;\n";
-                fragmentShaderBody+="vec3 Normal = normalize(vNormal);\n";
-            }
+            
             if (!usingReflect)
             {
                 usingReflect = true;
                 // Vertex Body
-                fragmentShaderBody+="vec3 Reflection = reflect(normalize(vWorldPosition.xyz - (vec4(vCameraPos,1.0)).xyz),normalize(vNormal));\n";
+                fragmentShaderBody+="vec3 Reflection = reflect(normalize(vWorldPosition.xyz - (vec4(vCameraPos,1.0)).xyz),normalize(vNormalWorldSpace));\n";
             }
+            
+            // Normal World Space
+            vertexShaderHeader+="varying vec3 vNormalWorldSpace;\n";
+            vertexShaderBody+="vNormalWorldSpace = normalize(uModelMatrix * vec4(aNormal,0.0)).xyz;\n";
+            fragmentShaderHeader+="varying vec3 vNormalWorldSpace;\n";
             
             // Fragment Header
             fragmentShaderHeader+="uniform samplerCube uEnvmap;\n";
             fragmentShaderHeader+="uniform float uReflectivity;\n";
             
             // Fragment Body
-            fragmentShaderBody+="if (!diffuseIsSet) {diffuse=(textureCube(uEnvmap,Reflection))*uReflectivity; diffuseIsSet=true;} else diffuse *= (textureCube(uEnvmap,Reflection))*uReflectivity;\n";
+            fragmentShaderBody+=" diffuse.xyz = diffuse.xyz*(1.0-uReflectivity) + (textureCube(uEnvmap,Reflection)).xyz*uReflectivity;\n";
         }
         if (option & ShaderUsage::Skybox)
         {

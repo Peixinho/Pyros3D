@@ -32,8 +32,8 @@ namespace p3d {
             virtual void Destroy() {}
             virtual void Unregister(SceneGraph* Scene);
             
-            static std::vector<IComponent*> GetComponents();
-            static std::vector<IComponent*> GetLightsOnScene(SceneGraph* Scene);
+            static std::vector<IComponent*> &GetComponents();
+            static std::vector<IComponent*> &GetLightsOnScene(SceneGraph* Scene);
             const Vec4 &GetLightColor() const;
             
             bool IsCastingShadows() { return isCastingShadows; }

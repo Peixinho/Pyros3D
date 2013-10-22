@@ -305,7 +305,7 @@ namespace p3d {
                 }
             }
 
-            virtual void BuildMaterials();
+            virtual void BuildMaterials(const uint32 &MaterialOptions = 0);
             
             // Vector of Buffers
             std::vector<IGeometry*> Geometries;

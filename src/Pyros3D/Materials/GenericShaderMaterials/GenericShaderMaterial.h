@@ -83,6 +83,9 @@ namespace p3d
 
             // Environment Cube
             f32 Reflectivity;
+        
+            // Texture IDs
+            int32 colorMapID, specularMapID, normalMapID, envMapID, skyboxMapID, refractMapID, fontMapID;
     };
 }
 

@@ -49,11 +49,13 @@ namespace p3d {
          BoundingSphereRadius = (a>b?a:b);
      }
 
-    Model::Model(const std::string ModelPath, bool mergeMeshes)
+    Model::Model(const std::string ModelPath, bool mergeMeshes, const uint32 &MaterialOptions)
     {
         mesh = new ModelLoader();
         mesh->Load(ModelPath);
 
+        this->MaterialOptions = MaterialOptions;
+        
         std::map<uint32, ModelGeometry*> meshes;
         
         // List of Material Properties
@@ -125,7 +127,7 @@ namespace p3d {
 
                         // JOIN MESHES
 
-                        // Set Material From ID
+                        // Set SubMesh From Material ID
                         ModelGeometry* c_submesh = meshes[mesh->subMeshes[i].materialID];
 
                         uint32 offset = c_submesh->tVertex.size();
@@ -240,11 +242,11 @@ namespace p3d {
         // Build Meshes
         Build();
 
-         // Save Skeleton
-         skeleton = mesh->skeleton;
+        // Save Skeleton
+        skeleton = mesh->skeleton;
 
-         // Delete Model Loader
-         delete mesh;
+        // Delete Model Loader
+        delete mesh;
     }
 
     void Model::Build()
@@ -262,6 +264,6 @@ namespace p3d {
         CalculateBounding();
         
         // Execute Parent Build
-        BuildMaterials();
+        BuildMaterials(MaterialOptions);
     }
 };

@@ -49,7 +49,7 @@ namespace p3d {
 
         public:
 
-            Model(const std::string ModelPath, bool mergeMeshes = true);            
+            Model(const std::string ModelPath, bool mergeMeshes = true, const uint32 &MaterialOptions = 0);
 
             virtual ~Model() {}
 
@@ -58,6 +58,10 @@ namespace p3d {
             std::map<StringID, Bone> skeleton;
 
             void Build();
+        
+        protected:
+        
+            uint32 MaterialOptions;
 
     };
 };

@@ -92,12 +92,12 @@ namespace p3d {
             bool IsCastingShadows();
             
             // Get Model's Meshes
-            std::vector<RenderingMesh*> GetMeshes();
+            std::vector<RenderingMesh*> &GetMeshes();
             
             // Get Rendering Components
-            static std::vector<IComponent*> GetComponents();
+            static std::vector<IComponent*> &GetComponents();
             // Get Global Meshes
-            static std::vector<RenderingMesh*> GetRenderingMeshes(SceneGraph* scene);
+            static std::vector<RenderingMesh*> &GetRenderingMeshes(SceneGraph* scene);
             
         protected:
 

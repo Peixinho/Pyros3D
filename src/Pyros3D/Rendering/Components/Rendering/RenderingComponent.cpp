@@ -27,14 +27,11 @@ namespace p3d {
             
             // Save Geometry Pointer
             r_submesh->Geometry = renderable->Geometries[i];
-                        
+            r_submesh->Material = renderable->Geometries[i]->Material;
+            
             if (Material!=NULL) 
             {
                 r_submesh->Material = Material;
-                
-            } else {
-                
-                r_submesh->Material = renderable->Geometries[i]->Material;
             }
             
             // Own this Mothafuckah!
@@ -93,17 +90,17 @@ namespace p3d {
         }
     }
     
-    std::vector<IComponent*> RenderingComponent::GetComponents()
+    std::vector<IComponent*> &RenderingComponent::GetComponents()
     {
         return Components;
     }
     
-    std::vector<RenderingMesh*> RenderingComponent::GetRenderingMeshes(SceneGraph* scene)
+    std::vector<RenderingMesh*> &RenderingComponent::GetRenderingMeshes(SceneGraph* scene)
     {
         return MeshesOnScene[scene];
     }
     
-    std::vector<RenderingMesh*> RenderingComponent::GetMeshes()
+    std::vector<RenderingMesh*> &RenderingComponent::GetMeshes()
     {
         return Meshes;
     }

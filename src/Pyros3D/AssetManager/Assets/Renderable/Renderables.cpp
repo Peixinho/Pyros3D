@@ -13,7 +13,7 @@ namespace p3d {
 
     uint32 IGeometry::_InternalID = 0;
 
-    void Renderable::BuildMaterials() 
+    void Renderable::BuildMaterials(const uint32 &MaterialOptions)
     {   
         for (std::vector<IGeometry*>::iterator i=Geometries.begin();i!=Geometries.end();i++)
         {
@@ -27,15 +27,14 @@ namespace p3d {
                 if ((*i)->materialProperties.haveColorMap) options = options | ShaderUsage::Texture;
                 if ((*i)->materialProperties.haveSpecularMap) options = options | ShaderUsage::SpecularMap;
                 if ((*i)->materialProperties.haveNormalMap) options = options | ShaderUsage::BumpMapping;
-                options = options | ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow;
 
-                GenericShaderMaterial* genMat = new GenericShaderMaterial(options);
+                GenericShaderMaterial* genMat = new GenericShaderMaterial(options | MaterialOptions);
 
                 // Material Properties
                 if ((*i)->materialProperties.Twosided) genMat->SetCullFace(CullFace::DoubleSided);       
-                if ((*i)->materialProperties.haveColor) { genMat->SetColor((*i)->materialProperties.Color); }
-                if ((*i)->materialProperties.haveSpecular) { genMat->SetSpecular((*i)->materialProperties.Specular); }
-                if ((*i)->materialProperties.Opacity) { genMat->SetOpacity((*i)->materialProperties.Opacity); }
+                if ((*i)->materialProperties.haveColor) genMat->SetColor((*i)->materialProperties.Color);
+                if ((*i)->materialProperties.haveSpecular) genMat->SetSpecular((*i)->materialProperties.Specular);
+                if ((*i)->materialProperties.Opacity) genMat->SetOpacity((*i)->materialProperties.Opacity);
                 if ((*i)->materialProperties.haveColorMap) 
                 {
                     Texture* colorMap = AssetManager::LoadTexture((*i)->materialProperties.colorMap, TextureType::Texture);

@@ -31,7 +31,7 @@ namespace p3d {
         public:
             
             // Renderables
-            static Renderable* LoadModel(const std::string &ModelPath, bool smooth = false, bool mergeMeshes = true);
+            static Renderable* LoadModel(const std::string &ModelPath, bool mergeMeshes = true, const uint32 &MaterialOptions = 0);
             static Renderable* CreateCube(const f32 &width, const f32 &height, const f32 &depth, bool smooth = false, bool flip = false);
             static Renderable* CreateSphere(const f32 &radius, const uint32 &segmentsW = 16, const uint32 &segmentsH = 8, bool smooth = false, bool HalfSphere = false, bool flip = false);
             static Renderable* CreateCone(const f32 &radius, const f32 &height, const uint32 &segmentsW, const uint32 &segmentsH, const bool &openEnded, bool smooth = false, bool flip = false);

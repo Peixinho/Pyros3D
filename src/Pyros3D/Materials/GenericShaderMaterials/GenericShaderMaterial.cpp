@@ -12,11 +12,15 @@
 
 namespace p3d
 {
+    
     // Shaders List
     std::map<uint32, Shaders* > GenericShaderMaterial::ShadersList;
     
     GenericShaderMaterial::GenericShaderMaterial(const uint32& options) : IMaterial()
     {
+        // Default
+        colorMapID = specularMapID = normalMapID = envMapID = skyboxMapID = refractMapID = fontMapID = -1;
+        
         // Find if Shader exists, if not, creates a new one
         if (ShadersList.find(options)==ShadersList.end())
         {
@@ -209,63 +213,72 @@ namespace p3d
     
     void GenericShaderMaterial::SetColorMap(Texture* colormap)
     {
-        uint32 id = Textures.size();
+        if (colorMapID==-1)
+            colorMapID = Textures.size();
+        
         // Save on Lirest
-        Textures[id] = colormap;
+        Textures[colorMapID] = colormap;
         // Set Uniform
-        AddUniform(Uniform::Uniform("uColormap",Uniform::DataType::Int,&id));
+        AddUniform(Uniform::Uniform("uColormap",Uniform::DataType::Int,&colorMapID));
     }
     void GenericShaderMaterial::SetSpecularMap(Texture* specular)
     {
-        uint32 id = Textures.size();
+        if (specularMapID==-1)
+            specularMapID = Textures.size();
         // Save on List
-        Textures[id] = specular;
+        Textures[specularMapID] = specular;
         // Set Uniform
-        AddUniform(Uniform::Uniform("uSpecularmap",Uniform::DataType::Int,&id));
+        AddUniform(Uniform::Uniform("uSpecularmap",Uniform::DataType::Int,&specularMapID));
     }
     void GenericShaderMaterial::SetNormalMap(Texture* normalmap)
     {
-        uint32 id = Textures.size();
+        if (normalMapID==-1)
+            normalMapID = Textures.size();
         // Save on List
-        Textures[id] = normalmap;
+        Textures[normalMapID] = normalmap;
         // Set Uniform
-        AddUniform(Uniform::Uniform("uNormalmap",Uniform::DataType::Int,&id));
+        AddUniform(Uniform::Uniform("uNormalmap",Uniform::DataType::Int,&normalMapID));
     }
     void GenericShaderMaterial::SetEnvMap(Texture* envmap)
     {
-        uint32 id = Textures.size();
+        if (envMapID==-1)
+            envMapID = Textures.size();
         // Save on List
-        Textures[id] = envmap;
+        Textures[envMapID] = envmap;
         // Set Uniform
-        AddUniform(Uniform::Uniform("uEnvmap",Uniform::DataType::Int,&id));
+        AddUniform(Uniform::Uniform("uEnvmap",Uniform::DataType::Int,&envMapID));
     }
     void GenericShaderMaterial::SetReflectivity(const f32& reflectivity)
     {
         Reflectivity = reflectivity;
+        AddUniform(Uniform::Uniform("uReflectivity",Uniform::DataType::Float,&Reflectivity));
     }
     void GenericShaderMaterial::SetRefractMap(Texture* refractmap)
     {
-        uint32 id = Textures.size();
+        if (refractMapID==-1)
+            refractMapID = Textures.size();
         // Save on List
-        Textures[id] = refractmap;
+        Textures[refractMapID] = refractmap;
         // Set Uniform
-        AddUniform(Uniform::Uniform("uRefractmap",Uniform::DataType::Int,&id));
+        AddUniform(Uniform::Uniform("uRefractmap",Uniform::DataType::Int,&refractMapID));
     }
     void GenericShaderMaterial::SetSkyboxMap(Texture* skyboxmap)
     {
-        uint32 id = Textures.size();
+        if (skyboxMapID==-1)
+            skyboxMapID = Textures.size();
         // Save on List
-        Textures[id] = skyboxmap;
+        Textures[skyboxMapID] = skyboxmap;
         // Set Uniform
-        AddUniform(Uniform::Uniform("uSkyboxmap",Uniform::DataType::Int,&id));
+        AddUniform(Uniform::Uniform("uSkyboxmap",Uniform::DataType::Int,&skyboxMapID));
     }
     void GenericShaderMaterial::SetTextFont(Font* font)
     {
-        uint32 id = Textures.size();
+        if (fontMapID==-1)
+            fontMapID = Textures.size();
         // Save on List
-        Textures[id] = font->GetTexture();
+        Textures[fontMapID] = font->GetTexture();
         // Set Uniform
-        AddUniform(Uniform::Uniform("uFontmap",Uniform::DataType::Int,&id));
+        AddUniform(Uniform::Uniform("uFontmap",Uniform::DataType::Int,&fontMapID));
     }
     void GenericShaderMaterial::PreRender()
     {
