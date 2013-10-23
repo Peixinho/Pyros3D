@@ -359,7 +359,7 @@ namespace p3d
             fragmentShaderHeader+="uniform float uReflectivity;\n";
             
             // Fragment Body
-            fragmentShaderBody+=" diffuse.xyz = diffuse.xyz*(1.0-uReflectivity) + (textureCube(uEnvmap,Reflection)).xyz*uReflectivity;\n";
+            fragmentShaderBody+=" diffuse.xyz = diffuse.xyz * (1.0-uReflectivity) + (textureCube(uEnvmap,Reflection)).xyz*uReflectivity;\n";
         }
         if (option & ShaderUsage::Skybox)
         {
