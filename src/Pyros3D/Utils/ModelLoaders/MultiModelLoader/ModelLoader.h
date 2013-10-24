@@ -17,10 +17,11 @@
 #include "../../../AssetManager/Assets/Renderable/Renderables.h"
 
 // Assimp Lib
-#include <assimp/cimport.h>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 #include <assimp/material.h>
+#include <assimp/Importer.hpp> 
+
 
 namespace p3d {   
     

@@ -16,13 +16,13 @@ namespace p3d {
 
     void ModelLoader::Load(const std::string& Filename)
     {
-
+		Assimp::Importer Importer;
         // Load Model
-        assimp_model = aiImportFile(Filename.c_str(),aiProcessPreset_TargetRealtime_Fast | aiProcess_OptimizeMeshes | aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
+        assimp_model = Importer.ReadFile(Filename.c_str(),aiProcessPreset_TargetRealtime_Fast | aiProcess_OptimizeMeshes | aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
 
         if (!assimp_model)
         {
-            std::cout << "Failed To Import Model: " << Filename << std::endl;
+			echo("Failed To Import Model: " + Filename + " ERROR: " + Importer.GetErrorString());
         } else {
             
             // Build Skeleton
@@ -270,6 +270,8 @@ namespace p3d {
                 materials.push_back(material);
             }
         }
+	
+		Importer.FreeScene();
     }
     
     void ModelLoader::GetBone(aiNode* bone, const int32 &parentID)

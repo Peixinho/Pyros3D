@@ -38,19 +38,19 @@ namespace p3d {
                 if ((*i)->materialProperties.haveColorMap) 
                 {
                     Texture* colorMap = AssetManager::LoadTexture((*i)->materialProperties.colorMap, TextureType::Texture);
-                    colorMap->SetMinMagFilter(TextureFilter::LinearMipmapNearest,TextureFilter::Linear);
+                    colorMap->SetMinMagFilter(TextureFilter::Linear,TextureFilter::Linear);
                     genMat->SetColorMap(colorMap);
                 }
                 if ((*i)->materialProperties.haveSpecularMap) 
                 {
                     Texture* specularMap = AssetManager::LoadTexture((*i)->materialProperties.specularMap, TextureType::Texture);
-                    specularMap->SetMinMagFilter(TextureFilter::LinearMipmapNearest,TextureFilter::Linear);
+                    specularMap->SetMinMagFilter(TextureFilter::Linear,TextureFilter::Linear);
                     genMat->SetSpecularMap(specularMap);
                 }
                 if ((*i)->materialProperties.haveNormalMap) 
                 {
                     Texture* normalMap = AssetManager::LoadTexture((*i)->materialProperties.normalMap, TextureType::Texture);
-                    normalMap->SetMinMagFilter(TextureFilter::LinearMipmapNearest,TextureFilter::Linear);
+                    normalMap->SetMinMagFilter(TextureFilter::Linear,TextureFilter::Linear);
                     genMat->SetNormalMap(normalMap);
                 }
                 Materialsvector[(*i)->materialProperties.id] = genMat;
