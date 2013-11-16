@@ -85,7 +85,7 @@ namespace p3d {
                 INI[Group][Option]=Value;
             }
 
-            void SaveValues(const string &file)
+            bool SaveToFile(const string &file)
             {
                 ofstream myfile (file.c_str());
                 if (myfile.is_open())
@@ -99,6 +99,9 @@ namespace p3d {
                         }
                     }
                     myfile.close();
+                    return true;
+                } else {
+                    return false;
                 }
             }
         
