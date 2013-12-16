@@ -110,11 +110,12 @@ namespace p3d {
     void InputManager::CharEntered(const uint32& e)
     {
         // Could be on Pressed or Released, there is nothing different from them
+        Code = e;
         Event::Input::Info kPress;
         kPress.Type = Event::Type::OnPress;
         kPress.Input = e;        
         EventsMapPressed[Event::Input::Keyboard::OtherKeyboardEvents::CharacterEnter](kPress);
-
+        
         Event::Input::Info kRelease;
         kRelease.Type = Event::Type::OnRelease;
         kRelease.Input = e;

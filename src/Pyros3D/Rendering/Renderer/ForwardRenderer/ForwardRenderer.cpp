@@ -467,7 +467,8 @@ namespace p3d {
             NumberOfLights = Lights.size();
 
             // Set ViewPort
-            SetViewPort(0,0,Width,Height);
+            if (_viewPortEndX==0 || _viewPortEndY == 0)
+                SetViewPort(0,0,Width,Height);
 
             if (clearScreen)
             {

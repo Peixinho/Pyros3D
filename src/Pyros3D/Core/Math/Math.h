@@ -9,17 +9,20 @@
 #ifndef MATH_H
 #define	MATH_H
 
-// Type Definition
-typedef unsigned char uint8;
-typedef unsigned short uint16;
-typedef signed long int int32;
-typedef long long int64;
-typedef long unsigned uint32;
-typedef float f32;
-typedef unsigned char uchar;
-typedef double f64;
-typedef long double f96;
+namespace p3d {
 
+    // Type Definition
+    typedef unsigned char uint8;
+    typedef unsigned short uint16;
+    typedef signed long int int32;
+    typedef long long int64;
+    typedef long unsigned uint32;
+    typedef float f32;
+    typedef unsigned char uchar;
+    typedef double f64;
+    typedef long double f96;
+    
+};
 #include "Vec2.h"
 #include "Vec3.h"
 #include "Vec4.h"
