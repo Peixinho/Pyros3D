@@ -37,6 +37,8 @@ namespace p3d {
         // Blending
         Blending = false;
         
+        // Custom ViewPort
+        customViewPort = false;
     }
     
     void IRenderer::Resize(const uint32& Width, const uint32& Height)
@@ -44,9 +46,24 @@ namespace p3d {
         // Save Dimensions
         this->Width = Width;
         this->Height = Height;
+        
+        if (!customViewPort)
+        {
+            viewPortEndX = Width;
+            viewPortEndY = Height;
+            std::cout << "fez" << std::endl;
+        }
     }
     
     void IRenderer::SetViewPort(const uint32& initX, const uint32& initY, const uint32& endX, const uint32& endY)
+    {
+        viewPortStartX = initX;
+        viewPortStartY = initY;
+        viewPortEndX = endX;
+        viewPortEndY = endY;
+        customViewPort = true;
+    }
+    void IRenderer::_SetViewPort(const uint32& initX, const uint32& initY, const uint32& endX, const uint32& endY)
     {
         if (initX!=_viewPortStartX || initY!=_viewPortStartY || endX!=_viewPortEndX || endY != _viewPortEndY)
         {

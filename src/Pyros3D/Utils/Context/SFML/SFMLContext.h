@@ -34,7 +34,7 @@ namespace p3d {
     class SFMLContext : public Context {
         public:            
             
-            SFMLContext(const int &width, const int &height, const std::string &title, const unsigned int &windowType = WindowType::Fullscreen);            
+            SFMLContext(const uint32 &width, const uint32 &height, const std::string &title, const unsigned int &windowType = WindowType::Fullscreen);            
             ~SFMLContext();
             
             // virtuals

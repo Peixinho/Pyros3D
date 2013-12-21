@@ -149,7 +149,7 @@ namespace p3d {
                                 ProjectionMatrix = d->GetLightProjection(i,rmesh);
 
                                 // Set Viewport
-                                SetViewPort(((float)(i % 2) * d->GetShadowWidth()), ((i <= 1 ? 0.0f : 1.f) * d->GetShadowHeight()), d->GetShadowWidth(), d->GetShadowHeight());
+                                _SetViewPort(((float)(i % 2) * d->GetShadowWidth()), ((i <= 1 ? 0.0f : 1.f) * d->GetShadowHeight()), d->GetShadowWidth(), d->GetShadowHeight());
 
                                 // Update Culling
                                 UpdateCulling(d->GetCascade(i).ortho.GetProjectionMatrix()*ViewMatrix);
@@ -280,7 +280,7 @@ namespace p3d {
                                 EnableDepthBias(Vec2(p->GetShadowBiasFactor(), p->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
 
                                 // Set Viewport
-                                SetViewPort(0,0, p->GetShadowWidth(), p->GetShadowHeight());
+                                _SetViewPort(0,0, p->GetShadowWidth(), p->GetShadowHeight());
 
                                 // Render Scene with Objects Material
                                 for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
@@ -383,7 +383,7 @@ namespace p3d {
                             EnableDepthBias(Vec2(s->GetShadowBiasFactor(), s->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
 
                             // Set Viewport
-                            SetViewPort(0,0, s->GetShadowWidth(), s->GetShadowHeight());
+                            _SetViewPort(0,0, s->GetShadowWidth(), s->GetShadowHeight());
 
                             // Render Scene with Objects Material
                             for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
@@ -467,8 +467,13 @@ namespace p3d {
             NumberOfLights = Lights.size();
 
             // Set ViewPort
-            if (_viewPortEndX==0 || _viewPortEndY == 0)
-                SetViewPort(0,0,Width,Height);
+            if (viewPortEndX==0 || viewPortEndY==0) 
+            { 
+                viewPortEndX = Width;
+                viewPortEndY = Height;
+            }
+            
+            _SetViewPort(viewPortStartX,viewPortStartY,viewPortEndX,viewPortEndY);
 
             if (clearScreen)
             {

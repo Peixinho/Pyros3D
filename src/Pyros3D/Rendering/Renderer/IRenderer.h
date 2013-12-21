@@ -194,13 +194,17 @@ namespace p3d {
                                 DirectionalShadowFar;
             uint32 
                                 NumberOfDirectionalShadows, NumberOfPointShadows, NumberOfSpotShadows;
-           
+            
+            // ViewPort Size
+            uint32              viewPortStartX,
+                                viewPortStartY,
+                                viewPortEndX,
+                                viewPortEndY;
+            bool
+                                customViewPort;
+            
             // Internal ViewPort Dimension
-            static uint32
-                                _viewPortStartX,
-                                _viewPortStartY,
-                                _viewPortEndX,
-                                _viewPortEndY;
+            void _SetViewPort(const uint32 &initX, const uint32 &initY, const uint32 &endX, const uint32 &endY);
             
         private:
             
@@ -222,6 +226,13 @@ namespace p3d {
                                 LastProgramUsed;
             IMaterial*
                                 LastMaterialPTR;
+            
+            // Internal ViewPort Dimension
+            static uint32
+                                _viewPortStartX,
+                                _viewPortStartY,
+                                _viewPortEndX,
+                                _viewPortEndY;
     };
     
 };

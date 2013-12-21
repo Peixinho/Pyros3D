@@ -323,13 +323,13 @@ namespace p3d {
     void GameObject::RegisterComponents(SceneGraph* Scene)
     {
         if (_ComponentsChanged)
-		{
-			for(std::vector<IComponent*>::iterator i=Components.begin();i!=Components.end();i++)
-			{
-				(*i)->Register(Scene);
-			}
-			_ComponentsChanged = false;
-		}
+        {
+            for(std::vector<IComponent*>::iterator i=Components.begin();i!=Components.end();i++)
+            {
+                (*i)->Register(Scene);
+            }
+            _ComponentsChanged = false;
+        }
     }
     void GameObject::UnregisterComponents(SceneGraph* Scene)
     {

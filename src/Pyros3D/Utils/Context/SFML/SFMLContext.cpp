@@ -12,7 +12,7 @@
 namespace p3d {
     
     #define GLCHECK() { int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } }
-    SFMLContext::SFMLContext(const int &width, const int &height, const std::string &title, const unsigned int &windowType) : Context(width,height) 
+    SFMLContext::SFMLContext(const uint32 &width, const uint32 &height, const std::string &title, const unsigned int &windowType) : Context(width,height) 
     {
         
         unsigned type = 0;
