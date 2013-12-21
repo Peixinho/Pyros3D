@@ -221,7 +221,7 @@ namespace p3d {
                 fbo->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0,TextureType::CubemapPositive_X+i,environmentMap);
 
                 // Set Viewport
-                SetViewPort(0,0, Width, Height);
+                _SetViewPort(0,0, Width, Height);
             
                 // Clear Screen
                 ClearScreen(Buffer_Bit::Color | Buffer_Bit::Depth);
