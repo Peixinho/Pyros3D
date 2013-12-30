@@ -111,7 +111,7 @@ namespace p3d {
         
     private:
 
-		// Internal ID
+        // Internal ID
         static uint32 _InternalID;
         
     };

@@ -31,7 +31,7 @@ namespace p3d {
                 GenericShaderMaterial* genMat = new GenericShaderMaterial(options | MaterialOptions);
 
                 // Material Properties
-                if ((*i)->materialProperties.Twosided) genMat->SetCullFace(CullFace::DoubleSided);       
+                if ((*i)->materialProperties.Twosided) genMat->SetCullFace(CullFace::DoubleSided);
                 if ((*i)->materialProperties.haveColor) genMat->SetColor((*i)->materialProperties.Color);
                 if ((*i)->materialProperties.haveSpecular) genMat->SetSpecular((*i)->materialProperties.Specular);
                 if ((*i)->materialProperties.Opacity) genMat->SetOpacity((*i)->materialProperties.Opacity);

@@ -17,6 +17,8 @@ using namespace p3d::Math;
 
 namespace p3d {
 
+	void *UpdateTransformations(void* ptr);
+
     class GameObject;
     
     class SceneGraph
@@ -35,17 +37,11 @@ namespace p3d {
             
             // Get Time
             const f64 &GetTime() const;
-            
+
         private:
-            
+
             // GameObject List
             std::vector<GameObject*> _GameObjectList;
-            
-            // Update Transformations Thread
-            bool _ThreadIsUpdating, _ThreadSync;
-            static void *UpdateTransformations(SceneGraph* Scene);
-            uint32 ThreadID;
-            
             // Time
             f64 timer;
     };

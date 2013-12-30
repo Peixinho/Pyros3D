@@ -49,16 +49,16 @@ void TextRendering::Init()
         
         // Create Font
         font = AssetManager::CreateFont("verdana.ttf",16);
+        font->CreateText("aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ,.0123456789[]()!?+-_\\|/ºª");
         
         // Create Text Material
         textMaterial = new GenericShaderMaterial(ShaderUsage::TextRendering);
-        // Set Material Font to use Font Map
         textMaterial->SetTextFont(font);
+        // Set Material Font to use Font Map
         
         // Create Game Object
         Text = new GameObject();
-        textID = AssetManager::CreateText(font,"Pyros3D Engine - Text Rendering\n\n:)",16,16,Vec4(1,1,1,1));
-        rText = new RenderingComponent(textID,textMaterial);
+        rText = new RenderingComponent(AssetManager::CreateText(font,"Pyros3D Engine - Text Rendering\n\n:)",16,16,Vec4(1,1,1,1)),textMaterial);
         Text->Add(rText);
         
         // Add GameObject to Scene
@@ -71,18 +71,14 @@ void TextRendering::Update()
     // Update - Game Loop
         
         // Update Scene
-        Scene->Update();
+        Scene->Update(GetTime());
         
         // Game Logic Here
         Text->SetRotation(Vec3(0,0,GetTime()));
         Text->SetPosition(Vec3(Width/2.f,Height/2.f,0.f));
+
         // Render Scene
         Renderer->RenderScene(projection,Camera,Scene);
-
-        // Info on Window
-        // Should come in the End
-        std::ostringstream x; x << fps.getFPS();
-        rview.setTitle("Pyros3D - Text Rendering - FPS: " + x.str());
 }
 
 void TextRendering::Shutdown()

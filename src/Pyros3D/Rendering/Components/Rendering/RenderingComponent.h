@@ -40,12 +40,12 @@ namespace p3d {
         
         public:
             
-            RenderingMesh() : drawingType(DrawingType::Triangles), CullingGeometry(0) {} // Triangles by Default
+            RenderingMesh() : drawingType(DrawingType::Triangles), CullingGeometry(0), Active(true), Clickable(true) {} // Triangles by Default
 
             virtual ~RenderingMesh() {}
             
             uint32 GetDrawingType() { return drawingType; }
-        
+            
             // Pointer to Geometry
             IGeometry* Geometry;
             
@@ -70,6 +70,8 @@ namespace p3d {
             // Pivot
             Matrix Pivot;
             
+            // Clickable
+            bool Clickable, Active;
     };
     
     class RenderingComponent : public IComponent {

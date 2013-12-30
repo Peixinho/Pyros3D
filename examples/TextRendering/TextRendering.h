@@ -41,12 +41,10 @@ class TextRendering : public SFMLContext {
         GameObject* Camera;
         // GameObject
         GameObject* Text;
-        // Model Handle
-        uint32 textID;
         // Rendering Component
         RenderingComponent* rText;
         // Font
-        uint32 font;
+        Font* font;
         // Text Material
         GenericShaderMaterial* textMaterial;
 

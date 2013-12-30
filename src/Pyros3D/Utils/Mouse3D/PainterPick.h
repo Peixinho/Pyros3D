@@ -36,7 +36,7 @@ namespace p3d {
     private:
         
         // Should Select Only Clickable Objects
-        virtual void GroupAndSortAssets() {}
+        virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera) { std::vector<RenderingMesh*> o; return o; }
         
         // Render Scene
         virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene);

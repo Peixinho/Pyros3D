@@ -98,6 +98,7 @@ void PickingExamplePainterMethod::Init()
 
         // Painter Method Initialization
         picking = new PainterPick(Width,Height);
+        picking->SetViewPort(0,0,Width,Height);
 }
 
 void PickingExamplePainterMethod::Update()

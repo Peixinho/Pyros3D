@@ -21,8 +21,8 @@ namespace p3d {
     
     IRenderer::IRenderer(const uint32 &Width, const uint32 &Height)
     {
-        // Set Background Default Color
-        BackgroundColor = Vec4::ZERO;
+        // Background Unset by Default
+        BackgroundColorSet = false;
         
         // Set Global Light Default Color
         GlobalLight = Vec4(0.2f,0.2f,0.2f,0.2f);
@@ -39,6 +39,9 @@ namespace p3d {
         
         // Custom ViewPort
         customViewPort = false;
+        
+        // Depth Test
+        DepthTest = true;
     }
     
     void IRenderer::Resize(const uint32& Width, const uint32& Height)
@@ -51,7 +54,6 @@ namespace p3d {
         {
             viewPortEndX = Width;
             viewPortEndY = Height;
-            std::cout << "fez" << std::endl;
         }
     }
     
@@ -81,9 +83,8 @@ namespace p3d {
     }
     
     // Internal Function
-    void IRenderer::RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, bool clearScreen)
-    {
-        
+    void IRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 BufferOptions) {
+
     }
     
     void IRenderer::InitRender()
@@ -94,6 +95,7 @@ namespace p3d {
         InternalDrawType = -1;
         LastMaterialPTR = NULL;
         LastMeshRenderedPTR = NULL;
+        cullFace = -1;
     }
     
     void IRenderer::EndRender()
@@ -237,7 +239,7 @@ namespace p3d {
         SendModelUniforms(rmesh, Material);
         
         // Enable / Disable Blending
-        (rmesh->Material->IsTransparent()?EnableBlending():DisableBlending());
+        (Material->IsTransparent()?EnableBlending():DisableBlending());
         
         // Draw
         if (rmesh->Geometry->GetGeometryType()==GeometryType::BUFFER)
@@ -255,21 +257,42 @@ namespace p3d {
     
     void IRenderer::ClearScreen(const uint32& Option)
     {
-        uint32 Options = 0;
-        if (Option | Buffer_Bit::Color) Options |= GL_COLOR_BUFFER_BIT;
-        if (Option | Buffer_Bit::Depth) Options |= GL_DEPTH_BUFFER_BIT;
-        if (Option | Buffer_Bit::Stencil) Options |= GL_STENCIL_BUFFER_BIT;
+        uint32 Options=0;
+        if (Option & Buffer_Bit::Color) Options |= GL_COLOR_BUFFER_BIT;
+        if (Option & Buffer_Bit::Depth) Options |= GL_DEPTH_BUFFER_BIT;
+        if (Option & Buffer_Bit::Stencil) Options |= GL_STENCIL_BUFFER_BIT;
         
         glClear((GLuint)Options);
-        glClearColor(BackgroundColor.x,BackgroundColor.y,BackgroundColor.z,BackgroundColor.w);
+    }
+    
+    void IRenderer::DrawBackground()
+    {
+        if (BackgroundColorSet)
+            glClearColor(BackgroundColor.x,BackgroundColor.y,BackgroundColor.z,BackgroundColor.w);
     }
     
     void IRenderer::EnableDepthTest()
     {
         // Enables Depth
-        glEnable(GL_DEPTH_TEST);
-        glDepthMask(GL_TRUE);
-        glClearDepth(1.f);
+        DepthTest = true;
+    }
+    void IRenderer::DisableDepthTest()
+    {
+        // Disable Depth
+        DepthTest = false;
+    }
+    
+    void IRenderer::RunDepthTest()
+    {
+        if (DepthTest)
+        {
+            glEnable(GL_DEPTH_TEST);
+            glDepthMask(GL_TRUE);
+            glClearDepth(1.f);
+        } else {
+            glDisable(GL_DEPTH_TEST);
+            glClearDepth(1.f);
+        }
     }
     
     void IRenderer::SetGlobalLight(const Vec4& Light)
@@ -340,8 +363,12 @@ namespace p3d {
     void IRenderer::SetBackground(const Vec4& Color)
     {
         BackgroundColor = Color;
+        BackgroundColorSet = true;
     }
-    
+    void IRenderer::UnsetBackground()
+    {
+        BackgroundColorSet = false;
+    }
     // Culling Methods
     void IRenderer::ActivateCulling(const unsigned& cullingType)
     {

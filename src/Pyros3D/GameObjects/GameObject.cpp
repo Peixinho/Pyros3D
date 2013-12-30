@@ -40,13 +40,6 @@ namespace p3d {
         UpdateTransformation();
         
     }
-
-    // Clone Transforms
-    void GameObject::CloneTransform()
-    {
-        _LocalMatrix = _LocalMatrixThread;
-        _WorldMatrix = _WorldMatrixThread;
-    }
     
     // Updates the Transformation Matrix
     void GameObject::UpdateTransformation(const uint32 &order)
@@ -55,31 +48,31 @@ namespace p3d {
         {
             if (_IsUsingCustomMatrix) {
                 
-                _LocalMatrixThread = _LocalMatrixUserEntered;
+                _LocalMatrix = _LocalMatrixUserEntered;
                 _IsUsingCustomMatrix = false;
                 
                 // Set Properties
-                _Position = _LocalMatrixThread.GetTranslation();
-                _Rotation = _LocalMatrixThread.GetEulerFromRotationMatrix();
-                _Scale = _LocalMatrixThread.GetScale();
+                _Position = _LocalMatrix.GetTranslation();
+                _Rotation = _LocalMatrix.GetEulerFromRotationMatrix();
+                _Scale = _LocalMatrix.GetScale();
                 
             } else {
                 
                 // Set Local Matrix Identity
-                _LocalMatrixThread.identity();
+                _LocalMatrix.identity();
 
                 // apply translation
-                _LocalMatrixThread.Translate(_Position.x,_Position.y,_Position.z);
+                _LocalMatrix.Translate(_Position.x,_Position.y,_Position.z);
 
                 // apply rotation
                 Quaternion q;
                 q.SetRotationFromEuler(_Rotation, order);
-                _LocalMatrixThread *= q.ConvertToMatrix();
+                _LocalMatrix *= q.ConvertToMatrix();
 
                 // apply scale
                 Matrix scaleMatrix;                
                 scaleMatrix.Scale(_Scale.x,_Scale.y,_Scale.z);
-                _LocalMatrixThread *= scaleMatrix;
+                _LocalMatrix *= scaleMatrix;
                 
             }
         }
@@ -97,7 +90,7 @@ namespace p3d {
             }
 
             // Transformation    
-            Matrix TransfMatrix = _LocalMatrixThread;
+            Matrix TransfMatrix = _LocalMatrix;
 
             // Translation value
             Vec3 Translation = TransfMatrix.GetTranslation();
@@ -109,10 +102,10 @@ namespace p3d {
 
             TransfMatrix.Translate(Translation);
 
-            _LocalMatrixThread = TransfMatrix;
+            _LocalMatrix = TransfMatrix;
 
             // Save Rotation After LookAt
-            _Rotation = _LocalMatrixThread.GetRotation(_Scale).GetEulerFromRotationMatrix();
+            _Rotation = _LocalMatrix.GetRotation(_Scale).GetEulerFromRotationMatrix();
             
         }
         _IsDirty = false;
@@ -120,8 +113,8 @@ namespace p3d {
         if (_HaveOwner)
         {
             _Owner->UpdateTransformation();
-            _WorldMatrixThread = _Owner->_LocalMatrixThread * _LocalMatrixThread;
-        } else _WorldMatrixThread = _LocalMatrixThread;
+            _WorldMatrix = _Owner->_LocalMatrix * _LocalMatrix;
+        } else _WorldMatrix = _LocalMatrix;
     }
     // Gets Transformation Matrix
     Matrix GameObject::GetWorldTransformation()

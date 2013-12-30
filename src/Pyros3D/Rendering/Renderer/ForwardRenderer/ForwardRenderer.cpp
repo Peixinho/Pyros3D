@@ -63,7 +63,7 @@ namespace p3d {
          
     }
     
-    void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, bool clearScreen)
+    void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 BufferOptions)
     {
         
         // Initialize Renderer
@@ -135,7 +135,7 @@ namespace p3d {
                             // GPU Shadows
                             // Clear Screen
                             ClearScreen(Buffer_Bit::Depth);
-                            EnableDepthTest();
+                            RunDepthTest();
 
                             // Enable Depth Bias
                             EnableDepthBias(Vec2(d->GetShadowBiasFactor(), d->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
@@ -274,7 +274,7 @@ namespace p3d {
 
                                 // Clear Screen
                                 ClearScreen(Buffer_Bit::Depth);
-                                EnableDepthTest();
+                                RunDepthTest();
 
                                 // Enable Depth Bias
                                 EnableDepthBias(Vec2(p->GetShadowBiasFactor(), p->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
@@ -377,7 +377,7 @@ namespace p3d {
 
                             // Clear Screen
                             ClearScreen(Buffer_Bit::Depth);
-                            EnableDepthTest();
+                            RunDepthTest();
 
                             // Enable Depth Bias
                             EnableDepthBias(Vec2(s->GetShadowBiasFactor(), s->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
@@ -475,13 +475,14 @@ namespace p3d {
             
             _SetViewPort(viewPortStartX,viewPortStartY,viewPortEndX,viewPortEndY);
 
-            if (clearScreen)
-            {
-                // Clear Screen
-                ClearScreen(Buffer_Bit::Color | Buffer_Bit::Depth);
-                SetBackground(Vec4::ZERO);
-                EnableDepthTest();
-            }
+            // Clear Screen
+            ClearScreen(BufferOptions);
+            
+            // Draw Background
+            DrawBackground();
+            
+            // Depth Test
+            RunDepthTest();
 
             // Render Scene with Objects Material
             for (std::vector<RenderingMesh*>::iterator i=rmesh.begin();i!=rmesh.end();i++)
@@ -501,7 +502,7 @@ namespace p3d {
                             cullingTest = CullingSphereTest(*i);
                             break;
                     }
-                    if (cullingTest && (*i)->renderingComponent->IsActive())
+                    if (cullingTest && (*i)->renderingComponent->IsActive() && (*i)->Active == true)
                         RenderObject((*i),(*i)->Material);
                 }
             }

@@ -80,59 +80,10 @@ namespace p3d {
             // Update Components
             (*i)->UpdateComponents();
             
-#ifndef MULTI_THREAD
-            
-            // NOT MULTI THREADED
-            
             // Update Transforms Not Using Threads
             (*i)->InternalUpdate();
-            (*i)->CloneTransform();
             
         }
-#else
-        // MULTI THREADED
-        
-        if (!_ThreadIsUpdating && !_ThreadSync)
-        {
-            // Copy GameObjects to Thread
-            _GameObjectList.resize(_GameObjectList.size());
-            
-            // Register Thread
-            ThreadID = Thread::AddThread(UpdateTransformations);
-                    
-        } else {
-            if (_ThreadIsUpdating && !_ThreadSync)
-            {
-                // Remove Thread
-                Thread::RemoveThread(ThreadID);
-
-                // Copy From Thread to GameObjects
-                _ThreadSync = true;
-                for (std::vector<GameObject*>::iterator i=_GameObjectList.begin();i!=_GameObjectList.end();i++)
-                {
-                    // Copy from Thread
-                    (*i)->CloneTransform();
-                }
-                _ThreadSync = false;
-            }
-        }
-#endif
-
-    }
-  
-    // Thread Function
-    void* SceneGraph::UpdateTransformations(SceneGraph* Scene)
-    {
-        // Set Flag
-        Scene->_ThreadIsUpdating = true;
-        for (std::vector<GameObject*>::iterator i=Scene->_GameObjectList.begin();i!=Scene->_GameObjectList.end();i++)
-        {
-            (*i)->InternalUpdate();
-        }
-        // Unset Flag
-        Scene->_ThreadIsUpdating = false;
-
-        return NULL;
     }
     
     const f64 &SceneGraph::GetTime() const 

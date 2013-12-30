@@ -72,17 +72,14 @@ namespace p3d {
             // Parent
             void Add(GameObject* Child);
             void Remove(GameObject* Child);
-            
+
         private:
-            
-            // Internal Update
-            void InternalUpdate();
             
             // Update Components
             void UpdateComponents();
             
-            // Clone Transform
-            void CloneTransform();
+            // Internal Update
+            void InternalUpdate();
             
             // Update Transformation
             void UpdateTransformation(const uint32 &order = 0);
@@ -93,8 +90,8 @@ namespace p3d {
             Vec3 _Scale;
             
             // Thread and User Properties
-            Matrix _LocalMatrixUserEntered, _LocalMatrixThread;
-            Matrix _WorldMatrix, _WorldMatrixThread;
+            Matrix _LocalMatrixUserEntered;
+            Matrix _WorldMatrix;
             bool _IsDirty, _IsUsingCustomMatrix;
             
             // Local Transformation Matrix

@@ -14,11 +14,11 @@ namespace p3d {
     std::map<uint32, _Thread> Thread::_ThreadsList;
     uint32 Thread::ThreadsCounter = 0;
     
-    uint32 Thread::AddThread(void* (*ThreadFunction)(void*))
+    uint32 Thread::AddThread(void* (*ThreadFunction)(void*), void* arg)
     {
         ThreadsCounter++;
         // Create Thread
-        uint32 pID = pthread_create( &_ThreadsList[ThreadsCounter].thread, NULL, *ThreadFunction, NULL);
+        uint32 pID = pthread_create( &_ThreadsList[ThreadsCounter].thread, NULL, *ThreadFunction, arg);
         if (pID!=0) echo("ERROR: Thread Not Registered, CODE: " + NumberToString(pID));
         return ThreadsCounter;
     }

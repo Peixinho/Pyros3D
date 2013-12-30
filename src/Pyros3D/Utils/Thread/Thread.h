@@ -25,7 +25,7 @@ namespace p3d {
     public:
         
         // Add Thread
-        static uint32 AddThread(void* (*ThreadFunction)(void*));
+        static uint32 AddThread(void* (*ThreadFunction)(void*), void* arg);
         // Remove Thread
         static bool RemoveThread(const uint32 &ThreadID);
         // Lock & Unlock

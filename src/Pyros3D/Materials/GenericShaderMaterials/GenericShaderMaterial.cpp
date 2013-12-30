@@ -38,6 +38,9 @@ namespace p3d
         // Get Shader Program
         shaderProgram = ShadersList[options]->shaderProgram;
 
+        // Back Face Culling
+        cullFace = CullFace::BackFace;
+        
         // Always used Uniforms
         AddUniform(Uniform::Uniform("uProjectionMatrix",Uniform::DataUsage::ProjectionMatrix));
         AddUniform(Uniform::Uniform("uViewMatrix",Uniform::DataUsage::ViewMatrix));

@@ -26,9 +26,10 @@ namespace p3d {
     namespace Buffer_Bit
     {
         enum {
-            Color = 0x1,
-            Depth = 0x2,
-            Stencil = 0x4
+            None = 0,
+            Color = 0x10,
+            Depth = 0x20,
+            Stencil = 0x40
         };
     }
     
@@ -41,7 +42,9 @@ namespace p3d {
             virtual ~IRenderer();
             void ClearScreen(const uint32 &Option);
             void EnableDepthTest();
+            void DisableDepthTest();
             void SetBackground(const Vec4 &Color);
+            void UnsetBackground();
             void SetGlobalLight(const Vec4 &Light);
             void EnableDepthBias(const Vec2 &Bias);
             void DisableDepthBias();
@@ -54,7 +57,7 @@ namespace p3d {
             void DeactivateCulling();
         
             // Render Scene
-            virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, bool clearScreen = true);
+            virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const uint32 BufferOptions = Buffer_Bit::Color | Buffer_Bit::Depth);
         
         protected:
             
@@ -93,7 +96,17 @@ namespace p3d {
             void DisableWireFrame();
             bool WireFrame;
             
+            // Background
+            void DrawBackground();
+            bool BackgroundColorSet;
+            
+            // Depth Test
+            void RunDepthTest();
+            
             // Properties
+            
+            bool                DepthTest;
+            
             Vec4 
                                 BackgroundColor;
             Vec4 

@@ -75,7 +75,7 @@ void SimplePhysics::Init()
     Renderable* cubeHandle = AssetManager::CreateCube(10,10,10);
 
     // Create 100 Cubes
-    for (uint32 i=0;i<100;i++)
+    for (uint32 i=0;i<1000;i++)
     {
         // Create GameObject
         GameObject* Cube = new GameObject();

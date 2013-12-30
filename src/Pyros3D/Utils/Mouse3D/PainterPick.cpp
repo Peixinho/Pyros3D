@@ -104,11 +104,10 @@ namespace p3d {
         fbo->Bind();
         
         // Set ViewPort
-        SetViewPort(0,0,Width,Height);
+        _SetViewPort(viewPortStartX,viewPortStartY,viewPortEndX,viewPortEndY);
         
         // Clear Screen
         ClearScreen(Buffer_Bit::Color | Buffer_Bit::Depth);
-        SetBackground(Vec4(0,0,0,0));
         EnableDepthTest();
         
         // Render Scene with Objects Material
@@ -129,7 +128,7 @@ namespace p3d {
                         cullingTest = CullingSphereTest(*i);
                         break;
                 }
-                if (cullingTest && (*i)->renderingComponent->IsActive())
+                if (cullingTest && (*i)->renderingComponent->IsActive() && ((*i)->Clickable || (*i)->Active))
                 {
                     colors++;
                     Vec4 color = Rgba8ToVec4(colors);
