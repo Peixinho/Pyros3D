@@ -3,6 +3,12 @@
 ------------------------------------------------------------------
 solution "Pyros3D"
  
+    -- Make Directories
+    os.mkdir("bin");
+    os.mkdir("build");
+    os.mkdir("include");
+    os.mkdir("libs");
+
     ------------------------------------------------------------------
     -- setup common settings
     ------------------------------------------------------------------
@@ -28,7 +34,7 @@ solution "Pyros3D"
         -- Log Options
         defines({"LOG_DISABLE"}) 
         --| defines({"LOG_TO_FILE"}) | defines({"LOG_TO_CONSOLE"})
- 		        
+                
         configuration "Debug"
 
             targetname(libName.."d")
@@ -39,14 +45,14 @@ solution "Pyros3D"
                 linkoptions { "-L../libs -Wl,-rpath,../libs" }
             end
             
-			if os.get() == "windows" then
-				links { "opengl32", "glu32", "glew", "sfml-system", "sfml-window", "sfml-graphics", "assimp", "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
+            if os.get() == "windows" then
+                links { "opengl32", "glu32", "glew", "sfml-system", "sfml-window", "sfml-graphics", "assimp", "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
                 libdirs { rootdir.."/libs" }
-			end
+            end
 
-			if os.get() == "macosx" then
-
-			end
+            if os.get() == "macosx" then
+                links { "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "freetype.framework", "GLEW.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletMultiThreaded.framework", "BulletSoftBody.framework", "LinearMath.framework", "MiniCL.framework" }
+            end
 
             flags { "Symbols" }
 
@@ -58,13 +64,13 @@ solution "Pyros3D"
             end
 
             if os.get() == "windows" then
-				links { "opengl32", "glu32", "glew", "sfml-system", "sfml-window", "sfml-graphics", "assimp", "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
-				libdirs { rootdir.."../libs" }
-			end
+                links { "opengl32", "glu32", "glew", "sfml-system", "sfml-window", "sfml-graphics", "assimp", "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
+                libdirs { rootdir.."../libs" }
+            end
 
-			if os.get() == "macosx" then
-
-			end
+            if os.get() == "macosx" then
+                links { "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "freetype.framework", "GLEW.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletMultiThreaded.framework", "BulletSoftBody.framework", "LinearMath.framework", "MiniCL.framework" }
+            end
 
             flags { "Optimize" }
 
@@ -77,7 +83,7 @@ function BuildDemo(demoPath, demoName)
         includedirs { "include/", "src/" }
 
         defines({"UNICODE", "GLEW_STATIC"})
-		defines({"LOG_DISABLE"})
+        defines({"LOG_DISABLE"})
 
         configuration "Debug"
 
@@ -96,7 +102,7 @@ function BuildDemo(demoPath, demoName)
             end
 
             if os.get() == "macosx" then
-
+                links { "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletMultiThreaded.framework", "BulletSoftBody.framework", "LinearMath.framework", "MiniCL.framework" }
             end
 
             flags { "Symbols" }
@@ -116,7 +122,7 @@ function BuildDemo(demoPath, demoName)
             end
 
             if os.get() == "macosx" then
-
+                links { "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletMultiThreaded.framework", "BulletSoftBody.framework", "LinearMath.framework", "MiniCL.framework" }
             end
 
             flags { "Optimize" }
