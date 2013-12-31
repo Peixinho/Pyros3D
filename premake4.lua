@@ -136,5 +136,3 @@ BuildDemo("examples/TextRendering", "TextRendering");
 BuildDemo("examples/CustomMaterial", "CustomMaterial");
 BuildDemo("examples/PickingWithPainterMethod", "PickingWithPainterMethod");
 BuildDemo("examples/RacingGame", "RacingGame");
-
---sudo ln -s /usr/include/freetype2/freetype /usr/include/freetype

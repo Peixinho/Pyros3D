@@ -14,4 +14,5 @@ Compilation Process:
 		AngelScript (not used for now, but its on the compilation process)
 		
 
-
+// Linux fix for Freetype2
+sudo ln -s /usr/include/freetype2/freetype /usr/include/freetype
