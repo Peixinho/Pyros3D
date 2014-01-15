@@ -483,7 +483,6 @@ namespace p3d {
         
         if (isMipMap)
         {
-            glGenerateMipmap(GLSubMode);
             if (GLEW_VERSION_2_1)
             {
                 glGenerateMipmap(GLSubMode);
@@ -514,7 +513,6 @@ namespace p3d {
             
             if (isMipMap)
             {
-                glGenerateMipmap(GLSubMode);
                 if (GLEW_VERSION_2_1)
                 {
                     glGenerateMipmap(GLSubMode);
