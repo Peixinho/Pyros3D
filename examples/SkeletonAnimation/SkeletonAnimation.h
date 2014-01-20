@@ -41,6 +41,9 @@ class SkeletonAnimation : public SFMLContext {
         Projection projection;
         // Camera - Its a regular GameObject
         GameObject* Camera;
+        // Light
+        GameObject* Light;
+        DirectionalLight* dLight;
         // GameObject
         GameObject* Model;
         // Rendering Component

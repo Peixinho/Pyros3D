@@ -40,15 +40,22 @@ void SkeletonAnimation::Init()
         
         // Create Camera
         Camera = new GameObject();
-        Camera->SetPosition(Vec3(0,0,150));
+        Camera->SetPosition(Vec3(0,0,10));
+
+        // Light
+        Light = new GameObject();
+        dLight = new DirectionalLight(Vec4(1,1,1,1));
+        Light->Add(dLight);
+        Scene->Add(Light);
+        Light->SetPosition(Vec3(1,1,1));
 
         // Create Game Object
         Model = new GameObject();
-        rModel = new RenderingComponent(AssetManager::LoadModel("guard/boblampclean.md5mesh",false,ShaderUsage::Skinning));
+        rModel = new RenderingComponent(AssetManager::LoadModel("../../../../examples/SkeletonAnimation/charRigged.dae",false,ShaderUsage::Skinning | ShaderUsage::Diffuse));
         Model->Add(rModel);
 
         Animation = new AnimationManager();
-        Animation->LoadAnimation("guard/boblampclean.md5anim", rModel);
+        Animation->LoadAnimation("../../../../examples/SkeletonAnimation/charRigged.dae", rModel);
         
         // Add Camera to Scene
         Scene->Add(Camera);
@@ -61,9 +68,9 @@ void SkeletonAnimation::Update()
 {
     // Update - Game Loop
         
-        currentTime += 0.05f;
+        currentTime += 0.0005f;
 
-		if (currentTime>150.f)
+		if (currentTime>5.f)
             currentTime = 0.f;
 
         // Updates Animation
@@ -76,13 +83,6 @@ void SkeletonAnimation::Update()
 
         // Render Scene
         Renderer->RenderScene(projection,Camera,Scene);
-
-        // Updates Animation
-        Animation->Update(currentTime);
-        
-        // Info on Window
-        // Should come in the End
-        // std::ostringstream x; x << fps.getFPS();
 }
 
 void SkeletonAnimation::Shutdown()
