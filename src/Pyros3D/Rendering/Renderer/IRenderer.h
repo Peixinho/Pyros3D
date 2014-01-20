@@ -53,7 +53,7 @@ namespace p3d {
             void Resize(const uint32 &Width, const uint32 &Height);
             
             // culling
-            void ActivateCulling(const unsigned &cullingType);
+            void ActivateCulling(const uint32 &cullingType);
             void DeactivateCulling();
         
             // Render Scene

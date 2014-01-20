@@ -1,0 +1,108 @@
+//============================================================================
+// Name        : SkeletonAnimation.cpp
+// Author      : Duarte Peixinho
+// Version     :
+// Copyright   : ;)
+// Description : Skeleton Animation Example
+//============================================================================
+
+#include "SkeletonAnimation.h"
+
+using namespace p3d;
+
+SkeletonAnimation::SkeletonAnimation() : SFMLContext(1024,768,"Pyros3D - Skeleton Animation Example",WindowType::Close | WindowType::Resize)
+{
+    
+}
+
+void SkeletonAnimation::OnResize(const uint32 &width, const uint32 &height)
+{
+    // Execute Parent Resize Function
+    SFMLContext::OnResize(width, height);
+    
+    // Resize
+    Renderer->Resize(width, height);
+    projection.Perspective(70.f,(f32)width/(f32)height,1.f,1000.f);
+}
+
+void SkeletonAnimation::Init()
+{
+    // Initialization
+    
+        // Initialize Scene
+        Scene = new SceneGraph();
+        
+        // Initialize Renderer
+        Renderer = new ForwardRenderer(Width,Height);
+
+        // Projection
+        projection.Perspective(70.f,(f32)Width/(f32)Height,1.f,1000.f);
+        
+        // Create Camera
+        Camera = new GameObject();
+        Camera->SetPosition(Vec3(0,0,150));
+
+        // Create Game Object
+        Model = new GameObject();
+        rModel = new RenderingComponent(AssetManager::LoadModel("guard/boblampclean.md5mesh",false,ShaderUsage::Skinning));
+        Model->Add(rModel);
+
+        Animation = new AnimationManager();
+        Animation->LoadAnimation("guard/boblampclean.md5anim", rModel);
+        
+        // Add Camera to Scene
+        Scene->Add(Camera);
+        // Add GameObject to Scene
+        Scene->Add(Model);
+
+}
+
+void SkeletonAnimation::Update()
+{
+    // Update - Game Loop
+        
+        currentTime += 0.05f;
+
+		if (currentTime>150.f)
+            currentTime = 0.f;
+
+        // Updates Animation
+        Animation->Update(currentTime);
+
+        //Model->SetRotation(Vec3(-1.57,0,0));
+
+        // Update Scene
+        Scene->Update(GetTime());
+
+        // Render Scene
+        Renderer->RenderScene(projection,Camera,Scene);
+
+        // Updates Animation
+        Animation->Update(currentTime);
+        
+        // Info on Window
+        // Should come in the End
+        // std::ostringstream x; x << fps.getFPS();
+}
+
+void SkeletonAnimation::Shutdown()
+{
+    // All your Shutdown Code Here
+    
+        // Remove GameObjects From Scene
+        Scene->Remove(Model);
+        Scene->Remove(Camera);
+        
+        Model->Remove(rModel);
+    
+        // Delete
+        AssetManager::DestroyAssets();
+        delete rModel;
+        delete Model;
+        delete Animation;
+        delete Camera;
+        delete Renderer;
+        delete Scene;
+}
+
+SkeletonAnimation::~SkeletonAnimation() {}

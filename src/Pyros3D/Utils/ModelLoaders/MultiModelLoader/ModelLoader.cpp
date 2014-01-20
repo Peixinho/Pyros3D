@@ -31,7 +31,7 @@ namespace p3d {
             // Get Skeleton
             GetBone(assimp_model->mRootNode);
             
-            for (uint32 i=0;i<assimp_model->mNumMeshes;++i)
+            for (uint32 i=0;i<assimp_model->mNumMeshes;i++)
             {
                 // loop through meshes
                 const aiMesh* mesh = assimp_model->mMeshes[i];
@@ -45,8 +45,7 @@ namespace p3d {
                 // set name
                 subMesh.Name = mesh->mName.data;
                 
-                subMesh.tIndex.reserve(mesh->mNumFaces);
-                for (uint32 t = 0; t < mesh->mNumFaces; t++) {
+                for (uint32 t = 0; t < mesh->mNumFaces;t++) {
                     const aiFace* face = &mesh->mFaces[t];
                     subMesh.tIndex.push_back(face->mIndices[0]);
                     subMesh.tIndex.push_back(face->mIndices[1]);
@@ -73,7 +72,6 @@ namespace p3d {
                 if (mesh->HasTextureCoords(0))
                 {               
                     subMesh.hasTexcoord = true;
-                    subMesh.tTexcoord.reserve(mesh->mNumVertices);
                     for (uint32 k = 0; k < mesh->mNumVertices;k++) 
                     {
                         subMesh.tTexcoord.push_back(Vec2(mesh->mTextureCoords[0][k].x,mesh->mTextureCoords[0][k].y));                            
@@ -96,52 +94,50 @@ namespace p3d {
                     subMesh.hasVertexColor = true;
                     subMesh.tVertexColor.resize(mesh->mNumVertices);
                     memcpy(&subMesh.tVertexColor[0],&mesh->mColors[0],mesh->mNumVertices*sizeof(Vec4));
-                } else subMesh.hasVertexColor = false;                
+                } else subMesh.hasVertexColor = false;
 
                 // get vertex weights
                 if (mesh->HasBones())
                 {
-                    
+                    // Set Flag
                     subMesh.hasBones = true;
-                    subMesh.tBonesID.reserve(mesh->mNumVertices);
-                    subMesh.tBonesWeight.reserve(mesh->mNumVertices);
                     
                     // Create Bone's Sub Mesh Internal ID
                     uint32 count = 0;
-                    for ( uint32 k = 0; k < mesh->mNumBones; k++)
+                    for (uint32 k = 0; k < mesh->mNumBones; k++)
                     {
                         // Save Offset Matrix
                         Matrix _offsetMatrix;
-                        _offsetMatrix.m[0] = mesh->mBones[k]->mOffsetMatrix.a1; _offsetMatrix.m[1] = mesh->mBones[k]->mOffsetMatrix.b1; _offsetMatrix.m[2] = mesh->mBones[k]->mOffsetMatrix.c1; _offsetMatrix.m[3] = mesh->mBones[k]->mOffsetMatrix.d1;
-                        _offsetMatrix.m[4] = mesh->mBones[k]->mOffsetMatrix.a2; _offsetMatrix.m[5] = mesh->mBones[k]->mOffsetMatrix.b2; _offsetMatrix.m[6] = mesh->mBones[k]->mOffsetMatrix.c2; _offsetMatrix.m[7] = mesh->mBones[k]->mOffsetMatrix.d2;
-                        _offsetMatrix.m[8] = mesh->mBones[k]->mOffsetMatrix.a3; _offsetMatrix.m[9] = mesh->mBones[k]->mOffsetMatrix.b3; _offsetMatrix.m[10] = mesh->mBones[k]->mOffsetMatrix.c3; _offsetMatrix.m[11] = mesh->mBones[k]->mOffsetMatrix.d3;
-                        _offsetMatrix.m[12] = mesh->mBones[k]->mOffsetMatrix.a4;_offsetMatrix.m[13] = mesh->mBones[k]->mOffsetMatrix.b4;_offsetMatrix.m[14] = mesh->mBones[k]->mOffsetMatrix.c4; _offsetMatrix.m[15] = mesh->mBones[k]->mOffsetMatrix.d4;
+                        _offsetMatrix.m[0]  = mesh->mBones[k]->mOffsetMatrix.a1; _offsetMatrix.m[1]  = mesh->mBones[k]->mOffsetMatrix.b1;  _offsetMatrix.m[2]   = mesh->mBones[k]->mOffsetMatrix.c1; _offsetMatrix.m[3]  = mesh->mBones[k]->mOffsetMatrix.d1;
+                        _offsetMatrix.m[4]  = mesh->mBones[k]->mOffsetMatrix.a2; _offsetMatrix.m[5]  = mesh->mBones[k]->mOffsetMatrix.b2;  _offsetMatrix.m[6]   = mesh->mBones[k]->mOffsetMatrix.c2; _offsetMatrix.m[7]  = mesh->mBones[k]->mOffsetMatrix.d2;
+                        _offsetMatrix.m[8]  = mesh->mBones[k]->mOffsetMatrix.a3; _offsetMatrix.m[9]  = mesh->mBones[k]->mOffsetMatrix.b3;  _offsetMatrix.m[10]  = mesh->mBones[k]->mOffsetMatrix.c3; _offsetMatrix.m[11] = mesh->mBones[k]->mOffsetMatrix.d3;
+                        _offsetMatrix.m[12] = mesh->mBones[k]->mOffsetMatrix.a4; _offsetMatrix.m[13] = mesh->mBones[k]->mOffsetMatrix.b4;  _offsetMatrix.m[14]  = mesh->mBones[k]->mOffsetMatrix.c4; _offsetMatrix.m[15] = mesh->mBones[k]->mOffsetMatrix.d4;
 
-                        int32 boneID = GetBoneID(mesh->mBones[k]->mName.data);
+                        uint32 boneID = GetBoneID(mesh->mBones[k]->mName.data);
                         subMesh.BoneOffsetMatrix[boneID] = _offsetMatrix;
                         subMesh.MapBoneIDs[boneID] = count;
                         count++;
                     }
                     
                     // Add Bones and Weights to SubMesh Structure, based on Internal IDs
-                    for (uint32 j = 0;j< mesh->mNumVertices; j++)
+                    for (uint32 j = 0; j < mesh->mNumVertices; j++)
                     {
                         // get values
-                        std::vector<int> boneID(4,0);
-                        std::vector<f32>weightValue(4,0.f);
+                        std::vector<uint32> boneID(4,0);
+                        std::vector<f32> weightValue(4,0.f);
                         
-                        count = 0;                        
-                        for ( uint32 k = 0; k < mesh->mNumBones; k++) 
-                        {                            
-                            for ( uint32 l = 0; l < mesh->mBones[k]->mNumWeights; l++)
+                        uint32 count = 0;
+                        for (uint32 k = 0; k < mesh->mNumBones; k++) 
+                        {
+                            for (uint32 l = 0; l < mesh->mBones[k]->mNumWeights; l++)
                             {
-                                if (mesh->mBones[k]->mWeights[l].mVertexId==j)
+                                if (mesh->mBones[k]->mWeights[l].mVertexId == j)
                                 {
                                     // Convert Bone ID to Internal of the Sub Mesh
-                                    boneID[count]=subMesh.MapBoneIDs[GetBoneID(mesh->mBones[k]->mName.data)];
+                                    boneID[count] = subMesh.MapBoneIDs[GetBoneID(mesh->mBones[k]->mName.data)];
                                     // Add Bone Weight
-                                    weightValue[count]=mesh->mBones[k]->mWeights[l].mWeight;
-                                    count ++;
+                                    weightValue[count] = mesh->mBones[k]->mWeights[l].mWeight;
+                                    count++;
                                 }
                             }
                         }
@@ -279,12 +275,12 @@ namespace p3d {
 
         aiVector3D _bonePos, _boneScale;
         aiQuaternion _boneRot;
-        bone->mTransformation.Decompose(_boneScale, _boneRot, _bonePos);                
+        bone->mTransformation.Decompose( _boneScale, _boneRot, _bonePos);                
 
         Matrix _boneMatrix;
-        _boneMatrix.m[0] = bone->mTransformation.a1; _boneMatrix.m[1] = bone->mTransformation.b1; _boneMatrix.m[2] = bone->mTransformation.c1; _boneMatrix.m[3] = bone->mTransformation.d1;
-        _boneMatrix.m[4] = bone->mTransformation.a2; _boneMatrix.m[5] = bone->mTransformation.b2; _boneMatrix.m[6] = bone->mTransformation.c2; _boneMatrix.m[7] = bone->mTransformation.d2;
-        _boneMatrix.m[8] = bone->mTransformation.a3; _boneMatrix.m[9] = bone->mTransformation.b3; _boneMatrix.m[10] = bone->mTransformation.c3; _boneMatrix.m[11] = bone->mTransformation.d3;
+        _boneMatrix.m[0]  = bone->mTransformation.a1; _boneMatrix.m[1]  = bone->mTransformation.b1; _boneMatrix.m[2]  = bone->mTransformation.c1; _boneMatrix.m[3]  = bone->mTransformation.d1;
+        _boneMatrix.m[4]  = bone->mTransformation.a2; _boneMatrix.m[5]  = bone->mTransformation.b2; _boneMatrix.m[6]  = bone->mTransformation.c2; _boneMatrix.m[7]  = bone->mTransformation.d2;
+        _boneMatrix.m[8]  = bone->mTransformation.a3; _boneMatrix.m[9]  = bone->mTransformation.b3; _boneMatrix.m[10] = bone->mTransformation.c3; _boneMatrix.m[11] = bone->mTransformation.d3;
         _boneMatrix.m[12] = bone->mTransformation.a4; _boneMatrix.m[13] = bone->mTransformation.b4; _boneMatrix.m[14] = bone->mTransformation.c4; _boneMatrix.m[15] = bone->mTransformation.d4;
         
         Bone _bone;
@@ -295,7 +291,7 @@ namespace p3d {
         _bone.rot			= Quaternion(_boneRot.w,_boneRot.x,_boneRot.y,_boneRot.z);
         _bone.scale			= Vec3(_boneScale.x,_boneScale.y,_boneScale.z);
         _bone.bindPoseMat   = _boneMatrix;
-
+        
         // add bone to Skeleton
         skeleton[StringID (MakeStringID(_bone.name))]=_bone;
 

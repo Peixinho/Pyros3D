@@ -55,7 +55,7 @@ namespace p3d {
                 ModelMatrixInverse = 304,
                 ModelViewMatrixInverse = 305,
                 ModelMatrixInverseTranspose = 306,
-                SkinningBones = 307
+                Skinning = 307
             };
         };
 
@@ -176,7 +176,7 @@ namespace p3d {
                     case DataUsage::ModelMatrixInverseTranspose:
                         Type = DataType::Matrix;
                         break;
-                    case DataUsage::SkinningBones:
+                    case DataUsage::Skinning:
                         Type = DataType::Matrix;
                         break;
                 };

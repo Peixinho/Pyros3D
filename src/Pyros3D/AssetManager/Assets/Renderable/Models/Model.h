@@ -20,22 +20,13 @@ namespace p3d {
 
             ModelGeometry() : IGeometry(GeometryType::BUFFER) {}
 
-            // Adds Bones List
-            void SetSkinningBones(const std::vector<Matrix> &Bones) {}
-
             // Vectors
             std::vector<Vec3> tVertex, tNormal, tTangent, tBitangent;
             std::vector<Vec2> tTexcoord;
+
             // Bones
             std::vector<Vec4> tBonesID, tBonesWeight;
-
-            // Map Bone ID's
-            std::map<int32, int32> MapBoneIDs;
-            // Bone Offset Matrix
-            std::map<int32, Matrix> BoneOffsetMatrix;
-            // Bones Matrix List
-            std::vector<Matrix> SkinningBones;
-
+            
             void CreateBuffers();
 
             virtual std::vector<uint32> &GetIndexData() { return index; }
@@ -55,7 +46,6 @@ namespace p3d {
 
             // Model loader, skeleton and animation
             ModelLoader* mesh;
-            std::map<StringID, Bone> skeleton;
 
             void Build();
         

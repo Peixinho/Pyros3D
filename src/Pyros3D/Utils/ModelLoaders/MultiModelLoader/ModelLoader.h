@@ -23,8 +23,15 @@
 #include <assimp/Importer.hpp> 
 
 
-namespace p3d {   
+namespace p3d {
     
+    struct VertexWeight
+    {
+        uint32 vertexID;
+        f32 vertexWeight;
+        VertexWeight(const uint32 &ID,const f32 &weight) : vertexID(ID), vertexWeight(weight) {}
+    };
+
     // Bone Structure
     struct Bone {
         std::string name;
@@ -63,6 +70,7 @@ namespace p3d {
         // Map Bone IDs
         // Original ID - Internal ID
         std::map<int32, int32> MapBoneIDs;
+        // Offset Matrix
         std::map<int32, Matrix> BoneOffsetMatrix;
         
         // Materials
@@ -70,6 +78,8 @@ namespace p3d {
         
     };   
     
+    struct MaterialProperties;
+
     class ModelLoader : public IModelLoader {
         public:
 
@@ -87,7 +97,7 @@ namespace p3d {
             
             // Skinning
             uint32 GetBoneID(const std::string &BoneName);
-            uint32 GetBoneID(const StringID &BoneID);                        
+            uint32 GetBoneID(const StringID &BoneID);
             
             // Debug Skeleton to String
             void DebugSkeleton();

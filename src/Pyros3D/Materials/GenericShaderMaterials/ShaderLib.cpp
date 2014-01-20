@@ -300,7 +300,7 @@ namespace p3d
             vertexShaderBody+="matAnimation += uBoneMatrix[int(aBonesID.z)] * aBonesWeight.z;\n";
             vertexShaderBody+="matAnimation += uBoneMatrix[int(aBonesID.w)] * aBonesWeight.w;\n";
             // Overwrites the gl_Position
-            vertexShaderBody+="gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * (matAnimation * vec4(aPosition,1.0));\n";
+            vertexShaderBody+="gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * matAnimation * vec4(aPosition,1.0);\n";
             
             if (usingNormal)
             {

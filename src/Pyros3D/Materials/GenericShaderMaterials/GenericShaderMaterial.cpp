@@ -100,7 +100,6 @@ namespace p3d
             AddUniform(Uniform::Uniform("uPointDepthsMVP",Uniform::DataUsage::PointShadowMatrix));
             AddUniform(Uniform::Uniform("uNumberOfPointShadows",Uniform::DataUsage::NumberOfPointShadows));
             AddUniform(Uniform::Uniform("uPCFTexelSize",Uniform::DataType::Float,&PCFTexelSize1));
-
             isCastingShadows = true;
         }
         
@@ -111,7 +110,6 @@ namespace p3d
             AddUniform(Uniform::Uniform("uSpotDepthsMVP",Uniform::DataUsage::SpotShadowMatrix));
             AddUniform(Uniform::Uniform("uNumberOfSpotShadows",Uniform::DataUsage::NumberOfSpotShadows));
             AddUniform(Uniform::Uniform("uPCFTexelSize",Uniform::DataType::Float,&PCFTexelSize1));
-
             isCastingShadows = true;
         }
         
@@ -130,6 +128,10 @@ namespace p3d
             Reflectivity = 1.0;
             AddUniform(Uniform::Uniform("uReflectivity",Uniform::DataType::Float,&Reflectivity));
         }        
+        if (options & ShaderUsage::Skinning)
+        {
+            AddUniform(Uniform::Uniform("uBoneMatrix",Uniform::DataUsage::Skinning));
+        }
     }
     
     void GenericShaderMaterial::SetLightingProperties(const Vec4 &Ke, const Vec4 &Ka, const Vec4 &Kd, const Vec4 &Ks, const f32 &shininess)

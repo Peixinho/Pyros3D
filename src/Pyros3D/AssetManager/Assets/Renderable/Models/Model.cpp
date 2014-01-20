@@ -12,8 +12,6 @@ namespace p3d {
 
     void ModelGeometry::CreateBuffers()
     {
-         CalculateBounding();
-
          AttributeBuffer* Vertex  = new AttributeBuffer(Buffer::Type::Attribute,Buffer::Draw::Static);
          if (tVertex.size()>0) Vertex->AddAttribute("aPosition", Buffer::Attribute::Type::Vec3,&tVertex[0],tVertex.size());
          if (tNormal.size()>0) Vertex->AddAttribute("aNormal", Buffer::Attribute::Type::Vec3,&tNormal[0],tNormal.size());
@@ -108,10 +106,10 @@ namespace p3d {
                         if (mesh->subMeshes[i].hasBones==true)
                         {
                             c_submesh->tBonesID.resize(mesh->subMeshes[i].tVertex.size());
-                            memcpy(&c_submesh->tBonesID[0],&mesh->subMeshes[i].tBonesID[0],mesh->subMeshes[i].tBonesID.size()*sizeof(Vec4));
+                            memcpy(&c_submesh->tBonesID[0],&mesh->subMeshes[i].tBonesID[0],mesh->subMeshes[i].tVertex.size()*sizeof(Vec4));
 
                             c_submesh->tBonesWeight.resize(mesh->subMeshes[i].tVertex.size());
-                            memcpy(&c_submesh->tBonesWeight[0],&mesh->subMeshes[i].tBonesWeight[0],mesh->subMeshes[i].tBonesWeight.size()*sizeof(Vec4));
+                            memcpy(&c_submesh->tBonesWeight[0],&mesh->subMeshes[i].tBonesWeight[0],mesh->subMeshes[i].tVertex.size()*sizeof(Vec4));
 
                             // Save SubMesh Map
                             c_submesh->MapBoneIDs = mesh->subMeshes[i].MapBoneIDs;
@@ -162,11 +160,11 @@ namespace p3d {
                         }
                         if (mesh->subMeshes[i].hasBones==true)
                         {
-                            c_submesh->tBonesID.resize(offset + mesh->subMeshes[i].tVertex.size());
-                            memcpy(&c_submesh->tBonesID[offset],&mesh->subMeshes[i].tBonesID[0],mesh->subMeshes[i].tBonesID.size()*sizeof(Vec4));
+                            c_submesh->tBonesID.resize(mesh->subMeshes[i].tVertex.size());
+                            memcpy(&c_submesh->tBonesID[0],&mesh->subMeshes[i].tBonesID[0],mesh->subMeshes[i].tVertex.size()*sizeof(Vec4));
 
-                            c_submesh->tBonesWeight.resize(offset + mesh->subMeshes[i].tVertex.size());
-                            memcpy(&c_submesh->tBonesWeight[offset],&mesh->subMeshes[i].tBonesWeight[0],mesh->subMeshes[i].tBonesWeight.size()*sizeof(Vec4));
+                            c_submesh->tBonesWeight.resize(mesh->subMeshes[i].tVertex.size());
+                            memcpy(&c_submesh->tBonesWeight[0],&mesh->subMeshes[i].tBonesWeight[0],mesh->subMeshes[i].tVertex.size()*sizeof(Vec4));
 
                             // Save SubMesh Map
                             c_submesh->MapBoneIDs = mesh->subMeshes[i].MapBoneIDs;
@@ -233,18 +231,18 @@ namespace p3d {
         }
         
         // Add Merged Meshes
-        if (mergeMeshes)
-        for (std::map<uint32, ModelGeometry*>::iterator i = meshes.begin();i!=meshes.end();i++)
-        {
-            Geometries.push_back((*i).second);
-        }
+        // if (mergeMeshes)
+        // for (std::map<uint32, ModelGeometry*>::iterator i = meshes.begin();i!=meshes.end();i++)
+        // {
+        //     Geometries.push_back((*i).second);
+        // }
+        
+        // Save Skeleton
+        skeleton = mesh->skeleton;
         
         // Build Meshes
         Build();
-
-        // Save Skeleton
-        skeleton = mesh->skeleton;
-
+        
         // Delete Model Loader
         delete mesh;
     }

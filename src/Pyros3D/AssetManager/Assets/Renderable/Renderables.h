@@ -13,6 +13,7 @@
 #include "../../../Core/Math/Math.h"
 #include "../../../Core/Buffers/GeometryBuffer.h"
 #include "../../../Materials/GenericShaderMaterials/GenericShaderMaterial.h"
+#include "../../../Utils/ModelLoaders/MultiModelLoader/ModelLoader.h"
 #include <map>
 #include <vector>
 #include <list>
@@ -99,6 +100,8 @@ namespace p3d {
 
         }
     };
+
+    struct Bone;
 
     class AttributeArray
     {
@@ -272,6 +275,11 @@ namespace p3d {
             }
 
             uint32 GetInternalID() { return ID; }
+            
+            // Map Bone ID's
+            std::map<int32, int32> MapBoneIDs;
+            // Bone Offset Matrix
+            std::map<int32, Matrix> BoneOffsetMatrix;
 
         protected:
 
@@ -282,7 +290,6 @@ namespace p3d {
             // Internal ID
             static uint32 _InternalID;
             uint32 ID;
-
     };
 
     // Keeps the Geometry List
@@ -331,6 +338,9 @@ namespace p3d {
             virtual Vec3 &GetBoundingMinValue() { return minBounds; }
             virtual Vec3 &GetBoundingMaxValue() { return maxBounds; }
 
+            // Get Skeleton
+            const std::map<StringID, Bone> &GetSkeleton() const { return skeleton; }
+
         protected:
 
             // Bounds of the Whole Model
@@ -338,6 +348,10 @@ namespace p3d {
             Vec3 BoundingSphereCenter;
             Vec3 maxBounds, minBounds;
 
+            // Skeleton
+            std::map<StringID, Bone> skeleton;
+
     };
 };
+
  #endif /* RENDERABLES_H */

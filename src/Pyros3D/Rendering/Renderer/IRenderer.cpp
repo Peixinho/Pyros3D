@@ -370,7 +370,7 @@ namespace p3d {
         BackgroundColorSet = false;
     }
     // Culling Methods
-    void IRenderer::ActivateCulling(const unsigned& cullingType)
+    void IRenderer::ActivateCulling(const uint32& cullingType)
     {
         culling = new FrustumCulling();
         IsCulling = true;
@@ -433,7 +433,7 @@ namespace p3d {
     void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
     {
         // Send Global Uniforms
-        unsigned counter = 0;
+        uint32 counter = 0;
         for (std::vector<Uniform::Uniform>::iterator k = Material->GlobalUniforms.begin();k!=Material->GlobalUniforms.end();k++)
         {
             if (rmesh->ShadersGlobalCache[Material->GetShader()][counter] ==-2)
@@ -540,7 +540,7 @@ namespace p3d {
     void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
     {
         // User Specific Uniforms
-        unsigned counter = 0;
+        uint32 counter = 0;
         for (std::map<StringID, Uniform::Uniform>::iterator k = Material->UserUniforms.begin();k!=Material->UserUniforms.end();k++)
         {
             if (rmesh->ShadersUserCache[Material->GetShader()][counter]==-2)
@@ -559,7 +559,7 @@ namespace p3d {
     
     void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
     {
-        unsigned counter = 0;
+        uint32 counter = 0;
         for (std::vector<Uniform::Uniform>::iterator k = Material->ModelUniforms.begin();k!=Material->ModelUniforms.end();k++)
         {
             if (rmesh->ShadersModelCache[Material->GetShader()][counter]==-2)
@@ -623,11 +623,10 @@ namespace p3d {
                         }
                         Shader::SendUniform((*k),&ModelMatrixInverseTranspose,rmesh->ShadersModelCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::SkinningBones:
-                        //                    if (RenderingSubMeshComponent* sub = dynamic_cast<RenderingSubMeshComponent*> (rmesh))
-                        //                    {
-                        //                        Shader::SendUniform((*k),&sub->SkinningBones[0],sub->SkinningBones.size());
-                        //                    }
+                    case Uniform::DataUsage::Skinning:
+                        {
+                            Shader::SendUniform((*k),&rmesh->SkinningBones[0],rmesh->ShadersModelCache[Material->GetShader()][counter],rmesh->SkinningBones.size());
+                        }
                         break;
                 }
             }
@@ -668,10 +667,10 @@ namespace p3d {
         // Disable Attributes
         if (rmesh->Geometry->Attributes.size()>0)
         {
-            unsigned counterBuffers = 0;
+            uint32 counterBuffers = 0;
             for (std::vector<AttributeArray*>::iterator k=rmesh->Geometry->Attributes.begin();k!=rmesh->Geometry->Attributes.end();k++)
             {
-                unsigned counter = 0;
+                uint32 counter = 0;
                 for (std::vector<VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
                 {
                     // If exists in shader
@@ -767,7 +766,7 @@ namespace p3d {
                     }
 
                     // Counter
-                    unsigned counter = 0;
+                    uint32 counter = 0;
                     for (std::vector<VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
                     {
                         // Check if is not set
@@ -805,7 +804,7 @@ namespace p3d {
                 {
                     
                     // Counter
-                    unsigned counter = 0;
+                    uint32 counter = 0;
                     for (std::vector<VertexAttribute*>::iterator l=(*k)->Attributes.begin();l!=(*k)->Attributes.end();l++)
                     {
                         // Check if is not set

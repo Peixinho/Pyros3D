@@ -135,4 +135,5 @@ BuildDemo("examples/SimplePhysics", "SimplePhysics");
 BuildDemo("examples/TextRendering", "TextRendering");
 BuildDemo("examples/CustomMaterial", "CustomMaterial");
 BuildDemo("examples/PickingWithPainterMethod", "PickingWithPainterMethod");
+BuildDemo("examples/SkeletonAnimation", "SkeletonAnimation");
 BuildDemo("examples/RacingGame", "RacingGame");

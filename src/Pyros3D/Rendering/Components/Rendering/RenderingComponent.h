@@ -11,6 +11,7 @@
 
 #include "../../../Components/IComponent.h"
 #include "../../../AssetManager/Assets/Renderable/Renderables.h"
+#include "../../../AssetManager/Assets/Renderable/Models/Model.h"
 #include "../../../Materials/IMaterial.h"
 #include "../../../AssetManager/AssetManager.h"
 #include "../../../Materials/GenericShaderMaterials/GenericShaderMaterial.h"
@@ -72,6 +73,13 @@ namespace p3d {
             
             // Clickable
             bool Clickable, Active;
+
+            // Map Bone ID's
+            std::map<int32, int32> MapBoneIDs;
+            // Bone Offset Matrix
+            std::map<int32, Matrix> BoneOffsetMatrix;
+            // Bones Matrix List
+            std::vector<Matrix> SkinningBones;
     };
     
     class RenderingComponent : public IComponent {
@@ -93,6 +101,9 @@ namespace p3d {
             void DisableCastShadows();
             bool IsCastingShadows();
             
+            // Get Model Skeleton
+            const std::map<StringID, Bone> &GetSkeleton() const { return skeleton; }
+
             // Get Model's Meshes
             std::vector<RenderingMesh*> &GetMeshes();
             
@@ -108,7 +119,10 @@ namespace p3d {
         
             // List of Meshes of this Model
             std::vector<RenderingMesh*> Meshes;
-            
+
+            // Skeleton
+            std::map<StringID, Bone> skeleton;
+
             // Culling Geometry
             uint32 CullingGeometry;
             

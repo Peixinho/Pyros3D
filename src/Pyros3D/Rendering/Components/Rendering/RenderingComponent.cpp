@@ -9,6 +9,7 @@
 #include "RenderingComponent.h"
 #include "GL/glew.h"
 #define GLCHECK() { int32 error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } }
+
 namespace p3d {
     
     // Initialize Rendering Components and Meshes vector
@@ -19,7 +20,7 @@ namespace p3d {
     {
         // By Default Is Casting Shadows
         isCastingShadows = true;
-        
+
         for (uint32 i=0;i<renderable->Geometries.size();i++)
         {
             // Rendering Mesh Instance
@@ -27,19 +28,27 @@ namespace p3d {
             
             // Save Geometry Pointer
             r_submesh->Geometry = renderable->Geometries[i];
+            // Get Geometry Specific Stuff
             r_submesh->Material = renderable->Geometries[i]->Material;
-            
+            if (renderable->Geometries[i]->materialProperties.haveBones)
+            {
+                r_submesh->MapBoneIDs = renderable->Geometries[i]->MapBoneIDs;
+                r_submesh->BoneOffsetMatrix = renderable->Geometries[i]->BoneOffsetMatrix;
+            }
             if (Material!=NULL) 
             {
                 r_submesh->Material = Material;
             }
-            
+
             // Own this Mothafuckah!
             r_submesh->renderingComponent = this;
             
             // Push Mesh
             Meshes.push_back(r_submesh);
         }
+
+        // Keep Skeleton
+        skeleton = renderable->GetSkeleton();
     }
     
     void RenderingComponent::Register(SceneGraph* Scene)
