@@ -49,13 +49,11 @@ void RotatingCubeWithLightingAndShadow::Init()
         
         // Add a Directional Light
         Light = new GameObject();
-        dLight = new DirectionalLight(Vec4(1,1,1,1));
+        dLight = new DirectionalLight(Vec4(1,1,1,1), Vec3(1,1,1));
         // Enable Shadow Casting
         dLight->EnableCastShadows(512,512,projection,0.1,200.0,1);
         dLight->SetShadowBias(1.f,3.f);
         Light->Add(dLight);
-        // Set Light Position (Direction is Position Normalized)
-        Light->SetPosition(Vec3(100,100,100));
         
         // Add Light to Scene
         Scene->Add(Light);

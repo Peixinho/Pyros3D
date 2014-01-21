@@ -140,8 +140,9 @@ namespace p3d {
         
         public:
             
-            DirectionalLight() : ILightComponent() { Color = Vec4(1,1,1,1); }
-            DirectionalLight(const Vec4 &color) { Color = color; }
+            DirectionalLight() : ILightComponent() { Color = Vec4(1,1,1,1); Direction = Vec3(0,1,0); }
+            DirectionalLight(const Vec4 &color) { Color = color; Direction = Vec3(0,-1,0); }
+            DirectionalLight(const Vec4 &color, const Vec3 &direction) { Color = color; Direction = direction; }
             virtual ~DirectionalLight() {}
 
             virtual void Start() {};
@@ -224,7 +225,7 @@ namespace p3d {
             Matrix GetLightViewMatrix()
             {
                 ShadowViewMatrix.identity();
-                ShadowViewMatrix.LookAt(Vec3::ZERO,(GetOwner()->GetWorldPosition().normalize()*-1.f),Vec3(0.f,0.f,-1.f));
+                ShadowViewMatrix.LookAt(Vec3::ZERO,(Direction.normalize()*-1.f),Vec3(0.f,0.f,-1.f));
                 return ShadowViewMatrix;
             }
             Matrix GetLightProjection(const uint32 &Cascade, const std::vector<RenderingMesh*> RCompList)
@@ -242,8 +243,14 @@ namespace p3d {
             {
                 return Cascades[Cascade];
             }
-                        
+            
+            const Vec3 &GetLightDirection() const { return Direction; }
+            void SetLightDirection(const Vec3 &direction) { Direction = direction; }
+
         private:
+
+            // Light Direction
+            Vec3 Direction;
 
             // Shadow Cast
             uint32 ShadowCascades;

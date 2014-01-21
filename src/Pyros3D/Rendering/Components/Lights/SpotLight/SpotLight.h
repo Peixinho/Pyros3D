@@ -37,6 +37,7 @@ namespace p3d {
             virtual void Destroy() {};
                        
             const Vec3 &GetLightDirection() const { return Direction; }
+            void SetLightDirection(const Vec3 &direction) { Direction = direction; }
             const f32 &GetLightCosInnerCone() const { return CosInnerCone; }
             const f32 &GetLightCosOutterCone() const { return CosOutterCone; }
             const f32 &GetLightInnerCone() const { return innerCone; }

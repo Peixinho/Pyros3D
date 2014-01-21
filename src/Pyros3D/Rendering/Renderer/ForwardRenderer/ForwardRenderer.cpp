@@ -107,7 +107,7 @@ namespace p3d {
                         // Directional Lights
                         Vec4 color = d->GetLightColor();
                         Vec3 position;
-                        Vec3 LDirection = d->GetOwner()->GetWorldPosition().normalize();
+                        Vec3 LDirection = d->GetLightDirection().normalize();
                         Vec4 direction = ViewMatrix * Vec4(LDirection.x,LDirection.y,LDirection.z,0.f);
                         f32 attenuation = 1.f;
                         Vec2 cones;
