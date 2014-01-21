@@ -86,6 +86,16 @@ namespace p3d {
             return Vec3(-x,-y,-z);
         }        
 
+        Vec3 Vec3::Lerp(const Vec3 &b, const f32 &t) const
+        {
+            Vec3 v;
+            v.x = x + ( b.x - x ) * t;
+            v.y = y + ( b.y - y ) * t;
+            v.z = z + ( b.z - z ) * t;
+
+            return v;
+        }
+
         Vec3 Vec3::operator+(const Vec3 &v) const
         {
             return Vec3(x+v.x,y+v.y,z+v.z);

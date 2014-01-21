@@ -41,6 +41,9 @@ namespace p3d {
                 void negateSelf();
                 Vec3 Abs() const;
                 
+                // Lerp
+                Vec3 Lerp(const Vec3 &b, const f32 &t) const;
+
                 // toString
                 std::string toString() const;
 

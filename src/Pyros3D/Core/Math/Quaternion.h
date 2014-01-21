@@ -37,8 +37,8 @@ namespace p3d {
             void SetRotationFromEuler(const Vec3 &rotation, const uint32 &order = 0);
             Vec3 GetEulerFromQuaternion(const uint32 &order = 0);
             void AxisToQuaternion(const Vec3 &v, const f32 angle);
-            Quaternion Slerp(Quaternion a, Quaternion b, f32 t) const;
-            Quaternion Nlerp(Quaternion a, Quaternion b, f32 t, bool shortestPath = true) const;
+            Quaternion Slerp(const Quaternion &b, const f32 &t) const;
+            Quaternion Nlerp(const Quaternion &b, const f32 &t, bool shortestPath = true) const;
             Quaternion Inverse();
             // operators
             Quaternion operator+(const Quaternion &q) const;
