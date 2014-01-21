@@ -68,28 +68,39 @@ namespace p3d {
             Quaternion curRotation;
             
             size_t posIndex = 0;
+            size_t posIndexNext = 0;
             while( 1 )
             {
-                if (posIndex+1>=ch.positions.size())
-                    break;
-                if (ch.positions[posIndex+1].Time > time)
+                if (posIndex+1>=ch.positions.size() || ch.positions[posIndex+1].Time > time)
                     break;
                 posIndex++;
             }
             curPosition = ch.positions[posIndex].Pos;
+
+            // Position Interpolation
+            if (posIndex+1<ch.positions.size())
+            {
+                posIndexNext = posIndex+1;
+                curPosition = curPosition.Lerp(ch.positions[posIndexNext].Pos, 1 -(ch.positions[posIndexNext].Time - time));
+            }
             
             size_t rotIndex = 0;
+            size_t rotIndexNext = 0;
             while( 1 )
             {
-                if( rotIndex +1 >= ch.rotations.size() )
-                break;
-
-                if( ch.rotations[rotIndex + 1].Time > time )
-                break;
+                if( rotIndex +1 >= ch.rotations.size() ||  ch.rotations[rotIndex + 1].Time > time )
+                    break;
                 rotIndex++;
             }
             curRotation = ch.rotations[rotIndex].Rot;
-            
+
+            // Rotation Interpolation
+            if( rotIndex+1<ch.rotations.size() )
+            {
+                rotIndexNext=rotIndex+1;
+                curRotation = curRotation.Slerp(ch.rotations[rotIndexNext].Rot, 1 - (ch.rotations[rotIndexNext].Time - time));
+            }
+
             // size_t scaleIndex = 0;
             // while( 1 )
             // {

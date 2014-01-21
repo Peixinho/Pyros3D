@@ -24,7 +24,7 @@ class CustomMaterial : public CustomShaderMaterial {
     
         public:
             
-            CustomMaterial() : CustomShaderMaterial("vertex.vert","fragment.frag")
+            CustomMaterial() : CustomShaderMaterial("../../../../examples/CustomMaterial/vertex.vert","../../../../examples/CustomMaterial/fragment.frag")
             {
                 AddUniform(Uniform::Uniform("uProjectionMatrix",Uniform::DataUsage::ProjectionMatrix));
                 AddUniform(Uniform::Uniform("uViewMatrix",Uniform::DataUsage::ViewMatrix));

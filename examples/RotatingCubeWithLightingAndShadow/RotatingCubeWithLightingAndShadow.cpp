@@ -104,10 +104,6 @@ void RotatingCubeWithLightingAndShadow::Update()
 
         // Render Scene
         Renderer->RenderScene(projection,Camera,Scene);
-
-        // Info on Window
-        // Should come in the End
-        // std::ostringstream x; x << fps.getFPS();
 }
 
 void RotatingCubeWithLightingAndShadow::Shutdown()

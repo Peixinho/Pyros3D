@@ -129,12 +129,7 @@ void SimplePhysics::Update()
     Scene->Update(GetTime());
 
     // Render Scene
-    Renderer->RenderScene(projection,Camera,Scene);
-    
-    // Info on Window
-    // Should come in the End
-    // std::ostringstream x; x << fps.getFPS();
-    
+    Renderer->RenderScene(projection,Camera,Scene);    
 }
 
 void SimplePhysics::Shutdown()

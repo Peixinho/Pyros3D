@@ -76,8 +76,6 @@ void SkeletonAnimation::Update()
         // Updates Animation
         Animation->Update(currentTime);
 
-        //Model->SetRotation(Vec3(-1.57,0,0));
-
         // Update Scene
         Scene->Update(GetTime());
 

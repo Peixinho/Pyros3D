@@ -67,10 +67,6 @@ void RotatingCube::Update()
 
         // Render Scene
         Renderer->RenderScene(projection,Camera,Scene);
-
-        // Info on Window
-        // Should come in the End
-        // std::ostringstream x; x << fps.getFPS();
 }
 
 void RotatingCube::Shutdown()
