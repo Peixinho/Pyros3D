@@ -49,7 +49,7 @@ namespace p3d {
 
     Model::Model(const std::string ModelPath, bool mergeMeshes, const uint32 &MaterialOptions)
     {
-        mesh = new ModelLoader();
+        mesh = new AssimpImporter();
         mesh->Load(ModelPath);
 
         this->MaterialOptions = MaterialOptions;

@@ -10,7 +10,7 @@
 #define MODEL_H
 
 #include "../Renderables.h"
-#include "../../../../Utils/ModelLoaders/MultiModelLoader/ModelLoader.h"
+#include "../../../../Utils/ModelLoaders/MultiModelLoader/AssimpImporter.h"
 
 namespace p3d {
 
@@ -45,7 +45,7 @@ namespace p3d {
             virtual ~Model() {}
 
             // Model loader, skeleton and animation
-            ModelLoader* mesh;
+            IModelLoader* mesh;
 
             void Build();
         

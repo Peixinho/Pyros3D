@@ -13,7 +13,7 @@
 #include "../../../Core/Math/Math.h"
 #include "../../../Core/Buffers/GeometryBuffer.h"
 #include "../../../Materials/GenericShaderMaterials/GenericShaderMaterial.h"
-#include "../../../Utils/ModelLoaders/MultiModelLoader/ModelLoader.h"
+#include "../../../Utils/ModelLoaders/IModelLoader.h"
 #include <map>
 #include <vector>
 #include <list>
