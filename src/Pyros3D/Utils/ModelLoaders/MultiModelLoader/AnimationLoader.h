@@ -13,6 +13,7 @@
 #include "../../../Core/Math/Quaternion.h"
 #include "../../../Core/Math/Matrix.h"
 #include "../../../Core/Math/Math.h"
+#include "../../../Utils/Binary/BinaryFile.h"
 
 // Assimp Lib
 #include <assimp/postprocess.h>

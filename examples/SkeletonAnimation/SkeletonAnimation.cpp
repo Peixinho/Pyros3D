@@ -51,11 +51,11 @@ void SkeletonAnimation::Init()
 
         // Create Game Object
         Model = new GameObject();
-        rModel = new RenderingComponent(AssetManager::LoadModel("../../../../examples/SkeletonAnimation/Model.p3dm",false, ShaderUsage::Skinning | ShaderUsage::Diffuse));
+        rModel = new RenderingComponent(AssetManager::LoadModel("../../../../examples/SkeletonAnimation/Model.p3dm",false,ShaderUsage::Diffuse | ShaderUsage::Skinning));
         Model->Add(rModel);
 
         Animation = new AnimationManager();
-        Animation->LoadAnimation("../../../../examples/SkeletonAnimation/Model.p3da", rModel);
+        Animation->LoadAnimation("../../../../examples/SkeletonAnimation/Animation.p3da", rModel);
         
         // Add Camera to Scene
         Scene->Add(Camera);
@@ -70,7 +70,7 @@ void SkeletonAnimation::Update()
         
         currentTime += 0.0005f;
 
-		if (currentTime>5.f)
+        if (currentTime>5.f)
             currentTime = 0.f;
 
         // Updates Animation
