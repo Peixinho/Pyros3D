@@ -10,7 +10,7 @@
 #define MODEL_H
 
 #include "../Renderables.h"
-#include "../../../../Utils/ModelLoaders/MultiModelLoader/AssimpImporter.h"
+#include "../../../../Utils/ModelLoaders/MultiModelLoader/ModelLoader.h"
 
 namespace p3d {
 

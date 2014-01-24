@@ -49,7 +49,7 @@ namespace p3d {
 
     Model::Model(const std::string ModelPath, bool mergeMeshes, const uint32 &MaterialOptions)
     {
-        mesh = new AssimpImporter();
+        mesh = new ModelLoader();
         mesh->Load(ModelPath);
 
         this->MaterialOptions = MaterialOptions;
@@ -181,6 +181,7 @@ namespace p3d {
 
                     // Set Material From ID
                     c_submesh->materialProperties = materialProperties[mesh->subMeshes[i].materialID];
+                    
                     c_submesh->index.resize(mesh->subMeshes[i].tIndex.size());
 
                     memcpy(&c_submesh->index[0],&mesh->subMeshes[i].tIndex[0],mesh->subMeshes[i].tIndex.size()*sizeof(uint32));
@@ -190,16 +191,19 @@ namespace p3d {
                         c_submesh->tVertex.resize(mesh->subMeshes[i].tVertex.size());
                         memcpy(&c_submesh->tVertex[0],&mesh->subMeshes[i].tVertex[0],mesh->subMeshes[i].tVertex.size()*sizeof(Vec3));
                     }
+                    
                     if (mesh->subMeshes[i].hasNormal==true)
                     {
                         c_submesh->tNormal.resize(mesh->subMeshes[i].tNormal.size());
                         memcpy(&c_submesh->tNormal[0],&mesh->subMeshes[i].tNormal[0],mesh->subMeshes[i].tNormal.size()*sizeof(Vec3));
                     }
+                    
                     if (mesh->subMeshes[i].hasTexcoord==true)
                     {
                         c_submesh->tTexcoord.resize(mesh->subMeshes[i].tTexcoord.size());
                         memcpy(&c_submesh->tTexcoord[0],&mesh->subMeshes[i].tTexcoord[0],mesh->subMeshes[i].tTexcoord.size()*sizeof(Vec2));
                     }
+                    
                     if (mesh->subMeshes[i].hasTangentBitangent==true)
                     {
                         c_submesh->tTangent.resize(mesh->subMeshes[i].tTangent.size());
@@ -208,6 +212,7 @@ namespace p3d {
                         c_submesh->tBitangent.resize(mesh->subMeshes[i].tBitangent.size());
                         memcpy(&c_submesh->tBitangent[0],&mesh->subMeshes[i].tBitangent[0],mesh->subMeshes[i].tBitangent.size()*sizeof(Vec3));
                     }
+                    
                     if (mesh->subMeshes[i].hasBones==true)
                     {
                         c_submesh->tBonesID.resize(mesh->subMeshes[i].tVertex.size());
@@ -229,13 +234,13 @@ namespace p3d {
                 }
             }
         }
-        
+
         // Add Merged Meshes
-        // if (mergeMeshes)
-        // for (std::map<uint32, ModelGeometry*>::iterator i = meshes.begin();i!=meshes.end();i++)
-        // {
-        //     Geometries.push_back((*i).second);
-        // }
+        if (mergeMeshes)
+            for (std::map<uint32, ModelGeometry*>::iterator i = meshes.begin();i!=meshes.end();i++)
+            {
+                Geometries.push_back((*i).second);
+            }
         
         // Save Skeleton
         skeleton = mesh->skeleton;

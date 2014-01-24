@@ -25,16 +25,9 @@ namespace p3d {
         int32 parent;
         Vec3 pos;
         Quaternion rot;
-        Vec3 scale;        
+        Vec3 scale;
         Matrix bindPoseMat;
         bool skinned;
-    };
-
-	struct VertexWeight
-    {
-        uint32 vertexID;
-        f32 vertexWeight;
-        VertexWeight(const uint32 &ID,const f32 &weight) : vertexID(ID), vertexWeight(weight) {}
     };
     
     // Sub Mesh Structure

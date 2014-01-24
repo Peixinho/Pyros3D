@@ -7,7 +7,7 @@
 //============================================================================
 
 #include "AnimationManager.h"
-#include <GL/glew.h>
+// #include <GL/glew.h>
 namespace p3d {
 
     AnimationManager::AnimationManager() {

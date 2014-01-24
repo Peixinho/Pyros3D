@@ -15,6 +15,7 @@
 #include "../../../Core/Math/Math.h"
 #include "../../../Ext/StringIDs/StringID.hpp"
 #include "../../../AssetManager/Assets/Renderable/Renderables.h"
+#include "../../../Utils/Binary/BinaryFile.h"
 
 
 namespace p3d {

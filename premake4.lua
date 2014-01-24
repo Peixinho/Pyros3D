@@ -41,12 +41,12 @@ solution "Pyros3D"
             defines({"_DEBUG"})
 
             if os.get() == "linux" then
-                links { "GL", "GLU", "GLEW", "sfml-system", "sfml-window", "sfml-graphics", "assimp", "BulletCollision", "BulletDynamics", "BulletMultiThreaded", "LinearMath", "MiniCL", "freetype", "pthread", "z" }
+                links { "GL", "GLU", "GLEW", "sfml-system", "sfml-window", "sfml-graphics", "BulletCollision", "BulletDynamics", "BulletMultiThreaded", "LinearMath", "MiniCL", "freetype", "pthread", "z" }
                 linkoptions { "-L../libs -Wl,-rpath,../libs" }
             end
             
             if os.get() == "windows" then
-                links { "opengl32", "glu32", "glew", "sfml-system", "sfml-window", "sfml-graphics", "assimp", "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
+                links { "opengl32", "glu32", "glew", "sfml-system", "sfml-window", "sfml-graphics", "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
                 libdirs { rootdir.."/libs" }
             end
 
@@ -59,12 +59,12 @@ solution "Pyros3D"
         configuration "Release"
 
             if os.get() == "linux" then
-                links { "GL", "GLU", "GLEW", "sfml-system", "sfml-window", "sfml-graphics", "assimp", "BulletCollision", "BulletDynamics", "BulletMultiThreaded", "LinearMath", "MiniCL", "freetype", "pthread", "z" }
+                links { "GL", "GLU", "GLEW", "sfml-system", "sfml-window", "sfml-graphics", "BulletCollision", "BulletDynamics", "BulletMultiThreaded", "LinearMath", "MiniCL", "freetype", "pthread", "z" }
                 linkoptions { "-L../libs -Wl,-rpath,../libs" }
             end
 
             if os.get() == "windows" then
-                links { "opengl32", "glu32", "glew", "sfml-system", "sfml-window", "sfml-graphics", "assimp", "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
+                links { "opengl32", "glu32", "glew", "sfml-system", "sfml-window", "sfml-graphics", "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
                 libdirs { rootdir.."../libs" }
             end
 
@@ -92,12 +92,12 @@ function BuildDemo(demoPath, demoName)
             targetdir ("bin/debug/examples/"..demoName)
 
             if os.get() == "linux" then
-                links { libName.."d", "GL", "GLU", "GLEW", "sfml-system", "sfml-window", "sfml-graphics", "assimp", "BulletCollision", "BulletDynamics", "BulletMultiThreaded", "LinearMath", "MiniCL", "freetype", "pthread", "z" }
+                links { libName.."d", "GL", "GLU", "GLEW", "sfml-system", "sfml-window", "sfml-graphics", "BulletCollision", "BulletDynamics", "BulletMultiThreaded", "LinearMath", "MiniCL", "freetype", "pthread", "z" }
                 linkoptions { "-L../libs -Wl,-rpath,../../../../libs" }
             end
             
             if os.get() == "windows" then
-                links { libName.."d", "opengl32", "glu32", "glew", "sfml-system", "sfml-window", "sfml-graphics", "assimp", "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
+                links { libName.."d", "opengl32", "glu32", "glew", "sfml-system", "sfml-window", "sfml-graphics", "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
                 libdirs { rootdir.."/libs" }
             end
 
@@ -112,12 +112,12 @@ function BuildDemo(demoPath, demoName)
             targetdir ("bin/release/examples/"..demoName)
 
             if os.get() == "linux" then
-                links { libName, "GL", "GLU", "GLEW", "sfml-system", "sfml-window", "sfml-graphics", "assimp", "BulletCollision", "BulletDynamics", "BulletMultiThreaded", "LinearMath", "MiniCL", "freetype", "pthread", "z" }
+                links { libName, "GL", "GLU", "GLEW", "sfml-system", "sfml-window", "sfml-graphics", "BulletCollision", "BulletDynamics", "BulletMultiThreaded", "LinearMath", "MiniCL", "freetype", "pthread", "z" }
                 linkoptions { "-L../libs -Wl,-rpath,../../../../libs" }
             end
 
             if os.get() == "windows" then
-                links { libName, "opengl32", "glu32", "glew", "sfml-system", "sfml-window", "sfml-graphics", "assimp", "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
+                links { libName, "opengl32", "glu32", "glew", "sfml-system", "sfml-window", "sfml-graphics", "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
                 libdirs { rootdir.."/libs" }
             end
 
