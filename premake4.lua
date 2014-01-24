@@ -65,7 +65,7 @@ solution "Pyros3D"
 
             if os.get() == "windows" then
                 links { "opengl32", "glu32", "glew", "sfml-system", "sfml-window", "sfml-graphics", "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
-                libdirs { rootdir.."../libs" }
+                libdirs { rootdir.."/libs" }
             end
 
             if os.get() == "macosx" then
