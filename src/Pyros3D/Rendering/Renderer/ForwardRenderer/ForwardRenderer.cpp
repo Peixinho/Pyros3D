@@ -18,7 +18,7 @@ namespace p3d {
         
         ActivateCulling(CullingMode::FrustumCulling);
 
-        shadowMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows);
+        shadowMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Skinning);
         shadowMaterial->SetCullFace(CullFace::DoubleSided);
     }
     
