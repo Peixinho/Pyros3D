@@ -85,7 +85,7 @@ namespace p3d {
             AnimationLoader();
             virtual ~AnimationLoader();
             
-            virtual void Load(const std::string &Filename);
+            virtual bool Load(const std::string &Filename);
 
             // animations
             std::vector<Animation> animations;

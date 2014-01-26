@@ -54,7 +54,7 @@ namespace p3d {
                 ShadowMap->EnableCompareMode();
 
                 // Initialize Frame Buffer
-                shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapNegative_X,ShadowMap,false);
+                shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_X,ShadowMap,false);
 
                 // Near and Far Clip Planes
                 ShadowNear = Near;

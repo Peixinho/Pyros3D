@@ -74,7 +74,7 @@ namespace p3d {
 
             virtual ~IModelLoader();
             
-            virtual void Load(const std::string &Filename) = 0;
+            virtual bool Load(const std::string &Filename) = 0;
 
             // list of all submeshes
             std::vector<SubMesh> subMeshes;

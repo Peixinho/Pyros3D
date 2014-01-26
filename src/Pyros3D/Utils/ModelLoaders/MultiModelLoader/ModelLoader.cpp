@@ -14,7 +14,7 @@ namespace p3d {
 
     ModelLoader::~ModelLoader() {}
 
-    void ModelLoader::Load(const std::string& Filename)
+    bool ModelLoader::Load(const std::string& Filename)
     {
 		BinaryFile* bin = new BinaryFile();
 		bin->Open(Filename.c_str(),'r');
@@ -281,5 +281,7 @@ namespace p3d {
         bin->Close();
 
         delete bin;
+
+        return true;
     }
 }

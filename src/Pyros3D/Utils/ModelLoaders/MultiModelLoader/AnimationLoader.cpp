@@ -14,7 +14,7 @@ namespace p3d {
 
     AnimationLoader::~AnimationLoader() {}
 
-    void AnimationLoader::Load(const std::string& Filename)
+    bool AnimationLoader::Load(const std::string& Filename)
     {
         // Load Animations
         BinaryFile* bin = new BinaryFile();
@@ -79,5 +79,7 @@ namespace p3d {
 
         bin->Close();
         delete bin;
+
+        return true;
     }
 }

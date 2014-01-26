@@ -27,7 +27,7 @@ namespace p3d {
 
             virtual ~ModelLoader();
 
-            virtual void Load(const std::string &Filename);
+            virtual bool Load(const std::string &Filename);
     };
 }
 
