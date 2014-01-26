@@ -12,15 +12,18 @@ namespace p3d {
 
     void ModelGeometry::CreateBuffers()
     {
-         AttributeBuffer* Vertex  = new AttributeBuffer(Buffer::Type::Attribute,Buffer::Draw::Static);
-         if (tVertex.size()>0) Vertex->AddAttribute("aPosition", Buffer::Attribute::Type::Vec3,&tVertex[0],tVertex.size());
-         if (tNormal.size()>0) Vertex->AddAttribute("aNormal", Buffer::Attribute::Type::Vec3,&tNormal[0],tNormal.size());
-         if (tTexcoord.size()>0) Vertex->AddAttribute("aTexcoord", Buffer::Attribute::Type::Vec2,&tTexcoord[0],tTexcoord.size());
-         if (tTangent.size()>0) Vertex->AddAttribute("aTangent", Buffer::Attribute::Type::Vec3,&tTangent[0],tTangent.size());
-         if (tBitangent.size()>0) Vertex->AddAttribute("aBitangent", Buffer::Attribute::Type::Vec3,&tBitangent[0],tBitangent.size());
-         if (tBonesID.size()>0) Vertex->AddAttribute("aBonesID", Buffer::Attribute::Type::Vec4,&tBonesID[0],tBonesID.size());
-         if (tBonesWeight.size()>0) Vertex->AddAttribute("aBonesWeight", Buffer::Attribute::Type::Vec4,&tBonesWeight[0],tBonesWeight.size());
-         Attributes.push_back(Vertex);
+        // Calculate SubMesh Bounding Box
+        CalculateBounding();
+
+        AttributeBuffer* Vertex  = new AttributeBuffer(Buffer::Type::Attribute,Buffer::Draw::Static);
+        if (tVertex.size()>0) Vertex->AddAttribute("aPosition", Buffer::Attribute::Type::Vec3,&tVertex[0],tVertex.size());
+        if (tNormal.size()>0) Vertex->AddAttribute("aNormal", Buffer::Attribute::Type::Vec3,&tNormal[0],tNormal.size());
+        if (tTexcoord.size()>0) Vertex->AddAttribute("aTexcoord", Buffer::Attribute::Type::Vec2,&tTexcoord[0],tTexcoord.size());
+        if (tTangent.size()>0) Vertex->AddAttribute("aTangent", Buffer::Attribute::Type::Vec3,&tTangent[0],tTangent.size());
+        if (tBitangent.size()>0) Vertex->AddAttribute("aBitangent", Buffer::Attribute::Type::Vec3,&tBitangent[0],tBitangent.size());
+        if (tBonesID.size()>0) Vertex->AddAttribute("aBonesID", Buffer::Attribute::Type::Vec4,&tBonesID[0],tBonesID.size());
+        if (tBonesWeight.size()>0) Vertex->AddAttribute("aBonesWeight", Buffer::Attribute::Type::Vec4,&tBonesWeight[0],tBonesWeight.size());
+        Attributes.push_back(Vertex);
     }
 
     void ModelGeometry::CalculateBounding()
