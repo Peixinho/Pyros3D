@@ -129,6 +129,7 @@ function BuildDemo(demoPath, demoName)
 end;
 
 BuildDemo("examples/RotatingCube", "RotatingCube");
+BuildDemo("examples/RotationTexturedCube", "RotationTexturedCube");
 BuildDemo("examples/RotatingCubeWithLighting", "RotatingCubeWithLighting");
 BuildDemo("examples/RotatingCubeWithLightingAndShadow", "RotatingCubeWithLightingAndShadow");
 BuildDemo("examples/SimplePhysics", "SimplePhysics");
