@@ -38,7 +38,8 @@ namespace p3d
             CastShadows                         = 0x2000,
             Diffuse                             = 0x4000,
             TextRendering                       = 0x8000,
-            PhysicsDebug                        = 0x10000
+            PhysicsDebug                        = 0x10000,
+            DeferredRendering                   = 0x20000
         };
     };        
     

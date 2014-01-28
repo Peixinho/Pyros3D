@@ -82,7 +82,7 @@ namespace p3d {
         {
             Vec3 target;
             if (_IsLookingAtGameObject==true)
-                target=_IsLookingAtGameObjectPTR->GetPosition();                    
+                target=_IsLookingAtGameObjectPTR->GetWorldPosition();                    
             else if (_IsLookingAtPosition==true) {
                 target=_IsLookingAtPositionVec;
             } else {
