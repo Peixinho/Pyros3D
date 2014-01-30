@@ -103,7 +103,7 @@ namespace p3d {
             
             // Get Model Skeleton
             const std::map<StringID, Bone> &GetSkeleton() const { return skeleton; }
-
+            bool HasBones() { return hasBones; }
             // Get Model's Meshes
             std::vector<RenderingMesh*> &GetMeshes();
             
@@ -122,6 +122,9 @@ namespace p3d {
 
             // Skeleton
             std::map<StringID, Bone> skeleton;
+
+            // Bones Flag
+            bool hasBones;
 
             // Culling Geometry
             uint32 CullingGeometry;

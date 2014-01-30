@@ -49,6 +49,7 @@ namespace p3d {
 
         // Keep Skeleton
         skeleton = renderable->GetSkeleton();
+        hasBones = (skeleton.size()>0?true:false);
     }
     
     void RenderingComponent::Register(SceneGraph* Scene)

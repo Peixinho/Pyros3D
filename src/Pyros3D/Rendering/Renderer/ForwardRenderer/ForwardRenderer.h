@@ -28,7 +28,7 @@ namespace p3d {
 
             
         private:
-            GenericShaderMaterial* shadowMaterial;
+            GenericShaderMaterial* shadowMaterial, *shadowSkinnedMaterial;
         protected:
             
     };

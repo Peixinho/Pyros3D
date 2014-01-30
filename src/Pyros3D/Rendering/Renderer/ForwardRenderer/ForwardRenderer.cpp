@@ -18,8 +18,10 @@ namespace p3d {
         
         ActivateCulling(CullingMode::FrustumCulling);
 
-        shadowMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Skinning);
+        shadowMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows);
         shadowMaterial->SetCullFace(CullFace::DoubleSided);
+        shadowSkinnedMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Skinning);
+        shadowSkinnedMaterial->SetCullFace(CullFace::DoubleSided);
 
         // Default View Port Init Values
         viewPortStartX = viewPortStartY = 0;
@@ -178,7 +180,7 @@ namespace p3d {
                                         if (!(*k)->Material->IsTransparent())
                                         {
                                             if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-                                                RenderObject((*k),shadowMaterial);
+                                                RenderObject((*k),((*k)->renderingComponent->HasBones()?shadowSkinnedMaterial:shadowMaterial));
                                         }
                                         else break;
                                     }
@@ -306,7 +308,7 @@ namespace p3d {
                                         if (cullingTest && !(*k)->Material->IsTransparent())
                                         {
                                             if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-                                                RenderObject((*k),shadowMaterial);
+                                                RenderObject((*k),((*k)->renderingComponent->HasBones()?shadowSkinnedMaterial:shadowMaterial));
                                         }
                                         else break;
                                             
@@ -409,7 +411,7 @@ namespace p3d {
                                     if (cullingTest && !(*k)->Material->IsTransparent())
                                     {
                                         if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-                                            RenderObject((*k),shadowMaterial);
+                                            RenderObject((*k),((*k)->renderingComponent->HasBones()?shadowSkinnedMaterial:shadowMaterial));
                                     }
                                     else break;
                                 }
