@@ -102,7 +102,7 @@ function BuildDemo(demoPath, demoName)
             end
 
             if os.get() == "macosx" then
-                links { "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletMultiThreaded.framework", "BulletSoftBody.framework", "LinearMath.framework", "MiniCL.framework" }
+                links { libName.."d","OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletMultiThreaded.framework", "BulletSoftBody.framework", "LinearMath.framework", "MiniCL.framework" }
             end
 
             flags { "Symbols" }
@@ -122,14 +122,14 @@ function BuildDemo(demoPath, demoName)
             end
 
             if os.get() == "macosx" then
-                links { "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletMultiThreaded.framework", "BulletSoftBody.framework", "LinearMath.framework", "MiniCL.framework" }
+                links { libName, "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletMultiThreaded.framework", "BulletSoftBody.framework", "LinearMath.framework", "MiniCL.framework" }
             end
 
             flags { "Optimize" }
 end;
 
 BuildDemo("examples/RotatingCube", "RotatingCube");
-BuildDemo("examples/RotationTexturedCube", "RotationTexturedCube");
+BuildDemo("examples/RotatingTexturedCube", "RotatingTexturedCube");
 BuildDemo("examples/RotatingCubeWithLighting", "RotatingCubeWithLighting");
 BuildDemo("examples/RotatingCubeWithLightingAndShadow", "RotatingCubeWithLightingAndShadow");
 BuildDemo("examples/SimplePhysics", "SimplePhysics");

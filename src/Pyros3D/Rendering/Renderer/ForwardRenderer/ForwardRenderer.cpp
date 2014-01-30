@@ -20,6 +20,9 @@ namespace p3d {
 
         shadowMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Skinning);
         shadowMaterial->SetCullFace(CullFace::DoubleSided);
+
+        // Default View Port Init Values
+        viewPortStartX = viewPortStartY = 0;
     }
     
     ForwardRenderer::~ForwardRenderer()
