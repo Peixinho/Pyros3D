@@ -10,8 +10,6 @@ Compilation Process:
 		FreeType2 (using 2.5.2)
 		GLEW
 		BulletPhysics 2.8 (using bullet-2.81-rev2613)
-		Assimp 3.0 (using 3.0.1264)
-		AngelScript (not used for now, but its on the compilation process)
 		
 
 // Linux fix for Freetype2
