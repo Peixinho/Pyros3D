@@ -103,6 +103,7 @@ function BuildDemo(demoPath, demoName)
 
             if os.get() == "macosx" then
                 links { libName.."d","OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletMultiThreaded.framework", "BulletSoftBody.framework", "LinearMath.framework", "MiniCL.framework" }
+                libdirs { rootdir.."/libs" }
             end
 
             flags { "Symbols" }
@@ -123,6 +124,7 @@ function BuildDemo(demoPath, demoName)
 
             if os.get() == "macosx" then
                 links { libName, "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletMultiThreaded.framework", "BulletSoftBody.framework", "LinearMath.framework", "MiniCL.framework" }
+                libdirs { rootdir.."/libs" }
             end
 
             flags { "Optimize" }
