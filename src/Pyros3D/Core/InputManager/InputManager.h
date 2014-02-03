@@ -225,7 +225,7 @@ namespace p3d {
     
     class InputManager {
         
-        friend class SFMLContext;
+        friend class Context;
         
         public:
             

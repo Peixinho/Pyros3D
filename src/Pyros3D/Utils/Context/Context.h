@@ -12,6 +12,7 @@
 #include "../../Core/Math/Math.h"
 #include "../../Utils/DeltaTime/DeltaTime.h"
 #include "../../SceneGraph/SceneGraph.h"
+#include "../../Core/InputManager/InputManager.h"
 
 namespace p3d {
 
@@ -55,6 +56,18 @@ namespace p3d {
             virtual void JoypadButtonPressed(const unsigned &JoypadID, const unsigned &Button) = 0;
             virtual void JoypadButtonReleased(const unsigned &JoypadID, const unsigned &Button) = 0;
             virtual void JoypadMove(const unsigned &JoypadID, const unsigned &Button, const f32 &Value) = 0;
+
+            // Setters for InputManager
+            void SetKeyPressed(const unsigned &key);
+            void SetKeyReleased(const unsigned &key);
+            void SetCharEntered(const unsigned &key);
+            void SetMouseButtonPressed(const unsigned &button);
+            void SetMouseButtonReleased(const unsigned &button);
+            void SetMouseMove(const f32 &mousex, const f32 &mousey);
+            void SetMouseWheel(const f32 &delta);
+            void SetJoypadButtonPressed(const unsigned &JoypadID, const unsigned &Button);
+            void SetJoypadButtonReleased(const unsigned &JoypadID, const unsigned &Button);
+            void SetJoypadMove(const unsigned &JoypadID, const unsigned &Button, const f32 &Value);
 
             void SetTime(const f32 &Timer);
 

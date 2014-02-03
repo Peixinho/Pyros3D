@@ -9,7 +9,14 @@
 #ifndef ROTATINGCUBE_H
 #define	ROTATINGCUBE_H
 
-#include "Pyros3D/Utils/Context/SFML/SFMLContext.h"
+#ifdef _SDL
+    #include "Pyros3D/Utils/Context/SDL/SDLContext.h"
+#define ClassName SDLContext
+#else
+    #include "Pyros3D/Utils/Context/SFML/SFMLContext.h"
+    #define ClassName SFMLContext
+#endif
+
 #include "Pyros3D/SceneGraph/SceneGraph.h"
 #include "Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h"
 #include "Pyros3D/Utils/Colors/Colors.h"
@@ -19,7 +26,9 @@
 
 using namespace p3d;
 
-class RotatingCube : public SFMLContext {
+class RotatingCube : public ClassName
+{
+        
     public:
         
         RotatingCube();   

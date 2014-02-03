@@ -6,7 +6,6 @@
 // Description : Main
 //============================================================================
 
-#include "Pyros3D/Utils/Context/SFML/SFMLContext.h"
 #include "Game.h"
 
 using namespace std;

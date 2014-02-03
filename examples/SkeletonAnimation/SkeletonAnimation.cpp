@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-SkeletonAnimation::SkeletonAnimation() : SFMLContext(1024,768,"Pyros3D - Skeleton Animation Example",WindowType::Close | WindowType::Resize)
+SkeletonAnimation::SkeletonAnimation() : ClassName(1024,768,"Pyros3D - Skeleton Animation Example",WindowType::Close | WindowType::Resize)
 {
     
 }
@@ -18,7 +18,7 @@ SkeletonAnimation::SkeletonAnimation() : SFMLContext(1024,768,"Pyros3D - Skeleto
 void SkeletonAnimation::OnResize(const uint32 &width, const uint32 &height)
 {
     // Execute Parent Resize Function
-    SFMLContext::OnResize(width, height);
+    ClassName::OnResize(width, height);
     
     // Resize
     Renderer->Resize(width, height);

@@ -6,7 +6,6 @@
 // Description : Main
 //============================================================================
 
-#include "Pyros3D/Utils/Context/SFML/SFMLContext.h"
 #include "RotatingTexturedCube.h"
 
 using namespace std;

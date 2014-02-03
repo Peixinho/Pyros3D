@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-PickingExamplePainterMethod::PickingExamplePainterMethod() : SFMLContext(1024,768,"CODENAME: Pyros3D - Picking With Painter Method",WindowType::Close | WindowType::Resize)
+PickingExamplePainterMethod::PickingExamplePainterMethod() : ClassName(1024,768,"Pyros3D - Custom Material",WindowType::Close | WindowType::Resize)
 {
     
 }
@@ -18,7 +18,7 @@ PickingExamplePainterMethod::PickingExamplePainterMethod() : SFMLContext(1024,76
 void PickingExamplePainterMethod::OnResize(const uint32 &width, const uint32 &height)
 {
     // Execute Parent Resize Function
-    SFMLContext::OnResize(width, height);
+    ClassName::OnResize(width, height);
     
     // Resize
     Renderer->Resize(width, height);

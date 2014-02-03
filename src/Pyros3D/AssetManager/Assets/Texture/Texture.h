@@ -11,7 +11,16 @@
 
 #include "../../../Core/Math/Math.h"
 #include "../../../Core/Logs/Log.h"
-#include <SFML/Graphics.hpp>
+
+#ifdef _SFML
+    #include <SFML/Graphics.hpp>
+#elif defined(_SDL)
+    #include <SDL2/SDL_image.h>
+#endif
+
+#include <map>
+#include <vector>
+
 namespace p3d {
     
     namespace TextureTransparency {
@@ -90,9 +99,18 @@ namespace p3d {
         uint32 Using;
         uint32 Type;
         uint32 DataType;
-        sf::Image Image;
         std::string Filename;
-        
+
+        #ifdef _SFML
+            sf::Image Image;
+            const uchar* GetPixels() { return Image.getPixelsPtr(); }
+        #endif
+
+        #ifdef _SDL
+            SDL_Surface *Image;
+            void* GetPixels() { return Image->pixels; }
+        #endif
+
         __Texture() : Using(0), Type(TextureType::Texture), DataType(TextureDataType::RGBA) {}
         
     };

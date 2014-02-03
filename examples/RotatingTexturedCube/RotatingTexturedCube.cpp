@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-RotatingTexturedCube::RotatingTexturedCube() : SFMLContext(1024,768,"Pyros3D - Rotating Textured Cube",WindowType::Close | WindowType::Resize)
+RotatingTexturedCube::RotatingTexturedCube() : ClassName(1024,768,"Pyros3D - Rotating Textured Cube",WindowType::Close | WindowType::Resize)
 {
     
 }
@@ -18,7 +18,7 @@ RotatingTexturedCube::RotatingTexturedCube() : SFMLContext(1024,768,"Pyros3D - R
 void RotatingTexturedCube::OnResize(const uint32 &width, const uint32 &height)
 {
     // Execute Parent Resize Function
-    SFMLContext::OnResize(width, height);
+    ClassName::OnResize(width, height);
     
     // Resize
     Renderer->Resize(width, height);
@@ -84,8 +84,8 @@ void RotatingTexturedCube::Shutdown()
         Cube->Remove(rCube);
     
         // Delete
-	   AssetManager::DestroyAssets();
-       delete material;
+        AssetManager::DestroyAssets();
+        delete material;
         delete rCube;
         delete Cube;
         delete Camera;

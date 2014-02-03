@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-RotatingCube::RotatingCube() : SFMLContext(1024,768,"Pyros3D - Custom Material",WindowType::Close | WindowType::Resize)
+RotatingCube::RotatingCube() : ClassName(1024,768,"Pyros3D - Custom Material",WindowType::Close | WindowType::Resize)
 {
     
 }
@@ -18,7 +18,7 @@ RotatingCube::RotatingCube() : SFMLContext(1024,768,"Pyros3D - Custom Material",
 void RotatingCube::OnResize(const uint32 &width, const uint32 &height)
 {
     // Execute Parent Resize Function
-    SFMLContext::OnResize(width, height);
+    ClassName::OnResize(width, height);
     
     // Resize
     Renderer->Resize(width, height);

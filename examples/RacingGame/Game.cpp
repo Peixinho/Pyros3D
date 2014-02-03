@@ -19,7 +19,7 @@
 
 using namespace p3d;
 
-Game::Game() : SFMLContext(1024,768,"CODENAME: Pyros3D - FIRST WINDOW",WindowType::Close | WindowType::Resize)
+Game::Game() : ClassName(1024,768,"CODENAME: Pyros3D - FIRST WINDOW",WindowType::Close | WindowType::Resize)
 {
     
 }
@@ -27,7 +27,7 @@ Game::Game() : SFMLContext(1024,768,"CODENAME: Pyros3D - FIRST WINDOW",WindowTyp
 void Game::OnResize(const uint32 &width, const uint32 &height)
 {
     // Execute Parent Resize Function
-    SFMLContext::OnResize(width, height);
+    ClassName::OnResize(width, height);
     
     // Resize
     Renderer->Resize(width, height);

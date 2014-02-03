@@ -9,6 +9,25 @@ solution "Pyros3D"
     os.mkdir("include");
     os.mkdir("libs");
 
+    newoption {
+       trigger     = "framework",
+       value       = "API",
+       description = "Choose a particular API for window management",
+       allowed = {
+          { "sfml", "SFML 2.1" },
+          { "sdl", "SDL 2.0" }
+       }
+    }
+
+    if (_OPTIONS["sfml"]) then
+        framework = "_SDL";
+        libsToLink = { "SDL2", "SDL2_image" }
+    else 
+        framework = "_SFML";
+        libsToLink = { "sfml-graphics", "sfml-window", "sfml-system" }
+    end
+
+
     ------------------------------------------------------------------
     -- setup common settings
     ------------------------------------------------------------------
@@ -24,12 +43,15 @@ solution "Pyros3D"
         kind "StaticLib"
         --kind "SharedLib"
         --kind "ConsoleApp"
+
         language "C++"
         files { "src/**.h", "src/**.cpp" }
         
         includedirs { "include/" }
 
         defines({"UNICODE", "GLEW_STATIC"})
+
+        defines({framework})
 
         -- Log Options
         defines({"LOG_DISABLE"}) 
@@ -39,38 +61,9 @@ solution "Pyros3D"
 
             targetname(libName.."d")
             defines({"_DEBUG"})
-
-            if os.get() == "linux" then
-                links { "GL", "GLU", "GLEW", "sfml-system", "sfml-window", "sfml-graphics", "BulletCollision", "BulletDynamics", "BulletMultiThreaded", "LinearMath", "MiniCL", "freetype", "pthread", "z" }
-                linkoptions { "-L../libs -Wl,-rpath,../libs" }
-            end
-            
-            if os.get() == "windows" then
-                links { "opengl32", "glu32", "glew", "sfml-system", "sfml-window", "sfml-graphics", "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
-                libdirs { rootdir.."/libs" }
-            end
-
-            if os.get() == "macosx" then
-                links { "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "freetype.framework", "GLEW.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletMultiThreaded.framework", "BulletSoftBody.framework", "LinearMath.framework", "MiniCL.framework" }
-            end
-
             flags { "Symbols" }
 
         configuration "Release"
-
-            if os.get() == "linux" then
-                links { "GL", "GLU", "GLEW", "sfml-system", "sfml-window", "sfml-graphics", "BulletCollision", "BulletDynamics", "BulletMultiThreaded", "LinearMath", "MiniCL", "freetype", "pthread", "z" }
-                linkoptions { "-L../libs -Wl,-rpath,../libs" }
-            end
-
-            if os.get() == "windows" then
-                links { "opengl32", "glu32", "glew", "sfml-system", "sfml-window", "sfml-graphics", "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
-                libdirs { rootdir.."/libs" }
-            end
-
-            if os.get() == "macosx" then
-                links { "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "freetype.framework", "GLEW.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletMultiThreaded.framework", "BulletSoftBody.framework", "LinearMath.framework", "MiniCL.framework" }
-            end
 
             flags { "Optimize" }
 
@@ -84,6 +77,7 @@ function BuildDemo(demoPath, demoName)
 
         defines({"UNICODE", "GLEW_STATIC"})
         defines({"LOG_DISABLE"})
+        defines({framework});
 
         configuration "Debug"
 
@@ -92,17 +86,17 @@ function BuildDemo(demoPath, demoName)
             targetdir ("bin/debug/examples/"..demoName)
 
             if os.get() == "linux" then
-                links { libName.."d", "GL", "GLU", "GLEW", "sfml-system", "sfml-window", "sfml-graphics", "BulletCollision", "BulletDynamics", "BulletMultiThreaded", "LinearMath", "MiniCL", "freetype", "pthread", "z" }
-                linkoptions { "-L../libs -Wl,-rpath,../../../../libs" }
+                links { libName.."d", "GL", "GLU", "GLEW", libsToLink, "BulletCollision", "BulletDynamics", "BulletMultiThreaded", "LinearMath", "MiniCL", "freetype", "pthread", "z" }
+                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
             end
             
             if os.get() == "windows" then
-                links { libName.."d", "opengl32", "glu32", "glew", "sfml-system", "sfml-window", "sfml-graphics", "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
+                links { libName.."d", "opengl32", "glu32", "glew", libsToLink, "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
                 libdirs { rootdir.."/libs" }
             end
 
             if os.get() == "macosx" then
-                links { libName.."d","OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletMultiThreaded.framework", "BulletSoftBody.framework", "LinearMath.framework", "MiniCL.framework" }
+                links { libName.."d","OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletMultiThreaded.framework", "BulletSoftBody.framework", "LinearMath.framework", "MiniCL.framework" }
                 libdirs { rootdir.."/libs" }
             end
 
@@ -113,12 +107,12 @@ function BuildDemo(demoPath, demoName)
             targetdir ("bin/release/examples/"..demoName)
 
             if os.get() == "linux" then
-                links { libName, "GL", "GLU", "GLEW", "sfml-system", "sfml-window", "sfml-graphics", "BulletCollision", "BulletDynamics", "BulletMultiThreaded", "LinearMath", "MiniCL", "freetype", "pthread", "z" }
-                linkoptions { "-L../libs -Wl,-rpath,../../../../libs" }
+                links { libName, "GL", "GLU", "GLEW", libsToLink, "BulletCollision", "BulletDynamics", "BulletMultiThreaded", "LinearMath", "MiniCL", "freetype", "pthread", "z" }
+                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
             end
 
             if os.get() == "windows" then
-                links { libName, "opengl32", "glu32", "glew", "sfml-system", "sfml-window", "sfml-graphics", "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
+                links { libName, "opengl32", "glu32", "glew", libsToLink, "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
                 libdirs { rootdir.."/libs" }
             end
 

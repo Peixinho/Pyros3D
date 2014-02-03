@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-SimplePhysics::SimplePhysics() : SFMLContext(1024,768,"CODENAME: Pyros3D - Simple Physics",WindowType::Close | WindowType::Resize)
+SimplePhysics::SimplePhysics() : ClassName(1024,768,"CODENAME: Pyros3D - Simple Physics",WindowType::Close | WindowType::Resize)
 {
     
 }
@@ -18,7 +18,7 @@ SimplePhysics::SimplePhysics() : SFMLContext(1024,768,"CODENAME: Pyros3D - Simpl
 void SimplePhysics::OnResize(const uint32 &width, const uint32 &height)
 {
     // Execute Parent Resize Function
-    SFMLContext::OnResize(width, height);
+    ClassName::OnResize(width, height);
     
     // Resize
     Renderer->Resize(width, height);

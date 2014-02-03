@@ -142,16 +142,16 @@ namespace p3d {
     void SFMLContext::KeyPressed(const unsigned& key)
     {
         // Key Pressed
-        InputManager::KeyPressed(key);        
+        SetKeyPressed(key);
     }
     void SFMLContext::KeyReleased(const unsigned& key)
     {
         // Key Released
-        InputManager::KeyReleased(key);
+        SetKeyReleased(key);
     }
     void SFMLContext::TextEntered(const unsigned& Code)
     {
-        InputManager::CharEntered(Code);
+        SetCharEntered(Code);
     }
     void SFMLContext::MouseButtonPressed(const unsigned& button)
     {
@@ -159,13 +159,13 @@ namespace p3d {
         switch(button)
         {
             case sf::Mouse::Left:
-                InputManager::MousePressed(Event::Input::Mouse::Left);
+                SetMouseButtonPressed(Event::Input::Mouse::Left);
                 break;
             case sf::Mouse::Middle:
-                InputManager::MousePressed(Event::Input::Mouse::Middle);
+                SetMouseButtonPressed(Event::Input::Mouse::Middle);
                 break;
             case sf::Mouse::Right:
-                InputManager::MousePressed(Event::Input::Mouse::Right);
+                SetMouseButtonPressed(Event::Input::Mouse::Right);
                 break;
         }
     }
@@ -175,25 +175,23 @@ namespace p3d {
         switch(button)
         {
             case sf::Mouse::Left:
-                InputManager::MouseReleased(Event::Input::Mouse::Left);
+                SetMouseButtonReleased(Event::Input::Mouse::Left);
                 break;
             case sf::Mouse::Middle:
-                InputManager::MouseReleased(Event::Input::Mouse::Middle);
+                SetMouseButtonReleased(Event::Input::Mouse::Middle);
                 break;
             case sf::Mouse::Right:
-                InputManager::MouseReleased(Event::Input::Mouse::Right);
+                SetMouseButtonReleased(Event::Input::Mouse::Right);
                 break;
         }
     }
     void SFMLContext::MouseMove(const f32 &mousex, const f32 &mousey)
     {
-        // Mouse Moving
-        InputManager::SetMousePosition(mousex,mousey);
+        SetMouseMove(mousex,mousey);
     }
     void SFMLContext::MouseWheel(const f32 &delta)
     {
-        // Mouse Wheel
-        InputManager::SetMouseWheel(delta);
+        SetMouseWheel(delta);
     }
     void SFMLContext::SetMousePosition(const unsigned &mouseX, const unsigned &mouseY)
     {
@@ -205,15 +203,15 @@ namespace p3d {
     }
     void SFMLContext::JoypadButtonPressed(const unsigned& JoypadID, const unsigned& Button)
     {
-        InputManager::JoypadButtonPressed(JoypadID, Button);
+        SetJoypadButtonPressed(JoypadID, Button);
     }
     void SFMLContext::JoypadButtonReleased(const unsigned& JoypadID, const unsigned& Button)
     {
-        InputManager::JoypadButtonReleased(JoypadID, Button);
+        SetJoypadButtonReleased(JoypadID, Button);
     }
     void SFMLContext::JoypadMove(const unsigned& JoypadID, const unsigned& Axis, const f32 &Value)
     {
-        InputManager::JoypadMove(JoypadID, Axis, Value);
+        SetJoypadMove(JoypadID, Axis, Value);
     }
     // virtuals methods
     void SFMLContext::Init() {}

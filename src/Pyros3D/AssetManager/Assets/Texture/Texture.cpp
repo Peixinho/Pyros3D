@@ -42,19 +42,36 @@ namespace p3d {
         StringID TextureStringID(MakeStringID(FileName));
         if (__Textures.find(TextureStringID)==__Textures.end())
         {
-            sf::Image Image = sf::Image();
-            ImageLoaded = Image.loadFromFile(FileName);
-            
-            if (!ImageLoaded)
-            {
-                echo("ERROR: Texture Not Found!");
-                ImageLoaded = Image.loadFromFile("textures/texture_not_found.png");
-            }
-            
+
+            #ifdef _SFML
+                sf::Image Image = sf::Image();
+                ImageLoaded = Image.loadFromFile(FileName);
+                
+                if (!ImageLoaded)
+                {
+                    echo("ERROR: Texture Not Found!");
+                    ImageLoaded = Image.loadFromFile("textures/texture_not_found.png");
+                }
+            #endif
+
+            #ifdef _SDL
+                SDL_Surface *Image = IMG_Load(FileName.c_str());
+                if (!Image)
+                {
+                    echo("ERROR: Texture Not Found!");
+                    Image = IMG_Load("textures/texture_not_found.png");
+                }
+
+                SDL_PixelFormat *format = Image->format;
+                if (format->Amask)
+                    __Textures[TextureStringID].DataType = TextureDataType::RGBA;
+                else
+                    __Textures[TextureStringID].DataType = TextureDataType::RGB;
+            #endif
+
             // Save Texture Information
             __Textures[TextureStringID].Image = Image;
             __Textures[TextureStringID].Type = TextureType::Texture;
-            __Textures[TextureStringID].DataType = TextureDataType::RGBA;
             __Textures[TextureStringID].TextureID = __Textures.size();
             __Textures[TextureStringID].Using = 1;
             __Textures[TextureStringID].Filename = FileName;
@@ -64,11 +81,22 @@ namespace p3d {
         }
         
         this->TextureInternalID = TextureStringID;
-        this->Width=__Textures[TextureStringID].Image.getSize().x;
-        this->Height=__Textures[TextureStringID].Image.getSize().y;
+
+        
+        #ifdef _SFML
+            this->Width=__Textures[TextureStringID].Image.getSize().x;
+            this->Height=__Textures[TextureStringID].Image.getSize().y;
+        #endif
+        
+
+        #ifdef _SDL
+            this->Width=__Textures[TextureStringID].Image->w;
+            this->Height=__Textures[TextureStringID].Image->h;
+        #endif
+
         this->haveImage=true;
         this->Type=Type;
-        this->DataType=TextureDataType::RGBA;
+        this->DataType=__Textures[TextureStringID].DataType;
         this->Transparency=TextureTransparency::Opaque;
         
         if (this->GL_ID==-1) {
@@ -260,14 +288,14 @@ namespace p3d {
         {
             if (GLEW_VERSION_2_1)
             {
-                glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].Image.getPixelsPtr()));
+                glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
                 glGenerateMipmap(GLMode);
             } else {
-                gluBuild2DMipmaps(GLMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].Image.getPixelsPtr()));
+                gluBuild2DMipmaps(GLMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
             }
             isMipMap = true;
         } else {
-            glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].Image.getPixelsPtr()));
+            glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
         }
         // default values
         glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -479,7 +507,7 @@ namespace p3d {
         glBindTexture(GLSubMode, GL_ID);
         this->Width=Width;
         this->Height=Height;
-        glTexImage2D(GLSubMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].Image.getPixelsPtr()));
+        glTexImage2D(GLSubMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
         
         if (isMipMap)
         {
@@ -487,7 +515,7 @@ namespace p3d {
             {
                 glGenerateMipmap(GLSubMode);
             } else {
-                gluBuild2DMipmaps(GLSubMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].Image.getPixelsPtr()));
+                gluBuild2DMipmaps(GLSubMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
             }
         }
         
@@ -539,7 +567,7 @@ namespace p3d {
             {
                 glGenerateMipmap(GLSubMode);
             } else {
-                gluBuild2DMipmaps(GLSubMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].Image.getPixelsPtr()));
+                gluBuild2DMipmaps(GLSubMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
             }
         }
         
