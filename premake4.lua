@@ -25,11 +25,13 @@ solution "Pyros3D"
     if _OPTIONS["framework"]=="sdl" then
         framework = "_SDL";
         libsToLink = { "SDL2", "SDL2_image" }
+        excludes { "**/SFML/**" }
     end
 
     if _OPTIONS["framework"]=="sfml" then
         framework = "_SFML";
         libsToLink = { "sfml-graphics", "sfml-window", "sfml-system" }
+        excludes { "**/SDL/**" }
     end
 
     newoption {
@@ -70,7 +72,7 @@ solution "Pyros3D"
     project "PyrosEngine"
         targetdir "libs"
         
-        if _OPTIONS["bin"]=="dynamic" then
+        if _OPTIONS["bin"]=="shared" then
             kind "SharedLib"
         else
             kind "StaticLib"
