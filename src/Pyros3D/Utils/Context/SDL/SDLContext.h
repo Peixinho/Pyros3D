@@ -29,7 +29,7 @@ namespace p3d {
     }
     
     class SDLContext : public Context {
-        public:            
+        public:
             
             SDLContext(const uint32 &width, const uint32 &height, const std::string &title, const unsigned int &windowType = WindowType::Fullscreen);            
             ~SDLContext();
@@ -52,7 +52,9 @@ namespace p3d {
             const Vec2 GetMousePosition() const;
 
         protected:
-            
+
+            static std::map<uint32, uint32> MapSDLKeyboard;
+
             // Buttons and Mouse
             void KeyPressed(const unsigned &key);
             void KeyReleased(const unsigned &key);
@@ -79,6 +81,8 @@ namespace p3d {
             
             // save mouse positions
             f32 mouseX, mouseY;
+
+            void CreateKeyboardMap();
             
     };
 

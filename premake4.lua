@@ -14,19 +14,48 @@ solution "Pyros3D"
        value       = "API",
        description = "Choose a particular API for window management",
        allowed = {
-          { "sfml", "SFML 2.1" },
+          { "sfml", "SFML 2.1 - Default" },
           { "sdl", "SDL 2.0" }
        }
     }
 
-    if (_OPTIONS["sfml"]) then
+    framework = "_SFML"
+    libsToLink = { "sfml-graphics", "sfml-window", "sfml-system" }
+
+    if _OPTIONS["framework"]=="sdl" then
         framework = "_SDL";
         libsToLink = { "SDL2", "SDL2_image" }
-    else 
+    end
+
+    if _OPTIONS["framework"]=="sfml" then
         framework = "_SFML";
         libsToLink = { "sfml-graphics", "sfml-window", "sfml-system" }
     end
 
+    newoption {
+        trigger = "bin",
+        value = "output",
+        description = "Choose a output binary file",
+        allowed = {
+            { "static", "Static Library - Default" },
+            { "shared", "Shared Library" }
+        }
+    }
+
+    newoption {
+       trigger     = "examples",
+       description = "Build Demos Examples"
+    }
+
+    newoption {
+        trigger = "log",
+        description = "Log Output",
+        allowed = {
+        { "none", "No log - Default" },
+        { "console", "Log to Console"},
+        { "file", "Log to File"}
+    }
+}
 
     ------------------------------------------------------------------
     -- setup common settings
@@ -40,9 +69,12 @@ solution "Pyros3D"
 
     project "PyrosEngine"
         targetdir "libs"
-        kind "StaticLib"
-        --kind "SharedLib"
-        --kind "ConsoleApp"
+        
+        if _OPTIONS["bin"]=="dynamic" then
+            kind "SharedLib"
+        else
+            kind "StaticLib"
+        end
 
         language "C++"
         files { "src/**.h", "src/**.cpp" }
@@ -53,9 +85,15 @@ solution "Pyros3D"
 
         defines({framework})
 
-        -- Log Options
-        defines({"LOG_DISABLE"}) 
-        --| defines({"LOG_TO_FILE"}) | defines({"LOG_TO_CONSOLE"})
+        if _OPTIONS["log"]=="console" then
+            defines({"LOG_TO_CONSOLE"})
+        else
+            if _OPTIONS["log"]=="file" then
+                defines({"LOG_TO_FILE"})
+            else
+                defines({"LOG_DISABLE"}) 
+            end
+        end
                 
         configuration "Debug"
 
@@ -76,8 +114,8 @@ function BuildDemo(demoPath, demoName)
         includedirs { "include/", "src/" }
 
         defines({"UNICODE", "GLEW_STATIC"})
-        defines({"LOG_DISABLE"})
         defines({framework});
+        
 
         configuration "Debug"
 
@@ -124,13 +162,15 @@ function BuildDemo(demoPath, demoName)
             flags { "Optimize" }
 end;
 
-BuildDemo("examples/RotatingCube", "RotatingCube");
-BuildDemo("examples/RotatingTexturedCube", "RotatingTexturedCube");
-BuildDemo("examples/RotatingCubeWithLighting", "RotatingCubeWithLighting");
-BuildDemo("examples/RotatingCubeWithLightingAndShadow", "RotatingCubeWithLightingAndShadow");
-BuildDemo("examples/SimplePhysics", "SimplePhysics");
-BuildDemo("examples/TextRendering", "TextRendering");
-BuildDemo("examples/CustomMaterial", "CustomMaterial");
-BuildDemo("examples/PickingWithPainterMethod", "PickingWithPainterMethod");
-BuildDemo("examples/SkeletonAnimation", "SkeletonAnimation");
-BuildDemo("examples/RacingGame", "RacingGame");
+if _OPTIONS["examples"] then
+    BuildDemo("examples/RotatingCube", "RotatingCube");
+    BuildDemo("examples/RotatingTexturedCube", "RotatingTexturedCube");
+    BuildDemo("examples/RotatingCubeWithLighting", "RotatingCubeWithLighting");
+    BuildDemo("examples/RotatingCubeWithLightingAndShadow", "RotatingCubeWithLightingAndShadow");
+    BuildDemo("examples/SimplePhysics", "SimplePhysics");
+    BuildDemo("examples/TextRendering", "TextRendering");
+    BuildDemo("examples/CustomMaterial", "CustomMaterial");
+    BuildDemo("examples/PickingWithPainterMethod", "PickingWithPainterMethod");
+    BuildDemo("examples/SkeletonAnimation", "SkeletonAnimation");
+    BuildDemo("examples/RacingGame", "RacingGame");
+end
