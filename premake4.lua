@@ -19,18 +19,6 @@ solution "Pyros3D"
        }
     }
 
-    if _OPTIONS["framework"]=="sdl" then
-        framework = "_SDL";
-        libsToLink = { "SDL2", "SDL2_image" }
-        excludes { "**/SFML/**" }
-    end
-
-    if _OPTIONS["framework"]=="sfml" or not _OPTIONS["framework"] then
-        framework = "_SFML";
-        libsToLink = { "sfml-graphics", "sfml-window", "sfml-system" }
-        excludes { "**/SDL/**" }
-    end
-
     newoption {
         trigger = "bin",
         value = "output",
@@ -50,11 +38,23 @@ solution "Pyros3D"
         trigger = "log",
         description = "Log Output",
         allowed = {
-        { "none", "No log - Default" },
-        { "console", "Log to Console"},
-        { "file", "Log to File"}
+            { "none", "No log - Default" },
+            { "console", "Log to Console"},
+            { "file", "Log to File"}
+        }
     }
-}
+
+    if _OPTIONS["framework"]=="sdl" then
+        framework = "_SDL";
+        libsToLink = { "SDL2", "SDL2_image" }
+        excludes { "**/SFML/**" }
+    end
+
+    if _OPTIONS["framework"]=="sfml" or not _OPTIONS["framework"] then
+        framework = "_SFML";
+        libsToLink = { "sfml-graphics", "sfml-window", "sfml-system" }
+        excludes { "**/SDL/**" }
+    end
 
     ------------------------------------------------------------------
     -- setup common settings
@@ -82,8 +82,6 @@ solution "Pyros3D"
 
         defines({"UNICODE", "GLEW_STATIC"})
 
-        defines({framework})
-
         if _OPTIONS["log"]=="console" then
             defines({"LOG_TO_CONSOLE"})
         else
@@ -103,6 +101,7 @@ solution "Pyros3D"
         configuration "Release"
 
             flags { "Optimize" }
+            targetname(libName)
 
 function BuildDemo(demoPath, demoName)
 
@@ -114,7 +113,6 @@ function BuildDemo(demoPath, demoName)
 
         defines({"UNICODE", "GLEW_STATIC"})
         defines({framework});
-        
 
         configuration "Debug"
 
