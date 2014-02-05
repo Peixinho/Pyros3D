@@ -6,11 +6,12 @@ Compilation Process:
 
 	Dependencies:
 	
-		SFML 2.1
+		FreeImage 3.0
 		FreeType2 (using 2.5.2)
 		GLEW
 		BulletPhysics 2.8 (using bullet-2.81-rev2613)
 		
+		Interfaces Working for SFML2.1 and SDL 2.0 (No Text Input Working yet)
 
 // Linux fix for Freetype2
 sudo ln -s /usr/include/freetype2/freetype /usr/include/freetype

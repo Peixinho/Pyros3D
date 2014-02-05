@@ -30,8 +30,11 @@ namespace p3d {
         
         __Textures[TextureInternalID].Using--;
         
-        if (__Textures[TextureInternalID].Using==0) 
+        if (__Textures[TextureInternalID].Using==0)
+        { 
+            FreeImage_Unload(__Textures[TextureInternalID].Image);
             __Textures.erase(TextureInternalID);
+        }
     }
     
     bool Texture::LoadTexture(const std::string& FileName, const uint32 &Type, bool Mipmapping)
@@ -42,32 +45,18 @@ namespace p3d {
         StringID TextureStringID(MakeStringID(FileName));
         if (__Textures.find(TextureStringID)==__Textures.end())
         {
+            FREE_IMAGE_FORMAT format = FreeImage_GetFileType(FileName.c_str(),0);
+            FIBITMAP* Image = FreeImage_Load(format, FileName.c_str());
+            if (!Image)
+            {
+                echo("ERROR: Texture Not Found!");
+                FREE_IMAGE_FORMAT format = FreeImage_GetFileType(FileName.c_str(),0);
+                Image = FreeImage_Load(format,"textures/texture_not_found.png");
+            }
+            Image = FreeImage_ConvertTo32Bits(Image);
+            FreeImage_FlipVertical(Image);
 
-            #ifdef _SFML
-                sf::Image Image = sf::Image();
-                ImageLoaded = Image.loadFromFile(FileName);
-                
-                if (!ImageLoaded)
-                {
-                    echo("ERROR: Texture Not Found!");
-                    ImageLoaded = Image.loadFromFile("textures/texture_not_found.png");
-                }
-            #endif
-
-            #ifdef _SDL
-                SDL_Surface *Image = IMG_Load(FileName.c_str());
-                if (!Image)
-                {
-                    echo("ERROR: Texture Not Found!");
-                    Image = IMG_Load("textures/texture_not_found.png");
-                }
-
-                SDL_PixelFormat *format = Image->format;
-                if (format->Amask)
-                    __Textures[TextureStringID].DataType = TextureDataType::RGBA;
-                else
-                    __Textures[TextureStringID].DataType = TextureDataType::RGB;
-            #endif
+            __Textures[TextureStringID].DataType = TextureDataType::BGRA;
 
             // Save Texture Information
             __Textures[TextureStringID].Image = Image;
@@ -82,17 +71,8 @@ namespace p3d {
         
         this->TextureInternalID = TextureStringID;
 
-        
-        #ifdef _SFML
-            this->Width=__Textures[TextureStringID].Image.getSize().x;
-            this->Height=__Textures[TextureStringID].Image.getSize().y;
-        #endif
-        
-
-        #ifdef _SDL
-            this->Width=__Textures[TextureStringID].Image->w;
-            this->Height=__Textures[TextureStringID].Image->h;
-        #endif
+        this->Width=FreeImage_GetWidth(__Textures[TextureStringID].Image);
+        this->Height=FreeImage_GetHeight(__Textures[TextureStringID].Image);
 
         this->haveImage=true;
         this->Type=Type;
@@ -273,6 +253,16 @@ namespace p3d {
                 internalFormat2=GL_ALPHA;
                 internalFormat3=GL_UNSIGNED_BYTE;
             break;
+            case TextureDataType::BGR:
+                internalFormat=GL_RGB8;
+                internalFormat2=GL_BGR;
+                internalFormat3=GL_UNSIGNED_BYTE;
+            break;
+            case TextureDataType::BGRA:
+                internalFormat=GL_RGBA8;
+                internalFormat2=GL_BGRA;
+                internalFormat3=GL_UNSIGNED_BYTE;
+            break;            
             case TextureDataType::RGBA:
             default:
                 internalFormat=GL_RGBA8;

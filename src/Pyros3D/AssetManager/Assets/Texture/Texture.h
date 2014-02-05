@@ -11,12 +11,17 @@
 
 #include "../../../Core/Math/Math.h"
 #include "../../../Core/Logs/Log.h"
-
+#undef _SFML
+#undef _SDL
+#define _FREEIMAGE
 #ifdef _SFML
     #include <SFML/Graphics.hpp>
 #elif defined(_SDL)
     #include <SDL2/SDL_image.h>
+#elif defined(_FREEIMAGE)
+    #include <FreeImage.h>
 #endif
+
 
 #include <map>
 #include <vector>
@@ -53,6 +58,8 @@ namespace p3d {
     namespace TextureDataType {
         enum {
             RGBA = 0,
+            BGR,
+            BGRA,
             DepthComponent,
             DepthComponent16,
             DepthComponent24,
@@ -101,15 +108,8 @@ namespace p3d {
         uint32 DataType;
         std::string Filename;
 
-        #ifdef _SFML
-            sf::Image Image;
-            const uchar* GetPixels() { return Image.getPixelsPtr(); }
-        #endif
-
-        #ifdef _SDL
-            SDL_Surface *Image;
-            void* GetPixels() { return Image->pixels; }
-        #endif
+        FIBITMAP *Image;
+        void* GetPixels() { return (char*)FreeImage_GetBits(Image); }
 
         __Texture() : Using(0), Type(TextureType::Texture), DataType(TextureDataType::RGBA) {}
         
