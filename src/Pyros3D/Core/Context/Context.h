@@ -9,10 +9,11 @@
 #ifndef CONTEXT_H
 #define	CONTEXT_H
 
-#include "../../Core/Math/Math.h"
+#include "../Math/Math.h"
 #include "../../Utils/DeltaTime/DeltaTime.h"
 #include "../../SceneGraph/SceneGraph.h"
 #include "../../Core/InputManager/InputManager.h"
+#include "../../Utils/FPS/FPS.h"
 
 namespace p3d {
 

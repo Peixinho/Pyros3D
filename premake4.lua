@@ -19,16 +19,13 @@ solution "Pyros3D"
        }
     }
 
-    framework = "_SFML"
-    libsToLink = { "sfml-graphics", "sfml-window", "sfml-system" }
-
     if _OPTIONS["framework"]=="sdl" then
         framework = "_SDL";
         libsToLink = { "SDL2", "SDL2_image" }
         excludes { "**/SFML/**" }
     end
 
-    if _OPTIONS["framework"]=="sfml" then
+    if _OPTIONS["framework"]=="sfml" or not _OPTIONS["framework"] then
         framework = "_SFML";
         libsToLink = { "sfml-graphics", "sfml-window", "sfml-system" }
         excludes { "**/SDL/**" }
@@ -112,7 +109,7 @@ function BuildDemo(demoPath, demoName)
     project (demoName)
         kind "ConsoleApp"
         language "C++"
-        files { demoPath.."/**.h", demoPath.."/**.cpp" }
+        files { demoPath.."/**.h", demoPath.."/**.cpp", demoPath.."/../WindowManagers/**.cpp", demoPath.."/../WindowManagers/**.h" }
         includedirs { "include/", "src/" }
 
         defines({"UNICODE", "GLEW_STATIC"})

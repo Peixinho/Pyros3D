@@ -15,7 +15,6 @@
 
 // Filename
 #define LOG_FILE_PATH "Pyros.log"
-#define LOG_TO_CONSOLE
 
 namespace p3d {
     

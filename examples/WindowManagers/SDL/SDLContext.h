@@ -11,10 +11,7 @@
 
 #include <SDL2/SDL.h>
 
-#include "../Context.h"
-#include "../../../Utils/FPS/FPS.h"
-#include "../../../Utils/DeltaTime/DeltaTime.h"
-#include "../../../Core/InputManager/InputManager.h"
+#include "Pyros3D/Core/Context/Context.h"
 
 namespace p3d {
 

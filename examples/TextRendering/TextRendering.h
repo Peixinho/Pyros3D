@@ -10,10 +10,10 @@
 #define	TEXTRENDERING_H
 
 #ifdef _SDL
-    #include "Pyros3D/Utils/Context/SDL/SDLContext.h"
+    #include "../WindowManagers/SDL/SDLContext.h"
 #define ClassName SDLContext
 #else
-    #include "Pyros3D/Utils/Context/SFML/SFMLContext.h"
+    #include "../WindowManagers/SFML/SFMLContext.h"
     #define ClassName SFMLContext
 #endif
 
