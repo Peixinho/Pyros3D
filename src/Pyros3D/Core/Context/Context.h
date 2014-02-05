@@ -20,7 +20,7 @@ namespace p3d {
     class Context {
         public:
 
-            Context(const unsigned int &width, const unsigned int &height);            
+            Context(const uint32 &width, const uint32 &height);            
             virtual ~Context();
 
             f64 GetTime();
@@ -48,32 +48,34 @@ namespace p3d {
         protected:
             
             // Buttons and Mouse
-            virtual void KeyPressed(const unsigned &key) = 0;
-            virtual void KeyReleased(const unsigned &key) = 0;
-            virtual void MouseButtonPressed(const unsigned &button) = 0;
-            virtual void MouseButtonReleased(const unsigned &button) = 0;
+            virtual void KeyPressed(const uint32 &key) = 0;
+            virtual void KeyReleased(const uint32 &key) = 0;
+            virtual void TextEntered(const uint32 &Code) = 0;
+            virtual void MouseButtonPressed(const uint32 &button) = 0;
+            virtual void MouseButtonReleased(const uint32 &button) = 0;
             virtual void MouseMove(const f32 &mousex, const f32 &mousey) = 0;
             virtual void MouseWheel(const f32 &delta) = 0;
-            virtual void JoypadButtonPressed(const unsigned &JoypadID, const unsigned &Button) = 0;
-            virtual void JoypadButtonReleased(const unsigned &JoypadID, const unsigned &Button) = 0;
-            virtual void JoypadMove(const unsigned &JoypadID, const unsigned &Button, const f32 &Value) = 0;
+            virtual void JoypadButtonPressed(const uint32 &JoypadID, const uint32 &Button) = 0;
+            virtual void JoypadButtonReleased(const uint32 &JoypadID, const uint32 &Button) = 0;
+            virtual void JoypadMove(const uint32 &JoypadID, const uint32 &Button, const f32 &Value) = 0;
 
             // Setters for InputManager
-            void SetKeyPressed(const unsigned &key);
-            void SetKeyReleased(const unsigned &key);
-            void SetCharEntered(const unsigned &key);
-            void SetMouseButtonPressed(const unsigned &button);
-            void SetMouseButtonReleased(const unsigned &button);
+            void SetKeyPressed(const uint32 &key);
+            void SetKeyReleased(const uint32 &key);
+            void SetCharEntered(const uint32 &key);
+            void SetMouseButtonPressed(const uint32 &button);
+            void SetMouseButtonReleased(const uint32 &button);
             void SetMouseMove(const f32 &mousex, const f32 &mousey);
             void SetMouseWheel(const f32 &delta);
-            void SetJoypadButtonPressed(const unsigned &JoypadID, const unsigned &Button);
-            void SetJoypadButtonReleased(const unsigned &JoypadID, const unsigned &Button);
-            void SetJoypadMove(const unsigned &JoypadID, const unsigned &Button, const f32 &Value);
-
+            void SetJoypadButtonPressed(const uint32 &JoypadID, const uint32 &Button);
+            void SetJoypadButtonReleased(const uint32 &JoypadID, const uint32 &Button);
+            void SetJoypadMove(const uint32 &JoypadID, const uint32 &Button, const f32 &Value);
+            
+            // Set Time
             void SetTime(const f32 &Timer);
-
+            
             // Window Size
-            unsigned int Width, Height;
+            uint32 Width, Height;
 
             // Close Context
             void Close();
@@ -89,4 +91,4 @@ namespace p3d {
     };
 }
 
-#endif	/* CONTEXT_H */
+#endif /* CONTEXT_H */

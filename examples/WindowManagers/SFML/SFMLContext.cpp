@@ -12,10 +12,10 @@
 namespace p3d {
     
     #define GLCHECK() { int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } }
-    SFMLContext::SFMLContext(const uint32 &width, const uint32 &height, const std::string &title, const unsigned int &windowType) : Context(width,height) 
+    SFMLContext::SFMLContext(const uint32 &width, const uint32 &height, const std::string &title, const uint32 &windowType) : Context(width,height) 
     {
         
-        unsigned type = 0;
+        uint32 type = 0;
         bool fullScreen = false;
         
         if (windowType & WindowType::Fullscreen) { type = (type | sf::Style::Fullscreen); fullScreen = true; }
@@ -139,21 +139,21 @@ namespace p3d {
     }
     
     // Buttons and Mouse
-    void SFMLContext::KeyPressed(const unsigned& key)
+    void SFMLContext::KeyPressed(const uint32& key)
     {
         // Key Pressed
         SetKeyPressed(key);
     }
-    void SFMLContext::KeyReleased(const unsigned& key)
+    void SFMLContext::KeyReleased(const uint32& key)
     {
         // Key Released
         SetKeyReleased(key);
     }
-    void SFMLContext::TextEntered(const unsigned& Code)
+    void SFMLContext::TextEntered(const uint32& Code)
     {
         SetCharEntered(Code);
     }
-    void SFMLContext::MouseButtonPressed(const unsigned& button)
+    void SFMLContext::MouseButtonPressed(const uint32& button)
     {
         // Mouse Button Pressed
         switch(button)
@@ -169,7 +169,7 @@ namespace p3d {
                 break;
         }
     }
-    void SFMLContext::MouseButtonReleased(const unsigned& button)
+    void SFMLContext::MouseButtonReleased(const uint32& button)
     {
         // Mouse Button Released
         switch(button)
@@ -193,7 +193,7 @@ namespace p3d {
     {
         SetMouseWheel(delta);
     }
-    void SFMLContext::SetMousePosition(const unsigned &mouseX, const unsigned &mouseY)
+    void SFMLContext::SetMousePosition(const uint32 &mouseX, const uint32 &mouseY)
     {
         sf::Mouse::setPosition(sf::Vector2i(mouseX, mouseY), rview);
     }
@@ -201,15 +201,15 @@ namespace p3d {
     {
         return Vec2(sf::Mouse::getPosition(rview).x, sf::Mouse::getPosition(rview).y);
     }
-    void SFMLContext::JoypadButtonPressed(const unsigned& JoypadID, const unsigned& Button)
+    void SFMLContext::JoypadButtonPressed(const uint32& JoypadID, const uint32& Button)
     {
         SetJoypadButtonPressed(JoypadID, Button);
     }
-    void SFMLContext::JoypadButtonReleased(const unsigned& JoypadID, const unsigned& Button)
+    void SFMLContext::JoypadButtonReleased(const uint32& JoypadID, const uint32& Button)
     {
         SetJoypadButtonReleased(JoypadID, Button);
     }
-    void SFMLContext::JoypadMove(const unsigned& JoypadID, const unsigned& Axis, const f32 &Value)
+    void SFMLContext::JoypadMove(const uint32& JoypadID, const uint32& Axis, const f32 &Value)
     {
         SetJoypadMove(JoypadID, Axis, Value);
     }

@@ -120,7 +120,7 @@ namespace p3d {
         SDLContext::MapSDLKeyboard[SDLK_PAUSE] = Event::Input::Keyboard::Pause;
     }
 
-    SDLContext::SDLContext(const uint32 &width, const uint32 &height, const std::string &title, const unsigned int &windowType) : Context(width,height) 
+    SDLContext::SDLContext(const uint32 &width, const uint32 &height, const std::string &title, const uint32 &windowType) : Context(width,height) 
     {
         // Map Keys
         CreateKeyboardMap();
@@ -128,7 +128,7 @@ namespace p3d {
         // Initialize SDL2
 		SDL_Init(SDL_INIT_VIDEO);
 
-        unsigned type = 0;
+        uint32 type = 0;
 
 		if (windowType & WindowType::Fullscreen) { type = (type | SDL_WINDOW_FULLSCREEN); }
         if (windowType & WindowType::None) type = (type | SDL_WINDOW_BORDERLESS);
@@ -235,19 +235,19 @@ namespace p3d {
     }
     
     // Buttons and Mouse
-    void SDLContext::KeyPressed(const unsigned& key)
+    void SDLContext::KeyPressed(const uint32& key)
     {
        SetKeyPressed(MapSDLKeyboard[key]);
     }
-    void SDLContext::KeyReleased(const unsigned& key)
+    void SDLContext::KeyReleased(const uint32& key)
     {
         SetKeyReleased(MapSDLKeyboard[key]);
     }
-    void SDLContext::TextEntered(const unsigned& Code)
+    void SDLContext::TextEntered(const uint32& Code)
     {
         SetCharEntered(Code);
     }
-    void SDLContext::MouseButtonPressed(const unsigned& button)
+    void SDLContext::MouseButtonPressed(const uint32& button)
     {
         // Mouse Button Pressed
         switch(button)
@@ -263,7 +263,7 @@ namespace p3d {
                 break;
         }
     }
-    void SDLContext::MouseButtonReleased(const unsigned& button)
+    void SDLContext::MouseButtonReleased(const uint32& button)
     {
         // Mouse Button Released
         switch(button)
@@ -288,7 +288,7 @@ namespace p3d {
     {
         SetMouseWheel(delta);
     }
-    void SDLContext::SetMousePosition(const unsigned &mouseX, const unsigned &mouseY)
+    void SDLContext::SetMousePosition(const uint32 &mouseX, const uint32 &mouseY)
     {
         SDL_WarpMouseInWindow(rview, mouseX, mouseY);
     }
@@ -298,15 +298,15 @@ namespace p3d {
         SDL_GetMouseState(&mousex,&mousey);
         return Vec2(mousex,mousey);
     }
-    void SDLContext::JoypadButtonPressed(const unsigned& JoypadID, const unsigned& Button)
+    void SDLContext::JoypadButtonPressed(const uint32& JoypadID, const uint32& Button)
     {
 
     }
-    void SDLContext::JoypadButtonReleased(const unsigned& JoypadID, const unsigned& Button)
+    void SDLContext::JoypadButtonReleased(const uint32& JoypadID, const uint32& Button)
     {
 
     }
-    void SDLContext::JoypadMove(const unsigned& JoypadID, const unsigned& Axis, const f32 &Value)
+    void SDLContext::JoypadMove(const uint32& JoypadID, const uint32& Axis, const f32 &Value)
     {
 
     }
