@@ -15,12 +15,6 @@
 #include "../../../Core/Math/Math.h"
 #include "../../../Utils/Binary/BinaryFile.h"
 
-// Assimp Lib
-#include <assimp/postprocess.h>
-#include <assimp/anim.h>
-#include <assimp/scene.h>
-#include <assimp/cimport.h>
-
 namespace p3d {
 
     // Stores Positions
@@ -88,12 +82,7 @@ namespace p3d {
             virtual bool Load(const std::string &Filename);
 
             // animations
-            std::vector<Animation> animations;
-            
-        private:
-
-            // assimp model
-            const aiScene* assimp_model;                        
+            std::vector<Animation> animations;                      
     };
 
 }

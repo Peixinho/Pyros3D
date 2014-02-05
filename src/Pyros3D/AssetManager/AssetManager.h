@@ -18,7 +18,6 @@
 #include <map>
 #include <vector>
 #include <list>
-#include <SFML/Graphics/Image.hpp>
 
 #undef CreateFont
 
