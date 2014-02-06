@@ -15,7 +15,7 @@ solution "Pyros3D"
        description = "Choose a particular API for window management",
        allowed = {
           { "sfml", "SFML 2.1 - Default" },
-          { "sdl", "SDL 2.0" }
+          { "sdl2", "SDL 2.0" }
        }
     }
 
@@ -44,8 +44,8 @@ solution "Pyros3D"
         }
     }
 
-    if _OPTIONS["framework"]=="sdl" then
-        framework = "_SDL";
+    if _OPTIONS["framework"]=="sdl2" then
+        framework = "_SDL2";
         libsToLink = { "SDL2", "SDL2_image" }
         excludes { "**/SFML/**" }
     end
@@ -53,7 +53,7 @@ solution "Pyros3D"
     if _OPTIONS["framework"]=="sfml" or not _OPTIONS["framework"] then
         framework = "_SFML";
         libsToLink = { "sfml-graphics", "sfml-window", "sfml-system" }
-        excludes { "**/SDL/**" }
+        excludes { "**/SDL2/**" }
     end
 
     ------------------------------------------------------------------

@@ -1,13 +1,13 @@
 //============================================================================
-// Name        : SDLContext.h
+// Name        : SDL2Context.h
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
 // Description : SDL Context
 //============================================================================
 
-#ifndef SDLContext_H
-#define SDLContext_H
+#ifndef SDL2CONTEXT_H
+#define SDL2CONTEXT_H
 
 #include <SDL2/SDL.h>
 
@@ -25,11 +25,11 @@ namespace p3d {
         };
     }
     
-    class SDLContext : public Context {
+    class SDL2Context : public Context {
         public:
             
-            SDLContext(const uint32 &width, const uint32 &height, const std::string &title, const uint32 &windowType = WindowType::Fullscreen);            
-            ~SDLContext();
+            SDL2Context(const uint32 &width, const uint32 &height, const std::string &title, const uint32 &windowType = WindowType::Fullscreen);            
+            ~SDL2Context();
             
             // virtuals
             virtual void Init();
@@ -64,7 +64,7 @@ namespace p3d {
             virtual void JoypadButtonPressed(const uint32 &JoypadID, const uint32 &Button);
             virtual void JoypadMove(const uint32 &JoypadID, const uint32 &Axis, const f32 &Value);
             
-            // SDLContext Context
+            // SDL2Context Context
             SDL_Window* rview;
 
             // GL Context
@@ -85,4 +85,4 @@ namespace p3d {
 
 }
 
-#endif	/* SDLContext_H */
+#endif	/* SDL2CONTEXT_H */
