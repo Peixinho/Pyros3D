@@ -9,8 +9,8 @@
 #ifndef ROTATINGCUBE_H
 #define	ROTATINGCUBE_H
 
-#ifdef _SDL
-    #include "../WindowManagers/SDL/SDLContext.h"
+#ifdef _SDL2
+    #include "../WindowManagers/SDL2/SDL2Context.h"
 #define ClassName SDLContext
 #else
     #include "../WindowManagers/SFML/SFMLContext.h"
