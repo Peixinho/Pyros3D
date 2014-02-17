@@ -12,7 +12,9 @@
 #include <string>
 #include <iostream>
 #include <fstream>
-
+#ifdef ANDROID
+#include <android/log.h>
+#endif
 // Filename
 #define LOG_FILE_PATH "Pyros.log"
 
@@ -23,7 +25,7 @@ namespace p3d {
         class _LOG {
             public:
                 #ifdef LOG_TO_FILE
-                static std::ofstream outputFile;
+                    static std::ofstream outputFile;
                 #endif
                 static bool _initiated;
                 static void _message(const std::string &Message)
@@ -39,9 +41,11 @@ namespace p3d {
                         
                         #else
                             #ifdef LOG_TO_CONSOLE
-
-                                std::cout << Message << std::endl;
-
+                				#ifdef ANDROID
+                					__android_log_print(ANDROID_LOG_DEBUG, "Pyros3D", Message.c_str());
+                				#else
+                                    std::cout << Message << std::endl;
+                				#endif
                             #endif
                         #endif
                     #endif
@@ -57,9 +61,9 @@ namespace p3d {
                     _message(Message);
 
                 }
-        };
+};
 
-        #define echo( x ) ( p3d::LOG::_LOG::_echo(x) )
+    #define echo( x ) ( p3d::LOG::_LOG::_echo(x) )
         
     };
 };

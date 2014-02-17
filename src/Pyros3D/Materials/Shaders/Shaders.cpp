@@ -83,24 +83,32 @@ namespace p3d {
         glGetShaderiv(shader, GL_COMPILE_STATUS, &result);
         if (result==GL_FALSE)
         {
-            char *log;        
+            std::string log;
             glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
-            log = (char*)malloc(length);
-            glGetShaderInfoLog(shader, length, &result, log);
-            echo(std::string(shaderType.c_str() + std::string(" COMPILATION ERROR: ") + std::string(log)));
-            free(log);
+            std::stringstream ss;//create a stringstream
+            ss << length;
+            echo(ss.str());
+            if (length>0)
+            {
+                log.resize(length);
+                glGetShaderInfoLog(shader, length, &result, &log[0]);
+                echo(std::string(shaderType.c_str() + std::string(" COMPILATION ERROR: ") + log.c_str()));
+            }
         } else {
-            char *log;        
+            std::string log;       
             glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
-            log = (char*)malloc(length);
-            glGetShaderInfoLog(shader, length, &result, log);
+            std::stringstream ss;//create a stringstream
+            ss << length;
+            echo(ss.str());
             if (length>1)
-                echo(std::string(shaderType.c_str() + std::string(" COMPILED WITH WARNINGS: ") + std::string(log)));
-            free(log);
-
+            {
+                log.resize(length);
+                glGetShaderInfoLog(shader, length, &result, &log[0]);
+                echo(std::string(shaderType.c_str() + std::string(" COMPILED WITH WARNINGS: ") + log.c_str()));
+            }
             if (*ProgramObject==0) 
                 *ProgramObject = (uint32)glCreateProgram();
-			
+            
             // Attach shader
             glAttachShader(*ProgramObject, shader);
             // Link Program
@@ -110,10 +118,12 @@ namespace p3d {
             if (result==GL_FALSE)
             {                      
                 glGetProgramiv(*ProgramObject, GL_INFO_LOG_LENGTH, &length);
-                log = (char*)malloc(length);
-                glGetProgramInfoLog(*ProgramObject, length, &result, log);            
-                echo(std::string(shaderType.c_str() + std::string(" LINK ERROR: ") + std::string(log)));
-                free(log);
+                log.resize(length);
+                std::stringstream ss;//create a stringstream
+                ss << length;
+                echo(ss.str());
+                glGetProgramInfoLog(*ProgramObject, length, &result, &log[0]);            
+                echo(std::string(shaderType.c_str() + std::string(" LINK ERROR: ") + log.c_str()));
             }
         }
     }
