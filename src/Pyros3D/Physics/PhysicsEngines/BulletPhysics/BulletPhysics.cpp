@@ -7,7 +7,6 @@
 //============================================================================
 
 #include "BulletPhysics.h"
-#include "SFML/System/String.hpp"
 #include "../../Components/Box/PhysicsBox.h"
 #include "../../Components/Sphere/PhysicsSphere.h"
 #include "../../Components/MultipleSphere/PhysicsMultipleSphere.h"
@@ -19,7 +18,6 @@
 #include "../../Components/ConvexTriangleMesh/PhysicsConvexTriangleMesh.h"
 #include "../../Components/ConvexHull/PhysicsConvexHull.h"
 #include "../../Components/Vehicle/PhysicsVehicle.h"
-#include "SFML/Graphics/RenderStates.hpp"
 
 namespace p3d {
     
