@@ -146,10 +146,14 @@ namespace p3d {
         {
             
 #ifdef ANDROID
-	    case TextureDataType::DepthComponent:
-		internalFormat=GL_DEPTH_COMPONENT;
+            case TextureDataType::DepthComponent:
+            case TextureDataType::DepthComponent16:
+            case TextureDataType::DepthComponent24:
+            case TextureDataType::DepthComponent32:
+                internalFormat=GL_DEPTH_COMPONENT;
                 internalFormat2=GL_DEPTH_COMPONENT;
                 internalFormat3=GL_FLOAT;
+            break;
 #else
             case TextureDataType::DepthComponent:
             case TextureDataType::DepthComponent24:  
