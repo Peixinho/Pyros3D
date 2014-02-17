@@ -47,7 +47,7 @@ namespace p3d {
 
     void Shader::loadShaderText(const std::string &text)
     {
-            shaderString = text;
+        shaderString = text;
     }
 
     void Shader::compileShader(uint32* ProgramObject)
@@ -85,9 +85,6 @@ namespace p3d {
         {
             std::string log;
             glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
-            std::stringstream ss;//create a stringstream
-            ss << length;
-            echo(ss.str());
             if (length>0)
             {
                 log.resize(length);
@@ -97,10 +94,7 @@ namespace p3d {
         } else {
             std::string log;       
             glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
-            std::stringstream ss;//create a stringstream
-            ss << length;
-            echo(ss.str());
-            if (length>1)
+            if (length>0)
             {
                 log.resize(length);
                 glGetShaderInfoLog(shader, length, &result, &log[0]);
@@ -114,14 +108,11 @@ namespace p3d {
             // Link Program
             glLinkProgram(*ProgramObject);
             // Get Linkage error
-            glGetProgramiv(*ProgramObject, GL_LINK_STATUS, &result);        
+            glGetProgramiv(*ProgramObject, GL_LINK_STATUS, &result);
             if (result==GL_FALSE)
-            {                      
+            {
                 glGetProgramiv(*ProgramObject, GL_INFO_LOG_LENGTH, &length);
                 log.resize(length);
-                std::stringstream ss;//create a stringstream
-                ss << length;
-                echo(ss.str());
                 glGetProgramInfoLog(*ProgramObject, length, &result, &log[0]);            
                 echo(std::string(shaderType.c_str() + std::string(" LINK ERROR: ") + log.c_str()));
             }
