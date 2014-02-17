@@ -7,7 +7,12 @@
 //============================================================================
 
 #include "GeometryBuffer.h"
-#include "GL/glew.h"
+#ifdef ANDROID
+    #include <GLES2/gl2.h>
+    #include <GLES2/gl2ext.h>
+#else
+    #include "GL/glew.h"
+#endif
 
 #define GLCHECK() { int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } }
 
@@ -101,6 +106,7 @@ namespace p3d {
     
     void *GeometryBuffer::Map(uint32 MappingType)
     {
+#ifndef ANDROID
         glBindBuffer(this->bufferType, ID); 
         
         switch (MappingType)
@@ -127,14 +133,17 @@ namespace p3d {
             glBindBuffer(this->bufferType, 0);
             if (vboData) return vboData;
         }
+#endif
         return NULL;
                         
     }
     void GeometryBuffer::Unmap()
     {
+#ifndef ANDROID
         glBindBuffer(this->bufferType, ID);
         glUnmapBuffer(this->bufferType);
         glBindBuffer(this->bufferType, 0);
+#endif
     }
     
     namespace Buffer {

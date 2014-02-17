@@ -7,8 +7,15 @@
 //============================================================================
 
 #include "Texture.h"
-#include "GL/glew.h"
 #include "../../../Ext/StringIDs/StringID.hpp"
+
+#ifdef ANDROID
+    #include <GLES2/gl2.h>
+    #include <GLES2/gl2ext.h>
+#else
+    #include "GL/glew.h"
+#endif
+
 #define GLCHECK() { int error =0; error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } }
 
 namespace p3d {
@@ -137,8 +144,15 @@ namespace p3d {
         
         switch(DataType)
         {
+            
+#ifdef ANDROID
+	    case TextureDataType::DepthComponent:
+		internalFormat=GL_DEPTH_COMPONENT;
+                internalFormat2=GL_DEPTH_COMPONENT;
+                internalFormat3=GL_FLOAT;
+#else
             case TextureDataType::DepthComponent:
-            case TextureDataType::DepthComponent24:    
+            case TextureDataType::DepthComponent24:  
                 internalFormat=GL_DEPTH_COMPONENT24;
                 internalFormat2=GL_DEPTH_COMPONENT;
                 internalFormat3=GL_FLOAT;
@@ -248,11 +262,6 @@ namespace p3d {
                 internalFormat2=GL_R;
                 internalFormat3=GL_UNSIGNED_BYTE;
             break;
-            case TextureDataType::ALPHA:
-                internalFormat=GL_ALPHA;
-                internalFormat2=GL_ALPHA;
-                internalFormat3=GL_UNSIGNED_BYTE;
-            break;
             case TextureDataType::BGR:
                 internalFormat=GL_RGB8;
                 internalFormat2=GL_BGR;
@@ -262,10 +271,16 @@ namespace p3d {
                 internalFormat=GL_RGBA8;
                 internalFormat2=GL_BGRA;
                 internalFormat3=GL_UNSIGNED_BYTE;
-            break;            
+            break;  
+#endif
+            case TextureDataType::ALPHA:
+                internalFormat=GL_ALPHA;
+                internalFormat2=GL_ALPHA;
+                internalFormat3=GL_UNSIGNED_BYTE;
+            break;          
             case TextureDataType::RGBA:
             default:
-                internalFormat=GL_RGBA8;
+                internalFormat=GL_RGBA;
                 internalFormat2=GL_RGBA;
                 internalFormat3=GL_UNSIGNED_BYTE;
             break;
@@ -276,6 +291,10 @@ namespace p3d {
         
         if (Mipmapping)
         {
+#ifdef ANDROID
+		glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
+                glGenerateMipmap(GLMode);
+#else
             if (GLEW_VERSION_2_1)
             {
                 glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
@@ -284,6 +303,7 @@ namespace p3d {
                 gluBuild2DMipmaps(GLMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
             }
             isMipMap = true;
+#endif
         } else {
             glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
         }
@@ -357,6 +377,15 @@ namespace p3d {
         
          switch (SRepeat)
         {
+#ifdef ANDROID
+		case TextureRepeat::ClampToEdge:
+                	glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                break;
+		case TextureRepeat::Repeat:
+            	default:
+                	glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                break;
+#else
             case TextureRepeat::ClampToEdge:
                 glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
                 break;
@@ -370,13 +399,24 @@ namespace p3d {
             default:
                 glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_REPEAT);
                 break;
+#endif
         };
 
         switch (TRepeat)
         {
+#ifdef ANDROID
             case TextureRepeat::ClampToEdge:
                 glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
                 break;
+            case TextureRepeat::Repeat:
+            default:
+                glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                break;
+#else
+            case TextureRepeat::ClampToEdge:
+                glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                break;
+
             case TextureRepeat::ClampToBorder:
                 glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
                 break;                
@@ -387,8 +427,10 @@ namespace p3d {
             default:
                 glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_REPEAT);
                 break;
+#endif
         };
-        
+
+#ifndef ANDROID
         if (WrapR>-1 && GLSubMode==GL_TEXTURE_CUBE_MAP)
         {
             switch (RRepeat)
@@ -408,6 +450,7 @@ namespace p3d {
                     break;
             };
         }
+#endif
         // unbind
          glBindTexture(GLSubMode, 0);
         
@@ -469,6 +512,7 @@ namespace p3d {
     }
     void Texture::EnableCompareMode()
     {
+#ifndef ANDROID
         // USED ONLY FOR DEPTH MAPS
         // Bind
         glBindTexture(GLSubMode, GL_ID);
@@ -484,6 +528,7 @@ namespace p3d {
         
         // Unbind
         glBindTexture(GLSubMode, 0);
+#endif
     }
     void Texture::SetTransparency(const f32& Transparency)
     {
@@ -501,12 +546,16 @@ namespace p3d {
         
         if (isMipMap)
         {
+#ifdef ANDROID
+		glGenerateMipmap(GLSubMode);
+#else
             if (GLEW_VERSION_2_1)
             {
                 glGenerateMipmap(GLSubMode);
             } else {
                 gluBuild2DMipmaps(GLSubMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
             }
+#endif
         }
         
         glBindTexture(GLSubMode, 0);
@@ -531,12 +580,16 @@ namespace p3d {
             
             if (isMipMap)
             {
+#ifdef ANDROID
+		glGenerateMipmap(GLSubMode);
+#else
                 if (GLEW_VERSION_2_1)
                 {
                     glGenerateMipmap(GLSubMode);
                 } else {
                     gluBuild2DMipmaps(GLSubMode,internalFormat,Width,Height,internalFormat2,internalFormat3, srcPTR);
                 }
+#endif
                 UpdateMipmap();
             }
             
@@ -552,12 +605,16 @@ namespace p3d {
         
         if (isMipMap)
         {
+#ifdef ANDROID
+		glGenerateMipmap(GLSubMode);
+#else
             if (GLEW_VERSION_2_1)
             {
                 glGenerateMipmap(GLSubMode);
             } else {
                 gluBuild2DMipmaps(GLSubMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
             }
+#endif
         }
         
         // unbind
@@ -613,6 +670,7 @@ namespace p3d {
     
     std::vector<uchar> Texture::GetTextureData()
     {
+#ifndef ANDROID
         switch(internalFormat)
         {
             case GL_DEPTH_COMPONENT16:
@@ -692,6 +750,7 @@ namespace p3d {
         glGetTexImage(GLSubMode,0,internalFormat2,internalFormat3,&pixels[0]);
         glBindTexture(GLSubMode, 0);
         pixelsRetrieved = true;
+#endif
         return pixels;
     }
     

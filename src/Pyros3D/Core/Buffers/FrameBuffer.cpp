@@ -7,7 +7,12 @@
 //============================================================================
 
 #include "FrameBuffer.h"
-#include "GL/glew.h"
+#ifdef ANDROID
+    #include <GLES2/gl2.h>
+    #include <GLES2/gl2ext.h>
+#else
+    #include "GL/glew.h"
+#endif
 
 namespace p3d {
 
@@ -105,6 +110,7 @@ namespace p3d {
                 echo("FBO: There are no attachments.");
                 break;
             }
+#ifndef ANDROID
             case GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS_EXT:
             {
                 echo("FBO: Attachments are of different size. All attachments must have the same width and height.");
@@ -125,6 +131,7 @@ namespace p3d {
                 echo("FBO: The attachment point referenced by GL.ReadBuffers() doesn't have an attachment.");
                 break;
             }
+#endif
             case GL_FRAMEBUFFER_UNSUPPORTED:
             {
                 echo("FBO: This particular FBO configuration is not supported by the implementation.");
@@ -159,7 +166,7 @@ namespace p3d {
                 break;
             case RenderBufferType::Color:
             default:
-                rboType = GL_RGBA8;
+                rboType = GL_RGBA;
                 rboAttachment = GL_RGBA;
                 break;
         };
@@ -186,6 +193,7 @@ namespace p3d {
             case FrameBufferAttachmentFormat::Color_Attachment0:
                 attach->AttachmentFormat= GL_COLOR_ATTACHMENT0;
                 break;
+#ifndef ANDROID
             case FrameBufferAttachmentFormat::Color_Attachment1:
                 attach->AttachmentFormat= GL_COLOR_ATTACHMENT1;
                 break;
@@ -231,6 +239,7 @@ namespace p3d {
             case FrameBufferAttachmentFormat::Color_Attachment15:
                 attach->AttachmentFormat= GL_COLOR_ATTACHMENT15;
                 break;
+#endif
             case FrameBufferAttachmentFormat::Depth_Attachment:
                 attach->AttachmentFormat= GL_DEPTH_ATTACHMENT;
                 break;
@@ -282,6 +291,7 @@ namespace p3d {
         // bind fbo
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         
+#ifndef ANDROID
         if (!drawBuffers)
         {
             glDrawBuffer(GL_NONE);
@@ -299,7 +309,7 @@ namespace p3d {
 
             glDrawBuffers(BufferIDs.size(), &BufferIDs[0]);
         };
-        
+#endif
         isBinded = true;
     }
     uint32 FrameBuffer::GetBindID()
@@ -310,8 +320,10 @@ namespace p3d {
     {
         // unbind fbo
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#ifndef ANDROID
         glDrawBuffer(GL_BACK);
         glReadBuffer(GL_BACK);
+#endif
         for (std::map<uint32, Attachment*>::iterator i = attachments.begin();i!=attachments.end();i++)
             (*i).second->TexturePTR->UpdateMipmap();
         

@@ -66,7 +66,7 @@
 // 19-May-09 1.5a Patrick Hogan:
 //				  * Bundled with Signals.h for signals and slots library
 //				  * Changed namespace to "gallant"
-
+#include <string.h>
 #ifndef _DELEGATES_H_
 #define _DELEGATES_H_
 

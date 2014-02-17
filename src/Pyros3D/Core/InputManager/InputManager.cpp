@@ -109,6 +109,7 @@ namespace p3d {
     
     void InputManager::CharEntered(const uint32& e)
     {
+#ifndef ANDROID
         // Could be on Pressed or Released, there is nothing different from them
         Code = e;
         Event::Input::Info kPress;
@@ -120,5 +121,6 @@ namespace p3d {
         kRelease.Type = Event::Type::OnRelease;
         kRelease.Input = e;
         EventsMapReleased[Event::Input::Keyboard::OtherKeyboardEvents::CharacterEnter](kRelease);
+#endif
     }
 };

@@ -9,7 +9,6 @@
 
 #include "AssetManager.h"
 #include "../Core/Logs/Log.h"
-#include "GL/glew.h"
 #include "Assets/Renderable/Primitives/Primitive.h"
 #include "Assets/Renderable/Models/Model.h"
 #include "Assets/Renderable/Primitives/Shapes/Cube.h"

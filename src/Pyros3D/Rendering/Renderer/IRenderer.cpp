@@ -7,7 +7,12 @@
 //============================================================================
 
 #include "IRenderer.h"
-#include <GL/glew.h>
+#ifdef ANDROID
+    #include <GLES2/gl2.h>
+    #include <GLES2/gl2ext.h>
+#else
+    #include "GL/glew.h"
+#endif
 
 namespace p3d {
     
@@ -209,14 +214,16 @@ namespace p3d {
                 case DrawingType::Lines:
                     DrawType = GL_LINES;
                     break;
+#ifndef ANDROID
                 case DrawingType::Polygons:
                     DrawType = GL_POLYGON;
                     break;
-                case DrawingType::Points:
-                    DrawType = GL_POINTS;
-                    break;
                 case DrawingType::Quads:
                     DrawType = GL_QUADS;
+                    break;
+#endif
+                case DrawingType::Points:
+                    DrawType = GL_POINTS;
                     break;
                 case DrawingType::Triangles_Fan:
                     DrawType = GL_TRIANGLE_FAN;
@@ -288,10 +295,14 @@ namespace p3d {
         {
             glEnable(GL_DEPTH_TEST);
             glDepthMask(GL_TRUE);
+#ifndef ANDROID
             glClearDepth(1.f);
+#endif
         } else {
             glDisable(GL_DEPTH_TEST);
+#ifndef ANDROID
             glClearDepth(1.f);
+#endif
         }
     }
     
@@ -344,20 +355,24 @@ namespace p3d {
     
     void IRenderer::EnableWireFrame()
     {
+#ifndef ANDROID
         if (!WireFrame)
         {
             WireFrame = true;
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         }
+#endif
     }
      
     void IRenderer::DisableWireFrame()
     {
+#ifndef ANDROID
         if (WireFrame)
         {
             WireFrame = false;
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
+#endif
     }
     
     void IRenderer::SetBackground(const Vec4& Color)

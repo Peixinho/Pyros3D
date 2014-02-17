@@ -7,7 +7,12 @@
 //============================================================================
 
 #include "ForwardRenderer.h"
-#include <GL/glew.h>
+#ifdef ANDROID
+    #include <GLES2/gl2.h>
+    #include <GLES2/gl2ext.h>
+#else
+    #include "GL/glew.h"
+#endif
 
 namespace p3d {
     
@@ -514,8 +519,10 @@ namespace p3d {
             // Disable Cull Face
             glDisable(GL_CULL_FACE);
 
+#ifndef ANDROID
             // Set Default Polygon Mode
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+#endif
 
             // End Rendering
             EndRender();
