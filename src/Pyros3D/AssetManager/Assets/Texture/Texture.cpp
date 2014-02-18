@@ -8,7 +8,6 @@
 
 #include "Texture.h"
 #include "../../../Ext/StringIDs/StringID.hpp"
-
 #ifdef ANDROID
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
@@ -62,8 +61,9 @@ namespace p3d {
             }
             Image = FreeImage_ConvertTo32Bits(Image);
             FreeImage_FlipVertical(Image);
+            SwapRedBlue32(Image);
 
-            __Textures[TextureStringID].DataType = TextureDataType::BGRA;
+            __Textures[TextureStringID].DataType = TextureDataType::RGBA;
 
             // Save Texture Information
             __Textures[TextureStringID].Image = Image;
@@ -114,22 +114,22 @@ namespace p3d {
         StringID TextureStringID(MakeStringIDFromChar(&data[0], length));
         if (__Textures.find(TextureStringID)==__Textures.end())
         {
-            FREE_IMAGE_FORMAT format;
-            switch(Format)
-            {
-                case TextureFormat::PNG:
-                    format = FIF_PNG;
-                break;
-                case TextureFormat::JPG:
-                    format = FIF_JPEG;
-                break;
-            }
-
             
             FIBITMAP *Image = NULL;
             FIMEMORY *mem =  FreeImage_OpenMemory(&data[0], length);
+            FREE_IMAGE_FORMAT format = FreeImage_GetFileTypeFromMemory(mem, 0);
+            switch(format)
+            {
+                case FIF_PNG:
+                    echo("PNG");
+                break;
+                case FIF_JPEG:
+                    echo("JPEG");
+                break;
+            }
             Image = FreeImage_LoadFromMemory(format, mem);
             Image = FreeImage_ConvertTo32Bits(Image);
+            SwapRedBlue32(Image);
             FreeImage_FlipVertical(Image);
 
             __Textures[TextureStringID].DataType = TextureDataType::RGBA;

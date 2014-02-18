@@ -20,6 +20,7 @@
     #include <SDL2/SDL_image.h>
 #elif defined(_FREEIMAGE)
     #include <FreeImage.h>
+    #include <Utilities.h>
 #endif
 
 
