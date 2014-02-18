@@ -42,6 +42,7 @@ namespace p3d {
             void compileShader(uint32* ProgramObject);
             void DeleteShader(uint32 ProgramObject);
             static void DeleteProgram(uint32* ProgramObject);
+            static void LinkProgram(uint32 ProgramObject);
 
             // Get Location
             static int32 GetUniformLocation(const uint32& program, const std::string &name);
@@ -80,6 +81,11 @@ namespace p3d {
             fragmentShader = new Shader(ShaderType::FragmentShader);
         }
         
+        void Link()
+        {
+            Shader::LinkProgram(shaderProgram);
+        }
+
         virtual ~Shaders()
         {
             // Remove From GPU

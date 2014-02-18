@@ -29,6 +29,8 @@ namespace p3d
             shader->vertexShader->compileShader(&shader->shaderProgram);
             shader->fragmentShader->compileShader(&shader->shaderProgram);
         
+            shader->Link();
+
             ShadersList[number] = shader;
         }
         

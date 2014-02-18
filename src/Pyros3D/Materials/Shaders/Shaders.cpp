@@ -14,13 +14,12 @@
 #else
     #include "GL/glew.h"
 #endif
-#include "../../Core/Buffers/FrameBuffer.h"
 
 namespace p3d {
 
-    Shader::Shader() {
-    }
-    Shader::Shader(uint32 type) {
+    Shader::Shader() {}
+    Shader::Shader(uint32 type) 
+    {
         this->type = type;
     }
 
@@ -102,20 +101,27 @@ namespace p3d {
             }
             if (*ProgramObject==0) 
                 *ProgramObject = (uint32)glCreateProgram();
-            
+
             // Attach shader
             glAttachShader(*ProgramObject, shader);
-            // Link Program
-            glLinkProgram(*ProgramObject);
-            // Get Linkage error
-            glGetProgramiv(*ProgramObject, GL_LINK_STATUS, &result);
-            if (result==GL_FALSE)
-            {
-                glGetProgramiv(*ProgramObject, GL_INFO_LOG_LENGTH, &length);
-                log.resize(length);
-                glGetProgramInfoLog(*ProgramObject, length, &result, &log[0]);            
-                echo(std::string(shaderType.c_str() + std::string(" LINK ERROR: ") + log.c_str()));
-            }
+        }
+    }
+    void Shader::LinkProgram(uint32 ProgramObject)
+    {
+        // Link Program
+        glLinkProgram(ProgramObject);
+
+        GLint result, length = 0;
+        std::string log; 
+
+        // Get Linkage error
+        glGetProgramiv(ProgramObject, GL_LINK_STATUS, &result);
+        if (result==GL_FALSE)
+        {
+            glGetProgramiv(ProgramObject, GL_INFO_LOG_LENGTH, &length);
+            log.resize(length);
+            glGetProgramInfoLog(ProgramObject, length, &result, &log[0]);            
+            echo(std::string(std::string("SHADER PROGRAM LINK ERROR: ") + log.c_str()));
         }
     }
     void Shader::DeleteShader(uint32 ProgramObject) 

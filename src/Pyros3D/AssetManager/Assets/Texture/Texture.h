@@ -115,6 +115,15 @@ namespace p3d {
         
     };
     
+    // Only for memory loading
+    namespace TextureFormat
+    {
+        enum {
+            PNG,
+            JPG
+        };
+    }
+
     class Texture {
         
         private:
@@ -155,7 +164,8 @@ namespace p3d {
             Texture();
             
             // Texture
-            bool LoadTexture(const std::string& FileName, const uint32 &Type, bool Mipmapping = true);
+            bool LoadTexture(const std::string& FileName, const uint32 &Type = TextureType::Texture, bool Mipmapping = true);
+            bool LoadTextureFromMemory(const uint32 Format, std::vector<uchar> data, const uint32 &length, const uint32 &Type = TextureType::Texture, bool Mipmapping = true);
             bool CreateTexture(const uint32 &Type, const uint32 &DataType, const int32 &width = 0, const int32 &height = 0, bool Mipmapping = true);
             bool CreateTexture(bool Mipmapping = true);
             void SetMinMagFilter(const uint32 &MinFilter,const uint32 &MagFilter);

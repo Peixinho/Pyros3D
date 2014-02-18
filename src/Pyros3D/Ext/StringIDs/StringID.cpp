@@ -28,6 +28,20 @@ namespace p3d
 		return Hash;
 	};
 
+	StringID MakeStringIDFromChar(const uchar* data, const uint32 &length)
+	{
+		StringID Hash = CRC32::Instance.CRC(data, length);
+
+		std::map<StringID, std::string>::iterator it = StringIDMap.find(Hash);
+
+		if(it == StringIDMap.end())
+		{
+			StringIDMap[Hash] = std::string((char*)data);
+		};
+
+		return Hash;
+	};
+
 	std::string GetStringIDString(StringID ID)
 	{
 		std::map<StringID, std::string>::iterator it = StringIDMap.find(ID);

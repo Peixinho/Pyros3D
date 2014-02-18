@@ -67,7 +67,7 @@ namespace p3d {
 
             // Save Texture Information
             __Textures[TextureStringID].Image = Image;
-            __Textures[TextureStringID].Type = TextureType::Texture;
+            __Textures[TextureStringID].Type = Type;
             __Textures[TextureStringID].TextureID = __Textures.size();
             __Textures[TextureStringID].Using = 1;
             __Textures[TextureStringID].Filename = FileName;
@@ -103,9 +103,78 @@ namespace p3d {
         
         // create default texture
         return CreateTexture(Mipmapping);
-        
     }
     
+    bool Texture::LoadTextureFromMemory(const uint32 Format, std::vector<uchar> data, const uint32 &length, const uint32 &Type, bool Mipmapping)
+    {
+
+        bool failed = false;
+        bool ImageLoaded = false;
+        
+        StringID TextureStringID(MakeStringIDFromChar(&data[0], length));
+        if (__Textures.find(TextureStringID)==__Textures.end())
+        {
+            FREE_IMAGE_FORMAT format;
+            switch(Format)
+            {
+                case TextureFormat::PNG:
+                    format = FIF_PNG;
+                break;
+                case TextureFormat::JPG:
+                    format = FIF_JPEG;
+                break;
+            }
+
+            
+            FIBITMAP *Image = NULL;
+            FIMEMORY *mem =  FreeImage_OpenMemory(&data[0], length);
+            Image = FreeImage_LoadFromMemory(format, mem);
+            Image = FreeImage_ConvertTo32Bits(Image);
+            FreeImage_FlipVertical(Image);
+
+            __Textures[TextureStringID].DataType = TextureDataType::RGBA;
+
+            // Save Texture Information
+            __Textures[TextureStringID].Image = Image;
+            __Textures[TextureStringID].Type = Type;
+            __Textures[TextureStringID].TextureID = __Textures.size();
+            __Textures[TextureStringID].Using = 1;
+            __Textures[TextureStringID].Filename = FileName;
+            
+        } else {
+            __Textures[TextureStringID].Using++;
+        }
+        
+        this->TextureInternalID = TextureStringID;
+
+        this->Width=FreeImage_GetWidth(__Textures[TextureStringID].Image);
+        this->Height=FreeImage_GetHeight(__Textures[TextureStringID].Image);        
+        Vec2 dim = Vec2(this->Width,this->Height);
+        echo(dim.toString());
+        this->haveImage=true;
+        this->Type=Type;
+        this->DataType=__Textures[TextureStringID].DataType;
+        this->Transparency=TextureTransparency::Opaque;
+        
+        if (this->GL_ID==-1) {
+            glGenTextures(1, (GLuint*)&this->GL_ID);
+        }
+        
+        if (this->GL_ID==-1)
+        {
+            failed = true;
+        }
+        
+        if (failed)
+        {
+            echo("ERROR: Failed to Load Texture.");
+            return false;
+        }
+        
+        // create default texture
+        return CreateTexture(Mipmapping);
+    }
+
     bool Texture::CreateTexture(bool Mipmapping)
     {
         
@@ -296,8 +365,8 @@ namespace p3d {
         if (Mipmapping)
         {
 #ifdef ANDROID
-		glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
-                glGenerateMipmap(GLMode);
+            glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
+            glGenerateMipmap(GLMode);
 #else
             if (GLEW_VERSION_2_1)
             {
