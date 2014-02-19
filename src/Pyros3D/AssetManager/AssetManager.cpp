@@ -270,6 +270,15 @@ namespace p3d {
         
         return __TextureList[AssetsCount];
     }
+
+    Texture* AssetManager::LoadTextureFromMemory(std::vector<uchar> data, const uint32 &length, const uint32 &Type, bool Mipmapping)
+    {        
+        uint32 AssetsCount = __TextureList.size();
+        __TextureList[AssetsCount] = new Texture();
+        __TextureList[AssetsCount]->LoadTextureFromMemory(data,length,Type,Mipmapping);
+        
+        return __TextureList[AssetsCount];
+    }    
     
     void AssetManager::LoadAddTexture(const uint32 &Handle, const std::string& FileName, const uint32& Type, bool Mipmapping)
     {

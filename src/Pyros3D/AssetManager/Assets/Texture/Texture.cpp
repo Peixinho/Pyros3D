@@ -105,7 +105,7 @@ namespace p3d {
         return CreateTexture(Mipmapping);
     }
     
-    bool Texture::LoadTextureFromMemory(const uint32 Format, std::vector<uchar> data, const uint32 &length, const uint32 &Type, bool Mipmapping)
+    bool Texture::LoadTextureFromMemory(std::vector<uchar> data, const uint32 &length, const uint32 &Type, bool Mipmapping)
     {
 
         bool failed = false;

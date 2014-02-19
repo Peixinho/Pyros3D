@@ -49,6 +49,7 @@ namespace p3d {
             
             // Texture
             static Texture* LoadTexture(const std::string& FileName, const uint32 &Type, bool Mipmapping = true); 
+            static Texture* LoadTextureFromMemory(std::vector<uchar> data, const uint32 &length, const uint32 &Type = TextureType::Texture, bool Mipmapping = true); 
             static void LoadAddTexture(const uint32 &Handle, const std::string& FileName, const uint32 &Type, bool Mipmapping = true); 
             static Texture* CreateTexture(const uint32 &Type, const uint32 &DataType, const int32&width = 0, const int32&height = 0, bool Mipmapping = true);
             static void AddTexture(const uint32 &Handle, const uint32 &Type, const uint32 &DataType, const int32&width = 0, const int32&height = 0, bool Mipmapping = true);
