@@ -13,9 +13,6 @@
 #include "../../../Core/Logs/Log.h"
 #include <FreeImage.h>
 #include <Utilities.h>
-#endif
-
-
 #include <map>
 #include <vector>
 
