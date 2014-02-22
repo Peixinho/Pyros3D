@@ -1,5 +1,10 @@
 #include "PhysicsDebugDraw.h"
-#include "GL/glew.h"
+#ifdef ANDROID
+    #include <GLES2/gl2.h>
+    #include <GLES2/gl2ext.h>
+#else
+    #include "GL/glew.h"
+#endif
 
 #include <iostream>
 
@@ -79,6 +84,7 @@ namespace p3d {
         glDisableVertexAttribArray(colorHandle);
         glDisableVertexAttribArray(vertexHandle);
         
+        #ifndef ANDROID
         // Send Attributes
         glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexQuadStrip[0]);
         glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorQuadStrip[0]);
@@ -89,6 +95,8 @@ namespace p3d {
         // Disable Attributes
         glDisableVertexAttribArray(colorHandle);
         glDisableVertexAttribArray(vertexHandle);        
+
+        #endif
         
         glUseProgram(0);
     }
@@ -108,6 +116,8 @@ namespace p3d {
 
     void PhysicsDebugDraw::drawSphere(const btVector3& p, btScalar radius, const btVector3& color)
     {
+
+        #ifndef ANDROID
         Vec3 pos = Vec3(p.getX(), p.getY(), p.getZ());
 
         int lats = 5;
@@ -140,6 +150,7 @@ namespace p3d {
 //                glNormal3f(x * zr1, y * zr1, z1);
             }
         }
+        #endif
     }
 
     void PhysicsDebugDraw::drawTriangle(const btVector3& a,const btVector3& b,const btVector3& c,const btVector3& color,btScalar alpha)
