@@ -96,6 +96,8 @@ namespace p3d {
         uint32 Using;
         uint32 Type;
         uint32 DataType;
+        uint32 Width;
+        uint32 Height;
         std::string Filename;
 
         FIBITMAP *Image;

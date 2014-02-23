@@ -10,9 +10,7 @@
 #include <SDL.h>
 namespace p3d {
 
-    AnimationLoader::AnimationLoader() {}
-
-    AnimationLoader::~AnimationLoader() {}
+#ifdef ANDROID
 
     bool AnimationLoader::Load(const std::string& Filename)
     {
@@ -106,4 +104,6 @@ namespace p3d {
 
         return true;
     }
+
+#endif
 }

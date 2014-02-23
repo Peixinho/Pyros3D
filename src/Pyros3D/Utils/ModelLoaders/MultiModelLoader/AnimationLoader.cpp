@@ -14,6 +14,8 @@ namespace p3d {
 
     AnimationLoader::~AnimationLoader() {}
 
+#ifndef ANDROID
+
     bool AnimationLoader::Load(const std::string& Filename)
     {
         // Load Animations
@@ -82,4 +84,7 @@ namespace p3d {
 
         return true;
     }
+    
+#endif
+
 }

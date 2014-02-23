@@ -11,9 +11,7 @@
 
 namespace p3d {
 
-    ModelLoader::ModelLoader() {}
-
-    ModelLoader::~ModelLoader() {}
+#ifdef ANDROID
 
     bool ModelLoader::Load(const std::string& Filename)
     {
@@ -299,4 +297,5 @@ namespace p3d {
 
         return true;
     }
+#endif
 }

@@ -43,6 +43,8 @@ namespace p3d {
         }
     }
     
+#ifndef ANDROID
+
     bool Texture::LoadTexture(const std::string& FileName, const uint32 &Type, bool Mipmapping)
     {
         bool failed = false;
@@ -77,10 +79,8 @@ namespace p3d {
         }
         
         this->TextureInternalID = TextureStringID;
-
         this->Width=FreeImage_GetWidth(__Textures[TextureStringID].Image);
         this->Height=FreeImage_GetHeight(__Textures[TextureStringID].Image);
-
         this->haveImage=true;
         this->Type=Type;
         this->DataType=__Textures[TextureStringID].DataType;
@@ -104,6 +104,8 @@ namespace p3d {
         // create default texture
         return CreateTexture(Mipmapping);
     }
+
+#endif    
     
     bool Texture::LoadTextureFromMemory(std::vector<uchar> data, const uint32 &length, const uint32 &Type, bool Mipmapping)
     {
@@ -146,11 +148,8 @@ namespace p3d {
         }
         
         this->TextureInternalID = TextureStringID;
-
         this->Width=FreeImage_GetWidth(__Textures[TextureStringID].Image);
-        this->Height=FreeImage_GetHeight(__Textures[TextureStringID].Image);        
-        Vec2 dim = Vec2(this->Width,this->Height);
-        echo(dim.toString());
+        this->Height=FreeImage_GetHeight(__Textures[TextureStringID].Image);
         this->haveImage=true;
         this->Type=Type;
         this->DataType=__Textures[TextureStringID].DataType;

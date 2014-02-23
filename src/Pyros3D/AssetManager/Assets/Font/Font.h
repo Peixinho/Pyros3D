@@ -50,6 +50,9 @@ namespace p3d {
             // Free Type Specifics
             FT_Library ft;
             FT_Face face;
+
+            // From Memory
+            std::vector<uchar> memory;
             
         public:
             
