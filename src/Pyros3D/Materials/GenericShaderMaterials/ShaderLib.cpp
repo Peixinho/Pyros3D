@@ -56,8 +56,56 @@ namespace p3d
         
         if (option & ShaderUsage::DeferredRendering)
         {
-            // Deferred Renndering
+            // We allways need normals
+            if (!usingNormal)
+            {
+                    usingNormal = true;
+                    vertexShaderHeader+="varying vec3 vNormal;\n";
+                    vertexShaderBody+="vNormal = aNormal;\n";
+                    vertexShaderBody+="vNormal = normalize((uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aNormal,0)).xyz);\n";
+                    fragmentShaderHeader+="varying vec3 vNormal;\n";
+                    fragmentShaderBody+="vec3 Normal = vNormal;\n";
+            }
 
+            if (!usingVertexWorldPos)
+            {
+                usingVertexWorldPos = true;
+                vertexShaderHeader+="varying vec4 vWorldPosition;\n";
+                vertexShaderBody+="vWorldPosition=uModelMatrix * vec4(aPosition,1.0);\n";
+                fragmentShaderHeader+="varying vec4 vWorldPosition;\n";
+            }
+
+            // Deferred Rendering
+            if (option & ShaderUsage::Color)
+            {
+                // Fragment Header
+                fragmentShaderHeader+="uniform vec4 uColor;\n";
+                // Fragment Body
+                fragmentShaderBody+="if (!diffuseIsSet) {diffuse=uColor; diffuseIsSet=true;} else diffuse *= uColor;\n";
+            }
+
+            // Texture Coords
+            if (!usingTexcoords)
+            {
+                usingTexcoords = true;
+                // Vertex Header
+                vertexShaderHeader+="varying vec2 vTexcoord;\n";
+                // Vertex Body
+                vertexShaderBody+="vTexcoord = aTexcoord;\n";
+                // Fragment Header
+                fragmentShaderHeader+="varying vec2 vTexcoord;\n";
+                fragmentShaderHeader+="vec2 Texcoord = vTexcoord;\n";
+            }
+
+            // Closing Shaders
+            vertexShaderBody+="}\n";
+            
+            // Deferred Data
+            fragmentShaderBody+="gl_FragData[0]=vec4(diffuse.xyz,1.0);\n";
+            fragmentShaderBody+="gl_FragData[1]=vec4(specular.xyz,1.0);\n";
+            fragmentShaderBody+="gl_FragData[2]=vec4(Normal.xyz,1.0);\n";
+            fragmentShaderBody+="gl_FragData[3]=vWorldPosition;\n";
+            fragmentShaderBody+="}\n";
             
         } else {
 

@@ -301,8 +301,7 @@ namespace p3d {
         if (attachments.size()>0 && drawBuffers)
         {
             std::vector<GLenum> BufferIDs;
-
-            for(uint32 i = FrameBufferAttachmentFormat::Color_Attachment0; i < attachments.size() || i < FrameBufferAttachmentFormat::Color_Attachment15; i++)
+            for(uint32 i = FrameBufferAttachmentFormat::Color_Attachment0; i < attachments.size() && i < FrameBufferAttachmentFormat::Color_Attachment15; i++)
             {
                 BufferIDs.push_back(GL_COLOR_ATTACHMENT0 + i);
             };

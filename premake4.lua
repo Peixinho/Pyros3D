@@ -36,6 +36,7 @@ solution "Pyros3D"
 
     newoption {
         trigger = "log",
+        value       = "OUTPUT",
         description = "Log Output",
         allowed = {
             { "none", "No log - Default" },

@@ -63,9 +63,8 @@ namespace p3d {
             }
             Image = FreeImage_ConvertTo32Bits(Image);
             FreeImage_FlipVertical(Image);
-            SwapRedBlue32(Image);
 
-            __Textures[TextureStringID].DataType = TextureDataType::RGBA;
+            __Textures[TextureStringID].DataType = TextureDataType::BGRA;
 
             // Save Texture Information
             __Textures[TextureStringID].Image = Image;
@@ -131,10 +130,9 @@ namespace p3d {
             }
             Image = FreeImage_LoadFromMemory(format, mem);
             Image = FreeImage_ConvertTo32Bits(Image);
-            SwapRedBlue32(Image);
             FreeImage_FlipVertical(Image);
 
-            __Textures[TextureStringID].DataType = TextureDataType::RGBA;
+            __Textures[TextureStringID].DataType = TextureDataType::BGRA;
 
             // Save Texture Information
             __Textures[TextureStringID].Image = Image;

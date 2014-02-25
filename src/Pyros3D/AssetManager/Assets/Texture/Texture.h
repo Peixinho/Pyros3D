@@ -12,7 +12,6 @@
 #include "../../../Core/Math/Math.h"
 #include "../../../Core/Logs/Log.h"
 #include <FreeImage.h>
-#include <Utilities.h>
 #include <map>
 #include <vector>
 

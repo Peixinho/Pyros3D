@@ -37,6 +37,9 @@ namespace p3d {
             Color_Attachment14,
             Color_Attachment15,
             Depth_Attachment,
+            Depth_Attachment16,
+            Depth_Attachment24,
+            Depth_Attachment32,
             Stencil_Attachment
         };
     }
