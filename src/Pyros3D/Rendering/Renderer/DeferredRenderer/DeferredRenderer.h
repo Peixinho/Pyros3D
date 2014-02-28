@@ -19,7 +19,7 @@ namespace p3d {
         
         public:
             
-            DeferredRenderer(const uint32 &Width, const uint32 &Height);
+            DeferredRenderer(const uint32 &Width, const uint32 &Height, FrameBuffer* fbo);
             
             ~DeferredRenderer();
             
@@ -29,11 +29,23 @@ namespace p3d {
 
             void SetFBO(FrameBuffer* fbo);
             
+            virtual void Resize(const uint32& Width, const uint32& Height);
+
         private:
             GenericShaderMaterial* shadowMaterial, *shadowSkinnedMaterial;
 
         protected:
+
+            void CreateQuad();
+
+            // Offscreen Frame Buffer Object
             FrameBuffer* FBO;
+
+            // Point Light Volume
+            RenderingComponent *deferredQuad;
+            GameObject* Quad;
+            RenderingComponent *pointLight;
+            GenericShaderMaterial *pointLightMaterial, *deferredMaterial;
     };
     
 };

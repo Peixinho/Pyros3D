@@ -109,6 +109,39 @@ namespace p3d
             
         } else {
 
+            if (option & ShaderUsage::DeferredMaterial)
+            {
+                // Texture Coords
+            if (!usingTexcoords)
+            {
+                usingTexcoords = true;
+                // Vertex Header
+                vertexShaderHeader+="varying vec2 vTexcoord;\n";
+                // Vertex Body
+                vertexShaderBody+="vTexcoord = aTexcoord;\n";
+                // Fragment Header
+                fragmentShaderHeader+="varying vec2 vTexcoord;\n";
+                fragmentShaderHeader+="vec2 Texcoord = vTexcoord;\n";
+            }
+                fragmentShaderHeader+="uniform sampler2D tDiffuse;\n";
+                fragmentShaderHeader+="uniform sampler2D tSpecular;\n";
+                fragmentShaderHeader+="uniform sampler2D tNormal;\n";
+                fragmentShaderHeader+="uniform sampler2D tPosition;\n";
+                fragmentShaderHeader+="uniform sampler2D tDepth;\n";
+                fragmentShaderHeader+="uniform vec2 uScreenDimensions;\n";
+                fragmentShaderBody+="Texcoord = vec2(gl_FragCoord.x/uScreenDimensions.x,gl_FragCoord.y/uScreenDimensions.y);\n";
+                fragmentShaderBody+="if (vTexcoord.x<0.5 && vTexcoord.y<0.5) diffuse = vec4(texture2D( tDiffuse, vec2(vTexcoord.x,1.0-vTexcoord.y)).xyz,1.0);\n";
+                fragmentShaderBody+="else if (vTexcoord.x>0.5 && vTexcoord.y<0.5) diffuse = diffuse = vec4(texture2D( tNormal, vec2(vTexcoord.x,1.0-vTexcoord.y)).xyz,1.0);\n";
+                fragmentShaderBody+="else if (vTexcoord.x<0.5 && vTexcoord.y>0.5) diffuse = vec4(texture2D( tPosition, vec2(vTexcoord.x,1.0-vTexcoord.y)).xyz,1.0);\n";
+                fragmentShaderBody+="else if (vTexcoord.x>0.5 && vTexcoord.y>0.5) diffuse = vec4(texture2D( tDepth, vec2(vTexcoord.x,1.0-vTexcoord.y)).rrr,1.0);\n";
+                fragmentShaderBody+="vec3 WorldPos = texture2D(tPosition, vec2(Texcoord.x,1.0-Texcoord.y)).xyz;\n";
+                fragmentShaderBody+="vec3 Color = texture2D(tDiffuse, vec2(Texcoord.x,1.0-Texcoord.y)).xyz;\n";
+                fragmentShaderBody+="vec3 Normal = normalize(texture2D(tNormal, vec2(Texcoord.x,1.0-Texcoord.y)).xyz);\n";
+                fragmentShaderBody+="vec3 Specular = texture2D(tSpecular, vec2(Texcoord.x,1.0-Texcoord.y)).xyz;\n";
+                fragmentShaderBody+="vec3 Depth = texture2D(tDepth, vec2(Texcoord.x,1.0-Texcoord.y)).xyz;\n";
+                fragmentShaderBody+="diffuse = vec4(Depth,1.0);\n";
+            }
+
             // Forward Rendering
             if (option & ShaderUsage::Color)
             {
@@ -126,7 +159,7 @@ namespace p3d
                 // Fragment Body
                 fragmentShaderHeader+="varying vec4 vColor;\n";
                 fragmentShaderBody+="if (!diffuseIsSet) {diffuse=vColor; diffuseIsSet=true;} else diffuse *= vColor;\n";
-            }        
+            }
             if (option & ShaderUsage::Texture)
             {
                 if (!usingTexcoords)

@@ -175,17 +175,17 @@ namespace p3d {
                                         switch((*k)->CullingGeometry)
                                         {
                                             case CullingGeometry::Box:
-                                                cullingTest = CullingBoxTest(*k);
+                                                cullingTest = CullingBoxTest((*k),(*k)->renderingComponent->GetOwner());
                                                 break;
                                             case CullingGeometry::Sphere:
                                             default:
-                                                cullingTest = CullingSphereTest(*k);
+                                                cullingTest = CullingSphereTest((*k),(*k)->renderingComponent->GetOwner());
                                                 break;
                                         }
                                         if (!(*k)->Material->IsTransparent())
                                         {
                                             if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-                                                RenderObject((*k),((*k)->renderingComponent->HasBones()?shadowSkinnedMaterial:shadowMaterial));
+                                                RenderObject((*k),(*k)->renderingComponent->GetOwner(),((*k)->renderingComponent->HasBones()?shadowSkinnedMaterial:shadowMaterial));
                                         }
                                         else break;
                                     }
@@ -303,17 +303,17 @@ namespace p3d {
                                         switch((*k)->CullingGeometry)
                                         {
                                             case CullingGeometry::Box:
-                                                cullingTest = CullingBoxTest(*k);
+                                                cullingTest = CullingBoxTest((*k),(*k)->renderingComponent->GetOwner());
                                                 break;
                                             case CullingGeometry::Sphere:
                                             default:
-                                                cullingTest = CullingSphereTest(*k);
+                                                cullingTest = CullingSphereTest((*k),(*k)->renderingComponent->GetOwner());
                                                 break;
                                         }
                                         if (cullingTest && !(*k)->Material->IsTransparent())
                                         {
                                             if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-                                                RenderObject((*k),((*k)->renderingComponent->HasBones()?shadowSkinnedMaterial:shadowMaterial));
+                                                RenderObject((*k),(*k)->renderingComponent->GetOwner(),((*k)->renderingComponent->HasBones()?shadowSkinnedMaterial:shadowMaterial));
                                         }
                                         else break;
                                             
@@ -406,17 +406,17 @@ namespace p3d {
                                     switch((*k)->CullingGeometry)
                                     {
                                         case CullingGeometry::Box:
-                                            cullingTest = CullingBoxTest(*k);
+                                            cullingTest = CullingBoxTest((*k),(*k)->renderingComponent->GetOwner());
                                             break;
                                         case CullingGeometry::Sphere:
                                         default:
-                                            cullingTest = CullingSphereTest(*k);
+                                            cullingTest = CullingSphereTest((*k),(*k)->renderingComponent->GetOwner());
                                             break;
                                     }
                                     if (cullingTest && !(*k)->Material->IsTransparent())
                                     {
                                         if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-                                            RenderObject((*k),((*k)->renderingComponent->HasBones()?shadowSkinnedMaterial:shadowMaterial));
+                                            RenderObject((*k),(*k)->renderingComponent->GetOwner(),((*k)->renderingComponent->HasBones()?shadowSkinnedMaterial:shadowMaterial));
                                     }
                                     else break;
                                 }
@@ -505,15 +505,15 @@ namespace p3d {
                     switch((*i)->CullingGeometry)
                     {
                         case CullingGeometry::Box:
-                            cullingTest = CullingBoxTest(*i);
+                            cullingTest = CullingBoxTest((*i),(*i)->renderingComponent->GetOwner());
                             break;
                         case CullingGeometry::Sphere:
                         default:
-                            cullingTest = CullingSphereTest(*i);
+                            cullingTest = CullingSphereTest((*i),(*i)->renderingComponent->GetOwner());
                             break;
                     }
                     if (cullingTest && (*i)->renderingComponent->IsActive() && (*i)->Active == true)
-                        RenderObject((*i),(*i)->Material);
+                        RenderObject((*i),(*i)->renderingComponent->GetOwner(),(*i)->Material);
                 }
             }
             // Disable Cull Face

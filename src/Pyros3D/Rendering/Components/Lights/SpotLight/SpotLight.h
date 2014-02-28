@@ -26,7 +26,7 @@ namespace p3d {
                 innerCone = InnerCone;
                 outterCone = OutterCone;
                 CosOutterCone = cosf(DEGTORAD(OutterCone));
-                CosInnerCone= cosf(DEGTORAD(InnerCone));
+                CosInnerCone = cosf(DEGTORAD(InnerCone));
                 Direction = direction;
             }
             
@@ -64,7 +64,7 @@ namespace p3d {
                 ShadowMap->EnableCompareMode();
 
                 // Initialize Frame Buffer
-                shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::Texture,ShadowMap,false);
+                shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::Texture,ShadowMap);
 
                 // Near and Far Clip Planes
                 ShadowNear = Near;

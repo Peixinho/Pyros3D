@@ -21,7 +21,7 @@ namespace p3d {
         texture->CreateTexture(TextureType::Texture,TextureDataType::RGBA,Width,Height,false);
         
         // Frame Buffer Creation
-        fbo->Init(FrameBufferAttachmentFormat::Color_Attachment0,TextureType::Texture,texture,true);
+        fbo->Init(FrameBufferAttachmentFormat::Color_Attachment0,TextureType::Texture,texture);
         
         // Activate Culling
         ActivateCulling(CullingMode::FrustumCulling);
@@ -30,7 +30,6 @@ namespace p3d {
     {
         IRenderer::Resize(Width,Height);
         texture->Resize(Width,Height);
-        fbo->ResizeRenderBuffer(Width,Height);
     }
     PainterPick::~PainterPick() 
     {
@@ -121,11 +120,11 @@ namespace p3d {
                 switch((*i)->CullingGeometry)
                 {
                     case CullingGeometry::Box:
-                        cullingTest = CullingBoxTest(*i);
+                        cullingTest = CullingBoxTest((*i),(*i)->renderingComponent->GetOwner());
                         break;
                     case CullingGeometry::Sphere:
                     default:
-                        cullingTest = CullingSphereTest(*i);
+                        cullingTest = CullingSphereTest((*i),(*i)->renderingComponent->GetOwner());
                         break;
                 }
                 if (cullingTest && (*i)->renderingComponent->IsActive() && ((*i)->Clickable || (*i)->Active))
@@ -133,7 +132,7 @@ namespace p3d {
                     colors++;
                     Vec4 color = Rgba8ToVec4(colors);
                     material->SetColor(color);
-                    RenderObject((*i),material);
+                    RenderObject((*i),(*i)->renderingComponent->GetOwner(),material);
                     MeshPickingList[colors]=(*i);
                 }
             }

@@ -34,7 +34,7 @@ namespace p3d {
 
         // Initialize Frame Buffer
         fbo = new FrameBuffer();
-        fbo->Init(FrameBufferAttachmentFormat::Color_Attachment0,TextureType::CubemapPositive_X,environmentMap,true);
+        fbo->Init(FrameBufferAttachmentFormat::Color_Attachment0,TextureType::CubemapPositive_X,environmentMap);
         
     }
     
@@ -251,15 +251,15 @@ namespace p3d {
                         switch((*k)->CullingGeometry)
                         {
                             case CullingGeometry::Box:
-                                cullingTest = CullingBoxTest(*k);
+                                cullingTest = CullingBoxTest((*k),(*k)->renderingComponent->GetOwner());
                                 break;
                             case CullingGeometry::Sphere:
                             default:
-                                cullingTest = CullingSphereTest(*k);
+                                cullingTest = CullingSphereTest((*k),(*k)->renderingComponent->GetOwner());
                                 break;
                         }
                         if (cullingTest && (*k)->renderingComponent->IsActive())
-                            RenderObject((*k),(*k)->Material);
+                            RenderObject((*k),(*k)->renderingComponent->GetOwner(),(*k)->Material);
                     }
                 }
             }

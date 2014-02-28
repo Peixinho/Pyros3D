@@ -37,42 +37,62 @@ namespace p3d {
             Color_Attachment14,
             Color_Attachment15,
             Depth_Attachment,
-            Depth_Attachment16,
-            Depth_Attachment24,
-            Depth_Attachment32,
             Stencil_Attachment
         };
     }
-    
-    namespace RenderBufferType
+
+    namespace RenderBufferDataType
     {
         enum {
-            Color = 0,
+            RGBA = 0,
             Depth,
             Stencil
         };
     }
     
-    struct Attachment
+    namespace FBOAttachmentType
     {
-        Texture *TexturePTR;
-        uint32 AttachmentFormat;
-        uint32 TextureType;
+        enum {
+            Texture = 0,
+            RenderBuffer
+        };
+    }
+
+    class FBOAttachment
+    {
+        public:
+            uint32 AttachmentFormat;
+            uint32 AttachmentType;
+
+            // Texture Specific
+            Texture *TexturePTR;
+            uint32 TextureType;
+
+            // RenderBuffer Specific
+            uint32 Width;
+            uint32 Height;
+            uint32 rboID;
+            uint32 DataType;
     };
     
     class FrameBuffer {
         public:
-            FrameBuffer();      
+            FrameBuffer();
             virtual ~FrameBuffer();
             
-            void Init(const uint32 &attachmentFormat, const uint32 &TextureType, Texture* attachment, bool DrawBuffers = true);
-            void Init(const uint32 &attachmentFormat, const uint32 &TextureType, Texture* attachment, const uint32& BufferFormat, const uint32 &width, const uint32 &height, bool DrawBuffers);
+            void Init(const uint32 &attachmentFormat, const uint32 &TextureType, Texture* attachment); // Using Textures
+            void Init(const uint32& attachmentFormat, const uint32 &attachmentDataType, const uint32 Width, const uint32 &Height); // RenderBuffer
             void AddAttach(const uint32& attachmentFormat, const uint32 &TextureType, Texture* attachment);
-            void ResizeRenderBuffer(const uint32 &width, const uint32 &height);
+            void AddAttach(const uint32& attachmentFormat, const uint32 &attachmentDataType, const uint32 &Width, const uint32 &Height);
+            void Resize(const uint32 &Width, const uint32 &Height);
             void Bind();
             bool IsBinded();
             uint32 GetBindID();
             void UnBind();
+
+            void CheckFBOStatus();
+
+            std::map<uint32, FBOAttachment*> GetAttachments() const { return attachments; }
             
             const uint32 &GetFrameBufferFormat() const;
             
@@ -92,18 +112,12 @@ namespace p3d {
             uint32 fbo;
             // DrawBuffers
             bool drawBuffers;
-            // RenderBuffer
-            uint32 rbo;
-            uint32 rboType;
-            uint32 rboAttachment;
-            uint32 rboWidth,rboHeight;
-            bool isUsingRenderBuffer;
             
             // Flags
             bool FBOInitialized;
 
             // FBO "texture"
-            std::map<uint32, Attachment*> attachments;
+            std::map<uint32, FBOAttachment*> attachments;
             
     };
 

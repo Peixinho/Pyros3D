@@ -183,7 +183,7 @@ namespace p3d {
                     ShadowMap->CreateTexture(TextureType::Texture,TextureDataType::DepthComponent,ShadowWidthFBO,ShadowHeightFBO,false);
                     ShadowMap->SetRepeat(TextureRepeat::Clamp,TextureRepeat::Clamp);
                     ShadowMap->EnableCompareMode();
-                    shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::Texture,ShadowMap,false);
+                    shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::Texture,ShadowMap);
 
                     // Near and Far Clip Planes
                     ShadowNear = Near;

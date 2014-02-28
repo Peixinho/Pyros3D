@@ -16,7 +16,7 @@
 
 namespace p3d {
     
-    DeferredRenderer::DeferredRenderer(const uint32& Width, const uint32& Height) : IRenderer(Width,Height) 
+    DeferredRenderer::DeferredRenderer(const uint32& Width, const uint32& Height, FrameBuffer* fbo) : IRenderer(Width,Height) 
     {
     
         echo("SUCCESS: Deferred Renderer Created");
@@ -30,6 +30,35 @@ namespace p3d {
 
         // Default View Port Init Values
         viewPortStartX = viewPortStartY = 0;
+
+        // Save FrameBuffer
+        FBO = fbo;
+
+
+        // Create Second Pass Specifics
+            pointLightMaterial = new GenericShaderMaterial(ShaderUsage::Color);
+            pointLightMaterial->SetColor(Vec4(1,0,0,1));
+            deferredMaterial = new GenericShaderMaterial(ShaderUsage::DeferredMaterial);
+
+            // Set Textures
+            deferredMaterial->AddTexture("tDifuse",FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment0]->TexturePTR);
+            deferredMaterial->AddTexture("tSpecular",FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment1]->TexturePTR);
+            deferredMaterial->AddTexture("tNormal",FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment2]->TexturePTR);
+            deferredMaterial->AddTexture("tPosition",FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment3]->TexturePTR);
+            deferredMaterial->AddTexture("tDepth",FBO->GetAttachments()[FrameBufferAttachmentFormat::Depth_Attachment]->TexturePTR);
+            deferredMaterial->AddUniform(Uniform::Uniform("uScreenDimensions", Uniform::DataUsage::ScreenDimensions));
+            // Quad
+            // Dummy GO
+            Quad = new GameObject();
+            deferredQuad = new RenderingComponent(AssetManager::CreatePlane(2,2), deferredMaterial);
+
+            // Light Volumes
+            pointLight = new RenderingComponent(AssetManager::CreateSphere(1));
+    }
+    
+    void DeferredRenderer::Resize(const uint32& Width, const uint32& Height)
+    {
+        IRenderer::Resize(Width,Height);
     }
     
     DeferredRenderer::~DeferredRenderer()
@@ -42,7 +71,10 @@ namespace p3d {
         delete shadowMaterial;
     }
     
-    
+    void DeferredRenderer::CreateQuad()
+    {
+
+    }
     
     std::vector<RenderingMesh*> DeferredRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera)
     {
@@ -88,94 +120,153 @@ namespace p3d {
         // Save Time
         Timer = Scene->GetTime();
 
-        // Save Values for Cache
-        // Saves Scene
-        this->Scene = Scene;
+        // First Pass
 
-        // Saves Camera
-        this->Camera = Camera;
-        this->CameraPosition = this->Camera->GetWorldPosition();
+            // Save Values for Cache
+            // Saves Scene
+            this->Scene = Scene;
 
-        // Saves Projection
-        this->projection = projection;
+            // Saves Camera
+            this->Camera = Camera;
+            this->CameraPosition = this->Camera->GetWorldPosition();
 
-        // Universal Cache
-        ProjectionMatrix = projection.m;
-        NearFarPlane = Vec2(projection.Near, projection.Far);
+            // Saves Projection
+            this->projection = projection;
 
-        // View Matrix and Position
-        ViewMatrix = Camera->GetWorldTransformation().Inverse();
-        CameraPosition = Camera->GetWorldPosition();
+            // Universal Cache
+            ProjectionMatrix = projection.m;
+            NearFarPlane = Vec2(projection.Near, projection.Far);
 
-        // Update Culling
-        UpdateCulling(ProjectionMatrix*ViewMatrix);
+            // View Matrix and Position
+            ViewMatrix = Camera->GetWorldTransformation().Inverse();
+            CameraPosition = Camera->GetWorldPosition();
 
-        // Flags
-        ViewMatrixInverseIsDirty = true;
-        ProjectionMatrixInverseIsDirty = true;
-        ViewProjectionMatrixIsDirty = true;
+            // Update Culling
+            UpdateCulling(ProjectionMatrix*ViewMatrix);
 
-        // Set ViewPort
-        if (viewPortEndX==0 || viewPortEndY==0) 
-        { 
-            viewPortEndX = Width;
-            viewPortEndY = Height;
-        }
-        
-        _SetViewPort(viewPortStartX,viewPortStartY,viewPortEndX,viewPortEndY);
+            // Flags
+            ViewMatrixInverseIsDirty = true;
+            ProjectionMatrixInverseIsDirty = true;
+            ViewProjectionMatrixIsDirty = true;
 
-        // Bind Frame Buffer
-        FBO->Bind();
+            // Bind Frame Buffer
+            FBO->Bind();
 
-        // Clear Screen
-        ClearScreen(BufferOptions);
-        
-        // Draw Background
-        DrawBackground();
-        
-        // Depth Test
-        RunDepthTest();
-
-        // Render Scene with Objects Material
-        for (std::vector<RenderingMesh*>::iterator i=rmesh.begin();i!=rmesh.end();i++)
-        {
-
-            if ((*i)->renderingComponent->GetOwner()!=NULL)
-            {
-                // Culling Test
-                bool cullingTest = false;
-                switch((*i)->CullingGeometry)
-                {
-                    case CullingGeometry::Box:
-                        cullingTest = CullingBoxTest(*i);
-                        break;
-                    case CullingGeometry::Sphere:
-                    default:
-                        cullingTest = CullingSphereTest(*i);
-                        break;
-                }
-                if (cullingTest && (*i)->renderingComponent->IsActive() && (*i)->Active == true)
-                    RenderObject((*i),(*i)->Material);
+            // Set ViewPort
+            if (viewPortEndX==0 || viewPortEndY==0) 
+            { 
+                viewPortEndX = Width;
+                viewPortEndY = Height;
             }
-        }
-        // Disable Cull Face
-        glDisable(GL_CULL_FACE);
+            
+            // Set Viewport
+            _SetViewPort(viewPortStartX,viewPortStartY,viewPortEndX,viewPortEndY);
 
-#ifndef ANDROID
-        // Set Default Polygon Mode
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-#endif
+            // Enable Depth Masking
+            glDepthMask(GL_TRUE);
 
-        // End Rendering
-        EndRender();
+            // Clear depth buffer
+            glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 
-        // Unbind FrameBuffer
-        FBO->UnBind();
+            // Enable Depth Test
+            glEnable(GL_DEPTH_TEST);
+            glDepthMask(GL_TRUE);
+            glClearDepth(1.f);
 
+            // Disable Blending
+            glDisable(GL_BLEND);
+
+            // Draw Background
+            DrawBackground();
+
+            // Render Scene with Objects Material
+            for (std::vector<RenderingMesh*>::iterator i=rmesh.begin();i!=rmesh.end();i++)
+            {
+
+                if ((*i)->renderingComponent->GetOwner()!=NULL)
+                {
+                    // Culling Test
+                    bool cullingTest = false;
+                    switch((*i)->CullingGeometry)
+                    {
+                        case CullingGeometry::Box:
+                            cullingTest = CullingBoxTest((*i),(*i)->renderingComponent->GetOwner());
+                            break;
+                        case CullingGeometry::Sphere:
+                        default:
+                            cullingTest = CullingSphereTest((*i), (*i)->renderingComponent->GetOwner());
+                            break;
+                    }
+                    if (cullingTest && (*i)->renderingComponent->IsActive() && (*i)->Active == true)
+                        RenderObject((*i),(*i)->renderingComponent->GetOwner(),(*i)->Material);
+                }
+            }
+            // Disable Cull Face
+            glDisable(GL_CULL_FACE);
+
+    #ifndef ANDROID
+            // Set Default Polygon Mode
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    #endif
+
+            // End Rendering
+            EndRender();
+
+            InitRender();
+
+            // Unbind FrameBuffer
+            FBO->UnBind();
+
+            // Disable Depth Masking
+            glDepthMask(GL_FALSE);
+
+            // Disable Depth Test
+            glDisable(GL_DEPTH_TEST);
+
+            // Second Pass
+
+            glEnable(GL_BLEND);
+            glBlendEquation(GL_FUNC_ADD);
+            glBlendFunc(GL_ONE, GL_ONE);
+
+            glClear(GL_COLOR_BUFFER_BIT);
+
+            // Draw Quad
+            // Render Scene with Objects Material
+            for (std::vector<IComponent*>::iterator i=lcomps.begin();i!=lcomps.end();i++)
+            {
+
+                if ((*i)->GetOwner()!=NULL)
+                {
+                    if (PointLight* p = dynamic_cast<PointLight*>((*i))) {
+                        // Point Lights
+                            // Set Scale
+                            pointLight->GetMeshes()[0]->Pivot.Scale(p->GetLightRadius(),p->GetLightRadius(),p->GetLightRadius());
+                            RenderObject(pointLight->GetMeshes()[0],p->GetOwner(),deferredMaterial);
+                    }
+                    else if (SpotLight* s = dynamic_cast<SpotLight*>((*i))) {
+                        // Spot Lights
+
+
+                    }
+                    else if (DirectionalLight* d = dynamic_cast<DirectionalLight*>((*i))) {
+                        // Directional Lights
+
+
+                    }
+                }
+            }
+
+            glEnable (GL_DEPTH_TEST);
+            glDepthMask (GL_TRUE);
+            glDisable (GL_BLEND);
+
+            EndRender();
     }
 
     void DeferredRenderer::SetFBO(FrameBuffer* fbo)
     {
+        // Save FBO
         FBO = fbo;
     }
     

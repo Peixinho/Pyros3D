@@ -190,6 +190,16 @@ namespace p3d
         }
     }
     
+    void GenericShaderMaterial::AddTexture(const std::string &uniformName, Texture* texture)
+    {
+        uint32 id = Textures.size();
+        
+        // Save on Lirest
+        Textures[id] = texture;
+        // Set Uniform
+        AddUniform(Uniform::Uniform(uniformName.c_str(),Uniform::DataType::Int,&id));
+    }
+
     void GenericShaderMaterial::BindTextures()
     {
         for (std::map<uint32, Texture*>::iterator i = Textures.begin(); i!= Textures.end(); i++)

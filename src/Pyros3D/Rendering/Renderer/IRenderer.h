@@ -76,7 +76,7 @@ namespace p3d {
             void InitRender();
             
             // Render Object
-            void RenderObject(RenderingMesh* rmesh, IMaterial* Material);
+            void RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material);
             
             // End Rendering
             void EndRender();
@@ -141,9 +141,9 @@ namespace p3d {
                                 DrawType, InternalDrawType;
             
             // Culling
-            bool CullingSphereTest(RenderingMesh* rmesh);
-            bool CullingPointTest(RenderingMesh* rmesh);
-            bool CullingBoxTest(RenderingMesh* rmesh);
+            bool CullingSphereTest(RenderingMesh* rmesh, GameObject* owner);
+            bool CullingPointTest(RenderingMesh* rmesh, GameObject* owner);
+            bool CullingBoxTest(RenderingMesh* rmesh, GameObject* owner);
             void UpdateCulling(const Matrix &ViewProjectionMatrix);
             bool 
                                 IsCulling;            

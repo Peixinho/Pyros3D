@@ -129,10 +129,10 @@ namespace p3d {
         }
     }
     
-    void IRenderer::RenderObject(RenderingMesh* rmesh, IMaterial* Material)
+    void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material)
     {
         // model cache
-        ModelMatrix = rmesh->renderingComponent->GetOwner()->GetWorldTransformation() * rmesh->Pivot;
+        ModelMatrix = owner->GetWorldTransformation() * rmesh->Pivot;
         
         NormalMatrixIsDirty = true;
         ModelViewMatrixIsDirty = true;
@@ -397,11 +397,11 @@ namespace p3d {
         delete culling;
     }
     
-    bool IRenderer::CullingSphereTest(RenderingMesh* rmesh)
+    bool IRenderer::CullingSphereTest(RenderingMesh* rmesh, GameObject* owner)
     {
-        return culling->SphereInFrustum(rmesh->renderingComponent->GetOwner()->GetWorldPosition()+rmesh->Geometry->GetBoundingSphereCenter(),rmesh->Geometry->GetBoundingSphereRadius());
+        return culling->SphereInFrustum(owner->GetWorldPosition()+rmesh->Geometry->GetBoundingSphereCenter(),rmesh->Geometry->GetBoundingSphereRadius());
     }
-    bool IRenderer::CullingBoxTest(RenderingMesh* rmesh)
+    bool IRenderer::CullingBoxTest(RenderingMesh* rmesh, GameObject* owner)
     {
         // Get Bounding Values (min and max)
         Vec3 _min = rmesh->Geometry->GetBoundingMinValue();
@@ -409,14 +409,14 @@ namespace p3d {
         
         // Defining box vertex and Apply Transform
         Vec3 v[8];
-        v[0] = rmesh->renderingComponent->GetOwner()->GetWorldTransformation() * _min;
-        v[1] = rmesh->renderingComponent->GetOwner()->GetWorldTransformation() * Vec3(_min.x, _min.y, _max.z);
-        v[2] = rmesh->renderingComponent->GetOwner()->GetWorldTransformation() * Vec3(_min.x, _max.y, _max.z);
-        v[3] = rmesh->renderingComponent->GetOwner()->GetWorldTransformation() * _max;
-        v[4] = rmesh->renderingComponent->GetOwner()->GetWorldTransformation() * Vec3(_min.x, _max.y, _min.z);
-        v[5] = rmesh->renderingComponent->GetOwner()->GetWorldTransformation() * Vec3(_max.x, _min.y, _min.z);
-        v[6] = rmesh->renderingComponent->GetOwner()->GetWorldTransformation() * Vec3(_max.x, _max.y, _min.z);
-        v[7] = rmesh->renderingComponent->GetOwner()->GetWorldTransformation() * Vec3(_max.x, _min.y, _max.z);
+        v[0] = owner->GetWorldTransformation() * _min;
+        v[1] = owner->GetWorldTransformation() * Vec3(_min.x, _min.y, _max.z);
+        v[2] = owner->GetWorldTransformation() * Vec3(_min.x, _max.y, _max.z);
+        v[3] = owner->GetWorldTransformation() * _max;
+        v[4] = owner->GetWorldTransformation() * Vec3(_min.x, _max.y, _min.z);
+        v[5] = owner->GetWorldTransformation() * Vec3(_max.x, _min.y, _min.z);
+        v[6] = owner->GetWorldTransformation() * Vec3(_max.x, _max.y, _min.z);
+        v[7] = owner->GetWorldTransformation() * Vec3(_max.x, _min.y, _max.z);
         
         // Get new Min and Max
         Vec3 min = v[0];
@@ -436,9 +436,9 @@ namespace p3d {
         // Return test
         return culling->ABoxInFrustum(aabb);
     }
-    bool IRenderer::CullingPointTest(RenderingMesh* rmesh)
+    bool IRenderer::CullingPointTest(RenderingMesh* rmesh, GameObject* owner)
     {
-        return culling->PointInFrustum(rmesh->renderingComponent->GetOwner()->GetWorldPosition());
+        return culling->PointInFrustum(owner->GetWorldPosition());
     }
     void IRenderer::UpdateCulling(const Matrix& ViewProjectionMatrix)
     {
@@ -509,6 +509,12 @@ namespace p3d {
                         break;
                     case Uniform::DataUsage::NearFarPlane:
                         Shader::SendUniform((*k),&NearFarPlane,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
+                        break;
+                    case Uniform::DataUsage::ScreenDimensions:
+                        {
+                            Vec2 dim = Vec2(Width, Height);
+                        Shader::SendUniform((*k),&dim,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
+                        }
                         break;
                     case Uniform::DataUsage::DirectionalShadowMap:
                         if (DirectionalShadowMapsUnits.size()>0)

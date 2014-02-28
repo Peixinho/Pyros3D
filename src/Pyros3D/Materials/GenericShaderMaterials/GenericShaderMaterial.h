@@ -45,6 +45,8 @@ namespace p3d
             // Text
             void SetTextFont(Font* font);
             
+            void AddTexture(const std::string &uniformName, Texture* texture);
+
             // Render
             virtual void PreRender();
             virtual void AfterRender();

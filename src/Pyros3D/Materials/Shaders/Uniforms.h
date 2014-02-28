@@ -31,18 +31,19 @@ namespace p3d {
                 Lights = 8,
                 NumberOfLights = 9,
                 NearFarPlane = 10,
-                
+                ScreenDimensions = 11,
+
                 // Shadow Mapping
-                DirectionalShadowMap = 11,
-                PointShadowMap = 12,
-                SpotShadowMap = 13,
-                DirectionalShadowMatrix = 14,
-                PointShadowMatrix = 15,
-                SpotShadowMatrix = 16,
-                DirectionalShadowFar = 17,
-                NumberOfDirectionalShadows = 18,
-                NumberOfPointShadows = 19,
-                NumberOfSpotShadows = 20,
+                DirectionalShadowMap = 13,
+                PointShadowMap = 14,
+                SpotShadowMap = 15,
+                DirectionalShadowMatrix = 16,
+                PointShadowMatrix = 17,
+                SpotShadowMatrix = 18,
+                DirectionalShadowFar = 19,
+                NumberOfDirectionalShadows = 20,
+                NumberOfPointShadows = 21,
+                NumberOfSpotShadows = 22,
 
                 // User Uniforms
                 Other = 200,
@@ -123,6 +124,9 @@ namespace p3d {
                         Type = DataType::Int;
                         break;
                     case DataUsage::NearFarPlane:
+                        Type = DataType::Vec2;
+                        break;
+                    case DataUsage::ScreenDimensions:
                         Type = DataType::Vec2;
                         break;
                     case DataUsage::DirectionalShadowMap:
