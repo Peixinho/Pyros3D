@@ -170,5 +170,6 @@ if _OPTIONS["examples"] then
     BuildDemo("examples/CustomMaterial", "CustomMaterial");
     BuildDemo("examples/PickingWithPainterMethod", "PickingWithPainterMethod");
     BuildDemo("examples/SkeletonAnimation", "SkeletonAnimation");
+    BuildDemo("examples/DeferredRendering", "DeferredRendering");
     BuildDemo("examples/RacingGame", "RacingGame");
 end

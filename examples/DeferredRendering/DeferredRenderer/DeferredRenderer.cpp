@@ -34,26 +34,29 @@ namespace p3d {
         // Save FrameBuffer
         FBO = fbo;
 
-
         // Create Second Pass Specifics
-            pointLightMaterial = new GenericShaderMaterial(ShaderUsage::Color);
-            pointLightMaterial->SetColor(Vec4(1,0,0,1));
-            deferredMaterial = new GenericShaderMaterial(ShaderUsage::DeferredMaterial);
-
-            // Set Textures
-            deferredMaterial->AddTexture("tDifuse",FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment0]->TexturePTR);
-            deferredMaterial->AddTexture("tSpecular",FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment1]->TexturePTR);
-            deferredMaterial->AddTexture("tNormal",FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment2]->TexturePTR);
-            deferredMaterial->AddTexture("tPosition",FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment3]->TexturePTR);
-            deferredMaterial->AddTexture("tDepth",FBO->GetAttachments()[FrameBufferAttachmentFormat::Depth_Attachment]->TexturePTR);
-            deferredMaterial->AddUniform(Uniform::Uniform("uScreenDimensions", Uniform::DataUsage::ScreenDimensions));
-            // Quad
-            // Dummy GO
-            Quad = new GameObject();
-            deferredQuad = new RenderingComponent(AssetManager::CreatePlane(2,2), deferredMaterial);
-
-            // Light Volumes
-            pointLight = new RenderingComponent(AssetManager::CreateSphere(1));
+        uint32 texID = 0;
+        deferredMaterial = new CustomShaderMaterial("../../../../examples/DeferredRendering/shaders/secondpass.vert","../../../../examples/DeferredRendering/shaders/secondpass.frag");
+        deferredMaterial->AddUniform(Uniform::Uniform("tDepth", Uniform::DataType::Int, &texID));
+        texID = 1;
+        deferredMaterial->AddUniform(Uniform::Uniform("tDiffuse", Uniform::DataType::Int, &texID));
+        texID = 2;
+        deferredMaterial->AddUniform(Uniform::Uniform("tSpecular", Uniform::DataType::Int, &texID));
+        texID = 3;
+        deferredMaterial->AddUniform(Uniform::Uniform("tNormal", Uniform::DataType::Int, &texID));
+        texID = 4;
+        deferredMaterial->AddUniform(Uniform::Uniform("tPosition", Uniform::DataType::Int, &texID));
+        
+        deferredMaterial->AddUniform(Uniform::Uniform("uScreenDimensions", Uniform::DataUsage::ScreenDimensions));
+        deferredMaterial->AddUniform(Uniform::Uniform("uLightPosition", Uniform::DataUsage::Other, Uniform::DataType::Vec3));
+        deferredMaterial->AddUniform(Uniform::Uniform("uLightRadius", Uniform::DataUsage::Other, Uniform::DataType::Float));
+        deferredMaterial->AddUniform(Uniform::Uniform("uLightColor", Uniform::DataUsage::Other, Uniform::DataType::Vec4));
+        deferredMaterial->AddUniform(Uniform::Uniform("uModelMatrix", Uniform::DataUsage::ModelMatrix));
+        deferredMaterial->AddUniform(Uniform::Uniform("uViewMatrix", Uniform::DataUsage::ViewMatrix));
+        deferredMaterial->AddUniform(Uniform::Uniform("uProjectionMatrix", Uniform::DataUsage::ProjectionMatrix));
+        
+        // Light Volumes
+        pointLight = new RenderingComponent(AssetManager::CreateSphere(1));
     }
     
     void DeferredRenderer::Resize(const uint32& Width, const uint32& Height)
@@ -69,11 +72,6 @@ namespace p3d {
         }
         
         delete shadowMaterial;
-    }
-    
-    void DeferredRenderer::CreateQuad()
-    {
-
     }
     
     std::vector<RenderingMesh*> DeferredRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera)
@@ -212,6 +210,7 @@ namespace p3d {
             // End Rendering
             EndRender();
 
+            // Initialize Render
             InitRender();
 
             // Unbind FrameBuffer
@@ -224,12 +223,18 @@ namespace p3d {
             glDisable(GL_DEPTH_TEST);
 
             // Second Pass
-
             glEnable(GL_BLEND);
             glBlendEquation(GL_FUNC_ADD);
             glBlendFunc(GL_ONE, GL_ONE);
 
             glClear(GL_COLOR_BUFFER_BIT);
+
+            // Bind FBO Textures
+            FBO->GetAttachments()[FrameBufferAttachmentFormat::Depth_Attachment]->TexturePTR->Bind();
+            FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment0]->TexturePTR->Bind();
+            FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment1]->TexturePTR->Bind();
+            FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment2]->TexturePTR->Bind();
+            FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment3]->TexturePTR->Bind();
 
             // Draw Quad
             // Render Scene with Objects Material
@@ -241,6 +246,11 @@ namespace p3d {
                     if (PointLight* p = dynamic_cast<PointLight*>((*i))) {
                         // Point Lights
                             // Set Scale
+                            Vec3 pos = p->GetOwner()->GetWorldPosition();
+                            Vec4 color = p->GetLightColor();
+                            deferredMaterial->SetUniformValue("uLightPosition", &pos);
+                            deferredMaterial->SetUniformValue("uLightRadius", p->GetLightRadius());
+                            deferredMaterial->SetUniformValue("uLightColor", &color);
                             pointLight->GetMeshes()[0]->Pivot.Scale(p->GetLightRadius(),p->GetLightRadius(),p->GetLightRadius());
                             RenderObject(pointLight->GetMeshes()[0],p->GetOwner(),deferredMaterial);
                     }
@@ -260,6 +270,12 @@ namespace p3d {
             glEnable (GL_DEPTH_TEST);
             glDepthMask (GL_TRUE);
             glDisable (GL_BLEND);
+            
+            FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment3]->TexturePTR->Unbind();
+            FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment2]->TexturePTR->Unbind();
+            FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment1]->TexturePTR->Unbind();
+            FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment0]->TexturePTR->Unbind();
+            FBO->GetAttachments()[FrameBufferAttachmentFormat::Depth_Attachment]->TexturePTR->Unbind();
 
             EndRender();
     }

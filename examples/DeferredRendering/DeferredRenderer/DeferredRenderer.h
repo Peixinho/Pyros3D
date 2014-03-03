@@ -9,9 +9,10 @@
 #ifndef DEFERREDRENDERER_H
 #define DEFERREDRENDERER_H
 
-#include "../IRenderer.h"
-#include "../../../Core/Projection/Projection.h"
-#include "../../../Core/Buffers/FrameBuffer.h"
+#include "Pyros3D/Rendering/Renderer/IRenderer.h"
+#include "Pyros3D/Core/Projection/Projection.h"
+#include "Pyros3D/Core/Buffers/FrameBuffer.h"
+#include "Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h"
 
 namespace p3d {
     
@@ -36,16 +37,12 @@ namespace p3d {
 
         protected:
 
-            void CreateQuad();
-
             // Offscreen Frame Buffer Object
             FrameBuffer* FBO;
 
             // Point Light Volume
-            RenderingComponent *deferredQuad;
-            GameObject* Quad;
+            CustomShaderMaterial *deferredMaterial;
             RenderingComponent *pointLight;
-            GenericShaderMaterial *pointLightMaterial, *deferredMaterial;
     };
     
 };
