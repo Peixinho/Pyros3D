@@ -21,15 +21,16 @@ namespace p3d {
         texture->CreateTexture(TextureType::Texture,TextureDataType::RGBA,Width,Height,false);
         
         // Frame Buffer Creation
-        fbo->Init(FrameBufferAttachmentFormat::Color_Attachment0,TextureType::Texture,texture);
-        
+        fbo->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, Width, Height);
+        fbo->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0,TextureType::Texture,texture);
+
         // Activate Culling
         ActivateCulling(CullingMode::FrustumCulling);
     }
     void PainterPick::Resize(const uint32& Width, const uint32& Height)
     {
         IRenderer::Resize(Width,Height);
-        texture->Resize(Width,Height);
+        fbo->Resize(Width,Height);
     }
     PainterPick::~PainterPick() 
     {
@@ -103,11 +104,15 @@ namespace p3d {
         fbo->Bind();
         
         // Set ViewPort
+        viewPortEndX = Width;
+        viewPortEndY = Height;
         _SetViewPort(viewPortStartX,viewPortStartY,viewPortEndX,viewPortEndY);
         
         // Clear Screen
         ClearScreen(Buffer_Bit::Color | Buffer_Bit::Depth);
         EnableDepthTest();
+        EnableDepthWritting();
+        ClearDepthBuffer();
         
         // Render Scene with Objects Material
         for (std::vector<RenderingMesh*>::iterator i=rmesh.begin();i!=rmesh.end();i++)

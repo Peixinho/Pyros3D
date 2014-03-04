@@ -230,12 +230,12 @@ namespace p3d {
             
                 // Clear Screen
                 ClearScreen(Buffer_Bit::Color | Buffer_Bit::Depth);
-                
+                EnableDepthTest();
+                EnableDepthWritting();
+                ClearDepthBuffer();
+
                 // Draw Background
                 DrawBackground();
-                
-                // Run Depth Test
-                RunDepthTest();
                 
                 // Update Culling
                 UpdateCulling(ProjectionMatrix*ViewMatrix);

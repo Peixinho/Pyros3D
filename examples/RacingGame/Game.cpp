@@ -51,7 +51,7 @@ void Game::Init()
         Renderer = new ForwardRenderer(1024,768);
 
         // Projection
-        projection.Perspective(70.f,1024.f/768.f,1.f,2100.f);
+        projection.Perspective(70.f,(f32)Width/(f32)Height,1.f,2100.f);
         projection2.Ortho(0,Width,0,Height,-1,100);
         
         // Physics
@@ -77,7 +77,7 @@ void Game::Init()
         test->SetColor(Vec4(1,1,0,1));
 
         // Create Track Model
-        rTrack = new RenderingComponent(AssetManager::LoadModel("models/track2/teste.obj",false,ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow));
+        rTrack = new RenderingComponent(AssetManager::LoadModel("../../../../examples/RacingGame/track.p3dm",false,ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow));
         Track->Add(rTrack);
         
         Track->Add(new PhysicsTriangleMesh(physics,rTrack,0));
@@ -87,17 +87,11 @@ void Game::Init()
         // Light
         Light = new GameObject();
         // Light Component
-        dLight = new DirectionalLight(Vec4(1,1,1,1));
+        dLight = new DirectionalLight(Vec4(1,1,1,1),Vec3(1,1,1));
         dLight->EnableCastShadows(2048,2048,projection,0.1,200.0,2);
 		dLight->SetShadowBias(3.1f,9.0f);
         Light->Add(dLight);
         Scene->Add(Light);
-        Light->SetPosition(Vec3(1.f,1.f,0.f));
-        
-        srand( time( NULL ) );
-//        AssetManager::LoadModel("models/delorean/del2.obj");
-//        uint32 carHandle = MakeStringID("models/delorean/del2.obj");
-    
 
         SetMousePosition((uint32)Width/2,(uint32)Height/2);
         mouseCenter = Vec2((uint32)Width/2,(uint32)Height/2);
@@ -118,7 +112,7 @@ void Game::Init()
         HideMouse();
         
         // Create Font
-        Font* font = AssetManager::CreateFont("font/verdana.ttf",32);
+        Font* font = AssetManager::CreateFont("../../../../examples/RacingGame/verdana.ttf",32);
         font->CreateText("aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ,.0123456789[]()!?+-_\\|/ºª");
     
         // Create Text Material
@@ -136,53 +130,52 @@ void Game::Init()
         // Add GameObject to Scene
         Scene2->Add(TextRendering);
 
-    
         dRenderer = new CubemapRenderer(256,256);
         
-    Texture* skyboxTexture = AssetManager::LoadTexture("textures/skybox/negx.png",TextureType::CubemapNegative_X);
-    skyboxTexture->LoadTexture("textures/skybox/negy.png",TextureType::CubemapNegative_Y);
-    skyboxTexture->LoadTexture("textures/skybox/negz.png",TextureType::CubemapNegative_Z);
-    skyboxTexture->LoadTexture("textures/skybox/posx.png",TextureType::CubemapPositive_X);
-    skyboxTexture->LoadTexture("textures/skybox/posy.png",TextureType::CubemapPositive_Y);
-    skyboxTexture->LoadTexture("textures/skybox/posz.png",TextureType::CubemapPositive_Z);
-    skyboxTexture->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
+        Texture* skyboxTexture = AssetManager::LoadTexture("../../../../examples/RacingGame/Textures/skybox/negx.jpg",TextureType::CubemapNegative_X);
+        skyboxTexture->LoadTexture("../../../../examples/RacingGame/Textures/skybox/negy.jpg",TextureType::CubemapNegative_Y);
+        skyboxTexture->LoadTexture("../../../../examples/RacingGame/Textures/skybox/negz.jpg",TextureType::CubemapNegative_Z);
+        skyboxTexture->LoadTexture("../../../../examples/RacingGame/Textures/skybox/posx.jpg",TextureType::CubemapPositive_X);
+        skyboxTexture->LoadTexture("../../../../examples/RacingGame/Textures/skybox/posy.jpg",TextureType::CubemapPositive_Y);
+        skyboxTexture->LoadTexture("../../../../examples/RacingGame/Textures/skybox/posz.jpg",TextureType::CubemapPositive_Z);
+        skyboxTexture->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
 
-    SkyboxMaterial = new GenericShaderMaterial(ShaderUsage::Skybox);
-    SkyboxMaterial->SetSkyboxMap(skyboxTexture);
-    SkyboxMaterial->SetCullFace(CullFace::FrontFace);
-    Skybox = new GameObject();
-    rSkybox = new RenderingComponent(AssetManager::CreateCube(1000,1000,1000),SkyboxMaterial);
-    rSkybox->DisableCastShadows();
-    Skybox->Add(rSkybox);
-    Scene->Add(Skybox);
+        SkyboxMaterial = new GenericShaderMaterial(ShaderUsage::Skybox);
+        SkyboxMaterial->SetSkyboxMap(skyboxTexture);
+        SkyboxMaterial->SetCullFace(CullFace::FrontFace);
+        Skybox = new GameObject();
+        rSkybox = new RenderingComponent(AssetManager::CreateCube(1000,1000,1000),SkyboxMaterial);
+        rSkybox->DisableCastShadows();
+        Skybox->Add(rSkybox);
+        Scene->Add(Skybox);
 
-    Renderable* carHandle2 = AssetManager::LoadModel("models/lambo/lambo.obj",true, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
-    for (uint32 i=0;i<1;i++)
-    {
-        Car2 = new GameObject();
-        Car2->Add(new RenderingComponent(carHandle2));
-        Scene->Add(Car2);
-//        Car2->SetPosition(Vec3((rand() % 1000) -500,(rand() % 100),(rand() % 1000) -500));
-        Car2->SetScale(Vec3(0.5,0.5,0.5));
-        Car2->SetPosition(Vec3(-13,1,0));
-    }
-    
-    for (uint32 i=0;i<1;i++)
-    {
-        Car = new GameObject();
-        rCar = new RenderingComponent(AssetManager::LoadModel("models/delorean/del2.obj",true, ShaderUsage::EnvMap | ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse));
-        Car->Add(rCar);
-        Scene->Add(Car);
-        Car->SetPosition(Vec3((rand() % 1000) -500,(rand() % 100),(rand() % 1000) -500));
-    }
-    Car->SetPosition(Vec3(-23,1,0));
+        Renderable* carHandle2 = AssetManager::LoadModel("../../../../examples/RacingGame/lambo.p3dm",true, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
+        for (uint32 i=0;i<1;i++)
+        {
+            Car2 = new GameObject();
+            Car2->Add(new RenderingComponent(carHandle2));
+            Scene->Add(Car2);
+    //        Car2->SetPosition(Vec3((rand() % 1000) -500,(rand() % 100),(rand() % 1000) -500));
+            Car2->SetScale(Vec3(0.5,0.5,0.5));
+            Car2->SetPosition(Vec3(-13,1,0));
+        }
+        
+        for (uint32 i=0;i<1;i++)
+        {
+            Car = new GameObject();
+            rCar = new RenderingComponent(AssetManager::LoadModel("../../../../examples/RacingGame/del.p3dm",true, ShaderUsage::EnvMap | ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse));
+            Car->Add(rCar);
+            Scene->Add(Car);
+            Car->SetPosition(Vec3((rand() % 1000) -500,(rand() % 100),(rand() % 1000) -500));
+        }
+        Car->SetPosition(Vec3(-23,1,0));
 
-    for (std::vector<RenderingMesh*>::iterator i=rCar->GetMeshes().begin();i!=rCar->GetMeshes().end();i++)
-    {
-        GenericShaderMaterial* m = static_cast<GenericShaderMaterial*> ((*i)->Material);
-        m->SetEnvMap(dRenderer->GetTexture());
-        m->SetReflectivity(0.3);
-    }
+        for (std::vector<RenderingMesh*>::iterator i=rCar->GetMeshes().begin();i!=rCar->GetMeshes().end();i++)
+        {
+            GenericShaderMaterial* m = static_cast<GenericShaderMaterial*> ((*i)->Material);
+            m->SetEnvMap(dRenderer->GetTexture());
+            m->SetReflectivity(0.3);
+        }
 }
 
 void Game::Update()
@@ -198,9 +191,9 @@ void Game::Update()
     
     Skybox->SetPosition(Vec3(Camera->GetWorldPosition().x,0,Camera->GetWorldPosition().z));
 
-        rCar->Disable();
-        dRenderer->RenderCubeMap(Scene,Car,0.1,500);
-        rCar->Enable();
+    rCar->Disable();
+    dRenderer->RenderCubeMap(Scene,Car,0.1,500);
+    rCar->Enable();
     
     // Render Scene
     Renderer->RenderScene(projection,Camera,Scene);

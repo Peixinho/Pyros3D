@@ -459,6 +459,9 @@ namespace p3d {
                 glBindRenderbuffer(GL_RENDERBUFFER, (*i).second->rboID);
                 glRenderbufferStorage(GL_RENDERBUFFER, (*i).second->DataType, Width, Height);
                 glBindRenderbuffer(GL_RENDERBUFFER, 0);
+            } else 
+            {
+                (*i).second->TexturePTR->Resize(Width, Height);
             }
         }
     }

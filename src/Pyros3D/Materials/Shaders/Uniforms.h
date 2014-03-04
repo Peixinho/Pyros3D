@@ -34,16 +34,16 @@ namespace p3d {
                 ScreenDimensions = 11,
 
                 // Shadow Mapping
-                DirectionalShadowMap = 13,
-                PointShadowMap = 14,
-                SpotShadowMap = 15,
-                DirectionalShadowMatrix = 16,
-                PointShadowMatrix = 17,
-                SpotShadowMatrix = 18,
-                DirectionalShadowFar = 19,
-                NumberOfDirectionalShadows = 20,
-                NumberOfPointShadows = 21,
-                NumberOfSpotShadows = 22,
+                DirectionalShadowMap = 12,
+                PointShadowMap = 13,
+                SpotShadowMap = 14,
+                DirectionalShadowMatrix = 15,
+                PointShadowMatrix = 16,
+                SpotShadowMatrix = 17,
+                DirectionalShadowFar = 18,
+                NumberOfDirectionalShadows = 19,
+                NumberOfPointShadows = 20,
+                NumberOfSpotShadows = 21,
 
                 // User Uniforms
                 Other = 200,

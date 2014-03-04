@@ -39,14 +39,10 @@ namespace p3d {
         // Depth Bias
         IsUsingDepthBias = false;
         
-        // Blending
-        Blending = false;
-        
         // Custom ViewPort
         customViewPort = false;
-        
-        // Depth Test
-        DepthTest = true;
+
+        blending = false;
     }
     
     void IRenderer::Resize(const uint32& Width, const uint32& Height)
@@ -124,7 +120,7 @@ namespace p3d {
             LastProgramUsed = -1;
             LastMaterialUsed = -1;
             LastMeshRendered = -1;
-            
+
             DisableBlending();
         }
     }
@@ -246,7 +242,11 @@ namespace p3d {
         SendModelUniforms(rmesh, Material);
         
         // Enable / Disable Blending
-        (Material->IsTransparent()?EnableBlending():DisableBlending());
+        if (Material->IsTransparent())
+        {
+            EnableBlending();
+            BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
+        }
         
         // Draw
         if (rmesh->Geometry->GetGeometryType()==GeometryType::BUFFER)
@@ -280,32 +280,167 @@ namespace p3d {
     
     void IRenderer::EnableDepthTest()
     {
-        // Enables Depth
-        DepthTest = true;
-    }
-    void IRenderer::DisableDepthTest()
-    {
-        // Disable Depth
-        DepthTest = false;
-    }
-    
-    void IRenderer::RunDepthTest()
-    {
-        if (DepthTest)
-        {
-            glEnable(GL_DEPTH_TEST);
-            glDepthMask(GL_TRUE);
+		glEnable(GL_DEPTH_TEST);
+	}
+	void IRenderer::DisableDepthTest()
+	{
+		glDisable(GL_DEPTH_TEST);
+	}
+	void IRenderer::EnableDepthWritting()
+	{
+        glDepthMask(GL_TRUE);
+	}
+	void IRenderer::DisableDepthWritting()
+	{
+		glDepthMask(GL_FALSE);	
+	}
+	void IRenderer::ClearDepthBuffer()
+	{
 #ifndef ANDROID
-            glClearDepth(1.f);
+		glClearDepth(1.f);
 #endif
-        } else {
-            glDisable(GL_DEPTH_TEST);
-#ifndef ANDROID
-            glClearDepth(1.f);
-#endif
-        }
+	}
+    void IRenderer::EnableStencil()
+    {
+    	glEnable(GL_STENCIL_TEST); 
     }
-    
+    void IRenderer::DisableStencil()
+    {
+    	glDisable(GL_STENCIL_TEST); 
+    }
+    void IRenderer::ClearStencilBuffer()
+    {
+    	glClearStencil(0);
+    }
+	void IRenderer::StencilFunction(const uint32 &func, const uint32 &ref, const uint32 &mask)
+	{
+		uint32 Func = GL_ALWAYS;
+		switch(func)
+		{
+			case StencilFunc::Never:
+				Func = GL_NEVER;
+			break;
+			case StencilFunc::Less:
+				Func = GL_LESS;
+			break;
+			case StencilFunc::LEqual:
+				Func = GL_LEQUAL;
+			break;
+			case StencilFunc::Greater:
+				Func = GL_GREATER;
+			break;
+			case StencilFunc::GEqual:
+				Func = GL_GEQUAL;
+			break;
+			case StencilFunc::Equal:
+				Func = GL_EQUAL;
+			break;
+			case StencilFunc::Notequal:
+				Func = GL_NOTEQUAL;
+			break;
+			default:
+			case StencilFunc::Always:
+				Func = GL_ALWAYS;
+			break;
+		}
+		glStencilFunc(Func, ref, mask);
+	}
+	void IRenderer::StencilOperation(const uint32 &sfail, const uint32 &dpfail, const uint32 &dppass)
+	{
+		uint32 Sfail = GL_KEEP;
+		switch(sfail)
+		{
+			case StencilOp::Zero:
+				Sfail = GL_KEEP;
+			break;
+			case StencilOp::Replace:
+				Sfail = GL_REPLACE;
+			break;
+			case StencilOp::Incr:
+				Sfail = GL_INCR;
+			break;
+			case StencilOp::Incr_Wrap:
+				Sfail = GL_INCR_WRAP;
+			break;
+			case StencilOp::Decr:
+				Sfail = GL_DECR;
+			break;
+			case StencilOp::Decr_Wrap:
+				Sfail = GL_DECR_WRAP;
+			break;
+			case StencilOp::Invert:
+				Sfail = GL_INVERT;
+			break;
+			default:
+			case StencilOp::Keep:
+				Sfail = GL_KEEP;
+			break;
+		};
+		uint32 DPfail = GL_KEEP;
+		switch(sfail)
+		{
+			case StencilOp::Zero:
+				DPfail = GL_KEEP;
+			break;
+			case StencilOp::Replace:
+				DPfail = GL_REPLACE;
+			break;
+			case StencilOp::Incr:
+				DPfail = GL_INCR;
+			break;
+			case StencilOp::Incr_Wrap:
+				DPfail = GL_INCR_WRAP;
+			break;
+			case StencilOp::Decr:
+				DPfail = GL_DECR;
+			break;
+			case StencilOp::Decr_Wrap:
+				DPfail = GL_DECR_WRAP;
+			break;
+			case StencilOp::Invert:
+				DPfail = GL_INVERT;
+			break;
+			default:
+			case StencilOp::Keep:
+				DPfail = GL_KEEP;
+			break;
+		};
+		uint32 DPPASS = GL_KEEP;
+		switch(sfail)
+		{
+			case StencilOp::Zero:
+				DPPASS = GL_KEEP;
+			break;
+			case StencilOp::Replace:
+				DPPASS = GL_REPLACE;
+			break;
+			case StencilOp::Incr:
+				DPPASS = GL_INCR;
+			break;
+			case StencilOp::Incr_Wrap:
+				DPPASS = GL_INCR_WRAP;
+			break;
+			case StencilOp::Decr:
+				DPPASS = GL_DECR;
+			break;
+			case StencilOp::Decr_Wrap:
+				DPPASS = GL_DECR_WRAP;
+			break;
+			case StencilOp::Invert:
+				DPPASS = GL_INVERT;
+			break;
+			default:
+			case StencilOp::Keep:
+				DPPASS = GL_KEEP;
+			break;
+		};
+		// Set Stencil Op
+		glStencilOp(Sfail, DPfail, DPPASS);
+	}
+	void ColorMask(const f32 &r,const f32 &g,const f32 &b,const f32 &a)
+	{
+		glColorMask(r,g,b,a);
+	}
     void IRenderer::SetGlobalLight(const Vec4& Light)
     {
         GlobalLight = Light;
@@ -332,46 +467,181 @@ namespace p3d {
     
     void IRenderer::EnableBlending()
     {
-        if (!Blending)
+        if (!blending)
         {
-            Blending = true;
-            
-            // Enable Blending
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        }
+	       // Enable Blending
+	       glEnable(GL_BLEND);
+           blending = true;
+       }
     }
     
     void IRenderer::DisableBlending()
     {
-        if (Blending)
+        if (blending)
         {
-            Blending = false;
-
             // Disables Blending
             glDisable(GL_BLEND);
+            blending = false;
         }
     }
     
+    void IRenderer::BlendingFunction(const uint32 &sfactor, const uint32 &dfactor)
+    {
+    	uint32 Sfactor = GL_ONE;
+    	switch(sfactor)
+    	{
+			case BlendFunc::Zero:
+				Sfactor = GL_ZERO;
+			break;
+			case BlendFunc::Src_Color:
+				Sfactor = GL_SRC_COLOR;
+			break;
+			case BlendFunc::One_Minus_Src_Color:
+				Sfactor = GL_ONE_MINUS_SRC_COLOR;
+			break;
+			case BlendFunc::Dst_Color:
+				Sfactor = GL_DST_COLOR;
+			break;
+			case BlendFunc::One_Minus_Dst_Color:
+				Sfactor = GL_ONE_MINUS_DST_COLOR;
+			break;
+			case BlendFunc::Src_Alpha:
+				Sfactor = GL_SRC_ALPHA;
+			break;
+			case BlendFunc::One_Minus_Src_Alpha:
+				Sfactor = GL_ONE_MINUS_SRC_ALPHA;
+			break;
+			case BlendFunc::Dst_Alpha:
+				Sfactor = GL_DST_ALPHA;
+			break;
+			case BlendFunc::One_Minus_Dst_Alpha:
+				Sfactor = GL_ONE_MINUS_DST_ALPHA;
+			break;
+			case BlendFunc::Constant_Color:
+				Sfactor = GL_CONSTANT_COLOR;
+			break;
+			case BlendFunc::One_Minus_Constant_Color:
+				Sfactor = GL_ONE_MINUS_CONSTANT_COLOR;
+			break;
+			case BlendFunc::Constant_Alpha:
+				Sfactor = GL_CONSTANT_ALPHA;
+			break;
+			case BlendFunc::One_Minus_Constant_Alpha:
+				Sfactor = GL_ONE_MINUS_CONSTANT_ALPHA;
+			break;
+			case BlendFunc::Src_Alpha_Saturate:
+				Sfactor = GL_SRC_ALPHA_SATURATE;
+			break;
+			case BlendFunc::Src1_Color:
+				Sfactor = GL_SRC1_COLOR;
+			break;
+			case BlendFunc::One_Minus_Src1_Color:
+				Sfactor = GL_ONE_MINUS_SRC1_COLOR;
+			break;
+			case BlendFunc::Src1_Alpha:
+				Sfactor = GL_SRC1_ALPHA;
+			break;
+			case BlendFunc::One_Minus_Src1_Alpha:
+				Sfactor = GL_ONE_MINUS_SRC1_ALPHA;
+			break;
+			default:
+			case BlendFunc::One:
+				Sfactor = GL_ONE;
+			break;
+    	}
+    	uint32 Dfactor = GL_ONE;
+    	switch(dfactor)
+    	{
+			case BlendFunc::Zero:
+				Dfactor = GL_ZERO;
+			break;
+			case BlendFunc::Src_Color:
+				Dfactor = GL_SRC_COLOR;
+			break;
+			case BlendFunc::One_Minus_Src_Color:
+				Dfactor = GL_ONE_MINUS_SRC_COLOR;
+			break;
+			case BlendFunc::Dst_Color:
+				Dfactor = GL_DST_COLOR;
+			break;
+			case BlendFunc::One_Minus_Dst_Color:
+				Dfactor = GL_ONE_MINUS_DST_COLOR;
+			break;
+			case BlendFunc::Src_Alpha:
+				Dfactor = GL_SRC_ALPHA;
+			break;
+			case BlendFunc::One_Minus_Src_Alpha:
+				Dfactor = GL_ONE_MINUS_SRC_ALPHA;
+			break;
+			case BlendFunc::Dst_Alpha:
+				Dfactor = GL_DST_ALPHA;
+			break;
+			case BlendFunc::One_Minus_Dst_Alpha:
+				Dfactor = GL_ONE_MINUS_DST_ALPHA;
+			break;
+			case BlendFunc::Constant_Color:
+				Dfactor = GL_CONSTANT_COLOR;
+			break;
+			case BlendFunc::One_Minus_Constant_Color:
+				Dfactor = GL_ONE_MINUS_CONSTANT_COLOR;
+			break;
+			case BlendFunc::Constant_Alpha:
+				Dfactor = GL_CONSTANT_ALPHA;
+			break;
+			case BlendFunc::One_Minus_Constant_Alpha:
+				Dfactor = GL_ONE_MINUS_CONSTANT_ALPHA;
+			break;
+			case BlendFunc::Src_Alpha_Saturate:
+				Dfactor = GL_SRC_ALPHA_SATURATE;
+			break;
+			case BlendFunc::Src1_Color:
+				Dfactor = GL_SRC1_COLOR;
+			break;
+			case BlendFunc::One_Minus_Src1_Color:
+				Dfactor = GL_ONE_MINUS_SRC1_COLOR;
+			break;
+			case BlendFunc::Src1_Alpha:
+				Dfactor = GL_SRC1_ALPHA;
+			break;
+			case BlendFunc::One_Minus_Src1_Alpha:
+				Dfactor = GL_ONE_MINUS_SRC1_ALPHA;
+			break;
+			default:
+			case BlendFunc::One:
+				Dfactor = GL_ONE;
+			break;
+    	}
+	    glBlendFunc(Sfactor, Dfactor);
+    }
+    void IRenderer::BlendingEquation(const uint32 &mode)
+    {
+    	uint32 Mode = GL_FUNC_ADD;
+    	switch(mode)
+    	{
+    		case BlendEq::Subtract:
+    			Mode = GL_FUNC_SUBTRACT;
+    		break;
+    		case BlendEq::Reverse_Subtract:
+    			Mode = GL_FUNC_REVERSE_SUBTRACT;
+    		break;
+    		default:
+    		case BlendEq::Add:
+    			Mode = GL_FUNC_ADD;
+    		break;
+    	}
+    	glBlendEquation(Mode);
+    }
     void IRenderer::EnableWireFrame()
     {
 #ifndef ANDROID
-        if (!WireFrame)
-        {
-            WireFrame = true;
-            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        }
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 #endif
     }
      
     void IRenderer::DisableWireFrame()
     {
 #ifndef ANDROID
-        if (WireFrame)
-        {
-            WireFrame = false;
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        }
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 #endif
     }
     

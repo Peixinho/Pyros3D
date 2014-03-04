@@ -33,6 +33,68 @@ namespace p3d {
         };
     }
     
+    namespace StencilOp
+    {
+    	enum {
+    		Keep = 0,
+    		Zero,
+    		Replace,
+    		Incr,
+    		Incr_Wrap,
+    		Decr,
+    		Decr_Wrap,
+    		Invert
+    	};
+    }
+
+    namespace StencilFunc
+    {
+    	enum {
+    		Always = 0,
+    		Never,
+    		Less,
+    		LEqual,
+    		Greater,
+    		GEqual,
+    		Equal,
+    		Notequal
+    	};
+    }
+
+    namespace BlendFunc
+    {
+    	enum {
+    		Zero = 0,
+    		One,
+    		Src_Color,
+    		One_Minus_Src_Color,
+    		Dst_Color,
+    		One_Minus_Dst_Color,
+    		Src_Alpha,
+    		One_Minus_Src_Alpha,
+    		Dst_Alpha,
+    		One_Minus_Dst_Alpha,
+    		Constant_Color,
+    		One_Minus_Constant_Color,
+    		Constant_Alpha,
+    		One_Minus_Constant_Alpha,
+    		Src_Alpha_Saturate,
+    		Src1_Color,
+    		One_Minus_Src1_Color,
+    		Src1_Alpha,
+    		One_Minus_Src1_Alpha
+    	};
+    }
+
+    namespace BlendEq
+    {
+    	enum {
+    		Add = 0,
+    		Subtract,
+    		Reverse_Subtract
+    	};
+    }
+
     class IRenderer {
         
         public:
@@ -41,14 +103,41 @@ namespace p3d {
             IRenderer(const uint32 &Width, const uint32 &Height);
             virtual ~IRenderer();
             void ClearScreen(const uint32 &Option);
+
+            // Depth Buffer
             void EnableDepthTest();
             void DisableDepthTest();
+            void EnableDepthWritting();
+            void DisableDepthWritting();
+            void ClearDepthBuffer();
+
+            // Stencil
+            void EnableStencil();
+            void DisableStencil();
+            void ClearStencilBuffer();
+            void StencilFunction(const uint32 &func, const uint32 &ref = 0, const uint32 &mask = 1);
+            void StencilOperation(const uint32 &sfail = StencilOp::Keep, const uint32 &dpfail = StencilOp::Keep, const uint32 &dppass = StencilOp::Keep);
+
+            // Blending
+            void EnableBlending();
+            void DisableBlending();
+            void BlendingFunction(const uint32 &sfactor, const uint32 &dfactor);
+            void BlendingEquation(const uint32 &mode);
+
+            // WireFrame
+            void EnableWireFrame();
+            void DisableWireFrame();
+
+            // Color
+            void ColorMask(const f32 &r,const f32 &g,const f32 &b,const f32 &a);
+
             void SetBackground(const Vec4 &Color);
             void UnsetBackground();
             void SetGlobalLight(const Vec4 &Light);
             void EnableDepthBias(const Vec2 &Bias);
             void DisableDepthBias();
             void SetViewPort(const uint32 &initX, const uint32 &initY, const uint32 &endX, const uint32 &endY);
+            
             // Resize
             void Resize(const uint32 &Width, const uint32 &Height);
             
@@ -86,32 +175,18 @@ namespace p3d {
             void SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material);
             void SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material);
             
-            // Blending
-            void EnableBlending();
-            void DisableBlending();
-            bool Blending;
-            
-            // WireFrame
-            void EnableWireFrame();
-            void DisableWireFrame();
-            bool WireFrame;
-            
             // Background
             void DrawBackground();
             bool BackgroundColorSet;
             
-            // Depth Test
-            void RunDepthTest();
-            
             // Properties
-            
-            bool                DepthTest;
-            
+            bool
+                                blending;
             Vec4 
                                 BackgroundColor;
             Vec4 
                                 GlobalLight;
-            
+
             // Face Culling
             int32
                                 cullFace;
@@ -124,9 +199,11 @@ namespace p3d {
             // Scene
             SceneGraph* 
                                 Scene;
+
             // Camera Matrix
             GameObject*
                                 Camera;
+
             // Projection Matrix
             Projection
                                 projection;
@@ -134,6 +211,7 @@ namespace p3d {
             // Depth Bias
             Vec2 
                                 DepthBias;
+
             bool
                                 IsUsingDepthBias;
             
@@ -174,8 +252,10 @@ namespace p3d {
             
             uint32
                                 NumberOfLights;
+
             f64
                                 Timer;
+
             // Model Specific Cache
             Matrix
                                 ModelMatrix,

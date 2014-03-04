@@ -151,28 +151,19 @@ namespace p3d {
             FBO->Bind();
 
             // Set ViewPort
-            if (viewPortEndX==0 || viewPortEndY==0) 
-            { 
-                viewPortEndX = Width;
-                viewPortEndY = Height;
-            }
-            
+            viewPortEndX = Width;
+            viewPortEndY = Height;
             // Set Viewport
             _SetViewPort(viewPortStartX,viewPortStartY,viewPortEndX,viewPortEndY);
 
-            // Enable Depth Masking
-            glDepthMask(GL_TRUE);
+            ClearScreen(Buffer_Bit::Depth | Buffer_Bit::Color);
 
-            // Clear depth buffer
-            glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
-
-            // Enable Depth Test
-            glEnable(GL_DEPTH_TEST);
-            glDepthMask(GL_TRUE);
-            glClearDepth(1.f);
+            EnableDepthTest();
+            EnableDepthWritting();
+            ClearDepthBuffer();
 
             // Disable Blending
-            glDisable(GL_BLEND);
+            DisableBlending();
 
             // Draw Background
             DrawBackground();
@@ -199,35 +190,28 @@ namespace p3d {
                         RenderObject((*i),(*i)->renderingComponent->GetOwner(),(*i)->Material);
                 }
             }
-            // Disable Cull Face
-            glDisable(GL_CULL_FACE);
-
-    #ifndef ANDROID
-            // Set Default Polygon Mode
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    #endif
 
             // End Rendering
             EndRender();
 
-            // Initialize Render
+            // Initialize Rendering
             InitRender();
 
             // Unbind FrameBuffer
             FBO->UnBind();
 
             // Disable Depth Masking
-            glDepthMask(GL_FALSE);
+            DisableDepthWritting();
 
             // Disable Depth Test
-            glDisable(GL_DEPTH_TEST);
+            DisableDepthTest();
 
             // Second Pass
-            glEnable(GL_BLEND);
-            glBlendEquation(GL_FUNC_ADD);
-            glBlendFunc(GL_ONE, GL_ONE);
+            EnableBlending();
+            BlendingEquation(BlendEq::Add);
+            BlendingFunction(BlendFunc::One, BlendFunc::One);
 
-            glClear(GL_COLOR_BUFFER_BIT);
+            ClearScreen(Buffer_Bit::Color);
 
             // Bind FBO Textures
             FBO->GetAttachments()[FrameBufferAttachmentFormat::Depth_Attachment]->TexturePTR->Bind();
@@ -236,8 +220,7 @@ namespace p3d {
             FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment2]->TexturePTR->Bind();
             FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment3]->TexturePTR->Bind();
 
-            // Draw Quad
-            // Render Scene with Objects Material
+            // Render Point Lights
             for (std::vector<IComponent*>::iterator i=lcomps.begin();i!=lcomps.end();i++)
             {
 
@@ -266,17 +249,21 @@ namespace p3d {
                     }
                 }
             }
-
-            glEnable (GL_DEPTH_TEST);
-            glDepthMask (GL_TRUE);
-            glDisable (GL_BLEND);
+        
+            // Enable Depth Test
+            EnableDepthTest();
+            EnableDepthWritting();
             
+            // Disable Blending
+            DisableBlending();
+
             FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment3]->TexturePTR->Unbind();
             FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment2]->TexturePTR->Unbind();
             FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment1]->TexturePTR->Unbind();
             FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment0]->TexturePTR->Unbind();
             FBO->GetAttachments()[FrameBufferAttachmentFormat::Depth_Attachment]->TexturePTR->Unbind();
 
+            // End Render
             EndRender();
     }
 

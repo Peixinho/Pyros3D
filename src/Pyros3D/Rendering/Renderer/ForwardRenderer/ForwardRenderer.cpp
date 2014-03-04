@@ -38,11 +38,8 @@ namespace p3d {
         {
             delete culling;
         }
-        
         delete shadowMaterial;
     }
-    
-    
     
     std::vector<RenderingMesh*> ForwardRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera)
     {
@@ -145,7 +142,9 @@ namespace p3d {
                             // GPU Shadows
                             // Clear Screen
                             ClearScreen(Buffer_Bit::Depth);
-                            RunDepthTest();
+                            EnableDepthTest();
+                            EnableDepthWritting();
+                            ClearDepthBuffer();
 
                             // Enable Depth Bias
                             EnableDepthBias(Vec2(d->GetShadowBiasFactor(), d->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
@@ -284,7 +283,9 @@ namespace p3d {
 
                                 // Clear Screen
                                 ClearScreen(Buffer_Bit::Depth);
-                                RunDepthTest();
+                                EnableDepthTest();
+                                EnableDepthWritting();
+                                ClearDepthBuffer();
 
                                 // Enable Depth Bias
                                 EnableDepthBias(Vec2(p->GetShadowBiasFactor(), p->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
@@ -387,7 +388,9 @@ namespace p3d {
 
                             // Clear Screen
                             ClearScreen(Buffer_Bit::Depth);
-                            RunDepthTest();
+                            EnableDepthTest();
+                            EnableDepthWritting();
+                            ClearDepthBuffer();
 
                             // Enable Depth Bias
                             EnableDepthBias(Vec2(s->GetShadowBiasFactor(), s->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
@@ -484,15 +487,15 @@ namespace p3d {
             }
             
             _SetViewPort(viewPortStartX,viewPortStartY,viewPortEndX,viewPortEndY);
+            EnableDepthTest();
+            EnableDepthWritting();
+            ClearDepthBuffer();
 
             // Clear Screen
             ClearScreen(BufferOptions);
             
             // Draw Background
             DrawBackground();
-            
-            // Depth Test
-            RunDepthTest();
 
             // Render Scene with Objects Material
             for (std::vector<RenderingMesh*>::iterator i=rmesh.begin();i!=rmesh.end();i++)
@@ -526,6 +529,9 @@ namespace p3d {
 
             // End Rendering
             EndRender();
+
+            // Disable Blending
+            DisableBlending();
         }
     }
     
