@@ -182,12 +182,6 @@ namespace p3d
             if (ShadersList[shaderID]->currentMaterials==0)
                 delete ShadersList[shaderID];
         }
-        
-        // Delete Textures
-        for (std::map<uint32,Texture*>::iterator i=Textures.begin();i!=Textures.end();i++)
-        {
-            delete (*i).second;
-        }
     }
     
     void GenericShaderMaterial::AddTexture(const std::string &uniformName, Texture* texture)

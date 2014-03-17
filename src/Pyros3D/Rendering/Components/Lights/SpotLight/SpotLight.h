@@ -74,7 +74,7 @@ namespace p3d {
                 ShadowProjection.Perspective(2*outterCone, 1.0, ShadowNear, ShadowFar);
             }
             
-        protected :
+        protected:
             
             // Light Direction
             Vec3 Direction;

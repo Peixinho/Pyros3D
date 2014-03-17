@@ -32,21 +32,6 @@ namespace p3d {
         Bones = std::vector<Matrix>(skeleton.size());
         boneTransformation = std::vector<Matrix>(skeleton.size());
     }
-    
-    // Debug Skeleton
-// void DrawTriangle(p3d::Math::Vec3 Position)
-// {
-//     glPushMatrix();
-//     glLoadIdentity();
-//     glTranslatef(Position.x,Position.y,Position.z);
-//     glBegin(GL_TRIANGLES);
-//     glColor3f(1.0f, 0.0f, 0.0f);
-//     glVertex3f(-1.f, -1.f, 0.0f);
-//     glVertex3f(0.0f, 1.f, 0.0f);
-//     glVertex3f(1.f, -1.f, 0.0f);
-//     glEnd();
-//     glPopMatrix();
-// }
 
     void AnimationManager::Update(const double& time)
     {
@@ -100,18 +85,6 @@ namespace p3d {
                 rotIndexNext=rotIndex+1;
                 curRotation = curRotation.Slerp(ch.rotations[rotIndexNext].Rot, 1 - (ch.rotations[rotIndexNext].Time - time));
             }
-
-            // size_t scaleIndex = 0;
-            // while( 1 )
-            // {
-            //     if( scaleIndex +1 >= ch.scales.size() )
-            //     break;
-
-            //     if( ch.scales[scaleIndex + 1].Time > time )
-            //     break;
-            //     scaleIndex++;
-            // }            
-            // curScale = ch.scales[scaleIndex].Scale;
             
             Matrix trafo = curRotation.ConvertToMatrix();
             trafo.Translate(curPosition);
@@ -127,17 +100,6 @@ namespace p3d {
         {
             Bones[(*a).second.self] = GetParentMatrix((*a).second.parent, boneTransformation) * boneTransformation[(*a).second.self];
         }
-        
-        // Debug Skeleton
-        //glClear(GL_COLOR_BUFFER_BIT);
-          
-        // glMatrixMode (GL_PROJECTION);
-        // glLoadIdentity();
-        // gluPerspective(70.f,(f32)1024/(f32)768,1.f,1000.f);
-        // glPushMatrix();
-        // glTranslatef(0,0,-100);
-        //   /* draw a triangle */
-        // glMatrixMode (GL_MODELVIEW);
 
         // Send SubMesh Bones to Material
         for (std::vector<RenderingMesh*>::iterator i = renderingComponent->GetMeshes().begin(); i != renderingComponent->GetMeshes().end(); i++)
@@ -147,9 +109,6 @@ namespace p3d {
             {
                 // Set list of Bones Matrices
                 (*i)->SkinningBones[(*k).second] = (Bones[(*k).first] * (*i)->BoneOffsetMatrix[(*k).first]);
-
-                // Debug Skeleton Mode
-                //DrawTriangle(Bones[(*k).first]*p3d::Math::Vec3(0,0,0));
             }
         }
     }
