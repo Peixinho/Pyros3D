@@ -18,7 +18,6 @@ namespace p3d {
     
     ForwardRenderer::ForwardRenderer(const uint32& Width, const uint32& Height) : IRenderer(Width,Height) 
     {
-    
         echo("SUCCESS: Forward Renderer Created");
         
         ActivateCulling(CullingMode::FrustumCulling);
@@ -41,15 +40,22 @@ namespace p3d {
         delete shadowMaterial;
     }
     
-    std::vector<RenderingMesh*> ForwardRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera)
+    std::vector<RenderingMesh*> ForwardRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 &Tag)
     {
         
         // Sort and Group Objects From Scene
         std::vector<RenderingMesh*> _OpaqueMeshes;
         std::map<f32,RenderingMesh*> _TranslucidMeshes;
         
-        std::vector<RenderingMesh*> rmeshes = RenderingComponent::GetRenderingMeshes(Scene);
-        
+		// Get Meshes
+        std::vector<RenderingMesh*> rmeshes(RenderingComponent::GetRenderingMeshes(Scene));
+		
+		if (Tag!=0)
+			for (std::vector<RenderingMesh*>::iterator k=rmeshes.begin();k!=rmeshes.end();)
+				if (!(*k)->renderingComponent->GetOwner()->HaveTag(Tag))
+					rmeshes.erase(k);
+				else ++k;
+
         for (std::vector<RenderingMesh*>::iterator k=rmeshes.begin();k!=rmeshes.end();k++)
         {
             if ((*k)->Material->IsTransparent())
@@ -67,17 +73,23 @@ namespace p3d {
         }
         
         return _OpaqueMeshes;
-         
     }
-    
-    void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 BufferOptions)
+	void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 &BufferOptions) 
+	{
+		RenderSceneByTag(projection, Camera, Scene, 0, BufferOptions);
+    }
+    void ForwardRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag, const uint32 &BufferOptions)
+    {
+		RenderSceneByTag(projection, Camera, Scene, MakeStringID(Tag), BufferOptions);
+	}
+    void ForwardRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 &Tag, const uint32 &BufferOptions)
     {
         
         // Initialize Renderer
         InitRender();
         
         // Group and Sort Meshes
-        std::vector<RenderingMesh*> rmesh = GroupAndSortAssets(Scene, Camera);
+        std::vector<RenderingMesh*> rmesh = GroupAndSortAssets(Scene, Camera, Tag);
         
         // Get Lights List
         std::vector<IComponent*> lcomps = ILightComponent::GetLightsOnScene(Scene);

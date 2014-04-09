@@ -110,7 +110,7 @@ namespace p3d {
             // Get Rendering Components
             static std::vector<IComponent*> &GetComponents();
             // Get Global Meshes
-            static std::vector<RenderingMesh*> &GetRenderingMeshes(SceneGraph* scene);
+            static std::vector<RenderingMesh*> GetRenderingMeshes(SceneGraph* scene);
             
         protected:
 

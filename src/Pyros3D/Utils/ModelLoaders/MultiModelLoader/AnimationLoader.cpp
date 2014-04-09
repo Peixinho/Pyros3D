@@ -53,19 +53,31 @@ namespace p3d {
                 int32 positionSize;
                 bin->Read(&positionSize, sizeof(int32));
                 ch.positions.resize(positionSize);
-                bin->Read(&ch.positions[0], sizeof(PositionData)*positionSize);
-
+                for (int l=0;l<positionSize;l++)
+                {
+                    bin->Read(&ch.positions[l].Time, sizeof(f64));
+                    bin->Read(&ch.positions[l].Pos, sizeof(Vec3));
+                }
+                
                 // Rotations
                 int32 rotationSize;
                 bin->Read(&rotationSize, sizeof(int32));
                 ch.rotations.resize(rotationSize);
-                bin->Read(&ch.rotations[0], sizeof(RotationData)*rotationSize);
+                for (int l=0;l<rotationSize;l++)
+                {
+                    bin->Read(&ch.rotations[l].Time, sizeof(f64));
+                    bin->Read(&ch.rotations[l].Rot, sizeof(Quaternion));
+                }
 
                 // Scales
                 int32 scalingSize;
                 bin->Read(&scalingSize, sizeof(int32));
                 ch.scales.resize(scalingSize);
-                bin->Read(&ch.scales[0], sizeof(ScalingData)*scalingSize);
+                for (int l=0;l<scalingSize;l++)
+                {
+                    bin->Read(&ch.scales[l].Time, sizeof(f64));
+                    bin->Read(&ch.scales[l].Scale, sizeof(Vec3));
+                }
 
                 animation.Channels.push_back(ch);
             }

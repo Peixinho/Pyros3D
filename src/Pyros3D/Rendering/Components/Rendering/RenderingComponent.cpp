@@ -110,7 +110,7 @@ namespace p3d {
         return Components;
     }
     
-    std::vector<RenderingMesh*> &RenderingComponent::GetRenderingMeshes(SceneGraph* scene)
+    std::vector<RenderingMesh*> RenderingComponent::GetRenderingMeshes(SceneGraph* scene)
     {
         return MeshesOnScene[scene];
     }

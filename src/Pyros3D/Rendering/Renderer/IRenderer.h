@@ -146,8 +146,9 @@ namespace p3d {
             void DeactivateCulling();
         
             // Render Scene
-            virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const uint32 BufferOptions = Buffer_Bit::Color | Buffer_Bit::Depth);
-        
+            virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const uint32 &BufferOptions = Buffer_Bit::Color | Buffer_Bit::Depth);
+			virtual void RenderSceneByTag(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag = "", const uint32 &BufferOptions = Buffer_Bit::Color | Buffer_Bit::Depth);
+			virtual void RenderSceneByTag(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const uint32 &Tag = 0, const uint32 &BufferOptions = Buffer_Bit::Color | Buffer_Bit::Depth);
         protected:
             
             // Group by:
@@ -159,7 +160,7 @@ namespace p3d {
             // the rendering list is changed.
             // e.g. Add/Remove Models
             // Sort Assets (mostly the Translucent ones)
-            virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera) = 0;
+            virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 &Tag = 0) = 0;
             
             // Reset
             void InitRender();

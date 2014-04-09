@@ -7,7 +7,7 @@
 //============================================================================
 
 #include "GameObject.h"
-
+#include "../Ext/StringIDs/StringID.hpp"
 namespace p3d {
 
     GameObject::GameObject() 
@@ -331,5 +331,23 @@ namespace p3d {
             (*i)->Unregister(Scene);
         }
     }
-    
+  
+	void GameObject::AddTag(const std::string &tag)
+	{
+		uint32 tagID = MakeStringID(tag);
+		TagsList[tagID] = tag;
+	}
+	void GameObject::RemoveTag(const std::string &tag)
+	{
+		uint32 tagID = MakeStringID(tag);
+		TagsList.erase(tagID);
+	}
+	bool GameObject::HaveTag(const std::string &tag)
+	{
+		return HaveTag(MakeStringID(tag));
+	}
+	bool GameObject::HaveTag(const uint32 &tag)
+	{
+		return (TagsList.find(tag)!=TagsList.end());
+	}
 };

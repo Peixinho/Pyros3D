@@ -53,7 +53,7 @@ void SkeletonAnimation::Init()
         Model = new GameObject();
         rModel = new RenderingComponent(AssetManager::LoadModel("../../../../examples/SkeletonAnimation/Model.p3dm",false,ShaderUsage::Diffuse | ShaderUsage::Skinning));
         Model->Add(rModel);
-
+		Model->AddTag("Teste");
         Animation = new AnimationManager();
         Animation->LoadAnimation("../../../../examples/SkeletonAnimation/Animation.p3da", rModel);
         
@@ -80,7 +80,7 @@ void SkeletonAnimation::Update()
         Scene->Update(GetTime());
 
         // Render Scene
-        Renderer->RenderScene(projection,Camera,Scene);
+		Renderer->RenderSceneByTag(projection,Camera,Scene,"Teste");
 }
 
 void SkeletonAnimation::Shutdown()

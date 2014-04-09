@@ -14,6 +14,7 @@
 #include "../Components/IComponent.h"
 #include "../SceneGraph/SceneGraph.h"
 #include <vector>
+#include <map>
 using namespace p3d::Math;
 
 namespace p3d {
@@ -73,6 +74,12 @@ namespace p3d {
             void Add(GameObject* Child);
             void Remove(GameObject* Child);
 
+			// Tags
+			void AddTag(const std::string &tag);
+			void RemoveTag(const std::string &tag);
+			bool HaveTag(const uint32  &tag);
+			bool HaveTag(const std::string &tag);
+
         private:
             
             // Update Components
@@ -122,6 +129,9 @@ namespace p3d {
             void UnregisterComponents(SceneGraph* Scene);
             // Scene Pointer
             SceneGraph* Scene;
+
+			// Tags
+			std::map<uint32, std::string> TagsList;
     };
     
 };
