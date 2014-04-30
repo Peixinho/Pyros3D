@@ -109,7 +109,7 @@ namespace p3d {
     
     void InputManager::CharEntered(const uint32& e)
     {
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(EMSCRIPTEN)
         // Could be on Pressed or Released, there is nothing different from them
         Code = e;
         Event::Input::Info kPress;

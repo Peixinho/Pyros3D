@@ -7,7 +7,7 @@
 //============================================================================
 
 #include "IRenderer.h"
-#ifdef ANDROID
+#if defined(ANDROID) || defined(EMSCRIPTEN)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
 #else
@@ -217,7 +217,7 @@ namespace p3d {
                 case DrawingType::Lines:
                     DrawType = GL_LINES;
                     break;
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(EMSCRIPTEN)
                 case DrawingType::Polygons:
                     DrawType = GL_POLYGON;
                     break;
@@ -303,7 +303,7 @@ namespace p3d {
 	}
 	void IRenderer::ClearDepthBuffer()
 	{
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(EMSCRIPTEN)
 		glClearDepth(1.f);
 #endif
 	}
@@ -539,6 +539,7 @@ namespace p3d {
 			case BlendFunc::Src_Alpha_Saturate:
 				Sfactor = GL_SRC_ALPHA_SATURATE;
 			break;
+#if !defined(ANDROID) && !defined(EMSCRIPTEN)
 			case BlendFunc::Src1_Color:
 				Sfactor = GL_SRC1_COLOR;
 			break;
@@ -551,6 +552,7 @@ namespace p3d {
 			case BlendFunc::One_Minus_Src1_Alpha:
 				Sfactor = GL_ONE_MINUS_SRC1_ALPHA;
 			break;
+#endif
 			default:
 			case BlendFunc::One:
 				Sfactor = GL_ONE;
@@ -601,6 +603,7 @@ namespace p3d {
 			case BlendFunc::Src_Alpha_Saturate:
 				Dfactor = GL_SRC_ALPHA_SATURATE;
 			break;
+#if !defined(ANDROID) && !defined(EMSCRIPTEN)
 			case BlendFunc::Src1_Color:
 				Dfactor = GL_SRC1_COLOR;
 			break;
@@ -613,6 +616,7 @@ namespace p3d {
 			case BlendFunc::One_Minus_Src1_Alpha:
 				Dfactor = GL_ONE_MINUS_SRC1_ALPHA;
 			break;
+#endif
 			default:
 			case BlendFunc::One:
 				Dfactor = GL_ONE;
@@ -640,14 +644,14 @@ namespace p3d {
     }
     void IRenderer::EnableWireFrame()
     {
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(EMSCRIPTEN)
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 #endif
     }
      
     void IRenderer::DisableWireFrame()
     {
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(EMSCRIPTEN)
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 #endif
     }

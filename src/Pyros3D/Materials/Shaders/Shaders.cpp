@@ -8,7 +8,7 @@
 
 #include "Shaders.h"
 #include <stdlib.h>
-#ifdef ANDROID
+#if defined(ANDROID) || defined(EMSCRIPTEN)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
 #else
@@ -82,26 +82,24 @@ namespace p3d {
         glGetShaderiv(shader, GL_COMPILE_STATUS, &result);
         if (result==GL_FALSE)
         {
-            std::string log;
+            char *log;        
             glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
-            if (length>0)
-            {
-                log.resize(length);
-                glGetShaderInfoLog(shader, length, &result, &log[0]);
-                echo(std::string(shaderType.c_str() + std::string(" COMPILATION ERROR: ") + log.c_str()));
-            }
+            log = (char*)malloc(length);
+            glGetShaderInfoLog(shader, length, &result, log);
+            echo(std::string(shaderType.c_str() + std::string(" COMPILATION ERROR: ") + std::string(log)));
+            free(log);
         } else {
-            std::string log;       
+            char *log;        
             glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
-            if (length>0)
-            {
-                log.resize(length);
-                glGetShaderInfoLog(shader, length, &result, &log[0]);
-                echo(std::string(shaderType.c_str() + std::string(" COMPILED WITH WARNINGS: ") + log.c_str()));
-            }
+            log = (char*)malloc(length);
+            glGetShaderInfoLog(shader, length, &result, log);
+            if (length>1)
+                echo(std::string(shaderType.c_str() + std::string(" COMPILED WITH WARNINGS: ") + std::string(log)));
+            free(log);
+
             if (*ProgramObject==0) 
                 *ProgramObject = (uint32)glCreateProgram();
-
+			
             // Attach shader
             glAttachShader(*ProgramObject, shader);
         }

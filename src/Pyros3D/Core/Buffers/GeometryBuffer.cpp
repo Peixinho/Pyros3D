@@ -7,7 +7,7 @@
 //============================================================================
 
 #include "GeometryBuffer.h"
-#ifdef ANDROID
+#if defined(ANDROID) || defined(EMSCRIPTEN)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
 #else
@@ -106,7 +106,7 @@ namespace p3d {
     
     void *GeometryBuffer::Map(uint32 MappingType)
     {
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(EMSCRIPTEN)
         glBindBuffer(this->bufferType, ID); 
         
         switch (MappingType)
@@ -139,7 +139,7 @@ namespace p3d {
     }
     void GeometryBuffer::Unmap()
     {
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(EMSCRIPTEN)
         glBindBuffer(this->bufferType, ID);
         glUnmapBuffer(this->bufferType);
         glBindBuffer(this->bufferType, 0);

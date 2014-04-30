@@ -7,7 +7,7 @@
 //============================================================================
 
 #include "FrameBuffer.h"
-#ifdef ANDROID
+#if defined(ANDROID) || defined(EMSCRIPTEN)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
 #else
@@ -112,7 +112,7 @@ namespace p3d {
                 echo("FBO: There are no attachments.");
                 break;
             }
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(EMSCRIPTEN)
             case GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS_EXT:
             {
                 echo("FBO: Attachments are of different size. All attachments must have the same width and height.");
@@ -162,7 +162,7 @@ namespace p3d {
             case FrameBufferAttachmentFormat::Color_Attachment0:
                 attach->AttachmentFormat= GL_COLOR_ATTACHMENT0;
                 break;
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(EMSCRIPTEN)
             case FrameBufferAttachmentFormat::Color_Attachment1:
                 attach->AttachmentFormat= GL_COLOR_ATTACHMENT1;
                 break;
@@ -254,7 +254,7 @@ namespace p3d {
         // Add Attach
         glFramebufferTexture2D(GL_FRAMEBUFFER, attach->AttachmentFormat, attach->TextureType, attach->TexturePTR->GetBindID() , 0);
 
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(EMSCRIPTEN)
         
         if (!drawBuffers)
         {
@@ -303,7 +303,7 @@ namespace p3d {
             case FrameBufferAttachmentFormat::Color_Attachment0:
                 attach->AttachmentFormat= GL_COLOR_ATTACHMENT0;
                 break;
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(EMSCRIPTEN)
             case FrameBufferAttachmentFormat::Color_Attachment1:
                 attach->AttachmentFormat= GL_COLOR_ATTACHMENT1;
                 break;
@@ -384,7 +384,7 @@ namespace p3d {
 
         CheckFBOStatus();
 
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(EMSCRIPTEN)
         
         if (!drawBuffers)
         {
@@ -427,7 +427,7 @@ namespace p3d {
         // unbind fbo
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(EMSCRIPTEN)
         if (drawBuffers)
         {
             glDrawBuffer(GL_BACK);

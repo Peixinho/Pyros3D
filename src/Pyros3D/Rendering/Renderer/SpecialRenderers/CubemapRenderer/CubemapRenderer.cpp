@@ -7,7 +7,7 @@
 //============================================================================
 
 #include "CubemapRenderer.h"
-#ifdef ANDROID
+#if defined(ANDROID) || defined(EMSCRIPTEN)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
 #else
@@ -51,7 +51,7 @@ namespace p3d {
     
     
     
-    std::vector<RenderingMesh*> CubemapRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera)
+    std::vector<RenderingMesh*> CubemapRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 &Tag)
     {
         
         // Sort and Group Objects From Scene

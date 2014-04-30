@@ -12,7 +12,7 @@
 #include <string>
 #include <iostream>
 #include <fstream>
-#ifdef ANDROID
+#if defined(ANDROID)
 #include <android/log.h>
 #endif
 // Filename
@@ -41,7 +41,7 @@ namespace p3d {
                         
                         #else
                             #ifdef LOG_TO_CONSOLE
-                				#ifdef ANDROID
+                				#if defined(ANDROID)
                 					__android_log_print(ANDROID_LOG_DEBUG, "Pyros3D", Message.c_str());
                 				#else
                                     std::cout << Message << std::endl;

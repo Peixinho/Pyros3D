@@ -7,7 +7,7 @@
 //============================================================================
 
 #include "ForwardRenderer.h"
-#ifdef ANDROID
+#if defined(ANDROID) || defined(EMSCRIPTEN)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
 #else
@@ -534,7 +534,7 @@ namespace p3d {
             // Disable Cull Face
             glDisable(GL_CULL_FACE);
 
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(EMSCRIPTEN)
             // Set Default Polygon Mode
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 #endif

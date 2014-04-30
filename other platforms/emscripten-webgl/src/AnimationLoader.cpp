@@ -3,27 +3,35 @@
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
-// Description : Loads model animation based on Assimp
+// Description : Loads model animation - Emscripten Specific
 //============================================================================
 
-#include "AnimationLoader.h"
+#include "../../../src/Pyros3D/Utils/ModelLoaders/MultiModelLoader/AnimationLoader.h"
+#include <stdio.h>
 
 namespace p3d {
 
-    AnimationLoader::AnimationLoader() {}
-
-    AnimationLoader::~AnimationLoader() {}
-
-#if !defined(ANDROID) && !defined(EMSCRIPTEN)
+#ifdef EMSCRIPTEN
 
     bool AnimationLoader::Load(const std::string& Filename)
     {
-        // Load Animations
+        FILE *file;
+        file = fopen(Filename.c_str(), "rb");
+        std::vector<uchar>destination;
+        int n_blocks = 1024;
+        while(n_blocks != 0)
+        {
+            destination.resize(destination.size() + n_blocks);
+            n_blocks = fread(&destination[destination.size() - n_blocks], 1, n_blocks, file);
+        }
+        fclose(file);
+
         BinaryFile* bin = new BinaryFile();
-        bin->Open(Filename.c_str(),'r');
+        bin->OpenFromMemory(&destination[0], destination.size());
 
         int32 animationsSize;
         bin->Read(&animationsSize, sizeof(int32));
+
         for (int32 i=0;i<animationsSize;i++)
         {
         	Animation animation;
@@ -96,7 +104,6 @@ namespace p3d {
 
         return true;
     }
-    
-#endif
 
+#endif
 }

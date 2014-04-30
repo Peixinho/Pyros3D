@@ -68,6 +68,9 @@ namespace p3d {
             val *= 255.f;
             return ((uint32(val.x) & 0xFF) << 24) | ((uint32(val.y) & 0xFF) << 16) | ((uint32(val.z) & 0xFF) << 8) | (uint32(val.w) & 0xFF);
         }
+
+	virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 &Tag = 0) {}
+
     };
 }
 

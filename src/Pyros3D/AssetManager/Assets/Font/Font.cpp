@@ -12,7 +12,7 @@
 
 namespace p3d {
     
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(EMSCRIPTEN)
 
     Font::Font(const std::string& font, const f32& size)
     {

@@ -147,8 +147,8 @@ namespace p3d {
         
             // Render Scene
             virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const uint32 &BufferOptions = Buffer_Bit::Color | Buffer_Bit::Depth);
-			virtual void RenderSceneByTag(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag = "", const uint32 &BufferOptions = Buffer_Bit::Color | Buffer_Bit::Depth);
-			virtual void RenderSceneByTag(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const uint32 &Tag = 0, const uint32 &BufferOptions = Buffer_Bit::Color | Buffer_Bit::Depth);
+            virtual void RenderSceneByTag(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag = "", const uint32 &BufferOptions = Buffer_Bit::Color | Buffer_Bit::Depth);
+            virtual void RenderSceneByTag(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const uint32 &Tag = 0, const uint32 &BufferOptions = Buffer_Bit::Color | Buffer_Bit::Depth);
         protected:
             
             // Group by:

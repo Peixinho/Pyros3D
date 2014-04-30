@@ -3,26 +3,34 @@
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
-// Description : Loads Pyros3D Own Model Format
+// Description : Loads Pyros3D Own Model Format - Emscripten Specific
 //============================================================================
 
-#include "ModelLoader.h"
+#include "../../../src/Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h"
 
 namespace p3d {
 
-    ModelLoader::ModelLoader() {}
-
-    ModelLoader::~ModelLoader() {}
-
-#if !defined(ANDROID) && !defined(EMSCRIPTEN)
+#ifdef EMSCRIPTEN
 
     bool ModelLoader::Load(const std::string& Filename)
     {
-		BinaryFile* bin = new BinaryFile();
-		bin->Open(Filename.c_str(),'r');
 
-		int materialsSize;
-		bin->Read(&materialsSize, sizeof(int));
+        FILE *file;
+        file = fopen(Filename.c_str(), "rb");
+        std::vector<uchar>destination;
+        int n_blocks = 1024;
+        while(n_blocks != 0)
+        {
+            destination.resize(destination.size() + n_blocks);
+            n_blocks = fread(&destination[destination.size() - n_blocks], 1, n_blocks, file);
+        }
+        fclose(file);
+
+	BinaryFile* bin = new BinaryFile();
+	bin->OpenFromMemory(&destination[0], destination.size());
+
+	int materialsSize;
+	bin->Read(&materialsSize, sizeof(int));
 
         // Materials
         for (int i=0;i<materialsSize;i++)
@@ -258,6 +266,7 @@ namespace p3d {
 	        		int boneID;
 	        		bin->Read(&boneID, sizeof(int));
 	        		bin->Read(&c_submesh.MapBoneIDs[boneID], sizeof(int));
+                    Vec2 v = Vec2(boneID,c_submesh.MapBoneIDs[boneID]);
 	        	}
 	        }
 
@@ -286,7 +295,5 @@ namespace p3d {
 
         return true;
     }
-
 #endif
-
 }
