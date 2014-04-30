@@ -58,15 +58,3 @@ class RotatingCube : public ClassName
 };
 
 #endif	/* ROTATINGCUBE_H */
-
-// date_default_timezone_set('Europe/Lisbon');
-
-// WebGL Hello World
-
-// Here is my first try on WebGL
-
-// Since I've heard about WebGL that I've wanted to try to do something with it, but my main focus has been C++ and OpenGL. I'm working on my little game engine for some time now, and I haven't had the try webgl and js.
-
-// Then I've seen that <a href="https://github.com/kripken/emscripten" target="blank">esmcripten</a> is here for people like me, that likes to develop in c++ and then it compiles the c++ code, do its magic and output JS.
-
-// So here is my first atempt on using <a href="https://github.com/kripken/emscripten" target="blank">esmcripten</a> with part of my engine to build a simple rotating cube.
