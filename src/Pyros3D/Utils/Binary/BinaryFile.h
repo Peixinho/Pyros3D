@@ -28,53 +28,89 @@ namespace p3d {
 
 			void Open(const char* file, const char &o)
 			{
-				File = file;
 				option = o;
-
+				
 				switch(o)
 				{
 					case 'r':
-						is = new ifstream(File.c_str(),ios::binary);
+						is = new ifstream(file,ios::binary);
 					break;
 					case 'w':
 					default:
-						os = new ofstream(File.c_str(),ios::binary);
+						os = new ofstream(file,ios::binary);
 					break;
 				}
+
+				memory = false;
+			}
+
+			void OpenFromMemory(uchar* data, const uint32 &size)
+			{
+				// Using Memory
+				memory = true;
+
+				// Resize Vector
+				this->data.resize(size*sizeof(uchar));
+
+				// Copy Contents
+				memcpy(&this->data[0],data,sizeof(uchar)*size);
+
+				// Set Initial Position
+				positionStream = 0;
+
+				// Save Size
+				this->size = size;
 			}
 
 			void Close()
 			{
-				switch(option)
-				{
-					case 'r':
-						is->close();
-						delete is;
-					break;
-					case 'w':
-					default:
-						os->close();
-						delete os;
-					break;
-				}	
+				if (memory)
+					data.clear();
+
+				else
+					switch(option)
+					{
+						case 'r':
+							is->close();
+							delete is;
+						break;
+						case 'w':
+						default:
+							os->close();
+							delete os;
+						break;
+					}
 			}
 
-			void Write(const void* src, const int &size)
+			void Write(const void* src, const uint32 &size)
 			{
-				os->write((const char*)src, size);
+				if (!memory)
+					os->write((const char*)src, size);
 			}
 
-			void Read(const void* src, const int &size)
+			void Read(const void* src, const uint32 &size)
 			{
-				is->read((char*)src, size);
+				if (!memory)
+					is->read((char*)src, size);
+
+				else {
+					memcpy((char*)src, &data[positionStream], sizeof(uchar)*size);
+					positionStream += size * sizeof(uchar);
+				}
 			}
 
 		private:
 
+			// From File
 			char option;
-			std::string File;
 			ofstream *os;
 			ifstream *is;
+
+			// From Memory
+			bool memory;
+			std::vector<uchar> data;
+			uint32 size;
+			uint32 positionStream;
 	};
 };
 #endif /* BINARYFILE_H */
