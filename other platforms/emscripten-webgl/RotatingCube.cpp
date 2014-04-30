@@ -51,15 +51,15 @@ void RotatingCube::Init()
         
         Scene->Add(Light);
         
+        // Material
+        material = new GenericShaderMaterial(ShaderUsage::Texture);
+        material->SetColorMap(AssetManager::LoadTexture("assets/Texture.png", TextureType::Texture));
+
         // Create Game Object
         Cube = new GameObject();
-        rCube = new RenderingComponent(AssetManager::CreateCube(30,30,30), Diffuse);
+        rCube = new RenderingComponent(AssetManager::CreateCube(30,30,30), material);
         Cube->Add(rCube);
         
-	// Material
-        material = new GenericShaderMaterial(ShaderUsage::Texture);
-        //material->SetColorMap(AssetManager::LoadTexture("assets/Texture.png", TextureType::Texture));
-
         // Add Camera to Scene
         Scene->Add(Camera);
         // Add GameObject to Scene
@@ -86,5 +86,4 @@ void RotatingCube::Shutdown()
 {
 
 }
-
 RotatingCube::~RotatingCube() {}

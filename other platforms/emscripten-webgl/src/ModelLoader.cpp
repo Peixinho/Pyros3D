@@ -7,6 +7,7 @@
 //============================================================================
 
 #include "../../../src/Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h"
+#include "../../../src/Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.cpp"
 
 namespace p3d {
 

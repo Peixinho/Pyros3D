@@ -7,9 +7,11 @@
 //============================================================================
 
 #include "../../../src/Pyros3D/AssetManager/Assets/Texture/Texture.h"
+#include "../../../src/Pyros3D/AssetManager/Assets/Texture/Texture.cpp"
 #include "../../../src/Pyros3D/Ext/StringIDs/StringID.hpp"
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
+#include <Utilities.h>
 
 namespace p3d {
     
@@ -39,7 +41,7 @@ namespace p3d {
             FREE_IMAGE_FORMAT format = FreeImage_GetFileTypeFromMemory(mem, 0);
             Image = FreeImage_LoadFromMemory(format, mem);
             Image = FreeImage_ConvertTo32Bits(Image);
-            //SwapRedBlue32(Image);
+            SwapRedBlue32(Image);
             FreeImage_FlipVertical(Image);
 
             // Save Texture Information

@@ -22,15 +22,15 @@ endif
 ifeq ($(config),debug32)
   OBJDIR     = obj/x32/Debug
   TARGETDIR  = bin
-  TARGET     = $(TARGETDIR)/RotatingCube.html
-  DEFINES   += -DUNICODE -DGLEW_STATIC -D_SDL -DLOG_DISABLE -D_DEBUG -DEMSCRIPTEN
+  TARGET     = $(TARGETDIR)/RotatingCubeDebug.html
+  DEFINES   += -DUNICODE -DGLEW_STATIC -D_SDL -DLOG_TO_CONSOLE -D_DEBUG -DEMSCRIPTEN
   INCLUDES  += -I../../include
   ALL_CPPFLAGS  += $(CPPFLAGS) -MMD -MP $(DEFINES) $(INCLUDES)
   ALL_CFLAGS    += $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH) -g -m32 -fPIC -s FULL_ES2=1
   ALL_CXXFLAGS  += $(CXXFLAGS) $(ALL_CFLAGS) -L../../libs
   ALL_RESFLAGS  += $(RESFLAGS) $(DEFINES) $(INCLUDES)
-  ALL_LDFLAGS   += $(LDFLAGS) -shared -m32 ../../libs/libfreeimage.a
-  EMSCRIPTEN-PRELOAD = --embed-file assets
+  ALL_LDFLAGS   += $(LDFLAGS) -shared -m32 -L../../libs -lfreeimage
+  EMSCRIPTEN-PRELOAD = --preload-file assets
   LDDEPS    +=
   LIBS      += $(LDDEPS)
   LINKCMD    = $(CXX) -o $(TARGET) $(OBJECTS) $(RESOURCES) $(ARCH) $(ALL_LDFLAGS) $(LIBS) $(EMSCRIPTEN-PRELOAD)
@@ -45,14 +45,14 @@ endif
 ifeq ($(config),release32)
   OBJDIR     = obj/x32/Release
   TARGETDIR  = bin
-  TARGET     = $(TARGETDIR)/libPyrosEngine.so
+  TARGET     = $(TARGETDIR)/RotatingCubeRelease.html
   DEFINES   += -DUNICODE -DGLEW_STATIC -D_SDL -DLOG_DISABLE -DEMSCRIPTEN
   INCLUDES  += -I../../include
   ALL_CPPFLAGS  += $(CPPFLAGS) -MMD -MP $(DEFINES) $(INCLUDES)
   ALL_CFLAGS    += $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH) -O2 -m32 -fPIC
   ALL_CXXFLAGS  += $(CXXFLAGS) $(ALL_CFLAGS) -L../../libs
   ALL_RESFLAGS  += $(RESFLAGS) $(DEFINES) $(INCLUDES)
-  ALL_LDFLAGS   += $(LDFLAGS) -s -shared -m32 -L/usr/lib32 ../../libs/libfreeimage.a
+  ALL_LDFLAGS   += $(LDFLAGS) -s -shared -m32 -L/usr/lib32 -L../../libs -lfreeimage
   EMSCRIPTEN-PRELOAD = --embed-file assets
   LDDEPS    +=
   LIBS      += $(LDDEPS)
