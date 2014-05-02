@@ -29,7 +29,7 @@ ifeq ($(config),debug32)
   ALL_CFLAGS    += $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH) -g -m32 -fPIC -s FULL_ES2=1
   ALL_CXXFLAGS  += $(CXXFLAGS) $(ALL_CFLAGS) -L../../libs
   ALL_RESFLAGS  += $(RESFLAGS) $(DEFINES) $(INCLUDES)
-  ALL_LDFLAGS   += $(LDFLAGS) -shared -m32 -L../../libs -lfreeimage
+  ALL_LDFLAGS   += $(LDFLAGS) -shared -m32 -L../../libs -lfreeimage -lfreetype
   EMSCRIPTEN-PRELOAD = --preload-file ../../examples/TextRendering/assets@../../../../examples/TextRendering/assets
   LDDEPS    +=
   LIBS      += $(LDDEPS)
@@ -52,7 +52,7 @@ ifeq ($(config),release32)
   ALL_CFLAGS    += $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH) -O2 -m32 -fPIC
   ALL_CXXFLAGS  += $(CXXFLAGS) $(ALL_CFLAGS) -L../../libs
   ALL_RESFLAGS  += $(RESFLAGS) $(DEFINES) $(INCLUDES)
-  ALL_LDFLAGS   += $(LDFLAGS) -s -shared -m32 -L/usr/lib32 -L../../libs -lfreeimage
+  ALL_LDFLAGS   += $(LDFLAGS) -s -shared -m32 -L/usr/lib32 -L../../libs -lfreeimage -lfreetype
   EMSCRIPTEN-PRELOAD = --preload-file ../../examples/TextRendering/assets@../../../../examples/TextRendering/assets
   LDDEPS    +=
   LIBS      += $(LDDEPS)
@@ -96,6 +96,7 @@ OBJECTS := \
 	$(OBJDIR)/Renderables.o \
 	$(OBJDIR)/Model.o \
 	$(OBJDIR)/Texture.o \
+	$(OBJDIR)/Font.o \
 	$(OBJDIR)/Culling.o \
 	$(OBJDIR)/FrustumCulling.o \
 	$(OBJDIR)/RenderingComponent.o \

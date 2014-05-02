@@ -42,7 +42,7 @@ namespace p3d {
 
         // Free Type Initialization
         if (FT_Init_FreeType(&ft)) echo("ERROR: Couldn't Start Freetype Lib");
-        if (FT_New_Memory_Face(ft,&memory[0],memory.size(),0,&face)) echo("ERROR: Couldn't Load Font");
+        if (FT_New_Memory_Face(ft,&destination[0],destination.size(),0,&face)) echo("ERROR: Couldn't Load Font");
         if (FT_Set_Char_Size(face,0,fontSize*64,300,300)) echo("ERROR: Couldn't Set Char Size");
         if (FT_Set_Pixel_Sizes(face,0,fontSize)) echo("ERROR: Couldn't Set Pixel Size");
 
