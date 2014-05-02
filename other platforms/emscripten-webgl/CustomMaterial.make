@@ -46,7 +46,7 @@ ifeq ($(config),release32)
   OBJDIR     = obj/x32/Release
   TARGETDIR  = bin
   TARGET     = $(TARGETDIR)/CustomMaterialRelease.html
-  DEFINES   += -DUNICODE -DGLEW_STATIC -D_SDL -DLOG_DISABLE -DEMSCRIPTEN
+  DEFINES   += -DUNICODE -DGLEW_STATIC -D_SDL -DLOG_DISABLE -DEMSCRIPTEN -D_CustomMaterial -DDEMO_NAME=CustomMaterial
   INCLUDES  += -I../../include
   ALL_CPPFLAGS  += $(CPPFLAGS) -MMD -MP $(DEFINES) $(INCLUDES)
   ALL_CFLAGS    += $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH) -O2 -m32 -fPIC

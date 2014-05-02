@@ -46,7 +46,7 @@ ifeq ($(config),release32)
   OBJDIR     = obj/x32/Release
   TARGETDIR  = bin
   TARGET     = $(TARGETDIR)/RacingGameRelease.html
-  DEFINES   += -DUNICODE -DGLEW_STATIC -D_SDL -DLOG_DISABLE -DEMSCRIPTEN
+  DEFINES   += -DUNICODE -DGLEW_STATIC -D_SDL -DLOG_DISABLE -DEMSCRIPTEN -D_RacingGame -DDEMO_NAME=RacingGame
   INCLUDES  += -I../../include
   ALL_CPPFLAGS  += $(CPPFLAGS) -MMD -MP $(DEFINES) $(INCLUDES)
   ALL_CFLAGS    += $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH) -O2 -m32 -fPIC

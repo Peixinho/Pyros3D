@@ -46,8 +46,8 @@ ifeq ($(config),release32)
   OBJDIR     = obj/x32/Release
   TARGETDIR  = bin
   TARGET     = $(TARGETDIR)/TextRenderingRelease.html
-  DEFINES   += -DUNICODE -DGLEW_STATIC -D_SDL -DLOG_DISABLE -DEMSCRIPTEN
-  INCLUDES  += -I../../include
+  DEFINES   += -DUNICODE -DGLEW_STATIC -D_SDL -DLOG_DISABLE -DEMSCRIPTEN -D_TextRendering -DDEMO_NAME=TextRendering
+  INCLUDES  += -I../../include -I../../src
   ALL_CPPFLAGS  += $(CPPFLAGS) -MMD -MP $(DEFINES) $(INCLUDES)
   ALL_CFLAGS    += $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH) -O2 -m32 -fPIC
   ALL_CXXFLAGS  += $(CXXFLAGS) $(ALL_CFLAGS) -L../../libs
@@ -95,6 +95,7 @@ OBJECTS := \
 	$(OBJDIR)/AssetManager.o \
 	$(OBJDIR)/Renderables.o \
 	$(OBJDIR)/Model.o \
+	$(OBJDIR)/Text.o \
 	$(OBJDIR)/Texture.o \
 	$(OBJDIR)/Font.o \
 	$(OBJDIR)/Culling.o \

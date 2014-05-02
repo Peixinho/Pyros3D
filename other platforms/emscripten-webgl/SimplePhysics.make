@@ -29,7 +29,7 @@ ifeq ($(config),debug32)
   ALL_CFLAGS    += $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH) -g -m32 -fPIC -s FULL_ES2=1
   ALL_CXXFLAGS  += $(CXXFLAGS) $(ALL_CFLAGS) -L../../libs
   ALL_RESFLAGS  += $(RESFLAGS) $(DEFINES) $(INCLUDES)
-  ALL_LDFLAGS   += $(LDFLAGS) -shared -m32 -L../../libs -lfreeimage
+  ALL_LDFLAGS   += $(LDFLAGS) -shared -m32 -L../../libs -lfreeimage -lBulletCollision -lBulletDynamics -lBulletSoftBody -lLinearMath
   EMSCRIPTEN-PRELOAD = --preload-file ../../examples/SimplePhysics/assets@../../../../examples/SimplePhysics/assets
   LDDEPS    +=
   LIBS      += $(LDDEPS)
@@ -46,13 +46,13 @@ ifeq ($(config),release32)
   OBJDIR     = obj/x32/Release
   TARGETDIR  = bin
   TARGET     = $(TARGETDIR)/SimplePhysicsRelease.html
-  DEFINES   += -DUNICODE -DGLEW_STATIC -D_SDL -DLOG_DISABLE -DEMSCRIPTEN
-  INCLUDES  += -I../../include
+  DEFINES   += -DUNICODE -DGLEW_STATIC -D_SDL -DLOG_DISABLE -DEMSCRIPTEN -D_SimplePhysics -DDEMO_NAME=SimplePhysics
+  INCLUDES  += -I../../include -I../../src
   ALL_CPPFLAGS  += $(CPPFLAGS) -MMD -MP $(DEFINES) $(INCLUDES)
   ALL_CFLAGS    += $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH) -O2 -m32 -fPIC
   ALL_CXXFLAGS  += $(CXXFLAGS) $(ALL_CFLAGS) -L../../libs
   ALL_RESFLAGS  += $(RESFLAGS) $(DEFINES) $(INCLUDES)
-  ALL_LDFLAGS   += $(LDFLAGS) -s -shared -m32 -L/usr/lib32 -L../../libs -lfreeimage
+  ALL_LDFLAGS   += $(LDFLAGS) -s -shared -m32 -L/usr/lib32 -L../../libs -lfreeimage -lBulletDynamics -lBulletCollision -lLinearMath
   EMSCRIPTEN-PRELOAD = --preload-file ../../examples/SimplePhysics/assets@../../../../examples/SimplePhysics/assets
   LDDEPS    +=
   LIBS      += $(LDDEPS)
@@ -95,6 +95,7 @@ OBJECTS := \
 	$(OBJDIR)/AssetManager.o \
 	$(OBJDIR)/Renderables.o \
 	$(OBJDIR)/Model.o \
+	$(OBJDIR)/Text.o \
 	$(OBJDIR)/Texture.o \
 	$(OBJDIR)/Culling.o \
 	$(OBJDIR)/FrustumCulling.o \
@@ -105,6 +106,22 @@ OBJECTS := \
 	$(OBJDIR)/CubemapRenderer.o \
 	$(OBJDIR)/SceneGraph.o \
 	$(OBJDIR)/AnimationManager.o \
+	$(OBJDIR)/Physics.o \
+	$(OBJDIR)/IPhysics.o \
+	$(OBJDIR)/BulletPhysics.o \
+	$(OBJDIR)/PhysicsDebugDraw.o \
+	$(OBJDIR)/IPhysicsComponent.o \
+	$(OBJDIR)/PhysicsVehicle.o \
+	$(OBJDIR)/PhysicsCylinder.o \
+	$(OBJDIR)/PhysicsTriangleMesh.o \
+	$(OBJDIR)/PhysicsSphere.o \
+	$(OBJDIR)/PhysicsMultipleSphere.o \
+	$(OBJDIR)/PhysicsStaticPlane.o \
+	$(OBJDIR)/PhysicsBox.o \
+	$(OBJDIR)/PhysicsCone.o \
+	$(OBJDIR)/PhysicsCapsule.o \
+	$(OBJDIR)/PhysicsConvexHull.o \
+	$(OBJDIR)/PhysicsConvexTriangleMesh.o \
 	$(OBJDIR)/GameObject.o \
 	$(OBJDIR)/CRC32.o \
 	$(OBJDIR)/StringID.o \
