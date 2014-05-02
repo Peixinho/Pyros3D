@@ -6,54 +6,75 @@
 // Description : Main
 //============================================================================
 
-#include "RotatingCube.h"
+#include "includes.h"
+#if defined(EMSCRIPTEN)
 #include <emscripten.h>
-
+#endif
 using namespace std;
 using namespace p3d;
 using namespace p3d::Math;
-/*
- * 
- */
-RotatingCube* window;
-bool init;
+
+// Initialized Flag
+bool initialized;
+
+// Demo Instance
+DEMO_NAME* window;
+
+// Main Loop Function
 void mainloop()
 {
 
-	if (!init)
+	if (!initialized)
 	{
-		// Create Context Window
-		window = new RotatingCube();
+		// Create Context Windo
+		window = new DEMO_NAME();
+
 		// Initialize
 		window->Init();
-		init = true;
+
+		// Set Initialized Flag
+		initialized = true;
 	}
+
     // Get Events
     window->GetEvents();
 
     // Update
     window->Update();
-    
+
     // Draw in Screen
     window->Draw();
 }
+
 int main(int argc, char** argv) {
-	
-	init = false;
+
+	initialized = false;
+
 	#ifdef EMSCRIPTEN
-	  emscripten_set_main_loop(mainloop, 30, 0);
+		emscripten_set_main_loop(mainloop, 30, 0);
 	#else
-	  while (1)
-	  {
-	    mainloop();
-	  }
+		// Create Context Windo
+		window = new DEMO_NAME();
+
+		// Initialize
+		window->Init();
+
+		// Set Initialized Flag
+		initialized = true;
+		
+		// Game Loop
+	    while(window->IsRunning())
+	    {
+			mainloop();
+	    }
 	#endif   
 
-        // Shutdown Window
+    // Shutdown Window
     window->Shutdown();
     
     // Delete Context
     delete window;
+
+    // end
     return 0;
 }
-

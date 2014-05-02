@@ -1,3 +1,3 @@
 ** Emscripten Specific Readme **
 
-A working example of emscripten
+Some of those examples are working

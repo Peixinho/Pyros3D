@@ -1,12 +1,12 @@
 //============================================================================
-// Name        : Game.cpp
+// Name        : RacingGame.cpp
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
-// Description : Game Example
+// Description : RacingGame Example
 //============================================================================
 
-#include "Game.h"
+#include "RacingGame.h"
 #include "Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h"
 #include "Pyros3D/Rendering/Components/Rendering/RenderingComponent.h"
 #include "Pyros3D/AssetManager/Assets/Renderable/Primitives/Primitive.h"
@@ -19,12 +19,12 @@
 
 using namespace p3d;
 
-Game::Game() : ClassName(1024,768,"CODENAME: Pyros3D - FIRST WINDOW",WindowType::Close | WindowType::Resize)
+RacingGame::RacingGame() : ClassName(1024,768,"CODENAME: Pyros3D - FIRST WINDOW",WindowType::Close | WindowType::Resize)
 {
     
 }
 
-void Game::OnResize(const uint32 &width, const uint32 &height)
+void RacingGame::OnResize(const uint32 &width, const uint32 &height)
 {
     // Execute Parent Resize Function
     ClassName::OnResize(width, height);
@@ -39,7 +39,7 @@ void Game::OnResize(const uint32 &width, const uint32 &height)
     mouseLastPosition = mouseCenter;
 }
 
-void Game::Init()
+void RacingGame::Init()
 {
     // Initialization
 	
@@ -77,7 +77,7 @@ void Game::Init()
         test->SetColor(Vec4(1,1,0,1));
 
         // Create Track Model
-        rTrack = new RenderingComponent(AssetManager::LoadModel("../../../../examples/RacingGame/track.p3dm",false,ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow));
+        rTrack = new RenderingComponent(AssetManager::LoadModel("../../../../examples/RacingGame/assets/track.p3dm",false,ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow));
         Track->Add(rTrack);
         
         Track->Add(new PhysicsTriangleMesh(physics,rTrack,0));
@@ -98,21 +98,21 @@ void Game::Init()
         mouseLastPosition = mouseCenter;
         
         // Input
-        InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &Game::MoveFrontPress);
-        InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::S, this, &Game::MoveBackPress);
-        InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::A, this, &Game::StrafeLeftPress);
-        InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::D, this, &Game::StrafeRightPress);
-        InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::W, this, &Game::MoveFrontRelease);
-        InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::S, this, &Game::MoveBackRelease);
-        InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &Game::StrafeLeftRelease);
-        InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &Game::StrafeRightRelease);
-        InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &Game::LookTo);
+        InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &RacingGame::MoveFrontPress);
+        InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::S, this, &RacingGame::MoveBackPress);
+        InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::A, this, &RacingGame::StrafeLeftPress);
+        InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::D, this, &RacingGame::StrafeRightPress);
+        InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::W, this, &RacingGame::MoveFrontRelease);
+        InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::S, this, &RacingGame::MoveBackRelease);
+        InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &RacingGame::StrafeLeftRelease);
+        InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &RacingGame::StrafeRightRelease);
+        InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &RacingGame::LookTo);
 
         _strafeLeft = _strafeRight = _moveBack = _moveFront = 0;
         HideMouse();
         
         // Create Font
-        Font* font = AssetManager::CreateFont("../../../../examples/RacingGame/verdana.ttf",32);
+        Font* font = AssetManager::CreateFont("../../../../examples/RacingGame/assets/verdana.ttf",32);
         font->CreateText("aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ,.0123456789[]()!?+-_\\|/ºª");
     
         // Create Text Material
@@ -121,7 +121,7 @@ void Game::Init()
         textMaterial->SetTextFont(font);
         textMaterial->SetTransparencyFlag(true);
         
-        // Create Game Object
+        // Create RacingGame Object
         TextRendering = new GameObject();
         textID = (Text*)AssetManager::CreateText(font,"Hello World",12,12,Vec4(1,1,1,1),true);
         rText = new RenderingComponent(textID,textMaterial);
@@ -132,12 +132,12 @@ void Game::Init()
 
         dRenderer = new CubemapRenderer(256,256);
         
-        Texture* skyboxTexture = AssetManager::LoadTexture("../../../../examples/RacingGame/Textures/skybox/negx.jpg",TextureType::CubemapNegative_X);
-        skyboxTexture->LoadTexture("../../../../examples/RacingGame/Textures/skybox/negy.jpg",TextureType::CubemapNegative_Y);
-        skyboxTexture->LoadTexture("../../../../examples/RacingGame/Textures/skybox/negz.jpg",TextureType::CubemapNegative_Z);
-        skyboxTexture->LoadTexture("../../../../examples/RacingGame/Textures/skybox/posx.jpg",TextureType::CubemapPositive_X);
-        skyboxTexture->LoadTexture("../../../../examples/RacingGame/Textures/skybox/posy.jpg",TextureType::CubemapPositive_Y);
-        skyboxTexture->LoadTexture("../../../../examples/RacingGame/Textures/skybox/posz.jpg",TextureType::CubemapPositive_Z);
+        Texture* skyboxTexture = AssetManager::LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negx.jpg",TextureType::CubemapNegative_X);
+        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negy.jpg",TextureType::CubemapNegative_Y);
+        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negz.jpg",TextureType::CubemapNegative_Z);
+        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posx.jpg",TextureType::CubemapPositive_X);
+        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posy.jpg",TextureType::CubemapPositive_Y);
+        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posz.jpg",TextureType::CubemapPositive_Z);
         skyboxTexture->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
 
         SkyboxMaterial = new GenericShaderMaterial(ShaderUsage::Skybox);
@@ -149,7 +149,7 @@ void Game::Init()
         Skybox->Add(rSkybox);
         Scene->Add(Skybox);
 
-        Renderable* carHandle2 = AssetManager::LoadModel("../../../../examples/RacingGame/lambo.p3dm",true, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
+        Renderable* carHandle2 = AssetManager::LoadModel("../../../../examples/RacingGame/assets/lambo.p3dm",true, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
         for (uint32 i=0;i<1;i++)
         {
             Car2 = new GameObject();
@@ -163,7 +163,7 @@ void Game::Init()
         for (uint32 i=0;i<1;i++)
         {
             Car = new GameObject();
-            rCar = new RenderingComponent(AssetManager::LoadModel("../../../../examples/RacingGame/del.p3dm",true, ShaderUsage::EnvMap | ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse));
+            rCar = new RenderingComponent(AssetManager::LoadModel("../../../../examples/RacingGame/assets/del.p3dm",true, ShaderUsage::EnvMap | ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse));
             Car->Add(rCar);
             Scene->Add(Car);
             Car->SetPosition(Vec3((rand() % 1000) -500,(rand() % 100),(rand() % 1000) -500));
@@ -178,9 +178,9 @@ void Game::Init()
         }
 }
 
-void Game::Update()
+void RacingGame::Update()
 {
-    // Update - Game Loop
+    // Update - RacingGame Loop
     
     // Update Physics
     physics->Update(GetTime(),10);
@@ -226,13 +226,13 @@ void Game::Update()
 	TextRendering->SetPosition(Vec3(5,Height-15.f,0.f));
     std::ostringstream x; x << fps.getFPS();
     
-    textID->UpdateText("Pyros3D - Racing Game - FPS: " + x.str());
+    textID->UpdateText("Pyros3D - Racing RacingGame - FPS: " + x.str());
 //    Car->SetPosition(Vec3(20,10,0));
     Car2->SetRotation(Vec3(0,GetTime(),0));
     
 }
 
-void Game::Shutdown()
+void RacingGame::Shutdown()
 {
     // All your Shutdown Code Here
     
@@ -264,42 +264,42 @@ void Game::Shutdown()
     delete Scene;
 }
 
-Game::~Game() {}
+RacingGame::~RacingGame() {}
 
 
-void Game::MoveFrontPress(Event::Input::Info e)
+void RacingGame::MoveFrontPress(Event::Input::Info e)
 {
     _moveFront = true;
 }
-void Game::MoveBackPress(Event::Input::Info e)
+void RacingGame::MoveBackPress(Event::Input::Info e)
 {
     _moveBack = true;
 }
-void Game::StrafeLeftPress(Event::Input::Info e)
+void RacingGame::StrafeLeftPress(Event::Input::Info e)
 {
     _strafeLeft = true;
 }
-void Game::StrafeRightPress(Event::Input::Info e)
+void RacingGame::StrafeRightPress(Event::Input::Info e)
 {
     _strafeRight = true;
 }
-void Game::MoveFrontRelease(Event::Input::Info e)
+void RacingGame::MoveFrontRelease(Event::Input::Info e)
 {
     _moveFront = false;
 }
-void Game::MoveBackRelease(Event::Input::Info e)
+void RacingGame::MoveBackRelease(Event::Input::Info e)
 {
     _moveBack = false;
 }
-void Game::StrafeLeftRelease(Event::Input::Info e)
+void RacingGame::StrafeLeftRelease(Event::Input::Info e)
 {
     _strafeLeft = false;
 }
-void Game::StrafeRightRelease(Event::Input::Info e)
+void RacingGame::StrafeRightRelease(Event::Input::Info e)
 {
     _strafeRight = false;
 }
-void Game::LookTo(Event::Input::Info e)
+void RacingGame::LookTo(Event::Input::Info e)
 {
     if (mouseCenter!=GetMousePosition())
     {

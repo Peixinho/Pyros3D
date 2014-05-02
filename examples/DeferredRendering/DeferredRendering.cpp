@@ -1,21 +1,21 @@
 //============================================================================
-// Name        : DeferredRenderingExample.cpp
+// Name        : DeferredRendering.cpp
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
 // Description : Game Example
 //============================================================================
 
-#include "DeferredRenderingExample.h"
+#include "DeferredRendering.h"
 
 using namespace p3d;
 
-DeferredRenderingExample::DeferredRenderingExample() : ClassName(1024,768,"Pyros3D - Deferred Rendering Example",WindowType::Close | WindowType::Resize)
+DeferredRendering::DeferredRendering() : ClassName(1024,768,"Pyros3D - Deferred Rendering Example",WindowType::Close | WindowType::Resize)
 {
     
 }
 
-void DeferredRenderingExample::OnResize(const uint32 &width, const uint32 &height)
+void DeferredRendering::OnResize(const uint32 &width, const uint32 &height)
 {
     // Execute Parent Resize Function
     ClassName::OnResize(width, height);
@@ -31,7 +31,7 @@ void DeferredRenderingExample::OnResize(const uint32 &width, const uint32 &heigh
     positionTexture->Resize(Width, Height);
 }
 
-void DeferredRenderingExample::Init()
+void DeferredRendering::Init()
 {
     // Initialization
     
@@ -88,7 +88,7 @@ void DeferredRenderingExample::Init()
         }
 
         // Material
-        Diffuse = new CustomShaderMaterial("../../../../examples/DeferredRendering/shaders/gbuffer.vert","../../../../examples/DeferredRendering/shaders/gbuffer.frag");        
+        Diffuse = new CustomShaderMaterial("../../../../examples/DeferredRendering/assets/shaders/gbuffer.vert","../../../../examples/DeferredRendering/assets/shaders/gbuffer.frag");        
         Diffuse->AddUniform(Uniform::Uniform("uModelMatrix", Uniform::DataUsage::ModelMatrix));
         Diffuse->AddUniform(Uniform::Uniform("uViewMatrix", Uniform::DataUsage::ViewMatrix));
         Diffuse->AddUniform(Uniform::Uniform("uProjectionMatrix", Uniform::DataUsage::ProjectionMatrix));
@@ -123,7 +123,7 @@ void DeferredRenderingExample::Init()
         Camera->LookAt(Vec3::ZERO);
 }
 
-void DeferredRenderingExample::Update()
+void DeferredRendering::Update()
 {
     // Update - Game Loop
     
@@ -140,10 +140,10 @@ void DeferredRenderingExample::Update()
     Renderer->RenderScene(projection,Camera,Scene);
 }
 
-void DeferredRenderingExample::Shutdown()
+void DeferredRendering::Shutdown()
 {
     // All your Shutdown Code Here
 
 }
 
-DeferredRenderingExample::~DeferredRenderingExample() {}
+DeferredRendering::~DeferredRendering() {}

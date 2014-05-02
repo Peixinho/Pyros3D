@@ -36,7 +36,7 @@ namespace p3d {
 
         // Create Second Pass Specifics
         uint32 texID = 0;
-        deferredMaterial = new CustomShaderMaterial("../../../../examples/DeferredRendering/shaders/secondpass.vert","../../../../examples/DeferredRendering/shaders/secondpass.frag");
+        deferredMaterial = new CustomShaderMaterial("../../../../examples/DeferredRendering/assets/shaders/secondpass.vert","../../../../examples/DeferredRendering/assets/shaders/secondpass.frag");
         deferredMaterial->AddUniform(Uniform::Uniform("tDepth", Uniform::DataType::Int, &texID));
         texID = 1;
         deferredMaterial->AddUniform(Uniform::Uniform("tDiffuse", Uniform::DataType::Int, &texID));
@@ -74,7 +74,7 @@ namespace p3d {
         delete shadowMaterial;
     }
     
-    std::vector<RenderingMesh*> DeferredRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera)
+    std::vector<RenderingMesh*> DeferredRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 &Tag)
     {
         
         // Sort and Group Objects From Scene

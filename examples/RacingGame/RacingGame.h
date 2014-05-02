@@ -1,17 +1,20 @@
 //============================================================================
-// Name        : Game.h
+// Name        : RacingGame.h
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
-// Description : Game Example
+// Description : RacingGame Example
 //============================================================================
 
-#ifndef GAME_H
-#define	GAME_H
+#ifndef RACINGGAME_H
+#define	RACINGGAME_H
 
-#ifdef _SDL2
+#if defined(_SDL)
+    #include "../WindowManagers/SDL/SDLContext.h"
+    #define ClassName SDLContext
+#elif defined(_SDL2)
     #include "../WindowManagers/SDL2/SDL2Context.h"
-#define ClassName SDLContext
+    #define ClassName SDL2Context
 #else
     #include "../WindowManagers/SFML/SFMLContext.h"
     #define ClassName SFMLContext
@@ -30,11 +33,11 @@
 
 using namespace p3d;
 
-class Game : public ClassName {
+class RacingGame : public ClassName {
     public:
         
-        Game();   
-        virtual ~Game();
+        RacingGame();   
+        virtual ~RacingGame();
         
         virtual void Init();
         virtual void Update();
@@ -101,5 +104,5 @@ class Game : public ClassName {
         CubemapRenderer* dRenderer;
 };
 
-#endif	/* GAME_H */
+#endif	/* RACINGGAME_H */
 

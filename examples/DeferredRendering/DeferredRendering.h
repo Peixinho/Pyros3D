@@ -1,17 +1,20 @@
 //============================================================================
-// Name        : DeferredRenderingExample.h
+// Name        : DeferredRendering.h
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
 // Description : Rotating Cube Example
 //============================================================================
 
-#ifndef DEFERREDRENDERINGEXAMPLE_H
-#define DEFERREDRENDERINGEXAMPLE_H
+#ifndef DEFERREDRENDERING_H
+#define DEFERREDRENDERING_H
 
-#ifdef _SDL2
+#if defined(_SDL)
+    #include "../WindowManagers/SDL/SDLContext.h"
+    #define ClassName SDLContext
+#elif defined(_SDL2)
     #include "../WindowManagers/SDL2/SDL2Context.h"
-#define ClassName SDLContext
+    #define ClassName SDL2Context
 #else
     #include "../WindowManagers/SFML/SFMLContext.h"
     #define ClassName SFMLContext
@@ -27,13 +30,13 @@
 
 using namespace p3d;
 
-class DeferredRenderingExample : public ClassName
+class DeferredRendering : public ClassName
 {
         
     public:
         
-        DeferredRenderingExample();   
-        virtual ~DeferredRenderingExample();
+        DeferredRendering();   
+        virtual ~DeferredRendering();
         
         virtual void Init();
         virtual void Update();
@@ -66,5 +69,5 @@ class DeferredRenderingExample : public ClassName
 
 };
 
-#endif  /* DEFERREDRENDERINGEXAMPLE_H */
+#endif  /* DEFERREDRENDERING_H */
 

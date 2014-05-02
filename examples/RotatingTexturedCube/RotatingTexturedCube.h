@@ -9,9 +9,12 @@
 #ifndef ROTATINGTEXTUREDCUBE_H
 #define	ROTATINGTEXTUREDCUBE_H
 
-#ifdef _SDL2
+#if defined(_SDL)
+    #include "../WindowManagers/SDL/SDLContext.h"
+    #define ClassName SDLContext
+#elif defined(_SDL2)
     #include "../WindowManagers/SDL2/SDL2Context.h"
-#define ClassName SDLContext
+    #define ClassName SDL2Context
 #else
     #include "../WindowManagers/SFML/SFMLContext.h"
     #define ClassName SFMLContext
@@ -32,8 +35,7 @@ class RotatingTexturedCube : public ClassName {
         
         RotatingTexturedCube();   
         virtual ~RotatingTexturedCube();
-        
-        virtual void Init();
+                virtual void Init();
         virtual void Update();
         virtual void Shutdown();
         virtual void OnResize(const uint32 &width, const uint32 &height);

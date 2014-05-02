@@ -1,5 +1,5 @@
 //============================================================================
-// Name        : PickingExamplePainterMethod.h
+// Name        : PickingPainterMethod.h
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
@@ -9,9 +9,12 @@
 #ifndef PICKINGPAINTERMETHOD_H
 #define	PICKINGPAINTERMETHOD_H
 
-#ifdef _SDL2
+#if defined(_SDL)
+    #include "../WindowManagers/SDL/SDLContext.h"
+    #define ClassName SDLContext
+#elif defined(_SDL2)
     #include "../WindowManagers/SDL2/SDL2Context.h"
-#define ClassName SDLContext
+    #define ClassName SDL2Context
 #else
     #include "../WindowManagers/SFML/SFMLContext.h"
     #define ClassName SFMLContext
@@ -26,12 +29,12 @@
 
 using namespace p3d;
 
-class PickingExamplePainterMethod : public ClassName {
+class PickingPainterMethod : public ClassName {
 
     public:
         
-        PickingExamplePainterMethod();
-        virtual ~PickingExamplePainterMethod();
+        PickingPainterMethod();
+        virtual ~PickingPainterMethod();
         
         virtual void Init();
         virtual void Update();

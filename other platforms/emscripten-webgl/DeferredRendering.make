@@ -22,15 +22,15 @@ endif
 ifeq ($(config),debug32)
   OBJDIR     = obj/x32/Debug
   TARGETDIR  = bin
-  TARGET     = $(TARGETDIR)/RotatingCubeDebug.html
-  DEFINES   += -DUNICODE -DGLEW_STATIC -D_SDL -DLOG_TO_CONSOLE -D_DEBUG -DEMSCRIPTEN
-  INCLUDES  += -I../../include
+  TARGET     = $(TARGETDIR)/DeferredRenderingDebug.html
+  DEFINES   += -DUNICODE -DGLEW_STATIC -D_SDL -DLOG_TO_CONSOLE -D_DEBUG -DEMSCRIPTEN -D_DeferredRendering -DDEMO_NAME=DeferredRendering
+  INCLUDES  += -I../../include -I../../src
   ALL_CPPFLAGS  += $(CPPFLAGS) -MMD -MP $(DEFINES) $(INCLUDES)
   ALL_CFLAGS    += $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH) -g -m32 -fPIC -s FULL_ES2=1
   ALL_CXXFLAGS  += $(CXXFLAGS) $(ALL_CFLAGS) -L../../libs
   ALL_RESFLAGS  += $(RESFLAGS) $(DEFINES) $(INCLUDES)
   ALL_LDFLAGS   += $(LDFLAGS) -shared -m32 -L../../libs -lfreeimage
-  EMSCRIPTEN-PRELOAD = --preload-file assets
+  EMSCRIPTEN-PRELOAD = --preload-file ../../examples/DeferredRendering/assets@../../../../examples/DeferredRendering/assets
   LDDEPS    +=
   LIBS      += $(LDDEPS)
   LINKCMD    = $(CXX) -o $(TARGET) $(OBJECTS) $(RESOURCES) $(ARCH) $(ALL_LDFLAGS) $(LIBS) $(EMSCRIPTEN-PRELOAD)
@@ -45,7 +45,7 @@ endif
 ifeq ($(config),release32)
   OBJDIR     = obj/x32/Release
   TARGETDIR  = bin
-  TARGET     = $(TARGETDIR)/RotatingCubeRelease.html
+  TARGET     = $(TARGETDIR)/DeferredRenderingRelease.html
   DEFINES   += -DUNICODE -DGLEW_STATIC -D_SDL -DLOG_DISABLE -DEMSCRIPTEN
   INCLUDES  += -I../../include
   ALL_CPPFLAGS  += $(CPPFLAGS) -MMD -MP $(DEFINES) $(INCLUDES)
@@ -53,7 +53,7 @@ ifeq ($(config),release32)
   ALL_CXXFLAGS  += $(CXXFLAGS) $(ALL_CFLAGS) -L../../libs
   ALL_RESFLAGS  += $(RESFLAGS) $(DEFINES) $(INCLUDES)
   ALL_LDFLAGS   += $(LDFLAGS) -s -shared -m32 -L/usr/lib32 -L../../libs -lfreeimage
-  EMSCRIPTEN-PRELOAD = --embed-file assets
+  EMSCRIPTEN-PRELOAD = --preload-file ../../examples/DeferredRendering/assets@../../../../examples/DeferredRendering/assets
   LDDEPS    +=
   LIBS      += $(LDDEPS)
   LINKCMD    = $(CXX) -o $(TARGET) $(OBJECTS) $(RESOURCES) $(ARCH) $(ALL_LDFLAGS) $(LIBS) $(EMSCRIPTEN-PRELOAD)
@@ -108,7 +108,7 @@ OBJECTS := \
 	$(OBJDIR)/GameObject.o \
 	$(OBJDIR)/CRC32.o \
 	$(OBJDIR)/StringID.o \
-	$(OBJDIR)/RotatingCube.o \
+	$(OBJDIR)/DeferredRendering.o \
 	$(OBJDIR)/MainProgram.o
 
 RESOURCES := \
@@ -197,7 +197,7 @@ $(OBJDIR)/Context.o: ../../src/Pyros3D/Core/Context/Context.cpp
 	@echo $(notdir $<)
 	$(SILENT) $(CXX) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF $(@:%.o=%.d) -c "$<"
 
-$(OBJDIR)/SDLContext.o: src/SDL/SDLContext.cpp
+$(OBJDIR)/SDLContext.o: ../../examples/WindowManagers/SDL/SDLContext.cpp
 	@echo $(notdir $<)
 	$(SILENT) $(CXX) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF $(@:%.o=%.d) -c "$<"
 
@@ -409,10 +409,10 @@ $(OBJDIR)/StringID.o: ../../src/Pyros3D/Ext/StringIDs/StringID.cpp
 	@echo $(notdir $<)
 	$(SILENT) $(CXX) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF $(@:%.o=%.d) -c "$<"
 
-$(OBJDIR)/RotatingCube.o: RotatingCube.cpp
+$(OBJDIR)/DeferredRendering.o: ../../examples/DeferredRendering/DeferredRendering.cpp
 	@echo $(notdir $<)
 	$(SILENT) $(CXX) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF $(@:%.o=%.d) -c "$<"
-$(OBJDIR)/MainProgram.o: MainProgram.cpp
+$(OBJDIR)/MainProgram.o: ../../examples/MainProgram.cpp
 	@echo $(notdir $<)
 	$(SILENT) $(CXX) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF $(@:%.o=%.d) -c "$<"
 

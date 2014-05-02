@@ -1,21 +1,21 @@
 //============================================================================
-// Name        : PickingExamplePainterMethod.h
+// Name        : PickingPainterMethod.h
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
 // Description : PickingExample With Painter Method
 //============================================================================
 
-#include "PickingExamplePainterMethod.h"
+#include "PickingPainterMethod.h"
 
 using namespace p3d;
 
-PickingExamplePainterMethod::PickingExamplePainterMethod() : ClassName(1024,768,"Pyros3D - Custom Material",WindowType::Close | WindowType::Resize)
+PickingPainterMethod::PickingPainterMethod() : ClassName(1024,768,"Pyros3D - Custom Material",WindowType::Close | WindowType::Resize)
 {
     
 }
 
-void PickingExamplePainterMethod::OnResize(const uint32 &width, const uint32 &height)
+void PickingPainterMethod::OnResize(const uint32 &width, const uint32 &height)
 {
     // Execute Parent Resize Function
     ClassName::OnResize(width, height);
@@ -28,7 +28,7 @@ void PickingExamplePainterMethod::OnResize(const uint32 &width, const uint32 &he
     picking->Resize(Width,Height);
 }
 
-void PickingExamplePainterMethod::Init()
+void PickingPainterMethod::Init()
 {
     // Initialization
     
@@ -92,14 +92,14 @@ void PickingExamplePainterMethod::Init()
         }
 
         // Create On Mouse Press Event
-        InputManager::AddEvent(Event::Type::OnPress, Event::Input::Mouse::Left, this, &PickingExamplePainterMethod::OnMouseRelease);
+        InputManager::AddEvent(Event::Type::OnPress, Event::Input::Mouse::Left, this, &PickingPainterMethod::OnMouseRelease);
 
         // Painter Method Initialization
         picking = new PainterPick(Width,Height);
         picking->SetViewPort(0,0,Width,Height);
 }
 
-void PickingExamplePainterMethod::Update()
+void PickingPainterMethod::Update()
 {
     // Update - Game Loop
         
@@ -111,7 +111,7 @@ void PickingExamplePainterMethod::Update()
     
 }
 
-void PickingExamplePainterMethod::Shutdown()
+void PickingPainterMethod::Shutdown()
 {
     // All your Shutdown Code Here
     
@@ -148,9 +148,9 @@ void PickingExamplePainterMethod::Shutdown()
         delete Scene;
 }
 
-PickingExamplePainterMethod::~PickingExamplePainterMethod() {}
+PickingPainterMethod::~PickingPainterMethod() {}
 
-void PickingExamplePainterMethod::OnMouseRelease(Event::Input::Info e)
+void PickingPainterMethod::OnMouseRelease(Event::Input::Info e)
 {
     // Get Picked Mesh
     RenderingMesh* mesh = picking->PickObject(GetMousePosition().x,GetMousePosition().y,projection,Camera,Scene);

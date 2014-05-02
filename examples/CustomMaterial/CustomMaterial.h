@@ -1,17 +1,20 @@
 //============================================================================
-// Name        : RotatingCube.h
+// Name        : CustomMaterial.h
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
 // Description : Rotating Cube Example
 //============================================================================
 
-#ifndef ROTATINGCUBE_H
-#define	ROTATINGCUBE_H
+#ifndef CustomMaterial_H
+#define	CustomMaterial_H
 
-#ifdef _SDL2
+#if defined(_SDL)
+    #include "../WindowManagers/SDL/SDLContext.h"
+    #define ClassName SDLContext
+#elif defined(_SDL2)
     #include "../WindowManagers/SDL2/SDL2Context.h"
-#define ClassName SDLContext
+    #define ClassName SDL2Context
 #else
     #include "../WindowManagers/SFML/SFMLContext.h"
     #define ClassName SFMLContext
@@ -27,11 +30,11 @@
 
 using namespace p3d;
 
-class CustomMaterial : public CustomShaderMaterial {
+class CustomMaterialExample : public CustomShaderMaterial {
     
         public:
             
-            CustomMaterial() : CustomShaderMaterial("../../../../examples/CustomMaterial/vertex.vert","../../../../examples/CustomMaterial/fragment.frag")
+            CustomMaterialExample() : CustomShaderMaterial("../../../../examples/CustomMaterial/assets/vertex.vert","../../../../examples/CustomMaterial/assets/fragment.frag")
             {
                 AddUniform(Uniform::Uniform("uProjectionMatrix",Uniform::DataUsage::ProjectionMatrix));
                 AddUniform(Uniform::Uniform("uViewMatrix",Uniform::DataUsage::ViewMatrix));
@@ -50,12 +53,12 @@ class CustomMaterial : public CustomShaderMaterial {
             
 };
 
-class RotatingCube : public ClassName {
+class CustomMaterial : public ClassName {
         
     public:
         
-        RotatingCube();   
-        virtual ~RotatingCube();
+        CustomMaterial();   
+        virtual ~CustomMaterial();
         
         virtual void Init();
         virtual void Update();
@@ -77,9 +80,9 @@ class RotatingCube : public ClassName {
         // Rendering Component
         RenderingComponent* rCube;
         // Custom Material
-        CustomMaterial* Material;
+        CustomMaterialExample* Material;
 
 };
 
-#endif	/* ROTATINGCUBE_H */
+#endif	/* CustomMaterial_H */
 

@@ -51,11 +51,11 @@ void SkeletonAnimation::Init()
 
         // Create Game Object
         Model = new GameObject();
-        rModel = new RenderingComponent(AssetManager::LoadModel("../../../../examples/SkeletonAnimation/Model.p3dm",false,ShaderUsage::Diffuse | ShaderUsage::Skinning));
+        rModel = new RenderingComponent(AssetManager::LoadModel("../../../../examples/SkeletonAnimation/assets/Model.p3dm",false,ShaderUsage::Diffuse | ShaderUsage::Skinning));
         Model->Add(rModel);
 		Model->AddTag("Teste");
         Animation = new AnimationManager();
-        Animation->LoadAnimation("../../../../examples/SkeletonAnimation/Animation.p3da", rModel);
+        Animation->LoadAnimation("../../../../examples/SkeletonAnimation/assets/Animation.p3da", rModel);
         
         // Add Camera to Scene
         Scene->Add(Camera);

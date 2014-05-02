@@ -1,5 +1,5 @@
 //============================================================================
-// Name        : RotatingCube.cpp
+// Name        : CustomMaterial.cpp
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
@@ -10,12 +10,12 @@
 
 using namespace p3d;
 
-RotatingCube::RotatingCube() : ClassName(1024,768,"Pyros3D - Custom Material",WindowType::Close | WindowType::Resize)
+CustomMaterial::CustomMaterial() : ClassName(1024,768,"Pyros3D - Custom Material",WindowType::Close | WindowType::Resize)
 {
     
 }
 
-void RotatingCube::OnResize(const uint32 &width, const uint32 &height)
+void CustomMaterial::OnResize(const uint32 &width, const uint32 &height)
 {
     // Execute Parent Resize Function
     ClassName::OnResize(width, height);
@@ -25,7 +25,7 @@ void RotatingCube::OnResize(const uint32 &width, const uint32 &height)
     projection.Perspective(70.f,(f32)width/(f32)height,1.f,100.f);
 }
 
-void RotatingCube::Init()
+void CustomMaterial::Init()
 {
     // Initialization
     
@@ -43,7 +43,7 @@ void RotatingCube::Init()
         Camera->SetPosition(Vec3(0,10,80));
         
         // Custom Material
-        Material = new CustomMaterial();
+        Material = new CustomMaterialExample();
         
         // Create Game Object
         Cube = new GameObject();
@@ -58,7 +58,7 @@ void RotatingCube::Init()
 
 }
 
-void RotatingCube::Update()
+void CustomMaterial::Update()
 {
     // Update - Game Loop
         
@@ -72,7 +72,7 @@ void RotatingCube::Update()
         Renderer->RenderScene(projection,Camera,Scene);
 }
 
-void RotatingCube::Shutdown()
+void CustomMaterial::Shutdown()
 {
     // All your Shutdown Code Here
     
@@ -92,4 +92,4 @@ void RotatingCube::Shutdown()
         delete Scene;
 }
 
-RotatingCube::~RotatingCube() {}
+CustomMaterial::~CustomMaterial() {}

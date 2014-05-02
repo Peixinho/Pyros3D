@@ -1,3 +1,4 @@
+precision mediump float;
 attribute vec3 aPosition, aNormal;
 attribute vec2 aTexcoord;
 uniform mat4 uProjectionMatrix, uViewMatrix, uModelMatrix;
