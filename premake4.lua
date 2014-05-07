@@ -163,6 +163,7 @@ end;
 if _OPTIONS["examples"] then
     BuildDemo("examples/RotatingCube", "RotatingCube");
     BuildDemo("examples/RotatingTexturedCube", "RotatingTexturedCube");
+	BuildDemo("examples/RotatingTextureAnimatedCube", "RotatingTextureAnimatedCube");
     BuildDemo("examples/RotatingCubeWithLighting", "RotatingCubeWithLighting");
     BuildDemo("examples/RotatingCubeWithLightingAndShadow", "RotatingCubeWithLightingAndShadow");
     BuildDemo("examples/SimplePhysics", "SimplePhysics");
