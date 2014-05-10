@@ -26,7 +26,7 @@ namespace p3d {
             
             void RenderCubeMap(SceneGraph* Scene, GameObject* AllSeeingEye, const f32 &Near, const f32 &Far);
             
-            virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const uint32 BufferOptions = Buffer_Bit::Color | Buffer_Bit::Depth) {}
+            virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene) {}
             
             Texture* GetTexture();
             

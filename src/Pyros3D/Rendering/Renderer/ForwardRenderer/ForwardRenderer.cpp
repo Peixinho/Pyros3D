@@ -58,7 +58,7 @@ namespace p3d {
 
         for (std::vector<RenderingMesh*>::iterator k=rmeshes.begin();k!=rmeshes.end();k++)
         {
-            if ((*k)->Material->IsTransparent())
+            if ((*k)->Material->IsTransparent() && sorting)
             {
                 f32 index = Camera->GetPosition().distanceSQR((*k)->renderingComponent->GetOwner()->GetWorldPosition());
                 while(_TranslucidMeshes.find(index)!=_TranslucidMeshes.end()) index+=1.f;
@@ -74,15 +74,15 @@ namespace p3d {
         
         return _OpaqueMeshes;
     }
-	void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 &BufferOptions) 
+	void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene) 
 	{
-		RenderSceneByTag(projection, Camera, Scene, 0, BufferOptions);
+		RenderSceneByTag(projection, Camera, Scene, 0);
     }
-    void ForwardRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag, const uint32 &BufferOptions)
+    void ForwardRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag)
     {
-		RenderSceneByTag(projection, Camera, Scene, MakeStringID(Tag), BufferOptions);
+		RenderSceneByTag(projection, Camera, Scene, MakeStringID(Tag));
 	}
-    void ForwardRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 &Tag, const uint32 &BufferOptions)
+    void ForwardRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 &Tag)
     {
         
         // Initialize Renderer
@@ -105,6 +105,19 @@ namespace p3d {
 
             if (lcomps.size()>0) 
             {
+
+                // Keep user settings
+                uint32 _bufferOptions = bufferOptions;
+                uint32 _glBufferOptions = glBufferOptions;
+                bool _depthWritting = depthWritting;
+                bool _depthTesting = depthTesting;
+                bool _clearDepthBuffer = clearDepthBuffer;
+
+                ClearBufferBit(Buffer_Bit::Depth);
+                EnableDepthTest();
+                EnableDepthWritting();
+                EnableClearDepthBuffer();
+
                 // ShadowMaps
                 DirectionalShadowMapsTextures.clear();
                 DirectionalShadowMatrix.clear();
@@ -151,12 +164,11 @@ namespace p3d {
                             // Bind FBO
                             d->GetShadowFBO()->Bind();
 
-                            // GPU Shadows
-                            // Clear Screen
-                            ClearScreen(Buffer_Bit::Depth);
-                            EnableDepthTest();
-                            EnableDepthWritting();
+                            // GPU
+                            DepthTest();
+                            DepthWrite();
                             ClearDepthBuffer();
+                            ClearScreen();
 
                             // Enable Depth Bias
                             EnableDepthBias(Vec2(d->GetShadowBiasFactor(), d->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
@@ -293,11 +305,10 @@ namespace p3d {
                                 // GPU Shadows
                                 p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_X+i,p->GetShadowMapTexture());
 
-                                // Clear Screen
-                                ClearScreen(Buffer_Bit::Depth);
-                                EnableDepthTest();
-                                EnableDepthWritting();
+                                DepthTest();
+                                DepthWrite();
                                 ClearDepthBuffer();
+                                ClearScreen();
 
                                 // Enable Depth Bias
                                 EnableDepthBias(Vec2(p->GetShadowBiasFactor(), p->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
@@ -329,7 +340,6 @@ namespace p3d {
                                                 RenderObject((*k),(*k)->renderingComponent->GetOwner(),((*k)->renderingComponent->HasBones()?shadowSkinnedMaterial:shadowMaterial));
                                         }
                                         else break;
-                                            
                                     }
                                 }
                             }
@@ -346,7 +356,6 @@ namespace p3d {
 
                             // Disable Depth Bias
                             DisableDepthBias();
-
 
                             // Unbind FBO
                             p->GetShadowFBO()->UnBind();
@@ -398,11 +407,10 @@ namespace p3d {
                             // Update Culling
                             UpdateCulling(s->GetLightProjection().GetProjectionMatrix()*ViewMatrix);
 
-                            // Clear Screen
-                            ClearScreen(Buffer_Bit::Depth);
-                            EnableDepthTest();
-                            EnableDepthWritting();
+                            DepthTest();
+                            DepthWrite();
                             ClearDepthBuffer();
+                            ClearScreen();
 
                             // Enable Depth Bias
                             EnableDepthBias(Vec2(s->GetShadowBiasFactor(), s->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
@@ -459,6 +467,14 @@ namespace p3d {
                     ViewMatrix = Camera->GetWorldTransformation().Inverse();
                     CameraPosition = Camera->GetWorldPosition();
                 }
+
+                // Reset User Defined for Depth Buffer
+                bufferOptions = _bufferOptions;
+                glBufferOptions = _glBufferOptions;
+                depthWritting = _depthWritting;
+                depthTesting = _depthTesting;
+                clearDepthBuffer = _clearDepthBuffer;
+
             }
 
             // Save Values for Cache
@@ -499,12 +515,10 @@ namespace p3d {
             }
             
             _SetViewPort(viewPortStartX,viewPortStartY,viewPortEndX,viewPortEndY);
-            EnableDepthTest();
-            EnableDepthWritting();
+            DepthTest();
+            DepthWrite();
             ClearDepthBuffer();
-
-            // Clear Screen
-            ClearScreen(BufferOptions);
+            ClearScreen();
             
             // Draw Background
             DrawBackground();

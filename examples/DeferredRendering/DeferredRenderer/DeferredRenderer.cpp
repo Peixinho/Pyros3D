@@ -36,7 +36,7 @@ namespace p3d {
 
         // Create Second Pass Specifics
         uint32 texID = 0;
-        deferredMaterial = new CustomShaderMaterial("../../../../examples/DeferredRendering/assets/shaders/secondpass.vert","../../../../examples/DeferredRendering/assets/shaders/secondpass.frag");
+        deferredMaterial = new CustomShaderMaterial("../../../../examples/DeferredRendering/shaders/secondpass.vert","../../../../examples/DeferredRendering/shaders/secondpass.frag");
         deferredMaterial->AddUniform(Uniform::Uniform("tDepth", Uniform::DataType::Int, &texID));
         texID = 1;
         deferredMaterial->AddUniform(Uniform::Uniform("tDiffuse", Uniform::DataType::Int, &texID));
@@ -155,12 +155,11 @@ namespace p3d {
             viewPortEndY = Height;
             // Set Viewport
             _SetViewPort(viewPortStartX,viewPortStartY,viewPortEndX,viewPortEndY);
-
-            ClearScreen(Buffer_Bit::Depth | Buffer_Bit::Color);
-
-            EnableDepthTest();
-            EnableDepthWritting();
+            ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
+            DepthTest();
+            DepthWrite();
             ClearDepthBuffer();
+            ClearScreen();
 
             // Disable Blending
             DisableBlending();
@@ -211,7 +210,11 @@ namespace p3d {
             BlendingEquation(BlendEq::Add);
             BlendingFunction(BlendFunc::One, BlendFunc::One);
 
-            ClearScreen(Buffer_Bit::Color);
+            ClearBufferBit(Buffer_Bit::Color);
+            DepthTest();
+            DepthWrite();
+            ClearDepthBuffer();
+            ClearScreen();
 
             // Bind FBO Textures
             FBO->GetAttachments()[FrameBufferAttachmentFormat::Depth_Attachment]->TexturePTR->Bind();

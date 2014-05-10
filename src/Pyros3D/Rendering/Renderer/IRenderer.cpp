@@ -42,7 +42,15 @@ namespace p3d {
         // Custom ViewPort
         customViewPort = false;
 
+        // Blending Flag
         blending = false;
+
+        // Defaults
+        ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
+        depthWritting = true;
+        depthTesting = true;
+        clearDepthBuffer = true;
+        sorting = true;
     }
     
     void IRenderer::Resize(const uint32& Width, const uint32& Height)
@@ -84,14 +92,13 @@ namespace p3d {
     }
     
     // Internal Function
-	void IRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 &BufferOptions) {
+	void IRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene) {
 	
     }
-    void IRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 &Tag, const uint32 &BufferOptions) {
+    void IRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 &Tag) {
 
     }
-
-	void IRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag, const uint32 &BufferOptions) {
+	void IRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag) {
 	
     }
     
@@ -269,14 +276,24 @@ namespace p3d {
         LastMeshRenderedPTR = rmesh;
     }
     
-    void IRenderer::ClearScreen(const uint32& Option)
+    void IRenderer::EnableSorting()
     {
-        uint32 Options=0;
-        if (Option & Buffer_Bit::Color) Options |= GL_COLOR_BUFFER_BIT;
-        if (Option & Buffer_Bit::Depth) Options |= GL_DEPTH_BUFFER_BIT;
-        if (Option & Buffer_Bit::Stencil) Options |= GL_STENCIL_BUFFER_BIT;
+        sorting = true;
+    }
+
+    void IRenderer::DisableSorting()
+    {
+        sorting = false;
+    }
+
+    void IRenderer::ClearBufferBit(const uint32& Option)
+    {
+        glBufferOptions = 0;
+        if (Option & Buffer_Bit::Color) glBufferOptions |= GL_COLOR_BUFFER_BIT;
+        if (Option & Buffer_Bit::Depth) glBufferOptions |= GL_DEPTH_BUFFER_BIT;
+        if (Option & Buffer_Bit::Stencil) glBufferOptions |= GL_STENCIL_BUFFER_BIT;
         
-        glClear((GLuint)Options);
+        bufferOptions = Option;
     }
     
     void IRenderer::DrawBackground()
@@ -287,24 +304,46 @@ namespace p3d {
     
     void IRenderer::EnableDepthTest()
     {
-		glEnable(GL_DEPTH_TEST);
-	}
-	void IRenderer::DisableDepthTest()
-	{
-		glDisable(GL_DEPTH_TEST);
-	}
+        depthTesting = true;
+    }
+    void IRenderer::DisableDepthTest()
+    {
+        depthTesting = false;
+    }
+    void IRenderer::DepthTest()
+    {
+        if (depthTesting)
+            glEnable(GL_DEPTH_TEST);
+        else 
+            glDisable(GL_DEPTH_TEST);
+    }
 	void IRenderer::EnableDepthWritting()
 	{
-        glDepthMask(GL_TRUE);
+        depthWritting = true;
+    }
+    void IRenderer::DisableDepthWritting()
+    {
+       depthWritting = false;
+    }    
+    void IRenderer::DepthWrite()
+    {
+        if (depthWritting)
+            glDepthMask(GL_TRUE);
+        else
+            glDepthMask(GL_FALSE);
 	}
-	void IRenderer::DisableDepthWritting()
-	{
-		glDepthMask(GL_FALSE);	
-	}
+    void IRenderer::EnableClearDepthBuffer()
+    {
+        clearDepthBuffer = true;
+    }
+    void IRenderer::DisableClearDepthBuffer()
+    {
+        clearDepthBuffer = false;
+    }
 	void IRenderer::ClearDepthBuffer()
 	{
 #if !defined(ANDROID) && !defined(EMSCRIPTEN)
-		glClearDepth(1.f);
+		if (clearDepthBuffer) glClearDepth(1.f);
 #endif
 	}
     void IRenderer::EnableStencil()
@@ -448,6 +487,11 @@ namespace p3d {
 	{
 		glColorMask(r,g,b,a);
 	}
+	void IRenderer::ClearScreen()
+	{
+		glClear((GLuint)glBufferOptions);
+    }
+
     void IRenderer::SetGlobalLight(const Vec4& Light)
     {
         GlobalLight = Light;

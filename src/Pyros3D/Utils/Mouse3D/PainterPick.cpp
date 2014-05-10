@@ -109,10 +109,11 @@ namespace p3d {
         _SetViewPort(viewPortStartX,viewPortStartY,viewPortEndX,viewPortEndY);
         
         // Clear Screen
-        ClearScreen(Buffer_Bit::Color | Buffer_Bit::Depth);
+        ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
         EnableDepthTest();
         EnableDepthWritting();
         ClearDepthBuffer();
+        ClearScreen();
         
         // Render Scene with Objects Material
         for (std::vector<RenderingMesh*>::iterator i=rmesh.begin();i!=rmesh.end();i++)

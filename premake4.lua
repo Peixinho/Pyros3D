@@ -15,7 +15,8 @@ solution "Pyros3D"
        description = "Choose a particular API for window management",
        allowed = {
           { "sfml", "SFML 2.1 - Default" },
-          { "sdl2", "SDL 2.0" }
+          { "sdl2", "SDL 2.0" },
+          { "sdl", "SDL 1.x" }
        }
     }
 
@@ -47,14 +48,20 @@ solution "Pyros3D"
 
     if _OPTIONS["framework"]=="sdl2" then
         framework = "_SDL2";
-        libsToLink = { "SDL2", "SDL2_image" }
-        excludes { "**/SFML/**" }
+        libsToLink = { "SDL2" }
+        excludes { "**/SFML/**", "**/SDL/**" }
+    end
+
+    if _OPTIONS["framework"]=="sdl" then
+        framework = "_SDL";
+        libsToLink = { "SDL" }
+        excludes { "**/SFML/**", "**/SDL2/**" }
     end
 
     if _OPTIONS["framework"]=="sfml" or not _OPTIONS["framework"] then
         framework = "_SFML";
         libsToLink = { "sfml-graphics", "sfml-window", "sfml-system" }
-        excludes { "**/SDL2/**" }
+        excludes { "**/SDL2/**", "**/SDL/**" }
     end
 
     ------------------------------------------------------------------
@@ -109,12 +116,26 @@ function BuildDemo(demoPath, demoName)
     project (demoName)
         kind "ConsoleApp"
         language "C++"
-        files { demoPath.."/**.h", demoPath.."/**.cpp", demoPath.."/../WindowManagers/**.cpp", demoPath.."/../WindowManagers/**.h" }
-        includedirs { "include/", "src/" }
+        files { demoPath.."/**.h", demoPath.."/**.cpp", demoPath.."/../WindowManagers/**.cpp", demoPath.."/../WindowManagers/**.h", demoPath.."/../MainProgram.cpp" }
 
+	if framework == "SDL" then
+		excludes { "**/SFML/**" }
+		excludes { "**/SDL2/**" }
+	else 
+		if framework == "SDL2" then
+			excludes { "**/SDL/**" }
+			excludes { "**/SFML/**" }
+		else
+			excludes { "**/SDL/**" }
+			excludes { "**/SDL2/**" }
+		end
+	end
+		
+        includedirs { "include/", "src/" }
+	
         defines({"UNICODE", "GLEW_STATIC"})
         defines({framework});
-
+	defines({"DEMO_NAME="..demoName, "_"..demoName})
         configuration "Debug"
 
             defines({"_DEBUG"})
@@ -169,7 +190,7 @@ if _OPTIONS["examples"] then
     BuildDemo("examples/SimplePhysics", "SimplePhysics");
     BuildDemo("examples/TextRendering", "TextRendering");
     BuildDemo("examples/CustomMaterial", "CustomMaterial");
-    BuildDemo("examples/PickingWithPainterMethod", "PickingWithPainterMethod");
+    BuildDemo("examples/PickingPainterMethod", "PickingPainterMethod");
     BuildDemo("examples/SkeletonAnimation", "SkeletonAnimation");
     BuildDemo("examples/DeferredRendering", "DeferredRendering");
     BuildDemo("examples/RacingGame", "RacingGame");

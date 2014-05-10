@@ -102,13 +102,15 @@ namespace p3d {
             IRenderer();
             IRenderer(const uint32 &Width, const uint32 &Height);
             virtual ~IRenderer();
-            void ClearScreen(const uint32 &Option);
+            void ClearBufferBit(const uint32 &Option);
 
             // Depth Buffer
             void EnableDepthTest();
             void DisableDepthTest();
             void EnableDepthWritting();
             void DisableDepthWritting();
+            void EnableClearDepthBuffer();
+            void DisableClearDepthBuffer();
             void ClearDepthBuffer();
 
             // Stencil
@@ -131,6 +133,10 @@ namespace p3d {
             // Color
             void ColorMask(const f32 &r,const f32 &g,const f32 &b,const f32 &a);
 
+            // Sorting
+            void EnableSorting();
+            void DisableSorting();
+
             void SetBackground(const Vec4 &Color);
             void UnsetBackground();
             void SetGlobalLight(const Vec4 &Light);
@@ -146,9 +152,10 @@ namespace p3d {
             void DeactivateCulling();
         
             // Render Scene
-            virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const uint32 &BufferOptions = Buffer_Bit::Color | Buffer_Bit::Depth);
-            virtual void RenderSceneByTag(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag = "", const uint32 &BufferOptions = Buffer_Bit::Color | Buffer_Bit::Depth);
-            virtual void RenderSceneByTag(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const uint32 &Tag = 0, const uint32 &BufferOptions = Buffer_Bit::Color | Buffer_Bit::Depth);
+            virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene);
+            virtual void RenderSceneByTag(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag = "");
+            virtual void RenderSceneByTag(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const uint32 &Tag = 0);
+        
         protected:
             
             // Group by:
@@ -171,11 +178,26 @@ namespace p3d {
             // End Rendering
             void EndRender();
             
+            // Depth Buffer
+            void DepthTest();
+            void DepthWrite();
+            void ClearDepth();
+
+            // Internal Function to Clear Buffers
+            void ClearScreen();
+
             // Send Uniforms
             void SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material);
             void SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material);
             void SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material);
             
+            // Flags
+            uint32 bufferOptions, glBufferOptions;
+            bool depthWritting;
+            bool depthTesting;
+            bool clearDepthBuffer;
+            bool sorting;
+
             // Background
             void DrawBackground();
             bool BackgroundColorSet;

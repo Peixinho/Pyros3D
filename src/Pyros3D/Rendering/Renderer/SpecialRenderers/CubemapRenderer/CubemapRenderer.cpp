@@ -62,7 +62,7 @@ namespace p3d {
         
         for (std::vector<RenderingMesh*>::iterator k=rmeshes.begin();k!=rmeshes.end();k++)
         {
-            if ((*k)->Material->IsTransparent())
+            if ((*k)->Material->IsTransparent() && sorting)
             {
                 f32 index = Camera->GetWorldPosition().distanceSQR((*k)->renderingComponent->GetOwner()->GetWorldPosition());
                 while(_TranslucidMeshes.find(index)!=_TranslucidMeshes.end()) index+=1.f;
@@ -229,10 +229,11 @@ namespace p3d {
                 _SetViewPort(0,0, Width, Height);
             
                 // Clear Screen
-                ClearScreen(Buffer_Bit::Color | Buffer_Bit::Depth);
-                EnableDepthTest();
-                EnableDepthWritting();
+                ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
+                DepthTest();
+                DepthWrite();
                 ClearDepthBuffer();
+                ClearScreen();
 
                 // Draw Background
                 DrawBackground();
