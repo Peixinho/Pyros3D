@@ -38,10 +38,20 @@ namespace p3d {
             // Last Texture Bound
             int32 _frame;
 
+            // Yoyo
+            bool yoyo;
+
+            // Repeat
+            int32 repeat;
+            int32 _internalRepeat;
+
         public:
 
             // Constructor
-            TextureAnimation(const int32 &fps = 30);
+            TextureAnimation(const int32 &fps);
+
+            // Yoyo - 0 or negative numbers set it to infinite loop
+            void YoYo(bool yo);
 
             // Add Frame
             void AddFrame(Texture* texture);
@@ -56,12 +66,9 @@ namespace p3d {
             virtual ~TextureAnimation();
 
             // Play, Stop, Pause
-            void Play(bool loop = false);
+            void Play(const int32 &Repeat = 1);
             void Pause();
             void Stop();
-
-	// Texture Ptr
-	Texture* tex;
     };
     
 };

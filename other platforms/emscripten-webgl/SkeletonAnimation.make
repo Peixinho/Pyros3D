@@ -8,7 +8,7 @@ ifndef verbose
 endif
 
 CC = emcc
-CXX = ~/Desktop/emscripten-master/em++
+CXX = em++
 AR = ar
 
 ifndef RESCOMP
