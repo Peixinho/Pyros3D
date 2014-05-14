@@ -51,7 +51,7 @@ int main(int argc, char** argv) {
 	initialized = false;
 
 	#ifdef EMSCRIPTEN
-		emscripten_set_main_loop(mainloop, 30, 0);
+		emscripten_set_main_loop(mainloop, 0, 0);
 	#else
 		// Create Context Windo
 		window = new DEMO_NAME();
@@ -69,12 +69,14 @@ int main(int argc, char** argv) {
 	    }
 	#endif   
 
-    // Shutdown Window
-    window->Shutdown();
-    
-    // Delete Context
-    delete window;
+    #if !defined(EMSCRIPTEN)
+	    // Shutdown Window
+	    window->Shutdown();
+	    
+	    // Delete Context
+	    delete window;
 
-    // end
-    return 0;
+	    // end
+	    return 0;
+    #endif
 }
