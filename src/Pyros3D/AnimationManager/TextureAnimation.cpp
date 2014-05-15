@@ -32,11 +32,11 @@ namespace p3d {
         if (isPlaying)
         {
             // Actual Frame to be Played
-            f32 _frameSpeed = (f32)Frames.size()/(f32)FrameSpeed;
+            f32 _frameSpeed = (f32)FrameSpeed;
             f32 _timer = timer-(timeStart+timerPauseLength);
 
             // Get Frame
-            if (!isPaused) _frame = static_cast<int32>(ceil(_timer*100/_frameSpeed)-1);
+            if (!isPaused) _frame = static_cast<int32>(ceil(_timer/_frameSpeed)-1);
 
             // Check if there is Frames in Animation
             if (_frame<Frames.size())
