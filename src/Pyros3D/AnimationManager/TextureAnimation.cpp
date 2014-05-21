@@ -11,15 +11,9 @@
 
 namespace p3d {
     
-    TextureAnimation::TextureAnimation(const int32 &fps) 
+    TextureAnimation::TextureAnimation() 
     {
-        isPlaying           = isLooping = false;
-        repeat              = 1;
-        FrameSpeed          = fps;
-        isPaused            = false;
-        timerPauseLength    = 0.0f;
-        _frame              = 0;
-        _internalRepeat     = 0;
+        timer 				= 0;
     }
 
     TextureAnimation::~TextureAnimation()
@@ -27,61 +21,49 @@ namespace p3d {
 
     }
 
-    Texture* TextureAnimation::GetTexture()
+    TextureAnimationInstance::TextureAnimationInstance(TextureAnimation* owner, const uint32 &fps)
     {
-        if (isPlaying)
-        {
-            // Actual Frame to be Played
-            f32 _frameSpeed = (f32)FrameSpeed;
-            f32 _timer = timer-(timeStart+timerPauseLength);
-
-            // Get Frame
-            if (!isPaused) _frame = static_cast<int32>(ceil(_timer/_frameSpeed)-1);
-
-            // Check if there is Frames in Animation
-            if (_frame<Frames.size())
-            {
-                return Frames[_frame];
-            } else {
-                if (isLooping) {
-                    timeStart = timer;
-                    timerPauseLength = 0;
-                    _frame = 0;
-                } else if (repeat>0 && _internalRepeat < repeat)
-                {
-                    timeStart = timer;
-                    timerPauseLength = 0;
-                    _frame = 0;
-                    _internalRepeat++;
-                } else {
-                    _internalRepeat = 0;
-                    isPlaying = false;
-                    _frame = 0;
-                    // On end Animation Call Back if needed
-                }
-            }
-        }
-        return Frames[_frame];
+        isPlaying           = isLooping = false;
+        repeat              = 1;
+        isPaused            = false;
+        timerPauseLength    = 0.0f;
+        _frame              = 0;
+        _internalRepeat     = 1;
+        yoyo 				= false;
+        Owner 				= owner;
+        FrameSpeed 			= fps;
     }
 
-    void TextureAnimation::YoYo(bool yo)
+    // Instance
+    TextureAnimationInstance* TextureAnimation::CreateInstance(const uint32 &fps)
     {
-        if (!yoyo && yo)
+        TextureAnimationInstance* i = new TextureAnimationInstance(this, fps);
+        Instances.push_back(i);
+        return i;
+    }
+
+    // Destroy Instance
+    void TextureAnimation::DestroyInstance(TextureAnimationInstance* Instance)
+    {
+        for (std::vector<TextureAnimationInstance*>::iterator i=Instances.begin();i!=Instances.end();i++)
         {
-            for (uint32 i=Frames.size();i>0;i--)
-            {
-                Frames.push_back(Frames[i-1]);
+            if ((*i)==Instance)
+            {   
+                delete Instance;
+                Instances.erase(i);
+                break;
             }
-            yoyo = true;
         }
-        if (yoyo && !yo)
-        {
-            for (uint32 i=Frames.size();i>Frames.size()/2.f;i--)
-            {
-                Frames.pop_back();
-            }
-            yoyo = false;
-        }
+    }
+
+    Texture* TextureAnimationInstance::GetTexture()
+    {
+        return Owner->Frames[_frame];
+    }
+
+    void TextureAnimationInstance::YoYo(bool yo)
+    {
+        yoyo = yo;
     }
 
     void TextureAnimation::AddFrame(Texture* texture)
@@ -92,9 +74,49 @@ namespace p3d {
     void TextureAnimation::Update(const f32 &time)
     {
         timer = time;
+
+        for (std::vector<TextureAnimationInstance*>::iterator i=Instances.begin();i!=Instances.end();i++)
+        {
+            if ((*i)->isPlaying && !(*i)->isPaused)
+            {
+                // Actual Frame to be Played
+                f32 _frameSpeed = 1.f/(f32)(*i)->FrameSpeed;
+                f32 _timer = timer-((*i)->timeStart+(*i)->timerPauseLength);
+
+                uint32 frameSize = static_cast<int32>((*i)->yoyo?Frames.size()*2:Frames.size());
+
+                // Get Frame
+                uint32 frame = 0;
+                if (!(*i)->isPaused) frame = static_cast<int32>(ceil(_timer/_frameSpeed)-1);
+
+                // Check if there is Frames in Animation
+                if (frame<frameSize)
+                {
+                    if ((*i)->yoyo && frame>=Frames.size()) (*i)->_frame=static_cast<int32>(Frames.size()-(frame-Frames.size()+1));
+                    else (*i)->_frame = frame;
+                } else {
+                    if ((*i)->isLooping) {
+                        (*i)->timeStart = timer;
+                        (*i)->timerPauseLength = 0;
+                        (*i)->_frame = 0;
+                    } else if ((*i)->repeat>0 && (*i)->_internalRepeat < (*i)->repeat)
+                    {
+                        (*i)->timeStart = timer;
+                        (*i)->timerPauseLength = 0;
+                        (*i)->_frame = 0;
+                        (*i)->_internalRepeat++;
+                    } else {
+                        (*i)->_internalRepeat = 1;
+                        (*i)->isPlaying = false;
+                        (*i)->_frame = 0;
+                        // On end Animation Call Back if needed
+                    }
+                }
+            }
+        }
     }
     
-    void TextureAnimation::Play(const int32 &Repeat)
+    void TextureAnimationInstance::Play(const int32 &Repeat)
     {
         repeat = Repeat;
 
@@ -102,22 +124,22 @@ namespace p3d {
         if (repeat<=0) isLooping = true;
         else isLooping = false;
 
-        timeStart = timer;
+        timeStart = Owner->timer;
         isPlaying = true;
     }
-    void TextureAnimation::Pause()
+    void TextureAnimationInstance::Pause()
     {
         if (!isPaused)
         {
             isPaused = true;
-            timerPauseStart = timer;
+            timerPauseStart = Owner->timer;
         } else {
             isPaused = false;
-            timerPauseEnd = timer;
+            timerPauseEnd = Owner->timer;
             timerPauseLength += timerPauseEnd-timerPauseStart;
         }
     }
-    void TextureAnimation::Stop()
+    void TextureAnimationInstance::Stop()
     {
         isPlaying = false;
     }

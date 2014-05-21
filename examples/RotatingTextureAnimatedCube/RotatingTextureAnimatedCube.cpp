@@ -58,6 +58,12 @@ void RotatingTextureAnimatedCube::Init()
     	anim->AddFrame(tex3);
     	anim->AddFrame(tex4);
     	anim->AddFrame(tex5);
+        // Create Animation Instance with 30fps
+        animInst = anim->CreateInstance(30);
+        // Set Animation Loop backwards
+        animInst->YoYo(true);
+        // Play It
+        animInst->Play(0);
 	
         // Create Game Object
         Cube = new GameObject();
@@ -77,14 +83,18 @@ void RotatingTextureAnimatedCube::Init()
 
 void RotatingTextureAnimatedCube::OnMousePress(Event::Input::Info e)
 {
-	anim->Pause();
+	animInst->Pause();
 }
 
 void RotatingTextureAnimatedCube::Update()
 {
     // Update - Game Loop
-	anim->Update(GetTime());
-        material->SetColorMap(anim->GetTexture());
+	
+        anim->Update(GetTime());
+
+        // Set Texture from Animation Instance
+        material->SetColorMap(animInst->GetTexture());
+        
         // Update Scene
         Scene->Update(GetTime());
         

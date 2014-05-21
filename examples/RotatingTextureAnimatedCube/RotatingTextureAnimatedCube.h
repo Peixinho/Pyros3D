@@ -60,8 +60,10 @@ class RotatingTextureAnimatedCube : public ClassName {
         RenderingComponent* rCube;
         // Material
         GenericShaderMaterial* material;
+        // Animation
 		TextureAnimation* anim;
-
+        // Animation Instance
+        TextureAnimationInstance* animInst;
 };
 
 #endif	/* ROTATINGTEXTUREANINATEDCUBE_H */

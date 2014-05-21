@@ -13,62 +13,85 @@
 #include <vector>
 
 namespace p3d {
+
+	class TextureAnimation;
+
+  	class TextureAnimationInstance {
+
+		friend class TextureAnimation;
+
+		private:
+
+			// initial timer
+			f32 timeStart;
+			// Frame Speed
+			uint32 FrameSpeed;
+			// Pause
+			f32 timerPauseEnd;
+			f32 timerPauseStart;
+			f32 timerPauseLength;
+			bool isPaused;
+			// flags
+			bool isPlaying;
+			bool isLooping;
+			// Last Texture Bound
+			int32 _frame;
+			// Yoyo
+			bool yoyo;
+			// Repeat
+			int32 repeat;
+			int32 _internalRepeat;
+			// Keep Owner PTR
+			TextureAnimation* Owner;
+
+		public:
+
+			TextureAnimationInstance(TextureAnimation* owner, const uint32 &fps);
+
+			// Play, Stop, Pause
+			void Play(const int32 &Repeat = 1);
+			void Pause();
+			void Stop();
+
+			void YoYo(bool yo);
+
+			// Get Texture
+			Texture* GetTexture();
+
+      };
+
+      class TextureAnimation {
+
+        friend class TextureAnimationInstance;
     
-    class TextureAnimation {
-        
         private:
 
-            // internal timer
-            f32 timer;
-            // frames
-            std::vector<Texture*> Frames;
-            // initial timer
-            f32 timeStart;
-            // Pause
-            f32 timerPauseEnd;
-            f32 timerPauseStart;
-            f32 timerPauseLength;
-            bool isPaused;
-            // Frame Speed
-            int32 FrameSpeed;
-            // flags
-            bool isPlaying;
-            bool isLooping;
+			// internal timer
+			f32 timer;
+			// frames
+			std::vector<Texture*> Frames;
+			// Instances
+			std::vector<TextureAnimationInstance*> Instances;
 
-            // Last Texture Bound
-            int32 _frame;
+		public:
 
-            // Yoyo
-            bool yoyo;
+			// Constructor
+			TextureAnimation();
 
-            // Repeat
-            int32 repeat;
-            int32 _internalRepeat;
+			// Add Frame
+			void AddFrame(Texture* texture);
 
-        public:
+			// Void Update
+			void Update(const f32 &time);
 
-            // Constructor
-            TextureAnimation(const int32 &fps);
+			// Destructor
+			virtual ~TextureAnimation();
 
-            // Yoyo - 0 or negative numbers set it to infinite loop
-            void YoYo(bool yo);
+			// Instance
+			TextureAnimationInstance* CreateInstance(const uint32 &fps = 30);
 
-            // Add Frame
-            void AddFrame(Texture* texture);
-
-            // Get Resultant Texture
-            Texture* GetTexture();
-
-            // Void Update
-            void Update(const f32 &time);
-
-            // Destructor
-            virtual ~TextureAnimation();
-
-            // Play, Stop, Pause
-            void Play(const int32 &Repeat = 1);
-            void Pause();
-            void Stop();
+			// Destroy Instance
+			void DestroyInstance(TextureAnimationInstance* Instance);
     };
     
 };
