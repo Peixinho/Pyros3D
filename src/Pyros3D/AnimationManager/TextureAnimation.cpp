@@ -118,7 +118,7 @@ namespace p3d {
                     } else {
                         (*i)->_internalRepeat = 1;
                         (*i)->isPlaying = false;
-                        (*i)->_frame = 0;
+                        (*i)->_frame = ((*i)->yoyo?0:frameSize-1);
                         // On end Animation Call Back if needed
                     }
                 }
