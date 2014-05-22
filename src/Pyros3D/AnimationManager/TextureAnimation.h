@@ -75,6 +75,9 @@ namespace p3d {
 
 		public:
 
+			Texture* GetFrame(const uint32 &frame);
+			uint32 GetNumberFrames();
+
 			// Constructor
 			TextureAnimation();
 

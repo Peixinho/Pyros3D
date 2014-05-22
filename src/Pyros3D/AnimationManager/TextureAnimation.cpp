@@ -34,6 +34,16 @@ namespace p3d {
         FrameSpeed 			= fps;
     }
 
+    Texture* TextureAnimation::GetFrame(const uint32 &frame)
+    {
+       return Frames[frame];
+    }
+
+    uint32 TextureAnimation::GetNumberFrames()
+    {
+        return Frames.size();
+    }
+
     // Instance
     TextureAnimationInstance* TextureAnimation::CreateInstance(const uint32 &fps)
     {
