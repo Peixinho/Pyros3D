@@ -10,6 +10,8 @@
 #define TEXTUREANIMATION_H
 
 #include "../AssetManager/Assets/Texture/Texture.h"
+#include "../Ext/Signals/Signal.h"
+#include "../Ext/Signals/Delegate.h"
 #include <vector>
 
 namespace p3d {
@@ -44,6 +46,14 @@ namespace p3d {
 			// Keep Owner PTR
 			TextureAnimation* Owner;
 
+			// CallBack Functions
+			Gallant::Signal0<void> OnStartFunction;
+			Gallant::Signal0<void> OnUpdateFunction;
+			Gallant::Signal0<void> OnEndFunction;
+			bool haveOnStartFunction;
+			bool haveOnUpdateFunction;
+			bool haveOnEndFunction;
+			
 		public:
 
 			TextureAnimationInstance(TextureAnimation* owner, const uint32 &fps);
@@ -52,11 +62,38 @@ namespace p3d {
 			void Play(const int32 &Repeat = 1);
 			void Pause();
 			void Stop();
-
+			// Is Playing Animation
+			bool IsPlaying();
+			// Yoyo
 			void YoYo(bool yo);
 
 			// Get Texture
 			Texture* GetTexture();
+
+			// CallBacks
+			void OnStart(void (*func) (void));
+			template< class X, class Y >
+			void OnStart( Y * obj, void (X::*func)() )
+			{
+				haveOnStartFunction = true;
+				OnStartFunction.Connect(obj,func);
+			}
+			
+			void OnUpdate(void (*func) (void));
+			template< class X, class Y >
+			void OnUpdate( Y * obj, void (X::*func)() )
+			{
+				haveOnUpdateFunction = true;
+				OnUpdateFunction.Connect(obj,func);
+			}
+			
+			void OnEnd(void (*func) (void));
+			template< class X, class Y >
+			void OnEnd( Y * obj, void (X::*func)() )
+			{
+				haveOnEndFunction = true;
+				OnEndFunction.Connect(obj,func);
+			}
 
       };
 

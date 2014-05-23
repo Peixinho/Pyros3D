@@ -32,6 +32,30 @@ namespace p3d {
         yoyo 				= false;
         Owner 				= owner;
         FrameSpeed 			= fps;
+        haveOnStartFunction = haveOnUpdateFunction = haveOnEndFunction = false;
+    }
+
+    void TextureAnimationInstance::OnStart(void (*func) (void))
+    {
+        haveOnStartFunction = true;
+        OnStartFunction.Connect(func);
+    }
+
+    void TextureAnimationInstance::OnUpdate(void (*func) (void))
+    {
+        haveOnUpdateFunction = true;
+        OnUpdateFunction.Connect(func);
+    }
+
+    void TextureAnimationInstance::OnEnd(void (*func) (void))
+    {
+        haveOnEndFunction = true;
+        OnEndFunction.Connect(func);
+    }
+    
+    bool TextureAnimationInstance::IsPlaying()
+    {
+       return isPlaying;
     }
 
     Texture* TextureAnimation::GetFrame(const uint32 &frame)
@@ -104,6 +128,7 @@ namespace p3d {
                 {
                     if ((*i)->yoyo && frame>=Frames.size()) (*i)->_frame=static_cast<int32>(Frames.size()-(frame-Frames.size()+1));
                     else (*i)->_frame = frame;
+                    if ((*i)->haveOnUpdateFunction) (*i)->OnUpdateFunction();
                 } else {
                     if ((*i)->isLooping) {
                         (*i)->timeStart = timer;
@@ -119,7 +144,8 @@ namespace p3d {
                         (*i)->_internalRepeat = 1;
                         (*i)->isPlaying = false;
                         (*i)->_frame = ((*i)->yoyo?0:frameSize-1);
-                        // On end Animation Call Back if needed
+                        // On End
+                        if ((*i)->haveOnEndFunction) (*i)->OnEndFunction();
                     }
                 }
             }
@@ -136,6 +162,8 @@ namespace p3d {
 
         timeStart = Owner->timer;
         isPlaying = true;
+
+        if (haveOnStartFunction) OnStartFunction();
     }
     void TextureAnimationInstance::Pause()
     {
