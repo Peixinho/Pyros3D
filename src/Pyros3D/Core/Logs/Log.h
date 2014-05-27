@@ -9,6 +9,7 @@
 #ifndef LOG_H
 #define	LOG_H
 
+#include "../../Other/Export.h"
 #include <string>
 #include <iostream>
 #include <fstream>
@@ -22,7 +23,7 @@ namespace p3d {
     
     namespace LOG {
   
-        class _LOG {
+        class PYROS3D_API _LOG {
             public:
                 #ifdef LOG_TO_FILE
                     static std::ofstream outputFile;

@@ -14,6 +14,7 @@
 #include <vector>
 #include <string.h>
 #include "../Math/Math.h"
+#include "../../Other/Export.h"
 #include <iostream>
 
 namespace p3d {

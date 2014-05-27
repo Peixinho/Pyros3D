@@ -2,6 +2,7 @@
 #define PHYSICS_DEBUG_DRAW_H
 
 #include "../BulletPhysics.h"
+#include "../../../../Other/Export.h"
 
 namespace p3d {
 

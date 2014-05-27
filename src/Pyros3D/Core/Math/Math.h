@@ -9,18 +9,20 @@
 #ifndef MATH_H
 #define	MATH_H
 
+#include "../../Other/Export.h"
+
 namespace p3d {
 
     // Type Definition
-    typedef unsigned char uint8;
-    typedef unsigned short uint16;
-    typedef signed long int int32;
-    typedef long long int64;
-    typedef long unsigned uint32;
-    typedef float f32;
-    typedef unsigned char uchar;
-    typedef double f64;
-    typedef long double f96;
+    typedef unsigned char PYROS3D_API uint8;
+    typedef unsigned short PYROS3D_API uint16;
+    typedef signed long int PYROS3D_API int32;
+    typedef long long PYROS3D_API int64;
+    typedef long unsigned PYROS3D_API uint32;
+    typedef float PYROS3D_API f32;
+    typedef unsigned char PYROS3D_API uchar;
+    typedef double PYROS3D_API f64;
+    typedef long double PYROS3D_API f96;
     
 };
 #include "Vec2.h"

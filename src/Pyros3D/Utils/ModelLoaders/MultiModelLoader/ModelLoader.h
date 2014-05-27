@@ -20,7 +20,7 @@
 
 namespace p3d {
 
-    class ModelLoader : public IModelLoader {
+    class PYROS3D_API ModelLoader : public IModelLoader {
         public:
 
             ModelLoader();

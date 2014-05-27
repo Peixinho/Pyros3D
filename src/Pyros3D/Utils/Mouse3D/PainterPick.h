@@ -18,7 +18,7 @@
 
 namespace p3d {
     
-    class PainterPick : public IRenderer {
+    class PYROS3D_API PainterPick : public IRenderer {
     public:
         
         // Constructor
@@ -36,7 +36,7 @@ namespace p3d {
     private:
         
         // Should Select Only Clickable Objects
-        virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera) { std::vector<RenderingMesh*> o; return o; }
+        virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 &Tag = 0) { std::vector<RenderingMesh*> o; return o; }
         
         // Render Scene
         virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene);
@@ -68,8 +68,6 @@ namespace p3d {
             val *= 255.f;
             return ((uint32(val.x) & 0xFF) << 24) | ((uint32(val.y) & 0xFF) << 16) | ((uint32(val.z) & 0xFF) << 8) | (uint32(val.w) & 0xFF);
         }
-
-	virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 &Tag = 0) {}
 
     };
 }

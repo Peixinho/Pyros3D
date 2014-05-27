@@ -10,14 +10,14 @@
 #define CUSTOMSHADERMATERIAL_H
 
 #include"../IMaterial.h"
-
+#include "../../Other/Export.h"
 #include <iostream>
 #include <map>
 
 namespace p3d
 {
  
-    class CustomShaderMaterial : public IMaterial
+    class PYROS3D_API CustomShaderMaterial : public IMaterial
     {
         
         public:

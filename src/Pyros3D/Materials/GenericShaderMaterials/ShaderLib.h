@@ -13,6 +13,7 @@
 
 #include "../../Ext/StringIDs/StringID.hpp"
 #include "../Shaders/Shaders.h"
+#include "../../Other/Export.h"
 
 #define MAX_LIGHTS 4
 
@@ -42,15 +43,13 @@ namespace p3d
         };
     };        
     
-    class ShaderLib
+    class PYROS3D_API ShaderLib
     {
         friend class GenericShaderMaterial;
         
         protected:
             // Build Shaders
-            static void BuildShader(const uint32 &option, Shaders* shader);
-        
-            virtual ~ShaderLib();                
+            static void BuildShader(const uint32 &option, Shaders* shader);           
     };
 
 }

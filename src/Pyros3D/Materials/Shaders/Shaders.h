@@ -13,7 +13,7 @@
 #include "../../Core/Math/Math.h"
 #include "../../Core/Logs/Log.h"
 #include "Uniforms.h"
-
+#include "../../Other/Export.h"
 #include <string.h>
 #include <fstream>
 #include <iostream>
@@ -28,7 +28,7 @@ namespace p3d {
         };
     }     
 
-    class Shader {
+    class PYROS3D_API Shader {
         public:
 
             Shader();
@@ -65,7 +65,7 @@ namespace p3d {
     };
 
     // Struct of Shaders and Program
-    struct Shaders
+    struct PYROS3D_API Shaders
     {
         // GL ID
         uint32 shaderProgram;

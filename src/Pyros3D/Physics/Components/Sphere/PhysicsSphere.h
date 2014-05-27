@@ -13,7 +13,7 @@
 
 namespace p3d {
 
-    class PhysicsSphere : public IPhysicsComponent {
+    class PYROS3D_API PhysicsSphere : public IPhysicsComponent {
         public:
 
             PhysicsSphere();

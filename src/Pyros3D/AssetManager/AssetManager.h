@@ -15,6 +15,7 @@
 #include "../Core/Buffers/GeometryBuffer.h"
 #include "../AssetManager/Assets/Renderable/Renderables.h"
 #include "Assets/Font/Font.h"
+#include "../Other/Export.h"
 #include <map>
 #include <vector>
 #include <list>
@@ -23,7 +24,7 @@
 
 namespace p3d {
     
-    class AssetManager {
+    class PYROS3D_API AssetManager {
         
         friend class RenderingComponent;
         

@@ -13,7 +13,7 @@
 
 namespace p3d {
 
-    class PhysicsCapsule : public IPhysicsComponent {
+    class PYROS3D_API PhysicsCapsule : public IPhysicsComponent {
         public:
 
             PhysicsCapsule();

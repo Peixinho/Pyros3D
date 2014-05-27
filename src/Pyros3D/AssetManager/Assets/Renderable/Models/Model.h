@@ -11,10 +11,11 @@
 
 #include "../Renderables.h"
 #include "../../../../Utils/ModelLoaders/MultiModelLoader/ModelLoader.h"
+#include "../../../../Other/Export.h"
 
 namespace p3d {
 
-    class ModelGeometry : public IGeometry
+    class PYROS3D_API ModelGeometry : public IGeometry
     {
         public:
 
@@ -33,10 +34,11 @@ namespace p3d {
             virtual std::vector<Vec3> &GetVertexData() { return tVertex; }
 
         protected:
+            
             virtual void CalculateBounding();
     };
 
-    class Model : public Renderable {
+    class PYROS3D_API Model : public Renderable {
 
         public:
 

@@ -13,7 +13,7 @@
 
 namespace p3d {
 
-    class Cube : public Primitive {
+    class PYROS3D_API Cube : public Primitive {
 
         public:
 

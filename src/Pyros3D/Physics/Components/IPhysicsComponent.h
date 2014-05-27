@@ -12,6 +12,7 @@
 #include <iostream>
 #include "../../Components/IComponent.h"
 #include "../Physics.h"
+#include "../../Other/Export.h"
 
 namespace p3d {
     
@@ -33,7 +34,7 @@ namespace p3d {
     };
 
 
-    class IPhysicsComponent : public IComponent 
+    class PYROS3D_API IPhysicsComponent : public IComponent 
     {
         
         friend class GameObject;

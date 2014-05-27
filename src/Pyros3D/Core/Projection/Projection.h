@@ -15,7 +15,7 @@ namespace p3d {
 
     using namespace Math;
     
-        class Projection {
+        class PYROS3D_API Projection {
             public:
 
                 // vars

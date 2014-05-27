@@ -18,7 +18,7 @@
 namespace p3d {
 
     // Stores Positions
-    struct PositionData {
+    struct PYROS3D_API PositionData {
         // Time
         f64 Time;
         // Position
@@ -28,7 +28,7 @@ namespace p3d {
     };
     
     // Stores Rotations
-    struct RotationData {
+    struct PYROS3D_API RotationData {
         // Time
         f64 Time;
         // Rotation
@@ -38,7 +38,7 @@ namespace p3d {
     };
     
     // Stores Scaling
-    struct ScalingData {
+    struct PYROS3D_API ScalingData {
         // Time
         f64 Time;
         // Scale
@@ -73,7 +73,7 @@ namespace p3d {
         
     };
     
-    class AnimationLoader : public IModelLoader {
+    class PYROS3D_API AnimationLoader : public IModelLoader {
         public:
 
             AnimationLoader();

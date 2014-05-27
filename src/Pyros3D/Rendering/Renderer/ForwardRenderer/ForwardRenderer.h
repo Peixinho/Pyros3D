@@ -14,7 +14,7 @@
 
 namespace p3d {
     
-    class ForwardRenderer : public IRenderer {
+    class PYROS3D_API ForwardRenderer : public IRenderer {
         
         public:
             

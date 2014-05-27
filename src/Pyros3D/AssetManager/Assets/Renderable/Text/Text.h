@@ -13,11 +13,12 @@
 #include "../../../../Core/Buffers/GeometryBuffer.h"
 #include "../../Font/Font.h"
 #include "../../../AssetManager.h"
+#include "../../../../Other/Export.h"
 #include <vector>
 
 namespace p3d {
     
-    class TextGeometry : public IGeometry {
+    class PYROS3D_API TextGeometry : public IGeometry {
 
         public:
             std::vector<Vec3> tVertex, tNormal;
@@ -81,7 +82,7 @@ namespace p3d {
             }
     };
 
-    class Text : public Renderable {
+    class PYROS3D_API Text : public Renderable {
         public:
 
             TextGeometry* geometry;

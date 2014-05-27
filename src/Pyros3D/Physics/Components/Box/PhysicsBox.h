@@ -13,7 +13,7 @@
 
 namespace p3d {
 
-    class PhysicsBox : public IPhysicsComponent {
+    class PYROS3D_API PhysicsBox : public IPhysicsComponent {
         public:
 
             PhysicsBox(IPhysics* engine,const f32 &width, const f32 &height, const f32 &depth, const f32 &mass = 0.f);

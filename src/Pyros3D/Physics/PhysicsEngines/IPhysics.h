@@ -12,13 +12,14 @@
 #include "../../Core/Math/Math.h"
 #include "../../Rendering/Components/Rendering/RenderingComponent.h"
 #include "../../Core/Projection/Projection.h"
+#include "../../Other/Export.h"
 
 namespace p3d {
     
     // Circular Dependency
-    class IPhysicsComponent;
+    class PYROS3D_API IPhysicsComponent;
     
-    class IPhysics {
+    class PYROS3D_API IPhysics {
         
         friend class IPhysicsComponent;
         

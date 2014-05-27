@@ -13,12 +13,13 @@
 #include "../../../Core/Math/Math.h"
 #include "../../../Core/Projection/Projection.h"
 #include "../../../Core/Buffers/FrameBuffer.h"
+#include "../../../Other/Export.h"
 #include <vector>
 #include <map>
 
 namespace p3d {
     
-    class ILightComponent : public IComponent {
+    class PYROS3D_API ILightComponent : public IComponent {
         
         public:
             

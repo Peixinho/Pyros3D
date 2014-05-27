@@ -13,10 +13,11 @@
 #include "../Utils/ModelLoaders/MultiModelLoader/ModelLoader.h"
 #include "../Components/IComponent.h"
 #include "../Rendering/Components/Rendering/RenderingComponent.h"
+#include "../Other/Export.h"
 
 namespace p3d {
     
-    class AnimationManager {
+    class PYROS3D_API AnimationManager {
 
         public:
             

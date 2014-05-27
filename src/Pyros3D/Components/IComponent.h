@@ -12,14 +12,14 @@
 #include <vector>
 #include "../GameObjects/GameObject.h"
 #include "../SceneGraph/SceneGraph.h"
-
+#include "../Other/Export.h"
 namespace p3d {
     
     // Circular Dependency
-    class GameObject;
-    class SceneGraph;
+    class PYROS3D_API GameObject;
+    class PYROS3D_API SceneGraph;
     
-    class IComponent {
+    class PYROS3D_API IComponent {
         
         friend class GameObject;
         

@@ -13,7 +13,7 @@
 
 namespace p3d {
 
-    class Sphere : public Primitive {
+    class PYROS3D_API Sphere : public Primitive {
 
         public:
 

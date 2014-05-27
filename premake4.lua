@@ -88,7 +88,13 @@ solution "Pyros3D"
         
         includedirs { "include/" }
 
-        defines({"UNICODE", "GLEW_STATIC"})
+		if os.get() == "windows" and _OPTIONS["bin"]=="shared" then
+			defines({"_EXPORT"})
+		else
+        	defines({"GLEW_STATIC"})
+        end
+
+        defines({"UNICODE"})
 
         if _OPTIONS["log"]=="console" then
             defines({"LOG_TO_CONSOLE"})
@@ -133,9 +139,17 @@ function BuildDemo(demoPath, demoName)
 		
         includedirs { "include/", "src/" }
 	
-        defines({"UNICODE", "GLEW_STATIC"})
         defines({framework});
-	defines({"DEMO_NAME="..demoName, "_"..demoName})
+		defines({"DEMO_NAME="..demoName, "_"..demoName})
+
+		if os.get() == "windows" and _OPTIONS["bin"]=="shared" then
+			defines({"_IMPORT"})
+		else
+        	defines({"GLEW_STATIC"})
+        end
+
+        defines({"UNICODE"})
+
         configuration "Debug"
 
             defines({"_DEBUG"})

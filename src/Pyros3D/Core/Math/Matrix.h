@@ -22,11 +22,11 @@ namespace p3d {
     
     namespace Math {
 
-        class Quaternion;
-        class Vec3;
-        class Vec4;
+        class PYROS3D_API Quaternion;
+        class PYROS3D_API Vec3;
+        class PYROS3D_API Vec4;
         
-        class Matrix {
+        class PYROS3D_API Matrix {
             public:
 
                 // vars
@@ -87,7 +87,7 @@ namespace p3d {
 
                 static const Matrix BIAS;
 
-        private:
+            private:
 
                 static Matrix MakeFrustum(const f32 &left, const f32 &right, const f32 &bottom, const f32 &top, const f32 &near, const f32 &far);
 

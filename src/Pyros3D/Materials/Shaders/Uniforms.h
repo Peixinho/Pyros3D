@@ -12,6 +12,7 @@
 #include <string.h>
 #include <iostream>
 #include "Shaders.h"
+#include "../../Other/Export.h"
 
 namespace p3d {
 
@@ -73,7 +74,7 @@ namespace p3d {
         };
 
         // Uniforms Struct
-        struct Uniform {
+        struct PYROS3D_API Uniform {
 
             // default value
             std::string Name;

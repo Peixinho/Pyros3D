@@ -10,13 +10,14 @@
 #define	FPS_H
 
 #include "../../Core/Math/Math.h"
+#include "../../Other/Export.h"
 #include <sstream>
 #include <iostream>
 #include <math.h>
 
 namespace p3d {
 
-    class FPS {
+    class PYROS3D_API FPS {
         public:
             FPS();
             void setFPS(const f32 &time);

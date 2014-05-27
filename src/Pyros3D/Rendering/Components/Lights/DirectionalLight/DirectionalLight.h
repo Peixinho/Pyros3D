@@ -20,7 +20,7 @@ namespace p3d {
     // the 0.2f factor is important because we might get artifacts at
     #define CASCADE_FACTOR 0.2
 
-    struct Cascade {
+    struct PYROS3D_API Cascade {
 
         // Sub Frustum Properties
         f32 Near;
@@ -136,7 +136,7 @@ namespace p3d {
         }
     };
     
-    class DirectionalLight : public ILightComponent {
+    class PYROS3D_API DirectionalLight : public ILightComponent {
         
         public:
             

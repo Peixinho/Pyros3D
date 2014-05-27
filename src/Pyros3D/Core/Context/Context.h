@@ -7,17 +7,18 @@
 //============================================================================
 
 #ifndef CONTEXT_H
-#define	CONTEXT_H
+#define CONTEXT_H
 
 #include "../Math/Math.h"
 #include "../../Utils/DeltaTime/DeltaTime.h"
 #include "../../SceneGraph/SceneGraph.h"
 #include "../../Core/InputManager/InputManager.h"
 #include "../../Utils/FPS/FPS.h"
+#include "../../Other/Export.h"
 
 namespace p3d {
 
-    class Context {
+    class PYROS3D_API Context {
         public:
 
             Context(const uint32 &width, const uint32 &height);            

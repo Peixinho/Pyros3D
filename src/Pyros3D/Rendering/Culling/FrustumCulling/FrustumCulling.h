@@ -12,10 +12,11 @@
 #include "../Culling.h"
 #include "../../../Core/Math/Math.h"
 #include "../../../Core/Projection/Projection.h"
+#include "../../../Other/Export.h"
 
 namespace p3d {
     
-    class FrustumCulling : public Culling {
+    class PYROS3D_API FrustumCulling : public Culling {
         
         public:
             

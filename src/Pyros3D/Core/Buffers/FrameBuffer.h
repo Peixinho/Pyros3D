@@ -12,6 +12,7 @@
 #include "../../AssetManager/AssetManager.h"
 #include "../../AssetManager/Assets/Texture/Texture.h"
 #include "../Logs/Log.h"
+#include "../../Other/Export.h"
 
 #define GLCHECK() { int32 error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } }
 
@@ -58,7 +59,7 @@ namespace p3d {
         };
     }
 
-    class FBOAttachment
+    class PYROS3D_API FBOAttachment
     {
         public:
             uint32 AttachmentFormat;
@@ -75,7 +76,7 @@ namespace p3d {
             uint32 DataType;
     };
     
-    class FrameBuffer {
+    class PYROS3D_API FrameBuffer {
         public:
             FrameBuffer();
             virtual ~FrameBuffer();

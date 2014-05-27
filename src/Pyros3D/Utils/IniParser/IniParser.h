@@ -6,10 +6,12 @@
 // Description : Ini Parser
 //============================================================================
 
+#include "../../Other/Export.h"
 #include <iostream>
 #include <fstream>
 #include <string>
 #include <map>
+
 using namespace std;
 
 #ifndef INIPARSER_H
@@ -17,7 +19,7 @@ using namespace std;
 
 namespace p3d {
     
-    class IniParser {
+    class PYROS3D_API IniParser {
         
         public:
         

@@ -29,7 +29,7 @@ namespace p3d {
         
     };
     
-    class PhysicsVehicle : public IPhysicsComponent {
+    class PYROS3D_API PhysicsVehicle : public IPhysicsComponent {
         
         public:
 

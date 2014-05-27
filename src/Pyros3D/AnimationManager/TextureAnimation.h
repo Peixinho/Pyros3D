@@ -12,13 +12,14 @@
 #include "../AssetManager/Assets/Texture/Texture.h"
 #include "../Ext/Signals/Signal.h"
 #include "../Ext/Signals/Delegate.h"
+#include "../Other/Export.h"
 #include <vector>
 
 namespace p3d {
 
-	class TextureAnimation;
+	class PYROS3D_API TextureAnimation;
 
-  	class TextureAnimationInstance {
+  	class PYROS3D_API TextureAnimationInstance {
 
 		friend class TextureAnimation;
 
@@ -97,7 +98,7 @@ namespace p3d {
 
       };
 
-      class TextureAnimation {
+      class PYROS3D_API TextureAnimation {
 
         friend class TextureAnimationInstance;
     

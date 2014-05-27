@@ -9,6 +9,7 @@
 #define CULLING_H
 
 #include "../../Core/Math/Math.h"
+#include "../../Other/Export.h"
 
 namespace p3d {
 
@@ -29,7 +30,7 @@ namespace p3d {
         };
     };
     
-    struct FrustumPlane {
+    struct PYROS3D_API FrustumPlane {
         f32 constant;
         Vec3 normal;
         
@@ -62,7 +63,7 @@ namespace p3d {
         
     };
     
-    struct AABox {
+    struct PYROS3D_API AABox {
 
         f32 xmax,ymax,zmax,xmin,ymin,zmin;
         AABox(Vec3* v)
@@ -125,7 +126,7 @@ namespace p3d {
         Vec3  vx, vy, vz;        
     };
     
-    class Culling {
+    class PYROS3D_API Culling {
         public:
             Culling();
             virtual ~Culling();

@@ -10,10 +10,11 @@
 #define MOUSE3D_H
 
 #include "../../Core/Math/Math.h"
+#include "../../Other/Export.h"
 
 namespace p3d {
 
-    class Mouse3D {
+    class PYROS3D_API Mouse3D {
     public:
         Mouse3D();    
         virtual ~Mouse3D();

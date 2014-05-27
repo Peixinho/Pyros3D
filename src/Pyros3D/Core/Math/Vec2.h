@@ -16,7 +16,7 @@ namespace p3d {
 
     namespace Math {
     
-        class Vec2 {
+        class PYROS3D_API Vec2 {
             public:
 
                 // vars

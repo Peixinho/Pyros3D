@@ -9,6 +9,8 @@
 #ifndef PHYSICS_H
 #define PHYSICS_H
 
+#include "../Other/Export.h"
+
 #define BULLETPHYSICS
 
 #ifdef BULLETPHYSICS
@@ -18,7 +20,7 @@
 namespace p3d {
 
     #ifdef BULLETPHYSICS
-    class Physics : public BulletPhysics {
+    class PYROS3D_API Physics : public BulletPhysics {
     #endif
         
         public:

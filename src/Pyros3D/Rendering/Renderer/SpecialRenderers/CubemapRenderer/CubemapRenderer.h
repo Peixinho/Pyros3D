@@ -14,7 +14,7 @@
 
 namespace p3d {
     
-    class CubemapRenderer : public IRenderer {
+    class PYROS3D_API CubemapRenderer : public IRenderer {
         
         public:
             

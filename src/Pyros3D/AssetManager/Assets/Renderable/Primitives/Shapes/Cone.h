@@ -13,7 +13,7 @@
 
 namespace p3d {
 
-    class Cone : public Primitive {
+    class PYROS3D_API Cone : public Primitive {
 
         public:
 

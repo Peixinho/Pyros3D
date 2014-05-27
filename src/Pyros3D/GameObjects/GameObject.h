@@ -13,6 +13,7 @@
 #include "../Core/Logs/Log.h"
 #include "../Components/IComponent.h"
 #include "../SceneGraph/SceneGraph.h"
+#include "../Other/Export.h"
 #include <vector>
 #include <map>
 using namespace p3d::Math;
@@ -20,9 +21,9 @@ using namespace p3d::Math;
 namespace p3d {
     
     // Circular Dependency
-    class IComponent;
+    class PYROS3D_API IComponent;
     
-    class GameObject
+    class PYROS3D_API GameObject
     {
         friend class SceneGraph;
         

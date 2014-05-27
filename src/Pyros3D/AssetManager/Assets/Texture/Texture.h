@@ -11,6 +11,7 @@
 
 #include "../../../Core/Math/Math.h"
 #include "../../../Core/Logs/Log.h"
+#include "../../../Other/Export.h"
 #include <FreeImage.h>
 #include <map>
 #include <vector>
@@ -89,7 +90,7 @@ namespace p3d {
     }
     
     
-    struct __Texture {
+    struct PYROS3D_API __Texture {
         
         uint32 TextureID;
         uint32 Using;
@@ -106,7 +107,7 @@ namespace p3d {
         
     };
 
-    class Texture {
+    class PYROS3D_API Texture {
         
         private:
             
@@ -177,7 +178,8 @@ namespace p3d {
             virtual ~Texture();
             
             // Keep Unit Binded
-            static uint32 LastUnitBinded, UnitBinded;
+            static uint32 LastUnitBinded;
+            static uint32 UnitBinded;
         
     };
     

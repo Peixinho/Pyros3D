@@ -12,12 +12,13 @@
 #include "../IMaterial.h"
 #include "ShaderLib.h"
 #include "../../AssetManager/Assets/Font/Font.h"
+#include "../../Other/Export.h"
 #include <iostream>
 #include <map>
 
 namespace p3d
 {     
-    class GenericShaderMaterial : public IMaterial
+    class PYROS3D_API GenericShaderMaterial : public IMaterial
     {
         public:
             

@@ -12,6 +12,7 @@
 #include "../Core/Logs/Log.h"
 #include "../Core/Math/Math.h"
 #include "../GameObjects/GameObject.h"
+#include "../Other/Export.h"
 
 using namespace p3d::Math;
 

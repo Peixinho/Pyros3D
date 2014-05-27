@@ -9,6 +9,7 @@
 #ifndef BINARYFILE_H
 #define	BINARYFILE_H
 
+#include "../../Other/Export.h"
 #include <fstream>
 #include <vector>
 #include <iostream>
@@ -18,7 +19,7 @@ using namespace std;
 
 namespace p3d {
 
-	class BinaryFile {
+	class PYROS3D_API BinaryFile {
 
 		public:
 

@@ -14,13 +14,14 @@
 #include "../IPhysics.h"
 #include "../../../Core/Math/Math.h"
 #include "DebugDraw/PhysicsDebugDraw.h"
+#include "../../../Other/Export.h"
 
 namespace p3d {
     
     // Circular Dependency
-    class PhysicsDebugDraw;
+    class PYROS3D_API PhysicsDebugDraw;
     
-    class BulletPhysics : public IPhysics
+    class PYROS3D_API BulletPhysics : public IPhysics
     {
         
         friend class IPhysicsComponent;

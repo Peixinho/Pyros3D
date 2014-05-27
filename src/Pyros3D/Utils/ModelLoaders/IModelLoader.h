@@ -11,6 +11,7 @@
 
 #include "../../Core/Math/Math.h"
 #include "../../AssetManager/Assets/Renderable/Renderables.h"
+#include "../../Other/Export.h"
 #include <string.h>
 #include <fstream>
 #include <iostream>
@@ -66,7 +67,7 @@ namespace p3d {
 
 	struct MaterialProperties;
 
-    class IModelLoader {
+    class PYROS3D_API IModelLoader {
         
         public:
             

@@ -12,7 +12,7 @@
 #include "../../Ext/Signals/Signal.h"
 #include "../../Ext/Signals/Delegate.h"
 #include "../Math/Vec2.h"
-
+#include "../../Other/Export.h"
 #include <map>
 #include <vector>
 
@@ -223,7 +223,7 @@ namespace p3d {
         };
     };
     
-    class InputManager {
+    class PYROS3D_API InputManager {
         
         friend class Context;
         
@@ -333,7 +333,8 @@ namespace p3d {
             static void SetMouseWheel(const f32 &delta);
             static void MousePressed(const  uint32 &e);
             static void MouseReleased(const uint32 &e);
-            static uint32 mouseX, mouseY;
+            static uint32 mouseX;
+			static uint32 mouseY;
             
             // Keyboard Events only visible to SFMLInterface
             static void KeyPressed(const uint32 &e);
@@ -344,9 +345,11 @@ namespace p3d {
             static std::map<uint32, Gallant::Signal1<Event::Input::Info> > EventsMapPressed;
             static std::map<uint32, Gallant::Signal1<Event::Input::Info> > EventsMapReleased;
             // Mouse Specific
-            static Gallant::Signal1<Event::Input::Info> MouseWheelEvents, MouseMoveEvents;
+            static Gallant::Signal1<Event::Input::Info> MouseWheelEvents;
+            static Gallant::Signal1<Event::Input::Info> MouseMoveEvents;
             // Character Specific
-            static Gallant::Signal1<Event::Input::Info> CharacterEnteredPress,CharacterEnteredRelease;
+            static Gallant::Signal1<Event::Input::Info> CharacterEnteredPress;
+            static Gallant::Signal1<Event::Input::Info> CharacterEnteredRelease;
             // JoyPad Specific
             static std::map <uint32, std::map<uint32, Gallant::Signal1<Event::Input::Info> > > JoyPadPressed;
             static std::map <uint32, std::map<uint32, Gallant::Signal1<Event::Input::Info> > > JoyPadReleased;

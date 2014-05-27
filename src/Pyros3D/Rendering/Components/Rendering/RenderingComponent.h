@@ -35,9 +35,9 @@ namespace p3d {
     }
     
     // Circular Dependency
-    class RenderingComponent;
+    class PYROS3D_API RenderingComponent;
     
-    class RenderingMesh {
+    class PYROS3D_API RenderingMesh {
         
         public:
             
@@ -82,7 +82,7 @@ namespace p3d {
             std::vector<Matrix> SkinningBones;
     };
     
-    class RenderingComponent : public IComponent {
+    class PYROS3D_API RenderingComponent : public IComponent {
         
         public:
             

@@ -10,10 +10,11 @@
 #define	DELTATIME_H
 
 #include "../../Core/Math/Math.h"
+#include "../../Other/Export.h"
 
 namespace p3d {
 
-    class DeltaTime {
+    class PYROS3D_API DeltaTime {
         public:
             
             DeltaTime();

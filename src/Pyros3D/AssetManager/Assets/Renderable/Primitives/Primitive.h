@@ -11,11 +11,12 @@
 
 #include "../Renderables.h"
 #include "../../../../Core/Buffers/GeometryBuffer.h"
+#include "../../../../Other/Export.h"
 #include <vector>
 
 namespace p3d {
     
-    class PrimitiveGeometry : public IGeometry {
+    class PYROS3D_API PrimitiveGeometry : public IGeometry {
 
         public:
             std::vector<Vec3> tVertex, tNormal;
@@ -71,7 +72,7 @@ namespace p3d {
             }
 };
 
-class Primitive : public Renderable {
+class PYROS3D_API Primitive : public Renderable {
 
     public:
 

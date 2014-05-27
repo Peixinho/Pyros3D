@@ -14,6 +14,7 @@
 #include "../../../Core/Buffers/GeometryBuffer.h"
 #include "../../../Materials/GenericShaderMaterials/GenericShaderMaterial.h"
 #include "../../../Utils/ModelLoaders/IModelLoader.h"
+#include "../../../Other/Export.h"
 #include <map>
 #include <vector>
 #include <list>
@@ -21,7 +22,7 @@
 namespace p3d {
     
     // Store Each Submesh Material Properties
-    struct MaterialProperties
+    struct PYROS3D_API MaterialProperties
     {
         // Material ID
         uint32 id;
@@ -55,7 +56,7 @@ namespace p3d {
     };
 
     // Vertex Attribute Struct
-    struct VertexAttribute {
+    struct PYROS3D_API VertexAttribute {
         // Attribute Name
         std::string Name;
         // Attribute Type
@@ -101,9 +102,9 @@ namespace p3d {
         }
     };
 
-    struct Bone;
+    struct PYROS3D_API Bone;
 
-    class AttributeArray
+    class PYROS3D_API AttributeArray
     {
         
         public:
@@ -130,7 +131,7 @@ namespace p3d {
     };
     
     // Attributes Buffer
-    class AttributeBuffer : public AttributeArray  {
+    class PYROS3D_API AttributeBuffer : public AttributeArray  {
         public:
             // Buffer
             GeometryBuffer* Buffer;
@@ -196,7 +197,7 @@ namespace p3d {
     
     // Geometry Interface Keeps Index and Attributes Buffer
     // Creates a Simple Material Properties
-    class IGeometry {
+    class PYROS3D_API IGeometry {
 
         public:
             
@@ -293,7 +294,7 @@ namespace p3d {
     };
 
     // Keeps the Geometry List
-    class Renderable {
+    class PYROS3D_API Renderable {
 
         public:
 

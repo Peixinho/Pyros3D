@@ -13,7 +13,7 @@
 
 namespace p3d {
 
-    class Cylinder : public Primitive {
+    class PYROS3D_API Cylinder : public Primitive {
 
         public:
 

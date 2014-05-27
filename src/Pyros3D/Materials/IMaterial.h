@@ -15,6 +15,7 @@
 #include "Shaders/Uniforms.h"
 #include "../Ext/StringIDs/StringID.hpp"
 #include "../AssetManager/Assets/Texture/Texture.h"
+#include "../Other/Export.h"
 
 namespace p3d {    
     
@@ -27,7 +28,7 @@ namespace p3d {
         };
     }
     
-    class IMaterial {
+    class PYROS3D_API IMaterial {
         
         friend class IRenderer;
         friend class ForwardRenderer;

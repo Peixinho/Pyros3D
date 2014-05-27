@@ -11,6 +11,7 @@
 
 #include "../../Core/Math/Math.h"
 #include "../../Core/Logs/Log.h"
+#include "../../Other/Export.h"
 #include <pthread.h>
 #include <map>
 
@@ -21,7 +22,7 @@ namespace p3d {
         pthread_mutex_t mutex;
     };
     
-    class Thread {
+    class PYROS3D_API Thread {
     public:
         
         // Add Thread

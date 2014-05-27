@@ -11,6 +11,7 @@
 
 #include "../Texture/Texture.h"
 #include "../../../Core/Logs/Log.h"
+#include "../../../Other/Export.h"
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_GLYPH_H
@@ -26,7 +27,7 @@ namespace p3d {
         Vec2 startingPoint;
     };
     
-    class Font {
+    class PYROS3D_API Font {
         
         private:
             

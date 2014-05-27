@@ -14,7 +14,7 @@
 
 namespace p3d {
 
-    class PhysicsConvexTriangleMesh : public IPhysicsComponent {
+    class PYROS3D_API PhysicsConvexTriangleMesh : public IPhysicsComponent {
         public:
 
             PhysicsConvexTriangleMesh(IPhysics* engine, RenderingComponent* rcomp, const f32 &mass = 0.f);

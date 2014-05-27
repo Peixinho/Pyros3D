@@ -16,7 +16,7 @@ namespace p3d {
 
     namespace Math {
     
-        class Vec4 {
+        class PYROS3D_API Vec4 {
             
             public:
 

@@ -20,6 +20,7 @@
 #include "../Components/Lights/PointLight/PointLight.h"
 #include "../Components/Lights/ILightComponent.h"
 #include "../Culling/FrustumCulling/FrustumCulling.h"
+#include "../../Other/Export.h"
 
 namespace p3d {
 
@@ -95,7 +96,7 @@ namespace p3d {
     	};
     }
 
-    class IRenderer {
+    class PYROS3D_API IRenderer {
         
         public:
             
@@ -345,9 +346,12 @@ namespace p3d {
             
             // Internal ViewPort Dimension
             static uint32
-                                _viewPortStartX,
-                                _viewPortStartY,
-                                _viewPortEndX,
+                                _viewPortStartX;
+            static uint32
+                                _viewPortStartY;
+            static uint32       
+                                _viewPortEndX;
+            static uint32
                                 _viewPortEndY;
     };
     

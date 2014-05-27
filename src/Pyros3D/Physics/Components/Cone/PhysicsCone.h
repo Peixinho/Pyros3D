@@ -13,7 +13,7 @@
 
 namespace p3d {
 
-    class PhysicsCone : public IPhysicsComponent {
+    class PYROS3D_API PhysicsCone : public IPhysicsComponent {
         public:
 
             PhysicsCone(IPhysics* engine, const f32 &radius, const f32 &height, const f32 &mass = 0.f);
