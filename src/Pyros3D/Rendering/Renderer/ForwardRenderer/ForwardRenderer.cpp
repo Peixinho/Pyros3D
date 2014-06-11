@@ -53,7 +53,7 @@ namespace p3d {
 		if (Tag!=0)
 			for (std::vector<RenderingMesh*>::iterator k=rmeshes.begin();k!=rmeshes.end();)
 				if (!(*k)->renderingComponent->GetOwner()->HaveTag(Tag))
-					rmeshes.erase(k);
+					k = rmeshes.erase(k);
 				else ++k;
 
         for (std::vector<RenderingMesh*>::iterator k=rmeshes.begin();k!=rmeshes.end();k++)
