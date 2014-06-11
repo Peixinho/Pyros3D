@@ -21,7 +21,7 @@ namespace p3d {
 
     }
 
-    TextureAnimationInstance::TextureAnimationInstance(TextureAnimation* owner, const uint32 &fps)
+    TextureAnimationInstance::TextureAnimationInstance(TextureAnimation* owner, const f32 &fps)
     {
         isPlaying           = isLooping = false;
         repeat              = 1;
@@ -69,7 +69,7 @@ namespace p3d {
     }
 
     // Instance
-    TextureAnimationInstance* TextureAnimation::CreateInstance(const uint32 &fps)
+    TextureAnimationInstance* TextureAnimation::CreateInstance(const f32 &fps)
     {
         TextureAnimationInstance* i = new TextureAnimationInstance(this, fps);
         Instances.push_back(i);

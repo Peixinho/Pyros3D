@@ -12,14 +12,13 @@
 #include "../AssetManager/Assets/Texture/Texture.h"
 #include "../Ext/Signals/Signal.h"
 #include "../Ext/Signals/Delegate.h"
-#include "../Other/Export.h"
 #include <vector>
 
 namespace p3d {
 
-	class PYROS3D_API TextureAnimation;
+	class TextureAnimation;
 
-  	class PYROS3D_API TextureAnimationInstance {
+  	class TextureAnimationInstance {
 
 		friend class TextureAnimation;
 
@@ -28,7 +27,7 @@ namespace p3d {
 			// initial timer
 			f32 timeStart;
 			// Frame Speed
-			uint32 FrameSpeed;
+			f32 FrameSpeed;
 			// Pause
 			f32 timerPauseEnd;
 			f32 timerPauseStart;
@@ -57,7 +56,7 @@ namespace p3d {
 			
 		public:
 
-			TextureAnimationInstance(TextureAnimation* owner, const uint32 &fps);
+			TextureAnimationInstance(TextureAnimation* owner, const f32 &fps);
 
 			// Play, Stop, Pause
 			void Play(const int32 &Repeat = 1);
@@ -98,7 +97,7 @@ namespace p3d {
 
       };
 
-      class PYROS3D_API TextureAnimation {
+      class TextureAnimation {
 
         friend class TextureAnimationInstance;
     
@@ -129,7 +128,7 @@ namespace p3d {
 			virtual ~TextureAnimation();
 
 			// Instance
-			TextureAnimationInstance* CreateInstance(const uint32 &fps = 30);
+			TextureAnimationInstance* CreateInstance(const f32 &fps = 30);
 
 			// Destroy Instance
 			void DestroyInstance(TextureAnimationInstance* Instance);
