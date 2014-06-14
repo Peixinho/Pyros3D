@@ -132,12 +132,12 @@ void RacingGame::Init()
 
         dRenderer = new CubemapRenderer(256,256);
         
-        Texture* skyboxTexture = AssetManager::LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negx.jpg",TextureType::CubemapNegative_X);
-        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negy.jpg",TextureType::CubemapNegative_Y);
-        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negz.jpg",TextureType::CubemapNegative_Z);
-        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posx.jpg",TextureType::CubemapPositive_X);
-        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posy.jpg",TextureType::CubemapPositive_Y);
-        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posz.jpg",TextureType::CubemapPositive_Z);
+        Texture* skyboxTexture = AssetManager::LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negx.png",TextureType::CubemapNegative_X);
+        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negy.png",TextureType::CubemapNegative_Y);
+        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negz.png",TextureType::CubemapNegative_Z);
+        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posx.png",TextureType::CubemapPositive_X);
+        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posy.png",TextureType::CubemapPositive_Y);
+        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posz.png",TextureType::CubemapPositive_Z);
         skyboxTexture->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
 
         SkyboxMaterial = new GenericShaderMaterial(ShaderUsage::Skybox);
@@ -195,9 +195,13 @@ void RacingGame::Update()
     dRenderer->RenderCubeMap(Scene,Car,0.1,500);
     rCar->Enable();
     
-    // Render Scene
+    Renderer->ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
+    Renderer->EnableDepthTest();
+    Renderer->EnableDepthWritting();
+    Renderer->EnableClearDepthBuffer();
     Renderer->RenderScene(projection,Camera,Scene);
-    Renderer->RenderScene(projection2,Camera2,Scene2,false);
+    Renderer->ClearBufferBit(Buffer_Bit::None);
+    Renderer->RenderScene(projection2,Camera2,Scene2);
 //    physics->RenderDebugDraw(projection,Camera);
     
     Vec3 finalPosition;
