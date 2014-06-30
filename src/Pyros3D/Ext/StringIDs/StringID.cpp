@@ -8,8 +8,8 @@
 
 #include <map>
 #include <iostream>
-#include "StringID.hpp"
-#include "CRC32.hpp"
+#include <Pyros3D/Ext/StringIDs/StringID.hpp>
+#include <Pyros3D/Ext/StringIDs/CRC32.hpp>
 namespace p3d
 {
 	std::map<StringID, std::string> StringIDMap;

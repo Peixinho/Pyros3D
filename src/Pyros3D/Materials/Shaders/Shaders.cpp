@@ -6,7 +6,7 @@
 // Description : Shader
 //============================================================================
 
-#include "Shaders.h"
+#include <Pyros3D/Materials/Shaders/Shaders.h>
 #include <stdlib.h>
 #if defined(ANDROID) || defined(EMSCRIPTEN)
     #include <GLES2/gl2.h>

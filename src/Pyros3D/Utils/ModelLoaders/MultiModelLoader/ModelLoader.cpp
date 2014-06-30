@@ -6,7 +6,7 @@
 // Description : Loads Pyros3D Own Model Format
 //============================================================================
 
-#include "ModelLoader.h"
+#include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h>
 
 namespace p3d {
 

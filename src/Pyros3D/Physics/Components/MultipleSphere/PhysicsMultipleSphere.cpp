@@ -7,7 +7,7 @@
 //============================================================================
 
 
-#include "PhysicsMultipleSphere.h"
+#include <Pyros3D/Physics/Components/MultipleSphere/PhysicsMultipleSphere.h>
 
 namespace p3d {   
 

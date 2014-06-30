@@ -6,8 +6,8 @@
 // Description : Physics Component Interface
 //============================================================================
 
-#include "IPhysicsComponent.h"
-#include "../../SceneGraph/SceneGraph.h"
+#include <Pyros3D/Physics/Components/IPhysicsComponent.h>
+#include <Pyros3D/SceneGraph/SceneGraph.h>
 
 namespace p3d {
     

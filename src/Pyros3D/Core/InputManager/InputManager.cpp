@@ -6,7 +6,7 @@
 // Description : Input Manager
 //============================================================================
 
-#include "InputManager.h"
+#include <Pyros3D/Core/InputManager/InputManager.h>
 
 namespace p3d {
     

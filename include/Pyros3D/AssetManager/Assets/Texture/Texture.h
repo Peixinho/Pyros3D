@@ -12,7 +12,7 @@
 #include "../../../Core/Math/Math.h"
 #include "../../../Core/Logs/Log.h"
 #include "../../../Other/Export.h"
-#include <FreeImage.h>
+#include <SFML/Graphics.hpp>
 #include <map>
 #include <vector>
 
@@ -100,8 +100,8 @@ namespace p3d {
         uint32 Height;
         std::string Filename;
 
-        FIBITMAP *Image;
-        void* GetPixels() { return (char*)FreeImage_GetBits(Image); }
+        sf::Image Image;
+        const uchar* GetPixels() { return Image.getPixelsPtr(); }
 
         __Texture() : Using(0), Type(TextureType::Texture), DataType(TextureDataType::RGBA) {}
         

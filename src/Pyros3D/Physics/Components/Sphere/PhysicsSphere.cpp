@@ -7,7 +7,7 @@
 //============================================================================
 
 
-#include "PhysicsSphere.h"
+#include <Pyros3D/Physics/Components/Sphere/PhysicsSphere.h>
 
 namespace p3d {  
 

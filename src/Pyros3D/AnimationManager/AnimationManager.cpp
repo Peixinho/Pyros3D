@@ -6,7 +6,7 @@
 // Description : Animation Manager
 //============================================================================
 
-#include "AnimationManager.h"
+#include <Pyros3D/AnimationManager/AnimationManager.h>
 
 namespace p3d {
 

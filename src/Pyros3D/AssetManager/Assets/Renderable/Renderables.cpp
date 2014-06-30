@@ -6,8 +6,8 @@
 // Description : Renderables
 //============================================================================
 
-#include "Renderables.h"
-#include "../../AssetManager.h"
+#include <Pyros3D/AssetManager/Assets/Renderable/Renderables.h>
+#include <Pyros3D/AssetManager/AssetManager.h>
 
 namespace p3d {
 

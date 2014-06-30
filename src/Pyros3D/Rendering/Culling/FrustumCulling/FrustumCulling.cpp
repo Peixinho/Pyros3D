@@ -6,7 +6,7 @@
 // Description : Frustum Culling Class
 //============================================================================
 
-#include "FrustumCulling.h"
+#include <Pyros3D/Rendering/Culling/FrustumCulling/FrustumCulling.h>
 #include <iostream>
 
 namespace  p3d {

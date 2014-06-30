@@ -6,8 +6,8 @@
 // Description : Texture
 //============================================================================
 
-#include "Texture.h"
-#include "../../../Ext/StringIDs/StringID.hpp"
+#include <Pyros3D/AssetManager/Assets/Texture/Texture.h>
+#include <Pyros3D/Ext/StringIDs/StringID.hpp>
 #if defined(ANDROID) || defined(EMSCRIPTEN)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
@@ -38,12 +38,11 @@ namespace p3d {
         
         if (__Textures[TextureInternalID].Using==0)
         { 
-            FreeImage_Unload(__Textures[TextureInternalID].Image);
             __Textures.erase(TextureInternalID);
         }
     }
     
-#if !defined(ANDROID) && !defined(EMSCRIPTEN)
+#if !defined(EMSCRIPTEN)
 
     bool Texture::LoadTexture(const std::string& FileName, const uint32 &Type, bool Mipmapping)
     {
@@ -53,18 +52,16 @@ namespace p3d {
         StringID TextureStringID(MakeStringID(FileName));
         if (__Textures.find(TextureStringID)==__Textures.end())
         {
-            FREE_IMAGE_FORMAT format = FreeImage_GetFileType(FileName.c_str(),0);
-            FIBITMAP* Image = FreeImage_Load(format, FileName.c_str());
-            if (!Image)
-            {
-                echo("ERROR: Texture Not Found!");
-                FREE_IMAGE_FORMAT format = FreeImage_GetFileType(FileName.c_str(),0);
-                Image = FreeImage_Load(format,"textures/texture_not_found.png");
-            }
-            Image = FreeImage_ConvertTo32Bits(Image);
-            FreeImage_FlipVertical(Image);
+            sf::Image Image = sf::Image();
+            ImageLoaded = Image.loadFromFile(FileName);
+                
+		if (!ImageLoaded)
+		{
+		    echo("ERROR: Texture Not Found!");
+		    ImageLoaded = Image.loadFromFile("textures/texture_not_found.png");
+		}
 
-            __Textures[TextureStringID].DataType = TextureDataType::BGRA;
+            __Textures[TextureStringID].DataType = TextureDataType::RGBA;
 
             // Save Texture Information
             __Textures[TextureStringID].Image = Image;
@@ -78,8 +75,8 @@ namespace p3d {
         }
         
         this->TextureInternalID = TextureStringID;
-        this->Width=FreeImage_GetWidth(__Textures[TextureStringID].Image);
-        this->Height=FreeImage_GetHeight(__Textures[TextureStringID].Image);
+        this->Width=__Textures[TextureStringID].Image.getSize().x;
+        this->Height=__Textures[TextureStringID].Image.getSize().y;
         this->haveImage=true;
         this->Type=Type;
         this->DataType=__Textures[TextureStringID].DataType;
@@ -116,23 +113,10 @@ namespace p3d {
         if (__Textures.find(TextureStringID)==__Textures.end())
         {
             
-            FIBITMAP *Image = NULL;
-            FIMEMORY *mem =  FreeImage_OpenMemory(&data[0], length);
-            FREE_IMAGE_FORMAT format = FreeImage_GetFileTypeFromMemory(mem, 0);
-            switch(format)
-            {
-                case FIF_PNG:
-                    echo("PNG");
-                break;
-                case FIF_JPEG:
-                    echo("JPEG");
-                break;
-            }
-            Image = FreeImage_LoadFromMemory(format, mem);
-            Image = FreeImage_ConvertTo32Bits(Image);
-            FreeImage_FlipVertical(Image);
+            sf::Image Image;
+            ImageLoaded = Image.loadFromMemory(&data[0],length);
 
-            __Textures[TextureStringID].DataType = TextureDataType::BGRA;
+            __Textures[TextureStringID].DataType = TextureDataType::RGBA;
 
             // Save Texture Information
             __Textures[TextureStringID].Image = Image;
@@ -146,8 +130,8 @@ namespace p3d {
         }
         
         this->TextureInternalID = TextureStringID;
-        this->Width=FreeImage_GetWidth(__Textures[TextureStringID].Image);
-        this->Height=FreeImage_GetHeight(__Textures[TextureStringID].Image);
+        this->Width=__Textures[TextureStringID].Image.getSize().x;
+        this->Height=__Textures[TextureStringID].Image.getSize().y;
         this->haveImage=true;
         this->Type=Type;
         this->DataType=__Textures[TextureStringID].DataType;

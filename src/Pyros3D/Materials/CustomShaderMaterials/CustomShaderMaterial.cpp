@@ -6,7 +6,7 @@
 // Description : Custom Shader Materials
 //=================================================================================
 
-#include "CustomShaderMaterial.h"
+#include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 
 namespace p3d
 {

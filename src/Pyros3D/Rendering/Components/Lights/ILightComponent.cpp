@@ -6,7 +6,7 @@
 // Description : Component For Lights
 //============================================================================
 
-#include "ILightComponent.h"
+#include <Pyros3D/Rendering/Components/Lights/ILightComponent.h>
 
 namespace p3d {
     

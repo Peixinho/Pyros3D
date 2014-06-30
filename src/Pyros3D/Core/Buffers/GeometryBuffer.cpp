@@ -6,7 +6,7 @@
 // Description : GeometryBuffer
 //============================================================================
 
-#include "GeometryBuffer.h"
+#include <Pyros3D/Core/Buffers/GeometryBuffer.h>
 #if defined(ANDROID) || defined(EMSCRIPTEN)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>

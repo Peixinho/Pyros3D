@@ -7,7 +7,7 @@
 ////============================================================================
 
 #include <map>
-#include "Thread.h"
+#include <Pyros3D/Utils/Thread/Thread.h>
 
 namespace p3d {
     

@@ -6,7 +6,7 @@
 // Description : Model Loader Interface
 //============================================================================
 
-#include "IModelLoader.h"
+#include <Pyros3D/Utils/ModelLoaders/IModelLoader.h>
 
 namespace p3d {
 

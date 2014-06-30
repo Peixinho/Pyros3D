@@ -7,7 +7,7 @@
 //============================================================================
 
 
-#include "PhysicsVehicle.h"
+#include <Pyros3D/Physics/Components/Vehicle/PhysicsVehicle.h>
 
 namespace p3d {   
 

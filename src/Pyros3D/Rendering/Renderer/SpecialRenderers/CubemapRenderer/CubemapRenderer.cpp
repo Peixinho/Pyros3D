@@ -6,7 +6,7 @@
 // Description : Dynamic Cube Map aka Environment Map
 //============================================================================
 
-#include "CubemapRenderer.h"
+#include <Pyros3D/Rendering/Renderer/SpecialRenderers/CubemapRenderer/CubemapRenderer.h>
 #if defined(ANDROID) || defined(EMSCRIPTEN)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>

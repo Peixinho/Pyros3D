@@ -7,20 +7,20 @@
 //============================================================================
 
 
-#include "AssetManager.h"
-#include "../Core/Logs/Log.h"
-#include "Assets/Renderable/Primitives/Primitive.h"
-#include "Assets/Renderable/Models/Model.h"
-#include "Assets/Renderable/Primitives/Shapes/Cube.h"
-#include "Assets/Renderable/Primitives/Shapes/TorusKnot.h"
-#include "Assets/Renderable/Primitives/Shapes/Cone.h"
-#include "Assets/Renderable/Primitives/Shapes/Cylinder.h"
-#include "Assets/Renderable/Primitives/Shapes/Sphere.h"
-#include "Assets/Renderable/Primitives/Shapes/Torus.h"
-#include "Assets/Renderable/Primitives/Shapes/Capsule.h"
-#include "Assets/Renderable/Primitives/Shapes/Plane.h"
-#include "Assets/Renderable/Text/Text.h"
-#include "Assets/Font/Font.h"
+#include <Pyros3D/AssetManager/AssetManager.h>
+#include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/AssetManager/Assets/Renderable/Primitives/Primitive.h>
+#include <Pyros3D/AssetManager/Assets/Renderable/Models/Model.h>
+#include <Pyros3D/AssetManager/Assets/Renderable/Primitives/Shapes/Cube.h>
+#include <Pyros3D/AssetManager/Assets/Renderable/Primitives/Shapes/TorusKnot.h>
+#include <Pyros3D/AssetManager/Assets/Renderable/Primitives/Shapes/Cone.h>
+#include <Pyros3D/AssetManager/Assets/Renderable/Primitives/Shapes/Cylinder.h>
+#include <Pyros3D/AssetManager/Assets/Renderable/Primitives/Shapes/Sphere.h>
+#include <Pyros3D/AssetManager/Assets/Renderable/Primitives/Shapes/Torus.h>
+#include <Pyros3D/AssetManager/Assets/Renderable/Primitives/Shapes/Capsule.h>
+#include <Pyros3D/AssetManager/Assets/Renderable/Primitives/Shapes/Plane.h>
+#include <Pyros3D/AssetManager/Assets/Renderable/Text/Text.h>
+#include <Pyros3D/AssetManager/Assets/Font/Font.h>
 
 namespace p3d {
     

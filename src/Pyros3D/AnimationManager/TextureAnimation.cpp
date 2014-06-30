@@ -6,7 +6,7 @@
 // Description : Animated Textures
 //============================================================================
 
-#include "TextureAnimation.h"
+#include <Pyros3D/AnimationManager/TextureAnimation.h>
 #include <math.h>
 
 namespace p3d {

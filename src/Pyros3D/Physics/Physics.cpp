@@ -1,5 +1,5 @@
 
-#include "Physics.h"
+#include <Pyros3D/Physics/Physics.h>
 
 //============================================================================
 // Name        : Physics.cpp

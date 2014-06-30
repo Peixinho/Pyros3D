@@ -6,7 +6,7 @@
 // Description : Forward Renderer
 //============================================================================
 
-#include "ForwardRenderer.h"
+#include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #if defined(ANDROID) || defined(EMSCRIPTEN)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>

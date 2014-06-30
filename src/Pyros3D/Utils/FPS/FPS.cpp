@@ -6,7 +6,7 @@
 // Description : FPS counter
 //============================================================================
 
-#include "FPS.h"
+#include <Pyros3D/Utils/FPS/FPS.h>
 
 namespace p3d {
 

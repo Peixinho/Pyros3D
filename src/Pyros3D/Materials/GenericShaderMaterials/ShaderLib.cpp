@@ -6,8 +6,9 @@
 // Description : ShaderLib
 //============================================================================
 
-#include "ShaderLib.h"
-#include "../../Core/Logs/Log.h"
+#include <Pyros3D/Materials/GenericShaderMaterials/ShaderLib.h>
+#include <Pyros3D/Core/Logs/Log.h>
+
 namespace p3d
 {
     

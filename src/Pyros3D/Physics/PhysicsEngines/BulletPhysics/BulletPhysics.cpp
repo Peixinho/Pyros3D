@@ -6,18 +6,18 @@
 // Description : Bullet Physics Wrapper
 //============================================================================
 
-#include "BulletPhysics.h"
-#include "../../Components/Box/PhysicsBox.h"
-#include "../../Components/Sphere/PhysicsSphere.h"
-#include "../../Components/MultipleSphere/PhysicsMultipleSphere.h"
-#include "../../Components/Capsule/PhysicsCapsule.h"
-#include "../../Components/Cone/PhysicsCone.h"
-#include "../../Components/Cylinder/PhysicsCylinder.h"
-#include "../../Components/StaticPlane/PhysicsStaticPlane.h"
-#include "../../Components/TriangleMesh/PhysicsTriangleMesh.h"
-#include "../../Components/ConvexTriangleMesh/PhysicsConvexTriangleMesh.h"
-#include "../../Components/ConvexHull/PhysicsConvexHull.h"
-#include "../../Components/Vehicle/PhysicsVehicle.h"
+#include <Pyros3D/Physics/PhysicsEngines/BulletPhysics/BulletPhysics.h>
+#include <Pyros3D/Physics/Components/Box/PhysicsBox.h>
+#include <Pyros3D/Physics/Components/Sphere/PhysicsSphere.h>
+#include <Pyros3D/Physics/Components/MultipleSphere/PhysicsMultipleSphere.h>
+#include <Pyros3D/Physics/Components/Capsule/PhysicsCapsule.h>
+#include <Pyros3D/Physics/Components/Cone/PhysicsCone.h>
+#include <Pyros3D/Physics/Components/Cylinder/PhysicsCylinder.h>
+#include <Pyros3D/Physics/Components/StaticPlane/PhysicsStaticPlane.h>
+#include <Pyros3D/Physics/Components/TriangleMesh/PhysicsTriangleMesh.h>
+#include <Pyros3D/Physics/Components/ConvexTriangleMesh/PhysicsConvexTriangleMesh.h>
+#include <Pyros3D/Physics/Components/ConvexHull/PhysicsConvexHull.h>
+#include <Pyros3D/Physics/Components/Vehicle/PhysicsVehicle.h>
 
 namespace p3d {
     

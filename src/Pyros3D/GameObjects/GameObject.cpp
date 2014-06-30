@@ -6,8 +6,9 @@
 // Description : GameObject
 //============================================================================
 
-#include "GameObject.h"
-#include "../Ext/StringIDs/StringID.hpp"
+#include <Pyros3D/GameObjects/GameObject.h>
+#include <Pyros3D/Ext/StringIDs/StringID.hpp>
+
 namespace p3d {
 
     GameObject::GameObject() 

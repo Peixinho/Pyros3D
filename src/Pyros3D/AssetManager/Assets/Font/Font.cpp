@@ -7,8 +7,8 @@
 //============================================================================
 
 
-#include "Font.h"
-#include "../../AssetManager.h"
+#include <Pyros3D/AssetManager/Assets/Font/Font.h>
+#include <Pyros3D/AssetManager/AssetManager.h>
 
 namespace p3d {
     

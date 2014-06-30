@@ -6,7 +6,7 @@
 // Description : Mouse 3D Class
 //============================================================================
 
-#include "Mouse3D.h"
+#include <Pyros3D/Utils/Mouse3D/Mouse3D.h>
 
 namespace p3d {
 

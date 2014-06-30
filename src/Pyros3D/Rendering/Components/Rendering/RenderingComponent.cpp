@@ -6,7 +6,7 @@
 // Description : Component For Rendering
 //============================================================================
 
-#include "RenderingComponent.h"
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #if defined(ANDROID) || defined(EMSCRIPTEN)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>

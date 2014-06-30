@@ -6,9 +6,9 @@
 // Description : Generic Shader Materials
 //============================================================================
 
-#include "GenericShaderMaterial.h"
-#include "../../AssetManager/Assets/Font/Font.h"
-#include "../../AssetManager/AssetManager.h"
+#include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
+#include <Pyros3D/AssetManager/Assets/Font/Font.h>
+#include <Pyros3D/AssetManager/AssetManager.h>
 
 namespace p3d
 {

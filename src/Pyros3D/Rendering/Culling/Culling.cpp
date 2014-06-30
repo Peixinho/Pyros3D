@@ -6,7 +6,7 @@
 // Description : Culling Class
 //============================================================================
 
-#include "Culling.h"
+#include <Pyros3D/Rendering/Culling/Culling.h>
 
 namespace p3d {
 

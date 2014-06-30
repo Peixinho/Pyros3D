@@ -6,7 +6,7 @@
 // Description : CRC32
 //============================================================================
 
-#include "CRC32.hpp"
+#include <Pyros3D/Ext/StringIDs/CRC32.hpp>
 #include <iostream>
 namespace p3d
 {

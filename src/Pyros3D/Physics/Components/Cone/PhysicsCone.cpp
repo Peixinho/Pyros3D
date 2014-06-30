@@ -7,7 +7,7 @@
 //============================================================================
 
 
-#include "PhysicsCone.h"
+#include <Pyros3D/Physics/Components/Cone/PhysicsCone.h>
 
 namespace p3d {   
 

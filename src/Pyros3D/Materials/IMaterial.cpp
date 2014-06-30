@@ -6,7 +6,7 @@
 // Description : IMaterial Interface
 //============================================================================
 
-#include "IMaterial.h"
+#include <Pyros3D/Materials/IMaterial.h>
 
 namespace p3d {
     

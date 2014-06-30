@@ -7,7 +7,7 @@
 //============================================================================
 
 #include <math.h>
-#include "Quaternion.h"
+#include <Pyros3D/Core/Math/Quaternion.h>
 
 namespace p3d {
 

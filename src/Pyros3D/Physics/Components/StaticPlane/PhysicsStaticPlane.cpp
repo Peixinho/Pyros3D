@@ -7,7 +7,7 @@
 //============================================================================
 
 
-#include "PhysicsStaticPlane.h"
+#include <Pyros3D/Physics/Components/StaticPlane/PhysicsStaticPlane.h>
 
 namespace p3d {   
 

@@ -7,7 +7,7 @@
 //============================================================================
 
 
-#include "PhysicsConvexTriangleMesh.h"
+#include <Pyros3D/Physics/Components/ConvexTriangleMesh/PhysicsConvexTriangleMesh.h>
 
 namespace p3d {   
 

@@ -6,7 +6,7 @@
 // Description : Loads model animation based on Assimp
 //============================================================================
 
-#include "AnimationLoader.h"
+#include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/AnimationLoader.h>
 
 namespace p3d {
 

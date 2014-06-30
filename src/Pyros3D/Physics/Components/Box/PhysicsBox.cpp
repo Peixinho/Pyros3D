@@ -7,7 +7,7 @@
 //============================================================================
 
 
-#include "PhysicsBox.h"
+#include <Pyros3D/Physics/Components/Box/PhysicsBox.h>
 
 namespace p3d {   
 

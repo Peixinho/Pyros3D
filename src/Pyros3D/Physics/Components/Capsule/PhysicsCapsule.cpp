@@ -7,7 +7,7 @@
 //============================================================================
 
 
-#include "PhysicsCapsule.h"
+#include <Pyros3D/Physics/Components/Capsule/PhysicsCapsule.h>
 
 namespace p3d { 
 

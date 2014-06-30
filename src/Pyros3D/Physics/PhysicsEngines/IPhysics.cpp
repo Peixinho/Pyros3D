@@ -1,5 +1,5 @@
 
-#include "IPhysics.h"
+#include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
 
 //============================================================================
 // Name        : IPhysics.cpp

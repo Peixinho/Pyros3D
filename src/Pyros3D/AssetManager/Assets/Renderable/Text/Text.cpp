@@ -8,7 +8,7 @@
 
 #include <string>
 
-#include "Text.h"
+#include <Pyros3D/AssetManager/Assets/Renderable/Text/Text.h>
 
 namespace p3d {
 

@@ -7,7 +7,7 @@
 //============================================================================
 
 
-#include "PhysicsConvexHull.h"
+#include <Pyros3D/Physics/Components/ConvexHull/PhysicsConvexHull.h>
 
 namespace p3d {   
 

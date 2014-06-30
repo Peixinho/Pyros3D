@@ -9,7 +9,7 @@
 #include <string.h>
 #include <vector>
 #include <iostream>
-#include "Geometry.h"
+#include <Pyros3D/Utils/Geometry/Geometry.h>
 
 namespace p3d {
 

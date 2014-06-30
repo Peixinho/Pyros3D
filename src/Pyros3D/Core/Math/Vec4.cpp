@@ -6,7 +6,7 @@
 // Description : Vector 4
 //============================================================================
 
-#include "Vec4.h"
+#include <Pyros3D/Core/Math/Vec4.h>
 
 namespace p3d {
 

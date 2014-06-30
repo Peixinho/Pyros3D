@@ -6,7 +6,7 @@
 // Description : Model Geometry
 //============================================================================
 
-#include "Model.h"
+#include <Pyros3D/AssetManager/Assets/Renderable/Models/Model.h>
 
 namespace p3d {
 

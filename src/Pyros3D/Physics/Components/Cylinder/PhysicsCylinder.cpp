@@ -7,7 +7,7 @@
 //============================================================================
 
 
-#include "PhysicsCylinder.h"
+#include <Pyros3D/Physics/Components/Cylinder/PhysicsCylinder.h>
 
 namespace p3d { 
 

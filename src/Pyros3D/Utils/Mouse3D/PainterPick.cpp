@@ -6,7 +6,7 @@
 // Description : Painter Pick Class
 //============================================================================
 
-#include "PainterPick.h"
+#include <Pyros3D/Utils/Mouse3D/PainterPick.h>
 
 namespace p3d {
 
