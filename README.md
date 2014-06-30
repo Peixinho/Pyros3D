@@ -5,8 +5,6 @@ Compilation Process:
 	you'll need to use premake4 to build your makefiles (linux), xcode Project (Mac OSX) or VS Project (Win32)
 
 	Dependencies:
-	
-		FreeImage 3.0
 		FreeType2 (using 2.5.2)
 		GLEW
 		BulletPhysics 2.8 (using bullet-2.81-rev2613)
