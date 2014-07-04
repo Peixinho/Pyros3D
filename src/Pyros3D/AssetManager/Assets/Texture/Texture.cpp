@@ -75,8 +75,11 @@ namespace p3d {
                 memcpy(&__Textures[TextureStringID].Image[0],sfImage.getPixelsPtr(),w*h*4);
             #else
                 //USING LODEPNG ( USEFUL FOR EMSCRIPTEN AND ANDROID )
-                unsigned char* imagePTR = &__Textures[TextureStringID].Image[0];
+                uchar* imagePTR;
                 ImageLoaded = (lodepng_decode32(&imagePTR, &w, &h, &file->GetData()[0], file->Size())!=0?false:true);
+                __Textures[TextureStringID].Image.resize(w*h*4);
+                memcpy(&__Textures[TextureStringID].Image[0],imagePTR,w*h*4);
+                delete imagePTR;
             #endif
 
             if (!ImageLoaded) echo("ERROR: Failed to Open Texture");
