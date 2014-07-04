@@ -10,10 +10,7 @@
 #define	BINARYFILE_H
 
 #include "../../Other/Export.h"
-#include <fstream>
-#include <vector>
-#include <iostream>
-#include <string>
+#include "../../Core/File/File.h"
 
 using namespace std;
 
@@ -27,18 +24,18 @@ namespace p3d {
 			
 			virtual ~BinaryFile() {}
 
-			void Open(const char* file, const char &o)
+			void Open(const char* filename, const char &o)
 			{
 				option = o;
-				
+				file = new File();
 				switch(o)
 				{
 					case 'r':
-						is = new ifstream(file,ios::binary);
+						file->Open(filename,false);
 					break;
 					case 'w':
 					default:
-						os = new ofstream(file,ios::binary);
+						file->Open(filename,true);
 					break;
 				}
 
@@ -66,33 +63,24 @@ namespace p3d {
 			void Close()
 			{
 				if (memory)
+				{
 					data.clear();
-
-				else
-					switch(option)
-					{
-						case 'r':
-							is->close();
-							delete is;
-						break;
-						case 'w':
-						default:
-							os->close();
-							delete os;
-						break;
-					}
+				} else {
+					file->Close();
+					delete file;
+				}
 			}
 
 			void Write(const void* src, const uint32 &size)
 			{
 				if (!memory)
-					os->write((const char*)src, size);
+					file->Write((const char*)src, size);
 			}
 
 			void Read(const void* src, const uint32 &size)
 			{
 				if (!memory)
-					is->read((char*)src, size);
+					file->Read((char*)src, size);
 
 				else {
 					memcpy((char*)src, &data[positionStream], sizeof(uchar)*size);
@@ -104,8 +92,7 @@ namespace p3d {
 
 			// From File
 			char option;
-			ofstream *os;
-			ifstream *is;
+			File* file;
 
 			// From Memory
 			bool memory;

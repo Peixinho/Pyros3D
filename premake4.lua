@@ -9,7 +9,7 @@ solution "Pyros3D"
     os.mkdir("include");
     os.mkdir("libs");
 
-    newoption {
+	newoption {
        trigger     = "framework",
        value       = "API",
        description = "Choose a particular API for window management",
@@ -21,18 +21,33 @@ solution "Pyros3D"
     }
 
     newoption {
-        trigger = "bin",
-        value = "output",
-        description = "Choose a output binary file",
-        allowed = {
-            { "static", "Static Library - Default" },
-            { "shared", "Shared Library" }
-        }
+       trigger     = "x32",
+       description = "Build for 32bit - Default Option"
+    }
+
+    newoption {
+       trigger     = "x64",
+       description = "Build for 64bit"
+    }
+
+    newoption {
+       trigger     = "shared",
+       description = "Ouput Shared Library - Default Option"
+    }
+
+	newoption {
+       trigger     = "static",
+       description = "Ouput Static Library"
     }
 
     newoption {
        trigger     = "examples",
        description = "Build Demos Examples"
+    }
+
+    newoption {
+       trigger     = "lodepng",
+       description = "Using Lodepng to load textures(PNG Only - Android and Emscripten)"
     }
 
     newoption {
@@ -64,11 +79,16 @@ solution "Pyros3D"
         excludes { "**/SDL2/**", "**/SDL/**" }
     end
 
+    buildArch = "x32"
+    if _OPTIONS["x64"] then
+        buildArch = "x64"
+    end
+
     ------------------------------------------------------------------
     -- setup common settings
     ------------------------------------------------------------------
     configurations { "Debug", "Release" }
-    platforms { "x32" }
+    platforms { buildArch }
     location "build"
 
     rootdir = "."
@@ -77,17 +97,22 @@ solution "Pyros3D"
     project "PyrosEngine"
         targetdir "libs"
         
-        if _OPTIONS["bin"]=="shared" then
-            kind "SharedLib"
-        else
+        if _OPTIONS["static"] then
             kind "StaticLib"
+        else
+            kind "SharedLib"
         end
 
         language "C++"
-        files { "src/**.h", "src/**.cpp" }
-        
+        files { "src/**.h", "src/**.cpp", includeFiles }
         includedirs { "include/" }
 
+        -- LodePNG
+        if not _OPTIONS["lodepng"] then
+            excludes { "lopdeng/" }
+        end
+
+        -- Windows DLL And Lib Creation
 		if os.get() == "windows" and _OPTIONS["bin"]=="shared" then
 			defines({"_EXPORT"})
 		else
@@ -104,6 +129,10 @@ solution "Pyros3D"
             else
                 defines({"LOG_DISABLE"}) 
             end
+        end
+
+        if _OPTIONS["lodepng"] then
+            defines({"LODEPNG"})
         end
                 
         configuration "Debug"
@@ -124,18 +153,18 @@ function BuildDemo(demoPath, demoName)
         language "C++"
         files { demoPath.."/**.h", demoPath.."/**.cpp", demoPath.."/../WindowManagers/**.cpp", demoPath.."/../WindowManagers/**.h", demoPath.."/../MainProgram.cpp" }
 
-	if framework == "SDL" then
-		excludes { "**/SFML/**" }
-		excludes { "**/SDL2/**" }
-	else 
-		if framework == "SDL2" then
-			excludes { "**/SDL/**" }
+		if framework == "SDL" then
 			excludes { "**/SFML/**" }
-		else
-			excludes { "**/SDL/**" }
 			excludes { "**/SDL2/**" }
+		else 
+			if framework == "SDL2" then
+				excludes { "**/SDL/**" }
+				excludes { "**/SFML/**" }
+			else
+				excludes { "**/SDL/**" }
+				excludes { "**/SDL2/**" }
+			end
 		end
-	end
 		
         includedirs { "include/", "src/" }
 	
@@ -167,7 +196,7 @@ function BuildDemo(demoPath, demoName)
             end
 
             if os.get() == "macosx" then
-                links { libName.."d", "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletSoftBody.framework", "LinearMath.framework" }
+                links { libName.."d", "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletSoftBody.framework", "LinearMath.framework" }
                 libdirs { rootdir.."/libs" }
             end
 

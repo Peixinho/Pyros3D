@@ -12,7 +12,7 @@
 #include "../../../Core/Math/Math.h"
 #include "../../../Core/Logs/Log.h"
 #include "../../../Other/Export.h"
-#include <SFML/Graphics.hpp>
+#include "../../../Core/File/File.h"
 #include <map>
 #include <vector>
 
@@ -100,8 +100,8 @@ namespace p3d {
         uint32 Height;
         std::string Filename;
 
-        sf::Image Image;
-        const uchar* GetPixels() { return Image.getPixelsPtr(); }
+        std::vector<uchar> Image;
+        const uchar* GetPixels() { return &Image[0]; }
 
         __Texture() : Using(0), Type(TextureType::Texture), DataType(TextureDataType::RGBA) {}
         
@@ -113,8 +113,6 @@ namespace p3d {
             
             // Internal ID for GL
             int32 GL_ID;
-            // FileName
-            std::string FileName;
             uint32 Type;
             uint32 DataType;
             uint32 Width;
@@ -147,7 +145,7 @@ namespace p3d {
             Texture();
             
             // Texture
-            bool LoadTexture(const std::string& FileName, const uint32 &Type = TextureType::Texture, bool Mipmapping = true);
+            bool LoadTexture(const std::string& Filename, const uint32 &Type = TextureType::Texture, bool Mipmapping = true);
             bool LoadTextureFromMemory(std::vector<uchar> data, const uint32 &length, const uint32 &Type = TextureType::Texture, bool Mipmapping = true);
             bool CreateTexture(const uint32 &Type, const uint32 &DataType, const int32 &width = 0, const int32 &height = 0, bool Mipmapping = true);
             bool CreateTexture(bool Mipmapping = true);

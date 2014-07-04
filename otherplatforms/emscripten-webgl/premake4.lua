@@ -37,12 +37,12 @@ solution "Pyros3D"
         kind "SharedLib"
 
         language "C++"
-        files { "../../src/**.h", "../../src/**.cpp", "src/**.cpp", "src/**.h" }
+        files { "../../src/**.h", "../../src/**.cpp" }
         excludes { "../../src/Pyros3D/AssetManager/Assets/Texture/Texture.cpp", "../../src/Pyros3D/AssetManager/Assets/Font/**", "../../src/Pyros3D/Utils/ModelLoaders/MultiModelLoader/**" }
         
         includedirs { "include/" }
 
-        defines({"UNICODE", "GLEW_STATIC", "LOG_DISABLE"}) 
+        defines({"UNICODE", "GLEW_STATIC", "LOG_DISABLE", "LODEPNG"}) 
                 
         configuration "Debug"
 

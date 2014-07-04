@@ -9,6 +9,7 @@
 
 #include <Pyros3D/AssetManager/Assets/Font/Font.h>
 #include <Pyros3D/AssetManager/AssetManager.h>
+#include <Pyros3D/Core/File/File.h>
 
 namespace p3d {
     
@@ -28,15 +29,21 @@ namespace p3d {
         glyphMap->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
         glyphMap->SetTextureByteAlignment(1);
         
+        File* file = new File();
+        file->Open(font.c_str());
+
         // Free Type Initialization
         if (FT_Init_FreeType(&ft)) echo("ERROR: Couldn't Start Freetype Lib");
-        if (FT_New_Face(ft, font.c_str(), 0, &face)) echo("ERROR: Couldn't Load Font");
+        if (FT_New_Memory_Face(ft,&file->GetData()[0],file->Size(),0,&face)) echo("ERROR: Couldn't Load Font");
         if (FT_Set_Char_Size(face,0,fontSize*64,300,300)) echo("ERROR: Couldn't Set Char Size");
         if (FT_Set_Pixel_Sizes(face,0,fontSize)) echo("ERROR: Couldn't Set Pixel Size");
         
         glyphMap->UpdateData(glyphMapData);
         
         lastGlyphWidth = lastGlyphRow = 0;
+
+        file->Close();
+        delete file;
     }
 
 #endif

@@ -15,6 +15,15 @@
     #include "GL/glew.h"
 #endif
 
+
+#if defined(LODEPNG)
+    #include "../../../Ext/lodepng/lodepng.h"
+#else
+    #include <SFML/Graphics.hpp>
+    #include <string.h>
+#endif
+
+
 #define GLCHECK() { int error =0; error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } }
 
 namespace p3d {
@@ -41,42 +50,56 @@ namespace p3d {
             __Textures.erase(TextureInternalID);
         }
     }
-    
-#if !defined(EMSCRIPTEN)
 
-    bool Texture::LoadTexture(const std::string& FileName, const uint32 &Type, bool Mipmapping)
+    bool Texture::LoadTexture(const std::string& Filename, const uint32 &Type, bool Mipmapping)
     {
         bool failed = false;
         bool ImageLoaded = false;
         
-        StringID TextureStringID(MakeStringID(FileName));
+        StringID TextureStringID(MakeStringID(Filename));
         if (__Textures.find(TextureStringID)==__Textures.end())
         {
-            sf::Image Image = sf::Image();
-            ImageLoaded = Image.loadFromFile(FileName);
-                
-		if (!ImageLoaded)
-		{
-		    echo("ERROR: Texture Not Found!");
-		    ImageLoaded = Image.loadFromFile("textures/texture_not_found.png");
-		}
 
-            __Textures[TextureStringID].DataType = TextureDataType::RGBA;
+            File* file = new File();
+            file->Open(Filename);
+
+            unsigned int w,h;
+            #if !defined(LODEPNG)
+                // USING SFML
+                sf::Image sfImage;
+                ImageLoaded = sfImage.loadFromMemory(&file->GetData()[0],file->Size());
+                w=sfImage.getSize().x;
+                h=sfImage.getSize().y;
+                // Copy Pixels
+                __Textures[TextureStringID].Image.resize(w*h*4);
+                memcpy(&__Textures[TextureStringID].Image[0],sfImage.getPixelsPtr(),w*h*4);
+            #else
+                //USING LODEPNG ( USEFUL FOR EMSCRIPTEN AND ANDROID )
+                unsigned char* imagePTR = &__Textures[TextureStringID].Image[0];
+                ImageLoaded = (lodepng_decode32(&imagePTR, &w, &h, &file->GetData()[0], file->Size())!=0?false:true);
+            #endif
+
+            if (!ImageLoaded) echo("ERROR: Failed to Open Texture");
+            
+            file->Close();
+            delete file;
 
             // Save Texture Information
-            __Textures[TextureStringID].Image = Image;
+            __Textures[TextureStringID].DataType = TextureDataType::RGBA;
             __Textures[TextureStringID].Type = Type;
             __Textures[TextureStringID].TextureID = __Textures.size();
             __Textures[TextureStringID].Using = 1;
-            __Textures[TextureStringID].Filename = FileName;
+            __Textures[TextureStringID].Filename = Filename;
+            __Textures[TextureStringID].Width = w;
+            __Textures[TextureStringID].Height = h;
             
         } else {
             __Textures[TextureStringID].Using++;
         }
         
         this->TextureInternalID = TextureStringID;
-        this->Width=__Textures[TextureStringID].Image.getSize().x;
-        this->Height=__Textures[TextureStringID].Image.getSize().y;
+        this->Width=__Textures[TextureStringID].Width;
+        this->Height=__Textures[TextureStringID].Height;
         this->haveImage=true;
         this->Type=Type;
         this->DataType=__Textures[TextureStringID].DataType;
@@ -101,37 +124,47 @@ namespace p3d {
         return CreateTexture(Mipmapping);
     }
 
-#endif    
-    
     bool Texture::LoadTextureFromMemory(std::vector<uchar> data, const uint32 &length, const uint32 &Type, bool Mipmapping)
     {
 
         bool failed = false;
         bool ImageLoaded = false;
         
-        StringID TextureStringID(MakeStringIDFromChar(&data[0], length));
+        StringID TextureStringID(MakeStringIDFromChar(&data[0], (size_t)length));
         if (__Textures.find(TextureStringID)==__Textures.end())
         {
-            
-            sf::Image Image;
-            ImageLoaded = Image.loadFromMemory(&data[0],length);
+            unsigned int w,h;
+            #if !defined(LODEPNG)
+                // USING SFML
+                sf::Image sfImage;
+                ImageLoaded = sfImage.loadFromMemory(&data[0],length);
+                w=sfImage.getSize().x;
+                h=sfImage.getSize().y;
+                // Copy Pixels
+                memcpy(&__Textures[TextureStringID].Image[0],sfImage.getPixelsPtr(),w*h*4*sizeof(uchar));
+            #else
+                //USING LODEPNG ( USEFUL FOR EMSCRIPTEN AND ANDROID )
+                unsigned char* imagePTR = &__Textures[TextureStringID].Image[0];
+                ImageLoaded = (lodepng_decode32(&imagePTR, &w, &h, &data[0], length)!=0?false:true);
+            #endif
 
-            __Textures[TextureStringID].DataType = TextureDataType::RGBA;
+            if (!ImageLoaded) echo("ERROR: Failed to Open Texture");   
 
             // Save Texture Information
-            __Textures[TextureStringID].Image = Image;
+            __Textures[TextureStringID].DataType = TextureDataType::RGBA;
             __Textures[TextureStringID].Type = Type;
             __Textures[TextureStringID].TextureID = __Textures.size();
             __Textures[TextureStringID].Using = 1;
-            __Textures[TextureStringID].Filename = FileName;
+            __Textures[TextureStringID].Width = w;
+            __Textures[TextureStringID].Width = h;
             
         } else {
             __Textures[TextureStringID].Using++;
         }
         
         this->TextureInternalID = TextureStringID;
-        this->Width=__Textures[TextureStringID].Image.getSize().x;
-        this->Height=__Textures[TextureStringID].Image.getSize().y;
+        this->Width=__Textures[TextureStringID].Width;
+        this->Height=__Textures[TextureStringID].Height;
         this->haveImage=true;
         this->Type=Type;
         this->DataType=__Textures[TextureStringID].DataType;
