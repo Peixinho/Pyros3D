@@ -69,7 +69,8 @@ namespace p3d {
 
 			// Get Texture
 			Texture* GetTexture();
-
+			// Get Frame
+			const uint32 GetFrame() const;
 			// CallBacks
 			void OnStart(void (*func) (void));
 			template< class X, class Y >

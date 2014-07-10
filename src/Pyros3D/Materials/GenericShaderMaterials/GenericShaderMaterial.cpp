@@ -180,7 +180,10 @@ namespace p3d
         {
             ShadersList[shaderID]->currentMaterials--;
             if (ShadersList[shaderID]->currentMaterials==0)
+            {
                 delete ShadersList[shaderID];
+                ShadersList.erase(ShadersList.find(shaderID));
+            }        
         }
     }
     

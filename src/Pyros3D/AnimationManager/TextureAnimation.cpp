@@ -94,7 +94,10 @@ namespace p3d {
     {
         return Owner->Frames[_frame];
     }
-
+    const uint32 TextureAnimationInstance::GetFrame() const
+    {
+        return _frame;
+    }
     void TextureAnimationInstance::YoYo(bool yo)
     {
         yoyo = yo;

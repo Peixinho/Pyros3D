@@ -3,7 +3,7 @@
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
-// Description : Asset Interface
+// Description : Texture
 //============================================================================
 
 #ifndef TEXTURE_H
