@@ -43,17 +43,17 @@ namespace p3d {
             virtual void Destroy();
             
             // Local Space
-            Matrix GetLocalTransformation();
+            const Matrix &GetLocalTransformation() const;
             
-            Vec3 GetPosition();
-            Vec3 GetRotation();
-            Vec3 GetScale();
-            Vec3 GetDirection();
+            const Vec3 &GetPosition() const;
+            const Vec3 &GetRotation() const;
+            const Vec3 &GetScale() const;
+            const Vec3 GetDirection() const;
         
             // World Space
-            Matrix GetWorldTransformation();
-            Vec3 GetWorldPosition();
-            Vec3 GetWorldRotation();
+            const Matrix &GetWorldTransformation() const;
+            const Vec3 GetWorldPosition() const;
+            const Vec3 GetWorldRotation() const;
             
             // Set Properties
             void SetPosition(const Vec3 &position);

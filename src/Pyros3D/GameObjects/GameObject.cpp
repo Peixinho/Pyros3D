@@ -39,7 +39,6 @@ namespace p3d {
     {
         // Update Transformation
         UpdateTransformation();
-        
     }
     
     // Updates the Transformation Matrix
@@ -118,15 +117,15 @@ namespace p3d {
         } else _WorldMatrix = _LocalMatrix;
     }
     // Gets Transformation Matrix
-    Matrix GameObject::GetWorldTransformation()
+    const Matrix &GameObject::GetWorldTransformation() const
     {
         return _WorldMatrix;
     }
-    Matrix GameObject::GetLocalTransformation()
+    const Matrix &GameObject::GetLocalTransformation() const
     {
         return _LocalMatrix;
     }
-    Vec3 GameObject::GetDirection()
+    const Vec3 GameObject::GetDirection() const
     {
         return Vec3(_WorldMatrix.m[8],_WorldMatrix.m[9],_WorldMatrix.m[10]);
     }
@@ -158,27 +157,27 @@ namespace p3d {
         _Scale = scale;
     }
     // Gets Position
-    Vec3 GameObject::GetPosition()
+    const Vec3 &GameObject::GetPosition() const
     {
         return _Position;
     }
     // Gets Rotation
-    Vec3 GameObject::GetRotation()
+    const Vec3 &GameObject::GetRotation() const
     {
         return _Rotation;
     }
     // Gets Scale
-    Vec3 GameObject::GetScale()
+    const Vec3 &GameObject::GetScale() const
     {
         return _Scale;
     }
     // Gets Position
-    Vec3 GameObject::GetWorldPosition()
+    const Vec3 GameObject::GetWorldPosition() const
     {
         return _WorldMatrix.GetTranslation();
     }
     // Gets Rotation
-    Vec3 GameObject::GetWorldRotation()
+    const Vec3 GameObject::GetWorldRotation() const
     {
         return _WorldMatrix.GetRotation(_Scale).GetEulerFromRotationMatrix();
     }

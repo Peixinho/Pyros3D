@@ -79,7 +79,6 @@ namespace p3d {
             (*i)->RegisterComponents(this);
             // Update Components
             (*i)->UpdateComponents();
-            
             // Update Transforms Not Using Threads
             (*i)->InternalUpdate();
             
