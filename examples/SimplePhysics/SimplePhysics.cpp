@@ -70,7 +70,7 @@ void SimplePhysics::Init()
     srand( time( NULL ) );
 
     // Create Geometry
-    Renderable* cubeHandle = AssetManager::CreateCube(10,10,10);
+    cubeHandle = new Cube(10,10,10);
 
     // Create 100 Cubes
     for (uint32 i=0;i<1000;i++)
@@ -99,8 +99,11 @@ void SimplePhysics::Init()
 
     // Create Floor
     Floor = new GameObject();
+    // Create Geometry
+    floorHandle = new Cube(200,5,200);
+
     // Create Floor Geometry
-    rFloor = new RenderingComponent(AssetManager::CreateCube(200,5,200),Diffuse);
+    rFloor = new RenderingComponent(floorHandle,Diffuse);
 
     // Create Floor Physics
     pFloor = (IPhysicsComponent*)physics->CreateBox(100,2.5,100,0);
@@ -167,12 +170,13 @@ void SimplePhysics::Shutdown()
         Floor->Remove(rFloor);
         
         // Delete All Components and GameObjects
-	AssetManager::DestroyAssets();
         delete dLight;
         delete Light;
         delete rFloor;
         delete pFloor;
         delete Floor;
+        delete cubeHandle;
+        delete floorHandle;
         delete physics;
         delete Diffuse;
         delete Camera;

@@ -13,7 +13,6 @@
 #include "../../SceneGraph/SceneGraph.h"
 #include "../../Core/Projection/Projection.h"
 #include "../../Materials/IMaterial.h"
-#include "../../AssetManager/AssetManager.h"
 #include "../Components/Rendering/RenderingComponent.h"
 #include "../Components/Lights/DirectionalLight/DirectionalLight.h"
 #include "../Components/Lights/SpotLight/SpotLight.h"

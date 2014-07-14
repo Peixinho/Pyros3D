@@ -64,8 +64,9 @@ void RotatingCubeWithLightingAndShadow::Init()
         
         // Create Floor
         Floor = new GameObject();
+        floorMesh = new Plane(100,150);
         // Create Floor Rendering Component
-        rFloor = new RenderingComponent(AssetManager::CreatePlane(100,150),FloorMaterial);
+        rFloor = new RenderingComponent(floorMesh,FloorMaterial);
         
         // Add Rendering Component To GameObject
         Floor->Add(rFloor);
@@ -79,15 +80,15 @@ void RotatingCubeWithLightingAndShadow::Init()
         Floor->SetPosition(Vec3(0,-20,-20));
         
         // Create Game Object
-        Cube = new GameObject();
-        // Create Cube Rendering Component
-        rCube = new RenderingComponent(AssetManager::CreateCube(30,30,30), Diffuse);
-        Cube->Add(rCube);
+        CubeObject = new GameObject();
+        cubeMesh = new Cube(30,30,30);
+        rCube = new RenderingComponent(cubeMesh,Diffuse);
+        CubeObject->Add(rCube);
         
         // Add Camera to Scene
         Scene->Add(Camera);
         // Add GameObject to Scene
-        Scene->Add(Cube);
+        Scene->Add(CubeObject);
         Camera->LookAt(Vec3::ZERO);
 
 }
@@ -100,7 +101,7 @@ void RotatingCubeWithLightingAndShadow::Update()
         Scene->Update(GetTime());
         
         // Game Logic Here
-        Cube->SetRotation(Vec3(0,GetTime(),0));
+        CubeObject->SetRotation(Vec3(0,GetTime(),0));
 
         // Render Scene
         Renderer->RenderScene(projection,Camera,Scene);
@@ -111,20 +112,22 @@ void RotatingCubeWithLightingAndShadow::Shutdown()
     // All your Shutdown Code Here
     
         // Remove GameObjects From Scene
-        Scene->Remove(Cube);
+        Scene->Remove(CubeObject);
         Scene->Remove(Camera);
         Scene->Remove(Light);
         Scene->Remove(Floor);
         
-        Cube->Remove(rCube);
+        CubeObject->Remove(rCube);
         Light->Remove(dLight);
         Floor->Remove(rFloor);
         
         // Delete
         delete rCube;
-        delete Cube;
+        delete CubeObject;
         delete rFloor;
         delete Floor;
+        delete cubeMesh;
+        delete floorMesh;
         delete dLight;
         delete Light;
         delete Diffuse;

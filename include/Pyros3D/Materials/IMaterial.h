@@ -14,7 +14,7 @@
 #include "Shaders/Shaders.h"
 #include "Shaders/Uniforms.h"
 #include "../Ext/StringIDs/StringID.hpp"
-#include "../AssetManager/Assets/Texture/Texture.h"
+#include "../Assets/Texture/Texture.h"
 #include "../Other/Export.h"
 
 namespace p3d {    

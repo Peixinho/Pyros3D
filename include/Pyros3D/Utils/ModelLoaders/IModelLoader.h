@@ -10,7 +10,7 @@
 #define	IMODELLOADER_H
 
 #include "../../Core/Math/Math.h"
-#include "../../AssetManager/Assets/Renderable/Renderables.h"
+#include "../../Assets/Renderable/Renderables.h"
 #include "../../Other/Export.h"
 #include <string.h>
 #include <fstream>

@@ -24,7 +24,8 @@ namespace p3d {
         ActivateCulling(CullingMode::FrustumCulling);
         
         // Create Texture (CubeMap), Frame Buffer and Set the Texture as Attachment
-        environmentMap=AssetManager::CreateTexture(TextureType::CubemapNegative_X,TextureDataType::RGB,Width,Height,false);
+        environmentMap = new Texture();
+        environmentMap->CreateTexture(TextureType::CubemapNegative_X,TextureDataType::RGB,Width,Height,false);
         environmentMap->CreateTexture(TextureType::CubemapNegative_Y,TextureDataType::RGB,Width,Height,false);
         environmentMap->CreateTexture(TextureType::CubemapNegative_Z,TextureDataType::RGB,Width,Height,false);
         environmentMap->CreateTexture(TextureType::CubemapPositive_X,TextureDataType::RGB,Width,Height,false);
@@ -45,7 +46,7 @@ namespace p3d {
             delete culling;
         }
         
-        AssetManager::DeleteTexture(environmentMap);
+        delete environmentMap;
         delete fbo;
     }
     

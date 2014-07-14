@@ -20,13 +20,15 @@
     #define ClassName SFMLContext
 #endif
 
-#include "Pyros3D/Core/Projection/Projection.h"
-#include "Pyros3D/SceneGraph/SceneGraph.h"
-#include "Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h"
-#include "Pyros3D/Rendering/Components/Rendering/RenderingComponent.h"
-#include "Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h"
-#include "Pyros3D/Physics/Physics.h"
-#include "Pyros3D/Physics/Components/IPhysicsComponent.h"
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
+#include <Pyros3D/SceneGraph/SceneGraph.h>
+#include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
+#include <Pyros3D/Utils/Colors/Colors.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Physics/Physics.h>
+#include <Pyros3D/Physics/Components/IPhysicsComponent.h>
 
 using namespace p3d;
 
@@ -56,6 +58,7 @@ class SimplePhysics : public ClassName {
         std::vector<GameObject*> Cubes;
         std::vector<RenderingComponent*> rCubes;
         std::vector<IPhysicsComponent*> pCubes;
+        Renderable* cubeMesh;
         // Light
         GameObject* Light;
         DirectionalLight* dLight;
@@ -66,6 +69,8 @@ class SimplePhysics : public ClassName {
         RenderingComponent* rFloor;
         // Floor Physics Component
         IPhysicsComponent* pFloor;
+        // Mesh
+        Renderable* cubeHandle, *floorHandle;
         
         // Physics Method
         Physics* physics;

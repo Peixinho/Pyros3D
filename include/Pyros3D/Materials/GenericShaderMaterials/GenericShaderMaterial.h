@@ -11,7 +11,7 @@
 
 #include "../IMaterial.h"
 #include "ShaderLib.h"
-#include "../../AssetManager/Assets/Font/Font.h"
+#include "../../Assets/Font/Font.h"
 #include "../../Other/Export.h"
 #include <iostream>
 #include <map>

@@ -55,8 +55,9 @@ namespace p3d {
         deferredMaterial->AddUniform(Uniform::Uniform("uViewMatrix", Uniform::DataUsage::ViewMatrix));
         deferredMaterial->AddUniform(Uniform::Uniform("uProjectionMatrix", Uniform::DataUsage::ProjectionMatrix));
         
-        // Light Volumes
-        pointLight = new RenderingComponent(AssetManager::CreateSphere(1));
+        // Light Volume
+        sphereHandle = new Sphere(1,4,4);
+        pointLight = new RenderingComponent(sphereHandle);
     }
     
     void DeferredRenderer::Resize(const uint32& Width, const uint32& Height)
@@ -72,6 +73,7 @@ namespace p3d {
         }
         
         delete shadowMaterial;
+        delete sphereHandle;
     }
     
     std::vector<RenderingMesh*> DeferredRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 &Tag)

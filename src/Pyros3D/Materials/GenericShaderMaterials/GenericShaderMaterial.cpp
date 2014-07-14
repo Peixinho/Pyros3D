@@ -7,8 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
-#include <Pyros3D/AssetManager/Assets/Font/Font.h>
-#include <Pyros3D/AssetManager/AssetManager.h>
+#include <Pyros3D/Assets/Font/Font.h>
 
 namespace p3d
 {

@@ -20,13 +20,14 @@
     #define ClassName SFMLContext
 #endif
 
-#include "Pyros3D/SceneGraph/SceneGraph.h"
-#include "Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h"
-#include "Pyros3D/Utils/Colors/Colors.h"
-#include "Pyros3D/Rendering/Components/Rendering/RenderingComponent.h"
-#include "Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h"
-#include "Pyros3D/Rendering/Components/Rendering/RenderingComponent.h"
-#include "Pyros3D/AnimationManager/AnimationManager.h"
+#include <Pyros3D/Assets/Renderable/Models/Model.h>
+#include <Pyros3D/SceneGraph/SceneGraph.h>
+#include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
+#include <Pyros3D/Utils/Colors/Colors.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/AnimationManager/AnimationManager.h>
 
 using namespace p3d;
 
@@ -56,9 +57,11 @@ class SkeletonAnimation : public ClassName {
         GameObject* Light;
         DirectionalLight* dLight;
         // GameObject
-        GameObject* Model;
+        GameObject* ModelObject;
         // Rendering Component
         RenderingComponent* rModel;
+        // Model handle
+        Renderable* modelHandle;
         // Animation
         AnimationManager* Animation;
 

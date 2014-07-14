@@ -45,12 +45,12 @@ void RotatingTextureAnimatedCube::Init()
         // Material
         material = new GenericShaderMaterial(ShaderUsage::Texture);
         
-    	Texture* tex0 = AssetManager::LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/1.png", TextureType::Texture);
-    	Texture* tex1 = AssetManager::LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/2.png", TextureType::Texture);
-    	Texture* tex2 = AssetManager::LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/3.png", TextureType::Texture);
-    	Texture* tex3 = AssetManager::LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/4.png", TextureType::Texture);
-    	Texture* tex4 = AssetManager::LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/5.png", TextureType::Texture);
-    	Texture* tex5 = AssetManager::LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/6.png", TextureType::Texture);
+    	tex0 = new Texture(); tex0->LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/1.png", TextureType::Texture);
+    	tex1 = new Texture(); tex1->LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/2.png", TextureType::Texture);
+    	tex2 = new Texture(); tex2->LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/3.png", TextureType::Texture);
+    	tex3 = new Texture(); tex3->LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/4.png", TextureType::Texture);
+    	tex4 = new Texture(); tex4->LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/5.png", TextureType::Texture);
+    	tex5 = new Texture(); tex5->LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/6.png", TextureType::Texture);
     	anim = new TextureAnimation();
     	anim->AddFrame(tex0);
     	anim->AddFrame(tex1);
@@ -66,14 +66,15 @@ void RotatingTextureAnimatedCube::Init()
         animInst->Play(0);
 	
         // Create Game Object
-        Cube = new GameObject();
-        rCube = new RenderingComponent(AssetManager::CreateCube(30,30,30), material);
-        Cube->Add(rCube);
+        CubeObject = new GameObject();
+        cubeMesh = new Cube(30,30,30);
+        rCube = new RenderingComponent(cubeMesh,material);
+        CubeObject->Add(rCube);
         
         // Add Camera to Scene
         Scene->Add(Camera);
         // Add GameObject to Scene
-        Scene->Add(Cube);
+        Scene->Add(CubeObject);
         Camera->LookAt(Vec3::ZERO);
 	   
         animInst->Play(0); // Loop
@@ -99,7 +100,7 @@ void RotatingTextureAnimatedCube::Update()
         Scene->Update(GetTime());
         
         // Game Logic Here
-        Cube->SetRotation(Vec3(0,GetTime(),0));
+        CubeObject->SetRotation(Vec3(0,GetTime(),0));
 
         // Render Scene
         Renderer->RenderScene(projection,Camera,Scene);
@@ -110,19 +111,25 @@ void RotatingTextureAnimatedCube::Shutdown()
     // All your Shutdown Code Here
     
         // Remove GameObjects From Scene
-        Scene->Remove(Cube);
+        Scene->Remove(CubeObject);
         Scene->Remove(Camera);
         
-        Cube->Remove(rCube);
+        CubeObject->Remove(rCube);
     
         // Delete
-        AssetManager::DestroyAssets();
         delete material;
         delete rCube;
-        delete Cube;
+        delete CubeObject;
+        delete cubeMesh;
         delete Camera;
         delete Renderer;
         delete Scene;
+        delete tex0;
+        delete tex1;
+        delete tex2;
+        delete tex3;
+        delete tex4;
+        delete tex5;
 }
 
 RotatingTextureAnimatedCube::~RotatingTextureAnimatedCube() {}

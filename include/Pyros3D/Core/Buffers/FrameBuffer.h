@@ -9,8 +9,7 @@
 #ifndef FRAMEBUFFER_H
 #define FRAMEBUFFER_H
 #include "../../Materials/Shaders/Shaders.h"
-#include "../../AssetManager/AssetManager.h"
-#include "../../AssetManager/Assets/Texture/Texture.h"
+#include "../../Assets/Texture/Texture.h"
 #include "../Logs/Log.h"
 #include "../../Other/Export.h"
 

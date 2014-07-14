@@ -50,17 +50,18 @@ void SkeletonAnimation::Init()
         Light->SetPosition(Vec3(1,1,1));
 
         // Create Game Object
-        Model = new GameObject();
-        rModel = new RenderingComponent(AssetManager::LoadModel("../../../../examples/SkeletonAnimation/assets/Model.p3dm",false,ShaderUsage::Diffuse | ShaderUsage::Skinning));
-        Model->Add(rModel);
-		Model->AddTag("Teste");
+        ModelObject = new GameObject();
+        modelHandle = new Model("../../../../examples/SkeletonAnimation/assets/Model.p3dm",false,ShaderUsage::Diffuse | ShaderUsage::Skinning);
+        rModel = new RenderingComponent(modelHandle);
+        ModelObject->Add(rModel);
+		ModelObject->AddTag("Teste");
         Animation = new AnimationManager();
         Animation->LoadAnimation("../../../../examples/SkeletonAnimation/assets/Animation.p3da", rModel);
         
         // Add Camera to Scene
         Scene->Add(Camera);
         // Add GameObject to Scene
-        Scene->Add(Model);
+        Scene->Add(ModelObject);
 
 }
 
@@ -88,15 +89,15 @@ void SkeletonAnimation::Shutdown()
     // All your Shutdown Code Here
     
         // Remove GameObjects From Scene
-        Scene->Remove(Model);
+        Scene->Remove(ModelObject);
         Scene->Remove(Camera);
         
-        Model->Remove(rModel);
+        ModelObject->Remove(rModel);
     
         // Delete
-        AssetManager::DestroyAssets();
         delete rModel;
-        delete Model;
+        delete ModelObject;
+        delete modelHandle;
         delete Animation;
         delete Camera;
         delete Renderer;

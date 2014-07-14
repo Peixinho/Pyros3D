@@ -12,7 +12,7 @@
 #include "../../Core/Math/Math.h"
 #include "../../Materials/GenericShaderMaterials/GenericShaderMaterial.h"
 #include "../../Rendering/Renderer/IRenderer.h"
-#include "../../AssetManager/Assets/Renderable/Renderables.h"
+#include "../../Assets/Renderable/Renderables.h"
 #include "../../Rendering/Components/Rendering/RenderingComponent.h"
 #include "../../Core/Buffers/FrameBuffer.h"
 

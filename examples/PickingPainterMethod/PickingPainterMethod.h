@@ -20,12 +20,14 @@
     #define ClassName SFMLContext
 #endif
 
-#include "Pyros3D/Core/Projection/Projection.h"
-#include "Pyros3D/SceneGraph/SceneGraph.h"
-#include "Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h"
-#include "Pyros3D/Rendering/Components/Rendering/RenderingComponent.h"
-#include "Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h"
-#include "Pyros3D/Utils/Mouse3D/PainterPick.h"
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
+#include <Pyros3D/SceneGraph/SceneGraph.h>
+#include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
+#include <Pyros3D/Utils/Colors/Colors.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Utils/Mouse3D/PainterPick.h>
 
 using namespace p3d;
 
@@ -54,6 +56,7 @@ class PickingPainterMethod : public ClassName {
         // GameObject
         std::vector<GameObject*> Cubes;
         std::vector<RenderingComponent*> rCubes;
+        Renderable* cubeHandle;
 
         // Light
         GameObject* Light;

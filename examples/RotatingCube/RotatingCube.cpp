@@ -43,14 +43,15 @@ void RotatingCube::Init()
         Camera->SetPosition(Vec3(0,10,80));
         
         // Create Game Object
-        Cube = new GameObject();
-        rCube = new RenderingComponent(AssetManager::CreateCube(30,30,30));
-        Cube->Add(rCube);
+        CubeObject = new GameObject();
+        cubeMesh = new Cube(30,30,30);
+        rCube = new RenderingComponent(cubeMesh);
+        CubeObject->Add(rCube);
         
         // Add Camera to Scene
         Scene->Add(Camera);
         // Add GameObject to Scene
-        Scene->Add(Cube);
+        Scene->Add(CubeObject);
         Camera->LookAt(Vec3::ZERO);
 
 }
@@ -63,7 +64,7 @@ void RotatingCube::Update()
         Scene->Update(GetTime());
         
         // Game Logic Here
-        Cube->SetRotation(Vec3(0,GetTime(),0));
+        CubeObject->SetRotation(Vec3(0,GetTime(),0));
 
         // Render Scene
         Renderer->RenderScene(projection,Camera,Scene);
@@ -74,15 +75,15 @@ void RotatingCube::Shutdown()
     // All your Shutdown Code Here
     
         // Remove GameObjects From Scene
-        Scene->Remove(Cube);
+        Scene->Remove(CubeObject);
         Scene->Remove(Camera);
         
-        Cube->Remove(rCube);
+        CubeObject->Remove(rCube);
     
         // Delete
-	AssetManager::DestroyAssets();
+        delete cubeMesh;
         delete rCube;
-        delete Cube;
+        delete CubeObject;
         delete Camera;
         delete Renderer;
         delete Scene;

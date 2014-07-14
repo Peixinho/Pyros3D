@@ -7,8 +7,7 @@
 //============================================================================
 
 #include "TextRendering.h"
-#include "Pyros3D/Utils/Colors/Colors.h"
-#include "Pyros3D/AssetManager/Assets/Font/Font.h"
+#include <Pyros3D/Assets/Font/Font.h>
 
 using namespace p3d;
 
@@ -48,7 +47,7 @@ void TextRendering::Init()
         Scene->Add(Camera);
         
         // Create Font
-        font = AssetManager::CreateFont("../../../../examples/TextRendering/assets/verdana.ttf",16);
+        font = new Font("../../../../examples/TextRendering/assets/verdana.ttf",16);
         font->CreateText("aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ,.0123456789[]()!?+-_\\|/ºª");
         
         // Create Text Material
@@ -57,12 +56,13 @@ void TextRendering::Init()
         // Set Material Font to use Font Map
         
         // Create Game Object
-        Text = new GameObject();
-        rText = new RenderingComponent(AssetManager::CreateText(font,"Pyros3D Engine - Text Rendering\n\n:)",16,16,Vec4(1,1,1,1)),textMaterial);
-        Text->Add(rText);
+        TextObject = new GameObject();
+        textHandle = new Text(font,"Pyros3D Engine - Text Rendering\n\n:)",16,16,Vec4(1,1,1,1));
+        rText = new RenderingComponent(textHandle, textMaterial);
+        TextObject->Add(rText);
         
         // Add GameObject to Scene
-        Scene->Add(Text);
+        Scene->Add(TextObject);
 
 }
 
@@ -74,8 +74,8 @@ void TextRendering::Update()
         Scene->Update(GetTime());
         
         // Game Logic Here
-        Text->SetRotation(Vec3(0,0,GetTime()));
-        Text->SetPosition(Vec3(Width/2.f,Height/2.f,0.f));
+        TextObject->SetRotation(Vec3(0,0,GetTime()));
+        TextObject->SetPosition(Vec3(Width/2.f,Height/2.f,0.f));
 
         // Render Scene
         Renderer->RenderScene(projection,Camera,Scene);
@@ -86,14 +86,16 @@ void TextRendering::Shutdown()
     // All your Shutdown Code Here
     
         // Remove GameObjects From Scene
-        Scene->Remove(Text);
+        Scene->Remove(TextObject);
         Scene->Remove(Camera);
         
-        Text->Remove(rText);
+        TextObject->Remove(rText);
     
         // Delete
         delete rText;
-        delete Text;
+        delete TextObject;
+        delete textHandle;
+        delete textMaterial;
         delete Camera;
         delete Renderer;
         delete Scene;

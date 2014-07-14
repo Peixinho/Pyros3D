@@ -10,10 +10,9 @@
 #define	RENDERINGCOMPONENT_H
 
 #include "../../../Components/IComponent.h"
-#include "../../../AssetManager/Assets/Renderable/Renderables.h"
-#include "../../../AssetManager/Assets/Renderable/Models/Model.h"
+#include "../../../Assets/Renderable/Renderables.h"
+#include "../../../Assets/Renderable/Models/Model.h"
 #include "../../../Materials/IMaterial.h"
-#include "../../../AssetManager/AssetManager.h"
 #include "../../../Materials/GenericShaderMaterials/GenericShaderMaterial.h"
 #include "../../../SceneGraph/SceneGraph.h"
 #include <vector>

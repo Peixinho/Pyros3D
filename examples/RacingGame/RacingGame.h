@@ -20,16 +20,22 @@
     #define ClassName SFMLContext
 #endif
 
-#include "Pyros3D/Core/Projection/Projection.h"
-#include "Pyros3D/SceneGraph/SceneGraph.h"
-#include "Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h"
-#include "Pyros3D/Utils/Colors/Colors.h"
-#include "Pyros3D/Rendering/Components/Rendering/RenderingComponent.h"
-#include "Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h"
-#include "Pyros3D/Physics/Physics.h"
-#include "Pyros3D/Utils/Mouse3D/PainterPick.h"
-#include "Pyros3D/AssetManager/Assets/Renderable/Text/Text.h"
-#include "Pyros3D/Rendering/Renderer/SpecialRenderers/CubemapRenderer/CubemapRenderer.h"
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
+#include <Pyros3D/Assets/Renderable/Models/Model.h>
+#include <Pyros3D/Core/Projection/Projection.h>
+#include <Pyros3D/SceneGraph/SceneGraph.h>
+#include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
+#include <Pyros3D/Utils/Colors/Colors.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
+#include <Pyros3D/Physics/Physics.h>
+#include <Pyros3D/Utils/Mouse3D/PainterPick.h>
+#include <Pyros3D/Assets/Renderable/Text/Text.h>
+#include <Pyros3D/Rendering/Renderer/SpecialRenderers/CubemapRenderer/CubemapRenderer.h>
+#include <Pyros3D/Assets/Renderable/Primitives/Primitive.h>
+#include <Pyros3D/Physics/Components/IPhysicsComponent.h>
+#include <Pyros3D/Physics/Components/TriangleMesh/PhysicsTriangleMesh.h>
+#include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h>
 
 using namespace p3d;
 
@@ -58,7 +64,7 @@ class RacingGame : public ClassName {
         // GameObject
         GameObject* Track;
         // Track Handle
-        uint32 trackHandle;
+        Renderable *trackHandle, *skyboxHandle, *carHandle, *carHandle2;
         // Track Component
         RenderingComponent* rTrack;
         // Light

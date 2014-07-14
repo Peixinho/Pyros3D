@@ -39,11 +39,11 @@ void DeferredRendering::Init()
         Scene = new SceneGraph();
         
         // Setting Deferred Rendering Framebuffer and Textures
-        albedoTexture = AssetManager::CreateTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
-        specularTexture = AssetManager::CreateTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
-        normalTexture = AssetManager::CreateTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
-        positionTexture = AssetManager::CreateTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
-        depthTexture = AssetManager::CreateTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height);
+        albedoTexture = new Texture(); albedoTexture->CreateTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
+        specularTexture = new Texture(); specularTexture->CreateTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
+        normalTexture = new Texture(); normalTexture->CreateTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
+        positionTexture = new Texture(); positionTexture->CreateTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
+        depthTexture = new Texture(); depthTexture->CreateTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height);
 
         albedoTexture->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
         specularTexture->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
@@ -97,25 +97,25 @@ void DeferredRendering::Init()
         Diffuse->SetUniformValue("uColor", &color);
 
         // Create Geometry
-        Renderable* cubeHandle = AssetManager::CreateCube(10,10,10);
+        cubeHandle = new Cube(10,10,10);
 
         // Create 100 Cubes
         for (uint32 i=0;i<100;i++)
         {
             // Create GameObject
-            GameObject* Cube = new GameObject();
+            GameObject* CubeObject = new GameObject();
             // Add Cube to GameObjects List
-            Cubes.push_back(Cube);
+            Cubes.push_back(CubeObject);
             // Create Rendering Component using Geometry Previously Created with AssetManager
             RenderingComponent* rCube = new RenderingComponent(cubeHandle, Diffuse);
             // Add Rendering Component to Rendering Components List
             rCubes.push_back(rCube);
             // Add Rendering Component to GameObject
-            Cube->Add(rCube);
+            CubeObject->Add(rCube);
             // Add GameObject to Scene
-            Scene->Add(Cube);
+            Scene->Add(CubeObject);
             // Set Random Position to the GameObject
-            Cube->SetPosition(Vec3((rand() % 100) -50,(rand() % 100)-50,(rand() % 100) -50));
+            CubeObject->SetPosition(Vec3((rand() % 100) -50,(rand() % 100)-50,(rand() % 100) -50));
         }
 
         // Add Camera to Scene

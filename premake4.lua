@@ -75,7 +75,7 @@ solution "Pyros3D"
 
     if _OPTIONS["framework"]=="sfml" or not _OPTIONS["framework"] then
         framework = "_SFML";
-        libsToLink = { "sfml-graphics", "sfml-window", "sfml-system" }
+        libsToLink = { "sfml-audio", "sfml-graphics", "sfml-window", "sfml-system" }
         excludes { "**/SDL2/**", "**/SDL/**" }
     end
 

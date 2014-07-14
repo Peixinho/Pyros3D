@@ -7,15 +7,6 @@
 //============================================================================
 
 #include "RacingGame.h"
-#include "Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h"
-#include "Pyros3D/Rendering/Components/Rendering/RenderingComponent.h"
-#include "Pyros3D/AssetManager/Assets/Renderable/Primitives/Primitive.h"
-#include "Pyros3D/Physics/Components/IPhysicsComponent.h"
-#include "Pyros3D/AssetManager/Assets/Font/Font.h"
-#include "Pyros3D/AssetManager/Assets/Renderable/Text/Text.h"
-#include "Pyros3D/Physics/Components/TriangleMesh/PhysicsTriangleMesh.h"
-#include "Pyros3D/Utils/Mouse3D/PainterPick.h"
-#include "Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h"
 
 using namespace p3d;
 
@@ -77,7 +68,8 @@ void RacingGame::Init()
         test->SetColor(Vec4(1,1,0,1));
 
         // Create Track Model
-        rTrack = new RenderingComponent(AssetManager::LoadModel("../../../../examples/RacingGame/assets/track.p3dm",false,ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow));
+        trackHandle = new Model("../../../../examples/RacingGame/assets/track.p3dm",false,ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
+        rTrack = new RenderingComponent(trackHandle);
         Track->Add(rTrack);
         
         Track->Add(new PhysicsTriangleMesh(physics,rTrack,0));
@@ -112,7 +104,7 @@ void RacingGame::Init()
         HideMouse();
         
         // Create Font
-        Font* font = AssetManager::CreateFont("../../../../examples/RacingGame/assets/verdana.ttf",32);
+        Font* font = new Font("../../../../examples/RacingGame/assets/verdana.ttf",32);
         font->CreateText("aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ,.0123456789[]()!?+-_\\|/ºª");
     
         // Create Text Material
@@ -123,7 +115,7 @@ void RacingGame::Init()
         
         // Create RacingGame Object
         TextRendering = new GameObject();
-        textID = (Text*)AssetManager::CreateText(font,"Hello World",12,12,Vec4(1,1,1,1),true);
+        textID = new Text(font,"Hello World",12,12,Vec4(1,1,1,1),true);
         rText = new RenderingComponent(textID,textMaterial);
         TextRendering->Add(rText);
         
@@ -132,7 +124,8 @@ void RacingGame::Init()
 
         dRenderer = new CubemapRenderer(256,256);
         
-        Texture* skyboxTexture = AssetManager::LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negx.png",TextureType::CubemapNegative_X);
+        Texture* skyboxTexture = new Texture();
+        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negx.png",TextureType::CubemapNegative_X);
         skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negy.png",TextureType::CubemapNegative_Y);
         skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negz.png",TextureType::CubemapNegative_Z);
         skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posx.png",TextureType::CubemapPositive_X);
@@ -144,12 +137,13 @@ void RacingGame::Init()
         SkyboxMaterial->SetSkyboxMap(skyboxTexture);
         SkyboxMaterial->SetCullFace(CullFace::FrontFace);
         Skybox = new GameObject();
-        rSkybox = new RenderingComponent(AssetManager::CreateCube(1000,1000,1000),SkyboxMaterial);
+        skyboxHandle = new Cube(1000,1000,1000);
+        rSkybox = new RenderingComponent(skyboxHandle,SkyboxMaterial);
         rSkybox->DisableCastShadows();
         Skybox->Add(rSkybox);
         Scene->Add(Skybox);
 
-        Renderable* carHandle2 = AssetManager::LoadModel("../../../../examples/RacingGame/assets/lambo.p3dm",true, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
+        carHandle2 = new Model("../../../../examples/RacingGame/assets/lambo.p3dm",true, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
         for (uint32 i=0;i<1;i++)
         {
             Car2 = new GameObject();
@@ -163,7 +157,8 @@ void RacingGame::Init()
         for (uint32 i=0;i<1;i++)
         {
             Car = new GameObject();
-            rCar = new RenderingComponent(AssetManager::LoadModel("../../../../examples/RacingGame/assets/del.p3dm",true, ShaderUsage::EnvMap | ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse));
+            carHandle = new Model("../../../../examples/RacingGame/assets/del.p3dm",true, ShaderUsage::EnvMap | ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
+            rCar = new RenderingComponent(carHandle);
             Car->Add(rCar);
             Scene->Add(Car);
             Car->SetPosition(Vec3((rand() % 1000) -500,(rand() % 100),(rand() % 1000) -500));
@@ -259,13 +254,15 @@ void RacingGame::Shutdown()
     TextRendering->Remove(rText);
     delete rText;
     delete TextRendering;
-    rTrack->Destroy();
     delete rTrack;
     delete Track;
-    AssetManager::DestroyAssets();
     delete Camera;
     delete Renderer;
     delete Scene;
+    delete carHandle;
+    delete carHandle2;
+    delete trackHandle;
+    delete textID;
 }
 
 RacingGame::~RacingGame() {}

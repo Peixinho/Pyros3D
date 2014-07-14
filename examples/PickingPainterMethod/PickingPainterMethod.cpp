@@ -70,7 +70,7 @@ void PickingPainterMethod::Init()
         srand( time( NULL ) );
         
         // Create Geometry
-        Renderable* cubeHandle = AssetManager::CreateCube(10,10,10);
+        cubeHandle = new Cube(10,10,10);
         
         // Create 100 Cubes
         for (uint32 i=0;i<100;i++)
@@ -137,7 +137,7 @@ void PickingPainterMethod::Shutdown()
         Light->Remove(dLight);
         
         // Delete All Components and GameObjects
-	AssetManager::DestroyAssets();
+        delete cubeHandle;
         delete dLight;
         delete Light;
         delete picking;

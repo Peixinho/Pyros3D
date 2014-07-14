@@ -9,7 +9,7 @@
 #ifndef TEXTUREANIMATION_H
 #define TEXTUREANIMATION_H
 
-#include "../AssetManager/Assets/Texture/Texture.h"
+#include "../Assets/Texture/Texture.h"
 #include "../Ext/Signals/Signal.h"
 #include "../Ext/Signals/Delegate.h"
 #include <vector>
