@@ -423,7 +423,7 @@ namespace p3d {
 			break;
 		};
 		uint32 DPfail = GL_KEEP;
-		switch(sfail)
+		switch(dpfail)
 		{
 			case StencilOp::Zero:
 				DPfail = GL_KEEP;
@@ -452,7 +452,7 @@ namespace p3d {
 			break;
 		};
 		uint32 DPPASS = GL_KEEP;
-		switch(sfail)
+		switch(dppass)
 		{
 			case StencilOp::Zero:
 				DPPASS = GL_KEEP;
@@ -483,7 +483,7 @@ namespace p3d {
 		// Set Stencil Op
 		glStencilOp(Sfail, DPfail, DPPASS);
 	}
-	void ColorMask(const f32 &r,const f32 &g,const f32 &b,const f32 &a)
+	void IRenderer::ColorMask(const f32 &r,const f32 &g,const f32 &b,const f32 &a)
 	{
 		glColorMask(r,g,b,a);
 	}

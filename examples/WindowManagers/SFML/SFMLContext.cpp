@@ -29,7 +29,7 @@ namespace p3d {
         
         sf::ContextSettings settings = sf::ContextSettings(32);
         settings.depthBits = 24;
-        settings.stencilBits = 0;
+        settings.stencilBits = 8;
         settings.antialiasingLevel = 0;
         settings.majorVersion = 0;
         settings.minorVersion = 0;

@@ -6,6 +6,8 @@
 #include "RotatingTextureAnimatedCube/RotatingTextureAnimatedCube.h"
 #elif defined(_RotatingCubeWithLighting)
 #include "RotatingCubeWithLighting/RotatingCubeWithLighting.h"
+#elif defined(_RotatingCubeWithStencilReflections)
+#include "RotatingCubeWithStencilReflections/RotatingCubeWithStencilReflections.h"
 #elif defined(_RotatingCubeWithLightingAndShadow)
 #include "RotatingCubeWithLightingAndShadow/RotatingCubeWithLightingAndShadow.h"
 #elif defined(_CustomMaterial)
