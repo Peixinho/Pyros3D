@@ -13,7 +13,7 @@
 
 namespace p3d {
     
-    class Sound : public ISound {
+    class PYROS3D_API Sound : public ISound {
 
         public:
 

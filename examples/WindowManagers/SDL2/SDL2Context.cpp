@@ -126,7 +126,17 @@ namespace p3d {
         CreateKeyboardMap();
 
         // Initialize SDL2
-		SDL_Init(SDL_INIT_VIDEO);
+		SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
+
+        int audio_rate = 22050;
+        Uint16 audio_format = AUDIO_S16; /* 16-bit stereo */
+        int audio_channels = 2;
+        int audio_buffers = 4096;
+
+        if (Mix_OpenAudio(audio_rate, audio_format, audio_channels, audio_buffers))
+            echo("ERROR: Failed to open audio device");
+        
+        Mix_QuerySpec(&audio_rate, &audio_format, &audio_channels);
 
         uint32 type = 0;
 

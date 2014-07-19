@@ -26,7 +26,7 @@ namespace p3d {
         };
     }
 
-    class ISound {
+    class PYROS3D_API ISound {
 
         public:
 
