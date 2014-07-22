@@ -4,6 +4,7 @@
 // Version     :
 // Copyright   : ;)
 // Description : Sound Interface
+// NOTE        : It has SDL preprocessor directives because emscritpen / android / ios?
 //============================================================================
 
 #ifndef ISOUND_H
@@ -12,9 +13,16 @@
 #include "../../Core/Math/Math.h"
 #include "../../Ext/Signals/Signal.h"
 #include "../../Ext/Signals/Delegate.h"
-#include <SFML/Audio/Music.hpp>
-#include <SFML/Audio/Sound.hpp>
-#include <SFML/Audio/SoundBuffer.hpp>
+#include "../../Other/Export.h"
+
+#ifdef _SDL2
+    #include <SDL.h>
+    #include <SDL_mixer.h>
+#else
+    #include <SFML/Audio/Music.hpp>
+    #include <SFML/Audio/Sound.hpp>
+    #include <SFML/Audio/SoundBuffer.hpp>
+#endif
 
 namespace p3d {
     
@@ -35,23 +43,31 @@ namespace p3d {
 
             bool LoadFromFile(const std::string &filename);
 
-            void Play();
+            void Play(bool loop = false);
             void Pause();
             void Stop();
             bool isPlaying();
             bool isPaused();
-            void Loop(bool loop);
+            void SetVolume(const uint32 &vol); // 0-100
+            const uint32 &GetVolume() const;
 
         protected:
 
             bool _isPlaying;
             bool _isPaused;
             bool _loop;
+            uint32 _volume;
             uint32 _type;
-
-            sf::Music _Music;
-            sf::Sound _Sound;
-            sf::SoundBuffer _Buffer;
+            
+            #ifdef _SDL2
+                Mix_Music *_Music;
+                Mix_Chunk *_Sound;
+                int32 channel;
+            #else 
+                sf::Music _Music;
+                sf::Sound _Sound;
+                sf::SoundBuffer _Buffer;
+            #endif
     };
     
 };
