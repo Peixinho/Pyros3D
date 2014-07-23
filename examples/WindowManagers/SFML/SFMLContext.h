@@ -69,7 +69,7 @@ namespace p3d {
             sf::Clock clock;
             
             // SFMLContext Context
-            sf::RenderWindow rview;
+            sf::Window rview;
             
             // Game FPS
             FPS fps;
