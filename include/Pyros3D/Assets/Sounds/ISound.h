@@ -19,9 +19,7 @@
     #include <SDL.h>
     #include <SDL_mixer.h>
 #else
-    #include <SFML/Audio/Music.hpp>
-    #include <SFML/Audio/Sound.hpp>
-    #include <SFML/Audio/SoundBuffer.hpp>
+    #include <SFML/Audio.hpp>
 #endif
 
 namespace p3d {

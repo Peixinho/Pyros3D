@@ -126,6 +126,11 @@ namespace p3d {
             void BlendingFunction(const uint32 &sfactor, const uint32 &dfactor);
             void BlendingEquation(const uint32 &mode);
 
+            // Scissors Test
+            void EnableScissorTest();
+            void DisableScissorTest();
+            void ScissorTestRect(const f32 &x, const f32 &y, const f32 &width, const f32 &height);
+
             // WireFrame
             void EnableWireFrame();
             void DisableWireFrame();
@@ -182,7 +187,7 @@ namespace p3d {
             void DepthTest();
             void DepthWrite();
             void ClearDepth();
-
+            
             // Internal Function to Clear Buffers
             void ClearScreen();
 
@@ -209,6 +214,14 @@ namespace p3d {
                                 BackgroundColor;
             Vec4 
                                 GlobalLight;
+
+            bool            
+                                scissorTest;
+            f32
+                                scissorTestX,
+                                scissorTestY,
+                                scissorTestWidth,
+                                scissorTestHeight;
 
             // Face Culling
             int32

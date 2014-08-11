@@ -51,6 +51,11 @@ namespace p3d {
         depthTesting = true;
         clearDepthBuffer = true;
         sorting = true;
+        scissorTest = false;
+        scissorTestX = 0;
+        scissorTestY = 0;
+        scissorTestWidth = Width;
+        scissorTestHeight = Height;
     }
     
     void IRenderer::Resize(const uint32& Width, const uint32& Height)
@@ -667,6 +672,21 @@ namespace p3d {
 			break;
     	}
 	    glBlendFunc(Sfactor, Dfactor);
+    }
+    void IRenderer::EnableScissorTest()
+    {
+        scissorTest = true;
+    }
+    void IRenderer::DisableScissorTest()
+    {
+        scissorTest = false;
+    }
+    void IRenderer::ScissorTestRect(const f32 &x, const f32 &y, const f32 &width, const f32 &height)
+    {
+        scissorTestX = x;
+        scissorTestY = y;
+        scissorTestWidth = width;
+        scissorTestHeight = height;
     }
     void IRenderer::BlendingEquation(const uint32 &mode)
     {

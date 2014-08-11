@@ -518,8 +518,16 @@ namespace p3d {
             DepthTest();
             DepthWrite();
             ClearDepthBuffer();
-            ClearScreen();
             
+            // Scissor Test
+            if (scissorTest) 
+            {
+                glScissor(scissorTestX,scissorTestY,scissorTestWidth,scissorTestHeight);
+                glEnable(GL_SCISSOR_TEST);
+            }
+
+            ClearScreen();
+
             // Draw Background
             DrawBackground();
 
@@ -547,6 +555,12 @@ namespace p3d {
             }
             // Disable Cull Face
             glDisable(GL_CULL_FACE);
+
+            // Disable Scissor Test
+            if (scissorTest)
+            {
+                glDisable(GL_SCISSOR_TEST);
+            }
 
 #if !defined(ANDROID) && !defined(EMSCRIPTEN)
             // Set Default Polygon Mode
