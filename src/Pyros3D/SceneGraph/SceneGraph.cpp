@@ -7,7 +7,6 @@
 //============================================================================
 
 #include <Pyros3D/SceneGraph/SceneGraph.h>
-#include <Pyros3D/Utils/Thread/Thread.h>
 #include <string.h>
 
 namespace p3d {

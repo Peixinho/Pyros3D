@@ -26,6 +26,10 @@ namespace p3d {
 
         // Activate Culling
         ActivateCulling(CullingMode::FrustumCulling);
+
+		EnableClearDepthBuffer();
+		EnableDepthTest();
+        EnableDepthWritting();
     }
     void PainterPick::Resize(const uint32& Width, const uint32& Height)
     {
@@ -47,20 +51,23 @@ namespace p3d {
         this->mouseX = mouseX;
         this->mouseY = mouseY;
         this->Scene = Scene;
+		uint32 coord((mouseX*4)+((Height-mouseY)*Width*4));
+		if (coord<texture->GetTextureData().size())
+		{
+			RenderScene(projection,Camera,Scene);
         
-        RenderScene(projection,Camera,Scene);
+			// Get Texture Color
+			uint8 color[4];
+			memcpy(&color,&texture->GetTextureData()[uint32((mouseX*4)+((Height-mouseY)*Width*4))],sizeof(uint8)*4);
         
-        // Get Texture Color
-        uint8 color[4];
-        memcpy(&color,&texture->GetTextureData()[uint32((mouseX*4)+((Height-mouseY)*Width*4))],sizeof(uint8)*4);
-        
-        Vec4 pixel = Vec4((int32)color[0]/255.f,(int32)color[1]/255.f,(int32)color[2]/255.f,(int32)color[3]/255.f);
-        f32 colorPointer = Vec4ToRgba8(pixel);
-        if (MeshPickingList.find(colorPointer)!=MeshPickingList.end())
-        {
-            return MeshPickingList[colorPointer];
-        }
-        else return NULL;
+			Vec4 pixel = Vec4((int32)color[0]/255.f,(int32)color[1]/255.f,(int32)color[2]/255.f,(int32)color[3]/255.f);
+			f32 colorPointer = Vec4ToRgba8(pixel);
+			if (MeshPickingList.find(colorPointer)!=MeshPickingList.end())
+			{
+				return MeshPickingList[colorPointer];
+			}
+		}
+        return NULL;
     }
     
     void PainterPick::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
@@ -104,14 +111,12 @@ namespace p3d {
         fbo->Bind();
         
         // Set ViewPort
-        viewPortEndX = Width;
-        viewPortEndY = Height;
         _SetViewPort(viewPortStartX,viewPortStartY,viewPortEndX,viewPortEndY);
         
         // Clear Screen
         ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
-        EnableDepthTest();
-        EnableDepthWritting();
+		DepthTest();
+        DepthWrite();
         ClearDepthBuffer();
         ClearScreen();
         

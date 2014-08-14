@@ -45,14 +45,14 @@ namespace p3d {
                 #ifdef _SDL2
 
                     _Music = Mix_LoadMUS(filename.c_str());
-
+					return true;
                 #else
 
                     File* file = new File();
                     file->Open(filename);
                     _Music.openFromMemory(&file->GetData()[0],file->Size());
                     delete file;
-
+					return true;
                 #endif 
             }
             break;
@@ -62,19 +62,21 @@ namespace p3d {
                 #ifdef _SDL2
 
                     _Sound = Mix_LoadWAV(filename.c_str());
-
+					return true;
                 #else
                     
                     File* file = new File();
                     file->Open(filename);
                     _Buffer.loadFromMemory(&file->GetData()[0],file->Size());
                     _Sound.setBuffer(_Buffer);
+					return true;
                     delete file;
 
                 #endif
             }
             break;
         };
+		return false;
     }
 
     void ISound::Play(bool loop)
