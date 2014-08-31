@@ -11,9 +11,10 @@
 
 #include "../IRenderer.h"
 #include "../../../Core/Projection/Projection.h"
+#include <algorithm>
 
 namespace p3d {
-    
+
     class PYROS3D_API ForwardRenderer : public IRenderer {
         
         public:

@@ -53,7 +53,7 @@ int main(int argc, char** argv) {
 	#ifdef EMSCRIPTEN
 		emscripten_set_main_loop(mainloop, 0, 0);
 	#else
-		// Create Context Windo
+		// Create Context Window
 		window = new DEMO_NAME();
 
 		// Initialize

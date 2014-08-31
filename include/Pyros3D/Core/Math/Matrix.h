@@ -16,6 +16,7 @@
 #define	MATRIX_H
 
 #include "Math.h"
+#include "../Logs/Log.h"
 #include <string>
 
 namespace p3d {

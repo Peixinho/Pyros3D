@@ -68,7 +68,7 @@ namespace p3d {
                 Quaternion q;
                 q.SetRotationFromEuler(_Rotation, order);
                 _LocalMatrix *= q.ConvertToMatrix();
-
+                
                 // apply scale
                 Matrix scaleMatrix;                
                 scaleMatrix.Scale(_Scale.x,_Scale.y,_Scale.z);
@@ -104,6 +104,11 @@ namespace p3d {
 
             _LocalMatrix = TransfMatrix;
 
+            // apply scale
+            Matrix scaleMatrix;                
+            scaleMatrix.Scale(_Scale.x,_Scale.y,_Scale.z);
+            _LocalMatrix *= scaleMatrix;
+            
             // Save Rotation After LookAt
             _Rotation = _LocalMatrix.GetRotation(_Scale).GetEulerFromRotationMatrix();
             

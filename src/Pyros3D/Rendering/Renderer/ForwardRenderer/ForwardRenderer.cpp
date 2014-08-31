@@ -16,6 +16,16 @@
 
 namespace p3d {
     
+    namespace Sort {
+        GameObject* _Camera;
+        bool sortRenderingMeshes(const void* a, const void* b)
+        {
+            f32 a2 = _Camera->GetPosition().distanceSQR(((RenderingMesh*)a)->renderingComponent->GetOwner()->GetWorldPosition());
+            f32 b2 = _Camera->GetPosition().distanceSQR(((RenderingMesh*)b)->renderingComponent->GetOwner()->GetWorldPosition());
+            return ( a2<b2 );
+        }
+    }
+
     ForwardRenderer::ForwardRenderer(const uint32& Width, const uint32& Height) : IRenderer(Width,Height) 
     {
         echo("SUCCESS: Forward Renderer Created");
@@ -45,7 +55,7 @@ namespace p3d {
         
         // Sort and Group Objects From Scene
         std::vector<RenderingMesh*> _OpaqueMeshes;
-        std::map<f32,RenderingMesh*> _TranslucidMeshes;
+        std::vector<RenderingMesh*> _TranslucidMeshes;
         
 		// Get Meshes
         std::vector<RenderingMesh*> rmeshes(RenderingComponent::GetRenderingMeshes(Scene));
@@ -60,16 +70,19 @@ namespace p3d {
         {
             if ((*k)->Material->IsTransparent() && sorting)
             {
-                f32 index = Camera->GetPosition().distanceSQR((*k)->renderingComponent->GetOwner()->GetWorldPosition());
-                while(_TranslucidMeshes.find(index)!=_TranslucidMeshes.end()) index+=1.f;
-                _TranslucidMeshes[index] = (*k);
+                _TranslucidMeshes.push_back((*k));
             }
             else _OpaqueMeshes.push_back((*k));
         }
         
-        for (std::map<f32,RenderingMesh*>::iterator i=_TranslucidMeshes.begin();i!=_TranslucidMeshes.end();i++)
+        // sorting translucid
+        Sort::_Camera = Camera;
+        sort(_TranslucidMeshes.begin(), _TranslucidMeshes.end(), Sort::sortRenderingMeshes);
+
+        // final list
+        for (std::vector<RenderingMesh*>::iterator i=_TranslucidMeshes.begin();i!=_TranslucidMeshes.end();i++)
         {
-            _OpaqueMeshes.push_back((*i).second);
+            _OpaqueMeshes.push_back((*i));
         }
         
         return _OpaqueMeshes;
