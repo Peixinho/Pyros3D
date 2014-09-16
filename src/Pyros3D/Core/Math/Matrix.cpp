@@ -100,15 +100,7 @@ namespace p3d {
         }
         Vec3 Matrix::GetScale() const
         {
-            Vec3 v;
-            v = Vec3(m[0], m[1], m[2]);
-            f32 scaleX = 1 / v.magnitude();
-            v = Vec3(m[4], m[5], m[6]);
-            f32 scaleY = 1 / v.magnitude();
-            v = Vec3(m[8], m[9], m[10]);
-            f32 scaleZ = 1 / v.magnitude();
-            
-            return Vec3(scaleX,scaleY,scaleZ);
+            return Vec3(m[0],m[5],m[10]);
         }
         void Matrix::RotationX(const f32 &angle)
         {    
