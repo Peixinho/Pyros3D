@@ -142,6 +142,11 @@ namespace p3d {
             void EnableSorting();
             void DisableSorting();
 
+            // LOD
+            void EnableLOD() { lod = true; }
+            void DisableLOD() { lod = false; }
+            bool IsUsingLOD() { return lod; }
+
             void SetBackground(const Vec4 &Color);
             void UnsetBackground();
             void SetGlobalLight(const Vec4 &Light);
@@ -332,6 +337,9 @@ namespace p3d {
             bool
                                 customViewPort;
             
+            bool
+                                lod;
+
             // Internal ViewPort Dimension
             void _SetViewPort(const uint32 &initX, const uint32 &initY, const uint32 &endX, const uint32 &endY);
             

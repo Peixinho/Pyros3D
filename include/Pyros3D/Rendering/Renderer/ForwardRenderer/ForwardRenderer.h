@@ -30,8 +30,8 @@ namespace p3d {
 			virtual void RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag = "NULL");
             
         private:
+            
             GenericShaderMaterial* shadowMaterial, *shadowSkinnedMaterial;
-        protected:
             
     };
     

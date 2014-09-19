@@ -12,6 +12,9 @@
 #include "../../Core/Math/Math.h"
 #include "../../Other/Export.h"
 
+#undef isnan
+#define isnan(x) ((x) != (x))
+
 namespace p3d {
 
     class PYROS3D_API Mouse3D {

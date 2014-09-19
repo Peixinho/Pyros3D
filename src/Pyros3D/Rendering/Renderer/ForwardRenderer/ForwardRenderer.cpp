@@ -17,6 +17,7 @@
 namespace p3d {
     
     namespace Sort {
+
         GameObject* _Camera;
         bool sortRenderingMeshes(const void* a, const void* b)
         {
@@ -57,6 +58,16 @@ namespace p3d {
         std::vector<RenderingMesh*> _OpaqueMeshes;
         std::vector<RenderingMesh*> _TranslucidMeshes;
         
+        // LOD
+        if (lod)
+        {
+            std::vector<RenderingComponent*> comps(RenderingComponent::GetRenderingComponents(Scene));
+            for (std::vector<RenderingComponent*>::iterator i=comps.begin();i!=comps.end();i++)
+            {
+                f32 distance = (Camera->GetWorldPosition().distance((*i)->GetOwner()->GetWorldPosition()+(*i)->GetBoundingSphereCenter())-(*i)->GetBoundingSphereRadius());
+                (*i)->UpdateLOD((*i)->GetLODByDistance(fabs(distance)));
+            }
+        }
 		// Get Meshes
         std::vector<RenderingMesh*> rmeshes(RenderingComponent::GetRenderingMeshes(Scene));
 		

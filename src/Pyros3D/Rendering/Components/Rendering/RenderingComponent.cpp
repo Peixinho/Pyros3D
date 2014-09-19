@@ -20,6 +20,7 @@ namespace p3d {
     // Initialize Rendering Components and Meshes vector
     std::vector<IComponent*> RenderingComponent::Components;
     std::map<SceneGraph*, std::vector<RenderingMesh*> > RenderingComponent::MeshesOnScene;
+    std::map<SceneGraph*, std::vector<RenderingComponent*> > RenderingComponent::RenderingComponentsOnScene;
     
     RenderingComponent::RenderingComponent(Renderable* renderable, IMaterial* Material)
     {
@@ -49,14 +50,72 @@ namespace p3d {
             r_submesh->renderingComponent = this;
             
             // Push Mesh
-            Meshes.push_back(r_submesh);
+            Meshes[0].push_back(r_submesh);
         }
 
         // Keep Skeleton
         skeleton = renderable->GetSkeleton();
         hasBones = (skeleton.size()>0?true:false);
+
+        // Bounding
+        BoundingSphereRadius = renderable->GetBoundingSphereRadius();
+        BoundingSphereCenter = renderable->GetBoundingSphereCenter();
+        maxBounds = renderable->GetBoundingMaxValue();
+        minBounds = renderable->GetBoundingMinValue();
+
+        // LOD
+        LOD = false;
+        LodInUse = 0;
     }
     
+    void RenderingComponent::AddLOD(Renderable* renderable, f32 Distance, IMaterial* Material)
+    {
+
+        uint32 LODLVL = Meshes.size();
+        for (uint32 i=0;i<renderable->Geometries.size();i++)
+        {
+            // Rendering Mesh Instance
+            RenderingMesh* r_submesh  = new RenderingMesh(LODLVL);
+            
+            // Save Geometry Pointer
+            r_submesh->Geometry = renderable->Geometries[i];
+            // Get Geometry Specific Stuff
+            r_submesh->Material = renderable->Geometries[i]->Material;
+            if (renderable->Geometries[i]->materialProperties.haveBones)
+            {
+                r_submesh->MapBoneIDs = renderable->Geometries[i]->MapBoneIDs;
+                r_submesh->BoneOffsetMatrix = renderable->Geometries[i]->BoneOffsetMatrix;
+            }
+            if (Material!=NULL) 
+            {
+                r_submesh->Material = Material;
+            }
+
+            // Own this Mothafuckah!
+            r_submesh->renderingComponent = this;
+
+            // Push Mesh
+            Meshes[LODLVL].push_back(r_submesh);
+        }
+
+        LODDistances.push_back(Distance);
+        LOD = true;
+    }
+
+    const uint32 RenderingComponent::GetLODSize() const 
+    {
+        return Meshes.size();
+    }
+
+    const uint32 RenderingComponent::GetLODByDistance(const f32 &Distance) const
+    {
+        for (int i=0;i<LODDistances.size();i++)
+        {
+            if (Distance<LODDistances[i]) return i;
+        }
+        return LODDistances.size();
+    }
+
     void RenderingComponent::Register(SceneGraph* Scene)
     {
         if (!Registered)
@@ -65,13 +124,40 @@ namespace p3d {
             Components.push_back(this);
 
             // Add Meshes to Rendering Meshes
-            for (std::vector<RenderingMesh*>::iterator i=Meshes.begin();i!=Meshes.end();i++)
-            {
+            for (std::vector<RenderingMesh*>::iterator k=Meshes[0].begin();k!=Meshes[0].end();k++)
                 // Add Mesh
-                MeshesOnScene[Scene].push_back((*i));
-            }
+                MeshesOnScene[Scene].push_back((*k));
             
             Registered = true;
+            this->Scene = Scene;
+            RenderingComponentsOnScene[Scene].push_back(this);
+        }
+    }
+    void RenderingComponent::UpdateLOD(const uint32 &lod)
+    {
+        // Check if LOD Level is Different
+        if (LodInUse!=lod && lod<GetLODSize())
+        {
+            // Unregister Meshes On Scene
+            for (std::map<uint32, std::vector<RenderingMesh*> >::iterator i=Meshes.begin();i!=Meshes.end();i++)
+                for (std::vector<RenderingMesh*>::iterator i1=(*i).second.begin();i1!=(*i).second.end();i1++)
+                {
+                    for (std::vector<RenderingMesh*>::iterator k=MeshesOnScene[Scene].begin();k!=MeshesOnScene[Scene].end();k++)
+                    {
+                        if ((*k)==(*i1))
+                        {
+                            MeshesOnScene[Scene].erase(k);
+                            break;
+                        }
+                    }
+                }
+
+            LodInUse = lod;
+            // Add to Scene
+            for (std::vector<RenderingMesh*>::iterator i=GetMeshes(lod).begin();i!=GetMeshes(lod).end();i++)
+            {
+                MeshesOnScene[Scene].push_back((*i));  
+            }
         }
     }
     void RenderingComponent::Unregister(SceneGraph* Scene)
@@ -88,20 +174,30 @@ namespace p3d {
                 }
             }
             // Remove from Meshes vector
-            for (std::vector<RenderingMesh*>::iterator i=Meshes.begin();i!=Meshes.end();i++)
+            for (std::map<uint32, std::vector<RenderingMesh*> >::iterator i=Meshes.begin();i!=Meshes.end();i++)
+            for (std::vector<RenderingMesh*>::iterator i1=(*i).second.begin();i1!=(*i).second.end();i1++)
             {
                 for (std::vector<RenderingMesh*>::iterator k=MeshesOnScene[Scene].begin();k!=MeshesOnScene[Scene].end();k++)
                 {
-                    if ((*k)==(*i))
+                    if ((*k)==(*i1))
                     {
                         MeshesOnScene[Scene].erase(k);
                         break;
                     }
                 }
             }
-            
-            Registered = false;
-            
+
+			// Remove Rendering Component From vector
+            for (std::vector<RenderingComponent*>::iterator i=RenderingComponentsOnScene[Scene].begin();i!=RenderingComponentsOnScene[Scene].end();)
+            {
+                if ((*i)==this)
+                {
+                    i=RenderingComponentsOnScene[Scene].erase(i);
+                } else i++;
+            }
+
+			Registered = false;
+            this->Scene = NULL;
         }
     }
     
@@ -110,23 +206,31 @@ namespace p3d {
         return Components;
     }
     
-    std::vector<RenderingMesh*> RenderingComponent::GetRenderingMeshes(SceneGraph* scene)
+    std::vector<RenderingComponent*> &RenderingComponent::GetRenderingComponents(SceneGraph* Scene)
+    {
+        return RenderingComponentsOnScene[Scene];
+    }
+
+    std::vector<RenderingMesh*> &RenderingComponent::GetRenderingMeshes(SceneGraph* scene)
     {
         return MeshesOnScene[scene];
     }
     
-    std::vector<RenderingMesh*> &RenderingComponent::GetMeshes()
+    std::vector<RenderingMesh*> &RenderingComponent::GetMeshes(const uint32 &LODLevel)
     {
-        return Meshes;
+        if (LODLevel<GetLODSize())
+            return Meshes[LODLevel];
+        else return Meshes[GetLODSize()-1];
     }
     
     void RenderingComponent::SetCullingGeometry(const uint32& Geometry)
     {
         // Set Culling Geometry to all  Meshes
         CullingGeometry = Geometry;
-        for (std::vector<RenderingMesh*>::iterator i=Meshes.begin();i!=Meshes.end();i++)
+        for (std::map<uint32, std::vector<RenderingMesh*> >::iterator i=Meshes.begin();i!=Meshes.end();i++)
         {
-            (*i)->CullingGeometry = Geometry;
+            for (std::vector<RenderingMesh*>::iterator k=(*i).second.begin();k!=(*i).second.end();k++)
+                (*k)->CullingGeometry = Geometry;
         }
     }
     
@@ -144,10 +248,11 @@ namespace p3d {
     }
     RenderingComponent::~RenderingComponent()
     {
-        for (std::vector<RenderingMesh*>::iterator i=Meshes.begin();i!=Meshes.end();i++)
+        for (std::map<uint32, std::vector<RenderingMesh*> >::iterator i=Meshes.begin();i!=Meshes.end();i++)
         {
+            for (std::vector<RenderingMesh*>::iterator k=(*i).second.begin();k!=(*i).second.end();k++)
             // Delete Mesh
-            delete (*i);
+            delete (*k);
         }
         // Clear Meshes List
         Meshes.clear();

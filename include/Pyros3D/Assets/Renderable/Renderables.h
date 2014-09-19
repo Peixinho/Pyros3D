@@ -327,7 +327,7 @@ namespace p3d {
                 for(std::vector<IGeometry*>::iterator i = Geometries.begin();i!=Geometries.end();i++)
                 {
                     if ((*i)->GetBoundingMaxValue()>maxBounds) maxBounds = (*i)->GetBoundingMaxValue();
-                    if ((*i)->GetBoundingMinValue()>minBounds) minBounds = (*i)->GetBoundingMinValue();
+                    if ((*i)->GetBoundingMinValue()<minBounds) minBounds = (*i)->GetBoundingMinValue();
                 }
                 // Set Sphere Radius and Bounds
                 BoundingSphereCenter = maxBounds-minBounds;

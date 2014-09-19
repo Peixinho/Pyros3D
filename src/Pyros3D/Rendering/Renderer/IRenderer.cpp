@@ -56,6 +56,7 @@ namespace p3d {
         scissorTestY = 0;
         scissorTestWidth = Width;
         scissorTestHeight = Height;
+        lod = false;
     }
     
     void IRenderer::Resize(const uint32& Width, const uint32& Height)
@@ -240,10 +241,16 @@ namespace p3d {
                 case DrawingType::Points:
                     DrawType = GL_POINTS;
                     break;
-                case DrawingType::Triangles_Fan:
+                case DrawingType::Line_Loop:
+                    DrawType = GL_LINE_LOOP;
+                    break;
+                case DrawingType::Line_Strip:
+                    DrawType = GL_LINE_STRIP;
+                    break;
+                case DrawingType::Triangle_Fan:
                     DrawType = GL_TRIANGLE_FAN;
                     break;
-                case DrawingType::Triangles_Strip:
+                case DrawingType::Triangle_Strip:
                     DrawType = GL_TRIANGLE_STRIP;
                     break;
                 case DrawingType::Triangles:
