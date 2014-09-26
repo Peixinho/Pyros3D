@@ -74,6 +74,8 @@ namespace p3d {
             // Parent
             void Add(GameObject* Child);
             void Remove(GameObject* Child);
+			GameObject* GetParent() { return _Owner; }
+			bool HaveParent() { return _HaveOwner; }
 
 			// Tags
 			void AddTag(const std::string &tag);

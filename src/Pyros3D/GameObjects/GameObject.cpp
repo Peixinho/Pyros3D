@@ -118,7 +118,7 @@ namespace p3d {
         if (_HaveOwner)
         {
             _Owner->UpdateTransformation();
-            _WorldMatrix = _Owner->_LocalMatrix * _LocalMatrix;
+            _WorldMatrix = _Owner->_WorldMatrix * _LocalMatrix;
         } else _WorldMatrix = _LocalMatrix;
     }
     // Gets Transformation Matrix
