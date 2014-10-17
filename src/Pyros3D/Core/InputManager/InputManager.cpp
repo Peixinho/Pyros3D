@@ -45,7 +45,7 @@ namespace p3d {
         Event::Input::Info m;
         m.Type = Event::Type::OnMove;
         m.Input = axis;
-        m.Value = value;        
+		m.Value=value;
         JoyPadMove[joypadID][axis](m);        
     }
     
@@ -57,7 +57,7 @@ namespace p3d {
         Event::Input::Info m;
         m.Type = Event::Type::OnMove;
         m.Input = Event::Input::Mouse::Move;
-
+		m.Value=Vec2(mouseX, mouseY);
         MouseMoveEvents(m);
     }
     void InputManager::SetMouseWheel(const f32& delta)
@@ -65,7 +65,7 @@ namespace p3d {
         Event::Input::Info m;
         m.Type = Event::Type::OnMove;
         m.Input = Event::Input::Mouse::Wheel;
-        m.Value = delta;
+		m.Value=delta;
         MouseWheelEvents(m);
     }
     Vec2 InputManager::GetMousePosition()

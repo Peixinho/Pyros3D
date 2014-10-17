@@ -19,7 +19,87 @@
 namespace p3d {            
     
     namespace Event {
-        
+    
+		namespace DataType {
+			enum {
+				INT = 0,
+				FLOAT,
+				VEC2,
+				VEC3,
+				VEC4,
+				MATRIX
+			};	
+		};
+
+		class InputData {
+			
+			public:
+				operator const int32() const
+				{
+					return *(int32*)&data[0];
+				}
+				operator const f32() const
+				{
+					return *(f32*)&data[0];
+				}
+				operator const Vec2() const
+				{
+					return *(Vec2*)&data[0];
+				}
+				operator const Vec3() const
+				{
+					return *(Vec3*)&data[0];
+				}
+				operator const Vec4() const
+				{
+					return *(Vec4*)&data[0];
+				}
+				operator const Matrix() const
+				{
+					return *(Matrix*)&data[0];
+				}
+				void operator =( const int32 &m )
+				{
+					Type = DataType::INT;
+					data.resize(sizeof(int32));
+					memcpy(&data[0],&m,sizeof(int32));
+				}
+				void operator =( const f32 &m )
+				{
+					Type = DataType::FLOAT;
+					data.resize(sizeof(f32));
+					memcpy(&data[0],&m,sizeof(f32));
+				}
+				void operator =( const Vec2&m )
+				{
+					Type = DataType::VEC2;
+					data.resize(sizeof(Vec2));
+					memcpy(&data[0],&m,sizeof(Vec2));
+				}
+				void operator =( const Vec3 &m )
+				{
+					Type = DataType::VEC3;
+					data.resize(sizeof(Vec3));
+					memcpy(&data[0],&m,sizeof(Vec3));
+				}
+				void operator =( const Vec4 &m )
+				{
+					Type = DataType::VEC4;
+					data.resize(sizeof(Vec4));
+					memcpy(&data[0],&m,sizeof(Vec4));
+				}
+				void operator =( const Matrix &m )
+				{
+					Type = DataType::MATRIX;
+					data.resize(sizeof(Matrix));
+					memcpy(&data[0],&m,sizeof(Matrix));
+				}
+
+			private:
+				std::vector<uchar> data;
+				uint32 Type;
+		};
+
         namespace Type {
             enum {
                 OnPress = 0,
@@ -34,7 +114,7 @@ namespace p3d {
             struct Info {
                 uint32 Type; // Event Type
                 uint32 Input; // Event Input
-                f32 Value; // Event Value
+				InputData Value;
             };
 
             namespace Mouse {
