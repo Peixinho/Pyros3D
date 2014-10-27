@@ -30,7 +30,8 @@ namespace p3d {
     {
         Event::Input::Info m;
         m.Type = Event::Type::OnPress;
-        m.Input = button; 
+        m.Input = button;
+		m.Value = button;
         JoyPadPressed[joypadID][button](m);        
     }
     void InputManager::JoypadButtonReleased(const uint32& joypadID, const uint32& button)
@@ -38,6 +39,7 @@ namespace p3d {
         Event::Input::Info m;
         m.Type = Event::Type::OnRelease;
         m.Input = button;
+		m.Value = button;
         JoyPadReleased[joypadID][button](m);
     }
     void InputManager::JoypadMove(const uint32& joypadID, const uint32& axis, const f32 &value)
@@ -77,6 +79,7 @@ namespace p3d {
         Event::Input::Info m;
         m.Type = Event::Type::OnPress;
         m.Input = e;
+		m.Value = e;
         EventsMapPressed[e](m);
     }
     void InputManager::MouseReleased(const uint32& e)
@@ -84,6 +87,7 @@ namespace p3d {
         Event::Input::Info m;
         m.Type = Event::Type::OnRelease;
         m.Input = e;
+		m.Value = e;
         EventsMapReleased[e](m);
     }
     
@@ -93,7 +97,7 @@ namespace p3d {
         Event::Input::Info k;
         k.Type = Event::Type::OnPress;
         k.Input = e;
-        
+        k.Value = e;
         EventsMapPressed[e](k);
         
     }
@@ -103,7 +107,7 @@ namespace p3d {
         Event::Input::Info k;
         k.Type = Event::Type::OnRelease;
         k.Input = e;
-
+		k.Value = e;
         EventsMapReleased[e](k);        
     }
     
@@ -114,12 +118,14 @@ namespace p3d {
         Code = e;
         Event::Input::Info kPress;
         kPress.Type = Event::Type::OnPress;
-        kPress.Input = e;        
+        kPress.Input = e;
+		kPress.Value = e;
         EventsMapPressed[Event::Input::Keyboard::OtherKeyboardEvents::CharacterEnter](kPress);
         
         Event::Input::Info kRelease;
         kRelease.Type = Event::Type::OnRelease;
         kRelease.Input = e;
+		kRelease.Value = e;
         EventsMapReleased[Event::Input::Keyboard::OtherKeyboardEvents::CharacterEnter](kRelease);
 #endif
     }
