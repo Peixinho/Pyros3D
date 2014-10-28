@@ -79,7 +79,9 @@ namespace p3d {
         
             string GetValue(const string &Group, const string &Option)
             {
-                return INI[Group][Option];
+		string result = INI[Group][Option];
+		if (result[result.size()-1]=='\r') result.erase(result.size()-1);
+                return result;
             }
             
             void SetValue(const string &Group, const string &Option, const string &Value)

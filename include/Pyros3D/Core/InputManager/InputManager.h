@@ -22,7 +22,8 @@ namespace p3d {
     
 		namespace DataType {
 			enum {
-				INT = 0,
+				UINT = 0,
+				INT,
 				FLOAT,
 				VEC2,
 				VEC3,
@@ -34,6 +35,10 @@ namespace p3d {
 		class InputData {
 			
 			public:
+				operator const uint32() const
+				{
+					return *(int32*)&data[0];
+				}
 				operator const int32() const
 				{
 					return *(int32*)&data[0];
@@ -57,6 +62,12 @@ namespace p3d {
 				operator const Matrix() const
 				{
 					return *(Matrix*)&data[0];
+				}
+				void operator =( const uint32 &m )
+				{
+					Type = DataType::UINT;
+					data.resize(sizeof(uint32));
+					memcpy(&data[0],&m,sizeof(uint32));
 				}
 				void operator =( const int32 &m )
 				{
