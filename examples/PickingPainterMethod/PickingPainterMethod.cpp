@@ -97,17 +97,30 @@ void PickingPainterMethod::Init()
         // Painter Method Initialization
         picking = new PainterPick(Width,Height);
         picking->SetViewPort(0,0,Width,Height);
+
+		post = new PostEffectsManager(Width, Height);
+		bloom = new BloomEffect(RTT::Color);
+		blur = new BlurEffect(RTT::LastRTT);
+		post->AddEffect(bloom);
+		post->AddEffect(bloom);
+        post->AddEffect(blur);
 }
 
 void PickingPainterMethod::Update()
 {
     // Update - Game Loop
-        
+
     // Update Scene
     Scene->Update(GetTime());
 
+	post->Start();
+
     // Render Scene
     Renderer->RenderScene(projection,Camera,Scene);
+
+	post->End();
+
+	post->ProcessPostEffects(&projection);
     
 }
 

@@ -28,6 +28,10 @@
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Utils/Mouse3D/PainterPick.h>
+#include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/BloomEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/BlurEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/SSAOEffect.h>
 
 using namespace p3d;
 
@@ -73,6 +77,12 @@ class PickingPainterMethod : public ClassName {
         
         // Selected Mesh
         RenderingMesh* SelectedMesh;
+
+		// Post Effects
+		PostEffectsManager* post;
+		BloomEffect *bloom;
+		BlurEffect *blur;
+		SSAOEffect *ssao;
 };
 
 #endif	/* PICKINGPAINTERMETHOD_H */
