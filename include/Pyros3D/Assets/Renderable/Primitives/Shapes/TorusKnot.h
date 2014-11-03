@@ -21,7 +21,8 @@ namespace p3d {
 
         TorusKnot(const f32 &radius, const f32 &tube, const uint32 &segmentsW = 60, const uint32 &segmentsH = 6, const f32 &p = 2, const f32 &q = 3, const uint32 &heightscale = 1, bool smooth = false, bool flip = false)
         {
-            this->isFlipped = flip;
+            isFlipped = flip;
+            isSmooth = smooth;
             this->radius=radius;
             this->p=p;
             this->q=q;

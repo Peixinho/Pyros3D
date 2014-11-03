@@ -12,6 +12,7 @@
 #include <Pyros3D/Materials/Shaders/Shaders.h>
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
+#include <Pyros3D/Ext/StringIDs/StringID.hpp>
 
 //#include <iostream>
 
@@ -21,8 +22,6 @@ namespace p3d {
 	{
 		Uniform::Uniform uniform;
 		int32 handle;
-
-		__UniformPostProcess(Uniform::Uniform u) { handle = -2; uniform = u; }
 	};
 
     namespace RTT {
@@ -34,10 +33,10 @@ namespace p3d {
         };
         struct Info {
             uint32 Type;
-            Texture texture;
+            Texture* texture;
             uint32 Unit;
             Info(const uint32 &type, const uint32 &unit = 0) { Type = type; Unit = unit; }
-            Info(const Texture &texture, const uint32 &type, const uint32 &unit = 0) { Type = type; Unit = unit; this->texture = texture; }
+            Info(Texture *texture, const uint32 &type, const uint32 &unit = 0) { Type = type; Unit = unit; this->texture = texture; }
         };
     }
     
@@ -45,7 +44,9 @@ namespace p3d {
         namespace PostEffects {
             enum {
                 ProjectionMatrix = 0,
-                NearFarPlane
+                NearFarPlane,
+                ScreenDimensions,
+                Other
             };
         }
     }
@@ -74,13 +75,22 @@ namespace p3d {
             const uint32 GetWidth() const;
             const uint32 GetHeight() const;
             
+            // Send Uniforms
+            void SetUniformValue(std::string Uniform, int32 value);
+            void SetUniformValue(StringID UniformID, int32 value); 
+            void SetUniformValue(std::string Uniform, f32 value);
+            void SetUniformValue(StringID UniformID, f32 value); 
+            void SetUniformValue(std::string Uniform, void* value, const uint32 &elementCount = 1);
+            void SetUniformValue(StringID UniformID, void* value, const uint32 &elementCount = 1);
+
         protected:
 
+            void AddUniform(const Uniform::Uniform &Data);
+
             int32 positionHandle, texcoordHandle;
-            std::vector<__UniformPostProcess> Uniforms;
             
             // RTT to Use
-            void UseCustomTexture(const Texture &texture);
+            void UseCustomTexture(Texture *texture);
             void UseRTT(const uint32 &RTT);
             
             // Shaders Strings
@@ -91,7 +101,7 @@ namespace p3d {
             uint32 ProgramObject;
             
             // Texture Units 
-            uint32 TextureUnits;
+            int32 TextureUnits;
             
             // RTT Order
             std::vector<RTT::Info> RTTOrder;
@@ -99,8 +109,9 @@ namespace p3d {
             // Custom Dimensions
             bool customDimensions;
             uint32 Width, Height;
-            
+
         private:
+            std::map<uint32, __UniformPostProcess> Uniforms;
             std::string VertexShaderString;   
             
             void UseColor();

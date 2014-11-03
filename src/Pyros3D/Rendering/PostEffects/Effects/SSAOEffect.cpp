@@ -10,96 +10,186 @@
 
 namespace p3d {
 
-    SSAOEffect::SSAOEffect(const uint32& Tex1, const uint32& Tex2) : IEffect()
+    SSAOEffect::SSAOEffect(const uint32& Tex1) : IEffect()
     {
         
         // Set RTT
         UseRTT(Tex1);
-        UseRTT(Tex2);
         
-        // Use Sample        
-        rnm.LoadTexture("rnm.png", TextureType::Texture,false);
+        // Use Sample
+		rnm = new Texture();
+        rnm->LoadTexture("rnm.png", TextureType::Texture, false);
         UseCustomTexture(rnm);
 
-        // Create Fragment Shader
+		// Create Fragment Shader
         FragmentShaderString =
                                                 "uniform sampler2D uTex0;\n"
                                                 "uniform sampler2D uTex1;\n"
-                                                "uniform sampler2D uTex2;\n"
+                                                "uniform vec2 uNearFar;\n"
+                                                "uniform vec2 uScreen;\n"
+                                                "uniform float uStrength;\n"
+                                                "uniform float uBase;\n"
+                                                "uniform float uArea;\n"
+                                                "uniform int uSamples;\n"
+                                                "uniform float uFalloff;\n"
+                                                "uniform float uRadius;\n"
+                                                "uniform float uScale;\n"
                                                 "varying vec2 vTexcoord;\n"
-                                                "const float totStrength = 1.38;\n"
-                                                "const float strength = 0.07;\n"
-                                                "const float offset = 18.0;\n"
-                                                "const float falloff = 0.000002;\n"
-                                                "const float rad = 0.006;\n"
-                                                "#define SAMPLES 10 // 10 is good\n"
-                                                "const float invSamples = -1.38/10.0;\n"
-                                                "void main(void)\n"
-                                                "{\n"                                                
-                                                "vec3 pSphere[10];\n"
-                                                "pSphere[0] = vec3(-0.010735935, 0.01647018, 0.0062425877);\n"
-                                                "pSphere[1] = vec3(-0.06533369, 0.3647007, -0.13746321);"
-                                                "pSphere[2] = vec3(-0.6539235, -0.016726388, -0.53000957);\n"
-                                                "pSphere[3] = vec3(0.40958285, 0.0052428036, -0.5591124);\n"
-                                                "pSphere[4] = vec3(-0.1465366, 0.09899267, 0.15571679);\n"
-                                                "pSphere[5] = vec3(-0.44122112, -0.5458797, 0.04912532);\n"
-                                                "pSphere[6] = vec3(0.03755566, -0.10961345, -0.33040273);\n"
-                                                "pSphere[7] = vec3(0.019100213, 0.29652783, 0.066237666);\n"
-                                                "pSphere[8] = vec3(0.8765323, 0.011236004, 0.28265962);\n"
-                                                "pSphere[9] = vec3(0.29264435, -0.40794238, 0.15964167);\n"
-                                                "//vec3 pSphere[16] = vec3[](vec3(0.53812504, 0.18565957, -0.43192),vec3(0.13790712, 0.24864247, 0.44301823),vec3(0.33715037, 0.56794053, -0.005789503),vec3(-0.6999805, -0.04511441, -0.0019965635),vec3(0.06896307, -0.15983082, -0.85477847),vec3(0.056099437, 0.006954967, -0.1843352),vec3(-0.014653638, 0.14027752, 0.0762037),vec3(0.010019933, -0.1924225, -0.034443386),vec3(-0.35775623, -0.5301969, -0.43581226),vec3(-0.3169221, 0.106360726, 0.015860917),vec3(0.010350345, -0.58698344, 0.0046293875),vec3(-0.08972908, -0.49408212, 0.3287904),vec3(0.7119986, -0.0154690035, -0.09183723),vec3(-0.053382345, 0.059675813, -0.5411899),vec3(0.035267662, -0.063188605, 0.54602677),vec3(-0.47761092, 0.2847911, -0.0271716));"
-                                                "//const vec3 pSphere[8] = vec3[](vec3(0.24710192, 0.6445882, 0.033550154),vec3(0.00991752, -0.21947019, 0.7196721),vec3(0.25109035, -0.1787317, -0.011580509),vec3(-0.08781511, 0.44514698, 0.56647956),vec3(-0.011737816, -0.0643377, 0.16030222),vec3(0.035941467, 0.04990871, -0.46533614),vec3(-0.058801126, 0.7347013, -0.25399926),vec3(-0.24799341, -0.022052078, -0.13399573));"
-                                                "//const vec3 pSphere[12] = vec3[](vec3(-0.13657719, 0.30651027, 0.16118456),vec3(-0.14714938, 0.33245975, -0.113095455),vec3(0.030659059, 0.27887347, -0.7332209),vec3(0.009913514, -0.89884496, 0.07381549),vec3(0.040318526, 0.40091, 0.6847858),vec3(0.22311053, -0.3039437, -0.19340435),vec3(0.36235332, 0.21894878, -0.05407306),vec3(-0.15198798, -0.38409665, -0.46785462),vec3(-0.013492276, -0.5345803, 0.11307949),vec3(-0.4972847, 0.037064247, -0.4381323),vec3(-0.024175806, -0.008928787, 0.17719103),vec3(0.694014, -0.122672155, 0.33098832));"
-                                                "//const vec3 pSphere[10] = vec3[](vec3(-0.010735935, 0.01647018, 0.0062425877),vec3(-0.06533369, 0.3647007, -0.13746321),vec3(-0.6539235, -0.016726388, -0.53000957),vec3(0.40958285, 0.0052428036, -0.5591124),vec3(-0.1465366, 0.09899267, 0.15571679),vec3(-0.44122112, -0.5458797, 0.04912532),vec3(0.03755566, -0.10961345, -0.33040273),vec3(0.019100213, 0.29652783, 0.066237666),vec3(0.8765323, 0.011236004, 0.28265962),vec3(0.29264435, -0.40794238, 0.15964167));"
+                                                "//Linear convertions z_info_local.w = vec4( znear, zfar, znear * zfar, znear - zfar );\n"
+                                                "vec4 z_info_local = vec4(uNearFar.x,uNearFar.y,uNearFar.x*uNearFar.y,uNearFar.x-uNearFar.y);\n"
+                                                //"vec4 z_info_local = vec4(1,500,500,1-500);\n"
+                                                "float DecodeLinearDepth(float z, vec4 z_info_local)\n"
+                                                "{\n"
+                                                    "return z_info_local.x - z * z_info_local.w;\n"
+                                                "}\n"
+                                                "float DecodeNativeDepth(float native_z, vec4 z_info_local)\n"
+                                                "{\n"
+                                                "return native_z;"
+                                                    "return z_info_local.z / (native_z * z_info_local.w + z_info_local.y);\n"
+                                                "}\n"
+                                                "vec3 normal_from_depth(float depth, vec2 texcoords) {\n"
+                                                    "vec2 offset1 = vec2(0.0,1.0/uScreen.y);\n"
+                                                    "vec2 offset2 = vec2(1.0/uScreen.x,0.0);\n"
+                                                    //"vec2 offset1 = vec2(0.0,1.0/768);\n"
+                                                    //"vec2 offset2 = vec2(1.0/1024,0.0);\n"
+                                                    "float scale = uScale;\n"
+                                                    //"float scale = 50;\n"
+                                                    "float depth1 = DecodeNativeDepth(texture2D(uTex0, texcoords + offset1).r,z_info_local);\n"
+                                                    "float depth2 = DecodeNativeDepth(texture2D(uTex0, texcoords + offset2).r,z_info_local);\n"
+                                                    "vec3 p1 = vec3(0,1,(depth1 - depth) * scale);\n"
+                                                    "vec3 p2 = vec3(1,0,(depth2 - depth) * scale);\n"
+                                                    "vec3 normal = cross(p1, p2);\n"
+                                                    //"normal.z = -normal.z;\n"
+                                                    "return normalize(normal);\n"
+                                                "}\n"
+                                                 "void main() {\n"
 
-                                                " \n"
-                                                "   // grab a normal for reflecting the sample rays later on\n"
-                                                "   vec3 fres = normalize((texture2D(uTex2,vTexcoord*offset).xyz*2.0) - vec3(1.0));\n"
-                                                " \n"
-                                                "   vec4 currentPixelSample = texture2D(uTex1,vTexcoord);\n"
-                                                " \n"
-                                                "   float currentPixelDepth = currentPixelSample.a;\n"
-                                                " \n"
-                                                "   // current fragment coords in screen space\n"
-                                                "   vec3 ep = vec3(vTexcoord.xy,currentPixelDepth);\n"
-                                                "  // get the normal of current fragment\n"
-                                                "   vec3 norm = normalize(currentPixelSample.xyz *2.0 - vec3(1.0));\n"
-                                                " \n"
-                                                "   float bl = 0.0;\n"
-                                                "   // adjust for the depth ( not sure if this is good..)\n"
-                                                "   float radD = rad/currentPixelDepth;\n"
-                                                " \n"
-                                                "   //vec3 ray, se, occNorm;\n"
-                                                "   float occluderDepth, depthDifference;\n"
-                                                "   vec4 occluderFragment;\n"
-                                                "   vec3 ray;\n"
-                                                "   for(int i=0; i < SAMPLES;++i)\n"
-                                                "   {\n"
-                                                "      // get a vector (randomized inside of a sphere with radius 1.0) from a texture and reflect it\n"
-                                                "      ray = radD*reflect(pSphere[i],fres);\n"
-                                                " \n"
-                                                "      // get the depth of the occluder fragment\n"
-                                                "      occluderFragment = texture2D(uTex1,ep.xy + sign(dot(ray,norm) )*ray.xy);\n"
-                                                "    // if depthDifference is negative = occluder is behind current fragment\n"
-                                                "      depthDifference = currentPixelDepth-occluderFragment.a;\n"
-                                                " \n"
-                                                "      // calculate the difference between the normals as a weight\n"
-                                                "      // calculate the difference between the normals as a weight\n"
-                                                " // the falloff equation, starts at falloff and is kind of 1/x^2 falling\n"
-                                                "      vec3 occNorm = normalize(occluderFragment.xyz *2.0 - vec3(1.0));"
-                                                "      bl += step(falloff,depthDifference)*(1.0-dot(occNorm,norm))*(1.0-smoothstep(falloff,strength,depthDifference));\n"
-                                                "   }\n"
-                                                " \n"
-                                                "   // output the result\n"
-                                                "   gl_FragColor = vec4(1.0+bl*invSamples);\n"
-                                                " \n"
-                                                "}";        
+                                                "float total_strength = uStrength;\n"
+                                                "float base = uBase;\n"
+                                                "float area = uArea;\n"
+                                                "float falloff = uFalloff;\n"
+                                                "float radius = uRadius;\n"
+                                                "int samples = uSamples;\n"
+                                                "float samplesf = float(uSamples);\n"
+
+                                                // "float total_strength = 1.0;\n"
+                                                // "float base = 0.2;\n"
+                                                // "float area = 0.0075;\n"
+                                                // "float falloff = 0.000001;\n"
+                                                // "float radius = 0.002;\n"
+                                                // "int samples = 16;\n"
+                                                // "float samplesf = float(samples);\n"
+
+                                                "vec3 sample_sphere[16];\n"
+                                                "sample_sphere[0] = vec3( 0.5381, 0.1856,-0.4319);\n"
+                                                "sample_sphere[1] = vec3( 0.1379, 0.2486, 0.4430);\n"
+                                                "sample_sphere[2] = vec3( 0.3371, 0.5679,-0.0057);\n"
+                                                "sample_sphere[3] = vec3(-0.6999,-0.0451,-0.0019);\n"
+                                                "sample_sphere[4] = vec3( 0.0689,-0.1598,-0.8547);\n"
+                                                "sample_sphere[5] = vec3( 0.0560, 0.0069,-0.1843);\n"
+                                                "sample_sphere[6] = vec3(-0.0146, 0.1402, 0.0762);\n"
+                                                "sample_sphere[7] = vec3( 0.0100,-0.1924,-0.0344);\n"
+                                                "sample_sphere[8] = vec3(-0.3577,-0.5301,-0.4358);\n"
+                                                "sample_sphere[9] = vec3(-0.3169, 0.1063, 0.0158);\n"
+                                                "sample_sphere[10] = vec3( 0.0103,-0.5869, 0.0046);\n"
+                                                "sample_sphere[11] = vec3(-0.0897,-0.4940, 0.3287);\n"
+                                                "sample_sphere[12] = vec3( 0.7119,-0.0154,-0.0918);\n"
+                                                "sample_sphere[13] = vec3(-0.0533, 0.0596,-0.5411);\n"
+                                                "sample_sphere[14] = vec3( 0.0352,-0.0631, 0.5460);\n"
+                                                "sample_sphere[15] = vec3(-0.4776, 0.2847,-0.0271);\n"
+                                                "vec3 random = normalize( texture2D(uTex1, vTexcoord * 4.0).rgb );\n"
+                                                "float depth = DecodeNativeDepth(texture2D(uTex0, vTexcoord).r,z_info_local);\n"
+                                                "vec3 position = vec3(vTexcoord, depth);\n"
+                                                "vec3 normal = normal_from_depth(depth, vTexcoord);\n"
+                                                "float radius_depth = radius/depth;\n"
+                                                "float occlusion = 0.0;\n"
+                                                "for(int i=0; i < samples; i++) {\n"
+                                                    "vec3 ray = radius_depth * reflect(sample_sphere[i], random);\n"
+                                                    "vec3 hemi_ray = position + sign(dot(ray,normal)) * ray;\n"
+                                                    "float occ_depth = DecodeNativeDepth(texture2D(uTex0, vec2(clamp(hemi_ray.x,0.0,1.0),clamp(hemi_ray.y,0.0,1.0))).r,z_info_local);\n"
+                                                    "float difference = depth - occ_depth;\n"
+                                                    "occlusion += step(falloff, difference) * (1.0-smoothstep(falloff, area, difference));\n"
+                                                "}\n"
+                                                "float ao = 1.0 - total_strength * occlusion * (1.0 / samplesf);\n"
+                                                "gl_FragColor = vec4(clamp(ao + base,0.0,1.0));\n"
+                                                "}";
               
         CompileShaders();
+
+        Uniform::Uniform strength;
+        Uniform::Uniform Base;
+        Uniform::Uniform Area;
+        Uniform::Uniform Falloff;
+        Uniform::Uniform Radius;
+        Uniform::Uniform Samples;
+        Uniform::Uniform Scale;
+        Uniform::Uniform nearFarPlane;
+        Uniform::Uniform screen;
+
+        total_strength = 1.0;
+        base = 0.2;
+        area = 0.0075;
+        falloff = 0.00001;
+        radius = 0.5;
+        samples = 16;
+        scale = 50.f;
+
+        strength.Name = "uStrength";
+        strength.Type = Uniform::DataType::Float;
+        strength.Usage = Uniform::PostEffects::Other;
+        strength.SetValue(&total_strength);
+        AddUniform(strength);
+
+        Base.Name = "uBase";
+        Base.Type = Uniform::DataType::Float;
+        Base.Usage = Uniform::PostEffects::Other;
+        Base.SetValue(&base);
+        AddUniform(Base);
+
+        Area.Name = "uArea";
+        Area.Type = Uniform::DataType::Float;
+        Area.Usage = Uniform::PostEffects::Other;
+        Area.SetValue(&area);
+        AddUniform(Area);
+
+        Falloff.Name = "uFalloff";
+        Falloff.Type = Uniform::DataType::Float;
+        Falloff.Usage = Uniform::PostEffects::Other;
+        Falloff.SetValue(&falloff);
+        AddUniform(Falloff);
+
+        Radius.Name = "uRadius";
+        Radius.Type = Uniform::DataType::Float;
+        Radius.Usage = Uniform::PostEffects::Other;
+        Radius.SetValue(&radius);
+        AddUniform(Radius);
+
+        Samples.Name = "uSamples";
+        Samples.Type = Uniform::DataType::Int;
+        Samples.Usage = Uniform::PostEffects::Other;
+        Samples.SetValue(&samples);
+        AddUniform(Samples);
+
+        Scale.Name = "uScale";
+        Scale.Type = Uniform::DataType::Float;
+        Scale.Usage = Uniform::PostEffects::Other;
+        Scale.SetValue(&scale);
+        AddUniform(Scale);
+
+        nearFarPlane.Name = "uNearFar";
+        nearFarPlane.Type = Uniform::DataType::Vec2;
+        nearFarPlane.Usage = Uniform::PostEffects::NearFarPlane;
+        AddUniform(nearFarPlane);
+
+        screen.Name = "uScreen";
+        screen.Type = Uniform::DataType::Vec2;
+        screen.Usage = Uniform::PostEffects::ScreenDimensions;
+        AddUniform(screen);        
     }
 
     SSAOEffect::~SSAOEffect()
     {
+		delete rnm;
     }
 
 };

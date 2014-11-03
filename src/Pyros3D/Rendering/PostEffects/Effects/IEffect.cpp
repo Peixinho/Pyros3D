@@ -44,7 +44,7 @@ namespace p3d {
         proj.Name = "uOrtho";
         proj.Type = Uniform::DataType::Matrix;
         proj.Usage = Uniform::DataUsage::ProjectionMatrix;
-        Uniforms.push_back(proj);
+        AddUniform(proj);
         
         // Reset
         TextureUnits = 0;
@@ -84,15 +84,51 @@ namespace p3d {
     IEffect::~IEffect() {
     }
 
+    void IEffect::AddUniform(const Uniform::Uniform &Data)
+    {
+        StringID ID(MakeStringID(Data.Name));
+        Uniforms[(uint32)ID].uniform = Data;
+        Uniforms[(uint32)ID].handle = -2;
+    }
+
+    // send uniforms
+    void IEffect::SetUniformValue(std::string Uniform, int32 value)
+    {
+        StringID ID(MakeStringID(Uniform));
+        Uniforms[ID].uniform.SetValue(&value,1);
+    }
+    void IEffect::SetUniformValue(StringID UniformID, int32 value)
+    {
+       Uniforms[UniformID].uniform.SetValue(&value,1);
+    } 
+    void IEffect::SetUniformValue(std::string Uniform, f32 value)
+    {
+        StringID ID(MakeStringID(Uniform));
+        Uniforms[ID].uniform.SetValue(&value,1);
+    }
+    void IEffect::SetUniformValue(StringID UniformID, f32 value)
+    {
+        Uniforms[UniformID].uniform.SetValue(&value,1);
+    } 
+    void IEffect::SetUniformValue(StringID UniformID, void* value, const uint32 &elementCount)
+    {
+        Uniforms[UniformID].uniform.SetValue(value,elementCount);
+    }
+    void IEffect::SetUniformValue(std::string Uniform, void* value, const uint32 &elementCount)
+    {
+        StringID ID(MakeStringID(Uniform));
+        Uniforms[ID].uniform.SetValue(value,elementCount);
+    }
+
     void IEffect::UseColor()
     {
         Uniform::Uniform Color;
         std::ostringstream toSTR; toSTR << "uTex" << TextureUnits;
         Color.Name = toSTR.str();
         Color.Type = Uniform::DataType::Int;
-        Color.Usage = Uniform::DataUsage::Other;
+        Color.Usage = Uniform::PostEffects::Other;
         Color.SetValue(&TextureUnits);
-        Uniforms.push_back(Color);
+        AddUniform(Color);
         
         // Set RTT Order
         RTTOrder.push_back(RTT::Info(RTT::Color, TextureUnits));
@@ -105,9 +141,9 @@ namespace p3d {
         std::ostringstream toSTR; toSTR << "uTex" << TextureUnits;
         Depth.Name = toSTR.str();
         Depth.Type = Uniform::DataType::Int;
-        Depth.Usage = Uniform::DataUsage::Other;
+        Depth.Usage = Uniform::PostEffects::Other;
         Depth.SetValue(&TextureUnits);
-        Uniforms.push_back(Depth);
+        AddUniform(Depth);
         
         // Set RTT Order
         RTTOrder.push_back(RTT::Info(RTT::Depth, TextureUnits));
@@ -120,24 +156,24 @@ namespace p3d {
         std::ostringstream toSTR; toSTR << "uTex" << TextureUnits;
         RTT.Name = toSTR.str();
         RTT.Type = Uniform::DataType::Int;
-        RTT.Usage = Uniform::DataUsage::Other;
+        RTT.Usage = Uniform::PostEffects::Other;
         RTT.SetValue(&TextureUnits);
-        Uniforms.push_back(RTT);
+        AddUniform(RTT);
         
         // Set RTT Order
         RTTOrder.push_back(RTT::Info(RTT::LastRTT, TextureUnits));
         
         TextureUnits++;
     }
-    void IEffect::UseCustomTexture(const Texture &texture)
+    void IEffect::UseCustomTexture(Texture* texture)
     {        
         Uniform::Uniform CustomTexture;
         std::ostringstream toSTR; toSTR << "uTex" << TextureUnits;
         CustomTexture.Name = toSTR.str();
         CustomTexture.Type = Uniform::DataType::Int;
-        CustomTexture.Usage = Uniform::DataUsage::Other;
+        CustomTexture.Usage = Uniform::PostEffects::Other;
         CustomTexture.SetValue(&TextureUnits);
-        Uniforms.push_back(CustomTexture);
+        AddUniform(CustomTexture);
         
         // Set RTT Order
         RTTOrder.push_back(RTT::Info(texture, RTT::CustomTexture, TextureUnits));

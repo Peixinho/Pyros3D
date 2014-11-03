@@ -21,6 +21,7 @@
 #endif
 
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Sphere.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Utils/Colors/Colors.h>
@@ -32,6 +33,7 @@
 #include <Pyros3D/Rendering/PostEffects/Effects/BloomEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/BlurEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/SSAOEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/RTTDebug.h>
 
 using namespace p3d;
 
@@ -80,8 +82,9 @@ class PickingPainterMethod : public ClassName {
 
 		// Post Effects
 		PostEffectsManager* post;
-		BloomEffect *bloom;
+		RTTDebug *rttdebug;
 		BlurEffect *blur;
+		BloomEffect *bloom;
 		SSAOEffect *ssao;
 };
 

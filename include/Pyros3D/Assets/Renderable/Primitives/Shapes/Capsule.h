@@ -20,6 +20,7 @@ namespace p3d {
             Capsule(const f32 &radius, const f32 &height, const uint32 &numRings, const uint32 &segmentsW, const uint32 &segmentsH, bool smooth = false, bool flip = false)
             {
                 isFlipped = flip;
+                isSmooth = smooth;
                 f32 fDeltaRingAngle = (f32)(PI/2/numRings);
                 f32 fDeltaSegAngle = (f32)(PI*2/segmentsW);
 

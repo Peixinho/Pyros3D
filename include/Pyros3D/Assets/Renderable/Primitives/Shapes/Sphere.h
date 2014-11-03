@@ -20,6 +20,8 @@ namespace p3d {
             Sphere(const f32 &radius, const uint32 &segmentsW, const uint32 &segmentsH, bool smooth = false, bool HalfSphere = false, bool flip = false)
             {
                 isFlipped = flip;
+                isSmooth = smooth;
+                
                 int i,j;
                 f32 iHor=(f32)segmentsW;
                 f32 iVer=(f32)segmentsH;

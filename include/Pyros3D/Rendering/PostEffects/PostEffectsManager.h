@@ -19,6 +19,7 @@
 namespace p3d {
 
     class PYROS3D_API PostEffectsManager {
+        friend class IEffect;
         
         public:
 

@@ -15,11 +15,20 @@ namespace p3d {
 
     class SSAOEffect : public IEffect {
     public:
-        SSAOEffect(const uint32 &Tex1, const uint32 &Tex2);
+        SSAOEffect(const uint32& Tex1);
         virtual ~SSAOEffect();
+
+        f32 total_strength;
+        f32 base;
+        f32 area;
+        f32 falloff;
+        f32 radius;
+        uint32 samples;
+        f32 scale;
+
     private:
 
-        Texture rnm;
+        Texture* rnm;
         
     };
 

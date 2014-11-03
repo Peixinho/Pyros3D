@@ -26,6 +26,8 @@ void PickingPainterMethod::OnResize(const uint32 &width, const uint32 &height)
     
     // Resize Picking
     picking->Resize(Width,Height);
+
+    post->Resize(Width,Height);
 }
 
 void PickingPainterMethod::Init()
@@ -70,7 +72,7 @@ void PickingPainterMethod::Init()
         srand( time( NULL ) );
         
         // Create Geometry
-        cubeHandle = new Cube(10,10,10);
+        cubeHandle = new Sphere(30,8,16,true);
         
         // Create 100 Cubes
         for (uint32 i=0;i<100;i++)
@@ -98,29 +100,32 @@ void PickingPainterMethod::Init()
         picking = new PainterPick(Width,Height);
         picking->SetViewPort(0,0,Width,Height);
 
-		post = new PostEffectsManager(Width, Height);
-		bloom = new BloomEffect(RTT::Color);
-		blur = new BlurEffect(RTT::LastRTT);
-		post->AddEffect(bloom);
-		post->AddEffect(bloom);
+        post = new PostEffectsManager(Width, Height);
+        ssao = new SSAOEffect(RTT::Depth);
+        blur = new BlurEffect(RTT::LastRTT);
+        rttdebug = new RTTDebug(RTT::Color,RTT::LastRTT);
+        post->AddEffect(ssao);
         post->AddEffect(blur);
+        post->AddEffect(blur);
+        post->AddEffect(blur);
+        post->AddEffect(rttdebug);
 }
 
 void PickingPainterMethod::Update()
 {
     // Update - Game Loop
-
+Camera->SetPosition(Vec3(Camera->GetPosition().x,Camera->GetPosition().y,Camera->GetPosition().z-GetTime()/100.f));
     // Update Scene
     Scene->Update(GetTime());
 
-	post->Start();
+    post->Start();
 
     // Render Scene
     Renderer->RenderScene(projection,Camera,Scene);
 
-	post->End();
+    post->End();
 
-	post->ProcessPostEffects(&projection);
+    post->ProcessPostEffects(&projection);
     
 }
 

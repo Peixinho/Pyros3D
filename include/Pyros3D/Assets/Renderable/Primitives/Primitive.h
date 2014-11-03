@@ -78,7 +78,7 @@ class PYROS3D_API Primitive : public Renderable {
 
         PrimitiveGeometry* geometry;
 
-        Primitive() { geometry = new PrimitiveGeometry(); isFlipped = false; }
+        Primitive() { geometry = new PrimitiveGeometry(); isFlipped = false; isSmooth = false; }
 
         void Build() 
         {
@@ -90,6 +90,26 @@ class PYROS3D_API Primitive : public Renderable {
                     geometry->tNormal[i].negateSelf();
                 }
             }
+
+		if (isSmooth)
+		{
+			if (geometry->tNormal.size()>0)
+			{
+				std::vector<Vec3> CopyNormals;
+				for (uint32 i=0;i<geometry->tNormal.size();i++) {
+					CopyNormals.push_back(geometry->tNormal[i]);
+				}
+				for (uint32 i=0;i<geometry->tNormal.size();i++) {
+					for (uint32 j=0;j<geometry->tNormal.size();j++) {
+						if (i!=j && geometry->tVertex[i]==geometry->tVertex[j])
+							geometry->tNormal[j]+=CopyNormals[i];            
+				   }
+				}
+				for (uint32 i=0;i<geometry->tNormal.size();i++) {
+					geometry->tNormal[i].normalizeSelf();
+				}
+			}
+		}
 
             // Create Attributes Buffers
             geometry->CreateBuffers();
@@ -117,6 +137,7 @@ class PYROS3D_API Primitive : public Renderable {
 
     protected:
 
+        bool isSmooth;
         bool isFlipped;
     };
 };

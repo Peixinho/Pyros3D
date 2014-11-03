@@ -20,6 +20,7 @@ namespace p3d {
         Torus(const f32 &radius, const f32 &tube, const uint32 &segmentsW = 60, const uint32 segmentsH = 6, bool smooth = false, bool flip = false)
         {
             isFlipped = flip;
+            isSmooth = smooth;
             Vec3 normal;
 
             int i, j;

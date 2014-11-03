@@ -9,7 +9,7 @@
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include "GL/glew.h"
 
-namespace p3d {        
+namespace p3d {
     
     PostEffectsManager::PostEffectsManager(const uint32& width, const uint32& height)
     {
@@ -125,11 +125,13 @@ namespace p3d {
     
     void PostEffectsManager::ProcessPostEffects(Projection* projection)
     {
+        GLCHECK();
         // Set Counter
 		uint32 counter = 1;
 
         // Save Near and Far Planes
         Vec2 NearFarPlane = Vec2(projection->Near, projection->Far);
+        Vec2 ScreenDimensions = Vec2(Width,Height);
 		
         // Run Through Effects
         for (std::vector<IEffect*>::iterator effect=effects.begin();effect!=effects.end();effect++)
@@ -202,7 +204,7 @@ namespace p3d {
 
             // Start Shader Program
             glUseProgram((*effect)->ShaderProgram());
-			
+
             // Bind MRT
             for (std::vector<RTT::Info>::iterator i = (*effect)->RTTOrder.begin();i != (*effect)->RTTOrder.end();i++)
             {
@@ -218,35 +220,46 @@ namespace p3d {
                         LastRTT->Bind();
                         break;
                     default:
-                        (*i).texture.Bind();
-                        break;                        
+                        (*i).texture->Bind();
+                        break;
                 }
             }
 
             // Send Uniforms
-            for (std::vector<__UniformPostProcess>::iterator i=(*effect)->Uniforms.begin();i!=(*effect)->Uniforms.end();i++)
+            for (std::map<uint32,__UniformPostProcess>::iterator i=(*effect)->Uniforms.begin();i!=(*effect)->Uniforms.end();i++)
             {
-				if ((*i).handle==-2)
+				if ((*i).second.handle==-2)
                 {
-					(*i).handle=Shader::GetUniformLocation((*effect)->ShaderProgram(),(*i).uniform.Name);
+					(*i).second.handle=Shader::GetUniformLocation((*effect)->ShaderProgram(),(*i).second.uniform.Name);
                 }
-                if ((*i).handle!=-1)
+                if ((*i).second.handle!=-1)
                 {
-					switch((*i).uniform.Usage)
+					switch((*i).second.uniform.Usage)
                     {
+                        std::cout << (*i).second.handle << ":" << (*i).second.uniform.Name << std::endl;
                         case Uniform::PostEffects::ProjectionMatrix:
                         {
 							Matrix projection = proj.GetProjectionMatrix();
-							Shader::SendUniform((*i).uniform,&projection,(*i).handle);
+							Shader::SendUniform((*i).second.uniform,&projection,(*i).second.handle);
                         }
                         break;
 
                         case Uniform::PostEffects::NearFarPlane:
-							Shader::SendUniform((*i).uniform,&NearFarPlane,(*i).handle);
-                            break;
+						{
+							Shader::SendUniform((*i).second.uniform,&NearFarPlane,(*i).second.handle);
+						}
+                        break;
+                        case Uniform::PostEffects::ScreenDimensions:
+                        {
+                            Shader::SendUniform((*i).second.uniform,&ScreenDimensions,(*i).second.handle);
+                        }
+                        break;
                         default:
-							Shader::SendUniform((*i).uniform,&(*i).uniform.Value,(*i).handle);
-                            break;
+                        case Uniform::PostEffects::Other:
+						{
+                            Shader::SendUniform((*i).second.uniform,(*i).second.handle);
+						}
+                        break;
                     }
                 }
             }
@@ -302,7 +315,7 @@ namespace p3d {
                         LastRTT->Unbind();
                         break;
                     default:
-                        (*i).texture.Unbind();
+                        (*i).texture->Unbind();
                         break;                        
                 }
             }
@@ -319,8 +332,12 @@ namespace p3d {
             counter++;
 
         }
-       // Disable Shader Program
-       glUseProgram(0);       
+
+		// Clear Flag
+		usingFBO1 = usingFBO2 = false;
+
+		// Disable Shader Program
+		glUseProgram(0);       
     }
     
     PostEffectsManager::~PostEffectsManager() 
@@ -333,6 +350,13 @@ namespace p3d {
         // Destroy FBOs
         delete fbo1;
         delete fbo2;
+		delete ExternalFBO;
+
+		// Destroy Textures
+		delete Color;
+		delete Depth;
+		delete Result1;
+		delete Result2;
     }
     
     void PostEffectsManager::AddEffect(IEffect* Effect)

@@ -20,6 +20,8 @@ namespace p3d {
             Plane(const f32 &width, const f32 &height, bool smooth = false, bool flip = false)
             {
                 isFlipped = flip;
+                isSmooth = smooth;
+                
                 f32 w2 = width/2; f32 h2 = height/2;       
 
                 Vec3 a = Vec3(-w2,-h2,0); Vec3 b = Vec3(w2,-h2,0); Vec3 c = Vec3(w2,h2,0); Vec3 d = Vec3(-w2,h2,0);
