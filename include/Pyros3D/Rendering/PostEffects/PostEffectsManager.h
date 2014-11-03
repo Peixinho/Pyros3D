@@ -41,6 +41,10 @@ namespace p3d {
             
             FrameBuffer* GetExternalFrameBuffer();
             
+            Texture* GetColor() { return Color; }
+            Texture* GetDepth() { return Depth; }
+            Texture* GetLastRTT() { return LastRTT; }
+
         private:
             
             void UpdateQuad(const uint32 &width, const uint32 &height);
