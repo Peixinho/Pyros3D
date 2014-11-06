@@ -13,12 +13,13 @@
 #include "../Ext/Signals/Signal.h"
 #include "../Ext/Signals/Delegate.h"
 #include <vector>
+#include "../Other/Export.h"
 
 namespace p3d {
 
 	class TextureAnimation;
 
-  	class TextureAnimationInstance {
+  	class PYROS3D_API TextureAnimationInstance {
 
 		friend class TextureAnimation;
 
