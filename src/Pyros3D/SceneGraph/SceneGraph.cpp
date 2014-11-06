@@ -20,40 +20,45 @@ namespace p3d {
     {
         if (GO->Scene==NULL)
         {
-            bool found = false;
-            for (std::vector<GameObject*>::iterator i=_GameObjectList.begin();i!=_GameObjectList.end();i++)
-            {
-                if (*i==GO)
-                {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found)
-            {
-                _GameObjectList.push_back(GO);
-                // Set Scene Pointer
-                GO->Scene = this;
-                echo("SUCCESS: GameObject Added to Scene");
-            } else {
-                echo("ERROR: Component Already Added in the Scene");
-            }
-        } else {
-            echo("ERROR: GameObject Already on a Scene");
-        }
+			std::vector<GameObject*> *vec = (GO->IsStatic()?&_GameObjectListStaticPrevious:&_GameObjectListDynamic);
+
+			bool found = false;
+			for (std::vector<GameObject*>::iterator i=vec->begin();i!=vec->end();i++)
+			{
+				if (*i==GO)
+				{
+					found = true;
+					break;
+				}
+			}
+			if (!found)
+			{
+				vec->push_back(GO);
+				// Set Scene Pointer
+				GO->Scene = this;
+				echo("SUCCESS: GameObject Added to Scene");
+
+			} else {
+				echo("ERROR: Component Already Added in the Scene");
+			}
+		} else {
+			echo("ERROR: GameObject Already on a Scene");
+		}
     }
     
     void SceneGraph::Remove(GameObject* GO)
     {
+		std::vector<GameObject*> *vec = (GO->IsStatic()?&_GameObjectListStaticAfter:&_GameObjectListDynamic);
+
         bool found = false;
-        for (std::vector<GameObject*>::iterator i=_GameObjectList.begin();i!=_GameObjectList.end();i++)
+        for (std::vector<GameObject*>::iterator i=vec->begin();i!=vec->end();i++)
         {
             if (*i==GO)
             {
                 // Unregister Components
                 (*i)->UnregisterComponents(this);
                 // Erase From List
-                _GameObjectList.erase(i);
+                vec->erase(i);
                 // Erase Scene Pointer
                 GO->Scene = NULL;
                 // Set Flag
@@ -61,7 +66,26 @@ namespace p3d {
                 break;
             }
         }
-        if (!found) echo("GameObject Not Found in Scene");
+        if (!found && GO->IsStatic())
+		{
+			vec = &_GameObjectListStaticPrevious;
+			for (std::vector<GameObject*>::iterator i=vec->begin();i!=vec->end();i++)
+			{
+				if (*i==GO)
+				{
+					// Unregister Components
+					(*i)->UnregisterComponents(this);
+					// Erase From List
+					vec->erase(i);
+					// Erase Scene Pointer
+					GO->Scene = NULL;
+					// Set Flag
+					found = true;
+					break;
+				}
+			}
+		}
+		if (!found) echo("GameObject Not Found in Scene");
         else echo("SUCCESS: GameObject Removed from Scene");
     }
     
@@ -70,7 +94,8 @@ namespace p3d {
         // Save Time
         timer = Timer;
         
-        for (std::vector<GameObject*>::iterator i=_GameObjectList.begin();i!=_GameObjectList.end();i++)
+		// Update Dynamic Objects Every Frame
+		for (std::vector<GameObject*>::iterator i=_GameObjectListDynamic.begin();i!=_GameObjectListDynamic.end();i++)
         {
             // Update GameObject - User Change
             (*i)->Update();
@@ -80,7 +105,23 @@ namespace p3d {
             (*i)->UpdateComponents();
             // Update Transforms Not Using Threads
             (*i)->InternalUpdate();
-            
+        }
+
+		// Update Static Once
+		for (std::vector<GameObject*>::iterator i=_GameObjectListStaticPrevious.begin();i!=_GameObjectListStaticPrevious.end();i++)
+        {
+            // Update GameObject - User Change
+            (*i)->Update();
+            // Register Components
+            (*i)->RegisterComponents(this);
+            // Update Components
+            (*i)->UpdateComponents();
+            // Update Transforms Not Using Threads
+            (*i)->InternalUpdate();
+			// Add to After and Remove From Previous
+			_GameObjectListStaticAfter.push_back((*i));
+			i = _GameObjectListStaticPrevious.erase(i);
+			if (i==_GameObjectListStaticPrevious.end()) break;
         }
     }
     
@@ -88,5 +129,4 @@ namespace p3d {
     {
         return timer;
     }
-    
 };

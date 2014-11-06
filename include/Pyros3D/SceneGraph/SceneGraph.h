@@ -35,14 +35,17 @@ namespace p3d {
             void Add(GameObject* GO);
             // Remove Child from Scene
             void Remove(GameObject* GO);
-            
             // Get Time
             const f64 &GetTime() const;
 
         private:
 
-            // GameObject List
-            std::vector<GameObject*> _GameObjectList;
+            // GameObject Dynamic List
+            std::vector<GameObject*> _GameObjectListDynamic;
+			// GameObject Static Lists
+			std::vector<GameObject*> _GameObjectListStaticPrevious;
+			std::vector<GameObject*> _GameObjectListStaticAfter;
+
             // Time
             f64 timer;
     };

@@ -30,7 +30,7 @@ namespace p3d {
         public:
         
             // Constructor
-            GameObject();
+            GameObject(bool isStatic = false);
             
             // Destructor
             virtual ~GameObject();
@@ -83,6 +83,9 @@ namespace p3d {
 			bool HaveTag(const uint32  &tag);
 			bool HaveTag(const std::string &tag);
 
+			// Static
+			bool IsStatic() { return isStatic; }
+
         private:
             
             // Update Components
@@ -117,6 +120,9 @@ namespace p3d {
             
         protected:
             
+			// Static
+			bool isStatic;
+
             // GameObject Owner
             GameObject* _Owner;
             bool _HaveOwner;

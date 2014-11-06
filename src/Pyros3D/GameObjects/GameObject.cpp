@@ -11,8 +11,11 @@
 
 namespace p3d {
 
-    GameObject::GameObject() 
+    GameObject::GameObject(bool isStatic) 
     {
+		// Static
+		this->isStatic = isStatic;
+
         // Set Default Flags
         _IsLookingAtGameObject = false;
         _IsLookingAtPosition = false;
@@ -119,7 +122,9 @@ namespace p3d {
         {
             _Owner->UpdateTransformation();
             _WorldMatrix = _Owner->_WorldMatrix * _LocalMatrix;
-        } else _WorldMatrix = _LocalMatrix;
+        } else {
+			_WorldMatrix = _LocalMatrix;
+		}
     }
     // Gets Transformation Matrix
     const Matrix &GameObject::GetWorldTransformation() const

@@ -76,7 +76,7 @@ void PickingPainterMethod::Init()
         for (uint32 i=0;i<100;i++)
         {
             // Create GameObject
-            GameObject* Cube = new GameObject();
+            GameObject* Cube = new GameObject(true);
             // Add Cube to GameObjects List
             Cubes.push_back(Cube);
             // Create Rendering Component using Geometry Previously Created with AssetManager
