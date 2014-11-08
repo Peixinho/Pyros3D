@@ -12,7 +12,7 @@
 namespace p3d
 {
     
-    void ShaderLib::BuildShader(const uint32& option, Shaders* shader)
+    void ShaderLib::BuildShader(const uint32& option, Shader* shader)
     {
 
         // Shader Strings
@@ -635,12 +635,12 @@ namespace p3d
             std::cout << vertex << std::endl;
             std::cout << fragment << std::endl;
         }
-        shader->vertexShader->loadShaderText(vertex);
-        shader->fragmentShader->loadShaderText(fragment);
-        
-        shader->vertexShader->compileShader(&shader->shaderProgram);
-        shader->fragmentShader->compileShader(&shader->shaderProgram);
-        shader->Link();
+        shader->LoadShaderText(vertex);
+        shader->CompileShader(ShaderType::VertexShader);
+        shader->LoadShaderText(fragment);
+        shader->CompileShader(ShaderType::FragmentShader);
+
+        shader->LinkProgram();
     }
 
 }

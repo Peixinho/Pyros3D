@@ -67,7 +67,7 @@ namespace p3d
         
         protected:
             // Shaders List
-            static std::map<uint32, Shaders* > ShadersList;
+            static std::map<uint32, Shader* > ShadersList;
             // Save Shader Location on Shaders List
             uint32 shaderID;
 

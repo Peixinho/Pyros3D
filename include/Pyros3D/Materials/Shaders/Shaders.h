@@ -26,77 +26,52 @@ namespace p3d {
             FragmentShader,
             GeometryShader 
         };
-    }     
+    }
 
     class PYROS3D_API Shader {
         public:
 
             Shader();
-            Shader(uint32 type);
             virtual ~Shader();        
 
-            void loadShaderFile(const char* filename);
-            void loadShaderText(const std::string &text);
+            void LoadShaderFile(const char* filename);
+            void LoadShaderText(const std::string &text);
 
             const uint32 &GetType() const;
-            void compileShader(uint32* ProgramObject);
-            void DeleteShader(uint32 ProgramObject);
-            static void DeleteProgram(uint32* ProgramObject);
-            static void LinkProgram(uint32 ProgramObject);
+            void CompileShader(const uint32 &type);
+            void DeleteShader();
+            void LinkProgram();
 
-            // Get Location
-            static int32 GetUniformLocation(const uint32& program, const std::string &name);
-            static int32 GetAttributeLocation(const uint32& program, const std::string &name);
+            const uint32 &ShaderProgram() const;
 
-            // Uniforms          
-            static void SendUniform(const Uniform::Uniform &uniform, const int32 &Handle);
-            static void SendUniform(const Uniform::Uniform &uniform, void* data, const int32 &Handle, const uint32 &elementCount = 1);
+        	static const int32 GetUniformLocation(const uint32& program, const std::string &name);
+        	static const int32 GetAttributeLocation(const uint32& program, const std::string &name);
+
+        	static void SendUniform(const Uniform::Uniform &uniform, const int32 &Handle);
+        	static void SendUniform(const Uniform::Uniform &uniform, void* data, const int32 &Handle, const uint32 &elementCount = 1);
+
+            // Shader Usage Counter
+            uint32 currentMaterials;
 
         private:
 
             // shader type
             uint32 type;
 
-            // shader id
-            uint32 shader;
-
             //shader text
             std::string shaderString;
-    };
 
-    // Struct of Shaders and Program
-    struct PYROS3D_API Shaders
-    {
-        // GL ID
-        uint32 shaderProgram;
-        // Vertex and Fragment Shaders
-        Shader* vertexShader;
-        Shader* fragmentShader;
-        // Shader Usage Counter
-        uint32 currentMaterials;
-        
-        Shaders() : shaderProgram(0), currentMaterials(0)
-        {
-            vertexShader = new Shader(ShaderType::VertexShader);
-            fragmentShader = new Shader(ShaderType::FragmentShader);
-        }
-        
-        void Link()
-        {
-            Shader::LinkProgram(shaderProgram);
-        }
+			// ids
+			uint32 vertexID;
+			uint32 fragmentID;
+			uint32 geometryID;
 
-        virtual ~Shaders()
-        {
-            // Remove From GPU
-            vertexShader->DeleteShader(shaderProgram);
-            fragmentShader->DeleteShader(shaderProgram);
-            Shader::DeleteProgram(&shaderProgram);
+            // GL ID
+            uint32 shaderProgram;
             
-            // Dispose Shaders
-            delete vertexShader;
-            delete fragmentShader;
-        }
+            // Vertex and Fragment Shaders
+            Shader* shader;
+            
     };
     
 }

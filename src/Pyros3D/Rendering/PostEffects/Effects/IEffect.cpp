@@ -23,9 +23,7 @@ namespace p3d {
         ProgramObject = 0;
         
         // Initialize Shaders
-        VertexShader = new Shader(ShaderType::VertexShader);
-        FragmentShader = new Shader(ShaderType::FragmentShader);
-        
+        shader = new Shader();
         
         // Set Vertex Shader
         // Because its always the same
@@ -61,12 +59,13 @@ namespace p3d {
     
     void IEffect::CompileShaders()
     {
-        VertexShader->loadShaderText(VertexShaderString);
-        FragmentShader->loadShaderText(FragmentShaderString);
+        shader->LoadShaderText(VertexShaderString);
+        shader->CompileShader(ShaderType::VertexShader);
 
-        VertexShader->compileShader(&ProgramObject);
-        FragmentShader->compileShader(&ProgramObject);
-		Shader::LinkProgram(ProgramObject);
+        shader->LoadShaderText(FragmentShaderString);
+        shader->CompileShader(ShaderType::FragmentShader);
+
+		shader->LinkProgram();
     }
     
     const uint32 IEffect::ShaderProgram()
@@ -76,9 +75,7 @@ namespace p3d {
     
     void IEffect::Destroy()
     {
-        VertexShader->DeleteShader(ProgramObject);
-        FragmentShader->DeleteShader(ProgramObject);
-        Shader::DeleteProgram(&ProgramObject);
+        shader->DeleteShader();
     }
     
     IEffect::~IEffect() {

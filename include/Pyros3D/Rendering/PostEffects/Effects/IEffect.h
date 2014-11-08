@@ -96,7 +96,7 @@ namespace p3d {
             // Shaders Strings
             std::string FragmentShaderString;
             // Shaders
-            Shader* VertexShader, *FragmentShader;
+            Shader* shader;
             // Shader Program
             uint32 ProgramObject;
             

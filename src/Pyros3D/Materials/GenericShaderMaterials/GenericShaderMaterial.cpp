@@ -13,7 +13,7 @@ namespace p3d
 {
     
     // Shaders List
-    std::map<uint32, Shaders* > GenericShaderMaterial::ShadersList;
+    std::map<uint32, Shader* > GenericShaderMaterial::ShadersList;
     
     GenericShaderMaterial::GenericShaderMaterial(const uint32& options) : IMaterial()
     {
@@ -23,7 +23,7 @@ namespace p3d
         // Find if Shader exists, if not, creates a new one
         if (ShadersList.find(options)==ShadersList.end())
         {
-            ShadersList[options] = new Shaders();
+            ShadersList[options] = new Shader();
             ShadersList[options]->currentMaterials = 0;
             ShaderLib::BuildShader(options, ShadersList[options]);
         }
@@ -35,7 +35,7 @@ namespace p3d
         ShadersList[options]->currentMaterials++;
         
         // Get Shader Program
-        shaderProgram = ShadersList[options]->shaderProgram;
+        shaderProgram = ShadersList[options]->ShaderProgram();
 
         // Back Face Culling
         cullFace = CullFace::BackFace;

@@ -49,7 +49,7 @@ namespace p3d
         
         protected:
             // Build Shaders
-            static void BuildShader(const uint32 &option, Shaders* shader);           
+            static void BuildShader(const uint32 &option, Shader* shader);           
     };
 
 }

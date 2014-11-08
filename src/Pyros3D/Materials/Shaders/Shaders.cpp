@@ -17,19 +17,14 @@
 
 namespace p3d {
 
-    Shader::Shader() {}
-    Shader::Shader(uint32 type) 
-    {
-        this->type = type;
-    }
+    Shader::Shader() 
+	{
+		vertexID = fragmentID = geometryID = shaderProgram = currentMaterials = 0;
+	}
 
     Shader::~Shader() {}
 
-    const uint32 &Shader::GetType() const
-    {
-        return type;
-    }
-    void Shader::loadShaderFile(const char* filename)
+    void Shader::LoadShaderFile(const char* filename)
     {
         std::ifstream t(filename);
         std::string str;
@@ -44,30 +39,30 @@ namespace p3d {
         shaderString = str.c_str();
     }
 
-    void Shader::loadShaderText(const std::string &text)
+    void Shader::LoadShaderText(const std::string &text)
     {
         shaderString = text;
     }
 
-    void Shader::compileShader(uint32* ProgramObject)
+    void Shader::CompileShader(const uint32 &type)
     {
         
         std::string shaderType;
-
+		uint32 shader;
         switch (type) {
             case ShaderType::VertexShader:
-                shader = glCreateShader(GL_VERTEX_SHADER);
+                vertexID = shader = glCreateShader(GL_VERTEX_SHADER);
                 shaderType = "Vertex Shader";
                 break;
             case ShaderType::FragmentShader:
-                shader = glCreateShader(GL_FRAGMENT_SHADER);
+				fragmentID = shader = glCreateShader(GL_FRAGMENT_SHADER);
                 shaderType = "Fragment Shader";
                 break;
             case ShaderType::GeometryShader:
-                //shader = glCreateShader(GL_GEOMETRY_SHADER);
+				//geometryID = shader = glCreateShader(GL_GEOMETRY_SHADER);
                 shaderType = "Geometry Shader";
             break;
-        }    
+        }
 
         uint32 len = shaderString.length();
 
@@ -97,58 +92,71 @@ namespace p3d {
                 echo(std::string(shaderType.c_str() + std::string(" COMPILED WITH WARNINGS: ") + std::string(log)));
             free(log);
 
-            if (*ProgramObject==0) 
-                *ProgramObject = (uint32)glCreateProgram();
+            if (shaderProgram==0) 
+                shaderProgram = (uint32)glCreateProgram();
 			
             // Attach shader
-            glAttachShader(*ProgramObject, shader);
+            glAttachShader(shaderProgram, shader);
         }
     }
-    void Shader::LinkProgram(uint32 ProgramObject)
+    void Shader::LinkProgram()
     {
         // Link Program
-        glLinkProgram(ProgramObject);
+        glLinkProgram(shaderProgram);
 
         GLint result, length = 0;
         std::string log; 
 
         // Get Linkage error
-        glGetProgramiv(ProgramObject, GL_LINK_STATUS, &result);
+        glGetProgramiv(shaderProgram, GL_LINK_STATUS, &result);
         if (result==GL_FALSE)
         {
-            glGetProgramiv(ProgramObject, GL_INFO_LOG_LENGTH, &length);
+            glGetProgramiv(shaderProgram, GL_INFO_LOG_LENGTH, &length);
             log.resize(length);
-            glGetProgramInfoLog(ProgramObject, length, &result, &log[0]);            
+            glGetProgramInfoLog(shaderProgram, length, &result, &log[0]);            
             echo(std::string(std::string("SHADER PROGRAM LINK ERROR: ") + log.c_str()));
         }
     }
-    void Shader::DeleteShader(uint32 ProgramObject) 
-    {
-        if (glIsProgram(ProgramObject)) {
-            if (glIsShader(shader)) {
-                glDetachShader(ProgramObject, shader);
-                glDeleteShader(shader);
-    //            std::cout << "Shader Destroyed: " << shader << std::endl;
-            }
-    //        else std::cout << "Shader Not Found: " << shader << std::endl;
-        }
-    //    else std::cout << "Shader Program Object Not Found: " << ProgramObject << std::endl;
-    }
-    void Shader::DeleteProgram(uint32* ProgramObject) 
-    {
-        if (glIsProgram(*ProgramObject)) {
-            glDeleteProgram(*ProgramObject);
-    //      std::cout << "Shader Program Destroyed: " << *ProgramObject << std::endl;
-            *ProgramObject = 0;			
-        }
-    //    else std::cout << "Shader Program Object Not Found: " << *ProgramObject << std::endl;
+
+    const uint32 &Shader::ShaderProgram() const{
+        return shaderProgram;
     }
 
+    void Shader::DeleteShader() 
+    {
+        if (glIsProgram(shaderProgram)) {
+            if (glIsShader(vertexID)) {
+                glDetachShader(shaderProgram, vertexID);
+                glDeleteShader(vertexID);
+    //            std::cout << "Shader Destroyed: " << shader << std::endl;
+            }
+			if (glIsShader(fragmentID)) {
+				glDetachShader(shaderProgram, fragmentID);
+                glDeleteShader(fragmentID);
+    //            std::cout << "Shader Destroyed: " << shader << std::endl;
+            }
+			//if (glIsShader(geometryID)) {
+			//	glDetachShader(shaderProgram, geometryID);
+			//	glDeleteShader(geometryID);
+   // //            std::cout << "Shader Destroyed: " << shader << std::endl;
+   //         }
+    //        else std::cout << "Shader Not Found: " << shader << std::endl;
+        }
+    //    else std::cout << "Shader Program Object Not Found: " << shaderProgram << std::endl;
+
+		if (glIsProgram(shaderProgram)) {
+            glDeleteProgram(shaderProgram);
+    //      std::cout << "Shader Program Destroyed: " << *shaderProgram << std::endl;
+            shaderProgram = 0;			
+        }
+    //    else std::cout << "Shader Program Object Not Found: " << *shaderProgram << std::endl;
+    }
+	
     // Get positions
-    int32 Shader::GetUniformLocation(const uint32 &program, const std::string &name) {
+    const int32 Shader::GetUniformLocation(const uint32 &program, const std::string &name) {
         return glGetUniformLocation(program, name.c_str());
     }
-    int32 Shader::GetAttributeLocation(const uint32 &program, const std::string &name) {
+    const int32 Shader::GetAttributeLocation(const uint32 &program, const std::string &name) {
         return glGetAttribLocation(program, name.c_str());
     }
 
