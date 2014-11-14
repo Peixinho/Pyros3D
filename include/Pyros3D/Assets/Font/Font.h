@@ -66,8 +66,6 @@ namespace p3d {
             
             virtual ~Font();
             
-            virtual void Dispose();
-            
             Texture* GetTexture();
         
             f32 GetFontSize();

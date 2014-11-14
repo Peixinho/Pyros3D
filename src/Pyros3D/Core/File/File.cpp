@@ -11,16 +11,23 @@
 namespace p3d {
 
 #if !defined(ANDROID)
-    void File::Open(const std::string &filename, bool write)
+    bool File::Open(const std::string &filename, bool write)
     {
     	file = fopen(filename.c_str(), (write?"wb":"rb"));
-    	int32 n_blocks = 1024;
-    	while(n_blocks != 0)
-        {
-            data.resize(data.size() + n_blocks);
-            n_blocks = fread(&data[data.size() - n_blocks], 1, n_blocks, file);
-        }
-        positionStream = 0;
+		if (file!=NULL)
+		{
+    		int32 n_blocks = 1024;
+    		while(n_blocks != 0)
+			{
+				data.resize(data.size() + n_blocks);
+				n_blocks = fread(&data[data.size() - n_blocks], 1, n_blocks, file);
+			}
+			positionStream = 0;
+			return true;
+		}
+
+		echo("Error: Couldn't Open File");
+		return false;
     }
     
     void File::Read(const void* src, const uint32 &size)

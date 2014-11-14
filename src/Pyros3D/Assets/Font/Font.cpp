@@ -31,18 +31,21 @@ namespace p3d {
         File* file = new File();
         file->Open(font.c_str());
 
+		memory.resize(file->Size());
+		memcpy(&memory[0],&file->GetData()[0],sizeof(uchar)*file->Size());
+
+		file->Close();
+        delete file;
+
         // Free Type Initialization
         if (FT_Init_FreeType(&ft)) echo("ERROR: Couldn't Start Freetype Lib");
-        if (FT_New_Memory_Face(ft,&file->GetData()[0],file->Size(),0,&face)) echo("ERROR: Couldn't Load Font");
+        if (FT_New_Memory_Face(ft,&memory[0],memory.size(),0,&face)) echo("ERROR: Couldn't Load Font");
         if (FT_Set_Char_Size(face,0,fontSize*64,300,300)) echo("ERROR: Couldn't Set Char Size");
         if (FT_Set_Pixel_Sizes(face,0,fontSize)) echo("ERROR: Couldn't Set Pixel Size");
         
         glyphMap->UpdateData(glyphMapData);
         
         lastGlyphWidth = lastGlyphRow = 0;
-
-        file->Close();
-        delete file;
     }
 
 #endif
@@ -73,46 +76,53 @@ namespace p3d {
 
                     if (glyphs.find(text[i])==glyphs.end())
                     {
-                        FT_Load_Glyph(face,FT_Get_Char_Index(face,text[i]),FT_LOAD_DEFAULT);
                     
                         // Create Glyph
-                        FT_Glyph glyph;
-                    
-                        // Get Glyph
-                        FT_Get_Glyph(face->glyph,&glyph);
+						FT_Glyph        glyph;
 
-                        // Transform to Grayscale Bitmap
-                        FT_Glyph_To_Bitmap(&glyph,FT_RENDER_MODE_NORMAL,0,1);
-                        FT_BitmapGlyph bitmap_glyph = (FT_BitmapGlyph)glyph;
-                        FT_Bitmap& bitmap=bitmap_glyph->bitmap;
-                        // Get Bounding Box of each Glyph
-                        FT_BBox BBox;
-                        FT_Glyph_Get_CBox(glyph, FT_GLYPH_BBOX_PIXELS, &BBox);
-                        glyph_properties glp;
-                        glp.offset = Vec2(BBox.xMin, -BBox.yMin);
-                        glp.size = Vec2(bitmap.width, bitmap.rows);
+						FT_Load_Char( face,text[i],FT_LOAD_DEFAULT );
 
-                        if (lastGlyphWidth + (fontSize)>MAP_SIZE)
-                        {
-                            lastGlyphWidth = 0;
-                            lastGlyphRow+=fontSize*MAP_SIZE;
-                        }
+						FT_Get_Glyph( face->glyph, &glyph );
+
+						if ( glyph->format != FT_GLYPH_FORMAT_BITMAP )                 
+						{
+							if (FT_Glyph_To_Bitmap( &glyph, FT_RENDER_MODE_NORMAL, 0, 1 )==0) {
+								FT_BitmapGlyph bitmap_glyph = (FT_BitmapGlyph)glyph;
+								FT_Bitmap& bitmap=bitmap_glyph->bitmap;
+								
+								// Get Bounding Box of each Glyph
+								FT_BBox BBox;
+								FT_Glyph_Get_CBox(glyph, FT_GLYPH_BBOX_PIXELS, &BBox);
+								glyph_properties glp;
+								glp.offset = Vec2(BBox.xMin, -BBox.yMin);
+								glp.size = Vec2(bitmap.width, bitmap.rows);
+
+								if (lastGlyphWidth + (fontSize)>MAP_SIZE)
+								{
+									lastGlyphWidth = 0;
+									lastGlyphRow+=fontSize*MAP_SIZE;
+								}
                         
-                        glp.startingPoint.x = (f32)lastGlyphWidth/MAP_SIZE;
-                        glp.startingPoint.y = (f32)lastGlyphRow/(MAP_SIZE*MAP_SIZE);
+								glp.startingPoint.x = (f32)lastGlyphWidth/MAP_SIZE;
+								glp.startingPoint.y = (f32)lastGlyphRow/(MAP_SIZE*MAP_SIZE);
                         
-                        // Add To Texture
-                        for (uint32 h=0;h<bitmap.rows;++h)
-                            for (uint32 w=0;w<bitmap.width;++w)
-                            {
-                                index = h * MAP_SIZE;
-                                glyphMapData[index + w + lastGlyphWidth + lastGlyphRow]=bitmap.buffer[w + bitmap.width * h];
-                            }
+								// Add To Texture
+								for (uint32 h=0;h<bitmap.rows;++h)
+									for (uint32 w=0;w<bitmap.width;++w)
+									{
+										index = h * MAP_SIZE;
+										glyphMapData[index + w + lastGlyphWidth + lastGlyphRow]=bitmap.buffer[w + bitmap.width * h];
+									}
                         
-                        lastGlyphWidth += (fontSize);
+								lastGlyphWidth += (fontSize);
                         
-                        // Add this properties to each glyph
-                        glyphs[text[i]]=glp;
+								// Add this properties to each glyph
+								glyphs[text[i]]=glp;
+							}
+						}
+
+						
+						FT_Done_Glyph(glyph);
                         
                     }
                     glyphMap->UpdateData(glyphMapData);
@@ -130,12 +140,9 @@ namespace p3d {
     
     Font::~Font()
     {
-        
-    }
-    
-    void Font::Dispose()
-    {
-	delete glyphMap;
+        FT_Done_Face(face);
+		FT_Done_FreeType(ft);
+		delete glyphMap;
     }
     
     Texture* Font::GetTexture()
