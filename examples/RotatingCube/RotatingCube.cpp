@@ -10,10 +10,7 @@
 
 using namespace p3d;
 
-RotatingCube::RotatingCube() : ClassName(1024,768,"Pyros3D - Custom Material",WindowType::Close | WindowType::Resize)
-{
-    
-}
+RotatingCube::RotatingCube() : ClassName(1024,768,"Pyros3D - Custom Material",WindowType::Close | WindowType::Resize) {}
 
 void RotatingCube::OnResize(const uint32 &width, const uint32 &height)
 {

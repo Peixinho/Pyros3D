@@ -186,17 +186,17 @@ function BuildDemo(demoPath, demoName)
             targetdir ("bin/debug/examples/"..demoName)
 
             if os.get() == "linux" then
-                links { libName.."d", "GL", "GLU", "GLEW", libsToLink, "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread", "z" }
+                links { libName.."d", "GL", "GLU", "GLEW", libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "z" }
                 linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
             end
             
             if os.get() == "windows" then
-                links { libName.."d", "opengl32", "glu32", "glew", libsToLink, "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
+                links { libName.."d", "opengl32", "glu32", "glew", libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype" }
                 libdirs { rootdir.."/libs" }
             end
 
             if os.get() == "macosx" then
-                links { libName.."d", "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletSoftBody.framework", "LinearMath.framework" }
+                links { libName.."d", "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletSoftBody.framework", "BulletDynamics.framework", "BulletCollision.framework", "LinearMath.framework" }
                 libdirs { rootdir.."/libs" }
             end
 
@@ -207,17 +207,17 @@ function BuildDemo(demoPath, demoName)
             targetdir ("bin/release/examples/"..demoName)
 
             if os.get() == "linux" then
-                links { libName, "GL", "GLU", "GLEW", libsToLink, "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread", "z" }
+                links { libName, "GL", "GLU", "GLEW", libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "pthread", "z" }
                 linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
             end
 
             if os.get() == "windows" then
-                links { libName, "opengl32", "glu32", "glew", libsToLink, "BulletCollision", "BulletDynamics", "LinearMath", "freetype", "pthread" }
+                links { libName, "opengl32", "glu32", "glew", libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype" }
                 libdirs { rootdir.."/libs" }
             end
 
             if os.get() == "macosx" then
-                links { libName, "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletCollision.framework", "BulletDynamics.framework", "BulletSoftBody.framework", "LinearMath.framework" }
+                links { libName, "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletSoftBody.framework", "BulletDynamics.framework", "BulletCollision.framework", "LinearMath.framework" }
                 libdirs { rootdir.."/libs" }
             end
 

@@ -80,7 +80,7 @@ namespace p3d {
             // list of all submeshes
             std::vector<SubMesh> subMeshes;
             // Skeleton
-            std::map<StringID, Bone> skeleton;
+            std::map<uint32, Bone> skeleton;
             // Materials
             std::vector<MaterialProperties> materials;
             

@@ -63,7 +63,7 @@ namespace p3d {
         }
     }
 
-    void GeometryBuffer::Init(const void* GeometryData, uint32 length)
+    void GeometryBuffer::Init(const void* GeometryData, const uint32 &length)
     {
         // Destroy buffer if exists
         if (ID!=-1) {
@@ -104,25 +104,25 @@ namespace p3d {
         return GeometryData;
     }
     
-    void *GeometryBuffer::Map(uint32 MappingType)
+    void *GeometryBuffer::Map(const uint32 &MappingType)
     {
 #if !defined(ANDROID) && !defined(EMSCRIPTEN)
         glBindBuffer(this->bufferType, ID); 
-        
+        uint32 MP;
         switch (MappingType)
         {
             case Buffer::Mapping::Read:
-                MappingType = GL_READ_ONLY;
+                MP = GL_READ_ONLY;
                 break;
             case Buffer::Mapping::Write:
-                MappingType = GL_WRITE_ONLY;
+                MP = GL_WRITE_ONLY;
                 break;
             case Buffer::Mapping::ReadAndWrite:
-                MappingType = GL_READ_WRITE;
+                MP = GL_READ_WRITE;
                 break;
         }
         
-        void* vboData = glMapBuffer(bufferType,MappingType);
+        void* vboData = glMapBuffer(bufferType,MP);
         if (vboData) 
         {
             glBindBuffer(this->bufferType, 0);
@@ -150,12 +150,12 @@ namespace p3d {
         
         namespace Attribute {
             
-            uint32 GetTypeSize(uint32 type)
+            const uint32 GetTypeSize(const uint32 &type)
             {
                 switch(type) {
 
                     case Buffer::Attribute::Type::Int:
-                        return sizeof(int);
+                        return sizeof(int32);
                         break;
                     case Buffer::Attribute::Type::Float:
                         return sizeof(f32);
@@ -175,7 +175,7 @@ namespace p3d {
                 }
                 return 0;
             }
-            uint32 GetTypeCount(uint32 type)
+            const uint32 GetTypeCount(const uint32 &type)
             {
                 switch(type) {
 
@@ -200,7 +200,7 @@ namespace p3d {
                 }
                 return 0;
             }
-            uint32 GetType(uint32 type)
+            const uint32 GetType(const uint32 &type)
             {
                 switch(type) {
 

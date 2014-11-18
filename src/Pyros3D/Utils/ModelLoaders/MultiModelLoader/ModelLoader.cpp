@@ -22,7 +22,7 @@ namespace p3d {
 		bin->Open(Filename.c_str(),'r');
 
 		int materialsSize;
-		bin->Read(&materialsSize, sizeof(int));
+		bin->Read(&materialsSize, sizeof(int32));
 
         // Materials
         for (int i=0;i<materialsSize;i++)
@@ -30,11 +30,11 @@ namespace p3d {
         	MaterialProperties mat;
 
         	// Material ID
-        	bin->Read(&mat.id, sizeof(int));
+        	bin->Read(&mat.id, sizeof(int32));
 
         	// Name
         	int nameSize;
-        	bin->Read(&nameSize, sizeof(int));
+        	bin->Read(&nameSize, sizeof(int32));
         	if (nameSize>0)
         	{
         		mat.Name.resize(nameSize);
@@ -81,7 +81,7 @@ namespace p3d {
 			// Color Map
 			bin->Read(&In, sizeof(uchar));
         	mat.haveColorMap = (bool)In;
-        	bin->Read(&nameSize, sizeof(int));
+        	bin->Read(&nameSize, sizeof(int32));
         	if (nameSize>0)
         	{
         		mat.colorMap.resize(nameSize);
@@ -91,7 +91,7 @@ namespace p3d {
 			// Specular Map
 			bin->Read(&In, sizeof(uchar));
         	mat.haveSpecularMap = (bool)In;
-        	bin->Read(&nameSize, sizeof(int));
+        	bin->Read(&nameSize, sizeof(int32));
         	if (nameSize>0)
         	{
         		mat.specularMap.resize(nameSize);
@@ -100,7 +100,7 @@ namespace p3d {
 			// Normal Map
 			bin->Read(&In, sizeof(uchar));
         	mat.haveNormalMap = (bool)In;
-        	bin->Read(&nameSize, sizeof(int));
+        	bin->Read(&nameSize, sizeof(int32));
         	if (nameSize>0)
         	{
         		mat.normalMap.resize(nameSize);
@@ -116,16 +116,16 @@ namespace p3d {
 
         // Skeleton
         int skeletonSize;
-        bin->Read(&skeletonSize, sizeof(int));
+        bin->Read(&skeletonSize, sizeof(int32));
         for (uint32 i=0;i<skeletonSize;i++)
         {
         	int boneID;
-        	bin->Read(&boneID, sizeof(int));
+        	bin->Read(&boneID, sizeof(int32));
         	Bone b;
 
         	// Name
             int nameSize;
-            bin->Read(&nameSize,sizeof(int));
+            bin->Read(&nameSize,sizeof(int32));
             if (nameSize>0)
             {
             	b.name.resize(nameSize);
@@ -161,7 +161,7 @@ namespace p3d {
 
         // SubMeshes
         int subMeshesSize;
-        bin->Read(&subMeshesSize, sizeof(int));
+        bin->Read(&subMeshesSize, sizeof(int32));
 
         for (int32 i=0;i<subMeshesSize;i++)
         {
@@ -169,7 +169,7 @@ namespace p3d {
 
         	// Name
             int nameSize;
-            bin->Read(&nameSize,sizeof(int));
+            bin->Read(&nameSize,sizeof(int32));
             if (nameSize>0)
             {
             	c_submesh.Name.resize(nameSize);
@@ -178,15 +178,15 @@ namespace p3d {
 
             // Index
         	int indexSize;
-        	bin->Read(&indexSize, sizeof(int));
+        	bin->Read(&indexSize, sizeof(int32));
         	if (indexSize>0)
         	{
         		c_submesh.tIndex.resize(indexSize);
-        		bin->Read(&c_submesh.tIndex[0],sizeof(int)*indexSize);
+        		bin->Read(&c_submesh.tIndex[0],sizeof(int32)*indexSize);
 			}
         	// Vertex
         	int vertexSize;
-        	bin->Read(&vertexSize, sizeof(int));
+        	bin->Read(&vertexSize, sizeof(int32));
         	if (vertexSize>0)
         	{
         		c_submesh.hasVertex = true;
@@ -196,7 +196,7 @@ namespace p3d {
 
         	// Normal
         	int normalSize;
-        	bin->Read(&normalSize, sizeof(int));
+        	bin->Read(&normalSize, sizeof(int32));
         	if (normalSize>0)
         	{
         		c_submesh.hasNormal = true;
@@ -206,7 +206,7 @@ namespace p3d {
 
         	// Tangent
         	int tangentSize;
-        	bin->Read(&tangentSize, sizeof(int));
+        	bin->Read(&tangentSize, sizeof(int32));
         	if (tangentSize>0)
         	{
         		c_submesh.hasTangentBitangent = true;
@@ -218,7 +218,7 @@ namespace p3d {
 
         	// Texcoord
         	int texcoordSize;
-        	bin->Read(&texcoordSize, sizeof(int));
+        	bin->Read(&texcoordSize, sizeof(int32));
         	if (texcoordSize>0)
         	{
         		c_submesh.hasTexcoord = true;
@@ -228,7 +228,7 @@ namespace p3d {
 
         	// Vertex Color
         	int vertexColorSize;
-        	bin->Read(&vertexColorSize, sizeof(int));
+        	bin->Read(&vertexColorSize, sizeof(int32));
         	if (vertexColorSize>0)
         	{
         		c_submesh.hasVertexColor = true;
@@ -238,7 +238,7 @@ namespace p3d {
 
         	// Bones
         	int BonesSize;
-        	bin->Read(&BonesSize, sizeof(int));
+        	bin->Read(&BonesSize, sizeof(int32));
         	if (BonesSize>0)
         	{
         		c_submesh.hasBones = true;
@@ -250,31 +250,31 @@ namespace p3d {
 
         	// Map Bones IDs
         	int MapBoneIDsSize;
-        	bin->Read(&MapBoneIDsSize, sizeof(int));
+        	bin->Read(&MapBoneIDsSize, sizeof(int32));
         	if (MapBoneIDsSize>0)
         	{
         		for (int32 k=0;k<MapBoneIDsSize;k++)
         		{
 	        		int boneID;
-	        		bin->Read(&boneID, sizeof(int));
-	        		bin->Read(&c_submesh.MapBoneIDs[boneID], sizeof(int));
+	        		bin->Read(&boneID, sizeof(int32));
+	        		bin->Read(&c_submesh.MapBoneIDs[boneID], sizeof(int32));
 	        	}
 	        }
 
         	// Offset Matrix
         	int BoneOffsetMatrixSize;
-        	bin->Read(&BoneOffsetMatrixSize, sizeof(int));
+        	bin->Read(&BoneOffsetMatrixSize, sizeof(int32));
         	if (BoneOffsetMatrixSize>0)
             {
 	        	for (int32 k=0;k<BoneOffsetMatrixSize;k++)
 	        	{
 	        		int boneID;
-	        		bin->Read(&boneID, sizeof(int));
+	        		bin->Read(&boneID, sizeof(int32));
 	        		bin->Read(&c_submesh.BoneOffsetMatrix[boneID].m[0], sizeof(Matrix));
 	        	}
         	}
 
-        	bin->Read(&c_submesh.materialID, sizeof(int));
+        	bin->Read(&c_submesh.materialID, sizeof(int32));
 
         	subMeshes.push_back(c_submesh);
 

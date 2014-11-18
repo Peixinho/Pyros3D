@@ -48,9 +48,9 @@ namespace p3d {
             };
         };
         
-        uint32 GetTypeSize(uint32 type);
-        uint32 GetTypeCount(uint32 type);
-        uint32 GetType(uint32 type);
+        const uint32 GetTypeSize(const uint32 &type);
+        const uint32 GetTypeCount(const uint32 &type);
+        const uint32 GetType(const uint32 &type);
         
     };  
         
@@ -103,9 +103,9 @@ namespace p3d {
             GeometryBuffer(const uint32 &bufferType, const uint32 &bufferDraw);
             ~GeometryBuffer();
             // methods
-            void Init(  const void *GeometryData, uint32 length );            
+            void Init(  const void *GeometryData, const uint32 &length );            
 
-            void *Map(uint32 MappingType = 1);
+            void *Map(const uint32 &MappingType = 1);
             void Unmap();
 
             void Update( const void *GeometryData );

@@ -81,7 +81,7 @@ namespace p3d {
                         byteSize=sizeof(f32);
                         break;
                 case Buffer::Attribute::Type::Int:
-                        byteSize=sizeof(int);
+                        byteSize=sizeof(int32);
                         break;
                 case Buffer::Attribute::Type::Matrix:                        
                         byteSize=sizeof(Matrix);

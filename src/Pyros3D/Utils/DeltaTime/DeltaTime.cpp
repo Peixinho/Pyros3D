@@ -28,14 +28,14 @@ namespace p3d {
         }
         DeltaTime::~DeltaTime() {}
         
-        void DeltaTime::Update(const f96& time)
+        void DeltaTime::Update(const f64& time)
         {
             // Save External Time
             externalTime = time;
             // Calculate Internal Time
             internalTime = externalTime - (pauseTime + bulletTime);
         }
-        f96 DeltaTime::GetTime()
+        f64 DeltaTime::GetTime()
         {
             if (isPaused==true)
             {
@@ -43,7 +43,7 @@ namespace p3d {
             } else
                 return internalTime;
         }
-       f96 DeltaTime::GetTimeInterval()
+       f64 DeltaTime::GetTimeInterval()
         {
            if (isPaused)
            {
