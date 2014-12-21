@@ -14,7 +14,7 @@ solution "Pyros3D"
        value       = "API",
        description = "Choose a particular API for window management",
        allowed = {
-          { "sfml", "SFML 2.1 - Default" },
+          { "sfml", "SFML 2.2 - Default" },
           { "sdl2", "SDL 2.0" },
           { "sdl", "SDL 1.x" }
        }
