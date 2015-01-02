@@ -9,11 +9,11 @@
 #ifndef ILIGHTCOMPONENT_H
 #define	ILIGHTCOMPONENT_H
 
-#include "../../../Components/IComponent.h"
-#include "../../../Core/Math/Math.h"
-#include "../../../Core/Projection/Projection.h"
-#include "../../../Core/Buffers/FrameBuffer.h"
-#include "../../../Other/Export.h"
+#include <Pyros3D/Components/IComponent.h>
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Core/Projection/Projection.h>
+#include <Pyros3D/Core/Buffers/FrameBuffer.h>
+#include <Pyros3D/Other/Export.h>
 #include <vector>
 #include <map>
 

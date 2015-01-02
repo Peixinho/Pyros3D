@@ -9,11 +9,11 @@
 #ifndef ANIMATIONLOADER_H
 #define	ANIMATIONLOADER_H
 
-#include "../IModelLoader.h"
-#include "../../../Core/Math/Quaternion.h"
-#include "../../../Core/Math/Matrix.h"
-#include "../../../Core/Math/Math.h"
-#include "../../../Utils/Binary/BinaryFile.h"
+#include <Pyros3D/Utils/ModelLoaders/IModelLoader.h>
+#include <Pyros3D/Core/Math/Quaternion.h>
+#include <Pyros3D/Core/Math/Matrix.h>
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Utils/Binary/BinaryFile.h>
 
 namespace p3d {
 

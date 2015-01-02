@@ -9,13 +9,13 @@
 #ifndef IMATERIAL_H
 #define IMATERIAL_H
 
-#include "../Core/Math/Math.h"
-#include "GenericShaderMaterials/ShaderLib.h"
-#include "Shaders/Shaders.h"
-#include "Shaders/Uniforms.h"
-#include "../Ext/StringIDs/StringID.hpp"
-#include "../Assets/Texture/Texture.h"
-#include "../Other/Export.h"
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Materials/GenericShaderMaterials/ShaderLib.h>
+#include <Pyros3D/Materials/Shaders/Shaders.h>
+#include <Pyros3D/Materials/Shaders/Uniforms.h>
+#include <Pyros3D/Ext/StringIDs/StringID.hpp>
+#include <Pyros3D/Assets/Texture/Texture.h>
+#include <Pyros3D/Other/Export.h>
 
 namespace p3d {    
     

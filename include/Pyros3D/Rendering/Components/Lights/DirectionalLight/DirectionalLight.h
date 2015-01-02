@@ -9,7 +9,7 @@
 #ifndef DIRECTIONALLIGHT_H
 #define	DIRECTIONALLIGHT_H
 
-#include "../ILightComponent.h"
+#include <Pyros3D/Rendering/Components/Lights/ILightComponent.h>
 
 namespace p3d {
 

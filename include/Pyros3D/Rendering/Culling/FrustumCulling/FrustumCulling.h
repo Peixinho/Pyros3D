@@ -9,10 +9,10 @@
 #ifndef FRUSTUMCULLING_H
 #define	FRUSTUMCULLING_H
 
-#include "../Culling.h"
-#include "../../../Core/Math/Math.h"
-#include "../../../Core/Projection/Projection.h"
-#include "../../../Other/Export.h"
+#include <Pyros3D/Rendering/Culling/Culling.h>
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Core/Projection/Projection.h>
+#include <Pyros3D/Other/Export.h>
 
 namespace p3d {
     

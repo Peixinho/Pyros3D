@@ -9,8 +9,8 @@
 #ifndef MOUSE3D_H
 #define MOUSE3D_H
 
-#include "../../Core/Math/Math.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Other/Export.h>
 
 #undef isnan
 #define isnan(x) ((x) != (x))

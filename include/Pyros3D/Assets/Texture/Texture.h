@@ -9,10 +9,10 @@
 #ifndef TEXTURE_H
 #define TEXTURE_H
 
-#include "../../Core/Math/Math.h"
-#include "../../Core/Logs/Log.h"
-#include "../../Other/Export.h"
-#include "../../Core/File/File.h"
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/Other/Export.h>
+#include <Pyros3D/Core/File/File.h>
 #include <map>
 #include <vector>
 

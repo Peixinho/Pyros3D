@@ -8,10 +8,10 @@
 
 #ifndef FRAMEBUFFER_H
 #define FRAMEBUFFER_H
-#include "../../Materials/Shaders/Shaders.h"
-#include "../../Assets/Texture/Texture.h"
-#include "../Logs/Log.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Materials/Shaders/Shaders.h>
+#include <Pyros3D/Assets/Texture/Texture.h>
+#include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/Other/Export.h>
 
 #define GLCHECK() { int32 error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } }
 

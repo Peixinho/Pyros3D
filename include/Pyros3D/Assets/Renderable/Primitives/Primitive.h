@@ -9,9 +9,9 @@
 #ifndef PRIMITIVE_H
 #define PRIMITIVE_H
 
-#include "../Renderables.h"
-#include "../../../Core/Buffers/GeometryBuffer.h"
-#include "../../../Other/Export.h"
+#include <Pyros3D/Assets/Renderable/Renderables.h>
+#include <Pyros3D/Core/Buffers/GeometryBuffer.h>
+#include <Pyros3D/Other/Export.h>
 #include <vector>
 
 namespace p3d {

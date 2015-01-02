@@ -9,9 +9,9 @@
 #ifndef FONT_H
 #define FONT_H
 
-#include "../Texture/Texture.h"
-#include "../../Core/Logs/Log.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Assets/Texture/Texture.h>
+#include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/Other/Export.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_GLYPH_H

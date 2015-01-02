@@ -9,8 +9,8 @@
 #ifndef CUBEMAPRENDERER_H
 #define CUBEMAPRENDERER_H
 
-#include "../../IRenderer.h"
-#include "../../../../Core/Projection/Projection.h"
+#include <Pyros3D/Rendering/Renderer/IRenderer.h>
+#include <Pyros3D/Core/Projection/Projection.h>
 
 namespace p3d {
     

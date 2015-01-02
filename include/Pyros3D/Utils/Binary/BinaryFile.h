@@ -9,8 +9,8 @@
 #ifndef BINARYFILE_H
 #define	BINARYFILE_H
 
-#include "../../Other/Export.h"
-#include "../../Core/File/File.h"
+#include <Pyros3D/Other/Export.h>
+#include <Pyros3D/Core/File/File.h>
 
 using namespace std;
 

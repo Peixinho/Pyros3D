@@ -11,11 +11,11 @@
 
 #include <map>
 #include <vector>
-#include "../IModelLoader.h"
-#include "../../../Core/Math/Math.h"
-#include "../../../Ext/StringIDs/StringID.hpp"
-#include "../../../Assets/Renderable/Renderables.h"
-#include "../../../Utils/Binary/BinaryFile.h"
+#include <Pyros3D/Utils/ModelLoaders/IModelLoader.h>
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Ext/StringIDs/StringID.hpp>
+#include <Pyros3D/Assets/Renderable/Renderables.h>
+#include <Pyros3D/Utils/Binary/BinaryFile.h>
 
 
 namespace p3d {

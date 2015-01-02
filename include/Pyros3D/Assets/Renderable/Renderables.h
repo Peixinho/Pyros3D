@@ -9,12 +9,12 @@
 #ifndef RENDERABLES_H
 #define RENDERABLES_H
 
-#include "../../Ext/StringIDs/StringID.hpp"
-#include "../../Core/Math/Math.h"
-#include "../../Core/Buffers/GeometryBuffer.h"
-#include "../../Materials/GenericShaderMaterials/GenericShaderMaterial.h"
-#include "../../Utils/ModelLoaders/IModelLoader.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Ext/StringIDs/StringID.hpp>
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Core/Buffers/GeometryBuffer.h>
+#include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
+#include <Pyros3D/Utils/ModelLoaders/IModelLoader.h>
+#include <Pyros3D/Other/Export.h>
 #include <map>
 #include <vector>
 #include <list>

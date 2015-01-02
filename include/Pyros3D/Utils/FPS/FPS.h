@@ -9,8 +9,8 @@
 #ifndef FPS_H
 #define	FPS_H
 
-#include "../../Core/Math/Math.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Other/Export.h>
 #include <sstream>
 #include <iostream>
 #include <math.h>

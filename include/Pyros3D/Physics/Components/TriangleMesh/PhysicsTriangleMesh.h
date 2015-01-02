@@ -9,8 +9,8 @@
 #ifndef PHYSICSTRIANGLEMESH_H
 #define	PHYSICSTRIANGLEMESH_H
 
-#include "../IPhysicsComponent.h"
-#include "../../../Rendering/Components/Rendering/RenderingComponent.h"
+#include <Pyros3D/Physics/Components/IPhysicsComponent.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 
 namespace p3d {
 

@@ -9,10 +9,10 @@
 #ifndef GENERICSHADERMATERIAL_H
 #define GENERICSHADERMATERIAL_H
 
-#include "../IMaterial.h"
-#include "ShaderLib.h"
-#include "../../Assets/Font/Font.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Materials/IMaterial.h>
+#include <Pyros3D/Materials/GenericShaderMaterials/ShaderLib.h>
+#include <Pyros3D/Assets/Font/Font.h>
+#include <Pyros3D/Other/Export.h>
 #include <iostream>
 #include <map>
 

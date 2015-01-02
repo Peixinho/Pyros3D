@@ -9,7 +9,7 @@
 #ifndef LOG_H
 #define	LOG_H
 
-#include "../../Other/Export.h"
+#include <Pyros3D/Other/Export.h>
 #include <string>
 #include <iostream>
 #include <fstream>

@@ -9,7 +9,7 @@
 #ifndef CYLINDER_H
 #define CYLINDER_H
 
-#include "../Primitive.h"
+#include <Pyros3D/Assets/Renderable/Primitives/Primitive.h>
 
 namespace p3d {
 

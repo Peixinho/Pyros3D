@@ -15,8 +15,8 @@
 #ifndef MATRIX_H
 #define	MATRIX_H
 
-#include "Math.h"
-#include "../Logs/Log.h"
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Core/Logs/Log.h>
 #include <string>
 
 namespace p3d {

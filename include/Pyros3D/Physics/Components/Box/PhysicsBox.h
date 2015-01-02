@@ -9,7 +9,7 @@
 #ifndef PHYSICSBOX_H
 #define	PHYSICSBOX_H
 
-#include "../IPhysicsComponent.h"
+#include <Pyros3D/Physics/Components/IPhysicsComponent.h>
 
 namespace p3d {
 

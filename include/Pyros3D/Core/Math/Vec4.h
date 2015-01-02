@@ -9,7 +9,7 @@
 #ifndef VEC4_H
 #define	VEC4_H
 
-#include "Math.h"
+#include <Pyros3D/Core/Math/Math.h>
 #include <string>
 
 namespace p3d {

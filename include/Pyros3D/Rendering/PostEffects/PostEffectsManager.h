@@ -8,7 +8,7 @@
 
 #include <Pyros3D/Materials/IMaterial.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
-#include "Effects/IEffect.h"
+#include <Pyros3D/Rendering/PostEffects/Effects/IEffect.h>
 #include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>

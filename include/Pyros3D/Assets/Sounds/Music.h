@@ -9,7 +9,7 @@
 #ifndef MUSIC_H
 #define MUSIC_H
 
-#include "Pyros3D/Assets/Sounds/ISound.h"
+#include <Pyros3D/Assets/Sounds/ISound.h>
 
 namespace p3d {
     

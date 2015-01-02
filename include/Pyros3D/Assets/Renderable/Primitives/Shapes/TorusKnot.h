@@ -9,7 +9,7 @@
 #ifndef TORUSKNOT_H
 #define TORUSKNOT_H
 
-#include "../Primitive.h"
+#include <Pyros3D/Assets/Renderable/Primitives/Primitive.h>
 
 namespace p3d {
 

@@ -10,9 +10,10 @@
 #define	ICOMPONENT_H
 
 #include <vector>
-#include "../GameObjects/GameObject.h"
-#include "../SceneGraph/SceneGraph.h"
-#include "../Other/Export.h"
+#include <Pyros3D/GameObjects/GameObject.h>
+#include <Pyros3D/SceneGraph/SceneGraph.h>
+#include <Pyros3D/Other/Export.h>
+
 namespace p3d {
     
     // Circular Dependency

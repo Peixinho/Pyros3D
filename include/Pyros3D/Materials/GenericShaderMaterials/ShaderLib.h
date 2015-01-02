@@ -11,9 +11,9 @@
 #include <iostream>
 #include <map>
 
-#include "../../Ext/StringIDs/StringID.hpp"
-#include "../Shaders/Shaders.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Ext/StringIDs/StringID.hpp>
+#include <Pyros3D/Materials/Shaders/Shaders.h>
+#include <Pyros3D/Other/Export.h>
 
 #define MAX_LIGHTS 4
 

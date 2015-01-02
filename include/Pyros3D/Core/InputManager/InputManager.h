@@ -9,10 +9,10 @@
 #ifndef INPUTMANAGER_H
 #define	INPUTMANAGER_H
 
-#include "../../Ext/Signals/Signal.h"
-#include "../../Ext/Signals/Delegate.h"
-#include "../Math/Vec2.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Ext/Signals/Signal.h>
+#include <Pyros3D/Ext/Signals/Delegate.h>
+#include <Pyros3D/Core/Math/Vec2.h>
+#include <Pyros3D/Other/Export.h>
 #include <map>
 #include <vector>
 

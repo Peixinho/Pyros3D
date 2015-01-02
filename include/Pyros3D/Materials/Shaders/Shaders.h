@@ -9,11 +9,11 @@
 #ifndef SHADERS_H
 #define	SHADERS_H
 
-#include "../../Core/Math/Matrix.h"
-#include "../../Core/Math/Math.h"
-#include "../../Core/Logs/Log.h"
-#include "Uniforms.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Core/Math/Matrix.h>
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/Materials/Shaders/Uniforms.h>
+#include <Pyros3D/Other/Export.h>
 #include <string.h>
 #include <fstream>
 #include <iostream>

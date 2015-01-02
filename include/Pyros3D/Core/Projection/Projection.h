@@ -9,7 +9,7 @@
 #ifndef PROJECTION_H
 #define	PROJECTION_H
 
-#include "../Math/Math.h"
+#include <Pyros3D/Core/Math/Math.h>
 
 namespace p3d {
 

@@ -8,7 +8,7 @@
 
 #pragma once
 #include <iostream>
-#include "../../Core/Math/Math.h"
+#include <Pyros3D/Core/Math/Math.h>
 
 namespace p3d
 {

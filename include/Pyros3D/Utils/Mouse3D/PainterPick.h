@@ -9,12 +9,12 @@
 #ifndef PAINTERPICK_H
 #define PAINTERPICK_H
 
-#include "../../Core/Math/Math.h"
-#include "../../Materials/GenericShaderMaterials/GenericShaderMaterial.h"
-#include "../../Rendering/Renderer/IRenderer.h"
-#include "../../Assets/Renderable/Renderables.h"
-#include "../../Rendering/Components/Rendering/RenderingComponent.h"
-#include "../../Core/Buffers/FrameBuffer.h"
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
+#include <Pyros3D/Rendering/Renderer/IRenderer.h>
+#include <Pyros3D/Assets/Renderable/Renderables.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Core/Buffers/FrameBuffer.h>
 
 namespace p3d {
     

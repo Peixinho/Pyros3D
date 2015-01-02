@@ -9,9 +9,9 @@
 #ifndef MODEL_H
 #define MODEL_H
 
-#include "../Renderables.h"
-#include "../../../Utils/ModelLoaders/MultiModelLoader/ModelLoader.h"
-#include "../../../Other/Export.h"
+#include <Pyros3D/Assets/Renderable/Renderables.h>
+#include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h>
+#include <Pyros3D/Other/Export.h>
 
 namespace p3d {
 

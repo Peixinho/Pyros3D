@@ -10,9 +10,9 @@
 #define	IPHYSICSCOMPONENT_H
 
 #include <iostream>
-#include "../../Components/IComponent.h"
-#include "../Physics.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Components/IComponent.h>
+#include <Pyros3D/Physics/Physics.h>
+#include <Pyros3D/Other/Export.h>
 
 namespace p3d {
     

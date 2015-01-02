@@ -6,7 +6,7 @@
 // Description : RTT Debug Effect
 //============================================================================
 
-#include "IEffect.h"
+#include <Pyros3D/Rendering/PostEffects/Effects/IEffect.h>
 
 #ifndef RTTDEBUG_H
 #define RTTDEBUG_H

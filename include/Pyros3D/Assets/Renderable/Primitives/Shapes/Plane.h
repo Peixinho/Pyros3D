@@ -9,7 +9,7 @@
 #ifndef PLANE_H
 #define PLANE_H
 
-#include "../Primitive.h"
+#include <Pyros3D/Assets/Renderable/Primitives/Primitive.h>
 
 namespace p3d {
    

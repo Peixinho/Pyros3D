@@ -9,12 +9,12 @@
 #ifndef RENDERINGCOMPONENT_H
 #define	RENDERINGCOMPONENT_H
 
-#include "../../../Components/IComponent.h"
-#include "../../../Assets/Renderable/Renderables.h"
-#include "../../../Assets/Renderable/Models/Model.h"
-#include "../../../Materials/IMaterial.h"
-#include "../../../Materials/GenericShaderMaterials/GenericShaderMaterial.h"
-#include "../../../SceneGraph/SceneGraph.h"
+#include <Pyros3D/Components/IComponent.h>
+#include <Pyros3D/Assets/Renderable/Renderables.h>
+#include <Pyros3D/Assets/Renderable/Models/Model.h>
+#include <Pyros3D/Materials/IMaterial.h>
+#include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
+#include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <vector>
 
 namespace p3d {

@@ -9,7 +9,7 @@
 #ifndef SPHERE_H
 #define SPHERE_H
 
-#include "../Primitive.h"
+#include <Pyros3D/Assets/Renderable/Primitives/Primitive.h>
 
 namespace p3d {
 

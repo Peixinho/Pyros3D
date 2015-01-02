@@ -9,8 +9,7 @@
 #ifndef QUATERNION_H
 #define	QUATERNION_H
 
-#include "Math.h"
-#include "Vec3.h"
+#include <Pyros3D/Core/Math/Math.h>
 #include <string>
 
 namespace p3d {

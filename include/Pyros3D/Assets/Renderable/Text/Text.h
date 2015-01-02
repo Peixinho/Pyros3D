@@ -9,10 +9,10 @@
 #ifndef TEXT_H
 #define	TEXT_H
 
-#include "../Renderables.h"
-#include "../../../Core/Buffers/GeometryBuffer.h"
-#include "../../Font/Font.h"
-#include "../../../Other/Export.h"
+#include <Pyros3D/Assets/Renderable/Renderables.h>
+#include <Pyros3D/Core/Buffers/GeometryBuffer.h>
+#include <Pyros3D/Assets/Font/Font.h>
+#include <Pyros3D/Other/Export.h>
 #include <vector>
 
 namespace p3d {

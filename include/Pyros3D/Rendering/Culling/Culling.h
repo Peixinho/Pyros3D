@@ -8,8 +8,8 @@
 #ifndef CULLING_H
 #define CULLING_H
 
-#include "../../Core/Math/Math.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Other/Export.h>
 
 namespace p3d {
 

@@ -9,7 +9,7 @@
 #ifndef SPOTLIGHT_H
 #define	SPOTLIGHT_H
 
-#include "../ILightComponent.h"
+#include <Pyros3D/Rendering/Components/Lights/ILightComponent.h>
 
 namespace p3d {
 

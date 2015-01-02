@@ -9,7 +9,7 @@
 #ifndef TORUS_H
 #define TORUS_H
 
-#include "../Primitive.h"
+#include <Pyros3D/Assets/Renderable/Primitives/Primitive.h>
 
 namespace p3d {
 

@@ -9,8 +9,8 @@
 #ifndef CUSTOMSHADERMATERIAL_H
 #define CUSTOMSHADERMATERIAL_H
 
-#include"../IMaterial.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Materials/IMaterial.h>
+#include <Pyros3D/Other/Export.h>
 #include <iostream>
 #include <map>
 

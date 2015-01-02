@@ -9,11 +9,11 @@
 #ifndef ANIMATIONMANAGER_H
 #define ANIMATIONMANAGER_H
 
-#include "../Utils/ModelLoaders/MultiModelLoader/AnimationLoader.h"
-#include "../Utils/ModelLoaders/MultiModelLoader/ModelLoader.h"
-#include "../Components/IComponent.h"
-#include "../Rendering/Components/Rendering/RenderingComponent.h"
-#include "../Other/Export.h"
+#include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/AnimationLoader.h>
+#include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h>
+#include <Pyros3D/Components/IComponent.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Other/Export.h>
 
 namespace p3d {
     

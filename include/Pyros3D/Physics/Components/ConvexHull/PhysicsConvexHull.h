@@ -9,7 +9,7 @@
 #ifndef PHYSICSCONVEXHULL_H
 #define	PHYSICSCONVEXHULL_H
 
-#include "../IPhysicsComponent.h"
+#include <Pyros3D/Physics/Components/IPhysicsComponent.h>
 #include <vector>
 
 namespace p3d {

@@ -9,12 +9,12 @@
 #ifndef PHYSICS_H
 #define PHYSICS_H
 
-#include "../Other/Export.h"
+#include <Pyros3D/Other/Export.h>
 
 #define BULLETPHYSICS
 
 #ifdef BULLETPHYSICS
-#include "PhysicsEngines/BulletPhysics/BulletPhysics.h"
+#include <Pyros3D/Physics/PhysicsEngines/BulletPhysics/BulletPhysics.h>
 #endif
 
 namespace p3d {

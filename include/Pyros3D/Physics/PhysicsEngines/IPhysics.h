@@ -9,10 +9,10 @@
 #ifndef IPHYSICS_H
 #define IPHYSICS_H
 
-#include "../../Core/Math/Math.h"
-#include "../../Rendering/Components/Rendering/RenderingComponent.h"
-#include "../../Core/Projection/Projection.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Core/Projection/Projection.h>
+#include <Pyros3D/Other/Export.h>
 
 namespace p3d {
     

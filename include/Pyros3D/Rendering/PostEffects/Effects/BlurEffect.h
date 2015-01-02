@@ -6,7 +6,7 @@
 // Description : Blur Effect
 //============================================================================
 
-#include "IEffect.h"
+#include <Pyros3D/Rendering/PostEffects/Effects/IEffect.h>
 
 #ifndef BLUREFFECT_H
 #define	BLUREFFECT_H

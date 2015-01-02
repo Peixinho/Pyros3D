@@ -11,8 +11,8 @@
 #include <vector>
 #include <string.h>
 #include <iostream>
-#include "Shaders.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Materials/Shaders/Shaders.h>
+#include <Pyros3D/Other/Export.h>
 
 namespace p3d {
 

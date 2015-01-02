@@ -9,12 +9,12 @@
 #ifndef CONTEXT_H
 #define CONTEXT_H
 
-#include "../Math/Math.h"
-#include "../../Utils/DeltaTime/DeltaTime.h"
-#include "../../SceneGraph/SceneGraph.h"
-#include "../../Core/InputManager/InputManager.h"
-#include "../../Utils/FPS/FPS.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Utils/DeltaTime/DeltaTime.h>
+#include <Pyros3D/SceneGraph/SceneGraph.h>
+#include <Pyros3D/Core/InputManager/InputManager.h>
+#include <Pyros3D/Utils/FPS/FPS.h>
+#include <Pyros3D/Other/Export.h>
 
 namespace p3d {
 

@@ -9,11 +9,11 @@
 #ifndef GAMEOBJECT_H
 #define	GAMEOBJECT_H
 
-#include "../Core/Math/Math.h"
-#include "../Core/Logs/Log.h"
-#include "../Components/IComponent.h"
-#include "../SceneGraph/SceneGraph.h"
-#include "../Other/Export.h"
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/Components/IComponent.h>
+#include <Pyros3D/SceneGraph/SceneGraph.h>
+#include <Pyros3D/Other/Export.h>
 #include <vector>
 #include <map>
 using namespace p3d::Math;

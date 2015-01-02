@@ -9,11 +9,11 @@
 #ifndef TEXTUREANIMATION_H
 #define TEXTUREANIMATION_H
 
-#include "../Assets/Texture/Texture.h"
-#include "../Ext/Signals/Signal.h"
-#include "../Ext/Signals/Delegate.h"
+#include <Pyros3D/Assets/Texture/Texture.h>
+#include <Pyros3D/Ext/Signals/Signal.h>
+#include <Pyros3D/Ext/Signals/Delegate.h>
 #include <vector>
-#include "../Other/Export.h"
+#include <Pyros3D/Other/Export.h>
 
 namespace p3d {
 

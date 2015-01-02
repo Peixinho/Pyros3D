@@ -10,10 +10,10 @@
 #ifndef ISOUND_H
 #define ISOUND_H
 
-#include "../../Core/Math/Math.h"
-#include "../../Ext/Signals/Signal.h"
-#include "../../Ext/Signals/Delegate.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Ext/Signals/Signal.h>
+#include <Pyros3D/Ext/Signals/Delegate.h>
+#include <Pyros3D/Other/Export.h>
 
 #ifdef _SDL2
     #include <SDL.h>

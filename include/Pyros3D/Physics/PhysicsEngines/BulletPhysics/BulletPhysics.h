@@ -11,10 +11,10 @@
 
 #include <btBulletDynamicsCommon.h>
 #include <LinearMath/btIDebugDraw.h>
-#include "../IPhysics.h"
-#include "../../../Core/Math/Math.h"
-#include "DebugDraw/PhysicsDebugDraw.h"
-#include "../../../Other/Export.h"
+#include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Physics/PhysicsEngines/BulletPhysics/DebugDraw/PhysicsDebugDraw.h>
+#include <Pyros3D/Other/Export.h>
 
 namespace p3d {
     

@@ -9,10 +9,10 @@
 #ifndef SCENEGRAPH_H
 #define	SCENEGRAPH_H
 
-#include "../Core/Logs/Log.h"
-#include "../Core/Math/Math.h"
-#include "../GameObjects/GameObject.h"
-#include "../Other/Export.h"
+#include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/GameObjects/GameObject.h>
+#include <Pyros3D/Other/Export.h>
 
 using namespace p3d::Math;
 

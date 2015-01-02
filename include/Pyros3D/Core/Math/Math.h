@@ -9,7 +9,7 @@
 #ifndef MATH_H
 #define	MATH_H
 
-#include "../../Other/Export.h"
+#include <Pyros3D/Other/Export.h>
 #include <stdint.h>
 
 namespace p3d {

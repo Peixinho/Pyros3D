@@ -8,7 +8,7 @@
 #ifndef BLOOMEFFECT_H
 #define	BLOOMEFFECT_H
 
-#include "IEffect.h"
+#include <Pyros3D/Rendering/PostEffects/Effects/IEffect.h>
 
 namespace p3d {
 

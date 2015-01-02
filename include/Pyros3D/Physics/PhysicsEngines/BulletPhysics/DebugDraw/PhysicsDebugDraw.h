@@ -1,8 +1,8 @@
 #ifndef PHYSICS_DEBUG_DRAW_H
 #define PHYSICS_DEBUG_DRAW_H
 
-#include "../BulletPhysics.h"
-#include "../../../../Other/Export.h"
+#include <Pyros3D/Physics/PhysicsEngines/BulletPhysics/BulletPhysics.h>
+#include <Pyros3D/Other/Export.h>
 
 namespace p3d {
 

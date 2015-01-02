@@ -9,17 +9,17 @@
 #ifndef IRENDERER_H
 #define IRENDERER_H
 
-#include "../../Core/Math/Math.h"
-#include "../../SceneGraph/SceneGraph.h"
-#include "../../Core/Projection/Projection.h"
-#include "../../Materials/IMaterial.h"
-#include "../Components/Rendering/RenderingComponent.h"
-#include "../Components/Lights/DirectionalLight/DirectionalLight.h"
-#include "../Components/Lights/SpotLight/SpotLight.h"
-#include "../Components/Lights/PointLight/PointLight.h"
-#include "../Components/Lights/ILightComponent.h"
-#include "../Culling/FrustumCulling/FrustumCulling.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/SceneGraph/SceneGraph.h>
+#include <Pyros3D/Core/Projection/Projection.h>
+#include <Pyros3D/Materials/IMaterial.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
+#include <Pyros3D/Rendering/Components/Lights/SpotLight/SpotLight.h>
+#include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
+#include <Pyros3D/Rendering/Components/Lights/ILightComponent.h>
+#include <Pyros3D/Rendering/Culling/FrustumCulling/FrustumCulling.h>
+#include <Pyros3D/Other/Export.h>
 
 namespace p3d {
 

@@ -13,8 +13,8 @@
 
 #include <vector>
 #include <string.h>
-#include "../Math/Math.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Other/Export.h>
 #include <iostream>
 
 namespace p3d {

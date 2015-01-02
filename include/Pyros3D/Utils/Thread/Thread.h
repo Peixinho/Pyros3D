@@ -9,9 +9,9 @@
 #ifndef THREAD_H
 #define THREAD_H
 
-#include "../../Core/Math/Math.h"
-#include "../../Core/Logs/Log.h"
-#include "../../Other/Export.h"
+#include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/Other/Export.h>
 #include <pthread.h>
 #include <map>
 

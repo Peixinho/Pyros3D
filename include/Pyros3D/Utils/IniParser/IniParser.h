@@ -6,7 +6,7 @@
 // Description : Ini Parser
 //============================================================================
 
-#include "../../Other/Export.h"
+#include <Pyros3D/Other/Export.h>
 #include <iostream>
 #include <fstream>
 #include <string>
