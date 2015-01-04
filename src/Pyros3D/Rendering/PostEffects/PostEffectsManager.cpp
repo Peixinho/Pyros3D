@@ -7,7 +7,12 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
-#include "GL/glew.h"
+#if defined(ANDROID) || defined(EMSCRIPTEN)
+    #include <GLES2/gl2.h>
+    #include <GLES2/gl2ext.h>
+#else
+    #include "GL/glew.h"
+#endif
 
 namespace p3d {
     

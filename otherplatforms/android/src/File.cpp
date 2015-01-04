@@ -12,32 +12,40 @@
 namespace p3d {
 
     #if defined(ANDROID)
-    void File::Open(const std::string &filename, bool write)
+    bool File::Open(const std::string &filename, bool write)
     {
         // Using SDL_Rwops
         SDL_RWops *file;
         file = SDL_RWFromFile(filename.c_str(), (write?"wb":"rb"));
-        int n_blocks = 1024;
-        while(n_blocks != 0)
+        if (file!=NULL)
         {
-            data.resize(data.size() + n_blocks);
-            n_blocks = SDL_RWread(file, &data[data.size() - n_blocks], 1, n_blocks);
+            int n_blocks = 1024;
+            while(n_blocks != 0)
+            {
+                data.resize(data.size() + n_blocks);
+                n_blocks = SDL_RWread(file, &data[data.size() - n_blocks], 1, n_blocks);
+            }
+            positionStream = 0;
+            SDL_RWclose(file);
+
+            return true;
         }
-        positionStream = 0;
-        SDL_RWclose(file);
+
+        echo("Error: Couldn't Open File");
+        return false;
     }
     
     void File::Read(const void* src, const uint32 &size)
     {
-    	memcpy((char*)src, &data[positionStream], sizeof(unsigned char)*size);
-		positionStream += size * sizeof(unsigned char);
-	}
+        memcpy((char*)src, &data[positionStream], sizeof(unsigned char)*size);
+        positionStream += size * sizeof(unsigned char);
+    }
 
-	void File::Write(const void* src, const uint32 &size)
-	{
+    void File::Write(const void* src, const uint32 &size)
+    {
         // Not Implemented Yet
-		//fwrite(src,1,size,file);
-	}
+        //fwrite(src,1,size,file);
+    }
 
     void File::Rewind()
     {
@@ -54,10 +62,10 @@ namespace p3d {
         return data;
     }
 
-	void File::Close()
-	{
-		data.clear();
-		positionStream = 0;
-	}
+    void File::Close()
+    {
+        data.clear();
+        positionStream = 0;
+    }
     #endif
 }
