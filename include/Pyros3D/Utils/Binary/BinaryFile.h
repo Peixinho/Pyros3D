@@ -24,22 +24,25 @@ namespace p3d {
 			
 			virtual ~BinaryFile() {}
 
-			void Open(const char* filename, const char &o)
+			bool Open(const char* filename, const char &o)
 			{
 				option = o;
 				file = new File();
+				bool opened = false;
 				switch(o)
 				{
 					case 'r':
-						file->Open(filename,false);
+						opened = file->Open(filename,false);
 					break;
 					case 'w':
 					default:
-						file->Open(filename,true);
+						opened = file->Open(filename,true);
 					break;
 				}
 
 				memory = false;
+				
+				return opened;
 			}
 
 			void OpenFromMemory(uchar* data, const uint32 &size)
