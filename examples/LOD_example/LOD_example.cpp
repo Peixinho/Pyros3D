@@ -90,7 +90,7 @@ void LOD_example::Init()
             rTeapot->AddLOD(teapotLOD2Handle,50);
             rTeapot->AddLOD(teapotLOD3Handle,100);
 
-            GameObject* Teapot = new GameObject();
+            GameObject* Teapot = new GameObject(true); //Static Object
             Teapot->SetPosition(Vec3((rand() % 1000) -500,(rand() % 1000)-500,(rand() % 1000) -500));
             Teapot->SetScale(Vec3(.1f,.1f,.1f));
             Teapot->Add(rTeapot);
