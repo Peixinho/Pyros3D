@@ -64,7 +64,7 @@ namespace p3d {
             std::vector<RenderingComponent*> comps(RenderingComponent::GetRenderingComponents(Scene));
             for (std::vector<RenderingComponent*>::iterator i=comps.begin();i!=comps.end();i++)
             {
-                f32 distance = (Camera->GetWorldPosition().distance((*i)->GetOwner()->GetWorldPosition()+(*i)->GetBoundingSphereCenter())-(*i)->GetBoundingSphereRadius());
+                f32 distance = (Camera->GetWorldPosition().distanceSQR((*i)->GetOwner()->GetWorldPosition()+((*i)->GetBoundingSphereCenter()-(*i)->GetBoundingSphereRadius())*(*i)->GetOwner()->GetScale()));
                 (*i)->UpdateLOD((*i)->GetLODByDistance(fabs(distance)));
             }
         }

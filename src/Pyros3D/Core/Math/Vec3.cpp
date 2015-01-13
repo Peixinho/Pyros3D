@@ -33,7 +33,7 @@ namespace p3d {
 
         f32 Vec3::distance(const Vec3& v) const
         {
-            Vec3 dist = this->operator -(v);
+            Vec3 dist = *this -v;
             return dist.magnitude();
         }
 

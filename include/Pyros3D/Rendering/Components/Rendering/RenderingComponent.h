@@ -118,7 +118,7 @@ namespace p3d {
             const uint32 GetLODSize() const;
             
             // Returns LOD level based on distance
-            const uint32 GetLODByDistance(const f32 &Distance) const;
+            uint32 GetLODByDistance(const f32 &Distance);
 
             // Update Rendering Meshes Based on LOD
             void UpdateLOD(const uint32 &lod);
@@ -168,6 +168,7 @@ namespace p3d {
 
             // LOD Rendered
             uint32 LodInUse;
+            float LastLodDistance;
 
             //LOD Distance
             std::vector<f32> LODDistances;

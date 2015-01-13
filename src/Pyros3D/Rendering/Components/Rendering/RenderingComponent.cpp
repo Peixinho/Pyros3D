@@ -66,6 +66,7 @@ namespace p3d {
         // LOD
         LOD = false;
         LodInUse = 0;
+        LastLodDistance = 0.f;
     }
     
     void RenderingComponent::AddLOD(Renderable* renderable, f32 Distance, IMaterial* Material)
@@ -107,13 +108,17 @@ namespace p3d {
         return Meshes.size();
     }
 
-    const uint32 RenderingComponent::GetLODByDistance(const f32 &Distance) const
-    {
-        for (int i=0;i<LODDistances.size();i++)
+    uint32 RenderingComponent::GetLODByDistance(const f32 &Distance)
+    {       
+        if (Distance!=LastLodDistance)
         {
-            if (Distance<LODDistances[i]) return i;
-        }
-        return LODDistances.size();
+            LastLodDistance = Distance;
+            for (int i=0;i<LODDistances.size();i++)
+            {
+                if (Distance<LODDistances[i]*LODDistances[i]) return i;
+            }
+            return LODDistances.size();
+        } else return LodInUse;
     }
 
     void RenderingComponent::Register(SceneGraph* Scene)
