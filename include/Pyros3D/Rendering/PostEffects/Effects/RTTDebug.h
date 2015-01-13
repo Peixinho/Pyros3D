@@ -13,7 +13,7 @@
 
 namespace p3d {
 
-    class RTTDebug : public IEffect {
+    class PYROS3D_API RTTDebug : public IEffect {
         public:
             RTTDebug(const uint32 &Tex1,const uint32 &Tex2);
             virtual ~RTTDebug();

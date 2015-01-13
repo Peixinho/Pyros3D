@@ -13,7 +13,7 @@
 
 namespace p3d {
 
-    class SSAOEffect : public IEffect {
+    class PYROS3D_API SSAOEffect : public IEffect {
     public:
         SSAOEffect(const uint32& Tex1);
         virtual ~SSAOEffect();

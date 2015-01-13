@@ -13,6 +13,7 @@
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
+#include <Pyros3D/Other/Export.h>
 
 //#include <iostream>
 
@@ -51,7 +52,7 @@ namespace p3d {
         }
     }
     
-    class IEffect {
+    class PYROS3D_API IEffect {
         
         friend class PostEffectsManager;
         
