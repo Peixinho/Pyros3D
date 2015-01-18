@@ -12,7 +12,7 @@
 
 namespace p3d {
 
-    Text::Text(Font* font, const std::string& text, const f32 &charWidth, const f32 &charHeight, const Vec4 &color, bool DynamicText)
+    Text::Text(Font* font, const std::string& text, const f32 charWidth, const f32 charHeight, const Vec4 &color, bool DynamicText)
     {
         this->charWidth = charWidth;
         this->charHeight = charHeight;
@@ -27,7 +27,7 @@ namespace p3d {
         UpdateText(text, color);
     }
 
-    Text::Text(Font* font, const std::string& text, const f32 &charWidth, const f32 &charHeight, const std::vector<Vec4> &colors, bool DynamicText)
+    Text::Text(Font* font, const std::string& text, const f32 charWidth, const f32 charHeight, const std::vector<Vec4> &colors, bool DynamicText)
     {
         this->charWidth = charWidth;
         this->charHeight = charHeight;
@@ -252,8 +252,6 @@ namespace p3d {
 
     Text::~Text()
     {
-
-
 
     }
 };

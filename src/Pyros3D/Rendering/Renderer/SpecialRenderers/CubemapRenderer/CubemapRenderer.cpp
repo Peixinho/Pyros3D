@@ -16,7 +16,7 @@
 
 namespace p3d {
     
-    CubemapRenderer::CubemapRenderer(const uint32& Width, const uint32& Height) : IRenderer(Width,Height) 
+    CubemapRenderer::CubemapRenderer(const uint32 Width, const uint32 Height) : IRenderer(Width,Height) 
     {
     
         echo("SUCCESS: Forward Renderer Created");
@@ -52,7 +52,7 @@ namespace p3d {
     
     
     
-    std::vector<RenderingMesh*> CubemapRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 &Tag)
+    std::vector<RenderingMesh*> CubemapRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag)
     {
         
         // Sort and Group Objects From Scene
@@ -81,7 +81,7 @@ namespace p3d {
          
     }
     
-    void CubemapRenderer::RenderCubeMap(SceneGraph* Scene, GameObject* AllSeeingEye, const f32 &Near, const f32 &Far)
+    void CubemapRenderer::RenderCubeMap(SceneGraph* Scene, GameObject* AllSeeingEye, const f32 Near, const f32 Far)
     {
         
         InitRender();

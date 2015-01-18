@@ -28,10 +28,10 @@ namespace p3d {
         // Add Thread
         static uint32 AddThread(void* (*ThreadFunction)(void*), void* arg);
         // Remove Thread
-        static bool RemoveThread(const uint32 &ThreadID);
+        static bool RemoveThread(const uint32 ThreadID);
         // Lock & Unlock
-        static void LockThread(const uint32 &ThreadID);
-        static void UnlockThread(const uint32 &ThreadID);
+        static void LockThread(const uint32 ThreadID);
+        static void UnlockThread(const uint32 ThreadID);
         
         static uint32 GetActiveThreads() { return _ThreadsList.size(); }
     protected:

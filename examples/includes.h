@@ -18,8 +18,8 @@
 #include "DeferredRendering/DeferredRendering.h"
 #elif defined(_TextRendering)
 #include "TextRendering/TextRendering.h"
-#elif defined(_SkeletonAnimation)
-#include "SkeletonAnimation/SkeletonAnimation.h"
+#elif defined(_SkeletonAnimationExample)
+#include "SkeletonAnimationExample/SkeletonAnimationExample.h"
 #elif defined(_SimplePhysics)
 #include "SimplePhysics/SimplePhysics.h"
 #elif defined(_RacingGame)

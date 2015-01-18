@@ -79,7 +79,7 @@ namespace p3d {
     {
             PhysicsEngine->Activate(this);
     }
-    void IPhysicsComponent::InternalAddWheel(const Vec3& WheelDirection, const Vec3& WheelAxle, const f32& WheelRadius, const f32& WheelWidth, const f32& WheelFriction, const f32& WheelRollInfluence, const Vec3& Position, bool isFrontWheel)
+    void IPhysicsComponent::InternalAddWheel(const Vec3& WheelDirection, const Vec3& WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3& Position, bool isFrontWheel)
     {
             PhysicsEngine->AddWheel(this,WheelDirection,WheelAxle,WheelRadius,WheelWidth,WheelFriction,WheelRollInfluence,Position,isFrontWheel);
     }

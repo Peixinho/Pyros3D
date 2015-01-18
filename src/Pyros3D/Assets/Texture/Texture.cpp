@@ -51,7 +51,7 @@ namespace p3d {
         }
     }
 
-    bool Texture::LoadTexture(const std::string& Filename, const uint32 &Type, bool Mipmapping)
+    bool Texture::LoadTexture(const std::string& Filename, const uint32 Type, bool Mipmapping)
     {
         bool failed = false;
         bool ImageLoaded = false;
@@ -127,7 +127,7 @@ namespace p3d {
         return CreateTexture(Mipmapping);
     }
 
-    bool Texture::LoadTextureFromMemory(std::vector<uchar> data, const uint32 &length, const uint32 &Type, bool Mipmapping)
+    bool Texture::LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type, bool Mipmapping)
     {
 
         bool failed = false;
@@ -409,7 +409,7 @@ namespace p3d {
         return true;
     }
     
-    bool Texture::CreateTexture(const uint32& Type, const uint32& TextureDataType, const int32& width, const int32& height, bool Mipmapping)
+    bool Texture::CreateTexture(const uint32 Type, const uint32 TextureDataType, const int32 width, const int32 height, bool Mipmapping)
     {
                        
         Width=width;
@@ -431,7 +431,7 @@ namespace p3d {
         return CreateTexture(Mipmapping);
     }
     
-    void Texture::SetAnysotropy(const uint32& Anysotropic)
+    void Texture::SetAnysotropy(const uint32 Anysotropic)
     {
         // bind
         glBindTexture(GLSubMode, GL_ID);
@@ -455,7 +455,7 @@ namespace p3d {
         
     }
     
-    void Texture::SetRepeat(const uint32& WrapS, const uint32& WrapT, const int32& WrapR)
+    void Texture::SetRepeat(const uint32 WrapS, const uint32 WrapT, const int32 WrapR)
     {
         
         SRepeat = WrapS;
@@ -546,7 +546,7 @@ namespace p3d {
         
     }
     
-    void Texture::SetMinMagFilter(const uint32& MinFilter, const uint32& MagFilter)
+    void Texture::SetMinMagFilter(const uint32 MinFilter, const uint32 MagFilter)
     {
         
         this->MinFilter = MinFilter;
@@ -620,14 +620,14 @@ namespace p3d {
         glBindTexture(GLSubMode, 0);
 #endif
     }
-    void Texture::SetTransparency(const f32& Transparency)
+    void Texture::SetTransparency(const f32 Transparency)
     {
         
         this->Transparency = Transparency;
         
     }
     
-    void Texture::Resize(const uint32& Width, const uint32& Height)
+    void Texture::Resize(const uint32 Width, const uint32 Height)
     {
         glBindTexture(GLSubMode, GL_ID);
         this->Width=Width;
@@ -651,7 +651,7 @@ namespace p3d {
         glBindTexture(GLSubMode, 0);
     }
     
-    void Texture::SetTextureByteAlignment(const uint32& Value)
+    void Texture::SetTextureByteAlignment(const uint32 Value)
     {
         glBindTexture(GLSubMode, GL_ID);
         

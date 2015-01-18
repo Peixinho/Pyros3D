@@ -11,7 +11,7 @@
 
 namespace p3d {   
 
-    PhysicsConvexTriangleMesh::PhysicsConvexTriangleMesh(IPhysics* engine, RenderingComponent* rcomp, const f32 &mass) : IPhysicsComponent(mass,CollisionShapes::ConvexTriangleMesh,engine) 
+    PhysicsConvexTriangleMesh::PhysicsConvexTriangleMesh(IPhysics* engine, RenderingComponent* rcomp, const f32 mass) : IPhysicsComponent(mass,CollisionShapes::ConvexTriangleMesh,engine) 
     {
         // Build the triangle mesh from Rendering Component
         unsigned indexCount = 0;
@@ -26,7 +26,7 @@ namespace p3d {
         }
     }
     
-    PhysicsConvexTriangleMesh::PhysicsConvexTriangleMesh(IPhysics* engine, const std::vector<unsigned> &index, const std::vector<Vec3> &vertex, const f32 &mass) : IPhysicsComponent(mass,CollisionShapes::ConvexTriangleMesh,engine) 
+    PhysicsConvexTriangleMesh::PhysicsConvexTriangleMesh(IPhysics* engine, const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass) : IPhysicsComponent(mass,CollisionShapes::ConvexTriangleMesh,engine) 
     {
         this->vertex = vertex;
         this->index = index;
@@ -36,7 +36,7 @@ namespace p3d {
     {
 
     }
-    void AddIndex(const unsigned &index)
+    void AddIndex(const uint32 index)
     {
 
     }

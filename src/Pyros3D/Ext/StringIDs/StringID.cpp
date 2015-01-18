@@ -28,7 +28,7 @@ namespace p3d
 		return Hash;
 	};
 
-	StringID MakeStringIDFromChar(const uchar* data, const uint32 &length)
+	StringID MakeStringIDFromChar(const uchar* data, const uint32 length)
 	{
 		StringID Hash = CRC32::Instance.CRC(data, length);
 

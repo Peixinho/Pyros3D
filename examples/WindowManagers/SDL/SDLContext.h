@@ -27,7 +27,7 @@ namespace p3d {
     class SDLContext : public Context {
         public:
             
-            SDLContext(const uint32 &width, const uint32 &height, const std::string &title, const uint32 &windowType = WindowType::Fullscreen);            
+            SDLContext(const uint32 width, const uint32 height, const std::string &title, const uint32 windowType = WindowType::Fullscreen);
             ~SDLContext();
             
             // virtuals
@@ -37,14 +37,14 @@ namespace p3d {
             virtual void GetEvents();
             virtual void Draw();
             virtual bool IsRunning() const;
-            virtual void OnResize(const uint32 &width, const uint32 &height);
+            virtual void OnResize(const uint32 width, const uint32 height);
             void Close();
 
             // methods
             SDL_Surface GetWindow();            
             void HideMouse();
             void ShowMouse();
-            void SetMousePosition(const uint32 &mouseX, const uint32 &mouseY);
+            void SetMousePosition(const uint32 mouseX, const uint32 mouseY);
             const Vec2 GetMousePosition() const;
 
         protected:
@@ -52,16 +52,16 @@ namespace p3d {
             static std::map<uint32, uint32> MapSDLKeyboard;
 
             // Buttons and Mouse
-            virtual void KeyPressed(const uint32 &key);
-            virtual void KeyReleased(const uint32 &key);
-            virtual void TextEntered(const uint32 &Code);
-            virtual void MouseButtonPressed(const uint32 &button);
-            virtual void MouseButtonReleased(const uint32 &button);                            
-            virtual void MouseMove(const f32 &mousex, const f32 &mousey);                
-            virtual void MouseWheel(const f32 &delta);
-            virtual void JoypadButtonReleased(const uint32 &JoypadID, const uint32 &Button);
-            virtual void JoypadButtonPressed(const uint32 &JoypadID, const uint32 &Button);
-            virtual void JoypadMove(const uint32 &JoypadID, const uint32 &Axis, const f32 &Value);
+            virtual void KeyPressed(const uint32 key);
+            virtual void KeyReleased(const uint32 key);
+            virtual void TextEntered(const uint32 Code);
+            virtual void MouseButtonPressed(const uint32 button);
+            virtual void MouseButtonReleased(const uint32 button);                            
+            virtual void MouseMove(const f32 mousex, const f32 mousey);                
+            virtual void MouseWheel(const f32 delta);
+            virtual void JoypadButtonReleased(const uint32 JoypadID, const uint32 Button);
+            virtual void JoypadButtonPressed(const uint32 JoypadID, const uint32 Button);
+            virtual void JoypadMove(const uint32 JoypadID, const uint32 Axis, const f32 Value);
             
             // SDLContext Context
             SDL_Surface* rview;

@@ -36,7 +36,7 @@ namespace p3d {
 
         public:
 
-            ISound(const uint32 &type);
+            ISound(const uint32 type);
             virtual ~ISound();
 
             bool LoadFromFile(const std::string &filename);
@@ -46,7 +46,7 @@ namespace p3d {
             void Stop();
             bool isPlaying();
             bool isPaused();
-            void SetVolume(const uint32 &vol); // 0-100
+            void SetVolume(const uint32 vol); // 0-100
             const uint32 &GetVolume() const;
 
         protected:

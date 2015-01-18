@@ -6,8 +6,8 @@
 // Description : Rotating Cube Example
 //============================================================================
 
-#ifndef SKELETONANIMATION_H
-#define	SKELETONANIMATION_H
+#ifndef SKELETONANIMATIONEXAMPLE_H
+#define	SKELETONANIMATIONEXAMPLE_H
 
 #if defined(_SDL)
     #include "../WindowManagers/SDL/SDLContext.h"
@@ -27,22 +27,23 @@
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
-#include <Pyros3D/AnimationManager/AnimationManager.h>
+#include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 
 using namespace p3d;
 
-class SkeletonAnimation : public ClassName {
+class SkeletonAnimationExample : public ClassName {
 
     public:
         
-        SkeletonAnimation();   
-        virtual ~SkeletonAnimation();
+        SkeletonAnimationExample();   
+        virtual ~SkeletonAnimationExample();
         
         virtual void Init();
         virtual void Update();
         virtual void Shutdown();
-        virtual void OnResize(const uint32 &width, const uint32 &height);
+        virtual void OnResize(const uint32 width, const uint32 height);
         
+        void OnMousePress(Event::Input::Info e);
     private:
 
         // Scene
@@ -63,11 +64,11 @@ class SkeletonAnimation : public ClassName {
         // Model handle
         Renderable* modelHandle;
         // Animation
-        AnimationManager* Animation;
+        SkeletonAnimationInstance* anim;
 
-        double currentTime; 
+        SkeletonAnimation* SAnim;
 
 };
 
-#endif	/* SKELETONANIMATION_H */
+#endif	/* SKELETONANIMATIONEXAMPLE_H */
 

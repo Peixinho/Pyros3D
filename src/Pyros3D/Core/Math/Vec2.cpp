@@ -15,7 +15,7 @@ namespace p3d {
             x = y = 0;
         }
 
-        Vec2::Vec2(f32 X, f32 Y) : x(X), y(Y)
+        Vec2::Vec2(const f32 X, const f32 Y) : x(X), y(Y)
         {
         }
 
@@ -79,19 +79,19 @@ namespace p3d {
         {
             return Vec2(x/v.x,y/v.y);
         }
-        Vec2 Vec2::operator+(const f32 &f) const
+        Vec2 Vec2::operator+(const f32 f) const
         {
             return Vec2(x+f,y+f);
         }
-        Vec2 Vec2::operator-(const f32 &f) const
+        Vec2 Vec2::operator-(const f32 f) const
         {
             return Vec2(x-f,y-f);
         }
-        Vec2 Vec2::operator*(const f32 &f) const
+        Vec2 Vec2::operator*(const f32 f) const
         {
             return Vec2(x*f,y*f);
         }
-        Vec2 Vec2::operator/(const f32 &f) const
+        Vec2 Vec2::operator/(const f32 f) const
         {
             return Vec2(x/f,y/f);
         }
@@ -111,19 +111,19 @@ namespace p3d {
         {
             x/=v.x; y/=v.y;
         }
-        void Vec2::operator+=(const f32 &f)
+        void Vec2::operator+=(const f32 f)
         {
             x+=f; y+=f;
         }
-        void Vec2::operator-=(const f32 &f)
+        void Vec2::operator-=(const f32 f)
         {
             x-=f; y-=f;
         }
-        void Vec2::operator*=(const f32 &f)
+        void Vec2::operator*=(const f32 f)
         {
             x*=f; y*=f;
         }
-        void Vec2::operator/=(const f32 &f)
+        void Vec2::operator/=(const f32 f)
         {
             x/=f; y/=f;
         }

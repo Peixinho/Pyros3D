@@ -24,7 +24,7 @@ namespace p3d {
 
                 // mthods
                 Vec3();
-                Vec3(f32 X, f32 Y, f32 Z) : x(X), y(Y), z(Z) {}
+                Vec3(const f32 X, const f32 Y, const f32 Z) : x(X), y(Y), z(Z) {}
 
                 // f32s
                 f32 dotProduct(const Vec3 &v) const;
@@ -42,7 +42,7 @@ namespace p3d {
                 Vec3 Abs() const;
                 
                 // Lerp
-                Vec3 Lerp(const Vec3 &b, const f32 &t) const;
+                Vec3 Lerp(const Vec3 &b, const f32 t) const;
 
                 // toString
                 std::string toString() const;
@@ -52,18 +52,18 @@ namespace p3d {
                 Vec3 operator-(const Vec3 &v) const;
                 Vec3 operator*(const Vec3 &v) const;
                 Vec3 operator/(const Vec3 &v) const;
-                Vec3 operator+(const f32 &f) const;
-                Vec3 operator-(const f32 &f) const;
-                Vec3 operator*(const f32 &f) const;
-                Vec3 operator/(const f32 &f) const;
+                Vec3 operator+(const f32 f) const;
+                Vec3 operator-(const f32 f) const;
+                Vec3 operator*(const f32 f) const;
+                Vec3 operator/(const f32 f) const;
                 void operator+=(const Vec3 &v);
                 void operator-=(const Vec3 &v);
                 void operator*=(const Vec3 &v);
                 void operator/=(const Vec3 &v);
-                void operator+=(const f32 &f);
-                void operator-=(const f32 &f);
-                void operator*=(const f32 &f);
-                void operator/=(const f32 &f);
+                void operator+=(const f32 f);
+                void operator-=(const f32 f);
+                void operator*=(const f32 f);
+                void operator/=(const f32 f);
                 bool operator==(const Vec3 &v) const;
                 bool operator!=(const Vec3 &v) const;
                 bool operator>(const Vec3 &v) const;

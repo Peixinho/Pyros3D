@@ -22,21 +22,21 @@ namespace p3d {
     public:
         
         // Constructor
-        PainterPick(const uint32 &Width, const uint32 &Height);
+        PainterPick(const uint32 Width, const uint32 Height);
         
         // Destructor
         virtual ~PainterPick();
         
         // Resize Window
-        virtual void Resize(const uint32 &Width, const uint32 &Height);
+        virtual void Resize(const uint32 Width, const uint32 Height);
         
         // Returns Rendering Mesh Clicked
-        RenderingMesh* PickObject(const f32& mouseX, const f32& mouseY, Projection projection, GameObject* Camera, SceneGraph* Scene);
+        RenderingMesh* PickObject(const f32 mouseX, const f32 mouseY, Projection projection, GameObject* Camera, SceneGraph* Scene);
         
     private:
         
         // Should Select Only Clickable Objects
-        virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 &Tag = 0) { std::vector<RenderingMesh*> o; return o; }
+        virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag = 0) { std::vector<RenderingMesh*> o; return o; }
         
         // Render Scene
         virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene);
@@ -58,7 +58,7 @@ namespace p3d {
         std::map<uint32, RenderingMesh*> MeshPickingList;
         
         // Aux Methods
-        Vec4 Rgba8ToVec4(const uint32 &val)
+        Vec4 Rgba8ToVec4(const uint32 val)
         {
             return Vec4((val & 0xFF000000) >> 24, (val & 0xFF0000) >> 16, (val & 0xFF00) >> 8, val & 0xFF) / 255.f;
         }

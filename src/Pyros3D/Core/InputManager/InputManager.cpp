@@ -26,7 +26,7 @@ namespace p3d {
     std::map <uint32, std::map<uint32, Gallant::Signal1<Event::Input::Info> > > InputManager::JoyPadReleased;
     std::map <uint32, std::map<uint32, Gallant::Signal1<Event::Input::Info> > > InputManager::JoyPadMove;
     
-    void InputManager::JoypadButtonPressed(const uint32& joypadID, const uint32& button)
+    void InputManager::JoypadButtonPressed(const uint32 joypadID, const uint32 button)
     {
         Event::Input::Info m;
         m.Type = Event::Type::OnPress;
@@ -34,7 +34,7 @@ namespace p3d {
 		m.Value = button;
         JoyPadPressed[joypadID][button](m);        
     }
-    void InputManager::JoypadButtonReleased(const uint32& joypadID, const uint32& button)
+    void InputManager::JoypadButtonReleased(const uint32 joypadID, const uint32 button)
     {
         Event::Input::Info m;
         m.Type = Event::Type::OnRelease;
@@ -42,7 +42,7 @@ namespace p3d {
 		m.Value = button;
         JoyPadReleased[joypadID][button](m);
     }
-    void InputManager::JoypadMove(const uint32& joypadID, const uint32& axis, const f32 &value)
+    void InputManager::JoypadMove(const uint32 joypadID, const uint32 axis, const f32 value)
     {
         Event::Input::Info m;
         m.Type = Event::Type::OnMove;
@@ -51,7 +51,7 @@ namespace p3d {
         JoyPadMove[joypadID][axis](m);        
     }
     
-    void InputManager::SetMousePosition(const uint32& mousex, const uint32& mousey)
+    void InputManager::SetMousePosition(const uint32 mousex, const uint32 mousey)
     {
         mouseX = mousex;
         mouseY = mousey;
@@ -62,7 +62,7 @@ namespace p3d {
 		m.Value=Vec2(mouseX, mouseY);
         MouseMoveEvents(m);
     }
-    void InputManager::SetMouseWheel(const f32& delta)
+    void InputManager::SetMouseWheel(const f32 delta)
     {
         Event::Input::Info m;
         m.Type = Event::Type::OnMove;
@@ -74,7 +74,7 @@ namespace p3d {
     {
         return Vec2(mouseX, mouseY);
     }
-    void InputManager::MousePressed(const uint32& e)
+    void InputManager::MousePressed(const uint32 e)
     {
         Event::Input::Info m;
         m.Type = Event::Type::OnPress;
@@ -82,7 +82,7 @@ namespace p3d {
 		m.Value = e;
         EventsMapPressed[e](m);
     }
-    void InputManager::MouseReleased(const uint32& e)
+    void InputManager::MouseReleased(const uint32 e)
     {
         Event::Input::Info m;
         m.Type = Event::Type::OnRelease;
@@ -91,7 +91,7 @@ namespace p3d {
         EventsMapReleased[e](m);
     }
     
-    void InputManager::KeyPressed(const uint32& e)
+    void InputManager::KeyPressed(const uint32 e)
     {
        
         Event::Input::Info k;
@@ -101,7 +101,7 @@ namespace p3d {
         EventsMapPressed[e](k);
         
     }
-    void InputManager::KeyReleased(const uint32& e)
+    void InputManager::KeyReleased(const uint32 e)
     {
         
         Event::Input::Info k;
@@ -111,7 +111,7 @@ namespace p3d {
         EventsMapReleased[e](k);        
     }
     
-    void InputManager::CharEntered(const uint32& e)
+    void InputManager::CharEntered(const uint32 e)
     {
 #if !defined(ANDROID) && !defined(EMSCRIPTEN)
         // Could be on Pressed or Released, there is nothing different from them

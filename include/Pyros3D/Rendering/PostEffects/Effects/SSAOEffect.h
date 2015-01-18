@@ -15,7 +15,7 @@ namespace p3d {
 
     class PYROS3D_API SSAOEffect : public IEffect {
     public:
-        SSAOEffect(const uint32& Tex1);
+        SSAOEffect(const uint32 Tex1);
         virtual ~SSAOEffect();
 
         f32 total_strength;

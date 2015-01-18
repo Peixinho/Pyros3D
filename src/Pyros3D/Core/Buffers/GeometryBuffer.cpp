@@ -20,7 +20,7 @@ namespace p3d {
 
     GeometryBuffer::GeometryBuffer() : ID(-1), DataLength(0) {}
 
-    GeometryBuffer::GeometryBuffer(const uint32& bufferType, const uint32& bufferDraw) : ID(-1) 
+    GeometryBuffer::GeometryBuffer(const uint32 bufferType, const uint32 bufferDraw) : ID(-1) 
     {
 
         // getting buffer type
@@ -63,7 +63,7 @@ namespace p3d {
         }
     }
 
-    void GeometryBuffer::Init(const void* GeometryData, const uint32 &length)
+    void GeometryBuffer::Init(const void* GeometryData, const uint32 length)
     {
         // Destroy buffer if exists
         if (ID!=-1) {
@@ -104,7 +104,7 @@ namespace p3d {
         return GeometryData;
     }
     
-    void *GeometryBuffer::Map(const uint32 &MappingType)
+    void *GeometryBuffer::Map(const uint32 MappingType)
     {
 #if !defined(ANDROID) && !defined(EMSCRIPTEN)
         glBindBuffer(this->bufferType, ID); 
@@ -150,7 +150,7 @@ namespace p3d {
         
         namespace Attribute {
             
-            const uint32 GetTypeSize(const uint32 &type)
+            const uint32 GetTypeSize(const uint32 type)
             {
                 switch(type) {
 
@@ -175,7 +175,7 @@ namespace p3d {
                 }
                 return 0;
             }
-            const uint32 GetTypeCount(const uint32 &type)
+            const uint32 GetTypeCount(const uint32 type)
             {
                 switch(type) {
 
@@ -200,7 +200,7 @@ namespace p3d {
                 }
                 return 0;
             }
-            const uint32 GetType(const uint32 &type)
+            const uint32 GetType(const uint32 type)
             {
                 switch(type) {
 

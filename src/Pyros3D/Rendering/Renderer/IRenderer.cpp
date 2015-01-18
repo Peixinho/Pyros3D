@@ -24,7 +24,7 @@ namespace p3d {
     
     IRenderer::IRenderer() {}
     
-    IRenderer::IRenderer(const uint32 &Width, const uint32 &Height)
+    IRenderer::IRenderer(const uint32 Width, const uint32 Height)
     {
         // Background Unset by Default
         BackgroundColorSet = false;
@@ -59,7 +59,7 @@ namespace p3d {
         lod = false;
     }
     
-    void IRenderer::Resize(const uint32& Width, const uint32& Height)
+    void IRenderer::Resize(const uint32 Width, const uint32 Height)
     {
         // Save Dimensions
         this->Width = Width;
@@ -72,7 +72,7 @@ namespace p3d {
         }
     }
     
-    void IRenderer::SetViewPort(const uint32& initX, const uint32& initY, const uint32& endX, const uint32& endY)
+    void IRenderer::SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY)
     {
         viewPortStartX = initX;
         viewPortStartY = initY;
@@ -80,7 +80,7 @@ namespace p3d {
         viewPortEndY = endY;
         customViewPort = true;
     }
-    void IRenderer::_SetViewPort(const uint32& initX, const uint32& initY, const uint32& endX, const uint32& endY)
+    void IRenderer::_SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY)
     {
         if (initX!=_viewPortStartX || initY!=_viewPortStartY || endX!=_viewPortEndX || endY != _viewPortEndY)
         {
@@ -101,7 +101,7 @@ namespace p3d {
 	void IRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene) {
 	
     }
-    void IRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 &Tag) {
+    void IRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 Tag) {
 
     }
 	void IRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag) {
@@ -298,7 +298,7 @@ namespace p3d {
         sorting = false;
     }
 
-    void IRenderer::ClearBufferBit(const uint32& Option)
+    void IRenderer::ClearBufferBit(const uint32 Option)
     {
         glBufferOptions = 0;
         if (Option & Buffer_Bit::Color) glBufferOptions |= GL_COLOR_BUFFER_BIT;
@@ -370,7 +370,7 @@ namespace p3d {
     {
     	glClearStencil(0);
     }
-	void IRenderer::StencilFunction(const uint32 &func, const uint32 &ref, const uint32 &mask)
+	void IRenderer::StencilFunction(const uint32 func, const uint32 ref, const uint32 mask)
 	{
 		uint32 Func = GL_ALWAYS;
 		switch(func)
@@ -403,7 +403,7 @@ namespace p3d {
 		}
 		glStencilFunc(Func, ref, mask);
 	}
-	void IRenderer::StencilOperation(const uint32 &sfail, const uint32 &dpfail, const uint32 &dppass)
+	void IRenderer::StencilOperation(const uint32 sfail, const uint32 dpfail, const uint32 dppass)
 	{
 		uint32 Sfail = GL_KEEP;
 		switch(sfail)
@@ -495,7 +495,7 @@ namespace p3d {
 		// Set Stencil Op
 		glStencilOp(Sfail, DPfail, DPPASS);
 	}
-	void IRenderer::ColorMask(const f32 &r,const f32 &g,const f32 &b,const f32 &a)
+	void IRenderer::ColorMask(const f32 r,const f32 g,const f32 b,const f32 a)
 	{
 		glColorMask(r,g,b,a);
 	}
@@ -548,7 +548,7 @@ namespace p3d {
         }
     }
     
-    void IRenderer::BlendingFunction(const uint32 &sfactor, const uint32 &dfactor)
+    void IRenderer::BlendingFunction(const uint32 sfactor, const uint32 dfactor)
     {
     	uint32 Sfactor = GL_ONE;
     	switch(sfactor)
@@ -688,14 +688,14 @@ namespace p3d {
     {
         scissorTest = false;
     }
-    void IRenderer::ScissorTestRect(const f32 &x, const f32 &y, const f32 &width, const f32 &height)
+    void IRenderer::ScissorTestRect(const f32 x, const f32 y, const f32 width, const f32 height)
     {
         scissorTestX = x;
         scissorTestY = y;
         scissorTestWidth = width;
         scissorTestHeight = height;
     }
-    void IRenderer::BlendingEquation(const uint32 &mode)
+    void IRenderer::BlendingEquation(const uint32 mode)
     {
     	uint32 Mode = GL_FUNC_ADD;
     	switch(mode)
@@ -737,7 +737,7 @@ namespace p3d {
         BackgroundColorSet = false;
     }
     // Culling Methods
-    void IRenderer::ActivateCulling(const uint32& cullingType)
+    void IRenderer::ActivateCulling(const uint32 cullingType)
     {
         culling = new FrustumCulling();
         IsCulling = true;

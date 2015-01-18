@@ -44,7 +44,7 @@ namespace p3d {
         shaderString = text;
     }
 
-    void Shader::CompileShader(const uint32 &type)
+    void Shader::CompileShader(const uint32 type)
     {
         
         std::string shaderType;
@@ -153,14 +153,14 @@ namespace p3d {
     }
 	
     // Get positions
-    const int32 Shader::GetUniformLocation(const uint32 &program, const std::string &name) {
+    const int32 Shader::GetUniformLocation(const uint32 program, const std::string &name) {
         return glGetUniformLocation(program, name.c_str());
     }
-    const int32 Shader::GetAttributeLocation(const uint32 &program, const std::string &name) {
+    const int32 Shader::GetAttributeLocation(const uint32 program, const std::string &name) {
         return glGetAttribLocation(program, name.c_str());
     }
 
-    void Shader::SendUniform(const Uniform::Uniform &uniform, const int32 &Handle)
+    void Shader::SendUniform(const Uniform::Uniform &uniform, const int32 Handle)
     {
         if (Handle>-1 && uniform.ElementCount>0)
         switch(uniform.Type)
@@ -198,7 +198,7 @@ namespace p3d {
         }
     }
     
-    void Shader::SendUniform(const Uniform::Uniform &uniform, void* data, const int32 &Handle, const uint32 &elementCount)
+    void Shader::SendUniform(const Uniform::Uniform &uniform, void* data, const int32 Handle, const uint32 elementCount)
     {
         if (Handle>-1 && elementCount>0)
         {

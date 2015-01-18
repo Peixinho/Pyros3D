@@ -149,7 +149,7 @@ namespace p3d {
             virtual void Update() {};
             virtual void Destroy() {};
             
-            void EnableCastShadows(const uint32 &Width, const uint32 &Height, const Projection &projection, const f32 &Near, const f32 &Far, const uint32 &Cascades = 1)
+            void EnableCastShadows(const uint32 Width, const uint32 Height, const Projection &projection, const f32 Near, const f32 Far, const uint32 Cascades = 1)
             {
                 if (!isCastingShadows)
                 {
@@ -228,18 +228,18 @@ namespace p3d {
                 ShadowViewMatrix.LookAt(Vec3::ZERO,(Direction.normalize()*-1.f),Vec3(0.f,0.f,-1.f));
                 return ShadowViewMatrix;
             }
-            Matrix GetLightProjection(const uint32 &Cascade, const std::vector<RenderingMesh*> RCompList)
+            Matrix GetLightProjection(const uint32 Cascade, const std::vector<RenderingMesh*> RCompList)
             {
                 return Cascades[Cascade].CreateCropMatrix(ShadowViewMatrix, RCompList);
             }
-            void UpdateCascadeFrustumPoints(const uint32 &Cascade, const Vec3 &CameraPosition, const Vec3 &CameraDirection)
+            void UpdateCascadeFrustumPoints(const uint32 Cascade, const Vec3 &CameraPosition, const Vec3 &CameraDirection)
             {
                 Cascades[Cascade].UpdateFrustumPoints(CameraPosition, CameraDirection);
             }
         
             uint32 GetNumberCascades() { return ShadowCascades; }
             
-            Cascade GetCascade(const uint32 &Cascade)
+            Cascade GetCascade(const uint32 Cascade)
             {
                 return Cascades[Cascade];
             }

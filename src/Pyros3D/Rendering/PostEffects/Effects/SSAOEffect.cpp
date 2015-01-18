@@ -10,7 +10,7 @@
 
 namespace p3d {
 
-    SSAOEffect::SSAOEffect(const uint32& Tex1) : IEffect()
+    SSAOEffect::SSAOEffect(const uint32 Tex1) : IEffect()
     {
         
         // Set RTT

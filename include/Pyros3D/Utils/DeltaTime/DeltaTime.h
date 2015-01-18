@@ -24,7 +24,7 @@ namespace p3d {
             void Resume();
             bool IsPaused();
             
-            void StartBulletTime(const f32 &factor);
+            void StartBulletTime(const f32 factor);
             void StopBulletTime();
             bool IsBulletTime();
             

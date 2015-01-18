@@ -17,7 +17,7 @@ namespace p3d {
 
         public:
 
-            Capsule(const f32 &radius, const f32 &height, const uint32 &numRings, const uint32 &segmentsW, const uint32 &segmentsH, bool smooth = false, bool flip = false)
+            Capsule(const f32 radius, const f32 height, const uint32 numRings, const uint32 segmentsW, const uint32 segmentsH, bool smooth = false, bool flip = false)
             {
                 isFlipped = flip;
                 isSmooth = smooth;

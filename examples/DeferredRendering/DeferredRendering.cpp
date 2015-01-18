@@ -15,7 +15,7 @@ DeferredRendering::DeferredRendering() : ClassName(1024,768,"Pyros3D - Deferred 
     
 }
 
-void DeferredRendering::OnResize(const uint32 &width, const uint32 &height)
+void DeferredRendering::OnResize(const uint32 width, const uint32 height)
 {
     // Execute Parent Resize Function
     ClassName::OnResize(width, height);

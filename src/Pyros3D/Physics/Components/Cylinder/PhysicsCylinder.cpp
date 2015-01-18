@@ -11,7 +11,7 @@
 
 namespace p3d { 
 
-    PhysicsCylinder::PhysicsCylinder(IPhysics* engine, const f32 &radius, const f32 &height, const f32 &mass) : IPhysicsComponent(mass, CollisionShapes::Cylinder,engine)
+    PhysicsCylinder::PhysicsCylinder(IPhysics* engine, const f32 radius, const f32 height, const f32 mass) : IPhysicsComponent(mass, CollisionShapes::Cylinder,engine)
     {
         
         this->radius=radius;

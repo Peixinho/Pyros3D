@@ -74,7 +74,7 @@ namespace p3d {
             LookAt(eye,center,up);
         }
         
-        void Matrix::Translate(const f32 &x, const f32 &y, const f32 &z)
+        void Matrix::Translate(const f32 x, const f32 y, const f32 z)
         {
             m[12] = x; m[13] = y; m[14] = z;
         }
@@ -82,15 +82,15 @@ namespace p3d {
         {
             m[12] = xyz.x; m[13] = xyz.y; m[14] = xyz.z;
         }
-        void Matrix::TranslateX(const f32 &x)
+        void Matrix::TranslateX(const f32 x)
         {
             m[12] = x;
         }
-        void Matrix::TranslateY(const f32 &y)
+        void Matrix::TranslateY(const f32 y)
         {
             m[13] = y;
         }
-        void Matrix::TranslateZ(const f32 &z)
+        void Matrix::TranslateZ(const f32 z)
         {
             m[14] = z;
         }
@@ -102,7 +102,7 @@ namespace p3d {
         {
             return Vec3(m[0],m[5],m[10]);
         }
-        void Matrix::RotationX(const f32 &angle)
+        void Matrix::RotationX(const f32 angle)
         {    
             f32 c = cos( angle ), s = sin( angle );
 
@@ -114,7 +114,7 @@ namespace p3d {
             mrot.m[9] = -mrot.m[6];
             *this*=mrot;
         }
-        void Matrix::RotationY(const f32 &angle)
+        void Matrix::RotationY(const f32 angle)
         {
 
             f32 c = cos( angle ), s = sin( angle );
@@ -126,7 +126,7 @@ namespace p3d {
             mrot.m[2] = -mrot.m[8];
             *this*=mrot;
         }
-        void Matrix::RotationZ(const f32 &angle)
+        void Matrix::RotationZ(const f32 angle)
         {
             f32 c = cos( angle ), s = sin( angle );
 
@@ -137,7 +137,7 @@ namespace p3d {
             mrot.m[4] = -mrot.m[1];
             *this*=mrot;
         }
-        void Matrix::Scale(const f32 &sx, const f32 &sy, const f32 &sz)
+        void Matrix::Scale(const f32 sx, const f32 sy, const f32 sz)
         {    
              m[0] = sx;
              m[5] = sy;
@@ -151,15 +151,15 @@ namespace p3d {
              m[10] = xyz.z;
              m[15] = 1.0f;
         }
-        void Matrix::ScaleX(const f32& x)
+        void Matrix::ScaleX(const f32 x)
         {
             m[0] = x;
         }
-        void Matrix::ScaleY(const f32& y)
+        void Matrix::ScaleY(const f32 y)
         {
             m[5] = y;
         }
-        void Matrix::ScaleZ(const f32& z)
+        void Matrix::ScaleZ(const f32 z)
         {
             m[10] = z;
         }
@@ -324,7 +324,7 @@ namespace p3d {
             return q;
         }
 
-        Matrix Matrix::PerspectiveMatrix(const f32 &fov, const f32 &aspect, const f32 &near, const f32 &far)
+        Matrix Matrix::PerspectiveMatrix(const f32 fov, const f32 aspect, const f32 near, const f32 far)
         {    
             const f32 h = (f32)(1.0f/tan(fov*PI/360));
             f32 neg_depth = near-far;
@@ -337,7 +337,7 @@ namespace p3d {
             
             return mp;
         }
-        Matrix Matrix::MakeFrustum(const f32 &left, const f32 &right, const f32 &bottom, const f32 &top, const f32 &near, const f32 &far)
+        Matrix Matrix::MakeFrustum(const f32 left, const f32 right, const f32 bottom, const f32 top, const f32 near, const f32 far)
         {
             f32 x = 2 * near / ( right - left );
             f32 y = 2 * near / ( top - bottom );
@@ -356,7 +356,7 @@ namespace p3d {
             
             return mp;
         }
-        Matrix Matrix::OrthoMatrix(const f32 &left, const f32 &right, const f32 &bottom, const f32 &top, const f32 &near, const f32 &far)
+        Matrix Matrix::OrthoMatrix(const f32 left, const f32 right, const f32 bottom, const f32 top, const f32 near, const f32 far)
         {
             Matrix mo;
 
@@ -405,7 +405,7 @@ namespace p3d {
             return mxm;
 
         }
-        Matrix Matrix::operator*(const f32 &f) const
+        Matrix Matrix::operator*(const f32 f) const
         {
             Matrix mat;
             for (int i=0;i<16;i++)        
@@ -463,7 +463,7 @@ namespace p3d {
 
                return "Matrix\n" + toStr.str();
         }
-        void Matrix::SetRotationFromEuler(const Vec3 &rotation, const uint32 &order) 
+        void Matrix::SetRotationFromEuler(const Vec3 &rotation, const uint32 order) 
         {
                 f32 x = rotation.x, y = rotation.y, z = rotation.z;
                 f32 a = cosf( x ), b = sinf( x );
@@ -577,7 +577,7 @@ namespace p3d {
                 };
 
         }
-        Vec3 Matrix::GetEulerFromRotationMatrix(const uint32 &order)
+        Vec3 Matrix::GetEulerFromRotationMatrix(const uint32 order)
         {
 
                 Vec3 euler;

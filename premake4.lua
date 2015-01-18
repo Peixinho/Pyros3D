@@ -234,7 +234,7 @@ if _OPTIONS["examples"] then
     BuildDemo("examples/TextRendering", "TextRendering");
     BuildDemo("examples/CustomMaterial", "CustomMaterial");
     BuildDemo("examples/PickingPainterMethod", "PickingPainterMethod");
-    BuildDemo("examples/SkeletonAnimation", "SkeletonAnimation");
+    BuildDemo("examples/SkeletonAnimationExample", "SkeletonAnimationExample");
     BuildDemo("examples/DeferredRendering", "DeferredRendering");
     BuildDemo("examples/LOD_example", "LOD_example");
     BuildDemo("examples/RacingGame", "RacingGame");

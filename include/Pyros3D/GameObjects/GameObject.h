@@ -80,7 +80,7 @@ namespace p3d {
 			// Tags
 			void AddTag(const std::string &tag);
 			void RemoveTag(const std::string &tag);
-			bool HaveTag(const uint32  &tag);
+			bool HaveTag(const uint32 tag);
 			bool HaveTag(const std::string &tag);
 
 			// Static
@@ -95,7 +95,7 @@ namespace p3d {
             void InternalUpdate();
             
             // Update Transformation
-            void UpdateTransformation(const uint32 &order = 0);
+            void UpdateTransformation(const uint32 order = 0);
             
             // Properties
             Vec3 _Position;

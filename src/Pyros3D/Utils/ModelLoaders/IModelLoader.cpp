@@ -51,7 +51,7 @@ namespace p3d {
             }
         }
     }
-    void IModelLoader::GetBoneChilds(std::map<StringID,Bone> Skeleton, const int32& id, const uint32& iterations)
+    void IModelLoader::GetBoneChilds(std::map<StringID,Bone> Skeleton, const int32 id, const uint32 iterations)
     {
         for (std::map<StringID, Bone>::iterator i=Skeleton.begin();i!=Skeleton.end();i++)
         {            

@@ -24,7 +24,7 @@ namespace p3d {
 
                 // methods
                 Vec2();
-                Vec2(f32 X, f32 Y);
+                Vec2(const f32 X,const f32 Y);
 
                 // f32s
                 f32 dotProduct(const Vec2 &v) const;
@@ -46,18 +46,18 @@ namespace p3d {
                 Vec2 operator-(const Vec2 &v) const;
                 Vec2 operator*(const Vec2 &v) const;
                 Vec2 operator/(const Vec2 &v) const;
-                Vec2 operator+(const f32 &f) const;
-                Vec2 operator-(const f32 &f) const;
-                Vec2 operator*(const f32 &f) const;
-                Vec2 operator/(const f32 &f) const;
+                Vec2 operator+(const f32 f) const;
+                Vec2 operator-(const f32 f) const;
+                Vec2 operator*(const f32 f) const;
+                Vec2 operator/(const f32 f) const;
                 void operator+=(const Vec2 &v);
                 void operator-=(const Vec2 &v);
                 void operator*=(const Vec2 &v);
                 void operator/=(const Vec2 &v);
-                void operator+=(const f32 &f);
-                void operator-=(const f32 &f);
-                void operator*=(const f32 &f);
-                void operator/=(const f32 &f);
+                void operator+=(const f32 f);
+                void operator-=(const f32 f);
+                void operator*=(const f32 f);
+                void operator/=(const f32 f);
                 bool operator==(const Vec2 &v) const;
                 bool operator!=(const Vec2 &v) const;
                 bool operator>(const Vec2 &v) const;

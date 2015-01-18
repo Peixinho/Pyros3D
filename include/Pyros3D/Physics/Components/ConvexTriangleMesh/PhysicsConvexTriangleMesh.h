@@ -17,8 +17,8 @@ namespace p3d {
     class PYROS3D_API PhysicsConvexTriangleMesh : public IPhysicsComponent {
         public:
 
-            PhysicsConvexTriangleMesh(IPhysics* engine, RenderingComponent* rcomp, const f32 &mass = 0.f);
-            PhysicsConvexTriangleMesh(IPhysics* engine, const std::vector<unsigned> &index, const std::vector<Vec3> &vertex, const f32 &mass = 0.f);
+            PhysicsConvexTriangleMesh(IPhysics* engine, RenderingComponent* rcomp, const f32 mass = 0.f);
+            PhysicsConvexTriangleMesh(IPhysics* engine, const std::vector<unsigned> &index, const std::vector<Vec3> &vertex, const f32 mass = 0.f);
 
             virtual ~PhysicsConvexTriangleMesh();
 

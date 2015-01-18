@@ -58,7 +58,7 @@ namespace p3d {
         public:
             
             // Create Font
-            Font(const std::string &font, const f32 &size);
+            Font(const std::string &font, const f32 size);
             
             // Create Text
             // It adds each char to the texture

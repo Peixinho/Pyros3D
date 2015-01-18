@@ -12,7 +12,7 @@
 namespace p3d
 {
     
-    void ShaderLib::BuildShader(const uint32& option, Shader* shader)
+    void ShaderLib::BuildShader(const uint32 option, Shader* shader)
     {
 
         // Shader Strings

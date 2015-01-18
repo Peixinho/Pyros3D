@@ -19,7 +19,7 @@ namespace p3d {
             
             SpotLight() { Color = Vec4(1,1,1,1); Radius = 1.f; }
             
-            SpotLight(const Vec4 &color, const f32 &radius, const Vec3 &direction, const f32 &OutterCone, const f32 &InnerCone) 
+            SpotLight(const Vec4 &color, const f32 radius, const Vec3 &direction, const f32 OutterCone, const f32 InnerCone) 
             { 
                 Color = color;
                 Radius = radius;
@@ -46,7 +46,7 @@ namespace p3d {
             
             Projection GetLightProjection() { return ShadowProjection; }
             
-            void EnableCastShadows(const uint32 &Width, const uint32 &Height, const f32 &Near = 0.1f)
+            void EnableCastShadows(const uint32 Width, const uint32 Height, const f32 Near = 0.1f)
             {
                 ShadowWidth = Width;
                 ShadowHeight = Height;

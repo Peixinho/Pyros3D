@@ -328,7 +328,7 @@ namespace p3d {
             
             // Add Events
             template< class X, class Y >
-            static void AddEvent(const uint32 &EventType, const uint32& Event, Y * obj, void (X::*func)(Event::Input::Info p))
+            static void AddEvent(const uint32 EventType, const uint32 Event, Y * obj, void (X::*func)(Event::Input::Info p))
             {                
                 switch(EventType)
                 {
@@ -353,7 +353,7 @@ namespace p3d {
             }
             // Remove Events
             template< class X, class Y >
-            static void RemoveEvent(const uint32 &EventType, const uint32& Event, Y * obj, void (X::*func)(Event::Input::Info p))
+            static void RemoveEvent(const uint32 EventType, const uint32 Event, Y * obj, void (X::*func)(Event::Input::Info p))
             {
                 switch(EventType)
                 {
@@ -380,7 +380,7 @@ namespace p3d {
             
             // Joypad Specific
             template< class X, class Y >
-            static void AddJoypadEvent(const uint32 &EventType, const uint32 &Id, const uint32& Event, Y * obj, void (X::*func)(Event::Input::Info p))
+            static void AddJoypadEvent(const uint32 EventType, const uint32 Id, const uint32 Event, Y * obj, void (X::*func)(Event::Input::Info p))
             {                
                 switch(EventType)
                 {
@@ -396,7 +396,7 @@ namespace p3d {
                 }
             }
             template< class X, class Y >
-            static void RemoveJoypadEvent(const uint32 &EventType, const uint32 &Id, const uint32& Event, Y * obj, void (X::*func)(Event::Input::Info p))
+            static void RemoveJoypadEvent(const uint32 EventType, const uint32 Id, const uint32 Event, Y * obj, void (X::*func)(Event::Input::Info p))
             {                
                 switch(EventType)
                 {
@@ -415,22 +415,22 @@ namespace p3d {
         protected:
             
             // Joypad
-            static void JoypadButtonPressed(const uint32 &joypadID, const uint32 &button);
-            static void JoypadButtonReleased(const uint32 &joypadID, const uint32 &button);
-            static void JoypadMove(const uint32 &joypadID, const uint32 &axis, const f32 &value);
+            static void JoypadButtonPressed(const uint32 joypadID, const uint32 button);
+            static void JoypadButtonReleased(const uint32 joypadID, const uint32 button);
+            static void JoypadMove(const uint32 joypadID, const uint32 axis, const f32 value);
             
             // Mouse Events only visible to Interface
-            static void SetMousePosition(const uint32 &mousex, const uint32 &mousey);
-            static void SetMouseWheel(const f32 &delta);
-            static void MousePressed(const  uint32 &e);
-            static void MouseReleased(const uint32 &e);
+            static void SetMousePosition(const uint32 mousex, const uint32 mousey);
+            static void SetMouseWheel(const f32 delta);
+            static void MousePressed(const  uint32 e);
+            static void MouseReleased(const uint32 e);
             static uint32 mouseX;
 			static uint32 mouseY;
             
             // Keyboard Events only visible to Interface
-            static void KeyPressed(const uint32 &e);
-            static void KeyReleased(const uint32 &e);
-            static void CharEntered(const uint32 &e);
+            static void KeyPressed(const uint32 e);
+            static void KeyReleased(const uint32 e);
+            static void CharEntered(const uint32 e);
             
             // Keyboard Events
             static std::map<uint32, Gallant::Signal1<Event::Input::Info> > EventsMapPressed;

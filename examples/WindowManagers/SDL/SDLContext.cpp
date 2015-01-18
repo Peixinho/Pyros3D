@@ -120,7 +120,7 @@ namespace p3d {
         // SDLContext::MapSDLKeyboard[SDLK_PAUSE] = Event::Input::Keyboard::Pause;
     }
 
-    SDLContext::SDLContext(const uint32 &width, const uint32 &height, const std::string &title, const uint32 &windowType) : Context(width,height) 
+    SDLContext::SDLContext(const uint32 width, const uint32 height, const std::string &title, const uint32 windowType) : Context(width,height) 
     {
         // Map Keys
         CreateKeyboardMap();
@@ -137,7 +137,7 @@ namespace p3d {
         SDL_Quit();
     }
     
-    void SDLContext::OnResize(const uint32 &width, const uint32 &height)
+    void SDLContext::OnResize(const uint32 width, const uint32 height)
     {
         Width = width;
         Height = height;
@@ -214,19 +214,19 @@ namespace p3d {
         
     }
     // Buttons and Mouse
-    void SDLContext::KeyPressed(const uint32& key)
+    void SDLContext::KeyPressed(const uint32 key)
     {
        SetKeyPressed(MapSDLKeyboard[key]);
     }
-    void SDLContext::KeyReleased(const uint32& key)
+    void SDLContext::KeyReleased(const uint32 key)
     {
         SetKeyReleased(MapSDLKeyboard[key]);
     }
-    void SDLContext::TextEntered(const uint32& Code)
+    void SDLContext::TextEntered(const uint32 Code)
     {
         SetCharEntered(Code);
     }
-    void SDLContext::MouseButtonPressed(const uint32& button)
+    void SDLContext::MouseButtonPressed(const uint32 button)
     {
         // Mouse Button Pressed
         switch(button)
@@ -242,7 +242,7 @@ namespace p3d {
                 break;
         }
     }
-    void SDLContext::MouseButtonReleased(const uint32& button)
+    void SDLContext::MouseButtonReleased(const uint32 button)
     {
         // Mouse Button Released
         switch(button)
@@ -258,16 +258,16 @@ namespace p3d {
                 break;
         }
     }
-    void SDLContext::MouseMove(const f32 &mousex, const f32 &mousey)
+    void SDLContext::MouseMove(const f32 mousex, const f32 mousey)
     {
         // Mouse Moving
         SetMouseMove(mousex,mousey);
     }
-    void SDLContext::MouseWheel(const f32 &delta)
+    void SDLContext::MouseWheel(const f32 delta)
     {
         SetMouseWheel(delta);
     }
-    void SDLContext::SetMousePosition(const uint32 &mouseX, const uint32 &mouseY)
+    void SDLContext::SetMousePosition(const uint32 mouseX, const uint32 mouseY)
     {
 
     }
@@ -277,15 +277,15 @@ namespace p3d {
         SDL_GetMouseState(&mousex,&mousey);
         return Vec2(mousex,mousey);
     }
-    void SDLContext::JoypadButtonPressed(const uint32& JoypadID, const uint32& Button)
+    void SDLContext::JoypadButtonPressed(const uint32 JoypadID, const uint32 Button)
     {
 
     }
-    void SDLContext::JoypadButtonReleased(const uint32& JoypadID, const uint32& Button)
+    void SDLContext::JoypadButtonReleased(const uint32 JoypadID, const uint32 Button)
     {
 
     }
-    void SDLContext::JoypadMove(const uint32& JoypadID, const uint32& Axis, const f32 &Value)
+    void SDLContext::JoypadMove(const uint32 JoypadID, const uint32 Axis, const f32 Value)
     {
 
     }

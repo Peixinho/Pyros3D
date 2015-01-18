@@ -15,7 +15,7 @@ namespace p3d
     // Shaders List
     std::map<uint32, Shader* > GenericShaderMaterial::ShadersList;
     
-    GenericShaderMaterial::GenericShaderMaterial(const uint32& options) : IMaterial()
+    GenericShaderMaterial::GenericShaderMaterial(const uint32 options) : IMaterial()
     {
         // Default
         colorMapID = specularMapID = normalMapID = envMapID = skyboxMapID = refractMapID = fontMapID = -1;
@@ -133,7 +133,7 @@ namespace p3d
         }
     }
     
-    void GenericShaderMaterial::SetLightingProperties(const Vec4 &Ke, const Vec4 &Ka, const Vec4 &Kd, const Vec4 &Ks, const f32 &shininess)
+    void GenericShaderMaterial::SetLightingProperties(const Vec4 &Ke, const Vec4 &Ka, const Vec4 &Kd, const Vec4 &Ks, const f32 shininess)
     {
         this->Ke = Ke;
         this->Ka = Ka;
@@ -166,7 +166,7 @@ namespace p3d
         this->Ks = Ks;
         SetUniformValue("uKs",&this->Ks);
     }
-    void GenericShaderMaterial::SetShininess(const f32 &shininess)
+    void GenericShaderMaterial::SetShininess(const f32 shininess)
     {
         this->Shininess = shininess;
         SetUniformValue("uShininess",&this->Shininess);
@@ -259,7 +259,7 @@ namespace p3d
         // Set Uniform
         AddUniform(Uniform::Uniform("uEnvmap",Uniform::DataType::Int,&envMapID));
     }
-    void GenericShaderMaterial::SetReflectivity(const f32& reflectivity)
+    void GenericShaderMaterial::SetReflectivity(const f32 reflectivity)
     {
         Reflectivity = reflectivity;
         AddUniform(Uniform::Uniform("uReflectivity",Uniform::DataType::Float,&Reflectivity));
@@ -299,11 +299,11 @@ namespace p3d
     {
         UnbindTextures();
     }
-    void GenericShaderMaterial::SetPCFTexelSize(const f32 &texel)
+    void GenericShaderMaterial::SetPCFTexelSize(const f32 texel)
     {
         PCFTexelSize1 = texel;
     }
-    void GenericShaderMaterial::SetPCFTexelCascadesSize(const f32 &texel1,const f32 &texel2,const f32 &texel3,const f32 &texel4)
+    void GenericShaderMaterial::SetPCFTexelCascadesSize(const f32 texel1,const f32 texel2,const f32 texel3,const f32 texel4)
     {
         PCFTexelSize1 = texel1;
         PCFTexelSize2 = texel2;

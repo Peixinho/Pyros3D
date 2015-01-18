@@ -24,8 +24,8 @@ namespace p3d {
                   virtual ~File() {}
 
                   bool Open(const std::string &filename, bool write = false);
-                  void Write(const void* src, const uint32 &size);
-                  void Read(const void* src, const uint32 &size);
+                  void Write(const void* src, const uint32 size);
+                  void Read(const void* src, const uint32 size);
                   void Rewind();
                   void Close();
                   const uint32 Size() const;

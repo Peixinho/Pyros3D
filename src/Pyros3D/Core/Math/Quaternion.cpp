@@ -21,7 +21,7 @@ namespace p3d {
             this->z = 0.0f; 
         }
 
-        Quaternion::Quaternion(const f32& w, const f32& x, const f32& y, const f32& z) 
+        Quaternion::Quaternion(const f32 w, const f32 x, const f32 y, const f32 z) 
         {
             this->w = w;
             this->x = x;
@@ -30,7 +30,7 @@ namespace p3d {
 
             Normalize();
         }
-        Quaternion::Quaternion(const f32& x, const f32& y, const f32& z) 
+        Quaternion::Quaternion(const f32 x, const f32 y, const f32 z) 
         {
             SetRotationFromEuler(Vec3(x, y ,z));
         }
@@ -120,7 +120,7 @@ namespace p3d {
             return dest;
 
         }
-        Quaternion Quaternion::operator* (const f32 &scalar) const
+        Quaternion Quaternion::operator* (const f32 scalar) const
         {
             return Quaternion(scalar*w,scalar*x,scalar*y,scalar*z);
         }
@@ -161,7 +161,7 @@ namespace p3d {
 
             Normalize(); // make sure a unit quaternion turns up
         }
-        void Quaternion::Rotation(const f32& xAngle, const f32& yAngle, const f32& zAngle) {
+        void Quaternion::Rotation(const f32 xAngle, const f32 yAngle, const f32 zAngle) {
 
             Quaternion Qx, Qy, Qz;
             Qx = Quaternion(cos(xAngle/2), (sin(xAngle/2)), 0, 0);
@@ -171,7 +171,7 @@ namespace p3d {
             *this = Qx * Qy * Qz;
         }
 
-        Quaternion Quaternion::Slerp(const Quaternion &b, const f32 &t) const
+        Quaternion Quaternion::Slerp(const Quaternion &b, const f32 t) const
         {
             Quaternion m;
 
@@ -208,7 +208,7 @@ namespace p3d {
             return m;
 
         }
-        Quaternion Quaternion::Nlerp(const Quaternion &b, const f32 &t, bool shortestPath) const
+        Quaternion Quaternion::Nlerp(const Quaternion &b, const f32 t, bool shortestPath) const
         {
             Quaternion m;
 
@@ -232,7 +232,7 @@ namespace p3d {
             return inverseQuat;
         }
 
-        void Quaternion::SetRotationFromEuler(const Vec3 &rotation, const uint32 &order) 
+        void Quaternion::SetRotationFromEuler(const Vec3 &rotation, const uint32 order) 
         {
 
             f32 c1 = cosf( rotation.x / 2.f );
@@ -296,7 +296,7 @@ namespace p3d {
             Normalize();
         }
 
-        Vec3 Quaternion::GetEulerFromQuaternion(const uint32 &order)
+        Vec3 Quaternion::GetEulerFromQuaternion(const uint32 order)
         {
 
             Vec3 euler;

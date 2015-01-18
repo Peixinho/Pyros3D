@@ -17,7 +17,7 @@ namespace p3d {
         public:
 
             PhysicsCapsule();
-            PhysicsCapsule(IPhysics* engine, const f32 &radius, const f32 &height, const f32 &mass = 0.f);
+            PhysicsCapsule(IPhysics* engine, const f32 radius, const f32 height, const f32 mass = 0.f);
 
             virtual ~PhysicsCapsule();
 	

@@ -16,7 +16,7 @@ TextRendering::TextRendering() : ClassName(1024,768,"Pyros3D - Text Rendering",W
     
 }
 
-void TextRendering::OnResize(const uint32 &width, const uint32 &height)
+void TextRendering::OnResize(const uint32 width, const uint32 height)
 {
     // Execute Parent Resize Function
     ClassName::OnResize(width, height);

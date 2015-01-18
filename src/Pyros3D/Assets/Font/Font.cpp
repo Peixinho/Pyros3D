@@ -14,7 +14,7 @@ namespace p3d {
     
 #if !defined(ANDROID) && !defined(EMSCRIPTEN)
 
-    Font::Font(const std::string& font, const f32& size)
+    Font::Font(const std::string& font, const f32 size)
     {
         // Font path
         this->font = font;

@@ -18,7 +18,7 @@ namespace p3d {
         public:
             
             PointLight() { Color = Vec4(1,1,1,1); Radius = 1.f; }
-            PointLight(const Vec4 &color, const f32 &radius) { Color = color; Radius = radius; }
+            PointLight(const Vec4 &color, const f32 radius) { Color = color; Radius = radius; }
             virtual ~PointLight() {}
 
             virtual void Start() {};
@@ -29,7 +29,7 @@ namespace p3d {
         
             const f32 &GetLightRadius() const { return Radius; }
             
-            void EnableCastShadows(const uint32 &Width, const uint32 &Height, const f32 &Near = 0.1f)
+            void EnableCastShadows(const uint32 Width, const uint32 Height, const f32 Near = 0.1f)
             {
 
                 ShadowWidth = Width;

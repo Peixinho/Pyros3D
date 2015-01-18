@@ -42,7 +42,7 @@ namespace p3d {
         
         public:
             
-            RenderingMesh(const uint32 &lod = 0) : drawingType(DrawingType::Triangles), CullingGeometry(0), Active(true), Clickable(true), LodLevel(lod) {} // Triangles by Default
+            RenderingMesh(const uint32 lod = 0) : drawingType(DrawingType::Triangles), CullingGeometry(0), Active(true), Clickable(true), LodLevel(lod) {} // Triangles by Default
 
             virtual ~RenderingMesh() {}
             
@@ -92,7 +92,7 @@ namespace p3d {
         public:
             
             RenderingComponent(Renderable* renderable, IMaterial* Material = NULL);
-            void AddLOD(Renderable* renderable, f32 Distance, IMaterial* Material = NULL);
+            void AddLOD(Renderable* renderable, const f32 Distance, IMaterial* Material = NULL);
             virtual ~RenderingComponent();
         
             virtual void Register(SceneGraph* Scene);
@@ -101,7 +101,7 @@ namespace p3d {
             virtual void Destroy() {}
             virtual void Unregister(SceneGraph* Scene);
             
-            void SetCullingGeometry(const uint32 &Geometry);
+            void SetCullingGeometry(const uint32 Geometry);
             
             void EnableCastShadows();
             void DisableCastShadows();
@@ -112,16 +112,16 @@ namespace p3d {
             bool HasBones() { return hasBones; }
 
             // Get Model's Meshes
-            std::vector<RenderingMesh*> &GetMeshes(const uint32 &LODLevel = 0);
+            std::vector<RenderingMesh*> &GetMeshes(const uint32 LODLevel = 0);
             
             // Get LOD Number
             const uint32 GetLODSize() const;
             
             // Returns LOD level based on distance
-            uint32 GetLODByDistance(const f32 &Distance);
+            uint32 GetLODByDistance(const f32 Distance);
 
             // Update Rendering Meshes Based on LOD
-            void UpdateLOD(const uint32 &lod);
+            void UpdateLOD(const uint32 lod);
 
             // Get Bounding Properties
             const f32 &GetBoundingSphereRadius() const { return BoundingSphereRadius; }

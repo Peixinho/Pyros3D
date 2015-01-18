@@ -49,7 +49,7 @@ namespace p3d {
         
     }
 
-    void IEffect::UseRTT(const uint32& RTT)
+    void IEffect::UseRTT(const uint32 RTT)
     {
         // Set Textures
         if (RTT & RTT::Color) UseColor();
@@ -107,11 +107,11 @@ namespace p3d {
     {
         Uniforms[UniformID].uniform.SetValue(&value,1);
     } 
-    void IEffect::SetUniformValue(StringID UniformID, void* value, const uint32 &elementCount)
+    void IEffect::SetUniformValue(StringID UniformID, void* value, const uint32 elementCount)
     {
         Uniforms[UniformID].uniform.SetValue(value,elementCount);
     }
-    void IEffect::SetUniformValue(std::string Uniform, void* value, const uint32 &elementCount)
+    void IEffect::SetUniformValue(std::string Uniform, void* value, const uint32 elementCount)
     {
         StringID ID(MakeStringID(Uniform));
         Uniforms[ID].uniform.SetValue(value,elementCount);
@@ -178,7 +178,7 @@ namespace p3d {
         TextureUnits++;
     }
     
-    void IEffect::Resize(const uint32& width, const uint32& height)
+    void IEffect::Resize(const uint32 width, const uint32 height)
     {
         // Save Dimensions
         Width = width;

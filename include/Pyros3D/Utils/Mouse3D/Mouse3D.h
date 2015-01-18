@@ -21,7 +21,7 @@ namespace p3d {
     public:
         Mouse3D();    
         virtual ~Mouse3D();
-        bool GenerateRay(const f32 &windowWidth, const f32 &windowHeight, const f32 &mouseX, const f32 &mouseY, const Matrix &Model, const Matrix &View, const Matrix &Projection);
+        bool GenerateRay(const f32 windowWidth, const f32 windowHeight, const f32 mouseX, const f32 mouseY, const Matrix &Model, const Matrix &View, const Matrix &Projection);
         bool rayIntersectionTriangle(const Vec3 &v1, const Vec3 &v2, const Vec3 &v3, Vec3 *IntersectionPoint32, f32 *t) const;
         bool rayIntersectionPlane(const Vec3 &Normal, const Vec3 &Position, Vec3 *IntersectionPoint32) const;
         const Vec3 &GetOrigin() const;
@@ -29,7 +29,7 @@ namespace p3d {
     private:
         
         Vec3 Origin, Direction;
-        bool UnProject(const f32& winX, const f32& winY, const f32& winZ, const Matrix &modelview, const Matrix &proj, const Vec4 view, f32 *objx, f32 *objy, f32 *objz);
+        bool UnProject(const f32 winX, const f32 winY, const f32 winZ, const Matrix &modelview, const Matrix &proj, const Vec4 view, f32 *objx, f32 *objy, f32 *objz);
     };
 
 }

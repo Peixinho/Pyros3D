@@ -11,7 +11,7 @@
 
 namespace p3d {
   
-    ISound::ISound(const uint32 &type) 
+    ISound::ISound(const uint32 type) 
     {
         _isPlaying = false;
         _isPaused = false;
@@ -122,7 +122,7 @@ namespace p3d {
         };
     }
 
-    void ISound::SetVolume(const uint32 &vol)
+    void ISound::SetVolume(const uint32 vol)
     {
         _volume = (vol>=100?100:vol);
 

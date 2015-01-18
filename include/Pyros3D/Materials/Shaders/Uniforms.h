@@ -85,7 +85,7 @@ namespace p3d {
 
             Uniform() { ElementCount = 0; Usage = 200; /* Usage = Other */ }
 
-            Uniform(const std::string &name, const uint32 &usage, const uint32 &type = 0)
+            Uniform(const std::string &name, const uint32 usage, const uint32 type = 0)
             {
                 Name=name;
                 Usage = usage;
@@ -187,9 +187,9 @@ namespace p3d {
                 };
             
             }
-            Uniform(const std::string &name, const uint32 &type, void* value, const uint32 &elementCount = 1) { Name=name; Usage = 200; Type = type; ElementCount = elementCount; SetValue(value); }
+            Uniform(const std::string &name, const uint32 type, void* value, const uint32 elementCount = 1) { Name=name; Usage = 200; Type = type; ElementCount = elementCount; SetValue(value); }
 
-            void SetValue(void* value, uint32 elementCount = 1)
+            void SetValue(void* value, const uint32 elementCount = 1)
             {
                 
                 // clear data

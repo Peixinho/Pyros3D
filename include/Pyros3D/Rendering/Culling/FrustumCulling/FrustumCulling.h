@@ -28,7 +28,7 @@ namespace p3d {
             
             void Update(const Matrix &ViewProjectionMatrix);
             bool PointInFrustum(const Vec3 &p);
-            bool SphereInFrustum(const Vec3 &p, const f32 &radius);
+            bool SphereInFrustum(const Vec3 &p, const f32 radius);
             bool ABoxInFrustum(AABox box);
             bool OBoxInFrustum(OBBox box);
             

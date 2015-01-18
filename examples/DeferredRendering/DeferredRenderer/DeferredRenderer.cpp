@@ -16,7 +16,7 @@
 
 namespace p3d {
     
-    DeferredRenderer::DeferredRenderer(const uint32& Width, const uint32& Height, FrameBuffer* fbo) : IRenderer(Width,Height) 
+    DeferredRenderer::DeferredRenderer(const uint32 Width, const uint32 Height, FrameBuffer* fbo) : IRenderer(Width,Height) 
     {
     
         echo("SUCCESS: Deferred Renderer Created");
@@ -60,7 +60,7 @@ namespace p3d {
         pointLight = new RenderingComponent(sphereHandle);
     }
     
-    void DeferredRenderer::Resize(const uint32& Width, const uint32& Height)
+    void DeferredRenderer::Resize(const uint32 Width, const uint32 Height)
     {
         IRenderer::Resize(Width,Height);
     }
@@ -76,7 +76,7 @@ namespace p3d {
         delete sphereHandle;
     }
     
-    std::vector<RenderingMesh*> DeferredRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 &Tag)
+    std::vector<RenderingMesh*> DeferredRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag)
     {
         
         // Sort and Group Objects From Scene

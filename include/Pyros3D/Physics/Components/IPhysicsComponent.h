@@ -48,7 +48,7 @@ namespace p3d {
             virtual void Unregister(SceneGraph* Scene);
             
             const f32 GetMass() const;
-            const unsigned GetShape() const;
+            const uint32 GetShape() const;
             
             void SaveRigidBodyPTR(void* ptr) { rigidBodyPTR = ptr; rigidBodyRegistered = true; }
             void* GetRigidBodyPTR() { return rigidBodyPTR; }
@@ -67,10 +67,10 @@ namespace p3d {
         protected:
             
             // Add Wheel to Vehicle
-            void InternalAddWheel(const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 &WheelRadius, const f32 &WheelWidth, const f32 &WheelFriction, const f32 &WheelRollInfluence, const Vec3 &Position, bool isFrontWheel);
+            void InternalAddWheel(const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3 &Position, bool isFrontWheel);
             
             // Protected Constructor
-            IPhysicsComponent(const f32 &Mass, const unsigned &shape, IPhysics* engine) : mass(Mass), Shape(shape), rigidBodyRegistered(false), PhysicsEngine(engine) {}
+            IPhysicsComponent(const f32 Mass, const uint32 shape, IPhysics* engine) : mass(Mass), Shape(shape), rigidBodyRegistered(false), PhysicsEngine(engine) {}
             
 
             // Keep Shape Type

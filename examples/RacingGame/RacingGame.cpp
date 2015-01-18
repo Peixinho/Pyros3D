@@ -15,7 +15,7 @@ RacingGame::RacingGame() : ClassName(1024,768,"CODENAME: Pyros3D - FIRST WINDOW"
     
 }
 
-void RacingGame::OnResize(const uint32 &width, const uint32 &height)
+void RacingGame::OnResize(const uint32 width, const uint32 height)
 {
     // Execute Parent Resize Function
     ClassName::OnResize(width, height);

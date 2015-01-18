@@ -78,7 +78,7 @@ namespace p3d {
                 pauseTimeStart = 0;
             }
         }        
-        void DeltaTime::StartBulletTime(const f32 &factor)
+        void DeltaTime::StartBulletTime(const f32 factor)
         {
             if (isBulletTime!=true)
             {

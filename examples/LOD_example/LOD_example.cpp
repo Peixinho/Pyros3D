@@ -15,7 +15,7 @@ LOD_example::LOD_example() : ClassName(1024,768,"Pyros3D - LOD Example",WindowTy
     
 }
 
-void LOD_example::OnResize(const uint32 &width, const uint32 &height)
+void LOD_example::OnResize(const uint32 width, const uint32 height)
 {
     // Execute Parent Resize Function
     ClassName::OnResize(width, height);

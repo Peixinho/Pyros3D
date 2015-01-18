@@ -100,9 +100,9 @@ namespace p3d {
         public:
             
             IRenderer();
-            IRenderer(const uint32 &Width, const uint32 &Height);
+            IRenderer(const uint32 Width, const uint32 Height);
             virtual ~IRenderer();
-            void ClearBufferBit(const uint32 &Option);
+            void ClearBufferBit(const uint32 Option);
 
             // Depth Buffer
             void EnableDepthTest();
@@ -117,26 +117,26 @@ namespace p3d {
             void EnableStencil();
             void DisableStencil();
             void ClearStencilBuffer();
-            void StencilFunction(const uint32 &func, const uint32 &ref = 0, const uint32 &mask = 1);
-            void StencilOperation(const uint32 &sfail = StencilOp::Keep, const uint32 &dpfail = StencilOp::Keep, const uint32 &dppass = StencilOp::Keep);
+            void StencilFunction(const uint32 func, const uint32 ref = 0, const uint32 mask = 1);
+            void StencilOperation(const uint32 sfail = StencilOp::Keep, const uint32 dpfail = StencilOp::Keep, const uint32 dppass = StencilOp::Keep);
 
             // Blending
             void EnableBlending();
             void DisableBlending();
-            void BlendingFunction(const uint32 &sfactor, const uint32 &dfactor);
-            void BlendingEquation(const uint32 &mode);
+            void BlendingFunction(const uint32 sfactor, const uint32 dfactor);
+            void BlendingEquation(const uint32 mode);
 
             // Scissors Test
             void EnableScissorTest();
             void DisableScissorTest();
-            void ScissorTestRect(const f32 &x, const f32 &y, const f32 &width, const f32 &height);
+            void ScissorTestRect(const f32 x, const f32 y, const f32 width, const f32 height);
 
             // WireFrame
             void EnableWireFrame();
             void DisableWireFrame();
 
             // Color
-            void ColorMask(const f32 &r,const f32 &g,const f32 &b,const f32 &a);
+            void ColorMask(const f32 r,const f32 g,const f32 b,const f32 a);
 
             // Sorting
             void EnableSorting();
@@ -152,19 +152,19 @@ namespace p3d {
             void SetGlobalLight(const Vec4 &Light);
             void EnableDepthBias(const Vec2 &Bias);
             void DisableDepthBias();
-            void SetViewPort(const uint32 &initX, const uint32 &initY, const uint32 &endX, const uint32 &endY);
+            void SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY);
             
             // Resize
-            void Resize(const uint32 &Width, const uint32 &Height);
+            void Resize(const uint32 Width, const uint32 Height);
             
             // culling
-            void ActivateCulling(const uint32 &cullingType);
+            void ActivateCulling(const uint32 cullingType);
             void DeactivateCulling();
         
             // Render Scene
             virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene);
             virtual void RenderSceneByTag(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag = "");
-            virtual void RenderSceneByTag(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const uint32 &Tag = 0);
+            virtual void RenderSceneByTag(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const uint32 Tag = 0);
         
         protected:
             
@@ -177,7 +177,7 @@ namespace p3d {
             // the rendering list is changed.
             // e.g. Add/Remove Models
             // Sort Assets (mostly the Translucent ones)
-            virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 &Tag = 0) = 0;
+            virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag = 0) = 0;
             
             // Reset
             void InitRender();
@@ -341,7 +341,7 @@ namespace p3d {
                                 lod;
 
             // Internal ViewPort Dimension
-            void _SetViewPort(const uint32 &initX, const uint32 &initY, const uint32 &endX, const uint32 &endY);
+            void _SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY);
             
         private:
             

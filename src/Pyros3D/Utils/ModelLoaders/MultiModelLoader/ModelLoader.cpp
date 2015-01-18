@@ -21,7 +21,7 @@ namespace p3d {
 		BinaryFile* bin = new BinaryFile();
 		bin->Open(Filename.c_str(),'r');
 
-		int materialsSize;
+		int32 materialsSize;
 		bin->Read(&materialsSize, sizeof(int32));
 
         // Materials

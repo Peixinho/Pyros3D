@@ -17,7 +17,7 @@ namespace p3d {
         
         public:
 
-            Plane(const f32 &width, const f32 &height, bool smooth = false, bool flip = false)
+            Plane(const f32 width, const f32 height, bool smooth = false, bool flip = false)
             {
                 isFlipped = flip;
                 isSmooth = smooth;

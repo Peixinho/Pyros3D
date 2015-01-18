@@ -22,7 +22,7 @@ namespace p3d
     {
         public:
             
-            GenericShaderMaterial(const uint32 &options);
+            GenericShaderMaterial(const uint32 options);
             virtual ~GenericShaderMaterial();
             // Set Colors
             void SetColor(const Vec4 &color);
@@ -32,16 +32,16 @@ namespace p3d
             void SetSpecularMap(Texture* specular);
             void SetNormalMap(Texture* normalmap);
             void SetEnvMap(Texture* envmap);
-            void SetReflectivity(const f32 &reflectivity);
+            void SetReflectivity(const f32 reflectivity);
             void SetRefractMap(Texture* refractmap);
             void SetSkyboxMap(Texture* skyboxmap);
             // Lights
-            void SetLightingProperties(const Vec4 &Ke, const Vec4 &Ka, const Vec4 &Kd, const Vec4 &Ks, const f32 &shininess);
+            void SetLightingProperties(const Vec4 &Ke, const Vec4 &Ka, const Vec4 &Kd, const Vec4 &Ks, const f32 shininess);
             void SetKe(const Vec4 &Ke);
             void SetKa(const Vec4 &Ka);
             void SetKd(const Vec4 &Kd);
             void SetKs(const Vec4 &Ks);
-            void SetShininess(const f32 &shininess);
+            void SetShininess(const f32 shininess);
 
             // Text
             void SetTextFont(Font* font);
@@ -57,8 +57,8 @@ namespace p3d
             void UnbindTextures();
         
             // Shadows
-            void SetPCFTexelSize(const f32 &texel);
-            void SetPCFTexelCascadesSize(const f32 &texel1,const f32 &texel2 = 0.0001f,const f32 &texel3 = 0.0001f,const f32 &texel4 = 0.0001f);
+            void SetPCFTexelSize(const f32 texel);
+            void SetPCFTexelCascadesSize(const f32 texel1,const f32 texel2 = 0.0001f,const f32 texel3 = 0.0001f,const f32 texel4 = 0.0001f);
 
         private:
         

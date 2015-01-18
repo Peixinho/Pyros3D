@@ -36,8 +36,8 @@ namespace p3d {
             uint32 Type;
             Texture* texture;
             uint32 Unit;
-            Info(const uint32 &type, const uint32 &unit = 0) { Type = type; Unit = unit; }
-            Info(Texture *texture, const uint32 &type, const uint32 &unit = 0) { Type = type; Unit = unit; this->texture = texture; }
+            Info(const uint32 type, const uint32 unit = 0) { Type = type; Unit = unit; }
+            Info(Texture *texture, const uint32 type, const uint32 unit = 0) { Type = type; Unit = unit; this->texture = texture; }
         };
     }
     
@@ -71,7 +71,7 @@ namespace p3d {
             void Destroy();
             
             // Custom Dimensions
-            void Resize(const uint32 &width, const uint32 &height);
+            void Resize(const uint32 width, const uint32 height);
             bool HaveCustomDimensions();
             const uint32 GetWidth() const;
             const uint32 GetHeight() const;
@@ -81,8 +81,8 @@ namespace p3d {
             void SetUniformValue(StringID UniformID, int32 value); 
             void SetUniformValue(std::string Uniform, f32 value);
             void SetUniformValue(StringID UniformID, f32 value); 
-            void SetUniformValue(std::string Uniform, void* value, const uint32 &elementCount = 1);
-            void SetUniformValue(StringID UniformID, void* value, const uint32 &elementCount = 1);
+            void SetUniformValue(std::string Uniform, void* value, const uint32 elementCount = 1);
+            void SetUniformValue(StringID UniformID, void* value, const uint32 elementCount = 1);
 
         protected:
 
@@ -92,7 +92,7 @@ namespace p3d {
             
             // RTT to Use
             void UseCustomTexture(Texture *texture);
-            void UseRTT(const uint32 &RTT);
+            void UseRTT(const uint32 RTT);
             
             // Shaders Strings
             std::string FragmentShaderString;

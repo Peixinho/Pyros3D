@@ -45,7 +45,7 @@ namespace p3d {
 				return opened;
 			}
 
-			void OpenFromMemory(uchar* data, const uint32 &size)
+			void OpenFromMemory(uchar* data, const uint32 size)
 			{
 				// Using Memory
 				memory = true;
@@ -74,13 +74,13 @@ namespace p3d {
 				}
 			}
 
-			void Write(const void* src, const uint32 &size)
+			void Write(const void* src, const uint32 size)
 			{
 				if (!memory)
 					file->Write((const char*)src, size);
 			}
 
-			void Read(const void* src, const uint32 &size)
+			void Read(const void* src, const uint32 size)
 			{
 				if (!memory)
 					file->Read((char*)src, size);

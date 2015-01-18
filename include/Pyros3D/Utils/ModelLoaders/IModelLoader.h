@@ -32,7 +32,7 @@ namespace p3d {
     };
     
     // Sub Mesh Structure
-    struct SubMesh {                
+    struct SubMesh {
         
         // submesh ID
         uint32 ID;
@@ -94,7 +94,7 @@ namespace p3d {
         private:
 
             // aux function to show sekeleton
-            void GetBoneChilds(std::map<StringID, Bone> Skeleton, const int32 &id, const uint32 &iterations);
+            void GetBoneChilds(std::map<StringID, Bone> Skeleton, const int32 id, const uint32 iterations);
 
         protected:
             

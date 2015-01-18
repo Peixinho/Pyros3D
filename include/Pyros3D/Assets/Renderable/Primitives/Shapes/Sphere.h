@@ -17,7 +17,7 @@ namespace p3d {
 
         public:
 
-            Sphere(const f32 &radius, const uint32 &segmentsW, const uint32 &segmentsH, bool smooth = false, bool HalfSphere = false, bool flip = false)
+            Sphere(const f32 radius, const uint32 segmentsW, const uint32 segmentsH, bool smooth = false, bool HalfSphere = false, bool flip = false)
             {
                 isFlipped = flip;
                 isSmooth = smooth;
@@ -40,8 +40,8 @@ namespace p3d {
                         f32 fRad2 = (2 * i / iHor);
                         f32 fX = (f32)(fRds * sin(fRad2 * PI));            
                         f32 fY = (f32)(fRds * cos(fRad2 * PI));
-                        if (!((j == 0 || j == iVer) && i > 0)) {
-                                        oVtx=Vec3(fY,fZ,fX);
+                        if (!((j == 0 || j == iVer) & i > 0)) {
+                            oVtx=Vec3(fY,fZ,fX);
                         }
                         aRow.push_back(oVtx);
                     }

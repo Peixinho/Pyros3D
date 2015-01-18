@@ -17,7 +17,7 @@ namespace p3d {
         public:
 
             PhysicsCylinder();
-            PhysicsCylinder(IPhysics* engine, const f32 &radius, const f32 &height, const f32 &mass = 0.f);
+            PhysicsCylinder(IPhysics* engine, const f32 radius, const f32 height, const f32 mass = 0.f);
 
             virtual ~PhysicsCylinder();
             

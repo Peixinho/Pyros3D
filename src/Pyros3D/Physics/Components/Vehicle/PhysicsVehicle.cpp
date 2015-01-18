@@ -41,7 +41,7 @@ namespace p3d {
 
     }
 
-    void PhysicsVehicle::AddWheel(const Vec3& WheelDirection, const Vec3& WheelAxle, const f32& WheelRadius, const f32& WheelWidth, const f32& WheelFriction, const f32& WheelRollInfluence, const Vec3& Position, bool isFrontWheel)
+    void PhysicsVehicle::AddWheel(const Vec3& WheelDirection, const Vec3& WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3& Position, bool isFrontWheel)
     {
         
         VehicleWheel wheel;

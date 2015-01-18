@@ -10,7 +10,7 @@
 
 namespace p3d {
 
-    RTTDebug::RTTDebug(const uint32& Tex1,const uint32& Tex2) : IEffect() 
+    RTTDebug::RTTDebug(const uint32 Tex1,const uint32 Tex2) : IEffect() 
     {
         // Set RTT
         UseRTT(Tex1);

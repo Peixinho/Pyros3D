@@ -45,7 +45,7 @@ namespace p3d {
             normal = Normal;
             constant = -normal.dotProduct(Point);
         }
-        void SetNormalAndConstant(const f32 &a, const f32 &b, const f32 &c, const f32 &w)
+        void SetNormalAndConstant(const f32 a, const f32 b, const f32 c, const f32 w)
         {
             normal = Vec3(a,b,c);
             constant = w;

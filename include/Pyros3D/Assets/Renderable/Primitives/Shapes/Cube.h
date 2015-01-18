@@ -17,7 +17,7 @@ namespace p3d {
 
         public:
 
-            Cube(const f32 &width, const f32 &height, const f32 &depth, bool smooth = false, bool flip = false)
+            Cube(const f32 width, const f32 height, const f32 depth, bool smooth = false, bool flip = false)
             {
                 isFlipped = flip;
                 isSmooth = smooth;

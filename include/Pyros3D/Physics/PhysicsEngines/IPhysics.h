@@ -29,7 +29,7 @@ namespace p3d {
             virtual ~IPhysics();
             
             virtual void InitPhysics() = 0;
-            virtual void Update(const double &time, const unsigned &steps) = 0;
+            virtual void Update(const f64 &time, const uint32 steps) = 0;
             virtual void EnableDebugDraw() = 0;
             virtual void RenderDebugDraw(Projection projection, GameObject* Camera) = 0;
             virtual void DisableDebugDraw() = 0;
@@ -49,20 +49,20 @@ namespace p3d {
             virtual void Activate(IPhysicsComponent *pcomp) = 0;
             
             // Create Physics Components
-            virtual IComponent* CreateBox(const f32 &width, const f32 &height, const f32 &depth, const f32 &mass = 0.f) = 0;
-            virtual IComponent* CreateCapsule(const f32 &radius, const f32 &height, const f32 &mass = 0.f) = 0;
-            virtual IComponent* CreateCone(const f32 &radius, const f32 &height, const f32 &mass = 0.f) = 0;
-            virtual IComponent* CreateConvexHull(const std::vector<Vec3> &points, const f32 &mass = 0.f) = 0;
-            virtual IComponent* CreateConvexTriangleMesh(RenderingComponent* rcomp, const f32 &mass = 0.f) = 0;
-            virtual IComponent* CreateConvexTriangleMesh(const std::vector<unsigned> &index, const std::vector<Vec3> &vertex, const f32 &mass = 0.f) = 0;
-            virtual IComponent* CreateCylinder(const f32 &radius, const f32 &height, const f32 &mass = 0.f) = 0;
-            virtual IComponent* CreateMultipleSphere(const std::vector<Vec3> &positions, const std::vector<f32> &radius, const f32 &mass = 0.f) = 0;
-            virtual IComponent* CreateSphere(const f32 &radius, const f32 &mass = 0.f) = 0;
-            virtual IComponent* CreateStaticPlane(const Vec3 &Normal, const f32 &Constant, const f32 &mass = 0.f) = 0;
-            virtual IComponent* CreateTriangleMesh(RenderingComponent* rcomp, const f32 &mass = 0.f) = 0;
-            virtual IComponent* CreateTriangleMesh(const std::vector<unsigned> &index, const std::vector<Vec3> &vertex, const f32 &mass = 0.f) = 0;
+            virtual IComponent* CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass = 0.f) = 0;
+            virtual IComponent* CreateCapsule(const f32 radius, const f32 height, const f32 mass = 0.f) = 0;
+            virtual IComponent* CreateCone(const f32 radius, const f32 height, const f32 mass = 0.f) = 0;
+            virtual IComponent* CreateConvexHull(const std::vector<Vec3> &points, const f32 mass = 0.f) = 0;
+            virtual IComponent* CreateConvexTriangleMesh(RenderingComponent* rcomp, const f32 mass = 0.f) = 0;
+            virtual IComponent* CreateConvexTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass = 0.f) = 0;
+            virtual IComponent* CreateCylinder(const f32 radius, const f32 height, const f32 mass = 0.f) = 0;
+            virtual IComponent* CreateMultipleSphere(const std::vector<Vec3> &positions, const std::vector<f32> &radius, const f32 mass = 0.f) = 0;
+            virtual IComponent* CreateSphere(const f32 radius, const f32 mass = 0.f) = 0;
+            virtual IComponent* CreateStaticPlane(const Vec3 &Normal, const f32 Constant, const f32 mass = 0.f) = 0;
+            virtual IComponent* CreateTriangleMesh(RenderingComponent* rcomp, const f32 mass = 0.f) = 0;
+            virtual IComponent* CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass = 0.f) = 0;
             virtual IComponent* CreateVehicle(IPhysicsComponent* ChassisShape) = 0;
-            virtual void AddWheel(IPhysicsComponent *pcomp, const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 &WheelRadius, const f32 &WheelWidth, const f32 &WheelFriction, const f32 &WheelRollInfluence, const Vec3 &Position, bool isFrontWheel) = 0;
+            virtual void AddWheel(IPhysicsComponent *pcomp, const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3 &Position, bool isFrontWheel) = 0;
         
     protected:
             

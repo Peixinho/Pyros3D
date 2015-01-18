@@ -80,11 +80,11 @@ namespace p3d {
             FrameBuffer();
             virtual ~FrameBuffer();
             
-            void Init(const uint32 &attachmentFormat, const uint32 &TextureType, Texture* attachment); // Using Textures
-            void Init(const uint32& attachmentFormat, const uint32 &attachmentDataType, const uint32 Width, const uint32 &Height); // RenderBuffer
-            void AddAttach(const uint32& attachmentFormat, const uint32 &TextureType, Texture* attachment);
-            void AddAttach(const uint32& attachmentFormat, const uint32 &attachmentDataType, const uint32 &Width, const uint32 &Height);
-            void Resize(const uint32 &Width, const uint32 &Height);
+            void Init(const uint32 attachmentFormat, const uint32 TextureType, Texture* attachment); // Using Textures
+            void Init(const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height); // RenderBuffer
+            void AddAttach(const uint32 attachmentFormat, const uint32 TextureType, Texture* attachment);
+            void AddAttach(const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height);
+            void Resize(const uint32 Width, const uint32 Height);
             void Bind();
             bool IsBinded();
             uint32 GetBindID();

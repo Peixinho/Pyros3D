@@ -64,7 +64,7 @@ class CustomMaterial : public ClassName {
         virtual void Init();
         virtual void Update();
         virtual void Shutdown();
-        virtual void OnResize(const uint32 &width, const uint32 &height);
+        virtual void OnResize(const uint32 width, const uint32 height);
         
     private:
 

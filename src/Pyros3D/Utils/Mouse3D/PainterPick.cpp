@@ -10,7 +10,7 @@
 
 namespace p3d {
 
-    PainterPick::PainterPick(const uint32& Width, const uint32& Height): IRenderer(Width,Height) {
+    PainterPick::PainterPick(const uint32 Width, const uint32 Height): IRenderer(Width,Height) {
         
         // Create Material
         material = new GenericShaderMaterial(ShaderUsage::Color);
@@ -31,7 +31,7 @@ namespace p3d {
 		EnableDepthTest();
         EnableDepthWritting();
     }
-    void PainterPick::Resize(const uint32& Width, const uint32& Height)
+    void PainterPick::Resize(const uint32 Width, const uint32 Height)
     {
         IRenderer::Resize(Width,Height);
         fbo->Resize(Width,Height);
@@ -46,7 +46,7 @@ namespace p3d {
         delete texture;
     }
 
-    RenderingMesh* PainterPick::PickObject(const f32& mouseX, const f32& mouseY, Projection projection, GameObject* Camera, SceneGraph* Scene)
+    RenderingMesh* PainterPick::PickObject(const f32 mouseX, const f32 mouseY, Projection projection, GameObject* Camera, SceneGraph* Scene)
     {
         this->mouseX = mouseX;
         this->mouseY = mouseY;

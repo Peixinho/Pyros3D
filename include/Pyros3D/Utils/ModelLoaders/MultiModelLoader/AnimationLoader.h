@@ -20,31 +20,31 @@ namespace p3d {
     // Stores Positions
     struct PYROS3D_API PositionData {
         // Time
-        f64 Time;
+        f32 Time;
         // Position
         Vec3 Pos;
         PositionData() {}
-        PositionData(const f64 &time, const Vec3 &pos) : Time(time), Pos(pos) {}
+        PositionData(const f32 &time, const Vec3 &pos) : Time(time), Pos(pos) {}
     };
     
     // Stores Rotations
     struct PYROS3D_API RotationData {
         // Time
-        f64 Time;
+        f32 Time;
         // Rotation
         Quaternion Rot;
         RotationData() {}
-        RotationData(const f64 &time, const Quaternion &rot) : Time(time), Rot(rot) {}
+        RotationData(const f32 &time, const Quaternion &rot) : Time(time), Rot(rot) {}
     };
     
     // Stores Scaling
     struct PYROS3D_API ScalingData {
         // Time
-        f64 Time;
+        f32 Time;
         // Scale
         Vec3 Scale;
         ScalingData() {}
-        ScalingData(const f64 &time, const Vec3 &scale) : Time(time), Scale(scale) {}
+        ScalingData(const f32 &time, const Vec3 &scale) : Time(time), Scale(scale) {}
     };
     
     // Channel Struct
@@ -67,9 +67,9 @@ namespace p3d {
         // each animation has at least one channel
         std::vector<Channel> Channels;
         // Animation Duration
-        uint32 Duration;
+        f32 Duration;
         // Ticks per Second
-        f64 TicksPerSecond;
+        f32 TicksPerSecond;
         
     };
     

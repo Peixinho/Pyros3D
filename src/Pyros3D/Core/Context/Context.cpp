@@ -11,7 +11,7 @@
 namespace p3d {
 
     
-    Context::Context(const uint32 &width, const uint32 &height) : Width(width), Height(height), Initialized(true) {}
+    Context::Context(const uint32 width, const uint32 height) : Width(width), Height(height), Initialized(true) {}
     
     Context::~Context() {}
    
@@ -24,7 +24,7 @@ namespace p3d {
     {
         return deltaTime.GetTimeInterval();
     }
-    void Context::ActivateBulletTime(const f32& factor)
+    void Context::ActivateBulletTime(const f32 factor)
     {
         deltaTime.StartBulletTime(factor);
     }
@@ -32,7 +32,7 @@ namespace p3d {
     {
         deltaTime.StopBulletTime();
     }
-    void Context::SetTime(const f32 &Timer)
+    void Context::SetTime(const f32 Timer)
     {
         // Update Clock
         deltaTime.Update(Timer);
@@ -53,46 +53,46 @@ namespace p3d {
     }
 
     // Setters for InputManager
-    void Context::SetKeyPressed(const uint32 &key)
+    void Context::SetKeyPressed(const uint32 key)
     {
         // Key Pressed
         InputManager::KeyPressed(key);
     }
-    void Context::SetKeyReleased(const uint32 &key)
+    void Context::SetKeyReleased(const uint32 key)
     {
         // Key Released
         InputManager::KeyReleased(key);
     }
-    void Context::SetCharEntered(const uint32 &key)
+    void Context::SetCharEntered(const uint32 key)
     {
         // Key Released
         InputManager::CharEntered(key);
     }    
-    void Context::SetMouseButtonPressed(const uint32 &button)
+    void Context::SetMouseButtonPressed(const uint32 button)
     { 
         InputManager::MousePressed(button);
     }
-    void Context::SetMouseButtonReleased(const uint32 &button)
+    void Context::SetMouseButtonReleased(const uint32 button)
     {
         InputManager::MouseReleased(button);
     }
-    void Context::SetMouseMove(const f32 &mousex, const f32 &mousey)
+    void Context::SetMouseMove(const f32 mousex, const f32 mousey)
     {
         InputManager::SetMousePosition(mousex,mousey);
     }
-    void Context::SetMouseWheel(const f32 &delta)
+    void Context::SetMouseWheel(const f32 delta)
     {
         InputManager::SetMouseWheel(delta);
     }
-    void Context::SetJoypadButtonPressed(const uint32 &JoypadID, const uint32 &Button)
+    void Context::SetJoypadButtonPressed(const uint32 JoypadID, const uint32 Button)
     {
         InputManager::JoypadButtonPressed(JoypadID, Button);
     }
-    void Context::SetJoypadButtonReleased(const uint32 &JoypadID, const uint32 &Button)
+    void Context::SetJoypadButtonReleased(const uint32 JoypadID, const uint32 Button)
     {
         InputManager::JoypadButtonReleased(JoypadID, Button);
     }
-    void Context::SetJoypadMove(const uint32 &JoypadID, const uint32 &Button, const f32 &Value)
+    void Context::SetJoypadMove(const uint32 JoypadID, const uint32 Button, const f32 Value)
     {
         InputManager::JoypadMove(JoypadID, Button, Value);
     }

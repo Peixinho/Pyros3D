@@ -69,7 +69,7 @@ namespace p3d {
         LastLodDistance = 0.f;
     }
     
-    void RenderingComponent::AddLOD(Renderable* renderable, f32 Distance, IMaterial* Material)
+    void RenderingComponent::AddLOD(Renderable* renderable, const f32 Distance, IMaterial* Material)
     {
 
         uint32 LODLVL = Meshes.size();
@@ -108,7 +108,7 @@ namespace p3d {
         return Meshes.size();
     }
 
-    uint32 RenderingComponent::GetLODByDistance(const f32 &Distance)
+    uint32 RenderingComponent::GetLODByDistance(const f32 Distance)
     {       
         if (Distance!=LastLodDistance)
         {
@@ -138,7 +138,7 @@ namespace p3d {
             RenderingComponentsOnScene[Scene].push_back(this);
         }
     }
-    void RenderingComponent::UpdateLOD(const uint32 &lod)
+    void RenderingComponent::UpdateLOD(const uint32 lod)
     {
         // Check if LOD Level is Different
         if (LodInUse!=lod && lod<GetLODSize())
@@ -221,14 +221,14 @@ namespace p3d {
         return MeshesOnScene[scene];
     }
     
-    std::vector<RenderingMesh*> &RenderingComponent::GetMeshes(const uint32 &LODLevel)
+    std::vector<RenderingMesh*> &RenderingComponent::GetMeshes(const uint32 LODLevel)
     {
         if (LODLevel<GetLODSize())
             return Meshes[LODLevel];
         else return Meshes[GetLODSize()-1];
     }
     
-    void RenderingComponent::SetCullingGeometry(const uint32& Geometry)
+    void RenderingComponent::SetCullingGeometry(const uint32 Geometry)
     {
         // Set Culling Geometry to all  Meshes
         CullingGeometry = Geometry;

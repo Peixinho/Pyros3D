@@ -145,19 +145,19 @@ namespace p3d {
             Texture();
             
             // Texture
-            bool LoadTexture(const std::string& Filename, const uint32 &Type = TextureType::Texture, bool Mipmapping = true);
-            bool LoadTextureFromMemory(std::vector<uchar> data, const uint32 &length, const uint32 &Type = TextureType::Texture, bool Mipmapping = true);
-            bool CreateTexture(const uint32 &Type, const uint32 &DataType, const int32 &width = 0, const int32 &height = 0, bool Mipmapping = true);
+            bool LoadTexture(const std::string& Filename, const uint32 Type = TextureType::Texture, bool Mipmapping = true);
+            bool LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type = TextureType::Texture, bool Mipmapping = true);
+            bool CreateTexture(const uint32 Type, const uint32 DataType, const int32 width = 0, const int32 height = 0, bool Mipmapping = true);
             bool CreateTexture(bool Mipmapping = true);
-            void SetMinMagFilter(const uint32 &MinFilter,const uint32 &MagFilter);
-            void SetRepeat(const uint32 &WrapS,const uint32 &WrapT, const int32 &WrapR = -1);
+            void SetMinMagFilter(const uint32 MinFilter,const uint32 MagFilter);
+            void SetRepeat(const uint32 WrapS,const uint32 WrapT, const int32 WrapR = -1);
             void EnableCompareMode();
-            void SetAnysotropy(const uint32 &Anysotropic);
-            void SetTransparency(const f32 &Transparency);
-            void Resize(const uint32 &Width, const uint32 &Height);
+            void SetAnysotropy(const uint32 Anysotropic);
+            void SetTransparency(const f32 Transparency);
+            void Resize(const uint32 Width, const uint32 Height);
             void UpdateData(void* srcPTR);
             void UpdateMipmap();
-            void SetTextureByteAlignment(const uint32 &Value);
+            void SetTextureByteAlignment(const uint32 Value);
             const uint32 GetBindID() const;
             const uint32 GetWidth() const;
             const uint32 GetHeight() const;

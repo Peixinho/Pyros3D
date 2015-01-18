@@ -20,7 +20,7 @@ namespace p3d {
     class PYROS3D_API FPS {
         public:
             FPS();
-            void setFPS(const f32 &time);
+            void setFPS(const f32 time);
             uint32 getFPS();
             virtual ~FPS();
         private:

@@ -45,7 +45,7 @@ namespace p3d {
         attachments.clear();
         
     }
-    void FrameBuffer::Init(const uint32 &attachmentFormat, const uint32 &TextureType, p3d::Texture *attachment)
+    void FrameBuffer::Init(const uint32 attachmentFormat, const uint32 TextureType, p3d::Texture *attachment)
     {
 
         if (FBOInitialized==true)
@@ -69,7 +69,7 @@ namespace p3d {
 
     }
 
-    void FrameBuffer::Init(const uint32& attachmentFormat, const uint32 &attachmentDataType, const uint32 Width, const uint32 &Height)
+    void FrameBuffer::Init(const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height)
     {
 
         if (FBOInitialized==true)
@@ -147,7 +147,7 @@ namespace p3d {
         }
     }
     
-    void FrameBuffer::AddAttach(const uint32& attachmentFormat, const uint32 &TextureType, Texture* attachment)
+    void FrameBuffer::AddAttach(const uint32 attachmentFormat, const uint32 TextureType, Texture* attachment)
     {
         // Add Attachment
         FBOAttachment* attach = new FBOAttachment();
@@ -284,7 +284,7 @@ namespace p3d {
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
-    void FrameBuffer::AddAttach(const uint32& attachmentFormat, const uint32 &attachmentDataType, const uint32 &Width, const uint32 &Height)
+    void FrameBuffer::AddAttach(const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height)
     {
         // Add Attachment
         FBOAttachment* attach = new FBOAttachment();
@@ -450,7 +450,7 @@ namespace p3d {
         return isBinded;
     }
     
-    void FrameBuffer::Resize(const uint32 &Width, const uint32 &Height)
+    void FrameBuffer::Resize(const uint32 Width, const uint32 Height)
     {
         for (std::map<uint32, FBOAttachment*>::iterator i=attachments.begin();i!=attachments.end();i++)
         {

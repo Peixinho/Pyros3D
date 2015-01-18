@@ -54,7 +54,7 @@ namespace p3d {
                 return ShadowHeight;
             }
             
-			void SetShadowBias(const f32 &factor, const f32 &units)
+			void SetShadowBias(const f32 factor, const f32 units)
 			{
 				ShadowBiasFactor = factor;
 				ShadowBiasUnits = units;

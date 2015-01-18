@@ -27,7 +27,7 @@ namespace p3d {
         }
     }
 
-    ForwardRenderer::ForwardRenderer(const uint32& Width, const uint32& Height) : IRenderer(Width,Height) 
+    ForwardRenderer::ForwardRenderer(const uint32 Width, const uint32 Height) : IRenderer(Width,Height) 
     {
         echo("SUCCESS: Forward Renderer Created");
         
@@ -51,7 +51,7 @@ namespace p3d {
         delete shadowMaterial;
     }
     
-    std::vector<RenderingMesh*> ForwardRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 &Tag)
+    std::vector<RenderingMesh*> ForwardRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag)
     {
         
         // Sort and Group Objects From Scene
@@ -106,7 +106,7 @@ namespace p3d {
     {
 		RenderSceneByTag(projection, Camera, Scene, MakeStringID(Tag));
 	}
-    void ForwardRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 &Tag)
+    void ForwardRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 Tag)
     {
         
         // Initialize Renderer

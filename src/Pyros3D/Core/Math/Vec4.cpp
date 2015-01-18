@@ -16,7 +16,7 @@ namespace p3d {
             x = y = z = w = 0;
         }
 
-        Vec4::Vec4(f32 X, f32 Y, f32 Z, f32 W) : x(X), y(Y), z(Z), w(W)
+        Vec4::Vec4(const f32 X, const f32 Y, const f32 Z, const f32 W) : x(X), y(Y), z(Z), w(W)
         {
         }
 
@@ -60,19 +60,19 @@ namespace p3d {
         {
             return Vec4(x/v.x,y/v.y,z/v.z,w/v.w);
         }
-        Vec4 Vec4::operator+(const f32 &f) const
+        Vec4 Vec4::operator+(const f32 f) const
         {
             return Vec4(x+f,y+f,z+f,w+f);
         }
-        Vec4 Vec4::operator-(const f32 &f) const
+        Vec4 Vec4::operator-(const f32 f) const
         {
             return Vec4(x-f,y-f,z-f,w-f);
         }
-        Vec4 Vec4::operator*(const f32 &f) const
+        Vec4 Vec4::operator*(const f32 f) const
         {
             return Vec4(x*f,y*f,z*f,w*f);
         }
-        Vec4 Vec4::operator/(const f32 &f) const
+        Vec4 Vec4::operator/(const f32 f) const
         {
             return Vec4(x/f,y/f,z/f,w/f);
         }
@@ -92,19 +92,19 @@ namespace p3d {
         {
             x/=v.x; y/=v.y; z/=v.z; w/=v.w;
         }
-        void Vec4::operator+=(const f32 &f)
+        void Vec4::operator+=(const f32 f)
         {
             x+=f; y+=f; z+=f; w+=f;
         }
-        void Vec4::operator-=(const f32 &f)
+        void Vec4::operator-=(const f32 f)
         {
             x-=f; y-=f; z-=f; w-=f;
         }
-        void Vec4::operator*=(const f32 &f)
+        void Vec4::operator*=(const f32 f)
         {
             x*=f; y*=f; z*=f; w*=f;
         }
-        void Vec4::operator/=(const f32 &f)
+        void Vec4::operator/=(const f32 f)
         {
             x/=f; y/=f; z/=f; w/=f;
         }

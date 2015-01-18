@@ -86,7 +86,7 @@ namespace p3d {
             return Vec3(-x,-y,-z);
         }        
 
-        Vec3 Vec3::Lerp(const Vec3 &b, const f32 &t) const
+        Vec3 Vec3::Lerp(const Vec3 &b, const f32 t) const
         {
             Vec3 v;
             v.x = x + ( b.x - x ) * t;
@@ -112,19 +112,19 @@ namespace p3d {
         {
             return Vec3(x/v.x,y/v.y,z/v.z);
         }
-        Vec3 Vec3::operator+(const f32 &f) const
+        Vec3 Vec3::operator+(const f32 f) const
         {
             return Vec3(x+f,y+f,z+f);
         }
-        Vec3 Vec3::operator-(const f32 &f) const
+        Vec3 Vec3::operator-(const f32 f) const
         {
             return Vec3(x-f,y-f,z-f);
         }
-        Vec3 Vec3::operator*(const f32 &f) const
+        Vec3 Vec3::operator*(const f32 f) const
         {
             return Vec3(x*f,y*f,z*f);
         }
-        Vec3 Vec3::operator/(const f32 &f) const
+        Vec3 Vec3::operator/(const f32 f) const
         {
             return Vec3(x/f,y/f,z/f);
         }
@@ -144,19 +144,19 @@ namespace p3d {
         {
             x/=v.x; y/=v.y; z/=v.z;
         }
-        void Vec3::operator+=(const f32 &f)
+        void Vec3::operator+=(const f32 f)
         {
             x+=f; y+=f; z+=f;
         }
-        void Vec3::operator-=(const f32 &f)
+        void Vec3::operator-=(const f32 f)
         {
             x-=f; y-=f; z-=f;
         }
-        void Vec3::operator*=(const f32 &f)
+        void Vec3::operator*=(const f32 f)
         {
             x*=f; y*=f; z*=f;
         }
-        void Vec3::operator/=(const f32 &f)
+        void Vec3::operator/=(const f32 f)
         {
             x/=f; y/=f; z/=f;
         }

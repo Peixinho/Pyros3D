@@ -15,7 +15,7 @@ namespace p3d {
 
     class PYROS3D_API BlurEffect : public IEffect {
         public:
-            BlurEffect(const uint32 &Tex1);
+            BlurEffect(const uint32 Tex1);
             virtual ~BlurEffect();
         private:
 

@@ -23,10 +23,10 @@ namespace p3d {
         
         public:
 
-            PostEffectsManager(const uint32 &width, const uint32 &height);
+            PostEffectsManager(const uint32 width, const uint32 height);
             virtual ~PostEffectsManager();
             
-            void Resize(const uint32 &width, const uint32 &height);
+            void Resize(const uint32 width, const uint32 height);
 
 			void Start();
 			void End();
@@ -47,7 +47,7 @@ namespace p3d {
 
         private:
             
-            void UpdateQuad(const uint32 &width, const uint32 &height);
+            void UpdateQuad(const uint32 width, const uint32 height);
             
             // Set Quad Geometry
             std::vector<Vec3> vertex;

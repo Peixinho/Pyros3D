@@ -15,7 +15,7 @@ RotatingCubeWithLightingAndShadow::RotatingCubeWithLightingAndShadow() : ClassNa
     
 }
 
-void RotatingCubeWithLightingAndShadow::OnResize(const uint32 &width, const uint32 &height)
+void RotatingCubeWithLightingAndShadow::OnResize(const uint32 width, const uint32 height)
 {
     // Execute Parent Resize Function
     ClassName::OnResize(width, height);

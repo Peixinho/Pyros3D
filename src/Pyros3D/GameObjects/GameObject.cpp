@@ -45,7 +45,7 @@ namespace p3d {
     }
     
     // Updates the Transformation Matrix
-    void GameObject::UpdateTransformation(const uint32 &order)
+    void GameObject::UpdateTransformation(const uint32 order)
     {
         if (_IsDirty)
         {
@@ -356,7 +356,7 @@ namespace p3d {
 	{
 		return HaveTag(MakeStringID(tag));
 	}
-	bool GameObject::HaveTag(const uint32 &tag)
+	bool GameObject::HaveTag(const uint32 tag)
 	{
 		return (TagsList.find(tag)!=TagsList.end());
 	}

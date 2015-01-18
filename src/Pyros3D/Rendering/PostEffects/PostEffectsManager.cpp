@@ -16,7 +16,7 @@
 
 namespace p3d {
     
-    PostEffectsManager::PostEffectsManager(const uint32& width, const uint32& height)
+    PostEffectsManager::PostEffectsManager(const uint32 width, const uint32 height)
     {
         
         // Save Dimensions
@@ -81,7 +81,7 @@ namespace p3d {
 		ExternalFBO->UnBind();
 	}
 
-	void PostEffectsManager::Resize(const uint32& width, const uint32& height)
+	void PostEffectsManager::Resize(const uint32 width, const uint32 height)
     {
         // Save Dimensions
         Width = width;
@@ -109,7 +109,7 @@ namespace p3d {
         
     }
     
-    void PostEffectsManager::UpdateQuad(const uint32 &width, const uint32 &height)
+    void PostEffectsManager::UpdateQuad(const uint32 width, const uint32 height)
     {
         // Clear Geometry
         vertex.clear();

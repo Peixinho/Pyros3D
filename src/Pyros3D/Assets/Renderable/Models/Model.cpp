@@ -50,7 +50,7 @@ namespace p3d {
          BoundingSphereRadius = (a>b?a:b);
      }
 
-    Model::Model(const std::string ModelPath, bool mergeMeshes, const uint32 &MaterialOptions)
+    Model::Model(const std::string ModelPath, bool mergeMeshes, const uint32 MaterialOptions)
     {
         mesh = new ModelLoader();
         mesh->Load(ModelPath);

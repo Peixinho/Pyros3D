@@ -86,8 +86,8 @@ namespace p3d {
 
             TextGeometry* geometry;
 
-            Text(Font* font, const std::string& text, const f32 &charWidth, const f32 &charHeight, const Vec4 &color = Vec4(1,1,1,1), bool DynamicText = false);
-            Text(Font* font, const std::string& text, const f32 &charWidth, const f32 &charHeight, const std::vector<Vec4> &color, bool DynamicText = false);
+            Text(Font* font, const std::string& text, const f32 charWidth, const f32 charHeight, const Vec4 &color = Vec4(1,1,1,1), bool DynamicText = false);
+            Text(Font* font, const std::string& text, const f32 charWidth, const f32 charHeight, const std::vector<Vec4> &color, bool DynamicText = false);
 
             virtual ~Text();
 

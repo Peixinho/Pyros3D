@@ -39,26 +39,26 @@ namespace p3d {
                 void identity();
                 void LookAt(const Vec3 &eye, const Vec3 &center, const Vec3 &up);
                 void LookAt(const Vec3 &eye, const Vec3 &center);
-                void Translate(const f32 &x, const f32 &y, const f32 &z);
+                void Translate(const f32 x, const f32 y, const f32 z);
                 void Translate(const Vec3 &xyz);
-                void TranslateX(const f32 &x);
-                void TranslateY(const f32 &y);
-                void TranslateZ(const f32 &z);
+                void TranslateX(const f32 x);
+                void TranslateY(const f32 y);
+                void TranslateZ(const f32 z);
                 Vec3 GetTranslation() const;
-                void RotationX(const f32 &angle);
-                void RotationY(const f32 &angle);
-                void RotationZ(const f32 &angle);
+                void RotationX(const f32 angle);
+                void RotationY(const f32 angle);
+                void RotationZ(const f32 angle);
 
                 // Euler
-                void SetRotationFromEuler(const Vec3 &rotation, const uint32 &order = 0);
-                Vec3 GetEulerFromRotationMatrix(const uint32 &order = 0);
+                void SetRotationFromEuler(const Vec3 &rotation, const uint32 order = 0);
+                Vec3 GetEulerFromRotationMatrix(const uint32 order = 0);
 
                 Matrix GetRotation(const Vec3 &scale) const;
-                void Scale(const f32 &sx, const f32 &sy, const f32 &sz);
+                void Scale(const f32 sx, const f32 sy, const f32 sz);
                 void Scale(const Vec3 &xyz);
-                void ScaleX(const f32 &x);
-                void ScaleY(const f32 &y);
-                void ScaleZ(const f32 &z);
+                void ScaleX(const f32 x);
+                void ScaleY(const f32 y);
+                void ScaleZ(const f32 z);
                 Vec3 GetScale() const;
 
                 // f32
@@ -69,14 +69,14 @@ namespace p3d {
                 Matrix Inverse() const;
 
                 // RH
-                static Matrix PerspectiveMatrix(const f32 &fov, const f32 &aspect, const f32 &near, const f32 &far);
-                static Matrix OrthoMatrix(const f32 &left, const f32 &right, const f32 &bottom, const f32 &top, const f32 &near, const f32 &far);
+                static Matrix PerspectiveMatrix(const f32 fov, const f32 aspect, const f32 near, const f32 far);
+                static Matrix OrthoMatrix(const f32 left, const f32 right, const f32 bottom, const f32 top, const f32 near, const f32 far);
 
                 Quaternion ConvertToQuaternion() const;
 
                 // operators
                 Matrix operator*(const Matrix &m) const;
-                Matrix operator*(const f32 &f) const;
+                Matrix operator*(const f32 f) const;
                 Vec3 operator*(const Vec3 &v) const;
                 Vec4 operator*(const Vec4 &v) const;
                 void operator*=(const Matrix &m);
@@ -90,7 +90,7 @@ namespace p3d {
 
             private:
 
-                static Matrix MakeFrustum(const f32 &left, const f32 &right, const f32 &bottom, const f32 &top, const f32 &near, const f32 &far);
+                static Matrix MakeFrustum(const f32 left, const f32 right, const f32 bottom, const f32 top, const f32 near, const f32 far);
 
         };
 
