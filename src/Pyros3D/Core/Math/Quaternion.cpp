@@ -173,39 +173,69 @@ namespace p3d {
 
         Quaternion Quaternion::Slerp(const Quaternion &b, const f32 t) const
         {
-            Quaternion m;
 
-            f32 cosHalfTheta = this->w * b.w + this->x * b.x + this->y * b.y + this->z * b.z;
+            Quaternion a = *this;
 
-            if ( fabs( cosHalfTheta ) >= 1.0 ) {
+            if ( t == 0 ) return a;
+            if ( t == 1 ) return b;
 
-                m.w = this->w; m.x = this->x; m.y = this->y; m.z = this->z;
-                return m;
+            f32 x = a.x;
+            f32 y = a.y;
+            f32 z = a.z;
+            f32 w = a.w;
+
+            // http://www.euclideanspace.com/maths/algebra/realNormedAlgebra/quaternions/slerp/
+
+            f32 cosHalfTheta = w * b.w + x * b.x + y * b.y + z * b.z;
+
+            if ( cosHalfTheta < 0 ) {
+
+                a.w = - b.w;
+                a.x = - b.x;
+                a.y = - b.y;
+                a.z = - b.z;
+
+                cosHalfTheta = - cosHalfTheta;
+
+            } else {
+
+                a = b;
+            }
+
+            if ( cosHalfTheta >= 1.0 ) {
+
+                a.w = w;
+                a.x = x;
+                a.y = y;
+                a.z = z;
+
+                return a;
 
             }
 
-            f32 halfTheta = (f32)(acos( cosHalfTheta )), sinHalfTheta = (f32)(sqrt( 1.0 - cosHalfTheta * cosHalfTheta ));
+            f32 halfTheta = acosf( cosHalfTheta );
+            f32 sinHalfTheta = sqrt( 1.0 - cosHalfTheta * cosHalfTheta );
 
             if ( fabs( sinHalfTheta ) < 0.001 ) {
 
-                m.w = (f32)(0.5 * ( this->w + b.w ));
-                m.x = (f32)(0.5 * ( this->x + b.x ));
-                m.y = (f32)(0.5 * ( this->y + b.y ));
-                m.z = (f32)(0.5 * ( this->z + b.z ));
+                a.w = 0.5 * ( w + a.w );
+                a.x = 0.5 * ( x + a.x );
+                a.y = 0.5 * ( y + a.y );
+                a.z = 0.5 * ( z + a.z );
 
-                return m;
+                return a;
 
             }
 
-            f32 ratioA = sin( ( 1 - t ) * halfTheta ) / sinHalfTheta,
-            ratioB = sin( t * halfTheta ) / sinHalfTheta;
+            f32 ratioA = sinf( ( 1 - t ) * halfTheta ) / sinHalfTheta,
+            ratioB = sinf( t * halfTheta ) / sinHalfTheta;
 
-            m.w = ( this->w * ratioA + b.w * ratioB );
-            m.x = ( this->x * ratioA + b.x * ratioB );
-            m.y = ( this->y * ratioA + b.y * ratioB );
-            m.z = ( this->z * ratioA + b.z * ratioB );
+            a.w = ( w * ratioA + a.w * ratioB );
+            a.x = ( x * ratioA + a.x * ratioB );
+            a.y = ( y * ratioA + a.y * ratioB );
+            a.z = ( z * ratioA + a.z * ratioB );
 
-            return m;
+            return a;
 
         }
         Quaternion Quaternion::Nlerp(const Quaternion &b, const f32 t, bool shortestPath) const

@@ -315,7 +315,7 @@ namespace p3d {
                         size_t posIndexNext = 0;
                         while( 1 )
                         {
-                            if (posIndex+1>=ch.positions.size() || ch.positions[posIndex+1].Time > currentTime)
+                            if (posIndex+1>=ch.positions.size() || ch.positions[posIndex + 1].Time > currentTime)
                                 break;
                             posIndex++;
                         }
@@ -325,14 +325,14 @@ namespace p3d {
                         if (posIndex+1<ch.positions.size())
                         {
                             posIndexNext = posIndex+1;
-                            curPosition = curPosition.Lerp(ch.positions[posIndexNext].Pos, 1 -(ch.positions[posIndexNext].Time - currentTime));
+                            curPosition = curPosition.Lerp(ch.positions[posIndexNext].Pos, 1 - (ch.positions[posIndexNext].Time - currentTime));
                         }
                         
                         size_t rotIndex = 0;
                         size_t rotIndexNext = 0;
                         while( 1 )
                         {
-                            if( rotIndex +1 >= ch.rotations.size() ||  ch.rotations[rotIndex + 1].Time > currentTime )
+                            if( rotIndex+1 >= ch.rotations.size() ||  ch.rotations[rotIndex + 1].Time > currentTime )
                                 break;
                             rotIndex++;
                         }
@@ -355,7 +355,7 @@ namespace p3d {
                     }
                 }
             }
-            
+
             // Multiply bones with its parent
             for (std::map<StringID,Bone>::iterator a=(*i)->skeleton.begin();a!=(*i)->skeleton.end();a++)
             {
