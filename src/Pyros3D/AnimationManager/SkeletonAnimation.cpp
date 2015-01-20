@@ -325,7 +325,9 @@ namespace p3d {
                         if (posIndex+1<ch.positions.size())
                         {
                             posIndexNext = posIndex+1;
-                            curPosition = curPosition.Lerp(ch.positions[posIndexNext].Pos, 1 - (ch.positions[posIndexNext].Time - currentTime));
+                            f32 slerp_delta = (currentTime - ch.positions[posIndex].Time)/(ch.positions[posIndexNext].Time-ch.positions[posIndex].Time);
+                            //slerp_delta = 1 - (ch.positions[posIndexNext].Time - currentTime);
+                            curPosition = curPosition.Lerp(ch.positions[posIndexNext].Pos, slerp_delta);
                         }
                         
                         size_t rotIndex = 0;
@@ -342,7 +344,9 @@ namespace p3d {
                         if( rotIndex+1<ch.rotations.size() )
                         {
                             rotIndexNext=rotIndex+1;
-                            curRotation = curRotation.Slerp(ch.rotations[rotIndexNext].Rot, 1 - (ch.rotations[rotIndexNext].Time - currentTime));
+                            f32 slerp_delta = (currentTime - ch.rotations[rotIndex].Time)/(ch.rotations[rotIndexNext].Time-ch.rotations[rotIndex].Time);
+                            //slerp_delta = 1 - (ch.rotations[rotIndexNext].Time - currentTime);
+                            curRotation = curRotation.Slerp(ch.rotations[rotIndexNext].Rot, slerp_delta);
                         }
                         
                         Matrix trafo = curRotation.ConvertToMatrix();
