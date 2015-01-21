@@ -38,6 +38,12 @@ namespace p3d {
             int32 channelsSize;
             bin->Read(&channelsSize, sizeof(int32));
 
+            // Duration
+            bin->Read(&animation.Duration, sizeof(f32));
+            
+            // Ticks Per Second
+            bin->Read(&animation.TicksPerSecond, sizeof(f32));
+
             for (uint32 k=0;k<channelsSize;k++)
             {
                 // Channel
@@ -57,6 +63,7 @@ namespace p3d {
                 {
                     bin->Read(&ch.positions[l].Time, sizeof(f32));
                     bin->Read(&ch.positions[l].Pos, sizeof(Vec3));
+                    ch.positions[l].Time /= animation.TicksPerSecond;
                 }
                 
                 // Rotations
@@ -67,6 +74,7 @@ namespace p3d {
                 {
                     bin->Read(&ch.rotations[l].Time, sizeof(f32));
                     bin->Read(&ch.rotations[l].Rot, sizeof(Quaternion));
+                    ch.rotations[l].Time /= animation.TicksPerSecond;
                 }
 
                 // Scales
@@ -77,16 +85,15 @@ namespace p3d {
                 {
                     bin->Read(&ch.scales[l].Time, sizeof(f32));
                     bin->Read(&ch.scales[l].Scale, sizeof(Vec3));
+                    ch.scales[l].Time /= animation.TicksPerSecond;
                 }
 
                 animation.Channels.push_back(ch);
 
             }
-            // Duration
-            bin->Read(&animation.Duration, sizeof(f32));
-            
-            // Ticks Per Second
-            bin->Read(&animation.TicksPerSecond, sizeof(f32));
+
+            animation.Duration /= animation.TicksPerSecond;
+            animation.TicksPerSecond = 1;
 
             // Add Animation
             animations.push_back(animation);
