@@ -22,11 +22,12 @@ namespace p3d {
         struct SkeletonAnimation
         {
             uint32 ID;
-            f32 startTime;
+            f32 startTime; // 0-1
             Animation* animation;
             f32 speed;
             f32 scale;
 
+            f32 _startTime; // Real Time
             f32 _startTimeClock;
             f32 _currentTime;
 
@@ -37,6 +38,8 @@ namespace p3d {
             f32 _pauseTime;
 
             f32 _repetition;
+
+            std::vector<Matrix> boneTransformationPerAnimation;
         };
     }
     
@@ -53,6 +56,7 @@ namespace p3d {
 
             // Play, Stop, Pause
             uint32 Play(const uint32 animation, const f32 startTime, const f32 repetition = 1, const f32 speed = 1.f, const f32 scale = 1.f);
+            void ChangeProperties(const uint32 animationOrder, const f32 startTime, const f32 repetition = 1, const f32 speed = 1.f, const f32 scale = 1.f);
             void Pause();
             void PauseAnimation(const uint32 animationOrder);
             void ResumeAnimation(const uint32 animationOrder);
@@ -61,12 +65,16 @@ namespace p3d {
             void Stop();
             bool IsPaused(const uint32 animationOrder);
             bool IsPaused();
+            f32 GetAnimationCurrentProgress(const uint32 animationOrder);
+            f32 GetAnimationDuration(const uint32 animationOrder);
             f32 GetAnimationCurrentTime(const uint32 animationOrder);
             f32 GetAnimationSpeed(const uint32 animationOrder);
             f32 GetAnimationStartTime(const uint32 animationOrder);
+            f32 GetAnimationStartTimeProgress(const uint32 animationOrder);
             f32 GetAnimationID(const uint32 animationOrder);
             f32 GetAnimationScale(const uint32 animationOrder);
 
+            // Get Animation Position
             int32 GetAnimationPositionInVector(const uint32 animation);
 
         protected:
@@ -81,6 +89,7 @@ namespace p3d {
             std::vector<_SkeletonAnimation::SkeletonAnimation> AnimationsToPlay;
 
             // Skeleton info and Shit
+            std::vector<Matrix> bindPose;
             std::vector<Matrix> boneTransformation;
             std::vector<Matrix> Bones;
             std::map<StringID, Bone> skeleton;
@@ -110,6 +119,8 @@ namespace p3d {
             // Animation Loader
             AnimationLoader* animationLoader;
 
+            Matrix SCALE( const Matrix &in, const Matrix &prev, const f32 s );
+
         public:
 
             // Constructor
@@ -135,6 +146,9 @@ namespace p3d {
 
             // Destroy Instance
             void DestroyInstance(SkeletonAnimationInstance* Instance);
+
+            // Get Animation ID By Name
+            const int32 GetAnimationIDByName(const std::string &name) const;
     };
 
 }

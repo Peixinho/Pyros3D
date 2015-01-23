@@ -20,6 +20,7 @@ namespace p3d {
 
         // Create Vectors to Store Values
         Bones = std::vector<Matrix>(skeleton.size());
+        bindPose = std::vector<Matrix>(skeleton.size());
         boneTransformation = std::vector<Matrix>(skeleton.size());
 
         // Owner
@@ -30,35 +31,48 @@ namespace p3d {
 
     uint32 SkeletonAnimationInstance::Play(const uint32 animation, const f32 startTime, const f32 repetition, const f32 speed, const f32 scale)
     {
-        _SkeletonAnimation::SkeletonAnimation *Anim;
-        
-        int32 animationOrder = GetAnimationPositionInVector(animation);
+        _SkeletonAnimation::SkeletonAnimation Anim;
 
-        if (animationOrder==-1)
-            Anim = new _SkeletonAnimation::SkeletonAnimation();
-        else
-            Anim = &AnimationsToPlay[animationOrder];
-
-        Anim->ID = animation;
-        Anim->startTime = startTime;
-        Anim->animation = &Owner->animations[animation];
-        Anim->speed = speed;
-        Anim->scale = scale;
-        Anim->_startTimeClock = -1.f;
-        Anim->_isPaused = false;
-        Anim->_resumed = false;
-        Anim->_pauseStart = -1.f;
-        Anim->_pauseTime = 0.f;
-        Anim->_repetition = repetition;
-        Anim->_currentTime = 0.f;
-
-        if (animationOrder==-1)
+        if (GetAnimationPositionInVector(animation) == -1)
         {
-            AnimationsToPlay.push_back(*Anim);
-            delete Anim;
-        }
+            Anim.ID = animation;
+            Anim.startTime = startTime; // 0-1
+            Anim._startTime = startTime*Owner->animations[animation].Duration; // RealTime
+            Anim.animation = &Owner->animations[animation];
+            Anim.speed = speed;
+            Anim.scale = scale;
+            Anim._startTimeClock = -1.f;
+            Anim._isPaused = false;
+            Anim._resumed = false;
+            Anim._pauseStart = -1.f;
+            Anim._pauseTime = 0.f;
+            Anim._repetition = repetition;
+            Anim._currentTime = 0.f;
+            Anim.boneTransformationPerAnimation = std::vector<Matrix>(boneTransformation.size());
 
-        return animationOrder; // Return Order
+
+            AnimationsToPlay.push_back(Anim);
+
+            return AnimationsToPlay.size()-1; // Return Order
+        }
+        return -1; // Already Exists
+    }
+    void SkeletonAnimationInstance::ChangeProperties(const uint32 animationOrder, const f32 startTime, const f32 repetition, const f32 speed, const f32 scale)
+    {
+        if (AnimationsToPlay.size()>animationOrder)
+        {
+            _SkeletonAnimation::SkeletonAnimation *Anim = &AnimationsToPlay[animationOrder];
+            Anim->startTime = startTime; // 0-1
+            Anim->_startTime = startTime*Owner->animations[Anim->ID].Duration; // RealTime
+            Anim->speed = speed;
+            Anim->scale = scale;
+            Anim->_startTimeClock = -1.f;
+            Anim->_isPaused = false;
+            Anim->_resumed = false;
+            Anim->_pauseStart = -1.f;
+            Anim->_pauseTime = 0.f;
+            Anim->_repetition = repetition;
+        } else echo("ERROR: Animation Not Found");
     }
     void SkeletonAnimationInstance::StopAnimation(const uint32 animationOrder)
     {
@@ -128,13 +142,27 @@ namespace p3d {
     {
         return AnimationsToPlay[animationOrder]._currentTime;
     }
+    f32 SkeletonAnimationInstance::GetAnimationCurrentProgress(const uint32 animationOrder)
+    {
+        if (AnimationsToPlay[animationOrder]._currentTime>0)
+            return AnimationsToPlay[animationOrder]._currentTime/GetAnimationDuration(animationOrder);
+        else return 0;
+    }
+    f32 SkeletonAnimationInstance::GetAnimationDuration(const uint32 animationOrder)
+    {
+        return AnimationsToPlay[animationOrder].animation->Duration;
+    }
     f32 SkeletonAnimationInstance::GetAnimationSpeed(const uint32 animationOrder)
     {
         return AnimationsToPlay[animationOrder].speed;
     }
-    f32 SkeletonAnimationInstance::GetAnimationStartTime(const uint32 animationOrder)
+    f32 SkeletonAnimationInstance::GetAnimationStartTimeProgress(const uint32 animationOrder)
     {
         return AnimationsToPlay[animationOrder].startTime;
+    }
+    f32 SkeletonAnimationInstance::GetAnimationStartTime(const uint32 animationOrder)
+    {
+        return AnimationsToPlay[animationOrder]._startTime;
     }
     f32 SkeletonAnimationInstance::GetAnimationID(const uint32 animationOrder)
     {
@@ -145,11 +173,11 @@ namespace p3d {
         return AnimationsToPlay[animationOrder].scale;
     }
 
-    int32 SkeletonAnimationInstance::GetAnimationPositionInVector(const uint32 animationOrder)
+    int32 SkeletonAnimationInstance::GetAnimationPositionInVector(const uint32 animation)
     {
         for (uint32 i=0;i<AnimationsToPlay.size();i++)
         {
-            if (AnimationsToPlay[i].ID == animationOrder) 
+            if (AnimationsToPlay[i].ID == animation) 
                 return i;
         }
         return -1; // Not Found
@@ -177,6 +205,15 @@ namespace p3d {
         return animations.size();
     }
 
+    const int32 SkeletonAnimation::GetAnimationIDByName(const std::string &name) const
+    {
+        for (int i=0;i<animations.size();i++)
+        {
+            if (animations[i].AnimationName.compare(name)==0) return i;
+        }
+        return -1;
+    }
+
     SkeletonAnimationInstance* SkeletonAnimation::CreateInstance(RenderingComponent* Component)
     {
         SkeletonAnimationInstance* i = new SkeletonAnimationInstance(this,Component);
@@ -186,7 +223,7 @@ namespace p3d {
         for (std::map<StringID,Bone>::iterator a=i->skeleton.begin();a!=i->skeleton.end();a++)
         {
             // Set Bones Transformation based on Bone ID
-            i->boneTransformation[(*a).second.self] = (*a).second.bindPoseMat; // Copy BindPose
+            i->bindPose[(*a).second.self] = (*a).second.bindPoseMat; // Copy BindPose
             i->MapLocalToGlobalIDs[(*a).second.self] = (*a).first; // Save Map
         }
 
@@ -249,8 +286,8 @@ namespace p3d {
                     if ((*_Anim)._startTimeClock==-1.f)
                     {
                         (*_Anim)._startTimeClock = time;
-                        if ((*_Anim).speed<0 && (*_Anim).startTime==0)
-                            (*_Anim).startTime = (*_Anim).animation->Duration;
+                        if ((*_Anim).speed<0 && (*_Anim)._startTime==0)
+                            (*_Anim)._startTime = (*_Anim).animation->Duration;
                     }
 
                     // Calculate Current Time
@@ -267,16 +304,18 @@ namespace p3d {
                         {
                             if ((*_Anim)._repetition==-1) 
                             {
-                                (*_Anim)._startTimeClock = time;
                                 (*_Anim).startTime = 0;
+                                (*_Anim)._startTimeClock = time;
+                                (*_Anim)._startTime = 0;
                                 (*_Anim)._pauseTime = 0;
                             }
                             else if ((*_Anim)._repetition>0) {
                                 (*_Anim)._repetition--;
                                 if ((*_Anim)._repetition>0) 
                                 {
-                                    (*_Anim)._startTimeClock = time;
                                     (*_Anim).startTime = 0;
+                                    (*_Anim)._startTimeClock = time;
+                                    (*_Anim)._startTime = 0;
                                     (*_Anim)._pauseTime = 0;
                                 }
                             }
@@ -285,23 +324,26 @@ namespace p3d {
                         {
                             if ((*_Anim)._repetition==-1) 
                             {
+                                (*_Anim).startTime = 1;
                                 (*_Anim)._startTimeClock = time;
-                                (*_Anim).startTime = (*_Anim).animation->Duration;
+                                (*_Anim)._startTime = (*_Anim).animation->Duration;
                                 (*_Anim)._pauseTime = 0;
                             }
                             else if ((*_Anim)._repetition>0) {
                                 (*_Anim)._repetition--;
                                 if ((*_Anim)._repetition>0) 
                                 {
+                                    (*_Anim).startTime = 1;
                                     (*_Anim)._startTimeClock = time;
-                                    (*_Anim).startTime = (*_Anim).animation->Duration;
+                                    (*_Anim)._startTime = (*_Anim).animation->Duration;
                                     (*_Anim)._pauseTime = 0;
                                 }
                             }
-                            currentTime = 0.0;
+                            currentTime += 0.0f;
                         }
                     }
 
+                    // Save Current Time to Animation Info
                     (*_Anim)._currentTime = currentTime*=(*_Anim).speed;
 
                     // Transform bones from animation
@@ -348,19 +390,50 @@ namespace p3d {
                             //slerp_delta = 1 - (ch.rotations[rotIndexNext].Time - currentTime);
                             curRotation = curRotation.Slerp(ch.rotations[rotIndexNext].Rot, slerp_delta);
                         }
+
+                        size_t scaleIndex = 0;
+                        size_t scaleIndexNext = 0;
+                        while( 1 )
+                        {
+                            if( scaleIndex+1 >= ch.scales.size() ||  ch.scales[scaleIndex + 1].Time > currentTime )
+                                break;
+                            scaleIndex++;
+                        }
+                        curScale = ch.scales[scaleIndex].Scale;
+
+                        // Rotation Interpolation
+                        if( scaleIndex+1<ch.scales.size() )
+                        {
+                            scaleIndexNext=scaleIndex+1;
+                            f32 slerp_delta = (currentTime - ch.scales[scaleIndex].Time)/(ch.scales[scaleIndexNext].Time-ch.scales[scaleIndex].Time);
+                            //slerp_delta = 1 - (ch.scales[scaleIndexNext].Time - currentTime);
+                            curScale = curScale.Lerp(ch.scales[scaleIndexNext].Scale, slerp_delta);
+                        }
                         
                         Matrix trafo = curRotation.ConvertToMatrix();
                         trafo.Translate(curPosition);
-                        // Not in Use
-                        // trafo.Scale(curScale);
-                        
+                        //trafo.Scale(curScale);
+
                         uint32 id = MakeStringID(ch.NodeName);
-                        (*i)->boneTransformation[(*i)->skeleton[id].self] = trafo;
+                        (*_Anim).boneTransformationPerAnimation[(*i)->skeleton[id].self] = trafo;
                     }
                 }
             }
 
-            // Multiply bones with its parent
+            // Multiply Bones
+            for (std::map<StringID,Bone>::iterator a=(*i)->skeleton.begin();a!=(*i)->skeleton.end();a++)
+            {
+                Matrix trafo = ((*i)->AnimationsToPlay.size()>1?(*i)->bindPose[(*a).second.self]:Matrix());
+                for (std::vector<_SkeletonAnimation::SkeletonAnimation>::reverse_iterator b=(*i)->AnimationsToPlay.rbegin();b!=(*i)->AnimationsToPlay.rend();b++)
+                {
+                    if ((*i)->AnimationsToPlay.size()>1)
+                        trafo=SCALE((*b).boneTransformationPerAnimation[(*a).second.self],trafo,(*b).scale);
+                    else trafo = (*b).boneTransformationPerAnimation[(*a).second.self];
+                }
+                (*i)->boneTransformation[(*a).second.self] = trafo;
+            }
+
+            // Multiply bones with its parent - Tree
             for (std::map<StringID,Bone>::iterator a=(*i)->skeleton.begin();a!=(*i)->skeleton.end();a++)
             {
                 (*i)->Bones[(*a).second.self] = (*i)->GetParentMatrix((*a).second.parent, (*i)->boneTransformation) * (*i)->boneTransformation[(*a).second.self];
@@ -413,4 +486,19 @@ namespace p3d {
     {
         return Bones[skeleton[id].self];
     }
+
+    Matrix SkeletonAnimation::SCALE( const Matrix &in, const Matrix &prev, const f32 s )
+    {
+        Vec3 Translation = in.GetTranslation().Lerp( prev.GetTranslation(), s );
+        Quaternion Rotation = in.ConvertToQuaternion().Slerp(prev.ConvertToQuaternion(), s);
+        Vec3 Scale = in.GetScale().Lerp(prev.GetScale(), s);
+        
+        Matrix Out;
+        Out.Translate(Translation);
+        Out*= Rotation.ConvertToMatrix();
+        //Out.Scale(Scale);
+
+        return Out;
+    }
+
 }

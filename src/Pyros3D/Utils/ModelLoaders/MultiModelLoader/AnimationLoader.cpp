@@ -16,7 +16,7 @@ namespace p3d {
 
 #if !defined(ANDROID) && !defined(EMSCRIPTEN)
 
-    bool AnimationLoader::Load(const std::string& Filename)
+    bool AnimationLoader::Load(const std::string &Filename)
     {
         // Load Animations
         BinaryFile* bin = new BinaryFile();
@@ -93,6 +93,7 @@ namespace p3d {
             }
 
             animation.Duration /= animation.TicksPerSecond;
+
             animation.TicksPerSecond = 1;
 
             // Add Animation
