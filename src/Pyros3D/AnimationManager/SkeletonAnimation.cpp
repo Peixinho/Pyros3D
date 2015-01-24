@@ -50,7 +50,6 @@ namespace p3d {
             Anim._currentTime = 0.f;
             Anim.boneTransformationPerAnimation = std::vector<Matrix>(boneTransformation.size());
 
-
             AnimationsToPlay.push_back(Anim);
 
             return AnimationsToPlay.size()-1; // Return Order
@@ -291,7 +290,7 @@ namespace p3d {
                     }
 
                     // Calculate Current Time
-                    f32 currentTime = time-(*_Anim)._startTimeClock-(*_Anim)._pauseTime+(*_Anim).startTime/(*_Anim).speed;
+                    f32 currentTime = time-(*_Anim)._startTimeClock-(*_Anim)._pauseTime+(*_Anim)._startTime/(*_Anim).speed;
                     
                     // Check if Ended
                     if  (
@@ -319,7 +318,6 @@ namespace p3d {
                                     (*_Anim)._pauseTime = 0;
                                 }
                             }
-                            currentTime = 0.0;
                         } else if (currentTime*(*_Anim).speed<0)
                         {
                             if ((*_Anim)._repetition==-1) 
@@ -339,7 +337,6 @@ namespace p3d {
                                     (*_Anim)._pauseTime = 0;
                                 }
                             }
-                            currentTime += 0.0f;
                         }
                     }
 
