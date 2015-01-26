@@ -50,6 +50,9 @@ namespace p3d {
             IModelLoader* mesh;
 
             void Build();
+
+            void DebugSkeleton();
+            void GetBoneChilds(std::map<StringID,Bone> Skeleton, const int32 id, const uint32 iterations);
         
         protected:
         

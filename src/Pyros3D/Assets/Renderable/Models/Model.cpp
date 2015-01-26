@@ -272,4 +272,31 @@ namespace p3d {
         // Execute Parent Build
         BuildMaterials(MaterialOptions);
     }
+
+    // Debug Skeleton
+    void Model::DebugSkeleton()
+    {
+        // show skeleton
+        for (std::map<StringID, Bone>::iterator i=skeleton.begin();i!=skeleton.end();i++)
+        {
+            if ((*i).second.self==0)
+            {
+                std::cout << "ID: "<< (*i).second.self << " Name: " << (*i).second.name << std::endl;
+                GetBoneChilds(skeleton,0,0);
+            }
+        }
+    }
+    
+    void Model::GetBoneChilds(std::map<StringID,Bone> Skeleton, const int32 id, const uint32 iterations)
+    {
+        for (std::map<StringID, Bone>::iterator i=Skeleton.begin();i!=Skeleton.end();i++)
+        {
+            if ((*i).second.parent==id)
+            {
+                for (uint32 j=0;j<iterations+1;j++) if (j==iterations) std::cout << " |_"; else std::cout << "     ";
+                std::cout << "___" << "ID: "<< (*i).second.self << " Name: " << (*i).second.name << std::endl;
+                GetBoneChilds(Skeleton,(*i).second.self,iterations+1);
+            }
+        }
+    }
 };

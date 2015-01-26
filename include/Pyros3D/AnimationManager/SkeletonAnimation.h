@@ -40,6 +40,31 @@ namespace p3d {
             f32 _repetition;
 
             std::vector<Matrix> boneTransformationPerAnimation;
+
+            // Layers
+            bool HaveLayers;
+            uint32 LayerID;
+            std::map<uint32,Bone> AffectedBones;
+
+        };
+
+        struct AnimationLayer
+        {
+            AnimationLayer(const std::string &name)
+            {
+                ID = MakeStringID(name);
+                Name = name;
+            }
+
+            // Layer ID - Name converted to uint32
+            uint32 ID;
+
+            // Layer Name
+            std::string Name;
+
+            // List of Affected Bones
+            std::map<uint32, Bone> boneIDs;
+
         };
     }
     
@@ -52,10 +77,10 @@ namespace p3d {
         public:
             
             SkeletonAnimationInstance(SkeletonAnimation* owner, RenderingComponent* Component);
-            virtual ~SkeletonAnimationInstance() {}
+            virtual ~SkeletonAnimationInstance();
 
             // Play, Stop, Pause
-            uint32 Play(const uint32 animation, const f32 startTime, const f32 repetition = 1, const f32 speed = 1.f, const f32 scale = 1.f);
+            uint32 Play(const uint32 animation, const f32 startTime, const f32 repetition = 1, const f32 speed = 1.f, const f32 scale = 1.f, const std::string &LayerName = "");
             void ChangeProperties(const uint32 animationOrder, const f32 startTime, const f32 repetition = 1, const f32 speed = 1.f, const f32 scale = 1.f);
             void Pause();
             void PauseAnimation(const uint32 animationOrder);
@@ -76,6 +101,24 @@ namespace p3d {
 
             // Get Animation Position
             int32 GetAnimationPositionInVector(const uint32 animation);
+
+            // Layers
+            uint32 CreateLayer(const std::string &name);
+            // Add Bone
+            void AddBone(const uint32 LayerID, const std::string &bone);
+            void AddBone(const std::string &LayerName, const std::string &bone);
+            // Add Bone and Childs
+            void AddBoneAndChilds(const uint32 LayerID, const std::string &bone, bool inclusive = true);
+            void AddBoneAndChilds(const std::string &LayerName, const std::string &bone, bool inclusive = true);
+            // Remove Bone
+            void RemoveBone(const uint32 LayerID, const std::string &bone);
+            void RemoveBone(const std::string &LayerName, const std::string &bone);
+            // Remove Bone And Childs
+            void RemoveBoneAndChilds(const uint32 LayerID, const std::string &bone);
+            void RemoveBoneAndChilds(const std::string &LayerName, const std::string &bone);
+            // Destroy Layer
+            void DestroyLayer(const uint32 LayerID);
+            void DestroyLayer(const std::string &LayerName);
 
         protected:
 
@@ -99,6 +142,16 @@ namespace p3d {
             Matrix GetBoneMatrix(const uint32 id);
 
             bool _paused;
+
+            // Layers
+            std::map<uint32, _SkeletonAnimation::AnimationLayer*> Layers;
+
+        private:
+            void GetBoneChilds(std::map<StringID,Bone> &boneIDs, const std::map<StringID,Bone> &Skeleton, const uint32 id, bool add = true);
+
+            // Have Layers
+            bool HaveLayers;
+
     };
 
     class PYROS3D_API SkeletonAnimation 
