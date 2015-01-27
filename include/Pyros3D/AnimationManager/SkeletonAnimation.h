@@ -19,6 +19,29 @@ namespace p3d {
 
     namespace _SkeletonAnimation
     {
+
+        struct AnimationLayer
+        {
+            AnimationLayer(const std::string &name)
+            {
+                ID = MakeStringID(name);
+                Name = name;
+                usingLayer = 0;
+            }
+
+            // Layer ID - Name converted to uint32
+            uint32 ID;
+
+            // Layer Name
+            std::string Name;
+
+            // List of Affected Bones
+            std::map<uint32, Bone> boneIDs;
+
+            uint32 usingLayer;
+
+        };
+
         struct SkeletonAnimation
         {
             uint32 ID;
@@ -44,27 +67,7 @@ namespace p3d {
             // Layers
             bool HaveLayers;
             uint32 LayerID;
-            std::map<uint32,Bone> AffectedBones;
-
-        };
-
-        struct AnimationLayer
-        {
-            AnimationLayer(const std::string &name)
-            {
-                ID = MakeStringID(name);
-                Name = name;
-            }
-
-            // Layer ID - Name converted to uint32
-            uint32 ID;
-
-            // Layer Name
-            std::string Name;
-
-            // List of Affected Bones
-            std::map<uint32, Bone> boneIDs;
-
+            AnimationLayer* Layer;
         };
     }
     
@@ -147,10 +150,14 @@ namespace p3d {
             std::map<uint32, _SkeletonAnimation::AnimationLayer*> Layers;
 
         private:
+        	// Get Bones
             void GetBoneChilds(std::map<StringID,Bone> &boneIDs, const std::map<StringID,Bone> &Skeleton, const uint32 id, bool add = true);
 
             // Have Layers
             bool HaveLayers;
+
+            // Default Bones Affected
+            std::map<uint32, Bone> boneIDs;
 
     };
 

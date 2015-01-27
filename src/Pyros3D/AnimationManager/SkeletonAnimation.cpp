@@ -35,6 +35,9 @@ namespace p3d {
         _paused = false;
 
         HaveLayers = false;
+
+        // Set Default Affected Bones
+        boneIDs.insert(skeleton.begin(),skeleton.end());
     }
 
     uint32 SkeletonAnimationInstance::Play(const uint32 animation, const f32 startTime, const f32 repetition, const f32 speed, const f32 scale, const std::string &LayerName)
@@ -66,28 +69,23 @@ namespace p3d {
                 uint32 LayerID = MakeStringID(LayerName);
                 Anim.HaveLayers = true;
                 Anim.LayerID = LayerID;
+                Anim.Layer = Layers[LayerID];
+
+                // Mark Layer as being used
+                Anim.Layer->usingLayer++;
 
                 // Save Affected Bones to Animation
-                for (std::map<uint32,Bone>::iterator i=Layers[LayerID]->boneIDs.begin();i!=Layers[LayerID]->boneIDs.end();i++)
+                for (std::map<uint32,Bone>::iterator i=Anim.Layer->boneIDs.begin();i!=Anim.Layer->boneIDs.end();i++)
                 {
-                    Anim.AffectedBones[(*i).first]=(*i).second;
+                    boneIDs[(*i).first]=(*i).second;
                     // Remove this Affected Bones From Other Animations
-                    for (std::vector<_SkeletonAnimation::SkeletonAnimation>::iterator j=AnimationsToPlay.begin();j!=AnimationsToPlay.end();j++)
-                    {
-                        if ((*j).LayerID!=LayerID)
-                        {
-                            if ((*j).AffectedBones.find((*i).first)!=(*j).AffectedBones.end())
-                            {
-                                (*j).AffectedBones.erase((*j).AffectedBones.find((*i).first));
-                            }
-                        }
-                    }
+                    boneIDs.erase((*i).first);
                 }
 
             } else {
-                // Set Affected bones to ALL
-                Anim.AffectedBones.insert(skeleton.begin(),skeleton.end());
                 Anim.HaveLayers = false;
+                Anim.Layer = NULL;
+                Anim.LayerID = 0;
             }
 
             // Add Animation to Queue
@@ -116,23 +114,15 @@ namespace p3d {
     }
     void SkeletonAnimationInstance::StopAnimation(const uint32 animationOrder)
     {
-        if (AnimationsToPlay[animationOrder].HaveLayers)
-        {
-            uint32 LayerID = AnimationsToPlay[animationOrder].LayerID;
+        // Mark Layer as NOT being used by this
+        AnimationsToPlay[animationOrder].Layer->usingLayer--;
 
-            for (std::vector<_SkeletonAnimation::SkeletonAnimation>::iterator i=AnimationsToPlay.begin();i!=AnimationsToPlay.end();i++)
-            {
-                if ((*i).ID!=AnimationsToPlay[animationOrder].ID)
-                {
-                    // Not Same Animation
-                    if (!(*i).HaveLayers)
-                    {
-                        // Set To Affect All Bones Again
-                        (*i).AffectedBones.insert(skeleton.begin(),skeleton.end());
-                    }
-                }
-            }
+        // Insert Removed Bones if there isn't any Layer
+        if (AnimationsToPlay[animationOrder].Layer->usingLayer==0)
+        {
+            boneIDs.insert(AnimationsToPlay[animationOrder].Layer->boneIDs.begin(),AnimationsToPlay[animationOrder].Layer->boneIDs.end());
         }
+
         // Remove Layer if Any
         AnimationsToPlay.erase(AnimationsToPlay.begin()+animationOrder);
     }
@@ -558,15 +548,23 @@ namespace p3d {
                     if ((*i)->AnimationsToPlay.size()>1)
                     {
                         // Regular Bleding Animations
-                        if (!(*i)->HaveLayers)
+                        if (!(*b).HaveLayers)
                         {
-                            trafo=SCALE((*b).boneTransformationPerAnimation[(*a).second.self],trafo,(*b).scale);
+                            if ((*i)->boneIDs.find((*a).first)!=(*i)->boneIDs.end())
+                                trafo=SCALE((*b).boneTransformationPerAnimation[(*a).second.self],trafo,(*b).scale);
                         }
 
                         // Layered
-                        else if ((*b).AffectedBones.find((*a).first)!=(*b).AffectedBones.end())
+                        else if ((*b).Layer->boneIDs.find((*a).first)!=(*b).Layer->boneIDs.end())
                         {
-                            trafo=(*b).boneTransformationPerAnimation[(*a).second.self];
+                            if ((*b).Layer->usingLayer>1)
+                            {
+                                trafo=SCALE((*b).boneTransformationPerAnimation[(*a).second.self],trafo,(*b).scale);
+                            }
+                            else
+                            {
+                                trafo=(*b).boneTransformationPerAnimation[(*a).second.self];
+                            }
                         }
                     }
 
@@ -575,6 +573,7 @@ namespace p3d {
                             trafo = (*b).boneTransformationPerAnimation[(*a).second.self];
                     }
                 }
+                // Apply Final Transformation to Bones
                 (*i)->boneTransformation[(*a).second.self] = trafo;
             }
 
