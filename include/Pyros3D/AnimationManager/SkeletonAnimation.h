@@ -36,7 +36,7 @@ namespace p3d {
             std::string Name;
 
             // List of Affected Bones
-            std::map<uint32, Bone> boneIDs;
+            std::vector<int32> boneIDs;
 
             uint32 usingLayer;
 
@@ -83,7 +83,7 @@ namespace p3d {
             virtual ~SkeletonAnimationInstance();
 
             // Play, Stop, Pause
-            uint32 Play(const uint32 animation, const f32 startTime, const f32 repetition = 1, const f32 speed = 1.f, const f32 scale = 1.f, const std::string &LayerName = "");
+            int32 Play(const uint32 animation, const f32 startTime, const f32 repetition = 1, const f32 speed = 1.f, const f32 scale = 1.f, const std::string &LayerName = "");
             void ChangeProperties(const uint32 animationOrder, const f32 startTime, const f32 repetition = 1, const f32 speed = 1.f, const f32 scale = 1.f);
             void Pause();
             void PauseAnimation(const uint32 animationOrder);
@@ -138,11 +138,10 @@ namespace p3d {
             std::vector<Matrix> bindPose;
             std::vector<Matrix> boneTransformation;
             std::vector<Matrix> Bones;
-            std::map<StringID, Bone> skeleton;
-            std::map<uint32, StringID> MapLocalToGlobalIDs;
+            std::vector<Bone> skeleton;
 
             Matrix GetParentMatrix(const int32 id, const std::vector<Matrix> &bones);
-            Matrix GetBoneMatrix(const uint32 id);
+            Matrix GetBoneMatrix(const int32 id);
 
             bool _paused;
 
@@ -150,14 +149,17 @@ namespace p3d {
             std::map<uint32, _SkeletonAnimation::AnimationLayer*> Layers;
 
         private:
-        	// Get Bones
-            void GetBoneChilds(std::map<StringID,Bone> &boneIDs, const std::map<StringID,Bone> &Skeleton, const uint32 id, bool add = true);
+            // Get Bones
+            void GetBoneChilds(std::vector<int32> &boneIDs, const std::vector<Bone> &Skeleton, const uint32 id, bool add = true);
 
             // Have Layers
             bool HaveLayers;
 
             // Default Bones Affected
-            std::map<uint32, Bone> boneIDs;
+            std::vector<int32> boneIDs;
+
+            // Cache
+            std::vector<int32> ChannelBoneIDCache;
 
     };
 

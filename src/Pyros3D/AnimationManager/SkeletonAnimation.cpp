@@ -21,13 +21,37 @@ namespace p3d {
         // Keep Rendering Component
         rcomp = Component;
 
-        // Get Skeleton
-        skeleton = Component->GetSkeleton();
+        // Resize Vectors
+        skeleton.resize(Component->GetSkeleton().size());
+        Bones.resize(skeleton.size());
+        bindPose.resize(skeleton.size());
+        boneTransformation.resize(skeleton.size());
+        ChannelBoneIDCache = std::vector<int32>(skeleton.size(),-1);
 
-        // Create Vectors to Store Values
-        Bones = std::vector<Matrix>(skeleton.size());
-        bindPose = std::vector<Matrix>(skeleton.size());
-        boneTransformation = std::vector<Matrix>(skeleton.size());
+        // Get Skeleton
+        for (std::map<uint32,Bone>::const_iterator a=Component->GetSkeleton().begin();a!=Component->GetSkeleton().end();a++)
+        {
+            // Set Bones Transformation based on Bone ID
+            bindPose[(*a).second.self] = (*a).second.bindPoseMat; // Copy BindPose
+            skeleton[(*a).second.self] = (*a).second;
+        }
+
+        // Multiply bones with its parent
+        for (std::vector<Bone>::iterator a=skeleton.begin();a!=skeleton.end();a++)
+        {
+            Bones[(*a).self] = GetParentMatrix((*a).parent, boneTransformation) * boneTransformation[(*a).self];
+        }
+
+        // Send SubMesh Bones to Material
+        for (std::vector<RenderingMesh*>::iterator j = rcomp->GetMeshes().begin(); j != rcomp->GetMeshes().end(); j++)
+        {
+            (*j)->SkinningBones = std::vector<Matrix> ((*j)->MapBoneIDs.size());
+            for (std::map<int32,int32>::iterator k = (*j)->MapBoneIDs.begin(); k != (*j)->MapBoneIDs.end(); k++)
+            {
+                // Set list of Bones Matrices
+                (*j)->SkinningBones[(*k).second] = Bones[(*k).first] * (*j)->BoneOffsetMatrix[(*k).first];
+            }
+        }
 
         // Owner
         Owner = owner;
@@ -37,10 +61,12 @@ namespace p3d {
         HaveLayers = false;
 
         // Set Default Affected Bones
-        boneIDs.insert(skeleton.begin(),skeleton.end());
+        boneIDs.resize(skeleton.size());
+        for (std::vector<Bone>::iterator i=skeleton.begin();i!=skeleton.end();i++)
+            boneIDs[(*i).self]=1;
     }
 
-    uint32 SkeletonAnimationInstance::Play(const uint32 animation, const f32 startTime, const f32 repetition, const f32 speed, const f32 scale, const std::string &LayerName)
+    int32 SkeletonAnimationInstance::Play(const uint32 animation, const f32 startTime, const f32 repetition, const f32 speed, const f32 scale, const std::string &LayerName)
     {
         _SkeletonAnimation::SkeletonAnimation Anim;
 
@@ -74,12 +100,12 @@ namespace p3d {
                 // Mark Layer as being used
                 Anim.Layer->usingLayer++;
 
-                // Save Affected Bones to Animation
-                for (std::map<uint32,Bone>::iterator i=Anim.Layer->boneIDs.begin();i!=Anim.Layer->boneIDs.end();i++)
+                // Remove this Affected Bones From Other Animations
+                for (std::vector<int32>::iterator i=Anim.Layer->boneIDs.begin();i!=Anim.Layer->boneIDs.end();i++)
                 {
-                    boneIDs[(*i).first]=(*i).second;
-                    // Remove this Affected Bones From Other Animations
-                    boneIDs.erase((*i).first);
+                    // Set to -1
+                    if ((*i)==1)
+                        boneIDs[i-Anim.Layer->boneIDs.begin()]=-1;
                 }
 
             } else {
@@ -120,7 +146,9 @@ namespace p3d {
         // Insert Removed Bones if there isn't any Layer
         if (AnimationsToPlay[animationOrder].Layer->usingLayer==0)
         {
-            boneIDs.insert(AnimationsToPlay[animationOrder].Layer->boneIDs.begin(),AnimationsToPlay[animationOrder].Layer->boneIDs.end());
+            for (std::vector<int32>::iterator i=AnimationsToPlay[animationOrder].Layer->boneIDs.begin();i!=AnimationsToPlay[animationOrder].Layer->boneIDs.end();i++)
+                if ((*i)==1)
+                    boneIDs[i-AnimationsToPlay[animationOrder].Layer->boneIDs.begin()]=1;
         }
 
         // Remove Layer if Any
@@ -237,15 +265,21 @@ namespace p3d {
         if (Layers.find(id)==Layers.end())
         {
             Layers[id] = new _SkeletonAnimation::AnimationLayer(name);
+            Layers[id]->boneIDs.resize(skeleton.size());
         }
         return id;
     }
 
     void SkeletonAnimationInstance::AddBone(const uint32 LayerID, const std::string &bone)
     {
-        uint32 boneID = MakeStringID(bone);
-        if (Layers[LayerID]->boneIDs.find(boneID)==Layers[LayerID]->boneIDs.end())
-           Layers[LayerID]->boneIDs[boneID] = skeleton[boneID];
+        for (std::vector<Bone>::iterator i=skeleton.begin();i!=skeleton.end();i++)
+        {
+            if ((*i).name.compare(bone)==0)
+            {
+                Layers[LayerID]->boneIDs[(*i).self] = 1;
+                break;
+            }
+        }
     }
     void SkeletonAnimationInstance::AddBone(const std::string &LayerName, const std::string &bone)
     {
@@ -253,7 +287,16 @@ namespace p3d {
     }
     void SkeletonAnimationInstance::AddBoneAndChilds(const uint32 LayerID, const std::string &bone, bool inclusive)
     {
-        GetBoneChilds(Layers[LayerID]->boneIDs,skeleton,skeleton[MakeStringID(bone)].self, true);
+        for (std::vector<Bone>::iterator i=skeleton.begin();i!=skeleton.end();i++)
+        {
+            if ((*i).name.compare(bone)==0)
+            {
+                if (inclusive)
+                    Layers[LayerID]->boneIDs[(*i).self] = 1;
+                GetBoneChilds(Layers[LayerID]->boneIDs,skeleton,(*i).self, true);
+                break;
+            }
+        }
     }
     void SkeletonAnimationInstance::AddBoneAndChilds(const std::string &LayerName, const std::string &bone, bool inclusive)
     {
@@ -261,9 +304,14 @@ namespace p3d {
     }
     void SkeletonAnimationInstance::RemoveBone(const uint32 LayerID, const std::string &bone)
     {
-        std::map<uint32,Bone>::iterator b;
-        if (b!=Layers[LayerID]->boneIDs.end())
-            Layers[LayerID]->boneIDs.erase(b);
+        for (std::vector<Bone>::iterator i=skeleton.begin();i!=skeleton.end();i++)
+        {
+            if ((*i).name.compare(bone)==0)
+            {
+                Layers[LayerID]->boneIDs[(*i).self] = -1;
+                break;
+            }
+        }
     }
     void SkeletonAnimationInstance::RemoveBone(const std::string &LayerName, const std::string &bone)
     {
@@ -287,18 +335,18 @@ namespace p3d {
         DestroyLayer(MakeStringID(LayerName));
     }
     
-    void SkeletonAnimationInstance::GetBoneChilds(std::map<StringID,Bone> &boneIDs, const std::map<StringID,Bone> &Skeleton, const uint32 id, bool add)
+    void SkeletonAnimationInstance::GetBoneChilds(std::vector<int32> &boneIDs, const std::vector<Bone> &Skeleton, const uint32 id, bool add)
     {
-        for (std::map<StringID, Bone>::iterator i=skeleton.begin();i!=skeleton.end();i++)
+        for (std::vector<Bone>::iterator i=skeleton.begin();i!=skeleton.end();i++)
         {
-            if ((*i).second.parent==id)
+            if ((*i).parent==id)
             {
                 if (add)
-                    boneIDs[(*i).first]=(*i).second;
+                    boneIDs[(*i).self]=1;
                 else if (!add)
-                    boneIDs.erase(boneIDs.find((*i).first));
+                    boneIDs[(*i).self]=1;
 
-                GetBoneChilds(boneIDs,Skeleton,(*i).second.self);
+                GetBoneChilds(boneIDs,Skeleton,(*i).self);
             }
         }
     }
@@ -338,31 +386,6 @@ namespace p3d {
     {
         SkeletonAnimationInstance* i = new SkeletonAnimationInstance(this,Component);
         Instances.push_back(i);
-
-        // Copy Bind Pose Matrix
-        for (std::map<StringID,Bone>::iterator a=i->skeleton.begin();a!=i->skeleton.end();a++)
-        {
-            // Set Bones Transformation based on Bone ID
-            i->bindPose[(*a).second.self] = (*a).second.bindPoseMat; // Copy BindPose
-            i->MapLocalToGlobalIDs[(*a).second.self] = (*a).first; // Save Map
-        }
-
-        // Multiply bones with its parent
-        for (std::map<StringID,Bone>::iterator a=i->skeleton.begin();a!=i->skeleton.end();a++)
-        {
-            i->Bones[(*a).second.self] = i->GetParentMatrix((*a).second.parent, i->boneTransformation) * i->boneTransformation[(*a).second.self];
-        }
-
-        // Send SubMesh Bones to Material
-        for (std::vector<RenderingMesh*>::iterator j = i->rcomp->GetMeshes().begin(); j != i->rcomp->GetMeshes().end(); j++)
-        {
-            (*j)->SkinningBones = std::vector<Matrix> ((*j)->MapBoneIDs.size());
-            for (std::map<int32,int32>::iterator k = (*j)->MapBoneIDs.begin(); k != (*j)->MapBoneIDs.end(); k++)
-            {
-                // Set list of Bones Matrices
-                (*j)->SkinningBones[(*k).second] = i->Bones[(*k).first] * (*j)->BoneOffsetMatrix[(*k).first];
-            }
-        }
 
         return i;
     }
@@ -532,16 +555,28 @@ namespace p3d {
                         trafo.Translate(curPosition);
                         //trafo.Scale(curScale);
 
-                        uint32 id = MakeStringID(ch.NodeName);
-                        (*_Anim).boneTransformationPerAnimation[(*i)->skeleton[id].self] = trafo;
+                        if ((*i)->ChannelBoneIDCache[a]==-1)
+                        {
+                            uint32 idBone = 0;
+                            for (std::vector<Bone>::iterator b=(*i)->skeleton.begin();b!=(*i)->skeleton.end();b++)
+                            {
+                                if ((*b).name.compare(Anim.Channels[a].NodeName)==0)
+                                {
+                                    (*i)->ChannelBoneIDCache[a] = (*b).self;
+                                    break;
+                                }
+                            }
+                        }
+
+                        (*_Anim).boneTransformationPerAnimation[(*i)->ChannelBoneIDCache[a]] = trafo;
                     }
                 }
             }
 
             // Multiply Bones
-            for (std::map<StringID,Bone>::iterator a=(*i)->skeleton.begin();a!=(*i)->skeleton.end();a++)
+            for (std::vector<Bone>::iterator a=(*i)->skeleton.begin();a!=(*i)->skeleton.end();a++)
             {
-                Matrix trafo = ((*i)->AnimationsToPlay.size()>1?(*i)->bindPose[(*a).second.self]:Matrix());
+                Matrix trafo = ((*i)->AnimationsToPlay.size()>1?(*i)->bindPose[(*a).self]:Matrix());
                 for (std::vector<_SkeletonAnimation::SkeletonAnimation>::reverse_iterator b=(*i)->AnimationsToPlay.rbegin();b!=(*i)->AnimationsToPlay.rend();b++)
                 {
                     // Blending
@@ -550,43 +585,42 @@ namespace p3d {
                         // Regular Bleding Animations
                         if (!(*b).HaveLayers)
                         {
-                            if ((*i)->boneIDs.find((*a).first)!=(*i)->boneIDs.end())
-                                trafo=SCALE((*b).boneTransformationPerAnimation[(*a).second.self],trafo,(*b).scale);
+                            if ((*i)->boneIDs[(*a).self]==1)
+                                trafo=SCALE((*b).boneTransformationPerAnimation[(*a).self],trafo,(*b).scale);
                         }
 
                         // Layered
-                        else if ((*b).Layer->boneIDs.find((*a).first)!=(*b).Layer->boneIDs.end())
+                        else if ((*b).Layer->boneIDs[(*a).self]==1)
                         {
                             if ((*b).Layer->usingLayer>1)
                             {
-                                trafo=SCALE((*b).boneTransformationPerAnimation[(*a).second.self],trafo,(*b).scale);
+                                trafo=SCALE((*b).boneTransformationPerAnimation[(*a).self],trafo,(*b).scale);
                             }
                             else
                             {
-                                trafo=(*b).boneTransformationPerAnimation[(*a).second.self];
+                                trafo=(*b).boneTransformationPerAnimation[(*a).self];
                             }
                         }
                     }
 
                     // Normal Playback of One Animation
                     else { 
-                            trafo = (*b).boneTransformationPerAnimation[(*a).second.self];
+                            trafo = (*b).boneTransformationPerAnimation[(*a).self];
                     }
                 }
                 // Apply Final Transformation to Bones
-                (*i)->boneTransformation[(*a).second.self] = trafo;
+                (*i)->boneTransformation[(*a).self] = trafo;
             }
 
             // Multiply bones with its parent - Tree
-            for (std::map<StringID,Bone>::iterator a=(*i)->skeleton.begin();a!=(*i)->skeleton.end();a++)
+            for (std::vector<Bone>::iterator a=(*i)->skeleton.begin();a!=(*i)->skeleton.end();a++)
             {
-                (*i)->Bones[(*a).second.self] = (*i)->GetParentMatrix((*a).second.parent, (*i)->boneTransformation) * (*i)->boneTransformation[(*a).second.self];
+                (*i)->Bones[(*a).self] = (*i)->GetParentMatrix((*a).parent, (*i)->boneTransformation) * (*i)->boneTransformation[(*a).self];
             }
 
             // Send SubMesh Bones to Material
             for (std::vector<RenderingMesh*>::iterator j = (*i)->rcomp->GetMeshes().begin(); j != (*i)->rcomp->GetMeshes().end(); j++)
             {
-                (*j)->SkinningBones = std::vector<Matrix> ((*j)->MapBoneIDs.size());
                 for (std::map<int32,int32>::iterator k = (*j)->MapBoneIDs.begin(); k != (*j)->MapBoneIDs.end(); k++)
                 {
                     // Set list of Bones Matrices
@@ -612,21 +646,17 @@ namespace p3d {
     // Get Parent Matrix
     Matrix SkeletonAnimationInstance::GetParentMatrix(const int32 id, const std::vector<Matrix> &bones)
     {
-        if(MapLocalToGlobalIDs.find(id)!=MapLocalToGlobalIDs.end())
+        if (id!=-1)
         {
-            // Keep a copy of Skeleton ID
-            uint32 boneOnSkeleton = MapLocalToGlobalIDs[id];
-
-            if (skeleton[boneOnSkeleton].parent>-1)
+            if (skeleton[id].parent>-1)
             {
-                return GetParentMatrix(skeleton[boneOnSkeleton].parent, bones) * bones[id];
+                return GetParentMatrix(skeleton[id].parent, bones) * bones[id];
             }
             return bones[id];
-        }
-        return Matrix();       
+        } else return Matrix();
     }
     
-    Matrix SkeletonAnimationInstance::GetBoneMatrix(const uint32 id)
+    Matrix SkeletonAnimationInstance::GetBoneMatrix(const int32 id)
     {
         return Bones[skeleton[id].self];
     }
