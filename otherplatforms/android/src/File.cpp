@@ -35,13 +35,13 @@ namespace p3d {
         return false;
     }
     
-    void File::Read(const void* src, const uint32 &size)
+    void File::Read(const void* src, const uint32 size)
     {
         memcpy((char*)src, &data[positionStream], sizeof(unsigned char)*size);
         positionStream += size * sizeof(unsigned char);
     }
 
-    void File::Write(const void* src, const uint32 &size)
+    void File::Write(const void* src, const uint32 size)
     {
         // Not Implemented Yet
         //fwrite(src,1,size,file);
