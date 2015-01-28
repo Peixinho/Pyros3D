@@ -85,7 +85,7 @@ namespace p3d {
             Anim._pauseTime = 0.f;
             Anim._repetition = repetition;
             Anim._currentTime = 0.f;
-            Anim.boneTransformationPerAnimation = std::vector<Matrix>(boneTransformation.size());
+            Anim.boneTransformationPerAnimation = bindPose;
 
             // Layers
             if (LayerName.size()>0)
