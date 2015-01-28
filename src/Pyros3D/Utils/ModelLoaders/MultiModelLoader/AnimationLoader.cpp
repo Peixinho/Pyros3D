@@ -14,8 +14,6 @@ namespace p3d {
 
     AnimationLoader::~AnimationLoader() {}
 
-#if !defined(ANDROID) && !defined(EMSCRIPTEN)
-
     bool AnimationLoader::Load(const std::string &Filename)
     {
         // Load Animations
@@ -105,7 +103,5 @@ namespace p3d {
 
         return true;
     }
-    
-#endif
 
 }

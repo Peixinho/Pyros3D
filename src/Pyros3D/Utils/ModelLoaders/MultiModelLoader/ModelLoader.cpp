@@ -14,8 +14,6 @@ namespace p3d {
 
     ModelLoader::~ModelLoader() {}
 
-#if !defined(ANDROID) && !defined(EMSCRIPTEN)
-
     bool ModelLoader::Load(const std::string& Filename)
     {
 		BinaryFile* bin = new BinaryFile();
@@ -286,7 +284,5 @@ namespace p3d {
 
         return true;
     }
-
-#endif
 
 }
