@@ -130,11 +130,14 @@ namespace p3d {
             Anim->_startTime = startTime*Owner->animations[Anim->ID].Duration; // RealTime
             Anim->speed = speed;
             Anim->scale = scale;
-            Anim->_startTimeClock = -1.f;
-            Anim->_isPaused = false;
-            Anim->_resumed = false;
-            Anim->_pauseStart = -1.f;
-            Anim->_pauseTime = 0.f;
+            if (!Anim->_isPaused)
+            {
+                Anim->_startTimeClock = -1.f;
+                Anim->_isPaused = false;
+                Anim->_resumed = false;
+                Anim->_pauseStart = -1.f;
+                Anim->_pauseTime = 0.f;
+            }
             Anim->_repetition = repetition;
         } else echo("ERROR: Animation Not Found");
     }
