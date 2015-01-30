@@ -38,7 +38,7 @@ solution "Pyros3D"
 
         language "C++"
         files { "../../src/**.h", "../../src/**.cpp" }
-        excludes { "../../src/Pyros3D/Assets/Sounds/**", "../../src/Pyros3D/Physics/**" }
+        excludes { "../../src/Pyros3D/Assets/Sounds/**" }
         
         includedirs { "../../include/", "include/" }
 
@@ -79,7 +79,7 @@ function BuildDemo(demoPath, demoName)
 
             targetdir ("bin/debug/examples/"..demoName)
 
-            links { libName.."d", "freetype" }
+            links { libName.."d", "BulletDynamics", "BulletCollision", "LinearMath", "freetype" }
             linkoptions { "-L../libs" }
           
             flags { "Symbols" }
@@ -89,7 +89,7 @@ function BuildDemo(demoPath, demoName)
 
             targetdir ("bin/release/examples/"..demoName)
 
-            links { libName, "freetype" }
+            links { libName, "BulletDynamics", "BulletCollision", "LinearMath" "freetype" }
             linkoptions { "-L../libs" }
 
             flags { "Optimize" }
