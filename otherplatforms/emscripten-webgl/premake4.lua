@@ -38,9 +38,9 @@ solution "Pyros3D"
 
         language "C++"
         files { "../../src/**.h", "../../src/**.cpp" }
-        excludes { "../../src/Pyros3D/AssetManager/Assets/Texture/Texture.cpp", "../../src/Pyros3D/AssetManager/Assets/Font/**", "../../src/Pyros3D/Utils/ModelLoaders/MultiModelLoader/**" }
+        excludes { "../../src/Pyros3D/Assets/Sounds/**", "../../src/Pyros3D/Physics/**" }
         
-        includedirs { "include/" }
+        includedirs { "../../include/", "include/" }
 
         defines({"UNICODE", "GLEW_STATIC", "LOG_DISABLE", "LODEPNG"}) 
                 
@@ -66,7 +66,7 @@ function BuildDemo(demoPath, demoName)
         excludes { demoPath.."/../WindowManagers/SDL2/**" }
         excludes { demoPath.."/../WindowManagers/SFML/**" }
         
-        includedirs { "include/", "../../src/" }
+        includedirs { "../../include/", "include/", "../../src/" }
     
         defines({"UNICODE", "GLEW_STATIC"})
         defines({framework});
@@ -79,7 +79,7 @@ function BuildDemo(demoPath, demoName)
 
             targetdir ("bin/debug/examples/"..demoName)
 
-            links { libName.."d", "freeimage", "BulletCollision", "BulletDynamics", "LinearMath", "freetype" }
+            links { libName.."d", "freetype" }
             linkoptions { "-L../libs" }
           
             flags { "Symbols" }
@@ -89,7 +89,7 @@ function BuildDemo(demoPath, demoName)
 
             targetdir ("bin/release/examples/"..demoName)
 
-            links { libName, "freeimage", "BulletCollision", "BulletDynamics", "LinearMath", "freetype" }
+            links { libName, "freetype" }
             linkoptions { "-L../libs" }
 
             flags { "Optimize" }
@@ -106,7 +106,7 @@ if _OPTIONS["examples"] then
     BuildDemo("../../examples/TextRendering", "TextRendering");
     BuildDemo("../../examples/CustomMaterial", "CustomMaterial");
     BuildDemo("../../examples/PickingPainterMethod", "PickingPainterMethod");
-    BuildDemo("../../examples/SkeletonAnimation", "SkeletonAnimation");
+    BuildDemo("../../examples/SkeletonAnimationExample", "SkeletonAnimationExample");
     BuildDemo("../../examples/DeferredRendering", "DeferredRendering");
     BuildDemo("../../examples/RacingGame", "RacingGame");
 end

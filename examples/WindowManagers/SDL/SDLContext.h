@@ -10,7 +10,7 @@
 #define SDLCONTEXT_H
 
 #include <SDL/SDL.h>
-#include "../../../src/Pyros3D/Core/Context/Context.h"
+#include <Pyros3D/Core/Context/Context.h>
 
 namespace p3d {
 
