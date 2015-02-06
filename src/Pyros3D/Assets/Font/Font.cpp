@@ -12,8 +12,6 @@
 
 namespace p3d {
     
-#if !defined(ANDROID) && !defined(EMSCRIPTEN)
-
     Font::Font(const std::string& font, const f32 size)
     {
         // Font path
@@ -47,8 +45,6 @@ namespace p3d {
         
         lastGlyphWidth = lastGlyphRow = 0;
     }
-
-#endif
     
     std::map<char,glyph_properties> Font::GetGlyphs()
     {

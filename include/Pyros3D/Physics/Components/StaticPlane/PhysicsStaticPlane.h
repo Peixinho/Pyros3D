@@ -7,7 +7,7 @@
 //============================================================================
 
 #ifndef PHYSICSSTATICPLANE_H
-#define	PHYSICSSSTATICPLANE_H
+#define	PHYSICSSTATICPLANE_H
 
 #include <Pyros3D/Physics/Components/IPhysicsComponent.h>
 

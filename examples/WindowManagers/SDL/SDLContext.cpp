@@ -127,7 +127,8 @@ namespace p3d {
 
         if (SDL_Init( SDL_INIT_EVERYTHING ) != 0) exit(EXIT_FAILURE);
         
-        if (SDL_SetVideoMode(width, height, 32, SDL_OPENGL | SDL_RESIZABLE) == NULL) exit(EXIT_FAILURE);
+        rview = SDL_SetVideoMode(width, height, 32, SDL_OPENGL | SDL_RESIZABLE);
+        if (rview == NULL) exit(EXIT_FAILURE);
         if (glewInit() != GLEW_OK) exit(EXIT_FAILURE);
         SDL_WM_SetCaption(title.c_str(), title.c_str());
         glViewport(0,0,width,height);
@@ -159,23 +160,47 @@ namespace p3d {
 		        Close();
             }
 
-          //   if (sdl_event.type == SDL_KEYDOWN)
-          //       KeyPressed(sdl_event.key.keysym.sym);
+            if( sdl_event.type == SDL_MOUSEBUTTONDOWN )
+            {
+                if( sdl_event.button.button == SDL_BUTTON_LEFT )
+                {
+                    MouseButtonPressed(0);
+                }
+                if( sdl_event.button.button == SDL_BUTTON_RIGHT )
+                {
+                    MouseButtonPressed(1);
+                }
+                if( sdl_event.button.button == SDL_BUTTON_MIDDLE )
+                {
+                    MouseButtonPressed(2);
+                }
+            }
 
-          //   if (sdl_event.type == SDL_KEYUP)
-          //       KeyReleased(sdl_event.key.keysym.sym);
-            
-          //   if (sdl_event.type == SDL_MOUSEBUTTONDOWN)
-          //       MouseButtonPressed(sdl_event.button.button);
+            if( sdl_event.type == SDL_MOUSEBUTTONUP )
+            {
+                if( sdl_event.button.button == SDL_BUTTON_LEFT )
+                {
+                    MouseButtonReleased(0);
+                }
+                if( sdl_event.button.button == SDL_BUTTON_RIGHT )
+                {
+                    MouseButtonReleased(1);
+                }
+                if( sdl_event.button.button == SDL_BUTTON_MIDDLE )
+                {
+                 	MouseButtonReleased(2);   
+                }
+            }
 
-          //   if (sdl_event.type == SDL_MOUSEBUTTONUP)
-          //       MouseButtonReleased(sdl_event.button.button);
+            if ( sdl_event.type == SDL_MOUSEMOTION)
+            {
+                MouseMove(sdl_event.motion.x,sdl_event.motion.y);
+            }
 
-          //   if (sdl_event.type == SDL_MOUSEMOTION)
-          //       MouseMove(sdl_event.motion.x,sdl_event.motion.y);
-
-          //   if (sdl_event.type == SDL_MOUSEWHEEL)
-          //       MouseWheel(sdl_event.wheel.y);
+            if (sdl_event.type == SDL_MOUSEWHEEL)
+            {
+                MouseWheel((sdl_event.wheel.y>0?1:-1));
+            }
 
           //   // // Joypad
           //   // if (event.type == sf::Event::JoystickButtonPressed)
@@ -207,11 +232,11 @@ namespace p3d {
     
     void SDLContext::HideMouse()
     {
-
+        SDL_ShowCursor(SDL_DISABLE);
     }
     void SDLContext::ShowMouse()
     {
-        
+        SDL_ShowCursor(SDL_ENABLE);
     }
     // Buttons and Mouse
     void SDLContext::KeyPressed(const uint32 key)
@@ -269,7 +294,7 @@ namespace p3d {
     }
     void SDLContext::SetMousePosition(const uint32 mouseX, const uint32 mouseY)
     {
-
+        SDL_WarpMouse(mouseX, mouseY);
     }
     const Vec2 SDLContext::GetMousePosition() const
     {

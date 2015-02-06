@@ -84,7 +84,7 @@ namespace p3d
                 vertexShaderBody+="vTexcoord = aTexcoord;\n";
                 // Fragment Header
                 fragmentShaderHeader+="varying vec2 vTexcoord;\n";
-                fragmentShaderHeader+="vec2 Texcoord = vTexcoord;\n";
+                fragmentShaderBody+="vec2 Texcoord = vTexcoord;\n";
             }
             fragmentShaderHeader+="uniform sampler2D uColormap;\n";
             fragmentShaderBody+="if (!diffuseIsSet) {diffuse=texture2D(uColormap,Texcoord); diffuseIsSet=true;} else diffuse *= texture2D(uColormap,Texcoord);\n";

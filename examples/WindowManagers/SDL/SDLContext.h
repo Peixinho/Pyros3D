@@ -40,8 +40,7 @@ namespace p3d {
             virtual void OnResize(const uint32 width, const uint32 height);
             void Close();
 
-            // methods
-            SDL_Surface GetWindow();            
+            // methods         
             void HideMouse();
             void ShowMouse();
             void SetMousePosition(const uint32 mouseX, const uint32 mouseY);
