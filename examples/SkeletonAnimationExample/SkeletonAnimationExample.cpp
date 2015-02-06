@@ -12,7 +12,7 @@ using namespace p3d;
 
 SkeletonAnimationExample::SkeletonAnimationExample() : ClassName(1024,768,"Pyros3D - Skeleton Animation Example",WindowType::Close | WindowType::Resize)
 {
-    
+    changed = false;
 }
 
 void SkeletonAnimationExample::OnResize(const uint32 width, const uint32 height)
@@ -40,68 +40,128 @@ void SkeletonAnimationExample::Init()
         
         // Create Camera
         Camera = new GameObject();
-        Camera->SetPosition(Vec3(0,5,50));
+        Camera->SetPosition(Vec3(0,10,100));
 
         // Light
         Light = new GameObject();
         dLight = new DirectionalLight(Vec4(1,1,1,1), Vec3(1,1,1));
         Light->Add(dLight);
         Scene->Add(Light);
-        Light->SetPosition(Vec3(1,1,1));
 
         // Create Game Object
         ModelObject = new GameObject();
-        modelHandle = new Model("../../../../examples/SkeletonAnimationExample/assets/Model.p3dm",false,ShaderUsage::Diffuse | ShaderUsage::Skinning);
+        modelHandle = new Model("../../../../examples/SkeletonAnimationExample/assets/human.p3dm",false,ShaderUsage::Diffuse | ShaderUsage::Skinning);
+        ((Model*)modelHandle)->DebugSkeleton();
         rModel = new RenderingComponent(modelHandle);
         ModelObject->Add(rModel);
-		ModelObject->AddTag("Teste");
-        ModelObject->SetScale(Vec3(10,10,10));
+        ModelObject->AddTag("Teste");
+        ModelObject->SetPosition(Vec3(-10,0,0));
+        ModelObject->SetScale(Vec3(2,2,2));
  
         SAnim = new SkeletonAnimation();
-        SAnim->LoadAnimation("../../../../examples/SkeletonAnimationExample/assets/Animation.p3da");
+        SAnim->LoadAnimation("../../../../examples/SkeletonAnimationExample/assets/walk.p3da");
+        SAnim->LoadAnimation("../../../../examples/SkeletonAnimationExample/assets/alert.p3da");
+        SAnim->LoadAnimation("../../../../examples/SkeletonAnimationExample/assets/run.p3da");
+        SAnim->LoadAnimation("../../../../examples/SkeletonAnimationExample/assets/walk.p3da");
+
+        ModelObject2 = new GameObject();
+        modelHandle2 = new Model("../../../../examples/SkeletonAnimationExample/assets/Model.p3dm",false,ShaderUsage::Diffuse | ShaderUsage::Skinning);
+        rModel2 = new RenderingComponent(modelHandle2);
+        ModelObject2->Add(rModel2);
+        ModelObject2->AddTag("Teste");
+        ModelObject2->SetPosition(Vec3(15,12,0));
+        ModelObject2->SetScale(Vec3(10,10,10));
+ 
+        SAnim2 = new SkeletonAnimation();
+        SAnim2->LoadAnimation("../../../../examples/SkeletonAnimationExample/assets/Animation.p3da");
+        
         // test->LoadAnimation("../../../../examples/SkeletonAnimationExample/assets/walk.p3da");
         // test->LoadAnimation("../../../../examples/SkeletonAnimationExample/assets/walk.p3da");
         anim = SAnim->CreateInstance(rModel);
+        anim2 = SAnim2->CreateInstance(rModel2);
 
-        anim->Play(0,0,3,1,1);
-        //anim->Play(1,-1,0,1,1);
+        uint32 animationID = 0;
+        uint32 animationID2 = 2;
 
+        anim->CreateLayer("Layer1");
+        anim->AddBoneAndChilds("Layer1","Bip01_Spine1");
+
+        animationPos = anim->Play(animationID,0,-1,1,0.9);
+        animationPos2 = anim->Play(animationID2,0,-1,1,0.1);
+        anim->Play(1,0,-1,1,0.5,"Layer1");
+        anim->Play(3,0,-1,1,0.5,"Layer1");
+
+        anim2->Play(0,0,-1,1,1.0);
+        //animationPos2 = 1;
+        
         std::cout << "Animations: " << SAnim->GetNumberAnimations() << std::endl;
-        std::cout << "Duration: " << SAnim->GetAnimations()[0].Duration << std::endl;
-        std::cout << "Ticks: " << SAnim->GetAnimations()[0].TicksPerSecond << std::endl;
-        std::cout << "Animation Name: " << SAnim->GetAnimations()[0].AnimationName << std::endl;
+        std::cout << "Duration: " << SAnim->GetAnimations()[animationPos].Duration << std::endl;
+        std::cout << "Ticks: " << SAnim->GetAnimations()[animationPos].TicksPerSecond << std::endl;
+        std::cout << "Animation Name: " << SAnim->GetAnimations()[animationPos].AnimationName << std::endl;
+        std::cout << "Channels: " << SAnim->GetAnimations()[animationPos].Channels.size() << std::endl;
+
+        std::cout << "Duration: " << SAnim->GetAnimations()[animationPos2].Duration << std::endl;
+        std::cout << "Ticks: " << SAnim->GetAnimations()[animationPos2].TicksPerSecond << std::endl;
+        std::cout << "Animation Name: " << SAnim->GetAnimations()[animationPos2].AnimationName << std::endl;
+        std::cout << "Channels: " << SAnim->GetAnimations()[animationPos2].Channels.size() << std::endl;
+
+        std::cout << "Animation 1 Position on Animator: " << animationPos << std::endl;
+        std::cout << "Animation 2 Position on Animator: " << animationPos2 << std::endl;
 
         // Add Camera to Scene
         Scene->Add(Camera);
         // Add GameObject to Scene
         Scene->Add(ModelObject);
+        Scene->Add(ModelObject2);
 
-
-        InputManager::AddEvent(Event::Type::OnPress, Event::Input::Mouse::Left, this, &SkeletonAnimationExample::OnMousePress);
+        InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &SkeletonAnimationExample::OnMouseMove);
 }
 
 void SkeletonAnimationExample::Update()
 {
     // Update - Game Loop
+        if (changed)
+        {
+            anim->ChangeProperties(animationPos,anim->GetAnimationCurrentProgress(animationPos2),-1,speed1,scale1);
+            anim->ChangeProperties(animationPos2,anim->GetAnimationCurrentProgress(animationPos2),-1,speed2,scale2);
+
+            changed = false;
+        }
 
         // Updates Animation
         SAnim->Update(GetTime());
+        SAnim2->Update(GetTime());
 
         // Update Scene
         Scene->Update(GetTime());
 
         // Render Scene
-		Renderer->RenderSceneByTag(projection,Camera,Scene,"Teste");
+        Renderer->RenderSceneByTag(projection,Camera,Scene,"Teste");
 }
 
-void SkeletonAnimationExample::OnMousePress(Event::Input::Info e)
+void SkeletonAnimationExample::OnMouseMove(Event::Input::Info e)
 {
-    //if (anim->IsPaused(0)) anim->ResumeAnimation(0);
-    //else anim->PauseAnimation(0);
-    if (anim->GetAnimationSpeed(0)==-1) anim->Play(0,anim->GetAnimationCurrentTime(0),-1,1,1);
-    else if (anim->GetAnimationSpeed(0)==1) anim->Play(0,anim->GetAnimationCurrentTime(0),-1,-1,1);
-}
+    if (!changed)
+    {
+        f32 coord = ((Vec2)e.Value).x;
+        f32 w = (f32)Width*0.5f;
 
+        scale1 = (fabs(coord-w*2) / (w*2));
+        scale2 = 1.f-scale1;
+
+        f32 Time1 = SAnim->GetAnimations()[animationPos].Duration;
+        f32 Time2 = SAnim->GetAnimations()[animationPos2].Duration;
+
+        f32 diffTime1 = (scale1*Time1);
+        f32 diffTime2 = (scale2*Time2);
+        f32 diffTime = diffTime1 + diffTime2;
+        
+        speed1 = diffTime / Time2;
+        speed2 = diffTime / Time1;
+        
+        changed = true;
+    }
+}
 void SkeletonAnimationExample::Shutdown()
 {
     // All your Shutdown Code Here
@@ -111,7 +171,8 @@ void SkeletonAnimationExample::Shutdown()
         Scene->Remove(Camera);
         
         ModelObject->Remove(rModel);
-    
+        
+        SAnim->DestroyInstance(anim);
         delete SAnim;
 
         // Delete

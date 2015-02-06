@@ -7,7 +7,7 @@
 //============================================================================
 
 #ifndef SKELETONANIMATIONEXAMPLE_H
-#define	SKELETONANIMATIONEXAMPLE_H
+#define SKELETONANIMATIONEXAMPLE_H
 
 #if defined(_SDL)
     #include "../WindowManagers/SDL/SDLContext.h"
@@ -43,7 +43,7 @@ class SkeletonAnimationExample : public ClassName {
         virtual void Shutdown();
         virtual void OnResize(const uint32 width, const uint32 height);
         
-        void OnMousePress(Event::Input::Info e);
+        void OnMouseMove(Event::Input::Info e);
     private:
 
         // Scene
@@ -59,16 +59,26 @@ class SkeletonAnimationExample : public ClassName {
         DirectionalLight* dLight;
         // GameObject
         GameObject* ModelObject;
+        GameObject* ModelObject2;
         // Rendering Component
         RenderingComponent* rModel;
+        RenderingComponent* rModel2;
         // Model handle
         Renderable* modelHandle;
+        Renderable* modelHandle2;
         // Animation
         SkeletonAnimationInstance* anim;
+        SkeletonAnimationInstance* anim2;
 
         SkeletonAnimation* SAnim;
+        SkeletonAnimation* SAnim2;
+        uint32 animationPos;
+        uint32 animationPos2;
+
+        f32 speed1, speed2;
+        f32 scale1, scale2;
+        bool changed;
 
 };
 
-#endif	/* SKELETONANIMATIONEXAMPLE_H */
-
+#endif  /* SKELETONANIMATIONEXAMPLE_H */
