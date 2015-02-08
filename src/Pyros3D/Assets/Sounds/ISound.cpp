@@ -21,7 +21,7 @@ namespace p3d {
 
     ISound::~ISound()
     {
-        #ifdef _SDL2
+        #if defined(_SDL2) || defined(_SDL)
             switch(_type)
             {
                 case SoundType::Music:
@@ -42,7 +42,7 @@ namespace p3d {
             case SoundType::Music:
             {
 
-                #ifdef _SDL2
+                #if defined(_SDL2) || defined(_SDL)
 
                     _Music = Mix_LoadMUS(filename.c_str());
 					return true;
@@ -59,7 +59,7 @@ namespace p3d {
             case SoundType::Sound:
             default:
             {
-                #ifdef _SDL2
+                #if defined(_SDL2) || defined(_SDL)
 
                     _Sound = Mix_LoadWAV(filename.c_str());
 					return true;
@@ -89,7 +89,7 @@ namespace p3d {
         {
             case SoundType::Music:
                 
-                #ifdef _SDL2
+                #if defined(_SDL2) || defined(_SDL)
 
                     Mix_PlayMusic(_Music, (_loop?-1:0));
                     Mix_VolumeMusic(_volume*100/128);
@@ -106,7 +106,7 @@ namespace p3d {
             case SoundType::Sound:
             default:
 
-                #ifdef _SDL2
+                #if defined(_SDL2) || defined(_SDL)
 
                     channel = Mix_PlayChannel(-1, _Sound, (_loop?-1:0));
                     Mix_Volume(channel,_volume*100/128);
@@ -126,7 +126,7 @@ namespace p3d {
     {
         _volume = (vol>=100?100:vol);
 
-        #ifdef _SDL2
+        #if defined(_SDL2) || defined(_SDL)
 
             switch(_type)
             {
@@ -169,7 +169,7 @@ namespace p3d {
             {
                 case SoundType::Music:
                         
-                    #ifdef _SDL2
+                    #if defined(_SDL2) || defined(_SDL)
                         Mix_PausedMusic();
                     #else
                         _Music.pause();
@@ -179,7 +179,7 @@ namespace p3d {
                 case SoundType::Sound:
                 default:
                         
-                    #ifdef _SDL2
+                    #if defined(_SDL2) || defined(_SDL)
                         Mix_Pause(channel);
                     #else
                         _Sound.pause();
@@ -193,7 +193,7 @@ namespace p3d {
             {
                 case SoundType::Music:
                     
-                    #ifdef _SDL2
+                    #if defined(_SDL2) || defined(_SDL)
                         Mix_ResumeMusic();
                     #else
                         _Music.play();
@@ -202,7 +202,7 @@ namespace p3d {
                 break;
                 case SoundType::Sound:
                     
-                    #ifdef _SDL2
+                    #if defined(_SDL2) || defined(_SDL)
                         Mix_Resume(channel);
                     #else
                         _Sound.play();
@@ -220,7 +220,7 @@ namespace p3d {
         {
             case SoundType::Music:
                 
-                #ifdef _SDL2
+                #if defined(_SDL2) || defined(_SDL)
                     Mix_HaltMusic();
                 #else
                     _Music.stop();
@@ -229,7 +229,7 @@ namespace p3d {
             break;
             case SoundType::Sound:
                 
-                #ifdef _SDL2
+                #if defined(_SDL2) || defined(_SDL)
                     Mix_HaltChannel(channel);
                 #else
                     _Sound.stop();

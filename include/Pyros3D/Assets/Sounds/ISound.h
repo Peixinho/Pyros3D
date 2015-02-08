@@ -15,7 +15,7 @@
 #include <Pyros3D/Ext/Signals/Delegate.h>
 #include <Pyros3D/Other/Export.h>
 
-#ifdef _SDL2
+#if defined(_SDL2) || defined(_SDL)
     #include <SDL.h>
     #include <SDL_mixer.h>
 #else
@@ -57,7 +57,7 @@ namespace p3d {
             uint32 _volume;
             uint32 _type;
             
-            #ifdef _SDL2
+            #if defined(_SDL2) || defined(_SDL)
                 Mix_Music *_Music;
                 Mix_Chunk *_Sound;
                 int32 channel;

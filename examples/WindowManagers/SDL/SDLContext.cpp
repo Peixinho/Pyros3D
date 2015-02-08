@@ -132,6 +132,7 @@ namespace p3d {
         if (glewInit() != GLEW_OK) exit(EXIT_FAILURE);
         SDL_WM_SetCaption(title.c_str(), title.c_str());
         glViewport(0,0,width,height);
+        Mix_OpenAudio(0, 0, 0, 0);
     }
     SDLContext::~SDLContext() 
     {
@@ -164,11 +165,11 @@ namespace p3d {
             {
                 if( sdl_event.button.button == SDL_BUTTON_LEFT )
                 {
-                    MouseButtonPressed(0);
+                    MouseButtonPressed(1);
                 }
                 if( sdl_event.button.button == SDL_BUTTON_RIGHT )
                 {
-                    MouseButtonPressed(1);
+                    MouseButtonPressed(0);
                 }
                 if( sdl_event.button.button == SDL_BUTTON_MIDDLE )
                 {
@@ -180,11 +181,11 @@ namespace p3d {
             {
                 if( sdl_event.button.button == SDL_BUTTON_LEFT )
                 {
-                    MouseButtonReleased(0);
+                    MouseButtonReleased(1);
                 }
                 if( sdl_event.button.button == SDL_BUTTON_RIGHT )
                 {
-                    MouseButtonReleased(1);
+                    MouseButtonReleased(0);
                 }
                 if( sdl_event.button.button == SDL_BUTTON_MIDDLE )
                 {
