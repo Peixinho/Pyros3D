@@ -89,10 +89,10 @@ void DeferredRendering::Init()
 
         // Material
         Diffuse = new CustomShaderMaterial("../../../../examples/DeferredRendering/assets/shaders/gbuffer.vert","../../../../examples/DeferredRendering/assets/shaders/gbuffer.frag");        
-        Diffuse->AddUniform(Uniform::Uniform("uModelMatrix", Uniform::DataUsage::ModelMatrix));
-        Diffuse->AddUniform(Uniform::Uniform("uViewMatrix", Uniform::DataUsage::ViewMatrix));
-        Diffuse->AddUniform(Uniform::Uniform("uProjectionMatrix", Uniform::DataUsage::ProjectionMatrix));
-        Diffuse->AddUniform(Uniform::Uniform("uColor", Uniform::DataUsage::Other, Uniform::DataType::Vec4));
+        Diffuse->AddUniform(Uniforms::Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
+        Diffuse->AddUniform(Uniforms::Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
+        Diffuse->AddUniform(Uniforms::Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
+        Diffuse->AddUniform(Uniforms::Uniform("uColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
         Vec4 color = Vec4(0.8,0.8,0.8,1.0);
         Diffuse->SetUniformValue("uColor", &color);
 

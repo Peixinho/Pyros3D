@@ -37,23 +37,23 @@ namespace p3d {
         // Create Second Pass Specifics
         uint32 texID = 0;
         deferredMaterial = new CustomShaderMaterial("../../../../examples/DeferredRendering/assets/shaders/secondpass.vert","../../../../examples/DeferredRendering/assets/shaders/secondpass.frag");
-        deferredMaterial->AddUniform(Uniform::Uniform("tDepth", Uniform::DataType::Int, &texID));
+        deferredMaterial->AddUniform(Uniforms::Uniform("tDepth", Uniforms::DataType::Int, &texID));
         texID = 1;
-        deferredMaterial->AddUniform(Uniform::Uniform("tDiffuse", Uniform::DataType::Int, &texID));
+        deferredMaterial->AddUniform(Uniforms::Uniform("tDiffuse", Uniforms::DataType::Int, &texID));
         texID = 2;
-        deferredMaterial->AddUniform(Uniform::Uniform("tSpecular", Uniform::DataType::Int, &texID));
+        deferredMaterial->AddUniform(Uniforms::Uniform("tSpecular", Uniforms::DataType::Int, &texID));
         texID = 3;
-        deferredMaterial->AddUniform(Uniform::Uniform("tNormal", Uniform::DataType::Int, &texID));
+        deferredMaterial->AddUniform(Uniforms::Uniform("tNormal", Uniforms::DataType::Int, &texID));
         texID = 4;
-        deferredMaterial->AddUniform(Uniform::Uniform("tPosition", Uniform::DataType::Int, &texID));
+        deferredMaterial->AddUniform(Uniforms::Uniform("tPosition", Uniforms::DataType::Int, &texID));
         
-        deferredMaterial->AddUniform(Uniform::Uniform("uScreenDimensions", Uniform::DataUsage::ScreenDimensions));
-        deferredMaterial->AddUniform(Uniform::Uniform("uLightPosition", Uniform::DataUsage::Other, Uniform::DataType::Vec3));
-        deferredMaterial->AddUniform(Uniform::Uniform("uLightRadius", Uniform::DataUsage::Other, Uniform::DataType::Float));
-        deferredMaterial->AddUniform(Uniform::Uniform("uLightColor", Uniform::DataUsage::Other, Uniform::DataType::Vec4));
-        deferredMaterial->AddUniform(Uniform::Uniform("uModelMatrix", Uniform::DataUsage::ModelMatrix));
-        deferredMaterial->AddUniform(Uniform::Uniform("uViewMatrix", Uniform::DataUsage::ViewMatrix));
-        deferredMaterial->AddUniform(Uniform::Uniform("uProjectionMatrix", Uniform::DataUsage::ProjectionMatrix));
+        deferredMaterial->AddUniform(Uniforms::Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
+        deferredMaterial->AddUniform(Uniforms::Uniform("uLightPosition", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
+        deferredMaterial->AddUniform(Uniforms::Uniform("uLightRadius", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+        deferredMaterial->AddUniform(Uniforms::Uniform("uLightColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+        deferredMaterial->AddUniform(Uniforms::Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
+        deferredMaterial->AddUniform(Uniforms::Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
+        deferredMaterial->AddUniform(Uniforms::Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
         
         // Light Volume
         sphereHandle = new Sphere(1,4,4);

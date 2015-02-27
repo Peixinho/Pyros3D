@@ -37,10 +37,10 @@ class CustomMaterialExample : public CustomShaderMaterial {
             
             CustomMaterialExample() : CustomShaderMaterial("../../../../examples/CustomMaterial/assets/vertex.vert","../../../../examples/CustomMaterial/assets/fragment.frag")
             {
-                AddUniform(Uniform::Uniform("uProjectionMatrix",Uniform::DataUsage::ProjectionMatrix));
-                AddUniform(Uniform::Uniform("uViewMatrix",Uniform::DataUsage::ViewMatrix));
-                AddUniform(Uniform::Uniform("uModelMatrix",Uniform::DataUsage::ModelMatrix));
-                AddUniform(Uniform::Uniform("uColor",Uniform::DataUsage::Other,Uniform::DataType::Vec4));
+                AddUniform(Uniforms::Uniform("uProjectionMatrix",Uniforms::DataUsage::ProjectionMatrix));
+                AddUniform(Uniforms::Uniform("uViewMatrix",Uniforms::DataUsage::ViewMatrix));
+                AddUniform(Uniforms::Uniform("uModelMatrix",Uniforms::DataUsage::ModelMatrix));
+                AddUniform(Uniforms::Uniform("uColor",Uniforms::DataUsage::Other,Uniforms::DataType::Vec4));
             }
             
             virtual void PreRender() 
