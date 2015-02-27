@@ -360,4 +360,12 @@ namespace p3d {
 	{
 		return (TagsList.find(tag)!=TagsList.end());
 	}
+
+    // Helpers
+    void GameObject::AddComponent(IComponent* Component) { Add(Component); }
+    void GameObject::AddGameObject(GameObject* GO) { Add(GO); }
+    void GameObject::RemoveComponent(IComponent* Component) { Remove(Component); }
+    void GameObject::RemoveGameObject(GameObject* GO) { Remove(GO); }
+    void GameObject::LookAtGameObject(GameObject* GO) { LookAt(GO); }
+    void GameObject::LookAtVec(const Vec3 &center) { LookAt(center); }
 };

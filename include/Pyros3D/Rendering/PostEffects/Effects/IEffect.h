@@ -21,7 +21,7 @@ namespace p3d {
 
 	struct __UniformPostProcess
 	{
-		Uniform::Uniform uniform;
+		Uniforms::Uniform uniform;
 		int32 handle;
 	};
 
@@ -41,7 +41,7 @@ namespace p3d {
         };
     }
     
-    namespace Uniform {
+    namespace Uniforms {
         namespace PostEffects {
             enum {
                 ProjectionMatrix = 0,
@@ -86,7 +86,7 @@ namespace p3d {
 
         protected:
 
-            void AddUniform(const Uniform::Uniform &Data);
+            void AddUniform(const Uniform &Data);
 
             int32 positionHandle, texcoordHandle;
             

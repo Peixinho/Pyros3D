@@ -26,12 +26,13 @@ namespace p3d {
         // Increase Internal ID
         _InternalID++;
     }
+    void IMaterial::Destroy() {}
     void IMaterial::SetOpacity(const f32 &opacity)
     {
         this->opacity = opacity;
         if (opacity<1.f) isTransparent = true;
         else isTransparent = false;
-        AddUniform(Uniform::Uniform("uOpacity",Uniform::DataType::Float,&this->opacity));
+        AddUniform(Uniform("uOpacity",DataType::Float,&this->opacity));
     }
     void IMaterial::SetCullFace(const uint32 &face)
     {
@@ -97,15 +98,15 @@ namespace p3d {
         UserUniforms[ID].SetValue(value,elementCount);
     }
         
-    void IMaterial::AddUniform(Uniform::Uniform Data)
+    void IMaterial::AddUniform(const Uniform &Data)
     {
         // Global Uniforms
-        if ((int)Data.Usage<Uniform::DataUsage::Other)
+        if ((int)Data.Usage<DataUsage::Other)
         {
             GlobalUniforms.push_back(Data);
         }
         // Game Object Uniforms
-        else if ((int)Data.Usage>Uniform::DataUsage::Other)
+        else if ((int)Data.Usage>DataUsage::Other)
         {
             ModelUniforms.push_back(Data);
         } else // User Specific

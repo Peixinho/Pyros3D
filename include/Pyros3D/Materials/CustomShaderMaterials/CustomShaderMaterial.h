@@ -16,6 +16,7 @@
 
 namespace p3d
 {
+    using namespace Uniforms;
  
     class PYROS3D_API CustomShaderMaterial : public IMaterial
     {

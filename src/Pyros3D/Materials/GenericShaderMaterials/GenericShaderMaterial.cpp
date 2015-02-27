@@ -41,13 +41,13 @@ namespace p3d
         cullFace = CullFace::BackFace;
         
         // Always used Uniforms
-        AddUniform(Uniform::Uniform("uProjectionMatrix",Uniform::DataUsage::ProjectionMatrix));
-        AddUniform(Uniform::Uniform("uViewMatrix",Uniform::DataUsage::ViewMatrix));
-        AddUniform(Uniform::Uniform("uModelMatrix",Uniform::DataUsage::ModelMatrix));
+        AddUniform(Uniform("uProjectionMatrix",DataUsage::ProjectionMatrix));
+        AddUniform(Uniform("uViewMatrix",DataUsage::ViewMatrix));
+        AddUniform(Uniform("uModelMatrix",DataUsage::ModelMatrix));
 
         // Default Opacity
         f32 opacity = 1.0;
-        AddUniform(Uniform::Uniform("uOpacity",Uniform::DataType::Float,&opacity));
+        AddUniform(Uniform("uOpacity",DataType::Float,&opacity));
         SetOpacity(opacity);
 
         // Default PCF Texel Size
@@ -67,69 +67,69 @@ namespace p3d
             UseLights = 1.0;
 
             // Lighting Uniforms
-            AddUniform(Uniform::Uniform("uKe",Uniform::DataType::Vec4,&Ke));
-            AddUniform(Uniform::Uniform("uKa",Uniform::DataType::Vec4,&Ka));
-            AddUniform(Uniform::Uniform("uKd",Uniform::DataType::Vec4,&Kd));
-            AddUniform(Uniform::Uniform("uKs",Uniform::DataType::Vec4,&Ks));
-            AddUniform(Uniform::Uniform("uShininess",Uniform::DataType::Float,&Shininess));
-            AddUniform(Uniform::Uniform("uLights",Uniform::DataUsage::Lights));
-            AddUniform(Uniform::Uniform("uNumberOfLights",Uniform::DataUsage::NumberOfLights));
-            AddUniform(Uniform::Uniform("uAmbientLight",Uniform::DataUsage::GlobalAmbientLight));
-            AddUniform(Uniform::Uniform("uUseLights",Uniform::DataType::Float,&UseLights));
+            AddUniform(Uniform("uKe",DataType::Vec4,&Ke));
+            AddUniform(Uniform("uKa",DataType::Vec4,&Ka));
+            AddUniform(Uniform("uKd",DataType::Vec4,&Kd));
+            AddUniform(Uniform("uKs",DataType::Vec4,&Ks));
+            AddUniform(Uniform("uShininess",DataType::Float,&Shininess));
+            AddUniform(Uniform("uLights",DataUsage::Lights));
+            AddUniform(Uniform("uNumberOfLights",DataUsage::NumberOfLights));
+            AddUniform(Uniform("uAmbientLight",DataUsage::GlobalAmbientLight));
+            AddUniform(Uniform("uUseLights",DataType::Float,&UseLights));
         }
 
         if (options & ShaderUsage::DirectionalShadow)
         {
             // Shadows
-            AddUniform(Uniform::Uniform("uDirectionalShadowMaps",Uniform::DataUsage::DirectionalShadowMap));
-            AddUniform(Uniform::Uniform("uDirectionalDepthsMVP",Uniform::DataUsage::DirectionalShadowMatrix));
-            AddUniform(Uniform::Uniform("uDirectionalShadowFar",Uniform::DataUsage::DirectionalShadowFar));
-            AddUniform(Uniform::Uniform("uNumberOfDirectionalShadows",Uniform::DataUsage::NumberOfDirectionalShadows));
-            AddUniform(Uniform::Uniform("uPCFTexelSize1",Uniform::DataType::Float,&PCFTexelSize1));
-            AddUniform(Uniform::Uniform("uPCFTexelSize2",Uniform::DataType::Float,&PCFTexelSize2));
-            AddUniform(Uniform::Uniform("uPCFTexelSize3",Uniform::DataType::Float,&PCFTexelSize3));
-            AddUniform(Uniform::Uniform("uPCFTexelSize4",Uniform::DataType::Float,&PCFTexelSize4));
+            AddUniform(Uniform("uDirectionalShadowMaps",DataUsage::DirectionalShadowMap));
+            AddUniform(Uniform("uDirectionalDepthsMVP",DataUsage::DirectionalShadowMatrix));
+            AddUniform(Uniform("uDirectionalShadowFar",DataUsage::DirectionalShadowFar));
+            AddUniform(Uniform("uNumberOfDirectionalShadows",DataUsage::NumberOfDirectionalShadows));
+            AddUniform(Uniform("uPCFTexelSize1",DataType::Float,&PCFTexelSize1));
+            AddUniform(Uniform("uPCFTexelSize2",DataType::Float,&PCFTexelSize2));
+            AddUniform(Uniform("uPCFTexelSize3",DataType::Float,&PCFTexelSize3));
+            AddUniform(Uniform("uPCFTexelSize4",DataType::Float,&PCFTexelSize4));
             isCastingShadows = true;
         }
         
         if (options & ShaderUsage::PointShadow)
         {
             // Shadows
-            AddUniform(Uniform::Uniform("uPointShadowMaps",Uniform::DataUsage::PointShadowMap));
-            AddUniform(Uniform::Uniform("uPointDepthsMVP",Uniform::DataUsage::PointShadowMatrix));
-            AddUniform(Uniform::Uniform("uNumberOfPointShadows",Uniform::DataUsage::NumberOfPointShadows));
-            AddUniform(Uniform::Uniform("uPCFTexelSize",Uniform::DataType::Float,&PCFTexelSize1));
+            AddUniform(Uniform("uPointShadowMaps",DataUsage::PointShadowMap));
+            AddUniform(Uniform("uPointDepthsMVP",DataUsage::PointShadowMatrix));
+            AddUniform(Uniform("uNumberOfPointShadows",DataUsage::NumberOfPointShadows));
+            AddUniform(Uniform("uPCFTexelSize",DataType::Float,&PCFTexelSize1));
             isCastingShadows = true;
         }
         
         if (options & ShaderUsage::SpotShadow)
         {
             // Shadows
-            AddUniform(Uniform::Uniform("uSpotShadowMaps",Uniform::DataUsage::SpotShadowMap));
-            AddUniform(Uniform::Uniform("uSpotDepthsMVP",Uniform::DataUsage::SpotShadowMatrix));
-            AddUniform(Uniform::Uniform("uNumberOfSpotShadows",Uniform::DataUsage::NumberOfSpotShadows));
-            AddUniform(Uniform::Uniform("uPCFTexelSize",Uniform::DataType::Float,&PCFTexelSize1));
+            AddUniform(Uniform("uSpotShadowMaps",DataUsage::SpotShadowMap));
+            AddUniform(Uniform("uSpotDepthsMVP",DataUsage::SpotShadowMatrix));
+            AddUniform(Uniform("uNumberOfSpotShadows",DataUsage::NumberOfSpotShadows));
+            AddUniform(Uniform("uPCFTexelSize",DataType::Float,&PCFTexelSize1));
             isCastingShadows = true;
         }
         
         if (options & ShaderUsage::EnvMap)
         {
-            AddUniform(Uniform::Uniform("uCameraPos",Uniform::DataUsage::CameraPosition));
+            AddUniform(Uniform("uCameraPos",DataUsage::CameraPosition));
             // Set Default Reflectivity
             Reflectivity = 1.0;
-            AddUniform(Uniform::Uniform("uReflectivity",Uniform::DataType::Float,&Reflectivity));
+            AddUniform(Uniform("uReflectivity",DataType::Float,&Reflectivity));
         }
 
         if (options & ShaderUsage::Refraction)
         {
-            AddUniform(Uniform::Uniform("uCameraPos",Uniform::DataUsage::CameraPosition));
+            AddUniform(Uniform("uCameraPos",DataUsage::CameraPosition));
             // Set Default Reflectivity
             Reflectivity = 1.0;
-            AddUniform(Uniform::Uniform("uReflectivity",Uniform::DataType::Float,&Reflectivity));
+            AddUniform(Uniform("uReflectivity",DataType::Float,&Reflectivity));
         }        
         if (options & ShaderUsage::Skinning)
         {
-            AddUniform(Uniform::Uniform("uBoneMatrix",Uniform::DataUsage::Skinning));
+            AddUniform(Uniform("uBoneMatrix",DataUsage::Skinning));
         }
     }
     
@@ -193,7 +193,7 @@ namespace p3d
         // Save on Lirest
         Textures[id] = texture;
         // Set Uniform
-        AddUniform(Uniform::Uniform(uniformName.c_str(),Uniform::DataType::Int,&id));
+        AddUniform(Uniform(uniformName.c_str(),DataType::Int,&id));
     }
 
     void GenericShaderMaterial::BindTextures()
@@ -214,12 +214,12 @@ namespace p3d
     void GenericShaderMaterial::SetColor(const Vec4& color)
     {
         Vec4 Color = color;
-        AddUniform(Uniform::Uniform("uColor",Uniform::DataType::Vec4,&Color));
+        AddUniform(Uniform("uColor",DataType::Vec4,&Color));
     }
     void GenericShaderMaterial::SetSpecular(const Vec4& specularColor)
     {
         Vec4 Specular = specularColor;
-        AddUniform(Uniform::Uniform("uSpecular",Uniform::DataType::Vec4,&Specular));
+        AddUniform(Uniform("uSpecular",DataType::Vec4,&Specular));
     }
     
     void GenericShaderMaterial::SetColorMap(Texture* colormap)
@@ -230,7 +230,7 @@ namespace p3d
         // Save on Lirest
         Textures[colorMapID] = colormap;
         // Set Uniform
-        AddUniform(Uniform::Uniform("uColormap",Uniform::DataType::Int,&colorMapID));
+        AddUniform(Uniform("uColormap",DataType::Int,&colorMapID));
     }
     void GenericShaderMaterial::SetSpecularMap(Texture* specular)
     {
@@ -239,7 +239,7 @@ namespace p3d
         // Save on List
         Textures[specularMapID] = specular;
         // Set Uniform
-        AddUniform(Uniform::Uniform("uSpecularmap",Uniform::DataType::Int,&specularMapID));
+        AddUniform(Uniform("uSpecularmap",DataType::Int,&specularMapID));
     }
     void GenericShaderMaterial::SetNormalMap(Texture* normalmap)
     {
@@ -248,7 +248,7 @@ namespace p3d
         // Save on List
         Textures[normalMapID] = normalmap;
         // Set Uniform
-        AddUniform(Uniform::Uniform("uNormalmap",Uniform::DataType::Int,&normalMapID));
+        AddUniform(Uniform("uNormalmap",DataType::Int,&normalMapID));
     }
     void GenericShaderMaterial::SetEnvMap(Texture* envmap)
     {
@@ -257,12 +257,12 @@ namespace p3d
         // Save on List
         Textures[envMapID] = envmap;
         // Set Uniform
-        AddUniform(Uniform::Uniform("uEnvmap",Uniform::DataType::Int,&envMapID));
+        AddUniform(Uniform("uEnvmap",DataType::Int,&envMapID));
     }
     void GenericShaderMaterial::SetReflectivity(const f32 reflectivity)
     {
         Reflectivity = reflectivity;
-        AddUniform(Uniform::Uniform("uReflectivity",Uniform::DataType::Float,&Reflectivity));
+        AddUniform(Uniform("uReflectivity",DataType::Float,&Reflectivity));
     }
     void GenericShaderMaterial::SetRefractMap(Texture* refractmap)
     {
@@ -271,7 +271,7 @@ namespace p3d
         // Save on List
         Textures[refractMapID] = refractmap;
         // Set Uniform
-        AddUniform(Uniform::Uniform("uRefractmap",Uniform::DataType::Int,&refractMapID));
+        AddUniform(Uniform("uRefractmap",DataType::Int,&refractMapID));
     }
     void GenericShaderMaterial::SetSkyboxMap(Texture* skyboxmap)
     {
@@ -280,7 +280,7 @@ namespace p3d
         // Save on List
         Textures[skyboxMapID] = skyboxmap;
         // Set Uniform
-        AddUniform(Uniform::Uniform("uSkyboxmap",Uniform::DataType::Int,&skyboxMapID));
+        AddUniform(Uniform("uSkyboxmap",DataType::Int,&skyboxMapID));
     }
     void GenericShaderMaterial::SetTextFont(Font* font)
     {
@@ -289,7 +289,7 @@ namespace p3d
         // Save on List
         Textures[fontMapID] = font->GetTexture();
         // Set Uniform
-        AddUniform(Uniform::Uniform("uFontmap",Uniform::DataType::Int,&fontMapID));
+        AddUniform(Uniform("uFontmap",DataType::Int,&fontMapID));
     }
     void GenericShaderMaterial::PreRender()
     {

@@ -16,7 +16,7 @@
 
 namespace p3d {
 
-    namespace Uniform {
+    namespace Uniforms {
         // Uniform Data Usage
         namespace DataUsage {
             enum {

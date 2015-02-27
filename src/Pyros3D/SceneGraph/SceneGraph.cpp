@@ -129,4 +129,8 @@ namespace p3d {
     {
         return timer;
     }
+
+    void SceneGraph::AddGameObject(GameObject* GO) { Add(GO); }
+    void SceneGraph::RemoveGameObject(GameObject* GO) { Remove(GO); }
+
 };

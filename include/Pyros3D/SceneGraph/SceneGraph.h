@@ -38,6 +38,9 @@ namespace p3d {
             // Get Time
             const f64 &GetTime() const;
 
+            void AddGameObject(GameObject* Component);
+            void RemoveGameObject(GameObject* Component);
+
         private:
 
             // GameObject Dynamic List

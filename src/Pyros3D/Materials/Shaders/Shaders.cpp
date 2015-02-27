@@ -152,37 +152,37 @@ namespace p3d {
         return glGetAttribLocation(program, name.c_str());
     }
 
-    void Shader::SendUniform(const Uniform::Uniform &uniform, const int32 Handle)
+    void Shader::SendUniform(const Uniform &uniform, const int32 Handle)
     {
         if (Handle>-1 && uniform.ElementCount>0)
         switch(uniform.Type)
         {
-            case Uniform::DataType::Int:
+            case DataType::Int:
             {
 				glUniform1iv(Handle,uniform.ElementCount,(GLint*)((int32*)&uniform.Value[0]));
                 break;
             }
-            case Uniform::DataType::Float:
+            case DataType::Float:
             {
                 glUniform1fv(Handle,uniform.ElementCount,(f32*)&uniform.Value[0]);
                 break;
             }
-            case Uniform::DataType::Vec2:
+            case DataType::Vec2:
             {
                 glUniform2fv(Handle,uniform.ElementCount,(f32*)&uniform.Value[0]);
                 break;
             }
-            case Uniform::DataType::Vec3:
+            case DataType::Vec3:
             {
                 glUniform3fv(Handle,uniform.ElementCount,(f32*)&uniform.Value[0]);
                 break;
             }
-            case Uniform::DataType::Vec4:
+            case DataType::Vec4:
             {
                 glUniform4fv(Handle,uniform.ElementCount,(f32*)&uniform.Value[0]);
                 break;
             }
-            case Uniform::DataType::Matrix:
+            case DataType::Matrix:
             {
                 glUniformMatrix4fv(Handle,uniform.ElementCount,false,(f32*)&uniform.Value[0]);
                 break;
@@ -190,38 +190,38 @@ namespace p3d {
         }
     }
     
-    void Shader::SendUniform(const Uniform::Uniform &uniform, void* data, const int32 Handle, const uint32 elementCount)
+    void Shader::SendUniform(const Uniform &uniform, void* data, const int32 Handle, const uint32 elementCount)
     {
         if (Handle>-1 && elementCount>0)
         {
             switch(uniform.Type)
             {
-                case Uniform::DataType::Int:
+                case DataType::Int:
                 {
                     glUniform1iv(Handle,elementCount,(GLint*)((int32*)data));
                     break;
                 }
-                case Uniform::DataType::Float:
+                case DataType::Float:
                 {
                     glUniform1fv(Handle,elementCount,(f32*)data);
                     break;
                 }
-                case Uniform::DataType::Vec2:
+                case DataType::Vec2:
                 {
                     glUniform2fv(Handle,elementCount,(f32*)data);
                     break;
                 }
-                case Uniform::DataType::Vec3:
+                case DataType::Vec3:
                 {
                     glUniform3fv(Handle,elementCount,(f32*)data);
                     break;
                 }
-                case Uniform::DataType::Vec4:
+                case DataType::Vec4:
                 {
                     glUniform4fv(Handle,elementCount,(f32*)data);
                     break;
                 }
-                case Uniform::DataType::Matrix:
+                case DataType::Matrix:
                 {
                     glUniformMatrix4fv(Handle,elementCount,false,(f32*)data);
                     break;

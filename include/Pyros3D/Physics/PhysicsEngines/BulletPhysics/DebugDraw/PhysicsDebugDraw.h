@@ -6,6 +6,8 @@
 
 namespace p3d {
 
+    using namespace Uniforms;
+
     class PhysicsDebugDraw : public btIDebugDraw
     {
      int m_debugMode;

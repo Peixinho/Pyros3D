@@ -51,6 +51,8 @@ namespace p3d {
         }
     }
 
+    void Texture::DeleteTexture() {}
+
     bool Texture::LoadTexture(const std::string& Filename, const uint32 Type, bool Mipmapping)
     {
         bool failed = false;

@@ -44,7 +44,7 @@ namespace p3d
         shaderProgram = ShadersList[number]->ShaderProgram();
 
         f32 opacity = 1.0;
-        AddUniform(Uniform::Uniform("uOpacity",Uniform::DataType::Float,&opacity));
+        AddUniform(Uniform("uOpacity",DataType::Float,&opacity));
         SetOpacity(opacity);
     }
     

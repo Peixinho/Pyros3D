@@ -17,7 +17,9 @@
 #include <map>
 
 namespace p3d
-{     
+{
+    using namespace Uniforms;
+
     class PYROS3D_API GenericShaderMaterial : public IMaterial
     {
         public:

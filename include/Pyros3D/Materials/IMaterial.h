@@ -17,7 +17,9 @@
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Other/Export.h>
 
-namespace p3d {    
+namespace p3d {
+
+    using namespace Uniforms;
     
     // Culling
     namespace CullFace {
@@ -57,9 +59,9 @@ namespace p3d {
         void SetTransparencyFlag(bool transparency);
 
         // Uniforms        
-        std::vector<Uniform::Uniform> GlobalUniforms;
-        std::vector<Uniform::Uniform> ModelUniforms;
-        std::map<StringID, Uniform::Uniform> UserUniforms;
+        std::vector<Uniform> GlobalUniforms;
+        std::vector<Uniform> ModelUniforms;
+        std::map<StringID, Uniform> UserUniforms;
 
         // Send Uniforms
         void SetUniformValue(std::string Uniform, int32 value);
@@ -70,7 +72,7 @@ namespace p3d {
         void SetUniformValue(StringID UniformID, void* value, const uint32 &elementCount = 1);
         
         // Add Uniform
-        void AddUniform(Uniform::Uniform Data);
+        void AddUniform(const Uniform &Data);
         
         // Render WireFrame
         void StartRenderWireFrame();

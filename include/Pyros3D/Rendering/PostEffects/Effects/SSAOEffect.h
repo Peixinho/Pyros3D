@@ -13,6 +13,8 @@
 
 namespace p3d {
 
+    using namespace Uniforms;
+
     class PYROS3D_API SSAOEffect : public IEffect {
     public:
         SSAOEffect(const uint32 Tex1);

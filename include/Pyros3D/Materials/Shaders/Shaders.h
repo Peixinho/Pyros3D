@@ -20,6 +20,8 @@
 
 namespace p3d {
     
+    using namespace Uniforms;
+
     namespace ShaderType {
         enum {
             VertexShader = 0,
@@ -37,7 +39,6 @@ namespace p3d {
             void LoadShaderFile(const char* filename);
             void LoadShaderText(const std::string &text);
 
-            const uint32 &GetType() const;
             void CompileShader(const uint32 type);
             void DeleteShader();
             void LinkProgram();
@@ -47,8 +48,8 @@ namespace p3d {
         	static const int32 GetUniformLocation(const uint32 program, const std::string &name);
         	static const int32 GetAttributeLocation(const uint32 program, const std::string &name);
 
-        	static void SendUniform(const Uniform::Uniform &uniform, const int32 Handle);
-        	static void SendUniform(const Uniform::Uniform &uniform, void* data, const int32 Handle, const uint32 elementCount = 1);
+        	static void SendUniform(const Uniform &uniform, const int32 Handle);
+        	static void SendUniform(const Uniform &uniform, void* data, const int32 Handle, const uint32 elementCount = 1);
 
             // Shader Usage Counter
             uint32 currentMaterials;

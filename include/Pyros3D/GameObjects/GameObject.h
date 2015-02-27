@@ -86,6 +86,14 @@ namespace p3d {
 			// Static
 			bool IsStatic() { return isStatic; }
 
+            // Helpers
+            void AddComponent(IComponent* Component);
+            void AddGameObject(GameObject* Component);
+            void RemoveComponent(IComponent* Component);
+            void RemoveGameObject(GameObject* Component);
+            void LookAtGameObject(GameObject* GO);
+            void LookAtVec(const Vec3 &center);
+
         private:
             
             // Update Components

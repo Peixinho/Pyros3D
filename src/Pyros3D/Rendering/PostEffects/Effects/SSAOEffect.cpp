@@ -116,15 +116,15 @@ namespace p3d {
               
         CompileShaders();
 
-        Uniform::Uniform strength;
-        Uniform::Uniform Base;
-        Uniform::Uniform Area;
-        Uniform::Uniform Falloff;
-        Uniform::Uniform Radius;
-        Uniform::Uniform Samples;
-        Uniform::Uniform Scale;
-        Uniform::Uniform nearFarPlane;
-        Uniform::Uniform screen;
+        Uniform strength;
+        Uniform Base;
+        Uniform Area;
+        Uniform Falloff;
+        Uniform Radius;
+        Uniform Samples;
+        Uniform Scale;
+        Uniform nearFarPlane;
+        Uniform screen;
 
         total_strength = 1.0;
         base = 0.2;
@@ -135,55 +135,55 @@ namespace p3d {
         scale = 50.f;
 
         strength.Name = "uStrength";
-        strength.Type = Uniform::DataType::Float;
-        strength.Usage = Uniform::PostEffects::Other;
+        strength.Type = DataType::Float;
+        strength.Usage = PostEffects::Other;
         strength.SetValue(&total_strength);
         AddUniform(strength);
 
         Base.Name = "uBase";
-        Base.Type = Uniform::DataType::Float;
-        Base.Usage = Uniform::PostEffects::Other;
+        Base.Type = DataType::Float;
+        Base.Usage = PostEffects::Other;
         Base.SetValue(&base);
         AddUniform(Base);
 
         Area.Name = "uArea";
-        Area.Type = Uniform::DataType::Float;
-        Area.Usage = Uniform::PostEffects::Other;
+        Area.Type = DataType::Float;
+        Area.Usage = PostEffects::Other;
         Area.SetValue(&area);
         AddUniform(Area);
 
         Falloff.Name = "uFalloff";
-        Falloff.Type = Uniform::DataType::Float;
-        Falloff.Usage = Uniform::PostEffects::Other;
+        Falloff.Type = DataType::Float;
+        Falloff.Usage = PostEffects::Other;
         Falloff.SetValue(&falloff);
         AddUniform(Falloff);
 
         Radius.Name = "uRadius";
-        Radius.Type = Uniform::DataType::Float;
-        Radius.Usage = Uniform::PostEffects::Other;
+        Radius.Type = DataType::Float;
+        Radius.Usage = PostEffects::Other;
         Radius.SetValue(&radius);
         AddUniform(Radius);
 
         Samples.Name = "uSamples";
-        Samples.Type = Uniform::DataType::Int;
-        Samples.Usage = Uniform::PostEffects::Other;
+        Samples.Type = DataType::Int;
+        Samples.Usage = PostEffects::Other;
         Samples.SetValue(&samples);
         AddUniform(Samples);
 
         Scale.Name = "uScale";
-        Scale.Type = Uniform::DataType::Float;
-        Scale.Usage = Uniform::PostEffects::Other;
+        Scale.Type = DataType::Float;
+        Scale.Usage = PostEffects::Other;
         Scale.SetValue(&scale);
         AddUniform(Scale);
 
         nearFarPlane.Name = "uNearFar";
-        nearFarPlane.Type = Uniform::DataType::Vec2;
-        nearFarPlane.Usage = Uniform::PostEffects::NearFarPlane;
+        nearFarPlane.Type = DataType::Vec2;
+        nearFarPlane.Usage = PostEffects::NearFarPlane;
         AddUniform(nearFarPlane);
 
         screen.Name = "uScreen";
-        screen.Type = Uniform::DataType::Vec2;
-        screen.Usage = Uniform::PostEffects::ScreenDimensions;
+        screen.Type = DataType::Vec2;
+        screen.Usage = PostEffects::ScreenDimensions;
         AddUniform(screen);        
     }
 

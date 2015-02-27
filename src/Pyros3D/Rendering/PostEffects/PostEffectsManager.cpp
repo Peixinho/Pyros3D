@@ -242,25 +242,25 @@ namespace p3d {
 					switch((*i).second.uniform.Usage)
                     {
                         std::cout << (*i).second.handle << ":" << (*i).second.uniform.Name << std::endl;
-                        case Uniform::PostEffects::ProjectionMatrix:
+                        case PostEffects::ProjectionMatrix:
                         {
 							Matrix projection = proj.GetProjectionMatrix();
 							Shader::SendUniform((*i).second.uniform,&projection,(*i).second.handle);
                         }
                         break;
 
-                        case Uniform::PostEffects::NearFarPlane:
+                        case PostEffects::NearFarPlane:
 						{
 							Shader::SendUniform((*i).second.uniform,&NearFarPlane,(*i).second.handle);
 						}
                         break;
-                        case Uniform::PostEffects::ScreenDimensions:
+                        case PostEffects::ScreenDimensions:
                         {
                             Shader::SendUniform((*i).second.uniform,&ScreenDimensions,(*i).second.handle);
                         }
                         break;
                         default:
-                        case Uniform::PostEffects::Other:
+                        case PostEffects::Other:
 						{
                             Shader::SendUniform((*i).second.uniform,(*i).second.handle);
 						}

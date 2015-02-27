@@ -801,7 +801,7 @@ namespace p3d {
     {
         // Send Global Uniforms
         uint32 counter = 0;
-        for (std::vector<Uniform::Uniform>::iterator k = Material->GlobalUniforms.begin();k!=Material->GlobalUniforms.end();k++)
+        for (std::vector<Uniform>::iterator k = Material->GlobalUniforms.begin();k!=Material->GlobalUniforms.end();k++)
         {
             if (rmesh->ShadersGlobalCache[Material->GetShader()][counter] ==-2)
             {
@@ -813,13 +813,13 @@ namespace p3d {
             {
                 switch ((*k).Usage)
                 {
-                    case Uniform::DataUsage::ViewMatrix:
+                    case DataUsage::ViewMatrix:
                         Shader::SendUniform((*k),&ViewMatrix,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::ProjectionMatrix:
+                    case DataUsage::ProjectionMatrix:
                         Shader::SendUniform((*k),&ProjectionMatrix,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::ViewProjectionMatrix:
+                    case DataUsage::ViewProjectionMatrix:
                         if (ViewProjectionMatrixIsDirty==true)
                         {
                             ViewProjectionMatrix = ProjectionMatrix * ViewMatrix;
@@ -827,7 +827,7 @@ namespace p3d {
                         }
                         Shader::SendUniform((*k),&ViewProjectionMatrix,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::ViewMatrixInverse:
+                    case DataUsage::ViewMatrixInverse:
                         if (ViewMatrixInverseIsDirty==true)
                         {
                             ViewMatrixInverse = ViewMatrix.Inverse();
@@ -835,7 +835,7 @@ namespace p3d {
                         }
                         Shader::SendUniform((*k),&ViewMatrixInverse,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::ProjectionMatrixInverse:
+                    case DataUsage::ProjectionMatrixInverse:
                         if (ProjectionMatrixInverseIsDirty==true)
                         {
                             ProjectionMatrixInverse = ProjectionMatrix.Inverse();
@@ -843,62 +843,62 @@ namespace p3d {
                         }
                         Shader::SendUniform((*k),&ProjectionMatrixInverse,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::CameraPosition:
+                    case DataUsage::CameraPosition:
                         Shader::SendUniform((*k),&CameraPosition,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::Timer:
+                    case DataUsage::Timer:
                         Shader::SendUniform((*k),&Timer,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::GlobalAmbientLight:
+                    case DataUsage::GlobalAmbientLight:
                         Shader::SendUniform((*k),&GlobalLight,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::Lights:
+                    case DataUsage::Lights:
                         if (Lights.size()>0)
                             Shader::SendUniform((*k), &Lights[0], rmesh->ShadersGlobalCache[Material->GetShader()][counter], NumberOfLights);
                         break;
-                    case Uniform::DataUsage::NumberOfLights:
+                    case DataUsage::NumberOfLights:
                         Shader::SendUniform((*k),&NumberOfLights,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::NearFarPlane:
+                    case DataUsage::NearFarPlane:
                         Shader::SendUniform((*k),&NearFarPlane,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::ScreenDimensions:
+                    case DataUsage::ScreenDimensions:
                         {
                             Vec2 dim = Vec2(Width, Height);
                         Shader::SendUniform((*k),&dim,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         }
                         break;
-                    case Uniform::DataUsage::DirectionalShadowMap:
+                    case DataUsage::DirectionalShadowMap:
                         if (DirectionalShadowMapsUnits.size()>0)
                             Shader::SendUniform((*k),&DirectionalShadowMapsUnits[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],DirectionalShadowMapsUnits.size());
                         break;
-                    case Uniform::DataUsage::DirectionalShadowMatrix:
+                    case DataUsage::DirectionalShadowMatrix:
 						if (DirectionalShadowMatrix.size()>0)
                             Shader::SendUniform((*k),&DirectionalShadowMatrix[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],DirectionalShadowMatrix.size());
                         break;
-                    case Uniform::DataUsage::DirectionalShadowFar:
+                    case DataUsage::DirectionalShadowFar:
                         Shader::SendUniform((*k),&DirectionalShadowFar,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::NumberOfDirectionalShadows:
+                    case DataUsage::NumberOfDirectionalShadows:
                         Shader::SendUniform((*k),&NumberOfDirectionalShadows,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::PointShadowMap:
+                    case DataUsage::PointShadowMap:
                         if (PointShadowMapsUnits.size()>0)
                             Shader::SendUniform((*k),&PointShadowMapsUnits[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],PointShadowMapsUnits.size());
                         break;
-                    case Uniform::DataUsage::PointShadowMatrix:
+                    case DataUsage::PointShadowMatrix:
                         Shader::SendUniform((*k),&PointShadowMatrix[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],PointShadowMatrix.size());
                         break;
-                    case Uniform::DataUsage::NumberOfPointShadows:
+                    case DataUsage::NumberOfPointShadows:
                         Shader::SendUniform((*k),&NumberOfPointShadows,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::SpotShadowMap:
+                    case DataUsage::SpotShadowMap:
                         Shader::SendUniform((*k),&SpotShadowMapsUnits[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],SpotShadowMapsUnits.size());
                         break;
-                    case Uniform::DataUsage::SpotShadowMatrix:
+                    case DataUsage::SpotShadowMatrix:
                         Shader::SendUniform((*k),&SpotShadowMatrix[0],rmesh->ShadersGlobalCache[Material->GetShader()][counter],SpotShadowMatrix.size());
                         break;
-                    case Uniform::DataUsage::NumberOfSpotShadows:
+                    case DataUsage::NumberOfSpotShadows:
                         Shader::SendUniform((*k),&NumberOfSpotShadows,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
                     default:
@@ -914,7 +914,7 @@ namespace p3d {
     {
         // User Specific Uniforms
         uint32 counter = 0;
-        for (std::map<StringID, Uniform::Uniform>::iterator k = Material->UserUniforms.begin();k!=Material->UserUniforms.end();k++)
+        for (std::map<StringID, Uniform>::iterator k = Material->UserUniforms.begin();k!=Material->UserUniforms.end();k++)
         {
             if (rmesh->ShadersUserCache[Material->GetShader()][counter]==-2)
             {
@@ -933,7 +933,7 @@ namespace p3d {
     void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
     {
         uint32 counter = 0;
-        for (std::vector<Uniform::Uniform>::iterator k = Material->ModelUniforms.begin();k!=Material->ModelUniforms.end();k++)
+        for (std::vector<Uniform>::iterator k = Material->ModelUniforms.begin();k!=Material->ModelUniforms.end();k++)
         {
             if (rmesh->ShadersModelCache[Material->GetShader()][counter]==-2)
             {
@@ -945,10 +945,10 @@ namespace p3d {
             {
                 switch ((*k).Usage)
                 {
-                    case Uniform::DataUsage::ModelMatrix:
+                    case DataUsage::ModelMatrix:
                         Shader::SendUniform((*k),&ModelMatrix,rmesh->ShadersModelCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::NormalMatrix:
+                    case DataUsage::NormalMatrix:
                         if (NormalMatrixIsDirty==true)
                         {
                             NormalMatrix = (ViewMatrix*ModelMatrix);
@@ -956,7 +956,7 @@ namespace p3d {
                         }
                         Shader::SendUniform((*k),&NormalMatrix,rmesh->ShadersModelCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::ModelViewMatrix:
+                    case DataUsage::ModelViewMatrix:
                         if (ModelViewMatrixIsDirty==true)
                         {
                             ModelViewMatrix = ViewMatrix*ModelMatrix;
@@ -964,7 +964,7 @@ namespace p3d {
                         }
                         Shader::SendUniform((*k),&ModelViewMatrix,rmesh->ShadersModelCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::ModelViewProjectionMatrix:
+                    case DataUsage::ModelViewProjectionMatrix:
                         if (ModelViewProjectionMatrixIsDirty==true)
                         {
                             ModelViewProjectionMatrix = ProjectionMatrix*ViewMatrix*ModelMatrix;
@@ -972,7 +972,7 @@ namespace p3d {
                         }
                         Shader::SendUniform((*k),&ModelViewProjectionMatrix,rmesh->ShadersModelCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::ModelMatrixInverse:
+                    case DataUsage::ModelMatrixInverse:
                         if (ModelMatrixInverseIsDirty==true)
                         {
                             ModelMatrixInverse = ModelMatrix.Inverse();
@@ -980,7 +980,7 @@ namespace p3d {
                         }
                         Shader::SendUniform((*k),&ModelMatrixInverse,rmesh->ShadersModelCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::ModelViewMatrixInverse:
+                    case DataUsage::ModelViewMatrixInverse:
                         if (ModelViewMatrixInverseIsDirty==true)
                         {
                             ModelViewMatrixInverse = (ViewMatrix*ModelMatrix).Inverse();
@@ -988,7 +988,7 @@ namespace p3d {
                         }
                         Shader::SendUniform((*k),&ModelViewMatrixInverse,rmesh->ShadersModelCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::ModelMatrixInverseTranspose:
+                    case DataUsage::ModelMatrixInverseTranspose:
                         if (ModelMatrixInverseTransposeIsDirty==true)
                         {
                             ModelMatrixInverseTranspose = ModelMatrixInverse.Transpose();
@@ -996,7 +996,7 @@ namespace p3d {
                         }
                         Shader::SendUniform((*k),&ModelMatrixInverseTranspose,rmesh->ShadersModelCache[Material->GetShader()][counter]);
                         break;
-                    case Uniform::DataUsage::Skinning:
+                    case DataUsage::Skinning:
                         {
                             Shader::SendUniform((*k),&rmesh->SkinningBones[0],rmesh->ShadersModelCache[Material->GetShader()][counter],rmesh->SkinningBones.size());
                         }
@@ -1021,15 +1021,15 @@ namespace p3d {
                 }
                 rmesh->ShadersAttributesCache[material->GetShader()].push_back(attribs);
             }
-            for (std::vector<Uniform::Uniform>::iterator k = material->GlobalUniforms.begin();k!=material->GlobalUniforms.end();k++)
+            for (std::vector<Uniform>::iterator k = material->GlobalUniforms.begin();k!=material->GlobalUniforms.end();k++)
             {
                 rmesh->ShadersGlobalCache[material->GetShader()].push_back(Shader::GetUniformLocation(material->GetShader(),(*k).Name));
             }
-            for (std::vector<Uniform::Uniform>::iterator k = material->ModelUniforms.begin();k!=material->ModelUniforms.end();k++)
+            for (std::vector<Uniform>::iterator k = material->ModelUniforms.begin();k!=material->ModelUniforms.end();k++)
             {
                 rmesh->ShadersModelCache[material->GetShader()].push_back(Shader::GetUniformLocation(material->GetShader(),(*k).Name));
             }
-            for (std::map<StringID,Uniform::Uniform>::iterator k = material->UserUniforms.begin();k!=material->UserUniforms.end();k++)
+            for (std::map<StringID,Uniform>::iterator k = material->UserUniforms.begin();k!=material->UserUniforms.end();k++)
             {
                 rmesh->ShadersUserCache[material->GetShader()].push_back(Shader::GetUniformLocation(material->GetShader(),(*k).second.Name));
             }

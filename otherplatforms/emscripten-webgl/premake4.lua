@@ -10,12 +10,33 @@ solution "Pyros3D"
     os.mkdir("libs");
 
     newoption {
+       trigger     = "jsnative",
+       description = "Build Engine to be used from Javascript - Proof of Concept"
+    }
+
+    newoption {
        trigger     = "examples",
        description = "Build Demos Examples"
     }
 
-    framework = "_SDL";
-    libsToLink = { "SDL" }
+    newoption {
+        trigger = "log",
+        value       = "OUTPUT",
+        description = "Log Output",
+        allowed = {
+            { "none", "No log - Default" },
+            { "console", "Log to Console"},
+            { "file", "Log to File"}
+        }
+    }
+
+    if _OPTIONS['jsnative'] then
+            excludes { "**/SDL/**" }
+        else
+            framework = "_SDL";
+            libsToLink = { "SDL" }
+    end
+    
     excludes { "**/SFML/**", "**/SDL2/**" }
 
     premake.gcc.cc = "emcc";
@@ -34,17 +55,54 @@ solution "Pyros3D"
     project "PyrosEngine"
         targetdir "libs"
         
-        kind "SharedLib"
+        if _OPTIONS["jsnative"] then
+            kind "ConsoleApp"
+        else
+            kind "SharedLib"
+        end
 
         language "C++"
         files { "../../src/**.h", "../../src/**.cpp" }
-        excludes { "../../src/Pyros3D/Assets/Sounds/**" }
+
+        if _OPTIONS["jsnative"] then
+            files { "src/JSNative/JSNative_Wrapper.h", "src/JSNative/JSNative_Wrapper.cpp" }
+        end
         
         includedirs { "../../include/", "include/" }
 
-        defines({"UNICODE", "GLEW_STATIC", "LOG_DISABLE", "LODEPNG"}) 
-                
+        defines({"UNICODE", "GLEW_STATIC", "LODEPNG"})
+
+        if _OPTIONS["log"]=="console" then
+            defines({"LOG_TO_CONSOLE"})
+        else
+            if _OPTIONS["log"]=="file" then
+                defines({"LOG_TO_FILE"})
+            else
+                defines({"LOG_DISABLE"}) 
+            end
+        end
+
+        if _OPTIONS["jsnative"] then  
         configuration "Debug"
+
+            targetname(libName.."d.js")
+            defines({"_DEBUG"})
+            flags { "Symbols" }
+            targetdir ("bin")
+
+            links { "BulletDynamics", "BulletCollision", "LinearMath", "freetype" }
+            linkoptions { "-L../libs", "--post-js ../src/JSNative/glue.js" }
+
+        configuration "Release"
+
+            flags { "Optimize" }
+            targetname(libName..".js")
+            targetdir ("bin")
+
+            links { "BulletDynamics", "BulletCollision", "LinearMath", "freetype" }
+            linkoptions { "-L../libs", "--post-js ../src/JSNative/glue.js" }
+        else
+            configuration "Debug"
 
             targetname(libName.."d")
             defines({"_DEBUG"})
@@ -54,6 +112,7 @@ solution "Pyros3D"
 
             flags { "Optimize" }
             targetname(libName)
+        end
 
 function BuildDemo(demoPath, demoName)
 
@@ -89,14 +148,14 @@ function BuildDemo(demoPath, demoName)
 
             targetdir ("bin/release/examples/"..demoName)
 
-            links { libName, "BulletDynamics", "BulletCollision", "LinearMath" "freetype" }
+            links { libName, "BulletDynamics", "BulletCollision", "LinearMath", "freetype" }
             linkoptions { "-L../libs" }
 
             flags { "Optimize" }
             linkoptions { "--preload-file ../"..demoPath.."/assets@../../"..demoPath.."/assets" }
 end;
 
-if _OPTIONS["examples"] then
+if _OPTIONS["examples"] and _OPTIONS["jsnative"]==nil then
     BuildDemo("../../examples/RotatingCube", "RotatingCube");
     BuildDemo("../../examples/RotatingTexturedCube", "RotatingTexturedCube");
     BuildDemo("../../examples/RotatingTextureAnimatedCube", "RotatingTextureAnimatedCube");
@@ -108,5 +167,6 @@ if _OPTIONS["examples"] then
     BuildDemo("../../examples/PickingPainterMethod", "PickingPainterMethod");
     BuildDemo("../../examples/SkeletonAnimationExample", "SkeletonAnimationExample");
     BuildDemo("../../examples/DeferredRendering", "DeferredRendering");
+    BuildDemo("../../examples/LOD_example", "LOD_example");
     BuildDemo("../../examples/RacingGame", "RacingGame");
 end

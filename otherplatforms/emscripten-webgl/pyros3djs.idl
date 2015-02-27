@@ -1,0 +1,517 @@
+[Prefix="p3d::Math::"]
+interface Vec2 {
+	attribute float x;
+	attribute float y;
+	void Vec2();
+	void Vec2([Const] float X, [Const] float Y);
+	float dotProduct([Const, Ref] Vec2 v);
+    float magnitude();
+    float magnitudeSQR();
+    float distance([Const, Ref] Vec2 v);
+    float distanceSQR([Const, Ref] Vec2 v);
+    [Value] Vec2 normalize();
+    [Value] Vec2 negate();
+    [Value] Vec2 Abs();
+	[Operator="+="] void add([Const, Ref] Vec2 v);
+	[Operator="-="] void sub([Const, Ref] Vec2 v);
+	[Operator="*="] void mul([Const, Ref] Vec2 v);
+	[Operator="/="] void div([Const, Ref] Vec2 v);
+	[Operator="+="] void add_scalar([Const] float f);
+	[Operator="-="] void sub_scalar([Const] float f);
+	[Operator="*="] void mul_scalar([Const] float f);
+	[Operator="/="] void div_scalar([Const] float f);
+};
+
+[Prefix="p3d::Math::"]
+interface Vec3 {
+	attribute float x;
+	attribute float y;
+	attribute float z;
+	void Vec3();
+	void Vec3([Const] float X, [Const] float Y, [Const] float Z);
+	float dotProduct([Const, Ref] Vec3 v);
+    float magnitude();
+    float magnitudeSQR();
+    float distance([Const, Ref] Vec3 v);
+    float distanceSQR([Const, Ref] Vec3 v);
+    [Value] Vec3 cross([Const, Ref] Vec3 v);
+    [Value] Vec3 normalize();
+   	void normalizeSelf();
+    [Value] Vec3 negate();
+    void negateSelf();
+    [Value] Vec3 Abs();
+	[Operator="+="] void add([Const, Ref] Vec3 v);
+	[Operator="-="] void sub([Const, Ref] Vec3 v);
+	[Operator="*="] void mul([Const, Ref] Vec3 v);
+	[Operator="/="] void div([Const, Ref] Vec3 v);
+	[Operator="+="] void add_scalar([Const] float f);
+	[Operator="-="] void sub_scalar([Const] float f);
+	[Operator="*="] void mul_scalar([Const] float f);
+	[Operator="/="] void div_scalar([Const] float f);
+};
+
+[Prefix="p3d::Math::"]
+interface Vec4 {
+	attribute float x;
+	attribute float y;
+	attribute float z;
+	attribute float w;
+	void Vec4();
+	void Vec4([Const] float X, [Const] float Y, [Const] float Z, [Const] float w);
+	float dotProduct([Const, Ref] Vec4 v);
+    float magnitude();
+    float magnitudeSQR();
+    [Value] Vec4 Abs();
+	[Operator="+="] void add([Const, Ref] Vec4 v);
+	[Operator="-="] void sub([Const, Ref] Vec4 v);
+	[Operator="*="] void mul([Const, Ref] Vec4 v);
+	[Operator="/="] void div([Const, Ref] Vec4 v);
+	[Operator="+="] void add_scalar([Const] float f);
+	[Operator="-="] void sub_scalar([Const] float f);
+	[Operator="*="] void mul_scalar([Const] float f);
+	[Operator="/="] void div_scalar([Const] float f);	
+};
+
+[Prefix="p3d::Math::"]
+interface Quaternion {
+	attribute float x;
+	attribute float y;
+	attribute float z;
+	attribute float w;
+	void Quaternion();
+	void Quaternion([Const] float w, [Const] float x, [Const] float y, [Const] float z);
+    void Quaternion([Const] float x, [Const] float y, [Const] float z);
+    void Quaternion([Const, Ref] Vec3 v, [Const] float angle);
+	[Value] Matrix ConvertToMatrix();
+	float Magnitude();
+    float Dot ([Const, Ref] Quaternion q);
+    void Normalize();
+    void Rotation([Const] float xAngle, [Const] float yAngle, [Const] float zAngle);
+    void SetRotationFromEuler([Const, Ref] Vec3 rotation, [Const] long order);
+    [Value] Vec3 GetEulerFromQuaternion([Const] long order);
+    void AxisToQuaternion([Const, Ref] Vec3 v, [Const] float angle);
+    [Value] Quaternion Slerp([Const, Ref] Quaternion b, [Const] float t);
+    [Value] Quaternion Nlerp([Const, Ref] Quaternion b, [Const] float t, boolean shortestPath);
+    [Value] Quaternion Inverse();
+    [Operator="*="] void mul([Const, Ref] Quaternion q);
+};
+
+[Prefix="p3d::Math::"]
+interface Matrix {
+	void Matrix();
+	void Matrix([Const] float n11,[Const] float n21,[Const] float n31,[Const] float n41,[Const] float n12,[Const] float n22,[Const] float n32,[Const] float n42,[Const] float n13,[Const] float n23,[Const] float n33,[Const] float n43,[Const] float n14,[Const] float n24,[Const] float n34,[Const] float n44);
+	void identity();
+	void LookAt([Const, Ref] Vec3 eye,[Const, Ref] Vec3 center,[Const, Ref] Vec3 up);
+	void LookAt([Const, Ref] Vec3 eye,[Const, Ref] Vec3 center);
+    void Translate([Const] float x, [Const] float y, [Const] float z);
+    void Translate([Const, Ref] Vec3 xyz);
+    void TranslateX([Const] float x);
+    void TranslateY([Const] float y);
+    void TranslateZ([Const] float z);
+    [Value] Vec3 GetTranslation();
+    void RotationX([Const] float angle);
+    void RotationY([Const] float angle);
+    void RotationZ([Const] float angle);
+    void SetRotationFromEuler([Const, Ref] Vec3 rotation, [Const] long order);
+    [Value] Vec3 GetEulerFromRotationMatrix([Const] long order);
+    [Value] Matrix GetRotation([Const, Ref] Vec3 scale);
+    void Scale([Const] float sx, [Const] float sy, [Const] float sz);
+    void Scale([Const, Ref] Vec3 xyz);
+    void ScaleX([Const] float x);
+    void ScaleY([Const] float y);
+    void ScaleZ([Const] float z);
+    [Value] Vec3 GetScale();
+    float Determinant();
+    [Value] Matrix Transpose();
+    [Value] Matrix Inverse();
+    [Value] Matrix PerspectiveMatrix([Const] float fov, [Const] float aspect, [Const] float near, [Const] float far);
+    [Value] Matrix OrthoMatrix([Const] float left, [Const] float right, [Const] float bottom, [Const] float top, [Const] float near, [Const] float far);
+    [Value] Quaternion ConvertToQuaternion();
+    [Operator="*="] void mul([Const, Ref] Matrix m);
+};
+
+[Prefix="p3d::"]
+interface SceneGraph {
+	void SceneGraph();
+	void Update(double Timer);
+	void Add(GameObject GO);
+	void Remove(GameObject GO);
+	void AddGameObject(GameObject GO);
+	void RemoveGameObject(GameObject GO);
+	double GetTime();
+};
+
+[Prefix="p3d::"]
+interface GameObject {
+	void GameObject();
+	void Init();
+	void Update();
+	void Destroy();
+	[Const, Ref] Matrix GetLocalTransformation();
+	[Const, Ref] Vec3 GetPosition();
+    [Const, Ref] Vec3 GetRotation();
+    [Const, Ref] Vec3 GetScale();
+    [Value] Vec3 GetDirection();
+    [Const, Ref] Matrix GetWorldTransformation();
+    [Value] Vec3 GetWorldPosition();
+    [Value] Vec3 GetWorldRotation();
+    void SetPosition([Const, Ref] Vec3 position);
+    void SetRotation([Const, Ref] Vec3 rotation);
+    void SetScale([Const, Ref] Vec3 scale);
+    void SetTransformationMatrix([Const, Ref] Matrix transformation);
+    void LookAtGameObject(GameObject GO);
+    void LookAtVec([Const, Ref] Vec3 Position);
+    void AddComponent(IComponent Component);
+    void RemoveComponent(IComponent Component);
+    void AddGameObject(GameObject GO);
+    void RemoveGameObject(GameObject GO);
+	GameObject GetParent();
+	boolean HaveParent();
+	void AddTag(DOMString tag);
+	void RemoveTag(DOMString tag);
+	boolean HaveTag(DOMString tag);
+	boolean IsStatic();
+};
+
+[Prefix="p3d::"]
+interface Projection {
+	void Projection();
+	void Perspective([Const] float fov, [Const] float aspect, [Const] float near, [Const] float far);
+    void Ortho([Const] float left, [Const] float right, [Const] float bottom, [Const] float top, [Const] float near, [Const] float far);
+
+    [Value] Matrix GetProjectionMatrix();	
+};
+
+[Prefix="p3d::"]
+interface IRenderer {
+	void ClearBufferBit([Const] long Option);
+	void EnableDepthTest();
+	void DisableDepthTest();
+	void EnableDepthWritting();
+	void DisableDepthWritting();
+	void EnableClearDepthBuffer();
+	void DisableClearDepthBuffer();
+	void ClearDepthBuffer();
+	void EnableStencil();
+	void DisableStencil();
+	void ClearStencilBuffer();
+	void StencilFunction([Const] long func, [Const] long ref, [Const] long mask);
+	void StencilOperation([Const] long sfail, [Const] long dpfail, [Const] long dppass);
+	void EnableBlending();
+	void DisableBlending();
+	void BlendingFunction([Const] long sfactor, [Const] long dfactor);
+	void BlendingEquation([Const] long mode);
+	void EnableScissorTest();
+	void DisableScissorTest();
+	void ScissorTestRect([Const] float x, [Const] float y, [Const] float width, [Const] float height);
+	void EnableWireFrame();
+	void DisableWireFrame();
+	void ColorMask([Const] float r,[Const] float g,[Const] float b,[Const] float a);
+	void EnableSorting();
+	void DisableSorting();
+	void EnableLOD();
+	void DisableLOD();
+	boolean IsUsingLOD();
+	void SetBackground([Const, Ref] Vec4 Color);
+	void UnsetBackground();
+	void SetGlobalLight([Const, Ref] Vec4 Light);
+	void EnableDepthBias([Const, Ref] Vec2 Bias);
+	void DisableDepthBias();
+	void SetViewPort([Const] long initX, [Const] long initY, [Const] long endX, [Const] long endY);
+	void Resize([Const] long Width, [Const] long Height);
+	void ActivateCulling([Const] long cullingType);
+	void DeactivateCulling();
+	void RenderScene([Const, Ref] Projection projection, GameObject Camera, SceneGraph Scene);
+};
+
+[Prefix="p3d::", JSImplementation="IRenderer"]
+interface ForwardRenderer {
+	void ForwardRenderer([Const] long Width, [Const] long Height);
+};
+
+[Prefix="p3d::"]
+interface IComponent {
+
+};
+
+[Prefix="p3d::"]
+interface Renderable {
+
+};
+
+[Prefix="p3d::"]
+interface RenderingComponent {
+      void RenderingComponent(Renderable renderable, IMaterial Material);
+      void AddLOD(Renderable renderable, [Const] float Distance, IMaterial Material);
+      void Register(SceneGraph Scene);
+      void Init();
+      void Update();
+      void Destroy();
+      void Unregister(SceneGraph Scene);
+      void SetCullingGeometry([Const] long Geometry);
+      void EnableCastShadows();
+      void DisableCastShadows();
+      boolean IsCastingShadows();
+      boolean HasBones();
+      [Const] long GetLODSize();
+      long GetLODByDistance([Const] float Distance);
+      void UpdateLOD([Const] long lod);
+      float GetBoundingSphereRadius();
+      [Const, Ref] Vec3 GetBoundingSphereCenter();
+      [Const, Ref] Vec3 GetBoundingMinValue();
+      [Const, Ref] Vec3 GetBoundingMaxValue();
+
+};
+
+[Prefix="p3d::"]
+interface DirectionalLight {
+	void DirectionalLight();
+	void DirectionalLight([Const, Ref] Vec4 color);
+	void DirectionalLight([Const, Ref] Vec4 color, [Const, Ref] Vec3 direction);
+	void Start();
+	void Update();
+	void Destroy();
+};
+
+[Prefix="p3d::"]
+interface PointLight {
+	void PointLight();
+	void PointLight([Const, Ref] Vec4 color, [Const] float radius);
+	void Start();
+	void Update();
+	void Destroy();
+};
+
+[Prefix="p3d::"]
+interface SpotLight {
+	void SpotLight();
+	void SpotLight([Const, Ref] Vec4 color, [Const] float radius, [Const, Ref] Vec3 direction, [Const] float OutterCone, [Const] float InnerCone);
+	void Start();
+	void Update();
+	void Destroy();
+};
+
+[Prefix="p3d::Uniforms::"]
+interface Uniform {
+	void Uniform();
+};
+
+[Prefix="p3d::"]
+interface Texture {
+	void Texture();
+	boolean LoadTexture([Const] DOMString Filename, long Type, boolean Mipmapping);
+	boolean CreateTexture(long Type, long DataType, long width, long height, boolean Mipmapping);
+	boolean CreateTexture(boolean Mipmapping);
+	void SetMinMagFilter(long MinFilter, long MagFilter);
+	void SetRepeat(long WrapS,long WrapT,long WrapR);
+	void EnableCompareMode();
+	void SetAnysotropy(long Anysotropic);
+	void SetTransparency(float Transparency);
+	void Resize(long Width, long Height);
+	void UpdateData(VoidPtr srcPTR);
+	void UpdateMipmap();
+	void SetTextureByteAlignment(long Value);
+	long GetBindID();
+	long GetWidth();
+	long GetHeight();
+	void Bind();
+	void Unbind();
+	void DeleteTexture();  
+	long GetLastBindedUnit();
+};
+
+[Prefix="p3d::"]
+interface IMaterial {
+	void IMaterial();
+	void PreRender();
+	void Render();
+	void AfterRender();
+	void SetCullFace(long face);
+	long GetCullFace();
+	boolean IsWireFrame();
+	float GetOpacity();
+	boolean IsTransparent();
+	void SetOpacity(float opacity);
+	void SetTransparencyFlag(boolean transparency);
+	void SetUniformValue(DOMString Uniform, float value);
+	void SetUniformValue(DOMString Uniform, VoidPtr value, long elementCount);
+	void AddUniform([Ref] Uniform Data);
+	void StartRenderWireFrame();
+	void StopRenderWireFrame();
+	void EnableCastingShadows();
+	void DisableCastingShadows();
+	boolean IsCastingShadows();
+	void Destroy();
+	long GetShader();
+	long GetInternalID();
+};
+
+[Prefix="p3d::", JSImplementation="IMaterial"]
+interface GenericShaderMaterial {
+	void GenericShaderMaterial(long options);
+	void SetColor([Const, Ref] Vec4 color);
+	void SetSpecular([Const, Ref] Vec4 specularColor);
+	void SetColorMap([Ref] Texture colormap);
+    void SetSpecularMap([Ref] Texture specular);
+    void SetNormalMap([Ref] Texture normalmap);
+    void SetEnvMap([Ref] Texture envmap);
+	void SetReflectivity(float reflectivity);
+	void SetLightingProperties([Const, Ref] Vec4 Ke, [Const, Ref] Vec4 Ka, [Const, Ref] Vec4 Kd, [Const, Ref] Vec4 Ks, float shininess);
+	void SetKe([Const, Ref] Vec4 Ke);
+	void SetKa([Const, Ref] Vec4 Ka);
+	void SetKd([Const, Ref] Vec4 Kd);
+	void SetKs([Const, Ref] Vec4 Ks);
+	void SetShininess(float shininess);
+	void PreRender();
+	void AfterRender();
+	void BindTextures();
+	void UnbindTextures();
+	void SetPCFTexelSize(float texel);
+	void SetPCFTexelCascadesSize(float texel1,float texel2,float texel3,float texel4);
+};
+
+[Prefix="p3d::", JSImplementation="IMaterial"]
+interface CustomShaderMaterial {
+	void CustomShaderMaterial(DOMString vertexShaderFile, DOMString fragmentShaderFile);
+};
+
+[Prefix="p3d::"]
+interface Shader {
+	void Shader();
+	void LoadShaderFile(DOMString filename);
+	void LoadShaderText(DOMString text);
+
+	long GetType();
+	void CompileShader(long type);
+	void DeleteShader();
+	void LinkProgram();
+
+	long ShaderProgram();
+
+	long GetUniformLocation(long program, DOMString name);
+	long GetAttributeLocation(long program, DOMString name);
+
+	void SendUniform([Const] Uniform uniform, long Handle);
+	void SendUniform([Const] Uniform uniform, VoidPtr data, long Handle, long elementCount);
+};
+
+[Prefix="p3d::"]
+interface Cube {
+	void Cube(float width, float height, float depth, boolean smooth, boolean flip);
+};
+[Prefix="p3d::"]
+interface Capsule {
+	void Capsule(float radius, float height, float numRings, long segmentsW, long segmentsH, boolean smooth, boolean flip);
+};
+[Prefix="p3d::"]
+interface Cone {
+	void Cone(float radius, float height, long segmentsW, long segmentsH, boolean openEnded, boolean smooth, boolean flip);
+};
+[Prefix="p3d::"]
+interface Cylinder {
+	void Cylinder(float radius, float height, long segmentsW, long segmentsH, boolean openEnded, boolean smooth, boolean flip);
+};
+[Prefix="p3d::"]
+interface Plane {
+	void Plane(float width, float height, boolean smooth, boolean flip);
+};
+[Prefix="p3d::"]
+interface Sphere {
+	void Sphere(float radius, long segmentsW, long segmentsH, boolean smooth, boolean HalfSphere, boolean flip);
+};
+[Prefix="p3d::"]
+interface Torus {
+	void Torus(float radius, float tube, long segmentsW, long segmentsH, boolean smooth, boolean flip);
+};
+[Prefix="p3d::"]
+interface TorusKnot {
+	void TorusKnot(float radius, float tube, long segmentsW, long segmentsH, float p, float q, long heightScale, boolean smooth, boolean flip);
+};
+
+[Prefix="p3d::"]
+interface Model {
+	void Model(DOMString ModelPath, boolean mergeMeshes, long MaterialOptions);
+};
+
+[Prefix="p3d::"]
+interface Font {
+	void Font(DOMString font, float size);
+	void CreateText(DOMString text);
+	Texture GetTexture();
+	float GetFontSize();
+};
+
+[Prefix="p3d::"]
+interface Text {
+	void Text(Font font, DOMString text, float charWidth, float charHeight, [Const, Ref] Vec4 color, boolean DynamicText);
+	void UpdateText(DOMString text, [Const, Ref] Vec4 color);
+};
+
+[Prefix="p3d::"]
+interface SkeletonAnimation {
+	void SkeletonAnimation();
+	void LoadAnimation(DOMString AnimationFile);
+	long GetNumberAnimations();
+	void Update(float time);
+	SkeletonAnimationInstance CreateInstance(RenderingComponent Component);
+	void DestroyInstance(SkeletonAnimationInstance Instance);
+	long GetAnimationIDByName(DOMString name);
+};
+
+[Prefix="p3d::"]
+interface SkeletonAnimationInstance {
+	void SkeletonAnimationInstance(SkeletonAnimation owner, RenderingComponent Component);
+	long Play(long animation, float startTime, float repetition, float speed, float scale, DOMString LayerName);
+	void ChangeProperties( long animationOrder, float startTime, float repetition, float speed, float scale);
+	void Pause();
+	void PauseAnimation(long animationOrder);
+	void ResumeAnimation(long animationOrder);
+	void Resume();
+	void StopAnimation(long animationOrder);
+	void Stop();
+	boolean IsPaused(long animationOrder);
+	boolean IsPaused();
+	float GetAnimationCurrentProgress(long animationOrder);
+	float GetAnimationDuration(long animationOrder);
+	float GetAnimationCurrentTime(long animationOrder);
+	float GetAnimationSpeed(long animationOrder);
+	float GetAnimationStartTime(long animationOrder);
+	float GetAnimationStartTimeProgress(long animationOrder);
+	float GetAnimationID(long animationOrder);
+	float GetAnimationScale(long animationOrder);
+	float GetAnimationPositionInVector(long animation);
+	long CreateLayer(DOMString name);
+	void AddBone(DOMString LayerName, DOMString bone);
+	void AddBoneAndChilds(DOMString LayerName, DOMString bone, boolean inclusive);
+	void RemoveBone(DOMString LayerName, DOMString bone);
+	void RemoveBoneAndChilds(DOMString LayerName, DOMString bone);
+	void DestroyLayer(DOMString LayerName);
+};
+
+[Prefix="p3d::"]
+interface TextureAnimation {
+	void TextureAnimation();
+	Texture GetFrame(long frame);
+	long GetNumberFrames();
+	void AddFrame(Texture texture);
+	void Update(float time);
+	TextureAnimationInstance CreateInstance(float fps);
+	void DestroyInstance(TextureAnimationInstance Instance);
+};
+
+[Prefix="p3d::"]
+interface TextureAnimationInstance {
+	void TextureAnimationInstance(TextureAnimation owner, float fps);
+	void Play(long Repeat);
+	void Pause();
+	void Stop();
+	boolean IsPlaying();
+	void YoYo(boolean yo);
+	Texture GetTexture();
+	long GetFrame();
+};
+
+interface PyrosJSNative {
+	void PyrosJSNative();
+	void CreateContext();
+};
