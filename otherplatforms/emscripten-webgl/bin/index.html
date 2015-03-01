@@ -11,76 +11,83 @@
 <div style="float:left;margin-left:10px;margin-top:-10px;" id="jsCode"></div>
 </body>
 </html>
+<script src="Texture.js"></script>
+<script src="PyrosEngine.js"></script>
 <script>
 	var canvas = document.getElementById("glcanvas");
 	canvas.width = 640;
     canvas.height = 480;
-	var Module = {};
-    Module.canvas = canvas;
-    </script>
-
-<script src="Texture.js"></script>
-<script src="PyrosEngine.js"></script>
+    Pyros3D.canvas = canvas;
+</script>
 <script id="jsdata">
 var Scene, Camera, Renderer, Physics;
 var cubeHandle, floorHandle;
 var Material, floorMaterial;
 var Floor, rFloor, pFloor;
+var Light, dLight;
 var time, initTime;
 
 function Init() {
 
 	// Create Canvas Webgl Context
-	var GL = new Module.PyrosJSNative();
+	var GL = new Pyros3D.PyrosJSNative();
 	GL.CreateContext();
 
 	// Create a Scene
-	Scene = new Module.SceneGraph();
+	Scene = new Pyros3D.SceneGraph();
 
 	// Create Renderer
-	Renderer = new Module.ForwardRenderer(canvas.width, canvas.height);
-	Renderer.SetBackground(new Module.Vec4(0,0,0,1));
+	Renderer = new Pyros3D.ForwardRenderer(canvas.width, canvas.height);
+	Renderer.SetBackground(new Pyros3D.Vec4(0,0,0,1));
 
 	// Create Physics
-	Physics = new Module.BulletPhysics();
+	Physics = new Pyros3D.BulletPhysics();
 	Physics.InitPhysics();
 
-	Proj = new Module.Projection();
+	Proj = new Pyros3D.Projection();
 	Proj.Perspective(70,canvas.width/canvas.height,1,500);
 
-	Camera = new GameObject();
-	Camera.SetPosition(new Module.Vec3(0,20,250));
-	Camera.LookAtVec(Vec3(0,0,0));
+	Camera = new Pyros3D.GameObject();
+	Camera.SetPosition(new Pyros3D.Vec3(0,20,250));
+	Camera.LookAtVec(new Pyros3D.Vec3(0,0,0));
 	Scene.AddGameObject(Camera);
 
 	// Create Material
-	floorMaterial = new Module.GenericShaderMaterial(0x1);
-	floorMaterial.SetColor(new Module.Vec4(1.0,0.0,0.0,1.0));
+	floorMaterial = new Pyros3D.GenericShaderMaterial(0x1 | 0x4000);
+	floorMaterial.SetColor(new Pyros3D.Vec4(1.0,0.0,0.0,1.0));
 
-	Material = new Module.GenericShaderMaterial(0x2);
-	var texture = new Module.Texture();
+	Material = new Pyros3D.GenericShaderMaterial(0x2 | 0x4000);
+	var texture = new Pyros3D.Texture();
 	texture.LoadTexture("Texture.png",6);
 	Material.SetColorMap(texture);
 
-	cubeHandle = new Module.Cube(10,10,10);
-	floorHandle = new Module.Cube(200,5,200);
+	cubeHandle = new Pyros3D.Cube(10,10,10);
+	floorHandle = new Pyros3D.Cube(200,5,200);
 
 	// Create 200 Cubes
 	for (var i=0;i<200;i++)
 	{
-		var Cube = new Module.GameObject();
-		Cube.AddComponent(new Module.RenderingComponent(cubeHandle, Material));
+		var Cube = new Pyros3D.GameObject();
+		Cube.AddComponent(new Pyros3D.RenderingComponent(cubeHandle, Material));
 		Cube.AddComponent(Physics.CreateBox(5,5,5,10));
 		Scene.AddGameObject(Cube);
-		Cube.SetPosition(new Module.Vec3((Math.random() * 100) -50,(Math.random() * 100)-50,(Math.random() * 100) -50));
+		Cube.SetPosition(new Pyros3D.Vec3((Math.random() * 100) -50,(Math.random() * 100)-50,(Math.random() * 100) -50));
 	}
 
 	// Create Floor
-	Floor = new Module.GameObject();
-	Floor.AddComponent(new Module.RenderingComponent(floorHandle, floorMaterial));
+	Floor = new Pyros3D.GameObject();
+	Floor.AddComponent(new Pyros3D.RenderingComponent(floorHandle, floorMaterial));
 	Floor.AddComponent(Physics.CreateBox(100,2.5,100,0));
-	Floor.SetPosition(new Module.Vec3(0,-100,0));
+	Floor.SetPosition(new Pyros3D.Vec3(0,-100,0));
 	Scene.AddGameObject(Floor);
+
+	// Light
+	Light = new Pyros3D.GameObject();
+	dLight = new Pyros3D.DirectionalLight(new Pyros3D.Vec4(1,1,1,1),new Pyros3D.Vec3(1,1,0));
+	Light.AddComponent(dLight);
+
+	// Add Light to Scene
+	Scene.AddGameObject(Light);
 
 	initTime = new Date().getTime();
 
