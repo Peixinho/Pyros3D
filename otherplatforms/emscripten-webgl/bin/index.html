@@ -1,96 +1,86 @@
 <html>
 <header>
 </header>
-<body onload="start()">
+<body onload="Init()">
 <div>
-Pyros Engine Example Native JavaScript
+<H1>Pyros3D Engine Example Native JavaScript</H1>
 </div>
 <div style="float:left">
 	<canvas id="glcanvas">No Support for Webgl</canvas>
 </div>
-<div style="float:left"><pre>
-var Camera,Scene,Proj,RComp,Mat,ForwardR,Cube,time,initTime;
-function start() {
-
-   	var GL = new Module.PyrosJSNative();
-   	GL.CreateContext();
-
-	Scene = new Module.SceneGraph();
-
-	var tex = new Module.Texture();
-	tex.LoadTexture("Texture.png",6);
-
-	Proj = new Module.Projection();
-	Proj.Perspective(70,640/480,1,100);
-	Camera = new GameObject();
-	Camera.SetPosition(new Module.Vec3(0,0,20));
-	Mat = new Module.GenericShaderMaterial(0x2);
-	Mat.SetColor(new Module.Vec4(1,0,0,1));
-	Mat.SetColorMap(tex);
-	var cubeMesh = new Module.Cube(10,10,10);
-	RComp = new RenderingComponent(cubeMesh,Mat);
-	Cube = new Module.GameObject();
-	Cube.AddComponent(RComp);
-	Scene.AddGameObject(Cube);
-	Scene.AddGameObject(Camera);
-	ForwardRenderer = new Module.ForwardRenderer(canvas.width, canvas.height);
-
-	initTime = new Date().getTime();
-
-	Draw();
-}
-
-function Draw()
-{
-	var now = new Date().getTime(),
-	dt = now - (time || now);
-	time = now;
-	var currentTime = (time-initTime)/1000;
-	Cube.SetRotation(new Module.Vec3(0,currentTime,0));
-	requestAnimationFrame(Draw);
-	Scene.Update(currentTime);
-	ForwardRenderer.RenderScene(Proj,Camera,Scene);
-}
-</pre>
-</div>
+<div style="float:left;margin-left:10px;margin-top:-10px;" id="jsCode"></div>
 </body>
 </html>
 <script>
 	var canvas = document.getElementById("glcanvas");
-	canvas.width = 1024;
-    canvas.height = 768;
+	canvas.width = 640;
+    canvas.height = 480;
 	var Module = {};
     Module.canvas = canvas;
     </script>
 
 <script src="Texture.js"></script>
-<script src="PyrosEngined.js"></script>
-<script>
-var Camera,Scene,Proj,RComp,Mat,ForwardR,Cube,time,initTime;
-function start() {
+<script src="PyrosEngine.js"></script>
+<script id="jsdata">
+var Scene, Camera, Renderer, Physics;
+var cubeHandle, floorHandle;
+var Material, floorMaterial;
+var Floor, rFloor, pFloor;
+var time, initTime;
 
-   	var GL = new Module.PyrosJSNative();
-   	GL.CreateContext();
+function Init() {
 
+	// Create Canvas Webgl Context
+	var GL = new Module.PyrosJSNative();
+	GL.CreateContext();
+
+	// Create a Scene
 	Scene = new Module.SceneGraph();
 
-	var tex = new Module.Texture();
-	tex.LoadTexture("Texture.png",6);
+	// Create Renderer
+	Renderer = new Module.ForwardRenderer(canvas.width, canvas.height);
+	Renderer.SetBackground(new Module.Vec4(0,0,0,1));
+
+	// Create Physics
+	Physics = new Module.BulletPhysics();
+	Physics.InitPhysics();
 
 	Proj = new Module.Projection();
-	Proj.Perspective(70,640/480,1,100);
+	Proj.Perspective(70,canvas.width/canvas.height,1,500);
+
 	Camera = new GameObject();
-	Camera.SetPosition(new Module.Vec3(0,0,20));
-	Mat = new Module.GenericShaderMaterial(0x2);
-	Mat.SetColor(new Module.Vec4(1,0,0,1));
-	Mat.SetColorMap(tex);
-	var cubeMesh = new Module.Cube(10,10,10);
-	RComp = new RenderingComponent(cubeMesh,Mat);
-	Cube = new Module.GameObject();
-	Cube.AddComponent(RComp);
-	Scene.AddGameObject(Cube);
+	Camera.SetPosition(new Module.Vec3(0,20,250));
+	Camera.LookAtVec(Vec3(0,0,0));
 	Scene.AddGameObject(Camera);
-	ForwardRenderer = new Module.ForwardRenderer(canvas.width, canvas.height);
+
+	// Create Material
+	floorMaterial = new Module.GenericShaderMaterial(0x1);
+	floorMaterial.SetColor(new Module.Vec4(1.0,0.0,0.0,1.0));
+
+	Material = new Module.GenericShaderMaterial(0x2);
+	var texture = new Module.Texture();
+	texture.LoadTexture("Texture.png",6);
+	Material.SetColorMap(texture);
+
+	cubeHandle = new Module.Cube(10,10,10);
+	floorHandle = new Module.Cube(200,5,200);
+
+	// Create 200 Cubes
+	for (var i=0;i<200;i++)
+	{
+		var Cube = new Module.GameObject();
+		Cube.AddComponent(new Module.RenderingComponent(cubeHandle, Material));
+		Cube.AddComponent(Physics.CreateBox(5,5,5,10));
+		Scene.AddGameObject(Cube);
+		Cube.SetPosition(new Module.Vec3((Math.random() * 100) -50,(Math.random() * 100)-50,(Math.random() * 100) -50));
+	}
+
+	// Create Floor
+	Floor = new Module.GameObject();
+	Floor.AddComponent(new Module.RenderingComponent(floorHandle, floorMaterial));
+	Floor.AddComponent(Physics.CreateBox(100,2.5,100,0));
+	Floor.SetPosition(new Module.Vec3(0,-100,0));
+	Scene.AddGameObject(Floor);
 
 	initTime = new Date().getTime();
 
@@ -99,14 +89,16 @@ function start() {
 
 function Draw()
 {
-	var now = new Date().getTime(),
-	dt = now - (time || now);
-	time = now;
+	var now = new Date().getTime(), dt = now - (time || now); time = now;
 	var currentTime = (time-initTime)/1000;
-	Cube.SetRotation(new Module.Vec3(0,currentTime,0));
-	requestAnimationFrame(Draw);
-	Scene.Update(currentTime);
-	ForwardRenderer.RenderScene(Proj,Camera,Scene);
-}
 
+	requestAnimationFrame(Draw);
+	Physics.Update(currentTime,10);
+	Scene.Update(currentTime);
+	Renderer.RenderScene(Proj,Camera,Scene);
+}
+</script>
+<script>
+// Copy code to div
+document.getElementById("jsCode").innerHTML="<pre>"+(document.getElementById("jsdata").innerHTML)+"</pre>";
 </script>

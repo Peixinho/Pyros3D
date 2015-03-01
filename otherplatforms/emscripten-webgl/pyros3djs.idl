@@ -3,7 +3,7 @@ interface Vec2 {
 	attribute float x;
 	attribute float y;
 	void Vec2();
-	void Vec2([Const] float X, [Const] float Y);
+	void Vec2(float X, float Y);
 	float dotProduct([Const, Ref] Vec2 v);
     float magnitude();
     float magnitudeSQR();
@@ -16,10 +16,10 @@ interface Vec2 {
 	[Operator="-="] void sub([Const, Ref] Vec2 v);
 	[Operator="*="] void mul([Const, Ref] Vec2 v);
 	[Operator="/="] void div([Const, Ref] Vec2 v);
-	[Operator="+="] void add_scalar([Const] float f);
-	[Operator="-="] void sub_scalar([Const] float f);
-	[Operator="*="] void mul_scalar([Const] float f);
-	[Operator="/="] void div_scalar([Const] float f);
+	[Operator="+="] void add_scalar(float f);
+	[Operator="-="] void sub_scalar(float f);
+	[Operator="*="] void mul_scalar(float f);
+	[Operator="/="] void div_scalar(float f);
 };
 
 [Prefix="p3d::Math::"]
@@ -28,7 +28,7 @@ interface Vec3 {
 	attribute float y;
 	attribute float z;
 	void Vec3();
-	void Vec3([Const] float X, [Const] float Y, [Const] float Z);
+	void Vec3(float X, float Y, float Z);
 	float dotProduct([Const, Ref] Vec3 v);
     float magnitude();
     float magnitudeSQR();
@@ -44,10 +44,10 @@ interface Vec3 {
 	[Operator="-="] void sub([Const, Ref] Vec3 v);
 	[Operator="*="] void mul([Const, Ref] Vec3 v);
 	[Operator="/="] void div([Const, Ref] Vec3 v);
-	[Operator="+="] void add_scalar([Const] float f);
-	[Operator="-="] void sub_scalar([Const] float f);
-	[Operator="*="] void mul_scalar([Const] float f);
-	[Operator="/="] void div_scalar([Const] float f);
+	[Operator="+="] void add_scalar(float f);
+	[Operator="-="] void sub_scalar(float f);
+	[Operator="*="] void mul_scalar(float f);
+	[Operator="/="] void div_scalar(float f);
 };
 
 [Prefix="p3d::Math::"]
@@ -57,7 +57,7 @@ interface Vec4 {
 	attribute float z;
 	attribute float w;
 	void Vec4();
-	void Vec4([Const] float X, [Const] float Y, [Const] float Z, [Const] float w);
+	void Vec4(float X, float Y, float Z, float W);
 	float dotProduct([Const, Ref] Vec4 v);
     float magnitude();
     float magnitudeSQR();
@@ -66,10 +66,10 @@ interface Vec4 {
 	[Operator="-="] void sub([Const, Ref] Vec4 v);
 	[Operator="*="] void mul([Const, Ref] Vec4 v);
 	[Operator="/="] void div([Const, Ref] Vec4 v);
-	[Operator="+="] void add_scalar([Const] float f);
-	[Operator="-="] void sub_scalar([Const] float f);
-	[Operator="*="] void mul_scalar([Const] float f);
-	[Operator="/="] void div_scalar([Const] float f);	
+	[Operator="+="] void add_scalar(float f);
+	[Operator="-="] void sub_scalar(float f);
+	[Operator="*="] void mul_scalar(float f);
+	[Operator="/="] void div_scalar(float f);	
 };
 
 [Prefix="p3d::Math::"]
@@ -79,19 +79,19 @@ interface Quaternion {
 	attribute float z;
 	attribute float w;
 	void Quaternion();
-	void Quaternion([Const] float w, [Const] float x, [Const] float y, [Const] float z);
-    void Quaternion([Const] float x, [Const] float y, [Const] float z);
-    void Quaternion([Const, Ref] Vec3 v, [Const] float angle);
+	void Quaternion(float w, float x, float y, float z);
+    void Quaternion(float x, float y, float z);
+    void Quaternion([Const, Ref] Vec3 v, float angle);
 	[Value] Matrix ConvertToMatrix();
 	float Magnitude();
     float Dot ([Const, Ref] Quaternion q);
     void Normalize();
-    void Rotation([Const] float xAngle, [Const] float yAngle, [Const] float zAngle);
+    void Rotation(float xAngle, float yAngle, float zAngle);
     void SetRotationFromEuler([Const, Ref] Vec3 rotation, [Const] long order);
     [Value] Vec3 GetEulerFromQuaternion([Const] long order);
-    void AxisToQuaternion([Const, Ref] Vec3 v, [Const] float angle);
-    [Value] Quaternion Slerp([Const, Ref] Quaternion b, [Const] float t);
-    [Value] Quaternion Nlerp([Const, Ref] Quaternion b, [Const] float t, boolean shortestPath);
+    void AxisToQuaternion([Const, Ref] Vec3 v, float angle);
+    [Value] Quaternion Slerp([Const, Ref] Quaternion b, float t);
+    [Value] Quaternion Nlerp([Const, Ref] Quaternion b, float t, boolean shortestPath);
     [Value] Quaternion Inverse();
     [Operator="*="] void mul([Const, Ref] Quaternion q);
 };
@@ -99,33 +99,33 @@ interface Quaternion {
 [Prefix="p3d::Math::"]
 interface Matrix {
 	void Matrix();
-	void Matrix([Const] float n11,[Const] float n21,[Const] float n31,[Const] float n41,[Const] float n12,[Const] float n22,[Const] float n32,[Const] float n42,[Const] float n13,[Const] float n23,[Const] float n33,[Const] float n43,[Const] float n14,[Const] float n24,[Const] float n34,[Const] float n44);
+	void Matrix(float n11,float n21,float n31,float n41,float n12,float n22,float n32,float n42,float n13,float n23,float n33,float n43,float n14,float n24,float n34,float n44);
 	void identity();
 	void LookAt([Const, Ref] Vec3 eye,[Const, Ref] Vec3 center,[Const, Ref] Vec3 up);
 	void LookAt([Const, Ref] Vec3 eye,[Const, Ref] Vec3 center);
-    void Translate([Const] float x, [Const] float y, [Const] float z);
+    void Translate(float x, float y, float z);
     void Translate([Const, Ref] Vec3 xyz);
-    void TranslateX([Const] float x);
-    void TranslateY([Const] float y);
-    void TranslateZ([Const] float z);
+    void TranslateX(float x);
+    void TranslateY(float y);
+    void TranslateZ(float z);
     [Value] Vec3 GetTranslation();
-    void RotationX([Const] float angle);
-    void RotationY([Const] float angle);
-    void RotationZ([Const] float angle);
+    void RotationX(float angle);
+    void RotationY(float angle);
+    void RotationZ(float angle);
     void SetRotationFromEuler([Const, Ref] Vec3 rotation, [Const] long order);
     [Value] Vec3 GetEulerFromRotationMatrix([Const] long order);
     [Value] Matrix GetRotation([Const, Ref] Vec3 scale);
-    void Scale([Const] float sx, [Const] float sy, [Const] float sz);
+    void Scale(float sx, float sy, float sz);
     void Scale([Const, Ref] Vec3 xyz);
-    void ScaleX([Const] float x);
-    void ScaleY([Const] float y);
-    void ScaleZ([Const] float z);
+    void ScaleX(float x);
+    void ScaleY(float y);
+    void ScaleZ(float z);
     [Value] Vec3 GetScale();
     float Determinant();
     [Value] Matrix Transpose();
     [Value] Matrix Inverse();
-    [Value] Matrix PerspectiveMatrix([Const] float fov, [Const] float aspect, [Const] float near, [Const] float far);
-    [Value] Matrix OrthoMatrix([Const] float left, [Const] float right, [Const] float bottom, [Const] float top, [Const] float near, [Const] float far);
+    [Value] Matrix PerspectiveMatrix(float fov, float aspect, float near, float far);
+    [Value] Matrix OrthoMatrix(float left, float right, float bottom, float top, float near, float far);
     [Value] Quaternion ConvertToQuaternion();
     [Operator="*="] void mul([Const, Ref] Matrix m);
 };
@@ -176,8 +176,8 @@ interface GameObject {
 [Prefix="p3d::"]
 interface Projection {
 	void Projection();
-	void Perspective([Const] float fov, [Const] float aspect, [Const] float near, [Const] float far);
-    void Ortho([Const] float left, [Const] float right, [Const] float bottom, [Const] float top, [Const] float near, [Const] float far);
+	void Perspective(float fov, float aspect, float near, float far);
+    void Ortho(float left, float right, float bottom, float top, float near, float far);
 
     [Value] Matrix GetProjectionMatrix();	
 };
@@ -203,10 +203,10 @@ interface IRenderer {
 	void BlendingEquation([Const] long mode);
 	void EnableScissorTest();
 	void DisableScissorTest();
-	void ScissorTestRect([Const] float x, [Const] float y, [Const] float width, [Const] float height);
+	void ScissorTestRect(float x, float y, float width, float height);
 	void EnableWireFrame();
 	void DisableWireFrame();
-	void ColorMask([Const] float r,[Const] float g,[Const] float b,[Const] float a);
+	void ColorMask(float r,float g,float b,float a);
 	void EnableSorting();
 	void DisableSorting();
 	void EnableLOD();
@@ -242,7 +242,7 @@ interface Renderable {
 [Prefix="p3d::"]
 interface RenderingComponent {
       void RenderingComponent(Renderable renderable, IMaterial Material);
-      void AddLOD(Renderable renderable, [Const] float Distance, IMaterial Material);
+      void AddLOD(Renderable renderable, float Distance, IMaterial Material);
       void Register(SceneGraph Scene);
       void Init();
       void Update();
@@ -254,7 +254,7 @@ interface RenderingComponent {
       boolean IsCastingShadows();
       boolean HasBones();
       [Const] long GetLODSize();
-      long GetLODByDistance([Const] float Distance);
+      long GetLODByDistance(float Distance);
       void UpdateLOD([Const] long lod);
       float GetBoundingSphereRadius();
       [Const, Ref] Vec3 GetBoundingSphereCenter();
@@ -276,7 +276,7 @@ interface DirectionalLight {
 [Prefix="p3d::"]
 interface PointLight {
 	void PointLight();
-	void PointLight([Const, Ref] Vec4 color, [Const] float radius);
+	void PointLight([Const, Ref] Vec4 color, float radius);
 	void Start();
 	void Update();
 	void Destroy();
@@ -285,7 +285,7 @@ interface PointLight {
 [Prefix="p3d::"]
 interface SpotLight {
 	void SpotLight();
-	void SpotLight([Const, Ref] Vec4 color, [Const] float radius, [Const, Ref] Vec3 direction, [Const] float OutterCone, [Const] float InnerCone);
+	void SpotLight([Const, Ref] Vec4 color, float radius, [Const, Ref] Vec3 direction, float OutterCone, float InnerCone);
 	void Start();
 	void Update();
 	void Destroy();
@@ -381,7 +381,6 @@ interface Shader {
 	void LoadShaderFile(DOMString filename);
 	void LoadShaderText(DOMString text);
 
-	long GetType();
 	void CompileShader(long type);
 	void DeleteShader();
 	void LinkProgram();
@@ -509,6 +508,42 @@ interface TextureAnimationInstance {
 	void YoYo(boolean yo);
 	Texture GetTexture();
 	long GetFrame();
+};
+
+[Prefix="p3d::"]
+interface IPhysicsComponent {
+};
+
+[Prefix="p3d::"]
+interface BulletPhysics {
+	void BulletPhysics();
+	void InitPhysics();
+	void Update(float time, long steps);
+	void EndPhysics();
+            
+	void RemovePhysicsComponent(IPhysicsComponent pcomp);
+	void UpdateTransformations(IPhysicsComponent pcomp);
+	void UpdatePosition(IPhysicsComponent pcomp, [Const, Ref] Vec3 position);
+	void UpdateRotation(IPhysicsComponent pcomp, [Const, Ref] Vec3 rotation);
+	void CleanForces(IPhysicsComponent pcomp);
+	void SetAngularVelocity(IPhysicsComponent pcomp, [Const, Ref] Vec3 velocity);
+	void SetLinearVelocity(IPhysicsComponent pcomp, [Const, Ref] Vec3 velocity);
+	void Activate(IPhysicsComponent pcomp);
+
+	IComponent CreateBox(float width, float height, float depth, float mass);
+	IComponent CreateCapsule(float radius, float height, float mass);
+	IComponent CreateCone(float radius, float height, float mass);
+	/*IComponent CreateConvexHull([Const] std::vector<Vec3> &points, float mass);*/
+	IComponent CreateConvexTriangleMesh(RenderingComponent rcomp, float mass);
+	/*IComponent CreateConvexTriangleMesh([Const] std::vector<uint32> &index, [Const] std::vector<Vec3> &vertex, float mass);*/
+	IComponent CreateCylinder(float radius, float height, float mass);
+	/*IComponent CreateMultipleSphere([Const] std::vector<Vec3> &positions, [Const] std::vector<float> &radius, float mass);*/
+	IComponent CreateSphere(float radius, float mass);
+	IComponent CreateStaticPlane([Const, Ref] Vec3 Normal, float Constant, float mass);
+	IComponent CreateTriangleMesh(RenderingComponent rcomp, float mass);
+	/*IComponent CreateTriangleMesh([Const] std::vector<uint32> &index, [Const] std::vector<Vec3> &vertex, float mass);*/
+	IComponent CreateVehicle(IPhysicsComponent ChassisShape);
+	void AddWheel(IPhysicsComponent pcomp, [Const, Ref] Vec3 WheelDirection, [Const, Ref] Vec3 WheelAxle, float WheelRadius, float WheelWidth, float WheelFriction, float WheelRollInfluence, [Const, Ref] Vec3 Position, boolean isFrontWheel);
 };
 
 interface PyrosJSNative {

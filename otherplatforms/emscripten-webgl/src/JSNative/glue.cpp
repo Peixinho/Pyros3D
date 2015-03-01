@@ -573,6 +573,100 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer___destroy___0(p3d::IRenderer
   delete self;
 }
 
+// BulletPhysics
+
+p3d::BulletPhysics* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_BulletPhysics_0() {
+  return new p3d::BulletPhysics();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_InitPhysics_0(p3d::BulletPhysics* self) {
+  self->InitPhysics();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_Update_2(p3d::BulletPhysics* self, float arg0, int arg1) {
+  self->Update(arg0, arg1);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_EndPhysics_0(p3d::BulletPhysics* self) {
+  self->EndPhysics();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_RemovePhysicsComponent_1(p3d::BulletPhysics* self, p3d::IPhysicsComponent* arg0) {
+  self->RemovePhysicsComponent(arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_UpdateTransformations_1(p3d::BulletPhysics* self, p3d::IPhysicsComponent* arg0) {
+  self->UpdateTransformations(arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_UpdatePosition_2(p3d::BulletPhysics* self, p3d::IPhysicsComponent* arg0, p3d::Math::Vec3* arg1) {
+  self->UpdatePosition(arg0, *arg1);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_UpdateRotation_2(p3d::BulletPhysics* self, p3d::IPhysicsComponent* arg0, p3d::Math::Vec3* arg1) {
+  self->UpdateRotation(arg0, *arg1);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CleanForces_1(p3d::BulletPhysics* self, p3d::IPhysicsComponent* arg0) {
+  self->CleanForces(arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_SetAngularVelocity_2(p3d::BulletPhysics* self, p3d::IPhysicsComponent* arg0, p3d::Math::Vec3* arg1) {
+  self->SetAngularVelocity(arg0, *arg1);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_SetLinearVelocity_2(p3d::BulletPhysics* self, p3d::IPhysicsComponent* arg0, p3d::Math::Vec3* arg1) {
+  self->SetLinearVelocity(arg0, *arg1);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_Activate_1(p3d::BulletPhysics* self, p3d::IPhysicsComponent* arg0) {
+  self->Activate(arg0);
+}
+
+p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateBox_4(p3d::BulletPhysics* self, float arg0, float arg1, float arg2, float arg3) {
+  return self->CreateBox(arg0, arg1, arg2, arg3);
+}
+
+p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateCapsule_3(p3d::BulletPhysics* self, float arg0, float arg1, float arg2) {
+  return self->CreateCapsule(arg0, arg1, arg2);
+}
+
+p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateCone_3(p3d::BulletPhysics* self, float arg0, float arg1, float arg2) {
+  return self->CreateCone(arg0, arg1, arg2);
+}
+
+p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateConvexTriangleMesh_2(p3d::BulletPhysics* self, p3d::RenderingComponent* arg0, float arg1) {
+  return self->CreateConvexTriangleMesh(arg0, arg1);
+}
+
+p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateCylinder_3(p3d::BulletPhysics* self, float arg0, float arg1, float arg2) {
+  return self->CreateCylinder(arg0, arg1, arg2);
+}
+
+p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateSphere_2(p3d::BulletPhysics* self, float arg0, float arg1) {
+  return self->CreateSphere(arg0, arg1);
+}
+
+p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateStaticPlane_3(p3d::BulletPhysics* self, p3d::Math::Vec3* arg0, float arg1, float arg2) {
+  return self->CreateStaticPlane(*arg0, arg1, arg2);
+}
+
+p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateTriangleMesh_2(p3d::BulletPhysics* self, p3d::RenderingComponent* arg0, float arg1) {
+  return self->CreateTriangleMesh(arg0, arg1);
+}
+
+p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateVehicle_1(p3d::BulletPhysics* self, p3d::IPhysicsComponent* arg0) {
+  return self->CreateVehicle(arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_AddWheel_9(p3d::BulletPhysics* self, p3d::IPhysicsComponent* arg0, p3d::Math::Vec3* arg1, p3d::Math::Vec3* arg2, float arg3, float arg4, float arg5, float arg6, p3d::Math::Vec3* arg7, bool arg8) {
+  self->AddWheel(arg0, *arg1, *arg2, arg3, arg4, arg5, arg6, *arg7, arg8);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics___destroy___0(p3d::BulletPhysics* self) {
+  delete self;
+}
+
 // IMaterial
 
 p3d::IMaterial* EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_IMaterial_0() {
@@ -1006,6 +1100,12 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_Cone___destroy___0(p3d::Cone* self) {
   delete self;
 }
 
+// IPhysicsComponent
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IPhysicsComponent___destroy___0(p3d::IPhysicsComponent* self) {
+  delete self;
+}
+
 // IComponent
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_IComponent___destroy___0(p3d::IComponent* self) {
@@ -1044,10 +1144,6 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_Shader_LoadShaderFile_1(p3d::Shader* s
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_Shader_LoadShaderText_1(p3d::Shader* self, char* arg0) {
   self->LoadShaderText(arg0);
-}
-
-int EMSCRIPTEN_KEEPALIVE emscripten_bind_Shader_GetType_0(p3d::Shader* self) {
-  return self->GetType();
 }
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_Shader_CompileShader_1(p3d::Shader* self, int arg0) {
@@ -1641,38 +1737,6 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_div_scalar_1(p3d::Math::Vec4* sel
   (*self /= arg0);
 }
 
-float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_get_x_0(p3d::Math::Vec4* self) {
-  return self->x;
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_set_x_1(p3d::Math::Vec4* self, float arg0) {
-  self->x = arg0;
-}
-
-float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_get_y_0(p3d::Math::Vec4* self) {
-  return self->y;
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_set_y_1(p3d::Math::Vec4* self, float arg0) {
-  self->y = arg0;
-}
-
-float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_get_z_0(p3d::Math::Vec4* self) {
-  return self->z;
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_set_z_1(p3d::Math::Vec4* self, float arg0) {
-  self->z = arg0;
-}
-
-float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_get_w_0(p3d::Math::Vec4* self) {
-  return self->w;
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_set_w_1(p3d::Math::Vec4* self, float arg0) {
-  self->w = arg0;
-}
-
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4___destroy___0(p3d::Math::Vec4* self) {
   delete self;
 }
@@ -1752,22 +1816,6 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec2_mul_scalar_1(p3d::Math::Vec2* sel
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec2_div_scalar_1(p3d::Math::Vec2* self, float arg0) {
   (*self /= arg0);
-}
-
-float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec2_get_x_0(p3d::Math::Vec2* self) {
-  return self->x;
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec2_set_x_1(p3d::Math::Vec2* self, float arg0) {
-  self->x = arg0;
-}
-
-float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec2_get_y_0(p3d::Math::Vec2* self) {
-  return self->y;
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec2_set_y_1(p3d::Math::Vec2* self, float arg0) {
-  self->y = arg0;
 }
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec2___destroy___0(p3d::Math::Vec2* self) {
@@ -1862,30 +1910,6 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec3_mul_scalar_1(p3d::Math::Vec3* sel
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec3_div_scalar_1(p3d::Math::Vec3* self, float arg0) {
   (*self /= arg0);
-}
-
-float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec3_get_x_0(p3d::Math::Vec3* self) {
-  return self->x;
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec3_set_x_1(p3d::Math::Vec3* self, float arg0) {
-  self->x = arg0;
-}
-
-float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec3_get_y_0(p3d::Math::Vec3* self) {
-  return self->y;
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec3_set_y_1(p3d::Math::Vec3* self, float arg0) {
-  self->y = arg0;
-}
-
-float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec3_get_z_0(p3d::Math::Vec3* self) {
-  return self->z;
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec3_set_z_1(p3d::Math::Vec3* self, float arg0) {
-  self->z = arg0;
 }
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec3___destroy___0(p3d::Math::Vec3* self) {

@@ -768,6 +768,218 @@ IRenderer.prototype['RenderScene'] = function(arg0, arg1, arg2) {
   var self = this.ptr;
   _emscripten_bind_IRenderer___destroy___0(self);
 }
+// BulletPhysics
+function BulletPhysics() {
+  this.ptr = _emscripten_bind_BulletPhysics_BulletPhysics_0();
+  getCache(BulletPhysics)[this.ptr] = this;
+};
+BulletPhysics.prototype = Object.create(WrapperObject.prototype);
+BulletPhysics.prototype.constructor = BulletPhysics;
+BulletPhysics.prototype.__class__ = BulletPhysics;
+BulletPhysics.__cache__ = {};
+Module['BulletPhysics'] = BulletPhysics;
+
+BulletPhysics.prototype['InitPhysics'] = function() {
+  var self = this.ptr;
+  _emscripten_bind_BulletPhysics_InitPhysics_0(self);
+};
+
+BulletPhysics.prototype['Update'] = function(arg0, arg1) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  if (arg1 && typeof arg1 === 'object') arg1 = arg1.ptr;
+  else arg1 = ensureString(arg1);
+  _emscripten_bind_BulletPhysics_Update_2(self, arg0, arg1);
+};
+
+BulletPhysics.prototype['EndPhysics'] = function() {
+  var self = this.ptr;
+  _emscripten_bind_BulletPhysics_EndPhysics_0(self);
+};
+
+BulletPhysics.prototype['RemovePhysicsComponent'] = function(arg0) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  _emscripten_bind_BulletPhysics_RemovePhysicsComponent_1(self, arg0);
+};
+
+BulletPhysics.prototype['UpdateTransformations'] = function(arg0) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  _emscripten_bind_BulletPhysics_UpdateTransformations_1(self, arg0);
+};
+
+BulletPhysics.prototype['UpdatePosition'] = function(arg0, arg1) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  if (arg1 && typeof arg1 === 'object') arg1 = arg1.ptr;
+  else arg1 = ensureString(arg1);
+  _emscripten_bind_BulletPhysics_UpdatePosition_2(self, arg0, arg1);
+};
+
+BulletPhysics.prototype['UpdateRotation'] = function(arg0, arg1) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  if (arg1 && typeof arg1 === 'object') arg1 = arg1.ptr;
+  else arg1 = ensureString(arg1);
+  _emscripten_bind_BulletPhysics_UpdateRotation_2(self, arg0, arg1);
+};
+
+BulletPhysics.prototype['CleanForces'] = function(arg0) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  _emscripten_bind_BulletPhysics_CleanForces_1(self, arg0);
+};
+
+BulletPhysics.prototype['SetAngularVelocity'] = function(arg0, arg1) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  if (arg1 && typeof arg1 === 'object') arg1 = arg1.ptr;
+  else arg1 = ensureString(arg1);
+  _emscripten_bind_BulletPhysics_SetAngularVelocity_2(self, arg0, arg1);
+};
+
+BulletPhysics.prototype['SetLinearVelocity'] = function(arg0, arg1) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  if (arg1 && typeof arg1 === 'object') arg1 = arg1.ptr;
+  else arg1 = ensureString(arg1);
+  _emscripten_bind_BulletPhysics_SetLinearVelocity_2(self, arg0, arg1);
+};
+
+BulletPhysics.prototype['Activate'] = function(arg0) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  _emscripten_bind_BulletPhysics_Activate_1(self, arg0);
+};
+
+BulletPhysics.prototype['CreateBox'] = function(arg0, arg1, arg2, arg3) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  if (arg1 && typeof arg1 === 'object') arg1 = arg1.ptr;
+  else arg1 = ensureString(arg1);
+  if (arg2 && typeof arg2 === 'object') arg2 = arg2.ptr;
+  else arg2 = ensureString(arg2);
+  if (arg3 && typeof arg3 === 'object') arg3 = arg3.ptr;
+  else arg3 = ensureString(arg3);
+  return wrapPointer(_emscripten_bind_BulletPhysics_CreateBox_4(self, arg0, arg1, arg2, arg3), IComponent);
+};
+
+BulletPhysics.prototype['CreateCapsule'] = function(arg0, arg1, arg2) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  if (arg1 && typeof arg1 === 'object') arg1 = arg1.ptr;
+  else arg1 = ensureString(arg1);
+  if (arg2 && typeof arg2 === 'object') arg2 = arg2.ptr;
+  else arg2 = ensureString(arg2);
+  return wrapPointer(_emscripten_bind_BulletPhysics_CreateCapsule_3(self, arg0, arg1, arg2), IComponent);
+};
+
+BulletPhysics.prototype['CreateCone'] = function(arg0, arg1, arg2) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  if (arg1 && typeof arg1 === 'object') arg1 = arg1.ptr;
+  else arg1 = ensureString(arg1);
+  if (arg2 && typeof arg2 === 'object') arg2 = arg2.ptr;
+  else arg2 = ensureString(arg2);
+  return wrapPointer(_emscripten_bind_BulletPhysics_CreateCone_3(self, arg0, arg1, arg2), IComponent);
+};
+
+BulletPhysics.prototype['CreateConvexTriangleMesh'] = function(arg0, arg1) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  if (arg1 && typeof arg1 === 'object') arg1 = arg1.ptr;
+  else arg1 = ensureString(arg1);
+  return wrapPointer(_emscripten_bind_BulletPhysics_CreateConvexTriangleMesh_2(self, arg0, arg1), IComponent);
+};
+
+BulletPhysics.prototype['CreateCylinder'] = function(arg0, arg1, arg2) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  if (arg1 && typeof arg1 === 'object') arg1 = arg1.ptr;
+  else arg1 = ensureString(arg1);
+  if (arg2 && typeof arg2 === 'object') arg2 = arg2.ptr;
+  else arg2 = ensureString(arg2);
+  return wrapPointer(_emscripten_bind_BulletPhysics_CreateCylinder_3(self, arg0, arg1, arg2), IComponent);
+};
+
+BulletPhysics.prototype['CreateSphere'] = function(arg0, arg1) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  if (arg1 && typeof arg1 === 'object') arg1 = arg1.ptr;
+  else arg1 = ensureString(arg1);
+  return wrapPointer(_emscripten_bind_BulletPhysics_CreateSphere_2(self, arg0, arg1), IComponent);
+};
+
+BulletPhysics.prototype['CreateStaticPlane'] = function(arg0, arg1, arg2) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  if (arg1 && typeof arg1 === 'object') arg1 = arg1.ptr;
+  else arg1 = ensureString(arg1);
+  if (arg2 && typeof arg2 === 'object') arg2 = arg2.ptr;
+  else arg2 = ensureString(arg2);
+  return wrapPointer(_emscripten_bind_BulletPhysics_CreateStaticPlane_3(self, arg0, arg1, arg2), IComponent);
+};
+
+BulletPhysics.prototype['CreateTriangleMesh'] = function(arg0, arg1) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  if (arg1 && typeof arg1 === 'object') arg1 = arg1.ptr;
+  else arg1 = ensureString(arg1);
+  return wrapPointer(_emscripten_bind_BulletPhysics_CreateTriangleMesh_2(self, arg0, arg1), IComponent);
+};
+
+BulletPhysics.prototype['CreateVehicle'] = function(arg0) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  return wrapPointer(_emscripten_bind_BulletPhysics_CreateVehicle_1(self, arg0), IComponent);
+};
+
+BulletPhysics.prototype['AddWheel'] = function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
+  var self = this.ptr;
+  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
+  else arg0 = ensureString(arg0);
+  if (arg1 && typeof arg1 === 'object') arg1 = arg1.ptr;
+  else arg1 = ensureString(arg1);
+  if (arg2 && typeof arg2 === 'object') arg2 = arg2.ptr;
+  else arg2 = ensureString(arg2);
+  if (arg3 && typeof arg3 === 'object') arg3 = arg3.ptr;
+  else arg3 = ensureString(arg3);
+  if (arg4 && typeof arg4 === 'object') arg4 = arg4.ptr;
+  else arg4 = ensureString(arg4);
+  if (arg5 && typeof arg5 === 'object') arg5 = arg5.ptr;
+  else arg5 = ensureString(arg5);
+  if (arg6 && typeof arg6 === 'object') arg6 = arg6.ptr;
+  else arg6 = ensureString(arg6);
+  if (arg7 && typeof arg7 === 'object') arg7 = arg7.ptr;
+  else arg7 = ensureString(arg7);
+  if (arg8 && typeof arg8 === 'object') arg8 = arg8.ptr;
+  else arg8 = ensureString(arg8);
+  _emscripten_bind_BulletPhysics_AddWheel_9(self, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+};
+
+  BulletPhysics.prototype['__destroy__'] = function() {
+  var self = this.ptr;
+  _emscripten_bind_BulletPhysics___destroy___0(self);
+}
 // IMaterial
 function IMaterial() {
   this.ptr = _emscripten_bind_IMaterial_IMaterial_0();
@@ -1491,6 +1703,18 @@ Module['Cone'] = Cone;
   var self = this.ptr;
   _emscripten_bind_Cone___destroy___0(self);
 }
+// IPhysicsComponent
+function IPhysicsComponent() { throw "cannot construct a IPhysicsComponent, no constructor in IDL" }
+IPhysicsComponent.prototype = Object.create(WrapperObject.prototype);
+IPhysicsComponent.prototype.constructor = IPhysicsComponent;
+IPhysicsComponent.prototype.__class__ = IPhysicsComponent;
+IPhysicsComponent.__cache__ = {};
+Module['IPhysicsComponent'] = IPhysicsComponent;
+
+  IPhysicsComponent.prototype['__destroy__'] = function() {
+  var self = this.ptr;
+  _emscripten_bind_IPhysicsComponent___destroy___0(self);
+}
 // IComponent
 function IComponent() { throw "cannot construct a IComponent, no constructor in IDL" }
 IComponent.prototype = Object.create(WrapperObject.prototype);
@@ -1586,11 +1810,6 @@ Shader.prototype['LoadShaderText'] = function(arg0) {
   if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
   else arg0 = ensureString(arg0);
   _emscripten_bind_Shader_LoadShaderText_1(self, arg0);
-};
-
-Shader.prototype['GetType'] = function() {
-  var self = this.ptr;
-  return _emscripten_bind_Shader_GetType_0(self);
 };
 
 Shader.prototype['CompileShader'] = function(arg0) {
@@ -2582,46 +2801,6 @@ Vec4.prototype['div_scalar'] = function(arg0) {
   _emscripten_bind_Vec4_div_scalar_1(self, arg0);
 };
 
-  Vec4.prototype['get_x']= function() {
-  var self = this.ptr;
-  return _emscripten_bind_Vec4_get_x_0(self);
-}
-    Vec4.prototype['set_x']= function(arg0) {
-  var self = this.ptr;
-  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
-  else arg0 = ensureString(arg0);
-  _emscripten_bind_Vec4_set_x_1(self, arg0);
-}
-  Vec4.prototype['get_y']= function() {
-  var self = this.ptr;
-  return _emscripten_bind_Vec4_get_y_0(self);
-}
-    Vec4.prototype['set_y']= function(arg0) {
-  var self = this.ptr;
-  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
-  else arg0 = ensureString(arg0);
-  _emscripten_bind_Vec4_set_y_1(self, arg0);
-}
-  Vec4.prototype['get_z']= function() {
-  var self = this.ptr;
-  return _emscripten_bind_Vec4_get_z_0(self);
-}
-    Vec4.prototype['set_z']= function(arg0) {
-  var self = this.ptr;
-  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
-  else arg0 = ensureString(arg0);
-  _emscripten_bind_Vec4_set_z_1(self, arg0);
-}
-  Vec4.prototype['get_w']= function() {
-  var self = this.ptr;
-  return _emscripten_bind_Vec4_get_w_0(self);
-}
-    Vec4.prototype['set_w']= function(arg0) {
-  var self = this.ptr;
-  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
-  else arg0 = ensureString(arg0);
-  _emscripten_bind_Vec4_set_w_1(self, arg0);
-}
   Vec4.prototype['__destroy__'] = function() {
   var self = this.ptr;
   _emscripten_bind_Vec4___destroy___0(self);
@@ -2745,26 +2924,6 @@ Vec2.prototype['div_scalar'] = function(arg0) {
   _emscripten_bind_Vec2_div_scalar_1(self, arg0);
 };
 
-  Vec2.prototype['get_x']= function() {
-  var self = this.ptr;
-  return _emscripten_bind_Vec2_get_x_0(self);
-}
-    Vec2.prototype['set_x']= function(arg0) {
-  var self = this.ptr;
-  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
-  else arg0 = ensureString(arg0);
-  _emscripten_bind_Vec2_set_x_1(self, arg0);
-}
-  Vec2.prototype['get_y']= function() {
-  var self = this.ptr;
-  return _emscripten_bind_Vec2_get_y_0(self);
-}
-    Vec2.prototype['set_y']= function(arg0) {
-  var self = this.ptr;
-  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
-  else arg0 = ensureString(arg0);
-  _emscripten_bind_Vec2_set_y_1(self, arg0);
-}
   Vec2.prototype['__destroy__'] = function() {
   var self = this.ptr;
   _emscripten_bind_Vec2___destroy___0(self);
@@ -2908,36 +3067,6 @@ Vec3.prototype['div_scalar'] = function(arg0) {
   _emscripten_bind_Vec3_div_scalar_1(self, arg0);
 };
 
-  Vec3.prototype['get_x']= function() {
-  var self = this.ptr;
-  return _emscripten_bind_Vec3_get_x_0(self);
-}
-    Vec3.prototype['set_x']= function(arg0) {
-  var self = this.ptr;
-  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
-  else arg0 = ensureString(arg0);
-  _emscripten_bind_Vec3_set_x_1(self, arg0);
-}
-  Vec3.prototype['get_y']= function() {
-  var self = this.ptr;
-  return _emscripten_bind_Vec3_get_y_0(self);
-}
-    Vec3.prototype['set_y']= function(arg0) {
-  var self = this.ptr;
-  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
-  else arg0 = ensureString(arg0);
-  _emscripten_bind_Vec3_set_y_1(self, arg0);
-}
-  Vec3.prototype['get_z']= function() {
-  var self = this.ptr;
-  return _emscripten_bind_Vec3_get_z_0(self);
-}
-    Vec3.prototype['set_z']= function(arg0) {
-  var self = this.ptr;
-  if (arg0 && typeof arg0 === 'object') arg0 = arg0.ptr;
-  else arg0 = ensureString(arg0);
-  _emscripten_bind_Vec3_set_z_1(self, arg0);
-}
   Vec3.prototype['__destroy__'] = function() {
   var self = this.ptr;
   _emscripten_bind_Vec3___destroy___0(self);

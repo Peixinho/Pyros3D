@@ -22,6 +22,8 @@
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
+#include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
+#include <Pyros3D/Physics/PhysicsEngines/BulletPhysics/BulletPhysics.h>
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 #include "JSNative_Wrapper.h"
