@@ -10,6 +10,9 @@
 #define SDLCONTEXT_H
 
 #include <SDL/SDL.h>
+#if defined(EMSCRIPTEN)
+    #include <SDL_mixer.h>
+#endif
 #include <Pyros3D/Core/Context/Context.h>
 
 namespace p3d {

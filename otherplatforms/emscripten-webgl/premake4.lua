@@ -70,7 +70,11 @@ solution "Pyros3D"
         
         includedirs { "../../include/", "include/" }
 
-        defines({"UNICODE", "GLEW_STATIC", "LODEPNG"})
+        defines({"UNICODE", "LODEPNG"})
+
+        if _OPTIONS["jsnative"]==nil then
+            defines({framework})
+        end
 
         if _OPTIONS["log"]=="console" then
             defines({"LOG_TO_CONSOLE"})
