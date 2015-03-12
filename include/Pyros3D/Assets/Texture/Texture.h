@@ -115,13 +115,13 @@ namespace p3d {
             int32 GL_ID;
             uint32 Type;
             uint32 DataType;
-            uint32 Width;
-            uint32 Height;
-            uint32 TextureInternalID;
+            std::vector<uint32> Width;
+            std::vector<uint32> Height;
+            std::vector<uint32> TextureInternalID;
             bool haveImage;
-            bool isMipMap;
+            bool isMipMap, isMipMapManual;
             // Image Data
-            std::vector<uchar> pixels;
+            std::vector< std::vector<uchar> > pixels;
             bool pixelsRetrieved;
 
             // GL Properties
@@ -145,29 +145,29 @@ namespace p3d {
             Texture();
             
             // Texture
-            bool LoadTexture(const std::string& Filename, const uint32 Type = TextureType::Texture, bool Mipmapping = true);
-            bool LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type = TextureType::Texture, bool Mipmapping = true);
-            bool CreateTexture(const uint32 Type, const uint32 DataType, const int32 width = 0, const int32 height = 0, bool Mipmapping = true);
-            bool CreateTexture(bool Mipmapping = true);
+            bool LoadTexture(const std::string& Filename, const uint32 Type = TextureType::Texture, bool Mipmapping = true, const uint32 level = 0);
+            bool LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type = TextureType::Texture, bool Mipmapping = true, const uint32 level = 0);
+            bool CreateTexture(const uint32 Type, const uint32 DataType, const int32 width = 0, const int32 height = 0, bool Mipmapping = true, const uint32 level = 0);
+            bool CreateTexture(bool Mipmapping = true, const uint32 level = 0);
             void SetMinMagFilter(const uint32 MinFilter,const uint32 MagFilter);
             void SetRepeat(const uint32 WrapS,const uint32 WrapT, const int32 WrapR = -1);
             void EnableCompareMode();
             void SetAnysotropy(const uint32 Anysotropic);
             void SetTransparency(const f32 Transparency);
-            void Resize(const uint32 Width, const uint32 Height);
-            void UpdateData(void* srcPTR);
+            void Resize(const uint32 Width, const uint32 Height, const uint32 level = 0);
+            void UpdateData(void* srcPTR, const uint32 level = 0);
             void UpdateMipmap();
             void SetTextureByteAlignment(const uint32 Value);
             const uint32 GetBindID() const;
-            const uint32 GetWidth() const;
-            const uint32 GetHeight() const;
+            const uint32 GetWidth(const uint32 level = 0) const;
+            const uint32 GetHeight(const uint32 level = 0) const;
             // Use Asset
             void Bind();
             void Unbind();
             void DeleteTexture();  
             
             // Get Texture Data
-            std::vector<uchar> GetTextureData();
+            std::vector<uchar> GetTextureData(const uint32 level = 0);
             
             // Get Last Binded Texture
             static uint32 GetLastBindedUnit();

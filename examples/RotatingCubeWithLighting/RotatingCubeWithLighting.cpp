@@ -64,7 +64,6 @@ void RotatingCubeWithLighting::Init()
         // Add GameObject to Scene
         Scene->Add(CubeObject);
         Camera->LookAt(Vec3::ZERO);
-
 }
 
 void RotatingCubeWithLighting::Update()

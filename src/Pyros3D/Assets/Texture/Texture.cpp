@@ -34,7 +34,7 @@ namespace p3d {
     // List of Textures
     std::map<uint32, __Texture> Texture::__Textures;
     
-    Texture::Texture() : GL_ID(-1), haveImage(false), isMipMap(false), pixelsRetrieved(false), Anysotropic(0) {}
+    Texture::Texture() : GL_ID(-1), haveImage(false), isMipMap(false), isMipMapManual(false), pixelsRetrieved(false), Anysotropic(0) {}
 
     Texture::~Texture()
     {
@@ -43,17 +43,19 @@ namespace p3d {
             glDeleteTextures (1, (GLuint*)&GL_ID);
         }
         
-        __Textures[TextureInternalID].Using--;
-        
-        if (__Textures[TextureInternalID].Using==0)
-        { 
-            __Textures.erase(TextureInternalID);
+        for (uint32 i=0;i<TextureInternalID.size();i++)
+        {
+            __Textures[TextureInternalID[i]].Using--;
+            if (__Textures[TextureInternalID[i]].Using==0)
+            { 
+                __Textures.erase(TextureInternalID[i]);
+            }
         }
     }
 
     void Texture::DeleteTexture() {}
 
-    bool Texture::LoadTexture(const std::string& Filename, const uint32 Type, bool Mipmapping)
+    bool Texture::LoadTexture(const std::string& Filename, const uint32 Type, bool Mipmapping, const uint32 level)
     {
         bool failed = false;
         bool ImageLoaded = false;
@@ -101,10 +103,15 @@ namespace p3d {
         } else {
             __Textures[TextureStringID].Using++;
         }
-        
-        this->TextureInternalID = TextureStringID;
-        this->Width=__Textures[TextureStringID].Width;
-        this->Height=__Textures[TextureStringID].Height;
+        if (this->TextureInternalID.size()<level+1)
+        {
+            this->TextureInternalID.resize(level+1);
+            this->Width.resize(level+1);
+            this->Height.resize(level+1);
+        }
+        this->TextureInternalID[level] = TextureStringID;
+        this->Width[level]=__Textures[TextureStringID].Width;
+        this->Height[level]=__Textures[TextureStringID].Height;
         this->haveImage=true;
         this->Type=Type;
         this->DataType=__Textures[TextureStringID].DataType;
@@ -126,12 +133,11 @@ namespace p3d {
         }
         
         // create default texture
-        return CreateTexture(Mipmapping);
+        return CreateTexture(Mipmapping, level);
     }
 
-    bool Texture::LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type, bool Mipmapping)
+    bool Texture::LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type, bool Mipmapping, const uint32 level)
     {
-
         bool failed = false;
         bool ImageLoaded = false;
         
@@ -167,9 +173,15 @@ namespace p3d {
             __Textures[TextureStringID].Using++;
         }
         
-        this->TextureInternalID = TextureStringID;
-        this->Width=__Textures[TextureStringID].Width;
-        this->Height=__Textures[TextureStringID].Height;
+        if (this->TextureInternalID.size()<level+1)
+        {
+            this->TextureInternalID.resize(level+1);
+            this->Width.resize(level+1);
+            this->Height.resize(level+1);
+        }
+        this->TextureInternalID[level] = TextureStringID;
+        this->Width[level]=__Textures[TextureStringID].Width;
+        this->Height[level]=__Textures[TextureStringID].Height;
         this->haveImage=true;
         this->Type=Type;
         this->DataType=__Textures[TextureStringID].DataType;
@@ -191,12 +203,11 @@ namespace p3d {
         }
         
         // create default texture
-        return CreateTexture(Mipmapping);
+        return CreateTexture(Mipmapping, level);
     }
 
-    bool Texture::CreateTexture(bool Mipmapping)
+    bool Texture::CreateTexture(bool Mipmapping, const uint32 level)
     {
-        
         // default texture
         switch(Type) {
             case TextureType::CubemapNegative_X:
@@ -384,38 +395,46 @@ namespace p3d {
         if (Mipmapping)
         {
 #if defined(ANDROID) || defined(EMSCRIPTEN)
-            glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
+            glTexImage2D(GLMode,level,internalFormat, Width[level], Height[level], 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID[level]].GetPixels()));
             glGenerateMipmap(GLMode);
 #else
             if (GLEW_VERSION_2_1)
             {
-                glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
+                glTexImage2D(GLMode,level,internalFormat, Width[level], Height[level], 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID[level]].GetPixels()));
                 glGenerateMipmap(GLMode);
             } else {
-                gluBuild2DMipmaps(GLMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
+                gluBuild2DMipmaps(GLMode,internalFormat,Width[level],Height[level],internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID[level]].GetPixels()));
             }
             isMipMap = true;
 #endif
         } else {
-            glTexImage2D(GLMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
+            // setting manual mipmaps
+            glTexParameteri(GLSubMode, GL_TEXTURE_BASE_LEVEL, 0);
+            glTexParameteri(GLSubMode, GL_TEXTURE_MAX_LEVEL, level);
+            glTexImage2D(GLMode,level,internalFormat, Width[level], Height[level], 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID[level]].GetPixels()));
+            if (level>0) 
+                isMipMapManual = true;
         }
-        // default values
-        glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexParameteri(GLSubMode, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        
+
         // unbind
         glBindTexture(GLSubMode, 0);
         
+        // default values
+        SetRepeat(TextureRepeat::Repeat,TextureRepeat::Repeat);
+        SetMinMagFilter(TextureFilter::Linear,TextureFilter::Linear);
+
         return true;
     }
     
-    bool Texture::CreateTexture(const uint32 Type, const uint32 TextureDataType, const int32 width, const int32 height, bool Mipmapping)
-    {
-                       
-        Width=width;
-        Height=height;
+    bool Texture::CreateTexture(const uint32 Type, const uint32 TextureDataType, const int32 width, const int32 height, bool Mipmapping, const uint32 level)
+    {   
+        if (this->Width.size()<level+1)
+        {
+            this->Width.resize(level+1);
+            this->Height.resize(level+1);
+        }
+        Width[level]=width;
+        Height[level]=height;
         this->Type=Type;
         this->DataType=TextureDataType;
         this->haveImage = false;
@@ -571,19 +590,19 @@ namespace p3d {
         {
             case TextureFilter::Nearest:
             case TextureFilter::NearestMipmapNearest:
-                if (isMipMap == true)
+                if (isMipMap || isMipMapManual)
                     glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
                 else 
                     glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
                 break;
             case TextureFilter::NearestMipmapLinear:
-                if (isMipMap == true)
+                if (isMipMap || isMipMapManual)
                     glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
                 else 
                     glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
                 break; 
             case TextureFilter::LinearMipmapNearest:
-                if (isMipMap == true)
+                if (isMipMap || isMipMapManual)
                     glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
                 else
                     glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -591,7 +610,7 @@ namespace p3d {
             case TextureFilter::Linear:
             case TextureFilter::LinearMipmapLinear:
             default:
-                if (isMipMap == true)
+                if (isMipMap || isMipMapManual)
                     glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
                 else
                     glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -629,12 +648,12 @@ namespace p3d {
         
     }
     
-    void Texture::Resize(const uint32 Width, const uint32 Height)
+    void Texture::Resize(const uint32 Width, const uint32 Height, const uint32 level)
     {
         glBindTexture(GLSubMode, GL_ID);
-        this->Width=Width;
-        this->Height=Height;
-        glTexImage2D(GLSubMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
+        this->Width[level]=Width;
+        this->Height[level]=Height;
+        glTexImage2D(GLSubMode,level,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID[level]].GetPixels()));
         
         if (isMipMap)
         {
@@ -645,7 +664,7 @@ namespace p3d {
             {
                 glGenerateMipmap(GLSubMode);
             } else {
-                gluBuild2DMipmaps(GLSubMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
+                gluBuild2DMipmaps(GLSubMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID[level]].GetPixels()));
             }
 #endif
         }
@@ -662,28 +681,15 @@ namespace p3d {
         glBindTexture(GLSubMode, 0);
     }
     
-    void Texture::UpdateData(void* srcPTR)
+    void Texture::UpdateData(void* srcPTR, const uint32 level)
     {
         if (GL_ID>0)
         {
             // bind
             glBindTexture(GLSubMode, GL_ID);
-            glTexImage2D(GLSubMode,0,internalFormat, Width, Height, 0,internalFormat2,internalFormat3, srcPTR);
+            glTexImage2D(GLSubMode,level,internalFormat, Width[level], Height[level], 0,internalFormat2,internalFormat3, srcPTR);
             
-            if (isMipMap)
-            {
-#if defined(ANDROID) || defined(EMSCRIPTEN)
-		glGenerateMipmap(GLSubMode);
-#else
-                if (GLEW_VERSION_2_1)
-                {
-                    glGenerateMipmap(GLSubMode);
-                } else {
-                    gluBuild2DMipmaps(GLSubMode,internalFormat,Width,Height,internalFormat2,internalFormat3, srcPTR);
-                }
-#endif
-                UpdateMipmap();
-            }
+            UpdateMipmap();
             
             // unbind
             glBindTexture(GLSubMode, 0);
@@ -692,25 +698,24 @@ namespace p3d {
     
     void Texture::UpdateMipmap()
     {
-        // bind
-        glBindTexture(GLSubMode, GL_ID);
-        
         if (isMipMap)
         {
+            // bind
+            glBindTexture(GLSubMode, GL_ID);
+            
 #if defined(ANDROID) || defined(EMSCRIPTEN)
-		glGenerateMipmap(GLSubMode);
+        	glGenerateMipmap(GLSubMode);
 #else
             if (GLEW_VERSION_2_1)
             {
                 glGenerateMipmap(GLSubMode);
             } else {
-                gluBuild2DMipmaps(GLSubMode,internalFormat,Width,Height,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID].GetPixels()));
+                gluBuild2DMipmaps(GLSubMode,internalFormat,Width[0],Height[0],internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID[0]].GetPixels())); // its 0 hardcoded because otherwise there won't mipmaps created on the fly
             }
-#endif
-        }
-        
+#endif            
         // unbind
-        glBindTexture(GLSubMode, 0);           
+        glBindTexture(GLSubMode, 0);
+        }
     }
     
     void Texture::Bind()
@@ -746,13 +751,13 @@ namespace p3d {
         return LastUnitBinded;
     }
     
-    const uint32 Texture::GetWidth() const
+    const uint32 Texture::GetWidth(const uint32 level) const
     {
-        return Width;
+        return Width[level];
     }
-    const uint32 Texture::GetHeight() const
+    const uint32 Texture::GetHeight(const uint32 level) const
     {
-        return Height;
+        return Height[level];
     }
     
     const uint32 Texture::GetBindID() const
@@ -760,90 +765,90 @@ namespace p3d {
         return GL_ID;
     }
     
-    std::vector<uchar> Texture::GetTextureData()
+    std::vector<uchar> Texture::GetTextureData(const uint32 level)
     {
 #if !defined(ANDROID) && !defined(EMSCRIPTEN)
         switch(internalFormat)
         {
             case GL_DEPTH_COMPONENT16:
-                pixels.resize(sizeof(uchar)*2*Width*Height);
+                pixels[level].resize(sizeof(uchar)*2*Width[level]*Height[level]);
             break;
             case GL_DEPTH_COMPONENT24:
-                pixels.resize(sizeof(uchar)*3*Width*Height);
+                pixels[level].resize(sizeof(uchar)*3*Width[level]*Height[level]);
             break;
             case GL_DEPTH_COMPONENT32:
-                pixels.resize(sizeof(f32)*Width*Height);
+                pixels[level].resize(sizeof(f32)*Width[level]*Height[level]);
             break;
             case GL_R16F:
-                pixels.resize(sizeof(uchar)*2*Width*Height);
+                pixels[level].resize(sizeof(uchar)*2*Width[level]*Height[level]);
             break;
             case GL_R32F:
-                pixels.resize(sizeof(f32)*Width*Height);
+                pixels[level].resize(sizeof(f32)*Width[level]*Height[level]);
             break;
             case GL_RG8:
-                pixels.resize(sizeof(uchar)*Width*Height*2);
+                pixels[level].resize(sizeof(uchar)*Width[level]*Height[level]*2);
             break;
             case GL_R16I:
-                pixels.resize(sizeof(uchar)*2*Width*Height);
+                pixels[level].resize(sizeof(uchar)*2*Width[level]*Height[level]);
             break;
             case GL_R32I:
-                pixels.resize(sizeof(int32)*Width*Height);
+                pixels[level].resize(sizeof(int32)*Width[level]*Height[level]);
             break;
             case GL_RG16F:
-                pixels.resize(sizeof(uchar)*2*Width*Height*2);
+                pixels[level].resize(sizeof(uchar)*2*Width[level]*Height[level]*2);
             break;
             case GL_RG32F:
-                pixels.resize(sizeof(f32)*Width*Height*2);
+                pixels[level].resize(sizeof(f32)*Width[level]*Height[level]*2);
             break;
             case GL_RG16I:
-                pixels.resize(sizeof(uchar)*2*Width*Height);
+                pixels[level].resize(sizeof(uchar)*2*Width[level]*Height[level]);
             break;
             case GL_RG32I:
-                pixels.resize(sizeof(int32)*Width*Height*2);
+                pixels[level].resize(sizeof(int32)*Width[level]*Height[level]*2);
             break;
             case GL_RGB8:
-                pixels.resize(sizeof(uchar)*Width*Height*2);
+                pixels[level].resize(sizeof(uchar)*Width[level]*Height[level]*2);
             break;
             case GL_RGB16F:
-                pixels.resize(sizeof(uchar)*2*Width*Height*3);
+                pixels[level].resize(sizeof(uchar)*2*Width[level]*Height[level]*3);
             break;
             case GL_RGB32F:
-                pixels.resize(sizeof(f32)*Width*Height*3);
+                pixels[level].resize(sizeof(f32)*Width[level]*Height[level]*3);
             break;
             case GL_RGB16I:
-                pixels.resize(sizeof(uchar)*2*Width*Height*3);
+                pixels[level].resize(sizeof(uchar)*2*Width[level]*Height[level]*3);
             break;
             case GL_RGB32I:
-                pixels.resize(sizeof(int32)*Width*Height*3);
+                pixels[level].resize(sizeof(int32)*Width[level]*Height[level]*3);
             break;
             case GL_RGBA16F:
-                pixels.resize(sizeof(uchar)*2*Width*Height*4);
+                pixels[level].resize(sizeof(uchar)*2*Width[level]*Height[level]*4);
             break;
             case GL_RGBA32F:
-                pixels.resize(sizeof(f32)*Width*Height*4);
+                pixels[level].resize(sizeof(f32)*Width[level]*Height[level]*4);
             break;
             case GL_RGBA16I:
-                pixels.resize(sizeof(uchar)*2*Width*Height*4);
+                pixels[level].resize(sizeof(uchar)*2*Width[level]*Height[level]*4);
             break;
             case GL_RGBA32I:
-                pixels.resize(sizeof(int32)*Width*Height*4);
+                pixels[level].resize(sizeof(int32)*Width[level]*Height[level]*4);
             break;
             case GL_R8:
-                pixels.resize(sizeof(uchar)*Width*Height*4);
+                pixels[level].resize(sizeof(uchar)*Width[level]*Height[level]*4);
             break;
             case GL_ALPHA:
-                pixels.resize(sizeof(uchar)*Width*Height);
+                pixels[level].resize(sizeof(uchar)*Width[level]*Height[level]);
             break;
             default:
-                pixels.resize(sizeof(uchar)*Width*Height*4);
+                pixels[level].resize(sizeof(uchar)*Width[level]*Height[level]*4);
             break;
         }
         glBindTexture(GLSubMode, GL_ID);
-        glGetTexImage(GLSubMode,0,internalFormat2,internalFormat3,&pixels[0]);
+        glGetTexImage(GLSubMode,level,internalFormat2,internalFormat3,&pixels[level][0]);
         glBindTexture(GLSubMode, 0);
         pixelsRetrieved = true;
 #endif
-        return pixels;
+        return pixels[level];
     }
     
 }
