@@ -1,5 +1,5 @@
 #include <Pyros3D/Physics/PhysicsEngines/BulletPhysics/DebugDraw/PhysicsDebugDraw.h>
-#if defined(ANDROID) || defined(EMSCRIPTEN)
+#if defined(GLES2)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
 #else
@@ -84,7 +84,7 @@ namespace p3d {
         glDisableVertexAttribArray(colorHandle);
         glDisableVertexAttribArray(vertexHandle);
         
-        #if !defined(ANDROID) && !defined(EMSCRIPTEN)
+        #if !defined(GLES2)
         // Send Attributes
         glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexQuadStrip[0]);
         glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorQuadStrip[0]);
@@ -117,7 +117,7 @@ namespace p3d {
     void PhysicsDebugDraw::drawSphere(const btVector3& p, btScalar radius, const btVector3& color)
     {
 
-        #if !defined(ANDROID) && !defined(EMSCRIPTEN)
+        #if !defined(GLES2)
         Vec3 pos = Vec3(p.getX(), p.getY(), p.getZ());
 
         int lats = 5;

@@ -21,6 +21,11 @@ solution "Pyros3D"
     }
 
     newoption {
+       trigger     = "GLES2",
+       description = "Use GLES2 (for mobile mostly)"
+    }
+
+    newoption {
        trigger     = "x32",
        description = "Build for 32bit - Default Option"
     }
@@ -47,7 +52,7 @@ solution "Pyros3D"
 
     newoption {
        trigger     = "lodepng",
-       description = "Using Lodepng to load textures(PNG Only - Android and Emscripten)"
+       description = "Using Lodepng to load textures (PNG ONLY!)"
     }
 
     newoption {
@@ -63,25 +68,45 @@ solution "Pyros3D"
 
     if _OPTIONS["framework"]=="sdl2" then
         framework = "_SDL2";
-        libsToLink = { "SDL2" }
+        libsToLink = { "SDL2", "SDL_mixer" }
         excludes { "**/SFML/**", "**/SDL/**" }
     end
 
     if _OPTIONS["framework"]=="sdl" then
         framework = "_SDL";
-        libsToLink = { "SDL" }
+        libsToLink = { "SDL", "SDL_mixer" }
         excludes { "**/SFML/**", "**/SDL2/**" }
     end
 
     if _OPTIONS["framework"]=="sfml" or not _OPTIONS["framework"] then
+        if os.get() == "macosx" then
+            libsToLink = { "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework" }
+        else
+            libsToLink = { "sfml-audio", "sfml-graphics", "sfml-window", "sfml-system" }
+        end
         framework = "_SFML";
-        libsToLink = { "sfml-audio", "sfml-graphics", "sfml-window", "sfml-system" }
         excludes { "**/SDL2/**", "**/SDL/**" }
     end
 
     buildArch = "x32"
     if _OPTIONS["x64"] then
         buildArch = "x64"
+    end
+
+    if _OPTIONS["GLES2"] then
+        libsToLinkGL = { "GLESv2" }
+        defines({"GLES2"})
+    else
+        if os.get() == "linux" then
+            libsToLinkGL = { "GL", "GLU", "GLEW" }
+        end
+        if os.get() == "windows" then
+            libsToLinkGL = { "opengl32", "glu32", "glew" }
+        end
+        if os.get() == "macosx" then
+            libsToLinkGL = { "OpenGL.framework", "GLEW.framework" }
+        end
+        defines({"GLEW_STATIC"})
     end
 
     ------------------------------------------------------------------
@@ -116,10 +141,14 @@ solution "Pyros3D"
 		if os.get() == "windows" and _OPTIONS["bin"]=="shared" then
 			defines({"_EXPORT"})
 		else
-        	defines({"GLEW_STATIC"})
+        	   if _OPTIONS["GLES2"] then
+                defines({"GLES2"})
+            else
+                defines({"GLEW_STATIC"})
+            end
         end
 
-        defines({"UNICODE"})
+        defines({ "UNICODE", framework })
 
         if _OPTIONS["log"]=="console" then
             defines({"LOG_TO_CONSOLE"})
@@ -134,7 +163,7 @@ solution "Pyros3D"
         if _OPTIONS["lodepng"] then
             defines({"LODEPNG"})
         end
-                
+
         configuration "Debug"
 
             targetname(libName.."d")
@@ -186,17 +215,17 @@ function BuildDemo(demoPath, demoName)
             targetdir ("bin/debug/examples/"..demoName)
 
             if os.get() == "linux" then
-                links { libName.."d", "GL", "GLU", "GLEW", libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "z" }
+                links { libName.."d", libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "z" }
                 linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
             end
             
             if os.get() == "windows" then
-                links { libName.."d", "opengl32", "glu32", "glew", libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype" }
+                links { libName.."d", libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype" }
                 libdirs { rootdir.."/libs" }
             end
 
             if os.get() == "macosx" then
-                links { libName.."d", "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletSoftBody.framework", "BulletDynamics.framework", "BulletCollision.framework", "LinearMath.framework" }
+                links { libName.."d", libsToLinkGL, "Cocoa.framework", "Carbon.framework", "freetype.framework", libsToLink, "BulletDynamics.framework", "BulletCollision.framework", "LinearMath.framework" }
                 libdirs { rootdir.."/libs" }
             end
 
@@ -207,17 +236,17 @@ function BuildDemo(demoPath, demoName)
             targetdir ("bin/release/examples/"..demoName)
 
             if os.get() == "linux" then
-                links { libName, "GL", "GLU", "GLEW", libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "pthread", "z" }
+                links { libName, libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "pthread", "z" }
                 linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
             end
 
             if os.get() == "windows" then
-                links { libName, "opengl32", "glu32", "glew", libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype" }
+                links { libName, libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype" }
                 libdirs { rootdir.."/libs" }
             end
 
             if os.get() == "macosx" then
-                links { libName, "OpenGL.framework", "Cocoa.framework", "Carbon.framework", "GLEW.framework", "freetype.framework", "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework", "BulletSoftBody.framework", "BulletDynamics.framework", "BulletCollision.framework", "LinearMath.framework" }
+                links { libName, libsToLinkGL, "Cocoa.framework", "Carbon.framework", "freetype.framework", libsToLink, "BulletDynamics.framework", "BulletCollision.framework", "LinearMath.framework" }
                 libdirs { rootdir.."/libs" }
             end
 

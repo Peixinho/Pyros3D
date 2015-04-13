@@ -6,7 +6,9 @@
 // Description : Game Template
 //============================================================================
 
-#include "GL/glew.h"
+#if !defined(GLES2)
+    #include "GL/glew.h"
+#endif
 #include "SFMLContext.h"
 
 namespace p3d {
@@ -39,8 +41,10 @@ namespace p3d {
         else
             rview.create(sf::VideoMode(width,height), title, type, settings);
         
+#if !defined(GLES2)
         // Initialize GLew
         glewInit();
+#endif
 		
     }
     SFMLContext::~SFMLContext() 

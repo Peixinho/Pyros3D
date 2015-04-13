@@ -7,7 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Core/Buffers/GeometryBuffer.h>
-#if defined(ANDROID) || defined(EMSCRIPTEN)
+#if defined(GLES2)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
 #else
@@ -106,7 +106,7 @@ namespace p3d {
     
     void *GeometryBuffer::Map(const uint32 MappingType)
     {
-#if !defined(ANDROID) && !defined(EMSCRIPTEN)
+#if !defined(GLES2)
         glBindBuffer(this->bufferType, ID); 
         uint32 MP;
         switch (MappingType)
@@ -139,7 +139,7 @@ namespace p3d {
     }
     void GeometryBuffer::Unmap()
     {
-#if !defined(ANDROID) && !defined(EMSCRIPTEN)
+#if !defined(GLES2)
         glBindBuffer(this->bufferType, ID);
         glUnmapBuffer(this->bufferType);
         glBindBuffer(this->bufferType, 0);

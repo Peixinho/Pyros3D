@@ -11,6 +11,7 @@
 
 #include <Pyros3D/Assets/Renderable/Renderables.h>
 #include <Pyros3D/Core/Buffers/GeometryBuffer.h>
+#include <Pyros3D/Utils/Geometry/Geometry.h>
 #include <Pyros3D/Other/Export.h>
 #include <vector>
 
@@ -19,10 +20,10 @@ namespace p3d {
     class PYROS3D_API PrimitiveGeometry : public IGeometry {
 
         public:
-            std::vector<Vec3> tVertex, tNormal;
+            std::vector<Vec3> tVertex, tNormal, tTangent, tBitangent;
             std::vector<Vec2> tTexcoord;
 
-            void CreateBuffers()
+            void CreateBuffers(bool calculateTangentBitangent = false)
             {
                 // Calculate Bounding Sphere Radius
                 CalculateBounding();
@@ -32,6 +33,27 @@ namespace p3d {
                 Vertex->AddAttribute("aPosition", Buffer::Attribute::Type::Vec3,&tVertex[0],tVertex.size());
                 Vertex->AddAttribute("aNormal", Buffer::Attribute::Type::Vec3,&tNormal[0],tNormal.size());
                 Vertex->AddAttribute("aTexcoord", Buffer::Attribute::Type::Vec2,&tTexcoord[0],tTexcoord.size());
+
+                if (calculateTangentBitangent)
+                {
+                    tTangent.resize(tVertex.size());
+                    tBitangent.resize(tVertex.size());
+                    for (uint32 i=0;i<index.size();i+=3)
+                    {
+                        Vec3 Binormal, Tangent;
+                        Geometry::CalculateTriangleTangentAndBinormal(tVertex[i], tTexcoord[i], tVertex[i+1], tTexcoord[i+1], tVertex[i+2], tTexcoord[i+2], &Binormal, &Tangent);
+                        tTangent[i]=Tangent;
+                        tTangent[i+1]=Tangent;
+                        tTangent[i+2]=Tangent;
+                        tBitangent[i]=Binormal;
+                        tBitangent[i+1]=Binormal;
+                        tBitangent[i+2]=Binormal;
+                    }
+
+                    Vertex->AddAttribute("aTangent", Buffer::Attribute::Type::Vec3,&tTangent[0],tTangent.size());
+                    Vertex->AddAttribute("aBitangent", Buffer::Attribute::Type::Vec3,&tBitangent[0],tBitangent.size());
+                }
+                
                 // Add Buffer to Attributes Buffer List
                 Attributes.push_back(Vertex);
             }
@@ -78,7 +100,7 @@ class PYROS3D_API Primitive : public Renderable {
 
         PrimitiveGeometry* geometry;
 
-        Primitive() { geometry = new PrimitiveGeometry(); isFlipped = false; isSmooth = false; }
+        Primitive() { geometry = new PrimitiveGeometry(); isFlipped = false; isSmooth = false; calculateTangentBitangent = false; }
 
         void Build() 
         {
@@ -111,34 +133,35 @@ class PYROS3D_API Primitive : public Renderable {
 			}
 		}
 
-            // Create Attributes Buffers
-            geometry->CreateBuffers();
-            // Send Buffers
-            geometry->SendBuffers();
+        // Create Attributes Buffers
+        geometry->CreateBuffers(calculateTangentBitangent);
+        // Send Buffers
+        geometry->SendBuffers();
 
-            // Material Defaults
-            geometry->materialProperties.haveColor = true;
-            geometry->materialProperties.haveBones = false;
-            geometry->materialProperties.haveSpecular = false;
-            geometry->materialProperties.haveColorMap = false;
-            geometry->materialProperties.haveSpecularMap = false;
-            geometry->materialProperties.haveNormalMap = false;
-            geometry->materialProperties.Color = Vec4(1.0,1.0,1.0,1.0);
+        // Material Defaults
+        geometry->materialProperties.haveColor = true;
+        geometry->materialProperties.haveBones = false;
+        geometry->materialProperties.haveSpecular = false;
+        geometry->materialProperties.haveColorMap = false;
+        geometry->materialProperties.haveSpecularMap = false;
+        geometry->materialProperties.haveNormalMap = false;
+        geometry->materialProperties.Color = Vec4(1.0,1.0,1.0,1.0);
 
-            // Add To Geometry List
-            Geometries.push_back(geometry);
+        // Add To Geometry List
+        Geometries.push_back(geometry);
 
-            // Calculate Model's Bounding Box
-            CalculateBounding();
-            
-            // Execute Parent Build
-            BuildMaterials();
-        }
+        // Calculate Model's Bounding Box
+        CalculateBounding();
+        
+        // Execute Parent Build
+        BuildMaterials();
+    }
 
     protected:
 
         bool isSmooth;
         bool isFlipped;
+        bool calculateTangentBitangent;
     };
 };
 

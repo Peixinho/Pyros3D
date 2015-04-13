@@ -52,7 +52,7 @@ void SimplePhysics::Init()
     // Add a Directional Light
     Light = new GameObject();
     dLight = new DirectionalLight(Vec4(1,1,1,1),Vec3(1,1,0));
-#if !defined(ANDROID) && !defined(EMSCRIPTEN)
+#if !defined(GLES2)
     dLight->EnableCastShadows(1024,1024,projection,1,500,1);
     dLight->SetShadowBias(1.f,3.f);
 #endif
@@ -62,7 +62,7 @@ void SimplePhysics::Init()
     Scene->Add(Light);
 
     // Create Materials
-#if !defined(ANDROID) && !defined(EMSCRIPTEN)
+#if !defined(GLES2)
     Diffuse = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
 #else
     Diffuse = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::Diffuse);
@@ -79,7 +79,7 @@ void SimplePhysics::Init()
     cubeHandle = new Cube(10,10,10);
 
     // Create 100 Cubes
-#if !defined(ANDROID) && !defined(EMSCRIPTEN)
+#if !defined(GLES2)
     for (uint32 i=0;i<1000;i++)
 #else
     for (uint32 i=0;i<100;i++)
@@ -157,7 +157,7 @@ void SimplePhysics::Shutdown()
         Scene->Remove(Floor);
         
         // GameObjects and Components
-#if !defined(ANDROID) && !defined(EMSCRIPTEN)
+#if !defined(GLES2)
         for (uint32 i=0;i<100;i++)
 #else
         for (uint32 i=0;i<1000;i++)

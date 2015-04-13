@@ -70,7 +70,7 @@ solution "Pyros3D"
         
         includedirs { "../../include/", "include/" }
 
-        defines({"UNICODE", "LODEPNG"})
+        defines({"UNICODE", "LODEPNG", "GLES2"})
 
         if _OPTIONS["jsnative"]==nil then
             defines({framework})

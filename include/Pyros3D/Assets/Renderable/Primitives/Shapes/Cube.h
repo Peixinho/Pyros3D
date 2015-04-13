@@ -17,10 +17,11 @@ namespace p3d {
 
         public:
 
-            Cube(const f32 width, const f32 height, const f32 depth, bool smooth = false, bool flip = false)
+            Cube(const f32 width, const f32 height, const f32 depth, bool smooth = false, bool flip = false, bool TangentBitangent = false)
             {
                 isFlipped = flip;
                 isSmooth = smooth;
+                calculateTangentBitangent = TangentBitangent;
                 
                 f32 w2 = width  / 2;
                 f32 h2 = height / 2;

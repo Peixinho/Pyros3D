@@ -19,10 +19,11 @@ namespace p3d {
 
             f32 segmentsW,segmentsH;
 
-            Cone(const f32 radius, const f32 height, const uint32 segmentsW, const uint32 segmentsH, const bool openEnded, bool smooth = false, bool flip = false)
+            Cone(const f32 radius, const f32 height, const uint32 segmentsW, const uint32 segmentsH, const bool openEnded, bool smooth = false, bool flip = false, bool TangentBitangent = false)
             {
                 isFlipped = flip;
                 isSmooth = smooth;
+                calculateTangentBitangent = TangentBitangent;
                 this->segmentsW = segmentsW;
                 this->segmentsH = segmentsH;
 

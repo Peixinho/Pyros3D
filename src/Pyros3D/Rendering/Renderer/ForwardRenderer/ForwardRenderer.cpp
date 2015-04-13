@@ -7,7 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
-#if defined(ANDROID) || defined(EMSCRIPTEN)
+#if defined(GLES2)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
 #else
@@ -586,7 +586,7 @@ namespace p3d {
                 glDisable(GL_SCISSOR_TEST);
             }
 
-#if !defined(ANDROID) && !defined(EMSCRIPTEN)
+#if !defined(GLES2)
             // Set Default Polygon Mode
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 #endif

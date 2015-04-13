@@ -17,10 +17,11 @@ namespace p3d {
 
         public:
 
-            Sphere(const f32 radius, const uint32 segmentsW, const uint32 segmentsH, bool smooth = false, bool HalfSphere = false, bool flip = false)
+            Sphere(const f32 radius, const uint32 segmentsW, const uint32 segmentsH, bool smooth = false, bool HalfSphere = false, bool flip = false, bool TangentBitangent = false)
             {
                 isFlipped = flip;
                 isSmooth = smooth;
+                calculateTangentBitangent = TangentBitangent;
                 
                 int i,j;
                 f32 iHor=(f32)segmentsW;

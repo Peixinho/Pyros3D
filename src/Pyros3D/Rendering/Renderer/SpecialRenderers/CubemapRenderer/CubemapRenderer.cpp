@@ -7,7 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/CubemapRenderer/CubemapRenderer.h>
-#if defined(ANDROID) || defined(EMSCRIPTEN)
+#if defined(GLES2)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
 #else

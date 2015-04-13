@@ -34,7 +34,7 @@ namespace p3d
         std::string fragmentShaderHeader, fragmentShaderBody;
         std::string vertexShaderHeader, vertexShaderBody;
         
-#if defined(ANDROID) || defined(EMSCRIPTEN)
+#if defined(GLES2)
         vertexShaderHeader+="precision mediump float;\n";
         fragmentShaderHeader+="precision mediump float;\n";
 #endif

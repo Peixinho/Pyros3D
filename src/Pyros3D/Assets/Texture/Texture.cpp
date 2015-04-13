@@ -8,7 +8,7 @@
 
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
-#if defined(ANDROID) || defined(EMSCRIPTEN)
+#if defined(GLES2)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
 #else
@@ -244,7 +244,7 @@ namespace p3d {
         switch(DataType)
         {
             
-#if defined(ANDROID) || defined(EMSCRIPTEN)
+#if defined(GLES2)
             case TextureDataType::DepthComponent:
             case TextureDataType::DepthComponent16:
             case TextureDataType::DepthComponent24:
@@ -394,7 +394,7 @@ namespace p3d {
         
         if (Mipmapping)
         {
-#if defined(ANDROID) || defined(EMSCRIPTEN)
+#if defined(GLES2)
             glTexImage2D(GLMode,level,internalFormat, Width[level], Height[level], 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID[level]].GetPixels()));
             glGenerateMipmap(GLMode);
 #else
@@ -408,9 +408,13 @@ namespace p3d {
             isMipMap = true;
 #endif
         } else {
+            
+#if !defined(GLES2)
             // setting manual mipmaps
+            // No gles :|
             glTexParameteri(GLSubMode, GL_TEXTURE_BASE_LEVEL, 0);
             glTexParameteri(GLSubMode, GL_TEXTURE_MAX_LEVEL, level);
+#endif
             glTexImage2D(GLMode,level,internalFormat, Width[level], Height[level], 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID[level]].GetPixels()));
             if (level>0) 
                 isMipMapManual = true;
@@ -488,7 +492,7 @@ namespace p3d {
         
          switch (SRepeat)
         {
-#if defined(ANDROID) || defined(EMSCRIPTEN)
+#if defined(GLES2)
 		case TextureRepeat::ClampToEdge:
                 	glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
                 break;
@@ -515,7 +519,7 @@ namespace p3d {
 
         switch (TRepeat)
         {
-#if defined(ANDROID) || defined(EMSCRIPTEN)
+#if defined(GLES2)
             case TextureRepeat::ClampToEdge:
                 glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
                 break;
@@ -541,7 +545,7 @@ namespace p3d {
 #endif
         };
 
-#if !defined(ANDROID) && !defined(EMSCRIPTEN)
+#if !defined(GLES2)
         if (WrapR>-1 && GLSubMode==GL_TEXTURE_CUBE_MAP)
         {
             switch (RRepeat)
@@ -623,7 +627,7 @@ namespace p3d {
     }
     void Texture::EnableCompareMode()
     {
-#if !defined(ANDROID) && !defined(EMSCRIPTEN)
+#if !defined(GLES2)
         // USED ONLY FOR DEPTH MAPS
         // Bind
         glBindTexture(GLSubMode, GL_ID);
@@ -657,7 +661,7 @@ namespace p3d {
         
         if (isMipMap)
         {
-#if defined(ANDROID) || defined(EMSCRIPTEN)
+#if defined(GLES2)
 		glGenerateMipmap(GLSubMode);
 #else
             if (GLEW_VERSION_2_1)
@@ -703,7 +707,7 @@ namespace p3d {
             // bind
             glBindTexture(GLSubMode, GL_ID);
             
-#if defined(ANDROID) || defined(EMSCRIPTEN)
+#if defined(GLES2)
         	glGenerateMipmap(GLSubMode);
 #else
             if (GLEW_VERSION_2_1)
@@ -767,7 +771,7 @@ namespace p3d {
     
     std::vector<uchar> Texture::GetTextureData(const uint32 level)
     {
-#if !defined(ANDROID) && !defined(EMSCRIPTEN)
+#if !defined(GLES2)
         switch(internalFormat)
         {
             case GL_DEPTH_COMPONENT16:

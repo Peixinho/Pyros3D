@@ -20,10 +20,11 @@ namespace p3d {
             f32 segmentsH;
             f32 height;
 
-            Cylinder(const f32 radius, const f32 height, const uint32 segmentsW, const uint32 segmentsH, bool openEnded, bool smooth = false, bool flip = false)
+            Cylinder(const f32 radius, const f32 height, const uint32 segmentsW, const uint32 segmentsH, bool openEnded, bool smooth = false, bool flip = false, bool TangentBitangent = false)
             {
                 isFlipped = flip;
                 isSmooth = smooth;
+                calculateTangentBitangent = TangentBitangent;
                 this->segmentsH = segmentsH;
                 this->height = height;
 
