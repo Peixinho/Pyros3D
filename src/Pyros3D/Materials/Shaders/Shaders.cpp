@@ -75,7 +75,7 @@ namespace p3d {
             char* log = (char*)malloc(length);
             glGetShaderInfoLog(shader, length, &result, log);
             glGetShaderiv(shader, GL_COMPILE_STATUS, &result);
-            echo(std::string(shaderType.c_str() + std::string((result==GL_FALSE?" COMPILATION ERROR: ":" COMPILED WITH WARNINGS: ")) + std::string(log)));
+            echo(std::string(shaderType.c_str() + std::string((result==GL_FALSE?" COMPILATION ERROR:" + std::string(log): ": " + std::string(log) ))));
             free(log);
             if (result==GL_FALSE) return;
         }
