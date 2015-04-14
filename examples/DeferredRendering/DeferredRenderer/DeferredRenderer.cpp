@@ -7,12 +7,7 @@
 //============================================================================
 
 #include "DeferredRenderer.h"
-#ifdef ANDROID
-    #include <GLES2/gl2.h>
-    #include <GLES2/gl2ext.h>
-#else
-    #include "GL/glew.h"
-#endif
+#include <Pyros3D/Other/PyrosGL.h>
 
 namespace p3d {
     

@@ -58,7 +58,7 @@ namespace p3d {
                 Attributes.push_back(Vertex);
             }
 
-            virtual std::vector<uint32> &GetIndexData()
+            virtual std::vector<__INDEX_C_TYPE__> &GetIndexData()
             {
                 return index;
             }

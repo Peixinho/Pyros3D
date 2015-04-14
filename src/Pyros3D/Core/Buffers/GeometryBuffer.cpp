@@ -7,14 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Core/Buffers/GeometryBuffer.h>
-#if defined(GLES2)
-    #include <GLES2/gl2.h>
-    #include <GLES2/gl2ext.h>
-#else
-    #include "GL/glew.h"
-#endif
-
-#define GLCHECK() { int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } }
+#include <Pyros3D/Other/PyrosGL.h>
 
 namespace p3d {
 

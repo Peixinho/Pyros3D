@@ -7,13 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
-#if defined(GLES2)
-    #include <GLES2/gl2.h>
-    #include <GLES2/gl2ext.h>
-#else
-    #include "GL/glew.h"
-#endif
-
+#include <Pyros3D/Other/PyrosGL.h>
 namespace p3d {
     
     namespace Sort {
@@ -33,10 +27,12 @@ namespace p3d {
         
         ActivateCulling(CullingMode::FrustumCulling);
 
+#if !defined(GLES2)
         shadowMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows);
         shadowMaterial->SetCullFace(CullFace::DoubleSided);
         shadowSkinnedMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Skinning);
         shadowSkinnedMaterial->SetCullFace(CullFace::DoubleSided);
+#endif
 
         // Default View Port Init Values
         viewPortStartX = viewPortStartY = 0;

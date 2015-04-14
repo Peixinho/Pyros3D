@@ -8,13 +8,7 @@
 
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
-#if defined(GLES2)
-    #include <GLES2/gl2.h>
-    #include <GLES2/gl2ext.h>
-#else
-    #include "GL/glew.h"
-#endif
-
+#include <Pyros3D/Other/PyrosGL.h>
 
 #if defined(LODEPNG)
     #include "../../Ext/lodepng/lodepng.h"
@@ -22,9 +16,6 @@
     #include <SFML/Graphics.hpp>
     #include <string.h>
 #endif
-
-
-#define GLCHECK() { int error =0; error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } }
 
 namespace p3d {
     

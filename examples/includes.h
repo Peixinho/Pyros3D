@@ -26,4 +26,6 @@
 #include "RacingGame/RacingGame.h"
 #elif defined(_LOD_example)
 #include "LOD_example/LOD_example.h"
+#elif defined(_Cubeland)
+#include "Cubeland/Cubeland.h"
 #endif

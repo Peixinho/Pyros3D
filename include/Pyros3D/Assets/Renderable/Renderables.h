@@ -18,6 +18,7 @@
 #include <map>
 #include <vector>
 #include <list>
+#include <Pyros3D/Other/Global.h>
 
 namespace p3d {
     
@@ -205,7 +206,7 @@ namespace p3d {
             uint32 Type;
         
             // Index Data
-            std::vector<uint32> index;
+            std::vector<__INDEX_C_TYPE__> index;
             
             // Index Buffer - if is used
             GeometryBuffer* IndexBuffer;
@@ -231,7 +232,7 @@ namespace p3d {
             IMaterial* Material;
             
             // Virtual Methods
-            virtual std::vector<uint32> &GetIndexData() = 0;
+            virtual std::vector<__INDEX_C_TYPE__> &GetIndexData() = 0;
             virtual std::vector<Vec3> &GetVertexData() = 0;
             virtual f32 &GetBoundingSphereRadius() { return BoundingSphereRadius; }
             virtual Vec3 &GetBoundingSphereCenter() { return BoundingSphereCenter; }
@@ -248,7 +249,7 @@ namespace p3d {
                 {
                     // create and send index buffer
                     IndexBuffer = new GeometryBuffer(Buffer::Type::Index, Buffer::Draw::Static);
-                    IndexBuffer->Init( &index[0], sizeof(uint32)*index.size());
+                    IndexBuffer->Init( &index[0], sizeof(__INDEX_C_TYPE__)*index.size());
 
                     // send attribute buffers
                     for (std::vector<AttributeArray*>::iterator i=Attributes.begin();i!=Attributes.end();i++)

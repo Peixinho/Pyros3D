@@ -6,12 +6,10 @@
 // Description : SDL Context
 //============================================================================
 
-#include "GL/glew.h"
+#include <Pyros3D/Other/PyrosGL.h>
 #include "SDL2Context.h"
 
 namespace p3d {
-    
-    #define GLCHECK() { int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } }
 
     std::map<uint32, uint32> SDL2Context::MapSDLKeyboard;
 

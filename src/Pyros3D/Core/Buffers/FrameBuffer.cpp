@@ -7,12 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Core/Buffers/FrameBuffer.h>
-#if defined(GLES2)
-    #include <GLES2/gl2.h>
-    #include <GLES2/gl2ext.h>
-#else
-    #include "GL/glew.h"
-#endif
+#include <Pyros3D/Other/PyrosGL.h>
 
 namespace p3d {
 

@@ -6,14 +6,11 @@
 // Description : Game Template
 //============================================================================
 
-#if !defined(GLES2)
-    #include "GL/glew.h"
-#endif
+#include <Pyros3D/Other/PyrosGL.h>
 #include "SFMLContext.h"
 
 namespace p3d {
     
-    #define GLCHECK() { int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } }
     SFMLContext::SFMLContext(const uint32 width, const uint32 height, const std::string &title, const uint32 windowType) : Context(width,height) 
     {
         

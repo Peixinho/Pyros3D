@@ -7,12 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
-#if defined(GLES2)
-    #include <GLES2/gl2.h>
-    #include <GLES2/gl2ext.h>
-#else
-    #include "GL/glew.h"
-#endif
+#include <Pyros3D/Other/PyrosGL.h>
 
 namespace p3d {
     
@@ -276,9 +271,9 @@ namespace p3d {
         
         // Draw
         if (rmesh->Geometry->GetGeometryType()==GeometryType::BUFFER)
-            glDrawElements(DrawType,rmesh->Geometry->IndexBuffer->GetGeometryData().size()/sizeof(int32),GL_UNSIGNED_INT,BUFFER_OFFSET(0));
+            glDrawElements(DrawType,rmesh->Geometry->IndexBuffer->GetGeometryData().size()/sizeof(__INDEX_C_TYPE__),__INDEX_TYPE__,BUFFER_OFFSET(0));
         else 
-            glDrawElements(DrawType,rmesh->Geometry->index.size(),GL_UNSIGNED_INT,&rmesh->Geometry->index[0]);
+            glDrawElements(DrawType,rmesh->Geometry->index.size(),__INDEX_TYPE__,&rmesh->Geometry->index[0]);
         
         // Save Last Material and Mesh
         LastProgramUsed = Material->GetShader();

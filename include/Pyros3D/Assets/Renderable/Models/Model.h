@@ -30,7 +30,7 @@ namespace p3d {
             
             void CreateBuffers();
 
-            virtual std::vector<uint32> &GetIndexData() { return index; }
+            virtual std::vector<__INDEX_C_TYPE__> &GetIndexData() { return index; }
             virtual std::vector<Vec3> &GetVertexData() { return tVertex; }
 
         protected:

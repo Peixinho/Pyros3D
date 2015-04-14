@@ -13,8 +13,6 @@
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Other/Export.h>
 
-#define GLCHECK() { int32 error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } }
-
 namespace p3d {
     
     namespace FrameBufferAttachmentFormat
