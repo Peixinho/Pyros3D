@@ -84,6 +84,9 @@ namespace p3d {
                 case Buffer::Attribute::Type::Int:
                         byteSize=sizeof(int32);
                         break;
+                case Buffer::Attribute::Type::Short:
+                        byteSize=sizeof(short);
+                        break;
                 case Buffer::Attribute::Type::Matrix:                        
                         byteSize=sizeof(Matrix);
                         break;
@@ -232,12 +235,12 @@ namespace p3d {
             IMaterial* Material;
             
             // Virtual Methods
-            virtual std::vector<__INDEX_C_TYPE__> &GetIndexData() = 0;
-            virtual std::vector<Vec3> &GetVertexData() = 0;
-            virtual f32 &GetBoundingSphereRadius() { return BoundingSphereRadius; }
-            virtual Vec3 &GetBoundingSphereCenter() { return BoundingSphereCenter; }
-            virtual Vec3 &GetBoundingMinValue() { return minBounds; }
-            virtual Vec3 &GetBoundingMaxValue() { return maxBounds; }
+            virtual const std::vector<__INDEX_C_TYPE__> &GetIndexData() const = 0;
+            virtual const std::vector<Vec3> &GetVertexData() const = 0;
+            virtual const f32 &GetBoundingSphereRadius() const { return BoundingSphereRadius; }
+            virtual const Vec3 &GetBoundingSphereCenter() const { return BoundingSphereCenter; }
+            virtual const Vec3 &GetBoundingMinValue() const { return minBounds; }
+            virtual const Vec3 &GetBoundingMaxValue() const { return maxBounds; }
             
             virtual void CalculateBounding() = 0;
             

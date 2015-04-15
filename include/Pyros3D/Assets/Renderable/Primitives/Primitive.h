@@ -13,6 +13,7 @@
 #include <Pyros3D/Core/Buffers/GeometryBuffer.h>
 #include <Pyros3D/Utils/Geometry/Geometry.h>
 #include <Pyros3D/Other/Export.h>
+#include <Pyros3D/Other/Global.h>
 #include <vector>
 
 namespace p3d {
@@ -58,11 +59,11 @@ namespace p3d {
                 Attributes.push_back(Vertex);
             }
 
-            virtual std::vector<__INDEX_C_TYPE__> &GetIndexData()
+            virtual const std::vector<__INDEX_C_TYPE__> &GetIndexData() const
             {
                 return index;
             }
-            virtual std::vector<Vec3> &GetVertexData()
+            virtual const std::vector<Vec3> &GetVertexData() const
             {
                 return tVertex;
             }

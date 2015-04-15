@@ -267,14 +267,12 @@ namespace p3d {
         {
             EnableBlending();
             BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
-        }
-        
+        }  
         // Draw
         if (rmesh->Geometry->GetGeometryType()==GeometryType::BUFFER)
-            glDrawElements(DrawType,rmesh->Geometry->IndexBuffer->GetGeometryData().size()/sizeof(__INDEX_C_TYPE__),__INDEX_TYPE__,BUFFER_OFFSET(0));
+            glDrawElements(DrawType,rmesh->Geometry->GetIndexData().size(),__INDEX_TYPE__,BUFFER_OFFSET(0));
         else 
-            glDrawElements(DrawType,rmesh->Geometry->index.size(),__INDEX_TYPE__,&rmesh->Geometry->index[0]);
-        
+            glDrawElements(DrawType,rmesh->Geometry->GetIndexData().size(),__INDEX_TYPE__,&rmesh->Geometry->index[0]);
         // Save Last Material and Mesh
         LastProgramUsed = Material->GetShader();
         LastMaterialPTR = Material;

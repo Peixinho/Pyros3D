@@ -27,6 +27,7 @@ namespace p3d {
             namespace Type {
                 enum {
                     Int = 0,
+                    Short,			
                     Float,
                     Vec2,
                     Vec3,

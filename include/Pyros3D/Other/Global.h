@@ -10,14 +10,20 @@
 #define GLOBAL_H
 
 // Fix Raspberry and other stupid devices
-#ifndef GL_OES_element_index_uint
+#if defined(GLES2)
 // GLES 2
-	#define __INDEX_TYPE__ GL_UNSIGNED_SHORT
-	#define __INDEX_C_TYPE__ short
+	#define __INDEX_TYPE__ 		GL_UNSIGNED_SHORT
+	#define __INDEX_C_TYPE__ 	short
 #else
 // OpenGL
-	#define __INDEX_TYPE__ GL_UNSIGNED_INT
-	#define __INDEX_C_TYPE__ uint32
+	#define __INDEX_TYPE__ 		GL_UNSIGNED_INT
+	#define __INDEX_C_TYPE__ 	uint32
 #endif
+
+#define STRINGIFY(x) #x
+#define TOSTRING(x) STRINGIFY(x)
+
+#define MAX_LIGHTS 				1
+#define MAX_BONES 				25
 
 #endif /* GLOBAL_H */

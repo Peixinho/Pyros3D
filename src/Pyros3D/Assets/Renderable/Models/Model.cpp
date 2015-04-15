@@ -80,9 +80,13 @@ namespace p3d {
 
                         // Set Material From ID
                         c_submesh->materialProperties = materialProperties[mesh->subMeshes[i].materialID];
-                        c_submesh->index.resize(mesh->subMeshes[i].tIndex.size());
-                        memcpy(&c_submesh->index[0],&mesh->subMeshes[i].tIndex[0],mesh->subMeshes[i].tIndex.size()*sizeof(uint32));
-
+                        
+                        // Fix passing for short if needed
+                        for (uint32 indexx = 0;indexx<mesh->subMeshes[i].tIndex.size();indexx++)
+                        {
+                            c_submesh->index.push_back(mesh->subMeshes[i].tIndex[indexx]);
+                        }
+                        
                         if (mesh->subMeshes[i].hasVertex==true)
                         {
                             c_submesh->tVertex.resize(mesh->subMeshes[i].tVertex.size());
@@ -185,9 +189,11 @@ namespace p3d {
                     // Set Material From ID
                     c_submesh->materialProperties = materialProperties[mesh->subMeshes[i].materialID];
                     
-                    c_submesh->index.resize(mesh->subMeshes[i].tIndex.size());
-
-                    memcpy(&c_submesh->index[0],&mesh->subMeshes[i].tIndex[0],mesh->subMeshes[i].tIndex.size()*sizeof(uint32));
+                    // Fix passing for short if needed
+                    for (uint32 indexx = 0;indexx<mesh->subMeshes[i].tIndex.size();indexx++)
+                    {
+                        c_submesh->index.push_back(mesh->subMeshes[i].tIndex[indexx]);
+                    }
                     
                     if (mesh->subMeshes[i].hasVertex==true)
                     {

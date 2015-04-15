@@ -22,7 +22,9 @@
 
 #endif
 
+#include <Pyros3D/Other/Global.h>
+
 // Check GL
-#define GLCHECK() { int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } }
+#define GLCHECK() { int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } else std::cout << "No Error" << std::endl; }
 
 #endif /* PYROSGL_H */

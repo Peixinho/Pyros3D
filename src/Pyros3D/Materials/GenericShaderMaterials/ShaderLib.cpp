@@ -299,8 +299,9 @@ namespace p3d
         }
         if (option & ShaderUsage::Skinning)
         {
+            vertexShaderHeader+="const int MAX_BONES = " TOSTRING(MAX_BONES) ";\n";
             vertexShaderHeader+="attribute vec4 aBonesID, aBonesWeight;\n";
-            vertexShaderHeader+="uniform mat4 uBoneMatrix[50];\n";
+            vertexShaderHeader+="uniform mat4 uBoneMatrix[MAX_BONES];\n";
             vertexShaderBody+="mat4 matAnimation = uBoneMatrix[int(aBonesID.x)] * aBonesWeight.x;\n";
             vertexShaderBody+="matAnimation += uBoneMatrix[int(aBonesID.y)] * aBonesWeight.y;\n";
             vertexShaderBody+="matAnimation += uBoneMatrix[int(aBonesID.z)] * aBonesWeight.z;\n";
@@ -515,9 +516,9 @@ namespace p3d
             fragmentShaderHeader+="L.Radius = Light[2][2];\n";
             fragmentShaderHeader+="L.Cones = vec2(Light[3][1],Light[3][2]);\n";
             fragmentShaderHeader+="}\n";
-            
+
             // Number Of Lights
-            fragmentShaderHeader+="const int MAX_LIGHTS = 4;\n";
+            fragmentShaderHeader+="const int MAX_LIGHTS = " TOSTRING(MAX_LIGHTS) ";\n";
             
             // Attenuation Calculations
             fragmentShaderHeader+="float Attenuation(vec3 Vertex, vec3 LightPosition, float Radius)\n";

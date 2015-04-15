@@ -76,7 +76,6 @@ namespace p3d {
         this->GeometryData.resize(length);
         memcpy(&this->GeometryData[0], GeometryData, length);
         DataLength=length;
-        
     }    
 
     // Updates Buffer
@@ -150,6 +149,9 @@ namespace p3d {
                     case Buffer::Attribute::Type::Int:
                         return sizeof(int32);
                         break;
+                    case Buffer::Attribute::Type::Short:
+                        return sizeof(short);
+                        break;
                     case Buffer::Attribute::Type::Float:
                         return sizeof(f32);
                         break;
@@ -173,6 +175,9 @@ namespace p3d {
                 switch(type) {
 
                     case Buffer::Attribute::Type::Int:
+                        return 1;
+                        break;
+                    case Buffer::Attribute::Type::Short:
                         return 1;
                         break;
                     case Buffer::Attribute::Type::Float:
@@ -199,6 +204,9 @@ namespace p3d {
 
                     case Buffer::Attribute::Type::Int:
                         return GL_INT;
+                    break;
+                    case Buffer::Attribute::Type::Short:
+                        return GL_SHORT;
                     break;
                     case Buffer::Attribute::Type::Float:
                     case Buffer::Attribute::Type::Vec2:

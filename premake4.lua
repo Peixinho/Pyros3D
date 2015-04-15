@@ -68,7 +68,7 @@ solution "Pyros3D"
 
     if _OPTIONS["framework"]=="sdl2" then
         framework = "_SDL2";
-        libsToLink = { "SDL2", "SDL_mixer" }
+        libsToLink = { "SDL2", "SDL2_mixer" }
         excludes { "**/SFML/**", "**/SDL/**" }
     end
 

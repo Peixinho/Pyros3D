@@ -14,8 +14,7 @@
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
 #include <Pyros3D/Materials/Shaders/Shaders.h>
 #include <Pyros3D/Other/Export.h>
-
-#define MAX_LIGHTS 4
+#include <Pyros3D/Other/Global.h>
 
 namespace p3d
 {
