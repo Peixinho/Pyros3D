@@ -1,7 +1,7 @@
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
-LOCAL_CXXFLAGS    := -D_ANDROID -D_SDL2 -DLODEPNG -DGLES2
+LOCAL_CXXFLAGS    := -D_ANDROID -D_SDL2 -DLODEPNG -DGLES2 -DLOG_TO_CONSOLE
 LOCAL_MODULE       := PyrosEngine
 LOCAL_C_INCLUDES   :=   $(LOCAL_PATH)/../../../include \
                         $(LOCAL_PATH)/../../../src/Pyros3D \

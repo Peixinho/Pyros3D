@@ -45,7 +45,11 @@ namespace p3d {
         {
             delete culling;
         }
+
+#if !defined(GLES2)
         delete shadowMaterial;
+#endif
+
     }
     
     std::vector<RenderingMesh*> ForwardRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag)
