@@ -13,6 +13,7 @@ namespace p3d {
     FPS::FPS() {
 
         countFPS = fps = 0;
+        seconds = 0;
 
     }
 

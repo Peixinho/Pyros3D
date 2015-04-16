@@ -36,6 +36,7 @@ namespace p3d {
 
         // Default View Port Init Values
         viewPortStartX = viewPortStartY = 0;
+        viewPortEndX = viewPortEndY = 0;
     }
     
     ForwardRenderer::~ForwardRenderer()
