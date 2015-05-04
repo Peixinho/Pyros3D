@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Other/PyrosGL.h>
+#include <Pyros3D/Utils/Thread/Thread.h>
 #include "SFMLContext.h"
 
 namespace p3d {
@@ -112,6 +113,7 @@ namespace p3d {
 
         SetTime(clock.getElapsedTime().asSeconds());
         fps.setFPS(clock.getElapsedTime().asSeconds());
+        Thread::CheckThreads();
     }
 
     void SFMLContext::Draw() 

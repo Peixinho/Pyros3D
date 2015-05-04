@@ -7,7 +7,7 @@
 //============================================================================
 
 #ifndef ROTATINGCUBE_H
-#define	ROTATINGCUBE_H
+#define ROTATINGCUBE_H
 
 #if defined(_SDL)
     #include "../WindowManagers/SDL/SDLContext.h"
@@ -43,7 +43,7 @@ class RotatingTextureAnimatedCube : public ClassName {
         virtual void Shutdown();
         virtual void OnResize(const uint32 width, const uint32 height);
         
-	void OnMousePress(Event::Input::Info e);
+    void OnMousePress(Event::Input::Info e);
 
     private:
 
@@ -64,12 +64,11 @@ class RotatingTextureAnimatedCube : public ClassName {
         // Material
         GenericShaderMaterial* material;
         // Animation
-		TextureAnimation* anim;
+        TextureAnimation* anim;
         // Animation Instance
         TextureAnimationInstance* animInst;
         // Textures
         Texture* tex0;Texture* tex1;Texture* tex2;Texture* tex3;Texture* tex4;Texture* tex5;
 };
 
-#endif	/* ROTATINGTEXTUREANINATEDCUBE_H */
-
+#endif  /* ROTATINGTEXTUREANINATEDCUBE_H */
