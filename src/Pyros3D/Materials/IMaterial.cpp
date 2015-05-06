@@ -30,8 +30,6 @@ namespace p3d {
     void IMaterial::SetOpacity(const f32 &opacity)
     {
         this->opacity = opacity;
-        if (opacity<1.f) isTransparent = true;
-        else isTransparent = false;
         AddUniform(Uniform("uOpacity",DataType::Float,&this->opacity));
     }
     void IMaterial::SetCullFace(const uint32 &face)
@@ -46,7 +44,8 @@ namespace p3d {
     }
     bool IMaterial::IsTransparent() const
     {
-        return isTransparent;
+        if (isTransparent) return isTransparent;
+        else return (opacity<1);
     }
     uint32 IMaterial::GetCullFace() const
     {
