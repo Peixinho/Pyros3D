@@ -129,7 +129,7 @@ solution "Pyros3D"
         end
 
         language "C++"
-        files { "src/**.h", "src/**.cpp", includeFiles }
+        files { "src/**.h", "src/**.cpp", "include/Pyros3D/**.h" }
         includedirs { "include/" }
 
         -- LodePNG
