@@ -44,6 +44,7 @@ namespace p3d {
 			// Repeat
 			int32 repeat;
 			int32 _internalRepeat;
+			bool reverse;
 			// Keep Owner PTR
 			TextureAnimation* Owner;
 
@@ -61,6 +62,7 @@ namespace p3d {
 
 			// Play, Stop, Pause
 			void Play(const int32 &Repeat = 1);
+			void PlayReverse(const int32 &Repeat = 1);
 			void Pause();
 			void Stop();
 			// Is Playing Animation

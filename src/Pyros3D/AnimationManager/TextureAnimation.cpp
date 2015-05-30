@@ -32,6 +32,7 @@ namespace p3d {
         yoyo 				= false;
         Owner 				= owner;
         FrameSpeed 			= fps;
+        reverse             = false;
         haveOnStartFunction = haveOnUpdateFunction = haveOnEndFunction = false;
     }
 
@@ -92,6 +93,7 @@ namespace p3d {
 
     Texture* TextureAnimationInstance::GetTexture()
     {
+        std::cout << _frame << std::endl;
         return Owner->Frames[_frame];
     }
     const uint32 TextureAnimationInstance::GetFrame() const
@@ -151,6 +153,13 @@ namespace p3d {
                         if ((*i)->haveOnEndFunction) (*i)->OnEndFunction();
                     }
                 }
+
+                // Reverse Shit
+                if ((*i)->reverse)
+                {
+                    (*i)->_frame = (((*i)->yoyo?.5f:1.f)*frameSize - (*i)->_frame)-1;
+                }
+
             }
         }
     }
@@ -158,6 +167,8 @@ namespace p3d {
     void TextureAnimationInstance::Play(const int32 &Repeat)
     {
         repeat = Repeat;
+
+        reverse = false;
 
         // Set Loop
         if (repeat<=0) isLooping = true;
@@ -168,6 +179,14 @@ namespace p3d {
 
         if (haveOnStartFunction) OnStartFunction();
     }
+
+    void TextureAnimationInstance::PlayReverse(const int32 &Repeat)
+    {
+        Play(Repeat);
+
+        reverse = true;
+    }
+
     void TextureAnimationInstance::Pause()
     {
         if (!isPaused)
