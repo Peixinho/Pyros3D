@@ -63,7 +63,7 @@ void RotatingTextureAnimatedCube::Init()
         // Set Animation Loop backwards
         animInst->YoYo(true);
         // Play It
-        animInst->Play(0);
+        animInst->Play(0); // 0 = Loop
     
         // Create Game Object
         CubeObject = new GameObject();
@@ -76,8 +76,6 @@ void RotatingTextureAnimatedCube::Init()
         // Add GameObject to Scene
         Scene->Add(CubeObject);
         Camera->LookAt(Vec3::ZERO);
-       
-        animInst->Play(0); // Loop
 
         InputManager::AddEvent(Event::Type::OnPress, Event::Input::Mouse::Left, this, &RotatingTextureAnimatedCube::OnMousePress);
 }

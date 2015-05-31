@@ -93,7 +93,6 @@ namespace p3d {
 
     Texture* TextureAnimationInstance::GetTexture()
     {
-        std::cout << _frame << std::endl;
         return Owner->Frames[_frame];
     }
     const uint32 TextureAnimationInstance::GetFrame() const
@@ -159,16 +158,21 @@ namespace p3d {
                 {
                     (*i)->_frame = (((*i)->yoyo?.5f:1.f)*frameSize - (*i)->_frame)-1;
                 }
-
             }
         }
+    }
+    
+    void TextureAnimationInstance::Reset()
+    {
+        if (reverse)
+            _frame = Owner->Frames.size()-1;
+        else 
+            _frame = 0;
     }
     
     void TextureAnimationInstance::Play(const int32 &Repeat)
     {
         repeat = Repeat;
-
-        reverse = false;
 
         // Set Loop
         if (repeat<=0) isLooping = true;
@@ -177,14 +181,22 @@ namespace p3d {
         timeStart = Owner->timer;
         isPlaying = true;
 
+        if (reverse)
+        {
+            _frame = Owner->Frames.size()-1;
+        }
+
         if (haveOnStartFunction) OnStartFunction();
     }
 
-    void TextureAnimationInstance::PlayReverse(const int32 &Repeat)
+    void TextureAnimationInstance::Reverse(bool Reverse)
     {
-        Play(Repeat);
+        reverse = Reverse;
 
-        reverse = true;
+        if (reverse)
+        {
+            _frame = Owner->Frames.size()-1;
+        }
     }
 
     void TextureAnimationInstance::Pause()

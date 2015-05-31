@@ -55,14 +55,15 @@ namespace p3d {
 			bool haveOnStartFunction;
 			bool haveOnUpdateFunction;
 			bool haveOnEndFunction;
-			
+
 		public:
 
 			TextureAnimationInstance(TextureAnimation* owner, const f32 &fps);
 
 			// Play, Stop, Pause
+			void Reset(); // Go To Initial Frame
 			void Play(const int32 &Repeat = 1);
-			void PlayReverse(const int32 &Repeat = 1);
+			void Reverse(bool Reverse);
 			void Pause();
 			void Stop();
 			// Is Playing Animation
