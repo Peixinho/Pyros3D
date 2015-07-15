@@ -763,6 +763,9 @@ namespace p3d {
     std::vector<uchar> Texture::GetTextureData(const uint32 level)
     {
 #if !defined(GLES2)
+
+        if (pixels.size() < level + 1) pixels.resize(level + 1);
+        
         switch(internalFormat)
         {
             case GL_DEPTH_COMPONENT16:
