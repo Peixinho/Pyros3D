@@ -233,7 +233,7 @@ namespace p3d {
                                         if (!(*k)->Material->IsTransparent())
                                         {
                                             if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-                                                RenderObject((*k),(*k)->renderingComponent->GetOwner(),((*k)->renderingComponent->HasBones()?shadowSkinnedMaterial:shadowMaterial));
+												RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size()>0? shadowSkinnedMaterial : shadowMaterial));
                                         }
                                         else break;
                                     }
@@ -362,7 +362,7 @@ namespace p3d {
                                         if (cullingTest && !(*k)->Material->IsTransparent())
                                         {
                                             if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-                                                RenderObject((*k),(*k)->renderingComponent->GetOwner(),((*k)->renderingComponent->HasBones()?shadowSkinnedMaterial:shadowMaterial));
+                                                RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size()>0? shadowSkinnedMaterial : shadowMaterial));
                                         }
                                         else break;
                                     }
@@ -464,7 +464,7 @@ namespace p3d {
                                     if (cullingTest && !(*k)->Material->IsTransparent())
                                     {
                                         if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-                                            RenderObject((*k),(*k)->renderingComponent->GetOwner(),((*k)->renderingComponent->HasBones()?shadowSkinnedMaterial:shadowMaterial));
+                                                RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size()>0? shadowSkinnedMaterial : shadowMaterial));
                                     }
                                     else break;
                                 }
