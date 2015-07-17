@@ -382,7 +382,7 @@ namespace p3d {
         
         // bind
         glBindTexture(GLSubMode, GL_ID);
-        
+
         if (Mipmapping)
         {
 #if defined(GLES2)
@@ -392,14 +392,15 @@ namespace p3d {
             if (GLEW_VERSION_2_1)
             {
                 glTexImage2D(GLMode,level,internalFormat, Width[level], Height[level], 0,internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID[level]].GetPixels()));
-                glGenerateMipmap(GLMode);
+				glGenerateMipmap(GLSubMode);
             } else {
                 gluBuild2DMipmaps(GLMode,internalFormat,Width[level],Height[level],internalFormat2,internalFormat3, (haveImage==false?NULL:__Textures[TextureInternalID[level]].GetPixels()));
             }
-            isMipMap = true;
 #endif
+			isMipMap = true;
+
         } else {
-            
+		
 #if !defined(GLES2)
             // setting manual mipmaps
             // No gles :|
@@ -763,10 +764,10 @@ namespace p3d {
     std::vector<uchar> Texture::GetTextureData(const uint32 level)
     {
 #if !defined(GLES2)
-
-        if (pixels.size() < level + 1) pixels.resize(level + 1);
+		
+		if (pixels.size() < level + 1) pixels.resize(level + 1);
         
-        switch(internalFormat)
+		switch(internalFormat)
         {
             case GL_DEPTH_COMPONENT16:
                 pixels[level].resize(sizeof(uchar)*2*Width[level]*Height[level]);
