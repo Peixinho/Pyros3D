@@ -25,6 +25,10 @@
 #include <Pyros3D/Other/Global.h>
 
 // Check GL
-#define GLCHECK() { int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << std::endl; } else std::cout << "No Error" << std::endl; }
+#ifdef _DEBUG
+    #define GLCHECKER(caller) { caller; int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << "Function: " << #caller << "LINE: " << __LINE__ << " FILE: " << __FILE__ << std::endl; } }
+#else
+    #define GLCHECKER(caller) { caller; }
+#endif
 
 #endif /* PYROSGL_H */

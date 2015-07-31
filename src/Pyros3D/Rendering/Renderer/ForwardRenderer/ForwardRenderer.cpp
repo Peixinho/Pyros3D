@@ -547,8 +547,8 @@ namespace p3d {
             // Scissor Test
             if (scissorTest) 
             {
-                glScissor(scissorTestX,scissorTestY,scissorTestWidth,scissorTestHeight);
-                glEnable(GL_SCISSOR_TEST);
+                GLCHECKER(glScissor(scissorTestX,scissorTestY,scissorTestWidth,scissorTestHeight));
+                GLCHECKER(glEnable(GL_SCISSOR_TEST));
             }
 
             ClearScreen();
@@ -579,17 +579,17 @@ namespace p3d {
                 }
             }
             // Disable Cull Face
-            glDisable(GL_CULL_FACE);
+            GLCHECKER(glDisable(GL_CULL_FACE));
 
             // Disable Scissor Test
             if (scissorTest)
             {
-                glDisable(GL_SCISSOR_TEST);
+                GLCHECKER(glDisable(GL_SCISSOR_TEST));
             }
 
 #if !defined(GLES2)
             // Set Default Polygon Mode
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            GLCHECKER(glPolygonMode(GL_FRONT_AND_BACK, GL_FILL));
 #endif
 
             // End Rendering

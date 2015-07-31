@@ -52,7 +52,7 @@ namespace p3d {
     GeometryBuffer::~GeometryBuffer() 
     {
         if (ID!=-1) {
-            glDeleteBuffers(1, (GLuint*)&ID);
+            GLCHECKER(glDeleteBuffers(1, (GLuint*)&ID));
         }
     }
 
@@ -60,17 +60,17 @@ namespace p3d {
     {
         // Destroy buffer if exists
         if (ID!=-1) {
-            glBindBuffer(this->bufferType, ID);
-            glDeleteBuffers(1, (GLuint*)&ID);
-            glBindBuffer(this->bufferType, 0);
+            GLCHECKER(glBindBuffer(this->bufferType, ID));
+            GLCHECKER(glDeleteBuffers(1, (GLuint*)&ID));
+            GLCHECKER(glBindBuffer(this->bufferType, 0));
             ID=-1;
         }
         
         // creating buffer
-        glGenBuffers(1, (GLuint*)&ID);
-        glBindBuffer(this->bufferType, ID); 
-        glBufferData(this->bufferType, length, GeometryData, this->bufferDraw);
-        glBindBuffer(this->bufferType, 0);
+        GLCHECKER(glGenBuffers(1, (GLuint*)&ID));
+        GLCHECKER(glBindBuffer(this->bufferType, ID)); 
+        GLCHECKER(glBufferData(this->bufferType, length, GeometryData, this->bufferDraw));
+        GLCHECKER(glBindBuffer(this->bufferType, 0));
               
         // copy geometry data
         this->GeometryData.resize(length);
@@ -87,7 +87,7 @@ namespace p3d {
         memcpy(&this->GeometryData[0], GeometryData, DataLength);
         
         // Updating buffer
-        glBufferData(this->bufferType, DataLength, GeometryData, this->bufferDraw);
+        GLCHECKER(glBufferData(this->bufferType, DataLength, GeometryData, this->bufferDraw));
 
     }
 
@@ -99,7 +99,7 @@ namespace p3d {
     void *GeometryBuffer::Map(const uint32 MappingType)
     {
 #if !defined(GLES2)
-        glBindBuffer(this->bufferType, ID); 
+        GLCHECKER(glBindBuffer(this->bufferType, ID)); 
         uint32 MP;
         switch (MappingType)
         {
@@ -117,12 +117,12 @@ namespace p3d {
         void* vboData = glMapBuffer(bufferType,MP);
         if (vboData) 
         {
-            glBindBuffer(this->bufferType, 0);
+            GLCHECKER(glBindBuffer(this->bufferType, 0));
             return vboData;
         } else if (!vboData) 
         {
-            glGetBufferPointerv(this->bufferType, GL_BUFFER_MAP_POINTER, &vboData);
-            glBindBuffer(this->bufferType, 0);
+            GLCHECKER(glGetBufferPointerv(this->bufferType, GL_BUFFER_MAP_POINTER, &vboData));
+            GLCHECKER(glBindBuffer(this->bufferType, 0));
             if (vboData) return vboData;
         }
 #endif
@@ -132,9 +132,9 @@ namespace p3d {
     void GeometryBuffer::Unmap()
     {
 #if !defined(GLES2)
-        glBindBuffer(this->bufferType, ID);
-        glUnmapBuffer(this->bufferType);
-        glBindBuffer(this->bufferType, 0);
+        GLCHECKER(glBindBuffer(this->bufferType, ID));
+        GLCHECKER(glUnmapBuffer(this->bufferType));
+        GLCHECKER(glBindBuffer(this->bufferType, 0));
 #endif
     }
     

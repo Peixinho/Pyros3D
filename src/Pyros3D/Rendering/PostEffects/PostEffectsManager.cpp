@@ -148,7 +148,7 @@ namespace p3d {
                     UpdateQuad(Width,Height);
                     proj.Ortho(-(int32)Width*.5f,Width*.5f,-(int32)Height*.5f,Height*.5f,-1,1);
                     // Reset Viewport
-                    glViewport(0,0,Width,Height);
+                    GLCHECKER(glViewport(0,0,Width,Height));
                     
                     ChangedDimensions = false;
                 }
@@ -198,11 +198,11 @@ namespace p3d {
             }
 
             // Clear Screen
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            glClearColor(0.f,0.f,0.f,0.f);
+            GLCHECKER(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+            GLCHECKER(glClearColor(0.f,0.f,0.f,0.f));
 
             // Start Shader Program
-            glUseProgram((*effect)->ShaderProgram());
+            GLCHECKER(glUseProgram((*effect)->ShaderProgram()));
 
             // Bind MRT
             for (std::vector<RTT::Info>::iterator i = (*effect)->RTTOrder.begin();i != (*effect)->RTTOrder.end();i++)
@@ -277,26 +277,26 @@ namespace p3d {
             // Send Attributes
             if ((*effect)->positionHandle>-1)
             {
-                glEnableVertexAttribArray((*effect)->positionHandle);        
-                glVertexAttribPointer((*effect)->positionHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertex[0]);
+                GLCHECKER(glEnableVertexAttribArray((*effect)->positionHandle));
+                GLCHECKER(glVertexAttribPointer((*effect)->positionHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertex[0]));
             }
             if ((*effect)->texcoordHandle>-1)
             {
-                glEnableVertexAttribArray((*effect)->texcoordHandle);        
-                glVertexAttribPointer((*effect)->texcoordHandle, 2, GL_FLOAT, GL_FALSE, 0, &texcoord[0]);
+                GLCHECKER(glEnableVertexAttribArray((*effect)->texcoordHandle));
+                GLCHECKER(glVertexAttribPointer((*effect)->texcoordHandle, 2, GL_FLOAT, GL_FALSE, 0, &texcoord[0]));
             }
 
             // Draw Quad
-			glDrawArrays(GL_TRIANGLES, 0, vertex.size());
+			GLCHECKER(glDrawArrays(GL_TRIANGLES, 0, vertex.size()));
 
             // Disable Attributes
             if ((*effect)->texcoordHandle>-1)
             {
-                glDisableVertexAttribArray((*effect)->texcoordHandle);
+                GLCHECKER(glDisableVertexAttribArray((*effect)->texcoordHandle));
             }
             if ((*effect)->positionHandle>-1)
             {
-                glDisableVertexAttribArray((*effect)->positionHandle);
+                GLCHECKER(glDisableVertexAttribArray((*effect)->positionHandle));
             }
 
             // Unbind MRT      
@@ -336,7 +336,7 @@ namespace p3d {
 		usingFBO1 = usingFBO2 = false;
 
 		// Disable Shader Program
-		glUseProgram(0);       
+		GLCHECKER(glUseProgram(0));       
     }
     
     PostEffectsManager::~PostEffectsManager() 

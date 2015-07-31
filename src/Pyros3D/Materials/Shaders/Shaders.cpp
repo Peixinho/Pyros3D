@@ -64,17 +64,17 @@ namespace p3d {
         // batatas because is a good example :P
         const char *batatas = shaderString.c_str();
 
-        glShaderSource(shader,1,(const GLchar**) &batatas,(const GLint *)&len);
-        glCompileShader(shader);
+        GLCHECKER(glShaderSource(shader,1,(const GLchar**) &batatas,(const GLint *)&len));
+        GLCHECKER(glCompileShader(shader));
 
         GLint result, length = 0;
 
-        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
+        GLCHECKER(glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length));
         if (length>1)
         {
             char* log = (char*)malloc(length);
-            glGetShaderInfoLog(shader, length, &result, log);
-            glGetShaderiv(shader, GL_COMPILE_STATUS, &result);
+            GLCHECKER(glGetShaderInfoLog(shader, length, &result, log));
+            GLCHECKER(glGetShaderiv(shader, GL_COMPILE_STATUS, &result));
             echo(std::string(shaderType.c_str() + std::string((result==GL_FALSE?" COMPILATION ERROR:" + std::string(log): ": " + std::string(log) ))));
             free(log);
             if (result==GL_FALSE) return;
@@ -83,23 +83,23 @@ namespace p3d {
             shaderProgram = (uint32)glCreateProgram();
 			
         // Attach shader
-        glAttachShader(shaderProgram, shader);
+        GLCHECKER(glAttachShader(shaderProgram, shader));
     }
     void Shader::LinkProgram()
     {
         // Link Program
-        glLinkProgram(shaderProgram);
+        GLCHECKER(glLinkProgram(shaderProgram));
 
         GLint result, length = 0;
         std::string log;
 
         // Get Linkage error
-        glGetProgramiv(shaderProgram, GL_LINK_STATUS, &result);
+        GLCHECKER(glGetProgramiv(shaderProgram, GL_LINK_STATUS, &result));
         if (result==GL_FALSE)
         {
-            glGetProgramiv(shaderProgram, GL_INFO_LOG_LENGTH, &length);
+            GLCHECKER(glGetProgramiv(shaderProgram, GL_INFO_LOG_LENGTH, &length));
             char* log = (char*)malloc(length);
-            glGetProgramInfoLog(shaderProgram, length, &result, log);            
+            GLCHECKER(glGetProgramInfoLog(shaderProgram, length, &result, log));
             echo(std::string(std::string("SHADER PROGRAM LINK ERROR: ") + std::string(log)));
             free(log);
         }
@@ -113,13 +113,13 @@ namespace p3d {
     {
         if (glIsProgram(shaderProgram)) {
             if (glIsShader(vertexID)) {
-                glDetachShader(shaderProgram, vertexID);
-                glDeleteShader(vertexID);
+                GLCHECKER(glDetachShader(shaderProgram, vertexID));
+                GLCHECKER(glDeleteShader(vertexID));
     //            std::cout << "Shader Destroyed: " << shader << std::endl;
             }
 			if (glIsShader(fragmentID)) {
-				glDetachShader(shaderProgram, fragmentID);
-                glDeleteShader(fragmentID);
+				GLCHECKER(glDetachShader(shaderProgram, fragmentID));
+                GLCHECKER(glDeleteShader(fragmentID));
     //            std::cout << "Shader Destroyed: " << shader << std::endl;
             }
 			//if (glIsShader(geometryID)) {
@@ -132,7 +132,7 @@ namespace p3d {
     //    else std::cout << "Shader Program Object Not Found: " << shaderProgram << std::endl;
 
 		if (glIsProgram(shaderProgram)) {
-            glDeleteProgram(shaderProgram);
+            GLCHECKER(glDeleteProgram(shaderProgram));
     //      std::cout << "Shader Program Destroyed: " << *shaderProgram << std::endl;
             shaderProgram = 0;			
         }
@@ -154,32 +154,32 @@ namespace p3d {
         {
             case DataType::Int:
             {
-				glUniform1iv(Handle,uniform.ElementCount,(GLint*)((int32*)&uniform.Value[0]));
+				GLCHECKER(glUniform1iv(Handle,uniform.ElementCount,(GLint*)((int32*)&uniform.Value[0])));
                 break;
             }
             case DataType::Float:
             {
-                glUniform1fv(Handle,uniform.ElementCount,(f32*)&uniform.Value[0]);
+                GLCHECKER(glUniform1fv(Handle,uniform.ElementCount,(f32*)&uniform.Value[0]));
                 break;
             }
             case DataType::Vec2:
             {
-                glUniform2fv(Handle,uniform.ElementCount,(f32*)&uniform.Value[0]);
+                GLCHECKER(glUniform2fv(Handle,uniform.ElementCount,(f32*)&uniform.Value[0]));
                 break;
             }
             case DataType::Vec3:
             {
-                glUniform3fv(Handle,uniform.ElementCount,(f32*)&uniform.Value[0]);
+                GLCHECKER(glUniform3fv(Handle,uniform.ElementCount,(f32*)&uniform.Value[0]));
                 break;
             }
             case DataType::Vec4:
             {
-                glUniform4fv(Handle,uniform.ElementCount,(f32*)&uniform.Value[0]);
+                GLCHECKER(glUniform4fv(Handle,uniform.ElementCount,(f32*)&uniform.Value[0]));
                 break;
             }
             case DataType::Matrix:
             {
-                glUniformMatrix4fv(Handle,uniform.ElementCount,false,(f32*)&uniform.Value[0]);
+                GLCHECKER(glUniformMatrix4fv(Handle,uniform.ElementCount,false,(f32*)&uniform.Value[0]));
                 break;
             }
         }
@@ -193,32 +193,32 @@ namespace p3d {
             {
                 case DataType::Int:
                 {
-                    glUniform1iv(Handle,elementCount,(GLint*)((int32*)data));
+                    GLCHECKER(glUniform1iv(Handle,elementCount,(GLint*)((int32*)data)));
                     break;
                 }
                 case DataType::Float:
                 {
-                    glUniform1fv(Handle,elementCount,(f32*)data);
+                    GLCHECKER(glUniform1fv(Handle,elementCount,(f32*)data));
                     break;
                 }
                 case DataType::Vec2:
                 {
-                    glUniform2fv(Handle,elementCount,(f32*)data);
+                    GLCHECKER(glUniform2fv(Handle,elementCount,(f32*)data));
                     break;
                 }
                 case DataType::Vec3:
                 {
-                    glUniform3fv(Handle,elementCount,(f32*)data);
+                    GLCHECKER(glUniform3fv(Handle,elementCount,(f32*)data));
                     break;
                 }
                 case DataType::Vec4:
                 {
-                    glUniform4fv(Handle,elementCount,(f32*)data);
+                    GLCHECKER(glUniform4fv(Handle,elementCount,(f32*)data));
                     break;
                 }
                 case DataType::Matrix:
                 {
-                    glUniformMatrix4fv(Handle,elementCount,false,(f32*)data);
+                    GLCHECKER(glUniformMatrix4fv(Handle,elementCount,false,(f32*)data));
                     break;
                 }                    
             }

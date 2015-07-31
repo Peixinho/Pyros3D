@@ -38,7 +38,7 @@ namespace p3d {
     
     void PhysicsDebugDraw::EndDebugRendering()
     {
-        glUseProgram(physicsDebugMaterial->GetShader());
+        GLCHECKER(glUseProgram(physicsDebugMaterial->GetShader()));
         
         uint32 vertexHandle = Shader::GetAttributeLocation(physicsDebugMaterial->GetShader(),"aPosition");
         uint32 colorHandle = Shader::GetAttributeLocation(physicsDebugMaterial->GetShader(),"aColor");
@@ -55,45 +55,45 @@ namespace p3d {
         Shader::SendUniform(Uniform("uOpacity",DataType::Float,&opacity),opacityHandle);
         
         // Send Attributes
-        glEnableVertexAttribArray(vertexHandle);
-        glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexLines[0]);
+        GLCHECKER(glEnableVertexAttribArray(vertexHandle));
+        GLCHECKER(glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexLines[0]));
         
-        glEnableVertexAttribArray(colorHandle);
-        glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorLines[0]);
+        GLCHECKER(glEnableVertexAttribArray(colorHandle));
+        GLCHECKER(glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorLines[0]));
         
         // Draw Quad
-        glDrawArrays(GL_LINES, 0, vertexLines.size());
+        GLCHECKER(glDrawArrays(GL_LINES, 0, vertexLines.size()));
 
         // Disable Attributes
-        glDisableVertexAttribArray(colorHandle);
-        glDisableVertexAttribArray(vertexHandle);
+        GLCHECKER(glDisableVertexAttribArray(colorHandle));
+        GLCHECKER(glDisableVertexAttribArray(vertexHandle));
         
         // Send Attributes
-        glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexTriangles[0]);
-        glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorTriangles[0]);
+        GLCHECKER(glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexTriangles[0]));
+        GLCHECKER(glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorTriangles[0]));
         
         // Draw Quad
-        glDrawArrays(GL_TRIANGLES, 0, vertexTriangles.size());
+        GLCHECKER(glDrawArrays(GL_TRIANGLES, 0, vertexTriangles.size()));
 
         // Disable Attributes
-        glDisableVertexAttribArray(colorHandle);
-        glDisableVertexAttribArray(vertexHandle);
+        GLCHECKER(glDisableVertexAttribArray(colorHandle));
+        GLCHECKER(glDisableVertexAttribArray(vertexHandle));
         
         #if !defined(GLES2)
         // Send Attributes
-        glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexQuadStrip[0]);
-        glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorQuadStrip[0]);
+        GLCHECKER(glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexQuadStrip[0]));
+        GLCHECKER(glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorQuadStrip[0]));
         
         // Draw Quad
-        glDrawArrays(GL_QUAD_STRIP, 0, vertexQuadStrip.size());
+        GLCHECKER(glDrawArrays(GL_QUAD_STRIP, 0, vertexQuadStrip.size()));
 
         // Disable Attributes
-        glDisableVertexAttribArray(colorHandle);
-        glDisableVertexAttribArray(vertexHandle);        
+        GLCHECKER(glDisableVertexAttribArray(colorHandle));
+        GLCHECKER(glDisableVertexAttribArray(vertexHandle));        
 
         #endif
         
-        glUseProgram(0);
+        GLCHECKER(glUseProgram(0));
     }
     
     void PhysicsDebugDraw::drawLine(const btVector3& from,const btVector3& to,const btVector3& fromColor, const btVector3& toColor)
@@ -129,7 +129,7 @@ namespace p3d {
             btScalar z1 = radius*sin(lat1);
             btScalar zr1 = radius*cos(lat1);
 
-            glBegin(GL_QUAD_STRIP);
+            GLCHECKER(glBegin(GL_QUAD_STRIP));
             for(j = 0; j <= longs; j++) 
             {
                 btScalar lng = 2 * SIMD_PI * (btScalar) (j - 1) / longs;

@@ -83,7 +83,7 @@ namespace p3d {
             _viewPortStartY = initY;
             _viewPortEndX = endX;
             _viewPortEndY = endY;
-            glViewport(initX,initY,endX,endY);
+            GLCHECKER(glViewport(initX,initY,endX,endY));
         }
     }
     
@@ -120,7 +120,7 @@ namespace p3d {
         {
             // Unbind Index Buffer
             if (LastMeshRenderedPTR->Geometry->GetGeometryType()==GeometryType::BUFFER)
-                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+                GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
             // Unbind Vertex Attributes
             UnbindMesh(LastMeshRenderedPTR,LastMaterialPTR);
             // Unbind Shadow Maps
@@ -128,7 +128,7 @@ namespace p3d {
             // Material After Render
             LastMaterialPTR->AfterRender();
             // Unbind Shader Program
-            glUseProgram(0);
+            GLCHECKER(glUseProgram(0));
             // Unset Pointers
             LastMaterialPTR = NULL;
             LastMeshRenderedPTR = NULL;
@@ -156,7 +156,7 @@ namespace p3d {
         {
             // Unbind Index Buffer
             if (LastMeshRenderedPTR->Geometry->GetGeometryType()==GeometryType::BUFFER)
-                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+                GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
             // Unbind Mesh
             UnbindMesh(LastMeshRenderedPTR,LastMaterialPTR);
             // Material Stuff After Render
@@ -164,7 +164,7 @@ namespace p3d {
             // After Render
             LastMaterialPTR->AfterRender();
         }
-        if (LastProgramUsed!=Material->GetShader()) glUseProgram(Material->GetShader());
+        if (LastProgramUsed!=Material->GetShader()) GLCHECKER(glUseProgram(Material->GetShader()));
         
         if (LastMeshRenderedPTR!=rmesh || LastMaterialPTR!=Material || LastMeshRenderedPTR->Geometry->GetGeometryType()==GeometryType::ARRAY)
         {
@@ -185,7 +185,7 @@ namespace p3d {
             
             // Bind Index Buffer
             if (rmesh->Geometry->GetGeometryType()==GeometryType::BUFFER)
-                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,rmesh->Geometry->IndexBuffer->ID);
+                GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,rmesh->Geometry->IndexBuffer->ID));
         }
         if (LastMaterialPTR!=Material)
         {
@@ -195,16 +195,16 @@ namespace p3d {
                 switch(Material->GetCullFace())
                 {
                     case CullFace::FrontFace:
-                        glEnable(GL_CULL_FACE);
-                        glCullFace(GL_FRONT);
+                        GLCHECKER(glEnable(GL_CULL_FACE));
+                        GLCHECKER(glCullFace(GL_FRONT));
                         break;
                     case CullFace::DoubleSided:
-                        glDisable(GL_CULL_FACE);
+                        GLCHECKER(glDisable(GL_CULL_FACE));
                         break;
                     case CullFace::BackFace:
                     default:
-                        glEnable(GL_CULL_FACE);
-                        glCullFace(GL_BACK);
+                        GLCHECKER(glEnable(GL_CULL_FACE));
+                        GLCHECKER(glCullFace(GL_BACK));
                         break;
                 }
                 cullFace = Material->GetCullFace();
@@ -270,9 +270,12 @@ namespace p3d {
         }  
         // Draw
         if (rmesh->Geometry->GetGeometryType()==GeometryType::BUFFER)
-            glDrawElements(DrawType,rmesh->Geometry->GetIndexData().size(),__INDEX_TYPE__,BUFFER_OFFSET(0));
-        else 
-            glDrawElements(DrawType,rmesh->Geometry->GetIndexData().size(),__INDEX_TYPE__,&rmesh->Geometry->index[0]);
+        {
+            GLCHECKER(glDrawElements(DrawType,rmesh->Geometry->GetIndexData().size(),__INDEX_TYPE__,BUFFER_OFFSET(0)));
+        }
+        else { 
+            GLCHECKER(glDrawElements(DrawType,rmesh->Geometry->GetIndexData().size(),__INDEX_TYPE__,&rmesh->Geometry->index[0]));
+        }
         // Save Last Material and Mesh
         LastProgramUsed = Material->GetShader();
         LastMaterialPTR = Material;
@@ -304,7 +307,7 @@ namespace p3d {
     void IRenderer::DrawBackground()
     {
         if (BackgroundColorSet)
-            glClearColor(BackgroundColor.x,BackgroundColor.y,BackgroundColor.z,BackgroundColor.w);
+            GLCHECKER(glClearColor(BackgroundColor.x,BackgroundColor.y,BackgroundColor.z,BackgroundColor.w));
     }
     
     void IRenderer::EnableDepthTest()
@@ -318,9 +321,11 @@ namespace p3d {
     void IRenderer::DepthTest()
     {
         if (depthTesting)
-            glEnable(GL_DEPTH_TEST);
-        else 
-            glDisable(GL_DEPTH_TEST);
+        {
+            GLCHECKER(glEnable(GL_DEPTH_TEST));
+        } else { 
+            GLCHECKER(glDisable(GL_DEPTH_TEST));
+        }
     }
 	void IRenderer::EnableDepthWritting()
 	{
@@ -333,9 +338,11 @@ namespace p3d {
     void IRenderer::DepthWrite()
     {
         if (depthWritting)
-            glDepthMask(GL_TRUE);
-        else
-            glDepthMask(GL_FALSE);
+        {
+            GLCHECKER(glDepthMask(GL_TRUE));
+        } else {
+            GLCHECKER(glDepthMask(GL_FALSE));
+        }
 	}
     void IRenderer::EnableClearDepthBuffer()
     {
@@ -348,20 +355,20 @@ namespace p3d {
 	void IRenderer::ClearDepthBuffer()
 	{
 #if !defined(GLES2)
-		if (clearDepthBuffer) glClearDepth(1.f);
+		if (clearDepthBuffer) GLCHECKER(glClearDepth(1.f));
 #endif
 	}
     void IRenderer::EnableStencil()
     {
-    	glEnable(GL_STENCIL_TEST); 
+    	GLCHECKER(glEnable(GL_STENCIL_TEST));
     }
     void IRenderer::DisableStencil()
     {
-    	glDisable(GL_STENCIL_TEST); 
+    	GLCHECKER(glDisable(GL_STENCIL_TEST)); 
     }
     void IRenderer::ClearStencilBuffer()
     {
-    	glClearStencil(0);
+    	GLCHECKER(glClearStencil(0));
     }
 	void IRenderer::StencilFunction(const uint32 func, const uint32 ref, const uint32 mask)
 	{
@@ -394,7 +401,7 @@ namespace p3d {
 				Func = GL_ALWAYS;
 			break;
 		}
-		glStencilFunc(Func, ref, mask);
+		GLCHECKER(glStencilFunc(Func, ref, mask));
 	}
 	void IRenderer::StencilOperation(const uint32 sfail, const uint32 dpfail, const uint32 dppass)
 	{
@@ -486,15 +493,15 @@ namespace p3d {
 			break;
 		};
 		// Set Stencil Op
-		glStencilOp(Sfail, DPfail, DPPASS);
+		GLCHECKER(glStencilOp(Sfail, DPfail, DPPASS));
 	}
 	void IRenderer::ColorMask(const f32 r,const f32 g,const f32 b,const f32 a)
 	{
-		glColorMask(r,g,b,a);
+		GLCHECKER(glColorMask(r,g,b,a));
 	}
 	void IRenderer::ClearScreen()
 	{
-		glClear((GLuint)glBufferOptions);
+		GLCHECKER(glClear((GLuint)glBufferOptions));
     }
 
     void IRenderer::SetGlobalLight(const Vec4& Light)
@@ -507,9 +514,9 @@ namespace p3d {
         if (!IsUsingDepthBias)
         {
             IsUsingDepthBias = true;
-            glEnable(GL_POLYGON_OFFSET_FILL);    // enable polygon offset fill to combat "z-fighting"
+            GLCHECKER(glEnable(GL_POLYGON_OFFSET_FILL));    // enable polygon offset fill to combat "z-fighting"
         }
-        glPolygonOffset (Bias.x,Bias.y);
+        GLCHECKER(glPolygonOffset(Bias.x,Bias.y));
     }
     
     void IRenderer::DisableDepthBias()
@@ -517,7 +524,7 @@ namespace p3d {
         if (IsUsingDepthBias)
         {
             IsUsingDepthBias = false;
-            glDisable(GL_POLYGON_OFFSET_FILL);
+            GLCHECKER(glDisable(GL_POLYGON_OFFSET_FILL));
         }
     }
     
@@ -526,7 +533,7 @@ namespace p3d {
         if (!blending)
         {
 	       // Enable Blending
-	       glEnable(GL_BLEND);
+	       GLCHECKER(glEnable(GL_BLEND));
            blending = true;
        }
     }
@@ -536,7 +543,7 @@ namespace p3d {
         if (blending)
         {
             // Disables Blending
-            glDisable(GL_BLEND);
+            GLCHECKER(glDisable(GL_BLEND));
             blending = false;
         }
     }
@@ -671,7 +678,7 @@ namespace p3d {
 				Dfactor = GL_ONE;
 			break;
     	}
-	    glBlendFunc(Sfactor, Dfactor);
+	    GLCHECKER(glBlendFunc(Sfactor, Dfactor));
     }
     void IRenderer::EnableScissorTest()
     {
@@ -704,19 +711,19 @@ namespace p3d {
     			Mode = GL_FUNC_ADD;
     		break;
     	}
-    	glBlendEquation(Mode);
+    	GLCHECKER(glBlendEquation(Mode));
     }
     void IRenderer::EnableWireFrame()
     {
 #if !defined(GLES2)
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        GLCHECKER(glPolygonMode(GL_FRONT_AND_BACK, GL_LINE));
 #endif
     }
      
     void IRenderer::DisableWireFrame()
     {
 #if !defined(GLES2)
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        GLCHECKER(glPolygonMode(GL_FRONT_AND_BACK, GL_FILL));
 #endif
     }
     
@@ -1042,14 +1049,14 @@ namespace p3d {
                     // If exists in shader
                     if (rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]>=0)
                     {
-                        glDisableVertexAttribArray(rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]);
+                        GLCHECKER(glDisableVertexAttribArray(rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]));
                     }
                     counter++;
                 }
                 counterBuffers++;
             }
             if (rmesh->Geometry->GetGeometryType()==GeometryType::BUFFER)
-                glBindBuffer(GL_ARRAY_BUFFER, 0);
+                GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, 0));
         }
     }
     
@@ -1120,7 +1127,7 @@ namespace p3d {
                     AttributeBuffer* bf = (AttributeBuffer*) (*k);
 
                     // Bind VAO
-                    glBindBuffer(GL_ARRAY_BUFFER, bf->Buffer->ID);
+                    GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, bf->Buffer->ID));
 
                     // Get Struct Data
                     if (bf->attributeSize==0)
@@ -1146,17 +1153,17 @@ namespace p3d {
                         if (rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]>=0)
                         {
                             AttributeBuffer* bf = (AttributeBuffer*) (*k);
-                            glVertexAttribPointer(
+                            GLCHECKER(glVertexAttribPointer(
                                                   rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter],
                                                   Buffer::Attribute::GetTypeCount((*l)->Type),
                                                   Buffer::Attribute::GetType((*l)->Type),
                                                   GL_FALSE,
                                                   bf->attributeSize,
                                                   BUFFER_OFFSET((*l)->Offset)
-                                                  );
+                                                  ));
 
                             // Enable Attribute
-                            glEnableVertexAttribArray(rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]);
+                            GLCHECKER(glEnableVertexAttribArray(rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]));
                         }
                         counter++;
                     }
@@ -1184,18 +1191,18 @@ namespace p3d {
                         if (rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]>=0)
                         {
                             
-                            glEnableVertexAttribArray(rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]);
-                            glVertexAttribPointer(
+                            GLCHECKER(glEnableVertexAttribArray(rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]));
+                            GLCHECKER(glVertexAttribPointer(
                                                     rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter],
                                                     Buffer::Attribute::GetTypeCount((*l)->Type),
                                                     Buffer::Attribute::GetType((*l)->Type),
                                                     GL_FALSE,
                                                     0,
                                                     &(*l)->Data[0]
-                                                );
+                                                ));
 
                             // Enable Attribute
-                            glEnableVertexAttribArray(rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]);
+                            GLCHECKER(glEnableVertexAttribArray(rmesh->ShadersAttributesCache[material->GetShader()][counterBuffers][counter]));
                         }
                         counter++;
                     }
