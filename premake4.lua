@@ -83,6 +83,7 @@ solution "Pyros3D"
             libsToLink = { "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework" }
         else
             libsToLink = { "sfml-audio", "sfml-graphics", "sfml-window", "sfml-system" }
+            libsToLinkDebug = { "sfml-audio-d", "sfml-graphics-d", "sfml-window-d", "sfml-system-d" }
         end
         framework = "_SFML";
         excludes { "**/SDL2/**", "**/SDL/**" }
@@ -101,7 +102,7 @@ solution "Pyros3D"
             libsToLinkGL = { "GL", "GLU", "GLEW" }
         end
         if os.get() == "windows" then
-            libsToLinkGL = { "opengl32", "glu32", "glew" }
+            libsToLinkGL = { "opengl32", "glu32", "glew32s" }
         end
         if os.get() == "macosx" then
             libsToLinkGL = { "OpenGL.framework", "GLEW.framework" }
@@ -149,6 +150,10 @@ solution "Pyros3D"
         end
 
         defines({ "UNICODE", framework })
+        
+        if os.get() == "windows" then
+            defines({"HAVE_STRUCT_TIMESPEC"})
+        end
 
         if _OPTIONS["log"]=="console" then
             defines({"LOG_TO_CONSOLE"})
@@ -207,6 +212,10 @@ function BuildDemo(demoPath, demoName)
         end
 
         defines({"UNICODE"})
+        
+        if os.get() == "windows" then
+            defines({"HAVE_STRUCT_TIMESPEC"})
+        end
 
         configuration "Debug"
 
@@ -220,7 +229,7 @@ function BuildDemo(demoPath, demoName)
             end
             
             if os.get() == "windows" then
-                links { libName.."d", libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype" }
+                links { libName.."d", libsToLinkGL, libsToLinkDebug, "BulletDynamics_Debug", "BulletCollision_Debug", "LinearMath_Debug", "freetype26d", "pthreadVC2" }
                 libdirs { rootdir.."/libs" }
             end
 
@@ -241,7 +250,7 @@ function BuildDemo(demoPath, demoName)
             end
 
             if os.get() == "windows" then
-                links { libName, libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype" }
+                links { libName, libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype26", "pthreadVC2" }
                 libdirs { rootdir.."/libs" }
             end
 

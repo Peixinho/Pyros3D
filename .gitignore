@@ -1,2 +1,8 @@
 .DS_Store
 ._*
+build
+bin
+premake5.exe
+include
+libs
+!include/Pyros3D
