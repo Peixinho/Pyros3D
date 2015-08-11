@@ -155,6 +155,7 @@ namespace p3d {
             void EnableDepthBias(const Vec2 &Bias);
             void DisableDepthBias();
             void SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY);
+			void ResetViewPort() { _viewPortStartX = _viewPortStartY = _viewPortEndX = _viewPortEndY = 0; } // Usefull for some shady stuff like rendering from different libs
             
             // Resize
             void Resize(const uint32 Width, const uint32 Height);

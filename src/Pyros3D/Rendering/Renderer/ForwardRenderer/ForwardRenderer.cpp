@@ -165,7 +165,7 @@ namespace p3d {
                         Vec4 color = d->GetLightColor();
                         Vec3 position;
                         Vec3 LDirection = d->GetLightDirection().normalize();
-                        Vec4 direction = ViewMatrix * Vec4(LDirection.x,LDirection.y,LDirection.z,0.f);
+                        Vec4 direction = Vec4(LDirection.x,LDirection.y,LDirection.z,0.f);
                         f32 attenuation = 1.f;
                         Vec2 cones;
                         int32 type = 1;
@@ -174,9 +174,8 @@ namespace p3d {
                         directionalLight.m[0] = color.x;         directionalLight.m[1] = color.y;             directionalLight.m[2] = color.z;             directionalLight.m[3] = color.w;
                         directionalLight.m[4] = position.x;      directionalLight.m[5] = position.y;          directionalLight.m[6] = position.z; 
                         directionalLight.m[7] = direction.x;     directionalLight.m[8] = direction.y;         directionalLight.m[9] = direction.z;
-                        directionalLight.m[10] = attenuation;   //directionalLight.m[11] = attenuation.y;       directionalLight.m[12] = attenuation.z;
-                        directionalLight.m[13] = cones.x;         directionalLight.m[14] = cones.y;
-                        directionalLight.m[15] = type;
+                        directionalLight.m[10] = 0.0;			 directionalLight.m[11] = 0.0;				  directionalLight.m[12] = 0.0;
+						directionalLight.m[13] = type;
 
                         Lights.push_back(directionalLight);
 
@@ -274,7 +273,7 @@ namespace p3d {
 
                         // Point Lights
                         Vec4 color = p->GetLightColor();
-                        Vec3 position = ViewMatrix * (p->GetOwner()->GetWorldPosition());
+                        Vec3 position = (p->GetOwner()->GetWorldPosition());
                         Vec3 direction;
                         f32 attenuation = p->GetLightRadius();
                         Vec2 cones;
@@ -284,9 +283,8 @@ namespace p3d {
                         pointLight.m[0] = color.x;       pointLight.m[1] = color.y;           pointLight.m[2] = color.z;           pointLight.m[3] = color.w;
                         pointLight.m[4] = position.x;    pointLight.m[5] = position.y;        pointLight.m[6] = position.z; 
                         pointLight.m[7] = direction.x;   pointLight.m[8] = direction.y;       pointLight.m[9] = direction.z;
-                        pointLight.m[10] = attenuation; //pointLight.m[11] = attenuation.y;     pointLight.m[12] = attenuation.z;
-                        pointLight.m[13] = cones.x;       pointLight.m[14] = cones.y;
-                        pointLight.m[15] = type;
+                        pointLight.m[10] = attenuation;  pointLight.m[11] = 0;				  pointLight.m[12] = 0;
+						pointLight.m[13] = type;
 
                         Lights.push_back(pointLight);
 
@@ -393,9 +391,9 @@ namespace p3d {
 
                         // Spot Lights
                         Vec4 color = s->GetLightColor();
-                        Vec3 position = ViewMatrix * (s->GetOwner()->GetWorldPosition());
+                        Vec3 position = s->GetOwner()->GetWorldPosition();
                         Vec3 LDirection = s->GetLightDirection().normalize();
-                        Vec4 direction = ViewMatrix * Vec4(LDirection.x,LDirection.y,LDirection.z,0.f);
+                        Vec4 direction = Vec4(LDirection.x,LDirection.y,LDirection.z,0.f);
                         f32 attenuation = s->GetLightRadius();
                         Vec2 cones = Vec2(s->GetLightCosInnerCone(),s->GetLightCosOutterCone());
                         int32 type = 3;
@@ -404,9 +402,8 @@ namespace p3d {
                         spotLight.m[0] = color.x;        spotLight.m[1] = color.y;            spotLight.m[2] = color.z;            spotLight.m[3] = color.w;
                         spotLight.m[4] = position.x;     spotLight.m[5] = position.y;         spotLight.m[6] = position.z; 
                         spotLight.m[7] = direction.x;    spotLight.m[8] = direction.y;        spotLight.m[9] = direction.z;
-                        spotLight.m[10] = attenuation;  //spotLight.m[11] = attenuation.y;      spotLight.m[12] = attenuation.z;
-                        spotLight.m[13] = cones.x;        spotLight.m[14] = cones.y;
-                        spotLight.m[15] = type;
+                        spotLight.m[10] = attenuation;	 spotLight.m[11] = cones.x;			  spotLight.m[12] = cones.y;
+						spotLight.m[13] = type;
 
                         Lights.push_back(spotLight);
 

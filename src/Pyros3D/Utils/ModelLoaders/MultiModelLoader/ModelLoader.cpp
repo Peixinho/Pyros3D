@@ -16,6 +16,9 @@ namespace p3d {
 
     bool ModelLoader::Load(const std::string& Filename)
     {
+		std::string needle = "/";
+		std::string path = Filename.substr(0, Filename.rfind(needle)) + needle;
+
 		BinaryFile* bin = new BinaryFile();
 		bin->Open(Filename.c_str(),'r');
 
@@ -82,8 +85,9 @@ namespace p3d {
         	bin->Read(&nameSize, sizeof(int32));
         	if (nameSize>0)
         	{
-        		mat.colorMap.resize(nameSize);
-	        	bin->Read(&mat.colorMap[0], sizeof(char) * nameSize);
+        		std::string c; c.resize(nameSize);
+				bin->Read(&c[0], nameSize);
+				mat.colorMap = path + c;
 			}
 
 			// Specular Map
@@ -92,8 +96,9 @@ namespace p3d {
         	bin->Read(&nameSize, sizeof(int32));
         	if (nameSize>0)
         	{
-        		mat.specularMap.resize(nameSize);
-	        	bin->Read(&mat.specularMap[0], sizeof(char) * nameSize);	        	
+				std::string c; c.resize(nameSize);
+				bin->Read(&c[0], nameSize);
+				mat.specularMap = path + c;
         	}
 			// Normal Map
 			bin->Read(&In, sizeof(uchar));
@@ -101,8 +106,9 @@ namespace p3d {
         	bin->Read(&nameSize, sizeof(int32));
         	if (nameSize>0)
         	{
-        		mat.normalMap.resize(nameSize);
-	        	bin->Read(&mat.normalMap[0], sizeof(char) * nameSize);
+				std::string c; c.resize(nameSize);
+				bin->Read(&c[0], nameSize);
+				mat.normalMap = path + c;
 	        }
 
     		bin->Read(&In, sizeof(uchar));

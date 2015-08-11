@@ -32,7 +32,7 @@ namespace p3d {
         private:
             
             GenericShaderMaterial* shadowMaterial, *shadowSkinnedMaterial;
-            
+
     };
     
 };

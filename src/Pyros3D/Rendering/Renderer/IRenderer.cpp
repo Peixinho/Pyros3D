@@ -865,7 +865,7 @@ namespace p3d {
                     case DataUsage::ScreenDimensions:
                         {
                             Vec2 dim = Vec2(Width, Height);
-                        Shader::SendUniform((*k),&dim,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
+							Shader::SendUniform((*k),&dim,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         }
                         break;
                     case DataUsage::DirectionalShadowMap:

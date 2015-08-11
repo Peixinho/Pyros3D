@@ -23,7 +23,7 @@
 #define STRINGIFY(x) #x
 #define TOSTRING(x) STRINGIFY(x)
 
-#define MAX_LIGHTS 				1
+#define MAX_LIGHTS 				4
 #define MAX_BONES 				25
 
 #endif /* GLOBAL_H */

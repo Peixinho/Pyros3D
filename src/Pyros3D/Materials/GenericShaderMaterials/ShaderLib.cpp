@@ -263,7 +263,7 @@ namespace p3d
             {
                 usingNormal = true;
                 vertexShaderHeader+="varying vec3 vNormal;\n";
-                vertexShaderBody+="vNormal = normalize((uViewMatrix * uModelMatrix * vec4(aNormal,0)).xyz);\n";
+                vertexShaderBody+="vNormal = normalize((uModelMatrix * vec4(aNormal,0)).xyz);\n";
                 fragmentShaderHeader+="varying vec3 vNormal;\n";
             }
             if (!usingTexcoords)
@@ -285,8 +285,8 @@ namespace p3d
                 vertexShaderHeader+="attribute vec3 aTangent, aBitangent;\n";
                 vertexShaderHeader+="varying mat3 vTangentMatrix;\n";
                 // Vertex Body
-                vertexShaderBody+="vec3 Tangent = normalize((uViewMatrix * uModelMatrix * vec4(aTangent,0)).xyz);\n";
-                vertexShaderBody+="vec3 Binormal = normalize(cross(vNormal,Tangent));\n";
+                vertexShaderBody+="vec3 Tangent = normalize((uModelMatrix * vec4(aTangent,0)).xyz);\n";
+                vertexShaderBody+="vec3 Binormal = normalize((uModelMatrix * vec4(aBitangent,0)).xyz);\n";
                 vertexShaderBody+="vTangentMatrix = mat3(Tangent.x, Binormal.x, vNormal.x,Tangent.y, Binormal.y, vNormal.y,Tangent.z, Binormal.z, vNormal.z);\n";
                 fragmentShaderHeader+="varying mat3 vTangentMatrix;\n";
                 fragmentShaderBody+="mat3 TangentMatrix = vTangentMatrix;\n";
@@ -295,7 +295,7 @@ namespace p3d
             // Fragment Header
             fragmentShaderHeader+="uniform sampler2D uNormalmap;\n";
             // Fragment Body
-            fragmentShaderBody+="vec3 Normal=(texture2D(uNormalmap, Texcoord).xyz * 2.0 - 1.0);\n";
+            fragmentShaderBody+="vec3 Normal=normalize((texture2D(uNormalmap, Texcoord).xyz * 2.0 - 1.0));\n";
         }
         if (option & ShaderUsage::Skinning)
         {
@@ -458,85 +458,85 @@ namespace p3d
             fragmentShaderHeader+="uniform sampler2D uSpecularmap;\n";
             fragmentShaderBody+="specular = texture2D(uSpecularmap,Texcoord);\n";
         }
-        if (option & ShaderUsage::Diffuse || option & ShaderUsage::CellShading)
-        {
-            if (!usingNormal)
-            {
-                usingNormal = true;
-                vertexShaderHeader+="varying vec3 vNormal;\n";
-                vertexShaderBody+="vNormal = normalize((uViewMatrix * uModelMatrix * vec4(aNormal,0)).xyz);\n";
-                fragmentShaderHeader+="varying vec3 vNormal;\n";
-                fragmentShaderBody+="vec3 Normal = vNormal;\n";
-            }
-            
-            if (!usingVertexLocalPos)
-            {
-                usingVertexLocalPos = true;
-                vertexShaderHeader+="varying vec4 vLocalPosition;\n";
-                vertexShaderBody+="vLocalPosition=uViewMatrix * uModelMatrix * vec4(aPosition,1.0);\n";
-                fragmentShaderHeader+="varying vec4 vLocalPosition;\n";
-            }
-            
-            // Fragment Header
-            
-            // Directional Light
-            fragmentShaderHeader+="struct DirectionalLight {\n";
-            fragmentShaderHeader+="vec4 Color;\n";
-            fragmentShaderHeader+="vec3 Direction;\n";
-            fragmentShaderHeader+="};\n";
-            fragmentShaderHeader+="void buildDirectionalLightFromMatrix(mat4 Light, inout DirectionalLight L) {\n";
-            fragmentShaderHeader+="L.Color = Light[0];\n";
-            fragmentShaderHeader+="L.Direction = vec3(Light[1][3],Light[2][0],Light[2][1]);\n";
-            fragmentShaderHeader+="}\n";
-            
-            // Point Light
-            fragmentShaderHeader+="struct PointLight {\n";
-            fragmentShaderHeader+="vec4 Color;\n";
-            fragmentShaderHeader+="vec3 Position;\n";
-            fragmentShaderHeader+="float Radius;\n";
-            fragmentShaderHeader+="};\n";
-            fragmentShaderHeader+="void buildPointLightFromMatrix(mat4 Light, inout PointLight L) {\n";
-            fragmentShaderHeader+="L.Color = Light[0];\n";
-            fragmentShaderHeader+="L.Position = vec3(Light[1][0],Light[1][1],Light[1][2]);\n";
-            fragmentShaderHeader+="L.Radius = Light[2][2];\n";
-            fragmentShaderHeader+="}\n";
-            
-            // Spot Light
-            fragmentShaderHeader+="struct SpotLight {\n";
-            fragmentShaderHeader+="vec4 Color;\n";
-            fragmentShaderHeader+="vec3 Direction;\n";
-            fragmentShaderHeader+="vec3 Position;\n";
-            fragmentShaderHeader+="float Radius;\n";
-            fragmentShaderHeader+="vec2 Cones;\n";
-            fragmentShaderHeader+="};\n";
-            fragmentShaderHeader+="void buildSpotLightFromMatrix(mat4 Light, inout SpotLight L) {\n";
-            fragmentShaderHeader+="L.Color = Light[0];\n";
-            fragmentShaderHeader+="L.Position = vec3(Light[1][0],Light[1][1],Light[1][2]);\n";;
-            fragmentShaderHeader+="L.Direction = vec3(Light[1][3],Light[2][0],Light[2][1]);\n";
-            fragmentShaderHeader+="L.Radius = Light[2][2];\n";
-            fragmentShaderHeader+="L.Cones = vec2(Light[3][1],Light[3][2]);\n";
-            fragmentShaderHeader+="}\n";
 
-            // Number Of Lights
-            fragmentShaderHeader+="const int MAX_LIGHTS = " TOSTRING(MAX_LIGHTS) ";\n";
-            
-            // Attenuation Calculations
-            fragmentShaderHeader+="float Attenuation(vec3 Vertex, vec3 LightPosition, float Radius)\n";
-            fragmentShaderHeader+="{\n";
-            fragmentShaderHeader+="float uRadius = 1.0;\n";
-            fragmentShaderHeader+="float d = distance(Vertex,LightPosition);\n";
-            fragmentShaderHeader+="return clamp(1.0 - (1.0/Radius) * sqrt(d*d), 0.0, 1.0);\n";
-            fragmentShaderHeader+="}\n";
+
+		//	DECODE AND ENCODE FLOAT TO RGBA
+		//	float DecodeFloatRGBA(vec4 rgba)
+		//	{;
+		//		return dot(rgba, vec4(1.0,1.0/255.0, 1.0/65025.0, 1.0/160581375.0));
+		//	};
+		//	vec4 EncodeFloatRGBA(float v) {
+		//		vec4 enc = vec4(1.0, 255.0, 65025.0, 160581375.0) * v;
+		//		enc = frac(enc);
+		//		enc -= enc.yzww * vec4(1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0, 0.0);
+		//		return enc;
+		//	}
+
+
+		if (option & ShaderUsage::Diffuse || option & ShaderUsage::CellShading)
+		{
+			if (!usingNormal)
+			{
+				usingNormal = true;
+				vertexShaderHeader += "varying vec3 vNormal;\n";
+				vertexShaderBody += "vNormal = normalize((uModelMatrix * vec4(aNormal,0)).xyz);\n";
+				fragmentShaderHeader += "varying vec3 vNormal;\n";
+				fragmentShaderBody += "vec3 Normal = vNormal;\n";
+			}
+
+			if (!usingVertexLocalPos)
+			{
+				usingVertexLocalPos = true;
+				vertexShaderHeader += "varying vec4 vLocalPosition;\n";
+				vertexShaderBody += "vLocalPosition=uModelMatrix * vec4(aPosition,1.0);\n";
+				fragmentShaderHeader += "varying vec4 vLocalPosition;\n";
+			}
+
+			// Fragment Header
+
+			// Directional Light
+			fragmentShaderHeader += "struct LIGHT {\n";
+			fragmentShaderHeader += "vec4 Color;\n";
+			fragmentShaderHeader += "vec3 Direction;\n";
+			fragmentShaderHeader += "vec3 Position;\n";
+			fragmentShaderHeader += "float Radius;\n";
+			fragmentShaderHeader += "vec2 Cones;\n";
+			fragmentShaderHeader += "float Type;\n";
+			fragmentShaderHeader += "};\n";
+			fragmentShaderHeader += "void buildLightFromMatrix(mat4 Light, inout LIGHT L) {\n";
+			fragmentShaderHeader += "L.Color = Light[0];\n";
+			fragmentShaderHeader += "L.Position = vec3(Light[1][0],Light[1][1],Light[1][2]);\n";;
+			fragmentShaderHeader += "L.Direction = vec3(Light[1][3],Light[2][0],Light[2][1]);\n";
+			fragmentShaderHeader += "L.Radius = Light[2][2];\n";
+			fragmentShaderHeader += "L.Cones = vec2(Light[2][3],Light[3][0]);\n";
+			fragmentShaderHeader += "L.Type = Light[3][1];\n";
+			fragmentShaderHeader += "}\n";
+
+			// Number Of Lights
+			fragmentShaderHeader += "const int MAX_LIGHTS = " TOSTRING(MAX_LIGHTS) ";\n";
+
+			// Attenuation Calculations
+			fragmentShaderHeader += "float Attenuation(vec3 Vertex, vec3 LightPosition, float Radius)\n";
+			fragmentShaderHeader += "{\n";
+			fragmentShaderHeader += "if (Radius>0.0) {\n";
+			fragmentShaderHeader += "float d = distance(Vertex,LightPosition);\n";
+			fragmentShaderHeader += "return clamp(1.0 - (1.0/Radius) * sqrt(d*d), 0.0, 1.0);\n";
+			fragmentShaderHeader += "};\n";
+			fragmentShaderHeader += "return 1.0;\n";
+			fragmentShaderHeader += "}\n";
             
             // SpotLight Cones
-            fragmentShaderHeader+="float DualConeSpotLight(vec3 Vertex, vec3 SpotLightPosition, vec3 SpotLightDirection, float cosOutterCone, float cosInnerCone)\n";
-            fragmentShaderHeader+="{\n";
-            fragmentShaderHeader+="vec3 to_light = normalize(SpotLightPosition-Vertex);\n";
-            fragmentShaderHeader+="float angle = dot(-to_light, normalize(SpotLightDirection));\n";
-            fragmentShaderHeader+="float funcX = 1.0/(cosInnerCone-cosOutterCone);\n";
-            fragmentShaderHeader+="float funcY = -funcX * cosOutterCone;\n";
-            fragmentShaderHeader+="return clamp(angle*funcX+funcY,0.0,1.0);\n";
-            fragmentShaderHeader+="}\n";
+			fragmentShaderHeader += "float DualConeSpotLight(vec3 Vertex, vec3 SpotLightPosition, vec3 SpotLightDirection, float cosOutterCone, float cosInnerCone)\n";
+			fragmentShaderHeader += "{\n";
+			fragmentShaderHeader += "if (cosOutterCone>0.0 || cosInnerCone>0.0) {\n";
+			fragmentShaderHeader += "vec3 to_light = normalize(SpotLightPosition-Vertex);\n";
+			fragmentShaderHeader += "float angle = dot(-to_light, normalize(SpotLightDirection));\n";
+			fragmentShaderHeader += "float funcX = 1.0/(cosInnerCone-cosOutterCone);\n";
+			fragmentShaderHeader += "float funcY = -funcX * cosOutterCone;\n";
+			fragmentShaderHeader += "return clamp(angle*funcX+funcY,0.0,1.0);\n";
+			fragmentShaderHeader += "}\n";
+			fragmentShaderHeader += "return 0.0;\n";
+			fragmentShaderHeader += "}\n";
               
             // Uniforms
             fragmentShaderHeader+="uniform mat4 uLights[MAX_LIGHTS];\n";
@@ -556,8 +556,6 @@ namespace p3d
             
             fragmentShaderBody+="float _intensity = 0.0;\n";
             
-            fragmentShaderBody+="if (uUseLights!=0.0) {\n";
-            
             fragmentShaderBody+="vec3 Vertex = TangentMatrix * vLocalPosition.xyz;\n";
             fragmentShaderBody+="vec3 EyeVec = TangentMatrix * normalize(-Vertex);\n";
             
@@ -571,30 +569,14 @@ namespace p3d
             fragmentShaderBody+="vec3 LightDir;\n";
             fragmentShaderBody+="vec4 LightColor;\n";
             
-            // Directional Lights
-            fragmentShaderBody+="if (Light[3][3]==1.0) {\n";
-            fragmentShaderBody+="DirectionalLight L;\n";
-            fragmentShaderBody+="buildDirectionalLightFromMatrix(Light,L);\n";
-            fragmentShaderBody+="LightDir = normalize(L.Direction);\n";
-            fragmentShaderBody+="LightColor = L.Color;\n";
-            fragmentShaderBody+="}\n";
-            // Point Lights
-            fragmentShaderBody+="if (Light[3][3]==2.0) {\n";
-            fragmentShaderBody+="PointLight L;\n";
-            fragmentShaderBody+="buildPointLightFromMatrix(Light,L);\n";
-            fragmentShaderBody+="LightDir = normalize(L.Position - Vertex);\n";
-            fragmentShaderBody+="LightColor = L.Color;\n";
-            fragmentShaderBody+="attenuation = Attenuation(Vertex, L.Position, L.Radius);\n";
-            fragmentShaderBody+="}\n";
-            // Spot Lights
-            fragmentShaderBody+="if (Light[3][3]==3.0) {\n";
-            fragmentShaderBody+="SpotLight L;\n";
-            fragmentShaderBody+="buildSpotLightFromMatrix(Light,L);\n";
-            fragmentShaderBody+="LightDir = normalize(L.Position - Vertex);\n";
+            fragmentShaderBody+="LIGHT L;\n";
+            fragmentShaderBody+="buildLightFromMatrix(Light,L);\n";
+			fragmentShaderBody += "if (L.Type == 1.0) LightDir = normalize(L.Direction);\n";
+			fragmentShaderBody += "if (L.Type == 2.0) LightDir = normalize(L.Position - Vertex);\n";
+			fragmentShaderBody += "if (L.Type == 3.0) LightDir = normalize(L.Position - Vertex);\n";
             fragmentShaderBody+="LightColor = L.Color;\n";
             fragmentShaderBody+="attenuation = Attenuation(Vertex, L.Position, L.Radius);\n";
             fragmentShaderBody+="spotEffect = 1.0 - DualConeSpotLight(Vertex, L.Position, L.Direction, L.Cones.x, L.Cones.y);\n";
-            fragmentShaderBody+="}\n";
             
             fragmentShaderBody+="vec3 HalfVec = TangentMatrix * normalize(EyeVec + LightDir);\n";
             fragmentShaderBody+="vec3 LightVec = TangentMatrix * LightDir;\n";
@@ -616,12 +598,11 @@ namespace p3d
                 fragmentShaderBody+="if (diffuseLight>0.0) specularLight = pow(max(dot(HalfVec,Normal),0.0),uShininess);\n";
                 fragmentShaderBody+="_diffuse += LightColor * diffuseLight * attenuation * spotEffect;\n";
                 fragmentShaderBody+="_specular += LightColor * specularLight * attenuation * spotEffect;\n";
-                fragmentShaderBody+="finalColor.xyz += vec3((diffuse * (_diffuse * uKd)) + (specular *(_specular * uKs)));\n";
+                //fragmentShaderBody+="finalColor.xyz += vec3((diffuse * (_diffuse * uKd)) + (specular *(_specular * uKs)));\n";
             }
             fragmentShaderBody+="}\n";
-            fragmentShaderBody+="}\n";
-            fragmentShaderBody+="}\n";
-            fragmentShaderBody+="diffuse.xyz = (diffuse * (uKe + (uAmbientLight * uKa))).xyz + finalColor.xyz;\n";
+			fragmentShaderBody += "}\n";
+            fragmentShaderBody+="diffuse.xyz = (diffuse * (uKe + (uAmbientLight * uKa))).xyz + vec3((diffuse * (_diffuse * uKd)) + (specular *(_specular * uKs)));\n";
         }
         // Closing Shaders
         vertexShaderBody+="}\n";
