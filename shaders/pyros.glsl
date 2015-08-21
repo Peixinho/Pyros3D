@@ -14,7 +14,7 @@
 
     #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(SPECULARMAP)
         varying vec2 vTexcoord;
-    #endif;
+    #endif
 
     #if defined(BUMPMAPPING) || defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(TEXTRENDERING)
         varying vec3 vNormal;
@@ -216,7 +216,7 @@
 
     #ifdef TEXTURE
         uniform sampler2D uColormap;
-    #endif;
+    #endif
 
     #ifdef TEXTRENDERING
         uniform sampler2D uFontmap;
