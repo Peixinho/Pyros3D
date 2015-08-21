@@ -54,7 +54,7 @@ void LOD_example::Init()
         
         // Light
         Light = new GameObject();
-        dLight = new DirectionalLight(Vec4(1,1,1,1), Vec3(1,1,1));
+        dLight = new DirectionalLight(Vec4(1,1,1,1), Vec3(-1,-1,-1));
         Light->Add(dLight);
         Scene->Add(Light);
         Light->SetPosition(Vec3(1,1,1));
