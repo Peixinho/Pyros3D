@@ -41,7 +41,7 @@ namespace p3d {
                             // NONE
                         
                         #else
-                            #ifdef LOG_TO_CONSOLE
+                            #if defined(LOG_TO_CONSOLE) || defined(_DEBUG)
                 				#if defined(ANDROID)
                 					__android_log_print(ANDROID_LOG_DEBUG, "Pyros3D", "%s", Message.c_str());
                 				#else

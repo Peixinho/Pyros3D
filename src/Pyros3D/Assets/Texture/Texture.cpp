@@ -52,79 +52,88 @@ namespace p3d {
         bool ImageLoaded = false;
         
         StringID TextureStringID(MakeStringID(Filename));
-        if (__Textures.find(TextureStringID)==__Textures.end())
-        {
+		if (__Textures.find(TextureStringID) == __Textures.end())
+		{
 
-            File* file = new File();
-            file->Open(Filename);
+			File* file = new File();
+			if (file->Open(Filename))
+			{
 
-            unsigned int w,h;
-            #if !defined(LODEPNG)
-                // USING SFML
-                sf::Image sfImage;
-                ImageLoaded = sfImage.loadFromMemory(&file->GetData()[0],file->Size());
-                w=sfImage.getSize().x;
-                h=sfImage.getSize().y;
-                // Copy Pixels
-                __Textures[TextureStringID].Image.resize(w*h*4);
-                memcpy(&__Textures[TextureStringID].Image[0],sfImage.getPixelsPtr(),w*h*4);
-            #else
-                //USING LODEPNG ( USEFUL FOR EMSCRIPTEN AND ANDROID )
-                uchar* imagePTR;
-                ImageLoaded = (lodepng_decode32(&imagePTR, &w, &h, &file->GetData()[0], file->Size())!=0?false:true);
-                __Textures[TextureStringID].Image.resize(w*h*4);
-                memcpy(&__Textures[TextureStringID].Image[0],imagePTR,w*h*4);
-                delete imagePTR;
-            #endif
+				unsigned int w, h;
+#if !defined(LODEPNG)
+				// USING SFML
+				sf::Image sfImage;
+				ImageLoaded = sfImage.loadFromMemory(&file->GetData()[0], file->Size());
+				w = sfImage.getSize().x;
+				h = sfImage.getSize().y;
+				// Copy Pixels
+				__Textures[TextureStringID].Image.resize(w*h * 4);
+				memcpy(&__Textures[TextureStringID].Image[0], sfImage.getPixelsPtr(), w*h * 4);
+#else
+				//USING LODEPNG ( USEFUL FOR EMSCRIPTEN AND ANDROID )
+				uchar* imagePTR;
+				ImageLoaded = (lodepng_decode32(&imagePTR, &w, &h, &file->GetData()[0], file->Size()) != 0 ? false : true);
+				__Textures[TextureStringID].Image.resize(w*h * 4);
+				memcpy(&__Textures[TextureStringID].Image[0], imagePTR, w*h * 4);
+				delete imagePTR;
+#endif
 
-            if (!ImageLoaded) echo("ERROR: Failed to Open Texture");
-            
-            file->Close();
-            delete file;
+				if (!ImageLoaded) echo("ERROR: Failed to Open Texture");
 
-            // Save Texture Information
-            __Textures[TextureStringID].DataType = TextureDataType::RGBA;
-            __Textures[TextureStringID].Type = Type;
-            __Textures[TextureStringID].TextureID = __Textures.size();
-            __Textures[TextureStringID].Using = 1;
-            __Textures[TextureStringID].Filename = Filename;
-            __Textures[TextureStringID].Width = w;
-            __Textures[TextureStringID].Height = h;
-            
-        } else {
-            __Textures[TextureStringID].Using++;
-        }
-        if (this->TextureInternalID.size()<level+1)
-        {
-            this->TextureInternalID.resize(level+1);
-            this->Width.resize(level+1);
-            this->Height.resize(level+1);
-        }
-        this->TextureInternalID[level] = TextureStringID;
-        this->Width[level]=__Textures[TextureStringID].Width;
-        this->Height[level]=__Textures[TextureStringID].Height;
-        this->haveImage=true;
-        this->Type=Type;
-        this->DataType=__Textures[TextureStringID].DataType;
-        this->Transparency=TextureTransparency::Opaque;
-        
-        if (this->GL_ID==-1) {
-			GLCHECKER(glGenTextures(1, (GLuint*)&this->GL_ID));
-        }
-        
-        if (this->GL_ID==-1)
-        {
-            failed = true;
-        }
-        
-        if (failed)
-        {
-            echo("ERROR: Failed to Load Texture.");
-            return false;
-        }
-        
-        // create default texture
-        return CreateTexture(Mipmapping, level);
+				file->Close();
+				delete file;
+
+				// Save Texture Information
+				__Textures[TextureStringID].DataType = TextureDataType::RGBA;
+				__Textures[TextureStringID].Type = Type;
+				__Textures[TextureStringID].TextureID = __Textures.size();
+				__Textures[TextureStringID].Using = 1;
+				__Textures[TextureStringID].Filename = Filename;
+				__Textures[TextureStringID].Width = w;
+				__Textures[TextureStringID].Height = h;
+
+			}
+			else {
+				__Textures[TextureStringID].Using++;
+			}
+			if (this->TextureInternalID.size() < level + 1)
+			{
+				this->TextureInternalID.resize(level + 1);
+				this->Width.resize(level + 1);
+				this->Height.resize(level + 1);
+			}
+			this->TextureInternalID[level] = TextureStringID;
+			this->Width[level] = __Textures[TextureStringID].Width;
+			this->Height[level] = __Textures[TextureStringID].Height;
+			this->haveImage = true;
+			this->Type = Type;
+			this->DataType = __Textures[TextureStringID].DataType;
+			this->Transparency = TextureTransparency::Opaque;
+
+			if (this->GL_ID == -1) {
+				GLCHECKER(glGenTextures(1, (GLuint*)&this->GL_ID));
+			}
+
+			if (this->GL_ID == -1)
+			{
+				failed = true;
+			}
+
+			if (failed)
+			{
+				echo("ERROR: Failed to Load Texture.");
+				return false;
+			}
+
+			// create default texture
+			return CreateTexture(Mipmapping, level);
+		}
+		else {
+			if (this->GL_ID == -1) {
+				GLCHECKER(glGenTextures(1, (GLuint*)&this->GL_ID));
+			}
+			CreateTexture();
+		}
     }
 
     bool Texture::LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type, bool Mipmapping, const uint32 level)

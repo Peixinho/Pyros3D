@@ -28,6 +28,12 @@ namespace p3d {
                 CosOutterCone = cosf(DEGTORAD(OutterCone));
                 CosInnerCone = cosf(DEGTORAD(InnerCone));
                 Direction = direction;
+
+				// Bounding
+				minBounds = Vec3(-radius*.5f, -radius*.5f, -radius*.5f);
+				maxBounds = Vec3(radius*.5f, radius*.5f, radius*.5f);
+				BoundingSphereCenter = Vec3();
+				BoundingSphereRadius = radius;
             }
             
             virtual ~SpotLight() {}

@@ -51,7 +51,7 @@ void SimplePhysics::Init()
 
     // Add a Directional Light
     Light = new GameObject();
-    dLight = new DirectionalLight(Vec4(1,1,1,1),Vec3(1,1,0));
+    dLight = new DirectionalLight(Vec4(1,1,1,1),Vec3(-1,-1,0));
 #if !defined(GLES2)
     dLight->EnableCastShadows(1024,1024,projection,1,500,1);
     dLight->SetShadowBias(1.f,3.f);

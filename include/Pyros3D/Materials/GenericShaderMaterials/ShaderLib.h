@@ -18,7 +18,6 @@
 
 namespace p3d
 {
- 
     namespace ShaderUsage
     {
         enum {
@@ -40,17 +39,7 @@ namespace p3d
             TextRendering                       = 0x8000,
             PhysicsDebug                        = 0x10000
         };
-    };        
-    
-    class PYROS3D_API ShaderLib
-    {
-        friend class GenericShaderMaterial;
-        
-        protected:
-            // Build Shaders
-            static void BuildShader(const uint32 option, Shader* shader);           
     };
-
 }
 
 #endif /* SHADERLIB_H */

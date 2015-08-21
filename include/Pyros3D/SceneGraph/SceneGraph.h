@@ -41,6 +41,8 @@ namespace p3d {
             void AddGameObject(GameObject* Component);
             void RemoveGameObject(GameObject* Component);
 
+			std::vector<GameObject*> &GetGameObjectList();
+
         private:
 
             // GameObject Dynamic List

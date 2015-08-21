@@ -39,9 +39,8 @@ namespace p3d {
         shaderString = text;
     }
 
-    void Shader::CompileShader(const uint32 type)
-    {
-        
+	void Shader::CompileShader(const uint32 type, const char* definitions)
+	{
         std::string shaderType;
 		uint32 shader;
         switch (type) {
@@ -59,10 +58,11 @@ namespace p3d {
             break;
         }
 
-        uint32 len = shaderString.length();
+		std::string finalShaderString = (std::string(definitions) + std::string("\n") + shaderString);
+        uint32 len = finalShaderString.length();
 
         // batatas because is a good example :P
-        const char *batatas = shaderString.c_str();
+        const char *batatas = finalShaderString.c_str();
 
         GLCHECKER(glShaderSource(shader,1,(const GLchar**) &batatas,(const GLint *)&len));
         GLCHECKER(glCompileShader(shader));

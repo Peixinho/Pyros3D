@@ -79,7 +79,7 @@ void RacingGame::Init()
         // Light
         Light = new GameObject();
         // Light Component
-        dLight = new DirectionalLight(Vec4(1,1,1,1),Vec3(1,1,1));
+        dLight = new DirectionalLight(Vec4(1,1,1,1),Vec3(-1,-1,-1));
         dLight->EnableCastShadows(2048,2048,projection,0.1,200.0,2);
 		dLight->SetShadowBias(3.1f,9.0f);
         Light->Add(dLight);

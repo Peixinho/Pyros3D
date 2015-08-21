@@ -133,4 +133,9 @@ namespace p3d {
     void SceneGraph::AddGameObject(GameObject* GO) { Add(GO); }
     void SceneGraph::RemoveGameObject(GameObject* GO) { Remove(GO); }
 
+	std::vector<GameObject*> &SceneGraph::GetGameObjectList()
+	{
+		return _GameObjectListDynamic;
+	}
+
 };

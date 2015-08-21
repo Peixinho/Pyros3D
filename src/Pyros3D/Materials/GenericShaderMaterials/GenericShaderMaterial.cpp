@@ -25,7 +25,49 @@ namespace p3d
         {
             ShadersList[options] = new Shader();
             ShadersList[options]->currentMaterials = 0;
-            ShaderLib::BuildShader(options, ShadersList[options]);
+            //ShaderLib::BuildShader(options, ShadersList[options]);
+
+			ShadersList[options]->LoadShaderFile("pyros.glsl");
+			std::string define;
+			if (options & ShaderUsage::Color)
+				define += std::string("#define COLOR\n");
+			if (options & ShaderUsage::PhysicsDebug)
+				define += std::string("#define PHYSICSDEBUG\n");
+			if (options & ShaderUsage::Texture)
+				define += std::string("#define TEXTURE\n");
+			if (options & ShaderUsage::TextRendering)
+				define += std::string("#define TEXTRENDERING\n");
+			if (options & ShaderUsage::DirectionalShadow)
+				define += std::string("#define DIRECTIONALSHADOW\n");
+			if (options & ShaderUsage::PointShadow)
+				define += std::string("#define POINTSHADOW\n");
+			if (options & ShaderUsage::SpotShadow)
+				define += std::string("#define SPOTSHADOW\n");
+			if (options & ShaderUsage::CastShadows)
+				define += std::string("#define CASTSHADOWS\n");
+			if (options & ShaderUsage::BumpMapping)
+				define += std::string("#define BUMPMAPPING\n");
+			if (options & ShaderUsage::Skinning)
+				define += std::string("#define SKINNING\n");
+			if (options & ShaderUsage::EnvMap)
+				define += std::string("#define ENVMAP\n");
+			if (options & ShaderUsage::Skybox)
+				define += std::string("#define SKYBOX\n");
+			if (options & ShaderUsage::Refraction)
+				define += std::string("#define REFRACTION\n");
+			if (options & ShaderUsage::SpecularColor)
+				define += std::string("#define SPECULARCOLOR\n");
+			if (options & ShaderUsage::SpecularMap)
+				define += std::string("#define SPECULARMAP\n");
+			if (options & ShaderUsage::Diffuse)
+				define += std::string("#define DIFFUSE\n");
+			if (options & ShaderUsage::CellShading)
+				define += std::string("#define CELLSHADING\n");
+
+			ShadersList[options]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
+			ShadersList[options]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
+
+			ShadersList[options]->LinkProgram();
         }
 		
         // Save Shader Location
@@ -76,6 +118,7 @@ namespace p3d
             AddUniform(Uniform("uNumberOfLights",DataUsage::NumberOfLights));
             AddUniform(Uniform("uAmbientLight",DataUsage::GlobalAmbientLight));
             AddUniform(Uniform("uUseLights",DataType::Float,&UseLights));
+			AddUniform(Uniform("uCameraPos", DataUsage::CameraPosition));
         }
 
         if (options & ShaderUsage::DirectionalShadow)

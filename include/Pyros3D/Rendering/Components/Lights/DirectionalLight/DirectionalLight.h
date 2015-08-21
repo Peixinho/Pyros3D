@@ -35,7 +35,7 @@ namespace p3d {
 
         void UpdateFrustumPoints(const Vec3& position, const Vec3& direction)
         {
-            Vec3 _direction = direction*-1.f;
+            Vec3 _direction = direction;
             Vec3 right = _direction.cross(Vec3::UP);
 
             Vec3 fc = position + _direction * Far;
@@ -225,7 +225,7 @@ namespace p3d {
             Matrix GetLightViewMatrix()
             {
                 ShadowViewMatrix.identity();
-                ShadowViewMatrix.LookAt(Vec3::ZERO,(Direction.normalize()*-1.f),Vec3(0.f,0.f,-1.f));
+                ShadowViewMatrix.LookAt(Vec3::ZERO,(Direction.normalize()),Vec3(0.f,0.f,-1.f));
                 return ShadowViewMatrix;
             }
             Matrix GetLightProjection(const uint32 Cascade, const std::vector<RenderingMesh*> RCompList)

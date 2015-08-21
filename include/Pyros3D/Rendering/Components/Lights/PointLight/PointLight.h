@@ -18,7 +18,17 @@ namespace p3d {
         public:
             
             PointLight() { Color = Vec4(1,1,1,1); Radius = 1.f; }
-            PointLight(const Vec4 &color, const f32 radius) { Color = color; Radius = radius; }
+            PointLight(const Vec4 &color, const f32 radius) 
+			{
+				Color = color;
+				Radius = radius;
+
+				// Bounding
+				minBounds = Vec3(-radius*.5f, -radius*.5f, -radius*.5f);
+				maxBounds = Vec3(radius*.5f, radius*.5f, radius*.5f);
+				BoundingSphereCenter = Vec3();
+				BoundingSphereRadius = radius;
+			}
             virtual ~PointLight() {}
 
             virtual void Start() {};

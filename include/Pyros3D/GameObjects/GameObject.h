@@ -94,6 +94,9 @@ namespace p3d {
             void LookAtGameObject(GameObject* GO);
             void LookAtVec(const Vec3 &center);
 
+			const Vec3 &GetMinBounds() const { return minBounds; }
+			const Vec3 &GetMaxBounds() const { return maxBounds; }
+
         private:
             
             // Update Components
@@ -149,6 +152,11 @@ namespace p3d {
 
 			// Tags
 			std::map<uint32, std::string> TagsList;
+
+			// Bounds of the Component
+			f32 BoundingSphereRadius;
+			Vec3 BoundingSphereCenter;
+			Vec3 maxBounds, minBounds;
     };
     
 };

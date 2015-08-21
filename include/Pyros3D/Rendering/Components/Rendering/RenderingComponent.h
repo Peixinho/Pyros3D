@@ -158,11 +158,6 @@ namespace p3d {
             // Scene
             SceneGraph* Scene;
 
-            // Bounds of the Whole Model
-            f32 BoundingSphereRadius;
-            Vec3 BoundingSphereCenter;
-            Vec3 maxBounds, minBounds;
-
             // LOD
             bool LOD;
 

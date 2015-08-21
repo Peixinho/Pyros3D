@@ -231,6 +231,18 @@ namespace p3d {
                 Component->Owner = this;
                 // Change Flag
                 _ComponentsChanged = true;
+
+				if (BoundingSphereRadius < Component->BoundingSphereRadius)
+				{
+					BoundingSphereRadius = Component->BoundingSphereRadius;
+					BoundingSphereCenter = Component->BoundingSphereCenter;
+				}
+				if (minBounds.x > Component->minBounds.x) minBounds.x = Component->minBounds.x;
+				if (minBounds.y > Component->minBounds.y) minBounds.y = Component->minBounds.y;
+				if (minBounds.z > Component->minBounds.z) minBounds.z = Component->minBounds.z;
+				if (maxBounds.x < Component->maxBounds.x) maxBounds.x = Component->maxBounds.x;
+				if (maxBounds.y < Component->maxBounds.y) maxBounds.y = Component->maxBounds.y;
+				if (maxBounds.z < Component->maxBounds.z) maxBounds.z = Component->maxBounds.z;
                 
                 echo("SUCCESS: Component Added to GameObject");
             } else {
@@ -253,6 +265,27 @@ namespace p3d {
                 _ComponentsChanged = true;
                 
                 found = true;
+
+				// Recheck Bounding
+				minBounds = maxBounds = BoundingSphereCenter = Vec3();
+				BoundingSphereRadius = 0;
+
+				for (std::vector<IComponent*>::iterator i = Components.begin(); i != Components.end(); i++)
+				{
+					IComponent* Component = (*i);
+					if (BoundingSphereRadius < Component->BoundingSphereRadius)
+					{
+						BoundingSphereRadius = Component->BoundingSphereRadius;
+						BoundingSphereCenter = Component->BoundingSphereCenter;
+					}
+					if (minBounds.x > Component->minBounds.x) minBounds.x = Component->minBounds.x;
+					if (minBounds.y > Component->minBounds.y) minBounds.y = Component->minBounds.y;
+					if (minBounds.z > Component->minBounds.z) minBounds.z = Component->minBounds.z;
+					if (maxBounds.x < Component->maxBounds.x) maxBounds.x = Component->maxBounds.x;
+					if (maxBounds.y < Component->maxBounds.y) maxBounds.y = Component->maxBounds.y;
+					if (maxBounds.z < Component->maxBounds.z) maxBounds.z = Component->maxBounds.z;
+				}
+
                 break;
             }
         }

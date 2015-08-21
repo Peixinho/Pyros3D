@@ -48,7 +48,7 @@ void RotatingCubeWithLighting::Init()
         
         // Add a Directional Light
         Light = new GameObject();
-        dLight = new DirectionalLight(Vec4(1,1,1,1),Vec3(1,1,0));
+        dLight = new DirectionalLight(Vec4(1,1,1,1),Vec3(-1,-1,0));
         Light->Add(dLight);
         
         Scene->Add(Light);

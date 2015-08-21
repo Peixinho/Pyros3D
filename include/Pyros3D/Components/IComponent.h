@@ -26,7 +26,7 @@ namespace p3d {
         
         public:
             
-            IComponent() { Owner = NULL; Registered = false; active = true; }
+			IComponent() { Owner = NULL; Registered = false; active = true; }
             virtual ~IComponent() {}
             
             virtual void Register(SceneGraph* Scene) = 0;
@@ -48,6 +48,12 @@ namespace p3d {
             bool Registered;
             
             bool active;
+
+			// Bounds of the Component
+			f32 BoundingSphereRadius;
+			Vec3 BoundingSphereCenter;
+			Vec3 maxBounds, minBounds;
+
             
     };
     
