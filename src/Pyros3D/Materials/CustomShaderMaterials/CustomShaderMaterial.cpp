@@ -13,9 +13,9 @@ namespace p3d
     
     std::map<uint32, Shader*> CustomShaderMaterial::ShadersList;
     
-    CustomShaderMaterial::CustomShaderMaterial(const std::string& vertexShaderFile, const std::string& fragmentShaderFile) : IMaterial()
+    CustomShaderMaterial::CustomShaderMaterial(const std::string& ShaderFile) : IMaterial()
     {
-        StringID number = (MakeStringID(vertexShaderFile)) + (MakeStringID(fragmentShaderFile));
+        StringID number = (MakeStringID(ShaderFile)) + (MakeStringID(ShaderFile));
         
         if (ShadersList.find(number)==ShadersList.end())
         {
@@ -23,11 +23,9 @@ namespace p3d
             // Not Found, Then Load Shader
             Shader* shader = new Shader();
         
-            shader->LoadShaderFile(vertexShaderFile.c_str());
-            shader->CompileShader(ShaderType::VertexShader);
-
-            shader->LoadShaderFile(fragmentShaderFile.c_str());
-            shader->CompileShader(ShaderType::FragmentShader);
+            shader->LoadShaderFile(ShaderFile.c_str());
+			shader->CompileShader(ShaderType::VertexShader, "#define VERTEX");
+			shader->CompileShader(ShaderType::FragmentShader, "#define FRAGMENT");
         
             shader->LinkProgram();
 
@@ -47,7 +45,20 @@ namespace p3d
         AddUniform(Uniform("uOpacity",DataType::Float,&opacity));
         SetOpacity(opacity);
     }
+
+	CustomShaderMaterial::CustomShaderMaterial(Shader* shader)
+	{
+		shaderID = ShadersList.rbegin()->first +1;
+		ShadersList[shaderID] = shader;
+		shaderProgram = ShadersList[shaderID]->ShaderProgram();
+	}
     
+	void CustomShaderMaterial::SetShader(Shader* shader)
+	{
+		ShadersList[shaderID] = shader;
+		shaderProgram = ShadersList[shaderID]->ShaderProgram();
+	}
+
     CustomShaderMaterial::~CustomShaderMaterial()
     {
         if (ShadersList.find(shaderID)!=ShadersList.end())

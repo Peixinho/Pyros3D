@@ -38,7 +38,7 @@ namespace p3d {
     public:
 
         // Constructor
-       IMaterial();       
+		IMaterial();       
         
         // Destructor
         virtual ~IMaterial();

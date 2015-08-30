@@ -24,6 +24,7 @@ namespace p3d
     {
         public:
             
+			GenericShaderMaterial() {}
             GenericShaderMaterial(const uint32 options);
             virtual ~GenericShaderMaterial();
             // Set Colors

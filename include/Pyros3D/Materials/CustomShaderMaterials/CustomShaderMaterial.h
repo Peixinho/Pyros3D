@@ -23,7 +23,9 @@ namespace p3d
         
         public:
         
-            CustomShaderMaterial(const std::string &vertexShaderFile, const std::string &fragmentShaderFile);
+            CustomShaderMaterial(const std::string &ShaderFile);
+			CustomShaderMaterial(Shader* shader);
+			void SetShader(Shader* shader);
             virtual ~CustomShaderMaterial();
 
         protected:

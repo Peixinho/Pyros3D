@@ -39,9 +39,9 @@ namespace p3d {
             void LoadShaderFile(const char* filename);
             void LoadShaderText(const std::string &text);
 
-			void CompileShader(const uint32 type, const char* definitions = "");
+			bool CompileShader(const uint32 type, std::string definitions = std::string(""), std::string *output = NULL);
             void DeleteShader();
-            void LinkProgram();
+            bool LinkProgram(std::string *output = NULL) const;
 
             const uint32 &ShaderProgram() const;
 
