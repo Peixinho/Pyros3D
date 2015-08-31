@@ -48,7 +48,7 @@ namespace p3d
 
 	CustomShaderMaterial::CustomShaderMaterial(Shader* shader)
 	{
-		shaderID = ShadersList.rbegin()->first +1;
+		shaderID = ShadersList.size() + 1;
 		ShadersList[shaderID] = shader;
 		shaderProgram = ShadersList[shaderID]->ShaderProgram();
 	}
