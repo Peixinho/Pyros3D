@@ -24,8 +24,8 @@ namespace p3d
             Shader* shader = new Shader();
         
             shader->LoadShaderFile(ShaderFile.c_str());
-			shader->CompileShader(ShaderType::VertexShader, "#define VERTEX");
-			shader->CompileShader(ShaderType::FragmentShader, "#define FRAGMENT");
+			shader->CompileShader(ShaderType::VertexShader, "#define VERTEX\n");
+			shader->CompileShader(ShaderType::FragmentShader, "#define FRAGMENT\n");
         
             shader->LinkProgram();
 

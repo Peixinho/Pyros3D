@@ -847,7 +847,10 @@ namespace p3d {
                         Shader::SendUniform((*k),&CameraPosition,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
                         break;
                     case DataUsage::Timer:
-                        Shader::SendUniform((*k),&Timer,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
+					{
+						f32 t = (f32)Timer;
+						Shader::SendUniform((*k), &t, rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
+					}
                         break;
                     case DataUsage::GlobalAmbientLight:
                         Shader::SendUniform((*k),&GlobalLight,rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
