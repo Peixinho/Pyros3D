@@ -45,6 +45,8 @@ namespace p3d {
                 NumberOfDirectionalShadows = 19,
                 NumberOfPointShadows = 20,
                 NumberOfSpotShadows = 21,
+				
+				ClipPlanes = 22,
 
                 // User Uniforms
                 Other = 200,
@@ -184,6 +186,9 @@ namespace p3d {
                     case DataUsage::Skinning:
                         Type = DataType::Matrix;
                         break;
+					case DataUsage::ClipPlanes:
+						Type = DataType::Vec4;
+						break;
                 };
             
             }

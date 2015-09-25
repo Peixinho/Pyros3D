@@ -48,6 +48,10 @@
         varying vec3 v3Texcoord;
     #endif
 
+	#ifdef CLIPSPACE
+		uniform vec4 uClipPlanes[8];
+	#endif
+
     // Defaults
     attribute vec3 aPosition, aNormal;
     attribute vec2 aTexcoord;
@@ -120,6 +124,10 @@
             vec3 Tangent = normalize((uModelMatrix * vec4(aTangent,0)).xyz);
             vec3 Binormal = normalize((uModelMatrix * vec4(aBitangent,0)).xyz);
             vTangentMatrix = mat3(Tangent.x, Binormal.x, vNormal.x,Tangent.y, Binormal.y, vNormal.y,Tangent.z, Binormal.z, vNormal.z);
+        #endif
+
+		#ifdef CLIPSPACE
+            gl_ClipDistance[0] = dot((uModelMatrix * vec4(aPosition,1.0)),uClipPlanes[0]);
         #endif
     }
 

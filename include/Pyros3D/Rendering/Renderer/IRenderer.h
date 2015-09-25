@@ -115,6 +115,18 @@ namespace p3d {
             void DisableClearDepthBuffer();
             void ClearDepthBuffer();
 
+			// Clip Planes
+			void EnableClipPlane(const uint32 &numberOfClipPlanes = 1);
+			void DisableClipPlane();
+			void SetClipPlane0(const Vec4 &clipPlane);
+			void SetClipPlane1(const Vec4 &clipPlane);
+			void SetClipPlane2(const Vec4 &clipPlane);
+			void SetClipPlane3(const Vec4 &clipPlane);
+			void SetClipPlane4(const Vec4 &clipPlane);
+			void SetClipPlane5(const Vec4 &clipPlane);
+			void SetClipPlane6(const Vec4 &clipPlane);
+			void SetClipPlane7(const Vec4 &clipPlane);
+
             // Stencil
             void EnableStencil();
             void DisableStencil();
@@ -218,6 +230,14 @@ namespace p3d {
             // Properties
             bool
                                 blending;
+			
+			bool
+								ClipPlane;
+			uint32
+								ClipPlaneNumber;
+			Vec4
+								ClipPlanes[8];
+
             Vec4 
                                 BackgroundColor;
             Vec4 

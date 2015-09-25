@@ -37,8 +37,8 @@ namespace p3d {
 
                 if (calculateTangentBitangent)
                 {
-                    tTangent.resize(tVertex.size());
-                    tBitangent.resize(tVertex.size());
+                    tTangent.resize(index.size());
+                    tBitangent.resize(index.size());
                     for (uint32 i=0;i<index.size();i+=3)
                     {
                         Vec3 Binormal, Tangent;

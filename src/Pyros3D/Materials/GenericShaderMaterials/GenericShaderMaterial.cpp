@@ -63,6 +63,8 @@ namespace p3d
 				define += std::string("#define DIFFUSE\n");
 			if (options & ShaderUsage::CellShading)
 				define += std::string("#define CELLSHADING\n");
+			if (options & ShaderUsage::ClipPlane)
+				define += std::string("#define CLIPSPACE\n");
 
 			ShadersList[options]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
 			ShadersList[options]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
@@ -174,6 +176,10 @@ namespace p3d
         {
             AddUniform(Uniform("uBoneMatrix",DataUsage::Skinning));
         }
+		if (options & ShaderUsage::ClipPlane)
+		{
+			AddUniform(Uniform("uClipPlanes", DataUsage::ClipPlanes));
+		}
     }
     
     void GenericShaderMaterial::SetLightingProperties(const Vec4 &Ke, const Vec4 &Ka, const Vec4 &Kd, const Vec4 &Ks, const f32 shininess)

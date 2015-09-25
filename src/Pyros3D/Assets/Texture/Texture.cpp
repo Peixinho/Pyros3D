@@ -97,7 +97,7 @@ namespace p3d {
 				if (this->GL_ID == -1) {
 					GLCHECKER(glGenTextures(1, (GLuint*)&this->GL_ID));
 				}
-				CreateTexture();
+				return CreateTexture();
 			}
 		}
 		else {
@@ -396,16 +396,16 @@ namespace p3d {
 		if (Mipmapping)
 		{
 #if defined(GLES2)
-			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : __Textures[TextureInternalID[level]].GetPixels())));
+			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, (Width.size()>0 ? Width[level] : 0), (Height.size()>0 ? Height[level] : 0), 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : __Textures[TextureInternalID[level]].GetPixels())));
 			GLCHECKER(glGenerateMipmap(GLMode));
 #else
 			if (GLEW_VERSION_2_1)
 			{
-				GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : __Textures[TextureInternalID[level]].GetPixels())));
+				GLCHECKER(glTexImage2D(GLMode, level, internalFormat, (Width.size()>0 ? Width[level] : 0), (Height.size()>0 ? Height[level] : 0), 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : __Textures[TextureInternalID[level]].GetPixels())));
 				GLCHECKER(glGenerateMipmap(GLSubMode));
 			}
 			else {
-				GLCHECKER(gluBuild2DMipmaps(GLMode, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : __Textures[TextureInternalID[level]].GetPixels())));
+				GLCHECKER(gluBuild2DMipmaps(GLMode, internalFormat, (Width.size()>0 ? Width[level] : 0), (Height.size()>0 ? Height[level] : 0), internalFormat2, internalFormat3, (haveImage == false ? NULL : __Textures[TextureInternalID[level]].GetPixels())));
 			}
 #endif
 			isMipMap = true;
@@ -419,7 +419,7 @@ namespace p3d {
 			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_BASE_LEVEL, 0));
 			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MAX_LEVEL, level));
 #endif
-			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : __Textures[TextureInternalID[level]].GetPixels())));
+			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, (Width.size()>0 ? Width[level] : 0), (Height.size()>0 ? Height[level] : 0), 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : __Textures[TextureInternalID[level]].GetPixels())));
 			if (level>0)
 				isMipMapManual = true;
 		}

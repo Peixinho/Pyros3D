@@ -275,5 +275,6 @@ if _OPTIONS["examples"] then
     BuildDemo("examples/SkeletonAnimationExample", "SkeletonAnimationExample");
     BuildDemo("examples/DeferredRendering", "DeferredRendering");
     BuildDemo("examples/LOD_example", "LOD_example");
+    BuildDemo("examples/IslandDemo", "IslandDemo");
     BuildDemo("examples/RacingGame", "RacingGame");
 end
