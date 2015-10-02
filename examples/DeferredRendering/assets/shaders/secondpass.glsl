@@ -1,3 +1,13 @@
+#ifdef VERTEX
+attribute vec3 aPosition, aNormal;
+attribute vec2 aTexcoord;
+uniform mat4 uProjectionMatrix, uViewMatrix, uModelMatrix;
+void main() {
+gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aPosition,1.0);
+}
+#endif
+
+#ifdef FRAGMENT
 float Attenuation(vec3 Vertex, vec3 LightPosition, float Radius)
 {
 float d = distance(Vertex,LightPosition);
@@ -34,3 +44,4 @@ vec3 diffuseColor = n_dot_l * attenuation * lightColor.xyz;
 diffuse = vec4((diffuseColor * Color),1.0);
 gl_FragColor=diffuse*uOpacity;
 }
+#endif

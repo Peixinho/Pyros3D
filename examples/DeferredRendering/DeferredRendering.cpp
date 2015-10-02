@@ -39,11 +39,11 @@ void DeferredRendering::Init()
         Scene = new SceneGraph();
         
         // Setting Deferred Rendering Framebuffer and Textures
-        albedoTexture = new Texture(); albedoTexture->CreateTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
-        specularTexture = new Texture(); specularTexture->CreateTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
-        normalTexture = new Texture(); normalTexture->CreateTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
-        positionTexture = new Texture(); positionTexture->CreateTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
-        depthTexture = new Texture(); depthTexture->CreateTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height);
+        albedoTexture = new Texture(); albedoTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
+        specularTexture = new Texture(); specularTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
+        normalTexture = new Texture(); normalTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
+        positionTexture = new Texture(); positionTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
+        depthTexture = new Texture(); depthTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height);
 
         albedoTexture->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
         specularTexture->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
@@ -88,7 +88,7 @@ void DeferredRendering::Init()
         }
 
         // Material
-        Diffuse = new CustomShaderMaterial("../../../../examples/DeferredRendering/assets/shaders/gbuffer.vert","../../../../examples/DeferredRendering/assets/shaders/gbuffer.frag");        
+        Diffuse = new CustomShaderMaterial("../../../../examples/DeferredRendering/assets/shaders/gbuffer.glsl");        
         Diffuse->AddUniform(Uniforms::Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
         Diffuse->AddUniform(Uniforms::Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
         Diffuse->AddUniform(Uniforms::Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));

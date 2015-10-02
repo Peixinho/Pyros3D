@@ -29,7 +29,7 @@ namespace p3d {
                   void Rewind();
                   void Close();
                   const uint32 Size() const;
-                  const std::vector<uchar> &GetData() const;
+				  std::vector<uchar> &GetData();
 
             private:
 

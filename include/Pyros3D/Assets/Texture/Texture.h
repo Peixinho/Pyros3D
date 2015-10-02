@@ -88,40 +88,19 @@ namespace p3d {
             Texture
         };
     }
-    
-    
-    struct PYROS3D_API __Texture {
-        
-        uint32 TextureID;
-        uint32 Using;
-        uint32 Type;
-        uint32 DataType;
-        uint32 Width;
-        uint32 Height;
-        std::string Filename;
-
-        std::vector<uchar> Image;
-        const uchar* GetPixels() { return &Image[0]; }
-
-        __Texture() : Using(0), Type(TextureType::Texture), DataType(TextureDataType::RGBA) {}
-        
-    };
 
     class PYROS3D_API Texture {
         
         private:
-            
+			            
             // Internal ID for GL
             int32 GL_ID;
             uint32 Type;
             uint32 DataType;
             std::vector<uint32> Width;
             std::vector<uint32> Height;
-            std::vector<uint32> TextureInternalID;
             bool haveImage;
             bool isMipMap, isMipMapManual;
-            // Image Data
-            std::vector< std::vector<uchar> > pixels;
             bool pixelsRetrieved;
 
             // GL Properties
@@ -136,19 +115,24 @@ namespace p3d {
             uint32 internalFormat, internalFormat2, internalFormat3;
             uint32 Anysotropic;
         
-            // List of textures
-            static std::map<uint32, __Texture> __Textures;
-            
-        
+			bool CreateTexture(uchar* data = NULL, bool Mipmapping = true, const uint32 level = 0);
+
+#if !defined(GLES2)
+			bool LoadDDS(uchar* data, bool Mipmapping = true, const uint32 level = 0);
+#else
+			bool LoadETC1(uchar* data, bool Mipmapping = true, const uint32 level = 0);
+			uint16 swapBytes(uint16 aData);
+#endif
+
         public:
+
             // Constructor
             Texture();
             
             // Texture
             bool LoadTexture(const std::string& Filename, const uint32 Type = TextureType::Texture, bool Mipmapping = true, const uint32 level = 0);
             bool LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type = TextureType::Texture, bool Mipmapping = true, const uint32 level = 0);
-            bool CreateTexture(const uint32 Type, const uint32 DataType, const int32 width = 0, const int32 height = 0, bool Mipmapping = true, const uint32 level = 0);
-            bool CreateTexture(bool Mipmapping = true, const uint32 level = 0);
+            bool CreateEmptyTexture(const uint32 Type, const uint32 DataType, const int32 width = 0, const int32 height = 0, bool Mipmapping = true, const uint32 level = 0);
             void SetMinMagFilter(const uint32 MinFilter,const uint32 MagFilter);
             void SetRepeat(const uint32 WrapS,const uint32 WrapT, const int32 WrapR = -1);
             void EnableCompareMode();
@@ -161,6 +145,7 @@ namespace p3d {
             const uint32 GetBindID() const;
             const uint32 GetWidth(const uint32 level = 0) const;
             const uint32 GetHeight(const uint32 level = 0) const;
+
             // Use Asset
             void Bind();
             void Unbind();

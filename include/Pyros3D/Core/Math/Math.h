@@ -15,17 +15,17 @@
 namespace p3d {
 
     // Type Definition
-    typedef uint8_t PYROS3D_API uint8;
-    typedef int8_t PYROS3D_API int8;
-    typedef uint16_t PYROS3D_API uint16;
-    typedef int16_t PYROS3D_API int16;
-    typedef int32_t PYROS3D_API int32;
-    typedef uint32_t PYROS3D_API uint32;
-    typedef int64_t PYROS3D_API int64;
-    typedef uint64_t PYROS3D_API uint64;
-    typedef float PYROS3D_API f32;
-    typedef unsigned char PYROS3D_API uchar;
-    typedef double PYROS3D_API f64;    
+    typedef uint8_t uint8;
+    typedef int8_t int8;
+    typedef uint16_t uint16;
+    typedef int16_t int16;
+    typedef int32_t int32;
+    typedef uint32_t uint32;
+    typedef int64_t int64;
+    typedef uint64_t uint64;
+    typedef float f32;
+    typedef unsigned char uchar;
+    typedef double f64;    
 };
 #include "Vec2.h"
 #include "Vec3.h"
@@ -60,7 +60,9 @@ using namespace p3d::Math;
 namespace p3d {
     
     namespace Math {
-    
+
+	
+
 	namespace RotationOrder {
 		enum {
 			XYZ = 0,

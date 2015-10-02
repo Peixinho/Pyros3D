@@ -22,7 +22,7 @@ namespace p3d {
         
         // Create Texture
         glyphMap = new Texture();
-        glyphMap->CreateTexture(TextureType::Texture,TextureDataType::ALPHA,MAP_SIZE,MAP_SIZE,true);
+        glyphMap->CreateEmptyTexture(TextureType::Texture,TextureDataType::ALPHA,MAP_SIZE,MAP_SIZE,true);
         glyphMap->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
         glyphMap->SetTextureByteAlignment(1);
         

@@ -18,7 +18,7 @@ namespace p3d {
         fbo = new FrameBuffer();
         // Texture Creation
         texture = new Texture();
-        texture->CreateTexture(TextureType::Texture,TextureDataType::RGBA,Width,Height,false);
+        texture->CreateEmptyTexture(TextureType::Texture,TextureDataType::RGBA,Width,Height,false);
         
         // Frame Buffer Creation
         fbo->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, Width, Height);

@@ -22,9 +22,6 @@ namespace p3d {
 	uint32 Texture::UnitBinded = 0;
 	uint32 Texture::LastUnitBinded = 0;
 
-	// List of Textures
-	std::map<uint32, __Texture> Texture::__Textures;
-
 	Texture::Texture() : GL_ID(-1), haveImage(false), isMipMap(false), isMipMapManual(false), pixelsRetrieved(false), Anysotropic(0) {}
 
 	Texture::~Texture()
@@ -33,182 +30,17 @@ namespace p3d {
 		{
 			GLCHECKER(glDeleteTextures(1, (GLuint*)&GL_ID));
 		}
-
-		for (uint32 i = 0; i<TextureInternalID.size(); i++)
-		{
-			__Textures[TextureInternalID[i]].Using--;
-			if (__Textures[TextureInternalID[i]].Using == 0)
-			{
-				__Textures.erase(TextureInternalID[i]);
-			}
-		}
 	}
 
 	void Texture::DeleteTexture() {}
 
 	bool Texture::LoadTexture(const std::string& Filename, const uint32 Type, bool Mipmapping, const uint32 level)
 	{
-		bool failed = false;
-		bool ImageLoaded = false;
+		File* file = new File();
+		bool status;
 
-		StringID TextureStringID(MakeStringID(Filename));
-		if (__Textures.find(TextureStringID) == __Textures.end())
-		{
+		GLCHECKER(glGenTextures(1, (GLuint*)&this->GL_ID));
 
-			File* file = new File();
-			if (file->Open(Filename))
-			{
-
-				unsigned int w, h;
-#if !defined(LODEPNG)
-				// USING SFML
-				sf::Image sfImage;
-				ImageLoaded = sfImage.loadFromMemory(&file->GetData()[0], file->Size());
-				w = sfImage.getSize().x;
-				h = sfImage.getSize().y;
-				// Copy Pixels
-				__Textures[TextureStringID].Image.resize(w*h * 4);
-				memcpy(&__Textures[TextureStringID].Image[0], sfImage.getPixelsPtr(), w*h * 4);
-#else
-				//USING LODEPNG ( USEFUL FOR EMSCRIPTEN AND ANDROID )
-				uchar* imagePTR;
-				ImageLoaded = (lodepng_decode32(&imagePTR, &w, &h, &file->GetData()[0], file->Size()) != 0 ? false : true);
-				__Textures[TextureStringID].Image.resize(w*h * 4);
-				memcpy(&__Textures[TextureStringID].Image[0], imagePTR, w*h * 4);
-				delete imagePTR;
-#endif
-
-				if (!ImageLoaded) echo("ERROR: Failed to Open Texture");
-
-				file->Close();
-				delete file;
-
-				// Save Texture Information
-				__Textures[TextureStringID].DataType = TextureDataType::RGBA;
-				__Textures[TextureStringID].Type = Type;
-				__Textures[TextureStringID].TextureID = __Textures.size();
-				__Textures[TextureStringID].Using = 1;
-				__Textures[TextureStringID].Filename = Filename;
-				__Textures[TextureStringID].Width = w;
-				__Textures[TextureStringID].Height = h;
-
-			}
-			else {
-				if (this->GL_ID == -1) {
-					GLCHECKER(glGenTextures(1, (GLuint*)&this->GL_ID));
-				}
-				return CreateTexture();
-			}
-		}
-		else {
-			__Textures[TextureStringID].Using++;
-		}
-		if (this->TextureInternalID.size() < level + 1)
-		{
-			this->TextureInternalID.resize(level + 1);
-			this->Width.resize(level + 1);
-			this->Height.resize(level + 1);
-		}
-		this->TextureInternalID[level] = TextureStringID;
-		this->Width[level] = __Textures[TextureStringID].Width;
-		this->Height[level] = __Textures[TextureStringID].Height;
-		this->haveImage = true;
-		this->Type = Type;
-		this->DataType = __Textures[TextureStringID].DataType;
-		this->Transparency = TextureTransparency::Opaque;
-
-		if (this->GL_ID == -1) {
-			GLCHECKER(glGenTextures(1, (GLuint*)&this->GL_ID));
-		}
-
-		if (this->GL_ID == -1)
-		{
-			failed = true;
-		}
-
-		if (failed)
-		{
-			echo("ERROR: Failed to Load Texture.");
-			return false;
-		}
-
-		// create default texture
-		return CreateTexture(Mipmapping, level);
-	}
-
-	bool Texture::LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type, bool Mipmapping, const uint32 level)
-	{
-		bool failed = false;
-		bool ImageLoaded = false;
-
-		StringID TextureStringID(MakeStringIDFromChar(&data[0], (size_t)length));
-		if (__Textures.find(TextureStringID) == __Textures.end())
-		{
-			unsigned int w, h;
-#if !defined(LODEPNG)
-			// USING SFML
-			sf::Image sfImage;
-			ImageLoaded = sfImage.loadFromMemory(&data[0], length);
-			w = sfImage.getSize().x;
-			h = sfImage.getSize().y;
-			// Copy Pixels
-			memcpy(&__Textures[TextureStringID].Image[0], sfImage.getPixelsPtr(), w*h * 4 * sizeof(uchar));
-#else
-			//USING LODEPNG ( USEFUL FOR EMSCRIPTEN AND ANDROID )
-			unsigned char* imagePTR = &__Textures[TextureStringID].Image[0];
-			ImageLoaded = (lodepng_decode32(&imagePTR, &w, &h, &data[0], length) != 0 ? false : true);
-#endif
-
-			if (!ImageLoaded) echo("ERROR: Failed to Open Texture");
-
-			// Save Texture Information
-			__Textures[TextureStringID].DataType = TextureDataType::RGBA;
-			__Textures[TextureStringID].Type = Type;
-			__Textures[TextureStringID].TextureID = __Textures.size();
-			__Textures[TextureStringID].Using = 1;
-			__Textures[TextureStringID].Width = w;
-			__Textures[TextureStringID].Width = h;
-
-		}
-		else {
-			__Textures[TextureStringID].Using++;
-		}
-
-		if (this->TextureInternalID.size()<level + 1)
-		{
-			this->TextureInternalID.resize(level + 1);
-			this->Width.resize(level + 1);
-			this->Height.resize(level + 1);
-		}
-		this->TextureInternalID[level] = TextureStringID;
-		this->Width[level] = __Textures[TextureStringID].Width;
-		this->Height[level] = __Textures[TextureStringID].Height;
-		this->haveImage = true;
-		this->Type = Type;
-		this->DataType = __Textures[TextureStringID].DataType;
-		this->Transparency = TextureTransparency::Opaque;
-
-		if (this->GL_ID == -1) {
-			GLCHECKER(glGenTextures(1, (GLuint*)&this->GL_ID));
-		}
-
-		if (this->GL_ID == -1)
-		{
-			failed = true;
-		}
-
-		if (failed)
-		{
-			echo("ERROR: Failed to Load Texture.");
-			return false;
-		}
-
-		// create default texture
-		return CreateTexture(Mipmapping, level);
-	}
-
-	bool Texture::CreateTexture(bool Mipmapping, const uint32 level)
-	{
 		// default texture
 		switch (Type) {
 		case TextureType::CubemapNegative_X:
@@ -242,6 +74,127 @@ namespace p3d {
 			break;
 		}
 
+		this->Type = Type;
+
+		if (file->Open(Filename))
+		{
+
+#if !defined(GLES2)
+			// DDS
+			if (Filename.substr(Filename.find_last_of(".") + 1) == "DDS" || Filename.substr(Filename.find_last_of(".") + 1) == "dds")
+			{
+				status = LoadDDS(&file->GetData()[0]);
+			}
+#else
+			if (Filename.substr(Filename.find_last_of(".") + 1) == "PKM" || Filename.substr(Filename.find_last_of(".") + 1) == "pkm")
+			{
+				status = LoadETC1(&file->GetData()[0]);
+			}
+#endif
+			else {
+				status = LoadTextureFromMemory(file->GetData(), file->Size(), Type, Mipmapping, level);
+			}
+		}
+		else {
+			echo("ERROR: Couldn't Find Texture File");
+			status = CreateTexture();
+		}
+		file->Close();
+		return status;
+	}
+
+	bool Texture::LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type, bool Mipmapping, const uint32 level)
+	{
+		bool failed = false;
+		bool ImageLoaded = false;
+
+		if (this->GL_ID == -1) {
+			GLCHECKER(glGenTextures(1, (GLuint*)&this->GL_ID));
+		}
+
+		// default texture
+		switch (Type) {
+		case TextureType::CubemapNegative_X:
+			GLMode = GL_TEXTURE_CUBE_MAP_NEGATIVE_X;
+			GLSubMode = GL_TEXTURE_CUBE_MAP;
+			break;
+		case TextureType::CubemapNegative_Y:
+			GLMode = GL_TEXTURE_CUBE_MAP_NEGATIVE_Y;
+			GLSubMode = GL_TEXTURE_CUBE_MAP;
+			break;
+		case TextureType::CubemapNegative_Z:
+			GLMode = GL_TEXTURE_CUBE_MAP_NEGATIVE_Z;
+			GLSubMode = GL_TEXTURE_CUBE_MAP;
+			break;
+		case TextureType::CubemapPositive_X:
+			GLMode = GL_TEXTURE_CUBE_MAP_POSITIVE_X;
+			GLSubMode = GL_TEXTURE_CUBE_MAP;
+			break;
+		case TextureType::CubemapPositive_Y:
+			GLMode = GL_TEXTURE_CUBE_MAP_POSITIVE_Y;
+			GLSubMode = GL_TEXTURE_CUBE_MAP;
+			break;
+		case TextureType::CubemapPositive_Z:
+			GLMode = GL_TEXTURE_CUBE_MAP_POSITIVE_Z;
+			GLSubMode = GL_TEXTURE_CUBE_MAP;
+			break;
+		case TextureType::Texture:
+		default:
+			GLMode = GL_TEXTURE_2D;
+			GLSubMode = GL_TEXTURE_2D;
+			break;
+		}
+
+		uint32 w, h;
+		std::vector<uchar> pixels;
+		if (pixels.size() < level + 1) pixels.resize(level + 1);
+
+#if !defined(LODEPNG)
+		// USING SFML
+		sf::Image sfImage;
+		ImageLoaded = sfImage.loadFromMemory(&data[0], length);
+		w = sfImage.getSize().x;
+		h = sfImage.getSize().y;
+		// Copy Pixels
+		pixels.resize(w * h * 4 * sizeof(uchar));
+		memcpy(&pixels[0], sfImage.getPixelsPtr(), w * h * 4 * sizeof(uchar));
+#else
+		//USING LODEPNG ( USEFUL FOR EMSCRIPTEN AND ANDROID )
+		uchar* imagePTR = &pixels[0];
+		ImageLoaded = (lodepng_decode32(&imagePTR, &w, &h, &data[0], length) != 0 ? false : true);
+#endif
+
+		if (!ImageLoaded) echo("ERROR: Failed to Open Texture");
+
+		if (this->Width.size() < level + 1)
+		{
+			this->Width.resize(level + 1);
+			this->Height.resize(level + 1);
+		}
+
+		this->Width[level] = w;
+		this->Height[level] = h;
+		this->haveImage = true;
+		this->Transparency = TextureTransparency::Opaque;
+
+		if (this->GL_ID == -1)
+		{
+			failed = true;
+		}
+
+		if (failed)
+		{
+			echo("ERROR: Failed to Load Texture.");
+			return false;
+		}
+
+		// create default texture
+		return CreateTexture(&pixels[0],Mipmapping, level);
+	}
+
+	bool Texture::CreateTexture(uchar* data, bool Mipmapping, const uint32 level)
+	{
+	
 		switch (DataType)
 		{
 
@@ -396,16 +349,16 @@ namespace p3d {
 		if (Mipmapping)
 		{
 #if defined(GLES2)
-			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, (Width.size()>0 ? Width[level] : 0), (Height.size()>0 ? Height[level] : 0), 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : __Textures[TextureInternalID[level]].GetPixels())));
+			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, (Width.size()>0 ? Width[level] : 0), (Height.size()>0 ? Height[level] : 0), 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
 			GLCHECKER(glGenerateMipmap(GLMode));
 #else
 			if (GLEW_VERSION_2_1)
 			{
-				GLCHECKER(glTexImage2D(GLMode, level, internalFormat, (Width.size()>0 ? Width[level] : 0), (Height.size()>0 ? Height[level] : 0), 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : __Textures[TextureInternalID[level]].GetPixels())));
+				GLCHECKER(glTexImage2D(GLMode, level, internalFormat, (Width.size()>0 ? Width[level] : 0), (Height.size()>0 ? Height[level] : 0), 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
 				GLCHECKER(glGenerateMipmap(GLSubMode));
 			}
 			else {
-				GLCHECKER(gluBuild2DMipmaps(GLMode, internalFormat, (Width.size()>0 ? Width[level] : 0), (Height.size()>0 ? Height[level] : 0), internalFormat2, internalFormat3, (haveImage == false ? NULL : __Textures[TextureInternalID[level]].GetPixels())));
+				GLCHECKER(gluBuild2DMipmaps(GLMode, internalFormat, (Width.size()>0 ? Width[level] : 0), (Height.size()>0 ? Height[level] : 0), internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
 			}
 #endif
 			isMipMap = true;
@@ -419,7 +372,7 @@ namespace p3d {
 			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_BASE_LEVEL, 0));
 			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MAX_LEVEL, level));
 #endif
-			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, (Width.size()>0 ? Width[level] : 0), (Height.size()>0 ? Height[level] : 0), 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : __Textures[TextureInternalID[level]].GetPixels())));
+			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, (Width.size()>0 ? Width[level] : 0), (Height.size()>0 ? Height[level] : 0), 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
 			if (level>0)
 				isMipMapManual = true;
 		}
@@ -434,7 +387,7 @@ namespace p3d {
 		return true;
 	}
 
-	bool Texture::CreateTexture(const uint32 Type, const uint32 TextureDataType, const int32 width, const int32 height, bool Mipmapping, const uint32 level)
+	bool Texture::CreateEmptyTexture(const uint32 Type, const uint32 TextureDataType, const int32 width, const int32 height, bool Mipmapping, const uint32 level)
 	{
 		if (this->Width.size()<level + 1)
 		{
@@ -456,8 +409,41 @@ namespace p3d {
 			return false;
 		}
 
+		// default texture
+		switch (Type) {
+		case TextureType::CubemapNegative_X:
+			GLMode = GL_TEXTURE_CUBE_MAP_NEGATIVE_X;
+			GLSubMode = GL_TEXTURE_CUBE_MAP;
+			break;
+		case TextureType::CubemapNegative_Y:
+			GLMode = GL_TEXTURE_CUBE_MAP_NEGATIVE_Y;
+			GLSubMode = GL_TEXTURE_CUBE_MAP;
+			break;
+		case TextureType::CubemapNegative_Z:
+			GLMode = GL_TEXTURE_CUBE_MAP_NEGATIVE_Z;
+			GLSubMode = GL_TEXTURE_CUBE_MAP;
+			break;
+		case TextureType::CubemapPositive_X:
+			GLMode = GL_TEXTURE_CUBE_MAP_POSITIVE_X;
+			GLSubMode = GL_TEXTURE_CUBE_MAP;
+			break;
+		case TextureType::CubemapPositive_Y:
+			GLMode = GL_TEXTURE_CUBE_MAP_POSITIVE_Y;
+			GLSubMode = GL_TEXTURE_CUBE_MAP;
+			break;
+		case TextureType::CubemapPositive_Z:
+			GLMode = GL_TEXTURE_CUBE_MAP_POSITIVE_Z;
+			GLSubMode = GL_TEXTURE_CUBE_MAP;
+			break;
+		case TextureType::Texture:
+		default:
+			GLMode = GL_TEXTURE_2D;
+			GLSubMode = GL_TEXTURE_2D;
+			break;
+		}
+
 		// Create Texture
-		return CreateTexture(Mipmapping);
+		return CreateTexture(NULL, Mipmapping);
 	}
 
 	void Texture::SetAnysotropy(const uint32 Anysotropic)
@@ -672,7 +658,7 @@ namespace p3d {
 		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
 		this->Width[level] = Width;
 		this->Height[level] = Height;
-		GLCHECKER(glTexImage2D(GLSubMode, level, internalFormat, Width, Height, 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : __Textures[TextureInternalID[level]].GetPixels())));
+		GLCHECKER(glTexImage2D(GLSubMode, level, internalFormat, Width, Height, 0, internalFormat2, internalFormat3, NULL));
 
 		if (isMipMap)
 		{
@@ -684,7 +670,7 @@ namespace p3d {
 				GLCHECKER(glGenerateMipmap(GLSubMode));
 			}
 			else {
-				GLCHECKER(gluBuild2DMipmaps(GLSubMode, internalFormat, Width, Height, internalFormat2, internalFormat3, (haveImage == false ? NULL : __Textures[TextureInternalID[level]].GetPixels())));
+				GLCHECKER(gluBuild2DMipmaps(GLSubMode, internalFormat, Width, Height, internalFormat2, internalFormat3, NULL));
 			}
 #endif
 		}
@@ -731,7 +717,8 @@ namespace p3d {
 				GLCHECKER(glGenerateMipmap(GLSubMode));
 			}
 			else {
-				GLCHECKER(gluBuild2DMipmaps(GLSubMode, internalFormat, Width[0], Height[0], internalFormat2, internalFormat3, (haveImage == false ? NULL : __Textures[TextureInternalID[0]].GetPixels()))); // its 0 hardcoded because otherwise there won't mipmaps created on the fly
+				// No way for old stupid devices without uploading texture again
+				//GLCHECKER(gluBuild2DMipmaps(GLSubMode, internalFormat, Width[0], Height[0], internalFormat2, internalFormat3, (haveImage == false ? NULL : &pixels[0][0]))); // its 0 hardcoded because otherwise there won't mipmaps created on the fly
 			}
 #endif            
 			// unbind
@@ -788,91 +775,225 @@ namespace p3d {
 
 	std::vector<uchar> Texture::GetTextureData(const uint32 level)
 	{
+		std::vector<uchar> pixels;
 #if !defined(GLES2)
-
-		if (pixels.size() < level + 1) pixels.resize(level + 1);
 
 		switch (internalFormat)
 		{
 		case GL_DEPTH_COMPONENT16:
-			pixels[level].resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
 			break;
 		case GL_DEPTH_COMPONENT24:
-			pixels[level].resize(sizeof(uchar) * 3 * Width[level] * Height[level]);
+			pixels.resize(sizeof(uchar) * 3 * Width[level] * Height[level]);
 			break;
 		case GL_DEPTH_COMPONENT32:
-			pixels[level].resize(sizeof(f32)*Width[level] * Height[level]);
+			pixels.resize(sizeof(f32)*Width[level] * Height[level]);
 			break;
 		case GL_R16F:
-			pixels[level].resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
 			break;
 		case GL_R32F:
-			pixels[level].resize(sizeof(f32)*Width[level] * Height[level]);
+			pixels.resize(sizeof(f32)*Width[level] * Height[level]);
 			break;
 		case GL_RG8:
-			pixels[level].resize(sizeof(uchar)*Width[level] * Height[level] * 2);
+			pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 2);
 			break;
 		case GL_R16I:
-			pixels[level].resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
 			break;
 		case GL_R32I:
-			pixels[level].resize(sizeof(int32)*Width[level] * Height[level]);
+			pixels.resize(sizeof(int32)*Width[level] * Height[level]);
 			break;
 		case GL_RG16F:
-			pixels[level].resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 2);
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 2);
 			break;
 		case GL_RG32F:
-			pixels[level].resize(sizeof(f32)*Width[level] * Height[level] * 2);
+			pixels.resize(sizeof(f32)*Width[level] * Height[level] * 2);
 			break;
 		case GL_RG16I:
-			pixels[level].resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
 			break;
 		case GL_RG32I:
-			pixels[level].resize(sizeof(int32)*Width[level] * Height[level] * 2);
+			pixels.resize(sizeof(int32)*Width[level] * Height[level] * 2);
 			break;
 		case GL_RGB8:
-			pixels[level].resize(sizeof(uchar)*Width[level] * Height[level] * 2);
+			pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 2);
 			break;
 		case GL_RGB16F:
-			pixels[level].resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 3);
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 3);
 			break;
 		case GL_RGB32F:
-			pixels[level].resize(sizeof(f32)*Width[level] * Height[level] * 3);
+			pixels.resize(sizeof(f32)*Width[level] * Height[level] * 3);
 			break;
 		case GL_RGB16I:
-			pixels[level].resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 3);
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 3);
 			break;
 		case GL_RGB32I:
-			pixels[level].resize(sizeof(int32)*Width[level] * Height[level] * 3);
+			pixels.resize(sizeof(int32)*Width[level] * Height[level] * 3);
 			break;
 		case GL_RGBA16F:
-			pixels[level].resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 4);
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 4);
 			break;
 		case GL_RGBA32F:
-			pixels[level].resize(sizeof(f32)*Width[level] * Height[level] * 4);
+			pixels.resize(sizeof(f32)*Width[level] * Height[level] * 4);
 			break;
 		case GL_RGBA16I:
-			pixels[level].resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 4);
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 4);
 			break;
 		case GL_RGBA32I:
-			pixels[level].resize(sizeof(int32)*Width[level] * Height[level] * 4);
+			pixels.resize(sizeof(int32)*Width[level] * Height[level] * 4);
 			break;
 		case GL_R8:
-			pixels[level].resize(sizeof(uchar)*Width[level] * Height[level] * 4);
+			pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 4);
 			break;
 		case GL_ALPHA:
-			pixels[level].resize(sizeof(uchar)*Width[level] * Height[level]);
+			pixels.resize(sizeof(uchar)*Width[level] * Height[level]);
 			break;
 		default:
-			pixels[level].resize(sizeof(uchar)*Width[level] * Height[level] * 4);
+			pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 4);
 			break;
 		}
 		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
-		GLCHECKER(glGetTexImage(GLSubMode, level, internalFormat2, internalFormat3, &pixels[level][0]));
+		GLCHECKER(glGetTexImage(GLSubMode, level, internalFormat2, internalFormat3, &pixels[0]));
 		GLCHECKER(glBindTexture(GLSubMode, 0));
 		pixelsRetrieved = true;
 #endif
-		return pixels[level];
+
+		return pixels;
 	}
+
+#if !defined(GLES2)
+	bool Texture::LoadDDS(uchar* data, bool Mipmapping, const uint32 level)
+	{
+
+#define FOURCC_DXT1 0x31545844 // Equivalent to "DXT1" in ASCII
+#define FOURCC_DXT3 0x33545844 // Equivalent to "DXT3" in ASCII
+#define FOURCC_DXT5 0x35545844 // Equivalent to "DXT5" in ASCII
+
+		uint32 w, h, mipMapCount;
+
+		h = *(unsigned int*)&(data[12]);
+		w = *(unsigned int*)&(data[16]);
+		mipMapCount = *(unsigned int*)&(data[28]);
+		uint32 fourCC = *(unsigned int*)&(data[84]);
+		uint32 format = GL_COMPRESSED_RGBA_S3TC_DXT1_EXT;
+
+		switch (fourCC)
+		{
+		case FOURCC_DXT1:
+			format = GL_COMPRESSED_RGBA_S3TC_DXT1_EXT;
+			break;
+		case FOURCC_DXT3:
+			format = GL_COMPRESSED_RGBA_S3TC_DXT3_EXT;
+			break;
+		case FOURCC_DXT5:
+			format = GL_COMPRESSED_RGBA_S3TC_DXT5_EXT;
+			this->DataType = TextureDataType::RGB;
+			break;
+		}
+
+		Bind();
+
+		this->haveImage = true;
+		this->Transparency = TextureTransparency::Opaque;
+
+		uint32 blockSize = (format == GL_COMPRESSED_RGBA_S3TC_DXT1_EXT) ? 8 : 16;
+		uint32 offset = 124 + 4;
+
+		if (this->Width.size() < mipMapCount)
+		{
+			this->Width.resize(mipMapCount);
+			this->Height.resize(mipMapCount);
+		}
+
+		if (mipMapCount == 1 && !Mipmapping)
+		{
+			uint32 size = ((w + 3) / 4) * ((h + 3) / 4) * blockSize;
+			GLCHECKER(glCompressedTexImage2D(GL_TEXTURE_2D, level, format, w, h, 0, size, &data[offset]));
+			this->Width[level] = w;
+			this->Height[level] = h;
+
+			offset += size;
+			w = Max(1, w * 0.5f);
+			h = Max(1, h * 0.5f);
+		}
+		else {
+			for (uint32 lvl = 0; lvl < mipMapCount && (w || h); ++lvl)
+			{
+				uint32 size = ((w + 3) / 4) * ((h + 3) / 4) * blockSize;
+
+				GLCHECKER(glCompressedTexImage2D(GL_TEXTURE_2D, lvl, format, w, h, 0, size, &data[offset]));
+				this->Width[lvl] = w;
+				this->Height[lvl] = h;
+
+				offset += size;
+				w = Max(1, w * 0.5f);
+				h = Max(1, h * 0.5f);
+			}
+		}
+
+		if (mipMapCount == 1 && Mipmapping)
+			GLCHECKER(glGenerateMipmap(GLSubMode));
+
+		Unbind();
+
+		// default values
+		SetRepeat(TextureRepeat::Repeat, TextureRepeat::Repeat);
+		SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+
+		return true;
+	}
+
+#else
+
+	uint16 Texture::swapBytes(uint16 aData)
+	{
+		return (aData << 8) | (aData >> 8);
+	}
+
+	bool Texture::LoadETC1(uchar* data, bool Mipmapping, const uint32 level)
+	{
+		uint16 r, w, h, mipMapCount;
+		uint16 extWidth, extHeight;
+
+		memcpy(&r, &data[8], 2);
+		extWidth = swapBytes(r);
+		memcpy(&r, &data[10], 2);
+		extHeight = swapBytes(r);
+		memcpy(&r, &data[12], 2);
+		w = swapBytes(r);
+		memcpy(&r, &data[14], 2);
+		h = swapBytes(r);
+
+		Bind();
+
+		this->haveImage = true;
+		this->Transparency = TextureTransparency::Opaque;
+
+		uint32 size = ((extWidth >> 2) * (extHeight >> 2)) << 3;
+
+		GLCHECKER(glCompressedTexImage2D(GL_TEXTURE_2D, 0, GL_ETC1_RGB8_OES, extWidth, extHeight, 0, size, &data[16]));
+		
+		if (this->Width.size() < level+1)
+		{
+			this->Width.resize(level+1);
+			this->Height.resize(level+1);
+		}
+
+		this->Width[level] = extWidth;
+		this->Height[level] = extHeight;
+
+		if (Mipmapping)
+			GLCHECKER(glGenerateMipmap(GLSubMode));
+
+		Unbind();
+
+		// default values
+		SetRepeat(TextureRepeat::Repeat, TextureRepeat::Repeat);
+		SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+
+		return true;
+	}
+#endif
 
 }
