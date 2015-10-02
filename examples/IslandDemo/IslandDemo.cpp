@@ -91,15 +91,15 @@ void IslandDemo::Init()
 
 	fboReflection = new FrameBuffer();
 	reflectionTexture = new Texture();
-	reflectionTexture->CreateTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
+	reflectionTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
 	fboReflection->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, Width, Height);
 	fboReflection->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, reflectionTexture);
 
 	fboRefraction = new FrameBuffer();
 	refractionTexture = new Texture();
 	refractionTextureDepth = new Texture();
-	refractionTexture->CreateTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
-	refractionTextureDepth->CreateTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height, false);
+	refractionTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
+	refractionTextureDepth->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height, false);
 	fboRefraction->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, refractionTextureDepth);
 	fboRefraction->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, refractionTexture);
 
