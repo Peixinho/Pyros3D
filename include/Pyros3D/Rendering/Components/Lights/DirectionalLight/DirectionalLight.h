@@ -180,7 +180,7 @@ namespace p3d {
                     // GPU Shadow Maps
                     // Create Texture, Frame Buffer and Set the Texture as Attachment
                     ShadowMap = new Texture();
-                    ShadowMap->CreateTexture(TextureType::Texture,TextureDataType::DepthComponent,ShadowWidthFBO,ShadowHeightFBO,false);
+                    ShadowMap->CreateEmptyTexture(TextureType::Texture,TextureDataType::DepthComponent,ShadowWidthFBO,ShadowHeightFBO,false);
                     ShadowMap->SetRepeat(TextureRepeat::Clamp,TextureRepeat::Clamp);
                     ShadowMap->EnableCompareMode();
                     shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::Texture,ShadowMap);

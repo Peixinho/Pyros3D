@@ -51,7 +51,7 @@ namespace p3d {
         return data.size();
     }
 
-    const std::vector<uchar> &File::GetData() const
+    std::vector<uchar> &File::GetData()
     {
         return data;
     }

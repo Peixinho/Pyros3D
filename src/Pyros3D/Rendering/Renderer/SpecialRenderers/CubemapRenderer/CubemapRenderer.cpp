@@ -20,12 +20,12 @@ namespace p3d {
         
         // Create Texture (CubeMap), Frame Buffer and Set the Texture as Attachment
         environmentMap = new Texture();
-        environmentMap->CreateTexture(TextureType::CubemapNegative_X,TextureDataType::RGB,Width,Height,false);
-        environmentMap->CreateTexture(TextureType::CubemapNegative_Y,TextureDataType::RGB,Width,Height,false);
-        environmentMap->CreateTexture(TextureType::CubemapNegative_Z,TextureDataType::RGB,Width,Height,false);
-        environmentMap->CreateTexture(TextureType::CubemapPositive_X,TextureDataType::RGB,Width,Height,false);
-        environmentMap->CreateTexture(TextureType::CubemapPositive_Y,TextureDataType::RGB,Width,Height,false);
-        environmentMap->CreateTexture(TextureType::CubemapPositive_Z,TextureDataType::RGB,Width,Height,false);
+        environmentMap->CreateEmptyTexture(TextureType::CubemapNegative_X,TextureDataType::RGB,Width,Height,false);
+        environmentMap->CreateEmptyTexture(TextureType::CubemapNegative_Y,TextureDataType::RGB,Width,Height,false);
+        environmentMap->CreateEmptyTexture(TextureType::CubemapNegative_Z,TextureDataType::RGB,Width,Height,false);
+        environmentMap->CreateEmptyTexture(TextureType::CubemapPositive_X,TextureDataType::RGB,Width,Height,false);
+        environmentMap->CreateEmptyTexture(TextureType::CubemapPositive_Y,TextureDataType::RGB,Width,Height,false);
+        environmentMap->CreateEmptyTexture(TextureType::CubemapPositive_Z,TextureDataType::RGB,Width,Height,false);
         environmentMap->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
 
         // Initialize Frame Buffer

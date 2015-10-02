@@ -31,7 +31,7 @@ namespace p3d {
 
         // Create Second Pass Specifics
         uint32 texID = 0;
-        deferredMaterial = new CustomShaderMaterial("../../../../examples/DeferredRendering/assets/shaders/secondpass.vert","../../../../examples/DeferredRendering/assets/shaders/secondpass.frag");
+        deferredMaterial = new CustomShaderMaterial("../../../../examples/DeferredRendering/assets/shaders/secondpass.glsl");
         deferredMaterial->AddUniform(Uniforms::Uniform("tDepth", Uniforms::DataType::Int, &texID));
         texID = 1;
         deferredMaterial->AddUniform(Uniforms::Uniform("tDiffuse", Uniforms::DataType::Int, &texID));

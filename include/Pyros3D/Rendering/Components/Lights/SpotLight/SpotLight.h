@@ -65,7 +65,7 @@ namespace p3d {
                 
                 // GPU Shadows
                 ShadowMap = new Texture();
-                ShadowMap->CreateTexture(TextureType::Texture,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
+                ShadowMap->CreateEmptyTexture(TextureType::Texture,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
                 ShadowMap->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
                 ShadowMap->EnableCompareMode();
 

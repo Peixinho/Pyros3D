@@ -26,11 +26,11 @@ namespace p3d {
 		proj.Ortho(-(int32)Width*.5f,Width*.5f,-(int32)Height*.5f,Height*.5f,-1,1);
 
 		Color = new Texture();
-        Color->CreateTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
+        Color->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
         Color->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
 		
         Depth = new Texture();
-        Depth->CreateTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height);
+        Depth->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height);
         Depth->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
 
         // Initialize Internal FBO
@@ -43,11 +43,11 @@ namespace p3d {
         fbo2 = new FrameBuffer();         
 
 		Result1= new Texture();
-        Result1->CreateTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
+        Result1->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
         Result1->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
 
 		Result2 = new Texture();
-        Result2->CreateTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
+        Result2->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
         Result2->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
 
         // Init Frame Buffers
