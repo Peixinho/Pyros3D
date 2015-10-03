@@ -35,7 +35,7 @@ namespace p3d {
 
         void UpdateFrustumPoints(const Vec3& position, const Vec3& direction)
         {
-            Vec3 _direction = direction;
+            Vec3 _direction = direction *-1.f;
             Vec3 right = _direction.cross(Vec3::UP);
 
             Vec3 fc = position + _direction * Far;
