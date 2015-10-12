@@ -43,7 +43,7 @@ void RotatingCubeWithLightingAndShadow::Init()
 	Camera->SetPosition(Vec3(0, 10, 100));
 
 	// Material
-	Diffuse = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::Diffuse| ShaderUsage::SpotShadow | ShaderUsage::DirectionalShadow);
+	Diffuse = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::SpecularColor | ShaderUsage::Diffuse| ShaderUsage::SpotShadow | ShaderUsage::DirectionalShadow);
 	Diffuse->SetColor(Vec4(1, 0, 0, 1));
 	Diffuse->SetPCFTexelSize(0.0001f);
 	Diffuse->SetSpecular(Vec4(1,1,1,1));
