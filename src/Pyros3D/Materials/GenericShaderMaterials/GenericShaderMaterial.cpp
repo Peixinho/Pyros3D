@@ -103,23 +103,25 @@ namespace p3d
         if (options & ShaderUsage::Diffuse)
         {
             UseLights = 1.0;
-
+			Shininess = 50.0;
             AddUniform(Uniform("uLights",DataUsage::Lights));
             AddUniform(Uniform("uNumberOfLights",DataUsage::NumberOfLights));
             AddUniform(Uniform("uAmbientLight",DataUsage::GlobalAmbientLight));
             AddUniform(Uniform("uUseLights",DataType::Float,&UseLights));
 			AddUniform(Uniform("uCameraPos", DataUsage::CameraPosition));
+			AddUniform(Uniform("uShininess", DataType::Float, &Shininess));
         }
 
 		if (options & ShaderUsage::CellShading)
 		{
 			UseLights = 1.0;
-
+			Shininess = 50.0;
 			AddUniform(Uniform("uLights", DataUsage::Lights));
 			AddUniform(Uniform("uNumberOfLights", DataUsage::NumberOfLights));
 			AddUniform(Uniform("uAmbientLight", DataUsage::GlobalAmbientLight));
 			AddUniform(Uniform("uUseLights", DataType::Float, &UseLights));
 			AddUniform(Uniform("uCameraPos", DataUsage::CameraPosition));
+			AddUniform(Uniform("uShininess", DataType::Float, &Shininess));
 		}
 
         if (options & ShaderUsage::DirectionalShadow)
