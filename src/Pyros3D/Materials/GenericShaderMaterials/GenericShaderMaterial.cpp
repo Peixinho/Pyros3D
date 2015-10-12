@@ -102,26 +102,25 @@ namespace p3d
 
         if (options & ShaderUsage::Diffuse)
         {
-            // Default Lighting Values
-            Ke = Vec4(0.2f,0.2f,0.2f,1.0f);
-            Ka = Vec4(0.2f,0.2f,0.2f,1.0f);
-            Kd = Vec4(1.0f,1.0f,1.0f,1.0f);
-            Ks = Vec4(1.0f,1.0f,1.0f,1.0f);
-            Shininess = 50.f;
             UseLights = 1.0;
 
-            // Lighting Uniforms
-            AddUniform(Uniform("uKe",DataType::Vec4,&Ke));
-            AddUniform(Uniform("uKa",DataType::Vec4,&Ka));
-            AddUniform(Uniform("uKd",DataType::Vec4,&Kd));
-            AddUniform(Uniform("uKs",DataType::Vec4,&Ks));
-            AddUniform(Uniform("uShininess",DataType::Float,&Shininess));
             AddUniform(Uniform("uLights",DataUsage::Lights));
             AddUniform(Uniform("uNumberOfLights",DataUsage::NumberOfLights));
             AddUniform(Uniform("uAmbientLight",DataUsage::GlobalAmbientLight));
             AddUniform(Uniform("uUseLights",DataType::Float,&UseLights));
 			AddUniform(Uniform("uCameraPos", DataUsage::CameraPosition));
         }
+
+		if (options & ShaderUsage::CellShading)
+		{
+			UseLights = 1.0;
+
+			AddUniform(Uniform("uLights", DataUsage::Lights));
+			AddUniform(Uniform("uNumberOfLights", DataUsage::NumberOfLights));
+			AddUniform(Uniform("uAmbientLight", DataUsage::GlobalAmbientLight));
+			AddUniform(Uniform("uUseLights", DataType::Float, &UseLights));
+			AddUniform(Uniform("uCameraPos", DataUsage::CameraPosition));
+		}
 
         if (options & ShaderUsage::DirectionalShadow)
         {
@@ -182,39 +181,6 @@ namespace p3d
 		}
     }
     
-    void GenericShaderMaterial::SetLightingProperties(const Vec4 &Ke, const Vec4 &Ka, const Vec4 &Kd, const Vec4 &Ks, const f32 shininess)
-    {
-        this->Ke = Ke;
-        this->Ka = Ka;
-        this->Kd = Kd;
-        this->Ks = Ks;
-        this->Shininess = shininess;
-        SetUniformValue("uKe",&this->Ke);
-        SetUniformValue("uKe",&this->Ka);
-        SetUniformValue("uKe",&this->Kd);
-        SetUniformValue("uKe",&this->Ks);
-        SetUniformValue("uShininess",&this->Shininess);
-    }
-    void GenericShaderMaterial::SetKe(const Vec4 &Ke)
-    {
-        this->Ke = Ke;
-        SetUniformValue("uKe",&this->Ke);
-    }
-    void GenericShaderMaterial::SetKa(const Vec4 &Ka)
-    {
-        this->Ka = Ka;
-        SetUniformValue("uKa",&this->Ka);
-    }
-    void GenericShaderMaterial::SetKd(const Vec4 &Kd)
-    {
-        this->Kd = Kd;
-        SetUniformValue("uKd",&this->Kd);
-    }
-    void GenericShaderMaterial::SetKs(const Vec4 &Ks)
-    {
-        this->Ks = Ks;
-        SetUniformValue("uKs",&this->Ks);
-    }
     void GenericShaderMaterial::SetShininess(const f32 shininess)
     {
         this->Shininess = shininess;

@@ -40,7 +40,7 @@ void RacingGame::Init()
         
         // Initialize Renderer
         Renderer = new ForwardRenderer(1024,768);
-
+		Renderer->SetGlobalLight(Vec4(0.5, 0.5, 0.5, 0.5));
         // Projection
         projection.Perspective(70.f,(f32)Width/(f32)Height,1.f,2100.f);
         projection2.Ortho(0,Width,0,Height,-1,100);

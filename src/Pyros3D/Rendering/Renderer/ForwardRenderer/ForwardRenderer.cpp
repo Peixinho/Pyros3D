@@ -157,6 +157,8 @@ namespace p3d {
 				NumberOfSpotShadows = 0;
 
 				ViewMatrix = Camera->GetWorldTransformation().Inverse();
+				uint32 pointCounter = 0;
+				uint32 spotCounter = 0;
 				for (std::vector<IComponent*>::iterator i = lcomps.begin(); i != lcomps.end(); i++)
 				{
 					if (DirectionalLight* d = dynamic_cast<DirectionalLight*>((*i))) {
@@ -175,8 +177,8 @@ namespace p3d {
 						directionalLight.m[4] = position.x;      directionalLight.m[5] = position.y;          directionalLight.m[6] = position.z;
 						directionalLight.m[7] = direction.x;     directionalLight.m[8] = direction.y;         directionalLight.m[9] = direction.z;
 						directionalLight.m[10] = 0.0;			 directionalLight.m[11] = 0.0;				  directionalLight.m[12] = 0.0;
-						directionalLight.m[13] = type;
-
+						directionalLight.m[13] = type;			 directionalLight.m[14] = (d->IsCastingShadows() ? 1 : 0);
+					
 						Lights.push_back(directionalLight);
 
 						// Shadows
@@ -298,6 +300,12 @@ namespace p3d {
 						pointLight.m[7] = direction.x;   pointLight.m[8] = direction.y;       pointLight.m[9] = direction.z;
 						pointLight.m[10] = attenuation;  pointLight.m[11] = 0;				  pointLight.m[12] = 0;
 						pointLight.m[13] = type;
+
+						if (p->IsCastingShadows())
+						{
+							pointLight.m[14] = 1;
+							pointLight.m[15] = pointCounter++;
+						}
 
 						Lights.push_back(pointLight);
 
@@ -430,6 +438,12 @@ namespace p3d {
 						spotLight.m[7] = direction.x;    spotLight.m[8] = direction.y;        spotLight.m[9] = direction.z;
 						spotLight.m[10] = attenuation;	 spotLight.m[11] = cones.x;			  spotLight.m[12] = cones.y;
 						spotLight.m[13] = type;
+
+						if (s->IsCastingShadows())
+						{
+							spotLight.m[14] = 1;
+							spotLight.m[15] = spotCounter++;
+						}
 
 						Lights.push_back(spotLight);
 
