@@ -65,7 +65,7 @@ namespace p3d {
         
         // Get Events
         while (rview.pollEvent(event)) {
-			
+
             if (event.type == sf::Event::Closed)
             {
                 Close();

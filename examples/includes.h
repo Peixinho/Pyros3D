@@ -30,4 +30,6 @@
 #include "IslandDemo/IslandDemo.h"
 #elif defined(_Cubeland)
 #include "Cubeland/Cubeland.h"
+#elif defined(_ImGuiExample)
+#include "ImGuiExample/ImGuiExample.h"
 #endif
