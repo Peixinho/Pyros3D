@@ -8,7 +8,7 @@
 
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Assets/Font/Font.h>
-
+#include <Pyros3D/Shaders/PyrosShader.h>
 namespace p3d
 {
     
@@ -27,7 +27,11 @@ namespace p3d
             ShadersList[options]->currentMaterials = 0;
             //ShaderLib::BuildShader(options, ShadersList[options]);
 
-			ShadersList[options]->LoadShaderFile("pyros.glsl");
+#if defined(_DEBUG) || defined(USE_SHADER_FILE)
+			ShadersList[options]->LoadShaderFile("pyrosShader.glsl");
+#else
+			ShadersList[options]->LoadShaderText(shaderCode);
+#endif
 			std::string define;
 			if (options & ShaderUsage::Color)
 				define += std::string("#define COLOR\n");

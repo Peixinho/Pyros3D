@@ -562,3 +562,5 @@
     }
     
 #endif
+
+// DONT FORGET TO UPDATE THE .h on include/Pyros3D/Shaders/pyrosShader.h

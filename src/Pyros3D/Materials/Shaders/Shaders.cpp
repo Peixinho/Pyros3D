@@ -24,6 +24,11 @@ namespace p3d {
         std::ifstream t(filename);
         std::string str;
 
+		if (t.fail()) {
+			echo("ERROR: Shader File does not exist or you don't have permission to open it.");
+			return;
+		}
+
         t.seekg(0, std::ios::end);   
         str.reserve(t.tellg());
         t.seekg(0, std::ios::beg);

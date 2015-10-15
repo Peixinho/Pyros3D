@@ -26,7 +26,14 @@ namespace p3d
             CustomShaderMaterial(const std::string &ShaderFile);
 			CustomShaderMaterial(Shader* shader);
 			void SetShader(Shader* shader);
-            virtual ~CustomShaderMaterial();
+
+			virtual ~CustomShaderMaterial();
+
+			virtual void PreRender();
+
+			virtual void AfterRender();
+
+			std::vector<Texture*> textures;
 
         protected:
             // Shaders List

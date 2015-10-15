@@ -67,5 +67,20 @@ namespace p3d
             if (ShadersList[shaderID]->currentMaterials==0)
                 delete ShadersList[shaderID];
         }
+
+		for (std::vector<Texture*>::iterator i = textures.begin(); i != textures.end(); i++)
+			delete (*i);
     }
+	
+	void CustomShaderMaterial::PreRender()
+	{
+		for (std::vector<Texture*>::iterator i = textures.begin(); i != textures.end(); i++)
+			(*i)->Bind();
+	}
+
+	void CustomShaderMaterial::AfterRender()
+	{
+		for (std::vector<Texture*>::reverse_iterator i = textures.rbegin(); i != textures.rend(); i++)
+			(*i)->Unbind();
+	}
 }
