@@ -65,8 +65,8 @@ void ImGuiExample::Update()
 		ImGui::Text("Hello, world!");
 		ImGui::SliderFloat("float", &f, 0.0f, 1.0f);
 		ImGui::ColorEdit3("clear color", (float*)&clear_color);
-		if (ImGui::Button("Test Window")) show_test_window ^= 1;
-		if (ImGui::Button("Another Window")) show_another_window ^= 1;
+//		if (ImGui::Button("Test Window")) show_test_window ^= 1;
+//		if (ImGui::Button("Another Window")) show_another_window ^= 1;
 		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 	}
 	bool show_test_window = true;

@@ -279,7 +279,7 @@ if _OPTIONS["examples"] then
     BuildDemo("examples/RacingGame", "RacingGame");
 
 	-- ImGui Example only works with SFML for now
-	if framework != "SDL" and framework != "SDL2" then
+	if framework ~= "SDL" or not "SDL2" then
 		BuildDemo("examples/ImGuiExample", "ImGuiExample");
 	end
 
