@@ -13,6 +13,9 @@ namespace p3d {
     
     Context::Context(const uint32 width, const uint32 height) : Width(width), Height(height), Initialized(true) {}
     
+    uint32 Context::glMajor;
+    uint32 Context::glMinor;
+
     Context::~Context() {}
    
     f64 Context::GetTime()

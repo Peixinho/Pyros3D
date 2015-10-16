@@ -26,7 +26,7 @@
 
 // Check GL
 #ifdef _DEBUG
-    #define GLCHECKER(caller) { caller; int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << "Function: " << #caller << "LINE: " << __LINE__ << " FILE: " << __FILE__ << std::endl; } }
+    #define GLCHECKER(caller) { caller; int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL ERROR: " << std::hex << error << " FUNCTION: " << #caller << " LINE: " << __LINE__ << " FILE: " << __FILE__ << std::endl; } }
 #else
     #define GLCHECKER(caller) { caller; }
 #endif

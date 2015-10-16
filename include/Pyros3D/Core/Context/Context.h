@@ -46,6 +46,9 @@ namespace p3d {
             // Is Running		
             virtual bool IsRunning() const = 0;
 
+            static uint32 GetGLMajorVersion() { return glMajor; }
+            static uint32 GetGLMinorVersion() { return glMinor; }
+
         protected:
             
             // Buttons and Mouse
@@ -83,6 +86,10 @@ namespace p3d {
             
             // Initialized Flag
             bool Initialized;
+
+            // Opengl Version
+            static uint32 glMajor;
+            static uint32 glMinor;
             
         private:
 

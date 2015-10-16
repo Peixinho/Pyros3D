@@ -39,11 +39,18 @@ namespace p3d {
         else
             rview.create(sf::VideoMode(width,height), title, type, settings);
         
+        Width = rview.getSize().x;
+        Height = rview.getSize().y;
+
 #if !defined(GLES2)
         // Initialize GLew
         glewInit();
 #endif
-		
+
+        // Set OpenGL Major and Minor Versions
+        sf::ContextSettings oglsettings = rview.getSettings();
+        glMajor = oglsettings.majorVersion;
+        glMinor = oglsettings.minorVersion;
     }
     SFMLContext::~SFMLContext() 
     {
