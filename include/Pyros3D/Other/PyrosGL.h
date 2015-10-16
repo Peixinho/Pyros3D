@@ -24,9 +24,18 @@
 
 #include <Pyros3D/Other/Global.h>
 
+#ifdef __arm__
+	#include <signal.h>
+	#define BRK raise(SIGTRAP)
+#elif defined(_WIN32)
+	#define BRK __asm{ int 3 }
+#else
+	#define BRK asm volatile("int3")
+#endif
+
 // Check GL
 #ifdef _DEBUG
-    #define GLCHECKER(caller) { caller; int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL ERROR: " << std::hex << error << " FUNCTION: " << #caller << " LINE: " << __LINE__ << " FILE: " << __FILE__ << std::endl; } }
+	#define GLCHECKER(caller) { caller; int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << " FUNCTION: " << #caller << " LINE: " << std::dec << __LINE__ << " FILE: " << __FILE__ << std::endl; BRK; } }
 #else
     #define GLCHECKER(caller) { caller; }
 #endif
