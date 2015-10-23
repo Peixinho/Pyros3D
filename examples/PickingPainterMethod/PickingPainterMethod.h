@@ -68,7 +68,7 @@ class PickingPainterMethod : public ClassName {
         DirectionalLight* dLight;
         
         // Event On Mouse Release
-        void OnMouseRelease(Event::Input::Info e);   
+        void OnMouseRelease(Event::Input::Info e);
         
         // Painter Method
         PainterPick* picking;

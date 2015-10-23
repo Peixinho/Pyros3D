@@ -62,6 +62,7 @@ private:
 	// Objects List
 	std::vector<GameObject*> Teapots;
 	std::vector<RenderingComponent*> rTeapots;
+	std::vector<GenericShaderMaterial*> mTeapots;
 	Renderable* teapotLOD1Handle;
 	Renderable* teapotLOD2Handle;
 	Renderable* teapotLOD3Handle;
@@ -76,7 +77,7 @@ private:
 	void StrafeLeftRelease(Event::Input::Info e);
 	void StrafeRightRelease(Event::Input::Info e);
 	void LookTo(Event::Input::Info e);
-	void CloseApp(Event::Input::Info e);
+	void OnMouseRelease(Event::Input::Info e);
 
 	float counterX, counterY;
 	Vec2 mouseCenter, mouseLastPosition, mousePosition;

@@ -19,8 +19,11 @@ public:
 	Vec3 Max, Min;
 
 	std::vector<GameObject*> Members;
+
 	OctreeGroup* childs[8];
 	OctreeGroup* parent;
+
+	bool selected;
 
 	virtual ~OctreeGroup() 
 	{
@@ -48,6 +51,8 @@ public:
 		Max = max;
 		Min = min;
 
+		selected = false;
+
 		parent = Parent;
 		
 		// Look For Members
@@ -68,7 +73,7 @@ public:
 				i++;
 			}
 		}
-
+		
 		// Create Groups
 		if (Members.size() > ChildsPerNode) CreateSubGroups(size*.25f, min, max, Members, ChildsPerNode);
 	}
@@ -85,7 +90,11 @@ public:
 		std::vector<GameObject*> _Members = Members;
 		if (haveChilds)
 			for (uint32 i = 0; i < 8; i++)
-				_Members.insert(_Members.end(), childs[i]->ReturnAllMembers().begin(), childs[i]->ReturnAllMembers().end());
+			{
+				std::vector<GameObject*> _m = childs[i]->ReturnAllMembers();
+				if (_m.size()>0)
+					_Members.insert(_Members.end(), _m.begin(), _m.end());
+			}
 
 		return _Members;
 	}
@@ -102,14 +111,14 @@ private:
 		Vec3 center = (min+max)*.5f;
 
 		// build childs
-		childs[0] = (new OctreeGroup(Size*.25f, center, max, objects, ChildsPerNode, this));
-		childs[1] = (new OctreeGroup(Size*.25f, Vec3(center.x, min.y, center.z), Vec3(max.x,center.y,max.z), objects, ChildsPerNode, this));
-		childs[2] = (new OctreeGroup(Size*.25f, min, center, objects, ChildsPerNode, this));
-		childs[3] = (new OctreeGroup(Size*.25f, Vec3(min.x,center.y,center.z), Vec3(center.x, max.y, max.z), objects, ChildsPerNode, this));
-		childs[4] = (new OctreeGroup(Size*.25f, Vec3(center.x,center.y,min.z), Vec3(max.x, max.y, center.z), objects, ChildsPerNode, this));
-		childs[5] = (new OctreeGroup(Size*.25f, Vec3(center.x,min.y,min.z), Vec3(max.x, center.y, center.z), objects, ChildsPerNode, this));
-		childs[6] = (new OctreeGroup(Size*.25f, Vec3(min.x,min.y,center.z), Vec3(center.x, center.y, max.z), objects, ChildsPerNode, this));
-		childs[7] = (new OctreeGroup(Size*.25f, Vec3(min.x,center.y,min.z), Vec3(center.x, max.y, center.z), objects, ChildsPerNode, this));
+		childs[0] = new OctreeGroup(Size*.25f, center, max, objects, ChildsPerNode, this);
+		childs[1] = new OctreeGroup(Size*.25f, Vec3(center.x, min.y, center.z), Vec3(max.x,center.y,max.z), objects, ChildsPerNode, this);
+		childs[2] = new OctreeGroup(Size*.25f, min, center, objects, ChildsPerNode, this);
+		childs[3] = new OctreeGroup(Size*.25f, Vec3(min.x,center.y,center.z), Vec3(center.x, max.y, max.z), objects, ChildsPerNode, this);
+		childs[4] = new OctreeGroup(Size*.25f, Vec3(center.x,center.y,min.z), Vec3(max.x, max.y, center.z), objects, ChildsPerNode, this);
+		childs[5] = new OctreeGroup(Size*.25f, Vec3(center.x,min.y,min.z), Vec3(max.x, center.y, center.z), objects, ChildsPerNode, this);
+		childs[6] = new OctreeGroup(Size*.25f, Vec3(min.x,min.y,center.z), Vec3(center.x, center.y, max.z), objects, ChildsPerNode, this);
+		childs[7] = new OctreeGroup(Size*.25f, Vec3(min.x,center.y,min.z), Vec3(center.x, max.y, center.z), objects, ChildsPerNode, this);
 	}
 };
 
@@ -130,6 +139,15 @@ public:
 		float Size = max.distance(min);
 
 		Root = new OctreeGroup(Size, min, max, objects, ChildsPerNode);
+	}
+
+	std::vector<GameObject*> SearchObjects(const Vec3 Position, const float radius) 
+	{
+		std::vector<GameObject*> _members;
+		
+		SearchInChildBox(Root, Position, radius, &_members);
+
+		return _members;
 	}
 
 	void Insert(GameObject* go)
@@ -154,69 +172,112 @@ public:
 		glLoadIdentity();
 		glLoadMatrixf(&camera.m[0]);
 
-		glTranslatef(1.5f, 0.0f, -7.0f);
-
-		glBegin(GL_LINES);
-		glColor3f(1.0f, 0.0f, 0.0f);
-
 		if (Root != NULL)
 		{
 			_Draw(Root);
 		}
-
-		glEnd(); 
 	}
 
-	void _Draw(OctreeGroup* Child)
-	{
-		__Draw(Child);
-		if (Child->haveChilds)
+	private:
+
+		bool SearchInChildBox(OctreeGroup* box, const Vec3 &Position, const float radius, std::vector<GameObject*>* members)
 		{
-			for (uint32 i = 0; i < 8; i++)
+			if (Position.x + radius<box->Max.x &&
+				Position.y + radius<box->Max.y &&
+				Position.z + radius<box->Max.z &&
+				Position.x - radius>box->Min.x &&
+				Position.y - radius>box->Min.y &&
+				Position.z - radius>box->Min.z)
 			{
-				_Draw(Child->childs[i]);
+				// Its in this Box
+				std::vector<GameObject*> _m = box->ReturnMembers();
+				members->insert(members->end(), _m.begin(), _m.end());
+				box->selected = true;
+				
+				// Test if it have children
+				if (box->haveChilds)
+				{
+					// Test if one of them fits
+					bool _search = false;
+					for (int i = 0; i < 8; i++)
+					{
+						if (SearchInChildBox(box->childs[i], Position, radius, members))
+							_search = true;
+					}
+
+					if (!_search)
+					{
+						// Set this box and children too
+						std::vector<GameObject*> _m = box->ReturnAllMembers();
+						if (_m.size() > 0)
+							members->insert(members->end(), _m.begin(), _m.end());
+					}
+				}
+
+				return true;
+			}
+			else {
+				// Doesn't Fit this Box
+				box->selected = false;
+				return false;
 			}
 		}
-	}
 
-	void __Draw(OctreeGroup* Child)
-	{
-			glVertex3f(Child->Max.x, Child->Max.y, Child->Min.z);
-			glVertex3f(Child->Min.x, Child->Max.y, Child->Min.z);
-			glVertex3f(Child->Min.x, Child->Max.y, Child->Min.z);
-			glVertex3f(Child->Min.x, Child->Max.y, Child->Max.z);
-			glVertex3f(Child->Min.x, Child->Max.y, Child->Max.z);
-			glVertex3f(Child->Max.x, Child->Max.y, Child->Max.z);
-			glVertex3f(Child->Max.x, Child->Max.y, Child->Max.z);
-			glVertex3f(Child->Max.x, Child->Max.y, Child->Min.z);
+		void _Draw(OctreeGroup* Child)
+		{
+			__Draw(Child);
+			if (Child->haveChilds)
+			{
+				for (uint32 i = 0; i < 8; i++)
+				{
+					_Draw(Child->childs[i]);
+				}
+			}
+		}
 
-			glVertex3f(Child->Max.x, Child->Min.y, Child->Max.z);
-			glVertex3f(Child->Min.x, Child->Min.y, Child->Max.z);
-			glVertex3f(Child->Min.x, Child->Min.y, Child->Max.z);
-			glVertex3f(Child->Min.x, Child->Min.y, Child->Min.z);
-			glVertex3f(Child->Min.x, Child->Min.y, Child->Min.z);
-			glVertex3f(Child->Max.x, Child->Min.y, Child->Min.z);
-			glVertex3f(Child->Max.x, Child->Min.y, Child->Min.z);
-			glVertex3f(Child->Max.x, Child->Min.y, Child->Max.z);
+		void __Draw(OctreeGroup* Child)
+		{
+				if (!Child->selected) glColor3f(1.0f, 0.0f, 0.0f);
+				else glColor3f(1.0f, 1.0f, 1.0f);
 
-			glVertex3f(Child->Max.x, Child->Max.y, Child->Max.z);
-			glVertex3f(Child->Min.x, Child->Max.y, Child->Max.z);
-			glVertex3f(Child->Min.x, Child->Max.y, Child->Max.z);
-			glVertex3f(Child->Min.x, Child->Min.y, Child->Max.z);
-			glVertex3f(Child->Min.x, Child->Min.y, Child->Max.z);
-			glVertex3f(Child->Max.x, Child->Min.y, Child->Max.z);
-			glVertex3f(Child->Max.x, Child->Min.y, Child->Max.z);
-			glVertex3f(Child->Max.x, Child->Max.y, Child->Max.z);
+				glBegin(GL_LINES);
+				glVertex3f(Child->Max.x, Child->Max.y, Child->Min.z);
+				glVertex3f(Child->Min.x, Child->Max.y, Child->Min.z);
+				glVertex3f(Child->Min.x, Child->Max.y, Child->Min.z);
+				glVertex3f(Child->Min.x, Child->Max.y, Child->Max.z);
+				glVertex3f(Child->Min.x, Child->Max.y, Child->Max.z);
+				glVertex3f(Child->Max.x, Child->Max.y, Child->Max.z);
+				glVertex3f(Child->Max.x, Child->Max.y, Child->Max.z);
+				glVertex3f(Child->Max.x, Child->Max.y, Child->Min.z);
 
-			glVertex3f(Child->Max.x, Child->Min.y, Child->Min.z);
-			glVertex3f(Child->Min.x, Child->Min.y, Child->Min.z);
-			glVertex3f(Child->Min.x, Child->Min.y, Child->Min.z);
-			glVertex3f(Child->Min.x, Child->Max.y, Child->Min.z);
-			glVertex3f(Child->Min.x, Child->Max.y, Child->Min.z);
-			glVertex3f(Child->Max.x, Child->Max.y, Child->Min.z);
-			glVertex3f(Child->Max.x, Child->Max.y, Child->Min.z);
-			glVertex3f(Child->Max.x, Child->Min.y, Child->Min.z);
-	}
+				glVertex3f(Child->Max.x, Child->Min.y, Child->Max.z);
+				glVertex3f(Child->Min.x, Child->Min.y, Child->Max.z);
+				glVertex3f(Child->Min.x, Child->Min.y, Child->Max.z);
+				glVertex3f(Child->Min.x, Child->Min.y, Child->Min.z);
+				glVertex3f(Child->Min.x, Child->Min.y, Child->Min.z);
+				glVertex3f(Child->Max.x, Child->Min.y, Child->Min.z);
+				glVertex3f(Child->Max.x, Child->Min.y, Child->Min.z);
+				glVertex3f(Child->Max.x, Child->Min.y, Child->Max.z);
+
+				glVertex3f(Child->Max.x, Child->Max.y, Child->Max.z);
+				glVertex3f(Child->Min.x, Child->Max.y, Child->Max.z);
+				glVertex3f(Child->Min.x, Child->Max.y, Child->Max.z);
+				glVertex3f(Child->Min.x, Child->Min.y, Child->Max.z);
+				glVertex3f(Child->Min.x, Child->Min.y, Child->Max.z);
+				glVertex3f(Child->Max.x, Child->Min.y, Child->Max.z);
+				glVertex3f(Child->Max.x, Child->Min.y, Child->Max.z);
+				glVertex3f(Child->Max.x, Child->Max.y, Child->Max.z);
+
+				glVertex3f(Child->Max.x, Child->Min.y, Child->Min.z);
+				glVertex3f(Child->Min.x, Child->Min.y, Child->Min.z);
+				glVertex3f(Child->Min.x, Child->Min.y, Child->Min.z);
+				glVertex3f(Child->Min.x, Child->Max.y, Child->Min.z);
+				glVertex3f(Child->Min.x, Child->Max.y, Child->Min.z);
+				glVertex3f(Child->Max.x, Child->Max.y, Child->Min.z);
+				glVertex3f(Child->Max.x, Child->Max.y, Child->Min.z);
+				glVertex3f(Child->Max.x, Child->Min.y, Child->Min.z);
+				glEnd();
+		}
 
 	/******************************* DEBUG DRAW ******************************* */
 
