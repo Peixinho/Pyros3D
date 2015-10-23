@@ -40,6 +40,11 @@ namespace p3d {
             bool IsActive() { return active; }
             void Disable() { active = false; }
             void Enable() { active = true; }
+
+			virtual const f32 &GetBoundingSphereRadius() const { return BoundingSphereRadius; }
+            virtual const Vec3 &GetBoundingSphereCenter() const { return BoundingSphereCenter; }
+            virtual const Vec3 &GetBoundingMinValue() const { return minBounds; }
+            virtual const Vec3 &GetBoundingMaxValue() const { return maxBounds; }
             
         protected:
         

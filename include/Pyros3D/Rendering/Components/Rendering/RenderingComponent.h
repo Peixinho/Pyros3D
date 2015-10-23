@@ -123,12 +123,6 @@ namespace p3d {
             // Update Rendering Meshes Based on LOD
             void UpdateLOD(const uint32 lod);
 
-            // Get Bounding Properties
-            const f32 &GetBoundingSphereRadius() const { return BoundingSphereRadius; }
-            const Vec3 &GetBoundingSphereCenter() const { return BoundingSphereCenter; }
-            const Vec3 &GetBoundingMinValue() const { return minBounds; }
-            const Vec3 &GetBoundingMaxValue() const { return maxBounds; }
-
             // Get Rendering Components
             static std::vector<IComponent*> &GetComponents();
 

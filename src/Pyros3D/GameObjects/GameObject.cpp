@@ -232,18 +232,26 @@ namespace p3d {
                 // Change Flag
                 _ComponentsChanged = true;
 
-				if (BoundingSphereRadius < Component->BoundingSphereRadius)
+				if (Components.size() == 1)
 				{
+					minBounds = Component->minBounds;
+					maxBounds = Component->maxBounds;
 					BoundingSphereRadius = Component->BoundingSphereRadius;
 					BoundingSphereCenter = Component->BoundingSphereCenter;
 				}
-				if (minBounds.x > Component->minBounds.x) minBounds.x = Component->minBounds.x;
-				if (minBounds.y > Component->minBounds.y) minBounds.y = Component->minBounds.y;
-				if (minBounds.z > Component->minBounds.z) minBounds.z = Component->minBounds.z;
-				if (maxBounds.x < Component->maxBounds.x) maxBounds.x = Component->maxBounds.x;
-				if (maxBounds.y < Component->maxBounds.y) maxBounds.y = Component->maxBounds.y;
-				if (maxBounds.z < Component->maxBounds.z) maxBounds.z = Component->maxBounds.z;
-                
+				else {
+					if (minBounds.x > Component->minBounds.x) minBounds.x = Component->minBounds.x;
+					if (minBounds.y > Component->minBounds.y) minBounds.y = Component->minBounds.y;
+					if (minBounds.z > Component->minBounds.z) minBounds.z = Component->minBounds.z;
+					if (maxBounds.x < Component->maxBounds.x) maxBounds.x = Component->maxBounds.x;
+					if (maxBounds.y < Component->maxBounds.y) maxBounds.y = Component->maxBounds.y;
+					if (maxBounds.z < Component->maxBounds.z) maxBounds.z = Component->maxBounds.z;
+					if (BoundingSphereRadius < Component->BoundingSphereRadius)
+					{
+						BoundingSphereRadius = Component->BoundingSphereRadius;
+						BoundingSphereCenter = Component->BoundingSphereCenter;
+					}
+				}
                 echo("SUCCESS: Component Added to GameObject");
             } else {
                 echo("ERROR: Component Already in GameObject");

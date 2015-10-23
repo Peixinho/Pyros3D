@@ -56,7 +56,7 @@ namespace p3d {
         BoundingSphereCenter = renderable->GetBoundingSphereCenter();
         maxBounds = renderable->GetBoundingMaxValue();
         minBounds = renderable->GetBoundingMinValue();
-
+		
         // LOD
         LOD = false;
         LodInUse = 0;
