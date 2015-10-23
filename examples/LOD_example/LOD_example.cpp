@@ -80,7 +80,7 @@ void LOD_example::Init()
 	HideMouse();
 
 	// Load Teapot LODS
-	teapotLOD1Handle = new Model("../../../../examples/LOD_example/assets/teapots/teapotLOD1.p3dm", false, ShaderUsage::Diffuse);
+	teapotLOD1Handle = new Model("assets/teapots/teapotLOD1.p3dm", false, ShaderUsage::Diffuse);
 	//teapotLOD2Handle = new Model("../../../../examples/LOD_example/assets/teapots/teapotLOD2.p3dm", false, ShaderUsage::Diffuse);
 	//teapotLOD3Handle = new Model("../../../../examples/LOD_example/assets/teapots/teapotLOD3.p3dm", false, ShaderUsage::Diffuse);
 
