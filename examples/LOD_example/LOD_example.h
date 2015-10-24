@@ -9,7 +9,7 @@
 #ifndef LOD_EXAMPLE_H
 #define	LOD_EXAMPLE_H
 
-#define TEAPOTS 1000
+#define TEAPOTS 10000
 
 #if defined(_SDL)
 #include "../WindowManagers/SDL/SDLContext.h"
@@ -78,12 +78,14 @@ private:
 	void StrafeRightRelease(Event::Input::Info e);
 	void LookTo(Event::Input::Info e);
 	void OnMouseRelease(Event::Input::Info e);
+	void AddTeapot(Event::Input::Info e);
 
 	float counterX, counterY;
 	Vec2 mouseCenter, mouseLastPosition, mousePosition;
 	bool _moveFront, _moveBack, _strafeLeft, _strafeRight;
 
 	Octree* octree;
+	bool generatedOctree;
 };
 
 #endif	/* LOD_EXAMPLE_H */

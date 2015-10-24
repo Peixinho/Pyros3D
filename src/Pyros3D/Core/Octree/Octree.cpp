@@ -31,6 +31,8 @@ namespace p3d {
 		// Keep Actual Size
 		size = Size;
 
+		childsPerNode = ChildsPerNode;
+
 		// Save Dimensions
 		Max = max;
 		Min = min;
@@ -101,6 +103,115 @@ namespace p3d {
 		childs[7] = new OctreeGroup(Size*.25f, Vec3(min.x, center.y, min.z), Vec3(center.x, max.y, center.z), objects, ChildsPerNode, this);
 	}
 
+	bool OctreeGroup::Insert(GameObject* go)
+	{
+
+		Vec3 minTransform = go->GetWorldTransformation()*go->GetMinBounds();
+		Vec3 maxTransform = go->GetWorldTransformation()*go->GetMaxBounds();
+
+		if (
+			(minTransform.x > Min.x && maxTransform.x < Max.x) &&
+			(minTransform.y > Min.y && maxTransform.y < Max.y) &&
+			(minTransform.z > Min.z && maxTransform.z < Max.z)
+			)
+		{
+			// Fits this Box
+			// Lets check for childs first
+			if (haveChilds)
+			{
+				bool inserted = false;
+				for (uint32 i = 0; i < 8; i++)
+				{
+					if (
+						(minTransform.x > childs[i]->Min.x && maxTransform.x < childs[i]->Max.x) &&
+						(minTransform.y > childs[i]->Min.y && maxTransform.y < childs[i]->Max.y) &&
+						(minTransform.z > childs[i]->Min.z && maxTransform.z < childs[i]->Max.z)
+						)
+					{
+						if (childs[i]->Insert(go))
+						{
+							inserted = true;
+							break;
+						}
+					}
+				}
+				if (!inserted) // No child fits
+				{
+					Members.push_back(go);
+					return true;
+				}
+			}
+			else {
+				// Doesn't have childs
+				
+				// Add to this members
+				Members.push_back(go);
+
+				// If members list is bigger than expected, and no children exists, build them
+				if (Members.size() > childsPerNode) 
+					CreateSubGroups(size*.25f, Min, Max, Members, childsPerNode);
+
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool OctreeGroup::Remove(GameObject* go)
+	{
+		Vec3 minTransform = go->GetWorldTransformation()*go->GetMinBounds();
+		Vec3 maxTransform = go->GetWorldTransformation()*go->GetMaxBounds();
+
+		if (
+			(minTransform.x > Min.x && maxTransform.x < Max.x) &&
+			(minTransform.y > Min.y && maxTransform.y < Max.y) &&
+			(minTransform.z > Min.z && maxTransform.z < Max.z)
+			)
+		{
+			if (haveChilds)
+			{
+				bool removed = false;
+				for (uint32 i = 0; i < 8; i++)
+				{
+					if (
+						(minTransform.x > childs[i]->Min.x && maxTransform.x < childs[i]->Max.x) &&
+						(minTransform.y > childs[i]->Min.y && maxTransform.y < childs[i]->Max.y) &&
+						(minTransform.z > childs[i]->Min.z && maxTransform.z < childs[i]->Max.z)
+						)
+					{
+						if (childs[i]->Remove(go))
+						{
+							removed = true;
+							break;
+						}
+					}
+				}
+				if (!removed) // No child fits
+				{
+					for (std::vector<GameObject*>::iterator g = Members.begin(); g != Members.end(); g++)
+					{
+						if ((*g) == go)
+						{
+							Members.erase(g);
+							break;
+							return true;
+						}
+					}
+				}
+			}
+			for (std::vector<GameObject*>::iterator g = Members.begin(); g != Members.end(); g++)
+			{
+				if ((*g) == go)
+				{
+					Members.erase(g);
+					break;
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
 	void Octree::BuildOctree(const Vec3 min, const Vec3 max, std::vector<GameObject*> objects, uint32 ChildsPerNode)
 	{
 		if (Root != NULL) delete Root;
@@ -121,12 +232,12 @@ namespace p3d {
 
 	void Octree::Insert(GameObject* go)
 	{
-
+		Root->Insert(go);
 	}
 
 	void Octree::Remove(GameObject* go)
 	{
-
+		Root->Remove(go);
 	}
 
 	void Octree::Draw(Projection projection, Matrix camera)

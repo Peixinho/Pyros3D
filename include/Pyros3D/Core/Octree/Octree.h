@@ -45,6 +45,13 @@ namespace p3d {
 
 		std::vector<GameObject*> ReturnAllMembers();
 
+	protected:
+
+		bool Insert(GameObject* go);
+		bool Remove(GameObject* go);
+		
+		uint32 childsPerNode;
+
 	private:
 
 		bool haveChilds;

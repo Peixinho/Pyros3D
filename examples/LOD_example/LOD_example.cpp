@@ -75,6 +75,7 @@ void LOD_example::Init()
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &LOD_example::StrafeRightRelease);
 	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &LOD_example::LookTo);
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Mouse::Left, this, &LOD_example::OnMouseRelease);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Mouse::Right, this, &LOD_example::AddTeapot);
 
 	_strafeLeft = _strafeRight = _moveBack = _moveFront = 0;
 	HideMouse();
@@ -85,7 +86,7 @@ void LOD_example::Init()
 	//teapotLOD3Handle = new Model("../../../../examples/LOD_example/assets/teapots/teapotLOD3.p3dm", false, ShaderUsage::Diffuse);
 
 	// Create Teapots and Add LODS
-	for (int i = 0; i<TEAPOTS; i++)
+	/*for (int i = 0; i<TEAPOTS; i++)
 	{
 
 		GenericShaderMaterial* mTeapot = new GenericShaderMaterial(ShaderUsage::Diffuse | ShaderUsage::Color);
@@ -105,12 +106,13 @@ void LOD_example::Init()
 		Teapots.push_back(Teapot);
 		rTeapots.push_back(rTeapot);
 		mTeapots.push_back(mTeapot);
-	}
+	}*/
 
 	// Add Camera to Scene
 	Scene->Add(Camera);
 
 	octree = new Octree();
+	generatedOctree = false;
 }
 
 void LOD_example::Update()
@@ -155,7 +157,7 @@ void LOD_example::Shutdown()
 	// All your Shutdown Code Here
 
 	// Remove all Objects
-	for (int i = 0; i<TEAPOTS; i++)
+	for (int i = 0; i<rTeapots.size(); i++)
 	{
 		// Remove From Scene
 		Scene->Remove(Teapots[i]);
@@ -219,11 +221,14 @@ void LOD_example::StrafeRightRelease(Event::Input::Info e)
 void LOD_example::OnMouseRelease(Event::Input::Info e)
 {
 
-	octree->BuildOctree(Scene->GetMinBounds(), Scene->GetMaxBounds(), Scene->GetAllGameObjectList(), 10);
+	if (!generatedOctree) {
+		generatedOctree = true;
+		octree->BuildOctree(Vec3(-500, -500, -500), Vec3(500, 500, 500), Scene->GetAllGameObjectList(), 10);
+	}
 
 	std::vector<GameObject*> members = octree->SearchObjects(Camera->GetWorldPosition(), 5);
 
-	for (int i = 0; i<TEAPOTS; i++)
+	for (int i = 0; i<rTeapots.size(); i++)
 	{
 		bool found = false;
 		for (std::vector<GameObject*>::iterator k = members.begin(); k != members.end(); k++)
@@ -236,6 +241,39 @@ void LOD_example::OnMouseRelease(Event::Input::Info e)
 		GenericShaderMaterial* mat = (GenericShaderMaterial*) mTeapots[i];
 		if (!found) mat->SetColor(Vec4(0, 0, 1, 1));
 		else mat->SetColor(Vec4(1, 1, 1, 1));
+	}
+
+	for (int i = 0; i < rTeapots.size(); i++)
+	{
+		octree->Remove(Teapots[i]);
+	}
+}
+void LOD_example::AddTeapot(Event::Input::Info e)
+{
+	for (int i = 0; i < 11; i++)
+	{
+		GenericShaderMaterial* mTeapot = new GenericShaderMaterial(ShaderUsage::Diffuse | ShaderUsage::Color);
+		mTeapot->SetColor(Vec4(0.5, 0.5, 0.5, 1));
+
+		RenderingComponent* rTeapot = new RenderingComponent(teapotLOD1Handle, mTeapot);
+		//rTeapot->AddLOD(teapotLOD2Handle, 50);
+		//rTeapot->AddLOD(teapotLOD3Handle, 100);
+
+		GameObject* Teapot = new GameObject(true); //Static Object
+		Teapot->SetPosition(Vec3((rand() % 1000) - 500, (rand() % 1000) - 500, (rand() % 1000) - 500));
+		Teapot->SetScale(Vec3(.1f, .1f, .1f));
+		Teapot->Add(rTeapot);
+
+		Scene->Add(Teapot);
+
+		Teapots.push_back(Teapot);
+		rTeapots.push_back(rTeapot);
+		mTeapots.push_back(mTeapot);
+
+		Scene->Update(GetTime());
+
+		octree->Insert(Teapot);
+
 	}
 }
 void LOD_example::LookTo(Event::Input::Info e)
