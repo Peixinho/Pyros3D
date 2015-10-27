@@ -18,6 +18,21 @@
 
 namespace p3d {
 
+	namespace OctreeObjectType {
+		enum {
+			Renderable,
+			Light
+		};
+	}
+
+	class OctreeGroup;
+	class OctreeObject {
+		public:
+			uint32 type;
+			GameObject* objPtr;
+			OctreeGroup* boxPTR;
+	};
+
 	class Octree;
 	class OctreeGroup
 	{

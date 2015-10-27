@@ -42,26 +42,28 @@ namespace p3d {
 		parent = Parent;
 
 		// Look For Members
-		for (std::vector<GameObject*>::iterator i = objects.begin(); i != objects.end();)
+		if (objects.size() > 0)
 		{
-			Vec3 minTransform = (*i)->GetWorldTransformation()*(*i)->GetMinBounds();
-			Vec3 maxTransform = (*i)->GetWorldTransformation()*(*i)->GetMaxBounds();
-			if (
-				(minTransform.x > min.x && maxTransform.x < max.x) &&
-				(minTransform.y > min.y && maxTransform.y < max.y) &&
-				(minTransform.z > min.z && maxTransform.z < max.z)
-				)
+			for (std::vector<GameObject*>::iterator i = objects.begin(); i != objects.end();)
 			{
-				Members.push_back((*i));
-				i = objects.erase(i);
+				Vec3 minTransform = (*i)->GetWorldTransformation()*(*i)->GetMinBounds();
+				Vec3 maxTransform = (*i)->GetWorldTransformation()*(*i)->GetMaxBounds();
+				if (
+					(minTransform.x > min.x && maxTransform.x < max.x) &&
+					(minTransform.y > min.y && maxTransform.y < max.y) &&
+					(minTransform.z > min.z && maxTransform.z < max.z)
+					)
+				{
+					Members.push_back((*i));
+					i = objects.erase(i);
+				}
+				else {
+					i++;
+				}
 			}
-			else {
-				i++;
-			}
+			// Create Groups
+			if (Members.size() > ChildsPerNode) CreateSubGroups(size*.25f, min, max, Members, ChildsPerNode);
 		}
-
-		// Create Groups
-		if (Members.size() > ChildsPerNode) CreateSubGroups(size*.25f, min, max, Members, ChildsPerNode);
 	}
 
 	// Return Box Members

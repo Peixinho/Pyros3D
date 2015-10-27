@@ -38,6 +38,22 @@ namespace p3d {
 				vec->push_back(GO);
 				// Set Scene Pointer
 				GO->Scene = this;
+
+				// First Update
+				GO->Update();
+				// Update Transforms Not Using Threads
+				GO->InternalUpdate();
+
+				Vec3 _min = GO->GetWorldTransformation() * GO->GetMinBounds();
+				Vec3 _max = GO->GetWorldTransformation() * GO->GetMaxBounds();
+
+				if (_min.x < minBounds.x) minBounds.x = _min.x;
+				if (_min.y < minBounds.y) minBounds.y = _min.y;
+				if (_min.z < minBounds.z) minBounds.z = _min.z;
+				if (_max.x > maxBounds.x) maxBounds.x = _max.x;
+				if (_max.y > maxBounds.y) maxBounds.y = _max.y;
+				if (_max.z > maxBounds.z) maxBounds.z = _max.z;
+
 				echo("SUCCESS: GameObject Added to Scene");
 
 			}
@@ -98,6 +114,8 @@ namespace p3d {
 		// Save Time
 		timer = Timer;
 
+		minBounds = maxBounds = Vec3();
+
 		// Update Dynamic Objects Every Frame
 		for (std::vector<GameObject*>::iterator i = _GameObjectListDynamic.begin(); i != _GameObjectListDynamic.end(); i++)
 		{
@@ -110,8 +128,8 @@ namespace p3d {
 			// Update Transforms Not Using Threads
 			(*i)->InternalUpdate();
 
-			Vec3 _min = (*i)->GetMinBounds() + (*i)->GetWorldPosition();
-			Vec3 _max = (*i)->GetMaxBounds() + (*i)->GetWorldPosition();
+			Vec3 _min = (*i)->GetWorldTransformation() * (*i)->GetMinBounds();
+			Vec3 _max = (*i)->GetWorldTransformation() * (*i)->GetMaxBounds();
 
 			if (_min.x < minBounds.x) minBounds.x = _min.x;
 			if (_min.y < minBounds.y) minBounds.y = _min.y;
@@ -120,6 +138,27 @@ namespace p3d {
 			if (_max.y > maxBounds.y) maxBounds.y = _max.y;
 			if (_max.z > maxBounds.z) maxBounds.z = _max.z;
 
+		}
+
+		// Update Static Components
+		for (std::vector<GameObject*>::iterator i = _GameObjectListStaticAfter.begin(); i != _GameObjectListStaticAfter.end(); i++)
+		{
+			// Register Components
+			(*i)->RegisterComponents(this);
+			// Update Components
+			(*i)->UpdateComponents();
+			// Update Transforms Not Using Threads
+			(*i)->InternalUpdate();
+
+			Vec3 _min = (*i)->GetWorldTransformation() * (*i)->GetMinBounds();
+			Vec3 _max = (*i)->GetWorldTransformation() * (*i)->GetMaxBounds();
+
+			if (_min.x < minBounds.x) minBounds.x = _min.x;
+			if (_min.y < minBounds.y) minBounds.y = _min.y;
+			if (_min.z < minBounds.z) minBounds.z = _min.z;
+			if (_max.x > maxBounds.x) maxBounds.x = _max.x;
+			if (_max.y > maxBounds.y) maxBounds.y = _max.y;
+			if (_max.z > maxBounds.z) maxBounds.z = _max.z;
 		}
 
 		// Update Static Once
@@ -134,8 +173,8 @@ namespace p3d {
 			// Update Transforms Not Using Threads
 			(*i)->InternalUpdate();
 			
-			Vec3 _min = (*i)->GetMinBounds() + (*i)->GetWorldPosition();
-			Vec3 _max = (*i)->GetMaxBounds() + (*i)->GetWorldPosition();
+			Vec3 _min = (*i)->GetWorldTransformation() * (*i)->GetMinBounds();
+			Vec3 _max = (*i)->GetWorldTransformation() * (*i)->GetMaxBounds();
 
 			if (_min.x < minBounds.x) minBounds.x = _min.x;
 			if (_min.y < minBounds.y) minBounds.y = _min.y;

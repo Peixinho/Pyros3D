@@ -38,17 +38,21 @@ namespace p3d {
     void GameObject::Destroy() {}
     
     // Internal Update for Transformation
-    void GameObject::InternalUpdate()
+    bool GameObject::InternalUpdate()
     {
         // Update Transformation
-        UpdateTransformation();
+        return UpdateTransformation();
     }
     
     // Updates the Transformation Matrix
-    void GameObject::UpdateTransformation(const uint32 order)
+    bool GameObject::UpdateTransformation(const uint32 order)
     {
+		bool wasDirty = false;
+
         if (_IsDirty)
         {
+			wasDirty = true;
+
             if (_IsUsingCustomMatrix) {
                 
                 _LocalMatrix = _LocalMatrixUserEntered;
@@ -83,6 +87,8 @@ namespace p3d {
         // Apply this ONLY if is Looking At
         if (_IsLookingAtGameObject || _IsLookingAtPosition)
         {
+			wasDirty = true;
+
             Vec3 target;
             if (_IsLookingAtGameObject==true)
                 target=_IsLookingAtGameObjectPTR->GetWorldPosition();                    
@@ -122,9 +128,12 @@ namespace p3d {
         {
             _Owner->UpdateTransformation();
             _WorldMatrix = _Owner->_WorldMatrix * _LocalMatrix;
+			wasDirty = true;
         } else {
 			_WorldMatrix = _LocalMatrix;
 		}
+
+		return wasDirty;
     }
     // Gets Transformation Matrix
     const Matrix &GameObject::GetWorldTransformation() const

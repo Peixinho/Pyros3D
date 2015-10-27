@@ -28,6 +28,7 @@
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Sphere.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Core/Octree/Octree.h>
 using namespace p3d;
@@ -56,8 +57,8 @@ private:
 	// Camera - Its a regular GameObject
 	GameObject* Camera;
 	// Light
-	GameObject* Light;
-	DirectionalLight* dLight;
+	std::vector<GameObject*> Lights;
+	std::vector<PointLight*> pLights;
 
 	// Objects List
 	std::vector<GameObject*> Teapots;

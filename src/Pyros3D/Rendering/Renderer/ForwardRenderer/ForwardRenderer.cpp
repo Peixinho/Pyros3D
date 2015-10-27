@@ -126,6 +126,8 @@ namespace p3d {
 		{
 
 			// Prepare and Pack Lights to Send to Shaders
+			std::vector<Matrix> _Lights;
+
 			Lights.clear();
 
 			if (lcomps.size()>0)
@@ -179,7 +181,7 @@ namespace p3d {
 						directionalLight.m[10] = 0.0;			 directionalLight.m[11] = 0.0;				  directionalLight.m[12] = 0.0;
 						directionalLight.m[13] = type;			 directionalLight.m[14] = (d->IsCastingShadows() ? 1 : 0);
 					
-						Lights.push_back(directionalLight);
+						_Lights.push_back(directionalLight);
 
 						// Shadows
 						if (d->IsCastingShadows())
@@ -307,7 +309,7 @@ namespace p3d {
 							pointLight.m[15] = pointCounter++;
 						}
 
-						Lights.push_back(pointLight);
+						_Lights.push_back(pointLight);
 
 						// Shadows
 						if (p->IsCastingShadows())
@@ -445,7 +447,7 @@ namespace p3d {
 							spotLight.m[15] = spotCounter++;
 						}
 
-						Lights.push_back(spotLight);
+						_Lights.push_back(spotLight);
 
 						// Shadows
 						if (s->IsCastingShadows())
@@ -507,7 +509,7 @@ namespace p3d {
 									if (cullingTest && !(*k)->Material->IsTransparent())
 									{
 										if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-											RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size()>0 ? shadowSkinnedMaterial : shadowMaterial));
+											RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
 									}
 									else break;
 								}
@@ -615,6 +617,7 @@ namespace p3d {
 			for (std::vector<RenderingMesh*>::iterator i = rmesh.begin(); i != rmesh.end(); i++)
 			{
 
+				Lights.clear();
 				if ((*i)->renderingComponent->GetOwner() != NULL)
 				{
 					// Culling Test
@@ -630,7 +633,20 @@ namespace p3d {
 						break;
 					}
 					if (cullingTest && (*i)->renderingComponent->IsActive() && (*i)->Active == true)
+					{
+						for (std::vector<Matrix>::iterator _l = _Lights.begin(); _l != _Lights.end(); _l++)
+						{
+							if ((*_l).m[13] == 1) Lights.push_back(*_l);
+							else if ((*_l).m[13] == 2 || (*_l).m[13] == 3)
+							{
+								Vec3 _lPos = Vec3((*_l).m[4], (*_l).m[5], (*_l).m[6]);
+								if (_lPos.distance((*i)->renderingComponent->GetOwner()->GetWorldPosition()) < (*_l).m[10])
+									Lights.push_back(*_l);
+							}
+						}
+						NumberOfLights = Lights.size();
 						RenderObject((*i), (*i)->renderingComponent->GetOwner(), (*i)->Material);
+					}
 				}
 			}
 			// Disable Cull Face

@@ -96,6 +96,7 @@ namespace p3d {
 
 			const Vec3 &GetMinBounds() const { return minBounds; }
 			const Vec3 &GetMaxBounds() const { return maxBounds; }
+			const float &GetBoundingSphere() const { return BoundingSphereRadius; }
 
         private:
             
@@ -103,10 +104,10 @@ namespace p3d {
             void UpdateComponents();
             
             // Internal Update
-            void InternalUpdate();
+            bool InternalUpdate();
             
             // Update Transformation
-            void UpdateTransformation(const uint32 order = 0);
+            bool UpdateTransformation(const uint32 order = 0);
             
             // Properties
             Vec3 _Position;
