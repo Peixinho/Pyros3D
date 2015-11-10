@@ -10,6 +10,29 @@
 
 namespace p3d {
 
+	void Context::CalulateResolution(const f32 w, const f32 h, const f32 ratio, f32* out_w, f32* out_h, f32* out_w_offset, f32* out_h_offset)
+	{
+
+		*out_w_offset = 0.0f;
+		*out_h_offset = 0.0f;
+
+		*out_w = h * ratio;
+		*out_h = w / ratio;
+
+		f32 wdiff = w - *out_w;
+		f32 hdiff = h - *out_h;
+
+		if (wdiff < hdiff)
+		{
+			*out_w = w;
+			*out_h_offset = (h - *out_h) *.5f;
+		}
+		else if (hdiff < wdiff)
+		{
+			*out_h = h;
+			*out_w_offset = (w - *out_w) *.5f;
+		}
+	}
     
     Context::Context(const uint32 width, const uint32 height) : Width(width), Height(height), Initialized(true) {}
     

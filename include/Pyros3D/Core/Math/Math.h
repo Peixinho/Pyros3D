@@ -61,18 +61,16 @@ namespace p3d {
     
     namespace Math {
 
-	
-
-	namespace RotationOrder {
-		enum {
-			XYZ = 0,
-			YXZ,
-			ZXY,
-			ZYX,
-			YZX,
-			XZY
+		namespace RotationOrder {
+			enum {
+				XYZ = 0,
+				YXZ,
+				ZXY,
+				ZYX,
+				YZX,
+				XZY
+			};
 		};
-	};
         template <typename T>
         std::string NumberToString ( T Number )
         {

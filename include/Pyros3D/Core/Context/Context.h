@@ -49,6 +49,8 @@ namespace p3d {
             static uint32 GetGLMajorVersion() { return glMajor; }
             static uint32 GetGLMinorVersion() { return glMinor; }
 
+			static void CalulateResolution(const f32 w, const f32 h, const f32 ratio, f32* out_w, f32* out_h, f32* out_w_offset, f32* out_h_offset);
+
         protected:
             
             // Buttons and Mouse
