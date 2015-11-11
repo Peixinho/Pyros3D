@@ -59,7 +59,7 @@ class TextRendering : public ClassName {
         // Rendering Component
         RenderingComponent* rText;
         // Text Mesh
-        Renderable* textHandle;
+        Text* textHandle;
         // Font
         Font* font;
         // Text Material

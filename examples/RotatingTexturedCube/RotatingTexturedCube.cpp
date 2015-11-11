@@ -45,7 +45,7 @@ void RotatingTexturedCube::Init()
         // Material
         material = new GenericShaderMaterial(ShaderUsage::Texture);
         texture = new Texture();
-        texture->LoadTexture("../../../../examples/RotatingTexturedCube/assets/Texture.DDS1", TextureType::Texture);
+        texture->LoadTexture("../../../../examples/RotatingTexturedCube/assets/Texture.DDS", TextureType::Texture);
         material->SetColorMap(texture);
 
         // Create Game Object

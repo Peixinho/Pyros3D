@@ -178,7 +178,6 @@ namespace p3d {
         }
         bool Vec3::operator <(const Vec3& v) const
         {
-			std::cout << magnitudeSQR() << "," << v.magnitudeSQR() << std::endl;
             return (magnitudeSQR()<v.magnitudeSQR());
         }
         bool Vec3::operator <=(const Vec3& v) const

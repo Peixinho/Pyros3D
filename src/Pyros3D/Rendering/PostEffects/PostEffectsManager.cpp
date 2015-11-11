@@ -235,7 +235,6 @@ namespace p3d {
                 {
 					switch((*i).second.uniform.Usage)
                     {
-                        std::cout << (*i).second.handle << ":" << (*i).second.uniform.Name << std::endl;
                         case PostEffects::ProjectionMatrix:
                         {
 							Matrix projection = proj.GetProjectionMatrix();

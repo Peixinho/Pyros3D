@@ -219,7 +219,7 @@ function BuildDemo(demoPath, demoName)
 
         configuration "Debug"
 
-            debugdir "bin/debug/examples/"..demoName
+            debugdir ("bin/debug/examples/"..demoName)
 
             defines({"_DEBUG"})
 
@@ -244,7 +244,7 @@ function BuildDemo(demoPath, demoName)
 
         configuration "Release"
 
-            debugdir "bin/release/examples/"..demoName
+            debugdir ("bin/release/examples/"..demoName)
 
             targetdir ("bin/release/examples/"..demoName)
 
