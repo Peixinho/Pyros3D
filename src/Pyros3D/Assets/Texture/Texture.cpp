@@ -16,6 +16,7 @@
 #include <SFML/Graphics.hpp>
 #include <string.h>
 #endif
+#include <Pyros3D/Resources/Resources.h>
 
 namespace p3d {
 
@@ -94,12 +95,13 @@ namespace p3d {
 			else {
 				status = LoadTextureFromMemory(file->GetData(), file->Size(), Type, Mipmapping, level);
 			}
+			if (status) file->Close();
 		}
 		else {
 			echo("ERROR: Couldn't Find Texture File");
-			status = CreateTexture();
+			status = LoadDDS((uchar*)MISSING_TEXTURE);
 		}
-		file->Close();
+		delete file;
 		return status;
 	}
 
