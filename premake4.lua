@@ -219,6 +219,8 @@ function BuildDemo(demoPath, demoName)
 
         configuration "Debug"
 
+            debugdir "bin/debug/examples/"..demoName
+
             defines({"_DEBUG"})
 
             targetdir ("bin/debug/examples/"..demoName)
@@ -241,6 +243,8 @@ function BuildDemo(demoPath, demoName)
             flags { "Symbols" }
 
         configuration "Release"
+
+            debugdir "bin/release/examples/"..demoName
 
             targetdir ("bin/release/examples/"..demoName)
 
