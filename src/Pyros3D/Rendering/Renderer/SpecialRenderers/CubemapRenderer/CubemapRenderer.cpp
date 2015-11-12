@@ -103,6 +103,8 @@ namespace p3d {
         {
             
             // Prepare and Pack Lights to Send to Shaders
+			std::vector<Matrix> _Lights;
+
             Lights.clear();
          
             // ShadowMaps
@@ -240,7 +242,7 @@ namespace p3d {
                 // Render Scene with Objects Material
                 for (std::vector<RenderingMesh*>::iterator k=rmesh.begin();k!=rmesh.end();k++)
                 {
-
+					Lights.clear();
                     if ((*k)->renderingComponent->GetOwner()!=NULL)
                     {
                         // Culling Test
@@ -255,8 +257,21 @@ namespace p3d {
                                 cullingTest = CullingSphereTest((*k),(*k)->renderingComponent->GetOwner());
                                 break;
                         }
-                        if (cullingTest && (*k)->renderingComponent->IsActive())
-                            RenderObject((*k),(*k)->renderingComponent->GetOwner(),(*k)->Material);
+						if (cullingTest && (*k)->renderingComponent->IsActive() && (*k)->Active == true)
+						{
+							for (std::vector<Matrix>::iterator _l = _Lights.begin(); _l != _Lights.end(); _l++)
+							{
+								if ((*_l).m[13] == 1) Lights.push_back(*_l);
+								else if ((*_l).m[13] == 2 || (*_l).m[13] == 3)
+								{
+									Vec3 _lPos = Vec3((*_l).m[4], (*_l).m[5], (*_l).m[6]);
+									if (_lPos.distance((*k)->renderingComponent->GetOwner()->GetWorldPosition()) < (*_l).m[10])
+										Lights.push_back(*_l);
+								}
+							}
+							NumberOfLights = Lights.size();
+							RenderObject((*k), (*k)->renderingComponent->GetOwner(), (*k)->Material);
+						}
                     }
                 }
             }
