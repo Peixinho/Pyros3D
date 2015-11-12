@@ -53,6 +53,7 @@ void TextRendering::Init()
         // Create Text Material
         textMaterial = new GenericShaderMaterial(ShaderUsage::TextRendering);
         textMaterial->SetTextFont(font);
+		
         // Set Material Font to use Font Map
         
         // Create Game Object
@@ -63,7 +64,7 @@ void TextRendering::Init()
         
         // Add GameObject to Scene
         Scene->Add(TextObject);
-
+		Renderer->SetBackground(Vec4(0.2, 0.2, 0.2, 0.2));
 }
 
 void TextRendering::Update()

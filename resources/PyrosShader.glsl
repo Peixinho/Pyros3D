@@ -558,7 +558,7 @@
             diffuse.x = gl_FragCoord.z;
         #endif
 
-        gl_FragColor = vec4(diffuse.xyz,uOpacity);
+        gl_FragColor = vec4(diffuse.xyz,diffuse.w*uOpacity);
     }
     
 #endif

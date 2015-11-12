@@ -186,6 +186,10 @@ namespace p3d
 		{
 			AddUniform(Uniform("uClipPlanes", DataUsage::ClipPlanes));
 		}
+		if (options & ShaderUsage::TextRendering)
+		{
+			SetTransparencyFlag(true);
+		}
     }
     
     void GenericShaderMaterial::SetShininess(const f32 shininess)

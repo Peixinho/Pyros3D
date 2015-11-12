@@ -670,7 +670,7 @@ namespace p3d {
 								"            diffuse.x = gl_FragCoord.z;\n"
 								"        #endif\n"
 								"\n"
-								"        gl_FragColor = vec4(diffuse.xyz,uOpacity);\n"
+								"        gl_FragColor = vec4(diffuse.xyz,diffuse.w*uOpacity);\n"
 								"    }\n"
 								"    \n"
 								"#endif";

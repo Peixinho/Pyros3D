@@ -23,7 +23,7 @@ namespace p3d {
 	uint32 Texture::UnitBinded = 0;
 	uint32 Texture::LastUnitBinded = 0;
 
-	Texture::Texture() : GL_ID(-1), haveImage(false), isMipMap(false), isMipMapManual(false), pixelsRetrieved(false), Anysotropic(0) {}
+	Texture::Texture() : GL_ID(-1), haveImage(false), isMipMap(false), isMipMapManual(false), Anysotropic(0) {}
 
 	Texture::~Texture()
 	{
@@ -191,7 +191,7 @@ namespace p3d {
 		}
 
 		// create default texture
-		return CreateTexture(&pixels[0],Mipmapping, level);
+		return CreateTexture(&pixels[0], Mipmapping, level);
 	}
 
 	bool Texture::CreateTexture(uchar* data, bool Mipmapping, const uint32 level)
@@ -858,7 +858,6 @@ namespace p3d {
 		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
 		GLCHECKER(glGetTexImage(GLSubMode, level, internalFormat2, internalFormat3, &pixels[0]));
 		GLCHECKER(glBindTexture(GLSubMode, 0));
-		pixelsRetrieved = true;
 #endif
 
 		return pixels;
