@@ -249,9 +249,7 @@ namespace p3d {
 			}
 #endif
 			else {
-				std::cout << Filename << ": OPENING" << std::endl;
 					status = LoadTextureFromMemory(file->GetData(), file->Size(), Type, Mipmapping, level);
-				std::cout << Filename << ": ENDED" << std::endl;
 			}
 
 			file->Close();
