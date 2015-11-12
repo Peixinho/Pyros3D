@@ -116,6 +116,9 @@ namespace p3d {
         
 			bool CreateTexture(uchar* data = NULL, bool Mipmapping = true, const uint32 level = 0);
 
+			void GetGLModes();
+			void GetInternalFormat();
+
 #if !defined(GLES2)
 			bool LoadDDS(uchar* data, bool Mipmapping = true, const uint32 level = 0);
 #else
