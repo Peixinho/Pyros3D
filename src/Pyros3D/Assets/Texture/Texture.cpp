@@ -24,7 +24,7 @@ namespace p3d {
 	
 	uint32 Texture::LastUnitBinded = 0;
 
-	Texture::Texture() : GL_ID(-1), haveImage(false), isMipMap(false), isMipMapManual(false), Anysotropic(0) {}
+	Texture::Texture() : GL_ID(-1), haveImage(false), isMipMap(false), isMipMapManual(false), Anysotropic(0), cubemapFaces(0) {}
 
 	Texture::~Texture()
 	{
@@ -335,7 +335,13 @@ namespace p3d {
 			if (GLEW_VERSION_2_1)
 			{
 				GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
-				GLCHECKER(glGenerateMipmap(GLSubMode));
+				if (GLSubMode == GL_TEXTURE_CUBE_MAP)
+				{
+					cubemapFaces++;
+					if (cubemapFaces == 6)
+						GLCHECKER(glGenerateMipmap(GLSubMode));
+
+				} else GLCHECKER(glGenerateMipmap(GLSubMode));
 			}
 			else {
 				GLCHECKER(gluBuild2DMipmaps(GLMode, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));

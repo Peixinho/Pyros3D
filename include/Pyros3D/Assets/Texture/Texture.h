@@ -101,6 +101,7 @@ namespace p3d {
             std::vector<uint32> Height;
             bool haveImage;
             bool isMipMap, isMipMapManual;
+			uint32 cubemapFaces;
 
             // GL Properties
             uint32 Transparency;
