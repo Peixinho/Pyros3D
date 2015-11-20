@@ -71,6 +71,10 @@ namespace p3d
 			if (options & ShaderUsage::ClipPlane)
 				define += std::string("#define CLIPSPACE\n");
 
+#if defined(GLES2)
+			define += std::string("#define GLES2\n");
+#endif
+
 			ShadersList[options]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
 			ShadersList[options]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
 

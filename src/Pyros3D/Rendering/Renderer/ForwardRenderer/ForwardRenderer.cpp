@@ -342,14 +342,19 @@ namespace p3d {
 								if (i == 5)
 									ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, 0.0, -1.0), Vec3(0.0, -1.0, 0.0)); // -Z
 
-																											   // Translate Light View Matrix
+								// Translate Light View Matrix
 								ViewMatrix *= p->GetOwner()->GetWorldTransformation().Inverse();
 
 								// Update Culling
 								UpdateCulling(p->GetLightProjection().GetProjectionMatrix()*ViewMatrix);
 
+#if defined(GLES2)
+								// Regular Shadows
+								p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::CubemapPositive_X + i, p->GetShadowMapTexture());
+#else
 								// GPU Shadows
 								p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::CubemapPositive_X + i, p->GetShadowMapTexture());
+#endif
 
 								DepthTest();
 								DepthWrite();
@@ -365,7 +370,7 @@ namespace p3d {
 								// Enable Depth Bias
 								EnableDepthBias(Vec2(p->GetShadowBiasFactor(), p->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
 
-																										 // Set Viewport
+								// Set Viewport
 								_SetViewPort(0, 0, p->GetShadowWidth(), p->GetShadowHeight());
 
 								// Render Scene with Objects Material
@@ -485,7 +490,7 @@ namespace p3d {
 							// Enable Depth Bias
 							EnableDepthBias(Vec2(s->GetShadowBiasFactor(), s->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
 
-																									 // Set Viewport
+							// Set Viewport
 							_SetViewPort(0, 0, s->GetShadowWidth(), s->GetShadowHeight());
 
 							// Render Scene with Objects Material

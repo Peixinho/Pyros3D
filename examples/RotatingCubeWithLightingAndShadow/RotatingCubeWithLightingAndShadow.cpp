@@ -43,7 +43,7 @@ void RotatingCubeWithLightingAndShadow::Init()
 	Camera->SetPosition(Vec3(0, 10, 100));
 
 	// Material
-	Diffuse = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::SpecularColor | ShaderUsage::Diffuse| ShaderUsage::SpotShadow | ShaderUsage::DirectionalShadow);
+	Diffuse = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::SpecularColor | ShaderUsage::Diffuse | ShaderUsage::SpotShadow | ShaderUsage::DirectionalShadow);
 	Diffuse->SetColor(Vec4(1, 0, 0, 1));
 	Diffuse->SetPCFTexelSize(0.0001f);
 	Diffuse->SetSpecular(Vec4(1,1,1,1));
@@ -58,6 +58,7 @@ void RotatingCubeWithLightingAndShadow::Init()
 
 	Light2 = new GameObject();
 	pLight = new SpotLight(Vec4(1, 1, 1, 1), 300, Vec3(0, -1, 0), 45, 30);
+	//pLight = new PointLight(Vec4(1, 1, 1, 1), 300);
 	pLight->EnableCastShadows(256, 256);
 	pLight->SetShadowBias(1.f, 3.f);
 	

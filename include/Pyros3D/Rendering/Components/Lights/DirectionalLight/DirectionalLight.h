@@ -176,15 +176,25 @@ namespace p3d {
                         ShadowWidthFBO = Width*2;
                         ShadowHeightFBO = Height*2;
                     }
-                    
+
+					ShadowMap = new Texture();
+
+#if defined(GLES2)
+
+					// Create Texture, Frame Buffer and Set the Texture as Attachment
+					ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::R32F, ShadowWidthFBO, ShadowHeightFBO, false);
+					ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+					ShadowMap->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
+					shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidthFBO, ShadowHeightFBO);
+					shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, ShadowMap);
+#else
                     // GPU Shadow Maps
                     // Create Texture, Frame Buffer and Set the Texture as Attachment
-                    ShadowMap = new Texture();
                     ShadowMap->CreateEmptyTexture(TextureType::Texture,TextureDataType::DepthComponent,ShadowWidthFBO,ShadowHeightFBO,false);
                     ShadowMap->SetRepeat(TextureRepeat::Clamp,TextureRepeat::Clamp);
                     ShadowMap->EnableCompareMode();
                     shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::Texture,ShadowMap);
-
+#endif
                     // Near and Far Clip Planes
                     ShadowNear = Near;
                     ShadowFar = Far;

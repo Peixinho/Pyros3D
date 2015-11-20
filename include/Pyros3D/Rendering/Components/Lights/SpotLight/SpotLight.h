@@ -65,12 +65,27 @@ namespace p3d {
                 
                 // GPU Shadows
                 ShadowMap = new Texture();
+
+#if defined(GLES2)
+
+				ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::R32F, ShadowWidth, ShadowHeight, false);
+				ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+				ShadowMap->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
+
+				// Initialize Frame Buffer
+				shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
+				shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, ShadowMap);
+				
+#else
+
                 ShadowMap->CreateEmptyTexture(TextureType::Texture,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
                 ShadowMap->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
                 ShadowMap->EnableCompareMode();
 
                 // Initialize Frame Buffer
                 shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::Texture,ShadowMap);
+
+#endif
 
                 // Near and Far Clip Planes
                 ShadowNear = Near;

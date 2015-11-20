@@ -51,9 +51,26 @@ namespace p3d {
                 // Initiate FBO
                 shadowsFBO = new FrameBuffer();
 
+				ShadowMap = new Texture();
+				
+#if defined(GLES2)
+				// Regular Shadows
+				// Create Texture (CubeMap), Frame Buffer and Set the Texture as Attachment
+				ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_X, TextureDataType::RGB, ShadowWidth, ShadowHeight, false);
+				ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_Y, TextureDataType::RGB, ShadowWidth, ShadowHeight, false);
+				ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_Z, TextureDataType::RGB, ShadowWidth, ShadowHeight, false);
+				ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_X, TextureDataType::RGB, ShadowWidth, ShadowHeight, false);
+				ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Y, TextureDataType::RGB, ShadowWidth, ShadowHeight, false);
+				ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Z, TextureDataType::RGB, ShadowWidth, ShadowHeight, false);
+				ShadowMap->SetRepeat(TextureRepeat::ClampToBorder, TextureRepeat::Clamp, TextureRepeat::Clamp);
+
+				// Initialize Frame Buffer
+				shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
+				shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0,TextureType::CubemapPositive_X,ShadowMap);
+
+#else
                 // GPU Shadows
                 // Create Texture (CubeMap), Frame Buffer and Set the Texture as Attachment
-                ShadowMap = new Texture();
                 ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_X,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
                 ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_Y,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
                 ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_Z,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
@@ -65,6 +82,8 @@ namespace p3d {
 
                 // Initialize Frame Buffer
                 shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_X,ShadowMap);
+
+#endif
 
                 // Near and Far Clip Planes
                 ShadowNear = Near;
