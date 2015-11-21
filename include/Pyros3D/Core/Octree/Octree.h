@@ -52,7 +52,10 @@ namespace p3d {
 
 		virtual ~OctreeGroup();
 
-		OctreeGroup(const float Size, const Vec3 min, const Vec3 max, std::vector<GameObject*> &objects, uint32 ChildsPerNode) : OctreeGroup(Size, min, max, objects, ChildsPerNode, NULL) {}
+		OctreeGroup(const float Size, const Vec3 min, const Vec3 max, std::vector<GameObject*> &objects, uint32 ChildsPerNode) 
+		{
+			OctreeGroup(Size, min, max, objects, ChildsPerNode, NULL);
+		}
 
 		OctreeGroup(const float Size, const Vec3 min, const Vec3 max, std::vector<GameObject*> &objects, uint32 ChildsPerNode, OctreeGroup* Parent);
 

@@ -11,14 +11,14 @@
 
 #include <Pyros3D/Core/Math/Math.h>
 
-#if defined(GLES2)
+#if defined(GLES2) && !defined(EMSCRIPTEN)
 
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
 
 #else
 
-    #include "GL/glew.h"
+    #include <GL/glew.h>
 
 #endif
 
@@ -34,7 +34,7 @@
 #endif
 
 // Check GL
-#ifdef _DEBUG
+#if defined(_DEBUG) && !defined(EMSCRIPTEN)
 	#define GLCHECKER(caller) { caller; int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << " FUNCTION: " << #caller << " LINE: " << std::dec << __LINE__ << " FILE: " << __FILE__ << std::endl; BRK; } }
 #else
     #define GLCHECKER(caller) { caller; }

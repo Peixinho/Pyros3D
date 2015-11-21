@@ -70,7 +70,7 @@ solution "Pyros3D"
         
         includedirs { "../../include/", "include/" }
 
-        defines({"UNICODE", "LODEPNG", "GLES2"})
+        defines({"UNICODE", "LODEPNG", "GLES2", "EMSCRIPTEN"})
 
         if _OPTIONS["jsnative"]==nil then
             defines({framework})
@@ -131,7 +131,7 @@ function BuildDemo(demoPath, demoName)
         
         includedirs { "../../include/", "include/", "../../src/" }
     
-        defines({"UNICODE", "GLEW_STATIC"})
+        defines({"UNICODE", "GLEW_STATIC", "GLES2", "EMSCRIPTEN"})
         defines({framework});
 
     defines({"DEMO_NAME="..demoName, "_"..demoName})

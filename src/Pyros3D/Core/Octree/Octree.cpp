@@ -244,6 +244,7 @@ namespace p3d {
 
 	void Octree::Draw(Projection projection, Matrix camera)
 	{
+#if !defined(GLES2)
 		glMatrixMode(GL_PROJECTION);
 		glLoadIdentity();
 
@@ -257,6 +258,7 @@ namespace p3d {
 		{
 			_Draw(Root);
 		}
+#endif
 	}
 
 	bool Octree::SearchInChildBox(OctreeGroup* box, const Vec3 &Position, const float radius, std::vector<GameObject*>* members)
@@ -319,6 +321,7 @@ namespace p3d {
 		//if (Child->selected) glColor3f(1.0f, 0.0f, 0.0f);
 		if (Child->selected)
 		{
+#if !defined(GLES2)			
 			glColor3f(1.0f, 1.0f, 1.0f);
 
 			glBegin(GL_LINES);
@@ -358,6 +361,7 @@ namespace p3d {
 			glVertex3f(Child->Max.x, Child->Max.y, Child->Min.z);
 			glVertex3f(Child->Max.x, Child->Min.y, Child->Min.z);
 			glEnd();
+#endif
 		}
 	}
 
