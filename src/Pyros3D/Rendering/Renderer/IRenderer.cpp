@@ -849,10 +849,7 @@ namespace p3d {
 		for (std::vector<Uniform>::iterator k = Material->GlobalUniforms.begin(); k != Material->GlobalUniforms.end(); k++)
 		{
 			if (rmesh->ShadersGlobalCache[Material->GetShader()][counter] == -2)
-			{
 				rmesh->ShadersGlobalCache[Material->GetShader()][counter] = Shader::GetUniformLocation(Material->GetShader(), (*k).Name);
-				rmesh->ShadersGlobalCache[Material->GetShader()][counter] = rmesh->ShadersGlobalCache[Material->GetShader()][counter];
-			}
 
 			if (rmesh->ShadersGlobalCache[Material->GetShader()][counter] >= 0)
 			{
@@ -968,15 +965,11 @@ namespace p3d {
 		for (std::map<StringID, Uniform>::iterator k = Material->UserUniforms.begin(); k != Material->UserUniforms.end(); k++)
 		{
 			if (rmesh->ShadersUserCache[Material->GetShader()][counter] == -2)
-			{
 				rmesh->ShadersUserCache[Material->GetShader()][counter] = Shader::GetUniformLocation(Material->GetShader(), (*k).second.Name);
-				rmesh->ShadersUserCache[Material->GetShader()][counter] = rmesh->ShadersUserCache[Material->GetShader()][counter];
-			}
 
 			if (rmesh->ShadersUserCache[Material->GetShader()][counter] >= 0)
-			{
 				Shader::SendUniform((*k).second, rmesh->ShadersUserCache[Material->GetShader()][counter]);
-			}
+
 			counter++;
 		}
 	}
@@ -987,10 +980,8 @@ namespace p3d {
 		for (std::vector<Uniform>::iterator k = Material->ModelUniforms.begin(); k != Material->ModelUniforms.end(); k++)
 		{
 			if (rmesh->ShadersModelCache[Material->GetShader()][counter] == -2)
-			{
 				rmesh->ShadersModelCache[Material->GetShader()][counter] = Shader::GetUniformLocation(Material->GetShader(), (*k).Name);
-				rmesh->ShadersModelCache[Material->GetShader()][counter] = rmesh->ShadersModelCache[Material->GetShader()][counter];
-			}
+				
 
 			if (rmesh->ShadersModelCache[Material->GetShader()][counter] >= 0)
 			{
