@@ -256,7 +256,11 @@ namespace p3d {
 		}
 		if (!file->Open(Filename) || !status) {
 			echo("ERROR: Couldn't find texture file or failed to load");
+#if !defined(GLES2)
 			status = LoadDDS((uchar*)MISSING_TEXTURE);
+#else
+
+#endif
 		}
 		delete file;
 		return status;
@@ -332,8 +336,8 @@ namespace p3d {
 			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
 			GLCHECKER(glGenerateMipmap(GLMode));
 #else
-			if (GLEW_VERSION_2_1)
-			{
+
+#if defined(GLEW_VERSION_2_1)
 				GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
 				if (GLSubMode == GL_TEXTURE_CUBE_MAP)
 				{
@@ -342,10 +346,9 @@ namespace p3d {
 						GLCHECKER(glGenerateMipmap(GLSubMode));
 
 				} else GLCHECKER(glGenerateMipmap(GLSubMode));
-			}
-			else {
+#else
 				GLCHECKER(gluBuild2DMipmaps(GLMode, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
-			}
+#endif
 #endif
 			isMipMap = true;
 
@@ -620,13 +623,12 @@ namespace p3d {
 #if defined(GLES2)
 			GLCHECKER(glGenerateMipmap(GLSubMode));
 #else
-			if (GLEW_VERSION_2_1)
-			{
+#if defined(GLEW_VERSION_2_1)
+			
 				GLCHECKER(glGenerateMipmap(GLSubMode));
-			}
-			else {
+#else
 				GLCHECKER(gluBuild2DMipmaps(GLSubMode, internalFormat, Width, Height, internalFormat2, internalFormat3, NULL));
-			}
+#endif
 #endif
 		}
 
@@ -911,6 +913,9 @@ namespace p3d {
 
 	bool Texture::LoadETC1(uchar* data, bool Mipmapping, const uint32 level)
 	{
+#if defined(EMSCRIPTEN)
+		return false;
+#else
 		uint16 r, w, h, mipMapCount;
 		uint16 extWidth, extHeight;
 
@@ -954,6 +959,7 @@ namespace p3d {
 		SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 
 		return true;
+#endif
 	}
 #endif
 

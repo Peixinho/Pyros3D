@@ -198,12 +198,13 @@ namespace p3d {
 							ClearDepthBuffer();
 							ClearScreen();
 
+#if !defined(GLES2)
 							if (ClipPlane)
 							{
 								for (int32 k = 0; k < ClipPlaneNumber; k++)
 									GLCHECKER(glEnable(GL_CLIP_DISTANCE0 + k));
 							}
-
+#endif
 							// Enable Depth Bias
 							EnableDepthBias(Vec2(d->GetShadowBiasFactor(), d->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
 
@@ -251,13 +252,13 @@ namespace p3d {
 								DirectionalShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
 
 							}
-
+#if !defined(GLES2)
 							if (ClipPlane)
 							{
 								for (int32 k = ClipPlaneNumber - 1; k >= 0; k--)
 									GLCHECKER(glDisable(GL_CLIP_DISTANCE0 + k));
 							}
-
+#endif
 							// Get Texture (only 1)
 							DirectionalShadowMapsTextures.push_back(d->GetShadowMapTexture());
 
@@ -360,13 +361,13 @@ namespace p3d {
 								DepthWrite();
 								ClearDepthBuffer();
 								ClearScreen();
-
+#if !defined(GLES2)
 								if (ClipPlane)
 								{
 									for (int32 k = 0; k < ClipPlaneNumber; k++)
 										GLCHECKER(glEnable(GL_CLIP_DISTANCE0 + i));
 								}
-
+#endif
 								// Enable Depth Bias
 								EnableDepthBias(Vec2(p->GetShadowBiasFactor(), p->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
 
@@ -399,12 +400,13 @@ namespace p3d {
 										else break;
 									}
 								}
-
+#if !defined(GLES2)
 								if (ClipPlane)
 								{
 									for (int32 k = ClipPlaneNumber - 1; k >= 0; k--)
 										GLCHECKER(glDisable(GL_CLIP_DISTANCE0 + k));
 								}
+#endif
 							}
 
 							// Set Light Projection
@@ -480,13 +482,13 @@ namespace p3d {
 							DepthWrite();
 							ClearDepthBuffer();
 							ClearScreen();
-
+#if !defined(GLES2)
 							if (ClipPlane)
 							{
 								for (int32 k = 0; k < ClipPlaneNumber; k++)
 									GLCHECKER(glEnable(GL_CLIP_DISTANCE0 + k));
 							}
-
+#endif
 							// Enable Depth Bias
 							EnableDepthBias(Vec2(s->GetShadowBiasFactor(), s->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
 
@@ -519,13 +521,13 @@ namespace p3d {
 									else break;
 								}
 							}
-
+#if !defined(GLES2)
 							if (ClipPlane)
 							{
 								for (int32 k = ClipPlaneNumber - 1; k >= 0; k--)
 									GLCHECKER(glDisable(GL_CLIP_DISTANCE0 + k));
 							}
-
+#endif
 							// Disable Depth Bias
 							DisableDepthBias();
 
@@ -606,13 +608,13 @@ namespace p3d {
 				GLCHECKER(glScissor(scissorTestX, scissorTestY, scissorTestWidth, scissorTestHeight));
 				GLCHECKER(glEnable(GL_SCISSOR_TEST));
 			}
-
+#if !defined(GLES2)
 			if (ClipPlane)
 			{
 				for (int32 k = 0; k < ClipPlaneNumber; k++)
 					GLCHECKER(glEnable(GL_CLIP_DISTANCE0 + k));
 			}
-
+#endif
 			ClearScreen();
 
 			// Draw Background
@@ -662,14 +664,13 @@ namespace p3d {
 			{
 				GLCHECKER(glDisable(GL_SCISSOR_TEST));
 			}
-
+#if !defined(GLES2)
 			if (ClipPlane)
 			{
 				for (int32 k = ClipPlaneNumber - 1; k >= 0; k--)
 					GLCHECKER(glDisable(GL_CLIP_DISTANCE0 + k));
 			}
 
-#if !defined(GLES2)
 			// Set Default Polygon Mode
 			GLCHECKER(glPolygonMode(GL_FRONT_AND_BACK, GL_FILL));
 #endif
