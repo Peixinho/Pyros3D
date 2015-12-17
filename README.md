@@ -12,7 +12,7 @@ You can compile for Windows, Linux, MacOSX, Android, and Javascript (ios should 
 - Freetype 2.6
 - Assimp 3.0 (to build tools/AssimImporter that converts regular 3D models (obj,dae, ...) to pyros format)
 
-To build it just run premake. Here are examples to create builds for x64 and examples.
+To build it just run premake. Here are examples to create builds for x64. Remove --examples if you want to build only the lib and converter.
 
 ## Windows:
 ```sh
