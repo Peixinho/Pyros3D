@@ -1,6 +1,9 @@
 # Pyros3D Game Engine
 
 Pyros3D is a work in progress game engine, focused on 3D, but that has 2 projects launched on android in 2D.
+- [Bang! Bang! Bunny](https://play.google.com/store/apps/details?id=com.madblowfish.bangbangbunny)
+- [Bang! Bang! Judas](https://play.google.com/store/apps/details?id=com.madblowfish.bangbangjudas)
+
 You can compile for Windows, Linux, MacOSX, Android, and Javascript (ios should work almost out of the box but never tried)
 
 ## Dependencies
