@@ -9,6 +9,7 @@ To build it just run premake. Here are examples to create builds for x64 and exa
 - SFML 2.3 (better supported) / SDL2 / SDL1.2
 - BulletPhysics 2.8
 - Freetype 2.6
+- Assimp 3.0 (to build tools/AssimImporter that converts regular 3D models (obj,dae, ...) to pyros format)
 
 ## Windows:
 ```sh

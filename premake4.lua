@@ -37,12 +37,12 @@ solution "Pyros3D"
 
     newoption {
        trigger     = "shared",
-       description = "Ouput Shared Library - Default Option"
+       description = "Ouput Shared Library - Works only on *NIX platforms"
     }
 
 	newoption {
        trigger     = "static",
-       description = "Ouput Static Library"
+       description = "Ouput Static Library - Default Option"
     }
 
     newoption {
@@ -123,10 +123,10 @@ solution "Pyros3D"
     project "PyrosEngine"
         targetdir "libs"
         
-        if _OPTIONS["static"] then
-            kind "StaticLib"
-        else
+        if _OPTIONS["shared"] then
             kind "SharedLib"
+        else
+            kind "StaticLib"
         end
 
         language "C++"
@@ -179,6 +179,68 @@ solution "Pyros3D"
 
             flags { "Optimize" }
             targetname(libName)
+
+    project "AssimpImporter"
+        targetdir "bin/tools"
+        kind "ConsoleApp"
+        language "C++"
+        files { "tools/AssimpImporter/src/**.h", "tools/AssimpImporter/src/**.cpp" }
+        
+        includedirs { "include/" }
+
+        defines({"UNICODE", "GLEW_STATIC"})
+
+        -- Log Options
+        defines({"LOG_DISABLE"}) 
+        --| defines({"LOG_TO_FILE"}) | defines({"LOG_TO_CONSOLE"})
+                
+       configuration "Debug"
+
+            debugdir ("bin/tools/")
+
+            defines({"_DEBUG"})
+
+            targetdir ("bin/tools/")
+
+            if os.get() == "linux" then
+                links { libName.."d", libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "z" }
+                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
+            end
+            
+            if os.get() == "windows" then
+                links { libName.."d", libsToLinkGL, libsToLinkDebug, "assimp", "BulletDynamics_Debug", "BulletCollision_Debug", "LinearMath_Debug", "freetype26d", "pthreadVC2" }
+                libdirs { rootdir.."/libs" }
+            end
+
+            if os.get() == "macosx" then
+                links { libName.."d", libsToLinkGL, "Cocoa.framework", "assimp", "Carbon.framework", "freetype.framework", libsToLink, "BulletDynamics.framework", "BulletCollision.framework", "LinearMath.framework" }
+                libdirs { rootdir.."/libs" }
+            end
+
+            flags { "Symbols" }
+
+        configuration "Release"
+ 
+            debugdir ("bin/tools/")
+
+            targetdir ("bin/tools/")
+
+            if os.get() == "linux" then
+                links { libName, libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "pthread", "z" }
+                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
+            end
+
+            if os.get() == "windows" then
+                links { libName, libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype26", "pthreadVC2" }
+                libdirs { rootdir.."/libs" }
+            end
+
+            if os.get() == "macosx" then
+                links { libName, libsToLinkGL, "assimp", "Cocoa.framework", "Carbon.framework", "freetype.framework", libsToLink, "BulletDynamics.framework", "BulletCollision.framework", "LinearMath.framework" }
+                libdirs { rootdir.."/libs" }
+            end
+
+            flags { "Optimize" }
 
 function BuildDemo(demoPath, demoName)
 
