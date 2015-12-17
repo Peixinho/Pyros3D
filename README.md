@@ -25,7 +25,7 @@ premake4.exe --examples --x64 vs2015
 ```
 
 ## Android / Emscripten
-There are specific readme in android section.
+There are specific readme in android and emscripten sections.
 
 ## Running Example
 [Working WebGL Demo](http://duartepeixinho.com/pyrosjs/)
