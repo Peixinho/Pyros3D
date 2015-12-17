@@ -8,6 +8,7 @@ You can compile for Windows, Linux, MacOSX, Android, and Javascript (ios should 
 
 ## Dependencies
 - SFML 2.3 (better supported) / SDL2 / SDL1.2
+- Glew
 - BulletPhysics 2.8
 - Freetype 2.6
 - Assimp 3.0 (to build tools/AssimImporter that converts regular 3D models (obj,dae, ...) to pyros format)
