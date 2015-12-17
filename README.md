@@ -12,7 +12,7 @@ You can compile for Windows, Linux, MacOSX, Android, and Javascript (ios should 
 - Freetype 2.6
 - Assimp 3.0 (to build tools/AssimImporter that converts regular 3D models (obj,dae, ...) to pyros format)
 
-To build it just run premake. Here are examples to create builds for x64. Remove --examples if you want to build only the lib and converter.
+To build it just run premake. Here are examples to create builds for x64 and examples.
 
 ## Windows:
 ```sh
@@ -29,6 +29,17 @@ There are specific readme in android section.
 
 ## Running Example
 [Working WebGL Demo](http://duartepeixinho.com/pyrosjs/)
+
+## Screeshots
+![Rotating Cube](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/RotatingCube/Rotating%20Cube.png)
+![Rotating Textured Cube](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/RotatingTexturedCube/RotatingTexturedCube.png)
+![Deferred Rendering](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/DeferredRendering/DeferredRendering.png)
+![Island Demo](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/IslandDemo/IslandDemo.png)
+![Picking](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/PickingPainterMethod/Picking%20With%20Painter%20Method.png)
+![Shadows](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/RotatingCubeWithLightingAndShadow/Rotating%20Cube%20With%20Lighting%20And%20Shadows.png)
+![Physics](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/SimplePhysics/Simple%20Physics%20Example.png)
+![Skeleton Animation](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/SkeletonAnimationExample/SkeletonAnimation.png)
+![Text Rendering](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/TextRendering/TextRendering.png)
 
 License
 ----
