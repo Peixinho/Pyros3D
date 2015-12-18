@@ -96,8 +96,9 @@ void LOD_example::Init()
 	for (int i = 0; i<TEAPOTS; i++)
 	{
 
-		GenericShaderMaterial* mTeapot = new GenericShaderMaterial(ShaderUsage::Diffuse | ShaderUsage::Color);
+		GenericShaderMaterial* mTeapot = new GenericShaderMaterial(ShaderUsage::Diffuse | ShaderUsage::SpecularColor | ShaderUsage::Color);
 		mTeapot->SetColor(Vec4(0.5, 0.5, 0.5, 1));
+		mTeapot->SetSpecular(Vec4(1, 1, 1, 1));
 
 		RenderingComponent* rTeapot = new RenderingComponent(teapotLOD1Handle, mTeapot);
 		rTeapot->AddLOD(teapotLOD2Handle, 50);
