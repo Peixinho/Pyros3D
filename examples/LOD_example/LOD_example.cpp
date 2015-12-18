@@ -100,8 +100,8 @@ void LOD_example::Init()
 		mTeapot->SetColor(Vec4(0.5, 0.5, 0.5, 1));
 
 		RenderingComponent* rTeapot = new RenderingComponent(teapotLOD1Handle, mTeapot);
-		//rTeapot->AddLOD(teapotLOD2Handle, 50);
-		//rTeapot->AddLOD(teapotLOD3Handle, 100);
+		rTeapot->AddLOD(teapotLOD2Handle, 50);
+		rTeapot->AddLOD(teapotLOD3Handle, 100);
 
 		GameObject* Teapot = new GameObject(true); //Static Object
 		Teapot->SetPosition(Vec3((rand() % 1000) - 500, (rand() % 1000) - 500, (rand() % 1000) - 500));
