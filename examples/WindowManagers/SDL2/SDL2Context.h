@@ -10,7 +10,7 @@
 #define SDL2CONTEXT_H
 
 #include <SDL2/SDL.h>
-
+#include <SDL_mixer.h>
 #include "Pyros3D/Core/Context/Context.h"
 
 namespace p3d {

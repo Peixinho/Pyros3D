@@ -155,11 +155,13 @@ namespace p3d {
 		mainGLContext = SDL_GL_CreateContext(rview);
 
         // Initialize GLew
+#ifndef GLES2
         glewInit();
+#endif
 
 		// Set OpenGL Major and Minor Versions
-		SDL_GL_GetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,&glMajor);
-		SDL_GL_GetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,&glMinor);
+		SDL_GL_GetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,(int*)&glMajor);
+		SDL_GL_GetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,(int*)&glMinor);
 
     }
     SDL2Context::~SDL2Context() 

@@ -11,7 +11,7 @@
 
 namespace p3d {
 
-    FrameBuffer::FrameBuffer() 
+    FrameBuffer::FrameBuffer()
     {
         FBOInitialized = false;
         isBinded = false;
@@ -27,18 +27,18 @@ namespace p3d {
 
     FrameBuffer::~FrameBuffer()
     {
-        
+
         // flag FBO Stoped
         FBOInitialized = false;
-        
+
         // destroy fbo and rbo
-        glDeleteFramebuffers(1, (GLuint*)&fbo);
-        
+        GLCHECKER(glDeleteFramebuffers(1, (GLuint*)&fbo));
+
         for (std::map<uint32, FBOAttachment*>::iterator i=attachments.begin();i!=attachments.end();i++)
             delete (*i).second;
-        
+
         attachments.clear();
-        
+
     }
     void FrameBuffer::Init(const uint32 attachmentFormat, const uint32 TextureType, p3d::Texture *attachment)
     {
@@ -46,8 +46,8 @@ namespace p3d {
         if (FBOInitialized==true)
         {
             // destroy fbo and rbo
-            glDeleteFramebuffers(1, (GLuint*)&fbo);
-        
+            GLCHECKER(glDeleteFramebuffers(1, (GLuint*)&fbo));
+
             // flag FBO Stoped
             FBOInitialized = false;
         }
@@ -55,7 +55,7 @@ namespace p3d {
         // flag FBO Initialized
         FBOInitialized = true;
 
-        glGenFramebuffers(1, (GLuint*)&fbo);
+        GLCHECKER(glGenFramebuffers(1, (GLuint*)&fbo));
 
         isBinded = false;
 
@@ -70,8 +70,8 @@ namespace p3d {
         if (FBOInitialized==true)
         {
             // destroy fbo and rbo
-            glDeleteFramebuffers(1, (GLuint*)&fbo);
-        
+            GLCHECKER(glDeleteFramebuffers(1, (GLuint*)&fbo));
+
             // flag FBO Stoped
             FBOInitialized = false;
         }
@@ -79,7 +79,7 @@ namespace p3d {
         // flag FBO Initialized
         FBOInitialized = true;
 
-        glGenFramebuffers(1, (GLuint*)&fbo);
+        GLCHECKER(glGenFramebuffers(1, (GLuint*)&fbo));
 
         isBinded = false;
 
@@ -87,7 +87,7 @@ namespace p3d {
         AddAttach(attachmentFormat, attachmentDataType, Width, Height);
 
     }
-    
+
     void FrameBuffer::CheckFBOStatus()
     {
         switch ( glCheckFramebufferStatus( GL_FRAMEBUFFER ) )
@@ -141,7 +141,7 @@ namespace p3d {
             }
         }
     }
-    
+
     void FrameBuffer::AddAttach(const uint32 attachmentFormat, const uint32 TextureType, Texture* attachment)
     {
         // Add Attachment
@@ -150,7 +150,7 @@ namespace p3d {
         attach->AttachmentType = FBOAttachmentType::Texture;
         attach->TexturePTR = attachment;
         attach->TextureType = TextureType;
-        
+
         // Get Attatchment Format
         switch(attach->AttachmentFormat)
         {
@@ -240,21 +240,21 @@ namespace p3d {
                 attach->TextureType=GL_TEXTURE_2D;
                 break;
         }
-        
+
         attachments[attachmentFormat] = attach;
-        
+
         if (!isBinded)
-            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-        
+            GLCHECKER(glBindFramebuffer(GL_FRAMEBUFFER, fbo));
+
         // Add Attach
-        glFramebufferTexture2D(GL_FRAMEBUFFER, attach->AttachmentFormat, attach->TextureType, attach->TexturePTR->GetBindID() , 0);
+        GLCHECKER(glFramebufferTexture2D(GL_FRAMEBUFFER, attach->AttachmentFormat, attach->TextureType, attach->TexturePTR->GetBindID() , 0));
 
 #if !defined(GLES2)
-        
+
         if (!drawBuffers)
         {
-            glDrawBuffer(GL_NONE);
-            glReadBuffer(GL_NONE);
+            GLCHECKER(glDrawBuffer(GL_NONE));
+            GLCHECKER(glReadBuffer(GL_NONE));
         }
 
         if (attachments.size()>0 && drawBuffers)
@@ -268,9 +268,8 @@ namespace p3d {
                 }
             }
 
-            glDrawBuffers(BufferIDs.size(), &BufferIDs[0]);
+            GLCHECKER(glDrawBuffers(BufferIDs.size(), &BufferIDs[0]));
         }
-
 #endif
 
         CheckFBOStatus();
@@ -289,8 +288,8 @@ namespace p3d {
         attach->Height = Height;
         attach->DataType = attachmentDataType;
 
-        glGenRenderbuffers (1, (GLuint*)&attach->rboID);
-        glBindRenderbuffer (GL_RENDERBUFFER, attach->rboID);
+        GLCHECKER(glGenRenderbuffers (1, (GLuint*)&attach->rboID));
+        GLCHECKER(glBindRenderbuffer (GL_RENDERBUFFER, attach->rboID));
 
         // Get Attatchment Format
         switch(attach->AttachmentFormat)
@@ -356,35 +355,43 @@ namespace p3d {
         switch(attach->DataType)
         {
             case RenderBufferDataType::Depth:
+#if defined(GLES2)
+		attach->DataType = GL_DEPTH_COMPONENT16;
+#else
                 attach->DataType = GL_DEPTH_COMPONENT;
+#endif
             break;
             // case RenderBufferDataType::Stencil:
             //     attach->DataType = GL_STENCIL_COMPONENT;
             // break;
             case RenderBufferDataType::RGBA:
             default:
-                attach->DataType = GL_RGBA;
+#if defined(GLES2)
+                attach->DataType = GL_RGBA4;
+#else
+		attach->DataType = GL_RGBA;
+#endif
             break;
         }
 
         attachments[attachmentFormat] = attach;
-        
+
         if (!isBinded)
-            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	GLCHECKER(glBindFramebuffer(GL_FRAMEBUFFER, fbo));
 
         // Add RenderBuffer
-        glRenderbufferStorage (GL_RENDERBUFFER, attach->DataType, attach->Width, attach->Height);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, attach->AttachmentFormat, GL_RENDERBUFFER, attach->rboID);
-        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+	GLCHECKER(glRenderbufferStorage (GL_RENDERBUFFER, attach->DataType, attach->Width, attach->Height));
+	GLCHECKER(glFramebufferRenderbuffer(GL_FRAMEBUFFER, attach->AttachmentFormat, GL_RENDERBUFFER, attach->rboID));
+        GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, 0));
 
         CheckFBOStatus();
 
 #if !defined(GLES2)
-        
+
         if (!drawBuffers)
         {
-            glDrawBuffer(GL_NONE);
-            glReadBuffer(GL_NONE);
+            GLCHECKER(glDrawBuffer(GL_NONE));
+            GLCHECKER(glReadBuffer(GL_NONE));
         }
 
         if (attachments.size()>0 && drawBuffers)
@@ -398,19 +405,19 @@ namespace p3d {
                 }
             }
 
-            glDrawBuffers(BufferIDs.size(), &BufferIDs[0]);
+            GLCHECKER(glDrawBuffers(BufferIDs.size(), &BufferIDs[0]));
         }
 
 #endif
 
         if (!isBinded)
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    }    
-    
+            GLCHECKER(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+    }
+
     void FrameBuffer::Bind()
     {
         // bind fbo
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        GLCHECKER(glBindFramebuffer(GL_FRAMEBUFFER, fbo));
         isBinded = true;
     }
     uint32 FrameBuffer::GetBindID()
@@ -420,13 +427,13 @@ namespace p3d {
     void FrameBuffer::UnBind()
     {
         // unbind fbo
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        GLCHECKER(glBindFramebuffer(GL_FRAMEBUFFER, 0));
 
 #if !defined(GLES2)
         if (drawBuffers)
         {
-            glDrawBuffer(GL_BACK);
-            glReadBuffer(GL_BACK);
+            GLCHECKER(glDrawBuffer(GL_BACK));
+            GLCHECKER(glReadBuffer(GL_BACK));
         }
 #endif
 
@@ -437,24 +444,24 @@ namespace p3d {
                 (*i).second->TexturePTR->UpdateMipmap();
             }
         }
-        
+
         isBinded = false;
     }
     bool FrameBuffer::IsBinded()
     {
         return isBinded;
     }
-    
+
     void FrameBuffer::Resize(const uint32 Width, const uint32 Height)
     {
         for (std::map<uint32, FBOAttachment*>::iterator i=attachments.begin();i!=attachments.end();i++)
         {
             if ((*i).second->AttachmentType==FBOAttachmentType::RenderBuffer)
             {
-                glBindRenderbuffer(GL_RENDERBUFFER, (*i).second->rboID);
-                glRenderbufferStorage(GL_RENDERBUFFER, (*i).second->DataType, Width, Height);
-                glBindRenderbuffer(GL_RENDERBUFFER, 0);
-            } else 
+                GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, (*i).second->rboID));
+                GLCHECKER(glRenderbufferStorage(GL_RENDERBUFFER, (*i).second->DataType, Width, Height));
+                GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, 0));
+            } else
             {
                 (*i).second->TexturePTR->Resize(Width, Height);
             }

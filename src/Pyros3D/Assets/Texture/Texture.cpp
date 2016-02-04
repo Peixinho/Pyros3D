@@ -46,9 +46,9 @@ namespace p3d {
 		case TextureDataType::DepthComponent16:
 		case TextureDataType::DepthComponent24:
 		case TextureDataType::DepthComponent32:
-			internalFormat = GL_DEPTH_COMPONENT;
-			internalFormat2 = GL_DEPTH_COMPONENT;
-			internalFormat3 = GL_FLOAT;
+			internalFormat = GL_RGBA;
+			internalFormat2 = GL_RGBA;
+			internalFormat3 = GL_UNSIGNED_BYTE;
 			break;
 #else
 		case TextureDataType::DepthComponent:
@@ -362,6 +362,7 @@ namespace p3d {
 			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MAX_LEVEL, level));
 #endif
 			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
+
 			if (level>0)
 				isMipMapManual = true;
 		}
