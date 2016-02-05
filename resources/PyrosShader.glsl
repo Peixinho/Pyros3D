@@ -257,15 +257,16 @@
             vec4 coord = sMatrix * pos;
             if (MoreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(width,height);
             float shadow = 0.0;
-            float x,y;
+            float x =0.0;
+            float y = 0.0;
+#if defined(GLES2) || !defined(GLEW_VERSION_2_1)
+            shadow = texture2D(shadowMap, coord.xy).x;
+#else
             for (y = -1.5 ; y <=1.5 ; y+=1.0)
                 for (x = -1.5 ; x <=1.5 ; x+=1.0)
-#if defined(GLES2) || !defined(GLEW_VERSION_2_1)
-                    shadow += texture2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
-#else
                     shadow += shadow2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
-#endif                    
             shadow /= 16.0;
+#endif
             return shadow;
         }
         uniform float uPCFTexelSize2;
@@ -295,15 +296,17 @@
             vec4 clip = Matrix1 * vec4(0.0, 0.0, fs_z, 1.0);
             float depth = (clip.z / clip.w) * 0.5 + 0.5;
             float shadow = 0.0;
-            float x,y;
-            for (y = -1.5 ; y <=1.5 ; y+=1.0)
-                for (x = -1.5 ; x <=1.5 ; x+=1.0)
+            float x = 0.0;
+            float y = 0.0;
+            
 #if defined(GLES2) || !defined(GLEW_VERSION_2_1) 
-                    shadow += textureCube(shadowMap, vec4(position_ls.xyz, depth) + vec4(vec2(x,y) * scale,0.0,0.0)).x;
-#else                
+            shadow += textureCube(shadowMap, vec3(position_ls.xy, depth) + vec3(vec2(x,y) * scale,0.0)).x;
+#else       
+            for (y = -1.5 ; y <=1.5 ; y+=1.0)
+                for (x = -1.5 ; x <=1.5 ; x+=1.0)         
                     shadow += shadowCube(shadowMap, vec4(position_ls.xyz, depth) + vec4(vec2(x,y) * scale,0.0,0.0)).x;
-#endif
             shadow /= 16.0;
+#endif
             return shadow;
         }
         uniform mat4 uPointDepthsMVP[8];
@@ -329,7 +332,7 @@
             for (y = -1.5 ; y <=1.5 ; y+=1.0)
                for (x = -1.5 ; x <=1.5 ; x+=1.0)
 #if defined(GLES2) || !defined(GLEW_VERSION_2_1)
-                    shadow += texture2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
+                    shadow += texture2D(shadowMap, (coord.xy + vec2(x,y) * scale)).x;
 #else
                     shadow += shadow2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
 #endif

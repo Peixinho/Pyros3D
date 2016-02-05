@@ -185,8 +185,8 @@ namespace p3d {
 					ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::R32F, ShadowWidthFBO, ShadowHeightFBO, false);
 					ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 					ShadowMap->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
-					shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidthFBO, ShadowHeightFBO);
-					shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, ShadowMap);
+					shadowsFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0, RenderBufferDataType::Depth, ShadowMap);
+					//shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, ShadowMap);
 #else
                     // GPU Shadow Maps
                     // Create Texture, Frame Buffer and Set the Texture as Attachment

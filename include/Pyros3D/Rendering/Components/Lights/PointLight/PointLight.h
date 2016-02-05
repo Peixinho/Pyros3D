@@ -65,8 +65,7 @@ namespace p3d {
 				ShadowMap->SetRepeat(TextureRepeat::ClampToBorder, TextureRepeat::Clamp, TextureRepeat::Clamp);
 
 				// Initialize Frame Buffer
-				shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
-				shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0,TextureType::CubemapPositive_X,ShadowMap);
+				shadowsFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0, RenderBufferDataType::Depth, ShadowMap);
 
 #else
                 // GPU Shadows
