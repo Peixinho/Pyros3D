@@ -328,15 +328,17 @@
             vec4 coord = sMatrix * pos;
             coord.xyz/=coord.w;
             float shadow = 0.0;
-            float x,y;
-            for (y = -1.5 ; y <=1.5 ; y+=1.0)
-               for (x = -1.5 ; x <=1.5 ; x+=1.0)
+            float x = 0.0;
+            float y = 0.0;
+            
 #if defined(GLES2) || !defined(GLEW_VERSION_2_1)
-                    shadow += texture2D(shadowMap, (coord.xy + vec2(x,y) * scale)).x;
+            shadow += texture2D(shadowMap, (coord.xy + vec2(x,y) * scale)).x;
 #else
+            for (y = -1.5 ; y <=1.5 ; y+=1.0)
+                for (x = -1.5 ; x <=1.5 ; x+=1.0)
                     shadow += shadow2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
-#endif
             shadow /= 16.0;
+#endif
             return shadow;
         }
         
