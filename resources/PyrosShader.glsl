@@ -248,7 +248,7 @@
     #endif
 
     #ifdef DIRECTIONALSHADOW
-#if defined(GLES2) || !defined(GLEW_VERSION_2_1)
+#if defined(GLES2)
         float PCFDIRECTIONAL(sampler2D shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) 
 #else
         float PCFDIRECTIONAL(sampler2DShadow shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) 
@@ -259,7 +259,7 @@
             float shadow = 0.0;
             float x =0.0;
             float y = 0.0;
-#if defined(GLES2) || !defined(GLEW_VERSION_2_1)
+#if defined(GLES2)
             shadow = texture2D(shadowMap, coord.xy).x;
 #else
             for (y = -1.5 ; y <=1.5 ; y+=1.0)
@@ -274,7 +274,7 @@
         uniform float uPCFTexelSize4;
         uniform mat4 uDirectionalDepthsMVP[4];
         uniform vec4 uDirectionalShadowFar[4];
-#if defined(GLES2) || !defined(GLEW_VERSION_2_1)
+#if defined(GLES2)
         uniform sampler2D uDirectionalShadowMaps;
 #else
         uniform sampler2DShadow uDirectionalShadowMaps;
@@ -282,7 +282,7 @@
     #endif
 
     #ifdef POINTSHADOW
-#if defined(GLES2) || !defined(GLEW_VERSION_2_1)
+#if defined(GLES2)
         float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos) 
 #else
         #extension GL_EXT_gpu_shader4 : require
@@ -299,7 +299,7 @@
             float x = 0.0;
             float y = 0.0;
             
-#if defined(GLES2) || !defined(GLEW_VERSION_2_1) 
+#if defined(GLES2) 
             shadow += textureCube(shadowMap, vec3(position_ls.xy, depth) + vec3(vec2(x,y) * scale,0.0)).x;
 #else       
             for (y = -1.5 ; y <=1.5 ; y+=1.0)
@@ -311,7 +311,7 @@
         }
         uniform mat4 uPointDepthsMVP[8];
         uniform int uNumberOfPointShadows;
-#if defined(GLES2) || !defined(GLEW_VERSION_2_1)
+#if defined(GLES2)
         uniform samplerCube uPointShadowMaps[4];
 #else
         uniform samplerCubeShadow uPointShadowMaps[4];
@@ -319,7 +319,7 @@
     #endif
 
     #ifdef SPOTSHADOW
-#if defined(GLES2) || !defined(GLEW_VERSION_2_1)
+#if defined(GLES2)
         float PCFSPOT(sampler2D shadowMap, mat4 sMatrix, float scale, vec4 pos) 
 #else
         float PCFSPOT(sampler2DShadow shadowMap, mat4 sMatrix, float scale, vec4 pos) 
@@ -331,7 +331,7 @@
             float x = 0.0;
             float y = 0.0;
             
-#if defined(GLES2) || !defined(GLEW_VERSION_2_1)
+#if defined(GLES2)
             shadow += texture2D(shadowMap, (coord.xy + vec2(x,y) * scale)).x;
 #else
             for (y = -1.5 ; y <=1.5 ; y+=1.0)
@@ -342,7 +342,7 @@
             return shadow;
         }
         
-#if defined(GLES2) || !defined(GLEW_VERSION_2_1)         
+#if defined(GLES2)         
         uniform sampler2D uSpotShadowMaps[4];
 #else
         uniform sampler2DShadow uSpotShadowMaps[4];

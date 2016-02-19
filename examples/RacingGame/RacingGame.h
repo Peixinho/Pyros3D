@@ -34,6 +34,7 @@
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/CubemapRenderer/CubemapRenderer.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Primitive.h>
 #include <Pyros3D/Physics/Components/IPhysicsComponent.h>
+#include <Pyros3D/Physics/Components/Vehicle/PhysicsVehicle.h>
 #include <Pyros3D/Physics/Components/TriangleMesh/PhysicsTriangleMesh.h>
 #include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h>
 
@@ -82,10 +83,10 @@ class RacingGame : public ClassName {
         uint32 font;
         // Text Material
         GenericShaderMaterial* textMaterial;
-        GenericShaderMaterial* test;
-
+        
         GameObject* Car, *Car2;
         RenderingComponent* rCar;
+		PhysicsVehicle* carPhysics;
         
         GameObject* Skybox;
         RenderingComponent* rSkybox;
@@ -105,6 +106,20 @@ class RacingGame : public ClassName {
         float counterX, counterY;
         Vec2 mouseCenter, mouseLastPosition, mousePosition;
         bool _moveFront, _moveBack, _strafeLeft, _strafeRight;
+
+		void LeftUp(Event::Input::Info e);
+		void LeftDown(Event::Input::Info e);
+		void RightUp(Event::Input::Info e);
+		void RightDown(Event::Input::Info e);
+		void UpUp(Event::Input::Info e);
+		void UpDown(Event::Input::Info e);
+		void DownUp(Event::Input::Info e);
+		void DownDown(Event::Input::Info e);
+		void SpaceUp(Event::Input::Info e);
+		void SpaceDown(Event::Input::Info e);
+		void AnalogicMove(Event::Input::Info e);
+		bool _upPressed, _downPressed, _leftPressed, _rightPressed, _brakePressed;
+		float gVehicleSteering, steeringIncrement;
     
         GenericShaderMaterial *envMaterial;
         CubemapRenderer* dRenderer;

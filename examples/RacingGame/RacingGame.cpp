@@ -33,7 +33,9 @@ void RacingGame::OnResize(const uint32 width, const uint32 height)
 void RacingGame::Init()
 {
     // Initialization
-	
+		_moveBack = _moveFront = _strafeLeft = _strafeRight = false;
+		_leftPressed = _rightPressed = _upPressed = _downPressed = false;
+
 	// Initialize Scene
         Scene = new SceneGraph();
         Scene2 = new SceneGraph();
@@ -63,9 +65,6 @@ void RacingGame::Init()
         
         // Create Track GameObject
         Track = new GameObject();
-        
-        test = new GenericShaderMaterial(ShaderUsage::Color);
-        test->SetColor(Vec4(1,1,0,1));
 
         // Create Track Model
         trackHandle = new Model("../../../../examples/RacingGame/assets/track.p3dm",false,ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
@@ -99,6 +98,25 @@ void RacingGame::Init()
         InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &RacingGame::StrafeLeftRelease);
         InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &RacingGame::StrafeRightRelease);
         InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &RacingGame::LookTo);
+
+		InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Up, this, &RacingGame::UpDown);
+		InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Up, this, &RacingGame::UpUp);
+		InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Down, this, &RacingGame::DownDown);
+		InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Down, this, &RacingGame::DownUp);
+		InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Left, this, &RacingGame::LeftDown);
+		InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Left, this, &RacingGame::LeftUp);
+		InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Right, this, &RacingGame::RightDown);
+		InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Right, this, &RacingGame::RightUp);
+		InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Space, this, &RacingGame::SpaceDown);
+		InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Space, this, &RacingGame::SpaceUp);
+
+		InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button0, this, &RacingGame::UpDown);
+		InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button0, this, &RacingGame::UpUp);
+		InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button1, this, &RacingGame::DownDown);
+		InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button1, this, &RacingGame::DownUp);
+		InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button2, this, &RacingGame::SpaceDown);
+		InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button2, this, &RacingGame::SpaceUp);
+		InputManager::AddJoypadEvent(Event::Type::OnMove, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Axis::X, this, &RacingGame::AnalogicMove);
 
         _strafeLeft = _strafeRight = _moveBack = _moveFront = 0;
         HideMouse();
@@ -164,6 +182,15 @@ void RacingGame::Init()
             Car->SetPosition(Vec3((rand() % 1000) -500,(rand() % 100),(rand() % 1000) -500));
         }
         Car->SetPosition(Vec3(-23,1,0));
+		//Car->SetRotation(Vec3(-23, 100, 0));
+		IPhysicsComponent* body = (IPhysicsComponent*) physics->CreateBox(1, 0.5, 2.3, 2000);
+		carPhysics = (PhysicsVehicle*) physics->CreateVehicle(body);
+		carPhysics->AddWheel(Vec3(0, -1, 0), Vec3(-1, 0, 0), 0.3f, 0.1f, 1000, 1.f, Vec3(-0.78, 1.15f, 1.35), true);
+		carPhysics->AddWheel(Vec3(0, -1, 0), Vec3(-1, 0, 0), 0.3f, 0.1f, 1000, 1.f, Vec3(0.75, 1.15f, 1.35), true);
+		carPhysics->AddWheel(Vec3(0, -1, 0), Vec3(-1, 0, 0), 0.32f, 0.1f, 1000, 1.f, Vec3(-0.78, 1.15f, -1.3), false);
+		carPhysics->AddWheel(Vec3(0, -1, 0), Vec3(-1, 0, 0), 0.32f, 0.1f, 1000, 1.f, Vec3(0.75, 1.15f, -1.3), false);
+		Car->Add(carPhysics);
+
 
         for (std::vector<RenderingMesh*>::iterator i=rCar->GetMeshes().begin();i!=rCar->GetMeshes().end();i++)
         {
@@ -187,7 +214,7 @@ void RacingGame::Update()
     Skybox->SetPosition(Vec3(Camera->GetWorldPosition().x,0,Camera->GetWorldPosition().z));
 
     rCar->Disable();
-    dRenderer->RenderCubeMap(Scene,Car,0.1,500);
+    dRenderer->RenderCubeMap(Scene,Car,0.1,2000);
     rCar->Enable();
     
     Renderer->ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
@@ -197,7 +224,7 @@ void RacingGame::Update()
     Renderer->RenderScene(projection,Camera,Scene);
     Renderer->ClearBufferBit(Buffer_Bit::None);
     Renderer->RenderScene(projection2,Camera2,Scene2);
-//    physics->RenderDebugDraw(projection,Camera);
+	//physics->RenderDebugDraw(projection,Camera);
     
     Vec3 finalPosition;
     Vec3 direction = Camera->GetDirection();
@@ -228,7 +255,68 @@ void RacingGame::Update()
     textID->UpdateText("Pyros3D - Racing RacingGame - FPS: " + x.str());
 //    Car->SetPosition(Vec3(20,10,0));
     Car2->SetRotation(Vec3(0,GetTime(),0));
-    
+
+	if (_upPressed == true)
+	{
+		carPhysics->SetEngineForce(carPhysics->GetMaxEngineForce());
+	}
+	else if (!_downPressed) {
+		carPhysics->SetEngineForce(0);
+	}
+	if (_downPressed == true)
+	{
+		carPhysics->SetEngineForce(-carPhysics->GetMaxEngineForce());
+	}
+	else if (!_upPressed) {
+		carPhysics->SetEngineForce(0);
+	}
+	if (_brakePressed == true)
+	{
+		carPhysics->SetBreakingForce(carPhysics->GetMaxBreakingForce());
+	}
+	else {
+		carPhysics->SetBreakingForce(0);
+	}
+	if (_leftPressed == true)
+	{
+		if (gVehicleSteering<carPhysics->GetSteeringClamp())
+		{
+			gVehicleSteering += steeringIncrement*dt * 100;
+			if (gVehicleSteering>carPhysics->GetSteeringClamp()) gVehicleSteering = carPhysics->GetSteeringClamp();
+		}
+	}
+	else {
+		if (gVehicleSteering>0.0f)
+		{
+			gVehicleSteering -= steeringIncrement*dt * 100;
+			if (_rightPressed == false && gVehicleSteering < 0.0f)
+				gVehicleSteering = 0.0f;
+		}
+	}
+	if (_rightPressed == true)
+	{
+		if (gVehicleSteering>-carPhysics->GetSteeringClamp())
+		{
+			gVehicleSteering -= steeringIncrement*dt * 100;
+			if (gVehicleSteering<-carPhysics->GetSteeringClamp()) gVehicleSteering = -carPhysics->GetSteeringClamp();
+		}
+	}
+	else {
+		if (gVehicleSteering<0.0f)
+		{
+			gVehicleSteering += steeringIncrement*dt * 100;
+			if (_leftPressed == false && gVehicleSteering > 0.0f)
+				gVehicleSteering = 0.0f;
+		}
+	}
+
+	btRaycastVehicle* m_vehicle = (btRaycastVehicle*)carPhysics->GetRigidBodyPTR();
+	m_vehicle->setSteeringValue(gVehicleSteering, 0);
+	m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 0);
+	m_vehicle->setBrake(carPhysics->GetBreakingForce(), 0);
+	m_vehicle->setSteeringValue(gVehicleSteering, 1);
+	m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 1);
+	m_vehicle->setBrake(carPhysics->GetBreakingForce(), 1);
 }
 
 void RacingGame::Shutdown()
@@ -323,4 +411,55 @@ void RacingGame::LookTo(Event::Input::Info e)
             mouseLastPosition = mouseCenter;
         }
     }
+}
+
+void RacingGame::CloseApp(Event::Input::Info e)
+{
+	Close();
+}
+void RacingGame::LeftUp(Event::Input::Info e)
+{
+	_leftPressed = false;
+}
+void RacingGame::LeftDown(Event::Input::Info e)
+{
+	_leftPressed = true;
+}
+void RacingGame::RightUp(Event::Input::Info e)
+{
+	_rightPressed = false;
+}
+void RacingGame::RightDown(Event::Input::Info e)
+{
+	_rightPressed = true;
+}
+void RacingGame::UpUp(Event::Input::Info e)
+{
+	_upPressed = false;
+}
+void RacingGame::UpDown(Event::Input::Info e)
+{
+	_upPressed = true;
+}
+void RacingGame::DownUp(Event::Input::Info e)
+{
+	_downPressed = false;
+}
+void RacingGame::DownDown(Event::Input::Info e)
+{
+	_downPressed = true;
+}
+void RacingGame::SpaceUp(Event::Input::Info e)
+{
+	_brakePressed = false;
+}
+void RacingGame::SpaceDown(Event::Input::Info e)
+{
+	_brakePressed = true;
+}
+void RacingGame::AnalogicMove(Event::Input::Info e)
+{
+	_leftPressed = _rightPressed = false;
+	if ((f32)e.Value>0.1) _rightPressed = true;
+	else if ((f32)e.Value<-0.1) _leftPressed = true;
 }
