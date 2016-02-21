@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-RacingGame::RacingGame() : ClassName(1024,768,"CODENAME: Pyros3D - FIRST WINDOW",WindowType::Close | WindowType::Resize)
+RacingGame::RacingGame() : ClassName(1920,1080,"CODENAME: Pyros3D - FIRST WINDOW",WindowType::Close | WindowType::Resize)
 {
     
 }
@@ -35,7 +35,7 @@ void RacingGame::Init()
     // Initialization
 		_moveBack = _moveFront = _strafeLeft = _strafeRight = false;
 		_leftPressed = _rightPressed = _upPressed = _downPressed = false;
-
+		gVehicleSteering = 0.f;
 	// Initialize Scene
         Scene = new SceneGraph();
         Scene2 = new SceneGraph();
@@ -54,7 +54,7 @@ void RacingGame::Init()
         
         // Create Camera
         Camera = new GameObject();
-        Camera->SetPosition(Vec3(0,10.0,20));
+//        Camera->SetPosition(Vec3(0,10.0,20));
         
         Camera2 = new GameObject();
         
@@ -183,15 +183,14 @@ void RacingGame::Init()
         }
         Car->SetPosition(Vec3(-23,1,0));
 		//Car->SetRotation(Vec3(-23, 100, 0));
-		IPhysicsComponent* body = (IPhysicsComponent*) physics->CreateBox(1, 0.5, 2.3, 2000);
+		IPhysicsComponent* body = (IPhysicsComponent*) physics->CreateBox(1, 0.5, 2.3, 800);
 		carPhysics = (PhysicsVehicle*) physics->CreateVehicle(body);
 		carPhysics->AddWheel(Vec3(0, -1, 0), Vec3(-1, 0, 0), 0.3f, 0.1f, 1000, 1.f, Vec3(-0.78, 1.15f, 1.35), true);
 		carPhysics->AddWheel(Vec3(0, -1, 0), Vec3(-1, 0, 0), 0.3f, 0.1f, 1000, 1.f, Vec3(0.75, 1.15f, 1.35), true);
 		carPhysics->AddWheel(Vec3(0, -1, 0), Vec3(-1, 0, 0), 0.32f, 0.1f, 1000, 1.f, Vec3(-0.78, 1.15f, -1.3), false);
 		carPhysics->AddWheel(Vec3(0, -1, 0), Vec3(-1, 0, 0), 0.32f, 0.1f, 1000, 1.f, Vec3(0.75, 1.15f, -1.3), false);
 		Car->Add(carPhysics);
-
-
+		Car->Add(Camera);
         for (std::vector<RenderingMesh*>::iterator i=rCar->GetMeshes().begin();i!=rCar->GetMeshes().end();i++)
         {
             GenericShaderMaterial* m = static_cast<GenericShaderMaterial*> ((*i)->Material);
@@ -204,33 +203,11 @@ void RacingGame::Update()
 {
     // Update - RacingGame Loop
     
-    // Update Physics
-    physics->Update(GetTime(),10);
-    
-    // Update Scene
-    Scene->Update(GetTime());
-    Scene2->Update(GetTime());
-    
-    Skybox->SetPosition(Vec3(Camera->GetWorldPosition().x,0,Camera->GetWorldPosition().z));
-
-    rCar->Disable();
-    dRenderer->RenderCubeMap(Scene,Car,0.1,2000);
-    rCar->Enable();
-    
-    Renderer->ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
-    Renderer->EnableDepthTest();
-    Renderer->EnableDepthWritting();
-    Renderer->EnableClearDepthBuffer();
-    Renderer->RenderScene(projection,Camera,Scene);
-    Renderer->ClearBufferBit(Buffer_Bit::None);
-    Renderer->RenderScene(projection2,Camera2,Scene2);
-	//physics->RenderDebugDraw(projection,Camera);
-    
     Vec3 finalPosition;
     Vec3 direction = Camera->GetDirection();
     float dt = GetTimeInterval();
     float speed = dt * 20.f;
-    if (_moveFront)
+    /*if (_moveFront)
     {
         finalPosition -= direction*speed;
     }
@@ -246,8 +223,11 @@ void RacingGame::Update()
     {
         finalPosition -= direction.cross(Vec3(0,1,0))*speed;
     }
-    Camera->SetPosition(Camera->GetPosition()+finalPosition);
-    
+    Camera->SetPosition(Camera->GetPosition()+finalPosition);*/
+	Camera->SetPosition(Car->GetWorldPosition());
+	Camera->SetPosition(Vec3(0, 3, -10));
+	
+	Camera->LookAt(Vec3(0,0, -1));
     
 	TextRendering->SetPosition(Vec3(5,Height-15.f,0.f));
     std::ostringstream x; x << fps.getFPS();
@@ -310,13 +290,42 @@ void RacingGame::Update()
 		}
 	}
 
-	btRaycastVehicle* m_vehicle = (btRaycastVehicle*)carPhysics->GetRigidBodyPTR();
-	m_vehicle->setSteeringValue(gVehicleSteering, 0);
-	m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 0);
-	m_vehicle->setBrake(carPhysics->GetBreakingForce(), 0);
-	m_vehicle->setSteeringValue(gVehicleSteering, 1);
-	m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 1);
-	m_vehicle->setBrake(carPhysics->GetBreakingForce(), 1);
+	// Update Physics
+	physics->Update(GetTime(), 10);
+
+	if (carPhysics->RigidBodyRegistered())
+	{
+		btRaycastVehicle* m_vehicle = (btRaycastVehicle*)carPhysics->GetRigidBodyPTR();
+		m_vehicle->setSteeringValue(gVehicleSteering, 0);
+		m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 0);
+		m_vehicle->setBrake(carPhysics->GetBreakingForce(), 0);
+		m_vehicle->setSteeringValue(gVehicleSteering, 1);
+		m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 1);
+		m_vehicle->setBrake(carPhysics->GetBreakingForce(), 1);
+		m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 3);
+		m_vehicle->setBrake(carPhysics->GetBreakingForce(), 3);
+		m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 4);
+		m_vehicle->setBrake(carPhysics->GetBreakingForce(), 4);
+	}
+
+	// Update Scene
+	Scene->Update(GetTime());
+	Scene2->Update(GetTime());
+
+	Skybox->SetPosition(Vec3(Camera->GetWorldPosition().x, 0, Camera->GetWorldPosition().z));
+
+	rCar->Disable();
+	dRenderer->RenderCubeMap(Scene, Car, 0.1, 2000);
+	rCar->Enable();
+
+	Renderer->ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
+	Renderer->EnableDepthTest();
+	Renderer->EnableDepthWritting();
+	Renderer->EnableClearDepthBuffer();
+	Renderer->RenderScene(projection, Camera, Scene);
+	Renderer->ClearBufferBit(Buffer_Bit::None);
+	Renderer->RenderScene(projection2, Camera2, Scene2);
+	//physics->RenderDebugDraw(projection, Camera);
 }
 
 void RacingGame::Shutdown()
@@ -390,7 +399,7 @@ void RacingGame::StrafeRightRelease(Event::Input::Info e)
 }
 void RacingGame::LookTo(Event::Input::Info e)
 {
-    if (mouseCenter!=GetMousePosition())
+    /*if (mouseCenter!=GetMousePosition())
     {
         mousePosition = InputManager::GetMousePosition();
         Vec2 mouseDelta = (mousePosition-mouseLastPosition);
@@ -410,7 +419,7 @@ void RacingGame::LookTo(Event::Input::Info e)
             SetMousePosition((int)(mouseCenter.x),(int)(mouseCenter.y));
             mouseLastPosition = mouseCenter;
         }
-    }
+    }*/
 }
 
 void RacingGame::CloseApp(Event::Input::Info e)
@@ -462,4 +471,7 @@ void RacingGame::AnalogicMove(Event::Input::Info e)
 	_leftPressed = _rightPressed = false;
 	if ((f32)e.Value>0.1) _rightPressed = true;
 	else if ((f32)e.Value<-0.1) _leftPressed = true;
+	
+	gVehicleSteering = fabs((f32)e.Value)*0.3*0.01*((f32)e.Value>0.0?-1:1);
+
 }

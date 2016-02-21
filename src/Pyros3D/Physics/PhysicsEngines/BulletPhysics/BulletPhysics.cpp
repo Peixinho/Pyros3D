@@ -65,7 +65,7 @@ namespace p3d {
 
         while( timeInterval >= 1.f/60.f )
         {
-            m_dynamicsWorld->stepSimulation(1.f/60.f,10);
+            m_dynamicsWorld->stepSimulation(1.f/60.f,steps);
             timeInterval -= 1.f/60.f;
         }
 
@@ -242,7 +242,7 @@ namespace p3d {
                 compound->addChildShape(localTrans,chassisShape);
                 btTransform tr;
                 tr.setIdentity();
-                tr.setOrigin(btVector3(0,0,0));
+                tr.setOrigin(btVector3(pcomp->GetOwner()->GetPosition().x, pcomp->GetOwner()->GetPosition().y, pcomp->GetOwner()->GetPosition().z));
                 btRigidBody* m_carChassis = LocalCreateRigidBody(vehicle->GetChassis()->GetMass(),tr,compound);//chassisShape;
                 //m_carChassis->setDamping(0.2,0.2);
 
@@ -306,7 +306,7 @@ namespace p3d {
 
         //rigidbody is dynamic if and only if mass is non zero, otherwise static
         bool isDynamic = (mass != 0.f);
-
+		
         // Local Inertia
         btVector3 localInertia(0,0,0);
 
@@ -315,11 +315,11 @@ namespace p3d {
             shape->calculateLocalInertia(mass,localInertia);
             
         //using motionstate is recommended, it provides interpolation capabilities, and only synchronizes 'active' objects
-        btTransform startTransform1;
+		/*btTransform startTransform1;
         startTransform1.setIdentity();
-        startTransform1.setOrigin(btVector3(0,0,0));
+        startTransform1.setOrigin(btVector3(0,0,0));*/
 
-        btDefaultMotionState* motionState = new btDefaultMotionState(btTransform(btQuaternion(0,0,0,1), btVector3(0,0,0)));
+        btDefaultMotionState* motionState = new btDefaultMotionState(btTransform(btQuaternion(0,0,0,1), startTransform.getOrigin()));
 
         btRigidBody::btRigidBodyConstructionInfo cInfo(mass,motionState,shape,localInertia);
 
@@ -348,6 +348,7 @@ namespace p3d {
         startTransform.setIdentity();
         // Local is Enough because we can't use Parent/Child Relationships, it wouldn't work right
         startTransform.setOrigin(btVector3(pcomp->GetOwner()->GetPosition().x,pcomp->GetOwner()->GetPosition().y,pcomp->GetOwner()->GetPosition().z));
+		std::cout << pcomp->GetOwner()->GetPosition().toString() << std::endl;
         Quaternion q;
         q.SetRotationFromEuler(pcomp->GetOwner()->GetRotation());
         startTransform.setRotation(btQuaternion(q.x,q.y,q.z,q.w));
@@ -401,13 +402,13 @@ namespace p3d {
     
     void BulletPhysics::RemovePhysicsComponent(IPhysicsComponent* pcomp)
     {
-        m_dynamicsWorld->removeRigidBody(static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR()));
-    }
+        //m_dynamicsWorld->removeRigidBody(static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR()));
+
+	 }
 	
     // Rigid Bodys Methods
     void BulletPhysics::UpdatePosition(IPhysicsComponent *pcomp, const Vec3 &position)
     {
-
         btRigidBody* body = static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR());
         btTransform startTransform;
         startTransform = body->getWorldTransform();

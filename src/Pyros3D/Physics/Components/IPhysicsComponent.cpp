@@ -30,7 +30,7 @@ namespace p3d {
         Registered = false;
         
         PhysicsEngine->RemovePhysicsComponent(this);
-        PhysicsEngine=NULL;
+         PhysicsEngine=NULL;
     }
     void IPhysicsComponent::Init()
     {

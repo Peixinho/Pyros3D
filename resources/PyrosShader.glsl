@@ -513,8 +513,8 @@
                             else if (gl_FragCoord.z<uDirectionalShadowFar[0].z) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.5, uDirectionalDepthsMVP[2],uPCFTexelSize3,vWorldPosition, MoreThanOneCascade);
                             else if (gl_FragCoord.z<uDirectionalShadowFar[0].w) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.5, uDirectionalDepthsMVP[3],uPCFTexelSize4,vWorldPosition, MoreThanOneCascade);
 
-                            _diffuse += lightIntensity * L.Color * DirectionalShadow;
-                            _specular += specularPower * L.Color * specular * DirectionalShadow;
+                            _diffuse += vec4(lightIntensity * L.Color.xyz * DirectionalShadow, lightIntensity * L.Color.w);
+                            _specular += vec4(specularPower * L.Color.xyz * specular.xyz * DirectionalShadow, specularPower * L.Color.w * specular.w);
                             lightIntensityCellShading = max(lightIntensityCellShading, lightIntensity * DirectionalShadow);
                         #else
                             _diffuse += lightIntensity * L.Color;
@@ -541,8 +541,8 @@
                             {
                                 PointShadow+=PCFPOINT(uPointShadowMaps[L.ShadowMap],uPointDepthsMVP[(L.ShadowMap*2)],uPointDepthsMVP[(L.ShadowMap*2+1)],uPCFTexelSize1,vWorldPosition);
                             }
-                            _diffuse += (lightIntensity * L.Color * attenuation * PointShadow;
-                            _specular += specularPower * L.Color * specular * attenuation * PointShadow;
+                            _diffuse += vec4(lightIntensity * L.Color.xyz * attenuation * PointShadow, lightIntensity * L.Color.w);
+                            _specular += vec4(specularPower * L.Color.xyz * attenuation * specular.xyz * PointShadow, specularPower * L.Color.w * specular.w);
                             lightIntensityCellShading = max(lightIntensityCellShading, lightIntensity * attenuation * PointShadow);
                         #else
                             _diffuse += (lightIntensity + specularPower * _specular) * L.Color * attenuation;
@@ -571,8 +571,8 @@
                             }
                             else SpotShadow = 1.0;
                             
-                            _diffuse += lightIntensity * L.Color * SpotShadow * spotEffect * attenuation;
-                            _specular += specularPower * L.Color * specular * spotEffect * attenuation * SpotShadow;
+                            _diffuse += vec4(lightIntensity * L.Color.xyz * spotEffect * attenuation * SpotShadow, lightIntensity * L.Color.w);
+                            _specular += vec4(specularPower * L.Color.xyz * spotEffect * attenuation * specular.xyz * SpotShadow, specularPower * L.Color.w * specular.w);
                             lightIntensityCellShading = max(lightIntensityCellShading, lightIntensity * spotEffect * attenuation * SpotShadow);
                         #else
                             _diffuse += lightIntensity * L.Color * attenuation;
