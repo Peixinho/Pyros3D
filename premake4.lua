@@ -204,7 +204,7 @@ solution "Pyros3D"
 
             if os.get() == "linux" then
                 links { libName.."d", libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "z" }
-                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
+                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../libs" }
             end
             
             if os.get() == "windows" then
