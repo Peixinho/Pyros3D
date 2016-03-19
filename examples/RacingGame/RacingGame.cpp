@@ -41,7 +41,7 @@ void RacingGame::Init()
         Scene2 = new SceneGraph();
         
         // Initialize Renderer
-        Renderer = new ForwardRenderer(1024,768);
+        Renderer = new ForwardRenderer(1920,1080);
 		Renderer->SetGlobalLight(Vec4(0.5, 0.5, 0.5, 0.5));
         // Projection
         projection.Perspective(70.f,(f32)Width/(f32)Height,1.f,2100.f);
@@ -54,14 +54,14 @@ void RacingGame::Init()
         
         // Create Camera
         Camera = new GameObject();
-//        Camera->SetPosition(Vec3(0,10.0,20));
+        Camera->SetPosition(Vec3(0,30.0,100));
         
         Camera2 = new GameObject();
         
         Scene2->Add(Camera2);
         
         // Add Camera to Scene
-        Scene->Add(Camera);
+        
         
         // Create Track GameObject
         Track = new GameObject();
@@ -191,12 +191,14 @@ void RacingGame::Init()
 		carPhysics->AddWheel(Vec3(0, -1, 0), Vec3(-1, 0, 0), 0.32f, 0.1f, 1000, 1.f, Vec3(0.75, 1.15f, -1.3), false);
 		Car->Add(carPhysics);
 		Car->Add(Camera);
+		Camera->LookAt(Car);
         for (std::vector<RenderingMesh*>::iterator i=rCar->GetMeshes().begin();i!=rCar->GetMeshes().end();i++)
         {
             GenericShaderMaterial* m = static_cast<GenericShaderMaterial*> ((*i)->Material);
             m->SetEnvMap(dRenderer->GetTexture());
             m->SetReflectivity(0.3);
         }
+		Scene->Add(Camera);
 }
 
 void RacingGame::Update()

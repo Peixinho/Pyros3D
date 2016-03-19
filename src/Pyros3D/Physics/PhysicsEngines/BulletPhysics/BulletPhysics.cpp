@@ -402,9 +402,9 @@ namespace p3d {
     
     void BulletPhysics::RemovePhysicsComponent(IPhysicsComponent* pcomp)
     {
-        //m_dynamicsWorld->removeRigidBody(static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR()));
-
-	 }
+		if (pcomp->GetShape() != CollisionShapes::Vehicle)
+			m_dynamicsWorld->removeRigidBody(static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR()));
+	}
 	
     // Rigid Bodys Methods
     void BulletPhysics::UpdatePosition(IPhysicsComponent *pcomp, const Vec3 &position)
