@@ -35,9 +35,9 @@ namespace p3d {
         settings.minorVersion = 0;
 
         if (fullScreen == true)
-            rview.create(modes[0], title, type, settings);
+            rview.create(modes[0], title.c_str(), type, settings);
         else
-            rview.create(sf::VideoMode(width,height), title, type, settings);
+            rview.create(sf::VideoMode(width,height), title.c_str(), type, settings);
         
         Width = rview.getSize().x;
         Height = rview.getSize().y;

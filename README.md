@@ -31,7 +31,7 @@ There are specific readme in android and emscripten sections.
 ## Running Example
 [Working WebGL Demo](http://duartepeixinho.com/pyrosjs/)
 
-## Screeshots
+## Screenshots
 ![Rotating Cube](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/RotatingCube/Rotating%20Cube.png)
 ![Rotating Textured Cube](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/RotatingTexturedCube/RotatingTexturedCube.png)
 ![Deferred Rendering](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/DeferredRendering/DeferredRendering.png)
