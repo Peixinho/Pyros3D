@@ -136,13 +136,9 @@ namespace p3d {
 				// Keep user settings
 				uint32 _bufferOptions = bufferOptions;
 				uint32 _glBufferOptions = glBufferOptions;
-				bool _depthWritting = depthWritting;
-				bool _depthTesting = depthTesting;
 				bool _clearDepthBuffer = clearDepthBuffer;
 
 				ClearBufferBit(Buffer_Bit::Depth);
-				EnableDepthTest();
-				EnableDepthWritting();
 				EnableClearDepthBuffer();
 
 				// ShadowMaps
@@ -193,11 +189,9 @@ namespace p3d {
 							d->GetShadowFBO()->Bind();
 
 							// GPU
-							DepthTest();
-							DepthWrite();
 							ClearDepthBuffer();
 							ClearScreen();
-
+							
 #if !defined(GLES2)
 							if (ClipPlane)
 							{
@@ -206,8 +200,8 @@ namespace p3d {
 							}
 #endif
 							// Enable Depth Bias
-							EnableDepthBias(Vec2(d->GetShadowBiasFactor(), d->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
-
+							shadowMaterial->EnableDethBias(d->GetShadowBiasFactor(), d->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
+							
 							ViewMatrix = d->GetLightViewMatrix();
 
 							// Get Lights Shadow Map Texture
@@ -357,8 +351,6 @@ namespace p3d {
 								p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::CubemapPositive_X + i, p->GetShadowMapTexture());
 #endif
 
-								DepthTest();
-								DepthWrite();
 								ClearDepthBuffer();
 								ClearScreen();
 #if !defined(GLES2)
@@ -369,8 +361,8 @@ namespace p3d {
 								}
 #endif
 								// Enable Depth Bias
-								EnableDepthBias(Vec2(p->GetShadowBiasFactor(), p->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
-
+								shadowMaterial->EnableDethBias(p->GetShadowBiasFactor(), p->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
+								
 								// Set Viewport
 								_SetViewPort(0, 0, p->GetShadowWidth(), p->GetShadowHeight());
 
@@ -478,8 +470,6 @@ namespace p3d {
 							// Update Culling
 							UpdateCulling(s->GetLightProjection().GetProjectionMatrix()*ViewMatrix);
 
-							DepthTest();
-							DepthWrite();
 							ClearDepthBuffer();
 							ClearScreen();
 #if !defined(GLES2)
@@ -490,7 +480,7 @@ namespace p3d {
 							}
 #endif
 							// Enable Depth Bias
-							EnableDepthBias(Vec2(s->GetShadowBiasFactor(), s->GetShadowBiasUnits()));// enable polygon offset fill to combat "z-fighting"
+							shadowMaterial->EnableDethBias(s->GetShadowBiasFactor(), s->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
 
 							// Set Viewport
 							_SetViewPort(0, 0, s->GetShadowWidth(), s->GetShadowHeight());
@@ -554,8 +544,6 @@ namespace p3d {
 				// Reset User Defined for Depth Buffer
 				bufferOptions = _bufferOptions;
 				glBufferOptions = _glBufferOptions;
-				depthWritting = _depthWritting;
-				depthTesting = _depthTesting;
 				clearDepthBuffer = _clearDepthBuffer;
 
 			}
@@ -598,8 +586,6 @@ namespace p3d {
 			}
 
 			_SetViewPort(viewPortStartX, viewPortStartY, viewPortEndX, viewPortEndY);
-			DepthTest();
-			DepthWrite();
 			ClearDepthBuffer();
 
 			// Scissor Test
@@ -677,9 +663,6 @@ namespace p3d {
 
 			// End Rendering
 			EndRender();
-
-			// Disable Blending
-			DisableBlending();
 		}
 	}
 

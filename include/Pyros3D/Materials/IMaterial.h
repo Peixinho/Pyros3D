@@ -58,6 +58,10 @@ namespace p3d {
         void SetOpacity(const f32 &opacity);
         void SetTransparencyFlag(bool transparency);
 
+		// Polygon Offset
+		void EnableDethBias(f32 factor, f32 units);
+		void DisableDethBias();
+
         // Uniforms        
         std::vector<Uniform> GlobalUniforms;
         std::vector<Uniform> ModelUniforms;
@@ -91,8 +95,29 @@ namespace p3d {
         
         // Get Internal ID
         uint32 GetInternalID();
+
+		// Depth Test and Write
+		void EnableDepthTest() { forceDepthWrite = depthTest = true; }
+		void DisableDepthTest() { forceDepthWrite = depthTest = false; }
+		void EnableDepthWrite() { depthWrite = true; }
+		void DisableDepthWrite() { depthWrite = false; }
+		bool IsDepthWritting()
+		{
+			if (forceDepthWrite) return true;
+			else {
+				if (IsTransparent()) return false;
+				else return depthWrite;
+			}
+		}
+		bool IsDepthTesting()
+		{
+			return depthTest;
+		}
         
     protected :
+
+		// Depth Test and Write
+		bool forceDepthWrite, depthTest, depthWrite;
         
         //Casting Shadows
         bool isCastingShadows;
@@ -111,6 +136,10 @@ namespace p3d {
         
         // Material Options
         uint32 materialID;
+
+		// Depth Bias
+		f32 depthFactor, depthUnits;
+		bool depthBias;
         
     private:
 

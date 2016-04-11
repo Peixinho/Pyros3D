@@ -130,6 +130,7 @@ void RacingGame::Init()
         // Set Material Font to use Font Map
         textMaterial->SetTextFont(font);
         textMaterial->SetTransparencyFlag(true);
+		textMaterial->DisableDepthWrite();
         
         // Create RacingGame Object
         TextRendering = new GameObject();
@@ -321,8 +322,6 @@ void RacingGame::Update()
 	rCar->Enable();
 
 	Renderer->ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
-	Renderer->EnableDepthTest();
-	Renderer->EnableDepthWritting();
 	Renderer->EnableClearDepthBuffer();
 	Renderer->RenderScene(projection, Camera, Scene);
 	Renderer->ClearBufferBit(Buffer_Bit::None);

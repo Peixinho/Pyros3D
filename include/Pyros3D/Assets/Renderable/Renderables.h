@@ -237,6 +237,7 @@ namespace p3d {
             // Virtual Methods
             virtual const std::vector<__INDEX_C_TYPE__> &GetIndexData() const = 0;
             virtual const std::vector<Vec3> &GetVertexData() const = 0;
+			virtual const std::vector<Vec3> &GetNormalData() const = 0;
             virtual const f32 &GetBoundingSphereRadius() const { return BoundingSphereRadius; }
             virtual const Vec3 &GetBoundingSphereCenter() const { return BoundingSphereCenter; }
             virtual const Vec3 &GetBoundingMinValue() const { return minBounds; }

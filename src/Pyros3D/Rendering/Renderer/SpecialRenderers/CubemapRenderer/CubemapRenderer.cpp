@@ -229,8 +229,6 @@ namespace p3d {
             
                 // Clear Screen
                 ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
-                DepthTest();
-                DepthWrite();
                 ClearDepthBuffer();
                 ClearScreen();
 

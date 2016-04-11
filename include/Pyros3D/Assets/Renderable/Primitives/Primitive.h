@@ -67,6 +67,10 @@ namespace p3d {
             {
                 return tVertex;
             }
+			virtual const std::vector<Vec3> &GetNormalData() const
+			{
+				return tNormal;
+			}
 
         protected:
 

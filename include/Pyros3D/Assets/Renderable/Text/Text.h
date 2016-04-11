@@ -49,10 +49,14 @@ namespace p3d {
             {
                 return index;
             }
-            virtual const std::vector<Vec3> &GetVertexData() const
-            {
-                return tVertex;
-            }
+			virtual const std::vector<Vec3> &GetVertexData() const
+			{
+				return tVertex;
+			}
+			virtual const std::vector<Vec3> &GetNormalData() const
+			{
+				return tNormal;
+			}
 
         protected:
 

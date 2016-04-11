@@ -28,8 +28,6 @@ namespace p3d {
         ActivateCulling(CullingMode::FrustumCulling);
 
 		EnableClearDepthBuffer();
-		EnableDepthTest();
-        EnableDepthWritting();
     }
     void PainterPick::Resize(const uint32 Width, const uint32 Height)
     {

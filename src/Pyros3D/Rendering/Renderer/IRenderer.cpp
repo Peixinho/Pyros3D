@@ -42,8 +42,8 @@ namespace p3d {
 
 		// Defaults
 		ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
-		depthWritting = true;
-		depthTesting = true;
+		depthWritting = depthTesting = true;
+		depthTesting1stRun = depthTesting1stRun = false;
 		clearDepthBuffer = true;
 		sorting = true;
 		scissorTest = false;
@@ -136,6 +136,8 @@ namespace p3d {
 			LastProgramUsed = -1;
 			LastMaterialUsed = -1;
 			LastMeshRendered = -1;
+			depthWritting = depthTesting = true;
+			depthTesting1stRun = depthTesting1stRun = false;
 
 			DisableBlending();
 		}
@@ -183,6 +185,9 @@ namespace p3d {
 
 			// Send Vertex Attributes
 			SendAttributes(rmesh, Material);
+
+			if (Material->depthBias)
+				EnableDepthBias(Vec2(Material->depthFactor, Material->depthUnits));
 
 			// Bind Index Buffer
 			if (rmesh->Geometry->GetGeometryType() == GeometryType::BUFFER)
@@ -263,12 +268,29 @@ namespace p3d {
 		// Send Model Specific Uniforms
 		SendModelUniforms(rmesh, Material);
 
+		// Depth Write
+		if (Material->IsDepthWritting() != depthWritting || !depthWritting1stRun)
+		{
+			depthWritting1stRun = true;
+			depthWritting = Material->IsDepthWritting();
+			DepthWrite();
+		}
+
+		// Depth Test
+		if (Material->IsDepthTesting() != depthTesting || !depthTesting1stRun)
+		{
+			depthTesting1stRun = true;
+			depthTesting = Material->IsDepthTesting();
+			DepthTest();
+		}
+
 		// Enable / Disable Blending
-		if (Material->IsTransparent())
+		if (Material->IsTransparent() && !blending)
 		{
 			EnableBlending();
 			BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
 		}
+
 		// Draw
 		if (rmesh->Geometry->GetGeometryType() == GeometryType::BUFFER)
 		{
@@ -277,12 +299,16 @@ namespace p3d {
 		else {
 			GLCHECKER(glDrawElements(DrawType, rmesh->Geometry->GetIndexData().size(), __INDEX_TYPE__, &rmesh->Geometry->index[0]));
 		}
+
 		// Save Last Material and Mesh
 		LastProgramUsed = Material->GetShader();
 		LastMaterialPTR = Material;
 		LastMaterialUsed = Material->GetInternalID();
 		LastMeshRendered = rmesh->Geometry->GetInternalID();
 		LastMeshRenderedPTR = rmesh;
+
+		if (Material->depthBias)
+			DisableDepthBias();
 	}
 
 	void IRenderer::EnableSorting()
@@ -311,14 +337,6 @@ namespace p3d {
 			GLCHECKER(glClearColor(BackgroundColor.x, BackgroundColor.y, BackgroundColor.z, BackgroundColor.w));
 	}
 
-	void IRenderer::EnableDepthTest()
-	{
-		depthTesting = true;
-	}
-	void IRenderer::DisableDepthTest()
-	{
-		depthTesting = false;
-	}
 	void IRenderer::DepthTest()
 	{
 		if (depthTesting)
@@ -329,17 +347,10 @@ namespace p3d {
 			GLCHECKER(glDisable(GL_DEPTH_TEST));
 		}
 	}
-	void IRenderer::EnableDepthWritting()
-	{
-		depthWritting = true;
-	}
-	void IRenderer::DisableDepthWritting()
-	{
-		depthWritting = false;
-	}
+	
 	void IRenderer::DepthWrite()
 	{
-		if (depthWritting)
+		if (depthWritting && !blending)
 		{
 			GLCHECKER(glDepthMask(GL_TRUE));
 		}
@@ -358,7 +369,10 @@ namespace p3d {
 	void IRenderer::ClearDepthBuffer()
 	{
 #if !defined(GLES2)
-		if (clearDepthBuffer) GLCHECKER(glClearDepth(1.f));
+		if (clearDepthBuffer) {
+			GLCHECKER(glDepthMask(GL_TRUE));
+			GLCHECKER(glClearDepth(1.f));
+		}
 #endif
 	}
 	void IRenderer::EnableStencil()

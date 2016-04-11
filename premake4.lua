@@ -288,7 +288,7 @@ function BuildDemo(demoPath, demoName)
             targetdir ("bin/debug/examples/"..demoName)
 
             if os.get() == "linux" then
-                links { libName.."d", libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "z" }
+                links { libName.."d", libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "pthread", "z" }
                 linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
             end
             

@@ -157,8 +157,6 @@ void IslandDemo::Update()
 
 	// Render Scene
 	Renderer->ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
-	Renderer->EnableDepthTest();
-	Renderer->EnableDepthWritting();
 	Renderer->EnableClearDepthBuffer();
 	Renderer->RenderScene(projection, Camera, Scene);
 	Renderer->ClearBufferBit(Buffer_Bit::None);

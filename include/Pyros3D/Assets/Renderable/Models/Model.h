@@ -32,6 +32,7 @@ namespace p3d {
 
             virtual const std::vector<__INDEX_C_TYPE__> &GetIndexData() const { return index; }
             virtual const std::vector<Vec3> &GetVertexData() const { return tVertex; }
+			virtual const std::vector<Vec3> &GetNormalData() const { return tNormal; }
 
         protected:
             

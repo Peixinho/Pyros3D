@@ -19,7 +19,10 @@ namespace p3d {
         isWireFrame = false;
         isCastingShadows = false;
         cullFace = CullFace::BackFace;
-        
+		depthBias = false;
+		depthTest = depthWrite = true;
+		forceDepthWrite = false;
+
         // Set Internal ID
         materialID = _InternalID;
         
@@ -68,6 +71,16 @@ namespace p3d {
     {
         return isCastingShadows;
     }
+	void IMaterial::EnableDethBias(f32 factor, f32 units)
+	{
+		depthBias = true;
+		depthFactor = factor;
+		depthUnits = units;
+	}
+	void IMaterial::DisableDethBias()
+	{
+		depthBias = false;
+	}
     // send uniforms
     void IMaterial::SetUniformValue(std::string Uniform, int32 value)
     {

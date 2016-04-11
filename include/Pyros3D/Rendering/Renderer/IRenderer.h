@@ -107,11 +107,7 @@ namespace p3d {
             void ClearBufferBit(const uint32 Option);
 
             // Depth Buffer
-            void EnableDepthTest();
-            void DisableDepthTest();
-            void EnableDepthWritting();
-            void DisableDepthWritting();
-            void EnableClearDepthBuffer();
+			void EnableClearDepthBuffer();
             void DisableClearDepthBuffer();
             void ClearDepthBuffer();
 
@@ -218,8 +214,8 @@ namespace p3d {
             
             // Flags
             uint32 bufferOptions, glBufferOptions;
-            bool depthWritting;
-            bool depthTesting;
+            bool depthWritting1stRun, depthWritting;
+            bool depthTesting1stRun, depthTesting;
             bool clearDepthBuffer;
             bool sorting;
 
