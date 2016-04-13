@@ -160,9 +160,6 @@ namespace p3d {
 				)
 			);
 
-		// need to clip more values (texture coordinates)? do it this way:
-		//intersectpoint.value = a.value + s*(b.value-a.value);
-
 		return v;
 	}
 
@@ -171,107 +168,105 @@ namespace p3d {
 
 		std::vector<DecalVertex> finalVertices;
 
-		for (uint32 k = 0; k < rcomp->GetMeshes().size(); k++)
+		RenderingMesh* rc = mesh;
+		std::vector<DecalVertex> vertices;
+			
+		std::vector<Vec3> vertex, normal;
+		std::vector<Vec4> bonesID, bonesWeight;
+
+		for (uint32 l = 0; l < rc->Geometry->Attributes.size(); l++)
+		for (std::vector<VertexAttribute*>::iterator i = rc->Geometry->Attributes[l]->Attributes.begin(); i != rc->Geometry->Attributes[l]->Attributes.end(); i++)
 		{
-			RenderingMesh* rc = (RenderingMesh*)rcomp->GetMeshes()[k];
-			std::vector<DecalVertex> vertices;
-			
-			std::vector<Vec3> vertex, normal;
-			std::vector<Vec4> bonesID, bonesWeight;
-
-			for (uint32 l = 0; l < rc->Geometry->Attributes.size(); l++)
-			for (std::vector<VertexAttribute*>::iterator i = rc->Geometry->Attributes[l]->Attributes.begin(); i != rc->Geometry->Attributes[l]->Attributes.end(); i++)
+			if ((*i)->Name.compare(std::string("aPosition")) == 0)
 			{
-				if ((*i)->Name.compare(std::string("aPosition")) == 0)
-				{
-					vertex.resize((*i)->DataLength);
-					memcpy(&vertex[0], &(*i)->Data[0], (*i)->DataLength*sizeof(Vec3));
-				}
-				else if ((*i)->Name.compare(std::string("aNormal")) == 0)
-				{
-					normal.resize((*i)->DataLength);
-					memcpy(&normal[0], &(*i)->Data[0], (*i)->DataLength*sizeof(Vec3));
-				}
-				else if ((*i)->Name.compare(std::string("aBonesID")) == 0)
-				{
-					haveBones = true;
-					bonesID.resize((*i)->DataLength);
-					memcpy(&bonesID[0], &(*i)->Data[0], (*i)->DataLength*sizeof(Vec3));
-				}
-				else if ((*i)->Name.compare(std::string("aBonesWeight")) == 0)
-				{
-					haveBones = true;
-					bonesWeight.resize((*i)->DataLength);
-					memcpy(&bonesWeight[0], &(*i)->Data[0], (*i)->DataLength*sizeof(Vec3));
-				}
+				vertex.resize((*i)->DataLength);
+				memcpy(&vertex[0], &(*i)->Data[0], (*i)->DataLength*sizeof(Vec3));
+				std::cout << vertex.size() << std::endl;
 			}
-			
-			for (uint32 i = 0; i < rc->Geometry->GetIndexData().size(); i += 3)
+			else if ((*i)->Name.compare(std::string("aNormal")) == 0)
 			{
-				Vec3 v0 = iCubeMatrix * vertex[i];
-				Vec3 n0 = normal[rc->Geometry->GetIndexData()[i]];
-				Vec2 uv0 = Vec2(0, 0);
+				normal.resize((*i)->DataLength);
+				memcpy(&normal[0], &(*i)->Data[0], (*i)->DataLength*sizeof(Vec3));
+				std::cout << normal.size() << std::endl;
+			}
+			else if ((*i)->Name.compare(std::string("aBonesID")) == 0)
+			{
+				haveBones = true;
+				bonesID.resize((*i)->DataLength);
+				memcpy(&bonesID[0], &(*i)->Data[0], (*i)->DataLength*sizeof(Vec3));
+			}
+			else if ((*i)->Name.compare(std::string("aBonesWeight")) == 0)
+			{
+				haveBones = true;
+				bonesWeight.resize((*i)->DataLength);
+				memcpy(&bonesWeight[0], &(*i)->Data[0], (*i)->DataLength*sizeof(Vec3));
+			}
+		}
+			
+		for (uint32 i = 0; i < rc->Geometry->GetIndexData().size(); i += 3)
+		{
+			Vec3 v0 = iCubeMatrix * vertex[rc->Geometry->GetIndexData()[i]];
+			Vec3 n0 = normal[rc->Geometry->GetIndexData()[i]];
+			Vec2 uv0 = Vec2(0, 0);
 
-				Vec3 v1 = iCubeMatrix * vertex[i + 1];
-				Vec3 n1 = normal[rc->Geometry->GetIndexData()[i + 1]];
-				Vec2 uv1 = Vec2(0, 0);
+			Vec3 v1 = iCubeMatrix * vertex[rc->Geometry->GetIndexData()[i + 1]];
+			Vec3 n1 = normal[rc->Geometry->GetIndexData()[i + 1]];
+			Vec2 uv1 = Vec2(0, 0);
 
-				Vec3 v2 = iCubeMatrix * vertex[i + 2];
-				Vec3 n2 = normal[rc->Geometry->GetIndexData()[i + 2]];
-				Vec2 uv2 = Vec2(0, 0);
+			Vec3 v2 = iCubeMatrix * vertex[rc->Geometry->GetIndexData()[i + 2]];
+			Vec3 n2 = normal[rc->Geometry->GetIndexData()[i + 2]];
+			Vec2 uv2 = Vec2(0, 0);
 
-				if (haveBones)
-				{
-					Vec4 boneID0 = bonesID[rc->Geometry->GetIndexData()[i]];
-					Vec4 boneWeight0 = bonesWeight[rc->Geometry->GetIndexData()[i]];
-					vertices.push_back(DecalVertex(v0, n0, uv0, boneID0, boneWeight0));
+			if (haveBones)
+			{
+				Vec4 boneID0 = bonesID[rc->Geometry->GetIndexData()[i]];
+				Vec4 boneWeight0 = bonesWeight[rc->Geometry->GetIndexData()[i]];
+				vertices.push_back(DecalVertex(v0, n0, uv0, boneID0, boneWeight0));
 
-					Vec4 boneID1 = bonesID[rc->Geometry->GetIndexData()[i + 1]];
-					Vec4 boneWeight1 = bonesWeight[rc->Geometry->GetIndexData()[i + 1]];
-					vertices.push_back(DecalVertex(v1, n1, uv1, boneID1, boneWeight1));
+				Vec4 boneID1 = bonesID[rc->Geometry->GetIndexData()[i + 1]];
+				Vec4 boneWeight1 = bonesWeight[rc->Geometry->GetIndexData()[i + 1]];
+				vertices.push_back(DecalVertex(v1, n1, uv1, boneID1, boneWeight1));
 
-					Vec4 boneID2 = bonesID[rc->Geometry->GetIndexData()[i + 2]];
-					Vec4 boneWeight2 = bonesWeight[rc->Geometry->GetIndexData()[i + 2]];
-					vertices.push_back(DecalVertex(v2, n2, uv2, boneID2, boneWeight2));
-				}
-				else {
-					vertices.push_back(DecalVertex(v0, n0, uv0));
-					vertices.push_back(DecalVertex(v1, n1, uv1));
-					vertices.push_back(DecalVertex(v2, n2, uv2));
-				}
+				Vec4 boneID2 = bonesID[rc->Geometry->GetIndexData()[i + 2]];
+				Vec4 boneWeight2 = bonesWeight[rc->Geometry->GetIndexData()[i + 2]];
+				vertices.push_back(DecalVertex(v2, n2, uv2, boneID2, boneWeight2));
+			}
+			else {
+				vertices.push_back(DecalVertex(v0, n0, uv0));
+				vertices.push_back(DecalVertex(v1, n1, uv1));
+				vertices.push_back(DecalVertex(v2, n2, uv2));
+			}
 				
-				if (check.x) {
-					clipFace(vertices, Vec3(1, 0, 0));
-					clipFace(vertices, Vec3(-1, 0, 0));
-				}
-				if (check.y) {
-					clipFace(vertices, Vec3(0, 1, 0));
-					clipFace(vertices, Vec3(0, -1, 0));
-				}
-				if (check.z) {
-					clipFace(vertices, Vec3(0, 0, 1));
-					clipFace(vertices, Vec3(0, 0, -1));
-				}
+			if (check.x) {
+				clipFace(vertices, Vec3(1, 0, 0));
+				clipFace(vertices, Vec3(-1, 0, 0));
+			}
+			if (check.y) {
+				clipFace(vertices, Vec3(0, 1, 0));
+				clipFace(vertices, Vec3(0, -1, 0));
+			}
+			if (check.z) {
+				clipFace(vertices, Vec3(0, 0, 1));
+				clipFace(vertices, Vec3(0, 0, -1));
+			}
 
-				for (uint32 j = 0; j < vertices.size(); j++)
-				{
-					DecalVertex* v = &vertices[j];
-					v->uv = Vec2(
-						.5f + (v->vertex.x / dimensions.x),
-						.5f + (v->vertex.y / dimensions.y)*-1.f
-					);
+			for (uint32 j = 0; j < vertices.size(); j++)
+			{
+				DecalVertex* v = &vertices[j];
+				v->uv = Vec2(
+					.5f + (v->vertex.x / dimensions.x),
+					.5f + (v->vertex.y / dimensions.y)*-1.f
+				);
 
-					v->vertex = (CubeMatrix * v->vertex);
+				v->vertex = (CubeMatrix * v->vertex);
 
-				}
+			}
 
-				if (vertices.size() == 0) continue;
+			if (vertices.size() == 0) continue;
 
-				for (uint32 j = 0; j < vertices.size(); j++)
-				{
-					finalVertices.push_back(vertices[j]);
-				}
-
+			for (uint32 j = 0; j < vertices.size(); j++)
+			{
+				finalVertices.push_back(vertices[j]);
 			}
 
 		}
@@ -280,14 +275,15 @@ namespace p3d {
 
 	}
 
-	DecalGeometry::DecalGeometry(RenderingComponent* rcomp, Vec3 position, Vec3 rotation, Vec3 dimensions, Vec3 check)
+	DecalGeometry::DecalGeometry(RenderingMesh* mesh, Matrix targetTransformation, Vec3 position, Vec3 rotation, Vec3 dimensions, Vec3 check)
 	{
-		this->rcomp = rcomp;
+		this->mesh = mesh;
 		this->position = position;
 		this->rotation = rotation;
 		this->dimensions = dimensions;
 		this->check = check;
 		this->haveBones = false;
+		this->targetTransformation = targetTransformation;
 
 		this->CubeMatrix = Matrix();
 		this->CubeMatrix.RotationX(rotation.x);
@@ -301,14 +297,15 @@ namespace p3d {
 		ComputeDecal();
 	}
 
-	DecalGeometry::DecalGeometry(RenderingComponent* rcomp, Matrix transform, Vec3 dimensions, Vec3 check)
+	DecalGeometry::DecalGeometry(RenderingMesh* mesh, Matrix targetTransformation, Matrix transform, Vec3 dimensions, Vec3 check)
 	{
-		this->rcomp = rcomp;
+		this->mesh = mesh;
 		this->position = transform.GetTranslation();
 		this->rotation = transform.GetEulerFromRotationMatrix();
 		this->dimensions = dimensions;
 		this->check = check;
 		this->haveBones = false;
+		this->targetTransformation = targetTransformation;
 
 		this->CubeMatrix = transform;
 		this->iCubeMatrix = CubeMatrix.Inverse();

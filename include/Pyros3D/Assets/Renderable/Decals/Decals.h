@@ -73,9 +73,9 @@ namespace p3d {
 		private:
 
 			f32 size;
-			Matrix CubeMatrix, iCubeMatrix;
+			Matrix targetTransformation, CubeMatrix, iCubeMatrix;
 			Vec3 position, rotation, dimensions, check;
-			RenderingComponent* rcomp;
+			RenderingMesh* mesh;
 			Renderable* decal;
 			bool haveBones;
 
@@ -85,8 +85,8 @@ namespace p3d {
 
 		public:
 
-			DecalGeometry(RenderingComponent* rcomp, Vec3 position, Vec3 rotation, Vec3 dimensions, Vec3 check = Vec3(1, 1, 1));
-			DecalGeometry(RenderingComponent* rcomp, Matrix transform, Vec3 dimensions, Vec3 check = Vec3(1, 1, 1));
+			DecalGeometry(RenderingMesh* mesh, Matrix targetTransformation, Vec3 position, Vec3 rotation, Vec3 dimensions, Vec3 check = Vec3(1, 1, 1));
+			DecalGeometry(RenderingMesh* mesh, Matrix targetTransformation, Matrix transform, Vec3 dimensions, Vec3 check = Vec3(1, 1, 1));
 			Renderable* GetDecal() { return decal; }
 			virtual ~DecalGeometry();
 
