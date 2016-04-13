@@ -20,9 +20,14 @@ namespace p3d {
 
 	struct PYROS3D_API DecalVertex {
 
-		Vec3 vertex;
-		Vec3 normal;
-		Vec2 uv;
+		Vec3	vertex,
+				normal;
+		Vec2	uv;
+
+		// Bones
+		Vec4
+				bonesID, 
+				bonesWeight;
 
 		DecalVertex() {}
 
@@ -39,39 +44,51 @@ namespace p3d {
 			uv = u;
 		}
 
+		DecalVertex(Vec3 v, Vec3 n, Vec2 u, Vec4 BoneIDs, Vec4 BoneWeights)
+		{
+			vertex = v;
+			normal = n;
+			uv = u;
+			bonesID = BoneIDs;
+			bonesWeight = BoneWeights;
+		}
+
 		std::string toString()
 		{
 			return "Vertex: " + vertex.toString() + " - Normal: " + normal.toString() + " - UV: " + uv.toString();
 		}
 	};
 
-	class PYROS3D_API Decal : public Primitive
+	class PYROS3D_API Decal : public Model
 	{
-	public:
+		public:
 
-		Decal(std::vector<DecalVertex> vertices);
+			Decal(std::vector<DecalVertex> vertices, bool haveBones = false);
 
 	};
 
-	class PYROS3D_API DecalGeometry {
+	class PYROS3D_API DecalGeometry 
+	{
 
-	private:
+		private:
 
-		f32 size;
-		Matrix CubeMatrix, iCubeMatrix;
-		Vec3 position, rotation, dimensions, check;
-		RenderingComponent* rcomp;
-		Renderable* decal;
+			f32 size;
+			Matrix CubeMatrix, iCubeMatrix;
+			Vec3 position, rotation, dimensions, check;
+			RenderingComponent* rcomp;
+			Renderable* decal;
+			bool haveBones;
 
-		void clipFace(std::vector<DecalVertex> &inVertices, Vec3 plane);
-		DecalVertex clip(DecalVertex v0, DecalVertex v1, Vec3 p);
-		void ComputeDecal();
+			void clipFace(std::vector<DecalVertex> &inVertices, Vec3 plane);
+			DecalVertex clip(DecalVertex v0, DecalVertex v1, Vec3 p);
+			void ComputeDecal();
 
-	public:
+		public:
 
-		DecalGeometry(RenderingComponent* rcomp, Vec3 position, Vec3 rotation, Vec3 dimensions, Vec3 check = Vec3(1, 1, 1));
-		Renderable* GetDecal() { return decal; }
-		virtual ~DecalGeometry();
+			DecalGeometry(RenderingComponent* rcomp, Vec3 position, Vec3 rotation, Vec3 dimensions, Vec3 check = Vec3(1, 1, 1));
+			DecalGeometry(RenderingComponent* rcomp, Matrix transform, Vec3 dimensions, Vec3 check = Vec3(1, 1, 1));
+			Renderable* GetDecal() { return decal; }
+			virtual ~DecalGeometry();
 
 	};
 

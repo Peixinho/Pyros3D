@@ -139,29 +139,29 @@ namespace p3d {
         }
         void Matrix::Scale(const f32 sx, const f32 sy, const f32 sz)
         {    
-             m[0] = sx;
-             m[5] = sy;
-             m[10] = sz;
-             m[15] = 1.0f;
+             m[0] *= sx;
+             m[5] *= sy;
+             m[10] *= sz;
+             m[15] *= 1.0f;
         }
         void Matrix::Scale(const Vec3 &xyz)
         {
-             m[0] = xyz.x;
-             m[5] = xyz.y;
-             m[10] = xyz.z;
-             m[15] = 1.0f;
+             m[0] *= xyz.x;
+             m[5] *= xyz.y;
+             m[10] *= xyz.z;
+             m[15] *= 1.0f;
         }
         void Matrix::ScaleX(const f32 x)
         {
-            m[0] = x;
+            m[0] *= x;
         }
         void Matrix::ScaleY(const f32 y)
         {
-            m[5] = y;
+            m[5] *= y;
         }
         void Matrix::ScaleZ(const f32 z)
         {
-            m[10] = z;
+            m[10] *= z;
         }
         Matrix Matrix::GetRotation(const Vec3 &s) const
         {

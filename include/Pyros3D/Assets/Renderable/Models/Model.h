@@ -56,7 +56,8 @@ namespace p3d {
             void GetBoneChilds(std::map<StringID,Bone> Skeleton, const int32 id, const uint32 iterations);
         
         protected:
-        
+			
+			Model() {}
             uint32 MaterialOptions;
 
     };
