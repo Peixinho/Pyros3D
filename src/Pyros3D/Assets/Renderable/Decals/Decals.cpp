@@ -174,61 +174,63 @@ namespace p3d {
 		std::vector<Vec3> vertex, normal;
 		std::vector<Vec4> bonesID, bonesWeight;
 
+		int32 bPosition, bNormal, bBonesID, bBonesWeight;
+		int32 aPosition, aNormal, aBonesID, aBonesWeight;
+		aPosition = aNormal = aBonesID = aBonesWeight = bPosition = bNormal = bBonesID = bBonesWeight = -1;
+
 		for (uint32 l = 0; l < rc->Geometry->Attributes.size(); l++)
-		for (std::vector<VertexAttribute*>::iterator i = rc->Geometry->Attributes[l]->Attributes.begin(); i != rc->Geometry->Attributes[l]->Attributes.end(); i++)
+		for (uint32 i = 0; i < rc->Geometry->Attributes[l]->Attributes.size(); i++)
 		{
-			if ((*i)->Name.compare(std::string("aPosition")) == 0)
+			if (rc->Geometry->Attributes[l]->Attributes[i]->Name.compare(std::string("aPosition")) == 0)
 			{
-				vertex.resize((*i)->DataLength);
-				memcpy(&vertex[0], &(*i)->Data[0], (*i)->DataLength*sizeof(Vec3));
-				std::cout << vertex.size() << std::endl;
+				bPosition = l;
+				aPosition = i;
 			}
-			else if ((*i)->Name.compare(std::string("aNormal")) == 0)
+			else if (rc->Geometry->Attributes[l]->Attributes[i]->Name.compare(std::string("aNormal")) == 0)
 			{
-				normal.resize((*i)->DataLength);
-				memcpy(&normal[0], &(*i)->Data[0], (*i)->DataLength*sizeof(Vec3));
-				std::cout << normal.size() << std::endl;
+				bNormal = l;
+				aNormal = i;
 			}
-			else if ((*i)->Name.compare(std::string("aBonesID")) == 0)
+			else if (rc->Geometry->Attributes[l]->Attributes[i]->Name.compare(std::string("aBonesID")) == 0)
 			{
 				haveBones = true;
-				bonesID.resize((*i)->DataLength);
-				memcpy(&bonesID[0], &(*i)->Data[0], (*i)->DataLength*sizeof(Vec3));
+				bBonesID = l;
+				aBonesID = i;
 			}
-			else if ((*i)->Name.compare(std::string("aBonesWeight")) == 0)
+			else if (rc->Geometry->Attributes[l]->Attributes[i]->Name.compare(std::string("aBonesWeight")) == 0)
 			{
 				haveBones = true;
-				bonesWeight.resize((*i)->DataLength);
-				memcpy(&bonesWeight[0], &(*i)->Data[0], (*i)->DataLength*sizeof(Vec3));
+				bBonesWeight = l;
+				aBonesWeight = i;
 			}
 		}
 			
 		for (uint32 i = 0; i < rc->Geometry->GetIndexData().size(); i += 3)
 		{
-			Vec3 v0 = iCubeMatrix * vertex[rc->Geometry->GetIndexData()[i]];
-			Vec3 n0 = normal[rc->Geometry->GetIndexData()[i]];
+			Vec3 v0 = iCubeMatrix * *(Vec3*)(&rc->Geometry->Attributes[bPosition]->Attributes[aPosition]->Data[rc->Geometry->GetIndexData()[i] * sizeof(Vec3)]);
+			Vec3 n0 = *(Vec3*)(&rc->Geometry->Attributes[bNormal]->Attributes[aNormal]->Data[rc->Geometry->GetIndexData()[i] * sizeof(Vec3)]);
 			Vec2 uv0 = Vec2(0, 0);
 
-			Vec3 v1 = iCubeMatrix * vertex[rc->Geometry->GetIndexData()[i + 1]];
-			Vec3 n1 = normal[rc->Geometry->GetIndexData()[i + 1]];
+			Vec3 v1 = iCubeMatrix * *(Vec3*)(&rc->Geometry->Attributes[bPosition]->Attributes[aPosition]->Data[rc->Geometry->GetIndexData()[i + 1] * sizeof(Vec3)]);
+			Vec3 n1 = *(Vec3*)(&rc->Geometry->Attributes[bNormal]->Attributes[aNormal]->Data[rc->Geometry->GetIndexData()[i + 1] * sizeof(Vec3)]);
 			Vec2 uv1 = Vec2(0, 0);
 
-			Vec3 v2 = iCubeMatrix * vertex[rc->Geometry->GetIndexData()[i + 2]];
-			Vec3 n2 = normal[rc->Geometry->GetIndexData()[i + 2]];
+			Vec3 v2 = iCubeMatrix * *(Vec3*)(&rc->Geometry->Attributes[bPosition]->Attributes[aPosition]->Data[rc->Geometry->GetIndexData()[i + 2] * sizeof(Vec3)]);
+			Vec3 n2 = *(Vec3*)(&rc->Geometry->Attributes[bNormal]->Attributes[aNormal]->Data[rc->Geometry->GetIndexData()[i + 2] * sizeof(Vec3)]);
 			Vec2 uv2 = Vec2(0, 0);
 
 			if (haveBones)
 			{
-				Vec4 boneID0 = bonesID[rc->Geometry->GetIndexData()[i]];
-				Vec4 boneWeight0 = bonesWeight[rc->Geometry->GetIndexData()[i]];
+				Vec4 boneID0 = *(Vec4*)(&rc->Geometry->Attributes[bBonesID]->Attributes[aBonesID]->Data[rc->Geometry->GetIndexData()[i] * sizeof(Vec4)]);
+				Vec4 boneWeight0 = *(Vec4*)(&rc->Geometry->Attributes[bBonesWeight]->Attributes[aBonesWeight]->Data[rc->Geometry->GetIndexData()[i] * sizeof(Vec4)]);
 				vertices.push_back(DecalVertex(v0, n0, uv0, boneID0, boneWeight0));
 
-				Vec4 boneID1 = bonesID[rc->Geometry->GetIndexData()[i + 1]];
-				Vec4 boneWeight1 = bonesWeight[rc->Geometry->GetIndexData()[i + 1]];
+				Vec4 boneID1 = *(Vec4*)(&rc->Geometry->Attributes[bBonesID]->Attributes[aBonesID]->Data[rc->Geometry->GetIndexData()[i + 1] * sizeof(Vec4)]);
+				Vec4 boneWeight1 = *(Vec4*)(&rc->Geometry->Attributes[bBonesWeight]->Attributes[aBonesWeight]->Data[rc->Geometry->GetIndexData()[i + 1] * sizeof(Vec4)]);
 				vertices.push_back(DecalVertex(v1, n1, uv1, boneID1, boneWeight1));
 
-				Vec4 boneID2 = bonesID[rc->Geometry->GetIndexData()[i + 2]];
-				Vec4 boneWeight2 = bonesWeight[rc->Geometry->GetIndexData()[i + 2]];
+				Vec4 boneID2 = *(Vec4*)(&rc->Geometry->Attributes[bBonesID]->Attributes[aBonesID]->Data[rc->Geometry->GetIndexData()[i + 2] * sizeof(Vec4)]);
+				Vec4 boneWeight2 = *(Vec4*)(&rc->Geometry->Attributes[bBonesWeight]->Attributes[aBonesWeight]->Data[rc->Geometry->GetIndexData()[i + 2] * sizeof(Vec4)]);
 				vertices.push_back(DecalVertex(v2, n2, uv2, boneID2, boneWeight2));
 			}
 			else {
