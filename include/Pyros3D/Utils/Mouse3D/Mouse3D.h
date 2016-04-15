@@ -23,7 +23,8 @@ namespace p3d {
         virtual ~Mouse3D();
         bool GenerateRay(const f32 windowWidth, const f32 windowHeight, const f32 mouseX, const f32 mouseY, const Matrix &Model, const Matrix &View, const Matrix &Projection);
         bool rayIntersectionTriangle(const Vec3 &v1, const Vec3 &v2, const Vec3 &v3, Vec3 *IntersectionPoint32, f32 *t) const;
-        bool rayIntersectionPlane(const Vec3 &Normal, const Vec3 &Position, Vec3 *IntersectionPoint32) const;
+        bool rayIntersectionPlane(const Vec3 &Normal, const Vec3 &Position, Vec3 *IntersectionPoint32, f32 *t) const;
+		bool rayIntersectionBox(Vec3 min, Vec3 max, f32* t) const;
         const Vec3 &GetOrigin() const;
         const Vec3 &GetDirection() const;
     private:

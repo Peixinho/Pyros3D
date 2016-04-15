@@ -337,8 +337,13 @@ namespace p3d {
 						minBounds = (*i)->GetBoundingMinValue();
 					}
 					else {
-						if ((*i)->GetBoundingMaxValue() > maxBounds) maxBounds = (*i)->GetBoundingMaxValue();
-						if ((*i)->GetBoundingMinValue() < minBounds) minBounds = (*i)->GetBoundingMinValue();
+						if ((*i)->GetBoundingMaxValue().x > maxBounds.x) maxBounds.x = (*i)->GetBoundingMaxValue().x;
+						if ((*i)->GetBoundingMaxValue().y > maxBounds.y) maxBounds.y = (*i)->GetBoundingMaxValue().y;
+						if ((*i)->GetBoundingMaxValue().z > maxBounds.z) maxBounds.z = (*i)->GetBoundingMaxValue().z;
+
+						if ((*i)->GetBoundingMinValue().x < minBounds.x) minBounds.x = (*i)->GetBoundingMinValue().x;
+						if ((*i)->GetBoundingMinValue().y < minBounds.y) minBounds.y = (*i)->GetBoundingMinValue().y;
+						if ((*i)->GetBoundingMinValue().z < minBounds.z) minBounds.z = (*i)->GetBoundingMinValue().z;
 					}
                 }
                 // Set Sphere Radius and Bounds

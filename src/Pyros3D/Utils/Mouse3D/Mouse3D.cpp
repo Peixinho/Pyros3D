@@ -103,7 +103,7 @@ namespace p3d {
         return true;
     }
 
-    bool Mouse3D::rayIntersectionPlane(const Vec3 &Normal, const Vec3 &Position, Vec3 *IntersectionPoint32) const
+    bool Mouse3D::rayIntersectionPlane(const Vec3 &Normal, const Vec3 &Position, Vec3 *IntersectionPoint32, f32* t) const
     {
         Vec3 intersectPoint;
 
@@ -135,8 +135,71 @@ namespace p3d {
         Vec3 p0l0 = Position - Origin;
         f32 _t = p0l0.dotProduct(Normal) / denom; 
         *IntersectionPoint32 = Origin + (Direction * _t);
+		*t = _t;
+
         return true;
     }
+	bool Mouse3D::rayIntersectionBox(Vec3 min, Vec3 max, f32* t) const
+	{
+		int32 tNear = INT_MIN;
+		int32 tFar = INT_MAX;
+
+		//check x
+		if ((Direction.x == 0) && (Origin.x < min.x) && (Origin.x > max.x))
+		{
+			//parallel
+			return false;
+		}
+		else
+		{
+			float t1 = (min.x - Origin.x) / Direction.x;
+			float t2 = (max.x - Origin.x) / Direction.x;
+			if (t1 > t2)
+				std::swap(t1, t2);
+			tNear = Max(tNear, t1);
+			tFar = Min(tFar, t2);
+			if ((tNear > tFar) || (tFar < 0))
+				return false;
+		}
+
+		//check y
+		if ((Direction.y == 0) && (Origin.y < min.y) && (Origin.y > max.y))
+		{
+			//parallel
+			return false;
+		}
+		else
+		{
+			float t1 = (min.y - Origin.y) / Direction.y;
+			float t2 = (max.y - Origin.y) / Direction.y;
+			if (t1 > t2)
+				std::swap(t1, t2);
+			tNear = Max(tNear, t1);
+			tFar = Min(tFar, t2);
+			if ((tNear > tFar) || (tFar < 0))
+				return false;
+		}
+
+		//check z
+		if ((Direction.z == 0) && (Origin.z < min.z) && (Origin.z > max.z))
+		{
+			//parallel
+			return false;
+		}
+		else
+		{
+			float t1 = (min.z - Origin.z) / Direction.z;
+			float t2 = (max.x - Origin.z) / Direction.z;
+			if (t1 > t2)
+				std::swap(t1, t2);
+			tNear = Max(tNear, t1);
+			tFar = Min(tFar, t2);
+			if ((tNear > tFar) || (tFar < 0))
+				return false;
+		}
+		*t = (f32)tNear;
+		return true;
+	}
     bool Mouse3D::UnProject(const f32 winX, const f32 winY, const f32 winZ, const Matrix &modelview, const Matrix &proj, const Vec4 view, f32 *objx, f32 *objy, f32 *objz)
     {
         Matrix finalMatrix;
