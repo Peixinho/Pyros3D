@@ -1,6 +1,7 @@
 #ifndef PHYSICS_DEBUG_DRAW_H
 #define PHYSICS_DEBUG_DRAW_H
 
+#include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
 #include <Pyros3D/Physics/PhysicsEngines/BulletPhysics/BulletPhysics.h>
 #include <Pyros3D/Other/Export.h>
 
@@ -10,16 +11,12 @@ namespace p3d {
 
     class PhysicsDebugDraw : public btIDebugDraw
     {
-     int m_debugMode;
+		int m_debugMode;
 
         public:
 
             PhysicsDebugDraw();
             virtual ~PhysicsDebugDraw();
-
-            void SetProjectionMatrix(const Matrix projection);
-
-            void SetCameraMatrix(const Matrix camera);
 
             virtual void drawLine(const btVector3& from,const btVector3& to,const btVector3& fromColor, const btVector3& toColor);
 
@@ -39,22 +36,12 @@ namespace p3d {
 
             virtual int  getDebugMode() const { return m_debugMode;}
             
-            void StartDebugRendering();
-            void EndDebugRendering();
-            
-        private:
-            
-            IMaterial* physicsDebugMaterial;
-            Matrix projectionMatrix;
-            Matrix viewMatrix;
-            Matrix modelMatrix;
-            
-            std::vector<Vec3> vertexLines;
-            std::vector<Vec4> colorLines;
-            std::vector<Vec3> vertexQuadStrip;
-            std::vector<Vec4> colorQuadStrip;
-            std::vector<Vec3> vertexTriangles;
-            std::vector<Vec4> colorTriangles;
+			void ClearBuffers();
+			void Render(const Matrix &camera, const Matrix &projection);
+
+		protected:
+
+			DebugRenderer* debugRenderer;
             
     };
 

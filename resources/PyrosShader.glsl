@@ -7,7 +7,7 @@
         precision mediump float;
     #endif
 
-    #ifdef PHYSICSDEBUG
+    #ifdef DEBUGRENDERING
         attribute vec4 aColor;
         varying vec4 vColor;
     #endif
@@ -55,7 +55,7 @@
     mat4 matAnimation = mat4(1.0);
     void main() {
 
-        #ifdef PHYSICSDEBUG
+        #ifdef DEBUGRENDERING
             vColor = aColor;
         #endif
 
@@ -218,7 +218,7 @@
         uniform vec4 uColor;
     #endif
 
-    #ifdef PHYSICSDEBUG
+    #ifdef DEBUGRENDERING
         varying vec4 vColor;
     #endif
 
@@ -396,7 +396,7 @@
             } else diffuse *= uColor;
         #endif
 
-        #ifdef PHYSICSDEBUG
+        #ifdef DEBUGRENDERING
             if (!diffuseIsSet) 
             {
                 diffuse=vColor;

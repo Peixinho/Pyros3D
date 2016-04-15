@@ -36,8 +36,8 @@ namespace p3d
 			std::string define;
 			if (options & ShaderUsage::Color)
 				define += std::string("#define COLOR\n");
-			if (options & ShaderUsage::PhysicsDebug)
-				define += std::string("#define PHYSICSDEBUG\n");
+			if (options & ShaderUsage::DebugRendering)
+				define += std::string("#define DEBUGRENDERING\n");
 			if (options & ShaderUsage::Texture)
 				define += std::string("#define TEXTURE\n");
 			if (options & ShaderUsage::TextRendering)
