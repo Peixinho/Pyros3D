@@ -54,6 +54,8 @@ namespace p3d {
                 Vec3 GetEulerFromRotationMatrix(const uint32 order = 0);
 
                 Matrix GetRotation(const Vec3 &scale) const;
+				void ForceScale(const f32 sx, const f32 sy, const f32 sz);
+				void ForceScale(const Vec3 &xyz);
                 void Scale(const f32 sx, const f32 sy, const f32 sz);
                 void Scale(const Vec3 &xyz);
                 void ScaleX(const f32 x);

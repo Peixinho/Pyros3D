@@ -137,6 +137,20 @@ namespace p3d {
             mrot.m[4] = -mrot.m[1];
             *this*=mrot;
         }
+		void Matrix::ForceScale(const f32 sx, const f32 sy, const f32 sz)
+		{
+			m[0] = sx;
+			m[5] = sy;
+			m[10] = sz;
+			m[15] = 1.0f;
+		}
+		void Matrix::ForceScale(const Vec3 &xyz)
+		{
+			m[0] = xyz.x;
+			m[5] = xyz.y;
+			m[10] = xyz.z;
+			m[15] = 1.0f;
+		}
         void Matrix::Scale(const f32 sx, const f32 sy, const f32 sz)
         {    
              m[0] *= sx;

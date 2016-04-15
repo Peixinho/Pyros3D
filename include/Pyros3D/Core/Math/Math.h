@@ -51,6 +51,13 @@ namespace p3d {
 
 #define LIMIT_RANGE(low, value, high) { if (value < low)	value = low; else if(value > high) value = high; }
 
+#ifndef INT_MIN
+	#define INT_MIN -2147483647
+#endif
+#ifndef INT_MAX
+	#define INT_MAX 2147483647
+#endif
+
 #define Min(a,b) ((a)<(b)?(a):(b))
 #define Max(a,b) ((a)>(b)?(a):(b))
 #define Clamp(x) ( Min(Max(x,-1),1) )

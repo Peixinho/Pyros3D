@@ -214,8 +214,8 @@ namespace p3d {
             
             // Flags
             uint32 bufferOptions, glBufferOptions;
-            bool depthWritting1stRun, depthWritting;
-            bool depthTesting1stRun, depthTesting;
+            bool depthWritting;
+            bool depthTesting;
             bool clearDepthBuffer;
             bool sorting;
 

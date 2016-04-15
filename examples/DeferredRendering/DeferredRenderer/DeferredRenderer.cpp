@@ -49,6 +49,9 @@ namespace p3d {
         deferredMaterial->AddUniform(Uniforms::Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
         deferredMaterial->AddUniform(Uniforms::Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
         deferredMaterial->AddUniform(Uniforms::Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
+
+		deferredMaterial->DisableDepthTest();
+		deferredMaterial->DisableDepthWrite();
         
         // Light Volume
         sphereHandle = new Sphere(1,4,4);
@@ -153,17 +156,12 @@ namespace p3d {
             // Set Viewport
             _SetViewPort(viewPortStartX,viewPortStartY,viewPortEndX,viewPortEndY);
             ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
-            DepthTest();
-            DepthWrite();
             ClearDepthBuffer();
             ClearScreen();
 
-            // Disable Blending
-            DisableBlending();
-
             // Draw Background
             DrawBackground();
-
+			
             // Render Scene with Objects Material
             for (std::vector<RenderingMesh*>::iterator i=rmesh.begin();i!=rmesh.end();i++)
             {
@@ -186,7 +184,7 @@ namespace p3d {
                         RenderObject((*i),(*i)->renderingComponent->GetOwner(),(*i)->Material);
                 }
             }
-
+			
             // End Rendering
             EndRender();
 
@@ -195,23 +193,15 @@ namespace p3d {
 
             // Unbind FrameBuffer
             FBO->UnBind();
+			
+			ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
+			ClearDepthBuffer();
+			ClearScreen();
 
-            // Disable Depth Masking
-            DisableDepthWritting();
-
-            // Disable Depth Test
-            DisableDepthTest();
-
-            // Second Pass
-            EnableBlending();
-            BlendingEquation(BlendEq::Add);
-            BlendingFunction(BlendFunc::One, BlendFunc::One);
-
-            ClearBufferBit(Buffer_Bit::Color);
-            DepthTest();
-            DepthWrite();
-            ClearDepthBuffer();
-            ClearScreen();
+			// Second Pass
+			EnableBlending();
+			BlendingEquation(BlendEq::Add);
+			BlendingFunction(BlendFunc::One, BlendFunc::One);
 
             // Bind FBO Textures
             FBO->GetAttachments()[FrameBufferAttachmentFormat::Depth_Attachment]->TexturePTR->Bind();
@@ -234,7 +224,7 @@ namespace p3d {
                             deferredMaterial->SetUniformValue("uLightPosition", &pos);
                             deferredMaterial->SetUniformValue("uLightRadius", p->GetLightRadius());
                             deferredMaterial->SetUniformValue("uLightColor", &color);
-                            pointLight->GetMeshes()[0]->Pivot.Scale(p->GetLightRadius(),p->GetLightRadius(),p->GetLightRadius());
+                            pointLight->GetMeshes()[0]->Pivot.ForceScale(p->GetLightRadius(),p->GetLightRadius(),p->GetLightRadius());
                             RenderObject(pointLight->GetMeshes()[0],p->GetOwner(),deferredMaterial);
                     }
                     else if (SpotLight* s = dynamic_cast<SpotLight*>((*i))) {
@@ -249,11 +239,7 @@ namespace p3d {
                     }
                 }
             }
-        
-            // Enable Depth Test
-            EnableDepthTest();
-            EnableDepthWritting();
-            
+			
             // Disable Blending
             DisableBlending();
 

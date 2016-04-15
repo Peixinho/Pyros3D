@@ -42,8 +42,7 @@ namespace p3d {
 
 		// Defaults
 		ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
-		depthWritting = depthTesting = true;
-		depthTesting1stRun = depthTesting1stRun = false;
+		depthWritting = depthTesting = false;
 		clearDepthBuffer = true;
 		sorting = true;
 		scissorTest = false;
@@ -136,8 +135,8 @@ namespace p3d {
 			LastProgramUsed = -1;
 			LastMaterialUsed = -1;
 			LastMeshRendered = -1;
-			depthWritting = depthTesting = true;
-			depthTesting1stRun = depthTesting1stRun = false;
+			depthWritting = false;
+			depthTesting = false;
 
 			DisableBlending();
 		}
@@ -269,17 +268,15 @@ namespace p3d {
 		SendModelUniforms(rmesh, Material);
 
 		// Depth Write
-		if (Material->IsDepthWritting() != depthWritting || !depthWritting1stRun)
+		if (Material->IsDepthWritting() != depthWritting)
 		{
-			depthWritting1stRun = true;
 			depthWritting = Material->IsDepthWritting();
 			DepthWrite();
 		}
 
 		// Depth Test
-		if (Material->IsDepthTesting() != depthTesting || !depthTesting1stRun)
+		if (Material->IsDepthTesting() != depthTesting)
 		{
-			depthTesting1stRun = true;
 			depthTesting = Material->IsDepthTesting();
 			DepthTest();
 		}
@@ -350,7 +347,7 @@ namespace p3d {
 	
 	void IRenderer::DepthWrite()
 	{
-		if (depthWritting && !blending)
+		if (depthWritting)
 		{
 			GLCHECKER(glDepthMask(GL_TRUE));
 		}
