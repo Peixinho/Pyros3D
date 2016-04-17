@@ -16,8 +16,12 @@ namespace p3d {
 
     bool ModelLoader::Load(const std::string& Filename)
     {
+		std::string path = "";
 		std::string needle = "/";
-		std::string path = Filename.substr(0, Filename.rfind(needle)) + needle;
+
+		std::size_t found = Filename.rfind(needle);
+		if (found<Filename.size())
+			path = Filename.substr(0, found) + needle;
 
 		BinaryFile* bin = new BinaryFile();
 		bin->Open(Filename.c_str(),'r');
