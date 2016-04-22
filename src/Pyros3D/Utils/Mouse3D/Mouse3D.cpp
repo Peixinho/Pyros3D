@@ -215,7 +215,7 @@ namespace p3d {
 
 		if (*t < 0.0f) *t = 0.0f;
 		*intersectionPoint32 = position + (Direction * *t);
-		std::cout << (*intersectionPoint32).toString() << std::endl;
+		
 		return true;
 	}
     bool Mouse3D::UnProject(const f32 winX, const f32 winY, const f32 winZ, const Matrix &modelview, const Matrix &proj, const Vec4 view, f32 *objx, f32 *objy, f32 *objz)

@@ -77,20 +77,18 @@ namespace p3d {
             void CalculateBounding()
             {
                 // Bounding Box
-                for (uint32 i=0;i<tVertex.size();i++)
+				minBounds = tVertex[0];
+				maxBounds = tVertex[0];
+                for (uint32 i=1;i<tVertex.size();i++)
                 {
-                    if (i==0) {
-                        minBounds = tVertex[i];
-                        maxBounds = tVertex[i];
-                    } else {
-                        if (tVertex[i].x<minBounds.x) minBounds.x = tVertex[i].x;
-                        if (tVertex[i].y<minBounds.y) minBounds.y = tVertex[i].y;
-                        if (tVertex[i].z<minBounds.z) minBounds.z = tVertex[i].z;
-                        if (tVertex[i].x>maxBounds.x) maxBounds.x = tVertex[i].x;
-                        if (tVertex[i].y>maxBounds.y) maxBounds.y = tVertex[i].y;
-                        if (tVertex[i].z>maxBounds.z) maxBounds.z = tVertex[i].z;
-                    }
+					if (tVertex[i].x < minBounds.x) minBounds.x = tVertex[i].x;
+					if (tVertex[i].y < minBounds.y) minBounds.y = tVertex[i].y;
+					if (tVertex[i].z < minBounds.z) minBounds.z = tVertex[i].z;
+					if (tVertex[i].x > maxBounds.x) maxBounds.x = tVertex[i].x;
+					if (tVertex[i].y > maxBounds.y) maxBounds.y = tVertex[i].y;
+					if (tVertex[i].z > maxBounds.z) maxBounds.z = tVertex[i].z;
                 }
+
                 // Bounding Sphere
                 BoundingSphereCenter = maxBounds-minBounds;
                 f32 a = maxBounds.distance(BoundingSphereCenter);

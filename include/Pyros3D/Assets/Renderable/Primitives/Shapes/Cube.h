@@ -23,9 +23,9 @@ namespace p3d {
                 isSmooth = smooth;
                 calculateTangentBitangent = TangentBitangent;
                 
-                f32 w2 = width  / 2;
-                f32 h2 = height / 2;
-                f32 d2 = depth  / 2;
+                f32 w2 = width;
+                f32 h2 = height;
+                f32 d2 = depth;
 
                 // Front Face
                 Vec3 a = Vec3(-w2,-h2,d2); Vec3 b = Vec3(w2,-h2,d2); Vec3 c = Vec3(w2,h2,d2); Vec3 d = Vec3(-w2,h2,d2);
