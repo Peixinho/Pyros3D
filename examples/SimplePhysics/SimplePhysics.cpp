@@ -76,7 +76,7 @@ void SimplePhysics::Init()
     srand( time( NULL ) );
 
     // Create Geometry
-    cubeHandle = new Cube(10,10,10);
+    cubeHandle = new Cube(5,5,5);
 
     // Create 100 Cubes
 #if !defined(GLES2)
@@ -110,13 +110,13 @@ void SimplePhysics::Init()
     // Create Floor
     Floor = new GameObject();
     // Create Geometry
-    floorHandle = new Cube(200,5,200);
+    floorHandle = new Cube(100,3,100);
 
     // Create Floor Geometry
     rFloor = new RenderingComponent(floorHandle,Diffuse);
 
     // Create Floor Physics
-    pFloor = (IPhysicsComponent*)physics->CreateBox(100,2.5,100,0);
+    pFloor = (IPhysicsComponent*)physics->CreateBox(100,3,100,0);
     // Add Physics Component to GameObject
     Floor->Add(pFloor);
     

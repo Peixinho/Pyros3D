@@ -41,6 +41,7 @@ There are specific readme in android and emscripten sections.
 ![Physics](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/SimplePhysics/Simple%20Physics%20Example.png)
 ![Skeleton Animation](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/SkeletonAnimationExample/SkeletonAnimation.png)
 ![Text Rendering](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/TextRendering/TextRendering.png)
+![Decals](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/Decals/Decals.png)
 
 License
 ----

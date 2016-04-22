@@ -77,7 +77,7 @@ void RotatingCubeWithLightingAndShadow::Init()
 
 	// Create Floor
 	Floor = new GameObject();
-	floorMesh = new Cube(200, 15, 200);
+	floorMesh = new Cube(100, 10, 100);
 	Ceiling = new GameObject();
 	
 
@@ -102,7 +102,7 @@ void RotatingCubeWithLightingAndShadow::Init()
 
 	// Create Game Object
 	CubeObject = new GameObject();
-	cubeMesh = new Cube(10, 10, 10);
+	cubeMesh = new Cube(5, 5, 5);
 	rCube = new RenderingComponent(cubeMesh, Diffuse);
 	CubeObject->Add(rCube);
 

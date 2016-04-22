@@ -55,7 +55,7 @@ void RotatingCubeWithLighting::Init()
         
         // Create Game Object
         CubeObject = new GameObject();
-        cubeMesh = new Cube(30,30,30);
+        cubeMesh = new Cube(15,15,15);
         rCube = new RenderingComponent(cubeMesh,Diffuse);
         CubeObject->Add(rCube);
         
