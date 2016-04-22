@@ -200,6 +200,24 @@ namespace p3d {
 		*t = (f32)tNear;
 		return true;
 	}
+	bool Mouse3D::rayIntersectionSphere(const Vec3 &position, const f32 radius, Vec3 *intersectionPoint32, f32 *t) const
+	{
+		Vec3 m = Origin - position;
+		f32 b = m.dotProduct(Direction);
+		f32 c = m.dotProduct(m) - radius * radius;
+
+		if (c > 0.0f && b > 0.0f) return false;
+		f32 discr = b*b - c;
+
+		if (discr < 0.0f) return false;
+
+		*t = -b - sqrtf(discr);
+
+		if (*t < 0.0f) *t = 0.0f;
+		*intersectionPoint32 = position + (Direction * *t);
+		std::cout << (*intersectionPoint32).toString() << std::endl;
+		return true;
+	}
     bool Mouse3D::UnProject(const f32 winX, const f32 winY, const f32 winZ, const Matrix &modelview, const Matrix &proj, const Vec4 view, f32 *objx, f32 *objy, f32 *objz)
     {
         Matrix finalMatrix;

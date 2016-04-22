@@ -25,6 +25,7 @@ namespace p3d {
         bool rayIntersectionTriangle(const Vec3 &v1, const Vec3 &v2, const Vec3 &v3, Vec3 *IntersectionPoint32, f32 *t) const;
         bool rayIntersectionPlane(const Vec3 &Normal, const Vec3 &Position, Vec3 *IntersectionPoint32, f32 *t) const;
 		bool rayIntersectionBox(Vec3 min, Vec3 max, f32* t) const;
+		bool rayIntersectionSphere(const Vec3 &position, const f32 radius, Vec3 *intersectionPoint32, f32 *t) const;
         const Vec3 &GetOrigin() const;
         const Vec3 &GetDirection() const;
     private:
