@@ -31,24 +31,20 @@ namespace p3d {
                 static bool _initiated;
                 static void _message(const std::string &Message)
                 {
-                    #ifdef LOG_TO_FILE
+                    #if defined(LOG_TO_FILE)
 
                         outputFile << Message << std::endl;
 
-                        #else
-                        #ifdef LOG_DISABLE
+                    #elif defined(LOG_DISABLE)
 
                             // NONE
                         
-                        #else
-                            #if defined(LOG_TO_CONSOLE) || defined(_DEBUG)
-                				#if defined(ANDROID)
-                					__android_log_print(ANDROID_LOG_DEBUG, "Pyros3D", "%s", Message.c_str());
-                				#else
-                                    std::cout << Message << std::endl;
-                				#endif
-                            #endif
-                        #endif
+                    #elif defined(LOG_TO_CONSOLE) || defined(_DEBUG)
+                			#if defined(ANDROID)
+                				__android_log_print(ANDROID_LOG_DEBUG, "Pyros3D", "%s", Message.c_str());
+                			#else
+                                std::cout << Message << std::endl;
+                			#endif
                     #endif
                 }
                 static void _echo(const std::string &Message)
