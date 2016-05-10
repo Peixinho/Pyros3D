@@ -63,9 +63,7 @@ namespace p3d {
             virtual ~IEffect();
 
             // Compile Shader
-            void CompileShaders();
-            // Shader Program
-            const uint32 ShaderProgram();            
+            void CompileShaders();           
 
             // Destroy
             void Destroy();
@@ -98,8 +96,6 @@ namespace p3d {
             std::string FragmentShaderString;
             // Shaders
             Shader* shader;
-            // Shader Program
-            uint32 ProgramObject;
             
             // Texture Units 
             int32 TextureUnits;

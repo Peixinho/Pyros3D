@@ -202,7 +202,7 @@ namespace p3d {
             GLCHECKER(glClearColor(0.f,0.f,0.f,0.f));
 
             // Start Shader Program
-            GLCHECKER(glUseProgram((*effect)->ShaderProgram()));
+            GLCHECKER(glUseProgram((*effect)->shader->ShaderProgram()));
 
             // Bind MRT
             for (std::vector<RTT::Info>::iterator i = (*effect)->RTTOrder.begin();i != (*effect)->RTTOrder.end();i++)
@@ -229,7 +229,7 @@ namespace p3d {
             {
 				if ((*i).second.handle==-2)
                 {
-					(*i).second.handle=Shader::GetUniformLocation((*effect)->ShaderProgram(),(*i).second.uniform.Name);
+					(*i).second.handle=Shader::GetUniformLocation((*effect)->shader->ShaderProgram(),(*i).second.uniform.Name);
                 }
                 if ((*i).second.handle!=-1)
                 {
@@ -261,16 +261,17 @@ namespace p3d {
                     }
                 }
             }
+
             // Getting Attributes locations
             // Position
             if ((*effect)->positionHandle==-2)
             {
-                (*effect)->positionHandle = Shader::GetAttributeLocation((*effect)->ShaderProgram(),"aPosition");
+                (*effect)->positionHandle = Shader::GetAttributeLocation((*effect)->shader->ShaderProgram(),"aPosition");
             }
             // Texcoord
             if ((*effect)->texcoordHandle==-2)
             {
-                (*effect)->texcoordHandle = Shader::GetAttributeLocation((*effect)->ShaderProgram(),"aTexcoord");
+                (*effect)->texcoordHandle = Shader::GetAttributeLocation((*effect)->shader->ShaderProgram(),"aTexcoord");
             }
 
             // Send Attributes

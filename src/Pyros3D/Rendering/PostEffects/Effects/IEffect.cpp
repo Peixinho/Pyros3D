@@ -19,23 +19,20 @@ namespace p3d {
         // Reset Handles
         positionHandle = texcoordHandle = -2;
         
-        // Reset Shader Program
-        ProgramObject = 0;
-        
         // Initialize Shaders
         shader = new Shader();
         
         // Set Vertex Shader
         // Because its always the same
         VertexShaderString =  
-                                    "attribute vec3 aPosition;"
-                                    "attribute vec2 aTexcoord;"
-                                    "varying vec2 vTexcoord;"
-                                    "uniform mat4 uOrtho;"
-                                    "void main() {"
-                                        "gl_Position = uOrtho * vec4(aPosition,1.0);"
-                                        "vTexcoord = aTexcoord;"
-                                    "}";
+                                    "attribute vec3 aPosition;\n"
+                                    "attribute vec2 aTexcoord;\n"
+                                    "varying vec2 vTexcoord;\n"
+                                    "uniform mat4 uOrtho;\n"
+                                    "void main() {\n"
+                                        "gl_Position = uOrtho * vec4(aPosition,1.0);\n"
+                                        "vTexcoord = aTexcoord;\n"
+                                    "}\n";
         
         // Add Projection Matrix Uniform
         Uniform proj;
@@ -66,11 +63,6 @@ namespace p3d {
         shader->CompileShader(ShaderType::FragmentShader);
 
 		shader->LinkProgram();
-    }
-    
-    const uint32 IEffect::ShaderProgram()
-    {
-        return ProgramObject;
     }
     
     void IEffect::Destroy()
