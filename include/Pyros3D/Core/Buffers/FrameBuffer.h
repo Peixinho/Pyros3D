@@ -56,6 +56,14 @@ namespace p3d {
         };
     }
 
+	namespace FBOAccess {
+		enum {
+			Read_Write = 0,
+			Read,
+			Write
+		};
+	}
+
     class PYROS3D_API FBOAttachment
     {
         public:
@@ -83,7 +91,7 @@ namespace p3d {
             void AddAttach(const uint32 attachmentFormat, const uint32 TextureType, Texture* attachment);
             void AddAttach(const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height);
             void Resize(const uint32 Width, const uint32 Height);
-            void Bind();
+            void Bind(const uint32 access = FBOAccess::Read_Write);
             bool IsBinded();
             uint32 GetBindID();
             void UnBind();
@@ -101,6 +109,7 @@ namespace p3d {
 
             // Binded
             bool isBinded;
+			uint32 glAccessBinded;
             
             // FBO Type
             uint32 type;

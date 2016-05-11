@@ -30,8 +30,8 @@ namespace p3d {
             
             void Resize(const uint32 width, const uint32 height);
 
-			void Start();
-			void End();
+			void CaptureFrame();
+			void EndCapture();
 
             // Process Post Effects
             void ProcessPostEffects(Projection* projection);
@@ -49,12 +49,11 @@ namespace p3d {
 
         private:
             
-            void UpdateQuad(const uint32 width, const uint32 height);
+            void CreateQuad();
             
             // Set Quad Geometry
             std::vector<Vec3> vertex;
             std::vector<Vec2> texcoord;
-            bool ChangedDimensions;
             
 			uint32 Width, Height;
 
@@ -69,9 +68,6 @@ namespace p3d {
 
             // Frame Buffer Flags
             bool usingFBO1, usingFBO2;
-
-            // Projection Matrix
-            Projection proj;
     };
 
 };

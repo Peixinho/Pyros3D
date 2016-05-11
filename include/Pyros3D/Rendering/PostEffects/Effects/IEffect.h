@@ -44,7 +44,6 @@ namespace p3d {
     namespace Uniforms {
         namespace PostEffects {
             enum {
-                ProjectionMatrix = 0,
                 NearFarPlane,
                 ScreenDimensions,
                 Other

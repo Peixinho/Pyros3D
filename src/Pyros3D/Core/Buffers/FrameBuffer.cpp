@@ -414,10 +414,24 @@ namespace p3d {
             GLCHECKER(glBindFramebuffer(GL_FRAMEBUFFER, 0));
     }
 
-    void FrameBuffer::Bind()
+    void FrameBuffer::Bind(const uint32 access)
     {
         // bind fbo
-        GLCHECKER(glBindFramebuffer(GL_FRAMEBUFFER, fbo));
+		glAccessBinded = GL_FRAMEBUFFER;
+		switch (access)
+		{
+			case FBOAccess::Read:
+				glAccessBinded = GL_READ_FRAMEBUFFER;
+			break;
+			case FBOAccess::Write:
+				glAccessBinded = GL_DRAW_FRAMEBUFFER;
+			break;
+			default:
+				glAccessBinded = GL_FRAMEBUFFER;
+			break;
+		}
+
+        GLCHECKER(glBindFramebuffer(glAccessBinded, fbo));
         isBinded = true;
     }
     uint32 FrameBuffer::GetBindID()
@@ -427,7 +441,7 @@ namespace p3d {
     void FrameBuffer::UnBind()
     {
         // unbind fbo
-        GLCHECKER(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+        GLCHECKER(glBindFramebuffer(glAccessBinded, 0));
 
 #if !defined(GLES2)
         if (drawBuffers)

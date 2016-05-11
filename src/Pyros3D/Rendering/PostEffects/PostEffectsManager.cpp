@@ -19,11 +19,7 @@ namespace p3d {
         Height = height;
         
         // Create Quad
-        UpdateQuad(Width, Height);
-        ChangedDimensions = false;        
-        
-        // Set Projection
-		proj.Ortho(-(int32)Width*.5f,Width*.5f,-(int32)Height*.5f,Height*.5f,-1,1);
+		CreateQuad();
 
 		Color = new Texture();
         Color->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
@@ -67,11 +63,11 @@ namespace p3d {
         return ExternalFBO;
     }
 
-	void PostEffectsManager::Start()
+	void PostEffectsManager::CaptureFrame()
 	{
 		ExternalFBO->Bind();
 	}
-	void PostEffectsManager::End()
+	void PostEffectsManager::EndCapture()
 	{
 		ExternalFBO->UnBind();
 	}
@@ -95,22 +91,16 @@ namespace p3d {
 		LastRTT->Resize(Width, Height);
 		Result1->Resize(Width, Height);
 		Result2->Resize(Width, Height);
-        
-        // Resize Ortho Matrix
-        proj.Ortho(-(int32)Width*.5f,Width*.5f,-(int32)Height*.5f,Height*.5f,-1,1);
-        
-        // Update Quad
-        UpdateQuad(Width,Height);
-        
+	
     }
     
-    void PostEffectsManager::UpdateQuad(const uint32 width, const uint32 height)
+    void PostEffectsManager::CreateQuad()
     {
         // Clear Geometry
         vertex.clear();
         texcoord.clear();
 
-        float w2 = width/2; float h2 = height/2;   
+        float w2 = 1; float h2 = 1;
         
         // Set Quad Vertex
         Vec3 a = Vec3(-w2,-h2,0); Vec3 b = Vec3(w2,-h2,0); Vec3 c = Vec3(w2,h2,0); Vec3 d = Vec3(-w2,h2,0);
@@ -131,7 +121,7 @@ namespace p3d {
         // Save Near and Far Planes
         Vec2 NearFarPlane = Vec2(projection->Near, projection->Far);
         Vec2 ScreenDimensions = Vec2(Width,Height);
-		
+
         // Run Through Effects
         for (std::vector<IEffect*>::iterator effect=effects.begin();effect!=effects.end();effect++)
         {
@@ -140,30 +130,21 @@ namespace p3d {
                 // Draw in Screen
                 usingFBO1 = false;
                 usingFBO2 = false;
-                activeFBO = NULL; 
-				
-                if (ChangedDimensions==true)
-                {
-                    // Revert Dimensions to Default
-                    UpdateQuad(Width,Height);
-                    proj.Ortho(-(int32)Width*.5f,Width*.5f,-(int32)Height*.5f,Height*.5f,-1,1);
-                    // Reset Viewport
-                    GLCHECKER(glViewport(0,0,Width,Height));
-                    
-                    ChangedDimensions = false;
-                }
+                activeFBO = NULL;
+
+				glViewport(0, 0, Width, Height);
                 
             } else {
                 // Draw to FBO
                 
                 // Select Available FBO
-                if (usingFBO1 == true) 
+                if (usingFBO1) 
                 {
                     usingFBO1 = false;
                     usingFBO2 = true;
                     activeFBO = fbo2;
                 } else {
-                    if (usingFBO2 == true) 
+                    if (usingFBO2) 
                     {
                         usingFBO2 = false;
                     }
@@ -172,24 +153,19 @@ namespace p3d {
                 }
                 
                 // Set Custom Dimensions
-                if ((*effect)->HaveCustomDimensions() == true)
-                {                    
-                    UpdateQuad((*effect)->GetWidth(),(*effect)->GetHeight());
-					proj.Ortho(-(int32)(*effect)->GetWidth()*.5f,(*effect)->GetWidth()*.5f,-(int32)(*effect)->GetHeight()*.5f,(*effect)->GetHeight()*.5f,-1,1);
-                    activeFBO->Resize((*effect)->GetWidth(),(*effect)->GetHeight());
-                    
-                    ChangedDimensions = true;
+                if ((*effect)->HaveCustomDimensions())
+                {
+					activeFBO->Resize((*effect)->GetWidth(), (*effect)->GetHeight());
+					Texture* tex = activeFBO->GetAttachments()[0]->TexturePTR;
+					tex->Resize((*effect)->GetWidth(), (*effect)->GetHeight());
+					glViewport(0, 0, (*effect)->GetWidth(), (*effect)->GetHeight());
                     
                 } else {
                     // Revert Default Dimensions
-                    if (ChangedDimensions == true)
-                    {
-                        UpdateQuad(Width,Height);
-                        proj.Ortho(-(int32)Width*.5f,Width*.5f,-(int32)Height*.5f,Height*.5f,-1,1);
-                        activeFBO->Resize(Width,Height);
-                        
-                        ChangedDimensions = false;                        
-                    }
+					activeFBO->Resize(Width, Height);
+					Texture* tex = activeFBO->GetAttachments()[0]->TexturePTR;
+					tex->Resize(Width, Height);
+					glViewport(0, 0, Width, Height);
                 }
                 
                 // Bind FBO
@@ -198,8 +174,8 @@ namespace p3d {
             }
 
             // Clear Screen
+			GLCHECKER(glClearColor(0.f, 0.f, 0.f, 0.f));
             GLCHECKER(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
-            GLCHECKER(glClearColor(0.f,0.f,0.f,0.f));
 
             // Start Shader Program
             GLCHECKER(glUseProgram((*effect)->shader->ShaderProgram()));
@@ -235,13 +211,6 @@ namespace p3d {
                 {
 					switch((*i).second.uniform.Usage)
                     {
-                        case PostEffects::ProjectionMatrix:
-                        {
-							Matrix projection = proj.GetProjectionMatrix();
-							Shader::SendUniform((*i).second.uniform,&projection,(*i).second.handle);
-                        }
-                        break;
-
                         case PostEffects::NearFarPlane:
 						{
 							Shader::SendUniform((*i).second.uniform,&NearFarPlane,(*i).second.handle);
@@ -320,7 +289,7 @@ namespace p3d {
             }
 
             // Unbind FBO if is using and set the RTT
-            if (usingFBO1 == true || usingFBO2 == true)
+            if (usingFBO1|| usingFBO2)
             {
                 activeFBO->UnBind();
                 // Get RTT

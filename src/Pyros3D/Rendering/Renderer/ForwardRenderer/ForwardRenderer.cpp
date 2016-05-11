@@ -601,10 +601,12 @@ namespace p3d {
 					GLCHECKER(glEnable(GL_CLIP_DISTANCE0 + k));
 			}
 #endif
-			ClearScreen();
 
 			// Draw Background
 			DrawBackground();
+
+			// Clear Screen
+			ClearScreen();
 
 			// Render Scene with Objects Material
 			for (std::vector<RenderingMesh*>::iterator i = rmesh.begin(); i != rmesh.end(); i++)

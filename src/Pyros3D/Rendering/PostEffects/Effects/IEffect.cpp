@@ -25,21 +25,13 @@ namespace p3d {
         // Set Vertex Shader
         // Because its always the same
         VertexShaderString =  
-                                    "attribute vec3 aPosition;\n"
-                                    "attribute vec2 aTexcoord;\n"
-                                    "varying vec2 vTexcoord;\n"
-                                    "uniform mat4 uOrtho;\n"
-                                    "void main() {\n"
-                                        "gl_Position = uOrtho * vec4(aPosition,1.0);\n"
-                                        "vTexcoord = aTexcoord;\n"
-                                    "}\n";
-        
-        // Add Projection Matrix Uniform
-        Uniform proj;
-        proj.Name = "uOrtho";
-        proj.Type = DataType::Matrix;
-        proj.Usage = DataUsage::ProjectionMatrix;
-        AddUniform(proj);
+                                "attribute vec3 aPosition;\n"
+                                "attribute vec2 aTexcoord;\n"
+                                "varying vec2 vTexcoord;\n"
+                                "void main() {\n"
+                                    "gl_Position = vec4(aPosition,1.0);\n"
+                                    "vTexcoord = aTexcoord;\n"
+                                "}\n";
         
         // Reset
         TextureUnits = 0;
@@ -89,7 +81,7 @@ namespace p3d {
     void IEffect::SetUniformValue(StringID UniformID, int32 value)
     {
        Uniforms[UniformID].uniform.SetValue(&value,1);
-    } 
+    }
     void IEffect::SetUniformValue(std::string Uniform, f32 value)
     {
         StringID ID(MakeStringID(Uniform));
