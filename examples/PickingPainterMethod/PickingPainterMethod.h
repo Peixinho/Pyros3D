@@ -78,13 +78,6 @@ class PickingPainterMethod : public ClassName {
         
         // Selected Mesh
         RenderingMesh* SelectedMesh;
-
-		// Post Effects
-		PostEffectsManager* post;
-		RTTDebug *rttdebug;
-		BlurEffect *blur;
-		BloomEffect *bloom;
-		SSAOEffect *ssao;
 };
 
 #endif	/* PICKINGPAINTERMETHOD_H */

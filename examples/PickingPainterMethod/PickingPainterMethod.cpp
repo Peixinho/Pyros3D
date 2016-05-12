@@ -88,7 +88,7 @@ void PickingPainterMethod::Init()
             // Add GameObject to Scene
             Scene->Add(Cube);
             // Set Random Position to the GameObject
-            Cube->SetPosition(Vec3((rand() % 100) -50,(rand() % 100)-50,(rand() % 100) -50));
+            Cube->SetPosition(Vec3((rand() % 200) -100,(rand() % 200)-100,(rand() % 200) -100));
         }
 
         // Create On Mouse Press Event
