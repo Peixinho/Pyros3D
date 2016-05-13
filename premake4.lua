@@ -339,6 +339,7 @@ if _OPTIONS["examples"] then
     BuildDemo("examples/CustomMaterial", "CustomMaterial");
     BuildDemo("examples/PickingPainterMethod", "PickingPainterMethod");
     BuildDemo("examples/SkeletonAnimationExample", "SkeletonAnimationExample");
+    BuildDemo("examples/DepthOfField", "DepthOfField");
     BuildDemo("examples/DeferredRendering", "DeferredRendering");
     BuildDemo("examples/LOD_example", "LOD_example");
 	BuildDemo("examples/Decals", "Decals");

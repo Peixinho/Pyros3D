@@ -17,13 +17,14 @@ namespace p3d {
 		UseRTT(Tex2);
         
         // Create Fragment Shader
-        FragmentShaderString =      
-								"uniform sampler2D uTex0;"
-								"uniform sampler2D uTex1;"
-                                "varying vec2 vTexcoord;"
-                                "void main() {"
-                                    "gl_FragColor = texture2D(uTex0,vTexcoord) * texture2D(uTex1,vTexcoord);"
-                                "}";
+		FragmentShaderString =
+			"uniform sampler2D uTex0;"
+			"uniform sampler2D uTex1;"
+			"varying vec2 vTexcoord;"
+			"void main() {"
+				"if (vTexcoord.x<0.5) gl_FragColor = texture2D(uTex0,vTexcoord);\n"
+				"else gl_FragColor = texture2D(uTex1,vTexcoord);"
+			"}";
         
         CompileShaders();    
     }

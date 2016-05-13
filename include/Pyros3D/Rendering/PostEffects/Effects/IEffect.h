@@ -106,9 +106,10 @@ namespace p3d {
             bool customDimensions;
             uint32 Width, Height;
 
+			std::string VertexShaderString;
+
         private:
-            std::map<uint32, __UniformPostProcess> Uniforms;
-            std::string VertexShaderString;   
+            std::map<uint32, __UniformPostProcess> Uniforms; 
             
             void UseColor();
             void UseDepth();

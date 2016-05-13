@@ -122,8 +122,9 @@ namespace p3d {
         Vec2 NearFarPlane = Vec2(projection->Near, projection->Far);
         Vec2 ScreenDimensions = Vec2(Width,Height);
 
+		Texture* temp = NULL;
         // Run Through Effects
-        for (std::vector<IEffect*>::iterator effect=effects.begin();effect!=effects.end();effect++)
+        for (std::vector<__EFFECT>::iterator effect=effects.begin();effect!=effects.end();effect++)
         {
             if (counter == effects.size())
             {
@@ -153,12 +154,12 @@ namespace p3d {
                 }
                 
                 // Set Custom Dimensions
-                if ((*effect)->HaveCustomDimensions())
+                if ((*effect).effect->HaveCustomDimensions())
                 {
-					activeFBO->Resize((*effect)->GetWidth(), (*effect)->GetHeight());
+					activeFBO->Resize((*effect).effect->GetWidth(), (*effect).effect->GetHeight());
 					Texture* tex = activeFBO->GetAttachments()[0]->TexturePTR;
-					tex->Resize((*effect)->GetWidth(), (*effect)->GetHeight());
-					glViewport(0, 0, (*effect)->GetWidth(), (*effect)->GetHeight());
+					tex->Resize((*effect).effect->GetWidth(), (*effect).effect->GetHeight());
+					glViewport(0, 0, (*effect).effect->GetWidth(), (*effect).effect->GetHeight());
                     
                 } else {
                     // Revert Default Dimensions
@@ -167,7 +168,12 @@ namespace p3d {
 					tex->Resize(Width, Height);
 					glViewport(0, 0, Width, Height);
                 }
-                
+
+				if ((*effect).target != NULL)
+				{
+					activeFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, (*effect).target);
+				}
+
                 // Bind FBO
                 activeFBO->Bind();
 
@@ -178,10 +184,10 @@ namespace p3d {
             GLCHECKER(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
             // Start Shader Program
-            GLCHECKER(glUseProgram((*effect)->shader->ShaderProgram()));
+            GLCHECKER(glUseProgram((*effect).effect->shader->ShaderProgram()));
 
             // Bind MRT
-            for (std::vector<RTT::Info>::iterator i = (*effect)->RTTOrder.begin();i != (*effect)->RTTOrder.end();i++)
+            for (std::vector<RTT::Info>::iterator i = (*effect).effect->RTTOrder.begin();i != (*effect).effect->RTTOrder.end();i++)
             {
                 switch((*i).Type)
                 {
@@ -201,11 +207,11 @@ namespace p3d {
             }
 
             // Send Uniforms
-            for (std::map<uint32,__UniformPostProcess>::iterator i=(*effect)->Uniforms.begin();i!=(*effect)->Uniforms.end();i++)
+            for (std::map<uint32,__UniformPostProcess>::iterator i=(*effect).effect->Uniforms.begin();i!=(*effect).effect->Uniforms.end();i++)
             {
 				if ((*i).second.handle==-2)
                 {
-					(*i).second.handle=Shader::GetUniformLocation((*effect)->shader->ShaderProgram(),(*i).second.uniform.Name);
+					(*i).second.handle=Shader::GetUniformLocation((*effect).effect->shader->ShaderProgram(),(*i).second.uniform.Name);
                 }
                 if ((*i).second.handle!=-1)
                 {
@@ -233,43 +239,43 @@ namespace p3d {
 
             // Getting Attributes locations
             // Position
-            if ((*effect)->positionHandle==-2)
+            if ((*effect).effect->positionHandle==-2)
             {
-                (*effect)->positionHandle = Shader::GetAttributeLocation((*effect)->shader->ShaderProgram(),"aPosition");
+                (*effect).effect->positionHandle = Shader::GetAttributeLocation((*effect).effect->shader->ShaderProgram(),"aPosition");
             }
             // Texcoord
-            if ((*effect)->texcoordHandle==-2)
+            if ((*effect).effect->texcoordHandle==-2)
             {
-                (*effect)->texcoordHandle = Shader::GetAttributeLocation((*effect)->shader->ShaderProgram(),"aTexcoord");
+                (*effect).effect->texcoordHandle = Shader::GetAttributeLocation((*effect).effect->shader->ShaderProgram(),"aTexcoord");
             }
 
             // Send Attributes
-            if ((*effect)->positionHandle>-1)
+            if ((*effect).effect->positionHandle>-1)
             {
-                GLCHECKER(glEnableVertexAttribArray((*effect)->positionHandle));
-                GLCHECKER(glVertexAttribPointer((*effect)->positionHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertex[0]));
+                GLCHECKER(glEnableVertexAttribArray((*effect).effect->positionHandle));
+                GLCHECKER(glVertexAttribPointer((*effect).effect->positionHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertex[0]));
             }
-            if ((*effect)->texcoordHandle>-1)
+            if ((*effect).effect->texcoordHandle>-1)
             {
-                GLCHECKER(glEnableVertexAttribArray((*effect)->texcoordHandle));
-                GLCHECKER(glVertexAttribPointer((*effect)->texcoordHandle, 2, GL_FLOAT, GL_FALSE, 0, &texcoord[0]));
+                GLCHECKER(glEnableVertexAttribArray((*effect).effect->texcoordHandle));
+                GLCHECKER(glVertexAttribPointer((*effect).effect->texcoordHandle, 2, GL_FLOAT, GL_FALSE, 0, &texcoord[0]));
             }
 
             // Draw Quad
 			GLCHECKER(glDrawArrays(GL_TRIANGLES, 0, vertex.size()));
 
             // Disable Attributes
-            if ((*effect)->texcoordHandle>-1)
+            if ((*effect).effect->texcoordHandle>-1)
             {
-                GLCHECKER(glDisableVertexAttribArray((*effect)->texcoordHandle));
+                GLCHECKER(glDisableVertexAttribArray((*effect).effect->texcoordHandle));
             }
-            if ((*effect)->positionHandle>-1)
+            if ((*effect).effect->positionHandle>-1)
             {
-                GLCHECKER(glDisableVertexAttribArray((*effect)->positionHandle));
+                GLCHECKER(glDisableVertexAttribArray((*effect).effect->positionHandle));
             }
 
             // Unbind MRT      
-            for (std::vector<RTT::Info>::reverse_iterator i = (*effect)->RTTOrder.rbegin();i != (*effect)->RTTOrder.rend();i++)
+            for (std::vector<RTT::Info>::reverse_iterator i = (*effect).effect->RTTOrder.rbegin();i != (*effect).effect->RTTOrder.rend();i++)
             {
                 switch((*i).Type)
                 {
@@ -289,11 +295,22 @@ namespace p3d {
             }
 
             // Unbind FBO if is using and set the RTT
-            if (usingFBO1|| usingFBO2)
+            if (usingFBO1 || usingFBO2)
             {
                 activeFBO->UnBind();
                 // Get RTT
 				LastRTT = activeFBO->GetAttachments()[0]->TexturePTR;
+
+				if ((*effect).target != NULL)
+				{
+					if (usingFBO1)
+					{
+						activeFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, Result1);
+					}
+					else {
+						activeFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, Result2);
+					}
+				}
             }
 
             // count loop
@@ -310,9 +327,9 @@ namespace p3d {
     
     PostEffectsManager::~PostEffectsManager() 
     {
-        for (std::vector<IEffect*>::iterator i = effects.begin();i!=effects.end();i++)
+        for (std::vector<__EFFECT>::iterator i = effects.begin();i!=effects.end();i++)
         {
-            delete (*i);
+            delete (*i).effect;
         }
 
         // Destroy FBOs
@@ -327,16 +344,16 @@ namespace p3d {
 		delete Result2;
     }
     
-    void PostEffectsManager::AddEffect(IEffect* Effect)
+    void PostEffectsManager::AddEffect(IEffect* Effect, Texture* target)
     {
         // Add New Effect
-        effects.push_back(Effect);
+        effects.push_back(__EFFECT(Effect, target));
     }
     void PostEffectsManager::RemoveEffect(IEffect* Effect)
     {
-        for (std::vector<IEffect*>::iterator i = effects.begin(); i!=effects.end();i++)
+        for (std::vector<__EFFECT>::iterator i = effects.begin(); i!=effects.end();i++)
         {
-            if ((*i)==Effect)
+            if ((*i).effect==Effect)
             {                
                 effects.erase(i);
                 break;

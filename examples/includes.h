@@ -34,4 +34,6 @@
 #include "Decals/Decals.h"
 #elif defined(_ImGuiExample)
 #include "ImGuiExample/ImGuiExample.h"
+#elif defined(_DepthOfField)
+#include "DepthOfField/DepthOfField.h"
 #endif

@@ -8,19 +8,19 @@
 
 #include <Pyros3D/Rendering/PostEffects/Effects/IEffect.h>
 
-#ifndef BLUREFFECT_H
-#define	BLUREFFECT_H
+#ifndef BLURYEFFECT_H
+#define	BLURYEFFECT_H
 
 namespace p3d {
 
-    class PYROS3D_API BlurEffect : public IEffect {
+    class PYROS3D_API BlurYEffect : public IEffect {
         public:
-            BlurEffect(const uint32 Tex1);
-            virtual ~BlurEffect();
+            BlurYEffect(const uint32 Tex1, const uint32 Height);
+            virtual ~BlurYEffect();
         private:
-
+			Uniform texRes;
     };
-
+	
 };
 
 #endif	/* BLUREFFECT_H */

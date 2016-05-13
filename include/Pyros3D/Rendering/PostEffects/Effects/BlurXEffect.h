@@ -1,26 +1,26 @@
 //============================================================================
-// Name        : RTT Debug.h
+// Name        : BlurXEffect.h
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
-// Description : RTT Debug Effect
+// Description : Blur Effect
 //============================================================================
 
 #include <Pyros3D/Rendering/PostEffects/Effects/IEffect.h>
 
-#ifndef RTTDEBUG_H
-#define RTTDEBUG_H
+#ifndef BLURXEFFECT_H
+#define	BLURXEFFECT_H
 
 namespace p3d {
 
-    class PYROS3D_API RTTDebug : public IEffect {
+    class PYROS3D_API BlurXEffect : public IEffect {
         public:
-            RTTDebug(const uint32 Tex1,const uint32 Tex2);
-            virtual ~RTTDebug();
+            BlurXEffect(const uint32 Tex1, const uint32 Width);
+            virtual ~BlurXEffect();
         private:
+			Uniform texRes;
     };
 
-}
+};
 
-#endif	/* RTTDEBUG_H */
-
+#endif	/* BLUREFFECT_H */
