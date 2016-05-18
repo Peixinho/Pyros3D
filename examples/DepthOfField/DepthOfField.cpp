@@ -22,16 +22,17 @@ DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2)
 	FragmentShaderString =
 		"float DecodeNativeDepth(float native_z, vec4 z_info_local)\n"
 		"{\n"
-			"return z_info_local.z / (native_z * z_info_local.w + z_info_local.y);\n"
+		"return z_info_local.z / (native_z * z_info_local.w + z_info_local.y);\n"
 		"}\n"
+		"uniform sampler2D uTex0, uTex1, uTex2, uTex3;\n"
 		"uniform float uFocalPosition, uFocalRange, uRatioL, uRatioH;\n"
-		"uniform sampler2D uTex0, uTex1, uTex2 ,uTex3;\n"
-		"uniform vec2 uNearFar, vTexcoord;\n"
+		"uniform vec2 uNearFar;\n"
+		"varying vec2 vTexcoord;\n"
 		"void main() {\n"
+			"float ratioL = uRatioL;\n"
+			"float ratioH = uRatioH;\n"
 			"float focalPosition = uFocalPosition;\n"
 			"float focalRange = uFocalRange;\n"
-			"float ratioH = uRatioH;\n"
-			"float ratioL = uRatioL;\n"
 			"vec4 z_info_local = vec4(uNearFar.x,uNearFar.y,uNearFar.x*uNearFar.y,uNearFar.x-uNearFar.y);\n"
 			"float depth = texture2D(uTex3, vTexcoord).x;\n"
 			"float linearDepth = DecodeNativeDepth(depth, z_info_local);\n"
@@ -49,7 +50,7 @@ DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2)
 	AddUniform(nearFarPlane);
 
 	f32 fPosition = 20.f;
-	f32 fRange = 10.f;
+	f32 fRange = 2.f;
 	f32 rL = 3.1f;
 	f32 rH = 0.4f;
 
@@ -61,15 +62,19 @@ DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2)
 	focalPosition.Name = "uFocalPosition";
 	focalPosition.Type = DataType::Float;
 	focalPosition.Usage = PostEffects::Other;
+	focalPosition.SetValue(&fPosition);
 	focalRange.Name = "uFocalRange";
 	focalRange.Type = DataType::Float;
 	focalRange.Usage = PostEffects::Other;
+	focalRange.SetValue(&fRange);
 	ratioL.Name = "uRatioL";
 	ratioL.Type = DataType::Float;
 	ratioL.Usage = PostEffects::Other;
+	ratioL.SetValue(&rL);
 	ratioH.Name = "uRatioH";
 	ratioH.Type = DataType::Float;
 	ratioH.Usage = PostEffects::Other;
+	ratioH.SetValue(&rH);
 
 	AddUniform(focalPosition);
 	AddUniform(focalRange);
