@@ -15,18 +15,66 @@ DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2)
 	// Set RTT
 	UseCustomTexture(texture1);
 	UseCustomTexture(texture2);
+	UseRTT(RTT::Color);
+	UseRTT(RTT::Depth);
 
 	// Create Fragment Shader
 	FragmentShaderString =
-		"uniform sampler2D uTex0;"
-		"uniform sampler2D uTex1;"
-		"varying vec2 vTexcoord;"
-		"void main() {"
-			"if (vTexcoord.x<0.5) gl_FragColor = texture2D(uTex0,vTexcoord);\n"
-			"else gl_FragColor = texture2D(uTex1,vTexcoord);"
+		"float DecodeNativeDepth(float native_z, vec4 z_info_local)\n"
+		"{\n"
+			"return z_info_local.z / (native_z * z_info_local.w + z_info_local.y);\n"
+		"}\n"
+		"uniform float uFocalPosition, uFocalRange, uRatioL, uRatioH;\n"
+		"uniform sampler2D uTex0, uTex1, uTex2 ,uTex3;\n"
+		"uniform vec2 uNearFar, vTexcoord;\n"
+		"void main() {\n"
+			"float focalPosition = uFocalPosition;\n"
+			"float focalRange = uFocalRange;\n"
+			"float ratioH = uRatioH;\n"
+			"float ratioL = uRatioL;\n"
+			"vec4 z_info_local = vec4(uNearFar.x,uNearFar.y,uNearFar.x*uNearFar.y,uNearFar.x-uNearFar.y);\n"
+			"float depth = texture2D(uTex3, vTexcoord).x;\n"
+			"float linearDepth = DecodeNativeDepth(depth, z_info_local);\n"
+			"float ratio = clamp(abs(focalPosition-linearDepth)-focalRange, 0.0, ratioL);\n"
+			"if (ratio < 0.4) gl_FragColor = mix(texture2D(uTex2, vTexcoord), texture2D(uTex1, vTexcoord), ratio / (ratioL - ratioH));\n"
+			"else gl_FragColor =  mix(texture2D(uTex1, vTexcoord), texture2D(uTex0, vTexcoord), (ratio-ratioH) / (ratioL - ratioH));\n"
 		"}";
 
 	CompileShaders();
+
+	Uniform nearFarPlane;
+	nearFarPlane.Name = "uNearFar";
+	nearFarPlane.Type = DataType::Vec2;
+	nearFarPlane.Usage = PostEffects::NearFarPlane;
+	AddUniform(nearFarPlane);
+
+	f32 fPosition = 20.f;
+	f32 fRange = 10.f;
+	f32 rL = 3.1f;
+	f32 rH = 0.4f;
+
+	Uniform focalPosition;
+	Uniform focalRange;
+	Uniform ratioL;
+	Uniform ratioH;
+
+	focalPosition.Name = "uFocalPosition";
+	focalPosition.Type = DataType::Float;
+	focalPosition.Usage = PostEffects::Other;
+	focalRange.Name = "uFocalRange";
+	focalRange.Type = DataType::Float;
+	focalRange.Usage = PostEffects::Other;
+	ratioL.Name = "uRatioL";
+	ratioL.Type = DataType::Float;
+	ratioL.Usage = PostEffects::Other;
+	ratioH.Name = "uRatioH";
+	ratioH.Type = DataType::Float;
+	ratioH.Usage = PostEffects::Other;
+
+	AddUniform(focalPosition);
+	AddUniform(focalRange);
+	AddUniform(ratioL);
+	AddUniform(ratioH);
 }
 
 DepthOfField::DepthOfField() : ClassName(1024,768,"Pyros3D - Depth Of Field",WindowType::Close | WindowType::Resize) {}
@@ -66,7 +114,7 @@ void DepthOfField::Init()
 		Scene->Add(Light);
 
         // Create Game Object
-		modelMesh = new Model("assets/suzanne.p3dm", false, ShaderUsage::Diffuse);
+		modelMesh = new Model("../../../../examples/DepthOfField/assets/suzanne.p3dm", false, ShaderUsage::Diffuse);
         
 		for (uint32 i = 0; i < 10; i++)
 		{
@@ -90,7 +138,7 @@ void DepthOfField::Init()
 		fullResBlur->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
 		fullResBlur->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 		lowResBlur = new Texture();
-		lowResBlur->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width*.25f, Height*.25f);
+		lowResBlur->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
 		lowResBlur->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 		EffectManager = new PostEffectsManager(Width, Height);
