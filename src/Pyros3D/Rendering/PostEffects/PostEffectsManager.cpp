@@ -56,6 +56,10 @@ namespace p3d {
         
         // Default Last RTT
         LastRTT = Color;
+
+		// Custom Dimensions
+		haveCustomDimensions = false;
+		customWidth = customHeight = 0;
     }
     
     FrameBuffer* PostEffectsManager::GetExternalFrameBuffer()
@@ -132,9 +136,10 @@ namespace p3d {
                 usingFBO1 = false;
                 usingFBO2 = false;
                 activeFBO = NULL;
+				customWidth = customHeight = 0;
 
 				glViewport(0, 0, Width, Height);
-                
+				
             } else {
                 // Draw to FBO
                 
@@ -156,18 +161,26 @@ namespace p3d {
                 // Set Custom Dimensions
                 if ((*effect).effect->HaveCustomDimensions())
                 {
-					activeFBO->Resize((*effect).effect->GetWidth(), (*effect).effect->GetHeight());
+					haveCustomDimensions = true;
+					customWidth = (*effect).effect->GetWidth();
+					customHeight = (*effect).effect->GetHeight();
+					activeFBO->Resize(customWidth, customHeight);
 					Texture* tex = activeFBO->GetAttachments()[0]->TexturePTR;
-					tex->Resize((*effect).effect->GetWidth(), (*effect).effect->GetHeight());
-					glViewport(0, 0, (*effect).effect->GetWidth(), (*effect).effect->GetHeight());
+					tex->Resize(customWidth, customHeight);
+					glViewport(0, 0, customWidth, customHeight);
                     
-                } else {
-                    // Revert Default Dimensions
-					activeFBO->Resize(Width, Height);
-					Texture* tex = activeFBO->GetAttachments()[0]->TexturePTR;
-					tex->Resize(Width, Height);
-					glViewport(0, 0, Width, Height);
-                }
+				}
+				else {
+					if (customWidth != 0 || customHeight != 0)
+					{
+						activeFBO->Resize(customWidth, customHeight);
+						Texture* tex = activeFBO->GetAttachments()[0]->TexturePTR;
+						tex->Resize(customWidth, customHeight);
+					}
+					else {
+						activeFBO->Resize(Width, Height);
+					}
+				}
 
 				if ((*effect).target != NULL)
 				{

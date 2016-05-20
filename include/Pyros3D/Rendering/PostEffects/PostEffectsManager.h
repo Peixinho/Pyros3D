@@ -74,6 +74,10 @@ namespace p3d {
 
             // Frame Buffer Flags
             bool usingFBO1, usingFBO2;
+
+			// Custom Dimensions
+			bool haveCustomDimensions;
+			uint32 customWidth, customHeight;
     };
 
 };

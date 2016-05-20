@@ -22,7 +22,7 @@ DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2)
 	FragmentShaderString =
 		"float DecodeNativeDepth(float native_z, vec4 z_info_local)\n"
 		"{\n"
-		"return z_info_local.z / (native_z * z_info_local.w + z_info_local.y);\n"
+			"return z_info_local.z / (native_z * z_info_local.w + z_info_local.y);\n"
 		"}\n"
 		"uniform sampler2D uTex0, uTex1, uTex2, uTex3;\n"
 		"uniform float uFocalPosition, uFocalRange, uRatioL, uRatioH;\n"
@@ -52,7 +52,7 @@ DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2)
 	f32 fPosition = 20.f;
 	f32 fRange = 2.f;
 	f32 rL = 3.1f;
-	f32 rH = 0.4f;
+	f32 rH = 1.0f;
 
 	Uniform focalPosition;
 	Uniform focalRange;
@@ -143,7 +143,7 @@ void DepthOfField::Init()
 		fullResBlur->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
 		fullResBlur->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 		lowResBlur = new Texture();
-		lowResBlur->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
+		lowResBlur->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width*.25f, Height*.25f);
 		lowResBlur->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 		EffectManager = new PostEffectsManager(Width, Height);
