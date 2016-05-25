@@ -35,7 +35,6 @@ namespace p3d {
 			"uniform float uRadius;\n"
 			"uniform float uScale;\n"
 			"varying vec2 vTexcoord;\n"
-			"vec4 z_info_local;\n"
 			"uniform mat4 matProj;\n"
 			"\n"
 			"float DecodeLinearDepth(float z, vec4 z_info_local)\n"
@@ -70,11 +69,7 @@ namespace p3d {
 			"\n"
 			"	vec4 z_info = vec4(uNearFar.x, uNearFar.y, uNearFar.x*uNearFar.y, uNearFar.x - uNearFar.y);\n"
 			"	vec2 ssaoOut = vec2(uScreen.x, uScreen.y);\n"
-			"	vec4 ssao_vp;\n"
-			"	ssao_vp.x = 1.00;\n"
-			"	ssao_vp.y = 1.00;\n"
-			"	ssao_vp.z = 2.0 / ssaoOut.x;\n"
-			"	ssao_vp.w = 2.0 / ssaoOut.y;\n"
+			"	vec4 ssao_vp = vec4(0.0, 0.0, 1.0/ssaoOut.x, 1.0/ssaoOut.y);\n"
 			"	vec3 v1, v2, v3;\n"
 			"	vec4 out_dim = vec4(uScreen.x, uScreen.y, 1.0/uScreen.x, 1.0/uScreen.y);\n"
 			"	vec2 screenCoord = vec2(uScreen.x*vTexcoord.x, uScreen.y*vTexcoord.y);\n"
@@ -82,7 +77,7 @@ namespace p3d {
 			"	getPosViewSpace(texture2D(uTex0, vTexcoord + vec2(out_dim.z, 0)).r, screenCoord + vec2(1, 0), z_info, v2, matProj, ssao_vp);\n"
 			"	getPosViewSpace(texture2D(uTex0, vTexcoord + vec2(0,out_dim.w)).r, screenCoord + vec2(0, 1), z_info, v3, matProj, ssao_vp);\n"
 			"	vec3 vViewNormal = normalize(cross(v3 - v1, v2 - v1));\n"
-			"	gl_FragColor = vec4(v2, 1.0);\n"
+			"	gl_FragColor = vec4(vViewNormal, 1.0);\n"
 			"}";
 			  
 		CompileShaders();

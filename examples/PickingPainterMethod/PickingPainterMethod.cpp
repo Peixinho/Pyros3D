@@ -90,7 +90,7 @@ void PickingPainterMethod::Init()
 
 	// Create Geometry
 	cubeHandle = new Cube(1, 0.5, 0.25);
-	Renderable* sphereHandle = new Sphere(0.05f, 10, 10);
+	Renderable* sphereHandle = new Sphere(0.05f, 10, 10,true);
 	GenericShaderMaterial* mat2 = new GenericShaderMaterial(ShaderUsage::Color);
 	mat2->SetCullFace(CullFace::DoubleSided);
 	mat2->SetColor(Vec4(0.5, 0.5, 0.5, 1.0));
@@ -122,9 +122,9 @@ void PickingPainterMethod::Init()
 
 	EffectManager = new PostEffectsManager(Width, Height);
 	EffectManager->AddEffect(new SSAOEffect(RTT::Depth));
-	EffectManager->AddEffect(new BlurXEffect(RTT::LastRTT, Width));
+	/*EffectManager->AddEffect(new BlurXEffect(RTT::LastRTT, Width));
 	EffectManager->AddEffect(new BlurYEffect(RTT::LastRTT, Height));
-	EffectManager->AddEffect(new SSAOEffectFinal(RTT::Color, RTT::LastRTT));
+	EffectManager->AddEffect(new SSAOEffectFinal(RTT::Color, RTT::LastRTT));*/
 
 	GameObject* go1 = new GameObject();
 	GameObject* go2 = new GameObject();
@@ -151,7 +151,7 @@ void PickingPainterMethod::Init()
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::S, this, &PickingPainterMethod::MoveBackRelease);
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &PickingPainterMethod::StrafeLeftRelease);
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &PickingPainterMethod::StrafeRightRelease);
-	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &PickingPainterMethod::LookTo);
+	//InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &PickingPainterMethod::LookTo);
 
 	_strafeLeft = _strafeRight = _moveBack = _moveFront = 0;
 	HideMouse();
