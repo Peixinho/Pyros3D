@@ -46,6 +46,7 @@ namespace p3d {
             enum {
                 NearFarPlane,
                 ScreenDimensions,
+				ProjectionFromScene,
                 Other
             };
         }
