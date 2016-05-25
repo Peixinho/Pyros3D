@@ -169,16 +169,17 @@ namespace p3d {
 					tex->Resize(customWidth, customHeight);
 					glViewport(0, 0, customWidth, customHeight);
                     
-				}
-				else {
+				} else {
 					if (customWidth != 0 || customHeight != 0)
 					{
 						activeFBO->Resize(customWidth, customHeight);
 						Texture* tex = activeFBO->GetAttachments()[0]->TexturePTR;
 						tex->Resize(customWidth, customHeight);
-					}
-					else {
+
+					} else {
 						activeFBO->Resize(Width, Height);
+						Texture* tex = activeFBO->GetAttachments()[0]->TexturePTR;
+						tex->Resize(Width, Height);
 					}
 				}
 
@@ -240,6 +241,11 @@ namespace p3d {
                             Shader::SendUniform((*i).second.uniform,&ScreenDimensions,(*i).second.handle);
                         }
                         break;
+						case PostEffects::ProjectionFromScene:
+						{
+							Shader::SendUniform((*i).second.uniform, &projection, (*i).second.handle);
+						}
+						break;
                         default:
                         case PostEffects::Other:
 						{
