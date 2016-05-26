@@ -243,7 +243,7 @@ namespace p3d {
                         break;
 						case PostEffects::ProjectionFromScene:
 						{
-							Shader::SendUniform((*i).second.uniform, &projection, (*i).second.handle);
+							Shader::SendUniform((*i).second.uniform, &projection->m, (*i).second.handle);
 						}
 						break;
                         default:
