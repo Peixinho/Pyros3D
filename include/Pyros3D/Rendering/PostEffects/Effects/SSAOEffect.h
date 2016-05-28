@@ -20,6 +20,11 @@ namespace p3d {
         SSAOEffect(const uint32 Tex1);
         virtual ~SSAOEffect();
 
+		void SetViewMatrix(Matrix m)
+		{
+			SetUniformValue("uInverseView", &m);
+		}
+
         f32 total_strength;
         f32 base;
         f32 area;

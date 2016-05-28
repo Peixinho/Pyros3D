@@ -22,7 +22,7 @@ namespace p3d {
 		CreateQuad();
 
 		Color = new Texture();
-        Color->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
+        Color->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height);
         Color->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
 		
         Depth = new Texture();
@@ -39,11 +39,11 @@ namespace p3d {
         fbo2 = new FrameBuffer();         
 
 		Result1= new Texture();
-        Result1->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
+        Result1->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height);
         Result1->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
 
 		Result2 = new Texture();
-        Result2->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
+        Result2->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height);
         Result2->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
 
         // Init Frame Buffers

@@ -48,6 +48,10 @@ namespace p3d {
             void SetMousePosition(const uint32 mouseX, const uint32 mouseY);
             const Vec2 GetMousePosition() const;
 
+			// Time
+			virtual f64 GetTime() { return SDL_GetTicks() * 0.001; }
+			virtual f64 GetTimeMS() { return SDL_GetTicks(); }
+
         protected:
 
             static std::map<uint32, uint32> MapSDLKeyboard;

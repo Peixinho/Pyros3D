@@ -17,9 +17,9 @@ namespace p3d {
 
     }
 
-    void FPS::setFPS(const f32 time) {        
+    void FPS::setFPS(const f64 time) {        
         
-        if (time - seconds >=1 || seconds == 0) {
+        if (time - seconds >=1000 || seconds == 0) {
             seconds=time;
             countFPS=fps;
             fps=0;

@@ -36,7 +36,9 @@ namespace p3d {
 			"uniform float uScale;\n"
 			"varying vec2 vTexcoord;\n"
 			"uniform mat4 matProj;\n"
+			"uniform mat4 uInverseView;\n"
 			"\n"
+			// Reconstruct Positions and Normals
 			"float DecodeLinearDepth(float z, vec4 z_info_local)\n"
 			"{\n"
 			"	return z_info_local.x - z * z_info_local.w;\n"
@@ -70,7 +72,6 @@ namespace p3d {
 			"	vec4 z_info = vec4(uNearFar.x, uNearFar.y, uNearFar.x*uNearFar.y, uNearFar.x - uNearFar.y);\n"
 			"	vec2 ssaoOut = vec2(uScreen.x, uScreen.y);\n"
 			"	vec4 ssao_vp = vec4(1.0, 1.0, 2.0/ssaoOut.x, 2.0/ssaoOut.y);\n"
-			//"	ssao_vp = vp;\n"
 			"	vec3 v1, v2, v3;\n"
 			"	vec4 out_dim = vec4(uScreen.x, uScreen.y, 1.0/uScreen.x, 1.0/uScreen.y);\n"
 			"	vec2 screenCoord = vec2(uScreen.x*vTexcoord.x, uScreen.y*vTexcoord.y);\n"
@@ -78,7 +79,47 @@ namespace p3d {
 			"	getPosViewSpace(texture2D(uTex0, vTexcoord + vec2(out_dim.z, 0)).r, screenCoord + vec2(1, 0), z_info, v2, matProj, ssao_vp);\n"
 			"	getPosViewSpace(texture2D(uTex0, vTexcoord + vec2(0,out_dim.w)).r, screenCoord + vec2(0, 1), z_info, v3, matProj, ssao_vp);\n"
 			"	vec3 vViewNormal = normalize(cross(v3 - v1, v2 - v1));\n"
-			"	gl_FragColor = vec4(vViewNormal, 1.0);\n"
+			//"	gl_FragColor = vec4(vViewNormal, 1.0);\n"
+			// End Reconstruction
+			"	float total_strength = uStrength;\n"
+			"	float base = uBase;\n"
+			"	float area = uArea;\n"
+			"	float falloff = uFalloff;\n"
+			"	float radius = uRadius;\n"
+			"	int samples = uSamples;\n"
+			"	float samplesf = float(uSamples);\n"
+			"	vec3 sample_sphere[16];\n"
+			"	sample_sphere[0] = vec3( 0.5381, 0.1856,-0.4319);\n"
+			"	sample_sphere[1] = vec3( 0.1379, 0.2486, 0.4430);\n"
+			"	sample_sphere[2] = vec3( 0.3371, 0.5679,-0.0057);\n"
+			"	sample_sphere[3] = vec3(-0.6999,-0.0451,-0.0019);\n"
+			"	sample_sphere[4] = vec3( 0.0689,-0.1598,-0.8547);\n"
+			"	sample_sphere[5] = vec3( 0.0560, 0.0069,-0.1843);\n"
+			"	sample_sphere[6] = vec3(-0.0146, 0.1402, 0.0762);\n"
+			"	sample_sphere[7] = vec3( 0.0100,-0.1924,-0.0344);\n"
+			"	sample_sphere[8] = vec3(-0.3577,-0.5301,-0.4358);\n"
+			"	sample_sphere[9] = vec3(-0.3169, 0.1063, 0.0158);\n"
+			"	sample_sphere[10] = vec3( 0.0103,-0.5869, 0.0046);\n"
+			"	sample_sphere[11] = vec3(-0.0897,-0.4940, 0.3287);\n"
+			"	sample_sphere[12] = vec3( 0.7119,-0.0154,-0.0918);\n"
+			"	sample_sphere[13] = vec3(-0.0533, 0.0596,-0.5411);\n"
+			"	sample_sphere[14] = vec3( 0.0352,-0.0631, 0.5460);\n"
+			"	sample_sphere[15] = vec3(-0.4776, 0.2847,-0.0271);\n"
+			"	vec3 random = normalize( texture2D(uTex1, (uInverseView*vec4(v1,0.0)).xy).rgb );\n"
+			"	float depth = DecodeNativeDepth(texture2D(uTex0, vTexcoord).r,z_info);\n"
+			"	vec3 position = vec3(vTexcoord, depth);\n"
+			"	vec3 normal = vViewNormal;\n"
+			"	float radius_depth = radius/depth;\n"
+			"	float occlusion = 0.0;\n"
+			"	for(int i=0; i < 16; i++) {\n"
+			"		vec3 ray = radius_depth * reflect(sample_sphere[i], random);\n"
+			"		vec3 hemi_ray = position + sign(dot(ray,normal)) * ray;\n"
+			"		float occ_depth = DecodeNativeDepth(texture2D(uTex0, vec2(clamp(hemi_ray.x,0.0,1.0),clamp(hemi_ray.y,0.0,1.0))).r,z_info);\n"
+			"		float difference = depth - occ_depth;\n"
+			"		occlusion += step(falloff, difference) * (1.0-smoothstep(falloff, area, difference));\n"
+			"	}\n"
+			"	float ao = 1.0 - total_strength * occlusion * (1.0 / samplesf);\n"
+			"	gl_FragColor = vec4(clamp(ao + base,0.0,1.0));\n"
 			"}";
 			  
 		CompileShaders();
@@ -93,14 +134,15 @@ namespace p3d {
 		Uniform nearFarPlane;
 		Uniform screen;
 		Uniform matProj;
+		Uniform inverseView;
 
 		total_strength = 1.0;
-		base = 0.2;
-		area = 0.075;
-		falloff = 0.00001;
-		radius = 0.1;
+		base = 0.01;
+		area = 1.0;
+		falloff = 0.01;
+		radius = 0.02;
 		samples = 16;
-		scale = 0.005f;
+		scale = 0.0005f;
 
 		strength.Name = "uStrength";
 		strength.Type = DataType::Float;
@@ -158,6 +200,11 @@ namespace p3d {
 		matProj.Type = DataType::Matrix;
 		matProj.Usage = PostEffects::ProjectionFromScene;
 		AddUniform(matProj);
+
+		inverseView.Name = "uInverseView";
+		inverseView.Type = DataType::Matrix;
+		inverseView.Type = PostEffects::Other;
+		AddUniform(inverseView);
 	}
 
 	SSAOEffect::~SSAOEffect()

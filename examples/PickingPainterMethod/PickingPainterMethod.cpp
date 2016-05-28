@@ -120,11 +120,14 @@ void PickingPainterMethod::Init()
 	/*picking = new PainterPick(Width,Height);
 	picking->SetViewPort(0,0,Width,Height);*/
 
+	ssao = new SSAOEffect(RTT::Depth);
+	
 	EffectManager = new PostEffectsManager(Width, Height);
-	EffectManager->AddEffect(new SSAOEffect(RTT::Depth));
-	/*EffectManager->AddEffect(new BlurXEffect(RTT::LastRTT, Width));
-	EffectManager->AddEffect(new BlurYEffect(RTT::LastRTT, Height));
-	EffectManager->AddEffect(new SSAOEffectFinal(RTT::Color, RTT::LastRTT));*/
+	EffectManager->AddEffect(ssao);
+	//EffectManager->AddEffect(new ResizeEffect(RTT::LastRTT, Width*.25f, Height*.25f));
+	EffectManager->AddEffect(new BlurXEffect(RTT::LastRTT, Width*0.25f));
+	EffectManager->AddEffect(new BlurYEffect(RTT::LastRTT, Height*0.25f));
+	EffectManager->AddEffect(new SSAOEffectFinal(RTT::Color, RTT::LastRTT));
 
 	GameObject* go1 = new GameObject();
 	GameObject* go2 = new GameObject();
@@ -151,7 +154,7 @@ void PickingPainterMethod::Init()
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::S, this, &PickingPainterMethod::MoveBackRelease);
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &PickingPainterMethod::StrafeLeftRelease);
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &PickingPainterMethod::StrafeRightRelease);
-	//InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &PickingPainterMethod::LookTo);
+	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &PickingPainterMethod::LookTo);
 
 	_strafeLeft = _strafeRight = _moveBack = _moveFront = 0;
 	HideMouse();
@@ -160,10 +163,11 @@ void PickingPainterMethod::Init()
 void PickingPainterMethod::Update()
 {
 	// Update - Game Loop
+	ssao->SetViewMatrix(Camera->GetWorldTransformation());
 
 	// Update Scene
 	Scene->Update(GetTime());
-
+	
 	// Render Scene
 	EffectManager->CaptureFrame();
 	Renderer->RenderScene(projection, Camera, Scene);
@@ -174,7 +178,7 @@ void PickingPainterMethod::Update()
 	Vec3 finalPosition;
 	Vec3 direction = Camera->GetDirection();
 	float dt = GetTimeInterval();
-	float speed = dt * 20.f;
+	float speed = dt * 0.02f;
 	if (_moveFront)
 	{
 		finalPosition -= direction*speed;
@@ -191,6 +195,9 @@ void PickingPainterMethod::Update()
 	{
 		finalPosition -= direction.cross(Vec3(0, 1, 0))*speed;
 	}
+
+	Camera->SetPosition(Camera->GetPosition() + finalPosition);
+	std::cout << fps.getFPS() << std::endl;
 }
 
 void PickingPainterMethod::Shutdown()
@@ -202,7 +209,7 @@ void PickingPainterMethod::Shutdown()
 
 	Scene->Remove(Light);
 
-	// GameObjects and Components
+	/*// GameObjects and Components
 	for (uint32 i = 0; i<100; i++)
 	{
 		// Remove From Scene
@@ -227,7 +234,7 @@ void PickingPainterMethod::Shutdown()
 	delete UnselectedMaterial;
 	delete Camera;
 	delete Renderer;
-	delete Scene;
+	delete Scene;*/
 }
 
 PickingPainterMethod::~PickingPainterMethod() {}

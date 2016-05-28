@@ -33,6 +33,7 @@
 #include <Pyros3D/Rendering/PostEffects/Effects/SSAOEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/BlurXEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/BlurYEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/ResizeEffect.h>
 
 using namespace p3d;
 
@@ -97,6 +98,8 @@ class PickingPainterMethod : public ClassName {
 		float counterX, counterY;
 		Vec2 mouseCenter, mouseLastPosition, mousePosition;
 		bool _moveFront, _moveBack, _strafeLeft, _strafeRight;
+
+		SSAOEffect* ssao;
 };
 
 class SSAOEffectFinal : public IEffect {

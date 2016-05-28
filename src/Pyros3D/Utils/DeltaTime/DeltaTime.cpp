@@ -103,4 +103,8 @@ namespace p3d {
         {
             return isBulletTime;
         }
+		bool DeltaTime::IsPaused()
+		{
+			return isPaused;
+		}
 }
