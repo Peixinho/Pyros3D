@@ -36,4 +36,6 @@
 #include "ImGuiExample/ImGuiExample.h"
 #elif defined(_DepthOfField)
 #include "DepthOfField/DepthOfField.h"
+#elif defined(_SSAOExample)
+#include "SSAOExample/SSAOExample.h"
 #endif

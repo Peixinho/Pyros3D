@@ -21,17 +21,17 @@ namespace ImGui {
 		// IMGUI_API void        ImGui_ImplSFML_InvalidateDeviceObjects();
 		IMGUI_API bool        ImGui_ImplSFML_CreateDeviceObjects();
 	}
-}
+};
 
 namespace p3d {
 
-	class ImGuiContext : public SFMLContext {
+	class imguiContext : public SFMLContext {
 
 		public:
 
-			ImGuiContext(const uint32 width, const uint32 height, const std::string &title, const uint32 windowType = WindowType::Fullscreen) : SFMLContext(width, height, title, windowType) {}
+			imguiContext(const uint32 width, const uint32 height, const std::string &title, const uint32 windowType = WindowType::Fullscreen) : SFMLContext(width, height, title, windowType) {}
 
 			virtual void GetEvents();
 
 	};
-}
+};

@@ -45,12 +45,16 @@ namespace p3d {
             void Close();
 
             // methods
-            sf::Window GetWindow();            
             void HideMouse();
             void ShowMouse();
             void SetMousePosition(const uint32 mouseX, const uint32 mouseY);
             const Vec2 GetMousePosition() const;
 
+			// Time
+			virtual f64 GetTime() { return clock.getElapsedTime().asSeconds(); }
+			virtual f64 GetTimeMilliSeconds() { return clock.getElapsedTime().asMilliseconds(); }
+			virtual f64 GetTimeMicroSeconds() { return clock.getElapsedTime().asMicroseconds(); }
+			
         protected:
             
             // Buttons and Mouse

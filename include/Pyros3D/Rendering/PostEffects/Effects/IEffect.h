@@ -13,6 +13,7 @@
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
+#include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <Pyros3D/Other/Export.h>
 
 //#include <iostream>
@@ -46,6 +47,7 @@ namespace p3d {
             enum {
                 NearFarPlane,
                 ScreenDimensions,
+				ProjectionFromScene,
                 Other
             };
         }
@@ -57,19 +59,15 @@ namespace p3d {
         
         public:
                   
-            IEffect();
+            IEffect(const uint32 Width, const uint32 Height);
             
             virtual ~IEffect();
 
             // Compile Shader
-            void CompileShaders();           
-
-            // Destroy
-            void Destroy();
+			void CompileShaders();
             
             // Custom Dimensions
             void Resize(const uint32 width, const uint32 height);
-            bool HaveCustomDimensions();
             const uint32 GetWidth() const;
             const uint32 GetHeight() const;
             
@@ -80,6 +78,8 @@ namespace p3d {
             void SetUniformValue(StringID UniformID, f32 value); 
             void SetUniformValue(std::string Uniform, void* value, const uint32 elementCount = 1);
             void SetUniformValue(StringID UniformID, void* value, const uint32 elementCount = 1);
+
+			Texture* GetTexture() { return attachment; }
 
         protected:
 
@@ -102,9 +102,9 @@ namespace p3d {
             // RTT Order
             std::vector<RTT::Info> RTTOrder;
             
-            // Custom Dimensions
-            bool customDimensions;
             uint32 Width, Height;
+			FrameBuffer* fbo;
+			Texture* attachment;
 
 			std::string VertexShaderString;
 

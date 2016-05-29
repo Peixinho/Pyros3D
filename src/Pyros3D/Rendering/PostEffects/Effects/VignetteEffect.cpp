@@ -10,7 +10,7 @@
 
 namespace p3d {
 
-    VignetteEffect::VignetteEffect(const uint32 Tex1, const f32 radius, const f32 softness) : IEffect() 
+    VignetteEffect::VignetteEffect(const uint32 Tex1, const uint32 Width, const uint32 Height, const f32 radius, const f32 softness) : IEffect(Width, Height)
     {
 
 		screenDimensions.Name = "uResolution";

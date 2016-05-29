@@ -24,8 +24,11 @@ namespace p3d {
             Context(const uint32 width, const uint32 height);            
             virtual ~Context();
 
-            f64 GetTime();
+            virtual f64 GetTime() = 0;
+			virtual f64 GetTimeMilliSeconds() = 0;
+			virtual f64 GetTimeMicroSeconds() = 0;
             f64 GetTimeInterval();
+			f64 GeTimeIntervalMS();
             void ActivateBulletTime(const f32 factor);
             void DeactivateBulletTime();
             void Pause();
@@ -78,7 +81,7 @@ namespace p3d {
             void SetJoypadMove(const uint32 JoypadID, const uint32 Button, const f32 Value);
             
             // Set Time
-            void SetTime(const f32 Timer);
+            void SetTime(const f64 Timer);
             
             // Window Size
             uint32 Width, Height;

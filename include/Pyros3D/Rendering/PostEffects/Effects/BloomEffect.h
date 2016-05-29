@@ -14,7 +14,7 @@ namespace p3d {
 
     class PYROS3D_API BloomEffect : public IEffect {
         public:
-            BloomEffect(const uint32 Tex1);
+            BloomEffect(const uint32 Tex1, const uint32 Width, const uint32 Height);
             virtual ~BloomEffect();
         private:
 

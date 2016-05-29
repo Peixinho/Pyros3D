@@ -10,186 +10,206 @@
 
 namespace p3d {
 
-    SSAOEffect::SSAOEffect(const uint32 Tex1) : IEffect()
-    {
-        
-        // Set RTT
-        UseRTT(Tex1);
-        
-        // Use Sample
+	SSAOEffect::SSAOEffect(const uint32 Tex1, const uint32 Width, const uint32 Height) : IEffect(Width, Height)
+	{
+		
+		// Set RTT
+		UseRTT(Tex1);
+		
+		// Use Sample
 		rnm = new Texture();
-        rnm->LoadTexture("rnm.png", TextureType::Texture, false);
-        UseCustomTexture(rnm);
+		rnm->LoadTexture("../../../../resources/rnm.png", TextureType::Texture, false);
+		UseCustomTexture(rnm);
 
 		// Create Fragment Shader
-        FragmentShaderString =
-                                                "uniform sampler2D uTex0;\n"
-                                                "uniform sampler2D uTex1;\n"
-                                                "uniform vec2 uNearFar;\n"
-                                                "uniform vec2 uScreen;\n"
-                                                "uniform float uStrength;\n"
-                                                "uniform float uBase;\n"
-                                                "uniform float uArea;\n"
-                                                "uniform int uSamples;\n"
-                                                "uniform float uFalloff;\n"
-                                                "uniform float uRadius;\n"
-                                                "uniform float uScale;\n"
-                                                "varying vec2 vTexcoord;\n"
-                                                "//Linear convertions z_info_local.w = vec4( znear, zfar, znear * zfar, znear - zfar );\n"
-                                                "vec4 z_info_local = vec4(uNearFar.x,uNearFar.y,uNearFar.x*uNearFar.y,uNearFar.x-uNearFar.y);\n"
-                                                //"vec4 z_info_local = vec4(1,500,500,1-500);\n"
-                                                "float DecodeLinearDepth(float z, vec4 z_info_local)\n"
-                                                "{\n"
-                                                    "return z_info_local.x - z * z_info_local.w;\n"
-                                                "}\n"
-                                                "float DecodeNativeDepth(float native_z, vec4 z_info_local)\n"
-                                                "{\n"
-                                                "return native_z;"
-                                                    "return z_info_local.z / (native_z * z_info_local.w + z_info_local.y);\n"
-                                                "}\n"
-                                                "vec3 normal_from_depth(float depth, vec2 texcoords) {\n"
-                                                    "vec2 offset1 = vec2(0.0,1.0/uScreen.y);\n"
-                                                    "vec2 offset2 = vec2(1.0/uScreen.x,0.0);\n"
-                                                    //"vec2 offset1 = vec2(0.0,1.0/768);\n"
-                                                    //"vec2 offset2 = vec2(1.0/1024,0.0);\n"
-                                                    "float scale = uScale;\n"
-                                                    //"float scale = 50;\n"
-                                                    "float depth1 = DecodeNativeDepth(texture2D(uTex0, texcoords + offset1).r,z_info_local);\n"
-                                                    "float depth2 = DecodeNativeDepth(texture2D(uTex0, texcoords + offset2).r,z_info_local);\n"
-                                                    "vec3 p1 = vec3(0,1,(depth1 - depth) * scale);\n"
-                                                    "vec3 p2 = vec3(1,0,(depth2 - depth) * scale);\n"
-                                                    "vec3 normal = cross(p1, p2);\n"
-                                                    //"normal.z = -normal.z;\n"
-                                                    "return normalize(normal);\n"
-                                                "}\n"
-                                                 "void main() {\n"
+		FragmentShaderString =
+			"uniform sampler2D uTex0;\n"
+			"uniform sampler2D uTex1;\n"
+			"uniform vec2 uNearFar;\n"
+			"uniform vec2 uScreen;\n"
+			"uniform float uStrength;\n"
+			"uniform float uBase;\n"
+			"uniform float uArea;\n"
+			"uniform int uSamples;\n"
+			"uniform float uFalloff;\n"
+			"uniform float uRadius;\n"
+			"uniform float uScale;\n"
+			"varying vec2 vTexcoord;\n"
+			"uniform mat4 matProj;\n"
+			"uniform mat4 uInverseView;\n"
+			"\n"
+			// Reconstruct Positions and Normals
+			"float DecodeLinearDepth(float z, vec4 z_info_local)\n"
+			"{\n"
+			"	return z_info_local.x - z * z_info_local.w;\n"
+			"}\n"
+			"\n"
+			"float DecodeNativeDepth(float native_z, vec4 z_info_local)\n"
+			"{\n"
+			"	return z_info_local.z / (native_z * z_info_local.w + z_info_local.y);\n"
+			"}\n"
+			"\n"
+			"vec2 getPosViewSpace(vec2 uv, vec4 z_info_local, mat4 matProj_local, vec4 viewport_transform_local)\n"
+			"{\n"
+			"	vec2 screenPos = (uv + .5) * viewport_transform_local.zw - viewport_transform_local.xy;\n"
+			"	vec2 screenSpaceRay = vec2(screenPos.x / matProj_local[0][0],-screenPos.y / matProj_local[1][1]);\n"
+			"	return screenSpaceRay;\n"
+			"}\n"
+			"\n"
+			"vec3 getPosViewSpace(float depth_sampled, vec2 uv, vec4 z_info_local, out vec3 vpos, mat4 matProj_local, vec4 viewport_transform_local)\n"
+			"{\n"
+			"	vec2 screenSpaceRay = getPosViewSpace(uv, z_info_local, matProj_local, viewport_transform_local);\n"
+			"\n"
+			"	float lDepth = DecodeNativeDepth(depth_sampled, z_info_local);\n"
+			"	vpos.xy = lDepth * screenSpaceRay;\n"
+			"	vpos.z = -lDepth;\n"
+			"\n"
+			"	return vec3(screenSpaceRay, -1);\n"
+			"}\n"
+			"\n"
+			"void main() {\n"
+			"\n"
+			"	vec4 z_info = vec4(uNearFar.x, uNearFar.y, uNearFar.x*uNearFar.y, uNearFar.x - uNearFar.y);\n"
+			"	vec2 ssaoOut = vec2(uScreen.x, uScreen.y);\n"
+			"	vec4 ssao_vp = vec4(1.0, 1.0, 2.0/ssaoOut.x, 2.0/ssaoOut.y);\n"
+			"	vec3 v1, v2, v3;\n"
+			"	vec4 out_dim = vec4(uScreen.x, uScreen.y, 1.0/uScreen.x, 1.0/uScreen.y);\n"
+			"	vec2 screenCoord = vec2(uScreen.x*vTexcoord.x, uScreen.y*vTexcoord.y);\n"
+			"	getPosViewSpace(texture2D(uTex0, vTexcoord).r, screenCoord, z_info, v1, matProj, ssao_vp);\n"
+			"	getPosViewSpace(texture2D(uTex0, vTexcoord + vec2(out_dim.z, 0)).r, screenCoord + vec2(1, 0), z_info, v2, matProj, ssao_vp);\n"
+			"	getPosViewSpace(texture2D(uTex0, vTexcoord + vec2(0,out_dim.w)).r, screenCoord + vec2(0, 1), z_info, v3, matProj, ssao_vp);\n"
+			"	vec3 vViewNormal = normalize(cross(v3 - v1, v2 - v1));\n"
+			//"	gl_FragColor = vec4(vViewNormal, 1.0);\n"
+			// End Reconstruction
+			"	float total_strength = uStrength;\n"
+			"	float base = uBase;\n"
+			"	float area = uArea;\n"
+			"	float falloff = uFalloff;\n"
+			"	float radius = uRadius;\n"
+			"	int samples = uSamples;\n"
+			"	float samplesf = float(uSamples);\n"
+			"	vec3 sample_sphere[16];\n"
+			"	sample_sphere[0] = vec3( 0.5381, 0.1856,-0.4319);\n"
+			"	sample_sphere[1] = vec3( 0.1379, 0.2486, 0.4430);\n"
+			"	sample_sphere[2] = vec3( 0.3371, 0.5679,-0.0057);\n"
+			"	sample_sphere[3] = vec3(-0.6999,-0.0451,-0.0019);\n"
+			"	sample_sphere[4] = vec3( 0.0689,-0.1598,-0.8547);\n"
+			"	sample_sphere[5] = vec3( 0.0560, 0.0069,-0.1843);\n"
+			"	sample_sphere[6] = vec3(-0.0146, 0.1402, 0.0762);\n"
+			"	sample_sphere[7] = vec3( 0.0100,-0.1924,-0.0344);\n"
+			"	sample_sphere[8] = vec3(-0.3577,-0.5301,-0.4358);\n"
+			"	sample_sphere[9] = vec3(-0.3169, 0.1063, 0.0158);\n"
+			"	sample_sphere[10] = vec3( 0.0103,-0.5869, 0.0046);\n"
+			"	sample_sphere[11] = vec3(-0.0897,-0.4940, 0.3287);\n"
+			"	sample_sphere[12] = vec3( 0.7119,-0.0154,-0.0918);\n"
+			"	sample_sphere[13] = vec3(-0.0533, 0.0596,-0.5411);\n"
+			"	sample_sphere[14] = vec3( 0.0352,-0.0631, 0.5460);\n"
+			"	sample_sphere[15] = vec3(-0.4776, 0.2847,-0.0271);\n"
+			"	vec3 random = normalize( texture2D(uTex1, (uInverseView*vec4(v1,0.0)).xy).rgb );\n"
+			"	float depth = DecodeNativeDepth(texture2D(uTex0, vTexcoord).r,z_info);\n"
+			"	vec3 position = vec3(vTexcoord, depth);\n"
+			"	vec3 normal = vViewNormal;\n"
+			"	float radius_depth = radius/depth;\n"
+			"	float occlusion = 0.0;\n"
+			"	for(int i=0; i < 16; i++) {\n"
+			"		vec3 ray = radius_depth * reflect(sample_sphere[i], random);\n"
+			"		vec3 hemi_ray = position + sign(dot(ray,normal)) * ray;\n"
+			"		float occ_depth = DecodeNativeDepth(texture2D(uTex0, vec2(clamp(hemi_ray.x,0.0,1.0),clamp(hemi_ray.y,0.0,1.0))).r,z_info);\n"
+			"		float difference = depth - occ_depth;\n"
+			"		occlusion += step(falloff, difference) * (1.0-smoothstep(falloff, area, difference));\n"
+			"	}\n"
+			"	float ao = 1.0 - total_strength * occlusion * (1.0 / samplesf);\n"
+			"	gl_FragColor = vec4(clamp(ao + base,0.0,1.0));\n"
+			"}";
+			  
+		CompileShaders();
 
-                                                "float total_strength = uStrength;\n"
-                                                "float base = uBase;\n"
-                                                "float area = uArea;\n"
-                                                "float falloff = uFalloff;\n"
-                                                "float radius = uRadius;\n"
-                                                "int samples = uSamples;\n"
-                                                "float samplesf = float(uSamples);\n"
+		Uniform strength;
+		Uniform Base;
+		Uniform Area;
+		Uniform Falloff;
+		Uniform Radius;
+		Uniform Samples;
+		Uniform Scale;
+		Uniform nearFarPlane;
+		Uniform screen;
+		Uniform matProj;
+		Uniform inverseView;
 
-                                                // "float total_strength = 1.0;\n"
-                                                // "float base = 0.2;\n"
-                                                // "float area = 0.0075;\n"
-                                                // "float falloff = 0.000001;\n"
-                                                // "float radius = 0.002;\n"
-                                                // "int samples = 16;\n"
-                                                // "float samplesf = float(samples);\n"
+		total_strength = 1.0;
+		base = 0.01;
+		area = 1.0;
+		falloff = 0.01;
+		radius = 0.02;
+		samples = 16;
+		scale = 0.0005f;
 
-                                                "vec3 sample_sphere[16];\n"
-                                                "sample_sphere[0] = vec3( 0.5381, 0.1856,-0.4319);\n"
-                                                "sample_sphere[1] = vec3( 0.1379, 0.2486, 0.4430);\n"
-                                                "sample_sphere[2] = vec3( 0.3371, 0.5679,-0.0057);\n"
-                                                "sample_sphere[3] = vec3(-0.6999,-0.0451,-0.0019);\n"
-                                                "sample_sphere[4] = vec3( 0.0689,-0.1598,-0.8547);\n"
-                                                "sample_sphere[5] = vec3( 0.0560, 0.0069,-0.1843);\n"
-                                                "sample_sphere[6] = vec3(-0.0146, 0.1402, 0.0762);\n"
-                                                "sample_sphere[7] = vec3( 0.0100,-0.1924,-0.0344);\n"
-                                                "sample_sphere[8] = vec3(-0.3577,-0.5301,-0.4358);\n"
-                                                "sample_sphere[9] = vec3(-0.3169, 0.1063, 0.0158);\n"
-                                                "sample_sphere[10] = vec3( 0.0103,-0.5869, 0.0046);\n"
-                                                "sample_sphere[11] = vec3(-0.0897,-0.4940, 0.3287);\n"
-                                                "sample_sphere[12] = vec3( 0.7119,-0.0154,-0.0918);\n"
-                                                "sample_sphere[13] = vec3(-0.0533, 0.0596,-0.5411);\n"
-                                                "sample_sphere[14] = vec3( 0.0352,-0.0631, 0.5460);\n"
-                                                "sample_sphere[15] = vec3(-0.4776, 0.2847,-0.0271);\n"
-                                                "vec3 random = normalize( texture2D(uTex1, vTexcoord * 4.0).rgb );\n"
-                                                "float depth = DecodeNativeDepth(texture2D(uTex0, vTexcoord).r,z_info_local);\n"
-                                                "vec3 position = vec3(vTexcoord, depth);\n"
-                                                "vec3 normal = normal_from_depth(depth, vTexcoord);\n"
-                                                "float radius_depth = radius/depth;\n"
-                                                "float occlusion = 0.0;\n"
-                                                "for(int i=0; i < samples; i++) {\n"
-                                                    "vec3 ray = radius_depth * reflect(sample_sphere[i], random);\n"
-                                                    "vec3 hemi_ray = position + sign(dot(ray,normal)) * ray;\n"
-                                                    "float occ_depth = DecodeNativeDepth(texture2D(uTex0, vec2(clamp(hemi_ray.x,0.0,1.0),clamp(hemi_ray.y,0.0,1.0))).r,z_info_local);\n"
-                                                    "float difference = depth - occ_depth;\n"
-                                                    "occlusion += step(falloff, difference) * (1.0-smoothstep(falloff, area, difference));\n"
-                                                "}\n"
-                                                "float ao = 1.0 - total_strength * occlusion * (1.0 / samplesf);\n"
-                                                "gl_FragColor = vec4(clamp(ao + base,0.0,1.0));\n"
-                                                "}";
-              
-        CompileShaders();
+		strength.Name = "uStrength";
+		strength.Type = DataType::Float;
+		strength.Usage = PostEffects::Other;
+		strength.SetValue(&total_strength);
+		AddUniform(strength);
 
-        Uniform strength;
-        Uniform Base;
-        Uniform Area;
-        Uniform Falloff;
-        Uniform Radius;
-        Uniform Samples;
-        Uniform Scale;
-        Uniform nearFarPlane;
-        Uniform screen;
+		Base.Name = "uBase";
+		Base.Type = DataType::Float;
+		Base.Usage = PostEffects::Other;
+		Base.SetValue(&base);
+		AddUniform(Base);
 
-        total_strength = 1.0;
-        base = 0.2;
-        area = 0.0075;
-        falloff = 0.00001;
-        radius = 0.5;
-        samples = 16;
-        scale = 50.f;
+		Area.Name = "uArea";
+		Area.Type = DataType::Float;
+		Area.Usage = PostEffects::Other;
+		Area.SetValue(&area);
+		AddUniform(Area);
 
-        strength.Name = "uStrength";
-        strength.Type = DataType::Float;
-        strength.Usage = PostEffects::Other;
-        strength.SetValue(&total_strength);
-        AddUniform(strength);
+		Falloff.Name = "uFalloff";
+		Falloff.Type = DataType::Float;
+		Falloff.Usage = PostEffects::Other;
+		Falloff.SetValue(&falloff);
+		AddUniform(Falloff);
 
-        Base.Name = "uBase";
-        Base.Type = DataType::Float;
-        Base.Usage = PostEffects::Other;
-        Base.SetValue(&base);
-        AddUniform(Base);
+		Radius.Name = "uRadius";
+		Radius.Type = DataType::Float;
+		Radius.Usage = PostEffects::Other;
+		Radius.SetValue(&radius);
+		AddUniform(Radius);
 
-        Area.Name = "uArea";
-        Area.Type = DataType::Float;
-        Area.Usage = PostEffects::Other;
-        Area.SetValue(&area);
-        AddUniform(Area);
+		Samples.Name = "uSamples";
+		Samples.Type = DataType::Int;
+		Samples.Usage = PostEffects::Other;
+		Samples.SetValue(&samples);
+		AddUniform(Samples);
 
-        Falloff.Name = "uFalloff";
-        Falloff.Type = DataType::Float;
-        Falloff.Usage = PostEffects::Other;
-        Falloff.SetValue(&falloff);
-        AddUniform(Falloff);
+		Scale.Name = "uScale";
+		Scale.Type = DataType::Float;
+		Scale.Usage = PostEffects::Other;
+		Scale.SetValue(&scale);
+		AddUniform(Scale);
 
-        Radius.Name = "uRadius";
-        Radius.Type = DataType::Float;
-        Radius.Usage = PostEffects::Other;
-        Radius.SetValue(&radius);
-        AddUniform(Radius);
+		nearFarPlane.Name = "uNearFar";
+		nearFarPlane.Type = DataType::Vec2;
+		nearFarPlane.Usage = PostEffects::NearFarPlane;
+		AddUniform(nearFarPlane);
 
-        Samples.Name = "uSamples";
-        Samples.Type = DataType::Int;
-        Samples.Usage = PostEffects::Other;
-        Samples.SetValue(&samples);
-        AddUniform(Samples);
+		screen.Name = "uScreen";
+		screen.Type = DataType::Vec2;
+		screen.Usage = PostEffects::ScreenDimensions;
+		AddUniform(screen);
 
-        Scale.Name = "uScale";
-        Scale.Type = DataType::Float;
-        Scale.Usage = PostEffects::Other;
-        Scale.SetValue(&scale);
-        AddUniform(Scale);
+		matProj.Name = "matProj";
+		matProj.Type = DataType::Matrix;
+		matProj.Usage = PostEffects::ProjectionFromScene;
+		AddUniform(matProj);
 
-        nearFarPlane.Name = "uNearFar";
-        nearFarPlane.Type = DataType::Vec2;
-        nearFarPlane.Usage = PostEffects::NearFarPlane;
-        AddUniform(nearFarPlane);
+		inverseView.Name = "uInverseView";
+		inverseView.Type = DataType::Matrix;
+		inverseView.Type = PostEffects::Other;
+		AddUniform(inverseView);
+	}
 
-        screen.Name = "uScreen";
-        screen.Type = DataType::Vec2;
-        screen.Usage = PostEffects::ScreenDimensions;
-        AddUniform(screen);        
-    }
-
-    SSAOEffect::~SSAOEffect()
-    {
+	SSAOEffect::~SSAOEffect()
+	{
 		delete rnm;
-    }
+	}
 
 };

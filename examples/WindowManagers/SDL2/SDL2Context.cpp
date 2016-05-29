@@ -230,8 +230,8 @@ namespace p3d {
             }
 		}
         
-        SetTime(SDL_GetTicks()/1000.f);
-        fps.setFPS(SDL_GetTicks()/1000.f);
+        SetTime(SDL_GetTicks());
+        fps.setFPS(SDL_GetTicks());
     }
 
     void SDL2Context::Draw() 

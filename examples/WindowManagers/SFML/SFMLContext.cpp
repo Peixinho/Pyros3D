@@ -118,8 +118,8 @@ namespace p3d {
                 OnResize(event.size.width, event.size.height);
         }   
 
-        SetTime(clock.getElapsedTime().asSeconds());
-        fps.setFPS(clock.getElapsedTime().asSeconds());
+        SetTime(clock.getElapsedTime().asMilliseconds());
+        fps.setFPS(clock.getElapsedTime().asMilliseconds());
         Thread::CheckThreads();
     }
 

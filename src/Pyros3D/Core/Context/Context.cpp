@@ -41,15 +41,14 @@ namespace p3d {
 
     Context::~Context() {}
    
-    f64 Context::GetTime()
-    {
-        return deltaTime.GetTime();
-    }
-    
     f64 Context::GetTimeInterval()
     {
-        return deltaTime.GetTimeInterval();
+        return deltaTime.GetTimeInterval() * 0.001;
     }
+	f64 Context::GeTimeIntervalMS()
+	{
+		return deltaTime.GetTimeInterval();
+	}
     void Context::ActivateBulletTime(const f32 factor)
     {
         deltaTime.StartBulletTime(factor);
@@ -58,7 +57,7 @@ namespace p3d {
     {
         deltaTime.StopBulletTime();
     }
-    void Context::SetTime(const f32 Timer)
+    void Context::SetTime(const f64 Timer)
     {
         // Update Clock
         deltaTime.Update(Timer);
