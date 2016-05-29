@@ -29,7 +29,7 @@ SSAOEffectFinal::SSAOEffectFinal(uint32 texture1, uint32 texture2, const uint32 
 
 }
 
-PickingPainterMethod::PickingPainterMethod() : ClassName(1024, 768, "Pyros3D - Custom Material", WindowType::Close | WindowType::Resize)
+PickingPainterMethod::PickingPainterMethod() : ClassName(1024, 768, "Pyros3D - SSAO Example", WindowType::Close | WindowType::Resize)
 {
 
 }
