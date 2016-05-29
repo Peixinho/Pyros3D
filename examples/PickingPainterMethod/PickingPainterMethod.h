@@ -104,7 +104,7 @@ class PickingPainterMethod : public ClassName {
 
 class SSAOEffectFinal : public IEffect {
 public:
-	SSAOEffectFinal(uint32 texture1, uint32 texture2);
+	SSAOEffectFinal(uint32 texture1, uint32 texture2, const uint32 Width, const uint32 Height);
 	virtual ~SSAOEffectFinal() {}
 };
 

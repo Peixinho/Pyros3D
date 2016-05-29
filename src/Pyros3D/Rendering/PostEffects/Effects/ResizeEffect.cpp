@@ -10,15 +10,11 @@
 
 namespace p3d {
 
-    ResizeEffect::ResizeEffect(const uint32 Tex1, const uint32 width, const uint32 height) : IEffect() 
+    ResizeEffect::ResizeEffect(const uint32 Tex1, const uint32 Width, const uint32 Height) : IEffect(Width, Height) 
     {
 
         // Set RTT
         UseRTT(Tex1);
-        
-		Width = width;
-		Height = height;
-		customDimensions = true;
 
         // Create Fragment Shader
 		FragmentShaderString =

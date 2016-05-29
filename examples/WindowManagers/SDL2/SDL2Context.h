@@ -50,7 +50,8 @@ namespace p3d {
 
 			// Time
 			virtual f64 GetTime() { return SDL_GetTicks() * 0.001; }
-			virtual f64 GetTimeMS() { return SDL_GetTicks(); }
+			virtual f64 GetTimeMilliSeconds() { return SDL_GetTicks(); }
+			virtual f64 GetTimeMicroSeconds() { return SDL_GetTicks(); }
 
         protected:
 

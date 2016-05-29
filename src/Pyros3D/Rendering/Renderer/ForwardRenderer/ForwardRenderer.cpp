@@ -48,6 +48,7 @@ namespace p3d {
 
 #if !defined(GLES2)
 		delete shadowMaterial;
+		delete shadowSkinnedMaterial;
 #endif
 
 	}

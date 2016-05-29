@@ -15,7 +15,7 @@ namespace p3d {
 
     class PYROS3D_API ResizeEffect : public IEffect {
         public:
-            ResizeEffect(const uint32 Tex1, const uint32 width, const uint32 height);
+            ResizeEffect(const uint32 Tex1, const uint32 Width, const uint32 Height);
             virtual ~ResizeEffect();
     };
 

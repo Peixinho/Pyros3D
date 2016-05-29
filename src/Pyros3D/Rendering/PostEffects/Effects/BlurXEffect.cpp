@@ -10,7 +10,7 @@
 
 namespace p3d {
 
-    BlurXEffect::BlurXEffect(const uint32 Tex1, const uint32 Width) : IEffect()
+    BlurXEffect::BlurXEffect(const uint32 Tex1, const uint32 Width, const uint32 Height) : IEffect(Width, Height)
     {
         
         // Set RTT

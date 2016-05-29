@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-SSAOEffectFinal::SSAOEffectFinal(uint32 texture1, uint32 texture2)
+SSAOEffectFinal::SSAOEffectFinal(uint32 texture1, uint32 texture2, const uint32 Width, const uint32 Height) : IEffect(Width, Height)
 {
 	// Set RTT
 	UseRTT(texture1);
@@ -119,15 +119,14 @@ void PickingPainterMethod::Init()
 	// Painter Method Initialization
 	/*picking = new PainterPick(Width,Height);
 	picking->SetViewPort(0,0,Width,Height);*/
-
-	ssao = new SSAOEffect(RTT::Depth);
 	
 	EffectManager = new PostEffectsManager(Width, Height);
+	ssao = new SSAOEffect(RTT::Depth, Width, Height);
 	EffectManager->AddEffect(ssao);
-	//EffectManager->AddEffect(new ResizeEffect(RTT::LastRTT, Width*.25f, Height*.25f));
-	EffectManager->AddEffect(new BlurXEffect(RTT::LastRTT, Width*0.25f));
-	EffectManager->AddEffect(new BlurYEffect(RTT::LastRTT, Height*0.25f));
-	EffectManager->AddEffect(new SSAOEffectFinal(RTT::Color, RTT::LastRTT));
+	EffectManager->AddEffect(new ResizeEffect(RTT::LastRTT, Width*.25f, Height*.25f));
+	EffectManager->AddEffect(new BlurXEffect(RTT::LastRTT, Width*0.25f, Height*.25f));
+	EffectManager->AddEffect(new BlurYEffect(RTT::LastRTT, Width*0.25f, Height*0.25f));
+	EffectManager->AddEffect(new SSAOEffectFinal(RTT::Color, RTT::LastRTT, Width, Height));
 
 	GameObject* go1 = new GameObject();
 	GameObject* go2 = new GameObject();
@@ -162,7 +161,8 @@ void PickingPainterMethod::Init()
 
 void PickingPainterMethod::Update()
 {
-	// Update - Game Loop
+	static int last_time; int curr_time = GetTimeMicroSeconds();
+
 	ssao->SetViewMatrix(Camera->GetWorldTransformation());
 
 	// Update Scene

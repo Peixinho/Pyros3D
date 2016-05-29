@@ -20,12 +20,6 @@ namespace p3d {
 
     using namespace Uniforms;
 
-	struct __EFFECT {
-		__EFFECT(IEffect* Effect, Texture* Target = NULL) : effect(Effect), target(Target) {}
-		IEffect* effect;
-		Texture* target = NULL;
-	};
-
     class PYROS3D_API PostEffectsManager {
         friend class IEffect;
         
@@ -42,7 +36,7 @@ namespace p3d {
             // Process Post Effects
             void ProcessPostEffects(Projection* projection);
             
-            void AddEffect(IEffect* Effect, Texture* target = NULL);
+            void AddEffect(IEffect* Effect);
             void RemoveEffect(IEffect* Effect);
             
             const uint32 GetNumberEffects() const;
@@ -64,20 +58,13 @@ namespace p3d {
 			uint32 Width, Height;
 
             // List of Effects
-            std::vector<__EFFECT> effects;
+            std::vector<IEffect*> effects;
             
             // MRT
-            Texture *Color, *Depth, *Result1, *Result2, *LastRTT;
+            Texture *Color, *Depth, *LastRTT;
             
             // Frame Buffers
-            FrameBuffer *ExternalFBO, *fbo1, *fbo2, *activeFBO;
-
-            // Frame Buffer Flags
-            bool usingFBO1, usingFBO2;
-
-			// Custom Dimensions
-			bool haveCustomDimensions;
-			uint32 customWidth, customHeight;
+            FrameBuffer *ExternalFBO,*activeFBO;
     };
 
 };

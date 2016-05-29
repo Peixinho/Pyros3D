@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2)
+DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2, const uint32 Width, const uint32 Height) : IEffect(Width, Height)
 {
 	// Set RTT
 	UseCustomTexture(texture1);
@@ -92,6 +92,14 @@ void DepthOfField::OnResize(const uint32 width, const uint32 height)
 	// Resize
 	Renderer->Resize(width, height);
 	projection.Perspective(70.f,(f32)width/(f32)height,1.f,1000.f);
+
+	EffectManager->Resize(width, height);
+	blurX->Resize(width, height);
+	blurY->Resize(width, height);
+	resize->Resize(width*0.25f, height*0.25f);
+	blurXlow->Resize(width*0.25f, height*0.25f);
+	blurYlow->Resize(width*0.25f, height*0.25f);
+	depthOfField->Resize(width, height);
 }
 
 void DepthOfField::Init()
@@ -147,12 +155,22 @@ void DepthOfField::Init()
 		lowResBlur->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 		EffectManager = new PostEffectsManager(Width, Height);
-		EffectManager->AddEffect(new BlurXEffect(RTT::Color, Width));
-		EffectManager->AddEffect(new BlurYEffect(RTT::LastRTT, Height), fullResBlur);
-		EffectManager->AddEffect(new ResizeEffect(RTT::Color, Width*.25f, Height*.25f));
-		EffectManager->AddEffect(new BlurXEffect(RTT::LastRTT, Width*.25f));
-		EffectManager->AddEffect(new BlurYEffect(RTT::LastRTT, Height*.25f), lowResBlur);
-		EffectManager->AddEffect(new DepthOfFieldEffect(lowResBlur, fullResBlur));
+
+		blurX = new BlurXEffect(RTT::Color, Width, Height);
+		blurY = new BlurYEffect(RTT::LastRTT, Width, Height);
+		fullResBlur = blurY->GetTexture();
+		resize = new ResizeEffect(RTT::Color, Width*.25f, Height*.25f);
+		blurXlow = new BlurXEffect(RTT::LastRTT, Width*.25f, Height*.25f);
+		blurYlow = new BlurYEffect(RTT::LastRTT, Width*.25f, Height*.25f);
+		lowResBlur = blurYlow->GetTexture();
+		depthOfField = new DepthOfFieldEffect(lowResBlur, fullResBlur, Width, Height);
+
+		EffectManager->AddEffect(blurX);
+		EffectManager->AddEffect(blurY);
+		EffectManager->AddEffect(resize);
+		EffectManager->AddEffect(blurXlow);
+		EffectManager->AddEffect(blurYlow);
+		EffectManager->AddEffect(depthOfField);
 }
 
 void DepthOfField::Update()
@@ -175,6 +193,7 @@ void DepthOfField::Update()
 
 		// Render Post Processing
 		EffectManager->ProcessPostEffects(&projection);
+		std::cout << fps.getFPS() << std::endl;
 }
 
 void DepthOfField::Shutdown()
@@ -197,9 +216,7 @@ void DepthOfField::Shutdown()
 		delete Camera;
 		delete Renderer;
 		delete Scene;
-		delete EffectManager;
-		delete lowResBlur;
-		delete fullResBlur;
+		delete EffectManager; // this deletes all effects
 }
 
 DepthOfField::~DepthOfField() {}

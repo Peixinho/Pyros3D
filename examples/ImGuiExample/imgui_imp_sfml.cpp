@@ -455,7 +455,7 @@ namespace ImGui {
 
 namespace p3d {
 
-	void ImGuiContext::GetEvents()
+	void imguiContext::GetEvents()
 	{
 		while (rview.pollEvent(event)) 
 		{
@@ -506,8 +506,8 @@ namespace p3d {
 				OnResize(event.size.width, event.size.height);
 		}
 
-		SetTime(clock.getElapsedTime().asSeconds());
-		fps.setFPS(clock.getElapsedTime().asSeconds());
+		SetTime(clock.getElapsedTime().asMilliseconds());
+		fps.setFPS(clock.getElapsedTime().asMilliseconds());
 		Thread::CheckThreads();
 	}
 

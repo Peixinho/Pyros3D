@@ -10,11 +10,8 @@
 
 namespace p3d {
 
-    IEffect::IEffect() 
+    IEffect::IEffect(const uint32 Width, const uint32 Height) 
     {
-        
-        // Custom Dimensions
-        customDimensions = false;
         
         // Reset Handles
         positionHandle = texcoordHandle = -2;
@@ -35,6 +32,17 @@ namespace p3d {
         
         // Reset
         TextureUnits = 0;
+
+		// Set FrameBuffers
+		fbo = new FrameBuffer();
+		
+		attachment = new Texture();
+		attachment->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height);
+		attachment->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		fbo->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, attachment);
+
+		this->Width = Width;
+		this->Height = Height;
         
     }
 
@@ -57,12 +65,12 @@ namespace p3d {
 		shader->LinkProgram();
     }
     
-    void IEffect::Destroy()
-    {
-        shader->DeleteShader();
-    }
-    
-    IEffect::~IEffect() {
+    IEffect::~IEffect() 
+	{
+		shader->DeleteShader();
+		delete shader;
+		delete fbo;
+		delete attachment;
     }
 
     void IEffect::AddUniform(const Uniform &Data)
@@ -167,12 +175,7 @@ namespace p3d {
         // Save Dimensions
         Width = width;
         Height = height;
-        customDimensions = true;
-    }
-    
-    bool IEffect::HaveCustomDimensions()
-    {
-        return customDimensions;
+		fbo->Resize(width, height);
     }
     
     const uint32 IEffect::GetWidth() const

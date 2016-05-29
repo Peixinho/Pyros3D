@@ -10,7 +10,7 @@
 
 namespace p3d {
 
-    BloomEffect::BloomEffect(const uint32 Tex1) : IEffect() 
+    BloomEffect::BloomEffect(const uint32 Tex1, const uint32 Width, const uint32 Height) : IEffect(Width, Height)
     {   
         
         // Set RTT

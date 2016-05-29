@@ -25,7 +25,8 @@ namespace p3d {
             virtual ~Context();
 
             virtual f64 GetTime() = 0;
-			virtual f64 GetTimeMS() = 0;
+			virtual f64 GetTimeMilliSeconds() = 0;
+			virtual f64 GetTimeMicroSeconds() = 0;
             f64 GetTimeInterval();
 			f64 GeTimeIntervalMS();
             void ActivateBulletTime(const f32 factor);

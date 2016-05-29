@@ -15,7 +15,7 @@ namespace p3d {
 
     class PYROS3D_API VignetteEffect : public IEffect {
         public:
-            VignetteEffect(const uint32 Tex1, const f32 radius = 0.5f, const f32 softness = 0.2f);
+            VignetteEffect(const uint32 Tex1, const uint32 Width, const uint32 Height, const f32 radius = 0.5f, const f32 softness = 0.2f);
             virtual ~VignetteEffect();
 
 			void SetRadius(const f32 radius);

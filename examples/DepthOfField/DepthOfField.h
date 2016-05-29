@@ -71,6 +71,10 @@ class DepthOfField: public ClassName
 
 		// Effect manager
 		PostEffectsManager* EffectManager;
+
+		// Effects
+		IEffect* blurX, *blurY, *resize, *blurXlow, *blurYlow, *depthOfField;
+
 		Texture* fullResBlur; 
 		Texture* lowResBlur;
 
@@ -78,7 +82,7 @@ class DepthOfField: public ClassName
 
 class DepthOfFieldEffect : public IEffect {
 	public:
-		DepthOfFieldEffect(Texture* texture1, Texture* texture2);
+		DepthOfFieldEffect(Texture* texture1, Texture* texture2, const uint32 Width, const uint32 Height);
 		virtual ~DepthOfFieldEffect() {}
 };
 

@@ -17,7 +17,7 @@
     #define ClassName SDL2Context
 #else
 	#include "imgui_impl_sfml.h"
-    #define ClassName ImGuiContext
+    #define ClassName imguiContext
 #endif
 
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>

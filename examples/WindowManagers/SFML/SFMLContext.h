@@ -52,7 +52,8 @@ namespace p3d {
 
 			// Time
 			virtual f64 GetTime() { return clock.getElapsedTime().asSeconds(); }
-			virtual f64 GetTimeMS() { return clock.getElapsedTime().asMilliseconds(); }
+			virtual f64 GetTimeMilliSeconds() { return clock.getElapsedTime().asMilliseconds(); }
+			virtual f64 GetTimeMicroSeconds() { return clock.getElapsedTime().asMicroseconds(); }
 			
         protected:
             
