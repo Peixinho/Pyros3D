@@ -138,6 +138,9 @@ namespace p3d {
 			depthWritting = false;
 			depthTesting = false;
 
+			DepthTest();
+			DepthWrite();
+
 			DisableBlending();
 		}
 	}
@@ -287,7 +290,7 @@ namespace p3d {
 			EnableBlending();
 			BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
 		}
-
+		
 		// Draw
 		if (rmesh->Geometry->GetGeometryType() == GeometryType::BUFFER)
 		{

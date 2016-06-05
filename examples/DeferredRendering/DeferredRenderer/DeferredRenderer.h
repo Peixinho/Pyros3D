@@ -10,6 +10,7 @@
 #define DEFERREDRENDERER_H
 
 #include "Pyros3D/Assets/Renderable/Primitives/Shapes/Sphere.h"
+#include "Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h"
 #include "Pyros3D/Rendering/Renderer/IRenderer.h"
 #include "Pyros3D/Core/Projection/Projection.h"
 #include "Pyros3D/Core/Buffers/FrameBuffer.h"
@@ -42,10 +43,13 @@ namespace p3d {
             FrameBuffer* FBO;
 
             // Point Light Volume
-            CustomShaderMaterial *deferredMaterial;
+			CustomShaderMaterial *deferredMaterialDirectional;
+            CustomShaderMaterial *deferredMaterialPoint;
+			RenderingComponent *directionalLight;
             RenderingComponent *pointLight;
 
             Renderable* sphereHandle;
+			Renderable* quadHandle;
     };
     
 };

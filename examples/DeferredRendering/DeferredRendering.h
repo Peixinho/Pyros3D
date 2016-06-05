@@ -66,8 +66,23 @@ class DeferredRendering : public ClassName
         CustomShaderMaterial* Diffuse;
 
         // Deferred Settings
-        Texture* albedoTexture, *specularTexture, *normalTexture, *positionTexture, *depthTexture;
+        Texture* albedoTexture, *specularTexture, *depthTexture, *normalTexture;
         FrameBuffer* deferredFBO;
+
+		// Events
+		void MoveFrontPress(Event::Input::Info e);
+		void MoveBackPress(Event::Input::Info e);
+		void StrafeLeftPress(Event::Input::Info e);
+		void StrafeRightPress(Event::Input::Info e);
+		void MoveFrontRelease(Event::Input::Info e);
+		void MoveBackRelease(Event::Input::Info e);
+		void StrafeLeftRelease(Event::Input::Info e);
+		void StrafeRightRelease(Event::Input::Info e);
+		void LookTo(Event::Input::Info e);
+
+		float counterX, counterY;
+		Vec2 mouseCenter, mouseLastPosition, mousePosition;
+		bool _moveFront, _moveBack, _strafeLeft, _strafeRight;
 
 };
 

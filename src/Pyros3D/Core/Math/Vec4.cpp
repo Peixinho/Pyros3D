@@ -6,7 +6,7 @@
 // Description : Vector 4
 //============================================================================
 
-#include <Pyros3D/Core/Math/Vec4.h>
+#include <Pyros3D/Core/Math/Math.h>
 
 namespace p3d {
 
@@ -15,11 +15,7 @@ namespace p3d {
         Vec4::Vec4() {
             x = y = z = w = 0;
         }
-
-        Vec4::Vec4(const f32 X, const f32 Y, const f32 Z, const f32 W) : x(X), y(Y), z(Z), w(W)
-        {
-        }
-
+		
         f32 Vec4::dotProduct(const Vec4& v) const
         {
             return (x*v.x) + (y*v.y) + (z*v.z) + (w*v.w);

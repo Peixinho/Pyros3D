@@ -5,7 +5,8 @@
 // Copyright   : ;)
 // Description : Vector2
 //============================================================================
-#include <Pyros3D/Core/Math/Vec2.h>
+
+#include <Pyros3D/Core/Math/Math.h>
 
 namespace p3d {
 

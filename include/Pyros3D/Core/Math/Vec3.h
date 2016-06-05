@@ -6,8 +6,8 @@
 // Description : Vector3
 //============================================================================
 
-#ifndef Vec3_H
-#define	Vec3_H
+#ifndef VEC3_H
+#define	VEC3_H
 
 #include <Pyros3D/Core/Math/Math.h>
 #include <string>
@@ -15,7 +15,7 @@
 namespace p3d {
     
     namespace Math {
-        
+		
         class PYROS3D_API Vec3 {
             public:
 
@@ -25,6 +25,7 @@ namespace p3d {
                 // mthods
                 Vec3();
                 Vec3(const f32 X, const f32 Y, const f32 Z) : x(X), y(Y), z(Z) {}
+				Vec3(const Vec2 vec, const f32 Z) : x(vec.x), y(vec.y), z(Z) {}
 
                 // f32s
                 f32 dotProduct(const Vec3 &v) const;
@@ -40,7 +41,9 @@ namespace p3d {
                 Vec3 negate() const;
                 void negateSelf();
                 Vec3 Abs() const;
-                
+
+				const Vec2 xy() const { return Vec2(x, y); }
+
                 // Lerp
                 Vec3 Lerp(const Vec3 &b, const f32 t) const;
 
@@ -79,5 +82,5 @@ namespace p3d {
     };
 }
 
-#endif	/* Vec3_H */
+#endif	/* VEC3_H */
 

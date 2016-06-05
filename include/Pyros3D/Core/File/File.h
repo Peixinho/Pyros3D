@@ -14,6 +14,7 @@
 #include <string>
 #include <string.h>
 #include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Core/Logs/Log.h>
 
 namespace p3d {
 

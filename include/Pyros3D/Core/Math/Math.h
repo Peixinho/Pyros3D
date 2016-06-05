@@ -27,11 +27,12 @@ namespace p3d {
     typedef unsigned char uchar;
     typedef double f64;    
 };
-#include "Vec2.h"
-#include "Vec3.h"
-#include "Vec4.h"
-#include "Matrix.h"
-#include "Quaternion.h"
+
+#include <Pyros3D/Core/Math/Vec2.h>
+#include <Pyros3D/Core/Math/Vec3.h>
+#include <Pyros3D/Core/Math/Vec4.h>
+#include <Pyros3D/Core/Math/Matrix.h>
+#include <Pyros3D/Core/Math/Quaternion.h>
 #include <iostream>
 #include <ostream>
 #include <sstream>
@@ -40,7 +41,7 @@ namespace p3d {
 
 // Constants
 #ifndef NULL
-#define NULL 0
+	#define NULL 0
 #endif
 #define EPSILON 1e-8 
 #define PI 3.14159265358979323846

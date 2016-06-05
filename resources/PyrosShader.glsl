@@ -173,7 +173,7 @@
         {
             if (Radius>0.0) {
             float d = distance(Vertex,LightPosition);
-            return clamp(1.0 - (1.0/Radius) * sqrt(d*d), 0.0, 1.0);
+            return clamp(1.0 - (1.0/Radius) * d, 0.0, 1.0);
             };
             return 1.0;
         }
@@ -531,7 +531,6 @@
                         lightIntensity = specularPower = 0.0;
 
                         attenuation = Attenuation(Vertex, L.Position, L.Radius);
-                        spotEffect = 1.0 - DualConeSpotLight(Vertex, L.Position, L.Direction, L.Cones.x, L.Cones.y);
 
                         CalculateLighting(LightVec, HalfVec, Normal, uShininess, lightIntensity, specularPower);
 

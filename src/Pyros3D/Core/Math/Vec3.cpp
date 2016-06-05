@@ -6,7 +6,7 @@
 // Description : Vector3
 //============================================================================
 
-#include <Pyros3D/Core/Math/Vec3.h>
+#include <Pyros3D/Core/Math/Math.h>
 
 namespace p3d {
     

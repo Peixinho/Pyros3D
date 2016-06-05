@@ -16,7 +16,7 @@ namespace p3d {
 
     namespace Math {
     
-        class PYROS3D_API Matrix;    
+        class PYROS3D_API Matrix;
 
         class PYROS3D_API Quaternion {
         public:

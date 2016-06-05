@@ -16,6 +16,9 @@ namespace p3d {
 
     namespace Math {
     
+		class Vec2;
+		class Vec3;
+
         class PYROS3D_API Vec4 {
             
             public:
@@ -25,7 +28,9 @@ namespace p3d {
 
                 // methods
                 Vec4();
-                Vec4(const f32 X, const f32 Y, const f32 Z, const f32 W);
+                Vec4(const f32 X, const f32 Y, const f32 Z, const f32 W) : x(X), y(Y), z(Z), w(W) {}
+				Vec4(const Vec2 vec, const f32 Z, const f32 W) : x(vec.x), y(vec.y), z(Z), w(W) {}
+				Vec4(const Vec3 vec, const f32 W) : x(vec.x), y(vec.y), z(vec.z), w(W) {}
 
                 // f32
                 f32 dotProduct(const Vec4 &v) const;
@@ -36,7 +41,10 @@ namespace p3d {
                 f32 magnitude() const;
                 f32 magnitudeSQR() const;
                 Vec4 Abs() const;
-                
+
+				const Vec2 xy() const { return Vec2(x, y); }
+				const Vec3 xyz() const { return Vec3(x, y, z); }
+
                 // toString
                 std::string toString() const;
 
