@@ -16,11 +16,12 @@ vec4 specular = vec4(0.0,0.0,0.0,1.0);
 bool diffuseIsSet = false;
 uniform float uOpacity;
 uniform vec4 uColor;
+uniform vec4 uSpecular;
 varying vec4 normals;
 void main() {
 	if (!diffuseIsSet) {diffuse=uColor; diffuseIsSet=true;} else diffuse *= uColor;
 	gl_FragData[0]=vec4(diffuse.xyz,1.0);
-	gl_FragData[1]=vec4(specular.xyz,1.0);
+	gl_FragData[1]=vec4(uSpecular.xyz,1.0);
 	gl_FragData[2]=vec4(normals.xyz,1.0);
 }
 #endif

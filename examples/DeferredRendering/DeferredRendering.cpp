@@ -100,8 +100,11 @@ void DeferredRendering::Init()
         Diffuse->AddUniform(Uniforms::Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
         Diffuse->AddUniform(Uniforms::Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
         Diffuse->AddUniform(Uniforms::Uniform("uColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		Diffuse->AddUniform(Uniforms::Uniform("uSpecular", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
         Vec4 color = Vec4(0.8,0.8,0.8,1.0);
         Diffuse->SetUniformValue("uColor", &color);
+		color = Vec4(1.0, 1.0, 1.0, 1.0);
+		Diffuse->SetUniformValue("uSpecular", &color);
 		Diffuse->SetCullFace(CullFace::DoubleSided);
 
 		Renderable* cubeHandle2 = new Cube(1, 1, 1);

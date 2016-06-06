@@ -45,6 +45,7 @@ namespace p3d {
             // Point Light Volume
 			CustomShaderMaterial *deferredMaterialDirectional;
             CustomShaderMaterial *deferredMaterialPoint;
+			CustomShaderMaterial *deferredMaterialSpot;
 			RenderingComponent *directionalLight;
             RenderingComponent *pointLight;
 

@@ -13,6 +13,17 @@ float Attenuation(vec3 Vertex, vec3 LightPosition, float Radius)
 	float d = distance(Vertex,LightPosition);
 	return clamp(1.0 - (1.0/Radius)*d, 0.0, 1.0);
 }
+float DualConeSpotLight(vec3 Vertex, vec3 SpotLightPosition, vec3 SpotLightDirection, float cosOutterCone, float cosInnerCone)
+{
+    if (cosOutterCone>0.0 || cosInnerCone>0.0) {
+        vec3 to_light = normalize(SpotLightPosition-Vertex);
+        float angle = dot(-to_light, normalize(SpotLightDirection));
+        float funcX = 1.0/(cosInnerCone-cosOutterCone);
+        float funcY = -funcX * cosOutterCone;
+        return clamp(angle*funcX+funcY,0.0,1.0);
+    }
+    return 0.0;
+}
 vec4 diffuse = vec4(0.0,0.0,0.0,1.0);
 vec4 specular = vec4(0.0,0.0,0.0,1.0);
 bool diffuseIsSet = false;
@@ -24,7 +35,10 @@ uniform sampler2D tDepth;
 uniform sampler2D tNormal;
 uniform vec2 uScreenDimensions;
 uniform vec3 uLightPosition;
+uniform vec3 uLightDirection;
 uniform float uLightRadius;
+uniform float uOutterCone;
+uniform float uInnerCone;
 uniform vec4 uLightColor;
 uniform vec2 uNearFar;
 uniform mat4 uMatProj;
@@ -80,16 +94,19 @@ void main() {
 	vec3 lightPosition = uLightPosition;
 	vec4 lightColor = uLightColor;
 
-	vec3 lightDirection = normalize(lightPosition - v1);
+	vec3 lightDirection = normalize(-uLightDirection);
 	float n_dot_l = max(dot(lightDirection, vViewNormal), 0.0);
 	float attenuation = Attenuation(v1, lightPosition, lightRadius);
-	vec3 diffuseColor = attenuation * n_dot_l * lightColor.xyz;
+	float innerCone = uInnerCone;
+	float outterCone = uOutterCone;
+	float spotEffect = 1.0 - DualConeSpotLight(v1, lightPosition, lightDirection, outterCone, innerCone);
+	vec3 diffuseColor = spotEffect * attenuation * n_dot_l * lightColor.xyz;
 	diffuse = vec4((diffuseColor * Color),1.0);
 
 	vec3 eyeVec = normalize(-v1);
 	vec3 halfVec = normalize(eyeVec + lightDirection);
 	float specularPower = (n_dot_l>0.0?pow(max(dot(halfVec,vViewNormal),0.0), 50.0):0.0);
-	specular = vec4(specularPower * attenuation * Specular, 1.0);
+	specular = vec4(specularPower * spotEffect * attenuation * Specular, 1.0);
 	
 	gl_FragColor = diffuse + specular;
 }

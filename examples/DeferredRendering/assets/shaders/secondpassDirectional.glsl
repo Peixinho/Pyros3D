@@ -21,7 +21,6 @@ uniform vec3 uLightDirection;
 uniform vec4 uLightColor;
 uniform vec2 uNearFar;
 uniform mat4 uMatProj;
-uniform mat4 uViewMatrix;
 
 // Reconstruct Positions and Normals
 float DecodeLinearDepth(float z, vec4 z_info_local)
@@ -68,7 +67,7 @@ void main() {
 
 	v1.y=-v1.y;
 
-	vec3 vViewNormal = normalize(texture2D(tNormal, Texcoord)).xyz;
+	vec3 vViewNormal = normalize(texture2D(tNormal, Texcoord).xyz);
 	vec3 Color = texture2D(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
 	vec4 lightColor = uLightColor;
 
@@ -80,10 +79,10 @@ void main() {
 
 	vec3 Specular = texture2D(tSpecular, vec2(Texcoord.x,Texcoord.y)).xyz;
 	vec3 eyeVec = normalize(-v1);
-	vec3 halfVec = normalize(eyeVec + lightDirection);
+	vec3 halfVec = normalize(lightDirection + eyeVec);
 	float specularPower = (n_dot_l>0.0?pow(max(dot(halfVec,vViewNormal),0.0), 50.0):0.0);
 	specular = vec4(specularPower * Specular, 1.0);
 	
-	gl_FragColor=diffuse;
+	gl_FragColor=diffuse + specular;
 }
 #endif
