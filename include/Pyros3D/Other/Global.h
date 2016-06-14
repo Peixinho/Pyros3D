@@ -32,6 +32,8 @@
 	#define BRK asm volatile("int3")
 #endif
 
-#define assert( x ){if( !(x) ){fprintf( stderr, "assert failed %s %d: %s\n", __FILE__, __LINE__, #x ); BRK;} }
+#ifndef ASSERT
+#define ASSERT( x ){if( !(x) ){fprintf( stderr, "assert failed %s %d: %s\n", __FILE__, __LINE__, #x ); BRK;} }
+#endif
 
 #endif /* GLOBAL_H */
