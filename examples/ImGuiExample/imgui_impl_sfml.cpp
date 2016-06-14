@@ -23,6 +23,8 @@ namespace ImGui {
 		static sf::Clock	g_Time;
 		static double		g_CurrentTime = 0;
 
+		static const float _translate = 0.375f;
+
 		void ImGui_ImplSFML_RenderDrawLists(ImDrawData* draw_data)
 		{
 
@@ -61,8 +63,8 @@ namespace ImGui {
 				// Setup orthographic projection matrix
 				const float ortho_projection[4][4] =
 				{
-					{ 2.0f / io.DisplaySize.x, 0.0f,                   0.0f, 0.0f },
-					{ 0.0f,                  2.0f / -io.DisplaySize.y, 0.0f, 0.0f },
+					{ 2.0f / io.DisplaySize.x + _translate, 0.0f,                   0.0f, 0.0f },
+					{ 0.0f,                  2.0f / -io.DisplaySize.y + _translate, 0.0f, 0.0f },
 					{ 0.0f,                  0.0f,                  -1.0f, 0.0f },
 					{ -1.0f,                  1.0f,                   0.0f, 1.0f },
 				};
@@ -138,7 +140,7 @@ namespace ImGui {
 			    glMatrixMode(GL_PROJECTION);
 			    glPushMatrix();
 			    glLoadIdentity();
-			    glOrtho(0.0f, io.DisplaySize.x, io.DisplaySize.y, 0.0f, -1.0f, +1.0f);
+			    glOrtho(0.0f, io.DisplaySize.x + _translate, io.DisplaySize.y + _translate, 0.0f, -1.0f, +1.0f);
 			    glMatrixMode(GL_MODELVIEW);
 			    glPushMatrix();
 			    glLoadIdentity();
