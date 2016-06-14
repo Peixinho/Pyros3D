@@ -133,7 +133,6 @@ void DepthOfField::Init()
 		{
 			GameObject* Monkey = new GameObject();
 			Monkey->SetPosition(Vec3(-23.f + i * 3.f, 0, -15.f + i * 3.f));
-			std::cout << Monkey->GetPosition().toString() << std::endl;
 			RenderingComponent* rMonkey = new RenderingComponent(modelMesh);
 			Monkey->Add(rMonkey);
 			Scene->Add(Monkey);
@@ -193,7 +192,6 @@ void DepthOfField::Update()
 
 		// Render Post Processing
 		EffectManager->ProcessPostEffects(&projection);
-		std::cout << fps.getFPS() << std::endl;
 }
 
 void DepthOfField::Shutdown()

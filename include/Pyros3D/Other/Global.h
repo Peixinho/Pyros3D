@@ -23,4 +23,15 @@
 #define STRINGIFY(x) #x
 #define TOSTRING(x) STRINGIFY(x)
 
+#ifdef __arm__
+	#include <signal.h>
+	#define BRK raise(SIGTRAP)
+#elif defined(_WIN32)
+	#define BRK __debugbreak()
+#else
+	#define BRK asm volatile("int3")
+#endif
+
+#define assert( x ){if( !(x) ){fprintf( stderr, "assert failed %s %d: %s\n", __FILE__, __LINE__, #x ); BRK;} }
+
 #endif /* GLOBAL_H */
