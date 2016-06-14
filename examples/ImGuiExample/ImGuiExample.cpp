@@ -96,7 +96,7 @@ void ImGuiExample::Update()
         // Render Scene
         Renderer->RenderScene(projection,Camera,Scene);
 
-		ImGui::SFML::ImGui_ImplSFML_Render(Width, Height, clear_color);
+		ImGui::SFML::ImGui_ImplSFML_Render(ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, clear_color);
 }
 
 void ImGuiExample::Shutdown()

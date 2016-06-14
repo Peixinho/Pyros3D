@@ -23,12 +23,10 @@ namespace ImGui {
 		static sf::Clock	g_Time;
 		static double		g_CurrentTime = 0;
 
-		static const float _translate = 0.375f;
-
 		void ImGui_ImplSFML_RenderDrawLists(ImDrawData* draw_data)
 		{
 
-			if ((p3d::Context::GetGLMajorVersion()==3 && p3d::Context::GetGLMinorVersion()>=3) || p3d::Context::GetGLMajorVersion()>3)
+			if ((p3d::Context::GetGLMajorVersion() == 3 && p3d::Context::GetGLMinorVersion() >= 3) || p3d::Context::GetGLMajorVersion()>3)
 			{
 
 				// Backup GL state
@@ -59,12 +57,12 @@ namespace ImGui {
 				ImGuiIO& io = ImGui::GetIO();
 				float fb_height = io.DisplaySize.y * io.DisplayFramebufferScale.y;
 				draw_data->ScaleClipRects(io.DisplayFramebufferScale);
-				
+
 				// Setup orthographic projection matrix
 				const float ortho_projection[4][4] =
 				{
-					{ 2.0f / io.DisplaySize.x + _translate, 0.0f,                   0.0f, 0.0f },
-					{ 0.0f,                  2.0f / -io.DisplaySize.y + _translate, 0.0f, 0.0f },
+					{ 2.0f / io.DisplaySize.x, 0.0f,                   0.0f, 0.0f },
+					{ 0.0f,                  2.0f / -io.DisplaySize.y, 0.0f, 0.0f },
 					{ 0.0f,                  0.0f,                  -1.0f, 0.0f },
 					{ -1.0f,                  1.0f,                   0.0f, 1.0f },
 				};
@@ -112,78 +110,79 @@ namespace ImGui {
 				if (last_enable_cull_face) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
 				if (last_enable_depth_test) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
 				if (last_enable_scissor_test) glEnable(GL_SCISSOR_TEST); else glDisable(GL_SCISSOR_TEST);
-			
-			} else {
+
+			}
+			else {
 
 				// We are using the OpenGL fixed pipeline to make the example code simpler to read!
-			    // Setup render state: alpha-blending enabled, no face culling, no depth testing, scissor enabled, vertex/texcoord/color pointers.
-			    GLint last_texture;
-			    glGetIntegerv(GL_TEXTURE_BINDING_2D, &last_texture);
-			    glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_TRANSFORM_BIT);
-			    glEnable(GL_BLEND);
-			    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			    glDisable(GL_CULL_FACE);
-			    glDisable(GL_DEPTH_TEST);
-			    glEnable(GL_SCISSOR_TEST);
-			    glEnableClientState(GL_VERTEX_ARRAY);
-			    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-			    glEnableClientState(GL_COLOR_ARRAY);
-			    glEnable(GL_TEXTURE_2D);
-			    //glUseProgram(0); // You may want this if using this code in an OpenGL 3+ context
+				// Setup render state: alpha-blending enabled, no face culling, no depth testing, scissor enabled, vertex/texcoord/color pointers.
+				GLint last_texture;
+				glGetIntegerv(GL_TEXTURE_BINDING_2D, &last_texture);
+				glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_TRANSFORM_BIT);
+				glEnable(GL_BLEND);
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+				glDisable(GL_CULL_FACE);
+				glDisable(GL_DEPTH_TEST);
+				glEnable(GL_SCISSOR_TEST);
+				glEnableClientState(GL_VERTEX_ARRAY);
+				glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+				glEnableClientState(GL_COLOR_ARRAY);
+				glEnable(GL_TEXTURE_2D);
+				//glUseProgram(0); // You may want this if using this code in an OpenGL 3+ context
 
-			    // Handle cases of screen coordinates != from framebuffer coordinates (e.g. retina displays)
-			    ImGuiIO& io = ImGui::GetIO();
-			    float fb_height = io.DisplaySize.y * io.DisplayFramebufferScale.y;
-			    draw_data->ScaleClipRects(io.DisplayFramebufferScale);
+				// Handle cases of screen coordinates != from framebuffer coordinates (e.g. retina displays)
+				ImGuiIO& io = ImGui::GetIO();
+				float fb_height = io.DisplaySize.y * io.DisplayFramebufferScale.y;
+				draw_data->ScaleClipRects(io.DisplayFramebufferScale);
 
-			    // Setup orthographic projection matrix
-			    glMatrixMode(GL_PROJECTION);
-			    glPushMatrix();
-			    glLoadIdentity();
-			    glOrtho(0.0f, io.DisplaySize.x + _translate, io.DisplaySize.y + _translate, 0.0f, -1.0f, +1.0f);
-			    glMatrixMode(GL_MODELVIEW);
-			    glPushMatrix();
-			    glLoadIdentity();
+				// Setup orthographic projection matrix
+				glMatrixMode(GL_PROJECTION);
+				glPushMatrix();
+				glLoadIdentity();
+				glOrtho(0.0f, io.DisplaySize.x, io.DisplaySize.y, 0.0f, -1.0f, +1.0f);
+				glMatrixMode(GL_MODELVIEW);
+				glPushMatrix();
+				glLoadIdentity();
 
-			    // Render command lists
-			    #define OFFSETOF(TYPE, ELEMENT) ((size_t)&(((TYPE *)0)->ELEMENT))
-			    for (int n = 0; n < draw_data->CmdListsCount; n++)
-			    {
-			        const ImDrawList* cmd_list = draw_data->CmdLists[n];
-			        const unsigned char* vtx_buffer = (const unsigned char*)&cmd_list->VtxBuffer.front();
-			        const ImDrawIdx* idx_buffer = &cmd_list->IdxBuffer.front();
-			        glVertexPointer(2, GL_FLOAT, sizeof(ImDrawVert), (void*)(vtx_buffer + OFFSETOF(ImDrawVert, pos)));
-			        glTexCoordPointer(2, GL_FLOAT, sizeof(ImDrawVert), (void*)(vtx_buffer + OFFSETOF(ImDrawVert, uv)));
-			        glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(ImDrawVert), (void*)(vtx_buffer + OFFSETOF(ImDrawVert, col)));
+				// Render command lists
+#define OFFSETOF(TYPE, ELEMENT) ((size_t)&(((TYPE *)0)->ELEMENT))
+				for (int n = 0; n < draw_data->CmdListsCount; n++)
+				{
+					const ImDrawList* cmd_list = draw_data->CmdLists[n];
+					const unsigned char* vtx_buffer = (const unsigned char*)&cmd_list->VtxBuffer.front();
+					const ImDrawIdx* idx_buffer = &cmd_list->IdxBuffer.front();
+					glVertexPointer(2, GL_FLOAT, sizeof(ImDrawVert), (void*)(vtx_buffer + OFFSETOF(ImDrawVert, pos)));
+					glTexCoordPointer(2, GL_FLOAT, sizeof(ImDrawVert), (void*)(vtx_buffer + OFFSETOF(ImDrawVert, uv)));
+					glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(ImDrawVert), (void*)(vtx_buffer + OFFSETOF(ImDrawVert, col)));
 
-			        for (int cmd_i = 0; cmd_i < cmd_list->CmdBuffer.size(); cmd_i++)
-			        {
-			            const ImDrawCmd* pcmd = &cmd_list->CmdBuffer[cmd_i];
-			            if (pcmd->UserCallback)
-			            {
-			                pcmd->UserCallback(cmd_list, pcmd);
-			            }
-			            else
-			            {
-			                glBindTexture(GL_TEXTURE_2D, (GLuint)(intptr_t)pcmd->TextureId);
-			                glScissor((int)pcmd->ClipRect.x, (int)(fb_height - pcmd->ClipRect.w), (int)(pcmd->ClipRect.z - pcmd->ClipRect.x), (int)(pcmd->ClipRect.w - pcmd->ClipRect.y));
-			                glDrawElements(GL_TRIANGLES, (GLsizei)pcmd->ElemCount, GL_UNSIGNED_SHORT, idx_buffer);
-			            }
-			            idx_buffer += pcmd->ElemCount;
-			        }
-			    }
-			    #undef OFFSETOF
+					for (int cmd_i = 0; cmd_i < cmd_list->CmdBuffer.size(); cmd_i++)
+					{
+						const ImDrawCmd* pcmd = &cmd_list->CmdBuffer[cmd_i];
+						if (pcmd->UserCallback)
+						{
+							pcmd->UserCallback(cmd_list, pcmd);
+						}
+						else
+						{
+							glBindTexture(GL_TEXTURE_2D, (GLuint)(intptr_t)pcmd->TextureId);
+							glScissor((int)pcmd->ClipRect.x, (int)(fb_height - pcmd->ClipRect.w), (int)(pcmd->ClipRect.z - pcmd->ClipRect.x), (int)(pcmd->ClipRect.w - pcmd->ClipRect.y));
+							glDrawElements(GL_TRIANGLES, (GLsizei)pcmd->ElemCount, GL_UNSIGNED_SHORT, idx_buffer);
+						}
+						idx_buffer += pcmd->ElemCount;
+					}
+				}
+#undef OFFSETOF
 
-			    // Restore modified state
-			    glDisableClientState(GL_COLOR_ARRAY);
-			    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-			    glDisableClientState(GL_VERTEX_ARRAY);
-			    glBindTexture(GL_TEXTURE_2D, last_texture);
-			    glMatrixMode(GL_MODELVIEW);
-			    glPopMatrix();
-			    glMatrixMode(GL_PROJECTION);
-			    glPopMatrix();
-			    glPopAttrib();
+				// Restore modified state
+				glDisableClientState(GL_COLOR_ARRAY);
+				glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+				glDisableClientState(GL_VERTEX_ARRAY);
+				glBindTexture(GL_TEXTURE_2D, last_texture);
+				glMatrixMode(GL_MODELVIEW);
+				glPopMatrix();
+				glMatrixMode(GL_PROJECTION);
+				glPopMatrix();
+				glPopAttrib();
 
 			}
 		}
@@ -213,10 +212,10 @@ namespace ImGui {
 
 		bool ImGui_ImplSFML_CreateDeviceObjects()
 		{
-			
+
 			GLint last_texture, last_array_buffer, last_vertex_array;
 
-			if ((p3d::Context::GetGLMajorVersion()==3 && p3d::Context::GetGLMinorVersion()>=3) || p3d::Context::GetGLMajorVersion()>3)
+			if ((p3d::Context::GetGLMajorVersion() == 3 && p3d::Context::GetGLMinorVersion() >= 3) || p3d::Context::GetGLMajorVersion()>3)
 			{
 				// Backup GL state
 				glGetIntegerv(GL_TEXTURE_BINDING_2D, &last_texture);
@@ -286,7 +285,7 @@ namespace ImGui {
 			ImGui_ImplSFML_CreateFontsTexture();
 			glBindTexture(GL_TEXTURE_2D, last_texture);
 
-			if ((p3d::Context::GetGLMajorVersion()==3 && p3d::Context::GetGLMinorVersion()>=3) || p3d::Context::GetGLMajorVersion()>3)
+			if ((p3d::Context::GetGLMajorVersion() == 3 && p3d::Context::GetGLMinorVersion() >= 3) || p3d::Context::GetGLMajorVersion()>3)
 			{
 				// Restore modified GL state
 				glBindBuffer(GL_ARRAY_BUFFER, last_array_buffer);
@@ -322,8 +321,8 @@ namespace ImGui {
 			io.KeyMap[ImGuiKey_Z] = sf::Keyboard::Z;
 
 			io.RenderDrawListsFn = ImGui_ImplSFML_RenderDrawLists;       // Alternatively you can set this to NULL and call ImGui::GetDrawData() after ImGui::Render() to get the same ImDrawData pointer.
-			/*io.SetClipboardTextFn = ImGui_ImplSFML_SetClipboardText;*/
-			/*io.GetClipboardTextFn = ImGui_ImplSFML_GetClipboardText;*/
+																		 /*io.SetClipboardTextFn = ImGui_ImplSFML_SetClipboardText;*/
+																		 /*io.GetClipboardTextFn = ImGui_ImplSFML_GetClipboardText;*/
 #ifdef _WIN32
 			io.ImeWindowHandle = g_Window->getSystemHandle();
 #endif
@@ -365,15 +364,15 @@ namespace ImGui {
 			ImGuiIO& io = ImGui::GetIO();
 
 			// Setup display size (every frame to accommodate for window resizing)
-			io.DisplaySize = ImVec2((float)g_Window->getSize().x-1, (float)g_Window->getSize().y);
+			io.DisplaySize = ImVec2((float)g_Window->getSize().x - 1, (float)g_Window->getSize().y);
 
 			// Setup time step
-			io.DeltaTime = g_Time.getElapsedTime().asSeconds() > 0.0 ? (float)(g_Time.getElapsedTime().asSeconds()-g_CurrentTime) : (float)(1.0f / 60.0f);
+			io.DeltaTime = g_Time.getElapsedTime().asSeconds() > 0.0 ? (float)(g_Time.getElapsedTime().asSeconds() - g_CurrentTime) : (float)(1.0f / 60.0f);
 			g_CurrentTime = g_Time.getElapsedTime().asSeconds();
 
 			// Setup inputs
 			// (we already got mouse wheel, keyboard keys & characters from glfw callbacks polled in glfwPollEvents())
-			
+
 			if (g_Window->hasFocus())
 			{
 				io.MousePos = ImVec2((float)sf::Mouse::getPosition(*g_Window).x, (float)sf::Mouse::getPosition(*g_Window).y);   // Mouse position in screen coordinates (set to -1,-1 if no mouse / on another screen, etc.)
@@ -459,7 +458,7 @@ namespace p3d {
 
 	void imguiContext::GetEvents()
 	{
-		while (rview.pollEvent(event)) 
+		while (rview.pollEvent(event))
 		{
 			ImGui::SFML::ImGui_ImplSFML_Events(event);
 
