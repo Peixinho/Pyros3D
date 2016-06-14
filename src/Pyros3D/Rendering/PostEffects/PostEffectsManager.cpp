@@ -56,7 +56,7 @@ namespace p3d {
         Height = height;
         
         // Resize External FBO
-        ExternalFBO->Resize(Width, Height);	
+        ExternalFBO->Resize(Width, Height);
     }
     
     void PostEffectsManager::CreateQuad()
