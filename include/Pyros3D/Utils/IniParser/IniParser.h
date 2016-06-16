@@ -108,6 +108,8 @@ namespace p3d {
                     return false;
                 }
             }
+
+			const map<string, map<string, string> > &GetIniParsedMap() const { return INI; }
         
         private:
             
