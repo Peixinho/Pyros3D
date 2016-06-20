@@ -22,11 +22,11 @@ namespace p3d {
 		CreateQuad();
 
 		Color = new Texture();
-        Color->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height);
+		Color->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
         Color->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
 		
         Depth = new Texture();
-        Depth->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height);
+        Depth->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height, false);
         Depth->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
 
         // Initialize Internal FBO
