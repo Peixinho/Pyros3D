@@ -13,6 +13,7 @@ namespace p3d {
 #if !defined(ANDROID)
     bool File::Open(const std::string &filename, bool write)
     {
+		opened = false;
     	file = fopen(filename.c_str(), (write?"wb":"rb"));
 		if (file!=NULL)
 		{
@@ -23,27 +24,33 @@ namespace p3d {
 				n_blocks = fread(&data[data.size() - n_blocks], 1, n_blocks, file);
 			}
 			positionStream = 0;
-			return true;
+			opened = true;
+			return opened;
 		}
 
 		echo("Error: Couldn't Open File");
-		return false;
+		return opened;
     }
     
     void File::Read(const void* src, const uint32 size)
     {
-    	memcpy((char*)src, &data[positionStream], sizeof(unsigned char)*size);
-		positionStream += size * sizeof(unsigned char);
+		if (opened)
+		{
+			memcpy((char*)src, &data[positionStream], sizeof(unsigned char)*size);
+			positionStream += size * sizeof(unsigned char);
+		}
 	}
 
 	void File::Write(const void* src, const uint32 size)
 	{
-		fwrite(src,1,size,file);
+		if (opened)
+			fwrite(src,1,size,file);
 	}
 
     void File::Rewind()
     {
-        positionStream = 0;
+		if (opened)
+			positionStream = 0;
     }
 
     const uint32 File::Size() const
@@ -58,9 +65,12 @@ namespace p3d {
 
 	void File::Close()
 	{
-		fclose(file);
-		data.clear();
-		positionStream = 0;
+		if (opened)
+		{
+			fclose(file);
+			data.clear();
+			positionStream = 0;
+		}
 	}
 #endif
 }

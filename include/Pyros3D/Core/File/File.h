@@ -38,6 +38,7 @@ namespace p3d {
                   std::vector<uchar> data;
                   uint32 size;
                   uint32 positionStream;
+				  bool opened;
       };
 };
 
