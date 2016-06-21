@@ -102,6 +102,10 @@ namespace p3d {
             virtual void Unregister(SceneGraph* Scene);
             
             void SetCullingGeometry(const uint32 Geometry);
+			void EnableCullTest() { cullTest = true; }
+			void DisableCullTest() { cullTest = false; }
+			bool IsCullTesting() { return cullTest; }
+
             
             void EnableCastShadows();
             void DisableCastShadows();
@@ -161,6 +165,9 @@ namespace p3d {
 
             //LOD Distance
             std::vector<f32> LODDistances;
+
+			// Culling
+			bool cullTest;
 
             // INTERNAL - Components of this Type
             static std::vector<IComponent*> Components;

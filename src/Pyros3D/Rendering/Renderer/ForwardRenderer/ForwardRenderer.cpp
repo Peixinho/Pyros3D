@@ -385,6 +385,7 @@ namespace p3d {
 											cullingTest = CullingSphereTest((*k), (*k)->renderingComponent->GetOwner());
 											break;
 										}
+										if (!(*k)->renderingComponent->IsCullTesting()) cullingTest = true;
 										if (cullingTest && !(*k)->Material->IsTransparent())
 										{
 											if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
@@ -504,6 +505,7 @@ namespace p3d {
 										cullingTest = CullingSphereTest((*k), (*k)->renderingComponent->GetOwner());
 										break;
 									}
+									if (!(*k)->renderingComponent->IsCullTesting()) cullingTest = true;
 									if (cullingTest && !(*k)->Material->IsTransparent())
 									{
 										if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
@@ -628,6 +630,7 @@ namespace p3d {
 						cullingTest = CullingSphereTest((*i), (*i)->renderingComponent->GetOwner());
 						break;
 					}
+					if (!(*i)->renderingComponent->IsCullTesting()) cullingTest = true;
 					if (cullingTest && (*i)->renderingComponent->IsActive() && (*i)->Active == true)
 					{
 						for (std::vector<Matrix>::iterator _l = _Lights.begin(); _l != _Lights.end(); _l++)

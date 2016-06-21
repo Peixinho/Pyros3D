@@ -21,6 +21,9 @@ namespace p3d {
         // By Default Is Casting Shadows
         isCastingShadows = true;
 
+		// By Default is Cull Testing
+		cullTest = true;
+
         for (uint32 i=0;i<renderable->Geometries.size();i++)
         {
             // Rendering Mesh Instance

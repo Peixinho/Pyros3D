@@ -256,6 +256,7 @@ namespace p3d {
                                 cullingTest = CullingSphereTest((*k),(*k)->renderingComponent->GetOwner());
                                 break;
                         }
+						if (!(*k)->renderingComponent->IsCullTesting()) cullingTest = true;
 						if (cullingTest && (*k)->renderingComponent->IsActive() && (*k)->Active == true)
 						{
 							for (std::vector<Matrix>::iterator _l = _Lights.begin(); _l != _Lights.end(); _l++)
