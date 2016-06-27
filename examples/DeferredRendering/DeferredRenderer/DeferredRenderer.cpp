@@ -67,6 +67,9 @@ namespace p3d {
 		deferredMaterialDirectional->AddUniform(Uniforms::Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
 		deferredMaterialDirectional->DisableDepthTest();
 		deferredMaterialDirectional->DisableDepthWrite();
+		deferredMaterialDirectional->EnableBlending();
+		deferredMaterialDirectional->BlendingEquation(BlendEq::Add);
+		deferredMaterialDirectional->BlendingFunction(BlendFunc::One, BlendFunc::One);
 
 		deferredMaterialPoint->AddUniform(Uniforms::Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
 		deferredMaterialPoint->AddUniform(Uniforms::Uniform("uLightPosition", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
@@ -81,6 +84,9 @@ namespace p3d {
 		deferredMaterialPoint->SetCullFace(CullFace::FrontFace);
 		deferredMaterialPoint->DisableDepthTest();
 		deferredMaterialPoint->DisableDepthWrite();
+		deferredMaterialPoint->EnableBlending();
+		deferredMaterialPoint->BlendingEquation(BlendEq::Add);
+		deferredMaterialPoint->BlendingFunction(BlendFunc::One, BlendFunc::One);
 
 		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
 		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uLightPosition", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
@@ -96,6 +102,9 @@ namespace p3d {
 		deferredMaterialSpot->SetCullFace(CullFace::FrontFace);
 		deferredMaterialSpot->DisableDepthTest();
 		deferredMaterialSpot->DisableDepthWrite();
+		deferredMaterialSpot->EnableBlending();
+		deferredMaterialSpot->BlendingEquation(BlendEq::Add);
+		deferredMaterialSpot->BlendingFunction(BlendFunc::One, BlendFunc::One);
         
         // Light Volume
 		quadHandle = new Plane(1, 1);
@@ -244,11 +253,6 @@ namespace p3d {
 			ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
 			ClearScreen();
 
-			// Second Pass
-			EnableBlending();
-			BlendingEquation(BlendEq::Add);
-			BlendingFunction(BlendFunc::One, BlendFunc::One);
-
             // Bind FBO Textures
             FBO->GetAttachments()[FrameBufferAttachmentFormat::Depth_Attachment]->TexturePTR->Bind();
             FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment0]->TexturePTR->Bind();
@@ -301,9 +305,6 @@ namespace p3d {
                     }
                 }
             }
-			
-            // Disable Blending
-            DisableBlending();
 
 			FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment2]->TexturePTR->Unbind();
             FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment1]->TexturePTR->Unbind();

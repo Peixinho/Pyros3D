@@ -289,10 +289,10 @@ namespace p3d {
 		}
 
 		// Depth Test
-		if (Material->IsDepthTesting() != depthTesting)
+		if (Material->IsDepthTesting() != depthTesting || Material->depthTestMode != depthTestMode)
 		{
 			depthTesting = Material->IsDepthTesting();
-			DepthTest();
+			DepthTest(Material->depthTestMode);
 		}
 
 		// Enable / Disable Blending
@@ -318,7 +318,7 @@ namespace p3d {
 				BlendingFunction(s, d);
 			}
 		}
-		else DisableBlending();
+		else if (blending && (!Material->IsTransparent() || !Material->blending)) DisableBlending();
 		
 		// Draw
 		if (rmesh->Geometry->GetGeometryType() == GeometryType::BUFFER)
@@ -366,11 +366,42 @@ namespace p3d {
 			GLCHECKER(glClearColor(BackgroundColor.x, BackgroundColor.y, BackgroundColor.z, BackgroundColor.w));
 	}
 
-	void IRenderer::DepthTest()
+	void IRenderer::DepthTest(const uint32 test)
 	{
+		depthTestMode = test;
+
 		if (depthTesting)
 		{
 			GLCHECKER(glEnable(GL_DEPTH_TEST));
+
+			switch (test)
+			{
+			case DepthTest::Always:
+				GLCHECKER(glDepthFunc(GL_ALWAYS));
+				break;
+			case DepthTest::Equal:
+				GLCHECKER(glDepthFunc(GL_EQUAL));
+				break;
+			case DepthTest::GEqual:
+				GLCHECKER(glDepthFunc(GL_GEQUAL));
+				break;
+			case DepthTest::Greater:
+				GLCHECKER(glDepthFunc(GL_GREATER));
+				break;
+			case DepthTest::LEqual:
+				GLCHECKER(glDepthFunc(GL_LEQUAL));
+				break;
+			case DepthTest::Never:
+				GLCHECKER(glDepthFunc(GL_NEVER));
+				break;
+			case DepthTest::NotEqual:
+				GLCHECKER(glDepthFunc(GL_NOTEQUAL));
+				break;
+			case DepthTest::Less:
+			default:
+				GLCHECKER(glDepthFunc(GL_LESS));
+				break;
+			}
 		}
 		else {
 			GLCHECKER(glDisable(GL_DEPTH_TEST));

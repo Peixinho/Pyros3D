@@ -103,7 +103,7 @@ namespace p3d {
         uint32 GetInternalID();
 
 		// Depth Test and Write
-		void EnableDepthTest() { forceDepthWrite = depthTest = true; }
+		void EnableDepthTest(const uint32 test = 0) { forceDepthWrite = depthTest = true; depthTestMode = test; }
 		void DisableDepthTest() { forceDepthWrite = depthTest = false; }
 		void EnableDepthWrite() { depthWrite = true; }
 		void DisableDepthWrite() { depthWrite = false; }
@@ -124,6 +124,7 @@ namespace p3d {
 
 		// Depth Test and Write
 		bool forceDepthWrite, depthTest, depthWrite;
+		uint32 depthTestMode;
         
         //Casting Shadows
         bool isCastingShadows;

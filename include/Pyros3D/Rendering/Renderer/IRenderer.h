@@ -97,6 +97,20 @@ namespace p3d {
     	};
     }
 
+	namespace DepthTest
+	{
+		enum {
+			Less = 0,
+			Never,
+			Greater,
+			Equal,
+			Always,
+			LEqual,
+			GEqual,
+			NotEqual
+		};
+	}
+
     class PYROS3D_API IRenderer {
         
         public:
@@ -129,12 +143,6 @@ namespace p3d {
             void ClearStencilBuffer();
             void StencilFunction(const uint32 func, const uint32 ref = 0, const uint32 mask = 1);
             void StencilOperation(const uint32 sfail = StencilOp::Keep, const uint32 dpfail = StencilOp::Keep, const uint32 dppass = StencilOp::Keep);
-
-            // Blending
-            void EnableBlending();
-            void DisableBlending();
-            void BlendingFunction(const uint32 sfactor, const uint32 dfactor);
-            void BlendingEquation(const uint32 mode);
 
             // Scissors Test
             void EnableScissorTest();
@@ -200,9 +208,15 @@ namespace p3d {
             void EndRender();
             
             // Depth Buffer
-            void DepthTest();
+            void DepthTest(const uint32 test = DepthTest::Less);
             void DepthWrite();
             void ClearDepth();
+
+			// Blending
+			void EnableBlending();
+			void DisableBlending();
+			void BlendingFunction(const uint32 sfactor, const uint32 dfactor);
+			void BlendingEquation(const uint32 mode);
             
             // Internal Function to Clear Buffers
             void ClearScreen();
@@ -214,10 +228,16 @@ namespace p3d {
             
             // Flags
             uint32 bufferOptions, glBufferOptions;
-            bool depthWritting;
-            bool depthTesting;
-            bool clearDepthBuffer;
-            bool sorting;
+            bool 
+								depthWritting;
+            bool
+								depthTesting;
+			int32 
+								depthTestMode;
+            bool 
+								clearDepthBuffer;
+            bool 
+								sorting;
 
             // Background
             void DrawBackground();
