@@ -111,6 +111,8 @@ namespace p3d {
             void DisableCastShadows();
             bool IsCastingShadows();
             
+			Renderable* GetRenderable() { return renderable; }
+
             // Get Model Skeleton
             const std::map<StringID, Bone> &GetSkeleton() const { return skeleton; }
             bool HasBones() { return hasBones; }
@@ -137,6 +139,9 @@ namespace p3d {
             static std::vector<RenderingComponent*> &GetRenderingComponents(SceneGraph* scene);
 
         protected:
+
+			// Save Renderable Pointer
+			Renderable* renderable;
 
             // Casting Shadows
             bool isCastingShadows;

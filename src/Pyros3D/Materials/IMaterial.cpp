@@ -22,6 +22,7 @@ namespace p3d {
 		depthBias = false;
 		depthTest = depthWrite = true;
 		forceDepthWrite = false;
+		blending = false;
 
         // Set Internal ID
         materialID = _InternalID;

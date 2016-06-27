@@ -62,6 +62,12 @@ namespace p3d {
 		void EnableDethBias(f32 factor, f32 units);
 		void DisableDethBias();
 
+		// Blending
+		void EnableBlending() { blending = true; }
+		void DisableBlending() { blending = false; }
+		void BlendingFunction(const uint32 sFactor, const uint32 dFactor) { sfactor = sFactor; dfactor = dFactor; }
+		void BlendingEquation(const uint32 Mode) { mode = Mode; }
+
         // Uniforms        
         std::vector<Uniform> GlobalUniforms;
         std::vector<Uniform> ModelUniforms;
@@ -141,6 +147,10 @@ namespace p3d {
 		f32 depthFactor, depthUnits;
 		bool depthBias;
         
+		// Blending
+		bool blending;
+		uint32 sfactor, dfactor, mode;
+
     private:
 
         // Internal ID

@@ -226,6 +226,11 @@ namespace p3d {
             // Properties
             bool
                                 blending;
+
+			int32
+								sfactor,
+								dfactor,
+								mode;
 			
 			bool
 								ClipPlane;
@@ -250,6 +255,8 @@ namespace p3d {
             // Face Culling
             int32
                                 cullFace;
+			bool
+								cullFaceChanged;
             
             // Dimensions
             uint32 

@@ -276,6 +276,10 @@ namespace p3d {
             {
                 // Fire the Mothafucka!
                 Component->Owner = NULL;
+
+				// Unregister Component
+				Component->Unregister(Scene);
+
                 // Erase it!
                 Components.erase(i);
                 // Change Flag

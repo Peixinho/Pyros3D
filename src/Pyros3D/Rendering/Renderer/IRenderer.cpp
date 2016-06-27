@@ -195,7 +195,17 @@ namespace p3d {
 			if (rmesh->Geometry->GetGeometryType() == GeometryType::BUFFER)
 				GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, rmesh->Geometry->IndexBuffer->ID));
 		}
-		if (LastMaterialPTR != Material)
+
+		// Check double sided
+		if (rmesh->Material != Material)
+		{
+			if (rmesh->Material->GetCullFace() != Material->GetCullFace())
+			{
+				Material->SetCullFace(rmesh->Material->GetCullFace());
+				cullFaceChanged = true;
+			}
+		}
+		if (LastMaterialPTR != Material || cullFaceChanged)
 		{
 			// Check if Material is DoubleSided
 			if (Material->GetCullFace() != cullFace)
@@ -216,6 +226,7 @@ namespace p3d {
 					break;
 				}
 				cullFace = Material->GetCullFace();
+				cullFaceChanged = false;
 			}
 
 			// Check if Material is WireFrame
@@ -285,11 +296,29 @@ namespace p3d {
 		}
 
 		// Enable / Disable Blending
-		if (Material->IsTransparent() && !blending)
+		if (Material->blending || Material->IsTransparent())
 		{
-			EnableBlending();
-			BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
+			// Default for Transparency
+			uint32 s = BlendFunc::Src_Alpha;
+			uint32 d = BlendFunc::One_Minus_Src_Alpha;
+			uint32 m = BlendEq::Add;
+
+			// Override for transparency
+			if (Material->blending)
+			{
+				s = Material->sfactor;
+				d = Material->dfactor;
+				m = Material->mode;
+			}
+
+			if (!blending || s != sfactor || d != dfactor || m != mode)
+			{
+				EnableBlending();
+				BlendingEquation(m);
+				BlendingFunction(s, d);
+			}
 		}
+		else DisableBlending();
 		
 		// Draw
 		if (rmesh->Geometry->GetGeometryType() == GeometryType::BUFFER)
@@ -562,11 +591,15 @@ namespace p3d {
 			// Disables Blending
 			GLCHECKER(glDisable(GL_BLEND));
 			blending = false;
+			sfactor = dfactor = mode = -1;
 		}
 	}
 
 	void IRenderer::BlendingFunction(const uint32 sfactor, const uint32 dfactor)
 	{
+		this->sfactor = sfactor;
+		this->dfactor = dfactor;
+
 		uint32 Sfactor = GL_ONE;
 		switch (sfactor)
 		{
@@ -714,6 +747,8 @@ namespace p3d {
 	}
 	void IRenderer::BlendingEquation(const uint32 mode)
 	{
+		this->mode = mode;
+
 		uint32 Mode = GL_FUNC_ADD;
 		switch (mode)
 		{

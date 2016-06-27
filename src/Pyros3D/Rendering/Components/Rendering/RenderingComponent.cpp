@@ -18,6 +18,9 @@ namespace p3d {
     
     RenderingComponent::RenderingComponent(Renderable* renderable, IMaterial* Material)
     {
+		// Keep renderable pointer
+		this->renderable = renderable;
+
         // By Default Is Casting Shadows
         isCastingShadows = true;
 
