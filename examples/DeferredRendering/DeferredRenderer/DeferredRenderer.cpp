@@ -73,7 +73,6 @@ namespace p3d {
 
 		deferredMaterialPoint->AddUniform(Uniforms::Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
 		deferredMaterialPoint->AddUniform(Uniforms::Uniform("uLightPosition", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
-		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uLightDirection", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
 		deferredMaterialPoint->AddUniform(Uniforms::Uniform("uLightRadius", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		deferredMaterialPoint->AddUniform(Uniforms::Uniform("uLightColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		deferredMaterialPoint->AddUniform(Uniforms::Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
@@ -90,6 +89,7 @@ namespace p3d {
 
 		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
 		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uLightPosition", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
+		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uLightDirection", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
 		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uLightRadius", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uOutterCone", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uInnerCone", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
