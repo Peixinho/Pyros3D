@@ -112,6 +112,7 @@ namespace p3d {
 
         sphereHandle = new Sphere(1,6,4);
         pointLight = new RenderingComponent(sphereHandle);
+		pointLight->GetMeshes()[0]->Material->SetCullFace(CullFace::FrontFace);
     }
     
     void DeferredRenderer::Resize(const uint32 Width, const uint32 Height)
