@@ -28,6 +28,9 @@ namespace p3d {
 
 	void DebugRenderer::Render(const Matrix &camera, const Matrix &projection)
 	{
+		GLCHECKER(glEnable(GL_DEPTH_TEST));
+		GLCHECKER(glDepthFunc(GL_LEQUAL));
+
 		projectionMatrix = projection;
 		viewMatrix = camera;
 
@@ -95,6 +98,8 @@ namespace p3d {
 		colorTriangles.clear();
 		vertexQuadStrip.clear();
 		colorQuadStrip.clear();
+
+		GLCHECKER(glDisable(GL_DEPTH_TEST));
 	}
 
 	void DebugRenderer::drawLine(const Vec3 &from, const Vec3 &to, const Vec4 &fromColor, const Vec4 &toColor)
