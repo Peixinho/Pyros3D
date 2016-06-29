@@ -184,6 +184,13 @@ namespace p3d {
         {
             return (magnitudeSQR()<=v.magnitudeSQR());
         }
+		float &Vec3::operator[](int index)
+		{
+			if (index == 0) return x;
+			if (index == 1) return y;
+			if (index == 2) return z;
+		}
+		float* Vec3::operator()() { return &x; }
         std::string Vec3::toString() const
         {
             std::ostringstream toStr; toStr << "Vector3(" << x << ", " << y << ", " << z << ")";

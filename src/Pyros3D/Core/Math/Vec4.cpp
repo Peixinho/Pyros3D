@@ -128,7 +128,14 @@ namespace p3d {
         {
             return (magnitudeSQR()<=v.magnitudeSQR());
         }
-        
+		float &Vec4::operator[](int index)
+		{
+			if (index == 0) return x;
+			if (index == 1) return y;
+			if (index == 2) return z;
+			if (index == 4) return z;
+		}
+		float* Vec4::operator()() { return &x; }
         std::string Vec4::toString() const
         {
             std::ostringstream toStr; toStr << "Vector4(" << x << ", " << y << ", " << z << ", " << w << ")";

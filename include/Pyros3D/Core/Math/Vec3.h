@@ -73,7 +73,8 @@ namespace p3d {
                 bool operator>=(const Vec3 &v) const;
                 bool operator<(const Vec3 &v) const;
                 bool operator<=(const Vec3 &v) const;
-
+				float &operator[](int index);
+				float* operator()();
                 // Vector UP
                 static const Vec3 UP;
                 static const Vec3 ZERO;

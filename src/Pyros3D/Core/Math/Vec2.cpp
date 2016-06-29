@@ -152,7 +152,13 @@ namespace p3d {
         {
             return (magnitudeSQR()<=v.magnitudeSQR());
         }
-        
+		float &Vec2::operator[](int index)
+		{
+			if (index == 0) return x;
+			if (index == 1) return y;
+		}
+		float* Vec2::operator()() { return &x; }
+
         std::string Vec2::toString() const
         {
             std::ostringstream toStr; toStr << "Vector2(" << x << ", " << y << ")";
