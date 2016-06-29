@@ -36,10 +36,8 @@ namespace p3d
 			std::vector<Texture*> textures;
 
         protected:
-            // Shaders List
-            static std::map<uint32, Shader*> ShadersList;
-            // Save Shader Location on Shaders List
-            uint32 shaderID;
+			// Shader
+			Shader* shader;
     };
 
 }
