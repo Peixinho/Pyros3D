@@ -231,13 +231,7 @@ namespace p3d {
                     this->Cascades[ShadowCascades-1].Height = Height;
                 }
             }
-        
-            Matrix GetLightViewMatrix()
-            {
-                ShadowViewMatrix.identity();
-                ShadowViewMatrix.LookAt(Vec3::ZERO,(Direction.normalize()),Vec3(0.f,0.f,-1.f));
-                return ShadowViewMatrix;
-            }
+
             Matrix GetLightProjection(const uint32 Cascade, const std::vector<RenderingMesh*> RCompList)
             {
                 return Cascades[Cascade].CreateCropMatrix(ShadowViewMatrix, RCompList);

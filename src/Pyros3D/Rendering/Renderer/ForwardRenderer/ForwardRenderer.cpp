@@ -165,8 +165,7 @@ namespace p3d {
 						// Directional Lights
 						Vec4 color = d->GetLightColor();
 						Vec3 position;
-						Vec3 LDirection = d->GetLightDirection().normalize();
-						Vec4 direction = Vec4(LDirection.x, LDirection.y, LDirection.z, 0.f);
+						Vec3 direction = (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize();
 						f32 attenuation = 1.f;
 						Vec2 cones;
 						int32 type = 1;
@@ -203,7 +202,8 @@ namespace p3d {
 							// Enable Depth Bias
 							shadowMaterial->EnableDethBias(d->GetShadowBiasFactor(), d->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
 							
-							ViewMatrix = d->GetLightViewMatrix();
+							ViewMatrix.identity();
+							ViewMatrix.LookAt(Vec3::ZERO, direction, Vec3(0.f, 0.f, -1.f));
 
 							// Get Lights Shadow Map Texture
 							for (uint32 i = 0; i<d->GetNumberCascades(); i++)
@@ -429,8 +429,7 @@ namespace p3d {
 						// Spot Lights
 						Vec4 color = s->GetLightColor();
 						Vec3 position = s->GetOwner()->GetWorldPosition();
-						Vec3 LDirection = s->GetLightDirection().normalize();
-						Vec4 direction = Vec4(LDirection.x, LDirection.y, LDirection.z, 0.f);
+						Vec3 direction = (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.f)).xyz().normalize();
 						f32 attenuation = s->GetLightRadius();
 						Vec2 cones = Vec2(s->GetLightCosInnerCone(), s->GetLightCosOutterCone());
 						int32 type = 3;

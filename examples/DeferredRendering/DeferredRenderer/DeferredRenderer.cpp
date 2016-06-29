@@ -283,7 +283,7 @@ namespace p3d {
                         // Spot Lights
 						Vec3 pos = (ViewMatrix * Vec4(s->GetOwner()->GetWorldPosition(), 1.0)).xyz();
 						Vec4 color = s->GetLightColor();
-						Vec3 dir = (ViewMatrix * Vec4(s->GetLightDirection(), 0.0)).xyz();
+						Vec3 dir = (ViewMatrix * (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.0))).xyz();
 						deferredMaterialSpot->SetUniformValue("uLightPosition", &pos);
 						deferredMaterialSpot->SetUniformValue("uLightDirection", &dir);
 						deferredMaterialSpot->SetUniformValue("uLightRadius", s->GetLightRadius());
@@ -298,7 +298,7 @@ namespace p3d {
                     }
                     else if (DirectionalLight* d = dynamic_cast<DirectionalLight*>((*i))) {
                         // Directional Lights
-						Vec3 dir = (ViewMatrix * Vec4(d->GetLightDirection(),0.0)).xyz();
+						Vec3 dir = (ViewMatrix * (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(),0.0))).xyz();
 						Vec4 color = d->GetLightColor();
 						deferredMaterialDirectional->SetUniformValue("uLightDirection", &dir);
 						deferredMaterialDirectional->SetUniformValue("uLightColor", &color);

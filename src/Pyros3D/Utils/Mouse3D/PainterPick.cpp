@@ -136,6 +136,7 @@ namespace p3d {
                         cullingTest = CullingSphereTest((*i),(*i)->renderingComponent->GetOwner());
                         break;
                 }
+				if (!(*i)->renderingComponent->IsCullTesting()) cullingTest = true;
                 if (cullingTest && (*i)->renderingComponent->IsActive() && ((*i)->Clickable || (*i)->Active))
                 {
                     colors++;
