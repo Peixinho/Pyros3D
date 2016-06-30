@@ -38,8 +38,6 @@ namespace p3d {
 
 		std::vector<Vec3> vertexLines;
 		std::vector<Vec4> colorLines;
-		std::vector<Vec3> vertexQuadStrip;
-		std::vector<Vec4> colorQuadStrip;
 		std::vector<Vec3> vertexTriangles;
 		std::vector<Vec4> colorTriangles;
 

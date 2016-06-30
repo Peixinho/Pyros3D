@@ -22,8 +22,6 @@ namespace p3d {
 		colorLines.clear();
 		vertexTriangles.clear();
 		colorTriangles.clear();
-		vertexQuadStrip.clear();
-		colorQuadStrip.clear();
 	}
 
 	void DebugRenderer::Render(const Matrix &camera, const Matrix &projection)
@@ -75,20 +73,6 @@ namespace p3d {
 		GLCHECKER(glDisableVertexAttribArray(colorHandle));
 		GLCHECKER(glDisableVertexAttribArray(vertexHandle));
 
-#if !defined(GLES2)
-		// Send Attributes
-		GLCHECKER(glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexQuadStrip[0]));
-		GLCHECKER(glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorQuadStrip[0]));
-
-		// Draw Quad
-		GLCHECKER(glDrawArrays(GL_QUAD_STRIP, 0, vertexQuadStrip.size()));
-
-		// Disable Attributes
-		GLCHECKER(glDisableVertexAttribArray(colorHandle));
-		GLCHECKER(glDisableVertexAttribArray(vertexHandle));
-
-#endif
-
 		GLCHECKER(glUseProgram(0));
 
 		// clean values
@@ -96,8 +80,6 @@ namespace p3d {
 		colorLines.clear();
 		vertexTriangles.clear();
 		colorTriangles.clear();
-		vertexQuadStrip.clear();
-		colorQuadStrip.clear();
 
 		GLCHECKER(glDisable(GL_DEPTH_TEST));
 	}
@@ -117,58 +99,48 @@ namespace p3d {
 
 	void DebugRenderer::drawSphere(const Vec3 &p, f32 radius, const Vec4 &color)
 	{
-
-#if !defined(GLES2)
 		Vec3 pos = p;
 
-		int lats = 5;
-		int longs = 5;
-
-		int i, j;
-		for (i = 0; i <= lats; i++)
-		{
-			f32 lat0 = 3.14f * (-f32(0.5) + (f32)(i - 1) / lats);
-			f32 z0 = radius*sin(lat0);
-			f32 zr0 = radius*cos(lat0);
-
-			f32 lat1 = 3.14f * (-f32(0.5) + (f32)i / lats);
-			f32 z1 = radius*sin(lat1);
-			f32 zr1 = radius*cos(lat1);
-
-			GLCHECKER(glBegin(GL_QUAD_STRIP));
-			for (j = 0; j <= longs; j++)
-			{
-				f32 lng = 2 * 3.14f * (f32)(j - 1) / longs;
-				f32 x = cos(lng);
-				f32 y = sin(lng);
-
-				vertexQuadStrip.push_back(pos + Vec3(x * zr0, y * zr0, z0));
-				vertexQuadStrip.push_back(pos + Vec3(x * zr1, y * zr1, z1));
-				colorQuadStrip.push_back(color);
-				colorQuadStrip.push_back(color);
-
-				//                glNormal3f(x * zr0, y * zr0, z0);
-				//                glNormal3f(x * zr1, y * zr1, z1);
+		uint32 latitudeBands = 8;
+		uint32 longitudeBands = 8;
+		std::vector<Vec3> v;
+		for (uint32 latNumber = 0; latNumber <= latitudeBands; latNumber++) {
+			f32 theta = latNumber * PI / latitudeBands;
+			f32 sinTheta = sinf(theta);
+			f32 cosTheta = cosf(theta);
+			for (uint32 longNumber = 0; longNumber <= longitudeBands; longNumber++) {
+				f32 phi = longNumber * 2 * PI / longitudeBands;
+				f32 sinPhi = sinf(phi);
+				f32 cosPhi = cosf(phi);
+				f32 x = cosPhi * sinTheta;
+				f32 y = cosTheta;
+				f32 z = sinPhi * sinTheta;
+				v.push_back(pos + Vec3(radius * x, radius * y, radius * z));
 			}
 		}
-#endif
+
+		for (uint32 latNumber = 0; latNumber < latitudeBands; latNumber++) {
+			for (uint32 longNumber = 0; longNumber < longitudeBands; longNumber++) {
+				uint32 first = (latNumber * (longitudeBands + 1)) + longNumber;
+				uint32 second = first + longitudeBands + 1;
+				drawLine(v[first], v[second], color);
+				drawLine(v[first+1], v[second], color);
+				drawLine(v[first+1], v[second+1], color);
+			}
+		}
 	}
 
 	void DebugRenderer::drawTriangle(const Vec3 &a, const Vec3 &b, const Vec3 &c, const Vec4 &color)
 	{
-		//	if (m_debugMode > 0)
-		{
-			const Vec3 n = (b - a).cross(c - a).normalize();
+		const Vec3 n = (b - a).cross(c - a).normalize();
 
-			colorTriangles.push_back(color);
-			colorTriangles.push_back(color);
-			colorTriangles.push_back(color);
+		colorTriangles.push_back(color);
+		colorTriangles.push_back(color);
+		colorTriangles.push_back(color);
 
-			//            glNormal3d(n.getX(),n.getY(),n.getZ());
-			vertexTriangles.push_back(a);
-			vertexTriangles.push_back(b);
-			vertexTriangles.push_back(c);
-		}
+		vertexTriangles.push_back(a);
+		vertexTriangles.push_back(b);
+		vertexTriangles.push_back(c);
 	}
 
 };
