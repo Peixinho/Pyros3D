@@ -64,9 +64,10 @@ namespace p3d
             std::map<uint32, Texture*> Textures;
         
         protected:
-			
-			// Shader Program
-			Shader* shader;
+            // Shaders List
+            static std::map<uint32, Shader* > ShadersList;
+            // Save Shader Location on Shaders List
+            uint32 shaderID;
 
             // Lighting Properties
             Vec4 Ke;

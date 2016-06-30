@@ -13,19 +13,25 @@
 namespace p3d
 {
     
+    // Shaders List
+    std::map<uint32, Shader* > GenericShaderMaterial::ShadersList;
+    
     GenericShaderMaterial::GenericShaderMaterial(const uint32 options) : IMaterial()
     {
         // Default
         colorMapID = specularMapID = normalMapID = envMapID = skyboxMapID = refractMapID = fontMapID = -1;
         
+        // Find if Shader exists, if not, creates a new one
+        if (ShadersList.find(options)==ShadersList.end())
         {
-            shader = new Shader();
+            ShadersList[options] = new Shader();
+            ShadersList[options]->currentMaterials = 0;
             //ShaderLib::BuildShader(options, ShadersList[options]);
 
 #if defined(_DEBUG) || defined(USE_SHADER_FILE)
-			shader->LoadShaderFile("PyrosShader.glsl");
+			ShadersList[options]->LoadShaderFile("PyrosShader.glsl");
 #else
-			shader->LoadShaderText(SHADER_CODE);
+			ShadersList[options]->LoadShaderText(SHADER_CODE);
 #endif
 			std::string define;
 			if (options & ShaderUsage::Color)
@@ -69,14 +75,20 @@ namespace p3d
 			define += std::string("#define GLES2\n");
 #endif
 
-			shader->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
-			shader->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
+			ShadersList[options]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
+			ShadersList[options]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
 
-			shader->LinkProgram();
+			ShadersList[options]->LinkProgram();
         }
+		
+        // Save Shader Location
+        shaderID = options;
+        
+        // Add Counter
+        ShadersList[options]->currentMaterials++;
         
         // Get Shader Program
-        shaderProgram = shader->ShaderProgram();
+        shaderProgram = ShadersList[options]->ShaderProgram();
 
         // Back Face Culling
         cullFace = CullFace::BackFace;
@@ -193,7 +205,15 @@ namespace p3d
     {
         
         // Delete Shaders
-		delete shader;
+        if (ShadersList.find(shaderID)!=ShadersList.end())
+        {
+            ShadersList[shaderID]->currentMaterials--;
+            if (ShadersList[shaderID]->currentMaterials==0)
+            {
+                delete ShadersList[shaderID];
+                ShadersList.erase(ShadersList.find(shaderID));
+            }        
+        }
     }
     
     void GenericShaderMaterial::AddTexture(const std::string &uniformName, Texture* texture)
