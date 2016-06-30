@@ -127,22 +127,23 @@ namespace p3d {
 			UnbindShadowMaps(LastMaterialPTR);
 			// Material After Render
 			LastMaterialPTR->AfterRender();
-			// Unbind Shader Program
-			GLCHECKER(glUseProgram(0));
-			// Unset Pointers
-			LastMaterialPTR = NULL;
-			LastMeshRenderedPTR = NULL;
-			LastProgramUsed = -1;
-			LastMaterialUsed = -1;
-			LastMeshRendered = -1;
-			depthWritting = false;
-			depthTesting = false;
-
-			DepthTest();
-			DepthWrite();
-
-			DisableBlending();
 		}
+
+		// Unbind Shader Program
+		GLCHECKER(glUseProgram(0));
+		// Unset Pointers
+		LastMaterialPTR = NULL;
+		LastMeshRenderedPTR = NULL;
+		LastProgramUsed = -1;
+		LastMaterialUsed = -1;
+		LastMeshRendered = -1;
+		depthWritting = false;
+		depthTesting = false;
+
+		DepthTest();
+		DepthWrite();
+
+		DisableBlending();
 	}
 
 	void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material)
