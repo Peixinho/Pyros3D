@@ -21,6 +21,7 @@ namespace p3d {
         cullFace = CullFace::BackFace;
 		depthBias = false;
 		depthTest = depthWrite = true;
+		depthTestMode = 0; // Less
 		forceDepthWrite = false;
 		blending = false;
 
