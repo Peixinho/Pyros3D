@@ -23,6 +23,11 @@ namespace p3d {
 		virtual void drawLine(const Vec3 &from, const Vec3 &to, const Vec4 &color);
 
 		virtual void drawSphere(const Vec3 &p, f32 radius, const Vec4 &color);
+		virtual void drawCone(const f32 radius, const f32 height, const Vec4 &color);
+		virtual void drawCylinder(const f32 radius, const f32 height, const Vec4 &color);
+
+		void pushMatrix(const Matrix &m);
+		void popMatrix();
 
 		virtual void drawTriangle(const Vec3 &a, const Vec3 &b, const Vec3 &c, const Vec4 &color);
 
@@ -35,6 +40,9 @@ namespace p3d {
 		Matrix projectionMatrix;
 		Matrix viewMatrix;
 		Matrix modelMatrix;
+
+		bool pushedMatrix;
+		Matrix temp;
 
 		std::vector<Vec3> vertexLines;
 		std::vector<Vec4> colorLines;

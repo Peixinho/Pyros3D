@@ -8,6 +8,7 @@ namespace p3d {
 	DebugRenderer::DebugRenderer()
 	{
 		DebugMaterial = new GenericShaderMaterial(ShaderUsage::DebugRendering);
+		pushedMatrix = false;
 	}
 
 	DebugRenderer::~DebugRenderer()
@@ -86,8 +87,8 @@ namespace p3d {
 
 	void DebugRenderer::drawLine(const Vec3 &from, const Vec3 &to, const Vec4 &fromColor, const Vec4 &toColor)
 	{
-		vertexLines.push_back(from);
-		vertexLines.push_back(to);
+		vertexLines.push_back(temp * from);
+		vertexLines.push_back(temp * to);
 		colorLines.push_back(fromColor);
 		colorLines.push_back(toColor);
 	}
@@ -130,6 +131,159 @@ namespace p3d {
 		}
 	}
 
+	void DebugRenderer::drawCylinder(const f32 radius, const f32 height, const Vec4 &color)
+	{
+		uint32 segmentsH = 6;
+		uint32 segmentsW = 6;
+
+		int i, j, jMin, jMax;
+
+		std::vector <Vec3> aRowT, aRowB;
+
+		std::vector <std::vector<Vec3> > aVtc;
+
+		segmentsH += 2;
+		jMin = 1;
+		jMax = segmentsH - 1;
+
+		// Bottom
+		Vec3 oVtx = Vec3(0, -height, 0);
+		for (i = 0; i<segmentsW; ++i) {
+			aRowB.push_back(oVtx);
+		}
+		aVtc.push_back(aRowB);
+
+		//Top
+		oVtx = Vec3(0, height, 0);
+		for (i = 0; i<segmentsW; i++) {
+			aRowT.push_back(oVtx);
+		}
+
+		for (j = jMin; j <= jMax; ++j) {
+			f32 z = -height + 2 * height*(f32)(j - jMin) / (f32)(jMax - jMin);
+			std::vector <Vec3> aRow;
+
+			for (i = 0; i<segmentsW; ++i) {
+				f32 verangle = (f32)(2 * (f32)i / segmentsW*PI);
+				f32 x = radius * sin(verangle);
+				f32 y = radius * cos(verangle);
+				Vec3 oVtx = Vec3(y, z, x);
+				aRow.push_back(oVtx);
+			}
+			aVtc.push_back(aRow);
+		}
+
+		aVtc.push_back(aRowT);
+
+		for (j = 1; j <= segmentsH; ++j) {
+			for (i = 0; i<segmentsW; ++i) {
+				Vec3 a = aVtc[j][i];
+				Vec3 b = aVtc[j][(i - 1 + segmentsW) % segmentsW];
+				Vec3 c = aVtc[j - 1][(i - 1 + segmentsW) % segmentsW];
+				Vec3 d = aVtc[j - 1][i];
+
+				int i2;
+				(i == 0 ? i2 = segmentsW : i2 = i);
+
+				f32 vab = (f32)j / segmentsH;
+				f32 vcd = (f32)(j - 1) / segmentsH;
+				f32 uad = (f32)i2 / (f32)segmentsW;
+				f32 ubc = (f32)(i2 - 1) / (f32)segmentsW;
+
+				Vec2 aUV = Vec2(uad, -vab);
+				Vec2 bUV = Vec2(ubc, -vab);
+				Vec2 cUV = Vec2(ubc, -vcd);
+				Vec2 dUV = Vec2(uad, -vcd);
+
+				drawLine(c, b, color);
+				drawLine(b, a, color);
+				drawLine(a, c, color);
+
+				drawLine(a, d, color);
+				drawLine(d, c, color);
+				drawLine(a, c, color);
+			}
+		}
+	}
+
+	void DebugRenderer::drawCone(const f32 radius, const f32 height, const Vec4 &color)
+	{
+		uint32 segmentsW = 6;
+		uint32 segmentsH = 6;
+
+		int i, j, jMin;
+
+		f32 _height = height / 2.f;
+
+		std::vector <std::vector <Vec3> >aVtc;
+
+		jMin = 1;
+		segmentsH += 1;
+		Vec3 bottom = Vec3(0, -_height * 2, 0);
+		std::vector <Vec3> aRowB;
+		for (i = 0; i<segmentsW; ++i) {
+			aRowB.push_back(bottom);
+		}
+		aVtc.push_back(aRowB);
+	
+
+		for (j = jMin; j<segmentsH; ++j) {
+			f32 z = -height + 2 * height * (f32)(j - jMin) / (f32)(segmentsH - jMin);
+
+			std::vector <Vec3> aRow;
+			for (i = 0; i<segmentsW; ++i) {
+				f32 verangle = (f32)(2 * (f32)i / (f32)segmentsW*PI);
+				f32 ringradius = radius * (f32)(segmentsH - j) / (f32)(segmentsH - jMin);
+				f32 x = ringradius * sin(verangle);
+				f32 y = ringradius * cos(verangle);
+
+				Vec3 oVtx = Vec3(y, z, x);
+
+				aRow.push_back(oVtx);
+			}
+			aVtc.push_back(aRow);
+		}
+
+		Vec3 top = Vec3(0, height, 0);
+		std::vector <Vec3> aRowT;
+
+		for (i = 0; i<segmentsW; ++i)
+			aRowT.push_back(top);
+
+		aVtc.push_back(aRowT);
+
+		for (j = 1; j <= segmentsH; ++j) {
+			for (i = 0; i<segmentsW; ++i) {
+				Vec3 a = aVtc[j][i];
+				Vec3 b = aVtc[j][(i - 1 + segmentsW) % segmentsW];
+				Vec3 c = aVtc[j - 1][(i - 1 + segmentsW) % segmentsW];
+				Vec3 d = aVtc[j - 1][i];
+
+				int i2 = i;
+				if (i == 0) i2 = segmentsW;
+
+				f32 vab = (f32)j / (f32)segmentsH;
+				f32 vcd = (f32)(j - 1) / (f32)segmentsH;
+				f32 uad = (f32)i2 / (f32)segmentsW;
+				f32 ubc = (f32)(i2 - 1) / (f32)segmentsW;
+
+				Vec2 aUV = Vec2(uad, -vab);
+				Vec2 bUV = Vec2(ubc, -vab);
+				Vec2 cUV = Vec2(ubc, -vcd);
+				Vec2 dUV = Vec2(uad, -vcd);
+
+				drawLine(c, b, color);
+				drawLine(b, a, color);
+				drawLine(a, c, color);
+				
+				drawLine(a, d, color);
+				drawLine(d, c, color);
+				drawLine(a, c, color);
+			}
+		}
+		segmentsH -= 1;
+	}
+
 	void DebugRenderer::drawTriangle(const Vec3 &a, const Vec3 &b, const Vec3 &c, const Vec4 &color)
 	{
 		const Vec3 n = (b - a).cross(c - a).normalize();
@@ -138,9 +292,21 @@ namespace p3d {
 		colorTriangles.push_back(color);
 		colorTriangles.push_back(color);
 
-		vertexTriangles.push_back(a);
-		vertexTriangles.push_back(b);
-		vertexTriangles.push_back(c);
+		vertexTriangles.push_back(temp * a);
+		vertexTriangles.push_back(temp * b);
+		vertexTriangles.push_back(temp * c);
+	}
+
+	void DebugRenderer::pushMatrix(const Matrix &m)
+	{
+		temp = m;
+		pushedMatrix = true;
+	}
+
+	void DebugRenderer::popMatrix()
+	{
+		temp.identity();
+		pushedMatrix = false;
 	}
 
 };
