@@ -17,8 +17,8 @@ namespace p3d {
         
         public:
             
-            PointLight() { Color = Vec4(1,1,1,1); Radius = 1.f; }
-            PointLight(const Vec4 &color, const f32 radius) 
+            PointLight() : ILightComponent(LIGHT_TYPE::POINT) { Color = Vec4(1,1,1,1); Radius = 1.f; }
+            PointLight(const Vec4 &color, const f32 radius) : ILightComponent(LIGHT_TYPE::POINT)
 			{
 				Color = color;
 				Radius = radius;

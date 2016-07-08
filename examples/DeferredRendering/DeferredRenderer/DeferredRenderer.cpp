@@ -266,21 +266,28 @@ namespace p3d {
 
                 if ((*i)->GetOwner()!=NULL)
                 {
-                    if (PointLight* p = dynamic_cast<PointLight*>((*i))) {
-                        // Point Lights
-						Vec3 pos = (ViewMatrix * Vec4(p->GetOwner()->GetWorldPosition(),1.0)).xyz();
-                        Vec4 color = p->GetLightColor();
-                        deferredMaterialPoint->SetUniformValue("uLightPosition", &pos);
-                        deferredMaterialPoint->SetUniformValue("uLightRadius", p->GetLightRadius());
-                        deferredMaterialPoint->SetUniformValue("uLightColor", &color);
+					switch (((ILightComponent*)(*i))->GetLightType())
+					{
+					case LIGHT_TYPE::POINT:
+					{
+						PointLight* p = (PointLight*)(*i);
+						// Point Lights
+						Vec3 pos = (ViewMatrix * Vec4(p->GetOwner()->GetWorldPosition(), 1.0)).xyz();
+						Vec4 color = p->GetLightColor();
+						deferredMaterialPoint->SetUniformValue("uLightPosition", &pos);
+						deferredMaterialPoint->SetUniformValue("uLightRadius", p->GetLightRadius());
+						deferredMaterialPoint->SetUniformValue("uLightColor", &color);
 						// Set Scale
 						f32 sc = g(f(p->GetLightRadius()));
 						Matrix m; m.Scale(sc, sc, sc);
-                        pointLight->GetMeshes()[0]->Pivot = m;
-                        RenderObject(pointLight->GetMeshes()[0],p->GetOwner(),deferredMaterialPoint);
-                    }
-                    else if (SpotLight* s = dynamic_cast<SpotLight*>((*i))) {
-                        // Spot Lights
+						pointLight->GetMeshes()[0]->Pivot = m;
+						RenderObject(pointLight->GetMeshes()[0], p->GetOwner(), deferredMaterialPoint);
+					}
+					break;
+					case LIGHT_TYPE::SPOT:
+					{
+						SpotLight* s = (SpotLight*)(*i);
+						// Spot Lights
 						Vec3 pos = (ViewMatrix * Vec4(s->GetOwner()->GetWorldPosition(), 1.0)).xyz();
 						Vec4 color = s->GetLightColor();
 						Vec3 dir = (ViewMatrix * (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.0))).xyz();
@@ -292,18 +299,23 @@ namespace p3d {
 						deferredMaterialSpot->SetUniformValue("uLightColor", &color);
 						// Set Scale
 						f32 sc = g(f(s->GetLightRadius()));
-						Matrix m; m.Scale(sc,sc,sc);
+						Matrix m; m.Scale(sc, sc, sc);
 						pointLight->GetMeshes()[0]->Pivot = m;
 						RenderObject(pointLight->GetMeshes()[0], s->GetOwner(), deferredMaterialSpot);
-                    }
-                    else if (DirectionalLight* d = dynamic_cast<DirectionalLight*>((*i))) {
-                        // Directional Lights
-						Vec3 dir = (ViewMatrix * (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(),0.0))).xyz();
+						}
+					break;
+					case LIGHT_TYPE::DIRECTIONAL:
+					{
+						DirectionalLight* d = (DirectionalLight*)(*i);
+						// Directional Lights
+						Vec3 dir = (ViewMatrix * (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.0))).xyz();
 						Vec4 color = d->GetLightColor();
 						deferredMaterialDirectional->SetUniformValue("uLightDirection", &dir);
 						deferredMaterialDirectional->SetUniformValue("uLightColor", &color);
 						RenderObject(directionalLight->GetMeshes()[0], d->GetOwner(), deferredMaterialDirectional);
-                    }
+					}
+					break;
+					};
                 }
             }
 

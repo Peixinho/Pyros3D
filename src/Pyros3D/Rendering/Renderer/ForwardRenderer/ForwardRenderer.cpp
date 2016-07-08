@@ -160,7 +160,11 @@ namespace p3d {
 				uint32 spotCounter = 0;
 				for (std::vector<IComponent*>::iterator i = lcomps.begin(); i != lcomps.end(); i++)
 				{
-					if (DirectionalLight* d = dynamic_cast<DirectionalLight*>((*i))) {
+					switch (((ILightComponent*)(*i))->GetLightType())
+					{
+					case LIGHT_TYPE::DIRECTIONAL:
+					{
+						DirectionalLight* d = ((DirectionalLight*)(*i));
 
 						// Directional Lights
 						Vec4 color = d->GetLightColor();
@@ -176,7 +180,7 @@ namespace p3d {
 						directionalLight.m[7] = direction.x;     directionalLight.m[8] = direction.y;         directionalLight.m[9] = direction.z;
 						directionalLight.m[10] = 0.0;			 directionalLight.m[11] = 0.0;				  directionalLight.m[12] = 0.0;
 						directionalLight.m[13] = type;			 directionalLight.m[14] = (d->IsCastingShadows() ? 1 : 0);
-					
+
 						_Lights.push_back(directionalLight);
 
 						// Shadows
@@ -191,7 +195,7 @@ namespace p3d {
 							// GPU
 							ClearDepthBuffer();
 							ClearScreen();
-							
+
 #if !defined(GLES2)
 							if (ClipPlane)
 							{
@@ -201,12 +205,12 @@ namespace p3d {
 #endif
 							// Enable Depth Bias
 							shadowMaterial->EnableDethBias(d->GetShadowBiasFactor(), d->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
-							
+
 							ViewMatrix.identity();
 							ViewMatrix.LookAt(Vec3::ZERO, direction, Vec3(0.f, 0.f, -1.f));
 
 							// Get Lights Shadow Map Texture
-							for (uint32 i = 0; i<d->GetNumberCascades(); i++)
+							for (uint32 i = 0; i < d->GetNumberCascades(); i++)
 							{
 								d->UpdateCascadeFrustumPoints(i, Camera->GetWorldPosition(), Camera->GetDirection());
 								ProjectionMatrix = d->GetLightProjection(i, rmesh);
@@ -238,7 +242,7 @@ namespace p3d {
 										if (!(*k)->Material->IsTransparent())
 										{
 											if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-												RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size()>0 ? shadowSkinnedMaterial : shadowMaterial));
+												RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
 										}
 										else break;
 									}
@@ -259,10 +263,10 @@ namespace p3d {
 
 							// Set Shadow Far
 							Vec4 _ShadowFar;
-							if (d->GetNumberCascades()>0) _ShadowFar.x = d->GetCascade(0).Far;
-							if (d->GetNumberCascades()>1) _ShadowFar.y = d->GetCascade(1).Far;
-							if (d->GetNumberCascades()>2) _ShadowFar.z = d->GetCascade(2).Far;
-							if (d->GetNumberCascades()>3) _ShadowFar.w = d->GetCascade(3).Far;
+							if (d->GetNumberCascades() > 0) _ShadowFar.x = d->GetCascade(0).Far;
+							if (d->GetNumberCascades() > 1) _ShadowFar.y = d->GetCascade(1).Far;
+							if (d->GetNumberCascades() > 2) _ShadowFar.z = d->GetCascade(2).Far;
+							if (d->GetNumberCascades() > 3) _ShadowFar.w = d->GetCascade(3).Far;
 
 							Vec4 ShadowFar;
 							ShadowFar.x = 0.5f*(-_ShadowFar.x*projection.m.m[10] + projection.m.m[14]) / _ShadowFar.x + 0.5f;
@@ -278,9 +282,11 @@ namespace p3d {
 							d->GetShadowFBO()->UnBind();
 
 						}
-
 					}
-					else if (PointLight* p = dynamic_cast<PointLight*>((*i))) {
+					break;
+					case LIGHT_TYPE::POINT:
+					{
+						PointLight* p = ((PointLight*)(*i));
 
 						ViewMatrix = Camera->GetWorldTransformation().Inverse();
 
@@ -319,7 +325,7 @@ namespace p3d {
 							ProjectionMatrix = p->GetLightProjection().GetProjectionMatrix();
 
 							// Get Lights Shadow Map Texture
-							for (uint32 i = 0; i<6; i++)
+							for (uint32 i = 0; i < 6; i++)
 							{
 								// Clean View Matrix
 								ViewMatrix.identity();
@@ -363,7 +369,7 @@ namespace p3d {
 #endif
 								// Enable Depth Bias
 								shadowMaterial->EnableDethBias(p->GetShadowBiasFactor(), p->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
-								
+
 								// Set Viewport
 								_SetViewPort(0, 0, p->GetShadowWidth(), p->GetShadowHeight());
 
@@ -389,7 +395,7 @@ namespace p3d {
 										if (cullingTest && !(*k)->Material->IsTransparent())
 										{
 											if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-												RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size()>0 ? shadowSkinnedMaterial : shadowMaterial));
+												RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
 										}
 										else break;
 									}
@@ -420,9 +426,11 @@ namespace p3d {
 							p->GetShadowFBO()->UnBind();
 
 						}
-
 					}
-					else if (SpotLight* s = dynamic_cast<SpotLight*>((*i))) {
+					break;
+					case LIGHT_TYPE::SPOT:
+					{
+						SpotLight* s = ((SpotLight*)(*i));
 
 						ViewMatrix = Camera->GetWorldTransformation().Inverse();
 
@@ -531,9 +539,11 @@ namespace p3d {
 
 							// Get Texture (only 1)
 							SpotShadowMapsTextures.push_back(s->GetShadowMapTexture());
-
+							}
 						}
-					}
+						break;
+					};
+					
 					// Universal Cache
 					ProjectionMatrix = projection.m;
 					NearFarPlane = Vec2(projection.Near, projection.Far);

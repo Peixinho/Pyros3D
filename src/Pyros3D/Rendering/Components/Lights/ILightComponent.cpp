@@ -14,8 +14,9 @@ namespace p3d {
     std::vector<IComponent*> ILightComponent::Components;
     std::map<SceneGraph*, std::vector<IComponent*> > ILightComponent::LightsOnScene;
     
-    ILightComponent::ILightComponent() 
+    ILightComponent::ILightComponent(const uint32 type) 
     {
+		LightType = type;
         isCastingShadows = false;
         shadowsFBO = NULL;
 		ShadowBiasFactor = ShadowBiasUnits = 0.f;

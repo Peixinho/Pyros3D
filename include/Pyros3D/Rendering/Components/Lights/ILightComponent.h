@@ -18,12 +18,21 @@
 #include <map>
 
 namespace p3d {
-    
+
+	namespace LIGHT_TYPE
+	{
+		enum {
+			DIRECTIONAL = 0,
+			POINT,
+			SPOT
+		};
+	}
+
     class PYROS3D_API ILightComponent : public IComponent {
         
         public:
             
-            ILightComponent();
+            ILightComponent(const uint32 type);
             
             virtual ~ILightComponent();
             
@@ -68,6 +77,11 @@ namespace p3d {
 			{
 				return ShadowBiasUnits;
 			}
+
+			const uint32 &GetLightType() const 
+			{
+				return LightType;
+			}
         protected:
             
             // Shadows Mapping
@@ -91,6 +105,8 @@ namespace p3d {
             static std::vector<IComponent*> Components;
             // Internal - Lights on Scene
             static std::map<SceneGraph*, std::vector<IComponent*> > LightsOnScene;
+
+			uint32 LightType;
             
     };
     

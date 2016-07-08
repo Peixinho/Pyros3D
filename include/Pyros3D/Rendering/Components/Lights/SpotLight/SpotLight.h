@@ -17,9 +17,9 @@ namespace p3d {
         
         public:
             
-            SpotLight() { Color = Vec4(1,1,1,1); Radius = 1.f; }
+            SpotLight() : ILightComponent(LIGHT_TYPE::SPOT) { Color = Vec4(1,1,1,1); Radius = 1.f; }
             
-            SpotLight(const Vec4 &color, const f32 radius, const Vec3 &direction, const f32 OutterCone, const f32 InnerCone) 
+            SpotLight(const Vec4 &color, const f32 radius, const Vec3 &direction, const f32 OutterCone, const f32 InnerCone) : ILightComponent(LIGHT_TYPE::SPOT)
             { 
                 Color = color;
                 Radius = radius;
