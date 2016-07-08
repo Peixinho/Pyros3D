@@ -98,6 +98,9 @@ namespace p3d {
 			const Vec3 &GetMaxBounds() const { return maxBounds; }
 			const float &GetBoundingSphere() const { return BoundingSphereRadius; }
 
+			// Get Components List
+			const std::vector<IComponent*> &GetComponents() const { return Components; }
+
         private:
             
             // Update Components
