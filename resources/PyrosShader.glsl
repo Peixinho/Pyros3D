@@ -574,8 +574,8 @@
                             _specular += vec4(specularPower * L.Color.xyz * spotEffect * attenuation * specular.xyz * SpotShadow, specularPower * L.Color.w * specular.w);
                             lightIntensityCellShading = max(lightIntensityCellShading, lightIntensity * spotEffect * attenuation * SpotShadow);
                         #else
-                            _diffuse += lightIntensity * L.Color * attenuation;
-                            _specular += specularPower * L.Color * specular * attenuation;
+                            _diffuse += lightIntensity * L.Color * spotEffect * attenuation;
+                            _specular += specularPower * L.Color * specular * spotEffect * attenuation;
                             lightIntensityCellShading = max(lightIntensityCellShading, lightIntensity * spotEffect * attenuation);
                         #endif
                     }
