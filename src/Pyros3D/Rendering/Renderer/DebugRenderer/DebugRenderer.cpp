@@ -125,16 +125,14 @@ namespace p3d {
 				uint32 first = (latNumber * (longitudeBands + 1)) + longNumber;
 				uint32 second = first + longitudeBands + 1;
 				drawLine(v[first], v[second], color);
-				drawLine(v[first+1], v[second], color);
-				drawLine(v[first+1], v[second+1], color);
 			}
 		}
 	}
 
 	void DebugRenderer::drawCylinder(const f32 radius, const f32 height, const Vec4 &color)
 	{
-		uint32 segmentsH = 6;
-		uint32 segmentsW = 6;
+		uint32 segmentsH = 2;
+		uint32 segmentsW = 12;
 
 		int i, j, jMin, jMax;
 
@@ -142,22 +140,8 @@ namespace p3d {
 
 		std::vector <std::vector<Vec3> > aVtc;
 
-		segmentsH += 2;
-		jMin = 1;
-		jMax = segmentsH - 1;
-
-		// Bottom
-		Vec3 oVtx = Vec3(0, -height, 0);
-		for (i = 0; i<segmentsW; ++i) {
-			aRowB.push_back(oVtx);
-		}
-		aVtc.push_back(aRowB);
-
-		//Top
-		oVtx = Vec3(0, height, 0);
-		for (i = 0; i<segmentsW; i++) {
-			aRowT.push_back(oVtx);
-		}
+		jMin = 0;
+		jMax = segmentsH;
 
 		for (j = jMin; j <= jMax; ++j) {
 			f32 z = -height + 2 * height*(f32)(j - jMin) / (f32)(jMax - jMin);
@@ -196,12 +180,7 @@ namespace p3d {
 				Vec2 dUV = Vec2(uad, -vcd);
 
 				drawLine(c, b, color);
-				drawLine(b, a, color);
-				drawLine(a, c, color);
 
-				drawLine(a, d, color);
-				drawLine(d, c, color);
-				drawLine(a, c, color);
 			}
 		}
 	}
@@ -274,11 +253,9 @@ namespace p3d {
 
 				drawLine(c, b, color);
 				drawLine(b, a, color);
-				drawLine(a, c, color);
 				
 				drawLine(a, d, color);
 				drawLine(d, c, color);
-				drawLine(a, c, color);
 			}
 		}
 		segmentsH -= 1;
