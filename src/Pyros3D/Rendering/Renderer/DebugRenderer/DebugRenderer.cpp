@@ -131,7 +131,7 @@ namespace p3d {
 
 	void DebugRenderer::drawCylinder(const f32 radius, const f32 height, const Vec4 &color)
 	{
-		uint32 segmentsH = 2;
+		uint32 segmentsH = 1;
 		uint32 segmentsW = 12;
 
 		int i, j, jMin, jMax;
@@ -180,6 +180,7 @@ namespace p3d {
 				Vec2 dUV = Vec2(uad, -vcd);
 
 				drawLine(c, b, color);
+				drawLine(a, b, color);
 
 			}
 		}
