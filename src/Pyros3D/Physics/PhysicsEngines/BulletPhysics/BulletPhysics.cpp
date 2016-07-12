@@ -346,7 +346,6 @@ namespace p3d {
         startTransform.setIdentity();
         // Local is Enough because we can't use Parent/Child Relationships, it wouldn't work right
         startTransform.setOrigin(btVector3(pcomp->GetOwner()->GetPosition().x,pcomp->GetOwner()->GetPosition().y,pcomp->GetOwner()->GetPosition().z));
-		std::cout << pcomp->GetOwner()->GetPosition().toString() << std::endl;
         Quaternion q;
         q.SetRotationFromEuler(pcomp->GetOwner()->GetRotation());
         startTransform.setRotation(btQuaternion(q.x,q.y,q.z,q.w));

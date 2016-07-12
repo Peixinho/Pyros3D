@@ -43,16 +43,35 @@ namespace p3d {
         // Update Transformation
 		bool r = UpdateTransformation();
 
-		Vec3 min = GetWorldTransformation()*minBounds;
-		Vec3 max = GetWorldTransformation()*maxBounds;
+		Vec3 _min = GetWorldTransformation()*minBounds;
+		Vec3 _max = GetWorldTransformation()*maxBounds;
 
-		maxBoundsWorldSpace.x = (max.x > min.x ? max.x : min.x);
-		maxBoundsWorldSpace.y = (max.y > min.y ? max.y : min.y);
-		maxBoundsWorldSpace.z = (max.z > min.z ? max.z : min.z);
+		// Defining box vertex and Apply Transform
+		Vec3 v[8];
+		v[0] = GetWorldTransformation() * _min;
+		v[1] = GetWorldTransformation() * Vec3(_min.x, _min.y, _max.z);
+		v[2] = GetWorldTransformation() * Vec3(_min.x, _max.y, _max.z);
+		v[3] = GetWorldTransformation() * _max;
+		v[4] = GetWorldTransformation() * Vec3(_min.x, _max.y, _min.z);
+		v[5] = GetWorldTransformation() * Vec3(_max.x, _min.y, _min.z);
+		v[6] = GetWorldTransformation() * Vec3(_max.x, _max.y, _min.z);
+		v[7] = GetWorldTransformation() * Vec3(_max.x, _min.y, _max.z);
 
-		minBoundsWorldSpace.x = (max.x < min.x ? max.x : min.x);
-		minBoundsWorldSpace.y = (max.y < min.y ? max.y : min.y);
-		minBoundsWorldSpace.z = (max.z < min.z ? max.z : min.z);
+		// Get new Min and Max
+		Vec3 min = v[0];
+		Vec3 max = v[0];
+		for (uint32 i = 1; i<8; i++)
+		{
+			if (v[i].x<min.x) min.x = v[i].x;
+			if (v[i].y<min.y) min.y = v[i].y;
+			if (v[i].z<min.z) min.z = v[i].z;
+			if (v[i].x>max.x) max.x = v[i].x;
+			if (v[i].y>max.y) max.y = v[i].y;
+			if (v[i].z>max.z) max.z = v[i].z;
+		}
+
+		minBoundsWorldSpace = min;
+		maxBoundsWorldSpace = max;
 
 		return r;
     }

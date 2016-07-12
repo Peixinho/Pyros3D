@@ -877,7 +877,7 @@ namespace p3d {
 
 	bool IRenderer::CullingSphereTest(RenderingMesh* rmesh, GameObject* owner)
 	{
-		return culling->SphereInFrustum(owner->GetWorldPosition() + rmesh->Geometry->GetBoundingSphereCenter(), rmesh->Geometry->GetBoundingSphereRadius());
+		return culling->SphereInFrustum(owner->GetWorldPosition(), owner->GetBoundingSphereRadiusWorldSpace());
 	}
 	bool IRenderer::CullingBoxTest(RenderingMesh* rmesh, GameObject* owner)
 	{
