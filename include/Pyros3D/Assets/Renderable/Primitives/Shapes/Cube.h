@@ -94,15 +94,33 @@ namespace p3d {
                 geometry->tVertex.push_back(d);   geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(Vec2(0,0));
                 geometry->tVertex.push_back(a);   geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(Vec2(1,0));
 
+				Vec3 min = geometry->tVertex[0];
                 for (uint32 i=0;i<geometry->tVertex.size();i++)
                 {
                     geometry->index.push_back(i);
                     geometry->tTexcoord[i].y = 1-geometry->tTexcoord[i].y;
-                }
 
-                // Build and Send Buffers
-                Build();
-            }
+					if (geometry->tVertex[i].x < min.x) min.x = geometry->tVertex[i].x;
+					if (geometry->tVertex[i].y < min.y) min.y = geometry->tVertex[i].y;
+					if (geometry->tVertex[i].z < min.z) min.z = geometry->tVertex[i].z;
+
+				}
+
+				Build();
+
+				// Bounding Box
+				minBounds = min;
+				maxBounds = min.negate();
+
+				// Bounding Sphere
+				BoundingSphereCenter = Vec3(0, 0, 0);
+				BoundingSphereRadius = min.distance(Vec3::ZERO);
+			}
+
+			virtual void CalculateBounding()
+			{
+
+			}
 
     };
 };

@@ -41,7 +41,20 @@ namespace p3d {
     bool GameObject::InternalUpdate()
     {
         // Update Transformation
-        return UpdateTransformation();
+		bool r = UpdateTransformation();
+
+		Vec3 min = GetWorldTransformation()*minBounds;
+		Vec3 max = GetWorldTransformation()*maxBounds;
+
+		maxBoundsWorldSpace.x = (max.x > min.x ? max.x : min.x);
+		maxBoundsWorldSpace.y = (max.y > min.y ? max.y : min.y);
+		maxBoundsWorldSpace.z = (max.z > min.z ? max.z : min.z);
+
+		minBoundsWorldSpace.x = (max.x < min.x ? max.x : min.x);
+		minBoundsWorldSpace.y = (max.y < min.y ? max.y : min.y);
+		minBoundsWorldSpace.z = (max.z < min.z ? max.z : min.z);
+
+		return r;
     }
     
     // Updates the Transformation Matrix
@@ -132,6 +145,9 @@ namespace p3d {
         } else {
 			_WorldMatrix = _LocalMatrix;
 		}
+
+		// Set Bounding Sphere Scale
+		BoundingSphereRadiusWorldSpace = BoundingSphereRadius * Max(_Scale.x, Max(_Scale.y, _Scale.z));
 
 		return wasDirty;
     }
@@ -323,7 +339,7 @@ namespace p3d {
         {
             (*i)->Update();
         }
-    }
+	}
     
     void GameObject::Add(GameObject* Child)
     {

@@ -44,8 +44,8 @@ namespace p3d {
 				// Update Transforms Not Using Threads
 				GO->InternalUpdate();
 
-				Vec3 _min = GO->GetWorldTransformation() * GO->GetMinBounds();
-				Vec3 _max = GO->GetWorldTransformation() * GO->GetMaxBounds();
+				Vec3 _min = GO->GetBoundingMinValue();
+				Vec3 _max = GO->GetBoundingMaxValue();
 
 				if (_min.x < minBounds.x) minBounds.x = _min.x;
 				if (_min.y < minBounds.y) minBounds.y = _min.y;
@@ -128,8 +128,8 @@ namespace p3d {
 			// Update Transforms Not Using Threads
 			(*i)->InternalUpdate();
 
-			Vec3 _min = (*i)->GetWorldTransformation() * (*i)->GetMinBounds();
-			Vec3 _max = (*i)->GetWorldTransformation() * (*i)->GetMaxBounds();
+			Vec3 _min = (*i)->GetBoundingMinValue();
+			Vec3 _max = (*i)->GetBoundingMaxValue();
 
 			if (_min.x < minBounds.x) minBounds.x = _min.x;
 			if (_min.y < minBounds.y) minBounds.y = _min.y;
@@ -150,8 +150,8 @@ namespace p3d {
 			// Update Transforms Not Using Threads
 			(*i)->InternalUpdate();
 
-			Vec3 _min = (*i)->GetWorldTransformation() * (*i)->GetMinBounds();
-			Vec3 _max = (*i)->GetWorldTransformation() * (*i)->GetMaxBounds();
+			Vec3 _min = (*i)->GetBoundingMinValue();
+			Vec3 _max = (*i)->GetBoundingMaxValue();
 
 			if (_min.x < minBounds.x) minBounds.x = _min.x;
 			if (_min.y < minBounds.y) minBounds.y = _min.y;
@@ -173,8 +173,8 @@ namespace p3d {
 			// Update Transforms Not Using Threads
 			(*i)->InternalUpdate();
 			
-			Vec3 _min = (*i)->GetWorldTransformation() * (*i)->GetMinBounds();
-			Vec3 _max = (*i)->GetWorldTransformation() * (*i)->GetMaxBounds();
+			Vec3 _min = (*i)->GetBoundingMinValue();
+			Vec3 _max = (*i)->GetBoundingMaxValue();
 
 			if (_min.x < minBounds.x) minBounds.x = _min.x;
 			if (_min.y < minBounds.y) minBounds.y = _min.y;

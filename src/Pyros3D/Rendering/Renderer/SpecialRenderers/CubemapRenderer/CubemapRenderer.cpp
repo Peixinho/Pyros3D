@@ -275,7 +275,7 @@ namespace p3d {
 								else if ((*_l).m[13] == 2 || (*_l).m[13] == 3)
 								{
 									Vec3 _lPos = Vec3((*_l).m[4], (*_l).m[5], (*_l).m[6]);
-									if (_lPos.distance((*k)->renderingComponent->GetOwner()->GetWorldPosition()) < (*_l).m[10])
+									if (fabsf(_lPos.distance((*k)->renderingComponent->GetOwner()->GetWorldPosition()) - ((*k)->renderingComponent->GetOwner()->GetBoundingSphereRadiusWorldSpace())) < (*_l).m[10])
 										Lights.push_back(*_l);
 								}
 							}

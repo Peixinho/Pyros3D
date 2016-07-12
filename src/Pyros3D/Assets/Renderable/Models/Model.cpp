@@ -44,10 +44,10 @@ namespace p3d {
              }            
          }
          // Bounding Sphere
-         BoundingSphereCenter = maxBounds-minBounds;
+         BoundingSphereCenter = Vec3::ZERO;
          f32 a = maxBounds.distance(BoundingSphereCenter);
-         f32 b = minBounds.distance(BoundingSphereCenter);        
-         BoundingSphereRadius = (a>b?a:b);
+         f32 b = minBounds.distance(BoundingSphereCenter);
+         BoundingSphereRadius = Max(a,b);
      }
 
     Model::Model(const std::string ModelPath, bool mergeMeshes, const uint32 MaterialOptions)

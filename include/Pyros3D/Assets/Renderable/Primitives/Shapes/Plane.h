@@ -43,7 +43,20 @@ namespace p3d {
 
                 // Build and Send Buffers
                 Build();
-            }
+
+				// Bounding Box
+				minBounds = Vec3(-w2, -h2, 0);
+				maxBounds = Vec3(w2, h2, 0);
+
+				// Bounding Sphere
+				BoundingSphereCenter = Vec3(0, 0, 0);
+				BoundingSphereRadius = Max(w2,h2);
+			}
+
+			virtual void CalculateBounding()
+			{
+
+			}
 
     };
 };

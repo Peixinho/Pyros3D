@@ -881,35 +881,7 @@ namespace p3d {
 	}
 	bool IRenderer::CullingBoxTest(RenderingMesh* rmesh, GameObject* owner)
 	{
-		// Get Bounding Values (min and max)
-		Vec3 _min = rmesh->Geometry->GetBoundingMinValue();
-		Vec3 _max = rmesh->Geometry->GetBoundingMaxValue();
-
-		// Defining box vertex and Apply Transform
-		Vec3 v[8];
-		v[0] = owner->GetWorldTransformation() * _min;
-		v[1] = owner->GetWorldTransformation() * Vec3(_min.x, _min.y, _max.z);
-		v[2] = owner->GetWorldTransformation() * Vec3(_min.x, _max.y, _max.z);
-		v[3] = owner->GetWorldTransformation() * _max;
-		v[4] = owner->GetWorldTransformation() * Vec3(_min.x, _max.y, _min.z);
-		v[5] = owner->GetWorldTransformation() * Vec3(_max.x, _min.y, _min.z);
-		v[6] = owner->GetWorldTransformation() * Vec3(_max.x, _max.y, _min.z);
-		v[7] = owner->GetWorldTransformation() * Vec3(_max.x, _min.y, _max.z);
-
-		// Get new Min and Max
-		Vec3 min = v[0];
-		Vec3 max = v[0];
-		for (uint32 i = 1; i<8; i++)
-		{
-			if (v[i].x<min.x) min.x = v[i].x;
-			if (v[i].y<min.y) min.y = v[i].y;
-			if (v[i].z<min.z) min.z = v[i].z;
-			if (v[i].x>max.x) max.x = v[i].x;
-			if (v[i].y>max.y) max.y = v[i].y;
-			if (v[i].z>max.z) max.z = v[i].z;
-		}
-		// Build new Box
-		AABox aabb = AABox(min, max);
+		AABox aabb = AABox(owner->GetBoundingMinValueWorldSpace(), owner->GetBoundingMaxValueWorldSpace());
 
 		// Return test
 		return culling->ABoxInFrustum(aabb);

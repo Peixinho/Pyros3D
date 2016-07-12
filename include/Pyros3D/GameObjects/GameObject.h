@@ -94,9 +94,16 @@ namespace p3d {
             void LookAtGameObject(GameObject* GO);
             void LookAtVec(const Vec3 &center);
 
-			const Vec3 &GetMinBounds() const { return minBounds; }
-			const Vec3 &GetMaxBounds() const { return maxBounds; }
-			const float &GetBoundingSphere() const { return BoundingSphereRadius; }
+			// Not transformed boundings
+			const Vec3 &GetBoundingMinValue() const { return minBounds; }
+			const Vec3 &GetBoundingMaxValue() const { return maxBounds; }
+			const Vec3 &GetBoundingSphereCenter() const { return BoundingSphereCenter; }
+			const float &GetBoundingSphereRadius() const { return BoundingSphereRadius; }
+
+			// World Space boundings
+			const Vec3 GetBoundingMinValueWorldSpace() const { return minBoundsWorldSpace; }
+			const Vec3 GetBoundingMaxValueWorldSpace() const { return maxBoundsWorldSpace; }
+			const float GetBoundingSphereRadiusWorldSpace() const { return BoundingSphereRadiusWorldSpace; }
 
 			// Get Components List
 			const std::vector<IComponent*> &GetComponents() const { return Components; }
@@ -161,6 +168,9 @@ namespace p3d {
 			f32 BoundingSphereRadius;
 			Vec3 BoundingSphereCenter;
 			Vec3 maxBounds, minBounds;
+
+			f32 BoundingSphereRadiusWorldSpace;
+			Vec3 maxBoundsWorldSpace, minBoundsWorldSpace;
     };
     
 };

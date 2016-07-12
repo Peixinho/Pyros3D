@@ -46,8 +46,8 @@ namespace p3d {
 		{
 			for (std::vector<GameObject*>::iterator i = objects.begin(); i != objects.end();)
 			{
-				Vec3 minTransform = (*i)->GetWorldTransformation()*(*i)->GetMinBounds();
-				Vec3 maxTransform = (*i)->GetWorldTransformation()*(*i)->GetMaxBounds();
+				Vec3 minTransform = (*i)->GetBoundingMinValue();
+				Vec3 maxTransform = (*i)->GetBoundingMaxValue();
 				if (
 					(minTransform.x > min.x && maxTransform.x < max.x) &&
 					(minTransform.y > min.y && maxTransform.y < max.y) &&
@@ -108,8 +108,8 @@ namespace p3d {
 	bool OctreeGroup::Insert(GameObject* go)
 	{
 
-		Vec3 minTransform = go->GetWorldTransformation()*go->GetMinBounds();
-		Vec3 maxTransform = go->GetWorldTransformation()*go->GetMaxBounds();
+		Vec3 minTransform = go->GetBoundingMinValue();
+		Vec3 maxTransform = go->GetBoundingMaxValue();
 
 		if (
 			(minTransform.x > Min.x && maxTransform.x < Max.x) &&
@@ -161,8 +161,8 @@ namespace p3d {
 
 	bool OctreeGroup::Remove(GameObject* go)
 	{
-		Vec3 minTransform = go->GetWorldTransformation()*go->GetMinBounds();
-		Vec3 maxTransform = go->GetWorldTransformation()*go->GetMaxBounds();
+		Vec3 minTransform = go->GetBoundingMinValue();
+		Vec3 maxTransform = go->GetBoundingMaxValue();
 
 		if (
 			(minTransform.x > Min.x && maxTransform.x < Max.x) &&

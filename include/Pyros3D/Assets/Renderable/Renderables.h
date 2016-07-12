@@ -347,10 +347,10 @@ namespace p3d {
 					}
                 }
                 // Set Sphere Radius and Bounds
-                BoundingSphereCenter = maxBounds-minBounds;
+                BoundingSphereCenter = Vec3::ZERO;
                 f32 a = maxBounds.distance(BoundingSphereCenter);
                 f32 b = minBounds.distance(BoundingSphereCenter);        
-                BoundingSphereRadius = (a>b?a:b);
+                BoundingSphereRadius = Max(a,b);
             }
 
             // Bounds of the Whole Model

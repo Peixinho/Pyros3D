@@ -116,15 +116,33 @@ namespace p3d {
 
                 if (!openEnded) this->segmentsH-=1;
 
-                for (uint32 i=0;i<geometry->tVertex.size();i++)
-                {
-                    geometry->tTexcoord[i].x = 1-geometry->tTexcoord[i].x;
-                }
+				Vec3 min = geometry->tVertex[0];
+				for (uint32 i = 0; i<geometry->tVertex.size(); i++)
+				{
+					if (geometry->tVertex[i].x < min.x) min.x = geometry->tVertex[i].x;
+					if (geometry->tVertex[i].y < min.y) min.y = geometry->tVertex[i].y;
+					if (geometry->tVertex[i].z < min.z) min.z = geometry->tVertex[i].z;
+
+					geometry->tTexcoord[i].x = 1 - geometry->tTexcoord[i].x;
+				}
 
                 Build();
-            }
 
-    };
+				// Bounding Box
+				minBounds = min;
+				maxBounds = min.negate();
+
+				// Bounding Sphere
+				BoundingSphereCenter = Vec3(0, 0, 0);
+				BoundingSphereRadius = min.distance(Vec3::ZERO);
+			}
+
+			virtual void CalculateBounding()
+			{
+
+			}
+
+	};
 };
 
  #endif /* CONE_H */
