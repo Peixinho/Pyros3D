@@ -48,8 +48,11 @@ namespace p3d {
             const f32 &GetLightCosOutterCone() const { return CosOutterCone; }
             const f32 &GetLightInnerCone() const { return innerCone; }
             const f32 &GetLightOutterCone() const { return outterCone; }
+			void SetLightInnerCone(const f32 inner) { innerCone = inner; CosInnerCone = cosf(DEGTORAD(innerCone)); }
+			void SetLightOutterCone(const f32 outter) { outterCone = outter; CosOutterCone = cosf(DEGTORAD(outterCone)); }
             const f32 &GetLightRadius() const { return Radius; }
-            
+			void SetLightRadius(const f32 radius) { Radius = radius; }
+
             Projection GetLightProjection() { return ShadowProjection; }
             
             void EnableCastShadows(const uint32 Width, const uint32 Height, const f32 Near = 0.1f)

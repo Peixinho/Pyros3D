@@ -38,6 +38,7 @@ namespace p3d {
             Projection GetLightProjection() { return ShadowProjection; }
         
             const f32 &GetLightRadius() const { return Radius; }
+			void SetLightRadius(const f32 radius) { Radius = radius; }
             
             void EnableCastShadows(const uint32 Width, const uint32 Height, const f32 Near = 0.1f)
             {

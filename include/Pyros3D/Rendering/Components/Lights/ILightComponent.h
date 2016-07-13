@@ -45,6 +45,7 @@ namespace p3d {
             static std::vector<IComponent*> &GetComponents();
             static std::vector<IComponent*> &GetLightsOnScene(SceneGraph* Scene);
             const Vec4 &GetLightColor() const;
+			void SetLightColor(const Vec4 &color) { Color = color; }
             
             bool IsCastingShadows() { return isCastingShadows; }
             void DisableCastShadows();
@@ -82,8 +83,9 @@ namespace p3d {
 			{
 				return LightType;
 			}
+
         protected:
-            
+
             // Shadows Mapping
             // FrameBuffer
             FrameBuffer* shadowsFBO;
