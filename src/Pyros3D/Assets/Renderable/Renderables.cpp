@@ -40,6 +40,7 @@ namespace p3d {
                     colorMap->LoadTexture((*i)->materialProperties.colorMap, TextureType::Texture);
                     colorMap->SetMinMagFilter(TextureFilter::Linear,TextureFilter::Linear);
                     genMat->SetColorMap(colorMap);
+					Texturesvector.push_back(colorMap);
                 }
                 if ((*i)->materialProperties.haveSpecularMap) 
                 {
@@ -47,6 +48,7 @@ namespace p3d {
                     specularMap->LoadTexture((*i)->materialProperties.specularMap, TextureType::Texture);
                     specularMap->SetMinMagFilter(TextureFilter::Linear,TextureFilter::Linear);
                     genMat->SetSpecularMap(specularMap);
+					Texturesvector.push_back(specularMap);
                 }
                 if ((*i)->materialProperties.haveNormalMap) 
                 {
@@ -54,6 +56,7 @@ namespace p3d {
                     normalMap->LoadTexture((*i)->materialProperties.normalMap, TextureType::Texture);
                     normalMap->SetMinMagFilter(TextureFilter::Linear,TextureFilter::Linear);
                     genMat->SetNormalMap(normalMap);
+					Texturesvector.push_back(normalMap);
                 }
                 Materialsvector[(*i)->materialProperties.id] = genMat;
                 (*i)->Material = genMat;

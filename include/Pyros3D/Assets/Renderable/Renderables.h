@@ -305,6 +305,7 @@ namespace p3d {
 
             // Materials vector
             std::map <uint32, IMaterial*> Materialsvector;
+			std::vector <Texture*> Texturesvector;
             
             Renderable() {}
             virtual ~Renderable()
@@ -319,6 +320,9 @@ namespace p3d {
                 // Delete Materials
                 for (std::map <uint32, IMaterial*>::iterator i = Materialsvector.begin();i!=Materialsvector.end();i++)
                     delete (*i).second;
+				// Delete Textures
+				for (std::vector<Texture*>::iterator i = Texturesvector.begin(); i != Texturesvector.end(); i++)
+					delete (*i);
             }
 
             virtual void BuildMaterials(const uint32 &MaterialOptions = 0);
