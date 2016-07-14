@@ -203,7 +203,6 @@ namespace p3d
     }
     GenericShaderMaterial::~GenericShaderMaterial()
     {
-        
         // Delete Shaders
         if (ShadersList.find(shaderID)!=ShadersList.end())
         {
