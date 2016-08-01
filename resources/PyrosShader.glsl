@@ -506,7 +506,7 @@
                         CalculateLighting(LightVec, HalfVec, Normal, uShininess, lightIntensity, specularPower);
 
                         #ifdef DIRECTIONALSHADOW
-                            float DirectionalShadow = 0.0;
+                            float DirectionalShadow = 1.0;
                             bool MoreThanOneCascade = (uDirectionalShadowFar[0].y>0.0);
                             if (gl_FragCoord.z<uDirectionalShadowFar[0].x) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.0, uDirectionalDepthsMVP[0],uPCFTexelSize1,vWorldPosition, MoreThanOneCascade);
                             else if (gl_FragCoord.z<uDirectionalShadowFar[0].y) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.0, uDirectionalDepthsMVP[1],uPCFTexelSize2,vWorldPosition, MoreThanOneCascade);

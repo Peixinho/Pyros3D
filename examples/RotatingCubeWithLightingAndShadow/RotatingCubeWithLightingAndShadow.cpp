@@ -71,7 +71,7 @@ void RotatingCubeWithLightingAndShadow::Init()
 	Scene->Add(Light);
 
 	// Create Floor Material
-	FloorMaterial = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::Diffuse | ShaderUsage::SpotShadow | ShaderUsage::SpotShadow | ShaderUsage::DirectionalShadow);
+	FloorMaterial = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::Diffuse | ShaderUsage::SpotShadow | ShaderUsage::DirectionalShadow);
 	FloorMaterial->SetColor(Vec4(1, 1, 1, 1));
 	FloorMaterial->SetPCFTexelCascadesSize(0.0001f);
 
