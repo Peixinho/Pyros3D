@@ -11,6 +11,8 @@
 
 namespace p3d {
 
+	std::map<uint32, std::vector<FrameBuffer*>> FrameBuffer::BoundFBOs;
+
     FrameBuffer::FrameBuffer()
     {
         FBOInitialized = false;
@@ -377,11 +379,11 @@ namespace p3d {
         attachments[attachmentFormat] = attach;
 
         if (!isBinded)
-	GLCHECKER(glBindFramebuffer(GL_FRAMEBUFFER, fbo));
+			GLCHECKER(glBindFramebuffer(GL_FRAMEBUFFER, fbo));
 
         // Add RenderBuffer
-	GLCHECKER(glRenderbufferStorage (GL_RENDERBUFFER, attach->DataType, attach->Width, attach->Height));
-	GLCHECKER(glFramebufferRenderbuffer(GL_FRAMEBUFFER, attach->AttachmentFormat, GL_RENDERBUFFER, attach->rboID));
+		GLCHECKER(glRenderbufferStorage (GL_RENDERBUFFER, attach->DataType, attach->Width, attach->Height));
+		GLCHECKER(glFramebufferRenderbuffer(GL_FRAMEBUFFER, attach->AttachmentFormat, GL_RENDERBUFFER, attach->rboID));
         GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, 0));
 
         CheckFBOStatus();
@@ -431,6 +433,11 @@ namespace p3d {
 			break;
 		}
 
+		// Add to bound FBOs
+		BoundFBOs[glAccessBinded].push_back(this);
+
+		GLCHECKER(glBindFramebuffer(glAccessBinded, 0));
+
         GLCHECKER(glBindFramebuffer(glAccessBinded, fbo));
         isBinded = true;
     }
@@ -444,22 +451,34 @@ namespace p3d {
         GLCHECKER(glBindFramebuffer(glAccessBinded, 0));
 
 #if !defined(GLES2)
-        if (drawBuffers)
-        {
-            GLCHECKER(glDrawBuffer(GL_BACK));
-            GLCHECKER(glReadBuffer(GL_BACK));
-        }
+		if (drawBuffers)
+		{
+			GLCHECKER(glDrawBuffer(GL_BACK));
+			GLCHECKER(glReadBuffer(GL_BACK));
+		}
 #endif
 
-        for (std::map<uint32, FBOAttachment*>::iterator i=attachments.begin();i!=attachments.end();i++)
-        {
-            if ((*i).second->AttachmentType==FBOAttachmentType::Texture)
-            {
-                (*i).second->TexturePTR->UpdateMipmap();
-            }
-        }
+		for (std::map<uint32, FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
+		{
+			if ((*i).second->AttachmentType == FBOAttachmentType::Texture)
+			{
+				(*i).second->TexturePTR->UpdateMipmap();
+			}
+		}
 
-        isBinded = false;
+		isBinded = false;
+
+		// Bind next FBO
+		for (std::vector<FrameBuffer*>::reverse_iterator i = BoundFBOs[glAccessBinded].rbegin(); i != BoundFBOs[glAccessBinded].rend(); i++)
+		{
+			if ((*i) == this) {
+				BoundFBOs[glAccessBinded].erase(--(i.base()));
+			} else {
+				GLCHECKER(glBindFramebuffer((*i)->glAccessBinded, (*i)->fbo));
+				break;
+			}
+		}
+		// End Binding next FBO
     }
     bool FrameBuffer::IsBinded()
     {
