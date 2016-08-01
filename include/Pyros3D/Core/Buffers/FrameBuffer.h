@@ -12,6 +12,7 @@
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Other/Export.h>
+#include <vector>
 
 namespace p3d {
     
@@ -82,7 +83,8 @@ namespace p3d {
     };
     
     class PYROS3D_API FrameBuffer {
-        public:
+        public:			
+
             FrameBuffer();
             virtual ~FrameBuffer();
             
@@ -104,8 +106,10 @@ namespace p3d {
             
             bool IsInitialized() { return FBOInitialized; }
             
-            
         private:
+
+			// Bound FBOs
+			static std::map<uint32, std::vector<FrameBuffer*>> BoundFBOs;
 
             // Binded
             bool isBinded;
