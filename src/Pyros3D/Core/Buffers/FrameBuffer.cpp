@@ -11,7 +11,7 @@
 
 namespace p3d {
 
-	std::map<uint32, std::vector<FrameBuffer*>> FrameBuffer::BoundFBOs;
+	std::map<uint32, std::vector<FrameBuffer*> > FrameBuffer::BoundFBOs;
 
     FrameBuffer::FrameBuffer()
     {

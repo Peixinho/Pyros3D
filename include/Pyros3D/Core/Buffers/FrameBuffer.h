@@ -109,7 +109,7 @@ namespace p3d {
         private:
 
 			// Bound FBOs
-			static std::map<uint32, std::vector<FrameBuffer*>> BoundFBOs;
+			static std::map<uint32, std::vector<FrameBuffer*> > BoundFBOs;
 
             // Binded
             bool isBinded;
