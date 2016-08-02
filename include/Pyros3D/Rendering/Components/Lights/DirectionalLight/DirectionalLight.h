@@ -179,7 +179,7 @@ namespace p3d {
 
 					ShadowMap = new Texture();
 
-#if defined(GLES2)
+#if defined(GLES2) || defined(GL_LEGACY)
 
 					// Create Texture, Frame Buffer and Set the Texture as Attachment
 					ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::R32F, ShadowWidthFBO, ShadowHeightFBO, false);

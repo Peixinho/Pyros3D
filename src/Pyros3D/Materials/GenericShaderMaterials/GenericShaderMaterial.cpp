@@ -74,6 +74,9 @@ namespace p3d
 #if defined(GLES2)
 			define += std::string("#define GLES2\n");
 #endif
+#if defined(GL_LEGACY)
+			define += std::string("#define GL_LEGACY\n");
+#endif
 
 			ShadersList[options]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
 			ShadersList[options]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());

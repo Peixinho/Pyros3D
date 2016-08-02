@@ -27,12 +27,10 @@ namespace p3d {
 
 		ActivateCulling(CullingMode::FrustumCulling);
 
-#if !defined(GLES2)
 		shadowMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows);
 		shadowMaterial->SetCullFace(CullFace::DoubleSided);
 		shadowSkinnedMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Skinning);
 		shadowSkinnedMaterial->SetCullFace(CullFace::DoubleSided);
-#endif
 
 		// Default View Port Init Values
 		viewPortStartX = viewPortStartY = 0;
@@ -46,10 +44,8 @@ namespace p3d {
 			delete culling;
 		}
 
-#if !defined(GLES2)
 		delete shadowMaterial;
 		delete shadowSkinnedMaterial;
-#endif
 
 	}
 
@@ -354,7 +350,7 @@ namespace p3d {
 								// Update Culling
 								UpdateCulling(ShadowProjection.m*ViewMatrix);
 
-#if defined(GLES2)
+#if defined(GLES2) || defined(GL_LEGACY)
 								// Regular Shadows
 								p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::CubemapPositive_X + i, p->GetShadowMapTexture());
 #else

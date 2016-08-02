@@ -67,7 +67,7 @@ namespace p3d {
                 // GPU Shadows
                 ShadowMap = new Texture();
 
-#if defined(GLES2)
+#if defined(GLES2) || defined(GL_LEGACY)
 
 				ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::R32F, ShadowWidth, ShadowHeight, false);
 				ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
