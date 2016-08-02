@@ -29,7 +29,7 @@ namespace p3d {
 	}
 
     class PYROS3D_API ILightComponent : public IComponent {
-        
+
         public:
             
             ILightComponent(const uint32 type);
@@ -63,6 +63,26 @@ namespace p3d {
             {
                 return ShadowHeight;
             }
+
+			const f32 &GetShadowNear() const
+			{
+				return ShadowNear;
+			}
+
+			const f32 &GetShadowFar() const
+			{
+				return ShadowFar;
+			}
+
+			void SetShadowNear(const f32 Near)
+			{
+				ShadowNear = Near;
+			}
+
+			void SetShadowFar(const f32 Far)
+			{
+				ShadowFar = Far;
+			}
             
 			void SetShadowBias(const f32 factor, const f32 units)
 			{
@@ -99,7 +119,6 @@ namespace p3d {
             bool isCastingShadows;
 			// Bias Offset
 			f32 ShadowBiasFactor, ShadowBiasUnits;
-
             // Light Color
             Vec4 Color;
             

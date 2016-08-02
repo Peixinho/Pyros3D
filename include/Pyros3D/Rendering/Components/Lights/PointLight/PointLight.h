@@ -35,8 +35,6 @@ namespace p3d {
             virtual void Update() {};
             virtual void Destroy() {};
         
-            Projection GetLightProjection() { return ShadowProjection; }
-        
             const f32 &GetLightRadius() const { return Radius; }
 			void SetLightRadius(const f32 radius) { Radius = radius; }
             
@@ -88,18 +86,12 @@ namespace p3d {
                 // Near and Far Clip Planes
                 ShadowNear = Near;
                 ShadowFar = Radius;
-                
-                // Create Projection Matrix
-                ShadowProjection.Perspective(90.f, 1.0, ShadowNear, ShadowFar);
             }
             
         protected:
             
             // Attenuation
             f32 Radius;
-            
-            // Projection
-            Projection ShadowProjection;
 
     };
 

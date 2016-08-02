@@ -454,7 +454,7 @@ namespace p3d {
 "            return shadow;\n"
 "        }\n"
 "        \n"
-"#if defined(GLES2)         \n"
+"#if defined(GLES2)\n"
 "        uniform sampler2D uSpotShadowMaps[4];\n"
 "#else\n"
 "        uniform sampler2DShadow uSpotShadowMaps[4];\n"

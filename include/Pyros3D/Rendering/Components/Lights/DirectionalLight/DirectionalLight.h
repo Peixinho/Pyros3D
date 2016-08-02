@@ -261,7 +261,6 @@ namespace p3d {
             Matrix ShadowProjection;
             Cascade Cascades[4];
             Matrix ShadowViewMatrix;
-            bool shadowsOnGPU;
         
     };
 

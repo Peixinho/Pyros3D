@@ -322,7 +322,11 @@ namespace p3d {
 							// Bind FBO
 							p->GetShadowFBO()->Bind();
 
-							ProjectionMatrix = p->GetLightProjection().GetProjectionMatrix();
+							// Create Projection Matrix
+							// Get Light Projection
+							Projection ShadowProjection;
+							ShadowProjection.Perspective(90.f, 1.0, p->GetShadowNear(), p->GetShadowFar());
+							ProjectionMatrix = ShadowProjection.m;
 
 							// Get Lights Shadow Map Texture
 							for (uint32 i = 0; i < 6; i++)
@@ -348,7 +352,7 @@ namespace p3d {
 								ViewMatrix *= p->GetOwner()->GetWorldTransformation().Inverse();
 
 								// Update Culling
-								UpdateCulling(p->GetLightProjection().GetProjectionMatrix()*ViewMatrix);
+								UpdateCulling(ShadowProjection.m*ViewMatrix);
 
 #if defined(GLES2)
 								// Regular Shadows
@@ -410,7 +414,7 @@ namespace p3d {
 							}
 
 							// Set Light Projection
-							PointShadowMatrix.push_back(p->GetLightProjection().GetProjectionMatrix());
+							PointShadowMatrix.push_back(ShadowProjection.m);
 							// Set Light View Matrix
 							Matrix m;
 							m.Translate(p->GetOwner()->GetWorldPosition().negate());
@@ -468,7 +472,9 @@ namespace p3d {
 							s->GetShadowFBO()->Bind();
 
 							// Get Light Projection
-							ProjectionMatrix = s->GetLightProjection().GetProjectionMatrix();
+							Projection ShadowProjection;
+							ShadowProjection.Perspective(2 * s->GetLightOutterCone(), 1.0, s->GetShadowNear(), s->GetShadowFar());
+							ProjectionMatrix = ShadowProjection.m;
 
 							// Clean View Matrix
 							ViewMatrix.identity();
@@ -477,7 +483,7 @@ namespace p3d {
 							ViewMatrix.LookAt(s->GetOwner()->GetWorldPosition(), (s->GetOwner()->GetWorldPosition() + s->GetLightDirection()));
 
 							// Update Culling
-							UpdateCulling(s->GetLightProjection().GetProjectionMatrix()*ViewMatrix);
+							UpdateCulling(ShadowProjection.m*ViewMatrix);
 
 							ClearDepthBuffer();
 							ClearScreen();

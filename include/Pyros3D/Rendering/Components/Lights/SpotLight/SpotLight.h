@@ -52,8 +52,6 @@ namespace p3d {
 			void SetLightOutterCone(const f32 outter) { outterCone = outter; CosOutterCone = cosf(DEGTORAD(outterCone)); }
             const f32 &GetLightRadius() const { return Radius; }
 			void SetLightRadius(const f32 radius) { Radius = radius; }
-
-            Projection GetLightProjection() { return ShadowProjection; }
             
             void EnableCastShadows(const uint32 Width, const uint32 Height, const f32 Near = 0.1f)
             {
@@ -92,9 +90,6 @@ namespace p3d {
                 // Near and Far Clip Planes
                 ShadowNear = Near;
                 ShadowFar = Radius;
-                
-                // Create Projection Matrix
-                ShadowProjection.Perspective(2*outterCone, 1.0, ShadowNear, ShadowFar);
             }
             
         protected:
@@ -105,8 +100,6 @@ namespace p3d {
             f32 outterCone, CosOutterCone, innerCone, CosInnerCone;
             // Attenuation
             f32 Radius;
-            // Shadow Projection
-            Projection ShadowProjection;
 
     };
 
