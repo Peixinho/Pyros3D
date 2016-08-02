@@ -55,16 +55,17 @@ namespace p3d {
 #if defined(GLES2) || defined(GL_LEGACY)
 				// Regular Shadows
 				// Create Texture (CubeMap), Frame Buffer and Set the Texture as Attachment
-				ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_X, TextureDataType::RGB, ShadowWidth, ShadowHeight, false);
-				ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_Y, TextureDataType::RGB, ShadowWidth, ShadowHeight, false);
-				ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_Z, TextureDataType::RGB, ShadowWidth, ShadowHeight, false);
-				ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_X, TextureDataType::RGB, ShadowWidth, ShadowHeight, false);
-				ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Y, TextureDataType::RGB, ShadowWidth, ShadowHeight, false);
-				ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Z, TextureDataType::RGB, ShadowWidth, ShadowHeight, false);
+				ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_X, TextureDataType::R16F, ShadowWidth, ShadowHeight, false);
+				ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_Y, TextureDataType::R16F, ShadowWidth, ShadowHeight, false);
+				ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_Z, TextureDataType::R16F, ShadowWidth, ShadowHeight, false);
+				ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_X, TextureDataType::R16F, ShadowWidth, ShadowHeight, false);
+				ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Y, TextureDataType::R16F, ShadowWidth, ShadowHeight, false);
+				ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Z, TextureDataType::R16F, ShadowWidth, ShadowHeight, false);
 				ShadowMap->SetRepeat(TextureRepeat::ClampToBorder, TextureRepeat::Clamp, TextureRepeat::Clamp);
 
 				// Initialize Frame Buffer
-				shadowsFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0, RenderBufferDataType::Depth, ShadowMap);
+				shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
+				shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::CubemapPositive_X, ShadowMap);
 
 #else
                 // GPU Shadows

@@ -69,12 +69,12 @@ namespace p3d {
 
 #if defined(GLES2) || defined(GL_LEGACY)
 
-				ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::R32F, ShadowWidth, ShadowHeight, false);
-				ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+				ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::R16F, ShadowWidth, ShadowHeight, false);
 				ShadowMap->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
 
 				// Initialize Frame Buffer
-				shadowsFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0, RenderBufferDataType::Depth, ShadowMap);
+				shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
+				shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, ShadowMap);
 				
 #else
 

@@ -193,7 +193,7 @@
 
         void CalculateLighting(vec3 LightVec, vec3 HalfVec, vec3 Normal, float Shininess, out float lightIntensity, out float specularPower)
         {
-                       
+
             float specularLight = 0.0;
             float diffuseLight = max(dot(LightVec,Normal),0.0);
             lightIntensity = max(dot(LightVec,Normal),0.0);
@@ -248,7 +248,7 @@
     #endif
 
     #ifdef DIRECTIONALSHADOW
-#if defined(GLES2)
+#if defined(GLES2) || defined(GL_LEGACY)
         float PCFDIRECTIONAL(sampler2D shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) 
 #else
         float PCFDIRECTIONAL(sampler2DShadow shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) 
@@ -257,10 +257,12 @@
             vec4 coord = sMatrix * pos;
             if (MoreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(width,height);
             float shadow = 0.0;
-            float x =0.0;
+            float x = 0.0;
             float y = 0.0;
-#if defined(GLES2)
-            shadow = texture2D(shadowMap, coord.xy).x;
+#if defined(GLES2) || defined(GL_LEGACY)
+            float shadowSample = texture2D(shadowMap, coord.xy).x;
+            float diff = shadowSample - coord.z+0.001;
+            shadow = (diff<0.0?0.0:1.0);
 #else
             for (y = -1.5 ; y <=1.5 ; y+=1.0)
                 for (x = -1.5 ; x <=1.5 ; x+=1.0)
@@ -274,7 +276,7 @@
         uniform float uPCFTexelSize4;
         uniform mat4 uDirectionalDepthsMVP[4];
         uniform vec4 uDirectionalShadowFar[4];
-#if defined(GLES2)
+#if defined(GLES2) || defined(GL_LEGACY)
         uniform sampler2D uDirectionalShadowMaps;
 #else
         uniform sampler2DShadow uDirectionalShadowMaps;
@@ -282,12 +284,12 @@
     #endif
 
     #ifdef POINTSHADOW
-#if defined(GLES2)
+#if defined(GLES2) || defined(GL_LEGACY)
         float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos) 
 #else
         #extension GL_EXT_gpu_shader4 : require
         float PCFPOINT(samplerCubeShadow shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos) 
-#endif        
+#endif
         {
             vec4 position_ls = Matrix2 * pos;
             position_ls.xyz/=position_ls.w;
@@ -299,30 +301,33 @@
             float x = 0.0;
             float y = 0.0;
             
-#if defined(GLES2) 
-            shadow += textureCube(shadowMap, vec3(position_ls.xy, depth) + vec3(vec2(x,y) * scale,0.0)).x;
+#if defined(GLES2) || defined(GL_LEGACY)
+            float shadowSample = textureCube(shadowMap, position_ls.xyz).x;
+            float diff = shadowSample - position_ls.z+0.001;
+            shadow = (diff<0.0?0.0:1.0);
 #else       
             for (y = -1.5 ; y <=1.5 ; y+=1.0)
-                for (x = -1.5 ; x <=1.5 ; x+=1.0)         
+                for (x = -1.5 ; x <=1.5 ; x+=1.0)
                     shadow += shadowCube(shadowMap, vec4(position_ls.xyz, depth) + vec4(vec2(x,y) * scale,0.0,0.0)).x;
             shadow /= 16.0;
 #endif
             return shadow;
         }
-        uniform mat4 uPointDepthsMVP[8];
         uniform int uNumberOfPointShadows;
-#if defined(GLES2)
-        uniform samplerCube uPointShadowMaps[4];
+#if defined(GLES2) || defined(GL_LEGACY)
+        uniform mat4 uPointDepthsMVP[2];
+        uniform samplerCube uPointShadowMaps;
 #else
+        uniform mat4 uPointDepthsMVP[8];
         uniform samplerCubeShadow uPointShadowMaps[4];
 #endif
     #endif
 
     #ifdef SPOTSHADOW
-#if defined(GLES2)
-        float PCFSPOT(sampler2D shadowMap, mat4 sMatrix, float scale, vec4 pos) 
+#if defined(GLES2) || defined(GL_LEGACY)
+        float PCFSPOT(sampler2D shadowMap, mat4 sMatrix, float scale, vec4 pos)
 #else
-        float PCFSPOT(sampler2DShadow shadowMap, mat4 sMatrix, float scale, vec4 pos) 
+        float PCFSPOT(sampler2DShadow shadowMap, mat4 sMatrix, float scale, vec4 pos)
 #endif
         {
             vec4 coord = sMatrix * pos;
@@ -331,8 +336,10 @@
             float x = 0.0;
             float y = 0.0;
             
-#if defined(GLES2)
-            shadow += texture2D(shadowMap, (coord.xy + vec2(x,y) * scale)).x;
+#if defined(GLES2) || defined(GL_LEGACY)
+            float shadowSample = texture2D(shadowMap, (coord.xy + vec2(x,y) * scale)).x;
+            float diff = shadowSample - coord.z+0.001;
+            shadow = (diff<0.0?0.0:1.0);
 #else
             for (y = -1.5 ; y <=1.5 ; y+=1.0)
                 for (x = -1.5 ; x <=1.5 ; x+=1.0)
@@ -342,12 +349,13 @@
             return shadow;
         }
         
-#if defined(GLES2)         
-        uniform sampler2D uSpotShadowMaps[4];
+#if defined(GLES2) || defined(GL_LEGACY)
+        uniform sampler2D uSpotShadowMaps;
+        uniform mat4 uSpotDepthsMVP;
 #else
         uniform sampler2DShadow uSpotShadowMaps[4];
-#endif
         uniform mat4 uSpotDepthsMVP[4];
+#endif
         uniform int uNumberOfSpotShadows; 
     #endif
 
@@ -475,8 +483,8 @@
             vec4 _diffuse = uAmbientLight;
             vec4 _specular = vec4(0.0,0.0,0.0,1.0);
             
-            vec3 Vertex = vWorldPosition.xyz;
-            vec3 EyeVec = normalize(vCameraPos-Vertex);
+            vec3 Position = vWorldPosition.xyz;
+            vec3 EyeVec = normalize(vCameraPos-Position);
             Normal = normalize(Normal);
 
             float lightIntensityCellShading;
@@ -506,12 +514,14 @@
                         CalculateLighting(LightVec, HalfVec, Normal, uShininess, lightIntensity, specularPower);
 
                         #ifdef DIRECTIONALSHADOW
-                            float DirectionalShadow = 1.0;
-                            bool MoreThanOneCascade = (uDirectionalShadowFar[0].y>0.0);
-                            if (gl_FragCoord.z<uDirectionalShadowFar[0].x) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.0, uDirectionalDepthsMVP[0],uPCFTexelSize1,vWorldPosition, MoreThanOneCascade);
-                            else if (gl_FragCoord.z<uDirectionalShadowFar[0].y) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.0, uDirectionalDepthsMVP[1],uPCFTexelSize2,vWorldPosition, MoreThanOneCascade);
-                            else if (gl_FragCoord.z<uDirectionalShadowFar[0].z) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.5, uDirectionalDepthsMVP[2],uPCFTexelSize3,vWorldPosition, MoreThanOneCascade);
-                            else if (gl_FragCoord.z<uDirectionalShadowFar[0].w) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.5, uDirectionalDepthsMVP[3],uPCFTexelSize4,vWorldPosition, MoreThanOneCascade);
+                            float DirectionalShadow = 1.0; 
+                            if (L.HaveShadowMap) {
+                               bool MoreThanOneCascade = (uDirectionalShadowFar[0].y>0.0);
+                                if (gl_FragCoord.z<uDirectionalShadowFar[0].x) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.0, uDirectionalDepthsMVP[0],uPCFTexelSize1,vWorldPosition, MoreThanOneCascade);
+                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].y) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.0, uDirectionalDepthsMVP[1],uPCFTexelSize2,vWorldPosition, MoreThanOneCascade);
+                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].z) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.5, uDirectionalDepthsMVP[2],uPCFTexelSize3,vWorldPosition, MoreThanOneCascade);
+                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].w) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.5, uDirectionalDepthsMVP[3],uPCFTexelSize4,vWorldPosition, MoreThanOneCascade);
+                            }
 
                             _diffuse += vec4(lightIntensity * L.Color.xyz * DirectionalShadow, lightIntensity * L.Color.w);
                             _specular += vec4(specularPower * L.Color.xyz * specular.xyz * DirectionalShadow, specularPower * L.Color.w * specular.w);
@@ -524,21 +534,25 @@
                     }
                     else if (L.Type == 2.0) 
                     {
-                        LightDir = normalize(L.Position - Vertex);
+                        LightDir = normalize(L.Position - Position);
                         vec3 HalfVec = TangentMatrix * normalize(EyeVec + LightDir);
                         vec3 LightVec = TangentMatrix * LightDir;
 
                         lightIntensity = specularPower = 0.0;
 
-                        attenuation = Attenuation(Vertex, L.Position, L.Radius);
+                        attenuation = Attenuation(Position, L.Position, L.Radius);
 
                         CalculateLighting(LightVec, HalfVec, Normal, uShininess, lightIntensity, specularPower);
 
                         #ifdef POINTSHADOW
-                            float PointShadow = 0.0;
+                            float PointShadow = 1.0;
                             if (attenuation>0.0 && L.HaveShadowMap)
                             {
-                                PointShadow+=PCFPOINT(uPointShadowMaps[L.ShadowMap],uPointDepthsMVP[(L.ShadowMap*2)],uPointDepthsMVP[(L.ShadowMap*2+1)],uPCFTexelSize1,vWorldPosition);
+                                #if defined(GLES2) || defined(GL_LEGACY)
+                                   PointShadow=PCFPOINT(uPointShadowMaps,uPointDepthsMVP[0],uPointDepthsMVP[1],uPCFTexelSize1,vWorldPosition);
+                                #else
+                                   PointShadow+=PCFPOINT(uPointShadowMaps[L.ShadowMap],uPointDepthsMVP[(L.ShadowMap*2)],uPointDepthsMVP[(L.ShadowMap*2+1)],uPCFTexelSize1,vWorldPosition);
+                                #endif
                             }
                             _diffuse += vec4(lightIntensity * L.Color.xyz * attenuation * PointShadow, lightIntensity * L.Color.w);
                             _specular += vec4(specularPower * L.Color.xyz * attenuation * specular.xyz * PointShadow, specularPower * L.Color.w * specular.w);
@@ -551,25 +565,27 @@
                     }
                     else if (L.Type == 3.0)
                     {
-                        LightDir = normalize(L.Position - Vertex);
+                        LightDir = normalize(L.Position - Position);
                         vec3 HalfVec = TangentMatrix * normalize(EyeVec + LightDir);
                         vec3 LightVec = TangentMatrix * LightDir;
 
                         lightIntensity = specularPower = 0.0;
 
-                        attenuation = Attenuation(Vertex, L.Position, L.Radius);
-                        spotEffect = 1.0 - DualConeSpotLight(Vertex, L.Position, L.Direction, L.Cones.x, L.Cones.y);
+                        attenuation = Attenuation(Position, L.Position, L.Radius);
+                        spotEffect = 1.0 - DualConeSpotLight(Position, L.Position, L.Direction, L.Cones.x, L.Cones.y);
 
                         CalculateLighting(LightVec, HalfVec, Normal, uShininess, lightIntensity, specularPower);
 
                         #ifdef SPOTSHADOW
-                            float SpotShadow = 0.0;
-                            if (spotEffect>0.0 && L.HaveShadowMap)
+                            float SpotShadow = 1.0;
+                            if (spotEffect>0.0 && attenuation>0.0 && L.HaveShadowMap)
                             {
-                                SpotShadow+=PCFSPOT(uSpotShadowMaps[L.ShadowMap],uSpotDepthsMVP[L.ShadowMap],uPCFTexelSize1,vWorldPosition);
+                                #if defined(GLES2) || defined(GL_LEGACY)
+                                   SpotShadow=PCFSPOT(uSpotShadowMaps,uSpotDepthsMVP,uPCFTexelSize1,vWorldPosition);
+                                #else
+                                   SpotShadow+=PCFSPOT(uSpotShadowMaps[L.ShadowMap],uSpotDepthsMVP[L.ShadowMap],uPCFTexelSize1,vWorldPosition);     
+                                #endif
                             }
-                            else SpotShadow = 1.0;
-                            
                             _diffuse += vec4(lightIntensity * L.Color.xyz * spotEffect * attenuation * SpotShadow, lightIntensity * L.Color.w);
                             _specular += vec4(specularPower * L.Color.xyz * spotEffect * attenuation * specular.xyz * SpotShadow, specularPower * L.Color.w * specular.w);
                             lightIntensityCellShading = max(lightIntensityCellShading, lightIntensity * spotEffect * attenuation * SpotShadow);
@@ -602,5 +618,3 @@
     }
     
 #endif
-
-// DONT FORGET TO UPDATE THE .h on include/Pyros3D/Shaders/pyrosShader.h
