@@ -721,5 +721,5 @@ namespace p3d {
 "        gl_FragColor = vec4(diffuse.xyz,diffuse.w*uOpacity);\n"
 "    }\n"
 "    \n"
-"#endif";
+"#endif\n";
 };
