@@ -52,21 +52,15 @@ void SimplePhysics::Init()
     // Add a Directional Light
     Light = new GameObject();
     dLight = new DirectionalLight(Vec4(1,1,1,1),Vec3(-1,-1,0));
-#if !defined(GLES2)
     dLight->EnableCastShadows(1024,1024,projection,1,500,1);
     dLight->SetShadowBias(1.f,3.f);
-#endif
     Light->Add(dLight);
 
     // Add Light to Scene
     Scene->Add(Light);
 
     // Create Materials
-#if !defined(GLES2)
     Diffuse = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
-#else
-    Diffuse = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::Diffuse);
-#endif
     Diffuse->SetColor(Vec4(0.8,0.8,0.8,1.0));
 
     // Set Selected Mesh PTR NULL
