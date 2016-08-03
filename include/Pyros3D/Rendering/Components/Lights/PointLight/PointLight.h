@@ -34,7 +34,12 @@ namespace p3d {
             virtual void Start() {};
             virtual void Update() {};
             virtual void Destroy() {};
-        
+
+			virtual const f32 &GetShadowFar() const
+			{
+				return Radius;
+			}
+
             const f32 &GetLightRadius() const { return Radius; }
 			void SetLightRadius(const f32 radius) { Radius = radius; }
             
@@ -62,6 +67,7 @@ namespace p3d {
 				ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Y, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
 				ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Z, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
 				ShadowMap->SetRepeat(TextureRepeat::ClampToBorder, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+				ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 
 				// Initialize Frame Buffer
 				shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
@@ -86,7 +92,6 @@ namespace p3d {
 
                 // Near and Far Clip Planes
                 ShadowNear = Near;
-                ShadowFar = Radius;
             }
             
         protected:

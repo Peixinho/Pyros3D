@@ -69,7 +69,7 @@ namespace p3d {
 				return ShadowNear;
 			}
 
-			const f32 &GetShadowFar() const
+			virtual const f32 &GetShadowFar() const
 			{
 				return ShadowFar;
 			}

@@ -332,20 +332,17 @@ namespace p3d {
 
 								// Create Light View Matrix For Rendering Each Face of the Cubemap
 								if (i == 0)
-									ViewMatrix.LookAt(Vec3::ZERO, Vec3(1.0, 0.0, 0.0), Vec3(0.0, -1.0, 0.0)); // +X
+									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(1.0, 0.0, 0.0), Vec3(0.0, -1.0, 0.0)); // +X
 								if (i == 1)
-									ViewMatrix.LookAt(Vec3::ZERO, Vec3(-1.0, 0.0, 0.0), Vec3(0.0, -1.0, 0.0)); // -X
+									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(-1.0, 0.0, 0.0), Vec3(0.0, -1.0, 0.0)); // -X
 								if (i == 2)
-									ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, 1.0, 0.0), Vec3(0.0, 0.0, 1.0)); // +Y
+									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(0.0, 1.0, 0.0), Vec3(0.0, 0.0, 1.0)); // +Y
 								if (i == 3)
-									ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, -1.0, 0.0), Vec3(0.0, 0.0, -1.0)); // -Y
+									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(0.0, -1.0, 0.0), Vec3(0.0, 0.0, -1.0)); // -Y
 								if (i == 4)
-									ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, 0.0, 1.0), Vec3(0.0, -1.0, 0.0)); // +Z
+									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(0.0, 0.0, 1.0), Vec3(0.0, -1.0, 0.0)); // +Z
 								if (i == 5)
-									ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, 0.0, -1.0), Vec3(0.0, -1.0, 0.0)); // -Z
-
-								// Translate Light View Matrix
-								ViewMatrix *= p->GetOwner()->GetWorldTransformation().Inverse();
+									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(0.0, 0.0, -1.0), Vec3(0.0, -1.0, 0.0)); // -Z
 
 								// Update Culling
 								UpdateCulling(ShadowProjection.m*ViewMatrix);
@@ -399,12 +396,12 @@ namespace p3d {
 											break;
 										}
 										if (!(*k)->renderingComponent->IsCullTesting()) cullingTest = true;
-										if (cullingTest && !(*k)->Material->IsTransparent())
+										//if (cullingTest && !(*k)->Material->IsTransparent())
 										{
 											if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
 												RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
 										}
-										else break;
+										//else break;
 									}
 								}
 #if !defined(GLES2)

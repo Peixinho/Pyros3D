@@ -41,7 +41,11 @@ namespace p3d {
             virtual void Start() {};
             virtual void Update() {};
             virtual void Destroy() {};
-                       
+			virtual const f32 &GetShadowFar() const
+			{
+				return Radius;
+			}
+
             const Vec3 &GetLightDirection() const { return Direction; }
             void SetLightDirection(const Vec3 &direction) { Direction = direction; }
             const f32 &GetLightCosInnerCone() const { return CosInnerCone; }
