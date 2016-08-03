@@ -441,7 +441,7 @@ namespace p3d {
 "            float y = 0.0;\n"
 "            \n"
 "#if defined(GLES2) || defined(GL_LEGACY)\n"
-"            float shadowSample = DecodeFloatRGBA(texture2D(shadowMap, (coord.xy + vec2(x,y) * scale)));\n"
+"            float shadowSample = DecodeFloatRGBA(texture2D(shadowMap, coord.xy));\n"
 "			 float diff = shadowSample - coord.z+0.001;\n"
 "			 shadow = (diff<0.0?0.0:1.0);\n"
 "#else\n"
