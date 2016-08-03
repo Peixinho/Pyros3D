@@ -135,9 +135,6 @@ namespace p3d {
 				uint32 _glBufferOptions = glBufferOptions;
 				bool _clearDepthBuffer = clearDepthBuffer;
 
-				ClearBufferBit(Buffer_Bit::Depth);
-				EnableClearDepthBuffer();
-
 				// ShadowMaps
 				DirectionalShadowMapsTextures.clear();
 				DirectionalShadowMatrix.clear();
@@ -188,7 +185,12 @@ namespace p3d {
 							// Bind FBO
 							d->GetShadowFBO()->Bind();
 
-							// GPU
+#if defined(GLES2) || defined(GL_LEGACY)
+							ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
+#else
+							ClearBufferBit(Buffer_Bit::Depth);
+#endif
+							EnableClearDepthBuffer();
 							ClearDepthBuffer();
 							ClearScreen();
 
@@ -356,8 +358,15 @@ namespace p3d {
 								p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::CubemapPositive_X + i, p->GetShadowMapTexture());
 #endif
 
+#if defined(GLES2) || defined(GL_LEGACY)
+								ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
+#else
+								ClearBufferBit(Buffer_Bit::Depth);
+#endif
+								EnableClearDepthBuffer();
 								ClearDepthBuffer();
 								ClearScreen();
+
 #if !defined(GLES2)
 								if (ClipPlane)
 								{
@@ -477,8 +486,15 @@ namespace p3d {
 							// Update Culling
 							UpdateCulling(ShadowProjection.m*ViewMatrix);
 
+#if defined(GLES2) || defined(GL_LEGACY)
+							ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
+#else
+							ClearBufferBit(Buffer_Bit::Depth);
+#endif
+							EnableClearDepthBuffer();
 							ClearDepthBuffer();
 							ClearScreen();
+
 #if !defined(GLES2)
 							if (ClipPlane)
 							{
