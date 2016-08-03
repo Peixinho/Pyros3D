@@ -67,7 +67,7 @@ namespace p3d {
 				ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Y, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
 				ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Z, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
 				ShadowMap->SetRepeat(TextureRepeat::ClampToBorder, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-				ShadowMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+				ShadowMap->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
 
 				// Initialize Frame Buffer
 				shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);

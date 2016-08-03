@@ -58,8 +58,8 @@ private:
 	DirectionalLight* dLight;
 
 	GameObject* Light2;
-	//PointLight* pLight;
-	SpotLight* pLight;
+	PointLight* pLight;
+	//SpotLight* pLight;
 
 	// Cube GameObject
 	GameObject* CubeObject;
