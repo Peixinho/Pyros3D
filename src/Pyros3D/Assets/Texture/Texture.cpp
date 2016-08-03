@@ -178,6 +178,18 @@ namespace p3d {
 			internalFormat2 = GL_ALPHA;
 			internalFormat3 = GL_UNSIGNED_BYTE;
 			break;
+		case TextureDataType::LUMINANCE:
+			internalFormat = GL_LUMINANCE;
+			internalFormat2 = GL_LUMINANCE;
+			internalFormat3 = GL_UNSIGNED_BYTE;
+			break;
+			break;
+		case TextureDataType::LUMINANCE_ALPHA:
+			internalFormat = GL_LUMINANCE_ALPHA;
+			internalFormat2 = GL_LUMINANCE_ALPHA;
+			internalFormat3 = GL_UNSIGNED_BYTE;
+			break;
+			break;
 		case TextureDataType::RGBA:
 		default:
 			internalFormat = GL_RGBA;

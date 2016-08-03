@@ -69,8 +69,8 @@ namespace p3d {
 
 #if defined(GLES2) || defined(GL_LEGACY)
 
-				ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::R16F, ShadowWidth, ShadowHeight, false);
-				ShadowMap->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
+				ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
+				ShadowMap->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 				// Initialize Frame Buffer
 				shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);

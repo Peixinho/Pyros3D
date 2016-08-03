@@ -284,8 +284,6 @@ namespace p3d {
 					{
 						PointLight* p = ((PointLight*)(*i));
 
-						ViewMatrix = Camera->GetWorldTransformation().Inverse();
-
 						// Point Lights
 						Vec4 color = p->GetLightColor();
 						Vec3 position = (p->GetOwner()->GetWorldPosition());
@@ -432,8 +430,6 @@ namespace p3d {
 					{
 						SpotLight* s = ((SpotLight*)(*i));
 
-						ViewMatrix = Camera->GetWorldTransformation().Inverse();
-
 						// Spot Lights
 						Vec4 color = s->GetLightColor();
 						Vec3 position = s->GetOwner()->GetWorldPosition();
@@ -476,7 +472,7 @@ namespace p3d {
 							ViewMatrix.identity();
 
 							// Create Light View Matrix For Rendering the ShadowMap
-							ViewMatrix.LookAt(s->GetOwner()->GetWorldPosition(), (s->GetOwner()->GetWorldPosition() + s->GetLightDirection()));
+							ViewMatrix.LookAt(s->GetOwner()->GetWorldPosition(), (s->GetOwner()->GetWorldPosition() + direction));
 
 							// Update Culling
 							UpdateCulling(ShadowProjection.m*ViewMatrix);
@@ -515,12 +511,12 @@ namespace p3d {
 										break;
 									}
 									if (!(*k)->renderingComponent->IsCullTesting()) cullingTest = true;
-									if (cullingTest && !(*k)->Material->IsTransparent())
+									//if (cullingTest && !(*k)->Material->IsTransparent())
 									{
 										if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
 											RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
 									}
-									else break;
+									//else break;
 								}
 							}
 #if !defined(GLES2)
