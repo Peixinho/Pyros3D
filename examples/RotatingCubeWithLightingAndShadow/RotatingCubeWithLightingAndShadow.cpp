@@ -59,7 +59,7 @@ void RotatingCubeWithLightingAndShadow::Init()
 
 	Light2 = new GameObject();
 	//pLight = new SpotLight(Vec4(1, 1, 1, 1), 300, Vec3(0, -1, 0), 45, 30);
-	pLight = new PointLight(Vec4(1, 1, 1, 1), 300);
+	pLight = new PointLight(Vec4(1, 1, 1, 1), 100);
 	pLight->EnableCastShadows(256, 256);
 	pLight->SetShadowBias(5.f, 3.f);
 	
