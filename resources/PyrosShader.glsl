@@ -1,11 +1,20 @@
 #define MAX_BONES 60
 #define MAX_LIGHTS 4
+#ifdef GLES2
+   precision mediump float;
+#endif
+
+vec4 EncodeFloatRGBA( float v ) {
+   vec4 enc = vec4(1.0, 255.0, 65025.0, 16581375.0) * v;
+   enc = fract(enc);
+   enc -= enc.yzww * vec4(1.0/255.0,1.0/255.0,1.0/255.0,0.0);
+   return enc;
+}
+float DecodeFloatRGBA( vec4 rgba ) {
+   return dot( rgba, vec4(1.0, 1.0/255.0, 1.0/65025.0, 1.0/16581375.0) );
+}
 
 #ifdef VERTEX
-
-    #ifdef GLES2
-        precision mediump float;
-    #endif
 
     #ifdef DEBUGRENDERING
         attribute vec4 aColor;
@@ -127,25 +136,12 @@
 
 #ifdef FRAGMENT
 
-    #ifdef GLES2
-        precision mediump float;
-    #endif
-
     #if defined(DIFFUSE) || defined(CELLSHADING)
 
-        /*  DECODE AND ENCODE FLOAT TO RGBA
-        float DecodeFloatRGBA(vec4 rgba)
-        {
-            return dot(rgba, vec4(1.0,1.0/255.0, 1.0/65025.0, 1.0/160581375.0));
-        }
-        vec4 EncodeFloatRGBA(float v) {
-            vec4 enc = vec4(1.0, 255.0, 65025.0, 160581375.0) * v;
-            enc = frac(enc);
-            enc -= enc.yzww * vec4(1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0, 0.0);
-            return enc;
-        }
-        */
-        
+            #if defined(GLES2) || defined(GL_LEGACY)
+               float shadowBias;
+            #endif
+
         struct LIGHT 
         {
             vec4 Color;
@@ -260,9 +256,8 @@
             float x = 0.0;
             float y = 0.0;
 #if defined(GLES2) || defined(GL_LEGACY)
-            float shadowSample = texture2D(shadowMap, coord.xy).x;
-            float diff = shadowSample - coord.z+0.001;
-            shadow = (diff<0.0?0.0:1.0);
+            float shadowSample = DecodeFloatRGBA(texture2D(shadowMap, coord.xy));
+            shadow = shadowSample + shadowBias > coord.z ? 1.0:0.0;
 #else
             for (y = -1.5 ; y <=1.5 ; y+=1.0)
                 for (x = -1.5 ; x <=1.5 ; x+=1.0)
@@ -302,9 +297,8 @@
             float y = 0.0;
             
 #if defined(GLES2) || defined(GL_LEGACY)
-            float shadowSample = textureCube(shadowMap, position_ls.xyz).x;
-            float diff = shadowSample - position_ls.z+0.001;
-            shadow = (diff<0.0?0.0:1.0);
+            float shadowSample = DecodeFloatRGBA(textureCube(shadowMap, position_ls.xyz));
+            shadow = shadowSample + shadowBias > depth ? 1.0:0.0;
 #else       
             for (y = -1.5 ; y <=1.5 ; y+=1.0)
                 for (x = -1.5 ; x <=1.5 ; x+=1.0)
@@ -337,9 +331,8 @@
             float y = 0.0;
             
 #if defined(GLES2) || defined(GL_LEGACY)
-            float shadowSample = texture2D(shadowMap, (coord.xy + vec2(x,y) * scale)).x;
-            float diff = shadowSample - coord.z+0.001;
-            shadow = (diff<0.0?0.0:1.0);
+            float shadowSample = DecodeFloatRGBA(texture2D(shadowMap, coord.xy));
+            shadow = shadowSample - coord.z + shadowBias < 0.0 ? 0.0:1.0;
 #else
             for (y = -1.5 ; y <=1.5 ; y+=1.0)
                 for (x = -1.5 ; x <=1.5 ; x+=1.0)
@@ -516,7 +509,10 @@
                         #ifdef DIRECTIONALSHADOW
                             float DirectionalShadow = 1.0; 
                             if (L.HaveShadowMap) {
-                               bool MoreThanOneCascade = (uDirectionalShadowFar[0].y>0.0);
+                                #if defined(GLES2) || defined(GL_LEGACY)
+                                   shadowBias = max(0.05 * (1.0 - dot(Normal, LightDir)), 0.0005);
+                                #endif
+                                bool MoreThanOneCascade = (uDirectionalShadowFar[0].y>0.0);
                                 if (gl_FragCoord.z<uDirectionalShadowFar[0].x) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.0, uDirectionalDepthsMVP[0],uPCFTexelSize1,vWorldPosition, MoreThanOneCascade);
                                 else if (gl_FragCoord.z<uDirectionalShadowFar[0].y) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.0, uDirectionalDepthsMVP[1],uPCFTexelSize2,vWorldPosition, MoreThanOneCascade);
                                 else if (gl_FragCoord.z<uDirectionalShadowFar[0].z) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.5, uDirectionalDepthsMVP[2],uPCFTexelSize3,vWorldPosition, MoreThanOneCascade);
@@ -548,7 +544,9 @@
                             float PointShadow = 1.0;
                             if (attenuation>0.0 && L.HaveShadowMap)
                             {
+                                PointShadow = 0.0;
                                 #if defined(GLES2) || defined(GL_LEGACY)
+                                   shadowBias = max(0.05 * (1.0 - dot(Normal, LightDir)), 0.0005);
                                    PointShadow=PCFPOINT(uPointShadowMaps,uPointDepthsMVP[0],uPointDepthsMVP[1],uPCFTexelSize1,vWorldPosition);
                                 #else
                                    PointShadow+=PCFPOINT(uPointShadowMaps[L.ShadowMap],uPointDepthsMVP[(L.ShadowMap*2)],uPointDepthsMVP[(L.ShadowMap*2+1)],uPCFTexelSize1,vWorldPosition);
@@ -580,7 +578,9 @@
                             float SpotShadow = 1.0;
                             if (spotEffect>0.0 && attenuation>0.0 && L.HaveShadowMap)
                             {
+                                SpotShadow = 0.0;
                                 #if defined(GLES2) || defined(GL_LEGACY)
+                                   shadowBias = max(0.05 * (1.0 - dot(Normal, LightDir)), 0.0005);
                                    SpotShadow=PCFSPOT(uSpotShadowMaps,uSpotDepthsMVP,uPCFTexelSize1,vWorldPosition);
                                 #else
                                    SpotShadow+=PCFSPOT(uSpotShadowMaps[L.ShadowMap],uSpotDepthsMVP[L.ShadowMap],uPCFTexelSize1,vWorldPosition);     
@@ -611,7 +611,7 @@
         #endif
 
         #ifdef CASTSHADOWS
-            diffuse.x = gl_FragCoord.z;
+            diffuse = EncodeFloatRGBA(gl_FragCoord.z);
         #endif
 
         gl_FragColor = vec4(diffuse.xyz,diffuse.w*uOpacity);
