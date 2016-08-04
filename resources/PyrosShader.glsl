@@ -257,7 +257,7 @@ float DecodeFloatRGBA( vec4 rgba ) {
             float y = 0.0;
 #if defined(GLES2) || defined(GL_LEGACY)
             float shadowSample = DecodeFloatRGBA(texture2D(shadowMap, coord.xy));
-            shadow = shadowSample + shadowBias > coord.z ? 1.0:0.0;
+            shadow = shadowSample - coord.z + shadowBias < 0.0 ? 0.0:1.0;
 #else
             for (y = -1.5 ; y <=1.5 ; y+=1.0)
                 for (x = -1.5 ; x <=1.5 ; x+=1.0)
@@ -298,7 +298,7 @@ float DecodeFloatRGBA( vec4 rgba ) {
             
 #if defined(GLES2) || defined(GL_LEGACY)
             float shadowSample = DecodeFloatRGBA(textureCube(shadowMap, position_ls.xyz));
-            shadow = shadowSample + shadowBias > depth ? 1.0:0.0;
+            shadow = shadowSample - depth + shadowBias < 0.0 ? 0.0:1.0;
 #else       
             for (y = -1.5 ; y <=1.5 ; y+=1.0)
                 for (x = -1.5 ; x <=1.5 ; x+=1.0)
