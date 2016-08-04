@@ -70,32 +70,37 @@ namespace p3d {
 		std::vector<RenderingMesh*> rmeshes(RenderingComponent::GetRenderingMeshes(Scene));
 
 		if (Tag != 0)
+		{
 			for (std::vector<RenderingMesh*>::iterator k = rmeshes.begin(); k != rmeshes.end();)
+			{
 				if (!(*k)->renderingComponent->GetOwner()->HaveTag(Tag))
 				{
 					k = rmeshes.erase(k);
-				} else ++k;
-
-				for (std::vector<RenderingMesh*>::iterator k = rmeshes.begin(); k != rmeshes.end(); k++)
-				{
-					if ((*k)->Material->IsTransparent() && sorting)
-					{
-						_TranslucidMeshes.push_back((*k));
-					}
-					else _OpaqueMeshes.push_back((*k));
 				}
+				else ++k;
+			}
+		}
 
-				// sorting translucid
-				Sort::_Camera = Camera;
-				sort(_TranslucidMeshes.begin(), _TranslucidMeshes.end(), Sort::sortRenderingMeshes);
+		for (std::vector<RenderingMesh*>::iterator k = rmeshes.begin(); k != rmeshes.end(); k++)
+		{
+			if ((*k)->Material->IsTransparent() && sorting)
+			{
+				_TranslucidMeshes.push_back((*k));
+			}
+			else _OpaqueMeshes.push_back((*k));
+		}
 
-				// final list
-				for (std::vector<RenderingMesh*>::iterator i = _TranslucidMeshes.begin(); i != _TranslucidMeshes.end(); i++)
-				{
-					_OpaqueMeshes.push_back((*i));
-				}
+		// sorting translucid
+		Sort::_Camera = Camera;
+		sort(_TranslucidMeshes.begin(), _TranslucidMeshes.end(), Sort::sortRenderingMeshes);
 
-				return _OpaqueMeshes;
+		// final list
+		for (std::vector<RenderingMesh*>::iterator i = _TranslucidMeshes.begin(); i != _TranslucidMeshes.end(); i++)
+		{
+			_OpaqueMeshes.push_back((*i));
+		}
+
+		return _OpaqueMeshes;
 	}
 	void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
 	{
