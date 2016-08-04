@@ -396,12 +396,12 @@ namespace p3d {
 											break;
 										}
 										if (!(*k)->renderingComponent->IsCullTesting()) cullingTest = true;
-										//if (cullingTest && !(*k)->Material->IsTransparent())
+										if (cullingTest && !(*k)->Material->IsTransparent())
 										{
 											if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
 												RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
 										}
-										//else break;
+										else break;
 									}
 								}
 #if !defined(GLES2)
@@ -511,25 +511,12 @@ namespace p3d {
 
 								if ((*k)->renderingComponent->GetOwner() != NULL)
 								{
-									// Culling Test
-									bool cullingTest = false;
-									switch ((*k)->CullingGeometry)
-									{
-									case CullingGeometry::Box:
-										cullingTest = CullingBoxTest((*k), (*k)->renderingComponent->GetOwner());
-										break;
-									case CullingGeometry::Sphere:
-									default:
-										cullingTest = CullingSphereTest((*k), (*k)->renderingComponent->GetOwner());
-										break;
-									}
-									if (!(*k)->renderingComponent->IsCullTesting()) cullingTest = true;
-									//if (cullingTest && !(*k)->Material->IsTransparent())
+									if (!(*k)->Material->IsTransparent())
 									{
 										if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
 											RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
 									}
-									//else break;
+									else break;
 								}
 							}
 #if !defined(GLES2)
@@ -638,20 +625,7 @@ namespace p3d {
 				Lights.clear();
 				if ((*i)->renderingComponent->GetOwner() != NULL)
 				{
-					// Culling Test
-					bool cullingTest = false;
-					switch ((*i)->CullingGeometry)
-					{
-					case CullingGeometry::Box:
-						cullingTest = CullingBoxTest((*i), (*i)->renderingComponent->GetOwner());
-						break;
-					case CullingGeometry::Sphere:
-					default:
-						cullingTest = CullingSphereTest((*i), (*i)->renderingComponent->GetOwner());
-						break;
-					}
-					if (!(*i)->renderingComponent->IsCullTesting()) cullingTest = true;
-					if (cullingTest && (*i)->renderingComponent->IsActive() && (*i)->Active == true)
+					if ((*i)->renderingComponent->IsActive() && (*i)->Active == true)
 					{
 						for (std::vector<Matrix>::iterator _l = _Lights.begin(); _l != _Lights.end(); _l++)
 						{

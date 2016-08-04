@@ -510,7 +510,7 @@ float DecodeFloatRGBA( vec4 rgba ) {
                             float DirectionalShadow = 1.0; 
                             if (L.HaveShadowMap) {
                                 #if defined(GLES2) || defined(GL_LEGACY)
-                                   shadowBias = max(0.05 * (1.0 - dot(Normal, LightDir)), 0.0005);
+                                   shadowBias = max(0.001 * (1.0 - dot(Normal, LightDir)), 0.00001);
                                 #endif
                                 bool MoreThanOneCascade = (uDirectionalShadowFar[0].y>0.0);
                                 if (gl_FragCoord.z<uDirectionalShadowFar[0].x) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.0, uDirectionalDepthsMVP[0],uPCFTexelSize1,vWorldPosition, MoreThanOneCascade);
@@ -546,7 +546,7 @@ float DecodeFloatRGBA( vec4 rgba ) {
                             {
                                 PointShadow = 0.0;
                                 #if defined(GLES2) || defined(GL_LEGACY)
-                                   shadowBias = max(0.05 * (1.0 - dot(Normal, LightDir)), 0.0005);
+                                   shadowBias = max(0.001 * (1.0 - dot(Normal, LightDir)), 0.00001);
                                    PointShadow=PCFPOINT(uPointShadowMaps,uPointDepthsMVP[0],uPointDepthsMVP[1],uPCFTexelSize1,vWorldPosition);
                                 #else
                                    PointShadow+=PCFPOINT(uPointShadowMaps[L.ShadowMap],uPointDepthsMVP[(L.ShadowMap*2)],uPointDepthsMVP[(L.ShadowMap*2+1)],uPCFTexelSize1,vWorldPosition);
@@ -580,7 +580,7 @@ float DecodeFloatRGBA( vec4 rgba ) {
                             {
                                 SpotShadow = 0.0;
                                 #if defined(GLES2) || defined(GL_LEGACY)
-                                   shadowBias = max(0.05 * (1.0 - dot(Normal, LightDir)), 0.0005);
+                                   shadowBias = max(0.001 * (1.0 - dot(Normal, LightDir)), 0.00001);
                                    SpotShadow=PCFSPOT(uSpotShadowMaps,uSpotDepthsMVP,uPCFTexelSize1,vWorldPosition);
                                 #else
                                    SpotShadow+=PCFSPOT(uSpotShadowMaps[L.ShadowMap],uSpotDepthsMVP[L.ShadowMap],uPCFTexelSize1,vWorldPosition);     
