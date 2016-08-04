@@ -137,13 +137,12 @@ void Geometry::CreateBoundingSphere(const Vec3& minBound, const Vec3& maxBound, 
 
     f32 radius = center.z;
     
-    int32 i,j;
     f32 iHor=(f32)8;
     f32 iVer=(f32)6;
 
     std::vector <std::vector<Vec3> > aVtc;    
 
-    for (j=0;j<(iVer+1);++j) {
+    for (size_t j=0;j<(iVer+1);++j) {
             f32 fRad1 = j / iVer;        
             f32 fZ = (f32)(-radius * cos(fRad1 * PI));
             f32 fRds = (f32)(radius * sin(fRad1 * PI));
@@ -151,7 +150,7 @@ void Geometry::CreateBoundingSphere(const Vec3& minBound, const Vec3& maxBound, 
             std::vector<Vec3> aRow;
             Vec3 oVtx;
 
-            for (i=0;i< iHor;++i) {            
+            for (size_t i=0;i< iHor;++i) {            
                     f32 fRamaxBound = (2 * i / iHor);
                     f32 fX = (f32)(fRds * sin(fRamaxBound * PI));            
                     f32 fY = (f32)(fRds * cos(fRamaxBound * PI));
@@ -165,17 +164,17 @@ void Geometry::CreateBoundingSphere(const Vec3& minBound, const Vec3& maxBound, 
 
     int32 iVerNum = aVtc.size();
 
-    for (j=0;j<iVerNum;++j) {
+    for (int32 j=0;j<iVerNum;++j) {
         int32 iHorNum = aVtc[j].size();
         if (j > 0) {
-            for (i=0;i<iHorNum;++i) {
+            for (int32 i=0;i<iHorNum;++i) {
                 bool bEnd = i == (iHorNum - 1);                
                 Vec3 aP1 = aVtc[j][bEnd?0:(i + 1)];
                 Vec3 aP2 = aVtc[j][(bEnd?(iHorNum-1):i)];
                 Vec3 aP3 = aVtc[j - 1][(bEnd?(iHorNum - 1):i)];
                 Vec3 aP4 = aVtc[j - 1][bEnd?0:(i + 1)];                              
 
-                if (j < (aVtc.size() - 1)) {                                          
+                if ((size_t)j < (aVtc.size() - 1)) {                                          
 
                     tVertex.push_back(center+aP3);
                     tVertex.push_back(center+aP2);

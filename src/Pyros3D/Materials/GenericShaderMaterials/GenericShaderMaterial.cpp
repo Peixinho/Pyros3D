@@ -107,10 +107,10 @@ namespace p3d
         SetOpacity(opacity);
 
         // Default PCF Texel Size
-        PCFTexelSize1 = 0.0001;
-        PCFTexelSize2 = 0.0001;
-        PCFTexelSize3 = 0.0001;
-        PCFTexelSize4 = 0.0001;
+        PCFTexelSize1 = 0.0001f;
+        PCFTexelSize2 = 0.0001f;
+        PCFTexelSize3 = 0.0001f;
+        PCFTexelSize4 = 0.0001f;
 
         if (options & ShaderUsage::Diffuse)
         {

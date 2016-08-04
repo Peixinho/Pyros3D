@@ -91,12 +91,12 @@ void ImGuiExample::Update()
         Scene->Update(GetTime());
         
         // Game Logic Here
-        CubeObject->SetRotation(Vec3(0,GetTime(),0));
+        CubeObject->SetRotation(Vec3(0.f,(f32)GetTime(),0.f));
 
         // Render Scene
         Renderer->RenderScene(projection,Camera,Scene);
 
-		ImGui::SFML::ImGui_ImplSFML_Render(ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, clear_color);
+		ImGui::SFML::ImGui_ImplSFML_Render((int)ImGui::GetIO().DisplaySize.x, (int)ImGui::GetIO().DisplaySize.y, clear_color);
 }
 
 void ImGuiExample::Shutdown()

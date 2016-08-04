@@ -52,7 +52,7 @@ namespace p3d {
         f32 mouseX, mouseY;
 
         // Colors
-        f32 colors;
+        uint32 colors;
         
         // List
         std::map<uint32, RenderingMesh*> MeshPickingList;
@@ -60,7 +60,7 @@ namespace p3d {
         // Aux Methods
         Vec4 Rgba8ToVec4(const uint32 val)
         {
-            return Vec4((val & 0xFF000000) >> 24, (val & 0xFF0000) >> 16, (val & 0xFF00) >> 8, val & 0xFF) / 255.f;
+            return Vec4((f32)((val & 0xFF000000) >> 24), (f32)((val & 0xFF0000) >> 16), (f32)((val & 0xFF00) >> 8), (f32)(val & 0xFF)) / 255.f;
         }
 
         uint32 Vec4ToRgba8(Vec4 val)

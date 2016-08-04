@@ -64,9 +64,9 @@ namespace p3d {
                     if (positionsInit>-1 && positionsEnd>-1 && AnimationName.size()>0) animation.AnimationName = AnimationName;
                     else animation.AnimationName = assimp_model->mAnimations[i]->mName.data;
                     // Set Animation Duration
-                    animation.Duration = assimp_model->mAnimations[i]->mDuration;                    
+                    animation.Duration = (f32)assimp_model->mAnimations[i]->mDuration;                    
                     // Set Ticks Per Second
-                    animation.TicksPerSecond = assimp_model->mAnimations[i]->mTicksPerSecond;
+                    animation.TicksPerSecond = (f32)assimp_model->mAnimations[i]->mTicksPerSecond;
                     
                     // allocate std::vector space
                     animation.Channels.reserve(assimp_model->mAnimations[i]->mNumChannels);
@@ -101,20 +101,20 @@ namespace p3d {
                                     Pos.x = assimp_model->mAnimations[i]->mChannels[k]->mPositionKeys[l].mValue.x;
                                     Pos.y = assimp_model->mAnimations[i]->mChannels[k]->mPositionKeys[l].mValue.y;
                                     Pos.z = assimp_model->mAnimations[i]->mChannels[k]->mPositionKeys[l].mValue.z;
-                                    positionsTime = assimp_model->mAnimations[i]->mChannels[k]->mPositionKeys[l].mTime - positionsTimeOffset;
+                                    positionsTime = (f32)assimp_model->mAnimations[i]->mChannels[k]->mPositionKeys[l].mTime - positionsTimeOffset;
                                     channel.positions.push_back(PositionData(positionsTime,Pos));
                                 } else {
                                     if (positionsCount<positionsInit) 
-                                        positionsTimeOffset=assimp_model->mAnimations[i]->mChannels[k]->mPositionKeys[l].mTime;
+                                        positionsTimeOffset=(f32)assimp_model->mAnimations[i]->mChannels[k]->mPositionKeys[l].mTime;
                                     else if (positionsCount>=positionsEnd) 
-                                        positionsTimeOffsetEnd=assimp_model->mAnimations[i]->mChannels[k]->mPositionKeys[l].mTime-positionsTimeOffset;
+                                        positionsTimeOffsetEnd=(f32)assimp_model->mAnimations[i]->mChannels[k]->mPositionKeys[l].mTime-positionsTimeOffset;
                                 }
                             } else {
                                 Vec3 Pos;
                                 Pos.x = assimp_model->mAnimations[i]->mChannels[k]->mPositionKeys[l].mValue.x;
                                 Pos.y = assimp_model->mAnimations[i]->mChannels[k]->mPositionKeys[l].mValue.y;
                                 Pos.z = assimp_model->mAnimations[i]->mChannels[k]->mPositionKeys[l].mValue.z;
-                                channel.positions.push_back(PositionData(assimp_model->mAnimations[i]->mChannels[k]->mPositionKeys[l].mTime,Pos));
+                                channel.positions.push_back(PositionData((f32)assimp_model->mAnimations[i]->mChannels[k]->mPositionKeys[l].mTime,Pos));
                             }
                         }
 
@@ -136,13 +136,13 @@ namespace p3d {
                                     Rot.x = assimp_model->mAnimations[i]->mChannels[k]->mRotationKeys[l].mValue.x;
                                     Rot.y = assimp_model->mAnimations[i]->mChannels[k]->mRotationKeys[l].mValue.y;
                                     Rot.z = assimp_model->mAnimations[i]->mChannels[k]->mRotationKeys[l].mValue.z;
-                                    rotationsTime = assimp_model->mAnimations[i]->mChannels[k]->mRotationKeys[l].mTime-rotationsTimeOffset;
+                                    rotationsTime = (f32)assimp_model->mAnimations[i]->mChannels[k]->mRotationKeys[l].mTime-rotationsTimeOffset;
                                     channel.rotations.push_back(RotationData(rotationsTime,Rot));
                                 } else {
                                     if (rotationsCount<rotationsInit) 
-                                        rotationsTimeOffset=assimp_model->mAnimations[i]->mChannels[k]->mRotationKeys[l].mTime;
+                                        rotationsTimeOffset=(f32)assimp_model->mAnimations[i]->mChannels[k]->mRotationKeys[l].mTime;
                                     else if (rotationsCount>=rotationsEnd) 
-                                        rotationsTimeOffsetEnd=assimp_model->mAnimations[i]->mChannels[k]->mRotationKeys[l].mTime-rotationsTimeOffset;
+                                        rotationsTimeOffsetEnd=(f32)assimp_model->mAnimations[i]->mChannels[k]->mRotationKeys[l].mTime-rotationsTimeOffset;
                                 }
                             } else {
                                 Quaternion Rot;
@@ -150,7 +150,7 @@ namespace p3d {
                                 Rot.x = assimp_model->mAnimations[i]->mChannels[k]->mRotationKeys[l].mValue.x;
                                 Rot.y = assimp_model->mAnimations[i]->mChannels[k]->mRotationKeys[l].mValue.y;
                                 Rot.z = assimp_model->mAnimations[i]->mChannels[k]->mRotationKeys[l].mValue.z;
-                                channel.rotations.push_back(RotationData(assimp_model->mAnimations[i]->mChannels[k]->mRotationKeys[l].mTime,Rot));
+                                channel.rotations.push_back(RotationData((f32)assimp_model->mAnimations[i]->mChannels[k]->mRotationKeys[l].mTime,Rot));
                             }
                         }
 
@@ -171,20 +171,20 @@ namespace p3d {
                                     Scale.x = assimp_model->mAnimations[i]->mChannels[k]->mScalingKeys[l].mValue.x;
                                     Scale.y = assimp_model->mAnimations[i]->mChannels[k]->mScalingKeys[l].mValue.y;
                                     Scale.z = assimp_model->mAnimations[i]->mChannels[k]->mScalingKeys[l].mValue.z;
-                                    scalesTime = assimp_model->mAnimations[i]->mChannels[k]->mScalingKeys[l].mTime-scalesTimeOffset;
+                                    scalesTime = (f32)assimp_model->mAnimations[i]->mChannels[k]->mScalingKeys[l].mTime-scalesTimeOffset;
                                     channel.scales.push_back(ScalingData(scalesTime,Scale));
                                 } else {
                                     if (scalesCount<scalesInit) 
-                                        scalesTimeOffset=assimp_model->mAnimations[i]->mChannels[k]->mScalingKeys[l].mTime;
+                                        scalesTimeOffset=(f32)assimp_model->mAnimations[i]->mChannels[k]->mScalingKeys[l].mTime;
                                     else if (scalesCount>=scalesEnd) 
-                                        scalesTimeOffsetEnd=assimp_model->mAnimations[i]->mChannels[k]->mScalingKeys[l].mTime-scalesTimeOffset;
+                                        scalesTimeOffsetEnd=(f32)assimp_model->mAnimations[i]->mChannels[k]->mScalingKeys[l].mTime-scalesTimeOffset;
                                 }
                             } else {
                                 Vec3 Scale;
                                 Scale.x = assimp_model->mAnimations[i]->mChannels[k]->mScalingKeys[l].mValue.x;
                                 Scale.y = assimp_model->mAnimations[i]->mChannels[k]->mScalingKeys[l].mValue.y;
                                 Scale.z = assimp_model->mAnimations[i]->mChannels[k]->mScalingKeys[l].mValue.z;
-                                channel.scales.push_back(ScalingData(assimp_model->mAnimations[i]->mChannels[k]->mScalingKeys[l].mTime,Scale));
+                                channel.scales.push_back(ScalingData((f32)assimp_model->mAnimations[i]->mChannels[k]->mScalingKeys[l].mTime,Scale));
                             }
                         }
                         

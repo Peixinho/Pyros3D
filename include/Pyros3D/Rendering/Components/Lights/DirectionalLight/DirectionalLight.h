@@ -207,7 +207,7 @@ namespace p3d {
                     for (uint32 i=0; i<MAX_SPLITS; i++)
                     {
                         // note that fov is in radians here and in OpenGL it is in degrees.
-                        this->Cascades[i].Fov = RADTODEG(projection.Fov) + CASCADE_FACTOR;
+                        this->Cascades[i].Fov = (f32)(RADTODEG(projection.Fov) + CASCADE_FACTOR);
                         this->Cascades[i].Ratio = projection.Aspect;
                     }
                     
@@ -215,8 +215,8 @@ namespace p3d {
                     f32 lambda = SPLIT_WEIGHT;
                     f32 ratio = Far/Near;
                     this->Cascades[0].Near = Near;
-                    this->Cascades[0].Width = Width;
-                    this->Cascades[0].Height = Height;
+                    this->Cascades[0].Width = (f32)Width;
+                    this->Cascades[0].Height = (f32)Height;
                     
                     for (uint32 i=1; i<ShadowCascades; i++)
                     {
@@ -224,13 +224,13 @@ namespace p3d {
                         
                         this->Cascades[i].Near = lambda*(Near*powf(ratio, si)) + (1.f-lambda)*(Near + (Far - Near)*si);
                         this->Cascades[i-1].Far = this->Cascades[i].Near * 1.005f;
-                        this->Cascades[i].Width = Width;
-                        this->Cascades[i].Height = Height;
+                        this->Cascades[i].Width = (f32)Width;
+                        this->Cascades[i].Height = (f32)Height;
                     }
                     // Set Far on Last Split
                     this->Cascades[ShadowCascades-1].Far = Far;
-                    this->Cascades[ShadowCascades-1].Width = Width;
-                    this->Cascades[ShadowCascades-1].Height = Height;
+                    this->Cascades[ShadowCascades-1].Width = (f32)Width;
+                    this->Cascades[ShadowCascades-1].Height = (f32)Height;
                 }
             }
 

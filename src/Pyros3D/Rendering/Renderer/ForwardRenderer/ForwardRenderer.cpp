@@ -171,8 +171,8 @@ namespace p3d {
 						directionalLight.m[0] = color.x;         directionalLight.m[1] = color.y;             directionalLight.m[2] = color.z;             directionalLight.m[3] = color.w;
 						directionalLight.m[4] = position.x;      directionalLight.m[5] = position.y;          directionalLight.m[6] = position.z;
 						directionalLight.m[7] = direction.x;     directionalLight.m[8] = direction.y;         directionalLight.m[9] = direction.z;
-						directionalLight.m[10] = 0.0;			 directionalLight.m[11] = 0.0;				  directionalLight.m[12] = 0.0;
-						directionalLight.m[13] = type;			 directionalLight.m[14] = (d->IsCastingShadows() ? 1 : 0);
+						directionalLight.m[10] = 0.0f;			 directionalLight.m[11] = 0.0f;				  directionalLight.m[12] = 0.0f;
+						directionalLight.m[13] = (f32)type;			 directionalLight.m[14] = (d->IsCastingShadows() ? 1.f : 0.f);
 
 						_Lights.push_back(directionalLight);
 
@@ -197,7 +197,7 @@ namespace p3d {
 #if !defined(GLES2)
 							if (ClipPlane)
 							{
-								for (int32 k = 0; k < ClipPlaneNumber; k++)
+								for (uint32 k = 0; k < ClipPlaneNumber; k++)
 									GLCHECKER(glEnable(GL_CLIP_DISTANCE0 + k));
 							}
 #endif
@@ -214,7 +214,7 @@ namespace p3d {
 								ProjectionMatrix = d->GetLightProjection(i, rmesh);
 
 								// Set Viewport
-								_SetViewPort(((float)(i % 2) * d->GetShadowWidth()), ((i <= 1 ? 0.0f : 1.f) * d->GetShadowHeight()), d->GetShadowWidth(), d->GetShadowHeight());
+								_SetViewPort((uint32)((float)(i % 2) * d->GetShadowWidth()), (uint32)((i <= (uint32)1 ? 0.0f : 1.f) * d->GetShadowHeight()), d->GetShadowWidth(), d->GetShadowHeight());
 
 								// Update Culling
 								UpdateCulling(d->GetCascade(i).ortho.GetProjectionMatrix()*ViewMatrix);
@@ -225,7 +225,19 @@ namespace p3d {
 
 									if ((*k)->renderingComponent->GetOwner() != NULL)
 									{
-										if (!(*k)->Material->IsTransparent())
+										// Culling Test
+										bool cullingTest = false;
+										switch ((*k)->CullingGeometry)
+										{
+										case CullingGeometry::Box:
+											cullingTest = CullingBoxTest((*k), (*k)->renderingComponent->GetOwner());
+											break;
+										case CullingGeometry::Sphere:
+										default:
+											cullingTest = CullingSphereTest((*k), (*k)->renderingComponent->GetOwner());
+											break;
+										}
+										if (cullingTest && !(*k)->Material->IsTransparent())
 										{
 											if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
 												RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
@@ -285,13 +297,13 @@ namespace p3d {
 						pointLight.m[0] = color.x;       pointLight.m[1] = color.y;           pointLight.m[2] = color.z;           pointLight.m[3] = color.w;
 						pointLight.m[4] = position.x;    pointLight.m[5] = position.y;        pointLight.m[6] = position.z;
 						pointLight.m[7] = direction.x;   pointLight.m[8] = direction.y;       pointLight.m[9] = direction.z;
-						pointLight.m[10] = attenuation;  pointLight.m[11] = 0;				  pointLight.m[12] = 0;
-						pointLight.m[13] = type;
+						pointLight.m[10] = attenuation;  pointLight.m[11] = 0.f;				  pointLight.m[12] = 0.f;
+						pointLight.m[13] = (f32)type;
 
 						if (p->IsCastingShadows())
 						{
-							pointLight.m[14] = 1;
-							pointLight.m[15] = pointCounter++;
+							pointLight.m[14] = 1.f;
+							pointLight.m[15] = (f32)pointCounter++;
 						}
 
 						_Lights.push_back(pointLight);
@@ -308,28 +320,28 @@ namespace p3d {
 							// Create Projection Matrix
 							// Get Light Projection
 							Projection ShadowProjection;
-							ShadowProjection.Perspective(90.f, 1.0, p->GetShadowNear(), p->GetShadowFar());
+							ShadowProjection.Perspective(90.f, 1.f, p->GetShadowNear(), p->GetShadowFar());
 							ProjectionMatrix = ShadowProjection.m;
 
 							// Get Lights Shadow Map Texture
-							for (uint32 i = 0; i < 6; i++)
+							for (int32 i = 0; i < 6; i++)
 							{
 								// Clean View Matrix
 								ViewMatrix.identity();
 
 								// Create Light View Matrix For Rendering Each Face of the Cubemap
 								if (i == 0)
-									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(1.0, 0.0, 0.0), Vec3(0.0, -1.0, 0.0)); // +X
+									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(1.0f, 0.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)); // +X
 								if (i == 1)
-									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(-1.0, 0.0, 0.0), Vec3(0.0, -1.0, 0.0)); // -X
+									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(-1.0f, 0.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)); // -X
 								if (i == 2)
-									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(0.0, 1.0, 0.0), Vec3(0.0, 0.0, 1.0)); // +Y
+									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f)); // +Y
 								if (i == 3)
-									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(0.0, -1.0, 0.0), Vec3(0.0, 0.0, -1.0)); // -Y
+									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(0.0f, -1.0f, 0.0f), Vec3(0.0f, 0.0f, -1.0f)); // -Y
 								if (i == 4)
-									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(0.0, 0.0, 1.0), Vec3(0.0, -1.0, 0.0)); // +Z
+									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(0.0f, 0.0f, 1.0f), Vec3(0.0f, -1.0f, 0.0f)); // +Z
 								if (i == 5)
-									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(0.0, 0.0, -1.0), Vec3(0.0, -1.0, 0.0)); // -Z
+									ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(0.0f, 0.0f, -1.0f), Vec3(0.0f, -1.0f, 0.0f)); // -Z
 
 								// Update Culling
 								UpdateCulling(ShadowProjection.m*ViewMatrix);
@@ -354,7 +366,7 @@ namespace p3d {
 #if !defined(GLES2)
 								if (ClipPlane)
 								{
-									for (int32 k = 0; k < ClipPlaneNumber; k++)
+									for (uint32 k = 0; k < ClipPlaneNumber; k++)
 										GLCHECKER(glEnable(GL_CLIP_DISTANCE0 + i));
 								}
 #endif
@@ -435,12 +447,12 @@ namespace p3d {
 						spotLight.m[4] = position.x;     spotLight.m[5] = position.y;         spotLight.m[6] = position.z;
 						spotLight.m[7] = direction.x;    spotLight.m[8] = direction.y;        spotLight.m[9] = direction.z;
 						spotLight.m[10] = attenuation;	 spotLight.m[11] = cones.x;			  spotLight.m[12] = cones.y;
-						spotLight.m[13] = type;
+						spotLight.m[13] = (f32)type;
 
 						if (s->IsCastingShadows())
 						{
-							spotLight.m[14] = 1;
-							spotLight.m[15] = spotCounter++;
+							spotLight.m[14] = 1.f;
+							spotLight.m[15] = (f32)spotCounter++;
 						}
 
 						_Lights.push_back(spotLight);
@@ -481,7 +493,7 @@ namespace p3d {
 #if !defined(GLES2)
 							if (ClipPlane)
 							{
-								for (int32 k = 0; k < ClipPlaneNumber; k++)
+								for (uint32 k = 0; k < ClipPlaneNumber; k++)
 									GLCHECKER(glEnable(GL_CLIP_DISTANCE0 + k));
 							}
 #endif
@@ -598,13 +610,13 @@ namespace p3d {
 			// Scissor Test
 			if (scissorTest)
 			{
-				GLCHECKER(glScissor(scissorTestX, scissorTestY, scissorTestWidth, scissorTestHeight));
+				GLCHECKER(glScissor((GLint)scissorTestX, (GLint)scissorTestY, (GLsizei)scissorTestWidth, (GLsizei)scissorTestHeight));
 				GLCHECKER(glEnable(GL_SCISSOR_TEST));
 			}
 #if !defined(GLES2)
 			if (ClipPlane)
 			{
-				for (int32 k = 0; k < ClipPlaneNumber; k++)
+				for (uint32 k = 0; k < ClipPlaneNumber; k++)
 					GLCHECKER(glEnable(GL_CLIP_DISTANCE0 + k));
 			}
 #endif

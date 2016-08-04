@@ -66,14 +66,14 @@ void IslandDemo::Init()
 	matWater = new WaterMaterial("../../../../examples/IslandDemo/assets/WaterShader.glsl");
 	rWater = new RenderingComponent(water, matWater);
 	gWater->Add(rWater);
-	gWater->SetRotation(Vec3(DEGTORAD(-90), 0, 0));
-	gWater->SetPosition(Vec3(0, 6.8, 0));
+	gWater->SetRotation(Vec3((f32)DEGTORAD(-90.f), 0.f, 0.f));
+	gWater->SetPosition(Vec3(0.f, 6.8f, 0.f));
 	SceneWater->Add(gWater);
 
-	SetMousePosition((uint32)Width / 2, (uint32)Height / 2);
-	mouseCenter = Vec2((uint32)Width / 2, (uint32)Height / 2);
+	SetMousePosition((uint32)(Width *.5f), (uint32)(Height *.5f));
+	mouseCenter = Vec2((f32)Width *.5f, (f32)Height *.5f);
 	mouseLastPosition = mouseCenter;
-	counterX = counterY = 0;
+	counterX = counterY = 0.f;
 
 	// Input
 	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &IslandDemo::MoveFrontPress);
@@ -86,7 +86,7 @@ void IslandDemo::Init()
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &IslandDemo::StrafeRightRelease);
 	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &IslandDemo::LookTo);
 
-	_strafeLeft = _strafeRight = _moveBack = _moveFront = 0;
+	_strafeLeft = _strafeRight = _moveBack = _moveFront = false;
 	HideMouse();
 
 	fboReflection = new FrameBuffer();
@@ -164,7 +164,7 @@ void IslandDemo::Update()
 
 	Vec3 finalPosition;
 	Vec3 direction = Camera->GetDirection();
-	float dt = GetTimeInterval();
+	float dt = (float)GetTimeInterval();
 	float speed = dt * 20.f;
 	if (_moveFront)
 	{
@@ -252,8 +252,8 @@ void IslandDemo::LookTo(Event::Input::Info e)
 			if (counterY<-90.f) counterY = -90.f;
 			if (counterY>90.f) counterY = 90.f;
 			Quaternion qX, qY;
-			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), DEGTORAD(counterY));
-			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), DEGTORAD(counterX));
+			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), (f32)DEGTORAD(counterY));
+			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), (f32)DEGTORAD(counterX));
 			//                Matrix rotX, rotY;
 			//                rotX.RotationX(DEGTORAD(counterY));
 			//                rotY.RotationY(DEGTORAD(counterX));

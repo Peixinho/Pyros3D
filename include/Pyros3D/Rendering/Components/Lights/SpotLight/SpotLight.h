@@ -25,8 +25,8 @@ namespace p3d {
                 Radius = radius;
                 innerCone = InnerCone;
                 outterCone = OutterCone;
-                CosOutterCone = cosf(DEGTORAD(OutterCone));
-                CosInnerCone = cosf(DEGTORAD(InnerCone));
+                CosOutterCone = cosf((f32)DEGTORAD(OutterCone));
+                CosInnerCone = cosf((f32)DEGTORAD(InnerCone));
                 Direction = direction;
 
 				// Bounding
@@ -52,8 +52,8 @@ namespace p3d {
             const f32 &GetLightCosOutterCone() const { return CosOutterCone; }
             const f32 &GetLightInnerCone() const { return innerCone; }
             const f32 &GetLightOutterCone() const { return outterCone; }
-			void SetLightInnerCone(const f32 inner) { innerCone = inner; CosInnerCone = cosf(DEGTORAD(innerCone)); }
-			void SetLightOutterCone(const f32 outter) { outterCone = outter; CosOutterCone = cosf(DEGTORAD(outterCone)); }
+			void SetLightInnerCone(const f32 inner) { innerCone = inner; CosInnerCone = cosf((f32)DEGTORAD(innerCone)); }
+			void SetLightOutterCone(const f32 outter) { outterCone = outter; CosOutterCone = cosf((f32)DEGTORAD(outterCone)); }
             const f32 &GetLightRadius() const { return Radius; }
 			void SetLightRadius(const f32 radius) { Radius = radius; }
             

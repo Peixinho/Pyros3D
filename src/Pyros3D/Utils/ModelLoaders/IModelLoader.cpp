@@ -20,7 +20,7 @@ namespace p3d {
         std::string str;
 
         t.seekg(0, std::ios::end);   
-        str.reserve(t.tellg());
+        str.reserve((size_t)t.tellg());
         t.seekg(0, std::ios::beg);
 
         // copy file to string

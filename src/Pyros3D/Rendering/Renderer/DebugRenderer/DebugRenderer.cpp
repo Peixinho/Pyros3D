@@ -106,11 +106,11 @@ namespace p3d {
 		uint32 longitudeBands = 8;
 		std::vector<Vec3> v;
 		for (uint32 latNumber = 0; latNumber <= latitudeBands; latNumber++) {
-			f32 theta = latNumber * PI / latitudeBands;
+			f32 theta = (f32)(latNumber * PI / latitudeBands);
 			f32 sinTheta = sinf(theta);
 			f32 cosTheta = cosf(theta);
 			for (uint32 longNumber = 0; longNumber <= longitudeBands; longNumber++) {
-				f32 phi = longNumber * 2 * PI / longitudeBands;
+				f32 phi = (f32)(longNumber * 2 * PI / longitudeBands);
 				f32 sinPhi = sinf(phi);
 				f32 cosPhi = cosf(phi);
 				f32 x = cosPhi * sinTheta;
@@ -134,7 +134,7 @@ namespace p3d {
 		uint32 segmentsH = 1;
 		uint32 segmentsW = 12;
 
-		int i, j, jMin, jMax;
+		int jMin, jMax;
 
 		std::vector <Vec3> aRowT, aRowB;
 
@@ -143,11 +143,11 @@ namespace p3d {
 		jMin = 0;
 		jMax = segmentsH;
 
-		for (j = jMin; j <= jMax; ++j) {
+		for (int j = jMin; j <= jMax; ++j) {
 			f32 z = -height + 2 * height*(f32)(j - jMin) / (f32)(jMax - jMin);
 			std::vector <Vec3> aRow;
 
-			for (i = 0; i<segmentsW; ++i) {
+			for (size_t i = 0; i<segmentsW; ++i) {
 				f32 verangle = (f32)(2 * (f32)i / segmentsW*PI);
 				f32 x = radius * sin(verangle);
 				f32 y = radius * cos(verangle);
@@ -159,8 +159,8 @@ namespace p3d {
 
 		aVtc.push_back(aRowT);
 
-		for (j = 1; j <= segmentsH; ++j) {
-			for (i = 0; i<segmentsW; ++i) {
+		for (size_t j = 1; j <= segmentsH; ++j) {
+			for (size_t i = 0; i<segmentsW; ++i) {
 				Vec3 a = aVtc[j][i];
 				Vec3 b = aVtc[j][(i - 1 + segmentsW) % segmentsW];
 				Vec3 c = aVtc[j - 1][(i - 1 + segmentsW) % segmentsW];
@@ -191,7 +191,7 @@ namespace p3d {
 		uint32 segmentsW = 6;
 		uint32 segmentsH = 6;
 
-		int i, j, jMin;
+		int jMin;
 
 		f32 _height = height / 2.f;
 
@@ -201,17 +201,17 @@ namespace p3d {
 		segmentsH += 1;
 		Vec3 bottom = Vec3(0, -_height * 2, 0);
 		std::vector <Vec3> aRowB;
-		for (i = 0; i<segmentsW; ++i) {
+		for (size_t i = 0; i<segmentsW; ++i) {
 			aRowB.push_back(bottom);
 		}
 		aVtc.push_back(aRowB);
 	
 
-		for (j = jMin; j<segmentsH; ++j) {
+		for (size_t j = jMin; j<segmentsH; ++j) {
 			f32 z = -height + 2 * height * (f32)(j - jMin) / (f32)(segmentsH - jMin);
 
 			std::vector <Vec3> aRow;
-			for (i = 0; i<segmentsW; ++i) {
+			for (size_t i = 0; i<segmentsW; ++i) {
 				f32 verangle = (f32)(2 * (f32)i / (f32)segmentsW*PI);
 				f32 ringradius = radius * (f32)(segmentsH - j) / (f32)(segmentsH - jMin);
 				f32 x = ringradius * sin(verangle);
@@ -227,13 +227,13 @@ namespace p3d {
 		Vec3 top = Vec3(0, height, 0);
 		std::vector <Vec3> aRowT;
 
-		for (i = 0; i<segmentsW; ++i)
+		for (size_t i = 0; i<segmentsW; ++i)
 			aRowT.push_back(top);
 
 		aVtc.push_back(aRowT);
 
-		for (j = 1; j <= segmentsH; ++j) {
-			for (i = 0; i<segmentsW; ++i) {
+		for (size_t j = 1; j <= segmentsH; ++j) {
+			for (size_t i = 0; i<segmentsW; ++i) {
 				Vec3 a = aVtc[j][i];
 				Vec3 b = aVtc[j][(i - 1 + segmentsW) % segmentsW];
 				Vec3 c = aVtc[j - 1][(i - 1 + segmentsW) % segmentsW];

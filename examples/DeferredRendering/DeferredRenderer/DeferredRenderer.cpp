@@ -13,11 +13,11 @@ namespace p3d {
     
 	f32 f(f32 r)
 	{
-		return r * (2.f * (tanf(PI / 4)));
+		return r * (2.f * (tanf((f32)PI / 4.f)));
 	}
 	f32 g(f32 a)
 	{
-		return a / (2.f*sinf(PI / 4));
+		return a / (2.f*sinf((f32)PI / 4.f));
 	}
 
     DeferredRenderer::DeferredRenderer(const uint32 Width, const uint32 Height, FrameBuffer* fbo) : IRenderer(Width,Height) 

@@ -156,7 +156,7 @@ namespace p3d {
                 // Reverse Shit
                 if ((*i)->reverse)
                 {
-                    (*i)->_frame = (((*i)->yoyo?.5f:1.f)*frameSize - (*i)->_frame)-1;
+                    (*i)->_frame = (int32)(((*i)->yoyo?.5f:1.f)*frameSize - (*i)->_frame)-1;
                 }
             }
         }

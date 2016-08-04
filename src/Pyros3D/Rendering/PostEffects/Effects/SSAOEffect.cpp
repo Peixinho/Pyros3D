@@ -136,11 +136,11 @@ namespace p3d {
 		Uniform matProj;
 		Uniform inverseView;
 
-		total_strength = 1.0;
-		base = 0.01;
-		area = 1.0;
-		falloff = 0.01;
-		radius = 0.02;
+		total_strength = 1.0f;
+		base = 0.01f;
+		area = 1.0f;
+		falloff = 0.01f;
+		radius = 0.02f;
 		samples = 16;
 		scale = 0.0005f;
 

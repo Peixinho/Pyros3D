@@ -89,7 +89,7 @@ void RotatingTextureAnimatedCube::Update()
 {
     // Update - Game Loop
     
-        anim->Update(GetTime());
+        anim->Update((f32)GetTime());
 
         // Set Texture from Animation Instance
         material->SetColorMap(animInst->GetTexture());
@@ -98,7 +98,7 @@ void RotatingTextureAnimatedCube::Update()
         Scene->Update(GetTime());
         
         // Game Logic Here
-        CubeObject->SetRotation(Vec3(0,GetTime(),0));
+        CubeObject->SetRotation(Vec3(0,(f32)GetTime(),0));
 
         // Render Scene
         Renderer->RenderScene(projection,Camera,Scene);

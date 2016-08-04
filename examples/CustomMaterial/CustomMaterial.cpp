@@ -67,7 +67,7 @@ void CustomMaterial::Update()
         Scene->Update(GetTime());
         
         // Game Logic Here
-        CubeObject->SetRotation(Vec3(0,GetTime(),0));
+        CubeObject->SetRotation(Vec3(0.f,(f32)GetTime(),0.f));
 
         // Render Scene
         Renderer->RenderScene(projection,Camera,Scene);

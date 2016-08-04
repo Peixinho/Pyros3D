@@ -156,6 +156,7 @@ namespace p3d {
 		{
 			if (index == 0) return x;
 			if (index == 1) return y;
+			return x;
 		}
 		float* Vec2::operator()() { return &x; }
 

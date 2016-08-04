@@ -53,7 +53,7 @@ void RotatingCubeWithLightingAndShadow::Init()
 	Light = new GameObject();
 	dLight = new DirectionalLight(Vec4(1, 1, 1, 1), Vec3(-1, -1, -1));
 	// Enable Shadow Casting
-	dLight->EnableCastShadows(2048, 2048, projection, 0.1, 300.0, 1);
+	dLight->EnableCastShadows(2048, 2048, projection, 0.1f, (f32)300.0, 1);
 	dLight->SetShadowBias(5.f, 3.f);
 	Light->Add(dLight);
 
@@ -111,10 +111,10 @@ void RotatingCubeWithLightingAndShadow::Init()
 	// Add GameObject to Scene
 	Scene->Add(CubeObject);
 
-	SetMousePosition((uint32)Width / 2, (uint32)Height / 2);
-	mouseCenter = Vec2((uint32)Width / 2, (uint32)Height / 2);
+	SetMousePosition((uint32)(Width *.5f), (uint32)(Height *.5f));
+	mouseCenter = Vec2((f32)Width *.5f, (uint32)Height *.5f);
 	mouseLastPosition = mouseCenter;
-	counterX = counterY = 0;
+	counterX = counterY = 0.f;
 
 	// Input
 	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &RotatingCubeWithLightingAndShadow::MoveFrontPress);
@@ -140,7 +140,7 @@ void RotatingCubeWithLightingAndShadow::Update()
 	Scene->Update(GetTime());
 
 	// Game Logic Here
-	CubeObject->SetRotation(Vec3(0, GetTime(), 0));
+	CubeObject->SetRotation(Vec3(0, (f32)GetTime(), 0));
 
 	// Render Scene
 	Renderer->RenderScene(projection, Camera, Scene);
@@ -148,7 +148,7 @@ void RotatingCubeWithLightingAndShadow::Update()
 
 	Vec3 finalPosition;
 	Vec3 direction = Camera->GetDirection();
-	float dt = GetTimeInterval();
+	float dt = (float)GetTimeInterval();
 	float speed = dt * 20.f;
 	if (_moveFront)
 	{
@@ -247,8 +247,8 @@ void RotatingCubeWithLightingAndShadow::LookTo(Event::Input::Info e)
 			if (counterY<-90.f) counterY = -90.f;
 			if (counterY>90.f) counterY = 90.f;
 			Quaternion qX, qY;
-			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), DEGTORAD(counterY));
-			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), DEGTORAD(counterX));
+			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), (f32)DEGTORAD(counterY));
+			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), (f32)DEGTORAD(counterX));
 			//                Matrix rotX, rotY;
 			//                rotX.RotationX(DEGTORAD(counterY));
 			//                rotY.RotationY(DEGTORAD(counterX));

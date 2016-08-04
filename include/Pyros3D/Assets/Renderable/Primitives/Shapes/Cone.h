@@ -24,12 +24,13 @@ namespace p3d {
                 isFlipped = flip;
                 isSmooth = smooth;
                 calculateTangentBitangent = TangentBitangent;
-                this->segmentsW = segmentsW;
-                this->segmentsH = segmentsH;
+                this->segmentsW = (f32)segmentsW;
+                this->segmentsH = (f32)segmentsH;
 
                 Vec3 normal;
 
-                int i,j,jMin;
+				size_t i, j;
+                int jMin;
 
                 f32 _height = height / 2;
 

@@ -51,9 +51,9 @@ namespace p3d {
             const Vec2 GetMousePosition() const;
 
 			// Time
-			virtual f64 GetTime() { return clock.getElapsedTime().asSeconds(); }
-			virtual f64 GetTimeMilliSeconds() { return clock.getElapsedTime().asMilliseconds(); }
-			virtual f64 GetTimeMicroSeconds() { return clock.getElapsedTime().asMicroseconds(); }
+			virtual f64 GetTime() { return (f64)clock.getElapsedTime().asSeconds(); }
+			virtual f64 GetTimeMilliSeconds() { return (f64)clock.getElapsedTime().asMilliseconds(); }
+			virtual f64 GetTimeMicroSeconds() { return (f64)clock.getElapsedTime().asMicroseconds(); }
 			
         protected:
             

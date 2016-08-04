@@ -39,7 +39,7 @@ namespace p3d {
                 geometry->index.push_back(3);
                 geometry->index.push_back(0);
 
-                for (int i = 0;i < geometry->tTexcoord.size(); i++) geometry->tTexcoord[i].y = 1-geometry->tTexcoord[i].y;
+                for (size_t i = 0;i < geometry->tTexcoord.size(); i++) geometry->tTexcoord[i].y = 1-geometry->tTexcoord[i].y;
 
                 // Build and Send Buffers
                 Build();

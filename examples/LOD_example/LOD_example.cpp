@@ -60,16 +60,16 @@ void LOD_example::Init()
 		GameObject* Light = new GameObject();
 		PointLight* pLight = new PointLight(Vec4(1, 1, 1, 1), 100 );
 		Light->Add(pLight);
-		Light->SetPosition(Vec3((rand() % 1000) - 500, (rand() % 1000) - 500, (rand() % 1000) - 500));
+		Light->SetPosition(Vec3((f32)(rand() % 1000) - 500.f, (f32)(rand() % 1000) - 500.f, (f32)(rand() % 1000) - 500.f));
 		Light->Add(new RenderingComponent(sHandle));
 		Lights.push_back(Light);
 		pLights.push_back(pLight);
 		Scene->Add(Light);
 	}
-	SetMousePosition((uint32)Width / 2, (uint32)Height / 2);
-	mouseCenter = Vec2((uint32)Width / 2, (uint32)Height / 2);
+	SetMousePosition((uint32)(Width *.5f), (uint32)(Height *.5f));
+	mouseCenter = Vec2((f32)Width *.5f, (f32)Height *.5f);
 	mouseLastPosition = mouseCenter;
-	counterX = counterY = 0;
+	counterX = counterY = 0.f;
 
 	// Input
 	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &LOD_example::MoveFrontPress);
@@ -105,7 +105,7 @@ void LOD_example::Init()
 		rTeapot->AddLOD(teapotLOD3Handle, 100);
 
 		GameObject* Teapot = new GameObject(true); //Static Object
-		Teapot->SetPosition(Vec3((rand() % 1000) - 500, (rand() % 1000) - 500, (rand() % 1000) - 500));
+		Teapot->SetPosition(Vec3((f32)(rand() % 1000) - 500.f, (f32)(rand() % 1000) - 500.f, (f32)(rand() % 1000) - 500.f));
 		Teapot->SetScale(Vec3(.1f, .1f, .1f));
 		Teapot->Add(rTeapot);
 
@@ -137,7 +137,7 @@ void LOD_example::Update()
 
 	Vec3 finalPosition;
 	Vec3 direction = Camera->GetDirection();
-	float dt = GetTimeInterval();
+	float dt = (float)GetTimeInterval();
 	float speed = dt * 200.f;
 	if (_moveFront)
 	{
@@ -165,7 +165,7 @@ void LOD_example::Shutdown()
 	// All your Shutdown Code Here
 
 	// Remove all Objects
-	for (int i = 0; i<rTeapots.size(); i++)
+	for (size_t i = 0; i<rTeapots.size(); i++)
 	{
 		// Remove From Scene
 		Scene->Remove(Teapots[i]);
@@ -236,7 +236,7 @@ void LOD_example::OnMouseRelease(Event::Input::Info e)
 
 	std::vector<GameObject*> members = octree->SearchObjects(Camera->GetWorldPosition(), 100);
 
-	for (int i = 0; i<rTeapots.size(); i++)
+	for (size_t i = 0; i<rTeapots.size(); i++)
 	{
 		bool found = false;
 		for (std::vector<GameObject*>::iterator k = members.begin(); k != members.end(); k++)
@@ -268,7 +268,7 @@ void LOD_example::AddTeapot(Event::Input::Info e)
 		//rTeapot->AddLOD(teapotLOD3Handle, 100);
 
 		GameObject* Teapot = new GameObject(true); //Static Object
-		Teapot->SetPosition(Vec3((rand() % 1000) - 500, (rand() % 1000) - 500, (rand() % 1000) - 500));
+		Teapot->SetPosition(Vec3((f32)(rand() % 1000) - 500.f, (f32)(rand() % 1000) - 500.f, (f32)(rand() % 1000) - 500.f));
 		Teapot->SetScale(Vec3(.1f, .1f, .1f));
 		Teapot->Add(rTeapot);
 
@@ -295,8 +295,8 @@ void LOD_example::LookTo(Event::Input::Info e)
 			if (counterY<-90.f) counterY = -90.f;
 			if (counterY>90.f) counterY = 90.f;
 			Quaternion qX, qY;
-			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), DEGTORAD(counterY));
-			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), DEGTORAD(counterX));
+			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), (f32)DEGTORAD(counterY));
+			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), (f32)DEGTORAD(counterX));
 			//                Matrix rotX, rotY;
 			//                rotX.RotationX(DEGTORAD(counterY));
 			//                rotY.RotationY(DEGTORAD(counterX));

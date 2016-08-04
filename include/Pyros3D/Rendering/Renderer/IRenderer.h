@@ -154,7 +154,7 @@ namespace p3d {
             void DisableWireFrame();
 
             // Color
-            void ColorMask(const f32 r,const f32 g,const f32 b,const f32 a);
+            void ColorMask(const bool r,const bool g,const bool b,const bool a);
 
             // Sorting
             void EnableSorting();

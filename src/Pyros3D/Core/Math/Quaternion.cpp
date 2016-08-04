@@ -135,7 +135,7 @@ namespace p3d {
         void Quaternion::AxisToQuaternion(const Vec3 &v, const f32 angle)
         {
             f32 x,y,z; // temp vars of Vector
-            f64 rad, scale; // temp vars
+            f32 rad, scale; // temp vars
 
             if (v == Vec3(0,0,0)) // if axis is zero, then return quaternion (1,0,0,0)
             {
@@ -214,14 +214,14 @@ namespace p3d {
             }
 
             f32 halfTheta = acosf( cosHalfTheta );
-            f32 sinHalfTheta = sqrt( 1.0 - cosHalfTheta * cosHalfTheta );
+            f32 sinHalfTheta = sqrt( 1.0f - cosHalfTheta * cosHalfTheta );
 
             if ( fabs( sinHalfTheta ) < 0.001 ) {
 
-                a.w = 0.5 * ( w + a.w );
-                a.x = 0.5 * ( x + a.x );
-                a.y = 0.5 * ( y + a.y );
-                a.z = 0.5 * ( z + a.z );
+                a.w = 0.5f * ( w + a.w );
+                a.x = 0.5f * ( x + a.x );
+                a.y = 0.5f * ( y + a.y );
+                a.z = 0.5f * ( z + a.z );
 
                 return a;
 

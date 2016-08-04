@@ -27,12 +27,12 @@ namespace p3d {
             this->radius=radius;
             this->p=p;
             this->q=q;
-            this->heightScale = heightscale;
+            this->heightScale = (f32)heightscale;
 
             Vec3 normal;    
 
             // counters
-            int i,j;      
+            size_t i,j;      
 
             // vars aux
             Vec3 tang,n,bitan;

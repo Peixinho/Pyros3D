@@ -96,10 +96,10 @@ namespace p3d {
                 MouseButtonReleased(event.mouseButton.button);
 
             if (event.type == sf::Event::MouseMoved)
-                MouseMove(sf::Mouse::getPosition(rview).x,sf::Mouse::getPosition(rview).y);
+                MouseMove((f32)sf::Mouse::getPosition(rview).x,(f32)sf::Mouse::getPosition(rview).y);
 
             if (event.type == sf::Event::MouseWheelMoved)
-                MouseWheel(event.mouseWheel.delta);
+                MouseWheel((f32)event.mouseWheel.delta);
 
             // Joypad
             if (event.type == sf::Event::JoystickButtonPressed)
@@ -199,7 +199,7 @@ namespace p3d {
     }
     const Vec2 SFMLContext::GetMousePosition() const
     {
-        return Vec2(sf::Mouse::getPosition(rview).x, sf::Mouse::getPosition(rview).y);
+        return Vec2((f32)sf::Mouse::getPosition(rview).x, (f32)sf::Mouse::getPosition(rview).y);
     }
     void SFMLContext::JoypadButtonPressed(const uint32 JoypadID, const uint32 Button)
     {

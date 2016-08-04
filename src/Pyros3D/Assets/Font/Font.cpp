@@ -38,8 +38,8 @@ namespace p3d {
         // Free Type Initialization
         if (FT_Init_FreeType(&ft)) echo("ERROR: Couldn't Start Freetype Lib");
         if (FT_New_Memory_Face(ft,&memory[0],memory.size(),0,&face)) echo("ERROR: Couldn't Load Font");
-        if (FT_Set_Char_Size(face,0,fontSize*64,300,300)) echo("ERROR: Couldn't Set Char Size");
-        if (FT_Set_Pixel_Sizes(face,0,fontSize)) echo("ERROR: Couldn't Set Pixel Size");
+        if (FT_Set_Char_Size(face,0, (FT_F26Dot6)(fontSize*64),300,300)) echo("ERROR: Couldn't Set Char Size");
+        if (FT_Set_Pixel_Sizes(face,0, (FT_F26Dot6)fontSize)) echo("ERROR: Couldn't Set Pixel Size");
         
         glyphMap->UpdateData(glyphMapData);
         
@@ -90,13 +90,13 @@ namespace p3d {
 								FT_BBox BBox;
 								FT_Glyph_Get_CBox(glyph, FT_GLYPH_BBOX_PIXELS, &BBox);
 								glyph_properties glp;
-								glp.offset = Vec2(BBox.xMin, -BBox.yMin);
-								glp.size = Vec2(bitmap.width, bitmap.rows);
+								glp.offset = Vec2((f32)BBox.xMin, (f32)-BBox.yMin);
+								glp.size = Vec2((f32)bitmap.width, (f32)bitmap.rows);
 
 								if (lastGlyphWidth + (fontSize)>MAP_SIZE)
 								{
 									lastGlyphWidth = 0;
-									lastGlyphRow+=fontSize*MAP_SIZE;
+									lastGlyphRow+=(uint32)fontSize*MAP_SIZE;
 								}
                         
 								glp.startingPoint.x = (f32)lastGlyphWidth/MAP_SIZE;
@@ -110,7 +110,7 @@ namespace p3d {
 										glyphMapData[index + w + lastGlyphWidth + lastGlyphRow]=bitmap.buffer[w + bitmap.width * h];
 									}
                         
-								lastGlyphWidth += (fontSize);
+								lastGlyphWidth += (uint32)(fontSize);
                         
 								// Add this properties to each glyph
 								glyphs[text[i]]=glp;

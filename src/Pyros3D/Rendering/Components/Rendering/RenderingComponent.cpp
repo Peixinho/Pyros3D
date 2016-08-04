@@ -113,7 +113,7 @@ namespace p3d {
         if (Distance!=LastLodDistance)
         {
             LastLodDistance = Distance;
-            for (int i=0;i<LODDistances.size();i++)
+            for (size_t i=0;i<LODDistances.size();i++)
             {
                 if (Distance<LODDistances[i]*LODDistances[i]) return i;
             }

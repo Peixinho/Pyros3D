@@ -9,6 +9,9 @@
 #ifndef FILE_H
 #define FILE_H
 
+#ifdef _WIN32 
+#define _CRT_SECURE_NO_DEPRECATE 
+#endif
 #include <stdio.h>
 #include <vector>
 #include <string>

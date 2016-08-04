@@ -97,7 +97,7 @@ namespace p3d {
                 #else
 
                     _Music.setLoop(_loop);
-                    _Music.setVolume(_volume);
+                    _Music.setVolume((f32)_volume);
                     _Music.play();
 
                 #endif
@@ -114,7 +114,7 @@ namespace p3d {
                 #else
 
                     _Sound.setLoop(_loop);
-                    _Sound.setVolume(_volume);
+                    _Sound.setVolume((f32)_volume);
                     _Sound.play();
 
                 #endif
@@ -149,11 +149,11 @@ namespace p3d {
             switch(_type)
             {
                 case SoundType::Music:
-                    _Music.setVolume(_volume);
+                    _Music.setVolume((f32)_volume);
                 break;
                 case SoundType::Sound:
                 default:
-                    _Sound.setVolume(_volume);
+                    _Sound.setVolume((f32)_volume);
                 break;
             };
 

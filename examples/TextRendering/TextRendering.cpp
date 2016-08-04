@@ -37,7 +37,7 @@ void TextRendering::Init()
         Renderer = new ForwardRenderer(Width,Height);
 
         // Projection
-        projection.Ortho(0.f,Width,0.f,Height,0.f,10.f);
+        projection.Ortho(0.f,(f32)Width,0.f,(f32)Height,0.f,10.f);
         
         // Create Camera
         Camera = new GameObject();
@@ -64,7 +64,7 @@ void TextRendering::Init()
         
         // Add GameObject to Scene
         Scene->Add(TextObject);
-		Renderer->SetBackground(Vec4(0.2, 0.2, 0.2, 0.2));
+		Renderer->SetBackground(Vec4(0.2f, 0.2f, 0.2f, 0.2f));
 }
 
 void TextRendering::Update()
@@ -75,8 +75,8 @@ void TextRendering::Update()
         Scene->Update(GetTime());
         
         // Game Logic Here
-        TextObject->SetRotation(Vec3(0,0,GetTime()));
-        TextObject->SetPosition(Vec3(Width/2.f,Height/2.f,0.f));
+        TextObject->SetRotation(Vec3(0,0,(f32)GetTime()));
+        TextObject->SetPosition(Vec3(Width*.5f,Height*.5f,0.f));
 
         // Render Scene
         Renderer->RenderScene(projection,Camera,Scene);

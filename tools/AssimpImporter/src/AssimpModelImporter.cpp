@@ -147,7 +147,7 @@ namespace p3d {
                                 }
                             }
                         }
-                        subMesh.tBonesID.push_back(Vec4(boneID[0],boneID[1],boneID[2],boneID[3]));
+                        subMesh.tBonesID.push_back(Vec4((f32)boneID[0],(f32)boneID[1],(f32)boneID[2],(f32)boneID[3]));
                         subMesh.tBonesWeight.push_back(Vec4(weightValue[0],weightValue[1],weightValue[2],weightValue[3]));                        
                     }
                     

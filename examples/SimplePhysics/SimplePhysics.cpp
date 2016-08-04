@@ -61,13 +61,13 @@ void SimplePhysics::Init()
 
     // Create Materials
     Diffuse = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
-    Diffuse->SetColor(Vec4(0.8,0.8,0.8,1.0));
+    Diffuse->SetColor(Vec4(0.8f,0.8f,0.8f,1.f));
 
     // Set Selected Mesh PTR NULL
     SelectedMesh = NULL;
 
     // Create Cubes
-    srand( time( NULL ) );
+    srand( (unsigned int)time( NULL ) );
 
     // Create Geometry
     cubeHandle = new Cube(5,5,5);
@@ -98,7 +98,7 @@ void SimplePhysics::Init()
         // Add GameObject to Scene
         Scene->Add(Cube);
         // Set Random Position to the GameObject
-        Cube->SetPosition(Vec3((rand() % 100) -50,(rand() % 100)-50,(rand() % 100) -50));
+        Cube->SetPosition(Vec3((f32)(rand() % 100) -50.f, (f32)(rand() % 100)-50.f, (f32)(rand() % 100) -50.f));
     }
 
     // Create Floor

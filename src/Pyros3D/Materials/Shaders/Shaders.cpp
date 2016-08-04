@@ -30,7 +30,7 @@ namespace p3d {
 		}
 
         t.seekg(0, std::ios::end);   
-        str.reserve(t.tellg());
+        str.reserve((uint32)t.tellg());
         t.seekg(0, std::ios::beg);
 
         str.assign((std::istreambuf_iterator<char>(t)),

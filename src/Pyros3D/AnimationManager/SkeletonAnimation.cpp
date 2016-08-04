@@ -243,7 +243,7 @@ namespace p3d {
     {
         return AnimationsToPlay[animationOrder]._startTime;
     }
-    f32 SkeletonAnimationInstance::GetAnimationID(const uint32 animationOrder)
+    uint32 SkeletonAnimationInstance::GetAnimationID(const uint32 animationOrder)
     {
         return AnimationsToPlay[animationOrder].ID;
     }
@@ -378,7 +378,7 @@ namespace p3d {
 
     const int32 SkeletonAnimation::GetAnimationIDByName(const std::string &name) const
     {
-        for (int i=0;i<animations.size();i++)
+        for (uint32 i=0;i<animations.size();i++)
         {
             if (animations[i].AnimationName.compare(name)==0) return i;
         }

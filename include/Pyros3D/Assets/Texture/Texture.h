@@ -106,7 +106,7 @@ namespace p3d {
 			uint32 cubemapFaces;
 
             // GL Properties
-            uint32 Transparency;
+            f32 Transparency;
             uint32 MinFilter;
             uint32 MagFilter;
             uint32 SRepeat;

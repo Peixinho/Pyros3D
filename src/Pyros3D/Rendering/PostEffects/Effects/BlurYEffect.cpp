@@ -19,7 +19,7 @@ namespace p3d {
 		texRes.Name = "uTexResolution";
 		texRes.Type = Uniforms::DataType::Float;
 		texRes.Usage = Uniforms::PostEffects::Other;
-		f32 res = Height;
+		f32 res = (f32)Height;
 		texRes.SetValue(&res);
 		AddUniform(texRes);
 

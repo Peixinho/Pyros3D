@@ -25,7 +25,7 @@ namespace p3d {
             
             Vec3 normal;
 
-            int i, j;
+            size_t i, j;
             std::vector <std::vector<Vec3> > aVtc;  
 
             for (i=0;i<segmentsW;++i) {

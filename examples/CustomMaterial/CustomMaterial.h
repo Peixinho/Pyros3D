@@ -45,7 +45,7 @@ class CustomMaterialExample : public CustomShaderMaterial {
             
             virtual void PreRender() 
             {
-                srand( time( NULL ) );
+                srand( (unsigned int)time( NULL ) );
                 Vec4 color = Vec4((rand() % 100)/100.f,(rand() % 100)/100.f,(rand() % 100)/100.f,1.f);
                 SetUniformValue("uColor",&color);
             }

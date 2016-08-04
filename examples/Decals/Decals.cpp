@@ -87,12 +87,12 @@ void Decals::Init()
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &Decals::StrafeRightRelease);
 	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &Decals::LookTo);
 
-	SetMousePosition((uint32)Width / 2, (uint32)Height / 2);
-	mouseCenter = Vec2((uint32)Width / 2, (uint32)Height / 2);
+	SetMousePosition((uint32)(Width *.5f), (uint32)(Height *.5f));
+	mouseCenter = Vec2((f32)Width *.5f, (f32)Height *.5f);
 	mouseLastPosition = mouseCenter;
-	counterX = counterY = 0;
+	counterX = counterY = 0.f;
 
-	_strafeLeft = _strafeRight = _moveBack = _moveFront = 0;
+	_strafeLeft = _strafeRight = _moveBack = _moveFront = 0.f;
 }
 
 void Decals::Update()
@@ -103,17 +103,17 @@ void Decals::Update()
 	Scene->Update(GetTime());
 
 	// Game Logic Here
-	CubeObject->SetRotation(Vec3(0, GetTime(), 0));
-	SphereObject->SetRotation(Vec3(0, GetTime(), 0));
-	ModelObject->SetRotation(Vec3(0, GetTime()*.5f, 0));
+	CubeObject->SetRotation(Vec3(0.f, (f32)GetTime(), 0.f));
+	SphereObject->SetRotation(Vec3(0.f, (f32)GetTime(), 0.f));
+	ModelObject->SetRotation(Vec3(0.f, (f32)GetTime()*.5f, 0.f));
 
 	// Render Scene
 	Renderer->RenderScene(projection, Camera, Scene);
 
 	Vec3 finalPosition;
 	Vec3 direction = Camera->GetDirection();
-	float dt = GetTimeInterval();
-	float speed = dt * 200.f;
+	f64 dt = GetTimeInterval();
+	f32 speed = (f32)dt * 200.f;
 	if (_moveFront)
 	{
 		finalPosition -= direction*speed;
@@ -176,13 +176,13 @@ void Decals::OnMouseRelease(Event::Input::Info e) {
 bool Decals::GetIntersectedTriangle(RenderingComponent* rcomp, Mouse3D mouse, Vec3* intersection, Vec3* normal, uint32* meshID)
 {
 	Vec3 _intersection, finalIntersection;
-	f32 t, dist, dist2;
+	f32 t, dist;
 	uint32 _meshID;
 	bool init = false;
 	Vec3 _normal;
 
-	for (int32 k = 0; k < rcomp->GetMeshes().size(); k++)
-		for (int32 i = 0; i < rcomp->GetMeshes()[k]->Geometry->GetIndexData().size(); i += 3)
+	for (size_t k = 0; k < rcomp->GetMeshes().size(); k++)
+		for (size_t i = 0; i < rcomp->GetMeshes()[k]->Geometry->GetIndexData().size(); i += 3)
 		{
 			if (mouse.rayIntersectionTriangle(
 				rcomp->GetMeshes()[k]->Geometry->GetVertexData()[rcomp->GetMeshes()[k]->Geometry->GetIndexData()[i]],
@@ -234,7 +234,7 @@ void Decals::CreateDecal()
 	RenderingComponent* rcomp = NULL;
 	GameObject* gobj = NULL;
 
-	mouse.GenerateRay(Width, Height, InputManager::GetMousePosition().x, InputManager::GetMousePosition().y, SphereObject->GetWorldTransformation(), Camera->GetWorldTransformation().Inverse(), projection.GetProjectionMatrix());
+	mouse.GenerateRay((f32)Width, (f32)Height, InputManager::GetMousePosition().x, InputManager::GetMousePosition().y, SphereObject->GetWorldTransformation(), Camera->GetWorldTransformation().Inverse(), projection.GetProjectionMatrix());
 	if (mouse.rayIntersectionSphere(Vec3(0,0,0), 30, &intersection, &t))
 	{
 		if (GetIntersectedTriangle(rSphere, mouse, &intersection, &normal, &meshID))
@@ -246,7 +246,7 @@ void Decals::CreateDecal()
 			FinalNormal = normal;
 		}
 	}
-	mouse.GenerateRay(Width, Height, InputManager::GetMousePosition().x, InputManager::GetMousePosition().y, CubeObject->GetWorldTransformation(), Camera->GetWorldTransformation().Inverse(), projection.GetProjectionMatrix());
+	mouse.GenerateRay((f32)Width, (f32)Height, InputManager::GetMousePosition().x, InputManager::GetMousePosition().y, CubeObject->GetWorldTransformation(), Camera->GetWorldTransformation().Inverse(), projection.GetProjectionMatrix());
 	if (mouse.rayIntersectionBox(rCube->GetBoundingMinValue(), rCube->GetBoundingMaxValue(), &t))
 	{
 		if (GetIntersectedTriangle(rCube, mouse, &intersection, &normal, &meshID))
@@ -262,7 +262,7 @@ void Decals::CreateDecal()
 			}
 		}
 	}
-	mouse.GenerateRay(Width, Height, InputManager::GetMousePosition().x, InputManager::GetMousePosition().y, ModelObject->GetWorldTransformation(), Camera->GetWorldTransformation().Inverse(), projection.GetProjectionMatrix());
+	mouse.GenerateRay((f32)Width, (f32)Height, InputManager::GetMousePosition().x, InputManager::GetMousePosition().y, ModelObject->GetWorldTransformation(), Camera->GetWorldTransformation().Inverse(), projection.GetProjectionMatrix());
 	if (mouse.rayIntersectionBox(rModel->GetBoundingMinValue(), rModel->GetBoundingMaxValue(), &t))
 	{
 		if (GetIntersectedTriangle(rModel, mouse, &intersection, &normal, &meshID))
@@ -339,8 +339,8 @@ void Decals::LookTo(Event::Input::Info e)
 			if (counterY<-90.f) counterY = -90.f;
 			if (counterY>90.f) counterY = 90.f;
 			Quaternion qX, qY;
-			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), DEGTORAD(counterY));
-			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), DEGTORAD(counterX));
+			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), (f32)DEGTORAD(counterY));
+			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), (f32)DEGTORAD(counterX));
 			//                Matrix rotX, rotY;
 			//                rotX.RotationX(DEGTORAD(counterY));
 			//                rotY.RotationY(DEGTORAD(counterX));

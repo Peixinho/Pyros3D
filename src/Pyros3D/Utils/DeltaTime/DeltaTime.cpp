@@ -51,12 +51,12 @@ namespace p3d {
            }
            else if (isBulletTime==true)
            {
-               f32 _timeInterval = (internalTime - timeInterval) / bulletFactor;
+               f64 _timeInterval = (internalTime - timeInterval) / bulletFactor;
                timeInterval = internalTime;
                return _timeInterval;
            }
            else {
-               f32 _timeInterval = internalTime - timeInterval;
+               f64 _timeInterval = internalTime - timeInterval;
                timeInterval = internalTime;               
                return _timeInterval;
            }
@@ -92,7 +92,7 @@ namespace p3d {
             if (isBulletTime==true)
             {
                 isBulletTime = false;
-                f32 _bulletTime = (internalTime - bulletTimeStart) / bulletFactor;
+                f64 _bulletTime = (internalTime - bulletTimeStart) / bulletFactor;
                 timeInterval -= _bulletTime;
                 bulletTime += _bulletTime;
                 bulletTimeStart = 0;

@@ -48,31 +48,31 @@ namespace p3d {
         	// Color
         	uchar In;
         	bin->Read(&In, sizeof(uchar));
-        	mat.haveColor = (bool)In;
+        	mat.haveColor = In==1;
         	bin->Read(&mat.Color, sizeof(Vec4));
 
         	// Specular
         	bin->Read(&In, sizeof(uchar));
-        	mat.haveSpecular = (bool)In;
+        	mat.haveSpecular = In==1;
         	bin->Read(&mat.Specular, sizeof(Vec4));
 
         	// Ambient
         	bin->Read(&In, sizeof(uchar));
-        	mat.haveAmbient = (bool)In;
+        	mat.haveAmbient = In==1;
         	bin->Read(&mat.Ambient, sizeof(Vec4));
 
         	// Emissive
         	bin->Read(&In, sizeof(uchar));
-        	mat.haveEmissive = (bool)In;
+        	mat.haveEmissive = In==1;
         	bin->Read(&mat.Emissive, sizeof(Vec4));
 
         	// WireFrame
         	bin->Read(&In, sizeof(uchar));
-        	mat.WireFrame = (bool)In;
+        	mat.WireFrame = In==1;
 
         	// Twosided
         	bin->Read(&In, sizeof(uchar));
-        	mat.Twosided = (bool)In;
+        	mat.Twosided = In==1;
 
         	// Opacity
         	bin->Read(&mat.Opacity,sizeof(f32));
@@ -85,7 +85,7 @@ namespace p3d {
 
 			// Color Map
 			bin->Read(&In, sizeof(uchar));
-        	mat.haveColorMap = (bool)In;
+        	mat.haveColorMap = In==1;
         	bin->Read(&nameSize, sizeof(int32));
         	if (nameSize>0)
         	{
@@ -96,7 +96,7 @@ namespace p3d {
 
 			// Specular Map
 			bin->Read(&In, sizeof(uchar));
-        	mat.haveSpecularMap = (bool)In;
+        	mat.haveSpecularMap = In==1;
         	bin->Read(&nameSize, sizeof(int32));
         	if (nameSize>0)
         	{
@@ -106,7 +106,7 @@ namespace p3d {
         	}
 			// Normal Map
 			bin->Read(&In, sizeof(uchar));
-        	mat.haveNormalMap = (bool)In;
+        	mat.haveNormalMap = In==1;
         	bin->Read(&nameSize, sizeof(int32));
         	if (nameSize>0)
         	{
@@ -116,7 +116,7 @@ namespace p3d {
 	        }
 
     		bin->Read(&In, sizeof(uchar));
-            mat.haveBones = (bool)In;
+            mat.haveBones = In==1;
 
         	materials.push_back(mat);
 
@@ -125,7 +125,7 @@ namespace p3d {
         // Skeleton
         int skeletonSize;
         bin->Read(&skeletonSize, sizeof(int32));
-        for (uint32 i=0;i<skeletonSize;i++)
+        for (int32 i=0;i<skeletonSize;i++)
         {
         	int boneID;
         	bin->Read(&boneID, sizeof(int32));
@@ -162,7 +162,7 @@ namespace p3d {
             // Skinned
             uchar In;
     		bin->Read(&In, sizeof(uchar));
-            b.skinned = (bool)In;
+            b.skinned = In==1;
 
             skeleton[boneID] = b;
         }

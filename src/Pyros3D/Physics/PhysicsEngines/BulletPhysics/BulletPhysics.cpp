@@ -377,7 +377,7 @@ namespace p3d {
                 trans = vehicle->getChassisWorldTransform();
                 // Wheels Transformation
                 {
-                    for (uint32 i=0;i<vehicle->getNumWheels();i++)
+                    for (int i=0;i<vehicle->getNumWheels();i++)
                     {
                         Matrix m;
                         vehicle->updateWheelTransform(i,true);

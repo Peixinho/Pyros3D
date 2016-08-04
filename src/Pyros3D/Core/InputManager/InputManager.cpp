@@ -59,7 +59,7 @@ namespace p3d {
         Event::Input::Info m;
         m.Type = Event::Type::OnMove;
         m.Input = Event::Input::Mouse::Move;
-		m.Value=Vec2(mouseX, mouseY);
+		m.Value=Vec2((f32)mouseX, (f32)mouseY);
         MouseMoveEvents(m);
     }
     void InputManager::SetMouseWheel(const f32 delta)
@@ -72,7 +72,7 @@ namespace p3d {
     }
     Vec2 InputManager::GetMousePosition()
     {
-        return Vec2(mouseX, mouseY);
+        return Vec2((f32)mouseX, (f32)mouseY);
     }
     void InputManager::MousePressed(const uint32 e)
     {

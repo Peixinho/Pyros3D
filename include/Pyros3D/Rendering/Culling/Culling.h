@@ -56,7 +56,7 @@ namespace p3d {
         }
         void normalize() 
         {
-            f32 inverseNormalLength = 1.0 / this->normal.magnitude();
+            f32 inverseNormalLength = 1.0f / this->normal.magnitude();
             this->normal *= inverseNormalLength;
             this->constant *= inverseNormalLength;
 	}

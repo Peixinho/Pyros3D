@@ -86,8 +86,8 @@ void SkeletonAnimationExample::Init()
         anim->CreateLayer("Layer1");
         anim->AddBoneAndChilds("Layer1","Bip01_Spine1");
 
-        animationPos = anim->Play(animationID,0,-1,1,0.9);
-        animationPos2 = anim->Play(animationID2,0,-1,1,0.1);
+        animationPos = anim->Play(animationID,0.f,-1.f,1.f,0.9f);
+        animationPos2 = anim->Play(animationID2,0.f,-1.f,1.f,0.1f);
         anim->Play(1,0,-1,1,0.5,"Layer1");
         anim->Play(3,0,-1,1,0.5,"Layer1");
 
@@ -129,8 +129,8 @@ void SkeletonAnimationExample::Update()
         }
 
         // Updates Animation
-        SAnim->Update(GetTime());
-        SAnim2->Update(GetTime());
+        SAnim->Update((f32)GetTime());
+        SAnim2->Update((f32)GetTime());
 
         // Update Scene
         Scene->Update(GetTime());

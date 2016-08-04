@@ -74,7 +74,7 @@ namespace p3d {
                 {
                     case '\n':
                         // Build Quads in the bottom
-                        offsetY-=lineSize*1.5;
+                        offsetY-=lineSize*1.5f;
                         offsetX = 0.0f;
                     break;
                     case ' ':
@@ -172,7 +172,7 @@ namespace p3d {
                 {
                     case '\n':
                         // Build Quads in the bottom
-                        offsetY-=lineSize*1.5;
+                        offsetY-=lineSize*1.5f;
                         offsetX = 0.0f;
                     break;
                     case ' ':

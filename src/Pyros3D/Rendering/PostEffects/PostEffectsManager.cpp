@@ -85,7 +85,7 @@ namespace p3d {
 
         // Save Near and Far Planes
         Vec2 NearFarPlane = Vec2(projection->Near, projection->Far);
-        Vec2 ScreenDimensions = Vec2(Width,Height);
+        Vec2 ScreenDimensions = Vec2((f32)Width,(f32)Height);
 
         // Run Through Effects
         for (std::vector<IEffect*>::iterator effect=effects.begin();effect!=effects.end();effect++)

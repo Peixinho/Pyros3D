@@ -23,7 +23,7 @@ void RacingGame::OnResize(const uint32 width, const uint32 height)
     // Resize
     Renderer->Resize(width, height);
     projection.Perspective(70.f,(f32)width/(f32)height,1.f,2100.f);
-    projection2.Ortho(0,Width,0,Height,-1,100);
+    projection2.Ortho(0.f,(f32)Width,0.f, (f32)Height,-1.f,100.f);
     
     SetMousePosition((int)Width/2,(int)Height/2);
     mouseCenter = GetMousePosition();
@@ -45,7 +45,7 @@ void RacingGame::Init()
 		Renderer->SetGlobalLight(Vec4(0.5, 0.5, 0.5, 0.5));
         // Projection
         projection.Perspective(70.f,(f32)Width/(f32)Height,1.f,2100.f);
-        projection2.Ortho(0,Width,0,Height,-1,100);
+        projection2.Ortho(0.f, (f32)Width,0.f, (f32)Height,-1.f,100.f);
         
         // Physics
         physics = new Physics();
@@ -54,7 +54,7 @@ void RacingGame::Init()
         
         // Create Camera
         Camera = new GameObject();
-        Camera->SetPosition(Vec3(0,30.0,100));
+        Camera->SetPosition(Vec3(0,30.f,100.f));
         
         Camera2 = new GameObject();
         
@@ -79,13 +79,13 @@ void RacingGame::Init()
         Light = new GameObject();
         // Light Component
         dLight = new DirectionalLight(Vec4(1,1,1,1),Vec3(-1,-1,-1));
-        dLight->EnableCastShadows(2048,2048,projection,0.1,200.0,2);
+        dLight->EnableCastShadows(2048,2048,projection,0.1f,200.f,2);
 		dLight->SetShadowBias(3.1f,9.0f);
         Light->Add(dLight);
         Scene->Add(Light);
 
-        SetMousePosition((uint32)Width/2,(uint32)Height/2);
-        mouseCenter = Vec2((uint32)Width/2,(uint32)Height/2);
+        SetMousePosition((uint32)(Width*.5f),(uint32)(Height*.5f));
+        mouseCenter = Vec2((f32)Width*.5f,(f32)Height*.5f);
         mouseLastPosition = mouseCenter;
         
         // Input
@@ -180,16 +180,16 @@ void RacingGame::Init()
             rCar = new RenderingComponent(carHandle);
             Car->Add(rCar);
             Scene->Add(Car);
-            Car->SetPosition(Vec3((rand() % 1000) -500,(rand() % 100),(rand() % 1000) -500));
+            Car->SetPosition(Vec3((f32)(rand() % 1000) -500.f, (f32)(rand() % 100), (f32)(rand() % 1000) -500.f));
         }
-        Car->SetPosition(Vec3(-23,1,0));
+        Car->SetPosition(Vec3(-23.f,1.f,0.f));
 		//Car->SetRotation(Vec3(-23, 100, 0));
-		IPhysicsComponent* body = (IPhysicsComponent*) physics->CreateBox(1, 0.5, 2.3, 800);
+		IPhysicsComponent* body = (IPhysicsComponent*) physics->CreateBox(1.f, 0.5f, 2.3f, 800.f);
 		carPhysics = (PhysicsVehicle*) physics->CreateVehicle(body);
-		carPhysics->AddWheel(Vec3(0, -1, 0), Vec3(-1, 0, 0), 0.3f, 0.1f, 1000, 1.f, Vec3(-0.78, 1.15f, 1.35), true);
-		carPhysics->AddWheel(Vec3(0, -1, 0), Vec3(-1, 0, 0), 0.3f, 0.1f, 1000, 1.f, Vec3(0.75, 1.15f, 1.35), true);
-		carPhysics->AddWheel(Vec3(0, -1, 0), Vec3(-1, 0, 0), 0.32f, 0.1f, 1000, 1.f, Vec3(-0.78, 1.15f, -1.3), false);
-		carPhysics->AddWheel(Vec3(0, -1, 0), Vec3(-1, 0, 0), 0.32f, 0.1f, 1000, 1.f, Vec3(0.75, 1.15f, -1.3), false);
+		carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.3f, 0.1f, 1000.f, 1.f, Vec3(-0.78f, 1.15f, 1.35f), true);
+		carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.3f, 0.1f, 1000.f, 1.f, Vec3(0.75f, 1.15f, 1.35f), true);
+		carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.32f, 0.1f, 1000.f, 1.f, Vec3(-0.78f, 1.15f, -1.3f), false);
+		carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.32f, 0.1f, 1000.f, 1.f, Vec3(0.75f, 1.15f, -1.3f), false);
 		Car->Add(carPhysics);
 		Car->Add(Camera);
 		Camera->LookAt(Car);
@@ -197,7 +197,7 @@ void RacingGame::Init()
         {
             GenericShaderMaterial* m = static_cast<GenericShaderMaterial*> ((*i)->Material);
             m->SetEnvMap(dRenderer->GetTexture());
-            m->SetReflectivity(0.3);
+            m->SetReflectivity(0.3f);
         }
 		Scene->Add(Camera);
 }
@@ -208,7 +208,7 @@ void RacingGame::Update()
     
     Vec3 finalPosition;
     Vec3 direction = Camera->GetDirection();
-    float dt = GetTimeInterval();
+    float dt = (float)GetTimeInterval();
     float speed = dt * 20.f;
     /*if (_moveFront)
     {
@@ -228,16 +228,16 @@ void RacingGame::Update()
     }
     Camera->SetPosition(Camera->GetPosition()+finalPosition);*/
 	Camera->SetPosition(Car->GetWorldPosition());
-	Camera->SetPosition(Vec3(0, 3, -10));
+	Camera->SetPosition(Vec3(0.f, 3.f, -10.f));
 	
-	Camera->LookAt(Vec3(0,0, -1));
+	Camera->LookAt(Vec3(0.f,0.f, -1.f));
     
-	TextRendering->SetPosition(Vec3(5,Height-15.f,0.f));
+	TextRendering->SetPosition(Vec3(5.f,Height-15.f,0.f));
     std::ostringstream x; x << fps.getFPS();
     
     textID->UpdateText("Pyros3D - Racing RacingGame - FPS: " + x.str());
 //    Car->SetPosition(Vec3(20,10,0));
-    Car2->SetRotation(Vec3(0,GetTime(),0));
+    Car2->SetRotation(Vec3(0,(f32)GetTime(),0));
 
 	if (_upPressed == true)
 	{
@@ -318,7 +318,7 @@ void RacingGame::Update()
 	Skybox->SetPosition(Vec3(Camera->GetWorldPosition().x, 0, Camera->GetWorldPosition().z));
 
 	rCar->Disable();
-	dRenderer->RenderCubeMap(Scene, Car, 0.1, 2000);
+	dRenderer->RenderCubeMap(Scene, Car, 0.1f, 2000.f);
 	rCar->Enable();
 
 	Renderer->ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
@@ -473,6 +473,6 @@ void RacingGame::AnalogicMove(Event::Input::Info e)
 	if ((f32)e.Value>0.1) _rightPressed = true;
 	else if ((f32)e.Value<-0.1) _leftPressed = true;
 	
-	gVehicleSteering = fabs((f32)e.Value)*0.3*0.01*((f32)e.Value>0.0?-1:1);
+	gVehicleSteering = fabs((f32)e.Value)*0.3f*0.01f*((f32)e.Value>0.0?-1:1);
 
 }

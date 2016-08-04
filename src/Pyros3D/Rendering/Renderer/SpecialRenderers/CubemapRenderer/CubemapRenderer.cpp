@@ -145,7 +145,7 @@ namespace p3d {
 							directionalLight.m[7] = direction.x;     directionalLight.m[8] = direction.y;         directionalLight.m[9] = direction.z;
 							directionalLight.m[10] = attenuation;   //directionalLight.m[11] = attenuation.y;       directionalLight.m[12] = attenuation.z;
 							directionalLight.m[13] = cones.x;         directionalLight.m[14] = cones.y;
-							directionalLight.m[15] = type;
+							directionalLight.m[15] = (f32)type;
 
 							Lights.push_back(directionalLight);
 						}
@@ -168,7 +168,7 @@ namespace p3d {
 							pointLight.m[7] = direction.x;   pointLight.m[8] = direction.y;       pointLight.m[9] = direction.z;
 							pointLight.m[10] = attenuation; //pointLight.m[11] = attenuation.y;     pointLight.m[12] = attenuation.z;
 							pointLight.m[13] = cones.x;       pointLight.m[14] = cones.y;
-							pointLight.m[15] = type;
+							pointLight.m[15] = (f32)type;
 
 							Lights.push_back(pointLight);
 						}
@@ -191,7 +191,7 @@ namespace p3d {
 							spotLight.m[7] = direction.x;    spotLight.m[8] = direction.y;        spotLight.m[9] = direction.z;
 							spotLight.m[10] = attenuation;  //spotLight.m[11] = attenuation.y;      spotLight.m[12] = attenuation.z;
 							spotLight.m[13] = cones.x;        spotLight.m[14] = cones.y;
-							spotLight.m[15] = type;
+							spotLight.m[15] = (f32)type;
 
 							Lights.push_back(spotLight);
 						}

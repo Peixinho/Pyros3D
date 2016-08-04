@@ -96,10 +96,10 @@ void DepthOfField::OnResize(const uint32 width, const uint32 height)
 	EffectManager->Resize(width, height);
 	blurX->Resize(width, height);
 	blurY->Resize(width, height);
-	resize->Resize(width*0.25f, height*0.25f);
-	blurXlow->Resize(width*0.25f, height*0.25f);
-	blurYlow->Resize(width*0.25f, height*0.25f);
-	depthOfField->Resize(width, height);
+	resize->Resize((uint32)(width*0.25f), (uint32)(height*0.25f));
+	blurXlow->Resize((uint32)(width*0.25f), (uint32)(height*0.25f));
+	blurYlow->Resize((uint32)(width*0.25f), (uint32)(height*0.25f));
+	depthOfField->Resize((uint32)(width), (uint32)(height));
 }
 
 void DepthOfField::Init()
@@ -150,7 +150,7 @@ void DepthOfField::Init()
 		fullResBlur->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
 		fullResBlur->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 		lowResBlur = new Texture();
-		lowResBlur->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width*.25f, Height*.25f);
+		lowResBlur->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, (int32)(Width*.25f), (int32)(Height*.25f));
 		lowResBlur->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 		EffectManager = new PostEffectsManager(Width, Height);
@@ -158,9 +158,9 @@ void DepthOfField::Init()
 		blurX = new BlurXEffect(RTT::Color, Width, Height);
 		blurY = new BlurYEffect(RTT::LastRTT, Width, Height);
 		fullResBlur = blurY->GetTexture();
-		resize = new ResizeEffect(RTT::Color, Width*.25f, Height*.25f);
-		blurXlow = new BlurXEffect(RTT::LastRTT, Width*.25f, Height*.25f);
-		blurYlow = new BlurYEffect(RTT::LastRTT, Width*.25f, Height*.25f);
+		resize = new ResizeEffect(RTT::Color, (uint32)(Width*.25f), (uint32)(Height*.25f));
+		blurXlow = new BlurXEffect(RTT::LastRTT, (uint32)(Width*.25f), (uint32)(Height*.25f));
+		blurYlow = new BlurYEffect(RTT::LastRTT, (uint32)(Width*.25f), (uint32)(Height*.25f));
 		lowResBlur = blurYlow->GetTexture();
 		depthOfField = new DepthOfFieldEffect(lowResBlur, fullResBlur, Width, Height);
 
@@ -182,7 +182,7 @@ void DepthOfField::Update()
 		// Game Logic Here
 		for (uint32 i = 0; i < 10; i++)
 		{
-			go[i]->SetRotation(Vec3(0, GetTime(), 0));
+			go[i]->SetRotation(Vec3(0.f, (f32)GetTime(), 0.f));
 		}
 
 		// Render Scene

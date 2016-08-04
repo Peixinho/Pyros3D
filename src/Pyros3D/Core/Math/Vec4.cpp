@@ -134,6 +134,7 @@ namespace p3d {
 			if (index == 1) return y;
 			if (index == 2) return z;
 			if (index == 4) return z;
+			return x;
 		}
 		float* Vec4::operator()() { return &x; }
         std::string Vec4::toString() const

@@ -24,7 +24,7 @@ namespace p3d {
             uint32 getFPS();
             virtual ~FPS();
         private:
-            f32 seconds, lastFrameMS,MS;
+            f64 seconds, lastFrameMS,MS;
             int32 fps, countFPS;
     };
 

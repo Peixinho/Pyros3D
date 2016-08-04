@@ -103,7 +103,7 @@ namespace p3d {
     }
     void Context::SetMouseMove(const f32 mousex, const f32 mousey)
     {
-        InputManager::SetMousePosition(mousex,mousey);
+        InputManager::SetMousePosition((uint32)mousex,(uint32)mousey);
     }
     void Context::SetMouseWheel(const f32 delta)
     {

@@ -25,10 +25,11 @@ namespace p3d {
                 isFlipped = flip;
                 isSmooth = smooth;
                 calculateTangentBitangent = TangentBitangent;
-                this->segmentsH = segmentsH;
+                this->segmentsH = (f32)segmentsH;
                 this->height = height;
 
-                int i,j,jMin,jMax;
+				size_t i, j;
+				int jMin,jMax;
 
                 Vec3 normal;
                 std::vector <Vec3> aRowT, aRowB;
@@ -38,7 +39,7 @@ namespace p3d {
                 if(!openEnded) {
                         this->segmentsH += 2;
                         jMin = 1;
-                        jMax = this->segmentsH -1;
+                        jMax = (int)this->segmentsH -1;
 
                         // Bottom
                         Vec3 oVtx = Vec3(0, -this->height, 0);
@@ -55,10 +56,10 @@ namespace p3d {
 
                 } else {
                     jMin = 0;
-                    jMax = this->segmentsH;
+                    jMax = (int)this->segmentsH;
                 }
 
-                for (j=jMin;j<=jMax;++j) {
+                for (j=jMin;(int)j<=jMax;++j) {
                     f32 z = -this->height+2*this->height*(f32)(j-jMin)/(f32)(jMax-jMin);
                     std::vector <Vec3> aRow;
 

@@ -68,10 +68,10 @@ void RotatingTexturedCube::Update()
         
         // Update Scene
         Scene->Update(GetTime());
-		Renderer->SetBackground(Vec4(fabs(sin(GetTime() + 0.1f)), fabs(sin(GetTime() + 0.5f)), fabs(sin(GetTime() + 0.9f)), 1));
+		Renderer->SetBackground(Vec4(fabs(sinf((f32)GetTime() + 0.1f)), fabs(sinf((f32)GetTime() + 0.5f)), fabs(sinf((f32)GetTime() + 0.9f)), 1.f));
         
         // Game Logic Here
-        CubeObject->SetRotation(Vec3(0,GetTime(),0));
+        CubeObject->SetRotation(Vec3(0,(f32)GetTime(),0));
 
         // Render Scene
         Renderer->RenderScene(projection,Camera,Scene);

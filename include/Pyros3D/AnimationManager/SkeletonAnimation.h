@@ -99,7 +99,7 @@ namespace p3d {
             f32 GetAnimationSpeed(const uint32 animationOrder);
             f32 GetAnimationStartTime(const uint32 animationOrder);
             f32 GetAnimationStartTimeProgress(const uint32 animationOrder);
-            f32 GetAnimationID(const uint32 animationOrder);
+            uint32 GetAnimationID(const uint32 animationOrder);
             f32 GetAnimationScale(const uint32 animationOrder);
 
             // Get Animation Position

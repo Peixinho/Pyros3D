@@ -61,7 +61,7 @@ void DeferredRendering::Init()
         
         // Create Camera
         Camera = new GameObject();
-        Camera->SetPosition(Vec3(0,0,0.9));
+        Camera->SetPosition(Vec3(0.f,0.f,0.9f));
 
         // Create 100 Point Lights
         for (uint32 i=0;i<100;i++)
@@ -71,7 +71,7 @@ void DeferredRendering::Init()
             // Add Light to GameObjects List
             Lights.push_back(Light);
             // Create Point Light
-            PointLight* pLight = new PointLight(Vec4((rand() % 100) - 50, (rand() % 100) - 50, (rand() % 100) - 50, (rand() % 100) - 50)*0.1, 0.5f);
+            PointLight* pLight = new PointLight(Vec4((f32)(rand() % 100) - 50.f, (f32)(rand() % 100) - 50.f, (f32)(rand() % 100) - 50.f, (f32)(rand() % 100) - 50.f)*0.1f, 0.5f);
             // Add Rendering Component to Rendering Components List
             pLights.push_back(pLight);
             // Add Point Light Component to GameObject
@@ -79,14 +79,14 @@ void DeferredRendering::Init()
             // Add GameObject to Scene
             Scene->Add(Light);
             // Set Random Position to the GameObject
-			Light->SetPosition(Vec3((rand() % 100) - 50, (rand() % 100) - 50, (rand() % 100) - 50)*0.01);
+			Light->SetPosition(Vec3((f32)(rand() % 100) - 50.f, (f32)(rand() % 100) - 50.f, (f32)(rand() % 100) - 50.f)*0.01f);
         }
 
 		// Create Light GameObject
 		GameObject* Light = new GameObject();
 		// Add Light to GameObjects List
 		// Create Point Light
-		DirectionalLight* dLight = new DirectionalLight(Vec4(0.5,0.5,0.5,5), Vec3(-1, -1, 0));
+		DirectionalLight* dLight = new DirectionalLight(Vec4(0.5f,0.5f,0.5f,1.f), Vec3(-1.f, -1.f, 0.f));
 		// Add Rendering Component to Rendering Components List
 		// Add Point Light Component to GameObject
 		Light->Add(dLight);
@@ -101,20 +101,20 @@ void DeferredRendering::Init()
         Diffuse->AddUniform(Uniforms::Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
         Diffuse->AddUniform(Uniforms::Uniform("uColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		Diffuse->AddUniform(Uniforms::Uniform("uSpecular", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
-        Vec4 color = Vec4(0.8,0.8,0.8,1.0);
+        Vec4 color = Vec4(0.8f,0.8f,0.8f,1.f);
         Diffuse->SetUniformValue("uColor", &color);
-		color = Vec4(1.0, 1.0, 1.0, 1.0);
+		color = Vec4(1.f, 1.f, 1.f, 1.f);
 		Diffuse->SetUniformValue("uSpecular", &color);
 		Diffuse->SetCullFace(CullFace::DoubleSided);
 
-		Renderable* cubeHandle2 = new Cube(1, 1, 1);
+		Renderable* cubeHandle2 = new Cube(1.f, 1.f, 1.f);
 		GameObject* go = new GameObject();
 		RenderingComponent* rc = new RenderingComponent(cubeHandle2, Diffuse);
 		go->Add(rc);
 		//Scene->Add(go);
 
         // Create Geometry
-        cubeHandle = new Cube(0.1,0.1,0.1);
+        cubeHandle = new Cube(0.1f,0.1f,0.1f);
 
         // Create 100 Cubes
         for (uint32 i=0;i<100;i++)
@@ -132,17 +132,17 @@ void DeferredRendering::Init()
             // Add GameObject to Scene
             Scene->Add(CubeObject);
             // Set Random Position to the GameObject
-            CubeObject->SetPosition(Vec3((rand() % 100) -50,(rand() % 100)-50,(rand() % 100) -50)*0.01);
+            CubeObject->SetPosition(Vec3((f32)(rand() % 100) -50.f, (f32)(rand() % 100)-50.f, (f32)(rand() % 100) -50.f)*0.01f);
         }
 
         // Add Camera to Scene
         Scene->Add(Camera);
         
 
-		SetMousePosition((uint32)Width / 2, (uint32)Height / 2);
-		mouseCenter = Vec2((uint32)Width / 2, (uint32)Height / 2);
+		SetMousePosition((uint32)(Width *.5f), (uint32)(Height *.5f));
+		mouseCenter = Vec2((f32)Width *.5f, (f32)Height *.5f);
 		mouseLastPosition = mouseCenter;
-		counterX = counterY = 0;
+		counterX = counterY = 0.f;
 
 		// Input
 		InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &DeferredRendering::MoveFrontPress);
@@ -155,7 +155,7 @@ void DeferredRendering::Init()
 		InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &DeferredRendering::StrafeRightRelease);
 		InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &DeferredRendering::LookTo);
 
-		_strafeLeft = _strafeRight = _moveBack = _moveFront = 0;
+		_strafeLeft = _strafeRight = _moveBack = _moveFront = false;
 		HideMouse();
 }
 
@@ -166,7 +166,7 @@ void DeferredRendering::Update()
     // Create 100 Cubes
     for (uint32 i=0;i<100;i++)
     {
-        Cubes[i]->SetRotation(Vec3(0,GetTime(),0));
+        Cubes[i]->SetRotation(Vec3(0.f,(f32)GetTime(),0.f));
     }
 
     // Update Scene
@@ -177,7 +177,7 @@ void DeferredRendering::Update()
 
 	Vec3 finalPosition;
 	Vec3 direction = Camera->GetDirection();
-	float dt = GetTimeInterval();
+	float dt = (float)GetTimeInterval();
 	float speed = dt * 2.f;
 	if (_moveFront)
 	{
@@ -252,8 +252,8 @@ void DeferredRendering::LookTo(Event::Input::Info e)
 			if (counterY<-90.f) counterY = -90.f;
 			if (counterY>90.f) counterY = 90.f;
 			Quaternion qX, qY;
-			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), DEGTORAD(counterY));
-			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), DEGTORAD(counterX));
+			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), (f32)DEGTORAD(counterY));
+			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), (f32)DEGTORAD(counterX));
 			//                Matrix rotX, rotY;
 			//                rotX.RotationX(DEGTORAD(counterY));
 			//                rotY.RotationY(DEGTORAD(counterX));

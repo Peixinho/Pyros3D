@@ -51,7 +51,7 @@ namespace p3d {
             
             if (xAxis.magnitude()==0)
             {
-                zAxis.x = 0.0001;
+                zAxis.x = 0.0001f;
                 xAxis = up.cross(zAxis).normalize();
             }
             
@@ -299,39 +299,39 @@ namespace p3d {
                 if ( echo > 0 ) 
                 {
 
-                        s = 0.5 / sqrtf( echo + 1.0 );
+                        s = 0.5f / sqrtf( echo + 1.0f );
 
-                        q.w = 0.25 / s;
+                        q.w = 0.25f / s;
                         q.x = ( m32 - m23 ) * s;
                         q.y = ( m13 - m31 ) * s;
                         q.z = ( m21 - m12 ) * s;
 
                 } else if ( m11 > m22 && m11 > m33 ) {
 
-                        s = 2.0 * sqrtf( 1.0 + m11 - m22 - m33 );
+                        s = 2.0f * sqrtf( 1.0f + m11 - m22 - m33 );
 
                         q.w = (m32 - m23 ) / s;
-                        q.x = 0.25 * s;
+                        q.x = 0.25f * s;
                         q.y = (m12 + m21 ) / s;
                         q.z = (m13 + m31 ) / s;
 
                 } else if ( m22 > m33 ) {
 
-                        s = 2.0 * sqrtf( 1.0 + m22 - m11 - m33 );
+                        s = 2.0f * sqrtf( 1.0f + m22 - m11 - m33 );
 
                         q.w = (m13 - m31 ) / s;
                         q.x = (m12 + m21 ) / s;
-                        q.y = 0.25 * s;
+                        q.y = 0.25f * s;
                         q.z = (m23 + m32 ) / s;
 
                 } else {
 
-                        s = 2.0 * sqrtf( 1.0 + m33 - m11 - m22 );
+                        s = 2.0f * sqrtf( 1.0f + m33 - m11 - m22 );
 
                         q.w = ( m21 - m12 ) / s;
                         q.x = ( m13 + m31 ) / s;
                         q.y = ( m23 + m32 ) / s;
-                        q.z = 0.25 * s;
+                        q.z = 0.25f * s;
 
                 }
 
@@ -340,33 +340,33 @@ namespace p3d {
 
         Matrix Matrix::PerspectiveMatrix(const f32 fov, const f32 aspect, const f32 near, const f32 far)
         {    
-            const f32 h = (f32)(1.0f/tan(fov*PI/360));
+            const f32 h = (f32)(1.0f/tan(fov*PI/360.f));
             f32 neg_depth = near-far;
 
             Matrix mp;    
-            mp.m[0] = h/aspect;  mp.m[4] = 0;  mp.m[8] = 0;   mp.m[12] = 0;
-            mp.m[1] = 0;  mp.m[5] = h;  mp.m[9] = 0;   mp.m[13] = 0;
-            mp.m[2] = 0;  mp.m[6] = 0;  mp.m[10] = (far+near)/neg_depth;   mp.m[14] = 2.0f*(near*far)/neg_depth;
-            mp.m[3] = 0;  mp.m[7] = 0;  mp.m[11] = -1;   mp.m[15] = 0;
+            mp.m[0] = h/aspect;  mp.m[4] = 0.f;  mp.m[8] = 0.f;   mp.m[12] = 0.f;
+            mp.m[1] = 0.f;  mp.m[5] = h;  mp.m[9] = 0.f;   mp.m[13] = 0.f;
+            mp.m[2] = 0.f;  mp.m[6] = 0.f;  mp.m[10] = (far+near)/neg_depth;   mp.m[14] = 2.0f*(near*far)/neg_depth;
+            mp.m[3] = 0.f;  mp.m[7] = 0.f;  mp.m[11] = -1.f;   mp.m[15] = 0.f;
             
             return mp;
         }
         Matrix Matrix::MakeFrustum(const f32 left, const f32 right, const f32 bottom, const f32 top, const f32 near, const f32 far)
         {
-            f32 x = 2 * near / ( right - left );
-            f32 y = 2 * near / ( top - bottom );
+            f32 x = 2.f * near / ( right - left );
+            f32 y = 2.f * near / ( top - bottom );
 
             f32 a = ( right + left ) / ( right - left );
             f32 b = ( top + bottom ) / ( top - bottom );
             f32 c = - ( far + near ) / ( far - near );
-            f32 d = - 2 * far * near / ( far - near );
+            f32 d = - 2.f * far * near / ( far - near );
 
             Matrix mp;
 
-            mp.m[0] = x;  mp.m[4] = 0;  mp.m[8] = 0;   mp.m[12] = 0;
-            mp.m[1] = 0;  mp.m[5] = y;  mp.m[9] = 0;   mp.m[13] = 0;
+            mp.m[0] = x;  mp.m[4] = 0.f;  mp.m[8] = 0.f;   mp.m[12] = 0.f;
+            mp.m[1] = 0.f;  mp.m[5] = y;  mp.m[9] = 0.f;   mp.m[13] = 0.f;
             mp.m[2] = a;  mp.m[6] = b;  mp.m[10] = c;   mp.m[14] = d;
-            mp.m[3] = 0;  mp.m[7] = 0;  mp.m[11] = -1;   mp.m[15] = 0;
+            mp.m[3] = 0.f;  mp.m[7] = 0.f;  mp.m[11] = -1.f;   mp.m[15] = 0.f;
             
             return mp;
         }
@@ -374,10 +374,10 @@ namespace p3d {
         {
             Matrix mo;
 
-            mo.m[0] = 2/(right-left);             mo.m[4] = 0;                       mo.m[8] = 0;                 mo.m[12] = -(right+left)/(right-left);
-            mo.m[1] = 0;                          mo.m[5] = 2/(top-bottom);       mo.m[9] = 0;                 mo.m[13] = -(top+bottom)/(top-bottom);
-            mo.m[2] = 0;                          mo.m[6] = 0;                        mo.m[10] = -2/(far-near);    mo.m[14] = -(far+near)/(far-near);
-            mo.m[3] = 0;                          mo.m[7] = 0;                        mo.m[11] = 0;                 mo.m[15] = 1;             
+            mo.m[0] = 2.f/(right-left);             mo.m[4] = 0.f;                       mo.m[8] = 0.f;                 mo.m[12] = -(right+left)/(right-left);
+            mo.m[1] = 0.f;                          mo.m[5] = 2.f/(top-bottom);       mo.m[9] = 0.f;                 mo.m[13] = -(top+bottom)/(top-bottom);
+            mo.m[2] = 0.f;                          mo.m[6] = 0.f;                        mo.m[10] = -2.f/(far-near);    mo.m[14] = -(far+near)/(far-near);
+            mo.m[3] = 0.f;                          mo.m[7] = 0.f;                        mo.m[11] = 0.f;                 mo.m[15] = 1.f;
                
             return mo;
         }
@@ -619,7 +619,7 @@ namespace p3d {
                             } else {
 
                                 euler.x = atan2f( m32, m22 );
-                                euler.z = 0;
+                                euler.z = 0.f;
 
                             }
                         }
@@ -636,7 +636,7 @@ namespace p3d {
                             } else {
 
                                 euler.y = atan2f( - m31, m11 );
-                                euler.z = 0;
+                                euler.z = 0.f;
 
                             }
                         }
@@ -653,7 +653,7 @@ namespace p3d {
 
                             } else {
 
-                                euler.y = 0;
+                                euler.y = 0.f;
                                 euler.z = atan2f( m21, m11 );
 
                             }
@@ -671,7 +671,7 @@ namespace p3d {
 
                             } else {
 
-                                euler.x = 0;
+                                euler.x = 0.f;
                                 euler.z = atan2f( - m12, m22 );
 
                             }
@@ -689,7 +689,7 @@ namespace p3d {
 
                             } else {
 
-                                euler.x = 0;
+                                euler.x = 0.f;
                                 euler.y = atan2f( m13, m33 );
 
                             }
@@ -708,7 +708,7 @@ namespace p3d {
                             } else {
 
                                 euler.x = atan2f( - m23, m33 );
-                                euler.y = 0;
+                                euler.y = 0.f;
 
                             }
                         }
@@ -719,6 +719,6 @@ namespace p3d {
 
         }
 
-        const Matrix Matrix::BIAS = Matrix(0.5,0.0,0.0,0.0,0.0,0.5,0.0,0.0,0.0,0.0,0.5,0.0,0.5,0.5,0.5,1.0);
+        const Matrix Matrix::BIAS = Matrix(0.5f,0.0f,0.0f,0.0f,0.0f,0.5f,0.0f,0.0f,0.0f,0.0f,0.5f,0.0f,0.5f,0.5f,0.5f,1.0f);
     };
 };

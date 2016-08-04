@@ -33,13 +33,13 @@ namespace p3d {
         int32 viewPort[4];
         f32 x1,y1,z1,x2,y2,z2;
                        
-        viewPort[0]=0; viewPort[1]=0; viewPort[2]=windowWidth; viewPort[3]=windowHeight;
+        viewPort[0]=0; viewPort[1]=0; viewPort[2]=(int32)windowWidth; viewPort[3]=(int32)windowHeight;
         
         Vec3 v1,v2;
         
-        if (UnProject(mouseX,glMouseY,0,(View*Model),Projection,Vec4(viewPort[0],viewPort[1],viewPort[2],viewPort[3]),&x1,&y1,&z1) == true 
+        if (UnProject(mouseX,glMouseY,0.f,(View*Model),Projection,Vec4((f32)viewPort[0],(f32)viewPort[1],(f32)viewPort[2],(f32)viewPort[3]),&x1,&y1,&z1) == true
             &&
-            UnProject(mouseX,glMouseY,1,(View*Model),Projection,Vec4(viewPort[0],viewPort[1],viewPort[2],viewPort[3]),&x2,&y2,&z2) == true)
+            UnProject(mouseX,glMouseY,1.f,(View*Model),Projection,Vec4((f32)viewPort[0],(f32)viewPort[1],(f32)viewPort[2],(f32)viewPort[3]),&x2,&y2,&z2) == true)
         {
             
             v1.x=x1;    v1.y=y1;    v1.z=z1;
@@ -76,7 +76,7 @@ namespace p3d {
         Vec3 tvec = Origin - V1;
         f32 u = tvec.dotProduct(pvec) * inv_det;
 
-        if (u < 0.0 || u > 1.0)
+        if (u < 0.0f || u > 1.0f)
         {
             return false;
         };
@@ -84,7 +84,7 @@ namespace p3d {
         Vec3 qvec = tvec.cross(e1);
         f32 v = Direction.dotProduct(qvec) * inv_det;
 
-        if (v < 0.0 || u + v > 1.0)
+        if (v < 0.0f || u + v > 1.0f)
         {
             return false;
         };
@@ -145,7 +145,7 @@ namespace p3d {
 		int32 tFar = INT_MAX;
 
 		//check x
-		if ((Direction.x == 0) && (Origin.x < min.x) && (Origin.x > max.x))
+		if ((Direction.x == 0.f) && (Origin.x < min.x) && (Origin.x > max.x))
 		{
 			//parallel
 			return false;
@@ -156,8 +156,8 @@ namespace p3d {
 			float t2 = (max.x - Origin.x) / Direction.x;
 			if (t1 > t2)
 				std::swap(t1, t2);
-			tNear = Max(tNear, t1);
-			tFar = Min(tFar, t2);
+			tNear = (int32)Max(tNear, t1);
+			tFar = (int32)Min(tFar, t2);
 			if ((tNear > tFar) || (tFar < 0))
 				return false;
 		}
@@ -174,14 +174,14 @@ namespace p3d {
 			float t2 = (max.y - Origin.y) / Direction.y;
 			if (t1 > t2)
 				std::swap(t1, t2);
-			tNear = Max(tNear, t1);
-			tFar = Min(tFar, t2);
-			if ((tNear > tFar) || (tFar < 0))
+			tNear = (int32)Max(tNear, t1);
+			tFar = (int32)Min(tFar, t2);
+			if ((tNear > tFar) || (tFar < 0.f))
 				return false;
 		}
 
 		//check z
-		if ((Direction.z == 0) && (Origin.z < min.z) && (Origin.z > max.z))
+		if ((Direction.z == 0.f) && (Origin.z < min.z) && (Origin.z > max.z))
 		{
 			//parallel
 			return false;
@@ -192,8 +192,8 @@ namespace p3d {
 			float t2 = (max.x - Origin.z) / Direction.z;
 			if (t1 > t2)
 				std::swap(t1, t2);
-			tNear = Max(tNear, t1);
-			tFar = Min(tFar, t2);
+			tNear = (int32)Max(tNear, t1);
+			tFar = (int32)Min(tFar, t2);
 			if ((tNear > tFar) || (tFar < 0))
 				return false;
 		}
@@ -236,9 +236,9 @@ namespace p3d {
         in.y = (in.y - view.y) / view.w;
 
         /* Map to range -1 to 1 */
-        in.x = in.x * 2 - 1;
-        in.y = in.y * 2 - 1;
-        in.z = in.z * 2 - 1;
+        in.x = in.x * 2.f - 1.f;
+        in.y = in.y * 2.f - 1.f;
+        in.z = in.z * 2.f - 1.f;
 
         out = finalMatrix * in;
         if (out.w == 0.0) return false;

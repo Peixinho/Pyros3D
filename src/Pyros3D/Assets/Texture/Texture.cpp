@@ -430,7 +430,7 @@ namespace p3d {
 				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MAX_ANISOTROPY_EXT, Anysotropic));
 			}
 			else if (AnysotropicMax>0)
-				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MAX_ANISOTROPY_EXT, AnysotropicMax));
+				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MAX_ANISOTROPY_EXT, (GLint)AnysotropicMax));
 		}
 		else {
 			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MAX_ANISOTROPY_EXT, 0));
@@ -887,8 +887,8 @@ namespace p3d {
 			this->Height[level] = h;
 
 			offset += size;
-			w = Max(1, w * 0.5f);
-			h = Max(1, h * 0.5f);
+			w = (uint32)Max(1, w * 0.5f);
+			h = (uint32)Max(1, h * 0.5f);
 		}
 		else {
 			for (uint32 lvl = 0; lvl < mipMapCount && (w || h); ++lvl)
@@ -900,8 +900,8 @@ namespace p3d {
 				this->Height[lvl] = h;
 
 				offset += size;
-				w = Max(1, w * 0.5f);
-				h = Max(1, h * 0.5f);
+				w = (uint32)Max(1, w * 0.5f);
+				h = (uint32)Max(1, h * 0.5f);
 			}
 		}
 

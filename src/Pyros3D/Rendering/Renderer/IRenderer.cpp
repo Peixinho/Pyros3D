@@ -48,8 +48,8 @@ namespace p3d {
 		scissorTest = false;
 		scissorTestX = 0;
 		scissorTestY = 0;
-		scissorTestWidth = Width;
-		scissorTestHeight = Height;
+		scissorTestWidth = (f32)Width;
+		scissorTestHeight = (f32)Height;
 		lod = false;
 		ClipPlane = false;
 	}
@@ -573,9 +573,9 @@ namespace p3d {
 		// Set Stencil Op
 		GLCHECKER(glStencilOp(Sfail, DPfail, DPPASS));
 	}
-	void IRenderer::ColorMask(const f32 r, const f32 g, const f32 b, const f32 a)
+	void IRenderer::ColorMask(const bool r, const bool g, const bool b, const bool a)
 	{
-		GLCHECKER(glColorMask(r, g, b, a));
+		GLCHECKER(glColorMask((GLboolean)r, (GLboolean)g, (GLboolean)b, (GLboolean)a));
 	}
 	void IRenderer::ClearScreen()
 	{
@@ -962,7 +962,7 @@ namespace p3d {
 					break;
 				case DataUsage::ScreenDimensions:
 				{
-					Vec2 dim = Vec2(Width, Height);
+					Vec2 dim = Vec2((f32)Width, (f32)Height);
 					Shader::SendUniform((*k), &dim, rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
 				}
 				break;

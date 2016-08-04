@@ -41,7 +41,7 @@ namespace p3d {
                         f32 fRad2 = (2 * i / iHor);
                         f32 fX = (f32)(fRds * sin(fRad2 * PI));            
                         f32 fY = (f32)(fRds * cos(fRad2 * PI));
-                        if (!((j == 0 || j == iVer) & i > 0)) {
+                        if (!(((j == 0 || j == (int)iVer) & i) > 0)) {
                             oVtx=Vec3(fY,fZ,fX);
                         }
                         aRow.push_back(oVtx);
@@ -73,7 +73,7 @@ namespace p3d {
                             Vec2 aP3uv = Vec2(fI1,fJ1);
                             Vec2 aP4uv = Vec2(fI0,fJ1);
 
-                            if (j < (aVtc.size() - 1)) {                    
+                            if ((size_t)j < (aVtc.size() - 1)) {                    
                                 Vec3 normal = ((aP1-aP2).cross(aP3-aP2)).normalize();     
 
                                 geometry->tVertex.push_back(aP3); geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(aP3uv);
@@ -101,7 +101,7 @@ namespace p3d {
                     }
                 }                
 
-                for (int i = 0;i < geometry->tTexcoord.size(); i++) {
+                for (size_t i = 0;i < geometry->tTexcoord.size(); i++) {
                     geometry->tTexcoord[i].x = 1-geometry->tTexcoord[i].x;
                     geometry->tTexcoord[i].y = 1-geometry->tTexcoord[i].y;
                 }
