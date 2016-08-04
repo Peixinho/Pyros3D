@@ -127,7 +127,7 @@ namespace p3d {
 
 			Lights.clear();
 
-			if (lcomps.size()>0)
+			if (lcomps.size() > 0)
 			{
 
 				// Keep user settings
@@ -225,24 +225,11 @@ namespace p3d {
 
 									if ((*k)->renderingComponent->GetOwner() != NULL)
 									{
-										// Culling Test
-										bool cullingTest = false;
-										switch ((*k)->CullingGeometry)
-										{
-										case CullingGeometry::Box:
-											cullingTest = CullingBoxTest((*k), (*k)->renderingComponent->GetOwner());
-											break;
-										case CullingGeometry::Sphere:
-										default:
-											cullingTest = CullingSphereTest((*k), (*k)->renderingComponent->GetOwner());
-											break;
-										}
 										if (!(*k)->Material->IsTransparent())
 										{
 											if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
 												RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
 										}
-										else break;
 									}
 								}
 
@@ -383,7 +370,20 @@ namespace p3d {
 
 									if ((*k)->renderingComponent->GetOwner() != NULL)
 									{
-										if (!(*k)->Material->IsTransparent())
+										// Culling Test
+										bool cullingTest = false;
+										switch ((*k)->CullingGeometry)
+										{
+										case CullingGeometry::Box:
+											cullingTest = CullingBoxTest((*k), (*k)->renderingComponent->GetOwner());
+											break;
+										case CullingGeometry::Sphere:
+										default:
+											cullingTest = CullingSphereTest((*k), (*k)->renderingComponent->GetOwner());
+											break;
+										}
+										if (!(*k)->renderingComponent->IsCullTesting()) cullingTest = true;
+										if (cullingTest && !(*k)->Material->IsTransparent())
 										{
 											if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
 												RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
@@ -497,7 +497,20 @@ namespace p3d {
 
 								if ((*k)->renderingComponent->GetOwner() != NULL)
 								{
-									if (!(*k)->Material->IsTransparent())
+									// Culling Test
+									bool cullingTest = false;
+									switch ((*k)->CullingGeometry)
+									{
+									case CullingGeometry::Box:
+										cullingTest = CullingBoxTest((*k), (*k)->renderingComponent->GetOwner());
+										break;
+									case CullingGeometry::Sphere:
+									default:
+										cullingTest = CullingSphereTest((*k), (*k)->renderingComponent->GetOwner());
+										break;
+									}
+									if (!(*k)->renderingComponent->IsCullTesting()) cullingTest = true;
+									if (cullingTest && !(*k)->Material->IsTransparent())
 									{
 										if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
 											RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
@@ -522,11 +535,9 @@ namespace p3d {
 
 							// Get Texture (only 1)
 							SpotShadowMapsTextures.push_back(s->GetShadowMapTexture());
-							}
 						}
-						break;
 					};
-					
+
 					// Universal Cache
 					ProjectionMatrix = projection.m;
 					NearFarPlane = Vec2(projection.Near, projection.Far);
@@ -534,13 +545,14 @@ namespace p3d {
 					// View Matrix and Position
 					ViewMatrix = Camera->GetWorldTransformation().Inverse();
 					CameraPosition = Camera->GetWorldPosition();
+					}
+
+					// Reset User Defined for Depth Buffer
+					bufferOptions = _bufferOptions;
+					glBufferOptions = _glBufferOptions;
+					clearDepthBuffer = _clearDepthBuffer;
+
 				}
-
-				// Reset User Defined for Depth Buffer
-				bufferOptions = _bufferOptions;
-				glBufferOptions = _glBufferOptions;
-				clearDepthBuffer = _clearDepthBuffer;
-
 			}
 
 			// Save Values for Cache
@@ -610,7 +622,20 @@ namespace p3d {
 				Lights.clear();
 				if ((*i)->renderingComponent->GetOwner() != NULL)
 				{
-					if ((*i)->renderingComponent->IsActive() && (*i)->Active == true)
+					// Culling Test
+					bool cullingTest = false;
+					switch ((*i)->CullingGeometry)
+					{
+					case CullingGeometry::Box:
+						cullingTest = CullingBoxTest((*i), (*i)->renderingComponent->GetOwner());
+						break;
+					case CullingGeometry::Sphere:
+					default:
+						cullingTest = CullingSphereTest((*i), (*i)->renderingComponent->GetOwner());
+						break;
+					}
+					if (!(*i)->renderingComponent->IsCullTesting()) cullingTest = true;
+					if (cullingTest && (*i)->renderingComponent->IsActive() && (*i)->Active == true)
 					{
 						for (std::vector<Matrix>::iterator _l = _Lights.begin(); _l != _Lights.end(); _l++)
 						{
@@ -618,7 +643,7 @@ namespace p3d {
 							else if ((*_l).m[13] == 2 || (*_l).m[13] == 3)
 							{
 								Vec3 _lPos = Vec3((*_l).m[4], (*_l).m[5], (*_l).m[6]);
-								if ((_lPos.distance((*i)->renderingComponent->GetOwner()->GetWorldPosition())-((*i)->renderingComponent->GetOwner()->GetBoundingSphereRadiusWorldSpace())) < (*_l).m[10])
+								if ((_lPos.distance((*i)->renderingComponent->GetOwner()->GetWorldPosition()) - ((*i)->renderingComponent->GetOwner()->GetBoundingSphereRadiusWorldSpace())) < (*_l).m[10])
 									Lights.push_back(*_l);
 							}
 						}
@@ -627,6 +652,7 @@ namespace p3d {
 					}
 				}
 			}
+
 			// Disable Cull Face
 			GLCHECKER(glDisable(GL_CULL_FACE));
 
