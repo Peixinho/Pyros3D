@@ -48,31 +48,31 @@ namespace p3d {
         	// Color
         	uchar In;
         	bin->Read(&In, sizeof(uchar));
-        	mat.haveColor = In==1;
+        	mat.haveColor = !!In;
         	bin->Read(&mat.Color, sizeof(Vec4));
 
         	// Specular
         	bin->Read(&In, sizeof(uchar));
-        	mat.haveSpecular = In==1;
+        	mat.haveSpecular = !!In;
         	bin->Read(&mat.Specular, sizeof(Vec4));
 
         	// Ambient
         	bin->Read(&In, sizeof(uchar));
-        	mat.haveAmbient = In==1;
+        	mat.haveAmbient = !!In;
         	bin->Read(&mat.Ambient, sizeof(Vec4));
 
         	// Emissive
         	bin->Read(&In, sizeof(uchar));
-        	mat.haveEmissive = In==1;
+        	mat.haveEmissive = !!In;
         	bin->Read(&mat.Emissive, sizeof(Vec4));
 
         	// WireFrame
         	bin->Read(&In, sizeof(uchar));
-        	mat.WireFrame = In==1;
+        	mat.WireFrame = !!In;
 
         	// Twosided
         	bin->Read(&In, sizeof(uchar));
-        	mat.Twosided = In==1;
+        	mat.Twosided = !!In;
 
         	// Opacity
         	bin->Read(&mat.Opacity,sizeof(f32));
@@ -85,7 +85,7 @@ namespace p3d {
 
 			// Color Map
 			bin->Read(&In, sizeof(uchar));
-        	mat.haveColorMap = In==1;
+        	mat.haveColorMap = !!In;
         	bin->Read(&nameSize, sizeof(int32));
         	if (nameSize>0)
         	{
@@ -96,7 +96,7 @@ namespace p3d {
 
 			// Specular Map
 			bin->Read(&In, sizeof(uchar));
-        	mat.haveSpecularMap = In==1;
+        	mat.haveSpecularMap = !!In;
         	bin->Read(&nameSize, sizeof(int32));
         	if (nameSize>0)
         	{
@@ -106,7 +106,7 @@ namespace p3d {
         	}
 			// Normal Map
 			bin->Read(&In, sizeof(uchar));
-        	mat.haveNormalMap = In==1;
+        	mat.haveNormalMap = !!In;
         	bin->Read(&nameSize, sizeof(int32));
         	if (nameSize>0)
         	{
@@ -116,7 +116,7 @@ namespace p3d {
 	        }
 
     		bin->Read(&In, sizeof(uchar));
-            mat.haveBones = In==1;
+            mat.haveBones = !!In;
 
         	materials.push_back(mat);
 
@@ -162,7 +162,7 @@ namespace p3d {
             // Skinned
             uchar In;
     		bin->Read(&In, sizeof(uchar));
-            b.skinned = In==1;
+            b.skinned = !!In;
 
             skeleton[boneID] = b;
         }
