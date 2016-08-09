@@ -183,9 +183,7 @@ namespace p3d {
 
 					// Create Texture, Frame Buffer and Set the Texture as Attachment
 					ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, ShadowWidthFBO, ShadowHeightFBO, false);
-					ShadowMap->SetRepeat(TextureRepeat::ClampToBorder, TextureRepeat::ClampToBorder);
-					ShadowMap->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
-					ShadowMap->SetBorderColor(Vec4(1.f, 1.f, 1.f, 1.f));
+					ShadowMap->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
 
 					// Initialize Frame Buffer
 					shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
