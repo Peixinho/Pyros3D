@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-RacingGame::RacingGame() : ClassName(1920,1080,"CODENAME: Pyros3D - FIRST WINDOW",WindowType::Close | WindowType::Resize)
+RacingGame::RacingGame() : ClassName(1024,768,"CODENAME: Pyros3D - FIRST WINDOW",WindowType::Close | WindowType::Resize)
 {
     
 }
@@ -41,7 +41,7 @@ void RacingGame::Init()
         Scene2 = new SceneGraph();
         
         // Initialize Renderer
-        Renderer = new ForwardRenderer(1920,1080);
+        Renderer = new ForwardRenderer(1024,768);
 		Renderer->SetGlobalLight(Vec4(0.5, 0.5, 0.5, 0.5));
         // Projection
         projection.Perspective(70.f,(f32)Width/(f32)Height,1.f,2100.f);
@@ -79,7 +79,7 @@ void RacingGame::Init()
         Light = new GameObject();
         // Light Component
         dLight = new DirectionalLight(Vec4(1,1,1,1),Vec3(-1,-1,-1));
-        dLight->EnableCastShadows(2048,2048,projection,0.1f,200.f,2);
+        dLight->EnableCastShadows(1024,1024,projection,0.1f,200.f,2);
 		dLight->SetShadowBias(3.1f,9.0f);
         Light->Add(dLight);
         Scene->Add(Light);

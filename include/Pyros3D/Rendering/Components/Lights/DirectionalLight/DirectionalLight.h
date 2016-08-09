@@ -183,8 +183,9 @@ namespace p3d {
 
 					// Create Texture, Frame Buffer and Set the Texture as Attachment
 					ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, ShadowWidthFBO, ShadowHeightFBO, false);
-					ShadowMap->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+					ShadowMap->SetRepeat(TextureRepeat::ClampToBorder, TextureRepeat::ClampToBorder);
 					ShadowMap->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+					ShadowMap->SetBorderColor(Vec4(1.f, 1.f, 1.f, 1.f));
 
 					// Initialize Frame Buffer
 					shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
@@ -234,7 +235,7 @@ namespace p3d {
                 }
             }
 
-            Matrix GetLightProjection(const uint32 Cascade, const std::vector<RenderingMesh*> RCompList)
+            Matrix GetLightProjection(const Matrix &ShadowViewMatrix, const uint32 Cascade, const std::vector<RenderingMesh*> RCompList)
             {
                 return Cascades[Cascade].CreateCropMatrix(ShadowViewMatrix, RCompList);
             }
@@ -262,7 +263,6 @@ namespace p3d {
             uint32 ShadowCascades;
             Matrix ShadowProjection;
             Cascade Cascades[4];
-            Matrix ShadowViewMatrix;
         
     };
 

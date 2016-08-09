@@ -116,6 +116,7 @@ namespace p3d {
             uint32 subMode, GLSubMode;
             uint32 internalFormat, internalFormat2, internalFormat3;
             uint32 Anysotropic;
+			Vec4 borderColor;
         
 			bool CreateTexture(uchar* data = NULL, bool Mipmapping = true, const uint32 level = 0);
 
@@ -140,6 +141,7 @@ namespace p3d {
             bool CreateEmptyTexture(const uint32 Type, const uint32 DataType, const int32 width = 0, const int32 height = 0, bool Mipmapping = true, const uint32 level = 0);
             void SetMinMagFilter(const uint32 MinFilter,const uint32 MagFilter);
             void SetRepeat(const uint32 WrapS,const uint32 WrapT, const int32 WrapR = -1);
+			void SetBorderColor(const Vec4 &Color);
             void EnableCompareMode();
             void SetAnysotropy(const uint32 Anysotropic);
             void SetTransparency(const f32 Transparency);

@@ -364,7 +364,7 @@ namespace p3d {
 "        {\n"
 "            vec4 coord = sMatrix * pos;\n"
 "            if (MoreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(width,height);\n"
-"            float shadow = 0.0;\n"
+"            float shadow = 1.0;\n"
 "            float x = 0.0;\n"
 "            float y = 0.0;\n"
 "#if defined(GLES2) || defined(GL_LEGACY)\n"

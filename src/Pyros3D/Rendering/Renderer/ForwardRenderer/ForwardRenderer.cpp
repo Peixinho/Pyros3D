@@ -178,7 +178,7 @@ namespace p3d {
 						directionalLight.m[4] = position.x;      directionalLight.m[5] = position.y;          directionalLight.m[6] = position.z;
 						directionalLight.m[7] = direction.x;     directionalLight.m[8] = direction.y;         directionalLight.m[9] = direction.z;
 						directionalLight.m[10] = 0.0f;			 directionalLight.m[11] = 0.0f;				  directionalLight.m[12] = 0.0f;
-						directionalLight.m[13] = (f32)type;			 directionalLight.m[14] = (d->IsCastingShadows() ? 1.f : 0.f);
+						directionalLight.m[13] = (f32)type;		 directionalLight.m[14] = (d->IsCastingShadows() ? 1.f : 0.f);
 
 						_Lights.push_back(directionalLight);
 
@@ -217,7 +217,7 @@ namespace p3d {
 							for (uint32 i = 0; i < d->GetNumberCascades(); i++)
 							{
 								d->UpdateCascadeFrustumPoints(i, Camera->GetWorldPosition(), Camera->GetDirection());
-								ProjectionMatrix = d->GetLightProjection(i, rmesh);
+								ProjectionMatrix = d->GetLightProjection(ViewMatrix, i, rmesh);
 
 								// Set Viewport
 								_SetViewPort((uint32)((float)(i % 2) * d->GetShadowWidth()), (uint32)((i <= (uint32)1 ? 0.0f : 1.f) * d->GetShadowHeight()), d->GetShadowWidth(), d->GetShadowHeight());
@@ -231,19 +231,7 @@ namespace p3d {
 
 									if ((*k)->renderingComponent->GetOwner() != NULL)
 									{
-										// Culling Test
-										bool cullingTest = false;
-										switch ((*k)->CullingGeometry)
-										{
-										case CullingGeometry::Box:
-											cullingTest = CullingBoxTest((*k), (*k)->renderingComponent->GetOwner());
-											break;
-										case CullingGeometry::Sphere:
-										default:
-											cullingTest = CullingSphereTest((*k), (*k)->renderingComponent->GetOwner());
-											break;
-										}
-										if (cullingTest && !(*k)->Material->IsTransparent())
+										if (!(*k)->Material->IsTransparent())
 										{
 											if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
 												RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
