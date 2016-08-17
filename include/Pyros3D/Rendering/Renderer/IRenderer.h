@@ -226,6 +226,12 @@ namespace p3d {
             void SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material);
             void SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material);
             
+			void StartClippingPlanes();
+			void EndClippingPlanes();
+
+			void StartScissorTest();
+			void EndScissorTest();
+
             // Flags
             uint32 bufferOptions, glBufferOptions;
             bool 

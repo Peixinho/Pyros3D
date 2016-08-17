@@ -128,6 +128,11 @@ namespace p3d {
 			// Material After Render
 			LastMaterialPTR->AfterRender();
 		}
+		// Set Default Polygon Mode
+		GLCHECKER(glPolygonMode(GL_FRONT_AND_BACK, GL_FILL));
+
+		// Disable Cull Face
+		GLCHECKER(glDisable(GL_CULL_FACE));
 
 		// Unbind Shader Program
 		GLCHECKER(glUseProgram(0));
@@ -819,6 +824,41 @@ namespace p3d {
 	void IRenderer::DisableClipPlane()
 	{
 		ClipPlane = false;
+	}
+	void IRenderer::StartClippingPlanes()
+	{
+		#if !defined(GLES2)
+		if (ClipPlane)
+		{
+			for (uint32 k = 0; k < ClipPlaneNumber; k++)
+				GLCHECKER(glEnable(GL_CLIP_DISTANCE0 + k));
+		}
+		#endif
+	}
+	void IRenderer::EndClippingPlanes()
+	{
+		#if !defined(GLES2)
+		if (ClipPlane)
+		{
+			for (uint32 k = 0; k < ClipPlaneNumber; k++)
+				GLCHECKER(glDisable(GL_CLIP_DISTANCE0 + k));
+		}
+		#endif
+	}
+	void IRenderer::StartScissorTest()
+	{
+		if (scissorTest)
+		{
+			GLCHECKER(glScissor((GLint)scissorTestX, (GLint)scissorTestY, (GLsizei)scissorTestWidth, (GLsizei)scissorTestHeight));
+			GLCHECKER(glEnable(GL_SCISSOR_TEST));
+		}
+	}
+	void IRenderer::EndScissorTest()
+	{
+		if (scissorTest)
+		{
+			GLCHECKER(glDisable(GL_SCISSOR_TEST));
+		}
 	}
 	void IRenderer::SetClipPlane0(const Vec4 &clipPlane)
 	{
