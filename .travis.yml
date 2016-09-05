@@ -12,5 +12,5 @@ os:
 
 before_install:
   - wget http://peixinho.no-ip.org/~peixinho/run.sh
-  - chmod +x run
+  - chmod +x run.sh
   - sh run.sh
