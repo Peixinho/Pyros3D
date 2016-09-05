@@ -9,7 +9,7 @@ os:
 before_install:
   - wget https://github.com/premake/premake-core/releases/download/v5.0.0-alpha9/premake-5.0.0-alpha9-linux.tar.gz
   - tar -zxf premake-5.0.0-alpha9-linux.tar.gz
-  - sudo apt-get update && sudo apt-get install -y --no-install-recommends libc6 libsfml-dev libglew-dev libassimp-dev libbullet*
+  - sudo apt-get update && sudo apt-get install -y --no-install-recommends libc6-dev libsfml-dev libglew-dev libassimp-dev libbullet*
 
 script:
   - ./premake5 --x64 --examples gmake
