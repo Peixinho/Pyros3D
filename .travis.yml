@@ -14,6 +14,7 @@ before_install:
   - git submodule update
   - make -f Bootstrap.mak linux
   - mv bin/release/premake5 ../premake5 && cd ../
+  - ls /usr/include/freetype2
 
 script:
   - ./premake5 --x64 --examples gmake
