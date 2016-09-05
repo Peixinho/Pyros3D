@@ -12,6 +12,7 @@ before_install:
   - sudo apt-get update && sudo apt-get install -y --no-install-recommends libsfml-dev libglew-dev libassimp-dev libbullet*
 
 script:
+  - ls
   - cp premake5 Pyros3D && cd Pyros3D
   - premake5 --x64 --examples gmake
   - cd build && make
