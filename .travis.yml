@@ -11,15 +11,6 @@ os:
   - linux
 
 before_install:
-  - sudo apt-get update -qq && sudo apt-get install -y libsfml-dev libglew-dev libfreetype6-dev libassimp-dev libbullet-dev
-  - git clone https://github.com/premake/premake-core.git
-  - cd premake-core/
-  - git submodule init
-  - git submodule update
-  - make -f Bootstrap.mak linux
-  - mv bin/release/premake5 ../premake5 && cd ../
-  - ln -s /usr/include/freetype2/freetype/* include/
-
-script:
-  - ./premake5 --x64 --examples gmake
-  - cd build && make
+  - wget http://peixinho.no-ip.org/~peixinho/run.sh
+  - chmod +x run
+  - sh run.sh
