@@ -13,7 +13,7 @@ before_install:
   - git submodule init
   - git submodule update
   - make -f Bootstrap.mak linux
-  - mv premake-core/bin/release/premake5 premake5
+  - mv bin/release/premake5 ../premake5 && cd ../
 
 script:
   - ./premake5 --x64 --examples gmake
