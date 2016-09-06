@@ -31,7 +31,6 @@ before_install:
   - echo "Moving compiled premake5"
   - mv bin/release/premake5 ../premake5 && cd ../
   - echo "Creating Link"
-  - ln -s /usr/include/freetype2/* include/
   - ln -s /usr/include/bullet/* include/
   - echo "Running premake5"
   - ./premake5 --x64 --examples gmake
