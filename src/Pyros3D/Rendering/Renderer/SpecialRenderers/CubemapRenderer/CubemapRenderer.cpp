@@ -46,9 +46,7 @@ namespace p3d {
         delete fbo;
     }
     
-    
-    
-    std::vector<RenderingMesh*> CubemapRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag)
+    std::vector<RenderingMesh*> CubemapRenderer::GroupAndSortAssets(SceneGraph* Scene, const Vec3 &CameraPos, const uint32 Tag)
     {
         
         // Sort and Group Objects From Scene
@@ -61,7 +59,7 @@ namespace p3d {
         {
             if ((*k)->Material->IsTransparent() && sorting)
             {
-                f32 index = Camera->GetWorldPosition().distanceSQR((*k)->renderingComponent->GetOwner()->GetWorldPosition());
+                f32 index = CameraPos.distanceSQR((*k)->renderingComponent->GetOwner()->GetWorldPosition());
                 while(_TranslucidMeshes.find(index)!=_TranslucidMeshes.end()) index+=1.f;
                 _TranslucidMeshes[index] = (*k);
             }
@@ -74,10 +72,10 @@ namespace p3d {
         }
         
         return _OpaqueMeshes;
-         
+        
     }
     
-    void CubemapRenderer::RenderCubeMap(SceneGraph* Scene, GameObject* AllSeeingEye, const f32 Near, const f32 Far)
+    void CubemapRenderer::RenderCubeMap(SceneGraph* Scene, const Matrix &AllSeeingEye, const f32 Near, const f32 Far)
     {
         
         InitRender();
@@ -87,7 +85,7 @@ namespace p3d {
         
         // Universal Cache
         NearFarPlane = Vec2(Near, Far);
-        CameraPosition = AllSeeingEye->GetWorldPosition();
+        CameraPosition = AllSeeingEye.GetTranslation();
 
         // Flags
         ViewMatrixInverseIsDirty = true;
@@ -95,7 +93,7 @@ namespace p3d {
         ViewProjectionMatrixIsDirty = true;
         
         // Group and Sort Meshes
-        std::vector<RenderingMesh*> rmesh = GroupAndSortAssets(Scene,AllSeeingEye);
+        std::vector<RenderingMesh*> rmesh = GroupAndSortAssets(Scene,AllSeeingEye.GetTranslation());
         
         // Get Lights List
         std::vector<IComponent*> lcomps = ILightComponent::GetLightsOnScene(Scene);
@@ -229,7 +227,7 @@ namespace p3d {
                     ViewMatrix.LookAt(Vec3::ZERO, Vec3(0.0, 0.0, -1.0), Vec3(0.0,-1.0,0.0)); // -Z
         
                 // Translate Light View Matrix
-                ViewMatrix*=AllSeeingEye->GetWorldTransformation().Inverse();
+                ViewMatrix*=AllSeeingEye;
             
                 // Frame Buffer Attachment
                 fbo->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0,TextureType::CubemapPositive_X+i,environmentMap);

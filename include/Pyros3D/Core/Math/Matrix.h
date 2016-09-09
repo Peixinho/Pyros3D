@@ -66,6 +66,9 @@ namespace p3d {
                 // f32
                 f32 Determinant() const;
 
+				// Direction
+				Vec3 GetDirection() const;
+
                 // matrix
                 Matrix Transpose() const;
                 Matrix Inverse() const;

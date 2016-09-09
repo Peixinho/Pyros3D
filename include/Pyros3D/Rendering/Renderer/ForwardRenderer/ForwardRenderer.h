@@ -23,11 +23,12 @@ namespace p3d {
             
             ~ForwardRenderer();
             
-            virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag = 0);
+            virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, const Vec3 &CameraPos, const uint32 Tag = 0);
             
 			virtual void RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene);
             virtual void RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 Tag = 0);
 			virtual void RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag = "NULL");
+			virtual void RenderSceneByTag(const Matrix& projection, const Matrix &view, SceneGraph* Scene, const uint32 &Tag = 0);
             
         private:
             

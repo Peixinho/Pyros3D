@@ -93,13 +93,13 @@ namespace p3d {
 	}
 
 	// Internal Function
-	void IRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene) {
+	void IRenderer::RenderScene(const p3d::Projection& projection, const Matrix &view, SceneGraph* Scene) {
 
 	}
-	void IRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 Tag) {
+	void IRenderer::RenderSceneByTag(const p3d::Projection& projection, const Matrix &view, SceneGraph* Scene, const uint32 Tag) {
 
 	}
-	void IRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag) {
+	void IRenderer::RenderSceneByTag(const p3d::Projection& projection, const Matrix &view, SceneGraph* Scene, const std::string &Tag) {
 
 	}
 

@@ -26,6 +26,9 @@ void RotatingCube::Init()
 {
     // Initialization
     
+		vr = new VR_Renderer();
+		vr->Init();
+
         // Initialize Scene
         Scene = new SceneGraph();
         
@@ -64,7 +67,8 @@ void RotatingCube::Update()
         CubeObject->SetRotation(Vec3(0,(f32)GetTime(),0));
 
         // Render Scene
-        Renderer->RenderScene(projection,Camera,Scene);
+        //Renderer->RenderScene(projection,Camera,Scene);
+		vr->Renderer(Scene);
 }
 
 void RotatingCube::Shutdown()

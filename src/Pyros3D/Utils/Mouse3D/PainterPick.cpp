@@ -44,7 +44,7 @@ namespace p3d {
         delete texture;
     }
 
-    RenderingMesh* PainterPick::PickObject(const f32 mouseX, const f32 mouseY, Projection projection, GameObject* Camera, SceneGraph* Scene)
+    RenderingMesh* PainterPick::PickObject(const f32 mouseX, const f32 mouseY, Projection projection, const Matrix &Camera, SceneGraph* Scene)
     {
         this->mouseX = mouseX;
         this->mouseY = mouseY;
@@ -68,7 +68,7 @@ namespace p3d {
         return NULL;
     }
     
-    void PainterPick::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
+    void PainterPick::RenderScene(const p3d::Projection& projection, const Matrix &view, SceneGraph* Scene)
     {
         // Colors
         colors = 0;
@@ -77,19 +77,15 @@ namespace p3d {
         MeshPickingList.clear();
         
         // Saves Camera
-        this->Camera = Camera;
-        this->CameraPosition = this->Camera->GetWorldPosition();
-        
-        // Saves Projection
-        this->projection = projection;
-        
+        this->CameraPosition = view.GetTranslation();
+                
         // Universal Cache
         ProjectionMatrix = projection.m;
         NearFarPlane = Vec2(projection.Near, projection.Far);
         
         // View Matrix and Position
-        ViewMatrix = Camera->GetWorldTransformation().Inverse();
-        CameraPosition = Camera->GetWorldPosition();
+        ViewMatrix = view;
+        CameraPosition = view.GetTranslation();
 
         // Flags
         ViewMatrixInverseIsDirty = true;
