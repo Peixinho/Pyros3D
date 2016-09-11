@@ -70,7 +70,7 @@ namespace p3d {
 		leftEyeResolve->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, m_nRenderWidth, m_nRenderHeight, false);
 
 		leftEyeFBO = new FrameBuffer();
-		leftEyeFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, m_nRenderWidth, m_nRenderHeight);
+		leftEyeFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, m_nRenderWidth, m_nRenderHeight);
 		leftEyeFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, leftEye);
 		leftEyeFBOResolve = new FrameBuffer();
 		leftEyeFBOResolve->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, leftEyeResolve);
@@ -81,13 +81,13 @@ namespace p3d {
 		rightEyeResolve->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, m_nRenderWidth, m_nRenderHeight, false);
 
 		rightEyeFBO= new FrameBuffer();
-		rightEyeFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, m_nRenderWidth, m_nRenderHeight);
+		rightEyeFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, m_nRenderWidth, m_nRenderHeight);
 		rightEyeFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, rightEye);
 		rightEyeFBOResolve = new FrameBuffer();
 		rightEyeFBOResolve->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, rightEyeResolve);
 
 		// Distortion
-		DistortionLens = new VR_Distortion_Geometry(m_pHMD);
+		//DistortionLens = new VR_Distortion_Geometry(m_pHMD);
 
 		distortionPositionHandle= -2;
 		distortionRedInHandle = -2;
@@ -110,7 +110,7 @@ namespace p3d {
 		if (!vr::VRCompositor())
 		{
 			echo("Compositor initialization failed. See log file for details\n");
-			return false;
+			//return false;
 		}
 
 		fwdRenderer = new ForwardRenderer(m_nRenderWidth, m_nRenderHeight);
@@ -274,6 +274,9 @@ namespace p3d {
 
 	void VR_Renderer::Renderer(SceneGraph* Scene)
 	{
+
+		Scene->Add(&go);
+
 		if (m_pHMD)
 		{
 			//DrawControllers();
@@ -343,7 +346,7 @@ namespace p3d {
 			}
 
 			// Setup the VAO the first time through.
-			/*if (m_unControllerVAO == 0)
+			/*f (m_unControllerVAO == 0)
 			{
 				glGenVertexArrays(1, &m_unControllerVAO);
 				glBindVertexArray(m_unControllerVAO);
@@ -375,13 +378,22 @@ namespace p3d {
 
 			// RenderStereoTargets();
 			{
-				glClearColor(0.15f, 0.15f, 0.18f, 1.0f); // nice background color, but not black
+				//glClearColor(0.15f, 0.15f, 0.18f, 1.0f); // nice background color, but not black
 				glEnable(GL_MULTISAMPLE);
 
 				// Left Eye
 				leftEyeFBO->Bind();
-				glViewport(0, 0, m_nRenderWidth, m_nRenderHeight);
-				// RenderScene(vr::Eye_Left);
+				//glViewport(0, 0, m_nRenderWidth, m_nRenderHeight);
+				
+				Matrix viewL = GetCurrentViewMatrix(vr::Eye_Left).Inverse();
+				go.SetTransformationMatrix(viewL);
+				Projection projectionL;
+				projectionL.m = GetCurrentProjectionMatrix(vr::Eye_Left);
+
+				fwdRenderer->ResetViewPort();
+				fwdRenderer->SetViewPort(0, 0, m_nRenderWidth, m_nRenderHeight);
+				fwdRenderer->RenderScene(projectionL, &go, Scene);
+
 				leftEyeFBO->UnBind();
 
 				glDisable(GL_MULTISAMPLE);
@@ -398,12 +410,17 @@ namespace p3d {
 
 				// Right Eye
 				rightEyeFBO->Bind();
-				glViewport(0, 0, m_nRenderWidth, m_nRenderHeight);
+				//glViewport(0, 0, m_nRenderWidth, m_nRenderHeight);
 				
-				Matrix view = GetCurrentViewMatrix(vr::Eye_Right);
-				Matrix projection = GetCurrentProjectionMatrix(vr::Eye_Right);
+				Matrix viewR = GetCurrentViewMatrix(vr::Eye_Right).Inverse();
+				go.SetTransformationMatrix(viewR);
+
+				Projection projectionR;
+				projectionR.m = GetCurrentProjectionMatrix(vr::Eye_Right);
 				
-				//fwdRenderer->RenderScene(,, Scene);
+				fwdRenderer->ResetViewPort();
+				fwdRenderer->SetViewPort(0, 0, m_nRenderWidth, m_nRenderHeight);
+				fwdRenderer->RenderScene(projectionR, &go, Scene);
 
 				rightEyeFBO->UnBind();
 
@@ -411,17 +428,16 @@ namespace p3d {
 
 				rightEyeFBO->Bind(FBOAccess::Read);
 				rightEyeFBOResolve->Bind(FBOAccess::Write);
-
 				glBlitFramebuffer(0, 0, m_nRenderWidth, m_nRenderHeight, 0, 0, m_nRenderWidth, m_nRenderHeight, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
 				rightEyeFBO->UnBind();
 				rightEyeFBOResolve->UnBind();
 			}
-
+			
 			// RenderDistortion();
 			{
-				glDisable(GL_DEPTH_TEST);
-				glViewport(0, 0, m_nWindowWidth, m_nWindowHeight);
+				/*glDisable(GL_DEPTH_TEST);
+				//glViewport(0, 0, m_nWindowWidth, m_nWindowHeight);
 
 				glUseProgram(DistortionLens->material->GetShader());
 
@@ -464,13 +480,17 @@ namespace p3d {
 					glVertexAttribPointer(distortionBlueInHandle, 2, GL_FLOAT, GL_FALSE, 0, &DistortionLens->geometry->tTexcoordBlue[0]);
 				}
 
+				int pos = Shader::GetUniformLocation(DistortionLens->material->GetShader(), "mytexture");
+				GLint v = 1;
+				glUniform1iv(pos, 1, &v);
+
 				//render left lens (first half of index array )
 				leftEyeResolve->Bind();
-				glDrawElements(GL_TRIANGLES, DistortionLens->geometry->GetIndexData().size() / 2, GL_UNSIGNED_SHORT, 0);
-
+				glDrawElements(GL_TRIANGLES, DistortionLens->geometry->index.size() / 2, __INDEX_TYPE__, &DistortionLens->geometry->index[0]);
+				
 				//render right lens (second half of index array )
-				rightEyeFBOResolve->Bind();
-				glDrawElements(GL_TRIANGLES, DistortionLens->geometry->GetIndexData().size() / 2, GL_UNSIGNED_SHORT, (const void *)(&DistortionLens->geometry->GetIndexData()[0]));
+				rightEyeResolve->Bind();
+				glDrawElements(GL_TRIANGLES, DistortionLens->geometry->index.size() / 2, __INDEX_TYPE__, &DistortionLens->geometry->index[DistortionLens->geometry->index.size() / 2]);
 
 				// Disable Attributes
 				if (distortionBlueInHandle>-1)
@@ -490,9 +510,18 @@ namespace p3d {
 					glDisableVertexAttribArray(distortionPositionHandle);
 				}
 
-				glUseProgram(0);
-			}
+				glUseProgram(0);*/
 
+				Matrix viewL = GetCurrentViewMatrix(vr::Eye_Left).Inverse();
+				go.SetTransformationMatrix(viewL);
+				Projection projectionL;
+				projectionL.m = GetCurrentProjectionMatrix(vr::Eye_Left);
+
+				fwdRenderer->ResetViewPort();
+				fwdRenderer->SetViewPort(0, 0, m_nRenderWidth, m_nRenderHeight);
+				fwdRenderer->RenderScene(projectionL, &go, Scene);
+			}
+			
 			vr::Texture_t leftEyeTexture = { (void*)leftEye->GetBindID(), vr::API_OpenGL, vr::ColorSpace_Gamma };
 			vr::VRCompositor()->Submit(vr::Eye_Left, &leftEyeTexture);
 			vr::Texture_t rightEyeTexture = { (void*)rightEye->GetBindID(), vr::API_OpenGL, vr::ColorSpace_Gamma };

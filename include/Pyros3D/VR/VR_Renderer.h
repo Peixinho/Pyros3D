@@ -75,6 +75,7 @@ namespace p3d {
 
 		// Regular Rendering
 		ForwardRenderer* fwdRenderer;
+		GameObject go;
 	};
 
 };

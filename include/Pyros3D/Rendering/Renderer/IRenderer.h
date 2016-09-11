@@ -181,10 +181,9 @@ namespace p3d {
             void DeactivateCulling();
         
             // Render Scene
-            virtual void RenderScene(const p3d::Projection &projection, const Matrix &view, SceneGraph* Scene);
-            virtual void RenderSceneByTag(const p3d::Projection &projection, const Matrix &view, SceneGraph* Scene, const std::string &Tag = "");
-            virtual void RenderSceneByTag(const p3d::Projection &projection, const Matrix &view, SceneGraph* Scene, const uint32 Tag = 0);
-			virtual void RenderSceneByTag(const Matrix& projection, const Matrix &view, SceneGraph* Scene, const uint32 &Tag = 0);
+            virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene);
+            virtual void RenderSceneByTag(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag = "");
+            virtual void RenderSceneByTag(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const uint32 Tag = 0);
         
         protected:
             
@@ -197,7 +196,7 @@ namespace p3d {
             // the rendering list is changed.
             // e.g. Add/Remove Models
             // Sort Assets (mostly the Translucent ones)
-			virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, const Vec3 &CameraPos, const uint32 Tag = 0) = 0;
+            virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag = 0) = 0;
             
             // Reset
             void InitRender();
@@ -293,6 +292,14 @@ namespace p3d {
             // Scene
             SceneGraph* 
                                 Scene;
+
+            // Camera Matrix
+            GameObject*
+                                Camera;
+
+            // Projection Matrix
+            Projection
+                                projection;
             
             // Depth Bias
             Vec2 

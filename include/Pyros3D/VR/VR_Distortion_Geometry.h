@@ -24,7 +24,7 @@ namespace p3d {
 
 		VR_Distortion_Material(Shader *shader) : CustomShaderMaterial(shader)
 		{
-			int tex = 0;
+			int tex = 1;
 			AddUniform(Uniforms::Uniform("mytexture", Uniforms::DataType::Int, &tex));
 		}
 

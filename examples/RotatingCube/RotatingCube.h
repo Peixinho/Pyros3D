@@ -28,8 +28,6 @@
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 
-#include <Pyros3D/VR/VR_Renderer.h>
-
 using namespace p3d;
 
 class RotatingCube : public ClassName
@@ -37,7 +35,7 @@ class RotatingCube : public ClassName
         
     public:
         
-        RotatingCube();
+        RotatingCube();   
         virtual ~RotatingCube();
         
         virtual void Init();
@@ -62,7 +60,6 @@ class RotatingCube : public ClassName
         // Mesh
         Renderable* cubeMesh;
 
-		VR_Renderer* vr;
 };
 
 #endif	/* ROTATINGCUBE_H */

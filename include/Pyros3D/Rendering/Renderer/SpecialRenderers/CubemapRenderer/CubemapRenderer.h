@@ -22,17 +22,17 @@ namespace p3d {
             
             ~CubemapRenderer();
             
-            virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, const Vec3 &CameraPos, const uint32 Tag = 0);
+            virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag = 0);
             
-            void RenderCubeMap(SceneGraph* Scene, const Matrix &AllSeeingEye, const f32 Near, const f32 Far);
+            void RenderCubeMap(SceneGraph* Scene, GameObject* AllSeeingEye, const f32 Near, const f32 Far);
             
-            virtual void RenderScene(const p3d::Projection &projection, const Matrix &Camera, SceneGraph* Scene) {}
+            virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene) {}
             
             Texture* GetTexture();
             
         protected:
             
-            Matrix AllSeeingEye;
+            GameObject* AllSeeingEye;
             Texture* environmentMap;
             FrameBuffer* fbo;
             

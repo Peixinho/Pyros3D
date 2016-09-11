@@ -12,11 +12,11 @@ namespace p3d {
 
 	namespace Sort {
 
-		Vec3 _Camera;
+		GameObject* _Camera;
 		bool sortRenderingMeshes(const void* a, const void* b)
 		{
-			f32 a2 = _Camera.distanceSQR(((RenderingMesh*)a)->renderingComponent->GetOwner()->GetWorldPosition());
-			f32 b2 = _Camera.distanceSQR(((RenderingMesh*)b)->renderingComponent->GetOwner()->GetWorldPosition());
+			f32 a2 = _Camera->GetPosition().distanceSQR(((RenderingMesh*)a)->renderingComponent->GetOwner()->GetWorldPosition());
+			f32 b2 = _Camera->GetPosition().distanceSQR(((RenderingMesh*)b)->renderingComponent->GetOwner()->GetWorldPosition());
 			return (a2<b2);
 		}
 	}
@@ -49,7 +49,7 @@ namespace p3d {
 
 	}
 
-	std::vector<RenderingMesh*> ForwardRenderer::GroupAndSortAssets(SceneGraph* Scene, const Vec3 &CameraPos, const uint32 Tag)
+	std::vector<RenderingMesh*> ForwardRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag)
 	{
 
 		// Sort and Group Objects From Scene
@@ -62,7 +62,7 @@ namespace p3d {
 			std::vector<RenderingComponent*> comps(RenderingComponent::GetRenderingComponents(Scene));
 			for (std::vector<RenderingComponent*>::iterator i = comps.begin(); i != comps.end(); i++)
 			{
-				f32 distance = (CameraPos.distanceSQR((*i)->GetOwner()->GetWorldPosition() + ((*i)->GetBoundingSphereCenter() - (*i)->GetBoundingSphereRadius())*(*i)->GetOwner()->GetScale()));
+				f32 distance = (Camera->GetWorldPosition().distanceSQR((*i)->GetOwner()->GetWorldPosition() + ((*i)->GetBoundingSphereCenter() - (*i)->GetBoundingSphereRadius())*(*i)->GetOwner()->GetScale()));
 				(*i)->UpdateLOD((*i)->GetLODByDistance(fabs(distance)));
 			}
 		}
@@ -91,7 +91,7 @@ namespace p3d {
 		}
 
 		// sorting translucid
-		Sort::_Camera = CameraPos;
+		Sort::_Camera = Camera;
 		sort(_TranslucidMeshes.begin(), _TranslucidMeshes.end(), Sort::sortRenderingMeshes);
 
 		// final list
@@ -102,26 +102,22 @@ namespace p3d {
 
 		return _OpaqueMeshes;
 	}
-	void ForwardRenderer::RenderScene(const Projection& projection, GameObject* Camera, SceneGraph* Scene)
+	void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
 	{
 		RenderSceneByTag(projection, Camera, Scene, 0);
 	}
-	void ForwardRenderer::RenderSceneByTag(const Projection& projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag)
+	void ForwardRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag)
 	{
 		RenderSceneByTag(projection, Camera, Scene, MakeStringID(Tag));
 	}
-	void ForwardRenderer::RenderSceneByTag(const Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 Tag)
+	void ForwardRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 Tag)
 	{
-		Projection p = projection;
-		RenderSceneByTag(p.GetProjectionMatrix(), Camera->GetWorldTransformation().Inverse(), Scene, Tag);
-	}
-	void ForwardRenderer::RenderSceneByTag(const Matrix& projection, const Matrix &view, SceneGraph* Scene, const uint32 &Tag)
-	{
+
 		// Initialize Renderer
 		InitRender();
 
 		// Group and Sort Meshes
-		std::vector<RenderingMesh*> rmesh = GroupAndSortAssets(Scene, view.GetTranslation(), Tag);
+		std::vector<RenderingMesh*> rmesh = GroupAndSortAssets(Scene, Camera, Tag);
 
 		// Get Lights List
 		std::vector<IComponent*> lcomps = ILightComponent::GetLightsOnScene(Scene);
@@ -158,7 +154,7 @@ namespace p3d {
 				SpotShadowMatrix.clear();
 				NumberOfSpotShadows = 0;
 
-				ViewMatrix = view;
+				ViewMatrix = Camera->GetWorldTransformation().Inverse();
 				uint32 pointCounter = 0;
 				uint32 spotCounter = 0;
 				for (std::vector<IComponent*>::iterator i = lcomps.begin(); i != lcomps.end(); i++)
@@ -215,7 +211,7 @@ namespace p3d {
 							// Get Lights Shadow Map Texture
 							for (uint32 i = 0; i < d->GetNumberCascades(); i++)
 							{
-								d->UpdateCascadeFrustumPoints(i, view.GetTranslation(), view.GetDirection());
+								d->UpdateCascadeFrustumPoints(i, Camera->GetWorldPosition(), Camera->GetDirection());
 								ProjectionMatrix = d->GetLightProjection(ViewMatrix, i, rmesh);
 
 								// Set Viewport
@@ -255,10 +251,10 @@ namespace p3d {
 							if (d->GetNumberCascades() > 3) _ShadowFar.w = d->GetCascade(3).Far;
 
 							Vec4 ShadowFar;
-							ShadowFar.x = 0.5f*(-_ShadowFar.x*projection.m[10] + projection.m[14]) / _ShadowFar.x + 0.5f;
-							ShadowFar.y = 0.5f*(-_ShadowFar.y*projection.m[10] + projection.m[14]) / _ShadowFar.y + 0.5f;
-							ShadowFar.z = 0.5f*(-_ShadowFar.z*projection.m[10] + projection.m[14]) / _ShadowFar.z + 0.5f;
-							ShadowFar.w = 0.5f*(-_ShadowFar.w*projection.m[10] + projection.m[14]) / _ShadowFar.w + 0.5f;
+							ShadowFar.x = 0.5f*(-_ShadowFar.x*projection.m.m[10] + projection.m.m[14]) / _ShadowFar.x + 0.5f;
+							ShadowFar.y = 0.5f*(-_ShadowFar.y*projection.m.m[10] + projection.m.m[14]) / _ShadowFar.y + 0.5f;
+							ShadowFar.z = 0.5f*(-_ShadowFar.z*projection.m.m[10] + projection.m.m[14]) / _ShadowFar.z + 0.5f;
+							ShadowFar.w = 0.5f*(-_ShadowFar.w*projection.m.m[10] + projection.m.m[14]) / _ShadowFar.w + 0.5f;
 							DirectionalShadowFar = ShadowFar;
 
 							// Disable Depth Bias
@@ -522,12 +518,12 @@ namespace p3d {
 					};
 
 					// Universal Cache
-					ProjectionMatrix = projection;
-					//NearFarPlane = Vec2(projection.Near, projection.Far);
+					ProjectionMatrix = projection.m;
+					NearFarPlane = Vec2(projection.Near, projection.Far);
 
 					// View Matrix and Position
-					ViewMatrix = view;
-					CameraPosition = view.GetTranslation();
+					ViewMatrix = Camera->GetWorldTransformation().Inverse();
+					CameraPosition = Camera->GetWorldPosition();
 					}
 
 					// Reset User Defined for Depth Buffer
@@ -542,13 +538,20 @@ namespace p3d {
 			// Saves Scene
 			this->Scene = Scene;
 
+			// Saves Camera
+			this->Camera = Camera;
+			this->CameraPosition = this->Camera->GetWorldPosition();
+
+			// Saves Projection
+			this->projection = projection;
+
 			// Universal Cache
-			ProjectionMatrix = projection;
-			//NearFarPlane = Vec2(projection.Near, projection.Far);
+			ProjectionMatrix = projection.m;
+			NearFarPlane = Vec2(projection.Near, projection.Far);
 
 			// View Matrix and Position
-			ViewMatrix = view;
-			CameraPosition = view.GetTranslation();
+			ViewMatrix = Camera->GetWorldTransformation().Inverse();
+			CameraPosition = Camera->GetWorldPosition();
 
 			// Update Culling
 			UpdateCulling(ProjectionMatrix*ViewMatrix);

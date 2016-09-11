@@ -31,15 +31,15 @@ namespace p3d {
         virtual void Resize(const uint32 Width, const uint32 Height);
         
         // Returns Rendering Mesh Clicked
-        RenderingMesh* PickObject(const f32 mouseX, const f32 mouseY, Projection projection, const Matrix &view, SceneGraph* Scene);
+        RenderingMesh* PickObject(const f32 mouseX, const f32 mouseY, Projection projection, GameObject* Camera, SceneGraph* Scene);
         
     private:
         
         // Should Select Only Clickable Objects
-        virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, const Matrix &view, const uint32 Tag = 0) { std::vector<RenderingMesh*> o; return o; }
+        virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag = 0) { std::vector<RenderingMesh*> o; return o; }
         
         // Render Scene
-        virtual void RenderScene(const p3d::Projection &projection, const Matrix &view, SceneGraph* Scene);
+        virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene);
         
         // Material for Rendering
         GenericShaderMaterial* material;

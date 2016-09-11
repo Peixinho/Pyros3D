@@ -198,9 +198,7 @@ namespace p3d {
             return rot;
 
         }
-		Vec3 Matrix::GetDirection() const {
-			return Vec3(m[8], m[9], m[10]);
-		}
+
         f32 Matrix::Determinant() const
         {
             return (

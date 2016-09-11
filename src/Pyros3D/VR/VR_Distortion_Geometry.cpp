@@ -1,4 +1,5 @@
 #include <Pyros3D/VR/VR_Distortion_Geometry.h>
+#include <Pyros3D/VR/VR_Shaders.h>
 
 namespace p3d {
 
@@ -7,8 +8,8 @@ namespace p3d {
 		geometry = new Distortion_Geometry();
 		shader = new Shader();
 		shader->LoadShaderText(VR_SHADER_DISTORTION);
-		shader->CompileShader(ShaderType::VertexShader);
-		shader->CompileShader(ShaderType::FragmentShader);
+		shader->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n")));
+		shader->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n")));
 		shader->LinkProgram();
 		material = new VR_Distortion_Material(shader);
 
@@ -95,7 +96,6 @@ namespace p3d {
 			}
 		}
 	}
-
 
 	VR_Distortion_Geometry::~VR_Distortion_Geometry()
 	{
