@@ -42,6 +42,46 @@ namespace p3d {
         attachments.clear();
 
     }
+
+	void FrameBuffer::BlitFrameBuffer(const uint32 initSrcX, const uint32 initSrcY, const uint32 endSrcX, const uint32 endSrcY, const uint32 initDestX, const uint32 initDestY, const uint32 endDestX, const uint32 endDestY, const uint32 mask, const uint32 filter)
+	{
+		GLuint Mask;
+		switch (mask)
+		{
+			case FBOBufferBit::Depth:
+				Mask = GL_DEPTH_BUFFER_BIT;
+			break;
+			case FBOBufferBit::Stencil:
+				Mask = GL_STENCIL_BUFFER_BIT;
+			break;
+			case FBOBufferBit::Color:
+			default:
+				Mask = GL_COLOR_BUFFER_BIT;
+			break;
+		};
+		GLuint Filter;
+		switch (filter)
+		{
+		case FBOFilter::Nearest:
+			Filter = GL_NEAREST;
+		break;
+		case FBOFilter::Linear:
+		default:
+			Filter = GL_LINEAR;
+		break;
+		};
+		GLCHECKER(glBlitFramebuffer(initSrcX, initSrcY, endSrcX, endSrcY, initDestX, initDestY, endDestX, endDestY, Mask, Filter));
+	}
+
+	void FrameBuffer::EnableMultisample()
+	{
+		GLCHECKER(glEnable(GL_MULTISAMPLE));
+	}
+	void FrameBuffer::DisableMultisample()
+	{
+		GLCHECKER(glDisable(GL_MULTISAMPLE));
+	}
+
     void FrameBuffer::Init(const uint32 attachmentFormat, const uint32 TextureType, p3d::Texture *attachment)
     {
 
@@ -66,7 +106,7 @@ namespace p3d {
 
     }
 
-    void FrameBuffer::Init(const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height)
+    void FrameBuffer::Init(const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height, const uint32 msaa)
     {
 
         if (FBOInitialized==true)
@@ -86,7 +126,7 @@ namespace p3d {
         isBinded = false;
 
         // Add Attach
-        AddAttach(attachmentFormat, attachmentDataType, Width, Height);
+        AddAttach(attachmentFormat, attachmentDataType, Width, Height, msaa);
 
     }
 
@@ -237,6 +277,9 @@ namespace p3d {
             case TextureType::CubemapPositive_Z:
                 attach->TextureType=GL_TEXTURE_CUBE_MAP_POSITIVE_Z;
                 break;
+			case TextureType::Texture_Multisample:
+				attach->TextureType = GL_TEXTURE_2D_MULTISAMPLE;
+				break;
             case TextureType::Texture:
             default:
                 attach->TextureType=GL_TEXTURE_2D;
@@ -280,8 +323,9 @@ namespace p3d {
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
-    void FrameBuffer::AddAttach(const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height)
+    void FrameBuffer::AddAttach(const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height, const uint32 msaa)
     {
+
         // Add Attachment
         FBOAttachment* attach = new FBOAttachment();
         attach->AttachmentFormat = attachmentFormat;
@@ -289,6 +333,9 @@ namespace p3d {
         attach->Width = Width;
         attach->Height = Height;
         attach->DataType = attachmentDataType;
+
+		if (!isBinded)
+			GLCHECKER(glBindFramebuffer(GL_FRAMEBUFFER, fbo));
 
         GLCHECKER(glGenRenderbuffers (1, (GLuint*)&attach->rboID));
         GLCHECKER(glBindRenderbuffer (GL_RENDERBUFFER, attach->rboID));
@@ -354,37 +401,51 @@ namespace p3d {
                 break;
         };
 
-        switch(attach->DataType)
-        {
-            case RenderBufferDataType::Depth:
+		attachments[attachmentFormat] = attach;
+
+		uint32 dataType = attach->DataType;
+		
+		switch (attach->DataType)
+		{
+			case RenderBufferDataType::Depth:
+			case RenderBufferDataType::Depth_Multisample:
 #if defined(GLES2)
-		attach->DataType = GL_DEPTH_COMPONENT16;
-#else
-                attach->DataType = GL_DEPTH_COMPONENT;
-#endif
-            break;
-            // case RenderBufferDataType::Stencil:
-            //     attach->DataType = GL_STENCIL_COMPONENT;
-            // break;
-            case RenderBufferDataType::RGBA:
-            default:
-#if defined(GLES2)
-                attach->DataType = GL_RGBA4;
-#else
-		attach->DataType = GL_RGBA;
-#endif
-            break;
+				attach->DataType = GL_DEPTH_COMPONENT16;
+	#else
+				attach->DataType = GL_DEPTH_COMPONENT;
+	#endif
+				// Add RenderBuffer
+				if (dataType == RenderBufferDataType::Depth) 
+				{
+					GLCHECKER(glRenderbufferStorage(GL_RENDERBUFFER, attach->DataType, attach->Width, attach->Height));
+				} else {
+					GLCHECKER(glRenderbufferStorageMultisample(GL_RENDERBUFFER, msaa, attach->DataType, attach->Width, attach->Height));
+				}
+				// Same code for both types
+				GLCHECKER(glFramebufferRenderbuffer(GL_FRAMEBUFFER, attach->AttachmentFormat, GL_RENDERBUFFER, attach->rboID));
+				GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, 0));
+
+			break;
+			// case RenderBufferDataType::Stencil:
+			//     attach->DataType = GL_STENCIL_COMPONENT;
+			// break;
+			case RenderBufferDataType::RGBA:
+			case RenderBufferDataType::RGBA_Multisample:
+			default:
+				attach->DataType = GL_RGBA;
+
+				// Add RenderBuffer
+				if (dataType == RenderBufferDataType::RGBA)
+				{
+					GLCHECKER(glRenderbufferStorage(GL_RENDERBUFFER, attach->DataType, attach->Width, attach->Height));
+				} else {
+					GLCHECKER(glRenderbufferStorageMultisample(GL_RENDERBUFFER, msaa, attach->DataType, attach->Width, attach->Height));
+				}
+				// Same code for both types
+				GLCHECKER(glFramebufferRenderbuffer(GL_FRAMEBUFFER, attach->AttachmentFormat, GL_RENDERBUFFER, attach->rboID));
+				GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, 0));
+			break;
         }
-
-        attachments[attachmentFormat] = attach;
-
-        if (!isBinded)
-			GLCHECKER(glBindFramebuffer(GL_FRAMEBUFFER, fbo));
-
-        // Add RenderBuffer
-		GLCHECKER(glRenderbufferStorage (GL_RENDERBUFFER, attach->DataType, attach->Width, attach->Height));
-		GLCHECKER(glFramebufferRenderbuffer(GL_FRAMEBUFFER, attach->AttachmentFormat, GL_RENDERBUFFER, attach->rboID));
-        GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, 0));
 
         CheckFBOStatus();
 
@@ -435,8 +496,6 @@ namespace p3d {
 
 		// Add to bound FBOs
 		BoundFBOs[glAccessBinded].push_back(this);
-
-		GLCHECKER(glBindFramebuffer(glAccessBinded, 0));
 		
         GLCHECKER(glBindFramebuffer(glAccessBinded, fbo));
         isBinded = true;
@@ -453,8 +512,10 @@ namespace p3d {
 #if !defined(GLES2)
 		if (drawBuffers)
 		{
-			GLCHECKER(glDrawBuffer(GL_BACK));
-			GLCHECKER(glReadBuffer(GL_BACK));
+			if (glAccessBinded == GL_DRAW_FRAMEBUFFER || glAccessBinded == GL_FRAMEBUFFER) 
+				GLCHECKER(glDrawBuffer(GL_BACK));
+			if (glAccessBinded == GL_READ_BUFFER || glAccessBinded == GL_FRAMEBUFFER) 
+				GLCHECKER(glReadBuffer(GL_BACK));
 		}
 #endif
 

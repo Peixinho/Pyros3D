@@ -87,6 +87,7 @@ namespace p3d {
             CubemapNegative_Y,
             CubemapPositive_Z,
             CubemapNegative_Z,
+			Texture_Multisample,
             Texture
         };
     }
@@ -118,7 +119,7 @@ namespace p3d {
             uint32 Anysotropic;
 			Vec4 borderColor;
         
-			bool CreateTexture(uchar* data = NULL, bool Mipmapping = true, const uint32 level = 0);
+			bool CreateTexture(uchar* data = NULL, bool Mipmapping = true, const uint32 level = 0, const uint32 msaa = 0);
 
 			void GetGLModes();
 			void GetInternalFormat();
@@ -138,7 +139,7 @@ namespace p3d {
             // Texture
             bool LoadTexture(const std::string& Filename, const uint32 Type = TextureType::Texture, bool Mipmapping = true, const uint32 level = 0);
             bool LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type = TextureType::Texture, bool Mipmapping = true, const uint32 level = 0);
-            bool CreateEmptyTexture(const uint32 Type, const uint32 DataType, const int32 width = 0, const int32 height = 0, bool Mipmapping = true, const uint32 level = 0);
+            bool CreateEmptyTexture(const uint32 Type, const uint32 DataType, const int32 width = 0, const int32 height = 0, bool Mipmapping = true, const uint32 level = 0, const uint32 msaa = 0); // msaa if using multisample only
             void SetMinMagFilter(const uint32 MinFilter,const uint32 MagFilter);
             void SetRepeat(const uint32 WrapS,const uint32 WrapT, const int32 WrapR = -1);
 			void SetBorderColor(const Vec4 &Color);

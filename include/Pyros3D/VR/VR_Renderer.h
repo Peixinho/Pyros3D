@@ -13,11 +13,24 @@
 #include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Primitive.h>
-#include <Pyros3D/VR/VR_Distortion_Geometry.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
+#include <Pyros3D/VR/VR_Model.h>
 #include <openvr.h>
 
 namespace p3d {
+
+	class VR_Camera : public GameObject {
+	public:
+		VR_Camera() : GameObject() {}
+		virtual void Update() { UpdateTransformation(); }
+	};
+
+	class VR_GameObject : public GameObject {
+		public:
+			VR_GameObject() : GameObject(), isOnScene(false) {}
+			bool isOnScene;
+	};
+
 	class VR_Renderer {
 
 	public:
@@ -28,10 +41,7 @@ namespace p3d {
 		virtual ~VR_Renderer();
 
 	protected:
-
-		// Lenses
-		VR_Distortion_Geometry* DistortionLens;
-
+		
 		// OpenVR
 		vr::IVRSystem *m_pHMD;
 		vr::IVRRenderModels *m_pRenderModels;
@@ -66,16 +76,33 @@ namespace p3d {
 		Matrix GetCurrentViewProjectionMatrix(vr::Hmd_Eye nEye);
 		Matrix GetCurrentViewMatrix(vr::Hmd_Eye nEye);
 		Matrix GetCurrentProjectionMatrix(vr::Hmd_Eye nEye);
-		void SetupRenderModelForTrackedDevice(vr::TrackedDeviceIndex_t unTrackedDeviceIndex);
+		VR_Model* SetupRenderModelForTrackedDevice(vr::TrackedDeviceIndex_t unTrackedDeviceIndex);
 		void UpdateHMDMatrixPose();
+		void HandleVRInputs();
+		void ProcessVREvent(const vr::VREvent_t & event);
 		Matrix ConvertSteamVRMatrixToMatrix(const vr::HmdMatrix34_t &matPose);
+		void LoadModel(uint32 modelIndex);
+		void UnloadModel(uint32 modelIndex);
 
 		// Shader
 		int32 distortionPositionHandle, distortionRedInHandle, distortionGreenInHandle, distortionBlueInHandle;
 
 		// Regular Rendering
 		ForwardRenderer* fwdRenderer;
-		GameObject go;
+		VR_Camera *cameraL, *cameraR;
+		Projection projectionL, projectionR, projection;
+
+		bool m_rbShowTrackedDevice[vr::k_unMaxTrackedDeviceCount];
+
+		std::map<uint32, VR_Model*> m_TrackedModels;
+		std::map<uint32, VR_GameObject*> m_TrackedObjects;
+		std::map<uint32, RenderingComponent*> m_TrackedRenderingComponents;
+		std::map<uint32, Texture*> m_TrackedTextures;
+		SceneGraph* scene;
+
+		VR_GameObject* Controller1;
+		VR_GameObject* Controller2;
+		
 	};
 
 };

@@ -17,7 +17,44 @@ namespace p3d {
 
 	VR_Renderer::~VR_Renderer()
 	{
+		for (std::map<uint32, VR_GameObject*>::iterator i = m_TrackedObjects.begin(); i != m_TrackedObjects.end(); i++)
+		{
+			scene->Remove((*i).second);
+			for (std::vector<IComponent*>::const_iterator k = (*i).second->GetComponents().begin(); k != (*i).second->GetComponents().end(); k++)
+			{
+				(*i).second->Remove((*k));
+				delete (*k);
+			}
+		}
+		for (std::map<uint32, VR_Model*>::iterator i = m_TrackedModels.begin(); i != m_TrackedModels.end(); i++)
+		{
+			delete (*i).second;
+		}
+		for (std::map<uint32, Texture*>::iterator i = m_TrackedTextures.begin(); i != m_TrackedTextures.end(); i++)
+		{
+			delete (*i).second;
+		}
 
+		m_TrackedModels.clear();
+		m_TrackedObjects.clear();
+		m_TrackedRenderingComponents.clear();
+		delete fwdRenderer;
+		delete cameraL;
+		delete cameraR;
+		delete leftEye;
+		delete leftEyeFBO;
+		delete leftEyeFBOResolve;
+		delete leftEyeResolve;
+		delete rightEye;
+		delete rightEyeFBO;
+		delete rightEyeFBOResolve;
+		delete rightEyeResolve;
+
+		if (m_pHMD)
+		{
+			vr::VR_Shutdown();
+			m_pHMD = NULL;
+		}
 	}
 
 	bool VR_Renderer::Init()
@@ -50,6 +87,10 @@ namespace p3d {
 			return false;
 		}
 
+		// Set Properties
+		m_nearClip = 0.01f;
+		m_farClip = 100.f;
+
 		m_strDriver = "No Driver";
 		m_strDisplay = "No Display";
 
@@ -65,77 +106,206 @@ namespace p3d {
 
 		// Set Textures and Framebuffers
 		leftEye = new Texture();
-		leftEye->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, m_nRenderWidth, m_nRenderHeight, false);
+		leftEye->CreateEmptyTexture(TextureType::Texture_Multisample, TextureDataType::RGBA, m_nRenderWidth, m_nRenderHeight, false, 0, 4);
 		leftEyeResolve = new Texture();
-		leftEyeResolve->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, m_nRenderWidth, m_nRenderHeight, false);
+		leftEyeResolve->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, m_nRenderWidth, m_nRenderHeight, true);
+		leftEyeResolve->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
+		leftEyeResolve->SetMinMagFilter(TextureFilter::Linear, TextureFilter::LinearMipmapLinear);
 
 		leftEyeFBO = new FrameBuffer();
-		leftEyeFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, m_nRenderWidth, m_nRenderHeight);
-		leftEyeFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, leftEye);
+		leftEyeFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture_Multisample, leftEye);
+		leftEyeFBO->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth_Multisample, m_nRenderWidth, m_nRenderHeight, 4);
+
 		leftEyeFBOResolve = new FrameBuffer();
 		leftEyeFBOResolve->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, leftEyeResolve);
 
 		rightEye = new Texture();
-		rightEye->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, m_nRenderWidth, m_nRenderHeight, false);
+		rightEye->CreateEmptyTexture(TextureType::Texture_Multisample, TextureDataType::RGBA, m_nRenderWidth, m_nRenderHeight, false, 0, 4);
 		rightEyeResolve = new Texture();
-		rightEyeResolve->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, m_nRenderWidth, m_nRenderHeight, false);
+		rightEyeResolve->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, m_nRenderWidth, m_nRenderHeight, true);
+		rightEyeResolve->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
+		rightEyeResolve->SetMinMagFilter(TextureFilter::Linear, TextureFilter::LinearMipmapLinear);
 
-		rightEyeFBO= new FrameBuffer();
-		rightEyeFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, m_nRenderWidth, m_nRenderHeight);
-		rightEyeFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, rightEye);
+		rightEyeFBO = new FrameBuffer();
+		rightEyeFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture_Multisample, rightEye);
+		rightEyeFBO->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth_Multisample, m_nRenderWidth, m_nRenderHeight, 4);
+
 		rightEyeFBOResolve = new FrameBuffer();
 		rightEyeFBOResolve->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, rightEyeResolve);
-
-		// Distortion
-		//DistortionLens = new VR_Distortion_Geometry(m_pHMD);
 
 		distortionPositionHandle= -2;
 		distortionRedInHandle = -2;
 		distortionGreenInHandle = -2;
 		distortionBlueInHandle = -2;
 
-		// Render Models
-		/*memset(m_rTrackedDeviceToRenderModel, 0, sizeof(m_rTrackedDeviceToRenderModel));
-
-		for (uint32_t unTrackedDevice = vr::k_unTrackedDeviceIndex_Hmd + 1; unTrackedDevice < vr::k_unMaxTrackedDeviceCount; unTrackedDevice++)
-		{
-		if (!m_pHMD->IsTrackedDeviceConnected(unTrackedDevice))
-		continue;
-
-		SetupRenderModelForTrackedDevice(unTrackedDevice);
-		}*/
-
 		vr::EVRInitError peError = vr::VRInitError_None;
 
 		if (!vr::VRCompositor())
 		{
 			echo("Compositor initialization failed. See log file for details\n");
-			//return false;
+			return false;
 		}
 
+		// Set Renderer
 		fwdRenderer = new ForwardRenderer(m_nRenderWidth, m_nRenderHeight);
+
+		// Set Eye Cameras
+		cameraL = new VR_Camera();
+		cameraR = new VR_Camera();
+
+		// Get Projections
+		projectionL.m = GetCurrentProjectionMatrix(vr::Eye_Left);
+		projectionR.m = GetCurrentProjectionMatrix(vr::Eye_Right);
+		projectionL.Far = projectionR.Far = m_farClip;
+		projectionL.Near = projectionR.Near = m_nearClip;
+		projection.Perspective(70, 1024 / 720, m_nearClip, m_farClip);
+
+		scene = NULL;
+
+		Controller1 = Controller2 = NULL;
+
+		// Check for VR Devices
+		for (uint32_t unTrackedDevice = vr::k_unTrackedDeviceIndex_Hmd + 1; unTrackedDevice < vr::k_unMaxTrackedDeviceCount; unTrackedDevice++)
+		{
+			if (!m_pHMD->IsTrackedDeviceConnected(unTrackedDevice))
+				continue;
+
+			LoadModel(unTrackedDevice);
+		}
 
 		return true;
 	}
 
-	void VR_Renderer::SetupRenderModelForTrackedDevice(vr::TrackedDeviceIndex_t unTrackedDeviceIndex)
+	void VR_Renderer::LoadModel(uint32 modelIndex)
 	{
-		/*if (unTrackedDeviceIndex >= vr::k_unMaxTrackedDeviceCount)
-			return;
+		VR_Model* model = SetupRenderModelForTrackedDevice(modelIndex);
+		if (model != NULL)
+		{
+			RenderingComponent* rcomp = new RenderingComponent(model);
+			VR_GameObject *go = new VR_GameObject();
+			go->Add(rcomp);
 
-		// try to find a model we've already set up
-		std::string sRenderModelName = GetTrackedDeviceString(m_pHMD, unTrackedDeviceIndex, vr::Prop_RenderModelName_String);
-		CGLRenderModel *pRenderModel = FindOrLoadRenderModel(sRenderModelName.c_str());
-		if (!pRenderModel)
-		{
-			std::string sTrackingSystemName = GetTrackedDeviceString(m_pHMD, unTrackedDeviceIndex, vr::Prop_TrackingSystemName_String);
-			echo(std::string(std::string("Unable to load render model for tracked device ") + " " + sTrackingSystemName + " " + sRenderModelName));
+			m_TrackedModels[modelIndex] = model;
+			m_TrackedRenderingComponents[modelIndex] = rcomp;
+			m_TrackedObjects[modelIndex] = go;
+
+			if (m_pHMD->GetTrackedDeviceClass(modelIndex) == vr::TrackedDeviceClass_Controller)
+			{
+				if (Controller1 == NULL)
+					Controller1 = go;
+				else
+					Controller2 = go;
+			}
+
+			echo("Device attached: " + modelIndex);
 		}
-		else
+	}
+
+	void VR_Renderer::UnloadModel(uint32 modelIndex)
+	{
+		if (m_TrackedModels[modelIndex] != NULL)
 		{
-			m_rTrackedDeviceToRenderModel[unTrackedDeviceIndex] = pRenderModel;
-			m_rbShowTrackedDevice[unTrackedDeviceIndex] = true;
-		}*/
+			if (m_pHMD->GetTrackedDeviceClass(modelIndex) == vr::TrackedDeviceClass_Controller)
+			{
+				if (m_TrackedObjects[modelIndex] == Controller1)
+					Controller1 = NULL;
+				if (m_TrackedObjects[modelIndex] == Controller2)
+					Controller2 = NULL;
+			}
+			scene->Remove(m_TrackedObjects[modelIndex]);
+			delete m_TrackedObjects[modelIndex];
+			delete m_TrackedRenderingComponents[modelIndex];
+			delete m_TrackedTextures[modelIndex];
+			delete m_TrackedModels[modelIndex];
+			echo("Device detached: " + modelIndex);
+		}
+	}
+
+	void VR_Renderer::ProcessVREvent(const vr::VREvent_t & event)
+	{
+		switch (event.eventType)
+		{
+			case vr::VREvent_TrackedDeviceActivated:
+			{
+				LoadModel(event.trackedDeviceIndex);
+			}
+			break;
+			case vr::VREvent_TrackedDeviceDeactivated:
+			{
+				UnloadModel(event.trackedDeviceIndex);
+			}
+			break;
+			case vr::VREvent_TrackedDeviceUpdated:
+			{
+				echo("Device updated: " + event.trackedDeviceIndex);
+			}
+			break;
+		}
+	}
+	void VR_Renderer::HandleVRInputs() {
+		// Process SteamVR events
+		vr::VREvent_t event;
+		while (m_pHMD->PollNextEvent(&event, sizeof(event)))
+		{
+			ProcessVREvent(event);
+		}
+
+		// Process SteamVR controller state
+		for (vr::TrackedDeviceIndex_t unDevice = 0; unDevice < vr::k_unMaxTrackedDeviceCount; unDevice++)
+		{
+			vr::VRControllerState_t state;
+			if (m_pHMD->GetControllerState(unDevice, &state))
+			{
+				m_rbShowTrackedDevice[unDevice] = state.ulButtonPressed == 0;
+			}
+		}
+	}
+
+	VR_Model* VR_Renderer::SetupRenderModelForTrackedDevice(vr::TrackedDeviceIndex_t unTrackedDeviceIndex)
+	{
+		if (unTrackedDeviceIndex >= vr::k_unMaxTrackedDeviceCount)
+			return NULL;
+
+		std::string sRenderModelName = GetTrackedDeviceString(m_pHMD, unTrackedDeviceIndex, vr::Prop_RenderModelName_String);
+
+		vr::RenderModel_t *pModel;
+		vr::EVRRenderModelError error;
+		while (1)
+		{
+			error = vr::VRRenderModels()->LoadRenderModel_Async(sRenderModelName.c_str(), &pModel);
+			if (error != vr::VRRenderModelError_Loading)
+				break;
+		}
+		if (error != vr::VRRenderModelError_None)
+		{
+			echo("Unable to load render model " + sRenderModelName);
+			return NULL;
+		}
+		vr::RenderModel_TextureMap_t *pTexture;
+		while (1)
+		{
+			error = vr::VRRenderModels()->LoadTexture_Async(pModel->diffuseTextureId, &pTexture);
+			if (error != vr::VRRenderModelError_Loading)
+				break;
+		}
+
+		if (error != vr::VRRenderModelError_None)
+		{
+			echo("Unable to load render texture id: " + pModel->diffuseTextureId);
+			vr::VRRenderModels()->FreeRenderModel(pModel);
+			return NULL; // move on to the next tracked device
+		}
+
+		Texture *tex = new Texture();
+		tex->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, pTexture->unWidth, pTexture->unHeight, false);
+		tex->UpdateData((void*)pTexture->rubTextureMapData);
+		m_TrackedTextures[unTrackedDeviceIndex] = tex;
+		VR_Model *model = new VR_Model(pModel, tex);
+
+		vr::VRRenderModels()->FreeRenderModel(pModel);
+		vr::VRRenderModels()->FreeTexture(pTexture);
+
+		return model;
 	}
 
 	Matrix VR_Renderer::GetHMDMatrixProjectionEye(vr::Hmd_Eye nEye)
@@ -151,6 +321,7 @@ namespace p3d {
 			mat.m[0][2], mat.m[1][2], mat.m[2][2], mat.m[3][2],
 			mat.m[0][3], mat.m[1][3], mat.m[2][3], mat.m[3][3]
 			);
+
 	}
 
 	Matrix VR_Renderer::GetHMDMatrixPoseEye(vr::Hmd_Eye nEye)
@@ -164,7 +335,7 @@ namespace p3d {
 			matEyeRight.m[0][1], matEyeRight.m[1][1], matEyeRight.m[2][1], 0.0,
 			matEyeRight.m[0][2], matEyeRight.m[1][2], matEyeRight.m[2][2], 0.0,
 			matEyeRight.m[0][3], matEyeRight.m[1][3], matEyeRight.m[2][3], 1.0f
-			);
+		);
 
 		return matrixObj.Inverse();
 	}
@@ -275,17 +446,17 @@ namespace p3d {
 	void VR_Renderer::Renderer(SceneGraph* Scene)
 	{
 
-		Scene->Add(&go);
+		scene = Scene;
+
+		// Process VR Events
+		HandleVRInputs();
 
 		if (m_pHMD)
 		{
-			//DrawControllers();
 			{
 				if (m_pHMD->IsInputFocusCapturedByAnotherProcess())
 					return;
-
-				std::vector<float> vertdataarray;
-
+				
 				int m_uiControllerVertcount = 0;
 				int m_iTrackedControllerCount = 0;
 
@@ -294,8 +465,8 @@ namespace p3d {
 					if (!m_pHMD->IsTrackedDeviceConnected(unTrackedDevice))
 						continue;
 
-					if (m_pHMD->GetTrackedDeviceClass(unTrackedDevice) != vr::TrackedDeviceClass_Controller)
-						continue;
+					//if (m_pHMD->GetTrackedDeviceClass(unTrackedDevice) != vr::TrackedDeviceClass_Controller)
+						//continue;
 
 					m_iTrackedControllerCount += 1;
 
@@ -306,236 +477,74 @@ namespace p3d {
 
 					Vec4 center = mat * Vec4(0, 0, 0, 1);
 
-					for (int i = 0; i < 3; ++i)
+					if (m_TrackedObjects[unTrackedDevice] != NULL)
 					{
-						Vec3 color(0, 0, 0);
-						Vec4 point(0, 0, 0, 1);
-						point[i] += 0.05f;  // offset in X, Y, Z
-						color[i] = 1.0;  // R, G, B
-						point = mat * point;
-						vertdataarray.push_back(center.x);
-						vertdataarray.push_back(center.y);
-						vertdataarray.push_back(center.z);
-
-						vertdataarray.push_back(color.x);
-						vertdataarray.push_back(color.y);
-						vertdataarray.push_back(color.z);
-
-						vertdataarray.push_back(point.x);
-						vertdataarray.push_back(point.y);
-						vertdataarray.push_back(point.z);
-
-						vertdataarray.push_back(color.x);
-						vertdataarray.push_back(color.y);
-						vertdataarray.push_back(color.z);
-
-						m_uiControllerVertcount += 2;
+						m_TrackedObjects[unTrackedDevice]->SetTransformationMatrix(mat);
+						if (scene && !m_TrackedObjects[unTrackedDevice]->isOnScene)
+						{
+							scene->Add(m_TrackedObjects[unTrackedDevice]);
+							m_TrackedObjects[unTrackedDevice]->isOnScene = true;
+						}
 					}
-
-					Vec4 start = mat * Vec4(0, 0, -0.02f, 1);
-					Vec4 end = mat * Vec4(0, 0, -39.f, 1);
-					Vec3 color(.92f, .92f, .71f);
-
-					vertdataarray.push_back(start.x); vertdataarray.push_back(start.y); vertdataarray.push_back(start.z);
-					vertdataarray.push_back(color.x); vertdataarray.push_back(color.y); vertdataarray.push_back(color.z);
-
-					vertdataarray.push_back(end.x); vertdataarray.push_back(end.y); vertdataarray.push_back(end.z);
-					vertdataarray.push_back(color.x); vertdataarray.push_back(color.y); vertdataarray.push_back(color.z);
-					m_uiControllerVertcount += 2;
 				}
 			}
 
-			// Setup the VAO the first time through.
-			/*f (m_unControllerVAO == 0)
-			{
-				glGenVertexArrays(1, &m_unControllerVAO);
-				glBindVertexArray(m_unControllerVAO);
-
-				glGenBuffers(1, &m_glControllerVertBuffer);
-				glBindBuffer(GL_ARRAY_BUFFER, m_glControllerVertBuffer);
-
-				GLuint stride = 2 * 3 * sizeof(float);
-				GLuint offset = 0;
-
-				glEnableVertexAttribArray(0);
-				glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (const void *)offset);
-
-				offset += sizeof(Vec3);
-				glEnableVertexAttribArray(1);
-				glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (const void *)offset);
-
-				glBindVertexArray(0);
-			}
-
-			glBindBuffer(GL_ARRAY_BUFFER, m_glControllerVertBuffer);
-
-			// set vertex data if we have some
-			if (vertdataarray.size() > 0)
-			{
-				//$ TODO: Use glBufferSubData for this...
-				glBufferData(GL_ARRAY_BUFFER, sizeof(float) * vertdataarray.size(), &vertdataarray[0], GL_STREAM_DRAW);
-			}*/
-
 			// RenderStereoTargets();
 			{
-				//glClearColor(0.15f, 0.15f, 0.18f, 1.0f); // nice background color, but not black
-				glEnable(GL_MULTISAMPLE);
+				FrameBuffer::EnableMultisample();
 
 				// Left Eye
 				leftEyeFBO->Bind();
-				//glViewport(0, 0, m_nRenderWidth, m_nRenderHeight);
 				
 				Matrix viewL = GetCurrentViewMatrix(vr::Eye_Left).Inverse();
-				go.SetTransformationMatrix(viewL);
-				Projection projectionL;
-				projectionL.m = GetCurrentProjectionMatrix(vr::Eye_Left);
-
-				fwdRenderer->ResetViewPort();
-				fwdRenderer->SetViewPort(0, 0, m_nRenderWidth, m_nRenderHeight);
-				fwdRenderer->RenderScene(projectionL, &go, Scene);
+				
+				cameraL->SetTransformationMatrix(viewL);
+				cameraL->Update();
+				
+				fwdRenderer->RenderScene(projectionL, cameraL, Scene);
 
 				leftEyeFBO->UnBind();
 
-				glDisable(GL_MULTISAMPLE);
+				FrameBuffer::DisableMultisample();
 
 				leftEyeFBO->Bind(FBOAccess::Read);
 				leftEyeFBOResolve->Bind(FBOAccess::Write);
-
-				glBlitFramebuffer(0, 0, m_nRenderWidth, m_nRenderHeight, 0, 0, m_nRenderWidth, m_nRenderHeight, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-
+				FrameBuffer::BlitFrameBuffer(0, 0, m_nRenderWidth, m_nRenderHeight, 0, 0, m_nRenderWidth, m_nRenderHeight, FBOBufferBit::Color, FBOFilter::Linear);
 				leftEyeFBO->UnBind();
 				leftEyeFBOResolve->UnBind();
 
-				glEnable(GL_MULTISAMPLE);
+				FrameBuffer::EnableMultisample();
 
 				// Right Eye
 				rightEyeFBO->Bind();
-				//glViewport(0, 0, m_nRenderWidth, m_nRenderHeight);
 				
 				Matrix viewR = GetCurrentViewMatrix(vr::Eye_Right).Inverse();
-				go.SetTransformationMatrix(viewR);
-
-				Projection projectionR;
-				projectionR.m = GetCurrentProjectionMatrix(vr::Eye_Right);
 				
-				fwdRenderer->ResetViewPort();
-				fwdRenderer->SetViewPort(0, 0, m_nRenderWidth, m_nRenderHeight);
-				fwdRenderer->RenderScene(projectionR, &go, Scene);
+				cameraR->SetTransformationMatrix(viewR);
+				cameraR->Update();
+
+				fwdRenderer->RenderScene(projectionR, cameraR, Scene);
 
 				rightEyeFBO->UnBind();
 
-				glDisable(GL_MULTISAMPLE);
+				FrameBuffer::DisableMultisample();
 
 				rightEyeFBO->Bind(FBOAccess::Read);
 				rightEyeFBOResolve->Bind(FBOAccess::Write);
-				glBlitFramebuffer(0, 0, m_nRenderWidth, m_nRenderHeight, 0, 0, m_nRenderWidth, m_nRenderHeight, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-
+				FrameBuffer::BlitFrameBuffer(0, 0, m_nRenderWidth, m_nRenderHeight, 0, 0, m_nRenderWidth, m_nRenderHeight, Buffer_Bit::Color, TextureFilter::Linear);
 				rightEyeFBO->UnBind();
 				rightEyeFBOResolve->UnBind();
 			}
 			
-			// RenderDistortion();
+			// Render To Screen
 			{
-				/*glDisable(GL_DEPTH_TEST);
-				//glViewport(0, 0, m_nWindowWidth, m_nWindowHeight);
-
-				glUseProgram(DistortionLens->material->GetShader());
-
-				if (distortionPositionHandle == -2)
-				{
-					distortionPositionHandle = Shader::GetAttributeLocation(DistortionLens->material->GetShader(), "position");
-				}
-				// Texcoord
-				if (distortionRedInHandle == -2)
-				{
-					distortionRedInHandle = Shader::GetAttributeLocation(DistortionLens->material->GetShader(), "v2UVredIn");
-				}
-				if (distortionGreenInHandle == -2)
-				{
-					distortionGreenInHandle = Shader::GetAttributeLocation(DistortionLens->material->GetShader(), "v2UVgreenIn");
-				}
-				if (distortionBlueInHandle == -2)
-				{
-					distortionBlueInHandle = Shader::GetAttributeLocation(DistortionLens->material->GetShader(), "v2UVblueIn");
-				}
-				// Send Attributes
-				if (distortionPositionHandle>-1)
-				{
-					glEnableVertexAttribArray(distortionPositionHandle);
-					glVertexAttribPointer(distortionPositionHandle, 2, GL_FLOAT, GL_FALSE, 0, &DistortionLens->geometry->tVertex[0]);
-				}
-				if (distortionRedInHandle>-1)
-				{
-					glEnableVertexAttribArray(distortionRedInHandle);
-					glVertexAttribPointer(distortionRedInHandle, 2, GL_FLOAT, GL_FALSE, 0, &DistortionLens->geometry->tTexcoordRed[0]);
-				}
-				if (distortionGreenInHandle>-1)
-				{
-					glEnableVertexAttribArray(distortionGreenInHandle);
-					glVertexAttribPointer(distortionGreenInHandle, 2, GL_FLOAT, GL_FALSE, 0, &DistortionLens->geometry->tTexcoordGreen[0]);
-				}
-				if (distortionRedInHandle>-1)
-				{
-					glEnableVertexAttribArray(distortionBlueInHandle);
-					glVertexAttribPointer(distortionBlueInHandle, 2, GL_FLOAT, GL_FALSE, 0, &DistortionLens->geometry->tTexcoordBlue[0]);
-				}
-
-				int pos = Shader::GetUniformLocation(DistortionLens->material->GetShader(), "mytexture");
-				GLint v = 1;
-				glUniform1iv(pos, 1, &v);
-
-				//render left lens (first half of index array )
-				leftEyeResolve->Bind();
-				glDrawElements(GL_TRIANGLES, DistortionLens->geometry->index.size() / 2, __INDEX_TYPE__, &DistortionLens->geometry->index[0]);
-				
-				//render right lens (second half of index array )
-				rightEyeResolve->Bind();
-				glDrawElements(GL_TRIANGLES, DistortionLens->geometry->index.size() / 2, __INDEX_TYPE__, &DistortionLens->geometry->index[DistortionLens->geometry->index.size() / 2]);
-
-				// Disable Attributes
-				if (distortionBlueInHandle>-1)
-				{
-					glDisableVertexAttribArray(distortionBlueInHandle);
-				}
-				if (distortionGreenInHandle>-1)
-				{
-					glDisableVertexAttribArray(distortionGreenInHandle);
-				}
-				if (distortionRedInHandle>-1)
-				{
-					glDisableVertexAttribArray(distortionRedInHandle);
-				}
-				if (distortionPositionHandle)
-				{
-					glDisableVertexAttribArray(distortionPositionHandle);
-				}
-
-				glUseProgram(0);*/
-
-				Matrix viewL = GetCurrentViewMatrix(vr::Eye_Left).Inverse();
-				go.SetTransformationMatrix(viewL);
-				Projection projectionL;
-				projectionL.m = GetCurrentProjectionMatrix(vr::Eye_Left);
-
-				fwdRenderer->ResetViewPort();
-				fwdRenderer->SetViewPort(0, 0, m_nRenderWidth, m_nRenderHeight);
-				fwdRenderer->RenderScene(projectionL, &go, Scene);
+				fwdRenderer->RenderScene(projection, cameraL, Scene);
 			}
 			
-			vr::Texture_t leftEyeTexture = { (void*)leftEye->GetBindID(), vr::API_OpenGL, vr::ColorSpace_Gamma };
+			vr::Texture_t leftEyeTexture = { (void*)leftEyeResolve->GetBindID(), vr::API_OpenGL, vr::ColorSpace_Gamma };
 			vr::VRCompositor()->Submit(vr::Eye_Left, &leftEyeTexture);
-			vr::Texture_t rightEyeTexture = { (void*)rightEye->GetBindID(), vr::API_OpenGL, vr::ColorSpace_Gamma };
+			vr::Texture_t rightEyeTexture = { (void*)rightEyeResolve->GetBindID(), vr::API_OpenGL, vr::ColorSpace_Gamma };
 			vr::VRCompositor()->Submit(vr::Eye_Right, &rightEyeTexture);
-
-
-			// Spew out the controller and pose count whenever they change.
-			/*if (m_iTrackedControllerCount != m_iTrackedControllerCount_Last || m_iValidPoseCount != m_iValidPoseCount_Last)
-			{
-				m_iValidPoseCount_Last = m_iValidPoseCount;
-				m_iTrackedControllerCount_Last = m_iTrackedControllerCount;
-
-				echo("PoseCount:%d(%s) Controllers:%d\n", m_iValidPoseCount, m_strPoseClasses.c_str(), m_iTrackedControllerCount);
-			}*/
 
 			UpdateHMDMatrixPose();
 		}
