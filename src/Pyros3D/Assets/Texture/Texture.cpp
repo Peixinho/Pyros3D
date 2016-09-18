@@ -227,10 +227,12 @@ namespace p3d {
 			GLMode = GL_TEXTURE_CUBE_MAP_POSITIVE_Z;
 			GLSubMode = GL_TEXTURE_CUBE_MAP;
 			break;
+#if !defined(GLES2)
 		case TextureType::Texture_Multisample:
 			GLMode = GL_TEXTURE_2D_MULTISAMPLE;
 			GLSubMode = GL_TEXTURE_2D_MULTISAMPLE;
 			break;
+#endif
 		case TextureType::Texture:
 		default:
 			GLMode = GL_TEXTURE_2D;
@@ -376,14 +378,16 @@ namespace p3d {
 			// No gles :|
 			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_BASE_LEVEL, 0));
 			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MAX_LEVEL, level));
-#endif
+
 			if (GLMode != GL_TEXTURE_2D_MULTISAMPLE)
 			{
 				GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
 			} else {
 				GLCHECKER(glTexImage2DMultisample(GLMode, msaa, internalFormat, Width[level], Height[level], true));
 			}
-
+#else
+			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
+#endif
 			if (level>0)
 				isMipMapManual = true;
 		}
@@ -392,7 +396,10 @@ namespace p3d {
 		GLCHECKER(glBindTexture(GLSubMode, 0));
 
 		// default values
-		if (GLMode != GL_TEXTURE_2D_MULTISAMPLE) {
+#if defined(GLES2)
+		if (GLMode != GL_TEXTURE_2D_MULTISAMPLE) 
+#endif
+		{
 			SetRepeat(TextureRepeat::Repeat, TextureRepeat::Repeat);
 			SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 		}

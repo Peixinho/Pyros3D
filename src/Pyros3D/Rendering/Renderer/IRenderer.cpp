@@ -96,10 +96,13 @@ namespace p3d {
 	void IRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene) {
 
 	}
-	void IRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 Tag) {
+	void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene) {
 
 	}
-	void IRenderer::RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag) {
+	void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Tag) {
+
+	}
+	void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const std::string &Tag) {
 
 	}
 
@@ -128,9 +131,11 @@ namespace p3d {
 			// Material After Render
 			LastMaterialPTR->AfterRender();
 		}
+
+#if !defined(GLES2)
 		// Set Default Polygon Mode
 		GLCHECKER(glPolygonMode(GL_FRONT_AND_BACK, GL_FILL));
-
+#endif
 		// Disable Cull Face
 		GLCHECKER(glDisable(GL_CULL_FACE));
 

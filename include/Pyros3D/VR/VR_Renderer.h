@@ -29,6 +29,7 @@ namespace p3d {
 		public:
 			VR_GameObject() : GameObject(), isOnScene(false) {}
 			bool isOnScene;
+			uint32 type;
 	};
 
 	class VR_Renderer {
@@ -39,6 +40,10 @@ namespace p3d {
 		bool Init();
 		void Renderer(SceneGraph* Scene);
 		virtual ~VR_Renderer();
+
+		GameObject* GetController1() { return Controller1; }
+		GameObject* GetController2() { return Controller2; }
+		Matrix GetHMDTransformation() { return hmdMatrix; }
 
 	protected:
 		
@@ -84,9 +89,6 @@ namespace p3d {
 		void LoadModel(uint32 modelIndex);
 		void UnloadModel(uint32 modelIndex);
 
-		// Shader
-		int32 distortionPositionHandle, distortionRedInHandle, distortionGreenInHandle, distortionBlueInHandle;
-
 		// Regular Rendering
 		ForwardRenderer* fwdRenderer;
 		VR_Camera *cameraL, *cameraR;
@@ -102,6 +104,7 @@ namespace p3d {
 
 		VR_GameObject* Controller1;
 		VR_GameObject* Controller2;
+		Matrix hmdMatrix;
 		
 	};
 

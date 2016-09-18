@@ -136,6 +136,7 @@ void SimplePhysics::Update()
     Scene->Update(GetTime());
 
     // Render Scene
+	Renderer->PreRender(Camera, Scene);
     Renderer->RenderScene(projection,Camera,Scene);    
 }
 

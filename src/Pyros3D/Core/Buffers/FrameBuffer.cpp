@@ -75,11 +75,15 @@ namespace p3d {
 
 	void FrameBuffer::EnableMultisample()
 	{
+#if !defined(GLES2)
 		GLCHECKER(glEnable(GL_MULTISAMPLE));
+#endif
 	}
 	void FrameBuffer::DisableMultisample()
 	{
+#if !defined(GLES2)
 		GLCHECKER(glDisable(GL_MULTISAMPLE));
+#endif
 	}
 
     void FrameBuffer::Init(const uint32 attachmentFormat, const uint32 TextureType, p3d::Texture *attachment)
@@ -277,9 +281,11 @@ namespace p3d {
             case TextureType::CubemapPositive_Z:
                 attach->TextureType=GL_TEXTURE_CUBE_MAP_POSITIVE_Z;
                 break;
+#if !defined(GLES2)
 			case TextureType::Texture_Multisample:
 				attach->TextureType = GL_TEXTURE_2D_MULTISAMPLE;
 				break;
+#endif
             case TextureType::Texture:
             default:
                 attach->TextureType=GL_TEXTURE_2D;
@@ -414,6 +420,8 @@ namespace p3d {
 	#else
 				attach->DataType = GL_DEPTH_COMPONENT;
 	#endif
+
+#if !defined (GLES2)
 				// Add RenderBuffer
 				if (dataType == RenderBufferDataType::Depth) 
 				{
@@ -421,6 +429,9 @@ namespace p3d {
 				} else {
 					GLCHECKER(glRenderbufferStorageMultisample(GL_RENDERBUFFER, msaa, attach->DataType, attach->Width, attach->Height));
 				}
+#else
+				GLCHECKER(glRenderbufferStorage(GL_RENDERBUFFER, attach->DataType, attach->Width, attach->Height));
+#endif
 				// Same code for both types
 				GLCHECKER(glFramebufferRenderbuffer(GL_FRAMEBUFFER, attach->AttachmentFormat, GL_RENDERBUFFER, attach->rboID));
 				GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, 0));
@@ -434,6 +445,7 @@ namespace p3d {
 			default:
 				attach->DataType = GL_RGBA;
 
+#if !defined (GLES2)
 				// Add RenderBuffer
 				if (dataType == RenderBufferDataType::RGBA)
 				{
@@ -441,6 +453,9 @@ namespace p3d {
 				} else {
 					GLCHECKER(glRenderbufferStorageMultisample(GL_RENDERBUFFER, msaa, attach->DataType, attach->Width, attach->Height));
 				}
+#else
+				GLCHECKER(glRenderbufferStorage(GL_RENDERBUFFER, attach->DataType, attach->Width, attach->Height));
+#endif
 				// Same code for both types
 				GLCHECKER(glFramebufferRenderbuffer(GL_FRAMEBUFFER, attach->AttachmentFormat, GL_RENDERBUFFER, attach->rboID));
 				GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, 0));

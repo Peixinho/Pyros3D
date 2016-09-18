@@ -108,6 +108,7 @@ void Decals::Update()
 	ModelObject->SetRotation(Vec3(0.f, (f32)GetTime()*.5f, 0.f));
 
 	// Render Scene
+	Renderer->PreRender(Camera, Scene);
 	Renderer->RenderScene(projection, Camera, Scene);
 
 	Vec3 finalPosition;

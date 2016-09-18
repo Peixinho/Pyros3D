@@ -182,8 +182,9 @@ namespace p3d {
         
             // Render Scene
             virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene);
-            virtual void RenderSceneByTag(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag = "");
-            virtual void RenderSceneByTag(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const uint32 Tag = 0);
+            virtual void PreRender(GameObject* Camera, SceneGraph* Scene, const std::string &Tag);
+            virtual void PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Tag);
+			virtual void PreRender(GameObject* Camera, SceneGraph* Scene);
         
         protected:
             

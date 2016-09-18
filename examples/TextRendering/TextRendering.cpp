@@ -79,6 +79,7 @@ void TextRendering::Update()
         TextObject->SetPosition(Vec3(Width*.5f,Height*.5f,0.f));
 
         // Render Scene
+		Renderer->PreRender(Camera, Scene);
         Renderer->RenderScene(projection,Camera,Scene);
 }
 

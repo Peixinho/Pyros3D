@@ -101,6 +101,7 @@ void RotatingTextureAnimatedCube::Update()
         CubeObject->SetRotation(Vec3(0,(f32)GetTime(),0));
 
         // Render Scene
+		Renderer->PreRender(Camera, Scene);
         Renderer->RenderScene(projection,Camera,Scene);
 }
 

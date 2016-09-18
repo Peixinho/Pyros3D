@@ -187,6 +187,7 @@ void DepthOfField::Update()
 
 		// Render Scene
 		EffectManager->CaptureFrame();
+		Renderer->PreRender(Camera, Scene);
 		Renderer->RenderScene(projection,Camera,Scene);
 		EffectManager->EndCapture();
 

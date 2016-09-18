@@ -94,6 +94,7 @@ void ImGuiExample::Update()
         CubeObject->SetRotation(Vec3(0.f,(f32)GetTime(),0.f));
 
         // Render Scene
+		Renderer->PreRender(Camera, Scene);
         Renderer->RenderScene(projection,Camera,Scene);
 
 		ImGui::SFML::ImGui_ImplSFML_Render((int)ImGui::GetIO().DisplaySize.x, (int)ImGui::GetIO().DisplaySize.y, clear_color);

@@ -12,7 +12,13 @@ namespace p3d {
 
 	VR_Renderer::VR_Renderer()
 	{
+		scene = NULL;
+		Controller1 = Controller2 = NULL;
 
+		m_nearClip = 0.01f;
+		m_farClip = 10000.f;
+		m_strDriver = "No Driver";
+		m_strDisplay = "No Display";
 	}
 
 	VR_Renderer::~VR_Renderer()
@@ -87,13 +93,6 @@ namespace p3d {
 			return false;
 		}
 
-		// Set Properties
-		m_nearClip = 0.01f;
-		m_farClip = 100.f;
-
-		m_strDriver = "No Driver";
-		m_strDisplay = "No Display";
-
 		m_strDriver = GetTrackedDeviceString(m_pHMD, vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_TrackingSystemName_String);
 		m_strDisplay = GetTrackedDeviceString(m_pHMD, vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_SerialNumber_String);
 
@@ -133,11 +132,6 @@ namespace p3d {
 		rightEyeFBOResolve = new FrameBuffer();
 		rightEyeFBOResolve->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, rightEyeResolve);
 
-		distortionPositionHandle= -2;
-		distortionRedInHandle = -2;
-		distortionGreenInHandle = -2;
-		distortionBlueInHandle = -2;
-
 		vr::EVRInitError peError = vr::VRInitError_None;
 
 		if (!vr::VRCompositor())
@@ -160,10 +154,6 @@ namespace p3d {
 		projectionL.Near = projectionR.Near = m_nearClip;
 		projection.Perspective(70, 1024 / 720, m_nearClip, m_farClip);
 
-		scene = NULL;
-
-		Controller1 = Controller2 = NULL;
-
 		// Check for VR Devices
 		for (uint32_t unTrackedDevice = vr::k_unTrackedDeviceIndex_Hmd + 1; unTrackedDevice < vr::k_unMaxTrackedDeviceCount; unTrackedDevice++)
 		{
@@ -183,6 +173,7 @@ namespace p3d {
 		{
 			RenderingComponent* rcomp = new RenderingComponent(model);
 			VR_GameObject *go = new VR_GameObject();
+			go->type = m_pHMD->GetTrackedDeviceClass(modelIndex);
 			go->Add(rcomp);
 
 			m_TrackedModels[modelIndex] = model;
@@ -479,6 +470,12 @@ namespace p3d {
 
 					if (m_TrackedObjects[unTrackedDevice] != NULL)
 					{
+						// Store HMD Transform for later usage
+						if (m_pHMD->GetTrackedDeviceClass(unTrackedDevice) == vr::TrackedDeviceClass_HMD)
+						{
+							hmdMatrix = mat;
+							std::cout << mat.GetTranslation().toString() << std::endl;
+						}
 						m_TrackedObjects[unTrackedDevice]->SetTransformationMatrix(mat);
 						if (scene && !m_TrackedObjects[unTrackedDevice]->isOnScene)
 						{
@@ -501,6 +498,8 @@ namespace p3d {
 				cameraL->SetTransformationMatrix(viewL);
 				cameraL->Update();
 				
+				// Render Shadows once each frame
+				fwdRenderer->PreRender(cameraR, Scene);
 				fwdRenderer->RenderScene(projectionL, cameraL, Scene);
 
 				leftEyeFBO->UnBind();
@@ -522,7 +521,7 @@ namespace p3d {
 				
 				cameraR->SetTransformationMatrix(viewR);
 				cameraR->Update();
-
+				
 				fwdRenderer->RenderScene(projectionR, cameraR, Scene);
 
 				rightEyeFBO->UnBind();

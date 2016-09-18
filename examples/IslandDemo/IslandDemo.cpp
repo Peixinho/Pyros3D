@@ -143,6 +143,7 @@ void IslandDemo::Update()
 	Renderer->EnableClipPlane();
 	Renderer->SetClipPlane0(Vec4(0, 1, 0, -gWater->GetPosition().y));
 	Renderer->ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
+	Renderer->PreRender(CameraReflection, Scene);
 	Renderer->RenderScene(projection, CameraReflection, Scene);
 	Renderer->DisableClipPlane();
 	fboReflection->UnBind();
@@ -151,6 +152,7 @@ void IslandDemo::Update()
 	Renderer->ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
 	Renderer->EnableClipPlane();
 	Renderer->SetClipPlane0(Vec4(0, -1, 0, gWater->GetPosition().y));
+	Renderer->PreRender(Camera, Scene);
 	Renderer->RenderScene(projection, Camera, Scene);
 	Renderer->DisableClipPlane();
 	fboRefraction->UnBind();
@@ -160,6 +162,7 @@ void IslandDemo::Update()
 	Renderer->EnableClearDepthBuffer();
 	Renderer->RenderScene(projection, Camera, Scene);
 	Renderer->ClearBufferBit(Buffer_Bit::None);
+	Renderer->PreRender(Camera, SceneWater);
 	Renderer->RenderScene(projection, Camera, SceneWater);
 
 	Vec3 finalPosition;
