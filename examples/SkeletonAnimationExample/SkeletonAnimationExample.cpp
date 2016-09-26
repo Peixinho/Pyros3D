@@ -136,7 +136,8 @@ void SkeletonAnimationExample::Update()
         Scene->Update(GetTime());
 
         // Render Scene
-        Renderer->RenderSceneByTag(projection,Camera,Scene,"Teste");
+		Renderer->PreRender(Camera, Scene, "Teste");
+        Renderer->RenderScene(projection,Camera,Scene);
 }
 
 void SkeletonAnimationExample::OnMouseMove(Event::Input::Info e)

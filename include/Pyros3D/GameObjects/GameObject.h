@@ -116,9 +116,6 @@ namespace p3d {
             // Internal Update
             bool InternalUpdate();
             
-            // Update Transformation
-            bool UpdateTransformation(const uint32 order = 0);
-            
             // Properties
             Vec3 _Position;
             Vec3 _Rotation;
@@ -142,6 +139,9 @@ namespace p3d {
             
         protected:
             
+			// Update Transformation
+			bool UpdateTransformation(const uint32 order = 0);
+
 			// Static
 			bool isStatic;
 

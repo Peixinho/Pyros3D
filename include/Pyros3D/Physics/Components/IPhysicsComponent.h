@@ -70,7 +70,7 @@ namespace p3d {
             void InternalAddWheel(const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3 &Position, bool isFrontWheel);
             
             // Protected Constructor
-            IPhysicsComponent(const f32 Mass, const uint32 shape, IPhysics* engine) : mass(Mass), Shape(shape), rigidBodyRegistered(false), PhysicsEngine(engine) {}
+            IPhysicsComponent(const f32 Mass, const uint32 shape, IPhysics* engine) : mass(Mass), Shape(shape), rigidBodyRegistered(false), PhysicsEngine(engine), IComponent() {}
             
 
             // Keep Shape Type

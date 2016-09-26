@@ -70,6 +70,7 @@ void CustomMaterial::Update()
         CubeObject->SetRotation(Vec3(0.f,(f32)GetTime(),0.f));
 
         // Render Scene
+		Renderer->PreRender(Camera, Scene);
         Renderer->RenderScene(projection,Camera,Scene);
 }
 

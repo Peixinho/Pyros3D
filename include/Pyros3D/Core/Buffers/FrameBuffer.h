@@ -45,7 +45,10 @@ namespace p3d {
         enum {
             RGBA = 0,
             Depth,
-            Stencil
+            Stencil,
+			RGBA_Multisample,
+			Depth_Multisample,
+			Stencil_Multisample
         };
     }
     
@@ -62,6 +65,23 @@ namespace p3d {
 			Read_Write = 0,
 			Read,
 			Write
+		};
+	}
+
+	namespace FBOBufferBit
+	{
+		enum {
+			Color = 0,
+			Depth,
+			Stencil
+		};
+	}
+
+	namespace FBOFilter
+	{
+		enum {
+			Linear = 0,
+			Nearest
 		};
 	}
 
@@ -89,9 +109,9 @@ namespace p3d {
             virtual ~FrameBuffer();
             
             void Init(const uint32 attachmentFormat, const uint32 TextureType, Texture* attachment); // Using Textures
-            void Init(const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height); // RenderBuffer
+            void Init(const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height, const uint32 msaa = 0); // RenderBuffer
             void AddAttach(const uint32 attachmentFormat, const uint32 TextureType, Texture* attachment);
-            void AddAttach(const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height);
+            void AddAttach(const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height, const uint32 msaa = 0);
             void Resize(const uint32 Width, const uint32 Height);
             void Bind(const uint32 access = FBOAccess::Read_Write);
             bool IsBinded();
@@ -106,6 +126,10 @@ namespace p3d {
             
             bool IsInitialized() { return FBOInitialized; }
             
+			static void EnableMultisample();
+			static void DisableMultisample();
+			static void BlitFrameBuffer(const uint32 initSrcX, const uint32 initSrcY, const uint32 endSrcX, const uint32 endSrcY, const uint32 initDestX, const uint32 initDestY, const uint32 endDestX, const uint32 endDestY, const uint32 mask, const uint32 filter);
+
         private:
 
 			// Bound FBOs

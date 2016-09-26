@@ -25,13 +25,16 @@ namespace p3d {
             
             virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag = 0);
             
+			virtual void PreRender(GameObject* Camera, SceneGraph* Scene);
+			virtual void PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Tag);
+			virtual void PreRender(GameObject* Camera, SceneGraph* Scene, const std::string &Tag);
 			virtual void RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene);
-            virtual void RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 Tag = 0);
-			virtual void RenderSceneByTag(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const std::string &Tag = "NULL");
-            
-        private:
-            
-            GenericShaderMaterial* shadowMaterial, *shadowSkinnedMaterial;
+
+		private:
+
+			GenericShaderMaterial* shadowMaterial, *shadowSkinnedMaterial;
+			std::vector<RenderingMesh*> rmesh;
+			std::vector<IComponent*> lcomps;
 
     };
     

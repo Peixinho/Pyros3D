@@ -25,7 +25,7 @@ void RotatingCube::OnResize(const uint32 width, const uint32 height)
 void RotatingCube::Init()
 {
     // Initialization
-    
+		
         // Initialize Scene
         Scene = new SceneGraph();
         
@@ -64,6 +64,7 @@ void RotatingCube::Update()
         CubeObject->SetRotation(Vec3(0,(f32)GetTime(),0));
 
         // Render Scene
+		Renderer->PreRender(Camera, Scene);
         Renderer->RenderScene(projection,Camera,Scene);
 }
 

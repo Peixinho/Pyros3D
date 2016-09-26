@@ -173,6 +173,7 @@ void DeferredRendering::Update()
     Scene->Update(GetTime());
 
     // Render Scene
+	Renderer->PreRender(Camera, Scene);
     Renderer->RenderScene(projection,Camera,Scene);
 
 	Vec3 finalPosition;

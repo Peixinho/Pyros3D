@@ -16,7 +16,7 @@ namespace p3d {
     std::map<SceneGraph*, std::vector<RenderingMesh*> > RenderingComponent::MeshesOnScene;
     std::map<SceneGraph*, std::vector<RenderingComponent*> > RenderingComponent::RenderingComponentsOnScene;
     
-    RenderingComponent::RenderingComponent(Renderable* renderable, IMaterial* Material)
+    RenderingComponent::RenderingComponent(Renderable* renderable, IMaterial* Material) : IComponent()
     {
 		// Keep renderable pointer
 		this->renderable = renderable;

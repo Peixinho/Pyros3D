@@ -43,6 +43,9 @@ void RacingGame::Init()
         // Initialize Renderer
         Renderer = new ForwardRenderer(1024,768);
 		Renderer->SetGlobalLight(Vec4(0.5, 0.5, 0.5, 0.5));
+
+		Renderer2 = new ForwardRenderer(1024, 768);
+
         // Projection
         projection.Perspective(70.f,(f32)Width/(f32)Height,1.f,2100.f);
         projection2.Ortho(0.f, (f32)Width,0.f, (f32)Height,-1.f,100.f);
@@ -322,10 +325,12 @@ void RacingGame::Update()
 	rCar->Enable();
 
 	Renderer->ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
-	Renderer->EnableClearDepthBuffer();
+	Renderer->EnableClearDepthBuffer();	
+	Renderer->PreRender(Camera, Scene);
 	Renderer->RenderScene(projection, Camera, Scene);
-	Renderer->ClearBufferBit(Buffer_Bit::None);
-	Renderer->RenderScene(projection2, Camera2, Scene2);
+	Renderer2->ClearBufferBit(Buffer_Bit::None);
+	Renderer2->PreRender(Camera2, Scene2);
+	Renderer2->RenderScene(projection2, Camera2, Scene2);
 	//physics->RenderDebugDraw(projection, Camera);
 }
 

@@ -55,7 +55,7 @@ class RacingGame : public ClassName {
         // Scene
         SceneGraph* Scene, *Scene2;
         // Renderer
-        ForwardRenderer* Renderer;
+        ForwardRenderer* Renderer, *Renderer2;
         // Projection
         Projection projection, projection2;
         // Physics
