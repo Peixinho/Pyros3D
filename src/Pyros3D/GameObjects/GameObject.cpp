@@ -425,6 +425,7 @@ namespace p3d {
     }
     void GameObject::UnregisterComponents(SceneGraph* Scene)
     {
+		_ComponentsChanged = true;
         for(std::vector<IComponent*>::iterator i=Components.begin();i!=Components.end();i++)
         {
             (*i)->Unregister(Scene);
