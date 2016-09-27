@@ -84,7 +84,7 @@ solution "VR_Pyros3D"
 			end
 		end
 		
-        includedirs { "../../include/", "../../src/", "Pyros3D" }
+        includedirs { "../../include/", "../../src/", "src/" }
 	
         defines({framework});
 
