@@ -43,6 +43,7 @@ There are specific readme in android and emscripten sections.
 ![Skeleton Animation](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/SkeletonAnimationExample/SkeletonAnimation.png)
 ![Text Rendering](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/TextRendering/TextRendering.png)
 ![Decals](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/Decals/Decals.png)
+![VR](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/otherplatforms/vr/VR_ShootingRange/VR_ShootingRange.png)
 
 License
 ----
