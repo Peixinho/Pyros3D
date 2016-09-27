@@ -9,15 +9,15 @@
 
 #include <Pyros3D/Physics/Components/Sphere/PhysicsSphere.h>
 
-namespace p3d {  
+namespace p3d {
 
-    PhysicsSphere::PhysicsSphere(IPhysics* engine, const f32 radius, const f32 mass) : IPhysicsComponent(mass, CollisionShapes::Sphere,engine)
-    {
-        
-        this->radius=radius;
-        
-    }
+	PhysicsSphere::PhysicsSphere(IPhysics* engine, const f32 radius, const f32 mass) : IPhysicsComponent(mass, CollisionShapes::Sphere, engine)
+	{
 
-    PhysicsSphere::~PhysicsSphere() {}
+		this->radius = radius;
+
+	}
+
+	PhysicsSphere::~PhysicsSphere() {}
 
 }

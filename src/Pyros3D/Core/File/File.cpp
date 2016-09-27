@@ -11,14 +11,14 @@
 namespace p3d {
 
 #if !defined(ANDROID)
-    bool File::Open(const std::string &filename, bool write)
-    {
+	bool File::Open(const std::string &filename, bool write)
+	{
 		opened = false;
-    	file = fopen(filename.c_str(), (write?"wb":"rb"));
-		if (file!=NULL)
+		file = fopen(filename.c_str(), (write ? "wb" : "rb"));
+		if (file != NULL)
 		{
-    		int32 n_blocks = 1024;
-    		while(n_blocks != 0)
+			int32 n_blocks = 1024;
+			while (n_blocks != 0)
 			{
 				data.resize(data.size() + n_blocks);
 				n_blocks = fread(&data[data.size() - n_blocks], 1, n_blocks, file);
@@ -30,10 +30,10 @@ namespace p3d {
 
 		echo("Error: Couldn't Open File");
 		return opened;
-    }
-    
-    void File::Read(const void* src, const uint32 size)
-    {
+	}
+
+	void File::Read(const void* src, const uint32 size)
+	{
 		if (opened)
 		{
 			memcpy((char*)src, &data[positionStream], sizeof(unsigned char)*size);
@@ -44,24 +44,24 @@ namespace p3d {
 	void File::Write(const void* src, const uint32 size)
 	{
 		if (opened)
-			fwrite(src,1,size,file);
+			fwrite(src, 1, size, file);
 	}
 
-    void File::Rewind()
-    {
+	void File::Rewind()
+	{
 		if (opened)
 			positionStream = 0;
-    }
+	}
 
-    const uint32 File::Size() const
-    {
-        return data.size();
-    }
+	const uint32 File::Size() const
+	{
+		return data.size();
+	}
 
-    std::vector<uchar> &File::GetData()
-    {
-        return data;
-    }
+	std::vector<uchar> &File::GetData()
+	{
+		return data;
+	}
 
 	void File::Close()
 	{

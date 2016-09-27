@@ -18,54 +18,54 @@
 
 namespace p3d {
 
-    using namespace Uniforms;
+	using namespace Uniforms;
 
-    class PYROS3D_API PostEffectsManager {
-        friend class IEffect;
-        
-        public:
+	class PYROS3D_API PostEffectsManager {
+		friend class IEffect;
 
-            PostEffectsManager(const uint32 width, const uint32 height);
-            virtual ~PostEffectsManager();
-            
-            void Resize(const uint32 width, const uint32 height);
+	public:
 
-			void CaptureFrame();
-			void EndCapture();
+		PostEffectsManager(const uint32 width, const uint32 height);
+		virtual ~PostEffectsManager();
 
-            // Process Post Effects
-            void ProcessPostEffects(Projection* projection);
-            
-            void AddEffect(IEffect* Effect);
-            void RemoveEffect(IEffect* Effect);
-            
-            const uint32 GetNumberEffects() const;
-            
-            FrameBuffer* GetExternalFrameBuffer();
-            
-            Texture* GetColor() { return Color; }
-            Texture* GetDepth() { return Depth; }
-            Texture* GetLastRTT() { return LastRTT; }
+		void Resize(const uint32 width, const uint32 height);
 
-        private:
-            
-            void CreateQuad();
-            
-            // Set Quad Geometry
-            std::vector<Vec3> vertex;
-            std::vector<Vec2> texcoord;
-            
-			uint32 Width, Height;
+		void CaptureFrame();
+		void EndCapture();
 
-            // List of Effects
-            std::vector<IEffect*> effects;
-            
-            // MRT
-            Texture *Color, *Depth, *LastRTT;
-            
-            // Frame Buffers
-            FrameBuffer *ExternalFBO,*activeFBO;
-    };
+		// Process Post Effects
+		void ProcessPostEffects(Projection* projection);
+
+		void AddEffect(IEffect* Effect);
+		void RemoveEffect(IEffect* Effect);
+
+		const uint32 GetNumberEffects() const;
+
+		FrameBuffer* GetExternalFrameBuffer();
+
+		Texture* GetColor() { return Color; }
+		Texture* GetDepth() { return Depth; }
+		Texture* GetLastRTT() { return LastRTT; }
+
+	private:
+
+		void CreateQuad();
+
+		// Set Quad Geometry
+		std::vector<Vec3> vertex;
+		std::vector<Vec2> texcoord;
+
+		uint32 Width, Height;
+
+		// List of Effects
+		std::vector<IEffect*> effects;
+
+		// MRT
+		Texture *Color, *Depth, *LastRTT;
+
+		// Frame Buffers
+		FrameBuffer *ExternalFBO, *activeFBO;
+	};
 
 };
 #endif	/* POSTEFFECTSMANAGER_H */

@@ -20,83 +20,83 @@
 #include <string>
 
 namespace p3d {
-    
-    namespace Math {
 
-        class PYROS3D_API Quaternion;
-        class PYROS3D_API Vec3;
-        class PYROS3D_API Vec4;
-        
-        class PYROS3D_API Matrix {
-            public:
+	namespace Math {
 
-                // vars
-                f32 m[16];
+		class PYROS3D_API Quaternion;
+		class PYROS3D_API Vec3;
+		class PYROS3D_API Vec4;
 
-                // methods
-                Matrix();
-                Matrix(const f32 n11,const f32 n21,const f32 n31,const f32 n41,const f32 n12,const f32 n22,const f32 n32,const f32 n42,const f32 n13,const f32 n23,const f32 n33,const f32 n43,const f32 n14,const f32 n24,const f32 n34,const f32 n44);
-                void identity();
-                void LookAt(const Vec3 &eye, const Vec3 &center, const Vec3 &up);
-                void LookAt(const Vec3 &eye, const Vec3 &center);
-                void Translate(const f32 x, const f32 y, const f32 z);
-                void Translate(const Vec3 &xyz);
-                void TranslateX(const f32 x);
-                void TranslateY(const f32 y);
-                void TranslateZ(const f32 z);
-                Vec3 GetTranslation() const;
-                void RotationX(const f32 angle);
-                void RotationY(const f32 angle);
-                void RotationZ(const f32 angle);
+		class PYROS3D_API Matrix {
+		public:
 
-                // Euler
-                void SetRotationFromEuler(const Vec3 &rotation, const uint32 order = 0);
-                Vec3 GetEulerFromRotationMatrix(const uint32 order = 0);
+			// vars
+			f32 m[16];
 
-                Matrix GetRotation(const Vec3 &scale) const;
-				void ForceScale(const f32 sx, const f32 sy, const f32 sz);
-				void ForceScale(const Vec3 &xyz);
-                void Scale(const f32 sx, const f32 sy, const f32 sz);
-                void Scale(const Vec3 &xyz);
-                void ScaleX(const f32 x);
-                void ScaleY(const f32 y);
-                void ScaleZ(const f32 z);
-                Vec3 GetScale() const;
+			// methods
+			Matrix();
+			Matrix(const f32 n11, const f32 n21, const f32 n31, const f32 n41, const f32 n12, const f32 n22, const f32 n32, const f32 n42, const f32 n13, const f32 n23, const f32 n33, const f32 n43, const f32 n14, const f32 n24, const f32 n34, const f32 n44);
+			void identity();
+			void LookAt(const Vec3 &eye, const Vec3 &center, const Vec3 &up);
+			void LookAt(const Vec3 &eye, const Vec3 &center);
+			void Translate(const f32 x, const f32 y, const f32 z);
+			void Translate(const Vec3 &xyz);
+			void TranslateX(const f32 x);
+			void TranslateY(const f32 y);
+			void TranslateZ(const f32 z);
+			Vec3 GetTranslation() const;
+			void RotationX(const f32 angle);
+			void RotationY(const f32 angle);
+			void RotationZ(const f32 angle);
 
-                // f32
-                f32 Determinant() const;
+			// Euler
+			void SetRotationFromEuler(const Vec3 &rotation, const uint32 order = 0);
+			Vec3 GetEulerFromRotationMatrix(const uint32 order = 0);
 
-                // matrix
-                Matrix Transpose() const;
-                Matrix Inverse() const;
+			Matrix GetRotation(const Vec3 &scale) const;
+			void ForceScale(const f32 sx, const f32 sy, const f32 sz);
+			void ForceScale(const Vec3 &xyz);
+			void Scale(const f32 sx, const f32 sy, const f32 sz);
+			void Scale(const Vec3 &xyz);
+			void ScaleX(const f32 x);
+			void ScaleY(const f32 y);
+			void ScaleZ(const f32 z);
+			Vec3 GetScale() const;
 
-                // RH
-                static Matrix PerspectiveMatrix(const f32 fov, const f32 aspect, const f32 near, const f32 far);
-                static Matrix OrthoMatrix(const f32 left, const f32 right, const f32 bottom, const f32 top, const f32 near, const f32 far);
+			// f32
+			f32 Determinant() const;
 
-                Quaternion ConvertToQuaternion() const;
+			// matrix
+			Matrix Transpose() const;
+			Matrix Inverse() const;
 
-                // operators
-                Matrix operator*(const Matrix &m) const;
-                Matrix operator*(const f32 f) const;
-                Vec3 operator*(const Vec3 &v) const;
-                Vec4 operator*(const Vec4 &v) const;
-                void operator*=(const Matrix &m);
-                bool operator==(const Matrix &m) const;
-                bool operator!=(const Matrix &m) const;
+			// RH
+			static Matrix PerspectiveMatrix(const f32 fov, const f32 aspect, const f32 near, const f32 far);
+			static Matrix OrthoMatrix(const f32 left, const f32 right, const f32 bottom, const f32 top, const f32 near, const f32 far);
 
-                // toString
-                std::string toString() const;
+			Quaternion ConvertToQuaternion() const;
 
-                static const Matrix BIAS;
+			// operators
+			Matrix operator*(const Matrix &m) const;
+			Matrix operator*(const f32 f) const;
+			Vec3 operator*(const Vec3 &v) const;
+			Vec4 operator*(const Vec4 &v) const;
+			void operator*=(const Matrix &m);
+			bool operator==(const Matrix &m) const;
+			bool operator!=(const Matrix &m) const;
 
-            private:
+			// toString
+			std::string toString() const;
 
-                static Matrix MakeFrustum(const f32 left, const f32 right, const f32 bottom, const f32 top, const f32 near, const f32 far);
+			static const Matrix BIAS;
 
-        };
+		private:
 
-    };
+			static Matrix MakeFrustum(const f32 left, const f32 right, const f32 bottom, const f32 top, const f32 near, const f32 far);
+
+		};
+
+	};
 };
 
 #endif	/* MATRIX_H */

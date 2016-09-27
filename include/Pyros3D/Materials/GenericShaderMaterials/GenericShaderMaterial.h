@@ -18,76 +18,76 @@
 
 namespace p3d
 {
-    using namespace Uniforms;
+	using namespace Uniforms;
 
-    class PYROS3D_API GenericShaderMaterial : public IMaterial
-    {
-        public:
-            
-			GenericShaderMaterial() {}
-            GenericShaderMaterial(const uint32 options);
-            virtual ~GenericShaderMaterial();
-            // Set Colors
-            void SetColor(const Vec4 &color);
-            void SetSpecular(const Vec4 &specularColor);
-            // Set Textures
-            void SetColorMap(Texture* colormap);
-            void SetSpecularMap(Texture* specular);
-            void SetNormalMap(Texture* normalmap);
-            void SetEnvMap(Texture* envmap);
-            void SetReflectivity(const f32 reflectivity);
-            void SetRefractMap(Texture* refractmap);
-            void SetSkyboxMap(Texture* skyboxmap);
-            // Lights
-            void SetShininess(const f32 shininess);
+	class PYROS3D_API GenericShaderMaterial : public IMaterial
+	{
+	public:
 
-            // Text
-            void SetTextFont(Font* font);
-            
-            void AddTexture(const std::string &uniformName, Texture* texture);
+		GenericShaderMaterial() {}
+		GenericShaderMaterial(const uint32 options);
+		virtual ~GenericShaderMaterial();
+		// Set Colors
+		void SetColor(const Vec4 &color);
+		void SetSpecular(const Vec4 &specularColor);
+		// Set Textures
+		void SetColorMap(Texture* colormap);
+		void SetSpecularMap(Texture* specular);
+		void SetNormalMap(Texture* normalmap);
+		void SetEnvMap(Texture* envmap);
+		void SetReflectivity(const f32 reflectivity);
+		void SetRefractMap(Texture* refractmap);
+		void SetSkyboxMap(Texture* skyboxmap);
+		// Lights
+		void SetShininess(const f32 shininess);
 
-            // Render
-            virtual void PreRender();
-            virtual void AfterRender();
-            
-            // Bind
-            void BindTextures();
-            void UnbindTextures();
-        
-            // Shadows
-            void SetPCFTexelSize(const f32 texel);
-            void SetPCFTexelCascadesSize(const f32 texel1,const f32 texel2 = 0.0001f,const f32 texel3 = 0.0001f,const f32 texel4 = 0.0001f);
+		// Text
+		void SetTextFont(Font* font);
 
-        private:
-        
-            // List of Tetxures
-            std::map<uint32, Texture*> Textures;
-        
-        protected:
-            // Shaders List
-            static std::map<uint32, Shader* > ShadersList;
-            // Save Shader Location on Shaders List
-            uint32 shaderID;
+		void AddTexture(const std::string &uniformName, Texture* texture);
 
-            // Lighting Properties
-            Vec4 Ke;
-            Vec4 Ka;
-            Vec4 Kd;
-            Vec4 Ks;
-            f32 Shininess, UseLights;
-            
-            // Shadows
-            f32 PCFTexelSize1;
-            f32 PCFTexelSize2;
-            f32 PCFTexelSize3;
-            f32 PCFTexelSize4;
+		// Render
+		virtual void PreRender();
+		virtual void AfterRender();
 
-            // Environment Cube
-            f32 Reflectivity;
-        
-            // Texture IDs
-            int32 colorMapID, specularMapID, normalMapID, envMapID, skyboxMapID, refractMapID, fontMapID;
-    };
+		// Bind
+		void BindTextures();
+		void UnbindTextures();
+
+		// Shadows
+		void SetPCFTexelSize(const f32 texel);
+		void SetPCFTexelCascadesSize(const f32 texel1, const f32 texel2 = 0.0001f, const f32 texel3 = 0.0001f, const f32 texel4 = 0.0001f);
+
+	private:
+
+		// List of Tetxures
+		std::map<uint32, Texture*> Textures;
+
+	protected:
+		// Shaders List
+		static std::map<uint32, Shader* > ShadersList;
+		// Save Shader Location on Shaders List
+		uint32 shaderID;
+
+		// Lighting Properties
+		Vec4 Ke;
+		Vec4 Ka;
+		Vec4 Kd;
+		Vec4 Ks;
+		f32 Shininess, UseLights;
+
+		// Shadows
+		f32 PCFTexelSize1;
+		f32 PCFTexelSize2;
+		f32 PCFTexelSize3;
+		f32 PCFTexelSize4;
+
+		// Environment Cube
+		f32 Reflectivity;
+
+		// Texture IDs
+		int32 colorMapID, specularMapID, normalMapID, envMapID, skyboxMapID, refractMapID, fontMapID;
+	};
 }
 
 #endif /* GENERICSHADERMATERIAL_H */

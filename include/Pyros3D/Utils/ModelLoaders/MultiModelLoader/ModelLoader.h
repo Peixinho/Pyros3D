@@ -20,15 +20,15 @@
 
 namespace p3d {
 
-    class PYROS3D_API ModelLoader : public IModelLoader {
-        public:
+	class PYROS3D_API ModelLoader : public IModelLoader {
+	public:
 
-            ModelLoader();
+		ModelLoader();
 
-            virtual ~ModelLoader();
+		virtual ~ModelLoader();
 
-            virtual bool Load(const std::string &Filename);
-    };
+		virtual bool Load(const std::string &Filename);
+	};
 }
 
 #endif	/* MODELLOADER_H */

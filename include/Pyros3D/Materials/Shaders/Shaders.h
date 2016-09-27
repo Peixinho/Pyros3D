@@ -19,62 +19,62 @@
 #include <iostream>
 
 namespace p3d {
-    
-    using namespace Uniforms;
 
-    namespace ShaderType {
-        enum {
-            VertexShader = 0,
-            FragmentShader,
-            GeometryShader 
-        };
-    }
+	using namespace Uniforms;
 
-    class PYROS3D_API Shader {
-        public:
+	namespace ShaderType {
+		enum {
+			VertexShader = 0,
+			FragmentShader,
+			GeometryShader
+		};
+	}
 
-            Shader();
-            virtual ~Shader();        
+	class PYROS3D_API Shader {
+	public:
 
-            void LoadShaderFile(const char* filename);
-            void LoadShaderText(const std::string &text);
+		Shader();
+		virtual ~Shader();
 
-			bool CompileShader(const uint32 type, std::string definitions = std::string(""), std::string *output = NULL);
-            void DeleteShader();
-            bool LinkProgram(std::string *output = NULL) const;
+		void LoadShaderFile(const char* filename);
+		void LoadShaderText(const std::string &text);
 
-            const uint32 &ShaderProgram() const;
+		bool CompileShader(const uint32 type, std::string definitions = std::string(""), std::string *output = NULL);
+		void DeleteShader();
+		bool LinkProgram(std::string *output = NULL) const;
 
-        	static const int32 GetUniformLocation(const uint32 program, const std::string &name);
-        	static const int32 GetAttributeLocation(const uint32 program, const std::string &name);
+		const uint32 &ShaderProgram() const;
 
-        	static void SendUniform(const Uniform &uniform, const int32 Handle);
-        	static void SendUniform(const Uniform &uniform, void* data, const int32 Handle, const uint32 elementCount = 1);
+		static const int32 GetUniformLocation(const uint32 program, const std::string &name);
+		static const int32 GetAttributeLocation(const uint32 program, const std::string &name);
 
-            // Shader Usage Counter
-            uint32 currentMaterials;
+		static void SendUniform(const Uniform &uniform, const int32 Handle);
+		static void SendUniform(const Uniform &uniform, void* data, const int32 Handle, const uint32 elementCount = 1);
 
-        private:
+		// Shader Usage Counter
+		uint32 currentMaterials;
 
-            // shader type
-            uint32 type;
+	private:
 
-            //shader text
-            std::string shaderString;
+		// shader type
+		uint32 type;
 
-			// ids
-			uint32 vertexID;
-			uint32 fragmentID;
-			uint32 geometryID;
+		//shader text
+		std::string shaderString;
 
-            // GL ID
-            uint32 shaderProgram;
-            
-            // Vertex and Fragment Shaders
-            Shader* shader;
-            
-    };
-    
+		// ids
+		uint32 vertexID;
+		uint32 fragmentID;
+		uint32 geometryID;
+
+		// GL ID
+		uint32 shaderProgram;
+
+		// Vertex and Fragment Shaders
+		Shader* shader;
+
+	};
+
 }
 
 #endif	/* SHADERS_H */

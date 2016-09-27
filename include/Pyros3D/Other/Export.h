@@ -9,26 +9,26 @@
 #ifndef EXPORT_H
 #define	EXPORT_H
 
-    #if defined(_WIN32)
+#if defined(_WIN32)
 
-        #if defined(_IMPORT)
+#if defined(_IMPORT)
 
-            #define PYROS3D_API __declspec(dllimport)
+#define PYROS3D_API __declspec(dllimport)
 
-        #elif defined(_EXPORT)
-        
-            #define PYROS3D_API __declspec(dllexport)
+#elif defined(_EXPORT)
 
-        #else
+#define PYROS3D_API __declspec(dllexport)
 
-            #define PYROS3D_API
+#else
 
-        #endif
+#define PYROS3D_API
 
-    #else
+#endif
 
-        #define PYROS3D_API
+#else
 
-    #endif
+#define PYROS3D_API
+
+#endif
 
 #endif	/* EXPORT_H */

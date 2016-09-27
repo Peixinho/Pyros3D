@@ -13,14 +13,14 @@
 
 namespace p3d {
 
-    class PYROS3D_API BlurYEffect : public IEffect {
-        public:
-            BlurYEffect(const uint32 Tex1, const uint32 Width, const uint32 Height);
-            virtual ~BlurYEffect();
-        private:
-			Uniform texRes;
-    };
-	
+	class PYROS3D_API BlurYEffect : public IEffect {
+	public:
+		BlurYEffect(const uint32 Tex1, const uint32 Width, const uint32 Height);
+		virtual ~BlurYEffect();
+	private:
+		Uniform texRes;
+	};
+
 };
 
 #endif	/* BLUREFFECT_H */

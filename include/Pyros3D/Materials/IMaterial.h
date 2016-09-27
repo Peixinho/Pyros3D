@@ -19,44 +19,44 @@
 
 namespace p3d {
 
-    using namespace Uniforms;
-    
-    // Culling
-    namespace CullFace {
-        enum {
-            BackFace,
-            FrontFace,
-            DoubleSided
-        };
-    }
-    
-    class PYROS3D_API IMaterial {
-        
-        friend class IRenderer;
-        friend class ForwardRenderer;
-        
-    public:
+	using namespace Uniforms;
 
-        // Constructor
-		IMaterial();       
-        
-        // Destructor
-        virtual ~IMaterial();
-        
-        // Virtual Methods
-        virtual void PreRender() {}
-        virtual void Render() {}
-        virtual void AfterRender() {}
-        
-        // Properties
-        void SetCullFace(const uint32 &face);
-        uint32 GetCullFace() const;
-        bool isWireFrame;
-        bool IsWireFrame() const;
-        const f32 &GetOpacity() const;
-        bool IsTransparent() const;
-        void SetOpacity(const f32 &opacity);
-        void SetTransparencyFlag(bool transparency);
+	// Culling
+	namespace CullFace {
+		enum {
+			BackFace,
+			FrontFace,
+			DoubleSided
+		};
+	}
+
+	class PYROS3D_API IMaterial {
+
+		friend class IRenderer;
+		friend class ForwardRenderer;
+
+	public:
+
+		// Constructor
+		IMaterial();
+
+		// Destructor
+		virtual ~IMaterial();
+
+		// Virtual Methods
+		virtual void PreRender() {}
+		virtual void Render() {}
+		virtual void AfterRender() {}
+
+		// Properties
+		void SetCullFace(const uint32 &face);
+		uint32 GetCullFace() const;
+		bool isWireFrame;
+		bool IsWireFrame() const;
+		const f32 &GetOpacity() const;
+		bool IsTransparent() const;
+		void SetOpacity(const f32 &opacity);
+		void SetTransparencyFlag(bool transparency);
 
 		// Polygon Offset
 		void EnableDethBias(f32 factor, f32 units);
@@ -68,39 +68,39 @@ namespace p3d {
 		void BlendingFunction(const uint32 sFactor, const uint32 dFactor) { sfactor = sFactor; dfactor = dFactor; }
 		void BlendingEquation(const uint32 Mode) { mode = Mode; }
 
-        // Uniforms        
-        std::vector<Uniform> GlobalUniforms;
-        std::vector<Uniform> ModelUniforms;
-        std::map<StringID, Uniform> UserUniforms;
+		// Uniforms        
+		std::vector<Uniform> GlobalUniforms;
+		std::vector<Uniform> ModelUniforms;
+		std::map<StringID, Uniform> UserUniforms;
 
-        // Send Uniforms
-        void SetUniformValue(std::string Uniform, int32 value);
-        void SetUniformValue(StringID UniformID, int32 value); 
-        void SetUniformValue(std::string Uniform, f32 value);
-        void SetUniformValue(StringID UniformID, f32 value); 
-        void SetUniformValue(std::string Uniform, void* value, const uint32 &elementCount = 1);
-        void SetUniformValue(StringID UniformID, void* value, const uint32 &elementCount = 1);
-        
-        // Add Uniform
-        void AddUniform(const Uniform &Data);
-        
-        // Render WireFrame
-        void StartRenderWireFrame();
-        void StopRenderWireFrame();
-        
-        // Shadows Casting
-        void EnableCastingShadows();
-        void DisableCastingShadows();
-        bool IsCastingShadows();
-        
-        // Destroy
-        void Destroy();
-        
-        // Get Shader Program
-        const uint32 &GetShader() const;
-        
-        // Get Internal ID
-        uint32 GetInternalID();
+		// Send Uniforms
+		void SetUniformValue(std::string Uniform, int32 value);
+		void SetUniformValue(StringID UniformID, int32 value);
+		void SetUniformValue(std::string Uniform, f32 value);
+		void SetUniformValue(StringID UniformID, f32 value);
+		void SetUniformValue(std::string Uniform, void* value, const uint32 &elementCount = 1);
+		void SetUniformValue(StringID UniformID, void* value, const uint32 &elementCount = 1);
+
+		// Add Uniform
+		void AddUniform(const Uniform &Data);
+
+		// Render WireFrame
+		void StartRenderWireFrame();
+		void StopRenderWireFrame();
+
+		// Shadows Casting
+		void EnableCastingShadows();
+		void DisableCastingShadows();
+		bool IsCastingShadows();
+
+		// Destroy
+		void Destroy();
+
+		// Get Shader Program
+		const uint32 &GetShader() const;
+
+		// Get Internal ID
+		uint32 GetInternalID();
 
 		// Depth Test and Write
 		void EnableDepthTest(const uint32 test = 0) { forceDepthWrite = depthTest = true; depthTestMode = test; }
@@ -119,46 +119,46 @@ namespace p3d {
 		{
 			return depthTest;
 		}
-        
-    protected :
+
+	protected:
 
 		// Depth Test and Write
 		bool forceDepthWrite, depthTest, depthWrite;
 		uint32 depthTestMode;
-        
-        //Casting Shadows
-        bool isCastingShadows;
-        
-        // Cull Face
-        uint32 cullFace;
-        
-        // Transparency
-        bool isTransparent;
-        
-        // Opacity
-        f32 opacity;
-        
-        // Shader program        
-        uint32 shaderProgram;
-        
-        // Material Options
-        uint32 materialID;
+
+		//Casting Shadows
+		bool isCastingShadows;
+
+		// Cull Face
+		uint32 cullFace;
+
+		// Transparency
+		bool isTransparent;
+
+		// Opacity
+		f32 opacity;
+
+		// Shader program        
+		uint32 shaderProgram;
+
+		// Material Options
+		uint32 materialID;
 
 		// Depth Bias
 		f32 depthFactor, depthUnits;
 		bool depthBias;
-        
+
 		// Blending
 		bool blending;
 		uint32 sfactor, dfactor, mode;
 
-    private:
+	private:
 
-        // Internal ID
-        static uint32 _InternalID;
-        
-    };
-    
+		// Internal ID
+		static uint32 _InternalID;
+
+	};
+
 }
 
 #endif /* IMATERIALl_H */

@@ -13,93 +13,93 @@
 
 namespace p3d {
 
-    class PYROS3D_API PointLight : public ILightComponent {
-        
-        public:
-            
-            PointLight() : ILightComponent(LIGHT_TYPE::POINT) { Color = Vec4(1,1,1,1); Radius = 1.f; }
-            PointLight(const Vec4 &color, const f32 radius) : ILightComponent(LIGHT_TYPE::POINT)
-			{
-				Color = color;
-				Radius = radius;
+	class PYROS3D_API PointLight : public ILightComponent {
 
-				// Bounding
-				minBounds = Vec3(-radius*.5f, -radius*.5f, -radius*.5f);
-				maxBounds = Vec3(radius*.5f, radius*.5f, radius*.5f);
-				BoundingSphereCenter = Vec3();
-				BoundingSphereRadius = radius;
-			}
-            virtual ~PointLight() {}
+	public:
 
-            virtual void Start() {};
-            virtual void Update() {};
-            virtual void Destroy() {};
+		PointLight() : ILightComponent(LIGHT_TYPE::POINT) { Color = Vec4(1, 1, 1, 1); Radius = 1.f; }
+		PointLight(const Vec4 &color, const f32 radius) : ILightComponent(LIGHT_TYPE::POINT)
+		{
+			Color = color;
+			Radius = radius;
 
-			virtual const f32 &GetShadowFar() const
-			{
-				return Radius;
-			}
+			// Bounding
+			minBounds = Vec3(-radius*.5f, -radius*.5f, -radius*.5f);
+			maxBounds = Vec3(radius*.5f, radius*.5f, radius*.5f);
+			BoundingSphereCenter = Vec3();
+			BoundingSphereRadius = radius;
+		}
+		virtual ~PointLight() {}
 
-            const f32 &GetLightRadius() const { return Radius; }
-			void SetLightRadius(const f32 radius) { Radius = radius; }
-            
-            void EnableCastShadows(const uint32 Width, const uint32 Height, const f32 Near = 0.1f)
-            {
+		virtual void Start() {};
+		virtual void Update() {};
+		virtual void Destroy() {};
 
-                ShadowWidth = Width;
-                ShadowHeight = Height;
+		virtual const f32 &GetShadowFar() const
+		{
+			return Radius;
+		}
 
-                // Set Flag
-                isCastingShadows = true;
+		const f32 &GetLightRadius() const { return Radius; }
+		void SetLightRadius(const f32 radius) { Radius = radius; }
 
-                // Initiate FBO
-                shadowsFBO = new FrameBuffer();
+		void EnableCastShadows(const uint32 Width, const uint32 Height, const f32 Near = 0.1f)
+		{
 
-				ShadowMap = new Texture();
-				
+			ShadowWidth = Width;
+			ShadowHeight = Height;
+
+			// Set Flag
+			isCastingShadows = true;
+
+			// Initiate FBO
+			shadowsFBO = new FrameBuffer();
+
+			ShadowMap = new Texture();
+
 #if defined(GLES2) || defined(GL_LEGACY)
-				// Regular Shadows
-				// Create Texture (CubeMap), Frame Buffer and Set the Texture as Attachment
-				ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_X, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
-				ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_Y, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
-				ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_Z, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
-				ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_X, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
-				ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Y, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
-				ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Z, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
-				ShadowMap->SetRepeat(TextureRepeat::ClampToBorder, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-				ShadowMap->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+			// Regular Shadows
+			// Create Texture (CubeMap), Frame Buffer and Set the Texture as Attachment
+			ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_X, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
+			ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_Y, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
+			ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_Z, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
+			ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_X, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
+			ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Y, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
+			ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Z, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
+			ShadowMap->SetRepeat(TextureRepeat::ClampToBorder, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+			ShadowMap->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
 
-				// Initialize Frame Buffer
-				shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
-				shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::CubemapPositive_X, ShadowMap);
+			// Initialize Frame Buffer
+			shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
+			shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::CubemapPositive_X, ShadowMap);
 
 #else
-                // GPU Shadows
-                // Create Texture (CubeMap), Frame Buffer and Set the Texture as Attachment
-                ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_X,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-                ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_Y,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-                ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_Z,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-                ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_X,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-                ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Y,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-                ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Z,TextureDataType::DepthComponent,ShadowWidth,ShadowHeight,false);
-                ShadowMap->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
-                ShadowMap->EnableCompareMode();
+			// GPU Shadows
+			// Create Texture (CubeMap), Frame Buffer and Set the Texture as Attachment
+			ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_X, TextureDataType::DepthComponent, ShadowWidth, ShadowHeight, false);
+			ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_Y, TextureDataType::DepthComponent, ShadowWidth, ShadowHeight, false);
+			ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_Z, TextureDataType::DepthComponent, ShadowWidth, ShadowHeight, false);
+			ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_X, TextureDataType::DepthComponent, ShadowWidth, ShadowHeight, false);
+			ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Y, TextureDataType::DepthComponent, ShadowWidth, ShadowHeight, false);
+			ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Z, TextureDataType::DepthComponent, ShadowWidth, ShadowHeight, false);
+			ShadowMap->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+			ShadowMap->EnableCompareMode();
 
-                // Initialize Frame Buffer
-                shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment,TextureType::CubemapPositive_X,ShadowMap);
+			// Initialize Frame Buffer
+			shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::CubemapPositive_X, ShadowMap);
 
 #endif
 
-                // Near and Far Clip Planes
-                ShadowNear = Near;
-            }
-            
-        protected:
-            
-            // Attenuation
-            f32 Radius;
+			// Near and Far Clip Planes
+			ShadowNear = Near;
+		}
 
-    };
+	protected:
+
+		// Attenuation
+		f32 Radius;
+
+	};
 
 }
 

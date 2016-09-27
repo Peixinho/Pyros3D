@@ -13,74 +13,74 @@
 
 namespace p3d {
 
-    class PYROS3D_API Torus : public Primitive {
+	class PYROS3D_API Torus : public Primitive {
 
-        public:
+	public:
 
-        Torus(const f32 radius, const f32 tube, const uint32 segmentsW = 60, const uint32 segmentsH = 6, bool smooth = false, bool flip = false, bool TangentBitangent = false)
-        {
-            isFlipped = flip;
-            isSmooth = smooth;
-            calculateTangentBitangent = TangentBitangent;
-            
-            Vec3 normal;
+		Torus(const f32 radius, const f32 tube, const uint32 segmentsW = 60, const uint32 segmentsH = 6, bool smooth = false, bool flip = false, bool TangentBitangent = false)
+		{
+			isFlipped = flip;
+			isSmooth = smooth;
+			calculateTangentBitangent = TangentBitangent;
 
-            size_t i, j;
-            std::vector <std::vector<Vec3> > aVtc;  
+			Vec3 normal;
 
-            for (i=0;i<segmentsW;++i) {
+			size_t i, j;
+			std::vector <std::vector<Vec3> > aVtc;
 
-                std::vector<Vec3> aRow;
-                Vec3 oVtx;
+			for (i = 0; i < segmentsW; ++i) {
 
-                for (j=0;j<segmentsH;++j) {
-                    f32 u = (f32)((f32)i/segmentsW*2*PI);
-                    f32 v = (f32)((f32)j/segmentsH*2*PI);
-                    f32 x = (radius + tube * cos(v)) * cos(u);
-                    f32 y = tube * sin(v);
-                    f32 z = (radius + tube * cos(v)) * sin(u);
+				std::vector<Vec3> aRow;
+				Vec3 oVtx;
 
-                    oVtx = Vec3(x,y,z);
-                    aRow.push_back(oVtx);
-                }
-                aVtc.push_back(aRow);
-            }
-            for (i=0;i<segmentsW;++i) {
-                for (j=0;j<segmentsH;++j) {
-                    int ip = (i+1)%segmentsW;
-                    int jp = (j+1)%segmentsH;
-                    Vec3 a = aVtc[i ][j];
-                    Vec3 b = aVtc[ip][j];
-                    Vec3 c = aVtc[i ][jp];
-                    Vec3 d = aVtc[ip][jp];
+				for (j = 0; j < segmentsH; ++j) {
+					f32 u = (f32)((f32)i / segmentsW * 2 * PI);
+					f32 v = (f32)((f32)j / segmentsH * 2 * PI);
+					f32 x = (radius + tube * cos(v)) * cos(u);
+					f32 y = tube * sin(v);
+					f32 z = (radius + tube * cos(v)) * sin(u);
 
-                    Vec2 aUV = Vec2((f32)i/segmentsW,         -(f32)j/segmentsH);
-                    Vec2 bUV = Vec2((f32)(i+1)/segmentsW,     -(f32)j/segmentsH);
-                    Vec2 cUV = Vec2((f32)i/segmentsW,         -(f32)(j+1)/segmentsH);
-                    Vec2 dUV = Vec2((f32)(i+1)/segmentsW,     -(f32)(j+1)/segmentsH);
+					oVtx = Vec3(x, y, z);
+					aRow.push_back(oVtx);
+				}
+				aVtc.push_back(aRow);
+			}
+			for (i = 0; i < segmentsW; ++i) {
+				for (j = 0; j < segmentsH; ++j) {
+					int ip = (i + 1) % segmentsW;
+					int jp = (j + 1) % segmentsH;
+					Vec3 a = aVtc[i][j];
+					Vec3 b = aVtc[ip][j];
+					Vec3 c = aVtc[i][jp];
+					Vec3 d = aVtc[ip][jp];
 
-                    normal = ((a-b).cross(c-b)).normalize();
-                    geometry->tVertex.push_back(c);       geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(cUV);
-                    geometry->tVertex.push_back(b);       geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(bUV);
-                    geometry->tVertex.push_back(a);       geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(aUV);
+					Vec2 aUV = Vec2((f32)i / segmentsW, -(f32)j / segmentsH);
+					Vec2 bUV = Vec2((f32)(i + 1) / segmentsW, -(f32)j / segmentsH);
+					Vec2 cUV = Vec2((f32)i / segmentsW, -(f32)(j + 1) / segmentsH);
+					Vec2 dUV = Vec2((f32)(i + 1) / segmentsW, -(f32)(j + 1) / segmentsH);
 
-                    geometry->index.push_back(geometry->tVertex.size()-3);
-                    geometry->index.push_back(geometry->tVertex.size()-2);
-                    geometry->index.push_back(geometry->tVertex.size()-1);
+					normal = ((a - b).cross(c - b)).normalize();
+					geometry->tVertex.push_back(c);       geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(cUV);
+					geometry->tVertex.push_back(b);       geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(bUV);
+					geometry->tVertex.push_back(a);       geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(aUV);
 
-                    normal = ((d-c).cross(b-c)).normalize();
-                    geometry->tVertex.push_back(b);       geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(bUV);
-                    geometry->tVertex.push_back(c);       geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(cUV);
-                    geometry->tVertex.push_back(d);       geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(dUV);    
+					geometry->index.push_back(geometry->tVertex.size() - 3);
+					geometry->index.push_back(geometry->tVertex.size() - 2);
+					geometry->index.push_back(geometry->tVertex.size() - 1);
 
-                    geometry->index.push_back(geometry->tVertex.size()-3);
-                    geometry->index.push_back(geometry->tVertex.size()-2);
-                    geometry->index.push_back(geometry->tVertex.size()-1);
-                }
-            }        
+					normal = ((d - c).cross(b - c)).normalize();
+					geometry->tVertex.push_back(b);       geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(bUV);
+					geometry->tVertex.push_back(c);       geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(cUV);
+					geometry->tVertex.push_back(d);       geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(dUV);
+
+					geometry->index.push_back(geometry->tVertex.size() - 3);
+					geometry->index.push_back(geometry->tVertex.size() - 2);
+					geometry->index.push_back(geometry->tVertex.size() - 1);
+				}
+			}
 
 			Vec3 min = geometry->tVertex[0];
-			for (uint32 i = 0; i<geometry->tVertex.size(); i++)
+			for (uint32 i = 0; i < geometry->tVertex.size(); i++)
 			{
 				if (geometry->tVertex[i].x < min.x) min.x = geometry->tVertex[i].x;
 				if (geometry->tVertex[i].y < min.y) min.y = geometry->tVertex[i].y;
@@ -89,7 +89,7 @@ namespace p3d {
 				geometry->tTexcoord[i].x = 1 - geometry->tTexcoord[i].x;
 			}
 
-            Build();
+			Build();
 
 			// Bounding Box
 			minBounds = min;
@@ -104,7 +104,7 @@ namespace p3d {
 		{
 
 		}
-    };
+	};
 };
 
- #endif /* TORUS_H */
+#endif /* TORUS_H */

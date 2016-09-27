@@ -10,14 +10,14 @@
 #define	VR_SHOOTINGRANGE_H
 
 #if defined(_SDL)
-    #include "WindowManagers/SDL/SDLContext.h"
-    #define ClassName SDLContext
+#include "WindowManagers/SDL/SDLContext.h"
+#define ClassName SDLContext
 #elif defined(_SDL2)
-    #include "WindowManagers/SDL2/SDL2Context.h"
-    #define ClassName SDL2Context
+#include "WindowManagers/SDL2/SDL2Context.h"
+#define ClassName SDL2Context
 #else
-    #include "WindowManagers/SFML/SFMLContext.h"
-    #define ClassName SFMLContext
+#include "WindowManagers/SFML/SFMLContext.h"
+#define ClassName SFMLContext
 #endif
 
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
@@ -43,140 +43,140 @@ namespace TYPE_GAME {
 
 class VR_ShootingRange : public ClassName
 {
-        
-    public:
-        
-        VR_ShootingRange();   
-        virtual ~VR_ShootingRange();
-        
-        virtual void Init();
-        virtual void Update();
-        virtual void Shutdown();
-        virtual void OnResize(const uint32 width, const uint32 height);
 
-    private:
+public:
 
-		bool GetIntersectedTriangle(const Vec3 &Origin, const Vec3 &Direction, RenderingComponent* rcomp, Vec3* intersection, Vec3* normal);
-		bool rayIntersectionTriangle(const Vec3 &Origin, const Vec3 &Direction, const Vec3 &v1, const Vec3 &v2, const Vec3 &v3, Vec3 *IntersectionPoint32, f32 *t) const;
+	VR_ShootingRange();
+	virtual ~VR_ShootingRange();
 
-		void StartPrecisionGame();
-		void StartSkillGame();
-		void ClearDecals();
-		void ClearScore();
-		void ClearTargets();
+	virtual void Init();
+	virtual void Update();
+	virtual void Shutdown();
+	virtual void OnResize(const uint32 width, const uint32 height);
 
-		void Shoot();
-		void PrecisionStep1();
-		void PrecisionStep2();
-		void PrecisionStep3();
-		void PrecisionStep4();
-		void PrecisionStep5();
-		
-		// Scene
-        SceneGraph* Scene;
-		
-		// Virtual Reality
-		VR_Renderer* vr;
+private:
 
-		Model* shootingHouseHandle;
-		GameObject* shootingHouseGO;
-		RenderingComponent* shootingHouseRComp;
+	bool GetIntersectedTriangle(const Vec3 &Origin, const Vec3 &Direction, RenderingComponent* rcomp, Vec3* intersection, Vec3* normal);
+	bool rayIntersectionTriangle(const Vec3 &Origin, const Vec3 &Direction, const Vec3 &v1, const Vec3 &v2, const Vec3 &v3, Vec3 *IntersectionPoint32, f32 *t) const;
 
-		// Lights
-		PointLight* pLight;
-		SpotLight* sLight;
-		GameObject* pLightGO;
-		GameObject* sLightGO;
+	void StartPrecisionGame();
+	void StartSkillGame();
+	void ClearDecals();
+	void ClearScore();
+	void ClearTargets();
 
-		// Gun
-		GameObject* GunGO;
-		RenderingComponent* GunRComp;
-		Model* GunHandle;
+	void Shoot();
+	void PrecisionStep1();
+	void PrecisionStep2();
+	void PrecisionStep3();
+	void PrecisionStep4();
+	void PrecisionStep5();
 
-		// Fire From Gun
-		GameObject* GunFireGO;
-		RenderingComponent* GunFireComp;
-		Model* GunFireHandle;
+	// Scene
+	SceneGraph* Scene;
 
-		// Materials
-		GenericShaderMaterial* lightsOn;
-		GenericShaderMaterial* decalMaterial;
+	// Virtual Reality
+	VR_Renderer* vr;
 
-		// Target
-		Texture* targetTexture;
-		GenericShaderMaterial* targetMaterial;
-		Cube* targetHandle;
-		RenderingComponent* targetRComp;
-		GameObject* targetGO;
-		Texture *continueTexture, *gameOverTexture;
-		Plane* continueHandle;
-		GenericShaderMaterial* continueMaterial;
-		RenderingComponent* continueRComp;
-		GameObject* continueGO;
+	Model* shootingHouseHandle;
+	GameObject* shootingHouseGO;
+	RenderingComponent* shootingHouseRComp;
 
-		// Score
-		Model* scoreHandle;
-		RenderingComponent* scoreRComp;
-		GameObject* scoreGO;
+	// Lights
+	PointLight* pLight;
+	SpotLight* sLight;
+	GameObject* pLightGO;
+	GameObject* sLightGO;
 
-		// Options
-		Texture *skillTexture, *precisionTexture, *exitTexture;
-		Plane *optionHandle;
-		GenericShaderMaterial *skillMaterial, *precisionMaterial, *exitMaterial;
-		RenderingComponent *skillRComp, *precisionRComp, *exitRComp;
-		GameObject *skillGO, *precisionGO, *exitGO;
+	// Gun
+	GameObject* GunGO;
+	RenderingComponent* GunRComp;
+	Model* GunHandle;
 
-		// Score values and labels
-		GameObject* scoreTypeGameGO;
-		RenderingComponent* scoreTypeGameRComp;
-		GenericShaderMaterial *scoreTypeGameMat;
-		Texture *pts5, *pts6, *pts7, *pts8, *pts9, *pts10, *mts5, *mts10, *mts20, *mts30, *mts40;
-		GenericShaderMaterial *pts5Mat, *pts6Mat, *pts7Mat, *pts8Mat, *pts9Mat, *pts10Mat, *mts5Mat, *mts10Mat, *mts20Mat, *mts30Mat, *mts40Mat;
-		Plane* ptsHandle, *mtsHandle;
-		GameObject *mts5GO, *mts10GO, *mts20GO, *mts30GO, *mts40GO;
-		RenderingComponent *mts5RComp, *mts10RComp, *mts20RComp, *mts30RComp, *mts40RComp;
-		std::vector<GameObject*> ptsGO;
-		std::vector<RenderingComponent*> ptsRComp;
-		std::vector<Texture*> ptsTextures;
-		std::vector<GenericShaderMaterial*> ptsMat;
+	// Fire From Gun
+	GameObject* GunFireGO;
+	RenderingComponent* GunFireComp;
+	Model* GunFireHandle;
 
-		 // Decals
-		std::vector<GameObject*> DecalsGO;
-		std::vector<RenderingComponent*> DecalsRComp;
-		Plane* decalHandle;
-		Texture* decalTexture;
+	// Materials
+	GenericShaderMaterial* lightsOn;
+	GenericShaderMaterial* decalMaterial;
 
-		// Sound
-		Sound* shotSound;
+	// Target
+	Texture* targetTexture;
+	GenericShaderMaterial* targetMaterial;
+	Cube* targetHandle;
+	RenderingComponent* targetRComp;
+	GameObject* targetGO;
+	Texture *continueTexture, *gameOverTexture;
+	Plane* continueHandle;
+	GenericShaderMaterial* continueMaterial;
+	RenderingComponent* continueRComp;
+	GameObject* continueGO;
 
-		bool isShooting;
-		bool precisionWaitingShoot;
-		uint64 rumbleTime;
-		uint64 gunFireShowTime;
-		uint32 typeGame;
-		uint32 shotCount;
-		uint32 precisionShotCount;
-		uint32 precisionStep;
+	// Score
+	Model* scoreHandle;
+	RenderingComponent* scoreRComp;
+	GameObject* scoreGO;
 
-		// Skill Game
-		std::vector<GameObject*> targetsGO;
-		std::vector<RenderingComponent*> targetsRComp;
-		uint64 initTime;
-		uint64 endTime;
-		uint64 timeDeploy;
-		bool skillOver;
-		GameObject* clockGO;
-		RenderingComponent* clockRComp;
-		Model* clockHandle;
-		Model *ckockPointerHandle;
-		RenderingComponent *minutePointerRComp, *secondsPointerRComp;
-		GenericShaderMaterial *minutePointerMaterial, *secondPointerMaterial;
-		GameObject* minutePointerGO, *secondPointerGO;
-		Texture* clockBackground;
-		GameObject* clockBackgroundGO;
-		RenderingComponent* clockBackgroundRComp;
-		Plane* clockBackgroundHandle;
-		GenericShaderMaterial* clockBackgroundMaterial;
+	// Options
+	Texture *skillTexture, *precisionTexture, *exitTexture;
+	Plane *optionHandle;
+	GenericShaderMaterial *skillMaterial, *precisionMaterial, *exitMaterial;
+	RenderingComponent *skillRComp, *precisionRComp, *exitRComp;
+	GameObject *skillGO, *precisionGO, *exitGO;
+
+	// Score values and labels
+	GameObject* scoreTypeGameGO;
+	RenderingComponent* scoreTypeGameRComp;
+	GenericShaderMaterial *scoreTypeGameMat;
+	Texture *pts5, *pts6, *pts7, *pts8, *pts9, *pts10, *mts5, *mts10, *mts20, *mts30, *mts40;
+	GenericShaderMaterial *pts5Mat, *pts6Mat, *pts7Mat, *pts8Mat, *pts9Mat, *pts10Mat, *mts5Mat, *mts10Mat, *mts20Mat, *mts30Mat, *mts40Mat;
+	Plane* ptsHandle, *mtsHandle;
+	GameObject *mts5GO, *mts10GO, *mts20GO, *mts30GO, *mts40GO;
+	RenderingComponent *mts5RComp, *mts10RComp, *mts20RComp, *mts30RComp, *mts40RComp;
+	std::vector<GameObject*> ptsGO;
+	std::vector<RenderingComponent*> ptsRComp;
+	std::vector<Texture*> ptsTextures;
+	std::vector<GenericShaderMaterial*> ptsMat;
+
+	// Decals
+	std::vector<GameObject*> DecalsGO;
+	std::vector<RenderingComponent*> DecalsRComp;
+	Plane* decalHandle;
+	Texture* decalTexture;
+
+	// Sound
+	Sound* shotSound;
+
+	bool isShooting;
+	bool precisionWaitingShoot;
+	uint64 rumbleTime;
+	uint64 gunFireShowTime;
+	uint32 typeGame;
+	uint32 shotCount;
+	uint32 precisionShotCount;
+	uint32 precisionStep;
+
+	// Skill Game
+	std::vector<GameObject*> targetsGO;
+	std::vector<RenderingComponent*> targetsRComp;
+	uint64 initTime;
+	uint64 endTime;
+	uint64 timeDeploy;
+	bool skillOver;
+	GameObject* clockGO;
+	RenderingComponent* clockRComp;
+	Model* clockHandle;
+	Model *ckockPointerHandle;
+	RenderingComponent *minutePointerRComp, *secondsPointerRComp;
+	GenericShaderMaterial *minutePointerMaterial, *secondPointerMaterial;
+	GameObject* minutePointerGO, *secondPointerGO;
+	Texture* clockBackground;
+	GameObject* clockBackgroundGO;
+	RenderingComponent* clockBackgroundRComp;
+	Plane* clockBackgroundHandle;
+	GenericShaderMaterial* clockBackgroundMaterial;
 
 };
 

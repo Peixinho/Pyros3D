@@ -20,7 +20,7 @@ namespace p3d
 
 		std::map<StringID, std::string>::iterator it = StringIDMap.find(Hash);
 
-		if(it == StringIDMap.end())
+		if (it == StringIDMap.end())
 		{
 			StringIDMap[Hash] = Name;
 		};
@@ -34,7 +34,7 @@ namespace p3d
 
 		std::map<StringID, std::string>::iterator it = StringIDMap.find(Hash);
 
-		if(it == StringIDMap.end())
+		if (it == StringIDMap.end())
 		{
 			StringIDMap[Hash] = std::string((char*)data);
 		};
@@ -46,7 +46,7 @@ namespace p3d
 	{
 		std::map<StringID, std::string>::iterator it = StringIDMap.find(ID);
 
-		if(it == StringIDMap.end())
+		if (it == StringIDMap.end())
 			return std::string();
 
 		return it->second;

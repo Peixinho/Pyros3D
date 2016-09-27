@@ -26,28 +26,28 @@ namespace p3d {
 	};
 
 	class VR_GameObject : public GameObject {
-		public:
-			VR_GameObject() : GameObject()
-			{
-				isOnScene = false;
-				showingModel = false;
-				model = NULL;
-				rcomp = NULL;
-				texture = NULL;
-			}
-			virtual ~VR_GameObject() 
-			{
-				if (model != NULL) delete model;
-				if (rcomp != NULL) delete rcomp;
-				if (texture != NULL) delete texture;
-			}
-			uint32 index;
-			bool isOnScene;
-			bool showingModel;
-			uint32 type;
-			Renderable* model;
-			RenderingComponent* rcomp;
-			Texture* texture;
+	public:
+		VR_GameObject() : GameObject()
+		{
+			isOnScene = false;
+			showingModel = false;
+			model = NULL;
+			rcomp = NULL;
+			texture = NULL;
+		}
+		virtual ~VR_GameObject()
+		{
+			if (model != NULL) delete model;
+			if (rcomp != NULL) delete rcomp;
+			if (texture != NULL) delete texture;
+		}
+		uint32 index;
+		bool isOnScene;
+		bool showingModel;
+		uint32 type;
+		Renderable* model;
+		RenderingComponent* rcomp;
+		Texture* texture;
 	};
 
 	class VR_Renderer {
@@ -65,7 +65,7 @@ namespace p3d {
 
 		VR_GameObject* GetController(const uint32 number) { return (Controllers.size() >= number ? Controllers[(number - 1)] : NULL); }
 
-		void RumbleController(VR_GameObject* controller,uint32 duration) { if (m_pHMD!=NULL && controller!=NULL) m_pHMD->TriggerHapticPulse(controller->index, 0, duration); }
+		void RumbleController(VR_GameObject* controller, uint32 duration) { if (m_pHMD != NULL && controller != NULL) m_pHMD->TriggerHapticPulse(controller->index, 0, duration); }
 
 		uint32 GetWidth() { return m_nRenderWidth; }
 		uint32 GetHeight() { return m_nRenderHeight; }
@@ -74,7 +74,7 @@ namespace p3d {
 		vr::VRControllerState_t GetControllerEvents(uint32 modelIndex);
 
 	protected:
-		
+
 		// OpenVR
 		vr::IVRSystem *m_pHMD;
 		vr::IVRRenderModels *m_pRenderModels;
@@ -127,7 +127,7 @@ namespace p3d {
 		Projection projectionL, projectionR, m_projection;
 
 		bool m_rbShowTrackedDevice[vr::k_unMaxTrackedDeviceCount];
-		
+
 		SceneGraph* scene;
 
 		std::vector<VR_GameObject*> Controllers;
@@ -136,7 +136,7 @@ namespace p3d {
 		int Alloc(std::vector<VR_GameObject*> array);
 		void Free(std::vector<VR_GameObject*> array, int index);
 		bool showControllers, showTrackers;
-		
+
 	};
 
 };

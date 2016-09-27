@@ -26,29 +26,29 @@
 
 namespace p3d {
 
-    class AssimpModelImporter : public IModelLoader {
+	class AssimpModelImporter : public IModelLoader {
 
-        public:
+	public:
 
-            AssimpModelImporter();
+		AssimpModelImporter();
 
-            virtual ~AssimpModelImporter();
+		virtual ~AssimpModelImporter();
 
-            virtual bool Load(const std::string &Filename);
-            
-            bool ConvertToPyrosFormat(const std::string &Filename);
-            
-        private:
-            
-            // assimp model
-            const aiScene* assimp_model;
-           
-            // bone count
-            uint32 boneCount;       
+		virtual bool Load(const std::string &Filename);
 
-            // aux function to construct skeleton            
-            void GetBone(aiNode *bone, const int32 &parentID = -1); 
-    };
+		bool ConvertToPyrosFormat(const std::string &Filename);
+
+	private:
+
+		// assimp model
+		const aiScene* assimp_model;
+
+		// bone count
+		uint32 boneCount;
+
+		// aux function to construct skeleton            
+		void GetBone(aiNode *bone, const int32 &parentID = -1);
+	};
 }
 
 #endif	/* ASSIMPMODELIMPORTER_H */

@@ -16,29 +16,29 @@
 
 namespace p3d
 {
-    using namespace Uniforms;
- 
-    class PYROS3D_API CustomShaderMaterial : public IMaterial
-    {
-        
-        public:
-        
-            CustomShaderMaterial(const std::string &ShaderFile);
-			CustomShaderMaterial(Shader* shader);
-			void SetShader(Shader* shader);
+	using namespace Uniforms;
 
-			virtual ~CustomShaderMaterial();
+	class PYROS3D_API CustomShaderMaterial : public IMaterial
+	{
 
-			virtual void PreRender();
+	public:
 
-			virtual void AfterRender();
+		CustomShaderMaterial(const std::string &ShaderFile);
+		CustomShaderMaterial(Shader* shader);
+		void SetShader(Shader* shader);
 
-			std::vector<Texture*> textures;
+		virtual ~CustomShaderMaterial();
 
-        protected:
-			// Shader
-			Shader* shader;
-    };
+		virtual void PreRender();
+
+		virtual void AfterRender();
+
+		std::vector<Texture*> textures;
+
+	protected:
+		// Shader
+		Shader* shader;
+	};
 
 }
 

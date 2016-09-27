@@ -20,49 +20,49 @@
 #define LOG_FILE_PATH "Pyros.log"
 
 namespace p3d {
-    
-    namespace LOG {
-  
-        class PYROS3D_API _LOG {
-            public:
-                #ifdef LOG_TO_FILE
-                    static std::ofstream outputFile;
-                #endif
-                static bool _initiated;
-                static void _message(const std::string &Message)
-                {
-                    #if defined(LOG_TO_FILE)
 
-                        outputFile << Message << std::endl;
+	namespace LOG {
 
-                    #elif defined(LOG_DISABLE)
+		class PYROS3D_API _LOG {
+		public:
+#ifdef LOG_TO_FILE
+			static std::ofstream outputFile;
+#endif
+			static bool _initiated;
+			static void _message(const std::string &Message)
+			{
+#if defined(LOG_TO_FILE)
 
-                            // NONE
-                        
-                    #elif defined(LOG_TO_CONSOLE) || defined(_DEBUG)
-                			#if defined(ANDROID)
-                				__android_log_print(ANDROID_LOG_DEBUG, "Pyros3D", "%s", Message.c_str());
-                			#else
-                                std::cout << Message << std::endl;
-                			#endif
-                    #endif
-                }
-                static void _echo(const std::string &Message)
-                {
-                    if (!_initiated)
-                    {
-                        _initiated = true;
-                        _message("=== Pyros3D Start ===");
-                    }
+				outputFile << Message << std::endl;
 
-                    _message(Message);
+#elif defined(LOG_DISABLE)
 
-                }
-};
+				// NONE
 
-    #define echo( x ) ( p3d::LOG::_LOG::_echo(x) )
-        
-    };
+#elif defined(LOG_TO_CONSOLE) || defined(_DEBUG)
+#if defined(ANDROID)
+				__android_log_print(ANDROID_LOG_DEBUG, "Pyros3D", "%s", Message.c_str());
+#else
+				std::cout << Message << std::endl;
+#endif
+#endif
+			}
+			static void _echo(const std::string &Message)
+			{
+				if (!_initiated)
+				{
+					_initiated = true;
+					_message("=== Pyros3D Start ===");
+				}
+
+				_message(Message);
+
+			}
+		};
+
+#define echo( x ) ( p3d::LOG::_LOG::_echo(x) )
+
+	};
 };
 
 #endif	/* LOG_H */

@@ -11,7 +11,7 @@
 
 namespace p3d {
 
-	const char VR_SHADER_CONTROLLER[] =	"#ifdef VERTEX\n"
+	const char VR_SHADER_CONTROLLER[] = "#ifdef VERTEX\n"
 		"uniform mat4 matrix;\n"
 		"attribute vec4 position;\n"
 		"attribute vec3 v3ColorIn;\n"
@@ -30,7 +30,7 @@ namespace p3d {
 		"}\n"
 		"#endif";
 
-	const char VR_SHADER_DISTORTION[] =	"#ifdef VERTEX\n"
+	const char VR_SHADER_DISTORTION[] = "#ifdef VERTEX\n"
 		"attribute vec4 position;\n"
 		"attribute vec2 v2UVredIn;\n"
 		"attribute vec2 v2UVGreenIn;\n"

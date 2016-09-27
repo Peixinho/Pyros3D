@@ -10,14 +10,14 @@
 #define	CustomMaterial_H
 
 #if defined(_SDL)
-    #include "../WindowManagers/SDL/SDLContext.h"
-    #define ClassName SDLContext
+#include "../WindowManagers/SDL/SDLContext.h"
+#define ClassName SDLContext
 #elif defined(_SDL2)
-    #include "../WindowManagers/SDL2/SDL2Context.h"
-    #define ClassName SDL2Context
+#include "../WindowManagers/SDL2/SDL2Context.h"
+#define ClassName SDL2Context
 #else
-    #include "../WindowManagers/SFML/SFMLContext.h"
-    #define ClassName SFMLContext
+#include "../WindowManagers/SFML/SFMLContext.h"
+#define ClassName SFMLContext
 #endif
 
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
@@ -32,58 +32,58 @@
 using namespace p3d;
 
 class CustomMaterialExample : public CustomShaderMaterial {
-    
-        public:
-            
-            CustomMaterialExample() : CustomShaderMaterial("../../../../examples/CustomMaterial/assets/shader.glsl")
-            {
-                AddUniform(Uniforms::Uniform("uProjectionMatrix",Uniforms::DataUsage::ProjectionMatrix));
-                AddUniform(Uniforms::Uniform("uViewMatrix",Uniforms::DataUsage::ViewMatrix));
-                AddUniform(Uniforms::Uniform("uModelMatrix",Uniforms::DataUsage::ModelMatrix));
-                AddUniform(Uniforms::Uniform("uColor",Uniforms::DataUsage::Other,Uniforms::DataType::Vec4));
-            }
-            
-            virtual void PreRender() 
-            {
-                srand( (unsigned int)time( NULL ) );
-                Vec4 color = Vec4((rand() % 100)/100.f,(rand() % 100)/100.f,(rand() % 100)/100.f,1.f);
-                SetUniformValue("uColor",&color);
-            }
-            virtual void Render() {}
-            virtual void AfterRender() {}
-            
+
+public:
+
+	CustomMaterialExample() : CustomShaderMaterial("../../../../examples/CustomMaterial/assets/shader.glsl")
+	{
+		AddUniform(Uniforms::Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
+		AddUniform(Uniforms::Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
+		AddUniform(Uniforms::Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
+		AddUniform(Uniforms::Uniform("uColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+	}
+
+	virtual void PreRender()
+	{
+		srand((unsigned int)time(NULL));
+		Vec4 color = Vec4((rand() % 100) / 100.f, (rand() % 100) / 100.f, (rand() % 100) / 100.f, 1.f);
+		SetUniformValue("uColor", &color);
+	}
+	virtual void Render() {}
+	virtual void AfterRender() {}
+
 };
 
 class CustomMaterial : public ClassName {
-        
-    public:
-        
-        CustomMaterial();   
-        virtual ~CustomMaterial();
-        
-        virtual void Init();
-        virtual void Update();
-        virtual void Shutdown();
-        virtual void OnResize(const uint32 width, const uint32 height);
-        
-    private:
 
-        // Scene
-        SceneGraph* Scene;
-        // Renderer
-        ForwardRenderer* Renderer;
-        // Projection
-        Projection projection;
-        // Camera - Its a regular GameObject
-        GameObject* Camera;
-        // GameObject
-        GameObject* CubeObject;
-        // Rendering Component
-        RenderingComponent* rCube;
-        // Mesh
-        Renderable* cubeMesh;
-        // Custom Material
-        CustomMaterialExample* Material;
+public:
+
+	CustomMaterial();
+	virtual ~CustomMaterial();
+
+	virtual void Init();
+	virtual void Update();
+	virtual void Shutdown();
+	virtual void OnResize(const uint32 width, const uint32 height);
+
+private:
+
+	// Scene
+	SceneGraph* Scene;
+	// Renderer
+	ForwardRenderer* Renderer;
+	// Projection
+	Projection projection;
+	// Camera - Its a regular GameObject
+	GameObject* Camera;
+	// GameObject
+	GameObject* CubeObject;
+	// Rendering Component
+	RenderingComponent* rCube;
+	// Mesh
+	Renderable* cubeMesh;
+	// Custom Material
+	CustomMaterialExample* Material;
 
 };
 

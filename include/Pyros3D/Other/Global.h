@@ -12,24 +12,24 @@
 // Fix Raspberry and other stupid devices
 #if defined(GLES2)
 // GLES 2
-	#define __INDEX_TYPE__ 		GL_UNSIGNED_SHORT
-	#define __INDEX_C_TYPE__ 	short
+#define __INDEX_TYPE__ 		GL_UNSIGNED_SHORT
+#define __INDEX_C_TYPE__ 	short
 #else
 // OpenGL
-	#define __INDEX_TYPE__ 		GL_UNSIGNED_INT
-	#define __INDEX_C_TYPE__ 	uint32
+#define __INDEX_TYPE__ 		GL_UNSIGNED_INT
+#define __INDEX_C_TYPE__ 	uint32
 #endif
 
 #define STRINGIFY(x) #x
 #define TOSTRING(x) STRINGIFY(x)
 
 #ifdef __arm__
-	#include <signal.h>
-	#define BRK raise(SIGTRAP)
+#include <signal.h>
+#define BRK raise(SIGTRAP)
 #elif defined(_WIN32)
-	#define BRK __debugbreak()
+#define BRK __debugbreak()
 #else
-	#define BRK asm volatile("int3")
+#define BRK asm volatile("int3")
 #endif
 
 #ifndef ASSERT

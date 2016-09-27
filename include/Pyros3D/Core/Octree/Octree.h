@@ -25,16 +25,16 @@ namespace p3d {
 		};
 	}
 
-	class OctreeGroup;
-	class OctreeObject {
-		public:
-			uint32 type;
-			GameObject* objPtr;
-			OctreeGroup* boxPTR;
+	class PYROS3D_API OctreeGroup;
+	class PYROS3D_API OctreeObject {
+	public:
+		uint32 type;
+		GameObject* objPtr;
+		OctreeGroup* boxPTR;
 	};
 
-	class Octree;
-	class OctreeGroup
+	class PYROS3D_API Octree;
+	class PYROS3D_API OctreeGroup
 	{
 		friend class Octree;
 
@@ -52,7 +52,7 @@ namespace p3d {
 
 		virtual ~OctreeGroup();
 
-		OctreeGroup(const float Size, const Vec3 min, const Vec3 max, std::vector<GameObject*> &objects, uint32 ChildsPerNode) 
+		OctreeGroup(const float Size, const Vec3 min, const Vec3 max, std::vector<GameObject*> &objects, uint32 ChildsPerNode)
 		{
 			OctreeGroup(Size, min, max, objects, ChildsPerNode, NULL);
 		}
@@ -67,7 +67,7 @@ namespace p3d {
 
 		bool Insert(GameObject* go);
 		bool Remove(GameObject* go);
-		
+
 		uint32 childsPerNode;
 
 	private:
@@ -77,7 +77,7 @@ namespace p3d {
 		void CreateSubGroups(const float Size, const Vec3 min, const Vec3 max, std::vector<GameObject*> &objects, uint32 ChildsPerNode);
 	};
 
-	class Octree
+	class PYROS3D_API Octree
 	{
 	public:
 

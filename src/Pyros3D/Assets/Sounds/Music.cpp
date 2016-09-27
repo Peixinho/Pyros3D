@@ -9,15 +9,15 @@
 #include <Pyros3D/Assets/Sounds/Music.h>
 
 namespace p3d {
-  
-    Music::Music() : ISound(SoundType::Sound)
-    {
-		
-    }
 
-    Music::~Music()
-    {
-        
-    }
+	Music::Music() : ISound(SoundType::Sound)
+	{
+
+	}
+
+	Music::~Music()
+	{
+
+	}
 
 };

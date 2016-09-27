@@ -10,14 +10,14 @@
 #define	DECALSEXAMPLE_H
 
 #if defined(_SDL)
-    #include "../WindowManagers/SDL/SDLContext.h"
-    #define ClassName SDLContext
+#include "../WindowManagers/SDL/SDLContext.h"
+#define ClassName SDLContext
 #elif defined(_SDL2)
-    #include "../WindowManagers/SDL2/SDL2Context.h"
-    #define ClassName SDL2Context
+#include "../WindowManagers/SDL2/SDL2Context.h"
+#define ClassName SDL2Context
 #else
-    #include "../WindowManagers/SFML/SFMLContext.h"
-    #define ClassName SFMLContext
+#include "../WindowManagers/SFML/SFMLContext.h"
+#define ClassName SFMLContext
 #endif
 
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
@@ -32,55 +32,55 @@ using namespace p3d;
 
 class Decals : public ClassName
 {
-        
-    public:
-        
-        Decals();   
-        virtual ~Decals();
-        
-        virtual void Init();
-        virtual void Update();
-        virtual void Shutdown();
-        virtual void OnResize(const uint32 width, const uint32 height);
-        
-		void OnMouseRelease(Event::Input::Info e);
-    private:
 
-        // Scene
-        SceneGraph* Scene;
-        // Renderer
-        ForwardRenderer* Renderer;
-        // Projection
-        Projection projection;
-        // Camera - Its a regular GameObject
-        GameObject* Camera;
-        // GameObject
-        GameObject* CubeObject, *SphereObject, *ModelObject;
-        // Rendering Component
-        RenderingComponent* rCube, *rSphere, *rModel;
-        // Mesh
-		Renderable* cubeMesh, *sphereMesh, *modelMesh;
+public:
 
-		// Events
-		void MoveFrontPress(Event::Input::Info e);
-		void MoveBackPress(Event::Input::Info e);
-		void StrafeLeftPress(Event::Input::Info e);
-		void StrafeRightPress(Event::Input::Info e);
-		void MoveFrontRelease(Event::Input::Info e);
-		void MoveBackRelease(Event::Input::Info e);
-		void StrafeLeftRelease(Event::Input::Info e);
-		void StrafeRightRelease(Event::Input::Info e);
-		void LookTo(Event::Input::Info e);
+	Decals();
+	virtual ~Decals();
 
-		GenericShaderMaterial* decalMaterial;
-		bool GetIntersectedTriangle(RenderingComponent* rcomp, Mouse3D mouse, Vec3* intersection, Vec3* normal, uint32* meshID);
-		void CreateDecal();
-		std::vector<DecalGeometry*> decals;
-		std::vector<RenderingComponent*> rdecals;
+	virtual void Init();
+	virtual void Update();
+	virtual void Shutdown();
+	virtual void OnResize(const uint32 width, const uint32 height);
 
-		float counterX, counterY;
-		Vec2 mouseCenter, mouseLastPosition, mousePosition;
-		bool _moveFront, _moveBack, _strafeLeft, _strafeRight;
+	void OnMouseRelease(Event::Input::Info e);
+private:
+
+	// Scene
+	SceneGraph* Scene;
+	// Renderer
+	ForwardRenderer* Renderer;
+	// Projection
+	Projection projection;
+	// Camera - Its a regular GameObject
+	GameObject* Camera;
+	// GameObject
+	GameObject* CubeObject, *SphereObject, *ModelObject;
+	// Rendering Component
+	RenderingComponent* rCube, *rSphere, *rModel;
+	// Mesh
+	Renderable* cubeMesh, *sphereMesh, *modelMesh;
+
+	// Events
+	void MoveFrontPress(Event::Input::Info e);
+	void MoveBackPress(Event::Input::Info e);
+	void StrafeLeftPress(Event::Input::Info e);
+	void StrafeRightPress(Event::Input::Info e);
+	void MoveFrontRelease(Event::Input::Info e);
+	void MoveBackRelease(Event::Input::Info e);
+	void StrafeLeftRelease(Event::Input::Info e);
+	void StrafeRightRelease(Event::Input::Info e);
+	void LookTo(Event::Input::Info e);
+
+	GenericShaderMaterial* decalMaterial;
+	bool GetIntersectedTriangle(RenderingComponent* rcomp, Mouse3D mouse, Vec3* intersection, Vec3* normal, uint32* meshID);
+	void CreateDecal();
+	std::vector<DecalGeometry*> decals;
+	std::vector<RenderingComponent*> rdecals;
+
+	float counterX, counterY;
+	Vec2 mouseCenter, mouseLastPosition, mousePosition;
+	bool _moveFront, _moveBack, _strafeLeft, _strafeRight;
 };
 
 #endif	/* DECALSEXAMPLE */

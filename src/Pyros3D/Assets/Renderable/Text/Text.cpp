@@ -12,246 +12,247 @@
 
 namespace p3d {
 
-    Text::Text(Font* font, const std::string& text, const f32 charWidth, const f32 charHeight, const Vec4 &color, bool DynamicText)
-    {
-        this->charWidth = charWidth;
-        this->charHeight = charHeight;
-        this->font = font;
-        this->Initialized = false;
-        
-        geometry = new TextGeometry(DynamicText);
+	Text::Text(Font* font, const std::string& text, const f32 charWidth, const f32 charHeight, const Vec4 &color, bool DynamicText)
+	{
+		this->charWidth = charWidth;
+		this->charHeight = charHeight;
+		this->font = font;
+		this->Initialized = false;
 
-        // Generate Font
-        font->CreateText(text);
+		geometry = new TextGeometry(DynamicText);
 
-        UpdateText(text, color);
-    }
+		// Generate Font
+		font->CreateText(text);
 
-    Text::Text(Font* font, const std::string& text, const f32 charWidth, const f32 charHeight, const std::vector<Vec4> &colors, bool DynamicText)
-    {
-        this->charWidth = charWidth;
-        this->charHeight = charHeight;
-        this->font = font;
-        this->Initialized = false;
+		UpdateText(text, color);
+	}
 
-        geometry = new TextGeometry(DynamicText);
+	Text::Text(Font* font, const std::string& text, const f32 charWidth, const f32 charHeight, const std::vector<Vec4> &colors, bool DynamicText)
+	{
+		this->charWidth = charWidth;
+		this->charHeight = charHeight;
+		this->font = font;
+		this->Initialized = false;
 
-        // Generate Font
-        font->CreateText(text);
+		geometry = new TextGeometry(DynamicText);
 
-        UpdateText(text, colors);
-    }        
+		// Generate Font
+		font->CreateText(text);
 
-    void Text::UpdateText(const std::string &text,const Vec4 &color)
-    {
-        if (this->text!=text)
-        {
-            this->text = text;
+		UpdateText(text, colors);
+	}
 
-            if (Initialized)
-            {
-                geometry->Dispose();
-                geometry->index.clear();
-                geometry->tVertex.clear();
-                geometry->tNormal.clear();
-                geometry->tTexcoord.clear();
-            }
-            
-            Initialized = true;
+	void Text::UpdateText(const std::string &text, const Vec4 &color)
+	{
+		if (this->text != text)
+		{
+			this->text = text;
 
-            f32 width = 0.0f;
-            f32 height = 0.0f;
+			if (Initialized)
+			{
+				geometry->Dispose();
+				geometry->index.clear();
+				geometry->tVertex.clear();
+				geometry->tNormal.clear();
+				geometry->tTexcoord.clear();
+			}
 
-            f32 offsetX = 0;
-            f32 offsetY = 0;
+			Initialized = true;
 
-            uint32 quads = 0;
-            f32 lineSize = 0.0f;
+			f32 width = 0.0f;
+			f32 height = 0.0f;
 
-            for (uint32 i = 0;i<text.size();i++)
-            {
-                switch(text[i])
-                {
-                    case '\n':
-                        // Build Quads in the bottom
-                        offsetY-=lineSize*1.5f;
-                        offsetX = 0.0f;
-                    break;
-                    case ' ':
-                        offsetX+=font->GetFontSize()/2;
-                    break;
-                    default:
+			f32 offsetX = 0;
+			f32 offsetY = 0;
 
-                        glyph_properties glp = font->GetGlyphs()[text[i]];
-                        width = glp.size.x;
-                        height = glp.size.y;
-                        // Build Quads to the right
-                        f32 w2 = width; f32 h2 = height;
+			uint32 quads = 0;
+			f32 lineSize = 0.0f;
 
-                        if (height + glp.offset.y >lineSize) lineSize = height + glp.offset.y;
+			for (uint32 i = 0; i<text.size(); i++)
+			{
+				switch (text[i])
+				{
+				case '\n':
+					// Build Quads in the bottom
+					offsetY -= lineSize*1.5f;
+					offsetX = 0.0f;
+					break;
+				case ' ':
+					offsetX += font->GetFontSize() / 2;
+					break;
+				default:
 
-                        Vec3 a = Vec3(offsetX,      offsetY-glp.offset.y        ,0);
-                        Vec3 b = Vec3(w2+offsetX,   offsetY-glp.offset.y        ,0);
-                        Vec3 c = Vec3(w2+offsetX,   h2+offsetY-glp.offset.y     ,0);
-                        Vec3 d = Vec3(offsetX,      h2+offsetY-glp.offset.y     ,0);
+					glyph_properties glp = font->GetGlyphs()[text[i]];
+					width = glp.size.x;
+					height = glp.size.y;
+					// Build Quads to the right
+					f32 w2 = width; f32 h2 = height;
 
-                        // Apply Dimensions
-                        a.x = charWidth * a.x / font->GetFontSize();
-                        a.y = charHeight * a.y / font->GetFontSize();
+					if (height + glp.offset.y >lineSize) lineSize = height + glp.offset.y;
 
-                        b.x = charWidth * b.x / font->GetFontSize();
-                        b.y = charHeight * b.y / font->GetFontSize();
+					Vec3 a = Vec3(offsetX, offsetY - glp.offset.y, 0);
+					Vec3 b = Vec3(w2 + offsetX, offsetY - glp.offset.y, 0);
+					Vec3 c = Vec3(w2 + offsetX, h2 + offsetY - glp.offset.y, 0);
+					Vec3 d = Vec3(offsetX, h2 + offsetY - glp.offset.y, 0);
 
-                        c.x = charWidth * c.x / font->GetFontSize();
-                        c.y = charHeight * c.y / font->GetFontSize();
+					// Apply Dimensions
+					a.x = charWidth * a.x / font->GetFontSize();
+					a.y = charHeight * a.y / font->GetFontSize();
 
-                        d.x = charWidth * d.x / font->GetFontSize();
-                        d.y = charHeight * d.y / font->GetFontSize();
+					b.x = charWidth * b.x / font->GetFontSize();
+					b.y = charHeight * b.y / font->GetFontSize();
 
-                        Vec3 normal = Vec3(color.x,color.y,color.z);
+					c.x = charWidth * c.x / font->GetFontSize();
+					c.y = charHeight * c.y / font->GetFontSize();
 
-                        geometry->tVertex.push_back(a);   geometry->tNormal.push_back(normal);
-                        geometry->tVertex.push_back(b);   geometry->tNormal.push_back(normal);
-                        geometry->tVertex.push_back(c);   geometry->tNormal.push_back(normal);
-                        geometry->tVertex.push_back(d);   geometry->tNormal.push_back(normal);
+					d.x = charWidth * d.x / font->GetFontSize();
+					d.y = charHeight * d.y / font->GetFontSize();
 
-                        Texture* t = font->GetTexture();
-                        geometry->tTexcoord.push_back(Vec2(glp.startingPoint.x,glp.startingPoint.y + glp.size.y/(f32)t->GetHeight()));
-                        geometry->tTexcoord.push_back(Vec2(glp.startingPoint.x + glp.size.x/(f32)t->GetWidth(),glp.startingPoint.y + glp.size.y/(f32)t->GetHeight()));
-                        geometry->tTexcoord.push_back(Vec2(glp.startingPoint.x + glp.size.x/(f32)t->GetWidth(),glp.startingPoint.y));
-                        geometry->tTexcoord.push_back(Vec2(glp.startingPoint.x,glp.startingPoint.y));
+					Vec3 normal = Vec3(color.x, color.y, color.z);
 
-                        geometry->index.push_back(quads*4+0);
-                        geometry->index.push_back(quads*4+1);
-                        geometry->index.push_back(quads*4+2);
-                        geometry->index.push_back(quads*4+2);
-                        geometry->index.push_back(quads*4+3);
-                        geometry->index.push_back(quads*4+0);
+					geometry->tVertex.push_back(a);   geometry->tNormal.push_back(normal);
+					geometry->tVertex.push_back(b);   geometry->tNormal.push_back(normal);
+					geometry->tVertex.push_back(c);   geometry->tNormal.push_back(normal);
+					geometry->tVertex.push_back(d);   geometry->tNormal.push_back(normal);
 
-                        offsetX+=width + glp.offset.x;
-                        quads++;
+					Texture* t = font->GetTexture();
+					geometry->tTexcoord.push_back(Vec2(glp.startingPoint.x, glp.startingPoint.y + glp.size.y / (f32)t->GetHeight()));
+					geometry->tTexcoord.push_back(Vec2(glp.startingPoint.x + glp.size.x / (f32)t->GetWidth(), glp.startingPoint.y + glp.size.y / (f32)t->GetHeight()));
+					geometry->tTexcoord.push_back(Vec2(glp.startingPoint.x + glp.size.x / (f32)t->GetWidth(), glp.startingPoint.y));
+					geometry->tTexcoord.push_back(Vec2(glp.startingPoint.x, glp.startingPoint.y));
 
-                    break;
-                }
-            }
+					geometry->index.push_back(quads * 4 + 0);
+					geometry->index.push_back(quads * 4 + 1);
+					geometry->index.push_back(quads * 4 + 2);
+					geometry->index.push_back(quads * 4 + 2);
+					geometry->index.push_back(quads * 4 + 3);
+					geometry->index.push_back(quads * 4 + 0);
 
-            // Build and Send Buffers
-            Build();
-        }
-    }
+					offsetX += width + glp.offset.x;
+					quads++;
 
-    void Text::UpdateText(const std::string &text,const std::vector<Vec4> &colors)
-    {
-        if (this->text!=text)
-        {
-            this->text = text;
+					break;
+				}
+			}
 
-            if (Initialized)
-            {
-                geometry->Dispose();
-                geometry->index.clear();
-                geometry->tVertex.clear();
-                geometry->tNormal.clear();
-                geometry->tTexcoord.clear();
-            }
-            
-            Initialized = true;
+			// Build and Send Buffers
+			Build();
+		}
+	}
 
-            f32 width = 0.0f;
-            f32 height = 0.0f;
+	void Text::UpdateText(const std::string &text, const std::vector<Vec4> &colors)
+	{
+		if (this->text != text)
+		{
+			this->text = text;
 
-            f32 offsetX = 0;
-            f32 offsetY = 0;
+			if (Initialized)
+			{
+				geometry->Dispose();
+				geometry->index.clear();
+				geometry->tVertex.clear();
+				geometry->tNormal.clear();
+				geometry->tTexcoord.clear();
+			}
 
-            uint32 quads = 0;
-            f32 lineSize = 0.0f;
+			Initialized = true;
 
-            for (uint32 i = 0;i<text.size();i++)
-            {
-                switch(text[i])
-                {
-                    case '\n':
-                        // Build Quads in the bottom
-                        offsetY-=lineSize*1.5f;
-                        offsetX = 0.0f;
-                    break;
-                    case ' ':
-                        offsetX+=font->GetFontSize()/2;
-                    break;
-                    default:
+			f32 width = 0.0f;
+			f32 height = 0.0f;
 
-                        glyph_properties glp = font->GetGlyphs()[text[i]];
-                        width = glp.size.x;
-                        height = glp.size.y;
-                        // Build Quads to the right
-                        f32 w2 = width; f32 h2 = height;
+			f32 offsetX = 0;
+			f32 offsetY = 0;
 
-                        if (height + glp.offset.y >lineSize) lineSize = height + glp.offset.y;
+			uint32 quads = 0;
+			f32 lineSize = 0.0f;
 
-                        Vec3 a = Vec3(offsetX,      offsetY-glp.offset.y        ,0);
-                        Vec3 b = Vec3(w2+offsetX,   offsetY-glp.offset.y        ,0);
-                        Vec3 c = Vec3(w2+offsetX,   h2+offsetY-glp.offset.y     ,0);
-                        Vec3 d = Vec3(offsetX,      h2+offsetY-glp.offset.y     ,0);
+			for (uint32 i = 0; i<text.size(); i++)
+			{
+				switch (text[i])
+				{
+				case '\n':
+					// Build Quads in the bottom
+					offsetY -= lineSize*1.5f;
+					offsetX = 0.0f;
+					break;
+				case ' ':
+					offsetX += font->GetFontSize() / 2;
+					break;
+				default:
 
-                        // Apply Dimensions
-                        a.x = charWidth * a.x / font->GetFontSize();
-                        a.y = charHeight * a.y / font->GetFontSize();
+					glyph_properties glp = font->GetGlyphs()[text[i]];
+					width = glp.size.x;
+					height = glp.size.y;
+					// Build Quads to the right
+					f32 w2 = width; f32 h2 = height;
 
-                        b.x = charWidth * b.x / font->GetFontSize();
-                        b.y = charHeight * b.y / font->GetFontSize();
+					if (height + glp.offset.y >lineSize) lineSize = height + glp.offset.y;
 
-                        c.x = charWidth * c.x / font->GetFontSize();
-                        c.y = charHeight * c.y / font->GetFontSize();
+					Vec3 a = Vec3(offsetX, offsetY - glp.offset.y, 0);
+					Vec3 b = Vec3(w2 + offsetX, offsetY - glp.offset.y, 0);
+					Vec3 c = Vec3(w2 + offsetX, h2 + offsetY - glp.offset.y, 0);
+					Vec3 d = Vec3(offsetX, h2 + offsetY - glp.offset.y, 0);
 
-                        d.x = charWidth * d.x / font->GetFontSize();
-                        d.y = charHeight * d.y / font->GetFontSize();
+					// Apply Dimensions
+					a.x = charWidth * a.x / font->GetFontSize();
+					a.y = charHeight * a.y / font->GetFontSize();
 
-                        // Set Color
-                        Vec3 normal = Vec3(colors[i].x,colors[i].y,colors[i].z);
+					b.x = charWidth * b.x / font->GetFontSize();
+					b.y = charHeight * b.y / font->GetFontSize();
 
-                        geometry->tVertex.push_back(a);   geometry->tNormal.push_back(normal);
-                        geometry->tVertex.push_back(b);   geometry->tNormal.push_back(normal);
-                        geometry->tVertex.push_back(c);   geometry->tNormal.push_back(normal);
-                        geometry->tVertex.push_back(d);   geometry->tNormal.push_back(normal);
+					c.x = charWidth * c.x / font->GetFontSize();
+					c.y = charHeight * c.y / font->GetFontSize();
 
-                        Texture* t = font->GetTexture();
-                        geometry->tTexcoord.push_back(Vec2(glp.startingPoint.x,glp.startingPoint.y + glp.size.y/(f32)t->GetHeight()));
-                        geometry->tTexcoord.push_back(Vec2(glp.startingPoint.x + glp.size.x/(f32)t->GetWidth(),glp.startingPoint.y + glp.size.y/(f32)t->GetHeight()));
-                        geometry->tTexcoord.push_back(Vec2(glp.startingPoint.x + glp.size.x/(f32)t->GetWidth(),glp.startingPoint.y));
-                        geometry->tTexcoord.push_back(Vec2(glp.startingPoint.x,glp.startingPoint.y));
+					d.x = charWidth * d.x / font->GetFontSize();
+					d.y = charHeight * d.y / font->GetFontSize();
 
-                        geometry->index.push_back(quads*4+0);
-                        geometry->index.push_back(quads*4+1);
-                        geometry->index.push_back(quads*4+2);
-                        geometry->index.push_back(quads*4+2);
-                        geometry->index.push_back(quads*4+3);
-                        geometry->index.push_back(quads*4+0);
+					// Set Color
+					Vec3 normal = Vec3(colors[i].x, colors[i].y, colors[i].z);
 
-                        offsetX+=width + glp.offset.x;
-                        quads++;
+					geometry->tVertex.push_back(a);   geometry->tNormal.push_back(normal);
+					geometry->tVertex.push_back(b);   geometry->tNormal.push_back(normal);
+					geometry->tVertex.push_back(c);   geometry->tNormal.push_back(normal);
+					geometry->tVertex.push_back(d);   geometry->tNormal.push_back(normal);
 
-                    break;
-                }
-            }
+					Texture* t = font->GetTexture();
+					geometry->tTexcoord.push_back(Vec2(glp.startingPoint.x, glp.startingPoint.y + glp.size.y / (f32)t->GetHeight()));
+					geometry->tTexcoord.push_back(Vec2(glp.startingPoint.x + glp.size.x / (f32)t->GetWidth(), glp.startingPoint.y + glp.size.y / (f32)t->GetHeight()));
+					geometry->tTexcoord.push_back(Vec2(glp.startingPoint.x + glp.size.x / (f32)t->GetWidth(), glp.startingPoint.y));
+					geometry->tTexcoord.push_back(Vec2(glp.startingPoint.x, glp.startingPoint.y));
 
-            if (geometry->GetGeometryType()==GeometryType::ARRAY)
-            {
-                // Update Vertex Attributes Using Vertex Arrays Only
-                geometry->Attributes[0]->Attributes[0]->Data.resize(geometry->tVertex.size());
-                geometry->Attributes[0]->Attributes[1]->Data.resize(geometry->tVertex.size());
-                geometry->Attributes[0]->Attributes[2]->Data.resize(geometry->tVertex.size());
-                memcpy(&geometry->Attributes[0]->Attributes[0]->Data[0],&geometry->tVertex[0],geometry->tVertex.size());
-                memcpy(&geometry->Attributes[0]->Attributes[1]->Data[0],&geometry->tNormal[0],geometry->tVertex.size());
-                memcpy(&geometry->Attributes[0]->Attributes[2]->Data[0],&geometry->tTexcoord[0],geometry->tVertex.size());
-            } else {
-                // ReBuild and Send Buffers (VBOS)
-                Build();
-            }
-        }
-    }        
+					geometry->index.push_back(quads * 4 + 0);
+					geometry->index.push_back(quads * 4 + 1);
+					geometry->index.push_back(quads * 4 + 2);
+					geometry->index.push_back(quads * 4 + 2);
+					geometry->index.push_back(quads * 4 + 3);
+					geometry->index.push_back(quads * 4 + 0);
 
-    Text::~Text()
-    {
+					offsetX += width + glp.offset.x;
+					quads++;
 
-    }
+					break;
+				}
+			}
+
+			if (geometry->GetGeometryType() == GeometryType::ARRAY)
+			{
+				// Update Vertex Attributes Using Vertex Arrays Only
+				geometry->Attributes[0]->Attributes[0]->Data.resize(geometry->tVertex.size());
+				geometry->Attributes[0]->Attributes[1]->Data.resize(geometry->tVertex.size());
+				geometry->Attributes[0]->Attributes[2]->Data.resize(geometry->tVertex.size());
+				memcpy(&geometry->Attributes[0]->Attributes[0]->Data[0], &geometry->tVertex[0], geometry->tVertex.size());
+				memcpy(&geometry->Attributes[0]->Attributes[1]->Data[0], &geometry->tNormal[0], geometry->tVertex.size());
+				memcpy(&geometry->Attributes[0]->Attributes[2]->Data[0], &geometry->tTexcoord[0], geometry->tVertex.size());
+			}
+			else {
+				// ReBuild and Send Buffers (VBOS)
+				Build();
+			}
+		}
+	}
+
+	Text::~Text()
+	{
+
+	}
 };

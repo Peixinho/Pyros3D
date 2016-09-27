@@ -9,17 +9,17 @@
 
 #include <Pyros3D/Physics/Components/Box/PhysicsBox.h>
 
-namespace p3d {   
+namespace p3d {
 
-    PhysicsBox::PhysicsBox(IPhysics* engine, const f32 width, const f32 height, const f32 depth, const f32 mass) : IPhysicsComponent(mass,CollisionShapes::Box, engine)
-    {
-        
-        this->width=width;
-        this->height=height;
-        this->depth=depth;
-        
-    }
+	PhysicsBox::PhysicsBox(IPhysics* engine, const f32 width, const f32 height, const f32 depth, const f32 mass) : IPhysicsComponent(mass, CollisionShapes::Box, engine)
+	{
 
-    PhysicsBox::~PhysicsBox() {}
+		this->width = width;
+		this->height = height;
+		this->depth = depth;
+
+	}
+
+	PhysicsBox::~PhysicsBox() {}
 
 }

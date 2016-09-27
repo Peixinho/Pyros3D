@@ -12,16 +12,16 @@
 #include <Pyros3D/Assets/Sounds/ISound.h>
 
 namespace p3d {
-    
-    class PYROS3D_API Sound : public ISound {
 
-        public:
+	class PYROS3D_API Sound : public ISound {
 
-            Sound();
-            virtual ~Sound();
+	public:
 
-    };
-    
+		Sound();
+		virtual ~Sound();
+
+	};
+
 };
 
 #endif /* SOUND_H */

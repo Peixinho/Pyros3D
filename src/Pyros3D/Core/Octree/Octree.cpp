@@ -145,12 +145,12 @@ namespace p3d {
 			}
 			else {
 				// Doesn't have childs
-				
+
 				// Add to this members
 				Members.push_back(go);
 
 				// If members list is bigger than expected, and no children exists, build them
-				if (Members.size() > childsPerNode) 
+				if (Members.size() > childsPerNode)
 					CreateSubGroups(size*.25f, Min, Max, Members, childsPerNode);
 
 				return true;

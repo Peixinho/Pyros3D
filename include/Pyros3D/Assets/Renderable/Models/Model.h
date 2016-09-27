@@ -15,52 +15,52 @@
 
 namespace p3d {
 
-    class PYROS3D_API ModelGeometry : public IGeometry
-    {
-        public:
+	class PYROS3D_API ModelGeometry : public IGeometry
+	{
+	public:
 
-            ModelGeometry() : IGeometry(GeometryType::BUFFER) {}
+		ModelGeometry() : IGeometry(GeometryType::BUFFER) {}
 
-            // Vectors
-            std::vector<Vec3> tVertex, tNormal, tTangent, tBitangent;
-            std::vector<Vec2> tTexcoord;
+		// Vectors
+		std::vector<Vec3> tVertex, tNormal, tTangent, tBitangent;
+		std::vector<Vec2> tTexcoord;
 
-            // Bones
-            std::vector<Vec4> tBonesID, tBonesWeight;
-            
-            void CreateBuffers();
+		// Bones
+		std::vector<Vec4> tBonesID, tBonesWeight;
 
-            virtual const std::vector<__INDEX_C_TYPE__> &GetIndexData() const { return index; }
-            virtual const std::vector<Vec3> &GetVertexData() const { return tVertex; }
-			virtual const std::vector<Vec3> &GetNormalData() const { return tNormal; }
+		void CreateBuffers();
 
-        protected:
-            
-            virtual void CalculateBounding();
-    };
+		virtual const std::vector<__INDEX_C_TYPE__> &GetIndexData() const { return index; }
+		virtual const std::vector<Vec3> &GetVertexData() const { return tVertex; }
+		virtual const std::vector<Vec3> &GetNormalData() const { return tNormal; }
 
-    class PYROS3D_API Model : public Renderable {
+	protected:
 
-        public:
+		virtual void CalculateBounding();
+	};
 
-            Model(const std::string ModelPath, bool mergeMeshes = true, const uint32 MaterialOptions = 0);
+	class PYROS3D_API Model : public Renderable {
 
-            virtual ~Model() {}
+	public:
 
-            // Model loader, skeleton and animation
-            IModelLoader* mesh;
+		Model(const std::string ModelPath, bool mergeMeshes = true, const uint32 MaterialOptions = 0);
 
-            void Build();
+		virtual ~Model() {}
 
-            void DebugSkeleton();
-            void GetBoneChilds(std::map<StringID,Bone> Skeleton, const int32 id, const uint32 iterations);
-        
-        protected:
-			
-			Model() {}
-            uint32 MaterialOptions;
+		// Model loader, skeleton and animation
+		IModelLoader* mesh;
 
-    };
+		void Build();
+
+		void DebugSkeleton();
+		void GetBoneChilds(std::map<StringID, Bone> Skeleton, const int32 id, const uint32 iterations);
+
+	protected:
+
+		Model() {}
+		uint32 MaterialOptions;
+
+	};
 };
 
- #endif /* MODEL_H */
+#endif /* MODEL_H */

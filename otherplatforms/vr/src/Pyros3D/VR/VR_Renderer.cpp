@@ -77,7 +77,7 @@ namespace p3d {
 
 		Controllers.clear();
 		TrackingDevices.clear();
-		
+
 		delete fwdRenderer;
 		delete cameraL;
 		delete cameraR;
@@ -186,13 +186,13 @@ namespace p3d {
 		projectionR.m = GetCurrentProjectionMatrix(vr::Eye_Right);
 		projectionL.Far = projectionR.Far = m_farClip;
 		projectionL.Near = projectionR.Near = m_nearClip;
-		m_projection.Perspective(70, m_screenWidth/ m_screenHeight, m_nearClip, m_farClip);
+		m_projection.Perspective(70, m_screenWidth / m_screenHeight, m_nearClip, m_farClip);
 
 		// Check for VR Devices
 		for (uint32_t unTrackedDevice = vr::k_unTrackedDeviceIndex_Hmd + 1; unTrackedDevice < vr::k_unMaxTrackedDeviceCount; unTrackedDevice++)
 		{
 			if (!m_pHMD->IsTrackedDeviceConnected(unTrackedDevice))
-					continue;
+				continue;
 
 			SetupDevice(unTrackedDevice);
 		}
@@ -202,7 +202,7 @@ namespace p3d {
 
 	int VR_Renderer::Alloc(std::vector<VR_GameObject*> array)
 	{
-		for (int i = 0; i<array.size(); ++i)
+		for (int i = 0; i < array.size(); ++i)
 			if (!array[i])
 				return i;
 		array.resize(array.size() + 1);
@@ -211,12 +211,12 @@ namespace p3d {
 
 	void VR_Renderer::Free(std::vector<VR_GameObject*> array, int index)
 	{
-		for (int i = index + 1; i<array.size(); ++i)
-		if (array[i])
-		{
-		array[index] = NULL;
-		return;
-		}
+		for (int i = index + 1; i < array.size(); ++i)
+			if (array[i])
+			{
+				array[index] = NULL;
+				return;
+			}
 		array.resize(index);
 	}
 
@@ -271,13 +271,13 @@ namespace p3d {
 	{
 		for (std::vector<VR_GameObject*>::iterator i = Controllers.begin(); i != Controllers.end(); i++)
 		{
-			if ((*i) !=NULL && modelIndex == (*i)->index)
-			{	
+			if ((*i) != NULL && modelIndex == (*i)->index)
+			{
 				if (scene && (*i)->isOnScene)
 					scene->Remove((*i));
 				delete (*i);
 				(*i) = NULL;
-				return ;
+				return;
 			}
 		}
 
@@ -292,7 +292,7 @@ namespace p3d {
 				return;
 			}
 		}
-			
+
 		echo("Device detached: " + modelIndex);
 	}
 
@@ -300,39 +300,39 @@ namespace p3d {
 	{
 		switch (event.eventType)
 		{
-			case vr::VREvent_TrackedDeviceActivated:
-			{
-				SetupDevice(event.trackedDeviceIndex);
-			}
-			break;
-			case vr::VREvent_TrackedDeviceDeactivated:
-			{
-				UnloadModel(event.trackedDeviceIndex);
-			}
-			break;
-			case vr::VREvent_TrackedDeviceUpdated:
-			{
-				echo("Device updated: " + event.trackedDeviceIndex);
-			}
-			break;
+		case vr::VREvent_TrackedDeviceActivated:
+		{
+			SetupDevice(event.trackedDeviceIndex);
+		}
+		break;
+		case vr::VREvent_TrackedDeviceDeactivated:
+		{
+			UnloadModel(event.trackedDeviceIndex);
+		}
+		break;
+		case vr::VREvent_TrackedDeviceUpdated:
+		{
+			echo("Device updated: " + event.trackedDeviceIndex);
+		}
+		break;
 		}
 	}
 
 	void VR_Renderer::HandleVRInputs() {
 		// Process SteamVR events
 		vr::VREvent_t event;
-		if (m_pHMD!=NULL)
-		while (m_pHMD->PollNextEvent(&event, sizeof(event)))
-		{
-			ProcessVREvent(event);
-		}
+		if (m_pHMD != NULL)
+			while (m_pHMD->PollNextEvent(&event, sizeof(event)))
+			{
+				ProcessVREvent(event);
+			}
 	}
 
 	vr::VRControllerState_t VR_Renderer::GetControllerEvents(uint32 modelIndex)
 	{
 		vr::VRControllerState_t state;
 		if (m_pHMD != NULL)
-		m_pHMD->GetControllerState(modelIndex, &state);
+			m_pHMD->GetControllerState(modelIndex, &state);
 		return state;
 	}
 
@@ -409,7 +409,7 @@ namespace p3d {
 			matEyeRight.m[0][1], matEyeRight.m[1][1], matEyeRight.m[2][1], 0.0,
 			matEyeRight.m[0][2], matEyeRight.m[1][2], matEyeRight.m[2][2], 0.0,
 			matEyeRight.m[0][3], matEyeRight.m[1][3], matEyeRight.m[2][3], 1.0f
-		);
+			);
 
 		return matrixObj.Inverse();
 	}
@@ -527,7 +527,7 @@ namespace p3d {
 			{
 				if (m_pHMD->IsInputFocusCapturedByAnotherProcess())
 					return;
-				
+
 				int m_uiControllerVertcount = 0;
 				int m_iTrackedControllerCount = 0;
 
@@ -559,7 +559,7 @@ namespace p3d {
 						}
 					}
 					// Update only once
-					else if(TrackingDevices[unTrackedDevice] != NULL && scene && !TrackingDevices[unTrackedDevice]->isOnScene)
+					else if (TrackingDevices[unTrackedDevice] != NULL && scene && !TrackingDevices[unTrackedDevice]->isOnScene)
 					{
 						TrackingDevices[unTrackedDevice]->SetTransformationMatrix(mat);
 						scene->Add(TrackingDevices[unTrackedDevice]);
@@ -576,12 +576,12 @@ namespace p3d {
 
 				// Left Eye
 				leftEyeFBO->Bind();
-				
+
 				Matrix viewL = GetCurrentViewMatrix(vr::Eye_Left).Inverse();
-				
+
 				cameraL->SetTransformationMatrix(viewL);
 				cameraL->Update();
-				
+
 				// Render Shadows once each frame
 				fwdRenderer->PreRender(cameraR, Scene);
 				fwdRenderer->RenderScene(projectionL, cameraL, Scene);
@@ -600,12 +600,12 @@ namespace p3d {
 
 				// Right Eye
 				rightEyeFBO->Bind();
-				
+
 				Matrix viewR = GetCurrentViewMatrix(vr::Eye_Right).Inverse();
-				
+
 				cameraR->SetTransformationMatrix(viewR);
 				cameraR->Update();
-				
+
 				fwdRenderer->RenderScene(projectionR, cameraR, Scene);
 
 				rightEyeFBO->UnBind();
@@ -618,14 +618,14 @@ namespace p3d {
 				rightEyeFBO->UnBind();
 				rightEyeFBOResolve->UnBind();
 			}
-			
+
 			// Render To Screen
 			if (renderToScreen)
 			{
 				fwdRenderer->SetViewPort(0, 0, m_screenWidth, m_screenHeight);
-				fwdRenderer->RenderScene((projection!=NULL?*projection:m_projection), (camera!=NULL?camera:cameraL), (SceneToScreen!=NULL?SceneToScreen:Scene));
+				fwdRenderer->RenderScene((projection != NULL ? *projection : m_projection), (camera != NULL ? camera : cameraL), (SceneToScreen != NULL ? SceneToScreen : Scene));
 			}
-			
+
 			vr::Texture_t leftEyeTexture = { (void*)leftEyeResolve->GetBindID(), vr::API_OpenGL, vr::ColorSpace_Gamma };
 			vr::VRCompositor()->Submit(vr::Eye_Left, &leftEyeTexture);
 			vr::Texture_t rightEyeTexture = { (void*)rightEyeResolve->GetBindID(), vr::API_OpenGL, vr::ColorSpace_Gamma };

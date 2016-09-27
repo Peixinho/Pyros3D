@@ -58,7 +58,7 @@ void LOD_example::Init()
 	for (int i = 0; i < 100; i++)
 	{
 		GameObject* Light = new GameObject();
-		PointLight* pLight = new PointLight(Vec4(1, 1, 1, 1), 100 );
+		PointLight* pLight = new PointLight(Vec4(1, 1, 1, 1), 100);
 		Light->Add(pLight);
 		Light->SetPosition(Vec3((f32)(rand() % 1000) - 500.f, (f32)(rand() % 1000) - 500.f, (f32)(rand() % 1000) - 500.f));
 		Light->Add(new RenderingComponent(sHandle));
@@ -93,7 +93,7 @@ void LOD_example::Init()
 	teapotLOD3Handle = new Model("../../../../examples/LOD_example/assets/teapots/teapotLOD3.p3dm", false, ShaderUsage::Diffuse);
 
 	// Create Teapots and Add LODS
-	for (int i = 0; i<TEAPOTS; i++)
+	for (int i = 0; i < TEAPOTS; i++)
 	{
 
 		GenericShaderMaterial* mTeapot = new GenericShaderMaterial(ShaderUsage::Diffuse | ShaderUsage::SpecularColor | ShaderUsage::Color);
@@ -120,13 +120,13 @@ void LOD_example::Init()
 	Scene->Add(Camera);
 
 	octree = new Octree();
-	octree->BuildOctree(Scene->GetMinBounds(), Scene->GetMaxBounds() ,Scene->GetAllGameObjectList(), 10);
+	octree->BuildOctree(Scene->GetMinBounds(), Scene->GetMaxBounds(), Scene->GetAllGameObjectList(), 10);
 }
 
 void LOD_example::Update()
 {
 	// Update - Game Loop
-	
+
 	// Update Scene
 	Scene->Update(GetTime());
 
@@ -165,7 +165,7 @@ void LOD_example::Shutdown()
 	// All your Shutdown Code Here
 
 	// Remove all Objects
-	for (size_t i = 0; i<rTeapots.size(); i++)
+	for (size_t i = 0; i < rTeapots.size(); i++)
 	{
 		// Remove From Scene
 		Scene->Remove(Teapots[i]);
@@ -236,7 +236,7 @@ void LOD_example::OnMouseRelease(Event::Input::Info e)
 
 	std::vector<GameObject*> members = octree->SearchObjects(Camera->GetWorldPosition(), 100);
 
-	for (size_t i = 0; i<rTeapots.size(); i++)
+	for (size_t i = 0; i < rTeapots.size(); i++)
 	{
 		bool found = false;
 		for (std::vector<GameObject*>::iterator k = members.begin(); k != members.end(); k++)
@@ -246,7 +246,7 @@ void LOD_example::OnMouseRelease(Event::Input::Info e)
 				break;
 			}
 		}
-		GenericShaderMaterial* mat = (GenericShaderMaterial*) mTeapots[i];
+		GenericShaderMaterial* mat = (GenericShaderMaterial*)mTeapots[i];
 		if (!found) mat->SetColor(Vec4(0, 0, 1, 1));
 		else mat->SetColor(Vec4(1, 1, 1, 1));
 	}
@@ -292,8 +292,8 @@ void LOD_example::LookTo(Event::Input::Info e)
 		{
 			counterX -= mouseDelta.x / 10.f;
 			counterY -= mouseDelta.y / 10.f;
-			if (counterY<-90.f) counterY = -90.f;
-			if (counterY>90.f) counterY = 90.f;
+			if (counterY < -90.f) counterY = -90.f;
+			if (counterY > 90.f) counterY = 90.f;
 			Quaternion qX, qY;
 			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), (f32)DEGTORAD(counterY));
 			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), (f32)DEGTORAD(counterX));

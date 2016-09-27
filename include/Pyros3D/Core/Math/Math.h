@@ -14,18 +14,18 @@
 
 namespace p3d {
 
-    // Type Definition
-    typedef uint8_t uint8;
-    typedef int8_t int8;
-    typedef uint16_t uint16;
-    typedef int16_t int16;
-    typedef int32_t int32;
-    typedef uint32_t uint32;
-    typedef int64_t int64;
-    typedef uint64_t uint64;
-    typedef float f32;
-    typedef unsigned char uchar;
-    typedef double f64;    
+	// Type Definition
+	typedef uint8_t uint8;
+	typedef int8_t int8;
+	typedef uint16_t uint16;
+	typedef int16_t int16;
+	typedef int32_t int32;
+	typedef uint32_t uint32;
+	typedef int64_t int64;
+	typedef uint64_t uint64;
+	typedef float f32;
+	typedef unsigned char uchar;
+	typedef double f64;
 };
 
 #include <Pyros3D/Core/Math/Vec2.h>
@@ -41,7 +41,7 @@ namespace p3d {
 
 // Constants
 #ifndef NULL
-	#define NULL 0
+#define NULL 0
 #endif
 #define EPSILON 1e-8 
 #define PI 3.14159265358979323846
@@ -53,10 +53,10 @@ namespace p3d {
 #define LIMIT_RANGE(low, value, high) { if (value < low)	value = low; else if(value > high) value = high; }
 
 #ifndef INT_MIN
-	#define INT_MIN -2147483647
+#define INT_MIN -2147483647
 #endif
 #ifndef INT_MAX
-	#define INT_MAX 2147483647
+#define INT_MAX 2147483647
 #endif
 
 #define Min(a,b) ((a)<(b)?(a):(b))
@@ -66,8 +66,8 @@ namespace p3d {
 using namespace p3d::Math;
 
 namespace p3d {
-    
-    namespace Math {
+
+	namespace Math {
 
 		namespace RotationOrder {
 			enum {
@@ -79,14 +79,14 @@ namespace p3d {
 				XZY
 			};
 		};
-        template <typename T>
-        std::string NumberToString ( T Number )
-        {
-           std::ostringstream ss;
-           ss << Number;
-           return ss.str();
-        }
-    };
+		template <typename T>
+		std::string NumberToString(T Number)
+		{
+			std::ostringstream ss;
+			ss << Number;
+			return ss.str();
+		}
+	};
 };
 
 #endif	/* MATH_H */

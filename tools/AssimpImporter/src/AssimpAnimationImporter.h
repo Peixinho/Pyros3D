@@ -26,24 +26,24 @@
 
 namespace p3d {
 
-    class AssimpAnimationImporter : public AnimationLoader {
+	class AssimpAnimationImporter : public AnimationLoader {
 
-        public:
+	public:
 
-            AssimpAnimationImporter();
+		AssimpAnimationImporter();
 
-            virtual ~AssimpAnimationImporter();
+		virtual ~AssimpAnimationImporter();
 
-            virtual bool Load(const std::string &Filename);
-            bool Load(const std::string &Filename, const int32 init, const int32 end, const std::string &AnimationName = "");
-            
-            bool ConvertToPyrosFormat(const std::string &Filename);
-            
-        private:
-            
-            // assimp model
-            const aiScene* assimp_model;
-    };
+		virtual bool Load(const std::string &Filename);
+		bool Load(const std::string &Filename, const int32 init, const int32 end, const std::string &AnimationName = "");
+
+		bool ConvertToPyrosFormat(const std::string &Filename);
+
+	private:
+
+		// assimp model
+		const aiScene* assimp_model;
+	};
 }
 
 #endif  /* ASSIMPANIMATIONIMPORTER_H */

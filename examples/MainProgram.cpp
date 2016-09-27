@@ -8,7 +8,7 @@
 
 #include "includes.h"
 #if defined(EMSCRIPTEN)
-	#include <emscripten.h>
+#include <emscripten.h>
 #endif
 using namespace std;
 using namespace p3d;
@@ -36,47 +36,47 @@ void mainloop()
 		initialized = true;
 	}
 
-    // Get Events
-    window->GetEvents();
+	// Get Events
+	window->GetEvents();
 
-    // Update
-    window->Update();
+	// Update
+	window->Update();
 
-    // Draw in Screen
-    window->Draw();
+	// Draw in Screen
+	window->Draw();
 }
 
 int main(int argc, char** argv) {
 
 	initialized = false;
 
-	#ifdef EMSCRIPTEN
-		emscripten_set_main_loop(mainloop, 0, 0);
-	#else
-		// Create Context Window
-		window = new DEMO_NAME();
+#ifdef EMSCRIPTEN
+	emscripten_set_main_loop(mainloop, 0, 0);
+#else
+	// Create Context Window
+	window = new DEMO_NAME();
 
-		// Initialize
-		window->Init();
+	// Initialize
+	window->Init();
 
-		// Set Initialized Flag
-		initialized = true;
-		
-		// Game Loop
-	    while(window->IsRunning())
-	    {
-			mainloop();
-	    }
-	#endif   
+	// Set Initialized Flag
+	initialized = true;
 
-    #if !defined(EMSCRIPTEN)
-	    // Shutdown Window
-	    window->Shutdown();
-	    
-	    // Delete Context
-	    delete window;
+	// Game Loop
+	while (window->IsRunning())
+	{
+		mainloop();
+	}
+#endif   
 
-	    // end
-	    return 0;
-    #endif
+#if !defined(EMSCRIPTEN)
+	// Shutdown Window
+	window->Shutdown();
+
+	// Delete Context
+	delete window;
+
+	// end
+	return 0;
+#endif
 }

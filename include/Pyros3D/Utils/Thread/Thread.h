@@ -16,43 +16,43 @@
 #include <vector>
 
 namespace p3d {
-    
-    class PYROS3D_API Thread {
 
-        public:
+	class PYROS3D_API Thread {
 
-            Thread(void* (*ThreadFunction)(void*));
-            Thread(void* (*ThreadFunction)(void*), void* arg);
-            virtual ~Thread();
-            void Launch();
-            void Terminate();
-            void CreateMutex();
-            void LockMutex();
-            void UnlockMutex();
-            void TerminateMutex();
-            bool IsFinished() { return finished; }
-            bool IsLocked() { return locked; }
+	public:
 
-            // Remove Thread
-            static void CheckThreads();
-            
-            static uint32 GetActiveThreads() { return ThreadsCounter; }
+		Thread(void* (*ThreadFunction)(void*));
+		Thread(void* (*ThreadFunction)(void*), void* arg);
+		virtual ~Thread();
+		void Launch();
+		void Terminate();
+		void CreateMutex();
+		void LockMutex();
+		void UnlockMutex();
+		void TerminateMutex();
+		bool IsFinished() { return finished; }
+		bool IsLocked() { return locked; }
 
-        protected:
+		// Remove Thread
+		static void CheckThreads();
 
-            pthread_t thread;
-            pthread_mutex_t mutex;
-            bool finished;
-            bool locked;
+		static uint32 GetActiveThreads() { return ThreadsCounter; }
 
-            void* (*__method)(void*);
-            void* __arg;
+	protected:
 
-            // Threads List
-            static uint32 ThreadsCounter;
-            static std::vector<Thread*> threads;
-    };
-    
+		pthread_t thread;
+		pthread_mutex_t mutex;
+		bool finished;
+		bool locked;
+
+		void* (*__method)(void*);
+		void* __arg;
+
+		// Threads List
+		static uint32 ThreadsCounter;
+		static std::vector<Thread*> threads;
+	};
+
 };
 
 #endif  /* THREAD_H */

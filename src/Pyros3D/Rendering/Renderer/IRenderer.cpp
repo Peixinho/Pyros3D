@@ -330,7 +330,7 @@ namespace p3d {
 			}
 		}
 		else if (blending && (!Material->IsTransparent() || !Material->blending)) DisableBlending();
-		
+
 		// Draw
 		if (rmesh->Geometry->GetGeometryType() == GeometryType::BUFFER)
 		{
@@ -418,7 +418,7 @@ namespace p3d {
 			GLCHECKER(glDisable(GL_DEPTH_TEST));
 		}
 	}
-	
+
 	void IRenderer::DepthWrite()
 	{
 		if (depthWritting)
@@ -832,23 +832,23 @@ namespace p3d {
 	}
 	void IRenderer::StartClippingPlanes()
 	{
-		#if !defined(GLES2)
+#if !defined(GLES2)
 		if (ClipPlane)
 		{
 			for (uint32 k = 0; k < ClipPlaneNumber; k++)
 				GLCHECKER(glEnable(GL_CLIP_DISTANCE0 + k));
 		}
-		#endif
+#endif
 	}
 	void IRenderer::EndClippingPlanes()
 	{
-		#if !defined(GLES2)
+#if !defined(GLES2)
 		if (ClipPlane)
 		{
 			for (uint32 k = 0; k < ClipPlaneNumber; k++)
 				GLCHECKER(glDisable(GL_CLIP_DISTANCE0 + k));
 		}
-		#endif
+#endif
 	}
 	void IRenderer::StartScissorTest()
 	{
@@ -996,7 +996,7 @@ namespace p3d {
 					Shader::SendUniform((*k), &GlobalLight, rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
 					break;
 				case DataUsage::Lights:
-					if (Lights.size()>0)
+					if (Lights.size() > 0)
 						Shader::SendUniform((*k), &Lights[0], rmesh->ShadersGlobalCache[Material->GetShader()][counter], NumberOfLights);
 					break;
 				case DataUsage::NumberOfLights:
@@ -1012,11 +1012,11 @@ namespace p3d {
 				}
 				break;
 				case DataUsage::DirectionalShadowMap:
-					if (DirectionalShadowMapsUnits.size()>0)
+					if (DirectionalShadowMapsUnits.size() > 0)
 						Shader::SendUniform((*k), &DirectionalShadowMapsUnits[0], rmesh->ShadersGlobalCache[Material->GetShader()][counter], DirectionalShadowMapsUnits.size());
 					break;
 				case DataUsage::DirectionalShadowMatrix:
-					if (DirectionalShadowMatrix.size()>0)
+					if (DirectionalShadowMatrix.size() > 0)
 						Shader::SendUniform((*k), &DirectionalShadowMatrix[0], rmesh->ShadersGlobalCache[Material->GetShader()][counter], DirectionalShadowMatrix.size());
 					break;
 				case DataUsage::DirectionalShadowFar:
@@ -1026,7 +1026,7 @@ namespace p3d {
 					Shader::SendUniform((*k), &NumberOfDirectionalShadows, rmesh->ShadersGlobalCache[Material->GetShader()][counter]);
 					break;
 				case DataUsage::PointShadowMap:
-					if (PointShadowMapsUnits.size()>0)
+					if (PointShadowMapsUnits.size() > 0)
 						Shader::SendUniform((*k), &PointShadowMapsUnits[0], rmesh->ShadersGlobalCache[Material->GetShader()][counter], PointShadowMapsUnits.size());
 					break;
 				case DataUsage::PointShadowMatrix:
@@ -1079,7 +1079,7 @@ namespace p3d {
 		{
 			if (rmesh->ShadersModelCache[Material->GetShader()][counter] == -2)
 				rmesh->ShadersModelCache[Material->GetShader()][counter] = Shader::GetUniformLocation(Material->GetShader(), (*k).Name);
-				
+
 
 			if (rmesh->ShadersModelCache[Material->GetShader()][counter] >= 0)
 			{
@@ -1178,7 +1178,7 @@ namespace p3d {
 	void IRenderer::UnbindMesh(RenderingMesh* rmesh, IMaterial* material)
 	{
 		// Disable Attributes
-		if (rmesh->Geometry->Attributes.size()>0)
+		if (rmesh->Geometry->Attributes.size() > 0)
 		{
 			uint32 counterBuffers = 0;
 			for (std::vector<AttributeArray*>::iterator k = rmesh->Geometry->Attributes.begin(); k != rmesh->Geometry->Attributes.end(); k++)
@@ -1254,7 +1254,7 @@ namespace p3d {
 	void IRenderer::SendAttributes(RenderingMesh* rmesh, IMaterial* material)
 	{
 		// Check if custom Attributes exists
-		if (rmesh->Geometry->Attributes.size()>0)
+		if (rmesh->Geometry->Attributes.size() > 0)
 		{
 			if (rmesh->Geometry->GetGeometryType() == GeometryType::BUFFER)
 			{

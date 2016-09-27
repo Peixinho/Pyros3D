@@ -10,237 +10,237 @@
 
 using namespace p3d;
 
-RacingGame::RacingGame() : ClassName(1024,768,"CODENAME: Pyros3D - FIRST WINDOW",WindowType::Close | WindowType::Resize)
+RacingGame::RacingGame() : ClassName(1024, 768, "CODENAME: Pyros3D - FIRST WINDOW", WindowType::Close | WindowType::Resize)
 {
-    
+
 }
 
 void RacingGame::OnResize(const uint32 width, const uint32 height)
 {
-    // Execute Parent Resize Function
-    ClassName::OnResize(width, height);
-    
-    // Resize
-    Renderer->Resize(width, height);
-    projection.Perspective(70.f,(f32)width/(f32)height,1.f,2100.f);
-    projection2.Ortho(0.f,(f32)Width,0.f, (f32)Height,-1.f,100.f);
-    
-    SetMousePosition((int)Width/2,(int)Height/2);
-    mouseCenter = GetMousePosition();
-    mouseLastPosition = mouseCenter;
+	// Execute Parent Resize Function
+	ClassName::OnResize(width, height);
+
+	// Resize
+	Renderer->Resize(width, height);
+	projection.Perspective(70.f, (f32)width / (f32)height, 1.f, 2100.f);
+	projection2.Ortho(0.f, (f32)Width, 0.f, (f32)Height, -1.f, 100.f);
+
+	SetMousePosition((int)Width / 2, (int)Height / 2);
+	mouseCenter = GetMousePosition();
+	mouseLastPosition = mouseCenter;
 }
 
 void RacingGame::Init()
 {
-    // Initialization
-		_moveBack = _moveFront = _strafeLeft = _strafeRight = false;
-		_leftPressed = _rightPressed = _upPressed = _downPressed = false;
-		gVehicleSteering = 0.f;
+	// Initialization
+	_moveBack = _moveFront = _strafeLeft = _strafeRight = false;
+	_leftPressed = _rightPressed = _upPressed = _downPressed = false;
+	gVehicleSteering = 0.f;
 	// Initialize Scene
-        Scene = new SceneGraph();
-        Scene2 = new SceneGraph();
-        
-        // Initialize Renderer
-        Renderer = new ForwardRenderer(1024,768);
-		Renderer->SetGlobalLight(Vec4(0.5, 0.5, 0.5, 0.5));
+	Scene = new SceneGraph();
+	Scene2 = new SceneGraph();
 
-		Renderer2 = new ForwardRenderer(1024, 768);
+	// Initialize Renderer
+	Renderer = new ForwardRenderer(1024, 768);
+	Renderer->SetGlobalLight(Vec4(0.5, 0.5, 0.5, 0.5));
 
-        // Projection
-        projection.Perspective(70.f,(f32)Width/(f32)Height,1.f,2100.f);
-        projection2.Ortho(0.f, (f32)Width,0.f, (f32)Height,-1.f,100.f);
-        
-        // Physics
-        physics = new Physics();
-        physics->InitPhysics();
-        physics->EnableDebugDraw();
-        
-        // Create Camera
-        Camera = new GameObject();
-        Camera->SetPosition(Vec3(0,30.f,100.f));
-        
-        Camera2 = new GameObject();
-        
-        Scene2->Add(Camera2);
-        
-        // Add Camera to Scene
-        
-        
-        // Create Track GameObject
-        Track = new GameObject();
+	Renderer2 = new ForwardRenderer(1024, 768);
 
-        // Create Track Model
-        trackHandle = new Model("../../../../examples/RacingGame/assets/track.p3dm",false,ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
-        rTrack = new RenderingComponent(trackHandle);
-        Track->Add(rTrack);
-        
-        Track->Add(new PhysicsTriangleMesh(physics,rTrack,0));
-        
-        Scene->Add(Track);
+	// Projection
+	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 2100.f);
+	projection2.Ortho(0.f, (f32)Width, 0.f, (f32)Height, -1.f, 100.f);
 
-        // Light
-        Light = new GameObject();
-        // Light Component
-        dLight = new DirectionalLight(Vec4(1,1,1,1),Vec3(-1,-1,-1));
-        dLight->EnableCastShadows(1024,1024,projection,0.1f,200.f,2);
-		dLight->SetShadowBias(3.1f,9.0f);
-        Light->Add(dLight);
-        Scene->Add(Light);
+	// Physics
+	physics = new Physics();
+	physics->InitPhysics();
+	physics->EnableDebugDraw();
 
-        SetMousePosition((uint32)(Width*.5f),(uint32)(Height*.5f));
-        mouseCenter = Vec2((f32)Width*.5f,(f32)Height*.5f);
-        mouseLastPosition = mouseCenter;
-        
-        // Input
-        InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &RacingGame::MoveFrontPress);
-        InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::S, this, &RacingGame::MoveBackPress);
-        InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::A, this, &RacingGame::StrafeLeftPress);
-        InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::D, this, &RacingGame::StrafeRightPress);
-        InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::W, this, &RacingGame::MoveFrontRelease);
-        InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::S, this, &RacingGame::MoveBackRelease);
-        InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &RacingGame::StrafeLeftRelease);
-        InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &RacingGame::StrafeRightRelease);
-        InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &RacingGame::LookTo);
+	// Create Camera
+	Camera = new GameObject();
+	Camera->SetPosition(Vec3(0, 30.f, 100.f));
 
-		InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Up, this, &RacingGame::UpDown);
-		InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Up, this, &RacingGame::UpUp);
-		InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Down, this, &RacingGame::DownDown);
-		InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Down, this, &RacingGame::DownUp);
-		InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Left, this, &RacingGame::LeftDown);
-		InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Left, this, &RacingGame::LeftUp);
-		InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Right, this, &RacingGame::RightDown);
-		InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Right, this, &RacingGame::RightUp);
-		InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Space, this, &RacingGame::SpaceDown);
-		InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Space, this, &RacingGame::SpaceUp);
+	Camera2 = new GameObject();
 
-		InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button0, this, &RacingGame::UpDown);
-		InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button0, this, &RacingGame::UpUp);
-		InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button1, this, &RacingGame::DownDown);
-		InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button1, this, &RacingGame::DownUp);
-		InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button2, this, &RacingGame::SpaceDown);
-		InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button2, this, &RacingGame::SpaceUp);
-		InputManager::AddJoypadEvent(Event::Type::OnMove, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Axis::X, this, &RacingGame::AnalogicMove);
+	Scene2->Add(Camera2);
 
-        _strafeLeft = _strafeRight = _moveBack = _moveFront = 0;
-        HideMouse();
-        
-        // Create Font
-        Font* font = new Font("../../../../examples/RacingGame/assets/verdana.ttf",32);
-        font->CreateText("aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ,.0123456789[]()!?+-_\\|/ºª");
-    
-        // Create Text Material
-        textMaterial = new GenericShaderMaterial(ShaderUsage::TextRendering);
-        // Set Material Font to use Font Map
-        textMaterial->SetTextFont(font);
-        textMaterial->SetTransparencyFlag(true);
-		textMaterial->DisableDepthWrite();
-        
-        // Create RacingGame Object
-        TextRendering = new GameObject();
-        textID = new Text(font,"Hello World",12,12,Vec4(1,1,1,1),true);
-        rText = new RenderingComponent(textID,textMaterial);
-        TextRendering->Add(rText);
-        
-        // Add GameObject to Scene
-        Scene2->Add(TextRendering);
+	// Add Camera to Scene
 
-        dRenderer = new CubemapRenderer(256,256);
-        
-        Texture* skyboxTexture = new Texture();
-        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negx.png",TextureType::CubemapNegative_X);
-        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negy.png",TextureType::CubemapNegative_Y);
-        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negz.png",TextureType::CubemapNegative_Z);
-        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posx.png",TextureType::CubemapPositive_X);
-        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posy.png",TextureType::CubemapPositive_Y);
-        skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posz.png",TextureType::CubemapPositive_Z);
-        skyboxTexture->SetRepeat(TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge,TextureRepeat::ClampToEdge);
 
-        SkyboxMaterial = new GenericShaderMaterial(ShaderUsage::Skybox);
-        SkyboxMaterial->SetSkyboxMap(skyboxTexture);
-        SkyboxMaterial->SetCullFace(CullFace::FrontFace);
-        Skybox = new GameObject();
-        skyboxHandle = new Cube(1000,1000,1000);
-        rSkybox = new RenderingComponent(skyboxHandle,SkyboxMaterial);
-        rSkybox->DisableCastShadows();
-        Skybox->Add(rSkybox);
-        Scene->Add(Skybox);
+	// Create Track GameObject
+	Track = new GameObject();
 
-        carHandle2 = new Model("../../../../examples/RacingGame/assets/lambo.p3dm",true, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
-        for (uint32 i=0;i<1;i++)
-        {
-            Car2 = new GameObject();
-            Car2->Add(new RenderingComponent(carHandle2));
-            Scene->Add(Car2);
-    //        Car2->SetPosition(Vec3((rand() % 1000) -500,(rand() % 100),(rand() % 1000) -500));
-            Car2->SetScale(Vec3(0.5,0.5,0.5));
-            Car2->SetPosition(Vec3(-13,1,0));
-        }
-        
-        for (uint32 i=0;i<1;i++)
-        {
-            Car = new GameObject();
-            carHandle = new Model("../../../../examples/RacingGame/assets/del.p3dm",true, ShaderUsage::EnvMap | ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
-            rCar = new RenderingComponent(carHandle);
-            Car->Add(rCar);
-            Scene->Add(Car);
-            Car->SetPosition(Vec3((f32)(rand() % 1000) -500.f, (f32)(rand() % 100), (f32)(rand() % 1000) -500.f));
-        }
-        Car->SetPosition(Vec3(-23.f,1.f,0.f));
-		//Car->SetRotation(Vec3(-23, 100, 0));
-		IPhysicsComponent* body = (IPhysicsComponent*) physics->CreateBox(1.f, 0.5f, 2.3f, 800.f);
-		carPhysics = (PhysicsVehicle*) physics->CreateVehicle(body);
-		carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.3f, 0.1f, 1000.f, 1.f, Vec3(-0.78f, 1.15f, 1.35f), true);
-		carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.3f, 0.1f, 1000.f, 1.f, Vec3(0.75f, 1.15f, 1.35f), true);
-		carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.32f, 0.1f, 1000.f, 1.f, Vec3(-0.78f, 1.15f, -1.3f), false);
-		carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.32f, 0.1f, 1000.f, 1.f, Vec3(0.75f, 1.15f, -1.3f), false);
-		Car->Add(carPhysics);
-		Car->Add(Camera);
-		Camera->LookAt(Car);
-        for (std::vector<RenderingMesh*>::iterator i=rCar->GetMeshes().begin();i!=rCar->GetMeshes().end();i++)
-        {
-            GenericShaderMaterial* m = static_cast<GenericShaderMaterial*> ((*i)->Material);
-            m->SetEnvMap(dRenderer->GetTexture());
-            m->SetReflectivity(0.3f);
-        }
-		Scene->Add(Camera);
+	// Create Track Model
+	trackHandle = new Model("../../../../examples/RacingGame/assets/track.p3dm", false, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
+	rTrack = new RenderingComponent(trackHandle);
+	Track->Add(rTrack);
+
+	Track->Add(new PhysicsTriangleMesh(physics, rTrack, 0));
+
+	Scene->Add(Track);
+
+	// Light
+	Light = new GameObject();
+	// Light Component
+	dLight = new DirectionalLight(Vec4(1, 1, 1, 1), Vec3(-1, -1, -1));
+	dLight->EnableCastShadows(1024, 1024, projection, 0.1f, 200.f, 2);
+	dLight->SetShadowBias(3.1f, 9.0f);
+	Light->Add(dLight);
+	Scene->Add(Light);
+
+	SetMousePosition((uint32)(Width*.5f), (uint32)(Height*.5f));
+	mouseCenter = Vec2((f32)Width*.5f, (f32)Height*.5f);
+	mouseLastPosition = mouseCenter;
+
+	// Input
+	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &RacingGame::MoveFrontPress);
+	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::S, this, &RacingGame::MoveBackPress);
+	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::A, this, &RacingGame::StrafeLeftPress);
+	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::D, this, &RacingGame::StrafeRightPress);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::W, this, &RacingGame::MoveFrontRelease);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::S, this, &RacingGame::MoveBackRelease);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &RacingGame::StrafeLeftRelease);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &RacingGame::StrafeRightRelease);
+	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &RacingGame::LookTo);
+
+	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Up, this, &RacingGame::UpDown);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Up, this, &RacingGame::UpUp);
+	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Down, this, &RacingGame::DownDown);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Down, this, &RacingGame::DownUp);
+	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Left, this, &RacingGame::LeftDown);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Left, this, &RacingGame::LeftUp);
+	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Right, this, &RacingGame::RightDown);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Right, this, &RacingGame::RightUp);
+	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Space, this, &RacingGame::SpaceDown);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Space, this, &RacingGame::SpaceUp);
+
+	InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button0, this, &RacingGame::UpDown);
+	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button0, this, &RacingGame::UpUp);
+	InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button1, this, &RacingGame::DownDown);
+	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button1, this, &RacingGame::DownUp);
+	InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button2, this, &RacingGame::SpaceDown);
+	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button2, this, &RacingGame::SpaceUp);
+	InputManager::AddJoypadEvent(Event::Type::OnMove, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Axis::X, this, &RacingGame::AnalogicMove);
+
+	_strafeLeft = _strafeRight = _moveBack = _moveFront = 0;
+	HideMouse();
+
+	// Create Font
+	Font* font = new Font("../../../../examples/RacingGame/assets/verdana.ttf", 32);
+	font->CreateText("aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ,.0123456789[]()!?+-_\\|/ºª");
+
+	// Create Text Material
+	textMaterial = new GenericShaderMaterial(ShaderUsage::TextRendering);
+	// Set Material Font to use Font Map
+	textMaterial->SetTextFont(font);
+	textMaterial->SetTransparencyFlag(true);
+	textMaterial->DisableDepthWrite();
+
+	// Create RacingGame Object
+	TextRendering = new GameObject();
+	textID = new Text(font, "Hello World", 12, 12, Vec4(1, 1, 1, 1), true);
+	rText = new RenderingComponent(textID, textMaterial);
+	TextRendering->Add(rText);
+
+	// Add GameObject to Scene
+	Scene2->Add(TextRendering);
+
+	dRenderer = new CubemapRenderer(256, 256);
+
+	Texture* skyboxTexture = new Texture();
+	skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negx.png", TextureType::CubemapNegative_X);
+	skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negy.png", TextureType::CubemapNegative_Y);
+	skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negz.png", TextureType::CubemapNegative_Z);
+	skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posx.png", TextureType::CubemapPositive_X);
+	skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posy.png", TextureType::CubemapPositive_Y);
+	skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posz.png", TextureType::CubemapPositive_Z);
+	skyboxTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+	SkyboxMaterial = new GenericShaderMaterial(ShaderUsage::Skybox);
+	SkyboxMaterial->SetSkyboxMap(skyboxTexture);
+	SkyboxMaterial->SetCullFace(CullFace::FrontFace);
+	Skybox = new GameObject();
+	skyboxHandle = new Cube(1000, 1000, 1000);
+	rSkybox = new RenderingComponent(skyboxHandle, SkyboxMaterial);
+	rSkybox->DisableCastShadows();
+	Skybox->Add(rSkybox);
+	Scene->Add(Skybox);
+
+	carHandle2 = new Model("../../../../examples/RacingGame/assets/lambo.p3dm", true, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
+	for (uint32 i = 0; i < 1; i++)
+	{
+		Car2 = new GameObject();
+		Car2->Add(new RenderingComponent(carHandle2));
+		Scene->Add(Car2);
+		//        Car2->SetPosition(Vec3((rand() % 1000) -500,(rand() % 100),(rand() % 1000) -500));
+		Car2->SetScale(Vec3(0.5, 0.5, 0.5));
+		Car2->SetPosition(Vec3(-13, 1, 0));
+	}
+
+	for (uint32 i = 0; i < 1; i++)
+	{
+		Car = new GameObject();
+		carHandle = new Model("../../../../examples/RacingGame/assets/del.p3dm", true, ShaderUsage::EnvMap | ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
+		rCar = new RenderingComponent(carHandle);
+		Car->Add(rCar);
+		Scene->Add(Car);
+		Car->SetPosition(Vec3((f32)(rand() % 1000) - 500.f, (f32)(rand() % 100), (f32)(rand() % 1000) - 500.f));
+	}
+	Car->SetPosition(Vec3(-23.f, 1.f, 0.f));
+	//Car->SetRotation(Vec3(-23, 100, 0));
+	IPhysicsComponent* body = (IPhysicsComponent*)physics->CreateBox(1.f, 0.5f, 2.3f, 800.f);
+	carPhysics = (PhysicsVehicle*)physics->CreateVehicle(body);
+	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.3f, 0.1f, 1000.f, 1.f, Vec3(-0.78f, 1.15f, 1.35f), true);
+	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.3f, 0.1f, 1000.f, 1.f, Vec3(0.75f, 1.15f, 1.35f), true);
+	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.32f, 0.1f, 1000.f, 1.f, Vec3(-0.78f, 1.15f, -1.3f), false);
+	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.32f, 0.1f, 1000.f, 1.f, Vec3(0.75f, 1.15f, -1.3f), false);
+	Car->Add(carPhysics);
+	Car->Add(Camera);
+	Camera->LookAt(Car);
+	for (std::vector<RenderingMesh*>::iterator i = rCar->GetMeshes().begin(); i != rCar->GetMeshes().end(); i++)
+	{
+		GenericShaderMaterial* m = static_cast<GenericShaderMaterial*> ((*i)->Material);
+		m->SetEnvMap(dRenderer->GetTexture());
+		m->SetReflectivity(0.3f);
+	}
+	Scene->Add(Camera);
 }
 
 void RacingGame::Update()
 {
-    // Update - RacingGame Loop
-    
-    Vec3 finalPosition;
-    Vec3 direction = Camera->GetDirection();
-    float dt = (float)GetTimeInterval();
-    float speed = dt * 20.f;
-    /*if (_moveFront)
-    {
-        finalPosition -= direction*speed;
-    }
-    if (_moveBack)
-    {
-        finalPosition += direction*speed;
-    }
-    if (_strafeLeft)
-    {
-        finalPosition += direction.cross(Vec3(0,1,0))*speed;
-    }
-    if (_strafeRight)
-    {
-        finalPosition -= direction.cross(Vec3(0,1,0))*speed;
-    }
-    Camera->SetPosition(Camera->GetPosition()+finalPosition);*/
+	// Update - RacingGame Loop
+
+	Vec3 finalPosition;
+	Vec3 direction = Camera->GetDirection();
+	float dt = (float)GetTimeInterval();
+	float speed = dt * 20.f;
+	/*if (_moveFront)
+	{
+		finalPosition -= direction*speed;
+	}
+	if (_moveBack)
+	{
+		finalPosition += direction*speed;
+	}
+	if (_strafeLeft)
+	{
+		finalPosition += direction.cross(Vec3(0,1,0))*speed;
+	}
+	if (_strafeRight)
+	{
+		finalPosition -= direction.cross(Vec3(0,1,0))*speed;
+	}
+	Camera->SetPosition(Camera->GetPosition()+finalPosition);*/
 	Camera->SetPosition(Car->GetWorldPosition());
 	Camera->SetPosition(Vec3(0.f, 3.f, -10.f));
-	
-	Camera->LookAt(Vec3(0.f,0.f, -1.f));
-    
-	TextRendering->SetPosition(Vec3(5.f,Height-15.f,0.f));
-    std::ostringstream x; x << fps.getFPS();
-    
-    textID->UpdateText("Pyros3D - Racing RacingGame - FPS: " + x.str());
-//    Car->SetPosition(Vec3(20,10,0));
-    Car2->SetRotation(Vec3(0,(f32)GetTime(),0));
+
+	Camera->LookAt(Vec3(0.f, 0.f, -1.f));
+
+	TextRendering->SetPosition(Vec3(5.f, Height - 15.f, 0.f));
+	std::ostringstream x; x << fps.getFPS();
+
+	textID->UpdateText("Pyros3D - Racing RacingGame - FPS: " + x.str());
+	//    Car->SetPosition(Vec3(20,10,0));
+	Car2->SetRotation(Vec3(0, (f32)GetTime(), 0));
 
 	if (_upPressed == true)
 	{
@@ -265,14 +265,14 @@ void RacingGame::Update()
 	}
 	if (_leftPressed == true)
 	{
-		if (gVehicleSteering<carPhysics->GetSteeringClamp())
+		if (gVehicleSteering < carPhysics->GetSteeringClamp())
 		{
 			gVehicleSteering += steeringIncrement*dt * 100;
-			if (gVehicleSteering>carPhysics->GetSteeringClamp()) gVehicleSteering = carPhysics->GetSteeringClamp();
+			if (gVehicleSteering > carPhysics->GetSteeringClamp()) gVehicleSteering = carPhysics->GetSteeringClamp();
 		}
 	}
 	else {
-		if (gVehicleSteering>0.0f)
+		if (gVehicleSteering > 0.0f)
 		{
 			gVehicleSteering -= steeringIncrement*dt * 100;
 			if (_rightPressed == false && gVehicleSteering < 0.0f)
@@ -281,10 +281,10 @@ void RacingGame::Update()
 	}
 	if (_rightPressed == true)
 	{
-		if (gVehicleSteering>-carPhysics->GetSteeringClamp())
+		if (gVehicleSteering > -carPhysics->GetSteeringClamp())
 		{
 			gVehicleSteering -= steeringIncrement*dt * 100;
-			if (gVehicleSteering<-carPhysics->GetSteeringClamp()) gVehicleSteering = -carPhysics->GetSteeringClamp();
+			if (gVehicleSteering < -carPhysics->GetSteeringClamp()) gVehicleSteering = -carPhysics->GetSteeringClamp();
 		}
 	}
 	else {
@@ -325,7 +325,7 @@ void RacingGame::Update()
 	rCar->Enable();
 
 	Renderer->ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
-	Renderer->EnableClearDepthBuffer();	
+	Renderer->EnableClearDepthBuffer();
 	Renderer->PreRender(Camera, Scene);
 	Renderer->RenderScene(projection, Camera, Scene);
 	Renderer2->ClearBufferBit(Buffer_Bit::None);
@@ -336,9 +336,9 @@ void RacingGame::Update()
 
 void RacingGame::Shutdown()
 {
-    // All your Shutdown Code Here
-    
-        // Remove GameObjects From Scene
+	// All your Shutdown Code Here
+
+		// Remove GameObjects From Scene
 //        Scene->Remove(Cube);
 //        Scene->Remove(Camera);
 //        
@@ -347,25 +347,25 @@ void RacingGame::Shutdown()
 //        // Delete
 //        delete rCube;
 //        delete Cube;
-    Scene->Remove(Track);
-    Scene->Remove(Car);
-    Track->Remove(rTrack);
-    Car->Remove(rCar);
-    delete rCar;
-    delete Car;
-    Scene2->Remove(TextRendering);
-    TextRendering->Remove(rText);
-    delete rText;
-    delete TextRendering;
-    delete rTrack;
-    delete Track;
-    delete Camera;
-    delete Renderer;
-    delete Scene;
-    delete carHandle;
-    delete carHandle2;
-    delete trackHandle;
-    delete textID;
+	Scene->Remove(Track);
+	Scene->Remove(Car);
+	Track->Remove(rTrack);
+	Car->Remove(rCar);
+	delete rCar;
+	delete Car;
+	Scene2->Remove(TextRendering);
+	TextRendering->Remove(rText);
+	delete rText;
+	delete TextRendering;
+	delete rTrack;
+	delete Track;
+	delete Camera;
+	delete Renderer;
+	delete Scene;
+	delete carHandle;
+	delete carHandle2;
+	delete trackHandle;
+	delete textID;
 }
 
 RacingGame::~RacingGame() {}
@@ -373,59 +373,59 @@ RacingGame::~RacingGame() {}
 
 void RacingGame::MoveFrontPress(Event::Input::Info e)
 {
-    _moveFront = true;
+	_moveFront = true;
 }
 void RacingGame::MoveBackPress(Event::Input::Info e)
 {
-    _moveBack = true;
+	_moveBack = true;
 }
 void RacingGame::StrafeLeftPress(Event::Input::Info e)
 {
-    _strafeLeft = true;
+	_strafeLeft = true;
 }
 void RacingGame::StrafeRightPress(Event::Input::Info e)
 {
-    _strafeRight = true;
+	_strafeRight = true;
 }
 void RacingGame::MoveFrontRelease(Event::Input::Info e)
 {
-    _moveFront = false;
+	_moveFront = false;
 }
 void RacingGame::MoveBackRelease(Event::Input::Info e)
 {
-    _moveBack = false;
+	_moveBack = false;
 }
 void RacingGame::StrafeLeftRelease(Event::Input::Info e)
 {
-    _strafeLeft = false;
+	_strafeLeft = false;
 }
 void RacingGame::StrafeRightRelease(Event::Input::Info e)
 {
-    _strafeRight = false;
+	_strafeRight = false;
 }
 void RacingGame::LookTo(Event::Input::Info e)
 {
-    /*if (mouseCenter!=GetMousePosition())
-    {
-        mousePosition = InputManager::GetMousePosition();
-        Vec2 mouseDelta = (mousePosition-mouseLastPosition);
-        if (mouseDelta.x != 0 || mouseDelta.y != 0)
-        {
-            counterX -= mouseDelta.x/10.f;                
-            counterY -= mouseDelta.y/10.f;
-            if (counterY<-90.f) counterY = -90.f;
-            if (counterY>90.f) counterY = 90.f;
-            Quaternion qX, qY;
-            qX.AxisToQuaternion(Vec3(1.f,0.f,0.f),DEGTORAD(counterY));
-            qY.AxisToQuaternion(Vec3(0.f,1.f,0.f),DEGTORAD(counterX));
+	/*if (mouseCenter!=GetMousePosition())
+	{
+		mousePosition = InputManager::GetMousePosition();
+		Vec2 mouseDelta = (mousePosition-mouseLastPosition);
+		if (mouseDelta.x != 0 || mouseDelta.y != 0)
+		{
+			counterX -= mouseDelta.x/10.f;
+			counterY -= mouseDelta.y/10.f;
+			if (counterY<-90.f) counterY = -90.f;
+			if (counterY>90.f) counterY = 90.f;
+			Quaternion qX, qY;
+			qX.AxisToQuaternion(Vec3(1.f,0.f,0.f),DEGTORAD(counterY));
+			qY.AxisToQuaternion(Vec3(0.f,1.f,0.f),DEGTORAD(counterX));
 //                Matrix rotX, rotY;
 //                rotX.RotationX(DEGTORAD(counterY));
 //                rotY.RotationY(DEGTORAD(counterX));
-            Camera->SetRotation((qY*qX).GetEulerFromQuaternion());
-            SetMousePosition((int)(mouseCenter.x),(int)(mouseCenter.y));
-            mouseLastPosition = mouseCenter;
-        }
-    }*/
+			Camera->SetRotation((qY*qX).GetEulerFromQuaternion());
+			SetMousePosition((int)(mouseCenter.x),(int)(mouseCenter.y));
+			mouseLastPosition = mouseCenter;
+		}
+	}*/
 }
 
 void RacingGame::CloseApp(Event::Input::Info e)
@@ -475,9 +475,9 @@ void RacingGame::SpaceDown(Event::Input::Info e)
 void RacingGame::AnalogicMove(Event::Input::Info e)
 {
 	_leftPressed = _rightPressed = false;
-	if ((f32)e.Value>0.1) _rightPressed = true;
+	if ((f32)e.Value > 0.1) _rightPressed = true;
 	else if ((f32)e.Value<-0.1) _leftPressed = true;
-	
-	gVehicleSteering = fabs((f32)e.Value)*0.3f*0.01f*((f32)e.Value>0.0?-1:1);
+
+	gVehicleSteering = fabs((f32)e.Value)*0.3f*0.01f*((f32)e.Value>0.0 ? -1 : 1);
 
 }

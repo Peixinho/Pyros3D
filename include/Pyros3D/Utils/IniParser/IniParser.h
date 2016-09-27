@@ -43,7 +43,7 @@ namespace p3d {
 				{
 					std::size_t foundBracket1 = line.find('[');
 					std::size_t foundBracket2 = line.find(']');
-					if (foundBracket1<line.size() && foundBracket2<line.size())
+					if (foundBracket1 < line.size() && foundBracket2 < line.size())
 					{
 						// Its a Group
 
@@ -60,7 +60,7 @@ namespace p3d {
 					else {
 						// Its a Value
 						std::size_t foundEqual = line.find('=');
-						if (foundEqual<line.size())
+						if (foundEqual < line.size())
 							options[line.substr(0, foundEqual)] = line.substr(foundEqual + 1, line.size());
 					}
 					countLines++;
@@ -71,7 +71,7 @@ namespace p3d {
 
 				myfile.close();
 
-				return countLines>0;
+				return countLines > 0;
 
 			}
 			else {

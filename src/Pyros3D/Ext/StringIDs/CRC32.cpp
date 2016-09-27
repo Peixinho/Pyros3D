@@ -16,29 +16,29 @@ namespace p3d
 	{
 		unsigned long Poly = 0x04C11DB7;
 
-                unsigned crc;
-                
-		for(unsigned long i = 0; i <= 0xFF; i++)
+		unsigned crc;
+
+		for (unsigned long i = 0; i <= 0xFF; i++)
 		{
 			unsigned long &Value = LookupTable[i];
-                        
-//			Value = Reflect(i, 8) << 24;
-//
-//			for(uchar j = 0; j < 8; j++)
-//			{
-//				Value = (Value << 1) ^ (Value & (1 << 31) ? Poly : 0);
-//			};
-//
-//			Value = Reflect(Value, 32);
-                        
-                        crc = i << 24;
-                        for (int j = 0; j < 8; j++) {
-                            if (crc & 0x80000000)
-                                crc = (crc << 1) ^ Poly;
-                            else
-                                crc = crc << 1;
-                        }
-                        Value = crc;
+
+			//			Value = Reflect(i, 8) << 24;
+			//
+			//			for(uchar j = 0; j < 8; j++)
+			//			{
+			//				Value = (Value << 1) ^ (Value & (1 << 31) ? Poly : 0);
+			//			};
+			//
+			//			Value = Reflect(Value, 32);
+
+			crc = i << 24;
+			for (int j = 0; j < 8; j++) {
+				if (crc & 0x80000000)
+					crc = (crc << 1) ^ Poly;
+				else
+					crc = crc << 1;
+			}
+			Value = crc;
 		};
 
 	};
@@ -47,9 +47,9 @@ namespace p3d
 	{
 		unsigned long Value = 0;
 
-		for(unsigned long i = 1; i < (unsigned char)(Char + 1); i++)
+		for (unsigned long i = 1; i < (unsigned char)(Char + 1); i++)
 		{
-			if(Reflect & 1)
+			if (Reflect & 1)
 			{
 				Value |= (1 << (Char - i));
 			}
@@ -64,7 +64,7 @@ namespace p3d
 	{
 		unsigned long OutCRC = 0xFFFFFFFF;
 
-		while(DataLength--)
+		while (DataLength--)
 			OutCRC = (OutCRC >> 8) ^ LookupTable[(OutCRC & 0xFF) ^ *Data++];
 
 		return OutCRC ^ 0xFFFFFFFF;

@@ -19,101 +19,101 @@
 
 namespace p3d {
 
-    namespace Buffer {
-    
-        namespace Attribute {
-        
-            // Data type
-            namespace Type {
-                enum {
-                    Int = 0,
-                    Short,			
-                    Float,
-                    Vec2,
-                    Vec3,
-                    Vec4,
-                    Matrix
-                };
-            };
+	namespace Buffer {
 
-            // Usage of the Data
-            namespace Usage {
-                enum {
-                    Pos = 0,
-                    TexCoord,
-                    Color,
-                    Normal,
-                    Tangent,
-                    Bitangent,
-                    Other
-            };
-        };
-        
-        const uint32 GetTypeSize(const uint32 type);
-        const uint32 GetTypeCount(const uint32 type);
-        const uint32 GetType(const uint32 type);
-        
-    };  
-        
-        // Type of Draw
-        namespace Draw {
-            enum {
-                Static = 0,
-                Dynamic,
-                Stream
-            };
-        };
+		namespace Attribute {
 
-        // Type of Buffer
-        namespace Type {
-            enum {
-                Index = 0,
-                Vertex,
-                Attribute
-            };
-        };
+			// Data type
+			namespace Type {
+				enum {
+					Int = 0,
+					Short,
+					Float,
+					Vec2,
+					Vec3,
+					Vec4,
+					Matrix
+				};
+			};
 
-        // Type of Mapping
-        namespace Mapping {
-            enum {
-                Write = 0,
-                Read,
-                ReadAndWrite
-            };
-        };
-    };
-    
-    class GeometryBuffer {
+			// Usage of the Data
+			namespace Usage {
+				enum {
+					Pos = 0,
+					TexCoord,
+					Color,
+					Normal,
+					Tangent,
+					Bitangent,
+					Other
+				};
+			};
 
-        private:
+			const uint32 GetTypeSize(const uint32 type);
+			const uint32 GetTypeCount(const uint32 type);
+			const uint32 GetType(const uint32 type);
 
-            std::vector<uchar> GeometryData;
+		};
 
-            uint32 bufferType;
-            uint32 bufferDraw;
+		// Type of Draw
+		namespace Draw {
+			enum {
+				Static = 0,
+				Dynamic,
+				Stream
+			};
+		};
 
-        public:    
+		// Type of Buffer
+		namespace Type {
+			enum {
+				Index = 0,
+				Vertex,
+				Attribute
+			};
+		};
 
-            // OpenGL ID
-            uint32 ID;
+		// Type of Mapping
+		namespace Mapping {
+			enum {
+				Write = 0,
+				Read,
+				ReadAndWrite
+			};
+		};
+	};
 
-            // Data Size
-            uint32 DataLength;
+	class PYROS3D_API GeometryBuffer {
 
-            GeometryBuffer();
-            GeometryBuffer(const uint32 bufferType, const uint32 bufferDraw);
-            ~GeometryBuffer();
-            // methods
-            void Init(  const void *GeometryData, const uint32 length );            
+	private:
 
-            void *Map(const uint32 MappingType = 1);
-            void Unmap();
+		std::vector<uchar> GeometryData;
 
-            void Update( const void *GeometryData );
+		uint32 bufferType;
+		uint32 bufferDraw;
 
-            const std::vector<uchar> &GetGeometryData() const;
+	public:
 
-    };
+		// OpenGL ID
+		uint32 ID;
+
+		// Data Size
+		uint32 DataLength;
+
+		GeometryBuffer();
+		GeometryBuffer(const uint32 bufferType, const uint32 bufferDraw);
+		~GeometryBuffer();
+		// methods
+		void Init(const void *GeometryData, const uint32 length);
+
+		void *Map(const uint32 MappingType = 1);
+		void Unmap();
+
+		void Update(const void *GeometryData);
+
+		const std::vector<uchar> &GetGeometryData() const;
+
+	};
 
 }
 

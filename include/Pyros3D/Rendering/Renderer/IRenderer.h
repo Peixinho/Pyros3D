@@ -23,79 +23,79 @@
 
 namespace p3d {
 
-    using namespace Uniforms;
+	using namespace Uniforms;
 
-    namespace Buffer_Bit
-    {
-        enum {
-            None = 0,
-            Color = 0x10,
-            Depth = 0x20,
-            Stencil = 0x40
-        };
-    }
-    
-    namespace StencilOp
-    {
-    	enum {
-    		Keep = 0,
-    		Zero,
-    		Replace,
-    		Incr,
-    		Incr_Wrap,
-    		Decr,
-    		Decr_Wrap,
-    		Invert
-    	};
-    }
+	namespace Buffer_Bit
+	{
+		enum {
+			None = 0,
+			Color = 0x10,
+			Depth = 0x20,
+			Stencil = 0x40
+		};
+	}
 
-    namespace StencilFunc
-    {
-    	enum {
-    		Always = 0,
-    		Never,
-    		Less,
-    		LEqual,
-    		Greater,
-    		GEqual,
-    		Equal,
-    		Notequal
-    	};
-    }
+	namespace StencilOp
+	{
+		enum {
+			Keep = 0,
+			Zero,
+			Replace,
+			Incr,
+			Incr_Wrap,
+			Decr,
+			Decr_Wrap,
+			Invert
+		};
+	}
 
-    namespace BlendFunc
-    {
-    	enum {
-    		Zero = 0,
-    		One,
-    		Src_Color,
-    		One_Minus_Src_Color,
-    		Dst_Color,
-    		One_Minus_Dst_Color,
-    		Src_Alpha,
-    		One_Minus_Src_Alpha,
-    		Dst_Alpha,
-    		One_Minus_Dst_Alpha,
-    		Constant_Color,
-    		One_Minus_Constant_Color,
-    		Constant_Alpha,
-    		One_Minus_Constant_Alpha,
-    		Src_Alpha_Saturate,
-    		Src1_Color,
-    		One_Minus_Src1_Color,
-    		Src1_Alpha,
-    		One_Minus_Src1_Alpha
-    	};
-    }
+	namespace StencilFunc
+	{
+		enum {
+			Always = 0,
+			Never,
+			Less,
+			LEqual,
+			Greater,
+			GEqual,
+			Equal,
+			Notequal
+		};
+	}
 
-    namespace BlendEq
-    {
-    	enum {
-    		Add = 0,
-    		Subtract,
-    		Reverse_Subtract
-    	};
-    }
+	namespace BlendFunc
+	{
+		enum {
+			Zero = 0,
+			One,
+			Src_Color,
+			One_Minus_Src_Color,
+			Dst_Color,
+			One_Minus_Dst_Color,
+			Src_Alpha,
+			One_Minus_Src_Alpha,
+			Dst_Alpha,
+			One_Minus_Dst_Alpha,
+			Constant_Color,
+			One_Minus_Constant_Color,
+			Constant_Alpha,
+			One_Minus_Constant_Alpha,
+			Src_Alpha_Saturate,
+			Src1_Color,
+			One_Minus_Src1_Color,
+			Src1_Alpha,
+			One_Minus_Src1_Alpha
+		};
+	}
+
+	namespace BlendEq
+	{
+		enum {
+			Add = 0,
+			Subtract,
+			Reverse_Subtract
+		};
+	}
 
 	namespace DepthTest
 	{
@@ -111,323 +111,323 @@ namespace p3d {
 		};
 	}
 
-    class PYROS3D_API IRenderer {
-        
-        public:
-            
-            IRenderer();
-            IRenderer(const uint32 Width, const uint32 Height);
-            virtual ~IRenderer();
-            void ClearBufferBit(const uint32 Option);
+	class PYROS3D_API IRenderer {
 
-            // Depth Buffer
-			void EnableClearDepthBuffer();
-            void DisableClearDepthBuffer();
-            void ClearDepthBuffer();
+	public:
 
-			// Clip Planes
-			void EnableClipPlane(const uint32 &numberOfClipPlanes = 1);
-			void DisableClipPlane();
-			void SetClipPlane0(const Vec4 &clipPlane);
-			void SetClipPlane1(const Vec4 &clipPlane);
-			void SetClipPlane2(const Vec4 &clipPlane);
-			void SetClipPlane3(const Vec4 &clipPlane);
-			void SetClipPlane4(const Vec4 &clipPlane);
-			void SetClipPlane5(const Vec4 &clipPlane);
-			void SetClipPlane6(const Vec4 &clipPlane);
-			void SetClipPlane7(const Vec4 &clipPlane);
+		IRenderer();
+		IRenderer(const uint32 Width, const uint32 Height);
+		virtual ~IRenderer();
+		void ClearBufferBit(const uint32 Option);
 
-            // Stencil
-            void EnableStencil();
-            void DisableStencil();
-            void ClearStencilBuffer();
-            void StencilFunction(const uint32 func, const uint32 ref = 0, const uint32 mask = 1);
-            void StencilOperation(const uint32 sfail = StencilOp::Keep, const uint32 dpfail = StencilOp::Keep, const uint32 dppass = StencilOp::Keep);
+		// Depth Buffer
+		void EnableClearDepthBuffer();
+		void DisableClearDepthBuffer();
+		void ClearDepthBuffer();
 
-            // Scissors Test
-            void EnableScissorTest();
-            void DisableScissorTest();
-            void ScissorTestRect(const f32 x, const f32 y, const f32 width, const f32 height);
+		// Clip Planes
+		void EnableClipPlane(const uint32 &numberOfClipPlanes = 1);
+		void DisableClipPlane();
+		void SetClipPlane0(const Vec4 &clipPlane);
+		void SetClipPlane1(const Vec4 &clipPlane);
+		void SetClipPlane2(const Vec4 &clipPlane);
+		void SetClipPlane3(const Vec4 &clipPlane);
+		void SetClipPlane4(const Vec4 &clipPlane);
+		void SetClipPlane5(const Vec4 &clipPlane);
+		void SetClipPlane6(const Vec4 &clipPlane);
+		void SetClipPlane7(const Vec4 &clipPlane);
 
-            // WireFrame
-            void EnableWireFrame();
-            void DisableWireFrame();
+		// Stencil
+		void EnableStencil();
+		void DisableStencil();
+		void ClearStencilBuffer();
+		void StencilFunction(const uint32 func, const uint32 ref = 0, const uint32 mask = 1);
+		void StencilOperation(const uint32 sfail = StencilOp::Keep, const uint32 dpfail = StencilOp::Keep, const uint32 dppass = StencilOp::Keep);
 
-            // Color
-            void ColorMask(const bool r,const bool g,const bool b,const bool a);
+		// Scissors Test
+		void EnableScissorTest();
+		void DisableScissorTest();
+		void ScissorTestRect(const f32 x, const f32 y, const f32 width, const f32 height);
 
-            // Sorting
-            void EnableSorting();
-            void DisableSorting();
+		// WireFrame
+		void EnableWireFrame();
+		void DisableWireFrame();
 
-            // LOD
-            void EnableLOD() { lod = true; }
-            void DisableLOD() { lod = false; }
-            bool IsUsingLOD() { return lod; }
+		// Color
+		void ColorMask(const bool r, const bool g, const bool b, const bool a);
 
-            void SetBackground(const Vec4 &Color);
-            void UnsetBackground();
-            void SetGlobalLight(const Vec4 &Light);
-            void EnableDepthBias(const Vec2 &Bias);
-            void DisableDepthBias();
-            void SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY);
-			void ResetViewPort() { _viewPortStartX = _viewPortStartY = _viewPortEndX = _viewPortEndY = 0; } // Usefull for some shady stuff like rendering from different libs
-            
-            // Resize
-            void Resize(const uint32 Width, const uint32 Height);
-            
-            // culling
-            void ActivateCulling(const uint32 cullingType);
-            void DeactivateCulling();
-        
-            // Render Scene
-            virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene);
-            virtual void PreRender(GameObject* Camera, SceneGraph* Scene, const std::string &Tag);
-            virtual void PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Tag);
-			virtual void PreRender(GameObject* Camera, SceneGraph* Scene);
-        
-        protected:
-            
-            // Group by:
-            //  -Asset and Material
-            //  -Asset
-            //  -Material
-            //  -Owner
-            // to avoid state changes - This should be done once
-            // the rendering list is changed.
-            // e.g. Add/Remove Models
-            // Sort Assets (mostly the Translucent ones)
-            virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag = 0) = 0;
-            
-            // Reset
-            void InitRender();
-            
-            // Render Object
-            void RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material);
-            
-            // End Rendering
-            void EndRender();
-            
-            // Depth Buffer
-            void DepthTest(const uint32 test = DepthTest::Less);
-            void DepthWrite();
-            void ClearDepth();
+		// Sorting
+		void EnableSorting();
+		void DisableSorting();
 
-			// Blending
-			void EnableBlending();
-			void DisableBlending();
-			void BlendingFunction(const uint32 sfactor, const uint32 dfactor);
-			void BlendingEquation(const uint32 mode);
-            
-            // Internal Function to Clear Buffers
-            void ClearScreen();
+		// LOD
+		void EnableLOD() { lod = true; }
+		void DisableLOD() { lod = false; }
+		bool IsUsingLOD() { return lod; }
 
-            // Send Uniforms
-            void SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material);
-            void SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material);
-            void SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material);
-            
-			void StartClippingPlanes();
-			void EndClippingPlanes();
+		void SetBackground(const Vec4 &Color);
+		void UnsetBackground();
+		void SetGlobalLight(const Vec4 &Light);
+		void EnableDepthBias(const Vec2 &Bias);
+		void DisableDepthBias();
+		void SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY);
+		void ResetViewPort() { _viewPortStartX = _viewPortStartY = _viewPortEndX = _viewPortEndY = 0; } // Usefull for some shady stuff like rendering from different libs
 
-			void StartScissorTest();
-			void EndScissorTest();
+		// Resize
+		void Resize(const uint32 Width, const uint32 Height);
 
-            // Flags
-            uint32 bufferOptions, glBufferOptions;
-            bool 
-								depthWritting;
-            bool
-								depthTesting;
-			int32 
-								depthTestMode;
-            bool 
-								clearDepthBuffer;
-            bool 
-								sorting;
+		// culling
+		void ActivateCulling(const uint32 cullingType);
+		void DeactivateCulling();
 
-            // Background
-            void DrawBackground();
-            bool BackgroundColorSet;
-            
-            // Properties
-            bool
-                                blending;
+		// Render Scene
+		virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene);
+		virtual void PreRender(GameObject* Camera, SceneGraph* Scene, const std::string &Tag);
+		virtual void PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Tag);
+		virtual void PreRender(GameObject* Camera, SceneGraph* Scene);
 
-			int32
-								sfactor,
-								dfactor,
-								mode;
-			
-			bool
-								ClipPlane;
-			uint32
-								ClipPlaneNumber;
-			Vec4
-								ClipPlanes[8];
+	protected:
 
-            Vec4 
-                                BackgroundColor;
-            Vec4 
-                                GlobalLight;
+		// Group by:
+		//  -Asset and Material
+		//  -Asset
+		//  -Material
+		//  -Owner
+		// to avoid state changes - This should be done once
+		// the rendering list is changed.
+		// e.g. Add/Remove Models
+		// Sort Assets (mostly the Translucent ones)
+		virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag = 0) = 0;
 
-            bool            
-                                scissorTest;
-            f32
-                                scissorTestX,
-                                scissorTestY,
-                                scissorTestWidth,
-                                scissorTestHeight;
+		// Reset
+		void InitRender();
 
-            // Face Culling
-            int32
-                                cullFace;
-			bool
-								cullFaceChanged;
-            
-            // Dimensions
-            uint32 
-                                Width,
-                                Height;
-            
-            // Scene
-            SceneGraph* 
-                                Scene;
+		// Render Object
+		void RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material);
 
-            // Camera Matrix
-            GameObject*
-                                Camera;
+		// End Rendering
+		void EndRender();
 
-            // Projection Matrix
-            Projection
-                                projection;
-            
-            // Depth Bias
-            Vec2 
-                                DepthBias;
+		// Depth Buffer
+		void DepthTest(const uint32 test = DepthTest::Less);
+		void DepthWrite();
+		void ClearDepth();
 
-            bool
-                                IsUsingDepthBias;
-            
-            uint32
-                                DrawType, InternalDrawType;
-            
-            // Culling
-            bool CullingSphereTest(RenderingMesh* rmesh, GameObject* owner);
-            bool CullingPointTest(RenderingMesh* rmesh, GameObject* owner);
-            bool CullingBoxTest(RenderingMesh* rmesh, GameObject* owner);
-            void UpdateCulling(const Matrix &ViewProjectionMatrix);
-            bool 
-                                IsCulling;            
-            FrustumCulling*
-                                culling;
-            
-            
-            // Universal Uniforms Cache
-            Matrix 
-                                ProjectionMatrix,
-                                ViewMatrix,
-                                ViewProjectionMatrix,
-                                ProjectionMatrixInverse,
-                                ViewMatrixInverse;
-            bool
-                                ProjectionMatrixInverseIsDirty,
-                                ViewMatrixInverseIsDirty,
-                                ViewProjectionMatrixIsDirty;
-            
-            Vec3
-                                CameraPosition;
-            
-            Vec2
-                                NearFarPlane;
-            
-            std::vector<Matrix>
-                                Lights;
-            
-            uint32
-                                NumberOfLights;
+		// Blending
+		void EnableBlending();
+		void DisableBlending();
+		void BlendingFunction(const uint32 sfactor, const uint32 dfactor);
+		void BlendingEquation(const uint32 mode);
 
-            f64
-                                Timer;
+		// Internal Function to Clear Buffers
+		void ClearScreen();
 
-            // Model Specific Cache
-            Matrix
-                                ModelMatrix,
-                                NormalMatrix,
-                                ModelViewMatrix,
-                                ModelViewProjectionMatrix,
-                                ModelMatrixInverse,
-                                ModelViewMatrixInverse,
-                                ModelMatrixInverseTranspose;
-            bool
-                                NormalMatrixIsDirty,
-                                ModelViewMatrixIsDirty,
-                                ModelViewProjectionMatrixIsDirty,
-                                ModelMatrixInverseIsDirty,
-                                ModelViewMatrixInverseIsDirty,
-                                ModelMatrixInverseTransposeIsDirty;            
-            bool
-                                ProjectionMatrixDirty,
-                                ViewMatrixDirty;
-            
-            // Shadow Casting
-            std::vector<Texture*>
-                                DirectionalShadowMapsTextures, PointShadowMapsTextures, SpotShadowMapsTextures;
-            std::vector<uint32>
-                                DirectionalShadowMapsUnits, PointShadowMapsUnits, SpotShadowMapsUnits;
-            std::vector<Matrix>
-                                DirectionalShadowMatrix, PointShadowMatrix, SpotShadowMatrix;
-            Vec4
-                                DirectionalShadowFar;
-            uint32 
-                                NumberOfDirectionalShadows, NumberOfPointShadows, NumberOfSpotShadows;
-            
-            // ViewPort Size
-            uint32              viewPortStartX,
-                                viewPortStartY,
-                                viewPortEndX,
-                                viewPortEndY;
-            bool
-                                customViewPort;
-            
-            bool
-                                lod;
+		// Send Uniforms
+		void SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material);
+		void SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material);
+		void SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material);
 
-            // Internal ViewPort Dimension
-            void _SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY);
-            
-        private:
-            
-            void BindMesh(RenderingMesh* rmesh, IMaterial* material);
-            void UnbindMesh(RenderingMesh* rmesh, IMaterial* material);
-            void SendAttributes(RenderingMesh* rmesh, IMaterial* material);
-            void BindShadowMaps(IMaterial* material);
-            void UnbindShadowMaps(IMaterial* material);
-            
-            // Last Mesh Rendered
-            int32
-                                LastMeshRendered;
-            RenderingMesh*
-                                LastMeshRenderedPTR;
-            
-            // Last Material Used
-            int32
-                                LastMaterialUsed,
-                                LastProgramUsed;
-            IMaterial*
-                                LastMaterialPTR;
-            
-            // Internal ViewPort Dimension
-            static uint32
-                                _viewPortStartX;
-            static uint32
-                                _viewPortStartY;
-            static uint32       
-                                _viewPortEndX;
-            static uint32
-                                _viewPortEndY;
-    };
-    
+		void StartClippingPlanes();
+		void EndClippingPlanes();
+
+		void StartScissorTest();
+		void EndScissorTest();
+
+		// Flags
+		uint32 bufferOptions, glBufferOptions;
+		bool
+			depthWritting;
+		bool
+			depthTesting;
+		int32
+			depthTestMode;
+		bool
+			clearDepthBuffer;
+		bool
+			sorting;
+
+		// Background
+		void DrawBackground();
+		bool BackgroundColorSet;
+
+		// Properties
+		bool
+			blending;
+
+		int32
+			sfactor,
+			dfactor,
+			mode;
+
+		bool
+			ClipPlane;
+		uint32
+			ClipPlaneNumber;
+		Vec4
+			ClipPlanes[8];
+
+		Vec4
+			BackgroundColor;
+		Vec4
+			GlobalLight;
+
+		bool
+			scissorTest;
+		f32
+			scissorTestX,
+			scissorTestY,
+			scissorTestWidth,
+			scissorTestHeight;
+
+		// Face Culling
+		int32
+			cullFace;
+		bool
+			cullFaceChanged;
+
+		// Dimensions
+		uint32
+			Width,
+			Height;
+
+		// Scene
+		SceneGraph*
+			Scene;
+
+		// Camera Matrix
+		GameObject*
+			Camera;
+
+		// Projection Matrix
+		Projection
+			projection;
+
+		// Depth Bias
+		Vec2
+			DepthBias;
+
+		bool
+			IsUsingDepthBias;
+
+		uint32
+			DrawType, InternalDrawType;
+
+		// Culling
+		bool CullingSphereTest(RenderingMesh* rmesh, GameObject* owner);
+		bool CullingPointTest(RenderingMesh* rmesh, GameObject* owner);
+		bool CullingBoxTest(RenderingMesh* rmesh, GameObject* owner);
+		void UpdateCulling(const Matrix &ViewProjectionMatrix);
+		bool
+			IsCulling;
+		FrustumCulling*
+			culling;
+
+
+		// Universal Uniforms Cache
+		Matrix
+			ProjectionMatrix,
+			ViewMatrix,
+			ViewProjectionMatrix,
+			ProjectionMatrixInverse,
+			ViewMatrixInverse;
+		bool
+			ProjectionMatrixInverseIsDirty,
+			ViewMatrixInverseIsDirty,
+			ViewProjectionMatrixIsDirty;
+
+		Vec3
+			CameraPosition;
+
+		Vec2
+			NearFarPlane;
+
+		std::vector<Matrix>
+			Lights;
+
+		uint32
+			NumberOfLights;
+
+		f64
+			Timer;
+
+		// Model Specific Cache
+		Matrix
+			ModelMatrix,
+			NormalMatrix,
+			ModelViewMatrix,
+			ModelViewProjectionMatrix,
+			ModelMatrixInverse,
+			ModelViewMatrixInverse,
+			ModelMatrixInverseTranspose;
+		bool
+			NormalMatrixIsDirty,
+			ModelViewMatrixIsDirty,
+			ModelViewProjectionMatrixIsDirty,
+			ModelMatrixInverseIsDirty,
+			ModelViewMatrixInverseIsDirty,
+			ModelMatrixInverseTransposeIsDirty;
+		bool
+			ProjectionMatrixDirty,
+			ViewMatrixDirty;
+
+		// Shadow Casting
+		std::vector<Texture*>
+			DirectionalShadowMapsTextures, PointShadowMapsTextures, SpotShadowMapsTextures;
+		std::vector<uint32>
+			DirectionalShadowMapsUnits, PointShadowMapsUnits, SpotShadowMapsUnits;
+		std::vector<Matrix>
+			DirectionalShadowMatrix, PointShadowMatrix, SpotShadowMatrix;
+		Vec4
+			DirectionalShadowFar;
+		uint32
+			NumberOfDirectionalShadows, NumberOfPointShadows, NumberOfSpotShadows;
+
+		// ViewPort Size
+		uint32              viewPortStartX,
+			viewPortStartY,
+			viewPortEndX,
+			viewPortEndY;
+		bool
+			customViewPort;
+
+		bool
+			lod;
+
+		// Internal ViewPort Dimension
+		void _SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY);
+
+	private:
+
+		void BindMesh(RenderingMesh* rmesh, IMaterial* material);
+		void UnbindMesh(RenderingMesh* rmesh, IMaterial* material);
+		void SendAttributes(RenderingMesh* rmesh, IMaterial* material);
+		void BindShadowMaps(IMaterial* material);
+		void UnbindShadowMaps(IMaterial* material);
+
+		// Last Mesh Rendered
+		int32
+			LastMeshRendered;
+		RenderingMesh*
+			LastMeshRenderedPTR;
+
+		// Last Material Used
+		int32
+			LastMaterialUsed,
+			LastProgramUsed;
+		IMaterial*
+			LastMaterialPTR;
+
+		// Internal ViewPort Dimension
+		static uint32
+			_viewPortStartX;
+		static uint32
+			_viewPortStartY;
+		static uint32
+			_viewPortEndX;
+		static uint32
+			_viewPortEndY;
+	};
+
 };
 
 #endif /* IRENDERER_H */

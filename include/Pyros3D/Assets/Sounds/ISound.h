@@ -16,58 +16,58 @@
 #include <Pyros3D/Other/Export.h>
 
 #if defined(_SDL2) || defined(_SDL)
-    #include <SDL.h>
-    #include <SDL_mixer.h>
+#include <SDL.h>
+#include <SDL_mixer.h>
 #else
-    #include <SFML/Audio.hpp>
+#include <SFML/Audio.hpp>
 #endif
 
 namespace p3d {
-    
-    namespace SoundType
-    {
-        enum {
-            Sound = 0,
-            Music
-        };
-    }
 
-    class PYROS3D_API ISound {
+	namespace SoundType
+	{
+		enum {
+			Sound = 0,
+			Music
+		};
+	}
 
-        public:
+	class PYROS3D_API ISound {
 
-            ISound(const uint32 type);
-            virtual ~ISound();
+	public:
 
-            bool LoadFromFile(const std::string &filename);
+		ISound(const uint32 type);
+		virtual ~ISound();
 
-            void Play(bool loop = false);
-            void Pause();
-            void Stop();
-            bool isPlaying();
-            bool isPaused();
-            void SetVolume(const uint32 vol); // 0-100
-            const uint32 &GetVolume() const;
+		bool LoadFromFile(const std::string &filename);
 
-        protected:
+		void Play(bool loop = false);
+		void Pause();
+		void Stop();
+		bool isPlaying();
+		bool isPaused();
+		void SetVolume(const uint32 vol); // 0-100
+		const uint32 &GetVolume() const;
 
-            bool _isPlaying;
-            bool _isPaused;
-            bool _loop;
-            uint32 _volume;
-            uint32 _type;
-            
-            #if defined(_SDL2) || defined(_SDL)
-                Mix_Music *_Music;
-                Mix_Chunk *_Sound;
-                int32 channel;
-            #else 
-                sf::Music _Music;
-                sf::Sound _Sound;
-                sf::SoundBuffer _Buffer;
-            #endif
-    };
-    
+	protected:
+
+		bool _isPlaying;
+		bool _isPaused;
+		bool _loop;
+		uint32 _volume;
+		uint32 _type;
+
+#if defined(_SDL2) || defined(_SDL)
+		Mix_Music *_Music;
+		Mix_Chunk *_Sound;
+		int32 channel;
+#else 
+		sf::Music _Music;
+		sf::Sound _Sound;
+		sf::SoundBuffer _Buffer;
+#endif
+	};
+
 };
 
 #endif /* ISOUND_H */

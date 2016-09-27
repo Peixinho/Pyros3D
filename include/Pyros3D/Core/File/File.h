@@ -21,28 +21,28 @@
 
 namespace p3d {
 
-      class File {
-            public:
+	class PYROS3D_API File {
+	public:
 
-                  File() {}
-                  virtual ~File() {}
+		File() {}
+		virtual ~File() {}
 
-                  bool Open(const std::string &filename, bool write = false);
-                  void Write(const void* src, const uint32 size);
-                  void Read(const void* src, const uint32 size);
-                  void Rewind();
-                  void Close();
-                  const uint32 Size() const;
-		  std::vector<uchar> &GetData();
+		bool Open(const std::string &filename, bool write = false);
+		void Write(const void* src, const uint32 size);
+		void Read(const void* src, const uint32 size);
+		void Rewind();
+		void Close();
+		const uint32 Size() const;
+		std::vector<uchar> &GetData();
 
-            private:
+	private:
 
-                  FILE* file;
-                  std::vector<uchar> data;
-                  uint32 size;
-                  uint32 positionStream;
-				  bool opened;
-      };
+		FILE* file;
+		std::vector<uchar> data;
+		uint32 size;
+		uint32 positionStream;
+		bool opened;
+	};
 };
 
 #endif /* FILE_H */

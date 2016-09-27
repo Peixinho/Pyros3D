@@ -14,62 +14,62 @@
 
 namespace p3d {
 
-    namespace Math {
-    
-        class PYROS3D_API Vec2 {
-            public:
+	namespace Math {
 
-                // vars
-                f32 x,y;
+		class PYROS3D_API Vec2 {
+		public:
 
-                // methods
-                Vec2();
-                Vec2(const f32 X,const f32 Y);
+			// vars
+			f32 x, y;
 
-                // f32s
-                f32 dotProduct(const Vec2 &v) const;
-                f32 magnitude() const;
-                f32 magnitudeSQR() const;
-                f32 distance(const Vec2 &v) const;
-                f32 distanceSQR(const Vec2 &v) const;
+			// methods
+			Vec2();
+			Vec2(const f32 X, const f32 Y);
 
-                // Vec2
-                Vec2 normalize() const;
-                Vec2 negate() const;
-                Vec2 Abs() const;
-                
-                // toString
-                std::string toString() const;
+			// f32s
+			f32 dotProduct(const Vec2 &v) const;
+			f32 magnitude() const;
+			f32 magnitudeSQR() const;
+			f32 distance(const Vec2 &v) const;
+			f32 distanceSQR(const Vec2 &v) const;
 
-                // operators
-                Vec2 operator+(const Vec2 &v) const;
-                Vec2 operator-(const Vec2 &v) const;
-                Vec2 operator*(const Vec2 &v) const;
-                Vec2 operator/(const Vec2 &v) const;
-                Vec2 operator+(const f32 f) const;
-                Vec2 operator-(const f32 f) const;
-                Vec2 operator*(const f32 f) const;
-                Vec2 operator/(const f32 f) const;
-                void operator+=(const Vec2 &v);
-                void operator-=(const Vec2 &v);
-                void operator*=(const Vec2 &v);
-                void operator/=(const Vec2 &v);
-                void operator+=(const f32 f);
-                void operator-=(const f32 f);
-                void operator*=(const f32 f);
-                void operator/=(const f32 f);
-                bool operator==(const Vec2 &v) const;
-                bool operator!=(const Vec2 &v) const;
-                bool operator>(const Vec2 &v) const;
-                bool operator>=(const Vec2 &v) const;
-                bool operator<(const Vec2 &v) const;
-                bool operator<=(const Vec2 &v) const;
-				float &operator[](int index);
-				float* operator()();
-                static const Vec2 ZERO;
+			// Vec2
+			Vec2 normalize() const;
+			Vec2 negate() const;
+			Vec2 Abs() const;
 
-        };
-    };
+			// toString
+			std::string toString() const;
+
+			// operators
+			Vec2 operator+(const Vec2 &v) const;
+			Vec2 operator-(const Vec2 &v) const;
+			Vec2 operator*(const Vec2 &v) const;
+			Vec2 operator/(const Vec2 &v) const;
+			Vec2 operator+(const f32 f) const;
+			Vec2 operator-(const f32 f) const;
+			Vec2 operator*(const f32 f) const;
+			Vec2 operator/(const f32 f) const;
+			void operator+=(const Vec2 &v);
+			void operator-=(const Vec2 &v);
+			void operator*=(const Vec2 &v);
+			void operator/=(const Vec2 &v);
+			void operator+=(const f32 f);
+			void operator-=(const f32 f);
+			void operator*=(const f32 f);
+			void operator/=(const f32 f);
+			bool operator==(const Vec2 &v) const;
+			bool operator!=(const Vec2 &v) const;
+			bool operator>(const Vec2 &v) const;
+			bool operator>=(const Vec2 &v) const;
+			bool operator<(const Vec2 &v) const;
+			bool operator<=(const Vec2 &v) const;
+			float &operator[](int index);
+			float* operator()();
+			static const Vec2 ZERO;
+
+		};
+	};
 };
 
 #endif	/* VEC2_H */

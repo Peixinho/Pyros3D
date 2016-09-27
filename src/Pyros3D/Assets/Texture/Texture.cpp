@@ -21,7 +21,7 @@
 namespace p3d {
 
 	uint32 Texture::UnitBinded = 0;
-	
+
 	uint32 Texture::LastUnitBinded = 0;
 
 	Texture::Texture() : GL_ID(-1), haveImage(false), isMipMap(false), isMipMapManual(false), Anysotropic(0), cubemapFaces(0) {}
@@ -198,7 +198,7 @@ namespace p3d {
 			break;
 		}
 	}
-	
+
 	void Texture::GetGLModes()
 	{
 		// default texture
@@ -267,7 +267,7 @@ namespace p3d {
 			}
 #endif
 			else {
-					status = LoadTextureFromMemory(file->GetData(), file->Size(), Type, Mipmapping, level);
+				status = LoadTextureFromMemory(file->GetData(), file->Size(), Type, Mipmapping, level);
 			}
 
 			file->Close();
@@ -312,7 +312,7 @@ namespace p3d {
 		pixels.resize(w * h * 4 * sizeof(uchar));
 		memcpy(&pixels[0], imagePTR, w * h * 4 * sizeof(uchar));
 #endif
-		
+
 		if (!ImageLoaded) {
 			echo("ERROR: Failed to Open Texture");
 			return false;
@@ -356,16 +356,17 @@ namespace p3d {
 #else
 
 #if defined(GLEW_VERSION_2_1)
-				GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
-				if (GLSubMode == GL_TEXTURE_CUBE_MAP)
-				{
-					cubemapFaces++;
-					if (cubemapFaces == 6)
-						GLCHECKER(glGenerateMipmap(GLSubMode));
+			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
+			if (GLSubMode == GL_TEXTURE_CUBE_MAP)
+			{
+				cubemapFaces++;
+				if (cubemapFaces == 6)
+					GLCHECKER(glGenerateMipmap(GLSubMode));
 
-				} else GLCHECKER(glGenerateMipmap(GLSubMode));
+			}
+			else GLCHECKER(glGenerateMipmap(GLSubMode));
 #else
-				GLCHECKER(gluBuild2DMipmaps(GLMode, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
+			GLCHECKER(gluBuild2DMipmaps(GLMode, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
 #endif
 #endif
 			isMipMap = true;
@@ -382,13 +383,14 @@ namespace p3d {
 			if (GLMode != GL_TEXTURE_2D_MULTISAMPLE)
 			{
 				GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
-			} else {
+			}
+			else {
 				GLCHECKER(glTexImage2DMultisample(GLMode, msaa, internalFormat, Width[level], Height[level], true));
 			}
 #else
 			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
 #endif
-			if (level>0)
+			if (level > 0)
 				isMipMapManual = true;
 		}
 
@@ -397,7 +399,7 @@ namespace p3d {
 
 		// default values
 #if defined(GLES2)
-		if (GLMode != GL_TEXTURE_2D_MULTISAMPLE) 
+		if (GLMode != GL_TEXTURE_2D_MULTISAMPLE)
 #endif
 		{
 			SetRepeat(TextureRepeat::Repeat, TextureRepeat::Repeat);
@@ -409,7 +411,7 @@ namespace p3d {
 
 	bool Texture::CreateEmptyTexture(const uint32 Type, const uint32 TextureDataType, const int32 width, const int32 height, bool Mipmapping, const uint32 level, const uint32 msaa)
 	{
-		if (this->Width.size()<level + 1)
+		if (this->Width.size() < level + 1)
 		{
 			this->Width.resize(level + 1);
 			this->Height.resize(level + 1);
@@ -440,14 +442,14 @@ namespace p3d {
 
 		this->Anysotropic = Anysotropic;
 
-		if (Anysotropic>0)
+		if (Anysotropic > 0)
 		{
 			f32 AnysotropicMax;
 			GLCHECKER(glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &AnysotropicMax));
 			if (AnysotropicMax > Anysotropic) {
 				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MAX_ANISOTROPY_EXT, Anysotropic));
 			}
-			else if (AnysotropicMax>0)
+			else if (AnysotropicMax > 0)
 				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MAX_ANISOTROPY_EXT, (GLint)AnysotropicMax));
 		}
 		else {
@@ -464,7 +466,7 @@ namespace p3d {
 
 		SRepeat = WrapS;
 		TRepeat = WrapT;
-		if (WrapR>-1) RRepeat = WrapR;
+		if (WrapR > -1) RRepeat = WrapR;
 
 		// bind
 		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
@@ -525,7 +527,7 @@ namespace p3d {
 		};
 
 #if !defined(GLES2)
-		if (WrapR>-1 && GLSubMode == GL_TEXTURE_CUBE_MAP)
+		if (WrapR > -1 && GLSubMode == GL_TEXTURE_CUBE_MAP)
 		{
 			switch (RRepeat)
 			{
@@ -613,7 +615,7 @@ namespace p3d {
 		GLCHECKER(glBindTexture(GLSubMode, 0));
 
 	}
-	
+
 	void Texture::EnableCompareMode()
 	{
 #if !defined(GLES2)
@@ -634,7 +636,7 @@ namespace p3d {
 		GLCHECKER(glBindTexture(GLSubMode, 0));
 #endif
 	}
-	
+
 	void Texture::SetTransparency(const f32 Transparency)
 	{
 
@@ -663,10 +665,10 @@ namespace p3d {
 			GLCHECKER(glGenerateMipmap(GLSubMode));
 #else
 #if defined(GLEW_VERSION_2_1)
-			
-				GLCHECKER(glGenerateMipmap(GLSubMode));
+
+			GLCHECKER(glGenerateMipmap(GLSubMode));
 #else
-				GLCHECKER(gluBuild2DMipmaps(GLSubMode, internalFormat, Width, Height, internalFormat2, internalFormat3, NULL));
+			GLCHECKER(gluBuild2DMipmaps(GLSubMode, internalFormat, Width, Height, internalFormat2, internalFormat3, NULL));
 #endif
 #endif
 		}
@@ -685,7 +687,7 @@ namespace p3d {
 
 	void Texture::UpdateData(void* srcPTR, const uint32 level)
 	{
-		if (GL_ID>0)
+		if (GL_ID > 0)
 		{
 			// bind
 			GLCHECKER(glBindTexture(GLSubMode, GL_ID));
@@ -759,7 +761,7 @@ namespace p3d {
 	{
 		return Width[level];
 	}
-	
+
 	const uint32 Texture::GetHeight(const uint32 level) const
 	{
 		return Height[level];
@@ -777,78 +779,78 @@ namespace p3d {
 
 		switch (internalFormat)
 		{
-			case GL_DEPTH_COMPONENT16:
-				pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
-				break;
-			case GL_DEPTH_COMPONENT24:
-				pixels.resize(sizeof(uchar) * 3 * Width[level] * Height[level]);
-				break;
-			case GL_DEPTH_COMPONENT32:
-				pixels.resize(sizeof(f32)*Width[level] * Height[level]);
-				break;
-			case GL_R16F:
-				pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
-				break;
-			case GL_R32F:
-				pixels.resize(sizeof(f32)*Width[level] * Height[level]);
-				break;
-			case GL_RG8:
-				pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 2);
-				break;
-			case GL_R16I:
-				pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
-				break;
-			case GL_R32I:
-				pixels.resize(sizeof(int32)*Width[level] * Height[level]);
-				break;
-			case GL_RG16F:
-				pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 2);
-				break;
-			case GL_RG32F:
-				pixels.resize(sizeof(f32)*Width[level] * Height[level] * 2);
-				break;
-			case GL_RG16I:
-				pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
-				break;
-			case GL_RG32I:
-				pixels.resize(sizeof(int32)*Width[level] * Height[level] * 2);
-				break;
-			case GL_RGB8:
-				pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 2);
-				break;
-			case GL_RGB16F:
-				pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 3);
-				break;
-			case GL_RGB32F:
-				pixels.resize(sizeof(f32)*Width[level] * Height[level] * 3);
-				break;
-			case GL_RGB16I:
-				pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 3);
-				break;
-			case GL_RGB32I:
-				pixels.resize(sizeof(int32)*Width[level] * Height[level] * 3);
-				break;
-			case GL_RGBA16F:
-				pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 4);
-				break;
-			case GL_RGBA32F:
-				pixels.resize(sizeof(f32)*Width[level] * Height[level] * 4);
-				break;
-			case GL_RGBA16I:
-				pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 4);
-				break;
-			case GL_RGBA32I:
-				pixels.resize(sizeof(int32)*Width[level] * Height[level] * 4);
-				break;
-			case GL_R8:
-				pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 4);
-				break;
-			case GL_ALPHA:
-				pixels.resize(sizeof(uchar)*Width[level] * Height[level]);
-				break;
-			default:
-				pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 4);
-				break;
+		case GL_DEPTH_COMPONENT16:
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
+			break;
+		case GL_DEPTH_COMPONENT24:
+			pixels.resize(sizeof(uchar) * 3 * Width[level] * Height[level]);
+			break;
+		case GL_DEPTH_COMPONENT32:
+			pixels.resize(sizeof(f32)*Width[level] * Height[level]);
+			break;
+		case GL_R16F:
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
+			break;
+		case GL_R32F:
+			pixels.resize(sizeof(f32)*Width[level] * Height[level]);
+			break;
+		case GL_RG8:
+			pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 2);
+			break;
+		case GL_R16I:
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
+			break;
+		case GL_R32I:
+			pixels.resize(sizeof(int32)*Width[level] * Height[level]);
+			break;
+		case GL_RG16F:
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 2);
+			break;
+		case GL_RG32F:
+			pixels.resize(sizeof(f32)*Width[level] * Height[level] * 2);
+			break;
+		case GL_RG16I:
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
+			break;
+		case GL_RG32I:
+			pixels.resize(sizeof(int32)*Width[level] * Height[level] * 2);
+			break;
+		case GL_RGB8:
+			pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 2);
+			break;
+		case GL_RGB16F:
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 3);
+			break;
+		case GL_RGB32F:
+			pixels.resize(sizeof(f32)*Width[level] * Height[level] * 3);
+			break;
+		case GL_RGB16I:
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 3);
+			break;
+		case GL_RGB32I:
+			pixels.resize(sizeof(int32)*Width[level] * Height[level] * 3);
+			break;
+		case GL_RGBA16F:
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 4);
+			break;
+		case GL_RGBA32F:
+			pixels.resize(sizeof(f32)*Width[level] * Height[level] * 4);
+			break;
+		case GL_RGBA16I:
+			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 4);
+			break;
+		case GL_RGBA32I:
+			pixels.resize(sizeof(int32)*Width[level] * Height[level] * 4);
+			break;
+		case GL_R8:
+			pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 4);
+			break;
+		case GL_ALPHA:
+			pixels.resize(sizeof(uchar)*Width[level] * Height[level]);
+			break;
+		default:
+			pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 4);
+			break;
 		}
 		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
 		GLCHECKER(glGetTexImage(GLSubMode, level, internalFormat2, internalFormat3, &pixels[0]));

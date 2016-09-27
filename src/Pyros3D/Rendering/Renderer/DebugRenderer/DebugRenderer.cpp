@@ -147,7 +147,7 @@ namespace p3d {
 			f32 z = -height + 2 * height*(f32)(j - jMin) / (f32)(jMax - jMin);
 			std::vector <Vec3> aRow;
 
-			for (size_t i = 0; i<segmentsW; ++i) {
+			for (size_t i = 0; i < segmentsW; ++i) {
 				f32 verangle = (f32)(2 * (f32)i / segmentsW*PI);
 				f32 x = radius * sin(verangle);
 				f32 y = radius * cos(verangle);
@@ -160,7 +160,7 @@ namespace p3d {
 		aVtc.push_back(aRowT);
 
 		for (size_t j = 1; j <= segmentsH; ++j) {
-			for (size_t i = 0; i<segmentsW; ++i) {
+			for (size_t i = 0; i < segmentsW; ++i) {
 				Vec3 a = aVtc[j][i];
 				Vec3 b = aVtc[j][(i - 1 + segmentsW) % segmentsW];
 				Vec3 c = aVtc[j - 1][(i - 1 + segmentsW) % segmentsW];
@@ -201,17 +201,17 @@ namespace p3d {
 		segmentsH += 1;
 		Vec3 bottom = Vec3(0, -_height * 2, 0);
 		std::vector <Vec3> aRowB;
-		for (size_t i = 0; i<segmentsW; ++i) {
+		for (size_t i = 0; i < segmentsW; ++i) {
 			aRowB.push_back(bottom);
 		}
 		aVtc.push_back(aRowB);
-	
 
-		for (size_t j = jMin; j<segmentsH; ++j) {
+
+		for (size_t j = jMin; j < segmentsH; ++j) {
 			f32 z = -height + 2 * height * (f32)(j - jMin) / (f32)(segmentsH - jMin);
 
 			std::vector <Vec3> aRow;
-			for (size_t i = 0; i<segmentsW; ++i) {
+			for (size_t i = 0; i < segmentsW; ++i) {
 				f32 verangle = (f32)(2 * (f32)i / (f32)segmentsW*PI);
 				f32 ringradius = radius * (f32)(segmentsH - j) / (f32)(segmentsH - jMin);
 				f32 x = ringradius * sin(verangle);
@@ -227,13 +227,13 @@ namespace p3d {
 		Vec3 top = Vec3(0, height, 0);
 		std::vector <Vec3> aRowT;
 
-		for (size_t i = 0; i<segmentsW; ++i)
+		for (size_t i = 0; i < segmentsW; ++i)
 			aRowT.push_back(top);
 
 		aVtc.push_back(aRowT);
 
 		for (size_t j = 1; j <= segmentsH; ++j) {
-			for (size_t i = 0; i<segmentsW; ++i) {
+			for (size_t i = 0; i < segmentsW; ++i) {
 				Vec3 a = aVtc[j][i];
 				Vec3 b = aVtc[j][(i - 1 + segmentsW) % segmentsW];
 				Vec3 c = aVtc[j - 1][(i - 1 + segmentsW) % segmentsW];
@@ -254,7 +254,7 @@ namespace p3d {
 
 				drawLine(c, b, color);
 				drawLine(b, a, color);
-				
+
 				drawLine(a, d, color);
 				drawLine(d, c, color);
 			}

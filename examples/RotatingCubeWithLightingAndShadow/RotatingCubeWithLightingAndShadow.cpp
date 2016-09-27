@@ -23,7 +23,7 @@ void RotatingCubeWithLightingAndShadow::OnResize(const uint32 width, const uint3
 	// Resize
 	Renderer->Resize(width, height);
 	projection.Perspective(70.f, (f32)width / (f32)height, 1.f, 200.f);
-	
+
 }
 
 void RotatingCubeWithLightingAndShadow::Init()
@@ -35,19 +35,19 @@ void RotatingCubeWithLightingAndShadow::Init()
 
 	// Initialize Renderer
 	Renderer = new ForwardRenderer(Width, Height);
-	
+
 	// Projection
 	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 2000.f);
 
 	// Create Camera
 	Camera = new GameObject();
 	Camera->SetPosition(Vec3(0, 10, 100));
-	
+
 	// Material
 	Diffuse = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::SpecularColor | ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow | ShaderUsage::PointShadow);
 	Diffuse->SetColor(Vec4(1, 0, 0, 1));
 	Diffuse->SetPCFTexelSize(0.0001f);
-	Diffuse->SetSpecular(Vec4(1,1,1,1));
+	Diffuse->SetSpecular(Vec4(1, 1, 1, 1));
 
 	// Add a Directional Light
 	Light = new GameObject();
@@ -62,7 +62,7 @@ void RotatingCubeWithLightingAndShadow::Init()
 	pLight = new PointLight(Vec4(1, 1, 1, 1), 100);
 	pLight->EnableCastShadows(256, 256);
 	pLight->SetShadowBias(5.f, 3.f);
-	
+
 	Light2->Add(pLight);
 	Scene->Add(Light2);
 	Light2->SetPosition(Vec3(0, 20, 0));
@@ -79,7 +79,7 @@ void RotatingCubeWithLightingAndShadow::Init()
 	Floor = new GameObject();
 	floorMesh = new Cube(100, 10, 100);
 	Ceiling = new GameObject();
-	
+
 
 	// Create Floor Rendering Component
 	rFloor = new RenderingComponent(floorMesh, FloorMaterial);
@@ -244,8 +244,8 @@ void RotatingCubeWithLightingAndShadow::LookTo(Event::Input::Info e)
 		{
 			counterX -= mouseDelta.x / 10.f;
 			counterY -= mouseDelta.y / 10.f;
-			if (counterY<-90.f) counterY = -90.f;
-			if (counterY>90.f) counterY = 90.f;
+			if (counterY < -90.f) counterY = -90.f;
+			if (counterY > 90.f) counterY = 90.f;
 			Quaternion qX, qY;
 			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), (f32)DEGTORAD(counterY));
 			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), (f32)DEGTORAD(counterX));

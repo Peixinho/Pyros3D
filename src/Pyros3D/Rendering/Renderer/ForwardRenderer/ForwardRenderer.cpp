@@ -106,7 +106,7 @@ namespace p3d {
 	{
 
 		InitRender();
-			
+
 		// Prepare and Pack Lights to Send to Shaders
 		std::vector<Matrix> _Lights;
 
@@ -118,96 +118,96 @@ namespace p3d {
 			{
 				switch (((ILightComponent*)(*i))->GetLightType())
 				{
-					case LIGHT_TYPE::DIRECTIONAL:
+				case LIGHT_TYPE::DIRECTIONAL:
+				{
+					DirectionalLight* d = ((DirectionalLight*)(*i));
+
+					// Directional Lights
+					Vec4 color = d->GetLightColor();
+					Vec3 position;
+					Vec3 direction = (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize();
+					f32 attenuation = 1.f;
+					Vec2 cones;
+					int32 type = 1;
+
+					Matrix directionalLight = Matrix();
+					directionalLight.m[0] = color.x;         directionalLight.m[1] = color.y;             directionalLight.m[2] = color.z;             directionalLight.m[3] = color.w;
+					directionalLight.m[4] = position.x;      directionalLight.m[5] = position.y;          directionalLight.m[6] = position.z;
+					directionalLight.m[7] = direction.x;     directionalLight.m[8] = direction.y;         directionalLight.m[9] = direction.z;
+					directionalLight.m[10] = 0.0f;			 directionalLight.m[11] = 0.0f;				  directionalLight.m[12] = 0.0f;
+					directionalLight.m[13] = (f32)type;		 directionalLight.m[14] = (d->IsCastingShadows() ? 1.f : 0.f);
+
+					_Lights.push_back(directionalLight);
+
+					if (d->IsCastingShadows())
 					{
-						DirectionalLight* d = ((DirectionalLight*)(*i));
-
-						// Directional Lights
-						Vec4 color = d->GetLightColor();
-						Vec3 position;
-						Vec3 direction = (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize();
-						f32 attenuation = 1.f;
-						Vec2 cones;
-						int32 type = 1;
-
-						Matrix directionalLight = Matrix();
-						directionalLight.m[0] = color.x;         directionalLight.m[1] = color.y;             directionalLight.m[2] = color.z;             directionalLight.m[3] = color.w;
-						directionalLight.m[4] = position.x;      directionalLight.m[5] = position.y;          directionalLight.m[6] = position.z;
-						directionalLight.m[7] = direction.x;     directionalLight.m[8] = direction.y;         directionalLight.m[9] = direction.z;
-						directionalLight.m[10] = 0.0f;			 directionalLight.m[11] = 0.0f;				  directionalLight.m[12] = 0.0f;
-						directionalLight.m[13] = (f32)type;		 directionalLight.m[14] = (d->IsCastingShadows() ? 1.f : 0.f);
-
-						_Lights.push_back(directionalLight);
-
-						if (d->IsCastingShadows())
-						{
-							// Increase Number of Shadows
-							NumberOfDirectionalShadows++;
-						}
+						// Increase Number of Shadows
+						NumberOfDirectionalShadows++;
 					}
-					break;
-					case LIGHT_TYPE::POINT:
+				}
+				break;
+				case LIGHT_TYPE::POINT:
+				{
+					PointLight* p = ((PointLight*)(*i));
+
+					// Point Lights
+					Vec4 color = p->GetLightColor();
+					Vec3 position = (p->GetOwner()->GetWorldPosition());
+					Vec3 direction;
+					f32 attenuation = p->GetLightRadius();
+					Vec2 cones;
+					int32 type = 2;
+
+					Matrix pointLight = Matrix();
+					pointLight.m[0] = color.x;       pointLight.m[1] = color.y;           pointLight.m[2] = color.z;           pointLight.m[3] = color.w;
+					pointLight.m[4] = position.x;    pointLight.m[5] = position.y;        pointLight.m[6] = position.z;
+					pointLight.m[7] = direction.x;   pointLight.m[8] = direction.y;       pointLight.m[9] = direction.z;
+					pointLight.m[10] = attenuation;  pointLight.m[11] = 0.f;				  pointLight.m[12] = 0.f;
+					pointLight.m[13] = (f32)type;
+
+					if (p->IsCastingShadows())
 					{
-						PointLight* p = ((PointLight*)(*i));
-
-						// Point Lights
-						Vec4 color = p->GetLightColor();
-						Vec3 position = (p->GetOwner()->GetWorldPosition());
-						Vec3 direction;
-						f32 attenuation = p->GetLightRadius();
-						Vec2 cones;
-						int32 type = 2;
-
-						Matrix pointLight = Matrix();
-						pointLight.m[0] = color.x;       pointLight.m[1] = color.y;           pointLight.m[2] = color.z;           pointLight.m[3] = color.w;
-						pointLight.m[4] = position.x;    pointLight.m[5] = position.y;        pointLight.m[6] = position.z;
-						pointLight.m[7] = direction.x;   pointLight.m[8] = direction.y;       pointLight.m[9] = direction.z;
-						pointLight.m[10] = attenuation;  pointLight.m[11] = 0.f;				  pointLight.m[12] = 0.f;
-						pointLight.m[13] = (f32)type;
-
-						if (p->IsCastingShadows())
-						{
-							pointLight.m[14] = 1.f;
-							pointLight.m[15] = (f32)pointCounter++;
-							NumberOfPointShadows++;
-						}
-
-						_Lights.push_back(pointLight);
+						pointLight.m[14] = 1.f;
+						pointLight.m[15] = (f32)pointCounter++;
+						NumberOfPointShadows++;
 					}
-					break;
-					case LIGHT_TYPE::SPOT:
+
+					_Lights.push_back(pointLight);
+				}
+				break;
+				case LIGHT_TYPE::SPOT:
+				{
+					SpotLight* s = ((SpotLight*)(*i));
+
+					// Spot Lights
+					Vec4 color = s->GetLightColor();
+					Vec3 position = s->GetOwner()->GetWorldPosition();
+					Vec3 direction = (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.f)).xyz().normalize();
+					f32 attenuation = s->GetLightRadius();
+					Vec2 cones = Vec2(s->GetLightCosInnerCone(), s->GetLightCosOutterCone());
+					int32 type = 3;
+
+					Matrix spotLight = Matrix();
+					spotLight.m[0] = color.x;        spotLight.m[1] = color.y;            spotLight.m[2] = color.z;            spotLight.m[3] = color.w;
+					spotLight.m[4] = position.x;     spotLight.m[5] = position.y;         spotLight.m[6] = position.z;
+					spotLight.m[7] = direction.x;    spotLight.m[8] = direction.y;        spotLight.m[9] = direction.z;
+					spotLight.m[10] = attenuation;	 spotLight.m[11] = cones.x;			  spotLight.m[12] = cones.y;
+					spotLight.m[13] = (f32)type;
+
+					if (s->IsCastingShadows())
 					{
-						SpotLight* s = ((SpotLight*)(*i));
+						spotLight.m[14] = 1.f;
+						spotLight.m[15] = (f32)spotCounter++;
+						NumberOfSpotShadows++;
+					}
 
-						// Spot Lights
-						Vec4 color = s->GetLightColor();
-						Vec3 position = s->GetOwner()->GetWorldPosition();
-						Vec3 direction = (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.f)).xyz().normalize();
-						f32 attenuation = s->GetLightRadius();
-						Vec2 cones = Vec2(s->GetLightCosInnerCone(), s->GetLightCosOutterCone());
-						int32 type = 3;
+					_Lights.push_back(spotLight);
 
-						Matrix spotLight = Matrix();
-						spotLight.m[0] = color.x;        spotLight.m[1] = color.y;            spotLight.m[2] = color.z;            spotLight.m[3] = color.w;
-						spotLight.m[4] = position.x;     spotLight.m[5] = position.y;         spotLight.m[6] = position.z;
-						spotLight.m[7] = direction.x;    spotLight.m[8] = direction.y;        spotLight.m[9] = direction.z;
-						spotLight.m[10] = attenuation;	 spotLight.m[11] = cones.x;			  spotLight.m[12] = cones.y;
-						spotLight.m[13] = (f32)type;
+				};
 
-						if (s->IsCastingShadows())
-						{
-							spotLight.m[14] = 1.f;
-							spotLight.m[15] = (f32)spotCounter++;
-							NumberOfSpotShadows++;
-						}
-
-						_Lights.push_back(spotLight);
-
-					};
-
-					// Universal Cache
-					ProjectionMatrix = projection.m;
-					NearFarPlane = Vec2(projection.Near, projection.Far);
+				// Universal Cache
+				ProjectionMatrix = projection.m;
+				NearFarPlane = Vec2(projection.Near, projection.Far);
 
 				}
 			}

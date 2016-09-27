@@ -26,7 +26,7 @@ namespace ImGui {
 		void ImGui_ImplSFML_RenderDrawLists(ImDrawData* draw_data)
 		{
 
-			if ((p3d::Context::GetGLMajorVersion() == 3 && p3d::Context::GetGLMinorVersion() >= 3) || p3d::Context::GetGLMajorVersion()>3)
+			if ((p3d::Context::GetGLMajorVersion() == 3 && p3d::Context::GetGLMinorVersion() >= 3) || p3d::Context::GetGLMajorVersion() > 3)
 			{
 
 				// Backup GL state
@@ -215,7 +215,7 @@ namespace ImGui {
 
 			GLint last_texture, last_array_buffer, last_vertex_array;
 
-			if ((p3d::Context::GetGLMajorVersion() == 3 && p3d::Context::GetGLMinorVersion() >= 3) || p3d::Context::GetGLMajorVersion()>3)
+			if ((p3d::Context::GetGLMajorVersion() == 3 && p3d::Context::GetGLMinorVersion() >= 3) || p3d::Context::GetGLMajorVersion() > 3)
 			{
 				// Backup GL state
 				glGetIntegerv(GL_TEXTURE_BINDING_2D, &last_texture);
@@ -285,7 +285,7 @@ namespace ImGui {
 			ImGui_ImplSFML_CreateFontsTexture();
 			glBindTexture(GL_TEXTURE_2D, last_texture);
 
-			if ((p3d::Context::GetGLMajorVersion() == 3 && p3d::Context::GetGLMinorVersion() >= 3) || p3d::Context::GetGLMajorVersion()>3)
+			if ((p3d::Context::GetGLMajorVersion() == 3 && p3d::Context::GetGLMinorVersion() >= 3) || p3d::Context::GetGLMajorVersion() > 3)
 			{
 				// Restore modified GL state
 				glBindBuffer(GL_ARRAY_BUFFER, last_array_buffer);

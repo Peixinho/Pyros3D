@@ -19,126 +19,126 @@ namespace p3d {
 
 	class TextureAnimation;
 
-  	class PYROS3D_API TextureAnimationInstance {
+	class PYROS3D_API TextureAnimationInstance {
 
 		friend class TextureAnimation;
 
-		private:
+	private:
 
-			// initial timer
-			f32 timeStart;
-			// Frame Speed
-			f32 FrameSpeed;
-			// Pause
-			f32 timerPauseEnd;
-			f32 timerPauseStart;
-			f32 timerPauseLength;
-			bool isPaused;
-			// flags
-			bool isPlaying;
-			bool isLooping;
-			// Last Texture Bound
-			int32 _frame;
-			// Yoyo
-			bool yoyo;
-			// Repeat
-			int32 repeat;
-			int32 _internalRepeat;
-			bool reverse;
-			// Keep Owner PTR
-			TextureAnimation* Owner;
+		// initial timer
+		f32 timeStart;
+		// Frame Speed
+		f32 FrameSpeed;
+		// Pause
+		f32 timerPauseEnd;
+		f32 timerPauseStart;
+		f32 timerPauseLength;
+		bool isPaused;
+		// flags
+		bool isPlaying;
+		bool isLooping;
+		// Last Texture Bound
+		int32 _frame;
+		// Yoyo
+		bool yoyo;
+		// Repeat
+		int32 repeat;
+		int32 _internalRepeat;
+		bool reverse;
+		// Keep Owner PTR
+		TextureAnimation* Owner;
 
-			// CallBack Functions
-			Gallant::Signal0<void> OnStartFunction;
-			Gallant::Signal0<void> OnUpdateFunction;
-			Gallant::Signal0<void> OnEndFunction;
-			bool haveOnStartFunction;
-			bool haveOnUpdateFunction;
-			bool haveOnEndFunction;
+		// CallBack Functions
+		Gallant::Signal0<void> OnStartFunction;
+		Gallant::Signal0<void> OnUpdateFunction;
+		Gallant::Signal0<void> OnEndFunction;
+		bool haveOnStartFunction;
+		bool haveOnUpdateFunction;
+		bool haveOnEndFunction;
 
-		public:
+	public:
 
-			TextureAnimationInstance(TextureAnimation* owner, const f32 &fps);
+		TextureAnimationInstance(TextureAnimation* owner, const f32 &fps);
 
-			// Play, Stop, Pause
-			void Reset(); // Go To Initial Frame
-			void Play(const int32 &Repeat = 1);
-			void Reverse(bool Reverse);
-			void Pause();
-			void Stop();
-			// Is Playing Animation
-			bool IsPlaying();
-			// Yoyo
-			void YoYo(bool yo);
+		// Play, Stop, Pause
+		void Reset(); // Go To Initial Frame
+		void Play(const int32 &Repeat = 1);
+		void Reverse(bool Reverse);
+		void Pause();
+		void Stop();
+		// Is Playing Animation
+		bool IsPlaying();
+		// Yoyo
+		void YoYo(bool yo);
 
-			// Get Texture
-			Texture* GetTexture();
-			// Get Frame
-			const uint32 GetFrame() const;
-			// CallBacks
-			void OnStart(void (*func) (void));
-			template< class X, class Y >
-			void OnStart( Y * obj, void (X::*func)() )
-			{
-				haveOnStartFunction = true;
-				OnStartFunction.Connect(obj,func);
-			}
-			
-			void OnUpdate(void (*func) (void));
-			template< class X, class Y >
-			void OnUpdate( Y * obj, void (X::*func)() )
-			{
-				haveOnUpdateFunction = true;
-				OnUpdateFunction.Connect(obj,func);
-			}
-			
-			void OnEnd(void (*func) (void));
-			template< class X, class Y >
-			void OnEnd( Y * obj, void (X::*func)() )
-			{
-				haveOnEndFunction = true;
-				OnEndFunction.Connect(obj,func);
-			}
+		// Get Texture
+		Texture* GetTexture();
+		// Get Frame
+		const uint32 GetFrame() const;
+		// CallBacks
+		void OnStart(void(*func) (void));
+		template< class X, class Y >
+		void OnStart(Y * obj, void (X::*func)())
+		{
+			haveOnStartFunction = true;
+			OnStartFunction.Connect(obj, func);
+		}
 
-      };
+		void OnUpdate(void(*func) (void));
+		template< class X, class Y >
+		void OnUpdate(Y * obj, void (X::*func)())
+		{
+			haveOnUpdateFunction = true;
+			OnUpdateFunction.Connect(obj, func);
+		}
 
-      class TextureAnimation {
+		void OnEnd(void(*func) (void));
+		template< class X, class Y >
+		void OnEnd(Y * obj, void (X::*func)())
+		{
+			haveOnEndFunction = true;
+			OnEndFunction.Connect(obj, func);
+		}
 
-        friend class TextureAnimationInstance;
-    
-        private:
+	};
 
-			// internal timer
-			f32 timer;
-			// frames
-			std::vector<Texture*> Frames;
-			// Instances
-			std::vector<TextureAnimationInstance*> Instances;
+	class PYROS3D_API TextureAnimation {
 
-		public:
+		friend class TextureAnimationInstance;
 
-			Texture* GetFrame(const uint32 &frame);
-			uint32 GetNumberFrames();
+	private:
 
-			// Constructor
-			TextureAnimation();
+		// internal timer
+		f32 timer;
+		// frames
+		std::vector<Texture*> Frames;
+		// Instances
+		std::vector<TextureAnimationInstance*> Instances;
 
-			// Add Frame
-			void AddFrame(Texture* texture);
+	public:
 
-			// Void Update
-			void Update(const f32 &time);
+		Texture* GetFrame(const uint32 &frame);
+		uint32 GetNumberFrames();
 
-			// Destructor
-			virtual ~TextureAnimation();
+		// Constructor
+		TextureAnimation();
 
-			// Instance
-			TextureAnimationInstance* CreateInstance(const f32 &fps = 30);
+		// Add Frame
+		void AddFrame(Texture* texture);
 
-			// Destroy Instance
-			void DestroyInstance(TextureAnimationInstance* Instance);
-    };
-    
+		// Void Update
+		void Update(const f32 &time);
+
+		// Destructor
+		virtual ~TextureAnimation();
+
+		// Instance
+		TextureAnimationInstance* CreateInstance(const f32 &fps = 30);
+
+		// Destroy Instance
+		void DestroyInstance(TextureAnimationInstance* Instance);
+	};
+
 };
 
 #endif /* TEXTUREANIMATION_H */

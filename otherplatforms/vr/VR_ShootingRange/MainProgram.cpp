@@ -34,14 +34,14 @@ void mainloop()
 		initialized = true;
 	}
 
-    // Get Events
-    window->GetEvents();
+	// Get Events
+	window->GetEvents();
 
-    // Update
-    window->Update();
+	// Update
+	window->Update();
 
-    // Draw in Screen
-    window->Draw();
+	// Draw in Screen
+	window->Draw();
 }
 
 int main(int argc, char** argv) {
@@ -56,18 +56,18 @@ int main(int argc, char** argv) {
 
 	// Set Initialized Flag
 	initialized = true;
-	
-	// Game Loop
-    while(window->IsRunning())
-    {
-		mainloop();
-    }
-    // Shutdown Window
-    window->Shutdown();
-    
-    // Delete Context
-    delete window;
 
-    // end
-    return 0;
+	// Game Loop
+	while (window->IsRunning())
+	{
+		mainloop();
+	}
+	// Shutdown Window
+	window->Shutdown();
+
+	// Delete Context
+	delete window;
+
+	// end
+	return 0;
 }

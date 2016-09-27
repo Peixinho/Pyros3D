@@ -10,10 +10,10 @@
 
 namespace p3d {
 
-    Culling::Culling() {
-    }
+	Culling::Culling() {
+	}
 
-    Culling::~Culling() {
-    }
+	Culling::~Culling() {
+	}
 
 }

@@ -10,7 +10,7 @@ namespace p3d {
 
 	using namespace Uniforms;
 
-	class DebugRenderer
+	class PYROS3D_API DebugRenderer
 	{
 
 	public:

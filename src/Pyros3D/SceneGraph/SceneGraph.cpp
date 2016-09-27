@@ -172,7 +172,7 @@ namespace p3d {
 			(*i)->UpdateComponents();
 			// Update Transforms Not Using Threads
 			(*i)->InternalUpdate();
-			
+
 			Vec3 _min = (*i)->GetBoundingMinValue();
 			Vec3 _max = (*i)->GetBoundingMaxValue();
 

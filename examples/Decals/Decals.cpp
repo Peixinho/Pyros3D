@@ -47,7 +47,7 @@ void Decals::Init()
 	cubeMesh = new Cube(30, 30, 30);
 	sphereMesh = new Sphere(30, 16, 16);
 	modelMesh = new Model("../../../../examples/Decals/assets/teapots/teapot.p3dm");
-	
+
 	rCube = new RenderingComponent(cubeMesh);
 	rSphere = new RenderingComponent(sphereMesh);
 	rModel = new RenderingComponent(modelMesh);
@@ -191,7 +191,7 @@ bool Decals::GetIntersectedTriangle(RenderingComponent* rcomp, Mouse3D mouse, Ve
 				rcomp->GetMeshes()[k]->Geometry->GetVertexData()[rcomp->GetMeshes()[k]->Geometry->GetIndexData()[i + 2]],
 				&_intersection,
 				&t
-			))
+				))
 			{
 
 				Vec3 forward = Camera->GetDirection().negate();
@@ -236,7 +236,7 @@ void Decals::CreateDecal()
 	GameObject* gobj = NULL;
 
 	mouse.GenerateRay((f32)Width, (f32)Height, InputManager::GetMousePosition().x, InputManager::GetMousePosition().y, SphereObject->GetWorldTransformation(), Camera->GetWorldTransformation().Inverse(), projection.GetProjectionMatrix());
-	if (mouse.rayIntersectionSphere(Vec3(0,0,0), 30, &intersection, &t))
+	if (mouse.rayIntersectionSphere(Vec3(0, 0, 0), 30, &intersection, &t))
 	{
 		if (GetIntersectedTriangle(rSphere, mouse, &intersection, &normal, &meshID))
 		{
@@ -337,8 +337,8 @@ void Decals::LookTo(Event::Input::Info e)
 		{
 			counterX -= mouseDelta.x / 10.f;
 			counterY -= mouseDelta.y / 10.f;
-			if (counterY<-90.f) counterY = -90.f;
-			if (counterY>90.f) counterY = 90.f;
+			if (counterY < -90.f) counterY = -90.f;
+			if (counterY > 90.f) counterY = 90.f;
 			Quaternion qX, qY;
 			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), (f32)DEGTORAD(counterY));
 			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), (f32)DEGTORAD(counterX));

@@ -21,362 +21,362 @@
 #include <Pyros3D/Other/Global.h>
 
 namespace p3d {
-    
-    // Store Each Submesh Material Properties
-    struct PYROS3D_API MaterialProperties
-    {
-        // Material ID
-        uint32 id;
-        // Material Name
-        std::string Name;
-        // Properties
-        Vec4 Color;
-        Vec4 Specular;
-        Vec4 Ambient;
-        Vec4 Emissive;
-        bool WireFrame;
-        bool Twosided;
-        f32 Opacity;
-        f32 Shininess;
-        f32 ShininessStrength;
-        // textures        
-        std::string colorMap;
-        std::string specularMap;
-        std::string normalMap;
-        // flags
-        bool haveColor;
-        bool haveSpecular;
-        bool haveAmbient;
-        bool haveEmissive;        
-        bool haveColorMap;
-        bool haveSpecularMap;
-        bool haveNormalMap;
-        bool haveBones;
 
-        MaterialProperties() : haveColor(false), haveSpecular(false), haveAmbient(false),haveColorMap(false),haveEmissive(false),haveNormalMap(false),haveSpecularMap(false), Opacity(1.0f), Shininess(0.0f), ShininessStrength(0.0f), WireFrame(false), Twosided(false), haveBones(false), id(0) {}
-    };
+	// Store Each Submesh Material Properties
+	struct PYROS3D_API MaterialProperties
+	{
+		// Material ID
+		uint32 id;
+		// Material Name
+		std::string Name;
+		// Properties
+		Vec4 Color;
+		Vec4 Specular;
+		Vec4 Ambient;
+		Vec4 Emissive;
+		bool WireFrame;
+		bool Twosided;
+		f32 Opacity;
+		f32 Shininess;
+		f32 ShininessStrength;
+		// textures        
+		std::string colorMap;
+		std::string specularMap;
+		std::string normalMap;
+		// flags
+		bool haveColor;
+		bool haveSpecular;
+		bool haveAmbient;
+		bool haveEmissive;
+		bool haveColorMap;
+		bool haveSpecularMap;
+		bool haveNormalMap;
+		bool haveBones;
 
-    // Vertex Attribute Struct
-    struct PYROS3D_API VertexAttribute {
-        // Attribute Name
-        std::string Name;
-        // Attribute Type
-        uint32 Type;
-        // Attribute Offset
-        uint32 Offset;
-        // Type Offset
-        uint32 byteSize;
-        // Attribute Data
-        std::vector<uchar> Data;
-        // Data Length
-        uint32 DataLength;
+		MaterialProperties() : haveColor(false), haveSpecular(false), haveAmbient(false), haveColorMap(false), haveEmissive(false), haveNormalMap(false), haveSpecularMap(false), Opacity(1.0f), Shininess(0.0f), ShininessStrength(0.0f), WireFrame(false), Twosided(false), haveBones(false), id(0) {}
+	};
 
-        VertexAttribute() {};
-        // ID = -2 because 0 is the first and -1 is "not found"         
-        VertexAttribute(const std::string &name, uint32 type, void* data, const uint32 &length) : Name(name), Type(type), DataLength(length) 
-        {                           
-            // Copy Data
-            switch(Type)
-            {
-                case Buffer::Attribute::Type::Float:         
-                        byteSize=sizeof(f32);
-                        break;
-                case Buffer::Attribute::Type::Int:
-                        byteSize=sizeof(int32);
-                        break;
-                case Buffer::Attribute::Type::Short:
-                        byteSize=sizeof(short);
-                        break;
-                case Buffer::Attribute::Type::Matrix:                        
-                        byteSize=sizeof(Matrix);
-                        break;
-                case Buffer::Attribute::Type::Vec2:                        
-                        byteSize=sizeof(Vec2);							
-                        break;
-                case Buffer::Attribute::Type::Vec3:
-                        byteSize=sizeof(Vec3);
-                        break;
-                case Buffer::Attribute::Type::Vec4:
-                        byteSize=sizeof(Vec4);
-                        break;
-            };
-            Data.resize(DataLength*byteSize);
-            memcpy(&Data[0],data,DataLength*byteSize);
+	// Vertex Attribute Struct
+	struct PYROS3D_API VertexAttribute {
+		// Attribute Name
+		std::string Name;
+		// Attribute Type
+		uint32 Type;
+		// Attribute Offset
+		uint32 Offset;
+		// Type Offset
+		uint32 byteSize;
+		// Attribute Data
+		std::vector<uchar> Data;
+		// Data Length
+		uint32 DataLength;
 
-        }
-    };
+		VertexAttribute() {};
+		// ID = -2 because 0 is the first and -1 is "not found"         
+		VertexAttribute(const std::string &name, uint32 type, void* data, const uint32 &length) : Name(name), Type(type), DataLength(length)
+		{
+			// Copy Data
+			switch (Type)
+			{
+			case Buffer::Attribute::Type::Float:
+				byteSize = sizeof(f32);
+				break;
+			case Buffer::Attribute::Type::Int:
+				byteSize = sizeof(int32);
+				break;
+			case Buffer::Attribute::Type::Short:
+				byteSize = sizeof(short);
+				break;
+			case Buffer::Attribute::Type::Matrix:
+				byteSize = sizeof(Matrix);
+				break;
+			case Buffer::Attribute::Type::Vec2:
+				byteSize = sizeof(Vec2);
+				break;
+			case Buffer::Attribute::Type::Vec3:
+				byteSize = sizeof(Vec3);
+				break;
+			case Buffer::Attribute::Type::Vec4:
+				byteSize = sizeof(Vec4);
+				break;
+			};
+			Data.resize(DataLength*byteSize);
+			memcpy(&Data[0], data, DataLength*byteSize);
 
-    struct PYROS3D_API Bone;
+		}
+	};
 
-    class PYROS3D_API AttributeArray
-    {
-        
-        public:
-            // Attributes List
-            std::vector<VertexAttribute*> Attributes;
+	struct PYROS3D_API Bone;
 
-            void AddAttribute(const std::string &name, const uint32 &type, void* data, const uint32 &length) 
-            {
-                VertexAttribute* v (new VertexAttribute(name, type, data, length));
-                Attributes.push_back(v);
-            }
+	class PYROS3D_API AttributeArray
+	{
 
-            virtual void SendBuffer() {}
+	public:
+		// Attributes List
+		std::vector<VertexAttribute*> Attributes;
 
-            virtual void Dispose()
-            {
-                // Loop Through each Vertex Attribute and Delete Them
-                for (std::vector<VertexAttribute*>::iterator k = Attributes.begin();k!=Attributes.end();k++)
-                {
-                    // Delete Vertex Attribute
-                    delete *k;
-                }
-            }
-    };
-    
-    // Attributes Buffer
-    class PYROS3D_API AttributeBuffer : public AttributeArray  {
-        public:
-            // Buffer
-            GeometryBuffer* Buffer;
-            uint32 bufferType;
-            uint32 bufferDraw;
-            // Data
-            std::vector<uchar> Data;
-            // Offset
-            uint32 BufferOffset;
-            // Attributes Size
-            uint32 attributeSize;
+		void AddAttribute(const std::string &name, const uint32 &type, void* data, const uint32 &length)
+		{
+			VertexAttribute* v(new VertexAttribute(name, type, data, length));
+			Attributes.push_back(v);
+		}
 
-            AttributeBuffer() : attributeSize(0) {}
-            AttributeBuffer(const uint32 &type, const uint32 &draw) : attributeSize(0) { bufferDraw = draw; bufferType = type; }
+		virtual void SendBuffer() {}
 
-            virtual void SendBuffer()
-            {
-                uint32 offset = 0;
-                uint32 count = 0;
-                for (std::vector<VertexAttribute*>::iterator k = Attributes.begin();k!=Attributes.end();k++)
-                {
-                    (*k)->Offset = offset;
-                    offset += (*k)->byteSize;
-                    count = (*k)->DataLength;
-                }
-                BufferOffset=offset;
+		virtual void Dispose()
+		{
+			// Loop Through each Vertex Attribute and Delete Them
+			for (std::vector<VertexAttribute*>::iterator k = Attributes.begin(); k != Attributes.end(); k++)
+			{
+				// Delete Vertex Attribute
+				delete *k;
+			}
+		}
+	};
 
-                // Resize Data
-                Data.resize(BufferOffset*count);
-                // Run through attributes data            
-                for (uint32 l=0;l<count;l++)
-                {                
-                    offset = BufferOffset*l;               
-                    // Run through all attributes
-                    for (std::vector<VertexAttribute*>::iterator k = Attributes.begin();k!=Attributes.end();k++)
-                    {
-                        memcpy(&Data[offset+(*k)->Offset],&(*k)->Data[(l*(*k)->byteSize)],(*k)->byteSize);
-                    }
-                }
-                // Create Buffer
-                Buffer = new GeometryBuffer(bufferType,bufferDraw);
-                // Send Buffer
-                Buffer->Init(&Data[0],Data.size());
-            }
+	// Attributes Buffer
+	class PYROS3D_API AttributeBuffer : public AttributeArray {
+	public:
+		// Buffer
+		GeometryBuffer* Buffer;
+		uint32 bufferType;
+		uint32 bufferDraw;
+		// Data
+		std::vector<uchar> Data;
+		// Offset
+		uint32 BufferOffset;
+		// Attributes Size
+		uint32 attributeSize;
 
-            virtual void Dispose()
-            {
-                // Loop Through each Vertex Attribute and Delete Them
-                for (std::vector<VertexAttribute*>::iterator k = Attributes.begin();k!=Attributes.end();k++)
-                {
-                    // Delete Vertex Attribute
-                    delete *k;
-                }
-            }
-    };
-    
-    namespace GeometryType {
-        enum {
-            BUFFER = 0,
-            ARRAY
-        };
-    };
-    
-    // Geometry Interface Keeps Index and Attributes Buffer
-    // Creates a Simple Material Properties
-    class PYROS3D_API IGeometry {
+		AttributeBuffer() : attributeSize(0) {}
+		AttributeBuffer(const uint32 &type, const uint32 &draw) : attributeSize(0) { bufferDraw = draw; bufferType = type; }
 
-        public:
-            
-            // Store Geometry Type [ Buffer or Array ]
-            uint32 Type;
-        
-            // Index Data
-            std::vector<__INDEX_C_TYPE__> index;
-            
-            // Index Buffer - if is used
-            GeometryBuffer* IndexBuffer;
-            
-            // Attributes Buffer
-            std::vector<AttributeArray*> Attributes;
+		virtual void SendBuffer()
+		{
+			uint32 offset = 0;
+			uint32 count = 0;
+			for (std::vector<VertexAttribute*>::iterator k = Attributes.begin(); k != Attributes.end(); k++)
+			{
+				(*k)->Offset = offset;
+				offset += (*k)->byteSize;
+				count = (*k)->DataLength;
+			}
+			BufferOffset = offset;
 
-            IGeometry(const uint32 Type = GeometryType::BUFFER) {
-                
-                // Internal ID
-                ID = _InternalID++;
-                
-                // Save Type
-                this->Type = Type;
-            }
+			// Resize Data
+			Data.resize(BufferOffset*count);
+			// Run through attributes data            
+			for (uint32 l = 0; l < count; l++)
+			{
+				offset = BufferOffset*l;
+				// Run through all attributes
+				for (std::vector<VertexAttribute*>::iterator k = Attributes.begin(); k != Attributes.end(); k++)
+				{
+					memcpy(&Data[offset + (*k)->Offset], &(*k)->Data[(l*(*k)->byteSize)], (*k)->byteSize);
+				}
+			}
+			// Create Buffer
+			Buffer = new GeometryBuffer(bufferType, bufferDraw);
+			// Send Buffer
+			Buffer->Init(&Data[0], Data.size());
+		}
 
-            virtual ~IGeometry() {}
+		virtual void Dispose()
+		{
+			// Loop Through each Vertex Attribute and Delete Them
+			for (std::vector<VertexAttribute*>::iterator k = Attributes.begin(); k != Attributes.end(); k++)
+			{
+				// Delete Vertex Attribute
+				delete *k;
+			}
+		}
+	};
 
-            // Material Properties
-            MaterialProperties materialProperties;
-            
-            // Material
-            IMaterial* Material;
-            
-            // Virtual Methods
-            virtual const std::vector<__INDEX_C_TYPE__> &GetIndexData() const = 0;
-            virtual const std::vector<Vec3> &GetVertexData() const = 0;
-			virtual const std::vector<Vec3> &GetNormalData() const = 0;
-            virtual const f32 &GetBoundingSphereRadius() const { return BoundingSphereRadius; }
-            virtual const Vec3 &GetBoundingSphereCenter() const { return BoundingSphereCenter; }
-            virtual const Vec3 &GetBoundingMinValue() const { return minBounds; }
-            virtual const Vec3 &GetBoundingMaxValue() const { return maxBounds; }
-            
-            virtual void CalculateBounding() = 0;
-            
-            const uint32 &GetGeometryType() const { return Type; }
+	namespace GeometryType {
+		enum {
+			BUFFER = 0,
+			ARRAY
+		};
+	};
 
-            virtual void SendBuffers()
-            {
-                if (Type==GeometryType::BUFFER)
-                {
-                    // create and send index buffer
-                    IndexBuffer = new GeometryBuffer(Buffer::Type::Index, Buffer::Draw::Static);
-                    IndexBuffer->Init( &index[0], sizeof(__INDEX_C_TYPE__)*index.size());
+	// Geometry Interface Keeps Index and Attributes Buffer
+	// Creates a Simple Material Properties
+	class PYROS3D_API IGeometry {
 
-                    // send attribute buffers
-                    for (std::vector<AttributeArray*>::iterator i=Attributes.begin();i!=Attributes.end();i++)
-                    {
-                        AttributeBuffer* bf = (AttributeBuffer*) (*i);
-                        bf->SendBuffer();
-                    }
-                }
-            }
+	public:
 
-            virtual void Dispose()
-            {
-                // Delete Index Buffer
-                if (Type==GeometryType::BUFFER)
-                    delete IndexBuffer;
-                // Loop Through Attributes Buffer and Delete Each One
-                for (std::vector<AttributeArray*>::iterator i=Attributes.begin();i!=Attributes.end();i++)
-                {
-                    // Dipose Vertex Attributes
-                    (*i)->Dispose();
-                    // Delete Pointer
-                    delete *i;
-                }
-                Attributes.clear();
-            }
+		// Store Geometry Type [ Buffer or Array ]
+		uint32 Type;
 
-            uint32 GetInternalID() { return ID; }
-            
-            // Map Bone ID's
-            std::map<int32, int32> MapBoneIDs;
-            // Bone Offset Matrix
-            std::map<int32, Matrix> BoneOffsetMatrix;
+		// Index Data
+		std::vector<__INDEX_C_TYPE__> index;
 
-        protected:
+		// Index Buffer - if is used
+		GeometryBuffer* IndexBuffer;
 
-            f32 BoundingSphereRadius;
-            Vec3 BoundingSphereCenter;
-            Vec3 maxBounds, minBounds;
+		// Attributes Buffer
+		std::vector<AttributeArray*> Attributes;
 
-            // Internal ID
-            static uint32 _InternalID;
-            uint32 ID;
-    };
+		IGeometry(const uint32 Type = GeometryType::BUFFER) {
 
-    // Keeps the Geometry List
-    class PYROS3D_API Renderable {
+			// Internal ID
+			ID = _InternalID++;
 
-        public:
+			// Save Type
+			this->Type = Type;
+		}
 
-            // Materials vector
-            std::map <uint32, IMaterial*> Materialsvector;
-			std::vector <Texture*> Texturesvector;
-            
-            Renderable() {}
-            virtual ~Renderable()
-            {
-                for(std::vector<IGeometry*>::iterator i = Geometries.begin();i!=Geometries.end();i++)
-                {
-                    // Dispose Buffer
-                    (*i)->Dispose();
-                    // Delete Pointer
-                    delete (*i);
-                }
-                // Delete Materials
-                for (std::map <uint32, IMaterial*>::iterator i = Materialsvector.begin();i!=Materialsvector.end();i++)
-                    delete (*i).second;
-				// Delete Textures
-				for (std::vector<Texture*>::iterator i = Texturesvector.begin(); i != Texturesvector.end(); i++)
-					delete (*i);
-            }
+		virtual ~IGeometry() {}
 
-            virtual void BuildMaterials(const uint32 &MaterialOptions = 0);
-            
-            // Vector of Buffers
-            std::vector<IGeometry*> Geometries;
+		// Material Properties
+		MaterialProperties materialProperties;
 
-            virtual void CalculateBounding() 
-            { 
-                // Get Bounding Boxes
-                for(std::vector<IGeometry*>::iterator i = Geometries.begin();i!=Geometries.end();i++)
-                {
-					if (i == Geometries.begin())
-					{
-						maxBounds = (*i)->GetBoundingMaxValue();
-						minBounds = (*i)->GetBoundingMinValue();
-					}
-					else {
-						if ((*i)->GetBoundingMaxValue().x > maxBounds.x) maxBounds.x = (*i)->GetBoundingMaxValue().x;
-						if ((*i)->GetBoundingMaxValue().y > maxBounds.y) maxBounds.y = (*i)->GetBoundingMaxValue().y;
-						if ((*i)->GetBoundingMaxValue().z > maxBounds.z) maxBounds.z = (*i)->GetBoundingMaxValue().z;
+		// Material
+		IMaterial* Material;
 
-						if ((*i)->GetBoundingMinValue().x < minBounds.x) minBounds.x = (*i)->GetBoundingMinValue().x;
-						if ((*i)->GetBoundingMinValue().y < minBounds.y) minBounds.y = (*i)->GetBoundingMinValue().y;
-						if ((*i)->GetBoundingMinValue().z < minBounds.z) minBounds.z = (*i)->GetBoundingMinValue().z;
-					}
-                }
-                // Set Sphere Radius and Bounds
-                BoundingSphereCenter = Vec3::ZERO;
-                f32 a = maxBounds.distance(BoundingSphereCenter);
-                f32 b = minBounds.distance(BoundingSphereCenter);        
-                BoundingSphereRadius = Max(a,b);
-            }
+		// Virtual Methods
+		virtual const std::vector<__INDEX_C_TYPE__> &GetIndexData() const = 0;
+		virtual const std::vector<Vec3> &GetVertexData() const = 0;
+		virtual const std::vector<Vec3> &GetNormalData() const = 0;
+		virtual const f32 &GetBoundingSphereRadius() const { return BoundingSphereRadius; }
+		virtual const Vec3 &GetBoundingSphereCenter() const { return BoundingSphereCenter; }
+		virtual const Vec3 &GetBoundingMinValue() const { return minBounds; }
+		virtual const Vec3 &GetBoundingMaxValue() const { return maxBounds; }
 
-            // Bounds of the Whole Model
-            virtual f32 &GetBoundingSphereRadius() { return BoundingSphereRadius; }
-            virtual Vec3 &GetBoundingSphereCenter() { return BoundingSphereCenter; }
-            virtual Vec3 &GetBoundingMinValue() { return minBounds; }
-            virtual Vec3 &GetBoundingMaxValue() { return maxBounds; }
+		virtual void CalculateBounding() = 0;
 
-            // Get Skeleton
-            const std::map<StringID, Bone> &GetSkeleton() const { return skeleton; }
+		const uint32 &GetGeometryType() const { return Type; }
 
-        protected:
+		virtual void SendBuffers()
+		{
+			if (Type == GeometryType::BUFFER)
+			{
+				// create and send index buffer
+				IndexBuffer = new GeometryBuffer(Buffer::Type::Index, Buffer::Draw::Static);
+				IndexBuffer->Init(&index[0], sizeof(__INDEX_C_TYPE__)*index.size());
 
-            // Bounds of the Whole Model
-            f32 BoundingSphereRadius;
-            Vec3 BoundingSphereCenter;
-            Vec3 maxBounds, minBounds;
+				// send attribute buffers
+				for (std::vector<AttributeArray*>::iterator i = Attributes.begin(); i != Attributes.end(); i++)
+				{
+					AttributeBuffer* bf = (AttributeBuffer*)(*i);
+					bf->SendBuffer();
+				}
+			}
+		}
 
-            // Skeleton
-            std::map<StringID, Bone> skeleton;
+		virtual void Dispose()
+		{
+			// Delete Index Buffer
+			if (Type == GeometryType::BUFFER)
+				delete IndexBuffer;
+			// Loop Through Attributes Buffer and Delete Each One
+			for (std::vector<AttributeArray*>::iterator i = Attributes.begin(); i != Attributes.end(); i++)
+			{
+				// Dipose Vertex Attributes
+				(*i)->Dispose();
+				// Delete Pointer
+				delete *i;
+			}
+			Attributes.clear();
+		}
 
-    };
+		uint32 GetInternalID() { return ID; }
+
+		// Map Bone ID's
+		std::map<int32, int32> MapBoneIDs;
+		// Bone Offset Matrix
+		std::map<int32, Matrix> BoneOffsetMatrix;
+
+	protected:
+
+		f32 BoundingSphereRadius;
+		Vec3 BoundingSphereCenter;
+		Vec3 maxBounds, minBounds;
+
+		// Internal ID
+		static uint32 _InternalID;
+		uint32 ID;
+	};
+
+	// Keeps the Geometry List
+	class PYROS3D_API Renderable {
+
+	public:
+
+		// Materials vector
+		std::map <uint32, IMaterial*> Materialsvector;
+		std::vector <Texture*> Texturesvector;
+
+		Renderable() {}
+		virtual ~Renderable()
+		{
+			for (std::vector<IGeometry*>::iterator i = Geometries.begin(); i != Geometries.end(); i++)
+			{
+				// Dispose Buffer
+				(*i)->Dispose();
+				// Delete Pointer
+				delete (*i);
+			}
+			// Delete Materials
+			for (std::map <uint32, IMaterial*>::iterator i = Materialsvector.begin(); i != Materialsvector.end(); i++)
+				delete (*i).second;
+			// Delete Textures
+			for (std::vector<Texture*>::iterator i = Texturesvector.begin(); i != Texturesvector.end(); i++)
+				delete (*i);
+		}
+
+		virtual void BuildMaterials(const uint32 &MaterialOptions = 0);
+
+		// Vector of Buffers
+		std::vector<IGeometry*> Geometries;
+
+		virtual void CalculateBounding()
+		{
+			// Get Bounding Boxes
+			for (std::vector<IGeometry*>::iterator i = Geometries.begin(); i != Geometries.end(); i++)
+			{
+				if (i == Geometries.begin())
+				{
+					maxBounds = (*i)->GetBoundingMaxValue();
+					minBounds = (*i)->GetBoundingMinValue();
+				}
+				else {
+					if ((*i)->GetBoundingMaxValue().x > maxBounds.x) maxBounds.x = (*i)->GetBoundingMaxValue().x;
+					if ((*i)->GetBoundingMaxValue().y > maxBounds.y) maxBounds.y = (*i)->GetBoundingMaxValue().y;
+					if ((*i)->GetBoundingMaxValue().z > maxBounds.z) maxBounds.z = (*i)->GetBoundingMaxValue().z;
+
+					if ((*i)->GetBoundingMinValue().x < minBounds.x) minBounds.x = (*i)->GetBoundingMinValue().x;
+					if ((*i)->GetBoundingMinValue().y < minBounds.y) minBounds.y = (*i)->GetBoundingMinValue().y;
+					if ((*i)->GetBoundingMinValue().z < minBounds.z) minBounds.z = (*i)->GetBoundingMinValue().z;
+				}
+			}
+			// Set Sphere Radius and Bounds
+			BoundingSphereCenter = Vec3::ZERO;
+			f32 a = maxBounds.distance(BoundingSphereCenter);
+			f32 b = minBounds.distance(BoundingSphereCenter);
+			BoundingSphereRadius = Max(a, b);
+		}
+
+		// Bounds of the Whole Model
+		virtual f32 &GetBoundingSphereRadius() { return BoundingSphereRadius; }
+		virtual Vec3 &GetBoundingSphereCenter() { return BoundingSphereCenter; }
+		virtual Vec3 &GetBoundingMinValue() { return minBounds; }
+		virtual Vec3 &GetBoundingMaxValue() { return maxBounds; }
+
+		// Get Skeleton
+		const std::map<StringID, Bone> &GetSkeleton() const { return skeleton; }
+
+	protected:
+
+		// Bounds of the Whole Model
+		f32 BoundingSphereRadius;
+		Vec3 BoundingSphereCenter;
+		Vec3 maxBounds, minBounds;
+
+		// Skeleton
+		std::map<StringID, Bone> skeleton;
+
+	};
 };
 
- #endif /* RENDERABLES_H */
+#endif /* RENDERABLES_H */

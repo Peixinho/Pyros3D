@@ -10,243 +10,244 @@
 #include <Pyros3D/Core/File/File.h>
 
 namespace p3d {
-  
-    ISound::ISound(const uint32 type) 
-    {
-        _isPlaying = false;
-        _isPaused = false;
-        _type = type;
-        _volume = 100;
-    }
 
-    ISound::~ISound()
-    {
-        #if defined(_SDL2) || defined(_SDL)
-            switch(_type)
-            {
-                case SoundType::Music:
-                    Mix_HaltMusic();
-                    Mix_FreeMusic(_Music);
-                break;
-                case SoundType::Sound:
-                    delete _Sound;
-                break;
-            }
-        #endif
-    }
+	ISound::ISound(const uint32 type)
+	{
+		_isPlaying = false;
+		_isPaused = false;
+		_type = type;
+		_volume = 100;
+	}
 
-    bool ISound::LoadFromFile(const std::string &filename)
-    {
-        switch(_type)
-        {
-            case SoundType::Music:
-            {
+	ISound::~ISound()
+	{
+#if defined(_SDL2) || defined(_SDL)
+		switch (_type)
+		{
+		case SoundType::Music:
+			Mix_HaltMusic();
+			Mix_FreeMusic(_Music);
+			break;
+		case SoundType::Sound:
+			delete _Sound;
+			break;
+		}
+#endif
+	}
 
-                #if defined(_SDL2) || defined(_SDL)
+	bool ISound::LoadFromFile(const std::string &filename)
+	{
+		switch (_type)
+		{
+		case SoundType::Music:
+		{
 
-                    _Music = Mix_LoadMUS(filename.c_str());
-					return true;
-                #else
+#if defined(_SDL2) || defined(_SDL)
 
-                    File* file = new File();
-                    file->Open(filename);
-                    _Music.openFromMemory(&file->GetData()[0],file->Size());
-                    delete file;
-					return true;
-                #endif 
-            }
-            break;
-            case SoundType::Sound:
-            default:
-            {
-                #if defined(_SDL2) || defined(_SDL)
+			_Music = Mix_LoadMUS(filename.c_str());
+			return true;
+#else
 
-                    _Sound = Mix_LoadWAV(filename.c_str());
-					return true;
-                #else
-                    
-                    File* file = new File();
-                    file->Open(filename);
-                    _Buffer.loadFromMemory(&file->GetData()[0],file->Size());
-                    _Sound.setBuffer(_Buffer);
-					return true;
-                    delete file;
+			File* file = new File();
+			file->Open(filename);
+			_Music.openFromMemory(&file->GetData()[0], file->Size());
+			delete file;
+			return true;
+#endif 
+		}
+		break;
+		case SoundType::Sound:
+		default:
+		{
+#if defined(_SDL2) || defined(_SDL)
 
-                #endif
-            }
-            break;
-        };
+			_Sound = Mix_LoadWAV(filename.c_str());
+			return true;
+#else
+
+			File* file = new File();
+			file->Open(filename);
+			_Buffer.loadFromMemory(&file->GetData()[0], file->Size());
+			_Sound.setBuffer(_Buffer);
+			return true;
+			delete file;
+
+#endif
+		}
+		break;
+		};
 		return false;
-    }
+	}
 
-    void ISound::Play(bool loop)
-    {
-        _isPlaying = true;
+	void ISound::Play(bool loop)
+	{
+		_isPlaying = true;
 
-        _loop = loop;
+		_loop = loop;
 
-        switch(_type)
-        {
-            case SoundType::Music:
-                
-                #if defined(_SDL2) || defined(_SDL)
+		switch (_type)
+		{
+		case SoundType::Music:
 
-                    Mix_PlayMusic(_Music, (_loop?-1:0));
-                    Mix_VolumeMusic(_volume*100/128);
+#if defined(_SDL2) || defined(_SDL)
 
-                #else
+			Mix_PlayMusic(_Music, (_loop ? -1 : 0));
+			Mix_VolumeMusic(_volume * 100 / 128);
 
-                    _Music.setLoop(_loop);
-                    _Music.setVolume((f32)_volume);
-                    _Music.play();
+#else
 
-                #endif
+			_Music.setLoop(_loop);
+			_Music.setVolume((f32)_volume);
+			_Music.play();
 
-            break;
-            case SoundType::Sound:
-            default:
+#endif
 
-                #if defined(_SDL2) || defined(_SDL)
+			break;
+		case SoundType::Sound:
+		default:
 
-                    channel = Mix_PlayChannel(-1, _Sound, (_loop?-1:0));
-                    Mix_Volume(channel,_volume*100/128);
+#if defined(_SDL2) || defined(_SDL)
 
-                #else
+			channel = Mix_PlayChannel(-1, _Sound, (_loop ? -1 : 0));
+			Mix_Volume(channel, _volume * 100 / 128);
 
-                    _Sound.setLoop(_loop);
-                    _Sound.setVolume((f32)_volume);
-                    _Sound.play();
+#else
 
-                #endif
-            break;
-        };
-    }
+			_Sound.setLoop(_loop);
+			_Sound.setVolume((f32)_volume);
+			_Sound.play();
 
-    void ISound::SetVolume(const uint32 vol)
-    {
-        _volume = (vol>=100?100:vol);
+#endif
+			break;
+		};
+	}
 
-        #if defined(_SDL2) || defined(_SDL)
+	void ISound::SetVolume(const uint32 vol)
+	{
+		_volume = (vol >= 100 ? 100 : vol);
 
-            switch(_type)
-            {
-                case SoundType::Music:
-                {
-                    Mix_VolumeMusic(vol*100/128);
-                }
-                break;
-                case SoundType::Sound:
-                default:
-                {
-                    if (channel>-1)
-                        Mix_Volume(channel,vol*100/128);
-                }
-                break;
-            };
+#if defined(_SDL2) || defined(_SDL)
 
-        #else
+		switch (_type)
+		{
+		case SoundType::Music:
+		{
+			Mix_VolumeMusic(vol * 100 / 128);
+		}
+		break;
+		case SoundType::Sound:
+		default:
+		{
+			if (channel > -1)
+				Mix_Volume(channel, vol * 100 / 128);
+		}
+		break;
+		};
 
-            switch(_type)
-            {
-                case SoundType::Music:
-                    _Music.setVolume((f32)_volume);
-                break;
-                case SoundType::Sound:
-                default:
-                    _Sound.setVolume((f32)_volume);
-                break;
-            };
+#else
 
-        #endif
-    }
+		switch (_type)
+		{
+		case SoundType::Music:
+			_Music.setVolume((f32)_volume);
+			break;
+		case SoundType::Sound:
+		default:
+			_Sound.setVolume((f32)_volume);
+			break;
+		};
 
-    void ISound::Pause()
-    {
-        if (!_isPaused) 
-        {
-            _isPaused = true;
-            switch(_type)
-            {
-                case SoundType::Music:
-                        
-                    #if defined(_SDL2) || defined(_SDL)
-                        Mix_PausedMusic();
-                    #else
-                        _Music.pause();
-                    #endif
+#endif
+	}
 
-                break;
-                case SoundType::Sound:
-                default:
-                        
-                    #if defined(_SDL2) || defined(_SDL)
-                        Mix_Pause(channel);
-                    #else
-                        _Sound.pause();
-                    #endif
+	void ISound::Pause()
+	{
+		if (!_isPaused)
+		{
+			_isPaused = true;
+			switch (_type)
+			{
+			case SoundType::Music:
 
-                break;
-            };
-        } else {
-            _isPaused = false;
-            switch(_type)
-            {
-                case SoundType::Music:
-                    
-                    #if defined(_SDL2) || defined(_SDL)
-                        Mix_ResumeMusic();
-                    #else
-                        _Music.play();
-                    #endif
+#if defined(_SDL2) || defined(_SDL)
+				Mix_PausedMusic();
+#else
+				_Music.pause();
+#endif
 
-                break;
-                case SoundType::Sound:
-                    
-                    #if defined(_SDL2) || defined(_SDL)
-                        Mix_Resume(channel);
-                    #else
-                        _Sound.play();
-                    #endif
-                break;
-            };
-        }
-    }
+				break;
+			case SoundType::Sound:
+			default:
 
-    void ISound::Stop()
-    {
-        _isPlaying = false;
+#if defined(_SDL2) || defined(_SDL)
+				Mix_Pause(channel);
+#else
+				_Sound.pause();
+#endif
 
-        switch(_type)
-        {
-            case SoundType::Music:
-                
-                #if defined(_SDL2) || defined(_SDL)
-                    Mix_HaltMusic();
-                #else
-                    _Music.stop();
-                #endif
-                    
-            break;
-            case SoundType::Sound:
-                
-                #if defined(_SDL2) || defined(_SDL)
-                    Mix_HaltChannel(channel);
-                #else
-                    _Sound.stop();
-                #endif
+				break;
+			};
+		}
+		else {
+			_isPaused = false;
+			switch (_type)
+			{
+			case SoundType::Music:
 
-            break;
-        }
-    }
+#if defined(_SDL2) || defined(_SDL)
+				Mix_ResumeMusic();
+#else
+				_Music.play();
+#endif
 
-    bool ISound::isPlaying()
-    {
-        return _isPlaying;
-    }
+				break;
+			case SoundType::Sound:
 
-    bool ISound::isPaused()
-    {
-        return _isPaused;
-    }
+#if defined(_SDL2) || defined(_SDL)
+				Mix_Resume(channel);
+#else
+				_Sound.play();
+#endif
+				break;
+			};
+		}
+	}
+
+	void ISound::Stop()
+	{
+		_isPlaying = false;
+
+		switch (_type)
+		{
+		case SoundType::Music:
+
+#if defined(_SDL2) || defined(_SDL)
+			Mix_HaltMusic();
+#else
+			_Music.stop();
+#endif
+
+			break;
+		case SoundType::Sound:
+
+#if defined(_SDL2) || defined(_SDL)
+			Mix_HaltChannel(channel);
+#else
+			_Sound.stop();
+#endif
+
+			break;
+		}
+	}
+
+	bool ISound::isPlaying()
+	{
+		return _isPlaying;
+	}
+
+	bool ISound::isPaused()
+	{
+		return _isPaused;
+	}
 
 };

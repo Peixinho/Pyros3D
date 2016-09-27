@@ -19,17 +19,17 @@
 
 namespace p3d {
 
-    #ifdef BULLETPHYSICS
-    class PYROS3D_API Physics : public BulletPhysics {
-    #endif
-        
-        public:
+#ifdef BULLETPHYSICS
+	class PYROS3D_API Physics : public BulletPhysics {
+#endif
 
-            Physics();
-            virtual ~Physics();
-        
-    };
-    
+	public:
+
+		Physics();
+		virtual ~Physics();
+
+	};
+
 };
 
 #endif /*PHYSICS_H*/

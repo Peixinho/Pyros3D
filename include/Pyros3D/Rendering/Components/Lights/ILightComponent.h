@@ -28,109 +28,109 @@ namespace p3d {
 		};
 	}
 
-    class PYROS3D_API ILightComponent : public IComponent {
+	class PYROS3D_API ILightComponent : public IComponent {
 
-        public:
-            
-            ILightComponent(const uint32 type);
-            
-            virtual ~ILightComponent();
-            
-            virtual void Register(SceneGraph* Scene);
-            virtual void Init() {}
-            virtual void Update() {}
-            virtual void Destroy() {}
-            virtual void Unregister(SceneGraph* Scene);
-            
-            static std::vector<IComponent*> &GetComponents();
-            static std::vector<IComponent*> &GetLightsOnScene(SceneGraph* Scene);
-            const Vec4 &GetLightColor() const;
-			void SetLightColor(const Vec4 &color) { Color = color; }
-            
-            bool IsCastingShadows() { return isCastingShadows; }
-            void DisableCastShadows();
-            
-            FrameBuffer* GetShadowFBO();
-            
-            Texture* GetShadowMapTexture() { return ShadowMap; }
-            
-            uint32 GetShadowWidth()
-            {
-                return ShadowWidth;
-            }
-            
-            uint32 GetShadowHeight() 
-            {
-                return ShadowHeight;
-            }
+	public:
 
-			const f32 &GetShadowNear() const
-			{
-				return ShadowNear;
-			}
+		ILightComponent(const uint32 type);
 
-			virtual const f32 &GetShadowFar() const
-			{
-				return ShadowFar;
-			}
+		virtual ~ILightComponent();
 
-			void SetShadowNear(const f32 Near)
-			{
-				ShadowNear = Near;
-			}
+		virtual void Register(SceneGraph* Scene);
+		virtual void Init() {}
+		virtual void Update() {}
+		virtual void Destroy() {}
+		virtual void Unregister(SceneGraph* Scene);
 
-			void SetShadowFar(const f32 Far)
-			{
-				ShadowFar = Far;
-			}
-            
-			void SetShadowBias(const f32 factor, const f32 units)
-			{
-				ShadowBiasFactor = factor;
-				ShadowBiasUnits = units;
-			}
-			const f32 &GetShadowBiasFactor() const
-			{
-				return ShadowBiasFactor;
-			}
+		static std::vector<IComponent*> &GetComponents();
+		static std::vector<IComponent*> &GetLightsOnScene(SceneGraph* Scene);
+		const Vec4 &GetLightColor() const;
+		void SetLightColor(const Vec4 &color) { Color = color; }
 
-			const f32 &GetShadowBiasUnits() const
-			{
-				return ShadowBiasUnits;
-			}
+		bool IsCastingShadows() { return isCastingShadows; }
+		void DisableCastShadows();
 
-			const uint32 &GetLightType() const 
-			{
-				return LightType;
-			}
+		FrameBuffer* GetShadowFBO();
 
-        protected:
+		Texture* GetShadowMapTexture() { return ShadowMap; }
 
-            // Shadows Mapping
-            // FrameBuffer
-            FrameBuffer* shadowsFBO;
-            // Dimensions
-            uint32 ShadowWidth, ShadowHeight;
-            // Shadow Map Texture
-            Texture* ShadowMap;
-            // Far ane Near for Projection
-            f32 ShadowNear, ShadowFar;
-            // Flag
-            bool isCastingShadows;
-			// Bias Offset
-			f32 ShadowBiasFactor, ShadowBiasUnits;
-            // Light Color
-            Vec4 Color;
-            
-            // Internal - List of Lights
-            static std::vector<IComponent*> Components;
-            // Internal - Lights on Scene
-            static std::map<SceneGraph*, std::vector<IComponent*> > LightsOnScene;
+		uint32 GetShadowWidth()
+		{
+			return ShadowWidth;
+		}
 
-			uint32 LightType;
-            
-    };
-    
+		uint32 GetShadowHeight()
+		{
+			return ShadowHeight;
+		}
+
+		const f32 &GetShadowNear() const
+		{
+			return ShadowNear;
+		}
+
+		virtual const f32 &GetShadowFar() const
+		{
+			return ShadowFar;
+		}
+
+		void SetShadowNear(const f32 Near)
+		{
+			ShadowNear = Near;
+		}
+
+		void SetShadowFar(const f32 Far)
+		{
+			ShadowFar = Far;
+		}
+
+		void SetShadowBias(const f32 factor, const f32 units)
+		{
+			ShadowBiasFactor = factor;
+			ShadowBiasUnits = units;
+		}
+		const f32 &GetShadowBiasFactor() const
+		{
+			return ShadowBiasFactor;
+		}
+
+		const f32 &GetShadowBiasUnits() const
+		{
+			return ShadowBiasUnits;
+		}
+
+		const uint32 &GetLightType() const
+		{
+			return LightType;
+		}
+
+	protected:
+
+		// Shadows Mapping
+		// FrameBuffer
+		FrameBuffer* shadowsFBO;
+		// Dimensions
+		uint32 ShadowWidth, ShadowHeight;
+		// Shadow Map Texture
+		Texture* ShadowMap;
+		// Far ane Near for Projection
+		f32 ShadowNear, ShadowFar;
+		// Flag
+		bool isCastingShadows;
+		// Bias Offset
+		f32 ShadowBiasFactor, ShadowBiasUnits;
+		// Light Color
+		Vec4 Color;
+
+		// Internal - List of Lights
+		static std::vector<IComponent*> Components;
+		// Internal - Lights on Scene
+		static std::map<SceneGraph*, std::vector<IComponent*> > LightsOnScene;
+
+		uint32 LightType;
+
+	};
+
 };
 
 #endif /* ILIGHTCOMPONENT_H */

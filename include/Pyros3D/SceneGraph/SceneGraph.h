@@ -18,9 +18,9 @@ using namespace p3d::Math;
 
 namespace p3d {
 
-	class GameObject;
+	class PYROS3D_API GameObject;
 
-	class SceneGraph
+	class PYROS3D_API SceneGraph
 	{
 
 	public:
