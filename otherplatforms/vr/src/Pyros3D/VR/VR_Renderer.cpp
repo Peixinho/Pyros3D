@@ -34,45 +34,45 @@ namespace p3d {
 
 	void VR_Renderer::RenderControllers(bool show)
 	{
-		for (std::map<uint32, VR_GameObject*>::iterator i = Controllers.begin(); i != Controllers.end(); i++)
+		for (std::vector<VR_GameObject*>::iterator i = Controllers.begin(); i != Controllers.end(); i++)
 		{
-			if ((*i).second->showingModel != show)
+			if ((*i)->showingModel != show)
 			{
-				if (show) (*i).second->Add((*i).second->rcomp);
-				else (*i).second->Remove((*i).second->rcomp);
+				if (show) (*i)->Add((*i)->rcomp);
+				else (*i)->Remove((*i)->rcomp);
 			}
-			(*i).second->showingModel = show;
+			(*i)->showingModel = show;
 		}
 		showControllers = show;
 	}
 
 	void VR_Renderer::RenderTrackers(bool show)
 	{
-		for (std::map<uint32, VR_GameObject*>::iterator i = TrackingDevices.begin(); i != TrackingDevices.end(); i++)
+		for (std::vector<VR_GameObject*>::iterator i = TrackingDevices.begin(); i != TrackingDevices.end(); i++)
 		{
-			if ((*i).second->showingModel != show)
+			if ((*i)->showingModel != show)
 			{
-				if (show) (*i).second->Add((*i).second->rcomp);
-				else (*i).second->Remove((*i).second->rcomp);
+				if (show) (*i)->Add((*i)->rcomp);
+				else (*i)->Remove((*i)->rcomp);
 			}
-			(*i).second->showingModel = show;
+			(*i)->showingModel = show;
 		}
 		showTrackers = show;
 	}
 
 	VR_Renderer::~VR_Renderer()
 	{
-		for (std::map<uint32, VR_GameObject*>::iterator i = Controllers.begin(); i != Controllers.end(); i++)
+		for (std::vector<VR_GameObject*>::iterator i = Controllers.begin(); i != Controllers.end(); i++)
 		{
-			if ((*i).second->isOnScene)
-				scene->Remove((*i).second);
-			delete (*i).second;
+			if ((*i)->isOnScene)
+				scene->Remove((*i));
+			delete (*i);
 		}
-		for (std::map<uint32, VR_GameObject*>::iterator i = TrackingDevices.begin(); i != TrackingDevices.end(); i++)
+		for (std::vector<VR_GameObject*>::iterator i = TrackingDevices.begin(); i != TrackingDevices.end(); i++)
 		{
-			if ((*i).second->isOnScene)
-				scene->Remove((*i).second);
-			delete (*i).second;
+			if ((*i)->isOnScene)
+				scene->Remove((*i));
+			delete (*i);
 		}
 
 		Controllers.clear();
@@ -200,6 +200,26 @@ namespace p3d {
 		return true;
 	}
 
+	int VR_Renderer::Alloc(std::vector<VR_GameObject*> array)
+	{
+		for (int i = 0; i<array.size(); ++i)
+			if (!array[i])
+				return i;
+		array.resize(array.size() + 1);
+		return array.size() - 1;
+	}
+
+	void VR_Renderer::Free(std::vector<VR_GameObject*> array, int index)
+	{
+		for (int i = index + 1; i<array.size(); ++i)
+		if (array[i])
+		{
+		array[index] = NULL;
+		return;
+		}
+		array.resize(index);
+	}
+
 	void VR_Renderer::SetupDevice(uint32 modelIndex)
 	{
 		VR_GameObject* go = new VR_GameObject();
@@ -207,7 +227,8 @@ namespace p3d {
 		{
 		case vr::TrackedDeviceClass_Controller:
 			go->type = vr::TrackedDeviceClass_Controller;
-			Controllers[modelIndex] = go;
+
+			Controllers[Alloc(Controllers)] = go;
 			LoadModel(modelIndex, go);
 			if (showControllers)
 			{
@@ -217,7 +238,7 @@ namespace p3d {
 			break;
 		case vr::TrackedDeviceClass_TrackingReference:
 			go->type = vr::TrackedDeviceClass_TrackingReference;
-			TrackingDevices[modelIndex] = go;
+			TrackingDevices[Alloc(TrackingDevices)] = go;
 			LoadModel(modelIndex, go);
 			if (showTrackers)
 			{
@@ -248,26 +269,26 @@ namespace p3d {
 
 	void VR_Renderer::UnloadModel(uint32 modelIndex)
 	{
-		for (std::map<uint32, VR_GameObject*>::iterator i = Controllers.begin(); i != Controllers.end(); i++)
+		for (std::vector<VR_GameObject*>::iterator i = Controllers.begin(); i != Controllers.end(); i++)
 		{
-			if ((*i).second !=NULL && modelIndex == (*i).second->index)
+			if ((*i) !=NULL && modelIndex == (*i)->index)
 			{	
-				if (scene && (*i).second->isOnScene)
-					scene->Remove((*i).second);
-				delete (*i).second;
-				(*i).second = NULL;
+				if (scene && (*i)->isOnScene)
+					scene->Remove((*i));
+				delete (*i);
+				(*i) = NULL;
 				return ;
 			}
 		}
 
-		for (std::map<uint32, VR_GameObject*>::iterator i = TrackingDevices.begin(); i != TrackingDevices.end(); i++)
+		for (std::vector<VR_GameObject*>::iterator i = TrackingDevices.begin(); i != TrackingDevices.end(); i++)
 		{
-			if ((*i).second != NULL && modelIndex == (*i).second->index)
+			if ((*i) != NULL && modelIndex == (*i)->index)
 			{
-				if (scene && (*i).second->isOnScene)
-					scene->Remove((*i).second);
-				delete (*i).second;
-				(*i).second = NULL;
+				if (scene && (*i)->isOnScene)
+					scene->Remove((*i));
+				delete (*i);
+				(*i) = NULL;
 				return;
 			}
 		}
@@ -296,6 +317,7 @@ namespace p3d {
 			break;
 		}
 	}
+
 	void VR_Renderer::HandleVRInputs() {
 		// Process SteamVR events
 		vr::VREvent_t event;
@@ -305,6 +327,7 @@ namespace p3d {
 			ProcessVREvent(event);
 		}
 	}
+
 	vr::VRControllerState_t VR_Renderer::GetControllerEvents(uint32 modelIndex)
 	{
 		vr::VRControllerState_t state;

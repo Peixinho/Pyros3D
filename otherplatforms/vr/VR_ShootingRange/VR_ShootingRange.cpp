@@ -295,9 +295,9 @@ void VR_ShootingRange::Update()
 {
     // Update - Game Loop
 		vr->HandleVRInputs();
-		if (vr->GetController1() != NULL)
+		if (vr->GetController(1) != NULL)
 		{
-			vr::VRControllerState_t state = vr->GetControllerEvents(vr->GetController1()->index);
+			vr::VRControllerState_t state = vr->GetControllerEvents(vr->GetController(1)->index);
 			if (state.ulButtonPressed & vr::ButtonMaskFromId(vr::EVRButtonId::k_EButton_SteamVR_Trigger))
 			{
 				if (!isShooting)
@@ -310,7 +310,7 @@ void VR_ShootingRange::Update()
 			Matrix mat;
 			mat.RotationX(DEGTORAD(15.f));
 			mat.Translate(Vec3(0, -.05, .05));
-			mat = vr->GetController1()->GetWorldTransformation()*mat;
+			mat = vr->GetController(1)->GetWorldTransformation()*mat;
 			GunGO->SetTransformationMatrix(mat);
 		}
 
@@ -321,7 +321,7 @@ void VR_ShootingRange::Update()
 
 		if (rumbleTime > GetTimeMilliSeconds())
 		{
-			vr->RumbleController1(3000);
+			vr->RumbleController(vr->GetController(1),3000);
 		}
 		if (rumbleTime + 300 < GetTimeMilliSeconds()) isShooting = false;
 
@@ -573,7 +573,7 @@ void VR_ShootingRange::Shoot()
 	Matrix mat;
 	mat.RotationX(DEGTORAD(15.f));
 	mat.Translate(Vec3(0, -.05, .05));
-	mat = vr->GetController1()->GetWorldTransformation()*mat;
+	mat = vr->GetController(1)->GetWorldTransformation()*mat;
 	GunGO->SetTransformationMatrix(mat);
 	Vec3 Origin = mat.GetTranslation();
 	Vec3 Dest; Dest.y = -1;

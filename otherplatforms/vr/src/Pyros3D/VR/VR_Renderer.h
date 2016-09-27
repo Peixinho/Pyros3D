@@ -63,11 +63,9 @@ namespace p3d {
 		void RenderControllers(bool show);
 		void RenderTrackers(bool show);
 
-		VR_GameObject* GetController1() { return (Controllers.size() > 0 ? (*Controllers.begin()).second : NULL); }
-		VR_GameObject* GetController2() { return (Controllers.size() > 1 ? (*(++Controllers.begin())).second : NULL); }
+		VR_GameObject* GetController(const uint32 number) { return (Controllers.size() >= number ? Controllers[(number - 1)] : NULL); }
 
-		void RumbleController1(uint32 duration) { if (m_pHMD!=NULL) m_pHMD->TriggerHapticPulse(GetController1()->index, 0, duration); }
-		void RumbleController2(uint32 duration) { if (m_pHMD != NULL) m_pHMD->TriggerHapticPulse(GetController2()->index, 0, duration); }
+		void RumbleController(VR_GameObject* controller,uint32 duration) { if (m_pHMD!=NULL && controller!=NULL) m_pHMD->TriggerHapticPulse(controller->index, 0, duration); }
 
 		uint32 GetWidth() { return m_nRenderWidth; }
 		uint32 GetHeight() { return m_nRenderHeight; }
@@ -132,9 +130,11 @@ namespace p3d {
 		
 		SceneGraph* scene;
 
-		std::map<uint32, VR_GameObject*> Controllers;
-		std::map<uint32, VR_GameObject*> TrackingDevices;
+		std::vector<VR_GameObject*> Controllers;
+		std::vector<VR_GameObject*> TrackingDevices;
 
+		int Alloc(std::vector<VR_GameObject*> array);
+		void Free(std::vector<VR_GameObject*> array, int index);
 		bool showControllers, showTrackers;
 		
 	};
