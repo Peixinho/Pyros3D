@@ -102,7 +102,7 @@ solution "Pyros3D"
             libsToLinkGL = { "GL", "GLU", "GLEW" }
         end
         if os.get() == "windows" then
-            libsToLinkGL = { "opengl32", "glu32", "glew32s" }
+            libsToLinkGL = { "opengl32", "glu32", "glew32" }
         end
         if os.get() == "macosx" then
             libsToLinkGL = { "OpenGL.framework", "GLEW.framework" }
@@ -173,12 +173,24 @@ solution "Pyros3D"
 
             targetname(libName.."d")
             defines({"_DEBUG"})
+           
+            if os.get() == "windows" and _OPTIONS["bin"]=="shared" then
+                 links { libsToLinkGL, libsToLinkDebug, "BulletDynamics_Debug", "BulletCollision_Debug", "LinearMath_Debug", "freetype26d", "pthreadVC2" }
+                 linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
+            end
+
             flags { "Symbols" }
 
         configuration "Release"
 
-            flags { "Optimize" }
             targetname(libName)
+
+            if os.get() == "windows" and _OPTIONS["bin"]=="shared" then
+                 links { libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype26", "pthreadVC2" }
+                 linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
+            end
+
+            flags { "Optimize" }
 
     project "AssimpImporter"
         targetdir "bin/tools"
@@ -269,8 +281,6 @@ function BuildDemo(demoPath, demoName)
 
 		if os.get() == "windows" and _OPTIONS["bin"]=="shared" then
 			defines({"_IMPORT"})
-		else
-        	defines({"GLEW_STATIC"})
         end
 
         defines({"UNICODE"})
