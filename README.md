@@ -18,7 +18,7 @@ To build it just run premake. Here are examples to create builds for x64 and exa
 
 ## Windows:
 ```sh
-premake4.exe --examples --x64 --static vs2015
+premake4.exe --examples --x64 vs2015
 ```
 
 ## Linux / Mac OSX:
