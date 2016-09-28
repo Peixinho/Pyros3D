@@ -17,10 +17,10 @@
 namespace p3d {
 
 	// Circular Dependency
-	class PYROS3D_API GameObject;
-	class PYROS3D_API SceneGraph;
+	class GameObject;
+	class SceneGraph;
 
-	class PYROS3D_API IComponent {
+	class IComponent {
 
 		friend class GameObject;
 

@@ -13,7 +13,7 @@
 
 namespace p3d {
 
-	class PYROS3D_API Plane : public Primitive {
+	class Plane : public Primitive {
 
 	public:
 

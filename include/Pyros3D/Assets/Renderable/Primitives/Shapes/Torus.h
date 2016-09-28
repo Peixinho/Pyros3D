@@ -13,7 +13,7 @@
 
 namespace p3d {
 
-	class PYROS3D_API Torus : public Primitive {
+	class Torus : public Primitive {
 
 	public:
 

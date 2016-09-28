@@ -18,7 +18,7 @@
 
 namespace p3d {
 
-	class PYROS3D_API PrimitiveGeometry : public IGeometry {
+	class PrimitiveGeometry : public IGeometry {
 
 	public:
 		std::vector<Vec3> tVertex, tNormal, tTangent, tBitangent;
@@ -77,7 +77,7 @@ namespace p3d {
 		void CalculateBounding() {}
 	};
 
-	class PYROS3D_API Primitive : public Renderable {
+	class Primitive : public Renderable {
 
 	public:
 

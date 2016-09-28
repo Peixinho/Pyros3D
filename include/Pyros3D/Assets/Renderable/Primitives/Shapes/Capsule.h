@@ -13,7 +13,7 @@
 
 namespace p3d {
 
-	class PYROS3D_API Capsule : public Primitive {
+	class Capsule : public Primitive {
 
 	public:
 

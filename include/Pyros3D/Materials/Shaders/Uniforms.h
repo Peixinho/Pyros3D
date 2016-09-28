@@ -76,7 +76,7 @@ namespace p3d {
 		};
 
 		// Uniforms Struct
-		struct PYROS3D_API Uniform {
+		struct Uniform {
 
 			// default value
 			std::string Name;

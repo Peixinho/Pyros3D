@@ -13,7 +13,7 @@
 
 namespace p3d {
 
-	class PYROS3D_API SpotLight : public ILightComponent {
+	class SpotLight : public ILightComponent {
 
 	public:
 
