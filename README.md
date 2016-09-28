@@ -16,7 +16,7 @@ You can compile for Windows, Linux, MacOSX, Android, and Javascript (ios should 
 
 To build it just run premake. Here are examples to create builds for x64 and examples.
 
-## Windows (library needs to be static on windows build):
+## Windows:
 ```sh
 premake4.exe --examples --x64 --static vs2015
 ```
