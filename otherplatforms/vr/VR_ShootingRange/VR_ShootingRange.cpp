@@ -157,6 +157,15 @@ void VR_ShootingRange::Init()
 	scoreGO->Add(mts30GO);
 	scoreGO->Add(mts40GO);
 
+	// Numbers Textures
+	for (uint32 i = 0; i < 10; ++i)
+	{
+		Texture* tex = new Texture();
+		std::ostringstream toStr; toStr << "assets/score/numbers/" << i << ".png";
+		tex->LoadTexture(toStr.str());
+		numbersTextures.push_back(tex);
+	}
+
 	// Points Textures
 	Texture* tex0 = new Texture(); tex0->LoadTexture("assets/score/points/0.png");
 	Texture* tex5 = new Texture(); tex5->LoadTexture("assets/score/points/5.png");
@@ -295,9 +304,9 @@ void VR_ShootingRange::Update()
 {
 	// Update - Game Loop
 	vr->HandleVRInputs();
-	if (vr->GetController(1) != NULL)
+	if (vr->GetController1() != NULL)
 	{
-		vr::VRControllerState_t state = vr->GetControllerEvents(vr->GetController(1)->index);
+		vr::VRControllerState_t state = vr->GetControllerEvents(vr->GetController1()->index);
 		if (state.ulButtonPressed & vr::ButtonMaskFromId(vr::EVRButtonId::k_EButton_SteamVR_Trigger))
 		{
 			if (!isShooting)
@@ -310,7 +319,7 @@ void VR_ShootingRange::Update()
 		Matrix mat;
 		mat.RotationX(DEGTORAD(15.f));
 		mat.Translate(Vec3(0, -.05, .05));
-		mat = vr->GetController(1)->GetWorldTransformation()*mat;
+		mat = vr->GetController1()->GetWorldTransformation()*mat;
 		GunGO->SetTransformationMatrix(mat);
 	}
 
@@ -321,7 +330,7 @@ void VR_ShootingRange::Update()
 
 	if (rumbleTime > GetTimeMilliSeconds())
 	{
-		vr->RumbleController(vr->GetController(1), 3000);
+		vr->RumbleController1(3000);
 	}
 	if (rumbleTime + 300 < GetTimeMilliSeconds()) isShooting = false;
 
@@ -335,6 +344,7 @@ void VR_ShootingRange::Update()
 			else continueMaterial->SetColorMap(gameOverTexture);
 			precisionWaitingShoot = true;
 			Scene->Add(continueGO);
+			std::cout << finalScore << std::endl;
 		}
 	}
 	else if (typeGame == TYPE_GAME::Skill)
@@ -357,6 +367,7 @@ void VR_ShootingRange::Update()
 			if (GetTimeMilliSeconds() >= endTime)
 			{
 				skillOver = true;
+				std::cout << finalScore << std::endl;
 			}
 
 			f64 clockTime = endTime - GetTimeMilliSeconds();
@@ -473,7 +484,7 @@ bool VR_ShootingRange::GetIntersectedTriangle(const Vec3 &Origin, const Vec3 &Di
 				m*rcomp->GetMeshes()[k]->Geometry->GetVertexData()[rcomp->GetMeshes()[k]->Geometry->GetIndexData()[i + 2]],
 				&_intersection,
 				&t
-				))
+			))
 			{
 				if (!init) {
 					finalIntersection = _intersection;
@@ -516,6 +527,7 @@ void VR_ShootingRange::StartPrecisionGame()
 	precisionWaitingShoot = false;
 	precisionShotCount = 0;
 	shotCount = 0;
+	finalScore = 0;
 
 	secondPointerGO->SetRotation(Vec3(0, 0, 0));
 	minutePointerGO->SetRotation(Vec3(0, 0, 0));
@@ -537,6 +549,7 @@ void VR_ShootingRange::StartSkillGame()
 	Scene->Remove(targetGO);
 	Scene->Remove(continueGO);
 	shotCount = 0;
+	finalScore = 0;
 
 	initTime = GetTimeMilliSeconds();
 	endTime = GetTimeMilliSeconds() + 30000; // 30 seconds
@@ -573,7 +586,7 @@ void VR_ShootingRange::Shoot()
 	Matrix mat;
 	mat.RotationX(DEGTORAD(15.f));
 	mat.Translate(Vec3(0, -.05, .05));
-	mat = vr->GetController(1)->GetWorldTransformation()*mat;
+	mat = vr->GetController1()->GetWorldTransformation()*mat;
 	GunGO->SetTransformationMatrix(mat);
 	Vec3 Origin = mat.GetTranslation();
 	Vec3 Dest; Dest.y = -1;
@@ -640,42 +653,48 @@ void VR_ShootingRange::Shoot()
 			}
 		}
 
-		uint32 score = 10;
-		while (distance > 0.08333 && score >= 0)
-		{
-			score--;
-			distance -= 0.08333;
-		}
-
-		uint32 scoreID = 0;
-		switch (score)
-		{
-		case 5:
-			scoreID = 1;
-			break;
-		case 6:
-			scoreID = 2;
-			break;
-		case 7:
-			scoreID = 3;
-			break;
-		case 8:
-			scoreID = 4;
-			break;
-		case 9:
-			scoreID = 5;
-			break;
-		case 10:
-			scoreID = 6;
-			break;
-		case 0:
-		default:
-			scoreID = 0;
-			break;
-		}
-
 		if (precisionShotCount <= 5)
 		{
+			uint32 score = 10;
+			while (distance > 0.08333 && score >= 0)
+			{
+				score--;
+				distance -= 0.08333;
+			}
+
+			uint32 scoreID = 0;
+			switch (score)
+			{
+			case 5:
+				scoreID = 1;
+				finalScore += precisionStep * 5;
+				break;
+			case 6:
+				scoreID = 2;
+				finalScore += precisionStep * 6;
+				break;
+			case 7:
+				scoreID = 3;
+				finalScore += precisionStep * 7;
+				break;
+			case 8:
+				scoreID = 4;
+				finalScore += precisionStep * 8;
+				break;
+			case 9:
+				scoreID = 5;
+				finalScore += precisionStep * 9;
+				break;
+			case 10:
+				scoreID = 6;
+				finalScore += precisionStep * 10;
+				break;
+			case 0:
+			default:
+				scoreID = 0;
+				break;
+			}
+
 			GameObject* scorePoint = new GameObject();
 			GenericShaderMaterial* material = new GenericShaderMaterial(ShaderUsage::Texture);
 			material->SetTransparencyFlag(true);
@@ -729,26 +748,26 @@ void VR_ShootingRange::Shoot()
 				switch (score)
 				{
 				case 5:
-					endTime += 200;
+					endTime += 250;
 					break;
 				case 6:
-					endTime += 300;
-					break;
-				case 7:
-					endTime += 400;
-					break;
-				case 8:
 					endTime += 500;
 					break;
-				case 9:
+				case 7:
 					endTime += 1000;
 					break;
-				case 10:
+				case 8:
+					endTime += 1500;
+					break;
+				case 9:
 					endTime += 2000;
 					break;
+				case 10:
+					endTime += 3000;
+					break;
 				}
-				break;
 			}
+			finalScore++;
 		}
 	}
 
@@ -845,6 +864,13 @@ void VR_ShootingRange::Shutdown()
 	secondPointerGO->Remove(secondsPointerRComp);
 	clockGO->Remove(clockRComp);
 	clockBackgroundGO->Remove(clockBackgroundRComp);
+
+	// Delete Numbers Textures
+	for (uint32 i = 0; i < 10; ++i)
+	{
+		delete numbersTextures[i];
+	}
+	numbersTextures.clear();
 
 	// Delete
 	delete clockGO;

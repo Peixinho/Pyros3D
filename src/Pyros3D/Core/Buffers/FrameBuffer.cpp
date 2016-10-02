@@ -11,7 +11,8 @@
 
 namespace p3d {
 
-	std::map<uint32, std::vector<FrameBuffer*> > FrameBuffer::BoundFBOs;
+	// 3 types of bound framebuffers (Read, Write and Read_Write)
+	std::vector< std::vector<FrameBuffer*> > FrameBuffer::BoundFBOs(3);
 
 	FrameBuffer::FrameBuffer()
 	{
@@ -511,8 +512,11 @@ namespace p3d {
 			break;
 		}
 
+		// Keep type of binded access
+		accessBinded = access;
+
 		// Add to bound FBOs
-		BoundFBOs[glAccessBinded].push_back(this);
+		BoundFBOs[accessBinded].push_back(this);
 
 		GLCHECKER(glBindFramebuffer(glAccessBinded, fbo));
 		isBinded = true;
@@ -547,10 +551,10 @@ namespace p3d {
 		isBinded = false;
 
 		// Bind next FBO
-		for (std::vector<FrameBuffer*>::reverse_iterator i = BoundFBOs[glAccessBinded].rbegin(); i != BoundFBOs[glAccessBinded].rend(); i++)
+		for (std::vector<FrameBuffer*>::reverse_iterator i = BoundFBOs[accessBinded].rbegin(); i != BoundFBOs[accessBinded].rend(); i++)
 		{
 			if ((*i) == this) {
-				BoundFBOs[glAccessBinded].erase(--(i.base()));
+				BoundFBOs[accessBinded].erase(--(i.base()));
 			}
 			else {
 				GLCHECKER(glBindFramebuffer((*i)->glAccessBinded, (*i)->fbo));

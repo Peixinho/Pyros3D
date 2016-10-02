@@ -133,11 +133,12 @@ namespace p3d {
 	private:
 
 		// Bound FBOs
-		static std::map<uint32, std::vector<FrameBuffer*> > BoundFBOs;
+		static std::vector<std::vector<FrameBuffer*> > BoundFBOs;
 
 		// Binded
 		bool isBinded;
 		uint32 glAccessBinded;
+		uint32 accessBinded;
 
 		// FBO Type
 		uint32 type;

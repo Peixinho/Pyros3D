@@ -178,6 +178,12 @@ private:
 	Plane* clockBackgroundHandle;
 	GenericShaderMaterial* clockBackgroundMaterial;
 
+	// FinalScore
+	uint32 finalScore;
+
+	// Numbers for score
+	std::vector<Texture*> numbersTextures;
+
 };
 
 #endif	/* VR_SHOOTINGRANGE_H */
