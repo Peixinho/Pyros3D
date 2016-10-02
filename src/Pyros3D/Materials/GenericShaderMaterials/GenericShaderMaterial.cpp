@@ -223,23 +223,23 @@ namespace p3d
 		uint32 id = Textures.size();
 
 		// Save on Lirest
-		Textures[id] = texture;
+		Textures.push_back(texture);
 		// Set Uniform
 		AddUniform(Uniform(uniformName.c_str(), DataType::Int, &id));
 	}
 
 	void GenericShaderMaterial::BindTextures()
 	{
-		for (std::map<uint32, Texture*>::iterator i = Textures.begin(); i != Textures.end(); i++)
+		for (std::vector<Texture*>::iterator i = Textures.begin(); i != Textures.end(); i++)
 		{
-			(*i).second->Bind();
+			(*i)->Bind();
 		}
 	}
 	void GenericShaderMaterial::UnbindTextures()
 	{
-		for (std::map<uint32, Texture*>::reverse_iterator i = Textures.rbegin(); i != Textures.rend(); i++)
+		for (std::vector<Texture*>::reverse_iterator i = Textures.rbegin(); i != Textures.rend(); i++)
 		{
-			(*i).second->Unbind();
+			(*i)->Unbind();
 		}
 	}
 
@@ -260,7 +260,7 @@ namespace p3d
 			colorMapID = Textures.size();
 
 		// Save on Lirest
-		Textures[colorMapID] = colormap;
+		Textures.push_back(colormap);
 		// Set Uniform
 		AddUniform(Uniform("uColormap", DataType::Int, &colorMapID));
 	}
@@ -269,7 +269,7 @@ namespace p3d
 		if (specularMapID == -1)
 			specularMapID = Textures.size();
 		// Save on List
-		Textures[specularMapID] = specular;
+		Textures.push_back(specular);
 		// Set Uniform
 		AddUniform(Uniform("uSpecularmap", DataType::Int, &specularMapID));
 	}
@@ -278,7 +278,7 @@ namespace p3d
 		if (normalMapID == -1)
 			normalMapID = Textures.size();
 		// Save on List
-		Textures[normalMapID] = normalmap;
+		Textures.push_back(normalmap);
 		// Set Uniform
 		AddUniform(Uniform("uNormalmap", DataType::Int, &normalMapID));
 	}
@@ -287,7 +287,7 @@ namespace p3d
 		if (envMapID == -1)
 			envMapID = Textures.size();
 		// Save on List
-		Textures[envMapID] = envmap;
+		Textures.push_back(envmap);
 		// Set Uniform
 		AddUniform(Uniform("uEnvmap", DataType::Int, &envMapID));
 	}
@@ -301,7 +301,7 @@ namespace p3d
 		if (refractMapID == -1)
 			refractMapID = Textures.size();
 		// Save on List
-		Textures[refractMapID] = refractmap;
+		Textures.push_back(refractmap);
 		// Set Uniform
 		AddUniform(Uniform("uRefractmap", DataType::Int, &refractMapID));
 	}
@@ -310,7 +310,7 @@ namespace p3d
 		if (skyboxMapID == -1)
 			skyboxMapID = Textures.size();
 		// Save on List
-		Textures[skyboxMapID] = skyboxmap;
+		Textures.push_back(skyboxmap);
 		// Set Uniform
 		AddUniform(Uniform("uSkyboxmap", DataType::Int, &skyboxMapID));
 	}
@@ -319,7 +319,7 @@ namespace p3d
 		if (fontMapID == -1)
 			fontMapID = Textures.size();
 		// Save on List
-		Textures[fontMapID] = font->GetTexture();
+		Textures.push_back(font->GetTexture());
 		// Set Uniform
 		AddUniform(Uniform("uFontmap", DataType::Int, &fontMapID));
 	}

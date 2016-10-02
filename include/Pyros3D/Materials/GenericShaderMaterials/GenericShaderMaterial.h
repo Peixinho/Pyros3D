@@ -61,7 +61,7 @@ namespace p3d
 	private:
 
 		// List of Tetxures
-		std::map<uint32, Texture*> Textures;
+		std::vector<Texture*> Textures;
 
 	protected:
 		// Shaders List
