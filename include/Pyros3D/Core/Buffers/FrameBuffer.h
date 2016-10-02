@@ -88,6 +88,7 @@ namespace p3d {
 	class PYROS3D_API FBOAttachment
 	{
 	public:
+		uint32 AttachmentFormatInternal;
 		uint32 AttachmentFormat;
 		uint32 AttachmentType;
 
@@ -120,7 +121,7 @@ namespace p3d {
 
 		void CheckFBOStatus();
 
-		std::map<uint32, FBOAttachment*> GetAttachments() const { return attachments; }
+		std::vector<FBOAttachment*> GetAttachments() const { return attachments; }
 
 		const uint32 &GetFrameBufferFormat() const;
 
@@ -153,7 +154,8 @@ namespace p3d {
 		bool FBOInitialized;
 
 		// FBO "texture"
-		std::map<uint32, FBOAttachment*> attachments;
+		void AddAttachToVector(FBOAttachment* attach);
+		std::vector<FBOAttachment*> attachments;
 
 	};
 

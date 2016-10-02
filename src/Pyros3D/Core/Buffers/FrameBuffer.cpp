@@ -27,7 +27,6 @@ namespace p3d {
 		// DrawBuffers
 		drawBuffers = false;
 	}
-
 	FrameBuffer::~FrameBuffer()
 	{
 
@@ -37,13 +36,12 @@ namespace p3d {
 		// destroy fbo and rbo
 		GLCHECKER(glDeleteFramebuffers(1, (GLuint*)&fbo));
 
-		for (std::map<uint32, FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
-			delete (*i).second;
+		for (std::vector<FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
+			delete (*i);
 
 		attachments.clear();
 
 	}
-
 	void FrameBuffer::BlitFrameBuffer(const uint32 initSrcX, const uint32 initSrcY, const uint32 endSrcX, const uint32 endSrcY, const uint32 initDestX, const uint32 initDestY, const uint32 endDestX, const uint32 endDestY, const uint32 mask, const uint32 filter)
 	{
 		GLuint Mask;
@@ -73,7 +71,6 @@ namespace p3d {
 		};
 		GLCHECKER(glBlitFramebuffer(initSrcX, initSrcY, endSrcX, endSrcY, initDestX, initDestY, endDestX, endDestY, Mask, Filter));
 	}
-
 	void FrameBuffer::EnableMultisample()
 	{
 #if !defined(GLES2)
@@ -86,7 +83,6 @@ namespace p3d {
 		GLCHECKER(glDisable(GL_MULTISAMPLE));
 #endif
 	}
-
 	void FrameBuffer::Init(const uint32 attachmentFormat, const uint32 TextureType, p3d::Texture *attachment)
 	{
 
@@ -110,7 +106,6 @@ namespace p3d {
 		AddAttach(attachmentFormat, TextureType, attachment);
 
 	}
-
 	void FrameBuffer::Init(const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height, const uint32 msaa)
 	{
 
@@ -134,7 +129,6 @@ namespace p3d {
 		AddAttach(attachmentFormat, attachmentDataType, Width, Height, msaa);
 
 	}
-
 	void FrameBuffer::CheckFBOStatus()
 	{
 		switch (glCheckFramebufferStatus(GL_FRAMEBUFFER))
@@ -188,18 +182,17 @@ namespace p3d {
 		}
 		}
 	}
-
 	void FrameBuffer::AddAttach(const uint32 attachmentFormat, const uint32 TextureType, Texture* attachment)
 	{
 		// Add Attachment
 		FBOAttachment* attach = new FBOAttachment();
-		attach->AttachmentFormat = attachmentFormat;
+		attach->AttachmentFormatInternal = attachmentFormat;
 		attach->AttachmentType = FBOAttachmentType::Texture;
 		attach->TexturePTR = attachment;
 		attach->TextureType = TextureType;
 
 		// Get Attatchment Format
-		switch (attach->AttachmentFormat)
+		switch (attach->AttachmentFormatInternal)
 		{
 		case FrameBufferAttachmentFormat::Color_Attachment0:
 			attach->AttachmentFormat = GL_COLOR_ATTACHMENT0;
@@ -259,7 +252,7 @@ namespace p3d {
 			break;
 		};
 
-		if (attachmentFormat >= FrameBufferAttachmentFormat::Color_Attachment0 && attachmentFormat <= FrameBufferAttachmentFormat::Color_Attachment15 && drawBuffers == false)
+		if (attach->AttachmentFormatInternal >= FrameBufferAttachmentFormat::Color_Attachment0 && attachmentFormat <= FrameBufferAttachmentFormat::Color_Attachment15 && !drawBuffers)
 			drawBuffers = true;
 
 		switch (TextureType)
@@ -293,7 +286,7 @@ namespace p3d {
 			break;
 		}
 
-		attachments[attachmentFormat] = attach;
+		AddAttachToVector(attach);
 
 		if (!isBinded)
 			GLCHECKER(glBindFramebuffer(GL_FRAMEBUFFER, fbo));
@@ -313,9 +306,9 @@ namespace p3d {
 		{
 			std::vector<GLenum> BufferIDs;
 			uint32 counter = 0;
-			for (std::map<uint32, FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
+			for (std::vector<FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
 			{
-				if ((*i).first >= FrameBufferAttachmentFormat::Color_Attachment0 && (*i).first <= FrameBufferAttachmentFormat::Color_Attachment15) {
+				if ((*i)->AttachmentFormatInternal >= FrameBufferAttachmentFormat::Color_Attachment0 && (*i)->AttachmentFormatInternal <= FrameBufferAttachmentFormat::Color_Attachment15) {
 					BufferIDs.push_back(GL_COLOR_ATTACHMENT0 + counter++);
 				}
 			}
@@ -329,13 +322,12 @@ namespace p3d {
 		if (!isBinded)
 			glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
-
 	void FrameBuffer::AddAttach(const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height, const uint32 msaa)
 	{
 
 		// Add Attachment
 		FBOAttachment* attach = new FBOAttachment();
-		attach->AttachmentFormat = attachmentFormat;
+		attach->AttachmentFormatInternal = attachmentFormat;
 		attach->AttachmentType = FBOAttachmentType::RenderBuffer;
 		attach->Width = Width;
 		attach->Height = Height;
@@ -348,7 +340,7 @@ namespace p3d {
 		GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, attach->rboID));
 
 		// Get Attatchment Format
-		switch (attach->AttachmentFormat)
+		switch (attach->AttachmentFormatInternal)
 		{
 		case FrameBufferAttachmentFormat::Color_Attachment0:
 			attach->AttachmentFormat = GL_COLOR_ATTACHMENT0;
@@ -408,7 +400,7 @@ namespace p3d {
 			break;
 		};
 
-		attachments[attachmentFormat] = attach;
+		AddAttachToVector(attach);
 
 		uint32 dataType = attach->DataType;
 
@@ -479,9 +471,9 @@ namespace p3d {
 		{
 			std::vector<GLenum> BufferIDs;
 			uint32 counter = 0;
-			for (std::map<uint32, FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
+			for (std::vector<FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
 			{
-				if ((*i).first >= FrameBufferAttachmentFormat::Color_Attachment0 && (*i).first <= FrameBufferAttachmentFormat::Color_Attachment15) {
+				if ((*i)->AttachmentFormatInternal >= FrameBufferAttachmentFormat::Color_Attachment0 && (*i)->AttachmentFormatInternal <= FrameBufferAttachmentFormat::Color_Attachment15) {
 					BufferIDs.push_back(GL_COLOR_ATTACHMENT0 + counter++);
 				}
 			}
@@ -494,7 +486,19 @@ namespace p3d {
 		if (!isBinded)
 			GLCHECKER(glBindFramebuffer(GL_FRAMEBUFFER, 0));
 	}
-
+	void FrameBuffer::AddAttachToVector(FBOAttachment* attach)
+	{
+		for (std::vector<FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
+		{
+			if ((*i)->AttachmentFormat == attach->AttachmentFormat)
+			{
+				delete *i;
+				*i = attach;
+				return;
+			}
+		}
+		attachments.push_back(attach);
+	}
 	void FrameBuffer::Bind(const uint32 access)
 	{
 		// bind fbo
@@ -540,11 +544,11 @@ namespace p3d {
 		}
 #endif
 
-		for (std::map<uint32, FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
+		for (std::vector<FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
 		{
-			if ((*i).second->AttachmentType == FBOAttachmentType::Texture)
+			if ((*i)->AttachmentType == FBOAttachmentType::Texture)
 			{
-				(*i).second->TexturePTR->UpdateMipmap();
+				(*i)->TexturePTR->UpdateMipmap();
 			}
 		}
 
@@ -567,24 +571,22 @@ namespace p3d {
 	{
 		return isBinded;
 	}
-
 	void FrameBuffer::Resize(const uint32 Width, const uint32 Height)
 	{
-		for (std::map<uint32, FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
+		for (std::vector<FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
 		{
-			if ((*i).second->AttachmentType == FBOAttachmentType::RenderBuffer)
+			if ((*i)->AttachmentType == FBOAttachmentType::RenderBuffer)
 			{
-				GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, (*i).second->rboID));
-				GLCHECKER(glRenderbufferStorage(GL_RENDERBUFFER, (*i).second->DataType, Width, Height));
+				GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, (*i)->rboID));
+				GLCHECKER(glRenderbufferStorage(GL_RENDERBUFFER, (*i)->DataType, Width, Height));
 				GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, 0));
 			}
 			else
 			{
-				(*i).second->TexturePTR->Resize(Width, Height);
+				(*i)->TexturePTR->Resize(Width, Height);
 			}
 		}
 	}
-
 	const uint32 &FrameBuffer::GetFrameBufferFormat() const
 	{
 		return framebufferFormat;
