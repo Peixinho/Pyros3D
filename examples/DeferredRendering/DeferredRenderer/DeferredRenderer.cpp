@@ -247,7 +247,7 @@ namespace p3d {
 					Vec4 color = p->GetLightColor();
 					
 					pointPosHandle->SetValue(&pos);
-					pointRadiusHandle->SetValue((void*)&(f32)p->GetLightRadius());
+					pointRadiusHandle->SetValue((void*)&p->GetLightRadius());
 					pointColorHandle->SetValue(&color);
 
 					// Set Scale
@@ -266,9 +266,9 @@ namespace p3d {
 					Vec3 dir = (ViewMatrix * (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.0))).xyz();
 					spotPosHandle->SetValue(&pos);
 					spotDirHandle->SetValue(&dir);
-					spotRadiusHandle->SetValue((void*)&(f32)s->GetLightRadius());
-					spotOutterHandle->SetValue((void*)&(f32)s->GetLightCosOutterCone());
-					spotInnerHandle->SetValue((void*)&(f32)s->GetLightCosInnerCone());
+					spotRadiusHandle->SetValue((void*)&s->GetLightRadius());
+					spotOutterHandle->SetValue((void*)&s->GetLightCosOutterCone());
+					spotInnerHandle->SetValue((void*)&s->GetLightCosInnerCone());
 					spotColorHandle->SetValue(&color);
 					// Set Scale
 					f32 sc = g(f(s->GetLightRadius()));
