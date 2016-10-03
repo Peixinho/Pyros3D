@@ -131,6 +131,7 @@ void LOD_example::Update()
 	Scene->Update(GetTime());
 
 	// Render Scene
+	Renderer->PreRender(Camera, Scene);
 	Renderer->RenderScene(projection, Camera, Scene);
 
 	octree->Draw(projection, Camera->GetWorldTransformation().Inverse());
