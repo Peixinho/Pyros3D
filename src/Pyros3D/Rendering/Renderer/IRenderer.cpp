@@ -1611,10 +1611,10 @@ namespace p3d {
 
 	void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 	{
-		if (rmesh->ShadersAttributesCache.find(material->GetShader()) == rmesh->ShadersAttributesCache.end())
+		std::vector< std::vector<int32> >* _ShadersAttributesCache = &rmesh->ShadersAttributesCache[material->GetShader()];
+		if ((*_ShadersAttributesCache).size()==0)
 		{
 			// Reset Attribute IDs
-			std::vector< std::vector<int32> >* _ShadersAttributesCache = &rmesh->ShadersAttributesCache[material->GetShader()];
 			for (std::vector<AttributeArray*>::iterator i = rmesh->Geometry->Attributes.begin(); i != rmesh->Geometry->Attributes.end(); i++)
 			{
 				std::vector<int32> attribs;

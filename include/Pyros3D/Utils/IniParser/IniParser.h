@@ -19,7 +19,7 @@ using namespace std;
 
 namespace p3d {
 
-	class PYROS3D_API IniParser {
+	class IniParser {
 
 	public:
 
