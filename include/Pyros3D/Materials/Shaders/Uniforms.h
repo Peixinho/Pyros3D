@@ -74,176 +74,176 @@ namespace p3d {
 				Matrix
 			};
 		};
+	};
 
-		// Uniforms Struct
-		struct Uniform {
+	// Uniforms Struct
+	struct Uniform {
 
-			// default value
-			std::string Name;
-			uint32 Type;
-			uint32 Usage;
-			uint32 ElementCount;
-			std::vector<uchar> Value;
+		// default value
+		std::string Name;
+		uint32 Type;
+		uint32 Usage;
+		uint32 ElementCount;
+		std::vector<uchar> Value;
 
-			Uniform() { ElementCount = 0; Usage = 200; /* Usage = Other */ }
+		Uniform() { ElementCount = 0; Usage = 200; /* Usage = Other */ }
 
-			Uniform(const std::string &name, const uint32 usage, const uint32 type = 0)
+		Uniform(const std::string &name, const uint32 usage, const uint32 type = 0)
+		{
+			Name = name;
+			Usage = usage;
+			Type = type;
+			ElementCount = 0;
+
+			switch (usage)
 			{
-				Name = name;
-				Usage = usage;
-				Type = type;
-				ElementCount = 0;
+			case Uniforms::DataUsage::ViewMatrix:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::ProjectionMatrix:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::ViewProjectionMatrix:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::ViewMatrixInverse:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::ProjectionMatrixInverse:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::CameraPosition:
+				Type = Uniforms::DataType::Vec3;
+				break;
+			case Uniforms::DataUsage::Timer:
+				Type = Uniforms::DataType::Float;
+				break;
+			case Uniforms::DataUsage::GlobalAmbientLight:
+				Type = Uniforms::DataType::Vec4;
+				break;
+			case Uniforms::DataUsage::Lights:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::NumberOfLights:
+				Type = Uniforms::DataType::Int;
+				break;
+			case Uniforms::DataUsage::NearFarPlane:
+				Type = Uniforms::DataType::Vec2;
+				break;
+			case Uniforms::DataUsage::ScreenDimensions:
+				Type = Uniforms::DataType::Vec2;
+				break;
+			case Uniforms::DataUsage::DirectionalShadowMap:
+				Type = Uniforms::DataType::Int;
+				break;
+			case Uniforms::DataUsage::DirectionalShadowMatrix:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::DirectionalShadowFar:
+				Type = Uniforms::DataType::Vec4;
+				break;
+			case Uniforms::DataUsage::NumberOfDirectionalShadows:
+				Type = Uniforms::DataType::Int;
+				break;
+			case Uniforms::DataUsage::PointShadowMap:
+				Type = Uniforms::DataType::Int;
+				break;
+			case Uniforms::DataUsage::PointShadowMatrix:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::NumberOfPointShadows:
+				Type = Uniforms::DataType::Int;
+				break;
+			case Uniforms::DataUsage::SpotShadowMap:
+				Type = Uniforms::DataType::Int;
+				break;
+			case Uniforms::DataUsage::SpotShadowMatrix:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::NumberOfSpotShadows:
+				Type = Uniforms::DataType::Int;
+				break;
+			case Uniforms::DataUsage::ModelMatrix:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::NormalMatrix:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::ModelViewMatrix:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::ModelViewProjectionMatrix:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::ModelMatrixInverse:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::ModelViewMatrixInverse:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::ModelMatrixInverseTranspose:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::Skinning:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::ClipPlanes:
+				Type = Uniforms::DataType::Vec4;
+				break;
+			};
 
-				switch (usage)
-				{
-				case DataUsage::ViewMatrix:
-					Type = DataType::Matrix;
-					break;
-				case DataUsage::ProjectionMatrix:
-					Type = DataType::Matrix;
-					break;
-				case DataUsage::ViewProjectionMatrix:
-					Type = DataType::Matrix;
-					break;
-				case DataUsage::ViewMatrixInverse:
-					Type = DataType::Matrix;
-					break;
-				case DataUsage::ProjectionMatrixInverse:
-					Type = DataType::Matrix;
-					break;
-				case DataUsage::CameraPosition:
-					Type = DataType::Vec3;
-					break;
-				case DataUsage::Timer:
-					Type = DataType::Float;
-					break;
-				case DataUsage::GlobalAmbientLight:
-					Type = DataType::Vec4;
-					break;
-				case DataUsage::Lights:
-					Type = DataType::Matrix;
-					break;
-				case DataUsage::NumberOfLights:
-					Type = DataType::Int;
-					break;
-				case DataUsage::NearFarPlane:
-					Type = DataType::Vec2;
-					break;
-				case DataUsage::ScreenDimensions:
-					Type = DataType::Vec2;
-					break;
-				case DataUsage::DirectionalShadowMap:
-					Type = DataType::Int;
-					break;
-				case DataUsage::DirectionalShadowMatrix:
-					Type = DataType::Matrix;
-					break;
-				case DataUsage::DirectionalShadowFar:
-					Type = DataType::Vec4;
-					break;
-				case DataUsage::NumberOfDirectionalShadows:
-					Type = DataType::Int;
-					break;
-				case DataUsage::PointShadowMap:
-					Type = DataType::Int;
-					break;
-				case DataUsage::PointShadowMatrix:
-					Type = DataType::Matrix;
-					break;
-				case DataUsage::NumberOfPointShadows:
-					Type = DataType::Int;
-					break;
-				case DataUsage::SpotShadowMap:
-					Type = DataType::Int;
-					break;
-				case DataUsage::SpotShadowMatrix:
-					Type = DataType::Matrix;
-					break;
-				case DataUsage::NumberOfSpotShadows:
-					Type = DataType::Int;
-					break;
-				case DataUsage::ModelMatrix:
-					Type = DataType::Matrix;
-					break;
-				case DataUsage::NormalMatrix:
-					Type = DataType::Matrix;
-					break;
-				case DataUsage::ModelViewMatrix:
-					Type = DataType::Matrix;
-					break;
-				case DataUsage::ModelViewProjectionMatrix:
-					Type = DataType::Matrix;
-					break;
-				case DataUsage::ModelMatrixInverse:
-					Type = DataType::Matrix;
-					break;
-				case DataUsage::ModelViewMatrixInverse:
-					Type = DataType::Matrix;
-					break;
-				case DataUsage::ModelMatrixInverseTranspose:
-					Type = DataType::Matrix;
-					break;
-				case DataUsage::Skinning:
-					Type = DataType::Matrix;
-					break;
-				case DataUsage::ClipPlanes:
-					Type = DataType::Vec4;
-					break;
-				};
+		}
+		Uniform(const std::string &name, const uint32 type, void* value, const uint32 elementCount = 1) { Name = name; Usage = 200; Type = type; ElementCount = elementCount; SetValue(value); }
 
-			}
-			Uniform(const std::string &name, const uint32 type, void* value, const uint32 elementCount = 1) { Name = name; Usage = 200; Type = type; ElementCount = elementCount; SetValue(value); }
+		void SetValue(void* value, const uint32 elementCount = 1)
+		{
 
-			void SetValue(void* value, const uint32 elementCount = 1)
+			// clear data
+			Value.clear();
+
+			ElementCount = elementCount;
+			
+			switch (Type)
 			{
 
-				// clear data
-				Value.clear();
-
-				ElementCount = elementCount;
-
-				switch (Type)
-				{
-
-				case DataType::Int:
-				{
-					Value.resize(sizeof(int)*ElementCount);
-					memcpy(&Value[0], value, sizeof(int)*ElementCount);
-					break;
-				}
-				case DataType::Float:
-				{
-					Value.resize(sizeof(f32)*ElementCount);
-					memcpy(&Value[0], value, sizeof(f32)*ElementCount);
-					break;
-				}
-				case DataType::Vec2:
-				{
-					Value.resize(sizeof(Vec2)*ElementCount);
-					memcpy(&Value[0], value, sizeof(Vec2)*ElementCount);
-					break;
-				}
-				case DataType::Vec3:
-				{
-					Value.resize(sizeof(Vec3)*ElementCount);
-					memcpy(&Value[0], value, sizeof(Vec3)*ElementCount);
-					break;
-				}
-				case DataType::Vec4:
-				{
-					Value.resize(sizeof(Vec4)*ElementCount);
-					memcpy(&Value[0], value, sizeof(Vec4)*ElementCount);
-					break;
-				}
-				case DataType::Matrix:
-				{
-					Value.resize(sizeof(Matrix)*ElementCount);
-					memcpy(&Value[0], value, sizeof(Matrix)*ElementCount);
-					break;
-				}
-				};
+			case Uniforms::DataType::Int:
+			{
+				Value.resize(sizeof(int)*ElementCount);
+				memcpy(&Value[0], value, sizeof(int)*ElementCount);
+				break;
 			}
-		};
+			case Uniforms::DataType::Float:
+			{
+				Value.resize(sizeof(f32)*ElementCount);
+				memcpy(&Value[0], value, sizeof(f32)*ElementCount);
+				break;
+			}
+			case Uniforms::DataType::Vec2:
+			{
+				Value.resize(sizeof(Vec2)*ElementCount);
+				memcpy(&Value[0], value, sizeof(Vec2)*ElementCount);
+				break;
+			}
+			case Uniforms::DataType::Vec3:
+			{
+				Value.resize(sizeof(Vec3)*ElementCount);
+				memcpy(&Value[0], value, sizeof(Vec3)*ElementCount);
+				break;
+			}
+			case Uniforms::DataType::Vec4:
+			{
+				Value.resize(sizeof(Vec4)*ElementCount);
+				memcpy(&Value[0], value, sizeof(Vec4)*ElementCount);
+				break;
+			}
+			case Uniforms::DataType::Matrix:
+			{
+				Value.resize(sizeof(Matrix)*ElementCount);
+				memcpy(&Value[0], value, sizeof(Matrix)*ElementCount);
+				break;
+			}
+			};
+		}
 	};
 };
 

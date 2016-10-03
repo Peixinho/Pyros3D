@@ -114,8 +114,8 @@ namespace p3d {
         Uniform Color;
         std::ostringstream toSTR; toSTR << "uTex" << TextureUnits;
         Color.Name = toSTR.str();
-        Color.Type = DataType::Int;
-        Color.Usage = PostEffects::Other;
+        Color.Type = Uniforms::DataType::Int;
+        Color.Usage = Uniforms::PostEffects::Other;
         Color.SetValue(&TextureUnits);
         AddUniform(Color);
         
@@ -129,8 +129,8 @@ namespace p3d {
         Uniform Depth;
         std::ostringstream toSTR; toSTR << "uTex" << TextureUnits;
         Depth.Name = toSTR.str();
-        Depth.Type = DataType::Int;
-        Depth.Usage = PostEffects::Other;
+        Depth.Type = Uniforms::DataType::Int;
+        Depth.Usage = Uniforms::PostEffects::Other;
         Depth.SetValue(&TextureUnits);
         AddUniform(Depth);
         
@@ -144,8 +144,8 @@ namespace p3d {
         Uniform RTT;
         std::ostringstream toSTR; toSTR << "uTex" << TextureUnits;
         RTT.Name = toSTR.str();
-        RTT.Type = DataType::Int;
-        RTT.Usage = PostEffects::Other;
+        RTT.Type = Uniforms::DataType::Int;
+        RTT.Usage = Uniforms::PostEffects::Other;
         RTT.SetValue(&TextureUnits);
         AddUniform(RTT);
         
@@ -159,8 +159,8 @@ namespace p3d {
         Uniform CustomTexture;
         std::ostringstream toSTR; toSTR << "uTex" << TextureUnits;
         CustomTexture.Name = toSTR.str();
-        CustomTexture.Type = DataType::Int;
-        CustomTexture.Usage = PostEffects::Other;
+        CustomTexture.Type = Uniforms::DataType::Int;
+        CustomTexture.Usage = Uniforms::PostEffects::Other;
         CustomTexture.SetValue(&TextureUnits);
         AddUniform(CustomTexture);
         

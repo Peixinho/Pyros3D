@@ -43,11 +43,11 @@ namespace p3d {
 		uint32 modelMatrixHandle = Shader::GetUniformLocation(DebugMaterial->GetShader(), "uModelMatrix");
 		uint32 opacityHandle = Shader::GetUniformLocation(DebugMaterial->GetShader(), "uOpacity");
 
-		Shader::SendUniform(Uniform("uProjectionMatrix", DataType::Matrix, &projectionMatrix.m[0]), projectionHandle);
-		Shader::SendUniform(Uniform("uViewMatrix", DataType::Matrix, &viewMatrix.m[0]), viewMatrixHandle);
-		Shader::SendUniform(Uniform("uModelMatrix", DataType::Matrix, &modelMatrix.m[0]), modelMatrixHandle);
+		Shader::SendUniform(Uniform("uProjectionMatrix", Uniforms::DataType::Matrix, &projectionMatrix.m[0]), projectionHandle);
+		Shader::SendUniform(Uniform("uViewMatrix", Uniforms::DataType::Matrix, &viewMatrix.m[0]), viewMatrixHandle);
+		Shader::SendUniform(Uniform("uModelMatrix", Uniforms::DataType::Matrix, &modelMatrix.m[0]), modelMatrixHandle);
 		f32 opacity = 1.f;
-		Shader::SendUniform(Uniform("uOpacity", DataType::Float, &opacity), opacityHandle);
+		Shader::SendUniform(Uniform("uOpacity", Uniforms::DataType::Float, &opacity), opacityHandle);
 
 		// Send Attributes
 		GLCHECKER(glEnableVertexAttribArray(vertexHandle));

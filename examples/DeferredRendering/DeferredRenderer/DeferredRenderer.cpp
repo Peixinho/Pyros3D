@@ -44,42 +44,42 @@ namespace p3d {
 		deferredMaterialSpot = new CustomShaderMaterial("../../../../examples/DeferredRendering/assets/shaders/secondpassSpot.glsl");
 
 		uint32 texID = 0;
-		deferredMaterialDirectional->AddUniform(Uniforms::Uniform("tDepth", Uniforms::DataType::Int, &texID));
-		deferredMaterialPoint->AddUniform(Uniforms::Uniform("tDepth", Uniforms::DataType::Int, &texID));
-		deferredMaterialSpot->AddUniform(Uniforms::Uniform("tDepth", Uniforms::DataType::Int, &texID));
+		deferredMaterialDirectional->AddUniform(Uniform("tDepth", Uniforms::DataType::Int, &texID));
+		deferredMaterialPoint->AddUniform(Uniform("tDepth", Uniforms::DataType::Int, &texID));
+		deferredMaterialSpot->AddUniform(Uniform("tDepth", Uniforms::DataType::Int, &texID));
 		texID = 1;
-		deferredMaterialDirectional->AddUniform(Uniforms::Uniform("tDiffuse", Uniforms::DataType::Int, &texID));
-		deferredMaterialPoint->AddUniform(Uniforms::Uniform("tDiffuse", Uniforms::DataType::Int, &texID));
-		deferredMaterialSpot->AddUniform(Uniforms::Uniform("tDiffuse", Uniforms::DataType::Int, &texID));
+		deferredMaterialDirectional->AddUniform(Uniform("tDiffuse", Uniforms::DataType::Int, &texID));
+		deferredMaterialPoint->AddUniform(Uniform("tDiffuse", Uniforms::DataType::Int, &texID));
+		deferredMaterialSpot->AddUniform(Uniform("tDiffuse", Uniforms::DataType::Int, &texID));
 		texID = 2;
-		deferredMaterialDirectional->AddUniform(Uniforms::Uniform("tSpecular", Uniforms::DataType::Int, &texID));
-		deferredMaterialPoint->AddUniform(Uniforms::Uniform("tDiffuse", Uniforms::DataType::Int, &texID));
-		deferredMaterialSpot->AddUniform(Uniforms::Uniform("tDiffuse", Uniforms::DataType::Int, &texID));
+		deferredMaterialDirectional->AddUniform(Uniform("tSpecular", Uniforms::DataType::Int, &texID));
+		deferredMaterialPoint->AddUniform(Uniform("tDiffuse", Uniforms::DataType::Int, &texID));
+		deferredMaterialSpot->AddUniform(Uniform("tDiffuse", Uniforms::DataType::Int, &texID));
 		texID = 3;
-		deferredMaterialDirectional->AddUniform(Uniforms::Uniform("tNormal", Uniforms::DataType::Int, &texID));
-		deferredMaterialPoint->AddUniform(Uniforms::Uniform("tNormal", Uniforms::DataType::Int, &texID));
-		deferredMaterialSpot->AddUniform(Uniforms::Uniform("tNormal", Uniforms::DataType::Int, &texID));
+		deferredMaterialDirectional->AddUniform(Uniform("tNormal", Uniforms::DataType::Int, &texID));
+		deferredMaterialPoint->AddUniform(Uniform("tNormal", Uniforms::DataType::Int, &texID));
+		deferredMaterialSpot->AddUniform(Uniform("tNormal", Uniforms::DataType::Int, &texID));
 
-		deferredMaterialDirectional->AddUniform(Uniforms::Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
-		deferredMaterialDirectional->AddUniform(Uniforms::Uniform("uLightDirection", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
-		deferredMaterialDirectional->AddUniform(Uniforms::Uniform("uLightColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
-		deferredMaterialDirectional->AddUniform(Uniforms::Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
-		deferredMaterialDirectional->AddUniform(Uniforms::Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
+		deferredMaterialDirectional->AddUniform(Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
+		dirDirHandle = deferredMaterialDirectional->AddUniform(Uniform("uLightDirection", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
+		dirColorHandle = deferredMaterialDirectional->AddUniform(Uniform("uLightColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		deferredMaterialDirectional->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
+		deferredMaterialDirectional->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
 		deferredMaterialDirectional->DisableDepthTest();
 		deferredMaterialDirectional->DisableDepthWrite();
 		deferredMaterialDirectional->EnableBlending();
 		deferredMaterialDirectional->BlendingEquation(BlendEq::Add);
 		deferredMaterialDirectional->BlendingFunction(BlendFunc::One, BlendFunc::One);
 
-		deferredMaterialPoint->AddUniform(Uniforms::Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
-		deferredMaterialPoint->AddUniform(Uniforms::Uniform("uLightPosition", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
-		deferredMaterialPoint->AddUniform(Uniforms::Uniform("uLightRadius", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
-		deferredMaterialPoint->AddUniform(Uniforms::Uniform("uLightColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
-		deferredMaterialPoint->AddUniform(Uniforms::Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
-		deferredMaterialPoint->AddUniform(Uniforms::Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
-		deferredMaterialPoint->AddUniform(Uniforms::Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
-		deferredMaterialPoint->AddUniform(Uniforms::Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
-		deferredMaterialPoint->AddUniform(Uniforms::Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
+		deferredMaterialPoint->AddUniform(Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
+		pointPosHandle = deferredMaterialPoint->AddUniform(Uniform("uLightPosition", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
+		pointRadiusHandle = deferredMaterialPoint->AddUniform(Uniform("uLightRadius", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		pointColorHandle = deferredMaterialPoint->AddUniform(Uniform("uLightColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		deferredMaterialPoint->AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
+		deferredMaterialPoint->AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
+		deferredMaterialPoint->AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
+		deferredMaterialPoint->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
+		deferredMaterialPoint->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
 		deferredMaterialPoint->SetCullFace(CullFace::FrontFace);
 		deferredMaterialPoint->DisableDepthTest();
 		deferredMaterialPoint->DisableDepthWrite();
@@ -87,18 +87,18 @@ namespace p3d {
 		deferredMaterialPoint->BlendingEquation(BlendEq::Add);
 		deferredMaterialPoint->BlendingFunction(BlendFunc::One, BlendFunc::One);
 
-		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
-		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uLightPosition", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
-		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uLightDirection", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
-		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uLightRadius", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
-		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uOutterCone", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
-		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uInnerCone", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
-		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uLightColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
-		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
-		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
-		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
-		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
-		deferredMaterialSpot->AddUniform(Uniforms::Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
+		deferredMaterialSpot->AddUniform(Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
+		spotPosHandle = deferredMaterialSpot->AddUniform(Uniform("uLightPosition", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
+		spotDirHandle = deferredMaterialSpot->AddUniform(Uniform("uLightDirection", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
+		spotRadiusHandle = deferredMaterialSpot->AddUniform(Uniform("uLightRadius", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		spotOutterHandle = deferredMaterialSpot->AddUniform(Uniform("uOutterCone", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		spotInnerHandle = deferredMaterialSpot->AddUniform(Uniform("uInnerCone", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		spotColorHandle = deferredMaterialSpot->AddUniform(Uniform("uLightColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		deferredMaterialSpot->AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
+		deferredMaterialSpot->AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
+		deferredMaterialSpot->AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
+		deferredMaterialSpot->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
+		deferredMaterialSpot->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
 		deferredMaterialSpot->SetCullFace(CullFace::FrontFace);
 		deferredMaterialSpot->DisableDepthTest();
 		deferredMaterialSpot->DisableDepthWrite();
@@ -226,10 +226,10 @@ namespace p3d {
 		ClearScreen();
 
 		// Bind FBO Textures
-		FBO->GetAttachments()[FrameBufferAttachmentFormat::Depth_Attachment]->TexturePTR->Bind();
-		FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment0]->TexturePTR->Bind();
-		FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment1]->TexturePTR->Bind();
-		FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment2]->TexturePTR->Bind();
+		FBO->GetAttachments()[0]->TexturePTR->Bind();
+		FBO->GetAttachments()[1]->TexturePTR->Bind();
+		FBO->GetAttachments()[2]->TexturePTR->Bind();
+		FBO->GetAttachments()[3]->TexturePTR->Bind();
 
 		// Render Point Lights
 		for (std::vector<IComponent*>::iterator i = lcomps.begin(); i != lcomps.end(); i++)
@@ -245,9 +245,11 @@ namespace p3d {
 					// Point Lights
 					Vec3 pos = (ViewMatrix * Vec4(p->GetOwner()->GetWorldPosition(), 1.0)).xyz();
 					Vec4 color = p->GetLightColor();
-					deferredMaterialPoint->SetUniformValue("uLightPosition", &pos);
-					deferredMaterialPoint->SetUniformValue("uLightRadius", p->GetLightRadius());
-					deferredMaterialPoint->SetUniformValue("uLightColor", &color);
+					
+					pointPosHandle->SetValue(&pos);
+					pointRadiusHandle->SetValue((void*)&(f32)p->GetLightRadius());
+					pointColorHandle->SetValue(&color);
+
 					// Set Scale
 					f32 sc = g(f(p->GetLightRadius()));
 					Matrix m; m.Scale(sc, sc, sc);
@@ -262,12 +264,12 @@ namespace p3d {
 					Vec3 pos = (ViewMatrix * Vec4(s->GetOwner()->GetWorldPosition(), 1.0)).xyz();
 					Vec4 color = s->GetLightColor();
 					Vec3 dir = (ViewMatrix * (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.0))).xyz();
-					deferredMaterialSpot->SetUniformValue("uLightPosition", &pos);
-					deferredMaterialSpot->SetUniformValue("uLightDirection", &dir);
-					deferredMaterialSpot->SetUniformValue("uLightRadius", s->GetLightRadius());
-					deferredMaterialSpot->SetUniformValue("uOutterCone", s->GetLightCosOutterCone());
-					deferredMaterialSpot->SetUniformValue("uInnerCone", s->GetLightCosInnerCone());
-					deferredMaterialSpot->SetUniformValue("uLightColor", &color);
+					spotPosHandle->SetValue(&pos);
+					spotDirHandle->SetValue(&dir);
+					spotRadiusHandle->SetValue((void*)&(f32)s->GetLightRadius());
+					spotOutterHandle->SetValue((void*)&(f32)s->GetLightCosOutterCone());
+					spotInnerHandle->SetValue((void*)&(f32)s->GetLightCosInnerCone());
+					spotColorHandle->SetValue(&color);
 					// Set Scale
 					f32 sc = g(f(s->GetLightRadius()));
 					Matrix m; m.Scale(sc, sc, sc);
@@ -281,8 +283,8 @@ namespace p3d {
 					// Directional Lights
 					Vec3 dir = (ViewMatrix * (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.0))).xyz();
 					Vec4 color = d->GetLightColor();
-					deferredMaterialDirectional->SetUniformValue("uLightDirection", &dir);
-					deferredMaterialDirectional->SetUniformValue("uLightColor", &color);
+					dirDirHandle->SetValue(&dir);
+					dirColorHandle->SetValue(&color);
 					RenderObject(directionalLight->GetMeshes()[0], d->GetOwner(), deferredMaterialDirectional);
 				}
 				break;
@@ -290,10 +292,10 @@ namespace p3d {
 			}
 		}
 
-		FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment2]->TexturePTR->Unbind();
-		FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment1]->TexturePTR->Unbind();
-		FBO->GetAttachments()[FrameBufferAttachmentFormat::Color_Attachment0]->TexturePTR->Unbind();
-		FBO->GetAttachments()[FrameBufferAttachmentFormat::Depth_Attachment]->TexturePTR->Unbind();
+		FBO->GetAttachments()[3]->TexturePTR->Unbind();
+		FBO->GetAttachments()[2]->TexturePTR->Unbind();
+		FBO->GetAttachments()[1]->TexturePTR->Unbind();
+		FBO->GetAttachments()[0]->TexturePTR->Unbind();
 
 		// End Render
 		EndRender();

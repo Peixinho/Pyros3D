@@ -14,18 +14,18 @@ namespace p3d {
     {
 
 		screenDimensions.Name = "uResolution";
-		screenDimensions.Type = DataType::Vec2;
-		screenDimensions.Usage = PostEffects::ScreenDimensions;
+		screenDimensions.Type = Uniforms::DataType::Vec2;
+		screenDimensions.Usage = Uniforms::PostEffects::ScreenDimensions;
 		AddUniform(screenDimensions);
         
 		radiusUniform.Name = "uRADIUS";
-		radiusUniform.Type = DataType::Float;
+		radiusUniform.Type = Uniforms::DataType::Float;
 		f32 r = radius;
 		radiusUniform.SetValue(&r);
 		AddUniform(radiusUniform);
 
 		softnessUniform.Name = "uSOFTNESS";
-		softnessUniform.Type = DataType::Float;
+		softnessUniform.Type = Uniforms::DataType::Float;
 		f32 s = softness;
 		softnessUniform.SetValue(&s);
 		AddUniform(softnessUniform);

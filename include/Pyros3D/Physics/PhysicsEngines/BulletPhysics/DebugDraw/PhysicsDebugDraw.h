@@ -7,8 +7,6 @@
 
 namespace p3d {
 
-	using namespace Uniforms;
-
 	class PYROS3D_API PhysicsDebugDraw : public btIDebugDraw
 	{
 		int m_debugMode;

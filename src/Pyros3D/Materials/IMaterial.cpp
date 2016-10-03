@@ -35,7 +35,7 @@ namespace p3d {
 	void IMaterial::SetOpacity(const f32 &opacity)
 	{
 		this->opacity = opacity;
-		AddUniform(Uniform("uOpacity", DataType::Float, &this->opacity));
+		AddUniform(Uniform("uOpacity", Uniforms::DataType::Float, &this->opacity));
 	}
 	void IMaterial::SetCullFace(const uint32 &face)
 	{
@@ -83,53 +83,28 @@ namespace p3d {
 	{
 		depthBias = false;
 	}
-	// send uniforms
-	void IMaterial::SetUniformValue(std::string Uniform, int32 value)
-	{
-		StringID ID(MakeStringID(Uniform));
-		UserUniforms[ID].SetValue(&value, 1);
-	}
-	void IMaterial::SetUniformValue(StringID UniformID, int32 value)
-	{
-		UserUniforms[UniformID].SetValue(&value, 1);
-	}
-	void IMaterial::SetUniformValue(std::string Uniform, f32 value)
-	{
-		StringID ID(MakeStringID(Uniform));
-		UserUniforms[ID].SetValue(&value, 1);
-	}
-	void IMaterial::SetUniformValue(StringID UniformID, f32 value)
-	{
-		UserUniforms[UniformID].SetValue(&value, 1);
-	}
-	void IMaterial::SetUniformValue(StringID UniformID, void* value, const uint32 &elementCount)
-	{
-		UserUniforms[UniformID].SetValue(value, elementCount);
-	}
-	void IMaterial::SetUniformValue(std::string Uniform, void* value, const uint32 &elementCount)
-	{
-		StringID ID(MakeStringID(Uniform));
-		UserUniforms[ID].SetValue(value, elementCount);
-	}
 
-	void IMaterial::AddUniform(const Uniform &Data)
+	Uniform* IMaterial::AddUniform(Uniform Data)
 	{
 		// Global Uniforms
-		if ((int)Data.Usage<DataUsage::Other)
+		if ((int)Data.Usage<Uniforms::DataUsage::Other)
 		{
 			GlobalUniforms.push_back(Data);
+			return &GlobalUniforms[GlobalUniforms.size() - 1];
 		}
 		// Game Object Uniforms
-		else if ((int)Data.Usage>DataUsage::Other)
+		else if ((int)Data.Usage>Uniforms::DataUsage::Other)
 		{
 			ModelUniforms.push_back(Data);
+			return &ModelUniforms[ModelUniforms.size() - 1];
 		}
 		else // User Specific
 		{
-			StringID ID(MakeStringID(Data.Name));
-			UserUniforms[ID] = Data;
+			UserUniforms.push_back(Data);
+			return &UserUniforms[UserUniforms.size() - 1];
 		}
 	}
+	
 	void IMaterial::StartRenderWireFrame()
 	{
 		isWireFrame = true;

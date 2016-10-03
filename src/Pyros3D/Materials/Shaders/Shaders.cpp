@@ -172,32 +172,32 @@ namespace p3d {
 		if (Handle > -1 && uniform.ElementCount > 0)
 			switch (uniform.Type)
 			{
-			case DataType::Int:
+			case Uniforms::DataType::Int:
 			{
 				GLCHECKER(glUniform1iv(Handle, uniform.ElementCount, (GLint*)((int32*)&uniform.Value[0])));
 				break;
 			}
-			case DataType::Float:
+			case Uniforms::DataType::Float:
 			{
 				GLCHECKER(glUniform1fv(Handle, uniform.ElementCount, (f32*)&uniform.Value[0]));
 				break;
 			}
-			case DataType::Vec2:
+			case Uniforms::DataType::Vec2:
 			{
 				GLCHECKER(glUniform2fv(Handle, uniform.ElementCount, (f32*)&uniform.Value[0]));
 				break;
 			}
-			case DataType::Vec3:
+			case Uniforms::DataType::Vec3:
 			{
 				GLCHECKER(glUniform3fv(Handle, uniform.ElementCount, (f32*)&uniform.Value[0]));
 				break;
 			}
-			case DataType::Vec4:
+			case Uniforms::DataType::Vec4:
 			{
 				GLCHECKER(glUniform4fv(Handle, uniform.ElementCount, (f32*)&uniform.Value[0]));
 				break;
 			}
-			case DataType::Matrix:
+			case Uniforms::DataType::Matrix:
 			{
 				GLCHECKER(glUniformMatrix4fv(Handle, uniform.ElementCount, false, (f32*)&uniform.Value[0]));
 				break;
@@ -211,32 +211,32 @@ namespace p3d {
 		{
 			switch (uniform.Type)
 			{
-			case DataType::Int:
+			case Uniforms::DataType::Int:
 			{
 				GLCHECKER(glUniform1iv(Handle, elementCount, (GLint*)((int32*)data)));
 				break;
 			}
-			case DataType::Float:
+			case Uniforms::DataType::Float:
 			{
 				GLCHECKER(glUniform1fv(Handle, elementCount, (f32*)data));
 				break;
 			}
-			case DataType::Vec2:
+			case Uniforms::DataType::Vec2:
 			{
 				GLCHECKER(glUniform2fv(Handle, elementCount, (f32*)data));
 				break;
 			}
-			case DataType::Vec3:
+			case Uniforms::DataType::Vec3:
 			{
 				GLCHECKER(glUniform3fv(Handle, elementCount, (f32*)data));
 				break;
 			}
-			case DataType::Vec4:
+			case Uniforms::DataType::Vec4:
 			{
 				GLCHECKER(glUniform4fv(Handle, elementCount, (f32*)data));
 				break;
 			}
-			case DataType::Matrix:
+			case Uniforms::DataType::Matrix:
 			{
 				GLCHECKER(glUniformMatrix4fv(Handle, elementCount, false, (f32*)data));
 				break;

@@ -20,8 +20,6 @@
 
 namespace p3d {
 
-	using namespace Uniforms;
-
 	namespace ShaderType {
 		enum {
 			VertexShader = 0,

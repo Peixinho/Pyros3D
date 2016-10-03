@@ -105,13 +105,13 @@ void IslandDemo::Init()
 
 	int32 imgID = matWater->textures.size();
 	matWater->textures.push_back(reflectionTexture);
-	matWater->AddUniform(Uniforms::Uniform("uReflectionMap", DataType::Int, &imgID));
+	matWater->AddUniform(Uniform("uReflectionMap", Uniforms::DataType::Int, &imgID));
 	imgID = matWater->textures.size();
 	matWater->textures.push_back(refractionTextureDepth);
-	matWater->AddUniform(Uniforms::Uniform("uRefractionMapDepth", DataType::Int, &imgID));
+	matWater->AddUniform(Uniform("uRefractionMapDepth", Uniforms::DataType::Int, &imgID));
 	imgID = matWater->textures.size();
 	matWater->textures.push_back(refractionTexture);
-	matWater->AddUniform(Uniforms::Uniform("uRefractionMap", DataType::Int, &imgID));
+	matWater->AddUniform(Uniform("uRefractionMap", Uniforms::DataType::Int, &imgID));
 
 	normalMap = new Texture();
 	normalMap->LoadTexture("../../../../examples/IslandDemo/assets/normal.png");
@@ -120,11 +120,11 @@ void IslandDemo::Init()
 
 	imgID = matWater->textures.size();
 	matWater->textures.push_back(normalMap);
-	matWater->AddUniform(Uniforms::Uniform("uNormalmap", DataType::Int, &imgID));
+	matWater->AddUniform(Uniform("uNormalmap", Uniforms::DataType::Int, &imgID));
 
 	imgID = matWater->textures.size();
 	matWater->textures.push_back(DUDVmap);
-	matWater->AddUniform(Uniforms::Uniform("uDUDVmap", DataType::Int, &imgID));
+	matWater->AddUniform(Uniform("uDUDVmap", Uniforms::DataType::Int, &imgID));
 }
 
 void IslandDemo::Update()

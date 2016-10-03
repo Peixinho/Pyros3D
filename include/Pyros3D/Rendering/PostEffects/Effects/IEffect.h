@@ -22,7 +22,7 @@ namespace p3d {
 
 	struct __UniformPostProcess
 	{
-		Uniforms::Uniform uniform;
+		Uniform uniform;
 		int32 handle;
 	};
 

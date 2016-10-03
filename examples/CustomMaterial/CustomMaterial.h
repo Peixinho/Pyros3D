@@ -37,20 +37,22 @@ public:
 
 	CustomMaterialExample() : CustomShaderMaterial("../../../../examples/CustomMaterial/assets/shader.glsl")
 	{
-		AddUniform(Uniforms::Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
-		AddUniform(Uniforms::Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
-		AddUniform(Uniforms::Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
-		AddUniform(Uniforms::Uniform("uColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
+		AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
+		AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
+		handle = AddUniform(Uniform("uColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 	}
 
 	virtual void PreRender()
 	{
 		srand((unsigned int)time(NULL));
 		Vec4 color = Vec4((rand() % 100) / 100.f, (rand() % 100) / 100.f, (rand() % 100) / 100.f, 1.f);
-		SetUniformValue("uColor", &color);
+		handle->SetValue(&color);
 	}
 	virtual void Render() {}
 	virtual void AfterRender() {}
+
+	Uniform* handle;
 
 };
 

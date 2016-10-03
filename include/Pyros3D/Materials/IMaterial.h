@@ -19,8 +19,6 @@
 
 namespace p3d {
 
-	using namespace Uniforms;
-
 	// Culling
 	namespace CullFace {
 		enum {
@@ -71,18 +69,10 @@ namespace p3d {
 		// Uniforms        
 		std::vector<Uniform> GlobalUniforms;
 		std::vector<Uniform> ModelUniforms;
-		std::map<StringID, Uniform> UserUniforms;
-
-		// Send Uniforms
-		void SetUniformValue(std::string Uniform, int32 value);
-		void SetUniformValue(StringID UniformID, int32 value);
-		void SetUniformValue(std::string Uniform, f32 value);
-		void SetUniformValue(StringID UniformID, f32 value);
-		void SetUniformValue(std::string Uniform, void* value, const uint32 &elementCount = 1);
-		void SetUniformValue(StringID UniformID, void* value, const uint32 &elementCount = 1);
+		std::vector<Uniform> UserUniforms;
 
 		// Add Uniform
-		void AddUniform(const Uniform &Data);
+		Uniform* AddUniform(const Uniform Data);
 
 		// Render WireFrame
 		void StartRenderWireFrame();

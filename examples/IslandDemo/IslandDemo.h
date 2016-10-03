@@ -35,13 +35,13 @@ class WaterMaterial : public CustomShaderMaterial {
 public:
 	WaterMaterial(const std::string &shader) : CustomShaderMaterial(shader)
 	{
-		AddUniform(Uniforms::Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
-		AddUniform(Uniforms::Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
-		AddUniform(Uniforms::Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
-		AddUniform(Uniforms::Uniform("uColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
-		AddUniform(Uniforms::Uniform("uTime", Uniforms::DataUsage::Timer));
-		AddUniform(Uniforms::Uniform("uCameraPos", Uniforms::DataUsage::CameraPosition));
-		AddUniform(Uniforms::Uniform("uNearFarPlane", Uniforms::DataUsage::NearFarPlane));
+		AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
+		AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
+		AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
+		AddUniform(Uniform("uColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		AddUniform(Uniform("uTime", Uniforms::DataUsage::Timer));
+		AddUniform(Uniform("uCameraPos", Uniforms::DataUsage::CameraPosition));
+		AddUniform(Uniform("uNearFarPlane", Uniforms::DataUsage::NearFarPlane));
 	}
 
 	virtual ~WaterMaterial() {

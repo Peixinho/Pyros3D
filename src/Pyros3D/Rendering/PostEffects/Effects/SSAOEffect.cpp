@@ -145,65 +145,65 @@ namespace p3d {
 		scale = 0.0005f;
 
 		strength.Name = "uStrength";
-		strength.Type = DataType::Float;
-		strength.Usage = PostEffects::Other;
+		strength.Type = Uniforms::DataType::Float;
+		strength.Usage = Uniforms::PostEffects::Other;
 		strength.SetValue(&total_strength);
 		AddUniform(strength);
 
 		Base.Name = "uBase";
-		Base.Type = DataType::Float;
-		Base.Usage = PostEffects::Other;
+		Base.Type = Uniforms::DataType::Float;
+		Base.Usage = Uniforms::PostEffects::Other;
 		Base.SetValue(&base);
 		AddUniform(Base);
 
 		Area.Name = "uArea";
-		Area.Type = DataType::Float;
-		Area.Usage = PostEffects::Other;
+		Area.Type = Uniforms::DataType::Float;
+		Area.Usage = Uniforms::PostEffects::Other;
 		Area.SetValue(&area);
 		AddUniform(Area);
 
 		Falloff.Name = "uFalloff";
-		Falloff.Type = DataType::Float;
-		Falloff.Usage = PostEffects::Other;
+		Falloff.Type = Uniforms::DataType::Float;
+		Falloff.Usage = Uniforms::PostEffects::Other;
 		Falloff.SetValue(&falloff);
 		AddUniform(Falloff);
 
 		Radius.Name = "uRadius";
-		Radius.Type = DataType::Float;
-		Radius.Usage = PostEffects::Other;
+		Radius.Type = Uniforms::DataType::Float;
+		Radius.Usage = Uniforms::PostEffects::Other;
 		Radius.SetValue(&radius);
 		AddUniform(Radius);
 
 		Samples.Name = "uSamples";
-		Samples.Type = DataType::Int;
-		Samples.Usage = PostEffects::Other;
+		Samples.Type = Uniforms::DataType::Int;
+		Samples.Usage = Uniforms::PostEffects::Other;
 		Samples.SetValue(&samples);
 		AddUniform(Samples);
 
 		Scale.Name = "uScale";
-		Scale.Type = DataType::Float;
-		Scale.Usage = PostEffects::Other;
+		Scale.Type = Uniforms::DataType::Float;
+		Scale.Usage = Uniforms::PostEffects::Other;
 		Scale.SetValue(&scale);
 		AddUniform(Scale);
 
 		nearFarPlane.Name = "uNearFar";
-		nearFarPlane.Type = DataType::Vec2;
-		nearFarPlane.Usage = PostEffects::NearFarPlane;
+		nearFarPlane.Type = Uniforms::DataType::Vec2;
+		nearFarPlane.Usage = Uniforms::PostEffects::NearFarPlane;
 		AddUniform(nearFarPlane);
 
 		screen.Name = "uScreen";
-		screen.Type = DataType::Vec2;
+		screen.Type = Uniforms::DataType::Vec2;
 		screen.Usage = PostEffects::ScreenDimensions;
 		AddUniform(screen);
 
 		matProj.Name = "matProj";
-		matProj.Type = DataType::Matrix;
-		matProj.Usage = PostEffects::ProjectionFromScene;
+		matProj.Type = Uniforms::DataType::Matrix;
+		matProj.Usage = Uniforms::PostEffects::ProjectionFromScene;
 		AddUniform(matProj);
 
 		inverseView.Name = "uInverseView";
-		inverseView.Type = DataType::Matrix;
-		inverseView.Type = PostEffects::Other;
+		inverseView.Type = Uniforms::DataType::Matrix;
+		inverseView.Type = Uniforms::PostEffects::Other;
 		AddUniform(inverseView);
 	}
 
