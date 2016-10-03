@@ -258,8 +258,11 @@ namespace p3d
 	{
 		if (colorMapID == -1)
 			colorMapID = Textures.size();
-
-		// Save on Lirest
+		else {
+			Textures[colorMapID] = colormap;
+			return;
+		}
+		// Save on List
 		Textures.push_back(colormap);
 		// Set Uniform
 		AddUniform(Uniform("uColormap", DataType::Int, &colorMapID));
@@ -268,6 +271,10 @@ namespace p3d
 	{
 		if (specularMapID == -1)
 			specularMapID = Textures.size();
+		else {
+			Textures[specularMapID] = specular;
+			return;
+		}
 		// Save on List
 		Textures.push_back(specular);
 		// Set Uniform
@@ -277,6 +284,10 @@ namespace p3d
 	{
 		if (normalMapID == -1)
 			normalMapID = Textures.size();
+		else {
+			Textures[normalMapID] = normalmap;
+			return;
+		}
 		// Save on List
 		Textures.push_back(normalmap);
 		// Set Uniform
@@ -286,6 +297,10 @@ namespace p3d
 	{
 		if (envMapID == -1)
 			envMapID = Textures.size();
+		else {
+			Textures[envMapID] = envmap;
+			return;
+		}
 		// Save on List
 		Textures.push_back(envmap);
 		// Set Uniform
@@ -300,6 +315,10 @@ namespace p3d
 	{
 		if (refractMapID == -1)
 			refractMapID = Textures.size();
+		else {
+			Textures[refractMapID] = refractmap;
+			return;
+		}
 		// Save on List
 		Textures.push_back(refractmap);
 		// Set Uniform
@@ -309,6 +328,10 @@ namespace p3d
 	{
 		if (skyboxMapID == -1)
 			skyboxMapID = Textures.size();
+		else {
+			Textures[skyboxMapID] = skyboxmap;
+			return;
+		}
 		// Save on List
 		Textures.push_back(skyboxmap);
 		// Set Uniform
@@ -318,6 +341,10 @@ namespace p3d
 	{
 		if (fontMapID == -1)
 			fontMapID = Textures.size();
+		else {
+			Textures[fontMapID] = font->GetTexture();
+			return;
+		}
 		// Save on List
 		Textures.push_back(font->GetTexture());
 		// Set Uniform

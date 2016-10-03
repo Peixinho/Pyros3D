@@ -29,7 +29,7 @@ void RotatingTextureAnimatedCube::Init()
 {
 	// Initialization
 
-		// Initialize Scene
+	// Initialize Scene
 	Scene = new SceneGraph();
 
 	// Initialize Renderer
