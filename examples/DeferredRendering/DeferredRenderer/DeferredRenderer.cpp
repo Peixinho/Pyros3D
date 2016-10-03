@@ -131,35 +131,6 @@ namespace p3d {
 		delete sphereHandle;
 	}
 
-	std::vector<RenderingMesh*> DeferredRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag)
-	{
-
-		// Sort and Group Objects From Scene
-		std::vector<RenderingMesh*> _OpaqueMeshes;
-		std::map<f32, RenderingMesh*> _TranslucidMeshes;
-
-		std::vector<RenderingMesh*> rmeshes = RenderingComponent::GetRenderingMeshes(Scene);
-
-		for (std::vector<RenderingMesh*>::iterator k = rmeshes.begin(); k != rmeshes.end(); k++)
-		{
-			if ((*k)->Material->IsTransparent())
-			{
-				f32 index = Camera->GetPosition().distanceSQR((*k)->renderingComponent->GetOwner()->GetWorldPosition());
-				while (_TranslucidMeshes.find(index) != _TranslucidMeshes.end()) index += 1.f;
-				_TranslucidMeshes[index] = (*k);
-			}
-			else _OpaqueMeshes.push_back((*k));
-		}
-
-		for (std::map<f32, RenderingMesh*>::iterator i = _TranslucidMeshes.begin(); i != _TranslucidMeshes.end(); i++)
-		{
-			_OpaqueMeshes.push_back((*i).second);
-		}
-
-		return _OpaqueMeshes;
-
-	}
-
 	void DeferredRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 BufferOptions)
 	{
 

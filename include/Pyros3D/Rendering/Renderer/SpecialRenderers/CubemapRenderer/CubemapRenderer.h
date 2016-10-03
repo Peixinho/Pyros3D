@@ -28,7 +28,6 @@ namespace p3d {
 
 	protected:
 		
-		virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag = 0);
 		virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene) {}
 
 		GameObject* AllSeeingEye;

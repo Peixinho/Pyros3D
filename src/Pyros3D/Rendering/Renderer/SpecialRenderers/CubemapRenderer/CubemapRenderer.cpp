@@ -46,37 +46,6 @@ namespace p3d {
 		delete fbo;
 	}
 
-
-
-	std::vector<RenderingMesh*> CubemapRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag)
-	{
-
-		// Sort and Group Objects From Scene
-		std::vector<RenderingMesh*> _OpaqueMeshes;
-		std::map<f32, RenderingMesh*> _TranslucidMeshes;
-
-		std::vector<RenderingMesh*> rmeshes = RenderingComponent::GetRenderingMeshes(Scene);
-
-		for (std::vector<RenderingMesh*>::iterator k = rmeshes.begin(); k != rmeshes.end(); k++)
-		{
-			if ((*k)->Material->IsTransparent() && sorting)
-			{
-				f32 index = Camera->GetWorldPosition().distanceSQR((*k)->renderingComponent->GetOwner()->GetWorldPosition());
-				while (_TranslucidMeshes.find(index) != _TranslucidMeshes.end()) index += 1.f;
-				_TranslucidMeshes[index] = (*k);
-			}
-			else _OpaqueMeshes.push_back((*k));
-		}
-
-		for (std::map<f32, RenderingMesh*>::iterator i = _TranslucidMeshes.begin(); i != _TranslucidMeshes.end(); i++)
-		{
-			_OpaqueMeshes.push_back((*i).second);
-		}
-
-		return _OpaqueMeshes;
-
-	}
-
 	void CubemapRenderer::RenderCubeMap(SceneGraph* Scene, GameObject* AllSeeingEye, const f32 Near, const f32 Far)
 	{
 
@@ -95,10 +64,11 @@ namespace p3d {
 		ViewProjectionMatrixIsDirty = true;
 
 		// Group and Sort Meshes
-		std::vector<RenderingMesh*> rmesh = GroupAndSortAssets(Scene, AllSeeingEye);
+		//rmesh = GroupAndSortAssets(Scene, AllSeeingEye); // version updating everytime
+		rmesh = RenderingComponent::GetRenderingMeshesSorted(Scene); // using last ordered meshes
 
 		// Get Lights List
-		std::vector<IComponent*> lcomps = ILightComponent::GetLightsOnScene(Scene);
+		lcomps = ILightComponent::GetLightsOnScene(Scene);
 
 		if (rmesh.size() > 0)
 		{

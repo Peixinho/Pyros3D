@@ -103,7 +103,7 @@ namespace p3d {
 		InitRender();
 
 		// Get Rendering Components List
-		std::vector<RenderingMesh*> rmesh = RenderingComponent::GetRenderingMeshes(Scene);
+		std::vector<RenderingMesh*> rmesh = RenderingComponent::GetRenderingMeshesSorted(Scene);
 
 		// Bind FBO
 		fbo->Bind();

@@ -14,6 +14,7 @@ namespace p3d {
 	// Initialize Rendering Components and Meshes vector
 	std::vector<IComponent*> RenderingComponent::Components;
 	std::map<SceneGraph*, std::vector<RenderingMesh*> > RenderingComponent::MeshesOnScene;
+	std::map<SceneGraph*, std::vector<RenderingMesh*> > RenderingComponent::MeshesOnSceneSorted;
 	std::map<SceneGraph*, std::vector<RenderingComponent*> > RenderingComponent::RenderingComponentsOnScene;
 
 	RenderingComponent::RenderingComponent(Renderable* renderable, IMaterial* Material) : IComponent()
@@ -221,6 +222,11 @@ namespace p3d {
 	std::vector<RenderingMesh*> &RenderingComponent::GetRenderingMeshes(SceneGraph* scene)
 	{
 		return MeshesOnScene[scene];
+	}
+
+	std::vector<RenderingMesh*> &RenderingComponent::GetRenderingMeshesSorted(SceneGraph* scene)
+	{
+		return MeshesOnSceneSorted[scene].size()>0?MeshesOnSceneSorted[scene]:MeshesOnScene[scene];
 	}
 
 	std::vector<RenderingMesh*> &RenderingComponent::GetMeshes(const uint32 LODLevel)

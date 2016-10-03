@@ -20,6 +20,7 @@
 #include <Pyros3D/Rendering/Components/Lights/ILightComponent.h>
 #include <Pyros3D/Rendering/Culling/FrustumCulling/FrustumCulling.h>
 #include <Pyros3D/Other/Export.h>
+#include <algorithm>
 
 namespace p3d {
 
@@ -197,7 +198,7 @@ namespace p3d {
 		// the rendering list is changed.
 		// e.g. Add/Remove Models
 		// Sort Assets (mostly the Translucent ones)
-		virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag = 0) = 0;
+		virtual std::vector<RenderingMesh*> GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag = 0);
 
 		// Reset
 		void InitRender();
@@ -372,18 +373,27 @@ namespace p3d {
 
 		// Shadow Casting
 		std::vector<Texture*>
-			DirectionalShadowMapsTextures, PointShadowMapsTextures, SpotShadowMapsTextures;
+			DirectionalShadowMapsTextures, 
+			PointShadowMapsTextures, 
+			SpotShadowMapsTextures;
 		std::vector<uint32>
-			DirectionalShadowMapsUnits, PointShadowMapsUnits, SpotShadowMapsUnits;
+			DirectionalShadowMapsUnits, 
+			PointShadowMapsUnits, 
+			SpotShadowMapsUnits;
 		std::vector<Matrix>
-			DirectionalShadowMatrix, PointShadowMatrix, SpotShadowMatrix;
+			DirectionalShadowMatrix, 
+			PointShadowMatrix, 
+			SpotShadowMatrix;
 		Vec4
 			DirectionalShadowFar;
 		uint32
-			NumberOfDirectionalShadows, NumberOfPointShadows, NumberOfSpotShadows;
+			NumberOfDirectionalShadows, 
+			NumberOfPointShadows, 
+			NumberOfSpotShadows;
 
 		// ViewPort Size
-		uint32              viewPortStartX,
+		uint32              
+			viewPortStartX,
 			viewPortStartY,
 			viewPortEndX,
 			viewPortEndY;
@@ -396,6 +406,11 @@ namespace p3d {
 		// Internal ViewPort Dimension
 		void _SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY);
 
+		std::vector<RenderingMesh*>
+			rmesh;
+		std::vector<IComponent*>
+			lcomps;
+
 	private:
 
 		void BindMesh(RenderingMesh* rmesh, IMaterial* material);
@@ -403,6 +418,10 @@ namespace p3d {
 		void SendAttributes(RenderingMesh* rmesh, IMaterial* material);
 		void BindShadowMaps(IMaterial* material);
 		void UnbindShadowMaps(IMaterial* material);
+
+		GenericShaderMaterial	
+			*shadowMaterial, 
+			*shadowSkinnedMaterial;
 
 		// Last Mesh Rendered
 		int32
