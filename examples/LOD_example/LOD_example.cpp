@@ -180,8 +180,8 @@ void LOD_example::Shutdown()
 
 	// Delete Models
 	delete teapotLOD1Handle;
-	//delete teapotLOD2Handle;
-	//delete teapotLOD3Handle;
+	delete teapotLOD2Handle;
+	delete teapotLOD3Handle;
 
 
 	// Remove GameObjects From Scene

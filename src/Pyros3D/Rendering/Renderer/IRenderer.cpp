@@ -93,7 +93,6 @@ namespace p3d {
 
 	}
 
-	// Internal Function
 	void IRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene) {
 
 	}
@@ -940,7 +939,7 @@ namespace p3d {
 	{
 		BackgroundColorSet = false;
 	}
-	
+
 	void IRenderer::ActivateCulling(const uint32 cullingType)
 	{
 		culling = new FrustumCulling();
