@@ -85,6 +85,9 @@ namespace p3d
 
 		// Texture IDs
 		int32 colorMapID, specularMapID, normalMapID, envMapID, skyboxMapID, refractMapID, fontMapID;
+
+		// Uniforms Handles
+		Uniform *uColor, *uSpecular, *uReflectivity;
 	};
 }
 

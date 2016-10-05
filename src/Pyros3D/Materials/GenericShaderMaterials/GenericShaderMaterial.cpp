@@ -21,6 +21,8 @@ namespace p3d
 		// Default
 		colorMapID = specularMapID = normalMapID = envMapID = skyboxMapID = refractMapID = fontMapID = -1;
 
+		uColor = uSpecular = uReflectivity = NULL;
+
 		// Find if Shader exists, if not, creates a new one
 		if (ShadersList.find(options) == ShadersList.end())
 		{
@@ -175,7 +177,7 @@ namespace p3d
 			AddUniform(Uniform("uCameraPos", Uniforms::DataUsage::CameraPosition));
 			// Set Default Reflectivity
 			Reflectivity = 1.0;
-			AddUniform(Uniform("uReflectivity", Uniforms::DataType::Float, &Reflectivity));
+			uReflectivity = AddUniform(Uniform("uReflectivity", Uniforms::DataType::Float, &Reflectivity));
 		}
 
 		if (options & ShaderUsage::Refraction)
@@ -183,7 +185,7 @@ namespace p3d
 			AddUniform(Uniform("uCameraPos", Uniforms::DataUsage::CameraPosition));
 			// Set Default Reflectivity
 			Reflectivity = 1.0;
-			AddUniform(Uniform("uReflectivity", Uniforms::DataType::Float, &Reflectivity));
+			uReflectivity = AddUniform(Uniform("uReflectivity", Uniforms::DataType::Float, &Reflectivity));
 		}
 		if (options & ShaderUsage::Skinning)
 		{
@@ -246,12 +248,17 @@ namespace p3d
 	void GenericShaderMaterial::SetColor(const Vec4& color)
 	{
 		Vec4 Color = color;
-		AddUniform(Uniform("uColor", Uniforms::DataType::Vec4, &Color));
+		if (!uColor)
+			uColor = AddUniform(Uniform("uColor", Uniforms::DataType::Vec4, &Color));
+		else
+			uColor->SetValue(&Color);
 	}
 	void GenericShaderMaterial::SetSpecular(const Vec4& specularColor)
 	{
 		Vec4 Specular = specularColor;
-		AddUniform(Uniform("uSpecular", Uniforms::DataType::Vec4, &Specular));
+		if (!uSpecular)
+			uSpecular = AddUniform(Uniform("uSpecular", Uniforms::DataType::Vec4, &Specular));
+		else uSpecular->SetValue(&Specular);
 	}
 
 	void GenericShaderMaterial::SetColorMap(Texture* colormap)
@@ -309,7 +316,10 @@ namespace p3d
 	void GenericShaderMaterial::SetReflectivity(const f32 reflectivity)
 	{
 		Reflectivity = reflectivity;
-		AddUniform(Uniform("uReflectivity", Uniforms::DataType::Float, &Reflectivity));
+		if (!uReflectivity)
+			AddUniform(Uniform("uReflectivity", Uniforms::DataType::Float, &Reflectivity));
+		else
+			uReflectivity->SetValue(&Reflectivity);
 	}
 	void GenericShaderMaterial::SetRefractMap(Texture* refractmap)
 	{
