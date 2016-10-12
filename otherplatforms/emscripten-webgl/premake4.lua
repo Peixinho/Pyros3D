@@ -140,7 +140,7 @@ function BuildDemo(demoPath, demoName)
 
             defines({"_DEBUG"})
 
-            targetdir ("bin/debug/examples/"..demoName)
+            targetdir ("bin")
 
             links { libName.."d", "BulletDynamics", "BulletCollision", "LinearMath", "freetype" }
             linkoptions { "-L../libs" }
@@ -150,7 +150,7 @@ function BuildDemo(demoPath, demoName)
 
         configuration "Release"
 
-            targetdir ("bin/release/examples/"..demoName)
+            targetdir ("bin")
 
             links { libName, "BulletDynamics", "BulletCollision", "LinearMath", "freetype" }
             linkoptions { "-L../libs" }

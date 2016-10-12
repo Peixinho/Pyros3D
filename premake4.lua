@@ -9,7 +9,7 @@ solution "Pyros3D"
     os.mkdir("include");
     os.mkdir("libs");
 
-	newoption {
+    newoption {
        trigger     = "framework",
        value       = "API",
        description = "Choose a particular API for window management",
@@ -40,7 +40,7 @@ solution "Pyros3D"
        description = "Ouput Shared Library - Works only on *NIX platforms"
     }
 
-	newoption {
+    newoption {
        trigger     = "static",
        description = "Ouput Static Library - Default Option"
     }
@@ -107,7 +107,6 @@ solution "Pyros3D"
         if os.get() == "macosx" then
             libsToLinkGL = { "OpenGL.framework", "GLEW.framework" }
         end
-        defines({"GLEW_STATIC"})
     end
 
     ------------------------------------------------------------------
@@ -121,7 +120,7 @@ solution "Pyros3D"
     libName = "PyrosEngine"
 
     project "PyrosEngine"
-        targetdir "libs"
+        targetdir "bin"
         
         if _OPTIONS["shared"] then
             kind "SharedLib"
@@ -139,13 +138,11 @@ solution "Pyros3D"
         end
 
         -- Windows DLL And Lib Creation
-		if os.get() == "windows" and _OPTIONS["bin"]=="shared" then
-			defines({"_EXPORT"})
-		else
-        	   if _OPTIONS["GLES2"] then
+        if os.get() == "windows" and _OPTIONS["shared"] then
+            defines({"_EXPORT"})
+        else
+               if _OPTIONS["GLES2"] then
                 defines({"GLES2"})
-            else
-                defines({"GLEW_STATIC"})
             end
         end
 
@@ -174,9 +171,9 @@ solution "Pyros3D"
             targetname(libName.."d")
             defines({"_DEBUG"})
            
-            if os.get() == "windows" and _OPTIONS["bin"]=="shared" then
-                 links { libsToLinkGL, libsToLinkDebug, "BulletDynamics_Debug", "BulletCollision_Debug", "LinearMath_Debug", "freetype26d", "pthreadVC2" }
-                 linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
+            if os.get() == "windows" and _OPTIONS["shared"] then
+                links { libsToLinkGL, libsToLinkDebug, "BulletDynamics_Debug", "BulletCollision_Debug", "LinearMath_Debug", "freetype26d", "pthreadVC2" }
+                libdirs { rootdir.."/libs" }
             end
 
             flags { "Symbols" }
@@ -185,22 +182,26 @@ solution "Pyros3D"
 
             targetname(libName)
 
-            if os.get() == "windows" and _OPTIONS["bin"]=="shared" then
-                 links { libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype26", "pthreadVC2" }
-                 linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
+            if os.get() == "windows" and _OPTIONS["shared"] then
+                links { libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype26", "pthreadVC2" }
+                libdirs { rootdir.."/libs" }
             end
 
             flags { "Optimize" }
 
     project "AssimpImporter"
-        targetdir "bin/tools"
+        targetdir "bin"
         kind "ConsoleApp"
         language "C++"
         files { "tools/AssimpImporter/src/**.h", "tools/AssimpImporter/src/**.cpp" }
         
         includedirs { "include/" }
 
-        defines({"UNICODE", "GLEW_STATIC"})
+        if os.get() == "windows" and _OPTIONS["shared"] then
+            defines({"_IMPORT"})
+        end
+
+        defines({"UNICODE"})
 
         -- Log Options
         defines({"LOG_DISABLE"}) 
@@ -208,15 +209,17 @@ solution "Pyros3D"
                 
        configuration "Debug"
 
-            debugdir ("bin/tools/")
+            debugdir ("bin")
 
             defines({"_DEBUG"})
 
-            targetdir ("bin/tools/")
+            targetdir ("bin")
+
+            targetname ("AssimpImporterd")
 
             if os.get() == "linux" then
                 links { libName.."d", libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "z" }
-                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../libs" }
+                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../libs" }
             end
             
             if os.get() == "windows" then
@@ -233,13 +236,15 @@ solution "Pyros3D"
 
         configuration "Release"
  
-            debugdir ("bin/tools/")
+            debugdir ("bin")
 
-            targetdir ("bin/tools/")
+            targetdir ("bin")
+
+            targetname ("AssimpImporter")
 
             if os.get() == "linux" then
                 links { libName, libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "pthread", "z" }
-                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
+                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../libs" }
             end
 
             if os.get() == "windows" then
@@ -261,26 +266,26 @@ function BuildDemo(demoPath, demoName)
         language "C++"
         files { demoPath.."/**.h", demoPath.."/**.cpp", demoPath.."/../WindowManagers/**.cpp", demoPath.."/../WindowManagers/**.h", demoPath.."/../MainProgram.cpp" }
 
-		if framework == "SDL" then
-			excludes { "**/SFML/**" }
-			excludes { "**/SDL2/**" }
-		else 
-			if framework == "SDL2" then
-				excludes { "**/SDL/**" }
-				excludes { "**/SFML/**" }
-			else
-				excludes { "**/SDL/**" }
-				excludes { "**/SDL2/**" }
-			end
-		end
-		
+        if framework == "SDL" then
+            excludes { "**/SFML/**" }
+            excludes { "**/SDL2/**" }
+        else 
+            if framework == "SDL2" then
+                excludes { "**/SDL/**" }
+                excludes { "**/SFML/**" }
+            else
+                excludes { "**/SDL/**" }
+                excludes { "**/SDL2/**" }
+            end
+        end
+        
         includedirs { "include/", "src/" }
-	
+    
         defines({framework});
-		defines({"DEMO_NAME="..demoName, "_"..demoName})
+        defines({"DEMO_NAME="..demoName, "_"..demoName})
 
-		if os.get() == "windows" and _OPTIONS["bin"]=="shared" then
-			defines({"_IMPORT"})
+        if os.get() == "windows" and _OPTIONS["shared"] then
+            defines({"_IMPORT"})
         end
 
         defines({"UNICODE"})
@@ -291,15 +296,17 @@ function BuildDemo(demoPath, demoName)
 
         configuration "Debug"
 
-            debugdir ("bin/debug/examples/"..demoName)
+            debugdir ("bin")
 
             defines({"_DEBUG"})
 
-            targetdir ("bin/debug/examples/"..demoName)
+            targetdir ("bin")
+
+            targetname (demoName.."d")
 
             if os.get() == "linux" then
                 links { libName.."d", libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "pthread", "z" }
-                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
+                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../libs" }
             end
             
             if os.get() == "windows" then
@@ -316,13 +323,15 @@ function BuildDemo(demoPath, demoName)
 
         configuration "Release"
 
-            debugdir ("bin/release/examples/"..demoName)
+            debugdir ("bin")
 
-            targetdir ("bin/release/examples/"..demoName)
+            targetdir ("bin")
+
+            targetname (demoName)
 
             if os.get() == "linux" then
                 links { libName, libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "pthread", "z" }
-                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
+                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../libs" }
             end
 
             if os.get() == "windows" then
@@ -341,7 +350,7 @@ end;
 if _OPTIONS["examples"] then
     BuildDemo("examples/RotatingCube", "RotatingCube");
     BuildDemo("examples/RotatingTexturedCube", "RotatingTexturedCube");
-	BuildDemo("examples/RotatingTextureAnimatedCube", "RotatingTextureAnimatedCube");
+    BuildDemo("examples/RotatingTextureAnimatedCube", "RotatingTextureAnimatedCube");
     BuildDemo("examples/RotatingCubeWithLighting", "RotatingCubeWithLighting");
     BuildDemo("examples/RotatingCubeWithLightingAndShadow", "RotatingCubeWithLightingAndShadow");
     BuildDemo("examples/SimplePhysics", "SimplePhysics");
@@ -350,16 +359,16 @@ if _OPTIONS["examples"] then
     BuildDemo("examples/PickingPainterMethod", "PickingPainterMethod");
     BuildDemo("examples/SkeletonAnimationExample", "SkeletonAnimationExample");
     BuildDemo("examples/DepthOfField", "DepthOfField");
-	BuildDemo("examples/SSAOExample", "SSAOExample");
+    BuildDemo("examples/SSAOExample", "SSAOExample");
     BuildDemo("examples/DeferredRendering", "DeferredRendering");
     BuildDemo("examples/LOD_example", "LOD_example");
-	BuildDemo("examples/Decals", "Decals");
+    BuildDemo("examples/Decals", "Decals");
     BuildDemo("examples/IslandDemo", "IslandDemo");
     BuildDemo("examples/RacingGame", "RacingGame");
 
-	-- ImGui Example only works with SFML for now
-	if framework ~= "SDL" or not "SDL2" then
-		BuildDemo("examples/ImGuiExample", "ImGuiExample");
-	end
+    -- ImGui Example only works with SFML for now
+    if framework ~= "SDL" or not "SDL2" then
+        BuildDemo("examples/ImGuiExample", "ImGuiExample");
+    end
 
 end

@@ -46,7 +46,7 @@ void Decals::Init()
 
 	cubeMesh = new Cube(30, 30, 30);
 	sphereMesh = new Sphere(30, 16, 16);
-	modelMesh = new Model("../../../../examples/Decals/assets/teapots/teapot.p3dm");
+	modelMesh = new Model("../examples/Decals/assets/teapots/teapot.p3dm");
 
 	rCube = new RenderingComponent(cubeMesh);
 	rSphere = new RenderingComponent(sphereMesh);
@@ -62,7 +62,7 @@ void Decals::Init()
 
 	decalMaterial = new GenericShaderMaterial(ShaderUsage::Texture);
 	Texture* texture = new Texture();
-	texture->LoadTexture("../../../../examples/Decals/assets/Texture.DDS", TextureType::Texture);
+	texture->LoadTexture("../examples/Decals/assets/Texture.DDS", TextureType::Texture);
 	decalMaterial->SetColorMap(texture);
 	decalMaterial->SetTransparencyFlag(true);
 	decalMaterial->EnableDethBias(-4, -4);

@@ -45,12 +45,12 @@ void RotatingTextureAnimatedCube::Init()
 	// Material
 	material = new GenericShaderMaterial(ShaderUsage::Texture);
 
-	tex0 = new Texture(); tex0->LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/1.png", TextureType::Texture);
-	tex1 = new Texture(); tex1->LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/2.png", TextureType::Texture);
-	tex2 = new Texture(); tex2->LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/3.png", TextureType::Texture);
-	tex3 = new Texture(); tex3->LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/4.png", TextureType::Texture);
-	tex4 = new Texture(); tex4->LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/5.png", TextureType::Texture);
-	tex5 = new Texture(); tex5->LoadTexture("../../../../examples/RotatingTextureAnimatedCube/assets/6.png", TextureType::Texture);
+	tex0 = new Texture(); tex0->LoadTexture("../examples/RotatingTextureAnimatedCube/assets/1.png", TextureType::Texture);
+	tex1 = new Texture(); tex1->LoadTexture("../examples/RotatingTextureAnimatedCube/assets/2.png", TextureType::Texture);
+	tex2 = new Texture(); tex2->LoadTexture("../examples/RotatingTextureAnimatedCube/assets/3.png", TextureType::Texture);
+	tex3 = new Texture(); tex3->LoadTexture("../examples/RotatingTextureAnimatedCube/assets/4.png", TextureType::Texture);
+	tex4 = new Texture(); tex4->LoadTexture("../examples/RotatingTextureAnimatedCube/assets/5.png", TextureType::Texture);
+	tex5 = new Texture(); tex5->LoadTexture("../examples/RotatingTextureAnimatedCube/assets/6.png", TextureType::Texture);
 	anim = new TextureAnimation();
 	anim->AddFrame(tex0);
 	anim->AddFrame(tex1);

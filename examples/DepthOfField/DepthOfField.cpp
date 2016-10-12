@@ -127,7 +127,7 @@ void DepthOfField::Init()
 	Scene->Add(Light);
 
 	// Create Game Object
-	modelMesh = new Model("../../../../examples/DepthOfField/assets/suzanne.p3dm", false, ShaderUsage::Diffuse);
+	modelMesh = new Model("../examples/DepthOfField/assets/suzanne.p3dm", false, ShaderUsage::Diffuse);
 
 	for (uint32 i = 0; i < 10; i++)
 	{

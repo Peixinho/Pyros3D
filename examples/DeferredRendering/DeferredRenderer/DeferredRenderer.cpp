@@ -39,9 +39,9 @@ namespace p3d {
 		FBO = fbo;
 
 		// Create Second Pass Specifics        
-		deferredMaterialDirectional = new CustomShaderMaterial("../../../../examples/DeferredRendering/assets/shaders/secondpassDirectional.glsl");
-		deferredMaterialPoint = new CustomShaderMaterial("../../../../examples/DeferredRendering/assets/shaders/secondpassPoint.glsl");
-		deferredMaterialSpot = new CustomShaderMaterial("../../../../examples/DeferredRendering/assets/shaders/secondpassSpot.glsl");
+		deferredMaterialDirectional = new CustomShaderMaterial("../examples/DeferredRendering/assets/shaders/secondpassDirectional.glsl");
+		deferredMaterialPoint = new CustomShaderMaterial("../examples/DeferredRendering/assets/shaders/secondpassPoint.glsl");
+		deferredMaterialSpot = new CustomShaderMaterial("../examples/DeferredRendering/assets/shaders/secondpassSpot.glsl");
 
 		uint32 texID = 0;
 		deferredMaterialDirectional->AddUniform(Uniform("tDepth", Uniforms::DataType::Int, &texID));

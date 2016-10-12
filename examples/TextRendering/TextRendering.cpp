@@ -47,7 +47,7 @@ void TextRendering::Init()
 	Scene->Add(Camera);
 
 	// Create Font
-	font = new Font("../../../../examples/TextRendering/assets/verdana.ttf", 16);
+	font = new Font("../examples/TextRendering/assets/verdana.ttf", 16);
 	font->CreateText("aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ,.0123456789[]()!?+-_\\|/ºª");
 
 	// Create Text Material

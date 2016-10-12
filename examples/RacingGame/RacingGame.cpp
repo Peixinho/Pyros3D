@@ -70,7 +70,7 @@ void RacingGame::Init()
 	Track = new GameObject();
 
 	// Create Track Model
-	trackHandle = new Model("../../../../examples/RacingGame/assets/track.p3dm", false, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
+	trackHandle = new Model("../examples/RacingGame/assets/track.p3dm", false, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
 	rTrack = new RenderingComponent(trackHandle);
 	Track->Add(rTrack);
 
@@ -125,7 +125,7 @@ void RacingGame::Init()
 	HideMouse();
 
 	// Create Font
-	Font* font = new Font("../../../../examples/RacingGame/assets/verdana.ttf", 32);
+	Font* font = new Font("../examples/RacingGame/assets/verdana.ttf", 32);
 	font->CreateText("aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ,.0123456789[]()!?+-_\\|/ºª");
 
 	// Create Text Material
@@ -147,12 +147,12 @@ void RacingGame::Init()
 	dRenderer = new CubemapRenderer(256, 256);
 
 	Texture* skyboxTexture = new Texture();
-	skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negx.png", TextureType::CubemapNegative_X);
-	skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negy.png", TextureType::CubemapNegative_Y);
-	skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/negz.png", TextureType::CubemapNegative_Z);
-	skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posx.png", TextureType::CubemapPositive_X);
-	skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posy.png", TextureType::CubemapPositive_Y);
-	skyboxTexture->LoadTexture("../../../../examples/RacingGame/assets/Textures/skybox/posz.png", TextureType::CubemapPositive_Z);
+	skyboxTexture->LoadTexture("../examples/RacingGame/assets/Textures/skybox/negx.png", TextureType::CubemapNegative_X);
+	skyboxTexture->LoadTexture("../examples/RacingGame/assets/Textures/skybox/negy.png", TextureType::CubemapNegative_Y);
+	skyboxTexture->LoadTexture("../examples/RacingGame/assets/Textures/skybox/negz.png", TextureType::CubemapNegative_Z);
+	skyboxTexture->LoadTexture("../examples/RacingGame/assets/Textures/skybox/posx.png", TextureType::CubemapPositive_X);
+	skyboxTexture->LoadTexture("../examples/RacingGame/assets/Textures/skybox/posy.png", TextureType::CubemapPositive_Y);
+	skyboxTexture->LoadTexture("../examples/RacingGame/assets/Textures/skybox/posz.png", TextureType::CubemapPositive_Z);
 	skyboxTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 	SkyboxMaterial = new GenericShaderMaterial(ShaderUsage::Skybox);
@@ -165,7 +165,7 @@ void RacingGame::Init()
 	Skybox->Add(rSkybox);
 	Scene->Add(Skybox);
 
-	carHandle2 = new Model("../../../../examples/RacingGame/assets/lambo.p3dm", true, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
+	carHandle2 = new Model("../examples/RacingGame/assets/lambo.p3dm", true, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
 	for (uint32 i = 0; i < 1; i++)
 	{
 		Car2 = new GameObject();
@@ -179,7 +179,7 @@ void RacingGame::Init()
 	for (uint32 i = 0; i < 1; i++)
 	{
 		Car = new GameObject();
-		carHandle = new Model("../../../../examples/RacingGame/assets/del.p3dm", true, ShaderUsage::EnvMap | ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
+		carHandle = new Model("../examples/RacingGame/assets/del.p3dm", true, ShaderUsage::EnvMap | ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
 		rCar = new RenderingComponent(carHandle);
 		Car->Add(rCar);
 		Scene->Add(Car);

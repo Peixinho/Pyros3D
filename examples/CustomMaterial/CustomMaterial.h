@@ -35,7 +35,7 @@ class CustomMaterialExample : public CustomShaderMaterial {
 
 public:
 
-	CustomMaterialExample() : CustomShaderMaterial("../../../../examples/CustomMaterial/assets/shader.glsl")
+	CustomMaterialExample() : CustomShaderMaterial("../examples/CustomMaterial/assets/shader.glsl")
 	{
 		AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
 		AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));

@@ -50,7 +50,7 @@ void SkeletonAnimationExample::Init()
 
 	// Create Game Object
 	ModelObject = new GameObject();
-	modelHandle = new Model("../../../../examples/SkeletonAnimationExample/assets/human.p3dm", false, ShaderUsage::Diffuse | ShaderUsage::Skinning);
+	modelHandle = new Model("../examples/SkeletonAnimationExample/assets/human.p3dm", false, ShaderUsage::Diffuse | ShaderUsage::Skinning);
 	((Model*)modelHandle)->DebugSkeleton();
 	rModel = new RenderingComponent(modelHandle);
 	ModelObject->Add(rModel);
@@ -59,13 +59,13 @@ void SkeletonAnimationExample::Init()
 	ModelObject->SetScale(Vec3(2, 2, 2));
 
 	SAnim = new SkeletonAnimation();
-	SAnim->LoadAnimation("../../../../examples/SkeletonAnimationExample/assets/walk.p3da");
-	SAnim->LoadAnimation("../../../../examples/SkeletonAnimationExample/assets/alert.p3da");
-	SAnim->LoadAnimation("../../../../examples/SkeletonAnimationExample/assets/run.p3da");
-	SAnim->LoadAnimation("../../../../examples/SkeletonAnimationExample/assets/walk.p3da");
+	SAnim->LoadAnimation("../examples/SkeletonAnimationExample/assets/walk.p3da");
+	SAnim->LoadAnimation("../examples/SkeletonAnimationExample/assets/alert.p3da");
+	SAnim->LoadAnimation("../examples/SkeletonAnimationExample/assets/run.p3da");
+	SAnim->LoadAnimation("../examples/SkeletonAnimationExample/assets/walk.p3da");
 
 	ModelObject2 = new GameObject();
-	modelHandle2 = new Model("../../../../examples/SkeletonAnimationExample/assets/Model.p3dm", false, ShaderUsage::Diffuse | ShaderUsage::Skinning);
+	modelHandle2 = new Model("../examples/SkeletonAnimationExample/assets/Model.p3dm", false, ShaderUsage::Diffuse | ShaderUsage::Skinning);
 	rModel2 = new RenderingComponent(modelHandle2);
 	ModelObject2->Add(rModel2);
 	ModelObject2->AddTag("Teste");
@@ -73,10 +73,10 @@ void SkeletonAnimationExample::Init()
 	ModelObject2->SetScale(Vec3(10, 10, 10));
 
 	SAnim2 = new SkeletonAnimation();
-	SAnim2->LoadAnimation("../../../../examples/SkeletonAnimationExample/assets/Animation.p3da");
+	SAnim2->LoadAnimation("../examples/SkeletonAnimationExample/assets/Animation.p3da");
 
-	// test->LoadAnimation("../../../../examples/SkeletonAnimationExample/assets/walk.p3da");
-	// test->LoadAnimation("../../../../examples/SkeletonAnimationExample/assets/walk.p3da");
+	// test->LoadAnimation("../examples/SkeletonAnimationExample/assets/walk.p3da");
+	// test->LoadAnimation("../examples/SkeletonAnimationExample/assets/walk.p3da");
 	anim = SAnim->CreateInstance(rModel);
 	anim2 = SAnim2->CreateInstance(rModel2);
 
