@@ -173,7 +173,7 @@ solution "Pyros3D"
            
             if os.get() == "windows" and _OPTIONS["shared"] then
                 links { libsToLinkGL, libsToLinkDebug, "BulletDynamics_Debug", "BulletCollision_Debug", "LinearMath_Debug", "freetype26d", "pthreadVC2" }
-                libdirs { rootdir.."/libs" }
+                libdirs { rootdir.."/libs", rootdir.."/bin" }
             end
 
             flags { "Symbols" }
@@ -184,7 +184,7 @@ solution "Pyros3D"
 
             if os.get() == "windows" and _OPTIONS["shared"] then
                 links { libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype26", "pthreadVC2" }
-                libdirs { rootdir.."/libs" }
+                libdirs { rootdir.."/libs", rootdir.."/bin" }
             end
 
             flags { "Optimize" }
@@ -219,17 +219,17 @@ solution "Pyros3D"
 
             if os.get() == "linux" then
                 links { libName.."d", libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "z" }
-                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../libs" }
+                linkoptions { "-L../libs -L../bin -L/usr/local/lib -Wl,-rpath,../libs" }
             end
             
             if os.get() == "windows" then
                 links { libName.."d", libsToLinkGL, libsToLinkDebug, "assimp", "BulletDynamics_Debug", "BulletCollision_Debug", "LinearMath_Debug", "freetype26d", "pthreadVC2" }
-                libdirs { rootdir.."/libs" }
+                libdirs { rootdir.."/libs", rootdir.."/bin" }
             end
 
             if os.get() == "macosx" then
                 links { libName.."d", libsToLinkGL, "Cocoa.framework", "assimp", "Carbon.framework", "freetype.framework", libsToLink, "BulletDynamics.framework", "BulletCollision.framework", "LinearMath.framework" }
-                libdirs { rootdir.."/libs" }
+                libdirs { rootdir.."/libs", rootdir.."/bin" }
             end
 
             flags { "Symbols" }
@@ -244,17 +244,17 @@ solution "Pyros3D"
 
             if os.get() == "linux" then
                 links { libName, libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "pthread", "z" }
-                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../libs" }
+                linkoptions { "-L../libs -L../bin -L/usr/local/lib -Wl,-rpath,../libs" }
             end
 
             if os.get() == "windows" then
                 links { libName, libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype26", "pthreadVC2" }
-                libdirs { rootdir.."/libs" }
+                libdirs { rootdir.."/libs", rootdir.."/bin" }
             end
 
             if os.get() == "macosx" then
                 links { libName, libsToLinkGL, "assimp", "Cocoa.framework", "Carbon.framework", "freetype.framework", libsToLink, "BulletDynamics.framework", "BulletCollision.framework", "LinearMath.framework" }
-                libdirs { rootdir.."/libs" }
+                libdirs { rootdir.."/libs", rootdir.."/bin" }
             end
 
             flags { "Optimize" }
@@ -306,17 +306,17 @@ function BuildDemo(demoPath, demoName)
 
             if os.get() == "linux" then
                 links { libName.."d", libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "pthread", "z" }
-                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../libs" }
+                linkoptions { "-L../libs -L../bin -L/usr/local/lib -Wl,-rpath,../libs" }
             end
             
             if os.get() == "windows" then
                 links { libName.."d", libsToLinkGL, libsToLinkDebug, "BulletDynamics_Debug", "BulletCollision_Debug", "LinearMath_Debug", "freetype26d", "pthreadVC2" }
-                libdirs { rootdir.."/libs" }
+                libdirs { rootdir.."/libs", rootdir.."/bin" }
             end
 
             if os.get() == "macosx" then
                 links { libName.."d", libsToLinkGL, "Cocoa.framework", "Carbon.framework", "freetype.framework", libsToLink, "BulletDynamics.framework", "BulletCollision.framework", "LinearMath.framework" }
-                libdirs { rootdir.."/libs" }
+                libdirs { rootdir.."/libs", rootdir.."/bin" }
             end
 
             flags { "Symbols" }
@@ -331,17 +331,17 @@ function BuildDemo(demoPath, demoName)
 
             if os.get() == "linux" then
                 links { libName, libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "pthread", "z" }
-                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../libs" }
+                linkoptions { "-L../libs -L../bin -L/usr/local/lib -Wl,-rpath,../libs" }
             end
 
             if os.get() == "windows" then
                 links { libName, libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype26", "pthreadVC2" }
-                libdirs { rootdir.."/libs" }
+                libdirs { rootdir.."/libs", rootdir.."/bin" }
             end
 
             if os.get() == "macosx" then
                 links { libName, libsToLinkGL, "Cocoa.framework", "Carbon.framework", "freetype.framework", libsToLink, "BulletDynamics.framework", "BulletCollision.framework", "LinearMath.framework" }
-                libdirs { rootdir.."/libs" }
+                libdirs { rootdir.."/libs", rootdir.."/bin" }
             end
 
             flags { "Optimize" }
