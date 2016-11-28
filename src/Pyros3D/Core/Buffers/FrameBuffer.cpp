@@ -555,13 +555,14 @@ namespace p3d {
 		isBinded = false;
 
 		// Bind next FBO
-		for (std::vector<FrameBuffer*>::reverse_iterator i = BoundFBOs[accessBinded].rbegin(); i != BoundFBOs[accessBinded].rend(); i++)
+		for (int32 i = BoundFBOs[accessBinded].size()-1; i >= 0; i--)
 		{
-			if ((*i) == this) {
-				BoundFBOs[accessBinded].erase(--(i.base()));
+			if (BoundFBOs[accessBinded][i] == this) {
+				BoundFBOs[accessBinded].erase(BoundFBOs[accessBinded].begin() + i);
+				i--;
 			}
 			else {
-				GLCHECKER(glBindFramebuffer((*i)->glAccessBinded, (*i)->fbo));
+				GLCHECKER(glBindFramebuffer(BoundFBOs[accessBinded][i]->glAccessBinded, BoundFBOs[accessBinded][i]->fbo));
 				break;
 			}
 		}
