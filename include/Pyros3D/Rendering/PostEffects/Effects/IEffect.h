@@ -15,16 +15,11 @@
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
 #include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <Pyros3D/Other/Export.h>
+#include <list>
 
 //#include <iostream>
 
 namespace p3d {
-
-	struct __UniformPostProcess
-	{
-		Uniform uniform;
-		int32 handle;
-	};
 
 	namespace RTT {
 		enum {
@@ -53,6 +48,17 @@ namespace p3d {
 		}
 	}
 
+	struct __UniformPostProcess
+	{
+		__UniformPostProcess(const Uniform &Data)
+		{
+			uniform = Data;
+			handle = -2;
+		}
+		Uniform uniform;
+		int32 handle;
+	};
+
 	class PYROS3D_API IEffect {
 
 		friend class PostEffectsManager;
@@ -71,19 +77,11 @@ namespace p3d {
 		const uint32 GetWidth() const;
 		const uint32 GetHeight() const;
 
-		// Send Uniforms
-		void SetUniformValue(std::string Uniform, int32 value);
-		void SetUniformValue(StringID UniformID, int32 value);
-		void SetUniformValue(std::string Uniform, f32 value);
-		void SetUniformValue(StringID UniformID, f32 value);
-		void SetUniformValue(std::string Uniform, void* value, const uint32 elementCount = 1);
-		void SetUniformValue(StringID UniformID, void* value, const uint32 elementCount = 1);
-
 		Texture* GetTexture() { return attachment; }
 
 	protected:
 
-		void AddUniform(const Uniform &Data);
+		Uniform* AddUniform(const Uniform &Data);
 
 		int32 positionHandle, texcoordHandle;
 
@@ -93,6 +91,7 @@ namespace p3d {
 
 		// Shaders Strings
 		std::string FragmentShaderString;
+
 		// Shaders
 		Shader* shader;
 
@@ -109,7 +108,7 @@ namespace p3d {
 		std::string VertexShaderString;
 
 	private:
-		std::map<uint32, __UniformPostProcess> Uniforms;
+		std::list<__UniformPostProcess> Uniforms;
 
 		void UseColor();
 		void UseDepth();

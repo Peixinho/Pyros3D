@@ -73,40 +73,10 @@ namespace p3d {
 		delete attachment;
     }
 
-    void IEffect::AddUniform(const Uniform &Data)
+    Uniform* IEffect::AddUniform(const Uniform &Data)
     {
-        StringID ID(MakeStringID(Data.Name));
-        Uniforms[(uint32)ID].uniform = Data;
-        Uniforms[(uint32)ID].handle = -2;
-    }
-
-    // send uniforms
-    void IEffect::SetUniformValue(std::string Uniform, int32 value)
-    {
-        StringID ID(MakeStringID(Uniform));
-        Uniforms[ID].uniform.SetValue(&value,1);
-    }
-    void IEffect::SetUniformValue(StringID UniformID, int32 value)
-    {
-       Uniforms[UniformID].uniform.SetValue(&value,1);
-    }
-    void IEffect::SetUniformValue(std::string Uniform, f32 value)
-    {
-        StringID ID(MakeStringID(Uniform));
-        Uniforms[ID].uniform.SetValue(&value,1);
-    }
-    void IEffect::SetUniformValue(StringID UniformID, f32 value)
-    {
-        Uniforms[UniformID].uniform.SetValue(&value,1);
-    } 
-    void IEffect::SetUniformValue(StringID UniformID, void* value, const uint32 elementCount)
-    {
-        Uniforms[UniformID].uniform.SetValue(value,elementCount);
-    }
-    void IEffect::SetUniformValue(std::string Uniform, void* value, const uint32 elementCount)
-    {
-        StringID ID(MakeStringID(Uniform));
-        Uniforms[ID].uniform.SetValue(value,elementCount);
+		Uniforms.push_back(__UniformPostProcess(Data));
+		return &Uniforms.back().uniform;
     }
 
     void IEffect::UseColor()

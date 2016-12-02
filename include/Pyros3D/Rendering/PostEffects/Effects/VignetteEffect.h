@@ -24,9 +24,9 @@ namespace p3d {
 	private:
 
 		Uniform
-			screenDimensions,
-			radiusUniform,
-			softnessUniform;
+			*screenDimensions,
+			*radiusUniform,
+			*softnessUniform;
 
 	};
 

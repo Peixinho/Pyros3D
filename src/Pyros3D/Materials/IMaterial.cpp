@@ -90,18 +90,18 @@ namespace p3d {
 		if ((int)Data.Usage<Uniforms::DataUsage::Other)
 		{
 			GlobalUniforms.push_back(Data);
-			return &GlobalUniforms[GlobalUniforms.size() - 1];
+			return &(GlobalUniforms.back());
 		}
 		// Game Object Uniforms
 		else if ((int)Data.Usage>Uniforms::DataUsage::Other)
 		{
 			ModelUniforms.push_back(Data);
-			return &ModelUniforms[ModelUniforms.size() - 1];
+			return &(ModelUniforms.back());
 		}
 		else // User Specific
 		{
 			UserUniforms.push_back(Data);
-			return &UserUniforms[UserUniforms.size() - 1];
+			return &(UserUniforms.back());
 		}
 	}
 	

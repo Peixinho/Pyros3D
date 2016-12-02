@@ -16,6 +16,7 @@
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Other/Export.h>
+#include <list>
 
 namespace p3d {
 
@@ -67,9 +68,9 @@ namespace p3d {
 		void BlendingEquation(const uint32 Mode) { mode = Mode; }
 
 		// Uniforms        
-		std::vector<Uniform> GlobalUniforms;
-		std::vector<Uniform> ModelUniforms;
-		std::vector<Uniform> UserUniforms;
+		std::list<Uniform> GlobalUniforms;
+		std::list<Uniform> ModelUniforms;
+		std::list<Uniform> UserUniforms;
 
 		// Add Uniform
 		Uniform* AddUniform(const Uniform Data);

@@ -13,22 +13,15 @@ namespace p3d {
     VignetteEffect::VignetteEffect(const uint32 Tex1, const uint32 Width, const uint32 Height, const f32 radius, const f32 softness) : IEffect(Width, Height)
     {
 
-		screenDimensions.Name = "uResolution";
-		screenDimensions.Type = Uniforms::DataType::Vec2;
-		screenDimensions.Usage = Uniforms::PostEffects::ScreenDimensions;
-		AddUniform(screenDimensions);
+		screenDimensions = AddUniform(Uniform("uResolution", Uniforms::DataType::Vec2, Uniforms::DataUsage::ScreenDimensions));
         
-		radiusUniform.Name = "uRADIUS";
-		radiusUniform.Type = Uniforms::DataType::Float;
 		f32 r = radius;
-		radiusUniform.SetValue(&r);
-		AddUniform(radiusUniform);
+		radiusUniform = AddUniform(Uniform("uRADIUS", Uniforms::DataType::Float));
+		radiusUniform->SetValue(&r);
 
-		softnessUniform.Name = "uSOFTNESS";
-		softnessUniform.Type = Uniforms::DataType::Float;
 		f32 s = softness;
-		softnessUniform.SetValue(&s);
-		AddUniform(softnessUniform);
+		softnessUniform = AddUniform(Uniform("uSOFTNESS", Uniforms::DataType::Float));
+		softnessUniform->SetValue(&softnessUniform);
 
         // Set RTT
         UseRTT(Tex1);
@@ -60,13 +53,13 @@ namespace p3d {
 	void VignetteEffect::SetRadius(const f32 radius)
 	{
 		f32 r = radius;
-		SetUniformValue(radiusUniform.Name, &r);
+		radiusUniform->SetValue(&r);
 	}
 
 	void VignetteEffect::SetSoftness(const f32 softness)
 	{
 		f32 s = softness;
-		SetUniformValue(softnessUniform.Name, &s);
+		softnessUniform->SetValue(&s);
 	}
 
 };

@@ -132,35 +132,35 @@ namespace p3d {
 			}
 
 			// Send Uniforms
-			for (std::map<uint32, __UniformPostProcess>::iterator i = (*effect)->Uniforms.begin(); i != (*effect)->Uniforms.end(); i++)
+			for (std::list<__UniformPostProcess>::iterator i = (*effect)->Uniforms.begin(); i != (*effect)->Uniforms.end(); i++)
 			{
-				if ((*i).second.handle == -2)
+				if ((*i).handle == -2)
 				{
-					(*i).second.handle = Shader::GetUniformLocation((*effect)->shader->ShaderProgram(), (*i).second.uniform.Name);
+					(*i).handle = Shader::GetUniformLocation((*effect)->shader->ShaderProgram(), (*i).uniform.Name);
 				}
-				if ((*i).second.handle != -1)
+				if ((*i).handle != -1)
 				{
-					switch ((*i).second.uniform.Usage)
+					switch ((*i).uniform.Usage)
 					{
 					case PostEffects::NearFarPlane:
 					{
-						Shader::SendUniform((*i).second.uniform, &NearFarPlane, (*i).second.handle);
+						Shader::SendUniform((*i).uniform, &NearFarPlane, (*i).handle);
 					}
 					break;
 					case PostEffects::ScreenDimensions:
 					{
-						Shader::SendUniform((*i).second.uniform, &ScreenDimensions, (*i).second.handle);
+						Shader::SendUniform((*i).uniform, &ScreenDimensions, (*i).handle);
 					}
 					break;
 					case PostEffects::ProjectionFromScene:
 					{
-						Shader::SendUniform((*i).second.uniform, &projection->m, (*i).second.handle);
+						Shader::SendUniform((*i).uniform, &projection->m, (*i).handle);
 					}
 					break;
 					default:
 					case PostEffects::Other:
 					{
-						Shader::SendUniform((*i).second.uniform, (*i).second.handle);
+						Shader::SendUniform((*i).uniform, (*i).handle);
 					}
 					break;
 					}

@@ -22,7 +22,7 @@ namespace p3d {
 
 		void SetViewMatrix(Matrix m)
 		{
-			SetUniformValue("uInverseView", &m);
+			uInverseViewMatrixUniform->SetValue(&m);
 		}
 
 		f32 total_strength;
@@ -36,6 +36,7 @@ namespace p3d {
 	private:
 
 		Texture* rnm;
+		Uniform *uInverseViewMatrixUniform;
 
 	};
 

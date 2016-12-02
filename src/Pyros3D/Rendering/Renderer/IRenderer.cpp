@@ -1402,7 +1402,7 @@ namespace p3d {
 
 		// Send Global Uniforms
 		uint32 counter = 0;
-		for (std::vector<Uniform>::iterator k = Material->GlobalUniforms.begin(); k != Material->GlobalUniforms.end(); k++)
+		for (std::list<Uniform>::iterator k = Material->GlobalUniforms.begin(); k != Material->GlobalUniforms.end(); k++)
 		{
 			if ((*_ShadersGlobalCache)[counter] == -2)
 				(*_ShadersGlobalCache)[counter] = Shader::GetUniformLocation(Material->GetShader(), (*k).Name);
@@ -1520,7 +1520,7 @@ namespace p3d {
 
 		// User Specific Uniforms
 		uint32 counter = 0;
-		for (std::vector<Uniform>::iterator k = Material->UserUniforms.begin(); k != Material->UserUniforms.end(); k++)
+		for (std::list<Uniform>::iterator k = Material->UserUniforms.begin(); k != Material->UserUniforms.end(); k++)
 		{
 			if ((*_ShadersUserCache)[counter] == -2)
 				(*_ShadersUserCache)[counter] = Shader::GetUniformLocation(Material->GetShader(), (*k).Name);
@@ -1538,7 +1538,7 @@ namespace p3d {
 
 		std::vector<int32>* _ShadersModelCache = &rmesh->ShadersModelCache[Material->GetShader()];
 
-		for (std::vector<Uniform>::iterator k = Material->ModelUniforms.begin(); k != Material->ModelUniforms.end(); k++)
+		for (std::list<Uniform>::iterator k = Material->ModelUniforms.begin(); k != Material->ModelUniforms.end(); k++)
 		{
 			if ((*_ShadersModelCache)[counter] == -2)
 				(*_ShadersModelCache)[counter] = Shader::GetUniformLocation(Material->GetShader(), (*k).Name);
@@ -1600,7 +1600,8 @@ namespace p3d {
 					break;
 				case Uniforms::DataUsage::Skinning:
 				{
-					Shader::SendUniform((*k), &rmesh->SkinningBones[0], (*_ShadersModelCache)[counter], rmesh->SkinningBones.size());
+					if (rmesh->SkinningBones.size()>0)
+						Shader::SendUniform((*k), &rmesh->SkinningBones[0], (*_ShadersModelCache)[counter], rmesh->SkinningBones.size());
 				}
 				break;
 				}
@@ -1626,19 +1627,19 @@ namespace p3d {
 			}
 
 			std::vector<int32>* _ShadersGlobalCache = &rmesh->ShadersGlobalCache[material->GetShader()];
-			for (std::vector<Uniform>::iterator k = material->GlobalUniforms.begin(); k != material->GlobalUniforms.end(); k++)
+			for (std::list<Uniform>::iterator k = material->GlobalUniforms.begin(); k != material->GlobalUniforms.end(); k++)
 			{
 				(*_ShadersGlobalCache).push_back(Shader::GetUniformLocation(material->GetShader(), (*k).Name));
 			}
 
 			std::vector<int32>* _ShadersModelCache = &rmesh->ShadersModelCache[material->GetShader()];
-			for (std::vector<Uniform>::iterator k = material->ModelUniforms.begin(); k != material->ModelUniforms.end(); k++)
+			for (std::list<Uniform>::iterator k = material->ModelUniforms.begin(); k != material->ModelUniforms.end(); k++)
 			{
 				(*_ShadersModelCache).push_back(Shader::GetUniformLocation(material->GetShader(), (*k).Name));
 			}
 
 			std::vector<int32>* _ShadersUserCache = &rmesh->ShadersUserCache[material->GetShader()];
-			for (std::vector<Uniform>::iterator k = material->UserUniforms.begin(); k != material->UserUniforms.end(); k++)
+			for (std::list<Uniform>::iterator k = material->UserUniforms.begin(); k != material->UserUniforms.end(); k++)
 			{
 				(*_ShadersUserCache).push_back(Shader::GetUniformLocation(material->GetShader(), (*k).Name));
 			}

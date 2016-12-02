@@ -203,8 +203,8 @@ namespace p3d {
 
 		inverseView.Name = "uInverseView";
 		inverseView.Type = Uniforms::DataType::Matrix;
-		inverseView.Type = Uniforms::PostEffects::Other;
-		AddUniform(inverseView);
+		inverseView.Usage= Uniforms::PostEffects::Other;
+		uInverseViewMatrixUniform = AddUniform(inverseView);
 	}
 
 	SSAOEffect::~SSAOEffect()
