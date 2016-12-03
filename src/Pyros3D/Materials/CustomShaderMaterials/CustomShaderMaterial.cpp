@@ -30,9 +30,7 @@ namespace p3d
 		// Get Shader Program
 		shaderProgram = shader->ShaderProgram();
 
-		f32 opacity = 1.0;
-		AddUniform(Uniform("uOpacity", Uniforms::DataType::Float, &opacity));
-		SetOpacity(opacity);
+		SetOpacity(1.0);
 	}
 
 	CustomShaderMaterial::CustomShaderMaterial(Shader* shader)

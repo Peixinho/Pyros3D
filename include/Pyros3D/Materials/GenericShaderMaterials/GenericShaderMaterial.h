@@ -87,7 +87,7 @@ namespace p3d
 		int32 colorMapID, specularMapID, normalMapID, envMapID, skyboxMapID, refractMapID, fontMapID;
 
 		// Uniforms Handles
-		Uniform *uColor, *uSpecular, *uReflectivity;
+		Uniform *uColor, *uSpecular, *uReflectivity, *uShininess, *uUseLights, *uPCFTexelSize1, *uPCFTexelSize2, *uPCFTexelSize3, *uPCFTexelSize4;
 	};
 }
 

@@ -75,6 +75,14 @@ namespace p3d {
 
     Uniform* IEffect::AddUniform(const Uniform &Data)
     {
+		for (std::list<__UniformPostProcess>::iterator i = Uniforms.begin(); i != Uniforms.end(); i++)
+		{
+			if ((*i).uniform.NameID == Data.NameID)
+			{
+				Uniforms.erase(i);
+				break;
+			}
+		}
 		Uniforms.push_back(__UniformPostProcess(Data));
 		return &Uniforms.back().uniform;
     }

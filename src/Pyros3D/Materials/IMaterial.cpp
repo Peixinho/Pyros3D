@@ -25,6 +25,9 @@ namespace p3d {
 		forceDepthWrite = false;
 		blending = false;
 
+		// Add Opacity Uniform
+		opacityHandle = AddUniform(Uniform("uOpacity", Uniforms::DataType::Float, &this->opacity));
+
 		// Set Internal ID
 		materialID = _InternalID;
 
@@ -35,7 +38,7 @@ namespace p3d {
 	void IMaterial::SetOpacity(const f32 &opacity)
 	{
 		this->opacity = opacity;
-		AddUniform(Uniform("uOpacity", Uniforms::DataType::Float, &this->opacity));
+		opacityHandle->SetValue(&this->opacity);
 	}
 	void IMaterial::SetCullFace(const uint32 &face)
 	{
@@ -89,17 +92,41 @@ namespace p3d {
 		// Global Uniforms
 		if ((int)Data.Usage<Uniforms::DataUsage::Other)
 		{
+			for (std::list<Uniform>::iterator i = GlobalUniforms.begin(); i != GlobalUniforms.end(); i++)
+			{
+				if ((*i).NameID == Data.NameID)
+				{
+					GlobalUniforms.erase(i);
+					break;
+				}
+			}
 			GlobalUniforms.push_back(Data);
 			return &(GlobalUniforms.back());
 		}
 		// Game Object Uniforms
 		else if ((int)Data.Usage>Uniforms::DataUsage::Other)
 		{
+			for (std::list<Uniform>::iterator i = ModelUniforms.begin(); i != ModelUniforms.end(); i++)
+			{
+				if ((*i).NameID == Data.NameID)
+				{
+					ModelUniforms.erase(i);
+					break;
+				}
+			}
 			ModelUniforms.push_back(Data);
 			return &(ModelUniforms.back());
 		}
 		else // User Specific
 		{
+			for (std::list<Uniform>::iterator i = UserUniforms.begin(); i != UserUniforms.end(); i++)
+			{
+				if ((*i).NameID == Data.NameID)
+				{
+					UserUniforms.erase(i);
+					break;
+				}
+			}
 			UserUniforms.push_back(Data);
 			return &(UserUniforms.back());
 		}

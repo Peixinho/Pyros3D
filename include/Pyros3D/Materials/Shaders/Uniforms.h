@@ -13,6 +13,7 @@
 #include <iostream>
 #include <Pyros3D/Materials/Shaders/Shaders.h>
 #include <Pyros3D/Other/Export.h>
+#include <Pyros3D/Ext/StringIDs/StringID.hpp>
 
 namespace p3d {
 
@@ -79,18 +80,23 @@ namespace p3d {
 	// Uniforms Struct
 	struct Uniform {
 
-		// default value
 		std::string Name;
+		uint32 NameID;
 		uint32 Type;
 		uint32 Usage;
 		uint32 ElementCount;
 		std::vector<uchar> Value;
 
-		Uniform() { ElementCount = 0; Usage = 200; /* Usage = Other */ }
+		Uniform()
+		{
+			ElementCount = 0;
+			Usage = 200; /* Usage = Other */
+		}
 
 		Uniform(const std::string &name, const uint32 usage, const uint32 type = 0)
 		{
 			Name = name;
+			NameID = MakeStringID(Name);
 			Usage = usage;
 			Type = type;
 			ElementCount = 0;
@@ -193,7 +199,16 @@ namespace p3d {
 			};
 
 		}
-		Uniform(const std::string &name, const uint32 type, void* value, const uint32 elementCount = 1) { Name = name; Usage = 200; Type = type; ElementCount = elementCount; SetValue(value); }
+
+		Uniform(const std::string &name, const uint32 type, void* value, const uint32 elementCount = 1) 
+		{ 
+			Name = name;
+			NameID = MakeStringID(Name);
+			Usage = 200;
+			Type = type;
+			ElementCount = elementCount;
+			SetValue(value);
+		}
 
 		void SetValue(void* value, const uint32 elementCount = 1)
 		{

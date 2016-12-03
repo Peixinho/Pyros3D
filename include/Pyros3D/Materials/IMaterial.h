@@ -128,6 +128,7 @@ namespace p3d {
 
 		// Opacity
 		f32 opacity;
+		Uniform* opacityHandle;
 
 		// Shader program        
 		uint32 shaderProgram;
