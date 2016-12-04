@@ -18,7 +18,7 @@ namespace p3d {
 		
 		// Use Sample
 		rnm = new Texture();
-		rnm->LoadTexture("../../../../resources/rnm.png", TextureType::Texture, false);
+		rnm->LoadTexture("../resources/rnm.png", TextureType::Texture, false);
 		UseCustomTexture(rnm);
 
 		// Create Fragment Shader
@@ -124,18 +124,6 @@ namespace p3d {
 			  
 		CompileShaders();
 
-		Uniform strength;
-		Uniform Base;
-		Uniform Area;
-		Uniform Falloff;
-		Uniform Radius;
-		Uniform Samples;
-		Uniform Scale;
-		Uniform nearFarPlane;
-		Uniform screen;
-		Uniform matProj;
-		Uniform inverseView;
-
 		total_strength = 1.0f;
 		base = 0.01f;
 		area = 1.0f;
@@ -144,67 +132,17 @@ namespace p3d {
 		samples = 16;
 		scale = 0.0005f;
 
-		strength.Name = "uStrength";
-		strength.Type = Uniforms::DataType::Float;
-		strength.Usage = Uniforms::PostEffects::Other;
-		strength.SetValue(&total_strength);
-		AddUniform(strength);
-
-		Base.Name = "uBase";
-		Base.Type = Uniforms::DataType::Float;
-		Base.Usage = Uniforms::PostEffects::Other;
-		Base.SetValue(&base);
-		AddUniform(Base);
-
-		Area.Name = "uArea";
-		Area.Type = Uniforms::DataType::Float;
-		Area.Usage = Uniforms::PostEffects::Other;
-		Area.SetValue(&area);
-		AddUniform(Area);
-
-		Falloff.Name = "uFalloff";
-		Falloff.Type = Uniforms::DataType::Float;
-		Falloff.Usage = Uniforms::PostEffects::Other;
-		Falloff.SetValue(&falloff);
-		AddUniform(Falloff);
-
-		Radius.Name = "uRadius";
-		Radius.Type = Uniforms::DataType::Float;
-		Radius.Usage = Uniforms::PostEffects::Other;
-		Radius.SetValue(&radius);
-		AddUniform(Radius);
-
-		Samples.Name = "uSamples";
-		Samples.Type = Uniforms::DataType::Int;
-		Samples.Usage = Uniforms::PostEffects::Other;
-		Samples.SetValue(&samples);
-		AddUniform(Samples);
-
-		Scale.Name = "uScale";
-		Scale.Type = Uniforms::DataType::Float;
-		Scale.Usage = Uniforms::PostEffects::Other;
-		Scale.SetValue(&scale);
-		AddUniform(Scale);
-
-		nearFarPlane.Name = "uNearFar";
-		nearFarPlane.Type = Uniforms::DataType::Vec2;
-		nearFarPlane.Usage = Uniforms::PostEffects::NearFarPlane;
-		AddUniform(nearFarPlane);
-
-		screen.Name = "uScreen";
-		screen.Type = Uniforms::DataType::Vec2;
-		screen.Usage = PostEffects::ScreenDimensions;
-		AddUniform(screen);
-
-		matProj.Name = "matProj";
-		matProj.Type = Uniforms::DataType::Matrix;
-		matProj.Usage = Uniforms::PostEffects::ProjectionFromScene;
-		AddUniform(matProj);
-
-		inverseView.Name = "uInverseView";
-		inverseView.Type = Uniforms::DataType::Matrix;
-		inverseView.Usage= Uniforms::PostEffects::Other;
-		uInverseViewMatrixUniform = AddUniform(inverseView);
+		AddUniform(Uniform("uStrength",Uniforms::DataType::Float, &total_strength));
+		AddUniform(Uniform("uBase", Uniforms::DataType::Float, &base));
+		AddUniform(Uniform("uArea", Uniforms::DataType::Float, &area));
+		AddUniform(Uniform("uFalloff", Uniforms::DataType::Float, &falloff));
+		AddUniform(Uniform("uRadius", Uniforms::DataType::Float, &radius));
+		AddUniform(Uniform("uSamples", Uniforms::DataType::Int, &samples));
+		AddUniform(Uniform("uScale", Uniforms::DataType::Float, &scale));
+		AddUniform(Uniform("uNearFar", Uniforms::PostEffects::NearFarPlane));
+		AddUniform(Uniform("uScreen", Uniforms::PostEffects::ScreenDimensions));
+		AddUniform(Uniform("matProj", Uniforms::PostEffects::ProjectionFromScene));
+		uInverseViewMatrixUniform = AddUniform(Uniform("uInverseView", Uniforms::DataUsage::Other, Uniforms::DataType::Matrix));
 	}
 
 	SSAOEffect::~SSAOEffect()

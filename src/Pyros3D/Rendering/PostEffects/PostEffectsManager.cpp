@@ -144,16 +144,19 @@ namespace p3d {
 					{
 					case PostEffects::NearFarPlane:
 					{
+						(*i).uniform.Type = Uniforms::DataType::Vec2;
 						Shader::SendUniform((*i).uniform, &NearFarPlane, (*i).handle);
 					}
 					break;
 					case PostEffects::ScreenDimensions:
 					{
+						(*i).uniform.Type = Uniforms::DataType::Vec2;
 						Shader::SendUniform((*i).uniform, &ScreenDimensions, (*i).handle);
 					}
 					break;
 					case PostEffects::ProjectionFromScene:
 					{
+						(*i).uniform.Type = Uniforms::DataType::Matrix;
 						Shader::SendUniform((*i).uniform, &projection->m, (*i).handle);
 					}
 					break;
