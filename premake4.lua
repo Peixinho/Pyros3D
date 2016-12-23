@@ -130,7 +130,12 @@ solution "Pyros3D"
 
         language "C++"
         files { "src/**.h", "src/**.cpp", "include/Pyros3D/**.h" }
-        includedirs { "include/" }
+
+	if os.get() == "linux" then
+		includedirs { "include/", "/usr/include/freetype2", "/usr/include/bullet" }
+	else
+	        includedirs { "include/" }
+	end
 
         -- LodePNG
         if not _OPTIONS["lodepng"] then
@@ -195,7 +200,11 @@ solution "Pyros3D"
         language "C++"
         files { "tools/AssimpImporter/src/**.h", "tools/AssimpImporter/src/**.cpp" }
         
-        includedirs { "include/" }
+        if os.get() == "linux" then
+                includedirs { "include/", "/usr/include/freetype2", "/usr/include/bullet" }
+        else
+                includedirs { "include/" }
+        end
 
         if os.get() == "windows" and _OPTIONS["shared"] then
             defines({"_IMPORT"})
@@ -279,7 +288,11 @@ function BuildDemo(demoPath, demoName)
             end
         end
         
-        includedirs { "include/", "src/" }
+	if os.get() == "linux" then
+                includedirs { "include/", "/usr/include/freetype2", "/usr/include/bullet", "src/" }
+        else
+                includedirs { "include/", "src/" }
+        end
     
         defines({framework});
         defines({"DEMO_NAME="..demoName, "_"..demoName})
