@@ -100,7 +100,7 @@ namespace p3d {
 
 	btCollisionShape* BulletPhysics::GetCollisionShape(IPhysicsComponent* pcomp)
 	{
-		btCollisionShape* collShape;
+		btCollisionShape* collShape = NULL;
 		switch (pcomp->GetShape())
 		{
 		case CollisionShapes::Box:
@@ -215,7 +215,13 @@ namespace p3d {
 		break;
 		};
 
-		return collShape;
+		if (collShape!=NULL)
+			return collShape;
+
+		else {
+			PhysicsBox* box = static_cast<PhysicsBox*> (pcomp);
+			return new btBoxShape(btVector3(box->GetWidth(), box->GetHeight(), box->GetDepth()));
+		}
 	}
 
 	void BulletPhysics::CreatePhysicsComponent(IPhysicsComponent* pcomp)

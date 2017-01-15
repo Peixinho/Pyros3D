@@ -571,11 +571,6 @@ namespace p3d {
 		LastProgramUsed = -1;
 		LastMaterialUsed = -1;
 		LastMeshRendered = -1;
-		depthWritting = false;
-		depthTesting = false;
-
-		DepthTest();
-		DepthWrite();
 
 		DisableBlending();
 	}

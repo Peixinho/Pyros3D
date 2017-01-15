@@ -44,6 +44,7 @@ namespace p3d {
 	}
 	void FrameBuffer::BlitFrameBuffer(const uint32 initSrcX, const uint32 initSrcY, const uint32 endSrcX, const uint32 endSrcY, const uint32 initDestX, const uint32 initDestY, const uint32 endDestX, const uint32 endDestY, const uint32 mask, const uint32 filter)
 	{
+#if !defined(GLES2)
 		GLuint Mask;
 		switch (mask)
 		{
@@ -70,6 +71,7 @@ namespace p3d {
 			break;
 		};
 		GLCHECKER(glBlitFramebuffer(initSrcX, initSrcY, endSrcX, endSrcY, initDestX, initDestY, endDestX, endDestY, Mask, Filter));
+#endif
 	}
 	void FrameBuffer::EnableMultisample()
 	{
@@ -505,12 +507,14 @@ namespace p3d {
 		glAccessBinded = GL_FRAMEBUFFER;
 		switch (access)
 		{
+#if !defined(GLES2)
 		case FBOAccess::Read:
 			glAccessBinded = GL_READ_FRAMEBUFFER;
 			break;
 		case FBOAccess::Write:
 			glAccessBinded = GL_DRAW_FRAMEBUFFER;
 			break;
+#endif
 		default:
 			glAccessBinded = GL_FRAMEBUFFER;
 			break;

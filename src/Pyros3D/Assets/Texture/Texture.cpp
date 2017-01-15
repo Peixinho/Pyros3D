@@ -398,7 +398,7 @@ namespace p3d {
 		GLCHECKER(glBindTexture(GLSubMode, 0));
 
 		// default values
-#if defined(GLES2)
+#if !defined(GLES2)
 		if (GLMode != GL_TEXTURE_2D_MULTISAMPLE)
 #endif
 		{
@@ -646,10 +646,12 @@ namespace p3d {
 
 	void Texture::SetBorderColor(const Vec4 &Color)
 	{
+#if !defined(GLES2)
 		borderColor = Color;
 		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
 		glTexParameterfv(GLSubMode, GL_TEXTURE_BORDER_COLOR, (GLfloat*)&borderColor);
 		GLCHECKER(glBindTexture(GLSubMode, 0));
+#endif
 	}
 
 	void Texture::Resize(const uint32 Width, const uint32 Height, const uint32 level)
