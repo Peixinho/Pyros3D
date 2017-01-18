@@ -2,27 +2,10 @@
 -- premake 4 Pyros3D solution
 ------------------------------------------------------------------
 solution "Pyros3D"
- 
-    -- Make Directories
-    os.mkdir("../../bin");
-    os.mkdir("../../bin/tools");
-    os.mkdir("../../build");
-    os.mkdir("../../include");
-    os.mkdir("../../libs");
-
-    newoption {
-       trigger     = "x32",
-       description = "Build for 32bit - Default Option"
-    }
-
-    newoption {
-       trigger     = "x64",
-       description = "Build for 64bit"
-    }
 
     newoption {
        trigger     = "shared",
-       description = "Ouput Shared Library - Works only on *NIX platforms"
+       description = "Ouput Shared Library"
     }
 
 	newoption {
@@ -33,11 +16,6 @@ solution "Pyros3D"
     newoption {
        trigger     = "examples",
        description = "Build Demos Examples"
-    }
-
-    newoption {
-       trigger     = "lodepng",
-       description = "Using Lodepng to load textures (PNG ONLY!)"
     }
 
     newoption {
@@ -55,10 +33,7 @@ solution "Pyros3D"
     libsToLink = { "SDL2", "SDL2_mixer" }
     excludes { "**/SFML/**", "**/SDL/**" }
 
-    buildArch = "x32"
-    if _OPTIONS["x64"] then
-        buildArch = "x64"
-    end
+    buildArch = "native"
 
     libsToLinkGL = { "GLESv2" }
 
@@ -83,30 +58,10 @@ solution "Pyros3D"
 
         language "C++"
         files { "../../src/**.h", "../../src/**.cpp", "../../include/Pyros3D/**.h" }
-        includedirs { "../../include/", "/opt/vc/include/" }
+        includedirs { "../../include/", "/usr/local/include/SDL2", "/opt/vc/include/", "/usr/include/freetype2", "/usr/include/bullet" }
 
-        -- LodePNG
-        if not _OPTIONS["lodepng"] then
-            excludes { "lopdeng/" }
-        end
-
-        -- Windows DLL And Lib Creation
-		if os.get() == "windows" and _OPTIONS["bin"]=="shared" then
-			defines({"_EXPORT"})
-		else
-        	   if _OPTIONS["GLES2"] then
-                defines({"GLES2"})
-            else
-                defines({"GLEW_STATIC"})
-            end
-        end
-
-        defines({ "UNICODE", framework })
+      	defines({"GLES2", "UNICODE", "LODEPNG", framework })
         
-        if os.get() == "windows" then
-            defines({"HAVE_STRUCT_TIMESPEC"})
-        end
-
         if _OPTIONS["log"]=="console" then
             defines({"LOG_TO_CONSOLE"})
         else
@@ -115,10 +70,6 @@ solution "Pyros3D"
             else
                 defines({"LOG_DISABLE"}) 
             end
-        end
-
-        if _OPTIONS["lodepng"] then
-            defines({"LODEPNG"})
         end
 
         configuration "Debug"
@@ -137,14 +88,11 @@ solution "Pyros3D"
         kind "ConsoleApp"
         language "C++"
         files { "../../tools/AssimpImporter/src/**.h", "../../tools/AssimpImporter/src/**.cpp" }
-        
-        includedirs { "../../include/", "/opt/vc/include/" }
+        includedirs { "../../include/", "/usr/local/include/SDL2", "/opt/vc/include/", "/usr/include/freetype2", "/usr/include/bullet" }
 
-        defines({"UNICODE", "GLEW_STATIC"})
+        defines({"UNICODE"})
 
-        -- Log Options
         defines({"LOG_DISABLE"}) 
-        --| defines({"LOG_TO_FILE"}) | defines({"LOG_TO_CONSOLE"})
                 
        configuration "Debug"
 
@@ -152,20 +100,8 @@ solution "Pyros3D"
 
             targetdir ("../../bin/tools/")
 
-            if os.get() == "linux" then
-                links { libName.."d", libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "z" }
-                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
-            end
-            
-            if os.get() == "windows" then
-                links { libName.."d", libsToLinkGL, libsToLinkDebug, "assimp", "BulletDynamics_Debug", "BulletCollision_Debug", "LinearMath_Debug", "freetype26d", "pthreadVC2" }
-                libdirs { rootdir.."/libs" }
-            end
-
-            if os.get() == "macosx" then
-                links { libName.."d", libsToLinkGL, "Cocoa.framework", "assimp", "Carbon.framework", "freetype.framework", libsToLink, "BulletDynamics.framework", "BulletCollision.framework", "LinearMath.framework" }
-                libdirs { rootdir.."/libs" }
-            end
+            links { libName.."d", libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "z" }
+            linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
 
             flags { "Symbols" }
 
@@ -173,20 +109,8 @@ solution "Pyros3D"
  
             targetdir ("../../bin/tools/")
 
-            if os.get() == "linux" then
-                links { libName, libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "pthread", "z" }
-                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
-            end
-
-            if os.get() == "windows" then
-                links { libName, libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype26", "pthreadVC2" }
-                libdirs { rootdir.."/libs" }
-            end
-
-            if os.get() == "macosx" then
-                links { libName, libsToLinkGL, "assimp", "Cocoa.framework", "Carbon.framework", "freetype.framework", libsToLink, "BulletDynamics.framework", "BulletCollision.framework", "LinearMath.framework" }
-                libdirs { rootdir.."/libs" }
-            end
+            links { libName, libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "pthread", "z" }
+            linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
 
             flags { "Optimize" }
 
@@ -195,79 +119,28 @@ function BuildDemo(demoPath, demoName)
     project (demoName)
         kind "ConsoleApp"
         language "C++"
-        files { demoPath.."/**.h", demoPath.."/**.cpp", demoPath.."/../WindowManagers/**.cpp", demoPath.."/../WindowManagers/**.h", demoPath.."/../MainProgram.cpp" }
-
-		if framework == "SDL" then
-			excludes { "**/SFML/**" }
-			excludes { "**/SDL2/**" }
-		else 
-			if framework == "SDL2" then
-				excludes { "**/SDL/**" }
-				excludes { "**/SFML/**" }
-			else
-				excludes { "**/SDL/**" }
-				excludes { "**/SDL2/**" }
-			end
-		end
-		
-        includedirs { "../../include/", "../../src/", "/opt/vc/include/" }
+        files { "../../"..demoPath.."/**.h", "../../"..demoPath.."/**.cpp", "../../"..demoPath.."/../WindowManagers/SDL2/**.cpp", "../../"..demoPath.."/../WindowManagers/**.h", "../../"..demoPath.."/../MainProgram.cpp" }
+	includedirs { "../../include/", "/usr/local/include/SDL2", "/opt/vc/include/", "/usr/include/freetype2", "/usr/include/bullet" }
 	
-        defines({framework});
-		defines({"DEMO_NAME="..demoName, "_"..demoName})
-
-		if os.get() == "windows" and _OPTIONS["bin"]=="shared" then
-			defines({"_IMPORT"})
-		else
-        	defines({"GLEW_STATIC"})
-        end
-
-        defines({"UNICODE"})
-        
-        if os.get() == "windows" then
-            defines({"HAVE_STRUCT_TIMESPEC"})
-        end
+        defines({framework, "GLES2", "DEMO_NAME="..demoName, "_"..demoName, "UNICODE"})
 
         configuration "Debug"
 
             defines({"_DEBUG"})
 
-            targetdir ("bin/debug/examples/"..demoName)
+            targetdir ("bin/")
 
-            if os.get() == "linux" then
-                links { libName.."d", libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "z" }
-                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
-            end
-            
-            if os.get() == "windows" then
-                links { libName.."d", libsToLinkGL, libsToLinkDebug, "BulletDynamics_Debug", "BulletCollision_Debug", "LinearMath_Debug", "freetype26d", "pthreadVC2" }
-                libdirs { rootdir.."/libs" }
-            end
-
-            if os.get() == "macosx" then
-                links { libName.."d", libsToLinkGL, "Cocoa.framework", "Carbon.framework", "freetype.framework", libsToLink, "BulletDynamics.framework", "BulletCollision.framework", "LinearMath.framework" }
-                libdirs { rootdir.."/libs" }
-            end
+            links { libName.."d", libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "z" }
+            linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
 
             flags { "Symbols" }
 
         configuration "Release"
 
-            targetdir ("../../bin/release/examples/"..demoName)
+            targetdir ("bin/")
 
-            if os.get() == "linux" then
-                links { libName, libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "pthread", "z" }
-                linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
-            end
-
-            if os.get() == "windows" then
-                links { libName, libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype26", "pthreadVC2" }
-                libdirs { rootdir.."/libs" }
-            end
-
-            if os.get() == "macosx" then
-                links { libName, libsToLinkGL, "Cocoa.framework", "Carbon.framework", "freetype.framework", libsToLink, "BulletDynamics.framework", "BulletCollision.framework", "LinearMath.framework" }
-                libdirs { rootdir.."/libs" }
-            end
+	    links { libName, libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "pthread", "z" }
+            linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
 
             flags { "Optimize" }
 end;
