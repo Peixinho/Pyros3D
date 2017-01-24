@@ -91,11 +91,7 @@ namespace p3d {
     {
         Uniform Color;
         std::ostringstream toSTR; toSTR << "uTex" << TextureUnits;
-        Color.Name = toSTR.str();
-        Color.Type = Uniforms::DataType::Int;
-        Color.Usage = Uniforms::PostEffects::Other;
-        Color.SetValue(&TextureUnits);
-        AddUniform(Color);
+        AddUniform(Uniform(toSTR.str(), Uniforms::DataType::Int, &TextureUnits));
         
         // Set RTT Order
         RTTOrder.push_back(RTT::Info(RTT::Color, TextureUnits));
@@ -106,11 +102,7 @@ namespace p3d {
     {
         Uniform Depth;
         std::ostringstream toSTR; toSTR << "uTex" << TextureUnits;
-        Depth.Name = toSTR.str();
-        Depth.Type = Uniforms::DataType::Int;
-        Depth.Usage = Uniforms::PostEffects::Other;
-        Depth.SetValue(&TextureUnits);
-        AddUniform(Depth);
+		AddUniform(Uniform(toSTR.str(), Uniforms::DataType::Int, &TextureUnits));
         
         // Set RTT Order
         RTTOrder.push_back(RTT::Info(RTT::Depth, TextureUnits));
@@ -121,11 +113,7 @@ namespace p3d {
     {        
         Uniform RTT;
         std::ostringstream toSTR; toSTR << "uTex" << TextureUnits;
-        RTT.Name = toSTR.str();
-        RTT.Type = Uniforms::DataType::Int;
-        RTT.Usage = Uniforms::PostEffects::Other;
-        RTT.SetValue(&TextureUnits);
-        AddUniform(RTT);
+		AddUniform(Uniform(toSTR.str(), Uniforms::DataType::Int, &TextureUnits));
         
         // Set RTT Order
         RTTOrder.push_back(RTT::Info(RTT::LastRTT, TextureUnits));
@@ -136,11 +124,7 @@ namespace p3d {
     {        
         Uniform CustomTexture;
         std::ostringstream toSTR; toSTR << "uTex" << TextureUnits;
-        CustomTexture.Name = toSTR.str();
-        CustomTexture.Type = Uniforms::DataType::Int;
-        CustomTexture.Usage = Uniforms::PostEffects::Other;
-        CustomTexture.SetValue(&TextureUnits);
-        AddUniform(CustomTexture);
+		AddUniform(Uniform(toSTR.str(), Uniforms::DataType::Int, &TextureUnits));
         
         // Set RTT Order
         RTTOrder.push_back(RTT::Info(texture, RTT::CustomTexture, TextureUnits));
