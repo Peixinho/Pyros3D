@@ -112,7 +112,7 @@ namespace p3d {
 
 	const char SHADER_CODE[] =	"#define MAX_BONES 60\n"
 "#define MAX_LIGHTS 4\n"
-"#ifdef GLES2\n"
+"#ifdef EMSCRIPTEN\n"
 "	precision mediump float;\n"
 "#endif\n"
 "\n"

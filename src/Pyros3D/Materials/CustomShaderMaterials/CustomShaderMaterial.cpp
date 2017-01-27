@@ -17,12 +17,23 @@ namespace p3d
 
 		{
 
+			std::string define;
+#if defined(GLES2)
+			define += std::string("#define GLES2\n");
+#endif
+#if defined(GL_LEGACY)
+			define += std::string("#define GL_LEGACY\n");
+#endif
+#if defined(EMSCRIPTEN)
+			define += std::string("#define EMSCRIPTEN\n");
+#endif
+
 			// Not Found, Then Load Shader
 			shader = new Shader();
 
 			shader->LoadShaderFile(ShaderFile.c_str());
-			shader->CompileShader(ShaderType::VertexShader, "#define VERTEX\n");
-			shader->CompileShader(ShaderType::FragmentShader, "#define FRAGMENT\n");
+			shader->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
+			shader->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
 
 			shader->LinkProgram();
 		}

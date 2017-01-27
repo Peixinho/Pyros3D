@@ -1,6 +1,6 @@
 #define MAX_BONES 60
 #define MAX_LIGHTS 4
-#ifdef GLES2
+#ifdef EMSCRIPTEN
    precision mediump float;
 #endif
 

@@ -1,5 +1,8 @@
-#ifdef VERTEX
+#ifdef EMSCRIPTEN
 precision mediump float;
+#endif
+
+#ifdef VERTEX
 attribute vec3 aPosition, aNormal;
 attribute vec2 aTexcoord;
 uniform mat4 uProjectionMatrix, uViewMatrix, uModelMatrix;
@@ -11,7 +14,6 @@ void main()
 #endif
 
 #ifdef FRAGMENT
-precision mediump float;
 uniform vec4 uColor;
 
 void main()
