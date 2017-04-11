@@ -3,11 +3,25 @@
 
 class CustomShaderMaterial : public p3d::IMaterial {
 public:
+  void PreRender() {
+    EM_ASM_INT({
+      var self = Module['getCache'](Module['CustomShaderMaterial'])[$0];
+      if (!self.hasOwnProperty('PreRender')) throw 'a JSImplementation must implement all functions, you forgot CustomShaderMaterial::PreRender.';
+      self['PreRender']();
+    }, (int)this);
+  }
+  void AfterRender() {
+    EM_ASM_INT({
+      var self = Module['getCache'](Module['CustomShaderMaterial'])[$0];
+      if (!self.hasOwnProperty('AfterRender')) throw 'a JSImplementation must implement all functions, you forgot CustomShaderMaterial::AfterRender.';
+      self['AfterRender']();
+    }, (int)this);
+  }
   void __destroy__() {
     EM_ASM_INT({
       var self = Module['getCache'](Module['CustomShaderMaterial'])[$0];
       if (!self.hasOwnProperty('__destroy__')) throw 'a JSImplementation must implement all functions, you forgot CustomShaderMaterial::__destroy__.';
-      self.__destroy__();
+      self['__destroy__']();
     }, (int)this);
   }
 };
@@ -18,140 +32,133 @@ public:
     EM_ASM_INT({
       var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
       if (!self.hasOwnProperty('SetColor')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetColor.';
-      self.SetColor($1);
+      self['SetColor']($1);
     }, (int)this, (int)&arg0);
   }
   void SetSpecular(const p3d::Math::Vec4 arg0) {
     EM_ASM_INT({
       var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
       if (!self.hasOwnProperty('SetSpecular')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetSpecular.';
-      self.SetSpecular($1);
+      self['SetSpecular']($1);
     }, (int)this, (int)&arg0);
   }
-  void SetColorMap(p3d::Texture arg0) {
+  void SetColorMap(p3d::Texture *arg0) {
     EM_ASM_INT({
       var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
       if (!self.hasOwnProperty('SetColorMap')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetColorMap.';
-      self.SetColorMap($1);
-    }, (int)this, (int)&arg0);
+      self['SetColorMap']($1);
+    }, (int)this, (int*)arg0);
   }
-  void SetSpecularMap(p3d::Texture arg0) {
+  void SetSpecularMap(p3d::Texture *arg0) {
     EM_ASM_INT({
       var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
       if (!self.hasOwnProperty('SetSpecularMap')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetSpecularMap.';
-      self.SetSpecularMap($1);
-    }, (int)this, (int)&arg0);
+      self['SetSpecularMap']($1);
+    }, (int)this, (int*)arg0);
   }
-  void SetNormalMap(p3d::Texture arg0) {
+  void SetNormalMap(p3d::Texture *arg0) {
     EM_ASM_INT({
       var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
       if (!self.hasOwnProperty('SetNormalMap')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetNormalMap.';
-      self.SetNormalMap($1);
-    }, (int)this, (int)&arg0);
+      self['SetNormalMap']($1);
+    }, (int)this, (int*)arg0);
   }
-  void SetEnvMap(p3d::Texture arg0) {
+  void SetEnvMap(p3d::Texture *arg0) {
     EM_ASM_INT({
       var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
       if (!self.hasOwnProperty('SetEnvMap')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetEnvMap.';
-      self.SetEnvMap($1);
-    }, (int)this, (int)&arg0);
+      self['SetEnvMap']($1);
+    }, (int)this, (int*)arg0);
+  }
+  void SetSkyboxMap(p3d::Texture *arg0) {
+    EM_ASM_INT({
+      var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
+      if (!self.hasOwnProperty('SetSkyboxMap')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetSkyboxMap.';
+      self['SetSkyboxMap']($1);
+    }, (int)this, (int*)arg0);
+  }
+  void SetRefractMap(p3d::Texture *arg0) {
+    EM_ASM_INT({
+      var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
+      if (!self.hasOwnProperty('SetRefractMap')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetRefractMap.';
+      self['SetRefractMap']($1);
+    }, (int)this, (int*)arg0);
+  }
+  void AddTexture(char* arg0, p3d::Texture *arg1) {
+    EM_ASM_INT({
+      var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
+      if (!self.hasOwnProperty('AddTexture')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::AddTexture.';
+      self['AddTexture']($1,$2);
+    }, (int)this, arg0, (int*)arg1);
+  }
+  void SetTextFont(p3d::Font *arg0) {
+    EM_ASM_INT({
+      var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
+      if (!self.hasOwnProperty('SetTextFont')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetTextFont.';
+      self['SetTextFont']($1);
+    }, (int)this, (int*)arg0);
   }
   void SetReflectivity(float arg0) {
     EM_ASM_INT({
       var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
       if (!self.hasOwnProperty('SetReflectivity')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetReflectivity.';
-      self.SetReflectivity($1);
+      self['SetReflectivity']($1);
     }, (int)this, arg0);
-  }
-  void SetLightingProperties(const p3d::Math::Vec4 arg0, const p3d::Math::Vec4 arg1, const p3d::Math::Vec4 arg2, const p3d::Math::Vec4 arg3, float arg4) {
-    EM_ASM_INT({
-      var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
-      if (!self.hasOwnProperty('SetLightingProperties')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetLightingProperties.';
-      self.SetLightingProperties($1,$2,$3,$4,$5);
-    }, (int)this, (int)&arg0, (int)&arg1, (int)&arg2, (int)&arg3, arg4);
-  }
-  void SetKe(const p3d::Math::Vec4 arg0) {
-    EM_ASM_INT({
-      var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
-      if (!self.hasOwnProperty('SetKe')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetKe.';
-      self.SetKe($1);
-    }, (int)this, (int)&arg0);
-  }
-  void SetKa(const p3d::Math::Vec4 arg0) {
-    EM_ASM_INT({
-      var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
-      if (!self.hasOwnProperty('SetKa')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetKa.';
-      self.SetKa($1);
-    }, (int)this, (int)&arg0);
-  }
-  void SetKd(const p3d::Math::Vec4 arg0) {
-    EM_ASM_INT({
-      var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
-      if (!self.hasOwnProperty('SetKd')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetKd.';
-      self.SetKd($1);
-    }, (int)this, (int)&arg0);
-  }
-  void SetKs(const p3d::Math::Vec4 arg0) {
-    EM_ASM_INT({
-      var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
-      if (!self.hasOwnProperty('SetKs')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetKs.';
-      self.SetKs($1);
-    }, (int)this, (int)&arg0);
   }
   void SetShininess(float arg0) {
     EM_ASM_INT({
       var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
       if (!self.hasOwnProperty('SetShininess')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetShininess.';
-      self.SetShininess($1);
+      self['SetShininess']($1);
     }, (int)this, arg0);
   }
   void PreRender() {
     EM_ASM_INT({
       var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
       if (!self.hasOwnProperty('PreRender')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::PreRender.';
-      self.PreRender();
+      self['PreRender']();
     }, (int)this);
   }
   void AfterRender() {
     EM_ASM_INT({
       var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
       if (!self.hasOwnProperty('AfterRender')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::AfterRender.';
-      self.AfterRender();
+      self['AfterRender']();
     }, (int)this);
   }
   void BindTextures() {
     EM_ASM_INT({
       var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
       if (!self.hasOwnProperty('BindTextures')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::BindTextures.';
-      self.BindTextures();
+      self['BindTextures']();
     }, (int)this);
   }
   void UnbindTextures() {
     EM_ASM_INT({
       var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
       if (!self.hasOwnProperty('UnbindTextures')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::UnbindTextures.';
-      self.UnbindTextures();
+      self['UnbindTextures']();
     }, (int)this);
   }
   void SetPCFTexelSize(float arg0) {
     EM_ASM_INT({
       var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
       if (!self.hasOwnProperty('SetPCFTexelSize')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetPCFTexelSize.';
-      self.SetPCFTexelSize($1);
+      self['SetPCFTexelSize']($1);
     }, (int)this, arg0);
   }
   void SetPCFTexelCascadesSize(float arg0, float arg1, float arg2, float arg3) {
     EM_ASM_INT({
       var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
       if (!self.hasOwnProperty('SetPCFTexelCascadesSize')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::SetPCFTexelCascadesSize.';
-      self.SetPCFTexelCascadesSize($1,$2,$3,$4);
+      self['SetPCFTexelCascadesSize']($1,$2,$3,$4);
     }, (int)this, arg0, arg1, arg2, arg3);
   }
   void __destroy__() {
     EM_ASM_INT({
       var self = Module['getCache'](Module['GenericShaderMaterial'])[$0];
       if (!self.hasOwnProperty('__destroy__')) throw 'a JSImplementation must implement all functions, you forgot GenericShaderMaterial::__destroy__.';
-      self.__destroy__();
+      self['__destroy__']();
     }, (int)this);
   }
 };
@@ -162,7 +169,7 @@ public:
     EM_ASM_INT({
       var self = Module['getCache'](Module['ForwardRenderer'])[$0];
       if (!self.hasOwnProperty('__destroy__')) throw 'a JSImplementation must implement all functions, you forgot ForwardRenderer::__destroy__.';
-      self.__destroy__();
+      self['__destroy__']();
     }, (int)this);
   }
 };
@@ -176,6 +183,318 @@ void array_bounds_check(const int array_size, const int array_idx) {
       throw 'Array index ' + $0 + ' out of bounds: [0,' + $1 + ')';
     }, array_idx, array_size);
   }
+}
+
+// IRenderer
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_ClearBufferBit_1(p3d::IRenderer* self, int arg0) {
+  self->ClearBufferBit(arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableClearDepthBuffer_0(p3d::IRenderer* self) {
+  self->EnableClearDepthBuffer();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableClearDepthBuffer_0(p3d::IRenderer* self) {
+  self->DisableClearDepthBuffer();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_ClearDepthBuffer_0(p3d::IRenderer* self) {
+  self->ClearDepthBuffer();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableClipPlane_1(p3d::IRenderer* self, int arg0) {
+  self->EnableClipPlane(arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableClipPlane_0(p3d::IRenderer* self) {
+  self->DisableClipPlane();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_SetClipPlane0_1(p3d::IRenderer* self, p3d::Math::Vec4* arg0) {
+  self->SetClipPlane0(*arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_SetClipPlane1_1(p3d::IRenderer* self, p3d::Math::Vec4* arg0) {
+  self->SetClipPlane1(*arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_SetClipPlane2_1(p3d::IRenderer* self, p3d::Math::Vec4* arg0) {
+  self->SetClipPlane2(*arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_SetClipPlane3_1(p3d::IRenderer* self, p3d::Math::Vec4* arg0) {
+  self->SetClipPlane3(*arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_SetClipPlane4_1(p3d::IRenderer* self, p3d::Math::Vec4* arg0) {
+  self->SetClipPlane4(*arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_SetClipPlane5_1(p3d::IRenderer* self, p3d::Math::Vec4* arg0) {
+  self->SetClipPlane5(*arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_SetClipPlane6_1(p3d::IRenderer* self, p3d::Math::Vec4* arg0) {
+  self->SetClipPlane6(*arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_SetClipPlane7_1(p3d::IRenderer* self, p3d::Math::Vec4* arg0) {
+  self->SetClipPlane7(*arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableStencil_0(p3d::IRenderer* self) {
+  self->EnableStencil();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableStencil_0(p3d::IRenderer* self) {
+  self->DisableStencil();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_ClearStencilBuffer_0(p3d::IRenderer* self) {
+  self->ClearStencilBuffer();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_StencilFunction_3(p3d::IRenderer* self, int arg0, int arg1, int arg2) {
+  self->StencilFunction(arg0, arg1, arg2);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_StencilOperation_3(p3d::IRenderer* self, int arg0, int arg1, int arg2) {
+  self->StencilOperation(arg0, arg1, arg2);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableScissorTest_0(p3d::IRenderer* self) {
+  self->EnableScissorTest();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableScissorTest_0(p3d::IRenderer* self) {
+  self->DisableScissorTest();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_ScissorTestRect_4(p3d::IRenderer* self, float arg0, float arg1, float arg2, float arg3) {
+  self->ScissorTestRect(arg0, arg1, arg2, arg3);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableWireFrame_0(p3d::IRenderer* self) {
+  self->EnableWireFrame();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableWireFrame_0(p3d::IRenderer* self) {
+  self->DisableWireFrame();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_ColorMask_4(p3d::IRenderer* self, bool arg0, bool arg1, bool arg2, bool arg3) {
+  self->ColorMask(arg0, arg1, arg2, arg3);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableSorting_0(p3d::IRenderer* self) {
+  self->EnableSorting();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableSorting_0(p3d::IRenderer* self) {
+  self->DisableSorting();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableLOD_0(p3d::IRenderer* self) {
+  self->EnableLOD();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableLOD_0(p3d::IRenderer* self) {
+  self->DisableLOD();
+}
+
+bool EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_IsUsingLOD_0(p3d::IRenderer* self) {
+  return self->IsUsingLOD();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_SetBackground_1(p3d::IRenderer* self, p3d::Math::Vec4* arg0) {
+  self->SetBackground(*arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_UnsetBackground_0(p3d::IRenderer* self) {
+  self->UnsetBackground();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_SetGlobalLight_1(p3d::IRenderer* self, p3d::Math::Vec4* arg0) {
+  self->SetGlobalLight(*arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableDepthBias_1(p3d::IRenderer* self, p3d::Math::Vec2* arg0) {
+  self->EnableDepthBias(*arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableDepthBias_0(p3d::IRenderer* self) {
+  self->DisableDepthBias();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_SetViewPort_4(p3d::IRenderer* self, int arg0, int arg1, int arg2, int arg3) {
+  self->SetViewPort(arg0, arg1, arg2, arg3);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_ResetViewPort_0(p3d::IRenderer* self) {
+  self->ResetViewPort();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_Resize_2(p3d::IRenderer* self, int arg0, int arg1) {
+  self->Resize(arg0, arg1);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_ActivateCulling_1(p3d::IRenderer* self, int arg0) {
+  self->ActivateCulling(arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DeactivateCulling_0(p3d::IRenderer* self) {
+  self->DeactivateCulling();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_RenderScene_3(p3d::IRenderer* self, p3d::Projection* arg0, p3d::GameObject* arg1, p3d::SceneGraph* arg2) {
+  self->RenderScene(*arg0, arg1, arg2);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_PreRender_2(p3d::IRenderer* self, p3d::GameObject* arg0, p3d::SceneGraph* arg1) {
+  self->PreRender(arg0, arg1);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_PreRender_3(p3d::IRenderer* self, p3d::GameObject* arg0, p3d::SceneGraph* arg1, char* arg2) {
+  self->PreRender(arg0, arg1, arg2);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer___destroy___0(p3d::IRenderer* self) {
+  delete self;
+}
+
+// IMaterial
+
+p3d::IMaterial* EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_IMaterial_0() {
+  return new p3d::IMaterial();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_PreRender_0(p3d::IMaterial* self) {
+  self->PreRender();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_Render_0(p3d::IMaterial* self) {
+  self->Render();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_AfterRender_0(p3d::IMaterial* self) {
+  self->AfterRender();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_SetCullFace_1(p3d::IMaterial* self, int arg0) {
+  self->SetCullFace(arg0);
+}
+
+int EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_GetCullFace_0(p3d::IMaterial* self) {
+  return self->GetCullFace();
+}
+
+bool EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_IsWireFrame_0(p3d::IMaterial* self) {
+  return self->IsWireFrame();
+}
+
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_GetOpacity_0(p3d::IMaterial* self) {
+  return self->GetOpacity();
+}
+
+bool EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_IsTransparent_0(p3d::IMaterial* self) {
+  return self->IsTransparent();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_SetOpacity_1(p3d::IMaterial* self, float arg0) {
+  self->SetOpacity(arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_SetTransparencyFlag_1(p3d::IMaterial* self, bool arg0) {
+  self->SetTransparencyFlag(arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_EnableDethBias_2(p3d::IMaterial* self, float arg0, float arg1) {
+  self->EnableDethBias(arg0, arg1);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_DisableDethBias_0(p3d::IMaterial* self) {
+  self->DisableDethBias();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_EnableBlending_0(p3d::IMaterial* self) {
+  self->EnableBlending();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_DisableBlending_0(p3d::IMaterial* self) {
+  self->DisableBlending();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_BlendingFunction_2(p3d::IMaterial* self, int arg0, int arg1) {
+  self->BlendingFunction(arg0, arg1);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_BlendingEquation_1(p3d::IMaterial* self, int arg0) {
+  self->BlendingEquation(arg0);
+}
+
+p3d::Uniform* EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_AddUniform_1(p3d::IMaterial* self, p3d::Uniform* arg0) {
+  return self->AddUniform(*arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_StartRenderWireFrame_0(p3d::IMaterial* self) {
+  self->StartRenderWireFrame();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_StopRenderWireFrame_0(p3d::IMaterial* self) {
+  self->StopRenderWireFrame();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_EnableCastingShadows_0(p3d::IMaterial* self) {
+  self->EnableCastingShadows();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_DisableCastingShadows_0(p3d::IMaterial* self) {
+  self->DisableCastingShadows();
+}
+
+bool EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_IsCastingShadows_0(p3d::IMaterial* self) {
+  return self->IsCastingShadows();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_Destroy_0(p3d::IMaterial* self) {
+  self->Destroy();
+}
+
+int EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_GetShader_0(p3d::IMaterial* self) {
+  return self->GetShader();
+}
+
+int EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_GetInternalID_0(p3d::IMaterial* self) {
+  return self->GetInternalID();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_EnableDepthTest_1(p3d::IMaterial* self, int arg0) {
+  self->EnableDepthTest(arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_DisableDepthTest_0(p3d::IMaterial* self) {
+  self->DisableDepthTest();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_EnableDepthWrite_0(p3d::IMaterial* self) {
+  self->EnableDepthWrite();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_DisableDepthWrite_0(p3d::IMaterial* self) {
+  self->DisableDepthWrite();
+}
+
+bool EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_IsDepthWritting_0(p3d::IMaterial* self) {
+  return self->IsDepthWritting();
+}
+
+bool EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_IsDepthTesting_0(p3d::IMaterial* self) {
+  return self->IsDepthTesting();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial___destroy___0(p3d::IMaterial* self) {
+  delete self;
 }
 
 // Renderable
@@ -325,16 +644,12 @@ p3d::Texture* EMSCRIPTEN_KEEPALIVE emscripten_bind_Texture_Texture_0() {
   return new p3d::Texture();
 }
 
-bool EMSCRIPTEN_KEEPALIVE emscripten_bind_Texture_LoadTexture_3(p3d::Texture* self, char* arg0, int arg1, bool arg2) {
-  return self->LoadTexture(arg0, arg1, arg2);
+bool EMSCRIPTEN_KEEPALIVE emscripten_bind_Texture_LoadTexture_4(p3d::Texture* self, char* arg0, int arg1, bool arg2, int arg3) {
+  return self->LoadTexture(arg0, arg1, arg2, arg3);
 }
 
-bool EMSCRIPTEN_KEEPALIVE emscripten_bind_Texture_CreateTexture_1(p3d::Texture* self, bool arg0) {
-  return self->CreateTexture(arg0);
-}
-
-bool EMSCRIPTEN_KEEPALIVE emscripten_bind_Texture_CreateTexture_5(p3d::Texture* self, int arg0, int arg1, int arg2, int arg3, bool arg4) {
-  return self->CreateTexture(arg0, arg1, arg2, arg3, arg4);
+bool EMSCRIPTEN_KEEPALIVE emscripten_bind_Texture_CreateEmptyTexture_7(p3d::Texture* self, int arg0, int arg1, int arg2, int arg3, bool arg4, int arg5, int arg6) {
+  return self->CreateEmptyTexture(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_Texture_SetMinMagFilter_2(p3d::Texture* self, int arg0, int arg1) {
@@ -407,169 +722,23 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_Texture___destroy___0(p3d::Texture* se
 
 // Uniform
 
-p3d::Uniforms::Uniform* EMSCRIPTEN_KEEPALIVE emscripten_bind_Uniform_Uniform_0() {
-  return new p3d::Uniforms::Uniform();
+p3d::Uniform* EMSCRIPTEN_KEEPALIVE emscripten_bind_Uniform_Uniform_0() {
+  return new p3d::Uniform();
 }
 
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_Uniform___destroy___0(p3d::Uniforms::Uniform* self) {
-  delete self;
+p3d::Uniform* EMSCRIPTEN_KEEPALIVE emscripten_bind_Uniform_Uniform_3(char* arg0, int arg1, int arg2) {
+  return new p3d::Uniform(arg0, arg1, arg2);
 }
 
-// IRenderer
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_ClearBufferBit_1(p3d::IRenderer* self, int arg0) {
-  self->ClearBufferBit(arg0);
+p3d::Uniform* EMSCRIPTEN_KEEPALIVE emscripten_bind_Uniform_Uniform_4(char* arg0, int arg1, void* arg2, int arg3) {
+  return new p3d::Uniform(arg0, arg1, arg2, arg3);
 }
 
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableDepthTest_0(p3d::IRenderer* self) {
-  self->EnableDepthTest();
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_Uniform_SetValue_2(p3d::Uniform* self, void* arg0, int arg1) {
+  self->SetValue(arg0, arg1);
 }
 
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableDepthTest_0(p3d::IRenderer* self) {
-  self->DisableDepthTest();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableDepthWritting_0(p3d::IRenderer* self) {
-  self->EnableDepthWritting();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableDepthWritting_0(p3d::IRenderer* self) {
-  self->DisableDepthWritting();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableClearDepthBuffer_0(p3d::IRenderer* self) {
-  self->EnableClearDepthBuffer();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableClearDepthBuffer_0(p3d::IRenderer* self) {
-  self->DisableClearDepthBuffer();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_ClearDepthBuffer_0(p3d::IRenderer* self) {
-  self->ClearDepthBuffer();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableStencil_0(p3d::IRenderer* self) {
-  self->EnableStencil();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableStencil_0(p3d::IRenderer* self) {
-  self->DisableStencil();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_ClearStencilBuffer_0(p3d::IRenderer* self) {
-  self->ClearStencilBuffer();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_StencilFunction_3(p3d::IRenderer* self, int arg0, int arg1, int arg2) {
-  self->StencilFunction(arg0, arg1, arg2);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_StencilOperation_3(p3d::IRenderer* self, int arg0, int arg1, int arg2) {
-  self->StencilOperation(arg0, arg1, arg2);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableBlending_0(p3d::IRenderer* self) {
-  self->EnableBlending();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableBlending_0(p3d::IRenderer* self) {
-  self->DisableBlending();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_BlendingFunction_2(p3d::IRenderer* self, int arg0, int arg1) {
-  self->BlendingFunction(arg0, arg1);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_BlendingEquation_1(p3d::IRenderer* self, int arg0) {
-  self->BlendingEquation(arg0);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableScissorTest_0(p3d::IRenderer* self) {
-  self->EnableScissorTest();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableScissorTest_0(p3d::IRenderer* self) {
-  self->DisableScissorTest();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_ScissorTestRect_4(p3d::IRenderer* self, float arg0, float arg1, float arg2, float arg3) {
-  self->ScissorTestRect(arg0, arg1, arg2, arg3);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableWireFrame_0(p3d::IRenderer* self) {
-  self->EnableWireFrame();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableWireFrame_0(p3d::IRenderer* self) {
-  self->DisableWireFrame();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_ColorMask_4(p3d::IRenderer* self, float arg0, float arg1, float arg2, float arg3) {
-  self->ColorMask(arg0, arg1, arg2, arg3);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableSorting_0(p3d::IRenderer* self) {
-  self->EnableSorting();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableSorting_0(p3d::IRenderer* self) {
-  self->DisableSorting();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableLOD_0(p3d::IRenderer* self) {
-  self->EnableLOD();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableLOD_0(p3d::IRenderer* self) {
-  self->DisableLOD();
-}
-
-bool EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_IsUsingLOD_0(p3d::IRenderer* self) {
-  return self->IsUsingLOD();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_SetBackground_1(p3d::IRenderer* self, p3d::Math::Vec4* arg0) {
-  self->SetBackground(*arg0);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_UnsetBackground_0(p3d::IRenderer* self) {
-  self->UnsetBackground();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_SetGlobalLight_1(p3d::IRenderer* self, p3d::Math::Vec4* arg0) {
-  self->SetGlobalLight(*arg0);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_EnableDepthBias_1(p3d::IRenderer* self, p3d::Math::Vec2* arg0) {
-  self->EnableDepthBias(*arg0);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DisableDepthBias_0(p3d::IRenderer* self) {
-  self->DisableDepthBias();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_SetViewPort_4(p3d::IRenderer* self, int arg0, int arg1, int arg2, int arg3) {
-  self->SetViewPort(arg0, arg1, arg2, arg3);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_Resize_2(p3d::IRenderer* self, int arg0, int arg1) {
-  self->Resize(arg0, arg1);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_ActivateCulling_1(p3d::IRenderer* self, int arg0) {
-  self->ActivateCulling(arg0);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_DeactivateCulling_0(p3d::IRenderer* self) {
-  self->DeactivateCulling();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer_RenderScene_3(p3d::IRenderer* self, p3d::Projection* arg0, p3d::GameObject* arg1, p3d::SceneGraph* arg2) {
-  self->RenderScene(*arg0, arg1, arg2);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IRenderer___destroy___0(p3d::IRenderer* self) {
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_Uniform___destroy___0(p3d::Uniform* self) {
   delete self;
 }
 
@@ -623,39 +792,39 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_Activate_1(p3d::BulletPh
   self->Activate(arg0);
 }
 
-p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateBox_4(p3d::BulletPhysics* self, float arg0, float arg1, float arg2, float arg3) {
+p3d::IPhysicsComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateBox_4(p3d::BulletPhysics* self, float arg0, float arg1, float arg2, float arg3) {
   return self->CreateBox(arg0, arg1, arg2, arg3);
 }
 
-p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateCapsule_3(p3d::BulletPhysics* self, float arg0, float arg1, float arg2) {
+p3d::IPhysicsComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateCapsule_3(p3d::BulletPhysics* self, float arg0, float arg1, float arg2) {
   return self->CreateCapsule(arg0, arg1, arg2);
 }
 
-p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateCone_3(p3d::BulletPhysics* self, float arg0, float arg1, float arg2) {
+p3d::IPhysicsComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateCone_3(p3d::BulletPhysics* self, float arg0, float arg1, float arg2) {
   return self->CreateCone(arg0, arg1, arg2);
 }
 
-p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateConvexTriangleMesh_2(p3d::BulletPhysics* self, p3d::RenderingComponent* arg0, float arg1) {
+p3d::IPhysicsComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateConvexTriangleMesh_2(p3d::BulletPhysics* self, p3d::RenderingComponent* arg0, float arg1) {
   return self->CreateConvexTriangleMesh(arg0, arg1);
 }
 
-p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateCylinder_3(p3d::BulletPhysics* self, float arg0, float arg1, float arg2) {
+p3d::IPhysicsComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateCylinder_3(p3d::BulletPhysics* self, float arg0, float arg1, float arg2) {
   return self->CreateCylinder(arg0, arg1, arg2);
 }
 
-p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateSphere_2(p3d::BulletPhysics* self, float arg0, float arg1) {
+p3d::IPhysicsComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateSphere_2(p3d::BulletPhysics* self, float arg0, float arg1) {
   return self->CreateSphere(arg0, arg1);
 }
 
-p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateStaticPlane_3(p3d::BulletPhysics* self, p3d::Math::Vec3* arg0, float arg1, float arg2) {
+p3d::IPhysicsComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateStaticPlane_3(p3d::BulletPhysics* self, p3d::Math::Vec3* arg0, float arg1, float arg2) {
   return self->CreateStaticPlane(*arg0, arg1, arg2);
 }
 
-p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateTriangleMesh_2(p3d::BulletPhysics* self, p3d::RenderingComponent* arg0, float arg1) {
+p3d::IPhysicsComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateTriangleMesh_2(p3d::BulletPhysics* self, p3d::RenderingComponent* arg0, float arg1) {
   return self->CreateTriangleMesh(arg0, arg1);
 }
 
-p3d::IComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateVehicle_1(p3d::BulletPhysics* self, p3d::IPhysicsComponent* arg0) {
+p3d::IPhysicsComponent* EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics_CreateVehicle_1(p3d::BulletPhysics* self, p3d::IPhysicsComponent* arg0) {
   return self->CreateVehicle(arg0);
 }
 
@@ -667,111 +836,9 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_BulletPhysics___destroy___0(p3d::Bulle
   delete self;
 }
 
-// IMaterial
+// RenderingMesh
 
-p3d::IMaterial* EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_IMaterial_0() {
-  return new p3d::IMaterial();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_PreRender_0(p3d::IMaterial* self) {
-  self->PreRender();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_Render_0(p3d::IMaterial* self) {
-  self->Render();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_AfterRender_0(p3d::IMaterial* self) {
-  self->AfterRender();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_SetCullFace_1(p3d::IMaterial* self, int arg0) {
-  self->SetCullFace(arg0);
-}
-
-int EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_GetCullFace_0(p3d::IMaterial* self) {
-  return self->GetCullFace();
-}
-
-bool EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_IsWireFrame_0(p3d::IMaterial* self) {
-  return self->IsWireFrame();
-}
-
-float EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_GetOpacity_0(p3d::IMaterial* self) {
-  return self->GetOpacity();
-}
-
-bool EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_IsTransparent_0(p3d::IMaterial* self) {
-  return self->IsTransparent();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_SetOpacity_1(p3d::IMaterial* self, float arg0) {
-  self->SetOpacity(arg0);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_SetTransparencyFlag_1(p3d::IMaterial* self, bool arg0) {
-  self->SetTransparencyFlag(arg0);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_SetUniformValue_2(p3d::IMaterial* self, char* arg0, float arg1) {
-  self->SetUniformValue(arg0, arg1);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_SetUniformValue_3(p3d::IMaterial* self, char* arg0, void* arg1, int arg2) {
-  self->SetUniformValue(arg0, arg1, arg2);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_AddUniform_1(p3d::IMaterial* self, p3d::Uniforms::Uniform* arg0) {
-  self->AddUniform(*arg0);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_StartRenderWireFrame_0(p3d::IMaterial* self) {
-  self->StartRenderWireFrame();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_StopRenderWireFrame_0(p3d::IMaterial* self) {
-  self->StopRenderWireFrame();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_EnableCastingShadows_0(p3d::IMaterial* self) {
-  self->EnableCastingShadows();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_DisableCastingShadows_0(p3d::IMaterial* self) {
-  self->DisableCastingShadows();
-}
-
-bool EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_IsCastingShadows_0(p3d::IMaterial* self) {
-  return self->IsCastingShadows();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_Destroy_0(p3d::IMaterial* self) {
-  self->Destroy();
-}
-
-int EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_GetShader_0(p3d::IMaterial* self) {
-  return self->GetShader();
-}
-
-int EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial_GetInternalID_0(p3d::IMaterial* self) {
-  return self->GetInternalID();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_IMaterial___destroy___0(p3d::IMaterial* self) {
-  delete self;
-}
-
-// PyrosJSNative
-
-PyrosJSNative* EMSCRIPTEN_KEEPALIVE emscripten_bind_PyrosJSNative_PyrosJSNative_0() {
-  return new PyrosJSNative();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_PyrosJSNative_CreateContext_0(PyrosJSNative* self) {
-  self->CreateContext();
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_PyrosJSNative___destroy___0(PyrosJSNative* self) {
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingMesh___destroy___0(p3d::RenderingMesh* self) {
   delete self;
 }
 
@@ -812,6 +879,20 @@ int EMSCRIPTEN_KEEPALIVE emscripten_bind_SkeletonAnimation_GetAnimationIDByName_
 }
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_SkeletonAnimation___destroy___0(p3d::SkeletonAnimation* self) {
+  delete self;
+}
+
+// PyrosJSNative
+
+PyrosJSNative* EMSCRIPTEN_KEEPALIVE emscripten_bind_PyrosJSNative_PyrosJSNative_0() {
+  return new PyrosJSNative();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_PyrosJSNative_CreateContext_0(PyrosJSNative* self) {
+  self->CreateContext();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_PyrosJSNative___destroy___0(PyrosJSNative* self) {
   delete self;
 }
 
@@ -1146,16 +1227,16 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_Shader_LoadShaderText_1(p3d::Shader* s
   self->LoadShaderText(arg0);
 }
 
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_Shader_CompileShader_1(p3d::Shader* self, int arg0) {
-  self->CompileShader(arg0);
+bool EMSCRIPTEN_KEEPALIVE emscripten_bind_Shader_CompileShader_2(p3d::Shader* self, int arg0, char* arg1) {
+  return self->CompileShader(arg0, arg1);
 }
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_Shader_DeleteShader_0(p3d::Shader* self) {
   self->DeleteShader();
 }
 
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_Shader_LinkProgram_0(p3d::Shader* self) {
-  self->LinkProgram();
+bool EMSCRIPTEN_KEEPALIVE emscripten_bind_Shader_LinkProgram_0(p3d::Shader* self) {
+  return self->LinkProgram();
 }
 
 int EMSCRIPTEN_KEEPALIVE emscripten_bind_Shader_ShaderProgram_0(p3d::Shader* self) {
@@ -1170,11 +1251,11 @@ int EMSCRIPTEN_KEEPALIVE emscripten_bind_Shader_GetAttributeLocation_2(p3d::Shad
   return self->GetAttributeLocation(arg0, arg1);
 }
 
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_Shader_SendUniform_2(p3d::Shader* self, p3d::Uniforms::Uniform* arg0, int arg1) {
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_Shader_SendUniform_2(p3d::Shader* self, p3d::Uniform* arg0, int arg1) {
   self->SendUniform(*arg0, arg1);
 }
 
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_Shader_SendUniform_4(p3d::Shader* self, p3d::Uniforms::Uniform* arg0, void* arg1, int arg2, int arg3) {
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_Shader_SendUniform_4(p3d::Shader* self, p3d::Uniform* arg0, void* arg1, int arg2, int arg3) {
   self->SendUniform(*arg0, arg1, arg2, arg3);
 }
 
@@ -1184,11 +1265,25 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_Shader___destroy___0(p3d::Shader* self
 
 // CustomShaderMaterial
 
-p3d::CustomShaderMaterial* EMSCRIPTEN_KEEPALIVE emscripten_bind_CustomShaderMaterial_CustomShaderMaterial_2(char* arg0, char* arg1) {
-  return new p3d::CustomShaderMaterial(arg0, arg1);
+p3d::CustomShaderMaterial* EMSCRIPTEN_KEEPALIVE emscripten_bind_CustomShaderMaterial_CustomShaderMaterial_1(p3d::Shader* arg0) {
+  return new p3d::CustomShaderMaterial(arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_CustomShaderMaterial_PreRender_0(p3d::CustomShaderMaterial* self) {
+  self->PreRender();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_CustomShaderMaterial_AfterRender_0(p3d::CustomShaderMaterial* self) {
+  self->AfterRender();
 }
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_CustomShaderMaterial___destroy___0(p3d::CustomShaderMaterial* self) {
+  delete self;
+}
+
+// Cascade
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_Cascade___destroy___0(p3d::Cascade* self) {
   delete self;
 }
 
@@ -1222,6 +1317,22 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_PointLight_Update_0(p3d::PointLight* s
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_PointLight_Destroy_0(p3d::PointLight* self) {
   self->Destroy();
+}
+
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_PointLight_GetShadowFar_0(p3d::PointLight* self) {
+  return self->GetShadowFar();
+}
+
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_PointLight_GetLightRadius_0(p3d::PointLight* self) {
+  return self->GetLightRadius();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_PointLight_SetLightRadius_1(p3d::PointLight* self, float arg0) {
+  self->SetLightRadius(arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_PointLight_EnableCastShadows_3(p3d::PointLight* self, int arg0, int arg1, float arg2) {
+  self->EnableCastShadows(arg0, arg1, arg2);
 }
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_PointLight___destroy___0(p3d::PointLight* self) {
@@ -1258,28 +1369,24 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_GenericShaderMaterial_SetEnvMap_1(p3d:
   self->SetEnvMap(arg0);
 }
 
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_GenericShaderMaterial_SetSkyboxMap_1(p3d::GenericShaderMaterial* self, p3d::Texture* arg0) {
+  self->SetSkyboxMap(arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_GenericShaderMaterial_SetRefractMap_1(p3d::GenericShaderMaterial* self, p3d::Texture* arg0) {
+  self->SetRefractMap(arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_GenericShaderMaterial_AddTexture_2(p3d::GenericShaderMaterial* self, char* arg0, p3d::Texture* arg1) {
+  self->AddTexture(arg0, arg1);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_GenericShaderMaterial_SetTextFont_1(p3d::GenericShaderMaterial* self, p3d::Font* arg0) {
+  self->SetTextFont(arg0);
+}
+
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_GenericShaderMaterial_SetReflectivity_1(p3d::GenericShaderMaterial* self, float arg0) {
   self->SetReflectivity(arg0);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_GenericShaderMaterial_SetLightingProperties_5(p3d::GenericShaderMaterial* self, p3d::Math::Vec4* arg0, p3d::Math::Vec4* arg1, p3d::Math::Vec4* arg2, p3d::Math::Vec4* arg3, float arg4) {
-  self->SetLightingProperties(*arg0, *arg1, *arg2, *arg3, arg4);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_GenericShaderMaterial_SetKe_1(p3d::GenericShaderMaterial* self, p3d::Math::Vec4* arg0) {
-  self->SetKe(*arg0);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_GenericShaderMaterial_SetKa_1(p3d::GenericShaderMaterial* self, p3d::Math::Vec4* arg0) {
-  self->SetKa(*arg0);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_GenericShaderMaterial_SetKd_1(p3d::GenericShaderMaterial* self, p3d::Math::Vec4* arg0) {
-  self->SetKd(*arg0);
-}
-
-void EMSCRIPTEN_KEEPALIVE emscripten_bind_GenericShaderMaterial_SetKs_1(p3d::GenericShaderMaterial* self, p3d::Math::Vec4* arg0) {
-  self->SetKs(*arg0);
 }
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_GenericShaderMaterial_SetShininess_1(p3d::GenericShaderMaterial* self, float arg0) {
@@ -1338,6 +1445,26 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_DirectionalLight_Update_0(p3d::Directi
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_DirectionalLight_Destroy_0(p3d::DirectionalLight* self) {
   self->Destroy();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_DirectionalLight_EnableCastShadows_6(p3d::DirectionalLight* self, int arg0, int arg1, p3d::Projection* arg2, float arg3, float arg4, int arg5) {
+  self->EnableCastShadows(arg0, arg1, *arg2, arg3, arg4, arg5);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_DirectionalLight_UpdateCascadeFrustumPoints_3(p3d::DirectionalLight* self, int arg0, p3d::Math::Vec3* arg1, p3d::Math::Vec3* arg2) {
+  self->UpdateCascadeFrustumPoints(arg0, *arg1, *arg2);
+}
+
+int EMSCRIPTEN_KEEPALIVE emscripten_bind_DirectionalLight_GetNumberCascades_0(p3d::DirectionalLight* self) {
+  return self->GetNumberCascades();
+}
+
+const p3d::Math::Vec3* EMSCRIPTEN_KEEPALIVE emscripten_bind_DirectionalLight_GetLightDirection_0(p3d::DirectionalLight* self) {
+  return &self->GetLightDirection();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_DirectionalLight_SetLightDirection_1(p3d::DirectionalLight* self, p3d::Math::Vec3* arg0) {
+  self->SetLightDirection(*arg0);
 }
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_DirectionalLight___destroy___0(p3d::DirectionalLight* self) {
@@ -1620,6 +1747,18 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingComponent_SetCullingGeometry_
   self->SetCullingGeometry(arg0);
 }
 
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingComponent_EnableCullTest_0(p3d::RenderingComponent* self) {
+  self->EnableCullTest();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingComponent_DisableCullTest_0(p3d::RenderingComponent* self) {
+  self->DisableCullTest();
+}
+
+bool EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingComponent_IsCullTesting_0(p3d::RenderingComponent* self) {
+  return self->IsCullTesting();
+}
+
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingComponent_EnableCastShadows_0(p3d::RenderingComponent* self) {
   self->EnableCastShadows();
 }
@@ -1632,11 +1771,15 @@ bool EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingComponent_IsCastingShadows_0(
   return self->IsCastingShadows();
 }
 
+p3d::Renderable* EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingComponent_GetRenderable_0(p3d::RenderingComponent* self) {
+  return self->GetRenderable();
+}
+
 bool EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingComponent_HasBones_0(p3d::RenderingComponent* self) {
   return self->HasBones();
 }
 
-const int EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingComponent_GetLODSize_0(p3d::RenderingComponent* self) {
+int EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingComponent_GetLODSize_0(p3d::RenderingComponent* self) {
   return self->GetLODSize();
 }
 
@@ -1646,22 +1789,6 @@ int EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingComponent_GetLODByDistance_1(p
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingComponent_UpdateLOD_1(p3d::RenderingComponent* self, int arg0) {
   self->UpdateLOD(arg0);
-}
-
-float EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingComponent_GetBoundingSphereRadius_0(p3d::RenderingComponent* self) {
-  return self->GetBoundingSphereRadius();
-}
-
-const p3d::Math::Vec3* EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingComponent_GetBoundingSphereCenter_0(p3d::RenderingComponent* self) {
-  return &self->GetBoundingSphereCenter();
-}
-
-const p3d::Math::Vec3* EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingComponent_GetBoundingMinValue_0(p3d::RenderingComponent* self) {
-  return &self->GetBoundingMinValue();
-}
-
-const p3d::Math::Vec3* EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingComponent_GetBoundingMaxValue_0(p3d::RenderingComponent* self) {
-  return &self->GetBoundingMaxValue();
 }
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_RenderingComponent___destroy___0(p3d::RenderingComponent* self) {
@@ -1735,6 +1862,38 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_mul_scalar_1(p3d::Math::Vec4* sel
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_div_scalar_1(p3d::Math::Vec4* self, float arg0) {
   (*self /= arg0);
+}
+
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_get_x_0(p3d::Math::Vec4* self) {
+  return self->x;
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_set_x_1(p3d::Math::Vec4* self, float arg0) {
+  self->x = arg0;
+}
+
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_get_y_0(p3d::Math::Vec4* self) {
+  return self->y;
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_set_y_1(p3d::Math::Vec4* self, float arg0) {
+  self->y = arg0;
+}
+
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_get_z_0(p3d::Math::Vec4* self) {
+  return self->z;
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_set_z_1(p3d::Math::Vec4* self, float arg0) {
+  self->z = arg0;
+}
+
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_get_w_0(p3d::Math::Vec4* self) {
+  return self->w;
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4_set_w_1(p3d::Math::Vec4* self, float arg0) {
+  self->w = arg0;
 }
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec4___destroy___0(p3d::Math::Vec4* self) {
@@ -1816,6 +1975,22 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec2_mul_scalar_1(p3d::Math::Vec2* sel
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec2_div_scalar_1(p3d::Math::Vec2* self, float arg0) {
   (*self /= arg0);
+}
+
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec2_get_x_0(p3d::Math::Vec2* self) {
+  return self->x;
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec2_set_x_1(p3d::Math::Vec2* self, float arg0) {
+  self->x = arg0;
+}
+
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec2_get_y_0(p3d::Math::Vec2* self) {
+  return self->y;
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec2_set_y_1(p3d::Math::Vec2* self, float arg0) {
+  self->y = arg0;
 }
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec2___destroy___0(p3d::Math::Vec2* self) {
@@ -1912,6 +2087,30 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec3_div_scalar_1(p3d::Math::Vec3* sel
   (*self /= arg0);
 }
 
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec3_get_x_0(p3d::Math::Vec3* self) {
+  return self->x;
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec3_set_x_1(p3d::Math::Vec3* self, float arg0) {
+  self->x = arg0;
+}
+
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec3_get_y_0(p3d::Math::Vec3* self) {
+  return self->y;
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec3_set_y_1(p3d::Math::Vec3* self, float arg0) {
+  self->y = arg0;
+}
+
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec3_get_z_0(p3d::Math::Vec3* self) {
+  return self->z;
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec3_set_z_1(p3d::Math::Vec3* self, float arg0) {
+  self->z = arg0;
+}
+
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_Vec3___destroy___0(p3d::Math::Vec3* self) {
   delete self;
 }
@@ -1972,6 +2171,54 @@ void EMSCRIPTEN_KEEPALIVE emscripten_bind_SpotLight_Update_0(p3d::SpotLight* sel
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_SpotLight_Destroy_0(p3d::SpotLight* self) {
   self->Destroy();
+}
+
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_SpotLight_GetShadowFar_0(p3d::SpotLight* self) {
+  return self->GetShadowFar();
+}
+
+const p3d::Math::Vec3* EMSCRIPTEN_KEEPALIVE emscripten_bind_SpotLight_GetLightDirection_0(p3d::SpotLight* self) {
+  return &self->GetLightDirection();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_SpotLight_SetLightDirection_1(p3d::SpotLight* self, p3d::Math::Vec3* arg0) {
+  self->SetLightDirection(*arg0);
+}
+
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_SpotLight_GetLightCosInnerCone_0(p3d::SpotLight* self) {
+  return self->GetLightCosInnerCone();
+}
+
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_SpotLight_GetLightCosOutterCone_0(p3d::SpotLight* self) {
+  return self->GetLightCosOutterCone();
+}
+
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_SpotLight_GetLightInnerCone_0(p3d::SpotLight* self) {
+  return self->GetLightInnerCone();
+}
+
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_SpotLight_GetLightOutterCone_0(p3d::SpotLight* self) {
+  return self->GetLightOutterCone();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_SpotLight_SetLightInnerCone_1(p3d::SpotLight* self, float arg0) {
+  self->SetLightInnerCone(arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_SpotLight_SetLightOutterCone_1(p3d::SpotLight* self, float arg0) {
+  self->SetLightOutterCone(arg0);
+}
+
+float EMSCRIPTEN_KEEPALIVE emscripten_bind_SpotLight_GetLightRadius_0(p3d::SpotLight* self) {
+  return self->GetLightRadius();
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_SpotLight_SetLightRadius_1(p3d::SpotLight* self, float arg0) {
+  self->SetLightRadius(arg0);
+}
+
+void EMSCRIPTEN_KEEPALIVE emscripten_bind_SpotLight_EnableCastShadows_3(p3d::SpotLight* self, int arg0, int arg1, int arg2) {
+  self->EnableCastShadows(arg0, arg1, arg2);
 }
 
 void EMSCRIPTEN_KEEPALIVE emscripten_bind_SpotLight___destroy___0(p3d::SpotLight* self) {
