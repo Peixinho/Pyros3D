@@ -3,6 +3,7 @@
 build
 bin
 premake5.exe
+premake5
 include
 libs
 !include/Pyros3D
