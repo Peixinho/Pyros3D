@@ -55,7 +55,7 @@ namespace p3d {
 		virtual ~DirectionalLight() {}
 
 		virtual void Start() {};
-		virtual void Update() {};
+		virtual void Update(const f64 time = 0) {};
 		virtual void Destroy() {};
 
 		void EnableCastShadows(const uint32 Width, const uint32 Height, const Projection &projection, const f32 Near, const f32 Far, const uint32 Cascades = 1);

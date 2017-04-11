@@ -21,8 +21,8 @@ namespace p3d
 #if defined(GLES2)
 			define += std::string("#define GLES2\n");
 #endif
-#if defined(GL_LEGACY)
-			define += std::string("#define GL_LEGACY\n");
+#if defined(GLLEGACY)
+			define += std::string("#define GLLEGACY\n");
 #endif
 #if defined(EMSCRIPTEN)
 			define += std::string("#define EMSCRIPTEN\n");

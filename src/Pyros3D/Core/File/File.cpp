@@ -32,7 +32,7 @@ namespace p3d {
 		return opened;
 	}
 
-	void File::Read(const void* src, const uint32 size)
+	void File::Read(const char* src, const uint32 size)
 	{
 		if (opened)
 		{
@@ -41,7 +41,7 @@ namespace p3d {
 		}
 	}
 
-	void File::Write(const void* src, const uint32 size)
+	void File::Write(const char* src, const uint32 size)
 	{
 		if (opened)
 			fwrite(src, 1, size, file);

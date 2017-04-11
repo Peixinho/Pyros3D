@@ -31,7 +31,7 @@ namespace p3d {
 
 		virtual void Register(SceneGraph* Scene) = 0;
 		virtual void Init() = 0;
-		virtual void Update() = 0;
+		virtual void Update(const f64 time = 0) = 0;
 		virtual void Destroy() = 0;
 		virtual void Unregister(SceneGraph* Scene) = 0;
 

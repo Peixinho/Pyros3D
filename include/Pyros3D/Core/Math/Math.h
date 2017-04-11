@@ -86,6 +86,9 @@ namespace p3d {
 			ss << Number;
 			return ss.str();
 		}
+
+		// Barrycentric
+		const f32 barryCentric(const Vec3 &p1, const Vec3 &p2, const Vec3 &p3, const Vec2 &pos);
 	};
 };
 

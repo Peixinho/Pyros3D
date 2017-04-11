@@ -33,7 +33,7 @@ namespace p3d {
 	// Virtual Function on Initialization
 	void GameObject::Init() {}
 	// Virtual Function To Update
-	void GameObject::Update() {}
+	void GameObject::Update(const f64 time) {}
 	// Virtual Function on Destroy
 	void GameObject::Destroy() {}
 
@@ -358,11 +358,11 @@ namespace p3d {
 			echo("ERROR: Component Not Found in GameObject");
 		}
 	}
-	void GameObject::UpdateComponents()
+	void GameObject::UpdateComponents(const f64 time)
 	{
 		for (std::vector<IComponent*>::iterator i = Components.begin(); i != Components.end(); i++)
 		{
-			(*i)->Update();
+			(*i)->Update(time);
 		}
 	}
 

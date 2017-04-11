@@ -38,7 +38,7 @@ namespace p3d {
 		// On Init Virtual Function
 		virtual void Init();
 		// Virtual Function To Update GameObject
-		virtual void Update();
+		virtual void Update(const f64 time = 0);
 		// Destroy Function
 		virtual void Destroy();
 
@@ -111,7 +111,7 @@ namespace p3d {
 	private:
 
 		// Update Components
-		void UpdateComponents();
+		void UpdateComponents(const f64 time = 0);
 
 		// Internal Update
 		bool InternalUpdate();

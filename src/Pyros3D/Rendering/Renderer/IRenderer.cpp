@@ -240,7 +240,7 @@ namespace p3d {
 						// Bind FBO
 						d->GetShadowFBO()->Bind();
 
-#if defined(GLES2) || defined(GL_LEGACY)
+#if defined(GLES2) || defined(GLLEGACY)
 						ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
 #else
 						ClearBufferBit(Buffer_Bit::Depth);
@@ -354,7 +354,7 @@ namespace p3d {
 																																											// Update Culling
 							UpdateCulling(ShadowProjection.m*ViewMatrix);
 
-#if defined(GLES2) || defined(GL_LEGACY)
+#if defined(GLES2) || defined(GLLEGACY)
 							// Regular Shadows
 							p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::CubemapPositive_X + i, p->GetShadowMapTexture());
 #else
@@ -362,7 +362,7 @@ namespace p3d {
 							p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::CubemapPositive_X + i, p->GetShadowMapTexture());
 #endif
 
-#if defined(GLES2) || defined(GL_LEGACY)
+#if defined(GLES2) || defined(GLLEGACY)
 							ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
 #else
 							ClearBufferBit(Buffer_Bit::Depth);
@@ -459,7 +459,7 @@ namespace p3d {
 						// Update Culling
 						UpdateCulling(ShadowProjection.m*ViewMatrix);
 
-#if defined(GLES2) || defined(GL_LEGACY)
+#if defined(GLES2) || defined(GLLEGACY)
 						ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
 #else
 						ClearBufferBit(Buffer_Bit::Depth);

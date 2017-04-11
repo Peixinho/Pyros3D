@@ -31,6 +31,11 @@ solution "Pyros3D"
     }
 
     newoption {
+        trigger     = "lua",
+        description = "Enable Lua Bindings"
+    }
+
+    newoption {
        trigger     = "x64",
        description = "Build for 64bit"
     }
@@ -128,14 +133,18 @@ solution "Pyros3D"
             kind "StaticLib"
         end
 
+        if _OPTIONS["lua"] then
+            defines({"LUA_BINDINGS"})
+        end
+
         language "C++"
         files { "src/**.h", "src/**.cpp", "include/Pyros3D/**.h" }
 
 	if os.get() == "linux" then
 		includedirs { "include/", "/usr/include/freetype2", "/usr/include/bullet" }
-	else
+    	else
 	        includedirs { "include/" }
-	end
+    	end
 
         -- LodePNG
         if not _OPTIONS["lodepng"] then
@@ -183,6 +192,10 @@ solution "Pyros3D"
 
             flags { "Symbols" }
 
+            if _OPTIONS["lua"] then
+                buildoptions { "/bigobj" }
+            end
+
         configuration "Release"
 
             targetname(libName)
@@ -193,6 +206,12 @@ solution "Pyros3D"
             end
 
             flags { "Optimize" }
+
+            if _OPTIONS["lua"] then
+                if os.get() == "windows" then
+                    buildoptions { "/bigobj" }
+                end
+            end
 
     project "AssimpImporter"
         targetdir "bin"
@@ -287,6 +306,10 @@ function BuildDemo(demoPath, demoName)
                 excludes { "**/SDL2/**" }
             end
         end
+
+        if _OPTIONS["lua"] then
+            defines({"LUA_BINDINGS"})
+        end
         
 	if os.get() == "linux" then
                 includedirs { "include/", "/usr/include/freetype2", "/usr/include/bullet", "src/" }
@@ -378,6 +401,9 @@ if _OPTIONS["examples"] then
     BuildDemo("examples/Decals", "Decals");
     BuildDemo("examples/IslandDemo", "IslandDemo");
     BuildDemo("examples/RacingGame", "RacingGame");
+    if _OPTIONS["lua"] then
+        BuildDemo("examples/LuaScripting", "LuaScripting");
+    end
 
     -- ImGui Example only works with SFML for now
     if framework ~= "SDL" or not "SDL2" then

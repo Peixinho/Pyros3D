@@ -38,4 +38,6 @@
 #include "DepthOfField/DepthOfField.h"
 #elif defined(_SSAOExample)
 #include "SSAOExample/SSAOExample.h"
+#elif defined(_LuaScripting)
+#include "LuaScripting/LuaScripting.h"
 #endif

@@ -50,7 +50,7 @@ namespace p3d {
 		return Shape;
 	}
 
-	void IPhysicsComponent::Update()
+	void IPhysicsComponent::Update(const f64 time)
 	{
 		PhysicsEngine->UpdateTransformations((IPhysicsComponent*)this);
 	}

@@ -120,11 +120,11 @@ namespace p3d {
 		for (std::vector<GameObject*>::iterator i = _GameObjectListDynamic.begin(); i != _GameObjectListDynamic.end(); i++)
 		{
 			// Update GameObject - User Change
-			(*i)->Update();
+			(*i)->Update(timer);
 			// Register Components
 			(*i)->RegisterComponents(this);
 			// Update Components
-			(*i)->UpdateComponents();
+			(*i)->UpdateComponents(timer);
 			// Update Transforms Not Using Threads
 			(*i)->InternalUpdate();
 
@@ -146,7 +146,7 @@ namespace p3d {
 			// Register Components
 			(*i)->RegisterComponents(this);
 			// Update Components
-			(*i)->UpdateComponents();
+			(*i)->UpdateComponents(timer);
 			// Update Transforms Not Using Threads
 			(*i)->InternalUpdate();
 
@@ -165,11 +165,11 @@ namespace p3d {
 		for (std::vector<GameObject*>::iterator i = _GameObjectListStaticPrevious.begin(); i != _GameObjectListStaticPrevious.end(); i++)
 		{
 			// Update GameObject - User Change
-			(*i)->Update();
+			(*i)->Update(timer);
 			// Register Components
 			(*i)->RegisterComponents(this);
 			// Update Components
-			(*i)->UpdateComponents();
+			(*i)->UpdateComponents(timer);
 			// Update Transforms Not Using Threads
 			(*i)->InternalUpdate();
 

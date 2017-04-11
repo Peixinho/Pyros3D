@@ -22,7 +22,7 @@ namespace p3d {
 		virtual ~PointLight() {}
 
 		virtual void Start() {};
-		virtual void Update() {};
+		virtual void Update(const f64 time = 0) {};
 		virtual void Destroy() {};
 
 		virtual const f32 &GetShadowFar() const

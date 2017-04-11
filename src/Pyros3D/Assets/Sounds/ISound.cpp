@@ -121,7 +121,10 @@ namespace p3d {
 			break;
 		};
 	}
-
+	const uint32 &ISound::GetVolume() const
+	{
+		return _volume;
+	}
 	void ISound::SetVolume(const uint32 vol)
 	{
 		_volume = (vol >= 100 ? 100 : vol);

@@ -1,13 +1,13 @@
 #include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
 #include <Pyros3D/Other/PyrosGL.h>
-
 #include <iostream>
-
+#include <Pyros3D/Rendering/Renderer/IRenderer.h>
 namespace p3d {
 
 	DebugRenderer::DebugRenderer()
 	{
 		DebugMaterial = new GenericShaderMaterial(ShaderUsage::DebugRendering);
+		DebugMaterial->EnableDepthTest(DepthTest::Equal);
 		pushedMatrix = false;
 	}
 
@@ -27,11 +27,11 @@ namespace p3d {
 
 	void DebugRenderer::Render(const Matrix &camera, const Matrix &projection)
 	{
-		GLCHECKER(glEnable(GL_DEPTH_TEST));
-		GLCHECKER(glDepthFunc(GL_LEQUAL));
-
 		projectionMatrix = projection;
 		viewMatrix = camera;
+
+		GLCHECKER(glEnable(GL_DEPTH_TEST));
+		GLCHECKER(glDepthFunc(GL_LEQUAL));
 
 		GLCHECKER(glUseProgram(DebugMaterial->GetShader()));
 
@@ -82,7 +82,7 @@ namespace p3d {
 		vertexTriangles.clear();
 		colorTriangles.clear();
 
-		GLCHECKER(glDisable(GL_DEPTH_TEST));
+		GLCHECKER(glDepthFunc(GL_LESS));
 	}
 
 	void DebugRenderer::drawLine(const Vec3 &from, const Vec3 &to, const Vec4 &fromColor, const Vec4 &toColor)
