@@ -12,10 +12,10 @@ os:
 
 before_install:
   - sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-  - sudo apt-get update -qq 
-  - sudo apt-get install -y libglew-dev libfreetype6-dev libassimp-dev libbullet-dev libstdc++6 libpthread-stubs0-dev libgl1-mesa-dev libx11-dev libxrandr-dev libfreetype6-dev libglew1.5-dev libjpeg8-dev libsndfile1-dev libopenal-dev libudev-dev libxcb-image0-dev libjpeg-dev libflac-dev
+  - sudo apt-get update -qq
+  - sudo apt-get install -y --force-yes libglew-dev libfreetype6-dev libassimp-dev libbullet-dev libstdc++6 libpthread-stubs0-dev libgl1-mesa-dev libx11-dev libxrandr-dev libfreetype6-dev libglew1.5-dev libjpeg8-dev libsndfile1-dev libopenal-dev libudev-dev libxcb-image0-dev libjpeg-dev libflac-dev
   - echo "Getting SFML"
-  - git clone https://github.com/SFML/SFML.git 
+  - git clone https://github.com/SFML/SFML.git
   - cd SFML
   - cmake -G "Unix Makefiles"
   - make
@@ -33,7 +33,7 @@ before_install:
   - echo "Running premake5"
   - ./premake5 --x64 --examples gmake
   - echo "Building Pyros ..."
-  
-script: 
+
+script:
   - cd build
   - make
