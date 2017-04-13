@@ -42,16 +42,23 @@ namespace p3d
 		shaderProgram = shader->ShaderProgram();
 
 		SetOpacity(1.0);
+
+		isInternalShader = true;
 	}
 
 	CustomShaderMaterial::CustomShaderMaterial(Shader* shader)
 	{
 		shaderProgram = shader->ShaderProgram();
+
+		isInternalShader = false;
 	}
 
 	void CustomShaderMaterial::SetShader(Shader* shader)
 	{
-		delete this->shader; // delete old program
+		if (isInternalShader)
+			delete this->shader; // delete old program
+
+		isInternalShader = false;
 
 		// Copy shader
 		this->shader = shader;
@@ -60,10 +67,8 @@ namespace p3d
 
 	CustomShaderMaterial::~CustomShaderMaterial()
 	{
-		delete shader;
-
-		for (std::vector<Texture*>::iterator i = textures.begin(); i != textures.end(); i++)
-			delete (*i);
+		if (isInternalShader)
+			delete shader;
 	}
 
 	void CustomShaderMaterial::PreRender()

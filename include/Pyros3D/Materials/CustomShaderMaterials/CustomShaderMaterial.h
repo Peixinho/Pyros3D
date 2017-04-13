@@ -37,6 +37,7 @@ namespace p3d
 	protected:
 		// Shader
 		Shader* shader;
+		bool isInternalShader;
 	};
 
 }
