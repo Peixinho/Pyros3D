@@ -29,15 +29,22 @@ void LuaScripting::Init()
 
 	GenerateBindings(&lua);
 
+	// Support for classes in Lua
+	lua.require_file("class", "../examples/LuaScripting/middleclass.lua");
+
+	// Error message when something goes wrong
 	lua.script(R"(
 					function got_problems( error_msg )
         			print("got_problems handler: " .. error_msg)
 					end)");
 
+	// Handler for error
 	sol::protected_function::set_default_handler(lua["got_problems"]);
 
+	// Main script
 	mainScript = LoadScript("../examples/LuaScripting/main.lua");
 
+	// Run init function from main
 	sol::protected_function lua_init = lua["init"];
 	lua_init();
 }
@@ -75,7 +82,7 @@ void LuaScripting::Update()
 
 void LuaScripting::Shutdown()
 {
-	
+
 }
 
 LuaScripting::~LuaScripting() {}

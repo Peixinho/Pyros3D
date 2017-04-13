@@ -17,7 +17,7 @@ function init()
 	rCube.onUpdate = function(self, time)
 		print(time)
 	end
-	
+
 	--rCube:getMeshes(0)[1].material = Diffuse
 
 	CubeObject:addComponent(rCube)
