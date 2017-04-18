@@ -87,7 +87,7 @@ namespace p3d {
 		depthBias = false;
 	}
 
-	Uniform* IMaterial::AddUniform(Uniform Data)
+	Uniform* IMaterial::AddUniform(const Uniform Data)
 	{
 		// Global Uniforms
 		if ((int)Data.Usage<Uniforms::DataUsage::Other)
@@ -132,6 +132,45 @@ namespace p3d {
 		}
 	}
 	
+	void IMaterial::RemoveUniform(Uniform* handle)
+	{
+		// Global Uniforms
+		if ((int)handle->Usage<Uniforms::DataUsage::Other)
+		{
+			for (std::list<Uniform>::iterator i = GlobalUniforms.begin(); i != GlobalUniforms.end(); i++)
+			{
+				if (&(*i) == handle)
+				{
+					GlobalUniforms.erase(i);
+					break;
+				}
+			}
+		}
+		// Game Object Uniforms
+		else if ((int)handle->Usage>Uniforms::DataUsage::Other)
+		{
+			for (std::list<Uniform>::iterator i = ModelUniforms.begin(); i != ModelUniforms.end(); i++)
+			{
+				if (&(*i) == handle)
+				{
+					ModelUniforms.erase(i);
+					break;
+				}
+			}
+		}
+		else // User Specific
+		{
+			for (std::list<Uniform>::iterator i = UserUniforms.begin(); i != UserUniforms.end(); i++)
+			{
+				if (&(*i) == handle)
+				{
+					UserUniforms.erase(i);
+					break;
+				}
+			}
+		}
+	}
+
 	void IMaterial::StartRenderWireFrame()
 	{
 		isWireFrame = true;

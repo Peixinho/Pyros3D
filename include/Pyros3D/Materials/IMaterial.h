@@ -74,6 +74,7 @@ namespace p3d {
 
 		// Add Uniform
 		Uniform* AddUniform(const Uniform Data);
+		void RemoveUniform(Uniform* handle);
 
 		// Render WireFrame
 		void StartRenderWireFrame();
