@@ -11,7 +11,6 @@
 #include <vector>
 #include <string.h>
 #include <iostream>
-#include <Pyros3D/Materials/Shaders/Shaders.h>
 #include <Pyros3D/Other/Export.h>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
 
