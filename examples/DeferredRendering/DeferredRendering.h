@@ -20,7 +20,7 @@
 #define ClassName SFMLContext
 #endif
 
-#include "DeferredRenderer/DeferredRenderer.h"
+#include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
@@ -63,7 +63,7 @@ private:
 	std::vector<RenderingComponent*> rCubes;
 
 	// Material
-	CustomShaderMaterial* Diffuse;
+	GenericShaderMaterial* Diffuse;
 
 	// Deferred Settings
 	Texture* albedoTexture, *specularTexture, *depthTexture, *normalTexture;

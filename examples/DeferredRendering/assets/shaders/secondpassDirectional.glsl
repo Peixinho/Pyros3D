@@ -83,6 +83,6 @@ void main() {
 	float specularPower = (n_dot_l>0.0?pow(max(dot(halfVec,vViewNormal),0.0), 50.0):0.0);
 	specular = vec4(specularPower * Specular, 1.0);
 	
-	gl_FragColor=diffuse + specular;
+	gl_FragColor = diffuse + specular;
 }
 #endif

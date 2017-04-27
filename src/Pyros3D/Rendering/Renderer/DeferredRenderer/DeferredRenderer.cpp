@@ -6,7 +6,7 @@
 // Description : Deferred Renderer
 //============================================================================
 
-#include "DeferredRenderer.h"
+#include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Other/PyrosGL.h>
 
 namespace p3d {
@@ -148,8 +148,8 @@ namespace p3d {
 
 		// First Pass
 
-			// Save Values for Cache
-			// Saves Scene
+		// Save Values for Cache
+		// Saves Scene
 		this->Scene = Scene;
 
 		// Saves Camera
@@ -226,10 +226,8 @@ namespace p3d {
 		ClearScreen();
 
 		// Bind FBO Textures
-		FBO->GetAttachments()[0]->TexturePTR->Bind();
-		FBO->GetAttachments()[1]->TexturePTR->Bind();
-		FBO->GetAttachments()[2]->TexturePTR->Bind();
-		FBO->GetAttachments()[3]->TexturePTR->Bind();
+		for (int i = 0;i<FBO->GetAttachments().size();i++)
+			FBO->GetAttachments()[i]->TexturePTR->Bind();
 
 		// Render Point Lights
 		for (std::vector<IComponent*>::iterator i = lcomps.begin(); i != lcomps.end(); i++)
@@ -243,7 +241,7 @@ namespace p3d {
 				{
 					PointLight* p = (PointLight*)(*i);
 					// Point Lights
-					Vec3 pos = (ViewMatrix * Vec4(p->GetOwner()->GetWorldPosition(), 1.0)).xyz();
+					Vec3 pos = (ViewMatrix * Vec4(p->GetOwner()->GetWorldPosition(), 1.f)).xyz();
 					Vec4 color = p->GetLightColor();
 					
 					pointPosHandle->SetValue(&pos);
@@ -261,9 +259,9 @@ namespace p3d {
 				{
 					SpotLight* s = (SpotLight*)(*i);
 					// Spot Lights
-					Vec3 pos = (ViewMatrix * Vec4(s->GetOwner()->GetWorldPosition(), 1.0)).xyz();
+					Vec3 pos = (ViewMatrix * Vec4(s->GetOwner()->GetWorldPosition(), 1.f)).xyz();
 					Vec4 color = s->GetLightColor();
-					Vec3 dir = (ViewMatrix * (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.0))).xyz();
+					Vec3 dir = (ViewMatrix * (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.f))).xyz();
 					spotPosHandle->SetValue(&pos);
 					spotDirHandle->SetValue(&dir);
 					spotRadiusHandle->SetValue((void*)&s->GetLightRadius());
@@ -281,7 +279,7 @@ namespace p3d {
 				{
 					DirectionalLight* d = (DirectionalLight*)(*i);
 					// Directional Lights
-					Vec3 dir = (ViewMatrix * (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.0))).xyz();
+					Vec3 dir = (ViewMatrix * (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f))).xyz().normalize();
 					Vec4 color = d->GetLightColor();
 					dirDirHandle->SetValue(&dir);
 					dirColorHandle->SetValue(&color);
@@ -292,10 +290,8 @@ namespace p3d {
 			}
 		}
 
-		FBO->GetAttachments()[3]->TexturePTR->Unbind();
-		FBO->GetAttachments()[2]->TexturePTR->Unbind();
-		FBO->GetAttachments()[1]->TexturePTR->Unbind();
-		FBO->GetAttachments()[0]->TexturePTR->Unbind();
+		for (int i = FBO->GetAttachments().size()-1; i>=0; i--)
+			FBO->GetAttachments()[i]->TexturePTR->Unbind();
 
 		// End Render
 		EndRender();

@@ -72,6 +72,8 @@ namespace p3d
 				define += std::string("#define CELLSHADING\n");
 			if (options & ShaderUsage::ClipPlane)
 				define += std::string("#define CLIPSPACE\n");
+			if (options & ShaderUsage::DeferredRenderer_Gbuffer)
+				define += std::string("#define DEFERRED_GBUFFER\n");
 
 #if defined(GLES2)
 			define += std::string("#define GLES2\n");
@@ -225,7 +227,7 @@ namespace p3d
 	{
 		uint32 id = Textures.size();
 
-		// Save on Lirest
+		// Save on Textures Lis
 		Textures.push_back(texture);
 		// Set Uniform
 		AddUniform(Uniform(uniformName.c_str(), Uniforms::DataType::Int, &id));

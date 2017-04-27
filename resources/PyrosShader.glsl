@@ -57,6 +57,10 @@ float DecodeFloatRGBA( vec4 rgba ) {
         varying vec3 v3Texcoord;
     #endif
 
+    #ifdef DEFERRED_GBUFFER
+        varying vec4 gbuffer_normals;
+    #endif
+
     // Defaults
     attribute vec3 aPosition, aNormal;
     attribute vec2 aTexcoord;
@@ -129,6 +133,14 @@ float DecodeFloatRGBA( vec4 rgba ) {
             vec3 Tangent = normalize((uModelMatrix * vec4(aTangent,0)).xyz);
             vec3 Binormal = normalize((uModelMatrix * vec4(aBitangent,0)).xyz);
             vTangentMatrix = mat3(Tangent.x, Binormal.x, vNormal.x,Tangent.y, Binormal.y, vNormal.y,Tangent.z, Binormal.z, vNormal.z);
+        #endif
+
+        #ifdef DEFERRED_GBUFFER
+            #ifdef SKINNING
+                gbuffer_normals = uViewMatrix * uModelMatrix * (matAnimation * vec4(aNormal,0.0));
+            #else
+                gbuffer_normals = uViewMatrix * uModelMatrix * vec4(aNormal,0.0);
+            #endif
         #endif
     }
 
@@ -384,6 +396,10 @@ float DecodeFloatRGBA( vec4 rgba ) {
         uniform sampler2D uSpecularmap;
     #endif
 
+    #ifdef DEFERRED_GBUFFER
+        varying vec4 gbuffer_normals;
+    #endif
+
     void main() {
 
         // Default
@@ -614,7 +630,13 @@ float DecodeFloatRGBA( vec4 rgba ) {
             diffuse = EncodeFloatRGBA(gl_FragCoord.z);
         #endif
 
-        gl_FragColor = vec4(diffuse.xyz,diffuse.w*uOpacity);
+        #ifdef DEFERRED_GBUFFER
+            gl_FragData[0]=vec4(diffuse.xyz,1.0);
+            gl_FragData[1]=vec4(specular.xyz,1.0);
+            gl_FragData[2]=vec4(gbuffer_normals.xyz,1.0);
+        #else
+            gl_FragColor = vec4(diffuse.xyz,diffuse.w*uOpacity);
+        #endif
     }
     
 #endif

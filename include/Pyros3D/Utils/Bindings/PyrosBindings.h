@@ -17,6 +17,7 @@
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
+#include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <Pyros3D/Assets/Sounds/ISound.h>
 #include <Pyros3D/Assets/Sounds/Music.h>
