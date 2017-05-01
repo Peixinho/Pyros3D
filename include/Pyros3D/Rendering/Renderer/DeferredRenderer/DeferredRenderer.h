@@ -51,9 +51,9 @@ namespace p3d {
 		Renderable* quadHandle;
 
 		// Uniform Handlers
-		Uniform *pointPosHandle, *pointRadiusHandle, *pointColorHandle;
-		Uniform *dirDirHandle, *dirColorHandle;
-		Uniform *spotPosHandle, *spotDirHandle, *spotRadiusHandle, *spotOutterHandle, *spotInnerHandle, *spotColorHandle;
+		Uniform *pointPosHandle, *pointRadiusHandle, *pointColorHandle, *pointShadowHandle;
+		Uniform *dirDirHandle, *dirColorHandle, *dirShadowHandle;
+		Uniform *spotPosHandle, *spotDirHandle, *spotRadiusHandle, *spotOutterHandle, *spotInnerHandle, *spotColorHandle, *spotShadowHandle;
 	};
 
 };

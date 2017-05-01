@@ -24,7 +24,7 @@
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Sphere.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
-#include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
+#include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Utils/Colors/Colors.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
@@ -48,7 +48,7 @@ private:
 	// Scene
 	SceneGraph* Scene;
 	// Renderer
-	ForwardRenderer* Renderer;
+	DeferredRenderer* Renderer;
 	// Projection
 	Projection projection;
 	// Camera - Its a regular GameObject
@@ -90,6 +90,10 @@ private:
 	float counterX, counterY;
 	Vec2 mouseCenter, mouseLastPosition, mousePosition;
 	bool _moveFront, _moveBack, _strafeLeft, _strafeRight;
+
+		// Deferred Settings
+	Texture* albedoTexture, *specularTexture, *depthTexture, *normalTexture;
+	FrameBuffer* deferredFBO;
 
 };
 

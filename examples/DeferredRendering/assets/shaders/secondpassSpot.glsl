@@ -8,6 +8,21 @@ void main() {
 #endif
 
 #ifdef FRAGMENT
+
+float PCFSPOT(sampler2DShadow shadowMap, mat4 sMatrix, float scale, vec4 pos)
+{
+	vec4 coord = sMatrix * pos;
+	coord.xyz/=coord.w;
+	float shadow = 0.0;
+	float x = 0.0;
+	float y = 0.0;
+	for (y = -1.5 ; y <=1.5 ; y+=1.0)
+		for (x = -1.5 ; x <=1.5 ; x+=1.0)
+			shadow += shadow2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
+	shadow /= 16.0;
+	return shadow;
+}
+
 float Attenuation(vec3 Vertex, vec3 LightPosition, float Radius)
 {
 	float d = distance(Vertex,LightPosition);
@@ -42,6 +57,9 @@ uniform float uInnerCone;
 uniform vec4 uLightColor;
 uniform vec2 uNearFar;
 uniform mat4 uMatProj;
+
+uniform mat4 uSpotDepthsMVP[4];
+uniform float uShadowMap;
 
 // Reconstruct Positions and Normals
 float DecodeLinearDepth(float z, vec4 z_info_local)
@@ -109,5 +127,6 @@ void main() {
 	specular = vec4(specularPower * spotEffect * attenuation * Specular, 1.0);
 	
 	gl_FragColor = diffuse + specular;
+	if (uShadowMap>-1) gl_FragColor = vec4(1);
 }
 #endif

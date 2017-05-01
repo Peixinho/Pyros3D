@@ -7,6 +7,22 @@ void main() {
 #endif
 
 #ifdef FRAGMENT
+
+float PCFDIRECTIONAL(sampler2DShadow shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) 
+{
+	vec4 coord = sMatrix * pos;
+	if (MoreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(width,height);
+	float shadow = 0.0;
+	float x = 0.0;
+	float y = 0.0;
+
+	for (y = -1.5 ; y <=1.5 ; y+=1.0)
+		for (x = -1.5 ; x <=1.5 ; x+=1.0)
+			shadow += shadow2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
+	shadow /= 16.0;
+	return shadow;
+}
+
 vec4 diffuse = vec4(0.0,0.0,0.0,1.0);
 vec4 specular = vec4(0.0,0.0,0.0,1.0);
 bool diffuseIsSet = false;
@@ -21,6 +37,13 @@ uniform vec3 uLightDirection;
 uniform vec4 uLightColor;
 uniform vec2 uNearFar;
 uniform mat4 uMatProj;
+
+uniform float uShadowMap;
+uniform float uPCFTexelSize2;
+uniform float uPCFTexelSize3;
+uniform float uPCFTexelSize4;
+uniform mat4 uDirectionalDepthsMVP[4];
+uniform vec4 uDirectionalShadowFar[4];
 
 // Reconstruct Positions and Normals
 float DecodeLinearDepth(float z, vec4 z_info_local)
@@ -84,5 +107,6 @@ void main() {
 	specular = vec4(specularPower * Specular, 1.0);
 	
 	gl_FragColor=diffuse + specular;
+	if (uShadowMap>-1) gl_FragColor = vec4(1);
 }
 #endif

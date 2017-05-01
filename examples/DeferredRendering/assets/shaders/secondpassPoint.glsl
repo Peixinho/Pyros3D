@@ -8,6 +8,27 @@ void main() {
 #endif
 
 #ifdef FRAGMENT
+
+#extension GL_EXT_gpu_shader4 : require
+float PCFPOINT(samplerCubeShadow shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos) 
+{
+	vec4 position_ls = Matrix2 * pos;
+	position_ls.xyz/=position_ls.w;
+	vec4 abs_position = abs(position_ls);
+	float fs_z = -max(abs_position.x, max(abs_position.y, abs_position.z));
+	vec4 clip = Matrix1 * vec4(0.0, 0.0, fs_z, 1.0);
+	float depth = (clip.z / clip.w) * 0.5 + 0.5;
+	float shadow = 0.0;
+	float x = 0.0;
+	float y = 0.0;
+                  
+	for (y = -1.5 ; y <=1.5 ; y+=1.0)
+		for (x = -1.5 ; x <=1.5 ; x+=1.0)
+			shadow += shadowCube(shadowMap, vec4(position_ls.xyz, depth) + vec4(vec2(x,y) * scale,0.0,0.0)).x;
+	shadow /= 16.0;
+	return shadow;
+}
+
 float Attenuation(vec3 Vertex, vec3 LightPosition, float Radius)
 {
 	float d = distance(Vertex,LightPosition);
@@ -28,6 +49,9 @@ uniform float uLightRadius;
 uniform vec4 uLightColor;
 uniform vec2 uNearFar;
 uniform mat4 uMatProj;
+
+uniform float uShadowMap;
+uniform mat4 uPointDepthsMVP[8];
 
 // Reconstruct Positions and Normals
 float DecodeLinearDepth(float z, vec4 z_info_local)
@@ -92,5 +116,6 @@ void main() {
 	specular = vec4(specularPower * attenuation * Specular, 1.0);
 	
 	gl_FragColor = diffuse + specular;
+	if (uShadowMap>-1) gl_FragColor = vec4(1);
 }
 #endif

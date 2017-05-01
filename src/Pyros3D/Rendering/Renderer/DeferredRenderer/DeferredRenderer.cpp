@@ -65,6 +65,7 @@ namespace p3d {
 		dirColorHandle = deferredMaterialDirectional->AddUniform(Uniform("uLightColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		deferredMaterialDirectional->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
 		deferredMaterialDirectional->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
+		dirShadowHandle = deferredMaterialDirectional->AddUniform(Uniform("uShadowMap", Uniforms::DataUsage::Other, Uniforms::DataType::Int));
 		deferredMaterialDirectional->DisableDepthTest();
 		deferredMaterialDirectional->DisableDepthWrite();
 		deferredMaterialDirectional->EnableBlending();
@@ -80,6 +81,7 @@ namespace p3d {
 		deferredMaterialPoint->AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
 		deferredMaterialPoint->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
 		deferredMaterialPoint->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
+		pointShadowHandle = deferredMaterialPoint->AddUniform(Uniform("uShadowMap", Uniforms::DataUsage::Other, Uniforms::DataType::Int));
 		deferredMaterialPoint->SetCullFace(CullFace::FrontFace);
 		deferredMaterialPoint->DisableDepthTest();
 		deferredMaterialPoint->DisableDepthWrite();
@@ -99,6 +101,7 @@ namespace p3d {
 		deferredMaterialSpot->AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
 		deferredMaterialSpot->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
 		deferredMaterialSpot->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
+		spotShadowHandle = deferredMaterialSpot->AddUniform(Uniform("uShadowMap", Uniforms::DataUsage::Other, Uniforms::DataType::Int));
 		deferredMaterialSpot->SetCullFace(CullFace::FrontFace);
 		deferredMaterialSpot->DisableDepthTest();
 		deferredMaterialSpot->DisableDepthWrite();
@@ -247,6 +250,12 @@ namespace p3d {
 					pointPosHandle->SetValue(&pos);
 					pointRadiusHandle->SetValue((void*)&p->GetLightRadius());
 					pointColorHandle->SetValue(&color);
+					int i = -1;
+					if (p->IsCastingShadows())
+					{
+						i = 0;
+					}
+					pointShadowHandle->SetValue(&i);
 
 					// Set Scale
 					f32 sc = g(f(p->GetLightRadius()));
@@ -268,6 +277,13 @@ namespace p3d {
 					spotOutterHandle->SetValue((void*)&s->GetLightCosOutterCone());
 					spotInnerHandle->SetValue((void*)&s->GetLightCosInnerCone());
 					spotColorHandle->SetValue(&color);
+					int i = -1;
+					if (s->IsCastingShadows())
+					{
+						i = 0;
+					}
+					spotShadowHandle->SetValue(&i);
+
 					// Set Scale
 					f32 sc = g(f(s->GetLightRadius()));
 					Matrix m; m.Scale(sc, sc, sc);
@@ -283,6 +299,13 @@ namespace p3d {
 					Vec4 color = d->GetLightColor();
 					dirDirHandle->SetValue(&dir);
 					dirColorHandle->SetValue(&color);
+					int i = -1;
+					if (d->IsCastingShadows())
+					{
+						i = 0;
+					}
+					dirShadowHandle->SetValue(&i);
+
 					RenderObject(directionalLight->GetMeshes()[0], d->GetOwner(), deferredMaterialDirectional);
 				}
 				break;
