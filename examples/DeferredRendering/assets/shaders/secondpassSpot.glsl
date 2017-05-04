@@ -62,7 +62,7 @@ uniform mat4 uMatProj;
 uniform mat4 uSpotDepthsMVP;
 uniform sampler2DShadow uShadowMap;
 uniform vec4 uPCFTexelSize;
-uniform float uHaveShadow;
+uniform float uHaveShadowmap;
 
 // Reconstruct Positions and Normals
 float DecodeLinearDepth(float z, vec4 z_info_local)
@@ -124,7 +124,7 @@ void main() {
 	float pcf = 1.0;
 	vec4 worldPos = vec4(v1, 1.0);
 
-	if (uHaveShadow>0.0)
+	if (uHaveShadowmap>0.0)
 		pcf = PCFSPOT(uShadowMap, uSpotDepthsMVP, uPCFTexelSize.x, worldPos);
 
 	vec3 diffuseColor = spotEffect * attenuation * n_dot_l * lightColor.xyz * pcf;
@@ -132,7 +132,6 @@ void main() {
 	specular = vec4(specularPower * spotEffect * attenuation * Specular * pcf, 1.0);
 	
 	gl_FragColor = diffuse + specular;
-
 	//worldPos = uSpotDepthsMVP * worldPos;
 	//gl_FragColor = vec4(pcf);
 }

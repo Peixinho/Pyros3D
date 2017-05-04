@@ -24,7 +24,7 @@ float PCFPOINT(samplerCubeShadow shadowMap, mat4 Matrix1, mat4 Matrix2, float sc
                   
 	for (y = -1.5 ; y <=1.5 ; y+=1.0)
 		for (x = -1.5 ; x <=1.5 ; x+=1.0)
-			shadow += shadowCube(shadowMap, vec4(position_ls.xyz, depth) + vec4(vec2(x,y) * scale,0.0,0.0)).x;
+			shadow += shadowCube(shadowMap, vec4(position_ls.xyz, depth - scale*2) + vec4(vec2(x,y) * scale,0.0,0.0)).x;
 	shadow /= 16.0;
 	return shadow;
 }
@@ -52,7 +52,7 @@ uniform mat4 uMatProj;
 uniform samplerCubeShadow uShadowMap;
 uniform mat4 uPointDepthsMVP[2];
 uniform vec4 uPCFTexelSize;
-uniform float uHaveShadow;
+uniform float uHaveShadowmap;
 
 // Reconstruct Positions and Normals
 float DecodeLinearDepth(float z, vec4 z_info_local)
@@ -96,7 +96,7 @@ void main() {
 	float pcf = 1.0;
 	vec4 worldPos = vec4(v1, 1.0);
 
-	if (uHaveShadow>0.0)
+	if (uHaveShadowmap>0.0)
 		pcf = PCFPOINT(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], uPCFTexelSize.x, worldPos);
 
 	vec3 vViewNormal = normalize(texture2D(tNormal, Texcoord).xyz);

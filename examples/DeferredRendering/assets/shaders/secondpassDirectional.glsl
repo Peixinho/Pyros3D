@@ -41,7 +41,7 @@ uniform sampler2DShadow uShadowMap;
 uniform vec4 uPCFTexelSize;
 uniform mat4 uDirectionalDepthsMVP[4];
 uniform vec4 uDirectionalShadowFar;
-uniform float uHaveShadow;
+uniform float uHaveShadowmap;
 
 // Reconstruct Positions and Normals
 float DecodeLinearDepth(float z, vec4 z_info_local)
@@ -90,7 +90,7 @@ void main() {
 	float pcf = 1.0;
 	vec4 worldPos = vec4(v1, 1.0);
 
-	if (uHaveShadow>0.0)
+	if (uHaveShadowmap>0.0)
 	{
 	    bool MoreThanOneCascade = (uDirectionalShadowFar.y>0.0);
 	    if (texture2D(tDepth, Texcoord).r<uDirectionalShadowFar.x) pcf = PCFDIRECTIONAL(uShadowMap, 0.0, 0.0, uDirectionalDepthsMVP[0],uPCFTexelSize.x,worldPos, MoreThanOneCascade);

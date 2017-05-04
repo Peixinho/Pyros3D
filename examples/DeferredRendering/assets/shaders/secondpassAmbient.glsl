@@ -25,6 +25,6 @@ void main() {
 
 	vec3 Color = texture2D(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
 	
-	gl_FragColor=vec4(ambient, 1.0);
+	gl_FragColor=vec4(ambient * Color, 1.0);
 }
 #endif
