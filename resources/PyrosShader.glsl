@@ -210,7 +210,6 @@ float DecodeFloatRGBA( vec4 rgba ) {
 
         uniform mat4 uLights[MAX_LIGHTS];
         uniform int uNumberOfLights;
-        uniform vec4 uAmbientLight;
         uniform float uShininess;
         uniform float uUseLights;
 
@@ -398,6 +397,10 @@ float DecodeFloatRGBA( vec4 rgba ) {
 
     #ifdef DEFERRED_GBUFFER
         varying vec4 gbuffer_normals;
+    #endif
+
+    #if defined(DIFFUSE) || defined(CELLSHADING) || defined(DEFERRED_GBUFFER)
+        uniform vec4 uAmbientLight;
     #endif
 
     void main() {
@@ -631,9 +634,9 @@ float DecodeFloatRGBA( vec4 rgba ) {
         #endif
 
         #ifdef DEFERRED_GBUFFER
-            gl_FragData[0]=vec4(diffuse.xyz,1.0);
-            gl_FragData[1]=vec4(specular.xyz,1.0);
-            gl_FragData[2]=vec4(gbuffer_normals.xyz,1.0);
+            gl_FragData[0]=vec4(diffuse.xyz,diffuse.x*uAmbientLight.x);
+            gl_FragData[1]=vec4(specular.xyz,diffuse.y*uAmbientLight.y);
+            gl_FragData[2]=vec4(gbuffer_normals.xyz,diffuse.z*uAmbientLight.z);
         #else
             gl_FragColor = vec4(diffuse.xyz,diffuse.w*uOpacity);
         #endif

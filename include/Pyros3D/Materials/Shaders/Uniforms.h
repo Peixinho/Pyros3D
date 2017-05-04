@@ -59,7 +59,9 @@ namespace p3d {
 				ModelMatrixInverse = 304,
 				ModelViewMatrixInverse = 305,
 				ModelMatrixInverseTranspose = 306,
-				Skinning = 307
+				Skinning = 307,
+				ModelViewProjectionMatrixInverse = 308,
+				ViewProjectionMatrixInverse = 309
 			};
 		};
 
@@ -194,6 +196,12 @@ namespace p3d {
 				break;
 			case Uniforms::DataUsage::ClipPlanes:
 				Type = Uniforms::DataType::Vec4;
+				break;
+			case Uniforms::DataUsage::ModelViewProjectionMatrixInverse:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::ViewProjectionMatrixInverse:
+				Type = Uniforms::DataType::Matrix;
 				break;
 			};
 

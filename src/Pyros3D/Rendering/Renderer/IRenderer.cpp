@@ -280,7 +280,7 @@ namespace p3d {
 								}
 							}
 
-							DirectionalShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
+							DirectionalShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix * Camera->GetWorldTransformation())));
 
 						}
 
@@ -473,7 +473,7 @@ namespace p3d {
 						// Enable Depth Bias
 						shadowMaterial->EnableDethBias(s->GetShadowBiasFactor(), s->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
 
-																										   // Set Viewport
+						// Set Viewport
 						_SetViewPort(0, 0, s->GetShadowWidth(), s->GetShadowHeight());
 
 						// Render Scene with Objects Material
@@ -512,7 +512,7 @@ namespace p3d {
 						s->GetShadowFBO()->UnBind();
 
 						// Set Light Matrix
-						SpotShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
+						SpotShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix * Camera->GetWorldTransformation())));
 
 						// Get Texture (only 1)
 						SpotShadowMapsTextures.push_back(s->GetShadowMapTexture());
@@ -551,7 +551,7 @@ namespace p3d {
 			// Unbind Vertex Attributes
 			UnbindMesh(LastMeshRenderedPTR, LastMaterialPTR);
 			// Unbind Shadow Maps
-			UnbindShadowMaps(LastMaterialPTR);
+			//UnbindShadowMaps(LastMaterialPTR);
 			// Material After Render
 			LastMaterialPTR->AfterRender();
 		}
@@ -586,6 +586,8 @@ namespace p3d {
 		ModelMatrixInverseIsDirty = true;
 		ModelViewMatrixInverseIsDirty = true;
 		ModelMatrixInverseTransposeIsDirty = true;
+		ModelViewProjectionMatrixInverseIsDirty = true;
+		ViewProjectionMatrixInverseIsDirty = true;
 
 		if ((LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material || LastMeshRenderedPTR->Geometry->GetGeometryType() == GeometryType::ARRAY) && LastProgramUsed != -1)
 		{
@@ -595,7 +597,7 @@ namespace p3d {
 			// Unbind Mesh
 			UnbindMesh(LastMeshRenderedPTR, LastMaterialPTR);
 			// Material Stuff After Render
-			UnbindShadowMaps(LastMaterialPTR);
+			//UnbindShadowMaps(LastMaterialPTR);
 			// After Render
 			LastMaterialPTR->AfterRender();
 		}
@@ -610,7 +612,7 @@ namespace p3d {
 			Material->PreRender();
 
 			// Bind Shadow Maps
-			BindShadowMaps(Material);
+			//BindShadowMaps(Material);
 
 			// Send Global Uniforms
 			SendGlobalUniforms(rmesh, Material);
@@ -1436,6 +1438,14 @@ namespace p3d {
 					}
 					Shader::SendUniform((*k), &ProjectionMatrixInverse, (*_ShadersGlobalCache)[counter]);
 					break;
+				case Uniforms::DataUsage::ViewProjectionMatrixInverse:
+					if (ViewProjectionMatrixInverseIsDirty == true)
+					{
+						ViewProjectionMatrixInverse = (ProjectionMatrix * ViewMatrix).Inverse();
+						ViewProjectionMatrixInverseIsDirty = false;
+					}
+					Shader::SendUniform((*k), &ProjectionMatrixInverse, (*_ShadersGlobalCache)[counter]);
+					break;
 				case Uniforms::DataUsage::CameraPosition:
 					Shader::SendUniform((*k), &CameraPosition, (*_ShadersGlobalCache)[counter]);
 					break;
@@ -1595,9 +1605,17 @@ namespace p3d {
 					break;
 				case Uniforms::DataUsage::Skinning:
 				{
-					if (rmesh->SkinningBones.size()>0)
+					if (rmesh->SkinningBones.size() > 0)
 						Shader::SendUniform((*k), &rmesh->SkinningBones[0], (*_ShadersModelCache)[counter], rmesh->SkinningBones.size());
 				}
+				break;
+				case Uniforms::DataUsage::ModelViewProjectionMatrixInverse:
+					if (ModelViewProjectionMatrixInverseIsDirty == true)
+					{
+						ModelViewProjectionMatrixInverse = (ProjectionMatrix * ViewMatrix * ModelMatrix).Inverse();
+						ModelViewProjectionMatrixInverseIsDirty = false;
+					}
+					Shader::SendUniform((*k), &ModelViewProjectionMatrixInverse, (*_ShadersModelCache)[counter]);
 				break;
 				}
 			}

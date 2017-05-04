@@ -190,17 +190,25 @@ namespace p3d
 			Reflectivity = 1.0;
 			uReflectivity = AddUniform(Uniform("uReflectivity", Uniforms::DataType::Float, &Reflectivity));
 		}
+
 		if (options & ShaderUsage::Skinning)
 		{
 			AddUniform(Uniform("uBoneMatrix", Uniforms::DataUsage::Skinning));
 		}
+
 		if (options & ShaderUsage::ClipPlane)
 		{
 			AddUniform(Uniform("uClipPlanes", Uniforms::DataUsage::ClipPlanes));
 		}
+
 		if (options & ShaderUsage::TextRendering)
 		{
 			SetTransparencyFlag(true);
+		}
+
+		if (options & ShaderUsage::DeferredRenderer_Gbuffer)
+		{
+			AddUniform(Uniform("uAmbientLight", Uniforms::DataUsage::GlobalAmbientLight));
 		}
 	}
 

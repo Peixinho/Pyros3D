@@ -16,10 +16,10 @@ float PCFSPOT(sampler2DShadow shadowMap, mat4 sMatrix, float scale, vec4 pos)
 	float shadow = 0.0;
 	float x = 0.0;
 	float y = 0.0;
-	for (y = -1.5 ; y <=1.5 ; y+=1.0)
-		for (x = -1.5 ; x <=1.5 ; x+=1.0)
+	//for (y = -1.5 ; y <=1.5 ; y+=1.0)
+		//for (x = -1.5 ; x <=1.5 ; x+=1.0)
 			shadow += shadow2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
-	shadow /= 16.0;
+	//shadow /= 16.0;
 	return shadow;
 }
 
@@ -28,6 +28,7 @@ float Attenuation(vec3 Vertex, vec3 LightPosition, float Radius)
 	float d = distance(Vertex,LightPosition);
 	return clamp(1.0 - (1.0/Radius)*d, 0.0, 1.0);
 }
+
 float DualConeSpotLight(vec3 Vertex, vec3 SpotLightPosition, vec3 SpotLightDirection, float cosOutterCone, float cosInnerCone)
 {
     if (cosOutterCone>0.0 || cosInnerCone>0.0) {
@@ -39,11 +40,11 @@ float DualConeSpotLight(vec3 Vertex, vec3 SpotLightPosition, vec3 SpotLightDirec
     }
     return 0.0;
 }
+
 vec4 diffuse = vec4(0.0,0.0,0.0,1.0);
 vec4 specular = vec4(0.0,0.0,0.0,1.0);
 bool diffuseIsSet = false;
 
-uniform float uOpacity;
 uniform sampler2D tDiffuse;
 uniform sampler2D tSpecular;
 uniform sampler2D tDepth;
@@ -58,8 +59,10 @@ uniform vec4 uLightColor;
 uniform vec2 uNearFar;
 uniform mat4 uMatProj;
 
-uniform mat4 uSpotDepthsMVP[4];
-uniform float uShadowMap;
+uniform mat4 uSpotDepthsMVP;
+uniform sampler2DShadow uShadowMap;
+uniform vec4 uPCFTexelSize;
+uniform float uHaveShadow;
 
 // Reconstruct Positions and Normals
 float DecodeLinearDepth(float z, vec4 z_info_local)
@@ -75,7 +78,7 @@ float DecodeNativeDepth(float native_z, vec4 z_info_local)
 vec2 getPosViewSpace(vec2 uv, vec4 z_info_local, mat4 uMatProj_local, vec4 viewport_transform_local)
 {
 	vec2 screenPos = (uv + .5) * viewport_transform_local.zw - viewport_transform_local.xy;
-	vec2 screenSpaceRay = vec2(screenPos.x / uMatProj_local[0][0],-screenPos.y / uMatProj_local[1][1]);
+	vec2 screenSpaceRay = vec2(screenPos.x / uMatProj_local[0][0],screenPos.y / uMatProj_local[1][1]);
 	return screenSpaceRay;
 }
 
@@ -95,15 +98,10 @@ void main() {
 	vec4 z_info = vec4(uNearFar.x, uNearFar.y, uNearFar.x*uNearFar.y, uNearFar.x - uNearFar.y);
 	vec2 Out = vec2(uScreenDimensions.x, uScreenDimensions.y);
 	vec4 vp = vec4(1.0, 1.0, 2.0/Out.x, 2.0/Out.y);
-	vec3 v1; //, v2, v3;
+	vec3 v1;
 	vec4 out_dim = vec4(uScreenDimensions.x, uScreenDimensions.y, 1.0/uScreenDimensions.x, 1.0/uScreenDimensions.y);
 	vec2 screenCoord = vec2(uScreenDimensions.x*Texcoord.x, uScreenDimensions.y*Texcoord.y);
 	getPosViewSpace(texture2D(tDepth, Texcoord).r, screenCoord, z_info, v1, uMatProj, vp);
-	/*getPosViewSpace(texture2D(tDepth, Texcoord + vec2(out_dim.z, 0)).r, screenCoord + vec2(1, 0), z_info, v2, uMatProj, vp);
-	getPosViewSpace(texture2D(tDepth, Texcoord + vec2(0,out_dim.w)).r, screenCoord + vec2(0, 1), z_info, v3, uMatProj, vp);
-	vec3 vViewNormal = normalize(cross(v3 - v1, v2 - v1));*/
-
-	v1.y=-v1.y;
 
 	vec3 vViewNormal = normalize(texture2D(tNormal, Texcoord).xyz);
 	vec3 Color = texture2D(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
@@ -118,15 +116,24 @@ void main() {
 	float innerCone = uInnerCone;
 	float outterCone = uOutterCone;
 	float spotEffect = 1.0 - DualConeSpotLight(v1, lightPosition, lightDirection, outterCone, innerCone);
-	vec3 diffuseColor = spotEffect * attenuation * n_dot_l * lightColor.xyz;
-	diffuse = vec4((diffuseColor * Color),1.0);
 
 	vec3 eyeVec = normalize(-v1);
 	vec3 halfVec = normalize(eyeVec + lightDirection);
 	float specularPower = (n_dot_l>0.0?pow(max(dot(halfVec,vViewNormal),0.0), 50.0):0.0);
-	specular = vec4(specularPower * spotEffect * attenuation * Specular, 1.0);
+	
+	float pcf = 1.0;
+	vec4 worldPos = vec4(v1, 1.0);
+
+	if (uHaveShadow>0.0)
+		pcf = PCFSPOT(uShadowMap, uSpotDepthsMVP, uPCFTexelSize.x, worldPos);
+
+	vec3 diffuseColor = spotEffect * attenuation * n_dot_l * lightColor.xyz * pcf;
+	diffuse = vec4((diffuseColor * Color),1.0);
+	specular = vec4(specularPower * spotEffect * attenuation * Specular * pcf, 1.0);
 	
 	gl_FragColor = diffuse + specular;
-	if (uShadowMap>-1) gl_FragColor = vec4(1);
+
+	//worldPos = uSpotDepthsMVP * worldPos;
+	//gl_FragColor = vec4(pcf);
 }
 #endif

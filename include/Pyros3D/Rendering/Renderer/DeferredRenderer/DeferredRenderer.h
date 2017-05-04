@@ -40,7 +40,8 @@ namespace p3d {
 		// Offscreen Frame Buffer Object
 		FrameBuffer* FBO;
 
-		// Point Light Volume
+		// Deferred Materials
+		CustomShaderMaterial *deferredMaterialAmbient;
 		CustomShaderMaterial *deferredMaterialDirectional;
 		CustomShaderMaterial *deferredMaterialPoint;
 		CustomShaderMaterial *deferredMaterialSpot;
@@ -51,9 +52,9 @@ namespace p3d {
 		Renderable* quadHandle;
 
 		// Uniform Handlers
-		Uniform *pointPosHandle, *pointRadiusHandle, *pointColorHandle, *pointShadowHandle;
-		Uniform *dirDirHandle, *dirColorHandle, *dirShadowHandle;
-		Uniform *spotPosHandle, *spotDirHandle, *spotRadiusHandle, *spotOutterHandle, *spotInnerHandle, *spotColorHandle, *spotShadowHandle;
+		Uniform *pointPosHandle, *pointRadiusHandle, *pointColorHandle, *pointShadowHandle, *pointShadowDepthsMVPHandle, *pointShadowPCFTexelHandle, *pointHaveShadowHandle;
+		Uniform *dirDirHandle, *dirColorHandle, *dirShadowHandle, *dirShadowPCFTexelHandle, *dirShadowDepthsMVPHandle, *dirShadowFarHandle, *dirHaveShadowHandle;
+		Uniform *spotPosHandle, *spotDirHandle, *spotRadiusHandle, *spotOutterHandle, *spotInnerHandle, *spotColorHandle, *spotShadowHandle, *spotShadowDepthsMVPHandle, *spotShadowPCFTexelHandle, *spotHaveShadowHandle;
 	};
 
 };
