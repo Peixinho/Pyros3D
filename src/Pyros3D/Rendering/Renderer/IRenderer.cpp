@@ -551,7 +551,7 @@ namespace p3d {
 			// Unbind Vertex Attributes
 			UnbindMesh(LastMeshRenderedPTR, LastMaterialPTR);
 			// Unbind Shadow Maps
-			//UnbindShadowMaps(LastMaterialPTR);
+			UnbindShadowMaps(LastMaterialPTR);
 			// Material After Render
 			LastMaterialPTR->AfterRender();
 		}
@@ -597,7 +597,7 @@ namespace p3d {
 			// Unbind Mesh
 			UnbindMesh(LastMeshRenderedPTR, LastMaterialPTR);
 			// Material Stuff After Render
-			//UnbindShadowMaps(LastMaterialPTR);
+			UnbindShadowMaps(LastMaterialPTR);
 			// After Render
 			LastMaterialPTR->AfterRender();
 		}
@@ -612,7 +612,7 @@ namespace p3d {
 			Material->PreRender();
 
 			// Bind Shadow Maps
-			//BindShadowMaps(Material);
+			BindShadowMaps(Material);
 
 			// Send Global Uniforms
 			SendGlobalUniforms(rmesh, Material);

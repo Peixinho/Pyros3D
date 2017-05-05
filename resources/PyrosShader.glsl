@@ -29,7 +29,11 @@ float DecodeFloatRGBA( vec4 rgba ) {
         varying vec3 vNormal;
     #endif
           
-    #if defined(DIRECTIONALSHADOW) || defined(POINTSHADOW) || defined(SPOTSHADOW) || defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
+    #if defined(DIRECTIONALSHADOW) || defined(POINTSHADOW) || defined(SPOTSHADOW)
+        varying vec4 vWorldPositionShadow;
+    #endif
+
+    #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
         varying vec4 vWorldPosition;
     #endif
 
@@ -76,11 +80,19 @@ float DecodeFloatRGBA( vec4 rgba ) {
             vTexcoord = aTexcoord;
         #endif
 
-        #if defined(DIRECTIONALSHADOW) || defined(POINTSHADOW) || defined(SPOTSHADOW) || defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
+        #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
             #ifndef SKINNING
                 vWorldPosition=uModelMatrix * vec4(aPosition,1.0);
             #else
                 vWorldPosition=uModelMatrix * (matAnimation * vec4(aPosition,1.0));
+            #endif
+        #endif
+
+        #if defined(DIRECTIONALSHADOW) || defined(POINTSHADOW) || defined(SPOTSHADOW)
+            #ifndef SKINNING
+                vWorldPositionShadow=uViewMatrix * uModelMatrix * vec4(aPosition,1.0);
+            #else
+                vWorldPositionShadow=uViewMatrix * uModelMatrix * (matAnimation * vec4(aPosition,1.0));
             #endif
         #endif
 
@@ -363,7 +375,11 @@ float DecodeFloatRGBA( vec4 rgba ) {
         uniform int uNumberOfSpotShadows; 
     #endif
 
-    #if defined(DIRECTIONALSHADOW) || defined(POINTSHADOW) || defined(SPOTSHADOW) || defined(SKINNING) || defined(ENVMAP) || defined(DIFFUSE) || defined(CELLSHADING)
+    #if defined(DIRECTIONALSHADOW) || defined(POINTSHADOW) || defined(SPOTSHADOW)
+        varying vec4 vWorldPositionShadow;
+    #endif
+
+    #if defined(SKINNING) || defined(ENVMAP) || defined(DIFFUSE) || defined(CELLSHADING)
         varying vec4 vWorldPosition;
     #endif
 
@@ -399,9 +415,9 @@ float DecodeFloatRGBA( vec4 rgba ) {
         varying vec4 gbuffer_normals;
     #endif
 
-    #if defined(DIFFUSE) || defined(CELLSHADING) || defined(DEFERRED_GBUFFER)
-        uniform vec4 uAmbientLight;
-    #endif
+   #if defined(DIFFUSE) || defined(CELLSHADING) || defined(DEFERRED_GBUFFER)
+       uniform vec4 uAmbientLight;
+   #endif
 
     void main() {
 
@@ -532,10 +548,10 @@ float DecodeFloatRGBA( vec4 rgba ) {
                                    shadowBias = max(0.001 * (1.0 - dot(Normal, LightDir)), 0.00001);
                                 #endif
                                 bool MoreThanOneCascade = (uDirectionalShadowFar[0].y>0.0);
-                                if (gl_FragCoord.z<uDirectionalShadowFar[0].x) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.0, uDirectionalDepthsMVP[0],uPCFTexelSize1,vWorldPosition, MoreThanOneCascade);
-                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].y) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.0, uDirectionalDepthsMVP[1],uPCFTexelSize2,vWorldPosition, MoreThanOneCascade);
-                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].z) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.5, uDirectionalDepthsMVP[2],uPCFTexelSize3,vWorldPosition, MoreThanOneCascade);
-                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].w) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.5, uDirectionalDepthsMVP[3],uPCFTexelSize4,vWorldPosition, MoreThanOneCascade);
+                                if (gl_FragCoord.z<uDirectionalShadowFar[0].x) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.0, uDirectionalDepthsMVP[0],uPCFTexelSize1,vWorldPositionShadow, MoreThanOneCascade);
+                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].y) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.0, uDirectionalDepthsMVP[1],uPCFTexelSize2,vWorldPositionShadow, MoreThanOneCascade);
+                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].z) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.5, uDirectionalDepthsMVP[2],uPCFTexelSize3,vWorldPositionShadow, MoreThanOneCascade);
+                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].w) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.5, uDirectionalDepthsMVP[3],uPCFTexelSize4,vWorldPositionShadow, MoreThanOneCascade);
                             }
 
                             _diffuse += vec4(lightIntensity * L.Color.xyz * DirectionalShadow, lightIntensity * L.Color.w);
@@ -566,9 +582,9 @@ float DecodeFloatRGBA( vec4 rgba ) {
                                 PointShadow = 0.0;
                                 #if defined(GLES2) || defined(GL_LEGACY)
                                    shadowBias = max(0.001 * (1.0 - dot(Normal, LightDir)), 0.00001);
-                                   PointShadow=PCFPOINT(uPointShadowMaps,uPointDepthsMVP[0],uPointDepthsMVP[1],uPCFTexelSize1,vWorldPosition);
+                                   PointShadow=PCFPOINT(uPointShadowMaps,uPointDepthsMVP[0],uPointDepthsMVP[1],uPCFTexelSize1,vWorldPositionShadow);
                                 #else
-                                   PointShadow+=PCFPOINT(uPointShadowMaps[L.ShadowMap],uPointDepthsMVP[(L.ShadowMap*2)],uPointDepthsMVP[(L.ShadowMap*2+1)],uPCFTexelSize1,vWorldPosition);
+                                   PointShadow+=PCFPOINT(uPointShadowMaps[L.ShadowMap],uPointDepthsMVP[(L.ShadowMap*2)],uPointDepthsMVP[(L.ShadowMap*2+1)],uPCFTexelSize1,vWorldPositionShadow);
                                 #endif
                             }
                             _diffuse += vec4(lightIntensity * L.Color.xyz * attenuation * PointShadow, lightIntensity * L.Color.w);
@@ -600,9 +616,9 @@ float DecodeFloatRGBA( vec4 rgba ) {
                                 SpotShadow = 0.0;
                                 #if defined(GLES2) || defined(GL_LEGACY)
                                    shadowBias = max(0.001 * (1.0 - dot(Normal, LightDir)), 0.00001);
-                                   SpotShadow=PCFSPOT(uSpotShadowMaps,uSpotDepthsMVP,uPCFTexelSize1,vWorldPosition);
+                                   SpotShadow=PCFSPOT(uSpotShadowMaps,uSpotDepthsMVP,uPCFTexelSize1,vWorldPositionShadow);
                                 #else
-                                   SpotShadow+=PCFSPOT(uSpotShadowMaps[L.ShadowMap],uSpotDepthsMVP[L.ShadowMap],uPCFTexelSize1,vWorldPosition);     
+                                   SpotShadow+=PCFSPOT(uSpotShadowMaps[L.ShadowMap],uSpotDepthsMVP[L.ShadowMap],uPCFTexelSize1,vWorldPositionShadow);
                                 #endif
                             }
                             _diffuse += vec4(lightIntensity * L.Color.xyz * spotEffect * attenuation * SpotShadow, lightIntensity * L.Color.w);
