@@ -16,10 +16,10 @@ float PCFSPOT(sampler2DShadow shadowMap, mat4 sMatrix, float scale, vec4 pos)
 	float shadow = 0.0;
 	float x = 0.0;
 	float y = 0.0;
-	//for (y = -1.5 ; y <=1.5 ; y+=1.0)
-		//for (x = -1.5 ; x <=1.5 ; x+=1.0)
+	for (y = -1.5 ; y <=1.5 ; y+=1.0)
+		for (x = -1.5 ; x <=1.5 ; x+=1.0)
 			shadow += shadow2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
-	//shadow /= 16.0;
+	shadow /= 16.0;
 	return shadow;
 }
 
@@ -132,7 +132,5 @@ void main() {
 	specular = vec4(specularPower * spotEffect * attenuation * Specular * pcf, 1.0);
 	
 	gl_FragColor = diffuse + specular;
-	//worldPos = uSpotDepthsMVP * worldPos;
-	//gl_FragColor = vec4(pcf);
 }
 #endif
