@@ -74,7 +74,7 @@ namespace p3d {
 		sort(_TranslucidMeshes.begin(), _TranslucidMeshes.end(), Sort::sortRenderingMeshes);
 
 		// final list
-		for (std::vector<RenderingMesh*>::iterator i = _TranslucidMeshes.begin(); i != _TranslucidMeshes.end(); i++)
+		for (std::vector<RenderingMesh*>::reverse_iterator i = _TranslucidMeshes.rbegin(); i != _TranslucidMeshes.rend(); i++)
 		{
 			_OpaqueMeshes.push_back((*i));
 		}
