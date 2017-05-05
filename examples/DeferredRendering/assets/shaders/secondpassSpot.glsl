@@ -127,10 +127,10 @@ void main() {
 	if (uHaveShadowmap>0.0)
 		pcf = PCFSPOT(uShadowMap, uSpotDepthsMVP, uPCFTexelSize, worldPos);
 
-	vec3 diffuseColor = spotEffect * attenuation * n_dot_l * lightColor.xyz * pcf;
+	vec3 diffuseColor = spotEffect * attenuation * n_dot_l * lightColor.xyz;
 	diffuse = vec4((diffuseColor * Color),1.0);
-	specular = vec4(specularPower * spotEffect * attenuation * Specular * pcf, 1.0);
+	specular = vec4(specularPower * spotEffect * attenuation * Specular, 1.0);
 	
-	gl_FragColor = diffuse + specular;
+	gl_FragColor = (diffuse + specular) * pcf;
 }
 #endif

@@ -273,7 +273,7 @@ namespace p3d {
 							for (std::vector<RenderingMesh*>::iterator k = rmesh.begin(); k != rmesh.end(); k++)
 							{
 
-								if ((*k)->renderingComponent->GetOwner() != NULL)
+								if ((*k)->renderingComponent->GetOwner() != NULL && !(*k)->Material->IsTransparent())
 								{
 									if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
 										RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
@@ -398,7 +398,7 @@ namespace p3d {
 									break;
 									}
 									if (!(*k)->renderingComponent->IsCullTesting()) cullingTest = true;*/
-									if (/*cullingTest && */!(*k)->Material->IsTransparent())
+									if (/*cullingTest && */ (*k)->renderingComponent->GetOwner() != NULL && !(*k)->Material->IsTransparent() && !(*k)->Material->IsTransparent())
 									{
 										if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
 											RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
@@ -495,7 +495,7 @@ namespace p3d {
 								break;
 								}
 								if (!(*k)->renderingComponent->IsCullTesting()) cullingTest = true;*/
-								if (/*cullingTest && */!(*k)->Material->IsTransparent())
+								if (/*cullingTest && */ (*k)->renderingComponent->GetOwner() != NULL && !(*k)->Material->IsTransparent() && !(*k)->Material->IsTransparent())
 								{
 									if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
 										RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));

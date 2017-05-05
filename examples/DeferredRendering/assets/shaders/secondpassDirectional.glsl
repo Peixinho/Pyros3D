@@ -100,7 +100,7 @@ void main() {
 	}
 	vec3 lightDirection = normalize(-uLightDirection);
 	float n_dot_l = max(dot(lightDirection, vViewNormal), 0.0);
-	vec3 diffuseColor = n_dot_l * lightColor.xyz * pcf;
+	vec3 diffuseColor = n_dot_l * lightColor.xyz;
 
 	diffuse = vec4((diffuseColor * Color),1.0);
 
@@ -108,8 +108,8 @@ void main() {
 	vec3 eyeVec = normalize(-v1);
 	vec3 halfVec = normalize(lightDirection + eyeVec);
 	float specularPower = (n_dot_l>0.0?pow(max(dot(halfVec,vViewNormal),0.0), 50.0):0.0);
-	specular = vec4(specularPower * Specular * pcf, 1.0);
+	specular = vec4(specularPower * Specular, 1.0);
 	
-	gl_FragColor=diffuse + specular;
+	gl_FragColor = (diffuse + specular) * pcf;
 }
 #endif

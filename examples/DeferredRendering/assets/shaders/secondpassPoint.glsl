@@ -24,7 +24,7 @@ float PCFPOINT(samplerCubeShadow shadowMap, mat4 Matrix1, mat4 Matrix2, float sc
                   
 	for (y = -1.5 ; y <=1.5 ; y+=1.0)
 		for (x = -1.5 ; x <=1.5 ; x+=1.0)
-			shadow += shadowCube(shadowMap, vec4(position_ls.xyz, depth - scale*3.0) + vec4(vec2(x,y) * scale,0.0,0.0)).x;
+			shadow += shadowCube(shadowMap, vec4(position_ls.xyz, depth - scale*5.0) + vec4(vec2(x,y) * scale,0.0,0.0)).x;
 	shadow /= 16.0;
 	return shadow;
 }
@@ -115,8 +115,8 @@ void main() {
 	vec3 eyeVec = normalize(-v1);
 	vec3 halfVec = normalize(eyeVec + lightDirection);
 	float specularPower = (n_dot_l>0.0?pow(max(dot(halfVec,vViewNormal),0.0), 50.0):0.0);
-	specular = vec4(specularPower * attenuation * Specular * pcf, 1.0);
+	specular = vec4(specularPower * attenuation * Specular, 1.0);
 	
-	gl_FragColor = diffuse;
+	gl_FragColor = (diffuse + specular) * pcf;
 }
 #endif
