@@ -111,12 +111,6 @@ namespace p3d
 		// Default Opacity
 		SetOpacity(1.0);
 
-		// Default PCF Texel Size
-		PCFTexelSize1 = 0.0001f;
-		PCFTexelSize2 = 0.0001f;
-		PCFTexelSize3 = 0.0001f;
-		PCFTexelSize4 = 0.0001f;
-
 		if (options & ShaderUsage::Diffuse)
 		{
 			UseLights = 1.0;
@@ -148,10 +142,6 @@ namespace p3d
 			AddUniform(Uniform("uDirectionalDepthsMVP", Uniforms::DataUsage::DirectionalShadowMatrix));
 			AddUniform(Uniform("uDirectionalShadowFar", Uniforms::DataUsage::DirectionalShadowFar));
 			AddUniform(Uniform("uNumberOfDirectionalShadows", Uniforms::DataUsage::NumberOfDirectionalShadows));
-			uPCFTexelSize1 = AddUniform(Uniform("uPCFTexelSize1", Uniforms::DataType::Float, &PCFTexelSize1));
-			uPCFTexelSize2 = AddUniform(Uniform("uPCFTexelSize2", Uniforms::DataType::Float, &PCFTexelSize2));
-			uPCFTexelSize3 = AddUniform(Uniform("uPCFTexelSize3", Uniforms::DataType::Float, &PCFTexelSize3));
-			uPCFTexelSize4 = AddUniform(Uniform("uPCFTexelSize4", Uniforms::DataType::Float, &PCFTexelSize4));
 			isCastingShadows = true;
 		}
 
@@ -161,7 +151,6 @@ namespace p3d
 			AddUniform(Uniform("uPointShadowMaps", Uniforms::DataUsage::PointShadowMap));
 			AddUniform(Uniform("uPointDepthsMVP", Uniforms::DataUsage::PointShadowMatrix));
 			AddUniform(Uniform("uNumberOfPointShadows", Uniforms::DataUsage::NumberOfPointShadows));
-			uPCFTexelSize1 = AddUniform(Uniform("uPCFTexelSize", Uniforms::DataType::Float, &PCFTexelSize1));
 			isCastingShadows = true;
 		}
 
@@ -171,7 +160,6 @@ namespace p3d
 			AddUniform(Uniform("uSpotShadowMaps", Uniforms::DataUsage::SpotShadowMap));
 			AddUniform(Uniform("uSpotDepthsMVP", Uniforms::DataUsage::SpotShadowMatrix));
 			AddUniform(Uniform("uNumberOfSpotShadows", Uniforms::DataUsage::NumberOfSpotShadows));
-			uPCFTexelSize1 = AddUniform(Uniform("uPCFTexelSize", Uniforms::DataType::Float, &PCFTexelSize1));
 			isCastingShadows = true;
 		}
 
@@ -378,22 +366,5 @@ namespace p3d
 	void GenericShaderMaterial::AfterRender()
 	{
 		UnbindTextures();
-	}
-	void GenericShaderMaterial::SetPCFTexelSize(const f32 texel)
-	{
-		PCFTexelSize1 = texel;
-		uPCFTexelSize1->SetValue(&PCFTexelSize1);
-	}
-	void GenericShaderMaterial::SetPCFTexelCascadesSize(const f32 texel1, const f32 texel2, const f32 texel3, const f32 texel4)
-	{
-		PCFTexelSize1 = texel1;
-		PCFTexelSize2 = texel2;
-		PCFTexelSize3 = texel3;
-		PCFTexelSize4 = texel4;
-
-		uPCFTexelSize1->SetValue(&PCFTexelSize1);
-		uPCFTexelSize2->SetValue(&PCFTexelSize2);
-		uPCFTexelSize3->SetValue(&PCFTexelSize3);
-		uPCFTexelSize4->SetValue(&PCFTexelSize4);
 	}
 }

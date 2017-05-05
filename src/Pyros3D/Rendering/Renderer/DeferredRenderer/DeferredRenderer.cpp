@@ -72,7 +72,7 @@ namespace p3d {
 		dirDirHandle = deferredMaterialDirectional->AddUniform(Uniform("uLightDirection", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
 		dirColorHandle = deferredMaterialDirectional->AddUniform(Uniform("uLightColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		dirShadowHandle = deferredMaterialDirectional->AddUniform(Uniform("uShadowMap", Uniforms::DataUsage::Other, Uniforms::DataType::Int));
-		dirShadowPCFTexelHandle = deferredMaterialDirectional->AddUniform(Uniform("uPCFTexelSize", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		dirShadowPCFTexelHandle = deferredMaterialDirectional->AddUniform(Uniform("uPCFTexelSize", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		dirShadowDepthsMVPHandle = deferredMaterialDirectional->AddUniform(Uniform("uDirectionalDepthsMVP", Uniforms::DataUsage::Other, Uniforms::DataType::Matrix));
 		dirShadowFarHandle = deferredMaterialDirectional->AddUniform(Uniform("uDirectionalShadowFar", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		dirHaveShadowHandle = deferredMaterialDirectional->AddUniform(Uniform("uHaveShadowmap", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
@@ -89,7 +89,7 @@ namespace p3d {
 		pointRadiusHandle = deferredMaterialPoint->AddUniform(Uniform("uLightRadius", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		pointColorHandle = deferredMaterialPoint->AddUniform(Uniform("uLightColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		pointShadowHandle = deferredMaterialPoint->AddUniform(Uniform("uShadowMap", Uniforms::DataUsage::Other, Uniforms::DataType::Int));
-		pointShadowPCFTexelHandle = deferredMaterialPoint->AddUniform(Uniform("uPCFTexelSize", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		pointShadowPCFTexelHandle = deferredMaterialPoint->AddUniform(Uniform("uPCFTexelSize", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		pointShadowDepthsMVPHandle = deferredMaterialPoint->AddUniform(Uniform("uPointDepthsMVP", Uniforms::DataUsage::Other, Uniforms::DataType::Matrix));
 		pointHaveShadowHandle = deferredMaterialPoint->AddUniform(Uniform("uHaveShadowmap", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		deferredMaterialPoint->AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
@@ -111,7 +111,7 @@ namespace p3d {
 		spotInnerHandle = deferredMaterialSpot->AddUniform(Uniform("uInnerCone", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		spotColorHandle = deferredMaterialSpot->AddUniform(Uniform("uLightColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		spotShadowHandle = deferredMaterialSpot->AddUniform(Uniform("uShadowMap", Uniforms::DataUsage::Other, Uniforms::DataType::Int));
-		spotShadowPCFTexelHandle = deferredMaterialSpot->AddUniform(Uniform("uPCFTexelSize", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		spotShadowPCFTexelHandle = deferredMaterialSpot->AddUniform(Uniform("uPCFTexelSize", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		spotShadowDepthsMVPHandle = deferredMaterialSpot->AddUniform(Uniform("uSpotDepthsMVP", Uniforms::DataUsage::Other, Uniforms::DataType::Matrix));
 		spotHaveShadowHandle = deferredMaterialSpot->AddUniform(Uniform("uHaveShadowmap", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		deferredMaterialSpot->AddUniform(Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
@@ -251,7 +251,7 @@ namespace p3d {
 		ClearScreen();
 
 		// Bind FBO Textures
-		for (int i = 0;i<FBO->GetAttachments().size();i++)
+		for (int i = 0;i<(int)FBO->GetAttachments().size();i++)
 			FBO->GetAttachments()[i]->TexturePTR->Bind();
 
 		// Ambient
@@ -284,12 +284,11 @@ namespace p3d {
 					float haveShadow = 0.f;
 					if (p->IsCastingShadows())
 					{
-						Vec4 txl;
-						txl.x = 0.0001f;
+						f32 txl = p->GetShadowPCFTexelSize();
 						Matrix mvp[2];
 						mvp[0] = PointShadowMatrix[numberPoint];
 						mvp[1] = PointShadowMatrix[numberPoint+1];
-						pointShadowPCFTexelHandle->SetValue(&txl);
+						pointShadowPCFTexelHandle->SetValue((void*)&txl);
 						pointShadowDepthsMVPHandle->SetValue(&mvp, 2);
 						p->GetShadowMapTexture()->Bind();
 						i = Texture::GetLastBindedUnit();
@@ -328,8 +327,7 @@ namespace p3d {
 					float haveShadow = 0.f;
 					if (s->IsCastingShadows())
 					{
-						Vec4 txl;
-						txl.x = 0.0001f;
+						f32 txl = s->GetShadowPCFTexelSize();
 						Matrix mvp = SpotShadowMatrix[numberDir];
 						spotShadowPCFTexelHandle->SetValue(&txl);
 						spotShadowDepthsMVPHandle->SetValue(&mvp);
@@ -364,11 +362,7 @@ namespace p3d {
 					float haveShadow = 0.f;
 					if (d->IsCastingShadows())
 					{
-						Vec4 txl;
-						txl.x = 0.0001f;
-						txl.y = 0.0001f;
-						txl.z = 0.0001f;
-						txl.w = 0.0001f;
+						f32 txl = d->GetShadowPCFTexelSize();
 
 						Vec4 _ShadowFar;
 						if (d->GetNumberCascades() > 0) _ShadowFar.x = d->GetCascade(0).Far;
@@ -383,7 +377,7 @@ namespace p3d {
 						ShadowFar.w = 0.5f*(-_ShadowFar.w*projection.m.m[10] + projection.m.m[14]) / _ShadowFar.w + 0.5f;
 
 						std::vector<Matrix> mvp;
-						for (int j = 0; j < d->GetNumberCascades(); j++)
+						for (int j = 0; j < (int)d->GetNumberCascades(); j++)
 							mvp.push_back(DirectionalShadowMatrix[numberDir+j]);
 
 						dirShadowPCFTexelHandle->SetValue(&txl);

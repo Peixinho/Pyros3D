@@ -51,7 +51,7 @@ uniform mat4 uMatProj;
 
 uniform samplerCubeShadow uShadowMap;
 uniform mat4 uPointDepthsMVP[2];
-uniform vec4 uPCFTexelSize;
+uniform float uPCFTexelSize;
 uniform float uHaveShadowmap;
 
 // Reconstruct Positions and Normals
@@ -97,7 +97,7 @@ void main() {
 	vec4 worldPos = vec4(v1, 1.0);
 
 	if (uHaveShadowmap>0.0)
-		pcf = PCFPOINT(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], uPCFTexelSize.x, worldPos);
+		pcf = PCFPOINT(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], uPCFTexelSize, worldPos);
 
 	vec3 vViewNormal = normalize(texture2D(tNormal, Texcoord).xyz);
 	vec3 Color = texture2D(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;

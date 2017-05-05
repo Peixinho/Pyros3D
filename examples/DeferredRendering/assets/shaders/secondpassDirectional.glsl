@@ -38,7 +38,7 @@ uniform vec2 uNearFar;
 uniform mat4 uMatProj;
 
 uniform sampler2DShadow uShadowMap;
-uniform vec4 uPCFTexelSize;
+uniform float uPCFTexelSize;
 uniform mat4 uDirectionalDepthsMVP[4];
 uniform vec4 uDirectionalShadowFar;
 uniform float uHaveShadowmap;
@@ -93,10 +93,10 @@ void main() {
 	if (uHaveShadowmap>0.0)
 	{
 	    bool MoreThanOneCascade = (uDirectionalShadowFar.y>0.0);
-	    if (texture2D(tDepth, Texcoord).r<uDirectionalShadowFar.x) pcf = PCFDIRECTIONAL(uShadowMap, 0.0, 0.0, uDirectionalDepthsMVP[0],uPCFTexelSize.x,worldPos, MoreThanOneCascade);
-	    else if (texture2D(tDepth, Texcoord).r<uDirectionalShadowFar.y) pcf = PCFDIRECTIONAL(uShadowMap, 0.5,0.0, uDirectionalDepthsMVP[1],uPCFTexelSize.y,worldPos, MoreThanOneCascade);
-	    else if (texture2D(tDepth, Texcoord).r<uDirectionalShadowFar.z) pcf = PCFDIRECTIONAL(uShadowMap, 0.0, 0.5, uDirectionalDepthsMVP[2],uPCFTexelSize.z,worldPos, MoreThanOneCascade);
-	    else if (texture2D(tDepth, Texcoord).r<uDirectionalShadowFar.w) pcf = PCFDIRECTIONAL(uShadowMap, 0.5,0.5, uDirectionalDepthsMVP[3],uPCFTexelSize.w,worldPos, MoreThanOneCascade);
+	    if (texture2D(tDepth, Texcoord).r<uDirectionalShadowFar.x) pcf = PCFDIRECTIONAL(uShadowMap, 0.0, 0.0, uDirectionalDepthsMVP[0],uPCFTexelSize,worldPos, MoreThanOneCascade);
+	    else if (texture2D(tDepth, Texcoord).r<uDirectionalShadowFar.y) pcf = PCFDIRECTIONAL(uShadowMap, 0.5,0.0, uDirectionalDepthsMVP[1],uPCFTexelSize,worldPos, MoreThanOneCascade);
+	    else if (texture2D(tDepth, Texcoord).r<uDirectionalShadowFar.z) pcf = PCFDIRECTIONAL(uShadowMap, 0.0, 0.5, uDirectionalDepthsMVP[2],uPCFTexelSize,worldPos, MoreThanOneCascade);
+	    else if (texture2D(tDepth, Texcoord).r<uDirectionalShadowFar.w) pcf = PCFDIRECTIONAL(uShadowMap, 0.5,0.5, uDirectionalDepthsMVP[3],uPCFTexelSize,worldPos, MoreThanOneCascade);
 	}
 	vec3 lightDirection = normalize(-uLightDirection);
 	float n_dot_l = max(dot(lightDirection, vViewNormal), 0.0);

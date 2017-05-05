@@ -1007,6 +1007,7 @@ namespace p3d {
 				sol::base_classes, sol::bases<ILightComponent>(),
 				"onUpdate", &LUA_DirectionalLight::on_update,
 				"onInit", &LUA_DirectionalLight::on_init,
+				"setShadowPCFTexelSize", &LUA_DirectionalLight::SetShadowPCFTexelSize,
 				sol::base_classes, sol::bases<IComponent>()
 				);
 		}
@@ -1026,6 +1027,7 @@ namespace p3d {
 				"getLightColor", &LUA_PointLight::GetLightColor,
 				"onUpdate", &LUA_PointLight::on_update,
 				"onInit", &LUA_PointLight::on_init,
+				"setShadowPCFTexelSize", &LUA_PointLight::SetShadowPCFTexelSize,
 				sol::base_classes, sol::bases<IComponent>()
 				);
 		}
@@ -1049,6 +1051,7 @@ namespace p3d {
 				"getLightOutterCone", &LUA_SpotLight::GetLightOutterCone,
 				"setLightOutterCone", &LUA_SpotLight::SetLightOutterCone,
 				"getLightColor", &LUA_SpotLight::GetLightColor,
+				"setShadowPCFTexelSize", &LUA_SpotLight::SetShadowPCFTexelSize,
 				sol::base_classes, sol::bases<IComponent>()
 				);
 		}
@@ -1210,8 +1213,6 @@ namespace p3d {
 				"setShininess", &GenericShaderMaterial::SetShininess,
 				"bindTextures", &GenericShaderMaterial::BindTextures,
 				"unbindTextures", &GenericShaderMaterial::UnbindTextures,
-				"setPCFTexelSize", &GenericShaderMaterial::SetPCFTexelSize,
-				"setPCFTexelCascadesSize", &GenericShaderMaterial::SetPCFTexelCascadesSize,
 				sol::base_classes, sol::bases<IMaterial>()
 				);
 		}

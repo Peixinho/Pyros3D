@@ -61,7 +61,7 @@ uniform mat4 uMatProj;
 
 uniform mat4 uSpotDepthsMVP;
 uniform sampler2DShadow uShadowMap;
-uniform vec4 uPCFTexelSize;
+uniform float uPCFTexelSize;
 uniform float uHaveShadowmap;
 
 // Reconstruct Positions and Normals
@@ -125,7 +125,7 @@ void main() {
 	vec4 worldPos = vec4(v1, 1.0);
 
 	if (uHaveShadowmap>0.0)
-		pcf = PCFSPOT(uShadowMap, uSpotDepthsMVP, uPCFTexelSize.x, worldPos);
+		pcf = PCFSPOT(uShadowMap, uSpotDepthsMVP, uPCFTexelSize, worldPos);
 
 	vec3 diffuseColor = spotEffect * attenuation * n_dot_l * lightColor.xyz * pcf;
 	diffuse = vec4((diffuseColor * Color),1.0);
