@@ -32,6 +32,14 @@ namespace p3d {
 		shadowSkinnedMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Skinning);
 		shadowSkinnedMaterial->SetCullFace(CullFace::DoubleSided);
 
+		colorTexture = new Texture(); colorTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height);
+		colorTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+		lastPassFBO = new FrameBuffer();
+		lastPassFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, colorTexture);
+		lastPassFBO->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, fbo->GetAttachments()[0]->TexturePTR);
+		
+
 		// Default View Port Init Values
 		viewPortStartX = viewPortStartY = 0;
 
@@ -39,10 +47,15 @@ namespace p3d {
 		FBO = fbo;
 
 		// Create Second Pass Specifics        
+		deferredLastPass= new CustomShaderMaterial("../examples/DeferredRendering/assets/shaders/lastPass.glsl");
 		deferredMaterialAmbient= new CustomShaderMaterial("../examples/DeferredRendering/assets/shaders/secondpassAmbient.glsl");
 		deferredMaterialDirectional = new CustomShaderMaterial("../examples/DeferredRendering/assets/shaders/secondpassDirectional.glsl");
 		deferredMaterialPoint = new CustomShaderMaterial("../examples/DeferredRendering/assets/shaders/secondpassPoint.glsl");
 		deferredMaterialSpot = new CustomShaderMaterial("../examples/DeferredRendering/assets/shaders/secondpassSpot.glsl");
+
+		uint32 colorID = 0;
+		deferredLastPass->AddUniform(Uniform("tColor", Uniforms::DataType::Int, &colorID));
+		deferredLastPass->AddUniform(Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
 
 		uint32 texID = 0;
 		deferredMaterialAmbient->AddUniform(Uniform("tDepth", Uniforms::DataType::Int, &texID));
@@ -145,6 +158,8 @@ namespace p3d {
 	void DeferredRenderer::Resize(const uint32 Width, const uint32 Height)
 	{
 		IRenderer::Resize(Width, Height);
+		lastPassFBO->Resize(Width, Height);
+		colorTexture->Resize(Width, Height);
 	}
 
 	DeferredRenderer::~DeferredRenderer()
@@ -153,7 +168,8 @@ namespace p3d {
 		{
 			delete culling;
 		}
-
+		delete lastPassFBO;
+		delete colorTexture;
 		delete shadowMaterial;
 		delete sphereHandle;
 		delete deferredMaterialAmbient;
@@ -206,10 +222,6 @@ namespace p3d {
 		ProjectionMatrixInverseIsDirty = true;
 		ViewProjectionMatrixIsDirty = true;
 
-		ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
-		ClearDepthBuffer();
-		ClearScreen();
-
 		// Bind Frame Buffer
 		FBO->Bind();
 
@@ -261,6 +273,10 @@ namespace p3d {
 
 		// Unbind FrameBuffer
 		FBO->UnBind();
+
+		lastPassFBO->Bind();
+		ClearBufferBit(Buffer_Bit::Color);
+		ClearScreen();
 
 		// Initialize Rendering
 		InitRender();
@@ -418,9 +434,6 @@ namespace p3d {
 			}
 		}
 
-		for (int i = FBO->GetAttachments().size()-1; i>=0; i--)
-			FBO->GetAttachments()[i]->TexturePTR->Unbind();
-
 		// Prepare and Pack Lights to Send to Shaders
 		std::vector<Matrix> _Lights;
 
@@ -532,9 +545,6 @@ namespace p3d {
 
 		EndClippingPlanes();
 
-		// Draw Background
-		DrawBackground();
-
 		// Render Translucid Meshes
 		for (std::vector<RenderingMesh*>::iterator i = rmesh.begin(); i != rmesh.end(); i++)
 		{
@@ -554,8 +564,8 @@ namespace p3d {
 					cullingTest = CullingSphereTest((*i), (*i)->renderingComponent->GetOwner());
 					break;
 				}
-				//if (!(*i)->renderingComponent->IsCullTesting()) cullingTest = true;
-				if (/*cullingTest && */(*i)->renderingComponent->IsActive() && (*i)->Active == true)
+				if (!(*i)->renderingComponent->IsCullTesting()) cullingTest = true;
+				if (cullingTest && (*i)->renderingComponent->IsActive() && (*i)->Active == true)
 				{
 					for (std::vector<Matrix>::iterator _l = _Lights.begin(); _l != _Lights.end(); _l++)
 					{
@@ -581,7 +591,27 @@ namespace p3d {
 
 		// End Rendering
 		EndRender();
-			
+
+		for (int i = FBO->GetAttachments().size()-1; i>=0; i--)
+			FBO->GetAttachments()[i]->TexturePTR->Unbind();
+
+		lastPassFBO->UnBind();
+
+		ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
+		ClearDepthBuffer();
+		ClearScreen();
+
+		InitRender();
+
+		colorTexture->Bind();
+		// Render to Screen
+		{
+			GameObject go = GameObject();
+			RenderObject(directionalLight->GetMeshes()[0], &go, deferredLastPass);
+		}
+		colorTexture->Unbind();
+		
+		EndRender();	
 	}
 
 	void DeferredRenderer::SetFBO(FrameBuffer* fbo)

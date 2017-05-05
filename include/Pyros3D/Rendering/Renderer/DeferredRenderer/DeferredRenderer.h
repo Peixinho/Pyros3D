@@ -38,9 +38,11 @@ namespace p3d {
 	protected:
 
 		// Offscreen Frame Buffer Object
-		FrameBuffer* FBO;
+		FrameBuffer* FBO, *lastPassFBO;
+		Texture* colorTexture;
 
 		// Deferred Materials
+		CustomShaderMaterial *deferredLastPass;
 		CustomShaderMaterial *deferredMaterialAmbient;
 		CustomShaderMaterial *deferredMaterialDirectional;
 		CustomShaderMaterial *deferredMaterialPoint;
