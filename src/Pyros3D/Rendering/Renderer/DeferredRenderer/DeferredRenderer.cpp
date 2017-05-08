@@ -47,11 +47,11 @@ namespace p3d {
 		FBO = fbo;
 
 		// Create Second Pass Specifics        
-		deferredLastPass= new CustomShaderMaterial("../examples/DeferredRendering/assets/shaders/lastPass.glsl");
-		deferredMaterialAmbient= new CustomShaderMaterial("../examples/DeferredRendering/assets/shaders/secondpassAmbient.glsl");
-		deferredMaterialDirectional = new CustomShaderMaterial("../examples/DeferredRendering/assets/shaders/secondpassDirectional.glsl");
-		deferredMaterialPoint = new CustomShaderMaterial("../examples/DeferredRendering/assets/shaders/secondpassPoint.glsl");
-		deferredMaterialSpot = new CustomShaderMaterial("../examples/DeferredRendering/assets/shaders/secondpassSpot.glsl");
+		deferredLastPass= new CustomShaderMaterial("shaders/lastPass.glsl");
+		deferredMaterialAmbient= new CustomShaderMaterial("shaders/secondpassAmbient.glsl");
+		deferredMaterialDirectional = new CustomShaderMaterial("shaders/secondpassDirectional.glsl");
+		deferredMaterialPoint = new CustomShaderMaterial("shaders/secondpassPoint.glsl");
+		deferredMaterialSpot = new CustomShaderMaterial("shaders/secondpassSpot.glsl");
 
 		uint32 colorID = 0;
 		deferredLastPass->AddUniform(Uniform("tColor", Uniforms::DataType::Int, &colorID));
@@ -159,7 +159,6 @@ namespace p3d {
 	{
 		IRenderer::Resize(Width, Height);
 		lastPassFBO->Resize(Width, Height);
-		colorTexture->Resize(Width, Height);
 	}
 
 	DeferredRenderer::~DeferredRenderer()

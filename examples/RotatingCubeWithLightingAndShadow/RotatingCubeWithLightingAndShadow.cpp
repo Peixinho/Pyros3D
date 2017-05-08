@@ -22,7 +22,7 @@ void RotatingCubeWithLightingAndShadow::OnResize(const uint32 width, const uint3
 
 	// Resize
 	Renderer->Resize(width, height);
-	projection.Perspective(70.f, (f32)width / (f32)height, 1.f, 1000.f);
+	projection.Perspective(70.f, (f32)width / (f32)height, 1.f, 200.f);
 
 }
 
@@ -33,25 +33,8 @@ void RotatingCubeWithLightingAndShadow::Init()
 	// Initialize Scene
 	Scene = new SceneGraph();
 
-	// Setting Deferred Rendering Framebuffer and Textures
-	albedoTexture = new Texture(); albedoTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height);
-	specularTexture = new Texture(); specularTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height);
-	depthTexture = new Texture(); depthTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height);
-	normalTexture = new Texture(); normalTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F, Width, Height);
-
-	albedoTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-	specularTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-	depthTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-	normalTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-
-	deferredFBO = new FrameBuffer();
-	deferredFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, depthTexture);
-	deferredFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, albedoTexture);
-	deferredFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment1, TextureType::Texture, specularTexture);
-	deferredFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment2, TextureType::Texture, normalTexture);
-
 	// Initialize Renderer
-	Renderer = new DeferredRenderer(Width, Height, deferredFBO);
+	Renderer = new ForwardRenderer(Width, Height);
 
 	// Projection
 	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 2000.f);
@@ -61,7 +44,7 @@ void RotatingCubeWithLightingAndShadow::Init()
 	Camera->SetPosition(Vec3(0, 10, 100));
 
 	// Material
-	Diffuse = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::SpecularColor | ShaderUsage::DeferredRenderer_Gbuffer | ShaderUsage::DirectionalShadow | ShaderUsage::PointShadow);
+	Diffuse = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::SpecularColor | ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow | ShaderUsage::PointShadow);
 	Diffuse->SetColor(Vec4(1, 0, 0, 1));
 	Diffuse->SetPCFTexelSize(0.0001f);
 	Diffuse->SetSpecular(Vec4(1, 1, 1, 1));
@@ -88,7 +71,7 @@ void RotatingCubeWithLightingAndShadow::Init()
 	Scene->Add(Light);
 
 	// Create Floor Material
-	FloorMaterial = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::DeferredRenderer_Gbuffer | ShaderUsage::DirectionalShadow | ShaderUsage::PointShadow);
+	FloorMaterial = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow | ShaderUsage::PointShadow);
 	FloorMaterial->SetColor(Vec4(1, 1, 1, 1));
 	FloorMaterial->SetPCFTexelCascadesSize(0.0001f);
 

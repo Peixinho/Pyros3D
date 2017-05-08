@@ -31,7 +31,7 @@ namespace p3d
 			//ShaderLib::BuildShader(options, ShadersList[options]);
 
 #if defined(_DEBUG) || defined(USE_SHADER_FILE)
-			ShadersList[options]->LoadShaderFile("PyrosShader.glsl");
+			ShadersList[options]->LoadShaderFile("shaders/PyrosShader.glsl");
 #else
 			ShadersList[options]->LoadShaderText(SHADER_CODE);
 #endif
