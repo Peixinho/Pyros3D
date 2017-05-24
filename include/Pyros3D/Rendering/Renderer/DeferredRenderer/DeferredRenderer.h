@@ -18,7 +18,7 @@
 
 namespace p3d {
 
-	class DeferredRenderer : public IRenderer {
+	class PYROS3D_API DeferredRenderer : public IRenderer {
 
 	public:
 
