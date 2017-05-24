@@ -654,7 +654,7 @@ float DecodeFloatRGBA( vec4 rgba ) {
             gl_FragData[1]=vec4(specular.xyz,diffuse.y*uAmbientLight.y);
             gl_FragData[2]=vec4(gbuffer_normals.xyz,diffuse.z*uAmbientLight.z);
         #else
-            gl_FragColor = vec4(diffuse.xyz,uOpacity);
+            gl_FragColor = vec4(diffuse.xyz,diffuse.w*uOpacity);
         #endif
     }
     

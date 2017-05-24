@@ -763,7 +763,7 @@ namespace p3d {
 "            gl_FragData[1]=vec4(specular.xyz,diffuse.y*uAmbientLight.y);\n"
 "            gl_FragData[2]=vec4(gbuffer_normals.xyz,diffuse.z*uAmbientLight.z);\n"
 "        #else\n"
-"            gl_FragColor = vec4(diffuse.xyz,uOpacity);\n"
+"            gl_FragColor = vec4(diffuse.xyz,diffuse.w*uOpacity);\n"
 "        #endif\n"
 "    }\n"
 "    \n"
