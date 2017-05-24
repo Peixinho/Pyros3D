@@ -7,11 +7,26 @@ void main() {
 #endif
 
 #ifdef FRAGMENT
+
+float PCFDIRECTIONAL(sampler2DShadow shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) 
+{
+	vec4 coord = sMatrix * pos;
+	if (MoreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(width,height);
+	float shadow = 0.0;
+	float x = 0.0;
+	float y = 0.0;
+
+	for (y = -1.5 ; y <=1.5 ; y+=1.0)
+		for (x = -1.5 ; x <=1.5 ; x+=1.0)
+			shadow += shadow2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
+	shadow /= 16.0;
+	return shadow;
+}
+
 vec4 diffuse = vec4(0.0,0.0,0.0,1.0);
 vec4 specular = vec4(0.0,0.0,0.0,1.0);
 bool diffuseIsSet = false;
 
-uniform float uOpacity;
 uniform sampler2D tDiffuse;
 uniform sampler2D tSpecular;
 uniform sampler2D tDepth;
@@ -21,6 +36,12 @@ uniform vec3 uLightDirection;
 uniform vec4 uLightColor;
 uniform vec2 uNearFar;
 uniform mat4 uMatProj;
+
+uniform sampler2DShadow uShadowMap;
+uniform float uPCFTexelSize;
+uniform mat4 uDirectionalDepthsMVP[4];
+uniform vec4 uDirectionalShadowFar;
+uniform float uHaveShadowmap;
 
 // Reconstruct Positions and Normals
 float DecodeLinearDepth(float z, vec4 z_info_local)
@@ -36,7 +57,7 @@ float DecodeNativeDepth(float native_z, vec4 z_info_local)
 vec2 getPosViewSpace(vec2 uv, vec4 z_info_local, mat4 uMatProj_local, vec4 viewport_transform_local)
 {
 	vec2 screenPos = (uv + .5) * viewport_transform_local.zw - viewport_transform_local.xy;
-	vec2 screenSpaceRay = vec2(screenPos.x / uMatProj_local[0][0],-screenPos.y / uMatProj_local[1][1]);
+	vec2 screenSpaceRay = vec2(screenPos.x / uMatProj_local[0][0],screenPos.y / uMatProj_local[1][1]);
 	return screenSpaceRay;
 }
 
@@ -48,7 +69,7 @@ vec3 getPosViewSpace(float depth_sampled, vec2 uv, vec4 z_info_local, out vec3 v
 	vpos.xy = lDepth * screenSpaceRay;
 	vpos.z = -lDepth;
 
-	return vec3(screenSpaceRay, -1.0);
+	return vec3(screenSpaceRay, -1);
 }
 
 void main() {
@@ -56,21 +77,27 @@ void main() {
 	vec4 z_info = vec4(uNearFar.x, uNearFar.y, uNearFar.x*uNearFar.y, uNearFar.x - uNearFar.y);
 	vec2 Out = vec2(uScreenDimensions.x, uScreenDimensions.y);
 	vec4 vp = vec4(1.0, 1.0, 2.0/Out.x, 2.0/Out.y);
-	vec3 v1; // v2, v3;
+	vec3 v1;
 	vec4 out_dim = vec4(uScreenDimensions.x, uScreenDimensions.y, 1.0/uScreenDimensions.x, 1.0/uScreenDimensions.y);
 	vec2 screenCoord = vec2(uScreenDimensions.x*Texcoord.x, uScreenDimensions.y*Texcoord.y);
 
-	getPosViewSpace(texture2D(tDepth, Texcoord).r, screenCoord, z_info, v1, uMatProj, vp);
-	/*getPosViewSpace(texture2D(tDepth, Texcoord + vec2(out_dim.z, 0)).r, screenCoord + vec2(1, 0), z_info, v2, uMatProj, vp);
-	getPosViewSpace(texture2D(tDepth, Texcoord + vec2(0,out_dim.w)).r, screenCoord + vec2(0, 1), z_info, v3, uMatProj, vp);
-	vec3 vViewNormal = normalize(cross(v3 - v1, v2 - v1));*/
-
-	v1.y=-v1.y;
+	getPosViewSpace(texture2D(tDepth, Texcoord).r, screenCoord, z_info, v1, uMatProj, vp);	
 
 	vec3 vViewNormal = normalize(texture2D(tNormal, Texcoord).xyz);
 	vec3 Color = texture2D(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
 	vec4 lightColor = uLightColor;
 
+	float pcf = 1.0;
+	vec4 worldPos = vec4(v1, 1.0);
+
+	if (uHaveShadowmap>0.0)
+	{
+	    bool MoreThanOneCascade = (uDirectionalShadowFar.y>0.0);
+	    if (texture2D(tDepth, Texcoord).r<uDirectionalShadowFar.x) pcf = PCFDIRECTIONAL(uShadowMap, 0.0, 0.0, uDirectionalDepthsMVP[0],uPCFTexelSize,worldPos, MoreThanOneCascade);
+	    else if (texture2D(tDepth, Texcoord).r<uDirectionalShadowFar.y) pcf = PCFDIRECTIONAL(uShadowMap, 0.5,0.0, uDirectionalDepthsMVP[1],uPCFTexelSize,worldPos, MoreThanOneCascade);
+	    else if (texture2D(tDepth, Texcoord).r<uDirectionalShadowFar.z) pcf = PCFDIRECTIONAL(uShadowMap, 0.0, 0.5, uDirectionalDepthsMVP[2],uPCFTexelSize,worldPos, MoreThanOneCascade);
+	    else if (texture2D(tDepth, Texcoord).r<uDirectionalShadowFar.w) pcf = PCFDIRECTIONAL(uShadowMap, 0.5,0.5, uDirectionalDepthsMVP[3],uPCFTexelSize,worldPos, MoreThanOneCascade);
+	}
 	vec3 lightDirection = normalize(-uLightDirection);
 	float n_dot_l = max(dot(lightDirection, vViewNormal), 0.0);
 	vec3 diffuseColor = n_dot_l * lightColor.xyz;
@@ -83,6 +110,6 @@ void main() {
 	float specularPower = (n_dot_l>0.0?pow(max(dot(halfVec,vViewNormal),0.0), 50.0):0.0);
 	specular = vec4(specularPower * Specular, 1.0);
 	
-	gl_FragColor=diffuse + specular;
+	gl_FragColor = (diffuse + specular) * pcf;
 }
 #endif

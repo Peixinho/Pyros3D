@@ -282,12 +282,21 @@ namespace p3d {
 	{
 		return g.HaveTag(tag);
 	}
-	// IRenderer
+	// ForwardRenderer
 	void ForwardRenderer_PreRender(ForwardRenderer &r, GameObject* Camera, SceneGraph* Scene)
 	{
 		r.PreRender(Camera, Scene);
 	}
 	void ForwardRenderer_PreRenderTag(ForwardRenderer &r, GameObject* Camera, SceneGraph* Scene, const std::string &tag)
+	{
+		r.PreRender(Camera, Scene, tag);
+	}
+	// DeferredRenderer
+	void DeferredRenderer_PreRender(DeferredRenderer &r, GameObject* Camera, SceneGraph* Scene)
+	{
+		r.PreRender(Camera, Scene);
+	}
+	void DeferredRenderer_PreRenderTag(DeferredRenderer &r, GameObject* Camera, SceneGraph* Scene, const std::string &tag)
 	{
 		r.PreRender(Camera, Scene, tag);
 	}
@@ -847,6 +856,56 @@ namespace p3d {
 		}
 
 		{
+			// DeferredRenderer
+			sol::constructors<sol::types<float, float, FrameBuffer*>> con;
+			lua->new_simple_usertype<DeferredRenderer>("DeferredRenderer",
+				con,
+				"clearBufferBit", &DeferredRenderer::ClearBufferBit,
+				"enableClearDepthBuffer", &DeferredRenderer::EnableClearDepthBuffer,
+				"disableClearDepthBuffer", &DeferredRenderer::DisableClearDepthBuffer,
+				"clearDepthBuffer", &DeferredRenderer::ClearDepthBuffer,
+				"enableClipPlane", &DeferredRenderer::EnableClipPlane,
+				"disableClipPlane", &DeferredRenderer::DisableClipPlane,
+				"setClipaPlane0", &DeferredRenderer::SetClipPlane0,
+				"setClipaPlane1", &DeferredRenderer::SetClipPlane1,
+				"setClipaPlane2", &DeferredRenderer::SetClipPlane2,
+				"setClipaPlane3", &DeferredRenderer::SetClipPlane3,
+				"setClipaPlane4", &DeferredRenderer::SetClipPlane4,
+				"setClipaPlane5", &DeferredRenderer::SetClipPlane5,
+				"setClipaPlane6", &DeferredRenderer::SetClipPlane6,
+				"setClipaPlane7", &DeferredRenderer::SetClipPlane7,
+				"enableStencil", &DeferredRenderer::EnableStencil,
+				"disableStencil", &DeferredRenderer::DisableStencil,
+				"clearStencilBuffer", &DeferredRenderer::ClearStencilBuffer,
+				"stencilFunction", &DeferredRenderer::StencilFunction,
+				"stencilOperation", &DeferredRenderer::StencilOperation,
+				"enableScissorTest", &DeferredRenderer::EnableScissorTest,
+				"disableScissorTest", &DeferredRenderer::DisableScissorTest,
+				"scissorTestRect", &DeferredRenderer::ScissorTestRect,
+				"enableWireFrame", &DeferredRenderer::EnableWireFrame,
+				"disableWireFrame", &DeferredRenderer::DisableWireFrame,
+				"colorMask", &DeferredRenderer::ColorMask,
+				"enableSorting", &DeferredRenderer::EnableSorting,
+				"disableSorting", &DeferredRenderer::DisableSorting,
+				"enableLOD", &DeferredRenderer::EnableLOD,
+				"disableLOD", &DeferredRenderer::DisableLOD,
+				"isUsingLOD", &DeferredRenderer::IsUsingLOD,
+				"setBackground", &DeferredRenderer::SetBackground,
+				"unsetBackground", &DeferredRenderer::UnsetBackground,
+				"setGlobalLight", &DeferredRenderer::SetGlobalLight,
+				"enableDepthBias", &DeferredRenderer::EnableDepthBias,
+				"disableDepthBias", &DeferredRenderer::DisableDepthBias,
+				"setViewPort", &DeferredRenderer::SetViewPort,
+				"resetViewPort", &DeferredRenderer::ResetViewPort,
+				"resize", &DeferredRenderer::Resize,
+				"activateCulling", &DeferredRenderer::ActivateCulling,
+				"deactivateCulling", &DeferredRenderer::DeactivateCulling,
+				"renderScene", &DeferredRenderer::RenderScene,
+				"preRender", sol::overload(&DeferredRenderer_PreRender, &DeferredRenderer_PreRenderTag)
+				);
+		}
+
+		{
 			// Frame Buffer
 			sol::constructors<sol::types<>> con;
 			lua->new_simple_usertype<FrameBuffer>("FrameBuffer",
@@ -948,6 +1007,7 @@ namespace p3d {
 				sol::base_classes, sol::bases<ILightComponent>(),
 				"onUpdate", &LUA_DirectionalLight::on_update,
 				"onInit", &LUA_DirectionalLight::on_init,
+				"setShadowPCFTexelSize", &LUA_DirectionalLight::SetShadowPCFTexelSize,
 				sol::base_classes, sol::bases<IComponent>()
 				);
 		}
@@ -967,6 +1027,7 @@ namespace p3d {
 				"getLightColor", &LUA_PointLight::GetLightColor,
 				"onUpdate", &LUA_PointLight::on_update,
 				"onInit", &LUA_PointLight::on_init,
+				"setShadowPCFTexelSize", &LUA_PointLight::SetShadowPCFTexelSize,
 				sol::base_classes, sol::bases<IComponent>()
 				);
 		}
@@ -990,6 +1051,7 @@ namespace p3d {
 				"getLightOutterCone", &LUA_SpotLight::GetLightOutterCone,
 				"setLightOutterCone", &LUA_SpotLight::SetLightOutterCone,
 				"getLightColor", &LUA_SpotLight::GetLightColor,
+				"setShadowPCFTexelSize", &LUA_SpotLight::SetShadowPCFTexelSize,
 				sol::base_classes, sol::bases<IComponent>()
 				);
 		}
@@ -1151,8 +1213,6 @@ namespace p3d {
 				"setShininess", &GenericShaderMaterial::SetShininess,
 				"bindTextures", &GenericShaderMaterial::BindTextures,
 				"unbindTextures", &GenericShaderMaterial::UnbindTextures,
-				"setPCFTexelSize", &GenericShaderMaterial::SetPCFTexelSize,
-				"setPCFTexelCascadesSize", &GenericShaderMaterial::SetPCFTexelCascadesSize,
 				sol::base_classes, sol::bases<IMaterial>()
 				);
 		}

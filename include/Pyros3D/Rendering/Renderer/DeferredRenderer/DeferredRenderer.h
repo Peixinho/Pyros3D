@@ -9,12 +9,12 @@
 #ifndef DEFERREDRENDERER_H
 #define DEFERREDRENDERER_H
 
-#include "Pyros3D/Assets/Renderable/Primitives/Shapes/Sphere.h"
-#include "Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h"
-#include "Pyros3D/Rendering/Renderer/IRenderer.h"
-#include "Pyros3D/Core/Projection/Projection.h"
-#include "Pyros3D/Core/Buffers/FrameBuffer.h"
-#include "Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h"
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Sphere.h>
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
+#include <Pyros3D/Rendering/Renderer/IRenderer.h>
+#include <Pyros3D/Core/Projection/Projection.h>
+#include <Pyros3D/Core/Buffers/FrameBuffer.h>
+#include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 
 namespace p3d {
 
@@ -38,9 +38,12 @@ namespace p3d {
 	protected:
 
 		// Offscreen Frame Buffer Object
-		FrameBuffer* FBO;
+		FrameBuffer* FBO, *lastPassFBO;
+		Texture* colorTexture;
 
-		// Point Light Volume
+		// Deferred Materials
+		CustomShaderMaterial *deferredLastPass;
+		CustomShaderMaterial *deferredMaterialAmbient;
 		CustomShaderMaterial *deferredMaterialDirectional;
 		CustomShaderMaterial *deferredMaterialPoint;
 		CustomShaderMaterial *deferredMaterialSpot;
@@ -51,9 +54,9 @@ namespace p3d {
 		Renderable* quadHandle;
 
 		// Uniform Handlers
-		Uniform *pointPosHandle, *pointRadiusHandle, *pointColorHandle;
-		Uniform *dirDirHandle, *dirColorHandle;
-		Uniform *spotPosHandle, *spotDirHandle, *spotRadiusHandle, *spotOutterHandle, *spotInnerHandle, *spotColorHandle;
+		Uniform *pointPosHandle, *pointRadiusHandle, *pointColorHandle, *pointShadowHandle, *pointShadowDepthsMVPHandle, *pointShadowPCFTexelHandle, *pointHaveShadowHandle;
+		Uniform *dirDirHandle, *dirColorHandle, *dirShadowHandle, *dirShadowPCFTexelHandle, *dirShadowDepthsMVPHandle, *dirShadowFarHandle, *dirHaveShadowHandle;
+		Uniform *spotPosHandle, *spotDirHandle, *spotRadiusHandle, *spotOutterHandle, *spotInnerHandle, *spotColorHandle, *spotShadowHandle, *spotShadowDepthsMVPHandle, *spotShadowPCFTexelHandle, *spotHaveShadowHandle;
 	};
 
 };

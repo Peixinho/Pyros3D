@@ -137,7 +137,10 @@ namespace p3d {
 		{
 		case GL_FRAMEBUFFER_COMPLETE:
 		{
+
+#ifdef _DEBUG
 			echo("FBO: The framebuffer is complete and valid for rendering.");
+#endif
 			break;
 		}
 		case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:

@@ -20,6 +20,7 @@ namespace p3d {
 		isCastingShadows = false;
 		shadowsFBO = NULL;
 		ShadowBiasFactor = ShadowBiasUnits = 0.f;
+		pcfTexel = 0.0001f;
 	}
 
 	ILightComponent::~ILightComponent()

@@ -84,6 +84,7 @@ void RacingGame::Init()
 	dLight = new DirectionalLight(Vec4(1, 1, 1, 1), Vec3(-1, -1, -1));
 	dLight->EnableCastShadows(1024, 1024, projection, 0.1f, 200.f, 2);
 	dLight->SetShadowBias(3.1f, 9.0f);
+	dLight->SetShadowPCFTexelSize(0.0001f);
 	Light->Add(dLight);
 	Scene->Add(Light);
 

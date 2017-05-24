@@ -33,7 +33,7 @@ void DeferredRendering::Init()
 {
 	// Initialization
 
-		// Initialize Scene
+	// Initialize Scene
 	Scene = new SceneGraph();
 
 	// Setting Deferred Rendering Framebuffer and Textures
@@ -95,13 +95,10 @@ void DeferredRendering::Init()
 
 
 	// Material
-	Vec4 color = Vec4(0.8f, 0.8f, 0.8f, 1.f);
-	Diffuse = new CustomShaderMaterial("../examples/DeferredRendering/assets/shaders/gbuffer.glsl");
-	Diffuse->AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
-	Diffuse->AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
-	Diffuse->AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
-	Diffuse->AddUniform(Uniform("uColor", Uniforms::DataType::Vec4, &color));
-	Diffuse->AddUniform(Uniform("uSpecular", Uniforms::DataType::Vec4, &color));
+	Vec4 color = Vec4(1.0f, 0.8f, 0.8f, 1.f);
+	Diffuse = new GenericShaderMaterial(ShaderUsage::DeferredRenderer_Gbuffer | ShaderUsage::Color | ShaderUsage::SpecularColor);
+	Diffuse->SetColor(color);
+	Diffuse->SetSpecular(color);
 	Diffuse->SetCullFace(CullFace::DoubleSided);
 
 	Renderable* cubeHandle2 = new Cube(1.f, 1.f, 1.f);

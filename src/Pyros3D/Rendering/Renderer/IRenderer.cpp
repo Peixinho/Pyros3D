@@ -74,7 +74,7 @@ namespace p3d {
 		sort(_TranslucidMeshes.begin(), _TranslucidMeshes.end(), Sort::sortRenderingMeshes);
 
 		// final list
-		for (std::vector<RenderingMesh*>::iterator i = _TranslucidMeshes.begin(); i != _TranslucidMeshes.end(); i++)
+		for (std::vector<RenderingMesh*>::reverse_iterator i = _TranslucidMeshes.rbegin(); i != _TranslucidMeshes.rend(); i++)
 		{
 			_OpaqueMeshes.push_back((*i));
 		}
@@ -273,14 +273,14 @@ namespace p3d {
 							for (std::vector<RenderingMesh*>::iterator k = rmesh.begin(); k != rmesh.end(); k++)
 							{
 
-								if ((*k)->renderingComponent->GetOwner() != NULL)
+								if ((*k)->renderingComponent->GetOwner() != NULL && !(*k)->Material->IsTransparent())
 								{
 									if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
 										RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
 								}
 							}
 
-							DirectionalShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
+							DirectionalShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix * Camera->GetWorldTransformation())));
 
 						}
 
@@ -351,7 +351,7 @@ namespace p3d {
 							if (i == 5)
 								ViewMatrix.LookAt(p->GetOwner()->GetWorldPosition(), p->GetOwner()->GetWorldPosition() + Vec3(0.0f, 0.0f, -1.0f), Vec3(0.0f, -1.0f, 0.0f)); // -Z
 
-																																											// Update Culling
+							// Update Culling
 							UpdateCulling(ShadowProjection.m*ViewMatrix);
 
 #if defined(GLES2) || defined(GLLEGACY)
@@ -376,7 +376,7 @@ namespace p3d {
 							// Enable Depth Bias
 							shadowMaterial->EnableDethBias(p->GetShadowBiasFactor(), p->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
 
-																											   // Set Viewport
+							// Set Viewport
 							_SetViewPort(0, 0, p->GetShadowWidth(), p->GetShadowHeight());
 
 							// Render Scene with Objects Material
@@ -398,7 +398,7 @@ namespace p3d {
 									break;
 									}
 									if (!(*k)->renderingComponent->IsCullTesting()) cullingTest = true;*/
-									if (/*cullingTest && */!(*k)->Material->IsTransparent())
+									if (/*cullingTest && */ (*k)->renderingComponent->GetOwner() != NULL && !(*k)->Material->IsTransparent() && !(*k)->Material->IsTransparent())
 									{
 										if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
 											RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
@@ -415,7 +415,7 @@ namespace p3d {
 						// Set Light View Matrix
 						Matrix m;
 						m.Translate(p->GetOwner()->GetWorldPosition().negate());
-						PointShadowMatrix.push_back(m);
+						PointShadowMatrix.push_back(m * Camera->GetWorldTransformation());
 
 						// Get Texture (only 1)
 						PointShadowMapsTextures.push_back(p->GetShadowMapTexture());
@@ -473,7 +473,7 @@ namespace p3d {
 						// Enable Depth Bias
 						shadowMaterial->EnableDethBias(s->GetShadowBiasFactor(), s->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
 
-																										   // Set Viewport
+						// Set Viewport
 						_SetViewPort(0, 0, s->GetShadowWidth(), s->GetShadowHeight());
 
 						// Render Scene with Objects Material
@@ -495,7 +495,7 @@ namespace p3d {
 								break;
 								}
 								if (!(*k)->renderingComponent->IsCullTesting()) cullingTest = true;*/
-								if (/*cullingTest && */!(*k)->Material->IsTransparent())
+								if (/*cullingTest && */ (*k)->renderingComponent->GetOwner() != NULL && !(*k)->Material->IsTransparent() && !(*k)->Material->IsTransparent())
 								{
 									if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
 										RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
@@ -512,7 +512,7 @@ namespace p3d {
 						s->GetShadowFBO()->UnBind();
 
 						// Set Light Matrix
-						SpotShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix)));
+						SpotShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix * Camera->GetWorldTransformation())));
 
 						// Get Texture (only 1)
 						SpotShadowMapsTextures.push_back(s->GetShadowMapTexture());
@@ -586,6 +586,8 @@ namespace p3d {
 		ModelMatrixInverseIsDirty = true;
 		ModelViewMatrixInverseIsDirty = true;
 		ModelMatrixInverseTransposeIsDirty = true;
+		ModelViewProjectionMatrixInverseIsDirty = true;
+		ViewProjectionMatrixInverseIsDirty = true;
 
 		if ((LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material || LastMeshRenderedPTR->Geometry->GetGeometryType() == GeometryType::ARRAY) && LastProgramUsed != -1)
 		{
@@ -1436,6 +1438,14 @@ namespace p3d {
 					}
 					Shader::SendUniform((*k), &ProjectionMatrixInverse, (*_ShadersGlobalCache)[counter]);
 					break;
+				case Uniforms::DataUsage::ViewProjectionMatrixInverse:
+					if (ViewProjectionMatrixInverseIsDirty == true)
+					{
+						ViewProjectionMatrixInverse = (ProjectionMatrix * ViewMatrix).Inverse();
+						ViewProjectionMatrixInverseIsDirty = false;
+					}
+					Shader::SendUniform((*k), &ProjectionMatrixInverse, (*_ShadersGlobalCache)[counter]);
+					break;
 				case Uniforms::DataUsage::CameraPosition:
 					Shader::SendUniform((*k), &CameraPosition, (*_ShadersGlobalCache)[counter]);
 					break;
@@ -1595,9 +1605,17 @@ namespace p3d {
 					break;
 				case Uniforms::DataUsage::Skinning:
 				{
-					if (rmesh->SkinningBones.size()>0)
+					if (rmesh->SkinningBones.size() > 0)
 						Shader::SendUniform((*k), &rmesh->SkinningBones[0], (*_ShadersModelCache)[counter], rmesh->SkinningBones.size());
 				}
+				break;
+				case Uniforms::DataUsage::ModelViewProjectionMatrixInverse:
+					if (ModelViewProjectionMatrixInverseIsDirty == true)
+					{
+						ModelViewProjectionMatrixInverse = (ProjectionMatrix * ViewMatrix * ModelMatrix).Inverse();
+						ModelViewProjectionMatrixInverseIsDirty = false;
+					}
+					Shader::SendUniform((*k), &ModelViewProjectionMatrixInverse, (*_ShadersModelCache)[counter]);
 				break;
 				}
 			}

@@ -54,6 +54,9 @@ namespace p3d {
 
 		Texture* GetShadowMapTexture() { return ShadowMap; }
 
+		void SetShadowPCFTexelSize(f32 texel) { pcfTexel = texel; }
+		f32 GetShadowPCFTexelSize() { return pcfTexel; }
+
 		uint32 GetShadowWidth()
 		{
 			return ShadowWidth;
@@ -128,6 +131,8 @@ namespace p3d {
 		static std::map<SceneGraph*, std::vector<IComponent*> > LightsOnScene;
 
 		uint32 LightType;
+
+		f32 pcfTexel;
 
 	};
 

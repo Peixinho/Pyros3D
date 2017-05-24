@@ -46,7 +46,6 @@ void RotatingCubeWithLightingAndShadow::Init()
 	// Material
 	Diffuse = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::SpecularColor | ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow | ShaderUsage::PointShadow);
 	Diffuse->SetColor(Vec4(1, 0, 0, 1));
-	Diffuse->SetPCFTexelSize(0.0001f);
 	Diffuse->SetSpecular(Vec4(1, 1, 1, 1));
 
 	// Add a Directional Light
@@ -73,7 +72,6 @@ void RotatingCubeWithLightingAndShadow::Init()
 	// Create Floor Material
 	FloorMaterial = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow | ShaderUsage::PointShadow);
 	FloorMaterial->SetColor(Vec4(1, 1, 1, 1));
-	FloorMaterial->SetPCFTexelCascadesSize(0.0001f);
 
 	// Create Floor
 	Floor = new GameObject();

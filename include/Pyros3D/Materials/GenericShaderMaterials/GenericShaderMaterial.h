@@ -52,10 +52,6 @@ namespace p3d
 		void BindTextures();
 		void UnbindTextures();
 
-		// Shadows
-		void SetPCFTexelSize(const f32 texel);
-		void SetPCFTexelCascadesSize(const f32 texel1, const f32 texel2 = 0.0001f, const f32 texel3 = 0.0001f, const f32 texel4 = 0.0001f);
-
 	private:
 
 		// List of Tetxures
@@ -74,12 +70,6 @@ namespace p3d
 		Vec4 Ks;
 		f32 Shininess, UseLights;
 
-		// Shadows
-		f32 PCFTexelSize1;
-		f32 PCFTexelSize2;
-		f32 PCFTexelSize3;
-		f32 PCFTexelSize4;
-
 		// Environment Cube
 		f32 Reflectivity;
 
@@ -87,7 +77,7 @@ namespace p3d
 		int32 colorMapID, specularMapID, normalMapID, envMapID, skyboxMapID, refractMapID, fontMapID;
 
 		// Uniforms Handles
-		Uniform *uColor, *uSpecular, *uReflectivity, *uShininess, *uUseLights, *uPCFTexelSize1, *uPCFTexelSize2, *uPCFTexelSize3, *uPCFTexelSize4;
+		Uniform *uColor, *uSpecular, *uReflectivity, *uShininess, *uUseLights;
 	};
 }
 

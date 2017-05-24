@@ -355,6 +355,8 @@ namespace p3d {
 			NormalMatrix,
 			ModelViewMatrix,
 			ModelViewProjectionMatrix,
+			ViewProjectionMatrixInverse,
+			ModelViewProjectionMatrixInverse,
 			ModelMatrixInverse,
 			ModelViewMatrixInverse,
 			ModelMatrixInverseTranspose;
@@ -364,7 +366,9 @@ namespace p3d {
 			ModelViewProjectionMatrixIsDirty,
 			ModelMatrixInverseIsDirty,
 			ModelViewMatrixInverseIsDirty,
-			ModelMatrixInverseTransposeIsDirty;
+			ModelMatrixInverseTransposeIsDirty,
+			ModelViewProjectionMatrixInverseIsDirty,
+			ViewProjectionMatrixInverseIsDirty;
 		bool
 			ProjectionMatrixDirty,
 			ViewMatrixDirty;
