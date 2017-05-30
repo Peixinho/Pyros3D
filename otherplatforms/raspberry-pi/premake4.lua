@@ -101,7 +101,7 @@ solution "Pyros3D"
             targetdir ("../../bin/tools/")
 
             links { libName.."d", libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "z" }
-            linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
+            linkoptions { "-L../libs -L/opt/vc/lib -L/usr/local/lib -Wl,-rpath,../../../../libs" }
 
             flags { "Symbols" }
 
@@ -110,7 +110,7 @@ solution "Pyros3D"
             targetdir ("../../bin/tools/")
 
             links { libName, libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "pthread", "z" }
-            linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
+            linkoptions { "-L../libs -L/opt/vc/lib -L/usr/local/lib -Wl,-rpath,../../../../libs" }
 
             flags { "Optimize" }
 
@@ -128,19 +128,19 @@ function BuildDemo(demoPath, demoName)
 
             defines({"_DEBUG"})
 
-            targetdir ("bin/")
+            targetdir ("../../bin/")
 
             links { libName.."d", libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "z" }
-            linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
+            linkoptions { "-L../../libs -L/opt/vc/lib -L/usr/local/lib -Wl,-rpath,../../../../libs" }
 
             flags { "Symbols" }
 
         configuration "Release"
 
-            targetdir ("bin/")
+            targetdir ("../../bin/")
 
 	    links { libName, libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype", "pthread", "z" }
-            linkoptions { "-L../libs -L/usr/local/lib -Wl,-rpath,../../../../libs" }
+            linkoptions { "-L../../libs -L/opt/vc/lib -L/usr/local/lib -Wl,-rpath,../../../../libs" }
 
             flags { "Optimize" }
 end;
