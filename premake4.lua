@@ -172,7 +172,9 @@ solution "Pyros3D"
             if _OPTIONS["log"]=="file" then
                 defines({"LOG_TO_FILE"})
             else
-                defines({"LOG_DISABLE"}) 
+                if _OPTIONS["log"]=="none" then
+                    defines({"LOG_DISABLE"}) 
+                end
             end
         end
 

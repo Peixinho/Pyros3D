@@ -144,39 +144,43 @@ void SimplePhysics::Shutdown()
 {
 	// All your Shutdown Code Here
 
-		// Remove GameObjects From Scene
+	// Remove GameObjects From Scene
 	Scene->Remove(Camera);
 
 	Scene->Remove(Light);
 
-	Scene->Remove(Floor);
-
-	// GameObjects and Components
-#if !defined(GLES2)
-	for (uint32 i = 0; i < 100; i++)
-#else
-	for (uint32 i = 0; i < 1000; i++)
-#endif
-	{
-		// Remove From Scene
-		Scene->Remove(Cubes[i]);
-		// Remove From GameObject Owner
-		Cubes[i]->Remove(rCubes[i]);
-		Cubes[i]->Remove(pCubes[i]);
-		// Delete Rendering Component
-		delete rCubes[i];
-		// Delete Physics Component
-		delete pCubes[i];
-		// Delete GameObject
-		delete Cubes[i];
-	}
-
-	// Remove Directional Light Component
-	Light->Remove(dLight);
-
 	// Remove Floor Components
 	Floor->Remove(pFloor);
 	Floor->Remove(rFloor);
+
+	Scene->Remove(Floor);
+
+	// GameObjects and Components
+
+	for (std::vector<RenderingComponent*>::iterator i = rCubes.begin(); i != rCubes.end(); i++)
+	{
+		(*i)->GetOwner()->Remove(*i);
+		delete *i;
+	}
+	
+	for (std::vector<IPhysicsComponent*>::iterator i = pCubes.begin(); i != pCubes.end(); i++)
+	{
+		(*i)->GetOwner()->Remove(*i);
+		delete *i;
+	}
+	
+	for (std::vector<GameObject*>::iterator i = Cubes.begin(); i != Cubes.end(); i++)
+	{
+		Scene->Remove(*i);
+		delete *i;
+	}
+	
+	Cubes.clear();
+	rCubes.clear();
+	pCubes.clear();
+
+	// Remove Directional Light Component
+	Light->Remove(dLight);
 
 	// Delete All Components and GameObjects
 	delete dLight;

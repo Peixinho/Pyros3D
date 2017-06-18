@@ -309,7 +309,7 @@ namespace p3d {
 					pointPosHandle->SetValue(&pos);
 					pointRadiusHandle->SetValue((void*)&p->GetLightRadius());
 					pointColorHandle->SetValue((void*)&p->GetLightColor());
-					int i = -1;
+					int shadowUnit = 0;
 					float haveShadow = 0.f;
 					if (p->IsCastingShadows())
 					{
@@ -320,10 +320,10 @@ namespace p3d {
 						pointShadowPCFTexelHandle->SetValue((void*)&txl);
 						pointShadowDepthsMVPHandle->SetValue(&mvp, 2);
 						p->GetShadowMapTexture()->Bind();
-						i = Texture::GetLastBindedUnit();
+						shadowUnit = Texture::GetLastBindedUnit();
 						haveShadow = 1.f;
 					}
-					pointShadowHandle->SetValue(&i);
+					pointShadowHandle->SetValue(&shadowUnit);
 					pointHaveShadowHandle->SetValue(&haveShadow);
 
 					// Set Scale
@@ -352,7 +352,7 @@ namespace p3d {
 					spotInnerHandle->SetValue((void*)&s->GetLightCosInnerCone());
 					spotColorHandle->SetValue((void*)&s->GetLightColor());
 
-					int i = -1;
+					int shadowUnit = 0;
 					float haveShadow = 0.f;
 					if (s->IsCastingShadows())
 					{
@@ -361,10 +361,10 @@ namespace p3d {
 						spotShadowPCFTexelHandle->SetValue(&txl);
 						spotShadowDepthsMVPHandle->SetValue(&mvp);
 						s->GetShadowMapTexture()->Bind();
-						i = Texture::GetLastBindedUnit();
+						shadowUnit = Texture::GetLastBindedUnit();
 						haveShadow = 1.f;
 					}
-					spotShadowHandle->SetValue(&i);
+					spotShadowHandle->SetValue(&shadowUnit);
 					spotHaveShadowHandle->SetValue(&haveShadow);
 
 					// Set Scale
@@ -387,7 +387,7 @@ namespace p3d {
 					Vec3 dir = (ViewMatrix * (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f))).xyz().normalize();
 					dirDirHandle->SetValue(&dir);
 					dirColorHandle->SetValue((void*)&d->GetLightColor());
-					int i = -1;
+					int shadowUnit = 0;
 					float haveShadow = 0.f;
 					if (d->IsCastingShadows())
 					{
@@ -414,10 +414,10 @@ namespace p3d {
 						dirShadowFarHandle->SetValue(&ShadowFar);
 
 						d->GetShadowMapTexture()->Bind();
-						i = Texture::GetLastBindedUnit();
+						shadowUnit = Texture::GetLastBindedUnit();
 						haveShadow = 1.f;
 					}
-					dirShadowHandle->SetValue(&i);
+					dirShadowHandle->SetValue(&shadowUnit);
 					dirHaveShadowHandle->SetValue(&haveShadow);
 
 					RenderObject(directionalLight->GetMeshes()[0], d->GetOwner(), deferredMaterialDirectional);

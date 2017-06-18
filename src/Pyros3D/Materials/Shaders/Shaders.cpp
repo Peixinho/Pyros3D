@@ -174,7 +174,7 @@ namespace p3d {
 			{
 			case Uniforms::DataType::Int:
 			{
-				GLCHECKER(glUniform1iv(Handle, uniform.ElementCount, (GLint*)((int32*)&uniform.Value[0])));
+				GLCHECKER(glUniform1iv(Handle, uniform.ElementCount, (GLint*)&uniform.Value[0]));
 				break;
 			}
 			case Uniforms::DataType::Float:
