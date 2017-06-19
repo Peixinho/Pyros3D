@@ -24,7 +24,10 @@ DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2, con
 		"{\n"
 		"return z_info_local.z / (native_z * z_info_local.w + z_info_local.y);\n"
 		"}\n"
-		"uniform sampler2D uTex0, uTex1, uTex2, uTex3;\n"
+		"uniform sampler2D uTex0; // lower res blur\n"
+		"uniform sampler2D uTex1; // medium res blur\n"
+		"uniform sampler2D uTex2; // high res\n"
+		"uniform sampler2D uTex3; // depth\n"
 		"uniform float uFocalPosition, uFocalRange, uRatioL, uRatioH;\n"
 		"uniform vec2 uNearFar;\n"
 		"varying vec2 vTexcoord;\n"
@@ -54,32 +57,10 @@ DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2, con
 	f32 rL = 3.1f;
 	f32 rH = 1.0f;
 
-	Uniform focalPosition;
-	Uniform focalRange;
-	Uniform ratioL;
-	Uniform ratioH;
-
-	focalPosition.Name = "uFocalPosition";
-	focalPosition.Type = DataType::Float;
-	focalPosition.Usage = PostEffects::Other;
-	focalPosition.SetValue(&fPosition);
-	focalRange.Name = "uFocalRange";
-	focalRange.Type = DataType::Float;
-	focalRange.Usage = PostEffects::Other;
-	focalRange.SetValue(&fRange);
-	ratioL.Name = "uRatioL";
-	ratioL.Type = DataType::Float;
-	ratioL.Usage = PostEffects::Other;
-	ratioL.SetValue(&rL);
-	ratioH.Name = "uRatioH";
-	ratioH.Type = DataType::Float;
-	ratioH.Usage = PostEffects::Other;
-	ratioH.SetValue(&rH);
-
-	AddUniform(focalPosition);
-	AddUniform(focalRange);
-	AddUniform(ratioL);
-	AddUniform(ratioH);
+	AddUniform(Uniform("uFocalPosition", Uniforms::DataType::Float, &fPosition));
+	AddUniform(Uniform("uFocalRange", Uniforms::DataType::Float, &fRange));
+	AddUniform(Uniform("uRatioL", Uniforms::DataType::Float, &rL));
+	AddUniform(Uniform("uRatioH", Uniforms::DataType::Float, &rH));
 }
 
 DepthOfField::DepthOfField() : ClassName(1024, 768, "Pyros3D - Depth Of Field", WindowType::Close | WindowType::Resize) {}
