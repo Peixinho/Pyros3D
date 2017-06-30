@@ -1,9 +1,12 @@
 .DS_Store
 ._*
+.vscode
 build
 bin
 premake5.exe
 premake5
+genie
 include
 libs
+build*
 !include/Pyros3D
