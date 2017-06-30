@@ -46,7 +46,7 @@ namespace p3d {
 								"uniform sampler2D uTex0;\n"
 								"varying vec2 vblurTexCoords[6];\n"
 								"void main() {\n"
-									"gl_FragColor += texture2D(uTex0, vblurTexCoords[ 0])*0.00598;\n"
+									"gl_FragColor = texture2D(uTex0, vblurTexCoords[ 0])*0.00598;\n"
 									"gl_FragColor += texture2D(uTex0, vblurTexCoords[ 1])*0.060626;\n"
 									"gl_FragColor += texture2D(uTex0, vblurTexCoords[ 2])*0.241843;\n"
 									"gl_FragColor += texture2D(uTex0, vTexcoord)*0.383103;\n"
