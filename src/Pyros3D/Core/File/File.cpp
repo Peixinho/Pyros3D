@@ -28,7 +28,7 @@ namespace p3d {
 			return opened;
 		}
 
-		echo("Error: Couldn't Open File");
+		echo("Error: Couldn't Open File: " + filename);
 		return opened;
 	}
 
