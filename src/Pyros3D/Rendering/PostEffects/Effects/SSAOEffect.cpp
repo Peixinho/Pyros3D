@@ -53,6 +53,7 @@ namespace p3d {
 			"{\n"
 			"	vec2 screenPos = (uv + .5) * viewport_transform_local.zw - viewport_transform_local.xy;\n"
 			"	vec2 screenSpaceRay = vec2(screenPos.x / matProj_local[0][0],screenPos.y / matProj_local[1][1]);\n"
+   		        "	vec2 screenSpaceRay = vec2(screenPos.x / matProj_local[0][0], screenPos.y / matProj_local[1][1]);\n"
 			"	return screenSpaceRay;\n"
 			"}\n"
 			"\n"
