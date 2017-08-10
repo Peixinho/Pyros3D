@@ -50,22 +50,30 @@ namespace p3d {
 		Shader::SendUniform(Uniform("uOpacity", Uniforms::DataType::Float, &opacity), opacityHandle);
 
 		// Send Attributes
-		GLCHECKER(glEnableVertexAttribArray(vertexHandle));
-		GLCHECKER(glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexLines[0]));
+		if (vertexLines.size() > 0) {
+			GLCHECKER(glEnableVertexAttribArray(vertexHandle));
+			GLCHECKER(glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexLines[0]));
+		}
 
-		GLCHECKER(glEnableVertexAttribArray(colorHandle));
-		GLCHECKER(glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorLines[0]));
+		if (colorLines.size() > 0) {
+			GLCHECKER(glEnableVertexAttribArray(colorHandle));
+			GLCHECKER(glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorLines[0]));
+		}
 
 		// Draw Quad
 		GLCHECKER(glDrawArrays(GL_LINES, 0, vertexLines.size()));
 
-		// Disable Attributes
-		GLCHECKER(glDisableVertexAttribArray(colorHandle));
-		GLCHECKER(glDisableVertexAttribArray(vertexHandle));
-
 		// Send Attributes
-		GLCHECKER(glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexTriangles[0]));
-		GLCHECKER(glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorTriangles[0]));
+		if (vertexTriangles.size() > 0)
+		{
+			GLCHECKER(glDisableVertexAttribArray(vertexHandle));
+			GLCHECKER(glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexTriangles[0]));
+		}
+		if (colorTriangles.size() > 0)
+		{
+			GLCHECKER(glDisableVertexAttribArray(colorHandle));
+			GLCHECKER(glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorTriangles[0]));
+		}
 
 		// Draw Quad
 		GLCHECKER(glDrawArrays(GL_TRIANGLES, 0, vertexTriangles.size()));
