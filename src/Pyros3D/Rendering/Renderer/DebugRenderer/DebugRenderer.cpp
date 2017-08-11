@@ -37,6 +37,7 @@ namespace p3d {
 
 		uint32 vertexHandle = Shader::GetAttributeLocation(DebugMaterial->GetShader(), "aPosition");
 		uint32 colorHandle = Shader::GetAttributeLocation(DebugMaterial->GetShader(), "aColor");
+		uint32 pointSizeHandle = Shader::GetAttributeLocation(DebugMaterial->GetShader(), "aSize");
 
 		uint32 projectionHandle = Shader::GetUniformLocation(DebugMaterial->GetShader(), "uProjectionMatrix");
 		uint32 viewMatrixHandle = Shader::GetUniformLocation(DebugMaterial->GetShader(), "uViewMatrix");
@@ -62,14 +63,14 @@ namespace p3d {
 
 		// Draw Quad
 		GLCHECKER(glDrawArrays(GL_LINES, 0, vertexLines.size()));
-
+		
 		// Send Attributes
 		if (vertexTriangles.size() > 0)
 		{
 			GLCHECKER(glDisableVertexAttribArray(vertexHandle));
 			GLCHECKER(glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexTriangles[0]));
 		}
-		if (colorTriangles.size() > 0)
+		if (colorTriangles.size() > 0) 
 		{
 			GLCHECKER(glDisableVertexAttribArray(colorHandle));
 			GLCHECKER(glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorTriangles[0]));
@@ -82,6 +83,35 @@ namespace p3d {
 		GLCHECKER(glDisableVertexAttribArray(colorHandle));
 		GLCHECKER(glDisableVertexAttribArray(vertexHandle));
 
+		// Draw Points
+
+		// Send Attributes
+		if (points.size() > 0) {
+			GLCHECKER(glEnableVertexAttribArray(vertexHandle));
+			GLCHECKER(glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &points[0]));
+		}
+
+		if (colorPoints.size() > 0) {
+			GLCHECKER(glEnableVertexAttribArray(colorHandle));
+			GLCHECKER(glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorPoints[0]));
+		}
+
+		if (pointsSize.size() > 0) {
+			GLCHECKER(glEnableVertexAttribArray(pointSizeHandle));
+			GLCHECKER(glVertexAttribPointer(pointSizeHandle, 1, GL_FLOAT, GL_FALSE, 0, &pointsSize[0]));
+		}
+		
+		GLCHECKER(glEnable(GL_POINT_SPRITE));
+		GLCHECKER(glEnable(GL_VERTEX_PROGRAM_POINT_SIZE));
+		GLCHECKER(glDrawArrays(GL_POINTS, 0, points.size()));
+		GLCHECKER(glDisable(GL_VERTEX_PROGRAM_POINT_SIZE));
+		GLCHECKER(glDisable(GL_POINT_SPRITE));
+
+		// Disable Attributes
+		GLCHECKER(glDisableVertexAttribArray(pointSizeHandle));
+		GLCHECKER(glDisableVertexAttribArray(colorHandle));
+		GLCHECKER(glDisableVertexAttribArray(vertexHandle));
+
 		GLCHECKER(glUseProgram(0));
 
 		// clean values
@@ -89,6 +119,9 @@ namespace p3d {
 		colorLines.clear();
 		vertexTriangles.clear();
 		colorTriangles.clear();
+		points.clear();
+		colorPoints.clear();
+		pointsSize.clear();
 
 		GLCHECKER(glDepthFunc(GL_LESS));
 	}
@@ -104,6 +137,13 @@ namespace p3d {
 	void DebugRenderer::drawLine(const Vec3 &from, const Vec3 &to, const Vec4 &color)
 	{
 		drawLine(from, to, color, color);
+	}
+
+	void DebugRenderer::drawPoint(const Vec3 &point, const f32 size, const Vec4 &color)
+	{
+		points.push_back(point);
+		colorPoints.push_back(Vec4(color));
+		pointsSize.push_back(size);
 	}
 
 	void DebugRenderer::drawSphere(const Vec3 &p, f32 radius, const Vec4 &color)

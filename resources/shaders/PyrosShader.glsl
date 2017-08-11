@@ -18,6 +18,7 @@ float DecodeFloatRGBA( vec4 rgba ) {
 
     #ifdef DEBUGRENDERING
         attribute vec4 aColor;
+        attribute float aSize;
         varying vec4 vColor;
     #endif
 
@@ -119,6 +120,10 @@ float DecodeFloatRGBA( vec4 rgba ) {
         #endif
 
         gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aPosition,1.0);
+
+        #ifdef DEBUGRENDERING
+            if (aSize != 1.0) gl_PointSize = aSize;
+        #endif
 
         // This Overwrites GL Position
         #ifdef SKINNING

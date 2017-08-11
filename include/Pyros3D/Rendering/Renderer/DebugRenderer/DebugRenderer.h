@@ -24,6 +24,8 @@ namespace p3d {
 		virtual void drawCone(const f32 radius, const f32 height, const Vec4 &color);
 		virtual void drawCylinder(const f32 radius, const f32 height, const Vec4 &color);
 
+		virtual void drawPoint(const Vec3 &point, const f32 size, const Vec4 &color);
+
 		void pushMatrix(const Matrix &m);
 		void popMatrix();
 
@@ -46,6 +48,9 @@ namespace p3d {
 		std::vector<Vec4> colorLines;
 		std::vector<Vec3> vertexTriangles;
 		std::vector<Vec4> colorTriangles;
+		std::vector<Vec3> points; // w is the size of the point
+		std::vector<Vec4> colorPoints;
+		std::vector<f32> pointsSize;
 
 	};
 
