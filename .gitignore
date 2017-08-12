@@ -10,3 +10,4 @@ include
 libs
 build*
 !include/Pyros3D
+obj
