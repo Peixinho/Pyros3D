@@ -17,6 +17,15 @@ namespace p3d {
 		delete DebugMaterial;
 	}
 
+	void DebugRenderer::ClearScreen()
+	{
+		GLCHECKER(glClear(GL_COLOR_BUFFER_BIT));
+	}
+	void DebugRenderer::SetViewPort(const int32 &w0, const int32 h0, const int32 w1, const int32 h1)
+	{
+		glViewport(w0, h0, w1, h1);
+	}
+
 	void DebugRenderer::ClearBuffers()
 	{
 		// clean values

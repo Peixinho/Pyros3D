@@ -31,6 +31,8 @@ namespace p3d {
 
 		virtual void drawTriangle(const Vec3 &a, const Vec3 &b, const Vec3 &c, const Vec4 &color);
 
+		void ClearScreen();
+		void SetViewPort(const int32 &w0, const int32 h0, const int32 w1, const int32 h1);
 		void ClearBuffers();
 		void Render(const Matrix &camera, const Matrix &projection);
 
