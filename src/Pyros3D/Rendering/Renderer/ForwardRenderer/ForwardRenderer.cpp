@@ -62,7 +62,7 @@ namespace p3d {
 					directionalLight.m[4] = position.x;      directionalLight.m[5] = position.y;          directionalLight.m[6] = position.z;
 					directionalLight.m[7] = direction.x;     directionalLight.m[8] = direction.y;         directionalLight.m[9] = direction.z;
 					directionalLight.m[10] = 0.0f;			 directionalLight.m[11] = 0.0f;				  directionalLight.m[12] = 0.0f;
-					directionalLight.m[13] = (f32)type;	  	 directionalLight.m[14] = d->GetShadowPCFTexelSize();  directionalLight.m[15] = (d->IsCastingShadows() ? 1.f : 0.f);
+					directionalLight.m[13] = (f32)type;	  	 directionalLight.m[14] = d->GetShadowPCFTexelSize();  directionalLight.m[15] = (d->IsCastingShadows() ? 1.f : -1.f);
 
 					_Lights.push_back(directionalLight);
 
@@ -89,8 +89,8 @@ namespace p3d {
 					pointLight.m[0] = color.x;       pointLight.m[1] = color.y;           pointLight.m[2] = color.z;           pointLight.m[3] = color.w;
 					pointLight.m[4] = position.x;    pointLight.m[5] = position.y;        pointLight.m[6] = position.z;
 					pointLight.m[7] = direction.x;   pointLight.m[8] = direction.y;       pointLight.m[9] = direction.z;
-					pointLight.m[10] = attenuation;  pointLight.m[11] = 0.f;				  pointLight.m[12] = 0.f;
-					pointLight.m[13] = (f32)type;	 pointLight.m[14] = p->GetShadowPCFTexelSize();
+					pointLight.m[10] = attenuation;  pointLight.m[11] = 0.f;			  pointLight.m[12] = 0.f;
+					pointLight.m[13] = (f32)type;	 pointLight.m[14] = p->GetShadowPCFTexelSize(); pointLight.m[15] = -1.f;
 
 					if (p->IsCastingShadows())
 					{
@@ -119,7 +119,7 @@ namespace p3d {
 					spotLight.m[4] = position.x;     spotLight.m[5] = position.y;         spotLight.m[6] = position.z;
 					spotLight.m[7] = direction.x;    spotLight.m[8] = direction.y;        spotLight.m[9] = direction.z;
 					spotLight.m[10] = attenuation;	 spotLight.m[11] = cones.x;			  spotLight.m[12] = cones.y;
-					spotLight.m[13] = (f32)type;
+					spotLight.m[13] = (f32)type;	 spotLight.m[15] = -1.f;
 
 					if (s->IsCastingShadows())
 					{

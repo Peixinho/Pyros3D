@@ -303,7 +303,7 @@ namespace p3d {
 "            L.Radius = Light[2][2];\n"
 "            L.Cones = vec2(Light[2][3],Light[3][0]);\n"
 "            L.Type = Light[3][1];\n"
-"            L.HaveShadowMap = (Light[3][2]>0.0? true : false);\n"
+"            L.HaveShadowMap = (Light[3][3]>=0.0? true : false);\n"
 "            if (L.HaveShadowMap) {\n"
 "				L.PCFTexelSize = Light[3][2];\n"
 "				L.ShadowMap = int(Light[3][3]); // Only for Point and Spot Shadows (Directional have only one shadow map)\n"
