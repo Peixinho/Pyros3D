@@ -1115,7 +1115,9 @@ namespace p3d {
 				"isPlaying", &ISound::isPlaying,
 				"isPaused", &ISound::isPaused,
 				"setVolume", &ISound::SetVolume,
-				"getVolume", &ISound::GetVolume
+				"getVolume", &ISound::GetVolume,
+				"setPitch", &ISound::SetPitch,
+				"getPitch", &ISound::GetPitch
 				);
 		}
 		{

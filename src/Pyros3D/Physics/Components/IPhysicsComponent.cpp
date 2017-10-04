@@ -34,7 +34,7 @@ namespace p3d {
 	}
 	void IPhysicsComponent::Init()
 	{
-
+		Registered = false;
 	}
 	void IPhysicsComponent::Destroy()
 	{

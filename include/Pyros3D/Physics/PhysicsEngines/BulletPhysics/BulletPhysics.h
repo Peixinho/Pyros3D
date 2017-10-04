@@ -11,6 +11,7 @@
 
 #include <btBulletDynamicsCommon.h>
 #include <LinearMath/btIDebugDraw.h>
+#include <BulletCollision/CollisionShapes/btMultimaterialTriangleMeshShape.h>
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Physics/PhysicsEngines/BulletPhysics/DebugDraw/PhysicsDebugDraw.h>
@@ -41,6 +42,11 @@ namespace p3d {
 		virtual void RemovePhysicsComponent(IPhysicsComponent* pcomp);
 
 		virtual void UpdateTransformations(IPhysicsComponent* pcomp);
+
+		btDiscreteDynamicsWorld* GetPhysicsWorld()
+		{
+			return m_dynamicsWorld;
+		}
 
 		void UpdatePosition(IPhysicsComponent *pcomp, const Vec3 &position);
 		void UpdateRotation(IPhysicsComponent *pcomp, const Vec3 &rotation);

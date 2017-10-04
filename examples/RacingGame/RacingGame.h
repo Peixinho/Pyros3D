@@ -37,8 +37,13 @@
 #include <Pyros3D/Physics/Components/Vehicle/PhysicsVehicle.h>
 #include <Pyros3D/Physics/Components/TriangleMesh/PhysicsTriangleMesh.h>
 #include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h>
-
+#include <Pyros3D/Assets/Sounds/Sound.h>
 using namespace p3d;
+
+inline float clamp(float x, float a, float b)
+{
+	return x < a ? a : (x > b ? b : x);
+}
 
 class RacingGame : public ClassName {
 public:
@@ -53,59 +58,48 @@ public:
 private:
 
 	// Scene
-	SceneGraph* Scene, *Scene2;
+	SceneGraph* Scene;
 	// Renderer
-	ForwardRenderer* Renderer, *Renderer2;
+	ForwardRenderer* Renderer;
 	// Projection
-	Projection projection, projection2;
+	Projection projection;
 	// Physics
 	Physics* physics;
+	// Cubemap renderer
+	CubemapRenderer* dRenderer;
+	
 	// Camera - Its a regular GameObject
-	GameObject* Camera, *Camera2;
-	// GameObject
+	GameObject* Camera;
+	Vec3 CameraPosition;
+
+	// Geometry Handles
+	Renderable *trackHandle, *skyboxHandle, *carHandle;
+	
+	// Track GameObject
 	GameObject* Track;
-	// Track Handle
-	Renderable *trackHandle, *skyboxHandle, *carHandle, *carHandle2;
 	// Track Component
 	RenderingComponent* rTrack;
-	// Light
+	// Physics Component
+	PhysicsTriangleMesh* pTrack;
+	// Light GameObject
 	GameObject* Light;
 	// Light Component
 	DirectionalLight* dLight;
 
-	// GameObject
-	GameObject* TextRendering;
-	// Model Handle
-	Text* textID;
-	// Rendering Component
-	RenderingComponent* rText;
-	// Font
-	uint32 font;
-	// Text Material
-	GenericShaderMaterial* textMaterial;
-
-	GameObject* Car, *Car2;
+	// Car GameObject
+	GameObject* Car;
+	// Car Components
 	RenderingComponent* rCar;
 	PhysicsVehicle* carPhysics;
 
+	// Skybox GameObject
 	GameObject* Skybox;
+	// Skybox Component
 	RenderingComponent* rSkybox;
+	// Skybox Material
 	GenericShaderMaterial* SkyboxMaterial;
 
-	void MoveFrontPress(Event::Input::Info e);
-	void MoveBackPress(Event::Input::Info e);
-	void StrafeLeftPress(Event::Input::Info e);
-	void StrafeRightPress(Event::Input::Info e);
-	void MoveFrontRelease(Event::Input::Info e);
-	void MoveBackRelease(Event::Input::Info e);
-	void StrafeLeftRelease(Event::Input::Info e);
-	void StrafeRightRelease(Event::Input::Info e);
-	void LookTo(Event::Input::Info e);
-	void OnMouseRelease(Event::Input::Info e);
 	void CloseApp(Event::Input::Info e);
-	float counterX, counterY;
-	Vec2 mouseCenter, mouseLastPosition, mousePosition;
-	bool _moveFront, _moveBack, _strafeLeft, _strafeRight;
 
 	void LeftUp(Event::Input::Info e);
 	void LeftDown(Event::Input::Info e);
@@ -121,8 +115,11 @@ private:
 	bool _upPressed, _downPressed, _leftPressed, _rightPressed, _brakePressed;
 	float gVehicleSteering, steeringIncrement;
 
-	GenericShaderMaterial *envMaterial;
-	CubemapRenderer* dRenderer;
+	float timeInterval;
+
+	Sound* sound;
+	Sound* crash;
+
 };
 
 #endif	/* RACINGGAME_H */

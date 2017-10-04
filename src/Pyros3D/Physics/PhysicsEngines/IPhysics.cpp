@@ -11,7 +11,7 @@
 
 namespace p3d {
 
-	IPhysics::IPhysics() : lastTime(0), nowTime(0) {}
+	IPhysics::IPhysics() : lastTime(0) {}
 
 	IPhysics::~IPhysics() {}
 

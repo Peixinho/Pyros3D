@@ -105,24 +105,10 @@ float DecodeFloatRGBA( vec4 rgba ) {
             v3Texcoord = aPosition.xyz;
         #endif
 
-        #ifdef REFRACTION
-            float fresnelBias, fresnelScale, fresnelPower;
-            vec3 etaRatio;
-            fresnelBias = 0.9;
-            fresnelScale=0.7;
-            fresnelPower=1.0;
-            etaRatio=vec3(0.943,0.949,0.945);
-            vec3 I = normalize(vWorldPosition.xyz - uCameraPos);
-            vTRed = refract(I,vNormal,etaRatio.x);
-            vTGreen =  refract(I,vNormal,etaRatio.y);
-            vTBlue = refract(I,vNormal,etaRatio.z);
-            vReflectionFactor = fresnelBias + fresnelScale * pow(1.0+dot(I,vNormal),fresnelPower);
-        #endif
-
         gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aPosition,1.0);
 
         #ifdef DEBUGRENDERING
-            if (aSize != 1.0) gl_PointSize = aSize;
+           if (aSize != 1.0) gl_PointSize = aSize;
         #endif
 
         // This Overwrites GL Position
@@ -150,6 +136,20 @@ float DecodeFloatRGBA( vec4 rgba ) {
             vec3 Tangent = normalize((uModelMatrix * vec4(aTangent,0)).xyz);
             vec3 Binormal = normalize((uModelMatrix * vec4(aBitangent,0)).xyz);
             vTangentMatrix = mat3(Tangent.x, Binormal.x, vNormal.x,Tangent.y, Binormal.y, vNormal.y,Tangent.z, Binormal.z, vNormal.z);
+        #endif
+
+        #ifdef REFRACTION
+            float fresnelBias, fresnelScale, fresnelPower;
+            vec3 etaRatio;
+            fresnelBias = 0.9;
+            fresnelScale=0.7;
+            fresnelPower=1.0;
+            etaRatio=vec3(0.943,0.949,0.945);
+            vec3 I = normalize(vWorldPosition.xyz - uCameraPos);
+            vTRed = refract(I,vNormal,etaRatio.x);
+            vTGreen =  refract(I,vNormal,etaRatio.y);
+            vTBlue = refract(I,vNormal,etaRatio.z);
+            vReflectionFactor = fresnelBias + fresnelScale * pow(1.0+dot(I,vNormal),fresnelPower);
         #endif
 
         #ifdef DEFERRED_GBUFFER
@@ -181,6 +181,7 @@ float DecodeFloatRGBA( vec4 rgba ) {
             float Type;
             bool HaveShadowMap;
             int ShadowMap;
+            float PCFTexelSize;
         };
         void buildLightFromMatrix(mat4 Light, inout LIGHT L) 
         {
@@ -191,7 +192,10 @@ float DecodeFloatRGBA( vec4 rgba ) {
             L.Cones = vec2(Light[2][3],Light[3][0]);
             L.Type = Light[3][1];
             L.HaveShadowMap = (Light[3][3]>=0.0? true : false);
-            L.ShadowMap = int(Light[3][3]); // Only for Point and Spot Shadows (Directional have only one shadow map)
+            if (L.HaveShadowMap) {
+               L.PCFTexelSize = Light[3][2];
+               L.ShadowMap = int(Light[3][3]); // Only for Point and Spot Shadows (Directional have only one shadow map)
+            }
         }
 
         float Attenuation(vec3 Vertex, vec3 LightPosition, float Radius)
@@ -267,10 +271,6 @@ float DecodeFloatRGBA( vec4 rgba ) {
         uniform sampler2D uNormalmap;
     #endif
 
-    #if defined(DIRECTIONALSHADOW) || defined(POINTSHADOW) || defined(SPOTSHADOW)
-        uniform float uPCFTexelSize1;
-    #endif
-
     #ifdef DIRECTIONALSHADOW
 #if defined(GLES2) || defined(GLLEGACY)
         float PCFDIRECTIONAL(sampler2D shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) 
@@ -294,9 +294,6 @@ float DecodeFloatRGBA( vec4 rgba ) {
 #endif
             return shadow;
         }
-        uniform float uPCFTexelSize2;
-        uniform float uPCFTexelSize3;
-        uniform float uPCFTexelSize4;
         uniform mat4 uDirectionalDepthsMVP[4];
         uniform vec4 uDirectionalShadowFar[4];
 #if defined(GLES2) || defined(GLLEGACY)
@@ -384,7 +381,7 @@ float DecodeFloatRGBA( vec4 rgba ) {
         varying vec4 vWorldPositionShadow;
     #endif
 
-    #if defined(SKINNING) || defined(ENVMAP) || defined(DIFFUSE) || defined(CELLSHADING)
+    #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
         varying vec4 vWorldPosition;
     #endif
 
@@ -476,20 +473,20 @@ float DecodeFloatRGBA( vec4 rgba ) {
         #endif
 
         #if defined(ENVMAP) || defined(REFRACTION)
-            vec3 Reflection = reflect(normalize(vWorldPosition.xyz - (vec4(vCameraPos,1.0)).xyz),normalize(vNormal));
+            vec3 Reflection = reflect((vWorldPosition.xyz - vCameraPos),normalize(vNormal));
             #ifdef ENVMAP
                 diffuse.xyz = diffuse.xyz * (1.0-uReflectivity) + (textureCube(uEnvmap,Reflection)).xyz*uReflectivity;
             #endif
             #ifdef REFRACTION
                 vec4 reflectedColor = textureCube( uRefractmap, Reflection);
-                vec4 refractedColor = vec4(0,0,0,1);
+                vec4 refractedColor;
                 refractedColor.x = (textureCube( uRefractmap, vTRed)).x;
                 refractedColor.y = (textureCube( uRefractmap, vTGreen)).y;
                 refractedColor.z = (textureCube( uRefractmap, vTBlue)).z;
                 refractedColor.w = 1.0;
                 if (!diffuseIsSet) 
                 {
-                    diffuse=mix(reflectedColor, refractedColor, vReflectionFactor);
+                    diffuse = mix(reflectedColor, refractedColor, vReflectionFactor);
                     diffuseIsSet=true;
                 } else diffuse *= mix(reflectedColor, refractedColor, vReflectionFactor);
             #endif
@@ -553,10 +550,10 @@ float DecodeFloatRGBA( vec4 rgba ) {
                                    shadowBias = max(0.001 * (1.0 - dot(Normal, LightDir)), 0.00001);
                                 #endif
                                 bool MoreThanOneCascade = (uDirectionalShadowFar[0].y>0.0);
-                                if (gl_FragCoord.z<uDirectionalShadowFar[0].x) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.0, uDirectionalDepthsMVP[0],uPCFTexelSize1,vWorldPositionShadow, MoreThanOneCascade);
-                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].y) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.0, uDirectionalDepthsMVP[1],uPCFTexelSize2,vWorldPositionShadow, MoreThanOneCascade);
-                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].z) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.5, uDirectionalDepthsMVP[2],uPCFTexelSize3,vWorldPositionShadow, MoreThanOneCascade);
-                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].w) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.5, uDirectionalDepthsMVP[3],uPCFTexelSize4,vWorldPositionShadow, MoreThanOneCascade);
+                                if (gl_FragCoord.z<uDirectionalShadowFar[0].x) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.0, uDirectionalDepthsMVP[0],L.PCFTexelSize,vWorldPositionShadow, MoreThanOneCascade);
+                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].y) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.0, uDirectionalDepthsMVP[1],L.PCFTexelSize,vWorldPositionShadow, MoreThanOneCascade);
+                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].z) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.5, uDirectionalDepthsMVP[2],L.PCFTexelSize,vWorldPositionShadow, MoreThanOneCascade);
+                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].w) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.5, uDirectionalDepthsMVP[3],L.PCFTexelSize,vWorldPositionShadow, MoreThanOneCascade);
                             }
 
                             _diffuse += vec4(lightIntensity * L.Color.xyz * DirectionalShadow, lightIntensity * L.Color.w);
@@ -587,9 +584,9 @@ float DecodeFloatRGBA( vec4 rgba ) {
                                 PointShadow = 0.0;
                                 #if defined(GLES2) || defined(GLLEGACY)
                                    shadowBias = max(0.001 * (1.0 - dot(Normal, LightDir)), 0.00001);
-                                   PointShadow=PCFPOINT(uPointShadowMaps,uPointDepthsMVP[0],uPointDepthsMVP[1],uPCFTexelSize1,vWorldPositionShadow);
+                                   PointShadow=PCFPOINT(uPointShadowMaps,uPointDepthsMVP[0],uPointDepthsMVP[1],L.PCFTexelSize,vWorldPositionShadow);
                                 #else
-                                   PointShadow+=PCFPOINT(uPointShadowMaps[L.ShadowMap],uPointDepthsMVP[(L.ShadowMap*2)],uPointDepthsMVP[(L.ShadowMap*2+1)],uPCFTexelSize1,vWorldPositionShadow);
+                                   PointShadow+=PCFPOINT(uPointShadowMaps[L.ShadowMap],uPointDepthsMVP[(L.ShadowMap*2)],uPointDepthsMVP[(L.ShadowMap*2+1)],L.PCFTexelSize,vWorldPositionShadow);
                                 #endif
                             }
                             _diffuse += vec4(lightIntensity * L.Color.xyz * attenuation * PointShadow, lightIntensity * L.Color.w);
@@ -621,9 +618,9 @@ float DecodeFloatRGBA( vec4 rgba ) {
                                 SpotShadow = 0.0;
                                 #if defined(GLES2) || defined(GLLEGACY)
                                    shadowBias = max(0.001 * (1.0 - dot(Normal, LightDir)), 0.00001);
-                                   SpotShadow=PCFSPOT(uSpotShadowMaps,uSpotDepthsMVP,uPCFTexelSize1,vWorldPositionShadow);
+                                   SpotShadow=PCFSPOT(uSpotShadowMaps,uSpotDepthsMVP,L.PCFTexelSize,vWorldPositionShadow);
                                 #else
-                                   SpotShadow+=PCFSPOT(uSpotShadowMaps[L.ShadowMap],uSpotDepthsMVP[L.ShadowMap],uPCFTexelSize1,vWorldPositionShadow);
+                                   SpotShadow+=PCFSPOT(uSpotShadowMaps[L.ShadowMap],uSpotDepthsMVP[L.ShadowMap],L.PCFTexelSize,vWorldPositionShadow);
                                 #endif
                             }
                             _diffuse += vec4(lightIntensity * L.Color.xyz * spotEffect * attenuation * SpotShadow, lightIntensity * L.Color.w);
@@ -663,4 +660,4 @@ float DecodeFloatRGBA( vec4 rgba ) {
         #endif
     }
     
-#endif
+#endif;

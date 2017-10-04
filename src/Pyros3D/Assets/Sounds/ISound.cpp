@@ -163,6 +163,48 @@ namespace p3d {
 #endif
 	}
 
+	void ISound::SetPitch(f32 pitch)
+	{
+#if defined(_SDL2) || defined(_SDL)
+
+		// Not Supported in SDL
+
+#else
+		_pitch = pitch;
+
+		switch (_type)
+		{
+		case SoundType::Music:
+			_Music.setPitch((f32)_pitch);
+			break;
+		case SoundType::Sound:
+		default:
+			_Sound.setPitch((f32)_pitch);
+			break;
+		};
+#endif
+	}
+
+	const f32 &ISound::GetPitch()
+	{
+#if defined(_SDL2) || defined(_SDL)
+
+		// Not Supported in SDL
+		return 1.f;
+#else
+		switch (_type)
+		{
+		case SoundType::Music:
+			return _Music.getPitch();
+			break;
+		case SoundType::Sound:
+		default:
+			return _Sound.getPitch();
+			break;
+		};
+#endif
+	}
+
 	void ISound::Pause()
 	{
 		if (!_isPaused)
@@ -245,12 +287,38 @@ namespace p3d {
 
 	bool ISound::isPlaying()
 	{
+#if defined(_SDL2) || defined(_SDL)
 		return _isPlaying;
+#else
+		switch (_type)
+		{
+		case SoundType::Music:
+			return _Music.getStatus() == sf::SoundSource::Status::Playing;
+			break;
+		case SoundType::Sound:
+		default:
+			return _Sound.getStatus() == sf::SoundSource::Status::Playing;
+			break;
+		};
+#endif
 	}
 
 	bool ISound::isPaused()
 	{
+#if defined(_SDL2) || defined(_SDL)
 		return _isPaused;
+#else
+		switch (_type)
+		{
+		case SoundType::Music:
+			return _Music.getStatus() == sf::SoundSource::Status::Paused;
+			break;
+		case SoundType::Sound:
+		default:
+			return _Sound.getStatus() == sf::SoundSource::Status::Paused;
+			break;
+		};
+#endif
 	}
 
 };

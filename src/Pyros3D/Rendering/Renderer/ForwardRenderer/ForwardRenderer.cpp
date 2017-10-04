@@ -149,7 +149,6 @@ namespace p3d {
 
 		// Saves Camera
 		this->Camera = Camera;
-		this->CameraPosition = this->Camera->GetWorldPosition();
 
 		// Saves Projection
 		this->projection = projection;

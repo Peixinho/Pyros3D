@@ -53,23 +53,12 @@ namespace p3d {
 		// Set Flag
 		physicsInitialized = true;
 
-		nowTime = 0, lastTime = 0, timeInterval = 0;
+		lastTime = 0, timeInterval = 0;
 	}
 
 	void BulletPhysics::Update(const f64& time, const uint32 steps)
 	{
-		//lastTime = time;
-		if (lastTime == 0) lastTime = time;
-
-		timeInterval += time - lastTime;
-
-		while (timeInterval >= 1.f / 60.f)
-		{
-			m_dynamicsWorld->stepSimulation(1.f / 60.f, steps);
-			timeInterval -= 1.f / 60.f;
-		}
-
-		lastTime = time;
+		m_dynamicsWorld->stepSimulation(time, steps);
 	}
 
 	void BulletPhysics::EnableDebugDraw()
@@ -177,7 +166,7 @@ namespace p3d {
 			}
 			// Add Trimesh to Shape
 			collShape = new btConvexTriangleMeshShape(trimesh, true);
-
+			
 		}
 		break;
 		case CollisionShapes::TriangleMesh:
@@ -200,7 +189,7 @@ namespace p3d {
 			}
 			// Add Trimesh to Shape
 			collShape = new btBvhTriangleMeshShape(trimesh, true);
-
+			
 		}
 		break;
 		case CollisionShapes::MultipleSphere:
@@ -246,9 +235,19 @@ namespace p3d {
 			compound->addChildShape(localTrans, chassisShape);
 			btTransform tr;
 			tr.setIdentity();
-			tr.setOrigin(btVector3(pcomp->GetOwner()->GetPosition().x, pcomp->GetOwner()->GetPosition().y, pcomp->GetOwner()->GetPosition().z));
 			btRigidBody* m_carChassis = LocalCreateRigidBody(vehicle->GetChassis()->GetMass(), tr, compound);//chassisShape;
 			//m_carChassis->setDamping(0.2,0.2);
+
+			// Initial Transformation
+			btTransform startTransform;
+			startTransform.setIdentity();
+			// Local is Enough because we can't use Parent/Child Relationships, it wouldn't work right
+			startTransform.setOrigin(btVector3(pcomp->GetOwner()->GetPosition().x, pcomp->GetOwner()->GetPosition().y, pcomp->GetOwner()->GetPosition().z));
+			Quaternion q;
+			q.SetRotationFromEuler(pcomp->GetOwner()->GetRotation());
+			startTransform.setRotation(btQuaternion(q.x, q.y, q.z, q.w));
+			m_carChassis->setWorldTransform(startTransform);
+
 
 			btRaycastVehicle::btVehicleTuning m_tuning;
 			// create vehicle

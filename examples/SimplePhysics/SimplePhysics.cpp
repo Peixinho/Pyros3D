@@ -130,7 +130,7 @@ void SimplePhysics::Update()
 	// Update - Game Loop
 
 	// Update Physics
-	physics->Update(GetTime(), 10);
+	physics->Update(GetTimeInterval(), 10);
 
 	// Update Scene
 	Scene->Update(GetTime());
