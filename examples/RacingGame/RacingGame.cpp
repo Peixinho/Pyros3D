@@ -56,11 +56,80 @@ void RacingGame::Init()
 	Track = new GameObject();
 
 	// Create Track Model
-	trackHandle = new Model("../examples/RacingGame/assets/track.p3dm", false, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow | ShaderUsage::EnvMap);
+	trackHandle = new Model("../examples/RacingGame/assets/track.p3dm", true, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow | ShaderUsage::EnvMap);
 	rTrack = new RenderingComponent(trackHandle);
-	pTrack = new PhysicsTriangleMesh(physics, rTrack, 0);
+
+	{
+		// sand
+		{
+			std::vector<uint32> index;
+			std::vector<Vec3> vertex;
+			unsigned indexCount = 0;
+			RenderingMesh* rc = (RenderingMesh*)rTrack->GetMeshes()[9];
+			for (unsigned i = 0; i < rc->Geometry->GetIndexData().size(); i++)
+			{
+				index.push_back(indexCount++);
+				vertex.push_back(rc->Geometry->GetVertexData()[rc->Geometry->GetIndexData()[i]]);
+			}
+			pSand = new PhysicsTriangleMesh(physics, index, vertex);
+		}
+		
+		// grass
+		{
+			std::vector<uint32> index;
+			std::vector<Vec3> vertex;
+			unsigned indexCount = 0;
+			RenderingMesh* rc = (RenderingMesh*)rTrack->GetMeshes()[11];
+			for (unsigned i = 0; i < rc->Geometry->GetIndexData().size(); i++)
+			{
+				index.push_back(indexCount++);
+				vertex.push_back(rc->Geometry->GetVertexData()[rc->Geometry->GetIndexData()[i]]);
+			}
+			pGrass = new PhysicsTriangleMesh(physics, index, vertex);
+		}
+
+		// Rest of the Track
+		{
+			std::vector<uint32> index;
+			std::vector<Vec3> vertex;
+			unsigned indexCount = 0;
+			for (unsigned k = 0; k < rTrack->GetMeshes().size(); k++)
+			{
+				if (k != 9 && k != 11 && k != 14 && k != 16) {
+					RenderingMesh* rc = (RenderingMesh*)rTrack->GetMeshes()[k];
+					for (unsigned i = 0; i < rc->Geometry->GetIndexData().size(); i++)
+					{
+						index.push_back(indexCount++);
+						vertex.push_back(rc->Geometry->GetVertexData()[rc->Geometry->GetIndexData()[i]]);
+					}
+				}
+			}
+			pRestTrack = new PhysicsTriangleMesh(physics, index, vertex);
+		}
+
+		// Track
+		{
+			std::vector<uint32> index;
+			std::vector<Vec3> vertex;
+			unsigned indexCount = 0;
+			RenderingMesh* rc = (RenderingMesh*)rTrack->GetMeshes()[14];
+			for (unsigned i = 0; i < rc->Geometry->GetIndexData().size(); i++)
+			{
+				index.push_back(indexCount++);
+				vertex.push_back(rc->Geometry->GetVertexData()[rc->Geometry->GetIndexData()[i]]);
+			}
+			pTrack = new PhysicsTriangleMesh(physics, index, vertex);
+		}
+
+		Track->Add(pTrack);
+		Track->Add(pSand);
+		Track->Add(pRestTrack);
+		Track->Add(pGrass);
+
+	}
+
+	//pTrack = new PhysicsTriangleMesh(physics, rTrack, 0);
 	Track->Add(rTrack);
-	Track->Add(pTrack);
 	Scene->Add(Track);
 
 	// Light
@@ -234,17 +303,7 @@ void RacingGame::Update()
 
 	if (carPhysics->RigidBodyRegistered())
 	{
-		btRaycastVehicle* m_vehicle = (btRaycastVehicle*)carPhysics->GetRigidBodyPTR();
-		m_vehicle->setSteeringValue(gVehicleSteering, 0);
-		m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 0);
-		m_vehicle->setBrake(carPhysics->GetBreakingForce(), 0);
-		m_vehicle->setSteeringValue(gVehicleSteering, 1);
-		m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 1);
-		m_vehicle->setBrake(carPhysics->GetBreakingForce(), 1);
-		m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 2);
-		m_vehicle->setBrake(carPhysics->GetBreakingForce(), 2);
-		m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 3);
-		m_vehicle->setBrake(carPhysics->GetBreakingForce(), 3);
+
 	}
 
 	timeInterval += dt;
@@ -255,11 +314,12 @@ void RacingGame::Update()
 
 		if (carPhysics->RigidBodyRegistered())
 		{
-			// Update Camera Position
-			btRaycastVehicle* vehicle = static_cast<btRaycastVehicle*> (carPhysics->GetRigidBodyPTR());
-			btTransform transf = vehicle->getChassisWorldTransform();
+			btRaycastVehicle* m_vehicle = (btRaycastVehicle*)carPhysics->GetRigidBodyPTR();
 
-			sound->SetPitch(0.5 + fabs(vehicle->getCurrentSpeedKmHour()) / 200.f);
+			// Update Camera Position
+			btTransform transf = m_vehicle->getChassisWorldTransform();
+
+			sound->SetPitch(0.5 + fabs(m_vehicle->getCurrentSpeedKmHour()) / 200.f);
 
 			Matrix m;
 			m.Translate(transf.getOrigin().x(), transf.getOrigin().y(), transf.getOrigin().z());
@@ -270,6 +330,52 @@ void RacingGame::Update()
 			Vec3 CameraTargetPosition = m * Vec3(0.f, 3.f, -10.f);
 			CameraPosition += (CameraTargetPosition - CameraPosition) * 0.1f;
 			//CameraPosition = CameraTargetPosition;
+
+			// Get Wheel Info
+			uint32 whatTerrainAreWe = TERRAIN::ASPHALT;
+			for (int i = 0; i < m_vehicle->getNumWheels(); i++)
+			{
+				btWheelInfo* wheel = &m_vehicle->getWheelInfo(i);
+				if (wheel->m_raycastInfo.m_isInContact) {
+
+					btCollisionWorld::ClosestRayResultCallback RayCallback(wheel->m_worldTransform.getOrigin(), wheel->m_raycastInfo.m_contactPointWS);
+
+					// Perform raycast
+					physics->GetPhysicsWorld()->rayTest(wheel->m_worldTransform.getOrigin(), wheel->m_raycastInfo.m_contactPointWS, RayCallback);
+
+					if (RayCallback.hasHit()) {
+						if (RayCallback.m_collisionObject == pTrack->GetRigidBodyPTR())
+						{
+							if (whatTerrainAreWe!=TERRAIN::GRASS || whatTerrainAreWe!=TERRAIN::SAND)
+							uint32 whatTerrainAreWe = TERRAIN::ASPHALT;
+						}
+						if (RayCallback.m_collisionObject == pGrass->GetRigidBodyPTR())
+						{
+							if (whatTerrainAreWe != TERRAIN::SAND)
+							uint32 whatTerrainAreWe = TERRAIN::GRASS;
+						}
+						if (RayCallback.m_collisionObject == pSand->GetRigidBodyPTR())
+						{
+							uint32 whatTerrainAreWe = TERRAIN::SAND;
+						}
+					}
+				}
+			}
+
+			// Use resultant whatTerrainAreWe to make car slow down or speed up
+
+
+			//
+			m_vehicle->setSteeringValue(gVehicleSteering, 0);
+			m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 0);
+			m_vehicle->setBrake(carPhysics->GetBreakingForce(), 0);
+			m_vehicle->setSteeringValue(gVehicleSteering, 1);
+			m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 1);
+			m_vehicle->setBrake(carPhysics->GetBreakingForce(), 1);
+			m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 2);
+			m_vehicle->setBrake(carPhysics->GetBreakingForce(), 2);
+			m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 3);
+			m_vehicle->setBrake(carPhysics->GetBreakingForce(), 3);
 		}
 
 
@@ -284,7 +390,7 @@ void RacingGame::Update()
 			
 
 			if (
-				(obA == pTrack->GetRigidBodyPTR() || obB == pTrack->GetRigidBodyPTR())
+				(obA == pRestTrack->GetRigidBodyPTR() || obB == pRestTrack->GetRigidBodyPTR())
 				&&
 				(obA == m_vehicle->getRigidBody() || obB == m_vehicle->getRigidBody())
 			)

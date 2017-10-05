@@ -45,6 +45,14 @@ inline float clamp(float x, float a, float b)
 	return x < a ? a : (x > b ? b : x);
 }
 
+namespace TERRAIN {
+	enum {
+		ASPHALT = 0,
+		GRASS,
+		SAND
+	};
+}
+
 class RacingGame : public ClassName {
 public:
 
@@ -80,7 +88,7 @@ private:
 	// Track Component
 	RenderingComponent* rTrack;
 	// Physics Component
-	PhysicsTriangleMesh* pTrack;
+	PhysicsTriangleMesh* pTrack, *pSand, *pGrass, *pRestTrack;
 	// Light GameObject
 	GameObject* Light;
 	// Light Component
