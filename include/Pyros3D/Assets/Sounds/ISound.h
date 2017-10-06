@@ -47,9 +47,9 @@ namespace p3d {
 		bool isPlaying();
 		bool isPaused();
 		void SetVolume(const uint32 vol); // 0-100
-		const uint32 &GetVolume() const;
+		const uint32 GetVolume() const;
 		void SetPitch(f32 pitch);
-		const f32 &GetPitch();
+		const f32 GetPitch();
 
 	protected:
 

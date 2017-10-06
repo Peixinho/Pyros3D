@@ -121,7 +121,7 @@ namespace p3d {
 			break;
 		};
 	}
-	const uint32 &ISound::GetVolume() const
+	const uint32 ISound::GetVolume() const
 	{
 		return _volume;
 	}
@@ -185,7 +185,7 @@ namespace p3d {
 #endif
 	}
 
-	const f32 &ISound::GetPitch()
+	const f32 ISound::GetPitch()
 	{
 #if defined(_SDL2) || defined(_SDL)
 

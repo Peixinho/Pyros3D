@@ -192,7 +192,7 @@ void RacingGame::Init()
 	Car->SetPosition(Vec3(234.f, -0.25f, -59.f));
 	Car->SetRotation(Vec3(3.14, 0.08, -3.14));
 
-	IPhysicsComponent* body = (IPhysicsComponent*)physics->CreateBox(1.f, 0.5f, 2.3f, 800.f);
+	IPhysicsComponent* body = (IPhysicsComponent*)physics->CreateBox(1.f, 0.5f, 2.3f, 1288.f);
 	carPhysics = (PhysicsVehicle*)physics->CreateVehicle(body);
 	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.3f, 0.1f, 1.f, 1.f, Vec3(-0.75f, 1.15f, 1.3f), true);
 	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.3f, 0.1f, 1.f, 1.f, Vec3(0.75f, 1.15f, 1.3f), true);
@@ -347,35 +347,46 @@ void RacingGame::Update()
 						if (RayCallback.m_collisionObject == pTrack->GetRigidBodyPTR())
 						{
 							if (whatTerrainAreWe!=TERRAIN::GRASS || whatTerrainAreWe!=TERRAIN::SAND)
-							uint32 whatTerrainAreWe = TERRAIN::ASPHALT;
+								whatTerrainAreWe = TERRAIN::ASPHALT;
 						}
 						if (RayCallback.m_collisionObject == pGrass->GetRigidBodyPTR())
 						{
 							if (whatTerrainAreWe != TERRAIN::SAND)
-							uint32 whatTerrainAreWe = TERRAIN::GRASS;
+								whatTerrainAreWe = TERRAIN::GRASS;
 						}
 						if (RayCallback.m_collisionObject == pSand->GetRigidBodyPTR())
 						{
-							uint32 whatTerrainAreWe = TERRAIN::SAND;
+							whatTerrainAreWe = TERRAIN::SAND;
 						}
 					}
 				}
 			}
 
 			// Use resultant whatTerrainAreWe to make car slow down or speed up
-
-
-			//
-			m_vehicle->setSteeringValue(gVehicleSteering, 0);
-			m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 0);
-			m_vehicle->setBrake(carPhysics->GetBreakingForce(), 0);
-			m_vehicle->setSteeringValue(gVehicleSteering, 1);
-			m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 1);
-			m_vehicle->setBrake(carPhysics->GetBreakingForce(), 1);
-			m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 2);
-			m_vehicle->setBrake(carPhysics->GetBreakingForce(), 2);
-			m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 3);
-			m_vehicle->setBrake(carPhysics->GetBreakingForce(), 3);
+			switch (whatTerrainAreWe)
+			{
+			case TERRAIN::SAND:
+				if (m_vehicle->getCurrentSpeedKmHour() > 10)
+					m_vehicle->getRigidBody()->setLinearVelocity(m_vehicle->getRigidBody()->getLinearVelocity()*.9);//->applyImpulse((m_vehicle->getForwardVector()*-1.f) * btVector3(0, 0, 1000), m_vehicle->getForwardVector()*-1.f);
+				break;
+			case TERRAIN::GRASS:
+				if (m_vehicle->getCurrentSpeedKmHour() > 30)
+					m_vehicle->getRigidBody()->setLinearVelocity(m_vehicle->getRigidBody()->getLinearVelocity()*.9);
+				break;
+			default:
+			case TERRAIN::ASPHALT:
+				m_vehicle->setSteeringValue(gVehicleSteering, 0);
+				m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 0);
+				m_vehicle->setBrake(carPhysics->GetBreakingForce(), 0);
+				m_vehicle->setSteeringValue(gVehicleSteering, 1);
+				m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 1);
+				m_vehicle->setBrake(carPhysics->GetBreakingForce(), 1);
+				m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 2);
+				m_vehicle->setBrake(carPhysics->GetBreakingForce(), 2);
+				m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 3);
+				m_vehicle->setBrake(carPhysics->GetBreakingForce(), 3);
+				break;
+			};
 		}
 
 
