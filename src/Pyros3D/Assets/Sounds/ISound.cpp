@@ -293,11 +293,11 @@ namespace p3d {
 		switch (_type)
 		{
 		case SoundType::Music:
-			return _Music.getStatus() == sf::SoundSource::Status::Playing;
+			return _Music.getStatus() == sf::SoundSource::Playing;
 			break;
 		case SoundType::Sound:
 		default:
-			return _Sound.getStatus() == sf::SoundSource::Status::Playing;
+			return _Sound.getStatus() == sf::SoundSource::Playing;
 			break;
 		};
 #endif
@@ -311,11 +311,11 @@ namespace p3d {
 		switch (_type)
 		{
 		case SoundType::Music:
-			return _Music.getStatus() == sf::SoundSource::Status::Paused;
+			return _Music.getStatus() == sf::SoundSource::Paused;
 			break;
 		case SoundType::Sound:
 		default:
-			return _Sound.getStatus() == sf::SoundSource::Status::Paused;
+			return _Sound.getStatus() == sf::SoundSource::Paused;
 			break;
 		};
 #endif

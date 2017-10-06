@@ -33,7 +33,9 @@ namespace p3d {
 		settings.antialiasingLevel = 0;
 		settings.majorVersion = 0;
 		settings.minorVersion = 0;
+#ifdef _WIN32
 		settings.sRgbCapable = false;
+#endif
 
 		if (fullScreen == true)
 			rview.create(modes[0], title.c_str(), type, settings);
