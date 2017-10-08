@@ -194,6 +194,14 @@ void RacingGame::Init()
 
 	IPhysicsComponent* body = (IPhysicsComponent*)physics->CreateBox(1.f, 0.5f, 2.3f, 1288.f);
 	carPhysics = (PhysicsVehicle*)physics->CreateVehicle(body);
+	
+	//carPhysics->SetMaxBreakingForce(1000);
+	//carPhysics->SetMaxEngineForce(200);
+	carPhysics->SetSuspensionStiffness(80.f);
+	carPhysics->SetSuspensionDamping(2.3f);
+	carPhysics->SetSuspensionCompression(4.4f);
+	carPhysics->SetSuspensionRestLength(0.6f);
+
 	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.3f, 0.1f, 1.f, 1.f, Vec3(-0.75f, 1.15f, 1.3f), true);
 	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.3f, 0.1f, 1.f, 1.f, Vec3(0.75f, 1.15f, 1.3f), true);
 	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.3f, 0.1f, 1.f, 1.f, Vec3(-0.75f, 1.15f, -1.3f), false);
@@ -236,6 +244,51 @@ void RacingGame::Init()
 
 	crash = new Sound();
 	crash->LoadFromFile("../examples/RacingGame/assets/crash_sound.ogg");
+
+	// Set Portals
+	planeHandle = new Cube(20, 20, 1);
+	{
+		addPortal(Vec3(234.6f,0.f,-64.15f), Vec3(0.f,-0.086,0.f));
+		addPortal(Vec3(244.5f, 0.f, -222.68f), Vec3(0.f, -0.086, 0.f));
+		addPortal(Vec3(147.59f, 0.f, -303.4f), Vec3(-3.142f, 0.873f, 3.142f));
+		addPortal(Vec3(117.36f, 0.f, -42.01f), Vec3(0.f, 0.222f, 0.f));
+		addPortal(Vec3(28.53f, 0.f, -46.57f), Vec3(0.f, 0.266f, 0.f));
+		addPortal(Vec3(44.98f, 0.f, -177.8f), Vec3(0.f, -0.580f, 0.f));
+		addPortal(Vec3(76.32f, 0.f, -219.8f), Vec3(0.f, -0.194f, 0.f));
+		addPortal(Vec3(-243.6f, 0.f, -175.15f), Vec3(0.f, 0.0f, 0.f));
+		addPortal(Vec3(-251.48f, 0.f, 213.75f), Vec3(0.f, 0.0f, 0.f));
+		addPortal(Vec3(-89.5f, 0.f, 199.6f), Vec3(0.f, 0.6f, 0.f));
+		addPortal(Vec3(-136.5f, 0.f, -6.77f), Vec3(0.f, -0.6f, 0.f));
+		addPortal(Vec3(-30.f, 0.f, -26.f), Vec3(0.f, -0.f, 0.f));
+		addPortal(Vec3(-24.755f, 0.f, 147.481f), Vec3(0.f, 0.f, 0.f));
+		addPortal(Vec3(-17.477f, 0.f, 217.76f), Vec3(0.f, -1.46f, 0.f));
+		addPortal(Vec3(229.297f, 0.f, 176.55f), Vec3(0.f, 0.f, 0.f));
+		addPortal(Vec3(56.336f, 0.f, 100.288f), Vec3(0.f, 0.626f, 0.f));
+		addPortal(Vec3(67.107f, 0.f, 67.7f), Vec3(0.f, -1.127f, 0.f));
+		addPortal(Vec3(222.34f, 0.f, 90.50f), Vec3(0.f, -0.294f, 0.f));
+	}
+
+}
+
+void RacingGame::addPortal(const Vec3 &pos, const Vec3 &rot)
+{
+	GameObject* gSensor = new GameObject();
+
+	RenderingComponent* rSensor = new RenderingComponent(planeHandle);
+	gSensor->Add(rSensor);
+
+	IPhysicsComponent* pSensor = physics->CreateBox(20, 20, 1, 0, true);
+	gSensor->Add(pSensor);
+
+	gSensor->SetPosition(pos);
+	gSensor->SetRotation(rot);
+
+	Scene->Add(gSensor);
+
+	// Add To Vector
+	gSensors.push_back(gSensor);
+	rSensors.push_back(rSensor);
+	pSensors.push_back(pSensor);
 }
 
 void RacingGame::Update()
@@ -366,11 +419,11 @@ void RacingGame::Update()
 			switch (whatTerrainAreWe)
 			{
 			case TERRAIN::SAND:
-				if (m_vehicle->getCurrentSpeedKmHour() > 10)
+				if (fabs(m_vehicle->getCurrentSpeedKmHour()) > 10)
 					m_vehicle->getRigidBody()->setLinearVelocity(m_vehicle->getRigidBody()->getLinearVelocity()*.9);//->applyImpulse((m_vehicle->getForwardVector()*-1.f) * btVector3(0, 0, 1000), m_vehicle->getForwardVector()*-1.f);
 				break;
 			case TERRAIN::GRASS:
-				if (m_vehicle->getCurrentSpeedKmHour() > 30)
+				if (fabs(m_vehicle->getCurrentSpeedKmHour()) > 30)
 					m_vehicle->getRigidBody()->setLinearVelocity(m_vehicle->getRigidBody()->getLinearVelocity()*.9);
 				break;
 			default:

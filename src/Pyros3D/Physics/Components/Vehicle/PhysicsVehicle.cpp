@@ -11,7 +11,7 @@
 
 namespace p3d {
 
-	PhysicsVehicle::PhysicsVehicle(IPhysics* engine, IPhysicsComponent* ChassisShape) : IPhysicsComponent(0, CollisionShapes::Vehicle, engine)
+	PhysicsVehicle::PhysicsVehicle(IPhysics* engine, IPhysicsComponent* ChassisShape, bool ghost) : IPhysicsComponent(0, CollisionShapes::Vehicle, engine, ghost)
 	{
 
 		rightIndex = 0;

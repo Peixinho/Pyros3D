@@ -17,7 +17,7 @@ namespace p3d {
 	public:
 
 		PhysicsSphere();
-		PhysicsSphere(IPhysics* engine, const f32 radius, const f32 mass = 0.f);
+		PhysicsSphere(IPhysics* engine, const f32 radius, const f32 mass = 0.f, bool ghost = false);
 
 		virtual ~PhysicsSphere();
 

@@ -33,7 +33,7 @@ namespace p3d {
 
 	public:
 
-		PhysicsVehicle(IPhysics* engine, IPhysicsComponent* ChassisShape);
+		PhysicsVehicle(IPhysics* engine, IPhysicsComponent* ChassisShape, bool ghost);
 
 		virtual ~PhysicsVehicle();
 

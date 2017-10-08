@@ -11,7 +11,7 @@
 
 namespace p3d {
 
-	PhysicsBox::PhysicsBox(IPhysics* engine, const f32 width, const f32 height, const f32 depth, const f32 mass) : IPhysicsComponent(mass, CollisionShapes::Box, engine)
+	PhysicsBox::PhysicsBox(IPhysics* engine, const f32 width, const f32 height, const f32 depth, const f32 mass, bool ghost) : IPhysicsComponent(mass, CollisionShapes::Box, engine, ghost)
 	{
 
 		this->width = width;

@@ -29,7 +29,8 @@ namespace p3d {
 			TriangleMesh,
 			HeightFieldTerrain,
 			StaticPlane,
-			Vehicle
+			Vehicle,
+			Ghost
 		};
 	};
 
@@ -53,6 +54,7 @@ namespace p3d {
 		void SaveRigidBodyPTR(void* ptr) { rigidBodyPTR = ptr; rigidBodyRegistered = true; }
 		void* GetRigidBodyPTR() { return rigidBodyPTR; }
 		bool RigidBodyRegistered() { return rigidBodyRegistered; }
+		bool IsGhost() { return isGhost; }
 
 		// Physics Methods Attributes
 		virtual void SetPosition(const Vec3 &position);
@@ -70,7 +72,7 @@ namespace p3d {
 		void InternalAddWheel(const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3 &Position, bool isFrontWheel);
 
 		// Protected Constructor
-		IPhysicsComponent(const f32 Mass, const uint32 shape, IPhysics* engine) : mass(Mass), Shape(shape), rigidBodyRegistered(false), PhysicsEngine(engine), IComponent() {}
+		IPhysicsComponent(const f32 Mass, const uint32 shape, IPhysics* engine, bool ghost = false) : mass(Mass), Shape(shape), rigidBodyRegistered(false), PhysicsEngine(engine), isGhost(ghost), IComponent() {}
 
 
 		// Keep Shape Type
@@ -78,6 +80,7 @@ namespace p3d {
 		f32 mass;
 		void* rigidBodyPTR;
 		bool rigidBodyRegistered;
+		bool isGhost;
 		IPhysics* PhysicsEngine;
 	};
 

@@ -37,6 +37,7 @@
 #include <Pyros3D/Physics/Components/Vehicle/PhysicsVehicle.h>
 #include <Pyros3D/Physics/Components/TriangleMesh/PhysicsTriangleMesh.h>
 #include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h>
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/Assets/Sounds/Sound.h>
 using namespace p3d;
 
@@ -123,12 +124,18 @@ private:
 	bool _upPressed, _downPressed, _leftPressed, _rightPressed, _brakePressed;
 	float gVehicleSteering, steeringIncrement;
 
+	std::vector<GameObject*> gSensors;
+	std::vector<RenderingComponent*> rSensors;
+	std::vector<IPhysicsComponent*> pSensors;
+	Renderable* planeHandle;
+
 	float timeInterval;
 
 	Sound* sound;
 	Sound* crash;
 
+	void addPortal(const Vec3 &pos, const Vec3 &rot);
+
 };
 
 #endif	/* RACINGGAME_H */
-

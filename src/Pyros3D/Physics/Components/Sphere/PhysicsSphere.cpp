@@ -11,7 +11,7 @@
 
 namespace p3d {
 
-	PhysicsSphere::PhysicsSphere(IPhysics* engine, const f32 radius, const f32 mass) : IPhysicsComponent(mass, CollisionShapes::Sphere, engine)
+	PhysicsSphere::PhysicsSphere(IPhysics* engine, const f32 radius, const f32 mass, bool ghost) : IPhysicsComponent(mass, CollisionShapes::Sphere, engine, ghost)
 	{
 
 		this->radius = radius;

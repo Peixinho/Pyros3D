@@ -49,19 +49,19 @@ namespace p3d {
 		virtual void Activate(IPhysicsComponent *pcomp) = 0;
 
 		// Create Physics Components
-		virtual IPhysicsComponent* CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass = 0.f) = 0;
-		virtual IPhysicsComponent* CreateCapsule(const f32 radius, const f32 height, const f32 mass = 0.f) = 0;
-		virtual IPhysicsComponent* CreateCone(const f32 radius, const f32 height, const f32 mass = 0.f) = 0;
-		virtual IPhysicsComponent* CreateConvexHull(const std::vector<Vec3> &points, const f32 mass = 0.f) = 0;
-		virtual IPhysicsComponent* CreateConvexTriangleMesh(RenderingComponent* rcomp, const f32 mass = 0.f) = 0;
-		virtual IPhysicsComponent* CreateConvexTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass = 0.f) = 0;
-		virtual IPhysicsComponent* CreateCylinder(const f32 radius, const f32 height, const f32 mass = 0.f) = 0;
-		virtual IPhysicsComponent* CreateMultipleSphere(const std::vector<Vec3> &positions, const std::vector<f32> &radius, const f32 mass = 0.f) = 0;
-		virtual IPhysicsComponent* CreateSphere(const f32 radius, const f32 mass = 0.f) = 0;
-		virtual IPhysicsComponent* CreateStaticPlane(const Vec3 &Normal, const f32 Constant, const f32 mass = 0.f) = 0;
-		virtual IPhysicsComponent* CreateTriangleMesh(RenderingComponent* rcomp, const f32 mass = 0.f) = 0;
-		virtual IPhysicsComponent* CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass = 0.f) = 0;
-		virtual IPhysicsComponent* CreateVehicle(IPhysicsComponent* ChassisShape) = 0;
+		virtual IPhysicsComponent* CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass = 0.f, bool ghost = false) = 0;
+		virtual IPhysicsComponent* CreateCapsule(const f32 radius, const f32 height, const f32 mass = 0.f, bool ghost = false) = 0;
+		virtual IPhysicsComponent* CreateCone(const f32 radius, const f32 height, const f32 mass = 0.f, bool ghost = false) = 0;
+		virtual IPhysicsComponent* CreateConvexHull(const std::vector<Vec3> &points, const f32 mass = 0.f, bool ghost = false) = 0;
+		virtual IPhysicsComponent* CreateConvexTriangleMesh(RenderingComponent* rcomp, const f32 mass = 0.f, bool ghost = false) = 0;
+		virtual IPhysicsComponent* CreateConvexTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass = 0.f, bool ghost = false) = 0;
+		virtual IPhysicsComponent* CreateCylinder(const f32 radius, const f32 height, const f32 mass = 0.f, bool ghost = false) = 0;
+		virtual IPhysicsComponent* CreateMultipleSphere(const std::vector<Vec3> &positions, const std::vector<f32> &radius, const f32 mass = 0.f, bool ghost = false) = 0;
+		virtual IPhysicsComponent* CreateSphere(const f32 radius, const f32 mass = 0.f, bool ghost = false) = 0;
+		virtual IPhysicsComponent* CreateStaticPlane(const Vec3 &Normal, const f32 Constant, const f32 mass = 0.f, bool ghost = false) = 0;
+		virtual IPhysicsComponent* CreateTriangleMesh(RenderingComponent* rcomp, const f32 mass = 0.f, bool ghost = false) = 0;
+		virtual IPhysicsComponent* CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass = 0.f, bool ghost = false) = 0;
+		virtual IPhysicsComponent* CreateVehicle(IPhysicsComponent* ChassisShape, bool ghost = false) = 0;
 		virtual void AddWheel(IPhysicsComponent *pcomp, const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3 &Position, bool isFrontWheel) = 0;
 
 	protected:

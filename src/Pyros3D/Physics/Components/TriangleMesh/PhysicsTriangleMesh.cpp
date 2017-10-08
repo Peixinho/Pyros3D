@@ -11,7 +11,7 @@
 
 namespace p3d {
 
-	PhysicsTriangleMesh::PhysicsTriangleMesh(IPhysics* engine, RenderingComponent* rcomp, const f32 mass) : IPhysicsComponent(mass, CollisionShapes::TriangleMesh, engine)
+	PhysicsTriangleMesh::PhysicsTriangleMesh(IPhysics* engine, RenderingComponent* rcomp, const f32 mass, bool ghost) : IPhysicsComponent(mass, CollisionShapes::TriangleMesh, engine, ghost)
 	{
 		// Build the triangle mesh from Rendering Component
 		unsigned indexCount = 0;
@@ -26,7 +26,7 @@ namespace p3d {
 		}
 	}
 
-	PhysicsTriangleMesh::PhysicsTriangleMesh(IPhysics* engine, const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass) : IPhysicsComponent(mass, CollisionShapes::TriangleMesh, engine)
+	PhysicsTriangleMesh::PhysicsTriangleMesh(IPhysics* engine, const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost) : IPhysicsComponent(mass, CollisionShapes::TriangleMesh, engine, ghost)
 	{
 		// Build the triangle mesh from an index vector and vertex vector
 		this->vertex = vertex;

@@ -16,7 +16,7 @@ namespace p3d {
 	class PYROS3D_API PhysicsStaticPlane : public IPhysicsComponent {
 	public:
 
-		PhysicsStaticPlane(IPhysics* engine, const Vec3 &Normal, const f32 Constant, const f32 mass = 0.f);
+		PhysicsStaticPlane(IPhysics* engine, const Vec3 &Normal, const f32 Constant, const f32 mass = 0.f, bool ghost = false);
 
 		virtual ~PhysicsStaticPlane();
 

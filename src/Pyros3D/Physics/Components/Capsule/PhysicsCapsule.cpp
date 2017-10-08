@@ -11,7 +11,7 @@
 
 namespace p3d {
 
-	PhysicsCapsule::PhysicsCapsule(IPhysics* engine, const f32 radius, const f32 height, const f32 mass) : IPhysicsComponent(mass, CollisionShapes::Capsule, engine)
+	PhysicsCapsule::PhysicsCapsule(IPhysics* engine, const f32 radius, const f32 height, const f32 mass, bool ghost) : IPhysicsComponent(mass, CollisionShapes::Capsule, engine, ghost)
 	{
 
 		this->radius = radius;

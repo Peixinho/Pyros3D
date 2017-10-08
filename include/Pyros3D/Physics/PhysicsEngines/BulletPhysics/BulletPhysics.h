@@ -12,6 +12,7 @@
 #include <btBulletDynamicsCommon.h>
 #include <LinearMath/btIDebugDraw.h>
 #include <BulletCollision/CollisionShapes/btMultimaterialTriangleMeshShape.h>
+#include <BulletCollision/CollisionDispatch/btGhostObject.h>
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Physics/PhysicsEngines/BulletPhysics/DebugDraw/PhysicsDebugDraw.h>
@@ -56,19 +57,19 @@ namespace p3d {
 		void Activate(IPhysicsComponent *pcomp);
 
 		// Create Physics Components
-		virtual IPhysicsComponent* CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass);
-		virtual IPhysicsComponent* CreateCapsule(const f32 radius, const f32 height, const f32 mass);
-		virtual IPhysicsComponent* CreateCone(const f32 radius, const f32 height, const f32 mass);
-		virtual IPhysicsComponent* CreateConvexHull(const std::vector<Vec3> &points, const f32 mass);
-		virtual IPhysicsComponent* CreateConvexTriangleMesh(RenderingComponent* rcomp, const f32 mass);
-		virtual IPhysicsComponent* CreateConvexTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass);
-		virtual IPhysicsComponent* CreateCylinder(const f32 radius, const f32 height, const f32 mass);
-		virtual IPhysicsComponent* CreateMultipleSphere(const std::vector<Vec3> &positions, const std::vector<f32> &radius, const f32 mass);
-		virtual IPhysicsComponent* CreateSphere(const f32 radius, const f32 mass);
-		virtual IPhysicsComponent* CreateStaticPlane(const Vec3 &Normal, const f32 Constant, const f32 mass);
-		virtual IPhysicsComponent* CreateTriangleMesh(RenderingComponent* rcomp, const f32 mass);
-		virtual IPhysicsComponent* CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass);
-		virtual IPhysicsComponent* CreateVehicle(IPhysicsComponent* ChassisShape);
+		virtual IPhysicsComponent* CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass, bool ghost = false);
+		virtual IPhysicsComponent* CreateCapsule(const f32 radius, const f32 height, const f32 mass, bool ghost = false);
+		virtual IPhysicsComponent* CreateCone(const f32 radius, const f32 height, const f32 mass, bool ghost = false);
+		virtual IPhysicsComponent* CreateConvexHull(const std::vector<Vec3> &points, const f32 mass, bool ghost = false);
+		virtual IPhysicsComponent* CreateConvexTriangleMesh(RenderingComponent* rcomp, const f32 mass, bool ghost = false);
+		virtual IPhysicsComponent* CreateConvexTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost = false);
+		virtual IPhysicsComponent* CreateCylinder(const f32 radius, const f32 height, const f32 mass, bool ghost = false);
+		virtual IPhysicsComponent* CreateMultipleSphere(const std::vector<Vec3> &positions, const std::vector<f32> &radius, const f32 mass, bool ghost = false);
+		virtual IPhysicsComponent* CreateSphere(const f32 radius, const f32 mass, bool ghost = false);
+		virtual IPhysicsComponent* CreateStaticPlane(const Vec3 &Normal, const f32 Constant, const f32 mass, bool ghost = false);
+		virtual IPhysicsComponent* CreateTriangleMesh(RenderingComponent* rcomp, const f32 mass, bool ghost = false);
+		virtual IPhysicsComponent* CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost = false);
+		virtual IPhysicsComponent* CreateVehicle(IPhysicsComponent* ChassisShape, bool ghost = false);
 
 		// Vehicle Add Wheel
 		void AddWheel(IPhysicsComponent *pcomp, const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3 &Position, bool isFrontWheel);
@@ -87,6 +88,7 @@ namespace p3d {
 		void CreateRigidBody(btCollisionShape* shape, IPhysicsComponent* pcomp);
 
 		btRigidBody* LocalCreateRigidBody(f32 mass, const btTransform& startTransform, btCollisionShape* shape);
+		void CreateGhostObject(btCollisionShape* shape, IPhysicsComponent* pcomp);
 
 		btCollisionShape* GetCollisionShape(IPhysicsComponent* pcomp);
 

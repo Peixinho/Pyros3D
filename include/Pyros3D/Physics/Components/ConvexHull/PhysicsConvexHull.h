@@ -17,7 +17,7 @@ namespace p3d {
 	class PYROS3D_API PhysicsConvexHull : public IPhysicsComponent {
 	public:
 
-		PhysicsConvexHull(IPhysics* engine, const std::vector<Vec3> &points, const f32 mass = 0.f);
+		PhysicsConvexHull(IPhysics* engine, const std::vector<Vec3> &points, const f32 mass = 0.f, bool ghost = false);
 
 		virtual ~PhysicsConvexHull();
 

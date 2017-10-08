@@ -277,7 +277,7 @@ namespace p3d {
 		break;
 		default:
 			collShape = GetCollisionShape(pcomp);
-			CreateRigidBody(collShape, pcomp);
+			pcomp->IsGhost() ? CreateGhostObject(collShape, pcomp) : CreateRigidBody(collShape, pcomp);
 			break;
 		};
 
@@ -331,6 +331,27 @@ namespace p3d {
 		m_dynamicsWorld->addRigidBody(body);
 
 		return body;
+	}
+
+	void BulletPhysics::CreateGhostObject(btCollisionShape* shape, IPhysicsComponent* pcomp)
+	{
+		btTransform startTransform;
+		startTransform.setIdentity();
+		// Local is Enough because we can't use Parent/Child Relationships, it wouldn't work right
+		startTransform.setOrigin(btVector3(pcomp->GetOwner()->GetPosition().x, pcomp->GetOwner()->GetPosition().y, pcomp->GetOwner()->GetPosition().z));
+		Quaternion q;
+		q.SetRotationFromEuler(pcomp->GetOwner()->GetRotation());
+		startTransform.setRotation(btQuaternion(q.x, q.y, q.z, q.w));
+		
+		btGhostObject* ghostObject = new btGhostObject();
+		ghostObject->setCollisionShape(shape);
+		ghostObject->setWorldTransform(startTransform);
+		ghostObject->setCollisionFlags(ghostObject->getCollisionFlags() | btCollisionObject::CF_NO_CONTACT_RESPONSE);
+		m_dynamicsWorld->addCollisionObject(ghostObject);
+		m_dynamicsWorld->getBroadphase()->getOverlappingPairCache()->setInternalGhostPairCallback(new btGhostPairCallback());
+
+		// Save Ghost Pointer
+		pcomp->SaveRigidBodyPTR(ghostObject);
 	}
 
 	void BulletPhysics::CreateRigidBody(btCollisionShape* shape, IPhysicsComponent* pcomp)
@@ -451,69 +472,69 @@ namespace p3d {
 	}
 
 	// Create Physics Components
-	IPhysicsComponent* BulletPhysics::CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass)
+	IPhysicsComponent* BulletPhysics::CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass, bool ghost)
 	{
-		PhysicsBox* box = new PhysicsBox(this, width, height, depth, mass);
+		PhysicsBox* box = new PhysicsBox(this, width, height, depth, mass, ghost);
 		return box;
 	}
-	IPhysicsComponent* BulletPhysics::CreateCapsule(const f32 radius, const f32 height, const f32 mass)
+	IPhysicsComponent* BulletPhysics::CreateCapsule(const f32 radius, const f32 height, const f32 mass, bool ghost)
 	{
-		PhysicsCapsule* capsule = new PhysicsCapsule(this, radius, height, mass);
+		PhysicsCapsule* capsule = new PhysicsCapsule(this, radius, height, mass, ghost);
 		return capsule;
 	}
-	IPhysicsComponent* BulletPhysics::CreateCone(const f32 radius, const f32 height, const f32 mass)
+	IPhysicsComponent* BulletPhysics::CreateCone(const f32 radius, const f32 height, const f32 mass, bool ghost)
 	{
-		PhysicsCone* cone = new PhysicsCone(this, radius, height, mass);
+		PhysicsCone* cone = new PhysicsCone(this, radius, height, mass, ghost);
 		return cone;
 	}
-	IPhysicsComponent* BulletPhysics::CreateConvexHull(const std::vector<Vec3> &points, const f32 mass)
+	IPhysicsComponent* BulletPhysics::CreateConvexHull(const std::vector<Vec3> &points, const f32 mass, bool ghost)
 	{
-		PhysicsConvexHull* convexHull = new PhysicsConvexHull(this, points, mass);
+		PhysicsConvexHull* convexHull = new PhysicsConvexHull(this, points, mass, ghost);
 		return convexHull;
 	}
-	IPhysicsComponent* BulletPhysics::CreateConvexTriangleMesh(RenderingComponent* rcomp, const f32 mass)
+	IPhysicsComponent* BulletPhysics::CreateConvexTriangleMesh(RenderingComponent* rcomp, const f32 mass, bool ghost)
 	{
-		PhysicsConvexTriangleMesh* convexTriangleMesh = new PhysicsConvexTriangleMesh(this, rcomp, mass);
+		PhysicsConvexTriangleMesh* convexTriangleMesh = new PhysicsConvexTriangleMesh(this, rcomp, mass, ghost);
 		return convexTriangleMesh;
 	}
-	IPhysicsComponent* BulletPhysics::CreateConvexTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass)
+	IPhysicsComponent* BulletPhysics::CreateConvexTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost)
 	{
-		PhysicsConvexTriangleMesh* convexTriangleMesh = new PhysicsConvexTriangleMesh(this, index, vertex, mass);
+		PhysicsConvexTriangleMesh* convexTriangleMesh = new PhysicsConvexTriangleMesh(this, index, vertex, mass, ghost);
 		return convexTriangleMesh;
 	}
-	IPhysicsComponent* BulletPhysics::CreateCylinder(const f32 radius, const f32 height, const f32 mass)
+	IPhysicsComponent* BulletPhysics::CreateCylinder(const f32 radius, const f32 height, const f32 mass, bool ghost)
 	{
-		PhysicsCylinder* cylinder = new PhysicsCylinder(this, radius, height, mass);
+		PhysicsCylinder* cylinder = new PhysicsCylinder(this, radius, height, mass, ghost);
 		return cylinder;
 	}
-	IPhysicsComponent* BulletPhysics::CreateMultipleSphere(const std::vector<Vec3> &positions, const std::vector<f32> &radius, const f32 mass)
+	IPhysicsComponent* BulletPhysics::CreateMultipleSphere(const std::vector<Vec3> &positions, const std::vector<f32> &radius, const f32 mass, bool ghost)
 	{
-		PhysicsMultipleSphere* multipleSphere = new PhysicsMultipleSphere(this, positions, radius, mass);
+		PhysicsMultipleSphere* multipleSphere = new PhysicsMultipleSphere(this, positions, radius, mass, ghost);
 		return multipleSphere;
 	}
-	IPhysicsComponent* BulletPhysics::CreateSphere(const f32 radius, const f32 mass)
+	IPhysicsComponent* BulletPhysics::CreateSphere(const f32 radius, const f32 mass, bool ghost)
 	{
-		PhysicsSphere* sphere = new PhysicsSphere(this, radius, mass);
+		PhysicsSphere* sphere = new PhysicsSphere(this, radius, mass, ghost);
 		return sphere;
 	}
-	IPhysicsComponent* BulletPhysics::CreateStaticPlane(const Vec3 &Normal, const f32 Constant, const f32 mass)
+	IPhysicsComponent* BulletPhysics::CreateStaticPlane(const Vec3 &Normal, const f32 Constant, const f32 mass, bool ghost)
 	{
-		PhysicsStaticPlane* plane = new PhysicsStaticPlane(this, Normal, Constant, mass);
+		PhysicsStaticPlane* plane = new PhysicsStaticPlane(this, Normal, Constant, mass, ghost);
 		return plane;
 	}
-	IPhysicsComponent* BulletPhysics::CreateTriangleMesh(RenderingComponent* rcomp, const f32 mass)
+	IPhysicsComponent* BulletPhysics::CreateTriangleMesh(RenderingComponent* rcomp, const f32 mass, bool ghost)
 	{
-		PhysicsTriangleMesh* triangleMesh = new PhysicsTriangleMesh(this, rcomp, mass);
+		PhysicsTriangleMesh* triangleMesh = new PhysicsTriangleMesh(this, rcomp, mass, ghost);
 		return triangleMesh;
 	}
-	IPhysicsComponent* BulletPhysics::CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass)
+	IPhysicsComponent* BulletPhysics::CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost)
 	{
-		PhysicsTriangleMesh* triangleMesh = new PhysicsTriangleMesh(this, index, vertex, mass);
+		PhysicsTriangleMesh* triangleMesh = new PhysicsTriangleMesh(this, index, vertex, mass, ghost);
 		return triangleMesh;
 	}
-	IPhysicsComponent* BulletPhysics::CreateVehicle(IPhysicsComponent* ChassisShape)
+	IPhysicsComponent* BulletPhysics::CreateVehicle(IPhysicsComponent* ChassisShape, bool ghost)
 	{
-		PhysicsVehicle* vehicle = new PhysicsVehicle(this, ChassisShape);
+		PhysicsVehicle* vehicle = new PhysicsVehicle(this, ChassisShape, ghost);
 		return vehicle;
 	}
 }
