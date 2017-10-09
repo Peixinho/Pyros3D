@@ -293,11 +293,11 @@ void RacingGame::Init()
 	timeInterval = 0;
 
 	sound = new Sound();
-	sound->LoadFromFile("../examples/RacingGame/assets/delorean_sound.ogg");
+	sound->LoadFromFile("../examples/RacingGame/assets/sounds/delorean_sound.ogg");
 	sound->Play(true);
 
 	crash = new Sound();
-	crash->LoadFromFile("../examples/RacingGame/assets/crash_sound.ogg");
+	crash->LoadFromFile("../examples/RacingGame/assets/sounds/crash_sound.ogg");
 
 	// Set Portals
 	planeHandle = new Cube(20.f, 20.f, .1f);
@@ -454,6 +454,17 @@ void RacingGame::Update()
 			CameraPosition += (CameraTargetPosition - CameraPosition) * 0.1f;
 			//CameraPosition = CameraTargetPosition;
 
+			// UPDATE WHEELS MANUALLY
+			Matrix _m;
+			m_vehicle->getWheelInfo(0).m_worldTransform.getOpenGLMatrix(&_m.m[0]);
+			gWheelFL->SetTransformationMatrix(_m);
+			m_vehicle->getWheelInfo(1).m_worldTransform.getOpenGLMatrix(&_m.m[0]);
+			gWheelFR->SetTransformationMatrix(_m);
+			m_vehicle->getWheelInfo(2).m_worldTransform.getOpenGLMatrix(&_m.m[0]);
+			gWheelBL->SetTransformationMatrix(_m);
+			m_vehicle->getWheelInfo(3).m_worldTransform.getOpenGLMatrix(&_m.m[0]);
+			gWheelBR->SetTransformationMatrix(_m);
+
 			// Get Wheel Info
 			uint32 whatTerrainAreWe = TERRAIN::ASPHALT;
 			for (int i = 0; i < m_vehicle->getNumWheels(); i++)
@@ -511,7 +522,6 @@ void RacingGame::Update()
 				break;
 			};
 		}
-
 
 		int numManifolds = physics->GetPhysicsWorld()->getDispatcher()->getNumManifolds();
 		for (int i = 0; i < numManifolds; i++)
@@ -608,20 +618,24 @@ void RacingGame::Update()
 
 	FollowCamera->SetPosition(CameraPosition);
 
-	// UPDATE WHEELS MANUALLY
-	gWheelFL->SetTransformationMatrix(carPhysics->GetWheels()[0].Transformation);
-	gWheelFR->SetTransformationMatrix(carPhysics->GetWheels()[1].Transformation);
-	gWheelBL->SetTransformationMatrix(carPhysics->GetWheels()[2].Transformation);
-	gWheelBR->SetTransformationMatrix(carPhysics->GetWheels()[3].Transformation);
-
 	// Update Scene
 	Scene->Update(GetTime());
 
 	Skybox->SetPosition(Vec3(CameraPosition.x, 0, CameraPosition.y));
 
 	rCar->Disable();
+	rWheelFL->Disable();
+	rWheelFR->Disable();
+	rWheelBL->Disable();
+	rWheelBR->Disable();
+
 	dRenderer->RenderCubeMap(Scene, Car, 0.1f, 2000.f);
+
 	rCar->Enable();
+	rWheelFL->Enable();
+	rWheelFR->Enable();
+	rWheelBL->Enable();
+	rWheelBR->Enable();
 
 	Renderer->ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
 	Renderer->EnableClearDepthBuffer();
