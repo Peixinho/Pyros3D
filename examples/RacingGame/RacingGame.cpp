@@ -50,7 +50,12 @@ void RacingGame::Init()
 	physics->EnableDebugDraw();
 
 	// Create Camera
-	Camera = new GameObject();
+	FollowCamera = new GameObject();
+	HoodCamera = new GameObject();
+
+	// Set Default Camera
+	Camera = FollowCamera;
+	_followCamera = true;
 
 	// Create Track GameObject
 	Track = new GameObject();
@@ -153,6 +158,7 @@ void RacingGame::Init()
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Right, this, &RacingGame::RightUp);
 	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Space, this, &RacingGame::SpaceDown);
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Space, this, &RacingGame::SpaceUp);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::C, this, &RacingGame::ChangeCamera);
 
 	InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button0, this, &RacingGame::UpDown);
 	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button0, this, &RacingGame::UpUp);
@@ -221,17 +227,24 @@ void RacingGame::Init()
 		m->SetReflectivity(0.1f);
 	}
 
-	Scene->Add(Camera);
-
+	Scene->Add(FollowCamera);
 	{
 		// Set Camera Initial Position
 		Matrix m;
 		m.Translate(Vec3(234.f, -0.25f, -59.f));
 		m.SetRotationFromEuler(Vec3(3.14, 0.08, -3.14));
 		Vec3 CameraTargetPosition = m * Vec3(0.f, 3.f, -10.f);
-		Camera->SetPosition(CameraTargetPosition);
-		Camera->LookAt(Car);
+		FollowCamera->SetPosition(CameraTargetPosition);
+		FollowCamera->LookAt(Car);
 
+	}
+
+	Scene->Add(HoodCamera);
+	{
+		// Set Camera Initial Position
+		Car->Add(HoodCamera);
+		HoodCamera->SetPosition(Vec3(0, 2.f, 0.6f));
+		HoodCamera->SetRotation(Vec3(DEGTORAD(5), DEGTORAD(180), 0));
 	}
 
 	HideMouse();
@@ -268,6 +281,12 @@ void RacingGame::Init()
 		addPortal(Vec3(222.34f, 0.f, 90.50f), Vec3(0.f, -0.294f, 0.f));
 	}
 
+	brakingMat = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::DirectionalShadow | ShaderUsage::EnvMap | ShaderUsage::Diffuse);
+	((GenericShaderMaterial*)brakingMat)->SetColor(Vec4(1, 0, 0, 1));
+	((GenericShaderMaterial*)brakingMat)->SetEnvMap(dRenderer->GetTexture());
+	((GenericShaderMaterial*)brakingMat)->SetReflectivity(0.3f);
+
+	defaultBrakingMat = rCar->GetMeshes()[0]->Material;
 }
 
 void RacingGame::addPortal(const Vec3 &pos, const Vec3 &rot)
@@ -301,7 +320,8 @@ void RacingGame::Update()
 	{
 		carPhysics->SetEngineForce(carPhysics->GetMaxEngineForce());
 	}
-	else if (!_downPressed) {
+	else if (!_downPressed) 
+	{
 		carPhysics->SetEngineForce(0);
 	}
 	if (_downPressed)
@@ -313,11 +333,13 @@ void RacingGame::Update()
 	}
 	if (_brakePressed)
 	{
+		LightBrakesON();
 		carPhysics->SetBreakingForce(carPhysics->GetMaxBreakingForce());
 	}
 
 	if (!_brakePressed)
 	{
+		LightBrakesOFF();
 		carPhysics->SetBreakingForce(0);
 	}
 
@@ -482,7 +504,7 @@ void RacingGame::Update()
 		}
 	}
 
-	Camera->SetPosition(CameraPosition);
+	FollowCamera->SetPosition(CameraPosition);
 
 	// Update Scene
 	Scene->Update(GetTime());
@@ -512,7 +534,8 @@ void RacingGame::Shutdown()
 	delete Car;
 	delete rTrack;
 	delete Track;
-	delete Camera;
+	delete FollowCamera;
+	delete HoodCamera;
 	delete Renderer;
 	delete Scene;
 	delete carHandle;
@@ -575,4 +598,26 @@ void RacingGame::AnalogicMove(Event::Input::Info e)
 
 	gVehicleSteering = fabs((f32)e.Value)*0.3f*0.01f*((f32)e.Value>0.0 ? -1 : 1);
 
+}
+void RacingGame::ChangeCamera(Event::Input::Info e)
+{
+	if (_followCamera) {
+		_followCamera = false;
+		Camera = HoodCamera;
+	}
+	else {
+		_followCamera = true;
+		Camera = FollowCamera;
+
+	}
+}
+void RacingGame::LightBrakesON()
+{
+	if (rCar->GetMeshes()[0]->Material == defaultBrakingMat)
+		rCar->GetMeshes()[0]->Material = brakingMat;
+}
+void RacingGame::LightBrakesOFF()
+{
+	if (rCar->GetMeshes()[0]->Material == brakingMat)
+		rCar->GetMeshes()[0]->Material = defaultBrakingMat;
 }

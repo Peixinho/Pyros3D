@@ -78,8 +78,9 @@ private:
 	CubemapRenderer* dRenderer;
 	
 	// Camera - Its a regular GameObject
-	GameObject* Camera;
+	GameObject* Camera, *FollowCamera, *HoodCamera;
 	Vec3 CameraPosition;
+	bool _followCamera;
 
 	// Geometry Handles
 	Renderable *trackHandle, *skyboxHandle, *carHandle;
@@ -121,6 +122,9 @@ private:
 	void SpaceUp(Event::Input::Info e);
 	void SpaceDown(Event::Input::Info e);
 	void AnalogicMove(Event::Input::Info e);
+
+	void ChangeCamera(Event::Input::Info e);
+
 	bool _upPressed, _downPressed, _leftPressed, _rightPressed, _brakePressed;
 	float gVehicleSteering, steeringIncrement;
 
@@ -136,6 +140,10 @@ private:
 
 	void addPortal(const Vec3 &pos, const Vec3 &rot);
 
+	IMaterial *brakingMat, *defaultBrakingMat;
+
+	void LightBrakesON();
+	void LightBrakesOFF();
 };
 
 #endif	/* RACINGGAME_H */
