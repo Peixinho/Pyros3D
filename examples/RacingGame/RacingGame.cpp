@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-RacingGame::RacingGame() : ClassName(1024, 768, "CODENAME: Pyros3D - FIRST WINDOW", WindowType::Close | WindowType::Resize)
+RacingGame::RacingGame() : ClassName(1024, 768, "Pyros3D - Racing Game Example", WindowType::Close | WindowType::Resize)
 {
 
 }
@@ -61,7 +61,7 @@ void RacingGame::Init()
 	Track = new GameObject();
 
 	// Create Track Model
-	trackHandle = new Model("../examples/RacingGame/assets/track.p3dm", true, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow | ShaderUsage::EnvMap);
+	trackHandle = new Model("../examples/RacingGame/assets/track/track.p3dm", true, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow | ShaderUsage::EnvMap);
 	rTrack = new RenderingComponent(trackHandle);
 
 	{
@@ -143,7 +143,10 @@ void RacingGame::Init()
 	dLight = new DirectionalLight(Vec4(1, 1, 1, 1), Vec3(-1, -1, -1));
 	dLight->EnableCastShadows(2048, 2048, projection, 0.1f, 200.f, 2);
 	dLight->SetShadowBias(3.1f, 9.0f);
+	a = 3.1f;
+	b = 9.f;
 	dLight->SetShadowPCFTexelSize(0.0001f);
+	c = 0.0001f;
 	Light->Add(dLight);
 	Scene->Add(Light);
 
@@ -171,12 +174,12 @@ void RacingGame::Init()
 	dRenderer = new CubemapRenderer(1024, 1024);
 
 	Texture* skyboxTexture = new Texture();
-	skyboxTexture->LoadTexture("../examples/RacingGame/assets/Textures/skybox/negx.png", TextureType::CubemapNegative_X);
-	skyboxTexture->LoadTexture("../examples/RacingGame/assets/Textures/skybox/negy.png", TextureType::CubemapNegative_Y);
-	skyboxTexture->LoadTexture("../examples/RacingGame/assets/Textures/skybox/negz.png", TextureType::CubemapNegative_Z);
-	skyboxTexture->LoadTexture("../examples/RacingGame/assets/Textures/skybox/posx.png", TextureType::CubemapPositive_X);
-	skyboxTexture->LoadTexture("../examples/RacingGame/assets/Textures/skybox/posy.png", TextureType::CubemapPositive_Y);
-	skyboxTexture->LoadTexture("../examples/RacingGame/assets/Textures/skybox/posz.png", TextureType::CubemapPositive_Z);
+	skyboxTexture->LoadTexture("../examples/RacingGame/assets/textures/skybox/negx.png", TextureType::CubemapNegative_X);
+	skyboxTexture->LoadTexture("../examples/RacingGame/assets/textures/skybox/negy.png", TextureType::CubemapNegative_Y);
+	skyboxTexture->LoadTexture("../examples/RacingGame/assets/textures/skybox/negz.png", TextureType::CubemapNegative_Z);
+	skyboxTexture->LoadTexture("../examples/RacingGame/assets/textures/skybox/posx.png", TextureType::CubemapPositive_X);
+	skyboxTexture->LoadTexture("../examples/RacingGame/assets/textures/skybox/posy.png", TextureType::CubemapPositive_Y);
+	skyboxTexture->LoadTexture("../examples/RacingGame/assets/textures/skybox/posz.png", TextureType::CubemapPositive_Z);
 	skyboxTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 	SkyboxMaterial = new GenericShaderMaterial(ShaderUsage::Skybox);
@@ -191,7 +194,7 @@ void RacingGame::Init()
 
 	Car = new GameObject();
 
-	carHandle = new Model("../examples/RacingGame/assets/del.p3dm", true, ShaderUsage::EnvMap | ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
+	carHandle = new Model("../examples/RacingGame/assets/delorean/delorean.p3dm", true, ShaderUsage::EnvMap | ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
 	rCar = new RenderingComponent(carHandle);
 	Car->Add(rCar);
 	Scene->Add(Car);
@@ -227,6 +230,44 @@ void RacingGame::Init()
 		m->SetReflectivity(0.1f);
 	}
 
+	// Wheels
+	{
+		gWheelFL = new GameObject();
+		gWheelFR = new GameObject();
+		gWheelBL = new GameObject();
+		gWheelBR = new GameObject();
+
+		wheelFLHandle = new Model("../examples/RacingGame/assets/delorean/WheelFL.p3dm", true, ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
+		wheelFRHandle = new Model("../examples/RacingGame/assets/delorean/WheelFR.p3dm", true, ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
+		wheelBLHandle = new Model("../examples/RacingGame/assets/delorean/WheelBL.p3dm", true, ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
+		wheelBRHandle = new Model("../examples/RacingGame/assets/delorean/WheelBR.p3dm", true, ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
+
+		rWheelFL = new RenderingComponent(wheelFLHandle);
+		rWheelFR = new RenderingComponent(wheelFRHandle);
+		rWheelBL = new RenderingComponent(wheelBLHandle);
+		rWheelBR = new RenderingComponent(wheelBRHandle);
+
+		gWheelFL->Add(rWheelFL);
+		gWheelFR->Add(rWheelFR);
+		gWheelBL->Add(rWheelBL);
+		gWheelBR->Add(rWheelBR);
+
+		//Car->Add(gWheelFL);
+		//Car->Add(gWheelFR);
+		//Car->Add(gWheelBL);
+		//Car->Add(gWheelBR);
+
+		Scene->Add(gWheelFL);
+		Scene->Add(gWheelFR);
+		Scene->Add(gWheelBL);
+		Scene->Add(gWheelBR);
+
+		//gWheelFL->SetPosition(Vec3(-1, 3, -1));
+		//gWheelFR->SetPosition(Vec3(1, 3, -1));
+		//gWheelBL->SetPosition(Vec3(-1, 3, 1));
+		//gWheelBR->SetPosition(Vec3(1, 3, 1));
+	}
+
 	Scene->Add(FollowCamera);
 	{
 		// Set Camera Initial Position
@@ -259,7 +300,7 @@ void RacingGame::Init()
 	crash->LoadFromFile("../examples/RacingGame/assets/crash_sound.ogg");
 
 	// Set Portals
-	planeHandle = new Cube(20, 20, 1);
+	planeHandle = new Cube(20.f, 20.f, .1f);
 	{
 		addPortal(Vec3(234.6f,0.f,-64.15f), Vec3(0.f,-0.086,0.f));
 		addPortal(Vec3(244.5f, 0.f, -222.68f), Vec3(0.f, -0.086, 0.f));
@@ -274,7 +315,6 @@ void RacingGame::Init()
 		addPortal(Vec3(-136.5f, 0.f, -6.77f), Vec3(0.f, -0.6f, 0.f));
 		addPortal(Vec3(-30.f, 0.f, -26.f), Vec3(0.f, -0.f, 0.f));
 		addPortal(Vec3(-24.755f, 0.f, 147.481f), Vec3(0.f, 0.f, 0.f));
-		addPortal(Vec3(-17.477f, 0.f, 217.76f), Vec3(0.f, -1.46f, 0.f));
 		addPortal(Vec3(229.297f, 0.f, 176.55f), Vec3(0.f, 0.f, 0.f));
 		addPortal(Vec3(56.336f, 0.f, 100.288f), Vec3(0.f, 0.626f, 0.f));
 		addPortal(Vec3(67.107f, 0.f, 67.7f), Vec3(0.f, -1.127f, 0.f));
@@ -287,27 +327,35 @@ void RacingGame::Init()
 	((GenericShaderMaterial*)brakingMat)->SetReflectivity(0.3f);
 
 	defaultBrakingMat = rCar->GetMeshes()[0]->Material;
+
+
+	// UI
+	ImGui::SFML::ImGui_ImplSFML_Init(&rview);
+	clear_color = ImColor(114, 144, 154);
+
+
+	raceStart = false;
+	portalNumber = -1;
 }
 
 void RacingGame::addPortal(const Vec3 &pos, const Vec3 &rot)
 {
-	GameObject* gSensor = new GameObject();
+	Portal portal;
+	portal.gPortal = new GameObject();
+	//portal.rPortal = new RenderingComponent(planeHandle);
+	//portal.gPortal->Add(portal.rPortal);
+	portal.pPortal = physics->CreateBox(20.f, 20.f, .1f, 0, true);
+	portal.gPortal->Add(portal.pPortal);
 
-	RenderingComponent* rSensor = new RenderingComponent(planeHandle);
-	gSensor->Add(rSensor);
+	portal.gPortal->SetPosition(pos);
+	portal.gPortal->SetRotation(rot);
 
-	IPhysicsComponent* pSensor = physics->CreateBox(20, 20, 1, 0, true);
-	gSensor->Add(pSensor);
+	Scene->Add(portal.gPortal);
 
-	gSensor->SetPosition(pos);
-	gSensor->SetRotation(rot);
-
-	Scene->Add(gSensor);
+	portal.portalPassage = 0;
 
 	// Add To Vector
-	gSensors.push_back(gSensor);
-	rSensors.push_back(rSensor);
-	pSensors.push_back(pSensor);
+	portals.push_back(portal);
 }
 
 void RacingGame::Update()
@@ -501,10 +549,70 @@ void RacingGame::Update()
 					}
 				}
 			}
+			else {
+				// Check for Portals
+				uint32 portal = 0;
+				for (std::vector<Portal>::iterator p = portals.begin(); p != portals.end(); p++)
+				{
+					if (obA == (*p).pPortal->GetRigidBodyPTR() || obB == (*p).pPortal->GetRigidBodyPTR())
+					{
+						if (portal != portalNumber)
+						{
+							if (portal == 0)
+							{
+								if (!raceStart)
+								{
+									// Start Race
+									raceStart = true;
+									raceInitTime = GetTime();
+									lapInitTime = GetTime();
+								}
+								else {
+									bool finished = true;
+									for (std::vector<Portal>::iterator _p = portals.begin(); _p != portals.end(); _p++)
+									{
+										if ((*_p).portalPassage != 1) finished = false;
+									}
+									if (finished)
+									{
+										// Lap Finished
+										lapTime = GetTime() - lapInitTime;
+										std::cout << lapTime << std::endl;
+
+										// Clean Passages
+										for (std::vector<Portal>::iterator _p = portals.begin(); _p != portals.end(); _p++)
+										{
+											(*_p).portalPassage = 0;
+										}
+									}
+								}
+							}
+							
+							{
+								if (portalNumber == (portal+1) || ((portal == portals.size()-1) && portalNumber==0))
+								{
+									portals[portalNumber].portalPassage--;
+								}
+								else
+									portals[portal].portalPassage++;
+							}
+
+							portalNumber = portal;
+						}
+					}
+					portal++;
+				}
+			}
 		}
 	}
 
 	FollowCamera->SetPosition(CameraPosition);
+
+	// UPDATE WHEELS MANUALLY
+	gWheelFL->SetTransformationMatrix(carPhysics->GetWheels()[0].Transformation);
+	gWheelFR->SetTransformationMatrix(carPhysics->GetWheels()[1].Transformation);
+	gWheelBL->SetTransformationMatrix(carPhysics->GetWheels()[2].Transformation);
+	gWheelBR->SetTransformationMatrix(carPhysics->GetWheels()[3].Transformation);
 
 	// Update Scene
 	Scene->Update(GetTime());
@@ -521,11 +629,35 @@ void RacingGame::Update()
 	Renderer->RenderScene(projection, Camera, Scene);
 	
 	//physics->RenderDebugDraw(projection, Camera);
+
+
+
+
+	// ######################### UI ###############################
+	ImGui::SFML::ImGui_ImplSFML_NewFrame();
+
+	{
+		ImGui::Text("Shadows");
+		ImGui::SliderFloat("Factor", &a, 0.0f, 10.0f);
+		ImGui::SliderFloat("Units", &b, 0.0f, 10.0f);
+		ImGui::InputFloat("Bias", &c);
+		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+		for (int i = 0;i<portals.size(); i++)
+			ImGui::Text("Portal: %d - passage: %d", i, portals[i].portalPassage);
+		dLight->SetShadowBias(a, b);
+		dLight->SetShadowPCFTexelSize(c);
+	}
+
+	ImGui::SFML::ImGui_ImplSFML_Render((int)ImGui::GetIO().DisplaySize.x, (int)ImGui::GetIO().DisplaySize.y, clear_color);
+
+	// ######################### UI ###############################
 }
 
 void RacingGame::Shutdown()
 {
 	// All your Shutdown Code Here
+	delete planeHandle;
+
 	Scene->Remove(Track);
 	Scene->Remove(Car);
 	Track->Remove(rTrack);

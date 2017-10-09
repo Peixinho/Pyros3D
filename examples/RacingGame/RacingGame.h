@@ -9,16 +9,19 @@
 #ifndef RACINGGAME_H
 #define	RACINGGAME_H
 
-#if defined(_SDL)
-#include "../WindowManagers/SDL/SDLContext.h"
-#define ClassName SDLContext
-#elif defined(_SDL2)
-#include "../WindowManagers/SDL2/SDL2Context.h"
-#define ClassName SDL2Context
-#else
-#include "../WindowManagers/SFML/SFMLContext.h"
-#define ClassName SFMLContext
-#endif
+//#if defined(_SDL)
+//#include "../WindowManagers/SDL/SDLContext.h"
+//#define ClassName SDLContext
+//#elif defined(_SDL2)
+//#include "../WindowManagers/SDL2/SDL2Context.h"
+//#define ClassName SDL2Context
+//#else
+//#include "../WindowManagers/SFML/SFMLContext.h"
+//#define ClassName SFMLContext
+//#endif
+
+#include "imgui/imgui_impl_sfml.h"
+#define ClassName imguiContext
 
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
@@ -53,6 +56,13 @@ namespace TERRAIN {
 		SAND
 	};
 }
+
+struct Portal {
+	RenderingComponent* rPortal;
+	GameObject* gPortal;
+	IPhysicsComponent* pPortal;
+	int32 portalPassage;
+};
 
 class RacingGame : public ClassName {
 public:
@@ -109,6 +119,11 @@ private:
 	// Skybox Material
 	GenericShaderMaterial* SkyboxMaterial;
 
+	// Wheels
+	GameObject *gWheelFL, *gWheelFR, *gWheelBL, *gWheelBR;
+	RenderingComponent *rWheelFL, *rWheelFR, *rWheelBL, *rWheelBR;
+	Renderable *wheelFLHandle, *wheelFRHandle, *wheelBLHandle, *wheelBRHandle;
+
 	void CloseApp(Event::Input::Info e);
 
 	void LeftUp(Event::Input::Info e);
@@ -128,9 +143,7 @@ private:
 	bool _upPressed, _downPressed, _leftPressed, _rightPressed, _brakePressed;
 	float gVehicleSteering, steeringIncrement;
 
-	std::vector<GameObject*> gSensors;
-	std::vector<RenderingComponent*> rSensors;
-	std::vector<IPhysicsComponent*> pSensors;
+	std::vector<Portal> portals;
 	Renderable* planeHandle;
 
 	float timeInterval;
@@ -144,6 +157,20 @@ private:
 
 	void LightBrakesON();
 	void LightBrakesOFF();
+
+	// Shadow Debugging
+	f32 a, b, c;
+	ImVec4 clear_color;
+
+	// Racing Time
+	bool raceStart;
+	uint32 portalNumber;
+	f32 raceInitTime, raceTime;
+	f32 lapInitTime, lapTime;
+	f32 sectorAInitTime, sectorATime;
+	f32 sectorBInitTime, sectorBTime;
+	f32 sectorCInitTime, sectorCTime;
+
 };
 
 #endif	/* RACINGGAME_H */
