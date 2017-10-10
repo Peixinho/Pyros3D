@@ -64,6 +64,9 @@ void RacingGame::Init()
 	trackHandle = new Model("../examples/RacingGame/assets/track/track.p3dm", true, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow | ShaderUsage::EnvMap);
 	rTrack = new RenderingComponent(trackHandle);
 
+	rTrack->GetMeshes()[19]->Material->DisableCastingShadows();
+	rTrack->GetMeshes()[19]->Material->SetCullFace(CullFace::DoubleSided);
+
 	{
 		// sand
 		{
@@ -162,6 +165,7 @@ void RacingGame::Init()
 	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Space, this, &RacingGame::SpaceDown);
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Space, this, &RacingGame::SpaceUp);
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::C, this, &RacingGame::ChangeCamera);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::R, this, &RacingGame::Reset);
 
 	InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button0, this, &RacingGame::UpDown);
 	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button0, this, &RacingGame::UpUp);
@@ -172,6 +176,9 @@ void RacingGame::Init()
 	InputManager::AddJoypadEvent(Event::Type::OnMove, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Axis::X, this, &RacingGame::AnalogicMove);
 
 	dRenderer = new CubemapRenderer(1024, 1024);
+
+	startedDrivingLikeAGirlTexture = new Texture();
+	startedDrivingLikeAGirlTexture->LoadTexture("../examples/RacingGame/assets/textures/wrong.png");
 
 	Texture* skyboxTexture = new Texture();
 	skyboxTexture->LoadTexture("../examples/RacingGame/assets/textures/skybox/negx.png", TextureType::CubemapNegative_X);
@@ -198,8 +205,6 @@ void RacingGame::Init()
 	rCar = new RenderingComponent(carHandle);
 	Car->Add(rCar);
 	Scene->Add(Car);
-	Car->SetPosition(Vec3(234.f, -0.25f, -59.f));
-	Car->SetRotation(Vec3(3.14, 0.08, -3.14));
 
 	IPhysicsComponent* body = (IPhysicsComponent*)physics->CreateBox(1.f, 0.5f, 2.3f, 1288.f);
 	carPhysics = (PhysicsVehicle*)physics->CreateVehicle(body);
@@ -221,6 +226,7 @@ void RacingGame::Init()
 		GenericShaderMaterial* m = static_cast<GenericShaderMaterial*> ((*i)->Material);
 		m->SetEnvMap(dRenderer->GetTexture());
 		m->SetReflectivity(0.3f);
+		m->SetSpecular(Vec4(1, 1, 1, 1));
 	}
 
 	for (std::vector<RenderingMesh*>::iterator i = rTrack->GetMeshes().begin(); i != rTrack->GetMeshes().end(); i++)
@@ -228,6 +234,7 @@ void RacingGame::Init()
 		GenericShaderMaterial* m = static_cast<GenericShaderMaterial*> ((*i)->Material);
 		m->SetEnvMap(dRenderer->GetTexture());
 		m->SetReflectivity(0.1f);
+		m->SetSpecular(Vec4(1, 1, 1, 1));
 	}
 
 	// Wheels
@@ -269,24 +276,7 @@ void RacingGame::Init()
 	}
 
 	Scene->Add(FollowCamera);
-	{
-		// Set Camera Initial Position
-		Matrix m;
-		m.Translate(Vec3(234.f, -0.25f, -59.f));
-		m.SetRotationFromEuler(Vec3(3.14, 0.08, -3.14));
-		Vec3 CameraTargetPosition = m * Vec3(0.f, 3.f, -10.f);
-		FollowCamera->SetPosition(CameraTargetPosition);
-		FollowCamera->LookAt(Car);
-
-	}
-
 	Scene->Add(HoodCamera);
-	{
-		// Set Camera Initial Position
-		Car->Add(HoodCamera);
-		HoodCamera->SetPosition(Vec3(0, 2.f, 0.6f));
-		HoodCamera->SetRotation(Vec3(DEGTORAD(5), DEGTORAD(180), 0));
-	}
 
 	HideMouse();
 
@@ -300,25 +290,56 @@ void RacingGame::Init()
 	crash->LoadFromFile("../examples/RacingGame/assets/sounds/crash_sound.ogg");
 
 	// Set Portals
-	planeHandle = new Cube(20.f, 20.f, .1f);
+	planeHandle = new Cube(40.f, 10.f, .1f);
 	{
-		addPortal(Vec3(234.6f,0.f,-64.15f), Vec3(0.f,-0.086,0.f));
-		addPortal(Vec3(244.5f, 0.f, -222.68f), Vec3(0.f, -0.086, 0.f));
-		addPortal(Vec3(147.59f, 0.f, -303.4f), Vec3(-3.142f, 0.873f, 3.142f));
-		addPortal(Vec3(117.36f, 0.f, -42.01f), Vec3(0.f, 0.222f, 0.f));
-		addPortal(Vec3(28.53f, 0.f, -46.57f), Vec3(0.f, 0.266f, 0.f));
-		addPortal(Vec3(44.98f, 0.f, -177.8f), Vec3(0.f, -0.580f, 0.f));
-		addPortal(Vec3(76.32f, 0.f, -219.8f), Vec3(0.f, -0.194f, 0.f));
-		addPortal(Vec3(-243.6f, 0.f, -175.15f), Vec3(0.f, 0.0f, 0.f));
-		addPortal(Vec3(-251.48f, 0.f, 213.75f), Vec3(0.f, 0.0f, 0.f));
-		addPortal(Vec3(-89.5f, 0.f, 199.6f), Vec3(0.f, 0.6f, 0.f));
-		addPortal(Vec3(-136.5f, 0.f, -6.77f), Vec3(0.f, -0.6f, 0.f));
-		addPortal(Vec3(-30.f, 0.f, -26.f), Vec3(0.f, -0.f, 0.f));
-		addPortal(Vec3(-24.755f, 0.f, 147.481f), Vec3(0.f, 0.f, 0.f));
-		addPortal(Vec3(229.297f, 0.f, 176.55f), Vec3(0.f, 0.f, 0.f));
-		addPortal(Vec3(56.336f, 0.f, 100.288f), Vec3(0.f, 0.626f, 0.f));
-		addPortal(Vec3(67.107f, 0.f, 67.7f), Vec3(0.f, -1.127f, 0.f));
-		addPortal(Vec3(222.34f, 0.f, 90.50f), Vec3(0.f, -0.294f, 0.f));
+		addPortal(Vec3(234.6f,0.f,-64.15f), Vec3(0.f,-0.086f,0.f));
+		addPortal(Vec3(237.8f, 0.f, -272.01f), Vec3(0.f, 0.753f, 0.f));
+		addPortal(Vec3(151.16f, 0.f, -296.01f), Vec3(-3.142f, 1.145f, -3.142f));
+		addPortal(Vec3(148.2f, 0.f, -225.08f), Vec3(3.142f, 0.171f, 3.142f));
+		addPortal(Vec3(114.7f, 0.f, -37.11f), Vec3(3.142f, 0.171f, 3.142f));
+		addPortal(Vec3(99.27f, 0.f, -9.67f), Vec3(3.142f, 1.025f, 3.142f));
+		addPortal(Vec3(35.79f, 0.f, -28.99f), Vec3(0.f, 1.022f, 0.f));
+		addPortal(Vec3(25.30f, 0.f, -61.02f), Vec3(0.f, -0.151f, 0.f));
+		addPortal(Vec3(45.92f, 0.f, -180.51f), Vec3(0.f, -0.151f, 0.f));
+		addPortal(Vec3(75.24f, 0.f, -228.18f), Vec3(0.f, -0.151f, 0.f));
+		addPortal(Vec3(38.47f, 0.f, -275.75f), Vec3(0.f, 1.f, 0.f));
+		addPortal(Vec3(-90.28f, 0.f, -292.85f), Vec3(3.142f, 1.138f, 3.142f));
+		addPortal(Vec3(-121.75f, 0.f, -267.284f), Vec3(3.142f, 0.588f, 3.142f));
+		addPortal(Vec3(-159.85f, 0.f, -243.38f), Vec3(3.142f, 1.042f, 3.142f));
+		addPortal(Vec3(-238.73f, 0.f, -222.08f), Vec3(3.142f, 0.637f, 3.142f));
+		addPortal(Vec3(-243.63f, 0.f, -179.24f), Vec3(3.142f, 0.f, 3.142f));
+		addPortal(Vec3(-245.75f, 0.f, 232.55f), Vec3(3.142f, 0.f, 3.142f));
+		addPortal(Vec3(-230.515f, 0.f, 295.302f), Vec3(3.142f, -0.833f, 3.142f));
+		addPortal(Vec3(-172.71f, 0.f, 306.78f), Vec3(0.f, -1.359f, 0.f));
+		addPortal(Vec3(-93.17f, 0.f, 259.5f), Vec3(0.f, -0.618f, 0.f));
+		addPortal(Vec3(-87.86f, 0.f, 204.87f), Vec3(0.f, 0.055f, 0.f));
+		addPortal(Vec3(-102.27f, 0.f, 182.22f), Vec3(0.f, 0.055f, 0.f));
+		addPortal(Vec3(-140.64f, 0.f, -1.59f), Vec3(0.f, 0.055f, 0.f));
+		addPortal(Vec3(-103.72f, 0.f, -52.92f), Vec3(0.f, -0.853f, 0.f));
+		addPortal(Vec3(-36.76f, 0.f, -43.71f), Vec3(3.142f, -1.122f, 3.142f));
+		addPortal(Vec3(-21.87f, 0.f, 1.295f), Vec3(3.142f, -0.127f, 3.142f));
+		addPortal(Vec3(-17.099f, 0.f, 177.039f), Vec3(3.142f, -0.127f, 3.142f));
+		addPortal(Vec3(-8.36f, 0.f, 197.122f), Vec3(3.142f, -0.577f, 3.142f));
+		addPortal(Vec3(27.83f, 0.f, 213.18f), Vec3(3.142f, -1.189f, 3.142f));
+		addPortal(Vec3(57.30f, 0.f, 214.9f), Vec3(0.f, -1.435f, 0.f));
+		addPortal(Vec3(188.58f, 0.f, 208.27f), Vec3(0.f, -1.435f, 0.f));
+		addPortal(Vec3(226.15f, 0.f, 177.9f), Vec3(0.f, 0.056f, 0.f));
+		addPortal(Vec3(201.23f, 0.f, 157.99f), Vec3(0.f, 0.586f, 0.f));
+		addPortal(Vec3(65.47f, 0.f, 122.25f), Vec3(0.f, 0.841f, 0.f));
+		addPortal(Vec3(41.711f, 0.f, 86.73f), Vec3(0.f, -0.156f, 0.f));
+		addPortal(Vec3(88.282f, 0.f, 58.96f), Vec3(0.f, -1.329f, 0.f));
+		addPortal(Vec3(186.62f, 0.f, 93.596f), Vec3(0.f, -1.329f, 0.f));
+		addPortal(Vec3(215.28f, 0.f, 96.89f), Vec3(0.f, -0.783f, 0.f));
+		addPortal(Vec3(226.33f, 0.f, 35.92f), Vec3(0.f, 0.f, 0.f));
+
+
+		for (int i = 0; i < portals.size(); i++)
+		{
+			int k = i+1;
+			if (i + 1 == portals.size())
+				k = 0;
+			portals[i].direction = (portals[k].gPortal->GetWorldPosition() - portals[i].gPortal->GetWorldPosition()).normalize();
+		}
 	}
 
 	brakingMat = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::DirectionalShadow | ShaderUsage::EnvMap | ShaderUsage::Diffuse);
@@ -336,6 +357,19 @@ void RacingGame::Init()
 
 	raceStart = false;
 	portalNumber = -1;
+
+
+	ImFontConfig config;
+	config.OversampleH = 3;
+	config.OversampleV = 1;
+	config.GlyphExtraSpacing.x = 1.0f;
+	ImGuiIO& io = ImGui::GetIO();
+	io.Fonts->AddFontFromFileTTF("../examples/RacingGame/assets/fonts/BEBAS___.ttf", 16, &config);
+
+	Update(); // Run once to add and register objects
+
+	Event::Input::Info e;
+	Reset(e);
 }
 
 void RacingGame::addPortal(const Vec3 &pos, const Vec3 &rot)
@@ -344,7 +378,7 @@ void RacingGame::addPortal(const Vec3 &pos, const Vec3 &rot)
 	portal.gPortal = new GameObject();
 	//portal.rPortal = new RenderingComponent(planeHandle);
 	//portal.gPortal->Add(portal.rPortal);
-	portal.pPortal = physics->CreateBox(20.f, 20.f, .1f, 0, true);
+	portal.pPortal = physics->CreateBox(40.f, 10.f, .1f, 0, true);
 	portal.gPortal->Add(portal.pPortal);
 
 	portal.gPortal->SetPosition(pos);
@@ -604,7 +638,9 @@ void RacingGame::Update()
 									portals[portalNumber].portalPassage--;
 								}
 								else
+								{
 									portals[portal].portalPassage++;
+								}
 							}
 
 							portalNumber = portal;
@@ -662,9 +698,52 @@ void RacingGame::Update()
 		dLight->SetShadowPCFTexelSize(c);
 	}
 
+	bool showTimers = true;
+	ImGui::SetNextWindowPos(ImVec2(5, 5));
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1, 0.1, 0.1, 0.1));
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+	ImGui::Begin("Timers", &showTimers, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+		ImGui::Text("Best  Race  Time:  %f", raceTime);
+		ImGui::Text("Best  Lap  Time:  %f", lapTime);
+		ImGui::Text("-");
+		ImGui::Text("Race  Time:  %f", raceTime);
+		ImGui::Text("Lap  1  Time:  %f", lapTime);
+		ImGui::Text("Lap  2  Time:  %f", lapTime);
+		ImGui::Text("Lap  3  Time:  %f", lapTime);
+		ImGui::Text("Lap  1/3");
+	ImGui::End();
+	ImGui::PopStyleVar();
+	ImGui::PopStyleColor();
+
+	if (startedDrivingLikeAGirl) 
+	{
+		bool showStartedDrivingLikeAGirl = ((GetTime() - timeStartedDrivingLikeAGirl) > 3); // more than 3 seconds
+		if (showStartedDrivingLikeAGirl)
+		{
+			ImGui::SetNextWindowPos(ImVec2(Width*.5f - 150, 50));
+			ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0, 0.0, 0.0, 0.0));
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+			ImGui::Begin("DrivingLikeAGirl", &showStartedDrivingLikeAGirl, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+			ImGui::Image((void*)startedDrivingLikeAGirlTexture->GetBindID(), ImVec2(300, 300));
+			ImGui::End();
+			ImGui::PopStyleVar();
+			ImGui::PopStyleColor();
+		}
+	}
+
 	ImGui::SFML::ImGui_ImplSFML_Render((int)ImGui::GetIO().DisplaySize.x, (int)ImGui::GetIO().DisplaySize.y, clear_color);
 
 	// ######################### UI ###############################
+
+	// Check our direction
+	if (Car->GetDirection().dotProduct(portals[portalNumber].direction) < 0)
+	{
+		if (!startedDrivingLikeAGirl) {
+			startedDrivingLikeAGirl = true;
+			timeStartedDrivingLikeAGirl = GetTime();
+		}
+	}
+	else startedDrivingLikeAGirl = false;
 }
 
 void RacingGame::Shutdown()
@@ -676,6 +755,7 @@ void RacingGame::Shutdown()
 	Scene->Remove(Car);
 	Track->Remove(rTrack);
 	Car->Remove(rCar);
+	delete startedDrivingLikeAGirlTexture;
 	delete rCar;
 	delete Car;
 	delete rTrack;
@@ -756,6 +836,45 @@ void RacingGame::ChangeCamera(Event::Input::Info e)
 		Camera = FollowCamera;
 
 	}
+}
+void RacingGame::Reset(Event::Input::Info e)
+{
+	btRaycastVehicle* m_vehicle = (btRaycastVehicle*)carPhysics->GetRigidBodyPTR();
+	m_vehicle->getRigidBody()->setLinearVelocity(btVector3(0, 0, 0));
+	m_vehicle->getRigidBody()->setAngularVelocity(btVector3(0, 0, 0));
+	btTransform transf;
+	Matrix m;
+	m.Translate(Vec3(234.f, -0.25f, -59.f));
+	m.SetRotationFromEuler(Vec3(3.14, 0.08, -3.14));
+
+	transf.setFromOpenGLMatrix(&m.m[0]);
+	m_vehicle->getRigidBody()->setWorldTransform(transf);
+	m_vehicle->getRigidBody()->clearForces();
+	m_vehicle->resetSuspension();
+	
+	// Reset passages in portals
+	for (std::vector<Portal>::iterator _p = portals.begin(); _p != portals.end(); _p++)
+	{
+		(*_p).portalPassage = 0;
+	}
+	portalNumber = -1;
+
+	{
+		// Set Camera Initial Position
+		Matrix m;
+		m.Translate(Vec3(234.f, -0.25f, -59.f));
+		m.SetRotationFromEuler(Vec3(3.14, 0.08, -3.14));
+		Vec3 CameraTargetPosition = m * Vec3(0.f, 3.f, -10.f);
+		FollowCamera->SetPosition(CameraTargetPosition);
+		FollowCamera->LookAt(Car);
+		CameraPosition = CameraTargetPosition;
+
+		Car->Add(HoodCamera);
+		HoodCamera->SetPosition(Vec3(0, 2.f, 0.6f));
+		HoodCamera->SetRotation(Vec3(DEGTORAD(5), DEGTORAD(180), 0));
+	}
+
+	startedDrivingLikeAGirl = false;
 }
 void RacingGame::LightBrakesON()
 {

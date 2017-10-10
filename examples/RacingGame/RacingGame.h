@@ -62,6 +62,7 @@ struct Portal {
 	GameObject* gPortal;
 	IPhysicsComponent* pPortal;
 	int32 portalPassage;
+	Vec3 direction;
 };
 
 class RacingGame : public ClassName {
@@ -139,6 +140,7 @@ private:
 	void AnalogicMove(Event::Input::Info e);
 
 	void ChangeCamera(Event::Input::Info e);
+	void Reset(Event::Input::Info e);
 
 	bool _upPressed, _downPressed, _leftPressed, _rightPressed, _brakePressed;
 	float gVehicleSteering, steeringIncrement;
@@ -171,6 +173,9 @@ private:
 	f32 sectorBInitTime, sectorBTime;
 	f32 sectorCInitTime, sectorCTime;
 
+	bool startedDrivingLikeAGirl;
+	f32 timeStartedDrivingLikeAGirl;
+	Texture* startedDrivingLikeAGirlTexture;
 };
 
 #endif	/* RACINGGAME_H */
