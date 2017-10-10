@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-RacingGame::RacingGame() : ClassName(1024, 768, "Pyros3D - Racing Game Example", WindowType::Close | WindowType::Resize)
+RacingGame::RacingGame() : ClassName(1024, 768, "Pyros3D - Racing Game Example", WindowType::Close | WindowType::Fullscreen)
 {
 
 }
@@ -143,7 +143,7 @@ void RacingGame::Init()
 	// Light
 	Light = new GameObject();
 	// Light Component
-	dLight = new DirectionalLight(Vec4(1, 1, 1, 1), Vec3(-1, -1, -1));
+	dLight = new DirectionalLight(Vec4(1, 1, 1, 1), Vec3(-1, -1.0, 1.1));
 	dLight->EnableCastShadows(2048, 2048, projection, 0.1f, 200.f, 2);
 	dLight->SetShadowBias(3.1f, 9.0f);
 	a = 3.1f;
@@ -395,14 +395,14 @@ void RacingGame::addPortal(const Vec3 &pos, const Vec3 &rot)
 void RacingGame::Update()
 {
 	float dt = GetTimeInterval();
-	
+
 	float speed = dt * 20.f;
 
 	if (_upPressed)
 	{
 		carPhysics->SetEngineForce(carPhysics->GetMaxEngineForce());
 	}
-	else if (!_downPressed) 
+	else if (!_downPressed)
 	{
 		carPhysics->SetEngineForce(0);
 	}
@@ -514,7 +514,7 @@ void RacingGame::Update()
 					if (RayCallback.hasHit()) {
 						if (RayCallback.m_collisionObject == pTrack->GetRigidBodyPTR())
 						{
-							if (whatTerrainAreWe!=TERRAIN::GRASS || whatTerrainAreWe!=TERRAIN::SAND)
+							if (whatTerrainAreWe != TERRAIN::GRASS || whatTerrainAreWe != TERRAIN::SAND)
 								whatTerrainAreWe = TERRAIN::ASPHALT;
 						}
 						if (RayCallback.m_collisionObject == pGrass->GetRigidBodyPTR())
@@ -565,13 +565,13 @@ void RacingGame::Update()
 			const btCollisionObject* obB = contactManifold->getBody1();
 
 			btRaycastVehicle* m_vehicle = (btRaycastVehicle*)carPhysics->GetRigidBodyPTR();
-			
+
 
 			if (
 				(obA == pRestTrack->GetRigidBodyPTR() || obB == pRestTrack->GetRigidBodyPTR())
 				&&
 				(obA == m_vehicle->getRigidBody() || obB == m_vehicle->getRigidBody())
-			)
+				)
 			{
 				int numContacts = contactManifold->getNumContacts();
 				for (int j = 0; j < numContacts; j++)
@@ -620,8 +620,16 @@ void RacingGame::Update()
 									if (finished)
 									{
 										// Lap Finished
-										lapTime = GetTime() - lapInitTime;
-										std::cout << lapTime << std::endl;
+										lapTime[(lap - 1)] = GetTime() - lapInitTime;
+										
+										lapInitTime = GetTime(); // Set Init time for next lap
+
+										if (lap == lapLimit)
+										{
+											// GameOver
+
+										}
+										lap++;
 
 										// Clean Passages
 										for (std::vector<Portal>::iterator _p = portals.begin(); _p != portals.end(); _p++)
@@ -631,9 +639,9 @@ void RacingGame::Update()
 									}
 								}
 							}
-							
+
 							{
-								if (portalNumber == (portal+1) || ((portal == portals.size()-1) && portalNumber==0))
+								if (portalNumber == (portal + 1) || ((portal == portals.size() - 1) && portalNumber == 0))
 								{
 									portals[portalNumber].portalPassage--;
 								}
@@ -677,7 +685,7 @@ void RacingGame::Update()
 	Renderer->EnableClearDepthBuffer();
 	Renderer->PreRender(Camera, Scene);
 	Renderer->RenderScene(projection, Camera, Scene);
-	
+
 	//physics->RenderDebugDraw(projection, Camera);
 
 
@@ -692,7 +700,7 @@ void RacingGame::Update()
 		ImGui::SliderFloat("Units", &b, 0.0f, 10.0f);
 		ImGui::InputFloat("Bias", &c);
 		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-		for (int i = 0;i<portals.size(); i++)
+		for (int i = 0; i < portals.size(); i++)
 			ImGui::Text("Portal: %d - passage: %d", i, portals[i].portalPassage);
 		dLight->SetShadowBias(a, b);
 		dLight->SetShadowPCFTexelSize(c);
@@ -702,20 +710,26 @@ void RacingGame::Update()
 	ImGui::SetNextWindowPos(ImVec2(5, 5));
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1, 0.1, 0.1, 0.1));
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-	ImGui::Begin("Timers", &showTimers, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
-		ImGui::Text("Best  Race  Time:  %f", raceTime);
-		ImGui::Text("Best  Lap  Time:  %f", lapTime);
-		ImGui::Text("-");
-		ImGui::Text("Race  Time:  %f", raceTime);
-		ImGui::Text("Lap  1  Time:  %f", lapTime);
-		ImGui::Text("Lap  2  Time:  %f", lapTime);
-		ImGui::Text("Lap  3  Time:  %f", lapTime);
-		ImGui::Text("Lap  1/3");
+	ImGui::Begin("Timers", &showTimers, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_AlwaysAutoResize);
+	ImGui::Text("Best  Race  Time:  %.3f", raceTime);
+	ImGui::Text("Best  Lap  Time:  %.3f", lapTime);
+	ImGui::Text("-");
+	ImGui::Text("Race  Time:  %.3f", GetTime()-raceInitTime);
+
+	if (lapTime.size() > 0)
+	{
+		for (int i = 1; i <= lap; i++) {
+			if (lap != i)
+				ImGui::Text("Lap  %d  Time:  %.3f", i, lapTime[i - 1]);
+			else ImGui::Text("Lap  %d  Time:  %.3f", i, GetTime() - lapInitTime);
+		}
+	}
+	ImGui::Text("Lap  %d/%d", lap, lapLimit);
 	ImGui::End();
 	ImGui::PopStyleVar();
 	ImGui::PopStyleColor();
 
-	if (startedDrivingLikeAGirl) 
+	if (startedDrivingLikeAGirl)
 	{
 		bool showStartedDrivingLikeAGirl = ((GetTime() - timeStartedDrivingLikeAGirl) > 3); // more than 3 seconds
 		if (showStartedDrivingLikeAGirl)
@@ -834,7 +848,6 @@ void RacingGame::ChangeCamera(Event::Input::Info e)
 	else {
 		_followCamera = true;
 		Camera = FollowCamera;
-
 	}
 }
 void RacingGame::Reset(Event::Input::Info e)
@@ -875,6 +888,11 @@ void RacingGame::Reset(Event::Input::Info e)
 	}
 
 	startedDrivingLikeAGirl = false;
+	raceStart = false;
+	lap = 1;
+	lapLimit = 3;
+	lapTime.clear();
+	lapTime.push_back(0);
 }
 void RacingGame::LightBrakesON()
 {

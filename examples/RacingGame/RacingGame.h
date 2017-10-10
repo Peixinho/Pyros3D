@@ -166,12 +166,14 @@ private:
 
 	// Racing Time
 	bool raceStart;
-	uint32 portalNumber;
+	int32 portalNumber;
 	f32 raceInitTime, raceTime;
-	f32 lapInitTime, lapTime;
+	f32 lapInitTime;
+	std::vector<f32> lapTime;
 	f32 sectorAInitTime, sectorATime;
 	f32 sectorBInitTime, sectorBTime;
 	f32 sectorCInitTime, sectorCTime;
+	int lap, lapLimit;
 
 	bool startedDrivingLikeAGirl;
 	f32 timeStartedDrivingLikeAGirl;
