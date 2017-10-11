@@ -10,7 +10,8 @@
 
 using namespace p3d;
 
-RacingGame::RacingGame() : ClassName(1920,1080, "Pyros3D - Racing Game Example", WindowType::Close | WindowType::Fullscreen)
+//RacingGame::RacingGame() : ClassName(1920,1080, "Pyros3D - Racing Game Example", WindowType::Close | WindowType::Fullscreen)
+RacingGame::RacingGame() : ClassName(1024, 768, "Pyros3D - Racing Game Example", WindowType::Close | WindowType::Resize)
 {
 
 }
@@ -215,6 +216,7 @@ void RacingGame::Init()
 	carPhysics->SetSuspensionDamping(2.3f);
 	carPhysics->SetSuspensionCompression(4.4f);
 	carPhysics->SetSuspensionRestLength(0.6f);
+	carPhysics->SetSteeringClamp(0.45f);
 
 	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.3f, 0.1f, 1.f, 1.f, Vec3(-0.75f, 1.15f, 1.3f), true);
 	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.3f, 0.1f, 1.f, 1.f, Vec3(0.75f, 1.15f, 1.3f), true);
@@ -394,6 +396,8 @@ void RacingGame::addPortal(const Vec3 &pos, const Vec3 &rot)
 
 void RacingGame::Update()
 {
+	btRaycastVehicle* m_vehicle = (btRaycastVehicle*)carPhysics->GetRigidBodyPTR();
+
 	float dt = GetTimeInterval();
 
 	float speed = dt * 20.f;
@@ -408,7 +412,8 @@ void RacingGame::Update()
 	}
 	if (_downPressed)
 	{
-		carPhysics->SetEngineForce(-carPhysics->GetMaxEngineForce());
+		if (m_vehicle->getCurrentSpeedKmHour()<=0.0f)
+			carPhysics->SetEngineForce(-carPhysics->GetMaxEngineForce());
 	}
 	else if (!_upPressed) {
 		carPhysics->SetEngineForce(0);
@@ -429,32 +434,30 @@ void RacingGame::Update()
 	{
 		if (gVehicleSteering < carPhysics->GetSteeringClamp())
 		{
-			gVehicleSteering += steeringIncrement*dt * 100;
-			if (gVehicleSteering > carPhysics->GetSteeringClamp()) gVehicleSteering = carPhysics->GetSteeringClamp();
+			if (gVehicleSteering < 0.f) gVehicleSteering = 0.f;
+			else {
+				gVehicleSteering += steeringIncrement * dt * 1000 / (m_vehicle->getCurrentSpeedKmHour()*.5f);
+				if (gVehicleSteering > carPhysics->GetSteeringClamp()) gVehicleSteering = carPhysics->GetSteeringClamp();
+			}
 		}
 	}
 	if (_rightPressed)
 	{
 		if (gVehicleSteering > -carPhysics->GetSteeringClamp())
 		{
-			gVehicleSteering -= steeringIncrement*dt * 100;
-			if (gVehicleSteering < -carPhysics->GetSteeringClamp()) gVehicleSteering = -carPhysics->GetSteeringClamp();
+			if (gVehicleSteering > 0.f) gVehicleSteering = 0.f;
+			else {
+				gVehicleSteering -= steeringIncrement * dt * 1000 / (m_vehicle->getCurrentSpeedKmHour()*.5f);
+				if (gVehicleSteering < -carPhysics->GetSteeringClamp()) gVehicleSteering = -carPhysics->GetSteeringClamp();
+			}
 		}
 	}
 
 	if (!_rightPressed && !_leftPressed)
 	{
-		if (gVehicleSteering < 0.0f)
-		{
-			gVehicleSteering += steeringIncrement*dt * 100;
-			if (!_leftPressed && gVehicleSteering > 0.0f)
-				gVehicleSteering = 0.0f;
-		}
-		if (gVehicleSteering > 0.0f)
-		{
-			gVehicleSteering -= steeringIncrement*dt * 100;
-			if (!_rightPressed && gVehicleSteering < 0.0f)
-				gVehicleSteering = 0.0f;
+		if (gVehicleSteering != 0.0f)
+		{	
+			gVehicleSteering = 0.0f;
 		}
 	}
 
@@ -471,8 +474,6 @@ void RacingGame::Update()
 
 		if (carPhysics->RigidBodyRegistered())
 		{
-			btRaycastVehicle* m_vehicle = (btRaycastVehicle*)carPhysics->GetRigidBodyPTR();
-
 			// Update Camera Position
 			btTransform transf = m_vehicle->getChassisWorldTransform();
 
@@ -563,9 +564,6 @@ void RacingGame::Update()
 			btPersistentManifold* contactManifold = physics->GetPhysicsWorld()->getDispatcher()->getManifoldByIndexInternal(i);
 			const btCollisionObject* obA = contactManifold->getBody0();
 			const btCollisionObject* obB = contactManifold->getBody1();
-
-			btRaycastVehicle* m_vehicle = (btRaycastVehicle*)carPhysics->GetRigidBodyPTR();
-
 
 			if (
 				(obA == pRestTrack->GetRigidBodyPTR() || obB == pRestTrack->GetRigidBodyPTR())
