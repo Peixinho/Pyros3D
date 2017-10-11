@@ -178,6 +178,7 @@ private:
 	bool startedDrivingLikeAGirl;
 	f32 timeStartedDrivingLikeAGirl;
 	Texture* startedDrivingLikeAGirlTexture;
+	f32 bestRaceTime, bestLapTime;
 };
 
 #endif	/* RACINGGAME_H */

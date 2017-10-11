@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-RacingGame::RacingGame() : ClassName(1024, 768, "Pyros3D - Racing Game Example", WindowType::Close | WindowType::Fullscreen)
+RacingGame::RacingGame() : ClassName(1920,1080, "Pyros3D - Racing Game Example", WindowType::Close | WindowType::Fullscreen)
 {
 
 }
@@ -38,8 +38,8 @@ void RacingGame::Init()
 	Scene = new SceneGraph();
 	
 	// Initialize Renderer
-	Renderer = new ForwardRenderer(1024, 768);
-	Renderer->SetGlobalLight(Vec4(0.5, 0.5, 0.5, 0.5));
+	Renderer = new ForwardRenderer(Width, Height);
+	Renderer->SetGlobalLight(Vec4(0.3, 0.3, 0.3, 0.3));
 
 	// Projection
 	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 2100.f);
@@ -711,8 +711,8 @@ void RacingGame::Update()
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1, 0.1, 0.1, 0.1));
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 	ImGui::Begin("Timers", &showTimers, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_AlwaysAutoResize);
-	ImGui::Text("Best  Race  Time:  %.3f", raceTime);
-	ImGui::Text("Best  Lap  Time:  %.3f", lapTime);
+	ImGui::Text("Best  Race  Time:  %.3f", bestRaceTime);
+	ImGui::Text("Best  Lap  Time:  %.3f", bestLapTime);
 	ImGui::Text("-");
 	ImGui::Text("Race  Time:  %.3f", GetTime()-raceInitTime);
 
