@@ -127,6 +127,14 @@ namespace p3d {
 		shadowSkinnedMaterial->SetCullFace(CullFace::DoubleSided);
 	}
 
+	void IRenderer::Reset()
+	{
+		// Defaults
+		depthWritting = depthTesting = false;
+		clearDepthBuffer = true;
+		depthTestMode = -1;
+	}
+
 	void IRenderer::Resize(const uint32 Width, const uint32 Height)
 	{
 		// Save Dimensions
@@ -138,6 +146,9 @@ namespace p3d {
 			viewPortEndX = Width;
 			viewPortEndY = Height;
 		}
+
+		// Reset States
+		Reset();
 	}
 
 	void IRenderer::SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY)

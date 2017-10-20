@@ -15,19 +15,17 @@ namespace p3d {
 	SFMLContext::SFMLContext(const uint32 width, const uint32 height, const std::string &title, const uint32 windowType) : Context(width, height)
 	{
 
-		uint32 type = 0;
-		bool fullScreen = false;
+		type = 0;
+		fullScreen = false;
+		this->title = title;
 
-		if (windowType & WindowType::Fullscreen) { type = (type | sf::Style::Fullscreen); fullScreen = true; }
+		if (windowType & WindowType::Fullscreen) { fullScreen = true; }
 		if (windowType & WindowType::Close) type = (type | sf::Style::Close);
 		if (windowType & WindowType::None) type = (type | sf::Style::None);
 		if (windowType & WindowType::Resize) type = (type | sf::Style::Resize);
 		if (windowType & WindowType::Titlebar) type = (type | sf::Style::Titlebar);
 
-		// Get Fullscreen Modes
-		modes = sf::VideoMode::getFullscreenModes();
-
-		sf::ContextSettings settings = sf::ContextSettings(32);
+		settings = sf::ContextSettings(32);
 		settings.depthBits = 24;
 		settings.stencilBits = 8;
 		settings.antialiasingLevel = 4;
@@ -37,10 +35,28 @@ namespace p3d {
 		settings.sRgbCapable = false;
 #endif
 
-		if (fullScreen == true)
-			rview.create(modes[0], title.c_str(), type, settings);
-		else
-			rview.create(sf::VideoMode(width, height), title.c_str(), type, settings);
+		createWindow();
+	}
+	SFMLContext::~SFMLContext()
+	{
+		rview.close();
+	}
+	void SFMLContext::ToggleFullscreen()
+	{
+		fullScreen = !fullScreen;
+		createWindow();
+	}
+	void SFMLContext::createWindow()
+	{
+		modes = sf::VideoMode::getFullscreenModes();
+	
+		if (fullScreen)
+		{
+			rview.create(sf::VideoMode::getDesktopMode(), title.c_str(), type | sf::Style::Fullscreen, settings);
+		}
+		else {
+			rview.create(sf::VideoMode(Width, Height), title.c_str(), type, settings);
+		}
 
 		Width = rview.getSize().x;
 		Height = rview.getSize().y;
@@ -54,12 +70,10 @@ namespace p3d {
 		sf::ContextSettings oglsettings = rview.getSettings();
 		glMajor = oglsettings.majorVersion;
 		glMinor = oglsettings.minorVersion;
-	}
-	SFMLContext::~SFMLContext()
-	{
-		rview.close();
-	}
 
+		// Force Resize
+		OnResize(Width, Height);
+	}
 	void SFMLContext::OnResize(const uint32 width, const uint32 height)
 	{
 		Width = width;

@@ -232,6 +232,9 @@ namespace p3d {
 		void StartScissorTest();
 		void EndScissorTest();
 
+		// Reset
+		void Reset();
+
 		// Flags
 		uint32 bufferOptions, glBufferOptions;
 		bool

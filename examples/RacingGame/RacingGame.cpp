@@ -11,7 +11,7 @@
 using namespace p3d;
 
 //RacingGame::RacingGame() : ClassName(1920,1080, "Pyros3D - Racing Game Example", WindowType::Close | WindowType::Fullscreen)
-RacingGame::RacingGame() : ClassName(1024, 768, "Pyros3D - Racing Game Example", WindowType::Close | WindowType::Resize)
+RacingGame::RacingGame() : ClassName(1920, 1080, "Pyros3D - Racing Game Example", WindowType::Close | WindowType::Resize)
 {
 
 }
@@ -23,13 +23,15 @@ void RacingGame::OnResize(const uint32 width, const uint32 height)
 
 	// Resize
 	Renderer->Resize(width, height);
-	projection.Perspective(70.f, (f32)width / (f32)height, 1.f, 2100.f);
+	projection.Perspective(70.f, (f32)width / (f32)height, 0.01f, 2100.f);
 
 	SetMousePosition((int)Width / 2, (int)Height / 2);
 }
 
 void RacingGame::Init()
 {
+	GetRaceOnlinScore();
+
 	// Initialization
 	_leftPressed = _rightPressed = _upPressed = _downPressed = _brakePressed = false;
 	gVehicleSteering = 0.f;
@@ -37,13 +39,13 @@ void RacingGame::Init()
 
 	// Initialize Scene
 	Scene = new SceneGraph();
-	
+
 	// Initialize Renderer
 	Renderer = new ForwardRenderer(Width, Height);
 	Renderer->SetGlobalLight(Vec4(0.3, 0.3, 0.3, 0.3));
 
 	// Projection
-	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 2100.f);
+	projection.Perspective(70.f, (f32)Width / (f32)Height, 0.01f, 2100.f);
 
 	// Physics
 	physics = new Physics();
@@ -58,11 +60,30 @@ void RacingGame::Init()
 	Camera = FollowCamera;
 	_followCamera = true;
 
+	// Semaphore
+	hSemaphore = new Model(PATH"/assets/semaphore/semaphore.p3dm", true, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
+	rSemaphore = new RenderingComponent(hSemaphore);
+	redSemaphoreDefault = rSemaphore->GetMeshes()[0]->Material;
+	yellowSemaphoreDefault = rSemaphore->GetMeshes()[1]->Material;
+	greenSemaphoreDefault = rSemaphore->GetMeshes()[2]->Material;
+	gSemaphore = new GameObject();
+	gSemaphore->Add(rSemaphore);
+	gSemaphore->SetPosition(Vec3(247.6f, -5.24f, -87.6f));
+	gSemaphore->SetRotation(Vec3(0.f, -1.57f, .0f));
+	Scene->Add(gSemaphore);
+
+	redSemaphore = new GenericShaderMaterial(ShaderUsage::Color);
+	redSemaphore->SetColor(Vec4(1, 0, 0, 1));
+	yellowSemaphore = new GenericShaderMaterial(ShaderUsage::Color);
+	yellowSemaphore->SetColor(Vec4(1, 1, 0, 1));
+	greenSemaphore = new GenericShaderMaterial(ShaderUsage::Color);
+	greenSemaphore->SetColor(Vec4(0, 1, 0, 1));
+
 	// Create Track GameObject
 	Track = new GameObject();
 
 	// Create Track Model
-	trackHandle = new Model("../examples/RacingGame/assets/track/track.p3dm", true, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow | ShaderUsage::EnvMap);
+	trackHandle = new Model(PATH"/assets/track/track.p3dm", true, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
 	rTrack = new RenderingComponent(trackHandle);
 
 	rTrack->GetMeshes()[19]->Material->DisableCastingShadows();
@@ -82,7 +103,7 @@ void RacingGame::Init()
 			}
 			pSand = new PhysicsTriangleMesh(physics, index, vertex);
 		}
-		
+
 		// grass
 		{
 			std::vector<uint32> index;
@@ -167,6 +188,9 @@ void RacingGame::Init()
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Space, this, &RacingGame::SpaceUp);
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::C, this, &RacingGame::ChangeCamera);
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::R, this, &RacingGame::Reset);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::F, this, &RacingGame::ToggleFS);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::LShift, this, &RacingGame::GearUp);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::LControl, this, &RacingGame::GearDown);
 
 	InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button0, this, &RacingGame::UpDown);
 	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button0, this, &RacingGame::UpUp);
@@ -179,15 +203,20 @@ void RacingGame::Init()
 	dRenderer = new CubemapRenderer(1024, 1024);
 
 	startedDrivingLikeAGirlTexture = new Texture();
-	startedDrivingLikeAGirlTexture->LoadTexture("../examples/RacingGame/assets/textures/wrong.png");
+	startedDrivingLikeAGirlTexture->LoadTexture(PATH"/assets/textures/wrong.png");
+
+	RPMGui = new Texture();
+	RPMGui->LoadTexture(PATH"/assets/textures/rpm.png");
+	RPMPointer = new Texture();
+	RPMPointer->LoadTexture(PATH"/assets/textures/pointer.png");
 
 	Texture* skyboxTexture = new Texture();
-	skyboxTexture->LoadTexture("../examples/RacingGame/assets/textures/skybox/negx.png", TextureType::CubemapNegative_X);
-	skyboxTexture->LoadTexture("../examples/RacingGame/assets/textures/skybox/negy.png", TextureType::CubemapNegative_Y);
-	skyboxTexture->LoadTexture("../examples/RacingGame/assets/textures/skybox/negz.png", TextureType::CubemapNegative_Z);
-	skyboxTexture->LoadTexture("../examples/RacingGame/assets/textures/skybox/posx.png", TextureType::CubemapPositive_X);
-	skyboxTexture->LoadTexture("../examples/RacingGame/assets/textures/skybox/posy.png", TextureType::CubemapPositive_Y);
-	skyboxTexture->LoadTexture("../examples/RacingGame/assets/textures/skybox/posz.png", TextureType::CubemapPositive_Z);
+	skyboxTexture->LoadTexture(PATH"/assets/textures/skybox/negx.png", TextureType::CubemapNegative_X);
+	skyboxTexture->LoadTexture(PATH"/assets/textures/skybox/negy.png", TextureType::CubemapNegative_Y);
+	skyboxTexture->LoadTexture(PATH"/assets/textures/skybox/negz.png", TextureType::CubemapNegative_Z);
+	skyboxTexture->LoadTexture(PATH"/assets/textures/skybox/posx.png", TextureType::CubemapPositive_X);
+	skyboxTexture->LoadTexture(PATH"/assets/textures/skybox/posy.png", TextureType::CubemapPositive_Y);
+	skyboxTexture->LoadTexture(PATH"/assets/textures/skybox/posz.png", TextureType::CubemapPositive_Z);
 	skyboxTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 	SkyboxMaterial = new GenericShaderMaterial(ShaderUsage::Skybox);
@@ -202,14 +231,14 @@ void RacingGame::Init()
 
 	Car = new GameObject();
 
-	carHandle = new Model("../examples/RacingGame/assets/delorean/delorean.p3dm", true, ShaderUsage::EnvMap | ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
+	carHandle = new Model(PATH"/assets/delorean/delorean.p3dm", true, ShaderUsage::EnvMap | ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
 	rCar = new RenderingComponent(carHandle);
 	Car->Add(rCar);
 	Scene->Add(Car);
 
 	IPhysicsComponent* body = (IPhysicsComponent*)physics->CreateBox(1.f, 0.5f, 2.3f, 1288.f);
 	carPhysics = (PhysicsVehicle*)physics->CreateVehicle(body);
-	
+
 	//carPhysics->SetMaxBreakingForce(1000);
 	//carPhysics->SetMaxEngineForce(200);
 	carPhysics->SetSuspensionStiffness(80.f);
@@ -218,10 +247,10 @@ void RacingGame::Init()
 	carPhysics->SetSuspensionRestLength(0.6f);
 	carPhysics->SetSteeringClamp(0.45f);
 
-	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.3f, 0.1f, 1.f, 1.f, Vec3(-0.75f, 1.15f, 1.3f), true);
-	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.3f, 0.1f, 1.f, 1.f, Vec3(0.75f, 1.15f, 1.3f), true);
-	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.3f, 0.1f, 1.f, 1.f, Vec3(-0.75f, 1.15f, -1.3f), false);
-	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.3f, 0.1f, 1.f, 1.f, Vec3(0.75f, 1.15f, -1.3f), false);
+	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.2f, 0.1f, 1.f, 1.f, Vec3(-0.75f, 1.15f, 1.3f), true);
+	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.2f, 0.1f, 1.f, 1.f, Vec3(0.75f, 1.15f, 1.3f), true);
+	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.2f, 0.1f, 1.f, 1.f, Vec3(-0.75f, 1.15f, -1.3f), false);
+	carPhysics->AddWheel(Vec3(0.f, -1.f, 0.f), Vec3(-1.f, 0.f, 0.f), 0.2f, 0.1f, 1.f, 1.f, Vec3(0.75f, 1.15f, -1.3f), false);
 	Car->Add(carPhysics);
 	for (std::vector<RenderingMesh*>::iterator i = rCar->GetMeshes().begin(); i != rCar->GetMeshes().end(); i++)
 	{
@@ -231,11 +260,8 @@ void RacingGame::Init()
 		m->SetSpecular(Vec4(1, 1, 1, 1));
 	}
 
-	for (std::vector<RenderingMesh*>::iterator i = rTrack->GetMeshes().begin(); i != rTrack->GetMeshes().end(); i++)
 	{
-		GenericShaderMaterial* m = static_cast<GenericShaderMaterial*> ((*i)->Material);
-		m->SetEnvMap(dRenderer->GetTexture());
-		m->SetReflectivity(0.1f);
+		GenericShaderMaterial* m = static_cast<GenericShaderMaterial*> (rTrack->GetMeshes()[16]->Material);
 		m->SetSpecular(Vec4(1, 1, 1, 1));
 	}
 
@@ -246,10 +272,10 @@ void RacingGame::Init()
 		gWheelBL = new GameObject();
 		gWheelBR = new GameObject();
 
-		wheelFLHandle = new Model("../examples/RacingGame/assets/delorean/WheelFL.p3dm", true, ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
-		wheelFRHandle = new Model("../examples/RacingGame/assets/delorean/WheelFR.p3dm", true, ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
-		wheelBLHandle = new Model("../examples/RacingGame/assets/delorean/WheelBL.p3dm", true, ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
-		wheelBRHandle = new Model("../examples/RacingGame/assets/delorean/WheelBR.p3dm", true, ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
+		wheelFLHandle = new Model(PATH"/assets/delorean/WheelFL.p3dm", true, ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
+		wheelFRHandle = new Model(PATH"/assets/delorean/WheelFR.p3dm", true, ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
+		wheelBLHandle = new Model(PATH"/assets/delorean/WheelBL.p3dm", true, ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
+		wheelBRHandle = new Model(PATH"/assets/delorean/WheelBR.p3dm", true, ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
 
 		rWheelFL = new RenderingComponent(wheelFLHandle);
 		rWheelFR = new RenderingComponent(wheelFRHandle);
@@ -261,20 +287,10 @@ void RacingGame::Init()
 		gWheelBL->Add(rWheelBL);
 		gWheelBR->Add(rWheelBR);
 
-		//Car->Add(gWheelFL);
-		//Car->Add(gWheelFR);
-		//Car->Add(gWheelBL);
-		//Car->Add(gWheelBR);
-
 		Scene->Add(gWheelFL);
 		Scene->Add(gWheelFR);
 		Scene->Add(gWheelBL);
 		Scene->Add(gWheelBR);
-
-		//gWheelFL->SetPosition(Vec3(-1, 3, -1));
-		//gWheelFR->SetPosition(Vec3(1, 3, -1));
-		//gWheelBL->SetPosition(Vec3(-1, 3, 1));
-		//gWheelBR->SetPosition(Vec3(1, 3, 1));
 	}
 
 	Scene->Add(FollowCamera);
@@ -285,16 +301,16 @@ void RacingGame::Init()
 	timeInterval = 0;
 
 	sound = new Sound();
-	sound->LoadFromFile("../examples/RacingGame/assets/sounds/delorean_sound.ogg");
+	sound->LoadFromFile(PATH"/assets/sounds/delorean_sound.ogg");
 	sound->Play(true);
 
 	crash = new Sound();
-	crash->LoadFromFile("../examples/RacingGame/assets/sounds/crash_sound.ogg");
+	crash->LoadFromFile(PATH"/assets/sounds/crash_sound.ogg");
 
 	// Set Portals
 	planeHandle = new Cube(40.f, 10.f, .1f);
 	{
-		addPortal(Vec3(234.6f,0.f,-64.15f), Vec3(0.f,-0.086f,0.f));
+		addPortal(Vec3(234.6f, 0.f, -64.15f), Vec3(0.f, -0.086f, 0.f));
 		addPortal(Vec3(237.8f, 0.f, -272.01f), Vec3(0.f, 0.753f, 0.f));
 		addPortal(Vec3(151.16f, 0.f, -296.01f), Vec3(-3.142f, 1.145f, -3.142f));
 		addPortal(Vec3(148.2f, 0.f, -225.08f), Vec3(3.142f, 0.171f, 3.142f));
@@ -324,9 +340,9 @@ void RacingGame::Init()
 		addPortal(Vec3(-8.36f, 0.f, 197.122f), Vec3(3.142f, -0.577f, 3.142f));
 		addPortal(Vec3(27.83f, 0.f, 213.18f), Vec3(3.142f, -1.189f, 3.142f));
 		addPortal(Vec3(57.30f, 0.f, 214.9f), Vec3(0.f, -1.435f, 0.f));
-		addPortal(Vec3(188.58f, 0.f, 208.27f), Vec3(0.f, -1.435f, 0.f));
+		addPortal(Vec3(188.58f, 0.f, 223.95f), Vec3(0.f, -1.435f, 0.f));
 		addPortal(Vec3(226.15f, 0.f, 177.9f), Vec3(0.f, 0.056f, 0.f));
-		addPortal(Vec3(201.23f, 0.f, 157.99f), Vec3(0.f, 0.586f, 0.f));
+		addPortal(Vec3(220.94f, 0.f, 143.f), Vec3(0.f, 0.586f, 0.f));
 		addPortal(Vec3(65.47f, 0.f, 122.25f), Vec3(0.f, 0.841f, 0.f));
 		addPortal(Vec3(41.711f, 0.f, 86.73f), Vec3(0.f, -0.156f, 0.f));
 		addPortal(Vec3(88.282f, 0.f, 58.96f), Vec3(0.f, -1.329f, 0.f));
@@ -337,7 +353,7 @@ void RacingGame::Init()
 
 		for (int i = 0; i < portals.size(); i++)
 		{
-			int k = i+1;
+			int k = i + 1;
 			if (i + 1 == portals.size())
 				k = 0;
 			portals[i].direction = (portals[k].gPortal->GetWorldPosition() - portals[i].gPortal->GetWorldPosition()).normalize();
@@ -366,7 +382,7 @@ void RacingGame::Init()
 	config.OversampleV = 1;
 	config.GlyphExtraSpacing.x = 1.0f;
 	ImGuiIO& io = ImGui::GetIO();
-	io.Fonts->AddFontFromFileTTF("../examples/RacingGame/assets/fonts/BEBAS___.ttf", 16, &config);
+	io.Fonts->AddFontFromFileTTF(PATH"/assets/fonts/BEBAS___.ttf", 16, &config);
 
 	Update(); // Run once to add and register objects
 
@@ -402,68 +418,71 @@ void RacingGame::Update()
 
 	float speed = dt * 20.f;
 
-	if (_upPressed)
+	if (raceStart && !raceFinished)
 	{
-		carPhysics->SetEngineForce(carPhysics->GetMaxEngineForce());
-	}
-	else if (!_downPressed)
-	{
-		carPhysics->SetEngineForce(0);
-	}
-	if (_downPressed)
-	{
-		if (m_vehicle->getCurrentSpeedKmHour()<=0.0f)
-			carPhysics->SetEngineForce(-carPhysics->GetMaxEngineForce());
-	}
-	else if (!_upPressed) {
-		carPhysics->SetEngineForce(0);
-	}
-	if (_brakePressed)
-	{
-		LightBrakesON();
-		carPhysics->SetBreakingForce(carPhysics->GetMaxBreakingForce());
-	}
-
-	if (!_brakePressed)
-	{
-		LightBrakesOFF();
-		carPhysics->SetBreakingForce(0);
-	}
-
-	if (_leftPressed)
-	{
-		if (gVehicleSteering < carPhysics->GetSteeringClamp())
+		/*if (_upPressed)
 		{
-			if (gVehicleSteering < 0.f) gVehicleSteering = 0.f;
-			else {
-				gVehicleSteering += steeringIncrement * dt * 1000 / (m_vehicle->getCurrentSpeedKmHour()*.5f);
-				if (gVehicleSteering > carPhysics->GetSteeringClamp()) gVehicleSteering = carPhysics->GetSteeringClamp();
+			carPhysics->SetEngineForce(carPhysics->GetMaxEngineForce());
+		}
+		else if (!_downPressed)
+		{
+			carPhysics->SetEngineForce(0);
+		}
+		if (_downPressed)
+		{
+			if (m_vehicle->getCurrentSpeedKmHour() <= 0.0f)
+				carPhysics->SetEngineForce(-carPhysics->GetMaxEngineForce());
+		}
+		else if (!_upPressed) {
+			carPhysics->SetEngineForce(0);
+		}*/
+		if (_brakePressed)
+		{
+			LightBrakesON();
+			carPhysics->SetBreakingForce(carPhysics->GetMaxBreakingForce());
+		}
+
+		if (!_brakePressed)
+		{
+			LightBrakesOFF();
+			carPhysics->SetBreakingForce(0);
+		}
+
+		if (_leftPressed)
+		{
+			if (gVehicleSteering < carPhysics->GetSteeringClamp())
+			{
+				if (gVehicleSteering < 0.f) gVehicleSteering = 0.f;
+				else {
+					gVehicleSteering += steeringIncrement * dt * 1000 / (fabs(m_vehicle->getCurrentSpeedKmHour())*.5f);
+					if (gVehicleSteering > carPhysics->GetSteeringClamp()) gVehicleSteering = carPhysics->GetSteeringClamp();
+				}
 			}
 		}
-	}
-	if (_rightPressed)
-	{
-		if (gVehicleSteering > -carPhysics->GetSteeringClamp())
+		if (_rightPressed)
 		{
-			if (gVehicleSteering > 0.f) gVehicleSteering = 0.f;
-			else {
-				gVehicleSteering -= steeringIncrement * dt * 1000 / (m_vehicle->getCurrentSpeedKmHour()*.5f);
-				if (gVehicleSteering < -carPhysics->GetSteeringClamp()) gVehicleSteering = -carPhysics->GetSteeringClamp();
+			if (gVehicleSteering > -carPhysics->GetSteeringClamp())
+			{
+				if (gVehicleSteering > 0.f) gVehicleSteering = 0.f;
+				else {
+					gVehicleSteering -= steeringIncrement * dt * 1000 / (fabs(m_vehicle->getCurrentSpeedKmHour())*.5f);
+					if (gVehicleSteering < -carPhysics->GetSteeringClamp()) gVehicleSteering = -carPhysics->GetSteeringClamp();
+				}
 			}
 		}
-	}
 
-	if (!_rightPressed && !_leftPressed)
-	{
-		if (gVehicleSteering != 0.0f)
-		{	
-			gVehicleSteering = 0.0f;
+		if (!_rightPressed && !_leftPressed)
+		{
+			if (gVehicleSteering != 0.0f)
+			{
+				gVehicleSteering = 0.0f;
+			}
 		}
-	}
 
-	if (carPhysics->RigidBodyRegistered())
-	{
-
+		if (carPhysics->RigidBodyRegistered())
+		{
+			
+		}
 	}
 
 	timeInterval += dt;
@@ -477,8 +496,6 @@ void RacingGame::Update()
 			// Update Camera Position
 			btTransform transf = m_vehicle->getChassisWorldTransform();
 
-			sound->SetPitch(0.5 + fabs(m_vehicle->getCurrentSpeedKmHour()) / 200.f);
-
 			Matrix m;
 			m.Translate(transf.getOrigin().x(), transf.getOrigin().y(), transf.getOrigin().z());
 			Quaternion q = Quaternion(transf.getRotation().w(), transf.getRotation().x(), transf.getRotation().y(), transf.getRotation().z());
@@ -488,6 +505,26 @@ void RacingGame::Update()
 			Vec3 CameraTargetPosition = m * Vec3(0.f, 3.f, -10.f);
 			CameraPosition += (CameraTargetPosition - CameraPosition) * 0.1f;
 			//CameraPosition = CameraTargetPosition;
+
+			f32 gears[6] = { 0.f, 3.36f, 2.06f, 1.38f, 1.061f, 0.82f };
+			f32 main_gear = 3.44f;
+			f32 gear_mul = gears[num_gear] * main_gear;
+			f32 engine_speed = 7000.f;
+			f32 max_speed_wheel = 505.f / gear_mul;
+
+			f32 engine_max_power = 500.f * 10.f;
+			f32 wheel_rotation_radians = std::abs(m_vehicle->getWheelInfo(2).m_deltaRotation);
+			f32 wheel_rpm = ((wheel_rotation_radians / (2.f * PI))*60.f) / (1/60.f);
+			f32 engine_rpm = wheel_rpm * gear_mul;
+
+			double a = -0.000000082;
+			double b = 0.000571429;
+			double c = 0;
+			double force = a * (engine_rpm*engine_rpm) + b * engine_rpm + c;
+
+			f32 power = gas_pedal * engine_max_power * force;
+
+			sound->SetPitch(0.2 + (engine_rpm/engine_max_power));
 
 			// UPDATE WHEELS MANUALLY
 			Matrix _m;
@@ -531,31 +568,39 @@ void RacingGame::Update()
 				}
 			}
 
-			// Use resultant whatTerrainAreWe to make car slow down or speed up
-			switch (whatTerrainAreWe)
+			if (raceStart && !raceFinished)
 			{
-			case TERRAIN::SAND:
-				if (fabs(m_vehicle->getCurrentSpeedKmHour()) > 10)
-					m_vehicle->getRigidBody()->setLinearVelocity(m_vehicle->getRigidBody()->getLinearVelocity()*.9);//->applyImpulse((m_vehicle->getForwardVector()*-1.f) * btVector3(0, 0, 1000), m_vehicle->getForwardVector()*-1.f);
-				break;
-			case TERRAIN::GRASS:
-				if (fabs(m_vehicle->getCurrentSpeedKmHour()) > 30)
-					m_vehicle->getRigidBody()->setLinearVelocity(m_vehicle->getRigidBody()->getLinearVelocity()*.9);
-				break;
-			default:
-			case TERRAIN::ASPHALT:
-				m_vehicle->setSteeringValue(gVehicleSteering, 0);
-				m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 0);
-				m_vehicle->setBrake(carPhysics->GetBreakingForce(), 0);
-				m_vehicle->setSteeringValue(gVehicleSteering, 1);
-				m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 1);
-				m_vehicle->setBrake(carPhysics->GetBreakingForce(), 1);
-				m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 2);
-				m_vehicle->setBrake(carPhysics->GetBreakingForce(), 2);
-				m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 3);
-				m_vehicle->setBrake(carPhysics->GetBreakingForce(), 3);
-				break;
-			};
+
+				// Use resultant whatTerrainAreWe to make car slow down or speed up
+				switch (whatTerrainAreWe)
+				{
+				case TERRAIN::SAND:
+					if (fabs(m_vehicle->getCurrentSpeedKmHour()) > 10)
+						m_vehicle->getRigidBody()->setLinearVelocity(m_vehicle->getRigidBody()->getLinearVelocity()*.9);//->applyImpulse((m_vehicle->getForwardVector()*-1.f) * btVector3(0, 0, 1000), m_vehicle->getForwardVector()*-1.f);
+					break;
+				case TERRAIN::GRASS:
+					if (fabs(m_vehicle->getCurrentSpeedKmHour()) > 30)
+						m_vehicle->getRigidBody()->setLinearVelocity(m_vehicle->getRigidBody()->getLinearVelocity()*.9);
+					break;
+				default:
+				case TERRAIN::ASPHALT:
+					m_vehicle->setSteeringValue(gVehicleSteering, 0);
+					//m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 0);
+					m_vehicle->setBrake(carPhysics->GetBreakingForce(), 0);
+					m_vehicle->setSteeringValue(gVehicleSteering, 1);
+					//m_vehicle->applyEngineForce(carPhysics->GetEngineForce(), 1);
+					m_vehicle->setBrake(carPhysics->GetBreakingForce(), 1);
+					m_vehicle->applyEngineForce(power, 2);
+					m_vehicle->setBrake(carPhysics->GetBreakingForce(), 2);
+					m_vehicle->applyEngineForce(power, 3);
+					m_vehicle->setBrake(carPhysics->GetBreakingForce(), 3);
+					break;
+				};
+			}
+			else if (raceFinished) {
+				m_vehicle->getRigidBody()->setLinearVelocity(btVector3(0, 0, 0));
+				m_vehicle->getRigidBody()->setAngularVelocity(btVector3(0, 0, 0));
+			}
 		}
 
 		int numManifolds = physics->GetPhysicsWorld()->getDispatcher()->getNumManifolds();
@@ -602,38 +647,42 @@ void RacingGame::Update()
 						{
 							if (portal == 0)
 							{
-								if (!raceStart)
+								bool finished = true;
+								for (std::vector<Portal>::iterator _p = portals.begin(); _p != portals.end(); _p++)
 								{
-									// Start Race
-									raceStart = true;
-									raceInitTime = GetTime();
-									lapInitTime = GetTime();
+									if ((*_p).portalPassage != 1) finished = false;
 								}
-								else {
-									bool finished = true;
+								if (finished)
+								{
+									// Lap Finished
+									lapTime[(lap - 1)] = GetTime() - lapInitTime;
+
+									lapInitTime = GetTime(); // Set Init time for next lap
+
+									if (lap == lapLimit)
+									{
+										// GameOver
+										raceStart = false;
+										raceTime = GetTime() - raceInitTime;
+										raceFinished = true;
+
+										bestRaceTime = raceTime;
+										bestLapTime = lapTime[0];
+										for (int i = 1; i < lapLimit; i++)
+										{
+											if (bestLapTime > lapTime[i])
+												bestLapTime = lapTime[i];
+										}
+
+										showSendScore = true;
+
+									}
+									if (lap<lapLimit) lap++;
+
+									// Clean Passages
 									for (std::vector<Portal>::iterator _p = portals.begin(); _p != portals.end(); _p++)
 									{
-										if ((*_p).portalPassage != 1) finished = false;
-									}
-									if (finished)
-									{
-										// Lap Finished
-										lapTime[(lap - 1)] = GetTime() - lapInitTime;
-										
-										lapInitTime = GetTime(); // Set Init time for next lap
-
-										if (lap == lapLimit)
-										{
-											// GameOver
-
-										}
-										lap++;
-
-										// Clean Passages
-										for (std::vector<Portal>::iterator _p = portals.begin(); _p != portals.end(); _p++)
-										{
-											(*_p).portalPassage = 0;
-										}
+										(*_p).portalPassage = 0;
 									}
 								}
 							}
@@ -686,9 +735,6 @@ void RacingGame::Update()
 
 	//physics->RenderDebugDraw(projection, Camera);
 
-
-
-
 	// ######################### UI ###############################
 	ImGui::SFML::ImGui_ImplSFML_NewFrame();
 
@@ -709,20 +755,51 @@ void RacingGame::Update()
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1, 0.1, 0.1, 0.1));
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 	ImGui::Begin("Timers", &showTimers, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_AlwaysAutoResize);
-	ImGui::Text("Best  Race  Time:  %.3f", bestRaceTime);
-	ImGui::Text("Best  Lap  Time:  %.3f", bestLapTime);
+	{
+		int min;
+		f32 sec;
+		seconds_to_minutes(fastestRaces[0].score, &min, &sec);
+		ImGui::Text("Best  Race  Time: %d\" %.3f - %s", min, sec, &fastestRaces[0].name[0]);
+	}
+	{
+		int min;
+		f32 sec;
+		seconds_to_minutes(fastestLaps[0].score, &min, &sec);
+		ImGui::Text("Best  Lap  Time: %d\" %.3f - %s", min, sec, &fastestLaps[0].name[0]);
+	}
 	ImGui::Text("-");
-	ImGui::Text("Race  Time:  %.3f", GetTime()-raceInitTime);
+
+	{
+		int min;
+		f32 sec;
+		seconds_to_minutes((raceStart ? GetTime() - raceInitTime : 0.000), &min, &sec);
+		ImGui::Text("Race  Time:  %d\" %.3f", min, sec);
+	}
 
 	if (lapTime.size() > 0)
 	{
 		for (int i = 1; i <= lap; i++) {
 			if (lap != i)
-				ImGui::Text("Lap  %d  Time:  %.3f", i, lapTime[i - 1]);
-			else ImGui::Text("Lap  %d  Time:  %.3f", i, GetTime() - lapInitTime);
+			{
+				int min;
+				f32 sec;
+				seconds_to_minutes(lapTime[i - 1], &min, &sec);
+				ImGui::Text("Lap  %d  Time:  %d\" %.3f", i, min, sec);
+			}
+			else
+			{
+				int min;
+				f32 sec;
+				seconds_to_minutes((raceStart ? GetTime() - lapInitTime : 0.000), &min, &sec);
+				ImGui::Text("Lap  %d  Time:  %d\" %.3f", i, min, sec);
+			}
 		}
 	}
 	ImGui::Text("Lap  %d/%d", lap, lapLimit);
+	if (num_gear>0)
+		ImGui::Text("%d Gear", num_gear);
+	else 
+		ImGui::Text("%s Gear", (num_gear==0?"N":"R"));
 	ImGui::End();
 	ImGui::PopStyleVar();
 	ImGui::PopStyleColor();
@@ -743,12 +820,143 @@ void RacingGame::Update()
 		}
 	}
 
+	{
+		bool rpm = true;
+		ImGui::SetNextWindowPos(ImVec2(Width*.5f - 150, Height - 280));
+		ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0, 0.0, 0.0, 0.0));
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+		ImGui::Begin("RPM", &rpm, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+		ImGui::Image((void*)RPMGui->GetBindID(), ImVec2(300, 300));
+		ImGui::End();
+		ImGui::PopStyleVar();
+		ImGui::PopStyleColor();
+	}
+
+	{
+		bool rpm = true;
+		ImGui::SetNextWindowPos(ImVec2(Width*.5f - 30, Height - 250));
+		ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0, 0.0, 0.0, 0.0));
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+		ImGui::Begin("RPMPointer", &rpm, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+		ImGui::Image((void*)RPMPointer->GetBindID(), ImVec2(50, 270));
+		ImGui::End();
+		ImGui::PopStyleVar();
+		ImGui::PopStyleColor();
+	}
+
+	if (showSendScore)
+	{
+		ImGui::SetNextWindowPos(ImVec2(Width*.5f - 300, 50));
+		ImGui::SetNextWindowSize(ImVec2(600, 400));
+		ImGui::Begin("Save Score", &showSendScore, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
+		ImGui::Text("Save Score:");
+
+		ImGui::BeginChild("Fastest", ImVec2(0, 300), true);
+		ImGui::Columns(2);
+		ImGui::Text("Fastest Laps");
+
+		bool haveBetterLapTime = false;
+		bool haveBetterRaceTime = false;
+		for (int i = 0; i < fastestLaps.size(); i++)
+		{
+			if (fastestLaps[i].score > bestLapTime && !haveBetterLapTime)
+			{
+				int min;
+				f32 sec;
+				seconds_to_minutes(bestLapTime, &min, &sec);
+				ImGui::Text("%d - YOUR TIME", i);
+				ImGui::SameLine();
+				ImGui::Text("%d\" %.3f", min, sec);
+				haveBetterLapTime = true;
+				i++;
+			}
+
+			if (fastestLaps[(haveBetterLapTime ? (i - 1) : i)].name.size() > 0)
+			{
+				int min;
+				f32 sec;
+				seconds_to_minutes(fastestLaps[(haveBetterLapTime ? (i - 1) : i)].score, &min, &sec);
+				ImGui::Text("%d - %s", ((haveBetterLapTime ? (i - 1) : i) + 1), &fastestLaps[(haveBetterLapTime ? (i - 1) : i)].name[0]);
+				ImGui::SameLine();
+				ImGui::Text("%d\" %.3f", min, sec);
+			}
+		}
+		if (!haveBetterLapTime && fastestLaps.size() < 10)
+		{
+			int min;
+			f32 sec;
+			seconds_to_minutes(bestLapTime, &min, &sec);
+			ImGui::Text("%d - YOUR TIME", fastestLaps.size());
+			ImGui::SameLine();
+			ImGui::Text("%d\" %.3f", min, sec);
+			haveBetterLapTime = true;
+		}
+		ImGui::NextColumn();
+		ImGui::Text("Fastest Races");
+		for (int i = 0; i < fastestRaces.size(); i++)
+		{
+			if (fastestRaces[i].score > bestRaceTime && !haveBetterRaceTime)
+			{
+				int min;
+				f32 sec;
+				seconds_to_minutes(bestRaceTime, &min, &sec);
+				ImGui::Text("%d - YOUR TIME", i);
+				ImGui::SameLine();
+				ImGui::Text("%d\" %.3f", min, sec);
+				haveBetterRaceTime = true;
+				i++;
+			}
+
+			if (fastestRaces[(haveBetterRaceTime ? (i - 1) : i)].name.size() > 0)
+			{
+				int min;
+				f32 sec;
+				seconds_to_minutes(fastestRaces[(haveBetterRaceTime ? (i - 1) : i)].score, &min, &sec);
+				ImGui::Text("%d - %s", ((haveBetterRaceTime ? (i - 1) : i) + 1), &fastestRaces[(haveBetterRaceTime ? (i - 1) : i)].name[0]);
+				ImGui::SameLine();
+				ImGui::Text("%d\" %.3f", min, sec);
+			}
+		}
+
+		if (!haveBetterRaceTime && fastestRaces.size() < 10)
+		{
+			int min;
+			f32 sec;
+			seconds_to_minutes(bestRaceTime, &min, &sec);
+			ImGui::Text("%d - YOUR TIME", fastestRaces.size());
+			ImGui::SameLine();
+			ImGui::Text("%d\" %.3f", min, sec);
+			haveBetterRaceTime = true;
+		}
+		ImGui::EndChild();
+
+		if (haveBetterLapTime || haveBetterRaceTime)
+		{
+			name.resize(64);
+			ImGui::InputText("Name", &name[0], 64);
+			if (ImGui::Button("Save Score and Restart Game")) {
+				SaveRaceOnlineScore();
+
+				showSendScore = false;
+				Event::Input::Info e;
+				Reset(e);
+			}
+			ImGui::SameLine();
+		}
+		if (ImGui::Button("Restart Game")) {
+			showSendScore = false;
+			Event::Input::Info e;
+			Reset(e);
+		}
+		ImGui::End();
+	}
+
 	ImGui::SFML::ImGui_ImplSFML_Render((int)ImGui::GetIO().DisplaySize.x, (int)ImGui::GetIO().DisplaySize.y, clear_color);
 
 	// ######################### UI ###############################
 
 	// Check our direction
-	if (Car->GetDirection().dotProduct(portals[portalNumber].direction) < 0)
+	if (Car->GetDirection().dotProduct(portals[portalNumber].direction) < 0 && raceStart && portalNumber >= 0)
 	{
 		if (!startedDrivingLikeAGirl) {
 			startedDrivingLikeAGirl = true;
@@ -756,20 +964,63 @@ void RacingGame::Update()
 		}
 	}
 	else startedDrivingLikeAGirl = false;
+
+	// Semaphore
+	f32 count = GetTime() - countDownInitTime;
+	if (count >= 1 && rSemaphore->GetMeshes()[0]->Material != redSemaphore)
+		rSemaphore->GetMeshes()[0]->Material = redSemaphore;
+	if (count >= 2 && rSemaphore->GetMeshes()[1]->Material != redSemaphore)
+		rSemaphore->GetMeshes()[1]->Material = redSemaphore;
+	if (count >= 3 && rSemaphore->GetMeshes()[2]->Material != yellowSemaphore)
+		rSemaphore->GetMeshes()[2]->Material = yellowSemaphore;
+	if (count >= 4 && rSemaphore->GetMeshes()[3]->Material != greenSemaphore)
+	{
+		// Start Race
+		raceStart = true;
+		raceInitTime = GetTime();
+		lapInitTime = GetTime();
+
+		rSemaphore->GetMeshes()[3]->Material = greenSemaphore;
+	}
 }
 
 void RacingGame::Shutdown()
 {
 	// All your Shutdown Code Here
-	delete planeHandle;
-
+	Car->Remove(rCar);
+	Car->Remove(HoodCamera);
+	Car->Remove(carPhysics);
+	Track->Remove(rTrack);
+	gSemaphore->Remove(rSemaphore);
+	Light->Remove(dLight);
+	Skybox->Remove(rSkybox);
+	gWheelBL->Remove(rWheelBL);
+	gWheelFL->Remove(rWheelFL);
+	gWheelFR->Remove(rWheelFR);
+	gWheelBR->Remove(rWheelBR);
+	Scene->Remove(gWheelBL);
+	Scene->Remove(gWheelBR);
+	Scene->Remove(gWheelFR);
+	Scene->Remove(gWheelFL);
+	Scene->Remove(Skybox);
+	Scene->Remove(FollowCamera);
+	Scene->Remove(HoodCamera);
+	Scene->Remove(gSemaphore);
+	Scene->Remove(Light);
+	Scene->Remove(gSemaphore);
 	Scene->Remove(Track);
 	Scene->Remove(Car);
-	Track->Remove(rTrack);
-	Car->Remove(rCar);
+	delete planeHandle;
+	delete rSemaphore;
+	delete gSemaphore;
+	delete hSemaphore;
+	delete redSemaphore;
+	delete yellowSemaphore;
+	delete greenSemaphore;
 	delete startedDrivingLikeAGirlTexture;
 	delete rCar;
 	delete Car;
+	delete carPhysics;
 	delete rTrack;
 	delete Track;
 	delete FollowCamera;
@@ -780,6 +1031,27 @@ void RacingGame::Shutdown()
 	delete trackHandle;
 	delete crash;
 	delete sound;
+	delete brakingMat;
+	delete gWheelBL;
+	delete gWheelFL;
+	delete gWheelBR;
+	delete gWheelFR;
+	delete rWheelBL;
+	delete rWheelFL;
+	delete rWheelFR;
+	delete rWheelBR;
+	delete wheelBLHandle;
+	delete wheelBRHandle;
+	delete wheelFLHandle;
+	delete wheelFRHandle;
+	delete skyboxHandle;
+	delete SkyboxMaterial;
+	delete rSkybox;
+	delete Skybox;
+	delete dLight;
+	delete Light;
+	delete dRenderer;
+	delete physics;
 }
 
 RacingGame::~RacingGame() {}
@@ -807,26 +1079,38 @@ void RacingGame::RightDown(Event::Input::Info e)
 void RacingGame::UpUp(Event::Input::Info e)
 {
 	_upPressed = false;
+	gas_pedal = 0.f;
 }
 void RacingGame::UpDown(Event::Input::Info e)
 {
 	_upPressed = true;
+	gas_pedal = 1.f;
 }
 void RacingGame::DownUp(Event::Input::Info e)
 {
-	_downPressed = false;
+	_brakePressed = false;
 }
 void RacingGame::DownDown(Event::Input::Info e)
 {
-	_downPressed = true;
+	_brakePressed = true;
 }
 void RacingGame::SpaceUp(Event::Input::Info e)
 {
-	_brakePressed = false;
+	//_brakePressed = false;
 }
 void RacingGame::SpaceDown(Event::Input::Info e)
 {
-	_brakePressed = true;
+	//_brakePressed = true;
+}
+void RacingGame::GearUp(Event::Input::Info e)
+{
+	if (num_gear<5)
+		num_gear++;
+}
+void RacingGame::GearDown(Event::Input::Info e)
+{
+	if (num_gear>0)
+		num_gear--;
 }
 void RacingGame::AnalogicMove(Event::Input::Info e)
 {
@@ -848,6 +1132,27 @@ void RacingGame::ChangeCamera(Event::Input::Info e)
 		Camera = FollowCamera;
 	}
 }
+void RacingGame::ToggleFS(Event::Input::Info e)
+{
+	dLight->DisableCastShadows();
+	delete dRenderer;
+
+	ToggleFullscreen();
+	ImGui::SFML::ImGui_ImplSFML_Shutdown();
+	ImGui::SFML::ImGui_ImplSFML_Init(&rview);
+
+	ImFontConfig config;
+	config.OversampleH = 3;
+	config.OversampleV = 1;
+	config.GlyphExtraSpacing.x = 1.0f;
+	ImGuiIO& io = ImGui::GetIO();
+	io.Fonts->AddFontFromFileTTF(PATH"/assets/fonts/BEBAS___.ttf", 16, &config);
+
+	dRenderer = new CubemapRenderer(1024, 1024);
+	dLight->EnableCastShadows(2048, 2048, projection, 0.1f, 200.f, 2);
+	dLight->SetShadowBias(3.1f, 9.0f);
+	dLight->SetShadowPCFTexelSize(0.0001f);
+}
 void RacingGame::Reset(Event::Input::Info e)
 {
 	btRaycastVehicle* m_vehicle = (btRaycastVehicle*)carPhysics->GetRigidBodyPTR();
@@ -862,7 +1167,7 @@ void RacingGame::Reset(Event::Input::Info e)
 	m_vehicle->getRigidBody()->setWorldTransform(transf);
 	m_vehicle->getRigidBody()->clearForces();
 	m_vehicle->resetSuspension();
-	
+
 	// Reset passages in portals
 	for (std::vector<Portal>::iterator _p = portals.begin(); _p != portals.end(); _p++)
 	{
@@ -881,16 +1186,34 @@ void RacingGame::Reset(Event::Input::Info e)
 		CameraPosition = CameraTargetPosition;
 
 		Car->Add(HoodCamera);
-		HoodCamera->SetPosition(Vec3(0, 2.f, 0.6f));
+		HoodCamera->SetPosition(Vec3(0, 1.5f, 0.8f));
 		HoodCamera->SetRotation(Vec3(DEGTORAD(5), DEGTORAD(180), 0));
 	}
 
 	startedDrivingLikeAGirl = false;
 	raceStart = false;
+	raceFinished = false;
 	lap = 1;
 	lapLimit = 3;
 	lapTime.clear();
 	lapTime.push_back(0);
+
+	// Set Semaphore Colors
+	rSemaphore->GetMeshes()[0]->Material = redSemaphoreDefault;
+	rSemaphore->GetMeshes()[1]->Material = redSemaphoreDefault;
+	rSemaphore->GetMeshes()[2]->Material = yellowSemaphoreDefault;
+	rSemaphore->GetMeshes()[3]->Material = greenSemaphoreDefault;
+
+	m_vehicle->applyEngineForce(0, 0);
+	m_vehicle->applyEngineForce(0, 1);
+	m_vehicle->applyEngineForce(0, 2);
+	m_vehicle->applyEngineForce(0, 3);
+
+	// Set countdown Time
+	countDownInitTime = GetTime();
+	showSendScore = false;
+
+	num_gear = 0;
 }
 void RacingGame::LightBrakesON()
 {

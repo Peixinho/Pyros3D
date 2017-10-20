@@ -23,6 +23,9 @@
 #include "imgui/imgui_impl_sfml.h"
 #define ClassName imguiContext
 
+#define URL "http://duartepeixinho.com"
+#define PATH "../examples/RacingGame"
+
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <Pyros3D/Core/Projection/Projection.h>
@@ -42,6 +45,10 @@
 #include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/Assets/Sounds/Sound.h>
+#include <Pyros3D/Utils/Json/json.hpp>
+
+#include <SFML/Network.hpp>
+#include <math.h> 
 using namespace p3d;
 
 inline float clamp(float x, float a, float b)
@@ -63,6 +70,11 @@ struct Portal {
 	IPhysicsComponent* pPortal;
 	int32 portalPassage;
 	Vec3 direction;
+};
+
+struct FastestResults {
+	std::string name;
+	f32 score;
 };
 
 class RacingGame : public ClassName {
@@ -87,7 +99,7 @@ private:
 	Physics* physics;
 	// Cubemap renderer
 	CubemapRenderer* dRenderer;
-	
+
 	// Camera - Its a regular GameObject
 	GameObject* Camera, *FollowCamera, *HoodCamera;
 	Vec3 CameraPosition;
@@ -95,7 +107,7 @@ private:
 
 	// Geometry Handles
 	Renderable *trackHandle, *skyboxHandle, *carHandle;
-	
+
 	// Track GameObject
 	GameObject* Track;
 	// Track Component
@@ -137,13 +149,17 @@ private:
 	void DownDown(Event::Input::Info e);
 	void SpaceUp(Event::Input::Info e);
 	void SpaceDown(Event::Input::Info e);
+	void GearUp(Event::Input::Info e);
+	void GearDown(Event::Input::Info e);
 	void AnalogicMove(Event::Input::Info e);
 
 	void ChangeCamera(Event::Input::Info e);
+	void ToggleFS(Event::Input::Info e);
 	void Reset(Event::Input::Info e);
 
 	bool _upPressed, _downPressed, _leftPressed, _rightPressed, _brakePressed;
-	float gVehicleSteering, steeringIncrement;
+	float gVehicleSteering, steeringIncrement, gas_pedal;
+	int32 num_gear;
 
 	std::vector<Portal> portals;
 	Renderable* planeHandle;
@@ -165,7 +181,7 @@ private:
 	ImVec4 clear_color;
 
 	// Racing Time
-	bool raceStart;
+	bool raceStart, raceFinished;
 	int32 portalNumber;
 	f32 raceInitTime, raceTime;
 	f32 lapInitTime;
@@ -179,6 +195,57 @@ private:
 	f32 timeStartedDrivingLikeAGirl;
 	Texture* startedDrivingLikeAGirlTexture;
 	f32 bestRaceTime, bestLapTime;
+	f32 countDownInitTime;
+
+	// Semaphore
+	GameObject *gSemaphore;
+	RenderingComponent *rSemaphore;
+	Renderable *hSemaphore;
+	GenericShaderMaterial *redSemaphore, *yellowSemaphore, *greenSemaphore;
+	IMaterial *redSemaphoreDefault, *yellowSemaphoreDefault, *greenSemaphoreDefault;
+
+	// Score
+	std::vector<FastestResults> fastestLaps;
+	std::vector<FastestResults> fastestRaces;
+	bool showSendScore = false;
+	std::string name;
+
+	Texture *RPMGui, *RPMPointer;
+
+	void seconds_to_minutes(const f32 time, int *min, f32 *sec)
+	{
+		*min = time / 60;
+		*sec = (int)time % 60;
+
+		f32 intpart, ms;
+		ms = modf(time, &intpart);
+		*sec += ms;
+	}
+
+	void GetRaceOnlinScore()
+	{
+		
+
+		if (fastestRaces.size() == 0)
+		{
+			FastestResults f;
+			f.name = "NaN";
+			f.score = 999999.9f;
+			fastestRaces.push_back(f);
+		}
+		if (fastestLaps.size() == 0)
+		{
+			FastestResults f;
+			f.name = "NaN";
+			f.score = 999999.9f;
+			fastestLaps.push_back(f);
+		}
+	}
+
+	void SaveRaceOnlineScore()
+	{
+		
+	}
 };
 
 #endif	/* RACINGGAME_H */

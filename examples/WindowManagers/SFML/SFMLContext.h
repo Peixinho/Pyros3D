@@ -55,6 +55,8 @@ namespace p3d {
 		virtual f64 GetTimeMilliSeconds() { return (f64)clock.getElapsedTime().asMilliseconds(); }
 		virtual f64 GetTimeMicroSeconds() { return (f64)clock.getElapsedTime().asMicroseconds(); }
 
+		void ToggleFullscreen();
+
 	protected:
 
 		// Buttons and Mouse
@@ -68,6 +70,9 @@ namespace p3d {
 		virtual void JoypadButtonReleased(const uint32 JoypadID, const uint32 Button);
 		virtual void JoypadButtonPressed(const uint32 JoypadID, const uint32 Button);
 		virtual void JoypadMove(const uint32 JoypadID, const uint32 Axis, const f32 Value);
+
+		// Create Window
+		void createWindow();
 
 		// SFMLContext Timer
 		sf::Clock clock;
@@ -87,6 +92,17 @@ namespace p3d {
 
 		// Get Events
 		sf::Event event;
+
+		// Fullscreen
+		bool fullScreen;
+
+		// Window Type
+		uint32 type;
+
+		// Window Title
+		std::string title;
+
+		sf::ContextSettings settings;
 
 	};
 
