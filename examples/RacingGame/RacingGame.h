@@ -23,7 +23,6 @@
 #include "imgui/imgui_impl_sfml.h"
 #define ClassName imguiContext
 
-#define URL "http://duartepeixinho.com"
 #define PATH "../examples/RacingGame"
 
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
@@ -45,7 +44,6 @@
 #include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/Assets/Sounds/Sound.h>
-#include <Pyros3D/Utils/Json/json.hpp>
 
 #include <SFML/Network.hpp>
 #include <math.h> 

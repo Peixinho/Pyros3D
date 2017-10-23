@@ -11,7 +11,7 @@
 using namespace p3d;
 
 //RacingGame::RacingGame() : ClassName(1920,1080, "Pyros3D - Racing Game Example", WindowType::Close | WindowType::Fullscreen)
-RacingGame::RacingGame() : ClassName(1920, 1080, "Pyros3D - Racing Game Example", WindowType::Close | WindowType::Resize)
+RacingGame::RacingGame() : ClassName(1280, 1024, "Racing Game", WindowType::Close | WindowType::Resize)
 {
 
 }
@@ -166,7 +166,7 @@ void RacingGame::Init()
 	Light = new GameObject();
 	// Light Component
 	dLight = new DirectionalLight(Vec4(1, 1, 1, 1), Vec3(-1, -1.0, 1.1));
-	dLight->EnableCastShadows(2048, 2048, projection, 0.1f, 200.f, 2);
+	dLight->EnableCastShadows(2048, 2048, projection, 0.1f, 300.f, 3);
 	dLight->SetShadowBias(3.1f, 9.0f);
 	a = 3.1f;
 	b = 9.f;
@@ -189,15 +189,16 @@ void RacingGame::Init()
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::C, this, &RacingGame::ChangeCamera);
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::R, this, &RacingGame::Reset);
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::F, this, &RacingGame::ToggleFS);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::LShift, this, &RacingGame::GearUp);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::LControl, this, &RacingGame::GearDown);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &RacingGame::GearUp);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Z, this, &RacingGame::GearDown);
 
-	InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button0, this, &RacingGame::UpDown);
-	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button0, this, &RacingGame::UpUp);
-	InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button1, this, &RacingGame::DownDown);
-	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button1, this, &RacingGame::DownUp);
-	InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button2, this, &RacingGame::SpaceDown);
-	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button2, this, &RacingGame::SpaceUp);
+	InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button8, this, &RacingGame::UpDown);
+	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button8, this, &RacingGame::UpUp);
+	InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button6, this, &RacingGame::DownDown);
+	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button6, this, &RacingGame::DownUp);
+	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button7, this, &RacingGame::GearUp);
+	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button5, this, &RacingGame::GearDown);
+	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button4, this, &RacingGame::ChangeCamera);
 	InputManager::AddJoypadEvent(Event::Type::OnMove, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Axis::X, this, &RacingGame::AnalogicMove);
 
 	dRenderer = new CubemapRenderer(1024, 1024);
@@ -425,22 +426,6 @@ void RacingGame::Update()
 
 	if (raceStart && !raceFinished)
 	{
-		/*if (_upPressed)
-		{
-			carPhysics->SetEngineForce(carPhysics->GetMaxEngineForce());
-		}
-		else if (!_downPressed)
-		{
-			carPhysics->SetEngineForce(0);
-		}
-		if (_downPressed)
-		{
-			if (m_vehicle->getCurrentSpeedKmHour() <= 0.0f)
-				carPhysics->SetEngineForce(-carPhysics->GetMaxEngineForce());
-		}
-		else if (!_upPressed) {
-			carPhysics->SetEngineForce(0);
-		}*/
 		if (_brakePressed)
 		{
 			LightBrakesON();
@@ -511,14 +496,14 @@ void RacingGame::Update()
 			CameraPosition += (CameraTargetPosition - CameraPosition) * 0.1f;
 			//CameraPosition = CameraTargetPosition;
 
-			f32 gears[7] = { 2.3f, 0.f, 3.36f, 2.06f, 1.38f, 1.061f, 0.82f };
+			f32 gears[7] = { 4.3f, 0.f, 3.36f, 2.06f, 1.38f, 1.061f, 0.82f };
 			f32 main_gear = 3.44f;
 			f32 gear_mul = gears[num_gear+1] * main_gear;
 			f32 engine_speed = 7000.f;
 			f32 max_speed_wheel = 505.f / gear_mul;
 
 			f32 engine_max_power = 500.f * 10.f;
-			f32 wheel_rotation_radians = std::abs(m_vehicle->getWheelInfo(2).m_deltaRotation);
+			f32 wheel_rotation_radians = fabs(m_vehicle->getWheelInfo(2).m_deltaRotation);
 			f32 wheel_rpm = ((wheel_rotation_radians / (2.f * PI))*60.f) / (1/60.f);
 			engine_rpm = wheel_rpm * gear_mul;
 			
@@ -528,11 +513,15 @@ void RacingGame::Update()
 			double a = -0.000000082;
 			double b = 0.000571429;
 			double c = 0;
-			double force = a * (engine_rpm*engine_rpm) + b * engine_rpm + c;
+			double force = (a * (engine_rpm*engine_rpm) + b * engine_rpm + c);
 
 			f32 power = gas_pedal * engine_max_power * force;
 
-			if (num_gear == -1) // Reverse
+			if (num_gear > 0 && m_vehicle->getCurrentSpeedKmHour() <= 0 && power < 0)
+				power *= -1.f;
+			if (num_gear < 0 && m_vehicle->getCurrentSpeedKmHour() >= 0 && power > 0)
+				power *= -1.f;
+			if (num_gear < 0 && power > 0)
 				power *= -1.f;
 
 			if (num_gear == 0 && gas_pedal > 0.f)
@@ -551,7 +540,7 @@ void RacingGame::Update()
 				engine_rpm = engine_rpm_N;
 			}
 
-			sound->SetPitch(0.5 + (engine_rpm/engine_max_power)*.7f);
+			sound->SetPitch(0.5f + (engine_rpm/engine_max_power)*.7f);
 
 			// UPDATE WHEELS MANUALLY
 			Matrix _m;
@@ -828,6 +817,7 @@ void RacingGame::Update()
 		}
 	}
 	ImGui::Text("Lap  %d/%d", lap, lapLimit);
+	ImGui::Text("\n\nKEYS:\n\ARROWS-Drive\nA-Gear Up\nZ-Gear Down\nC-Change Camera\nF-Toggle FullScreen\nR-Restart");
 	ImGui::End();
 	ImGui::PopStyleVar();
 	ImGui::PopStyleColor();
