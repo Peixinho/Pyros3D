@@ -158,7 +158,7 @@ private:
 	void Reset(Event::Input::Info e);
 
 	bool _upPressed, _downPressed, _leftPressed, _rightPressed, _brakePressed;
-	float gVehicleSteering, steeringIncrement, gas_pedal;
+	f32 gVehicleSteering, steeringIncrement, gas_pedal, engine_rpm, engine_rpm_N;
 	int32 num_gear;
 
 	std::vector<Portal> portals;
@@ -224,7 +224,7 @@ private:
 
 	void GetRaceOnlinScore()
 	{
-		
+		// ...
 
 		if (fastestRaces.size() == 0)
 		{
@@ -244,7 +244,7 @@ private:
 
 	void SaveRaceOnlineScore()
 	{
-		
+		// ...
 	}
 };
 
