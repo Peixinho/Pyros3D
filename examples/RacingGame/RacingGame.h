@@ -45,7 +45,6 @@
 #include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/Assets/Sounds/Sound.h>
-#include <Pyros3D/Utils/Json/json.hpp>
 
 #include <SFML/Network.hpp>
 #include <math.h> 

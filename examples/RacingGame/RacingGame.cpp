@@ -507,12 +507,13 @@ void RacingGame::Update()
 			f32 wheel_rpm = ((wheel_rotation_radians / (2.f * PI))*60.f) / (1 / 60.f);
 			engine_rpm = wheel_rpm * gear_mul;
 			
-			if (raceStart && abs(num_gear) >= 1 && engine_rpm<1000.f/abs(num_gear) && gas_pedal>0.f)
-				engine_rpm = 1000.f / abs(num_gear);
+			if (engine_rpm<1000) engine_rpm = 1000.f;
 
-			double a = -0.000000082;
-			double b = 0.000571429;
-			double c = 0;
+			if (num_gear <= 1 && engine_rpm < 3000 && gas_pedal>0.f) engine_rpm += engine_speed * 2.f * dt;
+
+			double a = -1. / 9610000.;
+			double b = 39. / 48050.;
+			double c = -560. / 961.;
 			double force = (a * (engine_rpm*engine_rpm) + b * engine_rpm + c);
 
 			f32 power = gas_pedal * engine_max_power * force;
