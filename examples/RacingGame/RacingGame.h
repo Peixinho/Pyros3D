@@ -23,6 +23,7 @@
 #include "imgui/imgui_impl_sfml.h"
 #define ClassName imguiContext
 
+#define URL "http://duartepeixinho.com"
 #define PATH "../examples/RacingGame"
 
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
@@ -44,6 +45,7 @@
 #include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/Assets/Sounds/Sound.h>
+#include <Pyros3D/Utils/Json/json.hpp>
 
 #include <SFML/Network.hpp>
 #include <math.h> 
@@ -154,6 +156,7 @@ private:
 	void ChangeCamera(Event::Input::Info e);
 	void ToggleFS(Event::Input::Info e);
 	void Reset(Event::Input::Info e);
+	void ShowRanking(Event::Input::Info e);
 
 	bool _upPressed, _downPressed, _leftPressed, _rightPressed, _brakePressed;
 	f32 gVehicleSteering, steeringIncrement, gas_pedal, engine_rpm, engine_rpm_N;
@@ -215,7 +218,7 @@ private:
 		*min = time / 60;
 		*sec = (int)time % 60;
 
-		double intpart, ms;
+		f32 intpart, ms;
 		ms = modf(time, &intpart);
 		*sec += ms;
 	}

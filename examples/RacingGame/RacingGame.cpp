@@ -191,14 +191,16 @@ void RacingGame::Init()
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::F, this, &RacingGame::ToggleFS);
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &RacingGame::GearUp);
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Z, this, &RacingGame::GearDown);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::Tab, this, &RacingGame::ShowRanking);
 
-	InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button8, this, &RacingGame::UpDown);
-	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button8, this, &RacingGame::UpUp);
-	InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button6, this, &RacingGame::DownDown);
-	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button6, this, &RacingGame::DownUp);
-	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button7, this, &RacingGame::GearUp);
-	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button5, this, &RacingGame::GearDown);
-	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button4, this, &RacingGame::ChangeCamera);
+	InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button7, this, &RacingGame::UpDown);
+	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button7, this, &RacingGame::UpUp);
+	InputManager::AddJoypadEvent(Event::Type::OnPress, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button5, this, &RacingGame::DownDown);
+	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button5, this, &RacingGame::DownUp);
+	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button6, this, &RacingGame::GearUp);
+	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button4, this, &RacingGame::GearDown);
+	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button9, this, &RacingGame::ChangeCamera);
+	InputManager::AddJoypadEvent(Event::Type::OnRelease, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Button::Button8, this, &RacingGame::Reset);
 	InputManager::AddJoypadEvent(Event::Type::OnMove, Event::Input::Joypad::ID::Joypad0, Event::Input::Joypad::Axis::X, this, &RacingGame::AnalogicMove);
 
 	dRenderer = new CubemapRenderer(1024, 1024);
@@ -302,8 +304,6 @@ void RacingGame::Init()
 	Scene->Add(FollowCamera);
 	Scene->Add(HoodCamera);
 
-	HideMouse();
-
 	timeInterval = 0;
 
 	sound = new Sound();
@@ -321,7 +321,7 @@ void RacingGame::Init()
 		addPortal(Vec3(151.16f, 0.f, -296.01f), Vec3(-3.142f, 1.145f, -3.142f));
 		addPortal(Vec3(148.2f, 0.f, -225.08f), Vec3(3.142f, 0.171f, 3.142f));
 		addPortal(Vec3(114.7f, 0.f, -37.11f), Vec3(3.142f, 0.171f, 3.142f));
-		addPortal(Vec3(99.27f, 0.f, -9.67f), Vec3(3.142f, 1.025f, 3.142f));
+		addPortal(Vec3(100.89f, 0.f, 5.107f), Vec3(3.142f, 1.025f, 3.142f));
 		addPortal(Vec3(35.79f, 0.f, -28.99f), Vec3(0.f, 1.022f, 0.f));
 		addPortal(Vec3(25.30f, 0.f, -61.02f), Vec3(0.f, -0.151f, 0.f));
 		addPortal(Vec3(45.92f, 0.f, -180.51f), Vec3(0.f, -0.151f, 0.f));
@@ -471,7 +471,7 @@ void RacingGame::Update()
 
 		if (carPhysics->RigidBodyRegistered())
 		{
-			
+
 		}
 	}
 
@@ -496,19 +496,19 @@ void RacingGame::Update()
 			CameraPosition += (CameraTargetPosition - CameraPosition) * 0.1f;
 			//CameraPosition = CameraTargetPosition;
 
-			f32 gears[7] = { 4.3f, 0.f, 3.36f, 2.06f, 1.38f, 1.061f, 0.82f };
+			f32 gears[7] = { -4.3f, 0.f, 3.36f, 2.06f, 1.38f, 1.061f, 0.82f };
 			f32 main_gear = 3.44f;
-			f32 gear_mul = gears[num_gear+1] * main_gear;
+			f32 gear_mul = gears[num_gear + 1] * main_gear;
 			f32 engine_speed = 7000.f;
 			f32 max_speed_wheel = 505.f / gear_mul;
 
-			f32 engine_max_power = 500.f * 10.f;
-			f32 wheel_rotation_radians = fabs(m_vehicle->getWheelInfo(2).m_deltaRotation);
-			f32 wheel_rpm = ((wheel_rotation_radians / (2.f * PI))*60.f) / (1/60.f);
+			f32 engine_max_power = 500.f * 2.f;
+			f32 wheel_rotation_radians = m_vehicle->getWheelInfo(2).m_deltaRotation;
+			f32 wheel_rpm = ((wheel_rotation_radians / (2.f * PI))*60.f) / (1 / 60.f);
 			engine_rpm = wheel_rpm * gear_mul;
 			
-			if (raceStart && abs(num_gear) == 1 && engine_rpm<1000 && gas_pedal>0.f)
-				engine_rpm = 1000.f;
+			if (raceStart && abs(num_gear) >= 1 && engine_rpm<1000.f/abs(num_gear) && gas_pedal>0.f)
+				engine_rpm = 1000.f / abs(num_gear);
 
 			double a = -0.000000082;
 			double b = 0.000571429;
@@ -516,13 +516,7 @@ void RacingGame::Update()
 			double force = (a * (engine_rpm*engine_rpm) + b * engine_rpm + c);
 
 			f32 power = gas_pedal * engine_max_power * force;
-
-			if (num_gear > 0 && m_vehicle->getCurrentSpeedKmHour() <= 0 && power < 0)
-				power *= -1.f;
-			if (num_gear < 0 && m_vehicle->getCurrentSpeedKmHour() >= 0 && power > 0)
-				power *= -1.f;
-			if (num_gear < 0 && power > 0)
-				power *= -1.f;
+			power *= gear_mul;
 
 			if (num_gear == 0 && gas_pedal > 0.f)
 			{
@@ -530,9 +524,10 @@ void RacingGame::Update()
 				{
 					engine_rpm_N += engine_speed * dt;
 					engine_rpm = engine_rpm_N;
-				} else
+				}
+				else
 					engine_rpm = engine_speed;
-				
+
 			}
 			if (num_gear == 0 && gas_pedal == 0.f && engine_rpm_N>0)
 			{
@@ -540,8 +535,7 @@ void RacingGame::Update()
 				engine_rpm = engine_rpm_N;
 			}
 
-			sound->SetPitch(0.5f + (engine_rpm/engine_max_power)*.7f);
-
+			sound->SetPitch(0.5f + (engine_rpm / engine_speed));
 			// UPDATE WHEELS MANUALLY
 			Matrix _m;
 			m_vehicle->getWheelInfo(0).m_worldTransform.getOpenGLMatrix(&_m.m[0]);
@@ -759,7 +753,7 @@ void RacingGame::Update()
 	// ######################### UI ###############################
 	ImGui::SFML::ImGui_ImplSFML_NewFrame();
 
-	/*{
+	{
 		ImGui::Text("Shadows");
 		ImGui::SliderFloat("Factor", &a, 0.0f, 10.0f);
 		ImGui::SliderFloat("Units", &b, 0.0f, 10.0f);
@@ -769,7 +763,7 @@ void RacingGame::Update()
 			ImGui::Text("Portal: %d - passage: %d", i, portals[i].portalPassage);
 		dLight->SetShadowBias(a, b);
 		dLight->SetShadowPCFTexelSize(c);
-	}*/
+	}
 
 	bool showTimers = true;
 	ImGui::SetNextWindowPos(ImVec2(5, 5));
@@ -817,7 +811,7 @@ void RacingGame::Update()
 		}
 	}
 	ImGui::Text("Lap  %d/%d", lap, lapLimit);
-	ImGui::Text("\n\nKEYS:\n\ARROWS-Drive\nA-Gear Up\nZ-Gear Down\nC-Change Camera\nF-Toggle FullScreen\nR-Restart");
+	ImGui::Text("\n\nKEYS:\n\ARROWS-Drive\nA-Gear Up\nZ-Gear Down\nC-Change Camera\nF-Toggle FullScreen\nR-Restart\nTab-Toggle Ranking");
 	ImGui::End();
 	ImGui::PopStyleVar();
 	ImGui::PopStyleColor();
@@ -869,7 +863,7 @@ void RacingGame::Update()
 		if (engine_rpm < 0.f) engine_rpm = 0.f;
 		f32 RPMAngle = (engine_rpm / 7000.f) * (PI + 1.35f) - 1.35*.5f;
 		rpmMat.RotationZ(RPMAngle);
-		rpmMat.Translate(Vec3(pos.x + size.x*.5f +5, pos.y+size.y*.5f +10, 0.f));
+		rpmMat.Translate(Vec3(pos.x + size.x*.5f + 5, pos.y + size.y*.5f + 10, 0.f));
 		ImGui::SetNextWindowPos(pos);
 		ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0, 0.0, 0.0, 0.0));
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
@@ -880,7 +874,7 @@ void RacingGame::Update()
 		ImVec2 b(c.x, a.y); // topRight
 		ImVec2 d(a.x, c.y); // bottomLeft // CW order
 		ImVec2 uv_a(0, 0), uv_c(1, 1);
-		ImVec2 uv_b(0,1), uv_d(1,0);
+		ImVec2 uv_b(0, 1), uv_d(1, 0);
 
 		Vec3 a1 = rpmMat * Vec3(a.x, a.y, 0);
 		Vec3 b1 = rpmMat * Vec3(b.x, b.y, 0);
@@ -909,7 +903,7 @@ void RacingGame::Update()
 		ImGui::SetNextWindowPos(ImVec2(Width*.5f - 300, 50));
 		ImGui::SetNextWindowSize(ImVec2(600, 400));
 		ImGui::Begin("Save Score", &showSendScore, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
-		ImGui::Text("Save Score:");
+		ImGui::Text("Ranking:");
 
 		ImGui::BeginChild("Fastest", ImVec2(0, 300), true);
 		ImGui::Columns(2);
@@ -917,16 +911,19 @@ void RacingGame::Update()
 
 		bool haveBetterLapTime = false;
 		bool haveBetterRaceTime = false;
+		uint32 counter = 1;
 		for (int i = 0; i < fastestLaps.size(); i++)
 		{
-			if (fastestLaps[i].score > bestLapTime && !haveBetterLapTime)
+			if (fastestLaps[i].score > bestLapTime && !haveBetterLapTime && raceFinished)
 			{
 				int min;
 				f32 sec;
 				seconds_to_minutes(bestLapTime, &min, &sec);
-				ImGui::Text("%d - YOUR TIME", i);
+				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 0, 1));
+				ImGui::Text("%d - YOUR TIME", counter++);
 				ImGui::SameLine();
 				ImGui::Text("%d\" %.3f", min, sec);
+				ImGui::PopStyleColor();
 				haveBetterLapTime = true;
 				i++;
 			}
@@ -936,33 +933,38 @@ void RacingGame::Update()
 				int min;
 				f32 sec;
 				seconds_to_minutes(fastestLaps[(haveBetterLapTime ? (i - 1) : i)].score, &min, &sec);
-				ImGui::Text("%d - %s", ((haveBetterLapTime ? (i - 1) : i) + 1), &fastestLaps[(haveBetterLapTime ? (i - 1) : i)].name[0]);
+				ImGui::Text("%d - %s", counter++, &fastestLaps[(haveBetterLapTime ? (i - 1) : i)].name[0]);
 				ImGui::SameLine();
 				ImGui::Text("%d\" %.3f", min, sec);
 			}
 		}
-		if (!haveBetterLapTime && fastestLaps.size() < 10)
+		if (!haveBetterLapTime && fastestLaps.size() < 10 && raceFinished)
 		{
 			int min;
 			f32 sec;
 			seconds_to_minutes(bestLapTime, &min, &sec);
-			ImGui::Text("%d - YOUR TIME", fastestLaps.size());
+			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 0, 1));
+			ImGui::Text("%d - YOUR TIME", fastestLaps.size() + 1);
 			ImGui::SameLine();
 			ImGui::Text("%d\" %.3f", min, sec);
+			ImGui::PopStyleColor();
 			haveBetterLapTime = true;
 		}
 		ImGui::NextColumn();
 		ImGui::Text("Fastest Races");
+		counter = 1;
 		for (int i = 0; i < fastestRaces.size(); i++)
 		{
-			if (fastestRaces[i].score > bestRaceTime && !haveBetterRaceTime)
+			if (fastestRaces[i].score > bestRaceTime && !haveBetterRaceTime && raceFinished)
 			{
 				int min;
 				f32 sec;
+				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 0, 1));
 				seconds_to_minutes(bestRaceTime, &min, &sec);
-				ImGui::Text("%d - YOUR TIME", i);
+				ImGui::Text("%d - YOUR TIME", counter++);
 				ImGui::SameLine();
 				ImGui::Text("%d\" %.3f", min, sec);
+				ImGui::PopStyleColor();
 				haveBetterRaceTime = true;
 				i++;
 			}
@@ -972,25 +974,27 @@ void RacingGame::Update()
 				int min;
 				f32 sec;
 				seconds_to_minutes(fastestRaces[(haveBetterRaceTime ? (i - 1) : i)].score, &min, &sec);
-				ImGui::Text("%d - %s", ((haveBetterRaceTime ? (i - 1) : i) + 1), &fastestRaces[(haveBetterRaceTime ? (i - 1) : i)].name[0]);
+				ImGui::Text("%d - %s", counter++, &fastestRaces[(haveBetterRaceTime ? (i - 1) : i)].name[0]);
 				ImGui::SameLine();
 				ImGui::Text("%d\" %.3f", min, sec);
 			}
 		}
 
-		if (!haveBetterRaceTime && fastestRaces.size() < 10)
+		if (!haveBetterRaceTime && fastestRaces.size() < 10 && raceFinished)
 		{
 			int min;
 			f32 sec;
 			seconds_to_minutes(bestRaceTime, &min, &sec);
-			ImGui::Text("%d - YOUR TIME", fastestRaces.size());
+			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 0, 1));
+			ImGui::Text("%d - YOUR TIME", fastestRaces.size() + 1);
 			ImGui::SameLine();
 			ImGui::Text("%d\" %.3f", min, sec);
+			ImGui::PopStyleColor();
 			haveBetterRaceTime = true;
 		}
 		ImGui::EndChild();
 
-		if (haveBetterLapTime || haveBetterRaceTime)
+		if ((haveBetterLapTime || haveBetterRaceTime) && raceFinished)
 		{
 			name.resize(64);
 			ImGui::InputText("Name", &name[0], 64);
@@ -1193,6 +1197,14 @@ void RacingGame::ChangeCamera(Event::Input::Info e)
 		_followCamera = true;
 		Camera = FollowCamera;
 	}
+}
+void RacingGame::ShowRanking(Event::Input::Info e)
+{
+	showSendScore = !showSendScore;
+	if (showSendScore)
+		ShowMouse();
+	else
+		HideMouse();
 }
 void RacingGame::ToggleFS(Event::Input::Info e)
 {
