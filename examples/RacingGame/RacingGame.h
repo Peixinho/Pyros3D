@@ -217,7 +217,7 @@ private:
 		*min = time / 60;
 		*sec = (int)time % 60;
 
-		f32 intpart, ms;
+		double intpart, ms;
 		ms = modf(time, &intpart);
 		*sec += ms;
 	}
