@@ -391,8 +391,9 @@ namespace ImGui {
 			g_MouseWheel = 0.0f;
 
 			// Hide OS mouse cursor if ImGui is drawing it
-			g_Window->setMouseCursorVisible(!io.MouseDrawCursor || io.MousePos.x<0.0 || io.MousePos.x>io.DisplaySize.x || io.MousePos.y<0.0 || io.MousePos.y>io.DisplaySize.y);
-
+			//g_Window->setMouseCursorVisible(!io.MouseDrawCursor || io.MousePos.x<0.0 || io.MousePos.x>io.DisplaySize.x || io.MousePos.y<0.0 || io.MousePos.y>io.DisplaySize.y);
+			g_Window->setMouseCursorVisible(false);
+			
 			// Start the frame
 			ImGui::NewFrame();
 		}

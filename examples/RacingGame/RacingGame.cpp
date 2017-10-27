@@ -304,8 +304,6 @@ void RacingGame::Init()
 	Scene->Add(FollowCamera);
 	Scene->Add(HoodCamera);
 
-	HideMouse();
-
 	timeInterval = 0;
 
 	sound = new Sound();
@@ -508,6 +506,7 @@ void RacingGame::Update()
 			f32 wheel_rotation_radians = m_vehicle->getWheelInfo(2).m_deltaRotation;
 			f32 wheel_rpm = ((wheel_rotation_radians / (2.f * PI))*60.f) / (1 / 60.f);
 			engine_rpm = wheel_rpm * gear_mul;
+<<<<<<< HEAD
 
 			if (raceStart && abs(num_gear) == 1 && engine_rpm<1000 && gas_pedal>0.f)
 				engine_rpm = 1000.f;
@@ -517,6 +516,18 @@ void RacingGame::Update()
 			double c = 0;
 			double force = (a * (engine_rpm*engine_rpm) + b * engine_rpm + c);
 
+=======
+			
+			if (engine_rpm<1000) engine_rpm = 1000.f;
+
+			if (num_gear <= 1 && engine_rpm < 3000 && gas_pedal>0.f) engine_rpm += engine_speed * 2.f * dt;
+
+			double a = -1. / 9610000.;
+			double b = 39. / 48050.;
+			double c = -560. / 961.;
+			double force = (a * (engine_rpm*engine_rpm) + b * engine_rpm + c);
+
+>>>>>>> 237fb975c2e22bf7124380b0cf32c95d4bbee888
 			f32 power = gas_pedal * engine_max_power * force;
 			power *= gear_mul;
 
@@ -946,7 +957,11 @@ void RacingGame::Update()
 			f32 sec;
 			seconds_to_minutes(bestLapTime, &min, &sec);
 			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 0, 1));
+<<<<<<< HEAD
 			ImGui::Text("%d - YOUR TIME", fastestLaps.size()+1);
+=======
+			ImGui::Text("%d - YOUR TIME", fastestLaps.size() + 1);
+>>>>>>> 237fb975c2e22bf7124380b0cf32c95d4bbee888
 			ImGui::SameLine();
 			ImGui::Text("%d\" %.3f", min, sec);
 			ImGui::PopStyleColor();
@@ -988,7 +1003,11 @@ void RacingGame::Update()
 			f32 sec;
 			seconds_to_minutes(bestRaceTime, &min, &sec);
 			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 0, 1));
+<<<<<<< HEAD
 			ImGui::Text("%d - YOUR TIME", fastestRaces.size()+1);
+=======
+			ImGui::Text("%d - YOUR TIME", fastestRaces.size() + 1);
+>>>>>>> 237fb975c2e22bf7124380b0cf32c95d4bbee888
 			ImGui::SameLine();
 			ImGui::Text("%d\" %.3f", min, sec);
 			ImGui::PopStyleColor();
@@ -1203,6 +1222,13 @@ void RacingGame::ChangeCamera(Event::Input::Info e)
 void RacingGame::ShowRanking(Event::Input::Info e)
 {
 	showSendScore = !showSendScore;
+<<<<<<< HEAD
+=======
+	if (showSendScore)
+		ShowMouse();
+	else
+		HideMouse();
+>>>>>>> 237fb975c2e22bf7124380b0cf32c95d4bbee888
 }
 void RacingGame::ToggleFS(Event::Input::Info e)
 {
