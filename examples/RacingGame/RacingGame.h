@@ -45,7 +45,6 @@
 #include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/Assets/Sounds/Sound.h>
-#include <Pyros3D/Utils/Json/json.hpp>
 
 #include <SFML/Network.hpp>
 #include <math.h> 
@@ -156,6 +155,7 @@ private:
 	void ChangeCamera(Event::Input::Info e);
 	void ToggleFS(Event::Input::Info e);
 	void Reset(Event::Input::Info e);
+	void ShowRanking(Event::Input::Info e);
 
 	bool _upPressed, _downPressed, _leftPressed, _rightPressed, _brakePressed;
 	f32 gVehicleSteering, steeringIncrement, gas_pedal, engine_rpm, engine_rpm_N;
@@ -224,7 +224,8 @@ private:
 
 	void GetRaceOnlinScore()
 	{
-		// ...
+		// prepare the request
+		//...
 
 		if (fastestRaces.size() == 0)
 		{
@@ -244,7 +245,8 @@ private:
 
 	void SaveRaceOnlineScore()
 	{
-		// ...
+		// prepare the request
+		//...
 	}
 };
 

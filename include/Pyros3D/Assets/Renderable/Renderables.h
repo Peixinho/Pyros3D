@@ -231,9 +231,6 @@ namespace p3d {
 		// Material Properties
 		MaterialProperties materialProperties;
 
-		// Material
-		IMaterial* Material;
-
 		// Virtual Methods
 		virtual const std::vector<__INDEX_C_TYPE__> &GetIndexData() const = 0;
 		virtual const std::vector<Vec3> &GetVertexData() const = 0;
@@ -302,11 +299,7 @@ namespace p3d {
 	class PYROS3D_API Renderable {
 
 	public:
-
-		// Materials vector
-		std::map <uint32, IMaterial*> Materialsvector;
-		std::vector <Texture*> Texturesvector;
-
+		
 		Renderable() {}
 		virtual ~Renderable()
 		{
@@ -317,15 +310,7 @@ namespace p3d {
 				// Delete Pointer
 				delete (*i);
 			}
-			// Delete Materials
-			for (std::map <uint32, IMaterial*>::iterator i = Materialsvector.begin(); i != Materialsvector.end(); i++)
-				delete (*i).second;
-			// Delete Textures
-			for (std::vector<Texture*>::iterator i = Texturesvector.begin(); i != Texturesvector.end(); i++)
-				delete (*i);
 		}
-
-		virtual void BuildMaterials(const uint32 &MaterialOptions = 0);
 
 		// Vector of Buffers
 		std::vector<IGeometry*> Geometries;

@@ -660,4 +660,4 @@ float DecodeFloatRGBA( vec4 rgba ) {
         #endif
     }
     
-#endif;
+#endif

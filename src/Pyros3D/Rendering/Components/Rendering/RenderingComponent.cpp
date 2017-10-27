@@ -17,7 +17,7 @@ namespace p3d {
 	std::map<SceneGraph*, std::vector<RenderingMesh*> > RenderingComponent::MeshesOnSceneSorted;
 	std::map<SceneGraph*, std::vector<RenderingComponent*> > RenderingComponent::RenderingComponentsOnScene;
 
-	RenderingComponent::RenderingComponent(Renderable* renderable, IMaterial* Material) : IComponent()
+	RenderingComponent::RenderingComponent(Renderable* renderable, IMaterial* Material, const f32 Distance) : IComponent()
 	{
 		// Keep renderable pointer
 		this->renderable = renderable;
@@ -36,16 +36,12 @@ namespace p3d {
 			// Save Geometry Pointer
 			r_submesh->Geometry = renderable->Geometries[i];
 			// Get Geometry Specific Stuff
-			r_submesh->Material = renderable->Geometries[i]->Material;
 			if (renderable->Geometries[i]->materialProperties.haveBones)
 			{
 				r_submesh->MapBoneIDs = renderable->Geometries[i]->MapBoneIDs;
 				r_submesh->BoneOffsetMatrix = renderable->Geometries[i]->BoneOffsetMatrix;
 			}
-			if (Material != NULL)
-			{
-				r_submesh->Material = Material;
-			}
+			r_submesh->Material = Material;
 
 			// Own this Mothafuckah!
 			r_submesh->renderingComponent = this;
@@ -64,10 +60,66 @@ namespace p3d {
 		maxBounds = renderable->GetBoundingMaxValue();
 		minBounds = renderable->GetBoundingMinValue();
 
-		// LOD
-		LOD = false;
-		LodInUse = 0;
-		LastLodDistance = 0.f;
+		if (Distance > 0.f)
+		{
+			LODDistances.push_back(Distance);
+			LOD = true;
+		}
+		else {
+			// LOD
+			LOD = false;
+			LodInUse = 0;
+			LastLodDistance = 0.f;
+		}
+
+	}
+
+	RenderingComponent::RenderingComponent(Renderable* renderable, const uint32 MaterialOptions, const f32 Distance) : IComponent()
+	{
+		uint32 LODLVL = Meshes.size();
+		for (uint32 i = 0; i < renderable->Geometries.size(); i++)
+		{
+			// Rendering Mesh Instance
+			RenderingMesh* r_submesh = new RenderingMesh(LODLVL);
+
+			// Save Geometry Pointer
+			r_submesh->Geometry = renderable->Geometries[i];
+			// Get Geometry Specific Stuff
+			r_submesh->BuildMaterials(MaterialOptions);
+			if (renderable->Geometries[i]->materialProperties.haveBones)
+			{
+				r_submesh->MapBoneIDs = renderable->Geometries[i]->MapBoneIDs;
+				r_submesh->BoneOffsetMatrix = renderable->Geometries[i]->BoneOffsetMatrix;
+			}
+
+			// Own this Mothafuckah!
+			r_submesh->renderingComponent = this;
+
+			// Push Mesh
+			Meshes[LODLVL].push_back(r_submesh);
+		}
+
+		// Keep Skeleton
+		skeleton = renderable->GetSkeleton();
+		hasBones = (skeleton.size() > 0 ? true : false);
+
+		// Bounding
+		BoundingSphereRadius = renderable->GetBoundingSphereRadius();
+		BoundingSphereCenter = renderable->GetBoundingSphereCenter();
+		maxBounds = renderable->GetBoundingMaxValue();
+		minBounds = renderable->GetBoundingMinValue();
+
+		if (Distance > 0.f)
+		{
+			LODDistances.push_back(Distance);
+			LOD = true;
+		} else {
+			// LOD
+			LOD = false;
+			LodInUse = 0;
+			LastLodDistance = 0.f;
+		}
+		
 	}
 
 	void RenderingComponent::AddLOD(Renderable* renderable, const f32 Distance, IMaterial* Material)
@@ -82,16 +134,42 @@ namespace p3d {
 			// Save Geometry Pointer
 			r_submesh->Geometry = renderable->Geometries[i];
 			// Get Geometry Specific Stuff
-			r_submesh->Material = renderable->Geometries[i]->Material;
 			if (renderable->Geometries[i]->materialProperties.haveBones)
 			{
 				r_submesh->MapBoneIDs = renderable->Geometries[i]->MapBoneIDs;
 				r_submesh->BoneOffsetMatrix = renderable->Geometries[i]->BoneOffsetMatrix;
 			}
-			if (Material != NULL)
+			r_submesh->Material = Material;
+
+			// Own this Mothafuckah!
+			r_submesh->renderingComponent = this;
+
+			// Push Mesh
+			Meshes[LODLVL].push_back(r_submesh);
+		}
+
+		LODDistances.push_back(Distance);
+		LOD = true;
+	}
+
+	void RenderingComponent::AddLOD(Renderable* renderable, const f32 Distance, const uint32 MaterialOptions)
+	{
+
+		uint32 LODLVL = Meshes.size();
+		for (uint32 i = 0; i < renderable->Geometries.size(); i++)
+		{
+			// Rendering Mesh Instance
+			RenderingMesh* r_submesh = new RenderingMesh(LODLVL);
+
+			// Save Geometry Pointer
+			r_submesh->Geometry = renderable->Geometries[i];
+			// Get Geometry Specific Stuff
+			if (renderable->Geometries[i]->materialProperties.haveBones)
 			{
-				r_submesh->Material = Material;
+				r_submesh->MapBoneIDs = renderable->Geometries[i]->MapBoneIDs;
+				r_submesh->BoneOffsetMatrix = renderable->Geometries[i]->BoneOffsetMatrix;
 			}
+			r_submesh->BuildMaterials(MaterialOptions);
 
 			// Own this Mothafuckah!
 			r_submesh->renderingComponent = this;

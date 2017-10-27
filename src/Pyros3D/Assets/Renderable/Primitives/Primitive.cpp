@@ -104,8 +104,5 @@ namespace p3d {
 
 		// Calculate Model's Bounding Box
 		CalculateBounding();
-
-		// Execute Parent Build
-		BuildMaterials();
 	}
 };

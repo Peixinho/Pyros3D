@@ -44,8 +44,8 @@ void IslandDemo::Init()
 
 	// Create Game Object
 	gIsland = new GameObject();
-	island = new Model("../examples/IslandDemo/assets/island.p3dm", true, ShaderUsage::Diffuse | ShaderUsage::ClipPlane);
-	rIsland = new RenderingComponent(island);
+	island = new Model("../examples/IslandDemo/assets/island.p3dm", true);
+	rIsland = new RenderingComponent(island, ShaderUsage::Diffuse | ShaderUsage::ClipPlane);
 	gIsland->Add(rIsland);
 	// Add GameObject to Scene
 	Scene->Add(gIsland);

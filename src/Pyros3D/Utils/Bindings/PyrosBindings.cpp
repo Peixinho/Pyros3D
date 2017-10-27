@@ -935,7 +935,7 @@ namespace p3d {
 
 		{
 			// LUA RenderingComponent
-			sol::constructors<sol::types<Renderable*, IMaterial*>, sol::types<Renderable*>> con;
+			sol::constructors<sol::types<Renderable*, IMaterial*, float>, sol::types<Renderable*, IMaterial*>, sol::types<Renderable*, int, float>, sol::types<Renderable*, int>> con;
 			lua->new_simple_usertype<LUA_RenderingComponent>("RenderingComponent",
 				con,
 				"addLOD", &LUA_RenderingComponent::AddLOD,
@@ -1295,7 +1295,7 @@ namespace p3d {
 		}
 		{
 			// Model
-			sol::constructors<sol::types<std::string>, sol::types<std::string, bool>,sol::types<std::string, bool, int>> con;
+			sol::constructors<sol::types<std::string>, sol::types<std::string, bool>,sol::types<std::string, bool>> con;
 			lua->new_simple_usertype<Model>("Model",
 				con,
 				sol::base_classes, sol::bases<Renderable>()

@@ -208,10 +208,16 @@ namespace p3d {
 	{
 	public:
 
-		LUA_RenderingComponent(p3d::Renderable* renderable, p3d::IMaterial* Material = NULL) : p3d::RenderingComponent(renderable, Material) {}
+		LUA_RenderingComponent(p3d::Renderable* renderable, p3d::IMaterial* Material, const p3d::f32 Distance = 0.f) : p3d::RenderingComponent(renderable, Material, Distance) {}
+		LUA_RenderingComponent(p3d::Renderable* renderable, const uint32 MaterialOptions, const p3d::f32 Distance = 0.f) : p3d::RenderingComponent(renderable, MaterialOptions, Distance) {}
 
 		// Lua Instantiation
-		LUA_RenderingComponent(sol::state* lua, const std::string name, p3d::Renderable* renderable, p3d::IMaterial* Material = NULL) : p3d::RenderingComponent(renderable, Material)
+		LUA_RenderingComponent(sol::state* lua, const std::string name, p3d::Renderable* renderable, p3d::IMaterial* Material, const f32 Distance = 0.f) : p3d::RenderingComponent(renderable, Material, Distance)
+		{
+			// Register object in Lua
+			(*lua)[name.c_str()] = this;
+		}
+		LUA_RenderingComponent(sol::state* lua, const std::string name, p3d::Renderable* renderable, const p3d::f32 MaterialOptions, const f32 Distance = 0.f) : p3d::RenderingComponent(renderable, MaterialOptions, Distance)
 		{
 			// Register object in Lua
 			(*lua)[name.c_str()] = this;

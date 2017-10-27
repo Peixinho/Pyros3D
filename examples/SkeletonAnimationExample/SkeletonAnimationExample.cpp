@@ -50,9 +50,9 @@ void SkeletonAnimationExample::Init()
 
 	// Create Game Object
 	ModelObject = new GameObject();
-	modelHandle = new Model("../examples/SkeletonAnimationExample/assets/human.p3dm", false, ShaderUsage::Diffuse | ShaderUsage::Skinning);
+	modelHandle = new Model("../examples/SkeletonAnimationExample/assets/human.p3dm", false);
 	((Model*)modelHandle)->DebugSkeleton();
-	rModel = new RenderingComponent(modelHandle);
+	rModel = new RenderingComponent(modelHandle, ShaderUsage::Diffuse | ShaderUsage::Skinning);
 	ModelObject->Add(rModel);
 	ModelObject->AddTag("Teste");
 	ModelObject->SetPosition(Vec3(-10, 0, 0));
@@ -65,8 +65,8 @@ void SkeletonAnimationExample::Init()
 	SAnim->LoadAnimation("../examples/SkeletonAnimationExample/assets/walk.p3da");
 
 	ModelObject2 = new GameObject();
-	modelHandle2 = new Model("../examples/SkeletonAnimationExample/assets/Model.p3dm", false, ShaderUsage::Diffuse | ShaderUsage::Skinning);
-	rModel2 = new RenderingComponent(modelHandle2);
+	modelHandle2 = new Model("../examples/SkeletonAnimationExample/assets/Model.p3dm", false);
+	rModel2 = new RenderingComponent(modelHandle2, ShaderUsage::Diffuse | ShaderUsage::Skinning);
 	ModelObject2->Add(rModel2);
 	ModelObject2->AddTag("Teste");
 	ModelObject2->SetPosition(Vec3(15, 12, 0));

@@ -51,12 +51,10 @@ namespace p3d {
 		BoundingSphereRadius = Max(a, b);
 	}
 
-	Model::Model(const std::string ModelPath, bool mergeMeshes, const uint32 MaterialOptions)
+	Model::Model(const std::string ModelPath, bool mergeMeshes)
 	{
 		mesh = new ModelLoader();
 		mesh->Load(ModelPath);
-
-		this->MaterialOptions = MaterialOptions;
 
 		std::map<uint32, ModelGeometry*> meshes;
 
@@ -277,9 +275,6 @@ namespace p3d {
 
 		// Calculate Model's Bounding Box
 		CalculateBounding();
-
-		// Execute Parent Build
-		BuildMaterials(MaterialOptions);
 	}
 
 	// Debug Skeleton

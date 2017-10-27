@@ -188,7 +188,7 @@ solution "Pyros3D"
             defines({"_DEBUG"})
            
             if os.get() == "windows" and _OPTIONS["shared"] then
-                links { libsToLinkGL, libsToLinkDebug, "BulletDynamics_Debug", "BulletCollision_Debug", "LinearMath_Debug", "freetype26d", "pthreadVC2" }
+                links { libsToLinkGL, libsToLinkDebug, "BulletDynamics_Debug", "BulletCollision_Debug", "LinearMath_Debug", "freetype265d", "pthreadVC2" }
                 libdirs { rootdir.."/libs", rootdir.."/bin" }
             end
 
@@ -203,7 +203,7 @@ solution "Pyros3D"
             targetname(libName)
 
             if os.get() == "windows" and _OPTIONS["shared"] then
-                links { libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype26", "pthreadVC2" }
+                links { libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype265", "pthreadVC2" }
                 libdirs { rootdir.."/libs", rootdir.."/bin" }
             end
 
@@ -233,6 +233,10 @@ solution "Pyros3D"
 
         defines({"UNICODE"})
 
+        if os.get() == "windows" then
+            defines({"HAVE_STRUCT_TIMESPEC"})
+        end
+
         -- Log Options
         defines({"LOG_DISABLE"}) 
         --| defines({"LOG_TO_FILE"}) | defines({"LOG_TO_CONSOLE"})
@@ -253,7 +257,7 @@ solution "Pyros3D"
             end
             
             if os.get() == "windows" then
-                links { libName.."d", libsToLinkGL, libsToLinkDebug, "assimp", "BulletDynamics_Debug", "BulletCollision_Debug", "LinearMath_Debug", "freetype26d", "pthreadVC2" }
+                links { libName.."d", libsToLinkGL, libsToLinkDebug, "assimp", "BulletDynamics_Debug", "BulletCollision_Debug", "LinearMath_Debug", "freetype265d", "pthreadVC2" }
                 libdirs { rootdir.."/libs", rootdir.."/bin" }
             end
 
@@ -278,7 +282,7 @@ solution "Pyros3D"
             end
 
             if os.get() == "windows" then
-                links { libName, libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype26", "pthreadVC2" }
+                links { libName, libsToLinkGL, libsToLink, "assimp", "BulletDynamics", "BulletCollision", "LinearMath", "freetype265", "pthreadVC2" }
                 libdirs { rootdir.."/libs", rootdir.."/bin" }
             end
 
@@ -313,6 +317,10 @@ function BuildDemo(demoPath, demoName)
             defines({"LUA_BINDINGS"})
         end
         
+        if os.get() == "windows" then
+            defines({"HAVE_STRUCT_TIMESPEC"})
+        end
+
 	if os.get() == "linux" then
                 includedirs { "include/", "/usr/include/freetype2", "/usr/include/bullet", "src/" }
         else
@@ -348,7 +356,7 @@ function BuildDemo(demoPath, demoName)
             end
             
             if os.get() == "windows" then
-                links { libName.."d", libsToLinkGL, libsToLinkDebug, "BulletDynamics_Debug", "BulletCollision_Debug", "LinearMath_Debug", "freetype26d", "pthreadVC2" }
+                links { libName.."d", libsToLinkGL, libsToLinkDebug, "BulletDynamics_Debug", "BulletCollision_Debug", "LinearMath_Debug", "freetype265d", "pthreadVC2" }
                 libdirs { rootdir.."/libs", rootdir.."/bin" }
             end
 
@@ -373,7 +381,7 @@ function BuildDemo(demoPath, demoName)
             end
 
             if os.get() == "windows" then
-                links { libName, libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype26", "pthreadVC2" }
+                links { libName, libsToLinkGL, libsToLink, "BulletDynamics", "BulletCollision", "LinearMath", "freetype265", "pthreadVC2" }
                 libdirs { rootdir.."/libs", rootdir.."/bin" }
             end
 
@@ -402,13 +410,14 @@ if _OPTIONS["examples"] then
     BuildDemo("examples/LOD_example", "LOD_example");
     BuildDemo("examples/Decals", "Decals");
     BuildDemo("examples/IslandDemo", "IslandDemo");
-    BuildDemo("examples/RacingGame", "RacingGame");
+    BuildDemo("examples/MotionBlur", "MotionBlur");
     if _OPTIONS["lua"] then
         BuildDemo("examples/LuaScripting", "LuaScripting");
     end
 
     -- ImGui Example only works with SFML for now
     if framework ~= "SDL" or not "SDL2" then
+        BuildDemo("examples/RacingGame", "RacingGame");
         BuildDemo("examples/ImGuiExample", "ImGuiExample");
     end
 

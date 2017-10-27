@@ -88,9 +88,9 @@ void LOD_example::Init()
 	HideMouse();
 
 	// Load Teapot LODS
-	teapotLOD1Handle = new Model("../examples/LOD_example/assets/teapots/teapotLOD1.p3dm", false, ShaderUsage::Diffuse);
-	teapotLOD2Handle = new Model("../examples/LOD_example/assets/teapots/teapotLOD2.p3dm", false, ShaderUsage::Diffuse);
-	teapotLOD3Handle = new Model("../examples/LOD_example/assets/teapots/teapotLOD3.p3dm", false, ShaderUsage::Diffuse);
+	teapotLOD1Handle = new Model("../examples/LOD_example/assets/teapots/teapotLOD1.p3dm", false);
+	teapotLOD2Handle = new Model("../examples/LOD_example/assets/teapots/teapotLOD2.p3dm", false);
+	teapotLOD3Handle = new Model("../examples/LOD_example/assets/teapots/teapotLOD3.p3dm", false);
 
 	// Create Teapots and Add LODS
 	for (int i = 0; i < TEAPOTS; i++)
@@ -101,8 +101,8 @@ void LOD_example::Init()
 		mTeapot->SetSpecular(Vec4(1, 1, 1, 1));
 
 		RenderingComponent* rTeapot = new RenderingComponent(teapotLOD1Handle, mTeapot);
-		rTeapot->AddLOD(teapotLOD2Handle, 50);
-		rTeapot->AddLOD(teapotLOD3Handle, 100);
+		rTeapot->AddLOD(teapotLOD2Handle, 50, ShaderUsage::Diffuse | ShaderUsage::SpecularColor | ShaderUsage::Color);
+		rTeapot->AddLOD(teapotLOD3Handle, 100, ShaderUsage::Diffuse | ShaderUsage::SpecularColor | ShaderUsage::Color);
 
 		GameObject* Teapot = new GameObject(true); //Static Object
 		Teapot->SetPosition(Vec3((f32)(rand() % 1000) - 500.f, (f32)(rand() % 1000) - 500.f, (f32)(rand() % 1000) - 500.f));

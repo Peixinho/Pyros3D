@@ -108,13 +108,13 @@ void DepthOfField::Init()
 	Scene->Add(Light);
 
 	// Create Game Object
-	modelMesh = new Model("../examples/DepthOfField/assets/suzanne.p3dm", false, ShaderUsage::Diffuse);
+	modelMesh = new Model("../examples/DepthOfField/assets/suzanne.p3dm", false);
 
 	for (uint32 i = 0; i < 10; i++)
 	{
 		GameObject* Monkey = new GameObject();
 		Monkey->SetPosition(Vec3(-23.f + i * 3.f, 0, -15.f + i * 3.f));
-		RenderingComponent* rMonkey = new RenderingComponent(modelMesh);
+		RenderingComponent* rMonkey = new RenderingComponent(modelMesh, ShaderUsage::Diffuse);
 		Monkey->Add(rMonkey);
 		Scene->Add(Monkey);
 

@@ -111,10 +111,6 @@ namespace p3d {
 
 			// Calculate Model's Bounding Box
 			CalculateBounding();
-
-			if (!Initialized)
-				// Execute Parent Build
-				BuildMaterials();
 		};
 
 		void UpdateText(const std::string &text, const Vec4 &color = Vec4(1, 1, 1, 1));
