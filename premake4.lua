@@ -410,7 +410,8 @@ if _OPTIONS["examples"] then
     BuildDemo("examples/LOD_example", "LOD_example");
     BuildDemo("examples/Decals", "Decals");
     BuildDemo("examples/IslandDemo", "IslandDemo");
-    BuildDemo("examples/MotionBlur", "MotionBlur");
+    BuildDemo("examples/ParallaxMapping", "ParallaxMapping");
+    --BuildDemo("examples/MotionBlur", "MotionBlur");
     if _OPTIONS["lua"] then
         BuildDemo("examples/LuaScripting", "LuaScripting");
     end

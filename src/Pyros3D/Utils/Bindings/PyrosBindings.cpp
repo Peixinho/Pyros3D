@@ -401,6 +401,14 @@ namespace p3d {
 	{
 		f.AddAttach(attachmentFormat, attachmentDataType, Width, Height, msaa);
 	}
+	void RenderingComponent_ADDLOD_MaterialOptions(RenderingComponent* rcomp, Renderable* renderable, const f32 Distance, IMaterial* Material)
+	{
+		rcomp->AddLOD(renderable, Distance, Material);
+	}
+	void RenderingComponent_ADDLOD_MaterialPointer(RenderingComponent* rcomp, Renderable* renderable, const f32 Distance, const uint32 MaterialOptions = 0)
+	{
+		rcomp->AddLOD(renderable, Distance, MaterialOptions);
+	}
 	// ******************************* OVERLOADS *******************************
 
 	void GenerateBindings(sol::state* lua)
@@ -938,7 +946,10 @@ namespace p3d {
 			sol::constructors<sol::types<Renderable*, IMaterial*, float>, sol::types<Renderable*, IMaterial*>, sol::types<Renderable*, int, float>, sol::types<Renderable*, int>> con;
 			lua->new_simple_usertype<LUA_RenderingComponent>("RenderingComponent",
 				con,
-				"addLOD", &LUA_RenderingComponent::AddLOD,
+				"addLOD", sol::overload(
+					&RenderingComponent_ADDLOD_MaterialPointer, 
+					& RenderingComponent_ADDLOD_MaterialOptions
+				),
 				"init", &LUA_RenderingComponent::Init,
 				"update", &LUA_RenderingComponent::Update,
 				"destroy", &LUA_RenderingComponent::Destroy,

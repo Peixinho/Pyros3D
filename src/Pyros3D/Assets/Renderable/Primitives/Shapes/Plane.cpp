@@ -20,10 +20,10 @@ namespace p3d {
 
 		Vec3 a = Vec3(-w2, -h2, 0); Vec3 b = Vec3(w2, -h2, 0); Vec3 c = Vec3(w2, h2, 0); Vec3 d = Vec3(-w2, h2, 0);
 		Vec3 normal = ((c - b).cross(a - b)).normalize();
-		geometry->tVertex.push_back(a);   geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(Vec2(0, 0));
-		geometry->tVertex.push_back(b);   geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(Vec2(1, 0));
-		geometry->tVertex.push_back(c);   geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(Vec2(1, 1));
-		geometry->tVertex.push_back(d);   geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(Vec2(0, 1));
+		geometry->tVertex.push_back(a);   geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(Vec2(1, 0));
+		geometry->tVertex.push_back(b);   geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(Vec2(0, 0));
+		geometry->tVertex.push_back(c);   geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(Vec2(0, 1));
+		geometry->tVertex.push_back(d);   geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(Vec2(1, 1));
 
 		geometry->index.push_back(0);
 		geometry->index.push_back(1);
