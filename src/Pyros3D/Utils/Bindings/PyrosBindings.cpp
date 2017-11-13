@@ -1217,6 +1217,8 @@ namespace p3d {
 				"setColorMap", &GenericShaderMaterial::SetColorMap,
 				"setSpecularMap", &GenericShaderMaterial::SetSpecularMap,
 				"setNormalMap", &GenericShaderMaterial::SetNormalMap,
+				"setDisplacementMap", &GenericShaderMaterial::SetDisplacementMap,
+				"setDisplacementHeight", &GenericShaderMaterial::SetDisplacementHeight,
 				"setEnvMap", &GenericShaderMaterial::SetEnvMap,
 				"setSkyboxMap", &GenericShaderMaterial::SetSkyboxMap,
 				"setRefractMap", &GenericShaderMaterial::SetRefractMap,

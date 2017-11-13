@@ -19,7 +19,9 @@ namespace p3d
 	GenericShaderMaterial::GenericShaderMaterial(const uint32 options) : IMaterial()
 	{
 		// Default
-		colorMapID = specularMapID = normalMapID = envMapID = skyboxMapID = refractMapID = fontMapID = -1;
+		colorMapID = specularMapID = normalMapID = displacementMapID = envMapID = skyboxMapID = refractMapID = fontMapID = -1;
+
+		displacementHeight = 0.05f;
 
 		uColor = uSpecular = uReflectivity = NULL;
 
@@ -54,6 +56,8 @@ namespace p3d
 				define += std::string("#define CASTSHADOWS\n");
 			if (options & ShaderUsage::BumpMapping)
 				define += std::string("#define BUMPMAPPING\n");
+			if (options & ShaderUsage::ParallaxMapping)
+				define += std::string("#define PARALLAXMAPPING\n");
 			if (options & ShaderUsage::Skinning)
 				define += std::string("#define SKINNING\n");
 			if (options & ShaderUsage::EnvMap)
@@ -194,6 +198,12 @@ namespace p3d
 			SetTransparencyFlag(true);
 		}
 
+		if (options & ShaderUsage::ParallaxMapping)
+		{
+			AddUniform(Uniform("uCameraPos", Uniforms::DataUsage::CameraPosition));
+			uDisplacementHeight = AddUniform(Uniform("uDisplacementHeight", Uniforms::DataType::Float, &displacementHeight));
+		}
+
 		if (options & ShaderUsage::DeferredRenderer_Gbuffer)
 		{
 			AddUniform(Uniform("uAmbientLight", Uniforms::DataUsage::GlobalAmbientLight));
@@ -217,6 +227,12 @@ namespace p3d
 				ShadersList.erase(ShadersList.find(shaderID));
 			}
 		}
+	}
+
+	void GenericShaderMaterial::SetDisplacementHeight(const f32 height)
+	{
+		displacementHeight = height;
+		uDisplacementHeight->SetValue(&displacementHeight);
 	}
 
 	void GenericShaderMaterial::AddTexture(const std::string &uniformName, Texture* texture)
@@ -298,6 +314,19 @@ namespace p3d
 		Textures.push_back(normalmap);
 		// Set Uniform
 		AddUniform(Uniform("uNormalmap", Uniforms::DataType::Int, &normalMapID));
+	}
+	void GenericShaderMaterial::SetDisplacementMap(Texture* displacementmap)
+	{
+		if (displacementMapID == -1)
+			displacementMapID = Textures.size();
+		else {
+			Textures[displacementMapID] = displacementmap;
+			return;
+		}
+		// Save on List
+		Textures.push_back(displacementmap);
+		// Set Uniform
+		AddUniform(Uniform("uDisplacementmap", Uniforms::DataType::Int, &displacementMapID));
 	}
 	void GenericShaderMaterial::SetEnvMap(Texture* envmap)
 	{

@@ -22,7 +22,7 @@ void ParallaxMapping::OnResize(const uint32 width, const uint32 height)
 
 	// Resize
 	Renderer->Resize(width, height);
-	projection.Perspective(70.f, (f32)width / (f32)height, 1.f, 1000.f);
+	projection.Perspective(70.f, (f32)width / (f32)height, 0.001f, 1000.f);
 }
 
 void ParallaxMapping::Init()
@@ -36,25 +36,44 @@ void ParallaxMapping::Init()
 	Renderer = new ForwardRenderer(Width, Height);
 
 	// Projection
-	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 1000.f);
+	projection.Perspective(70.f, (f32)Width / (f32)Height, 0.001f, 1000.f);
 
 	// Create Camera
 	Camera = new GameObject();
 	Camera->SetPosition(Vec3(0, 10, 80));
-
-	// Custom Material
-	Material = new ParallaxMappingExample();
 	
+	texturemap = new Texture();
+	normalmap = new Texture();
+	displacementmap = new Texture();
+
+	texturemap->LoadTexture("../examples/ParallaxMapping/assets/bricks.jpg");
+	normalmap->LoadTexture("../examples/ParallaxMapping/assets/bricks_normal.jpg");
+	displacementmap->LoadTexture("../examples/ParallaxMapping/assets/bricks_disp.jpg");
+
 	// Create Game Object
 	CubeObject = new GameObject();
 	cubeMesh = new Cube(30, 30, 30, false, false, true);
-	rCube = new RenderingComponent(cubeMesh, Material);
+	rCube = new RenderingComponent(cubeMesh, ShaderUsage::Diffuse | ShaderUsage::ParallaxMapping | ShaderUsage::BumpMapping | ShaderUsage::Texture | ShaderUsage::SpecularColor);
 	CubeObject->Add(rCube);
+	GenericShaderMaterial* mat = (GenericShaderMaterial*)rCube->GetMeshes()[0]->Material;
+	
+	mat->SetColorMap(texturemap); 
+	mat->SetNormalMap(normalmap);
+	mat->SetDisplacementMap(displacementmap);
+	mat->SetSpecular(Vec4(1, 1, 1, 1));
+	mat->SetShininess(32);
 
 	// Add Camera to Scene
 	Scene->Add(Camera);
 	// Add GameObject to Scene
 	Scene->Add(CubeObject);
+
+	// Add a Directional Light
+	Light = new GameObject();
+	dLight = new DirectionalLight(Vec4(1, 1, 1, 1), Vec3(-1, -1, 0));
+	Light->Add(dLight);
+
+	Scene->Add(Light);
 
 	// Input
 	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &ParallaxMapping::MoveFrontPress);
@@ -129,7 +148,9 @@ void ParallaxMapping::Shutdown()
 	delete rCube;
 	delete CubeObject;
 	delete cubeMesh;
-	delete Material;
+	delete texturemap;
+	delete normalmap;
+	delete displacementmap;
 	delete Camera;
 	delete Renderer;
 	delete Scene;

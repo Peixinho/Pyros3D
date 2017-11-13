@@ -32,6 +32,8 @@ namespace p3d
 		void SetColorMap(Texture* colormap);
 		void SetSpecularMap(Texture* specular);
 		void SetNormalMap(Texture* normalmap);
+		void SetDisplacementMap(Texture* displacementMap);
+		void SetDisplacementHeight(const f32 height);
 		void SetEnvMap(Texture* envmap);
 		void SetReflectivity(const f32 reflectivity);
 		void SetRefractMap(Texture* refractmap);
@@ -68,16 +70,16 @@ namespace p3d
 		Vec4 Ka;
 		Vec4 Kd;
 		Vec4 Ks;
-		f32 Shininess, UseLights;
+		f32 Shininess, UseLights, displacementHeight;
 
 		// Environment Cube
 		f32 Reflectivity;
 
 		// Texture IDs
-		int32 colorMapID, specularMapID, normalMapID, envMapID, skyboxMapID, refractMapID, fontMapID;
+		int32 colorMapID, specularMapID, normalMapID, displacementMapID, envMapID, skyboxMapID, refractMapID, fontMapID;
 
 		// Uniforms Handles
-		Uniform *uColor, *uSpecular, *uReflectivity, *uShininess, *uUseLights;
+		Uniform *uColor, *uSpecular, *uReflectivity, *uShininess, *uUseLights, *uDisplacementHeight;
 	};
 }
 

@@ -27,67 +27,8 @@
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
-#include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 
 using namespace p3d;
-
-class ParallaxMappingExample : public CustomShaderMaterial {
-
-public:
-
-	ParallaxMappingExample() : CustomShaderMaterial("../examples/ParallaxMapping/assets/shader.glsl")
-	{
-		AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
-		AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
-		AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
-		AddUniform(Uniform("uViewPos", Uniforms::DataUsage::CameraPosition));
-
-		handleTexture = AddUniform(Uniform("uTexturemap", Uniforms::DataUsage::Other, Uniforms::DataType::Int));
-		handleNormal = AddUniform(Uniform("uNormalmap", Uniforms::DataUsage::Other, Uniforms::DataType::Int));
-		handleDispl = AddUniform(Uniform("uDisplacementmap", Uniforms::DataUsage::Other, Uniforms::DataType::Int));
-		handleScale = AddUniform(Uniform("uHeightScale", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
-
-		int a = 0;
-		handleTexture->SetValue(&a);a++;
-		handleNormal->SetValue(&a);a++;
-		handleDispl->SetValue(&a);
-
-		texturemap = new Texture();
-		normalmap = new Texture();
-		displacementmap = new Texture();
-
-		texturemap->LoadTexture("../examples/ParallaxMapping/assets/bricks.jpg");
-		normalmap->LoadTexture("../examples/ParallaxMapping/assets/bricks_normal.jpg");
-		displacementmap->LoadTexture("../examples/ParallaxMapping/assets/bricks_disp.jpg");
-	}
-
-	virtual void PreRender()
-	{
-		texturemap->Bind();
-		normalmap->Bind();
-		displacementmap->Bind();
-		f32 v = 0.05f;
-		handleScale->SetValue(&v);
-	}
-	virtual void Render() {}
-	virtual void AfterRender() 
-	{
-		displacementmap->Unbind();
-		normalmap->Unbind();
-		texturemap->Unbind();
-	}
-
-	Uniform* handle, *handleTexture, *handleNormal, *handleDispl, *handleScale;
-	Texture *texturemap, *normalmap, *displacementmap;
-
-	virtual ~ParallaxMappingExample()
-	{
-		delete texturemap;
-		delete normalmap;
-		delete displacementmap;
-	}
-
-};
 
 class ParallaxMapping : public ClassName {
 
@@ -117,8 +58,11 @@ private:
 	RenderingComponent* rCube;
 	// Mesh
 	Renderable* cubeMesh;
-	// Custom Material
-	ParallaxMappingExample* Material;
+
+	GameObject* Light;
+	DirectionalLight* dLight;
+
+	Texture *texturemap, *normalmap, *displacementmap;
 
 	float counterX, counterY;
 	Vec2 mouseCenter, mouseLastPosition, mousePosition;
