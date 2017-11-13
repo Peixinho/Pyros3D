@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-Parallaxmapping::ParallaxMapping() : ClassName(1024, 768, "Pyros3D - Parallax Mapping", WindowType::Close | WindowType::Resize)
+ParallaxMapping::ParallaxMapping() : ClassName(1024, 768, "Pyros3D - Parallax Mapping", WindowType::Close | WindowType::Resize)
 {
 
 }
