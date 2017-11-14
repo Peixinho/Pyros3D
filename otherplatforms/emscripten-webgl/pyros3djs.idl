@@ -251,7 +251,7 @@ interface RenderingMesh {
 
 [Prefix="p3d::"]
 interface RenderingComponent {
-      void RenderingComponent(Renderable renderable, IMaterial Material);
+      void RenderingComponent(Renderable renderable, IMaterial Material, float Distance);
       void AddLOD(Renderable renderable, float Distance, IMaterial Material);
       void Register(SceneGraph Scene);
       void Init();
@@ -405,6 +405,7 @@ interface GenericShaderMaterial {
 	void SetColor([Const, Ref] Vec4 color);
 	void SetSpecular([Const, Ref] Vec4 specularColor);
 	void SetColorMap(Texture colormap);
+	void SetDisplacementMap(Texture displacementmap);
 	void SetSpecularMap(Texture specular);
 	void SetNormalMap(Texture normalmap);
 	void SetEnvMap(Texture envmap);
@@ -425,6 +426,7 @@ interface GenericShaderMaterial {
 	void UnbindTextures();
 	void SetPCFTexelSize(float texel);
 	void SetPCFTexelCascadesSize(float texel1,float texel2,float texel3,float texel4);
+	void SetDisplacementHeight(float height);
 };
 
 [Prefix="p3d::", JSImplementation="IMaterial"]
@@ -485,7 +487,7 @@ interface TorusKnot {
 
 [Prefix="p3d::"]
 interface Model {
-	void Model(DOMString ModelPath, boolean mergeMeshes, long MaterialOptions);
+	void Model(DOMString ModelPath, boolean mergeMeshes);
 };
 
 [Prefix="p3d::"]

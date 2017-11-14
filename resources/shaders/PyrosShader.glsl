@@ -22,11 +22,11 @@ float DecodeFloatRGBA( vec4 rgba ) {
         varying vec4 vColor;
     #endif
 
-    #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(SPECULARMAP)
+    #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP)
         varying vec2 vTexcoord;
     #endif
 
-    #if defined(BUMPMAPPING) || defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(TEXTRENDERING)
+    #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(TEXTRENDERING)
         varying vec3 vNormal;
     #endif
           
@@ -34,11 +34,11 @@ float DecodeFloatRGBA( vec4 rgba ) {
         varying vec4 vWorldPositionShadow;
     #endif
 
-    #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
+    #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PARALLAXMAPPING)
         varying vec4 vWorldPosition;
     #endif
 
-    #ifdef BUMPMAPPING
+    #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING)
         attribute vec3 aTangent, aBitangent;
         varying mat3 vTangentMatrix;
     #endif
@@ -48,7 +48,7 @@ float DecodeFloatRGBA( vec4 rgba ) {
         uniform mat4 uBoneMatrix[MAX_BONES];
     #endif
 
-    #if defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
+    #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) || defined(DIFFUSE) || defined(CELLSHADING)
         uniform vec3 uCameraPos;
         varying vec3 vCameraPos;
     #endif
@@ -77,11 +77,11 @@ float DecodeFloatRGBA( vec4 rgba ) {
             vColor = aColor;
         #endif
 
-        #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(SPECULARMAP)
+        #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP)
             vTexcoord = aTexcoord;
         #endif
 
-        #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
+        #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) ||  defined(DIFFUSE) || defined(CELLSHADING)
             #ifndef SKINNING
                 vWorldPosition=uModelMatrix * vec4(aPosition,1.0);
             #else
@@ -97,7 +97,7 @@ float DecodeFloatRGBA( vec4 rgba ) {
             #endif
         #endif
 
-        #if defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
+        #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) ||  defined(DIFFUSE) || defined(CELLSHADING)
             vCameraPos = uCameraPos;
         #endif
 
@@ -124,7 +124,7 @@ float DecodeFloatRGBA( vec4 rgba ) {
             vNormal = aNormal;
         #endif
 
-        #if defined(BUMPMAPPING) || defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
+        #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
             #ifndef SKINNING
                 vNormal = normalize((uModelMatrix * vec4(aNormal,0.0)).xyz);
             #else
@@ -132,10 +132,11 @@ float DecodeFloatRGBA( vec4 rgba ) {
             #endif
         #endif
 
-        #ifdef BUMPMAPPING
-            vec3 Tangent = normalize((uModelMatrix * vec4(aTangent,0)).xyz);
-            vec3 Binormal = normalize((uModelMatrix * vec4(aBitangent,0)).xyz);
-            vTangentMatrix = mat3(Tangent.x, Binormal.x, vNormal.x,Tangent.y, Binormal.y, vNormal.y,Tangent.z, Binormal.z, vNormal.z);
+        #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING)
+            vec3 T = normalize(uModelMatrix * vec4(aTangent, 0)).xyz;
+            vec3 B = normalize(uModelMatrix * vec4(aBitangent, 0)).xyz;
+            vec3 N = normalize(uModelMatrix * vec4(aNormal, 0)).xyz;
+            vTangentMatrix = mat3(T.x, B.x, N.x, T.y, B.y, N.y, T.z, B.z, N.z);
         #endif
 
         #ifdef REFRACTION
@@ -164,12 +165,12 @@ float DecodeFloatRGBA( vec4 rgba ) {
 #endif
 
 #ifdef FRAGMENT
-
+    
     #if defined(DIFFUSE) || defined(CELLSHADING)
 
-            #if defined(GLES2) || defined(GLLEGACY)
-               float shadowBias;
-            #endif
+        #if defined(GLES2) || defined(GLLEGACY)
+           float shadowBias;
+        #endif
 
         struct LIGHT 
         {
@@ -250,7 +251,7 @@ float DecodeFloatRGBA( vec4 rgba ) {
         varying vec4 vColor;
     #endif
 
-    #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(SPECULARMAP) || defined(BUMPMAPPING)
+    #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(SPECULARMAP) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING)
         varying vec2 vTexcoord;
     #endif
 
@@ -262,130 +263,168 @@ float DecodeFloatRGBA( vec4 rgba ) {
         uniform sampler2D uFontmap;
     #endif
 
-    #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
+    #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
         varying vec3 vNormal;
     #endif
 
-    #ifdef BUMPMAPPING
+    #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING)
         varying mat3 vTangentMatrix;
-        uniform sampler2D uNormalmap;
+        #if defined(BUMPMAPPING)
+            uniform sampler2D uNormalmap;
+        #endif
+        #if defined(PARALLAXMAPPING)
+            uniform sampler2D uDisplacementmap;
+            uniform float uDisplacementHeight;
+
+            vec2 ParallaxMapping(vec2 texCoords, vec3 viewDir)
+            {
+               const float minLayers = 8.0;
+               const float maxLayers = 32.0;
+               float numLayers = mix(maxLayers, minLayers, abs(dot(vec3(0.0, 0.0, 1.0), viewDir)));
+               
+               float layerDepth = 1.0 / numLayers;
+               float currentLayerDepth = 0.0;
+               vec2 P = viewDir.xy / viewDir.z * uDisplacementHeight;
+               vec2 deltaTexCoords = P / numLayers;
+               
+               vec2  currentTexCoords = texCoords;
+               float currentDepthMapValue = texture2D(uDisplacementmap, currentTexCoords).r;
+               
+               while (currentLayerDepth < currentDepthMapValue)
+               {
+                   currentTexCoords -= deltaTexCoords;
+                   currentDepthMapValue = texture2D(uDisplacementmap, currentTexCoords).r;
+                   currentLayerDepth += layerDepth;
+               }
+               
+               vec2 prevTexCoords = currentTexCoords + deltaTexCoords;
+               
+               float afterDepth = currentDepthMapValue - currentLayerDepth;
+               float beforeDepth = texture2D(uDisplacementmap, prevTexCoords).r - currentLayerDepth + layerDepth;
+               
+               float weight = afterDepth / (afterDepth - beforeDepth);
+               vec2 finalTexCoords = prevTexCoords * weight + currentTexCoords * (1.0 - weight);
+               
+               return finalTexCoords;
+            }
+        #endif
     #endif
 
-    #ifdef DIRECTIONALSHADOW
-#if defined(GLES2) || defined(GLLEGACY)
-        float PCFDIRECTIONAL(sampler2D shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) 
-#else
-        float PCFDIRECTIONAL(sampler2DShadow shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) 
-#endif
-        {
-            vec4 coord = sMatrix * pos;
-            if (MoreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(width,height);
-            float shadow = 0.0;
-            float x = 0.0;
-            float y = 0.0;
-#if defined(GLES2) || defined(GLLEGACY)
-            float shadowSample = DecodeFloatRGBA(texture2D(shadowMap, coord.xy));
-            shadow = shadowSample - coord.z + shadowBias < 0.0 ? 0.0:1.0;
-#else
-            for (y = -1.5 ; y <=1.5 ; y+=1.0)
-                for (x = -1.5 ; x <=1.5 ; x+=1.0)
-                    shadow += shadow2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
-            shadow /= 16.0;
-#endif
-            return shadow;
-        }
-        uniform mat4 uDirectionalDepthsMVP[4];
-        uniform vec4 uDirectionalShadowFar[4];
-#if defined(GLES2) || defined(GLLEGACY)
-        uniform sampler2D uDirectionalShadowMaps;
-#else
-        uniform sampler2DShadow uDirectionalShadowMaps;
-#endif    
+#if defined(DIRECTIONALSHADOW)
+    #if defined(GLES2) || defined(GLLEGACY)
+            float PCFDIRECTIONAL(sampler2D shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) 
+    #else
+            float PCFDIRECTIONAL(sampler2DShadow shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) 
     #endif
+            {
+                vec4 coord = sMatrix * pos;
+                if (MoreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(width,height);
+                float shadow = 0.0;
+                float x = 0.0;
+                float y = 0.0;
+    #if defined(GLES2) || defined(GLLEGACY)
+                float shadowSample = DecodeFloatRGBA(texture2D(shadowMap, coord.xy));
+                shadow = shadowSample - coord.z + shadowBias < 0.0 ? 0.0:1.0;
+    #else
+                for (y = -1.5 ; y <=1.5 ; y+=1.0)
+                    for (x = -1.5 ; x <=1.5 ; x+=1.0)
+                        shadow += shadow2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
+                shadow /= 16.0;
+    #endif
+                return shadow;
+            }
+            uniform mat4 uDirectionalDepthsMVP[4];
+            uniform vec4 uDirectionalShadowFar[4];
+    #if defined(GLES2) || defined(GLLEGACY)
+            uniform sampler2D uDirectionalShadowMaps;
+    #else
+            uniform sampler2DShadow uDirectionalShadowMaps;
+    #endif    
+        #endif
 
-    #ifdef POINTSHADOW
-#if defined(GLES2) || defined(GLLEGACY)
-        float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos) 
-#else
-        #extension GL_EXT_gpu_shader4 : require
-        float PCFPOINT(samplerCubeShadow shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos) 
-#endif
-        {
-            vec4 position_ls = Matrix2 * pos;
-            position_ls.xyz/=position_ls.w;
-            vec4 abs_position = abs(position_ls);
-            float fs_z = -max(abs_position.x, max(abs_position.y, abs_position.z));
-            vec4 clip = Matrix1 * vec4(0.0, 0.0, fs_z, 1.0);
-            float depth = (clip.z / clip.w) * 0.5 + 0.5;
-            float shadow = 0.0;
-            float x = 0.0;
-            float y = 0.0;
+        #ifdef POINTSHADOW
+    #if defined(GLES2) || defined(GLLEGACY)
+            float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos) 
+    #else
+            #extension GL_EXT_gpu_shader4 : require
+            float PCFPOINT(samplerCubeShadow shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos) 
+    #endif
+            {
+                vec4 position_ls = Matrix2 * pos;
+                position_ls.xyz/=position_ls.w;
+                vec4 abs_position = abs(position_ls);
+                float fs_z = -max(abs_position.x, max(abs_position.y, abs_position.z));
+                vec4 clip = Matrix1 * vec4(0.0, 0.0, fs_z, 1.0);
+                float depth = (clip.z / clip.w) * 0.5 + 0.5;
+                float shadow = 0.0;
+                float x = 0.0;
+                float y = 0.0;
+                
+    #if defined(GLES2) || defined(GLLEGACY)
+                float shadowSample = DecodeFloatRGBA(textureCube(shadowMap, position_ls.xyz));
+                shadow = shadowSample - depth + shadowBias < 0.0 ? 0.0:1.0;
+    #else       
+                for (y = -1.5 ; y <=1.5 ; y+=1.0)
+                    for (x = -1.5 ; x <=1.5 ; x+=1.0)
+                        shadow += shadowCube(shadowMap, vec4(position_ls.xyz, depth) + vec4(vec2(x,y) * scale,0.0,0.0)).x;
+                shadow /= 16.0;
+    #endif
+                return shadow;
+            }
+            uniform int uNumberOfPointShadows;
+    #if defined(GLES2) || defined(GLLEGACY)
+            uniform mat4 uPointDepthsMVP[2];
+            uniform samplerCube uPointShadowMaps;
+    #else
+            uniform mat4 uPointDepthsMVP[8];
+            uniform samplerCubeShadow uPointShadowMaps[4];
+    #endif
+        #endif
+
+        #ifdef SPOTSHADOW
+    #if defined(GLES2) || defined(GLLEGACY)
+            float PCFSPOT(sampler2D shadowMap, mat4 sMatrix, float scale, vec4 pos)
+    #else
+            float PCFSPOT(sampler2DShadow shadowMap, mat4 sMatrix, float scale, vec4 pos)
+    #endif
+            {
+                vec4 coord = sMatrix * pos;
+                coord.xyz/=coord.w;
+                float shadow = 0.0;
+                float x = 0.0;
+                float y = 0.0;
+                
+    #if defined(GLES2) || defined(GLLEGACY)
+                float shadowSample = DecodeFloatRGBA(texture2D(shadowMap, coord.xy));
+                shadow = shadowSample - coord.z + shadowBias < 0.0 ? 0.0:1.0;
+    #else
+                for (y = -1.5 ; y <=1.5 ; y+=1.0)
+                    for (x = -1.5 ; x <=1.5 ; x+=1.0)
+                        shadow += shadow2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
+                shadow /= 16.0;
+    #endif
+                return shadow;
+            }
             
-#if defined(GLES2) || defined(GLLEGACY)
-            float shadowSample = DecodeFloatRGBA(textureCube(shadowMap, position_ls.xyz));
-            shadow = shadowSample - depth + shadowBias < 0.0 ? 0.0:1.0;
-#else       
-            for (y = -1.5 ; y <=1.5 ; y+=1.0)
-                for (x = -1.5 ; x <=1.5 ; x+=1.0)
-                    shadow += shadowCube(shadowMap, vec4(position_ls.xyz, depth) + vec4(vec2(x,y) * scale,0.0,0.0)).x;
-            shadow /= 16.0;
-#endif
-            return shadow;
-        }
-        uniform int uNumberOfPointShadows;
-#if defined(GLES2) || defined(GLLEGACY)
-        uniform mat4 uPointDepthsMVP[2];
-        uniform samplerCube uPointShadowMaps;
-#else
-        uniform mat4 uPointDepthsMVP[8];
-        uniform samplerCubeShadow uPointShadowMaps[4];
-#endif
+    #if defined(GLES2) || defined(GLLEGACY)
+            uniform sampler2D uSpotShadowMaps;
+            uniform mat4 uSpotDepthsMVP;
+    #else
+            uniform sampler2DShadow uSpotShadowMaps[4];
+            uniform mat4 uSpotDepthsMVP[4];
     #endif
-
-    #ifdef SPOTSHADOW
-#if defined(GLES2) || defined(GLLEGACY)
-        float PCFSPOT(sampler2D shadowMap, mat4 sMatrix, float scale, vec4 pos)
-#else
-        float PCFSPOT(sampler2DShadow shadowMap, mat4 sMatrix, float scale, vec4 pos)
+            uniform int uNumberOfSpotShadows; 
 #endif
-        {
-            vec4 coord = sMatrix * pos;
-            coord.xyz/=coord.w;
-            float shadow = 0.0;
-            float x = 0.0;
-            float y = 0.0;
-            
-#if defined(GLES2) || defined(GLLEGACY)
-            float shadowSample = DecodeFloatRGBA(texture2D(shadowMap, coord.xy));
-            shadow = shadowSample - coord.z + shadowBias < 0.0 ? 0.0:1.0;
-#else
-            for (y = -1.5 ; y <=1.5 ; y+=1.0)
-                for (x = -1.5 ; x <=1.5 ; x+=1.0)
-                    shadow += shadow2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
-            shadow /= 16.0;
-#endif
-            return shadow;
-        }
-        
-#if defined(GLES2) || defined(GLLEGACY)
-        uniform sampler2D uSpotShadowMaps;
-        uniform mat4 uSpotDepthsMVP;
-#else
-        uniform sampler2DShadow uSpotShadowMaps[4];
-        uniform mat4 uSpotDepthsMVP[4];
-#endif
-        uniform int uNumberOfSpotShadows; 
-    #endif
 
     #if defined(DIRECTIONALSHADOW) || defined(POINTSHADOW) || defined(SPOTSHADOW)
         varying vec4 vWorldPositionShadow;
     #endif
 
-    #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
+    #if defined(SKINNING) || defined(ENVMAP) || defined(PARALLAXMAPPING) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
         varying vec4 vWorldPosition;
     #endif
 
-    #if defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
+    #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) ||  defined(DIFFUSE) || defined(CELLSHADING)
         varying vec3 vCameraPos;
     #endif
 
@@ -442,8 +481,14 @@ float DecodeFloatRGBA( vec4 rgba ) {
             } else diffuse *= vColor;
         #endif
 
-        #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(SPECULARMAP)
+        #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP)
             vec2 Texcoord = vTexcoord;
+            #if defined(PARALLAXMAPPING)
+                vec3 viewDir = normalize((vTangentMatrix * vCameraPos)-(vTangentMatrix * vWorldPosition.xyz));
+                Texcoord = ParallaxMapping(Texcoord, viewDir);
+                if(Texcoord.x > 1.0 || Texcoord.y > 1.0 || Texcoord.x < 0.0 || Texcoord.y < 0.0)
+                    discard;
+            #endif
         #endif
 
         #ifdef TEXTURE
@@ -454,11 +499,12 @@ float DecodeFloatRGBA( vec4 rgba ) {
             } else diffuse *= texture2D(uColormap,Texcoord);
         #endif
 
-        #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
+        #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
             vec3 Normal;
-            #ifdef BUMPMAPPING
+            #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING)
                 TangentMatrix = vTangentMatrix;
-                Normal = normalize((texture2D(uNormalmap, Texcoord).xyz * 2.0 - 1.0));
+                Normal = texture2D(uNormalmap, Texcoord).rgb;
+                Normal = normalize(Normal * 2.0 - 1.0);
             #else
                 Normal = vNormal;
             #endif
