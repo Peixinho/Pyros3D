@@ -160,17 +160,21 @@ function BuildDemo(demoPath, demoName)
 end;
 
 if _OPTIONS["examples"] and _OPTIONS["jsnative"]==nil then
-    BuildDemo("../../examples/RotatingCube", "RotatingCube");
-    BuildDemo("../../examples/RotatingTexturedCube", "RotatingTexturedCube");
-    BuildDemo("../../examples/RotatingTextureAnimatedCube", "RotatingTextureAnimatedCube");
-    BuildDemo("../../examples/RotatingCubeWithLighting", "RotatingCubeWithLighting");
-    BuildDemo("../../examples/RotatingCubeWithLightingAndShadow", "RotatingCubeWithLightingAndShadow");
-    BuildDemo("../../examples/SimplePhysics", "SimplePhysics");
-    BuildDemo("../../examples/TextRendering", "TextRendering");
-    BuildDemo("../../examples/CustomMaterial", "CustomMaterial");
-    BuildDemo("../../examples/PickingPainterMethod", "PickingPainterMethod");
-    BuildDemo("../../examples/SkeletonAnimationExample", "SkeletonAnimationExample");
-    BuildDemo("../../examples/DeferredRendering", "DeferredRendering");
-    BuildDemo("../../examples/LOD_example", "LOD_example");
-    BuildDemo("../../examples/RacingGame", "RacingGame");
+    BuildDemo("examples/RotatingCube", "RotatingCube");
+    BuildDemo("examples/RotatingTexturedCube", "RotatingTexturedCube");
+    BuildDemo("examples/RotatingTextureAnimatedCube", "RotatingTextureAnimatedCube");
+    BuildDemo("examples/RotatingCubeWithLighting", "RotatingCubeWithLighting");
+    BuildDemo("examples/RotatingCubeWithLightingAndShadow", "RotatingCubeWithLightingAndShadow");
+    BuildDemo("examples/SimplePhysics", "SimplePhysics");
+    BuildDemo("examples/TextRendering", "TextRendering");
+    BuildDemo("examples/CustomMaterial", "CustomMaterial");
+    BuildDemo("examples/PickingPainterMethod", "PickingPainterMethod");
+    BuildDemo("examples/SkeletonAnimationExample", "SkeletonAnimationExample");
+    BuildDemo("examples/DepthOfField", "DepthOfField");
+    BuildDemo("examples/SSAOExample", "SSAOExample");
+    BuildDemo("examples/DeferredRendering", "DeferredRendering");
+    BuildDemo("examples/LOD_example", "LOD_example");
+    BuildDemo("examples/Decals", "Decals");
+    BuildDemo("examples/IslandDemo", "IslandDemo");
+    BuildDemo("examples/ParallaxMapping", "ParallaxMapping");
 end

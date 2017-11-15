@@ -156,14 +156,22 @@ if _OPTIONS["examples"] then
     BuildDemo("examples/CustomMaterial", "CustomMaterial");
     BuildDemo("examples/PickingPainterMethod", "PickingPainterMethod");
     BuildDemo("examples/SkeletonAnimationExample", "SkeletonAnimationExample");
+    BuildDemo("examples/DepthOfField", "DepthOfField");
+    BuildDemo("examples/SSAOExample", "SSAOExample");
     BuildDemo("examples/DeferredRendering", "DeferredRendering");
     BuildDemo("examples/LOD_example", "LOD_example");
+    BuildDemo("examples/Decals", "Decals");
     BuildDemo("examples/IslandDemo", "IslandDemo");
-    BuildDemo("examples/RacingGame", "RacingGame");
+    BuildDemo("examples/ParallaxMapping", "ParallaxMapping");
+    --BuildDemo("examples/MotionBlur", "MotionBlur");
+    if _OPTIONS["lua"] then
+        BuildDemo("examples/LuaScripting", "LuaScripting");
+    end
 
-	-- ImGui Example only works with SFML for now
-	if framework ~= "SDL" or not "SDL2" then
-		BuildDemo("examples/ImGuiExample", "ImGuiExample");
-	end
+    -- ImGui Example only works with SFML for now
+    if framework ~= "SDL" or not "SDL2" then
+        BuildDemo("examples/RacingGame", "RacingGame");
+        BuildDemo("examples/ImGuiExample", "ImGuiExample");
+    end
 
 end

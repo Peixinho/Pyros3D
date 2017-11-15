@@ -23,18 +23,18 @@ namespace p3d {
 
 		if (calculateTangentBitangent)
 		{
-			tTangent.resize(index.size());
-			tBitangent.resize(index.size());
+			tTangent.resize(tVertex.size());
+			tBitangent.resize(tVertex.size());
 			for (uint32 i = 0; i < index.size(); i += 3)
 			{
 				Vec3 Binormal, Tangent;
-				Geometry::CalculateTriangleTangentAndBinormal(tVertex[i], tTexcoord[i], tVertex[i + 1], tTexcoord[i + 1], tVertex[i + 2], tTexcoord[i + 2], &Binormal, &Tangent);
-				tTangent[i] = Tangent;
-				tTangent[i + 1] = Tangent;
-				tTangent[i + 2] = Tangent;
-				tBitangent[i] = Binormal;
-				tBitangent[i + 1] = Binormal;
-				tBitangent[i + 2] = Binormal;
+				Geometry::CalculateTriangleTangentAndBinormal(tVertex[index[i]], tTexcoord[index[i]], tVertex[index[i+1]], tTexcoord[index[i+1]], tVertex[index[i+2]], tTexcoord[index[i+2]], &Binormal, &Tangent);
+				tTangent[index[i]] = Tangent;
+				tTangent[index[i+1]] = Tangent;
+				tTangent[index[i+2]] = Tangent;
+				tBitangent[index[i]] = Binormal;
+				tBitangent[index[i+1]] = Binormal;
+				tBitangent[index[i+2]] = Binormal;
 			}
 
 			Vertex->AddAttribute("aTangent", Buffer::Attribute::Type::Vec3, &tTangent[0], tTangent.size());

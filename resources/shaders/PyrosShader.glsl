@@ -14,6 +14,27 @@ float DecodeFloatRGBA( vec4 rgba ) {
    return dot( rgba, vec4(1.0, 1.0/255.0, 1.0/65025.0, 1.0/16581375.0) );
 }
 
+#if defined(GLES2) || defined(GLLEGACY)
+    #if defined(GLES2) 
+        highp 
+    #endif
+            mat4 transpose(in highp mat4 inMatrix) {
+            highp vec4 i0 = inMatrix[0];
+            highp vec4 i1 = inMatrix[1];
+            highp vec4 i2 = inMatrix[2];
+            highp vec4 i3 = inMatrix[3];
+
+            highp mat4 outMatrix = mat4(
+                         vec4(i0.x, i1.x, i2.x, i3.x),
+                         vec4(i0.y, i1.y, i2.y, i3.y),
+                         vec4(i0.z, i1.z, i2.z, i3.z),
+                         vec4(i0.w, i1.w, i2.w, i3.w)
+                         );
+
+            return outMatrix;
+        }
+#endif
+
 #ifdef VERTEX
 
     #ifdef DEBUGRENDERING
@@ -66,13 +87,20 @@ float DecodeFloatRGBA( vec4 rgba ) {
         varying vec4 gbuffer_normals;
     #endif
 
+   #if defined(DEFERRED_GBUFFER) && (defined(PARALLAXMAPPING) || defined(BUMPMAPPING))
+       varying mat4 vViewMatrix;
+   #endif
+
     // Defaults
     attribute vec3 aPosition, aNormal;
     attribute vec2 aTexcoord;
     uniform mat4 uProjectionMatrix, uViewMatrix, uModelMatrix;
+    
     mat4 matAnimation = mat4(1.0);
     void main() {
-
+        #if defined(DEFERRED_GBUFFER) && (defined(PARALLAXMAPPING) || defined(BUMPMAPPING))
+            vViewMatrix = uViewMatrix;
+        #endif
         #ifdef DEBUGRENDERING
             vColor = aColor;
         #endif
@@ -460,10 +488,11 @@ float DecodeFloatRGBA( vec4 rgba ) {
        uniform vec4 uAmbientLight;
    #endif
 
-    void main() {
+   #if defined(DEFERRED_GBUFFER) && (defined(PARALLAXMAPPING) || defined(BUMPMAPPING))
+       varying mat4 vViewMatrix;
+   #endif
 
-        // Default
-        mat3 TangentMatrix = mat3(1.0);
+    void main() {
 
         #ifdef COLOR
             if (!diffuseIsSet) 
@@ -484,10 +513,8 @@ float DecodeFloatRGBA( vec4 rgba ) {
         #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP)
             vec2 Texcoord = vTexcoord;
             #if defined(PARALLAXMAPPING)
-                vec3 viewDir = normalize((vTangentMatrix * vCameraPos)-(vTangentMatrix * vWorldPosition.xyz));
+                vec3 viewDir = normalize(vTangentMatrix * (vCameraPos-vWorldPosition.xyz));
                 Texcoord = ParallaxMapping(Texcoord, viewDir);
-                if(Texcoord.x > 1.0 || Texcoord.y > 1.0 || Texcoord.x < 0.0 || Texcoord.y < 0.0)
-                    discard;
             #endif
         #endif
 
@@ -502,9 +529,10 @@ float DecodeFloatRGBA( vec4 rgba ) {
         #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
             vec3 Normal;
             #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING)
-                TangentMatrix = vTangentMatrix;
-                Normal = texture2D(uNormalmap, Texcoord).rgb;
-                Normal = normalize(Normal * 2.0 - 1.0);
+                Normal = normalize(transpose(vTangentMatrix) * (texture2D(uNormalmap, Texcoord).rgb * 2.0 - 1.0));
+                #if defined(DEFERRED_GBUFFER)
+                    gbuffer_normals.xyz = vViewMatrix * vec4(Normal,0);
+                #endif
             #else
                 Normal = vNormal;
             #endif
@@ -582,8 +610,8 @@ float DecodeFloatRGBA( vec4 rgba ) {
                     if (L.Type == 1.0) 
                     {
                         LightDir = normalize(-L.Direction);
-                        vec3 HalfVec = TangentMatrix * normalize(EyeVec + LightDir);
-                        vec3 LightVec = TangentMatrix * LightDir;
+                        vec3 HalfVec = normalize(EyeVec + LightDir);
+                        vec3 LightVec = LightDir;
 
                         lightIntensity = specularPower = 0.0;
 
@@ -614,8 +642,8 @@ float DecodeFloatRGBA( vec4 rgba ) {
                     else if (L.Type == 2.0) 
                     {
                         LightDir = normalize(L.Position - Position);
-                        vec3 HalfVec = TangentMatrix * normalize(EyeVec + LightDir);
-                        vec3 LightVec = TangentMatrix * LightDir;
+                        vec3 HalfVec = normalize(EyeVec + LightDir);
+                        vec3 LightVec = LightDir;
 
                         lightIntensity = specularPower = 0.0;
 
@@ -647,8 +675,8 @@ float DecodeFloatRGBA( vec4 rgba ) {
                     else if (L.Type == 3.0)
                     {
                         LightDir = normalize(L.Position - Position);
-                        vec3 HalfVec = TangentMatrix * normalize(EyeVec + LightDir);
-                        vec3 LightVec = TangentMatrix * LightDir;
+                        vec3 HalfVec = normalize(EyeVec + LightDir);
+                        vec3 LightVec = LightDir;
 
                         lightIntensity = specularPower = 0.0;
 

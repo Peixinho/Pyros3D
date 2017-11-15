@@ -40,7 +40,7 @@ void ParallaxMapping::Init()
 
 	// Create Camera
 	Camera = new GameObject();
-	Camera->SetPosition(Vec3(0, 10, 80));
+	Camera->SetPosition(Vec3(0, 60, 80));
 	
 	texturemap = new Texture();
 	normalmap = new Texture();
@@ -70,7 +70,7 @@ void ParallaxMapping::Init()
 
 	// Add a Directional Light
 	Light = new GameObject();
-	dLight = new DirectionalLight(Vec4(1, 1, 1, 1), Vec3(-1, -1, 0));
+	dLight = new DirectionalLight(Vec4(1, 1, 1, 1), Vec3(1, -1, 0));
 	Light->Add(dLight);
 
 	Scene->Add(Light);
@@ -127,7 +127,7 @@ void ParallaxMapping::Update()
 	Camera->SetPosition(Camera->GetPosition() + finalPosition);
 
 	// Game Logic Here
-	//CubeObject->SetRotation(Vec3(0.f, (f32)GetTime(), 0.f));
+	CubeObject->SetRotation(Vec3((f32)GetTime()*.5f, (f32)GetTime(), 0.f));
 
 	// Render Scene
 	Renderer->PreRender(Camera, Scene);
