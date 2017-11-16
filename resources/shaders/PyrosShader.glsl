@@ -344,12 +344,20 @@ float DecodeFloatRGBA( vec4 rgba ) {
                vec2  currentTexCoords = texCoords;
                float currentDepthMapValue = texture2D(uDisplacementmap, currentTexCoords).r;
                
+               #if defined(GLES2) || defined(EMSCRIPTEN)
+               for(int i=0;i<100;i++)
+               if (currentLayerDepth < currentDepthMapValue)
+               #else
                while (currentLayerDepth < currentDepthMapValue)
+               #endif
                {
                    currentTexCoords -= deltaTexCoords;
                    currentDepthMapValue = texture2D(uDisplacementmap, currentTexCoords).r;
                    currentLayerDepth += layerDepth;
                }
+               #if defined(GLES2) || defined(EMSCRIPTEN)
+               else break;
+               #endif
                
                vec2 prevTexCoords = currentTexCoords + deltaTexCoords;
                
