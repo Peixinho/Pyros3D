@@ -541,6 +541,8 @@ float DecodeFloatRGBA( vec4 rgba ) {
             #if defined(PARALLAXMAPPING)
                 vec3 viewDir = normalize(vTangentMatrix * (vCameraPos-vWorldPosition.xyz));
                 Texcoord = ParallaxMapping(Texcoord, viewDir);
+                if(Texcoord.x > 1.0 || Texcoord.y > 1.0 || Texcoord.x < 0.0 || Texcoord.y < 0.0)
+                    discard;
             #endif
         #endif
 

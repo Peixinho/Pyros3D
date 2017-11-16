@@ -40,15 +40,15 @@ void ParallaxMapping::Init()
 
 	// Create Camera
 	Camera = new GameObject();
-	Camera->SetPosition(Vec3(0, 60, 80));
+	Camera->SetPosition(Vec3(0, 0, 80));
 	
 	texturemap = new Texture();
 	normalmap = new Texture();
 	displacementmap = new Texture();
 
-	texturemap->LoadTexture("../examples/ParallaxMapping/assets/bricks.jpg");
-	normalmap->LoadTexture("../examples/ParallaxMapping/assets/bricks_normal.jpg");
-	displacementmap->LoadTexture("../examples/ParallaxMapping/assets/bricks_disp.jpg");
+	texturemap->LoadTexture("../examples/ParallaxMapping/assets/bricks.png");
+	normalmap->LoadTexture("../examples/ParallaxMapping/assets/bricks_normal.png");
+	displacementmap->LoadTexture("../examples/ParallaxMapping/assets/bricks_disp.png");
 
 	// Create Game Object
 	CubeObject = new GameObject();
@@ -127,7 +127,7 @@ void ParallaxMapping::Update()
 	Camera->SetPosition(Camera->GetPosition() + finalPosition);
 
 	// Game Logic Here
-	CubeObject->SetRotation(Vec3((f32)GetTime()*.5f, (f32)GetTime(), 0.f));
+	CubeObject->SetRotation(Vec3(0.f, (f32)GetTime(), 0.f));
 
 	// Render Scene
 	Renderer->PreRender(Camera, Scene);
