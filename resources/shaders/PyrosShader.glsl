@@ -17,23 +17,23 @@ float DecodeFloatRGBA( vec4 rgba ) {
 #if defined(GLES2) || defined(GLLEGACY)
     
     #if defined(EMSCRIPTEN) 
-        #define __highpMat3 highp mat3
-        #define __highpMat4 highp mat4
-        #define __highpVec3 highp vec3
-        #define __highpVec4 highp vec4
+        #define _highpMat3 highp mat3
+        #define _highpMat4 highp mat4
+        #define _highpVec3 highp vec3
+        #define _highpVec4 highp vec4
     #else
-        #define __highpMat3 mat3
-        #define __highpMat4 mat4
-        #define __highpVec3 vec3
-        #define __highpVec4 vec4
+        #define _highpMat3 mat3
+        #define _highpMat4 mat4
+        #define _highpVec3 vec3
+        #define _highpVec4 vec4
     #endif
 
-    __highpMat3 transpose3(in __highpMat3 inMatrix) {
-        __highpVec3 i0 = inMatrix[0];
-        __highpVec3 i1 = inMatrix[1];
-        __highpVec3 i2 = inMatrix[2];
+    _highpMat3 transpose3(in _highpMat3 inMatrix) {
+        _highpVec3 i0 = inMatrix[0];
+        _highpVec3 i1 = inMatrix[1];
+        _highpVec3 i2 = inMatrix[2];
 
-        __highpMat3 outMatrix = mat3(
+        _highpMat3 outMatrix = mat3(
                      vec3(i0.x, i1.x, i2.x),
                      vec3(i0.y, i1.y, i2.y),
                      vec3(i0.z, i1.z, i2.z)
@@ -41,13 +41,13 @@ float DecodeFloatRGBA( vec4 rgba ) {
 
         return outMatrix;
     }
-    __highpMat4 transpose4(in __highpMat4 inMatrix) {
-        __highpVec4 i0 = inMatrix[0];
-        __highpVec4 i1 = inMatrix[1];
-        __highpVec4 i2 = inMatrix[2];
-        __highpVec4 i3 = inMatrix[3];
+    _highpMat4 transpose4(in _highpMat4 inMatrix) {
+        _highpVec4 i0 = inMatrix[0];
+        _highpVec4 i1 = inMatrix[1];
+        _highpVec4 i2 = inMatrix[2];
+        _highpVec4 i3 = inMatrix[3];
 
-        __highpMat4 outMatrix = mat4(
+        _highpMat4 outMatrix = mat4(
                      vec4(i0.x, i1.x, i2.x, i3.x),
                      vec4(i0.y, i1.y, i2.y, i3.y),
                      vec4(i0.z, i1.z, i2.z, i3.z),
