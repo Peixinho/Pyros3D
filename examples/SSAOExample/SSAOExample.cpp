@@ -154,7 +154,6 @@ void SSAOExample::Update()
 	// Update Scene
 	Scene->Update(GetTime());
 
-	ssao->SetInverseViewMatrix(Camera->GetWorldTransformation());
 	ssao->SetViewMatrix(Camera->GetWorldTransformation().Inverse());
 
 	// Render Scene

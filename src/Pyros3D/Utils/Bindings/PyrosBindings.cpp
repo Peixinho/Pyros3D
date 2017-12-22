@@ -1560,6 +1560,10 @@ namespace p3d {
 			lua->new_simple_usertype<SSAOEffect>("SSAOEffect",
 				con,
 				"setViewMatrix", &SSAOEffect::SetViewMatrix,
+				"setRadius", &SSAOEffect::SetRadius,
+				"setStrength", &SSAOEffect::SetStrength,
+				"setScale", &SSAOEffect::SetScale,
+				"setTreshOld", &SSAOEffect::SetTreshOld,
 				sol::base_classes, sol::bases<IEffect>()
 				);
 		}

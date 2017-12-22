@@ -22,26 +22,41 @@ namespace p3d {
 
 		void SetViewMatrix(Matrix m)
 		{
+			Matrix inversedM = m.Inverse();
 			uViewMatrixUniform->SetValue(&m);
-		}
-		void SetInverseViewMatrix(Matrix m)
-		{
 			uInverseViewMatrixUniform->SetValue(&m);
 		}
-
+		void SetRadius(const f32 radius)
+		{
+			this->radius = radius;
+			uRadiusHandle->SetValue(&this->radius);
+		}
+		void SetStrength(const f32 strength)
+		{
+			total_strength = strength;
+			uStrengthHandle->SetValue(&total_strength);
+		}
+		void SetTreshOld(const f32 treshold)
+		{
+			treshOld = treshold;
+			uTreshOldHandle->SetValue(&treshOld);
+		}
+		void SetScale(const f32 scale)
+		{
+			this->scale = scale;
+			uScaleHandle->SetValue(&this->scale);
+		}
 
 		f32 total_strength;
-		f32 base;
-		f32 area;
-		f32 falloff;
 		f32 radius;
 		uint32 samples;
 		f32 scale;
+		f32 treshOld;
 
 	private:
 
 		Texture* rnm;
-		Uniform *uInverseViewMatrixUniform, *uViewMatrixUniform;
+		Uniform *uInverseViewMatrixUniform, *uViewMatrixUniform, *uScaleHandle, *uRadiusHandle, *uStrengthHandle, *uTreshOldHandle;
 
 	};
 

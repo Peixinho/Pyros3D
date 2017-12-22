@@ -43,6 +43,7 @@ namespace p3d {
 		"uniform int uSamples;\n"
 		"uniform float uRadius;\n"
 		"uniform float uScale;\n"
+		"uniform float uTreshOld;\n"
 		"varying vec2 vTexcoord;\n"
 		"uniform mat4 matProj;\n"
 		"uniform mat4 uInverseView;\n"
@@ -125,8 +126,6 @@ namespace p3d {
 		"\n"
 		"	float occlusion = 0.0;\n"
 		"	\n"
-		"	samples = uSamples;\n"
-		"	\n"
 		"	for(int i=0; i < samples; i++) {\n"
 		"		vec3 samplePos = vs_position.xyz + (TBN * (sample_sphere[i] * radius));\n"
 		"		vec4 offset = vec4(samplePos, 1.0);\n"
@@ -141,7 +140,7 @@ namespace p3d {
 		"		float zz = DecodeNativeDepth(sampleDepth, z_info);\n"
 		"		//bool inside_wall = DecodeNativeDepth(sampleDepth, z_info) < -orig_offset;\n"
 		"\n"
-		"		float rangeCheck = -orig_offset - zz < radius ? 1.0 : 0.0;\n"
+		"		float rangeCheck = -orig_offset - zz < radius + uTreshOld ? 1.0 : 0.0;\n"
 		"		occlusion += (zz <= -orig_offset ? 1.0 : 0.0) * rangeCheck;\n"
 		"		\n"
 		"	}\n"
@@ -151,20 +150,22 @@ namespace p3d {
 
 		CompileShaders();
 
-		total_strength = 2.0f;
+		total_strength = 1.0f;
 		radius = .2f;
 		samples = 16;
 		scale = 100.f;
+		treshOld = 0.0;
 
-		AddUniform(Uniform("uStrength", Uniforms::DataType::Float, &total_strength));
-		AddUniform(Uniform("uRadius", Uniforms::DataType::Float, &radius));
 		AddUniform(Uniform("uSamples", Uniforms::DataType::Int, &samples));
-		AddUniform(Uniform("uScale", Uniforms::DataType::Float, &scale));
 		AddUniform(Uniform("uNearFar", Uniforms::PostEffects::NearFarPlane));
 		AddUniform(Uniform("uScreen", Uniforms::PostEffects::ScreenDimensions));
 		AddUniform(Uniform("matProj", Uniforms::PostEffects::ProjectionFromScene));
 		uInverseViewMatrixUniform = AddUniform(Uniform("uInverseView", Uniforms::DataUsage::Other, Uniforms::DataType::Matrix));
 		uViewMatrixUniform = AddUniform(Uniform("uView", Uniforms::DataUsage::Other, Uniforms::DataType::Matrix));
+		uStrengthHandle = AddUniform(Uniform("uStrength", Uniforms::DataType::Float, &total_strength));
+		uRadiusHandle = AddUniform(Uniform("uRadius", Uniforms::DataType::Float, &radius));
+		uScaleHandle = AddUniform(Uniform("uScale", Uniforms::DataType::Float, &scale));
+		uTreshOldHandle = AddUniform(Uniform("uTreshOld", Uniforms::DataType::Float, &treshOld));
 	}
 
 	SSAOEffect::~SSAOEffect()
