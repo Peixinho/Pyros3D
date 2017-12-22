@@ -45,6 +45,7 @@ void SSAOExample::OnResize(const uint32 width, const uint32 height)
 	// Resize
 	Renderer->Resize(width, height);
 	projection.Perspective(70.f, (f32)width / (f32)height, 0.01f, 50.f);
+	EffectManager->Resize(Width, Height);
 }
 
 void SSAOExample::Init()
