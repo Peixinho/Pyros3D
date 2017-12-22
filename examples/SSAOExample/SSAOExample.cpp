@@ -21,8 +21,11 @@ SSAOEffectFinal::SSAOEffectFinal(uint32 texture1, uint32 texture2, const uint32 
 		"uniform sampler2D uTex0, uTex1;\n"
 		"varying vec2 vTexcoord;\n"
 		"void main() {\n"
-		"gl_FragColor.rgb =  texture2D(uTex0, vTexcoord).rgb * texture2D(uTex1, vTexcoord).rgb;\n"
-		"gl_FragColor.w = 1.0;\n"
+		"gl_FragColor.r = texture2D(uTex1, vTexcoord).r;\n"
+		"gl_FragColor.g = texture2D(uTex1, vTexcoord).g;\n"
+		"gl_FragColor.b = texture2D(uTex1, vTexcoord).b;\n"
+		"gl_FragColor.a = 1.0;\n"
+		"gl_FragColor = texture2D(uTex0, vTexcoord)*texture2D(uTex1, vTexcoord);\n"
 		"}";
 
 	CompileShaders();
@@ -41,7 +44,7 @@ void SSAOExample::OnResize(const uint32 width, const uint32 height)
 
 	// Resize
 	Renderer->Resize(width, height);
-	projection.Perspective(70.f, (f32)width / (f32)height, 0.01f, 500.f);
+	projection.Perspective(70.f, (f32)width / (f32)height, 0.01f, 50.f);
 }
 
 void SSAOExample::Init()
@@ -53,50 +56,59 @@ void SSAOExample::Init()
 
 	// Initialize Renderer
 	Renderer = new ForwardRenderer(Width, Height);
-
+	Renderer->SetGlobalLight(Vec4(0.2, 0.2, 0.2, 0.2));
 	// Projection
-	projection.Perspective(70.f, (f32)Width / (f32)Height, 0.01f, 500.f);
+	projection.Perspective(70.f, (f32)Width / (f32)Height, 0.01f, 50.f);
 
 	// Create Camera
 	Camera = new GameObject();
-	Camera->SetPosition(Vec3(0, 0, 0.1));
+	Camera->SetPosition(Vec3(0.f,3.f,3.f));
+	Camera->SetRotation(Vec3(DEGTORAD(-45.f),0.f,0.f));
 
 	// Add Camera to Scene
 	Scene->Add(Camera);
 
-	// Create Geometry
-	cubeHandle = new Cube(1, 0.5, 0.25);
-	Renderable* sphereHandle = new Sphere(0.05f, 10, 10,true);
-	GenericShaderMaterial* mat2 = new GenericShaderMaterial(ShaderUsage::Color);
-	mat2->SetCullFace(CullFace::DoubleSided);
-	mat2->SetColor(Vec4(0.5, 0.5, 0.5, 1.0));
+	// Teapots
+	teapot = new Model("../examples/SSAOExample/assets/teapot.p3dm");
+	for (uint32 j = 0; j < 10; j++)
+	for (uint32 i = 0; i < 10; i++)
+	{
+		GameObject* g = new GameObject();
+		RenderingComponent* r = new RenderingComponent(teapot, ShaderUsage::Diffuse);
+		g->Add(r);
+		g->SetPosition(Vec3(-5.f + (i * 1.f), 0.4f, -5 + (j * 1.f)));
+		g->SetScale(Vec3(0.01f, 0.01f, 0.01f));
+		g->SetRotation(Vec3(0.f, DEGTORAD(33.f), 0.f));
+		gTeapots.push_back(g);
+		rTeapots.push_back(r);
+		Scene->Add(g);
+	}
+	
+	// Floor
+	floor = new Plane(10, 10);
+	gFloor = new GameObject();
+	gFloor->SetRotation(Vec3(DEGTORAD(-90), 0, 0));
+	rFloor = new RenderingComponent(floor);
+	gFloor->Add(rFloor);
+	Scene->Add(gFloor);
 	
 	EffectManager = new PostEffectsManager(Width, Height);
 	ssao = new SSAOEffect(RTT::Depth, Width, Height);
 	EffectManager->AddEffect(ssao);
-	EffectManager->AddEffect(new ResizeEffect(RTT::LastRTT, Width*.25f, Height*.25f));
-	EffectManager->AddEffect(new BlurXEffect(RTT::LastRTT, Width*0.25f, Height*.25f));
-	EffectManager->AddEffect(new BlurYEffect(RTT::LastRTT, Width*0.25f, Height*0.25f));
+	EffectManager->AddEffect(new BlurSSAOEffect(RTT::LastRTT, Width, Height));
 	EffectManager->AddEffect(new SSAOEffectFinal(RTT::Color, RTT::LastRTT, Width, Height));
-
-	GameObject* go1 = new GameObject();
-	GameObject* go2 = new GameObject();
-
-	GenericShaderMaterial* SelectedMaterial = new GenericShaderMaterial(ShaderUsage::Color);
-	SelectedMaterial->SetColor(Vec4(1, 1, 0, 1));
-
-	RenderingComponent* rcomp1 = new RenderingComponent(cubeHandle, mat2);
-	RenderingComponent* rcomp2 = new RenderingComponent(sphereHandle, SelectedMaterial);
-	go1->Add(rcomp1);
-	go2->Add(rcomp2);
-
-	Scene->Add(go1);
-	Scene->Add(go2);
 
 	SetMousePosition((uint32)Width / 2, (uint32)Height / 2);
 	mouseCenter = Vec2((uint32)Width / 2, (uint32)Height / 2);
 	mouseLastPosition = mouseCenter;
 	counterX = counterY = 0;
+	counterY = -45;	
+	
+	// Add a Directional Light
+	Light = new GameObject();
+	dLight = new DirectionalLight(Vec4(1, 1, 1, 1), Vec3(-1, -1, -1));
+	Light->Add(dLight);
+	Scene->Add(Light);
 
 	// Input
 	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &SSAOExample::MoveFrontPress);
@@ -115,25 +127,11 @@ void SSAOExample::Init()
 
 void SSAOExample::Update()
 {
-	static int last_time; int curr_time = GetTimeMicroSeconds();
-
-	ssao->SetViewMatrix(Camera->GetWorldTransformation());
-
-	// Update Scene
-	Scene->Update(GetTime());
-	
-	// Render Scene
-	EffectManager->CaptureFrame();
-	Renderer->PreRender(Camera, Scene);
-	Renderer->RenderScene(projection, Camera, Scene);
-	EffectManager->EndCapture();
-
-	EffectManager->ProcessPostEffects(&projection);
 
 	Vec3 finalPosition;
 	Vec3 direction = Camera->GetDirection();
 	float dt = GetTimeInterval();
-	float speed = dt * 0.02f;
+	float speed = dt * 2.0f;
 	if (_moveFront)
 	{
 		finalPosition -= direction*speed;
@@ -152,6 +150,21 @@ void SSAOExample::Update()
 	}
 
 	Camera->SetPosition(Camera->GetPosition() + finalPosition);
+
+	// Update Scene
+	Scene->Update(GetTime());
+
+	ssao->SetInverseViewMatrix(Camera->GetWorldTransformation());
+	ssao->SetViewMatrix(Camera->GetWorldTransformation().Inverse());
+
+	// Render Scene
+	EffectManager->CaptureFrame();
+	Renderer->PreRender(Camera, Scene);
+	Renderer->RenderScene(projection, Camera, Scene);
+	EffectManager->EndCapture();
+
+	EffectManager->ProcessPostEffects(&projection);	
+
 }
 
 void SSAOExample::Shutdown()
@@ -160,6 +173,26 @@ void SSAOExample::Shutdown()
 
 	// Remove GameObjects From Scene
 	Scene->Remove(Camera);
+
+	for (std::vector<RenderingComponent*>::iterator i = rTeapots.begin(); i!=rTeapots.end(); i++)
+	{
+		(*i)->GetOwner()->Remove(*i);
+		delete (*i);
+	}
+
+	for (std::vector<GameObject*>::iterator i = gTeapots.begin(); i!=gTeapots.end(); i++)
+	{
+		Scene->Remove((*i));
+		delete (*i);
+	}
+	delete teapot;
+
+	Scene->Remove(gFloor);
+	gFloor->Remove(rFloor);
+	delete gFloor;
+	delete rFloor;
+	delete floor;
+
 
 	delete Camera;
 	delete Scene;
