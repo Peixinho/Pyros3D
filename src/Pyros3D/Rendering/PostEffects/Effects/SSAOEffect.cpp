@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/PostEffects/Effects/SSAOEffect.h>
+#include <cstdlib>
 #include <time.h>
 namespace p3d {
 
