@@ -150,11 +150,11 @@ namespace p3d {
 
 		CompileShaders();
 
-		total_strength = 1.0f;
+		total_strength = 1.5f;
 		radius = .2f;
 		samples = 16;
 		scale = 100.f;
-		treshOld = 0.0;
+		treshOld = 2.0;
 
 		AddUniform(Uniform("uSamples", Uniforms::DataType::Int, &samples));
 		AddUniform(Uniform("uNearFar", Uniforms::PostEffects::NearFarPlane));
