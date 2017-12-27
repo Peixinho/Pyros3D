@@ -56,11 +56,6 @@ solution "Pyros3D"
     }
 
     newoption {
-       trigger     = "lodepng",
-       description = "Using Lodepng to load textures (PNG ONLY!)"
-    }
-
-    newoption {
         trigger = "log",
         value       = "OUTPUT",
         description = "Log Output",
@@ -146,11 +141,6 @@ solution "Pyros3D"
 	        includedirs { "include/" }
     	end
 
-        -- LodePNG
-        if not _OPTIONS["lodepng"] then
-            excludes { "lopdeng/" }
-        end
-
         -- Windows DLL And Lib Creation
         if os.get() == "windows" and _OPTIONS["shared"] then
             defines({"_EXPORT"})
@@ -176,10 +166,6 @@ solution "Pyros3D"
                     defines({"LOG_DISABLE"}) 
                 end
             end
-        end
-
-        if _OPTIONS["lodepng"] then
-            defines({"LODEPNG"})
         end
 
         configuration "Debug"

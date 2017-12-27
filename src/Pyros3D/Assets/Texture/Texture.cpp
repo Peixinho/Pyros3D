@@ -9,14 +9,10 @@
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
 #include <Pyros3D/Other/PyrosGL.h>
-
-#if defined(LODEPNG)
-#include "../../Ext/lodepng/lodepng.h"
-#else
-#include <SFML/Graphics.hpp>
 #include <string.h>
-#endif
 #include <Pyros3D/Resources/Resources.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include <Pyros3D/Ext/stb/stb_image.h>
 
 namespace p3d {
 
@@ -293,26 +289,15 @@ namespace p3d {
 			GLCHECKER(glGenTextures(1, (GLuint*)&this->GL_ID));
 		}
 
-		uint32 w, h;
+		int32 w, h, bpp;
 		std::vector<uchar> pixels;
 
-#if !defined(LODEPNG)
-		// USING SFML
-		sf::Image sfImage;
-		ImageLoaded = sfImage.loadFromMemory(&data[0], length);
-		w = sfImage.getSize().x;
-		h = sfImage.getSize().y;
-		// Copy Pixels
-		pixels.resize(w * h * 4 * sizeof(uchar));
-		memcpy(&pixels[0], sfImage.getPixelsPtr(), w * h * 4 * sizeof(uchar));
-#else
-		//USING LODEPNG ( USEFUL FOR EMSCRIPTEN AND ANDROID )
 		uchar* imagePTR;
-		ImageLoaded = (lodepng_decode32(&imagePTR, &w, &h, &data[0], length) != 0 ? false : true);
+		imagePTR = stbi_load_from_memory(&data[0], length, &w, &h, &bpp ,4);
 		pixels.resize(w * h * 4 * sizeof(uchar));
 		memcpy(&pixels[0], imagePTR, w * h * 4 * sizeof(uchar));
-#endif
-
+		stbi_image_free(imagePTR);
+		ImageLoaded = imagePTR!=NULL;
 		if (!ImageLoaded) {
 			echo("ERROR: Failed to Open Texture");
 			return false;
