@@ -26,6 +26,21 @@ solution "Pyros3D"
     }
 
     newoption {
+        trigger     = "GLES3",
+        description = "Use GLES3 (for mobile mostly)"
+     }
+
+    newoption {
+        trigger     = "GLES2_DESKTOP",
+        description = "Use GLES2 on desktop"
+     }
+
+     newoption {
+        trigger     = "GLES3_DESKTOP",
+        description = "Use GLES3 on desktop"
+     }
+
+    newoption {
        trigger     = "x32",
        description = "Build for 32bit - Default Option"
     }
@@ -66,19 +81,24 @@ solution "Pyros3D"
         }
     }
 
-    if _OPTIONS["framework"]=="sdl2" then
+    if _OPTIONS["framework"]=="sdl2" or _OPTIONS['GLES2_DESKTOP'] or _OPTIONS['GLES3_DESKTOP'] then
         framework = "_SDL2";
         libsToLink = { "SDL2", "SDL2_mixer" }
-        excludes { "**/SFML/**", "**/SDL/**" }
-    end
-
-    if _OPTIONS["framework"]=="sdl" then
+        foldersToExclude = { "**/SFML/**", "**/SDL/**" }
+        if  _OPTIONS['GLES2_DESKTOP'] then
+            _OPTIONS['GLES2']=1;
+            foldersToExclude = { "**/gles3/**" }
+        elseif  _OPTIONS['GLES3_DESKTOP'] then 
+            _OPTIONS['GLES3']=1;
+            foldersToExclude = { "**/gles2/**" }
+        else
+            foldersToExclude = { "**/gles2/**", "**/gles3/**" }
+        end
+    elseif _OPTIONS["framework"]=="sdl" then
         framework = "_SDL";
         libsToLink = { "SDL", "SDL_mixer" }
-        excludes { "**/SFML/**", "**/SDL2/**" }
-    end
-
-    if _OPTIONS["framework"]=="sfml" or not _OPTIONS["framework"] then
+        foldersToExclude = { "**/SFML/**", "**/SDL2/**", "**/gles2/**", "**/gles3/**" }
+    elseif _OPTIONS["framework"]=="sfml" or not _OPTIONS["framework"] then
         if os.get() == "macosx" then
             libsToLink = { "SFML.framework", "sfml-system.framework", "sfml-window.framework", "sfml-graphics.framework" }
         else
@@ -86,7 +106,7 @@ solution "Pyros3D"
             libsToLinkDebug = { "sfml-audio-d", "sfml-graphics-d", "sfml-window-d", "sfml-system-d" }
         end
         framework = "_SFML";
-        excludes { "**/SDL2/**", "**/SDL/**" }
+        foldersToExclude = { "**/SDL2/**", "**/SDL/**", "**/gles2/**", "**/gles3/**" }
     end
 
     buildArch = "x32"
@@ -94,18 +114,30 @@ solution "Pyros3D"
         buildArch = "x64"
     end
 
+    if _OPTIONS["GLES2_DESKTOP"] then
+        defines({"GLES2_DESKTOP"})
+    end
+    if _OPTIONS["GLES3_DESKTOP"] then
+        defines({"GLES3_DESKTOP"})
+    end
+
     if _OPTIONS["GLES2"] then
         libsToLinkGL = { "GLESv2" }
         defines({"GLES2"})
     else
-        if os.get() == "linux" then
-            libsToLinkGL = { "GL", "GLU", "GLEW" }
-        end
-        if os.get() == "windows" then
-            libsToLinkGL = { "opengl32", "glu32", "glew32" }
-        end
-        if os.get() == "macosx" then
-            libsToLinkGL = { "OpenGL.framework", "GLEW.framework" }
+        if _OPTIONS["GLES3"] then
+            libsToLinkGL = { "GLESv3" }
+            defines({"GLES3"})
+        else
+            if os.get() == "linux" then
+                libsToLinkGL = { "GL", "GLU", "GLEW" }
+            end
+            if os.get() == "windows" then
+                libsToLinkGL = { "opengl32", "glu32", "glew32" }
+            end
+            if os.get() == "macosx" then
+                libsToLinkGL = { "OpenGL.framework", "GLEW.framework" }
+            end
         end
     end
 
@@ -133,10 +165,14 @@ solution "Pyros3D"
         end
 
         language "C++"
-        files { "src/**.h", "src/**.cpp", "include/Pyros3D/**.h" }
+        files { "src/**.h", "src/**.cpp", "include/Pyros3D/**.h", "src/**.c" }
+        excludes { foldersToExclude }
 
 	if os.get() == "linux" then
-		includedirs { "include/", "/usr/include/freetype2", "/usr/include/bullet" }
+        includedirs { "include/", "/usr/include/freetype2", "/usr/include/bullet" }
+        if framework == "_SDL2" then
+            includedirs { "/usr/include/SDL2" }
+        end
     	else
 	        includedirs { "include/" }
     	end
@@ -178,11 +214,15 @@ solution "Pyros3D"
                 libdirs { rootdir.."/libs", rootdir.."/bin" }
             end
 
-            flags { "Symbols" }
-
-            if _OPTIONS["lua"] then
+            if os.get() == "windows" and _OPTIONS["lua"] then
                 buildoptions { "/bigobj" }
             end
+            
+            if os.get() == "linux" and _OPTIONS["lua"] then
+                buildoptions { "-ftemplate-depth=2048" }
+            end
+
+            flags { "Symbols" }
 
         configuration "Release"
 
@@ -195,10 +235,12 @@ solution "Pyros3D"
 
             flags { "Optimize" }
 
-            if _OPTIONS["lua"] then
-                if os.get() == "windows" then
-                    buildoptions { "/bigobj" }
-                end
+            if os.get() == "windows" and _OPTIONS["lua"] then
+                buildoptions { "/bigobj" }
+            end
+            
+            if os.get() == "linux" and _OPTIONS["lua"] then
+                buildoptions { "-ftemplate-depth=2048" }
             end
 
     project "AssimpImporter"
@@ -209,6 +251,9 @@ solution "Pyros3D"
         
         if os.get() == "linux" then
                 includedirs { "include/", "/usr/include/freetype2", "/usr/include/bullet" }
+                if framework == "_SDL2" then
+                    includedirs { "/usr/include/SDL2" }
+                end
         else
                 includedirs { "include/" }
         end
@@ -286,11 +331,11 @@ function BuildDemo(demoPath, demoName)
         language "C++"
         files { demoPath.."/**.h", demoPath.."/**.cpp", demoPath.."/../WindowManagers/**.cpp", demoPath.."/../WindowManagers/**.h", demoPath.."/../MainProgram.cpp" }
 
-        if framework == "SDL" then
+        if framework == "_SDL" then
             excludes { "**/SFML/**" }
             excludes { "**/SDL2/**" }
         else 
-            if framework == "SDL2" then
+            if framework == "_SDL2" then
                 excludes { "**/SDL/**" }
                 excludes { "**/SFML/**" }
             else
@@ -308,9 +353,12 @@ function BuildDemo(demoPath, demoName)
         end
 
 	if os.get() == "linux" then
-                includedirs { "include/", "/usr/include/freetype2", "/usr/include/bullet", "src/" }
+        includedirs { "include/", "/usr/include/freetype2", "/usr/include/bullet", "src/" }
+        if framework == "_SDL2" then
+            includedirs { "/usr/include/SDL2" }
+        end
         else
-                includedirs { "include/", "src/" }
+            includedirs { "include/", "src/" }
         end
     
         defines({framework});
@@ -403,7 +451,7 @@ if _OPTIONS["examples"] then
     end
 
     -- ImGui Example only works with SFML for now
-    if framework ~= "SDL" or not "SDL2" then
+    if framework ~= "_SDL" and framework ~= "_SDL2" then
         BuildDemo("examples/RacingGame", "RacingGame");
         BuildDemo("examples/ImGuiExample", "ImGuiExample");
     end

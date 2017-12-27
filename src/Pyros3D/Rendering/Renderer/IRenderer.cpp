@@ -567,7 +567,7 @@ namespace p3d {
 			LastMaterialPTR->AfterRender();
 		}
 
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		// Set Default Polygon Mode
 		GLCHECKER(glPolygonMode(GL_FRONT_AND_BACK, GL_FILL));
 #endif
@@ -687,7 +687,7 @@ namespace p3d {
 			case DrawingType::Lines:
 				DrawType = GL_LINES;
 				break;
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 			case DrawingType::Polygons:
 				DrawType = GL_POLYGON;
 				break;
@@ -874,7 +874,7 @@ namespace p3d {
 
 	void IRenderer::ClearDepthBuffer()
 	{
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		if (clearDepthBuffer) {
 			GLCHECKER(glDepthMask(GL_TRUE));
 			GLCHECKER(glClearDepth(1.f));
@@ -1129,7 +1129,7 @@ namespace p3d {
 		case BlendFunc::Src_Alpha_Saturate:
 			Sfactor = GL_SRC_ALPHA_SATURATE;
 			break;
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		case BlendFunc::Src1_Color:
 			Sfactor = GL_SRC1_COLOR;
 			break;
@@ -1193,7 +1193,7 @@ namespace p3d {
 		case BlendFunc::Src_Alpha_Saturate:
 			Dfactor = GL_SRC_ALPHA_SATURATE;
 			break;
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		case BlendFunc::Src1_Color:
 			Dfactor = GL_SRC1_COLOR;
 			break;
@@ -1256,14 +1256,14 @@ namespace p3d {
 
 	void IRenderer::EnableWireFrame()
 	{
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		GLCHECKER(glPolygonMode(GL_FRONT_AND_BACK, GL_LINE));
 #endif
 	}
 
 	void IRenderer::DisableWireFrame()
 	{
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		GLCHECKER(glPolygonMode(GL_FRONT_AND_BACK, GL_FILL));
 #endif
 	}
@@ -1281,7 +1281,7 @@ namespace p3d {
 
 	void IRenderer::StartClippingPlanes()
 	{
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		if (ClipPlane)
 		{
 			for (uint32 k = 0; k < ClipPlaneNumber; k++)
@@ -1292,7 +1292,7 @@ namespace p3d {
 
 	void IRenderer::EndClippingPlanes()
 	{
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		if (ClipPlane)
 		{
 			for (uint32 k = 0; k < ClipPlaneNumber; k++)

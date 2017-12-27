@@ -88,6 +88,12 @@ namespace p3d
 #if defined(EMSCRIPTEN)
 			define += std::string("#define EMSCRIPTEN\n");
 #endif
+#if defined(GLES2_DESKTOP)
+			define += std::string("#define GLES2_DESKTOP\n");
+#endif
+#if defined(GLES3_DESKTOP)
+			define += std::string("#define GLES3_DESKTOP\n");
+#endif
 
 			ShadersList[options]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
 			ShadersList[options]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());

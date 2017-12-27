@@ -11,15 +11,24 @@
 
 #include <Pyros3D/Core/Math/Math.h>
 
-#if defined(GLES2) && !defined(EMSCRIPTEN)
-
-#include <GLES2/gl2.h>
-#include <GLES2/gl2ext.h>
-
-#else
-
-#include <GL/glew.h>
-
+#if defined(GLES2_DESKTOP)
+    #include <Pyros3D/Ext/gles2/glad/glad.h>
+#else 
+    #if defined(GLES3_DESKTOP)
+        #include <Pyros3D/Ext/gles3/glad/glad.h>
+    #else
+        #if defined(GLES2)
+            #include <GLES2/gl2.h>
+            #include <GLES2/gl2ext.h>
+        #else
+            #if defined(GLES3)
+                #include <GLES3/gl3.h>
+                #include <GLES3/gl3ext.h>
+            #else 
+                #include <GL/glew.h>
+            #endif
+        #endif
+    #endif
 #endif
 
 #include <Pyros3D/Other/Global.h>

@@ -1,6 +1,6 @@
 #define MAX_BONES 60
 #define MAX_LIGHTS 4
-#ifdef EMSCRIPTEN
+#if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)
    precision mediump float;
 #endif
 

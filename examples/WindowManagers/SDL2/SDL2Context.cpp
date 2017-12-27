@@ -126,6 +126,16 @@ namespace p3d {
         // Initialize SDL2
 		SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
 
+#if defined GLES2_DESKTOP
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+#elif defined GLES3_DESKTOP
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+#endif
+
         int audio_rate = 22050;
         Uint16 audio_format = AUDIO_S16; /* 16-bit stereo */
         int audio_channels = 2;
@@ -157,6 +167,8 @@ namespace p3d {
         // Initialize GLew
 #ifndef GLES2
         glewInit();
+#else
+        gladLoadGLES2Loader(SDL_GL_GetProcAddress);
 #endif
 
 		// Set OpenGL Major and Minor Versions

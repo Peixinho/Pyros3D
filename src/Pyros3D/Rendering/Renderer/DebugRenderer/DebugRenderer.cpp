@@ -104,7 +104,7 @@ namespace p3d {
 			GLCHECKER(glDisableVertexAttribArray(vertexHandle));
 
 		// Draw Points
-
+#if !defined(GLES2) && !defined(GLES3)
 		// Send Attributes
 		if (points.size() > 0) {
 			GLCHECKER(glEnableVertexAttribArray(vertexHandle));
@@ -138,6 +138,7 @@ namespace p3d {
 			GLCHECKER(glDisableVertexAttribArray(vertexHandle));
 
 		GLCHECKER(glUseProgram(0));
+#endif
 
 		// clean values
 		vertexLines.clear();

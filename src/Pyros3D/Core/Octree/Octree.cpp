@@ -244,7 +244,7 @@ namespace p3d {
 
 	void Octree::Draw(Projection projection, Matrix camera)
 	{
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		glMatrixMode(GL_PROJECTION);
 		glLoadIdentity();
 
@@ -321,7 +321,7 @@ namespace p3d {
 		//if (Child->selected) glColor3f(1.0f, 0.0f, 0.0f);
 		if (Child->selected)
 		{
-#if !defined(GLES2)			
+#if !defined(GLES2)	&& !defined(GLES3)		
 			glColor3f(1.0f, 1.0f, 1.0f);
 
 			glBegin(GL_LINES);

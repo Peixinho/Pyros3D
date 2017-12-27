@@ -75,13 +75,13 @@ namespace p3d {
 	}
 	void FrameBuffer::EnableMultisample()
 	{
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		GLCHECKER(glEnable(GL_MULTISAMPLE));
 #endif
 	}
 	void FrameBuffer::DisableMultisample()
 	{
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		GLCHECKER(glDisable(GL_MULTISAMPLE));
 #endif
 	}
@@ -153,7 +153,7 @@ namespace p3d {
 			echo("FBO: There are no attachments.");
 			break;
 		}
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		case GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS_EXT:
 		{
 			echo("FBO: Attachments are of different size. All attachments must have the same width and height.");
@@ -280,7 +280,7 @@ namespace p3d {
 		case TextureType::CubemapPositive_Z:
 			attach->TextureType = GL_TEXTURE_CUBE_MAP_POSITIVE_Z;
 			break;
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		case TextureType::Texture_Multisample:
 			attach->TextureType = GL_TEXTURE_2D_MULTISAMPLE;
 			break;
@@ -299,7 +299,7 @@ namespace p3d {
 		// Add Attach
 		GLCHECKER(glFramebufferTexture2D(GL_FRAMEBUFFER, attach->AttachmentFormat, attach->TextureType, attach->TexturePTR->GetBindID(), 0));
 
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 
 		if (!drawBuffers)
 		{
@@ -464,7 +464,7 @@ namespace p3d {
 
 		CheckFBOStatus();
 
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 
 		if (!drawBuffers)
 		{
@@ -541,7 +541,7 @@ namespace p3d {
 		// unbind fbo
 		GLCHECKER(glBindFramebuffer(glAccessBinded, 0));
 
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		if (drawBuffers)
 		{
 			if (glAccessBinded == GL_DRAW_FRAMEBUFFER || glAccessBinded == GL_FRAMEBUFFER)

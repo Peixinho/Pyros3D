@@ -98,7 +98,7 @@ namespace p3d {
 
 	void *GeometryBuffer::Map(const uint32 MappingType)
 	{
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		GLCHECKER(glBindBuffer(this->bufferType, ID));
 		uint32 MP;
 		switch (MappingType)

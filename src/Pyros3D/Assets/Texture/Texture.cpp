@@ -59,7 +59,7 @@ namespace p3d {
 			internalFormat3 = GL_FLOAT;
 			break;
 		case TextureDataType::DepthComponent32:
-			internalFormat = GL_DEPTH_COMPONENT32;
+			internalFormat = GL_DEPTH_COMPONENT32F;
 			internalFormat2 = GL_DEPTH_COMPONENT;
 			internalFormat3 = GL_FLOAT;
 			break;
@@ -75,12 +75,12 @@ namespace p3d {
 			break;
 		case TextureDataType::R16I:
 			internalFormat = GL_R16I;
-			internalFormat2 = GL_R;
+			internalFormat2 = GL_R8;
 			internalFormat3 = GL_UNSIGNED_BYTE;
 			break;
 		case TextureDataType::R32I:
 			internalFormat = GL_R32I;
-			internalFormat2 = GL_R;
+			internalFormat2 = GL_R8;
 			internalFormat3 = GL_UNSIGNED_BYTE;
 			break;
 		case TextureDataType::RG:
@@ -155,9 +155,10 @@ namespace p3d {
 			break;
 		case TextureDataType::R:
 			internalFormat = GL_R8;
-			internalFormat2 = GL_R;
+			internalFormat2 = GL_R8;
 			internalFormat3 = GL_UNSIGNED_BYTE;
 			break;
+#if !defined(GLES3)
 		case TextureDataType::BGR:
 			internalFormat = GL_RGB8;
 			internalFormat2 = GL_BGR;
@@ -168,23 +169,22 @@ namespace p3d {
 			internalFormat2 = GL_BGRA;
 			internalFormat3 = GL_UNSIGNED_BYTE;
 			break;
-#endif
-		case TextureDataType::ALPHA:
-			internalFormat = GL_ALPHA;
-			internalFormat2 = GL_ALPHA;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
 		case TextureDataType::LUMINANCE:
 			internalFormat = GL_LUMINANCE;
 			internalFormat2 = GL_LUMINANCE;
 			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
 			break;
 		case TextureDataType::LUMINANCE_ALPHA:
 			internalFormat = GL_LUMINANCE_ALPHA;
 			internalFormat2 = GL_LUMINANCE_ALPHA;
 			internalFormat3 = GL_UNSIGNED_BYTE;
 			break;
+#endif
+#endif
+		case TextureDataType::ALPHA:
+			internalFormat = GL_ALPHA;
+			internalFormat2 = GL_ALPHA;
+			internalFormat3 = GL_UNSIGNED_BYTE;
 			break;
 		case TextureDataType::RGBA:
 		default:
@@ -223,7 +223,7 @@ namespace p3d {
 			GLMode = GL_TEXTURE_CUBE_MAP_POSITIVE_Z;
 			GLSubMode = GL_TEXTURE_CUBE_MAP;
 			break;
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		case TextureType::Texture_Multisample:
 			GLMode = GL_TEXTURE_2D_MULTISAMPLE;
 			GLSubMode = GL_TEXTURE_2D_MULTISAMPLE;
@@ -250,7 +250,7 @@ namespace p3d {
 		if (file->Open(Filename))
 		{
 
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 			// DDS
 			if (Filename.substr(Filename.find_last_of(".") + 1) == "DDS" || Filename.substr(Filename.find_last_of(".") + 1) == "dds")
 			{
@@ -270,7 +270,7 @@ namespace p3d {
 		}
 		if (!file->Open(Filename) || !status) {
 			echo("ERROR: Couldn't find texture file or failed to load");
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 			status = LoadDDS((uchar*)MISSING_TEXTURE);
 #else
 
@@ -335,7 +335,7 @@ namespace p3d {
 
 		if (Mipmapping)
 		{
-#if defined(GLES2)
+#if defined(GLES2) || defined(GLES3)
 			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
 			GLCHECKER(glGenerateMipmap(GLMode));
 #else
@@ -359,7 +359,7 @@ namespace p3d {
 		}
 		else {
 
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 			// setting manual mipmaps
 			// No gles :|
 			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_BASE_LEVEL, 0));
@@ -383,7 +383,7 @@ namespace p3d {
 		GLCHECKER(glBindTexture(GLSubMode, 0));
 
 		// default values
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		if (GLMode != GL_TEXTURE_2D_MULTISAMPLE)
 #endif
 		{
@@ -422,6 +422,9 @@ namespace p3d {
 
 	void Texture::SetAnysotropy(const uint32 Anysotropic)
 	{
+
+#if !defined(GLES2) && !defined(GLES3)
+
 		// bind
 		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
 
@@ -443,6 +446,7 @@ namespace p3d {
 
 		// unbind
 		GLCHECKER(glBindTexture(GLSubMode, 0));
+#endif
 
 	}
 
@@ -458,7 +462,7 @@ namespace p3d {
 
 		switch (SRepeat)
 		{
-#if defined(GLES2)
+#if defined(GLES2) || defined(GLES3)
 		case TextureRepeat::ClampToEdge:
 			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
 			break;
@@ -485,7 +489,7 @@ namespace p3d {
 
 		switch (TRepeat)
 		{
-#if defined(GLES2)
+#if defined(GLES2) || defined(GLES3)
 		case TextureRepeat::ClampToEdge:
 			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
 			break;
@@ -511,7 +515,7 @@ namespace p3d {
 #endif
 		};
 
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 		if (WrapR > -1 && GLSubMode == GL_TEXTURE_CUBE_MAP)
 		{
 			switch (RRepeat)
@@ -603,7 +607,7 @@ namespace p3d {
 
 	void Texture::EnableCompareMode()
 	{
-#if !defined(GLES2)
+#if !defined(GLES2) and !defined(GLES3)
 		// USED ONLY FOR DEPTH MAPS
 		// Bind
 		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
@@ -631,7 +635,7 @@ namespace p3d {
 
 	void Texture::SetBorderColor(const Vec4 &Color)
 	{
-#if !defined(GLES2)
+#if !defined(GLES2) and !defined(GLES3)
 		borderColor = Color;
 		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
 		glTexParameterfv(GLSubMode, GL_TEXTURE_BORDER_COLOR, (GLfloat*)&borderColor);
@@ -648,7 +652,7 @@ namespace p3d {
 
 		if (isMipMap)
 		{
-#if defined(GLES2)
+#if defined(GLES2) || defined(GLES3)
 			GLCHECKER(glGenerateMipmap(GLSubMode));
 #else
 #if defined(GLEW_VERSION_2_1)
@@ -694,7 +698,7 @@ namespace p3d {
 			// bind
 			GLCHECKER(glBindTexture(GLSubMode, GL_ID));
 
-#if defined(GLES2)
+#if defined(GLES2) || defined(GLES3)
 			GLCHECKER(glGenerateMipmap(GLSubMode));
 #else
 			if (GLEW_VERSION_2_1)
@@ -762,7 +766,7 @@ namespace p3d {
 	std::vector<uchar> Texture::GetTextureData(const uint32 level)
 	{
 		std::vector<uchar> pixels;
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 
 		switch (internalFormat)
 		{
@@ -772,7 +776,7 @@ namespace p3d {
 		case GL_DEPTH_COMPONENT24:
 			pixels.resize(sizeof(uchar) * 3 * Width[level] * Height[level]);
 			break;
-		case GL_DEPTH_COMPONENT32:
+		case GL_DEPTH_COMPONENT32F:
 			pixels.resize(sizeof(f32)*Width[level] * Height[level]);
 			break;
 		case GL_R16F:
@@ -847,7 +851,7 @@ namespace p3d {
 		return pixels;
 	}
 
-#if !defined(GLES2)
+#if !defined(GLES2) && !defined(GLES3)
 	bool Texture::LoadDDS(uchar* data, bool Mipmapping, const uint32 level)
 	{
 
@@ -944,6 +948,7 @@ namespace p3d {
 #if defined(EMSCRIPTEN)
 		return false;
 #else
+/*
 		uint16 r, w, h, mipMapCount;
 		uint16 extWidth, extHeight;
 
@@ -987,6 +992,11 @@ namespace p3d {
 		SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 
 		return true;
+		*/
+
+		return false;
+
+		// removed since is not ES 2.0 standard
 #endif
 	}
 #endif
