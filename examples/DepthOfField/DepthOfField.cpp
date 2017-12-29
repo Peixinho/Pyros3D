@@ -20,9 +20,9 @@ DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2, con
 
 	// Create Fragment Shader
 	FragmentShaderString =
-		"#if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)\n"
+		#if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)
 		"precision mediump float;\n"
-		"#endif\n"
+		#endif
 		"float DecodeNativeDepth(float native_z, vec4 z_info_local)\n"
 		"{\n"
 		"return z_info_local.z / (native_z * z_info_local.w + z_info_local.y);\n"
