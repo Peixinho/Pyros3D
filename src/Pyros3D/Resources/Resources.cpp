@@ -112,9 +112,9 @@ const unsigned char MISSING_TEXTURE[] = {
 
 const char SHADER_CODE[] = "#define MAX_BONES 60\n"
 "#define MAX_LIGHTS 4\n"
-"#if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)\n"
-"   precision mediump float;\n"
-"#endif\n"
+#if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)
+"precision mediump float;\n"
+#endif
 "\n"
 "vec4 EncodeFloatRGBA( float v ) {\n"
 "   vec4 enc = vec4(1.0, 255.0, 65025.0, 16581375.0) * v;\n"
