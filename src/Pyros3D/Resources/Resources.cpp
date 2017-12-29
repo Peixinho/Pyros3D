@@ -112,7 +112,7 @@ const unsigned char MISSING_TEXTURE[] = {
 
 const char SHADER_CODE[] = "#define MAX_BONES 60\n"
 "#define MAX_LIGHTS 4\n"
-"#ifdef EMSCRIPTEN\n"
+"#if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)\n"
 "   precision mediump float;\n"
 "#endif\n"
 "\n"
