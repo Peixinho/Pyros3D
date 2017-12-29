@@ -14,7 +14,7 @@ float DecodeFloatRGBA( vec4 rgba ) {
    return dot( rgba, vec4(1.0, 1.0/255.0, 1.0/65025.0, 1.0/16581375.0) );
 }
 
-#if defined(GLES2) || defined(GLLEGACY)
+#if defined(GLES2) || defined(GLLEGACY) || defined(GLES3)
     
     #if defined(EMSCRIPTEN) 
         #define _highpMat3 highp mat3

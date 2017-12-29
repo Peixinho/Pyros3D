@@ -51,12 +51,20 @@ namespace p3d {
 		case TextureDataType::DepthComponent24:
 			internalFormat = GL_DEPTH_COMPONENT24;
 			internalFormat2 = GL_DEPTH_COMPONENT;
+			#if defined(GLES3)
+			internalFormat3 = GL_UNSIGNED_INT;
+			#else
 			internalFormat3 = GL_FLOAT;
+			#endif
 			break;
 		case TextureDataType::DepthComponent16:
 			internalFormat = GL_DEPTH_COMPONENT16;
 			internalFormat2 = GL_DEPTH_COMPONENT;
+			#if defined(GLES3)
+			internalFormat3 = GL_UNSIGNED_INT;
+			#else
 			internalFormat3 = GL_FLOAT;
+			#endif
 			break;
 		case TextureDataType::DepthComponent32:
 			internalFormat = GL_DEPTH_COMPONENT32F;

@@ -165,7 +165,7 @@ namespace p3d {
 		mainGLContext = SDL_GL_CreateContext(rview);
 
         // Initialize GLew
-#ifndef GLES2
+#if !defined(GLES2) && !defined(GLES3)
         glewInit();
 #else
         gladLoadGLES2Loader(SDL_GL_GetProcAddress);

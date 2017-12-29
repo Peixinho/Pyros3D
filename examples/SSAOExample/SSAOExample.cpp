@@ -18,15 +18,18 @@ SSAOEffectFinal::SSAOEffectFinal(uint32 texture1, uint32 texture2, const uint32 
 
 	// Create Fragment Shader
 	FragmentShaderString =
-		"uniform sampler2D uTex0, uTex1;\n"
-		"varying vec2 vTexcoord;\n"
-		"void main() {\n"
-		"gl_FragColor.r = texture2D(uTex1, vTexcoord).r;\n"
-		"gl_FragColor.g = texture2D(uTex1, vTexcoord).g;\n"
-		"gl_FragColor.b = texture2D(uTex1, vTexcoord).b;\n"
-		"gl_FragColor.a = 1.0;\n"
-		"gl_FragColor = texture2D(uTex0, vTexcoord)*texture2D(uTex1, vTexcoord);\n"
-		"}";
+							#if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)
+							"precision mediump float;\n"
+							#endif
+							"uniform sampler2D uTex0, uTex1;\n"
+							"varying vec2 vTexcoord;\n"
+							"void main() {\n"
+							"gl_FragColor.r = texture2D(uTex1, vTexcoord).r;\n"
+							"gl_FragColor.g = texture2D(uTex1, vTexcoord).g;\n"
+							"gl_FragColor.b = texture2D(uTex1, vTexcoord).b;\n"
+							"gl_FragColor.a = 1.0;\n"
+							"gl_FragColor = texture2D(uTex0, vTexcoord)*texture2D(uTex1, vTexcoord);\n"
+							"}";
 
 	CompileShaders();
 

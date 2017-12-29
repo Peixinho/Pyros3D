@@ -2,7 +2,7 @@
 // Name        : DepthOfField.cpp
 // Author      : Duarte Peixinho
 // Version     :
-// Copyright   : ;)
+// Copyright   : ;)internalFormat3 = GL_FLOAT;
 // Description : Game Example
 //============================================================================
 
@@ -20,6 +20,9 @@ DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2, con
 
 	// Create Fragment Shader
 	FragmentShaderString =
+		"#if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)\n"
+		"precision mediump float;\n"
+		"#endif\n"
 		"float DecodeNativeDepth(float native_z, vec4 z_info_local)\n"
 		"{\n"
 		"return z_info_local.z / (native_z * z_info_local.w + z_info_local.y);\n"
@@ -128,10 +131,10 @@ void DepthOfField::Init()
 	Camera->LookAt(Vec3::ZERO);
 
 	fullResBlur = new Texture();
-	fullResBlur->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height);
+	fullResBlur->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height);
 	fullResBlur->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 	lowResBlur = new Texture();
-	lowResBlur->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, (int32)(Width*.25f), (int32)(Height*.25f));
+	lowResBlur->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, (int32)(Width*.25f), (int32)(Height*.25f));
 	lowResBlur->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 	EffectManager = new PostEffectsManager(Width, Height);

@@ -413,7 +413,7 @@ namespace p3d {
 		{
 		case RenderBufferDataType::Depth:
 		case RenderBufferDataType::Depth_Multisample:
-#if defined(GLES2)
+#if defined(GLES2) || defined(GLES3)
 			attach->DataType = GL_DEPTH_COMPONENT16;
 #else
 			attach->DataType = GL_DEPTH_COMPONENT;

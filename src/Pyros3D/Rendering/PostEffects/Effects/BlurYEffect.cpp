@@ -24,6 +24,9 @@ namespace p3d {
 		AddUniform(texRes);
 
 		VertexShaderString =
+								#if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)
+								"precision mediump float;\n"
+								#endif
 								"attribute vec3 aPosition;\n"
 								"attribute vec2 aTexcoord;\n"
 								"varying vec2 vTexcoord;\n"
@@ -42,6 +45,9 @@ namespace p3d {
 
 		// Create Fragment Shader
 		FragmentShaderString =
+								#if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)
+								"precision mediump float;\n"
+								#endif
 								"varying vec2 vTexcoord;\n"
 								"uniform sampler2D uTex0;\n"
 								"varying vec2 vblurTexCoords[6];\n"

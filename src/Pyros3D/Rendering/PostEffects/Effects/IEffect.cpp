@@ -22,6 +22,9 @@ namespace p3d {
         // Set Vertex Shader
         // Because its always the same
         VertexShaderString =  
+                                #if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)
+                                "precision mediump float;\n"
+                                #endif
                                 "attribute vec3 aPosition;\n"
                                 "attribute vec2 aTexcoord;\n"
                                 "varying vec2 vTexcoord;\n"

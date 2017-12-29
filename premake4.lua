@@ -126,7 +126,7 @@ solution "Pyros3D"
         defines({"GLES2"})
     else
         if _OPTIONS["GLES3"] then
-            libsToLinkGL = { "GLESv3" }
+            libsToLinkGL = { "GLESv2" }
             defines({"GLES3"})
         else
             if os.get() == "linux" then

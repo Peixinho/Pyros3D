@@ -18,11 +18,14 @@ namespace p3d {
 
         // Create Fragment Shader
 		FragmentShaderString =
-			"uniform sampler2D uTex0;\n"
-			"varying vec2 vTexcoord;"
-			"void main(void) {\n"
-				"gl_FragColor = texture2D(uTex0, vTexcoord);\n"
-			"}\n";
+                                #if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)
+                                "precision mediump float;\n"
+                                #endif
+                                "uniform sampler2D uTex0;\n"
+                                "varying vec2 vTexcoord;"
+                                "void main(void) {\n"
+                                    "gl_FragColor = texture2D(uTex0, vTexcoord);\n"
+                                "}\n";
         
         CompileShaders();
     }

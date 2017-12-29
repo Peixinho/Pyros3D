@@ -17,7 +17,11 @@ namespace p3d {
         UseRTT(Tex1);
         
         // Create Fragment Shader
-        FragmentShaderString =      "const float BloomSize = 1.0/2048.0;"
+        FragmentShaderString =      
+                                    #if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)
+                                    "precision mediump float;\n"
+                                    #endif
+                                    "const float BloomSize = 1.0/2048.0;"
                                     "uniform sampler2D uTex0;"
                                     "varying vec2 vTexcoord;"        
                                     "void main()"
