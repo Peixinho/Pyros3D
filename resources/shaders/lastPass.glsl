@@ -1,3 +1,6 @@
+#if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)
+   precision mediump float;
+#endif
 #ifdef VERTEX
 attribute vec3 aPosition, aNormal;
 attribute vec2 aTexcoord;
