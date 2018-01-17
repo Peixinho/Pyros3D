@@ -447,7 +447,7 @@ if _OPTIONS["examples"] then
     BuildDemo("examples/ParallaxMapping", "ParallaxMapping");
     
     -- Instancing Demo
-    if _OPTIONS["GLES2"] or _OPTIONS["GLES3"] then
+    if _OPTIONS["GLES2"] == nil or _OPTIONS["GLES3"] == nil then
         BuildDemo("examples/ParticlesExample", "ParticlesExample");
     end
 
