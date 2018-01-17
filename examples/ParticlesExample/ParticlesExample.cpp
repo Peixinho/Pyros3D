@@ -12,22 +12,6 @@ using namespace p3d;
 
 ParticlesExample::ParticlesExample() : ClassName(1024, 768, "Pyros3D - Rotating Cube", WindowType::Close | WindowType::Resize) {}
 
-namespace SortParticles {
-	GameObject* _Camera;
-}
-
-bool Particle::operator<(Particle& that) 
-{
-	// Sort in reverse order : far particles drawn first.
-	return SortParticles::_Camera->GetWorldPosition().distanceSQR(this->Position.xyz()) > SortParticles::_Camera->GetWorldPosition().distanceSQR(that.Position.xyz());
-}
-
-void ParticleEmitter::Sort(GameObject* Camera)
-{
-	SortParticles::_Camera = Camera;
-	std::sort(particles.begin(), particles.end());
-}
-
 void ParticlesExample::OnResize(const uint32 width, const uint32 height)
 {
 	// Execute Parent Resize Function
