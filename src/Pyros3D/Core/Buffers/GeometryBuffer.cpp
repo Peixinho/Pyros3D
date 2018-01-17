@@ -79,16 +79,32 @@ namespace p3d {
 	}
 
 	// Updates Buffer
-	void GeometryBuffer::Update(const void* GeometryData)
+	void GeometryBuffer::Update(const void* GeometryData, const uint32 length)
 	{
-		this->GeometryData.clear();
+		if (length != DataLength)
+		{
+			DataLength = length;
 
-		this->GeometryData.resize(DataLength);
-		memcpy(&this->GeometryData[0], GeometryData, DataLength);
+			this->GeometryData.clear();
+			this->GeometryData.resize(DataLength);
+			memcpy(&this->GeometryData[0], GeometryData, DataLength);
 
-		// Updating buffer
-		GLCHECKER(glBufferData(this->bufferType, DataLength, GeometryData, this->bufferDraw));
+			GLCHECKER(glBindBuffer(this->bufferType, ID));
+			GLCHECKER(glInvalidateBufferData(ID));
+			GLCHECKER(glBufferData(this->bufferType, DataLength, GeometryData, this->bufferDraw));
+			GLCHECKER(glBindBuffer(this->bufferType, 0));
+		}
+		else {
 
+			this->GeometryData.clear();
+			memcpy(&this->GeometryData[0], GeometryData, DataLength);
+
+			// Updating buffer
+			GLCHECKER(glBindBuffer(this->bufferType, ID));
+			GLCHECKER(glInvalidateBufferData(ID));
+			glBufferSubData(this->bufferType, 0, DataLength, GeometryData);
+			GLCHECKER(glBindBuffer(this->bufferType, 0));
+		}
 	}
 
 	const std::vector<uchar> &GeometryBuffer::GetGeometryData() const
@@ -194,7 +210,7 @@ namespace p3d {
 					return 4;
 					break;
 				case Buffer::Attribute::Type::Matrix:
-					return 16;
+					return 4;
 					break;
 				}
 				return 0;

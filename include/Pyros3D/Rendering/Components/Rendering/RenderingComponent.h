@@ -174,7 +174,6 @@ namespace p3d {
 		void DisableCullTest() { cullTest = false; }
 		bool IsCullTesting() { return cullTest; }
 
-
 		void EnableCastShadows();
 		void DisableCastShadows();
 		bool IsCastingShadows();
@@ -209,6 +208,7 @@ namespace p3d {
 		// Get Global Meshes
 		static std::vector<RenderingComponent*> &GetRenderingComponents(SceneGraph* scene);
 
+		bool IsInstanced() { return isInstanced;  }
 	protected:
 
 		// Save Renderable Pointer
@@ -253,6 +253,8 @@ namespace p3d {
 		static std::map<SceneGraph*, std::vector<RenderingMesh*> > MeshesOnSceneSorted;
 		static std::map<SceneGraph*, std::vector<RenderingComponent*> > RenderingComponentsOnScene;
 
+		// Instacing Flag
+		bool isInstanced;
 	};
 
 };

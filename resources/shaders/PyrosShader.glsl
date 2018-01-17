@@ -124,11 +124,26 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     attribute vec2 aTexcoord;
     uniform mat4 uProjectionMatrix, uViewMatrix, uModelMatrix;
     
+    // Instanced
+    #ifdef INSTANCED_RENDERING
+        attribute mat4 aInstancedTransform;
+    #endif
+    
     mat4 matAnimation = mat4(1.0);
+    
     void main() {
+
+        vec3 Position = aPosition;
+        mat4 ModelMatrix = uModelMatrix;
+
+        #ifdef INSTANCED_RENDERING
+            ModelMatrix *= aInstancedTransform;
+        #endif
+
         #if defined(DEFERRED_GBUFFER) && (defined(PARALLAXMAPPING) || defined(BUMPMAPPING))
             vViewMatrix = uViewMatrix;
         #endif
+
         #ifdef DEBUGRENDERING
             vColor = aColor;
         #endif
@@ -139,17 +154,17 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
         #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) ||  defined(DIFFUSE) || defined(CELLSHADING)
             #ifndef SKINNING
-                vWorldPosition=uModelMatrix * vec4(aPosition,1.0);
+                vWorldPosition=ModelMatrix * vec4(Position,1.0);
             #else
-                vWorldPosition=uModelMatrix * (matAnimation * vec4(aPosition,1.0));
+                vWorldPosition=ModelMatrix * (matAnimation * vec4(Position,1.0));
             #endif
         #endif
 
         #if defined(DIRECTIONALSHADOW) || defined(POINTSHADOW) || defined(SPOTSHADOW)
             #ifndef SKINNING
-                vWorldPositionShadow=uViewMatrix * uModelMatrix * vec4(aPosition,1.0);
+                vWorldPositionShadow=uViewMatrix * ModelMatrix * vec4(Position,1.0);
             #else
-                vWorldPositionShadow=uViewMatrix * uModelMatrix * (matAnimation * vec4(aPosition,1.0));
+                vWorldPositionShadow=uViewMatrix * ModelMatrix * (matAnimation * vec4(Position,1.0));
             #endif
         #endif
 
@@ -158,10 +173,10 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         #endif
 
         #ifdef SKYBOX
-            v3Texcoord = aPosition.xyz;
+            v3Texcoord = Position.xyz;
         #endif
 
-        gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aPosition,1.0);
+        gl_Position = uProjectionMatrix * uViewMatrix * ModelMatrix * vec4(Position,1.0);
 
         #ifdef DEBUGRENDERING
            if (aSize != 1.0) gl_PointSize = aSize;
@@ -173,7 +188,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             matAnimation += uBoneMatrix[int(aBonesID.y)] * aBonesWeight.y;
             matAnimation += uBoneMatrix[int(aBonesID.z)] * aBonesWeight.z;
             matAnimation += uBoneMatrix[int(aBonesID.w)] * aBonesWeight.w;
-            gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * matAnimation * vec4(aPosition,1.0);
+            gl_Position = uProjectionMatrix * uViewMatrix * ModelMatrix * matAnimation * vec4(Position,1.0);
         #endif
 
         #ifdef TEXTRENDERING
@@ -182,16 +197,16 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
         #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
             #ifndef SKINNING
-                vNormal = normalize((uModelMatrix * vec4(aNormal,0.0)).xyz);
+                vNormal = normalize((ModelMatrix * vec4(aNormal,0.0)).xyz);
             #else
-                vNormal = normalize((uModelMatrix * (matAnimation * vec4(aNormal,0.0))).xyz);
+                vNormal = normalize((ModelMatrix * (matAnimation * vec4(aNormal,0.0))).xyz);
             #endif
         #endif
 
         #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING)
-            vec3 T = normalize(uModelMatrix * vec4(aTangent, 0)).xyz;
-            vec3 B = normalize(uModelMatrix * vec4(aBitangent, 0)).xyz;
-            vec3 N = normalize(uModelMatrix * vec4(aNormal, 0)).xyz;
+            vec3 T = normalize(ModelMatrix * vec4(aTangent, 0)).xyz;
+            vec3 B = normalize(ModelMatrix * vec4(aBitangent, 0)).xyz;
+            vec3 N = normalize(ModelMatrix * vec4(aNormal, 0)).xyz;
             vTangentMatrix = mat3(T.x, B.x, N.x, T.y, B.y, N.y, T.z, B.z, N.z);
         #endif
 
@@ -211,9 +226,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
         #ifdef DEFERRED_GBUFFER
             #ifdef SKINNING
-                gbuffer_normals = uViewMatrix * uModelMatrix * (matAnimation * vec4(aNormal,0.0));
+                gbuffer_normals = uViewMatrix * ModelMatrix * (matAnimation * vec4(aNormal,0.0));
             #else
-                gbuffer_normals = uViewMatrix * uModelMatrix * vec4(aNormal,0.0);
+                gbuffer_normals = uViewMatrix * ModelMatrix * vec4(aNormal,0.0);
             #endif
         #endif
     }

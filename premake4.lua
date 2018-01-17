@@ -445,6 +445,12 @@ if _OPTIONS["examples"] then
     BuildDemo("examples/Decals", "Decals");
     BuildDemo("examples/IslandDemo", "IslandDemo");
     BuildDemo("examples/ParallaxMapping", "ParallaxMapping");
+    
+    -- Instancing Demo
+    if _OPTIONS["GLES2"] or _OPTIONS["GLES3"] then
+        BuildDemo("examples/ParticlesExample", "ParticlesExample");
+    end
+
     --BuildDemo("examples/MotionBlur", "MotionBlur");
     if _OPTIONS["lua"] then
         BuildDemo("examples/LuaScripting", "LuaScripting");

@@ -22,6 +22,8 @@ namespace p3d {
 		// Keep renderable pointer
 		this->renderable = renderable;
 
+		isInstanced = false;
+
 		// By Default Is Casting Shadows
 		isCastingShadows = true;
 
@@ -76,6 +78,11 @@ namespace p3d {
 
 	RenderingComponent::RenderingComponent(Renderable* renderable, const uint32 MaterialOptions, const f32 Distance) : IComponent()
 	{
+
+		isInstanced = false;
+
+		this->renderable = renderable;
+
 		uint32 LODLVL = Meshes.size();
 		for (uint32 i = 0; i < renderable->Geometries.size(); i++)
 		{
@@ -124,6 +131,7 @@ namespace p3d {
 
 	void RenderingComponent::AddLOD(Renderable* renderable, const f32 Distance, IMaterial* Material)
 	{
+		isInstanced = false;
 
 		uint32 LODLVL = Meshes.size();
 		for (uint32 i = 0; i < renderable->Geometries.size(); i++)
@@ -154,6 +162,7 @@ namespace p3d {
 
 	void RenderingComponent::AddLOD(Renderable* renderable, const f32 Distance, const uint32 MaterialOptions)
 	{
+		isInstanced = false;
 
 		uint32 LODLVL = Meshes.size();
 		for (uint32 i = 0; i < renderable->Geometries.size(); i++)

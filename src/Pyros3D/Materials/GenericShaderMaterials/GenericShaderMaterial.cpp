@@ -78,6 +78,8 @@ namespace p3d
 				define += std::string("#define CLIPSPACE\n");
 			if (options & ShaderUsage::DeferredRenderer_Gbuffer)
 				define += std::string("#define DEFERRED_GBUFFER\n");
+			if (options & ShaderUsage::InstancedRendering)
+				define += std::string("#define INSTANCED_RENDERING\n");
 
 #if defined(GLES2)
 			define += std::string("#define GLES2\n");

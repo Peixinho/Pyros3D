@@ -40,7 +40,8 @@ namespace p3d
 			DebugRendering = 0x10000,
 			ClipPlane = 0x20000,
 			DeferredRenderer_Gbuffer = 0x40000,
-			ParallaxMapping = 0x80000
+			ParallaxMapping = 0x80000,
+			InstancedRendering = 0x100000
 		};
 	};
 }

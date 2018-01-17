@@ -109,7 +109,7 @@ namespace p3d {
 		void *Map(const uint32 MappingType = 1);
 		void Unmap();
 
-		void Update(const void *GeometryData);
+		void Update(const void *GeometryData, const uint32 length = 0);
 
 		const std::vector<uchar> &GetGeometryData() const;
 

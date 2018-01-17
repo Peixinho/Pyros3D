@@ -14,6 +14,7 @@
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/Materials/IMaterial.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Lights/SpotLight/SpotLight.h>
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>

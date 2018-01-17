@@ -70,10 +70,12 @@ namespace p3d {
 		std::vector<uchar> Data;
 		// Data Length
 		uint32 DataLength;
+		// Vertex Divisor
+		uint32 VertexDivisor;
 
 		VertexAttribute() {};
 		// ID = -2 because 0 is the first and -1 is "not found"         
-		VertexAttribute(const std::string &name, uint32 type, void* data, const uint32 &length) : Name(name), Type(type), DataLength(length)
+		VertexAttribute(const std::string &name, uint32 type, void* data, const uint32 &length, const uint32 vertexDivisor = 0) : Name(name), Type(type), DataLength(length), VertexDivisor(vertexDivisor)
 		{
 			// Copy Data
 			switch (Type)
@@ -115,9 +117,9 @@ namespace p3d {
 		// Attributes List
 		std::vector<VertexAttribute*> Attributes;
 
-		void AddAttribute(const std::string &name, const uint32 &type, void* data, const uint32 &length)
+		void AddAttribute(const std::string &name, const uint32 &type, void* data, const uint32 &length, const uint32 vertexDivisor = 0)
 		{
-			VertexAttribute* v(new VertexAttribute(name, type, data, length));
+			VertexAttribute* v(new VertexAttribute(name, type, data, length, vertexDivisor));
 			Attributes.push_back(v);
 		}
 
@@ -269,10 +271,13 @@ namespace p3d {
 			// Loop Through Attributes Buffer and Delete Each One
 			for (std::vector<AttributeArray*>::iterator i = Attributes.begin(); i != Attributes.end(); i++)
 			{
-				// Dipose Vertex Attributes
-				(*i)->Dispose();
-				// Delete Pointer
-				delete *i;
+				if ((*i)!=NULL) 
+				{
+					// Dipose Vertex Attributes
+					(*i)->Dispose();
+					// Delete Pointer
+					delete *i;
+				}
 			}
 			Attributes.clear();
 		}
