@@ -32,13 +32,23 @@ namespace p3d {
 		}
 
 		std::string line;
-		std::string include_ppc("#pragma include");
+		std::string pragma_include_ppc("#pragma include");
+		std::string include_ppc("#include");
 		while (std::getline(t, line))
 		{
 			std::istringstream iss(line);
-			if (line.find(include_ppc) != std::string::npos)
+
+			size_t foundInclude = line.find(pragma_include_ppc);
+			uint32 includeSentenceSize = pragma_include_ppc.size();
+			if (foundInclude == std::string::npos)
 			{
-				std::string fileToInclude = line.substr(include_ppc.size()+1, line.size());
+				foundInclude = line.find(include_ppc);
+				includeSentenceSize = include_ppc.size();
+			}
+
+			if (foundInclude != std::string::npos)
+			{
+				std::string fileToInclude = line.substr(includeSentenceSize+1, line.size());
 				int initPos = fileToInclude.find_first_of("\"");
 				int finalPos = fileToInclude.find_last_of("\"");
 				std::string filePath = fileToInclude.substr(initPos+1, finalPos-1);
