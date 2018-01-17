@@ -77,8 +77,6 @@ class ParticleEmitter : public IRenderingInstancedComponent {
 			this->AddBuffer(particles_position_buffer);
 		}
 
-		void Sort(GameObject* Camera);
-
 		~ParticleEmitter()
 		{
 			// Remove buffers from last inserted to first because of divisor
