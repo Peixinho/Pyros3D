@@ -57,7 +57,6 @@ namespace p3d {
 	void Shader::LoadShaderFile(const char* filename)
 	{
 		shaderString = LoadFileSource(filename);
-		std::cout << shaderString << std::endl;
 	}
 
 	void Shader::LoadShaderText(const std::string &text)
