@@ -54,6 +54,8 @@ namespace p3d {
 
 	private:
 
+		std::string LoadFileSource(const char* file);
+
 		// shader type
 		uint32 type;
 

@@ -19,24 +19,45 @@ namespace p3d {
 
 	Shader::~Shader() {}
 
-	void Shader::LoadShaderFile(const char* filename)
+	std::string Shader::LoadFileSource(const char *filename)
 	{
+		std::string shaderSource;
+
 		std::ifstream t(filename);
 		std::string str;
 
 		if (t.fail()) {
 			echo("ERROR: Shader File does not exist or you don't have permission to open it.");
-			return;
+			return std::string("\n\n/*\n * INCLUDE ERROR\n * COULDN'T INCLUDE FILE ")+filename+std::string("\n *\n */\n\n");
 		}
 
-		t.seekg(0, std::ios::end);
-		str.reserve((uint32)t.tellg());
-		t.seekg(0, std::ios::beg);
+		std::string line;
+		std::string include_ppc("#pragma include");
+		while (std::getline(t, line))
+		{
+			std::istringstream iss(line);
+			if (line.find(include_ppc) != std::string::npos)
+			{
+				std::string fileToInclude = line.substr(include_ppc.size()+1, line.size());
+				int initPos = fileToInclude.find_first_of("\"");
+				int finalPos = fileToInclude.find_last_of("\"");
+				std::string filePath = fileToInclude.substr(initPos+1, finalPos-1);
 
-		str.assign((std::istreambuf_iterator<char>(t)),
-			std::istreambuf_iterator<char>());
+				shaderSource+=LoadFileSource(filePath.c_str());
+				std::getline(t, line);
+			}
 
-		shaderString = str.c_str();
+			shaderSource+=line;
+			shaderSource+="\n";
+		}
+
+		return shaderSource;
+	}
+
+	void Shader::LoadShaderFile(const char* filename)
+	{
+		shaderString = LoadFileSource(filename);
+		std::cout << shaderString << std::endl;
 	}
 
 	void Shader::LoadShaderText(const std::string &text)
