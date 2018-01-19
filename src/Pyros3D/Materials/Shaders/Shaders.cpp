@@ -28,7 +28,7 @@ namespace p3d {
 
 		if (t.fail()) {
 			echo("ERROR: Shader File does not exist or you don't have permission to open it.");
-			return std::string("\n\n/*\n * INCLUDE ERROR\n * COULDN'T INCLUDE FILE ")+filename+std::string("\n *\n */\n\n");
+			return std::string("\n\n/*\n * SHADER ERROR\n * COULDN'T OPEN/INCLUDE FILE ")+filename+std::string("\n *\n */\n\n");
 		}
 
 		std::string line;
@@ -48,13 +48,18 @@ namespace p3d {
 
 			if (foundInclude != std::string::npos)
 			{
-				std::string fileToInclude = line.substr(includeSentenceSize+1, line.size());
-				int initPos = fileToInclude.find_first_of("\"");
-				int finalPos = fileToInclude.find_last_of("\"");
-				std::string filePath = fileToInclude.substr(initPos+1, finalPos-1);
-
-				shaderSource+=LoadFileSource(filePath.c_str());
-				std::getline(t, line);
+				if (line.find_first_of("'")!=std::string::npos)
+				{
+					std::string fileToInclude = line.substr(line.find_first_of("'")+1, line.find_last_of("'")-(line.find_first_of("'")+1));
+					shaderSource+=LoadFileSource(fileToInclude.c_str());
+					continue;
+				} 
+				if (line.find_first_of("\"")!=std::string::npos)
+				{
+					std::string fileToInclude = line.substr(line.find_first_of("\"")+1, line.find_last_of("\"")-(line.find_first_of("\"")+1));
+					shaderSource+=LoadFileSource(fileToInclude.c_str());
+					continue;
+				}
 			}
 
 			shaderSource+=line;
