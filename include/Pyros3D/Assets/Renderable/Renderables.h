@@ -102,9 +102,14 @@ namespace p3d {
 				byteSize = sizeof(Vec4);
 				break;
 			};
-			Data.resize(DataLength*byteSize);
-			memcpy(&Data[0], data, DataLength*byteSize);
-
+			if (data != NULL)
+			{
+				Data.resize(DataLength*byteSize);
+				memcpy(&Data[0], data, DataLength*byteSize);
+			}
+			else {
+				Data.resize(0);
+			}
 		}
 	};
 
@@ -180,7 +185,7 @@ namespace p3d {
 			// Create Buffer
 			Buffer = new GeometryBuffer(bufferType, bufferDraw);
 			// Send Buffer
-			Buffer->Init(&Data[0], Data.size());
+			Buffer->Init((Data.size()>0?&Data[0]:NULL), Data.size());
 		}
 
 		virtual void Dispose()

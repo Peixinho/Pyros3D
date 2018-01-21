@@ -184,11 +184,11 @@ void DeferredRendering::Update()
 	}
 	if (_strafeLeft)
 	{
-		finalPosition += direction.cross(Vec3(0, 1, 0))*speed;
+		finalPosition += direction.cross(Vec3(0, 1, 0)).normalize()*speed;
 	}
 	if (_strafeRight)
 	{
-		finalPosition -= direction.cross(Vec3(0, 1, 0))*speed;
+		finalPosition -= direction.cross(Vec3(0, 1, 0)).normalize()*speed;
 	}
 
 	Camera->SetPosition(Camera->GetPosition() + finalPosition);
@@ -244,11 +244,11 @@ void DeferredRendering::LookTo(Event::Input::Info e)
 		{
 			counterX -= mouseDelta.x / 10.f;
 			counterY -= mouseDelta.y / 10.f;
-			if (counterY < -90.f) counterY = -90.f;
-			if (counterY > 90.f) counterY = 90.f;
+			if (counterY<-80.f) counterY = -80.f;
+			if (counterY>80.f) counterY = 80.f;
 			Quaternion qX, qY;
-			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), (f32)DEGTORAD(counterY));
-			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), (f32)DEGTORAD(counterX));
+			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), DEGTORAD(counterY));
+			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), DEGTORAD(counterX));
 			//                Matrix rotX, rotY;
 			//                rotX.RotationX(DEGTORAD(counterY));
 			//                rotY.RotationY(DEGTORAD(counterX));

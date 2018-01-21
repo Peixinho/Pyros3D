@@ -73,9 +73,13 @@ namespace p3d {
 		GLCHECKER(glBindBuffer(this->bufferType, 0));
 
 		// copy geometry data
-		this->GeometryData.resize(length);
-		memcpy(&this->GeometryData[0], GeometryData, length);
-		DataLength = length;
+		if (length > 0)
+		{
+			this->GeometryData.resize(length);
+			memcpy(&this->GeometryData[0], GeometryData, length);
+			DataLength = length;
+		}
+		else DataLength = 0;
 	}
 
 	// Updates Buffer
@@ -97,6 +101,7 @@ namespace p3d {
 		else {
 
 			this->GeometryData.clear();
+			this->GeometryData.resize(DataLength);
 			memcpy(&this->GeometryData[0], GeometryData, DataLength);
 
 			// Updating buffer

@@ -100,11 +100,11 @@ void ParticlesExample::Update()
 	}
 	if (_strafeLeft)
 	{
-		finalPosition += direction.cross(Vec3(0, 1, 0))*speed;
+		finalPosition += direction.cross(Vec3(0, 1, 0)).normalize()*speed;
 	}
 	if (_strafeRight)
 	{
-		finalPosition -= direction.cross(Vec3(0, 1, 0))*speed;
+		finalPosition -= direction.cross(Vec3(0, 1, 0)).normalize()*speed;
 	}
 
 	Camera->SetPosition(Camera->GetPosition() + finalPosition);
@@ -158,10 +158,16 @@ void ParticlesExample::Update()
 		}
 	}
 
-	emitter1->SetNumberInstances(emitter1->particles.size());
-	emitter1->particles_position_buffer->Buffer->Update(&emitter1->particles[0], emitter1->particles.size() * sizeof(Particle));
-	emitter2->SetNumberInstances(emitter2->particles.size());
-	emitter2->particles_position_buffer->Buffer->Update(&emitter2->particles[0], emitter2->particles.size() * sizeof(Particle));
+	if (emitter1->particles.size() > 0)
+	{
+		emitter1->SetNumberInstances(emitter1->particles.size());
+		emitter1->particles_position_buffer->Buffer->Update(&emitter1->particles[0], emitter1->particles.size() * sizeof(Particle));
+	}
+	if (emitter2->particles.size() > 0)
+	{
+		emitter2->SetNumberInstances(emitter2->particles.size());
+		emitter2->particles_position_buffer->Buffer->Update(&emitter2->particles[0], emitter2->particles.size() * sizeof(Particle));
+	}
 
 	// Render Scene
 	Renderer->PreRender(Camera, Scene);
@@ -237,8 +243,8 @@ void ParticlesExample::LookTo(Event::Input::Info e)
 		{
 			counterX -= mouseDelta.x / 10.f;
 			counterY -= mouseDelta.y / 10.f;
-			if (counterY < -90.f) counterY = -90.f;
-			if (counterY > 90.f) counterY = 90.f;
+			if (counterY<-80.f) counterY = -80.f;
+			if (counterY>80.f) counterY = 80.f;
 			Quaternion qX, qY;
 			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), DEGTORAD(counterY));
 			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), DEGTORAD(counterX));
