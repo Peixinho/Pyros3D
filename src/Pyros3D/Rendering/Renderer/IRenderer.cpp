@@ -1863,6 +1863,7 @@ namespace p3d {
 								));
 							}
 
+							#if !defined(GLES2) && !defined(GLES3) && !defined(GLLEGACY)
 							// Set Divisors
 							if (rmesh->renderingComponent->IsInstanced())
 							{
@@ -1873,7 +1874,8 @@ namespace p3d {
 									GLCHECKER(glVertexAttribDivisor(((*_ShadersAttributesCache)[counterBuffers][counter]+2),(*l)->VertexDivisor));
 									GLCHECKER(glVertexAttribDivisor(((*_ShadersAttributesCache)[counterBuffers][counter]+3),(*l)->VertexDivisor));
 								}
-							}	
+							}
+							#endif
 						}
 						counter++;
 					}
@@ -1947,6 +1949,7 @@ namespace p3d {
 								));
 							}
 							
+							#ifndef GLES2	
 							if (rmesh->renderingComponent->IsInstanced())
 							{
 								GLCHECKER(glVertexAttribDivisor((*_ShadersAttributesCache)[counterBuffers][counter],(*l)->VertexDivisor));
@@ -1958,6 +1961,7 @@ namespace p3d {
 									GLCHECKER(glVertexAttribDivisor((*_ShadersAttributesCache)[counterBuffers][counter]+1,(*l)->VertexDivisor));
 								}
 							}
+							#endif
 						}
 						counter++;
 					}
