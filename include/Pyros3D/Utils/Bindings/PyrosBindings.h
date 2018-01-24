@@ -247,6 +247,64 @@ namespace p3d {
 
 	};
 
+    class LUA_RenderingInstancedComponent : public p3d::RenderingInstancedComponent
+    {
+    public:
+
+        LUA_RenderingInstancedComponent(p3d::Renderable* renderable, p3d::IMaterial* Material, const uint32 nrInstances, const p3d::f32 &boundingSphere) : p3d::RenderingInstancedComponent(renderable, Material, nrInstances, BoundingSphereRadius) {}
+        LUA_RenderingInstancedComponent(p3d::Renderable* renderable, const uint32 MaterialProperties, const p3d::uint32 nrInstances, const p3d::f32 boundingSphere) : p3d::RenderingInstancedComponent(renderable, MaterialProperties, nrInstances, boundingSphere) {}
+
+        // Lua Instantiation
+        LUA_RenderingInstancedComponent(sol::state* lua, const std::string name, p3d::Renderable* renderable, p3d::IMaterial* Material, const p3d::uint32 nrInstances, const p3d::f32 boundingSphere) : p3d::RenderingInstancedComponent(renderable, Material, nrInstances, boundingSphere)
+        {
+            // Register object in Lua
+            (*lua)[name.c_str()] = this;
+        }
+        LUA_RenderingInstancedComponent(sol::state* lua, const std::string name, p3d::Renderable* renderable, const p3d::f32 MaterialOptions, const p3d::uint32 nrInstances, const p3d::f32 boundingSphere) : p3d::RenderingInstancedComponent(renderable, MaterialOptions, nrInstances, boundingSphere)
+        {
+            // Register object in Lua
+            (*lua)[name.c_str()] = this;
+        }
+
+        virtual void Init()
+        {
+            p3d::RenderingInstancedComponent::Init();
+            if (on_init) { on_init(*this); }
+        }
+        // Virtual Function To Update GameObject
+        virtual void Update(const p3d::f64 time)
+        {
+            p3d::RenderingInstancedComponent::Update(time);
+            if (on_update) { on_update(*this, time); }
+        }
+        // Destroy Function
+        virtual void Destroy()
+        {
+            p3d::RenderingInstancedComponent::Destroy();
+        }
+        virtual void AddBuffer(p3d::AttributeBuffer* buffer)
+        {
+            RenderingInstancedComponent::AddBuffer(buffer);
+        }
+        virtual void RemoveBuffer(AttributeBuffer* buffer)
+        {
+            RenderingInstancedComponent::RemoveBuffer(buffer);
+        }
+        virtual const uint32 NumberOfInstances() const
+        {
+            return RenderingInstancedComponent::nrInstances;
+        }
+        virtual void SetNumberInstances(const uint32 instances) {
+            RenderingInstancedComponent::nrInstances = instances;
+        }
+
+        std::function<void(LUA_RenderingInstancedComponent&, p3d::f64)> on_update;
+        std::function<void(LUA_RenderingInstancedComponent&)> on_init;
+    private:
+        std::string name;
+
+    };
+
 	void GenerateBindings(sol::state* lua);
 
 };

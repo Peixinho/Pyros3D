@@ -16,8 +16,8 @@ namespace p3d {
 	class PYROS3D_API  IRenderingInstancedComponent : public RenderingComponent
 	{
 		public:
-			IRenderingInstancedComponent(Renderable* renderable, IMaterial* Material, const uint32 nrInstances, const f32 &boundingSphere);
-			IRenderingInstancedComponent(Renderable* renderable, const uint32 MaterialProperties, const uint32 nrInstances, const f32 &boundingSphere);
+            IRenderingInstancedComponent(Renderable* renderable, IMaterial* Material, const uint32 nrInstances, const f32 boundingSphere);
+            IRenderingInstancedComponent(Renderable* renderable, const uint32 MaterialProperties, const uint32 nrInstances, const f32 boundingSphere);
 			virtual ~IRenderingInstancedComponent();
 			virtual void AddBuffer(AttributeBuffer* buffer);
 			virtual void RemoveBuffer(AttributeBuffer* buffer);

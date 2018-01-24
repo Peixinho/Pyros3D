@@ -9,7 +9,7 @@
 #include <Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.h>
 
 namespace p3d {
-	IRenderingInstancedComponent::IRenderingInstancedComponent(Renderable* renderable, IMaterial* Material, const uint32 nrInstances, const f32 &boundingSphere) : RenderingComponent(renderable, Material)
+    IRenderingInstancedComponent::IRenderingInstancedComponent(Renderable* renderable, IMaterial* Material, const uint32 nrInstances, const f32 boundingSphere) : RenderingComponent(renderable, Material)
 	{
 		this->nrInstances = nrInstances;
 		this->renderable = renderable;
@@ -18,7 +18,7 @@ namespace p3d {
 		isInstanced = true;
 	}
 
-	IRenderingInstancedComponent::IRenderingInstancedComponent(Renderable* renderable, const uint32 MaterialProperties, const uint32 nrInstances, const f32 &boundingSphere) : RenderingComponent(renderable, MaterialProperties)
+    IRenderingInstancedComponent::IRenderingInstancedComponent(Renderable* renderable, const uint32 MaterialProperties, const uint32 nrInstances, const f32 boundingSphere) : RenderingComponent(renderable, MaterialProperties)
 	{
 		this->nrInstances = nrInstances;
 		this->renderable = renderable;

@@ -974,6 +974,34 @@ namespace p3d {
 				);
 		}
 
+        {
+            // LUA RenderingInstancedComponent
+            sol::constructors<sol::types<Renderable*, IMaterial*, int, float>, sol::types<Renderable*, int, int, float>> con;
+            lua->new_simple_usertype<LUA_RenderingInstancedComponent>("RenderingInstancedComponent",
+                con,
+                "init", &LUA_RenderingInstancedComponent::Init,
+                "update", &LUA_RenderingInstancedComponent::Update,
+                "destroy", &LUA_RenderingInstancedComponent::Destroy,
+                "setCullingGeometry", &LUA_RenderingInstancedComponent::SetCullingGeometry, "enableCullTest", &LUA_RenderingInstancedComponent::EnableCullTest,
+                "disableCullTest", &LUA_RenderingInstancedComponent::DisableCullTest,
+                "isCullTesting", &LUA_RenderingInstancedComponent::IsCullTesting,
+                "enableCastShadows", &LUA_RenderingInstancedComponent::EnableCastShadows,
+                "disableCastShadows", &LUA_RenderingInstancedComponent::DisableCastShadows,
+                "isCastingShadows", &LUA_RenderingInstancedComponent::IsCastingShadows,
+                "getRenderable", &LUA_RenderingInstancedComponent::GetRenderable,
+                "getSkeleton", &LUA_RenderingInstancedComponent::GetSkeleton,
+                "hasBones", &LUA_RenderingInstancedComponent::HasBones,
+                "getMeshes", &LUA_RenderingInstancedComponent::GetMeshes,
+                "getLODSize", &LUA_RenderingInstancedComponent::GetLODSize,
+                "getLODByDistance", &LUA_RenderingInstancedComponent::GetLODByDistance,
+                "updateLOD", &LUA_RenderingInstancedComponent::UpdateLOD,
+                "getComponents", &LUA_RenderingInstancedComponent::GetComponents,
+                "onUpdate", &LUA_RenderingInstancedComponent::on_update,
+                "onInit", &LUA_RenderingInstancedComponent::on_init,
+                sol::base_classes, sol::bases<IComponent>()
+                );
+        }
+
 		{
 			sol::constructors<sol::types<int>, sol::types<>> con;
 			lua->new_simple_usertype<RenderingMesh>("RenderingMesh",
