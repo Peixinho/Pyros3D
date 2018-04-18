@@ -126,25 +126,33 @@ namespace p3d {
         // Initialize SDL2
 		SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
 
-#if defined GLES2_DESKTOP
+#if defined(GLES2) 
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-#elif defined GLES3_DESKTOP
+#elif defined(GLES3)
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+#else
+		SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE); 
 #endif
+		// Also request a depth buffer
+		SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+		SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 
-        int audio_rate = 22050;
-        Uint16 audio_format = AUDIO_S16; /* 16-bit stereo */
-        int audio_channels = 2;
-        int audio_buffers = 4096;
+//        int audio_rate = 22050;
+//        Uint16 audio_format = AUDIO_S16; /* 16-bit stereo */
+//        int audio_channels = 2;
+//        int audio_buffers = 4096;
 
-        if (Mix_OpenAudio(audio_rate, audio_format, audio_channels, audio_buffers))
-            echo("ERROR: Failed to open audio device");
+//        if (Mix_OpenAudio(audio_rate, audio_format, audio_channels, audio_buffers))
+//            echo("ERROR: Failed to open audio device");
         
-        Mix_QuerySpec(&audio_rate, &audio_format, &audio_channels);
+//        Mix_QuerySpec(&audio_rate, &audio_format, &audio_channels);
 
         uint32 type = 0;
 
@@ -163,18 +171,15 @@ namespace p3d {
 		);
         
 		mainGLContext = SDL_GL_CreateContext(rview);
-
-        // Initialize GLew
+ 
 #if !defined(GLES2) && !defined(GLES3)
-        glewInit();
-#else
-        gladLoadGLES2Loader(SDL_GL_GetProcAddress);
+		gladLoadGL();
+#elif defined(DESKTOP)
+		gladLoadGLES2Loader(SDL_GL_GetProcAddress);
 #endif
-
 		// Set OpenGL Major and Minor Versions
 		SDL_GL_GetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,(int*)&glMajor);
 		SDL_GL_GetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,(int*)&glMinor);
-
     }
     SDL2Context::~SDL2Context() 
     {

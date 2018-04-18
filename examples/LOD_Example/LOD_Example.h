@@ -1,5 +1,5 @@
 //============================================================================
-// Name        : LOD_example.h
+// Name        : LOD_Example.h
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
@@ -33,13 +33,13 @@
 #include <Pyros3D/Core/Octree/Octree.h>
 using namespace p3d;
 
-class LOD_example : public ClassName
+class LOD_Example : public ClassName
 {
 
 public:
 
-	LOD_example();
-	virtual ~LOD_example();
+	LOD_Example();
+	virtual ~LOD_Example();
 
 	virtual void Init();
 	virtual void Update();

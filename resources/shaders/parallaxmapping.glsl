@@ -14,7 +14,7 @@ vec2 ParallaxMapping(sampler2D DisplacementMap, float DisplacementHeight, vec2 t
     vec2 deltaTexCoords = P / numLayers;
     
     vec2  currentTexCoords = texCoords;
-    float currentDepthMapValue = texture2D(DisplacementMap, currentTexCoords).r;
+    float currentDepthMapValue = texture(DisplacementMap, currentTexCoords).r;
     
     #if defined(GLES2) || defined(EMSCRIPTEN)
     for(int i=0;i<100;i++)
@@ -24,7 +24,7 @@ vec2 ParallaxMapping(sampler2D DisplacementMap, float DisplacementHeight, vec2 t
     #endif
     {
         currentTexCoords -= deltaTexCoords;
-        currentDepthMapValue = texture2D(DisplacementMap, currentTexCoords).r;
+        currentDepthMapValue = texture(DisplacementMap, currentTexCoords).r;
         currentLayerDepth += layerDepth;
     }
     #if defined(GLES2) || defined(EMSCRIPTEN)
@@ -34,7 +34,7 @@ vec2 ParallaxMapping(sampler2D DisplacementMap, float DisplacementHeight, vec2 t
     vec2 prevTexCoords = currentTexCoords + deltaTexCoords;
     
     float afterDepth = currentDepthMapValue - currentLayerDepth;
-    float beforeDepth = texture2D(DisplacementMap, prevTexCoords).r - currentLayerDepth + layerDepth;
+    float beforeDepth = texture(DisplacementMap, prevTexCoords).r - currentLayerDepth + layerDepth;
     
     float weight = afterDepth / (afterDepth - beforeDepth);
     vec2 finalTexCoords = prevTexCoords * weight + currentTexCoords * (1.0 - weight);

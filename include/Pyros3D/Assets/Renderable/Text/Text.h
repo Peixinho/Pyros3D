@@ -23,7 +23,7 @@ namespace p3d {
 		std::vector<Vec3> tVertex, tNormal;
 		std::vector<Vec2> tTexcoord;
 
-		TextGeometry(bool DynamicText = false) : IGeometry((DynamicText ? GeometryType::ARRAY : GeometryType::BUFFER)) {}
+		TextGeometry() : IGeometry() {}
 
 		void CreateBuffers()
 		{
@@ -32,11 +32,8 @@ namespace p3d {
 
 			AttributeArray* Vertex;
 
-			if (Type == GeometryType::BUFFER)
-				// Create and Set Attribute Buffer
-				Vertex = new AttributeBuffer(Buffer::Type::Attribute, Buffer::Draw::Static);
-			else
-				Vertex = new AttributeArray();
+			// Create and Set Attribute Buffer
+			Vertex = new AttributeBuffer(Buffer::Type::Attribute, Buffer::Draw::Static);
 
 			Vertex->AddAttribute("aPosition", Buffer::Attribute::Type::Vec3, &tVertex[0], tVertex.size());
 			Vertex->AddAttribute("aNormal", Buffer::Attribute::Type::Vec3, &tNormal[0], tNormal.size());

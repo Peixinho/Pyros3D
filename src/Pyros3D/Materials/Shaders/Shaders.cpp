@@ -99,9 +99,16 @@ namespace p3d {
 			break;
 		}
 
-		std::string finalShaderString = (std::string(definitions) + std::string(" ") + shaderString);
-		uint32 len = finalShaderString.length();
+		#if defined(GLES2)
+			std::string finalShaderString = (std::string("#version 100\n#define GLES2\n") + definitions + std::string(" ") + shaderString);
+		#elif defined(GLES3)
+			std::string finalShaderString = (std::string("#version 300 es\n#define GLES3\n") + definitions + std::string(" ") + shaderString);
+		#else
+			std::string finalShaderString = (std::string("#version 450\n") + definitions + std::string(" ") + shaderString);
+		#endif
 
+		uint32 len = finalShaderString.length();
+		
 		// batatas because is a good example :P
 		const char *batatas = finalShaderString.c_str();
 
@@ -122,7 +129,10 @@ namespace p3d {
 			if (output != NULL)
 				*output = LOG;
 
-			if (result == GL_FALSE) return false;
+			if (result == GL_FALSE) {
+				echo(finalShaderString);
+				return false;
+			}
 		}
 		if (shaderProgram == 0)
 			shaderProgram = (uint32)glCreateProgram();

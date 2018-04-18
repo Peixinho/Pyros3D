@@ -13,13 +13,9 @@ namespace p3d {
 
 	PostEffectsManager::PostEffectsManager(const uint32 width, const uint32 height)
 	{
-
 		// Save Dimensions
 		Width = width;
 		Height = height;
-
-		// Create Quad
-		CreateQuad();
 
 		Color = new Texture();
 		Color->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
@@ -59,25 +55,6 @@ namespace p3d {
 		ExternalFBO->Resize(Width, Height);
 	}
 
-	void PostEffectsManager::CreateQuad()
-	{
-		// Clear Geometry
-		vertex.clear();
-		texcoord.clear();
-
-		float w2 = 1; float h2 = 1;
-
-		// Set Quad Vertex
-		Vec3 a = Vec3(-w2, -h2, 0); Vec3 b = Vec3(w2, -h2, 0); Vec3 c = Vec3(w2, h2, 0); Vec3 d = Vec3(-w2, h2, 0);
-		vertex.push_back(a); texcoord.push_back(Vec2(0, 0));
-		vertex.push_back(b); texcoord.push_back(Vec2(1, 0));
-		vertex.push_back(c); texcoord.push_back(Vec2(1, 1));
-
-		vertex.push_back(c); texcoord.push_back(Vec2(1, 1));
-		vertex.push_back(d); texcoord.push_back(Vec2(0, 1));
-		vertex.push_back(a); texcoord.push_back(Vec2(0, 0));
-	}
-
 	void PostEffectsManager::ProcessPostEffects(Projection* projection)
 	{
 		// Set Counter
@@ -107,6 +84,12 @@ namespace p3d {
 			// Clear Screen
 			GLCHECKER(glClearColor(0.f, 0.f, 0.f, 0.f));
 			GLCHECKER(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+
+			#if !defined(GLES2)
+			GLuint vao;
+			glGenVertexArrays(1, &vao);
+			glBindVertexArray(vao);
+			#endif
 
 			// Start Shader Program
 			GLCHECKER(glUseProgram((*effect)->shader->ShaderProgram()));
@@ -170,42 +153,7 @@ namespace p3d {
 				}
 			}
 
-			// Getting Attributes locations
-			// Position
-			if ((*effect)->positionHandle == -2)
-			{
-				(*effect)->positionHandle = Shader::GetAttributeLocation((*effect)->shader->ShaderProgram(), "aPosition");
-			}
-			// Texcoord
-			if ((*effect)->texcoordHandle == -2)
-			{
-				(*effect)->texcoordHandle = Shader::GetAttributeLocation((*effect)->shader->ShaderProgram(), "aTexcoord");
-			}
-
-			// Send Attributes
-			if ((*effect)->positionHandle > -1)
-			{
-				GLCHECKER(glEnableVertexAttribArray((*effect)->positionHandle));
-				GLCHECKER(glVertexAttribPointer((*effect)->positionHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertex[0]));
-			}
-			if ((*effect)->texcoordHandle > -1)
-			{
-				GLCHECKER(glEnableVertexAttribArray((*effect)->texcoordHandle));
-				GLCHECKER(glVertexAttribPointer((*effect)->texcoordHandle, 2, GL_FLOAT, GL_FALSE, 0, &texcoord[0]));
-			}
-
-			// Draw Quad
-			GLCHECKER(glDrawArrays(GL_TRIANGLES, 0, vertex.size()));
-
-			// Disable Attributes
-			if ((*effect)->texcoordHandle > -1)
-			{
-				GLCHECKER(glDisableVertexAttribArray((*effect)->texcoordHandle));
-			}
-			if ((*effect)->positionHandle > -1)
-			{
-				GLCHECKER(glDisableVertexAttribArray((*effect)->positionHandle));
-			}
+			GLCHECKER(glDrawArrays(GL_TRIANGLES, 0, 3));
 
 			// Unbind MRT      
 			for (std::vector<RTT::Info>::reverse_iterator i = (*effect)->RTTOrder.rbegin(); i != (*effect)->RTTOrder.rend(); i++)

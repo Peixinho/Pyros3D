@@ -9,29 +9,30 @@
 #ifndef PYROSGL_H
 #define PYROSGL_H
 
-#include <Pyros3D/Core/Math/Math.h>
+#if defined(GLES2) 
+	#if defined(DESKTOP)
+		#include <Pyros3D/Ext/gles2/glad/glad.h>
+	#else
+		#include <GLES2/gl2.h>
+		#include <GLES2/gl2ext.h>
+	#endif
+#endif
 
-#if defined(GLES2_DESKTOP)
-    #include <Pyros3D/Ext/gles2/glad/glad.h>
-#else 
-    #if defined(GLES3_DESKTOP)
-        #include <Pyros3D/Ext/gles3/glad/glad.h>
-    #else
-        #if defined(GLES2)
-            #include <GLES2/gl2.h>
-            #include <GLES2/gl2ext.h>
-        #else
-            #if defined(GLES3)
-                #include <GLES3/gl3.h>
-                #include <GLES3/gl3ext.h>
-            #else 
-                #include <GL/glew.h>
-            #endif
-        #endif
-    #endif
+#if defined(GLES3)
+	#if defined(DESKTOP)
+		#include <Pyros3D/Ext/gles3/glad/glad.h>
+	#else
+		#include <GLES3/gl3.h>
+		#include <GLES3/gl3ext.h>
+	#endif
+#endif
+
+#if defined(GL45)
+    #include <Pyros3D/Ext/gl45/glad/glad.h>
 #endif
 
 #include <Pyros3D/Other/Global.h>
+#include <Pyros3D/Core/Math/Math.h>
 
 // Check GL
 #if defined(_DEBUG) && !defined(EMSCRIPTEN)

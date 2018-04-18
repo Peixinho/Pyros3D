@@ -20,8 +20,27 @@ DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2, con
 
 	// Create Fragment Shader
 	FragmentShaderString =
-		#if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)
-		"precision mediump float;\n"
+		#if defined(GLES2)
+			"#define varying_in varying\n"
+			"#define varying_out varying\n"
+			"#define attribute_in attribute\n"
+			"#define texture_2D texture2D\n"
+			"#define texture_cube textureCube\n"
+			"precision mediump float;"
+		#else
+			"#define varying_in in\n"
+			"#define varying_out out\n"
+			"#define attribute_in in\n"
+			"#define texture_2D texture\n"
+			"#define texture_cube texture\n"
+			#if defined(GLES3)
+				"precision mediump float;\n"
+			#endif
+		#endif
+		#if defined(GLES2)
+			"vec4 FragColor;"
+		#else
+			"out vec4 FragColor;"
 		#endif
 		"float DecodeNativeDepth(float native_z, vec4 z_info_local)\n"
 		"{\n"
@@ -33,18 +52,21 @@ DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2, con
 		"uniform sampler2D uTex3; // depth\n"
 		"uniform float uFocalPosition, uFocalRange, uRatioL, uRatioH;\n"
 		"uniform vec2 uNearFar;\n"
-		"varying vec2 vTexcoord;\n"
+		"varying_in vec2 vTexcoord;\n"
 		"void main() {\n"
-		"float ratioL = uRatioL;\n"
-		"float ratioH = uRatioH;\n"
-		"float focalPosition = uFocalPosition;\n"
-		"float focalRange = uFocalRange;\n"
-		"vec4 z_info_local = vec4(uNearFar.x,uNearFar.y,uNearFar.x*uNearFar.y,uNearFar.x-uNearFar.y);\n"
-		"float depth = texture2D(uTex3, vTexcoord).x;\n"
-		"float linearDepth = DecodeNativeDepth(depth, z_info_local);\n"
-		"float ratio = clamp(abs(focalPosition-linearDepth)-focalRange, 0.0, ratioL);\n"
-		"if (ratio < 0.4) gl_FragColor = mix(texture2D(uTex2, vTexcoord), texture2D(uTex1, vTexcoord), ratio / (ratioL - ratioH));\n"
-		"else gl_FragColor =  mix(texture2D(uTex1, vTexcoord), texture2D(uTex0, vTexcoord), (ratio-ratioH) / (ratioL - ratioH));\n"
+			"float ratioL = uRatioL;\n"
+			"float ratioH = uRatioH;\n"
+			"float focalPosition = uFocalPosition;\n"
+			"float focalRange = uFocalRange;\n"
+			"vec4 z_info_local = vec4(uNearFar.x,uNearFar.y,uNearFar.x*uNearFar.y,uNearFar.x-uNearFar.y);\n"
+			"float depth = texture2D(uTex3, vTexcoord).x;\n"
+			"float linearDepth = DecodeNativeDepth(depth, z_info_local);\n"
+			"float ratio = clamp(abs(focalPosition-linearDepth)-focalRange, 0.0, ratioL);\n"
+			"if (ratio < 0.4) FragColor = mix(texture2D(uTex2, vTexcoord), texture2D(uTex1, vTexcoord), ratio / (ratioL - ratioH));\n"
+			"else FragColor =  mix(texture2D(uTex1, vTexcoord), texture2D(uTex0, vTexcoord), (ratio-ratioH) / (ratioL - ratioH));\n"
+			#if defined(GLES2)
+			"gl_FragColor = FragColor;\n"
+			#endif
 		"}";
 
 	CompileShaders();

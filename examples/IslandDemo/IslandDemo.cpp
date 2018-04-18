@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-IslandDemo::IslandDemo() : ClassName(1024, 768, "Pyros3D - Island Demo", WindowType::Close | WindowType::Resize) {}
+IslandDemo::IslandDemo() : ClassName(1024, 768, "Pyros3D - Island Demo", WindowType::Close) {}
 
 void IslandDemo::OnResize(const uint32 width, const uint32 height)
 {

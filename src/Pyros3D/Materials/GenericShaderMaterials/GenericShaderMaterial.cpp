@@ -32,11 +32,8 @@ namespace p3d
 			ShadersList[options]->currentMaterials = 0;
 			//ShaderLib::BuildShader(options, ShadersList[options]);
 
-#if defined(_DEBUG) || defined(USE_SHADER_FILE)
 			ShadersList[options]->LoadShaderFile("shaders/PyrosShader.glsl");
-#else
-			ShadersList[options]->LoadShaderText(SHADER_CODE);
-#endif
+
 			std::string define;
 			if (options & ShaderUsage::Color)
 				define += std::string("#define COLOR\n");
@@ -80,25 +77,6 @@ namespace p3d
 				define += std::string("#define DEFERRED_GBUFFER\n");
 			if (options & ShaderUsage::InstancedRendering)
 				define += std::string("#define INSTANCED_RENDERING\n");
-
-#if defined(GLES2)
-			define += std::string("#define GLES2\n");
-#endif
-#if defined(GLES3)
-			define += std::string("#define GLES3\n");
-#endif
-#if defined(GLLEGACY)
-			define += std::string("#define GLLEGACY\n");
-#endif
-#if defined(EMSCRIPTEN)
-			define += std::string("#define EMSCRIPTEN\n");
-#endif
-#if defined(GLES2_DESKTOP)
-			define += std::string("#define GLES2_DESKTOP\n");
-#endif
-#if defined(GLES3_DESKTOP)
-			define += std::string("#define GLES3_DESKTOP\n");
-#endif
 
 			ShadersList[options]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
 			ShadersList[options]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());

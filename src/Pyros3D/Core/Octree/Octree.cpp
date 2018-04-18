@@ -244,21 +244,6 @@ namespace p3d {
 
 	void Octree::Draw(Projection projection, Matrix camera)
 	{
-#if !defined(GLES2) && !defined(GLES3)
-		glMatrixMode(GL_PROJECTION);
-		glLoadIdentity();
-
-		glLoadMatrixf(&projection.m.m[0]);
-
-		glMatrixMode(GL_MODELVIEW);
-		glLoadIdentity();
-		glLoadMatrixf(&camera.m[0]);
-
-		if (Root != NULL)
-		{
-			_Draw(Root);
-		}
-#endif
 	}
 
 	bool Octree::SearchInChildBox(OctreeGroup* box, const Vec3 &Position, const float radius, std::vector<GameObject*>* members)
@@ -321,47 +306,6 @@ namespace p3d {
 		//if (Child->selected) glColor3f(1.0f, 0.0f, 0.0f);
 		if (Child->selected)
 		{
-#if !defined(GLES2)	&& !defined(GLES3)		
-			glColor3f(1.0f, 1.0f, 1.0f);
-
-			glBegin(GL_LINES);
-			glVertex3f(Child->Max.x, Child->Max.y, Child->Min.z);
-			glVertex3f(Child->Min.x, Child->Max.y, Child->Min.z);
-			glVertex3f(Child->Min.x, Child->Max.y, Child->Min.z);
-			glVertex3f(Child->Min.x, Child->Max.y, Child->Max.z);
-			glVertex3f(Child->Min.x, Child->Max.y, Child->Max.z);
-			glVertex3f(Child->Max.x, Child->Max.y, Child->Max.z);
-			glVertex3f(Child->Max.x, Child->Max.y, Child->Max.z);
-			glVertex3f(Child->Max.x, Child->Max.y, Child->Min.z);
-
-			glVertex3f(Child->Max.x, Child->Min.y, Child->Max.z);
-			glVertex3f(Child->Min.x, Child->Min.y, Child->Max.z);
-			glVertex3f(Child->Min.x, Child->Min.y, Child->Max.z);
-			glVertex3f(Child->Min.x, Child->Min.y, Child->Min.z);
-			glVertex3f(Child->Min.x, Child->Min.y, Child->Min.z);
-			glVertex3f(Child->Max.x, Child->Min.y, Child->Min.z);
-			glVertex3f(Child->Max.x, Child->Min.y, Child->Min.z);
-			glVertex3f(Child->Max.x, Child->Min.y, Child->Max.z);
-
-			glVertex3f(Child->Max.x, Child->Max.y, Child->Max.z);
-			glVertex3f(Child->Min.x, Child->Max.y, Child->Max.z);
-			glVertex3f(Child->Min.x, Child->Max.y, Child->Max.z);
-			glVertex3f(Child->Min.x, Child->Min.y, Child->Max.z);
-			glVertex3f(Child->Min.x, Child->Min.y, Child->Max.z);
-			glVertex3f(Child->Max.x, Child->Min.y, Child->Max.z);
-			glVertex3f(Child->Max.x, Child->Min.y, Child->Max.z);
-			glVertex3f(Child->Max.x, Child->Max.y, Child->Max.z);
-
-			glVertex3f(Child->Max.x, Child->Min.y, Child->Min.z);
-			glVertex3f(Child->Min.x, Child->Min.y, Child->Min.z);
-			glVertex3f(Child->Min.x, Child->Min.y, Child->Min.z);
-			glVertex3f(Child->Min.x, Child->Max.y, Child->Min.z);
-			glVertex3f(Child->Min.x, Child->Max.y, Child->Min.z);
-			glVertex3f(Child->Max.x, Child->Max.y, Child->Min.z);
-			glVertex3f(Child->Max.x, Child->Max.y, Child->Min.z);
-			glVertex3f(Child->Max.x, Child->Min.y, Child->Min.z);
-			glEnd();
-#endif
 		}
 	}
 

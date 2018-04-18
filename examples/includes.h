@@ -24,8 +24,8 @@
 #include "SimplePhysics/SimplePhysics.h"
 #elif defined(_RacingGame)
 #include "RacingGame/RacingGame.h"
-#elif defined(_LOD_example)
-#include "LOD_example/LOD_example.h"
+#elif defined(_LOD_Example)
+#include "LOD_Example/LOD_Example.h"
 #elif defined(_IslandDemo)
 #include "IslandDemo/IslandDemo.h"
 #elif defined(_Cubeland)

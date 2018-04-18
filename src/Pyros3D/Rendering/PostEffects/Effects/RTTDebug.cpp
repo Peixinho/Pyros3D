@@ -18,15 +18,37 @@ namespace p3d {
         
         // Create Fragment Shader
 		FragmentShaderString =
-								#if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)
-								"precision mediump float;\n"
+								#if defined(GLES2)
+									"#define varying_in varying\n"
+									"#define varying_out varying\n"
+									"#define attribute_in attribute\n"
+									"#define texture_2D texture2D\n"
+									"#define texture_cube textureCube\n"
+									"precision mediump float;"
+								#else
+									"#define varying_in in\n"
+									"#define varying_out out\n"
+									"#define attribute_in in\n"
+									"#define texture_2D texture\n"
+									"#define texture_cube texture\n"
+									#if defined(GLES3)
+										"precision mediump float;\n"
+									#endif
+								#endif
+								#if defined(GLES2)
+									"vec4 FragColor;"
+								#else
+									"out vec4 FragColor;"
 								#endif
 								"uniform sampler2D uTex0;"
 								"uniform sampler2D uTex1;"
-								"varying vec2 vTexcoord;"
+								"varying_in vec2 vTexcoord;"
 								"void main() {"
-									"if (vTexcoord.x<0.5) gl_FragColor = texture2D(uTex0,vTexcoord);\n"
-									"else gl_FragColor = texture2D(uTex1,vTexcoord);"
+									"if (vTexcoord.x<0.5) FragColor = texture_2D(uTex0,vTexcoord);\n"
+									"else FragColor = texture_2D(uTex1,vTexcoord);"
+									#if defined(GLES2)
+									"gl_FragColor = FragColor;\n"
+									#endif
 								"}";
 							
         CompileShaders();    

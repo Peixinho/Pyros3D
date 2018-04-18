@@ -61,9 +61,8 @@ namespace p3d {
 		Width = rview.getSize().x;
 		Height = rview.getSize().y;
 
-#if !defined(GLES2)
-		// Initialize GLew
-		glewInit();
+#if !defined(GLES2) && !defined(GLES3)
+		gladLoadGL();
 #endif
 
 		// Set OpenGL Major and Minor Versions

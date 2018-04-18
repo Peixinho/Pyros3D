@@ -91,7 +91,7 @@ namespace p3d {
 			internalFormat2 = GL_R8;
 			internalFormat3 = GL_UNSIGNED_BYTE;
 			break;
-		case TextureDataType::RG:
+		case TextureDataType::RG8:
 			internalFormat = GL_RG8;
 			internalFormat2 = GL_RG;
 			internalFormat3 = GL_UNSIGNED_BYTE;
@@ -116,7 +116,7 @@ namespace p3d {
 			internalFormat2 = GL_RG;
 			internalFormat3 = GL_UNSIGNED_BYTE;
 			break;
-		case TextureDataType::RGB:
+		case TextureDataType::RGB8:
 			internalFormat = GL_RGB8;
 			internalFormat2 = GL_RGB;
 			internalFormat3 = GL_UNSIGNED_BYTE;
@@ -161,9 +161,9 @@ namespace p3d {
 			internalFormat2 = GL_RGBA;
 			internalFormat3 = GL_UNSIGNED_BYTE;
 			break;
-		case TextureDataType::R:
+		case TextureDataType::R8:
 			internalFormat = GL_R8;
-			internalFormat2 = GL_R8;
+			internalFormat2 = GL_RED;
 			internalFormat3 = GL_UNSIGNED_BYTE;
 			break;
 #if !defined(GLES3)
@@ -177,23 +177,8 @@ namespace p3d {
 			internalFormat2 = GL_BGRA;
 			internalFormat3 = GL_UNSIGNED_BYTE;
 			break;
-		case TextureDataType::LUMINANCE:
-			internalFormat = GL_LUMINANCE;
-			internalFormat2 = GL_LUMINANCE;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
-		case TextureDataType::LUMINANCE_ALPHA:
-			internalFormat = GL_LUMINANCE_ALPHA;
-			internalFormat2 = GL_LUMINANCE_ALPHA;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
 #endif
 #endif
-		case TextureDataType::ALPHA:
-			internalFormat = GL_ALPHA;
-			internalFormat2 = GL_ALPHA;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
 		case TextureDataType::RGBA:
 		default:
 			internalFormat = GL_RGBA;
@@ -257,32 +242,11 @@ namespace p3d {
 
 		if (file->Open(Filename))
 		{
-
-#if !defined(GLES2) && !defined(GLES3)
-			// DDS
-			if (Filename.substr(Filename.find_last_of(".") + 1) == "DDS" || Filename.substr(Filename.find_last_of(".") + 1) == "dds")
-			{
-				status = LoadDDS(&file->GetData()[0]);
-			}
-#else
-			if (Filename.substr(Filename.find_last_of(".") + 1) == "PKM" || Filename.substr(Filename.find_last_of(".") + 1) == "pkm")
-			{
-				status = LoadETC1(&file->GetData()[0]);
-			}
-#endif
-			else {
-				status = LoadTextureFromMemory(file->GetData(), file->Size(), Type, Mipmapping, level);
-			}
-
+			status = LoadTextureFromMemory(file->GetData(), file->Size(), Type, Mipmapping, level);
 			file->Close();
 		}
 		if (!file->Open(Filename) || !status) {
 			echo("ERROR: Couldn't find texture file or failed to load");
-#if !defined(GLES2) && !defined(GLES3)
-			status = LoadDDS((uchar*)MISSING_TEXTURE);
-#else
-
-#endif
 		}
 		delete file;
 		return status;
@@ -348,7 +312,6 @@ namespace p3d {
 			GLCHECKER(glGenerateMipmap(GLMode));
 #else
 
-#if defined(GLEW_VERSION_2_1)
 			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
 			if (GLSubMode == GL_TEXTURE_CUBE_MAP)
 			{
@@ -358,9 +321,6 @@ namespace p3d {
 
 			}
 			else GLCHECKER(glGenerateMipmap(GLSubMode));
-#else
-			GLCHECKER(gluBuild2DMipmaps(GLMode, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
-#endif
 #endif
 			isMipMap = true;
 
@@ -428,36 +388,6 @@ namespace p3d {
 		return CreateTexture(NULL, Mipmapping, 0, msaa);
 	}
 
-	void Texture::SetAnysotropy(const uint32 Anysotropic)
-	{
-
-#if !defined(GLES2) && !defined(GLES3)
-
-		// bind
-		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
-
-		this->Anysotropic = Anysotropic;
-
-		if (Anysotropic > 0)
-		{
-			f32 AnysotropicMax;
-			GLCHECKER(glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &AnysotropicMax));
-			if (AnysotropicMax > Anysotropic) {
-				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MAX_ANISOTROPY_EXT, Anysotropic));
-			}
-			else if (AnysotropicMax > 0)
-				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MAX_ANISOTROPY_EXT, (GLint)AnysotropicMax));
-		}
-		else {
-			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MAX_ANISOTROPY_EXT, 0));
-		}
-
-		// unbind
-		GLCHECKER(glBindTexture(GLSubMode, 0));
-#endif
-
-	}
-
 	void Texture::SetRepeat(const uint32 WrapS, const uint32 WrapT, const int32 WrapR)
 	{
 
@@ -485,9 +415,6 @@ namespace p3d {
 		case TextureRepeat::ClampToBorder:
 			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER));
 			break;
-		case TextureRepeat::Clamp:
-			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_CLAMP));
-			break;
 		case TextureRepeat::Repeat:
 		default:
 			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_REPEAT));
@@ -513,9 +440,6 @@ namespace p3d {
 		case TextureRepeat::ClampToBorder:
 			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER));
 			break;
-		case TextureRepeat::Clamp:
-			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_CLAMP));
-			break;
 		case TextureRepeat::Repeat:
 		default:
 			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_REPEAT));
@@ -533,9 +457,6 @@ namespace p3d {
 				break;
 			case TextureRepeat::ClampToBorder:
 				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER));
-				break;
-			case TextureRepeat::Clamp:
-				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_R, GL_CLAMP));
 				break;
 			case TextureRepeat::Repeat:
 			default:
@@ -612,7 +533,7 @@ namespace p3d {
 		GLCHECKER(glBindTexture(GLSubMode, 0));
 
 	}
-
+	
 	void Texture::EnableCompareMode()
 	{
 #if !defined(GLES2) and !defined(GLES3)
@@ -624,10 +545,8 @@ namespace p3d {
 		GLCHECKER(glTexParameterfv(GLSubMode, GL_TEXTURE_BORDER_COLOR, l_ClampColor));
 
 		// This is to allow usage of shadow2DProj function in the shader
-		GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_R_TO_TEXTURE));
+		GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE));
 		GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL));
-		// glTexParameteri(GLSubMode, GL_DEPTH_TEXTURE_MODE, GL_INTENSITY); // Not used Anymore
-		GLCHECKER(glTexParameteri(GLSubMode, GL_DEPTH_TEXTURE_MODE, GL_LUMINANCE));
 
 		// Unbind
 		GLCHECKER(glBindTexture(GLSubMode, 0));
@@ -663,12 +582,8 @@ namespace p3d {
 #if defined(GLES2) || defined(GLES3)
 			GLCHECKER(glGenerateMipmap(GLSubMode));
 #else
-#if defined(GLEW_VERSION_2_1)
 
 			GLCHECKER(glGenerateMipmap(GLSubMode));
-#else
-			GLCHECKER(gluBuild2DMipmaps(GLSubMode, internalFormat, Width, Height, internalFormat2, internalFormat3, NULL));
-#endif
 #endif
 		}
 
@@ -709,14 +624,7 @@ namespace p3d {
 #if defined(GLES2) || defined(GLES3)
 			GLCHECKER(glGenerateMipmap(GLSubMode));
 #else
-			if (GLEW_VERSION_2_1)
-			{
-				GLCHECKER(glGenerateMipmap(GLSubMode));
-			}
-			else {
-				// No way for old stupid devices without uploading texture again
-				//GLCHECKER(gluBuild2DMipmaps(GLSubMode, internalFormat, Width[0], Height[0], internalFormat2, internalFormat3, (haveImage == false ? NULL : &pixels[0][0]))); // its 0 hardcoded because otherwise there won't mipmaps created on the fly
-			}
+			GLCHECKER(glGenerateMipmap(GLSubMode));
 #endif            
 			// unbind
 			GLCHECKER(glBindTexture(GLSubMode, 0));
@@ -844,9 +752,6 @@ namespace p3d {
 		case GL_R8:
 			pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 4);
 			break;
-		case GL_ALPHA:
-			pixels.resize(sizeof(uchar)*Width[level] * Height[level]);
-			break;
 		default:
 			pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 4);
 			break;
@@ -859,154 +764,5 @@ namespace p3d {
 		return pixels;
 	}
 
-#if !defined(GLES2) && !defined(GLES3)
-	bool Texture::LoadDDS(uchar* data, bool Mipmapping, const uint32 level)
-	{
-
-#define FOURCC_DXT1 0x31545844 // Equivalent to "DXT1" in ASCII
-#define FOURCC_DXT3 0x33545844 // Equivalent to "DXT3" in ASCII
-#define FOURCC_DXT5 0x35545844 // Equivalent to "DXT5" in ASCII
-
-		uint32 w, h, mipMapCount;
-
-		h = *(unsigned int*)&(data[12]);
-		w = *(unsigned int*)&(data[16]);
-		mipMapCount = *(unsigned int*)&(data[28]);
-		uint32 fourCC = *(unsigned int*)&(data[84]);
-		uint32 format = GL_COMPRESSED_RGBA_S3TC_DXT1_EXT;
-
-		switch (fourCC)
-		{
-		case FOURCC_DXT1:
-			format = GL_COMPRESSED_RGBA_S3TC_DXT1_EXT;
-			break;
-		case FOURCC_DXT3:
-			format = GL_COMPRESSED_RGBA_S3TC_DXT3_EXT;
-			break;
-		case FOURCC_DXT5:
-			format = GL_COMPRESSED_RGBA_S3TC_DXT5_EXT;
-			this->DataType = TextureDataType::RGB;
-			break;
-		}
-
-		GetGLModes();
-		GetInternalFormat();
-
-		Bind();
-
-		this->haveImage = true;
-		this->Transparency = TextureTransparency::Opaque;
-
-		uint32 blockSize = (format == GL_COMPRESSED_RGBA_S3TC_DXT1_EXT) ? 8 : 16;
-		uint32 offset = 124 + 4;
-
-		if (this->Width.size() < mipMapCount)
-		{
-			this->Width.resize(mipMapCount);
-			this->Height.resize(mipMapCount);
-		}
-
-		if (mipMapCount == 1 && !Mipmapping)
-		{
-			uint32 size = ((w + 3) / 4) * ((h + 3) / 4) * blockSize;
-			GLCHECKER(glCompressedTexImage2D(GL_TEXTURE_2D, level, format, w, h, 0, size, &data[offset]));
-			this->Width[level] = w;
-			this->Height[level] = h;
-
-			offset += size;
-			w = (uint32)Max(1, w * 0.5f);
-			h = (uint32)Max(1, h * 0.5f);
-		}
-		else {
-			for (uint32 lvl = 0; lvl < mipMapCount && (w || h); ++lvl)
-			{
-				uint32 size = ((w + 3) / 4) * ((h + 3) / 4) * blockSize;
-
-				GLCHECKER(glCompressedTexImage2D(GL_TEXTURE_2D, lvl, format, w, h, 0, size, &data[offset]));
-				this->Width[lvl] = w;
-				this->Height[lvl] = h;
-
-				offset += size;
-				w = (uint32)Max(1, w * 0.5f);
-				h = (uint32)Max(1, h * 0.5f);
-			}
-		}
-
-		if (mipMapCount == 1 && Mipmapping)
-			GLCHECKER(glGenerateMipmap(GLSubMode));
-
-		Unbind();
-
-		// default values
-		SetRepeat(TextureRepeat::Repeat, TextureRepeat::Repeat);
-		SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
-
-		return true;
-	}
-
-#else
-
-	uint16 Texture::swapBytes(uint16 aData)
-	{
-		return (aData << 8) | (aData >> 8);
-	}
-
-	bool Texture::LoadETC1(uchar* data, bool Mipmapping, const uint32 level)
-	{
-#if defined(EMSCRIPTEN)
-		return false;
-#else
-/*
-		uint16 r, w, h, mipMapCount;
-		uint16 extWidth, extHeight;
-
-		memcpy(&r, &data[8], 2);
-		extWidth = swapBytes(r);
-		memcpy(&r, &data[10], 2);
-		extHeight = swapBytes(r);
-		memcpy(&r, &data[12], 2);
-		w = swapBytes(r);
-		memcpy(&r, &data[14], 2);
-		h = swapBytes(r);
-
-		Bind();
-
-		this->haveImage = true;
-		this->Transparency = TextureTransparency::Opaque;
-
-		GetGLModes();
-		GetInternalFormat();
-
-		uint32 size = ((extWidth >> 2) * (extHeight >> 2)) << 3;
-
-		GLCHECKER(glCompressedTexImage2D(GL_TEXTURE_2D, 0, GL_ETC1_RGB8_OES, extWidth, extHeight, 0, size, &data[16]));
-
-		if (this->Width.size() < level + 1)
-		{
-			this->Width.resize(level + 1);
-			this->Height.resize(level + 1);
-		}
-
-		this->Width[level] = extWidth;
-		this->Height[level] = extHeight;
-
-		if (Mipmapping)
-			GLCHECKER(glGenerateMipmap(GLSubMode));
-
-		Unbind();
-
-		// default values
-		SetRepeat(TextureRepeat::Repeat, TextureRepeat::Repeat);
-		SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
-
-		return true;
-		*/
-
-		return false;
-
-		// removed since is not ES 2.0 standard
-#endif
-	}
-#endif
 
 }

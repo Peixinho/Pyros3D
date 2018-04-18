@@ -19,7 +19,7 @@ namespace p3d {
 		this->font = font;
 		this->Initialized = false;
 
-		geometry = new TextGeometry(DynamicText);
+		geometry = new TextGeometry();
 
 		// Generate Font
 		font->CreateText(text);
@@ -34,7 +34,7 @@ namespace p3d {
 		this->font = font;
 		this->Initialized = false;
 
-		geometry = new TextGeometry(DynamicText);
+		geometry = new TextGeometry();
 
 		// Generate Font
 		font->CreateText(text);
@@ -234,20 +234,9 @@ namespace p3d {
 				}
 			}
 
-			if (geometry->GetGeometryType() == GeometryType::ARRAY)
-			{
-				// Update Vertex Attributes Using Vertex Arrays Only
-				geometry->Attributes[0]->Attributes[0]->Data.resize(geometry->tVertex.size());
-				geometry->Attributes[0]->Attributes[1]->Data.resize(geometry->tVertex.size());
-				geometry->Attributes[0]->Attributes[2]->Data.resize(geometry->tVertex.size());
-				memcpy(&geometry->Attributes[0]->Attributes[0]->Data[0], &geometry->tVertex[0], geometry->tVertex.size());
-				memcpy(&geometry->Attributes[0]->Attributes[1]->Data[0], &geometry->tNormal[0], geometry->tVertex.size());
-				memcpy(&geometry->Attributes[0]->Attributes[2]->Data[0], &geometry->tTexcoord[0], geometry->tVertex.size());
-			}
-			else {
-				// ReBuild and Send Buffers (VBOS)
-				Build();
-			}
+			// ReBuild and Send Buffers (VBOS)
+			Build();
+		
 		}
 	}
 

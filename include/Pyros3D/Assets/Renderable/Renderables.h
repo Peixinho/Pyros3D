@@ -199,21 +199,11 @@ namespace p3d {
 		}
 	};
 
-	namespace GeometryType {
-		enum {
-			BUFFER = 0,
-			ARRAY
-		};
-	};
-
 	// Geometry Interface Keeps Index and Attributes Buffer
 	// Creates a Simple Material Properties
 	class PYROS3D_API IGeometry {
 
 	public:
-
-		// Store Geometry Type [ Buffer or Array ]
-		uint32 Type;
 
 		// Index Data
 		std::vector<__INDEX_C_TYPE__> index;
@@ -224,13 +214,10 @@ namespace p3d {
 		// Attributes Buffer
 		std::vector<AttributeArray*> Attributes;
 
-		IGeometry(const uint32 Type = GeometryType::BUFFER) {
+		IGeometry() {
 
 			// Internal ID
 			ID = _InternalID++;
-
-			// Save Type
-			this->Type = Type;
 		}
 
 		virtual ~IGeometry() {}
@@ -249,30 +236,24 @@ namespace p3d {
 
 		virtual void CalculateBounding() = 0;
 
-		const uint32 &GetGeometryType() const { return Type; }
-
 		virtual void SendBuffers()
 		{
-			if (Type == GeometryType::BUFFER)
-			{
-				// create and send index buffer
-				IndexBuffer = new GeometryBuffer(Buffer::Type::Index, Buffer::Draw::Static);
-				IndexBuffer->Init(&index[0], sizeof(__INDEX_C_TYPE__)*index.size());
+			// create and send index buffer
+			IndexBuffer = new GeometryBuffer(Buffer::Type::Index, Buffer::Draw::Static);
+			IndexBuffer->Init(&index[0], sizeof(__INDEX_C_TYPE__)*index.size());
 
-				// send attribute buffers
-				for (std::vector<AttributeArray*>::iterator i = Attributes.begin(); i != Attributes.end(); i++)
-				{
-					AttributeBuffer* bf = (AttributeBuffer*)(*i);
-					bf->SendBuffer();
-				}
+			// send attribute buffers
+			for (std::vector<AttributeArray*>::iterator i = Attributes.begin(); i != Attributes.end(); i++)
+			{
+				AttributeBuffer* bf = (AttributeBuffer*)(*i);
+				bf->SendBuffer();
 			}
 		}
 
 		virtual void Dispose()
 		{
 			// Delete Index Buffer
-			if (Type == GeometryType::BUFFER)
-				delete IndexBuffer;
+			delete IndexBuffer;
 			// Loop Through Attributes Buffer and Delete Each One
 			for (std::vector<AttributeArray*>::iterator i = Attributes.begin(); i != Attributes.end(); i++)
 			{

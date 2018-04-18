@@ -1,21 +1,21 @@
 //============================================================================
-// Name        : LOD_example.cpp
+// Name        : LOD_Example.cpp
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
 // Description : LOD Example
 //============================================================================
 
-#include "LOD_example.h"
+#include "LOD_Example.h"
 
 using namespace p3d;
 
-LOD_example::LOD_example() : ClassName(1024, 768, "Pyros3D - LOD Example", WindowType::Close | WindowType::Resize)
+LOD_Example::LOD_Example() : ClassName(1024, 768, "Pyros3D - LOD Example", WindowType::Close | WindowType::Resize)
 {
 
 }
 
-void LOD_example::OnResize(const uint32 width, const uint32 height)
+void LOD_Example::OnResize(const uint32 width, const uint32 height)
 {
 	// Execute Parent Resize Function
 	ClassName::OnResize(width, height);
@@ -29,7 +29,7 @@ void LOD_example::OnResize(const uint32 width, const uint32 height)
 	mouseLastPosition = mouseCenter;
 }
 
-void LOD_example::Init()
+void LOD_Example::Init()
 {
 	// Initialization
 
@@ -72,25 +72,25 @@ void LOD_example::Init()
 	counterX = counterY = 0.f;
 
 	// Input
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &LOD_example::MoveFrontPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::S, this, &LOD_example::MoveBackPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::A, this, &LOD_example::StrafeLeftPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::D, this, &LOD_example::StrafeRightPress);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::W, this, &LOD_example::MoveFrontRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::S, this, &LOD_example::MoveBackRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &LOD_example::StrafeLeftRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &LOD_example::StrafeRightRelease);
-	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &LOD_example::LookTo);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Mouse::Left, this, &LOD_example::OnMouseRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Mouse::Right, this, &LOD_example::AddTeapot);
+	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &LOD_Example::MoveFrontPress);
+	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::S, this, &LOD_Example::MoveBackPress);
+	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::A, this, &LOD_Example::StrafeLeftPress);
+	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::D, this, &LOD_Example::StrafeRightPress);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::W, this, &LOD_Example::MoveFrontRelease);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::S, this, &LOD_Example::MoveBackRelease);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &LOD_Example::StrafeLeftRelease);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &LOD_Example::StrafeRightRelease);
+	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &LOD_Example::LookTo);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Mouse::Left, this, &LOD_Example::OnMouseRelease);
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Mouse::Right, this, &LOD_Example::AddTeapot);
 
 	_strafeLeft = _strafeRight = _moveBack = _moveFront = 0;
 	HideMouse();
 
 	// Load Teapot LODS
-	teapotLOD1Handle = new Model("../examples/LOD_example/assets/teapots/teapotLOD1.p3dm", false);
-	teapotLOD2Handle = new Model("../examples/LOD_example/assets/teapots/teapotLOD2.p3dm", false);
-	teapotLOD3Handle = new Model("../examples/LOD_example/assets/teapots/teapotLOD3.p3dm", false);
+	teapotLOD1Handle = new Model("../examples/LOD_Example/assets/teapots/teapotLOD1.p3dm", false);
+	teapotLOD2Handle = new Model("../examples/LOD_Example/assets/teapots/teapotLOD2.p3dm", false);
+	teapotLOD3Handle = new Model("../examples/LOD_Example/assets/teapots/teapotLOD3.p3dm", false);
 
 	// Create Teapots and Add LODS
 	for (int i = 0; i < TEAPOTS; i++)
@@ -123,7 +123,7 @@ void LOD_example::Init()
 	octree->BuildOctree(Scene->GetMinBounds(), Scene->GetMaxBounds(), Scene->GetAllGameObjectList(), 10);
 }
 
-void LOD_example::Update()
+void LOD_Example::Update()
 {
 	// Update - Game Loop
 
@@ -161,7 +161,7 @@ void LOD_example::Update()
 
 }
 
-void LOD_example::Shutdown()
+void LOD_Example::Shutdown()
 {
 	// All your Shutdown Code Here
 
@@ -193,41 +193,41 @@ void LOD_example::Shutdown()
 	delete Scene;
 }
 
-LOD_example::~LOD_example() {}
+LOD_Example::~LOD_Example() {}
 
-void LOD_example::MoveFrontPress(Event::Input::Info e)
+void LOD_Example::MoveFrontPress(Event::Input::Info e)
 {
 	_moveFront = true;
 }
-void LOD_example::MoveBackPress(Event::Input::Info e)
+void LOD_Example::MoveBackPress(Event::Input::Info e)
 {
 	_moveBack = true;
 }
-void LOD_example::StrafeLeftPress(Event::Input::Info e)
+void LOD_Example::StrafeLeftPress(Event::Input::Info e)
 {
 	_strafeLeft = true;
 }
-void LOD_example::StrafeRightPress(Event::Input::Info e)
+void LOD_Example::StrafeRightPress(Event::Input::Info e)
 {
 	_strafeRight = true;
 }
-void LOD_example::MoveFrontRelease(Event::Input::Info e)
+void LOD_Example::MoveFrontRelease(Event::Input::Info e)
 {
 	_moveFront = false;
 }
-void LOD_example::MoveBackRelease(Event::Input::Info e)
+void LOD_Example::MoveBackRelease(Event::Input::Info e)
 {
 	_moveBack = false;
 }
-void LOD_example::StrafeLeftRelease(Event::Input::Info e)
+void LOD_Example::StrafeLeftRelease(Event::Input::Info e)
 {
 	_strafeLeft = false;
 }
-void LOD_example::StrafeRightRelease(Event::Input::Info e)
+void LOD_Example::StrafeRightRelease(Event::Input::Info e)
 {
 	_strafeRight = false;
 }
-void LOD_example::OnMouseRelease(Event::Input::Info e)
+void LOD_Example::OnMouseRelease(Event::Input::Info e)
 {
 
 	/*if (!generatedOctree) {
@@ -257,7 +257,7 @@ void LOD_example::OnMouseRelease(Event::Input::Info e)
 		octree->Remove(Teapots[i]);
 	}*/
 }
-void LOD_example::AddTeapot(Event::Input::Info e)
+void LOD_Example::AddTeapot(Event::Input::Info e)
 {
 	for (int i = 0; i < 11; i++)
 	{
@@ -283,7 +283,7 @@ void LOD_example::AddTeapot(Event::Input::Info e)
 
 	}
 }
-void LOD_example::LookTo(Event::Input::Info e)
+void LOD_Example::LookTo(Event::Input::Info e)
 {
 	if (mouseCenter != GetMousePosition())
 	{

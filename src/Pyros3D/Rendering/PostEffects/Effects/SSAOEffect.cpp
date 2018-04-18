@@ -28,15 +28,34 @@ namespace p3d {
 			noise[i].z = 0.0f;
 			noise[i].normalize();
 		}
-		rnm->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGB, 4, 4, false);
+		rnm->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGB8, 4, 4, false);
 		rnm->UpdateData(&noise[0]);
 		rnm->SetRepeat(TextureRepeat::Repeat, TextureRepeat::Repeat);
 		UseCustomTexture(rnm);
 
 		// Create Fragment Shader
 		FragmentShaderString =
-								#if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)
-								"precision mediump float;\n"
+								#if defined(GLES2)
+									"#define varying_in varying\n"
+									"#define varying_out varying\n"
+									"#define attribute_in attribute\n"
+									"#define texture_2D texture2D\n"
+									"#define texture_cube textureCube\n"
+									"precision mediump float;\n"
+								#else
+									"#define varying_in in\n"
+									"#define varying_out out\n"
+									"#define attribute_in in\n"
+									"#define texture_2D texture\n"
+									"#define texture_cube texture\n"
+									#if defined(GLES3)
+										"precision mediump float;\n"
+									#endif
+								#endif
+								#if defined(GLES2)
+									"vec4 FragColor;\n"
+								#else
+									"out vec4 FragColor;\n"
 								#endif
 								"uniform sampler2D uTex0;\n"
 								"uniform sampler2D uTex1;\n"
@@ -47,7 +66,7 @@ namespace p3d {
 								"uniform float uRadius;\n"
 								"uniform float uScale;\n"
 								"uniform float uTreshOld;\n"
-								"varying vec2 vTexcoord;\n"
+								"varying_in vec2 vTexcoord;\n"
 								"uniform mat4 matProj;\n"
 								"uniform mat4 uInverseView;\n"
 								"uniform mat4 uView;\n"
@@ -111,18 +130,18 @@ namespace p3d {
 								"	vec4 out_dim = vec4(uScreen.x, uScreen.y, 1.0/uScreen.x, 1.0/uScreen.y);\n"
 								"	vec2 screenCoord = vec2(uScreen.x*vTexcoord.x, uScreen.y*vTexcoord.y);\n"
 								"\n"
-								" 	getPosViewSpace(texture2D(uTex0, vTexcoord).r, screenCoord, z_info, v1, matProj, ssao_vp);\n"
-								"    getPosViewSpace(texture2D(uTex0, vTexcoord + vec2(out_dim.z, 0)).r, screenCoord + vec2(1, 0), z_info, v2, matProj, ssao_vp);\n"
-								"    getPosViewSpace(texture2D(uTex0, vTexcoord + vec2(0,out_dim.w)).r, screenCoord + vec2(0, 1), z_info, v3, matProj, ssao_vp);\n"
+								" 	getPosViewSpace(texture_2D(uTex0, vTexcoord).r, screenCoord, z_info, v1, matProj, ssao_vp);\n"
+								"    getPosViewSpace(texture_2D(uTex0, vTexcoord + vec2(out_dim.z, 0)).r, screenCoord + vec2(1, 0), z_info, v2, matProj, ssao_vp);\n"
+								"    getPosViewSpace(texture_2D(uTex0, vTexcoord + vec2(0,out_dim.w)).r, screenCoord + vec2(0, 1), z_info, v3, matProj, ssao_vp);\n"
 								"	vec3 vViewNormal = normalize(cross(v1 - v2, v1 - v3));\n"
 								"\n"
 								"	vec4 vs_position = vec4(v1, 1.0);\n"
 								"	vec4 ws_position = uInverseView * vec4(v1, 1.0);\n"
 								"	vec4 cs_position = matProj * vec4(v1, 1.0);\n"
 								"\n"
-								"	float depth = texture2D(uTex0, vTexcoord.xy).r;\n"
+								"	float depth = texture_2D(uTex0, vTexcoord.xy).r;\n"
 								"	vec3 normal = vViewNormal;\n"
-								"	vec3 rvec = vec3(texture2D(uTex1, (ws_position.xy + ws_position.z) * uScale).xy * 2.0 - 1.0, 0.0);\n"
+								"	vec3 rvec = vec3(texture_2D(uTex1, (ws_position.xy + ws_position.z) * uScale).xy * 2.0 - 1.0, 0.0);\n"
 								"	vec3 tangent = normalize(rvec - normal * dot(rvec, normal));\n"
 								"	vec3 bitangent = cross(normal, tangent);\n"
 								"	mat3 TBN = mat3(tangent, bitangent, normal);\n"
@@ -139,7 +158,7 @@ namespace p3d {
 								"		offset.xy /= offset.w;\n"
 								"		offset.xy = offset.xy * 0.5 + 0.5;\n"
 								"		\n"
-								"		float sampleDepth = texture2D(uTex0, offset.xy).r;\n"
+								"		float sampleDepth = texture_2D(uTex0, offset.xy).r;\n"
 								"		float zz = DecodeNativeDepth(sampleDepth, z_info);\n"
 								"		//bool inside_wall = DecodeNativeDepth(sampleDepth, z_info) < -orig_offset;\n"
 								"\n"
@@ -148,7 +167,10 @@ namespace p3d {
 								"		\n"
 								"	}\n"
 								"	float ao = (1.0 - (occlusion / float(samples)) * total_strength);\n"
-								"	gl_FragColor = vec4(ao);\n"
+								"	FragColor = vec4(ao);\n"
+									#if defined(GLES2)
+								"gl_FragColor = FragColor;\n"
+									#endif
 								"}";
 
 		CompileShaders();

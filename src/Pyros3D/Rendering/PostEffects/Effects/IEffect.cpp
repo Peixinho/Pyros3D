@@ -22,15 +22,27 @@ namespace p3d {
         // Set Vertex Shader
         // Because its always the same
         VertexShaderString =  
-                                #if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)
-                                "precision mediump float;\n"
-                                #endif
-                                "attribute vec3 aPosition;\n"
-                                "attribute vec2 aTexcoord;\n"
-                                "varying vec2 vTexcoord;\n"
+								#if defined(GLES2)
+									"#define varying_in varying\n"
+									"#define varying_out varying\n"
+									"#define attribute_in attribute\n"
+									"#define texture_2D texture2D\n"
+									"#define texture_cube textureCube\n"
+									"precision mediump float;"
+								#else
+									"#define varying_in in\n"
+									"#define varying_out out\n"
+									"#define attribute_in in\n"
+									"#define texture_2D texture\n"
+									"#define texture_cube texture\n"
+									#if defined(GLES3)
+										"precision mediump float;\n"
+									#endif
+								#endif
+                                "varying_out vec2 vTexcoord;\n"
                                 "void main() {\n"
-                                    "gl_Position = vec4(aPosition,1.0);\n"
-                                    "vTexcoord = aTexcoord;\n"
+                                    "gl_Position = vec4(-1.0 + vec2((gl_VertexID & 1) << 2, (gl_VertexID & 2) << 1), 0.0, 1.0);\n"
+									"vTexcoord = (gl_Position.xy+1.0)*0.5;\n"
                                 "}\n";
         
         // Reset

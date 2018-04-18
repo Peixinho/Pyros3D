@@ -122,11 +122,13 @@ namespace p3d {
 		}
 		
 		if (points.size() > 0) {
+			/*			
 			GLCHECKER(glEnable(GL_POINT_SPRITE));
 			GLCHECKER(glEnable(GL_VERTEX_PROGRAM_POINT_SIZE));
 			GLCHECKER(glDrawArrays(GL_POINTS, 0, points.size()));
 			GLCHECKER(glDisable(GL_VERTEX_PROGRAM_POINT_SIZE));
 			GLCHECKER(glDisable(GL_POINT_SPRITE));
+			*/
 		}
 
 		// Disable Attributes

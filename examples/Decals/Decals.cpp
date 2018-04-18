@@ -62,7 +62,7 @@ void Decals::Init()
 
 	decalMaterial = new GenericShaderMaterial(ShaderUsage::Texture);
 	Texture* texture = new Texture();
-	texture->LoadTexture("../examples/Decals/assets/Texture.DDS", TextureType::Texture);
+	texture->LoadTexture("../examples/Decals/assets/Texture.png", TextureType::Texture);
 	decalMaterial->SetColorMap(texture);
 	decalMaterial->SetTransparencyFlag(true);
 	decalMaterial->EnableDethBias(-4, -4);

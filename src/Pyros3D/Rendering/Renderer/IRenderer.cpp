@@ -251,7 +251,7 @@ namespace p3d {
 						// Bind FBO
 						d->GetShadowFBO()->Bind();
 
-#if defined(GLES2) || defined(GLLEGACY)
+#if defined(GLES2) 
 						ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
 #else
 						ClearBufferBit(Buffer_Bit::Depth);
@@ -365,7 +365,7 @@ namespace p3d {
 							// Update Culling
 							UpdateCulling(ShadowProjection.m*ViewMatrix);
 
-#if defined(GLES2) || defined(GLLEGACY)
+#if defined(GLES2)
 							// Regular Shadows
 							p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::CubemapPositive_X + i, p->GetShadowMapTexture());
 #else
@@ -373,7 +373,7 @@ namespace p3d {
 							p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::CubemapPositive_X + i, p->GetShadowMapTexture());
 #endif
 
-#if defined(GLES2) || defined(GLLEGACY)
+#if defined(GLES2)
 							ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
 #else
 							ClearBufferBit(Buffer_Bit::Depth);
@@ -470,7 +470,7 @@ namespace p3d {
 						// Update Culling
 						UpdateCulling(ShadowProjection.m*ViewMatrix);
 
-#if defined(GLES2) || defined(GLLEGACY)
+#if defined(GLES2)
 						ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
 #else
 						ClearBufferBit(Buffer_Bit::Depth);
@@ -552,6 +552,13 @@ namespace p3d {
 		cullFace = -1;
 		depthWritting = true;
 		DepthWrite();
+
+
+		#ifndef GLES2
+			GLuint vao=0;
+			glGenVertexArrays(1,&vao);
+			glBindVertexArray(vao);
+		#endif	
 	}
 
 	void IRenderer::EndRender()
@@ -559,8 +566,7 @@ namespace p3d {
 		if (LastMeshRenderedPTR != NULL && LastMaterialPTR != NULL)
 		{
 			// Unbind Index Buffer
-			if (LastMeshRenderedPTR->Geometry->GetGeometryType() == GeometryType::BUFFER)
-				GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
+			GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
 			// Unbind Vertex Attributes
 			UnbindMesh(LastMeshRenderedPTR, LastMaterialPTR);
 			// Unbind Shadow Maps
@@ -602,11 +608,10 @@ namespace p3d {
 		ModelViewProjectionMatrixInverseIsDirty = true;
 		ViewProjectionMatrixInverseIsDirty = true;
 
-		if ((LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material || LastMeshRenderedPTR->Geometry->GetGeometryType() == GeometryType::ARRAY) && LastProgramUsed != -1)
+		if ((LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material) && LastProgramUsed != -1)
 		{
 			// Unbind Index Buffer
-			if (LastMeshRenderedPTR->Geometry->GetGeometryType() == GeometryType::BUFFER)
-				GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
+			GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
 			// Unbind Mesh
 			UnbindMesh(LastMeshRenderedPTR, LastMaterialPTR);
 			// Material Stuff After Render
@@ -616,7 +621,7 @@ namespace p3d {
 		}
 		if (LastProgramUsed != Material->GetShader()) GLCHECKER(glUseProgram(Material->GetShader()));
 
-		if (LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material || LastMeshRenderedPTR->Geometry->GetGeometryType() == GeometryType::ARRAY)
+		if (LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material)
 		{
 			// Bind Mesh
 			BindMesh(rmesh, Material);
@@ -637,8 +642,7 @@ namespace p3d {
 				EnableDepthBias(Vec2(Material->depthFactor, Material->depthUnits));
 
 			// Bind Index Buffer
-			if (rmesh->Geometry->GetGeometryType() == GeometryType::BUFFER)
-				GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, rmesh->Geometry->IndexBuffer->ID));
+			GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, rmesh->Geometry->IndexBuffer->ID));
 		}
 
 		// Check double sided
@@ -689,14 +693,6 @@ namespace p3d {
 			case DrawingType::Lines:
 				DrawType = GL_LINES;
 				break;
-#if !defined(GLES2) && !defined(GLES3)
-			case DrawingType::Polygons:
-				DrawType = GL_POLYGON;
-				break;
-			case DrawingType::Quads:
-				DrawType = GL_QUADS;
-				break;
-#endif
 			case DrawingType::Points:
 				DrawType = GL_POINTS;
 				break;
@@ -766,39 +762,19 @@ namespace p3d {
 		else if (blending && (!Material->IsTransparent() || !Material->blending)) DisableBlending();
 
 		// Draw
-		if (rmesh->Geometry->GetGeometryType() == GeometryType::BUFFER)
-		{
-			#if !defined(GLES2) && !defined(GLES3) && !defined(GLLEGACY)	
-				if (rmesh->renderingComponent->IsInstanced())
-				{
-					GLCHECKER(glDrawElementsInstanced(DrawType, rmesh->Geometry->GetIndexData().size(), __INDEX_TYPE__, BUFFER_OFFSET(0), ((IRenderingInstancedComponent*)rmesh->renderingComponent)->NumberOfInstances()));
-				}
-				else {
-					GLCHECKER(glDrawElements(DrawType, rmesh->Geometry->GetIndexData().size(), __INDEX_TYPE__, BUFFER_OFFSET(0)));
-				}
-			#else
-
+		#if !defined(GLES2) && !defined(GLES3) 
+			if (rmesh->renderingComponent->IsInstanced())
+			{
+				GLCHECKER(glDrawElementsInstanced(DrawType, rmesh->Geometry->GetIndexData().size(), __INDEX_TYPE__, BUFFER_OFFSET(0), ((IRenderingInstancedComponent*)rmesh->renderingComponent)->NumberOfInstances()));
+			}
+			else {
 				GLCHECKER(glDrawElements(DrawType, rmesh->Geometry->GetIndexData().size(), __INDEX_TYPE__, BUFFER_OFFSET(0)));
+			}
+		#else
 
-			#endif
-		}
-		else {
-			#if !defined(GLES2) && !defined(GLES3) && !defined(GLLEGACY)
+			GLCHECKER(glDrawElements(DrawType, rmesh->Geometry->GetIndexData().size(), __INDEX_TYPE__, BUFFER_OFFSET(0)));
 
-				if (rmesh->renderingComponent->IsInstanced())
-				{
-					GLCHECKER(glDrawElementsInstanced(DrawType, rmesh->Geometry->GetIndexData().size(), __INDEX_TYPE__, &rmesh->Geometry->index[0], ((IRenderingInstancedComponent*)rmesh->renderingComponent)->NumberOfInstances()));
-				}
-				else {
-					GLCHECKER(glDrawElements(DrawType, rmesh->Geometry->GetIndexData().size(), __INDEX_TYPE__, &rmesh->Geometry->index[0]));
-				}
-
-			#else 
-
-				GLCHECKER(glDrawElements(DrawType, rmesh->Geometry->GetIndexData().size(), __INDEX_TYPE__, &rmesh->Geometry->index[0]));
-
-			#endif
-		}
+		#endif
 
 		// Save Last Material and Mesh
 		LastProgramUsed = Material->GetShader();
@@ -1719,8 +1695,7 @@ namespace p3d {
 				}
 				counterBuffers++;
 			}
-			if (rmesh->Geometry->GetGeometryType() == GeometryType::BUFFER)
-				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, 0));
+			GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, 0));
 		}
 	}
 
@@ -1780,193 +1755,103 @@ namespace p3d {
 		// Check if custom Attributes exists
 		if (rmesh->Geometry->Attributes.size() > 0)
 		{
-			if (rmesh->Geometry->GetGeometryType() == GeometryType::BUFFER)
+			// VBO
+			uint32 counterBuffers = 0;
+			for (std::vector<AttributeArray*>::iterator k = rmesh->Geometry->Attributes.begin(); k != rmesh->Geometry->Attributes.end(); k++)
 			{
 
-				// VBO
-				uint32 counterBuffers = 0;
-				for (std::vector<AttributeArray*>::iterator k = rmesh->Geometry->Attributes.begin(); k != rmesh->Geometry->Attributes.end(); k++)
+				AttributeBuffer* bf = (AttributeBuffer*)(*k);
+
+				// Bind VAO
+				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, bf->Buffer->ID));
+
+				// Get Struct Data
+				if (bf->attributeSize == 0)
 				{
-
-					AttributeBuffer* bf = (AttributeBuffer*)(*k);
-
-					// Bind VAO
-					GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, bf->Buffer->ID));
-
-					// Get Struct Data
-					if (bf->attributeSize == 0)
-					{
-						for (std::vector<VertexAttribute*>::iterator l = (*k)->Attributes.begin(); l != (*k)->Attributes.end(); l++)
-						{
-							bf->attributeSize += (*l)->byteSize;
-						}
-					}
-
-					// Counter
-					uint32 counter = 0;
-					std::vector< std::vector<int32> >* _ShadersAttributesCache = &rmesh->ShadersAttributesCache[material->GetShader()];
 					for (std::vector<VertexAttribute*>::iterator l = (*k)->Attributes.begin(); l != (*k)->Attributes.end(); l++)
 					{
-						// Check if is not set
-						if ((*_ShadersAttributesCache)[counterBuffers][counter] == -2)
-						{
-							// set VAO ID
-							(*_ShadersAttributesCache)[counterBuffers][counter] = Shader::GetAttributeLocation(material->GetShader(), (*l)->Name);
+						bf->attributeSize += (*l)->byteSize;
+					}
+				}
 
+				// Counter
+				uint32 counter = 0;
+				std::vector< std::vector<int32> >* _ShadersAttributesCache = &rmesh->ShadersAttributesCache[material->GetShader()];
+				for (std::vector<VertexAttribute*>::iterator l = (*k)->Attributes.begin(); l != (*k)->Attributes.end(); l++)
+				{
+					// Check if is not set
+					if ((*_ShadersAttributesCache)[counterBuffers][counter] == -2)
+					{
+						// set VAO ID
+						(*_ShadersAttributesCache)[counterBuffers][counter] = Shader::GetAttributeLocation(material->GetShader(), (*l)->Name);
+
+					}
+					// If exists in shader
+					if ((*_ShadersAttributesCache)[counterBuffers][counter] >= 0)
+					{
+						// Enable Attribute
+						GLCHECKER(glEnableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]));
+						if ((*l)->Type==Buffer::Attribute::Type::Matrix)
+						{
+							GLCHECKER(glEnableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]+1));
+							GLCHECKER(glEnableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]+2));
+							GLCHECKER(glEnableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]+3));
 						}
-						// If exists in shader
-						if ((*_ShadersAttributesCache)[counterBuffers][counter] >= 0)
-						{
-							// Enable Attribute
-							GLCHECKER(glEnableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]));
-							if ((*l)->Type==Buffer::Attribute::Type::Matrix)
-							{
-								GLCHECKER(glEnableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]+1));
-								GLCHECKER(glEnableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]+2));
-								GLCHECKER(glEnableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]+3));
-							}
 
-							AttributeBuffer* bf = (AttributeBuffer*)(*k);
+						AttributeBuffer* bf = (AttributeBuffer*)(*k);
+						GLCHECKER(glVertexAttribPointer(
+							(*_ShadersAttributesCache)[counterBuffers][counter],
+							Buffer::Attribute::GetTypeCount((*l)->Type),
+							Buffer::Attribute::GetType((*l)->Type),
+							GL_FALSE,
+							bf->attributeSize,
+							BUFFER_OFFSET((*l)->Offset)
+						));
+						if ((*l)->Type==Buffer::Attribute::Type::Matrix)
+						{
 							GLCHECKER(glVertexAttribPointer(
-								(*_ShadersAttributesCache)[counterBuffers][counter],
+								((*_ShadersAttributesCache)[counterBuffers][counter]+1),
 								Buffer::Attribute::GetTypeCount((*l)->Type),
 								Buffer::Attribute::GetType((*l)->Type),
 								GL_FALSE,
 								bf->attributeSize,
-								BUFFER_OFFSET((*l)->Offset)
+								BUFFER_OFFSET(16)
 							));
-							if ((*l)->Type==Buffer::Attribute::Type::Matrix)
-							{
-								GLCHECKER(glVertexAttribPointer(
-									((*_ShadersAttributesCache)[counterBuffers][counter]+1),
-									Buffer::Attribute::GetTypeCount((*l)->Type),
-									Buffer::Attribute::GetType((*l)->Type),
-									GL_FALSE,
-									bf->attributeSize,
-									BUFFER_OFFSET(16)
-								));
-								GLCHECKER(glVertexAttribPointer(
-									((*_ShadersAttributesCache)[counterBuffers][counter]+2),
-									Buffer::Attribute::GetTypeCount((*l)->Type),
-									Buffer::Attribute::GetType((*l)->Type),
-									GL_FALSE,
-									bf->attributeSize,
-									BUFFER_OFFSET(32)
-								));
-								GLCHECKER(glVertexAttribPointer(
-									((*_ShadersAttributesCache)[counterBuffers][counter]+3),
-									Buffer::Attribute::GetTypeCount((*l)->Type),
-									Buffer::Attribute::GetType((*l)->Type),
-									GL_FALSE,
-									bf->attributeSize,
-									BUFFER_OFFSET(48)
-								));
-							}
-
-							#if !defined(GLES2) && !defined(GLES3) && !defined(GLLEGACY)
-							// Set Divisors
-							if (rmesh->renderingComponent->IsInstanced())
-							{
-								GLCHECKER(glVertexAttribDivisor((*_ShadersAttributesCache)[counterBuffers][counter],(*l)->VertexDivisor));
-								if ((*l)->Type==Buffer::Attribute::Type::Matrix)
-								{
-									GLCHECKER(glVertexAttribDivisor(((*_ShadersAttributesCache)[counterBuffers][counter]+1),(*l)->VertexDivisor));
-									GLCHECKER(glVertexAttribDivisor(((*_ShadersAttributesCache)[counterBuffers][counter]+2),(*l)->VertexDivisor));
-									GLCHECKER(glVertexAttribDivisor(((*_ShadersAttributesCache)[counterBuffers][counter]+3),(*l)->VertexDivisor));
-								}
-							}
-							#endif
-						}
-						counter++;
-					}
-					counterBuffers++;
-				}
-			}
-			else {
-
-				// Arrays
-				uint32 counterBuffers = 0;
-				std::vector< std::vector<int32> >* _ShadersAttributesCache = &rmesh->ShadersAttributesCache[material->GetShader()];
-				for (std::vector<AttributeArray*>::iterator k = rmesh->Geometry->Attributes.begin(); k != rmesh->Geometry->Attributes.end(); k++)
-				{
-					// Counter
-					uint32 counter = 0;
-					for (std::vector<VertexAttribute*>::iterator l = (*k)->Attributes.begin(); l != (*k)->Attributes.end(); l++)
-					{
-						// Check if is not set
-						if ((*_ShadersAttributesCache)[counterBuffers][counter] == -2)
-						{
-							// set VAO ID
-							(*_ShadersAttributesCache)[counterBuffers][counter] = Shader::GetAttributeLocation(material->GetShader(), (*l)->Name);
-
-						}
-						// If exists in shader
-						if ((*_ShadersAttributesCache)[counterBuffers][counter] >= 0)
-						{
-							// Enable Attribute
-							GLCHECKER(glEnableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]));
-							if ((*l)->Type==Buffer::Attribute::Type::Matrix)
-							{
-								GLCHECKER(glEnableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]+1));
-								GLCHECKER(glEnableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]+2));
-								GLCHECKER(glEnableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]+3));
-							}
-
-							GLCHECKER(glEnableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]));
 							GLCHECKER(glVertexAttribPointer(
-								(*_ShadersAttributesCache)[counterBuffers][counter],
+								((*_ShadersAttributesCache)[counterBuffers][counter]+2),
 								Buffer::Attribute::GetTypeCount((*l)->Type),
 								Buffer::Attribute::GetType((*l)->Type),
 								GL_FALSE,
-								0,
-								&(*l)->Data[0]
+								bf->attributeSize,
+								BUFFER_OFFSET(32)
 							));
+							GLCHECKER(glVertexAttribPointer(
+								((*_ShadersAttributesCache)[counterBuffers][counter]+3),
+								Buffer::Attribute::GetTypeCount((*l)->Type),
+								Buffer::Attribute::GetType((*l)->Type),
+								GL_FALSE,
+								bf->attributeSize,
+								BUFFER_OFFSET(48)
+							));
+						}
+
+						#if !defined(GLES2) && !defined(GLES3) 
+						// Set Divisors
+						if (rmesh->renderingComponent->IsInstanced())
+						{
+							GLCHECKER(glVertexAttribDivisor((*_ShadersAttributesCache)[counterBuffers][counter],(*l)->VertexDivisor));
 							if ((*l)->Type==Buffer::Attribute::Type::Matrix)
 							{
-								GLCHECKER(glVertexAttribPointer(
-									(*_ShadersAttributesCache)[counterBuffers][counter]+1,
-									Buffer::Attribute::GetTypeCount((*l)->Type),
-									Buffer::Attribute::GetType((*l)->Type),
-									GL_FALSE,
-									0,
-									&(*l)->Data[16]
-								));
-								GLCHECKER(glVertexAttribPointer(
-									(*_ShadersAttributesCache)[counterBuffers][counter]+2,
-									Buffer::Attribute::GetTypeCount((*l)->Type),
-									Buffer::Attribute::GetType((*l)->Type),
-									GL_FALSE,
-									0,
-									&(*l)->Data[32]
-								));
-								GLCHECKER(glVertexAttribPointer(
-									(*_ShadersAttributesCache)[counterBuffers][counter]+3,
-									Buffer::Attribute::GetTypeCount((*l)->Type),
-									Buffer::Attribute::GetType((*l)->Type),
-									GL_FALSE,
-									0,
-									&(*l)->Data[48]
-								));
+								GLCHECKER(glVertexAttribDivisor(((*_ShadersAttributesCache)[counterBuffers][counter]+1),(*l)->VertexDivisor));
+								GLCHECKER(glVertexAttribDivisor(((*_ShadersAttributesCache)[counterBuffers][counter]+2),(*l)->VertexDivisor));
+								GLCHECKER(glVertexAttribDivisor(((*_ShadersAttributesCache)[counterBuffers][counter]+3),(*l)->VertexDivisor));
 							}
-							
-							#ifndef GLES2	
-							if (rmesh->renderingComponent->IsInstanced())
-							{
-								GLCHECKER(glVertexAttribDivisor((*_ShadersAttributesCache)[counterBuffers][counter],(*l)->VertexDivisor));
-								if ((*l)->Type==Buffer::Attribute::Type::Matrix)
-								{
-									GLCHECKER(glVertexAttribDivisor((*_ShadersAttributesCache)[counterBuffers][counter]+1,(*l)->VertexDivisor));
-									GLCHECKER(glVertexAttribDivisor((*_ShadersAttributesCache)[counterBuffers][counter]+1,(*l)->VertexDivisor));
-									GLCHECKER(glVertexAttribDivisor((*_ShadersAttributesCache)[counterBuffers][counter]+1,(*l)->VertexDivisor));
-									GLCHECKER(glVertexAttribDivisor((*_ShadersAttributesCache)[counterBuffers][counter]+1,(*l)->VertexDivisor));
-								}
-							}
-							#endif
 						}
-						counter++;
+						#endif
 					}
-					counterBuffers++;
+					counter++;
 				}
+				counterBuffers++;
 			}
 		}
 	}

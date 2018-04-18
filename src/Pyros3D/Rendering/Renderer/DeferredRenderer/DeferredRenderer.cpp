@@ -70,8 +70,8 @@ namespace p3d {
 		texID = 2;
 		deferredMaterialAmbient->AddUniform(Uniform("tSpecular", Uniforms::DataType::Int, &texID));
 		deferredMaterialDirectional->AddUniform(Uniform("tSpecular", Uniforms::DataType::Int, &texID));
-		deferredMaterialPoint->AddUniform(Uniform("tDiffuse", Uniforms::DataType::Int, &texID));
-		deferredMaterialSpot->AddUniform(Uniform("tDiffuse", Uniforms::DataType::Int, &texID));
+		deferredMaterialPoint->AddUniform(Uniform("tSpecular", Uniforms::DataType::Int, &texID));
+		deferredMaterialSpot->AddUniform(Uniform("tSpecular", Uniforms::DataType::Int, &texID));
 		texID = 3;
 		deferredMaterialAmbient->AddUniform(Uniform("tNormal", Uniforms::DataType::Int, &texID));
 		deferredMaterialDirectional->AddUniform(Uniform("tNormal", Uniforms::DataType::Int, &texID));
@@ -80,7 +80,6 @@ namespace p3d {
 
 		deferredMaterialAmbient->AddUniform(Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
 		deferredMaterialAmbient->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
-
 		deferredMaterialAmbient->DisableDepthTest();
 		deferredMaterialAmbient->DisableDepthWrite();
 		deferredMaterialAmbient->EnableBlending();
@@ -114,7 +113,6 @@ namespace p3d {
 		deferredMaterialPoint->AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
 		deferredMaterialPoint->AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
 		deferredMaterialPoint->AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
-		deferredMaterialPoint->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
 		deferredMaterialPoint->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
 		deferredMaterialPoint->SetCullFace(CullFace::FrontFace);
 		deferredMaterialPoint->DisableDepthTest();
@@ -137,7 +135,6 @@ namespace p3d {
 		deferredMaterialSpot->AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
 		deferredMaterialSpot->AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
 		deferredMaterialSpot->AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
-		deferredMaterialSpot->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
 		deferredMaterialSpot->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
 		deferredMaterialSpot->SetCullFace(CullFace::FrontFace);
 		deferredMaterialSpot->DisableDepthTest();
@@ -152,7 +149,6 @@ namespace p3d {
 
 		sphereHandle = new Sphere(1, 6, 4);
 		pointLight = new RenderingComponent(sphereHandle);
-		pointLight->GetMeshes()[0]->Material->SetCullFace(CullFace::FrontFace);
 	}
 
 	void DeferredRenderer::Resize(const uint32 Width, const uint32 Height)
@@ -305,7 +301,7 @@ namespace p3d {
 				{
 					PointLight* p = (PointLight*)(*i);
 					// Point Lights
-					Vec3 pos = (ViewMatrix * Vec4(p->GetOwner()->GetWorldPosition(), 1.f)).xyz();					
+					Vec3 pos = (ViewMatrix * Vec4(p->GetOwner()->GetWorldPosition(), 1.f)).xyz();
 					pointPosHandle->SetValue(&pos);
 					pointRadiusHandle->SetValue((void*)&p->GetLightRadius());
 					pointColorHandle->SetValue((void*)&p->GetLightColor());
@@ -331,7 +327,6 @@ namespace p3d {
 					Matrix m; m.Scale(sc, sc, sc);
 					pointLight->GetMeshes()[0]->Pivot = m;
 					RenderObject(pointLight->GetMeshes()[0], p->GetOwner(), deferredMaterialPoint);
-
 					if (p->IsCastingShadows())
 					{
 						p->GetShadowMapTexture()->Unbind();

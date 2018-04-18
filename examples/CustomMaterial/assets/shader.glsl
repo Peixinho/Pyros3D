@@ -1,4 +1,4 @@
-#ifdef EMSCRIPTEN
+#if defined(GLES2) || defined(GLES3) 
 precision mediump float;
 #endif
 
@@ -14,10 +14,19 @@ void main()
 #endif
 
 #ifdef FRAGMENT
+
+#if defined(GLES2)
+	vec4 FragColor;
+#else
+	out vec4 FragColor;
+#endif
 uniform vec4 uColor;
 
 void main()
 {
-	gl_FragColor = uColor;
+	FragColor = uColor;
+	#if defined(GLES2)
+		gl_FragColor = FragColor;
+	#endif
 }
 #endif

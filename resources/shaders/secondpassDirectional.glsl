@@ -1,9 +1,24 @@
-#if defined(EMSCRIPTEN) || defined(GLES2_DESKTOP) || defined(GLES3_DESKTOP)
-   precision mediump float;
+#if defined(GLES2)
+	#define varying_in varying
+	#define varying_out varying
+	#define attribute_in attribute
+	#define texture_2D texture2D
+	#define texture_cube textureCube
+	precision mediump float;
+#else
+	#define varying_in in
+	#define varying_out out
+	#define attribute_in in
+	#define texture_2D texture
+	#define texture_cube texture
+	#if defined(GLES3)
+		precision mediump float;
+	#endif
 #endif
+
 #ifdef VERTEX
-attribute vec3 aPosition, aNormal;
-attribute vec2 aTexcoord;
+attribute_in vec3 aPosition, aNormal;
+attribute_in vec2 aTexcoord;
 void main() {
 	gl_Position = vec4(aPosition,1.0);
 }
@@ -21,7 +36,7 @@ float PCFDIRECTIONAL(sampler2DShadow shadowMap, float width, float height, mat4 
 
 	for (y = -1.5 ; y <=1.5 ; y+=1.0)
 		for (x = -1.5 ; x <=1.5 ; x+=1.0)
-			shadow += shadow2D(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
+			shadow += texture(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
 	shadow /= 16.0;
 	return shadow;
 }
@@ -45,6 +60,13 @@ uniform float uPCFTexelSize;
 uniform mat4 uDirectionalDepthsMVP[4];
 uniform vec4 uDirectionalShadowFar;
 uniform float uHaveShadowmap;
+
+// Fragment Color
+#if defined(GLES2)
+	vec4 FragColor;	
+#else
+	out vec4 FragColor;
+#endif
 
 // Reconstruct Positions and Normals
 float DecodeLinearDepth(float z, vec4 z_info_local)
@@ -84,10 +106,10 @@ void main() {
 	vec4 out_dim = vec4(uScreenDimensions.x, uScreenDimensions.y, 1.0/uScreenDimensions.x, 1.0/uScreenDimensions.y);
 	vec2 screenCoord = vec2(uScreenDimensions.x*Texcoord.x, uScreenDimensions.y*Texcoord.y);
 
-	getPosViewSpace(texture2D(tDepth, Texcoord).r, screenCoord, z_info, v1, uMatProj, vp);	
+	getPosViewSpace(texture(tDepth, Texcoord).r, screenCoord, z_info, v1, uMatProj, vp);	
 
-	vec3 vViewNormal = normalize(texture2D(tNormal, Texcoord).xyz);
-	vec3 Color = texture2D(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
+	vec3 vViewNormal = normalize(texture(tNormal, Texcoord).xyz);
+	vec3 color = texture(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
 	vec4 lightColor = uLightColor;
 
 	float pcf = 1.0;
@@ -96,23 +118,27 @@ void main() {
 	if (uHaveShadowmap>0.0)
 	{
 	    bool MoreThanOneCascade = (uDirectionalShadowFar.y>0.0);
-	    if (texture2D(tDepth, Texcoord).r<uDirectionalShadowFar.x) pcf = PCFDIRECTIONAL(uShadowMap, 0.0, 0.0, uDirectionalDepthsMVP[0],uPCFTexelSize,worldPos, MoreThanOneCascade);
-	    else if (texture2D(tDepth, Texcoord).r<uDirectionalShadowFar.y) pcf = PCFDIRECTIONAL(uShadowMap, 0.5,0.0, uDirectionalDepthsMVP[1],uPCFTexelSize,worldPos, MoreThanOneCascade);
-	    else if (texture2D(tDepth, Texcoord).r<uDirectionalShadowFar.z) pcf = PCFDIRECTIONAL(uShadowMap, 0.0, 0.5, uDirectionalDepthsMVP[2],uPCFTexelSize,worldPos, MoreThanOneCascade);
-	    else if (texture2D(tDepth, Texcoord).r<uDirectionalShadowFar.w) pcf = PCFDIRECTIONAL(uShadowMap, 0.5,0.5, uDirectionalDepthsMVP[3],uPCFTexelSize,worldPos, MoreThanOneCascade);
+	    if (texture(tDepth, Texcoord).r<uDirectionalShadowFar.x) pcf = PCFDIRECTIONAL(uShadowMap, 0.0, 0.0, uDirectionalDepthsMVP[0],uPCFTexelSize,worldPos, MoreThanOneCascade);
+	    else if (texture(tDepth, Texcoord).r<uDirectionalShadowFar.y) pcf = PCFDIRECTIONAL(uShadowMap, 0.5,0.0, uDirectionalDepthsMVP[1],uPCFTexelSize,worldPos, MoreThanOneCascade);
+	    else if (texture(tDepth, Texcoord).r<uDirectionalShadowFar.z) pcf = PCFDIRECTIONAL(uShadowMap, 0.0, 0.5, uDirectionalDepthsMVP[2],uPCFTexelSize,worldPos, MoreThanOneCascade);
+	    else if (texture(tDepth, Texcoord).r<uDirectionalShadowFar.w) pcf = PCFDIRECTIONAL(uShadowMap, 0.5,0.5, uDirectionalDepthsMVP[3],uPCFTexelSize,worldPos, MoreThanOneCascade);
 	}
 	vec3 lightDirection = normalize(-uLightDirection);
 	float n_dot_l = max(dot(lightDirection, vViewNormal), 0.0);
 	vec3 diffuseColor = n_dot_l * lightColor.xyz;
 
-	diffuse = vec4((diffuseColor * Color),1.0);
+	diffuse = vec4((diffuseColor * color),1.0);
 
-	vec3 Specular = texture2D(tSpecular, vec2(Texcoord.x,Texcoord.y)).xyz;
+	vec3 Specular = texture(tSpecular, vec2(Texcoord.x,Texcoord.y)).xyz;
 	vec3 eyeVec = normalize(-v1);
 	vec3 halfVec = normalize(lightDirection + eyeVec);
 	float specularPower = (n_dot_l>0.0?pow(max(dot(halfVec,vViewNormal),0.0), 50.0):0.0);
 	specular = vec4(specularPower * Specular, 1.0);
 	
-	gl_FragColor = (diffuse + specular) * pcf;
+	FragColor = (diffuse + specular) * pcf;
+
+	#if defined(GLES2)
+		gl_FragColor = FragColor;
+	#endif
 }
 #endif

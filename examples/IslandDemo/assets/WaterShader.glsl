@@ -1,12 +1,30 @@
+#if defined(GLES2)
+	#define varying_in varying
+	#define varying_out varying
+	#define attribute_in attribute
+	#define texture_2D texture2D
+	#define texture_cube textureCube
+	precision mediump float;
+#else
+	#define varying_in in
+	#define varying_out out
+	#define attribute_in in
+	#define texture_2D texture
+	#define texture_cube texture
+	#if defined(GLES3)
+		precision mediump float;
+	#endif
+#endif
+
 #ifdef VERTEX
     const float tiling = 4.0;
-    attribute vec3 aPosition, aNormal;
-    attribute vec2 aTexcoord;
+    attribute_in vec3 aPosition, aNormal;
+    attribute_in vec2 aTexcoord;
     uniform mat4 uProjectionMatrix, uViewMatrix, uModelMatrix;
     uniform vec3 uCameraPos;
-    varying vec2 vTexcoord;
-    varying vec4 clipSpace;
-    varying vec3 toCameraVector;
+    varying_out vec2 vTexcoord;
+    varying_out vec4 clipSpace;
+    varying_out vec3 toCameraVector;
     void main()
     {
         vTexcoord = aTexcoord * tiling;
@@ -25,9 +43,9 @@
     uniform sampler2D uDUDVmap;
     uniform vec2 uNearFarPlane;
     uniform float uTime;
-    varying vec2 vTexcoord;
-    varying vec4 clipSpace;
-    varying vec3 toCameraVector;
+    varying_in vec2 vTexcoord;
+    varying_in vec4 clipSpace;
+    varying_in vec3 toCameraVector;
     const float waveStrength = 0.02;
     const float waveSpeed = 0.03;
 
@@ -36,6 +54,12 @@
     const float reflectivity = 0.6;
     const vec3 lightColour = vec3(1,1,1);
 
+	#if defined(GLES2)
+		vec4 FragColor;	
+	#else
+		out vec4 FragColor;
+	#endif
+	
     void main()
     {
         float moveFactor = (uTime * waveSpeed);
@@ -87,12 +111,16 @@
         vec3 specularHighlights = lightColour * specular * reflectivity;
         // Lighting
 
-        gl_FragColor = mix(reflectColor, refractColor, refractiveFactor);
-        gl_FragColor = mix(gl_FragColor, vec4(0.0,0.3,0.5,1.0),0.2);
+        FragColor = mix(reflectColor, refractColor, refractiveFactor);
+        FragColor = mix(FragColor, vec4(0.0,0.3,0.5,1.0),0.2);
 
-        gl_FragColor.a = clamp(waterDepth/5.0, 0.0, 1.0);
+        FragColor.a = clamp(waterDepth/5.0, 0.0, 1.0);
 
         // Lighting
-        gl_FragColor += vec4(specularHighlights, 0.0);
+        FragColor += vec4(specularHighlights, 0.0);
+
+		#if defined(GLES2)
+			gl_FragColor = FragColor;
+		#endif
     }
 #endif

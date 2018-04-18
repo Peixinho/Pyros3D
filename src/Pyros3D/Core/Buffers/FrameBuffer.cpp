@@ -154,16 +154,6 @@ namespace p3d {
 			break;
 		}
 #if !defined(GLES2) && !defined(GLES3)
-		case GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS_EXT:
-		{
-			echo("FBO: Attachments are of different size. All attachments must have the same width and height.");
-			break;
-		}
-		case GL_FRAMEBUFFER_INCOMPLETE_FORMATS_EXT:
-		{
-			echo("FBO: The color attachments have different format. All color attachments must have the same format.");
-			break;
-		}
 		case GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER:
 		{
 			echo("FBO: An attachment point referenced by GL.DrawBuffers() doesn't have an attachment.");

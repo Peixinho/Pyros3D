@@ -8,26 +8,14 @@ Pyros3D is a work in progress game engine, focused on 3D, but that has 2 project
 You can compile for Windows, Linux, MacOSX, Android, and Javascript (ios should work almost out of the box but never tried)
 
 ## Dependencies
-- SFML 2.3 (better supported) / SDL2 / SDL1.2
-- Glew
 - BulletPhysics 2.8
 - Freetype 2.6
 - Assimp 3.0 (to build tools/AssimImporter that converts regular 3D models (obj,dae, ...) to pyros format)
 
-To build it just run premake. Here are examples to create builds for x64 and examples.
-
-## Windows:
-```sh
-premake4.exe --examples --x64 vs2015
-```
-
-## Linux / Mac OSX:
-```sh
-./premake4 --examples --x64 gmake
-```
+To build it just run cmake. Here are examples to create builds for x64 and examples.
 
 ## Android / Emscripten
-There are specific readme in android and emscripten sections.
+There are specific readme in android and emscripten sections. (UNTESTED FOR NOW)
 
 ## Running Example
 [Working WebGL Demo](http://duartepeixinho.com/pyrosjs/)

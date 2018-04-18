@@ -19,7 +19,7 @@ namespace p3d {
 	{
 	public:
 
-		ModelGeometry() : IGeometry(GeometryType::BUFFER) {}
+		ModelGeometry() : IGeometry() {}
 
 		// Vectors
 		std::vector<Vec3> tVertex, tNormal, tTangent, tBitangent;
