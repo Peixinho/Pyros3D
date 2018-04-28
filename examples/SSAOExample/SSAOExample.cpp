@@ -95,7 +95,7 @@ void SSAOExample::Init()
 	Scene->Add(Camera);
 
 	// Teapots
-	teapot = new Model("../examples/SSAOExample/assets/teapot.p3dm");
+	teapot = new Model(STR(EXAMPLES_PATH)"/SSAOExample/assets/teapot.p3dm");
 	for (uint32 j = 0; j < 10; j++)
 	for (uint32 i = 0; i < 10; i++)
 	{

@@ -29,7 +29,7 @@ void CustomMaterial::Init()
 {
 	// Initialization
 
-		// Initialize Scene
+	// Initialize Scene
 	Scene = new SceneGraph();
 
 	// Initialize Renderer
@@ -63,7 +63,7 @@ void CustomMaterial::Update()
 {
 	// Update - Game Loop
 
-		// Update Scene
+	// Update Scene
 	Scene->Update(GetTime());
 
 	// Game Logic Here
@@ -78,7 +78,7 @@ void CustomMaterial::Shutdown()
 {
 	// All your Shutdown Code Here
 
-		// Remove GameObjects From Scene
+	// Remove GameObjects From Scene
 	Scene->Remove(CubeObject);
 	Scene->Remove(Camera);
 

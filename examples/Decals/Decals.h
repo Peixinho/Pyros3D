@@ -9,6 +9,9 @@
 #ifndef DECALSEXAMPLE_H
 #define	DECALSEXAMPLE_H
 
+#define _STR(path) #path
+#define STR(path) _STR(path)
+
 #if defined(_SDL)
 #include "../WindowManagers/SDL/SDLContext.h"
 #define ClassName SDLContext

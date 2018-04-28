@@ -9,6 +9,9 @@
 #ifndef LUA_SCRIPTING_H
 #define	LUA_SCRIPTING_H
 
+#define _STR(path) #path
+#define STR(path) _STR(path)
+
 #if defined(_SDL)
 #include "../WindowManagers/SDL/SDLContext.h"
 #define ClassName SDLContext

@@ -88,9 +88,9 @@ void LOD_Example::Init()
 	HideMouse();
 
 	// Load Teapot LODS
-	teapotLOD1Handle = new Model("../examples/LOD_Example/assets/teapots/teapotLOD1.p3dm", false);
-	teapotLOD2Handle = new Model("../examples/LOD_Example/assets/teapots/teapotLOD2.p3dm", false);
-	teapotLOD3Handle = new Model("../examples/LOD_Example/assets/teapots/teapotLOD3.p3dm", false);
+	teapotLOD1Handle = new Model(STR(EXAMPLES_PATH)"/LOD_Example/assets/teapots/teapotLOD1.p3dm", false);
+	teapotLOD2Handle = new Model(STR(EXAMPLES_PATH)"/LOD_Example/assets/teapots/teapotLOD2.p3dm", false);
+	teapotLOD3Handle = new Model(STR(EXAMPLES_PATH)"/LOD_Example/assets/teapots/teapotLOD3.p3dm", false);
 
 	// Create Teapots and Add LODS
 	for (int i = 0; i < TEAPOTS; i++)

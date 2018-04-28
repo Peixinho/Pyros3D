@@ -44,7 +44,7 @@ void IslandDemo::Init()
 
 	// Create Game Object
 	gIsland = new GameObject();
-	island = new Model("../examples/IslandDemo/assets/island.p3dm", true);
+	island = new Model(STR(EXAMPLES_PATH)"/IslandDemo/assets/island.p3dm", true);
 	rIsland = new RenderingComponent(island, ShaderUsage::Diffuse | ShaderUsage::ClipPlane);
 	gIsland->Add(rIsland);
 	// Add GameObject to Scene
@@ -63,7 +63,7 @@ void IslandDemo::Init()
 	// Water
 	gWater = new GameObject();
 	water = new Plane(500, 500);
-	matWater = new WaterMaterial("../examples/IslandDemo/assets/WaterShader.glsl");
+	matWater = new WaterMaterial(STR(EXAMPLES_PATH)"/IslandDemo/assets/WaterShader.glsl");
 	rWater = new RenderingComponent(water, matWater);
 	gWater->Add(rWater);
 	gWater->SetRotation(Vec3((f32)DEGTORAD(-90.f), 0.f, 0.f));
@@ -114,9 +114,9 @@ void IslandDemo::Init()
 	matWater->AddUniform(Uniform("uRefractionMap", Uniforms::DataType::Int, &imgID));
 
 	normalMap = new Texture();
-	normalMap->LoadTexture("../examples/IslandDemo/assets/normal.png");
+	normalMap->LoadTexture(STR(EXAMPLES_PATH)"/IslandDemo/assets/normal.png");
 	DUDVmap = new Texture();
-	DUDVmap->LoadTexture("../examples/IslandDemo/assets/waterDUDV.png");
+	DUDVmap->LoadTexture(STR(EXAMPLES_PATH)"/IslandDemo/assets/waterDUDV.png");
 
 	imgID = matWater->textures.size();
 	matWater->textures.push_back(normalMap);

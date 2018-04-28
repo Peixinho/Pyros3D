@@ -9,6 +9,9 @@
 #ifndef LOD_EXAMPLE_H
 #define	LOD_EXAMPLE_H
 
+#define _STR(path) #path
+#define STR(path) _STR(path)
+
 #define TEAPOTS 10000
 
 #if defined(_SDL)

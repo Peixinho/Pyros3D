@@ -9,6 +9,9 @@
 #ifndef CustomMaterial_H
 #define	CustomMaterial_H
 
+#define _STR(path) #path
+#define STR(path) _STR(path)
+
 #if defined(_SDL)
 #include "../WindowManagers/SDL/SDLContext.h"
 #define ClassName SDLContext
@@ -35,7 +38,7 @@ class CustomMaterialExample : public CustomShaderMaterial {
 
 public:
 
-	CustomMaterialExample() : CustomShaderMaterial("../examples/CustomMaterial/assets/shader.glsl")
+	CustomMaterialExample() : CustomShaderMaterial(STR(EXAMPLES_PATH)"/Pyros3D/CustomMaterial/assets/shader.glsl")
 	{
 		AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
 		AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));

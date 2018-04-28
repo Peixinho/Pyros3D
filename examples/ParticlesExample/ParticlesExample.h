@@ -9,6 +9,9 @@
 #ifndef PARTICLESEXAMPLE_H
 #define	PARTICLESEXAMPLE_H
 
+#define _STR(path) #path
+#define STR(path) _STR(path)
+
 #if defined(_SDL)
 #include "../WindowManagers/SDL/SDLContext.h"
 #define ClassName SDLContext
@@ -36,10 +39,10 @@ using namespace p3d;
 class ParticleMaterial : public CustomShaderMaterial {
 	public:
 	Texture* tex;
-	ParticleMaterial() : CustomShaderMaterial("../examples/ParticlesExample/assets/particle.glsl")
+	ParticleMaterial() : CustomShaderMaterial(STR(EXAMPLES_PATH)"/ParticlesExample/assets/particle.glsl")
 	{
 		tex = new Texture();
-		tex->LoadTexture("../examples/ParticlesExample/assets/smoke.png", TextureType::Texture);
+		tex->LoadTexture(STR(EXAMPLES_PATH)"/ParticlesExample/assets/smoke.png", TextureType::Texture);
 		tex->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
 		AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
 		AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
