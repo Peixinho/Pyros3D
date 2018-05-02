@@ -71,7 +71,7 @@ void DeferredRendering::Init()
 		// Add Light to GameObjects List
 		Lights.push_back(Light);
 		// Create Point Light
-		PointLight* pLight = new PointLight(Vec4((f32)(rand() % 100) - 50.f, (f32)(rand() % 100) - 50.f, (f32)(rand() % 100) - 50.f, (f32)(rand() % 100) - 50.f)*0.1f, 0.5f);
+		PointLight* pLight = new PointLight(Vec4((f32)(rand() % 100), (f32)(rand() % 100), (f32)(rand() % 100), (f32)(rand() % 100))*0.1f, 0.5f);
 		// Add Rendering Component to Rendering Components List
 		pLights.push_back(pLight);
 		// Add Point Light Component to GameObject
