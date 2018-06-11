@@ -8,7 +8,7 @@ SET(EXAMPLES_PATH ${CMAKE_SOURCE_DIR}/examples)
 
 
 # Check Build Type
-if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 	add_definitions(-D_DEBUG)
 endif ()
 
@@ -45,7 +45,7 @@ if (OPENGL_VERSION STREQUAL "GL45")
 		message(ERROR " OpenGL not found!")
 	endif(NOT OPENGL_FOUND)
 	SET(OPENGL_LIBS ${OPENGL_LIBRARIES})
-else() 
+else()
 		SET(OPENGL_LIBS GLESv2)
 
 		if (OPENGL_VERSION STREQUAL "GLES2")
