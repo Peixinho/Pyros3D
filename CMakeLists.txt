@@ -4,6 +4,13 @@ project(Pyros3D)
 
 set(CMAKE_CXX_STANDARD 11)
 
+
+# Check Build Type
+if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+	add_definitions(-D_DEBUG)
+endif ()
+
+
 # Find Freetype
 find_package(Freetype REQUIRED)
 if (NOT FREETYPE_FOUND)
@@ -37,7 +44,7 @@ if (OPENGL_VERSION STREQUAL "GL45")
 		message(ERROR " OpenGL not found!")
 	endif(NOT OPENGL_FOUND)
 	SET(OPENGL_LIBS ${OPENGL_LIBRARIES})
-else() 
+else()
 		SET(OPENGL_LIBS GLESv2)
 
 		if (OPENGL_VERSION STREQUAL "GLES2")
@@ -45,7 +52,7 @@ else()
 			if (IS_DESKTOP)
 				SET(GL_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/gles2/glad.c)
 			endif(IS_DESKTOP)
-		else() 
+		else()
 		if (OPENGL_VERSION STREQUAL "GLES3")
 			add_definitions(-DGLES3)
 			if (IS_DESKTOP)

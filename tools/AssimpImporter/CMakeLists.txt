@@ -5,6 +5,12 @@ project(AssimpImporter)
 set(CMAKE_CXX_STANDARD 11)
 
 
+# Check Build Type
+if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+	add_definitions(-D_DEBUG)
+endif ()
+
+
 # Find Freetype
 find_package(Freetype REQUIRED)
 if (NOT FREETYPE_FOUND)
@@ -38,11 +44,11 @@ SET(OPENGL_VERSION "GL45" CACHE STRING "OpenGL Version")
 if (OPENGL_VERSION STREQUAL "GL45")
 	add_definitions(-DGL45)
 	SET(GL_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/gl45/glad.c)
-	else() 
+	else()
 		if (OPENGL_VERSION STREQUAL "GLES2")
 			add_definitions(-DGLES2)
 			SET(GL_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/gles2/glad.c)
-		else() 
+		else()
 		if (OPENGL_VERSION STREQUAL "GLES3")
 			add_definitions(-DGLES3)
 			SET(GL_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/gles3/glad.c)
