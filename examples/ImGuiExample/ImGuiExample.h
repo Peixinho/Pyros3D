@@ -9,16 +9,8 @@
 #ifndef IMGUIEXAMPLE_H
 #define	IMGUIEXAMPLE_H
 
-#if defined(_SDL)
-#include "../WindowManagers/SDL/SDLContext.h"
-#define ClassName SDLContext
-#elif defined(_SDL2)
-#include "../WindowManagers/SDL2/SDL2Context.h"
-#define ClassName SDL2Context
-#else
-#include "imgui_impl_sfml.h"
-#define ClassName imguiContext
-#endif
+#include "imgui_sdl2_context.h"
+#define ClassName p3d::ImGuiContext
 
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>

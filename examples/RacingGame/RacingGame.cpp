@@ -8,6 +8,9 @@
 
 #include "RacingGame.h"
 
+#define _STR(path) #path
+#define STR(path) _STR(path)
+
 using namespace p3d;
 
 //RacingGame::RacingGame() : ClassName(1920,1080, "Pyros3D - Racing Game Example", WindowType::Close | WindowType::Fullscreen)
@@ -61,7 +64,7 @@ void RacingGame::Init()
 	_followCamera = true;
 
 	// Semaphore
-	hSemaphore = new Model(PATH"/assets/semaphore/semaphore.p3dm", true);
+	hSemaphore = new Model(STR(EXAMPLES_PATH)"/RacingGame/assets/semaphore/semaphore.p3dm", true);
 	rSemaphore = new RenderingComponent(hSemaphore, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
 	redSemaphoreDefault = rSemaphore->GetMeshes()[0]->Material;
 	yellowSemaphoreDefault = rSemaphore->GetMeshes()[1]->Material;
@@ -83,7 +86,7 @@ void RacingGame::Init()
 	Track = new GameObject();
 
 	// Create Track Model
-	trackHandle = new Model(PATH"/assets/track/track.p3dm", true);
+	trackHandle = new Model(STR(EXAMPLES_PATH)"/RacingGame/assets/track/track.p3dm", true);
 	rTrack = new RenderingComponent(trackHandle, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
 
 	rTrack->GetMeshes()[19]->Material->DisableCastingShadows();
@@ -206,20 +209,20 @@ void RacingGame::Init()
 	dRenderer = new CubemapRenderer(1024, 1024);
 
 	startedDrivingLikeAGirlTexture = new Texture();
-	startedDrivingLikeAGirlTexture->LoadTexture(PATH"/assets/textures/wrong.png");
+	startedDrivingLikeAGirlTexture->LoadTexture(STR(EXAMPLES_PATH)"/RacingGame/assets/textures/wrong.png");
 
 	RPMGui = new Texture();
-	RPMGui->LoadTexture(PATH"/assets/textures/rpm.png");
+	RPMGui->LoadTexture(STR(EXAMPLES_PATH)"/RacingGame/assets/textures/rpm.png");
 	RPMPointer = new Texture();
-	RPMPointer->LoadTexture(PATH"/assets/textures/pointer.png");
+	RPMPointer->LoadTexture(STR(EXAMPLES_PATH)"/RacingGame/assets/textures/pointer.png");
 
 	Texture* skyboxTexture = new Texture();
-	skyboxTexture->LoadTexture(PATH"/assets/textures/skybox/negx.png", TextureType::CubemapNegative_X);
-	skyboxTexture->LoadTexture(PATH"/assets/textures/skybox/negy.png", TextureType::CubemapNegative_Y);
-	skyboxTexture->LoadTexture(PATH"/assets/textures/skybox/negz.png", TextureType::CubemapNegative_Z);
-	skyboxTexture->LoadTexture(PATH"/assets/textures/skybox/posx.png", TextureType::CubemapPositive_X);
-	skyboxTexture->LoadTexture(PATH"/assets/textures/skybox/posy.png", TextureType::CubemapPositive_Y);
-	skyboxTexture->LoadTexture(PATH"/assets/textures/skybox/posz.png", TextureType::CubemapPositive_Z);
+	skyboxTexture->LoadTexture(STR(EXAMPLES_PATH)"/RacingGame/assets/textures/skybox/negx.png", TextureType::CubemapNegative_X);
+	skyboxTexture->LoadTexture(STR(EXAMPLES_PATH)"/RacingGame/assets/textures/skybox/negy.png", TextureType::CubemapNegative_Y);
+	skyboxTexture->LoadTexture(STR(EXAMPLES_PATH)"/RacingGame/assets/textures/skybox/negz.png", TextureType::CubemapNegative_Z);
+	skyboxTexture->LoadTexture(STR(EXAMPLES_PATH)"/RacingGame/assets/textures/skybox/posx.png", TextureType::CubemapPositive_X);
+	skyboxTexture->LoadTexture(STR(EXAMPLES_PATH)"/RacingGame/assets/textures/skybox/posy.png", TextureType::CubemapPositive_Y);
+	skyboxTexture->LoadTexture(STR(EXAMPLES_PATH)"/RacingGame/assets/textures/skybox/posz.png", TextureType::CubemapPositive_Z);
 	skyboxTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 	SkyboxMaterial = new GenericShaderMaterial(ShaderUsage::Skybox);
@@ -234,7 +237,7 @@ void RacingGame::Init()
 
 	Car = new GameObject();
 
-	carHandle = new Model(PATH"/assets/delorean/delorean.p3dm", true);
+	carHandle = new Model(STR(EXAMPLES_PATH)"/RacingGame/assets/delorean/delorean.p3dm", true);
 	rCar = new RenderingComponent(carHandle, ShaderUsage::EnvMap | ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
 	Car->Add(rCar);
 	Scene->Add(Car);
@@ -275,10 +278,10 @@ void RacingGame::Init()
 		gWheelBL = new GameObject();
 		gWheelBR = new GameObject();
 
-		wheelFLHandle = new Model(PATH"/assets/delorean/WheelFL.p3dm", true);
-		wheelFRHandle = new Model(PATH"/assets/delorean/WheelFR.p3dm", true);
-		wheelBLHandle = new Model(PATH"/assets/delorean/WheelBL.p3dm", true);
-		wheelBRHandle = new Model(PATH"/assets/delorean/WheelBR.p3dm", true);
+		wheelFLHandle = new Model(STR(EXAMPLES_PATH)"/RacingGame/assets/delorean/WheelFL.p3dm", true);
+		wheelFRHandle = new Model(STR(EXAMPLES_PATH)"/RacingGame/assets/delorean/WheelFR.p3dm", true);
+		wheelBLHandle = new Model(STR(EXAMPLES_PATH)"/RacingGame/assets/delorean/WheelBL.p3dm", true);
+		wheelBRHandle = new Model(STR(EXAMPLES_PATH)"/RacingGame/assets/delorean/WheelBR.p3dm", true);
 
 		rWheelFL = new RenderingComponent(wheelFLHandle, ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
 		rWheelFR = new RenderingComponent(wheelFRHandle, ShaderUsage::DirectionalShadow | ShaderUsage::Diffuse);
@@ -306,12 +309,14 @@ void RacingGame::Init()
 
 	timeInterval = 0;
 
+	/*
 	sound = new Sound();
-	sound->LoadFromFile(PATH"/assets/sounds/delorean_sound.ogg");
+	sound->LoadFromFile(STR(EXAMPLES_PATH)"/RacingGame/assets/sounds/delorean_sound.ogg");
 	sound->Play(true);
 
 	crash = new Sound();
-	crash->LoadFromFile(PATH"/assets/sounds/crash_sound.ogg");
+	crash->LoadFromFile(STR(EXAMPLES_PATH)"/RacingGame/assets/sounds/crash_sound.ogg");
+	*/
 
 	// Set Portals
 	planeHandle = new Cube(40.f, 10.f, .1f);
@@ -375,7 +380,6 @@ void RacingGame::Init()
 
 
 	// UI
-	ImGui::SFML::ImGui_ImplSFML_Init(&rview);
 	clear_color = ImColor(114, 144, 154);
 
 
@@ -388,7 +392,7 @@ void RacingGame::Init()
 	config.OversampleV = 1;
 	config.GlyphExtraSpacing.x = 1.0f;
 	ImGuiIO& io = ImGui::GetIO();
-	io.Fonts->AddFontFromFileTTF(PATH"/assets/fonts/BEBAS___.ttf", 16, &config);
+	io.Fonts->AddFontFromFileTTF(STR(EXAMPLES_PATH)"/RacingGame/assets/fonts/BEBAS___.ttf", 16, &config);
 
 	Update(); // Run once to add and register objects
 
@@ -536,7 +540,7 @@ void RacingGame::Update()
 				engine_rpm = engine_rpm_N;
 			}
 
-			sound->SetPitch(0.5f + (engine_rpm / engine_speed));
+			//sound->SetPitch(0.5f + (engine_rpm / engine_speed));
 			// UPDATE WHEELS MANUALLY
 			Matrix _m;
 			m_vehicle->getWheelInfo(0).m_worldTransform.getOpenGLMatrix(&_m.m[0]);
@@ -638,6 +642,7 @@ void RacingGame::Update()
 					btManifoldPoint& pt = contactManifold->getContactPoint(j);
 					if (pt.getDistance() < 0.f)
 					{
+						/*
 						if (!crash->isPlaying()) {
 							f32 crashForce = pt.getAppliedImpulse()*0.01f;
 							if (crashForce > 5.f)
@@ -646,6 +651,7 @@ void RacingGame::Update()
 								crash->Play();
 							}
 						}
+						*/
 						const btVector3& ptA = pt.getPositionWorldOnA();
 						const btVector3& ptB = pt.getPositionWorldOnB();
 						const btVector3& normalOnB = pt.m_normalWorldOnB;
@@ -752,7 +758,6 @@ void RacingGame::Update()
 	//physics->RenderDebugDraw(projection, Camera);
 
 	// ######################### UI ###############################
-	ImGui::SFML::ImGui_ImplSFML_NewFrame();
 
 	{
 		ImGui::Text("Shadows");
@@ -1016,8 +1021,6 @@ void RacingGame::Update()
 		ImGui::End();
 	}
 
-	ImGui::SFML::ImGui_ImplSFML_Render((int)ImGui::GetIO().DisplaySize.x, (int)ImGui::GetIO().DisplaySize.y, clear_color);
-
 	// ######################### UI ###############################
 
 	// Check our direction
@@ -1094,8 +1097,8 @@ void RacingGame::Shutdown()
 	delete Scene;
 	delete carHandle;
 	delete trackHandle;
-	delete crash;
-	delete sound;
+	//delete crash;
+	//delete sound;
 	delete brakingMat;
 	delete gWheelBL;
 	delete gWheelFL;
@@ -1212,16 +1215,14 @@ void RacingGame::ToggleFS(Event::Input::Info e)
 	dLight->DisableCastShadows();
 	delete dRenderer;
 
-	ToggleFullscreen();
-	ImGui::SFML::ImGui_ImplSFML_Shutdown();
-	ImGui::SFML::ImGui_ImplSFML_Init(&rview);
+	//ToggleFullscreen();
 
 	ImFontConfig config;
 	config.OversampleH = 3;
 	config.OversampleV = 1;
 	config.GlyphExtraSpacing.x = 1.0f;
 	ImGuiIO& io = ImGui::GetIO();
-	io.Fonts->AddFontFromFileTTF(PATH"/assets/fonts/BEBAS___.ttf", 16, &config);
+	io.Fonts->AddFontFromFileTTF(STR(EXAMPLES_PATH)"/RacingGame/assets/fonts/BEBAS___.ttf", 16, &config);
 
 	dRenderer = new CubemapRenderer(1024, 1024);
 	dLight->EnableCastShadows(2048, 2048, projection, 0.1f, 200.f, 2);

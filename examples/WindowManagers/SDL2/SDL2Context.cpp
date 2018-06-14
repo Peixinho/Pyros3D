@@ -55,8 +55,8 @@ namespace p3d {
         SDL2Context::MapSDLKeyboard[SDLK_ESCAPE] = Event::Input::Keyboard::Escape;
         SDL2Context::MapSDLKeyboard[SDLK_LCTRL] = Event::Input::Keyboard::LControl;
         SDL2Context::MapSDLKeyboard[SDLK_LSHIFT] = Event::Input::Keyboard::LShift;
-        SDL2Context::MapSDLKeyboard[SDLK_LALT] = Event::Input::Keyboard::LAlt;    
-        SDL2Context::MapSDLKeyboard[SDLK_LGUI] = Event::Input::Keyboard::LSystem;       
+        SDL2Context::MapSDLKeyboard[SDLK_LALT] = Event::Input::Keyboard::LAlt;
+        SDL2Context::MapSDLKeyboard[SDLK_LGUI] = Event::Input::Keyboard::LSystem;
         SDL2Context::MapSDLKeyboard[SDLK_RSHIFT] = Event::Input::Keyboard::RShift;
         SDL2Context::MapSDLKeyboard[SDLK_RALT] = Event::Input::Keyboard::RAlt;
         SDL2Context::MapSDLKeyboard[SDLK_RGUI] = Event::Input::Keyboard::RSystem;
@@ -126,7 +126,7 @@ namespace p3d {
         // Initialize SDL2
 		SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
 
-#if defined(GLES2) 
+#if defined(GLES2)
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
@@ -138,7 +138,7 @@ namespace p3d {
 		SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE); 
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
 #endif
 		// Also request a depth buffer
 		SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
@@ -151,7 +151,7 @@ namespace p3d {
 
 //        if (Mix_OpenAudio(audio_rate, audio_format, audio_channels, audio_buffers))
 //            echo("ERROR: Failed to open audio device");
-        
+
 //        Mix_QuerySpec(&audio_rate, &audio_format, &audio_channels);
 
         uint32 type = 0;
@@ -169,9 +169,9 @@ namespace p3d {
     		height,
     		type
 		);
-        
+
 		mainGLContext = SDL_GL_CreateContext(rview);
- 
+
 #if !defined(GLES2) && !defined(GLES3)
 		gladLoadGL();
 #elif defined(DESKTOP)
@@ -181,18 +181,18 @@ namespace p3d {
 		SDL_GL_GetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,(int*)&glMajor);
 		SDL_GL_GetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,(int*)&glMinor);
     }
-    SDL2Context::~SDL2Context() 
+    SDL2Context::~SDL2Context()
     {
     	SDL_GL_DeleteContext(mainGLContext);
         SDL_DestroyWindow(rview);
         SDL_Quit();
     }
-    
+
     void SDL2Context::OnResize(const uint32 width, const uint32 height)
     {
         Width = width;
         Height = height;
-        
+
         // resize application
         SDL_SetWindowSize(rview,width,height);
     }
@@ -215,7 +215,7 @@ namespace p3d {
 
             if (sdl_event.type == SDL_KEYUP)
                 KeyReleased(sdl_event.key.keysym.sym);
-            
+
             if (sdl_event.type == SDL_MOUSEBUTTONDOWN)
                 MouseButtonPressed(sdl_event.button.button);
 
@@ -231,10 +231,10 @@ namespace p3d {
             // // Joypad
             // if (event.type == sf::Event::JoystickButtonPressed)
             //     JoypadButtonPressed(event.joystickButton.joystickId,event.joystickButton.button);
-            
+
             // if (event.type == sf::Event::JoystickButtonReleased)
             //     JoypadButtonReleased(event.joystickButton.joystickId,event.joystickButton.button);
-            
+
             // if (event.type == sf::Event::JoystickMoved)
             // {
             //     JoypadMove(event.joystickButton.joystickId, event.joystickMove.axis, event.joystickMove.position);
@@ -246,16 +246,16 @@ namespace p3d {
                 OnResize(sdl_event.window.data1, sdl_event.window.data2);
             }
 		}
-        
+
         SetTime(SDL_GetTicks());
         fps.setFPS(SDL_GetTicks());
     }
 
-    void SDL2Context::Draw() 
+    void SDL2Context::Draw()
     {
         SDL_GL_SwapWindow(rview);
     }
-    
+
     void SDL2Context::HideMouse()
     {
         SDL_ShowCursor(SDL_DISABLE);
@@ -264,7 +264,7 @@ namespace p3d {
     {
         SDL_ShowCursor(SDL_ENABLE);
     }
-    
+
     // Buttons and Mouse
     void SDL2Context::KeyPressed(const uint32 key)
     {
@@ -349,5 +349,5 @@ namespace p3d {
     {
         Initialized = false;
     }
-   
+
 }

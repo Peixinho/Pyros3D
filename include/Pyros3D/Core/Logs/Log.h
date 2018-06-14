@@ -38,6 +38,7 @@ namespace p3d {
 #elif defined(LOG_DISABLE)
 
 				// NONE
+				std::cout << Message << std::endl;
 
 #elif defined(LOG_TO_CONSOLE) || defined(_DEBUG)
 #if defined(ANDROID)

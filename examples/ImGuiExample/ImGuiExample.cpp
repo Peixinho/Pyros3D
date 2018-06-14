@@ -51,15 +51,12 @@ void ImGuiExample::Init()
 	Scene->Add(CubeObject);
 	Camera->LookAt(Vec3::ZERO);
 
-	ImGui::SFML::ImGui_ImplSFML_Init(&rview);
 	clear_color = ImColor(114, 144, 154);
 }
 
 void ImGuiExample::Update()
 {
 	// Update - Game Loop
-	ImGui::SFML::ImGui_ImplSFML_NewFrame();
-
 	{
 		static float f = 0.0f;
 		ImGui::Text("Hello, world!");
@@ -84,7 +81,7 @@ void ImGuiExample::Update()
 	if (show_test_window)
 	{
 		ImGui::SetNextWindowPos(ImVec2(650, 20), ImGuiSetCond_FirstUseEver);
-		ImGui::ShowTestWindow(&show_test_window);
+		//ImGui::ShowTestWindow(&show_test_window);
 	}
 
 	// Update Scene
@@ -96,8 +93,6 @@ void ImGuiExample::Update()
 	// Render Scene
 	Renderer->PreRender(Camera, Scene);
 	Renderer->RenderScene(projection, Camera, Scene);
-
-	ImGui::SFML::ImGui_ImplSFML_Render((int)ImGui::GetIO().DisplaySize.x, (int)ImGui::GetIO().DisplaySize.y, clear_color);
 }
 
 void ImGuiExample::Shutdown()
@@ -117,8 +112,6 @@ void ImGuiExample::Shutdown()
 	delete Camera;
 	delete Renderer;
 	delete Scene;
-
-	ImGui::SFML::ImGui_ImplSFML_Shutdown();
 }
 
 ImGuiExample::~ImGuiExample() {}

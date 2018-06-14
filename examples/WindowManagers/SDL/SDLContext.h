@@ -21,18 +21,18 @@ namespace p3d {
         enum {
             Fullscreen         = 1 << 0,
             Resize             = 1 << 1,
-            Close              = 1 << 2,           
+            Close              = 1 << 2,
             None               = 1 << 3,
             Titlebar           = 1 << 4
         };
     }
-    
+
     class SDLContext : public Context {
         public:
-            
+
             SDLContext(const uint32 width, const uint32 height, const std::string &title, const uint32 windowType = WindowType::Fullscreen);
             ~SDLContext();
-            
+
             // virtuals
             virtual void Init();
             virtual void Update();
@@ -43,7 +43,7 @@ namespace p3d {
             virtual void OnResize(const uint32 width, const uint32 height);
             void Close();
 
-            // methods         
+            // methods
             void HideMouse();
             void ShowMouse();
             void SetMousePosition(const uint32 mouseX, const uint32 mouseY);
@@ -63,13 +63,13 @@ namespace p3d {
             virtual void KeyReleased(const uint32 key);
             virtual void TextEntered(const uint32 Code);
             virtual void MouseButtonPressed(const uint32 button);
-            virtual void MouseButtonReleased(const uint32 button);                            
-            virtual void MouseMove(const f32 mousex, const f32 mousey);                
+            virtual void MouseButtonReleased(const uint32 button);
+            virtual void MouseMove(const f32 mousex, const f32 mousey);
             virtual void MouseWheel(const f32 delta);
             virtual void JoypadButtonReleased(const uint32 JoypadID, const uint32 Button);
             virtual void JoypadButtonPressed(const uint32 JoypadID, const uint32 Button);
             virtual void JoypadMove(const uint32 JoypadID, const uint32 Axis, const f32 Value);
-            
+
             // SDLContext Context
             SDL_Surface* rview;
 
@@ -78,12 +78,12 @@ namespace p3d {
 
             // Game FPS
             FPS fps;
-            
+
             // save mouse positions
             f32 mouseX, mouseY;
 
             void CreateKeyboardMap();
-            
+
     };
 
 }

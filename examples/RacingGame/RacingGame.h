@@ -20,8 +20,8 @@
 //#define ClassName SFMLContext
 //#endif
 
-#include "imgui/imgui_impl_sfml.h"
-#define ClassName imguiContext
+#include "imgui_sdl2_context.h"
+#define ClassName p3d::ImGuiContext
 
 #define URL "http://duartepeixinho.com"
 #define PATH "../examples/RacingGame"
@@ -44,10 +44,10 @@
 #include <Pyros3D/Physics/Components/TriangleMesh/PhysicsTriangleMesh.h>
 #include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
-#include <Pyros3D/Assets/Sounds/Sound.h>
+//#include <Pyros3D/Assets/Sounds/Sound.h>
 
-#include <SFML/Network.hpp>
-#include <math.h> 
+//#include <SFML/Network.hpp>
+#include <math.h>
 using namespace p3d;
 
 inline float clamp(float x, float a, float b)
@@ -166,8 +166,8 @@ private:
 
 	float timeInterval;
 
-	Sound* sound;
-	Sound* crash;
+	//Sound* sound;
+	//Sound* crash;
 
 	void addPortal(const Vec3 &pos, const Vec3 &rot);
 
