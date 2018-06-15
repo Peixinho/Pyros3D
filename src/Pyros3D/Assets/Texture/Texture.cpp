@@ -240,13 +240,34 @@ namespace p3d {
 
 		this->Type = Type;
 
-		if (file->Open(Filename))
+		status = file->Open(Filename);
+		if (status)
 		{
 			status = LoadTextureFromMemory(file->GetData(), file->Size(), Type, Mipmapping, level);
 			file->Close();
 		}
-		if (!file->Open(Filename) || !status) {
-			echo("ERROR: Couldn't find texture file or failed to load");
+		if (!status) {
+			echo("ERROR: Couldn't find texture file or failed to load, loading default one...");
+
+			int i, j, c;
+			GLubyte checkImage[4][4][4];
+			for (i = 0; i < 4; i++) {
+				for (j = 0; j < 4; j++) {
+					if ((i%2==0 && j%2!=0) || (i%2!=0 && j%2==0)) c=255;
+					else c=0;
+					checkImage[i][j][0] = c;
+					checkImage[i][j][1] = c;
+					checkImage[i][j][2] = c;
+					checkImage[i][j][3] = 255;
+				}
+			}
+
+			this->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, 4, 4, false);
+			this->UpdateData(&checkImage);
+			this->SetRepeat(TextureRepeat::Repeat, TextureRepeat::Repeat);
+			this->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+			this->SetTextureByteAlignment(1);
+			status = true;
 		}
 		delete file;
 		return status;

@@ -10,7 +10,7 @@
 #include "SDLContext.h"
 
 namespace p3d {
-    
+
     std::map<uint32, uint32> SDLContext::MapSDLKeyboard;
 
     void SDLContext::CreateKeyboardMap()
@@ -124,7 +124,7 @@ namespace p3d {
         CreateKeyboardMap();
 
         if (SDL_Init( SDL_INIT_EVERYTHING ) != 0) exit(EXIT_FAILURE);
-        
+
         rview = SDL_SetVideoMode(width, height, 32, SDL_OPENGL | SDL_RESIZABLE);
         if (rview == NULL) exit(EXIT_FAILURE);
         if (glewInit() != GLEW_OK) exit(EXIT_FAILURE);
@@ -136,12 +136,12 @@ namespace p3d {
     {
         SDL_Quit();
     }
-    
+
     void SDLContext::OnResize(const uint32 width, const uint32 height)
     {
         Width = width;
         Height = height;
-        
+
         // resize application
         SDL_SetVideoMode( width, height, 32, SDL_OPENGL | SDL_RESIZABLE );
     }
@@ -187,7 +187,7 @@ namespace p3d {
                 }
                 if( sdl_event.button.button == SDL_BUTTON_MIDDLE )
                 {
-                 	MouseButtonReleased(2);   
+                 	MouseButtonReleased(2);
                 }
             }
 
@@ -204,10 +204,10 @@ namespace p3d {
           //   // // Joypad
           //   // if (event.type == sf::Event::JoystickButtonPressed)
           //   //     JoypadButtonPressed(event.joystickButton.joystickId,event.joystickButton.button);
-            
+
           //   // if (event.type == sf::Event::JoystickButtonReleased)
           //   //     JoypadButtonReleased(event.joystickButton.joystickId,event.joystickButton.button);
-            
+
           //   // if (event.type == sf::Event::JoystickMoved)
           //   // {
           //   //     JoypadMove(event.joystickButton.joystickId, event.joystickMove.axis, event.joystickMove.position);
@@ -219,16 +219,14 @@ namespace p3d {
                 OnResize(sdl_event.resize.w, sdl_event.resize.h);
             }
 	}
-        
         SetTime(SDL_GetTicks());
         fps.setFPS(SDL_GetTicks());
     }
 
-    void SDLContext::Draw() 
+    void SDLContext::Draw()
     {
         SDL_GL_SwapBuffers();
     }
-    
     void SDLContext::HideMouse()
     {
         SDL_ShowCursor(SDL_DISABLE);
@@ -321,5 +319,5 @@ namespace p3d {
     {
         Initialized = false;
     }
-   
+
 }

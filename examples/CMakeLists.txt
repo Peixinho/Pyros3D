@@ -159,8 +159,8 @@ set(SOURCE_ImGuiExample
 	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_draw.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/imgui/misc/freetype/imgui_freetype.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/imgui/examples/imgui_impl_sdl.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/imgui/examples/imgui_impl_opengl3.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/ImGuiExample/imgui_impl_sdl.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/ImGuiExample/imgui_impl_opengl3.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_demo.cpp
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
@@ -197,12 +197,12 @@ set(SOURCE_PickingPainterMethod
 )
 set(SOURCE_RacingGame
 	${CMAKE_CURRENT_SOURCE_DIR}/RacingGame/RacingGame.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/ImGuiExample/imgui_sdl2_context.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/RacingGame/imgui_sdl2_context.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_draw.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/imgui/misc/freetype/imgui_freetype.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/imgui/examples/imgui_impl_sdl.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/imgui/examples/imgui_impl_opengl3.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/RacingGame/imgui_impl_sdl.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/RacingGame/imgui_impl_opengl3.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_demo.cpp
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp

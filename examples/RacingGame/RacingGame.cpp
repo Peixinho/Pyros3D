@@ -394,7 +394,7 @@ void RacingGame::Init()
 	ImGuiIO& io = ImGui::GetIO();
 	io.Fonts->AddFontFromFileTTF(STR(EXAMPLES_PATH)"/RacingGame/assets/fonts/BEBAS___.ttf", 16, &config);
 
-	Update(); // Run once to add and register objects
+	UpdateGame(); // Run once to add and register objects
 
 	Event::Input::Info e;
 	Reset(e);
@@ -421,6 +421,12 @@ void RacingGame::addPortal(const Vec3 &pos, const Vec3 &rot)
 }
 
 void RacingGame::Update()
+{
+	UpdateGame();
+	DrawUI();
+}
+
+void RacingGame::UpdateGame()
 {
 	btRaycastVehicle* m_vehicle = (btRaycastVehicle*)carPhysics->GetRigidBodyPTR();
 
@@ -510,7 +516,7 @@ void RacingGame::Update()
 			f32 wheel_rotation_radians = m_vehicle->getWheelInfo(2).m_deltaRotation;
 			f32 wheel_rpm = ((wheel_rotation_radians / (2.f * PI))*60.f) / (1 / 60.f);
 			engine_rpm = wheel_rpm * gear_mul;
-			
+
 			if (engine_rpm<1000) engine_rpm = 1000.f;
 
 			if (num_gear <= 1 && engine_rpm < 3000 && gas_pedal>0.f) engine_rpm += engine_speed * 2.f * dt;
@@ -757,7 +763,38 @@ void RacingGame::Update()
 
 	//physics->RenderDebugDraw(projection, Camera);
 
-	// ######################### UI ###############################
+
+	// Check our direction
+	if (Car->GetDirection().dotProduct(portals[portalNumber].direction) < 0 && raceStart && portalNumber >= 0)
+	{
+		if (!startedDrivingLikeAGirl) {
+			startedDrivingLikeAGirl = true;
+			timeStartedDrivingLikeAGirl = GetTime();
+		}
+	}
+	else startedDrivingLikeAGirl = false;
+
+	// Semaphore
+	f32 count = GetTime() - countDownInitTime;
+	if (count >= 1 && rSemaphore->GetMeshes()[0]->Material != redSemaphore)
+		rSemaphore->GetMeshes()[0]->Material = redSemaphore;
+	if (count >= 2 && rSemaphore->GetMeshes()[1]->Material != redSemaphore)
+		rSemaphore->GetMeshes()[1]->Material = redSemaphore;
+	if (count >= 3 && rSemaphore->GetMeshes()[2]->Material != yellowSemaphore)
+		rSemaphore->GetMeshes()[2]->Material = yellowSemaphore;
+	if (count >= 4 && rSemaphore->GetMeshes()[3]->Material != greenSemaphore)
+	{
+		// Start Race
+		raceStart = true;
+		raceInitTime = GetTime();
+		lapInitTime = GetTime();
+
+		rSemaphore->GetMeshes()[3]->Material = greenSemaphore;
+	}
+}
+
+void RacingGame::DrawUI()
+{
 
 	{
 		ImGui::Text("Shadows");
@@ -1019,36 +1056,6 @@ void RacingGame::Update()
 			Reset(e);
 		}
 		ImGui::End();
-	}
-
-	// ######################### UI ###############################
-
-	// Check our direction
-	if (Car->GetDirection().dotProduct(portals[portalNumber].direction) < 0 && raceStart && portalNumber >= 0)
-	{
-		if (!startedDrivingLikeAGirl) {
-			startedDrivingLikeAGirl = true;
-			timeStartedDrivingLikeAGirl = GetTime();
-		}
-	}
-	else startedDrivingLikeAGirl = false;
-
-	// Semaphore
-	f32 count = GetTime() - countDownInitTime;
-	if (count >= 1 && rSemaphore->GetMeshes()[0]->Material != redSemaphore)
-		rSemaphore->GetMeshes()[0]->Material = redSemaphore;
-	if (count >= 2 && rSemaphore->GetMeshes()[1]->Material != redSemaphore)
-		rSemaphore->GetMeshes()[1]->Material = redSemaphore;
-	if (count >= 3 && rSemaphore->GetMeshes()[2]->Material != yellowSemaphore)
-		rSemaphore->GetMeshes()[2]->Material = yellowSemaphore;
-	if (count >= 4 && rSemaphore->GetMeshes()[3]->Material != greenSemaphore)
-	{
-		// Start Race
-		raceStart = true;
-		raceInitTime = GetTime();
-		lapInitTime = GetTime();
-
-		rSemaphore->GetMeshes()[3]->Material = greenSemaphore;
 	}
 }
 

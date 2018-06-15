@@ -39,7 +39,7 @@ namespace p3d {
 				KeyPressed(sdl_event.key.keysym.sym);
 
 			if (sdl_event.type == SDL_KEYUP)
-				KeyPressed(sdl_event.key.keysym.sym);
+				KeyReleased(sdl_event.key.keysym.sym);
 
 			if (sdl_event.type == SDL_MOUSEBUTTONDOWN)
 				MouseButtonPressed(sdl_event.button.button);

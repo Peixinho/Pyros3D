@@ -86,6 +86,9 @@ public:
 	virtual void Update();
 	virtual void Shutdown();
 	virtual void OnResize(const uint32 width, const uint32 height);
+
+	void UpdateGame();
+	void DrawUI();
 private:
 
 	// Scene
