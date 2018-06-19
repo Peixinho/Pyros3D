@@ -95,7 +95,7 @@ namespace p3d {
 	public:
 
 		// OpenGL ID
-		uint32 ID;
+		int32 ID;
 
 		// Data Size
 		uint32 DataLength;

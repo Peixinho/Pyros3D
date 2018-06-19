@@ -5,6 +5,7 @@
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Materials/Shaders/Uniforms.h>
 #include <Pyros3D/Other/Export.h>
+#include <Pyros3D/Core/Buffers/GeometryBuffer.h>
 
 namespace p3d {
 
@@ -17,13 +18,10 @@ namespace p3d {
 		virtual ~DebugRenderer();
 
 		virtual void drawLine(const Vec3 &from, const Vec3 &to, const Vec4 &fromColor, const Vec4 &toColor);
-
 		virtual void drawLine(const Vec3 &from, const Vec3 &to, const Vec4 &color);
-
 		virtual void drawSphere(const Vec3 &p, f32 radius, const Vec4 &color);
 		virtual void drawCone(const f32 radius, const f32 height, const Vec4 &color);
 		virtual void drawCylinder(const f32 radius, const f32 height, const Vec4 &color);
-
 		virtual void drawPoint(const Vec3 &point, const f32 size, const Vec4 &color);
 
 		void pushMatrix(const Matrix &m);
@@ -53,6 +51,15 @@ namespace p3d {
 		std::vector<Vec3> points; // w is the size of the point
 		std::vector<Vec4> colorPoints;
 		std::vector<f32> pointsSize;
+
+		// Buffers
+		GeometryBuffer* VertexLinesBF;
+		GeometryBuffer* ColorLinesBF;
+		GeometryBuffer* VertexTrianglesBF;
+		GeometryBuffer* ColorTrianglesBF;
+		GeometryBuffer* PointsBF;
+		GeometryBuffer* ColorPointsBF;
+		GeometryBuffer* PointsSizeBF;
 
 	};
 

@@ -10,11 +10,26 @@ namespace p3d {
 		DebugMaterial->EnableDepthTest(DepthTest::Equal);
 		pushedMatrix = false;
 		temp = Matrix();
+
+		VertexLinesBF = new GeometryBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
+		ColorLinesBF = new GeometryBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
+		VertexTrianglesBF = new GeometryBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
+		ColorTrianglesBF = new GeometryBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
+		PointsBF = new GeometryBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
+		ColorPointsBF = new GeometryBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
+		PointsSizeBF = new GeometryBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
 	}
 
 	DebugRenderer::~DebugRenderer()
 	{
 		delete DebugMaterial;
+		delete VertexLinesBF;
+		delete ColorLinesBF;
+		delete VertexTrianglesBF;
+		delete ColorTrianglesBF;
+		delete PointsBF;
+		delete ColorPointsBF;
+		delete PointsSizeBF;
 	}
 
 	void DebugRenderer::ClearScreen()
@@ -37,6 +52,50 @@ namespace p3d {
 
 	void DebugRenderer::Render(const Matrix &camera, const Matrix &projection)
 	{
+		#ifndef GLES2
+			GLuint vao=0;
+			glGenVertexArrays(1,&vao);
+			glBindVertexArray(vao);
+		#endif
+
+
+		// Updating Buffers
+		if (VertexLinesBF->ID>0)
+			VertexLinesBF->Update(&vertexLines[0], vertexLines.size());
+		else
+		   	VertexLinesBF->Init(&vertexLines[0], vertexLines.size());
+
+		if (ColorLinesBF->ID>0)
+		   	ColorLinesBF->Update(&colorLines[0], colorLines.size());
+		else
+		   	ColorLinesBF->Init(&colorLines[0], colorLines.size());
+
+		if (VertexTrianglesBF->ID>0)
+			VertexTrianglesBF->Update(&vertexTriangles[0], vertexTriangles.size());
+		else
+			VertexTrianglesBF->Init(&vertexTriangles[0], vertexTriangles.size());
+
+		if (ColorTrianglesBF->ID>0)
+			ColorTrianglesBF->Update(&colorTriangles[0], colorTriangles.size());
+		else
+			ColorTrianglesBF->Init(&colorTriangles[0], colorTriangles.size());
+
+		if (PointsBF->ID>0)
+			PointsBF->Update(&points[0], points.size());
+		else
+			PointsBF->Init(&points[0], points.size());
+
+		if (ColorPointsBF->ID>0)
+			ColorPointsBF->Update(&colorPoints[0], colorPoints.size());
+		else
+			ColorPointsBF->Init(&colorPoints[0], colorPoints.size());
+
+		if (PointsSizeBF->ID>0)
+			PointsSizeBF->Update(&pointsSize[0], pointsSize.size());
+		else
+			PointsSizeBF->Init(&pointsSize[0], pointsSize.size());
+
+
 		projectionMatrix = projection;
 		viewMatrix = camera;
 
@@ -60,84 +119,156 @@ namespace p3d {
 		f32 opacity = 1.f;
 		Shader::SendUniform(Uniform("uOpacity", Uniforms::DataType::Float, &opacity), opacityHandle);
 
-		// Send Attributes
-		if (vertexLines.size() > 0) {
-			GLCHECKER(glEnableVertexAttribArray(vertexHandle));
-			GLCHECKER(glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexLines[0]));
-		}
-
-		if (colorLines.size() > 0) {
-			GLCHECKER(glEnableVertexAttribArray(colorHandle));
-			GLCHECKER(glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorLines[0]));
-		}
-
-		// Draw Quad
-		if (vertexLines.size() > 0)
-			GLCHECKER(glDrawArrays(GL_LINES, 0, vertexLines.size()));
-		
-		// Disable Attributes
-		if (colorLines.size() > 0)
-			GLCHECKER(glDisableVertexAttribArray(colorHandle));
-		if (vertexLines.size() > 0)
-			GLCHECKER(glDisableVertexAttribArray(vertexHandle));
-
-		// Send Attributes
-		if (vertexTriangles.size() > 0)
+		if (vertexLines.size()>0)
 		{
-			GLCHECKER(glEnableVertexAttribArray(vertexHandle));
-			GLCHECKER(glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &vertexTriangles[0]));
+			GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, VertexLinesBF->ID));
+			GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, ColorLinesBF->ID));
+			// Send Attributes
+			if (vertexLines.size() > 0) {
+				GLCHECKER(glEnableVertexAttribArray(vertexHandle))
+				GLCHECKER(glVertexAttribPointer(
+					vertexHandle,
+					3,
+					GL_FLOAT,
+					GL_FALSE,
+					sizeof(Vec3),
+					BUFFER_OFFSET(0))
+				);
+			}
+
+			if (colorLines.size() > 0) {
+				GLCHECKER(glEnableVertexAttribArray(colorHandle));
+				GLCHECKER(glVertexAttribPointer(
+					colorHandle,
+					4,
+					GL_FLOAT,
+					GL_FALSE,
+					sizeof(Vec4),
+					BUFFER_OFFSET(0))
+				);
+			}
+
+			// Draw Quad
+			if (vertexLines.size() > 0)
+				GLCHECKER(glDrawArrays(GL_LINES, 0, vertexLines.size()));
+
+			// Disable Attributes
+			if (colorLines.size() > 0)
+				GLCHECKER(glDisableVertexAttribArray(colorHandle));
+			if (vertexLines.size() > 0)
+				GLCHECKER(glDisableVertexAttribArray(vertexHandle));
+
+				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, 0));
 		}
-		if (colorTriangles.size() > 0) 
+
+		if (vertexTriangles.size()>0)
 		{
-			GLCHECKER(glEnableVertexAttribArray(colorHandle));
-			GLCHECKER(glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorTriangles[0]));
+			GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, VertexTrianglesBF->ID));
+			GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, ColorTrianglesBF->ID));
+
+			// Send Attributes
+			if (vertexTriangles.size() > 0)
+			{
+				GLCHECKER(glEnableVertexAttribArray(vertexHandle));
+				GLCHECKER(glVertexAttribPointer(
+					vertexHandle,
+					3,
+					GL_FLOAT,
+					GL_FALSE,
+					sizeof(Vec4),
+					BUFFER_OFFSET(0))
+				);
+			}
+			if (colorTriangles.size() > 0)
+			{
+				GLCHECKER(glEnableVertexAttribArray(colorHandle));
+				GLCHECKER(glVertexAttribPointer(
+					colorHandle,
+					4,
+					GL_FLOAT,
+					GL_FALSE,
+					sizeof(Vec4),
+					BUFFER_OFFSET(0))
+				);
+			}
+
+			// Draw Quad
+			if (vertexTriangles.size() > 0)
+				GLCHECKER(glDrawArrays(GL_TRIANGLES, 0, vertexTriangles.size()));
+
+			// Disable Attributes
+			if (colorTriangles.size() > 0)
+				GLCHECKER(glDisableVertexAttribArray(colorHandle));
+			if (vertexTriangles.size() > 0)
+				GLCHECKER(glDisableVertexAttribArray(vertexHandle));
+
+				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, 0));
 		}
 
-		// Draw Quad
-		if (vertexTriangles.size() > 0)
-			GLCHECKER(glDrawArrays(GL_TRIANGLES, 0, vertexTriangles.size()));
-
-		// Disable Attributes
-		if (colorTriangles.size() > 0)
-			GLCHECKER(glDisableVertexAttribArray(colorHandle));
-		if (vertexTriangles.size() > 0)
-			GLCHECKER(glDisableVertexAttribArray(vertexHandle));
-
-		// Draw Points
+			// Draw Points
 #if !defined(GLES2) && !defined(GLES3)
-		// Send Attributes
-		if (points.size() > 0) {
-			GLCHECKER(glEnableVertexAttribArray(vertexHandle));
-			GLCHECKER(glVertexAttribPointer(vertexHandle, 3, GL_FLOAT, GL_FALSE, 0, &points[0]));
-		}
+		if (points.size()>0)
+		{
+			GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, VertexLinesBF->ID));
+			GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, ColorLinesBF->ID));
 
-		if (colorPoints.size() > 0) {
-			GLCHECKER(glEnableVertexAttribArray(colorHandle));
-			GLCHECKER(glVertexAttribPointer(colorHandle, 4, GL_FLOAT, GL_FALSE, 0, &colorPoints[0]));
-		}
+			// Send Attributes
+			if (points.size() > 0) {
+				GLCHECKER(glEnableVertexAttribArray(vertexHandle));
+				GLCHECKER(glVertexAttribPointer(
+					vertexHandle,
+					3,
+					GL_FLOAT,
+					GL_FALSE,
+					sizeof(Vec3),
+					BUFFER_OFFSET(0))
+				);
+			}
 
-		if (pointsSize.size() > 0) {
-			GLCHECKER(glEnableVertexAttribArray(pointSizeHandle));
-			GLCHECKER(glVertexAttribPointer(pointSizeHandle, 1, GL_FLOAT, GL_FALSE, 0, &pointsSize[0]));
-		}
-		
-		if (points.size() > 0) {
-			/*			
-			GLCHECKER(glEnable(GL_POINT_SPRITE));
-			GLCHECKER(glEnable(GL_VERTEX_PROGRAM_POINT_SIZE));
-			GLCHECKER(glDrawArrays(GL_POINTS, 0, points.size()));
-			GLCHECKER(glDisable(GL_VERTEX_PROGRAM_POINT_SIZE));
-			GLCHECKER(glDisable(GL_POINT_SPRITE));
-			*/
-		}
+			if (colorPoints.size() > 0) {
+				GLCHECKER(glEnableVertexAttribArray(colorHandle));
+				GLCHECKER(glVertexAttribPointer(
+					colorHandle,
+					4,
+					GL_FLOAT,
+					GL_FALSE,
+					sizeof(Vec4),
+					BUFFER_OFFSET(0))
+				);
+			}
 
-		// Disable Attributes
-		if (pointsSize.size() > 0)
-			GLCHECKER(glDisableVertexAttribArray(pointSizeHandle));
-		if (colorPoints.size() > 0)
-			GLCHECKER(glDisableVertexAttribArray(colorHandle));
-		if (points.size() > 0)
-			GLCHECKER(glDisableVertexAttribArray(vertexHandle));
+			if (pointsSize.size() > 0) {
+				GLCHECKER(glEnableVertexAttribArray(pointSizeHandle));
+				GLCHECKER(glVertexAttribPointer(
+					vertexHandle,
+					1,
+					GL_FLOAT,
+					GL_FALSE,
+					sizeof(float),
+					BUFFER_OFFSET(0))
+				);
+			}
+
+			if (points.size() > 0) {
+				/*
+				GLCHECKER(glEnable(GL_POINT_SPRITE));
+				GLCHECKER(glEnable(GL_VERTEX_PROGRAM_POINT_SIZE));
+				GLCHECKER(glDrawArrays(GL_POINTS, 0, points.size()));
+				GLCHECKER(glDisable(GL_VERTEX_PROGRAM_POINT_SIZE));
+				GLCHECKER(glDisable(GL_POINT_SPRITE));
+				*/
+			}
+
+			// Disable Attributes
+			if (pointsSize.size() > 0)
+				GLCHECKER(glDisableVertexAttribArray(pointSizeHandle));
+			if (colorPoints.size() > 0)
+				GLCHECKER(glDisableVertexAttribArray(colorHandle));
+			if (points.size() > 0)
+				GLCHECKER(glDisableVertexAttribArray(vertexHandle));
+
+				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, 0));
+		}
 
 		GLCHECKER(glUseProgram(0));
 #endif
