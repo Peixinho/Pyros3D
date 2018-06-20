@@ -121,10 +121,9 @@ namespace p3d {
 
 		if (vertexLines.size()>0)
 		{
-			GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, VertexLinesBF->ID));
-			GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, ColorLinesBF->ID));
 			// Send Attributes
-			if (vertexLines.size() > 0) {
+			if (vertexLines.size() > 0 && vertexHandle>0) {
+				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, VertexTrianglesBF->ID));
 				GLCHECKER(glEnableVertexAttribArray(vertexHandle))
 				GLCHECKER(glVertexAttribPointer(
 					vertexHandle,
@@ -136,7 +135,8 @@ namespace p3d {
 				);
 			}
 
-			if (colorLines.size() > 0) {
+			if (colorLines.size() > 0 && colorHandle>0) {
+				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, ColorTrianglesBF->ID));
 				GLCHECKER(glEnableVertexAttribArray(colorHandle));
 				GLCHECKER(glVertexAttribPointer(
 					colorHandle,
@@ -163,12 +163,11 @@ namespace p3d {
 
 		if (vertexTriangles.size()>0)
 		{
-			GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, VertexTrianglesBF->ID));
-			GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, ColorTrianglesBF->ID));
 
 			// Send Attributes
-			if (vertexTriangles.size() > 0)
+			if (vertexTriangles.size() > 0 && vertexHandle>0)
 			{
+				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, VertexTrianglesBF->ID));
 				GLCHECKER(glEnableVertexAttribArray(vertexHandle));
 				GLCHECKER(glVertexAttribPointer(
 					vertexHandle,
@@ -179,8 +178,9 @@ namespace p3d {
 					BUFFER_OFFSET(0))
 				);
 			}
-			if (colorTriangles.size() > 0)
+			if (colorTriangles.size() > 0 && colorHandle>0)
 			{
+				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, ColorTrianglesBF->ID));
 				GLCHECKER(glEnableVertexAttribArray(colorHandle));
 				GLCHECKER(glVertexAttribPointer(
 					colorHandle,
@@ -209,11 +209,10 @@ namespace p3d {
 #if !defined(GLES2) && !defined(GLES3)
 		if (points.size()>0)
 		{
-			GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, VertexLinesBF->ID));
-			GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, ColorLinesBF->ID));
 
 			// Send Attributes
-			if (points.size() > 0) {
+			if (points.size() > 0 && vertexHandle>0) {
+				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, VertexLinesBF->ID));
 				GLCHECKER(glEnableVertexAttribArray(vertexHandle));
 				GLCHECKER(glVertexAttribPointer(
 					vertexHandle,
@@ -225,7 +224,8 @@ namespace p3d {
 				);
 			}
 
-			if (colorPoints.size() > 0) {
+			if (colorPoints.size() > 0 && colorHandle>0) {
+				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, ColorLinesBF->ID));
 				GLCHECKER(glEnableVertexAttribArray(colorHandle));
 				GLCHECKER(glVertexAttribPointer(
 					colorHandle,
