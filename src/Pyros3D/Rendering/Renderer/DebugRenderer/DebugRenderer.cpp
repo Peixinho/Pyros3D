@@ -60,37 +60,37 @@ namespace p3d {
 
 
 		// Updating Buffers
-		if (VertexLinesBF->ID>0)
-			VertexLinesBF->Update(&vertexLines[0], vertexLines.size());
+		if (VertexLinesBF->ID>=0)
+			VertexLinesBF->Update(&vertexLines[0], vertexLines.size() * sizeof(Vec3));
 		else
-		   	VertexLinesBF->Init(&vertexLines[0], vertexLines.size());
+		   	VertexLinesBF->Init(&vertexLines[0], vertexLines.size() * sizeof(Vec3));
 
-		if (ColorLinesBF->ID>0)
-		   	ColorLinesBF->Update(&colorLines[0], colorLines.size());
+		if (ColorLinesBF->ID>=0)
+		   	ColorLinesBF->Update(&colorLines[0], colorLines.size() * sizeof(Vec4));
 		else
-		   	ColorLinesBF->Init(&colorLines[0], colorLines.size());
+		   	ColorLinesBF->Init(&colorLines[0], colorLines.size() * sizeof(Vec4));
 
-		if (VertexTrianglesBF->ID>0)
-			VertexTrianglesBF->Update(&vertexTriangles[0], vertexTriangles.size());
+		if (VertexTrianglesBF->ID>=0)
+			VertexTrianglesBF->Update(&vertexTriangles[0], vertexTriangles.size() * sizeof(Vec3));
 		else
-			VertexTrianglesBF->Init(&vertexTriangles[0], vertexTriangles.size());
+			VertexTrianglesBF->Init(&vertexTriangles[0], vertexTriangles.size() * sizeof(Vec3));
 
-		if (ColorTrianglesBF->ID>0)
-			ColorTrianglesBF->Update(&colorTriangles[0], colorTriangles.size());
+		if (ColorTrianglesBF->ID>=0)
+			ColorTrianglesBF->Update(&colorTriangles[0], colorTriangles.size() * sizeof(Vec4));
 		else
-			ColorTrianglesBF->Init(&colorTriangles[0], colorTriangles.size());
+			ColorTrianglesBF->Init(&colorTriangles[0], colorTriangles.size() * sizeof(Vec4));
 
-		if (PointsBF->ID>0)
-			PointsBF->Update(&points[0], points.size());
+		if (PointsBF->ID>=0)
+			PointsBF->Update(&points[0], points.size() * sizeof(Vec3));
 		else
-			PointsBF->Init(&points[0], points.size());
+			PointsBF->Init(&points[0], points.size() * sizeof(Vec3));
 
-		if (ColorPointsBF->ID>0)
-			ColorPointsBF->Update(&colorPoints[0], colorPoints.size());
+		if (ColorPointsBF->ID>=0)
+			ColorPointsBF->Update(&colorPoints[0], colorPoints.size() * sizeof(Vec4));
 		else
-			ColorPointsBF->Init(&colorPoints[0], colorPoints.size());
+			ColorPointsBF->Init(&colorPoints[0], colorPoints.size() * sizeof(Vec4));
 
-		if (PointsSizeBF->ID>0)
+		if (PointsSizeBF->ID>=0)
 			PointsSizeBF->Update(&pointsSize[0], pointsSize.size());
 		else
 			PointsSizeBF->Init(&pointsSize[0], pointsSize.size());
@@ -104,26 +104,27 @@ namespace p3d {
 
 		GLCHECKER(glUseProgram(DebugMaterial->GetShader()));
 
-		uint32 vertexHandle = Shader::GetAttributeLocation(DebugMaterial->GetShader(), "aPosition");
-		uint32 colorHandle = Shader::GetAttributeLocation(DebugMaterial->GetShader(), "aColor");
-		uint32 pointSizeHandle = Shader::GetAttributeLocation(DebugMaterial->GetShader(), "aSize");
+		int32 vertexHandle = Shader::GetAttributeLocation(DebugMaterial->GetShader(), "aPosition");
+		int32 colorHandle = Shader::GetAttributeLocation(DebugMaterial->GetShader(), "aColor");
+		int32 pointSizeHandle = Shader::GetAttributeLocation(DebugMaterial->GetShader(), "aSize");
 
-		uint32 projectionHandle = Shader::GetUniformLocation(DebugMaterial->GetShader(), "uProjectionMatrix");
-		uint32 viewMatrixHandle = Shader::GetUniformLocation(DebugMaterial->GetShader(), "uViewMatrix");
-		uint32 modelMatrixHandle = Shader::GetUniformLocation(DebugMaterial->GetShader(), "uModelMatrix");
-		uint32 opacityHandle = Shader::GetUniformLocation(DebugMaterial->GetShader(), "uOpacity");
+		int32 projectionHandle = Shader::GetUniformLocation(DebugMaterial->GetShader(), "uProjectionMatrix");
+		int32 viewMatrixHandle = Shader::GetUniformLocation(DebugMaterial->GetShader(), "uViewMatrix");
+		int32 modelMatrixHandle = Shader::GetUniformLocation(DebugMaterial->GetShader(), "uModelMatrix");
+		int32 opacityHandle = Shader::GetUniformLocation(DebugMaterial->GetShader(), "uOpacity");
 
 		Shader::SendUniform(Uniform("uProjectionMatrix", Uniforms::DataType::Matrix, &projectionMatrix.m[0]), projectionHandle);
 		Shader::SendUniform(Uniform("uViewMatrix", Uniforms::DataType::Matrix, &viewMatrix.m[0]), viewMatrixHandle);
 		Shader::SendUniform(Uniform("uModelMatrix", Uniforms::DataType::Matrix, &modelMatrix.m[0]), modelMatrixHandle);
+
 		f32 opacity = 1.f;
 		Shader::SendUniform(Uniform("uOpacity", Uniforms::DataType::Float, &opacity), opacityHandle);
 
-		if (vertexLines.size()>0)
+		if (vertexLines.size()>=0)
 		{
 			// Send Attributes
-			if (vertexLines.size() > 0 && vertexHandle>0) {
-				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, VertexTrianglesBF->ID));
+			if (vertexLines.size() > 0 && vertexHandle>=0) {
+				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, VertexLinesBF->ID));
 				GLCHECKER(glEnableVertexAttribArray(vertexHandle))
 				GLCHECKER(glVertexAttribPointer(
 					vertexHandle,
@@ -135,8 +136,8 @@ namespace p3d {
 				);
 			}
 
-			if (colorLines.size() > 0 && colorHandle>0) {
-				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, ColorTrianglesBF->ID));
+			if (colorLines.size() > 0 && colorHandle>=0) {
+				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, ColorLinesBF->ID));
 				GLCHECKER(glEnableVertexAttribArray(colorHandle));
 				GLCHECKER(glVertexAttribPointer(
 					colorHandle,
@@ -153,19 +154,19 @@ namespace p3d {
 				GLCHECKER(glDrawArrays(GL_LINES, 0, vertexLines.size()));
 
 			// Disable Attributes
-			if (colorLines.size() > 0)
+			if (colorLines.size() > 0 && colorHandle>=0)
 				GLCHECKER(glDisableVertexAttribArray(colorHandle));
-			if (vertexLines.size() > 0)
+			if (vertexLines.size() > 0 && vertexHandle>=0)
 				GLCHECKER(glDisableVertexAttribArray(vertexHandle));
 
 				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, 0));
 		}
 
-		if (vertexTriangles.size()>0)
+		if (vertexTriangles.size()>=0)
 		{
 
 			// Send Attributes
-			if (vertexTriangles.size() > 0 && vertexHandle>0)
+			if (vertexTriangles.size() > 0 && vertexHandle>=0)
 			{
 				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, VertexTrianglesBF->ID));
 				GLCHECKER(glEnableVertexAttribArray(vertexHandle));
@@ -174,11 +175,11 @@ namespace p3d {
 					3,
 					GL_FLOAT,
 					GL_FALSE,
-					sizeof(Vec4),
+					sizeof(Vec3),
 					BUFFER_OFFSET(0))
 				);
 			}
-			if (colorTriangles.size() > 0 && colorHandle>0)
+			if (colorTriangles.size() > 0 && colorHandle>=0)
 			{
 				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, ColorTrianglesBF->ID));
 				GLCHECKER(glEnableVertexAttribArray(colorHandle));
@@ -197,22 +198,25 @@ namespace p3d {
 				GLCHECKER(glDrawArrays(GL_TRIANGLES, 0, vertexTriangles.size()));
 
 			// Disable Attributes
-			if (colorTriangles.size() > 0)
+			if (colorTriangles.size() > 0 && colorHandle>=0)
 				GLCHECKER(glDisableVertexAttribArray(colorHandle));
-			if (vertexTriangles.size() > 0)
+
+			if (vertexTriangles.size() > 0 && vertexHandle>=0)
 				GLCHECKER(glDisableVertexAttribArray(vertexHandle));
 
-				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, 0));
 		}
 
-			// Draw Points
+
+		GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, 0));
+
+		// Draw Points
 #if !defined(GLES2) && !defined(GLES3)
-		if (points.size()>0)
+		if (points.size()>=0)
 		{
 
 			// Send Attributes
-			if (points.size() > 0 && vertexHandle>0) {
-				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, VertexLinesBF->ID));
+			if (points.size() > 0 && vertexHandle>=0) {
+				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, PointsBF->ID));
 				GLCHECKER(glEnableVertexAttribArray(vertexHandle));
 				GLCHECKER(glVertexAttribPointer(
 					vertexHandle,
@@ -224,8 +228,8 @@ namespace p3d {
 				);
 			}
 
-			if (colorPoints.size() > 0 && colorHandle>0) {
-				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, ColorLinesBF->ID));
+			if (colorPoints.size() > 0 && colorHandle>=0) {
+				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, ColorPointsBF->ID));
 				GLCHECKER(glEnableVertexAttribArray(colorHandle));
 				GLCHECKER(glVertexAttribPointer(
 					colorHandle,
@@ -260,18 +264,19 @@ namespace p3d {
 			}
 
 			// Disable Attributes
-			if (pointsSize.size() > 0)
+			if (pointsSize.size() > 0 && pointSizeHandle>=0)
 				GLCHECKER(glDisableVertexAttribArray(pointSizeHandle));
-			if (colorPoints.size() > 0)
+			if (colorPoints.size() > 0 && colorHandle>=0)
 				GLCHECKER(glDisableVertexAttribArray(colorHandle));
-			if (points.size() > 0)
+			if (points.size() > 0 && vertexHandle>=0)
 				GLCHECKER(glDisableVertexAttribArray(vertexHandle));
 
 				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, 0));
 		}
 
-		GLCHECKER(glUseProgram(0));
 #endif
+
+		GLCHECKER(glUseProgram(0));
 
 		// clean values
 		vertexLines.clear();
