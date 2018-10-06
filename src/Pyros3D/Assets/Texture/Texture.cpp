@@ -253,12 +253,18 @@ namespace p3d {
 			GLubyte checkImage[4][4][4];
 			for (i = 0; i < 4; i++) {
 				for (j = 0; j < 4; j++) {
-					if ((i%2==0 && j%2!=0) || (i%2!=0 && j%2==0)) c=255;
-					else c=0;
-					checkImage[i][j][0] = c;
-					checkImage[i][j][1] = c;
-					checkImage[i][j][2] = c;
-					checkImage[i][j][3] = 255;
+					if ((i%2==0 && j%2!=0) || (i%2!=0 && j%2==0)) {
+						checkImage[i][j][0] = 255;
+						checkImage[i][j][1] = 255;
+						checkImage[i][j][2] = 255;
+						checkImage[i][j][3] = 255;
+					}
+					else  {
+						checkImage[i][j][0] = 255;
+						checkImage[i][j][1] = 165;
+						checkImage[i][j][2] = 0;
+						checkImage[i][j][3] = 255;
+					}
 				}
 			}
 
