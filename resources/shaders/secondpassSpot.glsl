@@ -145,7 +145,7 @@ void main() {
 	vec3 eyeVec = normalize(-v1);
 	vec3 halfVec = normalize(eyeVec + lightDirection);
 	float specularPower = (n_dot_l>0.0?pow(max(dot(halfVec,vViewNormal),0.0), 50.0):0.0);
-	
+
 	float pcf = 1.0;
 	vec4 worldPos = vec4(v1, 1.0);
 
@@ -155,7 +155,7 @@ void main() {
 	vec3 diffuseColor = spotEffect * attenuation * n_dot_l * lightColor.xyz;
 	diffuse = vec4((diffuseColor * color),1.0);
 	specular = vec4(specularPower * spotEffect * attenuation * Specular, 1.0);
-	
+
 	FragColor = (diffuse + specular) * pcf;
 
 	#if defined(GLES2)

@@ -29,7 +29,7 @@ void main() {
 
 #ifdef FRAGMENT
 
-float PCFPOINT(samplerCubeShadow shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos) 
+float PCFPOINT(samplerCubeShadow shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos)
 {
 	vec4 position_ls = Matrix2 * pos;
 	position_ls.xyz/=position_ls.w;
@@ -40,7 +40,7 @@ float PCFPOINT(samplerCubeShadow shadowMap, mat4 Matrix1, mat4 Matrix2, float sc
 	float shadow = 0.0;
 	float x = 0.0;
 	float y = 0.0;
-                  
+
 	for (y = -1.5 ; y <=1.5 ; y+=1.0)
 		for (x = -1.5 ; x <=1.5 ; x+=1.0)
 			shadow += texture(shadowMap, vec4(position_ls.xyz, depth - scale*5.0) + vec4(vec2(x,y) * scale,0.0,0.0)).x;
@@ -75,7 +75,7 @@ uniform float uHaveShadowmap;
 
 // Fragment Color
 #if defined(GLES2)
-	vec4 FragColor;	
+	vec4 FragColor;
 #else
 	out vec4 FragColor;
 #endif
@@ -118,16 +118,13 @@ void main() {
 	vec4 out_dim = vec4(uScreenDimensions.x, uScreenDimensions.y, 1.0/uScreenDimensions.x, 1.0/uScreenDimensions.y);
 	vec2 screenCoord = vec2(uScreenDimensions.x*Texcoord.x, uScreenDimensions.y*Texcoord.y);
 
-	getPosViewSpace(texture(tDepth, Texcoord).r, screenCoord, z_info, v1, vProjectionMatrix, vp);	
+	getPosViewSpace(texture(tDepth, Texcoord).r, screenCoord, z_info, v1, vProjectionMatrix, vp);
 
 	float pcf = 1.0;
 	vec4 worldPos = vec4(v1, 1.0);
 
-	/*
-		// SHADOWS NEEDS TO BE FIXED
-		if (uHaveShadowmap>0.0)
-			pcf = PCFPOINT(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], uPCFTexelSize, worldPos);
-	*/
+	if (uHaveShadowmap>0.0)
+		pcf = PCFPOINT(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], uPCFTexelSize, worldPos);
 
 	vec3 vViewNormal = normalize(texture(tNormal, Texcoord).xyz);
 	vec3 color = texture(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
@@ -146,8 +143,8 @@ void main() {
 	vec3 halfVec = normalize(eyeVec + lightDirection);
 	float specularPower = (n_dot_l>0.0?pow(max(dot(halfVec,vViewNormal),0.0), 50.0):0.0);
 	specular = vec4(specularPower * Specular, 1.0);
-	
-	FragColor = (diffuse + specular) * attenuation * 0.1 * pcf;
+
+	FragColor = (diffuse + specular) * attenuation * pcf;
 
 	#if defined(GLES2)
 		gl_FragColor = FragColor;

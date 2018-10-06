@@ -38,7 +38,7 @@ namespace p3d {
 		lastPassFBO = new FrameBuffer();
 		lastPassFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, colorTexture);
 		lastPassFBO->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, fbo->GetAttachments()[0]->TexturePTR);
-		
+
 
 		// Default View Port Init Values
 		viewPortStartX = viewPortStartY = 0;
@@ -46,7 +46,7 @@ namespace p3d {
 		// Save FrameBuffer
 		FBO = fbo;
 
-		// Create Second Pass Specifics        
+		// Create Second Pass Specifics
 		deferredLastPass= new CustomShaderMaterial("shaders/lastPass.glsl");
 		deferredMaterialAmbient= new CustomShaderMaterial("shaders/secondpassAmbient.glsl");
 		deferredMaterialDirectional = new CustomShaderMaterial("shaders/secondpassDirectional.glsl");
