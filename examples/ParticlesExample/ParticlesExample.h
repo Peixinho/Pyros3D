@@ -43,7 +43,7 @@ class ParticleMaterial : public CustomShaderMaterial {
 	{
 		tex = new Texture();
 		tex->LoadTexture(STR(EXAMPLES_PATH)"/ParticlesExample/assets/smoke.png", TextureType::Texture);
-		tex->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
+		tex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 		AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
 		AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
 		AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));

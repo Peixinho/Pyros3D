@@ -41,13 +41,13 @@ void ParticlesExample::Init()
 	Scene->Add(Camera);
 
 	particleMaterial = new ParticleMaterial();
-	
+
 	// Create Game Object
 	gSmoke1 = new GameObject();
 	gSmoke2 = new GameObject();
 	smokeParticle1 = new Plane(1,1);
 	smokeParticle2 = new Plane(1,1);
-	
+
 	// Create Particle Emitter
 	emitter1 = new ParticleEmitter(smokeParticle1, particleMaterial, 0, 100);
 	emitter2 = new ParticleEmitter(smokeParticle2, particleMaterial, 0, 100);
@@ -113,7 +113,7 @@ void ParticlesExample::Update()
 	Scene->Update(GetTime());
 
 	// Game Logic HereW
-	
+
 	f32 time = GetTime();
 	if (time-lastTime > 0.1)
 	{
