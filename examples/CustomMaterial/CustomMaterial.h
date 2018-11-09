@@ -38,7 +38,7 @@ class CustomMaterialExample : public CustomShaderMaterial {
 
 public:
 
-	CustomMaterialExample() : CustomShaderMaterial(STR(EXAMPLES_PATH)"/Pyros3D/CustomMaterial/assets/shader.glsl")
+    CustomMaterialExample() : CustomShaderMaterial(STR(EXAMPLES_PATH)"/CustomMaterial/assets/shader.glsl")
 	{
 		AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
 		AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
