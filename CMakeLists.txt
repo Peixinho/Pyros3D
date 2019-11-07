@@ -2,8 +2,7 @@ cmake_minimum_required(VERSION 3.1)
 
 project(Pyros3D)
 
-set(CMAKE_CXX_STANDARD 11)
-
+set(CMAKE_CXX_STANDARD 17)
 
 # Check Build Type
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -31,6 +30,20 @@ if (IS_DESKTOP)
 	SET(DESKTOP -DDESKTOP)
 	add_definitions(-DDESKTOP)
 endif(IS_DESKTOP)
+
+
+# LUA Support
+if (HAVE_LUA_BINDINGS)
+	SET(LUA_BINDINGS -DLUA_BINDINGS)
+	add_definitions(-DLUA_BINDINGS)
+
+	find_package(Lua51 REQUIRED)
+	if (NOT LUA51_FOUND)
+		message(ERROR " Lua not found!")
+	endif(NOT LUA51_FOUND)
+	set(LUA_LIB -llua)
+endif(HAVE_LUA_BINDINGS)
+
 
 
 # Set OpenGL Version

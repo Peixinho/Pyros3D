@@ -56,21 +56,16 @@ bool LuaScripting::LoadScript(const std::string &file)
     f->Open(file, false);
 
     std::string code; code.resize(f->Size()); memcpy(&code[0], &f->GetData()[0], f->Size());
-    sol::protected_function_result result = lua.script(code, sol::simple_on_error);
-    if (!result.valid()) {
-        sol::error err = result;
-        sol::call_status status = result.status();
-        std::cout << "Lua Script thrown error: " + sol::to_string(status) << std::endl;
-        std::cout << err.what() << std::endl;
-    }
-    else {
-        rt = true;
-    }
-    // Why isn't this called automatically in the class's destructor?
-    // Then you could just return false; / return true;
-    // and not have to set up an extra return variable and keep track of it
+
     f->Close();
-    return rt;
+
+auto bad_code_result = lua.script(code.c_str(), [](lua_State*, sol::protected_function_result pfr) {
+		// pfr will contain things that went wrong, for either loading or executing the script
+		// Can throw your own custom error
+		// You can also just return it, and let the call-site handle the error if necessary.
+		return pfr;
+	});
+	return 0;
 }
 
 

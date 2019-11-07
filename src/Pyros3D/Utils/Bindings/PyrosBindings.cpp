@@ -468,17 +468,17 @@ namespace p3d {
 				"DepthComponent16", TextureDataType::DepthComponent16,
 				"DepthComponent24", TextureDataType::DepthComponent24,
 				"DepthComponent32", TextureDataType::DepthComponent32,
-				"R", TextureDataType::R,
+				"R", TextureDataType::R8,
 				"R16F", TextureDataType::R16F,
 				"R32F", TextureDataType::R32F,
 				"R16I", TextureDataType::R16I,
 				"R32I", TextureDataType::R32I,
-				"RG", TextureDataType::RG,
+				"RG", TextureDataType::RG8,
 				"RG16F", TextureDataType::RG16F,
 				"RG32F", TextureDataType::RG32F,
 				"RG16I", TextureDataType::RG16I,
 				"RG32I", TextureDataType::RG32I,
-				"RGB", TextureDataType::RGB,
+				"RGB", TextureDataType::RGB8,
 				"RGB16F", TextureDataType::RGB16F,
 				"RGB32F", TextureDataType::RGB32F,
 				"RGB16I", TextureDataType::RGB16I,
@@ -487,7 +487,6 @@ namespace p3d {
 				"RGBA32F", TextureDataType::RGBA32F,
 				"RGBA16I", TextureDataType::RGBA16I,
 				"RGBA32I", TextureDataType::RGBA32I,
-				"ALPHA", TextureDataType::ALPHA,
 				"LUMINANCE", TextureDataType::LUMINANCE,
 				"LUMINANCE_ALPHA", TextureDataType::LUMINANCE_ALPHA
 			);
@@ -575,7 +574,7 @@ namespace p3d {
 		{
 			// VEC2
 			sol::constructors<sol::types<>, sol::types<float, float>> con;
-			lua->new_simple_usertype<Math::Vec2>("Vec2",
+			lua->new_usertype<Math::Vec2>("Vec2",
 				con,
 				"x", &Math::Vec2::x,
 				"y", &Math::Vec2::y,
@@ -612,7 +611,7 @@ namespace p3d {
 		{
 			// VEC3
 			sol::constructors<sol::types<>, sol::types<float, float, float>> con;
-			lua->new_simple_usertype<Math::Vec3>("Vec3",
+			lua->new_usertype<Math::Vec3>("Vec3",
 				con,
 				"x", &Math::Vec3::x,
 				"y", &Math::Vec3::y,
@@ -653,7 +652,7 @@ namespace p3d {
 		{
 			// VEC4
 			sol::constructors<sol::types<>, sol::types<float, float, float, float>> con;
-			lua->new_simple_usertype<Math::Vec4>("Vec4",
+			lua->new_usertype<Math::Vec4>("Vec4",
 				con,
 				"x", &Math::Vec4::x,
 				"y", &Math::Vec4::y,
@@ -688,7 +687,7 @@ namespace p3d {
 		{
 			// Quaternion
 			sol::constructors<sol::types<>, sol::types<float, float, float>, sol::types<float, float, float, float>, sol::types<Vec3, float>> con;
-			lua->new_simple_usertype<Math::Quaternion>("Quaternion",
+			lua->new_usertype<Math::Quaternion>("Quaternion",
 				con,
 				"x", &Math::Quaternion::x,
 				"y", &Math::Quaternion::y,
@@ -718,7 +717,7 @@ namespace p3d {
 		{
 			// Matrix
 			sol::constructors<sol::types<>, sol::types<float, float, float, float, float, float, float, float, float, float, float, float, float, float, float, float>> con;
-			lua->new_simple_usertype<Math::Matrix>("Matrix",
+			lua->new_usertype<Math::Matrix>("Matrix",
 				con,
 				"identity", &Math::Matrix::identity,
 				"lookAt", sol::overload(&Matrix_lookAt, &Matrix_lookAt2),
@@ -756,7 +755,7 @@ namespace p3d {
 
 		{
 			// SceneGraph
-			lua->new_simple_usertype<SceneGraph>("Scene",
+			lua->new_usertype<SceneGraph>("Scene",
 				"update", &SceneGraph::Update,
 				"add", &SceneGraph::Add,
 				"remove", &SceneGraph::Remove,
@@ -769,7 +768,7 @@ namespace p3d {
 		{
 			// GameObject
 			sol::constructors<sol::types<>> con;
-			lua->new_simple_usertype<LUA_GameObject>("GameObject",
+			lua->new_usertype<LUA_GameObject>("GameObject",
 				con,
 				"init", &LUA_GameObject::Init,
 				"update", &LUA_GameObject::Update,
@@ -806,7 +805,7 @@ namespace p3d {
 
 		{
 			// Projection
-			lua->new_simple_usertype<Projection>("Projection",
+			lua->new_usertype<Projection>("Projection",
 				"perspective", &Projection::Perspective,
 				"ortho", &Projection::Ortho,
 				"getProjectionMatrix", &Projection::GetProjectionMatrix
@@ -816,7 +815,7 @@ namespace p3d {
 		{
 			// ForwardRenderer
 			sol::constructors<sol::types<float, float>> con;
-			lua->new_simple_usertype<ForwardRenderer>("ForwardRenderer",
+			lua->new_usertype<ForwardRenderer>("ForwardRenderer",
 				con,
 				"clearBufferBit", &ForwardRenderer::ClearBufferBit,
 				"enableClearDepthBuffer", &ForwardRenderer::EnableClearDepthBuffer,
@@ -866,7 +865,7 @@ namespace p3d {
 		{
 			// DeferredRenderer
 			sol::constructors<sol::types<float, float, FrameBuffer*>> con;
-			lua->new_simple_usertype<DeferredRenderer>("DeferredRenderer",
+			lua->new_usertype<DeferredRenderer>("DeferredRenderer",
 				con,
 				"clearBufferBit", &DeferredRenderer::ClearBufferBit,
 				"enableClearDepthBuffer", &DeferredRenderer::EnableClearDepthBuffer,
@@ -916,7 +915,7 @@ namespace p3d {
 		{
 			// Frame Buffer
 			sol::constructors<sol::types<>> con;
-			lua->new_simple_usertype<FrameBuffer>("FrameBuffer",
+			lua->new_usertype<FrameBuffer>("FrameBuffer",
 				con,
 				"init", sol::overload(
 
@@ -944,7 +943,7 @@ namespace p3d {
 		{
 			// LUA RenderingComponent
 			sol::constructors<sol::types<Renderable*, IMaterial*, float>, sol::types<Renderable*, IMaterial*>, sol::types<Renderable*, int, float>, sol::types<Renderable*, int>> con;
-			lua->new_simple_usertype<LUA_RenderingComponent>("RenderingComponent",
+			lua->new_usertype<LUA_RenderingComponent>("RenderingComponent",
 				con,
 				"addLOD", sol::overload(
 					&RenderingComponent_ADDLOD_MaterialPointer, 
@@ -977,7 +976,7 @@ namespace p3d {
         {
             // LUA RenderingInstancedComponent
             sol::constructors<sol::types<Renderable*, IMaterial*, int, float>, sol::types<Renderable*, int, int, float>> con;
-            lua->new_simple_usertype<LUA_RenderingInstancedComponent>("RenderingInstancedComponent",
+            lua->new_usertype<LUA_RenderingInstancedComponent>("RenderingInstancedComponent",
                 con,
                 "init", &LUA_RenderingInstancedComponent::Init,
                 "update", &LUA_RenderingInstancedComponent::Update,
@@ -1004,7 +1003,7 @@ namespace p3d {
 
 		{
 			sol::constructors<sol::types<int>, sol::types<>> con;
-			lua->new_simple_usertype<RenderingMesh>("RenderingMesh",
+			lua->new_usertype<RenderingMesh>("RenderingMesh",
 				con,
 				"getDrawingType", &RenderingMesh::GetDrawingType,
 				"geometry", &RenderingMesh::Geometry,
@@ -1017,12 +1016,12 @@ namespace p3d {
 				);
 		}
 
-		lua->new_simple_usertype<IComponent>("IComponent");
-		lua->new_simple_usertype<Renderable>("Renderable");
-		lua->new_simple_usertype<ILightComponent>("IlightComponent",
+		lua->new_usertype<IComponent>("IComponent");
+		lua->new_usertype<Renderable>("Renderable");
+		lua->new_usertype<ILightComponent>("IlightComponent",
 			sol::base_classes, sol::bases<IComponent>()
 			);
-		lua->new_simple_usertype<IPhysicsComponent>("IPhysicsComponent",
+		lua->new_usertype<IPhysicsComponent>("IPhysicsComponent",
 			sol::base_classes, sol::bases<IComponent>()
 			);
 
@@ -1030,7 +1029,7 @@ namespace p3d {
 		{
 			// Directional Light
 			sol::constructors<sol::types<>, sol::types<Vec4>, sol::types<Vec4, Vec3>> con;
-			lua->new_simple_usertype<LUA_DirectionalLight>("DirectionalLight",
+			lua->new_usertype<LUA_DirectionalLight>("DirectionalLight",
 				con,
 				"start", &LUA_DirectionalLight::Start,
 				"update", &LUA_DirectionalLight::Update,
@@ -1054,7 +1053,7 @@ namespace p3d {
 		{
 			// Point Light
 			sol::constructors<sol::types<>, sol::types<Vec4, float>> con;
-			lua->new_simple_usertype<LUA_PointLight>("PointLight",
+			lua->new_usertype<LUA_PointLight>("PointLight",
 				con,
 				"start", &LUA_PointLight::Start,
 				"update", &LUA_PointLight::Update,
@@ -1074,7 +1073,7 @@ namespace p3d {
 		{
 			// Spot Light
 			sol::constructors<sol::types<>, sol::types<Vec4, float, Vec3, float, float>> con;
-			lua->new_simple_usertype<LUA_SpotLight>("SpotLight",
+			lua->new_usertype<LUA_SpotLight>("SpotLight",
 				con,
 				"start", &LUA_SpotLight::Start,
 				"update", &LUA_SpotLight::Update,
@@ -1098,7 +1097,7 @@ namespace p3d {
 		{
 			// LUA Spot Light
 			sol::constructors<sol::types<>, sol::types<Vec4, float, Vec3, float, float>> con;
-			lua->new_simple_usertype<LUA_SpotLight>("SpotLight",
+			lua->new_usertype<LUA_SpotLight>("SpotLight",
 				con,
 				"onUpdate", &LUA_SpotLight::on_update,
 				"onInit", &LUA_SpotLight::on_init,
@@ -1109,7 +1108,7 @@ namespace p3d {
 		{
 			// Uniform
 			sol::constructors<sol::types<>, sol::types<std::string, int, int>, sol::types<std::string, int, void*, int>> con;
-			lua->new_simple_usertype<Uniform>("Uniform",
+			lua->new_usertype<Uniform>("Uniform",
 				con,
 				"setValue", &Uniform::SetValue
 				);
@@ -1118,7 +1117,7 @@ namespace p3d {
 		{
 			// Texture
 			sol::constructors<sol::types<>> con;
-			lua->new_simple_usertype<Texture>("Texture",
+			lua->new_usertype<Texture>("Texture",
 				con,
 				"loadTexture", &Texture::LoadTexture,
 				"loadTextureFromMemory", &Texture::LoadTextureFromMemory,
@@ -1126,7 +1125,6 @@ namespace p3d {
 				"setMinMagFilter", &Texture::SetMinMagFilter,
 				"setRepeat", &Texture::SetRepeat,
 				"enableCompareMode", &Texture::EnableCompareMode,
-				"setAnysotropy", &Texture::SetAnysotropy,
 				"setTransparency", &Texture::SetTransparency,
 				"resize", &Texture::Resize,
 				"updateData", &Texture::UpdateData,
@@ -1143,43 +1141,9 @@ namespace p3d {
 		}
 
 		{
-			// ISound
-			sol::constructors<sol::types<int>> con;
-			lua->new_simple_usertype<ISound>("ISound",
-				con,
-				"loadFromFile", &ISound::LoadFromFile,
-				"play", &ISound::Play,
-				"pause", &ISound::Pause,
-				"stop", &ISound::Stop,
-				"isPlaying", &ISound::isPlaying,
-				"isPaused", &ISound::isPaused,
-				"setVolume", &ISound::SetVolume,
-				"getVolume", &ISound::GetVolume,
-				"setPitch", &ISound::SetPitch,
-				"getPitch", &ISound::GetPitch
-				);
-		}
-		{
-			// Music
-			sol::constructors<sol::types<>> con;
-			lua->new_simple_usertype<Music>("Music",
-				con,
-				sol::base_classes, sol::bases<ISound>()
-				);
-		}
-		{
-			// Sound
-			sol::constructors<sol::types<>> con;
-			lua->new_simple_usertype<Sound>("Sound",
-				con,
-				sol::base_classes, sol::bases<ISound>()
-				);
-		}
-
-		{
 			// Shader
 			sol::constructors<sol::types<>> con;
-			lua->new_simple_usertype<Shader>("Shader",
+			lua->new_usertype<Shader>("Shader",
 				con,
 				"loadShaderFile", &Shader::LoadShaderFile,
 				"loadShaderText", &Shader::LoadShaderText,
@@ -1199,7 +1163,7 @@ namespace p3d {
 		{
 			// IMaterial
 			sol::constructors<sol::types<>> con;
-			lua->new_simple_usertype<IMaterial>("IMaterial",
+			lua->new_usertype<IMaterial>("IMaterial",
 				con,
 				"preRender", &IMaterial::PreRender,
 				"render", &IMaterial::Render,
@@ -1238,7 +1202,7 @@ namespace p3d {
 		{
 			// GenericShaderMaterial
 			sol::constructors<sol::types<int>> con;
-			lua->new_simple_usertype<GenericShaderMaterial>("GenericShaderMaterial",
+			lua->new_usertype<GenericShaderMaterial>("GenericShaderMaterial",
 				con,
 				"setColor", &GenericShaderMaterial::SetColor,
 				"setSpecular", &GenericShaderMaterial::SetSpecular,
@@ -1263,7 +1227,7 @@ namespace p3d {
 		{
 			// CustomShaderMaterial
 			sol::constructors<sol::types<std::string>, sol::types<Shader*>> con;
-			lua->new_simple_usertype<CustomShaderMaterial>("CustomShaderMaterial",
+			lua->new_usertype<CustomShaderMaterial>("CustomShaderMaterial",
 				con,
 				"setShader", &CustomShaderMaterial::SetShader,
 				sol::base_classes, sol::bases<IMaterial>()
@@ -1273,7 +1237,7 @@ namespace p3d {
 		{
 			// Cube
 			sol::constructors<sol::types<float, float, float, bool, bool, bool>, sol::types<float, float, float, bool, bool>, sol::types<float, float, float, bool>, sol::types<float, float, float>> con;
-			lua->new_simple_usertype<Cube>("Cube",
+			lua->new_usertype<Cube>("Cube",
 				con,
 				sol::base_classes, sol::bases<Renderable>()
 				);
@@ -1281,7 +1245,7 @@ namespace p3d {
 		{
 			// Capsule
 			sol::constructors<sol::types<float, float, float, int, int, bool, bool, bool>, sol::types<float, float, float, int, int, bool, bool>, sol::types<float, float, float, int, int, bool>, sol::types<float, float, float, int, int>> con;
-			lua->new_simple_usertype<Capsule>("Capsule",
+			lua->new_usertype<Capsule>("Capsule",
 				con,
 				sol::base_classes, sol::bases<Renderable>()
 				);
@@ -1289,7 +1253,7 @@ namespace p3d {
 		{
 			// Cone
 			sol::constructors<sol::types<float, float, int, int, bool, bool, bool, bool>, sol::types<float, float, int, int, bool, bool, bool>, sol::types<float, float, int, int, bool, bool>, sol::types<float, float, int, int, bool>> con;
-			lua->new_simple_usertype<Cone>("Cone",
+			lua->new_usertype<Cone>("Cone",
 				con,
 				sol::base_classes, sol::bases<Renderable>()
 				);
@@ -1297,7 +1261,7 @@ namespace p3d {
 		{
 			// Cylinder
 			sol::constructors<sol::types<float, float, int, int, bool, bool, bool, bool>, sol::types<float, float, int, int, bool, bool, bool>, sol::types<float, float, int, int, bool, bool>, sol::types<float, float, int, int, bool>> con;
-			lua->new_simple_usertype<Cylinder>("Cylinder",
+			lua->new_usertype<Cylinder>("Cylinder",
 				con,
 				sol::base_classes, sol::bases<Renderable>()
 				);
@@ -1305,7 +1269,7 @@ namespace p3d {
 		{
 			// Plane
 			sol::constructors<sol::types<float, float, bool, bool, bool>, sol::types<float, float, bool, bool>, sol::types<float, float, bool>, sol::types<float, float>> con;
-			lua->new_simple_usertype<Plane>("Plane",
+			lua->new_usertype<Plane>("Plane",
 				con,
 				sol::base_classes, sol::bases<Renderable>()
 				);
@@ -1313,7 +1277,7 @@ namespace p3d {
 		{
 			// Sphere
 			sol::constructors<sol::types<float, int, int, bool, bool, bool, bool>, sol::types<float, int, int, bool, bool, bool>, sol::types<float, int, int, bool, bool>, sol::types<float, int, int, bool>, sol::types<float, int, int>> con;
-			lua->new_simple_usertype<Sphere>("Sphere",
+			lua->new_usertype<Sphere>("Sphere",
 				con,
 				sol::base_classes, sol::bases<Renderable>()
 				);
@@ -1321,7 +1285,7 @@ namespace p3d {
 		{
 			// Torus
 			sol::constructors<sol::types<float, float, int, int, bool, bool, bool>, sol::types<float, float, int, int, bool, bool>, sol::types<float, float, int, int, bool>, sol::types<float, float, int, int>, sol::types<float, float, int>, sol::types<float, float>> con;
-			lua->new_simple_usertype<Torus>("Torus",
+			lua->new_usertype<Torus>("Torus",
 				con,
 				sol::base_classes, sol::bases<Renderable>()
 				);
@@ -1329,7 +1293,7 @@ namespace p3d {
 		{
 			// TorusKnot
 			sol::constructors<sol::types<float, float, int, int, float, float, int, bool, bool, bool>, sol::types<float, float, int, int, float, float, int, bool, bool>, sol::types<float, float, int, int, float, float, int, bool>, sol::types<float, float, int, int, float, float, int>, sol::types<float, float, int, int, float, float>, sol::types<float, float, int, int, float>, sol::types<float, float, int, int>, sol::types<float, float, int>, sol::types<float, float>> con;
-			lua->new_simple_usertype<TorusKnot>("TorusKnot",
+			lua->new_usertype<TorusKnot>("TorusKnot",
 				con,
 				sol::base_classes, sol::bases<Renderable>()
 				);
@@ -1337,7 +1301,7 @@ namespace p3d {
 		{
 			// Model
 			sol::constructors<sol::types<std::string>, sol::types<std::string, bool>,sol::types<std::string, bool>> con;
-			lua->new_simple_usertype<Model>("Model",
+			lua->new_usertype<Model>("Model",
 				con,
 				sol::base_classes, sol::bases<Renderable>()
 				);
@@ -1345,7 +1309,7 @@ namespace p3d {
 		{
 			// Decals
 			sol::constructors<sol::types < std::vector <DecalVertex>, bool>, sol::types<std::vector < DecalVertex > > > con;
-			lua->new_simple_usertype<Decal>("Decal",
+			lua->new_usertype<Decal>("Decal",
 				con,
 				sol::base_classes, sol::bases<Model>()
 				);
@@ -1354,7 +1318,7 @@ namespace p3d {
 		{
 			// Font
 			sol::constructors<sol::types<std::string, float>> con;
-			lua->new_simple_usertype<Font>("Font",
+			lua->new_usertype<Font>("Font",
 				con,
 				"createText", &Font::CreateText,
 				"getTexture", &Font::GetTexture,
@@ -1366,7 +1330,7 @@ namespace p3d {
 		{
 			// Text
 			sol::constructors<sol::types<Font*, std::string, float, float, const Vec4&, bool>> con;
-			lua->new_simple_usertype<Text>("Text",
+			lua->new_usertype<Text>("Text",
 				con,
 				"updateText", sol::overload(
 					&Text_UpdateText,
@@ -1377,7 +1341,7 @@ namespace p3d {
 		{
 			// Skeleton Animation
 			sol::constructors<sol::types<>> con;
-			lua->new_simple_usertype<SkeletonAnimation>("SekeletonAnimation",
+			lua->new_usertype<SkeletonAnimation>("SekeletonAnimation",
 				con,
 				"loadAnimation", &SkeletonAnimation::LoadAnimation,
 				"getNumberAnimatons", &SkeletonAnimation::GetNumberAnimations,
@@ -1391,7 +1355,7 @@ namespace p3d {
 		{
 			// Skeleton Animation Instance
 			sol::constructors<sol::types<SkeletonAnimation*, RenderingComponent*>> con;
-			lua->new_simple_usertype<SkeletonAnimationInstance>("SekeletonAnimationInstance",
+			lua->new_usertype<SkeletonAnimationInstance>("SekeletonAnimationInstance",
 				con,
 				"play", &SkeletonAnimationInstance::Play,
 				"changeProperties", &SkeletonAnimationInstance::ChangeProperties,
@@ -1439,7 +1403,7 @@ namespace p3d {
 		{
 			// Texture Animation
 			sol::constructors<sol::types<>> con;
-			lua->new_simple_usertype<TextureAnimation>("TextureAnimation",
+			lua->new_usertype<TextureAnimation>("TextureAnimation",
 				con,
 				"getFrame", &TextureAnimation::GetFrame,
 				"getNumberFrames", &TextureAnimation::GetNumberFrames,
@@ -1453,7 +1417,7 @@ namespace p3d {
 		{
 			// Texture Animation Instance
 			sol::constructors<sol::types<TextureAnimation*, float>> con;
-			lua->new_simple_usertype<TextureAnimationInstance>("TextureAnimationInstance",
+			lua->new_usertype<TextureAnimationInstance>("TextureAnimationInstance",
 				con,
 				"play", &TextureAnimationInstance::Play,
 				"pause", &TextureAnimationInstance::Pause,
@@ -1467,7 +1431,7 @@ namespace p3d {
 
 		{
 			// IPhysics
-			lua->new_simple_usertype<IPhysics>("IPhysics",
+			lua->new_usertype<IPhysics>("IPhysics",
 				"initPhysics", &IPhysics::InitPhysics,
 				"enableDebugDraw", &IPhysics::EnableDebugDraw,
 				"renderDebugDraw", &IPhysics::RenderDebugDraw,
@@ -1506,7 +1470,7 @@ namespace p3d {
 		{
 			// Bullet Physics
 			sol::constructors<sol::types<>> con;
-			lua->new_simple_usertype<BulletPhysics>("BulletPhysics",
+			lua->new_usertype<BulletPhysics>("BulletPhysics",
 				con,
 				sol::base_classes, sol::bases<IPhysics>()
 				);
@@ -1515,7 +1479,7 @@ namespace p3d {
 		{
 			// Post Effects Manager
 			sol::constructors<sol::types<int, int>> con;
-			lua->new_simple_usertype<PostEffectsManager>("PostEffectsManager",
+			lua->new_usertype<PostEffectsManager>("PostEffectsManager",
 				con,
 				"resize", &PostEffectsManager::Resize,
 				"captureFrame", &PostEffectsManager::CaptureFrame,
@@ -1533,7 +1497,7 @@ namespace p3d {
 		{
 			// IEffect
 			sol::constructors<sol::types<int, int>> con;
-			lua->new_simple_usertype<IEffect>("IEffect",
+			lua->new_usertype<IEffect>("IEffect",
 				con,
 				"compileShaders", &IEffect::CompileShaders,
 				"resize", &IEffect::Resize,
@@ -1545,7 +1509,7 @@ namespace p3d {
 		{
 			// Bloom
 			sol::constructors<sol::types<int, int, int>> con;
-			lua->new_simple_usertype<BloomEffect>("BloomEffect",
+			lua->new_usertype<BloomEffect>("BloomEffect",
 				con,
 				sol::base_classes, sol::bases<IEffect>()
 				);
@@ -1553,7 +1517,7 @@ namespace p3d {
 		{
 			// BlurXEffect
 			sol::constructors<sol::types<int, int, int>> con;
-			lua->new_simple_usertype<BlurXEffect>("BlurXEffect",
+			lua->new_usertype<BlurXEffect>("BlurXEffect",
 				con,
 				sol::base_classes, sol::bases<IEffect>()
 				);
@@ -1561,7 +1525,7 @@ namespace p3d {
 		{
 			// BlurYEffect
 			sol::constructors<sol::types<int, int, int>> con;
-			lua->new_simple_usertype<BlurYEffect>("BlurYEffect",
+			lua->new_usertype<BlurYEffect>("BlurYEffect",
 				con,
 				sol::base_classes, sol::bases<IEffect>()
 				);
@@ -1569,7 +1533,7 @@ namespace p3d {
 		{
 			// Resize Effect
 			sol::constructors<sol::types<int, int, int>> con;
-			lua->new_simple_usertype<ResizeEffect>("ResizeEffect",
+			lua->new_usertype<ResizeEffect>("ResizeEffect",
 				con,
 				sol::base_classes, sol::bases<IEffect>()
 				);
@@ -1577,7 +1541,7 @@ namespace p3d {
 		{
 			// RTT Debug
 			sol::constructors<sol::types<int, int, int, int>> con;
-			lua->new_simple_usertype<RTTDebug>("RTTDebug",
+			lua->new_usertype<RTTDebug>("RTTDebug",
 				con,
 				sol::base_classes, sol::bases<IEffect>()
 				);
@@ -1585,7 +1549,7 @@ namespace p3d {
 		{
 			// SSAO Effect
 			sol::constructors<sol::types<int, int, int>> con;
-			lua->new_simple_usertype<SSAOEffect>("SSAOEffect",
+			lua->new_usertype<SSAOEffect>("SSAOEffect",
 				con,
 				"setViewMatrix", &SSAOEffect::SetViewMatrix,
 				"setRadius", &SSAOEffect::SetRadius,
@@ -1598,7 +1562,7 @@ namespace p3d {
 		{
 			// VigneteEffec
 			sol::constructors<sol::types<int, int, int, float, float>> con;
-			lua->new_simple_usertype<VignetteEffect>("VignetEffect",
+			lua->new_usertype<VignetteEffect>("VignetEffect",
 				con,
 				"setRadius", &VignetteEffect::SetRadius,
 				"setSoftness", &VignetteEffect::SetSoftness,
@@ -1609,7 +1573,7 @@ namespace p3d {
 		{
 			//File
 			sol::constructors<sol::types<>> con;
-			lua->new_simple_usertype<File>("File",
+			lua->new_usertype<File>("File",
 				con,
 				"open", &File::Open,
 				"write", &File::Write,

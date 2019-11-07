@@ -143,7 +143,6 @@ namespace p3d {
 		void SetRepeat(const uint32 WrapS, const uint32 WrapT, const int32 WrapR = -1);
 		void SetBorderColor(const Vec4 &Color);
 		void EnableCompareMode();
-		void SetAnysotropy(const uint32 Anysotropic);
 		void SetTransparency(const f32 Transparency);
 		void Resize(const uint32 Width, const uint32 Height, const uint32 level = 0);
 		void UpdateData(void* srcPTR, const uint32 level = 0);

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.1)
 
 project(AssimpImporter)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 
 
 # Check Build Type
@@ -23,6 +23,20 @@ find_package(Bullet REQUIRED)
 if (NOT BULLET_FOUND)
 	message(ERROR " Bullet not found!")
 endif(NOT BULLET_FOUND)
+
+
+# LUA Support
+option(HAVE_LUA_BINDINGS "Lua Support" ON)
+if (HAVE_LUA_BINDINGS)
+	SET(LUA_BINDINGS -DLUA_BINDINGS)
+	add_definitions(-DLUA_BINDINGS)
+
+	find_package(Lua51 REQUIRED)
+	if (NOT LUA51_FOUND)
+		message(ERROR " Lua not found!")
+	endif(NOT LUA51_FOUND)
+	set(LUA_LIB -llua)
+endif(HAVE_LUA_BINDINGS)
 
 
 # Find OpenGL
@@ -83,4 +97,4 @@ set(HEADERS
 # Engine Library
 add_executable(AssimpImporter ${SOURCE})
 
-target_link_libraries(AssimpImporter PyrosEngine ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} pthread dl)
+target_link_libraries(AssimpImporter PyrosEngine ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${LUA_LIBRARIES} pthread dl)

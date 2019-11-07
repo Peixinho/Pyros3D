@@ -19,9 +19,6 @@
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
-#include <Pyros3D/Assets/Sounds/ISound.h>
-#include <Pyros3D/Assets/Sounds/Music.h>
-#include <Pyros3D/Assets/Sounds/Sound.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Capsule.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cone.h>
