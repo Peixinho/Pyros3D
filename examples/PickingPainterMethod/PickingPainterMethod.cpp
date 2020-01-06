@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-PickingPainterMethod::PickingPainterMethod() : ClassName(1024, 768, "Pyros3D - Custom Material", WindowType::Close | WindowType::Resize)
+PickingPainterMethod::PickingPainterMethod() : ClassName(1024, 768, "Pyros3D - Custom Material", WindowType::Close)
 {
 
 }

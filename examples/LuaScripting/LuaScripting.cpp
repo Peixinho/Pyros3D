@@ -59,7 +59,7 @@ bool LuaScripting::LoadScript(const std::string &file)
 
     f->Close();
 
-auto bad_code_result = lua.script(code.c_str(), [](lua_State*, sol::protected_function_result pfr) {
+	auto bad_code_result = lua.script(code.c_str(), [](lua_State*, sol::protected_function_result pfr) {
 		// pfr will contain things that went wrong, for either loading or executing the script
 		// Can throw your own custom error
 		// You can also just return it, and let the call-site handle the error if necessary.
