@@ -11,3 +11,4 @@ libs
 build*
 !include/Pyros3D
 obj
+tags
