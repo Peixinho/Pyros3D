@@ -166,18 +166,6 @@ set(SOURCE_Decals
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
-set(SOURCE_ImGuiExample
-	${CMAKE_CURRENT_SOURCE_DIR}/ImGuiExample/ImGuiExample.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/ImGuiExample/imgui_sdl2_context.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_draw.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/imgui/misc/freetype/imgui_freetype.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/ImGuiExample/imgui_impl_sdl.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/ImGuiExample/imgui_impl_opengl3.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_demo.cpp
-	${WINDOW_MANAGER}
-	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
-)
 set(SOURCE_IslandDemo
 	${CMAKE_CURRENT_SOURCE_DIR}/IslandDemo/IslandDemo.cpp
 	${WINDOW_MANAGER}
@@ -211,12 +199,12 @@ set(SOURCE_PickingPainterMethod
 set(SOURCE_RacingGame
 	${CMAKE_CURRENT_SOURCE_DIR}/RacingGame/RacingGame.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/RacingGame/imgui_sdl2_context.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_draw.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/imgui/misc/freetype/imgui_freetype.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/RacingGame/imgui/imgui_draw.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/RacingGame/imgui/imgui.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/RacingGame/imgui/misc/freetype/imgui_freetype.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/RacingGame/imgui_impl_sdl.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/RacingGame/imgui_impl_opengl3.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_demo.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/RacingGame/imgui/imgui_demo.cpp
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
@@ -293,11 +281,6 @@ include_directories(${HEADERS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} $
 target_link_libraries(Decals PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES} pthread dl)
 target_compile_definitions(Decals PRIVATE ${DESKTOP} -DDEMO_NAME=Decals -D_Decals ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
 
-add_executable(ImGuiExample ${SOURCE_ImGuiExample})
-include_directories(${HEADERS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
-target_link_libraries(ImGuiExample PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES} pthread dl)
-target_compile_definitions(ImGuiExample PRIVATE ${DESKTOP} -DDEMO_NAME=ImGuiExample -D_ImGuiExample ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
-
 add_executable(IslandDemo ${SOURCE_IslandDemo})
 include_directories(${HEADERS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB})
 target_link_libraries(IslandDemo PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES} pthread dl)
@@ -336,7 +319,7 @@ target_link_libraries(SkeletonAnimationExample PyrosEngine ${OPENGL_LIBS} ${BULL
 target_compile_definitions(SkeletonAnimationExample PRIVATE ${DESKTOP} -DDEMO_NAME=SkeletonAnimationExample -D_SkeletonAnimationExample ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
 
 add_executable(RacingGame ${SOURCE_RacingGame})
-include_directories(${HEADERS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
+include_directories(${HEADERS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/RacingGame/imgui)
 target_link_libraries(RacingGame PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES} pthread dl)
 target_compile_definitions(RacingGame PRIVATE ${DESKTOP} -DDEMO_NAME=RacingGame -D_RacingGame ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
 
