@@ -318,10 +318,10 @@ include_directories(${HEADERS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} $
 target_link_libraries(SkeletonAnimationExample PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES} pthread dl)
 target_compile_definitions(SkeletonAnimationExample PRIVATE ${DESKTOP} -DDEMO_NAME=SkeletonAnimationExample -D_SkeletonAnimationExample ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
 
-add_executable(RacingGame ${SOURCE_RacingGame})
-include_directories(${HEADERS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/RacingGame/imgui)
-target_link_libraries(RacingGame PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES} pthread dl)
-target_compile_definitions(RacingGame PRIVATE ${DESKTOP} -DDEMO_NAME=RacingGame -D_RacingGame ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
+#add_executable(RacingGame ${SOURCE_RacingGame})
+#include_directories(${HEADERS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/RacingGame/imgui)
+#target_link_libraries(RacingGame PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES} pthread dl)
+#target_compile_definitions(RacingGame PRIVATE ${DESKTOP} -DDEMO_NAME=RacingGame -D_RacingGame ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
 
 add_executable(SimplePhysics ${SOURCE_SimplePhysics})
 include_directories(${HEADERS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB})
