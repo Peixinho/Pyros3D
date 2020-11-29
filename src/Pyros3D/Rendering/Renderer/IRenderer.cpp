@@ -11,178 +11,178 @@
 
 namespace p3d {
 
-	// ViewPort Dimension
-	uint32 IRenderer::_viewPortStartX = 0;
-	uint32 IRenderer::_viewPortStartY = 0;
-	uint32 IRenderer::_viewPortEndX = 0;
-	uint32 IRenderer::_viewPortEndY = 0;
+// ViewPort Dimension
+uint32 IRenderer::_viewPortStartX = 0;
+uint32 IRenderer::_viewPortStartY = 0;
+uint32 IRenderer::_viewPortEndX = 0;
+uint32 IRenderer::_viewPortEndY = 0;
 
-	namespace Sort {
+namespace Sort {
 
-		GameObject* _Camera;
-		bool sortRenderingMeshes(const void* a, const void* b)
+	GameObject* _Camera;
+	bool sortRenderingMeshes(const void* a, const void* b)
+	{
+		f32 a2 = _Camera->GetPosition().distanceSQR(((RenderingMesh*)a)->renderingComponent->GetOwner()->GetWorldPosition());
+		f32 b2 = _Camera->GetPosition().distanceSQR(((RenderingMesh*)b)->renderingComponent->GetOwner()->GetWorldPosition());
+		return (a2 < b2);
+	}
+}
+
+std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag)
+{
+
+	// Sort and Group Objects From Scene
+	std::vector<RenderingMesh*> _OpaqueMeshes;
+	std::vector<RenderingMesh*> _TranslucidMeshes;
+
+	// LOD
+	if (lod)
+	{
+		std::vector<RenderingComponent*> comps(RenderingComponent::GetRenderingComponents(Scene));
+		for (std::vector<RenderingComponent*>::iterator i = comps.begin(); i != comps.end(); i++)
 		{
-			f32 a2 = _Camera->GetPosition().distanceSQR(((RenderingMesh*)a)->renderingComponent->GetOwner()->GetWorldPosition());
-			f32 b2 = _Camera->GetPosition().distanceSQR(((RenderingMesh*)b)->renderingComponent->GetOwner()->GetWorldPosition());
-			return (a2 < b2);
+			f32 distance = (Camera->GetWorldPosition().distanceSQR((*i)->GetOwner()->GetWorldPosition() + ((*i)->GetBoundingSphereCenter() - (*i)->GetBoundingSphereRadius())*(*i)->GetOwner()->GetScale()));
+			(*i)->UpdateLOD((*i)->GetLODByDistance(fabs(distance)));
 		}
 	}
+	// Get Meshes
+	std::vector<RenderingMesh*> rmeshes(RenderingComponent::GetRenderingMeshes(Scene));
 
-	std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag)
+	if (Tag != 0)
 	{
-
-		// Sort and Group Objects From Scene
-		std::vector<RenderingMesh*> _OpaqueMeshes;
-		std::vector<RenderingMesh*> _TranslucidMeshes;
-
-		// LOD
-		if (lod)
+		for (std::vector<RenderingMesh*>::iterator k = rmeshes.begin(); k != rmeshes.end();)
 		{
-			std::vector<RenderingComponent*> comps(RenderingComponent::GetRenderingComponents(Scene));
-			for (std::vector<RenderingComponent*>::iterator i = comps.begin(); i != comps.end(); i++)
+			if (!(*k)->renderingComponent->GetOwner()->HaveTag(Tag))
 			{
-				f32 distance = (Camera->GetWorldPosition().distanceSQR((*i)->GetOwner()->GetWorldPosition() + ((*i)->GetBoundingSphereCenter() - (*i)->GetBoundingSphereRadius())*(*i)->GetOwner()->GetScale()));
-				(*i)->UpdateLOD((*i)->GetLODByDistance(fabs(distance)));
+				k = rmeshes.erase(k);
 			}
+			else ++k;
 		}
-		// Get Meshes
-		std::vector<RenderingMesh*> rmeshes(RenderingComponent::GetRenderingMeshes(Scene));
+	}
 
-		if (Tag != 0)
+	for (std::vector<RenderingMesh*>::iterator k = rmeshes.begin(); k != rmeshes.end(); k++)
+	{
+		if ((*k)->Material->IsTransparent() && sorting)
 		{
-			for (std::vector<RenderingMesh*>::iterator k = rmeshes.begin(); k != rmeshes.end();)
-			{
-				if (!(*k)->renderingComponent->GetOwner()->HaveTag(Tag))
-				{
-					k = rmeshes.erase(k);
-				}
-				else ++k;
-			}
+			_TranslucidMeshes.push_back((*k));
 		}
-
-		for (std::vector<RenderingMesh*>::iterator k = rmeshes.begin(); k != rmeshes.end(); k++)
-		{
-			if ((*k)->Material->IsTransparent() && sorting)
-			{
-				_TranslucidMeshes.push_back((*k));
-			}
-			else _OpaqueMeshes.push_back((*k));
-		}
-
-		// sorting translucid
-		Sort::_Camera = Camera;
-		sort(_TranslucidMeshes.begin(), _TranslucidMeshes.end(), Sort::sortRenderingMeshes);
-
-		// final list
-		for (std::vector<RenderingMesh*>::reverse_iterator i = _TranslucidMeshes.rbegin(); i != _TranslucidMeshes.rend(); i++)
-		{
-			_OpaqueMeshes.push_back((*i));
-		}
-
-		RenderingComponent::MeshesOnSceneSorted[Scene] = _OpaqueMeshes;
-
-		return _OpaqueMeshes;
+		else _OpaqueMeshes.push_back((*k));
 	}
 
-	IRenderer::IRenderer() {}
+	// sorting translucid
+	Sort::_Camera = Camera;
+	sort(_TranslucidMeshes.begin(), _TranslucidMeshes.end(), Sort::sortRenderingMeshes);
 
-	IRenderer::IRenderer(const uint32 Width, const uint32 Height)
+	// final list
+	for (std::vector<RenderingMesh*>::reverse_iterator i = _TranslucidMeshes.rbegin(); i != _TranslucidMeshes.rend(); i++)
 	{
-		// Background Unset by Default
-		BackgroundColorSet = false;
-
-		// Set Global Light Default Color
-		GlobalLight = Vec4(0.2f, 0.2f, 0.2f, 0.2f);
-
-		// Save Dimensions
-		this->Width = Width;
-		this->Height = Height;
-
-		// Depth Bias
-		IsUsingDepthBias = false;
-
-		// Custom ViewPort
-		customViewPort = false;
-
-		// Blending Flag
-		blending = false;
-
-		// Defaults
-		ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
-		depthWritting = depthTesting = false;
-		clearDepthBuffer = true;
-		sorting = true;
-		scissorTest = false;
-		scissorTestX = 0;
-		scissorTestY = 0;
-		scissorTestWidth = (f32)Width;
-		scissorTestHeight = (f32)Height;
-		lod = false;
-		ClipPlane = false;
-
-		// Shadows materials
-		shadowMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows);
-		shadowMaterial->SetCullFace(CullFace::DoubleSided);
-		shadowSkinnedMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Skinning);
-		shadowSkinnedMaterial->SetCullFace(CullFace::DoubleSided);
+		_OpaqueMeshes.push_back((*i));
 	}
 
-	void IRenderer::Reset()
+	RenderingComponent::MeshesOnSceneSorted[Scene] = _OpaqueMeshes;
+
+	return _OpaqueMeshes;
+}
+
+IRenderer::IRenderer() {}
+
+IRenderer::IRenderer(const uint32 Width, const uint32 Height)
+{
+	// Background Unset by Default
+	BackgroundColorSet = false;
+
+	// Set Global Light Default Color
+	GlobalLight = Vec4(0.2f, 0.2f, 0.2f, 0.2f);
+
+	// Save Dimensions
+	this->Width = Width;
+	this->Height = Height;
+
+	// Depth Bias
+	IsUsingDepthBias = false;
+
+	// Custom ViewPort
+	customViewPort = false;
+
+	// Blending Flag
+	blending = false;
+
+	// Defaults
+	ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
+	depthWritting = depthTesting = false;
+	clearDepthBuffer = true;
+	sorting = true;
+	scissorTest = false;
+	scissorTestX = 0;
+	scissorTestY = 0;
+	scissorTestWidth = (f32)Width;
+	scissorTestHeight = (f32)Height;
+	lod = false;
+	ClipPlane = false;
+
+	// Shadows materials
+	shadowMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows);
+	shadowMaterial->SetCullFace(CullFace::DoubleSided);
+	shadowSkinnedMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Skinning);
+	shadowSkinnedMaterial->SetCullFace(CullFace::DoubleSided);
+}
+
+void IRenderer::Reset()
+{
+	// Defaults
+	depthWritting = depthTesting = false;
+	clearDepthBuffer = true;
+	depthTestMode = -1;
+}
+
+void IRenderer::Resize(const uint32 &Width, const uint32 &Height)
+{
+	// Save Dimensions
+	this->Width = Width;
+	this->Height = Height;
+
+	if (!customViewPort)
 	{
-		// Defaults
-		depthWritting = depthTesting = false;
-		clearDepthBuffer = true;
-		depthTestMode = -1;
+		viewPortEndX = Width;
+		viewPortEndY = Height;
 	}
 
-	void IRenderer::Resize(const uint32 Width, const uint32 Height)
+	// Reset States
+	Reset();
+}
+
+void IRenderer::SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY)
+{
+	viewPortStartX = initX;
+	viewPortStartY = initY;
+	viewPortEndX = endX;
+	viewPortEndY = endY;
+	customViewPort = true;
+}
+
+void IRenderer::_SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY)
+{
+	if (initX != _viewPortStartX || initY != _viewPortStartY || endX != _viewPortEndX || endY != _viewPortEndY)
 	{
-		// Save Dimensions
-		this->Width = Width;
-		this->Height = Height;
-
-		if (!customViewPort)
-		{
-			viewPortEndX = Width;
-			viewPortEndY = Height;
-		}
-
-		// Reset States
-		Reset();
+		_viewPortStartX = initX;
+		_viewPortStartY = initY;
+		_viewPortEndX = endX;
+		_viewPortEndY = endY;
+		GLCHECKER(glViewport(initX, initY, endX, endY));
 	}
+}
 
-	void IRenderer::SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY)
-	{
-		viewPortStartX = initX;
-		viewPortStartY = initY;
-		viewPortEndX = endX;
-		viewPortEndY = endY;
-		customViewPort = true;
-	}
+IRenderer::~IRenderer()
+{
+	delete shadowMaterial;
+	delete shadowSkinnedMaterial;
+}
 
-	void IRenderer::_SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY)
-	{
-		if (initX != _viewPortStartX || initY != _viewPortStartY || endX != _viewPortEndX || endY != _viewPortEndY)
-		{
-			_viewPortStartX = initX;
-			_viewPortStartY = initY;
-			_viewPortEndX = endX;
-			_viewPortEndY = endY;
-			GLCHECKER(glViewport(initX, initY, endX, endY));
-		}
-	}
+void IRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene) {
 
-	IRenderer::~IRenderer()
-	{
-		delete shadowMaterial;
-		delete shadowSkinnedMaterial;
-	}
+}
 
-	void IRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene) {
-
-	}
-
-	void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene)
+void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene)
 	{
 		PreRender(Camera, Scene, 0);
 	}
@@ -597,6 +597,7 @@ namespace p3d {
 	void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material)
 	{
 		// model cache
+		PrvModelMatrix = owner->GetPrvWorldTransformation() * rmesh->Pivot;
 		ModelMatrix = owner->GetWorldTransformation() * rmesh->Pivot;
 
 		NormalMatrixIsDirty = true;
@@ -1525,6 +1526,18 @@ namespace p3d {
 				case Uniforms::DataUsage::ClipPlanes:
 					Shader::SendUniform((*k), &ClipPlanes, (*_ShadersGlobalCache)[counter], ClipPlaneNumber);
 					break;
+				case Uniforms::DataUsage::PrvViewMatrix:
+					Shader::SendUniform((*k), &PrvViewMatrix, (*_ShadersGlobalCache)[counter]);
+					break;
+				case Uniforms::DataUsage::PrvProjectionMatrix:
+					Shader::SendUniform((*k), &PrvProjectionMatrix, (*_ShadersGlobalCache)[counter]);
+					break;
+				case Uniforms::DataUsage::PrvModelViewProjectionMatrix:
+					{
+						Matrix PrvModelViewProjectionMatrix = PrvProjectionMatrix*PrvViewMatrix*PrvModelMatrix;
+						Shader::SendUniform((*k), &PrvModelViewProjectionMatrix, (*_ShadersGlobalCache)[counter]);
+					}
+					break;
 				default:
 					Shader::SendUniform((*k), (*_ShadersGlobalCache)[counter]);
 					break;
@@ -1632,6 +1645,9 @@ namespace p3d {
 					}
 					Shader::SendUniform((*k), &ModelViewProjectionMatrixInverse, (*_ShadersModelCache)[counter]);
 				break;
+				case Uniforms::DataUsage::PrvModelMatrix:
+					Shader::SendUniform((*k), &PrvModelMatrix, (*_ShadersModelCache)[counter]);
+					break;
 				}
 			}
 			counter++;

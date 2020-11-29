@@ -14,7 +14,7 @@ namespace p3d {
     {
         // Set RTT
         UseRTT(Tex1);
-		UseRTT(Tex2);
+	UseRTT(Tex2);
         
         // Create Fragment Shader
 		FragmentShaderString =

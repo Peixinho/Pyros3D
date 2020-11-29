@@ -174,7 +174,7 @@ namespace p3d {
 		void ResetViewPort() { _viewPortStartX = _viewPortStartY = _viewPortEndX = _viewPortEndY = 0; } // Usefull for some shady stuff like rendering from different libs
 
 		// Resize
-		void Resize(const uint32 Width, const uint32 Height);
+		virtual void Resize(const uint32 &Width, const uint32 &Height);
 
 		// culling
 		void ActivateCulling(const uint32 cullingType);
@@ -332,7 +332,9 @@ namespace p3d {
 			ViewMatrix,
 			ViewProjectionMatrix,
 			ProjectionMatrixInverse,
-			ViewMatrixInverse;
+			ViewMatrixInverse,
+			PrvProjectionMatrix,
+			PrvViewMatrix;
 		bool
 			ProjectionMatrixInverseIsDirty,
 			ViewMatrixInverseIsDirty,
@@ -356,6 +358,7 @@ namespace p3d {
 		// Model Specific Cache
 		Matrix
 			ModelMatrix,
+			PrvModelMatrix,
 			NormalMatrix,
 			ModelViewMatrix,
 			ModelViewProjectionMatrix,

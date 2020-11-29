@@ -154,6 +154,7 @@ namespace p3d {
 		this->projection = projection;
 
 		// Universal Cache
+		PrvProjectionMatrix = ProjectionMatrix;
 		ProjectionMatrix = projection.m;
 		NearFarPlane = Vec2(projection.Near, projection.Far);
 

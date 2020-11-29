@@ -44,6 +44,7 @@ namespace p3d {
 
 		// Local Space
 		const Matrix &GetLocalTransformation() const;
+		const Matrix &GetPrvLocalTransformation() const;
 
 		const Vec3 &GetPosition() const;
 		const Vec3 &GetRotation() const;
@@ -52,6 +53,7 @@ namespace p3d {
 
 		// World Space
 		const Matrix &GetWorldTransformation() const;
+		const Matrix &GetPrvWorldTransformation() const;
 		const Vec3 GetWorldPosition() const;
 		const Vec3 GetWorldRotation() const;
 
@@ -123,11 +125,11 @@ namespace p3d {
 
 		// Thread and User Properties
 		Matrix _LocalMatrixUserEntered;
-		Matrix _WorldMatrix;
+		Matrix _WorldMatrix, _PrvWorldMatrix;
 		bool _IsDirty, _IsUsingCustomMatrix;
 
 		// Local Transformation Matrix
-		Matrix _LocalMatrix;
+		Matrix _LocalMatrix, _PrvLocalMatrix;
 
 		// Looking At
 		bool _IsLookingAtGameObject, _IsLookingAtPosition;

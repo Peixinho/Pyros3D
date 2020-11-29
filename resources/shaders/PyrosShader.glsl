@@ -1,13 +1,17 @@
 #if defined(GLES2)
 	#define varying_in varying
+	#define varying_smooth_in varying
 	#define varying_out varying
+	#define varying_smooth_out varying
 	#define attribute_in attribute
 	#define texture_2D texture2D
 	#define texture_cube textureCube
 	precision mediump float;
 #else
 	#define varying_in in
+	#define varying_smooth_in smooth in
 	#define varying_out out
+	#define varying_smooth_out smooth out
 	#define attribute_in in
 	#define texture_2D texture
 	#define texture_cube texture
@@ -144,6 +148,12 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         attribute_in mat4 aInstancedTransform;
     #endif
 
+    #ifdef VELOCITY_RENDERING
+        uniform mat4 uPrvProjectionMatrix, uPrvViewMatrix, uPrvModelMatrix;
+        varying_smooth_out vec4 vWorldPosition;
+	varying_smooth_out vec4 vPrvWorldPosition;
+    #endif
+
     mat4 matAnimation = mat4(1.0);
 
     void main() {
@@ -174,6 +184,12 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 vWorldPosition=ModelMatrix * (matAnimation * vec4(Position,1.0));
             #endif
         #endif
+	
+        #ifdef VELOCITY_RENDERING
+                vWorldPosition=uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(Position,1.0);
+                vPrvWorldPosition=uPrvProjectionMatrix * uPrvViewMatrix * uPrvModelMatrix * vec4(Position,1.0);
+        #endif
+
 
         #if defined(DIRECTIONALSHADOW) || defined(POINTSHADOW) || defined(SPOTSHADOW)
             #ifndef SKINNING
@@ -256,7 +272,11 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 	#if defined(GLES2)
 		vec4 FragColor;
 	#else
-		out vec4 FragColor;
+		#ifdef VELOCITY_RENDERING
+			out vec2 FragColor;
+		#else
+			out vec4 FragColor;
+		#endif
 	#endif
 
     #if defined(DIFFUSE) || defined(CELLSHADING)
@@ -517,7 +537,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     #if defined(SKINNING) || defined(ENVMAP) || defined(PARALLAXMAPPING) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
         varying_in vec4 vWorldPosition;
     #endif
-
+ 
     #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) ||  defined(DIFFUSE) || defined(CELLSHADING)
         varying_in vec3 vCameraPos;
     #endif
@@ -561,6 +581,11 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
    #if defined(DEFERRED_GBUFFER) && (defined(PARALLAXMAPPING) || defined(BUMPMAPPING))
        varying_in mat4 vViewMatrix;
+   #endif
+
+   #ifdef VELOCITY_RENDERING
+	varying_smooth_in vec4 vWorldPosition;
+	varying_smooth_in vec4 vPrvWorldPosition;
    #endif
 
     void main() {
@@ -627,8 +652,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             #ifdef REFRACTION
                 vec4 reflectedColor = texture_cube(uRefractmap, Reflection);
                 vec4 refractedColor;
-                refractedColor.x = (texture_cube( uRefractmap, vTRed)).x;
-                refractedColor.y = (texture_cube( uRefractmap, vTGreen)).y;
+                refractedColor.x = (texture_cube( uRefractmap, vTRed)).x; refractedColor.y = (texture_cube( uRefractmap, vTGreen)).y;
                 refractedColor.z = (texture_cube( uRefractmap, vTBlue)).z;
                 refractedColor.w = 1.0;
                 if (!diffuseIsSet)
@@ -814,6 +838,12 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 				gl_FragColor = FragColor;
 			#endif
         #endif
+	
+	#ifdef VELOCITY_RENDERING
+	    vec2 a = (vWorldPosition.xy / vWorldPosition.w) * 0.5 + 0.5;
+	    vec2 b = (vPrvWorldPosition.xy / vPrvWorldPosition.w) * 0.5 + 0.5;
+	    FragColor = a-b;
+	#endif
     }
 
 #endif
