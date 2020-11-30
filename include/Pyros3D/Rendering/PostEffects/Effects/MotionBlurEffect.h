@@ -17,8 +17,12 @@ namespace p3d {
 	public:
 		MotionBlurEffect(const uint32 Tex1, Texture* VelocityMap, const uint32 Width, const uint32 Height);
 		virtual ~MotionBlurEffect();
+		void SetCurrentFPS(const f32 &currentfps);
+		void SetTargetFPS(const f32 &targetfps);
+
 	private:
-		Uniform *texResHandle, velocityScale;
+		Uniform *velHandle, velocityScale;
+		f32 cfps, tfps;
 	};
 
 };

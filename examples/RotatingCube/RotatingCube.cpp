@@ -108,6 +108,9 @@ void RotatingCube::Update()
 	Renderer->RenderScene(projection, Camera, Scene);
 	EffectManager->EndCapture();
 
+	((MotionBlurEffect*) MotionBlur)->SetCurrentFPS(fps.getFPS());
+	((MotionBlurEffect*) MotionBlur)->SetTargetFPS(60);
+
 	// Render Post Processing
 	EffectManager->ProcessPostEffects(&projection);
 	

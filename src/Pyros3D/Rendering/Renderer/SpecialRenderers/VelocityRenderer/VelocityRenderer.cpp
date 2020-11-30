@@ -78,7 +78,6 @@ namespace p3d {
 		ViewProjectionMatrixIsDirty = true;
 
 		// Group and Sort Meshes
-		rmesh = GroupAndSortAssets(Scene, Camera); // version updating everytime
 		rmesh = RenderingComponent::GetRenderingMeshesSorted(Scene); // using last ordered meshes
 
 		if (rmesh.size() > 0)

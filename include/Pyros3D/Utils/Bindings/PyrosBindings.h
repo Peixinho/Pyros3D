@@ -18,6 +18,8 @@
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
+#include <Pyros3D/Rendering/Renderer/SpecialRenderers/VelocityRenderer/VelocityRenderer.h>
+#include <Pyros3D/Rendering/Renderer/SpecialRenderers/CubemapRenderer/CubemapRenderer.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Capsule.h>
@@ -40,6 +42,7 @@
 #include <Pyros3D/Rendering/PostEffects/Effects/RTTDebug.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/SSAOEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/VignetteEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.h>
 
 namespace p3d {
 

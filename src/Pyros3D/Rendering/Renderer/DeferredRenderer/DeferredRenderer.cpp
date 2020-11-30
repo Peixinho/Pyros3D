@@ -180,9 +180,6 @@ namespace p3d {
 		// Initialize Renderer
 		InitRender();
 
-		// Group and Sort Meshes
-		std::vector<RenderingMesh*> rmesh = GroupAndSortAssets(Scene, Camera);
-
 		// Get Lights List
 		std::vector<IComponent*> lcomps = ILightComponent::GetLightsOnScene(Scene);
 

@@ -18,9 +18,9 @@ namespace p3d {
 		UseCustomTexture(VelocityMap);
 
 		//Vec2 res = Vec2(Width, Height);
-		f32 vel = 3.25f;
+		f32 vel =  3.25f;
 		//texResHandle = AddUniform(Uniform("uTexResolution", Uniforms::DataType::Vec2, &res));
-		AddUniform(Uniform("uVelocityScale", Uniforms::DataType::Float, &vel));
+		velHandle = AddUniform(Uniform("uVelocityScale", Uniforms::DataType::Float, &vel));
 
 		VertexShaderString =
 								#if defined(GLES2)
@@ -98,6 +98,18 @@ namespace p3d {
     }
 
     MotionBlurEffect::~MotionBlurEffect() {
+    }
+
+    void MotionBlurEffect::SetCurrentFPS(const f32 &currentfps) {
+	    this->cfps = currentfps;
+	    f32 v = cfps/tfps;
+	    velHandle->SetValue(&v);
+    }
+
+    void MotionBlurEffect::SetTargetFPS(const f32 &targetfps) {
+	    this->tfps = targetfps;
+	    f32 v = cfps/tfps;
+	    velHandle->SetValue(&v);
     }
 
 };

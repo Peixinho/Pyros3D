@@ -64,6 +64,9 @@ namespace p3d {
 		ViewProjectionMatrixIsDirty = true;
 
 		// Group and Sort Meshes
+		// translucid objects will not be correctly rendered if we dont sort the rendering
+		// meshes based on AllSeeingEye position
+		// And resort again for regular camera
 		//rmesh = GroupAndSortAssets(Scene, AllSeeingEye); // version updating everytime
 		rmesh = RenderingComponent::GetRenderingMeshesSorted(Scene); // using last ordered meshes
 
