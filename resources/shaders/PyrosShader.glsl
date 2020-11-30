@@ -150,8 +150,8 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
     #ifdef VELOCITY_RENDERING
         uniform mat4 uPrvProjectionMatrix, uPrvViewMatrix, uPrvModelMatrix;
-        varying_smooth_out vec4 vWorldPosition;
-	varying_smooth_out vec4 vPrvWorldPosition;
+        varying_smooth_out vec4 vScreenSpaceWorldPosition;
+	varying_smooth_out vec4 vPrvScreenSpaceWorldPosition;
     #endif
 
     mat4 matAnimation = mat4(1.0);
@@ -186,8 +186,8 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         #endif
 	
         #ifdef VELOCITY_RENDERING
-                vWorldPosition=uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(Position,1.0);
-                vPrvWorldPosition=uPrvProjectionMatrix * uPrvViewMatrix * uPrvModelMatrix * vec4(Position,1.0);
+                vScreenSpaceWorldPosition=uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(Position,1.0);
+                vPrvScreenSpaceWorldPosition=uPrvProjectionMatrix * uPrvViewMatrix * uPrvModelMatrix * vec4(Position,1.0);
         #endif
 
 
@@ -584,8 +584,8 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
    #endif
 
    #ifdef VELOCITY_RENDERING
-	varying_smooth_in vec4 vWorldPosition;
-	varying_smooth_in vec4 vPrvWorldPosition;
+	varying_smooth_in vec4 vScreenSpaceWorldPosition;
+	varying_smooth_in vec4 vPrvScreenSpaceWorldPosition;
    #endif
 
     void main() {
@@ -823,27 +823,29 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         #endif
 
         #ifdef DEFERRED_GBUFFER
-            #if defined(GLES2)
-				gl_FragData[0]=vec4(diffuse.xyz,diffuse.x*uAmbientLight.x);
-				gl_FragData[1]=vec4(specular.xyz,diffuse.y*uAmbientLight.y);
-				gl_FragData[2]=vec4(gbuffer_normals.xyz,diffuse.z*uAmbientLight.z);
-			#else
-				FragData_r=vec4(diffuse.xyz,diffuse.x*uAmbientLight.x);
-				FragData_g=vec4(specular.xyz,diffuse.y*uAmbientLight.y);
-				FragData_b=vec4(gbuffer_normals.xyz,diffuse.z*uAmbientLight.z);
-			#endif
-        #else
-            FragColor = vec4(diffuse.xyz,diffuse.w*uOpacity);
-			#if defined(GLES2)
-				gl_FragColor = FragColor;
-			#endif
-        #endif
-	
-	#ifdef VELOCITY_RENDERING
-	    vec2 a = (vWorldPosition.xy / vWorldPosition.w) * 0.5 + 0.5;
-	    vec2 b = (vPrvWorldPosition.xy / vPrvWorldPosition.w) * 0.5 + 0.5;
-	    FragColor = a-b;
+		#if defined(GLES2)
+			gl_FragData[0]=vec4(diffuse.xyz,diffuse.x*uAmbientLight.x);
+			gl_FragData[1]=vec4(specular.xyz,diffuse.y*uAmbientLight.y);
+			gl_FragData[2]=vec4(gbuffer_normals.xyz,diffuse.z*uAmbientLight.z);
+		#else
+			FragData_r=vec4(diffuse.xyz,diffuse.x*uAmbientLight.x);
+			FragData_g=vec4(specular.xyz,diffuse.y*uAmbientLight.y);
+			FragData_b=vec4(gbuffer_normals.xyz,diffuse.z*uAmbientLight.z);
+		#endif
 	#endif
+
+	#ifdef VELOCITY_RENDERING
+		vec2 a = (vScreenSpaceWorldPosition.xy / vScreenSpaceWorldPosition.w) * 0.5 + 0.5;
+		vec2 b = (vPrvScreenSpaceWorldPosition.xy / vPrvScreenSpaceWorldPosition.w) * 0.5 + 0.5;
+		FragColor = a - b;
+	#else
+		FragColor = vec4(diffuse.xyz,diffuse.w*uOpacity);
+        #endif
+
+	#if defined(GLES2)
+		gl_FragColor = FragColor;
+	#endif
+	
     }
 
 #endif

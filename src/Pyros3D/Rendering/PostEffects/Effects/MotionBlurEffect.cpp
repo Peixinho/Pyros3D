@@ -18,7 +18,7 @@ namespace p3d {
 		UseCustomTexture(VelocityMap);
 
 		//Vec2 res = Vec2(Width, Height);
-		f32 vel = 0.009f;
+		f32 vel = 3.25f;
 		//texResHandle = AddUniform(Uniform("uTexResolution", Uniforms::DataType::Vec2, &res));
 		AddUniform(Uniform("uVelocityScale", Uniforms::DataType::Float, &vel));
 
@@ -88,8 +88,7 @@ namespace p3d {
 									"      vec2 offset = velocity * (float(i) / float(nSamples - 1) - 0.5);\n"
 									"      oResult += texture(uTex0, screenTexCoords + offset);\n"
 									"}\n"
-									"oResult /= float(nSamples);\n"
-									"FragColor = oResult;\n"
+									"FragColor = oResult / float(nSamples);\n"
 									#if defined(GLES2)
 									"gl_FragColor = FragColor;\n"
 									#endif
