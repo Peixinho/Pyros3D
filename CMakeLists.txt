@@ -51,6 +51,7 @@ SET(OPENGL_VERSION "GL45" CACHE STRING "OpenGL Version")
 if (OPENGL_VERSION STREQUAL "GL45")
 	add_definitions(-DGL45)
 	SET(GL_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/gl45/glad.c)
+        SET(GLAD_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include/Pyros3D/Ext/gl45)
 	# Find OpenGL
 	find_package(OpenGL REQUIRED)
 	if (NOT OPENGL_FOUND)
@@ -64,12 +65,14 @@ else()
 			add_definitions(-DGLES2)
 			if (IS_DESKTOP)
 				SET(GL_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/gles2/glad.c)
+                                SET(GLAD_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include/Pyros3D/Ext/gles2)
 			endif(IS_DESKTOP)
 		else()
 		if (OPENGL_VERSION STREQUAL "GLES3")
 			add_definitions(-DGLES3)
 			if (IS_DESKTOP)
 				SET(GL_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/gles3/glad.c)
+                                SET(GLAD_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include/Pyros3D/Ext/gles3)
 			endif(IS_DESKTOP)
 		endif()
 	endif()
@@ -190,7 +193,7 @@ set(HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-include_directories(${HEADERS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS})
+include_directories(${HEADERS} ${GLAD_INCLUDE_DIR} ${LUA_INCLUDE_DIR} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS})
 
 # Engine Library
 add_library(PyrosEngine ${LIB_TYPE} ${SOURCE} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS})

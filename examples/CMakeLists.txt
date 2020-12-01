@@ -119,6 +119,7 @@ if (CONTEXT STREQUAL "SDL2")
 	endif()
 endif()
 
+link_directories("/usr/local/lib")
 
 # Example Sources
 set(SOURCE_RotatingCube
@@ -233,6 +234,7 @@ set(SOURCE_TextRendering
 set(HEADERS
 	${CMAKE_SOURCE_DIR}/include
 	${CMAKE_CURRENT_SOURCE_DIR}
+	"/usr/local/include"
 )
 
 # Example Executable
