@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-RotatingCubeWithLightingAndShadow::RotatingCubeWithLightingAndShadow() : ClassName(1024, 768, "Pyros3D - Rotating Cube With Lighting And Shadow", WindowType::Close | WindowType::Resize)
+RotatingCubeWithLightingAndShadow::RotatingCubeWithLightingAndShadow() : BaseExample(1024, 768, "Pyros3D - Rotating Cube With Lighting And Shadow", WindowType::Close | WindowType::Resize)
 {
 
 }
@@ -18,7 +18,7 @@ RotatingCubeWithLightingAndShadow::RotatingCubeWithLightingAndShadow() : ClassNa
 void RotatingCubeWithLightingAndShadow::OnResize(const uint32 width, const uint32 height)
 {
 	// Execute Parent Resize Function
-	ClassName::OnResize(width, height);
+	BaseExample::OnResize(width, height);
 
 	// Resize
 	Renderer->Resize(width, height);
@@ -30,8 +30,7 @@ void RotatingCubeWithLightingAndShadow::Init()
 {
 	// Initialization
 
-	// Initialize Scene
-	Scene = new SceneGraph();
+	BaseExample::Init();
 
 	// Initialize Renderer
 	Renderer = new ForwardRenderer(Width, Height);
@@ -40,8 +39,7 @@ void RotatingCubeWithLightingAndShadow::Init()
 	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 2000.f);
 
 	// Create Camera
-	Camera = new GameObject();
-	Camera->SetPosition(Vec3(0, 10, 100));
+	FPSCamera->SetPosition(Vec3(0, 10, 100));
 
 	// Material
 	Diffuse = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::SpecularColor | ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow | ShaderUsage::PointShadow);
@@ -78,7 +76,6 @@ void RotatingCubeWithLightingAndShadow::Init()
 	floorMesh = new Cube(100, 10, 100);
 	Ceiling = new GameObject();
 
-
 	// Create Floor Rendering Component
 	rFloor = new RenderingComponent(floorMesh, FloorMaterial);
 	rCeiling = new RenderingComponent(floorMesh, FloorMaterial);
@@ -104,30 +101,8 @@ void RotatingCubeWithLightingAndShadow::Init()
 	rCube = new RenderingComponent(cubeMesh, Diffuse);
 	CubeObject->Add(rCube);
 
-	// Add Camera to Scene
-	Scene->Add(Camera);
 	// Add GameObject to Scene
 	Scene->Add(CubeObject);
-
-	SetMousePosition((uint32)(Width *.5f), (uint32)(Height *.5f));
-	mouseCenter = Vec2((f32)Width *.5f, (uint32)Height *.5f);
-	mouseLastPosition = mouseCenter;
-	counterX = counterY = 0.f;
-
-	// Input
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &RotatingCubeWithLightingAndShadow::MoveFrontPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::S, this, &RotatingCubeWithLightingAndShadow::MoveBackPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::A, this, &RotatingCubeWithLightingAndShadow::StrafeLeftPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::D, this, &RotatingCubeWithLightingAndShadow::StrafeRightPress);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::W, this, &RotatingCubeWithLightingAndShadow::MoveFrontRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::S, this, &RotatingCubeWithLightingAndShadow::MoveBackRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &RotatingCubeWithLightingAndShadow::StrafeLeftRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &RotatingCubeWithLightingAndShadow::StrafeRightRelease);
-	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &RotatingCubeWithLightingAndShadow::LookTo);
-
-	_strafeLeft = _strafeRight = _moveBack = _moveFront = 0;
-	HideMouse();
-
 }
 
 void RotatingCubeWithLightingAndShadow::Update()
@@ -137,35 +112,14 @@ void RotatingCubeWithLightingAndShadow::Update()
 	// Update Scene
 	Scene->Update(GetTime());
 
+	BaseExample::Update();
+
 	// Game Logic Here
 	CubeObject->SetRotation(Vec3(0, (f32)GetTime(), 0));
 
 	// Render Scene
-	Renderer->PreRender(Camera, Scene);
-	Renderer->RenderScene(projection, Camera, Scene);
-
-	Vec3 finalPosition;
-	Vec3 direction = Camera->GetDirection();
-	float dt = (float)GetTimeInterval();
-	float speed = dt * 20.f;
-	if (_moveFront)
-	{
-		finalPosition -= direction*speed;
-	}
-	if (_moveBack)
-	{
-		finalPosition += direction*speed;
-	}
-	if (_strafeLeft)
-	{
-		finalPosition += direction.cross(Vec3(0, 1, 0)).normalize()*speed;
-	}
-	if (_strafeRight)
-	{
-		finalPosition -= direction.cross(Vec3(0, 1, 0)).normalize()*speed;
-	}
-
-	Camera->SetPosition(Camera->GetPosition() + finalPosition);
+	Renderer->PreRender(FPSCamera, Scene);
+	Renderer->RenderScene(projection, FPSCamera, Scene);
 }
 
 void RotatingCubeWithLightingAndShadow::Shutdown()
@@ -174,7 +128,6 @@ void RotatingCubeWithLightingAndShadow::Shutdown()
 
 	// Remove GameObjects From Scene
 	Scene->Remove(CubeObject);
-	Scene->Remove(Camera);
 	Scene->Remove(Light);
 	Scene->Remove(Floor);
 
@@ -193,66 +146,9 @@ void RotatingCubeWithLightingAndShadow::Shutdown()
 	delete Light;
 	delete Diffuse;
 	delete FloorMaterial;
-	delete Camera;
 	delete Renderer;
 	delete Scene;
+	BaseExample::Shutdown();
 }
 
 RotatingCubeWithLightingAndShadow::~RotatingCubeWithLightingAndShadow() {}
-
-void RotatingCubeWithLightingAndShadow::MoveFrontPress(Event::Input::Info e)
-{
-	_moveFront = true;
-}
-void RotatingCubeWithLightingAndShadow::MoveBackPress(Event::Input::Info e)
-{
-	_moveBack = true;
-}
-void RotatingCubeWithLightingAndShadow::StrafeLeftPress(Event::Input::Info e)
-{
-	_strafeLeft = true;
-}
-void RotatingCubeWithLightingAndShadow::StrafeRightPress(Event::Input::Info e)
-{
-	_strafeRight = true;
-}
-void RotatingCubeWithLightingAndShadow::MoveFrontRelease(Event::Input::Info e)
-{
-	_moveFront = false;
-}
-void RotatingCubeWithLightingAndShadow::MoveBackRelease(Event::Input::Info e)
-{
-	_moveBack = false;
-}
-void RotatingCubeWithLightingAndShadow::StrafeLeftRelease(Event::Input::Info e)
-{
-	_strafeLeft = false;
-}
-void RotatingCubeWithLightingAndShadow::StrafeRightRelease(Event::Input::Info e)
-{
-	_strafeRight = false;
-}
-void RotatingCubeWithLightingAndShadow::LookTo(Event::Input::Info e)
-{
-	if (mouseCenter != GetMousePosition())
-	{
-		mousePosition = InputManager::GetMousePosition();
-		Vec2 mouseDelta = (mousePosition - mouseLastPosition);
-		if (mouseDelta.x != 0 || mouseDelta.y != 0)
-		{
-			counterX -= mouseDelta.x / 10.f;
-			counterY -= mouseDelta.y / 10.f;
-			if (counterY<-80.f) counterY = -80.f;
-			if (counterY>80.f) counterY = 80.f;
-			Quaternion qX, qY;
-			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), DEGTORAD(counterY));
-			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), DEGTORAD(counterX));
-			//                Matrix rotX, rotY;
-			//                rotX.RotationX(DEGTORAD(counterY));
-			//                rotY.RotationY(DEGTORAD(counterX));
-			Camera->SetRotation((qY*qX).GetEulerFromQuaternion());
-			SetMousePosition((int)(mouseCenter.x), (int)(mouseCenter.y));
-			mouseLastPosition = mouseCenter;
-		}
-	}
-}

@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-RotatingCubeWithLighting::RotatingCubeWithLighting() : ClassName(1024, 768, "Pyros3D - Rotating Cube With Lighting", WindowType::Close | WindowType::Resize)
+RotatingCubeWithLighting::RotatingCubeWithLighting() : BaseExample(1024, 768, "Pyros3D - Rotating Cube With Lighting", WindowType::Close | WindowType::Resize)
 {
 
 }
@@ -18,7 +18,7 @@ RotatingCubeWithLighting::RotatingCubeWithLighting() : ClassName(1024, 768, "Pyr
 void RotatingCubeWithLighting::OnResize(const uint32 width, const uint32 height)
 {
 	// Execute Parent Resize Function
-	ClassName::OnResize(width, height);
+	BaseExample::OnResize(width, height);
 
 	// Resize
 	Renderer->Resize(width, height);
@@ -29,8 +29,7 @@ void RotatingCubeWithLighting::Init()
 {
 	// Initialization
 
-		// Initialize Scene
-	Scene = new SceneGraph();
+	BaseExample::Init();
 
 	// Initialize Renderer
 	Renderer = new ForwardRenderer(Width, Height);
@@ -38,9 +37,7 @@ void RotatingCubeWithLighting::Init()
 	// Projection
 	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 100.f);
 
-	// Create Camera
-	Camera = new GameObject();
-	Camera->SetPosition(Vec3(0, 10, 80));
+	FPSCamera->SetPosition(Vec3(0, 10, 80));
 
 	// Material
 	Diffuse = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::Diffuse);
@@ -59,35 +56,32 @@ void RotatingCubeWithLighting::Init()
 	rCube = new RenderingComponent(cubeMesh, Diffuse);
 	CubeObject->Add(rCube);
 
-	// Add Camera to Scene
-	Scene->Add(Camera);
 	// Add GameObject to Scene
 	Scene->Add(CubeObject);
-	Camera->LookAt(Vec3::ZERO);
 }
 
 void RotatingCubeWithLighting::Update()
 {
 	// Update - Game Loop
 
-		// Update Scene
 	Scene->Update(GetTime());
+
+	BaseExample::Update();
 
 	// Game Logic Here
 	CubeObject->SetRotation(Vec3(0, (f32)GetTime(), 0));
 
 	// Render Scene
-	Renderer->PreRender(Camera, Scene);
-	Renderer->RenderScene(projection, Camera, Scene);
+	Renderer->PreRender(FPSCamera, Scene);
+	Renderer->RenderScene(projection, FPSCamera, Scene);
 }
 
 void RotatingCubeWithLighting::Shutdown()
 {
 	// All your Shutdown Code Here
 
-		// Remove GameObjects From Scene
+	// Remove GameObjects From Scene
 	Scene->Remove(CubeObject);
-	Scene->Remove(Camera);
 	Scene->Remove(Light);
 
 	CubeObject->Remove(rCube);
@@ -100,9 +94,9 @@ void RotatingCubeWithLighting::Shutdown()
 	delete dLight;
 	delete Light;
 	delete Diffuse;
-	delete Camera;
 	delete Renderer;
-	delete Scene;
+
+	BaseExample::Shutdown();
 }
 
 RotatingCubeWithLighting::~RotatingCubeWithLighting() {}

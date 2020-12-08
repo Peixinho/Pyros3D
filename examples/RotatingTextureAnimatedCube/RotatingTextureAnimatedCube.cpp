@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-RotatingTextureAnimatedCube::RotatingTextureAnimatedCube() : ClassName(1024, 768, "Pyros3D - Rotating Textured Cube", WindowType::Close | WindowType::Resize)
+RotatingTextureAnimatedCube::RotatingTextureAnimatedCube() : BaseExample(1024, 768, "Pyros3D - Rotating Textured Cube", WindowType::Close | WindowType::Resize)
 {
 
 }
@@ -18,7 +18,7 @@ RotatingTextureAnimatedCube::RotatingTextureAnimatedCube() : ClassName(1024, 768
 void RotatingTextureAnimatedCube::OnResize(const uint32 width, const uint32 height)
 {
 	// Execute Parent Resize Function
-	ClassName::OnResize(width, height);
+	BaseExample::OnResize(width, height);
 
 	// Resize
 	Renderer->Resize(width, height);
@@ -29,8 +29,7 @@ void RotatingTextureAnimatedCube::Init()
 {
 	// Initialization
 
-	// Initialize Scene
-	Scene = new SceneGraph();
+	BaseExample::Init();
 
 	// Initialize Renderer
 	Renderer = new ForwardRenderer(Width, Height);
@@ -38,19 +37,17 @@ void RotatingTextureAnimatedCube::Init()
 	// Projection
 	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 100.f);
 
-	// Create Camera
-	Camera = new GameObject();
-	Camera->SetPosition(Vec3(0, 10, 80));
+	FPSCamera->SetPosition(Vec3(0, 10, 80));
 
 	// Material
 	material = new GenericShaderMaterial(ShaderUsage::Texture);
 
-	tex0 = new Texture(); tex0->LoadTexture(STR(EXAMPLES_PATH)"/RotatingTextureAnimatedCube/assets/1.png", TextureType::Texture);
-	tex1 = new Texture(); tex1->LoadTexture(STR(EXAMPLES_PATH)"/RotatingTextureAnimatedCube/assets/2.png", TextureType::Texture);
-	tex2 = new Texture(); tex2->LoadTexture(STR(EXAMPLES_PATH)"/RotatingTextureAnimatedCube/assets/3.png", TextureType::Texture);
-	tex3 = new Texture(); tex3->LoadTexture(STR(EXAMPLES_PATH)"/RotatingTextureAnimatedCube/assets/4.png", TextureType::Texture);
-	tex4 = new Texture(); tex4->LoadTexture(STR(EXAMPLES_PATH)"/RotatingTextureAnimatedCube/assets/5.png", TextureType::Texture);
-	tex5 = new Texture(); tex5->LoadTexture(STR(EXAMPLES_PATH)"/RotatingTextureAnimatedCube/assets/6.png", TextureType::Texture);
+	tex0 = new Texture(); tex0->LoadTexture(STR(EXAMPLES_PATH)"/assets/textureanimation/1.png", TextureType::Texture);
+	tex1 = new Texture(); tex1->LoadTexture(STR(EXAMPLES_PATH)"/assets/textureanimation/2.png", TextureType::Texture);
+	tex2 = new Texture(); tex2->LoadTexture(STR(EXAMPLES_PATH)"/assets/textureanimation/3.png", TextureType::Texture);
+	tex3 = new Texture(); tex3->LoadTexture(STR(EXAMPLES_PATH)"/assets/textureanimation/4.png", TextureType::Texture);
+	tex4 = new Texture(); tex4->LoadTexture(STR(EXAMPLES_PATH)"/assets/textureanimation/5.png", TextureType::Texture);
+	tex5 = new Texture(); tex5->LoadTexture(STR(EXAMPLES_PATH)"/assets/textureanimation/6.png", TextureType::Texture);
 	anim = new TextureAnimation();
 	anim->AddFrame(tex0);
 	anim->AddFrame(tex1);
@@ -71,11 +68,8 @@ void RotatingTextureAnimatedCube::Init()
 	rCube = new RenderingComponent(cubeMesh, material);
 	CubeObject->Add(rCube);
 
-	// Add Camera to Scene
-	Scene->Add(Camera);
 	// Add GameObject to Scene
 	Scene->Add(CubeObject);
-	Camera->LookAt(Vec3::ZERO);
 
 	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Mouse::Left, this, &RotatingTextureAnimatedCube::OnMousePress);
 }
@@ -88,6 +82,7 @@ void RotatingTextureAnimatedCube::OnMousePress(Event::Input::Info e)
 void RotatingTextureAnimatedCube::Update()
 {
 	// Update - Game Loop
+	BaseExample::Update();
 
 	anim->Update((f32)GetTime());
 
@@ -101,8 +96,8 @@ void RotatingTextureAnimatedCube::Update()
 	CubeObject->SetRotation(Vec3(0, (f32)GetTime(), 0));
 
 	// Render Scene
-	Renderer->PreRender(Camera, Scene);
-	Renderer->RenderScene(projection, Camera, Scene);
+	Renderer->PreRender(FPSCamera, Scene);
+	Renderer->RenderScene(projection, FPSCamera, Scene);
 }
 
 void RotatingTextureAnimatedCube::Shutdown()
@@ -111,7 +106,7 @@ void RotatingTextureAnimatedCube::Shutdown()
 
 		// Remove GameObjects From Scene
 	Scene->Remove(CubeObject);
-	Scene->Remove(Camera);
+	Scene->Remove(FPSCamera);
 
 	CubeObject->Remove(rCube);
 
@@ -120,15 +115,15 @@ void RotatingTextureAnimatedCube::Shutdown()
 	delete rCube;
 	delete CubeObject;
 	delete cubeMesh;
-	delete Camera;
 	delete Renderer;
-	delete Scene;
 	delete tex0;
 	delete tex1;
 	delete tex2;
 	delete tex3;
 	delete tex4;
 	delete tex5;
+
+	BaseExample::Shutdown();
 }
 
 RotatingTextureAnimatedCube::~RotatingTextureAnimatedCube() {}

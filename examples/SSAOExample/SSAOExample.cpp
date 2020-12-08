@@ -57,7 +57,7 @@ SSAOEffectFinal::SSAOEffectFinal(uint32 texture1, uint32 texture2, const uint32 
 
 }
 
-SSAOExample::SSAOExample() : ClassName(1024, 768, "Pyros3D - Custom Material", WindowType::Close | WindowType::Resize)
+SSAOExample::SSAOExample() : BaseExample(1024, 768, "Pyros3D - Custom Material", WindowType::Close | WindowType::Resize)
 {
 
 }
@@ -77,8 +77,7 @@ void SSAOExample::Init()
 {
 	// Initialization
 
-	// Initialize Scene
-	Scene = new SceneGraph();
+	BaseExample::Init();
 
 	// Initialize Renderer
 	Renderer = new ForwardRenderer(Width, Height);
@@ -87,15 +86,11 @@ void SSAOExample::Init()
 	projection.Perspective(70.f, (f32)Width / (f32)Height, 0.01f, 50.f);
 
 	// Create Camera
-	Camera = new GameObject();
-	Camera->SetPosition(Vec3(0.f,3.f,3.f));
-	Camera->SetRotation(Vec3(DEGTORAD(-45.f),0.f,0.f));
-
-	// Add Camera to Scene
-	Scene->Add(Camera);
+	FPSCamera->SetPosition(Vec3(0.f,3.f,3.f));
+	FPSCamera->SetRotation(Vec3(DEGTORAD(-45.f),0.f,0.f));
 
 	// Teapots
-	teapot = new Model(STR(EXAMPLES_PATH)"/SSAOExample/assets/teapot.p3dm");
+	teapot = new Model(STR(EXAMPLES_PATH)"/assets/teapotLOD1.p3dm");
 	for (uint32 j = 0; j < 10; j++)
 	for (uint32 i = 0; i < 10; i++)
 	{
@@ -124,68 +119,26 @@ void SSAOExample::Init()
 	EffectManager->AddEffect(new BlurSSAOEffect(RTT::LastRTT, Width, Height));
 	EffectManager->AddEffect(new SSAOEffectFinal(RTT::Color, RTT::LastRTT, Width, Height));
 
-	SetMousePosition((uint32)Width / 2, (uint32)Height / 2);
-	mouseCenter = Vec2((uint32)Width / 2, (uint32)Height / 2);
-	mouseLastPosition = mouseCenter;
-	counterX = counterY = 0;
-	counterY = -45;	
-	
 	// Add a Directional Light
 	Light = new GameObject();
 	dLight = new DirectionalLight(Vec4(1, 1, 1, 1), Vec3(-1, -1, -1));
 	Light->Add(dLight);
 	Scene->Add(Light);
-
-	// Input
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &SSAOExample::MoveFrontPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::S, this, &SSAOExample::MoveBackPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::A, this, &SSAOExample::StrafeLeftPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::D, this, &SSAOExample::StrafeRightPress);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::W, this, &SSAOExample::MoveFrontRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::S, this, &SSAOExample::MoveBackRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &SSAOExample::StrafeLeftRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &SSAOExample::StrafeRightRelease);
-	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &SSAOExample::LookTo);
-
-	_strafeLeft = _strafeRight = _moveBack = _moveFront = 0;
-	HideMouse();
 }
 
 void SSAOExample::Update()
 {
-
-	Vec3 finalPosition;
-	Vec3 direction = Camera->GetDirection();
-	float dt = GetTimeInterval();
-	float speed = dt * 2.0f;
-	if (_moveFront)
-	{
-		finalPosition -= direction*speed;
-	}
-	if (_moveBack)
-	{
-		finalPosition += direction*speed;
-	}
-	if (_strafeLeft)
-	{
-		finalPosition += direction.cross(Vec3(0, 1, 0)).normalize()*speed;
-	}
-	if (_strafeRight)
-	{
-		finalPosition -= direction.cross(Vec3(0, 1, 0)).normalize()*speed;
-	}
-
-	Camera->SetPosition(Camera->GetPosition() + finalPosition);
-
 	// Update Scene
 	Scene->Update(GetTime());
 
-	ssao->SetViewMatrix(Camera->GetWorldTransformation().Inverse());
+	BaseExample::Update();
+
+	ssao->SetViewMatrix(FPSCamera->GetWorldTransformation().Inverse());
 
 	// Render Scene
 	EffectManager->CaptureFrame();
-	Renderer->PreRender(Camera, Scene);
-	Renderer->RenderScene(projection, Camera, Scene);
+	Renderer->PreRender(FPSCamera, Scene);
+	Renderer->RenderScene(projection, FPSCamera, Scene);
 	EffectManager->EndCapture();
 
 	EffectManager->ProcessPostEffects(&projection);	
@@ -197,7 +150,6 @@ void SSAOExample::Shutdown()
 	// All your Shutdown Code Here
 
 	// Remove GameObjects From Scene
-	Scene->Remove(Camera);
 
 	for (std::vector<RenderingComponent*>::iterator i = rTeapots.begin(); i!=rTeapots.end(); i++)
 	{
@@ -219,68 +171,11 @@ void SSAOExample::Shutdown()
 	delete floor;
 
 
-	delete Camera;
-	delete Scene;
 	delete Renderer;
 	delete EffectManager;
+
+	BaseExample::Shutdown();
 
 }
 
 SSAOExample::~SSAOExample() {}
-
-void SSAOExample::MoveFrontPress(Event::Input::Info e)
-{
-	_moveFront = true;
-}
-void SSAOExample::MoveBackPress(Event::Input::Info e)
-{
-	_moveBack = true;
-}
-void SSAOExample::StrafeLeftPress(Event::Input::Info e)
-{
-	_strafeLeft = true;
-}
-void SSAOExample::StrafeRightPress(Event::Input::Info e)
-{
-	_strafeRight = true;
-}
-void SSAOExample::MoveFrontRelease(Event::Input::Info e)
-{
-	_moveFront = false;
-}
-void SSAOExample::MoveBackRelease(Event::Input::Info e)
-{
-	_moveBack = false;
-}
-void SSAOExample::StrafeLeftRelease(Event::Input::Info e)
-{
-	_strafeLeft = false;
-}
-void SSAOExample::StrafeRightRelease(Event::Input::Info e)
-{
-	_strafeRight = false;
-}
-void SSAOExample::LookTo(Event::Input::Info e)
-{
-	if (mouseCenter != GetMousePosition())
-	{
-		mousePosition = InputManager::GetMousePosition();
-		Vec2 mouseDelta = (mousePosition - mouseLastPosition);
-		if (mouseDelta.x != 0 || mouseDelta.y != 0)
-		{
-			counterX -= mouseDelta.x / 10.f;
-			counterY -= mouseDelta.y / 10.f;
-			if (counterY<-80.f) counterY = -80.f;
-			if (counterY>80.f) counterY = 80.f;
-			Quaternion qX, qY;
-			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), DEGTORAD(counterY));
-			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), DEGTORAD(counterX));
-			//                Matrix rotX, rotY;
-			//                rotX.RotationX(DEGTORAD(counterY));
-			//                rotY.RotationY(DEGTORAD(counterX));
-			Camera->SetRotation((qY*qX).GetEulerFromQuaternion());
-			SetMousePosition((int)(mouseCenter.x), (int)(mouseCenter.y));
-			mouseLastPosition = mouseCenter;
-		}
-	}
-}

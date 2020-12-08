@@ -88,12 +88,12 @@ DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2, con
 	AddUniform(Uniform("uRatioH", Uniforms::DataType::Float, &rH));
 }
 
-DepthOfField::DepthOfField() : ClassName(1024, 768, "Pyros3D - Depth Of Field", WindowType::Close | WindowType::Resize) {}
+DepthOfField::DepthOfField() : BaseExample(1024, 768, "Pyros3D - Depth Of Field", WindowType::Close | WindowType::Resize) {}
 
 void DepthOfField::OnResize(const uint32 width, const uint32 height)
 {
 	// Execute Parent Resize Function
-	ClassName::OnResize(width, height);
+	BaseExample::OnResize(width, height);
 
 	// Resize
 	Renderer->Resize(width, height);
@@ -112,18 +112,15 @@ void DepthOfField::Init()
 {
 	// Initialization
 
-		// Initialize Scene
-	Scene = new SceneGraph();
+	BaseExample::Init();
+
+	FPSCamera->SetPosition(Vec3(0, 2, 20));
 
 	// Initialize Renderer
 	Renderer = new ForwardRenderer(Width, Height);
 	Renderer->SetBackground(Vec4(1, 0, 0, 1));
 	// Projection
 	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 1000.f);
-
-	// Create Camera
-	Camera = new GameObject();
-	Camera->SetPosition(Vec3(0, 2, 20));
 
 	// Add a Directional Light
 	Light = new GameObject();
@@ -133,7 +130,7 @@ void DepthOfField::Init()
 	Scene->Add(Light);
 
 	// Create Game Object
-	modelMesh = new Model(STR(EXAMPLES_PATH)"/DepthOfField/assets/suzanne.p3dm", false);
+	modelMesh = new Model(STR(EXAMPLES_PATH)"/assets/suzanne.p3dm", false);
 
 	for (uint32 i = 0; i < 10; i++)
 	{
@@ -146,11 +143,6 @@ void DepthOfField::Init()
 		go.push_back(Monkey);
 		rc.push_back(rMonkey);
 	}
-
-	// Add Camera to Scene
-	Scene->Add(Camera);
-
-	Camera->LookAt(Vec3::ZERO);
 
 	fullResBlur = new Texture();
 	fullResBlur->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height);
@@ -185,6 +177,8 @@ void DepthOfField::Update()
 		// Update Scene
 	Scene->Update(GetTime());
 
+	BaseExample::Update();
+
 	// Game Logic Here
 	for (uint32 i = 0; i < 10; i++)
 	{
@@ -193,8 +187,8 @@ void DepthOfField::Update()
 
 	// Render Scene
 	EffectManager->CaptureFrame();
-	Renderer->PreRender(Camera, Scene);
-	Renderer->RenderScene(projection, Camera, Scene);
+	Renderer->PreRender(FPSCamera, Scene);
+	Renderer->RenderScene(projection, FPSCamera, Scene);
 	EffectManager->EndCapture();
 
 	// Render Post Processing
@@ -214,13 +208,11 @@ void DepthOfField::Shutdown()
 		delete rc[i];
 	}
 
-	Scene->Remove(Camera);
+	Scene->Remove(FPSCamera);
 
 	// Delete
 	delete modelMesh;
-	delete Camera;
 	delete Renderer;
-	delete Scene;
 	delete EffectManager; // this deletes all effects
 }
 

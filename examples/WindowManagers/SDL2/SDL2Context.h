@@ -9,7 +9,7 @@
 #ifndef SDL2CONTEXT_H
 #define SDL2CONTEXT_H
 
-#include <SDL2/SDL.h>
+#include <SDL.h>
 #include "Pyros3D/Core/Context/Context.h"
 
 namespace p3d {
@@ -47,10 +47,10 @@ namespace p3d {
             void SetMousePosition(const uint32 mouseX, const uint32 mouseY);
             const Vec2 GetMousePosition() const;
 
-			// Time
-			virtual f64 GetTime() { return SDL_GetTicks() * 0.001; }
-			virtual f64 GetTimeMilliSeconds() { return SDL_GetTicks(); }
-			virtual f64 GetTimeMicroSeconds() { return SDL_GetTicks(); }
+	    // Time
+	    virtual f64 GetTime() { return SDL_GetTicks() * 0.001; }
+	    virtual f64 GetTimeMilliSeconds() { return SDL_GetTicks(); }
+	    virtual f64 GetTimeMicroSeconds() { return SDL_GetTicks(); }
 
         protected:
 

@@ -10,12 +10,12 @@
 
 using namespace p3d;
 
-ParticlesExample::ParticlesExample() : ClassName(1024, 768, "Pyros3D - Rotating Cube", WindowType::Close | WindowType::Resize) {}
+ParticlesExample::ParticlesExample() : BaseExample(1024, 768, "Pyros3D - Rotating Cube", WindowType::Close | WindowType::Resize) {}
 
 void ParticlesExample::OnResize(const uint32 width, const uint32 height)
 {
 	// Execute Parent Resize Function
-	ClassName::OnResize(width, height);
+	BaseExample::OnResize(width, height);
 
 	// Resize
 	Renderer->Resize(width, height);
@@ -26,8 +26,7 @@ void ParticlesExample::Init()
 {
 	// Initialization
 
-	// Initialize Scene
-	Scene = new SceneGraph();
+	BaseExample::Init();
 
 	// Initialize Renderer
 	Renderer = new ForwardRenderer(Width, Height);
@@ -35,10 +34,7 @@ void ParticlesExample::Init()
 	// Projection
 	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 1000.f);
 
-	// Create Camera
-	Camera = new GameObject();
-	Camera->SetPosition(Vec3(0, 10, 80));
-	Scene->Add(Camera);
+	FPSCamera->SetPosition(Vec3(0, 10, 80));
 
 	particleMaterial = new ParticleMaterial();
 
@@ -60,25 +56,6 @@ void ParticlesExample::Init()
 	gSmoke2->SetPosition(Vec3(10,0,0));
 	Scene->Add(gSmoke2);
 
-	SetMousePosition((uint32)Width / 2, (uint32)Height / 2);
-	mouseCenter = Vec2((uint32)Width / 2, (uint32)Height / 2);
-	mouseLastPosition = mouseCenter;
-	counterX = counterY = 0;
-	counterY = -45;
-
-	// Input
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &ParticlesExample::MoveFrontPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::S, this, &ParticlesExample::MoveBackPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::A, this, &ParticlesExample::StrafeLeftPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::D, this, &ParticlesExample::StrafeRightPress);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::W, this, &ParticlesExample::MoveFrontRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::S, this, &ParticlesExample::MoveBackRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &ParticlesExample::StrafeLeftRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &ParticlesExample::StrafeRightRelease);
-	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &ParticlesExample::LookTo);
-
-	_strafeLeft = _strafeRight = _moveBack = _moveFront = 0;
-	HideMouse();
 	lastTime = GetTime();
 }
 
@@ -86,31 +63,10 @@ void ParticlesExample::Update()
 {
 	// Update - Game Loop
 
-	Vec3 finalPosition;
-	Vec3 direction = Camera->GetDirection();
-	float dt = GetTimeInterval();
-	float speed = dt * 200.0f;
-	if (_moveFront)
-	{
-		finalPosition -= direction * speed;
-	}
-	if (_moveBack)
-	{
-		finalPosition += direction * speed;
-	}
-	if (_strafeLeft)
-	{
-		finalPosition += direction.cross(Vec3(0, 1, 0)).normalize()*speed;
-	}
-	if (_strafeRight)
-	{
-		finalPosition -= direction.cross(Vec3(0, 1, 0)).normalize()*speed;
-	}
-
-	Camera->SetPosition(Camera->GetPosition() + finalPosition);
-
 	// Update Scene
 	Scene->Update(GetTime());
+
+	BaseExample::Update();
 
 	// Game Logic HereW
 
@@ -170,8 +126,8 @@ void ParticlesExample::Update()
 	}
 
 	// Render Scene
-	Renderer->PreRender(Camera, Scene);
-	Renderer->RenderScene(projection, Camera, Scene);
+	Renderer->PreRender(FPSCamera, Scene);
+	Renderer->RenderScene(projection, FPSCamera, Scene);
 }
 
 void ParticlesExample::Shutdown()
@@ -184,8 +140,6 @@ void ParticlesExample::Shutdown()
 	gSmoke2->Remove(emitter2);
 	Scene->Remove(gSmoke2);
 
-	Scene->Remove(Camera);
-
 	// Delete
 	delete emitter1;
 	delete emitter2;
@@ -194,66 +148,9 @@ void ParticlesExample::Shutdown()
 	delete gSmoke2;
 	delete smokeParticle1;
 	delete smokeParticle2;
-	delete Camera;
 	delete Renderer;
-	delete Scene;
+
+	BaseExample::Shutdown();
 }
 
 ParticlesExample::~ParticlesExample() {}
-
-void ParticlesExample::MoveFrontPress(Event::Input::Info e)
-{
-	_moveFront = true;
-}
-void ParticlesExample::MoveBackPress(Event::Input::Info e)
-{
-	_moveBack = true;
-}
-void ParticlesExample::StrafeLeftPress(Event::Input::Info e)
-{
-	_strafeLeft = true;
-}
-void ParticlesExample::StrafeRightPress(Event::Input::Info e)
-{
-	_strafeRight = true;
-}
-void ParticlesExample::MoveFrontRelease(Event::Input::Info e)
-{
-	_moveFront = false;
-}
-void ParticlesExample::MoveBackRelease(Event::Input::Info e)
-{
-	_moveBack = false;
-}
-void ParticlesExample::StrafeLeftRelease(Event::Input::Info e)
-{
-	_strafeLeft = false;
-}
-void ParticlesExample::StrafeRightRelease(Event::Input::Info e)
-{
-	_strafeRight = false;
-}
-void ParticlesExample::LookTo(Event::Input::Info e)
-{
-	if (mouseCenter != GetMousePosition())
-	{
-		mousePosition = InputManager::GetMousePosition();
-		Vec2 mouseDelta = (mousePosition - mouseLastPosition);
-		if (mouseDelta.x != 0 || mouseDelta.y != 0)
-		{
-			counterX -= mouseDelta.x / 10.f;
-			counterY -= mouseDelta.y / 10.f;
-			if (counterY<-80.f) counterY = -80.f;
-			if (counterY>80.f) counterY = 80.f;
-			Quaternion qX, qY;
-			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), DEGTORAD(counterY));
-			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), DEGTORAD(counterX));
-			//                Matrix rotX, rotY;
-			//                rotX.RotationX(DEGTORAD(counterY));
-			//                rotY.RotationY(DEGTORAD(counterX));
-			Camera->SetRotation((qY*qX).GetEulerFromQuaternion());
-			SetMousePosition((int)(mouseCenter.x), (int)(mouseCenter.y));
-			mouseLastPosition = mouseCenter;
-		}
-	}
-}

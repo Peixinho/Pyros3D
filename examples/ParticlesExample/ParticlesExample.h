@@ -9,20 +9,7 @@
 #ifndef PARTICLESEXAMPLE_H
 #define	PARTICLESEXAMPLE_H
 
-#define _STR(path) #path
-#define STR(path) _STR(path)
-
-#if defined(_SDL)
-#include "../WindowManagers/SDL/SDLContext.h"
-#define ClassName SDLContext
-#elif defined(_SDL2)
-#include "../WindowManagers/SDL2/SDL2Context.h"
-#define ClassName SDL2Context
-#else
-#include "../WindowManagers/SFML/SFMLContext.h"
-#define ClassName SFMLContext
-#endif
-
+#include "../BaseExample/BaseExample.h"
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
@@ -39,10 +26,10 @@ using namespace p3d;
 class ParticleMaterial : public CustomShaderMaterial {
 	public:
 	Texture* tex;
-	ParticleMaterial() : CustomShaderMaterial(STR(EXAMPLES_PATH)"/ParticlesExample/assets/particle.glsl")
+	ParticleMaterial() : CustomShaderMaterial(STR(EXAMPLES_PATH)"/assets/particle.glsl")
 	{
 		tex = new Texture();
-		tex->LoadTexture(STR(EXAMPLES_PATH)"/ParticlesExample/assets/smoke.png", TextureType::Texture);
+		tex->LoadTexture(STR(EXAMPLES_PATH)"/assets/smoke.png", TextureType::Texture);
 		tex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 		AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
 		AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
@@ -89,7 +76,7 @@ class ParticleEmitter : public IRenderingInstancedComponent {
 		}
 };
 
-class ParticlesExample : public ClassName
+class ParticlesExample : public BaseExample
 {
 
 public:
@@ -104,14 +91,10 @@ public:
 
 private:
 
-	// Scene
-	SceneGraph* Scene;
 	// Renderer
 	ForwardRenderer* Renderer;
 	// Projection
 	Projection projection;
-	// Camera - Its a regular GameObject
-	GameObject* Camera;
 	// GameObject
 	GameObject *gSmoke1, *gSmoke2;
 	// Rendering Component
@@ -121,22 +104,6 @@ private:
 	ParticleEmitter* emitter2;
 	// Material
 	ParticleMaterial* particleMaterial;
-
-
-	// Events
-	void MoveFrontPress(Event::Input::Info e);
-	void MoveBackPress(Event::Input::Info e);
-	void StrafeLeftPress(Event::Input::Info e);
-	void StrafeRightPress(Event::Input::Info e);
-	void MoveFrontRelease(Event::Input::Info e);
-	void MoveBackRelease(Event::Input::Info e);
-	void StrafeLeftRelease(Event::Input::Info e);
-	void StrafeRightRelease(Event::Input::Info e);
-	void LookTo(Event::Input::Info e);
-
-	float counterX, counterY;
-	Vec2 mouseCenter, mouseLastPosition, mousePosition;
-	bool _moveFront, _moveBack, _strafeLeft, _strafeRight;
 
 	f32 lastTime;
 };

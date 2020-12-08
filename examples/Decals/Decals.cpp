@@ -10,12 +10,12 @@
 
 using namespace p3d;
 
-Decals::Decals() : ClassName(1024, 768, "Pyros3D - Decals", WindowType::Close | WindowType::Resize) {}
+Decals::Decals() : BaseExample(1024, 768, "Pyros3D - Decals", WindowType::Close | WindowType::Resize) {}
 
 void Decals::OnResize(const uint32 width, const uint32 height)
 {
 	// Execute Parent Resize Function
-	ClassName::OnResize(width, height);
+	BaseExample::OnResize(width, height);
 
 	// Resize
 	Renderer->Resize(width, height);
@@ -25,19 +25,15 @@ void Decals::OnResize(const uint32 width, const uint32 height)
 void Decals::Init()
 {
 	// Initialization
+	BaseExample::Init();
 
-	// Initialize Scene
-	Scene = new SceneGraph();
+	ShowMouse();
 
 	// Initialize Renderer
 	Renderer = new ForwardRenderer(Width, Height);
 
 	// Projection
 	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 1000.f);
-
-	// Create Camera
-	Camera = new GameObject();
-	Camera->SetPosition(Vec3(0, 10, 160));
 
 	// Create Game Object
 	CubeObject = new GameObject();
@@ -46,7 +42,7 @@ void Decals::Init()
 
 	cubeMesh = new Cube(30, 30, 30);
 	sphereMesh = new Sphere(30, 16, 16);
-	modelMesh = new Model(STR(EXAMPLES_PATH)"/Decals/assets/teapots/teapot.p3dm");
+	modelMesh = new Model(STR(EXAMPLES_PATH)"/assets/teapotLOD1.p3dm");
 
 	rCube = new RenderingComponent(cubeMesh);
 	rSphere = new RenderingComponent(sphereMesh);
@@ -62,14 +58,12 @@ void Decals::Init()
 
 	decalMaterial = new GenericShaderMaterial(ShaderUsage::Texture);
 	Texture* texture = new Texture();
-	texture->LoadTexture(STR(EXAMPLES_PATH)"/Decals/assets/Texture.png", TextureType::Texture);
+	texture->LoadTexture(STR(EXAMPLES_PATH)"/assets/pyros.png", TextureType::Texture);
 	decalMaterial->SetColorMap(texture);
 	decalMaterial->SetTransparencyFlag(true);
 	decalMaterial->EnableDethBias(-4, -4);
 	decalMaterial->DisableDepthWrite();
 
-	// Add Camera to Scene
-	Scene->Add(Camera);
 	// Add GameObject to Scene
 	Scene->Add(CubeObject);
 	Scene->Add(SphereObject);
@@ -108,11 +102,11 @@ void Decals::Update()
 	ModelObject->SetRotation(Vec3(0.f, (f32)GetTime()*.5f, 0.f));
 
 	// Render Scene
-	Renderer->PreRender(Camera, Scene);
-	Renderer->RenderScene(projection, Camera, Scene);
+	Renderer->PreRender(FPSCamera, Scene);
+	Renderer->RenderScene(projection, FPSCamera, Scene);
 
 	Vec3 finalPosition;
-	Vec3 direction = Camera->GetDirection();
+	Vec3 direction = FPSCamera->GetDirection();
 	f64 dt = GetTimeInterval();
 	f32 speed = (f32)dt * 200.f;
 	if (_moveFront)
@@ -132,7 +126,7 @@ void Decals::Update()
 		finalPosition -= direction.cross(Vec3(0, 1, 0)).normalize()*speed;
 	}
 
-	Camera->SetPosition(Camera->GetPosition() + finalPosition);
+	FPSCamera->SetPosition(FPSCamera->GetPosition() + finalPosition);
 
 }
 
@@ -144,7 +138,7 @@ void Decals::Shutdown()
 	Scene->Remove(CubeObject);
 	Scene->Remove(SphereObject);
 	Scene->Remove(ModelObject);
-	Scene->Remove(Camera);
+	Scene->Remove(FPSCamera);
 
 	CubeObject->Remove(rCube);
 	SphereObject->Remove(rSphere);
@@ -163,9 +157,7 @@ void Decals::Shutdown()
 	delete decalMaterial;
 	for (std::vector<RenderingComponent*>::iterator i = rdecals.begin(); i != rdecals.end(); i++) delete *i;
 	for (std::vector<DecalGeometry*>::iterator i = decals.begin(); i != decals.end(); i++) delete *i;
-	delete Camera;
 	delete Renderer;
-	delete Scene;
 }
 
 Decals::~Decals() {}
@@ -194,8 +186,8 @@ bool Decals::GetIntersectedTriangle(RenderingComponent* rcomp, Mouse3D mouse, Ve
 				))
 			{
 
-				Vec3 forward = Camera->GetDirection().negate();
-				if (forward.dotProduct(rcomp->GetOwner()->GetWorldTransformation() * _intersection - Camera->GetWorldPosition()) < 0) continue;
+				Vec3 forward = FPSCamera->GetDirection().negate();
+				if (forward.dotProduct(rcomp->GetOwner()->GetWorldTransformation() * _intersection - FPSCamera->GetWorldPosition()) < 0) continue;
 
 				if (!init) {
 					finalIntersection = _intersection;
@@ -235,7 +227,7 @@ void Decals::CreateDecal()
 	RenderingComponent* rcomp = NULL;
 	GameObject* gobj = NULL;
 
-	mouse.GenerateRay((f32)Width, (f32)Height, InputManager::GetMousePosition().x, InputManager::GetMousePosition().y, SphereObject->GetWorldTransformation(), Camera->GetWorldTransformation().Inverse(), projection.GetProjectionMatrix());
+	mouse.GenerateRay((f32)Width, (f32)Height, InputManager::GetMousePosition().x, InputManager::GetMousePosition().y, SphereObject->GetWorldTransformation(), FPSCamera->GetWorldTransformation().Inverse(), projection.GetProjectionMatrix());
 	if (mouse.rayIntersectionSphere(Vec3(0, 0, 0), 30, &intersection, &t))
 	{
 		if (GetIntersectedTriangle(rSphere, mouse, &intersection, &normal, &meshID))
@@ -243,16 +235,16 @@ void Decals::CreateDecal()
 			rcomp = rSphere;
 			gobj = SphereObject;
 			FinalIntersection = intersection;
-			dist = intersection.distanceSQR(Camera->GetWorldPosition());
+			dist = intersection.distanceSQR(FPSCamera->GetWorldPosition());
 			FinalNormal = normal;
 		}
 	}
-	mouse.GenerateRay((f32)Width, (f32)Height, InputManager::GetMousePosition().x, InputManager::GetMousePosition().y, CubeObject->GetWorldTransformation(), Camera->GetWorldTransformation().Inverse(), projection.GetProjectionMatrix());
+	mouse.GenerateRay((f32)Width, (f32)Height, InputManager::GetMousePosition().x, InputManager::GetMousePosition().y, CubeObject->GetWorldTransformation(), FPSCamera->GetWorldTransformation().Inverse(), projection.GetProjectionMatrix());
 	if (mouse.rayIntersectionBox(rCube->GetBoundingMinValue(), rCube->GetBoundingMaxValue(), &t))
 	{
 		if (GetIntersectedTriangle(rCube, mouse, &intersection, &normal, &meshID))
 		{
-			f32 dist2 = intersection.distanceSQR(Camera->GetWorldPosition());
+			f32 dist2 = intersection.distanceSQR(FPSCamera->GetWorldPosition());
 			if (dist2 < dist)
 			{
 				rcomp = rCube;
@@ -263,12 +255,12 @@ void Decals::CreateDecal()
 			}
 		}
 	}
-	mouse.GenerateRay((f32)Width, (f32)Height, InputManager::GetMousePosition().x, InputManager::GetMousePosition().y, ModelObject->GetWorldTransformation(), Camera->GetWorldTransformation().Inverse(), projection.GetProjectionMatrix());
+	mouse.GenerateRay((f32)Width, (f32)Height, InputManager::GetMousePosition().x, InputManager::GetMousePosition().y, ModelObject->GetWorldTransformation(), FPSCamera->GetWorldTransformation().Inverse(), projection.GetProjectionMatrix());
 	if (mouse.rayIntersectionBox(rModel->GetBoundingMinValue(), rModel->GetBoundingMaxValue(), &t))
 	{
 		if (GetIntersectedTriangle(rModel, mouse, &intersection, &normal, &meshID))
 		{
-			f32 dist2 = intersection.distanceSQR(Camera->GetWorldPosition());
+			f32 dist2 = intersection.distanceSQR(FPSCamera->GetWorldPosition());
 			if (dist2 < dist)
 			{
 				rcomp = rModel;
@@ -292,62 +284,5 @@ void Decals::CreateDecal()
 		decals.push_back(decal);
 		rdecals.push_back(r);
 		gobj->Add(r);
-	}
-}
-
-void Decals::MoveFrontPress(Event::Input::Info e)
-{
-	_moveFront = true;
-}
-void Decals::MoveBackPress(Event::Input::Info e)
-{
-	_moveBack = true;
-}
-void Decals::StrafeLeftPress(Event::Input::Info e)
-{
-	_strafeLeft = true;
-}
-void Decals::StrafeRightPress(Event::Input::Info e)
-{
-	_strafeRight = true;
-}
-void Decals::MoveFrontRelease(Event::Input::Info e)
-{
-	_moveFront = false;
-}
-void Decals::MoveBackRelease(Event::Input::Info e)
-{
-	_moveBack = false;
-}
-void Decals::StrafeLeftRelease(Event::Input::Info e)
-{
-	_strafeLeft = false;
-}
-void Decals::StrafeRightRelease(Event::Input::Info e)
-{
-	_strafeRight = false;
-}
-void Decals::LookTo(Event::Input::Info e)
-{
-	if (mouseCenter != GetMousePosition())
-	{
-		mousePosition = InputManager::GetMousePosition();
-		Vec2 mouseDelta = (mousePosition - mouseLastPosition);
-		if (mouseDelta.x != 0 || mouseDelta.y != 0)
-		{
-			counterX -= mouseDelta.x / 10.f;
-			counterY -= mouseDelta.y / 10.f;
-			if (counterY<-80.f) counterY = -80.f;
-			if (counterY>80.f) counterY = 80.f;
-			Quaternion qX, qY;
-			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), DEGTORAD(counterY));
-			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), DEGTORAD(counterX));
-			//                Matrix rotX, rotY;
-			//                rotX.RotationX(DEGTORAD(counterY));
-			//                rotY.RotationY(DEGTORAD(counterX));
-			Camera->SetRotation((qY*qX).GetEulerFromQuaternion());
-			SetMousePosition((int)(mouseCenter.x), (int)(mouseCenter.y));
-			mouseLastPosition = mouseCenter;
-		}
 	}
 }

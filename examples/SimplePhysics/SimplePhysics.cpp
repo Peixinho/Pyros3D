@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-SimplePhysics::SimplePhysics() : ClassName(1024, 768, "CODENAME: Pyros3D - Simple Physics", WindowType::Close | WindowType::Resize)
+SimplePhysics::SimplePhysics() : BaseExample(1024, 768, "CODENAME: Pyros3D - Simple Physics", WindowType::Close | WindowType::Resize)
 {
 
 }
@@ -18,7 +18,7 @@ SimplePhysics::SimplePhysics() : ClassName(1024, 768, "CODENAME: Pyros3D - Simpl
 void SimplePhysics::OnResize(const uint32 width, const uint32 height)
 {
 	// Execute Parent Resize Function
-	ClassName::OnResize(width, height);
+	BaseExample::OnResize(width, height);
 
 	// Resize
 	Renderer->Resize(width, height);
@@ -28,9 +28,7 @@ void SimplePhysics::OnResize(const uint32 width, const uint32 height)
 void SimplePhysics::Init()
 {
 	// Initialization
-
-	// Initialize Scene
-	Scene = new SceneGraph();
+	BaseExample::Init();
 
 	// Initialize Renderer
 	Renderer = new ForwardRenderer(Width, Height);
@@ -38,12 +36,7 @@ void SimplePhysics::Init()
 	// Projection
 	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 500.f);
 
-	// Create Camera
-	Camera = new GameObject();
-	Camera->SetPosition(Vec3(0, 20.0, 300));
-
-	// Add Camera to Scene
-	Scene->Add(Camera);
+	FPSCamera->SetPosition(Vec3(0, 20.0, 300));
 
 	// Physics
 	physics = new Physics();
@@ -132,20 +125,19 @@ void SimplePhysics::Update()
 	// Update Physics
 	physics->Update(GetTimeInterval(), 10);
 
+	BaseExample::Update();
+
 	// Update Scene
 	Scene->Update(GetTime());
 
 	// Render Scene
-	Renderer->PreRender(Camera, Scene);
-	Renderer->RenderScene(projection, Camera, Scene);
+	Renderer->PreRender(FPSCamera, Scene);
+	Renderer->RenderScene(projection, FPSCamera, Scene);
 }
 
 void SimplePhysics::Shutdown()
 {
 	// All your Shutdown Code Here
-
-	// Remove GameObjects From Scene
-	Scene->Remove(Camera);
 
 	Scene->Remove(Light);
 
@@ -192,9 +184,9 @@ void SimplePhysics::Shutdown()
 	delete floorHandle;
 	delete physics;
 	delete Diffuse;
-	delete Camera;
 	delete Renderer;
-	delete Scene;
+
+	BaseExample::Shutdown();
 }
 
 SimplePhysics::~SimplePhysics() {}

@@ -9,17 +9,7 @@
 #ifndef ROTATINGCUBEWITHLIGHTANDSHADOW_H
 #define	ROTATINGCUBEWITHLIGHTANDSHADOW_H
 
-#if defined(_SDL)
-#include "../WindowManagers/SDL/SDLContext.h"
-#define ClassName SDLContext
-#elif defined(_SDL2)
-#include "../WindowManagers/SDL2/SDL2Context.h"
-#define ClassName SDL2Context
-#else
-#include "../WindowManagers/SFML/SFMLContext.h"
-#define ClassName SFMLContext
-#endif
-
+#include "../BaseExample/BaseExample.h"
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Sphere.h>
@@ -32,7 +22,7 @@
 
 using namespace p3d;
 
-class RotatingCubeWithLightingAndShadow : public ClassName {
+class RotatingCubeWithLightingAndShadow : public BaseExample {
 public:
 
 	RotatingCubeWithLightingAndShadow();
@@ -45,14 +35,10 @@ public:
 
 private:
 
-	// Scene
-	SceneGraph* Scene;
 	// Renderer
 	ForwardRenderer* Renderer;
 	// Projection
 	Projection projection;
-	// Camera - Its a regular GameObject
-	GameObject* Camera;
 	// Light
 	GameObject* Light;
 	DirectionalLight* dLight;
@@ -75,22 +61,6 @@ private:
 	GenericShaderMaterial* FloorMaterial;
 	// Material
 	GenericShaderMaterial* Diffuse;
-
-	// Events
-	void MoveFrontPress(Event::Input::Info e);
-	void MoveBackPress(Event::Input::Info e);
-	void StrafeLeftPress(Event::Input::Info e);
-	void StrafeRightPress(Event::Input::Info e);
-	void MoveFrontRelease(Event::Input::Info e);
-	void MoveBackRelease(Event::Input::Info e);
-	void StrafeLeftRelease(Event::Input::Info e);
-	void StrafeRightRelease(Event::Input::Info e);
-	void LookTo(Event::Input::Info e);
-
-	float counterX, counterY;
-	Vec2 mouseCenter, mouseLastPosition, mousePosition;
-	bool _moveFront, _moveBack, _strafeLeft, _strafeRight;
-
 };
 
 #endif	/* ROTATINGCUBEWITHLIGHTANDSHADOW_H */

@@ -9,27 +9,13 @@
 #ifndef IslandDemo_H
 #define	IslandDemo_H
 
-#define _STR(path) #path
-#define STR(path) _STR(path)
-
-#if defined(_SDL)
-#include "../WindowManagers/SDL/SDLContext.h"
-#define ClassName SDLContext
-#elif defined(_SDL2)
-#include "../WindowManagers/SDL2/SDL2Context.h"
-#define ClassName SDL2Context
-#else
-#include "../WindowManagers/SFML/SFMLContext.h"
-#define ClassName SFMLContext
-#endif
-
+#include "../BaseExample/BaseExample.h"
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Utils/Colors/Colors.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
-#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 
 using namespace p3d;
@@ -67,7 +53,7 @@ public:
 	std::vector<Texture*> textures;
 };
 
-class IslandDemo : public ClassName
+class IslandDemo : public BaseExample
 {
 
 public:
@@ -83,14 +69,12 @@ public:
 private:
 
 	// Scene
-	SceneGraph* Scene;
 	SceneGraph* SceneWater;
 	// Renderer
 	ForwardRenderer* Renderer;
 	// Projection
 	Projection projection;
 	// Camera - Its a regular GameObject
-	GameObject* Camera;
 	GameObject* CameraReflection;
 	// GameObject
 	GameObject* gIsland;
@@ -115,22 +99,6 @@ private:
 	FrameBuffer* fboRefraction;
 	Texture* refractionTexture;
 	Texture* refractionTextureDepth;
-
-	// Events
-	void MoveFrontPress(Event::Input::Info e);
-	void MoveBackPress(Event::Input::Info e);
-	void StrafeLeftPress(Event::Input::Info e);
-	void StrafeRightPress(Event::Input::Info e);
-	void MoveFrontRelease(Event::Input::Info e);
-	void MoveBackRelease(Event::Input::Info e);
-	void StrafeLeftRelease(Event::Input::Info e);
-	void StrafeRightRelease(Event::Input::Info e);
-	void LookTo(Event::Input::Info e);
-
-	float counterX, counterY;
-	Vec2 mouseCenter, mouseLastPosition, mousePosition;
-	bool _moveFront, _moveBack, _strafeLeft, _strafeRight;
-
 };
 
 #endif	/* IslandDemo_H */

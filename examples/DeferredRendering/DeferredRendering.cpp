@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-DeferredRendering::DeferredRendering() : ClassName(1024, 768, "Pyros3D - Deferred Rendering Example", WindowType::Close)
+DeferredRendering::DeferredRendering() : BaseExample(1024, 768, "Pyros3D - Deferred Rendering Example", WindowType::Close)
 {
 
 }
@@ -18,7 +18,7 @@ DeferredRendering::DeferredRendering() : ClassName(1024, 768, "Pyros3D - Deferre
 void DeferredRendering::OnResize(const uint32 width, const uint32 height)
 {
 	// Execute Parent Resize Function
-	ClassName::OnResize(width, height);
+	BaseExample::OnResize(width, height);
 
 	// Resize
 	Renderer->Resize(width, height);
@@ -33,8 +33,7 @@ void DeferredRendering::Init()
 {
 	// Initialization
 
-	// Initialize Scene
-	Scene = new SceneGraph();
+	BaseExample::Init();
 
 	// Setting Deferred Rendering Framebuffer and Textures
 	albedoTexture = new Texture(); albedoTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
@@ -58,10 +57,6 @@ void DeferredRendering::Init()
 
 	// Projection
 	projection.Perspective(70.f, (f32)Width / (f32)Height, 0.001f, 2000.f);
-
-	// Create Camera
-	Camera = new GameObject();
-	Camera->SetPosition(Vec3(0.f, 0.f, 0.9f));
 
 	// Create 100 Point Lights
 	for (uint32 i = 0; i < 100; i++)
@@ -128,29 +123,6 @@ void DeferredRendering::Init()
 		// Set Random Position to the GameObject
 		CubeObject->SetPosition(Vec3((f32)(rand() % 100) - 50.f, (f32)(rand() % 100) - 50.f, (f32)(rand() % 100) - 50.f)*0.01f);
 	}
-
-	// Add Camera to Scene
-	Scene->Add(Camera);
-
-
-	SetMousePosition((uint32)(Width *.5f), (uint32)(Height *.5f));
-	mouseCenter = Vec2((f32)Width *.5f, (f32)Height *.5f);
-	mouseLastPosition = mouseCenter;
-	counterX = counterY = 0.f;
-
-	// Input
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &DeferredRendering::MoveFrontPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::S, this, &DeferredRendering::MoveBackPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::A, this, &DeferredRendering::StrafeLeftPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::D, this, &DeferredRendering::StrafeRightPress);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::W, this, &DeferredRendering::MoveFrontRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::S, this, &DeferredRendering::MoveBackRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &DeferredRendering::StrafeLeftRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &DeferredRendering::StrafeRightRelease);
-	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &DeferredRendering::LookTo);
-
-	_strafeLeft = _strafeRight = _moveBack = _moveFront = false;
-	HideMouse();
 }
 
 void DeferredRendering::Update()
@@ -166,12 +138,14 @@ void DeferredRendering::Update()
 	// Update Scene
 	Scene->Update(GetTime());
 
+	BaseExample::Update();
+
 	// Render Scene
-	Renderer->PreRender(Camera, Scene);
-	Renderer->RenderScene(projection, Camera, Scene);
+	Renderer->PreRender(FPSCamera, Scene);
+	Renderer->RenderScene(projection, FPSCamera, Scene);
 
 	Vec3 finalPosition;
-	Vec3 direction = Camera->GetDirection();
+	Vec3 direction = FPSCamera->GetDirection();
 	float dt = (float)GetTimeInterval();
 	float speed = dt * 2.f;
 	if (_moveFront)
@@ -191,7 +165,7 @@ void DeferredRendering::Update()
 		finalPosition -= direction.cross(Vec3(0, 1, 0)).normalize()*speed;
 	}
 
-	Camera->SetPosition(Camera->GetPosition() + finalPosition);
+	FPSCamera->SetPosition(FPSCamera->GetPosition() + finalPosition);
 }
 
 void DeferredRendering::Shutdown()
@@ -201,60 +175,3 @@ void DeferredRendering::Shutdown()
 }
 
 DeferredRendering::~DeferredRendering() {}
-
-void DeferredRendering::MoveFrontPress(Event::Input::Info e)
-{
-	_moveFront = true;
-}
-void DeferredRendering::MoveBackPress(Event::Input::Info e)
-{
-	_moveBack = true;
-}
-void DeferredRendering::StrafeLeftPress(Event::Input::Info e)
-{
-	_strafeLeft = true;
-}
-void DeferredRendering::StrafeRightPress(Event::Input::Info e)
-{
-	_strafeRight = true;
-}
-void DeferredRendering::MoveFrontRelease(Event::Input::Info e)
-{
-	_moveFront = false;
-}
-void DeferredRendering::MoveBackRelease(Event::Input::Info e)
-{
-	_moveBack = false;
-}
-void DeferredRendering::StrafeLeftRelease(Event::Input::Info e)
-{
-	_strafeLeft = false;
-}
-void DeferredRendering::StrafeRightRelease(Event::Input::Info e)
-{
-	_strafeRight = false;
-}
-void DeferredRendering::LookTo(Event::Input::Info e)
-{
-	if (mouseCenter != GetMousePosition())
-	{
-		mousePosition = InputManager::GetMousePosition();
-		Vec2 mouseDelta = (mousePosition - mouseLastPosition);
-		if (mouseDelta.x != 0 || mouseDelta.y != 0)
-		{
-			counterX -= mouseDelta.x / 10.f;
-			counterY -= mouseDelta.y / 10.f;
-			if (counterY<-80.f) counterY = -80.f;
-			if (counterY>80.f) counterY = 80.f;
-			Quaternion qX, qY;
-			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), DEGTORAD(counterY));
-			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), DEGTORAD(counterX));
-			//                Matrix rotX, rotY;
-			//                rotX.RotationX(DEGTORAD(counterY));
-			//                rotY.RotationY(DEGTORAD(counterX));
-			Camera->SetRotation((qY*qX).GetEulerFromQuaternion());
-			SetMousePosition((int)(mouseCenter.x), (int)(mouseCenter.y));
-			mouseLastPosition = mouseCenter;
-		}
-	}
-}

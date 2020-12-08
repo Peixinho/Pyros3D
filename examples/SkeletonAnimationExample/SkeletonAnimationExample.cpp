@@ -13,7 +13,7 @@
 
 using namespace p3d;
 
-SkeletonAnimationExample::SkeletonAnimationExample() : ClassName(1024, 768, "Pyros3D - Skeleton Animation Example", WindowType::Close | WindowType::Resize)
+SkeletonAnimationExample::SkeletonAnimationExample() : BaseExample(1024, 768, "Pyros3D - Skeleton Animation Example", WindowType::Close | WindowType::Resize)
 {
 	changed = false;
 }
@@ -21,7 +21,7 @@ SkeletonAnimationExample::SkeletonAnimationExample() : ClassName(1024, 768, "Pyr
 void SkeletonAnimationExample::OnResize(const uint32 width, const uint32 height)
 {
 	// Execute Parent Resize Function
-	ClassName::OnResize(width, height);
+	BaseExample::OnResize(width, height);
 
 	// Resize
 	Renderer->Resize(width, height);
@@ -32,8 +32,7 @@ void SkeletonAnimationExample::Init()
 {
 	// Initialization
 
-		// Initialize Scene
-	Scene = new SceneGraph();
+	BaseExample::Init();
 
 	// Initialize Renderer
 	Renderer = new ForwardRenderer(Width, Height);
@@ -41,9 +40,7 @@ void SkeletonAnimationExample::Init()
 	// Projection
 	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 1000.f);
 
-	// Create Camera
-	Camera = new GameObject();
-	Camera->SetPosition(Vec3(0, 10, 100));
+	FPSCamera->SetPosition(Vec3(0, 10, 100));
 
 	// Light
 	Light = new GameObject();
@@ -53,7 +50,7 @@ void SkeletonAnimationExample::Init()
 
 	// Create Game Object
 	ModelObject = new GameObject();
-	modelHandle = new Model(STR(EXAMPLES_PATH)"/SkeletonAnimationExample/assets/human.p3dm", false);
+	modelHandle = new Model(STR(EXAMPLES_PATH)"/assets/human.p3dm", false);
 	((Model*)modelHandle)->DebugSkeleton();
 	rModel = new RenderingComponent(modelHandle, ShaderUsage::Diffuse | ShaderUsage::Skinning);
 	ModelObject->Add(rModel);
@@ -62,13 +59,13 @@ void SkeletonAnimationExample::Init()
 	ModelObject->SetScale(Vec3(2, 2, 2));
 
 	SAnim = new SkeletonAnimation();
-	SAnim->LoadAnimation(STR(EXAMPLES_PATH)"/SkeletonAnimationExample/assets/walk.p3da");
-	SAnim->LoadAnimation(STR(EXAMPLES_PATH)"/SkeletonAnimationExample/assets/alert.p3da");
-	SAnim->LoadAnimation(STR(EXAMPLES_PATH)"/SkeletonAnimationExample/assets/run.p3da");
-	SAnim->LoadAnimation(STR(EXAMPLES_PATH)"/SkeletonAnimationExample/assets/walk.p3da");
+	SAnim->LoadAnimation(STR(EXAMPLES_PATH)"/assets/walk.p3da");
+	SAnim->LoadAnimation(STR(EXAMPLES_PATH)"/assets/alert.p3da");
+	SAnim->LoadAnimation(STR(EXAMPLES_PATH)"/assets/run.p3da");
+	SAnim->LoadAnimation(STR(EXAMPLES_PATH)"/assets/walk.p3da");
 
 	ModelObject2 = new GameObject();
-	modelHandle2 = new Model(STR(EXAMPLES_PATH)"/SkeletonAnimationExample/assets/Model.p3dm", false);
+	modelHandle2 = new Model(STR(EXAMPLES_PATH)"/assets/Model.p3dm", false);
 	rModel2 = new RenderingComponent(modelHandle2, ShaderUsage::Diffuse | ShaderUsage::Skinning);
 	ModelObject2->Add(rModel2);
 	ModelObject2->AddTag("Teste");
@@ -76,7 +73,7 @@ void SkeletonAnimationExample::Init()
 	ModelObject2->SetScale(Vec3(10, 10, 10));
 
 	SAnim2 = new SkeletonAnimation();
-	SAnim2->LoadAnimation(STR(EXAMPLES_PATH)"/SkeletonAnimationExample/assets/Animation.p3da");
+	SAnim2->LoadAnimation(STR(EXAMPLES_PATH)"/assets/Animation.p3da");
 
 	// test->LoadAnimation(STR(EXAMPLES_PATH)"/SkeletonAnimationExample/assets/walk.p3da");
 	// test->LoadAnimation(STR(EXAMPLES_PATH)"/SkeletonAnimationExample/assets/walk.p3da");
@@ -111,8 +108,6 @@ void SkeletonAnimationExample::Init()
 	std::cout << "Animation 1 Position on Animator: " << animationPos << std::endl;
 	std::cout << "Animation 2 Position on Animator: " << animationPos2 << std::endl;
 
-	// Add Camera to Scene
-	Scene->Add(Camera);
 	// Add GameObject to Scene
 	Scene->Add(ModelObject);
 	Scene->Add(ModelObject2);
@@ -135,12 +130,14 @@ void SkeletonAnimationExample::Update()
 	SAnim->Update((f32)GetTime());
 	SAnim2->Update((f32)GetTime());
 
+	BaseExample::Update();
+
 	// Update Scene
 	Scene->Update(GetTime());
 
 	// Render Scene
-	Renderer->PreRender(Camera, Scene, "Teste");
-	Renderer->RenderScene(projection, Camera, Scene);
+	Renderer->PreRender(FPSCamera, Scene, "Teste");
+	Renderer->RenderScene(projection, FPSCamera, Scene);
 }
 
 void SkeletonAnimationExample::OnMouseMove(Event::Input::Info e)
@@ -172,7 +169,6 @@ void SkeletonAnimationExample::Shutdown()
 
 		// Remove GameObjects From Scene
 	Scene->Remove(ModelObject);
-	Scene->Remove(Camera);
 
 	ModelObject->Remove(rModel);
 
@@ -183,9 +179,9 @@ void SkeletonAnimationExample::Shutdown()
 	delete rModel;
 	delete ModelObject;
 	delete modelHandle;
-	delete Camera;
 	delete Renderer;
-	delete Scene;
+
+	BaseExample::Shutdown();
 }
 
 SkeletonAnimationExample::~SkeletonAnimationExample() {}

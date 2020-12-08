@@ -10,12 +10,12 @@
 
 using namespace p3d;
 
-IslandDemo::IslandDemo() : ClassName(1024, 768, "Pyros3D - Island Demo", WindowType::Close) {}
+IslandDemo::IslandDemo() : BaseExample(1024, 768, "Pyros3D - Island Demo", WindowType::Close) {}
 
 void IslandDemo::OnResize(const uint32 width, const uint32 height)
 {
 	// Execute Parent Resize Function
-	ClassName::OnResize(width, height);
+	BaseExample::OnResize(width, height);
 
 	// Resize
 	Renderer->Resize(width, height);
@@ -25,9 +25,9 @@ void IslandDemo::OnResize(const uint32 width, const uint32 height)
 void IslandDemo::Init()
 {
 	// Initialization
+	BaseExample::Init();
 
 	// Initialize Scene
-	Scene = new SceneGraph();
 	SceneWater = new SceneGraph();
 
 	// Initialize Renderer
@@ -36,15 +36,12 @@ void IslandDemo::Init()
 	// Projection
 	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 10000.f);
 
-	// Create Camera
-	Camera = new GameObject();
-	Camera->SetPosition(Vec3(0, 100, 200));
-
+	// Create Reflection Camera
 	CameraReflection = new GameObject();
 
 	// Create Game Object
 	gIsland = new GameObject();
-	island = new Model(STR(EXAMPLES_PATH)"/IslandDemo/assets/island.p3dm", true);
+	island = new Model(STR(EXAMPLES_PATH)"/assets/island.p3dm", true);
 	rIsland = new RenderingComponent(island, ShaderUsage::Diffuse | ShaderUsage::ClipPlane);
 	gIsland->Add(rIsland);
 	// Add GameObject to Scene
@@ -57,13 +54,12 @@ void IslandDemo::Init()
 	Scene->Add(Light);
 
 	// Add Camera to Scene
-	Scene->Add(Camera);
 	Scene->Add(CameraReflection);
 
 	// Water
 	gWater = new GameObject();
 	water = new Plane(500, 500);
-	matWater = new WaterMaterial(STR(EXAMPLES_PATH)"/IslandDemo/assets/WaterShader.glsl");
+	matWater = new WaterMaterial(STR(EXAMPLES_PATH)"/assets/WaterShader.glsl");
 	rWater = new RenderingComponent(water, matWater);
 	gWater->Add(rWater);
 	gWater->SetRotation(Vec3((f32)DEGTORAD(-90.f), 0.f, 0.f));
@@ -74,20 +70,6 @@ void IslandDemo::Init()
 	mouseCenter = Vec2((f32)Width *.5f, (f32)Height *.5f);
 	mouseLastPosition = mouseCenter;
 	counterX = counterY = 0.f;
-
-	// Input
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &IslandDemo::MoveFrontPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::S, this, &IslandDemo::MoveBackPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::A, this, &IslandDemo::StrafeLeftPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::D, this, &IslandDemo::StrafeRightPress);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::W, this, &IslandDemo::MoveFrontRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::S, this, &IslandDemo::MoveBackRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &IslandDemo::StrafeLeftRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &IslandDemo::StrafeRightRelease);
-	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &IslandDemo::LookTo);
-
-	_strafeLeft = _strafeRight = _moveBack = _moveFront = false;
-	HideMouse();
 
 	fboReflection = new FrameBuffer();
 	reflectionTexture = new Texture();
@@ -114,9 +96,9 @@ void IslandDemo::Init()
 	matWater->AddUniform(Uniform("uRefractionMap", Uniforms::DataType::Int, &imgID));
 
 	normalMap = new Texture();
-	normalMap->LoadTexture(STR(EXAMPLES_PATH)"/IslandDemo/assets/normal.png");
+	normalMap->LoadTexture(STR(EXAMPLES_PATH)"/assets/normal.png");
 	DUDVmap = new Texture();
-	DUDVmap->LoadTexture(STR(EXAMPLES_PATH)"/IslandDemo/assets/waterDUDV.png");
+	DUDVmap->LoadTexture(STR(EXAMPLES_PATH)"/assets/waterDUDV.png");
 
 	imgID = matWater->textures.size();
 	matWater->textures.push_back(normalMap);
@@ -130,14 +112,16 @@ void IslandDemo::Init()
 void IslandDemo::Update()
 {
 	// Update - Game Loop
-
-	float distance = 2 * (Camera->GetPosition().y - gWater->GetPosition().y);
-	CameraReflection->SetPosition(Vec3(Camera->GetPosition().x, Camera->GetPosition().y - distance, Camera->GetPosition().z));
-	CameraReflection->SetRotation(Vec3(-Camera->GetRotation().x, Camera->GetRotation().y, -Camera->GetRotation().z));
+	
+	float distance = 2 * (FPSCamera->GetPosition().y - gWater->GetPosition().y);
+	CameraReflection->SetPosition(Vec3(FPSCamera->GetPosition().x, FPSCamera->GetPosition().y - distance, FPSCamera->GetPosition().z));
+	CameraReflection->SetRotation(Vec3(-FPSCamera->GetRotation().x, FPSCamera->GetRotation().y, -FPSCamera->GetRotation().z));
 
 	// Update Scene
 	Scene->Update(GetTime());
 	SceneWater->Update(GetTime());
+
+	BaseExample::Update();
 
 	fboReflection->Bind();
 	Renderer->EnableClipPlane();
@@ -152,41 +136,18 @@ void IslandDemo::Update()
 	Renderer->ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
 	Renderer->EnableClipPlane();
 	Renderer->SetClipPlane0(Vec4(0, -1, 0, gWater->GetPosition().y));
-	Renderer->PreRender(Camera, Scene);
-	Renderer->RenderScene(projection, Camera, Scene);
+	Renderer->PreRender(FPSCamera, Scene);
+	Renderer->RenderScene(projection, FPSCamera, Scene);
 	Renderer->DisableClipPlane();
 	fboRefraction->UnBind();
 
 	// Render Scene
 	Renderer->ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
 	Renderer->EnableClearDepthBuffer();
-	Renderer->RenderScene(projection, Camera, Scene);
+	Renderer->RenderScene(projection, FPSCamera, Scene);
 	Renderer->ClearBufferBit(Buffer_Bit::None);
-	Renderer->PreRender(Camera, SceneWater);
-	Renderer->RenderScene(projection, Camera, SceneWater);
-
-	Vec3 finalPosition;
-	Vec3 direction = Camera->GetDirection();
-	float dt = (float)GetTimeInterval();
-	float speed = dt * 20.f;
-	if (_moveFront)
-	{
-		finalPosition -= direction*speed;
-	}
-	if (_moveBack)
-	{
-		finalPosition += direction*speed;
-	}
-	if (_strafeLeft)
-	{
-		finalPosition += direction.cross(Vec3(0, 1, 0)).normalize()*speed;
-	}
-	if (_strafeRight)
-	{
-		finalPosition -= direction.cross(Vec3(0, 1, 0)).normalize()*speed;
-	}
-
-	Camera->SetPosition(Camera->GetPosition() + finalPosition);
+	Renderer->PreRender(FPSCamera, SceneWater);
+	Renderer->RenderScene(projection, FPSCamera, SceneWater);
 }
 
 void IslandDemo::Shutdown()
@@ -195,7 +156,7 @@ void IslandDemo::Shutdown()
 
 	// Remove GameObjects From Scene
 	Scene->Remove(gIsland);
-	Scene->Remove(Camera);
+	Scene->Remove(CameraReflection);
 
 	gIsland->Remove(rIsland);
 
@@ -203,66 +164,9 @@ void IslandDemo::Shutdown()
 	delete island;
 	delete rIsland;
 	delete gIsland;
-	delete Camera;
+	delete CameraReflection;
 	delete Renderer;
 	delete Scene;
 }
 
 IslandDemo::~IslandDemo() {}
-
-void IslandDemo::MoveFrontPress(Event::Input::Info e)
-{
-	_moveFront = true;
-}
-void IslandDemo::MoveBackPress(Event::Input::Info e)
-{
-	_moveBack = true;
-}
-void IslandDemo::StrafeLeftPress(Event::Input::Info e)
-{
-	_strafeLeft = true;
-}
-void IslandDemo::StrafeRightPress(Event::Input::Info e)
-{
-	_strafeRight = true;
-}
-void IslandDemo::MoveFrontRelease(Event::Input::Info e)
-{
-	_moveFront = false;
-}
-void IslandDemo::MoveBackRelease(Event::Input::Info e)
-{
-	_moveBack = false;
-}
-void IslandDemo::StrafeLeftRelease(Event::Input::Info e)
-{
-	_strafeLeft = false;
-}
-void IslandDemo::StrafeRightRelease(Event::Input::Info e)
-{
-	_strafeRight = false;
-}
-void IslandDemo::LookTo(Event::Input::Info e)
-{
-	if (mouseCenter != GetMousePosition())
-	{
-		mousePosition = InputManager::GetMousePosition();
-		Vec2 mouseDelta = (mousePosition - mouseLastPosition);
-		if (mouseDelta.x != 0 || mouseDelta.y != 0)
-		{
-			counterX -= mouseDelta.x / 10.f;
-			counterY -= mouseDelta.y / 10.f;
-			if (counterY<-80.f) counterY = -80.f;
-			if (counterY>80.f) counterY = 80.f;
-			Quaternion qX, qY;
-			qX.AxisToQuaternion(Vec3(1.f, 0.f, 0.f), DEGTORAD(counterY));
-			qY.AxisToQuaternion(Vec3(0.f, 1.f, 0.f), DEGTORAD(counterX));
-			//                Matrix rotX, rotY;
-			//                rotX.RotationX(DEGTORAD(counterY));
-			//                rotY.RotationY(DEGTORAD(counterX));
-			Camera->SetRotation((qY*qX).GetEulerFromQuaternion());
-			SetMousePosition((int)(mouseCenter.x), (int)(mouseCenter.y));
-			mouseLastPosition = mouseCenter;
-		}
-	}
-}

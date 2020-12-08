@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-PickingPainterMethod::PickingPainterMethod() : ClassName(1024, 768, "Pyros3D - Custom Material", WindowType::Close)
+PickingPainterMethod::PickingPainterMethod() : BaseExample(1024, 768, "Pyros3D - Custom Material", WindowType::Close)
 {
 
 }
@@ -18,7 +18,7 @@ PickingPainterMethod::PickingPainterMethod() : ClassName(1024, 768, "Pyros3D - C
 void PickingPainterMethod::OnResize(const uint32 width, const uint32 height)
 {
 	// Execute Parent Resize Function
-	ClassName::OnResize(width, height);
+	BaseExample::OnResize(width, height);
 
 	// Resize
 	Renderer->Resize(width, height);
@@ -32,8 +32,8 @@ void PickingPainterMethod::Init()
 {
 	// Initialization
 
-		// Initialize Scene
-	Scene = new SceneGraph();
+	BaseExample::Init();
+	ShowMouse();
 
 	// Initialize Renderer
 	Renderer = new ForwardRenderer(Width, Height);
@@ -41,12 +41,7 @@ void PickingPainterMethod::Init()
 	// Projection
 	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 500.f);
 
-	// Create Camera
-	Camera = new GameObject();
-	Camera->SetPosition(Vec3(0, 10.0, 200));
-
-	// Add Camera to Scene
-	Scene->Add(Camera);
+	FPSCamera->SetPosition(Vec3(0, 10.0, 200));
 
 	// Add a Directional Light
 	Light = new GameObject();
@@ -102,13 +97,14 @@ void PickingPainterMethod::Init()
 void PickingPainterMethod::Update()
 {
 	// Update - Game Loop
+	BaseExample::Update();
 
 	// Update Scene
 	Scene->Update(GetTime());
 
 	// Render Scene
-	Renderer->PreRender(Camera, Scene);
-	Renderer->RenderScene(projection, Camera, Scene);
+	Renderer->PreRender(FPSCamera, Scene);
+	Renderer->RenderScene(projection, FPSCamera, Scene);
 }
 
 void PickingPainterMethod::Shutdown()
@@ -116,7 +112,6 @@ void PickingPainterMethod::Shutdown()
 	// All your Shutdown Code Here
 
 		// Remove GameObjects From Scene
-	Scene->Remove(Camera);
 
 	Scene->Remove(Light);
 
@@ -143,9 +138,9 @@ void PickingPainterMethod::Shutdown()
 	delete picking;
 	delete SelectedMaterial;
 	delete UnselectedMaterial;
-	delete Camera;
 	delete Renderer;
-	delete Scene;
+
+	BaseExample::Shutdown();
 }
 
 PickingPainterMethod::~PickingPainterMethod() {}
@@ -153,7 +148,7 @@ PickingPainterMethod::~PickingPainterMethod() {}
 void PickingPainterMethod::OnMouseRelease(Event::Input::Info e)
 {
 	// Get Picked Mesh
-	RenderingMesh* mesh = picking->PickObject(GetMousePosition().x, GetMousePosition().y, projection, Camera, Scene);
+	RenderingMesh* mesh = picking->PickObject(GetMousePosition().x, GetMousePosition().y, projection, FPSCamera, Scene);
 
 	// If Mesh Exists
 	if (mesh != NULL)
