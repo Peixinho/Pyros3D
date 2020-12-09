@@ -25,7 +25,7 @@ void PickingPainterMethod::OnResize(const uint32 width, const uint32 height)
 	projection.Perspective(70.f, (f32)width / (f32)height, 1.f, 500.f);
 
 	// Resize Picking
-	picking->Resize(Width, Height);
+	picking->Resize(width, height);
 }
 
 void PickingPainterMethod::Init()
@@ -111,7 +111,7 @@ void PickingPainterMethod::Shutdown()
 {
 	// All your Shutdown Code Here
 
-		// Remove GameObjects From Scene
+	// Remove GameObjects From Scene
 
 	Scene->Remove(Light);
 

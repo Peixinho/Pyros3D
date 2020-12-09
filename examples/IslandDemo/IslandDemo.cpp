@@ -20,6 +20,8 @@ void IslandDemo::OnResize(const uint32 width, const uint32 height)
 	// Resize
 	Renderer->Resize(width, height);
 	projection.Perspective(70.f, (f32)width / (f32)height, 1.f, 10000.f);
+	fboReflection->Resize(width, height);
+	fboRefraction->Resize(width, height);
 }
 
 void IslandDemo::Init()
