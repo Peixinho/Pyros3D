@@ -248,6 +248,7 @@ set(SOURCE_TextRendering
 )
 set(SOURCE_MotionBlurExample
   ${CMAKE_CURRENT_SOURCE_DIR}/MotionBlurExample/MotionBlurExample.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
