@@ -57,6 +57,7 @@ protected:
 	virtual void StrafeLeftRelease(Event::Input::Info e);
 	virtual void StrafeRightRelease(Event::Input::Info e);
 	virtual void LookTo(Event::Input::Info e);
+	virtual void Exit(Event::Input::Info e);
 
 	// Navigation Variables
 	float counterX, counterY;

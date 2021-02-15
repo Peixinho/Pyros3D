@@ -46,9 +46,9 @@ void ParallaxMapping::Init()
 	normalmap = new Texture();
 	displacementmap = new Texture();
 
-	texturemap->LoadTexture(STR(EXAMPLES_PATH)"/ParallaxMapping/assets/bricks.png");
-	normalmap->LoadTexture(STR(EXAMPLES_PATH)"/ParallaxMapping/assets/bricks_normal.png");
-	displacementmap->LoadTexture(STR(EXAMPLES_PATH)"/ParallaxMapping/assets/bricks_disp.png");
+	texturemap->LoadTexture(STR(EXAMPLES_PATH)"/assets/bricks.png");
+	normalmap->LoadTexture(STR(EXAMPLES_PATH)"/assets/bricks_normal.png");
+	displacementmap->LoadTexture(STR(EXAMPLES_PATH)"/assets/bricks_disp.png");
 
 	// Create Game Object
 	CubeObject = new GameObject();

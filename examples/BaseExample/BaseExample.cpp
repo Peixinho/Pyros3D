@@ -43,6 +43,7 @@ void BaseExample::Init()
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &BaseExample::StrafeLeftRelease);
 	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &BaseExample::StrafeRightRelease);
 	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &BaseExample::LookTo);
+	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Escape, this, &BaseExample::Exit);
 
 	_strafeLeft = _strafeRight = _moveBack = _moveFront = false;
 	HideMouse();
@@ -88,6 +89,10 @@ void BaseExample::Shutdown()
 }
 
 BaseExample::~BaseExample() {}
+
+void BaseExample::Exit(Event::Input::Info e) {
+  this->Close();
+}
 
 void BaseExample::MoveFrontPress(Event::Input::Info e)
 {
