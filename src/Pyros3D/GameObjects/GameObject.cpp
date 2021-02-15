@@ -85,6 +85,8 @@ namespace p3d {
 		{
 			wasDirty = true;
 
+			_PrvLocalMatrix = _LocalMatrix;
+
 			if (_IsUsingCustomMatrix) {
 
 				_LocalMatrix = _LocalMatrixUserEntered;
@@ -158,6 +160,8 @@ namespace p3d {
 		}
 		_IsDirty = false;
 
+		_PrvWorldMatrix = _WorldMatrix;
+
 		if (_HaveOwner)
 		{
 			_Owner->UpdateTransformation();
@@ -181,6 +185,14 @@ namespace p3d {
 	const Matrix &GameObject::GetLocalTransformation() const
 	{
 		return _LocalMatrix;
+	}
+	const Matrix &GameObject::GetPrvWorldTransformation() const
+	{
+		return _PrvWorldMatrix;
+	}
+	const Matrix &GameObject::GetPrvLocalTransformation() const
+	{
+		return _PrvLocalMatrix;
 	}
 	const Vec3 GameObject::GetDirection() const
 	{

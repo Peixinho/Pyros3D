@@ -77,6 +77,8 @@ namespace p3d
 				define += std::string("#define DEFERRED_GBUFFER\n");
 			if (options & ShaderUsage::InstancedRendering)
 				define += std::string("#define INSTANCED_RENDERING\n");
+			if (options & ShaderUsage::VelocityRendering)
+				define += std::string("#define VELOCITY_RENDERING\n");
 
 			ShadersList[options]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
 			ShadersList[options]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
@@ -196,6 +198,13 @@ namespace p3d
 		if (options & ShaderUsage::DeferredRenderer_Gbuffer)
 		{
 			AddUniform(Uniform("uAmbientLight", Uniforms::DataUsage::GlobalAmbientLight));
+		}
+
+		if (options & ShaderUsage::VelocityRendering)
+		{
+			AddUniform(Uniform("uPrvModelMatrix", Uniforms::DataUsage::PrvModelMatrix));
+			AddUniform(Uniform("uPrvViewMatrix", Uniforms::DataUsage::PrvViewMatrix));
+			AddUniform(Uniform("uPrvProjectionMatrix", Uniforms::DataUsage::PrvProjectionMatrix));
 		}
 	}
 

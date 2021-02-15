@@ -92,9 +92,11 @@ set(SOURCE
 set(HEADERS
 	${HEADERS}
 	${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${ASSIMP_INCLUDE_DIRS}
+	"/usr/local/include"
 )
 
-# Engine Library
+link_directories("/usr/local/lib")
 add_executable(AssimpImporter ${SOURCE})
-
+include_directories(${HEADERS})
 target_link_libraries(AssimpImporter PyrosEngine ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${LUA_LIBRARIES} pthread dl)

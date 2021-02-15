@@ -53,7 +53,7 @@ SET(OPENGL_VERSION "GL45" CACHE STRING "OpenGL Version")
 if (OPENGL_VERSION STREQUAL "GL45")
 	add_definitions(-DGL45)
 	SET(GL_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/gl45/glad.c)
-	SET(GLAD_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include/Pyros3D/Ext/gl45)
+        SET(GLAD_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include/Pyros3D/Ext/gl45)
 	# Find OpenGL
 	find_package(OpenGL REQUIRED)
 	if (NOT OPENGL_FOUND)
@@ -67,14 +67,14 @@ else()
 			add_definitions(-DGLES2)
 			if (IS_DESKTOP)
 				SET(GL_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/gles2/glad.c)
-				SET(GLAD_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include/Pyros3D/Ext/gl2)
+                                SET(GLAD_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include/Pyros3D/Ext/gles2)
 			endif(IS_DESKTOP)
 		else()
 		if (OPENGL_VERSION STREQUAL "GLES3")
 			add_definitions(-DGLES3)
 			if (IS_DESKTOP)
 				SET(GL_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/gles3/glad.c)
-				SET(GLAD_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include/Pyros3D/Ext/gl3)
+                                SET(GLAD_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include/Pyros3D/Ext/gles3)
 			endif(IS_DESKTOP)
 		endif()
 	endif()
@@ -121,7 +121,9 @@ set(SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/BloomEffect.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/RTTDebug.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/SSAOEffect.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/CubemapRenderer/CubemapRenderer.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/VelocityRenderer/VelocityRenderer.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.cpp

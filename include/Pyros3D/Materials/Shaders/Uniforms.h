@@ -33,20 +33,24 @@ namespace p3d {
 				NumberOfLights = 9,
 				NearFarPlane = 10,
 				ScreenDimensions = 11,
+				// Previous Uniforms Values
+				PrvProjectionMatrix = 12,
+				PrvViewMatrix = 13,
+				PrvModelViewProjectionMatrix = 14,
 
 				// Shadow Mapping
-				DirectionalShadowMap = 12,
-				PointShadowMap = 13,
-				SpotShadowMap = 14,
-				DirectionalShadowMatrix = 15,
-				PointShadowMatrix = 16,
-				SpotShadowMatrix = 17,
-				DirectionalShadowFar = 18,
-				NumberOfDirectionalShadows = 19,
-				NumberOfPointShadows = 20,
-				NumberOfSpotShadows = 21,
+				DirectionalShadowMap = 15,
+				PointShadowMap = 16,
+				SpotShadowMap = 17,
+				DirectionalShadowMatrix = 18,
+				PointShadowMatrix = 19,
+				SpotShadowMatrix = 20,
+				DirectionalShadowFar = 21,
+				NumberOfDirectionalShadows = 22,
+				NumberOfPointShadows = 23,
+				NumberOfSpotShadows = 24,
 
-				ClipPlanes = 22,
+				ClipPlanes = 25,
 
 				// User Uniforms
 				Other = 200,
@@ -61,7 +65,10 @@ namespace p3d {
 				ModelMatrixInverseTranspose = 306,
 				Skinning = 307,
 				ModelViewProjectionMatrixInverse = 308,
-				ViewProjectionMatrixInverse = 309
+				ViewProjectionMatrixInverse = 309,
+				// Previous Model Transformation Matrix
+				PrvModelMatrix = 310
+
 			};
 		};
 
@@ -201,6 +208,18 @@ namespace p3d {
 				Type = Uniforms::DataType::Matrix;
 				break;
 			case Uniforms::DataUsage::ViewProjectionMatrixInverse:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::PrvModelMatrix:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::PrvProjectionMatrix:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::PrvViewMatrix:
+				Type = Uniforms::DataType::Matrix;
+				break;
+			case Uniforms::DataUsage::PrvModelViewProjectionMatrix:
 				Type = Uniforms::DataType::Matrix;
 				break;
 			};

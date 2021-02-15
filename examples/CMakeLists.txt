@@ -119,6 +119,9 @@ if (CONTEXT STREQUAL "SDL2")
 	endif()
 endif()
 
+# freebsd
+link_directories("/usr/local/lib")
+
 # Example Sources
 set(SOURCE_RotatingCube
 	${CMAKE_CURRENT_SOURCE_DIR}/RotatingCube/RotatingCube.cpp
@@ -243,11 +246,17 @@ set(SOURCE_TextRendering
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
+set(SOURCE_MotionBlurExample
+  ${CMAKE_CURRENT_SOURCE_DIR}/MotionBlurExample/MotionBlurExample.cpp
+	${WINDOW_MANAGER}
+	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
+)
 
 # Headers
 set(HEADERS
 	${CMAKE_SOURCE_DIR}/include
 	${CMAKE_CURRENT_SOURCE_DIR}
+	"/usr/local/include"
 )
 # Example Executable
 add_executable(RotatingCube ${SOURCE_RotatingCube})
@@ -351,5 +360,10 @@ add_executable(TextRendering ${SOURCE_TextRendering})
 include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB})
 target_link_libraries(TextRendering PyrosEngine  ${SDL2_LIBRARIES} ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES} pthread dl)
 target_compile_definitions(TextRendering PRIVATE ${DESKTOP} -DDEMO_NAME=TextRendering -D_TextRendering ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
+
+add_executable(MotionBlurExample ${SOURCE_MotionBlurExample})
+include_directories(${HEADERS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB})
+target_link_libraries(MotionBlurExample PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES} pthread dl)
+target_compile_definitions(MotionBlurExample PRIVATE ${DESKTOP} -DDEMO_NAME=MotionBlurExample -D_MotionBlurExample ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
 
 file(COPY ${CMAKE_SOURCE_DIR}/resources/shaders DESTINATION ${CMAKE_CURRENT_BINARY_DIR})

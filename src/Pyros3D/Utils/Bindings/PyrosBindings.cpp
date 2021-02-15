@@ -913,6 +913,24 @@ namespace p3d {
 		}
 
 		{
+			// VelocityRenderer
+			sol::constructors<sol::types<float, float>> con;
+			lua->new_usertype<VelocityRenderer>("VelocityRenderer",
+				con,
+				"renderVelocityMap", &VelocityRenderer::RenderVelocityMap
+				);
+		}
+
+		{
+			// CubemapRenderer
+			sol::constructors<sol::types<float, float>> con;
+			lua->new_usertype<CubemapRenderer>("CubemapRenderer",
+				con,
+				"renderCubeMap", &CubemapRenderer::RenderCubeMap
+				);
+		}
+
+		{
 			// Frame Buffer
 			sol::constructors<sol::types<>> con;
 			lua->new_usertype<FrameBuffer>("FrameBuffer",
@@ -1566,6 +1584,17 @@ namespace p3d {
 				con,
 				"setRadius", &VignetteEffect::SetRadius,
 				"setSoftness", &VignetteEffect::SetSoftness,
+				sol::base_classes, sol::bases<IEffect>()
+				);
+		}
+
+		{
+			// MotionBlur
+			sol::constructors<sol::types<int, Texture*, int, int>> con;
+			lua->new_usertype<MotionBlurEffect>("MotionBlur",
+				con,
+				"setTargetFPS", &MotionBlurEffect::SetTargetFPS,
+				"setCurrentFPS", &MotionBlurEffect::SetCurrentFPS,
 				sol::base_classes, sol::bases<IEffect>()
 				);
 		}

@@ -1,13 +1,17 @@
 #if defined(GLES2)
 	#define varying_in varying
+	#define varying_smooth_in varying
 	#define varying_out varying
+	#define varying_smooth_out varying
 	#define attribute_in attribute
 	#define texture_2D texture2D
 	#define texture_cube textureCube
 	precision mediump float;
 #else
 	#define varying_in in
+	#define varying_smooth_in smooth in
 	#define varying_out out
+	#define varying_smooth_out smooth out
 	#define attribute_in in
 	#define texture_2D texture
 	#define texture_cube texture
@@ -144,6 +148,12 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         attribute_in mat4 aInstancedTransform;
     #endif
 
+    #ifdef VELOCITY_RENDERING
+        uniform mat4 uPrvProjectionMatrix, uPrvViewMatrix, uPrvModelMatrix;
+        varying_smooth_out vec4 vScreenSpaceWorldPosition;
+	varying_smooth_out vec4 vPrvScreenSpaceWorldPosition;
+    #endif
+
     mat4 matAnimation = mat4(1.0);
 
     void main() {
@@ -174,6 +184,12 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 vWorldPosition=ModelMatrix * (matAnimation * vec4(Position,1.0));
             #endif
         #endif
+	
+        #ifdef VELOCITY_RENDERING
+                vScreenSpaceWorldPosition=uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(Position,1.0);
+                vPrvScreenSpaceWorldPosition=uPrvProjectionMatrix * uPrvViewMatrix * uPrvModelMatrix * vec4(Position,1.0);
+        #endif
+
 
         #if defined(DIRECTIONALSHADOW) || defined(POINTSHADOW) || defined(SPOTSHADOW)
             #ifndef SKINNING
@@ -256,7 +272,11 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 	#if defined(GLES2)
 		vec4 FragColor;
 	#else
-		out vec4 FragColor;
+		#ifdef VELOCITY_RENDERING
+			out vec2 FragColor;
+		#else
+			out vec4 FragColor;
+		#endif
 	#endif
 
     #if defined(DIFFUSE) || defined(CELLSHADING)
@@ -517,7 +537,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     #if defined(SKINNING) || defined(ENVMAP) || defined(PARALLAXMAPPING) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
         varying_in vec4 vWorldPosition;
     #endif
-
+ 
     #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) ||  defined(DIFFUSE) || defined(CELLSHADING)
         varying_in vec3 vCameraPos;
     #endif
@@ -561,6 +581,11 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
    #if defined(DEFERRED_GBUFFER) && (defined(PARALLAXMAPPING) || defined(BUMPMAPPING))
        varying_in mat4 vViewMatrix;
+   #endif
+
+   #ifdef VELOCITY_RENDERING
+	varying_smooth_in vec4 vScreenSpaceWorldPosition;
+	varying_smooth_in vec4 vPrvScreenSpaceWorldPosition;
    #endif
 
     void main() {
@@ -627,8 +652,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             #ifdef REFRACTION
                 vec4 reflectedColor = texture_cube(uRefractmap, Reflection);
                 vec4 refractedColor;
-                refractedColor.x = (texture_cube( uRefractmap, vTRed)).x;
-                refractedColor.y = (texture_cube( uRefractmap, vTGreen)).y;
+                refractedColor.x = (texture_cube( uRefractmap, vTRed)).x; refractedColor.y = (texture_cube( uRefractmap, vTGreen)).y;
                 refractedColor.z = (texture_cube( uRefractmap, vTBlue)).z;
                 refractedColor.w = 1.0;
                 if (!diffuseIsSet)
@@ -799,21 +823,29 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         #endif
 
         #ifdef DEFERRED_GBUFFER
-            #if defined(GLES2)
-				gl_FragData[0]=vec4(diffuse.xyz,diffuse.x*uAmbientLight.x);
-				gl_FragData[1]=vec4(specular.xyz,diffuse.y*uAmbientLight.y);
-				gl_FragData[2]=vec4(gbuffer_normals.xyz,diffuse.z*uAmbientLight.z);
-			#else
-				FragData_r=vec4(diffuse.xyz,diffuse.x*uAmbientLight.x);
-				FragData_g=vec4(specular.xyz,diffuse.y*uAmbientLight.y);
-				FragData_b=vec4(gbuffer_normals.xyz,diffuse.z*uAmbientLight.z);
-			#endif
-        #else
-            FragColor = vec4(diffuse.xyz,diffuse.w*uOpacity);
-			#if defined(GLES2)
-				gl_FragColor = FragColor;
-			#endif
+		#if defined(GLES2)
+			gl_FragData[0]=vec4(diffuse.xyz,diffuse.x*uAmbientLight.x);
+			gl_FragData[1]=vec4(specular.xyz,diffuse.y*uAmbientLight.y);
+			gl_FragData[2]=vec4(gbuffer_normals.xyz,diffuse.z*uAmbientLight.z);
+		#else
+			FragData_r=vec4(diffuse.xyz,diffuse.x*uAmbientLight.x);
+			FragData_g=vec4(specular.xyz,diffuse.y*uAmbientLight.y);
+			FragData_b=vec4(gbuffer_normals.xyz,diffuse.z*uAmbientLight.z);
+		#endif
+	#endif
+
+	#ifdef VELOCITY_RENDERING
+		vec2 a = (vScreenSpaceWorldPosition.xy / vScreenSpaceWorldPosition.w) * 0.5 + 0.5;
+		vec2 b = (vPrvScreenSpaceWorldPosition.xy / vPrvScreenSpaceWorldPosition.w) * 0.5 + 0.5;
+		FragColor = a - b;
+	#else
+		FragColor = vec4(diffuse.xyz,diffuse.w*uOpacity);
         #endif
+
+	#if defined(GLES2)
+		gl_FragColor = FragColor;
+	#endif
+	
     }
 
 #endif
