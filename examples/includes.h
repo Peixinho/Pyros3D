@@ -46,4 +46,6 @@
 #include "ParallaxMapping/ParallaxMapping.h"
 #elif defined(_ParticlesExample)
 #include "ParticlesExample/ParticlesExample.h"
+#elif defined(_MotionBlurExample)
+#include "MotionBlurExample/MotionBlurExample.h"
 #endif
