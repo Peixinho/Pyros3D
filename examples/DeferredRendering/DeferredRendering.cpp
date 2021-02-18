@@ -27,6 +27,7 @@ void DeferredRendering::OnResize(const uint32 width, const uint32 height)
 	albedoTexture->Resize(Width, Height);
 	specularTexture->Resize(Width, Height);
 	depthTexture->Resize(Width, Height);
+	normalTexture->Resize(Width, Height);
 }
 
 void DeferredRendering::Init()
