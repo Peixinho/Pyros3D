@@ -26,6 +26,7 @@ void PickingPainterMethod::OnResize(const uint32 width, const uint32 height)
 
 	// Resize Picking
 	picking->Resize(width, height);
+	picking->SetViewPort(0, 0, Width, Height);
 }
 
 void PickingPainterMethod::Init()
