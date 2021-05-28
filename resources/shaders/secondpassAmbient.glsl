@@ -44,11 +44,11 @@ void main() {
 
 	vec3 ambient;
 
-	ambient.x = texture2D(tDiffuse, vec2(Texcoord.x,Texcoord.y)).w;
-	ambient.y = texture2D(tSpecular, vec2(Texcoord.x,Texcoord.y)).w;
-	ambient.z = texture2D(tNormal, vec2(Texcoord.x,Texcoord.y)).w;
+	ambient.x = texture_2D(tDiffuse, vec2(Texcoord.x,Texcoord.y)).w;
+	ambient.y = texture_2D(tSpecular, vec2(Texcoord.x,Texcoord.y)).w;
+	ambient.z = texture_2D(tNormal, vec2(Texcoord.x,Texcoord.y)).w;
 
-	vec3 color = texture(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
+	vec3 color = texture_2D(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
 	
 	FragColor=vec4(ambient * color, 1.0);
 

@@ -83,7 +83,7 @@ namespace p3d {
 									"for (int i=0;i<blursize;i++) {\n"
 										"for (int j=0;j<blursize;j++) {\n"
 											"vec2 offset = (hlim + vec2(float(i), float(j))) * texelSize;\n"
-											"result += texture2D(uTex0, vTexcoord + offset).r;\n"
+											"result += texture_2D(uTex0, vTexcoord + offset).r;\n"
 										"}\n"
 									"}\n"
 									"FragColor = vec4(result/float(blursize*blursize));\n"

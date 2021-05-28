@@ -67,7 +67,7 @@
         vec2 refractionTexCoords = ndc;
         vec2 reflectionTexCoords = vec2(ndc.x, -ndc.y);
 
-        float depth = texture2D(uRefractionMapDepth, refractionTexCoords).r;
+        float depth = texture_2D(uRefractionMapDepth, refractionTexCoords).r;
         float floorDistance = 2.0 * uNearFarPlane.x * uNearFarPlane.y / (uNearFarPlane.x + uNearFarPlane.y - (2.0 * depth -1.0) * (uNearFarPlane.y - uNearFarPlane.x));
         
         depth = gl_FragCoord.z;
@@ -75,9 +75,9 @@
 
         float waterDepth = floorDistance - waterDistance;
 
-        vec2 distortedTexCoords = texture2D(uDUDVmap, vec2(vTexcoord.x + moveFactor, vTexcoord.y)).rg*0.1;
+        vec2 distortedTexCoords = texture_2D(uDUDVmap, vec2(vTexcoord.x + moveFactor, vTexcoord.y)).rg*0.1;
         distortedTexCoords = vTexcoord + vec2(distortedTexCoords.x, distortedTexCoords.y+moveFactor);
-        vec2 totalDistortion = (texture2D(uDUDVmap, distortedTexCoords).rg * 2.0 - 1.0) * waveStrength;
+        vec2 totalDistortion = (texture_2D(uDUDVmap, distortedTexCoords).rg * 2.0 - 1.0) * waveStrength;
         totalDistortion *= clamp(waterDepth/20.0, 0.0, 1.0);
 
         reflectionTexCoords += totalDistortion;
@@ -89,10 +89,10 @@
         refractionTexCoords.x = clamp(refractionTexCoords.x, 0.001, 0.999);
         refractionTexCoords.y = clamp(refractionTexCoords.y, 0.001, 0.999);
 
-        vec4 reflectColor = texture2D(uReflectionMap, reflectionTexCoords);
-        vec4 refractColor = texture2D(uRefractionMap, refractionTexCoords);
+        vec4 reflectColor = texture_2D(uReflectionMap, reflectionTexCoords);
+        vec4 refractColor = texture_2D(uRefractionMap, refractionTexCoords);
 
-        vec4 normalMapColor = texture2D(uNormalmap, distortedTexCoords);
+        vec4 normalMapColor = texture_2D(uNormalmap, distortedTexCoords);
 
         vec3 normal = vec3(normalMapColor.r * 2.0 -1.0, normalMapColor.b, normalMapColor.g * 2.0-1.0);
 
