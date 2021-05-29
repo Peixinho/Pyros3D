@@ -94,7 +94,7 @@ namespace p3d {
 			memcpy(&this->GeometryData[0], GeometryData, DataLength);
 
 			GLCHECKER(glBindBuffer(this->bufferType, ID));
-			#if !defined(GLES2) && !defined(GLES3) && !defined(GLLEGACY)
+			#if !defined(GLES2) && !defined(GLES3) && !defined(GLLEGACY) && !defined(GL42)
 				GLCHECKER(glInvalidateBufferData(ID));
 			#endif
 			GLCHECKER(glBufferData(this->bufferType, DataLength, GeometryData, this->bufferDraw));
@@ -108,7 +108,7 @@ namespace p3d {
 
 			// Updating buffer
 			GLCHECKER(glBindBuffer(this->bufferType, ID));
-			#if !defined(GLES2) && !defined(GLES3) && !defined(GLLEGACY)
+			#if !defined(GLES2) && !defined(GLES3) && !defined(GLLEGACY) && !defined(GL42)
 				GLCHECKER(glInvalidateBufferData(ID));
 			#endif
 			glBufferSubData(this->bufferType, 0, DataLength, GeometryData);

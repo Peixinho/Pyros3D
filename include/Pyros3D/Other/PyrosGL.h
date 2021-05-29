@@ -31,6 +31,10 @@
     #include <Pyros3D/Ext/gl45/glad/glad.h>
 #endif
 
+#if defined(GL42)
+    #include <Pyros3D/Ext/gl42/glad/glad.h>
+#endif
+
 #include <Pyros3D/Other/Global.h>
 #include <Pyros3D/Core/Math/Math.h>
 

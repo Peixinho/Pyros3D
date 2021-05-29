@@ -103,6 +103,8 @@ namespace p3d {
 			std::string finalShaderString = (std::string("#version 100\n#define GLES2\n") + definitions + std::string(" ") + shaderString);
 		#elif defined(GLES3)
 			std::string finalShaderString = (std::string("#version 300 es\n#define GLES3\n") + definitions + std::string(" ") + shaderString);
+		#elif defined(GL42)
+			std::string finalShaderString = (std::string("#version 420\n") + definitions + std::string(" ") + shaderString);
 		#else
 			std::string finalShaderString = (std::string("#version 450\n") + definitions + std::string(" ") + shaderString);
 		#endif
