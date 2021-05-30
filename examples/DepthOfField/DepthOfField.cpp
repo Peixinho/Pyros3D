@@ -59,11 +59,11 @@ DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2, con
 			"float focalPosition = uFocalPosition;\n"
 			"float focalRange = uFocalRange;\n"
 			"vec4 z_info_local = vec4(uNearFar.x,uNearFar.y,uNearFar.x*uNearFar.y,uNearFar.x-uNearFar.y);\n"
-			"float depth = texture2D(uTex3, vTexcoord).x;\n"
+			"float depth = texture_2D(uTex3, vTexcoord).x;\n"
 			"float linearDepth = DecodeNativeDepth(depth, z_info_local);\n"
 			"float ratio = clamp(abs(focalPosition-linearDepth)-focalRange, 0.0, ratioL);\n"
-			"if (ratio < 0.4) FragColor = mix(texture2D(uTex2, vTexcoord), texture2D(uTex1, vTexcoord), ratio / (ratioL - ratioH));\n"
-			"else FragColor =  mix(texture2D(uTex1, vTexcoord), texture2D(uTex0, vTexcoord), (ratio-ratioH) / (ratioL - ratioH));\n"
+			"if (ratio < 0.4) FragColor = mix(texture_2D(uTex2, vTexcoord), texture_2D(uTex1, vTexcoord), ratio / (ratioL - ratioH));\n"
+			"else FragColor =  mix(texture_2D(uTex1, vTexcoord), texture_2D(uTex0, vTexcoord), (ratio-ratioH) / (ratioL - ratioH));\n"
 			#if defined(GLES2)
 			"gl_FragColor = FragColor;\n"
 			#endif

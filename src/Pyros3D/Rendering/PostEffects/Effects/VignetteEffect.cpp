@@ -58,7 +58,7 @@ namespace p3d {
 								"void main(void) {\n"
 									"vec2 resolution = uResolution;\n"
 									"vec2 pos = resolution / 2.0;\n"
-									"vec4 aColor = texture2D(uTex0, vTexcoord);\n"
+									"vec4 aColor = texture_2D(uTex0, vTexcoord);\n"
 									"vec2 position = (gl_FragCoord.xy / resolution.xy) - vec2(0.5,0.5);\n"
 									"position.x *= resolution.x / resolution.y;\n"
 									"float len = length(position);\n"

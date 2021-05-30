@@ -43,7 +43,7 @@ namespace p3d {
                                 "uniform sampler2D uTex0;\n"
                                 "varying_in vec2 vTexcoord;"
                                 "void main(void) {\n"
-                                    "FragColor = texture2D(uTex0, vTexcoord);\n"
+                                    "FragColor = texture_2D(uTex0, vTexcoord);\n"
 									#if defined(GLES2)
 									"gl_FragColor = FragColor;\n"
 									#endif
