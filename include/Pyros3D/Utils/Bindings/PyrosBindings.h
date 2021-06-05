@@ -11,7 +11,7 @@
 #define PYROSBINDINGS_H
 #define SOL_CHECK_ARGUMENTS
 
-#include <Pyros3D/Ext/Sol/sol.hpp>
+#include <Pyros3D/Ext/sol/sol.hpp>
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>

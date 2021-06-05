@@ -23,7 +23,7 @@
 #define ClassName SFMLContext
 #endif
 
-#include <Pyros3D/Ext/Sol/sol.hpp>
+#include <Pyros3D/Ext/sol/sol.hpp>
 #include <Pyros3D/Utils/Bindings/PyrosBindings.h>
 
 using namespace p3d;
