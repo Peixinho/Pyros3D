@@ -92,7 +92,7 @@ endif()
 
 
 # Lib Type
-option(STATIC_LIB "Build Static Lib" OFF)
+option(STATIC_LIB "Build Static Lib (only unix)" OFF)
 if (STATIC_LIB)
 	SET(LIB_TYPE STATIC)
 else()
