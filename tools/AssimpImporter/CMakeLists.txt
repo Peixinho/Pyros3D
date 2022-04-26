@@ -47,7 +47,7 @@ endif(NOT OPENGL_FOUND)
 # Find Assimp
 
 
-find_package(ASSIMP REQUIRED)
+find_package(assimp REQUIRED)
 if (NOT ASSIMP_FOUND)
 	message(ERROR " Assimp not found!")
 endif(NOT ASSIMP_FOUND)

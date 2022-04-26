@@ -35,6 +35,7 @@ endif(IS_DESKTOP)
 
 
 # LUA Support
+option(HAVE_LUA_BINDINGS "Use LUA Bindings" ON)
 if (HAVE_LUA_BINDINGS)
 	SET(LUA_BINDINGS -DLUA_BINDINGS)
 	add_definitions(-DLUA_BINDINGS)
@@ -45,7 +46,6 @@ if (HAVE_LUA_BINDINGS)
 	endif(NOT LUA51_FOUND)
 	set(LUA_LIB -llua)
 endif(HAVE_LUA_BINDINGS)
-
 
 
 # Set OpenGL Version
@@ -209,7 +209,7 @@ include_directories(${HEADERS} ${GLAD_INCLUDE_DIR} ${LUA_INCLUDE_DIR} ${OPENGL_I
 
 # Engine Library
 add_library(PyrosEngine ${LIB_TYPE} ${SOURCE} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS})
-target_link_libraries(PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} pthread dl)
+target_link_libraries(PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${CONTEXT_LIB} pthread dl)
 
 # Model Converter
 option(BUILD_CONVERTER "Build Model Converter" OFF)
