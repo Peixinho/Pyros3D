@@ -35,11 +35,16 @@
     #include <Pyros3D/Ext/gl42/glad/glad.h>
 #endif
 
+#if defined(GL41)
+    #include <Pyros3D/Ext/gl42/glad/glad.h>
+#endif
+
+
 #include <Pyros3D/Other/Global.h>
 #include <Pyros3D/Core/Math/Math.h>
 
 // Check GL
-#if defined(_DEBUG) && !defined(EMSCRIPTEN)
+#if defined(_DEBUG) && !defined(EMSCRIPTEN) && !defined(__APPLE__)
 #define GLCHECKER(caller) { caller; int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << " FUNCTION: " << #caller << " LINE: " << std::dec << __LINE__ << " FILE: " << __FILE__ << std::endl; BRK; } }
 #else
 #define GLCHECKER(caller) { caller; }
