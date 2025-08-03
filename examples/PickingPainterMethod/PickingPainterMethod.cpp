@@ -93,6 +93,9 @@ void PickingPainterMethod::Init()
 	// Painter Method Initialization
 	picking = new PainterPick(Width, Height);
 	picking->SetViewPort(0, 0, Width, Height);
+	
+	// Initialize ImGui
+	InitImGui();
 }
 
 void PickingPainterMethod::Update()
@@ -106,6 +109,67 @@ void PickingPainterMethod::Update()
 	// Render Scene
 	Renderer->PreRender(FPSCamera, Scene);
 	Renderer->RenderScene(projection, FPSCamera, Scene);
+
+	// Render ImGui
+	RenderImGui();
+}
+
+void PickingPainterMethod::DrawUI()
+{
+	// Draw base UI (FPS, etc.)
+	DrawBaseUI();
+	
+	// Picking System Information
+	if (ImGui::Begin("Picking System Info", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::Text("Picking System Information");
+		ImGui::Separator();
+		
+		// Scene Information
+		ImGui::Text("Scene Objects:");
+		ImGui::Text("  Cubes: 100 randomly positioned cubes");
+		ImGui::Text("  Directional Light: White light from (-1, -1, 0)");
+		ImGui::Text("  Selected Mesh: %s", SelectedMesh ? "Yes" : "No");
+		
+		ImGui::Separator();
+		
+		// Picking System Information
+		ImGui::Text("Picking System:");
+		ImGui::Text("  Method: Painter Pick Method");
+		ImGui::Text("  Resolution: %dx%d", Width, Height);
+		ImGui::Text("  Viewport: Full screen");
+		ImGui::Text("  Mouse Position: (%.1f, %.1f)", 
+			GetMousePosition().x, GetMousePosition().y);
+		
+		ImGui::Separator();
+		
+		// Material Information
+		ImGui::Text("Material System:");
+		ImGui::Text("  Unselected Material: Gray (0.8, 0.8, 0.8, 1.0)");
+		ImGui::Text("  Selected Material: Yellow (1.0, 1.0, 0.0, 1.0)");
+		ImGui::Text("  Shader Usage: Color | Diffuse");
+		
+		ImGui::Separator();
+		
+		// Performance Information
+		ImGui::Text("Performance:");
+		ImGui::Text("  FPS: %.1f", (float)fps.getFPS());
+		ImGui::Text("  Resolution: %dx%d", Width, Height);
+		ImGui::Text("  Camera Position: (%.1f, %.1f, %.1f)", 
+			FPSCamera->GetPosition().x, 
+			FPSCamera->GetPosition().y, 
+			FPSCamera->GetPosition().z);
+		
+		ImGui::Separator();
+		
+		// Controls
+		ImGui::Text("Controls:");
+		ImGui::Text("  Tab: Toggle mouse capture");
+		ImGui::Text("  WASD: Move camera");
+		ImGui::Text("  Mouse: Look around");
+		ImGui::Text("  Left Click: Select cube");
+		ImGui::Text("  Selected cubes turn yellow");
+	}
+	ImGui::End();
 }
 
 void PickingPainterMethod::Shutdown()

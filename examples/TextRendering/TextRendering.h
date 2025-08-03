@@ -23,19 +23,18 @@
 #define ClassName SFMLContext
 #endif
 
+#include "../BaseExample/BaseExample.h"
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
 #include <Pyros3D/Assets/Renderable/Text/Text.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
-#include <Pyros3D/Utils/Colors/Colors.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
-#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Assets/Font/Font.h>
 
 using namespace p3d;
 
-class TextRendering : public ClassName {
+class TextRendering : public BaseExample {
 
 public:
 
@@ -46,6 +45,7 @@ public:
 	virtual void Update();
 	virtual void Shutdown();
 	virtual void OnResize(const uint32 width, const uint32 height);
+	virtual void DrawUI();
 
 private:
 
@@ -55,8 +55,8 @@ private:
 	ForwardRenderer* Renderer;
 	// Projection
 	Projection projection;
-	// Camera - Its a regular GameObject
-	GameObject* Camera;
+	// Text Camera
+	GameObject* textCamera;
 	// GameObject
 	GameObject* TextObject;
 	// Rendering Component

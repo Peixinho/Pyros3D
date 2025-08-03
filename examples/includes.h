@@ -48,4 +48,6 @@
 #include "ParticlesExample/ParticlesExample.h"
 #elif defined(_MotionBlurExample)
 #include "MotionBlurExample/MotionBlurExample.h"
+#elif defined(_ScreenSpaceReflection)
+#include "ScreenSpaceReflection/ScreenSpaceReflection.h"
 #endif

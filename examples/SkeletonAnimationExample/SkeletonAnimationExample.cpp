@@ -113,6 +113,9 @@ void SkeletonAnimationExample::Init()
 	Scene->Add(ModelObject2);
 
 	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &SkeletonAnimationExample::OnMouseMove);
+	
+	// Initialize ImGui
+	InitImGui();
 }
 
 void SkeletonAnimationExample::Update()
@@ -138,6 +141,7 @@ void SkeletonAnimationExample::Update()
 	// Render Scene
 	Renderer->PreRender(FPSCamera, Scene, "Teste");
 	Renderer->RenderScene(projection, FPSCamera, Scene);
+	RenderImGui();
 }
 
 void SkeletonAnimationExample::OnMouseMove(Event::Input::Info e)
@@ -163,6 +167,47 @@ void SkeletonAnimationExample::OnMouseMove(Event::Input::Info e)
 		changed = true;
 	}
 }
+
+void SkeletonAnimationExample::DrawUI()
+{
+	// Draw base UI (FPS, etc.)
+	DrawBaseUI();
+	
+	// Animation Information
+	if (ImGui::Begin("Skeleton Animation Info", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::Text("Animation System Information");
+		ImGui::Separator();
+		
+		// Model 1 Info
+		ImGui::Text("Model 1 (Human):");
+		ImGui::Text("  Animations: %d", SAnim->GetNumberAnimations());
+		ImGui::Text("  Current Animation: %s", SAnim->GetAnimations()[animationPos].AnimationName.c_str());
+		ImGui::Text("  Duration: %.2f seconds", SAnim->GetAnimations()[animationPos].Duration);
+		ImGui::Text("  Speed: %.2f", speed1);
+		ImGui::Text("  Scale: %.2f", scale1);
+		
+		ImGui::Separator();
+		
+		// Model 2 Info
+		ImGui::Text("Model 2 (Robot):");
+		ImGui::Text("  Animations: %d", SAnim2->GetNumberAnimations());
+		ImGui::Text("  Current Animation: %s", SAnim2->GetAnimations()[0].AnimationName.c_str());
+		ImGui::Text("  Duration: %.2f seconds", SAnim2->GetAnimations()[0].Duration);
+		ImGui::Text("  Speed: %.2f", speed2);
+		ImGui::Text("  Scale: %.2f", scale2);
+		
+		ImGui::Separator();
+		
+		// Controls
+		ImGui::Text("Controls:");
+		ImGui::Text("  Move mouse to blend animations");
+		ImGui::Text("  Tab: Toggle mouse capture");
+		ImGui::Text("  WASD: Move camera");
+		ImGui::Text("  Mouse: Look around");
+	}
+	ImGui::End();
+}
+
 void SkeletonAnimationExample::Shutdown()
 {
 	// All your Shutdown Code Here

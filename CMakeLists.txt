@@ -141,6 +141,7 @@ set(SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/BloomEffect.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/RTTDebug.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/SSAOEffect.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/ScreenSpaceReflectionEffect.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/CubemapRenderer/CubemapRenderer.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/VelocityRenderer/VelocityRenderer.cpp

@@ -57,7 +57,7 @@ SSAOEffectFinal::SSAOEffectFinal(uint32 texture1, uint32 texture2, const uint32 
 
 }
 
-SSAOExample::SSAOExample() : BaseExample(1024, 768, "Pyros3D - Custom Material", WindowType::Close | WindowType::Resize)
+SSAOExample::SSAOExample() : BaseExample(1024, 768, "Pyros3D - SSAO Example", WindowType::Close | WindowType::Resize)
 {
 
 }
@@ -65,7 +65,7 @@ SSAOExample::SSAOExample() : BaseExample(1024, 768, "Pyros3D - Custom Material",
 void SSAOExample::OnResize(const uint32 width, const uint32 height)
 {
 	// Execute Parent Resize Function
-	ClassName::OnResize(width, height);
+	BaseExample::OnResize(width, height);
 
 	// Resize
 	Renderer->Resize(width, height);
@@ -78,6 +78,17 @@ void SSAOExample::Init()
 	// Initialization
 
 	BaseExample::Init();
+
+	// Initialize ImGui
+	InitImGui();
+
+	// Initialize ImGui control variables
+	ssaoRadius = 0.2f;
+	ssaoStrength = 1.5f;
+	ssaoThreshold = 2.0f;
+	ssaoScale = 1.0f;
+	ssaoBlurIntensity = 1.0f;
+	valuesChanged = false;
 
 	// Initialize Renderer
 	Renderer = new ForwardRenderer(Width, Height);
@@ -114,9 +125,19 @@ void SSAOExample::Init()
 	Scene->Add(gFloor);
 	
 	EffectManager = new PostEffectsManager(Width, Height);
+	
+	// Create SSAO Effect
 	ssao = new SSAOEffect(RTT::Depth, Width, Height);
+	ssao->SetRadius(ssaoRadius);
+	ssao->SetStrength(ssaoStrength);
+	ssao->SetTreshOld(ssaoThreshold);
+	ssao->SetScale(ssaoScale);
+	
+	// Create SSAO Blur Effect
+	ssaoBlur = new BlurSSAOEffect(RTT::LastRTT, Width, Height);
+	
 	EffectManager->AddEffect(ssao);
-	EffectManager->AddEffect(new BlurSSAOEffect(RTT::LastRTT, Width, Height));
+	EffectManager->AddEffect(ssaoBlur);
 	EffectManager->AddEffect(new SSAOEffectFinal(RTT::Color, RTT::LastRTT, Width, Height));
 
 	// Add a Directional Light
@@ -135,6 +156,16 @@ void SSAOExample::Update()
 
 	ssao->SetViewMatrix(FPSCamera->GetWorldTransformation().Inverse());
 
+	// Update SSAO parameters if values changed
+	if (valuesChanged && ssao) {
+		ssao->SetRadius(ssaoRadius);
+		ssao->SetStrength(ssaoStrength);
+		ssao->SetTreshOld(ssaoThreshold);
+		ssao->SetScale(ssaoScale);
+		ssaoBlur->SetIntensity(ssaoBlurIntensity);
+		valuesChanged = false;
+	}
+
 	// Render Scene
 	EffectManager->CaptureFrame();
 	Renderer->PreRender(FPSCamera, Scene);
@@ -143,6 +174,8 @@ void SSAOExample::Update()
 
 	EffectManager->ProcessPostEffects(&projection);	
 
+	// Render ImGui
+	RenderImGui();
 }
 
 void SSAOExample::Shutdown()
@@ -176,6 +209,29 @@ void SSAOExample::Shutdown()
 
 	BaseExample::Shutdown();
 
+}
+
+void SSAOExample::DrawUI() {
+	BaseExample::DrawUI();
+	
+	ImGui::Begin("SSAO Controls");
+	
+	// SSAO Controls
+	if (ImGui::CollapsingHeader("SSAO Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+		bool changed = false;
+		changed |= ImGui::SliderFloat("Radius", &ssaoRadius, 0.05f, 0.5f);
+		changed |= ImGui::SliderFloat("Strength", &ssaoStrength, 0.5f, 2.5f);
+		changed |= ImGui::SliderFloat("Threshold", &ssaoThreshold, 0.5f, 4.0f);
+		changed |= ImGui::SliderFloat("Scale", &ssaoScale, 50.0f, 150.0f);
+		changed |= ImGui::SliderFloat("Blur Intensity", &ssaoBlurIntensity, 0.0f, 2.0f);
+		
+		// Only update if values changed
+		if (changed) {
+			valuesChanged = true;
+		}
+	}
+	
+	ImGui::End();
 }
 
 SSAOExample::~SSAOExample() {}

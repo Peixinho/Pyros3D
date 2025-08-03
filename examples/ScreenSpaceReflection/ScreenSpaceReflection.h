@@ -3,35 +3,43 @@
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
-// Description : Rotating Cube Example
+// Description : Screen Space Reflection Example
 //============================================================================
 
-#ifndef ROTATINGCUBE_H
-#define	ROTATINGCUBE_H
+#ifndef SCREENSPACEREFLECTION_H
+#define	SCREENSPACEREFLECTION_H
 
-#if defined(_SDL)
-#include "../WindowManagers/SDL/SDLContext.h"
-#define ClassName SDLContext
-#elif defined(_SDL2)
-#include "../WindowManagers/SDL2/SDL2Context.h"
-#define ClassName SDL2Context
-#else
-#include "../WindowManagers/SFML/SFMLContext.h"
-#define ClassName SFMLContext
-#endif
+#define _STR(path) #path
+#define STR(path) _STR(path)
 
+#include "../BaseExample/BaseExample.h"
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Sphere.h>
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cylinder.h>
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Torus.h>
+#include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
-#include <Pyros3D/Utils/Colors/Colors.h>
-#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
-#include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
+#include <Pyros3D/Utils/Mouse3D/PainterPick.h>
+#include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/ScreenSpaceReflectionEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/SSAOEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/BlurSSAOEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/ResizeEffect.h>
+
 using namespace p3d;
 
-class ScreenSpaceReflection : public ClassName
-{
+class SSRFinalEffect : public IEffect {
+public:
+	SSRFinalEffect(uint32 texture1, uint32 texture2, const uint32 Width, const uint32 Height);
+	virtual ~SSRFinalEffect() {}
+};
+
+class ScreenSpaceReflection : public BaseExample {
 
 public:
 
@@ -42,56 +50,41 @@ public:
 	virtual void Update();
 	virtual void Shutdown();
 	virtual void OnResize(const uint32 width, const uint32 height);
+	virtual void DrawUI();
 
 private:
 
-	// Scene
-	SceneGraph* Scene;
 	// Renderer
 	ForwardRenderer* Renderer;
 	// Projection
 	Projection projection;
-	// Camera - Its a regular GameObject
-	GameObject* Camera;
+
+	// Effect manager
+	PostEffectsManager* EffectManager;
+
+	ScreenSpaceReflectionEffect* ssr;
+	SSRFinalEffect* ssrFinal;
 	// Light
 	GameObject* Light;
 	DirectionalLight* dLight;
 
-	GameObject* Light2;
-	PointLight* pLight;
-	//SpotLight* pLight;
+	Renderable* teapot;
+	std::vector<GameObject*> gTeapots;
+	std::vector<RenderingComponent*> rTeapots;
 
-	// Cube GameObject
-	GameObject* CubeObject;
-	// Rendering Component
-	RenderingComponent* rCube;
-	// Mesh
-	Renderable* cubeMesh, *floorMesh;
-	// Floor GameObject
-	GameObject* Floor, *Ceiling;
-	// Floor Rendering Component
-	RenderingComponent* rFloor, *rCeiling;
-	// Floor Material
-	GenericShaderMaterial* FloorMaterial;
-	// Material
-	GenericShaderMaterial* Diffuse;
+	Renderable* floor;
+	GameObject* gFloor;
+	RenderingComponent* rFloor;
 
-	// Events
-	void MoveFrontPress(Event::Input::Info e);
-	void MoveBackPress(Event::Input::Info e);
-	void StrafeLeftPress(Event::Input::Info e);
-	void StrafeRightPress(Event::Input::Info e);
-	void MoveFrontRelease(Event::Input::Info e);
-	void MoveBackRelease(Event::Input::Info e);
-	void StrafeLeftRelease(Event::Input::Info e);
-	void StrafeRightRelease(Event::Input::Info e);
-	void LookTo(Event::Input::Info e);
-
-	float counterX, counterY;
-	Vec2 mouseCenter, mouseLastPosition, mousePosition;
-	bool _moveFront, _moveBack, _strafeLeft, _strafeRight;
-
+	// ImGui Controls for SSR
+	float ssrMaxSteps;
+	float ssrMaxDistance;
+	float ssrThickness;
+	float ssrReflectionStrength;
+	float ssrFloorHeight;
+	float ssrFloorTolerance;
+	bool ssrDebugMode;
 };
 
-#endif	/* ROTATINGCUBE_H */
+#endif	/* SCREENSPACEREFLECTION_H */
 

@@ -12,7 +12,6 @@
 #include "../BaseExample/BaseExample.h"
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
-#include <Pyros3D/Utils/Colors/Colors.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Utils/Mouse3D/PainterPick.h>
@@ -30,6 +29,7 @@ public:
 	virtual void Update();
 	virtual void Shutdown();
 	virtual void OnResize(const uint32 width, const uint32 height);
+	virtual void DrawUI();
 
 private:
 

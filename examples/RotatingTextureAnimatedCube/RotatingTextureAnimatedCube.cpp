@@ -72,6 +72,9 @@ void RotatingTextureAnimatedCube::Init()
 	Scene->Add(CubeObject);
 
 	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Mouse::Left, this, &RotatingTextureAnimatedCube::OnMousePress);
+	
+	// Initialize ImGui
+	InitImGui();
 }
 
 void RotatingTextureAnimatedCube::OnMousePress(Event::Input::Info e)
@@ -98,6 +101,67 @@ void RotatingTextureAnimatedCube::Update()
 	// Render Scene
 	Renderer->PreRender(FPSCamera, Scene);
 	Renderer->RenderScene(projection, FPSCamera, Scene);
+
+	// Render ImGui
+	RenderImGui();
+}
+
+void RotatingTextureAnimatedCube::DrawUI()
+{
+	// Draw base UI (FPS, etc.)
+	DrawBaseUI();
+	
+	// Animated Texture System Information
+	if (ImGui::Begin("Animated Texture System Info", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::Text("Animated Texture System Information");
+		ImGui::Separator();
+		
+		// Scene Information
+		ImGui::Text("Scene Objects:");
+		ImGui::Text("  Cube: Rotating animated cube (15x15x15)");
+		ImGui::Text("  Textures: 6 animated frames (1.png to 6.png)");
+		
+		ImGui::Separator();
+		
+		// Animation Information
+		ImGui::Text("Animation System:");
+		ImGui::Text("  Animation Type: Texture Animation");
+		ImGui::Text("  Frame Rate: 30 FPS");
+		ImGui::Text("  Total Frames: 6");
+		ImGui::Text("  Loop Mode: YoYo (forward and backward)");
+		ImGui::Text("  Current Frame: %d", animInst->GetFrame());
+		ImGui::Text("  Animation Status: %s", animInst->IsPlaying() ? "Playing" : "Paused");
+		
+		ImGui::Separator();
+		
+		// Rendering Information
+		ImGui::Text("Rendering System:");
+		ImGui::Text("  Renderer: ForwardRenderer");
+		ImGui::Text("  Shader Usage: Texture");
+		ImGui::Text("  Material: GenericShaderMaterial");
+		
+		ImGui::Separator();
+		
+		// Performance Information
+		ImGui::Text("Performance:");
+		ImGui::Text("  FPS: %.1f", (float)fps.getFPS());
+		ImGui::Text("  Resolution: %dx%d", Width, Height);
+		ImGui::Text("  Camera Position: (%.1f, %.1f, %.1f)", 
+			FPSCamera->GetPosition().x, 
+			FPSCamera->GetPosition().y, 
+			FPSCamera->GetPosition().z);
+		
+		ImGui::Separator();
+		
+		// Controls
+		ImGui::Text("Controls:");
+		ImGui::Text("  Tab: Toggle mouse capture");
+		ImGui::Text("  WASD: Move camera");
+		ImGui::Text("  Mouse: Look around");
+		ImGui::Text("  Left Click: Pause/Resume animation");
+		ImGui::Text("  Cube rotates automatically");
+	}
+	ImGui::End();
 }
 
 void RotatingTextureAnimatedCube::Shutdown()

@@ -115,7 +115,9 @@ void SimplePhysics::Init()
 
 	// Translate Floor
 	Floor->SetPosition(Vec3(0, -100, 0));
-
+	
+	// Initialize ImGui
+	InitImGui();
 }
 
 void SimplePhysics::Update()
@@ -133,6 +135,69 @@ void SimplePhysics::Update()
 	// Render Scene
 	Renderer->PreRender(FPSCamera, Scene);
 	Renderer->RenderScene(projection, FPSCamera, Scene);
+
+	// Render ImGui
+	RenderImGui();
+}
+
+void SimplePhysics::DrawUI()
+{
+	// Draw base UI (FPS, etc.)
+	DrawBaseUI();
+	
+	// Physics System Information
+	if (ImGui::Begin("Physics System Info", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::Text("Physics System Information");
+		ImGui::Separator();
+		
+		// Scene Information
+		ImGui::Text("Scene Objects:");
+		ImGui::Text("  Cubes: %zu physics cubes (5x5x5)", Cubes.size());
+		ImGui::Text("  Floor: Static physics floor (100x3x100)");
+		ImGui::Text("  Directional Light: White light with shadows");
+		ImGui::Text("  Physics Engine: Bullet Physics");
+		
+		ImGui::Separator();
+		
+		// Physics System Information
+		ImGui::Text("Physics System:");
+		ImGui::Text("  Engine: Bullet Physics");
+		ImGui::Text("  Cubes Mass: 10 units");
+		ImGui::Text("  Floor Mass: 0 (static)");
+		ImGui::Text("  Physics Steps: 10 iterations");
+		ImGui::Text("  Gravity: Enabled");
+		
+		ImGui::Separator();
+		
+		// Rendering Information
+		ImGui::Text("Rendering System:");
+		ImGui::Text("  Renderer: ForwardRenderer");
+		ImGui::Text("  Shader Usage: Color | Diffuse | DirectionalShadow");
+		ImGui::Text("  Shadow Resolution: 1024x1024");
+		ImGui::Text("  Shadow Bias: 1.0, 3.0");
+		
+		ImGui::Separator();
+		
+		// Performance Information
+		ImGui::Text("Performance:");
+		ImGui::Text("  FPS: %.1f", (float)fps.getFPS());
+		ImGui::Text("  Resolution: %dx%d", Width, Height);
+		ImGui::Text("  Camera Position: (%.1f, %.1f, %.1f)", 
+			FPSCamera->GetPosition().x, 
+			FPSCamera->GetPosition().y, 
+			FPSCamera->GetPosition().z);
+		
+		ImGui::Separator();
+		
+		// Controls
+		ImGui::Text("Controls:");
+		ImGui::Text("  Tab: Toggle mouse capture");
+		ImGui::Text("  WASD: Move camera");
+		ImGui::Text("  Mouse: Look around");
+		ImGui::Text("  Cubes fall with physics simulation");
+		ImGui::Text("  Real-time physics and shadows");
+	}
+	ImGui::End();
 }
 
 void SimplePhysics::Shutdown()

@@ -1,6 +1,10 @@
 [submodule "examples/imgui"]
 	path = examples/imgui
 	url = https://github.com/ocornut/imgui.git
+	branch = docking
 [submodule "examples/RacingGame/imgui"]
 	path = examples/RacingGame/imgui
 	url = https://github.com/ocornut/imgui
+	branch = docking
+[submodule "imgui"]
+	branch = docking

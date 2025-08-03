@@ -25,6 +25,16 @@
 
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
+#include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
+#include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
+#include <Pyros3D/Utils/Colors/Colors.h>
+#include <Pyros3D/Utils/DeltaTime/DeltaTime.h>
+#include <Pyros3D/Utils/FPS/FPS.h>
+
+// ImGui includes
+#include "../imgui/imgui.h"
+#include "../imgui/backends/imgui_impl_sdl2.h"
+#include "../imgui/backends/imgui_impl_opengl3.h"
 
 using namespace p3d;
 
@@ -32,39 +42,65 @@ class BaseExample : public ClassName {
 
 public:
 
-	BaseExample(const uint32 width, const uint32 height, const std::string &title, const uint32 windowType = WindowType::Fullscreen);
+	BaseExample(const uint32 width, const uint32 height, const std::string &title, const uint32 windowType);
 	virtual ~BaseExample();
 
 	virtual void Init();
 	virtual void Update();
 	virtual void Shutdown();
 	virtual void OnResize(const uint32 width, const uint32 height);
+	virtual void DrawUI(); // Override to add ImGui controls
 
 protected:
 
 	// Scene
 	SceneGraph* Scene;
+	// Renderer
+	ForwardRenderer* Renderer;
+	// Projection
+	Projection projection;
 	// Camera - Its a regular GameObject
 	GameObject* FPSCamera;
+	// Light
+	GameObject* Light;
+	DirectionalLight* dLight;
 
-	// Events
-	virtual void MoveFrontPress(Event::Input::Info e);
-	virtual void MoveBackPress(Event::Input::Info e);
-	virtual void StrafeLeftPress(Event::Input::Info e);
-	virtual void StrafeRightPress(Event::Input::Info e);
-	virtual void MoveFrontRelease(Event::Input::Info e);
-	virtual void MoveBackRelease(Event::Input::Info e);
-	virtual void StrafeLeftRelease(Event::Input::Info e);
-	virtual void StrafeRightRelease(Event::Input::Info e);
-	virtual void LookTo(Event::Input::Info e);
-	virtual void Exit(Event::Input::Info e);
+	// ImGui support
+	bool imguiInitialized;
+	bool mouseCaptured;
+	
+	// ImGui methods
+	void InitImGui();
+	void ShutdownImGui();
+	void BeginImGuiFrame();
+	void EndImGuiFrame();
+	void RenderImGui();
+	void DrawBaseUI(); // Base UI with FPS and mouse controls
+	
+	// Mouse capture methods
+	void ToggleMouseCapture();
+	void OnTabPress(Event::Input::Info p);
+	void DisableImGuiMouseInput();
+	void EnableImGuiMouseInput();
 
-	// Navigation Variables
+	// Input handling
+	void MoveFrontPress(Event::Input::Info e);
+	void MoveBackPress(Event::Input::Info e);
+	void StrafeLeftPress(Event::Input::Info e);
+	void StrafeRightPress(Event::Input::Info e);
+	void MoveFrontRelease(Event::Input::Info e);
+	void MoveBackRelease(Event::Input::Info e);
+	void StrafeLeftRelease(Event::Input::Info e);
+	void StrafeRightRelease(Event::Input::Info e);
+	void LookTo(Event::Input::Info e);
+	void Exit(Event::Input::Info e);
+
+private:
+
 	float counterX, counterY;
 	Vec2 mouseCenter, mouseLastPosition, mousePosition;
 	bool _moveFront, _moveBack, _strafeLeft, _strafeRight;
-	f64 lastTime;
-
+	float lastTime;
 };
 
 #endif	/* BaseExample_H */

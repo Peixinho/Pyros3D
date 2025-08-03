@@ -52,7 +52,9 @@ void RotatingTexturedCube::Init()
 
 	// Add GameObject to Scene
 	Scene->Add(CubeObject);
-
+	
+	// Initialize ImGui
+	InitImGui();
 }
 
 void RotatingTexturedCube::Update()
@@ -72,6 +74,64 @@ void RotatingTexturedCube::Update()
 	// Render Scene
 	Renderer->PreRender(FPSCamera, Scene);
 	Renderer->RenderScene(projection, FPSCamera, Scene);
+
+	// Render ImGui
+	RenderImGui();
+}
+
+void RotatingTexturedCube::DrawUI()
+{
+	// Draw base UI (FPS, etc.)
+	DrawBaseUI();
+	
+	// Textured Cube System Information
+	if (ImGui::Begin("Textured Cube System Info", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::Text("Textured Cube System Information");
+		ImGui::Separator();
+		
+		// Scene Information
+		ImGui::Text("Scene Objects:");
+		ImGui::Text("  Cube: Rotating textured cube (15x15x15)");
+		ImGui::Text("  Texture: Pyros logo (pyros.png)");
+		
+		ImGui::Separator();
+		
+		// Rendering Information
+		ImGui::Text("Rendering System:");
+		ImGui::Text("  Renderer: ForwardRenderer");
+		ImGui::Text("  Background: Animated color gradient");
+		ImGui::Text("  Shader Usage: Texture");
+		
+		ImGui::Separator();
+		
+		// Material Information
+		ImGui::Text("Material Properties:");
+		ImGui::Text("  Material: GenericShaderMaterial");
+		ImGui::Text("  Texture Type: Color Map");
+		ImGui::Text("  Texture File: pyros.png");
+		
+		ImGui::Separator();
+		
+		// Performance Information
+		ImGui::Text("Performance:");
+		ImGui::Text("  FPS: %.1f", (float)fps.getFPS());
+		ImGui::Text("  Resolution: %dx%d", Width, Height);
+		ImGui::Text("  Camera Position: (%.1f, %.1f, %.1f)", 
+			FPSCamera->GetPosition().x, 
+			FPSCamera->GetPosition().y, 
+			FPSCamera->GetPosition().z);
+		
+		ImGui::Separator();
+		
+		// Controls
+		ImGui::Text("Controls:");
+		ImGui::Text("  Tab: Toggle mouse capture");
+		ImGui::Text("  WASD: Move camera");
+		ImGui::Text("  Mouse: Look around");
+		ImGui::Text("  Cube rotates automatically");
+		ImGui::Text("  Background animates automatically");
+	}
+	ImGui::End();
 }
 
 void RotatingTexturedCube::Shutdown()

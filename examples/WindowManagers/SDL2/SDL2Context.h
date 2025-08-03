@@ -41,7 +41,9 @@ namespace p3d {
             void Close();
 
             // methods
-            SDL_Window GetWindow();
+            SDL_Window* GetWindow();
+            SDL_Window* GetSDLWindow() const { return rview; }
+            SDL_GLContext GetGLContext() const { return mainGLContext; }
             void HideMouse();
             void ShowMouse();
             void SetMousePosition(const uint32 mouseX, const uint32 mouseY);

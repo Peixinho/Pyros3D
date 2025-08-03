@@ -22,6 +22,10 @@ namespace p3d {
 		Vec2 res = Vec2(Width, Height);
 		texRes.SetValue(&res);
 		AddUniform(texRes);
+		
+		// Initialize intensity
+		intensity = 1.0f;
+		uIntensityHandle = AddUniform(Uniform("uIntensity", Uniforms::DataType::Float, &intensity));
 
 		VertexShaderString =
 								#if defined(GLES2)
@@ -74,6 +78,7 @@ namespace p3d {
 								#endif
 								"varying_in vec2 vTexcoord;\n"
 								"uniform sampler2D uTex0;\n"
+								"uniform float uIntensity;\n"
 								"const int blursize = 4;\n"
 								"uniform vec2 uTexResolution;\n"
 								"void main() {\n"
@@ -82,7 +87,7 @@ namespace p3d {
 									"vec2 hlim = vec2(float(-blursize)*0.5 + 0.5);\n"
 									"for (int i=0;i<blursize;i++) {\n"
 										"for (int j=0;j<blursize;j++) {\n"
-											"vec2 offset = (hlim + vec2(float(i), float(j))) * texelSize;\n"
+											"vec2 offset = (hlim + vec2(float(i), float(j))) * texelSize * uIntensity;\n"
 											"result += texture_2D(uTex0, vTexcoord + offset).r;\n"
 										"}\n"
 									"}\n"
@@ -96,6 +101,11 @@ namespace p3d {
 	}
 
 	BlurSSAOEffect::~BlurSSAOEffect() {
+	}
+
+	void BlurSSAOEffect::SetIntensity(const f32 intensity) {
+		this->intensity = intensity;
+		uIntensityHandle->SetValue(&this->intensity);
 	}
 
 };

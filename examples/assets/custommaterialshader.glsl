@@ -3,8 +3,9 @@ precision mediump float;
 #endif
 
 #ifdef VERTEX
-attribute vec3 aPosition, aNormal;
-attribute vec2 aTexcoord;
+in vec3 aPosition;
+in vec3 aNormal;
+in vec2 aTexcoord;
 uniform mat4 uProjectionMatrix, uViewMatrix, uModelMatrix;
 
 void main()

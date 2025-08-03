@@ -49,15 +49,15 @@ void RotatingCubeWithLightingAndShadow::Init()
 	// Add a Directional Light
 	Light = new GameObject();
 	dLight = new DirectionalLight(Vec4(1, 1, 1, 1), Vec3(-1, -1, -1));
-	// Enable Shadow Casting
-	dLight->EnableCastShadows(2048, 2048, projection, 0.1f, (f32)300.0, 1);
+	// Enable Shadow Casting with reduced resolution
+	dLight->EnableCastShadows(1024, 1024, projection, 0.1f, (f32)300.0, 1);
 	dLight->SetShadowBias(5.f, 3.f);
 	Light->Add(dLight);
 
 	Light2 = new GameObject();
 	//pLight = new SpotLight(Vec4(1, 1, 1, 1), 300, Vec3(0, -1, 0), 45, 30);
 	pLight = new PointLight(Vec4(1, 1, 1, 1), 100);
-	pLight->EnableCastShadows(256, 256);
+	pLight->EnableCastShadows(512, 512);
 	pLight->SetShadowBias(5.f, 3.f);
 
 	Light2->Add(pLight);
@@ -103,6 +103,9 @@ void RotatingCubeWithLightingAndShadow::Init()
 
 	// Add GameObject to Scene
 	Scene->Add(CubeObject);
+	
+	// Initialize ImGui
+	InitImGui();
 }
 
 void RotatingCubeWithLightingAndShadow::Update()
@@ -120,6 +123,72 @@ void RotatingCubeWithLightingAndShadow::Update()
 	// Render Scene
 	Renderer->PreRender(FPSCamera, Scene);
 	Renderer->RenderScene(projection, FPSCamera, Scene);
+	RenderImGui();
+}
+
+void RotatingCubeWithLightingAndShadow::DrawUI()
+{
+	// Draw base UI (FPS, etc.)
+	DrawBaseUI();
+	
+	// Lighting and Shadow System Information
+	if (ImGui::Begin("Lighting & Shadow System Info", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::Text("Lighting & Shadow System Information");
+		ImGui::Separator();
+		
+		// Scene Information
+		ImGui::Text("Scene Objects:");
+		ImGui::Text("  Cube: Rotating red cube (5x5x5)");
+		ImGui::Text("  Floor: White floor at (-30, -20)");
+		ImGui::Text("  Ceiling: White ceiling at (30, -20)");
+		
+		ImGui::Separator();
+		
+		// Lighting Information
+		ImGui::Text("Lighting System:");
+		ImGui::Text("  Renderer: ForwardRenderer");
+		ImGui::Text("  Directional Light: White light from (-1, -1, -1)");
+		ImGui::Text("  Point Light: White light at (0, 20, 0)");
+		ImGui::Text("  Shadow Casting: Enabled for both lights");
+		
+		ImGui::Separator();
+		
+		// Shadow Information
+		ImGui::Text("Shadow System:");
+		ImGui::Text("  Directional Shadow: 1024x1024 resolution");
+		ImGui::Text("  Point Shadow: 512x512 resolution");
+		ImGui::Text("  Shadow Bias: 5.0, 3.0");
+		ImGui::Text("  Shadow Range: 0.1 to 300.0");
+		
+		ImGui::Separator();
+		
+		// Material Information
+		ImGui::Text("Material Properties:");
+		ImGui::Text("  Cube Material: Red with specular");
+		ImGui::Text("  Floor Material: White");
+		ImGui::Text("  Shader Usage: Color | Specular | Diffuse | Shadows");
+		
+		ImGui::Separator();
+		
+		// Performance Information
+		ImGui::Text("Performance:");
+		ImGui::Text("  FPS: %.1f", (float)fps.getFPS());
+		ImGui::Text("  Resolution: %dx%d", Width, Height);
+		ImGui::Text("  Camera Position: (%.1f, %.1f, %.1f)", 
+			FPSCamera->GetPosition().x, 
+			FPSCamera->GetPosition().y, 
+			FPSCamera->GetPosition().z);
+		
+		ImGui::Separator();
+		
+		// Controls
+		ImGui::Text("Controls:");
+		ImGui::Text("  Tab: Toggle mouse capture");
+		ImGui::Text("  WASD: Move camera");
+		ImGui::Text("  Mouse: Look around");
+		ImGui::Text("  Cube rotates automatically");
+	}
+	ImGui::End();
 }
 
 void RotatingCubeWithLightingAndShadow::Shutdown()
@@ -130,24 +199,30 @@ void RotatingCubeWithLightingAndShadow::Shutdown()
 	Scene->Remove(CubeObject);
 	Scene->Remove(Light);
 	Scene->Remove(Floor);
+	Scene->Remove(Ceiling);
 
 	CubeObject->Remove(rCube);
 	Light->Remove(dLight);
 	Floor->Remove(rFloor);
+	Ceiling->Remove(rCeiling);
 
 	// Delete
 	delete rCube;
 	delete CubeObject;
 	delete rFloor;
 	delete Floor;
+	delete rCeiling;
+	delete Ceiling;
 	delete cubeMesh;
 	delete floorMesh;
 	delete dLight;
 	delete Light;
+	delete pLight;
+	delete Light2;
 	delete Diffuse;
 	delete FloorMaterial;
 	delete Renderer;
-	delete Scene;
+	
 	BaseExample::Shutdown();
 }
 

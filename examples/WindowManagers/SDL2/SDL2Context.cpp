@@ -8,6 +8,7 @@
 
 #include <Pyros3D/Other/PyrosGL.h>
 #include "SDL2Context.h"
+#include "../imgui/backends/imgui_impl_sdl2.h"
 
 namespace p3d {
 
@@ -211,6 +212,9 @@ namespace p3d {
         SDL_Event sdl_event;
 		while(SDL_PollEvent(&sdl_event) > 0) /* While there are more than 0 events in the queue */
 		{
+            // Process ImGui events first
+            ImGui_ImplSDL2_ProcessEvent(&sdl_event);
+            
             if (sdl_event.type == SDL_QUIT)
             {
 		        Close();

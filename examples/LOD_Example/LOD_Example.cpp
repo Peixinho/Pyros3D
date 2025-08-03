@@ -90,6 +90,9 @@ void LOD_Example::Init()
 
 	octree = new Octree();
 	octree->BuildOctree(Scene->GetMinBounds(), Scene->GetMaxBounds(), Scene->GetAllGameObjectList(), 10);
+	
+	// Initialize ImGui
+	InitImGui();
 }
 
 void LOD_Example::Update()
@@ -107,6 +110,57 @@ void LOD_Example::Update()
 
 	octree->Draw(projection, FPSCamera->GetWorldTransformation().Inverse());
 
+	// Render ImGui
+	RenderImGui();
+}
+
+void LOD_Example::DrawUI()
+{
+	// Draw base UI (FPS, etc.)
+	DrawBaseUI();
+	
+	// LOD System Information
+	if (ImGui::Begin("LOD System Info", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::Text("Level of Detail (LOD) System Information");
+		ImGui::Separator();
+		
+		// Scene Information
+		ImGui::Text("Scene Statistics:");
+		ImGui::Text("  Total Teapots: %d", TEAPOTS);
+		ImGui::Text("  Point Lights: %d", (int)Lights.size());
+		ImGui::Text("  LOD Levels: 3 (LOD1, LOD2, LOD3)");
+		ImGui::Text("  LOD Distances: 50, 100 units");
+		
+		ImGui::Separator();
+		
+		// Rendering Features
+		ImGui::Text("Rendering Features:");
+		ImGui::Text("  Frustum Culling: Active");
+		ImGui::Text("  LOD System: Enabled");
+		ImGui::Text("  Octree: Built");
+		ImGui::Text("  Static Objects: %d", TEAPOTS);
+		
+		ImGui::Separator();
+		
+		// Performance Information
+		ImGui::Text("Performance:");
+		ImGui::Text("  FPS: %.1f", fps.getFPS());
+		ImGui::Text("  Resolution: %dx%d", Width, Height);
+		ImGui::Text("  Camera Position: (%.1f, %.1f, %.1f)", 
+			FPSCamera->GetPosition().x, 
+			FPSCamera->GetPosition().y, 
+			FPSCamera->GetPosition().z);
+		
+		ImGui::Separator();
+		
+		// Controls
+		ImGui::Text("Controls:");
+		ImGui::Text("  Tab: Toggle mouse capture");
+		ImGui::Text("  WASD: Move camera");
+		ImGui::Text("  Mouse: Look around");
+		ImGui::Text("  Octree visualization active");
+	}
+	ImGui::End();
 }
 
 void LOD_Example::Shutdown()

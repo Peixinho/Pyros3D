@@ -69,29 +69,17 @@ void Decals::Init()
 	Scene->Add(SphereObject);
 	Scene->Add(ModelObject);
 
-	// Input
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Mouse::Left, this, &Decals::OnMouseRelease);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &Decals::MoveFrontPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::S, this, &Decals::MoveBackPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::A, this, &Decals::StrafeLeftPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::D, this, &Decals::StrafeRightPress);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::W, this, &Decals::MoveFrontRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::S, this, &Decals::MoveBackRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &Decals::StrafeLeftRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &Decals::StrafeRightRelease);
-	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &Decals::LookTo);
-
-	SetMousePosition((uint32)(Width *.5f), (uint32)(Height *.5f));
-	mouseCenter = Vec2((f32)Width *.5f, (f32)Height *.5f);
-	mouseLastPosition = mouseCenter;
-	counterX = counterY = 0.f;
-
-	_strafeLeft = _strafeRight = _moveBack = _moveFront = 0.f;
+	// Initialize ImGui
+	InitImGui();
+	
+	// Register mouse events for decal creation
+	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Mouse::Left, this, &Decals::OnMouseRelease);
 }
 
 void Decals::Update()
 {
 	// Update - Game Loop
+	BaseExample::Update();
 
 	// Update Scene
 	Scene->Update(GetTime());
@@ -105,29 +93,66 @@ void Decals::Update()
 	Renderer->PreRender(FPSCamera, Scene);
 	Renderer->RenderScene(projection, FPSCamera, Scene);
 
-	Vec3 finalPosition;
-	Vec3 direction = FPSCamera->GetDirection();
-	f64 dt = GetTimeInterval();
-	f32 speed = (f32)dt * 200.f;
-	if (_moveFront)
-	{
-		finalPosition -= direction*speed;
-	}
-	if (_moveBack)
-	{
-		finalPosition += direction*speed;
-	}
-	if (_strafeLeft)
-	{
-		finalPosition += direction.cross(Vec3(0, 1, 0)).normalize()*speed;
-	}
-	if (_strafeRight)
-	{
-		finalPosition -= direction.cross(Vec3(0, 1, 0)).normalize()*speed;
-	}
+	// Render ImGui
+	RenderImGui();
+}
 
-	FPSCamera->SetPosition(FPSCamera->GetPosition() + finalPosition);
-
+void Decals::DrawUI()
+{
+	// Draw base UI (FPS, etc.)
+	DrawBaseUI();
+	
+	// Decals System Information
+	if (ImGui::Begin("Decals System Info", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::Text("Decals System Information");
+		ImGui::Separator();
+		
+		// Scene Information
+		ImGui::Text("Scene Objects:");
+		ImGui::Text("  Cube: Rotating at position (-100, 0, 0)");
+		ImGui::Text("  Sphere: Rotating at position (-20, 0, 0)");
+		ImGui::Text("  Teapot Model: Rotating at position (100, 0, 0)");
+		
+		ImGui::Separator();
+		
+		// Decals Information
+		ImGui::Text("Decals System:");
+		ImGui::Text("  Active Decals: %zu", decals.size());
+		ImGui::Text("  Decal Material: Pyros Logo Texture");
+		ImGui::Text("  Transparency: Enabled");
+		ImGui::Text("  Depth Bias: Enabled (-4, -4)");
+		ImGui::Text("  Depth Write: Disabled");
+		
+		ImGui::Separator();
+		
+		// Interaction Information
+		ImGui::Text("Interaction:");
+		ImGui::Text("  Left Click: Create decal at mouse position");
+		ImGui::Text("  Mouse Ray Casting: Active");
+		ImGui::Text("  Triangle Intersection: Active");
+		
+		ImGui::Separator();
+		
+		// Performance Information
+		ImGui::Text("Performance:");
+		ImGui::Text("  FPS: %.1f", (float)fps.getFPS());
+		ImGui::Text("  Resolution: %dx%d", Width, Height);
+		ImGui::Text("  Camera Position: (%.1f, %.1f, %.1f)", 
+			FPSCamera->GetPosition().x, 
+			FPSCamera->GetPosition().y, 
+			FPSCamera->GetPosition().z);
+		
+		ImGui::Separator();
+		
+		// Controls
+		ImGui::Text("Controls:");
+		ImGui::Text("  Tab: Toggle mouse capture");
+		ImGui::Text("  WASD: Move camera");
+		ImGui::Text("  Mouse: Look around");
+		ImGui::Text("  Left Click: Place decal");
+		ImGui::Text("  Objects rotate automatically");
+	}
+	ImGui::End();
 }
 
 void Decals::Shutdown()

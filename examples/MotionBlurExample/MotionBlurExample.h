@@ -32,6 +32,7 @@ public:
 	void Update();
 	void Shutdown();
 	void OnResize(const uint32 width, const uint32 height);
+	virtual void DrawUI();
 
 private:
 

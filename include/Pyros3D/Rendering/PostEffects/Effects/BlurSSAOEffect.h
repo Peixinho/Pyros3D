@@ -17,8 +17,13 @@ namespace p3d {
 	public:
 		BlurSSAOEffect(const uint32 Tex1, const uint32 Width, const uint32 Height);
 		virtual ~BlurSSAOEffect();
+		
+		void SetIntensity(const f32 intensity);
+		
 	private:
 		Uniform texRes;
+		Uniform* uIntensityHandle;
+		f32 intensity;
 	};
 
 };

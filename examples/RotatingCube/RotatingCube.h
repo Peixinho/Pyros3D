@@ -13,6 +13,8 @@
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
+#include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 
 class RotatingCube : public BaseExample
 {
@@ -26,6 +28,7 @@ public:
 	void Update();
 	void Shutdown();
 	void OnResize(const uint32 width, const uint32 height);
+	virtual void DrawUI();
 
 private:
 
@@ -39,6 +42,16 @@ private:
 	RenderingComponent* rCube;
 	// Mesh
 	Renderable* cubeMesh;
+	// Material
+	GenericShaderMaterial* Diffuse;
+	// Light
+	GameObject* Light;
+	DirectionalLight* dLight;
+	
+	// ImGui Controls
+	float rotationSpeed;
+	float cubeScale;
+	Vec4 cubeColor;
 
 };
 

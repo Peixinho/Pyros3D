@@ -168,6 +168,9 @@ void DepthOfField::Init()
 	EffectManager->AddEffect(blurXlow);
 	EffectManager->AddEffect(blurYlow);
 	EffectManager->AddEffect(depthOfField);
+	
+	// Initialize ImGui
+	InitImGui();
 }
 
 void DepthOfField::Update()
@@ -193,6 +196,50 @@ void DepthOfField::Update()
 
 	// Render Post Processing
 	EffectManager->ProcessPostEffects(&projection);
+	RenderImGui();
+}
+
+void DepthOfField::DrawUI()
+{
+	// Draw base UI (FPS, etc.)
+	DrawBaseUI();
+	
+	// Depth of Field Information
+	if (ImGui::Begin("Depth of Field Info", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::Text("Depth of Field System Information");
+		ImGui::Separator();
+		
+		// Effect Information
+		ImGui::Text("Post-Processing Effects:");
+		ImGui::Text("  Blur X Effect: Active");
+		ImGui::Text("  Blur Y Effect: Active");
+		ImGui::Text("  Resize Effect: Active");
+		ImGui::Text("  Low-Res Blur X: Active");
+		ImGui::Text("  Low-Res Blur Y: Active");
+		ImGui::Text("  Depth of Field: Active");
+		
+		ImGui::Separator();
+		
+		// Scene Information
+		ImGui::Text("Scene Information:");
+		ImGui::Text("  Objects: 10 Monkeys");
+		ImGui::Text("  Camera Position: (%.1f, %.1f, %.1f)", 
+			FPSCamera->GetPosition().x, 
+			FPSCamera->GetPosition().y, 
+			FPSCamera->GetPosition().z);
+		ImGui::Text("  Resolution: %dx%d", Width, Height);
+		ImGui::Text("  Low-Res: %dx%d", (int)(Width*0.25f), (int)(Height*0.25f));
+		
+		ImGui::Separator();
+		
+		// Controls
+		ImGui::Text("Controls:");
+		ImGui::Text("  Tab: Toggle mouse capture");
+		ImGui::Text("  WASD: Move camera");
+		ImGui::Text("  Mouse: Look around");
+		ImGui::Text("  Monkeys rotate automatically");
+	}
+	ImGui::End();
 }
 
 void DepthOfField::Shutdown()

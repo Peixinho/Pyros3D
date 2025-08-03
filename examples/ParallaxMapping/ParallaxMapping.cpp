@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-ParallaxMapping::ParallaxMapping() : ClassName(1024, 768, "Pyros3D - Parallax Mapping", WindowType::Close | WindowType::Resize)
+ParallaxMapping::ParallaxMapping() : BaseExample(1024, 768, "Pyros3D - Parallax Mapping", WindowType::Close | WindowType::Resize)
 {
 
 }
@@ -18,7 +18,7 @@ ParallaxMapping::ParallaxMapping() : ClassName(1024, 768, "Pyros3D - Parallax Ma
 void ParallaxMapping::OnResize(const uint32 width, const uint32 height)
 {
 	// Execute Parent Resize Function
-	ClassName::OnResize(width, height);
+	BaseExample::OnResize(width, height);
 
 	// Resize
 	Renderer->Resize(width, height);
@@ -28,8 +28,9 @@ void ParallaxMapping::OnResize(const uint32 width, const uint32 height)
 void ParallaxMapping::Init()
 {
 	// Initialization
+	BaseExample::Init();
 
-		// Initialize Scene
+	// Initialize Scene
 	Scene = new SceneGraph();
 
 	// Initialize Renderer
@@ -75,56 +76,17 @@ void ParallaxMapping::Init()
 
 	Scene->Add(Light);
 
-	// Input
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::W, this, &ParallaxMapping::MoveFrontPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::S, this, &ParallaxMapping::MoveBackPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::A, this, &ParallaxMapping::StrafeLeftPress);
-	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::D, this, &ParallaxMapping::StrafeRightPress);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::W, this, &ParallaxMapping::MoveFrontRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::S, this, &ParallaxMapping::MoveBackRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::A, this, &ParallaxMapping::StrafeLeftRelease);
-	InputManager::AddEvent(Event::Type::OnRelease, Event::Input::Keyboard::D, this, &ParallaxMapping::StrafeRightRelease);
-	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &ParallaxMapping::LookTo);
-
-	_strafeLeft = _strafeRight = _moveBack = _moveFront = false;
-	HideMouse();
-
-	SetMousePosition((uint32)(Width *.5f), (uint32)(Height *.5f));
-	mouseCenter = Vec2((f32)Width *.5f, (f32)Height *.5f);
-	mouseLastPosition = mouseCenter;
-	counterX = counterY = 0.f;
-
+	// Initialize ImGui
+	InitImGui();
 }
 
 void ParallaxMapping::Update()
 {
 	// Update - Game Loop
+	BaseExample::Update();
 
-		// Update Scene
+	// Update Scene
 	Scene->Update(GetTime());
-
-	Vec3 finalPosition;
-	Vec3 direction = Camera->GetDirection();
-	float dt = (float)GetTimeInterval();
-	float speed = dt * 20.f;
-	if (_moveFront)
-	{
-		finalPosition -= direction*speed;
-	}
-	if (_moveBack)
-	{
-		finalPosition += direction*speed;
-	}
-	if (_strafeLeft)
-	{
-		finalPosition += direction.cross(Vec3(0, 1, 0)).normalize()*speed;
-	}
-	if (_strafeRight)
-	{
-		finalPosition -= direction.cross(Vec3(0, 1, 0)).normalize()*speed;
-	}
-
-	Camera->SetPosition(Camera->GetPosition() + finalPosition);
 
 	// Game Logic Here
 	CubeObject->SetRotation(Vec3(0.f, (f32)GetTime(), 0.f));
@@ -132,6 +94,60 @@ void ParallaxMapping::Update()
 	// Render Scene
 	Renderer->PreRender(Camera, Scene);
 	Renderer->RenderScene(projection, Camera, Scene);
+	
+	// Render ImGui
+	RenderImGui();
+}
+
+void ParallaxMapping::DrawUI()
+{
+	// Draw base UI (FPS, etc.)
+	DrawBaseUI();
+	
+	// Parallax Mapping Information
+	if (ImGui::Begin("Parallax Mapping Info", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::Text("Parallax Mapping System Information");
+		ImGui::Separator();
+		
+		// Material Information
+		ImGui::Text("Material Properties:");
+		ImGui::Text("  Diffuse Texture: Bricks");
+		ImGui::Text("  Normal Map: Bricks Normal");
+		ImGui::Text("  Displacement Map: Bricks Displacement");
+		ImGui::Text("  Specular: White");
+		ImGui::Text("  Shininess: 32");
+		
+		ImGui::Separator();
+		
+		// Shader Information
+		ImGui::Text("Shader Features:");
+		ImGui::Text("  Diffuse Lighting: Active");
+		ImGui::Text("  Parallax Mapping: Active");
+		ImGui::Text("  Bump Mapping: Active");
+		ImGui::Text("  Texture Mapping: Active");
+		ImGui::Text("  Specular Lighting: Active");
+		
+		ImGui::Separator();
+		
+		// Scene Information
+		ImGui::Text("Scene Information:");
+		ImGui::Text("  Object: Rotating Cube");
+		ImGui::Text("  Camera Position: (%.1f, %.1f, %.1f)", 
+			Camera->GetPosition().x, 
+			Camera->GetPosition().y, 
+			Camera->GetPosition().z);
+		ImGui::Text("  Resolution: %dx%d", Width, Height);
+		
+		ImGui::Separator();
+		
+		// Controls
+		ImGui::Text("Controls:");
+		ImGui::Text("  Tab: Toggle mouse capture");
+		ImGui::Text("  WASD: Move camera");
+		ImGui::Text("  Mouse: Look around");
+		ImGui::Text("  Cube rotates automatically");
+	}
+	ImGui::End();
 }
 
 void ParallaxMapping::Shutdown()

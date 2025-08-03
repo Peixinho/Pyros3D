@@ -68,11 +68,6 @@ void IslandDemo::Init()
 	gWater->SetPosition(Vec3(0.f, 6.8f, 0.f));
 	SceneWater->Add(gWater);
 
-	SetMousePosition((uint32)(Width *.5f), (uint32)(Height *.5f));
-	mouseCenter = Vec2((f32)Width *.5f, (f32)Height *.5f);
-	mouseLastPosition = mouseCenter;
-	counterX = counterY = 0.f;
-
 	fboReflection = new FrameBuffer();
 	reflectionTexture = new Texture();
 	reflectionTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
@@ -109,6 +104,9 @@ void IslandDemo::Init()
 	imgID = matWater->textures.size();
 	matWater->textures.push_back(DUDVmap);
 	matWater->AddUniform(Uniform("uDUDVmap", Uniforms::DataType::Int, &imgID));
+	
+	// Initialize ImGui
+	InitImGui();
 }
 
 void IslandDemo::Update()
@@ -150,6 +148,70 @@ void IslandDemo::Update()
 	Renderer->ClearBufferBit(Buffer_Bit::None);
 	Renderer->PreRender(FPSCamera, SceneWater);
 	Renderer->RenderScene(projection, FPSCamera, SceneWater);
+
+	// Render ImGui
+	RenderImGui();
+}
+
+void IslandDemo::DrawUI()
+{
+	// Draw base UI (FPS, etc.)
+	DrawBaseUI();
+	
+	// Island Demo System Information
+	if (ImGui::Begin("Island Demo System Info", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::Text("Island Demo System Information");
+		ImGui::Separator();
+		
+		// Scene Information
+		ImGui::Text("Scene Objects:");
+		ImGui::Text("  Island: 3D island model (island.p3dm)");
+		ImGui::Text("  Water: Animated water plane (500x500)");
+		ImGui::Text("  Directional Light: White light from (-1, -1, 0)");
+		ImGui::Text("  Reflection Camera: Mirror camera for water");
+		
+		ImGui::Separator();
+		
+		// Water System Information
+		ImGui::Text("Water System:");
+		ImGui::Text("  Material: Custom WaterMaterial");
+		ImGui::Text("  Shader: WaterShader.glsl");
+		ImGui::Text("  Textures: Normal map, DUDV map");
+		ImGui::Text("  Reflection: Real-time reflection mapping");
+		ImGui::Text("  Refraction: Real-time refraction mapping");
+		ImGui::Text("  Clip Planes: Active for water rendering");
+		
+		ImGui::Separator();
+		
+		// Rendering Information
+		ImGui::Text("Rendering System:");
+		ImGui::Text("  Renderer: ForwardRenderer");
+		ImGui::Text("  Frame Buffers: Reflection and Refraction FBOs");
+		ImGui::Text("  Water Position: (0, 6.8, 0)");
+		ImGui::Text("  Water Rotation: -90 degrees on X-axis");
+		
+		ImGui::Separator();
+		
+		// Performance Information
+		ImGui::Text("Performance:");
+		ImGui::Text("  FPS: %.1f", (float)fps.getFPS());
+		ImGui::Text("  Resolution: %dx%d", Width, Height);
+		ImGui::Text("  Camera Position: (%.1f, %.1f, %.1f)", 
+			FPSCamera->GetPosition().x, 
+			FPSCamera->GetPosition().y, 
+			FPSCamera->GetPosition().z);
+		
+		ImGui::Separator();
+		
+		// Controls
+		ImGui::Text("Controls:");
+		ImGui::Text("  Tab: Toggle mouse capture");
+		ImGui::Text("  WASD: Move camera");
+		ImGui::Text("  Mouse: Look around");
+		ImGui::Text("  Water animates automatically");
+		ImGui::Text("  Real-time reflections and refractions");
+	}
+	ImGui::End();
 }
 
 void IslandDemo::Shutdown()

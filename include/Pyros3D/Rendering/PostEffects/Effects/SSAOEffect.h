@@ -24,7 +24,7 @@ namespace p3d {
 		{
 			Matrix inversedM = m.Inverse();
 			uViewMatrixUniform->SetValue(&m);
-			uInverseViewMatrixUniform->SetValue(&m);
+			uInverseViewMatrixUniform->SetValue(&inversedM);
 		}
 		void SetRadius(const f32 radius)
 		{

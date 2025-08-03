@@ -60,6 +60,9 @@ void MotionBlurExample::Init()
 	EffectManager = new PostEffectsManager(Width, Height);
 	MotionBlur = new MotionBlurEffect(RTT::Color, VRenderer->GetTexture(),Width,Height);
 	EffectManager->AddEffect(MotionBlur);
+	
+	// Initialize ImGui
+	InitImGui();
 }
 
 void MotionBlurExample::Update()
@@ -89,6 +92,52 @@ void MotionBlurExample::Update()
 
 	// Render Post Processing
 	EffectManager->ProcessPostEffects(&projection);
+
+	// Render ImGui
+	RenderImGui();
+}
+
+void MotionBlurExample::DrawUI()
+{
+	// Draw base UI (FPS, etc.)
+	DrawBaseUI();
+	
+	// Motion Blur Information
+	if (ImGui::Begin("Motion Blur Info", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::Text("Motion Blur System Information");
+		ImGui::Separator();
+		
+		// Motion Blur Effect Info
+		ImGui::Text("Motion Blur Effect:");
+		ImGui::Text("  Current FPS: %.1f", fps.getFPS());
+		ImGui::Text("  Target FPS: 60.0");
+		ImGui::Text("  Velocity Map: Active");
+		ImGui::Text("  Post-Processing: Active");
+		
+		ImGui::Separator();
+		
+		// Object Information
+		ImGui::Text("Object Information:");
+		ImGui::Text("  Model: Teapot (LOD1)");
+		ImGui::Text("  Position: (%.1f, %.1f, %.1f)", 
+			CubeObject->GetPosition().x, 
+			CubeObject->GetPosition().y, 
+			CubeObject->GetPosition().z);
+		ImGui::Text("  Rotation: (%.1f, %.1f, %.1f)", 
+			CubeObject->GetRotation().x, 
+			CubeObject->GetRotation().y, 
+			CubeObject->GetRotation().z);
+		
+		ImGui::Separator();
+		
+		// Controls
+		ImGui::Text("Controls:");
+		ImGui::Text("  Tab: Toggle mouse capture");
+		ImGui::Text("  WASD: Move camera");
+		ImGui::Text("  Mouse: Look around");
+		ImGui::Text("  Object moves in circular pattern");
+	}
+	ImGui::End();
 }
 
 void MotionBlurExample::Shutdown()

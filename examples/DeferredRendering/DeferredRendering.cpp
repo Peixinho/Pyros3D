@@ -124,6 +124,9 @@ void DeferredRendering::Init()
 		// Set Random Position to the GameObject
 		CubeObject->SetPosition(Vec3((f32)(rand() % 100) - 50.f, (f32)(rand() % 100) - 50.f, (f32)(rand() % 100) - 50.f)*0.01f);
 	}
+	
+	// Initialize ImGui
+	InitImGui();
 }
 
 void DeferredRendering::Update()
@@ -145,28 +148,68 @@ void DeferredRendering::Update()
 	Renderer->PreRender(FPSCamera, Scene);
 	Renderer->RenderScene(projection, FPSCamera, Scene);
 
-	Vec3 finalPosition;
-	Vec3 direction = FPSCamera->GetDirection();
-	float dt = (float)GetTimeInterval();
-	float speed = dt * 2.f;
-	if (_moveFront)
-	{
-		finalPosition -= direction*speed;
-	}
-	if (_moveBack)
-	{
-		finalPosition += direction*speed;
-	}
-	if (_strafeLeft)
-	{
-		finalPosition += direction.cross(Vec3(0, 1, 0)).normalize()*speed;
-	}
-	if (_strafeRight)
-	{
-		finalPosition -= direction.cross(Vec3(0, 1, 0)).normalize()*speed;
-	}
+	// Render ImGui
+	RenderImGui();
+}
 
-	FPSCamera->SetPosition(FPSCamera->GetPosition() + finalPosition);
+void DeferredRendering::DrawUI()
+{
+	// Draw base UI (FPS, etc.)
+	DrawBaseUI();
+	
+	// Deferred Rendering System Information
+	if (ImGui::Begin("Deferred Rendering Info", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::Text("Deferred Rendering System Information");
+		ImGui::Separator();
+		
+		// Scene Information
+		ImGui::Text("Scene Objects:");
+		ImGui::Text("  Cubes: %zu (100 rotating cubes)", Cubes.size());
+		ImGui::Text("  Point Lights: %zu (100 colored lights)", Lights.size());
+		ImGui::Text("  Directional Light: 1 (ambient lighting)");
+		
+		ImGui::Separator();
+		
+		// Deferred Rendering Information
+		ImGui::Text("Deferred Rendering:");
+		ImGui::Text("  Renderer: DeferredRenderer");
+		ImGui::Text("  G-Buffer Textures:");
+		ImGui::Text("    Albedo: RGBA (%dx%d)", Width, Height);
+		ImGui::Text("    Specular: RGBA (%dx%d)", Width, Height);
+		ImGui::Text("    Normal: RGBA32F (%dx%d)", Width, Height);
+		ImGui::Text("    Depth: DepthComponent (%dx%d)", Width, Height);
+		ImGui::Text("  Frame Buffer: Active");
+		
+		ImGui::Separator();
+		
+		// Material Information
+		ImGui::Text("Material Properties:");
+		ImGui::Text("  Shader Usage: DeferredRenderer_Gbuffer");
+		ImGui::Text("  Color: (1.0, 0.8, 0.8, 1.0)");
+		ImGui::Text("  Specular: (1.0, 0.8, 0.8, 1.0)");
+		ImGui::Text("  Cull Face: Double Sided");
+		
+		ImGui::Separator();
+		
+		// Performance Information
+		ImGui::Text("Performance:");
+		ImGui::Text("  FPS: %.1f", (float)fps.getFPS());
+		ImGui::Text("  Resolution: %dx%d", Width, Height);
+		ImGui::Text("  Camera Position: (%.1f, %.1f, %.1f)", 
+			FPSCamera->GetPosition().x, 
+			FPSCamera->GetPosition().y, 
+			FPSCamera->GetPosition().z);
+		
+		ImGui::Separator();
+		
+		// Controls
+		ImGui::Text("Controls:");
+		ImGui::Text("  Tab: Toggle mouse capture");
+		ImGui::Text("  WASD: Move camera");
+		ImGui::Text("  Mouse: Look around");
+		ImGui::Text("  Cubes rotate automatically");
+	}
+	ImGui::End();
 }
 
 void DeferredRendering::Shutdown()

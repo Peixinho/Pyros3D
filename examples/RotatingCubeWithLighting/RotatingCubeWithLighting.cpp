@@ -58,6 +58,9 @@ void RotatingCubeWithLighting::Init()
 
 	// Add GameObject to Scene
 	Scene->Add(CubeObject);
+	
+	// Initialize ImGui
+	InitImGui();
 }
 
 void RotatingCubeWithLighting::Update()
@@ -74,6 +77,65 @@ void RotatingCubeWithLighting::Update()
 	// Render Scene
 	Renderer->PreRender(FPSCamera, Scene);
 	Renderer->RenderScene(projection, FPSCamera, Scene);
+
+	// Render ImGui
+	RenderImGui();
+}
+
+void RotatingCubeWithLighting::DrawUI()
+{
+	// Draw base UI (FPS, etc.)
+	DrawBaseUI();
+	
+	// Lighting System Information
+	if (ImGui::Begin("Lighting System Info", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::Text("Lighting System Information");
+		ImGui::Separator();
+		
+		// Scene Information
+		ImGui::Text("Scene Objects:");
+		ImGui::Text("  Cube: Rotating red cube");
+		ImGui::Text("  Directional Light: White light from (-1, -1, 0)");
+		
+		ImGui::Separator();
+		
+		// Lighting Information
+		ImGui::Text("Lighting System:");
+		ImGui::Text("  Renderer: ForwardRenderer");
+		ImGui::Text("  Light Type: Directional Light");
+		ImGui::Text("  Light Color: White (1, 1, 1, 1)");
+		ImGui::Text("  Light Direction: (-1, -1, 0)");
+		ImGui::Text("  Shader Usage: Color | Diffuse");
+		
+		ImGui::Separator();
+		
+		// Material Information
+		ImGui::Text("Material Properties:");
+		ImGui::Text("  Color: Red (1, 0, 0, 1)");
+		ImGui::Text("  Shader: GenericShaderMaterial");
+		ImGui::Text("  Diffuse Lighting: Enabled");
+		
+		ImGui::Separator();
+		
+		// Performance Information
+		ImGui::Text("Performance:");
+		ImGui::Text("  FPS: %.1f", (float)fps.getFPS());
+		ImGui::Text("  Resolution: %dx%d", Width, Height);
+		ImGui::Text("  Camera Position: (%.1f, %.1f, %.1f)", 
+			FPSCamera->GetPosition().x, 
+			FPSCamera->GetPosition().y, 
+			FPSCamera->GetPosition().z);
+		
+		ImGui::Separator();
+		
+		// Controls
+		ImGui::Text("Controls:");
+		ImGui::Text("  Tab: Toggle mouse capture");
+		ImGui::Text("  WASD: Move camera");
+		ImGui::Text("  Mouse: Look around");
+		ImGui::Text("  Cube rotates automatically");
+	}
+	ImGui::End();
 }
 
 void RotatingCubeWithLighting::Shutdown()
