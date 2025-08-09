@@ -199,7 +199,9 @@ namespace p3d {
 		uReflectionStrengthUniform = AddUniform(Uniform("uReflectionStrength", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		
 		// Initialize uniforms with default values
-		UpdateUniforms();
+		if (uMaxStepsUniform) uMaxStepsUniform->SetValue(&maxSteps);
+		if (uMaxDistanceUniform) uMaxDistanceUniform->SetValue(&maxDistance);
+		if (uReflectionStrengthUniform) uReflectionStrengthUniform->SetValue(&reflectionStrength);
 	}
 
 	ScreenSpaceReflectionEffect::~ScreenSpaceReflectionEffect()
