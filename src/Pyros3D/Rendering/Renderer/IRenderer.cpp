@@ -554,22 +554,26 @@ void IRenderer::InitRender()
 	depthWritting = true;
 	DepthWrite();
 
-
-	#ifndef GLES2
-		GLuint vao=0;
-		glGenVertexArrays(1,&vao);
-		glBindVertexArray(vao);
-	#endif	
+	// No VAO to create here anymore - BindMesh() creates and caches one per
+	// (mesh, shader) pair on demand. This used to glGenVertexArrays a new
+	// VAO on every InitRender() call (up to 3x per frame in
+	// DeferredRenderer) and never delete it, leaking one every time.
 }
 
 void IRenderer::EndRender()
 {
 	if (LastMeshRenderedPTR != NULL && LastMaterialPTR != NULL)
 	{
+#ifndef GLES2
+		// The next mesh's BindMesh()/glBindVertexArray() fully replaces this
+		// VAO's attribute/index-buffer state, so there's nothing to unbind.
+		GLCHECKER(glBindVertexArray(0));
+#else
 		// Unbind Index Buffer
 		GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
 		// Unbind Vertex Attributes
 		UnbindMesh(LastMeshRenderedPTR, LastMaterialPTR);
+#endif
 		// Unbind Shadow Maps
 		UnbindShadowMaps(LastMaterialPTR);
 		// Material After Render
@@ -612,10 +616,12 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 
 	if ((LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material) && LastProgramUsed != -1)
 	{
+#ifdef GLES2
 		// Unbind Index Buffer
 		GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
 		// Unbind Mesh
 		UnbindMesh(LastMeshRenderedPTR, LastMaterialPTR);
+#endif
 		// Material Stuff After Render
 		UnbindShadowMaps(LastMaterialPTR);
 		// After Render
@@ -625,7 +631,9 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 
 	if (LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material)
 	{
-		// Bind Mesh
+		// Bind Mesh (resolves attribute/uniform locations; on desktop GL /
+		// GLES3 also builds and caches a VAO the first time this mesh is
+		// seen with this shader)
 		BindMesh(rmesh, Material);
 
 		// Material Stuff Pre Render
@@ -637,14 +645,20 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 		// Send Global Uniforms
 		SendGlobalUniforms(rmesh, Material);
 
-		// Send Vertex Attributes
+#ifndef GLES2
+		// Desktop GL / GLES3: the VAO built by BindMesh() already has every
+		// attribute pointer and the index buffer baked in.
+		GLCHECKER(glBindVertexArray(rmesh->VAOCache[Material->GetShader()]));
+#else
+		// GLES2 has no VAOs - set up vertex attributes for this mesh switch
 		SendAttributes(rmesh, Material);
-
-		if (Material->depthBias)
-			EnableDepthBias(Vec2(Material->depthFactor, Material->depthUnits));
 
 		// Bind Index Buffer
 		GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, rmesh->Geometry->IndexBuffer->ID));
+#endif
+
+		if (Material->depthBias)
+			EnableDepthBias(Vec2(Material->depthFactor, Material->depthUnits));
 	}
 
 	// Check double sided
@@ -1691,6 +1705,98 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 			(*_ShadersUserCache).push_back(Shader::GetUniformLocation(material->GetShader(), (*k).Name));
 		}
 	}
+
+#ifndef GLES2
+	// Desktop GL / GLES3: build and cache a VAO for this (mesh, shader)
+	// pair the first time it's seen, baking in every attribute's
+	// enable/pointer/divisor state plus the bound index buffer. RenderObject()
+	// just glBindVertexArray()s this afterward instead of re-issuing all of
+	// that per mesh switch. GLES2 has no VAOs, so it keeps using
+	// SendAttributes()/UnbindMesh() per switch, unchanged.
+	if (rmesh->VAOCache.find(material->GetShader()) == rmesh->VAOCache.end())
+	{
+		GLuint vao = 0;
+		GLCHECKER(glGenVertexArrays(1, &vao));
+		GLCHECKER(glBindVertexArray(vao));
+
+		if (rmesh->Geometry->Attributes.size() > 0)
+		{
+			uint32 counterBuffers = 0;
+			for (std::vector<AttributeArray*>::iterator k = rmesh->Geometry->Attributes.begin(); k != rmesh->Geometry->Attributes.end(); k++)
+			{
+				AttributeBuffer* bf = (AttributeBuffer*)(*k);
+
+				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, bf->Buffer->ID));
+
+				if (bf->attributeSize == 0)
+				{
+					for (std::vector<VertexAttribute*>::iterator l = (*k)->Attributes.begin(); l != (*k)->Attributes.end(); l++)
+					{
+						bf->attributeSize += (*l)->byteSize;
+					}
+				}
+
+				uint32 counter = 0;
+				for (std::vector<VertexAttribute*>::iterator l = (*k)->Attributes.begin(); l != (*k)->Attributes.end(); l++)
+				{
+					if ((*_ShadersAttributesCache)[counterBuffers][counter] == -2)
+					{
+						(*_ShadersAttributesCache)[counterBuffers][counter] = Shader::GetAttributeLocation(material->GetShader(), (*l)->Name);
+					}
+					int32 location = (*_ShadersAttributesCache)[counterBuffers][counter];
+					if (location >= 0)
+					{
+						GLCHECKER(glEnableVertexAttribArray(location));
+						if ((*l)->Type==Buffer::Attribute::Type::Matrix)
+						{
+							GLCHECKER(glEnableVertexAttribArray(location+1));
+							GLCHECKER(glEnableVertexAttribArray(location+2));
+							GLCHECKER(glEnableVertexAttribArray(location+3));
+						}
+
+						GLCHECKER(glVertexAttribPointer(
+							location,
+							Buffer::Attribute::GetTypeCount((*l)->Type),
+							Buffer::Attribute::GetType((*l)->Type),
+							GL_FALSE,
+							bf->attributeSize,
+							BUFFER_OFFSET((*l)->Offset)
+						));
+						if ((*l)->Type==Buffer::Attribute::Type::Matrix)
+						{
+							GLCHECKER(glVertexAttribPointer(location+1, Buffer::Attribute::GetTypeCount((*l)->Type), Buffer::Attribute::GetType((*l)->Type), GL_FALSE, bf->attributeSize, BUFFER_OFFSET(16)));
+							GLCHECKER(glVertexAttribPointer(location+2, Buffer::Attribute::GetTypeCount((*l)->Type), Buffer::Attribute::GetType((*l)->Type), GL_FALSE, bf->attributeSize, BUFFER_OFFSET(32)));
+							GLCHECKER(glVertexAttribPointer(location+3, Buffer::Attribute::GetTypeCount((*l)->Type), Buffer::Attribute::GetType((*l)->Type), GL_FALSE, bf->attributeSize, BUFFER_OFFSET(48)));
+						}
+
+						#ifndef GLES3
+						if (rmesh->renderingComponent->IsInstanced())
+						{
+							GLCHECKER(glVertexAttribDivisor(location, (*l)->VertexDivisor));
+							if ((*l)->Type==Buffer::Attribute::Type::Matrix)
+							{
+								GLCHECKER(glVertexAttribDivisor(location+1, (*l)->VertexDivisor));
+								GLCHECKER(glVertexAttribDivisor(location+2, (*l)->VertexDivisor));
+								GLCHECKER(glVertexAttribDivisor(location+3, (*l)->VertexDivisor));
+							}
+						}
+						#endif
+					}
+					counter++;
+				}
+				counterBuffers++;
+			}
+		}
+
+		// Bind the index buffer into the VAO's own state too, so it doesn't
+		// need rebinding on every mesh switch either.
+		GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, rmesh->Geometry->IndexBuffer->ID));
+
+		GLCHECKER(glBindVertexArray(0));
+
+		rmesh->VAOCache[material->GetShader()] = vao;
+	}
+#endif
 }
 
 void IRenderer::UnbindMesh(RenderingMesh* rmesh, IMaterial* material)

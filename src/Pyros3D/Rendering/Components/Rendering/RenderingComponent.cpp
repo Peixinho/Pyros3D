@@ -14,6 +14,17 @@ namespace p3d {
 	// Initialize Rendering Components vector
 	std::vector<IComponent*> RenderingComponent::Components;
 
+	RenderingMesh::~RenderingMesh()
+	{
+#ifndef GLES2
+		for (std::map<uint32, uint32>::iterator i = VAOCache.begin(); i != VAOCache.end(); i++)
+		{
+			GLuint vao = i->second;
+			GLCHECKER(glDeleteVertexArrays(1, &vao));
+		}
+#endif
+	}
+
 	RenderingComponent::RenderingComponent(Renderable* renderable, IMaterial* Material, const f32 Distance) : IComponent()
 	{
 		// Keep renderable pointer

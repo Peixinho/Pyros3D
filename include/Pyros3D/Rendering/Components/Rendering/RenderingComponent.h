@@ -51,7 +51,10 @@ namespace p3d {
 
 		RenderingMesh(const uint32 lod = 0) : drawingType(DrawingType::Triangles), CullingGeometry(0), Active(true), Clickable(true), LodLevel(lod) {} // Triangles by Default
 
-		virtual ~RenderingMesh() = default;
+		// Not = default: releases the cached VAOs in VAOCache, which needs
+		// glDeleteVertexArrays (defined out-of-line in RenderingComponent.cpp
+		// so this widely-included header doesn't need a GL dependency).
+		virtual ~RenderingMesh();
 
 		uint32 GetDrawingType() { return drawingType; }
 
@@ -63,6 +66,14 @@ namespace p3d {
 		std::map<uint32, std::vector<int32> > ShadersGlobalCache;
 		std::map<uint32, std::vector<int32> > ShadersModelCache;
 		std::map<uint32, std::vector<int32> > ShadersUserCache;
+		// GL Vertex Array Object cache, keyed by shader program. Bakes in
+		// attribute enable/pointer state and the bound index buffer so
+		// switching meshes at draw time is a single glBindVertexArray
+		// instead of re-issuing glEnableVertexAttribArray/glVertexAttribPointer
+		// per attribute on every switch. Keyed by shader because attribute
+		// locations can differ across shader variants using this mesh.
+		// Not used on GLES2, which has no VAOs.
+		std::map<uint32, uint32> VAOCache;
 
 		// Materials
 		IMaterial* Material;
