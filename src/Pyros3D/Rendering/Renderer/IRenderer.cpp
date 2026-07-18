@@ -9,6 +9,10 @@
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Other/PyrosGL.h>
 
+// Must match MAX_LIGHTS in resources/shaders/PyrosShader.glsl - sizes and
+// fills the LightsUBO backing that shader's uLights[MAX_LIGHTS] block.
+#define PYROS_MAX_LIGHTS 4
+
 namespace p3d {
 
 // ViewPort Dimension
@@ -85,10 +89,10 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 }
 
 // DebugRenderer uses this constructor and never calls RenderObject()/
-// SendGlobalUniforms(), so GlobalMatricesUBO is never actually used here -
-// left at 0 (glDeleteBuffers on 0 is a documented no-op) rather than
-// creating a UBO nothing will upload to.
-IRenderer::IRenderer() : GlobalMatricesUBO(0) {}
+// SendGlobalUniforms(), so GlobalMatricesUBO/LightsUBO are never actually
+// used here - left at 0 (glDeleteBuffers on 0 is a documented no-op)
+// rather than creating UBOs nothing will upload to.
+IRenderer::IRenderer() : GlobalMatricesUBO(0), LightsUBO(0) {}
 
 IRenderer::IRenderer(const uint32 Width, const uint32 Height)
 {
@@ -139,6 +143,14 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height)
 	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, GlobalMatricesUBO));
 	GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * 2, NULL, GL_DYNAMIC_DRAW));
 	GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 0, GlobalMatricesUBO));
+	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+
+	// Lights UBO: sized for uLights[PYROS_MAX_LIGHTS], bound to binding
+	// point 1. Contents are uploaded in SendGlobalUniforms().
+	GLCHECKER(glGenBuffers(1, (GLuint*)&LightsUBO));
+	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, LightsUBO));
+	GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_LIGHTS, NULL, GL_DYNAMIC_DRAW));
+	GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 1, LightsUBO));
 	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
 #endif
 }
@@ -192,6 +204,7 @@ IRenderer::~IRenderer()
 {
 #ifndef GLES2
 	GLCHECKER(glDeleteBuffers(1, (GLuint*)&GlobalMatricesUBO));
+	GLCHECKER(glDeleteBuffers(1, (GLuint*)&LightsUBO));
 #endif
 	delete shadowMaterial;
 	delete shadowSkinnedMaterial;
@@ -1457,6 +1470,19 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, GlobalMatricesUBO));
 	GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * 2, globalMatricesData));
 	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+
+	// Same as above for uLights[]: Lights/NumberOfLights are rebuilt per
+	// object (each object only gets its nearby lights - see ForwardRenderer/
+	// DeferredRenderer's RenderScene()), and this function already runs on
+	// every mesh/material switch, which in practice means every object, so
+	// uploading here keeps the same freshness the old per-uniform send had.
+	if (Lights.size() > 0)
+	{
+		uint32 lightsToUpload = NumberOfLights < PYROS_MAX_LIGHTS ? NumberOfLights : PYROS_MAX_LIGHTS;
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, LightsUBO));
+		GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * lightsToUpload, &Lights[0]));
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+	}
 #endif
 
 	std::vector<int32> *_ShadersGlobalCache = &rmesh->ShadersGlobalCache[Material->GetShader()];
@@ -1827,14 +1853,19 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 
 		rmesh->VAOCache[material->GetShader()] = vao;
 
-		// Wire this shader's GlobalMatrices uniform block (if it declares
-		// one - only PyrosShader.glsl does; custom materials' shaders keep
-		// sending uProjectionMatrix/uViewMatrix as plain uniforms and won't
-		// have this block) to the UBO's binding point.
+		// Wire this shader's GlobalMatrices/LightsBlock uniform blocks (if
+		// it declares them - only PyrosShader.glsl does; custom materials'
+		// shaders keep sending these as plain uniforms and won't have these
+		// blocks) to their UBOs' binding points.
 		GLuint blockIndex = glGetUniformBlockIndex(material->GetShader(), "GlobalMatrices");
 		if (blockIndex != GL_INVALID_INDEX)
 		{
 			GLCHECKER(glUniformBlockBinding(material->GetShader(), blockIndex, 0));
+		}
+		GLuint lightsBlockIndex = glGetUniformBlockIndex(material->GetShader(), "LightsBlock");
+		if (lightsBlockIndex != GL_INVALID_INDEX)
+		{
+			GLCHECKER(glUniformBlockBinding(material->GetShader(), lightsBlockIndex, 1));
 		}
 	}
 #endif

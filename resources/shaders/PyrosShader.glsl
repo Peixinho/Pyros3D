@@ -355,7 +355,18 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             specularPower = (lightIntensity>0.0?pow(max(dot(HalfVec,Normal),0.0), Shininess):0.0);
         }
 
-        uniform mat4 uLights[MAX_LIGHTS];
+        // uLights is rebuilt every object (each object only gets its
+        // nearby lights), unlike uProjectionMatrix/uViewMatrix above, but
+        // it's still shared across every fragment of that object's draw
+        // call, so a UBO still saves resending the whole array as
+        // individual uniforms across every shader/material switch.
+        #if defined(GLES2)
+            uniform mat4 uLights[MAX_LIGHTS];
+        #else
+            layout(std140) uniform LightsBlock {
+                mat4 uLights[MAX_LIGHTS];
+            };
+        #endif
         uniform int uNumberOfLights;
         uniform float uShininess;
         uniform float uUseLights;

@@ -337,6 +337,11 @@ namespace p3d {
 		// PyrosShader.glsl falls back to plain uniforms there.
 		uint32 GlobalMatricesUBO;
 
+		// Same idea for PyrosShader.glsl's uLights[MAX_LIGHTS] array (bound
+		// to binding point 1). Sized/uploaded for up to PYROS_MAX_LIGHTS
+		// entries - keep in sync with PyrosShader.glsl's own MAX_LIGHTS.
+		uint32 LightsUBO;
+
 		// Universal Uniforms Cache
 		Matrix
 			ProjectionMatrix,
