@@ -13,6 +13,7 @@
 #include <Pyros3D/Other/Export.h>
 #include <iostream>
 #include <map>
+#include <memory>
 
 namespace p3d
 {
@@ -37,7 +38,10 @@ namespace p3d
 	protected:
 		// Shader
 		Shader* shader;
-		bool isInternalShader;
+		// Owned only when `shader` was built internally (from a file, or
+		// handed off by a previous SetShader call) - null when `shader`
+		// points at a caller-owned Shader instead.
+		std::unique_ptr<Shader> InternalShader;
 	};
 
 }

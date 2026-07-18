@@ -38,7 +38,8 @@ namespace p3d
 #endif
 
 			// Not Found, Then Load Shader
-			shader = new Shader();
+			InternalShader.reset(new Shader());
+			shader = InternalShader.get();
 
 			shader->LoadShaderFile(ShaderFile.c_str());
 			shader->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
@@ -51,34 +52,27 @@ namespace p3d
 		shaderProgram = shader->ShaderProgram();
 
 		SetOpacity(1.0);
-
-		isInternalShader = true;
 	}
 
 	CustomShaderMaterial::CustomShaderMaterial(Shader* shader)
 	{
 		shaderProgram = shader->ShaderProgram();
 
-		isInternalShader = false;
+		this->shader = shader;
 	}
 
 	void CustomShaderMaterial::SetShader(Shader* shader)
 	{
-		if (isInternalShader)
-			delete this->shader; // delete old program
-
-		isInternalShader = false;
+		// Releases the previously internally-owned shader, if any; a no-op
+		// if `shader` was caller-owned.
+		InternalShader.reset();
 
 		// Copy shader
 		this->shader = shader;
 		shaderProgram = shader->ShaderProgram();
 	}
 
-	CustomShaderMaterial::~CustomShaderMaterial()
-	{
-		if (isInternalShader)
-			delete shader;
-	}
+	CustomShaderMaterial::~CustomShaderMaterial() = default;
 
 	void CustomShaderMaterial::PreRender()
 	{
