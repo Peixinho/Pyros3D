@@ -23,29 +23,25 @@ namespace p3d {
 
 	BulletPhysics::BulletPhysics() {}
 
-	BulletPhysics::~BulletPhysics()
-	{
-		delete m_dynamicsWorld;
-		delete m_solver;
-		delete m_broadphase;
-		delete m_dispatcher;
-		delete m_collisionConfiguration;
-	}
+	// Member unique_ptrs destroy themselves in reverse declaration order,
+	// which is the correct dependency order (m_dynamicsWorld before the
+	// objects it was built from).
+	BulletPhysics::~BulletPhysics() = default;
 
 	void BulletPhysics::InitPhysics()
 	{
 		// collision configuration contains default setup for memory, collision setup
-		m_collisionConfiguration = new btDefaultCollisionConfiguration();
+		m_collisionConfiguration.reset(new btDefaultCollisionConfiguration());
 
 		// use the default collision dispatcher. For parallel processing you can use a diffent dispatcher (see Extras/BulletMultiThreaded)
-		m_dispatcher = new btCollisionDispatcher(m_collisionConfiguration);
+		m_dispatcher.reset(new btCollisionDispatcher(m_collisionConfiguration.get()));
 
-		m_broadphase = new btDbvtBroadphase();
+		m_broadphase.reset(new btDbvtBroadphase());
 
 		// the default constraint solver. For parallel processing you can use a different solver (see Extras/BulletMultiThreaded)
-		m_solver = new btSequentialImpulseConstraintSolver();
+		m_solver.reset(new btSequentialImpulseConstraintSolver());
 
-		m_dynamicsWorld = new btDiscreteDynamicsWorld(m_dispatcher, m_broadphase, m_solver, m_collisionConfiguration);
+		m_dynamicsWorld.reset(new btDiscreteDynamicsWorld(m_dispatcher.get(), m_broadphase.get(), m_solver.get(), m_collisionConfiguration.get()));
 
 		// set world gravity
 		m_dynamicsWorld->setGravity(btVector3(0, -9.8f, 0));
@@ -63,8 +59,10 @@ namespace p3d {
 
 	void BulletPhysics::EnableDebugDraw()
 	{
-		m_debugDraw = new PhysicsDebugDraw();
-		m_dynamicsWorld->setDebugDrawer(m_debugDraw);
+		// Releases any previously active debug drawer first, so calling
+		// this twice without a DisableDebugDraw() in between can't leak.
+		m_debugDraw.reset(new PhysicsDebugDraw());
+		m_dynamicsWorld->setDebugDrawer(m_debugDraw.get());
 		m_debugDraw->setDebugMode(btIDebugDraw::DBG_MAX_DEBUG_DRAW_MODE);
 	}
 	void BulletPhysics::RenderDebugDraw(Projection projection, GameObject* Camera)
@@ -76,15 +74,19 @@ namespace p3d {
 	void BulletPhysics::DisableDebugDraw()
 	{
 		m_dynamicsWorld->setDebugDrawer(NULL);
-		delete m_debugDraw;
+		m_debugDraw.reset();
 	}
 	void BulletPhysics::EndPhysics()
 	{
-		delete m_dynamicsWorld;
-		delete m_solver;
-		delete m_broadphase;
-		delete m_dispatcher;
-		delete m_collisionConfiguration;
+		// .reset() in dependency order; also makes a later ~BulletPhysics()
+		// (or a second EndPhysics() call) a safe no-op instead of a double
+		// free - these were previously bare `delete`s duplicating the
+		// destructor's cleanup with no guard.
+		m_dynamicsWorld.reset();
+		m_solver.reset();
+		m_broadphase.reset();
+		m_dispatcher.reset();
+		m_collisionConfiguration.reset();
 	}
 
 	btCollisionShape* BulletPhysics::GetCollisionShape(IPhysicsComponent* pcomp)
@@ -251,7 +253,7 @@ namespace p3d {
 
 			btRaycastVehicle::btVehicleTuning m_tuning;
 			// create vehicle
-			btVehicleRaycaster* m_vehicleRayCaster = new btDefaultVehicleRaycaster(m_dynamicsWorld);
+			btVehicleRaycaster* m_vehicleRayCaster = new btDefaultVehicleRaycaster(m_dynamicsWorld.get());
 			btRaycastVehicle* m_vehicle = new btRaycastVehicle(m_tuning, m_carChassis, m_vehicleRayCaster);
 
 			///never deactivate the vehicle

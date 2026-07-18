@@ -17,6 +17,7 @@
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Physics/PhysicsEngines/BulletPhysics/DebugDraw/PhysicsDebugDraw.h>
 #include <Pyros3D/Other/Export.h>
+#include <memory>
 
 namespace p3d {
 
@@ -46,7 +47,7 @@ namespace p3d {
 
 		btDiscreteDynamicsWorld* GetPhysicsWorld()
 		{
-			return m_dynamicsWorld;
+			return m_dynamicsWorld.get();
 		}
 
 		void UpdatePosition(IPhysicsComponent *pcomp, const Vec3 &position);
@@ -76,13 +77,16 @@ namespace p3d {
 
 	private:
 
-		// Bullet Physics Essentials
-		btBroadphaseInterface* m_broadphase;
-		btCollisionDispatcher* m_dispatcher;
-		btConstraintSolver* m_solver;
-		btDefaultCollisionConfiguration* m_collisionConfiguration;
-		btDiscreteDynamicsWorld* m_dynamicsWorld;
-		PhysicsDebugDraw* m_debugDraw;
+		// Bullet Physics Essentials. Declaration order matters: member
+		// destruction runs in reverse declaration order, which must destroy
+		// m_dynamicsWorld before the objects it depends on (m_solver,
+		// m_broadphase, m_dispatcher, m_collisionConfiguration).
+		std::unique_ptr<btBroadphaseInterface> m_broadphase;
+		std::unique_ptr<btCollisionDispatcher> m_dispatcher;
+		std::unique_ptr<btConstraintSolver> m_solver;
+		std::unique_ptr<btDefaultCollisionConfiguration> m_collisionConfiguration;
+		std::unique_ptr<btDiscreteDynamicsWorld> m_dynamicsWorld;
+		std::unique_ptr<PhysicsDebugDraw> m_debugDraw;
 
 		// Function to Create Rigid Bodys and Add them to the Physics World
 		void CreateRigidBody(btCollisionShape* shape, IPhysicsComponent* pcomp);
