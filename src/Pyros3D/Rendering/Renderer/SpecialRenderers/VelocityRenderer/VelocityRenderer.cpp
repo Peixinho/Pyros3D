@@ -46,6 +46,7 @@ namespace p3d {
 	{
 		delete velocityMap;
 		delete fbo;
+		delete velocityMaterial;
 	}
 
 	void VelocityRenderer::RenderVelocityMap(const p3d::Projection &Projection, GameObject* Camera, SceneGraph* Scene)

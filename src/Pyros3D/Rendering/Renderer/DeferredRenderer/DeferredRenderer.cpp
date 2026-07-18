@@ -163,11 +163,16 @@ namespace p3d {
 		delete lastPassFBO;
 		delete colorTexture;
 		delete shadowMaterial;
+		delete shadowSkinnedMaterial;
 		delete sphereHandle;
+		delete quadHandle;
+		delete deferredLastPass;
 		delete deferredMaterialAmbient;
 		delete deferredMaterialDirectional;
 		delete deferredMaterialPoint;
 		delete deferredMaterialSpot;
+		delete directionalLight;
+		delete pointLight;
 	}
 
 	void DeferredRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 BufferOptions)
