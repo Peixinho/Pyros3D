@@ -92,15 +92,18 @@ namespace p3d {
 		uint32 AttachmentFormat;
 		uint32 AttachmentType;
 
-		// Texture Specific
+		// Texture Specific - TexturePTR is borrowed (owned by whoever called
+		// AddAttach), never freed here.
 		Texture *TexturePTR;
 		uint32 TextureType;
 
-		// RenderBuffer Specific
+		// RenderBuffer Specific - rboID is owned; released in the destructor.
 		uint32 Width;
 		uint32 Height;
 		uint32 rboID;
 		uint32 DataType;
+
+		~FBOAttachment();
 	};
 
 	class PYROS3D_API FrameBuffer {

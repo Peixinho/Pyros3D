@@ -11,6 +11,15 @@
 
 namespace p3d {
 
+	FBOAttachment::~FBOAttachment()
+	{
+		// Release the GL renderbuffer this attachment owns. Texture-backed
+		// attachments don't own TexturePTR (borrowed from the caller), so
+		// there's nothing to release for those.
+		if (AttachmentType == FBOAttachmentType::RenderBuffer)
+			GLCHECKER(glDeleteRenderbuffers(1, (GLuint*)&rboID));
+	}
+
 	// 3 types of bound framebuffers (Read, Write and Read_Write)
 	std::vector< std::vector<FrameBuffer*> > FrameBuffer::BoundFBOs(3);
 
