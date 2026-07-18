@@ -40,6 +40,20 @@ if (HAVE_LUA_BINDINGS)
 	SET(LUA_BINDINGS -DLUA_BINDINGS)
 	add_definitions(-DLUA_BINDINGS)
 
+	# sol.hpp (bundled) only supports Lua 5.1-5.4. Homebrew's unversioned
+	# "lua" formula has moved to 5.5+, so prefer the versioned lua@5.4 keg
+	# when present instead of letting FindLua51 pick up whatever "lua" resolves to.
+	if (APPLE)
+		execute_process(COMMAND brew --prefix lua@5.4
+			OUTPUT_VARIABLE HOMEBREW_LUA54_PREFIX
+			OUTPUT_STRIP_TRAILING_WHITESPACE
+			ERROR_QUIET)
+		if (HOMEBREW_LUA54_PREFIX AND EXISTS "${HOMEBREW_LUA54_PREFIX}/include/lua/lua.h")
+			set(LUA_INCLUDE_DIR "${HOMEBREW_LUA54_PREFIX}/include/lua" CACHE PATH "Lua include directory")
+			set(LUA_LIBRARY "${HOMEBREW_LUA54_PREFIX}/lib/liblua.dylib" CACHE FILEPATH "Lua library")
+		endif()
+	endif()
+
 	find_package(Lua51 REQUIRED)
 	if (NOT LUA51_FOUND)
 		message(ERROR " Lua not found!")
@@ -220,7 +234,7 @@ include_directories(${HEADERS} ${GLAD_INCLUDE_DIR} ${LUA_INCLUDE_DIR} ${OPENGL_I
 
 # Engine Library
 add_library(PyrosEngine ${LIB_TYPE} ${SOURCE} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS})
-target_link_libraries(PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${CONTEXT_LIB} pthread dl)
+target_link_libraries(PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${LUA_LIBRARIES} ${CONTEXT_LIB} pthread dl)
 
 # Model Converter
 option(BUILD_CONVERTER "Build Model Converter" OFF)
