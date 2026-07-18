@@ -16,6 +16,7 @@
 #include <Pyros3D/Other/Export.h>
 #include <vector>
 #include <map>
+#include <memory>
 
 namespace p3d {
 
@@ -52,7 +53,7 @@ namespace p3d {
 
 		FrameBuffer* GetShadowFBO();
 
-		Texture* GetShadowMapTexture() { return ShadowMap; }
+		Texture* GetShadowMapTexture() { return ShadowMap.get(); }
 
 		void SetShadowPCFTexelSize(f32 texel) { pcfTexel = texel; }
 		f32 GetShadowPCFTexelSize() { return pcfTexel; }
@@ -110,12 +111,14 @@ namespace p3d {
 	protected:
 
 		// Shadows Mapping
-		// FrameBuffer
-		FrameBuffer* shadowsFBO;
+		// FrameBuffer - owned whenever isCastingShadows is true; assigning a
+		// new one via .reset() always releases whichever was previously owned,
+		// so re-enabling shadows can't leak the prior FBO/texture.
+		std::unique_ptr<FrameBuffer> shadowsFBO;
 		// Dimensions
 		uint32 ShadowWidth, ShadowHeight;
 		// Shadow Map Texture
-		Texture* ShadowMap;
+		std::unique_ptr<Texture> ShadowMap;
 		// Far ane Near for Projection
 		f32 ShadowNear, ShadowFar;
 		// Flag

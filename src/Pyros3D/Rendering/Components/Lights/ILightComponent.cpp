@@ -17,19 +17,11 @@ namespace p3d {
 	{
 		LightType = type;
 		isCastingShadows = false;
-		shadowsFBO = NULL;
 		ShadowBiasFactor = ShadowBiasUnits = 0.f;
 		pcfTexel = 0.0001f;
 	}
 
-	ILightComponent::~ILightComponent()
-	{
-		if (isCastingShadows)
-		{
-			delete shadowsFBO;
-			delete ShadowMap;
-		}
-	}
+	ILightComponent::~ILightComponent() = default;
 
 	void ILightComponent::Register(SceneGraph* Scene)
 	{
@@ -85,18 +77,16 @@ namespace p3d {
 
 	void ILightComponent::DisableCastShadows()
 	{
-		if (isCastingShadows)
-		{
-			isCastingShadows = false;
-			delete shadowsFBO;
-		}
+		isCastingShadows = false;
+		shadowsFBO.reset();
+		ShadowMap.reset();
 	}
 
 	FrameBuffer* ILightComponent::GetShadowFBO()
 	{
 		if (isCastingShadows)
 		{
-			return shadowsFBO;
+			return shadowsFBO.get();
 		}
 		else echo("ERROR: Frame Buffer Is Not Created");
 		return NULL;

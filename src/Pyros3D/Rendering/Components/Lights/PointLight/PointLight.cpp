@@ -31,10 +31,10 @@ namespace p3d {
 		// Set Flag
 		isCastingShadows = true;
 
-		// Initiate FBO
-		shadowsFBO = new FrameBuffer();
+		// Initiate FBO (releases any previously owned FBO/texture first)
+		shadowsFBO.reset(new FrameBuffer());
 
-		ShadowMap = new Texture();
+		ShadowMap.reset(new Texture());
 
 #if defined(GLES2) || defined(GLLEGACY)
 		// Regular Shadows
@@ -50,7 +50,7 @@ namespace p3d {
 
 		// Initialize Frame Buffer
 		shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
-		shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::CubemapPositive_X, ShadowMap);
+		shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::CubemapPositive_X, ShadowMap.get());
 
 #else
 		// GPU Shadows
@@ -65,7 +65,7 @@ namespace p3d {
 		ShadowMap->EnableCompareMode();
 
 		// Initialize Frame Buffer
-		shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::CubemapPositive_X, ShadowMap);
+		shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::CubemapPositive_X, ShadowMap.get());
 
 #endif
 

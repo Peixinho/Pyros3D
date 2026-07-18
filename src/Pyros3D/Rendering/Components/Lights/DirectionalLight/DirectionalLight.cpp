@@ -125,8 +125,8 @@ namespace p3d {
 			// Set Flag
 			isCastingShadows = true;
 
-			// Initiate FBO
-			shadowsFBO = new FrameBuffer();
+			// Initiate FBO (releases any previously owned FBO/texture first)
+			shadowsFBO.reset(new FrameBuffer());
 
 			// Minimum 1 and Maximum is 4 Cascades
 			if (Cascades <= 0) ShadowCascades = 1;
@@ -140,7 +140,7 @@ namespace p3d {
 				ShadowHeightFBO = Height * 2;
 			}
 
-			ShadowMap = new Texture();
+			ShadowMap.reset(new Texture());
 
 #if defined(GLES2) || defined(GLLEGACY)
 
@@ -150,14 +150,14 @@ namespace p3d {
 
 			// Initialize Frame Buffer
 			shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
-			shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, ShadowMap);
+			shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, ShadowMap.get());
 #else
 			// GPU Shadow Maps
 			// Create Texture, Frame Buffer and Set the Texture as Attachment
 			ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, ShadowWidthFBO, ShadowHeightFBO, false);
 			ShadowMap->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
 			ShadowMap->EnableCompareMode();
-			shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, ShadowMap);
+			shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, ShadowMap.get());
 #endif
 			// Near and Far Clip Planes
 			ShadowNear = Near;
