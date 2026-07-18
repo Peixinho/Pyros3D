@@ -19,6 +19,11 @@ using namespace p3d::Math;
 namespace p3d {
 
 	class PYROS3D_API GameObject;
+	// Circular Dependency - defined in Components/IComponent.h
+	class PYROS3D_API IComponent;
+	// Circular Dependency - defined in Rendering/Components/Rendering/RenderingComponent.h
+	class PYROS3D_API RenderingMesh;
+	class PYROS3D_API RenderingComponent;
 
 	class PYROS3D_API SceneGraph
 	{
@@ -46,6 +51,15 @@ namespace p3d {
 		const Vec3 &GetMinBounds() const;
 		const Vec3 &GetMaxBounds() const;
 
+		// Rendering bookkeeping - owned by the scene instance instead of a
+		// global map keyed by SceneGraph*, so it can't outlive (or collide
+		// with a reused address of) the scene it belongs to.
+		std::vector<RenderingMesh*> &GetRenderingMeshes() { return _RenderingMeshes; }
+		std::vector<RenderingMesh*> &GetRenderingMeshesSorted() { return _RenderingMeshesSorted; }
+		void SetRenderingMeshesSorted(const std::vector<RenderingMesh*> &Sorted) { _RenderingMeshesSorted = Sorted; }
+		std::vector<RenderingComponent*> &GetRenderingComponents() { return _RenderingComponents; }
+		std::vector<IComponent*> &GetLights() { return _Lights; }
+
 	private:
 
 		// GameObject Dynamic List
@@ -55,6 +69,12 @@ namespace p3d {
 		std::vector<GameObject*> _GameObjectListStaticAfter;
 		// GameObject All List
 		std::vector<GameObject*> _GameObjectListALL;
+
+		// Registered Rendering Meshes/Components and Lights for this Scene
+		std::vector<RenderingMesh*> _RenderingMeshes;
+		std::vector<RenderingMesh*> _RenderingMeshesSorted;
+		std::vector<RenderingComponent*> _RenderingComponents;
+		std::vector<IComponent*> _Lights;
 
 		// Time
 		f64 timer;

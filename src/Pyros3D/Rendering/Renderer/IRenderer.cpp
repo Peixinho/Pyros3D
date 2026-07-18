@@ -79,7 +79,7 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 		_OpaqueMeshes.push_back((*i));
 	}
 
-	RenderingComponent::MeshesOnSceneSorted[Scene] = _OpaqueMeshes;
+	Scene->SetRenderingMeshesSorted(_OpaqueMeshes);
 
 	return _OpaqueMeshes;
 }

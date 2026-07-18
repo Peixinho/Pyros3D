@@ -127,8 +127,6 @@ namespace p3d {
 
 		// Internal - List of Lights
 		static std::vector<IComponent*> Components;
-		// Internal - Lights on Scene
-		static std::map<SceneGraph*, std::vector<IComponent*> > LightsOnScene;
 
 		uint32 LightType;
 

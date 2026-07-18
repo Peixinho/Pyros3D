@@ -12,7 +12,6 @@ namespace p3d {
 
 	// Initialize Rendering Components vector
 	std::vector<IComponent*> ILightComponent::Components;
-	std::map<SceneGraph*, std::vector<IComponent*> > ILightComponent::LightsOnScene;
 
 	ILightComponent::ILightComponent(const uint32 type) : IComponent()
 	{
@@ -43,7 +42,7 @@ namespace p3d {
 			Registered = true;
 
 			// Add To Scene
-			LightsOnScene[Scene].push_back(this);
+			Scene->GetLights().push_back(this);
 		}
 	}
 	void ILightComponent::Unregister(SceneGraph* Scene)
@@ -53,11 +52,11 @@ namespace p3d {
 			if ((*i) == this)
 			{
 				Components.erase(i);
-				for (std::vector<IComponent*>::iterator k = LightsOnScene[Scene].begin(); k != LightsOnScene[Scene].end(); k++)
+				for (std::vector<IComponent*>::iterator k = Scene->GetLights().begin(); k != Scene->GetLights().end(); k++)
 				{
 					if ((*k) == this)
 					{
-						LightsOnScene[Scene].erase(k);
+						Scene->GetLights().erase(k);
 						break;
 					}
 				}
@@ -76,7 +75,7 @@ namespace p3d {
 
 	std::vector<IComponent*> &ILightComponent::GetLightsOnScene(SceneGraph* Scene)
 	{
-		return LightsOnScene[Scene];
+		return Scene->GetLights();
 	}
 
 	const Vec4 &ILightComponent::GetLightColor() const

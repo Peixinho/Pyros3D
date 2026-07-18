@@ -11,11 +11,8 @@
 
 namespace p3d {
 
-	// Initialize Rendering Components and Meshes vector
+	// Initialize Rendering Components vector
 	std::vector<IComponent*> RenderingComponent::Components;
-	std::map<SceneGraph*, std::vector<RenderingMesh*> > RenderingComponent::MeshesOnScene;
-	std::map<SceneGraph*, std::vector<RenderingMesh*> > RenderingComponent::MeshesOnSceneSorted;
-	std::map<SceneGraph*, std::vector<RenderingComponent*> > RenderingComponent::RenderingComponentsOnScene;
 
 	RenderingComponent::RenderingComponent(Renderable* renderable, IMaterial* Material, const f32 Distance) : IComponent()
 	{
@@ -220,11 +217,11 @@ namespace p3d {
 			// Add Meshes to Rendering Meshes
 			for (std::vector<RenderingMesh*>::iterator k = Meshes[0].begin(); k != Meshes[0].end(); k++)
 				// Add Mesh
-				MeshesOnScene[Scene].push_back((*k));
+				Scene->GetRenderingMeshes().push_back((*k));
 
 			Registered = true;
 			this->Scene = Scene;
-			RenderingComponentsOnScene[Scene].push_back(this);
+			Scene->GetRenderingComponents().push_back(this);
 		}
 	}
 	void RenderingComponent::UpdateLOD(const uint32 lod)
@@ -236,11 +233,11 @@ namespace p3d {
 			for (std::map<uint32, std::vector<RenderingMesh*> >::iterator i = Meshes.begin(); i != Meshes.end(); i++)
 				for (std::vector<RenderingMesh*>::iterator i1 = (*i).second.begin(); i1 != (*i).second.end(); i1++)
 				{
-					for (std::vector<RenderingMesh*>::iterator k = MeshesOnScene[Scene].begin(); k != MeshesOnScene[Scene].end(); k++)
+					for (std::vector<RenderingMesh*>::iterator k = Scene->GetRenderingMeshes().begin(); k != Scene->GetRenderingMeshes().end(); k++)
 					{
 						if ((*k) == (*i1))
 						{
-							MeshesOnScene[Scene].erase(k);
+							Scene->GetRenderingMeshes().erase(k);
 							break;
 						}
 					}
@@ -250,7 +247,7 @@ namespace p3d {
 			// Add to Scene
 			for (std::vector<RenderingMesh*>::iterator i = GetMeshes(lod).begin(); i != GetMeshes(lod).end(); i++)
 			{
-				MeshesOnScene[Scene].push_back((*i));
+				Scene->GetRenderingMeshes().push_back((*i));
 			}
 		}
 	}
@@ -271,22 +268,22 @@ namespace p3d {
 			for (std::map<uint32, std::vector<RenderingMesh*> >::iterator i = Meshes.begin(); i != Meshes.end(); i++)
 				for (std::vector<RenderingMesh*>::iterator i1 = (*i).second.begin(); i1 != (*i).second.end(); i1++)
 				{
-					for (std::vector<RenderingMesh*>::iterator k = MeshesOnScene[Scene].begin(); k != MeshesOnScene[Scene].end(); k++)
+					for (std::vector<RenderingMesh*>::iterator k = Scene->GetRenderingMeshes().begin(); k != Scene->GetRenderingMeshes().end(); k++)
 					{
 						if ((*k) == (*i1))
 						{
-							MeshesOnScene[Scene].erase(k);
+							Scene->GetRenderingMeshes().erase(k);
 							break;
 						}
 					}
 				}
 
 			// Remove Rendering Component From vector
-			for (std::vector<RenderingComponent*>::iterator i = RenderingComponentsOnScene[Scene].begin(); i != RenderingComponentsOnScene[Scene].end();)
+			for (std::vector<RenderingComponent*>::iterator i = Scene->GetRenderingComponents().begin(); i != Scene->GetRenderingComponents().end();)
 			{
 				if ((*i) == this)
 				{
-					i = RenderingComponentsOnScene[Scene].erase(i);
+					i = Scene->GetRenderingComponents().erase(i);
 				}
 				else i++;
 			}
@@ -303,17 +300,17 @@ namespace p3d {
 
 	std::vector<RenderingComponent*> &RenderingComponent::GetRenderingComponents(SceneGraph* Scene)
 	{
-		return RenderingComponentsOnScene[Scene];
+		return Scene->GetRenderingComponents();
 	}
 
 	std::vector<RenderingMesh*> &RenderingComponent::GetRenderingMeshes(SceneGraph* scene)
 	{
-		return MeshesOnScene[scene];
+		return scene->GetRenderingMeshes();
 	}
 
 	std::vector<RenderingMesh*> &RenderingComponent::GetRenderingMeshesSorted(SceneGraph* scene)
 	{
-		return MeshesOnSceneSorted[scene].size()>0?MeshesOnSceneSorted[scene]:MeshesOnScene[scene];
+		return scene->GetRenderingMeshesSorted().size()>0 ? scene->GetRenderingMeshesSorted() : scene->GetRenderingMeshes();
 	}
 
 	std::vector<RenderingMesh*> &RenderingComponent::GetMeshes(const uint32 LODLevel)
