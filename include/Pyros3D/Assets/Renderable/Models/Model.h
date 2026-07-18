@@ -57,7 +57,12 @@ namespace p3d {
 
 	protected:
 
-		Model() {}
+		// mesh is only a scratch loader used during the parameterized
+		// constructor (freed and NULLed once its data is copied into
+		// Geometries); subclasses using this default constructor (e.g.
+		// Decal) never touch it, so it must start NULL rather than
+		// uninitialized.
+		Model() : mesh(NULL) {}
 		uint32 MaterialOptions;
 
 	};

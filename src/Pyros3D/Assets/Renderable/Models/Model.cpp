@@ -258,8 +258,11 @@ namespace p3d {
 		// Build Meshes
 		Build();
 
-		// Delete Model Loader
+		// Delete Model Loader - its data has already been copied into
+		// Geometries above; NULL it so the public mesh member can't be
+		// mistaken for a live pointer afterward.
 		delete mesh;
+		mesh = NULL;
 	}
 
 	void Model::Build()
