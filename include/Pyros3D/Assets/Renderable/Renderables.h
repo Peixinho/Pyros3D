@@ -214,12 +214,12 @@ namespace p3d {
 
 		virtual void Dispose()
 		{
-			// Loop Through each Vertex Attribute and Delete Them
-			for (std::vector<VertexAttribute*>::iterator k = Attributes.begin(); k != Attributes.end(); k++)
-			{
-				// Delete Vertex Attribute
-				delete *k;
-			}
+			// Delete Vertex Attributes and clear the list (AttributeArray::Dispose()
+			// does both). Must clear, not just delete: IGeometry::Dispose()
+			// always calls Dispose() immediately followed by `delete` on this
+			// object, which runs ~AttributeArray() - if Attributes still held
+			// the now-deleted pointers, that would double-free them.
+			AttributeArray::Dispose();
 			// Delete GPU Buffer (created in SendBuffer(); NULL if never sent)
 			delete Buffer;
 			Buffer = NULL;
