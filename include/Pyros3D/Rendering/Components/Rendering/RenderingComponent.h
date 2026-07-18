@@ -16,6 +16,7 @@
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <vector>
+#include <memory>
 
 namespace p3d {
 
@@ -41,24 +42,16 @@ namespace p3d {
 	class PYROS3D_API RenderingMesh {
 
 	protected:
-		bool isUsingInternalMaterial;
-		IMaterial *InternalMaterial;
+		// Owned only when built internally by BuildMaterials() - null (and
+		// therefore a no-op to destroy) when Material points at a caller-
+		// owned material instead.
+		std::unique_ptr<IMaterial> InternalMaterial;
 
 	public:
 
-		RenderingMesh(const uint32 lod = 0) : drawingType(DrawingType::Triangles), CullingGeometry(0), Active(true), Clickable(true), LodLevel(lod), isUsingInternalMaterial(false) {} // Triangles by Default
+		RenderingMesh(const uint32 lod = 0) : drawingType(DrawingType::Triangles), CullingGeometry(0), Active(true), Clickable(true), LodLevel(lod) {} // Triangles by Default
 
-		virtual ~RenderingMesh() 
-		{
-			if (isUsingInternalMaterial)
-			{
-				// Delete Textures
-				for (std::vector<Texture*>::iterator i = Texturesvector.begin(); i != Texturesvector.end(); i++)
-					delete (*i);
-				// Delete Material
-				delete InternalMaterial;
-			}
-		}
+		virtual ~RenderingMesh() = default;
 
 		uint32 GetDrawingType() { return drawingType; }
 
@@ -96,7 +89,8 @@ namespace p3d {
 		// Bones Matrix List
 		std::vector<Matrix> SkinningBones;
 
-		std::vector<Texture*> Texturesvector;
+		// Owned only for textures created internally by BuildMaterials().
+		std::vector<std::unique_ptr<Texture>> Texturesvector;
 
 		// LOD
 		uint32 LodLevel;
@@ -126,7 +120,7 @@ namespace p3d {
 				colorMap->LoadTexture(Geometry->materialProperties.colorMap, TextureType::Texture);
 				colorMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 				genMat->SetColorMap(colorMap);
-				Texturesvector.push_back(colorMap);
+				Texturesvector.emplace_back(colorMap);
 			}
 			if (Geometry->materialProperties.haveSpecularMap)
 			{
@@ -134,7 +128,7 @@ namespace p3d {
 				specularMap->LoadTexture(Geometry->materialProperties.specularMap, TextureType::Texture);
 				specularMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 				genMat->SetSpecularMap(specularMap);
-				Texturesvector.push_back(specularMap);
+				Texturesvector.emplace_back(specularMap);
 			}
 			if (Geometry->materialProperties.haveNormalMap)
 			{
@@ -142,10 +136,9 @@ namespace p3d {
 				normalMap->LoadTexture(Geometry->materialProperties.normalMap, TextureType::Texture);
 				normalMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 				genMat->SetNormalMap(normalMap);
-				Texturesvector.push_back(normalMap);
+				Texturesvector.emplace_back(normalMap);
 			}
-			isUsingInternalMaterial = true;
-			InternalMaterial = genMat;
+			InternalMaterial.reset(genMat);
 			Material = genMat;
 		}
 	};
