@@ -18,7 +18,10 @@ namespace p3d {
 
 	TextureAnimation::~TextureAnimation()
 	{
-
+		for (std::vector<TextureAnimationInstance*>::iterator i = Instances.begin(); i != Instances.end(); i++)
+		{
+			delete (*i);
+		}
 	}
 
 	TextureAnimationInstance::TextureAnimationInstance(TextureAnimation* owner, const f32 &fps)
