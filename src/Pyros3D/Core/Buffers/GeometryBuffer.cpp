@@ -72,14 +72,7 @@ namespace p3d {
 		GLCHECKER(glBufferData(this->bufferType, length, GeometryData, this->bufferDraw));
 		GLCHECKER(glBindBuffer(this->bufferType, 0));
 
-		// copy geometry data
-		if (length > 0)
-		{
-			this->GeometryData.resize(length);
-			memcpy(&this->GeometryData[0], GeometryData, length);
-			DataLength = length;
-		}
-		else DataLength = 0;
+		DataLength = length;
 	}
 
 	// Updates Buffer
@@ -88,10 +81,6 @@ namespace p3d {
 		if (length != DataLength)
 		{
 			DataLength = length;
-
-			this->GeometryData.clear();
-			this->GeometryData.resize(DataLength);
-			memcpy(&this->GeometryData[0], GeometryData, DataLength);
 
 			GLCHECKER(glBindBuffer(this->bufferType, ID));
 			#if !defined(GLES2) && !defined(GLES3) && !defined(GLLEGACY) && !defined(GL42) && !defined(GL41)
@@ -102,10 +91,6 @@ namespace p3d {
 		}
 		else {
 
-			this->GeometryData.clear();
-			this->GeometryData.resize(DataLength);
-			memcpy(&this->GeometryData[0], GeometryData, DataLength);
-
 			// Updating buffer
 			GLCHECKER(glBindBuffer(this->bufferType, ID));
 			#if !defined(GLES2) && !defined(GLES3) && !defined(GLLEGACY) && !defined(GL42) && !defined(GL41)
@@ -114,11 +99,6 @@ namespace p3d {
 			glBufferSubData(this->bufferType, 0, DataLength, GeometryData);
 			GLCHECKER(glBindBuffer(this->bufferType, 0));
 		}
-	}
-
-	const std::vector<uchar> &GeometryBuffer::GetGeometryData() const
-	{
-		return GeometryData;
 	}
 
 	void *GeometryBuffer::Map(const uint32 MappingType)

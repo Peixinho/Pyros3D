@@ -87,8 +87,6 @@ namespace p3d {
 
 	private:
 
-		std::vector<uchar> GeometryData;
-
 		uint32 bufferType;
 		uint32 bufferDraw;
 
@@ -110,8 +108,6 @@ namespace p3d {
 		void Unmap();
 
 		void Update(const void *GeometryData, const uint32 length = 0);
-
-		const std::vector<uchar> &GetGeometryData() const;
 
 	};
 

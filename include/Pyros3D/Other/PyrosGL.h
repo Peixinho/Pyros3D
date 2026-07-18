@@ -36,16 +36,46 @@
 #endif
 
 #if defined(GL41)
-    #include <Pyros3D/Ext/gl42/glad/glad.h>
+    #include <Pyros3D/Ext/gl41/glad/glad.h>
 #endif
 
 
 #include <Pyros3D/Other/Global.h>
 #include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Core/Logs/Log.h>
+#include <sstream>
+
+namespace p3d {
+
+	inline const char* GLErrorString(const GLenum error)
+	{
+		switch (error)
+		{
+			case GL_INVALID_ENUM: return "GL_INVALID_ENUM";
+			case GL_INVALID_VALUE: return "GL_INVALID_VALUE";
+			case GL_INVALID_OPERATION: return "GL_INVALID_OPERATION";
+			case GL_OUT_OF_MEMORY: return "GL_OUT_OF_MEMORY";
+			case GL_INVALID_FRAMEBUFFER_OPERATION: return "GL_INVALID_FRAMEBUFFER_OPERATION";
+			default: return "UNKNOWN_GL_ERROR";
+		}
+	}
+
+};
 
 // Check GL
-#if defined(_DEBUG) && !defined(EMSCRIPTEN) && !defined(__APPLE__)
-#define GLCHECKER(caller) { caller; int error = glGetError(); if(error != GL_NO_ERROR) { std::cout <<  "GL Error: " << std::hex << error << " FUNCTION: " << #caller << " LINE: " << std::dec << __LINE__ << " FILE: " << __FILE__ << std::endl; BRK; } }
+#if defined(_DEBUG) && !defined(EMSCRIPTEN)
+#define GLCHECKER(caller) { \
+	caller; \
+	bool __glHadError = false; \
+	for (GLenum __glErr = glGetError(); __glErr != GL_NO_ERROR; __glErr = glGetError()) { \
+		__glHadError = true; \
+		std::ostringstream __glMsg; \
+		__glMsg << "GL Error: " << p3d::GLErrorString(__glErr) << " (0x" << std::hex << __glErr << std::dec << ")" \
+			<< " FUNCTION: " << #caller << " LINE: " << __LINE__ << " FILE: " << __FILE__; \
+		echo(__glMsg.str()); \
+	} \
+	if (__glHadError) { BRK; } \
+}
 #else
 #define GLCHECKER(caller) { caller; }
 #endif
