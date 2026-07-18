@@ -37,11 +37,6 @@ namespace p3d {
 
 	CubemapRenderer::~CubemapRenderer()
 	{
-		if (IsCulling)
-		{
-			delete culling;
-		}
-
 		delete environmentMap;
 		delete fbo;
 	}

@@ -119,6 +119,7 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height)
 	scissorTestHeight = (f32)Height;
 	lod = false;
 	ClipPlane = false;
+	IsCulling = false;
 
 	// Shadows materials
 	shadowMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows);
@@ -1376,14 +1377,16 @@ void IRenderer::UnsetBackground()
 
 void IRenderer::ActivateCulling(const uint32 cullingType)
 {
-	culling = new FrustumCulling();
+	// Releases any previously active FrustumCulling first, so calling this
+	// twice without a DeactivateCulling() in between can't leak.
+	culling.reset(new FrustumCulling());
 	IsCulling = true;
 }
 
 void IRenderer::DeactivateCulling()
 {
 	IsCulling = false;
-	delete culling;
+	culling.reset();
 }
 
 bool IRenderer::CullingSphereTest(RenderingMesh* rmesh, GameObject* owner)

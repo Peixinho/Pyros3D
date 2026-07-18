@@ -22,6 +22,7 @@
 #include <Pyros3D/Rendering/Culling/FrustumCulling/FrustumCulling.h>
 #include <Pyros3D/Other/Export.h>
 #include <algorithm>
+#include <memory>
 
 namespace p3d {
 
@@ -322,7 +323,10 @@ namespace p3d {
 		void UpdateCulling(const Matrix &ViewProjectionMatrix);
 		bool
 			IsCulling;
-		FrustumCulling*
+		// Owned whenever IsCulling is true; ActivateCulling()/DeactivateCulling()
+		// always go through .reset() so re-activating or repeated deactivation
+		// can't leak or double-free the previous FrustumCulling.
+		std::unique_ptr<FrustumCulling>
 			culling;
 
 

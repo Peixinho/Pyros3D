@@ -44,11 +44,6 @@ namespace p3d {
 
 	VelocityRenderer::~VelocityRenderer()
 	{
-		if (IsCulling)
-		{
-			delete culling;
-		}
-
 		delete velocityMap;
 		delete fbo;
 	}

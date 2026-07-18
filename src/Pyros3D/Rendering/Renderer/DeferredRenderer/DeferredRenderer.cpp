@@ -160,10 +160,6 @@ namespace p3d {
 
 	DeferredRenderer::~DeferredRenderer()
 	{
-		if (IsCulling)
-		{
-			delete culling;
-		}
 		delete lastPassFBO;
 		delete colorTexture;
 		delete shadowMaterial;

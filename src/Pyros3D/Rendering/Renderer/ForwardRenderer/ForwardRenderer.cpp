@@ -21,13 +21,7 @@ namespace p3d {
 		viewPortEndX = viewPortEndY = 0;
 	}
 
-	ForwardRenderer::~ForwardRenderer()
-	{
-		if (IsCulling)
-		{
-			delete culling;
-		}
-	}
+	ForwardRenderer::~ForwardRenderer() = default;
 
 	void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
 	{
