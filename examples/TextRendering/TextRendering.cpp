@@ -154,8 +154,9 @@ void TextRendering::Shutdown()
 	delete textMaterial;
 	delete font;
 	delete textCamera;
-	delete Renderer;
-	
+
+	// Renderer and Scene are owned by BaseExample - BaseExample::Shutdown()
+	// (below) deletes and NULLs them itself.
 	BaseExample::Shutdown();
 }
 

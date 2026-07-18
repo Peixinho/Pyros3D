@@ -18,6 +18,16 @@ BaseExample::BaseExample(const uint32 width, const uint32 height, const std::str
 {
 	imguiInitialized = false;
 	mouseCaptured = true;
+
+	// Shutdown() guards each of these with `if (ptr)` before deleting; they
+	// must start null rather than uninitialized, since not every example
+	// sets Light/dLight, and Init() must have run before Shutdown() can
+	// safely dereference the rest.
+	Scene = nullptr;
+	Renderer = nullptr;
+	FPSCamera = nullptr;
+	Light = nullptr;
+	dLight = nullptr;
 }
 
 void BaseExample::OnResize(const uint32 width, const uint32 height)

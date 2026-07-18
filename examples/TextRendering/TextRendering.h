@@ -49,12 +49,12 @@ public:
 
 private:
 
-	// Scene
-	SceneGraph* Scene;
-	// Renderer
-	ForwardRenderer* Renderer;
-	// Projection
-	Projection projection;
+	// Scene, Renderer and projection are inherited (protected) from
+	// BaseExample - redeclaring them here shadowed the base class's
+	// members, so BaseExample::Init() initialized BaseExample::Scene while
+	// every later unqualified `Scene` in this class resolved to its own,
+	// never-initialized shadow copy.
+
 	// Text Camera
 	GameObject* textCamera;
 	// GameObject
