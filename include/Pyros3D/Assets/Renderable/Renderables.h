@@ -122,6 +122,18 @@ namespace p3d {
 		// Attributes List
 		std::vector<VertexAttribute*> Attributes;
 
+		// Virtual so deleting through an AttributeArray* (IGeometry::Dispose()
+		// stores AttributeBuffer instances as AttributeArray*) properly runs
+		// the derived destructor instead of invoking undefined behavior. Also
+		// frees Attributes directly as a safety net for objects destroyed
+		// without Dispose() ever being called; harmless no-op if Dispose()
+		// already cleared the list.
+		virtual ~AttributeArray()
+		{
+			for (std::vector<VertexAttribute*>::iterator k = Attributes.begin(); k != Attributes.end(); k++)
+				delete *k;
+		}
+
 		void AddAttribute(const std::string &name, const uint32 &type, void* data, const uint32 &length, const uint32 vertexDivisor = 0)
 		{
 			VertexAttribute* v(new VertexAttribute(name, type, data, length, vertexDivisor));
@@ -138,6 +150,9 @@ namespace p3d {
 				// Delete Vertex Attribute
 				delete *k;
 			}
+			// Clear so a repeat Dispose(), or the destructor running after
+			// Dispose() already freed these, can't double-delete them.
+			Attributes.clear();
 		}
 	};
 
@@ -155,8 +170,17 @@ namespace p3d {
 		// Attributes Size
 		uint32 attributeSize;
 
-		AttributeBuffer() : attributeSize(0) {}
-		AttributeBuffer(const uint32 &type, const uint32 &draw) : attributeSize(0) { bufferDraw = draw; bufferType = type; }
+		AttributeBuffer() : attributeSize(0), Buffer(NULL) {}
+		AttributeBuffer(const uint32 &type, const uint32 &draw) : attributeSize(0), Buffer(NULL) { bufferDraw = draw; bufferType = type; }
+
+		// Safety net for objects deleted without Dispose() ever being called
+		// (e.g. RenderingInstancedComponent deletes its transform_buffer
+		// directly); harmless no-op if Dispose() already freed and NULLed
+		// Buffer.
+		virtual ~AttributeBuffer()
+		{
+			delete Buffer;
+		}
 
 		virtual void SendBuffer()
 		{
@@ -196,6 +220,9 @@ namespace p3d {
 				// Delete Vertex Attribute
 				delete *k;
 			}
+			// Delete GPU Buffer (created in SendBuffer(); NULL if never sent)
+			delete Buffer;
+			Buffer = NULL;
 		}
 	};
 
@@ -214,7 +241,7 @@ namespace p3d {
 		// Attributes Buffer
 		std::vector<AttributeArray*> Attributes;
 
-		IGeometry() {
+		IGeometry() : IndexBuffer(NULL) {
 
 			// Internal ID
 			ID = _InternalID++;
@@ -254,6 +281,7 @@ namespace p3d {
 		{
 			// Delete Index Buffer
 			delete IndexBuffer;
+			IndexBuffer = NULL;
 			// Loop Through Attributes Buffer and Delete Each One
 			for (std::vector<AttributeArray*>::iterator i = Attributes.begin(); i != Attributes.end(); i++)
 			{
