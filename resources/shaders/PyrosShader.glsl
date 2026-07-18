@@ -141,7 +141,19 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     // Defaults
     attribute_in vec3 aPosition, aNormal;
     attribute_in vec2 aTexcoord;
-    uniform mat4 uProjectionMatrix, uViewMatrix, uModelMatrix;
+    // uProjectionMatrix/uViewMatrix change once per (frame or shadow pass),
+    // not per object, so they're shared via a UBO instead of being resent
+    // as individual uniforms on every draw; uModelMatrix is per-object and
+    // stays a plain uniform. GLES2 has no uniform buffer objects.
+    #if defined(GLES2)
+        uniform mat4 uProjectionMatrix, uViewMatrix, uModelMatrix;
+    #else
+        layout(std140) uniform GlobalMatrices {
+            mat4 uProjectionMatrix;
+            mat4 uViewMatrix;
+        };
+        uniform mat4 uModelMatrix;
+    #endif
 
     // Instanced
     #ifdef INSTANCED_RENDERING

@@ -329,6 +329,13 @@ namespace p3d {
 		std::unique_ptr<FrustumCulling>
 			culling;
 
+		// GL Uniform Buffer Object holding uProjectionMatrix + uViewMatrix
+		// (std140: 2 mat4, 128 bytes), bound once to binding point 0 and
+		// re-uploaded via glBufferSubData in SendGlobalUniforms() instead of
+		// resending both as individual glUniform calls on every mesh/material
+		// switch. Not used on GLES2, which has no uniform buffer objects -
+		// PyrosShader.glsl falls back to plain uniforms there.
+		uint32 GlobalMatricesUBO;
 
 		// Universal Uniforms Cache
 		Matrix

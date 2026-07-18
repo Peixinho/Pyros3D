@@ -84,7 +84,11 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 	return _OpaqueMeshes;
 }
 
-IRenderer::IRenderer() {}
+// DebugRenderer uses this constructor and never calls RenderObject()/
+// SendGlobalUniforms(), so GlobalMatricesUBO is never actually used here -
+// left at 0 (glDeleteBuffers on 0 is a documented no-op) rather than
+// creating a UBO nothing will upload to.
+IRenderer::IRenderer() : GlobalMatricesUBO(0) {}
 
 IRenderer::IRenderer(const uint32 Width, const uint32 Height)
 {
@@ -126,6 +130,17 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height)
 	shadowMaterial->SetCullFace(CullFace::DoubleSided);
 	shadowSkinnedMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Skinning);
 	shadowSkinnedMaterial->SetCullFace(CullFace::DoubleSided);
+
+#ifndef GLES2
+	// Global matrices UBO: sized for uProjectionMatrix + uViewMatrix,
+	// bound to binding point 0 for the lifetime of the renderer. Contents
+	// are uploaded in SendGlobalUniforms().
+	GLCHECKER(glGenBuffers(1, (GLuint*)&GlobalMatricesUBO));
+	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, GlobalMatricesUBO));
+	GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * 2, NULL, GL_DYNAMIC_DRAW));
+	GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 0, GlobalMatricesUBO));
+	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+#endif
 }
 
 void IRenderer::Reset()
@@ -175,6 +190,9 @@ void IRenderer::_SetViewPort(const uint32 initX, const uint32 initY, const uint3
 
 IRenderer::~IRenderer()
 {
+#ifndef GLES2
+	GLCHECKER(glDeleteBuffers(1, (GLuint*)&GlobalMatricesUBO));
+#endif
 	delete shadowMaterial;
 	delete shadowSkinnedMaterial;
 }
@@ -1428,6 +1446,19 @@ void IRenderer::UpdateCulling(const Matrix& ViewProjectionMatrix)
 
 void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 {
+#ifndef GLES2
+	// Upload uProjectionMatrix + uViewMatrix into the shared UBO. Runs at
+	// the same frequency this function always ran at (every mesh/material
+	// switch) so shadow passes - which reassign ProjectionMatrix/ViewMatrix
+	// to the shadow-casting light's view and call this again for the
+	// shadow material - still see the correct values; this is not a
+	// once-per-frame upload.
+	Matrix globalMatricesData[2] = { ProjectionMatrix, ViewMatrix };
+	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, GlobalMatricesUBO));
+	GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * 2, globalMatricesData));
+	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+#endif
+
 	std::vector<int32> *_ShadersGlobalCache = &rmesh->ShadersGlobalCache[Material->GetShader()];
 
 	// Send Global Uniforms
@@ -1795,6 +1826,16 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		GLCHECKER(glBindVertexArray(0));
 
 		rmesh->VAOCache[material->GetShader()] = vao;
+
+		// Wire this shader's GlobalMatrices uniform block (if it declares
+		// one - only PyrosShader.glsl does; custom materials' shaders keep
+		// sending uProjectionMatrix/uViewMatrix as plain uniforms and won't
+		// have this block) to the UBO's binding point.
+		GLuint blockIndex = glGetUniformBlockIndex(material->GetShader(), "GlobalMatrices");
+		if (blockIndex != GL_INVALID_INDEX)
+		{
+			GLCHECKER(glUniformBlockBinding(material->GetShader(), blockIndex, 0));
+		}
 	}
 #endif
 }
