@@ -13,6 +13,12 @@
 // fills the LightsUBO backing that shader's uLights[MAX_LIGHTS] block.
 #define PYROS_MAX_LIGHTS 4
 
+// Must match the non-GLES2 array sizes declared in PyrosShader.glsl's
+// DirectionalShadowBlock/PointShadowBlock/SpotShadowBlock.
+#define PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES 4
+#define PYROS_MAX_POINT_SHADOW_MATRICES 8
+#define PYROS_MAX_SPOT_SHADOW_MATRICES 4
+
 namespace p3d {
 
 // ViewPort Dimension
@@ -92,7 +98,7 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 // SendGlobalUniforms(), so GlobalMatricesUBO/LightsUBO are never actually
 // used here - left at 0 (glDeleteBuffers on 0 is a documented no-op)
 // rather than creating UBOs nothing will upload to.
-IRenderer::IRenderer() : GlobalMatricesUBO(0), LightsUBO(0) {}
+IRenderer::IRenderer() : GlobalMatricesUBO(0), LightsUBO(0), DirectionalShadowUBO(0), PointShadowUBO(0), SpotShadowUBO(0) {}
 
 IRenderer::IRenderer(const uint32 Width, const uint32 Height)
 {
@@ -152,6 +158,30 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height)
 	GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_LIGHTS, NULL, GL_DYNAMIC_DRAW));
 	GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 1, LightsUBO));
 	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+
+	// Directional shadow UBO (binding point 2): PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES
+	// cascade matrices followed by uDirectionalShadowFar[4] (std140 needs
+	// no padding between them - the matrix array's size is already a
+	// multiple of vec4's 16-byte alignment).
+	GLCHECKER(glGenBuffers(1, (GLuint*)&DirectionalShadowUBO));
+	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, DirectionalShadowUBO));
+	GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES + sizeof(Vec4) * 4, NULL, GL_DYNAMIC_DRAW));
+	GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 2, DirectionalShadowUBO));
+	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+
+	// Point shadow UBO (binding point 3): PYROS_MAX_POINT_SHADOW_MATRICES matrices.
+	GLCHECKER(glGenBuffers(1, (GLuint*)&PointShadowUBO));
+	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, PointShadowUBO));
+	GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_POINT_SHADOW_MATRICES, NULL, GL_DYNAMIC_DRAW));
+	GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 3, PointShadowUBO));
+	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+
+	// Spot shadow UBO (binding point 4): PYROS_MAX_SPOT_SHADOW_MATRICES matrices.
+	GLCHECKER(glGenBuffers(1, (GLuint*)&SpotShadowUBO));
+	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, SpotShadowUBO));
+	GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_SPOT_SHADOW_MATRICES, NULL, GL_DYNAMIC_DRAW));
+	GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 4, SpotShadowUBO));
+	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
 #endif
 }
 
@@ -205,6 +235,9 @@ IRenderer::~IRenderer()
 #ifndef GLES2
 	GLCHECKER(glDeleteBuffers(1, (GLuint*)&GlobalMatricesUBO));
 	GLCHECKER(glDeleteBuffers(1, (GLuint*)&LightsUBO));
+	GLCHECKER(glDeleteBuffers(1, (GLuint*)&DirectionalShadowUBO));
+	GLCHECKER(glDeleteBuffers(1, (GLuint*)&PointShadowUBO));
+	GLCHECKER(glDeleteBuffers(1, (GLuint*)&SpotShadowUBO));
 #endif
 	delete shadowMaterial;
 	delete shadowSkinnedMaterial;
@@ -1483,6 +1516,38 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * lightsToUpload, &Lights[0]));
 		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
 	}
+
+	// Shadow matrices: computed once at the start of RenderScene() (not
+	// per-object like Lights), so these uploads are effectively constant
+	// across a whole main pass - still uploaded at the same per-switch
+	// cadence as everything else here for consistency with the old
+	// per-uniform sends.
+	if (DirectionalShadowMatrix.size() > 0)
+	{
+		uint32 count = DirectionalShadowMatrix.size() < PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES ? DirectionalShadowMatrix.size() : PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES;
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, DirectionalShadowUBO));
+		GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * count, &DirectionalShadowMatrix[0]));
+		// uDirectionalShadowFar[4] starts right after the matrix array;
+		// only element [0] is ever read in the shader (its 4 components are
+		// the per-cascade far distances), so only it is uploaded here -
+		// matching what the old individual-uniform send did.
+		GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES, sizeof(Vec4), &DirectionalShadowFar));
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+	}
+	if (PointShadowMatrix.size() > 0)
+	{
+		uint32 count = PointShadowMatrix.size() < PYROS_MAX_POINT_SHADOW_MATRICES ? PointShadowMatrix.size() : PYROS_MAX_POINT_SHADOW_MATRICES;
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, PointShadowUBO));
+		GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * count, &PointShadowMatrix[0]));
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+	}
+	if (SpotShadowMatrix.size() > 0)
+	{
+		uint32 count = SpotShadowMatrix.size() < PYROS_MAX_SPOT_SHADOW_MATRICES ? SpotShadowMatrix.size() : PYROS_MAX_SPOT_SHADOW_MATRICES;
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, SpotShadowUBO));
+		GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * count, &SpotShadowMatrix[0]));
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+	}
 #endif
 
 	std::vector<int32> *_ShadersGlobalCache = &rmesh->ShadersGlobalCache[Material->GetShader()];
@@ -1866,6 +1931,21 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		if (lightsBlockIndex != GL_INVALID_INDEX)
 		{
 			GLCHECKER(glUniformBlockBinding(material->GetShader(), lightsBlockIndex, 1));
+		}
+		GLuint directionalShadowBlockIndex = glGetUniformBlockIndex(material->GetShader(), "DirectionalShadowBlock");
+		if (directionalShadowBlockIndex != GL_INVALID_INDEX)
+		{
+			GLCHECKER(glUniformBlockBinding(material->GetShader(), directionalShadowBlockIndex, 2));
+		}
+		GLuint pointShadowBlockIndex = glGetUniformBlockIndex(material->GetShader(), "PointShadowBlock");
+		if (pointShadowBlockIndex != GL_INVALID_INDEX)
+		{
+			GLCHECKER(glUniformBlockBinding(material->GetShader(), pointShadowBlockIndex, 3));
+		}
+		GLuint spotShadowBlockIndex = glGetUniformBlockIndex(material->GetShader(), "SpotShadowBlock");
+		if (spotShadowBlockIndex != GL_INVALID_INDEX)
+		{
+			GLCHECKER(glUniformBlockBinding(material->GetShader(), spotShadowBlockIndex, 4));
 		}
 	}
 #endif

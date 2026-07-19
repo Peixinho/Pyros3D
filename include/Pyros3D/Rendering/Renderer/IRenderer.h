@@ -342,6 +342,14 @@ namespace p3d {
 		// entries - keep in sync with PyrosShader.glsl's own MAX_LIGHTS.
 		uint32 LightsUBO;
 
+		// Same idea for the shadow-casting matrix arrays (DirectionalShadowBlock/
+		// PointShadowBlock/SpotShadowBlock, binding points 2/3/4). Each is
+		// sized to match its shader-side array declaration exactly - see
+		// the PYROS_MAX_*_SHADOWS #defines in IRenderer.cpp.
+		uint32 DirectionalShadowUBO;
+		uint32 PointShadowUBO;
+		uint32 SpotShadowUBO;
+
 		// Universal Uniforms Cache
 		Matrix
 			ProjectionMatrix,

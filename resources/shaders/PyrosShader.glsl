@@ -477,8 +477,20 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     #endif
                 return shadow;
             }
+            // Same batching idea as GlobalMatrices/LightsBlock, for the
+            // (up to 4) cascade matrices; uDirectionalShadowFar keeps its
+            // declared size but only element [0] is ever written or read -
+            // it's a single vec4 whose 4 components are the per-cascade
+            // far distances, not a real 4-element array.
+    #if defined(GLES2)
             uniform mat4 uDirectionalDepthsMVP[4];
             uniform vec4 uDirectionalShadowFar[4];
+    #else
+            layout(std140) uniform DirectionalShadowBlock {
+                mat4 uDirectionalDepthsMVP[4];
+                vec4 uDirectionalShadowFar[4];
+            };
+    #endif
     #if defined(GLES2)
             uniform sampler2D uDirectionalShadowMaps;
     #else
@@ -519,7 +531,12 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             uniform mat4 uPointDepthsMVP[2];
             uniform samplerCube uPointShadowMaps;
     #else
-            uniform mat4 uPointDepthsMVP[8];
+            // Samplers can never be members of a uniform block, so
+            // uPointShadowMaps stays a plain uniform; only the matrix array
+            // moves to a UBO.
+            layout(std140) uniform PointShadowBlock {
+                mat4 uPointDepthsMVP[8];
+            };
             uniform samplerCubeShadow uPointShadowMaps[4];
     #endif
         #endif
@@ -548,7 +565,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             uniform mat4 uSpotDepthsMVP;
     #else
             uniform sampler2DShadow uSpotShadowMaps[4];
-            uniform mat4 uSpotDepthsMVP[4];
+            layout(std140) uniform SpotShadowBlock {
+                mat4 uSpotDepthsMVP[4];
+            };
     #endif
             uniform int uNumberOfSpotShadows;
 #endif
