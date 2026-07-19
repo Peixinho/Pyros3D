@@ -50,4 +50,6 @@
 #include "MotionBlurExample/MotionBlurExample.h"
 #elif defined(_ScreenSpaceReflection)
 #include "ScreenSpaceReflection/ScreenSpaceReflection.h"
+#elif defined(_LightPriorityExample)
+#include "LightPriorityExample/LightPriorityExample.h"
 #endif

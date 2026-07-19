@@ -12,3 +12,4 @@ build*
 !include/Pyros3D
 obj
 tags
+VULKAN_ROADMAP.md
