@@ -7,11 +7,11 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
-#include <Pyros3D/Other/PyrosGL.h>
+#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 
 namespace p3d {
 
-	PostEffectsManager::PostEffectsManager(const uint32 width, const uint32 height)
+	PostEffectsManager::PostEffectsManager(const uint32 width, const uint32 height) : device(new GLRenderDevice())
 	{
 		// Save Dimensions
 		Width = width;
@@ -69,30 +69,27 @@ namespace p3d {
 		{
 			if (counter == effects.size())
 			{
-				glViewport(0, 0, Width, Height);
+				device->SetViewport(0, 0, Width, Height);
 			}
 			else {
 
 				activeFBO = (*effect)->fbo;
 
-				glViewport(0, 0, (*effect)->Width, (*effect)->Height);
+				device->SetViewport(0, 0, (*effect)->Width, (*effect)->Height);
 
 				// Bind FBO
 				activeFBO->Bind();
 			}
 
 			// Clear Screen
-			GLCHECKER(glClearColor(0.f, 0.f, 0.f, 0.f));
-			GLCHECKER(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+			device->SetClearColor(Vec4(0.f, 0.f, 0.f, 0.f));
+			device->Clear(device->TranslateBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth));
 
-			#if !defined(GLES2)
-			GLuint vao;
-			glGenVertexArrays(1, &vao);
-			glBindVertexArray(vao);
-			#endif
+			DeviceHandle vao = device->CreateVertexArray();
+			device->BindVertexArray(vao);
 
 			// Start Shader Program
-			GLCHECKER(glUseProgram((*effect)->shader->ShaderProgram()));
+			device->UseProgram((*effect)->shader->ShaderProgram());
 
 			// Bind MRT
 			for (std::vector<RTT::Info>::iterator i = (*effect)->RTTOrder.begin(); i != (*effect)->RTTOrder.end(); i++)
@@ -153,7 +150,7 @@ namespace p3d {
 				}
 			}
 
-			GLCHECKER(glDrawArrays(GL_TRIANGLES, 0, 3));
+			device->DrawArrays(device->TranslateDrawType(DrawingType::Triangles), 0, 3);
 
 			// Unbind MRT      
 			for (std::vector<RTT::Info>::reverse_iterator i = (*effect)->RTTOrder.rbegin(); i != (*effect)->RTTOrder.rend(); i++)
@@ -189,7 +186,7 @@ namespace p3d {
 		}
 
 		// Disable Shader Program
-		GLCHECKER(glUseProgram(0));
+		device->UseProgram(0);
 	}
 
 	PostEffectsManager::~PostEffectsManager()

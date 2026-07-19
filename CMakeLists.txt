@@ -95,22 +95,57 @@ elseif (OPENGL_VERSION STREQUAL "GL41")
 	endif(NOT OPENGL_FOUND)
 	SET(OPENGL_LIBS ${OPENGL_LIBRARIES})
 else()
-		SET(OPENGL_LIBS GLESv2)
+	SET(OPENGL_LIBS GLESv2)
 
-		if (OPENGL_VERSION STREQUAL "GLES2")
-			add_definitions(-DGLES2)
-			if (IS_DESKTOP)
-				SET(GL_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/gles2/glad.c)
-                                SET(GLAD_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include/Pyros3D/Ext/gles2)
-			endif(IS_DESKTOP)
-		else()
-		if (OPENGL_VERSION STREQUAL "GLES3")
-			add_definitions(-DGLES3)
-			if (IS_DESKTOP)
-				SET(GL_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/gles3/glad.c)
-                                SET(GLAD_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include/Pyros3D/Ext/gles3)
-			endif(IS_DESKTOP)
-		endif()
+	if (OPENGL_VERSION STREQUAL "GLES3")
+		add_definitions(-DGLES3)
+		if (IS_DESKTOP)
+			SET(GL_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/gles3/glad.c)
+                        SET(GLAD_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include/Pyros3D/Ext/gles3)
+		endif(IS_DESKTOP)
+	endif()
+endif()
+
+
+# SPIR-V tooling (Vulkan roadmap Phase 2 - GLSL->SPIR-V cross-compilation +
+# reflection; optional, auto-detected, and unused by anything yet since
+# there's no VulkanRenderDevice to consume it - see VULKAN_ROADMAP.md).
+# Neither shaderc nor spirv-cross ship CMake config files via Homebrew, so
+# this follows the same "brew --prefix + find_path/find_library" pattern
+# already used above for lua@5.4.
+option(BUILD_SPIRV_TOOLING "Build the GLSL->SPIR-V compiler (needs shaderc + spirv-cross)" ON)
+if (BUILD_SPIRV_TOOLING)
+	if (APPLE)
+		execute_process(COMMAND brew --prefix shaderc
+			OUTPUT_VARIABLE HOMEBREW_SHADERC_PREFIX
+			OUTPUT_STRIP_TRAILING_WHITESPACE
+			ERROR_QUIET)
+		execute_process(COMMAND brew --prefix spirv-cross
+			OUTPUT_VARIABLE HOMEBREW_SPIRV_CROSS_PREFIX
+			OUTPUT_STRIP_TRAILING_WHITESPACE
+			ERROR_QUIET)
+	endif()
+
+	find_path(SHADERC_INCLUDE_DIR shaderc/shaderc.hpp PATHS ${HOMEBREW_SHADERC_PREFIX}/include)
+	find_library(SHADERC_LIBRARY NAMES shaderc_combined PATHS ${HOMEBREW_SHADERC_PREFIX}/lib)
+
+	find_path(SPIRV_CROSS_INCLUDE_DIR spirv_cross/spirv_cross.hpp PATHS ${HOMEBREW_SPIRV_CROSS_PREFIX}/include)
+	find_library(SPIRV_CROSS_CORE_LIBRARY NAMES spirv-cross-core PATHS ${HOMEBREW_SPIRV_CROSS_PREFIX}/lib)
+	find_library(SPIRV_CROSS_GLSL_LIBRARY NAMES spirv-cross-glsl PATHS ${HOMEBREW_SPIRV_CROSS_PREFIX}/lib)
+	find_library(SPIRV_CROSS_CPP_LIBRARY NAMES spirv-cross-cpp PATHS ${HOMEBREW_SPIRV_CROSS_PREFIX}/lib)
+
+	if (SHADERC_INCLUDE_DIR AND SHADERC_LIBRARY AND SPIRV_CROSS_INCLUDE_DIR AND SPIRV_CROSS_CORE_LIBRARY AND SPIRV_CROSS_GLSL_LIBRARY AND SPIRV_CROSS_CPP_LIBRARY)
+		set(SPIRV_TOOLING_FOUND ON)
+		add_definitions(-DSPIRV_TOOLING)
+		set(SPIRV_TOOLING_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/SPIRV/ShaderCompiler.cpp)
+		set(SPIRV_TOOLING_INCLUDE_DIRS ${SHADERC_INCLUDE_DIR} ${SPIRV_CROSS_INCLUDE_DIR})
+		# spirv-cross-cpp must come before spirv-cross-core (it depends on
+		# core; static-lib link order matters on most linkers).
+		set(SPIRV_TOOLING_LIBS ${SHADERC_LIBRARY} ${SPIRV_CROSS_CPP_LIBRARY} ${SPIRV_CROSS_GLSL_LIBRARY} ${SPIRV_CROSS_CORE_LIBRARY})
+		message(STATUS "SPIR-V tooling found: shaderc=${SHADERC_LIBRARY}, spirv-cross=${SPIRV_CROSS_CORE_LIBRARY}")
+	else()
+		set(SPIRV_TOOLING_FOUND OFF)
+		message(WARNING "shaderc/spirv-cross not found - the GLSL->SPIR-V compiler will not be built. Install via 'brew install shaderc spirv-cross'.")
 	endif()
 endif()
 
@@ -163,6 +198,7 @@ set(SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/IRenderer.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Device/GLRenderDevice.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/GameObjects/GameObject.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Core/Octree/Octree.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Core/Logs/Log.cpp
@@ -221,6 +257,7 @@ set(SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Terrains/Terrain.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Assets/Texture/Texture.cpp
 	${GL_INCLUDE}
+	${SPIRV_TOOLING_SOURCE}
 )
 
 
@@ -230,11 +267,11 @@ set(HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-include_directories(${HEADERS} ${GLAD_INCLUDE_DIR} ${LUA_INCLUDE_DIR} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS})
+include_directories(${HEADERS} ${GLAD_INCLUDE_DIR} ${LUA_INCLUDE_DIR} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${SPIRV_TOOLING_INCLUDE_DIRS})
 
 # Engine Library
 add_library(PyrosEngine ${LIB_TYPE} ${SOURCE} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS})
-target_link_libraries(PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${LUA_LIBRARIES} ${CONTEXT_LIB} pthread dl)
+target_link_libraries(PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${LUA_LIBRARIES} ${CONTEXT_LIB} ${SPIRV_TOOLING_LIBS} pthread dl)
 
 # Model Converter
 option(BUILD_CONVERTER "Build Model Converter" OFF)

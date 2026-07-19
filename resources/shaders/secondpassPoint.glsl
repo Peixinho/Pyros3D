@@ -1,19 +1,10 @@
-#if defined(GLES2)
-	#define varying_in varying
-	#define varying_out varying
-	#define attribute_in attribute
-	#define texture_2D texture2D
-	#define texture_cube textureCube
+#define varying_in in
+#define varying_out out
+#define attribute_in in
+#define texture_2D texture
+#define texture_cube texture
+#if defined(GLES3)
 	precision mediump float;
-#else
-	#define varying_in in
-	#define varying_out out
-	#define attribute_in in
-	#define texture_2D texture
-	#define texture_cube texture
-	#if defined(GLES3)
-		precision mediump float;
-	#endif
 #endif
 
 #ifdef VERTEX
@@ -74,11 +65,7 @@ uniform float uPCFTexelSize;
 uniform float uHaveShadowmap;
 
 // Fragment Color
-#if defined(GLES2)
-	vec4 FragColor;
-#else
-	out vec4 FragColor;
-#endif
+out vec4 FragColor;
 
 // Reconstruct Positions and Normals
 float DecodeLinearDepth(float z, vec4 z_info_local)
@@ -145,9 +132,5 @@ void main() {
 	specular = vec4(specularPower * Specular, 1.0);
 
 	FragColor = (diffuse + specular) * attenuation;/*# * pcf;*/
-
-	#if defined(GLES2)
-		gl_FragColor = FragColor;
-	#endif
 }
 #endif

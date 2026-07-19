@@ -7,14 +7,14 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
-#include <Pyros3D/Other/PyrosGL.h>
+#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <cstring>
 
 // Must match MAX_LIGHTS in resources/shaders/PyrosShader.glsl - sizes and
 // fills the LightsUBO backing that shader's uLights[MAX_LIGHTS] block.
 #define PYROS_MAX_LIGHTS 4
 
-// Must match the non-GLES2 array sizes declared in PyrosShader.glsl's
+// Must match the array sizes declared in PyrosShader.glsl's
 // DirectionalShadowBlock/PointShadowBlock/SpotShadowBlock.
 #define PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES 4
 #define PYROS_MAX_POINT_SHADOW_MATRICES 8
@@ -120,9 +120,9 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 // SendGlobalUniforms(), so it doesn't touch the shared UBOs at all - in
 // particular it must NOT bump SharedUBORefCount, since it will never
 // decrement it on destruction either (see ~IRenderer()).
-IRenderer::IRenderer() : UsesSharedUBOs(false) {}
+IRenderer::IRenderer() : UsesSharedUBOs(false), device(new GLRenderDevice()) {}
 
-IRenderer::IRenderer(const uint32 Width, const uint32 Height)
+IRenderer::IRenderer(const uint32 Width, const uint32 Height) : device(new GLRenderDevice())
 {
 	// Background Unset by Default
 	BackgroundColorSet = false;
@@ -170,7 +170,6 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height)
 	shadowSkinnedMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Skinning);
 	shadowSkinnedMaterial->SetCullFace(CullFace::DoubleSided);
 
-#ifndef GLES2
 	// Created once, by whichever IRenderer instance happens to be first -
 	// see the "shared/static" comment on these members in IRenderer.h.
 	// Later instances just add themselves to the refcount below.
@@ -178,46 +177,25 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height)
 	{
 		// Global matrices UBO: sized for uProjectionMatrix + uViewMatrix,
 		// bound to binding point 0. Contents are uploaded in SendGlobalUniforms().
-		GLCHECKER(glGenBuffers(1, (GLuint*)&GlobalMatricesUBO));
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, GlobalMatricesUBO));
-		GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * 2, NULL, GL_DYNAMIC_DRAW));
-		GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 0, GlobalMatricesUBO));
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+		GlobalMatricesUBO = device->CreateUniformBuffer(sizeof(Matrix) * 2, 0);
 
 		// Lights UBO: sized for uLights[PYROS_MAX_LIGHTS], bound to binding
 		// point 1. Contents are uploaded in SendGlobalUniforms().
-		GLCHECKER(glGenBuffers(1, (GLuint*)&LightsUBO));
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, LightsUBO));
-		GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_LIGHTS, NULL, GL_DYNAMIC_DRAW));
-		GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 1, LightsUBO));
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+		LightsUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_LIGHTS, 1);
 
 		// Directional shadow UBO (binding point 2): PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES
 		// cascade matrices followed by uDirectionalShadowFar[4] (std140 needs
 		// no padding between them - the matrix array's size is already a
 		// multiple of vec4's 16-byte alignment).
-		GLCHECKER(glGenBuffers(1, (GLuint*)&DirectionalShadowUBO));
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, DirectionalShadowUBO));
-		GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES + sizeof(Vec4) * 4, NULL, GL_DYNAMIC_DRAW));
-		GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 2, DirectionalShadowUBO));
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+		DirectionalShadowUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES + sizeof(Vec4) * 4, 2);
 
 		// Point shadow UBO (binding point 3): PYROS_MAX_POINT_SHADOW_MATRICES matrices.
-		GLCHECKER(glGenBuffers(1, (GLuint*)&PointShadowUBO));
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, PointShadowUBO));
-		GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_POINT_SHADOW_MATRICES, NULL, GL_DYNAMIC_DRAW));
-		GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 3, PointShadowUBO));
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+		PointShadowUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_POINT_SHADOW_MATRICES, 3);
 
 		// Spot shadow UBO (binding point 4): PYROS_MAX_SPOT_SHADOW_MATRICES matrices.
-		GLCHECKER(glGenBuffers(1, (GLuint*)&SpotShadowUBO));
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, SpotShadowUBO));
-		GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_SPOT_SHADOW_MATRICES, NULL, GL_DYNAMIC_DRAW));
-		GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 4, SpotShadowUBO));
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+		SpotShadowUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_SPOT_SHADOW_MATRICES, 4);
 	}
 	SharedUBORefCount++;
-#endif
 }
 
 void IRenderer::Reset()
@@ -261,13 +239,12 @@ void IRenderer::_SetViewPort(const uint32 initX, const uint32 initY, const uint3
 		_viewPortStartY = initY;
 		_viewPortEndX = endX;
 		_viewPortEndY = endY;
-		GLCHECKER(glViewport(initX, initY, endX, endY));
+		device->SetViewport(initX, initY, endX, endY);
 	}
 }
 
 IRenderer::~IRenderer()
 {
-#ifndef GLES2
 	// UsesSharedUBOs is false for instances built via the no-arg
 	// IRenderer() (DebugRenderer) - they never incremented SharedUBORefCount
 	// in the constructor, so they must not decrement it here either.
@@ -276,11 +253,11 @@ IRenderer::~IRenderer()
 		SharedUBORefCount--;
 		if (SharedUBORefCount == 0)
 		{
-			GLCHECKER(glDeleteBuffers(1, (GLuint*)&GlobalMatricesUBO));
-			GLCHECKER(glDeleteBuffers(1, (GLuint*)&LightsUBO));
-			GLCHECKER(glDeleteBuffers(1, (GLuint*)&DirectionalShadowUBO));
-			GLCHECKER(glDeleteBuffers(1, (GLuint*)&PointShadowUBO));
-			GLCHECKER(glDeleteBuffers(1, (GLuint*)&SpotShadowUBO));
+			device->DestroyUniformBuffer(GlobalMatricesUBO);
+			device->DestroyUniformBuffer(LightsUBO);
+			device->DestroyUniformBuffer(DirectionalShadowUBO);
+			device->DestroyUniformBuffer(PointShadowUBO);
+			device->DestroyUniformBuffer(SpotShadowUBO);
 			// The next IRenderer instance (if any) will create brand new
 			// (empty) buffers - the dirty-tracking cache must not survive
 			// to wrongly skip that instance's first upload.
@@ -291,7 +268,6 @@ IRenderer::~IRenderer()
 			SpotShadowUBOValid = false;
 		}
 	}
-#endif
 	delete shadowMaterial;
 	delete shadowSkinnedMaterial;
 }
@@ -369,11 +345,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					// Bind FBO
 					d->GetShadowFBO()->Bind();
 
-#if defined(GLES2) 
-					ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
-#else
 					ClearBufferBit(Buffer_Bit::Depth);
-#endif
 					EnableClearDepthBuffer();
 					ClearDepthBuffer();
 					ClearScreen();
@@ -483,19 +455,10 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 						// Update Culling
 						UpdateCulling(ShadowProjection.m*ViewMatrix);
 
-#if defined(GLES2)
-						// Regular Shadows
-						p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::CubemapPositive_X + i, p->GetShadowMapTexture());
-#else
 						// GPU Shadows
 						p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::CubemapPositive_X + i, p->GetShadowMapTexture());
-#endif
 
-#if defined(GLES2)
-						ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
-#else
 						ClearBufferBit(Buffer_Bit::Depth);
-#endif
 						EnableClearDepthBuffer();
 						ClearDepthBuffer();
 						ClearScreen();
@@ -588,11 +551,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					// Update Culling
 					UpdateCulling(ShadowProjection.m*ViewMatrix);
 
-#if defined(GLES2)
-					ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
-#else
 					ClearBufferBit(Buffer_Bit::Depth);
-#endif
 					EnableClearDepthBuffer();
 					ClearDepthBuffer();
 					ClearScreen();
@@ -681,31 +640,22 @@ void IRenderer::EndRender()
 {
 	if (LastMeshRenderedPTR != NULL && LastMaterialPTR != NULL)
 	{
-#ifndef GLES2
 		// The next mesh's BindMesh()/glBindVertexArray() fully replaces this
 		// VAO's attribute/index-buffer state, so there's nothing to unbind.
-		GLCHECKER(glBindVertexArray(0));
-#else
-		// Unbind Index Buffer
-		GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
-		// Unbind Vertex Attributes
-		UnbindMesh(LastMeshRenderedPTR, LastMaterialPTR);
-#endif
+		device->BindVertexArray(0);
 		// Unbind Shadow Maps
 		UnbindShadowMaps(LastMaterialPTR);
 		// Material After Render
 		LastMaterialPTR->AfterRender();
 	}
 
-#if !defined(GLES2) && !defined(GLES3)
 	// Set Default Polygon Mode
-	GLCHECKER(glPolygonMode(GL_FRONT_AND_BACK, GL_FILL));
-#endif
+	device->SetWireFrame(false);
 	// Disable Cull Face
-	GLCHECKER(glDisable(GL_CULL_FACE));
+	device->DisableCullFace();
 
 	// Unbind Shader Program
-	GLCHECKER(glUseProgram(0));
+	device->UseProgram(0);
 	// Unset Pointers
 	LastMaterialPTR = NULL;
 	LastMeshRenderedPTR = NULL;
@@ -733,18 +683,12 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 
 	if ((LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material) && LastProgramUsed != -1)
 	{
-#ifdef GLES2
-		// Unbind Index Buffer
-		GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
-		// Unbind Mesh
-		UnbindMesh(LastMeshRenderedPTR, LastMaterialPTR);
-#endif
 		// Material Stuff After Render
 		UnbindShadowMaps(LastMaterialPTR);
 		// After Render
 		LastMaterialPTR->AfterRender();
 	}
-	if (LastProgramUsed != Material->GetShader()) GLCHECKER(glUseProgram(Material->GetShader()));
+	if (LastProgramUsed != Material->GetShader()) device->UseProgram(Material->GetShader());
 
 	if (LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material)
 	{
@@ -762,17 +706,9 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 		// Send Global Uniforms
 		SendGlobalUniforms(rmesh, Material);
 
-#ifndef GLES2
-		// Desktop GL / GLES3: the VAO built by BindMesh() already has every
-		// attribute pointer and the index buffer baked in.
-		GLCHECKER(glBindVertexArray(rmesh->VAOCache[Material->GetShader()]));
-#else
-		// GLES2 has no VAOs - set up vertex attributes for this mesh switch
-		SendAttributes(rmesh, Material);
-
-		// Bind Index Buffer
-		GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, rmesh->Geometry->IndexBuffer->ID));
-#endif
+		// The VAO built by BindMesh() already has every attribute pointer
+		// and the index buffer baked in.
+		device->BindVertexArray(rmesh->VAOCache[Material->GetShader()]);
 
 		if (Material->depthBias)
 			EnableDepthBias(Vec2(Material->depthFactor, Material->depthUnits));
@@ -792,21 +728,7 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 		// Check if Material is DoubleSided
 		if (Material->GetCullFace() != cullFace)
 		{
-			switch (Material->GetCullFace())
-			{
-			case CullFace::FrontFace:
-				GLCHECKER(glEnable(GL_CULL_FACE));
-				GLCHECKER(glCullFace(GL_FRONT));
-				break;
-			case CullFace::DoubleSided:
-				GLCHECKER(glDisable(GL_CULL_FACE));
-				break;
-			case CullFace::BackFace:
-			default:
-				GLCHECKER(glEnable(GL_CULL_FACE));
-				GLCHECKER(glCullFace(GL_BACK));
-				break;
-			}
+			device->SetCullFaceMode(Material->GetCullFace());
 			cullFace = Material->GetCullFace();
 			cullFaceChanged = false;
 		}
@@ -821,31 +743,7 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 	if (LastMeshRenderedPTR != rmesh && (InternalDrawType == -1 || InternalDrawType != rmesh->GetDrawingType()))
 	{
 		// getting material drawing type
-		switch (rmesh->GetDrawingType())
-		{
-		case DrawingType::Lines:
-			DrawType = GL_LINES;
-			break;
-		case DrawingType::Points:
-			DrawType = GL_POINTS;
-			break;
-		case DrawingType::Line_Loop:
-			DrawType = GL_LINE_LOOP;
-			break;
-		case DrawingType::Line_Strip:
-			DrawType = GL_LINE_STRIP;
-			break;
-		case DrawingType::Triangle_Fan:
-			DrawType = GL_TRIANGLE_FAN;
-			break;
-		case DrawingType::Triangle_Strip:
-			DrawType = GL_TRIANGLE_STRIP;
-			break;
-		case DrawingType::Triangles:
-		default:
-			DrawType = GL_TRIANGLES;
-			break;
-		}
+		DrawType = device->TranslateDrawType(rmesh->GetDrawingType());
 		InternalDrawType = rmesh->GetDrawingType();
 	}
 
@@ -895,17 +793,17 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 	else if (blending && (!Material->IsTransparent() || !Material->blending)) DisableBlending();
 
 	// Draw
-	#if !defined(GLES2) && !defined(GLES3) 
+	#if !defined(GLES3)
 		if (rmesh->renderingComponent->IsInstanced())
 		{
-			GLCHECKER(glDrawElementsInstanced(DrawType, rmesh->Geometry->GetIndexData().size(), __INDEX_TYPE__, BUFFER_OFFSET(0), ((IRenderingInstancedComponent*)rmesh->renderingComponent)->NumberOfInstances()));
+			device->DrawElementsInstanced(DrawType, rmesh->Geometry->GetIndexData().size(), ((IRenderingInstancedComponent*)rmesh->renderingComponent)->NumberOfInstances());
 		}
 		else {
-			GLCHECKER(glDrawElements(DrawType, rmesh->Geometry->GetIndexData().size(), __INDEX_TYPE__, BUFFER_OFFSET(0)));
+			device->DrawElements(DrawType, rmesh->Geometry->GetIndexData().size());
 		}
 	#else
 
-		GLCHECKER(glDrawElements(DrawType, rmesh->Geometry->GetIndexData().size(), __INDEX_TYPE__, BUFFER_OFFSET(0)));
+		device->DrawElements(DrawType, rmesh->Geometry->GetIndexData().size());
 
 	#endif
 
@@ -932,71 +830,25 @@ void IRenderer::DisableSorting()
 
 void IRenderer::ClearBufferBit(const uint32 Option)
 {
-	glBufferOptions = 0;
-	if (Option & Buffer_Bit::Color) glBufferOptions |= GL_COLOR_BUFFER_BIT;
-	if (Option & Buffer_Bit::Depth) glBufferOptions |= GL_DEPTH_BUFFER_BIT;
-	if (Option & Buffer_Bit::Stencil) glBufferOptions |= GL_STENCIL_BUFFER_BIT;
-
+	glBufferOptions = device->TranslateBufferBit(Option);
 	bufferOptions = Option;
 }
 
 void IRenderer::DrawBackground()
 {
 	if (BackgroundColorSet)
-		GLCHECKER(glClearColor(BackgroundColor.x, BackgroundColor.y, BackgroundColor.z, BackgroundColor.w));
+		device->SetClearColor(BackgroundColor);
 }
 
 void IRenderer::DepthTest(const uint32 test)
 {
 	depthTestMode = test;
-
-	if (depthTesting)
-	{
-		GLCHECKER(glEnable(GL_DEPTH_TEST));
-
-		switch (test)
-		{
-		case DepthTest::Always:
-			GLCHECKER(glDepthFunc(GL_ALWAYS));
-			break;
-		case DepthTest::Equal:
-			GLCHECKER(glDepthFunc(GL_EQUAL));
-			break;
-		case DepthTest::GEqual:
-			GLCHECKER(glDepthFunc(GL_GEQUAL));
-			break;
-		case DepthTest::Greater:
-			GLCHECKER(glDepthFunc(GL_GREATER));
-			break;
-		case DepthTest::LEqual:
-			GLCHECKER(glDepthFunc(GL_LEQUAL));
-			break;
-		case DepthTest::Never:
-			GLCHECKER(glDepthFunc(GL_NEVER));
-			break;
-		case DepthTest::NotEqual:
-			GLCHECKER(glDepthFunc(GL_NOTEQUAL));
-			break;
-		case DepthTest::Less:
-		default:
-			GLCHECKER(glDepthFunc(GL_LESS));
-			break;
-		}
-	}
-	else {
-		GLCHECKER(glDisable(GL_DEPTH_TEST));
-	}
+	device->SetDepthTest(depthTesting, test);
 }
 
 void IRenderer::DepthWrite()
 {
-	if (depthWritting)
-	{
-		GLCHECKER(glDepthMask(GL_TRUE));
-	}
-	else {
-		GLCHECKER(glDepthMask(GL_FALSE));
-	}
+	device->SetDepthMask(depthWritting);
 }
 
 void IRenderer::EnableClearDepthBuffer()
@@ -1011,164 +863,44 @@ void IRenderer::DisableClearDepthBuffer()
 
 void IRenderer::ClearDepthBuffer()
 {
-#if !defined(GLES2) && !defined(GLES3)
 	if (clearDepthBuffer) {
-		GLCHECKER(glDepthMask(GL_TRUE));
-		GLCHECKER(glClearDepth(1.f));
+		device->PrepareDepthClear();
 	}
-#endif
 }
 
 void IRenderer::EnableStencil()
 {
-	GLCHECKER(glEnable(GL_STENCIL_TEST));
+	device->SetStencilTestEnabled(true);
 }
 
 void IRenderer::DisableStencil()
 {
-	GLCHECKER(glDisable(GL_STENCIL_TEST));
+	device->SetStencilTestEnabled(false);
 }
 
 void IRenderer::ClearStencilBuffer()
 {
-	GLCHECKER(glClearStencil(0));
+	device->SetClearStencilValue();
 }
 
 void IRenderer::StencilFunction(const uint32 func, const uint32 ref, const uint32 mask)
 {
-	uint32 Func = GL_ALWAYS;
-	switch (func)
-	{
-	case StencilFunc::Never:
-		Func = GL_NEVER;
-		break;
-	case StencilFunc::Less:
-		Func = GL_LESS;
-		break;
-	case StencilFunc::LEqual:
-		Func = GL_LEQUAL;
-		break;
-	case StencilFunc::Greater:
-		Func = GL_GREATER;
-		break;
-	case StencilFunc::GEqual:
-		Func = GL_GEQUAL;
-		break;
-	case StencilFunc::Equal:
-		Func = GL_EQUAL;
-		break;
-	case StencilFunc::Notequal:
-		Func = GL_NOTEQUAL;
-		break;
-	default:
-	case StencilFunc::Always:
-		Func = GL_ALWAYS;
-		break;
-	}
-	GLCHECKER(glStencilFunc(Func, ref, mask));
+	device->SetStencilFunction(func, ref, mask);
 }
 
 void IRenderer::StencilOperation(const uint32 sfail, const uint32 dpfail, const uint32 dppass)
 {
-	uint32 Sfail = GL_KEEP;
-	switch (sfail)
-	{
-	case StencilOp::Zero:
-		Sfail = GL_KEEP;
-		break;
-	case StencilOp::Replace:
-		Sfail = GL_REPLACE;
-		break;
-	case StencilOp::Incr:
-		Sfail = GL_INCR;
-		break;
-	case StencilOp::Incr_Wrap:
-		Sfail = GL_INCR_WRAP;
-		break;
-	case StencilOp::Decr:
-		Sfail = GL_DECR;
-		break;
-	case StencilOp::Decr_Wrap:
-		Sfail = GL_DECR_WRAP;
-		break;
-	case StencilOp::Invert:
-		Sfail = GL_INVERT;
-		break;
-	default:
-	case StencilOp::Keep:
-		Sfail = GL_KEEP;
-		break;
-	};
-	uint32 DPfail = GL_KEEP;
-	switch (dpfail)
-	{
-	case StencilOp::Zero:
-		DPfail = GL_KEEP;
-		break;
-	case StencilOp::Replace:
-		DPfail = GL_REPLACE;
-		break;
-	case StencilOp::Incr:
-		DPfail = GL_INCR;
-		break;
-	case StencilOp::Incr_Wrap:
-		DPfail = GL_INCR_WRAP;
-		break;
-	case StencilOp::Decr:
-		DPfail = GL_DECR;
-		break;
-	case StencilOp::Decr_Wrap:
-		DPfail = GL_DECR_WRAP;
-		break;
-	case StencilOp::Invert:
-		DPfail = GL_INVERT;
-		break;
-	default:
-	case StencilOp::Keep:
-		DPfail = GL_KEEP;
-		break;
-	};
-	uint32 DPPASS = GL_KEEP;
-	switch (dppass)
-	{
-	case StencilOp::Zero:
-		DPPASS = GL_KEEP;
-		break;
-	case StencilOp::Replace:
-		DPPASS = GL_REPLACE;
-		break;
-	case StencilOp::Incr:
-		DPPASS = GL_INCR;
-		break;
-	case StencilOp::Incr_Wrap:
-		DPPASS = GL_INCR_WRAP;
-		break;
-	case StencilOp::Decr:
-		DPPASS = GL_DECR;
-		break;
-	case StencilOp::Decr_Wrap:
-		DPPASS = GL_DECR_WRAP;
-		break;
-	case StencilOp::Invert:
-		DPPASS = GL_INVERT;
-		break;
-	default:
-	case StencilOp::Keep:
-		DPPASS = GL_KEEP;
-		break;
-	};
-	// Set Stencil Op
-	GLCHECKER(glStencilOp(Sfail, DPfail, DPPASS));
+	device->SetStencilOperation(sfail, dpfail, dppass);
 }
 
 void IRenderer::ColorMask(const bool r, const bool g, const bool b, const bool a)
 {
-	GLCHECKER(glColorMask((GLboolean)r, (GLboolean)g, (GLboolean)b, (GLboolean)a));
+	device->SetColorMask(r, g, b, a);
 }
 
 void IRenderer::ClearScreen()
 {
-	GLCHECKER(glClear((GLuint)glBufferOptions));
+	device->Clear(glBufferOptions);
 }
 
 void IRenderer::SetGlobalLight(const Vec4& Light)
@@ -1181,9 +913,9 @@ void IRenderer::EnableDepthBias(const Vec2& Bias)
 	if (!IsUsingDepthBias)
 	{
 		IsUsingDepthBias = true;
-		GLCHECKER(glEnable(GL_POLYGON_OFFSET_FILL));    // enable polygon offset fill to combat "z-fighting"
+		device->SetPolygonOffsetEnabled(true);    // enable polygon offset fill to combat "z-fighting"
 	}
-	GLCHECKER(glPolygonOffset(Bias.x, Bias.y));
+	device->SetPolygonOffset(Bias.x, Bias.y);
 }
 
 void IRenderer::DisableDepthBias()
@@ -1191,7 +923,7 @@ void IRenderer::DisableDepthBias()
 	if (IsUsingDepthBias)
 	{
 		IsUsingDepthBias = false;
-		GLCHECKER(glDisable(GL_POLYGON_OFFSET_FILL));
+		device->SetPolygonOffsetEnabled(false);
 	}
 }
 
@@ -1200,7 +932,7 @@ void IRenderer::EnableBlending()
 	if (!blending)
 	{
 		// Enable Blending
-		GLCHECKER(glEnable(GL_BLEND));
+		device->SetBlendingEnabled(true);
 		blending = true;
 	}
 }
@@ -1210,7 +942,7 @@ void IRenderer::DisableBlending()
 	if (blending)
 	{
 		// Disables Blending
-		GLCHECKER(glDisable(GL_BLEND));
+		device->SetBlendingEnabled(false);
 		blending = false;
 		sfactor = dfactor = mode = -1;
 	}
@@ -1220,136 +952,7 @@ void IRenderer::BlendingFunction(const uint32 sfactor, const uint32 dfactor)
 {
 	this->sfactor = sfactor;
 	this->dfactor = dfactor;
-
-	uint32 Sfactor = GL_ONE;
-	switch (sfactor)
-	{
-	case BlendFunc::Zero:
-		Sfactor = GL_ZERO;
-		break;
-	case BlendFunc::Src_Color:
-		Sfactor = GL_SRC_COLOR;
-		break;
-	case BlendFunc::One_Minus_Src_Color:
-		Sfactor = GL_ONE_MINUS_SRC_COLOR;
-		break;
-	case BlendFunc::Dst_Color:
-		Sfactor = GL_DST_COLOR;
-		break;
-	case BlendFunc::One_Minus_Dst_Color:
-		Sfactor = GL_ONE_MINUS_DST_COLOR;
-		break;
-	case BlendFunc::Src_Alpha:
-		Sfactor = GL_SRC_ALPHA;
-		break;
-	case BlendFunc::One_Minus_Src_Alpha:
-		Sfactor = GL_ONE_MINUS_SRC_ALPHA;
-		break;
-	case BlendFunc::Dst_Alpha:
-		Sfactor = GL_DST_ALPHA;
-		break;
-	case BlendFunc::One_Minus_Dst_Alpha:
-		Sfactor = GL_ONE_MINUS_DST_ALPHA;
-		break;
-	case BlendFunc::Constant_Color:
-		Sfactor = GL_CONSTANT_COLOR;
-		break;
-	case BlendFunc::One_Minus_Constant_Color:
-		Sfactor = GL_ONE_MINUS_CONSTANT_COLOR;
-		break;
-	case BlendFunc::Constant_Alpha:
-		Sfactor = GL_CONSTANT_ALPHA;
-		break;
-	case BlendFunc::One_Minus_Constant_Alpha:
-		Sfactor = GL_ONE_MINUS_CONSTANT_ALPHA;
-		break;
-	case BlendFunc::Src_Alpha_Saturate:
-		Sfactor = GL_SRC_ALPHA_SATURATE;
-		break;
-#if !defined(GLES2) && !defined(GLES3)
-	case BlendFunc::Src1_Color:
-		Sfactor = GL_SRC1_COLOR;
-		break;
-	case BlendFunc::One_Minus_Src1_Color:
-		Sfactor = GL_ONE_MINUS_SRC1_COLOR;
-		break;
-	case BlendFunc::Src1_Alpha:
-		Sfactor = GL_SRC1_ALPHA;
-		break;
-	case BlendFunc::One_Minus_Src1_Alpha:
-		Sfactor = GL_ONE_MINUS_SRC1_ALPHA;
-		break;
-#endif
-	default:
-	case BlendFunc::One:
-		Sfactor = GL_ONE;
-		break;
-	}
-	uint32 Dfactor = GL_ONE;
-	switch (dfactor)
-	{
-	case BlendFunc::Zero:
-		Dfactor = GL_ZERO;
-		break;
-	case BlendFunc::Src_Color:
-		Dfactor = GL_SRC_COLOR;
-		break;
-	case BlendFunc::One_Minus_Src_Color:
-		Dfactor = GL_ONE_MINUS_SRC_COLOR;
-		break;
-	case BlendFunc::Dst_Color:
-		Dfactor = GL_DST_COLOR;
-		break;
-	case BlendFunc::One_Minus_Dst_Color:
-		Dfactor = GL_ONE_MINUS_DST_COLOR;
-		break;
-	case BlendFunc::Src_Alpha:
-		Dfactor = GL_SRC_ALPHA;
-		break;
-	case BlendFunc::One_Minus_Src_Alpha:
-		Dfactor = GL_ONE_MINUS_SRC_ALPHA;
-		break;
-	case BlendFunc::Dst_Alpha:
-		Dfactor = GL_DST_ALPHA;
-		break;
-	case BlendFunc::One_Minus_Dst_Alpha:
-		Dfactor = GL_ONE_MINUS_DST_ALPHA;
-		break;
-	case BlendFunc::Constant_Color:
-		Dfactor = GL_CONSTANT_COLOR;
-		break;
-	case BlendFunc::One_Minus_Constant_Color:
-		Dfactor = GL_ONE_MINUS_CONSTANT_COLOR;
-		break;
-	case BlendFunc::Constant_Alpha:
-		Dfactor = GL_CONSTANT_ALPHA;
-		break;
-	case BlendFunc::One_Minus_Constant_Alpha:
-		Dfactor = GL_ONE_MINUS_CONSTANT_ALPHA;
-		break;
-	case BlendFunc::Src_Alpha_Saturate:
-		Dfactor = GL_SRC_ALPHA_SATURATE;
-		break;
-#if !defined(GLES2) && !defined(GLES3)
-	case BlendFunc::Src1_Color:
-		Dfactor = GL_SRC1_COLOR;
-		break;
-	case BlendFunc::One_Minus_Src1_Color:
-		Dfactor = GL_ONE_MINUS_SRC1_COLOR;
-		break;
-	case BlendFunc::Src1_Alpha:
-		Dfactor = GL_SRC1_ALPHA;
-		break;
-	case BlendFunc::One_Minus_Src1_Alpha:
-		Dfactor = GL_ONE_MINUS_SRC1_ALPHA;
-		break;
-#endif
-	default:
-	case BlendFunc::One:
-		Dfactor = GL_ONE;
-		break;
-	}
-	GLCHECKER(glBlendFunc(Sfactor, Dfactor));
+	device->SetBlendFunction(sfactor, dfactor);
 }
 
 void IRenderer::EnableScissorTest()
@@ -1373,36 +976,17 @@ void IRenderer::ScissorTestRect(const f32 x, const f32 y, const f32 width, const
 void IRenderer::BlendingEquation(const uint32 mode)
 {
 	this->mode = mode;
-
-	uint32 Mode = GL_FUNC_ADD;
-	switch (mode)
-	{
-	case BlendEq::Subtract:
-		Mode = GL_FUNC_SUBTRACT;
-		break;
-	case BlendEq::Reverse_Subtract:
-		Mode = GL_FUNC_REVERSE_SUBTRACT;
-		break;
-	default:
-	case BlendEq::Add:
-		Mode = GL_FUNC_ADD;
-		break;
-	}
-	GLCHECKER(glBlendEquation(Mode));
+	device->SetBlendEquation(mode);
 }
 
 void IRenderer::EnableWireFrame()
 {
-#if !defined(GLES2) && !defined(GLES3)
-	GLCHECKER(glPolygonMode(GL_FRONT_AND_BACK, GL_LINE));
-#endif
+	device->SetWireFrame(true);
 }
 
 void IRenderer::DisableWireFrame()
 {
-#if !defined(GLES2) && !defined(GLES3)
-	GLCHECKER(glPolygonMode(GL_FRONT_AND_BACK, GL_FILL));
-#endif
+	device->SetWireFrame(false);
 }
 
 void IRenderer::EnableClipPlane(const uint32 &numberOfClipPlanes)
@@ -1418,32 +1002,28 @@ void IRenderer::DisableClipPlane()
 
 void IRenderer::StartClippingPlanes()
 {
-#if !defined(GLES2) && !defined(GLES3)
 	if (ClipPlane)
 	{
 		for (uint32 k = 0; k < ClipPlaneNumber; k++)
-			GLCHECKER(glEnable(GL_CLIP_DISTANCE0 + k));
+			device->EnableClipDistance(k);
 	}
-#endif
 }
 
 void IRenderer::EndClippingPlanes()
 {
-#if !defined(GLES2) && !defined(GLES3)
 	if (ClipPlane)
 	{
 		for (uint32 k = 0; k < ClipPlaneNumber; k++)
-			GLCHECKER(glDisable(GL_CLIP_DISTANCE0 + k));
+			device->DisableClipDistance(k);
 	}
-#endif
 }
 
 void IRenderer::StartScissorTest()
 {
 	if (scissorTest)
 	{
-		GLCHECKER(glScissor((GLint)scissorTestX, (GLint)scissorTestY, (GLsizei)scissorTestWidth, (GLsizei)scissorTestHeight));
-		GLCHECKER(glEnable(GL_SCISSOR_TEST));
+		device->SetScissorRect(scissorTestX, scissorTestY, scissorTestWidth, scissorTestHeight);
+		device->SetScissorTestEnabled(true);
 	}
 }
 
@@ -1451,7 +1031,7 @@ void IRenderer::EndScissorTest()
 {
 	if (scissorTest)
 	{
-		GLCHECKER(glDisable(GL_SCISSOR_TEST));
+		device->SetScissorTestEnabled(false);
 	}
 }
 
@@ -1545,7 +1125,6 @@ void IRenderer::UpdateCulling(const Matrix& ViewProjectionMatrix)
 
 void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 {
-#ifndef GLES2
 	// Upload uProjectionMatrix + uViewMatrix into the shared UBO, but only
 	// when they've actually changed since the last upload (compared
 	// byte-for-byte against CachedProjectionMatrix/CachedViewMatrix) -
@@ -1560,9 +1139,7 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		memcmp(&CachedViewMatrix, &ViewMatrix, sizeof(Matrix)) != 0)
 	{
 		Matrix globalMatricesData[2] = { ProjectionMatrix, ViewMatrix };
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, GlobalMatricesUBO));
-		GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * 2, globalMatricesData));
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+		device->UpdateUniformBuffer(GlobalMatricesUBO, 0, sizeof(Matrix) * 2, globalMatricesData);
 		CachedProjectionMatrix = ProjectionMatrix;
 		CachedViewMatrix = ViewMatrix;
 		GlobalMatricesUBOValid = true;
@@ -1579,9 +1156,7 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		if (!LightsUBOValid || CachedLights.size() != lightsToUpload ||
 			memcmp(&CachedLights[0], &Lights[0], sizeof(Matrix) * lightsToUpload) != 0)
 		{
-			GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, LightsUBO));
-			GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * lightsToUpload, &Lights[0]));
-			GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+			device->UpdateUniformBuffer(LightsUBO, 0, sizeof(Matrix) * lightsToUpload, &Lights[0]);
 			CachedLights.assign(Lights.begin(), Lights.begin() + lightsToUpload);
 			LightsUBOValid = true;
 		}
@@ -1599,14 +1174,12 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			memcmp(&CachedDirectionalShadowMatrix[0], &DirectionalShadowMatrix[0], sizeof(Matrix) * count) != 0 ||
 			memcmp(&CachedDirectionalShadowFar, &DirectionalShadowFar, sizeof(Vec4)) != 0)
 		{
-			GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, DirectionalShadowUBO));
-			GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * count, &DirectionalShadowMatrix[0]));
+			device->UpdateUniformBuffer(DirectionalShadowUBO, 0, sizeof(Matrix) * count, &DirectionalShadowMatrix[0]);
 			// uDirectionalShadowFar[4] starts right after the matrix array;
 			// only element [0] is ever read in the shader (its 4 components
 			// are the per-cascade far distances), so only it is uploaded
 			// here - matching what the old individual-uniform send did.
-			GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES, sizeof(Vec4), &DirectionalShadowFar));
-			GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+			device->UpdateUniformBuffer(DirectionalShadowUBO, sizeof(Matrix) * PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES, sizeof(Vec4), &DirectionalShadowFar);
 			CachedDirectionalShadowMatrix.assign(DirectionalShadowMatrix.begin(), DirectionalShadowMatrix.begin() + count);
 			CachedDirectionalShadowFar = DirectionalShadowFar;
 			DirectionalShadowUBOValid = true;
@@ -1618,9 +1191,7 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		if (!PointShadowUBOValid || CachedPointShadowMatrix.size() != count ||
 			memcmp(&CachedPointShadowMatrix[0], &PointShadowMatrix[0], sizeof(Matrix) * count) != 0)
 		{
-			GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, PointShadowUBO));
-			GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * count, &PointShadowMatrix[0]));
-			GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+			device->UpdateUniformBuffer(PointShadowUBO, 0, sizeof(Matrix) * count, &PointShadowMatrix[0]);
 			CachedPointShadowMatrix.assign(PointShadowMatrix.begin(), PointShadowMatrix.begin() + count);
 			PointShadowUBOValid = true;
 		}
@@ -1631,14 +1202,11 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		if (!SpotShadowUBOValid || CachedSpotShadowMatrix.size() != count ||
 			memcmp(&CachedSpotShadowMatrix[0], &SpotShadowMatrix[0], sizeof(Matrix) * count) != 0)
 		{
-			GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, SpotShadowUBO));
-			GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * count, &SpotShadowMatrix[0]));
-			GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+			device->UpdateUniformBuffer(SpotShadowUBO, 0, sizeof(Matrix) * count, &SpotShadowMatrix[0]);
 			CachedSpotShadowMatrix.assign(SpotShadowMatrix.begin(), SpotShadowMatrix.begin() + count);
 			SpotShadowUBOValid = true;
 		}
 	}
-#endif
 
 	std::vector<int32> *_ShadersGlobalCache = &rmesh->ShadersGlobalCache[Material->GetShader()];
 
@@ -1918,18 +1486,14 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		}
 	}
 
-#ifndef GLES2
-	// Desktop GL / GLES3: build and cache a VAO for this (mesh, shader)
-	// pair the first time it's seen, baking in every attribute's
-	// enable/pointer/divisor state plus the bound index buffer. RenderObject()
-	// just glBindVertexArray()s this afterward instead of re-issuing all of
-	// that per mesh switch. GLES2 has no VAOs, so it keeps using
-	// SendAttributes()/UnbindMesh() per switch, unchanged.
+	// Build and cache a VAO for this (mesh, shader) pair the first time
+	// it's seen, baking in every attribute's enable/pointer/divisor state
+	// plus the bound index buffer. RenderObject() just glBindVertexArray()s
+	// this afterward instead of re-issuing all of that per mesh switch.
 	if (rmesh->VAOCache.find(material->GetShader()) == rmesh->VAOCache.end())
 	{
-		GLuint vao = 0;
-		GLCHECKER(glGenVertexArrays(1, &vao));
-		GLCHECKER(glBindVertexArray(vao));
+		DeviceHandle vao = device->CreateVertexArray();
+		device->BindVertexArray(vao);
 
 		if (rmesh->Geometry->Attributes.size() > 0)
 		{
@@ -1938,7 +1502,7 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 			{
 				AttributeBuffer* bf = (AttributeBuffer*)(*k);
 
-				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, bf->Buffer->ID));
+				device->BindArrayBuffer(bf->Buffer->ID);
 
 				if (bf->attributeSize == 0)
 				{
@@ -1958,41 +1522,27 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 					int32 location = (*_ShadersAttributesCache)[counterBuffers][counter];
 					if (location >= 0)
 					{
-						GLCHECKER(glEnableVertexAttribArray(location));
+						uint32 typeCount = Buffer::Attribute::GetTypeCount((*l)->Type);
+						uint32 nativeType = Buffer::Attribute::GetType((*l)->Type);
+
+						device->SetVertexAttribute(location, typeCount, nativeType, bf->attributeSize, (*l)->Offset);
 						if ((*l)->Type==Buffer::Attribute::Type::Matrix)
 						{
-							GLCHECKER(glEnableVertexAttribArray(location+1));
-							GLCHECKER(glEnableVertexAttribArray(location+2));
-							GLCHECKER(glEnableVertexAttribArray(location+3));
+							device->SetVertexAttribute(location+1, typeCount, nativeType, bf->attributeSize, 16);
+							device->SetVertexAttribute(location+2, typeCount, nativeType, bf->attributeSize, 32);
+							device->SetVertexAttribute(location+3, typeCount, nativeType, bf->attributeSize, 48);
 						}
 
-						GLCHECKER(glVertexAttribPointer(
-							location,
-							Buffer::Attribute::GetTypeCount((*l)->Type),
-							Buffer::Attribute::GetType((*l)->Type),
-							GL_FALSE,
-							bf->attributeSize,
-							BUFFER_OFFSET((*l)->Offset)
-						));
-						if ((*l)->Type==Buffer::Attribute::Type::Matrix)
-						{
-							GLCHECKER(glVertexAttribPointer(location+1, Buffer::Attribute::GetTypeCount((*l)->Type), Buffer::Attribute::GetType((*l)->Type), GL_FALSE, bf->attributeSize, BUFFER_OFFSET(16)));
-							GLCHECKER(glVertexAttribPointer(location+2, Buffer::Attribute::GetTypeCount((*l)->Type), Buffer::Attribute::GetType((*l)->Type), GL_FALSE, bf->attributeSize, BUFFER_OFFSET(32)));
-							GLCHECKER(glVertexAttribPointer(location+3, Buffer::Attribute::GetTypeCount((*l)->Type), Buffer::Attribute::GetType((*l)->Type), GL_FALSE, bf->attributeSize, BUFFER_OFFSET(48)));
-						}
-
-						#ifndef GLES3
 						if (rmesh->renderingComponent->IsInstanced())
 						{
-							GLCHECKER(glVertexAttribDivisor(location, (*l)->VertexDivisor));
+							device->SetVertexAttributeDivisor(location, (*l)->VertexDivisor);
 							if ((*l)->Type==Buffer::Attribute::Type::Matrix)
 							{
-								GLCHECKER(glVertexAttribDivisor(location+1, (*l)->VertexDivisor));
-								GLCHECKER(glVertexAttribDivisor(location+2, (*l)->VertexDivisor));
-								GLCHECKER(glVertexAttribDivisor(location+3, (*l)->VertexDivisor));
+								device->SetVertexAttributeDivisor(location+1, (*l)->VertexDivisor);
+								device->SetVertexAttributeDivisor(location+2, (*l)->VertexDivisor);
+								device->SetVertexAttributeDivisor(location+3, (*l)->VertexDivisor);
 							}
 						}
-						#endif
 					}
 					counter++;
 				}
@@ -2002,9 +1552,9 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 
 		// Bind the index buffer into the VAO's own state too, so it doesn't
 		// need rebinding on every mesh switch either.
-		GLCHECKER(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, rmesh->Geometry->IndexBuffer->ID));
+		device->BindElementBuffer(rmesh->Geometry->IndexBuffer->ID);
 
-		GLCHECKER(glBindVertexArray(0));
+		device->BindVertexArray(0);
 
 		rmesh->VAOCache[material->GetShader()] = vao;
 
@@ -2012,57 +1562,11 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		// it declares them - only PyrosShader.glsl does; custom materials'
 		// shaders keep sending these as plain uniforms and won't have these
 		// blocks) to their UBOs' binding points.
-		GLuint blockIndex = glGetUniformBlockIndex(material->GetShader(), "GlobalMatrices");
-		if (blockIndex != GL_INVALID_INDEX)
-		{
-			GLCHECKER(glUniformBlockBinding(material->GetShader(), blockIndex, 0));
-		}
-		GLuint lightsBlockIndex = glGetUniformBlockIndex(material->GetShader(), "LightsBlock");
-		if (lightsBlockIndex != GL_INVALID_INDEX)
-		{
-			GLCHECKER(glUniformBlockBinding(material->GetShader(), lightsBlockIndex, 1));
-		}
-		GLuint directionalShadowBlockIndex = glGetUniformBlockIndex(material->GetShader(), "DirectionalShadowBlock");
-		if (directionalShadowBlockIndex != GL_INVALID_INDEX)
-		{
-			GLCHECKER(glUniformBlockBinding(material->GetShader(), directionalShadowBlockIndex, 2));
-		}
-		GLuint pointShadowBlockIndex = glGetUniformBlockIndex(material->GetShader(), "PointShadowBlock");
-		if (pointShadowBlockIndex != GL_INVALID_INDEX)
-		{
-			GLCHECKER(glUniformBlockBinding(material->GetShader(), pointShadowBlockIndex, 3));
-		}
-		GLuint spotShadowBlockIndex = glGetUniformBlockIndex(material->GetShader(), "SpotShadowBlock");
-		if (spotShadowBlockIndex != GL_INVALID_INDEX)
-		{
-			GLCHECKER(glUniformBlockBinding(material->GetShader(), spotShadowBlockIndex, 4));
-		}
-	}
-#endif
-}
-
-void IRenderer::UnbindMesh(RenderingMesh* rmesh, IMaterial* material)
-{
-	// Disable Attributes
-	if (rmesh->Geometry->Attributes.size() > 0)
-	{
-		std::vector< std::vector<int32> >* _ShadersAttributesCache = &rmesh->ShadersAttributesCache[material->GetShader()];
-		uint32 counterBuffers = 0;
-		for (std::vector<AttributeArray*>::iterator k = rmesh->Geometry->Attributes.begin(); k != rmesh->Geometry->Attributes.end(); k++)
-		{
-			uint32 counter = 0;
-			for (std::vector<VertexAttribute*>::iterator l = (*k)->Attributes.begin(); l != (*k)->Attributes.end(); l++)
-			{
-				// If exists in shader
-				if ((*_ShadersAttributesCache)[counterBuffers][counter] >= 0)
-				{
-					GLCHECKER(glDisableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]));
-				}
-				counter++;
-			}
-			counterBuffers++;
-		}
-		GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, 0));
+		device->BindUniformBlockIfPresent(material->GetShader(), "GlobalMatrices", 0);
+		device->BindUniformBlockIfPresent(material->GetShader(), "LightsBlock", 1);
+		device->BindUniformBlockIfPresent(material->GetShader(), "DirectionalShadowBlock", 2);
+		device->BindUniformBlockIfPresent(material->GetShader(), "PointShadowBlock", 3);
+		device->BindUniformBlockIfPresent(material->GetShader(), "SpotShadowBlock", 4);
 	}
 }
 
@@ -2113,112 +1617,6 @@ void IRenderer::UnbindShadowMaps(IMaterial* material)
 		for (std::vector<Texture*>::reverse_iterator i = DirectionalShadowMapsTextures.rbegin(); i != DirectionalShadowMapsTextures.rend(); i++)
 		{
 			(*i)->Unbind();
-		}
-	}
-}
-
-void IRenderer::SendAttributes(RenderingMesh* rmesh, IMaterial* material)
-{
-	// Check if custom Attributes exists
-	if (rmesh->Geometry->Attributes.size() > 0)
-	{
-		// VBO
-		uint32 counterBuffers = 0;
-		for (std::vector<AttributeArray*>::iterator k = rmesh->Geometry->Attributes.begin(); k != rmesh->Geometry->Attributes.end(); k++)
-		{
-
-			AttributeBuffer* bf = (AttributeBuffer*)(*k);
-
-			// Bind VAO
-			GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, bf->Buffer->ID));
-
-			// Get Struct Data
-			if (bf->attributeSize == 0)
-			{
-				for (std::vector<VertexAttribute*>::iterator l = (*k)->Attributes.begin(); l != (*k)->Attributes.end(); l++)
-				{
-					bf->attributeSize += (*l)->byteSize;
-				}
-			}
-
-			// Counter
-			uint32 counter = 0;
-			std::vector< std::vector<int32> >* _ShadersAttributesCache = &rmesh->ShadersAttributesCache[material->GetShader()];
-			for (std::vector<VertexAttribute*>::iterator l = (*k)->Attributes.begin(); l != (*k)->Attributes.end(); l++)
-			{
-				// Check if is not set
-				if ((*_ShadersAttributesCache)[counterBuffers][counter] == -2)
-				{
-					// set VAO ID
-					(*_ShadersAttributesCache)[counterBuffers][counter] = Shader::GetAttributeLocation(material->GetShader(), (*l)->Name);
-
-				}
-				// If exists in shader
-				if ((*_ShadersAttributesCache)[counterBuffers][counter] >= 0)
-				{
-					// Enable Attribute
-					GLCHECKER(glEnableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]));
-					if ((*l)->Type==Buffer::Attribute::Type::Matrix)
-					{
-						GLCHECKER(glEnableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]+1));
-						GLCHECKER(glEnableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]+2));
-						GLCHECKER(glEnableVertexAttribArray((*_ShadersAttributesCache)[counterBuffers][counter]+3));
-					}
-
-					AttributeBuffer* bf = (AttributeBuffer*)(*k);
-					GLCHECKER(glVertexAttribPointer(
-						(*_ShadersAttributesCache)[counterBuffers][counter],
-						Buffer::Attribute::GetTypeCount((*l)->Type),
-						Buffer::Attribute::GetType((*l)->Type),
-						GL_FALSE,
-						bf->attributeSize,
-						BUFFER_OFFSET((*l)->Offset)
-					));
-					if ((*l)->Type==Buffer::Attribute::Type::Matrix)
-					{
-						GLCHECKER(glVertexAttribPointer(
-							((*_ShadersAttributesCache)[counterBuffers][counter]+1),
-							Buffer::Attribute::GetTypeCount((*l)->Type),
-							Buffer::Attribute::GetType((*l)->Type),
-							GL_FALSE,
-							bf->attributeSize,
-							BUFFER_OFFSET(16)
-						));
-						GLCHECKER(glVertexAttribPointer(
-							((*_ShadersAttributesCache)[counterBuffers][counter]+2),
-							Buffer::Attribute::GetTypeCount((*l)->Type),
-							Buffer::Attribute::GetType((*l)->Type),
-							GL_FALSE,
-							bf->attributeSize,
-							BUFFER_OFFSET(32)
-						));
-						GLCHECKER(glVertexAttribPointer(
-							((*_ShadersAttributesCache)[counterBuffers][counter]+3),
-							Buffer::Attribute::GetTypeCount((*l)->Type),
-							Buffer::Attribute::GetType((*l)->Type),
-							GL_FALSE,
-							bf->attributeSize,
-							BUFFER_OFFSET(48)
-						));
-					}
-
-					#if !defined(GLES2) && !defined(GLES3) 
-					// Set Divisors
-					if (rmesh->renderingComponent->IsInstanced())
-					{
-						GLCHECKER(glVertexAttribDivisor((*_ShadersAttributesCache)[counterBuffers][counter],(*l)->VertexDivisor));
-						if ((*l)->Type==Buffer::Attribute::Type::Matrix)
-						{
-							GLCHECKER(glVertexAttribDivisor(((*_ShadersAttributesCache)[counterBuffers][counter]+1),(*l)->VertexDivisor));
-							GLCHECKER(glVertexAttribDivisor(((*_ShadersAttributesCache)[counterBuffers][counter]+2),(*l)->VertexDivisor));
-							GLCHECKER(glVertexAttribDivisor(((*_ShadersAttributesCache)[counterBuffers][counter]+3),(*l)->VertexDivisor));
-						}
-					}
-					#endif
-				}
-				counter++;
-			}
-			counterBuffers++;
 		}
 	}
 }

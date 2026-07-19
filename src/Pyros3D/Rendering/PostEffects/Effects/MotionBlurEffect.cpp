@@ -23,14 +23,6 @@ namespace p3d {
 		velHandle = AddUniform(Uniform("uVelocityScale", Uniforms::DataType::Float, &vel));
 
 		VertexShaderString =
-								#if defined(GLES2)
-									"#define varying_in varying\n"
-									"#define varying_out varying\n"
-									"#define attribute_in attribute\n"
-									"#define texture_2D texture2D\n"
-									"#define texture_cube textureCube\n"
-									"precision mediump float;"
-								#else
 									"#define varying_in in\n"
 									"#define varying_out out\n"
 									"#define attribute_in in\n"
@@ -39,7 +31,6 @@ namespace p3d {
 									#if defined(GLES3)
 										"precision mediump float;\n"
 									#endif
-								#endif
 								"varying_out vec2 vTexcoord;\n"
 								"void main() {\n"
 									"gl_Position = vec4(-1.0 + vec2((gl_VertexID & 1) << 2, (gl_VertexID & 2) << 1), 0.0, 1.0);\n"
@@ -49,14 +40,6 @@ namespace p3d {
 		// Create Fragment Shader
 		FragmentShaderString =
 								"#define MAX_SAMPLES 32\n"
-								#if defined(GLES2)
-									"#define varying_in varying\n"
-									"#define varying_out varying\n"
-									"#define attribute_in attribute\n"
-									"#define texture_2D texture2D\n"
-									"#define texture_cube textureCube\n"
-									"precision mediump float;"
-								#else
 									"#define varying_in in\n"
 									"#define varying_out out\n"
 									"#define attribute_in in\n"
@@ -65,12 +48,7 @@ namespace p3d {
 									#if defined(GLES3)
 										"precision mediump float;\n"
 									#endif
-								#endif
-								#if defined(GLES2)
-									"vec4 FragColor;\n"
-								#else
 									"out vec4 FragColor;\n"
-								#endif
 								"varying_in vec2 vTexcoord;\n"
 								"uniform sampler2D uTex0;\n"
 								"uniform sampler2D uTex1;\n"
@@ -89,9 +67,6 @@ namespace p3d {
 									"      oResult += texture(uTex0, screenTexCoords + offset);\n"
 									"}\n"
 									"FragColor = oResult / float(nSamples);\n"
-									#if defined(GLES2)
-									"gl_FragColor = FragColor;\n"
-									#endif
 								"}";
 
 		CompileShaders();

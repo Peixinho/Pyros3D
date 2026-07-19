@@ -65,6 +65,11 @@ namespace p3d {
 
 		// Frame Buffers
 		FrameBuffer *ExternalFBO, *activeFBO;
+
+		// See IRenderDevice.h - same seam IRenderer uses, since
+		// PostEffectsManager's full-screen-quad pass has its own small GL
+		// call surface.
+		std::unique_ptr<IRenderDevice> device;
 	};
 
 };

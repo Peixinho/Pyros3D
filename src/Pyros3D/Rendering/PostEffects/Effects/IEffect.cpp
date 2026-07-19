@@ -21,15 +21,7 @@ namespace p3d {
         
         // Set Vertex Shader
         // Because its always the same
-        VertexShaderString =  
-				#if defined(GLES2)
-					"#define varying_in varying\n"
-					"#define varying_out varying\n"
-					"#define attribute_in attribute\n"
-					"#define texture_2D texture2D\n"
-					"#define texture_cube textureCube\n"
-					"precision mediump float;"
-				#else
+        VertexShaderString =
 					"#define varying_in in\n"
 					"#define varying_out out\n"
 					"#define attribute_in in\n"
@@ -38,7 +30,6 @@ namespace p3d {
 					#if defined(GLES3)
 						"precision mediump float;\n"
 					#endif
-				#endif
 				"varying_out vec2 vTexcoord;\n"
 				"void main() {\n"
 					"gl_Position = vec4(-1.0 + vec2((gl_VertexID & 1) << 2, (gl_VertexID & 2) << 1), 0.0, 1.0);\n"

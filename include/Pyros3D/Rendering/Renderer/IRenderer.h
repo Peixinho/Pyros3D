@@ -20,97 +20,12 @@
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
 #include <Pyros3D/Rendering/Components/Lights/ILightComponent.h>
 #include <Pyros3D/Rendering/Culling/FrustumCulling/FrustumCulling.h>
+#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Other/Export.h>
 #include <algorithm>
 #include <memory>
 
 namespace p3d {
-
-	namespace Buffer_Bit
-	{
-		enum {
-			None = 0,
-			Color = 0x10,
-			Depth = 0x20,
-			Stencil = 0x40
-		};
-	}
-
-	namespace StencilOp
-	{
-		enum {
-			Keep = 0,
-			Zero,
-			Replace,
-			Incr,
-			Incr_Wrap,
-			Decr,
-			Decr_Wrap,
-			Invert
-		};
-	}
-
-	namespace StencilFunc
-	{
-		enum {
-			Always = 0,
-			Never,
-			Less,
-			LEqual,
-			Greater,
-			GEqual,
-			Equal,
-			Notequal
-		};
-	}
-
-	namespace BlendFunc
-	{
-		enum {
-			Zero = 0,
-			One,
-			Src_Color,
-			One_Minus_Src_Color,
-			Dst_Color,
-			One_Minus_Dst_Color,
-			Src_Alpha,
-			One_Minus_Src_Alpha,
-			Dst_Alpha,
-			One_Minus_Dst_Alpha,
-			Constant_Color,
-			One_Minus_Constant_Color,
-			Constant_Alpha,
-			One_Minus_Constant_Alpha,
-			Src_Alpha_Saturate,
-			Src1_Color,
-			One_Minus_Src1_Color,
-			Src1_Alpha,
-			One_Minus_Src1_Alpha
-		};
-	}
-
-	namespace BlendEq
-	{
-		enum {
-			Add = 0,
-			Subtract,
-			Reverse_Subtract
-		};
-	}
-
-	namespace DepthTest
-	{
-		enum {
-			Less = 0,
-			Never,
-			Greater,
-			Equal,
-			Always,
-			LEqual,
-			GEqual,
-			NotEqual
-		};
-	}
 
 	class PYROS3D_API IRenderer {
 
@@ -329,6 +244,13 @@ namespace p3d {
 		std::unique_ptr<FrustumCulling>
 			culling;
 
+		// Backend seam for the state/bind/draw calls this class used to
+		// issue directly against OpenGL - see IRenderDevice.h. One per
+		// instance (GLRenderDevice itself holds no state, so this is cheap);
+		// only the shared UBO handles below are refcounted/static.
+		std::unique_ptr<IRenderDevice>
+			device;
+
 		// True only for instances built via IRenderer(Width, Height) - the
 		// no-arg IRenderer() used by DebugRenderer never touches the shared
 		// UBOs below, so it must not increment SharedUBORefCount either;
@@ -352,8 +274,7 @@ namespace p3d {
 		// (std140: 2 mat4, 128 bytes), bound once to binding point 0 and
 		// re-uploaded via glBufferSubData in SendGlobalUniforms() instead of
 		// resending both as individual glUniform calls on every mesh/material
-		// switch. Not used on GLES2, which has no uniform buffer objects -
-		// PyrosShader.glsl falls back to plain uniforms there.
+		// switch.
 		static uint32 GlobalMatricesUBO;
 
 		// Same idea for PyrosShader.glsl's uLights[MAX_LIGHTS] array (bound
@@ -491,8 +412,6 @@ namespace p3d {
 	private:
 
 		void BindMesh(RenderingMesh* rmesh, IMaterial* material);
-		void UnbindMesh(RenderingMesh* rmesh, IMaterial* material);
-		void SendAttributes(RenderingMesh* rmesh, IMaterial* material);
 		void BindShadowMaps(IMaterial* material);
 		void UnbindShadowMaps(IMaterial* material);
 

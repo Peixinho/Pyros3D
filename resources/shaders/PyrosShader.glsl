@@ -1,27 +1,113 @@
-#if defined(GLES2)
-	#define varying_in varying
-	#define varying_smooth_in varying
-	#define varying_out varying
-	#define varying_smooth_out varying
-	#define attribute_in attribute
-	#define texture_2D texture2D
-	#define texture_cube textureCube
+#define varying_in in
+#define varying_smooth_in smooth in
+#define varying_out out
+#define varying_smooth_out smooth out
+#define attribute_in in
+#define texture_2D texture
+#define texture_cube texture
+#if defined(GLES3)
 	precision mediump float;
-#else
-	#define varying_in in
-	#define varying_smooth_in smooth in
-	#define varying_out out
-	#define varying_smooth_out smooth out
-	#define attribute_in in
-	#define texture_2D texture
-	#define texture_cube texture
-	#if defined(GLES3)
-		precision mediump float;
-	#endif
 #endif
 
 #define MAX_BONES 60
 #define MAX_LIGHTS 4
+
+// Vulkan/SPIR-V requires every attribute/varying to have a static
+// layout(location=N), and every UBO/sampler a static layout(binding=N).
+// GL needs neither: it matches varyings by name at link time, and UBO/
+// sampler bindings are already assigned at runtime via
+// glUniformBlockBinding()/glUniform1i (see
+// GLRenderDevice::BindUniformBlockIfPresent and IRenderer's
+// uniform-sending loops) - so adding these is never required for GL.
+// It was tried unconditionally (any GLSL >= 330/420 "should" tolerate the
+// syntax) and reverted: macOS's compatibility-profile GL 4.1 driver
+// reserves part of its varying-interpolant budget for legacy built-ins
+// (gl_TexCoord[8] and friends, since plain "#version 410" with no "core"
+// suffix is a compatibility-profile shader) and throws "Implementation
+// limit of 128 varying components exceeded" once an explicit VARYING
+// location goes much past single digits - reproduced with a single
+// declared vec4 varying at location 14 and nothing else. Since GL never
+// needs these qualifiers, the safe fix is to only emit them when actually
+// compiling for Vulkan (no such legacy tax there), leaving every GL
+// profile's generated source byte-for-byte unchanged. Whoever compiles
+// this file for Vulkan must #define VULKAN before #define VERTEX/FRAGMENT,
+// the same way GL's #version line is prefixed by BuildShaderSource().
+// "Loose" non-block uniforms (uModelMatrix, uOpacity, etc.) are still
+// rejected by Vulkan/SPIR-V and are deliberately left as-is - turning them
+// into descriptor blocks is real design work that belongs with the actual
+// VulkanRenderDevice (Phase 3), not a macro bolted onto the shared GL
+// shader here.
+#if defined(VULKAN)
+	#define IO_LOCATION(n) layout(location = n)
+	#define UBO_BINDING(n) layout(std140, binding = n)
+	#define SAMPLER_BINDING(n) layout(binding = n)
+#else
+	#define IO_LOCATION(n)
+	#define UBO_BINDING(n) layout(std140)
+	#define SAMPLER_BINDING(n)
+#endif
+
+// Attribute locations - unique per name, VERTEX-stage input namespace.
+// aInstancedTransform is a mat4 and consumes 4 consecutive locations.
+#define LOC_aPosition 0
+#define LOC_aNormal 1
+#define LOC_aTexcoord 2
+#define LOC_aColor 3
+#define LOC_aSize 4
+#define LOC_aTangent 5
+#define LOC_aBitangent 6
+#define LOC_aBonesID 7
+#define LOC_aBonesWeight 8
+#define LOC_aInstancedTransform 9
+
+// Varying locations - unique per name, shared between this file's VERTEX
+// (out) and FRAGMENT (in) compilations via these same macros, so the two
+// separately-compiled stages always agree (required for SPIR-V/Vulkan,
+// which matches VS outputs to FS inputs by location, not name). mat3/mat4
+// varyings consume 3/4 consecutive locations each.
+#define LOC_vColor 0
+#define LOC_vTexcoord 1
+#define LOC_vNormal 2
+#define LOC_vWorldPositionShadow 3
+#define LOC_vWorldPosition 4
+#define LOC_vTangentMatrix 5
+#define LOC_vCameraPos 8
+#define LOC_vTRed 9
+#define LOC_vTGreen 10
+#define LOC_vTBlue 11
+#define LOC_vReflectionFactor 12
+#define LOC_v3Texcoord 13
+#define LOC_gbuffer_normals 14
+#define LOC_vViewMatrix 15
+#define LOC_vScreenSpaceWorldPosition 19
+#define LOC_vPrvScreenSpaceWorldPosition 20
+
+// Existing UBO/sampler bindings - match the fixed runtime binding points
+// IRenderer.cpp already uses via glUniformBlockBinding (see
+// IRenderer.cpp's BindUniformBlockIfPresent calls: GlobalMatrices=0,
+// LightsBlock=1, DirectionalShadowBlock=2, PointShadowBlock=3,
+// SpotShadowBlock=4), so an explicit binding here is redundant-but-
+// consistent for GL42+/GL45 and gives Vulkan the same layout. Samplers
+// continue from 5; the C++ side always explicitly sets each sampler's
+// texture unit via glUniform1i every bind, so a compile-time default here
+// is likewise redundant-but-harmless for GL, and gives Vulkan a static
+// binding to reflect.
+#define BIND_GlobalMatrices 0
+#define BIND_LightsBlock 1
+#define BIND_DirectionalShadowBlock 2
+#define BIND_PointShadowBlock 3
+#define BIND_SpotShadowBlock 4
+#define BIND_uColormap 5
+#define BIND_uFontmap 6
+#define BIND_uNormalmap 7
+#define BIND_uDisplacementmap 8
+#define BIND_uDirectionalShadowMaps 9
+#define BIND_uPointShadowMaps 10
+#define BIND_uSpotShadowMaps 11
+#define BIND_uEnvmap 12
+#define BIND_uRefractmap 13
+#define BIND_uSkyboxmap 14
+#define BIND_uSpecularmap 15
 
 vec4 EncodeFloatRGBA( float v ) {
    vec4 enc = vec4(1.0, 255.0, 65025.0, 16581375.0) * v;
@@ -85,85 +171,86 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 #ifdef VERTEX
 
     #ifdef DEBUGRENDERING
-        attribute_in vec4 aColor;
-        attribute_in float aSize;
-        varying_out vec4 vColor;
+        IO_LOCATION(LOC_aColor) attribute_in vec4 aColor;
+        IO_LOCATION(LOC_aSize) attribute_in float aSize;
+        IO_LOCATION(LOC_vColor) varying_out vec4 vColor;
     #endif
 
     #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP)
-        varying_out vec2 vTexcoord;
+        IO_LOCATION(LOC_vTexcoord) varying_out vec2 vTexcoord;
     #endif
 
     #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(TEXTRENDERING)
-        varying_out vec3 vNormal;
+        IO_LOCATION(LOC_vNormal) varying_out vec3 vNormal;
     #endif
 
     #if defined(DIRECTIONALSHADOW) || defined(POINTSHADOW) || defined(SPOTSHADOW)
-        varying_out vec4 vWorldPositionShadow;
+        IO_LOCATION(LOC_vWorldPositionShadow) varying_out vec4 vWorldPositionShadow;
     #endif
 
     #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PARALLAXMAPPING)
-        varying_out vec4 vWorldPosition;
+        IO_LOCATION(LOC_vWorldPosition) varying_out vec4 vWorldPosition;
     #endif
 
     #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING)
-        attribute_in vec3 aTangent, aBitangent;
-        varying_out mat3 vTangentMatrix;
+        IO_LOCATION(LOC_aTangent) attribute_in vec3 aTangent;
+        IO_LOCATION(LOC_aBitangent) attribute_in vec3 aBitangent;
+        IO_LOCATION(LOC_vTangentMatrix) varying_out mat3 vTangentMatrix;
     #endif
 
     #ifdef SKINNING
-        attribute_in vec4 aBonesID, aBonesWeight;
+        IO_LOCATION(LOC_aBonesID) attribute_in vec4 aBonesID;
+        IO_LOCATION(LOC_aBonesWeight) attribute_in vec4 aBonesWeight;
         uniform mat4 uBoneMatrix[MAX_BONES];
     #endif
 
     #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) || defined(DIFFUSE) || defined(CELLSHADING)
         uniform vec3 uCameraPos;
-        varying_out vec3 vCameraPos;
+        IO_LOCATION(LOC_vCameraPos) varying_out vec3 vCameraPos;
     #endif
 
     #ifdef REFRACTION
-        varying_out vec3 vTRed, vTGreen, vTBlue;
-        varying_out float vReflectionFactor;
+        IO_LOCATION(LOC_vTRed) varying_out vec3 vTRed;
+        IO_LOCATION(LOC_vTGreen) varying_out vec3 vTGreen;
+        IO_LOCATION(LOC_vTBlue) varying_out vec3 vTBlue;
+        IO_LOCATION(LOC_vReflectionFactor) varying_out float vReflectionFactor;
     #endif
 
     #ifdef SKYBOX
-        varying_out vec3 v3Texcoord;
+        IO_LOCATION(LOC_v3Texcoord) varying_out vec3 v3Texcoord;
     #endif
 
     #ifdef DEFERRED_GBUFFER
-        varying_out vec4 gbuffer_normals;
+        IO_LOCATION(LOC_gbuffer_normals) varying_out vec4 gbuffer_normals;
     #endif
 
    #if defined(DEFERRED_GBUFFER) && (defined(PARALLAXMAPPING) || defined(BUMPMAPPING))
-       varying_out mat4 vViewMatrix;
+       IO_LOCATION(LOC_vViewMatrix) varying_out mat4 vViewMatrix;
    #endif
 
     // Defaults
-    attribute_in vec3 aPosition, aNormal;
-    attribute_in vec2 aTexcoord;
+    IO_LOCATION(LOC_aPosition) attribute_in vec3 aPosition;
+    IO_LOCATION(LOC_aNormal) attribute_in vec3 aNormal;
+    IO_LOCATION(LOC_aTexcoord) attribute_in vec2 aTexcoord;
     // uProjectionMatrix/uViewMatrix change once per (frame or shadow pass),
     // not per object, so they're shared via a UBO instead of being resent
     // as individual uniforms on every draw; uModelMatrix is per-object and
-    // stays a plain uniform. GLES2 has no uniform buffer objects.
-    #if defined(GLES2)
-        uniform mat4 uProjectionMatrix, uViewMatrix, uModelMatrix;
-    #else
-        layout(std140) uniform GlobalMatrices {
-            mat4 uProjectionMatrix;
-            mat4 uViewMatrix;
-        };
-        uniform mat4 uModelMatrix;
-    #endif
+    // stays a plain uniform.
+    UBO_BINDING(BIND_GlobalMatrices) uniform GlobalMatrices {
+        mat4 uProjectionMatrix;
+        mat4 uViewMatrix;
+    };
+    uniform mat4 uModelMatrix;
 
     // Instanced
     #ifdef INSTANCED_RENDERING
-        attribute_in mat4 aInstancedTransform;
+        IO_LOCATION(LOC_aInstancedTransform) attribute_in mat4 aInstancedTransform;
     #endif
 
     #ifdef VELOCITY_RENDERING
         uniform mat4 uPrvProjectionMatrix, uPrvViewMatrix, uPrvModelMatrix;
-        varying_smooth_out vec4 vScreenSpaceWorldPosition;
-	varying_smooth_out vec4 vPrvScreenSpaceWorldPosition;
+        IO_LOCATION(LOC_vScreenSpaceWorldPosition) varying_smooth_out vec4 vScreenSpaceWorldPosition;
+	IO_LOCATION(LOC_vPrvScreenSpaceWorldPosition) varying_smooth_out vec4 vPrvScreenSpaceWorldPosition;
     #endif
 
     mat4 matAnimation = mat4(1.0);
@@ -196,7 +283,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 vWorldPosition=ModelMatrix * (matAnimation * vec4(Position,1.0));
             #endif
         #endif
-	
+
         #ifdef VELOCITY_RENDERING
                 vScreenSpaceWorldPosition=uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(Position,1.0);
                 vPrvScreenSpaceWorldPosition=uPrvProjectionMatrix * uPrvViewMatrix * uPrvModelMatrix * vec4(Position,1.0);
@@ -280,22 +367,28 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
 #ifdef FRAGMENT
 
-	// Fragment Color
-	#if defined(GLES2)
-		vec4 FragColor;
-	#else
-		#ifdef VELOCITY_RENDERING
-			out vec2 FragColor;
+	// Fragment Color. When DEFERRED_GBUFFER is also active, FragData_r/g/b
+	// below claim locations 0/1/2, so FragColor (unused by the G-buffer
+	// pass, but still assigned in main() below) is pinned to location 3
+	// instead - this matches what GL's implicit-location auto-assignment
+	// already does today when both are declared (it picks a location that
+	// doesn't collide with the explicit ones), just made static/explicit
+	// so SPIR-V (which requires every output to have one) can compile it.
+	#ifdef VELOCITY_RENDERING
+		#ifdef DEFERRED_GBUFFER
+			IO_LOCATION(3) out vec2 FragColor;
 		#else
-			out vec4 FragColor;
+			IO_LOCATION(0) out vec2 FragColor;
+		#endif
+	#else
+		#ifdef DEFERRED_GBUFFER
+			IO_LOCATION(3) out vec4 FragColor;
+		#else
+			IO_LOCATION(0) out vec4 FragColor;
 		#endif
 	#endif
 
     #if defined(DIFFUSE) || defined(CELLSHADING)
-
-        #if defined(GLES2)
-           float shadowBias;
-        #endif
 
         struct LIGHT
         {
@@ -360,13 +453,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         // it's still shared across every fragment of that object's draw
         // call, so a UBO still saves resending the whole array as
         // individual uniforms across every shader/material switch.
-        #if defined(GLES2)
-            uniform mat4 uLights[MAX_LIGHTS];
-        #else
-            layout(std140) uniform LightsBlock {
-                mat4 uLights[MAX_LIGHTS];
-            };
-        #endif
+        UBO_BINDING(BIND_LightsBlock) uniform LightsBlock {
+            mat4 uLights[MAX_LIGHTS];
+        };
         uniform int uNumberOfLights;
         uniform float uShininess;
         uniform float uUseLights;
@@ -384,32 +473,32 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     #endif
 
     #ifdef DEBUGRENDERING
-        varying_in vec4 vColor;
+        IO_LOCATION(LOC_vColor) varying_in vec4 vColor;
     #endif
 
     #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(SPECULARMAP) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING)
-        varying_in vec2 vTexcoord;
+        IO_LOCATION(LOC_vTexcoord) varying_in vec2 vTexcoord;
     #endif
 
     #ifdef TEXTURE
-        uniform sampler2D uColormap;
+        SAMPLER_BINDING(BIND_uColormap) uniform sampler2D uColormap;
     #endif
 
     #ifdef TEXTRENDERING
-        uniform sampler2D uFontmap;
+        SAMPLER_BINDING(BIND_uFontmap) uniform sampler2D uFontmap;
     #endif
 
     #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
-        varying_in vec3 vNormal;
+        IO_LOCATION(LOC_vNormal) varying_in vec3 vNormal;
     #endif
 
     #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING)
-        varying_in mat3 vTangentMatrix;
+        IO_LOCATION(LOC_vTangentMatrix) varying_in mat3 vTangentMatrix;
         #if defined(BUMPMAPPING)
-            uniform sampler2D uNormalmap;
+            SAMPLER_BINDING(BIND_uNormalmap) uniform sampler2D uNormalmap;
         #endif
         #if defined(PARALLAXMAPPING)
-            uniform sampler2D uDisplacementmap;
+            SAMPLER_BINDING(BIND_uDisplacementmap) uniform sampler2D uDisplacementmap;
             uniform float uDisplacementHeight;
 
             vec2 ParallaxMapping(vec2 texCoords, vec3 viewDir)
@@ -426,20 +515,12 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                vec2  currentTexCoords = texCoords;
                float currentDepthMapValue = texture_2D(uDisplacementmap, currentTexCoords).r;
 
-               #if defined(GLES2)
-               for(int i=0;i<100;i++)
-               if (currentLayerDepth < currentDepthMapValue)
-               #else
                while (currentLayerDepth < currentDepthMapValue)
-               #endif
                {
                    currentTexCoords -= deltaTexCoords;
                    currentDepthMapValue = texture_2D(uDisplacementmap, currentTexCoords).r;
                    currentLayerDepth += layerDepth;
                }
-               #if defined(GLES2)
-               else break;
-               #endif
 
                vec2 prevTexCoords = currentTexCoords + deltaTexCoords;
 
@@ -455,26 +536,17 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     #endif
 
 #if defined(DIRECTIONALSHADOW)
-    #if defined(GLES2)
-            float PCFDIRECTIONAL(sampler2D shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade)
-    #else
             float PCFDIRECTIONAL(sampler2DShadow shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade)
-    #endif
             {
                 vec4 coord = sMatrix * pos;
                 if (MoreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(width,height);
                 float shadow = 0.0;
                 float x = 0.0;
                 float y = 0.0;
-    #if defined(GLES2)
-                float shadowSample = DecodeFloatRGBA(texture2D(shadowMap, coord.xy));
-                shadow = shadowSample - coord.z + shadowBias < 0.0 ? 0.0:1.0;
-    #else
                 for (y = -1.5 ; y <=1.5 ; y+=1.0)
                     for (x = -1.5 ; x <=1.5 ; x+=1.0)
                         shadow += texture(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0)));
                 shadow /= 16.0;
-    #endif
                 return shadow;
             }
             // Same batching idea as GlobalMatrices/LightsBlock, for the
@@ -482,28 +554,15 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             // declared size but only element [0] is ever written or read -
             // it's a single vec4 whose 4 components are the per-cascade
             // far distances, not a real 4-element array.
-    #if defined(GLES2)
-            uniform mat4 uDirectionalDepthsMVP[4];
-            uniform vec4 uDirectionalShadowFar[4];
-    #else
-            layout(std140) uniform DirectionalShadowBlock {
+            UBO_BINDING(BIND_DirectionalShadowBlock) uniform DirectionalShadowBlock {
                 mat4 uDirectionalDepthsMVP[4];
                 vec4 uDirectionalShadowFar[4];
             };
-    #endif
-    #if defined(GLES2)
-            uniform sampler2D uDirectionalShadowMaps;
-    #else
-            uniform sampler2DShadow uDirectionalShadowMaps;
-    #endif
+            SAMPLER_BINDING(BIND_uDirectionalShadowMaps) uniform sampler2DShadow uDirectionalShadowMaps;
         #endif
 
         #ifdef POINTSHADOW
-    #if defined(GLES2)
-            float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos)
-    #else
             float PCFPOINT(samplerCubeShadow shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos)
-    #endif
             {
                 vec4 position_ls = Matrix2 * pos;
                 position_ls.xyz/=position_ls.w;
@@ -515,89 +574,67 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 float x = 0.0;
                 float y = 0.0;
 
-    #if defined(GLES2)
-                float shadowSample = DecodeFloatRGBA(texture_cube(shadowMap, position_ls.xyz));
-                shadow = shadowSample - depth + shadowBias < 0.0 ? 0.0:1.0;
-    #else
                 for (y = -1.5 ; y <=1.5 ; y+=1.0)
                     for (x = -1.5 ; x <=1.5 ; x+=1.0)
                         shadow += texture(shadowMap, vec4(position_ls.xyz, depth) + vec4(vec2(x,y) * scale,0.0,0.0));
                 shadow /= 16.0;
-    #endif
                 return shadow;
             }
             uniform int uNumberOfPointShadows;
-    #if defined(GLES2)
-            uniform mat4 uPointDepthsMVP[2];
-            uniform samplerCube uPointShadowMaps;
-    #else
             // Samplers can never be members of a uniform block, so
             // uPointShadowMaps stays a plain uniform; only the matrix array
             // moves to a UBO.
-            layout(std140) uniform PointShadowBlock {
+            UBO_BINDING(BIND_PointShadowBlock) uniform PointShadowBlock {
                 mat4 uPointDepthsMVP[8];
             };
-            uniform samplerCubeShadow uPointShadowMaps[4];
-    #endif
+            SAMPLER_BINDING(BIND_uPointShadowMaps) uniform samplerCubeShadow uPointShadowMaps[4];
         #endif
 
         #ifdef SPOTSHADOW
-    #if defined(GLES2)
-            float PCFSPOT(sampler2D shadowMap, mat4 sMatrix, float scale, vec4 pos)
-    #else
             float PCFSPOT(sampler2DShadow shadowMap, mat4 sMatrix, float scale, vec4 pos)
-    #endif
             {
                 vec4 coord = sMatrix * pos;
                 coord.xyz/=coord.w;
                 float shadow = 0.0;
-    #if defined(GLES2)
-                float shadowSample = DecodeFloatRGBA(texture2D(shadowMap, coord.x));
-                shadow = shadowSample - coord.z + shadowBias < 0.0 ? 0.0:1.0;
-    #else
                         shadow += texture(shadowMap, coord.xyz );
-    #endif
                 return shadow;
             }
 
-    #if defined(GLES2)
-            uniform sampler2D uSpotShadowMaps;
-            uniform mat4 uSpotDepthsMVP;
-    #else
-            uniform sampler2DShadow uSpotShadowMaps[4];
-            layout(std140) uniform SpotShadowBlock {
+            SAMPLER_BINDING(BIND_uSpotShadowMaps) uniform sampler2DShadow uSpotShadowMaps[4];
+            UBO_BINDING(BIND_SpotShadowBlock) uniform SpotShadowBlock {
                 mat4 uSpotDepthsMVP[4];
             };
-    #endif
             uniform int uNumberOfSpotShadows;
 #endif
 
     #if defined(DIRECTIONALSHADOW) || defined(POINTSHADOW) || defined(SPOTSHADOW)
-        varying_in vec4 vWorldPositionShadow;
+        IO_LOCATION(LOC_vWorldPositionShadow) varying_in vec4 vWorldPositionShadow;
     #endif
 
     #if defined(SKINNING) || defined(ENVMAP) || defined(PARALLAXMAPPING) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
-        varying_in vec4 vWorldPosition;
+        IO_LOCATION(LOC_vWorldPosition) varying_in vec4 vWorldPosition;
     #endif
- 
+
     #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) ||  defined(DIFFUSE) || defined(CELLSHADING)
-        varying_in vec3 vCameraPos;
+        IO_LOCATION(LOC_vCameraPos) varying_in vec3 vCameraPos;
     #endif
 
     #ifdef ENVMAP
-        uniform samplerCube uEnvmap;
+        SAMPLER_BINDING(BIND_uEnvmap) uniform samplerCube uEnvmap;
         uniform float uReflectivity;
     #endif
 
     #ifdef REFRACTION
-        uniform samplerCube uRefractmap;
-        varying_in float vReflectionFactor;
-        varying_in vec3 vTRed, vTGreen, vTBlue;
+        SAMPLER_BINDING(BIND_uRefractmap) uniform samplerCube uRefractmap;
+        IO_LOCATION(LOC_vReflectionFactor) varying_in float vReflectionFactor;
+        IO_LOCATION(LOC_vTRed) varying_in vec3 vTRed;
+        IO_LOCATION(LOC_vTGreen) varying_in vec3 vTGreen;
+        IO_LOCATION(LOC_vTBlue) varying_in vec3 vTBlue;
     #endif
 
     #ifdef SKYBOX
-        varying_in vec3 v3Texcoord;
-        uniform samplerCube uSkyboxmap;
+        IO_LOCATION(LOC_v3Texcoord) varying_in vec3 v3Texcoord;
+        SAMPLER_BINDING(BIND_uSkyboxmap) uniform samplerCube uSkyboxmap;
     #endif
 
     #ifdef SPECULARCOLOR
@@ -605,16 +642,14 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     #endif
 
     #ifdef SPECULARMAP
-        uniform sampler2D uSpecularmap;
+        SAMPLER_BINDING(BIND_uSpecularmap) uniform sampler2D uSpecularmap;
     #endif
 
     #ifdef DEFERRED_GBUFFER
-        varying_in vec4 gbuffer_normals;
-		#if !defined(GLES2)
-			layout(location = 0) out vec4 FragData_r;
-			layout(location = 1) out vec4 FragData_g;
-			layout(location = 2) out vec4 FragData_b;
-		#endif
+        IO_LOCATION(LOC_gbuffer_normals) varying_in vec4 gbuffer_normals;
+		layout(location = 0) out vec4 FragData_r;
+		layout(location = 1) out vec4 FragData_g;
+		layout(location = 2) out vec4 FragData_b;
     #endif
 
    #if defined(DIFFUSE) || defined(CELLSHADING) || defined(DEFERRED_GBUFFER)
@@ -622,15 +657,26 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
    #endif
 
    #if defined(DEFERRED_GBUFFER) && (defined(PARALLAXMAPPING) || defined(BUMPMAPPING))
-       varying_in mat4 vViewMatrix;
+       IO_LOCATION(LOC_vViewMatrix) varying_in mat4 vViewMatrix;
    #endif
 
    #ifdef VELOCITY_RENDERING
-	varying_smooth_in vec4 vScreenSpaceWorldPosition;
-	varying_smooth_in vec4 vPrvScreenSpaceWorldPosition;
+	IO_LOCATION(LOC_vScreenSpaceWorldPosition) varying_smooth_in vec4 vScreenSpaceWorldPosition;
+	IO_LOCATION(LOC_vPrvScreenSpaceWorldPosition) varying_smooth_in vec4 vPrvScreenSpaceWorldPosition;
    #endif
 
     void main() {
+
+        // gbuffer_normals is a fragment-stage input (the vertex-interpolated
+        // geometric normal); bump/parallax mapping below needs to replace it
+        // per-fragment with the normal-mapped result before it reaches
+        // FragData_b, which GLSL doesn't allow writing directly - shader
+        // inputs are read-only. gbufferNormal is the mutable local that
+        // actually gets written; it starts as a copy of the input so
+        // non-bump-mapped materials still output the vertex normal unchanged.
+        #ifdef DEFERRED_GBUFFER
+            vec4 gbufferNormal = gbuffer_normals;
+        #endif
 
         #ifdef COLOR
             if (!diffuseIsSet)
@@ -671,7 +717,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING)
                 Normal = normalize(transpose3(vTangentMatrix) * (texture_2D(uNormalmap, Texcoord).rgb * 2.0 - 1.0));
                 #if defined(DEFERRED_GBUFFER)
-                    gbuffer_normals.xyz = vViewMatrix * vec4(Normal,0);
+                    gbufferNormal.xyz = (vViewMatrix * vec4(Normal,0)).xyz;
                 #endif
             #else
                 Normal = vNormal;
@@ -759,9 +805,6 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                         #ifdef DIRECTIONALSHADOW
                             float DirectionalShadow = 1.0;
                             if (L.HaveShadowMap) {
-                                #if defined(GLES2)
-                                   shadowBias = max(0.001 * (1.0 - dot(Normal, LightDir)), 0.00001);
-                                #endif
                                 bool MoreThanOneCascade = (uDirectionalShadowFar[0].y>0.0);
                                 if (gl_FragCoord.z<uDirectionalShadowFar[0].x) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.0, uDirectionalDepthsMVP[0],L.PCFTexelSize,vWorldPositionShadow, MoreThanOneCascade);
                                 else if (gl_FragCoord.z<uDirectionalShadowFar[0].y) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.0, uDirectionalDepthsMVP[1],L.PCFTexelSize,vWorldPositionShadow, MoreThanOneCascade);
@@ -795,12 +838,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                             if (attenuation>0.0 && L.HaveShadowMap)
                             {
                                 PointShadow = 0.0;
-                                #if defined(GLES2)
-                                   shadowBias = max(0.001 * (1.0 - dot(Normal, LightDir)), 0.00001);
-                                   PointShadow=PCFPOINT(uPointShadowMaps,uPointDepthsMVP[0],uPointDepthsMVP[1],L.PCFTexelSize,vWorldPositionShadow);
-                                #else
-                                   PointShadow+=PCFPOINT(uPointShadowMaps[0],uPointDepthsMVP[(L.ShadowMap*2)],uPointDepthsMVP[(L.ShadowMap*2+1)],L.PCFTexelSize,vWorldPositionShadow);
-                                #endif
+                                PointShadow+=PCFPOINT(uPointShadowMaps[0],uPointDepthsMVP[(L.ShadowMap*2)],uPointDepthsMVP[(L.ShadowMap*2+1)],L.PCFTexelSize,vWorldPositionShadow);
                             }
                             _diffuse += vec4(lightIntensity * L.Color.xyz * attenuation * PointShadow, lightIntensity * L.Color.w);
                             _specular += vec4(specularPower * L.Color.xyz * attenuation * specular.xyz * PointShadow, specularPower * L.Color.w * specular.w);
@@ -829,12 +867,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                             if (spotEffect>0.0 && attenuation>0.0 && L.HaveShadowMap)
                             {
                                 SpotShadow = 0.0;
-                                #if defined(GLES2)
-                                   shadowBias = max(0.001 * (1.0 - dot(Normal, LightDir)), 0.00001);
-                                   SpotShadow=PCFSPOT(uSpotShadowMaps,uSpotDepthsMVP,L.PCFTexelSize,vWorldPositionShadow);
-                                #else
-                                   SpotShadow+=PCFSPOT(uSpotShadowMaps[0],uSpotDepthsMVP[L.ShadowMap],L.PCFTexelSize,vWorldPositionShadow);
-                                #endif
+                                SpotShadow+=PCFSPOT(uSpotShadowMaps[0],uSpotDepthsMVP[L.ShadowMap],L.PCFTexelSize,vWorldPositionShadow);
                             }
                             _diffuse += vec4(lightIntensity * L.Color.xyz * spotEffect * attenuation * SpotShadow, lightIntensity * L.Color.w);
                             _specular += vec4(specularPower * L.Color.xyz * spotEffect * attenuation * specular.xyz * SpotShadow, specularPower * L.Color.w * specular.w);
@@ -865,15 +898,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         #endif
 
         #ifdef DEFERRED_GBUFFER
-		#if defined(GLES2)
-			gl_FragData[0]=vec4(diffuse.xyz,diffuse.x*uAmbientLight.x);
-			gl_FragData[1]=vec4(specular.xyz,diffuse.y*uAmbientLight.y);
-			gl_FragData[2]=vec4(gbuffer_normals.xyz,diffuse.z*uAmbientLight.z);
-		#else
-			FragData_r=vec4(diffuse.xyz,diffuse.x*uAmbientLight.x);
-			FragData_g=vec4(specular.xyz,diffuse.y*uAmbientLight.y);
-			FragData_b=vec4(gbuffer_normals.xyz,diffuse.z*uAmbientLight.z);
-		#endif
+		FragData_r=vec4(diffuse.xyz,diffuse.x*uAmbientLight.x);
+		FragData_g=vec4(specular.xyz,diffuse.y*uAmbientLight.y);
+		FragData_b=vec4(gbufferNormal.xyz,diffuse.z*uAmbientLight.z);
 	#endif
 
 	#ifdef VELOCITY_RENDERING
@@ -884,10 +911,6 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		FragColor = vec4(diffuse.xyz,diffuse.w*uOpacity);
         #endif
 
-	#if defined(GLES2)
-		gl_FragColor = FragColor;
-	#endif
-	
     }
 
 #endif

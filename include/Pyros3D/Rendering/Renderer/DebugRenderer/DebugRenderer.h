@@ -6,6 +6,8 @@
 #include <Pyros3D/Materials/Shaders/Uniforms.h>
 #include <Pyros3D/Other/Export.h>
 #include <Pyros3D/Core/Buffers/GeometryBuffer.h>
+#include <Pyros3D/Rendering/Device/IRenderDevice.h>
+#include <memory>
 
 namespace p3d {
 
@@ -60,6 +62,11 @@ namespace p3d {
 		GeometryBuffer* PointsBF;
 		GeometryBuffer* ColorPointsBF;
 		GeometryBuffer* PointsSizeBF;
+
+		// See IRenderDevice.h - same seam IRenderer uses, since
+		// DebugRenderer doesn't inherit IRenderer and has its own small
+		// GL call surface.
+		std::unique_ptr<IRenderDevice> device;
 
 	};
 

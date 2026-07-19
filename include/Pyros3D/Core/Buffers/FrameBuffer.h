@@ -85,6 +85,22 @@ namespace p3d {
 		};
 	}
 
+	// Engine-neutral form of the glCheckFramebufferStatus() result, so
+	// CheckFBOStatus() can switch without depending on raw GL_FRAMEBUFFER_*
+	// tokens - see IRenderDevice::TranslateFramebufferStatus().
+	namespace FBOStatus
+	{
+		enum {
+			Complete = 0,
+			IncompleteAttachment,
+			IncompleteMissingAttachment,
+			IncompleteDrawBuffer,
+			IncompleteReadBuffer,
+			Unsupported,
+			Unknown
+		};
+	}
+
 	class PYROS3D_API FBOAttachment
 	{
 	public:

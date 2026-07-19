@@ -72,7 +72,6 @@ namespace p3d {
 		// instead of re-issuing glEnableVertexAttribArray/glVertexAttribPointer
 		// per attribute on every switch. Keyed by shader because attribute
 		// locations can differ across shader variants using this mesh.
-		// Not used on GLES2, which has no VAOs.
 		std::map<uint32, uint32> VAOCache;
 
 		// Materials

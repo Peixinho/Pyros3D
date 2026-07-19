@@ -16,7 +16,7 @@ vec2 ParallaxMapping(sampler2D DisplacementMap, float DisplacementHeight, vec2 t
     vec2  currentTexCoords = texCoords;
     float currentDepthMapValue = texture(DisplacementMap, currentTexCoords).r;
     
-    #if defined(GLES2) || defined(EMSCRIPTEN)
+    #if defined(EMSCRIPTEN)
     for(int i=0;i<100;i++)
     if (currentLayerDepth < currentDepthMapValue)
     #else
@@ -27,7 +27,7 @@ vec2 ParallaxMapping(sampler2D DisplacementMap, float DisplacementHeight, vec2 t
         currentDepthMapValue = texture(DisplacementMap, currentTexCoords).r;
         currentLayerDepth += layerDepth;
     }
-    #if defined(GLES2) || defined(EMSCRIPTEN)
+    #if defined(EMSCRIPTEN)
     else break;
     #endif
     

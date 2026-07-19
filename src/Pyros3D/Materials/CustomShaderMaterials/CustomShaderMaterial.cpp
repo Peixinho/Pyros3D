@@ -18,9 +18,6 @@ namespace p3d
 		{
 
 			std::string define;
-#if defined(GLES2)
-			define += std::string("#define GLES2\n");
-#endif
 #if defined(GLES3)
 			define += std::string("#define GLES3\n");
 #endif

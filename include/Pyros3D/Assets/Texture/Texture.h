@@ -123,7 +123,7 @@ namespace p3d {
 		void GetGLModes();
 		void GetInternalFormat();
 
-#if !defined(GLES2) && !defined(GLES3)
+#if !defined(GLES3)
 		bool LoadDDS(uchar* data, bool Mipmapping = true, const uint32 level = 0);
 #else
 		bool LoadETC1(uchar* data, bool Mipmapping = true, const uint32 level = 0);

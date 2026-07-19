@@ -6,7 +6,7 @@ bin
 premake5.exe
 premake5
 genie
-include
+include/*
 libs
 build*
 !include/Pyros3D

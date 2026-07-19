@@ -7,22 +7,28 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
-#include <Pyros3D/Other/PyrosGL.h>
+#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 
 namespace p3d {
+
+	// GLRenderDevice holds no state, so every RenderingMesh sharing one
+	// lazily-constructed instance is cheap - same pattern as
+	// GeometryBuffer.cpp/Shaders.cpp/Texture.cpp/FrameBuffer.cpp.
+	static IRenderDevice& Device()
+	{
+		static GLRenderDevice instance;
+		return instance;
+	}
 
 	// Initialize Rendering Components vector
 	std::vector<IComponent*> RenderingComponent::Components;
 
 	RenderingMesh::~RenderingMesh()
 	{
-#ifndef GLES2
 		for (std::map<uint32, uint32>::iterator i = VAOCache.begin(); i != VAOCache.end(); i++)
 		{
-			GLuint vao = i->second;
-			GLCHECKER(glDeleteVertexArrays(1, &vao));
+			Device().DeleteVertexArray(i->second);
 		}
-#endif
 	}
 
 	RenderingComponent::RenderingComponent(Renderable* renderable, IMaterial* Material, const f32 Distance) : IComponent()
