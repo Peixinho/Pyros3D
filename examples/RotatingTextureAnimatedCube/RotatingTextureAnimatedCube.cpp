@@ -179,7 +179,6 @@ void RotatingTextureAnimatedCube::Shutdown()
 	delete rCube;
 	delete CubeObject;
 	delete cubeMesh;
-	delete Renderer;
 	delete tex0;
 	delete tex1;
 	delete tex2;
@@ -187,6 +186,7 @@ void RotatingTextureAnimatedCube::Shutdown()
 	delete tex4;
 	delete tex5;
 
+	// Renderer is deleted by BaseExample::Shutdown()
 	BaseExample::Shutdown();
 }
 

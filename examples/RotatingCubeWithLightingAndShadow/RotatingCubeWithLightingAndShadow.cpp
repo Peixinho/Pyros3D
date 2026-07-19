@@ -215,14 +215,12 @@ void RotatingCubeWithLightingAndShadow::Shutdown()
 	delete Ceiling;
 	delete cubeMesh;
 	delete floorMesh;
-	delete dLight;
-	delete Light;
 	delete pLight;
 	delete Light2;
 	delete Diffuse;
 	delete FloorMaterial;
-	delete Renderer;
-	
+
+	// dLight, Light, Renderer are deleted by BaseExample::Shutdown()
 	BaseExample::Shutdown();
 }
 

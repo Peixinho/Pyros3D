@@ -148,8 +148,8 @@ void ParticlesExample::Shutdown()
 	delete gSmoke2;
 	delete smokeParticle1;
 	delete smokeParticle2;
-	delete Renderer;
 
+	// Renderer is deleted by BaseExample::Shutdown()
 	BaseExample::Shutdown();
 }
 

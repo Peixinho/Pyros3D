@@ -219,12 +219,10 @@ void ScreenSpaceReflection::Shutdown()
 	delete gFloor;
 	delete floor;
 	delete teapot;
-	delete dLight;
-	delete Light;
-	delete Renderer;
 	delete EffectManager; // This will delete all effects including ssr and ssrFinal
 	// Don't delete ssr and ssrFinal manually - EffectManager handles it
 
+	// dLight, Light, Renderer are deleted by BaseExample::Shutdown()
 	// Call parent Shutdown last
 	BaseExample::Shutdown();
 }

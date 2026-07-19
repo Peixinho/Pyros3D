@@ -122,10 +122,8 @@ void RotatingCube::Shutdown()
 	delete rCube;
 	delete CubeObject;
 	delete Diffuse;
-	delete dLight;
-	delete Light;
-	delete Renderer;
 
+	// dLight, Light, Renderer are deleted by BaseExample::Shutdown()
 	BaseExample::Shutdown();
 }
 

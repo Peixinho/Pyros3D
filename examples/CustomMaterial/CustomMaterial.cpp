@@ -141,7 +141,8 @@ void CustomMaterial::Shutdown()
 	delete CubeObject;
 	delete cubeMesh;
 	delete Material;
-	delete Renderer;
+
+	// Renderer is deleted by BaseExample::Shutdown()
 	BaseExample::Shutdown();
 }
 

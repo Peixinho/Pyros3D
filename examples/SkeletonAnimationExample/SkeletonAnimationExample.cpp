@@ -224,8 +224,8 @@ void SkeletonAnimationExample::Shutdown()
 	delete rModel;
 	delete ModelObject;
 	delete modelHandle;
-	delete Renderer;
 
+	// Renderer is deleted by BaseExample::Shutdown()
 	BaseExample::Shutdown();
 }
 

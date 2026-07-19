@@ -149,8 +149,8 @@ void RotatingTexturedCube::Shutdown()
 	delete rCube;
 	delete CubeObject;
 	delete cubeMesh;
-	delete Renderer;
 
+	// Renderer is deleted by BaseExample::Shutdown()
 	BaseExample::Shutdown();
 }
 

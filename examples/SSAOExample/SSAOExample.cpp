@@ -203,8 +203,7 @@ void SSAOExample::Shutdown()
 	delete rFloor;
 	delete floor;
 
-
-	delete Renderer;
+	// Renderer is deleted by BaseExample::Shutdown()
 	delete EffectManager;
 
 	BaseExample::Shutdown();

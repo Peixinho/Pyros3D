@@ -240,8 +240,6 @@ void SimplePhysics::Shutdown()
 	Light->Remove(dLight);
 
 	// Delete All Components and GameObjects
-	delete dLight;
-	delete Light;
 	delete rFloor;
 	delete pFloor;
 	delete Floor;
@@ -249,8 +247,8 @@ void SimplePhysics::Shutdown()
 	delete floorHandle;
 	delete physics;
 	delete Diffuse;
-	delete Renderer;
 
+	// dLight, Light, Renderer are deleted by BaseExample::Shutdown()
 	BaseExample::Shutdown();
 }
 

@@ -198,13 +198,11 @@ void PickingPainterMethod::Shutdown()
 
 	// Delete All Components and GameObjects
 	delete cubeHandle;
-	delete dLight;
-	delete Light;
 	delete picking;
 	delete SelectedMaterial;
 	delete UnselectedMaterial;
-	delete Renderer;
 
+	// dLight, Light, Renderer are deleted by BaseExample::Shutdown()
 	BaseExample::Shutdown();
 }
 
