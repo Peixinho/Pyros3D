@@ -8,6 +8,7 @@
 
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Other/PyrosGL.h>
+#include <cstring>
 
 // Must match MAX_LIGHTS in resources/shaders/PyrosShader.glsl - sizes and
 // fills the LightsUBO backing that shader's uLights[MAX_LIGHTS] block.
@@ -26,6 +27,27 @@ uint32 IRenderer::_viewPortStartX = 0;
 uint32 IRenderer::_viewPortStartY = 0;
 uint32 IRenderer::_viewPortEndX = 0;
 uint32 IRenderer::_viewPortEndY = 0;
+
+// Shared UBOs (see IRenderer.h for why these are static/refcounted rather
+// than per-instance) and their dirty-tracking cache.
+uint32 IRenderer::SharedUBORefCount = 0;
+uint32 IRenderer::GlobalMatricesUBO = 0;
+uint32 IRenderer::LightsUBO = 0;
+uint32 IRenderer::DirectionalShadowUBO = 0;
+uint32 IRenderer::PointShadowUBO = 0;
+uint32 IRenderer::SpotShadowUBO = 0;
+bool IRenderer::GlobalMatricesUBOValid = false;
+Matrix IRenderer::CachedProjectionMatrix;
+Matrix IRenderer::CachedViewMatrix;
+bool IRenderer::LightsUBOValid = false;
+std::vector<Matrix> IRenderer::CachedLights;
+bool IRenderer::DirectionalShadowUBOValid = false;
+std::vector<Matrix> IRenderer::CachedDirectionalShadowMatrix;
+Vec4 IRenderer::CachedDirectionalShadowFar;
+bool IRenderer::PointShadowUBOValid = false;
+std::vector<Matrix> IRenderer::CachedPointShadowMatrix;
+bool IRenderer::SpotShadowUBOValid = false;
+std::vector<Matrix> IRenderer::CachedSpotShadowMatrix;
 
 namespace Sort {
 
@@ -95,10 +117,10 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 }
 
 // DebugRenderer uses this constructor and never calls RenderObject()/
-// SendGlobalUniforms(), so GlobalMatricesUBO/LightsUBO are never actually
-// used here - left at 0 (glDeleteBuffers on 0 is a documented no-op)
-// rather than creating UBOs nothing will upload to.
-IRenderer::IRenderer() : GlobalMatricesUBO(0), LightsUBO(0), DirectionalShadowUBO(0), PointShadowUBO(0), SpotShadowUBO(0) {}
+// SendGlobalUniforms(), so it doesn't touch the shared UBOs at all - in
+// particular it must NOT bump SharedUBORefCount, since it will never
+// decrement it on destruction either (see ~IRenderer()).
+IRenderer::IRenderer() : UsesSharedUBOs(false) {}
 
 IRenderer::IRenderer(const uint32 Width, const uint32 Height)
 {
@@ -135,6 +157,13 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height)
 	ClipPlane = false;
 	IsCulling = false;
 
+	// GlobalMatricesUBOValid etc. are NOT reset here - they're static/shared
+	// (see IRenderer.h), already correctly initialized to false exactly
+	// once at program start, and must stay whatever they currently are if
+	// another IRenderer instance is already alive and has valid data
+	// uploaded to the shared UBOs.
+	UsesSharedUBOs = true;
+
 	// Shadows materials
 	shadowMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows);
 	shadowMaterial->SetCullFace(CullFace::DoubleSided);
@@ -142,46 +171,52 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height)
 	shadowSkinnedMaterial->SetCullFace(CullFace::DoubleSided);
 
 #ifndef GLES2
-	// Global matrices UBO: sized for uProjectionMatrix + uViewMatrix,
-	// bound to binding point 0 for the lifetime of the renderer. Contents
-	// are uploaded in SendGlobalUniforms().
-	GLCHECKER(glGenBuffers(1, (GLuint*)&GlobalMatricesUBO));
-	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, GlobalMatricesUBO));
-	GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * 2, NULL, GL_DYNAMIC_DRAW));
-	GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 0, GlobalMatricesUBO));
-	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+	// Created once, by whichever IRenderer instance happens to be first -
+	// see the "shared/static" comment on these members in IRenderer.h.
+	// Later instances just add themselves to the refcount below.
+	if (SharedUBORefCount == 0)
+	{
+		// Global matrices UBO: sized for uProjectionMatrix + uViewMatrix,
+		// bound to binding point 0. Contents are uploaded in SendGlobalUniforms().
+		GLCHECKER(glGenBuffers(1, (GLuint*)&GlobalMatricesUBO));
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, GlobalMatricesUBO));
+		GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * 2, NULL, GL_DYNAMIC_DRAW));
+		GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 0, GlobalMatricesUBO));
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
 
-	// Lights UBO: sized for uLights[PYROS_MAX_LIGHTS], bound to binding
-	// point 1. Contents are uploaded in SendGlobalUniforms().
-	GLCHECKER(glGenBuffers(1, (GLuint*)&LightsUBO));
-	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, LightsUBO));
-	GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_LIGHTS, NULL, GL_DYNAMIC_DRAW));
-	GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 1, LightsUBO));
-	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+		// Lights UBO: sized for uLights[PYROS_MAX_LIGHTS], bound to binding
+		// point 1. Contents are uploaded in SendGlobalUniforms().
+		GLCHECKER(glGenBuffers(1, (GLuint*)&LightsUBO));
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, LightsUBO));
+		GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_LIGHTS, NULL, GL_DYNAMIC_DRAW));
+		GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 1, LightsUBO));
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
 
-	// Directional shadow UBO (binding point 2): PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES
-	// cascade matrices followed by uDirectionalShadowFar[4] (std140 needs
-	// no padding between them - the matrix array's size is already a
-	// multiple of vec4's 16-byte alignment).
-	GLCHECKER(glGenBuffers(1, (GLuint*)&DirectionalShadowUBO));
-	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, DirectionalShadowUBO));
-	GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES + sizeof(Vec4) * 4, NULL, GL_DYNAMIC_DRAW));
-	GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 2, DirectionalShadowUBO));
-	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+		// Directional shadow UBO (binding point 2): PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES
+		// cascade matrices followed by uDirectionalShadowFar[4] (std140 needs
+		// no padding between them - the matrix array's size is already a
+		// multiple of vec4's 16-byte alignment).
+		GLCHECKER(glGenBuffers(1, (GLuint*)&DirectionalShadowUBO));
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, DirectionalShadowUBO));
+		GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES + sizeof(Vec4) * 4, NULL, GL_DYNAMIC_DRAW));
+		GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 2, DirectionalShadowUBO));
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
 
-	// Point shadow UBO (binding point 3): PYROS_MAX_POINT_SHADOW_MATRICES matrices.
-	GLCHECKER(glGenBuffers(1, (GLuint*)&PointShadowUBO));
-	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, PointShadowUBO));
-	GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_POINT_SHADOW_MATRICES, NULL, GL_DYNAMIC_DRAW));
-	GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 3, PointShadowUBO));
-	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+		// Point shadow UBO (binding point 3): PYROS_MAX_POINT_SHADOW_MATRICES matrices.
+		GLCHECKER(glGenBuffers(1, (GLuint*)&PointShadowUBO));
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, PointShadowUBO));
+		GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_POINT_SHADOW_MATRICES, NULL, GL_DYNAMIC_DRAW));
+		GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 3, PointShadowUBO));
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
 
-	// Spot shadow UBO (binding point 4): PYROS_MAX_SPOT_SHADOW_MATRICES matrices.
-	GLCHECKER(glGenBuffers(1, (GLuint*)&SpotShadowUBO));
-	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, SpotShadowUBO));
-	GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_SPOT_SHADOW_MATRICES, NULL, GL_DYNAMIC_DRAW));
-	GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 4, SpotShadowUBO));
-	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+		// Spot shadow UBO (binding point 4): PYROS_MAX_SPOT_SHADOW_MATRICES matrices.
+		GLCHECKER(glGenBuffers(1, (GLuint*)&SpotShadowUBO));
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, SpotShadowUBO));
+		GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_SPOT_SHADOW_MATRICES, NULL, GL_DYNAMIC_DRAW));
+		GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, 4, SpotShadowUBO));
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+	}
+	SharedUBORefCount++;
 #endif
 }
 
@@ -233,11 +268,29 @@ void IRenderer::_SetViewPort(const uint32 initX, const uint32 initY, const uint3
 IRenderer::~IRenderer()
 {
 #ifndef GLES2
-	GLCHECKER(glDeleteBuffers(1, (GLuint*)&GlobalMatricesUBO));
-	GLCHECKER(glDeleteBuffers(1, (GLuint*)&LightsUBO));
-	GLCHECKER(glDeleteBuffers(1, (GLuint*)&DirectionalShadowUBO));
-	GLCHECKER(glDeleteBuffers(1, (GLuint*)&PointShadowUBO));
-	GLCHECKER(glDeleteBuffers(1, (GLuint*)&SpotShadowUBO));
+	// UsesSharedUBOs is false for instances built via the no-arg
+	// IRenderer() (DebugRenderer) - they never incremented SharedUBORefCount
+	// in the constructor, so they must not decrement it here either.
+	if (UsesSharedUBOs)
+	{
+		SharedUBORefCount--;
+		if (SharedUBORefCount == 0)
+		{
+			GLCHECKER(glDeleteBuffers(1, (GLuint*)&GlobalMatricesUBO));
+			GLCHECKER(glDeleteBuffers(1, (GLuint*)&LightsUBO));
+			GLCHECKER(glDeleteBuffers(1, (GLuint*)&DirectionalShadowUBO));
+			GLCHECKER(glDeleteBuffers(1, (GLuint*)&PointShadowUBO));
+			GLCHECKER(glDeleteBuffers(1, (GLuint*)&SpotShadowUBO));
+			// The next IRenderer instance (if any) will create brand new
+			// (empty) buffers - the dirty-tracking cache must not survive
+			// to wrongly skip that instance's first upload.
+			GlobalMatricesUBOValid = false;
+			LightsUBOValid = false;
+			DirectionalShadowUBOValid = false;
+			PointShadowUBOValid = false;
+			SpotShadowUBOValid = false;
+		}
+	}
 #endif
 	delete shadowMaterial;
 	delete shadowSkinnedMaterial;
@@ -1493,60 +1546,97 @@ void IRenderer::UpdateCulling(const Matrix& ViewProjectionMatrix)
 void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 {
 #ifndef GLES2
-	// Upload uProjectionMatrix + uViewMatrix into the shared UBO. Runs at
-	// the same frequency this function always ran at (every mesh/material
-	// switch) so shadow passes - which reassign ProjectionMatrix/ViewMatrix
-	// to the shadow-casting light's view and call this again for the
-	// shadow material - still see the correct values; this is not a
-	// once-per-frame upload.
-	Matrix globalMatricesData[2] = { ProjectionMatrix, ViewMatrix };
-	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, GlobalMatricesUBO));
-	GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * 2, globalMatricesData));
-	GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+	// Upload uProjectionMatrix + uViewMatrix into the shared UBO, but only
+	// when they've actually changed since the last upload (compared
+	// byte-for-byte against CachedProjectionMatrix/CachedViewMatrix) -
+	// skips the GPU upload on the (common) case of several consecutive
+	// mesh/material switches within the same pass. Shadow passes, which
+	// reassign ProjectionMatrix/ViewMatrix to the shadow-casting light's
+	// view before calling this again for the shadow material, still upload
+	// correctly - they just don't match the cache, so the comparison itself
+	// is what decides freshness, not any assumption about when these change.
+	if (!GlobalMatricesUBOValid ||
+		memcmp(&CachedProjectionMatrix, &ProjectionMatrix, sizeof(Matrix)) != 0 ||
+		memcmp(&CachedViewMatrix, &ViewMatrix, sizeof(Matrix)) != 0)
+	{
+		Matrix globalMatricesData[2] = { ProjectionMatrix, ViewMatrix };
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, GlobalMatricesUBO));
+		GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * 2, globalMatricesData));
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+		CachedProjectionMatrix = ProjectionMatrix;
+		CachedViewMatrix = ViewMatrix;
+		GlobalMatricesUBOValid = true;
+	}
 
-	// Same as above for uLights[]: Lights/NumberOfLights are rebuilt per
-	// object (each object only gets its nearby lights - see ForwardRenderer/
-	// DeferredRenderer's RenderScene()), and this function already runs on
-	// every mesh/material switch, which in practice means every object, so
-	// uploading here keeps the same freshness the old per-uniform send had.
+	// Same idea for uLights[]. Lights/NumberOfLights are rebuilt per object
+	// (each object only gets its nearby lights - see ForwardRenderer/
+	// DeferredRenderer's RenderScene()), so in practice this will usually
+	// find a change and upload anyway, but it's free insurance for the
+	// case where consecutive objects happen to see the same light set.
 	if (Lights.size() > 0)
 	{
 		uint32 lightsToUpload = NumberOfLights < PYROS_MAX_LIGHTS ? NumberOfLights : PYROS_MAX_LIGHTS;
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, LightsUBO));
-		GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * lightsToUpload, &Lights[0]));
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+		if (!LightsUBOValid || CachedLights.size() != lightsToUpload ||
+			memcmp(&CachedLights[0], &Lights[0], sizeof(Matrix) * lightsToUpload) != 0)
+		{
+			GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, LightsUBO));
+			GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * lightsToUpload, &Lights[0]));
+			GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+			CachedLights.assign(Lights.begin(), Lights.begin() + lightsToUpload);
+			LightsUBOValid = true;
+		}
 	}
 
 	// Shadow matrices: computed once at the start of RenderScene() (not
-	// per-object like Lights), so these uploads are effectively constant
-	// across a whole main pass - still uploaded at the same per-switch
-	// cadence as everything else here for consistency with the old
-	// per-uniform sends.
+	// per-object like Lights), so these are constant across a whole main
+	// pass - this is the case where skipping redundant uploads actually
+	// matters, since the old code resent all three arrays on every single
+	// mesh/material switch for the entire pass regardless.
 	if (DirectionalShadowMatrix.size() > 0)
 	{
 		uint32 count = DirectionalShadowMatrix.size() < PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES ? DirectionalShadowMatrix.size() : PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES;
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, DirectionalShadowUBO));
-		GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * count, &DirectionalShadowMatrix[0]));
-		// uDirectionalShadowFar[4] starts right after the matrix array;
-		// only element [0] is ever read in the shader (its 4 components are
-		// the per-cascade far distances), so only it is uploaded here -
-		// matching what the old individual-uniform send did.
-		GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES, sizeof(Vec4), &DirectionalShadowFar));
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+		if (!DirectionalShadowUBOValid || CachedDirectionalShadowMatrix.size() != count ||
+			memcmp(&CachedDirectionalShadowMatrix[0], &DirectionalShadowMatrix[0], sizeof(Matrix) * count) != 0 ||
+			memcmp(&CachedDirectionalShadowFar, &DirectionalShadowFar, sizeof(Vec4)) != 0)
+		{
+			GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, DirectionalShadowUBO));
+			GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * count, &DirectionalShadowMatrix[0]));
+			// uDirectionalShadowFar[4] starts right after the matrix array;
+			// only element [0] is ever read in the shader (its 4 components
+			// are the per-cascade far distances), so only it is uploaded
+			// here - matching what the old individual-uniform send did.
+			GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, sizeof(Matrix) * PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES, sizeof(Vec4), &DirectionalShadowFar));
+			GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+			CachedDirectionalShadowMatrix.assign(DirectionalShadowMatrix.begin(), DirectionalShadowMatrix.begin() + count);
+			CachedDirectionalShadowFar = DirectionalShadowFar;
+			DirectionalShadowUBOValid = true;
+		}
 	}
 	if (PointShadowMatrix.size() > 0)
 	{
 		uint32 count = PointShadowMatrix.size() < PYROS_MAX_POINT_SHADOW_MATRICES ? PointShadowMatrix.size() : PYROS_MAX_POINT_SHADOW_MATRICES;
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, PointShadowUBO));
-		GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * count, &PointShadowMatrix[0]));
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+		if (!PointShadowUBOValid || CachedPointShadowMatrix.size() != count ||
+			memcmp(&CachedPointShadowMatrix[0], &PointShadowMatrix[0], sizeof(Matrix) * count) != 0)
+		{
+			GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, PointShadowUBO));
+			GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * count, &PointShadowMatrix[0]));
+			GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+			CachedPointShadowMatrix.assign(PointShadowMatrix.begin(), PointShadowMatrix.begin() + count);
+			PointShadowUBOValid = true;
+		}
 	}
 	if (SpotShadowMatrix.size() > 0)
 	{
 		uint32 count = SpotShadowMatrix.size() < PYROS_MAX_SPOT_SHADOW_MATRICES ? SpotShadowMatrix.size() : PYROS_MAX_SPOT_SHADOW_MATRICES;
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, SpotShadowUBO));
-		GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * count, &SpotShadowMatrix[0]));
-		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+		if (!SpotShadowUBOValid || CachedSpotShadowMatrix.size() != count ||
+			memcmp(&CachedSpotShadowMatrix[0], &SpotShadowMatrix[0], sizeof(Matrix) * count) != 0)
+		{
+			GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, SpotShadowUBO));
+			GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Matrix) * count, &SpotShadowMatrix[0]));
+			GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+			CachedSpotShadowMatrix.assign(SpotShadowMatrix.begin(), SpotShadowMatrix.begin() + count);
+			SpotShadowUBOValid = true;
+		}
 	}
 #endif
 

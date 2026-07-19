@@ -329,26 +329,70 @@ namespace p3d {
 		std::unique_ptr<FrustumCulling>
 			culling;
 
+		// True only for instances built via IRenderer(Width, Height) - the
+		// no-arg IRenderer() used by DebugRenderer never touches the shared
+		// UBOs below, so it must not increment SharedUBORefCount either;
+		// this flag is what tells ~IRenderer() whether it owes a decrement.
+		bool UsesSharedUBOs;
+
+		// GL binding points (0-4) are context-global, not per-object, so
+		// these UBOs - and the dirty-tracking cache of what's currently
+		// uploaded to each - are shared/static across every IRenderer
+		// instance rather than per-instance. Per-instance UBOs each calling
+		// glBindBufferBase(..., 0, ownUBO) in their own constructor would
+		// mean the most-recently-constructed instance silently steals
+		// binding point 0 (etc.) from every earlier one - which happens for
+		// real whenever two renderers coexist, e.g. PickingPainterMethod's
+		// ForwardRenderer + PainterPick. Reference-counted: created when
+		// the first instance is constructed, destroyed when the last one
+		// (of any IRenderer-derived type) is destroyed.
+		static uint32 SharedUBORefCount;
+
 		// GL Uniform Buffer Object holding uProjectionMatrix + uViewMatrix
 		// (std140: 2 mat4, 128 bytes), bound once to binding point 0 and
 		// re-uploaded via glBufferSubData in SendGlobalUniforms() instead of
 		// resending both as individual glUniform calls on every mesh/material
 		// switch. Not used on GLES2, which has no uniform buffer objects -
 		// PyrosShader.glsl falls back to plain uniforms there.
-		uint32 GlobalMatricesUBO;
+		static uint32 GlobalMatricesUBO;
 
 		// Same idea for PyrosShader.glsl's uLights[MAX_LIGHTS] array (bound
 		// to binding point 1). Sized/uploaded for up to PYROS_MAX_LIGHTS
 		// entries - keep in sync with PyrosShader.glsl's own MAX_LIGHTS.
-		uint32 LightsUBO;
+		static uint32 LightsUBO;
 
 		// Same idea for the shadow-casting matrix arrays (DirectionalShadowBlock/
 		// PointShadowBlock/SpotShadowBlock, binding points 2/3/4). Each is
 		// sized to match its shader-side array declaration exactly - see
 		// the PYROS_MAX_*_SHADOWS #defines in IRenderer.cpp.
-		uint32 DirectionalShadowUBO;
-		uint32 PointShadowUBO;
-		uint32 SpotShadowUBO;
+		static uint32 DirectionalShadowUBO;
+		static uint32 PointShadowUBO;
+		static uint32 SpotShadowUBO;
+
+		// Last-uploaded contents of each UBO above, compared byte-for-byte
+		// in SendGlobalUniforms() to skip the glBufferSubData call (and the
+		// GPU upload/driver round-trip it costs) when the source data
+		// hasn't actually changed since the last mesh/material switch -
+		// which for the shadow matrices in particular (computed once per
+		// RenderScene() call, not per object) is most of the time. Static
+		// for the same reason the UBOs themselves are: this cache describes
+		// the one shared buffer's actual GPU-side contents, not anything
+		// instance-local, so a per-instance cache could wrongly believe its
+		// last upload is still current when a different renderer instance
+		// has since overwritten the shared buffer with different data. The
+		// *Valid flags start false to force the first upload unconditionally,
+		// since there's nothing meaningful to compare against yet.
+		static bool GlobalMatricesUBOValid;
+		static Matrix CachedProjectionMatrix, CachedViewMatrix;
+		static bool LightsUBOValid;
+		static std::vector<Matrix> CachedLights;
+		static bool DirectionalShadowUBOValid;
+		static std::vector<Matrix> CachedDirectionalShadowMatrix;
+		static Vec4 CachedDirectionalShadowFar;
+		static bool PointShadowUBOValid;
+		static std::vector<Matrix> CachedPointShadowMatrix;
+		static bool SpotShadowUBOValid;
+		static std::vector<Matrix> CachedSpotShadowMatrix;
 
 		// Universal Uniforms Cache
 		Matrix
