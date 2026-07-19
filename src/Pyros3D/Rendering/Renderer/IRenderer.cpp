@@ -20,6 +20,10 @@
 #define PYROS_MAX_POINT_SHADOW_MATRICES 8
 #define PYROS_MAX_SPOT_SHADOW_MATRICES 4
 
+// Must match MAX_BONES in resources/shaders/PyrosShader.glsl - sizes the
+// BoneMatricesUBO backing that shader's uBoneMatrix[MAX_BONES] block.
+#define PYROS_MAX_BONES 60
+
 namespace p3d {
 
 // ViewPort Dimension
@@ -48,6 +52,21 @@ bool IRenderer::PointShadowUBOValid = false;
 std::vector<Matrix> IRenderer::CachedPointShadowMatrix;
 bool IRenderer::SpotShadowUBOValid = false;
 std::vector<Matrix> IRenderer::CachedSpotShadowMatrix;
+
+uint32 IRenderer::VertexFrameUniformsUBO = 0;
+uint32 IRenderer::VelocityFrameUniformsUBO = 0;
+uint32 IRenderer::ObjectMatrixUniformsUBO = 0;
+uint32 IRenderer::BoneMatricesUBO = 0;
+uint32 IRenderer::VelocityObjectUniformsUBO = 0;
+uint32 IRenderer::AmbientLightUniformsUBO = 0;
+uint32 IRenderer::MaterialUniformsUBO = 0;
+bool IRenderer::VertexFrameUniformsUBOValid = false;
+Vec3 IRenderer::CachedCameraPosition;
+bool IRenderer::AmbientLightUniformsUBOValid = false;
+Vec4 IRenderer::CachedGlobalLight;
+bool IRenderer::VelocityFrameUniformsUBOValid = false;
+Matrix IRenderer::CachedPrvProjectionMatrix;
+Matrix IRenderer::CachedPrvViewMatrix;
 
 namespace Sort {
 
@@ -194,6 +213,23 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height) : device(new GLRen
 
 		// Spot shadow UBO (binding point 4): PYROS_MAX_SPOT_SHADOW_MATRICES matrices.
 		SpotShadowUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_SPOT_SHADOW_MATRICES, 4);
+
+		// UBOs for PyrosShader.glsl's formerly-loose uniforms (binding
+		// points 16-22 - see the BIND_* macros in that file). Only ever
+		// written to for materials where Material->SupportsUniformBlocks()
+		// is true; created unconditionally here regardless, same as every
+		// UBO above, since creating a small buffer nobody currently binds
+		// to is harmless and keeps this block simple.
+		VertexFrameUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4), 16);
+		VelocityFrameUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix) * 2, 17);
+		ObjectMatrixUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix), 18);
+		BoneMatricesUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_BONES, 19);
+		VelocityObjectUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix), 20);
+		AmbientLightUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4), 21);
+		// vec4 uColor + vec4 uSpecular + 5 floats + 3 ints = 64 bytes exactly
+		// (std140, no padding needed) - see MaterialUniformsData in
+		// SendUserUniforms().
+		MaterialUniformsUBO = device->CreateUniformBuffer(64, 22);
 	}
 	SharedUBORefCount++;
 }
@@ -258,6 +294,13 @@ IRenderer::~IRenderer()
 			device->DestroyUniformBuffer(DirectionalShadowUBO);
 			device->DestroyUniformBuffer(PointShadowUBO);
 			device->DestroyUniformBuffer(SpotShadowUBO);
+			device->DestroyUniformBuffer(VertexFrameUniformsUBO);
+			device->DestroyUniformBuffer(VelocityFrameUniformsUBO);
+			device->DestroyUniformBuffer(ObjectMatrixUniformsUBO);
+			device->DestroyUniformBuffer(BoneMatricesUBO);
+			device->DestroyUniformBuffer(VelocityObjectUniformsUBO);
+			device->DestroyUniformBuffer(AmbientLightUniformsUBO);
+			device->DestroyUniformBuffer(MaterialUniformsUBO);
 			// The next IRenderer instance (if any) will create brand new
 			// (empty) buffers - the dirty-tracking cache must not survive
 			// to wrongly skip that instance's first upload.
@@ -266,6 +309,9 @@ IRenderer::~IRenderer()
 			DirectionalShadowUBOValid = false;
 			PointShadowUBOValid = false;
 			SpotShadowUBOValid = false;
+			VertexFrameUniformsUBOValid = false;
+			AmbientLightUniformsUBOValid = false;
+			VelocityFrameUniformsUBOValid = false;
 		}
 	}
 	delete shadowMaterial;
@@ -1208,6 +1254,40 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		}
 	}
 
+	// UBOs for PyrosShader.glsl's formerly-loose per-frame uniforms - see
+	// IMaterial::SupportsUniformBlocks(). glGetUniformLocation() correctly
+	// returns -1 for uniforms that are now block members (they're no
+	// longer "active uniform variables" in the GL sense), so the
+	// individual Shader::SendUniform() calls in the loop below already
+	// naturally no-op for these on a SupportsUniformBlocks() material -
+	// nothing needs to be removed there, this just adds the actual upload.
+	if (Material->SupportsUniformBlocks())
+	{
+		if (!VertexFrameUniformsUBOValid || memcmp(&CachedCameraPosition, &CameraPosition, sizeof(Vec3)) != 0)
+		{
+			Vec4 cameraPosPadded(CameraPosition, 0.0f);
+			device->UpdateUniformBuffer(VertexFrameUniformsUBO, 0, sizeof(Vec4), &cameraPosPadded);
+			CachedCameraPosition = CameraPosition;
+			VertexFrameUniformsUBOValid = true;
+		}
+		if (!AmbientLightUniformsUBOValid || memcmp(&CachedGlobalLight, &GlobalLight, sizeof(Vec4)) != 0)
+		{
+			device->UpdateUniformBuffer(AmbientLightUniformsUBO, 0, sizeof(Vec4), &GlobalLight);
+			CachedGlobalLight = GlobalLight;
+			AmbientLightUniformsUBOValid = true;
+		}
+		if (!VelocityFrameUniformsUBOValid ||
+			memcmp(&CachedPrvProjectionMatrix, &PrvProjectionMatrix, sizeof(Matrix)) != 0 ||
+			memcmp(&CachedPrvViewMatrix, &PrvViewMatrix, sizeof(Matrix)) != 0)
+		{
+			Matrix velocityFrameData[2] = { PrvProjectionMatrix, PrvViewMatrix };
+			device->UpdateUniformBuffer(VelocityFrameUniformsUBO, 0, sizeof(Matrix) * 2, velocityFrameData);
+			CachedPrvProjectionMatrix = PrvProjectionMatrix;
+			CachedPrvViewMatrix = PrvViewMatrix;
+			VelocityFrameUniformsUBOValid = true;
+		}
+	}
+
 	std::vector<int32> *_ShadersGlobalCache = &rmesh->ShadersGlobalCache[Material->GetShader()];
 
 	// Send Global Uniforms
@@ -1344,8 +1424,62 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 	}
 }
 
+// Finds a UserUniforms entry by name and returns a pointer to its raw
+// Uniform::Value bytes, or NULL if the material never registered one (e.g.
+// GenericShaderMaterial only adds uColor/uSpecular lazily, on the first
+// SetColor()/SetSpecular() call - see MaterialUniformsData below).
+static const uchar* FindUserUniformValue(const std::list<Uniform> &uniforms, const std::string &name)
+{
+	for (std::list<Uniform>::const_iterator it = uniforms.begin(); it != uniforms.end(); it++)
+		if (it->Name == name && it->Value.size() > 0)
+			return &it->Value[0];
+	return NULL;
+}
+
+// std140 layout matching MaterialUniforms in PyrosShader.glsl exactly (64
+// bytes, no padding needed - 2 vec4 + 5 float + 3 int = 32 + 20 + 12 = 64).
+struct MaterialUniformsData
+{
+	Vec4 Color;
+	Vec4 Specular;
+	f32 Opacity;
+	f32 Shininess;
+	f32 UseLights;
+	f32 DisplacementHeight;
+	f32 Reflectivity;
+	int32 NumberOfLights;
+	int32 NumberOfPointShadows;
+	int32 NumberOfSpotShadows;
+};
+static_assert(sizeof(MaterialUniformsData) == 64, "MaterialUniformsData must byte-match PyrosShader.glsl's MaterialUniforms std140 layout exactly");
+
 void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 {
+	// UBO for PyrosShader.glsl's formerly-loose material-scalar uniforms -
+	// see IMaterial::SupportsUniformBlocks() and the equivalent comment in
+	// SendGlobalUniforms(). Values come from the same source the individual
+	// send below would otherwise read (Uniform::Value, set by SetColor()/
+	// SetSpecular()/SetShininess()/etc - see GenericShaderMaterial.cpp) via
+	// name lookup, plus IRenderer's own per-object light/shadow counts
+	// (already fresh every RenderObject() call, same as the old
+	// individual-send path used). Uploaded unconditionally every call, same
+	// reasoning as SendModelUniforms().
+	if (Material->SupportsUniformBlocks())
+	{
+		MaterialUniformsData data = MaterialUniformsData();
+		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uColor")) memcpy(&data.Color, v, sizeof(Vec4));
+		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uSpecular")) memcpy(&data.Specular, v, sizeof(Vec4));
+		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uOpacity")) memcpy(&data.Opacity, v, sizeof(f32));
+		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uShininess")) memcpy(&data.Shininess, v, sizeof(f32));
+		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uUseLights")) memcpy(&data.UseLights, v, sizeof(f32));
+		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uDisplacementHeight")) memcpy(&data.DisplacementHeight, v, sizeof(f32));
+		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uReflectivity")) memcpy(&data.Reflectivity, v, sizeof(f32));
+		data.NumberOfLights = (int32)NumberOfLights;
+		data.NumberOfPointShadows = (int32)NumberOfPointShadows;
+		data.NumberOfSpotShadows = (int32)NumberOfSpotShadows;
+		device->UpdateUniformBuffer(MaterialUniformsUBO, 0, sizeof(MaterialUniformsData), &data);
+	}
+
 	std::vector<int32>* _ShadersUserCache = &rmesh->ShadersUserCache[Material->GetShader()];
 
 	// User Specific Uniforms
@@ -1364,6 +1498,23 @@ void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 
 void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 {
+	// UBOs for PyrosShader.glsl's formerly-loose per-object uniforms - see
+	// IMaterial::SupportsUniformBlocks() and the equivalent comment in
+	// SendGlobalUniforms(). Uploaded unconditionally every call (no dirty
+	// check) since ModelMatrix/bones/PrvModelMatrix change on essentially
+	// every RenderObject() call anyway - matches how the individual-send
+	// loop below already resends its own uniforms unconditionally too.
+	if (Material->SupportsUniformBlocks())
+	{
+		device->UpdateUniformBuffer(ObjectMatrixUniformsUBO, 0, sizeof(Matrix), &ModelMatrix);
+		if (rmesh->SkinningBones.size() > 0)
+		{
+			uint32 bonesToUpload = rmesh->SkinningBones.size() < PYROS_MAX_BONES ? rmesh->SkinningBones.size() : PYROS_MAX_BONES;
+			device->UpdateUniformBuffer(BoneMatricesUBO, 0, sizeof(Matrix) * bonesToUpload, &rmesh->SkinningBones[0]);
+		}
+		device->UpdateUniformBuffer(VelocityObjectUniformsUBO, 0, sizeof(Matrix), &PrvModelMatrix);
+	}
+
 	uint32 counter = 0;
 
 	std::vector<int32>* _ShadersModelCache = &rmesh->ShadersModelCache[Material->GetShader()];
@@ -1567,6 +1718,16 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		device->BindUniformBlockIfPresent(material->GetShader(), "DirectionalShadowBlock", 2);
 		device->BindUniformBlockIfPresent(material->GetShader(), "PointShadowBlock", 3);
 		device->BindUniformBlockIfPresent(material->GetShader(), "SpotShadowBlock", 4);
+		// Same idea for the formerly-loose uniforms' new blocks (see
+		// SupportsUniformBlocks() in IMaterial.h) - safe no-ops for any
+		// shader that doesn't declare them, e.g. CustomShaderMaterial's.
+		device->BindUniformBlockIfPresent(material->GetShader(), "VertexFrameUniforms", 16);
+		device->BindUniformBlockIfPresent(material->GetShader(), "VelocityFrameUniforms", 17);
+		device->BindUniformBlockIfPresent(material->GetShader(), "ObjectMatrixUniforms", 18);
+		device->BindUniformBlockIfPresent(material->GetShader(), "BoneMatrices", 19);
+		device->BindUniformBlockIfPresent(material->GetShader(), "VelocityObjectUniforms", 20);
+		device->BindUniformBlockIfPresent(material->GetShader(), "AmbientLightUniforms", 21);
+		device->BindUniformBlockIfPresent(material->GetShader(), "MaterialUniforms", 22);
 	}
 }
 

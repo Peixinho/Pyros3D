@@ -47,6 +47,21 @@ namespace p3d {
 		virtual void Render() {}
 		virtual void AfterRender() {}
 
+		// True for materials whose shader is guaranteed to declare the
+		// engine's fixed-binding UBOs for what would otherwise be "loose"
+		// uniforms (VertexFrameUniforms/ObjectMatrixUniforms/BoneMatrices/
+		// VelocityFrameUniforms/VelocityObjectUniforms/AmbientLightUniforms/
+		// MaterialUniforms - see resources/shaders/PyrosShader.glsl).
+		// IRenderer's uniform-sending loops check this once per material to
+		// decide whether to accumulate matching Uniform values into those
+		// UBOs (one UpdateUniformBuffer call per block) or fall back to
+		// sending them individually via Shader::SendUniform, which is what
+		// every material still does by default here. Only GenericShaderMaterial
+		// overrides this - custom shaders (CustomShaderMaterial) declare
+		// their own uniforms as loose GLSL uniforms and must keep receiving
+		// them the old way.
+		virtual bool SupportsUniformBlocks() const { return false; }
+
 		// Properties
 		void SetCullFace(const uint32 &face);
 		uint32 GetCullFace() const;

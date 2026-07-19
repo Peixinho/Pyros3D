@@ -109,6 +109,26 @@
 #define BIND_uSkyboxmap 14
 #define BIND_uSpecularmap 15
 
+// Loose-uniform-turned-UBO bindings. Each block is declared in exactly one
+// stage (checked against actual usage: e.g. uCameraPos is only ever read
+// in VERTEX - FRAGMENT only sees the interpolated vCameraPos varying), so
+// there's no need to worry about a block being declared with a different
+// member subset in each stage - same pattern as the existing single-stage
+// blocks above (GlobalMatrices is VERTEX-only, LightsBlock/shadow blocks
+// are FRAGMENT-only). Blocks that are always relevant regardless of which
+// feature flags are active (ObjectMatrixUniforms, MaterialUniforms) are
+// declared unconditionally with every member always present - avoids
+// combinatorial std140-offset mismatches across this file's many #ifdef
+// feature combinations; unused members in an unused code path are legal
+// and free in GLSL, same as uOpacity already being unconditional today.
+#define BIND_VertexFrameUniforms 16
+#define BIND_VelocityFrameUniforms 17
+#define BIND_ObjectMatrixUniforms 18
+#define BIND_BoneMatrices 19
+#define BIND_VelocityObjectUniforms 20
+#define BIND_AmbientLightUniforms 21
+#define BIND_MaterialUniforms 22
+
 vec4 EncodeFloatRGBA( float v ) {
    vec4 enc = vec4(1.0, 255.0, 65025.0, 16581375.0) * v;
    enc = fract(enc);
@@ -201,11 +221,15 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     #ifdef SKINNING
         IO_LOCATION(LOC_aBonesID) attribute_in vec4 aBonesID;
         IO_LOCATION(LOC_aBonesWeight) attribute_in vec4 aBonesWeight;
-        uniform mat4 uBoneMatrix[MAX_BONES];
+        UBO_BINDING(BIND_BoneMatrices) uniform BoneMatrices {
+            mat4 uBoneMatrix[MAX_BONES];
+        };
     #endif
 
     #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) || defined(DIFFUSE) || defined(CELLSHADING)
-        uniform vec3 uCameraPos;
+        UBO_BINDING(BIND_VertexFrameUniforms) uniform VertexFrameUniforms {
+            vec3 uCameraPos;
+        };
         IO_LOCATION(LOC_vCameraPos) varying_out vec3 vCameraPos;
     #endif
 
@@ -240,7 +264,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         mat4 uProjectionMatrix;
         mat4 uViewMatrix;
     };
-    uniform mat4 uModelMatrix;
+    UBO_BINDING(BIND_ObjectMatrixUniforms) uniform ObjectMatrixUniforms {
+        mat4 uModelMatrix;
+    };
 
     // Instanced
     #ifdef INSTANCED_RENDERING
@@ -248,7 +274,13 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     #endif
 
     #ifdef VELOCITY_RENDERING
-        uniform mat4 uPrvProjectionMatrix, uPrvViewMatrix, uPrvModelMatrix;
+        UBO_BINDING(BIND_VelocityFrameUniforms) uniform VelocityFrameUniforms {
+            mat4 uPrvProjectionMatrix;
+            mat4 uPrvViewMatrix;
+        };
+        UBO_BINDING(BIND_VelocityObjectUniforms) uniform VelocityObjectUniforms {
+            mat4 uPrvModelMatrix;
+        };
         IO_LOCATION(LOC_vScreenSpaceWorldPosition) varying_smooth_out vec4 vScreenSpaceWorldPosition;
 	IO_LOCATION(LOC_vPrvScreenSpaceWorldPosition) varying_smooth_out vec4 vPrvScreenSpaceWorldPosition;
     #endif
@@ -456,9 +488,6 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         UBO_BINDING(BIND_LightsBlock) uniform LightsBlock {
             mat4 uLights[MAX_LIGHTS];
         };
-        uniform int uNumberOfLights;
-        uniform float uShininess;
-        uniform float uUseLights;
 
     #endif
 
@@ -466,11 +495,21 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     vec4 diffuse = vec4(0.0,0.0,0.0,1.0);
     vec4 specular = vec4(0.0,0.0,0.0,1.0);
     bool diffuseIsSet = false;
-    uniform float uOpacity;
-
-    #ifdef COLOR
-        uniform vec4 uColor;
-    #endif
+    // Every material-scalar/vector uniform PyrosShader.glsl ever needs,
+    // in one always-declared block (regardless of which feature flags are
+    // active - see the comment on the BIND_* macros above for why).
+    UBO_BINDING(BIND_MaterialUniforms) uniform MaterialUniforms {
+        vec4 uColor;
+        vec4 uSpecular;
+        float uOpacity;
+        float uShininess;
+        float uUseLights;
+        float uDisplacementHeight;
+        float uReflectivity;
+        int uNumberOfLights;
+        int uNumberOfPointShadows;
+        int uNumberOfSpotShadows;
+    };
 
     #ifdef DEBUGRENDERING
         IO_LOCATION(LOC_vColor) varying_in vec4 vColor;
@@ -499,7 +538,6 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         #endif
         #if defined(PARALLAXMAPPING)
             SAMPLER_BINDING(BIND_uDisplacementmap) uniform sampler2D uDisplacementmap;
-            uniform float uDisplacementHeight;
 
             vec2 ParallaxMapping(vec2 texCoords, vec3 viewDir)
             {
@@ -580,7 +618,6 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 shadow /= 16.0;
                 return shadow;
             }
-            uniform int uNumberOfPointShadows;
             // Samplers can never be members of a uniform block, so
             // uPointShadowMaps stays a plain uniform; only the matrix array
             // moves to a UBO.
@@ -604,7 +641,6 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             UBO_BINDING(BIND_SpotShadowBlock) uniform SpotShadowBlock {
                 mat4 uSpotDepthsMVP[4];
             };
-            uniform int uNumberOfSpotShadows;
 #endif
 
     #if defined(DIRECTIONALSHADOW) || defined(POINTSHADOW) || defined(SPOTSHADOW)
@@ -621,7 +657,6 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
     #ifdef ENVMAP
         SAMPLER_BINDING(BIND_uEnvmap) uniform samplerCube uEnvmap;
-        uniform float uReflectivity;
     #endif
 
     #ifdef REFRACTION
@@ -637,10 +672,6 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         SAMPLER_BINDING(BIND_uSkyboxmap) uniform samplerCube uSkyboxmap;
     #endif
 
-    #ifdef SPECULARCOLOR
-        uniform vec4 uSpecular;
-    #endif
-
     #ifdef SPECULARMAP
         SAMPLER_BINDING(BIND_uSpecularmap) uniform sampler2D uSpecularmap;
     #endif
@@ -653,7 +684,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     #endif
 
    #if defined(DIFFUSE) || defined(CELLSHADING) || defined(DEFERRED_GBUFFER)
-       uniform vec4 uAmbientLight;
+       UBO_BINDING(BIND_AmbientLightUniforms) uniform AmbientLightUniforms {
+           vec4 uAmbientLight;
+       };
    #endif
 
    #if defined(DEFERRED_GBUFFER) && (defined(PARALLAXMAPPING) || defined(BUMPMAPPING))

@@ -25,6 +25,10 @@ namespace p3d
 		GenericShaderMaterial() {}
 		GenericShaderMaterial(const uint32 options);
 		virtual ~GenericShaderMaterial();
+
+		// PyrosShader.glsl is guaranteed to declare the fixed-binding UBOs
+		// these materials' uniforms map into - see IMaterial::SupportsUniformBlocks().
+		virtual bool SupportsUniformBlocks() const { return true; }
 		// Set Colors
 		void SetColor(const Vec4 &color);
 		void SetSpecular(const Vec4 &specularColor);

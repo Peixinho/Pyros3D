@@ -290,6 +290,25 @@ namespace p3d {
 		static uint32 PointShadowUBO;
 		static uint32 SpotShadowUBO;
 
+		// UBOs for what used to be "loose" (non-block) uniforms in
+		// PyrosShader.glsl - uModelMatrix/uCameraPos/uOpacity/etc - moved
+		// into fixed-binding blocks (binding points 16-22, see the BIND_*
+		// macros in that file) so the shader also compiles for Vulkan/SPIR-V,
+		// which rejects non-opaque uniforms outside a block outright. Only
+		// used for materials where Material->SupportsUniformBlocks() is
+		// true (GenericShaderMaterial - see IMaterial.h); other materials'
+		// shaders (CustomShaderMaterial) keep declaring these as plain
+		// uniforms and keep receiving them via the pre-existing individual
+		// Shader::SendUniform() path, unaffected by any of this. Same
+		// refcounted/shared lifecycle as the UBOs above.
+		static uint32 VertexFrameUniformsUBO;
+		static uint32 VelocityFrameUniformsUBO;
+		static uint32 ObjectMatrixUniformsUBO;
+		static uint32 BoneMatricesUBO;
+		static uint32 VelocityObjectUniformsUBO;
+		static uint32 AmbientLightUniformsUBO;
+		static uint32 MaterialUniformsUBO;
+
 		// Last-uploaded contents of each UBO above, compared byte-for-byte
 		// in SendGlobalUniforms() to skip the glBufferSubData call (and the
 		// GPU upload/driver round-trip it costs) when the source data
@@ -314,6 +333,22 @@ namespace p3d {
 		static std::vector<Matrix> CachedPointShadowMatrix;
 		static bool SpotShadowUBOValid;
 		static std::vector<Matrix> CachedSpotShadowMatrix;
+
+		// Dirty-tracking for the per-frame UBOs above (VertexFrameUniforms/
+		// AmbientLightUniforms/VelocityFrameUniforms) - same
+		// skip-if-unchanged reasoning as GlobalMatricesUBOValid. The
+		// per-object ones (ObjectMatrixUniforms/BoneMatrices/
+		// VelocityObjectUniforms/MaterialUniforms) aren't cached here: their
+		// source data (ModelMatrix, skinning bones, material scalars)
+		// changes on essentially every RenderObject() call anyway - same as
+		// how SendModelUniforms()/SendUserUniforms() already resend their
+		// individual uniforms unconditionally every call, no dirty-check.
+		static bool VertexFrameUniformsUBOValid;
+		static Vec3 CachedCameraPosition;
+		static bool AmbientLightUniformsUBOValid;
+		static Vec4 CachedGlobalLight;
+		static bool VelocityFrameUniformsUBOValid;
+		static Matrix CachedPrvProjectionMatrix, CachedPrvViewMatrix;
 
 		// Universal Uniforms Cache
 		Matrix
