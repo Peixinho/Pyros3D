@@ -560,16 +560,33 @@ namespace p3d {
 				if (!(*i)->renderingComponent->IsCullTesting()) cullingTest = true;
 				if (cullingTest && (*i)->renderingComponent->IsActive() && (*i)->Active == true)
 				{
+					Vec3 objectPosition = (*i)->renderingComponent->GetOwner()->GetWorldPosition();
 					for (std::vector<Matrix>::iterator _l = _Lights.begin(); _l != _Lights.end(); _l++)
 					{
 						if ((*_l).m[13] == 1) Lights.push_back(*_l);
 						else if ((*_l).m[13] == 2 || (*_l).m[13] == 3)
 						{
 							Vec3 _lPos = Vec3((*_l).m[4], (*_l).m[5], (*_l).m[6]);
-							if ((_lPos.distance((*i)->renderingComponent->GetOwner()->GetWorldPosition()) - ((*i)->renderingComponent->GetOwner()->GetBoundingSphereRadiusWorldSpace())) < (*_l).m[10])
+							if ((_lPos.distance(objectPosition) - ((*i)->renderingComponent->GetOwner()->GetBoundingSphereRadiusWorldSpace())) < (*_l).m[10])
 								Lights.push_back(*_l);
 						}
 					}
+
+					// Same reasoning as ForwardRenderer::RenderScene(): sort
+					// nearest-first so that if there are more relevant lights
+					// than PyrosShader.glsl's MAX_LIGHTS, it's the farthest
+					// ones that get dropped by the UBO upload's clamp, not an
+					// arbitrary subset in scene-registration order.
+					std::stable_sort(Lights.begin(), Lights.end(), [&objectPosition](const Matrix &a, const Matrix &b) {
+						bool aDirectional = (a.m[13] == 1);
+						bool bDirectional = (b.m[13] == 1);
+						if (aDirectional != bDirectional) return aDirectional;
+						if (aDirectional) return false;
+						f32 aDistSQR = Vec3(a.m[4], a.m[5], a.m[6]).distanceSQR(objectPosition);
+						f32 bDistSQR = Vec3(b.m[4], b.m[5], b.m[6]).distanceSQR(objectPosition);
+						return aDistSQR < bDistSQR;
+					});
+
 					NumberOfLights = Lights.size();
 					RenderObject((*i), (*i)->renderingComponent->GetOwner(), (*i)->Material);
 				}
