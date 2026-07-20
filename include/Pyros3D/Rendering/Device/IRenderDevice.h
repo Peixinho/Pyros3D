@@ -276,6 +276,27 @@ namespace p3d {
 		// shader doesn't declare a block with this name.
 		virtual void BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint) = 0;
 
+		// Backend-specific clip-space correction for the projection matrix
+		// Matrix::PerspectiveMatrix()/OrthoMatrix() build (see
+		// IRenderer::SendGlobalUniforms(), the only call site - applied to
+		// uProjectionMatrix right before it's uploaded). Those matrices
+		// are built once, shared by every backend, using OpenGL's NDC
+		// convention (Z in [-1,1], Y+ up) since that's what this engine
+		// targeted before this backend existed - GL's identity translation
+		// here is a no-op (matches what every example already renders
+		// with), Vulkan's applies the two corrections its different NDC
+		// convention needs: Z remapped from [-1,1] to [0,1] (Vulkan's
+		// clip volume, unlike GL's, doesn't include negative Z - without
+		// this, half of any scene's geometry is clipped away entirely,
+		// discovered via this session's first actual pixel-level
+		// verification showing 0% of the expected color on screen despite
+		// zero errors/crashes at every step before that - "no error" and
+		// "renders correctly" are not the same claim), and Y flipped
+		// (Vulkan's NDC Y+ points down the framebuffer, GL's points up -
+		// without this the image would still be visible, just upside
+		// down). See VULKAN_ROADMAP.md.
+		virtual Matrix TranslateProjectionMatrix(const Matrix &projectionMatrix) = 0;
+
 		// Draw - engineDrawType is one of RenderingComponent.h's
 		// DrawingType::Triangles/Lines/... values.
 		virtual uint32 TranslateDrawType(const uint32 engineDrawType) = 0;

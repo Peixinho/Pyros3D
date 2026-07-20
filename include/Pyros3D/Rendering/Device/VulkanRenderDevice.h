@@ -114,6 +114,29 @@ namespace p3d {
 		// per-frame command buffer through this backend yet.
 		bool DrawFrame(const DeviceHandle pipeline, const DeviceHandle program, const DeviceHandle vertexBuffer, const DeviceHandle indexBuffer, const uint32 indexCount, const Vec4 &clearColor);
 
+		// Diagnostic-only, not part of IRenderDevice: requests that the
+		// *next* EndFrame() call copy the frame it just rendered into
+		// host-readable memory (retrieved afterward via GetCapturedFrame())
+		// before presenting it - so a caller without a real display (this
+		// environment can't screenshot) can verify actual pixel content
+		// instead of only "no crash, no validation error". Deliberately
+		// captures *before* presenting, not after: a presentable image's
+		// contents belong to the presentation engine from vkQueuePresentKHR()
+		// until it's reacquired (which isn't guaranteed to hand back the
+		// same image), so reading it back post-present is invalid - this
+		// was tried the naive way first and caught by validation
+		// (VUID-VkImageMemoryBarrier-oldLayout-01212 and
+		// UNASSIGNED-non-acquired-swapchain-image-used) before being fixed
+		// to capture pre-present instead, within the same frame's already-
+		// open command buffer and submission.
+		void RequestFrameCapture();
+		// Returns the pixels captured by the most recent RequestFrameCapture()
+		// + EndFrame() pair, as tightly-packed 8-bit-per-channel RGBA
+		// (outRedByteOffset is 0 or 2 depending on the swapchain's actual
+		// channel order - B8G8R8A8 is the common case). False if no
+		// capture has completed yet.
+		bool GetCapturedFrame(std::vector<uint8_t> &outPixels, uint32 &outWidth, uint32 &outHeight, uint32 &outRedByteOffset);
+
 		virtual CommandBufferHandle BeginCommandBuffer();
 		virtual void EndCommandBuffer(const CommandBufferHandle cmd);
 		virtual void BeginFrame();
@@ -169,6 +192,8 @@ namespace p3d {
 		virtual void DisableVertexAttribute(const int32 location);
 		virtual void SetVertexAttributeDivisor(const int32 location, const uint32 divisor);
 		virtual void BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint);
+
+		virtual Matrix TranslateProjectionMatrix(const Matrix &projectionMatrix);
 
 		virtual uint32 TranslateDrawType(const uint32 engineDrawType);
 		virtual void DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count);
@@ -328,6 +353,12 @@ namespace p3d {
 		// DrawBackground()) before BeginFrame() for exactly this reason -
 		// see that function's comment.
 		Vec4 pendingClearColor;
+
+		// See RequestFrameCapture()/GetCapturedFrame().
+		bool captureRequested;
+		std::vector<uint8_t> capturedPixels;
+		uint32 capturedWidth, capturedHeight, capturedRedByteOffset;
+		bool capturedFrameValid;
 
 		// Set by BeginFrame(), cleared by EndFrame() - see the comment on
 		// IRenderDevice::BeginFrame()/EndFrame(). While true,

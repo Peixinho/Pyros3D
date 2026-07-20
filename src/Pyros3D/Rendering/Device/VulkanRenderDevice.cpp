@@ -38,6 +38,7 @@ namespace p3d {
 		  commandPool(VK_NULL_HANDLE), frameCommandBuffer(VK_NULL_HANDLE),
 		  imageAvailableSemaphore(VK_NULL_HANDLE), frameFence(VK_NULL_HANDLE),
 		  pendingClearColor(0.f, 0.f, 0.f, 1.f),
+		  captureRequested(false), capturedWidth(0), capturedHeight(0), capturedRedByteOffset(0), capturedFrameValid(false),
 		  frameInProgress(false), currentImageIndex(0),
 		  nextVaoHandle(1), currentVao(0),
 		  allocator(VK_NULL_HANDLE), descriptorPool(VK_NULL_HANDLE),
@@ -279,7 +280,14 @@ namespace p3d {
 		swapchainCreateInfo.imageColorSpace = chosenFormat.colorSpace;
 		swapchainCreateInfo.imageExtent = extent;
 		swapchainCreateInfo.imageArrayLayers = 1;
-		swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+		// TRANSFER_SRC (on top of COLOR_ATTACHMENT for rendering and
+		// TRANSFER_DST for ClearAndPresent()'s vkCmdClearColorImage) lets
+		// EndFrame() read a frame back on request - see RequestFrameCapture()/
+		// GetCapturedFrame() - purely additive capability, every driver
+		// that supports presenting to this surface at all supports this
+		// too (it's not an optional/queryable feature the way some other
+		// usage bits are).
+		swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 		swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		swapchainCreateInfo.preTransform = capabilities.currentTransform;
 		swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
@@ -531,6 +539,22 @@ namespace p3d {
 			vkDeviceWaitIdle(device);
 	}
 
+	void VulkanRenderDevice::RequestFrameCapture()
+	{
+		captureRequested = true;
+	}
+
+	bool VulkanRenderDevice::GetCapturedFrame(std::vector<uint8_t> &outPixels, uint32 &outWidth, uint32 &outHeight, uint32 &outRedByteOffset)
+	{
+		if (!capturedFrameValid)
+			return false;
+		outPixels = capturedPixels;
+		outWidth = capturedWidth;
+		outHeight = capturedHeight;
+		outRedByteOffset = capturedRedByteOffset;
+		return true;
+	}
+
 	bool VulkanRenderDevice::DrawFrame(const DeviceHandle pipeline, const DeviceHandle program, const DeviceHandle vertexBuffer, const DeviceHandle indexBuffer, const uint32 indexCount, const Vec4 &clearColor)
 	{
 		if (swapchain == VK_NULL_HANDLE)
@@ -681,6 +705,69 @@ namespace p3d {
 		currentVao = 0;
 
 		vkCmdEndRenderPass(frameCommandBuffer);
+
+		// Capture happens *before* vkEndCommandBuffer/present - see the
+		// header comment on RequestFrameCapture() for why post-present is
+		// invalid. The render pass's finalLayout already transitioned the
+		// image to PRESENT_SRC_KHR at vkCmdEndRenderPass() just above
+		// (baked into InitializeSwapchain()'s VkAttachmentDescription), so
+		// the copy needs its own barrier there and back, all still within
+		// this same frameCommandBuffer/submission - no separate
+		// acquire/ownership concerns since the image is still "ours"
+		// until vkQueuePresentKHR() runs, below.
+		VkBuffer captureStagingBuffer = VK_NULL_HANDLE;
+		VmaAllocation captureStagingAllocation = VK_NULL_HANDLE;
+		void* captureStagingMapped = NULL;
+		bool capturingThisFrame = captureRequested && allocator != VK_NULL_HANDLE &&
+			(swapchainFormat == VK_FORMAT_B8G8R8A8_UNORM || swapchainFormat == VK_FORMAT_B8G8R8A8_SRGB ||
+			 swapchainFormat == VK_FORMAT_R8G8B8A8_UNORM || swapchainFormat == VK_FORMAT_R8G8B8A8_SRGB);
+		if (capturingThisFrame)
+		{
+			VkBufferCreateInfo bufferInfo = {};
+			bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+			bufferInfo.size = (VkDeviceSize)swapchainExtent.width * swapchainExtent.height * 4;
+			bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+			bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+			VmaAllocationCreateInfo stagingAllocInfo = {};
+			stagingAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+			stagingAllocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+			VmaAllocationInfo stagingInfo;
+			if (vmaCreateBuffer(allocator, &bufferInfo, &stagingAllocInfo, &captureStagingBuffer, &captureStagingAllocation, &stagingInfo) == VK_SUCCESS)
+			{
+				captureStagingMapped = stagingInfo.pMappedData;
+
+				VkImageMemoryBarrier toTransferBarrier = {};
+				toTransferBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+				toTransferBarrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+				toTransferBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+				toTransferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				toTransferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				toTransferBarrier.image = swapchainImages[currentImageIndex];
+				toTransferBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+				toTransferBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+				toTransferBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+				vkCmdPipelineBarrier(frameCommandBuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &toTransferBarrier);
+
+				VkBufferImageCopy region = {};
+				region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+				region.imageExtent = { swapchainExtent.width, swapchainExtent.height, 1 };
+				vkCmdCopyImageToBuffer(frameCommandBuffer, swapchainImages[currentImageIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, captureStagingBuffer, 1, &region);
+
+				VkImageMemoryBarrier toPresentBarrier = toTransferBarrier;
+				toPresentBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+				toPresentBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+				toPresentBarrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+				toPresentBarrier.dstAccessMask = 0;
+				vkCmdPipelineBarrier(frameCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 0, NULL, 1, &toPresentBarrier);
+			}
+			else
+			{
+				capturingThisFrame = false;
+			}
+		}
+
 		vkEndCommandBuffer(frameCommandBuffer);
 
 		VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -694,7 +781,30 @@ namespace p3d {
 		submitInfo.signalSemaphoreCount = 1;
 		submitInfo.pSignalSemaphores = &renderFinishedSemaphores[currentImageIndex];
 		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, frameFence) != VK_SUCCESS)
+		{
+			if (captureStagingBuffer != VK_NULL_HANDLE)
+				vmaDestroyBuffer(allocator, captureStagingBuffer, captureStagingAllocation);
 			return;
+		}
+
+		if (capturingThisFrame)
+		{
+			// Block until this frame's GPU work (including the copy above)
+			// actually finishes before reading the staging buffer's mapped
+			// memory - diagnostic-only, so a stall here is acceptable
+			// (this is not on any normal, non-capturing frame's path).
+			vkWaitForFences(device, 1, &frameFence, VK_TRUE, UINT64_MAX);
+
+			capturedPixels.resize((size_t)swapchainExtent.width * swapchainExtent.height * 4);
+			memcpy(capturedPixels.data(), captureStagingMapped, capturedPixels.size());
+			capturedWidth = swapchainExtent.width;
+			capturedHeight = swapchainExtent.height;
+			capturedRedByteOffset = (swapchainFormat == VK_FORMAT_B8G8R8A8_UNORM || swapchainFormat == VK_FORMAT_B8G8R8A8_SRGB) ? 2 : 0;
+			capturedFrameValid = true;
+			captureRequested = false;
+
+			vmaDestroyBuffer(allocator, captureStagingBuffer, captureStagingAllocation);
+		}
 
 		VkPresentInfoKHR presentInfo = {};
 		presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -860,9 +970,20 @@ namespace p3d {
 		rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
 		rasterizer.polygonMode = desc.wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
 		rasterizer.cullMode = TranslateCullFaceVk(desc.cullFace);
-		// Matches GLRenderDevice's default winding (GL's CCW-is-front
-		// convention, never overridden anywhere in this codebase).
-		rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+		// GL's front-face winding is CCW, never overridden anywhere in
+		// this codebase - but TranslateProjectionMatrix() flips clip-space
+		// Y for Vulkan's NDC convention (see its comment), which also
+		// mirrors every triangle's *effective* winding as the rasterizer
+		// sees it: what was CCW in GL's NDC becomes CW after that flip.
+		// Compensating here (not by dropping the Y-flip - GL's Y-up NDC
+		// still has to become Vulkan's Y-down one, that part is required)
+		// keeps front/back-face culling deciding the same triangles are
+		// front-facing as GL already does. Missed on the first pass -
+		// after fixing the Z-range clipping issue this method's other
+		// half addresses, the cube was still 0% visible because the
+		// (correctly depth-unclipped) faces were now being back-face
+		// culled instead.
+		rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
 		rasterizer.lineWidth = 1.0f;
 
 		VkPipelineMultisampleStateCreateInfo multisampling = {};
@@ -1086,6 +1207,43 @@ namespace p3d {
 	// translated value this returns is never actually read for this
 	// backend; kept returning 0 rather than a real translation table since
 	// nothing consumes the result.
+	// See the comment on this method in IRenderDevice.h. Combines both
+	// corrections Vulkan's NDC convention needs relative to GL's (which is
+	// what Matrix::PerspectiveMatrix()/OrthoMatrix() build) into one
+	// matrix, left-multiplied onto the projection matrix so the shader's
+	// existing `uProjectionMatrix * uViewMatrix * ModelMatrix * pos`
+	// order doesn't need to change at all:
+	//   - Z: GL's clip Z range is [-1,1]; Vulkan's is [0,1]. Remapped via
+	//     z' = 0.5*z + 0.5*w (row 3 below).
+	//   - Y: GL's NDC Y+ points up the framebuffer; Vulkan's points down.
+	//     Flipped via negating row 2's Y coefficient.
+	// Found the hard way: every draw this session had validation-clean,
+	// crash-free output, but this session's first actual pixel-level
+	// check (reading back the swapchain, not just checking for errors)
+	// showed 0% of the expected color on screen - Vulkan's stricter clip
+	// volume (no negative Z, unlike GL) was discarding essentially the
+	// entire scene before rasterization, silently (clipping isn't a
+	// validation error, it's correct behavior given the mismatched
+	// convention).
+	Matrix VulkanRenderDevice::TranslateProjectionMatrix(const Matrix &projectionMatrix)
+	{
+		// Matrix's constructor takes arguments column-by-column
+		// (n11,n21,n31,n41 = column 1, ...; see Matrix.h), not row-by-row -
+		// this is the column-major encoding of the row-major mathematical
+		// matrix described in the header comment on this method:
+		//   [1  0  0   0 ]
+		//   [0 -1  0   0 ]
+		//   [0  0  0.5 0.5]
+		//   [0  0  0   1 ]
+		static const Matrix clipCorrection(
+			1.f, 0.f, 0.f, 0.f,
+			0.f, -1.f, 0.f, 0.f,
+			0.f, 0.f, 0.5f, 0.f,
+			0.f, 0.f, 0.5f, 1.f
+		);
+		return clipCorrection * projectionMatrix;
+	}
+
 	uint32 VulkanRenderDevice::TranslateDrawType(const uint32 engineDrawType) { return 0; }
 
 	// Not implemented - nothing on this backend's validation path

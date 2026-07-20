@@ -1236,7 +1236,14 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		memcmp(&CachedProjectionMatrix, &ProjectionMatrix, sizeof(Matrix)) != 0 ||
 		memcmp(&CachedViewMatrix, &ViewMatrix, sizeof(Matrix)) != 0)
 	{
-		Matrix globalMatricesData[2] = { ProjectionMatrix, ViewMatrix };
+		// TranslateProjectionMatrix() is a no-op on GL (Matrix::PerspectiveMatrix()/
+		// OrthoMatrix() already build GL's own NDC convention) and applies
+		// Vulkan's Z-range/Y-flip correction on that backend - see the
+		// comment on IRenderDevice::TranslateProjectionMatrix(). The dirty-
+		// check above deliberately compares the untranslated ProjectionMatrix,
+		// not this - the translation is a pure backend-specific function of
+		// it, so "did the source change" is still the right question.
+		Matrix globalMatricesData[2] = { device->TranslateProjectionMatrix(ProjectionMatrix), ViewMatrix };
 		device->ReplaceUniformBuffer(GlobalMatricesUBO, sizeof(Matrix) * 2, globalMatricesData);
 		CachedProjectionMatrix = ProjectionMatrix;
 		CachedViewMatrix = ViewMatrix;

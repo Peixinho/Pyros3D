@@ -461,6 +461,14 @@ namespace p3d {
 		}
 	}
 
+	Matrix GLRenderDevice::TranslateProjectionMatrix(const Matrix &projectionMatrix)
+	{
+		// No-op - Matrix::PerspectiveMatrix()/OrthoMatrix() already build
+		// GL's own NDC convention. See the comment on this method in
+		// IRenderDevice.h.
+		return projectionMatrix;
+	}
+
 	uint32 GLRenderDevice::TranslateDrawType(const uint32 engineDrawType)
 	{
 		switch (engineDrawType)

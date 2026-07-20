@@ -80,6 +80,8 @@ namespace p3d {
 		virtual void SetVertexAttributeDivisor(const int32 location, const uint32 divisor);
 		virtual void BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint);
 
+		virtual Matrix TranslateProjectionMatrix(const Matrix &projectionMatrix);
+
 		virtual uint32 TranslateDrawType(const uint32 engineDrawType);
 		virtual void DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count);
 		virtual void DrawElements(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount);
