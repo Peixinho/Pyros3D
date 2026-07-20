@@ -238,12 +238,43 @@ namespace p3d {
 		std::vector<VkImage> swapchainImages;
 		std::vector<VkImageView> swapchainImageViews;
 
+		// Depth buffer + render pass + one framebuffer per swapchain image -
+		// created in InitializeSwapchain() alongside everything else that
+		// depends on swapchainFormat/swapchainExtent. One shared depth
+		// image is safe across every framebuffer (only one frame is ever
+		// in flight at a time - see the sync objects below), matching this
+		// step's single-frame-in-flight scope everywhere else. A single
+		// hardcoded render pass (one color + one depth attachment) is
+		// enough for every PipelineDesc CreatePipeline() sees so far - a
+		// real engine would need render-pass variants for e.g. deferred
+		// G-buffer's multiple color attachments, out of scope until Phase 6.
+		VkRenderPass renderPass;
+		VkImage depthImage;
+		VmaAllocation depthImageAllocation;
+		VkImageView depthImageView;
+		VkFormat depthFormat;
+		std::vector<VkFramebuffer> framebuffers;
+
 		// Minimal single-frame-in-flight sync (no double/triple buffering
 		// of these yet - good enough for the "does presenting work at all"
 		// checkpoint this step is verifying, not production frame pacing).
+		// renderFinishedSemaphore is one-per-swapchain-image, not singular
+		// like imageAvailableSemaphore/frameFence below - a single shared
+		// one caused a real validation error
+		// (VUID-vkQueueSubmit-pSignalSemaphores-00067, only ever surfaced
+		// once validation layers were actually enabled for the first time):
+		// the semaphore signaled by frame N's vkQueueSubmit is still being
+		// consumed by the presentation engine when frame N+1's submit
+		// tries to signal the same semaphore again, since presenting is
+		// asynchronous and isn't covered by frameFence (which only tracks
+		// GPU completion of the submitted commands, not the swapchain's
+		// present). Indexing by the acquired image index - the standard
+		// fix - avoids this since a given swapchain image can't be
+		// re-acquired until its previous present completes.
 		VkCommandPool commandPool;
 		VkCommandBuffer frameCommandBuffer;
-		VkSemaphore imageAvailableSemaphore, renderFinishedSemaphore;
+		VkSemaphore imageAvailableSemaphore;
+		std::vector<VkSemaphore> renderFinishedSemaphores;
 		VkFence frameFence;
 
 		// Created alongside the logical device in InitializeSwapchain() -
@@ -287,23 +318,54 @@ namespace p3d {
 		{
 			uint32 engineShaderType; // ShaderType::VertexShader/FragmentShader
 			VkShaderModule module; // VK_NULL_HANDLE until CompileShaderStage() succeeds
+			// Kept around (not just the module) so LinkProgram() can
+			// reflect it - SpirvResourceBinding itself is only declared
+			// under SPIRV_TOOLING (see ShaderCompiler.h), so this stores
+			// the raw words instead of a SPIRV_TOOLING-dependent type,
+			// keeping this header buildable with BUILD_VULKAN_BACKEND=ON
+			// and BUILD_SPIRV_TOOLING=OFF (LinkProgram() just fails
+			// gracefully in that configuration, same as CompileShaderStage()
+			// already does).
+			std::vector<uint32> spirv;
 		};
 		std::map<DeviceHandle, ShaderStageRecord> shaderStages;
 		DeviceHandle nextShaderStageHandle;
 
-		// A "program" here is just the (vertex module, fragment module)
-		// pair CreatePipeline() will need once it exists for real (not yet
-		// wired - see VULKAN_ROADMAP.md) - Vulkan has no equivalent of a
-		// linked GL program object; the actual "link" step happens at
-		// VkPipeline creation, so LinkProgram() here only checks both
-		// stages are present.
+		// A "program" is the (vertex module, fragment module) pair plus
+		// the descriptor set layout + pipeline layout LinkProgram() derives
+		// from reflecting both stages' SPIR-V (see the comment on
+		// ShaderStageRecord::spirv, and SpirvResourceBinding in
+		// ShaderCompiler.h) - Vulkan has no equivalent of a linked GL
+		// program object; the actual "link" step happens at VkPipeline
+		// creation (CreatePipeline()), which is what consumes
+		// pipelineLayout. Every one of PyrosShader.glsl's UBO bindings
+		// (see its BIND_* macros) has no explicit `set=N` qualifier, so
+		// SPIR-V/spirv-cross default every one of them to set 0 - this
+		// only ever builds a single VkDescriptorSetLayout per program,
+		// never multiple sets, which matches that.
 		struct ProgramRecord
 		{
 			DeviceHandle vertexShader, fragmentShader;
-			ProgramRecord() : vertexShader(0), fragmentShader(0) {}
+			VkDescriptorSetLayout descriptorSetLayout;
+			VkPipelineLayout pipelineLayout;
+			ProgramRecord() : vertexShader(0), fragmentShader(0), descriptorSetLayout(VK_NULL_HANDLE), pipelineLayout(VK_NULL_HANDLE) {}
 		};
 		std::map<DeviceHandle, ProgramRecord> programs;
 		DeviceHandle nextProgramHandle;
+
+		// Real VkPipeline objects, keyed by the handle CreatePipeline()
+		// returns. Vertex input state is hardcoded to match
+		// Primitive.cpp's always-interleaved (aPosition:vec3, aNormal:vec3,
+		// aTexcoord:vec2) layout (stride 32, offsets 0/12/24) - the only
+		// vertex format RotatingCube's Cube geometry (this backend's sole
+		// validation target - see VULKAN_ROADMAP.md) ever produces.
+		// Generalizing this (skinned meshes, instancing, tangent/bitangent)
+		// needs either PipelineDesc to carry a real vertex layout or a
+		// second reflection pass over the vertex stage's stage_inputs -
+		// deliberately not guessed at without a second real mesh shape to
+		// validate against.
+		std::map<DeviceHandle, VkPipeline> pipelines;
+		DeviceHandle nextPipelineHandle;
 
 	};
 

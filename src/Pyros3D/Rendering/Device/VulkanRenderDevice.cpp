@@ -23,6 +23,7 @@
 
 #include <Pyros3D/Rendering/SPIRV/ShaderCompiler.h>
 #include <Pyros3D/Materials/Shaders/Shaders.h>
+#include <Pyros3D/Materials/IMaterial.h>
 #include <vector>
 #include <cstring>
 
@@ -32,9 +33,11 @@ namespace p3d {
 		: instance(VK_NULL_HANDLE), surface(VK_NULL_HANDLE), physicalDevice(VK_NULL_HANDLE), device(VK_NULL_HANDLE),
 		  graphicsQueueFamily(0), presentQueueFamily(0), graphicsQueue(VK_NULL_HANDLE), presentQueue(VK_NULL_HANDLE),
 		  swapchain(VK_NULL_HANDLE), swapchainFormat(VK_FORMAT_UNDEFINED), swapchainExtent{0, 0},
+		  renderPass(VK_NULL_HANDLE), depthImage(VK_NULL_HANDLE), depthImageAllocation(VK_NULL_HANDLE),
+		  depthImageView(VK_NULL_HANDLE), depthFormat(VK_FORMAT_UNDEFINED),
 		  commandPool(VK_NULL_HANDLE), frameCommandBuffer(VK_NULL_HANDLE),
-		  imageAvailableSemaphore(VK_NULL_HANDLE), renderFinishedSemaphore(VK_NULL_HANDLE), frameFence(VK_NULL_HANDLE),
-		  allocator(VK_NULL_HANDLE), nextBufferHandle(1), nextShaderStageHandle(1), nextProgramHandle(1)
+		  imageAvailableSemaphore(VK_NULL_HANDLE), frameFence(VK_NULL_HANDLE),
+		  allocator(VK_NULL_HANDLE), nextBufferHandle(1), nextShaderStageHandle(1), nextProgramHandle(1), nextPipelineHandle(1)
 	{
 		if (volkInitialize() != VK_SUCCESS)
 			return;
@@ -51,6 +54,18 @@ namespace p3d {
 		// needs to be explicitly opted into since Vulkan SDK 1.3.216+.
 		extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 		flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+		// VK_KHR_portability_subset (enabled as a *device* extension in
+		// InitializeSwapchain() - required on MoltenVK) itself requires
+		// this instance extension per its spec entry - missing it didn't
+		// surface as a hard failure (MoltenVK tolerates it), only as a
+		// validation error once validation layers actually got enabled
+		// (VUID-vkCreateDevice-ppEnabledExtensionNames-01387) - not caught
+		// by any earlier session's testing since none had run with
+		// VK_LAYER_KHRONOS_validation actually loaded (needs VK_LAYER_PATH
+		// set to Homebrew's layer dir on this machine, not just the layer
+		// installed) despite VULKAN_ROADMAP.md stating validation-clean
+		// output as part of the correctness bar from the start.
+		extensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
 #endif
 
 		VkInstanceCreateInfo createInfo = {};
@@ -70,8 +85,18 @@ namespace p3d {
 		{
 			vkDeviceWaitIdle(device);
 
-			// Resource tables (buffers/shader modules) must be torn down
-			// before the allocator/device that own their backing memory.
+			// Resource tables (buffers/shader modules/pipelines/pipeline
+			// layouts) must be torn down before the allocator/device that
+			// own their backing memory.
+			for (std::map<DeviceHandle, VkPipeline>::iterator it = pipelines.begin(); it != pipelines.end(); it++)
+				vkDestroyPipeline(device, it->second, NULL);
+			pipelines.clear();
+			for (std::map<DeviceHandle, ProgramRecord>::iterator it = programs.begin(); it != programs.end(); it++)
+			{
+				if (it->second.pipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, it->second.pipelineLayout, NULL);
+				if (it->second.descriptorSetLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, it->second.descriptorSetLayout, NULL);
+			}
+			programs.clear();
 			for (std::map<DeviceHandle, BufferRecord>::iterator it = buffers.begin(); it != buffers.end(); it++)
 				vmaDestroyBuffer(allocator, it->second.buffer, it->second.allocation);
 			buffers.clear();
@@ -79,13 +104,19 @@ namespace p3d {
 				if (it->second.module != VK_NULL_HANDLE)
 					vkDestroyShaderModule(device, it->second.module, NULL);
 			shaderStages.clear();
-			programs.clear();
+
+			for (size_t i = 0; i < framebuffers.size(); i++)
+				vkDestroyFramebuffer(device, framebuffers[i], NULL);
+			if (renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, renderPass, NULL);
+			if (depthImageView != VK_NULL_HANDLE) vkDestroyImageView(device, depthImageView, NULL);
+			if (depthImage != VK_NULL_HANDLE) vmaDestroyImage(allocator, depthImage, depthImageAllocation);
 
 			if (allocator != VK_NULL_HANDLE) vmaDestroyAllocator(allocator);
 
 			if (frameFence != VK_NULL_HANDLE) vkDestroyFence(device, frameFence, NULL);
 			if (imageAvailableSemaphore != VK_NULL_HANDLE) vkDestroySemaphore(device, imageAvailableSemaphore, NULL);
-			if (renderFinishedSemaphore != VK_NULL_HANDLE) vkDestroySemaphore(device, renderFinishedSemaphore, NULL);
+			for (size_t i = 0; i < renderFinishedSemaphores.size(); i++)
+				vkDestroySemaphore(device, renderFinishedSemaphores[i], NULL);
 			if (commandPool != VK_NULL_HANDLE) vkDestroyCommandPool(device, commandPool, NULL);
 
 			for (size_t i = 0; i < swapchainImageViews.size(); i++)
@@ -271,6 +302,115 @@ namespace p3d {
 				return false;
 		}
 
+		// Depth buffer - one shared VkImage (single-frame-in-flight, see
+		// the header comment) sized to the swapchain extent. D32_SFLOAT is
+		// required to support VK_IMAGE_TILING_OPTIMAL as a depth-stencil
+		// attachment on every Vulkan 1.0 implementation (the spec
+		// guarantees it), so no format-support query/fallback chain is
+		// needed the way color format selection above needed one.
+		depthFormat = VK_FORMAT_D32_SFLOAT;
+		VkImageCreateInfo depthImageInfo = {};
+		depthImageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+		depthImageInfo.imageType = VK_IMAGE_TYPE_2D;
+		depthImageInfo.format = depthFormat;
+		depthImageInfo.extent = { swapchainExtent.width, swapchainExtent.height, 1 };
+		depthImageInfo.mipLevels = 1;
+		depthImageInfo.arrayLayers = 1;
+		depthImageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+		depthImageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+		depthImageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+		depthImageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		depthImageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+		VmaAllocationCreateInfo depthAllocInfo = {};
+		depthAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		depthAllocInfo.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+		if (vmaCreateImage(allocator, &depthImageInfo, &depthAllocInfo, &depthImage, &depthImageAllocation, NULL) != VK_SUCCESS)
+			return false;
+
+		VkImageViewCreateInfo depthViewInfo = {};
+		depthViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		depthViewInfo.image = depthImage;
+		depthViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		depthViewInfo.format = depthFormat;
+		depthViewInfo.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
+		if (vkCreateImageView(device, &depthViewInfo, NULL, &depthImageView) != VK_SUCCESS)
+			return false;
+
+		// Render pass - one color attachment (the swapchain image, cleared
+		// and transitioned straight to PRESENT_SRC_KHR - this device still
+		// has no separate "present" step beyond what the render pass itself
+		// does once real rendering replaces ClearAndPresent()'s manual
+		// barriers) plus one depth attachment (cleared, not stored - no
+		// caller needs the depth buffer's contents after the pass).
+		VkAttachmentDescription colorAttachment = {};
+		colorAttachment.format = swapchainFormat;
+		colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+		colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+		VkAttachmentDescription depthAttachment = {};
+		depthAttachment.format = depthFormat;
+		depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+		depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+		VkAttachmentDescription attachments[2] = { colorAttachment, depthAttachment };
+
+		VkAttachmentReference colorRef = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+		VkAttachmentReference depthRef = { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+
+		VkSubpassDescription subpass = {};
+		subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+		subpass.colorAttachmentCount = 1;
+		subpass.pColorAttachments = &colorRef;
+		subpass.pDepthStencilAttachment = &depthRef;
+
+		VkSubpassDependency dependency = {};
+		dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+		dependency.dstSubpass = 0;
+		dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+		dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+		dependency.srcAccessMask = 0;
+		dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+		VkRenderPassCreateInfo renderPassInfo = {};
+		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+		renderPassInfo.attachmentCount = 2;
+		renderPassInfo.pAttachments = attachments;
+		renderPassInfo.subpassCount = 1;
+		renderPassInfo.pSubpasses = &subpass;
+		renderPassInfo.dependencyCount = 1;
+		renderPassInfo.pDependencies = &dependency;
+		if (vkCreateRenderPass(device, &renderPassInfo, NULL, &renderPass) != VK_SUCCESS)
+			return false;
+
+		// One framebuffer per swapchain image, sharing the single depth
+		// image/view above.
+		framebuffers.resize(actualImageCount);
+		for (uint32 i = 0; i < actualImageCount; i++)
+		{
+			VkImageView fbAttachments[2] = { swapchainImageViews[i], depthImageView };
+			VkFramebufferCreateInfo fbInfo = {};
+			fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+			fbInfo.renderPass = renderPass;
+			fbInfo.attachmentCount = 2;
+			fbInfo.pAttachments = fbAttachments;
+			fbInfo.width = swapchainExtent.width;
+			fbInfo.height = swapchainExtent.height;
+			fbInfo.layers = 1;
+			if (vkCreateFramebuffer(device, &fbInfo, NULL, &framebuffers[i]) != VK_SUCCESS)
+				return false;
+		}
+
 		// Command pool/buffer + sync objects for ClearAndPresent()'s
 		// single-frame-in-flight loop.
 		VkCommandPoolCreateInfo poolInfo = {};
@@ -291,7 +431,11 @@ namespace p3d {
 		VkSemaphoreCreateInfo semInfo = {};
 		semInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 		if (vkCreateSemaphore(device, &semInfo, NULL, &imageAvailableSemaphore) != VK_SUCCESS) return false;
-		if (vkCreateSemaphore(device, &semInfo, NULL, &renderFinishedSemaphore) != VK_SUCCESS) return false;
+		// One per swapchain image, not one shared - see the header comment
+		// on renderFinishedSemaphores for why.
+		renderFinishedSemaphores.resize(actualImageCount);
+		for (uint32 i = 0; i < actualImageCount; i++)
+			if (vkCreateSemaphore(device, &semInfo, NULL, &renderFinishedSemaphores[i]) != VK_SUCCESS) return false;
 
 		VkFenceCreateInfo fenceInfo = {};
 		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
@@ -357,14 +501,14 @@ namespace p3d {
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &frameCommandBuffer;
 		submitInfo.signalSemaphoreCount = 1;
-		submitInfo.pSignalSemaphores = &renderFinishedSemaphore;
+		submitInfo.pSignalSemaphores = &renderFinishedSemaphores[imageIndex];
 		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, frameFence) != VK_SUCCESS)
 			return false;
 
 		VkPresentInfoKHR presentInfo = {};
 		presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 		presentInfo.waitSemaphoreCount = 1;
-		presentInfo.pWaitSemaphores = &renderFinishedSemaphore;
+		presentInfo.pWaitSemaphores = &renderFinishedSemaphores[imageIndex];
 		presentInfo.swapchainCount = 1;
 		presentInfo.pSwapchains = &swapchain;
 		presentInfo.pImageIndices = &imageIndex;
@@ -405,9 +549,209 @@ namespace p3d {
 	void VulkanRenderDevice::SetCullFaceMode(const uint32 cullFace) {}
 	void VulkanRenderDevice::DisableCullFace() {}
 
-	DeviceHandle VulkanRenderDevice::CreatePipeline(const PipelineDesc &desc) { return 0; }
-	void VulkanRenderDevice::DestroyPipeline(const DeviceHandle pipeline) {}
-	void VulkanRenderDevice::BindPipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline) {}
+	static VkCompareOp TranslateDepthTestVk(const uint32 mode)
+	{
+		switch (mode)
+		{
+		case DepthTest::Never: return VK_COMPARE_OP_NEVER;
+		case DepthTest::Greater: return VK_COMPARE_OP_GREATER;
+		case DepthTest::Equal: return VK_COMPARE_OP_EQUAL;
+		case DepthTest::Always: return VK_COMPARE_OP_ALWAYS;
+		case DepthTest::LEqual: return VK_COMPARE_OP_LESS_OR_EQUAL;
+		case DepthTest::GEqual: return VK_COMPARE_OP_GREATER_OR_EQUAL;
+		case DepthTest::NotEqual: return VK_COMPARE_OP_NOT_EQUAL;
+		case DepthTest::Less: default: return VK_COMPARE_OP_LESS;
+		}
+	}
+
+	static VkBlendFactor TranslateBlendFactorVk(const uint32 factor)
+	{
+		switch (factor)
+		{
+		case BlendFunc::One: return VK_BLEND_FACTOR_ONE;
+		case BlendFunc::Src_Color: return VK_BLEND_FACTOR_SRC_COLOR;
+		case BlendFunc::One_Minus_Src_Color: return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+		case BlendFunc::Dst_Color: return VK_BLEND_FACTOR_DST_COLOR;
+		case BlendFunc::One_Minus_Dst_Color: return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
+		case BlendFunc::Src_Alpha: return VK_BLEND_FACTOR_SRC_ALPHA;
+		case BlendFunc::One_Minus_Src_Alpha: return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		case BlendFunc::Dst_Alpha: return VK_BLEND_FACTOR_DST_ALPHA;
+		case BlendFunc::One_Minus_Dst_Alpha: return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+		case BlendFunc::Constant_Color: return VK_BLEND_FACTOR_CONSTANT_COLOR;
+		case BlendFunc::One_Minus_Constant_Color: return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
+		case BlendFunc::Constant_Alpha: return VK_BLEND_FACTOR_CONSTANT_ALPHA;
+		case BlendFunc::One_Minus_Constant_Alpha: return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
+		case BlendFunc::Src_Alpha_Saturate: return VK_BLEND_FACTOR_SRC_ALPHA_SATURATE;
+		case BlendFunc::Src1_Color: return VK_BLEND_FACTOR_SRC1_COLOR;
+		case BlendFunc::One_Minus_Src1_Color: return VK_BLEND_FACTOR_ONE_MINUS_SRC1_COLOR;
+		case BlendFunc::Src1_Alpha: return VK_BLEND_FACTOR_SRC1_ALPHA;
+		case BlendFunc::One_Minus_Src1_Alpha: return VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA;
+		case BlendFunc::Zero: default: return VK_BLEND_FACTOR_ZERO;
+		}
+	}
+
+	static VkBlendOp TranslateBlendEquationVk(const uint32 eq)
+	{
+		switch (eq)
+		{
+		case BlendEq::Subtract: return VK_BLEND_OP_SUBTRACT;
+		case BlendEq::Reverse_Subtract: return VK_BLEND_OP_REVERSE_SUBTRACT;
+		case BlendEq::Add: default: return VK_BLEND_OP_ADD;
+		}
+	}
+
+	static VkCullModeFlags TranslateCullFaceVk(const uint32 cullFace)
+	{
+		switch (cullFace)
+		{
+		case CullFace::FrontFace: return VK_CULL_MODE_FRONT_BIT;
+		case CullFace::DoubleSided: return VK_CULL_MODE_NONE;
+		case CullFace::BackFace: default: return VK_CULL_MODE_BACK_BIT;
+		}
+	}
+
+	DeviceHandle VulkanRenderDevice::CreatePipeline(const PipelineDesc &desc)
+	{
+		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(desc.shaderProgram);
+		if (device == VK_NULL_HANDLE || renderPass == VK_NULL_HANDLE || progIt == programs.end() || progIt->second.pipelineLayout == VK_NULL_HANDLE)
+			return 0;
+		std::map<DeviceHandle, ShaderStageRecord>::iterator vs = shaderStages.find(progIt->second.vertexShader);
+		std::map<DeviceHandle, ShaderStageRecord>::iterator fs = shaderStages.find(progIt->second.fragmentShader);
+		if (vs == shaderStages.end() || fs == shaderStages.end() || vs->second.module == VK_NULL_HANDLE || fs->second.module == VK_NULL_HANDLE)
+			return 0;
+
+		VkPipelineShaderStageCreateInfo stages[2] = {};
+		stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+		stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+		stages[0].module = vs->second.module;
+		stages[0].pName = "main";
+		stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+		stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+		stages[1].module = fs->second.module;
+		stages[1].pName = "main";
+
+		// Vertex input - hardcoded to Primitive.cpp's always-interleaved
+		// (aPosition:vec3, aNormal:vec3, aTexcoord:vec2) layout, stride 32.
+		// See the comment on the `pipelines` field in the header for why.
+		VkVertexInputBindingDescription binding = {};
+		binding.binding = 0;
+		binding.stride = 32;
+		binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+		VkVertexInputAttributeDescription attributes[3] = {};
+		attributes[0] = { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 };  // aPosition
+		attributes[1] = { 1, 0, VK_FORMAT_R32G32B32_SFLOAT, 12 }; // aNormal
+		attributes[2] = { 2, 0, VK_FORMAT_R32G32_SFLOAT, 24 };    // aTexcoord
+
+		VkPipelineVertexInputStateCreateInfo vertexInput = {};
+		vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+		vertexInput.vertexBindingDescriptionCount = 1;
+		vertexInput.pVertexBindingDescriptions = &binding;
+		vertexInput.vertexAttributeDescriptionCount = 3;
+		vertexInput.pVertexAttributeDescriptions = attributes;
+
+		VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
+		inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+		inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+		// Viewport/scissor left dynamic (set per-command-buffer via
+		// vkCmdSetViewport/vkCmdSetScissor once real draw recording exists)
+		// rather than baked to swapchainExtent here, so a future swapchain
+		// resize doesn't require rebuilding every pipeline.
+		VkPipelineViewportStateCreateInfo viewportState = {};
+		viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+		viewportState.viewportCount = 1;
+		viewportState.scissorCount = 1;
+
+		VkDynamicState dynamicStates[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+		VkPipelineDynamicStateCreateInfo dynamicState = {};
+		dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+		dynamicState.dynamicStateCount = 2;
+		dynamicState.pDynamicStates = dynamicStates;
+
+		VkPipelineRasterizationStateCreateInfo rasterizer = {};
+		rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+		rasterizer.polygonMode = desc.wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+		rasterizer.cullMode = TranslateCullFaceVk(desc.cullFace);
+		// Matches GLRenderDevice's default winding (GL's CCW-is-front
+		// convention, never overridden anywhere in this codebase).
+		rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+		rasterizer.lineWidth = 1.0f;
+
+		VkPipelineMultisampleStateCreateInfo multisampling = {};
+		multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+		multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+		VkPipelineDepthStencilStateCreateInfo depthStencil = {};
+		depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+		depthStencil.depthTestEnable = desc.depthTest ? VK_TRUE : VK_FALSE;
+		depthStencil.depthWriteEnable = desc.depthWrite ? VK_TRUE : VK_FALSE;
+		depthStencil.depthCompareOp = TranslateDepthTestVk(desc.depthTestMode);
+
+		VkPipelineColorBlendAttachmentState blendAttachment = {};
+		blendAttachment.blendEnable = desc.blendingEnabled ? VK_TRUE : VK_FALSE;
+		blendAttachment.srcColorBlendFactor = TranslateBlendFactorVk(desc.blendSrcFactor);
+		blendAttachment.dstColorBlendFactor = TranslateBlendFactorVk(desc.blendDstFactor);
+		blendAttachment.colorBlendOp = TranslateBlendEquationVk(desc.blendEquation);
+		blendAttachment.srcAlphaBlendFactor = TranslateBlendFactorVk(desc.blendSrcFactor);
+		blendAttachment.dstAlphaBlendFactor = TranslateBlendFactorVk(desc.blendDstFactor);
+		blendAttachment.alphaBlendOp = TranslateBlendEquationVk(desc.blendEquation);
+		blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+		VkPipelineColorBlendStateCreateInfo colorBlending = {};
+		colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+		colorBlending.attachmentCount = 1;
+		colorBlending.pAttachments = &blendAttachment;
+
+		VkGraphicsPipelineCreateInfo pipelineInfo = {};
+		pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+		pipelineInfo.stageCount = 2;
+		pipelineInfo.pStages = stages;
+		pipelineInfo.pVertexInputState = &vertexInput;
+		pipelineInfo.pInputAssemblyState = &inputAssembly;
+		pipelineInfo.pViewportState = &viewportState;
+		pipelineInfo.pRasterizationState = &rasterizer;
+		pipelineInfo.pMultisampleState = &multisampling;
+		pipelineInfo.pDepthStencilState = &depthStencil;
+		pipelineInfo.pColorBlendState = &colorBlending;
+		pipelineInfo.pDynamicState = &dynamicState;
+		pipelineInfo.layout = progIt->second.pipelineLayout;
+		pipelineInfo.renderPass = renderPass;
+		pipelineInfo.subpass = 0;
+
+		VkPipeline pipeline;
+		if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline) != VK_SUCCESS)
+			return 0;
+
+		DeviceHandle handle = nextPipelineHandle++;
+		pipelines[handle] = pipeline;
+		return handle;
+	}
+
+	void VulkanRenderDevice::DestroyPipeline(const DeviceHandle pipeline)
+	{
+		std::map<DeviceHandle, VkPipeline>::iterator it = pipelines.find(pipeline);
+		if (it == pipelines.end())
+			return;
+		if (device != VK_NULL_HANDLE)
+			vkDestroyPipeline(device, it->second, NULL);
+		pipelines.erase(it);
+	}
+
+	void VulkanRenderDevice::BindPipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline)
+	{
+		// Not reachable yet - IRenderer doesn't call BindPipeline() (still
+		// issuing the individual Set*/UseProgram calls below instead, all
+		// no-ops on this backend) until it actually threads a real
+		// per-frame VkCommandBuffer through RenderObject() - see
+		// VULKAN_ROADMAP.md. cmd is currently always the meaningless
+		// constant BeginCommandBuffer() below returns, not a real
+		// VkCommandBuffer, so there's nothing correct to record into yet.
+		std::map<DeviceHandle, VkPipeline>::iterator it = pipelines.find(pipeline);
+		if (it == pipelines.end())
+			return;
+		(void)cmd;
+	}
 
 	void VulkanRenderDevice::EnableClipDistance(const uint32 index) {}
 	void VulkanRenderDevice::DisableClipDistance(const uint32 index) {}
@@ -640,14 +984,13 @@ namespace p3d {
 
 #ifdef SPIRV_TOOLING
 		uint32 spirvStage = (it->second.engineShaderType == ShaderType::FragmentShader) ? SpirvShaderStage::Fragment : SpirvShaderStage::Vertex;
-		std::vector<uint32> spirv;
-		if (!SpirvShaderCompiler::Compile(source, spirvStage, spirv, errorLog))
+		if (!SpirvShaderCompiler::Compile(source, spirvStage, it->second.spirv, errorLog))
 			return false;
 
 		VkShaderModuleCreateInfo moduleInfo = {};
 		moduleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-		moduleInfo.codeSize = spirv.size() * sizeof(uint32);
-		moduleInfo.pCode = spirv.data();
+		moduleInfo.codeSize = it->second.spirv.size() * sizeof(uint32);
+		moduleInfo.pCode = it->second.spirv.data();
 		if (vkCreateShaderModule(device, &moduleInfo, NULL, &it->second.module) != VK_SUCCESS)
 		{
 			errorLog = "vkCreateShaderModule failed";
@@ -685,14 +1028,18 @@ namespace p3d {
 
 	bool VulkanRenderDevice::LinkProgram(const DeviceHandle program, std::string &errorLog)
 	{
-		// No real "link" step in Vulkan - each stage's VkShaderModule
-		// already compiled independently in CompileShaderStage(); the
-		// equivalent of GL's link-time validation (matching VS outputs to
-		// FS inputs) happens implicitly via PyrosShader.glsl's shared
-		// LOC_v*/BIND_* macros keeping both stages' declarations in sync,
-		// and explicitly (for real) once CreatePipeline() builds a
-		// VkPipeline from both modules together. This just confirms both
-		// stages made it through CompileShaderStage() successfully.
+		// No real "link" step in Vulkan the way GL has one - each stage's
+		// VkShaderModule already compiled independently in
+		// CompileShaderStage(); matching VS outputs to FS inputs happens
+		// implicitly via PyrosShader.glsl's shared LOC_v*/BIND_* macros
+		// keeping both stages' declarations in sync. What *does* need
+		// building here, since nothing else in this class needs it until
+		// now: the VkDescriptorSetLayout + VkPipelineLayout CreatePipeline()
+		// needs, derived by reflecting both stages' SPIR-V (see the
+		// comment on ShaderStageRecord::spirv and ProgramRecord above) -
+		// this is exactly what SpirvShaderCompiler::Reflect() (Phase 2)
+		// was built for: deriving a descriptor set layout without hand-
+		// authoring one per shader variant.
 		std::map<DeviceHandle, ProgramRecord>::iterator it = programs.find(program);
 		if (it == programs.end())
 			return false;
@@ -705,7 +1052,67 @@ namespace p3d {
 			errorLog = "Program missing a compiled vertex and/or fragment stage";
 			return false;
 		}
+
+#ifdef SPIRV_TOOLING
+		// Merge both stages' reflected resources by binding index - a UBO
+		// declared in both (none of PyrosShader.glsl's are today, but
+		// nothing stops a future shader from doing so) must appear once in
+		// the descriptor set layout with the union of both stages' bits in
+		// VkDescriptorSetLayoutBinding::stageFlags, not twice.
+		std::vector<SpirvResourceBinding> vsResources = SpirvShaderCompiler::Reflect(vs->second.spirv);
+		std::vector<SpirvResourceBinding> fsResources = SpirvShaderCompiler::Reflect(fs->second.spirv);
+
+		std::map<uint32, VkDescriptorSetLayoutBinding> bindingsByIndex;
+		for (int stagePass = 0; stagePass < 2; stagePass++)
+		{
+			std::vector<SpirvResourceBinding> &resources = (stagePass == 0) ? vsResources : fsResources;
+			VkShaderStageFlags stageFlag = (stagePass == 0) ? VK_SHADER_STAGE_VERTEX_BIT : VK_SHADER_STAGE_FRAGMENT_BIT;
+			for (size_t i = 0; i < resources.size(); i++)
+			{
+				const SpirvResourceBinding &res = resources[i];
+				std::map<uint32, VkDescriptorSetLayoutBinding>::iterator existing = bindingsByIndex.find(res.binding);
+				if (existing != bindingsByIndex.end())
+				{
+					existing->second.stageFlags |= stageFlag;
+					continue;
+				}
+				VkDescriptorSetLayoutBinding binding = {};
+				binding.binding = res.binding;
+				binding.descriptorType = (res.type == SpirvResourceType::SampledImage) ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+				binding.descriptorCount = 1;
+				binding.stageFlags = stageFlag;
+				bindingsByIndex[res.binding] = binding;
+			}
+		}
+
+		std::vector<VkDescriptorSetLayoutBinding> layoutBindings;
+		for (std::map<uint32, VkDescriptorSetLayoutBinding>::iterator bIt = bindingsByIndex.begin(); bIt != bindingsByIndex.end(); bIt++)
+			layoutBindings.push_back(bIt->second);
+
+		VkDescriptorSetLayoutCreateInfo setLayoutInfo = {};
+		setLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		setLayoutInfo.bindingCount = (uint32_t)layoutBindings.size();
+		setLayoutInfo.pBindings = layoutBindings.empty() ? NULL : layoutBindings.data();
+		if (vkCreateDescriptorSetLayout(device, &setLayoutInfo, NULL, &it->second.descriptorSetLayout) != VK_SUCCESS)
+		{
+			errorLog = "vkCreateDescriptorSetLayout failed";
+			return false;
+		}
+
+		VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
+		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		pipelineLayoutInfo.setLayoutCount = 1;
+		pipelineLayoutInfo.pSetLayouts = &it->second.descriptorSetLayout;
+		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, NULL, &it->second.pipelineLayout) != VK_SUCCESS)
+		{
+			errorLog = "vkCreatePipelineLayout failed";
+			return false;
+		}
 		return true;
+#else
+		errorLog = "Vulkan backend built without SPIRV_TOOLING - cannot reflect descriptor bindings.";
+		return false;
+#endif
 	}
 
 	bool VulkanRenderDevice::IsProgram(const DeviceHandle id) { return programs.find(id) != programs.end(); }
@@ -730,7 +1137,18 @@ namespace p3d {
 		shaderStages.erase(it);
 	}
 
-	void VulkanRenderDevice::DeleteProgram(const DeviceHandle program) { programs.erase(program); }
+	void VulkanRenderDevice::DeleteProgram(const DeviceHandle program)
+	{
+		std::map<DeviceHandle, ProgramRecord>::iterator it = programs.find(program);
+		if (it == programs.end())
+			return;
+		if (device != VK_NULL_HANDLE)
+		{
+			if (it->second.pipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, it->second.pipelineLayout, NULL);
+			if (it->second.descriptorSetLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, it->second.descriptorSetLayout, NULL);
+		}
+		programs.erase(it);
+	}
 
 	// Loose (non-block) uniforms no longer exist in PyrosShader.glsl for
 	// any material that supports UBOs (see IMaterial::SupportsUniformBlocks()
