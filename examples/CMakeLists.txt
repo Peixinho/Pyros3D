@@ -80,7 +80,7 @@ endif()
 
 
 # Context Library
-set(CONTEXT "SDL2" CACHE STRING "SDL2/SFML/SDL")
+set(CONTEXT "SDL2" CACHE STRING "SDL2/SDL2Vulkan/SFML/SDL")
 if (CONTEXT STREQUAL "SDL2")
 
 	# Find SDL2
@@ -95,6 +95,28 @@ if (CONTEXT STREQUAL "SDL2")
 		set(CONTEXT_LIB ${SDL2_LIBRARIES})
 	endif()
 	set(CONTEXT_DEFINITION -D_SDL2)
+
+	elseif (CONTEXT STREQUAL "SDL2Vulkan")
+
+		# Vulkan roadmap Phase 5 Step D - see VULKAN_ROADMAP.md. Needs the
+		# main CMakeLists.txt's BUILD_VULKAN_BACKEND=ON (sets
+		# VULKAN_BACKEND_FOUND, a plain - not cached - variable inherited
+		# from the parent scope via add_subdirectory(), same as
+		# BUILD_DEMOS/etc already relies on).
+		if (NOT VULKAN_BACKEND_FOUND)
+			message(FATAL_ERROR "CONTEXT=SDL2Vulkan requires -DBUILD_VULKAN_BACKEND=ON (and its dependencies - see CMakeLists.txt's BUILD_VULKAN_BACKEND option)")
+		endif()
+		find_package(SDL2 REQUIRED)
+		if (NOT SDL2_FOUND)
+			message(ERROR " SDL2 not found!")
+		endif(NOT SDL2_FOUND)
+		set(WINDOW_MANAGER ${CMAKE_CURRENT_SOURCE_DIR}/WindowManagers/SDL2Vulkan/SDL2VulkanContext.cpp)
+		if (TARGET SDL2::SDL2)
+			set(CONTEXT_LIB SDL2::SDL2 Vulkan::Vulkan volk::volk GPUOpen::VulkanMemoryAllocator)
+		else()
+			set(CONTEXT_LIB ${SDL2_LIBRARIES} Vulkan::Vulkan volk::volk GPUOpen::VulkanMemoryAllocator)
+		endif()
+		set(CONTEXT_DEFINITION -D_SDL2VULKAN)
 
 	else()
 		if (CONTEXT STREQUAL "SDL")

@@ -206,6 +206,7 @@ void BaseExample::LookTo(Event::Input::Info e)
 
 void BaseExample::InitImGui()
 {
+#if !defined(_SDL2VULKAN)
 	// Setup Dear ImGui context
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
@@ -231,6 +232,14 @@ void BaseExample::InitImGui()
 	ImGui_ImplOpenGL3_Init("#version 330");
 
 	imguiInitialized = true;
+#else
+	// ImGui is hard-wired to imgui_impl_opengl3 (GetGLContext() above isn't
+	// even declared on SDL2VulkanContext) - stubbed out for the Vulkan
+	// backend rather than also standing up imgui_impl_vulkan, per
+	// VULKAN_ROADMAP.md's Step D scope. imguiInitialized stays false, so
+	// BeginImGuiFrame()/EndImGuiFrame()/ShutdownImGui() (all gated on it)
+	// are natural no-ops - no other guards needed.
+#endif
 }
 
 void BaseExample::ShutdownImGui()

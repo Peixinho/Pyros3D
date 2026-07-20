@@ -15,6 +15,9 @@
 #if defined(_SDL)
 #include "../WindowManagers/SDL/SDLContext.h"
 #define ClassName SDLContext
+#elif defined(_SDL2VULKAN)
+#include "../WindowManagers/SDL2Vulkan/SDL2VulkanContext.h"
+#define ClassName SDL2VulkanContext
 #elif defined(_SDL2)
 #include "../WindowManagers/SDL2/SDL2Context.h"
 #define ClassName SDL2Context
