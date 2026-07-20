@@ -66,6 +66,23 @@ namespace p3d {
 		uint32 binding;
 	};
 
+	// One reflected vertex-shader input (a vertex attribute) and the
+	// location SPIR-V assigned it. GL resolves an attribute's location by
+	// name at *runtime* via glGetAttribLocation() (see
+	// Shader::GetAttributeLocation(), called from IRenderer::BindMesh()) -
+	// Vulkan has no equivalent query; the location is baked into the
+	// SPIR-V via an explicit `layout(location = N) in ...` and must be
+	// reflected once, ahead of time, the same way UBO/sampler bindings
+	// already are above. Only meaningful for the vertex stage (the only
+	// stage with externally-named "attribute" inputs in this engine's
+	// model - fragment-stage inputs are VS outputs, matched positionally,
+	// not by a mesh-provided buffer).
+	struct PYROS3D_API SpirvStageInput
+	{
+		std::string name;
+		uint32 location;
+	};
+
 	class PYROS3D_API SpirvShaderCompiler
 	{
 	public:
@@ -85,6 +102,14 @@ namespace p3d {
 		// across recompiles unless the source pins it explicitly - see the
 		// comment on SpirvResourceBinding.
 		static std::vector<SpirvResourceBinding> Reflect(const std::vector<uint32> &spirv);
+
+		// Enumerates a compiled SPIR-V module's stage inputs (vertex
+		// attributes, when called on a compiled vertex shader) and the
+		// location each was assigned - see the comment on SpirvStageInput
+		// for why this exists. Meaningless (returns whatever the module's
+		// actual stage inputs are) if called on a non-vertex-shader module;
+		// callers only ever pass a vertex shader's SPIR-V today.
+		static std::vector<SpirvStageInput> ReflectStageInputs(const std::vector<uint32> &spirv);
 
 	};
 

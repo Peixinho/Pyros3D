@@ -80,6 +80,27 @@ namespace p3d {
 		return out;
 	}
 
+	std::vector<SpirvStageInput> SpirvShaderCompiler::ReflectStageInputs(const std::vector<uint32> &spirv)
+	{
+		std::vector<SpirvStageInput> out;
+		if (spirv.empty())
+			return out;
+
+		spirv_cross::Compiler compiler(spirv);
+		spirv_cross::ShaderResources resources = compiler.get_shader_resources();
+
+		for (size_t i = 0; i < resources.stage_inputs.size(); i++)
+		{
+			const spirv_cross::Resource &resource = resources.stage_inputs[i];
+			SpirvStageInput input;
+			input.name = resource.name;
+			input.location = compiler.has_decoration(resource.id, spv::DecorationLocation) ? compiler.get_decoration(resource.id, spv::DecorationLocation) : 0;
+			out.push_back(input);
+		}
+
+		return out;
+	}
+
 };
 
 #endif /* SPIRV_TOOLING */

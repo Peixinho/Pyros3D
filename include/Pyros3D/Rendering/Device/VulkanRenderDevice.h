@@ -514,6 +514,14 @@ namespace p3d {
 			// about would be invalid, not a harmless no-op, the way GL's
 			// glUniformBlockBinding on a nonexistent block name is).
 			std::set<uint32> reflectedBindings;
+			// Vertex attribute name -> location, reflected from the
+			// vertex stage's compiled SPIR-V in LinkProgram() (see
+			// SpirvShaderCompiler::ReflectStageInputs()). CreatePipeline()
+			// looks names up here (matching PipelineDesc::VertexAttributeDesc::name,
+			// itself sourced from the mesh's VertexAttribute::Name) instead
+			// of GL's runtime glGetAttribLocation() equivalent, which
+			// Vulkan has no counterpart for.
+			std::map<std::string, uint32> attributeLocations;
 			ProgramRecord() : vertexShader(0), fragmentShader(0), descriptorSetLayout(VK_NULL_HANDLE), pipelineLayout(VK_NULL_HANDLE), descriptorSet(VK_NULL_HANDLE) {}
 		};
 		std::map<DeviceHandle, ProgramRecord> programs;

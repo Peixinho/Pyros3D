@@ -223,6 +223,39 @@ namespace p3d {
 		// interface change. GLRenderDevice's CreatePipeline just records the
 		// desc in a small internal table; BindPipeline applies it via the
 		// exact same gl* calls the individual Set* methods already issue.
+			// One vertex attribute within a VertexBufferLayoutDesc, sourced
+			// directly from RenderingMesh::Geometry's AttributeArray/
+			// VertexAttribute list (Renderables.h). `name` matches the
+			// attribute's name in PyrosShader.glsl (e.g. "aPosition") -
+			// Vulkan has no runtime "get location by name" the way GL's
+			// glGetAttribLocation does, so the location is resolved by
+			// name against the vertex shader's reflected stage inputs
+			// (SpirvShaderCompiler::ReflectStageInputs(), cached per
+			// program in VulkanRenderDevice::LinkProgram()) instead of
+			// being passed here directly. GL ignores this whole struct -
+			// its own per-attribute glVertexAttribPointer calls (already
+			// issued elsewhere in IRenderer::BindMesh(), unchanged) handle
+			// this dynamically already, so CreatePipeline()/BindPipeline()
+			// on GLRenderDevice never look at vertexLayout.
+			struct VertexAttributeDesc {
+				std::string name;
+				uint32 type;   // Buffer::Attribute::Type value (GeometryBuffer.h)
+				uint32 offset; // byte offset within this buffer's stride
+				uint32 divisor; // VertexAttribute::VertexDivisor - 0 for per-vertex, >0 for instanced
+
+				VertexAttributeDesc() : type(0), offset(0), divisor(0) {}
+			};
+			// One entry per AttributeArray/AttributeBuffer the mesh's
+			// geometry has - each is a separate vertex buffer binding for
+			// Vulkan (VkVertexInputBindingDescription). `stride` is the
+			// buffer's per-vertex byte size (AttributeBuffer::attributeSize).
+			struct VertexBufferLayoutDesc {
+				uint32 stride;
+				std::vector<VertexAttributeDesc> attributes;
+
+				VertexBufferLayoutDesc() : stride(0) {}
+			};
+
 		struct PipelineDesc {
 			uint32 shaderProgram;
 			bool depthTest;
@@ -233,6 +266,14 @@ namespace p3d {
 			uint32 blendEquation; // BlendEq::* value, meaningful only if blendingEnabled
 			uint32 cullFace; // IMaterial.h's CullFace::* value; DoubleSided means "no culling"
 			bool wireframe;
+			// Mesh's actual per-buffer vertex attribute layout - see
+			// VertexBufferLayoutDesc above. Left empty by any caller that
+			// never populates it (none today - IRenderer::BindMesh()
+			// always fills this before calling CreatePipeline()); an empty
+			// vertexLayout on Vulkan fails pipeline creation loudly
+			// (VulkanRenderDevice::CreatePipeline() logs and returns 0)
+			// rather than silently binding no vertex input at all.
+			std::vector<VertexBufferLayoutDesc> vertexLayout;
 
 			PipelineDesc()
 				: shaderProgram(0), depthTest(true), depthTestMode(DepthTest::Less), depthWrite(true),

@@ -24,6 +24,7 @@
 #include <Pyros3D/Rendering/SPIRV/ShaderCompiler.h>
 #include <Pyros3D/Materials/Shaders/Shaders.h>
 #include <Pyros3D/Materials/IMaterial.h>
+#include <Pyros3D/Core/Buffers/GeometryBuffer.h>
 #include <vector>
 #include <cstring>
 #include <cstdio>
@@ -910,6 +911,31 @@ namespace p3d {
 		}
 	}
 
+	// Maps a Buffer::Attribute::Type (GeometryBuffer.h) to the VkFormat a
+	// single vertex-input location of that type should read as. Matrix is
+	// handled by CreatePipeline() emitting 4 consecutive locations, each
+	// one vec4 "row" - this returns the per-row format for that case.
+	// Int/Short are unverified against this backend: GL's equivalent path
+	// (glVertexAttribPointer, non-integer variant) implicitly converts the
+	// fetched integer to float before it reaches a float-typed shader
+	// input, which plain SINT/UINT VkFormats do not do - no mesh this
+	// backend has been validated against uses either type, so this is a
+	// best-effort mapping, not a confirmed-correct one.
+	static VkFormat TranslateAttributeFormatVk(const uint32 type)
+	{
+		switch (type)
+		{
+		case Buffer::Attribute::Type::Float: return VK_FORMAT_R32_SFLOAT;
+		case Buffer::Attribute::Type::Vec2: return VK_FORMAT_R32G32_SFLOAT;
+		case Buffer::Attribute::Type::Vec3: return VK_FORMAT_R32G32B32_SFLOAT;
+		case Buffer::Attribute::Type::Vec4: return VK_FORMAT_R32G32B32A32_SFLOAT;
+		case Buffer::Attribute::Type::Matrix: return VK_FORMAT_R32G32B32A32_SFLOAT;
+		case Buffer::Attribute::Type::Int: return VK_FORMAT_R32_SINT;
+		case Buffer::Attribute::Type::Short: return VK_FORMAT_R16_SINT;
+		default: return VK_FORMAT_R32G32B32_SFLOAT;
+		}
+	}
+
 	DeviceHandle VulkanRenderDevice::CreatePipeline(const PipelineDesc &desc)
 	{
 		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(desc.shaderProgram);
@@ -939,25 +965,72 @@ namespace p3d {
 		stages[1].module = fs->second.module;
 		stages[1].pName = "main";
 
-		// Vertex input - hardcoded to Primitive.cpp's always-interleaved
-		// (aPosition:vec3, aNormal:vec3, aTexcoord:vec2) layout, stride 32.
-		// See the comment on the `pipelines` field in the header for why.
-		VkVertexInputBindingDescription binding = {};
-		binding.binding = 0;
-		binding.stride = 32;
-		binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+		// Vertex input - built from the mesh's actual attribute layout
+		// (PipelineDesc::vertexLayout, populated by IRenderer::BindMesh()
+		// from RenderingMesh::Geometry->Attributes) rather than hardcoded
+		// to any one mesh's layout. Attribute *locations* are resolved by
+		// name against this program's reflected vertex-stage inputs
+		// (attributeLocations, built in LinkProgram()) - Vulkan has no
+		// runtime "get location by name" the way GL's glGetAttribLocation
+		// does, so this is the equivalent lookup, just done once here
+		// instead of per-mesh at runtime.
+		if (desc.vertexLayout.empty())
+		{
+			fprintf(stderr, "VulkanRenderDevice::CreatePipeline: FAILED - PipelineDesc::vertexLayout is empty (caller must populate it from the mesh's actual attribute layout)\n");
+			return 0;
+		}
 
-		VkVertexInputAttributeDescription attributes[3] = {};
-		attributes[0] = { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 };  // aPosition
-		attributes[1] = { 1, 0, VK_FORMAT_R32G32B32_SFLOAT, 12 }; // aNormal
-		attributes[2] = { 2, 0, VK_FORMAT_R32G32_SFLOAT, 24 };    // aTexcoord
+		std::vector<VkVertexInputBindingDescription> bindings;
+		std::vector<VkVertexInputAttributeDescription> attributes;
+		for (size_t bufferIndex = 0; bufferIndex < desc.vertexLayout.size(); bufferIndex++)
+		{
+			const VertexBufferLayoutDesc &bufferLayout = desc.vertexLayout[bufferIndex];
+
+			VkVertexInputBindingDescription bindingDesc = {};
+			bindingDesc.binding = (uint32_t)bufferIndex;
+			bindingDesc.stride = bufferLayout.stride;
+			// Vulkan's inputRate is per-*binding*, GL's divisor is per-
+			// *attribute* - taking the first attribute's divisor assumes
+			// a buffer doesn't mix per-vertex and per-instance attributes,
+			// true for every mesh this backend has been validated
+			// against so far (documented simplification, not a general
+			// solution - matches this file's existing precedent for
+			// flagging known-narrow assumptions rather than silently
+			// guessing).
+			bool isInstanced = !bufferLayout.attributes.empty() && bufferLayout.attributes[0].divisor > 0;
+			bindingDesc.inputRate = isInstanced ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX;
+			bindings.push_back(bindingDesc);
+
+			for (size_t attrIndex = 0; attrIndex < bufferLayout.attributes.size(); attrIndex++)
+			{
+				const VertexAttributeDesc &attr = bufferLayout.attributes[attrIndex];
+				std::map<std::string, uint32>::const_iterator locIt = progIt->second.attributeLocations.find(attr.name);
+				if (locIt == progIt->second.attributeLocations.end())
+					continue; // shader doesn't declare this attribute - matches GL's "location < 0" skip in IRenderer::BindMesh()
+
+				// A Matrix attribute occupies 4 consecutive locations, one
+				// vec4 ("row") each - mirrors GL's SetVertexAttribute(location+1/+2/+3, ...)
+				// handling for Buffer::Attribute::Type::Matrix in BindMesh().
+				uint32 componentCount = (attr.type == Buffer::Attribute::Type::Matrix) ? 4 : 1;
+				VkFormat format = TranslateAttributeFormatVk(attr.type);
+				for (uint32 c = 0; c < componentCount; c++)
+				{
+					VkVertexInputAttributeDescription attrDesc = {};
+					attrDesc.location = locIt->second + c;
+					attrDesc.binding = (uint32_t)bufferIndex;
+					attrDesc.format = format;
+					attrDesc.offset = attr.offset + c * 16;
+					attributes.push_back(attrDesc);
+				}
+			}
+		}
 
 		VkPipelineVertexInputStateCreateInfo vertexInput = {};
 		vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-		vertexInput.vertexBindingDescriptionCount = 1;
-		vertexInput.pVertexBindingDescriptions = &binding;
-		vertexInput.vertexAttributeDescriptionCount = 3;
-		vertexInput.pVertexAttributeDescriptions = attributes;
+		vertexInput.vertexBindingDescriptionCount = (uint32_t)bindings.size();
+		vertexInput.pVertexBindingDescriptions = bindings.empty() ? NULL : bindings.data();
+		vertexInput.vertexAttributeDescriptionCount = (uint32_t)attributes.size();
+		vertexInput.pVertexAttributeDescriptions = attributes.empty() ? NULL : attributes.data();
 
 		VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
 		inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -1609,6 +1682,14 @@ namespace p3d {
 		// VkDescriptorSetLayoutBinding::stageFlags, not twice.
 		std::vector<SpirvResourceBinding> vsResources = SpirvShaderCompiler::Reflect(vs->second.spirv);
 		std::vector<SpirvResourceBinding> fsResources = SpirvShaderCompiler::Reflect(fs->second.spirv);
+
+		// Vertex attribute locations - see the comment on
+		// ProgramRecord::attributeLocations. Only the vertex stage has
+		// externally-named "attribute" inputs in this engine's model.
+		it->second.attributeLocations.clear();
+		std::vector<SpirvStageInput> vsInputs = SpirvShaderCompiler::ReflectStageInputs(vs->second.spirv);
+		for (size_t i = 0; i < vsInputs.size(); i++)
+			it->second.attributeLocations[vsInputs[i].name] = vsInputs[i].location;
 
 		std::map<uint32, VkDescriptorSetLayoutBinding> bindingsByIndex;
 		for (int stagePass = 0; stagePass < 2; stagePass++)

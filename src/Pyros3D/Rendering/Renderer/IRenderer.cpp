@@ -1852,6 +1852,29 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		pdesc.depthWrite = material->IsDepthWritting();
 		pdesc.cullFace = material->GetCullFace();
 		pdesc.wireframe = material->IsWireFrame();
+		// Mesh's actual per-buffer vertex attribute layout (name/type/
+		// offset/divisor per attribute, stride per buffer) - see the
+		// comment on IRenderDevice::PipelineDesc::vertexLayout. A separate
+		// pass over the same Geometry->Attributes the loop above already
+		// walked for GL's SetVertexAttribute calls, rather than folding
+		// into that loop, so this addition can't perturb the existing,
+		// already-verified GL attribute-binding logic.
+		for (std::vector<AttributeArray*>::iterator k = rmesh->Geometry->Attributes.begin(); k != rmesh->Geometry->Attributes.end(); k++)
+		{
+			AttributeBuffer* bf = (AttributeBuffer*)(*k);
+			IRenderDevice::VertexBufferLayoutDesc bufferLayout;
+			bufferLayout.stride = bf->attributeSize;
+			for (std::vector<VertexAttribute*>::iterator l = (*k)->Attributes.begin(); l != (*k)->Attributes.end(); l++)
+			{
+				IRenderDevice::VertexAttributeDesc attr;
+				attr.name = (*l)->Name;
+				attr.type = (*l)->Type;
+				attr.offset = (*l)->Offset;
+				attr.divisor = (*l)->VertexDivisor;
+				bufferLayout.attributes.push_back(attr);
+			}
+			pdesc.vertexLayout.push_back(bufferLayout);
+		}
 		if (material->blending || material->IsTransparent())
 		{
 			pdesc.blendingEnabled = true;
