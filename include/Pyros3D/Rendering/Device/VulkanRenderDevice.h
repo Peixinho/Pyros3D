@@ -33,6 +33,7 @@
 #ifdef VULKAN_BACKEND
 
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
+#include <Pyros3D/Assets/Texture/Texture.h>
 #include <volk.h>
 #include <vk_mem_alloc.h>
 #include <vector>
@@ -451,10 +452,11 @@ namespace p3d {
 		std::map<uint32, DeviceHandle> uniformBufferByBindingPoint;
 
 		// Created lazily by the first BindUniformBlockIfPresent() call -
-		// sized generously up front (see .cpp) since every program in
-		// practice shares the same ~13 UBO bindings (see PyrosShader.glsl's
-		// BIND_* macros), so one pool comfortably serves every program
-		// this backend will ever see for RotatingCube's validation path.
+		// sized generously up front (see .cpp) for up to 1024 sets total:
+		// one UBO set per program (few) plus one sampler set per
+		// *pipeline* (see ProgramRecord::samplerSetLayout for why samplers
+		// need per-pipeline granularity) - a real but generous fixed cap,
+		// not dynamically growable.
 		VkDescriptorPool descriptorPool;
 
 		// One VkShaderModule per CreateShaderStage()/CompileShaderStage()
@@ -522,22 +524,57 @@ namespace p3d {
 			// of GL's runtime glGetAttribLocation() equivalent, which
 			// Vulkan has no counterpart for.
 			std::map<std::string, uint32> attributeLocations;
-			ProgramRecord() : vertexShader(0), fragmentShader(0), descriptorSetLayout(VK_NULL_HANDLE), pipelineLayout(VK_NULL_HANDLE), descriptorSet(VK_NULL_HANDLE) {}
+			// Second descriptor set (set=1) for this program's sampler
+			// resources only (set=0, descriptorSetLayout/descriptorSet
+			// above, stays UBO-only) - deliberately *not* sharing one set
+			// per program the way UBOs do, because textures vary per
+			// *material*, not per program: two materials using the same
+			// shader but different textures would otherwise silently both
+			// render with whichever texture was bound last, since
+			// vkUpdateDescriptorSets mutates a set's contents in place and
+			// every draw referencing that set (regardless of when it was
+			// recorded into a command buffer) reads whatever's there when
+			// the GPU actually executes it, not what was there at record
+			// time. Solved instead by giving each *pipeline* its own
+			// sampler descriptor set (pipelineSamplerSets below) - pipelines
+			// are already effectively per-(mesh,shader), at least as fine-
+			// grained as per-material for any real scene, since
+			// RenderingMesh::PipelineCache is keyed per-mesh, not shared
+			// globally even when two meshes share one Material instance.
+			VkDescriptorSetLayout samplerSetLayout;
+			// Sampler uniform name (e.g. "uColormap") -> the binding
+			// PyrosShader.glsl's SAMPLER_BINDING/BIND_* macros gave it,
+			// reflected the same way attributeLocations is. Repurposes
+			// GetUniformLocation()'s return value: for a name that
+			// reflects to a SampledImage resource, VulkanRenderDevice
+			// returns this binding number instead of -1, so the existing
+			// GenericShaderMaterial/SendUserUniforms() call sequence that
+			// already sends a texture's "unit" as a plain int uniform
+			// (GL's mechanism for telling a sampler which texture unit to
+			// read from) can be repurposed, unmodified, as the trigger for
+			// updating this program's/pipeline's sampler descriptor
+			// instead - see SendUniformInt()'s comment for the full
+			// mechanism.
+			std::map<std::string, uint32> samplerBindings;
+			// Membership check mirroring reflectedBindings, but for
+			// samplerSetLayout/samplerBindings instead of
+			// descriptorSetLayout/UBOs.
+			std::set<uint32> reflectedSamplerBindings;
+			ProgramRecord() : vertexShader(0), fragmentShader(0), descriptorSetLayout(VK_NULL_HANDLE), pipelineLayout(VK_NULL_HANDLE), descriptorSet(VK_NULL_HANDLE), samplerSetLayout(VK_NULL_HANDLE) {}
 		};
 		std::map<DeviceHandle, ProgramRecord> programs;
 		DeviceHandle nextProgramHandle;
+		// Set by UseProgram() - which program's reflected data
+		// (attributeLocations/samplerBindings/etc) SendUniform*() and
+		// GetUniformLocation() calls should resolve against. Mirrors GL's
+		// own implicit "current program" state (glUseProgram), which every
+		// glUniform* call already relies on the same way.
+		DeviceHandle currentProgram;
 
 		// Real VkPipeline objects, keyed by the handle CreatePipeline()
-		// returns. Vertex input state is hardcoded to match
-		// Primitive.cpp's always-interleaved (aPosition:vec3, aNormal:vec3,
-		// aTexcoord:vec2) layout (stride 32, offsets 0/12/24) - the only
-		// vertex format RotatingCube's Cube geometry (this backend's sole
-		// validation target - see VULKAN_ROADMAP.md) ever produces.
-		// Generalizing this (skinned meshes, instancing, tangent/bitangent)
-		// needs either PipelineDesc to carry a real vertex layout or a
-		// second reflection pass over the vertex stage's stage_inputs -
-		// deliberately not guessed at without a second real mesh shape to
-		// validate against.
+		// returns. Vertex input state is built dynamically per pipeline
+		// from PipelineDesc::vertexLayout (see CreatePipeline()) - no
+		// longer hardcoded to any one mesh's layout.
 		std::map<DeviceHandle, VkPipeline> pipelines;
 		DeviceHandle nextPipelineHandle;
 		// pipeline handle -> the program it was built from (PipelineDesc's
@@ -546,6 +583,74 @@ namespace p3d {
 		// (vkCmdBindDescriptorSets), so this is how it looks the program
 		// back up.
 		std::map<DeviceHandle, DeviceHandle> pipelineToProgram;
+		// This pipeline's own sampler descriptor set (set=1) - see the
+		// comment on ProgramRecord::samplerSetLayout for why this is
+		// per-pipeline rather than per-program. Allocated in
+		// CreatePipeline() using the owning program's samplerSetLayout;
+		// written to by SendUniformInt() once BindMesh()/Material::PreRender()
+		// actually bind a texture. currentPipeline (below) is which of
+		// these SendUniformInt() should target.
+		std::map<DeviceHandle, VkDescriptorSet> pipelineSamplerSets;
+
+		// Real VkImage/VkImageView/VkSampler-backed texture, keyed by the
+		// handle CreateTextureObject() returns. GL's texture API is an
+		// incremental state machine (bind a target, then configure it via
+		// separate SetTextureWrapS/SetTextureMinFilter/UploadTexture2D
+		// calls) - Vulkan needs an atomic image+view+sampler, so this
+		// record accumulates GL-style state (format/size/wrap/filter)
+		// across calls and lazily (re)builds the real objects once enough
+		// is known (the image+view right after the first UploadTexture2D,
+		// since that's when format/size/data become available; the
+		// sampler on first use after any wrap/filter setter, tracked via
+		// samplerDirty).
+		struct TextureRecord
+		{
+			VkImage image;
+			VmaAllocation allocation;
+			VkImageView view;
+			VkSampler sampler;
+			uint32 width, height;
+			VkFormat format;
+			uint32 wrapS, wrapT;     // TextureRepeat::* values
+			uint32 minFilter, magFilter; // TextureFilter::* values
+			bool hasMipmap;
+			bool samplerDirty;
+			TextureRecord()
+				: image(VK_NULL_HANDLE), allocation(VK_NULL_HANDLE), view(VK_NULL_HANDLE), sampler(VK_NULL_HANDLE),
+				  width(0), height(0), format(VK_FORMAT_R8G8B8A8_UNORM),
+				  wrapS(TextureRepeat::Repeat), wrapT(TextureRepeat::Repeat),
+				  minFilter(TextureFilter::Linear), magFilter(TextureFilter::Linear),
+				  hasMipmap(false), samplerDirty(true) {}
+		};
+		std::map<DeviceHandle, TextureRecord> textures;
+		DeviceHandle nextTextureHandle;
+		// Lazily (re)builds tex.sampler from its wrap/filter state if
+		// dirty - see the comment on TextureRecord::samplerDirty. Returns
+		// false (logging) only on a real vkCreateSampler failure; true
+		// otherwise, including the already-clean-and-valid case.
+		bool RebuildSamplerIfDirty(TextureRecord &tex);
+		// Which texture BindTextureToTarget()/UploadTexture2D()/
+		// SetTextureWrapS()/etc are currently configuring - GL's own
+		// "operate on whatever's bound to this target" state, mirrored
+		// here since Texture.cpp's call sequence (bind, configure,
+		// unbind) is identical regardless of backend. 0 = none (matches
+		// GL's BindTextureToTarget(target, 0) unbind).
+		DeviceHandle currentlyConfiguringTexture;
+		// True for exactly one BindTextureToTarget() call after
+		// ActivateTextureUnit() - the pairing Texture::Bind()/Unbind()
+		// uses at *render* time (as opposed to the configuration-time
+		// bind/unbind pairs above, which never call ActivateTextureUnit)
+		// - distinguishes "bind this texture for rendering at unit N"
+		// from "select this texture to configure its wrap/filter state",
+		// since both go through the same BindTextureToTarget() call.
+		bool unitJustActivated;
+		uint32 currentTextureUnit;
+		// Texture unit -> texture handle, populated by the render-time
+		// bind pairing above (Texture::Bind()/Unbind()). SendUniformInt()
+		// reads this when a sampler's "unit" int uniform is sent, to
+		// resolve which real texture a descriptor write should point at -
+		// see the comment on ProgramRecord::samplerBindings.
+		std::map<uint32, DeviceHandle> textureUnitBindings;
 
 	};
 

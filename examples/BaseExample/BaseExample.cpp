@@ -304,6 +304,19 @@ void BaseExample::EndImGuiFrame()
 
 void BaseExample::RenderImGui()
 {
+	// DrawUI() (and every per-example override of it, e.g.
+	// RotatingCube::DrawUI()) calls raw ImGui:: functions directly, not
+	// gated on imguiInitialized itself - on the Vulkan backend
+	// (InitImGui()'s _SDL2VULKAN stub, see its comment) no ImGui context
+	// ever gets created, so calling DrawUI() unconditionally here crashed
+	// on the first ImGui::Begin() once a Vulkan example's render loop
+	// actually reached this call (previously unexercised - every earlier
+	// "ran clean" check on this backend only verified Init() completed,
+	// not a real frame; see VULKAN_ROADMAP.md). Gating the whole call the
+	// same way BeginImGuiFrame()/EndImGuiFrame() already are makes this a
+	// true no-op instead.
+	if (!imguiInitialized)
+		return;
 	BeginImGuiFrame();
 	DrawUI();
 	EndImGuiFrame();

@@ -40,7 +40,13 @@
 #if defined(VULKAN)
 	#define IO_LOCATION(n) layout(location = n)
 	#define UBO_BINDING(n) layout(std140, binding = n)
-	#define SAMPLER_BINDING(n) layout(binding = n)
+	// set=1, not the implicit set=0 UBO_BINDING resources land in -
+	// VulkanRenderDevice gives every sampler its own descriptor set
+	// *per pipeline* (set=1) instead of sharing one per program the way
+	// UBOs do (set=0), since textures vary per-material while UBO
+	// content doesn't - see the comment on VulkanRenderDevice.h's
+	// ProgramRecord::samplerSetLayout for why.
+	#define SAMPLER_BINDING(n) layout(set = 1, binding = n)
 #else
 	#define IO_LOCATION(n)
 	#define UBO_BINDING(n) layout(std140)

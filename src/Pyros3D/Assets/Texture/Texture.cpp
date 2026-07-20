@@ -16,14 +16,21 @@
 
 namespace p3d {
 
-	// GLRenderDevice holds no state, so every Texture sharing one
-	// lazily-constructed instance is cheap and avoids having to plumb an
-	// IRenderDevice* through every call site that constructs a Texture -
-	// same pattern as GeometryBuffer.cpp/Shaders.cpp.
+	// Every Texture shares whichever backend is currently active (see
+	// GetActiveRenderDevice() in IRenderDevice.h) rather than each Texture
+	// needing an injected IRenderDevice* - avoids plumbing one through
+	// every call site that constructs a Texture, while still respecting
+	// the actual backend in use (GL vs Vulkan) - same pattern as
+	// GeometryBuffer.cpp/Shaders.cpp/RenderingComponent.cpp. Previously
+	// hardcoded to a static GLRenderDevice (deliberately, before this
+	// backend had any real texture support) - calling any GL function
+	// with no current GL context (true for a Vulkan-only window) is
+	// undefined behavior, and crashed the hard way through an unloaded/
+	// null GLAD function pointer once a real Vulkan texture load was
+	// actually attempted.
 	static IRenderDevice& Device()
 	{
-		static GLRenderDevice instance;
-		return instance;
+		return GetActiveRenderDevice();
 	}
 
 	uint32 Texture::UnitBinded = 0;

@@ -44,7 +44,8 @@ namespace p3d {
 		  frameInProgress(false), currentImageIndex(0),
 		  nextVaoHandle(1), currentVao(0), currentPipeline(0),
 		  allocator(VK_NULL_HANDLE), descriptorPool(VK_NULL_HANDLE),
-		  nextBufferHandle(1), nextShaderStageHandle(1), nextProgramHandle(1), nextPipelineHandle(1)
+		  nextBufferHandle(1), nextShaderStageHandle(1), nextProgramHandle(1), currentProgram(0), nextPipelineHandle(1),
+		  nextTextureHandle(1), currentlyConfiguringTexture(0), unitJustActivated(false), currentTextureUnit(0)
 	{
 		if (volkInitialize() != VK_SUCCESS)
 			return;
@@ -107,8 +108,16 @@ namespace p3d {
 			{
 				if (it->second.pipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, it->second.pipelineLayout, NULL);
 				if (it->second.descriptorSetLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, it->second.descriptorSetLayout, NULL);
+				if (it->second.samplerSetLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, it->second.samplerSetLayout, NULL);
 			}
 			programs.clear();
+			for (std::map<DeviceHandle, TextureRecord>::iterator it = textures.begin(); it != textures.end(); it++)
+			{
+				if (it->second.sampler != VK_NULL_HANDLE) vkDestroySampler(device, it->second.sampler, NULL);
+				if (it->second.view != VK_NULL_HANDLE) vkDestroyImageView(device, it->second.view, NULL);
+				if (it->second.image != VK_NULL_HANDLE) vmaDestroyImage(allocator, it->second.image, it->second.allocation);
+			}
+			textures.clear();
 			for (std::map<DeviceHandle, BufferRecord>::iterator it = buffers.begin(); it != buffers.end(); it++)
 				vmaDestroyBuffer(allocator, it->second.buffer, it->second.allocation);
 			buffers.clear();
@@ -936,6 +945,30 @@ namespace p3d {
 		}
 	}
 
+	static VkSamplerAddressMode TranslateTextureRepeatVk(const uint32 repeat)
+	{
+		switch (repeat)
+		{
+		case TextureRepeat::Clamp: return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		case TextureRepeat::ClampToBorder: return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+		case TextureRepeat::ClampToEdge: return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		case TextureRepeat::Repeat: default: return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+		}
+	}
+
+	static void TranslateTextureFilterVk(const uint32 filter, VkFilter &outFilter, VkSamplerMipmapMode &outMipmapMode)
+	{
+		switch (filter)
+		{
+		case TextureFilter::Nearest: outFilter = VK_FILTER_NEAREST; outMipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST; break;
+		case TextureFilter::LinearMipmapLinear: outFilter = VK_FILTER_LINEAR; outMipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR; break;
+		case TextureFilter::LinearMipmapNearest: outFilter = VK_FILTER_LINEAR; outMipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST; break;
+		case TextureFilter::NearestMipmapNearest: outFilter = VK_FILTER_NEAREST; outMipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST; break;
+		case TextureFilter::NearestMipmapLinear: outFilter = VK_FILTER_NEAREST; outMipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR; break;
+		case TextureFilter::Linear: default: outFilter = VK_FILTER_LINEAR; outMipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR; break;
+		}
+	}
+
 	DeviceHandle VulkanRenderDevice::CreatePipeline(const PipelineDesc &desc)
 	{
 		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(desc.shaderProgram);
@@ -1123,6 +1156,28 @@ namespace p3d {
 		DeviceHandle handle = nextPipelineHandle++;
 		pipelines[handle] = pipeline;
 		pipelineToProgram[handle] = desc.shaderProgram;
+
+		// This pipeline's own sampler descriptor set (set=1) - see the
+		// comment on ProgramRecord::samplerSetLayout for why every
+		// pipeline gets its own instead of sharing one per program.
+		// descriptorPool is created (see the sizing comment on that field)
+		// by BindUniformBlockIfPresent(), which BindMesh() always calls
+		// before ever reaching CreatePipeline() - if it's somehow still
+		// NULL here, skip rather than guess at a second creation path.
+		if (descriptorPool != VK_NULL_HANDLE)
+		{
+			VkDescriptorSetAllocateInfo samplerSetAllocInfo = {};
+			samplerSetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+			samplerSetAllocInfo.descriptorPool = descriptorPool;
+			samplerSetAllocInfo.descriptorSetCount = 1;
+			samplerSetAllocInfo.pSetLayouts = &progIt->second.samplerSetLayout;
+			VkDescriptorSet samplerSet = VK_NULL_HANDLE;
+			if (vkAllocateDescriptorSets(device, &samplerSetAllocInfo, &samplerSet) == VK_SUCCESS)
+				pipelineSamplerSets[handle] = samplerSet;
+			else
+				fprintf(stderr, "VulkanRenderDevice::CreatePipeline: vkAllocateDescriptorSets (sampler set) failed for pipeline %u\n", handle);
+		}
+
 		return handle;
 	}
 
@@ -1135,6 +1190,12 @@ namespace p3d {
 			vkDestroyPipeline(device, it->second, NULL);
 		pipelines.erase(it);
 		pipelineToProgram.erase(pipeline);
+		// The VkDescriptorSet itself isn't individually freed - descriptorPool
+		// was created without VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+		// so every set it ever allocated is only reclaimed by
+		// vkDestroyDescriptorPool (the device destructor) - just drop the
+		// bookkeeping entry here.
+		pipelineSamplerSets.erase(pipeline);
 	}
 
 	void VulkanRenderDevice::BindPipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline)
@@ -1151,17 +1212,26 @@ namespace p3d {
 		currentPipeline = pipeline;
 		vkCmdBindPipeline(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, it->second);
 
-		// Also bind the owning program's descriptor set (if
-		// BindUniformBlockIfPresent() ever allocated one) - GL's
-		// equivalent state (which UBOs are bound) is already implicit/
-		// global by this point via glUniformBlockBinding(), but Vulkan
-		// needs an explicit vkCmdBindDescriptorSets() per draw.
+		// Also bind the owning program's UBO set (set=0, if
+		// BindUniformBlockIfPresent() ever allocated one) and this
+		// pipeline's own sampler set (set=1, if CreatePipeline() ever
+		// allocated one - see ProgramRecord::samplerSetLayout for why
+		// this is per-pipeline, not per-program) - GL's equivalent state
+		// (which UBOs/textures are bound) is already implicit/global by
+		// this point via glUniformBlockBinding()/glUniform1i(), but
+		// Vulkan needs an explicit vkCmdBindDescriptorSets() per draw.
 		std::map<DeviceHandle, DeviceHandle>::iterator progHandleIt = pipelineToProgram.find(pipeline);
 		if (progHandleIt != pipelineToProgram.end())
 		{
 			std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(progHandleIt->second);
-			if (progIt != programs.end() && progIt->second.descriptorSet != VK_NULL_HANDLE)
-				vkCmdBindDescriptorSets(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet, 0, NULL);
+			if (progIt != programs.end())
+			{
+				if (progIt->second.descriptorSet != VK_NULL_HANDLE)
+					vkCmdBindDescriptorSets(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet, 0, NULL);
+				std::map<DeviceHandle, VkDescriptorSet>::iterator samplerSetIt = pipelineSamplerSets.find(pipeline);
+				if (samplerSetIt != pipelineSamplerSets.end() && samplerSetIt->second != VK_NULL_HANDLE)
+					vkCmdBindDescriptorSets(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 1, 1, &samplerSetIt->second, 0, NULL);
+			}
 		}
 	}
 
@@ -1170,7 +1240,13 @@ namespace p3d {
 
 	void VulkanRenderDevice::SetViewport(const uint32 x, const uint32 y, const uint32 width, const uint32 height) {}
 
-	void VulkanRenderDevice::UseProgram(const uint32 program) {}
+	// Mirrors GL's implicit "current program" state (glUseProgram) -
+	// GetUniformLocation()/SendUniformInt() below need to know which
+	// program's reflected sampler bindings to resolve against, and
+	// receive no program argument themselves (matching IRenderDevice's
+	// existing GL-shaped contract, where glUniform1i et al also only ever
+	// operate on whatever program is currently in use).
+	void VulkanRenderDevice::UseProgram(const uint32 program) { currentProgram = program; }
 	// See the header comment on VaoRecord for the overall design - this
 	// only allocates a handle and a zeroed record; BindArrayBuffer()/
 	// BindElementBuffer() fill it in afterward, the same way
@@ -1249,18 +1325,24 @@ namespace p3d {
 			return;
 
 		// Lazily create the shared descriptor pool - see the header
-		// comment on descriptorPool for the sizing rationale.
+		// comment on descriptorPool for the sizing rationale. Sized for
+		// up to 1024 sets total: one UBO set per program (few - one per
+		// distinct shader variant) plus one sampler set per *pipeline*
+		// (see ProgramRecord::samplerSetLayout's comment for why samplers
+		// need per-pipeline, not per-program, granularity) - a real but
+		// generous cap, not dynamically growable; a scene with more than
+		// ~1024 distinct (mesh,shader) pairs would need this revisited.
 		if (descriptorPool == VK_NULL_HANDLE)
 		{
 			VkDescriptorPoolSize poolSizes[2] = {};
 			poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 			poolSizes[0].descriptorCount = 64;
 			poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			poolSizes[1].descriptorCount = 16;
+			poolSizes[1].descriptorCount = 4096;
 
 			VkDescriptorPoolCreateInfo poolInfo = {};
 			poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-			poolInfo.maxSets = 16;
+			poolInfo.maxSets = 1024;
 			poolInfo.poolSizeCount = 2;
 			poolInfo.pPoolSizes = poolSizes;
 			if (vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool) != VK_SUCCESS)
@@ -1691,7 +1773,15 @@ namespace p3d {
 		for (size_t i = 0; i < vsInputs.size(); i++)
 			it->second.attributeLocations[vsInputs[i].name] = vsInputs[i].location;
 
+		// Split by resource type into two independent binding maps - UBOs
+		// (set=0, descriptorSetLayout - shared per-program, one set is
+		// correct since every draw using a program's UBOs shares the same
+		// content) and samplers (set=1, samplerSetLayout - see the
+		// comment on ProgramRecord::samplerSetLayout for why these can't
+		// share one set per program the way UBOs do).
 		std::map<uint32, VkDescriptorSetLayoutBinding> bindingsByIndex;
+		std::map<uint32, VkDescriptorSetLayoutBinding> samplerBindingsByIndex;
+		it->second.samplerBindings.clear();
 		for (int stagePass = 0; stagePass < 2; stagePass++)
 		{
 			std::vector<SpirvResourceBinding> &resources = (stagePass == 0) ? vsResources : fsResources;
@@ -1699,8 +1789,11 @@ namespace p3d {
 			for (size_t i = 0; i < resources.size(); i++)
 			{
 				const SpirvResourceBinding &res = resources[i];
-				std::map<uint32, VkDescriptorSetLayoutBinding>::iterator existing = bindingsByIndex.find(res.binding);
-				if (existing != bindingsByIndex.end())
+				std::map<uint32, VkDescriptorSetLayoutBinding> &targetMap = (res.type == SpirvResourceType::SampledImage) ? samplerBindingsByIndex : bindingsByIndex;
+				if (res.type == SpirvResourceType::SampledImage)
+					it->second.samplerBindings[res.name] = res.binding;
+				std::map<uint32, VkDescriptorSetLayoutBinding>::iterator existing = targetMap.find(res.binding);
+				if (existing != targetMap.end())
 				{
 					existing->second.stageFlags |= stageFlag;
 					continue;
@@ -1710,7 +1803,7 @@ namespace p3d {
 				binding.descriptorType = (res.type == SpirvResourceType::SampledImage) ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 				binding.descriptorCount = 1;
 				binding.stageFlags = stageFlag;
-				bindingsByIndex[res.binding] = binding;
+				targetMap[res.binding] = binding;
 			}
 		}
 
@@ -1719,6 +1812,12 @@ namespace p3d {
 		{
 			layoutBindings.push_back(bIt->second);
 			it->second.reflectedBindings.insert(bIt->first);
+		}
+		std::vector<VkDescriptorSetLayoutBinding> samplerLayoutBindings;
+		for (std::map<uint32, VkDescriptorSetLayoutBinding>::iterator bIt = samplerBindingsByIndex.begin(); bIt != samplerBindingsByIndex.end(); bIt++)
+		{
+			samplerLayoutBindings.push_back(bIt->second);
+			it->second.reflectedSamplerBindings.insert(bIt->first);
 		}
 
 		VkDescriptorSetLayoutCreateInfo setLayoutInfo = {};
@@ -1731,10 +1830,25 @@ namespace p3d {
 			return false;
 		}
 
+		// Always create a (possibly zero-binding, still valid) sampler
+		// set layout - keeps CreatePipeline()/BindPipeline() uniform
+		// across textured and non-textured programs alike, rather than
+		// special-casing "this program has no samplers".
+		VkDescriptorSetLayoutCreateInfo samplerSetLayoutInfo = {};
+		samplerSetLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		samplerSetLayoutInfo.bindingCount = (uint32_t)samplerLayoutBindings.size();
+		samplerSetLayoutInfo.pBindings = samplerLayoutBindings.empty() ? NULL : samplerLayoutBindings.data();
+		if (vkCreateDescriptorSetLayout(device, &samplerSetLayoutInfo, NULL, &it->second.samplerSetLayout) != VK_SUCCESS)
+		{
+			errorLog = "vkCreateDescriptorSetLayout (sampler set) failed";
+			return false;
+		}
+
+		VkDescriptorSetLayout setLayouts[2] = { it->second.descriptorSetLayout, it->second.samplerSetLayout };
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.setLayoutCount = 1;
-		pipelineLayoutInfo.pSetLayouts = &it->second.descriptorSetLayout;
+		pipelineLayoutInfo.setLayoutCount = 2;
+		pipelineLayoutInfo.pSetLayouts = setLayouts;
 		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, NULL, &it->second.pipelineLayout) != VK_SUCCESS)
 		{
 			errorLog = "vkCreatePipelineLayout failed";
@@ -1778,6 +1892,7 @@ namespace p3d {
 		{
 			if (it->second.pipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, it->second.pipelineLayout, NULL);
 			if (it->second.descriptorSetLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, it->second.descriptorSetLayout, NULL);
+			if (it->second.samplerSetLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, it->second.samplerSetLayout, NULL);
 		}
 		programs.erase(it);
 	}
@@ -1795,7 +1910,31 @@ namespace p3d {
 	// uniforms in user-authored shader files, outside PyrosShader.glsl)
 	// is explicitly out of scope for RotatingCube's Vulkan validation path -
 	// see VULKAN_ROADMAP.md.
-	int32 VulkanRenderDevice::GetUniformLocation(const uint32 program, const std::string &name) { return -1; }
+	// One real exception to the "-1 for anything absorbed into a UBO"
+	// contract described above: sampler uniforms (e.g. "uColormap") are
+	// *not* absorbed into a UBO - they stay declared as loose
+	// `uniform sampler2D` in PyrosShader.glsl (opaque types are exempt
+	// from Vulkan's "non-opaque uniforms outside a block" rule - see
+	// VULKAN_ROADMAP.md's Phase 2 blocker list), just with a static
+	// `layout(binding=N)`. GenericShaderMaterial still sends this name's
+	// value as a plain int uniform (GL's mechanism for telling a sampler
+	// which texture *unit* to read from - see AddTexture()/SetColorMap()
+	// in GenericShaderMaterial.cpp) - repurposed here: returning the
+	// reflected binding number (instead of -1) as this "location" means
+	// the exact same SendUserUniforms() call that already runs
+	// unconditionally reaches SendUniformInt() with everything it needs
+	// to update this program's/pipeline's sampler descriptor - see that
+	// method's comment for the other half of this mechanism.
+	int32 VulkanRenderDevice::GetUniformLocation(const uint32 program, const std::string &name)
+	{
+		std::map<DeviceHandle, ProgramRecord>::iterator it = programs.find(program);
+		if (it == programs.end())
+			return -1;
+		std::map<std::string, uint32>::iterator samplerIt = it->second.samplerBindings.find(name);
+		if (samplerIt != it->second.samplerBindings.end())
+			return (int32)samplerIt->second;
+		return -1;
+	}
 
 	// Unlike GL (where attribute locations are assigned by the driver at
 	// link time and must be queried back), Vulkan/SPIR-V requires static
@@ -1820,35 +1959,446 @@ namespace p3d {
 		return -1;
 	}
 
-	void VulkanRenderDevice::SendUniformInt(const int32 handle, const int32 *data, const uint32 count) {}
+	// Lazily (re)builds a texture's VkSampler from its currently-tracked
+	// wrap/filter state (see the comment on TextureRecord) - GL applies
+	// SetTextureWrapS/SetTextureMinFilter/etc immediately via glTexParameter*,
+	// but Vulkan bakes all of a sampler's state into one immutable object
+	// created up front, so this only actually runs the first time a
+	// texture is used after any wrap/filter setter touched it
+	// (samplerDirty), not on every setter call.
+	bool VulkanRenderDevice::RebuildSamplerIfDirty(TextureRecord &tex)
+	{
+		if (!tex.samplerDirty)
+			return tex.sampler != VK_NULL_HANDLE;
+		if (tex.sampler != VK_NULL_HANDLE)
+		{
+			vkDestroySampler(device, tex.sampler, NULL);
+			tex.sampler = VK_NULL_HANDLE;
+		}
+
+		VkFilter filter;
+		VkSamplerMipmapMode mipmapMode;
+		TranslateTextureFilterVk(tex.minFilter, filter, mipmapMode);
+		VkFilter magFilter;
+		VkSamplerMipmapMode unusedMipmapMode;
+		TranslateTextureFilterVk(tex.magFilter, magFilter, unusedMipmapMode);
+
+		VkSamplerCreateInfo samplerInfo = {};
+		samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+		samplerInfo.magFilter = magFilter;
+		samplerInfo.minFilter = filter;
+		samplerInfo.mipmapMode = mipmapMode;
+		samplerInfo.addressModeU = TranslateTextureRepeatVk(tex.wrapS);
+		samplerInfo.addressModeV = TranslateTextureRepeatVk(tex.wrapT);
+		samplerInfo.addressModeW = samplerInfo.addressModeV;
+		samplerInfo.minLod = 0.0f;
+		samplerInfo.maxLod = tex.hasMipmap ? VK_LOD_CLAMP_NONE : 0.0f;
+
+		if (vkCreateSampler(device, &samplerInfo, NULL, &tex.sampler) != VK_SUCCESS)
+		{
+			fprintf(stderr, "VulkanRenderDevice: vkCreateSampler failed\n");
+			return false;
+		}
+		tex.samplerDirty = false;
+		return true;
+	}
+
+	// The other half of the mechanism described in GetUniformLocation()'s
+	// comment: GenericShaderMaterial's texture-uniform sending
+	// (SendUserUniforms(), unconditionally already run every draw) ends
+	// up calling this with `handle` = a sampler's reflected descriptor
+	// binding (not a real "uniform location" - Vulkan samplers have no
+	// such thing) and `data[0]` = the texture *unit* Texture::Bind() just
+	// activated it at (see textureUnitBindings, populated by
+	// ActivateTextureUnit()/BindTextureToTarget()'s render-time pairing).
+	// Resolves unit -> real texture -> writes it into the *current
+	// pipeline's* sampler descriptor set at that binding - see the
+	// comment on ProgramRecord::samplerSetLayout for why this is
+	// per-pipeline rather than per-program.
+	void VulkanRenderDevice::SendUniformInt(const int32 handle, const int32 *data, const uint32 count)
+	{
+		if (handle < 0 || count == 0 || device == VK_NULL_HANDLE)
+			return;
+		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(currentProgram);
+		if (progIt == programs.end())
+			return;
+		if (progIt->second.reflectedSamplerBindings.find((uint32)handle) == progIt->second.reflectedSamplerBindings.end())
+			return; // not a sampler binding for this program - not a texture-unit send this backend handles
+
+		std::map<uint32, DeviceHandle>::iterator unitIt = textureUnitBindings.find((uint32)data[0]);
+		if (unitIt == textureUnitBindings.end())
+			return; // nothing actually bound at that unit
+		std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(unitIt->second);
+		if (texIt == textures.end() || texIt->second.view == VK_NULL_HANDLE)
+			return; // texture handle stale, or UploadTexture2D() never ran (no image yet)
+
+		std::map<DeviceHandle, VkDescriptorSet>::iterator setIt = pipelineSamplerSets.find(currentPipeline);
+		if (setIt == pipelineSamplerSets.end() || setIt->second == VK_NULL_HANDLE)
+			return; // no current pipeline / it has no sampler set (CreatePipeline() failed, or descriptorPool wasn't ready yet)
+
+		if (!RebuildSamplerIfDirty(texIt->second))
+			return;
+
+		VkDescriptorImageInfo imageInfo = {};
+		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		imageInfo.imageView = texIt->second.view;
+		imageInfo.sampler = texIt->second.sampler;
+
+		VkWriteDescriptorSet write = {};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = setIt->second;
+		write.dstBinding = (uint32)handle;
+		write.descriptorCount = 1;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		write.pImageInfo = &imageInfo;
+		vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
+	}
 	void VulkanRenderDevice::SendUniformFloat(const int32 handle, const f32 *data, const uint32 count) {}
 	void VulkanRenderDevice::SendUniformVec2(const int32 handle, const f32 *data, const uint32 count) {}
 	void VulkanRenderDevice::SendUniformVec3(const int32 handle, const f32 *data, const uint32 count) {}
 	void VulkanRenderDevice::SendUniformVec4(const int32 handle, const f32 *data, const uint32 count) {}
 	void VulkanRenderDevice::SendUniformMatrix(const int32 handle, const f32 *data, const uint32 count) {}
 
-	void VulkanRenderDevice::TranslateTextureFormat(const uint32 engineDataType, uint32 &internalFormat, uint32 &format, uint32 &type) {}
-	void VulkanRenderDevice::TranslateTextureTarget(const uint32 engineTextureType, uint32 &mode, uint32 &subMode) {}
+	// GL's TranslateTextureFormat() fills three separate GL tokens
+	// (internalFormat/format/type) because glTexImage2D needs them
+	// separately (how the GPU stores it vs. how the *input* data is laid
+	// out). Vulkan images have one storage VkFormat and no separate
+	// input-format/type concept - this just packs a VkFormat into
+	// `internalFormat` (read back by UploadTexture2D() below) and leaves
+	// `format`/`type` unused (0). Only covers the formats this backend's
+	// one real texture path (Texture::LoadTexture(), via stb_image forced
+	// to 4 channels - see its `stbi_load_from_memory(..., 4)` call -
+	// always produces TextureDataType::RGBA) and a few other
+	// straightforward same-byte-layout formats actually need; anything
+	// else (depth/compressed/float variants) falls back to RGBA8 as a
+	// best-effort default, untested since no example on this backend
+	// uses them (FrameBuffer.cpp, the other TranslateTextureFormat()
+	// caller for depth/render-target formats, stays GL-only - see
+	// VULKAN_ROADMAP.md's Phase 6 scope).
+	void VulkanRenderDevice::TranslateTextureFormat(const uint32 engineDataType, uint32 &internalFormat, uint32 &format, uint32 &type)
+	{
+		format = 0;
+		type = 0;
+		switch (engineDataType)
+		{
+		case TextureDataType::RGBA: internalFormat = (uint32)VK_FORMAT_R8G8B8A8_UNORM; break;
+		case TextureDataType::BGRA: internalFormat = (uint32)VK_FORMAT_B8G8R8A8_UNORM; break;
+		case TextureDataType::R8: internalFormat = (uint32)VK_FORMAT_R8_UNORM; break;
+		case TextureDataType::RG8: internalFormat = (uint32)VK_FORMAT_R8G8_UNORM; break;
+		case TextureDataType::RGBA16F: internalFormat = (uint32)VK_FORMAT_R16G16B16A16_SFLOAT; break;
+		case TextureDataType::RGBA32F: internalFormat = (uint32)VK_FORMAT_R32G32B32A32_SFLOAT; break;
+		case TextureDataType::R16F: internalFormat = (uint32)VK_FORMAT_R16_SFLOAT; break;
+		case TextureDataType::R32F: internalFormat = (uint32)VK_FORMAT_R32_SFLOAT; break;
+		default: internalFormat = (uint32)VK_FORMAT_R8G8B8A8_UNORM; break;
+		}
+	}
 
-	DeviceHandle VulkanRenderDevice::CreateTextureObject() { return 0; }
-	void VulkanRenderDevice::DestroyTextureObject(const DeviceHandle texture) {}
-	void VulkanRenderDevice::BindTextureToTarget(const uint32 target, const DeviceHandle texture) {}
+	// Only plain 2D textures are implemented - cubemap faces
+	// (TextureType::Cubemap*) and multisample targets have no real
+	// backing here yet (no example on this backend uses either; skybox/
+	// envmap rendering is Phase 6 scope). mode/subMode both come back as
+	// a sentinel (0) distinct from any real VkImageViewType, so
+	// BindTextureToTarget()/UploadTexture2D() can tell a genuine 2D
+	// target apart from an unimplemented one - not guessed at without a
+	// real cubemap example to validate against.
+	void VulkanRenderDevice::TranslateTextureTarget(const uint32 engineTextureType, uint32 &mode, uint32 &subMode)
+	{
+		mode = subMode = (engineTextureType == TextureType::Texture) ? 1 : 0;
+	}
 
-	void VulkanRenderDevice::UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data) {}
+	DeviceHandle VulkanRenderDevice::CreateTextureObject()
+	{
+		DeviceHandle handle = nextTextureHandle++;
+		textures[handle] = TextureRecord();
+		return handle;
+	}
+
+	void VulkanRenderDevice::DestroyTextureObject(const DeviceHandle texture)
+	{
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(texture);
+		if (it == textures.end())
+			return;
+		if (device != VK_NULL_HANDLE)
+		{
+			if (it->second.sampler != VK_NULL_HANDLE) vkDestroySampler(device, it->second.sampler, NULL);
+			if (it->second.view != VK_NULL_HANDLE) vkDestroyImageView(device, it->second.view, NULL);
+		}
+		if (allocator != VK_NULL_HANDLE && it->second.image != VK_NULL_HANDLE)
+			vmaDestroyImage(allocator, it->second.image, it->second.allocation);
+		textures.erase(it);
+		if (currentlyConfiguringTexture == texture)
+			currentlyConfiguringTexture = 0;
+	}
+
+	// Dual-purpose, mirroring GL's own dual-purpose glBindTexture(): most
+	// calls (from Texture.cpp's Upload/SetWrap*/SetFilter* configuration
+	// sequences) just select which texture subsequent calls configure,
+	// tracked via currentlyConfiguringTexture. But Texture::Bind()/
+	// Unbind() call this immediately after ActivateTextureUnit() - a
+	// pairing this backend needs to tell apart from configuration binds,
+	// since it means something different: "this texture is what unit N
+	// should read from at render time" (recorded into
+	// textureUnitBindings, consumed later by SendUniformInt() - see its
+	// comment for the rest of the mechanism), not "configure this
+	// texture". unitJustActivated (set only by ActivateTextureUnit(),
+	// consumed by the very next call here regardless of outcome) is what
+	// distinguishes the two.
+	void VulkanRenderDevice::BindTextureToTarget(const uint32 target, const DeviceHandle texture)
+	{
+		(void)target;
+		if (unitJustActivated)
+		{
+			unitJustActivated = false;
+			if (texture != 0)
+				textureUnitBindings[currentTextureUnit] = texture;
+			else
+				textureUnitBindings.erase(currentTextureUnit);
+			return;
+		}
+		currentlyConfiguringTexture = texture;
+	}
+
+	// Uploads pixel data into currentlyConfiguringTexture (see
+	// BindTextureToTarget()), creating the backing VkImage/VkImageView
+	// the first time this runs for a given texture (or if width/height/
+	// format changed - a real resize, matching Texture::Resize()'s GL
+	// behavior of just re-calling this). `internalFormat` is the VkFormat
+	// TranslateTextureFormat() packed above; `target`/`format`/`type` are
+	// unused (see that method's comment). Levels beyond 0 (mipmaps
+	// supplied pre-generated by the caller, e.g. LoadTexture()'s DDS
+	// path) are accepted into the same image if it already exists at the
+	// right size, but this backend's images are always created with a
+	// single mip level (GenerateMipmap() is a no-op) - untested territory,
+	// no example on this backend loads pre-mipmapped DDS content.
+	void VulkanRenderDevice::UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data)
+	{
+		(void)target; (void)format; (void)type;
+		if (currentlyConfiguringTexture == 0 || device == VK_NULL_HANDLE || allocator == VK_NULL_HANDLE || width == 0 || height == 0)
+			return;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end())
+			return;
+		TextureRecord &tex = it->second;
+		VkFormat wantedFormat = (VkFormat)internalFormat;
+
+		if (tex.image == VK_NULL_HANDLE || tex.width != width || tex.height != height || tex.format != wantedFormat)
+		{
+			if (tex.view != VK_NULL_HANDLE) { vkDestroyImageView(device, tex.view, NULL); tex.view = VK_NULL_HANDLE; }
+			if (tex.image != VK_NULL_HANDLE) { vmaDestroyImage(allocator, tex.image, tex.allocation); tex.image = VK_NULL_HANDLE; }
+
+			VkImageCreateInfo imageInfo = {};
+			imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+			imageInfo.imageType = VK_IMAGE_TYPE_2D;
+			imageInfo.format = wantedFormat;
+			imageInfo.extent = { width, height, 1 };
+			imageInfo.mipLevels = 1;
+			imageInfo.arrayLayers = 1;
+			imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+			imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+			imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+			imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+			imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+			VmaAllocationCreateInfo allocInfo = {};
+			allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+			if (vmaCreateImage(allocator, &imageInfo, &allocInfo, &tex.image, &tex.allocation, NULL) != VK_SUCCESS)
+			{
+				fprintf(stderr, "VulkanRenderDevice::UploadTexture2D: vmaCreateImage failed (%ux%u, format=%d)\n", width, height, (int)wantedFormat);
+				tex.image = VK_NULL_HANDLE;
+				return;
+			}
+
+			VkImageViewCreateInfo viewInfo = {};
+			viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+			viewInfo.image = tex.image;
+			viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+			viewInfo.format = wantedFormat;
+			viewInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			if (vkCreateImageView(device, &viewInfo, NULL, &tex.view) != VK_SUCCESS)
+			{
+				fprintf(stderr, "VulkanRenderDevice::UploadTexture2D: vkCreateImageView failed\n");
+				vmaDestroyImage(allocator, tex.image, tex.allocation);
+				tex.image = VK_NULL_HANDLE;
+				return;
+			}
+
+			tex.width = width;
+			tex.height = height;
+			tex.format = wantedFormat;
+		}
+
+		if (data == NULL)
+			return; // CreateEmptyTexture()'s case - image exists, nothing to upload yet
+
+		// One-time-submit staging upload, since texture loading typically
+		// happens outside any per-frame command buffer (asset loading
+		// before the render loop even starts) - allocate a temporary
+		// command buffer, record a barrier+copy+barrier, submit, wait,
+		// and free it, all synchronously. Not the most efficient (no
+		// overlap with anything else), but correct and simple - matches
+		// this backend's existing "correctness over throughput" bar for
+		// a first real implementation (see e.g. RequestFrameCapture()'s
+		// similarly synchronous design).
+		VkDeviceSize uploadSize = (VkDeviceSize)width * height * 4; // every supported format here is <=4 bytes/texel; see the comment on TranslateTextureFormat()
+		VkBufferCreateInfo stagingInfo = {};
+		stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		stagingInfo.size = uploadSize;
+		stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+		stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VmaAllocationCreateInfo stagingAllocInfo = {};
+		stagingAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		stagingAllocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+		VkBuffer stagingBuffer = VK_NULL_HANDLE;
+		VmaAllocation stagingAllocation = VK_NULL_HANDLE;
+		VmaAllocationInfo stagingAllocationInfo;
+		if (vmaCreateBuffer(allocator, &stagingInfo, &stagingAllocInfo, &stagingBuffer, &stagingAllocation, &stagingAllocationInfo) != VK_SUCCESS)
+		{
+			fprintf(stderr, "VulkanRenderDevice::UploadTexture2D: staging vmaCreateBuffer failed\n");
+			return;
+		}
+		memcpy(stagingAllocationInfo.pMappedData, data, (size_t)uploadSize);
+
+		VkCommandBufferAllocateInfo cmdAllocInfo = {};
+		cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		cmdAllocInfo.commandPool = commandPool;
+		cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		cmdAllocInfo.commandBufferCount = 1;
+		VkCommandBuffer uploadCmd = VK_NULL_HANDLE;
+		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &uploadCmd) != VK_SUCCESS)
+		{
+			vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
+			return;
+		}
+
+		VkCommandBufferBeginInfo beginInfo = {};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		vkBeginCommandBuffer(uploadCmd, &beginInfo);
+
+		VkImageMemoryBarrier toDst = {};
+		toDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		toDst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		toDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		toDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toDst.image = tex.image;
+		toDst.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+		toDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		vkCmdPipelineBarrier(uploadCmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &toDst);
+
+		VkBufferImageCopy copyRegion = {};
+		copyRegion.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, level, 0, 1 };
+		copyRegion.imageExtent = { width, height, 1 };
+		vkCmdCopyBufferToImage(uploadCmd, stagingBuffer, tex.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+
+		VkImageMemoryBarrier toShaderRead = toDst;
+		toShaderRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		toShaderRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		toShaderRead.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		toShaderRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		vkCmdPipelineBarrier(uploadCmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &toShaderRead);
+
+		vkEndCommandBuffer(uploadCmd);
+
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &uploadCmd;
+		VkFenceCreateInfo fenceInfo = {};
+		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		VkFence uploadFence = VK_NULL_HANDLE;
+		vkCreateFence(device, &fenceInfo, NULL, &uploadFence);
+		vkQueueSubmit(graphicsQueue, 1, &submitInfo, uploadFence);
+		if (uploadFence != VK_NULL_HANDLE)
+		{
+			vkWaitForFences(device, 1, &uploadFence, VK_TRUE, UINT64_MAX);
+			vkDestroyFence(device, uploadFence, NULL);
+		}
+		else
+		{
+			vkQueueWaitIdle(graphicsQueue);
+		}
+
+		vkFreeCommandBuffers(device, commandPool, 1, &uploadCmd);
+		vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
+	}
 	void VulkanRenderDevice::UploadTexture2DMultisample(const uint32 target, const uint32 samples, const uint32 internalFormat, const uint32 width, const uint32 height) {}
 	void VulkanRenderDevice::GenerateMipmap(const uint32 target) {}
 
-	void VulkanRenderDevice::SetTextureWrapS(const uint32 target, const uint32 engineRepeat) {}
-	void VulkanRenderDevice::SetTextureWrapT(const uint32 target, const uint32 engineRepeat) {}
-	void VulkanRenderDevice::SetTextureWrapR(const uint32 target, const uint32 engineRepeat) {}
-	void VulkanRenderDevice::SetTextureMagFilter(const uint32 target, const uint32 engineFilter) {}
-	void VulkanRenderDevice::SetTextureMinFilter(const uint32 target, const uint32 engineFilter, const bool hasMipmap) {}
-	void VulkanRenderDevice::SetTextureBaseMaxLevel(const uint32 target, const uint32 baseLevel, const uint32 maxLevel) {}
-	void VulkanRenderDevice::SetTextureBorderColor(const uint32 target, const Vec4 &color) {}
-	void VulkanRenderDevice::SetTextureCompareMode(const uint32 target) {}
-	void VulkanRenderDevice::SetPixelUnpackAlignment(const uint32 value) {}
+	// All of these operate on currentlyConfiguringTexture (see
+	// BindTextureToTarget()'s comment) - GL applies wrap/filter state
+	// immediately via glTexParameter*, but Vulkan bakes it into an
+	// immutable VkSampler, so these just accumulate state and mark
+	// samplerDirty; RebuildSamplerIfDirty() (called from SendUniformInt(),
+	// the point a texture is actually about to be used) does the real
+	// work, once, not on every setter call.
+	void VulkanRenderDevice::SetTextureWrapS(const uint32 target, const uint32 engineRepeat)
+	{
+		(void)target;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end()) return;
+		it->second.wrapS = engineRepeat;
+		it->second.samplerDirty = true;
+	}
+	void VulkanRenderDevice::SetTextureWrapT(const uint32 target, const uint32 engineRepeat)
+	{
+		(void)target;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end()) return;
+		it->second.wrapT = engineRepeat;
+		it->second.samplerDirty = true;
+	}
+	// Third-axis wrap (cubemap/3D-texture only) - not implemented, since
+	// only plain 2D textures are (see TranslateTextureTarget()'s comment).
+	void VulkanRenderDevice::SetTextureWrapR(const uint32 target, const uint32 engineRepeat) { (void)target; (void)engineRepeat; }
+	void VulkanRenderDevice::SetTextureMagFilter(const uint32 target, const uint32 engineFilter)
+	{
+		(void)target;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end()) return;
+		it->second.magFilter = engineFilter;
+		it->second.samplerDirty = true;
+	}
+	void VulkanRenderDevice::SetTextureMinFilter(const uint32 target, const uint32 engineFilter, const bool hasMipmap)
+	{
+		(void)target;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end()) return;
+		it->second.minFilter = engineFilter;
+		// Real mipmap *generation* isn't implemented (GenerateMipmap() is
+		// a no-op, images are always created with 1 mip level - see
+		// UploadTexture2D()) - hasMipmap only affects the sampler's LOD
+		// clamp range here, harmless when there's genuinely only one
+		// level to sample from either way.
+		it->second.hasMipmap = hasMipmap;
+		it->second.samplerDirty = true;
+	}
+	// Mip range clamping - moot without real mipmap generation (see
+	// UploadTexture2D()'s comment); not implemented.
+	void VulkanRenderDevice::SetTextureBaseMaxLevel(const uint32 target, const uint32 baseLevel, const uint32 maxLevel) { (void)target; (void)baseLevel; (void)maxLevel; }
+	// VkSamplerCreateInfo's border color is a fixed enum (transparent/
+	// opaque black or white), not an arbitrary Vec4 the way GL's
+	// GL_TEXTURE_BORDER_COLOR is - no example on this backend uses
+	// ClampToBorder wrapping, so not implemented rather than guessed at.
+	void VulkanRenderDevice::SetTextureBorderColor(const uint32 target, const Vec4 &color) { (void)target; (void)color; }
+	// Shadow-sampler compare mode (sampler2DShadow/samplerCubeShadow) -
+	// needed for shadow mapping, which has no framebuffer target on this
+	// backend yet at all (Phase 6 scope, see VULKAN_ROADMAP.md) - not
+	// implemented.
+	void VulkanRenderDevice::SetTextureCompareMode(const uint32 target) { (void)target; }
+	// GL_UNPACK_ALIGNMENT has no Vulkan equivalent - vkCmdCopyBufferToImage's
+	// staging buffer is always tightly packed (see UploadTexture2D()).
+	void VulkanRenderDevice::SetPixelUnpackAlignment(const uint32 value) { (void)value; }
 
-	void VulkanRenderDevice::ActivateTextureUnit(const uint32 unit) {}
+	// See the comment on BindTextureToTarget() for the render-time-bind
+	// pairing this sets up.
+	void VulkanRenderDevice::ActivateTextureUnit(const uint32 unit)
+	{
+		currentTextureUnit = unit;
+		unitJustActivated = true;
+	}
 
 	void VulkanRenderDevice::ReadTexturePixels(const uint32 target, const uint32 level, const uint32 format, const uint32 type, void *outBuffer) {}
 	uint32 VulkanRenderDevice::GetTextureDataSize(const uint32 nativeInternalFormat, const uint32 width, const uint32 height) { return 0; }
