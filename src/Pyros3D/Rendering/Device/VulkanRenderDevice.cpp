@@ -26,6 +26,7 @@
 #include <Pyros3D/Materials/IMaterial.h>
 #include <vector>
 #include <cstring>
+#include <cstdio>
 
 namespace p3d {
 
@@ -40,7 +41,7 @@ namespace p3d {
 		  pendingClearColor(0.f, 0.f, 0.f, 1.f),
 		  captureRequested(false), capturedWidth(0), capturedHeight(0), capturedRedByteOffset(0), capturedFrameValid(false),
 		  frameInProgress(false), currentImageIndex(0),
-		  nextVaoHandle(1), currentVao(0),
+		  nextVaoHandle(1), currentVao(0), currentPipeline(0),
 		  allocator(VK_NULL_HANDLE), descriptorPool(VK_NULL_HANDLE),
 		  nextBufferHandle(1), nextShaderStageHandle(1), nextProgramHandle(1), nextPipelineHandle(1)
 	{
@@ -666,6 +667,8 @@ namespace p3d {
 		if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
 			return;
 		currentImageIndex = imageIndex;
+		currentVao = 0;
+		currentPipeline = 0;
 
 		vkResetCommandBuffer(frameCommandBuffer, 0);
 
@@ -911,11 +914,20 @@ namespace p3d {
 	{
 		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(desc.shaderProgram);
 		if (device == VK_NULL_HANDLE || renderPass == VK_NULL_HANDLE || progIt == programs.end() || progIt->second.pipelineLayout == VK_NULL_HANDLE)
+		{
+			fprintf(stderr, "VulkanRenderDevice::CreatePipeline: FAILED - device=%p renderPass=%p programFound=%d pipelineLayout=%p (shaderProgram handle=%u)\n",
+				(void*)device, (void*)renderPass, progIt != programs.end(),
+				progIt != programs.end() ? (void*)progIt->second.pipelineLayout : (void*)0, desc.shaderProgram);
 			return 0;
+		}
 		std::map<DeviceHandle, ShaderStageRecord>::iterator vs = shaderStages.find(progIt->second.vertexShader);
 		std::map<DeviceHandle, ShaderStageRecord>::iterator fs = shaderStages.find(progIt->second.fragmentShader);
 		if (vs == shaderStages.end() || fs == shaderStages.end() || vs->second.module == VK_NULL_HANDLE || fs->second.module == VK_NULL_HANDLE)
+		{
+			fprintf(stderr, "VulkanRenderDevice::CreatePipeline: FAILED - vertexShader/fragmentShader stage lookup or module missing (vs found=%d, fs found=%d)\n",
+				vs != shaderStages.end(), fs != shaderStages.end());
 			return 0;
+		}
 
 		VkPipelineShaderStageCreateInfo stages[2] = {};
 		stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1028,8 +1040,12 @@ namespace p3d {
 		pipelineInfo.subpass = 0;
 
 		VkPipeline pipeline;
-		if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline) != VK_SUCCESS)
+		VkResult result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline);
+		if (result != VK_SUCCESS)
+		{
+			fprintf(stderr, "VulkanRenderDevice::CreatePipeline: vkCreateGraphicsPipelines FAILED with VkResult=%d\n", (int)result);
 			return 0;
+		}
 
 		DeviceHandle handle = nextPipelineHandle++;
 		pipelines[handle] = pipeline;
@@ -1054,7 +1070,12 @@ namespace p3d {
 			return;
 		std::map<DeviceHandle, VkPipeline>::iterator it = pipelines.find(pipeline);
 		if (it == pipelines.end())
+		{
+			fprintf(stderr, "VulkanRenderDevice::BindPipeline: pipeline handle %u not found (CreatePipeline likely failed earlier) - draw calls will be skipped this bind\n", pipeline);
+			currentPipeline = 0;
 			return;
+		}
+		currentPipeline = pipeline;
 		vkCmdBindPipeline(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, it->second);
 
 		// Also bind the owning program's descriptor set (if
@@ -1254,6 +1275,11 @@ namespace p3d {
 	{
 		if (!frameInProgress || cmd == 0 || currentVao == 0)
 			return;
+		if (currentPipeline == 0)
+		{
+			fprintf(stderr, "VulkanRenderDevice::DrawElements: skipped draw - no valid pipeline is currently bound\n");
+			return;
+		}
 		std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
 		if (vaoIt == vaos.end())
 			return;
@@ -1274,6 +1300,11 @@ namespace p3d {
 	{
 		if (!frameInProgress || cmd == 0 || currentVao == 0)
 			return;
+		if (currentPipeline == 0)
+		{
+			fprintf(stderr, "VulkanRenderDevice::DrawElementsInstanced: skipped draw - no valid pipeline is currently bound\n");
+			return;
+		}
 		std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
 		if (vaoIt == vaos.end())
 			return;

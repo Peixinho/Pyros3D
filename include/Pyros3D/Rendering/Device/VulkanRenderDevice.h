@@ -399,6 +399,14 @@ namespace p3d {
 		// all silently no-op while this is 0, same as GL silently doing
 		// nothing useful with no VAO bound).
 		DeviceHandle currentVao;
+		// 0 = no pipeline bound in the currently-open frame. Tracked so
+		// DrawElements()/DrawElementsInstanced() can refuse to issue a
+		// vkCmdDrawIndexed() when BindPipeline() silently failed to find
+		// its handle (e.g. because CreatePipeline() earlier returned 0) -
+		// otherwise the draw is genuinely undefined behavior on real
+		// drivers (VUID-vkCmdDrawIndexed-None-08606), not just a validation
+		// warning; skipping it fails safe instead of crashing.
+		DeviceHandle currentPipeline;
 
 		// Created alongside the logical device in InitializeSwapchain() -
 		// every CreateBuffer()/CreateUniformBuffer() call below goes through
