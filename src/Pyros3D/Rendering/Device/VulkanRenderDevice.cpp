@@ -37,7 +37,8 @@ namespace p3d {
 		  depthImageView(VK_NULL_HANDLE), depthFormat(VK_FORMAT_UNDEFINED),
 		  commandPool(VK_NULL_HANDLE), frameCommandBuffer(VK_NULL_HANDLE),
 		  imageAvailableSemaphore(VK_NULL_HANDLE), frameFence(VK_NULL_HANDLE),
-		  allocator(VK_NULL_HANDLE), nextBufferHandle(1), nextShaderStageHandle(1), nextProgramHandle(1), nextPipelineHandle(1)
+		  allocator(VK_NULL_HANDLE), descriptorPool(VK_NULL_HANDLE),
+		  nextBufferHandle(1), nextShaderStageHandle(1), nextProgramHandle(1), nextPipelineHandle(1)
 	{
 		if (volkInitialize() != VK_SUCCESS)
 			return;
@@ -87,10 +88,15 @@ namespace p3d {
 
 			// Resource tables (buffers/shader modules/pipelines/pipeline
 			// layouts) must be torn down before the allocator/device that
-			// own their backing memory.
+			// own their backing memory. Descriptor sets are owned by
+			// descriptorPool (allocated without
+			// VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT), so
+			// destroying the pool below frees every program's set - no
+			// separate vkFreeDescriptorSets loop needed.
 			for (std::map<DeviceHandle, VkPipeline>::iterator it = pipelines.begin(); it != pipelines.end(); it++)
 				vkDestroyPipeline(device, it->second, NULL);
 			pipelines.clear();
+			if (descriptorPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, descriptorPool, NULL);
 			for (std::map<DeviceHandle, ProgramRecord>::iterator it = programs.begin(); it != programs.end(); it++)
 			{
 				if (it->second.pipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, it->second.pipelineLayout, NULL);
@@ -516,6 +522,97 @@ namespace p3d {
 		return presentResult == VK_SUCCESS || presentResult == VK_SUBOPTIMAL_KHR;
 	}
 
+	void VulkanRenderDevice::WaitIdle()
+	{
+		if (device != VK_NULL_HANDLE)
+			vkDeviceWaitIdle(device);
+	}
+
+	bool VulkanRenderDevice::DrawFrame(const DeviceHandle pipeline, const DeviceHandle program, const DeviceHandle vertexBuffer, const DeviceHandle indexBuffer, const uint32 indexCount, const Vec4 &clearColor)
+	{
+		if (swapchain == VK_NULL_HANDLE)
+			return false;
+		std::map<DeviceHandle, VkPipeline>::iterator pipelineIt = pipelines.find(pipeline);
+		std::map<DeviceHandle, BufferRecord>::iterator vboIt = buffers.find(vertexBuffer);
+		std::map<DeviceHandle, BufferRecord>::iterator iboIt = buffers.find(indexBuffer);
+		if (pipelineIt == pipelines.end() || vboIt == buffers.end() || iboIt == buffers.end())
+			return false;
+		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(program);
+
+		vkWaitForFences(device, 1, &frameFence, VK_TRUE, UINT64_MAX);
+		vkResetFences(device, 1, &frameFence);
+
+		uint32 imageIndex = 0;
+		VkResult acquireResult = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+		if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
+			return false;
+
+		vkResetCommandBuffer(frameCommandBuffer, 0);
+
+		VkCommandBufferBeginInfo beginInfo = {};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		vkBeginCommandBuffer(frameCommandBuffer, &beginInfo);
+
+		VkClearValue clearValues[2] = {};
+		clearValues[0].color = { { clearColor.x, clearColor.y, clearColor.z, clearColor.w } };
+		clearValues[1].depthStencil = { 1.0f, 0 };
+
+		VkRenderPassBeginInfo renderPassBegin = {};
+		renderPassBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+		renderPassBegin.renderPass = renderPass;
+		renderPassBegin.framebuffer = framebuffers[imageIndex];
+		renderPassBegin.renderArea.extent = swapchainExtent;
+		renderPassBegin.clearValueCount = 2;
+		renderPassBegin.pClearValues = clearValues;
+		vkCmdBeginRenderPass(frameCommandBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
+
+		vkCmdBindPipeline(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineIt->second);
+
+		// CreatePipeline() left viewport/scissor dynamic (see its comment) -
+		// set them here to the full swapchain extent every frame.
+		VkViewport viewport = { 0.0f, 0.0f, (f32)swapchainExtent.width, (f32)swapchainExtent.height, 0.0f, 1.0f };
+		vkCmdSetViewport(frameCommandBuffer, 0, 1, &viewport);
+		VkRect2D scissor = { { 0, 0 }, swapchainExtent };
+		vkCmdSetScissor(frameCommandBuffer, 0, 1, &scissor);
+
+		if (progIt != programs.end() && progIt->second.descriptorSet != VK_NULL_HANDLE)
+			vkCmdBindDescriptorSets(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet, 0, NULL);
+
+		VkBuffer vbo = vboIt->second.buffer;
+		VkDeviceSize vboOffset = 0;
+		vkCmdBindVertexBuffers(frameCommandBuffer, 0, 1, &vbo, &vboOffset);
+		// __INDEX_C_TYPE__ (Global.h) is uint32 - matches VK_INDEX_TYPE_UINT32.
+		vkCmdBindIndexBuffer(frameCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
+
+		vkCmdDrawIndexed(frameCommandBuffer, indexCount, 1, 0, 0, 0);
+
+		vkCmdEndRenderPass(frameCommandBuffer);
+		vkEndCommandBuffer(frameCommandBuffer);
+
+		VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.waitSemaphoreCount = 1;
+		submitInfo.pWaitSemaphores = &imageAvailableSemaphore;
+		submitInfo.pWaitDstStageMask = &waitStage;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &frameCommandBuffer;
+		submitInfo.signalSemaphoreCount = 1;
+		submitInfo.pSignalSemaphores = &renderFinishedSemaphores[imageIndex];
+		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, frameFence) != VK_SUCCESS)
+			return false;
+
+		VkPresentInfoKHR presentInfo = {};
+		presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+		presentInfo.waitSemaphoreCount = 1;
+		presentInfo.pWaitSemaphores = &renderFinishedSemaphores[imageIndex];
+		presentInfo.swapchainCount = 1;
+		presentInfo.pSwapchains = &swapchain;
+		presentInfo.pImageIndices = &imageIndex;
+		VkResult presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
+		return presentResult == VK_SUCCESS || presentResult == VK_SUBOPTIMAL_KHR;
+	}
+
 	CommandBufferHandle VulkanRenderDevice::BeginCommandBuffer() { return 0; }
 	void VulkanRenderDevice::EndCommandBuffer(const CommandBufferHandle cmd) {}
 
@@ -768,7 +865,77 @@ namespace p3d {
 	void VulkanRenderDevice::SetFloatVertexAttribute(const int32 location, const uint32 componentCount, const uint32 stride, const uint32 offset) {}
 	void VulkanRenderDevice::DisableVertexAttribute(const int32 location) {}
 	void VulkanRenderDevice::SetVertexAttributeDivisor(const int32 location, const uint32 divisor) {}
-	void VulkanRenderDevice::BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint) {}
+	void VulkanRenderDevice::BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint)
+	{
+		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(program);
+		if (device == VK_NULL_HANDLE || progIt == programs.end() || progIt->second.descriptorSetLayout == VK_NULL_HANDLE)
+			return;
+		// blockName is unused - unlike GL (which looks a block up by name
+		// via glGetUniformBlockIndex, since a shader could in principle
+		// bind a block to any binding point at runtime), this backend's
+		// binding points are already static in the shader (see
+		// PyrosShader.glsl's UBO_BINDING/BIND_* macros) and reflected
+		// directly by binding index in LinkProgram() - blockName has
+		// nothing left to resolve. Kept as a parameter only because it's
+		// part of IRenderDevice's shared interface (GLRenderDevice still
+		// needs it).
+		(void)blockName;
+		if (progIt->second.reflectedBindings.find(bindingPoint) == progIt->second.reflectedBindings.end())
+			return; // shader doesn't declare a block at this binding - matches GL's no-op contract
+
+		std::map<uint32, DeviceHandle>::iterator bufIt = uniformBufferByBindingPoint.find(bindingPoint);
+		if (bufIt == uniformBufferByBindingPoint.end())
+			return; // no CreateUniformBuffer() at this binding point yet
+		std::map<DeviceHandle, BufferRecord>::iterator recIt = buffers.find(bufIt->second);
+		if (recIt == buffers.end())
+			return;
+
+		// Lazily create the shared descriptor pool - see the header
+		// comment on descriptorPool for the sizing rationale.
+		if (descriptorPool == VK_NULL_HANDLE)
+		{
+			VkDescriptorPoolSize poolSizes[2] = {};
+			poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			poolSizes[0].descriptorCount = 64;
+			poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			poolSizes[1].descriptorCount = 16;
+
+			VkDescriptorPoolCreateInfo poolInfo = {};
+			poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+			poolInfo.maxSets = 16;
+			poolInfo.poolSizeCount = 2;
+			poolInfo.pPoolSizes = poolSizes;
+			if (vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool) != VK_SUCCESS)
+				return;
+		}
+
+		// Lazily allocate this program's descriptor set - see the header
+		// comment on ProgramRecord::descriptorSet.
+		if (progIt->second.descriptorSet == VK_NULL_HANDLE)
+		{
+			VkDescriptorSetAllocateInfo allocInfo = {};
+			allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+			allocInfo.descriptorPool = descriptorPool;
+			allocInfo.descriptorSetCount = 1;
+			allocInfo.pSetLayouts = &progIt->second.descriptorSetLayout;
+			if (vkAllocateDescriptorSets(device, &allocInfo, &progIt->second.descriptorSet) != VK_SUCCESS)
+				return;
+		}
+
+		VkDescriptorBufferInfo bufferInfo = {};
+		bufferInfo.buffer = recIt->second.buffer;
+		bufferInfo.offset = 0;
+		bufferInfo.range = recIt->second.size;
+
+		VkWriteDescriptorSet write = {};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = progIt->second.descriptorSet;
+		write.dstBinding = bindingPoint;
+		write.descriptorCount = 1;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		write.pBufferInfo = &bufferInfo;
+		vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
+	}
 
 	uint32 VulkanRenderDevice::TranslateDrawType(const uint32 engineDrawType) { return 0; }
 	void VulkanRenderDevice::DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count) {}
@@ -811,6 +978,9 @@ namespace p3d {
 
 		DeviceHandle handle = nextBufferHandle++;
 		buffers[handle] = record;
+		// See the comment on uniformBufferByBindingPoint in the header -
+		// this is what BindUniformBlockIfPresent() looks up later.
+		uniformBufferByBindingPoint[bindingPoint] = handle;
 		return handle;
 	}
 
@@ -1087,7 +1257,10 @@ namespace p3d {
 
 		std::vector<VkDescriptorSetLayoutBinding> layoutBindings;
 		for (std::map<uint32, VkDescriptorSetLayoutBinding>::iterator bIt = bindingsByIndex.begin(); bIt != bindingsByIndex.end(); bIt++)
+		{
 			layoutBindings.push_back(bIt->second);
+			it->second.reflectedBindings.insert(bIt->first);
+		}
 
 		VkDescriptorSetLayoutCreateInfo setLayoutInfo = {};
 		setLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;

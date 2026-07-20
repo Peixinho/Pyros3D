@@ -37,6 +37,7 @@
 #include <vk_mem_alloc.h>
 #include <vector>
 #include <map>
+#include <set>
 
 namespace p3d {
 
@@ -55,6 +56,31 @@ namespace p3d {
 		virtual ~VulkanRenderDevice();
 
 		VkInstance GetInstance() const { return instance; }
+
+		// Blocks until every submitted command on this device's queues has
+		// finished executing. The destructor already calls this before
+		// tearing anything down, but any caller destroying resources
+		// (pipelines, buffers, programs) *between* a DrawFrame()/
+		// ClearAndPresent() call and shutdown needs to call this first
+		// too - frameFence only proves the *previous* frame's submission
+		// completed (waited on at the top of the *next* DrawFrame()/
+		// ClearAndPresent() call), not the most recent one, so destroying
+		// anything right after the last frame without this is a real
+		// use-after-free-on-the-GPU risk, not just a validation-layer
+		// nitpick (caught the hard way via
+		// VUID-vkDestroyPipeline-pipeline-00765/VUID-vkDestroyBuffer-buffer-00922
+		// in this session's own smoke test). Deliberately declared here
+		// but *defined in the .cpp*, not inline - every Vulkan-calling
+		// method on this class must be, since volk's function pointers
+		// (e.g. vkDeviceWaitIdle) are plain global variables populated by
+		// volkLoadDevice() inside VulkanRenderDevice.cpp's translation
+		// unit (compiled into libPyrosEngine.dylib); an inline definition
+		// here would get its own out-of-line copy compiled into whatever
+		// *other* binary includes this header (an example, a test), which
+		// would reference *that* binary's own, separate, never-loaded
+		// copy of the same global symbol - crashed with a wild-pointer
+		// call the hard way discovering this (see VULKAN_ROADMAP.md).
+		void WaitIdle();
 
 		// Second-phase init, deliberately separate from the constructor:
 		// selects a physical device compatible with the given surface,
@@ -75,6 +101,18 @@ namespace p3d {
 		// InitializeSwapchain() has something concrete to verify against
 		// besides "the calls didn't return an error".
 		bool ClearAndPresent(const Vec4 &clearColor);
+
+		// Real render-pass-based indexed draw, the "hello cube" milestone
+		// - acquires the next swapchain image, begins the render pass
+		// built in InitializeSwapchain() (clearing color+depth), binds
+		// `pipeline` and its program's descriptor set (see
+		// BindUniformBlockIfPresent()), binds `vertexBuffer`/`indexBuffer`
+		// (as produced by GeometryBuffer/CreateBuffer()), draws
+		// `indexCount` indices, ends the render pass, and presents. Not
+		// part of IRenderDevice for the same reason ClearAndPresent()
+		// isn't (see its comment) - IRenderer doesn't drive a real
+		// per-frame command buffer through this backend yet.
+		bool DrawFrame(const DeviceHandle pipeline, const DeviceHandle program, const DeviceHandle vertexBuffer, const DeviceHandle indexBuffer, const uint32 indexCount, const Vec4 &clearColor);
 
 		virtual CommandBufferHandle BeginCommandBuffer();
 		virtual void EndCommandBuffer(const CommandBufferHandle cmd);
@@ -308,6 +346,24 @@ namespace p3d {
 		std::map<DeviceHandle, BufferRecord> buffers;
 		DeviceHandle nextBufferHandle;
 
+		// bindingPoint -> uniform buffer handle, populated by
+		// CreateUniformBuffer() (which already receives the binding point
+		// GL's glBindBufferBase would use). BindUniformBlockIfPresent()
+		// looks a binding up here to know which VkBuffer to point a
+		// program's descriptor set at - GL's equivalent
+		// (glUniformBlockBinding) only takes a binding *point*, not a
+		// buffer, because GL keeps a single global binding-point ->
+		// buffer table (glBindBufferBase) separate from the program; this
+		// is this backend's equivalent of that table.
+		std::map<uint32, DeviceHandle> uniformBufferByBindingPoint;
+
+		// Created lazily by the first BindUniformBlockIfPresent() call -
+		// sized generously up front (see .cpp) since every program in
+		// practice shares the same ~13 UBO bindings (see PyrosShader.glsl's
+		// BIND_* macros), so one pool comfortably serves every program
+		// this backend will ever see for RotatingCube's validation path.
+		VkDescriptorPool descriptorPool;
+
 		// One VkShaderModule per CreateShaderStage()/CompileShaderStage()
 		// pair - engineShaderType is stashed at CreateShaderStage() time
 		// since CompileShaderStage() needs to know which SpirvShaderStage
@@ -348,7 +404,24 @@ namespace p3d {
 			DeviceHandle vertexShader, fragmentShader;
 			VkDescriptorSetLayout descriptorSetLayout;
 			VkPipelineLayout pipelineLayout;
-			ProgramRecord() : vertexShader(0), fragmentShader(0), descriptorSetLayout(VK_NULL_HANDLE), pipelineLayout(VK_NULL_HANDLE) {}
+			// Allocated lazily by the first BindUniformBlockIfPresent()
+			// call for this program (see descriptorPool above) - one set
+			// per program is enough for this backend's current scope
+			// (every draw using a given program shares the same handful
+			// of UBOs; nothing here yet supports per-draw-varying textures/
+			// buffers, which would need one set per draw or per-material
+			// instead).
+			VkDescriptorSet descriptorSet;
+			// Which binding indices LinkProgram() actually found reflected
+			// (i.e. which ones exist in descriptorSetLayout) -
+			// BindUniformBlockIfPresent() checks membership before writing
+			// a descriptor, mirroring GL's BindUniformBlockIfPresent
+			// no-op-if-the-shader-doesn't-declare-this-block contract
+			// (writing to a binding vkUpdateDescriptorSets doesn't know
+			// about would be invalid, not a harmless no-op, the way GL's
+			// glUniformBlockBinding on a nonexistent block name is).
+			std::set<uint32> reflectedBindings;
+			ProgramRecord() : vertexShader(0), fragmentShader(0), descriptorSetLayout(VK_NULL_HANDLE), pipelineLayout(VK_NULL_HANDLE), descriptorSet(VK_NULL_HANDLE) {}
 		};
 		std::map<DeviceHandle, ProgramRecord> programs;
 		DeviceHandle nextProgramHandle;
