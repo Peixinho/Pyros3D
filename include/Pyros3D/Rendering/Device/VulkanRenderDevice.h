@@ -11,9 +11,15 @@
 //               constructor, since a VkSurfaceKHR can only be created once
 //               a window exists, and this class must not depend on any
 //               particular windowing library - see the comment on
-//               InitializeSwapchain() below). Everything else
-//               (CreatePipeline, CreateBuffer, shader compilation, command
-//               recording) is still unimplemented pending further work.
+//               InitializeSwapchain() below). Also real: buffer/uniform
+//               buffer creation via VMA, and shader compilation (GLSL ->
+//               SPIR-V via SpirvShaderCompiler -> VkShaderModule). Still
+//               unimplemented: CreatePipeline (needs a real VkRenderPass
+//               and descriptor set layout, deferred until IRenderer
+//               actually drives per-frame rendering through this device -
+//               see VULKAN_ROADMAP.md), and everything texture/framebuffer
+//               related (out of scope for RotatingCube's texture-free
+//               validation path).
 //               Only built when CMake finds the Vulkan SDK + vulkan-volk
 //               (see CMakeLists.txt's BUILD_VULKAN_BACKEND option); the
 //               whole header is compiled out otherwise so a build without
@@ -28,7 +34,9 @@
 
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <volk.h>
+#include <vk_mem_alloc.h>
 #include <vector>
+#include <map>
 
 namespace p3d {
 
@@ -237,6 +245,65 @@ namespace p3d {
 		VkCommandBuffer frameCommandBuffer;
 		VkSemaphore imageAvailableSemaphore, renderFinishedSemaphore;
 		VkFence frameFence;
+
+		// Created alongside the logical device in InitializeSwapchain() -
+		// every CreateBuffer()/CreateUniformBuffer() call below goes through
+		// this rather than hand-rolled vkAllocateMemory (VMA handles the
+		// actual-device-memory-vs-buffer-count multiplexing Vulkan requires
+		// but GL never exposed, e.g. the ~4096 discrete allocation limit
+		// many drivers enforce). NULL until InitializeSwapchain() runs -
+		// CreateBuffer()/CreateUniformBuffer() called before that point (as
+		// Shaders.cpp/GeometryBuffer.cpp's asset-loading paths might, ahead
+		// of any window/device existing) fail gracefully (return 0).
+		VmaAllocator allocator;
+
+		// Host-visible/coherent, persistently mapped - simplest correct
+		// choice for a first working path (device-local + staging-buffer
+		// upload is a real perf improvement, deliberately deferred per
+		// VULKAN_ROADMAP.md Phase 5 Step D's scope). One record per
+		// CreateBuffer()/CreateUniformBuffer() handle; buffers and uniform
+		// buffers share this table and DeviceHandle namespace since nothing
+		// downstream needs to tell them apart by handle alone (unlike GL,
+		// where the two are different concepts entirely - VkBuffer doesn't
+		// distinguish "vertex/index buffer" from "uniform buffer", only
+		// how it's bound later does).
+		struct BufferRecord
+		{
+			VkBuffer buffer;
+			VmaAllocation allocation;
+			void* mapped; // persistently mapped pointer, valid for the buffer's whole lifetime
+			uint32 size;
+		};
+		std::map<DeviceHandle, BufferRecord> buffers;
+		DeviceHandle nextBufferHandle;
+
+		// One VkShaderModule per CreateShaderStage()/CompileShaderStage()
+		// pair - engineShaderType is stashed at CreateShaderStage() time
+		// since CompileShaderStage() needs to know which SpirvShaderStage
+		// to compile as (see SpirvShaderCompiler::Compile()), and GL's
+		// CreateShaderStage() already takes that same parameter, so no
+		// interface change was needed to plumb it through.
+		struct ShaderStageRecord
+		{
+			uint32 engineShaderType; // ShaderType::VertexShader/FragmentShader
+			VkShaderModule module; // VK_NULL_HANDLE until CompileShaderStage() succeeds
+		};
+		std::map<DeviceHandle, ShaderStageRecord> shaderStages;
+		DeviceHandle nextShaderStageHandle;
+
+		// A "program" here is just the (vertex module, fragment module)
+		// pair CreatePipeline() will need once it exists for real (not yet
+		// wired - see VULKAN_ROADMAP.md) - Vulkan has no equivalent of a
+		// linked GL program object; the actual "link" step happens at
+		// VkPipeline creation, so LinkProgram() here only checks both
+		// stages are present.
+		struct ProgramRecord
+		{
+			DeviceHandle vertexShader, fragmentShader;
+			ProgramRecord() : vertexShader(0), fragmentShader(0) {}
+		};
+		std::map<DeviceHandle, ProgramRecord> programs;
+		DeviceHandle nextProgramHandle;
 
 	};
 

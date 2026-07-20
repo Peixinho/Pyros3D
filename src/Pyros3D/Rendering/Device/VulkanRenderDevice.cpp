@@ -7,11 +7,24 @@
 //               stub, see the header comment for scope.
 //============================================================================
 
+// Exactly one translation unit must define VMA_IMPLEMENTATION before
+// including vk_mem_alloc.h (directly or, as here, transitively via
+// VulkanRenderDevice.h) - this is that one. volk.h (also included via
+// VulkanRenderDevice.h, and included first) already #defines
+// VK_NO_PROTOTYPES before pulling in <vulkan/vulkan.h>, so vk_mem_alloc.h's
+// own include of the same header doesn't redeclare the vk* functions volk
+// itself provides as global function-pointer variables - VMA's default
+// VMA_STATIC_VULKAN_FUNCTIONS=1 then "just works" by calling through
+// those same global names.
+#define VMA_IMPLEMENTATION
 #include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
 
 #ifdef VULKAN_BACKEND
 
+#include <Pyros3D/Rendering/SPIRV/ShaderCompiler.h>
+#include <Pyros3D/Materials/Shaders/Shaders.h>
 #include <vector>
+#include <cstring>
 
 namespace p3d {
 
@@ -20,7 +33,8 @@ namespace p3d {
 		  graphicsQueueFamily(0), presentQueueFamily(0), graphicsQueue(VK_NULL_HANDLE), presentQueue(VK_NULL_HANDLE),
 		  swapchain(VK_NULL_HANDLE), swapchainFormat(VK_FORMAT_UNDEFINED), swapchainExtent{0, 0},
 		  commandPool(VK_NULL_HANDLE), frameCommandBuffer(VK_NULL_HANDLE),
-		  imageAvailableSemaphore(VK_NULL_HANDLE), renderFinishedSemaphore(VK_NULL_HANDLE), frameFence(VK_NULL_HANDLE)
+		  imageAvailableSemaphore(VK_NULL_HANDLE), renderFinishedSemaphore(VK_NULL_HANDLE), frameFence(VK_NULL_HANDLE),
+		  allocator(VK_NULL_HANDLE), nextBufferHandle(1), nextShaderStageHandle(1), nextProgramHandle(1)
 	{
 		if (volkInitialize() != VK_SUCCESS)
 			return;
@@ -55,6 +69,19 @@ namespace p3d {
 		if (device != VK_NULL_HANDLE)
 		{
 			vkDeviceWaitIdle(device);
+
+			// Resource tables (buffers/shader modules) must be torn down
+			// before the allocator/device that own their backing memory.
+			for (std::map<DeviceHandle, BufferRecord>::iterator it = buffers.begin(); it != buffers.end(); it++)
+				vmaDestroyBuffer(allocator, it->second.buffer, it->second.allocation);
+			buffers.clear();
+			for (std::map<DeviceHandle, ShaderStageRecord>::iterator it = shaderStages.begin(); it != shaderStages.end(); it++)
+				if (it->second.module != VK_NULL_HANDLE)
+					vkDestroyShaderModule(device, it->second.module, NULL);
+			shaderStages.clear();
+			programs.clear();
+
+			if (allocator != VK_NULL_HANDLE) vmaDestroyAllocator(allocator);
 
 			if (frameFence != VK_NULL_HANDLE) vkDestroyFence(device, frameFence, NULL);
 			if (imageAvailableSemaphore != VK_NULL_HANDLE) vkDestroySemaphore(device, imageAvailableSemaphore, NULL);
@@ -145,6 +172,29 @@ namespace p3d {
 
 		vkGetDeviceQueue(device, graphicsQueueFamily, 0, &graphicsQueue);
 		presentQueue = graphicsQueue;
+
+		// VMA allocator - see the header comment on the `allocator` field.
+		// volk.h defines VK_NO_PROTOTYPES before pulling in <vulkan/vulkan.h>
+		// (see the comment on VMA_IMPLEMENTATION at the top of this file),
+		// which pushes VMA into its dynamic-function-loading path
+		// regardless of VMA_STATIC_VULKAN_FUNCTIONS's default - it asserts
+		// unless vkGetInstanceProcAddr/vkGetDeviceProcAddr are supplied
+		// explicitly, so hand them the same two volk already resolved
+		// (global function-pointer variables by those names, populated by
+		// volkInitialize()/volkLoadInstance() above); VMA uses those to
+		// fetch every other function it needs internally.
+		VmaVulkanFunctions vmaFunctions = {};
+		vmaFunctions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+		vmaFunctions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
+
+		VmaAllocatorCreateInfo allocatorInfo = {};
+		allocatorInfo.physicalDevice = physicalDevice;
+		allocatorInfo.device = device;
+		allocatorInfo.instance = instance;
+		allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_0;
+		allocatorInfo.pVulkanFunctions = &vmaFunctions;
+		if (vmaCreateAllocator(&allocatorInfo, &allocator) != VK_SUCCESS)
+			return false;
 
 		// Swapchain: pick the first available surface format, FIFO present
 		// mode (the only mode every implementation is required to support -
@@ -381,34 +431,344 @@ namespace p3d {
 	void VulkanRenderDevice::DrawElements(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount) {}
 	void VulkanRenderDevice::DrawElementsInstanced(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount, const uint32 instanceCount) {}
 
-	DeviceHandle VulkanRenderDevice::CreateUniformBuffer(const uint32 sizeBytes, const uint32 bindingPoint) { return 0; }
-	void VulkanRenderDevice::UpdateUniformBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void *data) {}
-	void VulkanRenderDevice::ReplaceUniformBuffer(const DeviceHandle buffer, const uint32 sizeBytes, const void *data) {}
-	void VulkanRenderDevice::DestroyUniformBuffer(const DeviceHandle buffer) {}
+	// bindingPoint isn't tracked per-buffer here (nothing consumes it yet
+	// - see the comment on CreatePipeline still being unimplemented) but
+	// the parameter stays for interface parity and so CreateUniformBuffer's
+	// call sites in IRenderer don't need to change again once descriptor
+	// sets land.
+	DeviceHandle VulkanRenderDevice::CreateUniformBuffer(const uint32 sizeBytes, const uint32 bindingPoint)
+	{
+		if (allocator == VK_NULL_HANDLE || sizeBytes == 0)
+			return 0;
 
-	DeviceHandle VulkanRenderDevice::CreateBuffer(const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length) { return 0; }
-	void VulkanRenderDevice::ReallocateBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length) {}
-	void VulkanRenderDevice::UpdateBufferSubData(const DeviceHandle buffer, const uint32 bufferType, const void *data, const uint32 length) {}
-	void VulkanRenderDevice::DestroyBuffer(const DeviceHandle buffer) {}
-	void *VulkanRenderDevice::MapBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 mappingType) { return NULL; }
+		VkBufferCreateInfo bufferInfo = {};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bufferInfo.size = sizeBytes;
+		bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VmaAllocationCreateInfo allocInfo = {};
+		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+		BufferRecord record;
+		record.size = sizeBytes;
+		VmaAllocationInfo allocationInfo;
+		if (vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &record.buffer, &record.allocation, &allocationInfo) != VK_SUCCESS)
+			return 0;
+		record.mapped = allocationInfo.pMappedData;
+
+		// Zero-initialize - matches CreateUniformBuffer()'s existing GL
+		// contract (IRenderer's ctor calls this with no initial data,
+		// relying on the buffer starting zeroed until the first
+		// ReplaceUniformBuffer()/UpdateUniformBuffer() call).
+		if (record.mapped != NULL)
+			memset(record.mapped, 0, sizeBytes);
+
+		DeviceHandle handle = nextBufferHandle++;
+		buffers[handle] = record;
+		return handle;
+	}
+
+	void VulkanRenderDevice::UpdateUniformBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void *data)
+	{
+		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
+		if (it == buffers.end() || it->second.mapped == NULL)
+			return;
+		memcpy((uchar*)it->second.mapped + offset, data, sizeBytes);
+	}
+
+	void VulkanRenderDevice::ReplaceUniformBuffer(const DeviceHandle buffer, const uint32 sizeBytes, const void *data)
+	{
+		// No orphaning trick needed here the way GLRenderDevice's
+		// ReplaceUniformBuffer() (see its comment) needs one for
+		// glBufferSubData - this is a plain host-memory memcpy into
+		// persistently-mapped, host-coherent memory; there's no implicit
+		// CPU/GPU sync point to stall on the way glBufferSubData has.
+		// (Real GPU/CPU synchronization for a buffer still being read by
+		// an in-flight command buffer is a correctness concern that needs
+		// per-frame buffering once real draw submission exists - not
+		// reachable yet since nothing calls ReplaceUniformBuffer() through
+		// a live render loop on this backend.)
+		UpdateUniformBuffer(buffer, 0, sizeBytes, data);
+	}
+
+	void VulkanRenderDevice::DestroyUniformBuffer(const DeviceHandle buffer)
+	{
+		DestroyBuffer(buffer);
+	}
+
+	DeviceHandle VulkanRenderDevice::CreateBuffer(const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length)
+	{
+		if (allocator == VK_NULL_HANDLE || length == 0)
+			return 0;
+
+		// bufferType (GeometryBuffer.h's Buffer::Type::Index/Vertex/
+		// Attribute) has no Vulkan-side distinction the way GL's
+		// GL_ELEMENT_ARRAY_BUFFER/GL_ARRAY_BUFFER targets do - a VkBuffer
+		// declares its allowed uses via usage flags at creation instead of
+		// a bind target, so this covers every value with the union of
+		// vertex+index usage (harmless to over-declare; validation layers
+		// only warn on missing bits, never extra ones).
+		VkBufferCreateInfo bufferInfo = {};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bufferInfo.size = length;
+		bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VmaAllocationCreateInfo allocInfo = {};
+		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+		BufferRecord record;
+		record.size = length;
+		VmaAllocationInfo allocationInfo;
+		if (vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &record.buffer, &record.allocation, &allocationInfo) != VK_SUCCESS)
+			return 0;
+		record.mapped = allocationInfo.pMappedData;
+
+		if (data != NULL && record.mapped != NULL)
+			memcpy(record.mapped, data, length);
+
+		DeviceHandle handle = nextBufferHandle++;
+		buffers[handle] = record;
+		return handle;
+	}
+
+	void VulkanRenderDevice::ReallocateBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length)
+	{
+		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
+		if (it == buffers.end() || allocator == VK_NULL_HANDLE || length == 0)
+			return;
+		vmaDestroyBuffer(allocator, it->second.buffer, it->second.allocation);
+
+		VkBufferCreateInfo bufferInfo = {};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bufferInfo.size = length;
+		bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VmaAllocationCreateInfo allocInfo = {};
+		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+		BufferRecord record;
+		record.size = length;
+		VmaAllocationInfo allocationInfo;
+		if (vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &record.buffer, &record.allocation, &allocationInfo) != VK_SUCCESS)
+		{
+			buffers.erase(it);
+			return;
+		}
+		record.mapped = allocationInfo.pMappedData;
+		if (data != NULL && record.mapped != NULL)
+			memcpy(record.mapped, data, length);
+
+		it->second = record;
+	}
+
+	void VulkanRenderDevice::UpdateBufferSubData(const DeviceHandle buffer, const uint32 bufferType, const void *data, const uint32 length)
+	{
+		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
+		if (it == buffers.end() || it->second.mapped == NULL)
+			return;
+		memcpy(it->second.mapped, data, length);
+	}
+
+	void VulkanRenderDevice::DestroyBuffer(const DeviceHandle buffer)
+	{
+		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
+		if (it == buffers.end())
+			return;
+		vmaDestroyBuffer(allocator, it->second.buffer, it->second.allocation);
+		buffers.erase(it);
+	}
+
+	void *VulkanRenderDevice::MapBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 mappingType)
+	{
+		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
+		if (it == buffers.end())
+			return NULL;
+		// Already persistently mapped at creation time - nothing further
+		// to do (VMA_ALLOCATION_CREATE_MAPPED_BIT above).
+		return it->second.mapped;
+	}
+
 	void VulkanRenderDevice::UnmapBuffer(const DeviceHandle buffer, const uint32 bufferType) {}
 
+	// Not reachable yet - SetVertexAttribute() (GL: glVertexAttribPointer,
+	// issued per-attribute at bind time) has no direct Vulkan equivalent;
+	// vertex input layout is baked into VkPipelineVertexInputStateCreateInfo
+	// at CreatePipeline() time instead, which isn't implemented yet either
+	// (see the header comment). Left as a documented stub rather than
+	// guessing at a translation table with no CreatePipeline() to consume it.
 	uint32 VulkanRenderDevice::TranslateAttributeType(const uint32 engineType) { return 0; }
 
-	std::string VulkanRenderDevice::BuildShaderSource(const std::string &definitions, const std::string &shaderBody) { return ""; }
-	DeviceHandle VulkanRenderDevice::CreateShaderStage(const uint32 engineShaderType) { return 0; }
-	bool VulkanRenderDevice::CompileShaderStage(const DeviceHandle shader, const std::string &source, std::string &errorLog) { return false; }
-	DeviceHandle VulkanRenderDevice::CreateProgram() { return 0; }
-	void VulkanRenderDevice::AttachShaderStage(const DeviceHandle program, const DeviceHandle shader) {}
-	bool VulkanRenderDevice::LinkProgram(const DeviceHandle program, std::string &errorLog) { return false; }
-	bool VulkanRenderDevice::IsProgram(const DeviceHandle id) { return false; }
-	bool VulkanRenderDevice::IsShaderStage(const DeviceHandle id) { return false; }
-	void VulkanRenderDevice::DetachShaderStage(const DeviceHandle program, const DeviceHandle shader) {}
-	void VulkanRenderDevice::DeleteShaderStage(const DeviceHandle shader) {}
-	void VulkanRenderDevice::DeleteProgram(const DeviceHandle program) {}
+	// Mirrors GLRenderDevice::BuildShaderSource()'s per-profile #version
+	// prefixing, but for the Vulkan/SPIR-V profile. No explicit
+	// "#define VULKAN" needed here - SpirvShaderCompiler::Compile() sets
+	// shaderc's target environment to shaderc_target_env_vulkan, which
+	// predefines VULKAN itself (the same way the Vulkan GLSL spec has
+	// glslang/shaderc predefine it for any Vulkan-target compile); adding
+	// our own definition on top produced a "Macro redefined; different
+	// substitutions" compile error since shaderc's predefined value isn't
+	// an empty definition the way a manual "#define VULKAN\n" is. This is
+	// exactly what activates PyrosShader.glsl's IO_LOCATION/UBO_BINDING/
+	// SAMPLER_BINDING macros (see that file's header comment) - no action
+	// needed on this end beyond routing the source through the Vulkan
+	// target environment, which CompileShaderStage() already does.
+	std::string VulkanRenderDevice::BuildShaderSource(const std::string &definitions, const std::string &shaderBody)
+	{
+		return std::string("#version 450\n") + definitions + std::string(" ") + shaderBody;
+	}
 
+	DeviceHandle VulkanRenderDevice::CreateShaderStage(const uint32 engineShaderType)
+	{
+		ShaderStageRecord record;
+		record.engineShaderType = engineShaderType;
+		record.module = VK_NULL_HANDLE;
+		DeviceHandle handle = nextShaderStageHandle++;
+		shaderStages[handle] = record;
+		return handle;
+	}
+
+	bool VulkanRenderDevice::CompileShaderStage(const DeviceHandle shader, const std::string &source, std::string &errorLog)
+	{
+		std::map<DeviceHandle, ShaderStageRecord>::iterator it = shaderStages.find(shader);
+		if (it == shaderStages.end() || device == VK_NULL_HANDLE)
+			return false;
+
+#ifdef SPIRV_TOOLING
+		uint32 spirvStage = (it->second.engineShaderType == ShaderType::FragmentShader) ? SpirvShaderStage::Fragment : SpirvShaderStage::Vertex;
+		std::vector<uint32> spirv;
+		if (!SpirvShaderCompiler::Compile(source, spirvStage, spirv, errorLog))
+			return false;
+
+		VkShaderModuleCreateInfo moduleInfo = {};
+		moduleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+		moduleInfo.codeSize = spirv.size() * sizeof(uint32);
+		moduleInfo.pCode = spirv.data();
+		if (vkCreateShaderModule(device, &moduleInfo, NULL, &it->second.module) != VK_SUCCESS)
+		{
+			errorLog = "vkCreateShaderModule failed";
+			return false;
+		}
+		return true;
+#else
+		// Built with BUILD_VULKAN_BACKEND=ON but BUILD_SPIRV_TOOLING=OFF -
+		// there's no GLSL->SPIR-V path available at all in this build
+		// configuration (see CMakeLists.txt); fail loudly rather than
+		// silently producing an empty shader module.
+		errorLog = "Vulkan backend built without SPIRV_TOOLING (shaderc/spirv-cross not found) - cannot compile GLSL to SPIR-V.";
+		return false;
+#endif
+	}
+
+	DeviceHandle VulkanRenderDevice::CreateProgram()
+	{
+		DeviceHandle handle = nextProgramHandle++;
+		programs[handle] = ProgramRecord();
+		return handle;
+	}
+
+	void VulkanRenderDevice::AttachShaderStage(const DeviceHandle program, const DeviceHandle shader)
+	{
+		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(program);
+		std::map<DeviceHandle, ShaderStageRecord>::iterator shaderIt = shaderStages.find(shader);
+		if (progIt == programs.end() || shaderIt == shaderStages.end())
+			return;
+		if (shaderIt->second.engineShaderType == ShaderType::FragmentShader)
+			progIt->second.fragmentShader = shader;
+		else
+			progIt->second.vertexShader = shader;
+	}
+
+	bool VulkanRenderDevice::LinkProgram(const DeviceHandle program, std::string &errorLog)
+	{
+		// No real "link" step in Vulkan - each stage's VkShaderModule
+		// already compiled independently in CompileShaderStage(); the
+		// equivalent of GL's link-time validation (matching VS outputs to
+		// FS inputs) happens implicitly via PyrosShader.glsl's shared
+		// LOC_v*/BIND_* macros keeping both stages' declarations in sync,
+		// and explicitly (for real) once CreatePipeline() builds a
+		// VkPipeline from both modules together. This just confirms both
+		// stages made it through CompileShaderStage() successfully.
+		std::map<DeviceHandle, ProgramRecord>::iterator it = programs.find(program);
+		if (it == programs.end())
+			return false;
+		std::map<DeviceHandle, ShaderStageRecord>::iterator vs = shaderStages.find(it->second.vertexShader);
+		std::map<DeviceHandle, ShaderStageRecord>::iterator fs = shaderStages.find(it->second.fragmentShader);
+		bool vsOk = vs != shaderStages.end() && vs->second.module != VK_NULL_HANDLE;
+		bool fsOk = fs != shaderStages.end() && fs->second.module != VK_NULL_HANDLE;
+		if (!vsOk || !fsOk)
+		{
+			errorLog = "Program missing a compiled vertex and/or fragment stage";
+			return false;
+		}
+		return true;
+	}
+
+	bool VulkanRenderDevice::IsProgram(const DeviceHandle id) { return programs.find(id) != programs.end(); }
+	bool VulkanRenderDevice::IsShaderStage(const DeviceHandle id) { return shaderStages.find(id) != shaderStages.end(); }
+
+	void VulkanRenderDevice::DetachShaderStage(const DeviceHandle program, const DeviceHandle shader)
+	{
+		std::map<DeviceHandle, ProgramRecord>::iterator it = programs.find(program);
+		if (it == programs.end())
+			return;
+		if (it->second.vertexShader == shader) it->second.vertexShader = 0;
+		if (it->second.fragmentShader == shader) it->second.fragmentShader = 0;
+	}
+
+	void VulkanRenderDevice::DeleteShaderStage(const DeviceHandle shader)
+	{
+		std::map<DeviceHandle, ShaderStageRecord>::iterator it = shaderStages.find(shader);
+		if (it == shaderStages.end())
+			return;
+		if (it->second.module != VK_NULL_HANDLE && device != VK_NULL_HANDLE)
+			vkDestroyShaderModule(device, it->second.module, NULL);
+		shaderStages.erase(it);
+	}
+
+	void VulkanRenderDevice::DeleteProgram(const DeviceHandle program) { programs.erase(program); }
+
+	// Loose (non-block) uniforms no longer exist in PyrosShader.glsl for
+	// any material that supports UBOs (see IMaterial::SupportsUniformBlocks()
+	// and IRenderer.cpp's SendGlobalUniforms()/SendModelUniforms()/
+	// SendUserUniforms(), all UBO-backed now) - so for GenericShaderMaterial,
+	// returning "not found" here is correct, not a stub cop-out: it makes
+	// IRenderer's individual Shader::SendUniform() fallback loop (still
+	// unconditionally attempted every call, same as GL) a no-op, exactly
+	// matching what glGetUniformLocation would itself return for a name
+	// that got absorbed into a UBO member instead of staying a loose
+	// uniform. CustomShaderMaterial (which still declares its own loose
+	// uniforms in user-authored shader files, outside PyrosShader.glsl)
+	// is explicitly out of scope for RotatingCube's Vulkan validation path -
+	// see VULKAN_ROADMAP.md.
 	int32 VulkanRenderDevice::GetUniformLocation(const uint32 program, const std::string &name) { return -1; }
-	int32 VulkanRenderDevice::GetAttributeLocation(const uint32 program, const std::string &name) { return -1; }
+
+	// Unlike GL (where attribute locations are assigned by the driver at
+	// link time and must be queried back), Vulkan/SPIR-V requires static
+	// `layout(location = N)` on every input - PyrosShader.glsl's LOC_a*
+	// macros (see that file) already pin every attribute name to a fixed
+	// location for Vulkan builds, so this is a direct table lookup rather
+	// than a real query. Keeps GetAttributeLocation()'s contract identical
+	// across backends (IRenderer.cpp calls this the same way regardless
+	// of which device is active).
+	int32 VulkanRenderDevice::GetAttributeLocation(const uint32 program, const std::string &name)
+	{
+		if (name == "aPosition") return 0;
+		if (name == "aNormal") return 1;
+		if (name == "aTexcoord") return 2;
+		if (name == "aColor") return 3;
+		if (name == "aSize") return 4;
+		if (name == "aTangent") return 5;
+		if (name == "aBitangent") return 6;
+		if (name == "aBonesID") return 7;
+		if (name == "aBonesWeight") return 8;
+		if (name == "aInstancedTransform") return 9;
+		return -1;
+	}
 
 	void VulkanRenderDevice::SendUniformInt(const int32 handle, const int32 *data, const uint32 count) {}
 	void VulkanRenderDevice::SendUniformFloat(const int32 handle, const f32 *data, const uint32 count) {}
