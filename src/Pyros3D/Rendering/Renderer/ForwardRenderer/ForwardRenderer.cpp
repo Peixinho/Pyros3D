@@ -25,7 +25,6 @@ namespace p3d {
 
 	void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
 	{
-
 		InitRender();
 
 		// Prepare and Pack Lights to Send to Shaders
@@ -182,7 +181,21 @@ namespace p3d {
 		// Draw Background
 		DrawBackground();
 
-		// Clear Screen
+		// Real per-frame boundary - see the comment on
+		// IRenderDevice::BeginFrame()/EndFrame(). No-op on GL; on Vulkan
+		// this is the actual swapchain acquire + render pass begin (which
+		// bakes in the clear DrawBackground() just configured via
+		// SetClearColor() - must run after it, not before), paired with
+		// EndFrame()'s submit + present at the end of this function.
+		// Deliberately placed here (this function, called once per frame
+		// by every example) and not inside the shared
+		// IRenderer::EndRender()/PreRender(), which also run for a shadow
+		// sub-pass that has no swapchain-framebuffer target at all - see
+		// the interface comment for why that's out of scope for now.
+		device->BeginFrame();
+
+		// Clear Screen - a no-op on Vulkan (BeginFrame() above already
+		// cleared via the render pass's LOAD_OP_CLEAR).
 		ClearScreen();
 
 		// Render Scene with Objects Material
@@ -252,5 +265,8 @@ namespace p3d {
 
 		// End Rendering
 		EndRender();
+
+		// See the comment on BeginFrame() above.
+		device->EndFrame();
 	}
 };

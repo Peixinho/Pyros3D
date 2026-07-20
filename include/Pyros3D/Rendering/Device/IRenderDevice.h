@@ -147,6 +147,27 @@ namespace p3d {
 		virtual CommandBufferHandle BeginCommandBuffer() = 0;
 		virtual void EndCommandBuffer(const CommandBufferHandle cmd) = 0;
 
+		// True per-frame boundary (as opposed to BeginCommandBuffer()/
+		// EndCommandBuffer() above, which per-object call sites in
+		// IRenderer treat as cheap/idempotent-within-a-frame, not a real
+		// begin/end pair) - called once each by ForwardRenderer::RenderScene()
+		// around the whole frame. GL: no-op (GL has no concept of a frame
+		// boundary distinct from SDL2Context::Draw()'s SDL_GL_SwapWindow()).
+		// Vulkan: BeginFrame() acquires the next swapchain image and begins
+		// the real VkCommandBuffer + render pass (what BeginCommandBuffer()
+		// then just returns a handle for, cheaply, on every subsequent call
+		// within the same frame); EndFrame() ends the render pass, submits,
+		// and presents. See VULKAN_ROADMAP.md - this only wraps
+		// ForwardRenderer's top-level render pass; a shadow sub-pass
+		// (rendered into an offscreen shadow-map FBO, called from
+		// PreRender() *before* RenderScene()/BeginFrame() even runs) has no
+		// swapchain-framebuffer target at all and isn't covered by this -
+		// framebuffer/texture support on this backend remains out of scope
+		// (RotatingCube, this backend's only validated target, casts no
+		// shadows).
+		virtual void BeginFrame() = 0;
+		virtual void EndFrame() = 0;
+
 		// Clearing - TranslateBufferBit() has no side effects (pure
 		// translation, cached by the caller); Clear() issues the actual
 		// clear using a previously-translated mask.

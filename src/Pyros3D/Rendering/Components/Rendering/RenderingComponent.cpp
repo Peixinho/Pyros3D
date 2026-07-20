@@ -30,6 +30,10 @@ namespace p3d {
 		{
 			Device().DeleteVertexArray(i->second);
 		}
+		for (std::map<uint32, uint32>::iterator i = PipelineCache.begin(); i != PipelineCache.end(); i++)
+		{
+			Device().DestroyPipeline(i->second);
+		}
 	}
 
 	RenderingComponent::RenderingComponent(Renderable* renderable, IMaterial* Material, const f32 Distance) : IComponent()

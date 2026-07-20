@@ -31,6 +31,17 @@ namespace p3d {
 	{
 	}
 
+	// No GL equivalent - see the comment on IRenderDevice::BeginFrame()/
+	// EndFrame(). SDL2Context::Draw()'s SDL_GL_SwapWindow() is GL's actual
+	// frame-boundary/present step, untouched by this.
+	void GLRenderDevice::BeginFrame()
+	{
+	}
+
+	void GLRenderDevice::EndFrame()
+	{
+	}
+
 	uint32 GLRenderDevice::TranslateBufferBit(const uint32 bufferBits)
 	{
 		uint32 nativeBits = 0;

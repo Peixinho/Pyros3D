@@ -74,6 +74,20 @@ namespace p3d {
 		// locations can differ across shader variants using this mesh.
 		std::map<uint32, uint32> VAOCache;
 
+		// Vulkan pipeline cache, keyed by shader program - mirrors VAOCache
+		// exactly (see RenderObject()/BindMesh() in IRenderer.cpp). Only
+		// ever populated on the Vulkan backend (GLRenderDevice::CreatePipeline()
+		// exists too, but nothing calls it outside this cache - GL still
+		// uses the individual SetCullFaceMode/SetBlendingEnabled/etc calls
+		// directly). Built from Material's blend/depth/cull/wireframe state
+		// at the moment this (mesh, shader) pair is first bound, not
+		// re-evaluated per object the way GL's own dirty-tracked state is -
+		// correct for any Material whose blend/depth/cull state doesn't
+		// change after the fact for a given mesh/shader pairing (true for
+		// RotatingCube, this backend's only validated target), not a
+		// general solution.
+		std::map<uint32, uint32> PipelineCache;
+
 		// Materials
 		IMaterial* Material;
 

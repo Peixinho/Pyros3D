@@ -795,6 +795,17 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 		// and the index buffer baked in.
 		device->BindVertexArray(cmd, rmesh->VAOCache[Material->GetShader()]);
 
+		// The pipeline BindMesh() cached alongside the VAO - see the
+		// comment on RenderingMesh::PipelineCache. Called at this same
+		// mesh/material-switch cadence as the individual SetCullFaceMode/
+		// SetBlendingEnabled/SetDepthTest/etc calls below (which stay as-is
+		// for GL - this is additive, not a replacement, so GL's existing
+		// per-field dirty-tracking is untouched); GLRenderDevice::BindPipeline()
+		// re-issues those same calls unconditionally, so calling it here
+		// too is redundant work for GL, but only at this same rare
+		// (mesh, shader)-switch frequency, not per object - negligible.
+		device->BindPipeline(cmd, rmesh->PipelineCache[Material->GetShader()]);
+
 		if (Material->depthBias)
 			EnableDepthBias(Vec2(Material->depthFactor, Material->depthUnits));
 	}
@@ -1816,6 +1827,38 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		device->BindUniformBlockIfPresent(material->GetShader(), "AmbientLightUniforms", 21);
 		device->BindUniformBlockIfPresent(material->GetShader(), "MaterialUniforms", 22);
 		device->BindUniformBlockIfPresent(material->GetShader(), "ObjectLightCounts", 23);
+
+		// Vulkan pipeline for this (mesh, shader) pair - see the comment on
+		// RenderingMesh::PipelineCache. Built from Material's state right
+		// now, not re-evaluated per object the way RenderObject()'s own
+		// depth/blend/cull dirty-tracking is below - a known simplification
+		// (documented on PipelineCache itself), correct for this backend's
+		// only validated target (RotatingCube: one opaque, non-blended,
+		// non-double-sided, non-wireframe mesh/material pairing). No cost
+		// for GL: CreatePipeline() just records a struct nobody reads
+		// unless BindPipeline() is also called, which RenderObject() only
+		// does at this exact same (mesh, shader) switch cadence.
+		IRenderDevice::PipelineDesc pdesc;
+		pdesc.shaderProgram = material->GetShader();
+		pdesc.depthTest = material->IsDepthTesting();
+		pdesc.depthTestMode = material->depthTestMode;
+		pdesc.depthWrite = material->IsDepthWritting();
+		pdesc.cullFace = material->GetCullFace();
+		pdesc.wireframe = material->IsWireFrame();
+		if (material->blending || material->IsTransparent())
+		{
+			pdesc.blendingEnabled = true;
+			pdesc.blendSrcFactor = BlendFunc::Src_Alpha;
+			pdesc.blendDstFactor = BlendFunc::One_Minus_Src_Alpha;
+			pdesc.blendEquation = BlendEq::Add;
+			if (material->blending)
+			{
+				pdesc.blendSrcFactor = material->sfactor;
+				pdesc.blendDstFactor = material->dfactor;
+				pdesc.blendEquation = material->mode;
+			}
+		}
+		rmesh->PipelineCache[material->GetShader()] = device->CreatePipeline(pdesc);
 	}
 }
 

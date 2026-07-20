@@ -116,6 +116,8 @@ namespace p3d {
 
 		virtual CommandBufferHandle BeginCommandBuffer();
 		virtual void EndCommandBuffer(const CommandBufferHandle cmd);
+		virtual void BeginFrame();
+		virtual void EndFrame();
 
 		virtual uint32 TranslateBufferBit(const uint32 bufferBits);
 		virtual void Clear(const uint32 nativeBufferBits);
@@ -315,6 +317,58 @@ namespace p3d {
 		std::vector<VkSemaphore> renderFinishedSemaphores;
 		VkFence frameFence;
 
+		// Set by SetClearColor(), read by BeginFrame() when it builds the
+		// render pass's VkClearValue - GL sets this as persistent state
+		// (glClearColor) ahead of a separate Clear() call, but Vulkan has
+		// no equivalent of "clear now" outside of a render pass's
+		// LOAD_OP_CLEAR at vkCmdBeginRenderPass time, so this backend's
+		// Clear() is (and stays) a no-op - the actual clear always happens
+		// via whatever color was set here by the time BeginFrame() runs.
+		// ForwardRenderer::RenderScene() calls SetClearColor() (via
+		// DrawBackground()) before BeginFrame() for exactly this reason -
+		// see that function's comment.
+		Vec4 pendingClearColor;
+
+		// Set by BeginFrame(), cleared by EndFrame() - see the comment on
+		// IRenderDevice::BeginFrame()/EndFrame(). While true,
+		// BeginCommandBuffer() just returns a constant, cheap, meaningful
+		// handle representing "the current frame's already-open
+		// frameCommandBuffer/render pass" instead of re-acquiring - every
+		// per-object BeginCommandBuffer()/EndCommandBuffer() call pair
+		// IRenderer already issues (RenderObject()/BindMesh()/EndRender())
+		// becomes free once a frame is open, exactly like it already is on
+		// GL, just for a different reason (GL has no command buffer at
+		// all; this has one real one, shared for the whole frame).
+		bool frameInProgress;
+		uint32 currentImageIndex;
+
+		// Vertex buffer / index buffer pair for a "VAO" handle - see the
+		// header comment on the `pipelines` field below for the broader
+		// vertex-input limitation this is part of. GL's VAO bakes in
+		// attribute pointers/enables *and* the bound array+element buffers;
+		// this backend's vertex *attribute layout* is already baked into
+		// the pipeline (CreatePipeline()'s hardcoded VkVertexInputState),
+		// so all a "VAO" needs to remember here is which two buffers to
+		// bind at draw time. Built up the same way GL builds a VAO -
+		// BindVertexArray(cmd, vao) selects which one BindArrayBuffer()/
+		// BindElementBuffer() write into next (mirroring glBindVertexArray()
+		// making those the implicit target of subsequent glBindBuffer()
+		// calls) - and later just re-selected (via the same
+		// BindVertexArray() call) as the active one for DrawElements()/
+		// DrawElementsInstanced() to read from.
+		struct VaoRecord
+		{
+			DeviceHandle vertexBuffer, indexBuffer;
+			VaoRecord() : vertexBuffer(0), indexBuffer(0) {}
+		};
+		std::map<DeviceHandle, VaoRecord> vaos;
+		DeviceHandle nextVaoHandle;
+		// 0 = none selected (matches BindVertexArray(cmd, 0)'s GL "unbind"
+		// semantics - BindArrayBuffer()/BindElementBuffer()/DrawElements()
+		// all silently no-op while this is 0, same as GL silently doing
+		// nothing useful with no VAO bound).
+		DeviceHandle currentVao;
+
 		// Created alongside the logical device in InitializeSwapchain() -
 		// every CreateBuffer()/CreateUniformBuffer() call below goes through
 		// this rather than hand-rolled vkAllocateMemory (VMA handles the
@@ -439,6 +493,12 @@ namespace p3d {
 		// validate against.
 		std::map<DeviceHandle, VkPipeline> pipelines;
 		DeviceHandle nextPipelineHandle;
+		// pipeline handle -> the program it was built from (PipelineDesc's
+		// shaderProgram) - BindPipeline() only receives a pipeline handle,
+		// but also needs to bind that program's descriptor set
+		// (vkCmdBindDescriptorSets), so this is how it looks the program
+		// back up.
+		std::map<DeviceHandle, DeviceHandle> pipelineToProgram;
 
 	};
 

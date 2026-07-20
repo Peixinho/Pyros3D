@@ -37,6 +37,9 @@ namespace p3d {
 		  depthImageView(VK_NULL_HANDLE), depthFormat(VK_FORMAT_UNDEFINED),
 		  commandPool(VK_NULL_HANDLE), frameCommandBuffer(VK_NULL_HANDLE),
 		  imageAvailableSemaphore(VK_NULL_HANDLE), frameFence(VK_NULL_HANDLE),
+		  pendingClearColor(0.f, 0.f, 0.f, 1.f),
+		  frameInProgress(false), currentImageIndex(0),
+		  nextVaoHandle(1), currentVao(0),
 		  allocator(VK_NULL_HANDLE), descriptorPool(VK_NULL_HANDLE),
 		  nextBufferHandle(1), nextShaderStageHandle(1), nextProgramHandle(1), nextPipelineHandle(1)
 	{
@@ -613,12 +616,99 @@ namespace p3d {
 		return presentResult == VK_SUCCESS || presentResult == VK_SUBOPTIMAL_KHR;
 	}
 
-	CommandBufferHandle VulkanRenderDevice::BeginCommandBuffer() { return 0; }
+	// See the header comment on `frameInProgress`. Every per-object
+	// BeginCommandBuffer()/EndCommandBuffer() pair IRenderer already
+	// issues (RenderObject()/BindMesh()/EndRender()) becomes a cheap
+	// reference to the one real, already-open frameCommandBuffer once
+	// BeginFrame() has run - if it hasn't (e.g. the shadow sub-pass inside
+	// PreRender(), called before RenderScene()/BeginFrame() - see
+	// IRenderDevice.h's comment), this returns 0, and every device method
+	// that receives a 0 cmd (BindVertexArray/DrawElements/etc, all guarded
+	// on `frameInProgress` too) safely no-ops instead of touching a
+	// command buffer no one began recording into.
+	CommandBufferHandle VulkanRenderDevice::BeginCommandBuffer() { return frameInProgress ? 1 : 0; }
 	void VulkanRenderDevice::EndCommandBuffer(const CommandBufferHandle cmd) {}
+
+	void VulkanRenderDevice::BeginFrame()
+	{
+		if (swapchain == VK_NULL_HANDLE || frameInProgress)
+			return;
+
+		vkWaitForFences(device, 1, &frameFence, VK_TRUE, UINT64_MAX);
+		vkResetFences(device, 1, &frameFence);
+
+		uint32 imageIndex = 0;
+		VkResult acquireResult = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+		if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
+			return;
+		currentImageIndex = imageIndex;
+
+		vkResetCommandBuffer(frameCommandBuffer, 0);
+
+		VkCommandBufferBeginInfo beginInfo = {};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		vkBeginCommandBuffer(frameCommandBuffer, &beginInfo);
+
+		VkClearValue clearValues[2] = {};
+		clearValues[0].color = { { pendingClearColor.x, pendingClearColor.y, pendingClearColor.z, pendingClearColor.w } };
+		clearValues[1].depthStencil = { 1.0f, 0 };
+
+		VkRenderPassBeginInfo renderPassBegin = {};
+		renderPassBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+		renderPassBegin.renderPass = renderPass;
+		renderPassBegin.framebuffer = framebuffers[imageIndex];
+		renderPassBegin.renderArea.extent = swapchainExtent;
+		renderPassBegin.clearValueCount = 2;
+		renderPassBegin.pClearValues = clearValues;
+		vkCmdBeginRenderPass(frameCommandBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
+
+		// CreatePipeline() left viewport/scissor dynamic (see its comment) -
+		// set them here once, to the full swapchain extent, rather than
+		// per-draw (every BindPipeline() would otherwise need to redo this).
+		VkViewport viewport = { 0.0f, 0.0f, (f32)swapchainExtent.width, (f32)swapchainExtent.height, 0.0f, 1.0f };
+		vkCmdSetViewport(frameCommandBuffer, 0, 1, &viewport);
+		VkRect2D scissor = { { 0, 0 }, swapchainExtent };
+		vkCmdSetScissor(frameCommandBuffer, 0, 1, &scissor);
+
+		frameInProgress = true;
+	}
+
+	void VulkanRenderDevice::EndFrame()
+	{
+		if (!frameInProgress)
+			return;
+		frameInProgress = false;
+		currentVao = 0;
+
+		vkCmdEndRenderPass(frameCommandBuffer);
+		vkEndCommandBuffer(frameCommandBuffer);
+
+		VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.waitSemaphoreCount = 1;
+		submitInfo.pWaitSemaphores = &imageAvailableSemaphore;
+		submitInfo.pWaitDstStageMask = &waitStage;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &frameCommandBuffer;
+		submitInfo.signalSemaphoreCount = 1;
+		submitInfo.pSignalSemaphores = &renderFinishedSemaphores[currentImageIndex];
+		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, frameFence) != VK_SUCCESS)
+			return;
+
+		VkPresentInfoKHR presentInfo = {};
+		presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+		presentInfo.waitSemaphoreCount = 1;
+		presentInfo.pWaitSemaphores = &renderFinishedSemaphores[currentImageIndex];
+		presentInfo.swapchainCount = 1;
+		presentInfo.pSwapchains = &swapchain;
+		presentInfo.pImageIndices = &currentImageIndex;
+		vkQueuePresentKHR(presentQueue, &presentInfo);
+	}
 
 	uint32 VulkanRenderDevice::TranslateBufferBit(const uint32 bufferBits) { return 0; }
 	void VulkanRenderDevice::Clear(const uint32 nativeBufferBits) {}
-	void VulkanRenderDevice::SetClearColor(const Vec4 &color) {}
+	void VulkanRenderDevice::SetClearColor(const Vec4 &color) { pendingClearColor = color; }
 
 	void VulkanRenderDevice::SetDepthTest(const bool enabled, const uint32 mode) {}
 	void VulkanRenderDevice::SetDepthMask(const bool enabled) {}
@@ -822,6 +912,7 @@ namespace p3d {
 
 		DeviceHandle handle = nextPipelineHandle++;
 		pipelines[handle] = pipeline;
+		pipelineToProgram[handle] = desc.shaderProgram;
 		return handle;
 	}
 
@@ -833,21 +924,30 @@ namespace p3d {
 		if (device != VK_NULL_HANDLE)
 			vkDestroyPipeline(device, it->second, NULL);
 		pipelines.erase(it);
+		pipelineToProgram.erase(pipeline);
 	}
 
 	void VulkanRenderDevice::BindPipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline)
 	{
-		// Not reachable yet - IRenderer doesn't call BindPipeline() (still
-		// issuing the individual Set*/UseProgram calls below instead, all
-		// no-ops on this backend) until it actually threads a real
-		// per-frame VkCommandBuffer through RenderObject() - see
-		// VULKAN_ROADMAP.md. cmd is currently always the meaningless
-		// constant BeginCommandBuffer() below returns, not a real
-		// VkCommandBuffer, so there's nothing correct to record into yet.
+		if (!frameInProgress || cmd == 0)
+			return;
 		std::map<DeviceHandle, VkPipeline>::iterator it = pipelines.find(pipeline);
 		if (it == pipelines.end())
 			return;
-		(void)cmd;
+		vkCmdBindPipeline(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, it->second);
+
+		// Also bind the owning program's descriptor set (if
+		// BindUniformBlockIfPresent() ever allocated one) - GL's
+		// equivalent state (which UBOs are bound) is already implicit/
+		// global by this point via glUniformBlockBinding(), but Vulkan
+		// needs an explicit vkCmdBindDescriptorSets() per draw.
+		std::map<DeviceHandle, DeviceHandle>::iterator progHandleIt = pipelineToProgram.find(pipeline);
+		if (progHandleIt != pipelineToProgram.end())
+		{
+			std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(progHandleIt->second);
+			if (progIt != programs.end() && progIt->second.descriptorSet != VK_NULL_HANDLE)
+				vkCmdBindDescriptorSets(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet, 0, NULL);
+		}
 	}
 
 	void VulkanRenderDevice::EnableClipDistance(const uint32 index) {}
@@ -856,11 +956,54 @@ namespace p3d {
 	void VulkanRenderDevice::SetViewport(const uint32 x, const uint32 y, const uint32 width, const uint32 height) {}
 
 	void VulkanRenderDevice::UseProgram(const uint32 program) {}
-	DeviceHandle VulkanRenderDevice::CreateVertexArray() { return 0; }
-	void VulkanRenderDevice::DeleteVertexArray(const DeviceHandle vao) {}
-	void VulkanRenderDevice::BindVertexArray(const CommandBufferHandle cmd, const DeviceHandle vao) {}
-	void VulkanRenderDevice::BindArrayBuffer(const uint32 buffer) {}
-	void VulkanRenderDevice::BindElementBuffer(const uint32 buffer) {}
+	// See the header comment on VaoRecord for the overall design - this
+	// only allocates a handle and a zeroed record; BindArrayBuffer()/
+	// BindElementBuffer() fill it in afterward, the same way
+	// glGenVertexArrays() alone doesn't populate anything either.
+	DeviceHandle VulkanRenderDevice::CreateVertexArray()
+	{
+		DeviceHandle handle = nextVaoHandle++;
+		vaos[handle] = VaoRecord();
+		return handle;
+	}
+
+	void VulkanRenderDevice::DeleteVertexArray(const DeviceHandle vao)
+	{
+		vaos.erase(vao);
+	}
+
+	// Selects `vao` as the implicit target for BindArrayBuffer()/
+	// BindElementBuffer() (mirrors glBindVertexArray() making a VAO the
+	// implicit target of subsequent glBindBuffer() calls) *and* as the
+	// buffer pair DrawElements()/DrawElementsInstanced() will read from -
+	// both BindMesh() (building a fresh VAO) and RenderObject() (re-binding
+	// an already-cached one before drawing) call this the same way GL's
+	// glBindVertexArray() serves both purposes identically. `cmd` is
+	// unused - see BeginCommandBuffer()'s comment; a 0 vao (GL's "unbind")
+	// just clears the selection, same as GL leaving nothing meaningfully
+	// bound.
+	void VulkanRenderDevice::BindVertexArray(const CommandBufferHandle cmd, const DeviceHandle vao)
+	{
+		currentVao = vao;
+	}
+
+	void VulkanRenderDevice::BindArrayBuffer(const uint32 buffer)
+	{
+		if (currentVao == 0)
+			return;
+		std::map<DeviceHandle, VaoRecord>::iterator it = vaos.find(currentVao);
+		if (it != vaos.end())
+			it->second.vertexBuffer = buffer;
+	}
+
+	void VulkanRenderDevice::BindElementBuffer(const uint32 buffer)
+	{
+		if (currentVao == 0)
+			return;
+		std::map<DeviceHandle, VaoRecord>::iterator it = vaos.find(currentVao);
+		if (it != vaos.end())
+			it->second.indexBuffer = buffer;
+	}
 	void VulkanRenderDevice::SetVertexAttribute(const int32 location, const uint32 typeCount, const uint32 nativeType, const uint32 stride, const uint32 offset) {}
 	void VulkanRenderDevice::SetFloatVertexAttribute(const int32 location, const uint32 componentCount, const uint32 stride, const uint32 offset) {}
 	void VulkanRenderDevice::DisableVertexAttribute(const int32 location) {}
@@ -937,10 +1080,56 @@ namespace p3d {
 		vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
 	}
 
+	// Unused by DrawElements()/DrawElementsInstanced() below - Vulkan bakes
+	// primitive topology into the pipeline (CreatePipeline() hardcodes
+	// VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST), not the draw call, so the
+	// translated value this returns is never actually read for this
+	// backend; kept returning 0 rather than a real translation table since
+	// nothing consumes the result.
 	uint32 VulkanRenderDevice::TranslateDrawType(const uint32 engineDrawType) { return 0; }
+
+	// Not implemented - nothing on this backend's validation path
+	// (RotatingCube) uses non-indexed draws.
 	void VulkanRenderDevice::DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count) {}
-	void VulkanRenderDevice::DrawElements(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount) {}
-	void VulkanRenderDevice::DrawElementsInstanced(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount, const uint32 instanceCount) {}
+
+	void VulkanRenderDevice::DrawElements(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount)
+	{
+		if (!frameInProgress || cmd == 0 || currentVao == 0)
+			return;
+		std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
+		if (vaoIt == vaos.end())
+			return;
+		std::map<DeviceHandle, BufferRecord>::iterator vboIt = buffers.find(vaoIt->second.vertexBuffer);
+		std::map<DeviceHandle, BufferRecord>::iterator iboIt = buffers.find(vaoIt->second.indexBuffer);
+		if (vboIt == buffers.end() || iboIt == buffers.end())
+			return;
+
+		VkBuffer vbo = vboIt->second.buffer;
+		VkDeviceSize vboOffset = 0;
+		vkCmdBindVertexBuffers(frameCommandBuffer, 0, 1, &vbo, &vboOffset);
+		// __INDEX_C_TYPE__ (Global.h) is uint32 - matches VK_INDEX_TYPE_UINT32.
+		vkCmdBindIndexBuffer(frameCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdDrawIndexed(frameCommandBuffer, indexCount, 1, 0, 0, 0);
+	}
+
+	void VulkanRenderDevice::DrawElementsInstanced(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount, const uint32 instanceCount)
+	{
+		if (!frameInProgress || cmd == 0 || currentVao == 0)
+			return;
+		std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
+		if (vaoIt == vaos.end())
+			return;
+		std::map<DeviceHandle, BufferRecord>::iterator vboIt = buffers.find(vaoIt->second.vertexBuffer);
+		std::map<DeviceHandle, BufferRecord>::iterator iboIt = buffers.find(vaoIt->second.indexBuffer);
+		if (vboIt == buffers.end() || iboIt == buffers.end())
+			return;
+
+		VkBuffer vbo = vboIt->second.buffer;
+		VkDeviceSize vboOffset = 0;
+		vkCmdBindVertexBuffers(frameCommandBuffer, 0, 1, &vbo, &vboOffset);
+		vkCmdBindIndexBuffer(frameCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdDrawIndexed(frameCommandBuffer, indexCount, instanceCount, 0, 0, 0);
+	}
 
 	// bindingPoint isn't tracked per-buffer here (nothing consumes it yet
 	// - see the comment on CreatePipeline still being unimplemented) but

@@ -26,6 +26,8 @@ namespace p3d {
 
 		virtual CommandBufferHandle BeginCommandBuffer();
 		virtual void EndCommandBuffer(const CommandBufferHandle cmd);
+		virtual void BeginFrame();
+		virtual void EndFrame();
 
 		virtual uint32 TranslateBufferBit(const uint32 bufferBits);
 		virtual void Clear(const uint32 nativeBufferBits);
