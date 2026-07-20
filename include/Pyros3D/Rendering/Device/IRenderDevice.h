@@ -466,6 +466,34 @@ namespace p3d {
 	PYROS3D_API IRenderDevice& GetActiveRenderDevice();
 	PYROS3D_API void SetActiveRenderDevice(IRenderDevice* device);
 
+	// A second, narrower registry for handing *ownership* of a device from
+	// whoever constructed it (e.g. SDL2VulkanContext, which needs a real
+	// VulkanRenderDevice + swapchain to exist before any IRenderer does)
+	// to whichever IRenderer::IRenderer(Width, Height, externalDevice=NULL)
+	// call comes next - the every-example pattern of
+	// `new ForwardRenderer(Width, Height)` never passes a device
+	// explicitly, so without this there'd be no way for that call to know
+	// a device already exists without editing every example's source.
+	//
+	// Deliberately NOT the same slot as SetActiveRenderDevice()'s
+	// `activeDevice`: that one is read (never owned) by Shaders.cpp/
+	// GeometryBuffer.cpp/RenderingComponent.cpp for the device's *entire*
+	// lifetime via GetActiveRenderDevice(), which also falls back to a
+	// lazily-constructed *static* GLRenderDevice when nothing is
+	// registered - wrapping whatever that function returns in an owning
+	// unique_ptr would eventually try to `delete` static storage, which
+	// is memory corruption, not just a bug. TakeRenderDeviceOwnership()
+	// instead returns NULL unless RegisterRenderDeviceForOwnership() was
+	// called, and clears itself once taken - so it can only ever hand a
+	// real, heap-allocated device to exactly one caller, once. A second,
+	// unrelated IRenderer construction (e.g. a second Context/window, or
+	// today's DebugRenderer/PostEffectsManager, which use the separate
+	// true-no-arg IRenderer() constructor entirely and are untouched by
+	// this) safely falls back to its own `new GLRenderDevice()`, exactly
+	// as before this existed.
+	PYROS3D_API void RegisterRenderDeviceForOwnership(IRenderDevice* device);
+	PYROS3D_API IRenderDevice* TakeRenderDeviceOwnership();
+
 };
 
 #endif /* IRENDERDEVICE_H */

@@ -100,6 +100,20 @@ namespace p3d {
             // SDL2VulkanContext Context
             SDL_Window* rview;
 
+            // Constructed in the ctor (right after the window - a
+            // VkSurfaceKHR can only be created once one exists), then
+            // handed off via RegisterRenderDeviceForOwnership() (see
+            // IRenderDevice.h) so whichever IRenderer gets constructed
+            // next (every example's `new ForwardRenderer(Width, Height)`)
+            // adopts and owns it - this class does NOT delete it and must
+            // not touch it again after the ctor once ownership transfers,
+            // except through the non-owning GetActiveRenderDevice()
+            // reference the rest of the engine already uses. Kept as a
+            // raw pointer (not owned here) purely so a later Draw()
+            // implementation has something to call into once IRenderer's
+            // real per-frame Vulkan path exists - see VULKAN_ROADMAP.md.
+            class VulkanRenderDevice* vulkanDevice;
+
             // Clock
             uint32 Clock;
 

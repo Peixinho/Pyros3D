@@ -14,6 +14,7 @@
 namespace p3d {
 
 	static IRenderDevice* activeDevice = NULL;
+	static IRenderDevice* pendingOwnershipDevice = NULL;
 
 	IRenderDevice& GetActiveRenderDevice()
 	{
@@ -26,6 +27,25 @@ namespace p3d {
 	void SetActiveRenderDevice(IRenderDevice* device)
 	{
 		activeDevice = device;
+	}
+
+	void RegisterRenderDeviceForOwnership(IRenderDevice* device)
+	{
+		// Also register as the active device - a caller doing this wants
+		// Shaders.cpp/etc to pick it up too, same as a plain
+		// SetActiveRenderDevice() call.
+		SetActiveRenderDevice(device);
+		pendingOwnershipDevice = device;
+	}
+
+	IRenderDevice* TakeRenderDeviceOwnership()
+	{
+		IRenderDevice* device = pendingOwnershipDevice;
+		// Consumed - only the first taker gets ownership; see the header
+		// comment for why a second, unrelated IRenderer construction must
+		// not also try to adopt (and later delete) the same pointer.
+		pendingOwnershipDevice = NULL;
+		return device;
 	}
 
 };

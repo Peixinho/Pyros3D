@@ -142,7 +142,26 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 // decrement it on destruction either (see ~IRenderer()).
 IRenderer::IRenderer() : UsesSharedUBOs(false), device(new GLRenderDevice()) {}
 
-IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* externalDevice) : device(externalDevice != NULL ? externalDevice : new GLRenderDevice())
+// Resolves what IRenderer(Width, Height, externalDevice)'s device member
+// should own: an explicitly-passed device wins outright; otherwise, a
+// device someone registered via RegisterRenderDeviceForOwnership() (e.g.
+// SDL2VulkanContext, which needs a real VulkanRenderDevice + swapchain to
+// exist before any IRenderer does - see IRenderDevice.h's comment on that
+// function for why this can't just be GetActiveRenderDevice()) is adopted
+// if present; only when neither applies does this fall back to
+// constructing a fresh GLRenderDevice, exactly as before this existed -
+// every GL example's `new ForwardRenderer(Width, Height)` call site never
+// registers anything, so this is a no-op change for every one of them.
+static IRenderDevice* ResolveInitialDevice(IRenderDevice* externalDevice)
+{
+	if (externalDevice != NULL)
+		return externalDevice;
+	if (IRenderDevice* registered = TakeRenderDeviceOwnership())
+		return registered;
+	return new GLRenderDevice();
+}
+
+IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* externalDevice) : device(ResolveInitialDevice(externalDevice))
 {
 	// Every Shader/GeometryBuffer/RenderingComponent constructed anywhere
 	// in the engine (no IRenderer reference available at most of those

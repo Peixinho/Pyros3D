@@ -11,6 +11,9 @@
 
 #ifdef VULKAN_BACKEND
 
+#include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
+#include <cstdio>
+
 namespace p3d {
 
     std::map<uint32, uint32> SDL2VulkanContext::MapSDLKeyboard;
@@ -123,7 +126,7 @@ namespace p3d {
         SDL2VulkanContext::MapSDLKeyboard[SDLK_PAUSE] = Event::Input::Keyboard::Pause;
     }
 
-    SDL2VulkanContext::SDL2VulkanContext(const uint32 width, const uint32 height, const std::string &title, const uint32 windowType) : Context(width,height)
+    SDL2VulkanContext::SDL2VulkanContext(const uint32 width, const uint32 height, const std::string &title, const uint32 windowType) : Context(width,height), vulkanDevice(NULL)
     {
         // Map Keys
         CreateKeyboardMap();
@@ -151,6 +154,28 @@ namespace p3d {
             height,
             type
         );
+
+        // Construct the real render device + swapchain here, now that a
+        // window exists to create a VkSurfaceKHR against - see
+        // GetRequiredInstanceExtensions()/CreateSurface() below, and the
+        // header comment on `vulkanDevice`. Ownership transfers to
+        // whichever IRenderer gets constructed next (every example's
+        // `new ForwardRenderer(Width, Height)`) via
+        // RegisterRenderDeviceForOwnership() - this class never deletes
+        // `vulkanDevice` itself.
+        vulkanDevice = new VulkanRenderDevice(GetRequiredInstanceExtensions());
+        VkSurfaceKHR surface = VK_NULL_HANDLE;
+        if (vulkanDevice->GetInstance() == VK_NULL_HANDLE ||
+            !CreateSurface(vulkanDevice->GetInstance(), &surface) ||
+            !vulkanDevice->InitializeSwapchain(surface, width, height))
+        {
+            // Matches this constructor's existing no-error-handling style
+            // (SDL_CreateWindow() above isn't checked either) - a NULL
+            // rview/unusable vulkanDevice will surface loudly the first
+            // time anything tries to use it, same as today.
+            fprintf(stderr, "SDL2VulkanContext: failed to initialize VulkanRenderDevice/swapchain\n");
+        }
+        RegisterRenderDeviceForOwnership(vulkanDevice);
     }
     SDL2VulkanContext::~SDL2VulkanContext()
     {
