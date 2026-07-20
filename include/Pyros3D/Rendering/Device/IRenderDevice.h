@@ -113,6 +113,21 @@ namespace p3d {
 	// to issue directly. See VULKAN_ROADMAP.md Phase 3.
 	typedef uint32 DeviceHandle;
 
+	// Handle to a recorded sequence of draw commands. GL executes every
+	// call immediately against whatever's currently bound - it has no real
+	// command buffer - so GLRenderDevice's BeginCommandBuffer/EndCommandBuffer
+	// are no-ops returning a meaningless constant, and every other GL method
+	// that takes one just ignores it. Vulkan needs recording into a real
+	// VkCommandBuffer before submission; this is the seam that lets
+	// VulkanRenderDevice do that. See VULKAN_ROADMAP.md Phase 5 - as of this
+	// commit IRenderer obtains one of these per frame and threads it through
+	// the draw-related calls below, but RenderObject()'s cull/blend/depth/
+	// wireframe state calls still go through the individual Set* methods
+	// further down, not through a Pipeline yet - that consolidation needs a
+	// real VulkanRenderDevice to validate PipelineDesc's exact shape against
+	// first, not just GL to guess at it with.
+	typedef uint32 CommandBufferHandle;
+
 	// Backend-agnostic seam for state changes, resource binding, and draw
 	// calls. One instance per backend choice (today: GLRenderDevice only),
 	// constructed by IRenderer/DebugRenderer/PostEffectsManager. Every
@@ -124,6 +139,13 @@ namespace p3d {
 	public:
 
 		virtual ~IRenderDevice() {}
+
+		// Command buffer recording - see the comment on CommandBufferHandle
+		// above. Obtained once per frame by IRenderer and threaded through
+		// the draw-related calls below (BindVertexArray/DrawElements/
+		// DrawElementsInstanced/BindPipeline).
+		virtual CommandBufferHandle BeginCommandBuffer() = 0;
+		virtual void EndCommandBuffer(const CommandBufferHandle cmd) = 0;
 
 		// Clearing - TranslateBufferBit() has no side effects (pure
 		// translation, cached by the caller); Clear() issues the actual
@@ -170,6 +192,36 @@ namespace p3d {
 		virtual void SetCullFaceMode(const uint32 cullFace) = 0;
 		virtual void DisableCullFace() = 0;
 
+		// Pipeline: bundles a shader program with the fixed-function state
+		// Vulkan bakes into VkPipeline at creation time (depth test/write,
+		// blending, cull mode) - the same state the Set*/Enable*/Disable*
+		// methods on this interface already let a caller set individually.
+		// Not yet used by IRenderer (see the comment on CommandBufferHandle
+		// above) - exists so a VulkanRenderDevice has somewhere to actually
+		// create a VkPipeline once a real caller needs one, without another
+		// interface change. GLRenderDevice's CreatePipeline just records the
+		// desc in a small internal table; BindPipeline applies it via the
+		// exact same gl* calls the individual Set* methods already issue.
+		struct PipelineDesc {
+			uint32 shaderProgram;
+			bool depthTest;
+			uint32 depthTestMode; // DepthTest::* value, meaningful only if depthTest
+			bool depthWrite;
+			bool blendingEnabled;
+			uint32 blendSrcFactor, blendDstFactor; // BlendFunc::* values, meaningful only if blendingEnabled
+			uint32 blendEquation; // BlendEq::* value, meaningful only if blendingEnabled
+			uint32 cullFace; // IMaterial.h's CullFace::* value; DoubleSided means "no culling"
+			bool wireframe;
+
+			PipelineDesc()
+				: shaderProgram(0), depthTest(true), depthTestMode(DepthTest::Less), depthWrite(true),
+				  blendingEnabled(false), blendSrcFactor(BlendFunc::One), blendDstFactor(BlendFunc::Zero),
+				  blendEquation(BlendEq::Add), cullFace(0), wireframe(false) {}
+		};
+		virtual DeviceHandle CreatePipeline(const PipelineDesc &desc) = 0;
+		virtual void DestroyPipeline(const DeviceHandle pipeline) = 0;
+		virtual void BindPipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline) = 0;
+
 		// Clip distances (no-op on GLES3, matching StartClippingPlanes()/
 		// EndClippingPlanes()'s existing #if !defined(GLES3) guard)
 		virtual void EnableClipDistance(const uint32 index) = 0;
@@ -182,7 +234,7 @@ namespace p3d {
 		virtual void UseProgram(const uint32 program) = 0;
 		virtual DeviceHandle CreateVertexArray() = 0;
 		virtual void DeleteVertexArray(const DeviceHandle vao) = 0;
-		virtual void BindVertexArray(const DeviceHandle vao) = 0;
+		virtual void BindVertexArray(const CommandBufferHandle cmd, const DeviceHandle vao) = 0;
 		virtual void BindArrayBuffer(const uint32 buffer) = 0;
 		virtual void BindElementBuffer(const uint32 buffer) = 0;
 		// typeCount/nativeType come from the engine's existing
@@ -207,14 +259,39 @@ namespace p3d {
 		// DrawingType::Triangles/Lines/... values.
 		virtual uint32 TranslateDrawType(const uint32 engineDrawType) = 0;
 		virtual void DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count) = 0;
-		virtual void DrawElements(const uint32 nativeDrawType, const uint32 indexCount) = 0;
-		virtual void DrawElementsInstanced(const uint32 nativeDrawType, const uint32 indexCount, const uint32 instanceCount) = 0;
+		virtual void DrawElements(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount) = 0;
+		virtual void DrawElementsInstanced(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount, const uint32 instanceCount) = 0;
 
 		// Uniform buffers - CreateUniformBuffer mirrors what IRenderer's
 		// constructor used to do inline for each shared UBO (gen, bind,
 		// allocate, bind to binding point, unbind).
 		virtual DeviceHandle CreateUniformBuffer(const uint32 sizeBytes, const uint32 bindingPoint) = 0;
+		// Partial/sub-range update (glBufferSubData) - use only when the
+		// buffer has other live data outside [offset, offset+sizeBytes)
+		// that must be preserved (e.g. DirectionalShadowBlock's matrices
+		// and uDirectionalShadowFar, written via two separate calls at
+		// different offsets). For a full-buffer replace, prefer
+		// ReplaceUniformBuffer() below - see its comment for why.
 		virtual void UpdateUniformBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void *data) = 0;
+		// Re-specifies the buffer's entire backing storage with new data
+		// ("orphaning" - glBufferData, not glBufferSubData). Only correct
+		// when replacing the buffer's full previous contents (any bytes
+		// this call doesn't write are left undefined, since the old
+		// storage is discarded wholesale) - safe here for buffers where
+		// the trailing "unused" region past sizeBytes, if any, is never
+		// read by the shader regardless (e.g. LightsBlock/BoneMatrices,
+		// gated by uNumberOfLights/actual bone count), and safe/required
+		// for buffers written as a single complete write every time
+		// (ObjectMatrixUniforms, MaterialUniforms, etc). Exists because
+		// naive UpdateUniformBuffer on a UBO rewritten every object every
+		// frame forces the driver to stall the CPU until any in-flight GPU
+		// work still reading the buffer's old contents finishes - measured
+		// as a real ~10x regression (SimplePhysics: ~100fps -> ~10fps with
+		// its ~1000 objects sharing one material) once the loose-uniforms
+		// UBO migration made ObjectMatrixUniforms/MaterialUniforms get
+		// rewritten on every RenderObject() call. Orphaning lets the
+		// driver hand back fresh backing memory instead of blocking.
+		virtual void ReplaceUniformBuffer(const DeviceHandle buffer, const uint32 sizeBytes, const void *data) = 0;
 		virtual void DestroyUniformBuffer(const DeviceHandle buffer) = 0;
 
 		// Geometry/vertex/index buffers - bufferType/bufferDraw/mappingType
@@ -366,6 +443,28 @@ namespace p3d {
 		virtual void BlitFramebuffer(const uint32 srcX0, const uint32 srcY0, const uint32 srcX1, const uint32 srcY1, const uint32 dstX0, const uint32 dstY0, const uint32 dstX1, const uint32 dstY1, const uint32 engineMask, const uint32 engineFilter) = 0;
 
 	};
+
+	// Texture/FrameBuffer/GeometryBuffer/Shader/RenderingComponent (the
+	// resource-wrapper classes from Phase 3) are constructed all over the
+	// engine - asset loading, mesh construction - with no IRenderer/device
+	// reference available at most call sites, so each gets its own shared
+	// instance via a file-local `static IRenderDevice& Device()` function
+	// rather than an injected pointer. Historically that function just did
+	// `static GLRenderDevice instance; return instance;`, silently
+	// hardcoding GL regardless of what backend the actual IRenderer in use
+	// was constructed with - harmless when GL was the only backend, a real
+	// bug for Vulkan (shader compilation, geometry buffer creation etc
+	// would keep going through GL even in a "Vulkan" build). These two
+	// functions let whichever code constructs the "real" device for this
+	// process (see IRenderer's backend-injection constructor) register it
+	// here once, so every Device() accessor across the engine picks up the
+	// SAME instance instead of each independently defaulting to its own
+	// GLRenderDevice. GetActiveRenderDevice() falls back to a lazily
+	// constructed GLRenderDevice if nothing has been registered yet,
+	// preserving today's behavior for every example that doesn't opt into
+	// backend injection.
+	PYROS3D_API IRenderDevice& GetActiveRenderDevice();
+	PYROS3D_API void SetActiveRenderDevice(IRenderDevice* device);
 
 };
 

@@ -53,7 +53,8 @@ namespace p3d {
 	void DebugRenderer::Render(const Matrix &camera, const Matrix &projection)
 	{
 		DeviceHandle vao = device->CreateVertexArray();
-		device->BindVertexArray(vao);
+		CommandBufferHandle cmd = device->BeginCommandBuffer();
+		device->BindVertexArray(cmd, vao);
 
 
 		// Updating Buffers
@@ -228,6 +229,8 @@ namespace p3d {
 		pointsSize.clear();
 
 		device->SetDepthTest(true, DepthTest::Less);
+
+		device->EndCommandBuffer(cmd);
 	}
 
 	void DebugRenderer::drawLine(const Vec3 &from, const Vec3 &to, const Vec4 &fromColor, const Vec4 &toColor)

@@ -32,7 +32,16 @@ namespace p3d {
 	public:
 
 		IRenderer();
-		IRenderer(const uint32 Width, const uint32 Height);
+		// externalDevice, if non-NULL, is taken as this instance's device
+		// instead of the default GLRenderDevice - lets a backend other than
+		// GL (e.g. VulkanRenderDevice) be injected at construction time,
+		// per the roadmap's "construction-time not compile-time backend
+		// choice" design goal (VULKAN_ROADMAP.md). Also registered as the
+		// process-wide active device (see SetActiveRenderDevice() in
+		// IRenderDevice.h) so Shader/GeometryBuffer/RenderingComponent
+		// resource creation elsewhere in the engine - constructed with no
+		// IRenderer reference available - picks up the same backend.
+		IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* externalDevice = NULL);
 		virtual ~IRenderer();
 		void ClearBufferBit(const uint32 Option);
 
@@ -292,7 +301,7 @@ namespace p3d {
 
 		// UBOs for what used to be "loose" (non-block) uniforms in
 		// PyrosShader.glsl - uModelMatrix/uCameraPos/uOpacity/etc - moved
-		// into fixed-binding blocks (binding points 16-22, see the BIND_*
+		// into fixed-binding blocks (binding points 16-23, see the BIND_*
 		// macros in that file) so the shader also compiles for Vulkan/SPIR-V,
 		// which rejects non-opaque uniforms outside a block outright. Only
 		// used for materials where Material->SupportsUniformBlocks() is
@@ -308,6 +317,12 @@ namespace p3d {
 		static uint32 VelocityObjectUniformsUBO;
 		static uint32 AmbientLightUniformsUBO;
 		static uint32 MaterialUniformsUBO;
+		// Split out of MaterialUniformsUBO: uNumberOfLights/etc are
+		// per-object (each object gets its own nearby-lights count from
+		// the renderer's light-culling loop), not per-material, so they
+		// can't be gated on material-change the way the rest of
+		// MaterialUniforms now is - see SendModelUniforms()/SendUserUniforms().
+		static uint32 ObjectLightCountsUBO;
 
 		// Last-uploaded contents of each UBO above, compared byte-for-byte
 		// in SendGlobalUniforms() to skip the glBufferSubData call (and the

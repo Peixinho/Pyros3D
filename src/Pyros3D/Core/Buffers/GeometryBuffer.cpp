@@ -11,15 +11,15 @@
 
 namespace p3d {
 
-	// GLRenderDevice holds no state, so every GeometryBuffer sharing one
-	// lazily-constructed instance is cheap and avoids having to plumb an
-	// IRenderDevice* through every call site that constructs a
+	// Every GeometryBuffer shares whichever backend is currently active
+	// (see GetActiveRenderDevice() in IRenderDevice.h) - avoids plumbing
+	// an IRenderDevice* through every call site that constructs a
 	// GeometryBuffer (there's no IRenderer/IRenderDevice reference
 	// available at most of those - asset loading, mesh construction, etc.)
+	// while still respecting the actual backend in use (GL vs Vulkan).
 	static IRenderDevice& Device()
 	{
-		static GLRenderDevice instance;
-		return instance;
+		return GetActiveRenderDevice();
 	}
 
 	GeometryBuffer::GeometryBuffer() : ID(-1), DataLength(0) {}

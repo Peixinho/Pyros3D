@@ -10,7 +10,7 @@
 #include <Pyros3D/Other/PyrosGL.h>
 namespace p3d {
 
-	ForwardRenderer::ForwardRenderer(const uint32 Width, const uint32 Height) : IRenderer(Width, Height)
+	ForwardRenderer::ForwardRenderer(const uint32 Width, const uint32 Height, IRenderDevice* externalDevice) : IRenderer(Width, Height, externalDevice)
 	{
 		echo("SUCCESS: Forward Renderer Created");
 

@@ -1,28 +1,72 @@
 //============================================================================
-// Name        : GLRenderDevice.h
+// Name        : VulkanRenderDevice.h
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
-// Description : IRenderDevice implementation backed by OpenGL. Only file
-//               (besides the still-unwrapped resource classes - Texture,
-//               FrameBuffer, GeometryBuffer, Shader) that includes
-//               PyrosGL.h from here on.
+// Description : IRenderDevice implementation backed by Vulkan. Vulkan
+//               roadmap Phase 5 - see VULKAN_ROADMAP.md. Real so far:
+//               instance creation (Step B), device selection/logical
+//               device/swapchain creation (Step D, via
+//               InitializeSwapchain() - deliberately not part of the
+//               constructor, since a VkSurfaceKHR can only be created once
+//               a window exists, and this class must not depend on any
+//               particular windowing library - see the comment on
+//               InitializeSwapchain() below). Everything else
+//               (CreatePipeline, CreateBuffer, shader compilation, command
+//               recording) is still unimplemented pending further work.
+//               Only built when CMake finds the Vulkan SDK + vulkan-volk
+//               (see CMakeLists.txt's BUILD_VULKAN_BACKEND option); the
+//               whole header is compiled out otherwise so a build without
+//               the toolchain never sees a declaration it can't link
+//               against - same pattern as ShaderCompiler.h/SPIRV_TOOLING.
 //============================================================================
 
-#ifndef GLRENDERDEVICE_H
-#define GLRENDERDEVICE_H
+#ifndef VULKANRENDERDEVICE_H
+#define VULKANRENDERDEVICE_H
+
+#ifdef VULKAN_BACKEND
 
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
-#include <map>
+#include <volk.h>
+#include <vector>
 
 namespace p3d {
 
-	class PYROS3D_API GLRenderDevice : public IRenderDevice {
+	class PYROS3D_API VulkanRenderDevice : public IRenderDevice {
 
 	public:
 
-		GLRenderDevice() {}
-		virtual ~GLRenderDevice() {}
+		// requiredInstanceExtensions: whatever the windowing layer says it
+		// needs to later create a VkSurfaceKHR against this instance (e.g.
+		// SDL2VulkanContext::GetRequiredInstanceExtensions()) - this class
+		// takes them as plain strings rather than depending on any
+		// particular windowing library itself (engine code must not depend
+		// on examples/ code). Pass an empty vector for the no-window,
+		// compile/link-verification-only use case Step B's smoke test used.
+		VulkanRenderDevice(const std::vector<const char*> &requiredInstanceExtensions = std::vector<const char*>());
+		virtual ~VulkanRenderDevice();
+
+		VkInstance GetInstance() const { return instance; }
+
+		// Second-phase init, deliberately separate from the constructor:
+		// selects a physical device compatible with the given surface,
+		// creates the logical device + queues, and creates a swapchain
+		// sized width x height. The caller creates the VkSurfaceKHR itself
+		// (e.g. via SDL2VulkanContext::CreateSurface(GetInstance(), &surface))
+		// since surface creation is inherently windowing-library-specific -
+		// this class only ever touches the resulting VkSurfaceKHR handle,
+		// never the window. Returns false (and leaves this device without a
+		// swapchain) on failure.
+		bool InitializeSwapchain(VkSurfaceKHR surface, const uint32 width, const uint32 height);
+
+		// Minimal "hello window" frame loop - acquires the next swapchain
+		// image, clears it to clearColor, and presents. Not part of
+		// IRenderDevice (no GL equivalent, and IRenderer doesn't drive
+		// per-frame swapchain acquire/submit/present yet - see
+		// VULKAN_ROADMAP.md Phase 5's "next" section) - exists so
+		// InitializeSwapchain() has something concrete to verify against
+		// besides "the calls didn't return an error".
+		bool ClearAndPresent(const Vec4 &clearColor);
 
 		virtual CommandBufferHandle BeginCommandBuffer();
 		virtual void EndCommandBuffer(const CommandBufferHandle cmd);
@@ -172,17 +216,32 @@ namespace p3d {
 
 	private:
 
-		// Pipeline objects have no real GL resource to gen - GL applies the
-		// described state via individual gl* calls whenever BindPipeline is
-		// called, rather than compiling it into a persistent GPU object the
-		// way Vulkan's VkPipeline does. This table exists purely so
-		// CreatePipeline can hand back a stable DeviceHandle to store/cache,
-		// same shape as every other Create* method here.
-		std::map<DeviceHandle, PipelineDesc> pipelines;
-		DeviceHandle nextPipelineHandle = 1;
+		VkInstance instance;
+
+		// Set by InitializeSwapchain(); all VK_NULL_HANDLE/0 until then.
+		VkSurfaceKHR surface;
+		VkPhysicalDevice physicalDevice;
+		VkDevice device;
+		uint32 graphicsQueueFamily, presentQueueFamily;
+		VkQueue graphicsQueue, presentQueue;
+		VkSwapchainKHR swapchain;
+		VkFormat swapchainFormat;
+		VkExtent2D swapchainExtent;
+		std::vector<VkImage> swapchainImages;
+		std::vector<VkImageView> swapchainImageViews;
+
+		// Minimal single-frame-in-flight sync (no double/triple buffering
+		// of these yet - good enough for the "does presenting work at all"
+		// checkpoint this step is verifying, not production frame pacing).
+		VkCommandPool commandPool;
+		VkCommandBuffer frameCommandBuffer;
+		VkSemaphore imageAvailableSemaphore, renderFinishedSemaphore;
+		VkFence frameFence;
 
 	};
 
 };
 
-#endif /* GLRENDERDEVICE_H */
+#endif /* VULKAN_BACKEND */
+
+#endif /* VULKANRENDERDEVICE_H */

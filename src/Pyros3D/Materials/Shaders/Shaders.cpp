@@ -12,15 +12,17 @@
 
 namespace p3d {
 
-	// GLRenderDevice holds no state, so every Shader sharing one
-	// lazily-constructed instance is cheap and avoids having to plumb an
-	// IRenderDevice* through every call site that constructs a Shader or
-	// calls its static GetUniformLocation/GetAttributeLocation/SendUniform
-	// methods - same pattern as GeometryBuffer.cpp.
+	// Every Shader shares whichever backend is currently active (see
+	// GetActiveRenderDevice() in IRenderDevice.h) rather than each Shader
+	// needing an injected IRenderDevice* - avoids plumbing one through
+	// every call site that constructs a Shader or calls its static
+	// GetUniformLocation/GetAttributeLocation/SendUniform methods, while
+	// still respecting the actual backend in use (GL vs Vulkan), unlike
+	// the file-local `static GLRenderDevice instance` this used to
+	// hardcode - same pattern as GeometryBuffer.cpp.
 	static IRenderDevice& Device()
 	{
-		static GLRenderDevice instance;
-		return instance;
+		return GetActiveRenderDevice();
 	}
 
 	Shader::Shader()

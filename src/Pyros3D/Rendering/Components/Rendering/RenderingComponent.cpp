@@ -11,13 +11,14 @@
 
 namespace p3d {
 
-	// GLRenderDevice holds no state, so every RenderingMesh sharing one
-	// lazily-constructed instance is cheap - same pattern as
-	// GeometryBuffer.cpp/Shaders.cpp/Texture.cpp/FrameBuffer.cpp.
+	// Every RenderingMesh shares whichever backend is currently active
+	// (see GetActiveRenderDevice() in IRenderDevice.h) - same pattern as
+	// GeometryBuffer.cpp/Shaders.cpp. Texture.cpp/FrameBuffer.cpp still
+	// hardcode GLRenderDevice directly (not part of RotatingCube's
+	// Vulkan-validation path - see VULKAN_ROADMAP.md Phase 5 Step D).
 	static IRenderDevice& Device()
 	{
-		static GLRenderDevice instance;
-		return instance;
+		return GetActiveRenderDevice();
 	}
 
 	// Initialize Rendering Components vector

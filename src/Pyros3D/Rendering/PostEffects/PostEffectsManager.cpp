@@ -86,7 +86,8 @@ namespace p3d {
 			device->Clear(device->TranslateBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth));
 
 			DeviceHandle vao = device->CreateVertexArray();
-			device->BindVertexArray(vao);
+			CommandBufferHandle cmd = device->BeginCommandBuffer();
+			device->BindVertexArray(cmd, vao);
 
 			// Start Shader Program
 			device->UseProgram((*effect)->shader->ShaderProgram());
@@ -151,8 +152,9 @@ namespace p3d {
 			}
 
 			device->DrawArrays(device->TranslateDrawType(DrawingType::Triangles), 0, 3);
+			device->EndCommandBuffer(cmd);
 
-			// Unbind MRT      
+			// Unbind MRT
 			for (std::vector<RTT::Info>::reverse_iterator i = (*effect)->RTTOrder.rbegin(); i != (*effect)->RTTOrder.rend(); i++)
 			{
 				switch ((*i).Type)

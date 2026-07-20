@@ -67,7 +67,7 @@ int main(int argc, char** argv) {
 	{
 		mainloop();
 	}
-#endif   
+#endif
 
 #if !defined(EMSCRIPTEN)
 	// Shutdown Window

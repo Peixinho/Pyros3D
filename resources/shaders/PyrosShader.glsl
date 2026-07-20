@@ -128,6 +128,7 @@
 #define BIND_VelocityObjectUniforms 20
 #define BIND_AmbientLightUniforms 21
 #define BIND_MaterialUniforms 22
+#define BIND_ObjectLightCounts 23
 
 vec4 EncodeFloatRGBA( float v ) {
    vec4 enc = vec4(1.0, 255.0, 65025.0, 16581375.0) * v;
@@ -495,9 +496,16 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     vec4 diffuse = vec4(0.0,0.0,0.0,1.0);
     vec4 specular = vec4(0.0,0.0,0.0,1.0);
     bool diffuseIsSet = false;
-    // Every material-scalar/vector uniform PyrosShader.glsl ever needs,
-    // in one always-declared block (regardless of which feature flags are
-    // active - see the comment on the BIND_* macros above for why).
+    // Every material-scalar/vector uniform PyrosShader.glsl ever needs, in
+    // one always-declared block (regardless of which feature flags are
+    // active - see the comment on the BIND_* macros above for why). Split
+    // from ObjectLightCounts below: these fields are genuinely tied to the
+    // Material object (same value for every object drawn with the same
+    // material), so IRenderer only re-uploads this block when the active
+    // material actually changes - unlike uNumberOfLights/etc, which differ
+    // per *object* (each object gets its own nearby-lights count) even
+    // when consecutive objects share one material, and so cannot be gated
+    // the same way without risking stale/wrong per-object light counts.
     UBO_BINDING(BIND_MaterialUniforms) uniform MaterialUniforms {
         vec4 uColor;
         vec4 uSpecular;
@@ -506,6 +514,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         float uUseLights;
         float uDisplacementHeight;
         float uReflectivity;
+    };
+    // Per-object (not per-material) - see the comment above.
+    UBO_BINDING(BIND_ObjectLightCounts) uniform ObjectLightCounts {
         int uNumberOfLights;
         int uNumberOfPointShadows;
         int uNumberOfSpotShadows;

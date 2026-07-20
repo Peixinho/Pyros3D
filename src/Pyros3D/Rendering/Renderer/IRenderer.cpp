@@ -60,6 +60,7 @@ uint32 IRenderer::BoneMatricesUBO = 0;
 uint32 IRenderer::VelocityObjectUniformsUBO = 0;
 uint32 IRenderer::AmbientLightUniformsUBO = 0;
 uint32 IRenderer::MaterialUniformsUBO = 0;
+uint32 IRenderer::ObjectLightCountsUBO = 0;
 bool IRenderer::VertexFrameUniformsUBOValid = false;
 Vec3 IRenderer::CachedCameraPosition;
 bool IRenderer::AmbientLightUniformsUBOValid = false;
@@ -141,8 +142,14 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 // decrement it on destruction either (see ~IRenderer()).
 IRenderer::IRenderer() : UsesSharedUBOs(false), device(new GLRenderDevice()) {}
 
-IRenderer::IRenderer(const uint32 Width, const uint32 Height) : device(new GLRenderDevice())
+IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* externalDevice) : device(externalDevice != NULL ? externalDevice : new GLRenderDevice())
 {
+	// Every Shader/GeometryBuffer/RenderingComponent constructed anywhere
+	// in the engine (no IRenderer reference available at most of those
+	// call sites) shares whichever backend THIS instance ends up using -
+	// see GetActiveRenderDevice()/SetActiveRenderDevice() in IRenderDevice.h.
+	SetActiveRenderDevice(device.get());
+
 	// Background Unset by Default
 	BackgroundColorSet = false;
 
@@ -226,10 +233,13 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height) : device(new GLRen
 		BoneMatricesUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_BONES, 19);
 		VelocityObjectUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix), 20);
 		AmbientLightUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4), 21);
-		// vec4 uColor + vec4 uSpecular + 5 floats + 3 ints = 64 bytes exactly
-		// (std140, no padding needed) - see MaterialUniformsData in
+		// vec4 uColor + vec4 uSpecular + 5 floats = 52 bytes, padded to 64
+		// (std140 vec4-alignment) - see MaterialUniformsData in
 		// SendUserUniforms().
 		MaterialUniformsUBO = device->CreateUniformBuffer(64, 22);
+		// 3 ints padded to 16 bytes (std140) - see ObjectLightCountsData in
+		// SendModelUniforms().
+		ObjectLightCountsUBO = device->CreateUniformBuffer(16, 23);
 	}
 	SharedUBORefCount++;
 }
@@ -301,6 +311,7 @@ IRenderer::~IRenderer()
 			device->DestroyUniformBuffer(VelocityObjectUniformsUBO);
 			device->DestroyUniformBuffer(AmbientLightUniformsUBO);
 			device->DestroyUniformBuffer(MaterialUniformsUBO);
+			device->DestroyUniformBuffer(ObjectLightCountsUBO);
 			// The next IRenderer instance (if any) will create brand new
 			// (empty) buffers - the dirty-tracking cache must not survive
 			// to wrongly skip that instance's first upload.
@@ -688,7 +699,9 @@ void IRenderer::EndRender()
 	{
 		// The next mesh's BindMesh()/glBindVertexArray() fully replaces this
 		// VAO's attribute/index-buffer state, so there's nothing to unbind.
-		device->BindVertexArray(0);
+		CommandBufferHandle endRenderCmd = device->BeginCommandBuffer();
+		device->BindVertexArray(endRenderCmd, 0);
+		device->EndCommandBuffer(endRenderCmd);
 		// Unbind Shadow Maps
 		UnbindShadowMaps(LastMaterialPTR);
 		// Material After Render
@@ -714,6 +727,13 @@ void IRenderer::EndRender()
 
 void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material)
 {
+	// See the comment on CommandBufferHandle in IRenderDevice.h - GL ignores
+	// this value entirely (ignored/no-op on this backend), so per-object
+	// granularity here costs nothing; a real per-frame command buffer is a
+	// Phase 5 Step D concern once a real VulkanRenderDevice needs Begin/End
+	// to mean something.
+	CommandBufferHandle cmd = device->BeginCommandBuffer();
+
 	// model cache
 	PrvModelMatrix = owner->GetPrvWorldTransformation() * rmesh->Pivot;
 	ModelMatrix = owner->GetWorldTransformation() * rmesh->Pivot;
@@ -754,7 +774,7 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 
 		// The VAO built by BindMesh() already has every attribute pointer
 		// and the index buffer baked in.
-		device->BindVertexArray(rmesh->VAOCache[Material->GetShader()]);
+		device->BindVertexArray(cmd, rmesh->VAOCache[Material->GetShader()]);
 
 		if (Material->depthBias)
 			EnableDepthBias(Vec2(Material->depthFactor, Material->depthUnits));
@@ -842,16 +862,18 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 	#if !defined(GLES3)
 		if (rmesh->renderingComponent->IsInstanced())
 		{
-			device->DrawElementsInstanced(DrawType, rmesh->Geometry->GetIndexData().size(), ((IRenderingInstancedComponent*)rmesh->renderingComponent)->NumberOfInstances());
+			device->DrawElementsInstanced(cmd, DrawType, rmesh->Geometry->GetIndexData().size(), ((IRenderingInstancedComponent*)rmesh->renderingComponent)->NumberOfInstances());
 		}
 		else {
-			device->DrawElements(DrawType, rmesh->Geometry->GetIndexData().size());
+			device->DrawElements(cmd, DrawType, rmesh->Geometry->GetIndexData().size());
 		}
 	#else
 
-		device->DrawElements(DrawType, rmesh->Geometry->GetIndexData().size());
+		device->DrawElements(cmd, DrawType, rmesh->Geometry->GetIndexData().size());
 
 	#endif
+
+	device->EndCommandBuffer(cmd);
 
 	// Save Last Material and Mesh
 	LastProgramUsed = Material->GetShader();
@@ -1185,7 +1207,7 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		memcmp(&CachedViewMatrix, &ViewMatrix, sizeof(Matrix)) != 0)
 	{
 		Matrix globalMatricesData[2] = { ProjectionMatrix, ViewMatrix };
-		device->UpdateUniformBuffer(GlobalMatricesUBO, 0, sizeof(Matrix) * 2, globalMatricesData);
+		device->ReplaceUniformBuffer(GlobalMatricesUBO, sizeof(Matrix) * 2, globalMatricesData);
 		CachedProjectionMatrix = ProjectionMatrix;
 		CachedViewMatrix = ViewMatrix;
 		GlobalMatricesUBOValid = true;
@@ -1202,7 +1224,13 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		if (!LightsUBOValid || CachedLights.size() != lightsToUpload ||
 			memcmp(&CachedLights[0], &Lights[0], sizeof(Matrix) * lightsToUpload) != 0)
 		{
-			device->UpdateUniformBuffer(LightsUBO, 0, sizeof(Matrix) * lightsToUpload, &Lights[0]);
+			// ReplaceUniformBuffer, not UpdateUniformBuffer: this fires
+			// effectively every object in a lit scene (see the comment
+			// above), so glBufferSubData's pipeline-stall risk applies
+			// here too - the trailing unused slots (lightsToUpload <
+			// PYROS_MAX_LIGHTS) are never read since the shader loop is
+			// gated by uNumberOfLights, so orphaning them is harmless.
+			device->ReplaceUniformBuffer(LightsUBO, sizeof(Matrix) * lightsToUpload, &Lights[0]);
 			CachedLights.assign(Lights.begin(), Lights.begin() + lightsToUpload);
 			LightsUBOValid = true;
 		}
@@ -1237,7 +1265,7 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		if (!PointShadowUBOValid || CachedPointShadowMatrix.size() != count ||
 			memcmp(&CachedPointShadowMatrix[0], &PointShadowMatrix[0], sizeof(Matrix) * count) != 0)
 		{
-			device->UpdateUniformBuffer(PointShadowUBO, 0, sizeof(Matrix) * count, &PointShadowMatrix[0]);
+			device->ReplaceUniformBuffer(PointShadowUBO, sizeof(Matrix) * count, &PointShadowMatrix[0]);
 			CachedPointShadowMatrix.assign(PointShadowMatrix.begin(), PointShadowMatrix.begin() + count);
 			PointShadowUBOValid = true;
 		}
@@ -1248,7 +1276,7 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		if (!SpotShadowUBOValid || CachedSpotShadowMatrix.size() != count ||
 			memcmp(&CachedSpotShadowMatrix[0], &SpotShadowMatrix[0], sizeof(Matrix) * count) != 0)
 		{
-			device->UpdateUniformBuffer(SpotShadowUBO, 0, sizeof(Matrix) * count, &SpotShadowMatrix[0]);
+			device->ReplaceUniformBuffer(SpotShadowUBO, sizeof(Matrix) * count, &SpotShadowMatrix[0]);
 			CachedSpotShadowMatrix.assign(SpotShadowMatrix.begin(), SpotShadowMatrix.begin() + count);
 			SpotShadowUBOValid = true;
 		}
@@ -1266,13 +1294,13 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		if (!VertexFrameUniformsUBOValid || memcmp(&CachedCameraPosition, &CameraPosition, sizeof(Vec3)) != 0)
 		{
 			Vec4 cameraPosPadded(CameraPosition, 0.0f);
-			device->UpdateUniformBuffer(VertexFrameUniformsUBO, 0, sizeof(Vec4), &cameraPosPadded);
+			device->ReplaceUniformBuffer(VertexFrameUniformsUBO, sizeof(Vec4), &cameraPosPadded);
 			CachedCameraPosition = CameraPosition;
 			VertexFrameUniformsUBOValid = true;
 		}
 		if (!AmbientLightUniformsUBOValid || memcmp(&CachedGlobalLight, &GlobalLight, sizeof(Vec4)) != 0)
 		{
-			device->UpdateUniformBuffer(AmbientLightUniformsUBO, 0, sizeof(Vec4), &GlobalLight);
+			device->ReplaceUniformBuffer(AmbientLightUniformsUBO, sizeof(Vec4), &GlobalLight);
 			CachedGlobalLight = GlobalLight;
 			AmbientLightUniformsUBOValid = true;
 		}
@@ -1281,7 +1309,7 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			memcmp(&CachedPrvViewMatrix, &PrvViewMatrix, sizeof(Matrix)) != 0)
 		{
 			Matrix velocityFrameData[2] = { PrvProjectionMatrix, PrvViewMatrix };
-			device->UpdateUniformBuffer(VelocityFrameUniformsUBO, 0, sizeof(Matrix) * 2, velocityFrameData);
+			device->ReplaceUniformBuffer(VelocityFrameUniformsUBO, sizeof(Matrix) * 2, velocityFrameData);
 			CachedPrvProjectionMatrix = PrvProjectionMatrix;
 			CachedPrvViewMatrix = PrvViewMatrix;
 			VelocityFrameUniformsUBOValid = true;
@@ -1437,7 +1465,8 @@ static const uchar* FindUserUniformValue(const std::list<Uniform> &uniforms, con
 }
 
 // std140 layout matching MaterialUniforms in PyrosShader.glsl exactly (64
-// bytes, no padding needed - 2 vec4 + 5 float + 3 int = 32 + 20 + 12 = 64).
+// bytes: 2 vec4 + 5 float = 32 + 20 = 52, padded to 64 by std140's
+// vec4-multiple block size rule).
 struct MaterialUniformsData
 {
 	Vec4 Color;
@@ -1447,11 +1476,20 @@ struct MaterialUniformsData
 	f32 UseLights;
 	f32 DisplacementHeight;
 	f32 Reflectivity;
+	f32 _pad[3];
+};
+static_assert(sizeof(MaterialUniformsData) == 64, "MaterialUniformsData must byte-match PyrosShader.glsl's MaterialUniforms std140 layout exactly");
+
+// std140 layout matching ObjectLightCounts in PyrosShader.glsl exactly (16
+// bytes: 3 int = 12, padded to 16 by std140's vec4-multiple block size rule).
+struct ObjectLightCountsData
+{
 	int32 NumberOfLights;
 	int32 NumberOfPointShadows;
 	int32 NumberOfSpotShadows;
+	int32 _pad;
 };
-static_assert(sizeof(MaterialUniformsData) == 64, "MaterialUniformsData must byte-match PyrosShader.glsl's MaterialUniforms std140 layout exactly");
+static_assert(sizeof(ObjectLightCountsData) == 16, "ObjectLightCountsData must byte-match PyrosShader.glsl's ObjectLightCounts std140 layout exactly");
 
 void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 {
@@ -1460,11 +1498,16 @@ void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 	// SendGlobalUniforms(). Values come from the same source the individual
 	// send below would otherwise read (Uniform::Value, set by SetColor()/
 	// SetSpecular()/SetShininess()/etc - see GenericShaderMaterial.cpp) via
-	// name lookup, plus IRenderer's own per-object light/shadow counts
-	// (already fresh every RenderObject() call, same as the old
-	// individual-send path used). Uploaded unconditionally every call, same
-	// reasoning as SendModelUniforms().
-	if (Material->SupportsUniformBlocks())
+	// name lookup. These fields only change when the material itself
+	// changes (SetColor()/etc mutate Material->UserUniforms, not anything
+	// per-object), so - unlike ObjectLightCountsUBO in SendModelUniforms(),
+	// which genuinely is per-object - this is gated the same way
+	// SendGlobalUniforms() is: only re-uploaded on mesh/material switch,
+	// not on every RenderObject() call. Safe because SendUserUniforms()
+	// runs before RenderObject() updates LastMeshRenderedPTR/LastMaterialPTR
+	// (see the end of RenderObject()), so they still hold the *previous*
+	// object's pointers here.
+	if (Material->SupportsUniformBlocks() && (LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material))
 	{
 		MaterialUniformsData data = MaterialUniformsData();
 		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uColor")) memcpy(&data.Color, v, sizeof(Vec4));
@@ -1474,10 +1517,12 @@ void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uUseLights")) memcpy(&data.UseLights, v, sizeof(f32));
 		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uDisplacementHeight")) memcpy(&data.DisplacementHeight, v, sizeof(f32));
 		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uReflectivity")) memcpy(&data.Reflectivity, v, sizeof(f32));
-		data.NumberOfLights = (int32)NumberOfLights;
-		data.NumberOfPointShadows = (int32)NumberOfPointShadows;
-		data.NumberOfSpotShadows = (int32)NumberOfSpotShadows;
-		device->UpdateUniformBuffer(MaterialUniformsUBO, 0, sizeof(MaterialUniformsData), &data);
+		// ReplaceUniformBuffer (not UpdateUniformBuffer) - see
+		// IRenderDevice.h's comment on ReplaceUniformBuffer(); still the
+		// right call here even though this now only fires on
+		// mesh/material switch, since a stale in-flight read is possible
+		// any time this buffer is shared across IRenderer instances.
+		device->ReplaceUniformBuffer(MaterialUniformsUBO, sizeof(MaterialUniformsData), &data);
 	}
 
 	std::vector<int32>* _ShadersUserCache = &rmesh->ShadersUserCache[Material->GetShader()];
@@ -1506,13 +1551,34 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 	// loop below already resends its own uniforms unconditionally too.
 	if (Material->SupportsUniformBlocks())
 	{
-		device->UpdateUniformBuffer(ObjectMatrixUniformsUBO, 0, sizeof(Matrix), &ModelMatrix);
+		// ReplaceUniformBuffer, not UpdateUniformBuffer - see the comment
+		// on SendUserUniforms()'s MaterialUniformsUBO call, same reasoning
+		// (these fire every RenderObject() call too). BoneMatrices' write
+		// is only ever a prefix starting at offset 0 (bonesToUpload may be
+		// less than PYROS_MAX_BONES), and the shader never reads past the
+		// bone indices a mesh's vertices actually reference, so orphaning
+		// the unwritten tail is harmless - same reasoning already applies
+		// to LightsBlock's existing partial writes.
+		device->ReplaceUniformBuffer(ObjectMatrixUniformsUBO, sizeof(Matrix), &ModelMatrix);
 		if (rmesh->SkinningBones.size() > 0)
 		{
 			uint32 bonesToUpload = rmesh->SkinningBones.size() < PYROS_MAX_BONES ? rmesh->SkinningBones.size() : PYROS_MAX_BONES;
-			device->UpdateUniformBuffer(BoneMatricesUBO, 0, sizeof(Matrix) * bonesToUpload, &rmesh->SkinningBones[0]);
+			device->ReplaceUniformBuffer(BoneMatricesUBO, sizeof(Matrix) * bonesToUpload, &rmesh->SkinningBones[0]);
 		}
-		device->UpdateUniformBuffer(VelocityObjectUniformsUBO, 0, sizeof(Matrix), &PrvModelMatrix);
+		device->ReplaceUniformBuffer(VelocityObjectUniformsUBO, sizeof(Matrix), &PrvModelMatrix);
+
+		// uNumberOfLights/uNumberOfPointShadows/uNumberOfSpotShadows -
+		// split out of MaterialUniformsUBO (see the struct/comment in
+		// SendUserUniforms()) because these are genuinely per-object: each
+		// object gets its own nearby-lights count from the renderer's
+		// light-culling loop (see RenderObject()), so - unlike the rest of
+		// MaterialUniforms - they can't be gated on mesh/material change
+		// without going stale.
+		ObjectLightCountsData lightCounts;
+		lightCounts.NumberOfLights = (int32)NumberOfLights;
+		lightCounts.NumberOfPointShadows = (int32)NumberOfPointShadows;
+		lightCounts.NumberOfSpotShadows = (int32)NumberOfSpotShadows;
+		device->ReplaceUniformBuffer(ObjectLightCountsUBO, sizeof(ObjectLightCountsData), &lightCounts);
 	}
 
 	uint32 counter = 0;
@@ -1644,7 +1710,8 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 	if (rmesh->VAOCache.find(material->GetShader()) == rmesh->VAOCache.end())
 	{
 		DeviceHandle vao = device->CreateVertexArray();
-		device->BindVertexArray(vao);
+		CommandBufferHandle bindMeshCmd = device->BeginCommandBuffer();
+		device->BindVertexArray(bindMeshCmd, vao);
 
 		if (rmesh->Geometry->Attributes.size() > 0)
 		{
@@ -1705,7 +1772,8 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		// need rebinding on every mesh switch either.
 		device->BindElementBuffer(rmesh->Geometry->IndexBuffer->ID);
 
-		device->BindVertexArray(0);
+		device->BindVertexArray(bindMeshCmd, 0);
+		device->EndCommandBuffer(bindMeshCmd);
 
 		rmesh->VAOCache[material->GetShader()] = vao;
 
@@ -1728,6 +1796,7 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		device->BindUniformBlockIfPresent(material->GetShader(), "VelocityObjectUniforms", 20);
 		device->BindUniformBlockIfPresent(material->GetShader(), "AmbientLightUniforms", 21);
 		device->BindUniformBlockIfPresent(material->GetShader(), "MaterialUniforms", 22);
+		device->BindUniformBlockIfPresent(material->GetShader(), "ObjectLightCounts", 23);
 	}
 }
 

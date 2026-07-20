@@ -292,6 +292,12 @@ set(SOURCE_ParallaxMapping
 set(SOURCE_ParticlesExample
 	${CMAKE_CURRENT_SOURCE_DIR}/ParticlesExample/ParticlesExample.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_draw.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_widgets.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_tables.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_sdl2.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_opengl3.cpp
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )

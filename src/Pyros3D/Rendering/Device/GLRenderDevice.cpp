@@ -19,6 +19,18 @@
 
 namespace p3d {
 
+	// GL executes every call immediately against whatever's currently
+	// bound - it has no real command buffer - so these are no-ops; the
+	// returned handle is never meaningfully compared against anything.
+	CommandBufferHandle GLRenderDevice::BeginCommandBuffer()
+	{
+		return 0;
+	}
+
+	void GLRenderDevice::EndCommandBuffer(const CommandBufferHandle cmd)
+	{
+	}
+
 	uint32 GLRenderDevice::TranslateBufferBit(const uint32 bufferBits)
 	{
 		uint32 nativeBits = 0;
@@ -321,6 +333,38 @@ namespace p3d {
 		GLCHECKER(glDisable(GL_CULL_FACE));
 	}
 
+	DeviceHandle GLRenderDevice::CreatePipeline(const PipelineDesc &desc)
+	{
+		DeviceHandle handle = nextPipelineHandle++;
+		pipelines[handle] = desc;
+		return handle;
+	}
+
+	void GLRenderDevice::DestroyPipeline(const DeviceHandle pipeline)
+	{
+		pipelines.erase(pipeline);
+	}
+
+	void GLRenderDevice::BindPipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline)
+	{
+		std::map<DeviceHandle, PipelineDesc>::const_iterator it = pipelines.find(pipeline);
+		if (it == pipelines.end())
+			return;
+		const PipelineDesc &desc = it->second;
+
+		UseProgram(desc.shaderProgram);
+		SetDepthTest(desc.depthTest, desc.depthTestMode);
+		SetDepthMask(desc.depthWrite);
+		SetBlendingEnabled(desc.blendingEnabled);
+		if (desc.blendingEnabled)
+		{
+			SetBlendFunction(desc.blendSrcFactor, desc.blendDstFactor);
+			SetBlendEquation(desc.blendEquation);
+		}
+		SetCullFaceMode(desc.cullFace);
+		SetWireFrame(desc.wireframe);
+	}
+
 	void GLRenderDevice::EnableClipDistance(const uint32 index)
 	{
 #if !defined(GLES3)
@@ -358,7 +402,7 @@ namespace p3d {
 		GLCHECKER(glDeleteVertexArrays(1, &id));
 	}
 
-	void GLRenderDevice::BindVertexArray(const DeviceHandle vao)
+	void GLRenderDevice::BindVertexArray(const CommandBufferHandle cmd, const DeviceHandle vao)
 	{
 		GLCHECKER(glBindVertexArray(vao));
 	}
@@ -433,12 +477,12 @@ namespace p3d {
 		GLCHECKER(glDrawArrays(nativeDrawType, first, count));
 	}
 
-	void GLRenderDevice::DrawElements(const uint32 nativeDrawType, const uint32 indexCount)
+	void GLRenderDevice::DrawElements(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount)
 	{
 		GLCHECKER(glDrawElements(nativeDrawType, indexCount, __INDEX_TYPE__, BUFFER_OFFSET(0)));
 	}
 
-	void GLRenderDevice::DrawElementsInstanced(const uint32 nativeDrawType, const uint32 indexCount, const uint32 instanceCount)
+	void GLRenderDevice::DrawElementsInstanced(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount, const uint32 instanceCount)
 	{
 		GLCHECKER(glDrawElementsInstanced(nativeDrawType, indexCount, __INDEX_TYPE__, BUFFER_OFFSET(0), instanceCount));
 	}
@@ -458,6 +502,16 @@ namespace p3d {
 	{
 		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, buffer));
 		GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, offset, sizeBytes, data));
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+	}
+
+	void GLRenderDevice::ReplaceUniformBuffer(const DeviceHandle buffer, const uint32 sizeBytes, const void *data)
+	{
+		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, buffer));
+		// glBufferData on an already-allocated buffer orphans its old
+		// storage instead of overwriting it in place - see the comment on
+		// ReplaceUniformBuffer() in IRenderDevice.h for why this matters.
+		GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeBytes, data, GL_DYNAMIC_DRAW));
 		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
 	}
 

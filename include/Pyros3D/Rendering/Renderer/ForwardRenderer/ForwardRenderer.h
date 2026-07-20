@@ -18,7 +18,8 @@ namespace p3d {
 
 	public:
 
-		ForwardRenderer(const uint32 Width, const uint32 Height);
+		// externalDevice: see IRenderer's matching constructor parameter.
+		ForwardRenderer(const uint32 Width, const uint32 Height, IRenderDevice* externalDevice = NULL);
 
 		~ForwardRenderer();
 		

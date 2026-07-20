@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.11)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -150,6 +150,51 @@ if (BUILD_SPIRV_TOOLING)
 endif()
 
 
+# Vulkan backend (Vulkan roadmap Phase 5 - VulkanRenderDevice; optional,
+# off by default since it's still a stub with nothing consuming it yet -
+# see VULKAN_ROADMAP.md). Needs three things: the Vulkan SDK pieces
+# already installed via Homebrew in an earlier session
+# (vulkan-headers/vulkan-loader - found via CMake's built-in
+# FindVulkan.cmake, available since CMake 3.7), the real lightweight
+# Vulkan loader (Homebrew's "vulkan-volk" formula - note the package
+# literally named "volk" is an unrelated DSP/signal-processing library,
+# not this), and VMA (Vulkan Memory Allocator). VMA has no Homebrew
+# formula - it's a single-header library with no build step, so it's
+# pulled via FetchContent instead of the brew --prefix pattern used above
+# for shaderc/spirv-cross/volk.
+option(BUILD_VULKAN_BACKEND "Build the Vulkan render device (needs the Vulkan SDK + vulkan-volk)" OFF)
+if (BUILD_VULKAN_BACKEND)
+	find_package(Vulkan)
+
+	if (APPLE)
+		execute_process(COMMAND brew --prefix vulkan-volk
+			OUTPUT_VARIABLE HOMEBREW_VOLK_PREFIX
+			OUTPUT_STRIP_TRAILING_WHITESPACE
+			ERROR_QUIET)
+	endif()
+	find_package(volk CONFIG QUIET PATHS ${HOMEBREW_VOLK_PREFIX})
+
+	if (Vulkan_FOUND AND TARGET volk::volk)
+		include(FetchContent)
+		FetchContent_Declare(
+			VulkanMemoryAllocator
+			GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+			GIT_TAG v3.3.0
+		)
+		FetchContent_MakeAvailable(VulkanMemoryAllocator)
+
+		set(VULKAN_BACKEND_FOUND ON)
+		add_definitions(-DVULKAN_BACKEND)
+		set(VULKAN_BACKEND_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Device/VulkanRenderDevice.cpp)
+		set(VULKAN_BACKEND_LIBS Vulkan::Vulkan volk::volk GPUOpen::VulkanMemoryAllocator)
+		message(STATUS "Vulkan backend found: Vulkan=${Vulkan_LIBRARY}, volk=${HOMEBREW_VOLK_PREFIX}, VMA fetched via FetchContent")
+	else()
+		set(VULKAN_BACKEND_FOUND OFF)
+		message(WARNING "Vulkan SDK or vulkan-volk not found - the Vulkan render device will not be built. Install via 'brew install vulkan-headers vulkan-loader vulkan-volk'.")
+	endif()
+endif()
+
+
 # Lib Type
 option(STATIC_LIB "Build Static Lib (only unix)" OFF)
 if (STATIC_LIB)
@@ -199,6 +244,7 @@ set(SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/IRenderer.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Device/GLRenderDevice.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Device/IRenderDevice.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/GameObjects/GameObject.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Core/Octree/Octree.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Core/Logs/Log.cpp
@@ -258,6 +304,7 @@ set(SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Assets/Texture/Texture.cpp
 	${GL_INCLUDE}
 	${SPIRV_TOOLING_SOURCE}
+	${VULKAN_BACKEND_SOURCE}
 )
 
 
@@ -271,7 +318,7 @@ include_directories(${HEADERS} ${GLAD_INCLUDE_DIR} ${LUA_INCLUDE_DIR} ${OPENGL_I
 
 # Engine Library
 add_library(PyrosEngine ${LIB_TYPE} ${SOURCE} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS})
-target_link_libraries(PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${LUA_LIBRARIES} ${CONTEXT_LIB} ${SPIRV_TOOLING_LIBS} pthread dl)
+target_link_libraries(PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${LUA_LIBRARIES} ${CONTEXT_LIB} ${SPIRV_TOOLING_LIBS} ${VULKAN_BACKEND_LIBS} pthread dl)
 
 # Model Converter
 option(BUILD_CONVERTER "Build Model Converter" OFF)
