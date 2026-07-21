@@ -12,17 +12,12 @@
 #define _STR(path) #path
 #define STR(path) _STR(path)
 
-#if defined(_SDL)
-#include "../WindowManagers/SDL/SDLContext.h"
-#define ClassName SDLContext
-#elif defined(_SDL2)
-#include "../WindowManagers/SDL2/SDL2Context.h"
-#define ClassName SDL2Context
-#else
-#include "../WindowManagers/SFML/SFMLContext.h"
-#define ClassName SFMLContext
-#endif
-
+// Context selection (ClassName + the right window-manager header) is
+// handled once, correctly, by BaseExample.h - this file used to carry its
+// own duplicate copy of that logic that never learned about
+// _SDL2VULKAN and silently fell through to SFML for any context it didn't
+// recognize (i.e. every Vulkan build), forcing a hard SFML dependency this
+// example never otherwise needed.
 #include "../BaseExample/BaseExample.h"
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>

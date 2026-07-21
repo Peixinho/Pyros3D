@@ -624,7 +624,16 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 vec4 abs_position = abs(position_ls);
                 float fs_z = -max(abs_position.x, max(abs_position.y, abs_position.z));
                 vec4 clip = Matrix1 * vec4(0.0, 0.0, fs_z, 1.0);
-                float depth = (clip.z / clip.w) * 0.5 + 0.5;
+                // Matrix1 (uPointDepthsMVP, IRenderer.cpp) already includes
+                // the device's own shadow-bias remap (device->
+                // TranslateShadowBiasMatrix() * TranslateProjectionMatrix())
+                // - GL's is Matrix::BIAS's Z row, the exact 0.5/0.5 remap
+                // this used to hardcode here; Vulkan's is a Z-passthrough,
+                // since TranslateProjectionMatrix() already remapped Z to
+                // [0,1]. Re-applying *0.5+0.5 on top double-transformed
+                // Vulkan's Z - the same bug class already fixed for
+                // directional/spot shadows, just missed here.
+                float depth = clip.z / clip.w;
                 float shadow = 0.0;
                 float x = 0.0;
                 float y = 0.0;

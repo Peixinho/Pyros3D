@@ -22,7 +22,12 @@ void RotatingCubeWithLightingAndShadow::OnResize(const uint32 width, const uint3
 
 	// Resize
 	Renderer->Resize(width, height);
-	projection.Perspective(70.f, (f32)width / (f32)height, 1.f, 200.f);
+	// Must match Init()'s far plane (2000) - this used to say 200, a
+	// stale mismatch (looks like a copy-paste leftover from an example
+	// with a much smaller scene) that silently shrunk the far clip by
+	// 10x the moment the window was ever resized, long after Init() had
+	// already set up the "real" 2000 value.
+	projection.Perspective(70.f, (f32)width / (f32)height, 1.f, 2000.f);
 
 }
 

@@ -274,11 +274,27 @@ namespace p3d {
 			// (VulkanRenderDevice::CreatePipeline() logs and returns 0)
 			// rather than silently binding no vertex input at all.
 			std::vector<VertexBufferLayoutDesc> vertexLayout;
+			// True when this pipeline is for IRenderer's shared
+			// shadowMaterial/shadowSkinnedMaterial (see BindMesh()'s
+			// caller) - i.e. it will only ever be used within an
+			// offscreen depth-only shadow-map render pass, never the
+			// main swapchain one. GL ignores this entirely (state is
+			// applied per-draw regardless of any render pass concept).
+			// Vulkan bakes a specific VkRenderPass's attachment shape
+			// into a pipeline at creation time - using the swapchain's
+			// color+depth render pass (this backend's default) for a
+			// shadow-casting draw is a real render-pass-compatibility
+			// mismatch (VUID-vkCmdDrawIndexed-renderPass-02684 caught
+			// this the hard way, the first time a real shadow pass tried
+			// to draw with it - see VulkanRenderDevice::shadowPipelineRenderPass's
+			// comment for the fix), so this flag tells CreatePipeline()
+			// to target a depth-only render pass instead.
+			bool isShadowPass;
 
 			PipelineDesc()
 				: shaderProgram(0), depthTest(true), depthTestMode(DepthTest::Less), depthWrite(true),
 				  blendingEnabled(false), blendSrcFactor(BlendFunc::One), blendDstFactor(BlendFunc::Zero),
-				  blendEquation(BlendEq::Add), cullFace(0), wireframe(false) {}
+				  blendEquation(BlendEq::Add), cullFace(0), wireframe(false), isShadowPass(false) {}
 		};
 		virtual DeviceHandle CreatePipeline(const PipelineDesc &desc) = 0;
 		virtual void DestroyPipeline(const DeviceHandle pipeline) = 0;
@@ -337,6 +353,27 @@ namespace p3d {
 		// without this the image would still be visible, just upside
 		// down). See VULKAN_ROADMAP.md.
 		virtual Matrix TranslateProjectionMatrix(const Matrix &projectionMatrix) = 0;
+
+		// Matrix::BIAS (Matrix.h) is the classic GL shadow-lookup bias:
+		// remaps X, Y, *and* Z from clip-space [-1,1] to UV/depth-compare
+		// [0,1] - correct standalone, but a shadow-lookup matrix is
+		// always built as `TranslateShadowBiasMatrix() * TranslateProjectionMatrix(...) * view * ...`
+		// (see IRenderer::PreRender()'s DirectionalShadowMatrix/
+		// SpotShadowMatrix), and TranslateProjectionMatrix() on Vulkan
+		// *already* remapped Z to [0,1] (see its own comment) - applying
+		// BIAS's own Z remap on top would double-transform it. GL:
+		// returns Matrix::BIAS unchanged (its TranslateProjectionMatrix()
+		// is an identity no-op, so the full remap is still needed here).
+		// Vulkan: returns an X/Y-only variant (Z passes through
+		// unchanged). Found the hard way: a directional shadow test
+		// showed a real depth-compare descriptor correctly written and
+		// no validation errors, yet zero shadowing effect whatsoever -
+		// the double Z-transform was pushing every comparison reference
+		// depth to a nonsensical value, "renders without error but is
+		// wrong" (see the comment on TranslateProjectionMatrix() for why
+		// pixel-level verification, not just error-free execution,
+		// matters here).
+		virtual Matrix TranslateShadowBiasMatrix() = 0;
 
 		// Draw - engineDrawType is one of RenderingComponent.h's
 		// DrawingType::Triangles/Lines/... values.

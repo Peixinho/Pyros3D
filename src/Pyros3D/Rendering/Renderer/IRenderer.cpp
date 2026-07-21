@@ -457,7 +457,27 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 							}
 						}
 
-						DirectionalShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix * Camera->GetWorldTransformation())));
+						// device->TranslateProjectionMatrix() (identity on
+						// GL) - this matrix maps a world-space fragment
+						// into the shadow map's own UV+depth space for
+						// the main pass's comparison lookup, so it must
+						// use the *same* clip-space convention the
+						// shadow map was actually rendered with
+						// (RenderObject()'s own SendGlobalUniforms()
+						// call, a few lines up, already applies this same
+						// translation to what gets uploaded as
+						// uProjectionMatrix while rendering the shadow
+						// map itself - using the raw, un-translated
+						// matrix here instead would silently look up the
+						// wrong texel/depth on Vulkan, exactly the kind
+						// of "renders without error but is wrong" bug
+						// pixel-readback verification exists to catch).
+						// device->TranslateShadowBiasMatrix() (not the raw
+						// Matrix::BIAS constant) for the same reason - see
+						// its comment in IRenderDevice.h for why using
+						// BIAS directly here double-transforms Z on
+						// Vulkan.
+						DirectionalShadowMatrix.push_back((device->TranslateShadowBiasMatrix() * (device->TranslateProjectionMatrix(ProjectionMatrix) * ViewMatrix * Camera->GetWorldTransformation())));
 
 					}
 
@@ -473,11 +493,25 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					if (d->GetNumberCascades() > 2) _ShadowFar.z = d->GetCascade(2).Far;
 					if (d->GetNumberCascades() > 3) _ShadowFar.w = d->GetCascade(3).Far;
 
+					// This maps a linear cascade-far distance into the
+					// same normalized depth space gl_FragCoord.z is
+					// compared against in the shader's cascade-selection
+					// branches (PyrosShader.glsl's DirectionalShadow
+					// block) - derived from the *main camera's*
+					// projection matrix's own Z-mapping terms, so it
+					// must use the same clip-space convention that
+					// projection matrix was actually uploaded with
+					// (SendGlobalUniforms() translates it for Vulkan -
+					// see TranslateProjectionMatrix()'s comment); using
+					// the raw GL-convention terms here would compute the
+					// wrong threshold and silently pick the wrong
+					// cascade (or none at all) on Vulkan.
+					Matrix translatedProjection = device->TranslateProjectionMatrix(projection.m);
 					Vec4 ShadowFar;
-					ShadowFar.x = 0.5f*(-_ShadowFar.x*projection.m.m[10] + projection.m.m[14]) / _ShadowFar.x + 0.5f;
-					ShadowFar.y = 0.5f*(-_ShadowFar.y*projection.m.m[10] + projection.m.m[14]) / _ShadowFar.y + 0.5f;
-					ShadowFar.z = 0.5f*(-_ShadowFar.z*projection.m.m[10] + projection.m.m[14]) / _ShadowFar.z + 0.5f;
-					ShadowFar.w = 0.5f*(-_ShadowFar.w*projection.m.m[10] + projection.m.m[14]) / _ShadowFar.w + 0.5f;
+					ShadowFar.x = 0.5f*(-_ShadowFar.x*translatedProjection.m[10] + translatedProjection.m[14]) / _ShadowFar.x + 0.5f;
+					ShadowFar.y = 0.5f*(-_ShadowFar.y*translatedProjection.m[10] + translatedProjection.m[14]) / _ShadowFar.y + 0.5f;
+					ShadowFar.z = 0.5f*(-_ShadowFar.z*translatedProjection.m[10] + translatedProjection.m[14]) / _ShadowFar.z + 0.5f;
+					ShadowFar.w = 0.5f*(-_ShadowFar.w*translatedProjection.m[10] + translatedProjection.m[14]) / _ShadowFar.w + 0.5f;
 					DirectionalShadowFar = ShadowFar;
 
 					// Disable Depth Bias
@@ -579,7 +613,22 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					}
 
 					// Set Light Projection
-					PointShadowMatrix.push_back(ShadowProjection.m);
+					// PCFPOINT() (PyrosShader.glsl) reconstructs a reference
+					// depth from this matrix via clip.z/clip.w, then a
+					// hardcoded *0.5+0.5 remap assuming GL's raw [-1,1]
+					// clip-space Z - correct only if this matrix is left
+					// untranslated, which is exactly what it was: the same
+					// class of bug device->TranslateShadowBiasMatrix()/
+					// TranslateProjectionMatrix() already fixed for
+					// directional and spot shadows (see their own comments)
+					// was never applied here for point shadows. Baking both
+					// in here means GL gets the identical remap it always
+					// had (TranslateProjectionMatrix() is a no-op there, and
+					// TranslateShadowBiasMatrix() returns Matrix::BIAS, whose
+					// Z row is exactly the same 0.5/0.5 remap) while Vulkan's
+					// clip.z/clip.w comes out already in [0,1] - the shader
+					// was updated to stop re-applying its own remap on top.
+					PointShadowMatrix.push_back(device->TranslateShadowBiasMatrix() * device->TranslateProjectionMatrix(ShadowProjection.m));
 					// Set Light View Matrix
 					Matrix m;
 					m.Translate(p->GetOwner()->GetWorldPosition().negate());
@@ -676,7 +725,9 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					s->GetShadowFBO()->UnBind();
 
 					// Set Light Matrix
-					SpotShadowMatrix.push_back((Matrix::BIAS * (ProjectionMatrix * ViewMatrix * Camera->GetWorldTransformation())));
+					// See the comment on the equivalent DirectionalShadowMatrix
+				// line above - same fix, same reason.
+				SpotShadowMatrix.push_back((device->TranslateShadowBiasMatrix() * (device->TranslateProjectionMatrix(ProjectionMatrix) * ViewMatrix * Camera->GetWorldTransformation())));
 
 					// Get Texture (only 1)
 					SpotShadowMapsTextures.push_back(s->GetShadowMapTexture());
@@ -782,15 +833,6 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 		// seen with this shader)
 		BindMesh(rmesh, Material);
 
-		// Material Stuff Pre Render
-		Material->PreRender();
-
-		// Bind Shadow Maps
-		BindShadowMaps(Material);
-
-		// Send Global Uniforms
-		SendGlobalUniforms(rmesh, Material);
-
 		// The VAO built by BindMesh() already has every attribute pointer
 		// and the index buffer baked in.
 		device->BindVertexArray(cmd, rmesh->VAOCache[Material->GetShader()]);
@@ -804,7 +846,28 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 		// re-issues those same calls unconditionally, so calling it here
 		// too is redundant work for GL, but only at this same rare
 		// (mesh, shader)-switch frequency, not per object - negligible.
+		// Deliberately called *before* Material->PreRender()/BindShadowMaps()/
+		// SendGlobalUniforms() below (moved here from after them) - on
+		// Vulkan, binding a texture-uniform (uColormap, uDirectionalShadowMaps,
+		// etc) needs to know which pipeline's descriptor set to update
+		// (VulkanRenderDevice::currentPipeline, set by BindPipeline()),
+		// and those calls are exactly what triggers that write (see
+		// VulkanRenderDevice::SendUniformInt()'s comment) - with the old
+		// order, the very first object using a new (mesh,shader) pair
+		// would send its shadow-map uniform against whatever pipeline
+		// was current *before* this switch (or none at all), silently
+		// leaving the real descriptor unwritten
+		// (VUID-vkCmdDrawIndexed-None-08114 caught this the hard way).
 		device->BindPipeline(cmd, rmesh->PipelineCache[Material->GetShader()]);
+
+		// Material Stuff Pre Render
+		Material->PreRender();
+
+		// Bind Shadow Maps
+		BindShadowMaps(Material);
+
+		// Send Global Uniforms
+		SendGlobalUniforms(rmesh, Material);
 
 		if (Material->depthBias)
 			EnableDepthBias(Vec2(Material->depthFactor, Material->depthUnits));
@@ -1852,6 +1915,12 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		pdesc.depthWrite = material->IsDepthWritting();
 		pdesc.cullFace = material->GetCullFace();
 		pdesc.wireframe = material->IsWireFrame();
+		// See the comment on PipelineDesc::isShadowPass - shadowMaterial/
+		// shadowSkinnedMaterial are the two specific shared IRenderer
+		// members RenderObject() passes in as `Material` while rendering
+		// a shadow-casting pass (see PreRender()'s DIRECTIONAL/POINT/
+		// SPOT blocks), never for a real scene material.
+		pdesc.isShadowPass = (material == shadowMaterial || material == shadowSkinnedMaterial);
 		// Mesh's actual per-buffer vertex attribute layout (name/type/
 		// offset/divisor per attribute, stride per buffer) - see the
 		// comment on IRenderDevice::PipelineDesc::vertexLayout. A separate

@@ -11,13 +11,17 @@
 
 namespace p3d {
 
-	// GLRenderDevice holds no state, so every FrameBuffer sharing one
-	// lazily-constructed instance is cheap - same pattern as
-	// GeometryBuffer.cpp/Shaders.cpp/Texture.cpp.
+	// Every FrameBuffer shares whichever backend is currently active (see
+	// GetActiveRenderDevice() in IRenderDevice.h) rather than each
+	// FrameBuffer needing an injected IRenderDevice* - same pattern as
+	// GeometryBuffer.cpp/Shaders.cpp/Texture.cpp. Previously hardcoded to
+	// a static GLRenderDevice (missed when Texture.cpp got this same fix
+	// - a separate file, same historical pattern) - crashed the same way
+	// Texture.cpp did, through an unloaded/null GLAD function pointer,
+	// the first time a real Vulkan shadow FBO was created.
 	static IRenderDevice& Device()
 	{
-		static GLRenderDevice instance;
-		return instance;
+		return GetActiveRenderDevice();
 	}
 
 	FBOAttachment::~FBOAttachment()

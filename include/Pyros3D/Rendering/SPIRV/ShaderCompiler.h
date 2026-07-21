@@ -64,6 +64,17 @@ namespace p3d {
 		uint32 type;
 		uint32 set;
 		uint32 binding;
+		// 1 for a plain (non-array) uniform/sampler; N for a
+		// shader-declared fixed-size array (e.g. PyrosShader.glsl's
+		// `uPointShadowMaps[4]`) - VkDescriptorSetLayoutBinding::
+		// descriptorCount must match this exactly
+		// (VUID-VkGraphicsPipelineCreateInfo-layout-07991: too small a
+		// count here fails pipeline creation outright, and even when it
+		// doesn't, whatever's *not* explicitly written by
+		// vkUpdateDescriptorSets is left invalid, which fails at draw
+		// time instead - VUID-vkCmdDrawIndexed-None-08114 - the moment
+		// the shader indexes past what got bound).
+		uint32 arraySize;
 	};
 
 	// One reflected vertex-shader input (a vertex attribute) and the

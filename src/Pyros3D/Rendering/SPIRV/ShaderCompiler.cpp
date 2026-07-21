@@ -61,6 +61,15 @@ namespace p3d {
 			binding.type = resourceType;
 			binding.set = compiler.has_decoration(resource.id, spv::DecorationDescriptorSet) ? compiler.get_decoration(resource.id, spv::DecorationDescriptorSet) : 0;
 			binding.binding = compiler.has_decoration(resource.id, spv::DecorationBinding) ? compiler.get_decoration(resource.id, spv::DecorationBinding) : 0;
+			// A fixed-size GLSL array (e.g. `uPointShadowMaps[4]`) shows
+			// up as a single resource whose *type* is array-of-N, not as
+			// N separate resources - so the array length has to come off
+			// the type, not the resource list. array[0] is the outermost
+			// dimension's literal length for a compile-time-sized array
+			// (the only kind this engine's shaders ever declare); an
+			// empty `array` vector means "not an array" (length 1).
+			const spirv_cross::SPIRType &type = compiler.get_type(resource.type_id);
+			binding.arraySize = type.array.empty() ? 1 : (type.array[0] > 0 ? type.array[0] : 1);
 			out.push_back(binding);
 		}
 	}

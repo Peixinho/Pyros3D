@@ -81,6 +81,7 @@ namespace p3d {
 		virtual void BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint);
 
 		virtual Matrix TranslateProjectionMatrix(const Matrix &projectionMatrix);
+		virtual Matrix TranslateShadowBiasMatrix();
 
 		virtual uint32 TranslateDrawType(const uint32 engineDrawType);
 		virtual void DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count);

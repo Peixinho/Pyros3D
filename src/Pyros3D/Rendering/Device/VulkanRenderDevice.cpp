@@ -25,11 +25,17 @@
 #include <Pyros3D/Materials/Shaders/Shaders.h>
 #include <Pyros3D/Materials/IMaterial.h>
 #include <Pyros3D/Core/Buffers/GeometryBuffer.h>
+#include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <vector>
 #include <cstring>
 #include <cstdio>
 
 namespace p3d {
+
+	// See TranslateTextureTarget()'s comment - a cube face's
+	// mode/subMode is this plus the face index (0..5, matching
+	// TextureType::CubemapPositive_X..CubemapNegative_Z's enum order).
+	static const uint32 CUBEMAP_FACE_TARGET_BASE = 100;
 
 	VulkanRenderDevice::VulkanRenderDevice(const std::vector<const char*> &requiredInstanceExtensions)
 		: instance(VK_NULL_HANDLE), surface(VK_NULL_HANDLE), physicalDevice(VK_NULL_HANDLE), device(VK_NULL_HANDLE),
@@ -38,13 +44,15 @@ namespace p3d {
 		  renderPass(VK_NULL_HANDLE), depthImage(VK_NULL_HANDLE), depthImageAllocation(VK_NULL_HANDLE),
 		  depthImageView(VK_NULL_HANDLE), depthFormat(VK_FORMAT_UNDEFINED),
 		  commandPool(VK_NULL_HANDLE), frameCommandBuffer(VK_NULL_HANDLE),
-		  imageAvailableSemaphore(VK_NULL_HANDLE), frameFence(VK_NULL_HANDLE),
+		  nextAcquireSemaphoreIndex(0), currentFrameAcquireSemaphoreIndex(0), frameFence(VK_NULL_HANDLE),
 		  pendingClearColor(0.f, 0.f, 0.f, 1.f),
 		  captureRequested(false), capturedWidth(0), capturedHeight(0), capturedRedByteOffset(0), capturedFrameValid(false),
 		  frameInProgress(false), currentImageIndex(0),
+		  activeCommandBuffer(VK_NULL_HANDLE), offscreenCommandBuffer(VK_NULL_HANDLE), offscreenPassOpen(false), offscreenCommandBufferRecording(false), currentBoundFBO(0),
+		  nextFBOHandle(1), shadowPipelineRenderPass(VK_NULL_HANDLE),
 		  nextVaoHandle(1), currentVao(0), currentPipeline(0),
 		  allocator(VK_NULL_HANDLE), descriptorPool(VK_NULL_HANDLE),
-		  nextBufferHandle(1), nextShaderStageHandle(1), nextProgramHandle(1), currentProgram(0), nextPipelineHandle(1),
+		  nextBufferHandle(1), minUniformBufferOffsetAlignment(256), nextShaderStageHandle(1), nextProgramHandle(1), currentProgram(0), nextPipelineHandle(1),
 		  nextTextureHandle(1), currentlyConfiguringTexture(0), unitJustActivated(false), currentTextureUnit(0)
 	{
 		if (volkInitialize() != VK_SUCCESS)
@@ -111,10 +119,22 @@ namespace p3d {
 				if (it->second.samplerSetLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, it->second.samplerSetLayout, NULL);
 			}
 			programs.clear();
+			// FBO framebuffers reference texture image *views* - must be
+			// destroyed before the textures loop below destroys those
+			// views.
+			for (std::map<DeviceHandle, FBORecord>::iterator it = fboRecords.begin(); it != fboRecords.end(); it++)
+			{
+				for (std::map<uint32, VkFramebuffer>::iterator fIt = it->second.framebuffersByTarget.begin(); fIt != it->second.framebuffersByTarget.end(); fIt++)
+					vkDestroyFramebuffer(device, fIt->second, NULL);
+				if (it->second.renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, it->second.renderPass, NULL);
+			}
+			fboRecords.clear();
 			for (std::map<DeviceHandle, TextureRecord>::iterator it = textures.begin(); it != textures.end(); it++)
 			{
 				if (it->second.sampler != VK_NULL_HANDLE) vkDestroySampler(device, it->second.sampler, NULL);
 				if (it->second.view != VK_NULL_HANDLE) vkDestroyImageView(device, it->second.view, NULL);
+				for (std::map<uint32, VkImageView>::iterator rtIt = it->second.renderTargetViewsByTarget.begin(); rtIt != it->second.renderTargetViewsByTarget.end(); rtIt++)
+					vkDestroyImageView(device, rtIt->second, NULL);
 				if (it->second.image != VK_NULL_HANDLE) vmaDestroyImage(allocator, it->second.image, it->second.allocation);
 			}
 			textures.clear();
@@ -129,13 +149,15 @@ namespace p3d {
 			for (size_t i = 0; i < framebuffers.size(); i++)
 				vkDestroyFramebuffer(device, framebuffers[i], NULL);
 			if (renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, renderPass, NULL);
+			if (shadowPipelineRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, shadowPipelineRenderPass, NULL);
 			if (depthImageView != VK_NULL_HANDLE) vkDestroyImageView(device, depthImageView, NULL);
 			if (depthImage != VK_NULL_HANDLE) vmaDestroyImage(allocator, depthImage, depthImageAllocation);
 
 			if (allocator != VK_NULL_HANDLE) vmaDestroyAllocator(allocator);
 
 			if (frameFence != VK_NULL_HANDLE) vkDestroyFence(device, frameFence, NULL);
-			if (imageAvailableSemaphore != VK_NULL_HANDLE) vkDestroySemaphore(device, imageAvailableSemaphore, NULL);
+			for (size_t i = 0; i < imageAvailableSemaphores.size(); i++)
+				vkDestroySemaphore(device, imageAvailableSemaphores[i], NULL);
 			for (size_t i = 0; i < renderFinishedSemaphores.size(); i++)
 				vkDestroySemaphore(device, renderFinishedSemaphores[i], NULL);
 			if (commandPool != VK_NULL_HANDLE) vkDestroyCommandPool(device, commandPool, NULL);
@@ -152,101 +174,22 @@ namespace p3d {
 			vkDestroyInstance(instance, NULL);
 	}
 
-	bool VulkanRenderDevice::InitializeSwapchain(VkSurfaceKHR newSurface, const uint32 width, const uint32 height)
+	// Builds (or rebuilds) everything keyed to the swapchain's size/format:
+	// the swapchain itself, its images/image views, the depth buffer, the
+	// render pass, and one framebuffer per swapchain image. Shared between
+	// InitializeSwapchain() (first call - swapchain/renderPass/framebuffers
+	// are all VK_NULL_HANDLE/empty already) and RecreateSwapchain() (resize -
+	// the caller destroys the old dependents first, but leaves the old
+	// `swapchain` handle itself alive so it can be passed here as
+	// VkSwapchainCreateInfoKHR::oldSwapchain, the standard Vulkan resize
+	// idiom - some drivers reuse the old swapchain's resources more
+	// efficiently when given this hint, and it's required to be valid
+	// during the old-to-new handoff on at least one real-world driver).
+	// This function destroys that old handle itself, once the new one
+	// exists.
+	bool VulkanRenderDevice::CreateSwapchainAndFramebuffers(const uint32 width, const uint32 height)
 	{
-		if (instance == VK_NULL_HANDLE || newSurface == VK_NULL_HANDLE)
-			return false;
-		surface = newSurface;
-
-		// Physical device: pick the first one with a queue family that
-		// supports both graphics and presenting to this surface - true on
-		// every single-GPU setup (including MoltenVK on Apple Silicon,
-		// this class's only tested target so far), simplest correct choice
-		// for this checkpoint. Multi-GPU/separate-queue-family setups are a
-		// later refinement, not needed to prove the swapchain works at all.
-		uint32 physicalDeviceCount = 0;
-		vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, NULL);
-		if (physicalDeviceCount == 0)
-			return false;
-		std::vector<VkPhysicalDevice> physicalDevices(physicalDeviceCount);
-		vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices.data());
-
-		bool foundQueueFamily = false;
-		for (size_t d = 0; d < physicalDevices.size() && !foundQueueFamily; d++)
-		{
-			uint32 queueFamilyCount = 0;
-			vkGetPhysicalDeviceQueueFamilyProperties(physicalDevices[d], &queueFamilyCount, NULL);
-			std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-			vkGetPhysicalDeviceQueueFamilyProperties(physicalDevices[d], &queueFamilyCount, queueFamilies.data());
-
-			for (uint32 f = 0; f < queueFamilyCount; f++)
-			{
-				VkBool32 presentSupport = VK_FALSE;
-				vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevices[d], f, surface, &presentSupport);
-				if ((queueFamilies[f].queueFlags & VK_QUEUE_GRAPHICS_BIT) && presentSupport)
-				{
-					physicalDevice = physicalDevices[d];
-					graphicsQueueFamily = presentQueueFamily = f;
-					foundQueueFamily = true;
-					break;
-				}
-			}
-		}
-		if (!foundQueueFamily)
-			return false;
-
-		// Logical device + queue.
-		f32 queuePriority = 1.0f;
-		VkDeviceQueueCreateInfo queueCreateInfo = {};
-		queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-		queueCreateInfo.queueFamilyIndex = graphicsQueueFamily;
-		queueCreateInfo.queueCount = 1;
-		queueCreateInfo.pQueuePriorities = &queuePriority;
-
-		std::vector<const char*> deviceExtensions;
-		deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-#if defined(__APPLE__)
-		// Required on MoltenVK alongside VK_KHR_portability_enumeration at
-		// the instance level.
-		deviceExtensions.push_back("VK_KHR_portability_subset");
-#endif
-
-		VkDeviceCreateInfo deviceCreateInfo = {};
-		deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-		deviceCreateInfo.queueCreateInfoCount = 1;
-		deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
-		deviceCreateInfo.enabledExtensionCount = (uint32_t)deviceExtensions.size();
-		deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
-
-		if (vkCreateDevice(physicalDevice, &deviceCreateInfo, NULL, &device) != VK_SUCCESS)
-			return false;
-		volkLoadDevice(device);
-
-		vkGetDeviceQueue(device, graphicsQueueFamily, 0, &graphicsQueue);
-		presentQueue = graphicsQueue;
-
-		// VMA allocator - see the header comment on the `allocator` field.
-		// volk.h defines VK_NO_PROTOTYPES before pulling in <vulkan/vulkan.h>
-		// (see the comment on VMA_IMPLEMENTATION at the top of this file),
-		// which pushes VMA into its dynamic-function-loading path
-		// regardless of VMA_STATIC_VULKAN_FUNCTIONS's default - it asserts
-		// unless vkGetInstanceProcAddr/vkGetDeviceProcAddr are supplied
-		// explicitly, so hand them the same two volk already resolved
-		// (global function-pointer variables by those names, populated by
-		// volkInitialize()/volkLoadInstance() above); VMA uses those to
-		// fetch every other function it needs internally.
-		VmaVulkanFunctions vmaFunctions = {};
-		vmaFunctions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
-		vmaFunctions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
-
-		VmaAllocatorCreateInfo allocatorInfo = {};
-		allocatorInfo.physicalDevice = physicalDevice;
-		allocatorInfo.device = device;
-		allocatorInfo.instance = instance;
-		allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_0;
-		allocatorInfo.pVulkanFunctions = &vmaFunctions;
-		if (vmaCreateAllocator(&allocatorInfo, &allocator) != VK_SUCCESS)
-			return false;
+		VkSwapchainKHR oldSwapchain = swapchain;
 
 		// Swapchain: pick the first available surface format, FIFO present
 		// mode (the only mode every implementation is required to support -
@@ -304,9 +247,15 @@ namespace p3d {
 		swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 		swapchainCreateInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
 		swapchainCreateInfo.clipped = VK_TRUE;
+		swapchainCreateInfo.oldSwapchain = oldSwapchain;
 
-		if (vkCreateSwapchainKHR(device, &swapchainCreateInfo, NULL, &swapchain) != VK_SUCCESS)
+		VkSwapchainKHR newSwapchain = VK_NULL_HANDLE;
+		if (vkCreateSwapchainKHR(device, &swapchainCreateInfo, NULL, &newSwapchain) != VK_SUCCESS)
 			return false;
+		swapchain = newSwapchain;
+
+		if (oldSwapchain != VK_NULL_HANDLE)
+			vkDestroySwapchainKHR(device, oldSwapchain, NULL);
 
 		swapchainFormat = chosenFormat.format;
 		swapchainExtent = extent;
@@ -439,6 +388,251 @@ namespace p3d {
 				return false;
 		}
 
+		return true;
+	}
+
+	// Tears down and rebuilds everything CreateSwapchainAndFramebuffers()
+	// creates, in response to the surface's actual size having changed
+	// underneath us (window resize) - detected reactively via
+	// VK_ERROR_OUT_OF_DATE_KHR/VK_SUBOPTIMAL_KHR from vkAcquireNextImageKHR/
+	// vkQueuePresentKHR in BeginFrame()/EndFrame(), the standard Vulkan way
+	// to learn a resize happened (there is no "resize" callback in the API
+	// itself - the app finds out when a swapchain operation tells it its
+	// swapchain no longer matches the surface). Before this existed, a
+	// window resize left the swapchain (and its depth buffer/framebuffers)
+	// stuck at its original size while the surface itself had already
+	// changed underneath it - MoltenVK/Metal in particular does not fail
+	// outright, it just keeps presenting a fixed-size image into a
+	// differently-sized drawable, which reads as a distorted/wrong-looking
+	// frustum even though the camera's own aspect ratio (recomputed
+	// correctly on the CPU side by the example's OnResize()) was never the
+	// problem.
+	void VulkanRenderDevice::ResetAcquireSemaphore(const uint32 index)
+	{
+		if (index >= imageAvailableSemaphores.size())
+			return;
+		if (imageAvailableSemaphores[index] != VK_NULL_HANDLE)
+			vkDestroySemaphore(device, imageAvailableSemaphores[index], NULL);
+		VkSemaphoreCreateInfo semInfo = {};
+		semInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+		vkCreateSemaphore(device, &semInfo, NULL, &imageAvailableSemaphores[index]);
+	}
+
+	bool VulkanRenderDevice::RecreateSwapchain(const uint32 width, const uint32 height)
+	{
+		if (device == VK_NULL_HANDLE || surface == VK_NULL_HANDLE)
+			return false;
+
+		// A live interactive resize drag can report a momentarily
+		// degenerate (0x0) surface extent - a minimized window, or just a
+		// transient in-between state mid-drag on some platforms. Bail
+		// *before* touching anything: this used to unconditionally
+		// destroy the framebuffers/depth buffer/render pass first and
+		// only then attempt to rebuild them, so hitting this case even
+		// once left the device with an empty `framebuffers` and no
+		// `renderPass` and no way to ever recover, since nothing but a
+		// swapchain-operation failure ever calls this function again -
+		// every following BeginFrame() would then race through
+		// vkAcquireNextImageKHR() against a swapchain whose dependents no
+		// longer exist, rendering nothing, forever. That reads to a user
+		// as "resizing hangs the app" even though the process itself
+		// isn't deadlocked - the window just permanently stops updating.
+		VkSurfaceCapabilitiesKHR capabilities;
+		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &capabilities);
+		if (capabilities.currentExtent.width == 0 || capabilities.currentExtent.height == 0)
+			return false;
+
+		vkDeviceWaitIdle(device);
+
+		for (size_t i = 0; i < framebuffers.size(); i++)
+			vkDestroyFramebuffer(device, framebuffers[i], NULL);
+		framebuffers.clear();
+
+		if (renderPass != VK_NULL_HANDLE)
+			vkDestroyRenderPass(device, renderPass, NULL);
+		renderPass = VK_NULL_HANDLE;
+
+		if (depthImageView != VK_NULL_HANDLE)
+			vkDestroyImageView(device, depthImageView, NULL);
+		depthImageView = VK_NULL_HANDLE;
+		if (depthImage != VK_NULL_HANDLE)
+			vmaDestroyImage(allocator, depthImage, depthImageAllocation);
+		depthImage = VK_NULL_HANDLE;
+		depthImageAllocation = VK_NULL_HANDLE;
+
+		for (size_t i = 0; i < swapchainImageViews.size(); i++)
+			vkDestroyImageView(device, swapchainImageViews[i], NULL);
+		swapchainImageViews.clear();
+		swapchainImages.clear();
+
+		// CreateSwapchainAndFramebuffers() reads the current `swapchain`
+		// member as the old handle to hand to VkSwapchainCreateInfoKHR::
+		// oldSwapchain, and destroys it once the new one exists - not
+		// destroyed here.
+		if (!CreateSwapchainAndFramebuffers(width, height))
+			return false;
+
+		// renderFinishedSemaphores is sized/created once in
+		// InitializeSwapchain(), indexed by acquired swapchain image
+		// index everywhere it's used (EndFrame() etc) - if the recreated
+		// swapchain ever comes back with a *different* image count than
+		// before (driver-dependent, rare but not impossible - surface
+		// capabilities' min/maxImageCount can vary with size on some
+		// platforms), those indexed accesses would read past the end of
+		// this vector. Resize to match and create any newly-needed ones;
+		// destroy any now-excess ones.
+		if (renderFinishedSemaphores.size() != swapchainImages.size())
+		{
+			for (size_t i = swapchainImages.size(); i < renderFinishedSemaphores.size(); i++)
+				vkDestroySemaphore(device, renderFinishedSemaphores[i], NULL);
+			size_t oldCount = renderFinishedSemaphores.size();
+			renderFinishedSemaphores.resize(swapchainImages.size());
+			VkSemaphoreCreateInfo semInfo = {};
+			semInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+			for (size_t i = oldCount; i < renderFinishedSemaphores.size(); i++)
+				if (vkCreateSemaphore(device, &semInfo, NULL, &renderFinishedSemaphores[i]) != VK_SUCCESS)
+					return false;
+		}
+
+		return true;
+	}
+
+	bool VulkanRenderDevice::InitializeSwapchain(VkSurfaceKHR newSurface, const uint32 width, const uint32 height)
+	{
+		if (instance == VK_NULL_HANDLE || newSurface == VK_NULL_HANDLE)
+			return false;
+		surface = newSurface;
+
+		// Physical device: pick the first one with a queue family that
+		// supports both graphics and presenting to this surface - true on
+		// every single-GPU setup (including MoltenVK on Apple Silicon,
+		// this class's only tested target so far), simplest correct choice
+		// for this checkpoint. Multi-GPU/separate-queue-family setups are a
+		// later refinement, not needed to prove the swapchain works at all.
+		uint32 physicalDeviceCount = 0;
+		vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, NULL);
+		if (physicalDeviceCount == 0)
+			return false;
+		std::vector<VkPhysicalDevice> physicalDevices(physicalDeviceCount);
+		vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices.data());
+
+		bool foundQueueFamily = false;
+		for (size_t d = 0; d < physicalDevices.size() && !foundQueueFamily; d++)
+		{
+			uint32 queueFamilyCount = 0;
+			vkGetPhysicalDeviceQueueFamilyProperties(physicalDevices[d], &queueFamilyCount, NULL);
+			std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+			vkGetPhysicalDeviceQueueFamilyProperties(physicalDevices[d], &queueFamilyCount, queueFamilies.data());
+
+			for (uint32 f = 0; f < queueFamilyCount; f++)
+			{
+				VkBool32 presentSupport = VK_FALSE;
+				vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevices[d], f, surface, &presentSupport);
+				if ((queueFamilies[f].queueFlags & VK_QUEUE_GRAPHICS_BIT) && presentSupport)
+				{
+					physicalDevice = physicalDevices[d];
+					graphicsQueueFamily = presentQueueFamily = f;
+					foundQueueFamily = true;
+					break;
+				}
+			}
+		}
+		if (!foundQueueFamily)
+			return false;
+
+		// Needed by every per-object/per-material-switch UBO's dynamic
+		// offsets (see BufferRecord::alignedSlotSize's comment) -
+		// vkCmdBindDescriptorSets requires each dynamic offset to be a
+		// multiple of this. Queried from the real device rather than
+		// trusting the constructor's 256-byte default (a common value,
+		// but not spec-guaranteed) now that a physical device is
+		// actually selected.
+		VkPhysicalDeviceProperties deviceProperties;
+		vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
+		minUniformBufferOffsetAlignment = deviceProperties.limits.minUniformBufferOffsetAlignment;
+
+		// Logical device + queue.
+		f32 queuePriority = 1.0f;
+		VkDeviceQueueCreateInfo queueCreateInfo = {};
+		queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+		queueCreateInfo.queueFamilyIndex = graphicsQueueFamily;
+		queueCreateInfo.queueCount = 1;
+		queueCreateInfo.pQueuePriorities = &queuePriority;
+
+		std::vector<const char*> deviceExtensions;
+		deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+#if defined(__APPLE__)
+		// Required on MoltenVK alongside VK_KHR_portability_enumeration at
+		// the instance level.
+		deviceExtensions.push_back("VK_KHR_portability_subset");
+#endif
+
+		VkDeviceCreateInfo deviceCreateInfo = {};
+		deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+		deviceCreateInfo.queueCreateInfoCount = 1;
+		deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
+		deviceCreateInfo.enabledExtensionCount = (uint32_t)deviceExtensions.size();
+		deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
+
+#if defined(__APPLE__)
+		// MoltenVK's portability-subset ICD treats comparison samplers
+		// (VkSamplerCreateInfo::compareEnable, needed for sampler2DShadow/
+		// samplerCubeShadow hardware PCF - see RebuildSamplerIfDirty())
+		// as an *optional* feature, off by default - found the hard way
+		// via VUID-VkDescriptorImageInfo-mutableComparisonSamplers-04450
+		// the first time a real shadow sampler was ever written to a
+		// descriptor. Query what's actually supported and request exactly
+		// that (not a blind VK_TRUE - would fail vkCreateDevice on a
+		// portability ICD that genuinely doesn't support it) by reusing
+		// the same queried struct as the enable request, the standard
+		// Vulkan idiom for this.
+		VkPhysicalDevicePortabilitySubsetFeaturesKHR portabilityFeatures = {};
+		portabilityFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR;
+		VkPhysicalDeviceFeatures2 features2 = {};
+		features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+		features2.pNext = &portabilityFeatures;
+		// KHR-suffixed, not the unsuffixed Vulkan 1.1+ core entry point -
+		// this instance only requests VK_API_VERSION_1_0 (see appInfo
+		// above), relying on VK_KHR_get_physical_device_properties2
+		// (already an enabled instance extension - see the comment on
+		// its addition further up) for this functionality instead.
+		vkGetPhysicalDeviceFeatures2KHR(physicalDevice, &features2);
+		deviceCreateInfo.pNext = &portabilityFeatures;
+#endif
+
+		if (vkCreateDevice(physicalDevice, &deviceCreateInfo, NULL, &device) != VK_SUCCESS)
+			return false;
+		volkLoadDevice(device);
+
+		vkGetDeviceQueue(device, graphicsQueueFamily, 0, &graphicsQueue);
+		presentQueue = graphicsQueue;
+
+		// VMA allocator - see the header comment on the `allocator` field.
+		// volk.h defines VK_NO_PROTOTYPES before pulling in <vulkan/vulkan.h>
+		// (see the comment on VMA_IMPLEMENTATION at the top of this file),
+		// which pushes VMA into its dynamic-function-loading path
+		// regardless of VMA_STATIC_VULKAN_FUNCTIONS's default - it asserts
+		// unless vkGetInstanceProcAddr/vkGetDeviceProcAddr are supplied
+		// explicitly, so hand them the same two volk already resolved
+		// (global function-pointer variables by those names, populated by
+		// volkInitialize()/volkLoadInstance() above); VMA uses those to
+		// fetch every other function it needs internally.
+		VmaVulkanFunctions vmaFunctions = {};
+		vmaFunctions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+		vmaFunctions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
+
+		VmaAllocatorCreateInfo allocatorInfo = {};
+		allocatorInfo.physicalDevice = physicalDevice;
+		allocatorInfo.device = device;
+		allocatorInfo.instance = instance;
+		allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_0;
+		allocatorInfo.pVulkanFunctions = &vmaFunctions;
+		if (vmaCreateAllocator(&allocatorInfo, &allocator) != VK_SUCCESS)
+			return false;
+
+		if (!CreateSwapchainAndFramebuffers(width, height))
+			return false;
+
 		// Command pool/buffer + sync objects for ClearAndPresent()'s
 		// single-frame-in-flight loop.
 		VkCommandPoolCreateInfo poolInfo = {};
@@ -455,14 +649,28 @@ namespace p3d {
 		cmdAllocInfo.commandBufferCount = 1;
 		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &frameCommandBuffer) != VK_SUCCESS)
 			return false;
+		// See the header comment on offscreenCommandBuffer - a separate,
+		// dedicated command buffer for offscreen FBO passes (shadow maps),
+		// since those must record+submit+wait before the swapchain
+		// frame's own command buffer even exists yet.
+		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &offscreenCommandBuffer) != VK_SUCCESS)
+			return false;
 
 		VkSemaphoreCreateInfo semInfo = {};
 		semInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-		if (vkCreateSemaphore(device, &semInfo, NULL, &imageAvailableSemaphore) != VK_SUCCESS) return false;
+		// See the header comment on nextAcquireSemaphoreIndex for why this
+		// is a small rotating pool rather than one shared semaphore. 3 is
+		// comfortably more than the 1 frame ever actually in flight here -
+		// it just needs to be large enough that a burst of back-to-back
+		// failed acquires (a resize) never wraps back onto a semaphore
+		// still holding an unconsumed signal from a couple of calls ago.
+		imageAvailableSemaphores.resize(3);
+		for (size_t i = 0; i < imageAvailableSemaphores.size(); i++)
+			if (vkCreateSemaphore(device, &semInfo, NULL, &imageAvailableSemaphores[i]) != VK_SUCCESS) return false;
 		// One per swapchain image, not one shared - see the header comment
 		// on renderFinishedSemaphores for why.
-		renderFinishedSemaphores.resize(actualImageCount);
-		for (uint32 i = 0; i < actualImageCount; i++)
+		renderFinishedSemaphores.resize(swapchainImages.size());
+		for (size_t i = 0; i < swapchainImages.size(); i++)
 			if (vkCreateSemaphore(device, &semInfo, NULL, &renderFinishedSemaphores[i]) != VK_SUCCESS) return false;
 
 		VkFenceCreateInfo fenceInfo = {};
@@ -478,13 +686,35 @@ namespace p3d {
 		if (swapchain == VK_NULL_HANDLE)
 			return false;
 
-		vkWaitForFences(device, 1, &frameFence, VK_TRUE, UINT64_MAX);
-		vkResetFences(device, 1, &frameFence);
-
-		uint32 imageIndex = 0;
-		VkResult acquireResult = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
-		if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
+		// Bounded timeout - see BeginFrame()'s comment on
+		// FRAME_WAIT_TIMEOUT_NS for why UINT64_MAX here can hang the
+		// process during a window resize.
+		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
+		if (vkWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS) != VK_SUCCESS)
 			return false;
+
+		// Do not reset frameFence until acquire has actually succeeded -
+		// see BeginFrame()'s comment on the same sequencing bug (resetting
+		// unconditionally here left the fence permanently unsignaled the
+		// moment acquire ever failed once, hanging every future call).
+		uint32 imageIndex = 0;
+		// See nextAcquireSemaphoreIndex's comment - must advance on every
+		// attempt, success or failure, not just successful ones.
+		uint32 acquireSemIndex = nextAcquireSemaphoreIndex;
+		nextAcquireSemaphoreIndex = (nextAcquireSemaphoreIndex + 1) % (uint32)imageAvailableSemaphores.size();
+		VkResult acquireResult = vkAcquireNextImageKHR(device, swapchain, FRAME_WAIT_TIMEOUT_NS, imageAvailableSemaphores[acquireSemIndex], VK_NULL_HANDLE, &imageIndex);
+		if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR || acquireResult == VK_SUBOPTIMAL_KHR)
+		{
+			ResetAcquireSemaphore(acquireSemIndex);
+			RecreateSwapchain(swapchainExtent.width, swapchainExtent.height);
+			return false;
+		}
+		if (acquireResult != VK_SUCCESS)
+		{
+			ResetAcquireSemaphore(acquireSemIndex);
+			return false;
+		}
+		vkResetFences(device, 1, &frameFence);
 
 		vkResetCommandBuffer(frameCommandBuffer, 0);
 
@@ -524,7 +754,7 @@ namespace p3d {
 		VkSubmitInfo submitInfo = {};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		submitInfo.waitSemaphoreCount = 1;
-		submitInfo.pWaitSemaphores = &imageAvailableSemaphore;
+		submitInfo.pWaitSemaphores = &imageAvailableSemaphores[acquireSemIndex];
 		submitInfo.pWaitDstStageMask = &waitStage;
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &frameCommandBuffer;
@@ -566,6 +796,106 @@ namespace p3d {
 		return true;
 	}
 
+	bool VulkanRenderDevice::DebugReadDepthTexture(const DeviceHandle handle, std::vector<f32> &outDepths, uint32 &outWidth, uint32 &outHeight, const uint32 faceIndex)
+	{
+		std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(handle);
+		if (texIt == textures.end() || texIt->second.image == VK_NULL_HANDLE)
+			return false;
+		TextureRecord &tex = texIt->second;
+
+		VkDeviceSize bufferSize = (VkDeviceSize)tex.width * tex.height * sizeof(f32);
+		VkBufferCreateInfo bufferInfo = {};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bufferInfo.size = bufferSize;
+		bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VmaAllocationCreateInfo stagingAllocInfo = {};
+		stagingAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		stagingAllocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+		VkBuffer stagingBuffer = VK_NULL_HANDLE;
+		VmaAllocation stagingAllocation = VK_NULL_HANDLE;
+		VmaAllocationInfo stagingAllocationInfo;
+		if (vmaCreateBuffer(allocator, &bufferInfo, &stagingAllocInfo, &stagingBuffer, &stagingAllocation, &stagingAllocationInfo) != VK_SUCCESS)
+			return false;
+
+		VkCommandBufferAllocateInfo cmdAllocInfo = {};
+		cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		cmdAllocInfo.commandPool = commandPool;
+		cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		cmdAllocInfo.commandBufferCount = 1;
+		VkCommandBuffer cmd = VK_NULL_HANDLE;
+		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &cmd) != VK_SUCCESS)
+		{
+			vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
+			return false;
+		}
+
+		VkCommandBufferBeginInfo beginInfo = {};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		vkBeginCommandBuffer(cmd, &beginInfo);
+
+		// Shadow maps sit in SHADER_READ_ONLY_OPTIMAL between frames (the
+		// depth-only render pass's finalLayout - see
+		// BuildDepthOnlyRenderPass()) - transition to TRANSFER_SRC, copy,
+		// then back, so sampling still works normally afterward.
+		VkImageMemoryBarrier toSrc = {};
+		toSrc.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		toSrc.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		toSrc.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		toSrc.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toSrc.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toSrc.image = tex.image;
+		toSrc.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, faceIndex, 1 };
+		toSrc.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		toSrc.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &toSrc);
+
+		VkBufferImageCopy region = {};
+		region.imageSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, faceIndex, 1 };
+		region.imageExtent = { tex.width, tex.height, 1 };
+		vkCmdCopyImageToBuffer(cmd, tex.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, stagingBuffer, 1, &region);
+
+		VkImageMemoryBarrier toShaderRead = toSrc;
+		toShaderRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		toShaderRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		toShaderRead.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		toShaderRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &toShaderRead);
+
+		vkEndCommandBuffer(cmd);
+
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &cmd;
+		VkFenceCreateInfo fenceInfo = {};
+		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		VkFence fence = VK_NULL_HANDLE;
+		vkCreateFence(device, &fenceInfo, NULL, &fence);
+		vkQueueSubmit(graphicsQueue, 1, &submitInfo, fence);
+		if (fence != VK_NULL_HANDLE)
+		{
+			vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+			vkDestroyFence(device, fence, NULL);
+		}
+		else
+		{
+			vkQueueWaitIdle(graphicsQueue);
+		}
+		vkFreeCommandBuffers(device, commandPool, 1, &cmd);
+
+		outWidth = tex.width;
+		outHeight = tex.height;
+		outDepths.resize((size_t)tex.width * tex.height);
+		memcpy(outDepths.data(), stagingAllocationInfo.pMappedData, (size_t)bufferSize);
+
+		vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
+		return true;
+	}
+
 	bool VulkanRenderDevice::DrawFrame(const DeviceHandle pipeline, const DeviceHandle program, const DeviceHandle vertexBuffer, const DeviceHandle indexBuffer, const uint32 indexCount, const Vec4 &clearColor)
 	{
 		if (swapchain == VK_NULL_HANDLE)
@@ -577,13 +907,35 @@ namespace p3d {
 			return false;
 		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(program);
 
-		vkWaitForFences(device, 1, &frameFence, VK_TRUE, UINT64_MAX);
-		vkResetFences(device, 1, &frameFence);
-
-		uint32 imageIndex = 0;
-		VkResult acquireResult = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
-		if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
+		// Bounded timeout - see BeginFrame()'s comment on
+		// FRAME_WAIT_TIMEOUT_NS for why UINT64_MAX here can hang the
+		// process during a window resize.
+		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
+		if (vkWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS) != VK_SUCCESS)
 			return false;
+
+		// Do not reset frameFence until acquire has actually succeeded -
+		// see BeginFrame()'s comment on the same sequencing bug (resetting
+		// unconditionally here left the fence permanently unsignaled the
+		// moment acquire ever failed once, hanging every future call).
+		uint32 imageIndex = 0;
+		// See nextAcquireSemaphoreIndex's comment - must advance on every
+		// attempt, success or failure, not just successful ones.
+		uint32 acquireSemIndex = nextAcquireSemaphoreIndex;
+		nextAcquireSemaphoreIndex = (nextAcquireSemaphoreIndex + 1) % (uint32)imageAvailableSemaphores.size();
+		VkResult acquireResult = vkAcquireNextImageKHR(device, swapchain, FRAME_WAIT_TIMEOUT_NS, imageAvailableSemaphores[acquireSemIndex], VK_NULL_HANDLE, &imageIndex);
+		if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR || acquireResult == VK_SUBOPTIMAL_KHR)
+		{
+			ResetAcquireSemaphore(acquireSemIndex);
+			RecreateSwapchain(swapchainExtent.width, swapchainExtent.height);
+			return false;
+		}
+		if (acquireResult != VK_SUCCESS)
+		{
+			ResetAcquireSemaphore(acquireSemIndex);
+			return false;
+		}
+		vkResetFences(device, 1, &frameFence);
 
 		vkResetCommandBuffer(frameCommandBuffer, 0);
 
@@ -631,7 +983,7 @@ namespace p3d {
 		VkSubmitInfo submitInfo = {};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		submitInfo.waitSemaphoreCount = 1;
-		submitInfo.pWaitSemaphores = &imageAvailableSemaphore;
+		submitInfo.pWaitSemaphores = &imageAvailableSemaphores[acquireSemIndex];
 		submitInfo.pWaitDstStageMask = &waitStage;
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &frameCommandBuffer;
@@ -661,7 +1013,11 @@ namespace p3d {
 	// that receives a 0 cmd (BindVertexArray/DrawElements/etc, all guarded
 	// on `frameInProgress` too) safely no-ops instead of touching a
 	// command buffer no one began recording into.
-	CommandBufferHandle VulkanRenderDevice::BeginCommandBuffer() { return frameInProgress ? 1 : 0; }
+	// True during either a real swapchain frame or an offscreen FBO pass
+	// (shadow maps) - see the header comment on activeCommandBuffer for
+	// why both share this single-active-pass model rather than needing
+	// separate parallel state.
+	CommandBufferHandle VulkanRenderDevice::BeginCommandBuffer() { return (frameInProgress || offscreenPassOpen) ? 1 : 0; }
 	void VulkanRenderDevice::EndCommandBuffer(const CommandBufferHandle cmd) {}
 
 	void VulkanRenderDevice::BeginFrame()
@@ -669,13 +1025,84 @@ namespace p3d {
 		if (swapchain == VK_NULL_HANDLE || frameInProgress)
 			return;
 
-		vkWaitForFences(device, 1, &frameFence, VK_TRUE, UINT64_MAX);
-		vkResetFences(device, 1, &frameFence);
-
-		uint32 imageIndex = 0;
-		VkResult acquireResult = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
-		if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
+		// Self-heal: if a previous RecreateSwapchain() call bailed out
+		// (e.g. a momentarily degenerate 0x0 extent mid-resize - see its
+		// comment) or otherwise left the device without a render pass/
+		// framebuffers, retry every tick rather than only reacting to
+		// vkAcquireNextImageKHR()'s result below - acquiring against a
+		// technically-still-valid swapchain whose dependents don't exist
+		// is exactly the "resize permanently breaks rendering" failure
+		// mode this exists to close off.
+		if (framebuffers.empty() || renderPass == VK_NULL_HANDLE)
+		{
+			RecreateSwapchain(swapchainExtent.width, swapchainExtent.height);
 			return;
+		}
+
+		// Bounded, not UINT64_MAX: on macOS/MoltenVK, acquiring/waiting
+		// with no timeout at all can genuinely block the whole process
+		// during an active window resize drag - the CAMetalLayer can
+		// stop handing back drawables for the duration of the resize
+		// (this is a real, observed platform behavior, not
+		// hypothetical - a resize was seen to hang the process outright
+		// before this fix). A few-second bound means a stalled resize
+		// degrades to "skip this frame, try again next tick" instead of
+		// a frozen process; it's far longer than any real single-frame
+		// GPU workload this backend does, so it never fires under normal
+		// operation.
+		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
+		if (vkWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS) != VK_SUCCESS)
+			return;
+
+		// Do *not* reset frameFence until we know this frame is actually
+		// going to submit and re-signal it (right before
+		// vkResetCommandBuffer below, once acquire has already
+		// succeeded). Resetting it unconditionally here - the previous
+		// version of this function did - meant any early-return between
+		// here and the real submit (acquire failing, which happens
+		// constantly during a resize) left the fence permanently
+		// unsignaled with nothing left to ever signal it again: every
+		// later BeginFrame() call would then block for the *full*
+		// timeout on a fence that can never become signaled, return, and
+		// immediately be called again by the main loop - forever. From
+		// the outside (and to a user) that reads as the app permanently
+		// hanging on resize, not "gracefully skipping a frame" - reproduced
+		// and confirmed via `lldb -p <pid> -o "bt all"` while stuck:
+		// the main thread was parked inside this exact vkWaitForFences
+		// call, indefinitely.
+		uint32 imageIndex = 0;
+		// See nextAcquireSemaphoreIndex's comment - must advance on every
+		// attempt, success or failure. currentFrameAcquireSemaphoreIndex
+		// (used by EndFrame()'s submit) only gets updated below once
+		// acquire actually succeeds.
+		uint32 acquireSemIndex = nextAcquireSemaphoreIndex;
+		nextAcquireSemaphoreIndex = (nextAcquireSemaphoreIndex + 1) % (uint32)imageAvailableSemaphores.size();
+		VkResult acquireResult = vkAcquireNextImageKHR(device, swapchain, FRAME_WAIT_TIMEOUT_NS, imageAvailableSemaphores[acquireSemIndex], VK_NULL_HANDLE, &imageIndex);
+		// VK_ERROR_OUT_OF_DATE_KHR (surface changed size/properties enough
+		// that this swapchain can no longer be used at all) and
+		// VK_SUBOPTIMAL_KHR (still usable, but no longer an exact match -
+		// also worth rebuilding, or the mismatch just persists forever)
+		// are both the surface telling us a resize happened - see
+		// RecreateSwapchain()'s comment. Skip this frame either way; the
+		// next BeginFrame() call retries against the freshly-rebuilt
+		// swapchain. VK_TIMEOUT (drawable not ready yet, still mid-resize)
+		// is handled the same way - just try again next tick. frameFence
+		// is still signaled from the last real completed frame in every
+		// one of these cases, so the *next* call's vkWaitForFences above
+		// returns immediately rather than blocking again.
+		if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR || acquireResult == VK_SUBOPTIMAL_KHR)
+		{
+			ResetAcquireSemaphore(acquireSemIndex);
+			RecreateSwapchain(swapchainExtent.width, swapchainExtent.height);
+			return;
+		}
+		if (acquireResult != VK_SUCCESS)
+		{
+			ResetAcquireSemaphore(acquireSemIndex);
+			return;
+		}
+		vkResetFences(device, 1, &frameFence);
+		currentFrameAcquireSemaphoreIndex = acquireSemIndex;
 		currentImageIndex = imageIndex;
 		currentVao = 0;
 		currentPipeline = 0;
@@ -707,6 +1134,7 @@ namespace p3d {
 		VkRect2D scissor = { { 0, 0 }, swapchainExtent };
 		vkCmdSetScissor(frameCommandBuffer, 0, 1, &scissor);
 
+		activeCommandBuffer = frameCommandBuffer;
 		frameInProgress = true;
 	}
 
@@ -715,6 +1143,7 @@ namespace p3d {
 		if (!frameInProgress)
 			return;
 		frameInProgress = false;
+		activeCommandBuffer = VK_NULL_HANDLE;
 		currentVao = 0;
 
 		vkCmdEndRenderPass(frameCommandBuffer);
@@ -787,7 +1216,7 @@ namespace p3d {
 		VkSubmitInfo submitInfo = {};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		submitInfo.waitSemaphoreCount = 1;
-		submitInfo.pWaitSemaphores = &imageAvailableSemaphore;
+		submitInfo.pWaitSemaphores = &imageAvailableSemaphores[currentFrameAcquireSemaphoreIndex];
 		submitInfo.pWaitDstStageMask = &waitStage;
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &frameCommandBuffer;
@@ -1089,19 +1518,21 @@ namespace p3d {
 		rasterizer.polygonMode = desc.wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
 		rasterizer.cullMode = TranslateCullFaceVk(desc.cullFace);
 		// GL's front-face winding is CCW, never overridden anywhere in
-		// this codebase - but TranslateProjectionMatrix() flips clip-space
-		// Y for Vulkan's NDC convention (see its comment), which also
-		// mirrors every triangle's *effective* winding as the rasterizer
-		// sees it: what was CCW in GL's NDC becomes CW after that flip.
-		// Compensating here (not by dropping the Y-flip - GL's Y-up NDC
-		// still has to become Vulkan's Y-down one, that part is required)
-		// keeps front/back-face culling deciding the same triangles are
-		// front-facing as GL already does. Missed on the first pass -
-		// after fixing the Z-range clipping issue this method's other
-		// half addresses, the cube was still 0% visible because the
-		// (correctly depth-unclipped) faces were now being back-face
-		// culled instead.
-		rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+		// this codebase, and Vulkan keeps that same meaning here - despite
+		// TranslateProjectionMatrix() flipping clip-space Y for Vulkan's
+		// NDC convention. An earlier version of this line compensated
+		// with VK_FRONT_FACE_CLOCKWISE on the theory that the Y-flip
+		// mirrors every triangle's apparent winding; that reasoning
+		// checked out on paper (twice) but was empirically wrong - it
+		// silently back-face-culled every mesh's near-camera faces
+		// (RotatingCube rendered as a hollow shell: correct silhouette
+		// bbox, ~25% interior fill, only grazing-angle side faces
+		// surviving). Confirmed via a GL-vs-Vulkan pixel-readback
+		// comparison (avg luminance + bounding box of an identical scene
+		// swept through 8 rotation angles): VK_FRONT_FACE_COUNTER_CLOCKWISE
+		// gives an exact match to GL at every angle; CLOCKWISE does not.
+		// Trust that measurement over the paper derivation.
+		rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 		rasterizer.lineWidth = 1.0f;
 
 		VkPipelineMultisampleStateCreateInfo multisampling = {};
@@ -1124,10 +1555,31 @@ namespace p3d {
 		blendAttachment.alphaBlendOp = TranslateBlendEquationVk(desc.blendEquation);
 		blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
+		// A depth-only render pass's subpass has zero color attachments -
+		// the color-blend state's attachment count must match that
+		// exactly for render-pass compatibility (see the comment on
+		// PipelineDesc::isShadowPass/shadowPipelineRenderPass for why
+		// this distinction exists at all).
 		VkPipelineColorBlendStateCreateInfo colorBlending = {};
 		colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-		colorBlending.attachmentCount = 1;
-		colorBlending.pAttachments = &blendAttachment;
+		colorBlending.attachmentCount = desc.isShadowPass ? 0 : 1;
+		colorBlending.pAttachments = desc.isShadowPass ? NULL : &blendAttachment;
+
+		VkRenderPass targetRenderPass = renderPass;
+		if (desc.isShadowPass)
+		{
+			if (shadowPipelineRenderPass == VK_NULL_HANDLE)
+			{
+				FBORecord templateFbo;
+				if (!BuildDepthOnlyRenderPass(templateFbo, VK_FORMAT_D32_SFLOAT))
+				{
+					fprintf(stderr, "VulkanRenderDevice::CreatePipeline: failed to build the shared shadow-pipeline render pass\n");
+					return 0;
+				}
+				shadowPipelineRenderPass = templateFbo.renderPass;
+			}
+			targetRenderPass = shadowPipelineRenderPass;
+		}
 
 		VkGraphicsPipelineCreateInfo pipelineInfo = {};
 		pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -1142,7 +1594,7 @@ namespace p3d {
 		pipelineInfo.pColorBlendState = &colorBlending;
 		pipelineInfo.pDynamicState = &dynamicState;
 		pipelineInfo.layout = progIt->second.pipelineLayout;
-		pipelineInfo.renderPass = renderPass;
+		pipelineInfo.renderPass = targetRenderPass;
 		pipelineInfo.subpass = 0;
 
 		VkPipeline pipeline;
@@ -1200,7 +1652,7 @@ namespace p3d {
 
 	void VulkanRenderDevice::BindPipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline)
 	{
-		if (!frameInProgress || cmd == 0)
+		if (!(frameInProgress || offscreenPassOpen) || cmd == 0)
 			return;
 		std::map<DeviceHandle, VkPipeline>::iterator it = pipelines.find(pipeline);
 		if (it == pipelines.end())
@@ -1210,35 +1662,45 @@ namespace p3d {
 			return;
 		}
 		currentPipeline = pipeline;
-		vkCmdBindPipeline(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, it->second);
+		vkCmdBindPipeline(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, it->second);
 
-		// Also bind the owning program's UBO set (set=0, if
-		// BindUniformBlockIfPresent() ever allocated one) and this
-		// pipeline's own sampler set (set=1, if CreatePipeline() ever
-		// allocated one - see ProgramRecord::samplerSetLayout for why
-		// this is per-pipeline, not per-program) - GL's equivalent state
-		// (which UBOs/textures are bound) is already implicit/global by
-		// this point via glUniformBlockBinding()/glUniform1i(), but
-		// Vulkan needs an explicit vkCmdBindDescriptorSets() per draw.
-		std::map<DeviceHandle, DeviceHandle>::iterator progHandleIt = pipelineToProgram.find(pipeline);
-		if (progHandleIt != pipelineToProgram.end())
-		{
-			std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(progHandleIt->second);
-			if (progIt != programs.end())
-			{
-				if (progIt->second.descriptorSet != VK_NULL_HANDLE)
-					vkCmdBindDescriptorSets(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet, 0, NULL);
-				std::map<DeviceHandle, VkDescriptorSet>::iterator samplerSetIt = pipelineSamplerSets.find(pipeline);
-				if (samplerSetIt != pipelineSamplerSets.end() && samplerSetIt->second != VK_NULL_HANDLE)
-					vkCmdBindDescriptorSets(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 1, 1, &samplerSetIt->second, 0, NULL);
-			}
-		}
+		// Deliberately *not* binding descriptor sets here (moved to
+		// DrawElements()/DrawElementsInstanced(), right before the
+		// actual draw) - see the comment there for why: this call runs
+		// on mesh/material *switch*, before Material->PreRender()/
+		// SendGlobalUniforms()/SendUserUniforms() have had a chance to
+		// write this object's texture/shadow-map descriptors via
+		// SendUniformInt(). Binding a descriptor set here and then
+		// updating its contents afterward - still within the same
+		// not-yet-submitted command buffer - is invalid without the
+		// VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT feature (not
+		// enabled here): VUID-vkCmdBindPipeline-commandBuffer-recording
+		// caught this the hard way, the first time a shadow-casting
+		// object's descriptor write happened after its pipeline (and,
+		// with the old code, its descriptor sets) were already bound.
 	}
 
 	void VulkanRenderDevice::EnableClipDistance(const uint32 index) {}
 	void VulkanRenderDevice::DisableClipDistance(const uint32 index) {}
 
-	void VulkanRenderDevice::SetViewport(const uint32 x, const uint32 y, const uint32 width, const uint32 height) {}
+	// Real per-draw viewport/scissor override - used by the shadow pass's
+	// per-cascade directional-light viewport regions (up to 4 quadrants
+	// of one shadow atlas texture, see IRenderer::PreRender()'s
+	// DIRECTIONAL case) via vkCmdSetViewport/vkCmdSetScissor as dynamic
+	// state (CreatePipeline() already declares both dynamic - see its
+	// comment). BeginFrame()/AttachFramebufferTexture2D() already set a
+	// default full-target viewport when a pass begins, so most draws
+	// never need to call this at all - it only matters when a caller
+	// wants something narrower.
+	void VulkanRenderDevice::SetViewport(const uint32 x, const uint32 y, const uint32 width, const uint32 height)
+	{
+		if (!(frameInProgress || offscreenPassOpen) || activeCommandBuffer == VK_NULL_HANDLE)
+			return;
+		VkViewport viewport = { (f32)x, (f32)y, (f32)width, (f32)height, 0.0f, 1.0f };
+		VkRect2D scissor = { { (int32_t)x, (int32_t)y }, { width, height } };
+		vkCmdSetViewport(activeCommandBuffer, 0, 1, &viewport);
+		vkCmdSetScissor(activeCommandBuffer, 0, 1, &scissor);
+	}
 
 	// Mirrors GL's implicit "current program" state (glUseProgram) -
 	// GetUniformLocation()/SendUniformInt() below need to know which
@@ -1316,6 +1778,8 @@ namespace p3d {
 		(void)blockName;
 		if (progIt->second.reflectedBindings.find(bindingPoint) == progIt->second.reflectedBindings.end())
 			return; // shader doesn't declare a block at this binding - matches GL's no-op contract
+		if (progIt->second.writtenBindings.find(bindingPoint) != progIt->second.writtenBindings.end())
+			return; // already written for this program - see the comment on ProgramRecord::writtenBindings for why re-writing it is unsafe, not just wasteful
 
 		std::map<uint32, DeviceHandle>::iterator bufIt = uniformBufferByBindingPoint.find(bindingPoint);
 		if (bufIt == uniformBufferByBindingPoint.end())
@@ -1334,16 +1798,22 @@ namespace p3d {
 		// ~1024 distinct (mesh,shader) pairs would need this revisited.
 		if (descriptorPool == VK_NULL_HANDLE)
 		{
-			VkDescriptorPoolSize poolSizes[2] = {};
+			// See IsPerObjectDynamicBinding()'s comment - up to 6 of a
+			// program's UBO bindings are VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
+			// instead of plain UNIFORM_BUFFER, so the pool needs a
+			// reservation for that type too.
+			VkDescriptorPoolSize poolSizes[3] = {};
 			poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 			poolSizes[0].descriptorCount = 64;
 			poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			poolSizes[1].descriptorCount = 4096;
+			poolSizes[2].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+			poolSizes[2].descriptorCount = 64;
 
 			VkDescriptorPoolCreateInfo poolInfo = {};
 			poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 			poolInfo.maxSets = 1024;
-			poolInfo.poolSizeCount = 2;
+			poolInfo.poolSizeCount = 3;
 			poolInfo.pPoolSizes = poolSizes;
 			if (vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool) != VK_SUCCESS)
 				return;
@@ -1362,6 +1832,13 @@ namespace p3d {
 				return;
 		}
 
+		// offset stays 0 regardless of isDynamicUniform - that's the
+		// descriptor's *base* offset; the actual current slot gets added
+		// on top of this at bind time via vkCmdBindDescriptorSets'
+		// pDynamicOffsets (BindCurrentPipelineDescriptorSets()), not baked
+		// in here. range uses the unpadded `size` either way (the
+		// shader's real declared block size - see BufferRecord::
+		// alignedSlotSize's comment on why the padding isn't part of it).
 		VkDescriptorBufferInfo bufferInfo = {};
 		bufferInfo.buffer = recIt->second.buffer;
 		bufferInfo.offset = 0;
@@ -1372,9 +1849,10 @@ namespace p3d {
 		write.dstSet = progIt->second.descriptorSet;
 		write.dstBinding = bindingPoint;
 		write.descriptorCount = 1;
-		write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		write.descriptorType = recIt->second.isDynamicUniform ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		write.pBufferInfo = &bufferInfo;
 		vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
+		progIt->second.writtenBindings.insert(bindingPoint);
 	}
 
 	// Unused by DrawElements()/DrawElementsInstanced() below - Vulkan bakes
@@ -1420,6 +1898,24 @@ namespace p3d {
 		return clipCorrection * projectionMatrix;
 	}
 
+	// See the comment on this method in IRenderDevice.h - X/Y remapped
+	// clip[-1,1]->[0,1] exactly like Matrix::BIAS, but Z passes through
+	// unchanged (TranslateProjectionMatrix() above already remapped it):
+	//   [0.5  0    0   0.5]
+	//   [0    0.5  0   0.5]
+	//   [0    0    1   0  ]
+	//   [0    0    0   1  ]
+	Matrix VulkanRenderDevice::TranslateShadowBiasMatrix()
+	{
+		static const Matrix xyOnlyBias(
+			0.5f, 0.f, 0.f, 0.f,
+			0.f, 0.5f, 0.f, 0.f,
+			0.f, 0.f, 1.f, 0.f,
+			0.5f, 0.5f, 0.f, 1.f
+		);
+		return xyOnlyBias;
+	}
+
 	uint32 VulkanRenderDevice::TranslateDrawType(const uint32 engineDrawType) { return 0; }
 
 	// Not implemented - nothing on this backend's validation path
@@ -1428,7 +1924,7 @@ namespace p3d {
 
 	void VulkanRenderDevice::DrawElements(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount)
 	{
-		if (!frameInProgress || cmd == 0 || currentVao == 0)
+		if (!(frameInProgress || offscreenPassOpen) || cmd == 0 || currentVao == 0)
 			return;
 		if (currentPipeline == 0)
 		{
@@ -1443,17 +1939,19 @@ namespace p3d {
 		if (vboIt == buffers.end() || iboIt == buffers.end())
 			return;
 
+		BindCurrentPipelineDescriptorSets();
+
 		VkBuffer vbo = vboIt->second.buffer;
 		VkDeviceSize vboOffset = 0;
-		vkCmdBindVertexBuffers(frameCommandBuffer, 0, 1, &vbo, &vboOffset);
+		vkCmdBindVertexBuffers(activeCommandBuffer, 0, 1, &vbo, &vboOffset);
 		// __INDEX_C_TYPE__ (Global.h) is uint32 - matches VK_INDEX_TYPE_UINT32.
-		vkCmdBindIndexBuffer(frameCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdDrawIndexed(frameCommandBuffer, indexCount, 1, 0, 0, 0);
+		vkCmdBindIndexBuffer(activeCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdDrawIndexed(activeCommandBuffer, indexCount, 1, 0, 0, 0);
 	}
 
 	void VulkanRenderDevice::DrawElementsInstanced(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount, const uint32 instanceCount)
 	{
-		if (!frameInProgress || cmd == 0 || currentVao == 0)
+		if (!(frameInProgress || offscreenPassOpen) || cmd == 0 || currentVao == 0)
 			return;
 		if (currentPipeline == 0)
 		{
@@ -1468,26 +1966,83 @@ namespace p3d {
 		if (vboIt == buffers.end() || iboIt == buffers.end())
 			return;
 
+		BindCurrentPipelineDescriptorSets();
+
 		VkBuffer vbo = vboIt->second.buffer;
 		VkDeviceSize vboOffset = 0;
-		vkCmdBindVertexBuffers(frameCommandBuffer, 0, 1, &vbo, &vboOffset);
-		vkCmdBindIndexBuffer(frameCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdDrawIndexed(frameCommandBuffer, indexCount, instanceCount, 0, 0, 0);
+		vkCmdBindVertexBuffers(activeCommandBuffer, 0, 1, &vbo, &vboOffset);
+		vkCmdBindIndexBuffer(activeCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdDrawIndexed(activeCommandBuffer, indexCount, instanceCount, 0, 0, 0);
 	}
 
-	// bindingPoint isn't tracked per-buffer here (nothing consumes it yet
-	// - see the comment on CreatePipeline still being unimplemented) but
-	// the parameter stays for interface parity and so CreateUniformBuffer's
-	// call sites in IRenderer don't need to change again once descriptor
-	// sets land.
+	void VulkanRenderDevice::BindCurrentPipelineDescriptorSets()
+	{
+		std::map<DeviceHandle, DeviceHandle>::iterator progHandleIt = pipelineToProgram.find(currentPipeline);
+		if (progHandleIt == pipelineToProgram.end())
+			return;
+		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(progHandleIt->second);
+		if (progIt == programs.end())
+			return;
+		if (progIt->second.descriptorSet != VK_NULL_HANDLE)
+		{
+			// Dynamic offsets must be supplied in the same order the
+			// descriptor set layout's bindings were given at creation
+			// time (CreatePipeline()'s reflection loop iterates
+			// bindingsByIndex - a std::map, so ascending binding index -
+			// reflectedBindings is a std::set, so iterating it gives that
+			// same order for free), filtered to just the dynamic ones -
+			// every plain, non-dynamic UBO binding contributes nothing
+			// here regardless of where it falls in that order. Fixed-size
+			// stack array, not a std::vector - this runs on every single
+			// draw call, and IsPerObjectDynamicBinding()'s list is capped
+			// at 7 entries, so there's no reason to heap-allocate here.
+			uint32_t dynamicOffsets[7];
+			uint32_t dynamicOffsetCount = 0;
+			for (std::set<uint32>::iterator bIt = progIt->second.reflectedBindings.begin(); bIt != progIt->second.reflectedBindings.end(); bIt++)
+			{
+				if (!IsPerObjectDynamicBinding(*bIt))
+					continue;
+				std::map<uint32, DeviceHandle>::iterator bufHandleIt = uniformBufferByBindingPoint.find(*bIt);
+				if (bufHandleIt == uniformBufferByBindingPoint.end())
+					continue;
+				std::map<DeviceHandle, BufferRecord>::iterator bufRecIt = buffers.find(bufHandleIt->second);
+				if (bufRecIt == buffers.end())
+					continue;
+				if (dynamicOffsetCount >= 7)
+					break; // can't happen - IsPerObjectDynamicBinding() only ever recognizes 7 binding points
+				dynamicOffsets[dynamicOffsetCount++] = (uint32_t)((VkDeviceSize)bufRecIt->second.currentSlot * bufRecIt->second.alignedSlotSize);
+			}
+			vkCmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet,
+				dynamicOffsetCount, dynamicOffsetCount > 0 ? dynamicOffsets : NULL);
+		}
+		std::map<DeviceHandle, VkDescriptorSet>::iterator samplerSetIt = pipelineSamplerSets.find(currentPipeline);
+		if (samplerSetIt != pipelineSamplerSets.end() && samplerSetIt->second != VK_NULL_HANDLE)
+			vkCmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 1, 1, &samplerSetIt->second, 0, NULL);
+	}
+
 	DeviceHandle VulkanRenderDevice::CreateUniformBuffer(const uint32 sizeBytes, const uint32 bindingPoint)
 	{
 		if (allocator == VK_NULL_HANDLE || sizeBytes == 0)
 			return 0;
 
+		// See IsPerObjectDynamicBinding()'s comment - these specific
+		// binding points get a real multi-slot buffer (one slot per
+		// ReplaceUniformBuffer() call) instead of the single `sizeBytes`
+		// allocation every other UBO uses.
+		bool dynamic = IsPerObjectDynamicBinding(bindingPoint);
+		VkDeviceSize alignedSlotSize = sizeBytes;
+		uint32 slotCount = 1;
+		if (dynamic)
+		{
+			VkDeviceSize align = minUniformBufferOffsetAlignment > 0 ? minUniformBufferOffsetAlignment : 256;
+			alignedSlotSize = ((VkDeviceSize)sizeBytes + align - 1) / align * align;
+			slotCount = DYNAMIC_UBO_SLOT_COUNT;
+		}
+		VkDeviceSize totalSize = alignedSlotSize * slotCount;
+
 		VkBufferCreateInfo bufferInfo = {};
 		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-		bufferInfo.size = sizeBytes;
+		bufferInfo.size = totalSize;
 		bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
@@ -1497,6 +2052,10 @@ namespace p3d {
 
 		BufferRecord record;
 		record.size = sizeBytes;
+		record.isDynamicUniform = dynamic;
+		record.alignedSlotSize = alignedSlotSize;
+		record.slotCount = slotCount;
+		record.currentSlot = 0;
 		VmaAllocationInfo allocationInfo;
 		if (vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &record.buffer, &record.allocation, &allocationInfo) != VK_SUCCESS)
 			return 0;
@@ -1507,7 +2066,7 @@ namespace p3d {
 		// relying on the buffer starting zeroed until the first
 		// ReplaceUniformBuffer()/UpdateUniformBuffer() call).
 		if (record.mapped != NULL)
-			memset(record.mapped, 0, sizeBytes);
+			memset(record.mapped, 0, (size_t)totalSize);
 
 		DeviceHandle handle = nextBufferHandle++;
 		buffers[handle] = record;
@@ -1517,12 +2076,22 @@ namespace p3d {
 		return handle;
 	}
 
+	// Never advances a dynamic UBO's current slot - see
+	// ReplaceUniformBuffer()'s comment for why that's its job, not this
+	// one's. Writes at (current slot's base) + offset, so a caller that
+	// needs to split one logical object/material-switch's worth of data
+	// across multiple calls (the way DirectionalShadowUBO's two
+	// PreRender()-time writes do, though that one isn't a dynamic binding)
+	// can call ReplaceUniformBuffer() once to start it, then
+	// UpdateUniformBuffer() for the rest, all landing in the same slot.
 	void VulkanRenderDevice::UpdateUniformBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void *data)
 	{
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it == buffers.end() || it->second.mapped == NULL)
 			return;
-		memcpy((uchar*)it->second.mapped + offset, data, sizeBytes);
+		BufferRecord &rec = it->second;
+		VkDeviceSize slotBase = rec.isDynamicUniform ? (VkDeviceSize)rec.currentSlot * rec.alignedSlotSize : 0;
+		memcpy((uchar*)rec.mapped + slotBase + offset, data, sizeBytes);
 	}
 
 	void VulkanRenderDevice::ReplaceUniformBuffer(const DeviceHandle buffer, const uint32 sizeBytes, const void *data)
@@ -1532,11 +2101,18 @@ namespace p3d {
 		// glBufferSubData - this is a plain host-memory memcpy into
 		// persistently-mapped, host-coherent memory; there's no implicit
 		// CPU/GPU sync point to stall on the way glBufferSubData has.
-		// (Real GPU/CPU synchronization for a buffer still being read by
-		// an in-flight command buffer is a correctness concern that needs
-		// per-frame buffering once real draw submission exists - not
-		// reachable yet since nothing calls ReplaceUniformBuffer() through
-		// a live render loop on this backend.)
+		//
+		// For a dynamic UBO (see IsPerObjectDynamicBinding()'s comment),
+		// this call is the start of a new logical write - advance to the
+		// next slot *before* writing, so this object/material-switch gets
+		// a slot no other still-relevant draw this frame is using.
+		// BindCurrentPipelineDescriptorSets() reads currentSlot right
+		// before the matching draw is recorded, so the two stay in sync
+		// as long as callers keep doing what IRenderer.cpp already does:
+		// finish sending an object's uniforms before drawing it.
+		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
+		if (it != buffers.end() && it->second.isDynamicUniform)
+			it->second.currentSlot = (it->second.currentSlot + 1) % it->second.slotCount;
 		UpdateUniformBuffer(buffer, 0, sizeBytes, data);
 	}
 
@@ -1791,7 +2367,10 @@ namespace p3d {
 				const SpirvResourceBinding &res = resources[i];
 				std::map<uint32, VkDescriptorSetLayoutBinding> &targetMap = (res.type == SpirvResourceType::SampledImage) ? samplerBindingsByIndex : bindingsByIndex;
 				if (res.type == SpirvResourceType::SampledImage)
+				{
 					it->second.samplerBindings[res.name] = res.binding;
+					it->second.samplerArraySizes[res.binding] = res.arraySize;
+				}
 				std::map<uint32, VkDescriptorSetLayoutBinding>::iterator existing = targetMap.find(res.binding);
 				if (existing != targetMap.end())
 				{
@@ -1800,8 +2379,22 @@ namespace p3d {
 				}
 				VkDescriptorSetLayoutBinding binding = {};
 				binding.binding = res.binding;
-				binding.descriptorType = (res.type == SpirvResourceType::SampledImage) ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-				binding.descriptorCount = 1;
+				// See IsPerObjectDynamicBinding()'s comment - the handful
+				// of UBOs that genuinely vary within a single frame need
+				// VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC (paired with
+				// CreateUniformBuffer()'s multi-slot allocation and
+				// BindCurrentPipelineDescriptorSets()'s per-draw dynamic
+				// offset) instead of a plain UNIFORM_BUFFER descriptor,
+				// which only ever points at one fixed buffer location.
+				binding.descriptorType = (res.type == SpirvResourceType::SampledImage) ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+					: (IsPerObjectDynamicBinding(res.binding) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+				// Must match the shader's own declared array length (e.g.
+				// PyrosShader.glsl's `uPointShadowMaps[4]`) exactly - a
+				// hardcoded 1 here fails pipeline creation outright
+				// (VUID-VkGraphicsPipelineCreateInfo-layout-07991) for any
+				// material using an array-typed sampler, which every
+				// PointShadow/SpotShadow material does.
+				binding.descriptorCount = res.arraySize;
 				binding.stageFlags = stageFlag;
 				targetMap[res.binding] = binding;
 			}
@@ -1993,6 +2586,15 @@ namespace p3d {
 		samplerInfo.addressModeW = samplerInfo.addressModeV;
 		samplerInfo.minLod = 0.0f;
 		samplerInfo.maxLod = tex.hasMipmap ? VK_LOD_CLAMP_NONE : 0.0f;
+		// Hardware depth-compare sampling for sampler2DShadow/
+		// samplerCubeShadow (every shadow map - see
+		// Texture::EnableCompareMode(), called by every light's
+		// EnableCastShadows()). LESS_OR_EQUAL matches GL's default
+		// GL_TEXTURE_COMPARE_FUNC (GL_LEQUAL) - PyrosShader.glsl's PCF
+		// functions (PCFDIRECTIONAL/PCFPOINT/PCFSPOT) were written
+		// against that convention and never override it.
+		samplerInfo.compareEnable = tex.compareModeEnabled ? VK_TRUE : VK_FALSE;
+		samplerInfo.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
 		if (vkCreateSampler(device, &samplerInfo, NULL, &tex.sampler) != VK_SUCCESS)
 		{
@@ -2044,13 +2646,30 @@ namespace p3d {
 		imageInfo.imageView = texIt->second.view;
 		imageInfo.sampler = texIt->second.sampler;
 
+		// If this binding is a shader-declared array (e.g.
+		// `uPointShadowMaps[4]` - see ProgramRecord::samplerArraySizes'
+		// comment), write the same descriptor into every element, not
+		// just element 0: PyrosShader.glsl's PCF helpers only ever read
+		// index 0 with a literal constant, but Vulkan still requires
+		// every element the *type* declares to be a valid descriptor the
+		// moment any element is dynamically accessed
+		// (VUID-vkCmdDrawIndexed-None-08114) - leaving elements 1..N-1
+		// never-written means they're never valid.
+		uint32 arraySize = 1;
+		std::map<uint32, uint32>::iterator arrIt = progIt->second.samplerArraySizes.find((uint32)handle);
+		if (arrIt != progIt->second.samplerArraySizes.end())
+			arraySize = arrIt->second;
+
+		std::vector<VkDescriptorImageInfo> imageInfos(arraySize, imageInfo);
+
 		VkWriteDescriptorSet write = {};
 		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		write.dstSet = setIt->second;
 		write.dstBinding = (uint32)handle;
-		write.descriptorCount = 1;
+		write.dstArrayElement = 0;
+		write.descriptorCount = arraySize;
 		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		write.pImageInfo = &imageInfo;
+		write.pImageInfo = imageInfos.data();
 		vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
 	}
 	void VulkanRenderDevice::SendUniformFloat(const int32 handle, const f32 *data, const uint32 count) {}
@@ -2065,16 +2684,20 @@ namespace p3d {
 	// out). Vulkan images have one storage VkFormat and no separate
 	// input-format/type concept - this just packs a VkFormat into
 	// `internalFormat` (read back by UploadTexture2D() below) and leaves
-	// `format`/`type` unused (0). Only covers the formats this backend's
-	// one real texture path (Texture::LoadTexture(), via stb_image forced
-	// to 4 channels - see its `stbi_load_from_memory(..., 4)` call -
-	// always produces TextureDataType::RGBA) and a few other
-	// straightforward same-byte-layout formats actually need; anything
-	// else (depth/compressed/float variants) falls back to RGBA8 as a
-	// best-effort default, untested since no example on this backend
-	// uses them (FrameBuffer.cpp, the other TranslateTextureFormat()
-	// caller for depth/render-target formats, stays GL-only - see
-	// VULKAN_ROADMAP.md's Phase 6 scope).
+	// `format`/`type` unused (0). Covers the formats this backend's real
+	// texture paths actually need: Texture::LoadTexture() (via stb_image
+	// forced to 4 channels - see its `stbi_load_from_memory(..., 4)` call -
+	// always produces TextureDataType::RGBA), every light's shadow map
+	// (always TextureDataType::DepthComponent, see
+	// DirectionalLight/PointLight/SpotLight.cpp's EnableCastShadows()),
+	// and a few other straightforward same-byte-layout extras; anything
+	// else (compressed formats) falls back to RGBA8 as a best-effort
+	// default, untested since no example on this backend uses them.
+	// UploadTexture2D()/CreateTextureObject() branch on whether the
+	// returned VkFormat is one of the depth ones below (there's no
+	// separate "this is a depth texture" flag threaded through this
+	// call - the format itself is the signal, same as GL's own
+	// glTexImage2D(..., GL_DEPTH_COMPONENT, ...) convention).
 	void VulkanRenderDevice::TranslateTextureFormat(const uint32 engineDataType, uint32 &internalFormat, uint32 &format, uint32 &type)
 	{
 		format = 0;
@@ -2089,21 +2712,46 @@ namespace p3d {
 		case TextureDataType::RGBA32F: internalFormat = (uint32)VK_FORMAT_R32G32B32A32_SFLOAT; break;
 		case TextureDataType::R16F: internalFormat = (uint32)VK_FORMAT_R16_SFLOAT; break;
 		case TextureDataType::R32F: internalFormat = (uint32)VK_FORMAT_R32_SFLOAT; break;
+		// A widely-supported 32-bit float depth format, no stencil -
+		// every shadow FBO in this engine is depth-only (see FBORecord's
+		// comment), so there's no need to pick one of the depth+stencil
+		// variants some GPUs require instead of a depth-only one; a
+		// depth-only format is core-spec-required to be supported for
+		// this exact optimal-tiling+attachment+sampled usage combination
+		// (VK_FORMAT_D32_SFLOAT specifically, per the Vulkan spec's
+		// mandatory format support tables), so no runtime format-support
+		// query/fallback is needed here.
+		case TextureDataType::DepthComponent:
+		case TextureDataType::DepthComponent16:
+		case TextureDataType::DepthComponent24:
+		case TextureDataType::DepthComponent32:
+			internalFormat = (uint32)VK_FORMAT_D32_SFLOAT;
+			break;
 		default: internalFormat = (uint32)VK_FORMAT_R8G8B8A8_UNORM; break;
 		}
 	}
 
-	// Only plain 2D textures are implemented - cubemap faces
-	// (TextureType::Cubemap*) and multisample targets have no real
-	// backing here yet (no example on this backend uses either; skybox/
-	// envmap rendering is Phase 6 scope). mode/subMode both come back as
-	// a sentinel (0) distinct from any real VkImageViewType, so
-	// BindTextureToTarget()/UploadTexture2D() can tell a genuine 2D
-	// target apart from an unimplemented one - not guessed at without a
-	// real cubemap example to validate against.
+	// Plain 2D textures and cubemap faces (point-light shadow maps - see
+	// PointLight.cpp's EnableCastShadows(), which calls
+	// CreateEmptyTexture()/attaches with TextureType::CubemapPositive_X
+	// + i for i in 0..5) are implemented; multisample targets are not
+	// (no example on this backend uses one - post-effects/MSAA is Phase
+	// 6 scope). mode/subMode come back as a small integer sentinel
+	// distinct for each real target (1 for plain 2D,
+	// CUBEMAP_FACE_TARGET_BASE+faceIndex for a cube face) rather than a
+	// real Vulkan token, since callers (BindTextureToTarget()/
+	// UploadTexture2D()/AttachFramebufferTexture2D()) only need to tell
+	// targets apart, not translate to anything GL-shaped; 0 for anything
+	// else (multisample), matching the "unimplemented" sentinel this
+	// always returned.
 	void VulkanRenderDevice::TranslateTextureTarget(const uint32 engineTextureType, uint32 &mode, uint32 &subMode)
 	{
-		mode = subMode = (engineTextureType == TextureType::Texture) ? 1 : 0;
+		if (engineTextureType == TextureType::Texture)
+			mode = subMode = 1;
+		else if (engineTextureType <= TextureType::CubemapNegative_Z)
+			mode = subMode = CUBEMAP_FACE_TARGET_BASE + engineTextureType;
+		else
+			mode = subMode = 0;
 	}
 
 	DeviceHandle VulkanRenderDevice::CreateTextureObject()
@@ -2170,9 +2818,14 @@ namespace p3d {
 	// right size, but this backend's images are always created with a
 	// single mip level (GenerateMipmap() is a no-op) - untested territory,
 	// no example on this backend loads pre-mipmapped DDS content.
+	static bool IsDepthFormatVk(const VkFormat format)
+	{
+		return format == VK_FORMAT_D32_SFLOAT;
+	}
+
 	void VulkanRenderDevice::UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data)
 	{
-		(void)target; (void)format; (void)type;
+		(void)format; (void)type;
 		if (currentlyConfiguringTexture == 0 || device == VK_NULL_HANDLE || allocator == VK_NULL_HANDLE || width == 0 || height == 0)
 			return;
 		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
@@ -2180,22 +2833,50 @@ namespace p3d {
 			return;
 		TextureRecord &tex = it->second;
 		VkFormat wantedFormat = (VkFormat)internalFormat;
+		bool isDepth = IsDepthFormatVk(wantedFormat);
+		// A cubemap face target (TranslateTextureTarget()'s
+		// CUBEMAP_FACE_TARGET_BASE+faceIndex encoding) - see
+		// PointLight.cpp's EnableCastShadows(), which calls this six
+		// times (once per face) on the *same* Texture/handle, matching
+		// GL's own "one texture object, six glTexImage2D calls with
+		// different face targets" model.
+		bool isCubemapTarget = target >= CUBEMAP_FACE_TARGET_BASE;
+		uint32 faceIndex = isCubemapTarget ? (target - CUBEMAP_FACE_TARGET_BASE) : 0;
 
-		if (tex.image == VK_NULL_HANDLE || tex.width != width || tex.height != height || tex.format != wantedFormat)
+		// (Re)create the image only on the *first* face's call for a
+		// cubemap (isCubemap already true + image already exists means
+		// this is face 1-5 reusing the same 6-layer image), or whenever
+		// a plain 2D texture's size/format actually changed.
+		bool needsCreate = tex.image == VK_NULL_HANDLE || tex.width != width || tex.height != height || tex.format != wantedFormat || (isCubemapTarget && !tex.isCubemap);
+		if (needsCreate)
 		{
 			if (tex.view != VK_NULL_HANDLE) { vkDestroyImageView(device, tex.view, NULL); tex.view = VK_NULL_HANDLE; }
+			for (std::map<uint32, VkImageView>::iterator rtIt = tex.renderTargetViewsByTarget.begin(); rtIt != tex.renderTargetViewsByTarget.end(); rtIt++)
+				vkDestroyImageView(device, rtIt->second, NULL);
+			tex.renderTargetViewsByTarget.clear();
 			if (tex.image != VK_NULL_HANDLE) { vmaDestroyImage(allocator, tex.image, tex.allocation); tex.image = VK_NULL_HANDLE; }
 
 			VkImageCreateInfo imageInfo = {};
 			imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+			imageInfo.flags = isCubemapTarget ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
 			imageInfo.imageType = VK_IMAGE_TYPE_2D;
 			imageInfo.format = wantedFormat;
 			imageInfo.extent = { width, height, 1 };
 			imageInfo.mipLevels = 1;
-			imageInfo.arrayLayers = 1;
+			imageInfo.arrayLayers = isCubemapTarget ? 6 : 1;
 			imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 			imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-			imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+			// Depth formats are never uploaded via staging buffer (every
+			// depth texture on this backend is a shadow map, rendered
+			// into directly as a depth attachment - see
+			// AttachFramebufferTexture2D()), so no TRANSFER_DST_BIT for
+			// those; color formats keep it for LoadTexture()'s staging
+			// upload below. TRANSFER_SRC_BIT on depth textures is purely
+			// for DebugReadDepthTexture()'s diagnostic readback (same
+			// reasoning as the swapchain gaining it for
+			// RequestFrameCapture()) - additive, no cost to any real
+			// shadow-map usage.
+			imageInfo.usage = (isDepth ? (VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT) : VK_IMAGE_USAGE_TRANSFER_DST_BIT) | VK_IMAGE_USAGE_SAMPLED_BIT;
 			imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 			imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
@@ -2203,7 +2884,7 @@ namespace p3d {
 			allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
 			if (vmaCreateImage(allocator, &imageInfo, &allocInfo, &tex.image, &tex.allocation, NULL) != VK_SUCCESS)
 			{
-				fprintf(stderr, "VulkanRenderDevice::UploadTexture2D: vmaCreateImage failed (%ux%u, format=%d)\n", width, height, (int)wantedFormat);
+				fprintf(stderr, "VulkanRenderDevice::UploadTexture2D: vmaCreateImage failed (%ux%u, format=%d, cubemap=%d)\n", width, height, (int)wantedFormat, isCubemapTarget);
 				tex.image = VK_NULL_HANDLE;
 				return;
 			}
@@ -2211,9 +2892,9 @@ namespace p3d {
 			VkImageViewCreateInfo viewInfo = {};
 			viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 			viewInfo.image = tex.image;
-			viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+			viewInfo.viewType = isCubemapTarget ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D;
 			viewInfo.format = wantedFormat;
-			viewInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			viewInfo.subresourceRange = { (VkImageAspectFlags)(isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, 1, 0, isCubemapTarget ? 6u : 1u };
 			if (vkCreateImageView(device, &viewInfo, NULL, &tex.view) != VK_SUCCESS)
 			{
 				fprintf(stderr, "VulkanRenderDevice::UploadTexture2D: vkCreateImageView failed\n");
@@ -2225,10 +2906,17 @@ namespace p3d {
 			tex.width = width;
 			tex.height = height;
 			tex.format = wantedFormat;
+			tex.isCubemap = isCubemapTarget;
+			tex.isDepthTexture = isDepth;
 		}
 
 		if (data == NULL)
-			return; // CreateEmptyTexture()'s case - image exists, nothing to upload yet
+			return; // CreateEmptyTexture()'s case (every shadow map) - image exists, nothing to upload yet
+		if (isDepth)
+		{
+			fprintf(stderr, "VulkanRenderDevice::UploadTexture2D: ignoring non-NULL data for a depth-format texture - depth textures on this backend are only ever populated by rendering into them (see AttachFramebufferTexture2D()), not uploaded\n");
+			return;
+		}
 
 		// One-time-submit staging upload, since texture loading typically
 		// happens outside any per-frame command buffer (asset loading
@@ -2284,12 +2972,18 @@ namespace p3d {
 		toDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		toDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		toDst.image = tex.image;
-		toDst.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+		// baseArrayLayer=faceIndex (0 for a plain 2D texture) - a
+		// cubemap color upload (e.g. a future envmap/skybox path, not
+		// exercised by anything on this backend yet - shadow maps are
+		// depth-only and never reach this staging-upload code at all,
+		// see the isDepth early-return above) must only transition/copy
+		// into the one face layer being uploaded, not layer 0 always.
+		toDst.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, faceIndex, 1 };
 		toDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 		vkCmdPipelineBarrier(uploadCmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &toDst);
 
 		VkBufferImageCopy copyRegion = {};
-		copyRegion.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, level, 0, 1 };
+		copyRegion.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, level, faceIndex, 1 };
 		copyRegion.imageExtent = { width, height, 1 };
 		vkCmdCopyBufferToImage(uploadCmd, stagingBuffer, tex.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
@@ -2387,7 +3081,17 @@ namespace p3d {
 	// needed for shadow mapping, which has no framebuffer target on this
 	// backend yet at all (Phase 6 scope, see VULKAN_ROADMAP.md) - not
 	// implemented.
-	void VulkanRenderDevice::SetTextureCompareMode(const uint32 target) { (void)target; }
+	// Enables hardware depth-compare sampling (sampler2DShadow/
+	// samplerCubeShadow) on currentlyConfiguringTexture - see the
+	// comment on RebuildSamplerIfDirty()'s samplerInfo.compareEnable.
+	void VulkanRenderDevice::SetTextureCompareMode(const uint32 target)
+	{
+		(void)target;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end()) return;
+		it->second.compareModeEnabled = true;
+		it->second.samplerDirty = true;
+	}
 	// GL_UNPACK_ALIGNMENT has no Vulkan equivalent - vkCmdCopyBufferToImage's
 	// staging buffer is always tightly packed (see UploadTexture2D()).
 	void VulkanRenderDevice::SetPixelUnpackAlignment(const uint32 value) { (void)value; }
@@ -2403,20 +3107,329 @@ namespace p3d {
 	void VulkanRenderDevice::ReadTexturePixels(const uint32 target, const uint32 level, const uint32 format, const uint32 type, void *outBuffer) {}
 	uint32 VulkanRenderDevice::GetTextureDataSize(const uint32 nativeInternalFormat, const uint32 width, const uint32 height) { return 0; }
 
-	DeviceHandle VulkanRenderDevice::CreateFramebuffer() { return 0; }
-	void VulkanRenderDevice::DestroyFramebuffer(const DeviceHandle fbo) {}
-	uint32 VulkanRenderDevice::TranslateFramebufferAccess(const uint32 engineAccess) { return 0; }
-	void VulkanRenderDevice::BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo) {}
-	uint32 VulkanRenderDevice::TranslateFramebufferAttachment(const uint32 engineAttachmentFormat) { return 0; }
-	void VulkanRenderDevice::AttachFramebufferTexture2D(const uint32 nativeAttachmentFormat, const uint32 nativeTextureTarget, const uint32 textureId) {}
-	void VulkanRenderDevice::AttachFramebufferRenderbuffer(const uint32 nativeAttachmentFormat, const DeviceHandle renderbuffer) {}
+	DeviceHandle VulkanRenderDevice::CreateFramebuffer()
+	{
+		DeviceHandle handle = nextFBOHandle++;
+		fboRecords[handle] = FBORecord();
+		return handle;
+	}
+
+	void VulkanRenderDevice::DestroyFramebuffer(const DeviceHandle fbo)
+	{
+		std::map<DeviceHandle, FBORecord>::iterator it = fboRecords.find(fbo);
+		if (it == fboRecords.end())
+			return;
+		if (device != VK_NULL_HANDLE)
+		{
+			for (std::map<uint32, VkFramebuffer>::iterator fIt = it->second.framebuffersByTarget.begin(); fIt != it->second.framebuffersByTarget.end(); fIt++)
+				vkDestroyFramebuffer(device, fIt->second, NULL);
+			if (it->second.renderPass != VK_NULL_HANDLE)
+				vkDestroyRenderPass(device, it->second.renderPass, NULL);
+		}
+		fboRecords.erase(it);
+		if (currentBoundFBO == fbo)
+			currentBoundFBO = 0;
+	}
+
+	bool VulkanRenderDevice::BuildDepthOnlyRenderPass(FBORecord &fbo, const VkFormat depthFormat)
+	{
+		VkAttachmentDescription depthAttachment = {};
+		depthAttachment.format = depthFormat;
+		depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+		depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		// So the shadow map is immediately ready to sample once this
+		// render pass ends - no separate transition needed before the
+		// main pass reads it.
+		depthAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		VkAttachmentReference depthRef = {};
+		depthRef.attachment = 0;
+		depthRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+		VkSubpassDescription subpass = {};
+		subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+		subpass.pDepthStencilAttachment = &depthRef;
+
+		// Both directions: this pass must wait for any *previous* frame's
+		// sampling of this same shadow map to finish before writing a
+		// new one (dependencies[0]), and whoever samples it afterward -
+		// the main pass, later in the same frame - must wait for this
+		// write plus the layout transition to SHADER_READ_ONLY_OPTIMAL
+		// to complete first (dependencies[1]).
+		VkSubpassDependency dependencies[2] = {};
+		dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+		dependencies[0].dstSubpass = 0;
+		dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		dependencies[0].dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+		dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		dependencies[0].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		dependencies[1].srcSubpass = 0;
+		dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+		dependencies[1].srcStageMask = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+		dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		dependencies[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		VkRenderPassCreateInfo renderPassInfo = {};
+		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+		renderPassInfo.attachmentCount = 1;
+		renderPassInfo.pAttachments = &depthAttachment;
+		renderPassInfo.subpassCount = 1;
+		renderPassInfo.pSubpasses = &subpass;
+		renderPassInfo.dependencyCount = 2;
+		renderPassInfo.pDependencies = dependencies;
+
+		if (vkCreateRenderPass(device, &renderPassInfo, NULL, &fbo.renderPass) != VK_SUCCESS)
+		{
+			fprintf(stderr, "VulkanRenderDevice::BuildDepthOnlyRenderPass: vkCreateRenderPass failed\n");
+			return false;
+		}
+		return true;
+	}
+
+	VkImageView VulkanRenderDevice::GetOrCreateRenderTargetView(TextureRecord &tex, const uint32 nativeTextureTarget)
+	{
+		if (!tex.isCubemap)
+			return tex.view; // plain 2D depth texture - render-target view == sampling view, no separate one needed
+
+		std::map<uint32, VkImageView>::iterator it = tex.renderTargetViewsByTarget.find(nativeTextureTarget);
+		if (it != tex.renderTargetViewsByTarget.end())
+			return it->second;
+
+		// A full VK_IMAGE_VIEW_TYPE_CUBE view (like tex.view) can't be
+		// used as a depth-attachment render target - need a 2D view of
+		// exactly the one array layer this face occupies instead.
+		uint32 faceIndex = nativeTextureTarget - CUBEMAP_FACE_TARGET_BASE;
+		VkImageViewCreateInfo viewInfo = {};
+		viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		viewInfo.image = tex.image;
+		viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		viewInfo.format = tex.format;
+		viewInfo.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, faceIndex, 1 };
+		VkImageView view = VK_NULL_HANDLE;
+		if (vkCreateImageView(device, &viewInfo, NULL, &view) != VK_SUCCESS)
+		{
+			fprintf(stderr, "VulkanRenderDevice::GetOrCreateRenderTargetView: vkCreateImageView failed\n");
+			return VK_NULL_HANDLE;
+		}
+		tex.renderTargetViewsByTarget[nativeTextureTarget] = view;
+		return view;
+	}
+
+	// FBOAccess::Read_Write/Read/Write - Vulkan has no read/write-only
+	// framebuffer *binding* distinction the way GL's GL_READ_FRAMEBUFFER/
+	// GL_DRAW_FRAMEBUFFER targets do, so this just passes the engine
+	// value through unchanged; BindFramebuffer() below ignores it beyond
+	// "is this a real bind (fbo!=0) or an unbind (fbo==0)".
+	uint32 VulkanRenderDevice::TranslateFramebufferAccess(const uint32 engineAccess) { return engineAccess; }
+
+	// Real offscreen-pass session start/end - see the header comments on
+	// activeCommandBuffer/offscreenCommandBuffer/offscreenPassOpen/
+	// currentBoundFBO for the design. fbo!=0 (Bind()) just records which
+	// FBO is now selected - AttachFramebufferTexture2D() does the actual
+	// render-pass-begin work, since only it knows which texture/face to
+	// target. fbo==0 (UnBind()) ends whatever's open and submits+waits
+	// synchronously (matches UploadTexture2D()'s established "correctness
+	// over throughput" immediate-submit precedent) - one submit per
+	// Bind()/UnBind() session, not per attached face.
+	void VulkanRenderDevice::BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo)
+	{
+		(void)nativeAccess;
+		if (fbo != 0)
+		{
+			currentBoundFBO = fbo;
+			// If this FBO already has a built render pass + at least one
+			// attached target (directional/spot lights: true on every
+			// frame after the first - see FBORecord::lastTarget's
+			// comment), re-begin rendering into the most recently
+			// attached target right now, since no AttachFramebufferTexture2D()
+			// call is coming this time to do it. A brand-new FBO with
+			// nothing attached yet (point lights' first-ever face, or
+			// this FBO's very first Init()) has no renderPass yet - fall
+			// through and let the upcoming AttachFramebufferTexture2D()
+			// call build+begin it instead, unchanged.
+			std::map<DeviceHandle, FBORecord>::iterator fboIt = fboRecords.find(fbo);
+			if (fboIt != fboRecords.end() && fboIt->second.renderPass != VK_NULL_HANDLE)
+			{
+				std::map<uint32, VkFramebuffer>::iterator fbIt = fboIt->second.framebuffersByTarget.find(fboIt->second.lastTarget);
+				if (fbIt != fboIt->second.framebuffersByTarget.end())
+					BeginOffscreenRenderPassForTarget(fboIt->second, fbIt->second);
+			}
+			return;
+		}
+
+		currentBoundFBO = 0;
+		if (!offscreenCommandBufferRecording)
+			return; // AttachFramebufferTexture2D() never actually ran (e.g. attachment failed) - nothing to submit
+
+		EndOffscreenRenderPassIfOpen();
+		vkEndCommandBuffer(offscreenCommandBuffer);
+
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &offscreenCommandBuffer;
+		VkFenceCreateInfo fenceInfo = {};
+		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		VkFence offscreenFence = VK_NULL_HANDLE;
+		vkCreateFence(device, &fenceInfo, NULL, &offscreenFence);
+		vkQueueSubmit(graphicsQueue, 1, &submitInfo, offscreenFence);
+		if (offscreenFence != VK_NULL_HANDLE)
+		{
+			vkWaitForFences(device, 1, &offscreenFence, VK_TRUE, UINT64_MAX);
+			vkDestroyFence(device, offscreenFence, NULL);
+		}
+		else
+		{
+			vkQueueWaitIdle(graphicsQueue);
+		}
+
+		activeCommandBuffer = VK_NULL_HANDLE;
+		offscreenCommandBufferRecording = false;
+		currentVao = 0;
+		currentPipeline = 0;
+	}
+
+	// Passes the engine's FrameBufferAttachmentFormat::* value straight
+	// through - AttachFramebufferTexture2D() only cares whether this is
+	// Depth_Attachment (the only attachment type this backend implements
+	// - see FBORecord's header comment for why Renderbuffer-backed/color
+	// attachments aren't), not a translated native token.
+	uint32 VulkanRenderDevice::TranslateFramebufferAttachment(const uint32 engineAttachmentFormat) { return engineAttachmentFormat; }
+
+	void VulkanRenderDevice::AttachFramebufferTexture2D(const uint32 nativeAttachmentFormat, const uint32 nativeTextureTarget, const uint32 textureId)
+	{
+		if (currentBoundFBO == 0 || device == VK_NULL_HANDLE)
+			return;
+		if (nativeAttachmentFormat != FrameBufferAttachmentFormat::Depth_Attachment)
+		{
+			fprintf(stderr, "VulkanRenderDevice::AttachFramebufferTexture2D: only Depth_Attachment is implemented - attachment format %u ignored\n", nativeAttachmentFormat);
+			return;
+		}
+		std::map<DeviceHandle, FBORecord>::iterator fboIt = fboRecords.find(currentBoundFBO);
+		if (fboIt == fboRecords.end())
+			return;
+		std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(textureId);
+		if (texIt == textures.end() || texIt->second.image == VK_NULL_HANDLE)
+		{
+			fprintf(stderr, "VulkanRenderDevice::AttachFramebufferTexture2D: texture handle %u has no image yet (CreateEmptyTexture() must run before FrameBuffer::Init()/AddAttach())\n", textureId);
+			return;
+		}
+
+		// Re-attaching a new target within an already-open session (a
+		// point light's 2nd-6th cubemap face) - end the previous face's
+		// render pass first; Vulkan can't retarget a render pass's
+		// attachment mid-pass.
+		EndOffscreenRenderPassIfOpen();
+
+		if (fboIt->second.renderPass == VK_NULL_HANDLE)
+		{
+			if (!BuildDepthOnlyRenderPass(fboIt->second, texIt->second.format))
+				return;
+			fboIt->second.width = texIt->second.width;
+			fboIt->second.height = texIt->second.height;
+		}
+
+		VkImageView targetView = GetOrCreateRenderTargetView(texIt->second, nativeTextureTarget);
+		if (targetView == VK_NULL_HANDLE)
+			return;
+
+		std::map<uint32, VkFramebuffer>::iterator fbIt = fboIt->second.framebuffersByTarget.find(nativeTextureTarget);
+		VkFramebuffer targetFramebuffer;
+		if (fbIt == fboIt->second.framebuffersByTarget.end())
+		{
+			VkFramebufferCreateInfo fbInfo = {};
+			fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+			fbInfo.renderPass = fboIt->second.renderPass;
+			fbInfo.attachmentCount = 1;
+			fbInfo.pAttachments = &targetView;
+			fbInfo.width = fboIt->second.width;
+			fbInfo.height = fboIt->second.height;
+			fbInfo.layers = 1;
+			if (vkCreateFramebuffer(device, &fbInfo, NULL, &targetFramebuffer) != VK_SUCCESS)
+			{
+				fprintf(stderr, "VulkanRenderDevice::AttachFramebufferTexture2D: vkCreateFramebuffer failed\n");
+				return;
+			}
+			fboIt->second.framebuffersByTarget[nativeTextureTarget] = targetFramebuffer;
+		}
+		else
+		{
+			targetFramebuffer = fbIt->second;
+		}
+
+		fboIt->second.lastTarget = nativeTextureTarget;
+		BeginOffscreenRenderPassForTarget(fboIt->second, targetFramebuffer);
+	}
+
+	void VulkanRenderDevice::BeginOffscreenRenderPassForTarget(FBORecord &fbo, const VkFramebuffer targetFramebuffer)
+	{
+		// Begin recording the session's command buffer, once - the
+		// first time this FBO actually has something to render into
+		// within this Bind()/UnBind() session.
+		if (!offscreenCommandBufferRecording)
+		{
+			vkResetCommandBuffer(offscreenCommandBuffer, 0);
+			VkCommandBufferBeginInfo beginInfo = {};
+			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+			vkBeginCommandBuffer(offscreenCommandBuffer, &beginInfo);
+			activeCommandBuffer = offscreenCommandBuffer;
+			offscreenCommandBufferRecording = true;
+			currentVao = 0;
+			currentPipeline = 0;
+		}
+
+		VkClearValue clearValue;
+		clearValue.depthStencil = { 1.0f, 0 };
+		VkRenderPassBeginInfo renderPassBegin = {};
+		renderPassBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+		renderPassBegin.renderPass = fbo.renderPass;
+		renderPassBegin.framebuffer = targetFramebuffer;
+		renderPassBegin.renderArea.extent = { fbo.width, fbo.height };
+		renderPassBegin.clearValueCount = 1;
+		renderPassBegin.pClearValues = &clearValue;
+		vkCmdBeginRenderPass(offscreenCommandBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
+
+		VkViewport viewport = { 0.0f, 0.0f, (f32)fbo.width, (f32)fbo.height, 0.0f, 1.0f };
+		VkRect2D scissor = { { 0, 0 }, { fbo.width, fbo.height } };
+		vkCmdSetViewport(offscreenCommandBuffer, 0, 1, &viewport);
+		vkCmdSetScissor(offscreenCommandBuffer, 0, 1, &scissor);
+
+		offscreenPassOpen = true;
+	}
+
+	void VulkanRenderDevice::EndOffscreenRenderPassIfOpen()
+	{
+		if (!offscreenPassOpen)
+			return;
+		vkCmdEndRenderPass(offscreenCommandBuffer);
+		offscreenPassOpen = false;
+	}
+
+	// GLLEGACY-only in every light's own shadow-FBO setup (confirmed
+	// never defined in this project's CMake) - not implemented.
+	void VulkanRenderDevice::AttachFramebufferRenderbuffer(const uint32 nativeAttachmentFormat, const DeviceHandle renderbuffer) { (void)nativeAttachmentFormat; (void)renderbuffer; }
+	// GL_DRAW_BUFFER/GL_READ_BUFFER state has no Vulkan equivalent - a
+	// render pass's attachments (and which subpass writes to which) are
+	// fixed at creation time, not toggled per-draw. No-ops.
 	void VulkanRenderDevice::SetDrawBufferNone() {}
 	void VulkanRenderDevice::SetReadBufferNone() {}
 	void VulkanRenderDevice::SetDrawBufferBack() {}
 	void VulkanRenderDevice::SetReadBufferBack() {}
-	void VulkanRenderDevice::SetDrawBuffers(const std::vector<uint32> &colorAttachmentIndices) {}
-	uint32 VulkanRenderDevice::CheckFramebufferStatus() { return 0; }
-	uint32 VulkanRenderDevice::TranslateFramebufferStatus(const uint32 nativeStatus) { return 0; }
+	void VulkanRenderDevice::SetDrawBuffers(const std::vector<uint32> &colorAttachmentIndices) { (void)colorAttachmentIndices; }
+	// Real Vulkan failures (vkCreateRenderPass/vkCreateFramebuffer/etc)
+	// are already reported via fprintf at the exact call site that
+	// failed (BuildDepthOnlyRenderPass()/AttachFramebufferTexture2D()) -
+	// returning Complete here unconditionally avoids FrameBuffer::
+	// CheckFBOStatus()'s echo()-based status print (which needs _DEBUG
+	// to show anything anyway - see the glcheck_verification gotcha)
+	// contradicting or duplicating that.
+	uint32 VulkanRenderDevice::CheckFramebufferStatus() { return FBOStatus::Complete; }
+	uint32 VulkanRenderDevice::TranslateFramebufferStatus(const uint32 nativeStatus) { return nativeStatus; }
 
 	DeviceHandle VulkanRenderDevice::CreateRenderbuffer() { return 0; }
 	void VulkanRenderDevice::DestroyRenderbuffer(const DeviceHandle rbo) {}

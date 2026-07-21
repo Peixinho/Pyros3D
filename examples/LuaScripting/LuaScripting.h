@@ -15,12 +15,16 @@
 #if defined(_SDL)
 #include "../WindowManagers/SDL/SDLContext.h"
 #define ClassName SDLContext
-#elif defined(_SDL2)
+#elif defined(_SDL2VULKAN)
+#include "../WindowManagers/SDL2Vulkan/SDL2VulkanContext.h"
+#define ClassName SDL2VulkanContext
+#else
+// Default to SDL2 - was previously SFML here (a stale fallback with no
+// real reason for this example to depend on it), which also meant this
+// case never learned about _SDL2VULKAN and silently pulled in SFML for
+// every Vulkan build.
 #include "../WindowManagers/SDL2/SDL2Context.h"
 #define ClassName SDL2Context
-#else
-#include "../WindowManagers/SFML/SFMLContext.h"
-#define ClassName SFMLContext
 #endif
 
 #include <Pyros3D/Ext/sol/sol.hpp>

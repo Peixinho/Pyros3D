@@ -34,6 +34,14 @@
 
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
+// Needed for VkPhysicalDevicePortabilitySubsetFeaturesKHR/
+// VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR
+// (queried/enabled in InitializeSwapchain() on Apple, for shadow-sampler
+// comparison support - see that code's comment) - VK_KHR_portability_subset
+// is still gated behind this macro in the Khronos headers even though
+// it's a shipping, non-experimental extension on every real portability
+// ICD (MoltenVK).
+#define VK_ENABLE_BETA_EXTENSIONS
 #include <volk.h>
 #include <vk_mem_alloc.h>
 #include <vector>
@@ -137,6 +145,13 @@ namespace p3d {
 		// channel order - B8G8R8A8 is the common case). False if no
 		// capture has completed yet.
 		bool GetCapturedFrame(std::vector<uint8_t> &outPixels, uint32 &outWidth, uint32 &outHeight, uint32 &outRedByteOffset);
+		// TEMP-DIAG: reads back a depth texture's raw float content (e.g.
+		// a shadow map) via a one-off staging-buffer copy - for directly
+		// inspecting whether a shadow pass actually wrote real geometry
+		// depth into its target, independent of anything sampling it
+		// later. Not part of the real API surface, remove once the
+		// directional-shadow investigation concludes.
+		bool DebugReadDepthTexture(const DeviceHandle handle, std::vector<f32> &outDepths, uint32 &outWidth, uint32 &outHeight, const uint32 faceIndex = 0);
 
 		virtual CommandBufferHandle BeginCommandBuffer();
 		virtual void EndCommandBuffer(const CommandBufferHandle cmd);
@@ -195,6 +210,7 @@ namespace p3d {
 		virtual void BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint);
 
 		virtual Matrix TranslateProjectionMatrix(const Matrix &projectionMatrix);
+		virtual Matrix TranslateShadowBiasMatrix();
 
 		virtual uint32 TranslateDrawType(const uint32 engineDrawType);
 		virtual void DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count);
@@ -304,6 +320,34 @@ namespace p3d {
 		std::vector<VkImage> swapchainImages;
 		std::vector<VkImageView> swapchainImageViews;
 
+		// Builds/rebuilds the swapchain + depth buffer + render pass +
+		// framebuffers (everything keyed to the surface's current size/
+		// format) - called by InitializeSwapchain() the first time and by
+		// RecreateSwapchain() on every resize. See the .cpp definition's
+		// comment for why oldSwapchain handling lives here.
+		bool CreateSwapchainAndFramebuffers(const uint32 width, const uint32 height);
+		// Destroys the current swapchain-size-dependent resources and
+		// rebuilds them against the surface's now-current size - called
+		// reactively from BeginFrame()/EndFrame() when a swapchain
+		// operation reports VK_ERROR_OUT_OF_DATE_KHR/VK_SUBOPTIMAL_KHR (see
+		// the .cpp definition's comment for why this is the standard, and
+		// only, way Vulkan surfaces a resize to the app).
+		bool RecreateSwapchain(const uint32 width, const uint32 height);
+		// Destroys and recreates one specific pool entry, forcing it back
+		// to a known-unsignaled state - called whenever a frame is
+		// abandoned after vkAcquireNextImageKHR() didn't return
+		// VK_SUCCESS. Needed because rotating through a small pool alone
+		// (see nextAcquireSemaphoreIndex's comment) isn't sufficient: a
+		// long enough run of consecutive failed acquires during a
+		// sustained resize can still wrap back around to a pool entry
+		// that's still signaled from an earlier abandoned attempt
+		// (reproduced: VUID-vkAcquireNextImageKHR-semaphore-01286 during
+		// a resize burst even with a 3-entry pool). Destroying and
+		// recreating is safe regardless of whether the driver actually
+		// left it signaled or not - either way nothing pending on the
+		// device still references it once the acquire call has returned.
+		void ResetAcquireSemaphore(const uint32 index);
+
 		// Depth buffer + render pass + one framebuffer per swapchain image -
 		// created in InitializeSwapchain() alongside everything else that
 		// depends on swapchainFormat/swapchainExtent. One shared depth
@@ -324,9 +368,10 @@ namespace p3d {
 		// Minimal single-frame-in-flight sync (no double/triple buffering
 		// of these yet - good enough for the "does presenting work at all"
 		// checkpoint this step is verifying, not production frame pacing).
-		// renderFinishedSemaphore is one-per-swapchain-image, not singular
-		// like imageAvailableSemaphore/frameFence below - a single shared
-		// one caused a real validation error
+		// renderFinishedSemaphore is one-per-swapchain-image (not for the
+		// same reason imageAvailableSemaphores is a pool - see that
+		// field's own comment - frameFence stays genuinely singular). A
+		// single shared one caused a real validation error
 		// (VUID-vkQueueSubmit-pSignalSemaphores-00067, only ever surfaced
 		// once validation layers were actually enabled for the first time):
 		// the semaphore signaled by frame N's vkQueueSubmit is still being
@@ -339,7 +384,32 @@ namespace p3d {
 		// re-acquired until its previous present completes.
 		VkCommandPool commandPool;
 		VkCommandBuffer frameCommandBuffer;
-		VkSemaphore imageAvailableSemaphore;
+		// A small rotating pool, not one shared semaphore - see
+		// nextAcquireSemaphoreIndex's comment for why one semaphore isn't
+		// enough even in this single-frame-in-flight model, unlike
+		// renderFinishedSemaphores (which has a different, already-solved
+		// reason to be plural - see its own comment below).
+		std::vector<VkSemaphore> imageAvailableSemaphores;
+		// Advances by one on *every* vkAcquireNextImageKHR call, success
+		// or failure alike - found necessary via
+		// VUID-vkAcquireNextImageKHR-semaphore-01286 ("semaphore must not
+		// be currently signaled"): VK_SUBOPTIMAL_KHR (and, on this
+		// backend's observed MoltenVK behavior, VK_ERROR_OUT_OF_DATE_KHR
+		// too) still signals the semaphore per spec even though the
+		// caller is expected to treat the acquire as unusable and skip
+		// the frame - which this backend does, skipping the submit that
+		// would otherwise have consumed that signal via a wait. Reusing
+		// the *same* semaphore on the next call then violates "must not
+		// be currently signaled" (a real, reproduced validation error
+		// during a resize burst, not hypothetical). Rotating through a
+		// small pool instead means every acquire call always uses a
+		// fresh, guaranteed-unsignaled semaphore regardless of whether
+		// the previous attempt's signal was ever consumed.
+		uint32 nextAcquireSemaphoreIndex;
+		// Which pool entry the *in-progress* frame's BeginFrame() actually
+		// used - EndFrame()'s vkQueueSubmit must wait on that exact one,
+		// not whatever nextAcquireSemaphoreIndex has since advanced to.
+		uint32 currentFrameAcquireSemaphoreIndex;
 		std::vector<VkSemaphore> renderFinishedSemaphores;
 		VkFence frameFence;
 
@@ -373,6 +443,131 @@ namespace p3d {
 		// all; this has one real one, shared for the whole frame).
 		bool frameInProgress;
 		uint32 currentImageIndex;
+
+		// Which command buffer BindPipeline()/DrawElements()/
+		// DrawElementsInstanced()/SetViewport() actually record into -
+		// frameCommandBuffer during a real swapchain frame,
+		// offscreenCommandBuffer during an offscreen FBO pass (shadow
+		// maps - see BindFramebuffer()). The two are mutually exclusive
+		// in time (shadow passes run in IRenderer::PreRender(), strictly
+		// before RenderScene()'s BeginFrame()), so reusing one pointer-
+		// like member for "whichever is currently live" avoids
+		// duplicating every draw-path method for the offscreen case.
+		VkCommandBuffer activeCommandBuffer;
+		// Real per-session command buffer for offscreen FBO rendering
+		// (shadow maps) - separate from frameCommandBuffer since a
+		// shadow pass must be able to record+submit+wait *before* the
+		// swapchain frame's own command buffer even exists yet
+		// (BeginFrame() hasn't run). Allocated once in
+		// InitializeSwapchain(), reused (vkResetCommandBuffer) per
+		// FrameBuffer::Bind()/UnBind() session - one submit per session
+		// (per light), not per attached face, so a point light's 6 faces
+		// share a single submit+wait instead of six.
+		VkCommandBuffer offscreenCommandBuffer;
+		// True while a vkCmdBeginRenderPass is currently open on
+		// offscreenCommandBuffer - mirrors frameInProgress's role for
+		// the swapchain case; BindPipeline()/DrawElements()/etc check
+		// (frameInProgress || offscreenPassOpen) instead of
+		// frameInProgress alone.
+		bool offscreenPassOpen;
+		// True from the first AttachFramebufferTexture2D() call in a
+		// FrameBuffer::Bind()/UnBind() session (which vkBeginCommandBuffer()s
+		// offscreenCommandBuffer) until BindFramebuffer(access, 0)
+		// (UnBind) submits and ends it - distinct from offscreenPassOpen,
+		// which toggles per *render pass* (once per cubemap face) within
+		// that same still-recording command buffer.
+		bool offscreenCommandBufferRecording;
+		// Which FBO handle BindFramebuffer(access, fbo!=0) most recently
+		// selected - AttachFramebufferTexture2D() operates on this.
+		// 0 = none (matches BindFramebuffer(access, 0)'s GL "unbind to
+		// the default framebuffer" semantics).
+		DeviceHandle currentBoundFBO;
+
+		// One real offscreen render target, keyed by the handle
+		// CreateFramebuffer() returns. Only depth-only, texture-backed
+		// FBOs are implemented - every light's shadow FBO setup
+		// (DirectionalLight/PointLight/SpotLight .cpp) uses exactly this
+		// shape (a single Depth_Attachment, TextureType::Texture) on its
+		// live code path; the Renderbuffer-backed alternative in each of
+		// those files is gated `#if defined(GLLEGACY)`, confirmed never
+		// defined anywhere in this project's CMake, so not implemented
+		// here either.
+		struct FBORecord
+		{
+			// Depth-only, one attachment; built once the first time we
+			// know the depth format (the first AttachFramebufferTexture2D()
+			// call for this FBO).
+			VkRenderPass renderPass;
+			uint32 width, height;
+			// One VkFramebuffer per distinct render target within this
+			// FBO - almost always exactly one entry (directional/spot: a
+			// single 2D depth map, attached once), but up to six for a
+			// point light's cubemap (each face is a separate 2D view of
+			// the same cube image, attached in turn via repeated
+			// AttachFramebufferTexture2D() calls - see PointLight's
+			// PreRender() loop), keyed by the `nativeTextureTarget`
+			// TranslateTextureTarget() produced for that face/target.
+			std::map<uint32, VkFramebuffer> framebuffersByTarget;
+			// Which entry in framebuffersByTarget was attached most
+			// recently - directional/spot lights call
+			// AttachFramebufferTexture2D() exactly once, at setup time
+			// (FrameBuffer::Init()), and never again; every subsequent
+			// frame's IRenderer::PreRender() only calls Bind()/UnBind()
+			// (FrameBuffer::Bind()/UnBind(), this backend's BindFramebuffer())
+			// around the shadow-casting draws, with no re-attach at all.
+			// BindFramebuffer(fbo!=0) uses this to know which existing
+			// framebuffer to re-begin rendering into on those frames,
+			// instead of only ever beginning a render pass from inside
+			// AttachFramebufferTexture2D() (which would never run again
+			// after the first frame for these two light types - found
+			// the hard way via a shadow-casting draw silently never
+			// happening past frame 1, no error, just zero effect).
+			uint32 lastTarget;
+			FBORecord() : renderPass(VK_NULL_HANDLE), width(0), height(0), lastTarget(0) {}
+		};
+		std::map<DeviceHandle, FBORecord> fboRecords;
+		DeviceHandle nextFBOHandle;
+
+		// A depth-only render pass used *only* for building shadow-casting
+		// pipelines (PipelineDesc::isShadowPass) - not tied to any one
+		// FBORecord/light, since every shadow map on this backend uses
+		// the exact same shape (one VK_FORMAT_D32_SFLOAT attachment, see
+		// TranslateTextureFormat()). Vulkan bakes a specific VkRenderPass's
+		// attachment shape into a pipeline at creation time, and using
+		// the swapchain's color+depth render pass (this class's default
+		// `renderPass` member, further down) for a shadow-casting draw
+		// is a real compatibility mismatch - caught the hard way via
+		// VUID-vkCmdDrawIndexed-renderPass-02684 the first time a real
+		// shadow pass tried to draw with a pipeline built against it.
+		// Built lazily via BuildDepthOnlyRenderPass() on first use; every
+		// individual light's own FBORecord::renderPass (built the same
+		// way, from the same shadow-map format) is render-pass-compatible
+		// with this one, so a pipeline built against this template can
+		// validly be used within any of them.
+		VkRenderPass shadowPipelineRenderPass;
+
+		// Lazily builds fbo.renderPass (depth-only, LOAD_OP_CLEAR,
+		// STORE_OP_STORE so the shadow map survives to be sampled in the
+		// main pass, finalLayout=SHADER_READ_ONLY_OPTIMAL) if not
+		// already built. Returns false only on a real Vulkan failure.
+		bool BuildDepthOnlyRenderPass(FBORecord &fbo, const VkFormat depthFormat);
+		// Ends whatever offscreen render pass is currently open
+		// (vkCmdEndRenderPass only - does not submit) - called by
+		// AttachFramebufferTexture2D() when re-attaching a new target
+		// within an already-open FrameBuffer::Bind() session (a point
+		// light's 2nd-6th cubemap face), since Vulkan can't swap a
+		// render pass's target attachment mid-pass.
+		void EndOffscreenRenderPassIfOpen();
+		// Begins recording offscreenCommandBuffer if this is the first
+		// render pass in the current Bind()/UnBind() session, then
+		// vkCmdBeginRenderPass()s `targetFramebuffer` (already resolved
+		// by the caller) and sets a default full-target viewport/scissor.
+		// Shared by AttachFramebufferTexture2D() (building a target for
+		// the first time, or a point light's next cubemap face) and
+		// BindFramebuffer() (re-entering an already-built target on a
+		// later frame, when no attach call happens again - see
+		// FBORecord::lastTarget's comment for why that path exists).
+		void BeginOffscreenRenderPassForTarget(FBORecord &fbo, const VkFramebuffer targetFramebuffer);
 
 		// Vertex buffer / index buffer pair for a "VAO" handle - see the
 		// header comment on the `pipelines` field below for the broader
@@ -436,9 +631,113 @@ namespace p3d {
 			VmaAllocation allocation;
 			void* mapped; // persistently mapped pointer, valid for the buffer's whole lifetime
 			uint32 size;
+			// The following four fields are only meaningful for a uniform
+			// buffer created at one of IsPerObjectDynamicBinding()'s
+			// binding points - see that function's comment for the "why".
+			// isDynamicUniform=false (the common case: vertex/index
+			// buffers, and every per-frame-constant UBO) leaves them at
+			// their default/unused values.
+			bool isDynamicUniform;
+			// `size` above rounded up to a multiple of
+			// minUniformBufferOffsetAlignment - the actual byte stride
+			// between consecutive slots (VkDescriptorBufferInfo::range
+			// still uses the unpadded `size`, since that's the shader
+			// block's real declared size - the padding exists only to
+			// satisfy vkCmdBindDescriptorSets' dynamic-offset alignment
+			// rule, it's never meant to be read as data).
+			VkDeviceSize alignedSlotSize;
+			uint32 slotCount;
+			// Which slot the most recent ReplaceUniformBuffer() call
+			// wrote to - BindCurrentPipelineDescriptorSets() reads this
+			// to build vkCmdBindDescriptorSets' pDynamicOffsets for
+			// whichever draw comes next, which by construction is always
+			// the object/material-switch that slot's data belongs to
+			// (ReplaceUniformBuffer() is always called immediately before
+			// the pipeline/descriptor bind + draw it's meant for - see
+			// IRenderer.cpp's SendGlobalUniforms()/BindMesh() ordering).
+			uint32 currentSlot;
+			BufferRecord() : buffer(VK_NULL_HANDLE), allocation(VK_NULL_HANDLE), mapped(NULL), size(0),
+				isDynamicUniform(false), alignedSlotSize(0), slotCount(1), currentSlot(0) {}
 		};
 		std::map<DeviceHandle, BufferRecord> buffers;
 		DeviceHandle nextBufferHandle;
+
+		// True for the handful of UBO binding points PyrosShader.glsl
+		// declares that genuinely vary *within* a single frame - either
+		// per-object (rewritten for every mesh drawn: ObjectMatrixUniforms,
+		// BoneMatrices, VelocityObjectUniforms, ObjectLightCounts, and
+		// LightsBlock - "each object only gets its nearby lights", see
+		// IRenderer.cpp's comment) or per-material-switch
+		// (MaterialUniforms, "re-uploaded when the active material
+		// changes" - still multiple times a frame in any scene using more
+		// than one material). Every other UBO binding
+		// (GlobalMatrices/DirectionalShadowBlock/PointShadowBlock/
+		// SpotShadowBlock/VertexFrameUniforms/VelocityFrameUniforms/
+		// AmbientLightUniforms) is written at most once per frame and
+		// stays a plain, non-dynamic descriptor.
+		//
+		// Why this list exists at all: a plain (non-dynamic)
+		// VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER descriptor only ever points at
+		// one fixed buffer location - vkCmdDrawIndexed doesn't read a
+		// UBO's content until the whole command buffer is submitted and
+		// the GPU actually executes it, which happens *after* every
+		// object in the frame has already been CPU-side memcpy'd into
+		// that same buffer via ReplaceUniformBuffer(). With a single,
+		// repeatedly-overwritten buffer, every draw in the frame ends up
+		// reading whatever the *last* object wrote - confirmed directly:
+		// a two-object scene (any material, no lights even) reproducibly
+		// renders only the second object, regardless of which one is
+		// positioned where. GL never had this problem because its
+		// immediate-mode execution model runs each draw call as it's
+		// issued, using whatever uniform value is current *right then*.
+		// The fix: these bindings get their own multi-slot buffer (one
+		// slot per ReplaceUniformBuffer() call, wrapping around - safe
+		// given this backend's single-frame-in-flight model, see
+		// BeginFrame()'s fence wait) and a
+		// VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC descriptor, with
+		// vkCmdBindDescriptorSets' pDynamicOffsets selecting the right
+		// slot at the moment each individual draw is recorded - so the
+		// *recorded command* captures which slot belongs to it, not just
+		// "whatever's in the buffer" at some later, shared execution time.
+		static bool IsPerObjectDynamicBinding(const uint32 bindingPoint)
+		{
+			switch (bindingPoint)
+			{
+			case 0:  // BIND_GlobalMatrices - rewritten once per shadow-
+			         // casting light's depth pass (IRenderer.cpp's
+			         // InitRender() reassigns ProjectionMatrix/ViewMatrix
+			         // to each light and calls RenderObject(), which
+			         // re-uploads this UBO) *and* once more for the main
+			         // camera pass, all within a single frame - the exact
+			         // multi-write-per-frame pattern the other bindings
+			         // below needed dynamic offsets for. Missed originally
+			         // because it looks like a once-per-frame UBO from the
+			         // main pass alone.
+			case 1:  // BIND_LightsBlock
+			case 18: // BIND_ObjectMatrixUniforms
+			case 19: // BIND_BoneMatrices
+			case 20: // BIND_VelocityObjectUniforms
+			case 22: // BIND_MaterialUniforms
+			case 23: // BIND_ObjectLightCounts
+				return true;
+			default:
+				return false;
+			}
+		}
+		// Generous, not dynamically growable - matches this codebase's
+		// existing sizing philosophy for the descriptor pool/sampler set
+		// caps (see descriptorPool's comment). A scene drawing more than
+		// this many (object, dynamic-UBO) writes within a single frame
+		// would wrap around and start reusing slots still logically
+		// "current" - safe from a GPU-synchronization standpoint (the
+		// single-frame-in-flight model guarantees any slot last written
+		// in a *previous* frame is no longer being read), but would mean
+		// two objects within the *same* frame sharing a slot, silently
+		// reintroducing this exact bug at a much higher object count.
+		static const uint32 DYNAMIC_UBO_SLOT_COUNT = 4096;
+		// Queried once from the physical device - vkCmdBindDescriptorSets'
+		// dynamic offsets must be a multiple of this.
+		VkDeviceSize minUniformBufferOffsetAlignment;
 
 		// bindingPoint -> uniform buffer handle, populated by
 		// CreateUniformBuffer() (which already receives the binding point
@@ -516,6 +815,31 @@ namespace p3d {
 			// about would be invalid, not a harmless no-op, the way GL's
 			// glUniformBlockBinding on a nonexistent block name is).
 			std::set<uint32> reflectedBindings;
+			// Which of reflectedBindings' UBO descriptors have already
+			// been written (vkUpdateDescriptorSets) into descriptorSet -
+			// BindUniformBlockIfPresent() is called from BindMesh(), once
+			// per (mesh, shader) *cache miss*, so it runs again for every
+			// distinct mesh that first uses this program, not just once
+			// per program - but the content written (which UBO buffer
+			// backs a given binding) never varies by mesh, it's a
+			// program-level fact. Re-writing it anyway is more than just
+			// wasted work: this descriptor set is shared per-program
+			// (see the comment on descriptorSet above), so if an earlier
+			// mesh sharing this program already drew (and thus already
+			// vkCmdBindDescriptorSets'd this exact set) earlier in the
+			// same still-recording command buffer - a real case, not
+			// hypothetical: IRenderer's shared shadowMaterial is used by
+			// every shadow-casting mesh, so a scene with more than one
+			// (the common case) hits this on the very first frame a
+			// second mesh casts a shadow - re-writing it now violates
+			// "no update after bind without VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT"
+			// and corrupts the command buffer's recording state entirely
+			// (caught via VUID-vkCmdBindPipeline-commandBuffer-recording
+			// cascading into every subsequent command in that buffer).
+			// Tracking which bindings are already written and skipping
+			// them is correct, not just a workaround - the value being
+			// written is unconditionally the same either way.
+			std::set<uint32> writtenBindings;
 			// Vertex attribute name -> location, reflected from the
 			// vertex stage's compiled SPIR-V in LinkProgram() (see
 			// SpirvShaderCompiler::ReflectStageInputs()). CreatePipeline()
@@ -560,6 +884,19 @@ namespace p3d {
 			// samplerSetLayout/samplerBindings instead of
 			// descriptorSetLayout/UBOs.
 			std::set<uint32> reflectedSamplerBindings;
+			// Declared array length per sampler binding (e.g.
+			// PyrosShader.glsl's `uPointShadowMaps[4]` -> 4; a plain
+			// non-array sampler like `uColormap` -> 1, same as if this
+			// map had no entry at all). SendUniformInt() writes this many
+			// descriptors (all pointing at the same texture) rather than
+			// just element 0, so every entry the shader's array *type*
+			// declares is left valid - PyrosShader.glsl's PCFPOINT/PCFSPOT
+			// calls only ever read index 0 with a compile-time-constant
+			// literal, but Vulkan validation still requires every
+			// declared array element to be a valid descriptor
+			// (VUID-vkCmdDrawIndexed-None-08114) regardless of whether
+			// the shader dynamically indexes past it.
+			std::map<uint32, uint32> samplerArraySizes;
 			ProgramRecord() : vertexShader(0), fragmentShader(0), descriptorSetLayout(VK_NULL_HANDLE), pipelineLayout(VK_NULL_HANDLE), descriptorSet(VK_NULL_HANDLE), samplerSetLayout(VK_NULL_HANDLE) {}
 		};
 		std::map<DeviceHandle, ProgramRecord> programs;
@@ -607,6 +944,10 @@ namespace p3d {
 		{
 			VkImage image;
 			VmaAllocation allocation;
+			// Sampling view - VK_IMAGE_VIEW_TYPE_CUBE (all 6 layers) if
+			// isCubemap, else VK_IMAGE_VIEW_TYPE_2D. What SendUniformInt()
+			// writes into a descriptor for `samplerCube`/`sampler2D`/
+			// `sampler2DShadow`/`samplerCubeShadow` GLSL uniforms alike.
 			VkImageView view;
 			VkSampler sampler;
 			uint32 width, height;
@@ -615,12 +956,38 @@ namespace p3d {
 			uint32 minFilter, magFilter; // TextureFilter::* values
 			bool hasMipmap;
 			bool samplerDirty;
+			// True once any CreateEmptyTexture()/LoadTexture() call for
+			// this handle targeted a cubemap face (TranslateTextureTarget()
+			// output, not TextureType::Texture) - see UploadTexture2D()'s
+			// comment. image is then a 6-layer, VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT
+			// image instead of a plain 2D one.
+			bool isCubemap;
+			// True for TextureDataType::DepthComponent* - drives
+			// SetTextureCompareMode()'s effect on RebuildSamplerIfDirty()
+			// (shadow-comparison sampling only makes sense for a depth
+			// format) and CreatePipeline()... no, unused there; kept here
+			// since format alone doesn't reliably distinguish "depth
+			// texture used as a render target" from "some other texture
+			// that happens to share a single-channel float format".
+			bool isDepthTexture;
+			bool compareModeEnabled;
+			// Render-*target* views, as opposed to `view` above (always a
+			// full/complete *sampling* view). A cubemap depth texture
+			// used as a shadow map needs a separate 2D view *per face*
+			// (baseArrayLayer=face, one render pass per face - see
+			// FBORecord::framebuffersByTarget) to be usable as a
+			// depth-attachment target at all; a plain 2D depth texture's
+			// render-target view is the same as its sampling view (no
+			// separate entry needed - see GetOrCreateRenderTargetView()).
+			// Keyed by the same `nativeTextureTarget`
+			// TranslateTextureTarget() produced for that face/target.
+			std::map<uint32, VkImageView> renderTargetViewsByTarget;
 			TextureRecord()
 				: image(VK_NULL_HANDLE), allocation(VK_NULL_HANDLE), view(VK_NULL_HANDLE), sampler(VK_NULL_HANDLE),
 				  width(0), height(0), format(VK_FORMAT_R8G8B8A8_UNORM),
 				  wrapS(TextureRepeat::Repeat), wrapT(TextureRepeat::Repeat),
 				  minFilter(TextureFilter::Linear), magFilter(TextureFilter::Linear),
-				  hasMipmap(false), samplerDirty(true) {}
+				  hasMipmap(false), samplerDirty(true), isCubemap(false), isDepthTexture(false), compareModeEnabled(false) {}
 		};
 		std::map<DeviceHandle, TextureRecord> textures;
 		DeviceHandle nextTextureHandle;
@@ -629,6 +996,20 @@ namespace p3d {
 		// false (logging) only on a real vkCreateSampler failure; true
 		// otherwise, including the already-clean-and-valid case.
 		bool RebuildSamplerIfDirty(TextureRecord &tex);
+		// Binds currentPipeline's owning program's UBO set (set=0) and
+		// the pipeline's own sampler set (set=1, if any) -
+		// vkCmdBindDescriptorSets(), called from DrawElements()/
+		// DrawElementsInstanced() right before the actual draw rather
+		// than from BindPipeline() - see BindPipeline()'s comment for
+		// why binding it earlier (before SendGlobalUniforms()/
+		// SendUserUniforms() have written this object's texture/shadow-
+		// map descriptors via SendUniformInt()) is invalid.
+		void BindCurrentPipelineDescriptorSets();
+		// Returns (creating if needed) the VkImageView usable as a
+		// depth-attachment render target for `nativeTextureTarget` - see
+		// TextureRecord::renderTargetViewsByTarget. VK_NULL_HANDLE only
+		// on a real vkCreateImageView failure.
+		VkImageView GetOrCreateRenderTargetView(TextureRecord &tex, const uint32 nativeTextureTarget);
 		// Which texture BindTextureToTarget()/UploadTexture2D()/
 		// SetTextureWrapS()/etc are currently configuring - GL's own
 		// "operate on whatever's bound to this target" state, mirrored

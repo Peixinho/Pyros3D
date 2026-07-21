@@ -469,6 +469,15 @@ namespace p3d {
 		return projectionMatrix;
 	}
 
+	Matrix GLRenderDevice::TranslateShadowBiasMatrix()
+	{
+		// GL's own clip-space Z is still [-1,1] (TranslateProjectionMatrix()
+		// above is a no-op) - Matrix::BIAS's full X/Y/Z remap is exactly
+		// what's needed, unchanged. See the comment on this method in
+		// IRenderDevice.h.
+		return Matrix::BIAS;
+	}
+
 	uint32 GLRenderDevice::TranslateDrawType(const uint32 engineDrawType)
 	{
 		switch (engineDrawType)
