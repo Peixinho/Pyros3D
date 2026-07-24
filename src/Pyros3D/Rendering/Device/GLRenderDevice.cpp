@@ -461,11 +461,13 @@ namespace p3d {
 		}
 	}
 
-	Matrix GLRenderDevice::TranslateProjectionMatrix(const Matrix &projectionMatrix)
+	Matrix GLRenderDevice::TranslateProjectionMatrix(const Matrix &projectionMatrix, const bool skipYFlip)
 	{
 		// No-op - Matrix::PerspectiveMatrix()/OrthoMatrix() already build
 		// GL's own NDC convention. See the comment on this method in
-		// IRenderDevice.h.
+		// IRenderDevice.h. skipYFlip is Vulkan-only (there's no flip here
+		// to skip).
+		(void)skipYFlip;
 		return projectionMatrix;
 	}
 

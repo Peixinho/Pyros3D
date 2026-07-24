@@ -43,6 +43,7 @@ uint32 IRenderer::SpotShadowUBO = 0;
 bool IRenderer::GlobalMatricesUBOValid = false;
 Matrix IRenderer::CachedProjectionMatrix;
 Matrix IRenderer::CachedViewMatrix;
+bool IRenderer::CachedRenderingPointShadowFace = false;
 bool IRenderer::LightsUBOValid = false;
 std::vector<Matrix> IRenderer::CachedLights;
 bool IRenderer::DirectionalShadowUBOValid = false;
@@ -140,7 +141,7 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 // SendGlobalUniforms(), so it doesn't touch the shared UBOs at all - in
 // particular it must NOT bump SharedUBORefCount, since it will never
 // decrement it on destruction either (see ~IRenderer()).
-IRenderer::IRenderer() : UsesSharedUBOs(false), device(new GLRenderDevice()) {}
+IRenderer::IRenderer() : UsesSharedUBOs(false), device(new GLRenderDevice()) { RenderingPointShadowFace = false; }
 
 // Resolves what IRenderer(Width, Height, externalDevice)'s device member
 // should use, and whether it should *own* (delete on destruction) or just
@@ -198,6 +199,9 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* ext
 
 	// Custom ViewPort
 	customViewPort = false;
+
+	// Point-shadow cubemap-face Y-flip flag (see IRenderer.h's comment)
+	RenderingPointShadowFace = false;
 
 	// Blending Flag
 	blending = false;
@@ -556,6 +560,12 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					ShadowProjection.Perspective(90.f, 1.f, p->GetShadowNear(), p->GetShadowFar());
 					ProjectionMatrix = ShadowProjection.m;
 
+					// See IRenderer.h's comment on RenderingPointShadowFace -
+					// SendGlobalUniforms() (called from each face's
+					// RenderObject() below) reads this to skip Vulkan's
+					// clip-space Y-flip specifically for these 6 draws.
+					RenderingPointShadowFace = true;
+
 					// Get Lights Shadow Map Texture
 					for (int32 i = 0; i < 6; i++)
 					{
@@ -625,6 +635,12 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 						EndClippingPlanes();
 
 					}
+
+					// Done rendering the 6 faces - every other pass from
+					// here on (this light's own record-keeping, the next
+					// light, the eventual main camera pass) needs the
+					// normal Y-flip again.
+					RenderingPointShadowFace = false;
 
 					// Set Light Projection
 					// PCFPOINT() (PyrosShader.glsl) reconstructs a reference
@@ -1336,7 +1352,8 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 	// is what decides freshness, not any assumption about when these change.
 	if (!GlobalMatricesUBOValid ||
 		memcmp(&CachedProjectionMatrix, &ProjectionMatrix, sizeof(Matrix)) != 0 ||
-		memcmp(&CachedViewMatrix, &ViewMatrix, sizeof(Matrix)) != 0)
+		memcmp(&CachedViewMatrix, &ViewMatrix, sizeof(Matrix)) != 0 ||
+		CachedRenderingPointShadowFace != RenderingPointShadowFace)
 	{
 		// TranslateProjectionMatrix() is a no-op on GL (Matrix::PerspectiveMatrix()/
 		// OrthoMatrix() already build GL's own NDC convention) and applies
@@ -1344,11 +1361,13 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		// comment on IRenderDevice::TranslateProjectionMatrix(). The dirty-
 		// check above deliberately compares the untranslated ProjectionMatrix,
 		// not this - the translation is a pure backend-specific function of
-		// it, so "did the source change" is still the right question.
-		Matrix globalMatricesData[2] = { device->TranslateProjectionMatrix(ProjectionMatrix), ViewMatrix };
+		// it, so "did the source change" is still the right question (plus
+		// RenderingPointShadowFace, since it also affects the translation).
+		Matrix globalMatricesData[2] = { device->TranslateProjectionMatrix(ProjectionMatrix, RenderingPointShadowFace), ViewMatrix };
 		device->ReplaceUniformBuffer(GlobalMatricesUBO, sizeof(Matrix) * 2, globalMatricesData);
 		CachedProjectionMatrix = ProjectionMatrix;
 		CachedViewMatrix = ViewMatrix;
+		CachedRenderingPointShadowFace = RenderingPointShadowFace;
 		GlobalMatricesUBOValid = true;
 	}
 

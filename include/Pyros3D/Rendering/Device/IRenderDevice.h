@@ -353,7 +353,29 @@ namespace p3d {
 		// (Vulkan's NDC Y+ points down the framebuffer, GL's points up -
 		// without this the image would still be visible, just upside
 		// down). See VULKAN_ROADMAP.md.
-		virtual Matrix TranslateProjectionMatrix(const Matrix &projectionMatrix) = 0;
+		//
+		// skipYFlip: for rendering one face of a point-light's shadow
+		// cubemap only - unlike every other render target (the swapchain,
+		// a directional/spot shadow map, a G-buffer), a cubemap face is
+		// never addressed by a 2D UV that itself needs to agree with a
+		// window-space up/down convention; PCFPOINT() (PyrosShader.glsl)
+		// samples it by a raw world-space direction vector instead
+		// (`texture(samplerCubeShadow, direction)`), and GL/Vulkan use the
+		// *same* standardized direction-to-face-texel formula for that -
+		// it doesn't depend on either API's window-space Y convention at
+		// all. Applying the Y-flip when rasterizing into a face therefore
+		// doesn't correct anything a cubemap consumer needs corrected; it
+		// just mismatches what real occluder depth is written into a row
+		// of that face against what a given direction vector reads back
+		// out later, and that direction-vs-content mismatch is exactly
+		// wrong except at pixels the flip happens to leave unchanged - the
+		// point-light shadow map fills in with real depth data (confirmed
+		// via DebugReadDepthTexture) but produces zero measurable
+		// darkening (confirmed via luminance-profile comparison) without
+		// this. Z is unaffected either way (only the Y row of the
+		// correction matrix changes) - GL ignores this parameter entirely
+		// (its translation is already a no-op).
+		virtual Matrix TranslateProjectionMatrix(const Matrix &projectionMatrix, const bool skipYFlip = false) = 0;
 
 		// Matrix::BIAS (Matrix.h) is the classic GL shadow-lookup bias:
 		// remaps X, Y, *and* Z from clip-space [-1,1] to UV/depth-compare

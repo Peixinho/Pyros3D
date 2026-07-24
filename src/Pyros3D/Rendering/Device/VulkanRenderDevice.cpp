@@ -1973,7 +1973,7 @@ namespace p3d {
 	// entire scene before rasterization, silently (clipping isn't a
 	// validation error, it's correct behavior given the mismatched
 	// convention).
-	Matrix VulkanRenderDevice::TranslateProjectionMatrix(const Matrix &projectionMatrix)
+	Matrix VulkanRenderDevice::TranslateProjectionMatrix(const Matrix &projectionMatrix, const bool skipYFlip)
 	{
 		// Matrix's constructor takes arguments column-by-column
 		// (n11,n21,n31,n41 = column 1, ...; see Matrix.h), not row-by-row -
@@ -1989,7 +1989,16 @@ namespace p3d {
 			0.f, 0.f, 0.5f, 0.f,
 			0.f, 0.f, 0.5f, 1.f
 		);
-		return clipCorrection * projectionMatrix;
+		// skipYFlip variant - identical except row1 is [0,1,0,0] instead
+		// of [0,-1,0,0] - see the comment on this method in IRenderDevice.h
+		// for why a point-light shadow cubemap face needs this.
+		static const Matrix clipCorrectionNoYFlip(
+			1.f, 0.f, 0.f, 0.f,
+			0.f, 1.f, 0.f, 0.f,
+			0.f, 0.f, 0.5f, 0.f,
+			0.f, 0.f, 0.5f, 1.f
+		);
+		return (skipYFlip ? clipCorrectionNoYFlip : clipCorrection) * projectionMatrix;
 	}
 
 	// See the comment on this method in IRenderDevice.h - X/Y remapped

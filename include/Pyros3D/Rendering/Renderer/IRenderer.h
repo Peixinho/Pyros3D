@@ -343,6 +343,12 @@ namespace p3d {
 		// since there's nothing meaningful to compare against yet.
 		static bool GlobalMatricesUBOValid;
 		static Matrix CachedProjectionMatrix, CachedViewMatrix;
+		// Part of the same dirty-check as CachedProjectionMatrix/
+		// CachedViewMatrix above - RenderingPointShadowFace changes which
+		// *translation* of an otherwise-possibly-identical ProjectionMatrix
+		// gets uploaded (see SendGlobalUniforms()), so it has to be part of
+		// what "unchanged" means too, not just the untranslated source matrices.
+		static bool CachedRenderingPointShadowFace;
 		static bool LightsUBOValid;
 		static std::vector<Matrix> CachedLights;
 		static bool DirectionalShadowUBOValid;
@@ -382,6 +388,15 @@ namespace p3d {
 			ProjectionMatrixInverseIsDirty,
 			ViewMatrixInverseIsDirty,
 			ViewProjectionMatrixIsDirty;
+
+		// Set for the duration of a point light's 6-face shadow cubemap
+		// render loop (PreRender()), read by SendGlobalUniforms() to skip
+		// device->TranslateProjectionMatrix()'s Y-flip for those draws
+		// only - see the comment on that method in IRenderDevice.h for
+		// why a cubemap face specifically must not get it. False the rest
+		// of the time (every other pass - main camera, directional/spot
+		// shadows - needs the normal flip).
+		bool RenderingPointShadowFace;
 
 		Vec3
 			CameraPosition;
