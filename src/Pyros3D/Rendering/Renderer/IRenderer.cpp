@@ -866,12 +866,28 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 		// Bind Shadow Maps
 		BindShadowMaps(Material);
 
-		// Send Global Uniforms
-		SendGlobalUniforms(rmesh, Material);
-
 		if (Material->depthBias)
 			EnableDepthBias(Vec2(Material->depthFactor, Material->depthUnits));
 	}
+
+	// Send Global Uniforms - deliberately called on *every* RenderObject(),
+	// not gated by the mesh/material-switch check above. GlobalMatricesUBO
+	// carries the current view/projection, which a shadow-casting pass
+	// changes per cascade/cubemap-face (IRenderer.cpp's directional/point
+	// loops reassign ProjectionMatrix/ViewMatrix and call RenderObject()
+	// again for the *same* single shadowMaterial+mesh) - gating this call
+	// on mesh/material identity meant a scene with only one shadow-casting
+	// object never re-uploaded past the first face/cascade, silently
+	// rendering every subsequent face from the first face's stale
+	// view/projection (confirmed via DebugReadDepthTexture: all 6
+	// point-shadow cubemap faces showed byte-identical depth data for a
+	// single-occluder scene). SendGlobalUniforms() already has its own
+	// internal memcmp-based dirty check (skips the actual GPU upload when
+	// the matrices haven't changed), so calling it unconditionally here is
+	// still cheap for the common multi-object case - it was never the
+	// right thing to piggyback on the mesh/material cache in the first
+	// place.
+	SendGlobalUniforms(rmesh, Material);
 
 	// Check double sided
 	if (rmesh->Material != Material)

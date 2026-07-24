@@ -964,6 +964,13 @@ namespace p3d {
 		vkCmdSetViewport(frameCommandBuffer, 0, 1, &viewport);
 		VkRect2D scissor = { { 0, 0 }, swapchainExtent };
 		vkCmdSetScissor(frameCommandBuffer, 0, 1, &scissor);
+		// Every pipeline now has depthBiasEnable=VK_TRUE + VK_DYNAMIC_STATE_DEPTH_BIAS
+		// (CreatePipeline()) - the dynamic value must be set at least once
+		// per command buffer before any draw, or validation flags
+		// VUID-vkCmdDrawIndexed-None-07834. A zero default here is a
+		// true no-op for every non-shadow draw; SetPolygonOffset() (see
+		// its comment) overrides it for shadow-casting passes.
+		vkCmdSetDepthBias(frameCommandBuffer, 0.0f, 0.0f, 0.0f);
 
 		if (progIt != programs.end() && progIt->second.descriptorSet != VK_NULL_HANDLE)
 			vkCmdBindDescriptorSets(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet, 0, NULL);
@@ -1133,6 +1140,10 @@ namespace p3d {
 		vkCmdSetViewport(frameCommandBuffer, 0, 1, &viewport);
 		VkRect2D scissor = { { 0, 0 }, swapchainExtent };
 		vkCmdSetScissor(frameCommandBuffer, 0, 1, &scissor);
+		// See DrawFrame()'s identical comment on this call - every
+		// pipeline declares VK_DYNAMIC_STATE_DEPTH_BIAS now, so it must be
+		// set at least once per command buffer before any draw.
+		vkCmdSetDepthBias(frameCommandBuffer, 0.0f, 0.0f, 0.0f);
 
 		activeCommandBuffer = frameCommandBuffer;
 		frameInProgress = true;
@@ -1278,8 +1289,35 @@ namespace p3d {
 
 	void VulkanRenderDevice::SetColorMask(const bool r, const bool g, const bool b, const bool a) {}
 
-	void VulkanRenderDevice::SetPolygonOffsetEnabled(const bool enabled) {}
-	void VulkanRenderDevice::SetPolygonOffset(const f32 factor, const f32 units) {}
+	// GL's glPolygonOffset()/GL_POLYGON_OFFSET_FILL, used by shadow-casting
+	// passes to combat self-shadowing acne (see IRenderer.cpp's
+	// EnableDethBias()/DisableDepthBias(), wrapping each light's shadow
+	// render loop). Every pipeline is created with depthBiasEnable=VK_TRUE
+	// and VK_DYNAMIC_STATE_DEPTH_BIAS (CreatePipeline(), see its comment) -
+	// a zero bias is a true no-op, so this is safe to leave enabled on
+	// every non-shadow pipeline too, exactly like glPolygonOffset(0,0)
+	// would be. Guarded on activeCommandBuffer the same way
+	// SetViewport()/SetScissorRect() already are - these are only ever
+	// called mid-recording, from within IRenderer's per-frame/per-shadow-pass
+	// calls, never before BeginFrame()/BindFBO() sets it.
+	void VulkanRenderDevice::SetPolygonOffsetEnabled(const bool enabled)
+	{
+		if (activeCommandBuffer == VK_NULL_HANDLE)
+			return;
+		if (!enabled)
+			vkCmdSetDepthBias(activeCommandBuffer, 0.0f, 0.0f, 0.0f);
+	}
+	void VulkanRenderDevice::SetPolygonOffset(const f32 factor, const f32 units)
+	{
+		if (activeCommandBuffer == VK_NULL_HANDLE)
+			return;
+		// GL's glPolygonOffset(factor, units): 'factor' scales the
+		// primitive's maximum depth slope (Vulkan's depthBiasSlopeFactor),
+		// 'units' scales the smallest resolvable depth-buffer step
+		// (Vulkan's depthBiasConstantFactor) - both specs define these two
+		// terms the same way, so the mapping is direct, not guessed at.
+		vkCmdSetDepthBias(activeCommandBuffer, units, 0.0f, factor);
+	}
 
 	void VulkanRenderDevice::SetBlendingEnabled(const bool enabled) {}
 	void VulkanRenderDevice::SetBlendFunction(const uint32 sfactor, const uint32 dfactor) {}
@@ -1507,10 +1545,19 @@ namespace p3d {
 		viewportState.viewportCount = 1;
 		viewportState.scissorCount = 1;
 
-		VkDynamicState dynamicStates[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+		// VK_DYNAMIC_STATE_DEPTH_BIAS mirrors GL's glPolygonOffset() being
+		// callable/changeable at any time, not baked per-pipeline - shadow
+		// depth passes need a different bias per light (see IRenderer.cpp's
+		// EnableDethBias()/DisableDepthBias() calls, wrapping each light's
+		// shadow-casting loop). depthBiasEnable itself isn't dynamic without
+		// VK_EXT_extended_dynamic_state2 (not used here), so it's just left
+		// on unconditionally below - a zero bias (the default, see
+		// SetPolygonOffsetEnabled()) is a true no-op, so this is harmless
+		// for every non-shadow pipeline too.
+		VkDynamicState dynamicStates[3] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_DEPTH_BIAS };
 		VkPipelineDynamicStateCreateInfo dynamicState = {};
 		dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-		dynamicState.dynamicStateCount = 2;
+		dynamicState.dynamicStateCount = 3;
 		dynamicState.pDynamicStates = dynamicStates;
 
 		VkPipelineRasterizationStateCreateInfo rasterizer = {};
@@ -1534,6 +1581,7 @@ namespace p3d {
 		// Trust that measurement over the paper derivation.
 		rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 		rasterizer.lineWidth = 1.0f;
+		rasterizer.depthBiasEnable = VK_TRUE;
 
 		VkPipelineMultisampleStateCreateInfo multisampling = {};
 		multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -3398,6 +3446,11 @@ namespace p3d {
 		VkRect2D scissor = { { 0, 0 }, { fbo.width, fbo.height } };
 		vkCmdSetViewport(offscreenCommandBuffer, 0, 1, &viewport);
 		vkCmdSetScissor(offscreenCommandBuffer, 0, 1, &scissor);
+		// See DrawFrame()'s identical comment - shadow depth passes are
+		// exactly where a real (non-zero) bias gets set via
+		// SetPolygonOffset(), but the dynamic state must have SOME value
+		// bound before the first draw of this command buffer too.
+		vkCmdSetDepthBias(offscreenCommandBuffer, 0.0f, 0.0f, 0.0f);
 
 		offscreenPassOpen = true;
 	}
