@@ -191,11 +191,12 @@ namespace p3d {
 
 		AddAttachToVector(attach);
 
+		bool wasAlreadyBound = isBinded;
 		if (!isBinded)
-			Device().BindFramebuffer(Device().TranslateFramebufferAccess(FBOAccess::Read_Write), fbo);
+			Device().BindFramebuffer(Device().TranslateFramebufferAccess(FBOAccess::Read_Write), fbo, false);
 
 		// Add Attach
-		Device().AttachFramebufferTexture2D(attach->AttachmentFormat, attach->TextureType, attach->TexturePTR->GetBindID());
+		Device().AttachFramebufferTexture2D(attach->AttachmentFormat, attach->TextureType, attach->TexturePTR->GetBindID(), wasAlreadyBound);
 
 #if !defined(GLES3)
 
@@ -223,7 +224,7 @@ namespace p3d {
 		CheckFBOStatus();
 
 		if (!isBinded)
-			Device().BindFramebuffer(Device().TranslateFramebufferAccess(FBOAccess::Read_Write), 0);
+			Device().BindFramebuffer(Device().TranslateFramebufferAccess(FBOAccess::Read_Write), 0, false);
 	}
 	void FrameBuffer::AddAttach(const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height, const uint32 msaa)
 	{
@@ -237,7 +238,7 @@ namespace p3d {
 		attach->DataType = attachmentDataType;
 
 		if (!isBinded)
-			Device().BindFramebuffer(Device().TranslateFramebufferAccess(FBOAccess::Read_Write), fbo);
+			Device().BindFramebuffer(Device().TranslateFramebufferAccess(FBOAccess::Read_Write), fbo, false);
 
 		attach->rboID = Device().CreateRenderbuffer();
 		Device().BindRenderbuffer(attach->rboID);
@@ -317,7 +318,7 @@ namespace p3d {
 #endif
 
 		if (!isBinded)
-			Device().BindFramebuffer(Device().TranslateFramebufferAccess(FBOAccess::Read_Write), 0);
+			Device().BindFramebuffer(Device().TranslateFramebufferAccess(FBOAccess::Read_Write), 0, false);
 	}
 	void FrameBuffer::AddAttachToVector(FBOAttachment* attach)
 	{
@@ -355,7 +356,7 @@ namespace p3d {
 		// Add to bound FBOs
 		BoundFBOs[accessBinded].push_back(this);
 
-		Device().BindFramebuffer(glAccessBinded, fbo);
+		Device().BindFramebuffer(glAccessBinded, fbo, true);
 		isBinded = true;
 	}
 	uint32 FrameBuffer::GetBindID()
@@ -365,7 +366,7 @@ namespace p3d {
 	void FrameBuffer::UnBind()
 	{
 		// unbind fbo
-		Device().BindFramebuffer(glAccessBinded, 0);
+		Device().BindFramebuffer(glAccessBinded, 0, true);
 
 #if !defined(GLES3)
 		if (drawBuffers)
@@ -402,7 +403,7 @@ namespace p3d {
 				i--;
 			}
 			else {
-				Device().BindFramebuffer(BoundFBOs[accessBinded][i]->glAccessBinded, BoundFBOs[accessBinded][i]->fbo);
+				Device().BindFramebuffer(BoundFBOs[accessBinded][i]->glAccessBinded, BoundFBOs[accessBinded][i]->fbo, true);
 				break;
 			}
 		}

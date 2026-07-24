@@ -1255,6 +1255,10 @@ namespace p3d {
 #endif
 	}
 
+	// See IRenderDevice.h's comment - GL has no render-pass-shape concept
+	// to disambiguate, so this always returns 0.
+	DeviceHandle GLRenderDevice::GetCurrentRenderTarget() { return 0; }
+
 	DeviceHandle GLRenderDevice::CreateFramebuffer()
 	{
 		GLuint id = 0;
@@ -1281,8 +1285,9 @@ namespace p3d {
 		}
 	}
 
-	void GLRenderDevice::BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo)
+	void GLRenderDevice::BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo, const bool finalizePending)
 	{
+		(void)finalizePending; // no render-pass/attachment-shape concept to defer - see IRenderDevice.h's comment
 		GLCHECKER(glBindFramebuffer(nativeAccess, fbo));
 	}
 
@@ -1331,8 +1336,9 @@ namespace p3d {
 		}
 	}
 
-	void GLRenderDevice::AttachFramebufferTexture2D(const uint32 nativeAttachmentFormat, const uint32 nativeTextureTarget, const uint32 textureId)
+	void GLRenderDevice::AttachFramebufferTexture2D(const uint32 nativeAttachmentFormat, const uint32 nativeTextureTarget, const uint32 textureId, const bool wasAlreadyBound)
 	{
+		(void)wasAlreadyBound; // no render-pass/attachment-shape concept to defer - see IRenderDevice.h's comment
 		GLCHECKER(glFramebufferTexture2D(GL_FRAMEBUFFER, nativeAttachmentFormat, nativeTextureTarget, textureId, 0));
 	}
 

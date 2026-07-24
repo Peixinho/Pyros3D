@@ -522,12 +522,62 @@ namespace p3d {
 		// Attachment texture targets reuse TranslateTextureTarget()'s
 		// `mode` output (same GL_TEXTURE_CUBE_MAP_*/GL_TEXTURE_2D/
 		// GL_TEXTURE_2D_MULTISAMPLE translation table as Texture.cpp).
+		// Which FBO is currently bound for rendering (0 = the default
+		// swapchain/backbuffer target) - lets RenderingMesh::PipelineCache
+		// (RenderingComponent.h) key its cached pipelines by render
+		// target as well as shader, not just shader. A Vulkan pipeline
+		// bakes in a specific render pass's attachment shape at creation
+		// time, so the *same* mesh+shader drawn into two differently-shaped
+        // targets (e.g. IslandDemo's water reflection FBO - color-only,
+		// no depth - versus the main swapchain pass - color+depth) needs
+		// two separate pipelines, not one wrongly shared between them
+		// (VUID-vkCmdDrawIndexed-renderPass-02684, found via a live
+		// regression once color-attachment FBOs started working at all -
+		// previously silently masked, since every color attachment
+		// request was rejected outright). GL has no such restriction (no
+		// render-pass concept) and always returns 0, collapsing this back
+		// to the original shader-only keying for that backend - zero
+		// behavior change there.
+		virtual DeviceHandle GetCurrentRenderTarget() = 0;
 		virtual DeviceHandle CreateFramebuffer() = 0;
 		virtual void DestroyFramebuffer(const DeviceHandle fbo) = 0;
 		virtual uint32 TranslateFramebufferAccess(const uint32 engineAccess) = 0;
-		virtual void BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo) = 0;
+		// finalizePending distinguishes a *real* bind (FrameBuffer::Bind(),
+		// or its own "restore the previous FBO" bookkeeping on UnBind() -
+		// nothing else will attach anything new before draws start) from
+		// FrameBuffer::AddAttach()'s self-contained temporary bind/attach/
+		// unbind around a *single* attachment call, one of possibly
+		// several in a row building up one multi-attachment FBO before
+		// anything ever renders into it. Both look identical as a plain
+		// BindFramebuffer(access, fbo!=0) call - this parameter is what
+		// tells a backend whether it's safe to finalize a still-accumulating
+		// attachment set right now, or whether more AttachFramebufferTexture2D()
+		// calls (each also self-contained) are still coming for this same
+		// FBO before the next real bind. GL ignores this (same reasoning
+		// as AttachFramebufferTexture2D()'s wasAlreadyBound parameter -
+		// no render-pass/attachment-shape concept to prematurely finalize).
+		virtual void BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo, const bool finalizePending) = 0;
 		virtual uint32 TranslateFramebufferAttachment(const uint32 engineAttachmentFormat) = 0;
-		virtual void AttachFramebufferTexture2D(const uint32 nativeAttachmentFormat, const uint32 nativeTextureTarget, const uint32 textureId) = 0;
+		// wasAlreadyBound (FrameBuffer::AddAttach()'s own `isBinded` check,
+		// threaded straight through) tells a backend whether this call is
+		// happening *inside* an already-active Bind()...UnBind() session
+		// (true - e.g. a point light's per-frame per-cubemap-face
+		// re-attach, called between an explicit Bind() and the next
+		// draw, expected to take effect immediately) versus a
+		// self-contained setup-time attach outside any session (false -
+		// AddAttach() does its own temporary bind/attach/unbind in this
+		// case, once per attachment, possibly several calls in a row
+		// building up one multi-attachment FBO before anything ever
+		// renders into it - e.g. DeferredRenderer's G-buffer: depth +
+		// several color attachments, each its own AddAttach() call, all
+		// before the first real per-frame Bind()). GL ignores this
+		// entirely (no render-pass/attachment-shape concept to defer
+		// building). Vulkan needs it to know whether it's safe to defer
+		// building the real VkRenderPass/VkFramebuffer until more
+		// attachments are known, or must render immediately because nothing
+		// else will trigger it this frame - see VulkanRenderDevice's
+		// comment on this same method for the full reasoning.
+		virtual void AttachFramebufferTexture2D(const uint32 nativeAttachmentFormat, const uint32 nativeTextureTarget, const uint32 textureId, const bool wasAlreadyBound) = 0;
 		virtual void AttachFramebufferRenderbuffer(const uint32 nativeAttachmentFormat, const DeviceHandle renderbuffer) = 0;
 		// No-ops on GLES3, matching the original #if !defined(GLES3) guards.
 		virtual void SetDrawBufferNone() = 0;

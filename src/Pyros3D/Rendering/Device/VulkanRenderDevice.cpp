@@ -18,6 +18,7 @@
 // those same global names.
 #define VMA_IMPLEMENTATION
 #include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
+#include <algorithm>
 
 #ifdef VULKAN_BACKEND
 
@@ -1593,26 +1594,20 @@ namespace p3d {
 		depthStencil.depthWriteEnable = desc.depthWrite ? VK_TRUE : VK_FALSE;
 		depthStencil.depthCompareOp = TranslateDepthTestVk(desc.depthTestMode);
 
-		VkPipelineColorBlendAttachmentState blendAttachment = {};
-		blendAttachment.blendEnable = desc.blendingEnabled ? VK_TRUE : VK_FALSE;
-		blendAttachment.srcColorBlendFactor = TranslateBlendFactorVk(desc.blendSrcFactor);
-		blendAttachment.dstColorBlendFactor = TranslateBlendFactorVk(desc.blendDstFactor);
-		blendAttachment.colorBlendOp = TranslateBlendEquationVk(desc.blendEquation);
-		blendAttachment.srcAlphaBlendFactor = TranslateBlendFactorVk(desc.blendSrcFactor);
-		blendAttachment.dstAlphaBlendFactor = TranslateBlendFactorVk(desc.blendDstFactor);
-		blendAttachment.alphaBlendOp = TranslateBlendEquationVk(desc.blendEquation);
-		blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-
-		// A depth-only render pass's subpass has zero color attachments -
-		// the color-blend state's attachment count must match that
-		// exactly for render-pass compatibility (see the comment on
-		// PipelineDesc::isShadowPass/shadowPipelineRenderPass for why
-		// this distinction exists at all).
-		VkPipelineColorBlendStateCreateInfo colorBlending = {};
-		colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-		colorBlending.attachmentCount = desc.isShadowPass ? 0 : 1;
-		colorBlending.pAttachments = desc.isShadowPass ? NULL : &blendAttachment;
-
+		// One VkPipelineColorBlendAttachmentState per color attachment the
+		// target render pass actually has - a mismatch here is a real
+		// Vulkan validation error (VUID-VkGraphicsPipelineCreateInfo-renderPass-06044-ish
+		// render-pass-compatibility class), not just a logic bug. Every
+		// existing (non-shadow, non-FBO) draw target - the swapchain -
+		// has exactly 1, so blendAttachments.size()==1 with the same
+		// per-attachment state repeated is the pre-existing behavior,
+		// unchanged; a G-buffer/post-effect FBO with N color outputs
+		// gets N copies of the same blend state (this engine has no
+		// per-output blend-mode concept today - every color attachment a
+		// mesh's material writes uses that material's single blend
+		// state, matching GL's own glBlendFunc being global, not
+		// per-draw-buffer).
+		uint32 targetColorAttachmentCount = 1;
 		VkRenderPass targetRenderPass = renderPass;
 		if (desc.isShadowPass)
 		{
@@ -1627,7 +1622,46 @@ namespace p3d {
 				shadowPipelineRenderPass = templateFbo.renderPass;
 			}
 			targetRenderPass = shadowPipelineRenderPass;
+			targetColorAttachmentCount = 0;
 		}
+		else if (currentBoundFBO != 0)
+		{
+			// Drawing into a caller-bound offscreen FBO instead of the
+			// swapchain - DeferredRenderer's G-buffer pass or a
+			// PostEffectsManager/effect's color render target. By the
+			// time any draw (and thus CreatePipeline(), called lazily on
+			// first use of a given mesh+shader) happens here,
+			// BindFramebuffer() has already finalized this FBO's real
+			// render pass (see its comment) - target that instead of the
+			// swapchain's, and size color-blend state to match its
+			// actual color attachment count (0 for a depth-only shadow
+			// FBO reached this way, same as the isShadowPass case above -
+			// not expected in practice, since shadow rendering always
+			// sets isShadowPass explicitly, but handled consistently
+			// rather than assumed impossible).
+			std::map<DeviceHandle, FBORecord>::iterator fboIt = fboRecords.find(currentBoundFBO);
+			if (fboIt != fboRecords.end() && fboIt->second.renderPass != VK_NULL_HANDLE)
+			{
+				targetRenderPass = fboIt->second.renderPass;
+				targetColorAttachmentCount = fboIt->second.colorAttachmentCount;
+			}
+		}
+
+		VkPipelineColorBlendAttachmentState blendAttachment = {};
+		blendAttachment.blendEnable = desc.blendingEnabled ? VK_TRUE : VK_FALSE;
+		blendAttachment.srcColorBlendFactor = TranslateBlendFactorVk(desc.blendSrcFactor);
+		blendAttachment.dstColorBlendFactor = TranslateBlendFactorVk(desc.blendDstFactor);
+		blendAttachment.colorBlendOp = TranslateBlendEquationVk(desc.blendEquation);
+		blendAttachment.srcAlphaBlendFactor = TranslateBlendFactorVk(desc.blendSrcFactor);
+		blendAttachment.dstAlphaBlendFactor = TranslateBlendFactorVk(desc.blendDstFactor);
+		blendAttachment.alphaBlendOp = TranslateBlendEquationVk(desc.blendEquation);
+		blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+		std::vector<VkPipelineColorBlendAttachmentState> blendAttachments(targetColorAttachmentCount, blendAttachment);
+
+		VkPipelineColorBlendStateCreateInfo colorBlending = {};
+		colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+		colorBlending.attachmentCount = targetColorAttachmentCount;
+		colorBlending.pAttachments = blendAttachments.empty() ? NULL : blendAttachments.data();
 
 		VkGraphicsPipelineCreateInfo pipelineInfo = {};
 		pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -2980,8 +3014,17 @@ namespace p3d {
 			// for DebugReadDepthTexture()'s diagnostic readback (same
 			// reasoning as the swapchain gaining it for
 			// RequestFrameCapture()) - additive, no cost to any real
-			// shadow-map usage.
-			imageInfo.usage = (isDepth ? (VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT) : VK_IMAGE_USAGE_TRANSFER_DST_BIT) | VK_IMAGE_USAGE_SAMPLED_BIT;
+			// shadow-map usage. COLOR_ATTACHMENT_BIT on color textures is
+			// the multi-attachment-render-pass counterpart of
+			// DEPTH_STENCIL_ATTACHMENT_BIT above - without it, a color
+			// texture created via CreateEmptyTexture() (a G-buffer output,
+			// or any post-effect render target) is sampleable but can't
+			// legally be used as a render-pass attachment
+			// (VUID-VkFramebufferCreateInfo-pAttachments-* would catch
+			// this at vkCreateFramebuffer() time) - additive, no cost to
+			// a texture that's only ever uploaded-to-and-sampled (a
+			// LoadTexture() asset) and never attached to any FBO.
+			imageInfo.usage = (isDepth ? (VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT) : (VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)) | VK_IMAGE_USAGE_SAMPLED_BIT;
 			imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 			imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
@@ -3212,6 +3255,22 @@ namespace p3d {
 	void VulkanRenderDevice::ReadTexturePixels(const uint32 target, const uint32 level, const uint32 format, const uint32 type, void *outBuffer) {}
 	uint32 VulkanRenderDevice::GetTextureDataSize(const uint32 nativeInternalFormat, const uint32 width, const uint32 height) { return 0; }
 
+	// See IRenderDevice.h's comment - this is what
+	// RenderingMesh::PipelineCache keys on, in addition to shader, to
+	// avoid wrongly reusing a pipeline built for one render-pass shape
+	// (e.g. a color-only reflection FBO) against a different one (the
+	// main color+depth swapchain pass). Not special-cased for shadow
+	// passes specifically (every shadow FBO's render pass is identical
+	// in shape regardless of which light it belongs to, and
+	// CreatePipeline() already ignores this value entirely whenever
+	// desc.isShadowPass is set, always targeting the one shared
+	// shadowPipelineRenderPass instead) - a scene with N shadow-casting
+	// lights ends up with N harmlessly-redundant cache entries for the
+	// shadow material instead of 1, a bounded, small waste not worth the
+	// extra complexity of teaching this function about shadow-specific
+	// state it doesn't otherwise need to know.
+	DeviceHandle VulkanRenderDevice::GetCurrentRenderTarget() { return currentBoundFBO; }
+
 	DeviceHandle VulkanRenderDevice::CreateFramebuffer()
 	{
 		DeviceHandle handle = nextFBOHandle++;
@@ -3293,6 +3352,127 @@ namespace p3d {
 			fprintf(stderr, "VulkanRenderDevice::BuildDepthOnlyRenderPass: vkCreateRenderPass failed\n");
 			return false;
 		}
+		// See BuildMultiAttachmentRenderPass()'s identical fields -
+		// BeginOffscreenRenderPassForTarget()'s clear-value count and
+		// CreatePipeline()'s color-blend-state sizing both read these
+		// regardless of which of the two builders actually ran.
+		fbo.colorAttachmentCount = 0;
+		fbo.hasDepthAttachment = true;
+		return true;
+	}
+
+	bool VulkanRenderDevice::BuildMultiAttachmentRenderPass(FBORecord &fbo)
+	{
+		if (fbo.pendingAttachments.empty())
+			return false;
+
+		// Color attachments first (in Color_AttachmentN order, so
+		// PyrosShader.glsl's FragColor/second-output/etc match the shader
+		// author's expected index-to-slot mapping), depth last if
+		// present - the framebuffer's pAttachments array (built by the
+		// caller right after this, from the same pendingAttachments list
+		// sorted the same way) must match this order exactly, since
+		// Vulkan attachment *references* are plain integer indices.
+		std::vector<PendingAttachment> sorted = fbo.pendingAttachments;
+		std::sort(sorted.begin(), sorted.end(), [](const PendingAttachment &a, const PendingAttachment &b) {
+			bool aDepth = a.format == FrameBufferAttachmentFormat::Depth_Attachment;
+			bool bDepth = b.format == FrameBufferAttachmentFormat::Depth_Attachment;
+			if (aDepth != bDepth) return bDepth; // color (false) sorts before depth (true)
+			return a.format < b.format;
+		});
+		fbo.pendingAttachments = sorted;
+
+		std::vector<VkAttachmentDescription> attachmentDescs;
+		std::vector<VkAttachmentReference> colorRefs;
+		VkAttachmentReference depthRef = {};
+		bool hasDepth = false;
+
+		for (size_t i = 0; i < sorted.size(); i++)
+		{
+			std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(sorted[i].textureId);
+			if (texIt == textures.end())
+			{
+				fprintf(stderr, "VulkanRenderDevice::BuildMultiAttachmentRenderPass: pending attachment's texture handle %u no longer exists\n", sorted[i].textureId);
+				return false;
+			}
+			bool isDepth = sorted[i].format == FrameBufferAttachmentFormat::Depth_Attachment;
+
+			VkAttachmentDescription desc = {};
+			desc.format = texIt->second.format;
+			desc.samples = VK_SAMPLE_COUNT_1_BIT;
+			desc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+			desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+			desc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			// Same "ready to sample immediately after" reasoning as
+			// BuildDepthOnlyRenderPass() - a G-buffer's outputs get read
+			// back as textures in DeferredRenderer's lighting pass, and a
+			// post-effect's color target gets read back by the next
+			// effect (or the final composite), always as a plain sampled
+			// image, never re-used as a same-format attachment directly.
+			desc.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+			attachmentDescs.push_back(desc);
+
+			if (isDepth)
+			{
+				depthRef.attachment = (uint32_t)i;
+				depthRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+				hasDepth = true;
+			}
+			else
+			{
+				VkAttachmentReference ref = {};
+				ref.attachment = (uint32_t)i;
+				ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				colorRefs.push_back(ref);
+			}
+		}
+
+		VkSubpassDescription subpass = {};
+		subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+		subpass.colorAttachmentCount = (uint32_t)colorRefs.size();
+		subpass.pColorAttachments = colorRefs.empty() ? NULL : colorRefs.data();
+		subpass.pDepthStencilAttachment = hasDepth ? &depthRef : NULL;
+
+		// Same two-directional dependency reasoning as
+		// BuildDepthOnlyRenderPass() - wait for any previous frame's
+		// sampling of these attachments to finish before writing new
+		// ones, and make whoever samples them afterward wait for this
+		// write (+ the layout transition to SHADER_READ_ONLY_OPTIMAL) to
+		// finish first. Covers both color and depth stages generically
+		// since a G-buffer pass writes both simultaneously.
+		VkSubpassDependency dependencies[2] = {};
+		dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+		dependencies[0].dstSubpass = 0;
+		dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+		dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		dependencies[1].srcSubpass = 0;
+		dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+		dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+		dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		VkRenderPassCreateInfo renderPassInfo = {};
+		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+		renderPassInfo.attachmentCount = (uint32_t)attachmentDescs.size();
+		renderPassInfo.pAttachments = attachmentDescs.data();
+		renderPassInfo.subpassCount = 1;
+		renderPassInfo.pSubpasses = &subpass;
+		renderPassInfo.dependencyCount = 2;
+		renderPassInfo.pDependencies = dependencies;
+
+		if (vkCreateRenderPass(device, &renderPassInfo, NULL, &fbo.renderPass) != VK_SUCCESS)
+		{
+			fprintf(stderr, "VulkanRenderDevice::BuildMultiAttachmentRenderPass: vkCreateRenderPass failed\n");
+			return false;
+		}
+		fbo.colorAttachmentCount = (uint32_t)colorRefs.size();
+		fbo.hasDepthAttachment = hasDepth;
 		return true;
 	}
 
@@ -3341,7 +3521,7 @@ namespace p3d {
 	// synchronously (matches UploadTexture2D()'s established "correctness
 	// over throughput" immediate-submit precedent) - one submit per
 	// Bind()/UnBind() session, not per attached face.
-	void VulkanRenderDevice::BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo)
+	void VulkanRenderDevice::BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo, const bool finalizePending)
 	{
 		(void)nativeAccess;
 		if (fbo != 0)
@@ -3358,7 +3538,95 @@ namespace p3d {
 			// through and let the upcoming AttachFramebufferTexture2D()
 			// call build+begin it instead, unchanged.
 			std::map<DeviceHandle, FBORecord>::iterator fboIt = fboRecords.find(fbo);
-			if (fboIt != fboRecords.end() && fboIt->second.renderPass != VK_NULL_HANDLE)
+			if (fboIt == fboRecords.end())
+				return;
+			if (finalizePending && fboIt->second.renderPass == VK_NULL_HANDLE && !fboIt->second.pendingAttachments.empty())
+			{
+				// This is the first *real* Bind() since a multi-attachment
+				// (or single-attachment) FBO finished its self-contained
+				// setup-time AddAttach() calls (see
+				// AttachFramebufferTexture2D()'s comment) - nothing else
+				// will finalize it, so do it now: build the real
+				// VkRenderPass from everything accumulated, then one
+				// combined VkFramebuffer referencing every attachment's
+				// view. A single pending Depth_Attachment (directional/
+				// spot shadow FBOs, the original case this whole
+				// accumulate-then-finalize mechanism was generalized
+				// from) must still go through BuildDepthOnlyRenderPass(),
+				// not the general builder below - both produce a
+				// structurally-equal single-depth-attachment render pass,
+				// but Vulkan's render-pass-compatibility check also
+				// compares subpass dependency stage/access masks (not
+				// just attachment descriptions, as the general builder's
+				// own comment initially assumed), and the two builders'
+				// dependency masks differ slightly - found via a real
+				// regression (VUID-vkCmdDrawIndexed-renderPass-02684)
+				// against shadowPipelineRenderPass, which is *always*
+				// built via BuildDepthOnlyRenderPass and shared across
+				// every shadow-casting pipeline, so every individual
+				// light's own FBO render pass must stay bit-for-bit
+				// dependency-compatible with it.
+				bool isSingleDepthOnly = fboIt->second.pendingAttachments.size() == 1
+					&& fboIt->second.pendingAttachments[0].format == FrameBufferAttachmentFormat::Depth_Attachment;
+				bool built = false;
+				if (isSingleDepthOnly)
+				{
+					std::map<DeviceHandle, TextureRecord>::iterator depthTexIt = textures.find(fboIt->second.pendingAttachments[0].textureId);
+					if (depthTexIt != textures.end())
+						built = BuildDepthOnlyRenderPass(fboIt->second, depthTexIt->second.format);
+				}
+				else
+				{
+					built = BuildMultiAttachmentRenderPass(fboIt->second);
+				}
+				if (built)
+				{
+					std::vector<VkImageView> views;
+					uint32 w = 0, h = 0;
+					bool ok = true;
+					for (size_t i = 0; i < fboIt->second.pendingAttachments.size(); i++)
+					{
+						std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(fboIt->second.pendingAttachments[i].textureId);
+						if (texIt == textures.end()) { ok = false; break; }
+						VkImageView view = GetOrCreateRenderTargetView(texIt->second, fboIt->second.pendingAttachments[i].target);
+						if (view == VK_NULL_HANDLE) { ok = false; break; }
+						views.push_back(view);
+						w = texIt->second.width;
+						h = texIt->second.height;
+					}
+					if (ok)
+					{
+						fboIt->second.width = w;
+						fboIt->second.height = h;
+						VkFramebufferCreateInfo fbInfo = {};
+						fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+						fbInfo.renderPass = fboIt->second.renderPass;
+						fbInfo.attachmentCount = (uint32_t)views.size();
+						fbInfo.pAttachments = views.data();
+						fbInfo.width = w;
+						fbInfo.height = h;
+						fbInfo.layers = 1;
+						VkFramebuffer combined = VK_NULL_HANDLE;
+						if (vkCreateFramebuffer(device, &fbInfo, NULL, &combined) == VK_SUCCESS)
+						{
+							// 0 is never produced by TranslateTextureTarget()
+							// (plain 2D = 1, cubemap faces =
+							// CUBEMAP_FACE_TARGET_BASE+i) - safe to reserve
+							// as "the one combined multi-attachment
+							// framebuffer" key, distinct from any single-
+							// texture target key this same map also holds.
+							fboIt->second.framebuffersByTarget[0] = combined;
+							fboIt->second.lastTarget = 0;
+						}
+						else
+						{
+							fprintf(stderr, "VulkanRenderDevice::BindFramebuffer: vkCreateFramebuffer (combined multi-attachment) failed\n");
+						}
+					}
+				}
+				fboIt->second.pendingAttachments.clear();
+			}
+			if (fboIt->second.renderPass != VK_NULL_HANDLE)
 			{
 				std::map<uint32, VkFramebuffer>::iterator fbIt = fboIt->second.framebuffersByTarget.find(fboIt->second.lastTarget);
 				if (fbIt != fboIt->second.framebuffersByTarget.end())
@@ -3400,19 +3668,18 @@ namespace p3d {
 	}
 
 	// Passes the engine's FrameBufferAttachmentFormat::* value straight
-	// through - AttachFramebufferTexture2D() only cares whether this is
-	// Depth_Attachment (the only attachment type this backend implements
-	// - see FBORecord's header comment for why Renderbuffer-backed/color
-	// attachments aren't), not a translated native token.
+	// through - AttachFramebufferTexture2D() branches on Depth_Attachment
+	// vs Color_Attachment0..15 itself (Stencil_Attachment is still not
+	// implemented - no example uses it), not a translated native token.
 	uint32 VulkanRenderDevice::TranslateFramebufferAttachment(const uint32 engineAttachmentFormat) { return engineAttachmentFormat; }
 
-	void VulkanRenderDevice::AttachFramebufferTexture2D(const uint32 nativeAttachmentFormat, const uint32 nativeTextureTarget, const uint32 textureId)
+	void VulkanRenderDevice::AttachFramebufferTexture2D(const uint32 nativeAttachmentFormat, const uint32 nativeTextureTarget, const uint32 textureId, const bool wasAlreadyBound)
 	{
 		if (currentBoundFBO == 0 || device == VK_NULL_HANDLE)
 			return;
-		if (nativeAttachmentFormat != FrameBufferAttachmentFormat::Depth_Attachment)
+		if (nativeAttachmentFormat != FrameBufferAttachmentFormat::Depth_Attachment && nativeAttachmentFormat > FrameBufferAttachmentFormat::Color_Attachment15)
 		{
-			fprintf(stderr, "VulkanRenderDevice::AttachFramebufferTexture2D: only Depth_Attachment is implemented - attachment format %u ignored\n", nativeAttachmentFormat);
+			fprintf(stderr, "VulkanRenderDevice::AttachFramebufferTexture2D: Stencil_Attachment is not implemented - attachment format %u ignored\n", nativeAttachmentFormat);
 			return;
 		}
 		std::map<DeviceHandle, FBORecord>::iterator fboIt = fboRecords.find(currentBoundFBO);
@@ -3425,14 +3692,48 @@ namespace p3d {
 			return;
 		}
 
-		// Re-attaching a new target within an already-open session (a
-		// point light's 2nd-6th cubemap face) - end the previous face's
-		// render pass first; Vulkan can't retarget a render pass's
-		// attachment mid-pass.
+		// wasAlreadyBound=false and no render pass yet: this is a
+		// self-contained setup-time attach (FrameBuffer::AddAttach() did
+		// its own temporary bind/attach/unbind around this single call -
+		// see IRenderDevice.h's comment on this parameter) for an FBO
+		// that hasn't started rendering yet. Nothing has been (or will
+		// be) drawn between this call and the matching UnBind() a moment
+		// from now, so it's safe - and, for a multi-attachment FBO,
+		// necessary - to just record this slot and defer building the
+		// real VkRenderPass/VkFramebuffer until BindFramebuffer() sees a
+		// *real* bind (see its comment). Building immediately here would
+		// either be premature (a G-buffer's 2nd-4th attachment calls
+		// would each need to tear down and rebuild a render pass whose
+		// shape just changed) or simply wrong (nothing would ever
+		// re-attach a 2nd/3rd/4th slot for this same FBO again - directional/
+		// spot shadow FBOs already rely on exactly that "attach once at
+		// setup, build lazily on first real Bind()" behavior, unchanged
+		// by this generalization).
+		if (!wasAlreadyBound && fboIt->second.renderPass == VK_NULL_HANDLE)
+		{
+			PendingAttachment pending = { nativeAttachmentFormat, nativeTextureTarget, textureId };
+			fboIt->second.pendingAttachments.push_back(pending);
+			return;
+		}
+
+		// From here on: either wasAlreadyBound=true (a point light's
+		// 2nd-6th cubemap face, called between an explicit Bind() and
+		// the next draw - must render immediately, matching this
+		// function's original/only behavior before the branch above
+		// existed), or renderPass is already built (re-attaching after
+		// the fact, not exercised by anything today but handled the same
+		// way for consistency). Re-attaching a new target within an
+		// already-open session - end the previous face's render pass
+		// first; Vulkan can't retarget a render pass's attachment
+		// mid-pass.
 		EndOffscreenRenderPassIfOpen();
 
 		if (fboIt->second.renderPass == VK_NULL_HANDLE)
 		{
+			// Single-attachment case only reaches here (wasAlreadyBound=true
+			// on the very first attach - e.g. a point light's face 0,
+			// which IRenderer.cpp calls right after its own explicit
+			// Bind(), not through AddAttach()'s self-contained wrapper).
 			if (!BuildDepthOnlyRenderPass(fboIt->second, texIt->second.format))
 				return;
 			fboIt->second.width = texIt->second.width;
@@ -3488,15 +3789,24 @@ namespace p3d {
 			currentPipeline = 0;
 		}
 
-		VkClearValue clearValue;
-		clearValue.depthStencil = { 1.0f, 0 };
+		// One clear value per attachment, in the same order
+		// BuildMultiAttachmentRenderPass() put them in (color 0..N-1,
+		// then depth last if present) - BuildDepthOnlyRenderPass()'s
+		// single-depth-attachment case is just the hasDepthAttachment-only,
+		// colorAttachmentCount==0 special case of the same layout.
+		std::vector<VkClearValue> clearValues(fbo.colorAttachmentCount + (fbo.hasDepthAttachment ? 1 : 0));
+		for (uint32 i = 0; i < fbo.colorAttachmentCount; i++)
+			clearValues[i].color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+		if (fbo.hasDepthAttachment)
+			clearValues[fbo.colorAttachmentCount].depthStencil = { 1.0f, 0 };
+
 		VkRenderPassBeginInfo renderPassBegin = {};
 		renderPassBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 		renderPassBegin.renderPass = fbo.renderPass;
 		renderPassBegin.framebuffer = targetFramebuffer;
 		renderPassBegin.renderArea.extent = { fbo.width, fbo.height };
-		renderPassBegin.clearValueCount = 1;
-		renderPassBegin.pClearValues = &clearValue;
+		renderPassBegin.clearValueCount = (uint32_t)clearValues.size();
+		renderPassBegin.pClearValues = clearValues.empty() ? NULL : clearValues.data();
 		vkCmdBeginRenderPass(offscreenCommandBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
 
 		VkViewport viewport = { 0.0f, 0.0f, (f32)fbo.width, (f32)fbo.height, 0.0f, 1.0f };

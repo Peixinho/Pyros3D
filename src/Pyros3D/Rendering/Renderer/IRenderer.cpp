@@ -809,6 +809,15 @@ void IRenderer::EndRender()
 	DisableBlending();
 }
 
+// See the comment on RenderingMesh::PipelineCache (RenderingComponent.h) -
+// packs (shader, targetFBO) into one key. Shader program handles and FBO
+// handles are both DeviceHandle (uint32), so a plain 32-bit shift keeps
+// each half exact with no risk of collision.
+static uint64 PipelineCacheKey(const uint32 shader, const uint32 targetFBO)
+{
+	return ((uint64)shader << 32) | (uint64)targetFBO;
+}
+
 void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material)
 {
 	// See the comment on CommandBufferHandle in IRenderDevice.h - GL ignores
@@ -872,7 +881,7 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 		// was current *before* this switch (or none at all), silently
 		// leaving the real descriptor unwritten
 		// (VUID-vkCmdDrawIndexed-None-08114 caught this the hard way).
-		device->BindPipeline(cmd, rmesh->PipelineCache[Material->GetShader()]);
+		device->BindPipeline(cmd, rmesh->PipelineCache[PipelineCacheKey(Material->GetShader(), device->GetCurrentRenderTarget())]);
 
 		// Material Stuff Pre Render
 		Material->PreRender();
@@ -1927,17 +1936,32 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		device->BindUniformBlockIfPresent(material->GetShader(), "AmbientLightUniforms", 21);
 		device->BindUniformBlockIfPresent(material->GetShader(), "MaterialUniforms", 22);
 		device->BindUniformBlockIfPresent(material->GetShader(), "ObjectLightCounts", 23);
+	}
 
-		// Vulkan pipeline for this (mesh, shader) pair - see the comment on
-		// RenderingMesh::PipelineCache. Built from Material's state right
-		// now, not re-evaluated per object the way RenderObject()'s own
-		// depth/blend/cull dirty-tracking is below - a known simplification
-		// (documented on PipelineCache itself), correct for this backend's
-		// only validated target (RotatingCube: one opaque, non-blended,
-		// non-double-sided, non-wireframe mesh/material pairing). No cost
-		// for GL: CreatePipeline() just records a struct nobody reads
-		// unless BindPipeline() is also called, which RenderObject() only
-		// does at this exact same (mesh, shader) switch cadence.
+	// Vulkan pipeline for this (mesh, shader, render target) triple - see
+	// the comment on RenderingMesh::PipelineCache. Deliberately gated on
+	// its *own* cache key, not folded into the VAOCache-gated block above -
+	// a VAO is render-target-agnostic (pure vertex-attribute layout), but
+	// a Vulkan pipeline bakes in a specific render pass's attachment shape,
+	// so the first time this (mesh, shader) pair is drawn into a *new*
+	// render target, a VAO already exists (skipping the block above
+	// entirely) while a pipeline for this target still doesn't - checking
+	// only VAOCache here would silently leave PipelineCache[key] unset,
+	// and the next BindPipeline() call would fail with "pipeline handle 0
+	// not found" (found via a live regression once color-attachment FBOs
+	// started working at all and a mesh got drawn into two different
+	// targets for the first time). Built from Material's state right now,
+	// not re-evaluated per object the way RenderObject()'s own
+	// depth/blend/cull dirty-tracking is below - a known simplification,
+	// correct for any Material whose blend/depth/cull state doesn't
+	// change after the fact for a given mesh/shader/target combination.
+	// No cost for GL: CreatePipeline() just records a struct nobody reads
+	// unless BindPipeline() is also called, which RenderObject() only
+	// does at this exact same (mesh, shader) switch cadence, and
+	// GetCurrentRenderTarget() always returns 0 there.
+	uint64 pipelineKey = PipelineCacheKey(material->GetShader(), device->GetCurrentRenderTarget());
+	if (rmesh->PipelineCache.find(pipelineKey) == rmesh->PipelineCache.end())
+	{
 		IRenderDevice::PipelineDesc pdesc;
 		pdesc.shaderProgram = material->GetShader();
 		pdesc.depthTest = material->IsDepthTesting();
@@ -1953,11 +1977,7 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		pdesc.isShadowPass = (material == shadowMaterial || material == shadowSkinnedMaterial);
 		// Mesh's actual per-buffer vertex attribute layout (name/type/
 		// offset/divisor per attribute, stride per buffer) - see the
-		// comment on IRenderDevice::PipelineDesc::vertexLayout. A separate
-		// pass over the same Geometry->Attributes the loop above already
-		// walked for GL's SetVertexAttribute calls, rather than folding
-		// into that loop, so this addition can't perturb the existing,
-		// already-verified GL attribute-binding logic.
+		// comment on IRenderDevice::PipelineDesc::vertexLayout.
 		for (std::vector<AttributeArray*>::iterator k = rmesh->Geometry->Attributes.begin(); k != rmesh->Geometry->Attributes.end(); k++)
 		{
 			AttributeBuffer* bf = (AttributeBuffer*)(*k);
@@ -1987,7 +2007,7 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 				pdesc.blendEquation = material->mode;
 			}
 		}
-		rmesh->PipelineCache[material->GetShader()] = device->CreatePipeline(pdesc);
+		rmesh->PipelineCache[pipelineKey] = device->CreatePipeline(pdesc);
 	}
 }
 

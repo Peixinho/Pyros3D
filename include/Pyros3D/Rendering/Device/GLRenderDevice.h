@@ -150,12 +150,13 @@ namespace p3d {
 		virtual void ReadTexturePixels(const uint32 target, const uint32 level, const uint32 format, const uint32 type, void *outBuffer);
 		virtual uint32 GetTextureDataSize(const uint32 nativeInternalFormat, const uint32 width, const uint32 height);
 
+		virtual DeviceHandle GetCurrentRenderTarget();
 		virtual DeviceHandle CreateFramebuffer();
 		virtual void DestroyFramebuffer(const DeviceHandle fbo);
 		virtual uint32 TranslateFramebufferAccess(const uint32 engineAccess);
-		virtual void BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo);
+		virtual void BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo, const bool finalizePending);
 		virtual uint32 TranslateFramebufferAttachment(const uint32 engineAttachmentFormat);
-		virtual void AttachFramebufferTexture2D(const uint32 nativeAttachmentFormat, const uint32 nativeTextureTarget, const uint32 textureId);
+		virtual void AttachFramebufferTexture2D(const uint32 nativeAttachmentFormat, const uint32 nativeTextureTarget, const uint32 textureId, const bool wasAlreadyBound);
 		virtual void AttachFramebufferRenderbuffer(const uint32 nativeAttachmentFormat, const DeviceHandle renderbuffer);
 		virtual void SetDrawBufferNone();
 		virtual void SetReadBufferNone();

@@ -30,7 +30,7 @@ namespace p3d {
 		{
 			Device().DeleteVertexArray(i->second);
 		}
-		for (std::map<uint32, uint32>::iterator i = PipelineCache.begin(); i != PipelineCache.end(); i++)
+		for (std::map<uint64, uint32>::iterator i = PipelineCache.begin(); i != PipelineCache.end(); i++)
 		{
 			Device().DestroyPipeline(i->second);
 		}

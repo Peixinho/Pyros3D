@@ -192,7 +192,24 @@ namespace p3d {
 		// IRenderer::EndRender()/PreRender(), which also run for a shadow
 		// sub-pass that has no swapchain-framebuffer target at all - see
 		// the interface comment for why that's out of scope for now.
-		device->BeginFrame();
+		//
+		// Gated on GetCurrentRenderTarget()==0 (the swapchain, not some
+		// caller-bound offscreen FBO) - some examples (IslandDemo's water
+		// reflection/refraction) call RenderScene() *multiple* times per
+		// real frame, each wrapped in their own FrameBuffer::Bind()/UnBind()
+		// around an offscreen render target. Calling BeginFrame()
+		// unconditionally here (as before this check existed) would
+		// acquire/begin the *swapchain*'s own frame on every one of those
+		// calls too, hijacking activeCommandBuffer away from the offscreen
+		// command buffer FrameBuffer::Bind() had just correctly set up -
+		// found via a live regression (VUID-vkCmdDrawIndexed-renderPass-02684:
+		// a pipeline correctly built against the reflection FBO's render
+		// pass, but the actual draw landing in the swapchain's) once
+		// color-attachment FBOs started working at all, exposing a call
+		// pattern that was never reachable before.
+		bool isMainSwapchainPass = device->GetCurrentRenderTarget() == 0;
+		if (isMainSwapchainPass)
+			device->BeginFrame();
 
 		// Clear Screen - a no-op on Vulkan (BeginFrame() above already
 		// cleared via the render pass's LOAD_OP_CLEAR).
@@ -267,6 +284,7 @@ namespace p3d {
 		EndRender();
 
 		// See the comment on BeginFrame() above.
-		device->EndFrame();
+		if (isMainSwapchainPass)
+			device->EndFrame();
 	}
 };

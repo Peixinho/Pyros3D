@@ -279,12 +279,13 @@ namespace p3d {
 		virtual void ReadTexturePixels(const uint32 target, const uint32 level, const uint32 format, const uint32 type, void *outBuffer);
 		virtual uint32 GetTextureDataSize(const uint32 nativeInternalFormat, const uint32 width, const uint32 height);
 
+		virtual DeviceHandle GetCurrentRenderTarget();
 		virtual DeviceHandle CreateFramebuffer();
 		virtual void DestroyFramebuffer(const DeviceHandle fbo);
 		virtual uint32 TranslateFramebufferAccess(const uint32 engineAccess);
-		virtual void BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo);
+		virtual void BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo, const bool finalizePending);
 		virtual uint32 TranslateFramebufferAttachment(const uint32 engineAttachmentFormat);
-		virtual void AttachFramebufferTexture2D(const uint32 nativeAttachmentFormat, const uint32 nativeTextureTarget, const uint32 textureId);
+		virtual void AttachFramebufferTexture2D(const uint32 nativeAttachmentFormat, const uint32 nativeTextureTarget, const uint32 textureId, const bool wasAlreadyBound);
 		virtual void AttachFramebufferRenderbuffer(const uint32 nativeAttachmentFormat, const DeviceHandle renderbuffer);
 		virtual void SetDrawBufferNone();
 		virtual void SetReadBufferNone();
@@ -492,13 +493,52 @@ namespace p3d {
 		// those files is gated `#if defined(GLLEGACY)`, confirmed never
 		// defined anywhere in this project's CMake, so not implemented
 		// here either.
+		// One pending, not-yet-built attachment slot - accumulated by
+		// AttachFramebufferTexture2D() calls that arrive *outside* an
+		// already-active Bind() session (wasAlreadyBound=false - see
+		// IRenderDevice.h's comment on that parameter), keyed by
+		// nativeAttachmentFormat so a G-buffer's several AddAttach() calls
+		// (Depth_Attachment, Color_Attachment0, Color_Attachment1, ...)
+		// each claim a distinct slot instead of overwriting one another.
+		// Finalized into a real multi-attachment VkRenderPass+VkFramebuffer
+		// the first time this FBO is genuinely bound for rendering (see
+		// BindFramebuffer()'s comment) - deferred because Vulkan needs
+		// every attachment's format known upfront to build a render pass,
+		// but a caller-supplied multi-attachment FrameBuffer's individual
+		// AddAttach() calls each only know about *one* attachment at a
+		// time.
+		struct PendingAttachment
+		{
+			uint32 format; // FrameBufferAttachmentFormat::* (Depth_Attachment or Color_AttachmentN)
+			uint32 target; // TranslateTextureTarget()'s native token (plain 2D, or a cubemap face)
+			DeviceHandle textureId;
+		};
+
 		struct FBORecord
 		{
-			// Depth-only, one attachment; built once the first time we
-			// know the depth format (the first AttachFramebufferTexture2D()
-			// call for this FBO).
+			// Built lazily, once, either from the first
+			// AttachFramebufferTexture2D() call that arrives with
+			// wasAlreadyBound=true (the original depth-only shadow-map
+			// case - unchanged), or from BindFramebuffer()'s first *real*
+			// bind once enough PendingAttachment entries have accumulated
+			// (the multi-attachment G-buffer/color-render-target case).
 			VkRenderPass renderPass;
 			uint32 width, height;
+			// Slots accumulated so far but not yet built into renderPass -
+			// see PendingAttachment's comment. Cleared once renderPass is
+			// built; a *second* AttachFramebufferTexture2D() call for a
+			// format already present after that point (wasAlreadyBound=true,
+			// e.g. a point light's next cubemap face) goes through the
+			// existing per-target immediate-retarget path instead, never
+			// touching this again.
+			std::vector<PendingAttachment> pendingAttachments;
+			// How many of renderPass's attachments are color (vs the one
+			// optional depth) - CreatePipeline() needs this to size its
+			// VkPipelineColorBlendStateCreateInfo/VkPipelineColorBlendAttachmentState
+			// array to match, since Vulkan requires that count to equal
+			// the target render pass's color attachment count exactly.
+			uint32 colorAttachmentCount;
+			bool hasDepthAttachment;
 			// One VkFramebuffer per distinct render target within this
 			// FBO - almost always exactly one entry (directional/spot: a
 			// single 2D depth map, attached once), but up to six for a
@@ -523,7 +563,7 @@ namespace p3d {
 			// the hard way via a shadow-casting draw silently never
 			// happening past frame 1, no error, just zero effect).
 			uint32 lastTarget;
-			FBORecord() : renderPass(VK_NULL_HANDLE), width(0), height(0), lastTarget(0) {}
+			FBORecord() : renderPass(VK_NULL_HANDLE), width(0), height(0), colorAttachmentCount(0), hasDepthAttachment(false), lastTarget(0) {}
 		};
 		std::map<DeviceHandle, FBORecord> fboRecords;
 		DeviceHandle nextFBOHandle;
@@ -551,6 +591,20 @@ namespace p3d {
 		// main pass, finalLayout=SHADER_READ_ONLY_OPTIMAL) if not
 		// already built. Returns false only on a real Vulkan failure.
 		bool BuildDepthOnlyRenderPass(FBORecord &fbo, const VkFormat depthFormat);
+		// Builds fbo.renderPass from fbo.pendingAttachments (0+ color +
+		// at most 1 depth, in accumulation order for color) - the general
+		// case BuildDepthOnlyRenderPass() above predates (a G-buffer's
+		// several attachments, or a post-effect's single color render
+		// target). Each color attachment: LOAD_OP_CLEAR/STORE_OP_STORE,
+		// finalLayout=SHADER_READ_ONLY_OPTIMAL (same "ready to sample
+		// immediately after" reasoning as the depth-only case - deferred
+		// shading/post-effects always read these back as textures in a
+		// later pass). Sets fbo.colorAttachmentCount/hasDepthAttachment
+		// for CreatePipeline()'s color-blend-state sizing. Returns false
+		// only on a real Vulkan failure (including "no pending
+		// attachments at all", which should never happen given the
+		// caller only invokes this once pendingAttachments is non-empty).
+		bool BuildMultiAttachmentRenderPass(FBORecord &fbo);
 		// Ends whatever offscreen render pass is currently open
 		// (vkCmdEndRenderPass only - does not submit) - called by
 		// AttachFramebufferTexture2D() when re-attaching a new target
