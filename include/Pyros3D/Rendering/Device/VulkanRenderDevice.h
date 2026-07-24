@@ -524,13 +524,17 @@ namespace p3d {
 			// (the multi-attachment G-buffer/color-render-target case).
 			VkRenderPass renderPass;
 			uint32 width, height;
-			// Slots accumulated so far but not yet built into renderPass -
-			// see PendingAttachment's comment. Cleared once renderPass is
-			// built; a *second* AttachFramebufferTexture2D() call for a
-			// format already present after that point (wasAlreadyBound=true,
-			// e.g. a point light's next cubemap face) goes through the
-			// existing per-target immediate-retarget path instead, never
-			// touching this again.
+			// Slots accumulated so far, used to build renderPass the first
+			// time (see PendingAttachment's comment) - deliberately *not*
+			// cleared once that happens, unlike earlier versions of this
+			// mechanism: BuildCombinedFramebuffer() also needs this list
+			// later, any time InvalidateFramebuffersForTexture() tears down
+			// framebuffersByTarget[0] because one of these attachments'
+			// textures got resized. A *second* AttachFramebufferTexture2D()
+			// call for a format already present after renderPass is built
+			// (wasAlreadyBound=true, e.g. a point light's next cubemap
+			// face) goes through the existing per-target immediate-retarget
+			// path instead, never touching this again.
 			std::vector<PendingAttachment> pendingAttachments;
 			// How many of renderPass's attachments are color (vs the one
 			// optional depth) - CreatePipeline() needs this to size its
@@ -605,6 +609,33 @@ namespace p3d {
 		// attachments at all", which should never happen given the
 		// caller only invokes this once pendingAttachments is non-empty).
 		bool BuildMultiAttachmentRenderPass(FBORecord &fbo);
+		// (Re)builds fbo.framebuffersByTarget[0] from fbo.pendingAttachments'
+		// *current* texture views - factored out of BindFramebuffer()'s
+		// finalize path so the same logic can also rebuild a combined
+		// framebuffer that InvalidateFramebuffersForTexture() tore down
+		// (see its comment). Requires fbo.renderPass to already exist;
+		// returns false on a real Vulkan failure or if any attachment's
+		// texture/view is missing.
+		bool BuildCombinedFramebuffer(FBORecord &fbo);
+		// Destroys any FBORecord's cached VkFramebuffer(s) that reference
+		// `texture` - called from UploadTexture2D() right before it
+		// destroys+recreates a texture's VkImage/VkImageView on a size
+		// change. A VkFramebuffer bakes in specific VkImageView handles at
+		// creation time (VkFramebufferCreateInfo::pAttachments); once the
+		// view they point at is destroyed, using that framebuffer again is
+		// exactly VUID-VkRenderPassBeginInfo-framebuffer-parameter ("pAttachments[0]
+		// VkImageView ... is invalid"), found via every IEffect's own FBO
+		// (Color_Attachment0 texture, built at Init()-time and then resized
+		// once to match the real window size - a HiDPI-driven resize event
+		// firing right after window creation on macOS) crashing on its
+		// first real bind after that resize. Only clears
+		// framebuffersByTarget, not renderPass or pendingAttachments - the
+		// render pass's attachment *format* doesn't change on a resize,
+		// only the image/view, and pendingAttachments (kept populated
+		// after the FBO's first build, not cleared - see BindFramebuffer())
+		// is exactly what BuildCombinedFramebuffer() needs to rebuild the
+		// framebuffer lazily on the FBO's next real bind.
+		void InvalidateFramebuffersForTexture(const DeviceHandle texture);
 		// Ends whatever offscreen render pass is currently open
 		// (vkCmdEndRenderPass only - does not submit) - called by
 		// AttachFramebufferTexture2D() when re-attaching a new target

@@ -153,9 +153,11 @@ void MotionBlurExample::Shutdown()
 	delete cubeMesh;
 	delete rCube;
 	delete CubeObject;
-	delete Renderer;
+	// Renderer is deleted by BaseExample::Shutdown()
 	delete VRenderer;
 	delete EffectManager;
+
+	BaseExample::Shutdown();
 }
 
 MotionBlurExample::~MotionBlurExample() {}

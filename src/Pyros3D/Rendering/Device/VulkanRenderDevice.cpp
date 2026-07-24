@@ -2989,6 +2989,12 @@ namespace p3d {
 		bool needsCreate = tex.image == VK_NULL_HANDLE || tex.width != width || tex.height != height || tex.format != wantedFormat || (isCubemapTarget && !tex.isCubemap);
 		if (needsCreate)
 		{
+			// Any FBO this texture is already attached to (e.g. an
+			// IEffect's own render target, resized to match the window
+			// right after creation) has a VkFramebuffer baked against the
+			// view about to be destroyed below - see
+			// InvalidateFramebuffersForTexture()'s comment.
+			InvalidateFramebuffersForTexture(currentlyConfiguringTexture);
 			if (tex.view != VK_NULL_HANDLE) { vkDestroyImageView(device, tex.view, NULL); tex.view = VK_NULL_HANDLE; }
 			for (std::map<uint32, VkImageView>::iterator rtIt = tex.renderTargetViewsByTarget.begin(); rtIt != tex.renderTargetViewsByTarget.end(); rtIt++)
 				vkDestroyImageView(device, rtIt->second, NULL);
@@ -3476,6 +3482,82 @@ namespace p3d {
 		return true;
 	}
 
+	// See the header comment - factored out of BindFramebuffer()'s finalize
+	// path so InvalidateFramebuffersForTexture() has something to call to
+	// rebuild what it tears down.
+	bool VulkanRenderDevice::BuildCombinedFramebuffer(FBORecord &fbo)
+	{
+		std::vector<VkImageView> views;
+		// Minimum across every attachment, not just the last one processed -
+		// a multi-attachment FBO's attachments can transiently disagree in
+		// size (FrameBuffer::Resize() resizes each of its own attachments'
+		// textures with a separate UploadTexture2D() call apiece, not
+		// atomically), and VkFramebufferCreateInfo's width/height must be
+		// <= every attachment's actual extent
+		// (VUID-VkFramebufferCreateInfo-flags-04533) or vkCreateFramebuffer()
+		// fails outright - found via PostEffectsManager's ExternalFBO
+		// (Depth_Attachment + Color_Attachment0) on a resize.
+		uint32 w = 0xFFFFFFFFu, h = 0xFFFFFFFFu;
+		for (size_t i = 0; i < fbo.pendingAttachments.size(); i++)
+		{
+			std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(fbo.pendingAttachments[i].textureId);
+			if (texIt == textures.end())
+				return false;
+			VkImageView view = GetOrCreateRenderTargetView(texIt->second, fbo.pendingAttachments[i].target);
+			if (view == VK_NULL_HANDLE)
+				return false;
+			views.push_back(view);
+			w = std::min(w, texIt->second.width);
+			h = std::min(h, texIt->second.height);
+		}
+		if (views.empty())
+			return false;
+		fbo.width = w;
+		fbo.height = h;
+		VkFramebufferCreateInfo fbInfo = {};
+		fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+		fbInfo.renderPass = fbo.renderPass;
+		fbInfo.attachmentCount = (uint32_t)views.size();
+		fbInfo.pAttachments = views.data();
+		fbInfo.width = w;
+		fbInfo.height = h;
+		fbInfo.layers = 1;
+		VkFramebuffer combined = VK_NULL_HANDLE;
+		if (vkCreateFramebuffer(device, &fbInfo, NULL, &combined) != VK_SUCCESS)
+		{
+			fprintf(stderr, "VulkanRenderDevice::BuildCombinedFramebuffer: vkCreateFramebuffer failed\n");
+			return false;
+		}
+		// 0 is never produced by TranslateTextureTarget() (plain 2D = 1,
+		// cubemap faces = CUBEMAP_FACE_TARGET_BASE+i) - safe to reserve as
+		// "the one combined multi-attachment framebuffer" key, distinct
+		// from any single-texture target key this same map also holds.
+		fbo.framebuffersByTarget[0] = combined;
+		fbo.lastTarget = 0;
+		return true;
+	}
+
+	void VulkanRenderDevice::InvalidateFramebuffersForTexture(const DeviceHandle texture)
+	{
+		for (std::map<DeviceHandle, FBORecord>::iterator fboIt = fboRecords.begin(); fboIt != fboRecords.end(); fboIt++)
+		{
+			bool referencesTexture = false;
+			for (size_t i = 0; i < fboIt->second.pendingAttachments.size(); i++)
+			{
+				if (fboIt->second.pendingAttachments[i].textureId == texture)
+				{
+					referencesTexture = true;
+					break;
+				}
+			}
+			if (!referencesTexture)
+				continue;
+			for (std::map<uint32, VkFramebuffer>::iterator fIt = fboIt->second.framebuffersByTarget.begin(); fIt != fboIt->second.framebuffersByTarget.end(); fIt++)
+				vkDestroyFramebuffer(device, fIt->second, NULL);
+			fboIt->second.framebuffersByTarget.clear();
+		}
+	}
+
 	VkImageView VulkanRenderDevice::GetOrCreateRenderTargetView(TextureRecord &tex, const uint32 nativeTextureTarget)
 	{
 		if (!tex.isCubemap)
@@ -3580,55 +3662,19 @@ namespace p3d {
 					built = BuildMultiAttachmentRenderPass(fboIt->second);
 				}
 				if (built)
-				{
-					std::vector<VkImageView> views;
-					uint32 w = 0, h = 0;
-					bool ok = true;
-					for (size_t i = 0; i < fboIt->second.pendingAttachments.size(); i++)
-					{
-						std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(fboIt->second.pendingAttachments[i].textureId);
-						if (texIt == textures.end()) { ok = false; break; }
-						VkImageView view = GetOrCreateRenderTargetView(texIt->second, fboIt->second.pendingAttachments[i].target);
-						if (view == VK_NULL_HANDLE) { ok = false; break; }
-						views.push_back(view);
-						w = texIt->second.width;
-						h = texIt->second.height;
-					}
-					if (ok)
-					{
-						fboIt->second.width = w;
-						fboIt->second.height = h;
-						VkFramebufferCreateInfo fbInfo = {};
-						fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-						fbInfo.renderPass = fboIt->second.renderPass;
-						fbInfo.attachmentCount = (uint32_t)views.size();
-						fbInfo.pAttachments = views.data();
-						fbInfo.width = w;
-						fbInfo.height = h;
-						fbInfo.layers = 1;
-						VkFramebuffer combined = VK_NULL_HANDLE;
-						if (vkCreateFramebuffer(device, &fbInfo, NULL, &combined) == VK_SUCCESS)
-						{
-							// 0 is never produced by TranslateTextureTarget()
-							// (plain 2D = 1, cubemap faces =
-							// CUBEMAP_FACE_TARGET_BASE+i) - safe to reserve
-							// as "the one combined multi-attachment
-							// framebuffer" key, distinct from any single-
-							// texture target key this same map also holds.
-							fboIt->second.framebuffersByTarget[0] = combined;
-							fboIt->second.lastTarget = 0;
-						}
-						else
-						{
-							fprintf(stderr, "VulkanRenderDevice::BindFramebuffer: vkCreateFramebuffer (combined multi-attachment) failed\n");
-						}
-					}
-				}
-				fboIt->second.pendingAttachments.clear();
+					BuildCombinedFramebuffer(fboIt->second);
 			}
 			if (fboIt->second.renderPass != VK_NULL_HANDLE)
 			{
 				std::map<uint32, VkFramebuffer>::iterator fbIt = fboIt->second.framebuffersByTarget.find(fboIt->second.lastTarget);
+				if (fbIt == fboIt->second.framebuffersByTarget.end() && fboIt->second.lastTarget == 0 && !fboIt->second.pendingAttachments.empty())
+				{
+					// InvalidateFramebuffersForTexture() tore this down
+					// since the last bind (one of this FBO's attached
+					// textures was resized) - rebuild before using it.
+					if (BuildCombinedFramebuffer(fboIt->second))
+						fbIt = fboIt->second.framebuffersByTarget.find(fboIt->second.lastTarget);
+				}
 				if (fbIt != fboIt->second.framebuffersByTarget.end())
 					BeginOffscreenRenderPassForTarget(fboIt->second, fbIt->second);
 			}
@@ -3748,6 +3794,20 @@ namespace p3d {
 		VkFramebuffer targetFramebuffer;
 		if (fbIt == fboIt->second.framebuffersByTarget.end())
 		{
+			// Use this attachment's *current* texture size, not
+			// fboIt->second.width/height - that field is only refreshed by
+			// the "renderPass doesn't exist yet" branch above, but a
+			// texture can be re-attached to an *already-built* renderPass
+			// many times after that (VelocityRenderer::RenderVelocityMap()
+			// re-attaches its target every frame, after its own Bind() -
+			// see FrameBuffer::AddAttach()'s wasAlreadyBound=true case).
+			// Falling back to the stale field here created a VkFramebuffer
+			// declaring the *old* (pre-resize) width/height while
+			// targetView pointed at the texture's *new*, smaller image -
+			// VUID-VkFramebufferCreateInfo-flags-04533 the moment a resize
+			// landed between two frames.
+			fboIt->second.width = texIt->second.width;
+			fboIt->second.height = texIt->second.height;
 			VkFramebufferCreateInfo fbInfo = {};
 			fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 			fbInfo.renderPass = fboIt->second.renderPass;

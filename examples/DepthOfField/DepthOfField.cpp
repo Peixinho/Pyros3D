@@ -259,8 +259,10 @@ void DepthOfField::Shutdown()
 
 	// Delete
 	delete modelMesh;
-	delete Renderer;
+	// Renderer is deleted by BaseExample::Shutdown()
 	delete EffectManager; // this deletes all effects
+
+	BaseExample::Shutdown();
 }
 
 DepthOfField::~DepthOfField() {}
