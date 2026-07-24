@@ -29,6 +29,11 @@ namespace p3d {
 		activeDevice = device;
 	}
 
+	bool IsActiveRenderDeviceSet()
+	{
+		return activeDevice != NULL;
+	}
+
 	void RegisterRenderDeviceForOwnership(IRenderDevice* device)
 	{
 		// Also register as the active device - a caller doing this wants

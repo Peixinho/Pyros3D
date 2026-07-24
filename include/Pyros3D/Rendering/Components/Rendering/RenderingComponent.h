@@ -131,7 +131,26 @@ namespace p3d {
 			if (Geometry->materialProperties.haveSpecularMap) options = options | ShaderUsage::SpecularMap;
 			if (Geometry->materialProperties.haveNormalMap) options = options | ShaderUsage::BumpMapping;
 
-			GenericShaderMaterial* genMat = new GenericShaderMaterial(options | MaterialOptions);
+			// Callers can pass ShaderUsage::Skinning explicitly (e.g. one
+			// material applied uniformly across every submesh of an
+			// animated Model, see SkeletonAnimationExample.cpp) even for a
+			// submesh that has no per-vertex bone data at all (a rigid
+			// prop submesh within an otherwise-skinned model, or any
+			// geometry loaded without bone weights) - GL silently
+			// tolerated this (the aBonesID/aBonesWeight attributes just
+			// went unbound and were never sampled), but Vulkan requires
+			// every attribute a compiled shader variant declares to have
+			// a matching vertex buffer attribute
+			// (VUID-VkGraphicsPipelineCreateInfo-Input-07904, found via a
+			// live SkeletonAnimationExample crash). Mask it off here,
+			// the same "derive from what the geometry actually has"
+			// pattern already used for Color/Texture/etc above, so a
+			// caller's blanket MaterialOptions can't request a shader
+			// variant this specific submesh's vertex data can't satisfy.
+			uint32 requestedOptions = MaterialOptions;
+			if (!Geometry->materialProperties.haveBones) requestedOptions &= ~ShaderUsage::Skinning;
+
+			GenericShaderMaterial* genMat = new GenericShaderMaterial(options | requestedOptions);
 
 			// Material Properties
 			if (Geometry->materialProperties.Twosided) genMat->SetCullFace(CullFace::DoubleSided);

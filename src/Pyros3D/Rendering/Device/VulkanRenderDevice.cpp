@@ -1837,16 +1837,28 @@ namespace p3d {
 			return;
 
 		// Lazily create the shared descriptor pool - see the header
-		// comment on descriptorPool for the sizing rationale. Sized for
-		// up to 1024 sets total: one UBO set per program (few - one per
-		// distinct shader variant) plus one sampler set per *pipeline*
-		// (see ProgramRecord::samplerSetLayout's comment for why samplers
-		// need per-pipeline, not per-program, granularity) - a real but
-		// generous cap, not dynamically growable; a scene with more than
-		// ~1024 distinct (mesh,shader) pairs would need this revisited.
+		// comment on descriptorPool for the sizing rationale. One sampler
+		// set per *pipeline* (see ProgramRecord::samplerSetLayout's
+		// comment for why samplers need per-pipeline, not per-program,
+		// granularity), and pipelines are cached per RenderingMesh
+		// *instance*, not deduplicated by (Geometry, Shader) - so a scene
+		// with many objects sharing one mesh/shader (e.g. LOD_Example's
+		// 10000 teapots, each getting its own RenderingMesh+pipeline
+		// despite sharing one Model's geometry) needs a cap well above
+		// what a per-distinct-asset count would suggest. The original
+		// 1024 cap (a real but generous guess, not dynamically growable)
+		// was exceeded by exactly this case, caught via
+		// VUID-VkDescriptorSetAllocateInfo-apiVersion-07895 - raised
+		// generously rather than exactly right-sized, matching this
+		// pool's existing "generous, not dynamically growable" approach.
+		// Deduplicating pipelines by (Geometry, Shader) instead of by
+		// RenderingMesh instance would be the real fix for the underlying
+		// waste (thousands of redundant identical VkPipeline objects),
+		// but that's a bigger change than this cap bump - not attempted
+		// here.
 		if (descriptorPool == VK_NULL_HANDLE)
 		{
-			// See IsPerObjectDynamicBinding()'s comment - up to 6 of a
+			// See IsPerObjectDynamicBinding()'s comment - up to 7 of a
 			// program's UBO bindings are VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
 			// instead of plain UNIFORM_BUFFER, so the pool needs a
 			// reservation for that type too.
@@ -1854,13 +1866,13 @@ namespace p3d {
 			poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 			poolSizes[0].descriptorCount = 64;
 			poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			poolSizes[1].descriptorCount = 4096;
+			poolSizes[1].descriptorCount = 131072;
 			poolSizes[2].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
 			poolSizes[2].descriptorCount = 64;
 
 			VkDescriptorPoolCreateInfo poolInfo = {};
 			poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-			poolInfo.maxSets = 1024;
+			poolInfo.maxSets = 32768;
 			poolInfo.poolSizeCount = 3;
 			poolInfo.pPoolSizes = poolSizes;
 			if (vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool) != VK_SUCCESS)
@@ -2669,11 +2681,31 @@ namespace p3d {
 	{
 		if (handle < 0 || count == 0 || device == VK_NULL_HANDLE)
 			return;
-		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(currentProgram);
+		// Validate against - and later write into - the SAME pipeline:
+		// resolve the program through pipelineToProgram[currentPipeline],
+		// not currentProgram directly. Those two can legitimately desync -
+		// BindPipeline() (which sets currentPipeline) only runs on a
+		// mesh/material *switch* (IRenderer::RenderObject()'s gated
+		// block), while SendUserUniforms() (whose texture-unit sends
+		// arrive here) runs unconditionally on every RenderObject() call,
+		// same as UseProgram() (which sets currentProgram, gated only on
+		// shader identity, a coarser condition than mesh+material).
+		// Validating handle against currentProgram's reflected bindings
+		// but then writing into pipelineSamplerSets[currentPipeline]
+		// could target a set whose actual layout doesn't have that
+		// binding at all - a real, found-via-crash bug
+		// (VUID-VkWriteDescriptorSet-dstBinding-10009, "bindingCount of
+		// zero", plus an intermittent segfault on some runs of
+		// SkeletonAnimationExample) once a scene has enough distinct
+		// (mesh,shader) pairs to have a real chance of these coming apart.
+		std::map<DeviceHandle, DeviceHandle>::iterator pipeProgIt = pipelineToProgram.find(currentPipeline);
+		if (pipeProgIt == pipelineToProgram.end())
+			return;
+		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(pipeProgIt->second);
 		if (progIt == programs.end())
 			return;
 		if (progIt->second.reflectedSamplerBindings.find((uint32)handle) == progIt->second.reflectedSamplerBindings.end())
-			return; // not a sampler binding for this program - not a texture-unit send this backend handles
+			return; // not a sampler binding for this pipeline's program - not a texture-unit send this backend handles
 
 		std::map<uint32, DeviceHandle>::iterator unitIt = textureUnitBindings.find((uint32)data[0]);
 		if (unitIt == textureUnitBindings.end())
@@ -2776,6 +2808,31 @@ namespace p3d {
 			internalFormat = (uint32)VK_FORMAT_D32_SFLOAT;
 			break;
 		default: internalFormat = (uint32)VK_FORMAT_R8G8B8A8_UNORM; break;
+		}
+	}
+
+	// UploadTexture2D()'s staging-buffer size and memcpy amount need the
+	// *real* per-texel byte size of whatever TranslateTextureFormat()
+	// picked - a hardcoded "4 bytes/texel" (this file's previous
+	// assumption) is wrong for R8 (1 byte - e.g. Font.cpp's glyph atlas,
+	// see EXC_BAD_ACCESS in UploadTexture2D found via a live TextRendering
+	// crash), RG8/R16F (2 bytes), and silently under-reads for
+	// RGBA16F (8 bytes)/RGBA32F (16 bytes) - the last two wouldn't crash
+	// but would upload truncated/garbage texture data.
+	static uint32 BytesPerTexelVk(const VkFormat format)
+	{
+		switch (format)
+		{
+		case VK_FORMAT_R8_UNORM: return 1;
+		case VK_FORMAT_R8G8_UNORM: return 2;
+		case VK_FORMAT_R16_SFLOAT: return 2;
+		case VK_FORMAT_R8G8B8A8_UNORM:
+		case VK_FORMAT_B8G8R8A8_UNORM:
+		case VK_FORMAT_R32_SFLOAT:
+			return 4;
+		case VK_FORMAT_R16G16B16A16_SFLOAT: return 8;
+		case VK_FORMAT_R32G32B32A32_SFLOAT: return 16;
+		default: return 4;
 		}
 	}
 
@@ -2975,7 +3032,7 @@ namespace p3d {
 		// this backend's existing "correctness over throughput" bar for
 		// a first real implementation (see e.g. RequestFrameCapture()'s
 		// similarly synchronous design).
-		VkDeviceSize uploadSize = (VkDeviceSize)width * height * 4; // every supported format here is <=4 bytes/texel; see the comment on TranslateTextureFormat()
+		VkDeviceSize uploadSize = (VkDeviceSize)width * height * BytesPerTexelVk(wantedFormat);
 		VkBufferCreateInfo stagingInfo = {};
 		stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 		stagingInfo.size = uploadSize;

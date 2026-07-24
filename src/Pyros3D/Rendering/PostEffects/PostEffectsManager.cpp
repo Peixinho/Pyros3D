@@ -11,7 +11,20 @@
 
 namespace p3d {
 
-	PostEffectsManager::PostEffectsManager(const uint32 width, const uint32 height) : device(new GLRenderDevice())
+	// Same reasoning as IRenderer's ResolveInitialDevice() (IRenderer.cpp) -
+	// borrow the already-active device (the main ForwardRenderer/
+	// DeferredRenderer is always constructed first) instead of always
+	// creating a second, owned GLRenderDevice, which crashed instantly on
+	// a Vulkan-only build (no real GL context, every glad function
+	// pointer NULL).
+	static MaybeOwningDevicePtr ResolvePostEffectsDevice()
+	{
+		if (IsActiveRenderDeviceSet())
+			return MaybeOwningDevicePtr(&GetActiveRenderDevice(), MaybeOwningDeviceDeleter{false});
+		return MaybeOwningDevicePtr(new GLRenderDevice(), MaybeOwningDeviceDeleter{true});
+	}
+
+	PostEffectsManager::PostEffectsManager(const uint32 width, const uint32 height) : device(ResolvePostEffectsDevice())
 	{
 		// Save Dimensions
 		Width = width;

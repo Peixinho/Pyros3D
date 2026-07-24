@@ -68,8 +68,15 @@ namespace p3d {
 
 		// See IRenderDevice.h - same seam IRenderer uses, since
 		// PostEffectsManager's full-screen-quad pass has its own small GL
-		// call surface.
-		std::unique_ptr<IRenderDevice> device;
+		// call surface. MaybeOwningDevicePtr (not a plain
+		// unique_ptr<IRenderDevice>) so this can borrow the already-active
+		// device instead of always constructing its own GLRenderDevice -
+		// see IRenderDevice.h's comment on MaybeOwningDeviceDeleter/
+		// IsActiveRenderDeviceSet() (a hardcoded `new GLRenderDevice()`
+		// here crashed every PostEffectsManager-based Vulkan example the
+		// instant it made a real GL call, since no real GL context exists
+		// in a Vulkan-only process).
+		MaybeOwningDevicePtr device;
 	};
 
 };

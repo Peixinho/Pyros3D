@@ -262,7 +262,19 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     // Defaults
     IO_LOCATION(LOC_aPosition) attribute_in vec3 aPosition;
     IO_LOCATION(LOC_aNormal) attribute_in vec3 aNormal;
-    IO_LOCATION(LOC_aTexcoord) attribute_in vec2 aTexcoord;
+    // Gated the same as its only use (vTexcoord = aTexcoord, below) - GL
+    // tolerates an unconditionally-declared-but-unbound vertex attribute
+    // (it's simply never sampled), but Vulkan requires every SPIR-V input
+    // a compiled shader variant declares to have a matching
+    // VkVertexInputAttributeDescription (VUID-VkGraphicsPipelineCreateInfo-Input-07904).
+    // A mesh with no texcoord data at all (e.g. a Model asset with no UVs -
+    // found via a live Decals/LOD_Example/SkeletonAnimationExample crash,
+    // using a Color-only material with no texture-related flag) has no
+    // "aTexcoord" entry in its vertex layout to satisfy that requirement
+    // when this was unconditional.
+    #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP)
+        IO_LOCATION(LOC_aTexcoord) attribute_in vec2 aTexcoord;
+    #endif
     // uProjectionMatrix/uViewMatrix change once per (frame or shadow pass),
     // not per object, so they're shared via a UBO instead of being resent
     // as individual uniforms on every draw; uModelMatrix is per-object and

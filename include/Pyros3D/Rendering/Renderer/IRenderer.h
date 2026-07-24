@@ -257,7 +257,11 @@ namespace p3d {
 		// issue directly against OpenGL - see IRenderDevice.h. One per
 		// instance (GLRenderDevice itself holds no state, so this is cheap);
 		// only the shared UBO handles below are refcounted/static.
-		std::unique_ptr<IRenderDevice>
+		// MaybeOwningDevicePtr (not a plain unique_ptr<IRenderDevice>) so
+		// this can sometimes *borrow* an already-active device instead of
+		// always owning one - see IRenderDevice.h's comment on
+		// MaybeOwningDeviceDeleter/IsActiveRenderDeviceSet().
+		MaybeOwningDevicePtr
 			device;
 
 		// True only for instances built via IRenderer(Width, Height) - the

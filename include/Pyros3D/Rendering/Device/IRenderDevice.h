@@ -17,6 +17,7 @@
 #include <Pyros3D/Other/Export.h>
 #include <string>
 #include <vector>
+#include <memory>
 
 namespace p3d {
 
@@ -610,9 +611,40 @@ namespace p3d {
 	// today's DebugRenderer/PostEffectsManager, which use the separate
 	// true-no-arg IRenderer() constructor entirely and are untouched by
 	// this) safely falls back to its own `new GLRenderDevice()`, exactly
-	// as before this existed.
+	// as before this existed - EXCEPT this "safely" was never actually
+	// safe for Vulkan: a "second, unrelated IRenderer" (VelocityRenderer,
+	// PainterPick, and DeferredRenderer/PostEffectsManager's own internal
+	// helper renderers - the IRenderer(Width, Height, externalDevice=NULL)
+	// constructor, not the true-no-arg one) falling back to
+	// `new GLRenderDevice()` in a Vulkan-only process (no real GL context
+	// ever created, so every glad function pointer is NULL) crashes the
+	// instant it makes any real GL call - confirmed via live crashes in
+	// MotionBlurExample/PickingPainterMethod
+	// (EXC_BAD_ACCESS in GLRenderDevice::CreateTextureObject, address 0x0).
+	// IsActiveRenderDeviceSet() lets IRenderer's constructor distinguish
+	// "nothing registered yet, `new GLRenderDevice()` really is correct"
+	// (the original GL-only examples, still true) from "a real device is
+	// already active, borrow *that* instead of creating a second, broken
+	// one" - the fix threads through IRenderer.h's device member gaining
+	// non-owning-borrow support (see its comment).
+	PYROS3D_API bool IsActiveRenderDeviceSet();
 	PYROS3D_API void RegisterRenderDeviceForOwnership(IRenderDevice* device);
 	PYROS3D_API IRenderDevice* TakeRenderDeviceOwnership();
+
+	// Shared by IRenderer and PostEffectsManager (and anything else that
+	// resolves its own IRenderDevice the same way): a unique_ptr deleter
+	// that can be told not to actually delete, so a "second, unrelated"
+	// device-owning class can safely *borrow* an already-active device
+	// (see IsActiveRenderDeviceSet() above) instead of always owning one -
+	// without changing any existing `device->...` call site, since
+	// unique_ptr<T, CustomDeleter> keeps the same operator-> / .get()
+	// interface as unique_ptr<T>.
+	struct MaybeOwningDeviceDeleter
+	{
+		bool owns = true;
+		void operator()(IRenderDevice *d) const { if (owns) delete d; }
+	};
+	typedef std::unique_ptr<IRenderDevice, MaybeOwningDeviceDeleter> MaybeOwningDevicePtr;
 
 };
 

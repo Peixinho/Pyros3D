@@ -143,26 +143,40 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 IRenderer::IRenderer() : UsesSharedUBOs(false), device(new GLRenderDevice()) {}
 
 // Resolves what IRenderer(Width, Height, externalDevice)'s device member
-// should own: an explicitly-passed device wins outright; otherwise, a
+// should use, and whether it should *own* (delete on destruction) or just
+// *borrow* it: an explicitly-passed device wins outright (owned, as
+// before - nothing today relies on it being borrowed); otherwise, a
 // device someone registered via RegisterRenderDeviceForOwnership() (e.g.
 // SDL2VulkanContext, which needs a real VulkanRenderDevice + swapchain to
-// exist before any IRenderer does - see IRenderDevice.h's comment on that
-// function for why this can't just be GetActiveRenderDevice()) is adopted
-// if present; only when neither applies does this fall back to
-// constructing a fresh GLRenderDevice, exactly as before this existed -
-// every GL example's `new ForwardRenderer(Width, Height)` call site never
-// registers anything, so this is a no-op change for every one of them.
-static IRenderDevice* ResolveInitialDevice(IRenderDevice* externalDevice)
+// exist before any IRenderer does) is adopted (owned) if present. If
+// neither applies but a device is *already active* (SetActiveRenderDevice()'d
+// by whichever IRenderer got constructed first - e.g. the example's own
+// ForwardRenderer, built before a VelocityRenderer/PainterPick/etc.),
+// borrow that instead of creating a second, broken GLRenderDevice - a
+// Vulkan-only process has no real GL context, so every glad function
+// pointer in that second device would be NULL, crashing on first real use
+// (confirmed live in MotionBlurExample/PickingPainterMethod). Only when
+// none of the above apply does this fall back to constructing a fresh,
+// owned GLRenderDevice, exactly as before this existed - every GL-only
+// example's very first `new ForwardRenderer(Width, Height)` call still
+// hits exactly this path, unchanged.
+struct ResolvedDevice { IRenderDevice *ptr; bool owns; };
+static ResolvedDevice ResolveInitialDevice(IRenderDevice* externalDevice)
 {
 	if (externalDevice != NULL)
-		return externalDevice;
+		return { externalDevice, true };
 	if (IRenderDevice* registered = TakeRenderDeviceOwnership())
-		return registered;
-	return new GLRenderDevice();
+		return { registered, true };
+	if (IsActiveRenderDeviceSet())
+		return { &GetActiveRenderDevice(), false };
+	return { new GLRenderDevice(), true };
 }
 
-IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* externalDevice) : device(ResolveInitialDevice(externalDevice))
+IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* externalDevice)
 {
+	ResolvedDevice resolved = ResolveInitialDevice(externalDevice);
+	device = MaybeOwningDevicePtr(resolved.ptr, MaybeOwningDeviceDeleter{resolved.owns});
+
 	// Every Shader/GeometryBuffer/RenderingComponent constructed anywhere
 	// in the engine (no IRenderer reference available at most of those
 	// call sites) shares whichever backend THIS instance ends up using -
