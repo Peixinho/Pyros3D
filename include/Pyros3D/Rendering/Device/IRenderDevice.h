@@ -291,11 +291,20 @@ namespace p3d {
 			// comment for the fix), so this flag tells CreatePipeline()
 			// to target a depth-only render pass instead.
 			bool isShadowPass;
+			// True for a full-screen-triangle post-effect pass
+			// (PostEffectsManager) - the vertex shader computes its
+			// position purely from gl_VertexIndex (see IEffect.cpp), so
+			// there genuinely is no vertex attribute data, unlike the
+			// "caller forgot to populate vertexLayout" case
+			// vertexLayout.empty() alone is meant to catch. Lets
+			// CreatePipeline() build a real zero-binding
+			// VkPipelineVertexInputStateCreateInfo instead of failing.
+			bool noVertexInput;
 
 			PipelineDesc()
 				: shaderProgram(0), depthTest(true), depthTestMode(DepthTest::Less), depthWrite(true),
 				  blendingEnabled(false), blendSrcFactor(BlendFunc::One), blendDstFactor(BlendFunc::Zero),
-				  blendEquation(BlendEq::Add), cullFace(0), wireframe(false), isShadowPass(false) {}
+				  blendEquation(BlendEq::Add), cullFace(0), wireframe(false), isShadowPass(false), noVertexInput(false) {}
 		};
 		virtual DeviceHandle CreatePipeline(const PipelineDesc &desc) = 0;
 		virtual void DestroyPipeline(const DeviceHandle pipeline) = 0;

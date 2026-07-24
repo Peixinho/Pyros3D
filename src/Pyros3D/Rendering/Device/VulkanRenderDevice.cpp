@@ -1475,9 +1475,9 @@ namespace p3d {
 		// runtime "get location by name" the way GL's glGetAttribLocation
 		// does, so this is the equivalent lookup, just done once here
 		// instead of per-mesh at runtime.
-		if (desc.vertexLayout.empty())
+		if (desc.vertexLayout.empty() && !desc.noVertexInput)
 		{
-			fprintf(stderr, "VulkanRenderDevice::CreatePipeline: FAILED - PipelineDesc::vertexLayout is empty (caller must populate it from the mesh's actual attribute layout)\n");
+			fprintf(stderr, "VulkanRenderDevice::CreatePipeline: FAILED - PipelineDesc::vertexLayout is empty (caller must populate it from the mesh's actual attribute layout, or set noVertexInput if that's intentional)\n");
 			return 0;
 		}
 
@@ -2021,9 +2021,23 @@ namespace p3d {
 
 	uint32 VulkanRenderDevice::TranslateDrawType(const uint32 engineDrawType) { return 0; }
 
-	// Not implemented - nothing on this backend's validation path
-	// (RotatingCube) uses non-indexed draws.
-	void VulkanRenderDevice::DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count) {}
+	// Non-indexed draw - PostEffectsManager's full-screen-triangle pass is
+	// the only user (IEffect.cpp's shared vertex shader computes its
+	// position purely from gl_VertexIndex, so there's deliberately no
+	// vertex/index buffer to bind - see PipelineDesc::noVertexInput).
+	void VulkanRenderDevice::DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count)
+	{
+		(void)nativeDrawType;
+		if (!(frameInProgress || offscreenPassOpen))
+			return;
+		if (currentPipeline == 0)
+		{
+			fprintf(stderr, "VulkanRenderDevice::DrawArrays: skipped draw - no valid pipeline is currently bound\n");
+			return;
+		}
+		BindCurrentPipelineDescriptorSets();
+		vkCmdDraw(activeCommandBuffer, count, 1, first, 0);
+	}
 
 	void VulkanRenderDevice::DrawElements(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount)
 	{

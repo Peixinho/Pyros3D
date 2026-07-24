@@ -82,6 +82,24 @@ namespace p3d {
 		{
 			if (counter == effects.size())
 			{
+				// Last effect draws to the swapchain, not an offscreen
+				// FBO - a no-op on GL (no acquire/present step), but on
+				// Vulkan nothing else in this class's callers ever
+				// acquires+presents a swapchain frame: every example
+				// using PostEffectsManager wraps its *only* RenderScene()
+				// call in CaptureFrame()/EndCapture() (an offscreen FBO),
+				// so RenderScene()'s own isMainSwapchainPass gate always
+				// skips BeginFrame()/EndFrame() there. Without this call,
+				// the swapchain is never acquired for the whole frame -
+				// found via every PostEffectsManager-based example
+				// (SSAOExample/DepthOfField/MotionBlurExample) hanging
+				// forever in vkWaitForFences() on this loop's *next*
+				// offscreen FBO fence (or, for a single-effect chain,
+				// this exact draw's own eventual submit) - a real GPU
+				// completion signal that, per MoltenVK's own behavior on
+				// this machine, never arrives without an actual
+				// swapchain present somewhere in the frame to drive it.
+				device->BeginFrame();
 				device->SetViewport(0, 0, Width, Height);
 			}
 			else {
@@ -104,6 +122,33 @@ namespace p3d {
 
 			// Start Shader Program
 			device->UseProgram((*effect)->shader->ShaderProgram());
+
+			// Bind this effect's pipeline (built lazily, once - see
+			// IEffect.h's comment on pipelineHandle) - PostEffectsManager
+			// previously only ever called UseProgram(), which sets
+			// currentProgram but never currentPipeline, so DrawArrays()
+			// below always found no pipeline bound and silently drew
+			// nothing on Vulkan (GL has no pipeline-object concept, so
+			// this was invisible there). Must happen *before* the sampler
+			// texture-unit binds below (SendUniformInt() writes into
+			// pipelineSamplerSets[currentPipeline] - see its comment -
+			// so currentPipeline has to already be this effect's own
+			// pipeline, not still whatever the previous effect/mesh left
+			// it as, or the descriptor write lands on the wrong pipeline
+			// and this one's sampler descriptors are never updated at
+			// all - VUID-vkCmdDraw-None-08114 the moment it draws).
+			if ((*effect)->pipelineHandle == 0)
+			{
+				IRenderDevice::PipelineDesc pdesc;
+				pdesc.shaderProgram = (*effect)->shader->ShaderProgram();
+				pdesc.depthTest = false;
+				pdesc.depthWrite = false;
+				pdesc.blendingEnabled = false;
+				pdesc.cullFace = CullFace::DoubleSided;
+				pdesc.noVertexInput = true;
+				(*effect)->pipelineHandle = device->CreatePipeline(pdesc);
+			}
+			device->BindPipeline(cmd, (*effect)->pipelineHandle);
 
 			// Bind MRT
 			for (std::vector<RTT::Info>::iterator i = (*effect)->RTTOrder.begin(); i != (*effect)->RTTOrder.end(); i++)
@@ -132,36 +177,79 @@ namespace p3d {
 				{
 					(*i).handle = Shader::GetUniformLocation((*effect)->shader->ShaderProgram(), (*i).uniform.Name);
 				}
+
+				// Resolve this uniform's current value + byte size,
+				// regardless of handle - GetUniformLocation() only ever
+				// resolves *sampler* names on Vulkan (see its comment in
+				// VulkanRenderDevice.cpp), so every scalar/vector/matrix
+				// uniform here always has handle==-1 there; the extras
+				// UBO path below (extraUniformOffsets) is how those
+				// actually reach the shader on that backend instead.
+				const void* valuePtr = NULL;
+				uint32 valueSize = 0;
+				switch ((*i).uniform.Usage)
+				{
+				case PostEffects::NearFarPlane:
+					(*i).uniform.Type = Uniforms::DataType::Vec2;
+					valuePtr = &NearFarPlane; valueSize = sizeof(NearFarPlane);
+					break;
+				case PostEffects::ScreenDimensions:
+					(*i).uniform.Type = Uniforms::DataType::Vec2;
+					valuePtr = &ScreenDimensions; valueSize = sizeof(ScreenDimensions);
+					break;
+				case PostEffects::ProjectionFromScene:
+					(*i).uniform.Type = Uniforms::DataType::Matrix;
+					valuePtr = &projection->m; valueSize = sizeof(projection->m);
+					break;
+				default:
+				case PostEffects::Other:
+					valuePtr = (*i).uniform.Value.empty() ? NULL : &(*i).uniform.Value[0];
+					valueSize = (uint32)(*i).uniform.Value.size();
+					break;
+				}
+
+				if (!(*effect)->extraUniformOffsets.empty() && valuePtr != NULL)
+				{
+					std::map<std::string, uint32>::const_iterator offIt = (*effect)->extraUniformOffsets.find((*i).uniform.Name);
+					if (offIt != (*effect)->extraUniformOffsets.end() && offIt->second + valueSize <= (*effect)->extraUniformsScratch.size())
+						memcpy(&(*effect)->extraUniformsScratch[offIt->second], valuePtr, valueSize);
+				}
+
 				if ((*i).handle != -1)
 				{
 					switch ((*i).uniform.Usage)
 					{
 					case PostEffects::NearFarPlane:
-					{
-						(*i).uniform.Type = Uniforms::DataType::Vec2;
 						Shader::SendUniform((*i).uniform, &NearFarPlane, (*i).handle);
-					}
-					break;
+						break;
 					case PostEffects::ScreenDimensions:
-					{
-						(*i).uniform.Type = Uniforms::DataType::Vec2;
 						Shader::SendUniform((*i).uniform, &ScreenDimensions, (*i).handle);
-					}
-					break;
+						break;
 					case PostEffects::ProjectionFromScene:
-					{
-						(*i).uniform.Type = Uniforms::DataType::Matrix;
 						Shader::SendUniform((*i).uniform, &projection->m, (*i).handle);
-					}
-					break;
+						break;
 					default:
 					case PostEffects::Other:
-					{
 						Shader::SendUniform((*i).uniform, (*i).handle);
-					}
-					break;
+						break;
 					}
 				}
+			}
+
+			// Deliver this effect's non-sampler uniforms (packed above)
+			// via a real UBO - see IEffect.h's comment on
+			// extraUniformsBinding. No-op for an effect with none
+			// (extraUniformsBinding stays 0 - most GL-only-tested effects
+			// with no non-sampler uniforms, e.g. SSAOEffectFinal, never
+			// touch this). Created lazily since it needs a linked program
+			// (for BindUniformBlockIfPresent()'s reflectedBindings check)
+			// to already exist, which CompileShaders() guarantees by now.
+			if ((*effect)->extraUniformsBinding != 0)
+			{
+				if ((*effect)->extraUniformsBufferHandle == 0)
+					(*effect)->extraUniformsBufferHandle = device->CreateUniformBuffer((*effect)->extraUniformsSize, (*effect)->extraUniformsBinding);
+				device->BindUniformBlockIfPresent((*effect)->shader->ShaderProgram(), "", (*effect)->extraUniformsBinding);
+				device->ReplaceUniformBuffer((*effect)->extraUniformsBufferHandle, (*effect)->extraUniformsSize, &(*effect)->extraUniformsScratch[0]);
 			}
 
 			device->DrawArrays(device->TranslateDrawType(DrawingType::Triangles), 0, 3);
@@ -202,6 +290,17 @@ namespace p3d {
 
 		// Disable Shader Program
 		device->UseProgram(0);
+
+		// Matches the BeginFrame() call above - this is the last
+		// rendering call of the frame for every example that uses
+		// PostEffectsManager (nothing else calls RenderScene() again
+		// after this), so this is where the swapchain frame this class
+		// started actually gets submitted+presented. No-op on GL
+		// (SDL_GL_SwapWindow() happens unconditionally elsewhere,
+		// unaffected by this); guarded by frameInProgress on Vulkan, so
+		// harmless if BeginFrame() above was itself a no-op (already in
+		// progress from something else).
+		device->EndFrame();
 	}
 
 	PostEffectsManager::~PostEffectsManager()

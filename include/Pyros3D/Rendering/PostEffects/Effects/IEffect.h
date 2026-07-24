@@ -16,6 +16,8 @@
 #include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <Pyros3D/Other/Export.h>
 #include <list>
+#include <map>
+#include <vector>
 
 //#include <iostream>
 
@@ -95,7 +97,49 @@ namespace p3d {
 		// Shaders
 		Shader* shader;
 
-		// Texture Units 
+		// Pipeline for this effect's full-screen-triangle draw - built
+		// lazily by PostEffectsManager::ProcessPostEffects() on first use
+		// (needs a real render pass/render target to exist first, which
+		// isn't true yet at construction time), cached here since it's
+		// otherwise identical every subsequent frame (this effect's own
+		// FBO, or the swapchain for the last effect in the chain, never
+		// changes shape after the first bind - see
+		// VulkanRenderDevice::InvalidateFramebuffersForTexture()'s
+		// comment on why a *resize* doesn't invalidate the render pass
+		// itself, only the VkFramebuffer). 0 = not yet built. Same
+		// underlying type as IRenderDevice::DeviceHandle - not spelled
+		// that way here to avoid pulling in IRenderDevice.h for a type
+		// this header is otherwise device-agnostic about.
+		uint32 pipelineHandle;
+
+		// Vulkan/SPIR-V rejects non-opaque (non-sampler) uniforms outside
+		// a block outright (see PyrosShader.glsl's header comment on the
+		// same rule for the main shader) - unlike that shader, individual
+		// IEffect subclasses are hand-written per-effect GLSL, so there's
+		// no single shared UBO layout to reuse. A subclass with any
+		// non-sampler uniform (SSAOEffect's uStrength/uRadius/matProj/
+		// etc.) wraps them in its own UBO block and sets these three (in
+		// its constructor, after the block's layout is decided) so
+		// PostEffectsManager can create+fill it generically: binding must
+		// be a value no other UBO anywhere in the engine uses (see
+		// VulkanRenderDevice::CreateUniformBuffer()'s comment - binding
+		// points are a *global* registry, not per-program, so this can't
+		// reuse PyrosShader.glsl's 0-23 range) - Effects/IEffect.h's
+		// comment block. size is the block's total std140 byte size.
+		// extraUniformOffsets maps each member's GLSL name to its std140
+		// byte offset within that block, matched by hand against the
+		// shader's own declared member order/types - same "author both
+		// sides, keep them in sync by hand" discipline IRenderer.cpp's
+		// MaterialUniformsData/ObjectLightCountsData already use for the
+		// main shader's UBOs. Binding 0 (the default) means "no extra
+		// uniforms block" - PostEffectsManager skips all of this then.
+		uint32 extraUniformsBinding;
+		uint32 extraUniformsSize;
+		uint32 extraUniformsBufferHandle;
+		std::vector<uchar> extraUniformsScratch;
+		std::map<std::string, uint32> extraUniformOffsets;
+
+		// Texture Units
 		int32 TextureUnits;
 
 		// RTT Order

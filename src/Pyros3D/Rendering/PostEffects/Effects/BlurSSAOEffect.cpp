@@ -27,6 +27,15 @@ namespace p3d {
 		intensity = 1.0f;
 		uIntensityHandle = AddUniform(Uniform("uIntensity", Uniforms::DataType::Float, &intensity));
 
+		// See IEffect.h's comment on extraUniformsBinding - matches the
+		// BlurSSAOParams block declared in FragmentShaderString below
+		// (vec2 then float packs tight, std140 align 8 then 4).
+		extraUniformsBinding = 25;
+		extraUniformsSize = 16;
+		extraUniformsScratch.resize(extraUniformsSize, 0);
+		extraUniformOffsets["uTexResolution"] = 0;
+		extraUniformOffsets["uIntensity"] = 8;
+
 		VertexShaderString =
 									"#define varying_in in\n"
 									"#define varying_out out\n"
@@ -36,8 +45,13 @@ namespace p3d {
 									#if defined(GLES3)
 										"precision mediump float;\n"
 									#endif
-								"varying_out vec2 vTexcoord;\n"
-								"varying_out vec2 vblurTexCoords[6];\n"
+									"#if defined(VULKAN)\n"
+									"#define gl_VertexID gl_VertexIndex\n"
+									"#define IO_LOCATION(n) layout(location = n)\n"
+									"#else\n"
+									"#define IO_LOCATION(n)\n"
+									"#endif\n"
+								"IO_LOCATION(0) varying_out vec2 vTexcoord;\n"
 								"void main() {\n"
 									"gl_Position = vec4(-1.0 + vec2((gl_VertexID & 1) << 2, (gl_VertexID & 2) << 1), 0.0, 1.0);\n"
 									"vTexcoord = (gl_Position.xy+1.0)*0.5;\n"
@@ -53,12 +67,28 @@ namespace p3d {
 									#if defined(GLES3)
 										"precision mediump float;\n"
 									#endif
-									"out vec4 FragColor;\n"
-								"varying_in vec2 vTexcoord;\n"
-								"uniform sampler2D uTex0;\n"
-								"uniform float uIntensity;\n"
+									// See SSAOEffect.cpp's identical comment
+									// - binding 25 (not 24, SSAOEffect's own
+									// - see IEffect.h's comment on
+									// extraUniformsBinding for why these
+									// must all be globally distinct).
+									"#if defined(VULKAN)\n"
+									"#define UBO_BINDING(n) layout(std140, binding = n)\n"
+									"#define SAMPLER_BINDING(n) layout(set = 1, binding = n)\n"
+									"#define IO_LOCATION(n) layout(location = n)\n"
+									"#else\n"
+									"#define UBO_BINDING(n)\n"
+									"#define SAMPLER_BINDING(n)\n"
+									"#define IO_LOCATION(n)\n"
+									"#endif\n"
+									"IO_LOCATION(0) out vec4 FragColor;\n"
+								"IO_LOCATION(0) varying_in vec2 vTexcoord;\n"
+								"SAMPLER_BINDING(0) uniform sampler2D uTex0;\n"
+								"UBO_BINDING(25) uniform BlurSSAOParams {\n"
+								"	vec2 uTexResolution;\n"
+								"	float uIntensity;\n"
+								"};\n"
 								"const int blursize = 4;\n"
-								"uniform vec2 uTexResolution;\n"
 								"void main() {\n"
 									"vec2 texelSize = vec2(1.0,1.0) / uTexResolution;\n"
 									"float result = 0.0;\n"

@@ -7,18 +7,30 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/PostEffects/Effects/IEffect.h>
+#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 
 namespace p3d {
 
-    IEffect::IEffect(const uint32 Width, const uint32 Height) 
+    // Same shared-active-device pattern as Shaders.cpp/GeometryBuffer.cpp -
+    // only needed here to destroy pipelineHandle on teardown.
+    static IRenderDevice& Device()
     {
-        
+        return GetActiveRenderDevice();
+    }
+
+    IEffect::IEffect(const uint32 Width, const uint32 Height)
+    {
+
         // Reset Handles
         positionHandle = texcoordHandle = -2;
-        
+
         // Initialize Shaders
         shader = new Shader();
-        
+        pipelineHandle = 0;
+        extraUniformsBinding = 0;
+        extraUniformsSize = 0;
+        extraUniformsBufferHandle = 0;
+
         // Set Vertex Shader
         // Because its always the same
         VertexShaderString =
@@ -30,12 +42,29 @@ namespace p3d {
 					#if defined(GLES3)
 						"precision mediump float;\n"
 					#endif
-				"varying_out vec2 vTexcoord;\n"
+					// gl_VertexID doesn't exist in Vulkan/SPIR-V GLSL - the
+					// equivalent builtin is gl_VertexIndex. VULKAN is
+					// predefined by shaderc itself for any Vulkan-target
+					// compile (see SpirvShaderCompiler::Compile()'s
+					// comment) - never true for the GL path, which keeps
+					// using the real gl_VertexID unchanged. SPIR-V also
+					// requires a static layout(location=) on every
+					// varying (GL matches by name at link time instead) -
+					// same IO_LOCATION pattern as PyrosShader.glsl. Every
+					// effect's fragment shader must declare vTexcoord at
+					// this same location (0) for the two stages to agree.
+					"#if defined(VULKAN)\n"
+					"#define gl_VertexID gl_VertexIndex\n"
+					"#define IO_LOCATION(n) layout(location = n)\n"
+					"#else\n"
+					"#define IO_LOCATION(n)\n"
+					"#endif\n"
+				"IO_LOCATION(0) varying_out vec2 vTexcoord;\n"
 				"void main() {\n"
 					"gl_Position = vec4(-1.0 + vec2((gl_VertexID & 1) << 2, (gl_VertexID & 2) << 1), 0.0, 1.0);\n"
 					"vTexcoord = (gl_Position.xy+1.0)*0.5;\n"
 				"}\n";
-        
+
         // Reset
         TextureUnits = 0;
 
@@ -71,8 +100,12 @@ namespace p3d {
 		shader->LinkProgram();
     }
     
-    IEffect::~IEffect() 
+    IEffect::~IEffect()
 	{
+		if (pipelineHandle != 0)
+			Device().DestroyPipeline(pipelineHandle);
+		if (extraUniformsBufferHandle != 0)
+			Device().DestroyUniformBuffer(extraUniformsBufferHandle);
 		shader->DeleteShader();
 		delete shader;
 		delete fbo;

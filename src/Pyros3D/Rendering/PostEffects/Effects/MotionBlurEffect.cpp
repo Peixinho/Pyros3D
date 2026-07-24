@@ -31,6 +31,9 @@ namespace p3d {
 									#if defined(GLES3)
 										"precision mediump float;\n"
 									#endif
+									"#if defined(VULKAN)\n"
+									"#define gl_VertexID gl_VertexIndex\n"
+									"#endif\n"
 								"varying_out vec2 vTexcoord;\n"
 								"void main() {\n"
 									"gl_Position = vec4(-1.0 + vec2((gl_VertexID & 1) << 2, (gl_VertexID & 2) << 1), 0.0, 1.0);\n"
