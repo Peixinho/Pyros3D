@@ -1834,7 +1834,25 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u)
 {
 	Vec2 screenDimensions((f32)Width, (f32)Height);
+	f32 timerF = (f32)Timer;
+	Matrix prvModelViewProjectionMatrix = PrvProjectionMatrix * PrvViewMatrix * PrvModelMatrix;
 
+	// Mirrors SendGlobalUniforms()/SendModelUniforms()'s switches - those
+	// two only ever reach a *regular* (non-extra) uniform (Shader::
+	// SendUniform, a no-op on Vulkan once absorbed into a UBO - see
+	// GetUniformLocation()'s comment), so any DataUsage they compute
+	// live has to be duplicated here too, or a CustomShaderMaterial that
+	// puts one of these in extraUniforms[] silently reads stale/zero
+	// data on Vulkan forever (found via IslandDemo's water going static
+	// - uTime/uCameraPos were falling through to the `default` case
+	// below, which only ever reads u.Value - never populated for a
+	// DataUsage that's meant to be computed by the renderer itself, not
+	// hand-set via SetValue()). Dirty-tracked matrices use the exact
+	// same lazy-recompute-if-dirty pattern as the two switches above,
+	// since SendExtraUniforms() runs after both but can't assume either
+	// one already visited the same usage this frame (a material might
+	// reference a usage *only* via extraUniforms, with no matching
+	// regular AddUniform() of the same DataUsage).
 	const void* valuePtr = NULL;
 	uint32 valueSize = 0;
 	switch (u.Usage)
@@ -1845,14 +1863,94 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u)
 	case Uniforms::DataUsage::ProjectionMatrix:
 		valuePtr = &ProjectionMatrix; valueSize = sizeof(Matrix);
 		break;
+	case Uniforms::DataUsage::ViewProjectionMatrix:
+		if (ViewProjectionMatrixIsDirty) { ViewProjectionMatrix = ProjectionMatrix * ViewMatrix; ViewProjectionMatrixIsDirty = false; }
+		valuePtr = &ViewProjectionMatrix; valueSize = sizeof(Matrix);
+		break;
+	case Uniforms::DataUsage::ViewMatrixInverse:
+		if (ViewMatrixInverseIsDirty) { ViewMatrixInverse = ViewMatrix.Inverse(); ViewMatrixInverseIsDirty = false; }
+		valuePtr = &ViewMatrixInverse; valueSize = sizeof(Matrix);
+		break;
+	case Uniforms::DataUsage::ProjectionMatrixInverse:
+		if (ProjectionMatrixInverseIsDirty) { ProjectionMatrixInverse = ProjectionMatrix.Inverse(); ProjectionMatrixInverseIsDirty = false; }
+		valuePtr = &ProjectionMatrixInverse; valueSize = sizeof(Matrix);
+		break;
+	case Uniforms::DataUsage::ViewProjectionMatrixInverse:
+		if (ViewProjectionMatrixInverseIsDirty) { ViewProjectionMatrixInverse = (ProjectionMatrix * ViewMatrix).Inverse(); ViewProjectionMatrixInverseIsDirty = false; }
+		valuePtr = &ViewProjectionMatrixInverse; valueSize = sizeof(Matrix);
+		break;
+	case Uniforms::DataUsage::CameraPosition:
+		valuePtr = &CameraPosition; valueSize = sizeof(CameraPosition);
+		break;
+	case Uniforms::DataUsage::Timer:
+		valuePtr = &timerF; valueSize = sizeof(timerF);
+		break;
+	case Uniforms::DataUsage::GlobalAmbientLight:
+		valuePtr = &GlobalLight; valueSize = sizeof(GlobalLight);
+		break;
+	case Uniforms::DataUsage::NumberOfLights:
+		valuePtr = &NumberOfLights; valueSize = sizeof(NumberOfLights);
+		break;
 	case Uniforms::DataUsage::NearFarPlane:
 		valuePtr = &NearFarPlane; valueSize = sizeof(NearFarPlane);
 		break;
 	case Uniforms::DataUsage::ScreenDimensions:
 		valuePtr = &screenDimensions; valueSize = sizeof(screenDimensions);
 		break;
+	case Uniforms::DataUsage::DirectionalShadowFar:
+		valuePtr = &DirectionalShadowFar; valueSize = sizeof(DirectionalShadowFar);
+		break;
+	case Uniforms::DataUsage::NumberOfDirectionalShadows:
+		valuePtr = &NumberOfDirectionalShadows; valueSize = sizeof(NumberOfDirectionalShadows);
+		break;
+	case Uniforms::DataUsage::NumberOfPointShadows:
+		valuePtr = &NumberOfPointShadows; valueSize = sizeof(NumberOfPointShadows);
+		break;
+	case Uniforms::DataUsage::NumberOfSpotShadows:
+		valuePtr = &NumberOfSpotShadows; valueSize = sizeof(NumberOfSpotShadows);
+		break;
+	case Uniforms::DataUsage::PrvViewMatrix:
+		valuePtr = &PrvViewMatrix; valueSize = sizeof(Matrix);
+		break;
+	case Uniforms::DataUsage::PrvProjectionMatrix:
+		valuePtr = &PrvProjectionMatrix; valueSize = sizeof(Matrix);
+		break;
+	case Uniforms::DataUsage::PrvModelViewProjectionMatrix:
+		valuePtr = &prvModelViewProjectionMatrix; valueSize = sizeof(Matrix);
+		break;
 	case Uniforms::DataUsage::ModelMatrix:
 		valuePtr = &ModelMatrix; valueSize = sizeof(Matrix);
+		break;
+	case Uniforms::DataUsage::NormalMatrix:
+		if (NormalMatrixIsDirty) { NormalMatrix = ViewMatrix * ModelMatrix; NormalMatrixIsDirty = false; }
+		valuePtr = &NormalMatrix; valueSize = sizeof(Matrix);
+		break;
+	case Uniforms::DataUsage::ModelViewMatrix:
+		if (ModelViewMatrixIsDirty) { ModelViewMatrix = ViewMatrix * ModelMatrix; ModelViewMatrixIsDirty = false; }
+		valuePtr = &ModelViewMatrix; valueSize = sizeof(Matrix);
+		break;
+	case Uniforms::DataUsage::ModelViewProjectionMatrix:
+		if (ModelViewProjectionMatrixIsDirty) { ModelViewProjectionMatrix = ProjectionMatrix * ViewMatrix * ModelMatrix; ModelViewProjectionMatrixIsDirty = false; }
+		valuePtr = &ModelViewProjectionMatrix; valueSize = sizeof(Matrix);
+		break;
+	case Uniforms::DataUsage::ModelMatrixInverse:
+		if (ModelMatrixInverseIsDirty) { ModelMatrixInverse = ModelMatrix.Inverse(); ModelMatrixInverseIsDirty = false; }
+		valuePtr = &ModelMatrixInverse; valueSize = sizeof(Matrix);
+		break;
+	case Uniforms::DataUsage::ModelViewMatrixInverse:
+		if (ModelViewMatrixInverseIsDirty) { ModelViewMatrixInverse = (ViewMatrix * ModelMatrix).Inverse(); ModelViewMatrixInverseIsDirty = false; }
+		valuePtr = &ModelViewMatrixInverse; valueSize = sizeof(Matrix);
+		break;
+	case Uniforms::DataUsage::ModelMatrixInverseTranspose:
+		if (ModelMatrixInverseTransposeIsDirty) { ModelMatrixInverseTranspose = ModelMatrixInverse.Transpose(); ModelMatrixInverseTransposeIsDirty = false; }
+		valuePtr = &ModelMatrixInverseTranspose; valueSize = sizeof(Matrix);
+		break;
+	case Uniforms::DataUsage::ModelViewProjectionMatrixInverse:
+		if (ModelViewProjectionMatrixInverseIsDirty) { ModelViewProjectionMatrixInverse = (ProjectionMatrix * ViewMatrix * ModelMatrix).Inverse(); ModelViewProjectionMatrixInverseIsDirty = false; }
+		valuePtr = &ModelViewProjectionMatrixInverse; valueSize = sizeof(Matrix);
+		break;
+	case Uniforms::DataUsage::PrvModelMatrix:
+		valuePtr = &PrvModelMatrix; valueSize = sizeof(Matrix);
 		break;
 	default:
 		valuePtr = u.Value.empty() ? NULL : &u.Value[0];
