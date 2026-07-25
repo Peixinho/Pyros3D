@@ -19,6 +19,16 @@
 #define IO_LOCATION(n)
 #endif
 
+// Shared smoke life-cycle curve (both stages need the same "age" -> the
+// vertex stage grows the billboard, the fragment stage fades its alpha -
+// kept as compile-time consts rather than uniforms since both only ever
+// need tuning together, by eye; ParticlesExample.cpp's own removal
+// threshold must match PARTICLE_LIFETIME or particles either vanish
+// before finishing their fade-out or linger fully invisible).
+const float PARTICLE_LIFETIME = 5.0;
+const float PARTICLE_FADE_IN_END = 0.08;
+const float PARTICLE_FADE_OUT_START = 0.6;
+
 #ifdef VERTEX
 IO_LOCATION(0) attribute_in vec3 aPosition;
 IO_LOCATION(1) attribute_in vec3 aNormal;
@@ -55,8 +65,18 @@ void main()
 
     mat4 ModelView = (uViewMatrix * ModelMatrix);
 
-    float scale = 1.0;
-    scale = (vTime-vLifetime)+0.05;
+    // Smoke-style life cycle: gentle expansion across the particle's
+    // whole life (matching fade curve is in the fragment stage below).
+    // Zeroing ModelView's upper-left 3x3 to scale*identity (rather than
+    // leaving the view/model rotation in) is the deliberate "spherical
+    // billboard" trick - it cancels both the model's and the camera's
+    // rotation so the quad's local X/Y always map straight onto view-
+    // space X/Y, i.e. the quad faces the camera exactly regardless of
+    // view angle.
+    const float minScale = 0.4;
+    const float maxScale = 2.2;
+    float t = clamp((vTime - vLifetime) / PARTICLE_LIFETIME, 0.0, 1.0);
+    float scale = mix(minScale, maxScale, smoothstep(0.0, 1.0, t));
 
     ModelView[0][0] = scale; ModelView[0][1] = 0.0; ModelView[0][2] = 0.0;
     ModelView[1][0] = 0.0; ModelView[1][1] = scale; ModelView[1][2] = 0.0;
@@ -88,7 +108,14 @@ void main()
 	// portability macro, fixed here since GLES2 was already dropped
 	// from the engine (see [[gles2_dropped_proactively]] in memory).
 	FragColor = vec4(texture_2D(uTex0, texcoord+0.5));
-    FragColor.xyz += clamp(vRotation,0.0,1.0);
-    FragColor.w -= (vTime-vLifetime)*.1;
+
+    // Matches the vertex stage's scale curve - fade in quickly, hold,
+    // then fade out over the last part of life, instead of the previous
+    // unconditional linear fade (which also never had blending enabled
+    // to actually show it - see ParticleMaterial's EnableBlending() call).
+    float t = clamp((vTime - vLifetime) / PARTICLE_LIFETIME, 0.0, 1.0);
+    float fadeIn = smoothstep(0.0, PARTICLE_FADE_IN_END, t);
+    float fadeOut = 1.0 - smoothstep(PARTICLE_FADE_OUT_START, 1.0, t);
+    FragColor.a *= fadeIn * fadeOut;
 }
 #endif

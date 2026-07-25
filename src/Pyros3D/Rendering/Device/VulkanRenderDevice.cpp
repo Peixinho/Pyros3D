@@ -1694,11 +1694,20 @@ namespace p3d {
 		// This pipeline's own sampler descriptor set (set=1) - see the
 		// comment on ProgramRecord::samplerSetLayout for why every
 		// pipeline gets its own instead of sharing one per program.
-		// descriptorPool is created (see the sizing comment on that field)
-		// by BindUniformBlockIfPresent(), which BindMesh() always calls
-		// before ever reaching CreatePipeline() - if it's somehow still
-		// NULL here, skip rather than guess at a second creation path.
-		if (descriptorPool != VK_NULL_HANDLE)
+		// EnsureDescriptorPool() (not just checking descriptorPool !=
+		// NULL) matters here specifically: BindMesh() calls CreatePipeline()
+		// *before* any uniform-sending call (BindUniformBlockIfPresent()'s
+		// other caller), so for a material with no "regular" UBO block to
+		// bind - every CustomShaderMaterial, since SupportsUniformBlocks()
+		// defaults false - this can be the very first thing in the whole
+		// program run that needs a descriptor pool at all. Checking-only
+		// silently skipped allocating a sampler set entirely in that case,
+		// which is invisible until the *next* frame's draw call statically
+		// referenced descriptor set 1 with nothing ever bound there
+		// (VUID-vkCmdDrawIndexed-None-08600) - found via ParticlesExample,
+		// whose whole scene is CustomShaderMaterial objects, so nothing
+		// else ever incidentally created the pool first.
+		if (EnsureDescriptorPool())
 		{
 			VkDescriptorSetAllocateInfo samplerSetAllocInfo = {};
 			samplerSetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -1822,13 +1831,22 @@ namespace p3d {
 		currentVao = vao;
 	}
 
+	// Appends, not overwrites - see VaoRecord::vertexBuffers' comment.
+	// IRenderer::BindMesh() only ever calls this in the middle of
+	// building a *fresh* VAO (right after CreateVertexArray()), once per
+	// AttributeBuffer, so appending here always means "the next binding
+	// index" - never a stale accumulation across separate draws. (Note:
+	// DebugRenderer.cpp calls this too, from its own per-frame immediate-
+	// mode path, but that path draws via DrawArrays(), which doesn't
+	// consult vertexBuffers - a pre-existing, separate gap, not affected
+	// either way by this change.)
 	void VulkanRenderDevice::BindArrayBuffer(const uint32 buffer)
 	{
 		if (currentVao == 0)
 			return;
 		std::map<DeviceHandle, VaoRecord>::iterator it = vaos.find(currentVao);
 		if (it != vaos.end())
-			it->second.vertexBuffer = buffer;
+			it->second.vertexBuffers.push_back(buffer);
 	}
 
 	void VulkanRenderDevice::BindElementBuffer(const uint32 buffer)
@@ -1843,6 +1861,38 @@ namespace p3d {
 	void VulkanRenderDevice::SetFloatVertexAttribute(const int32 location, const uint32 componentCount, const uint32 stride, const uint32 offset) {}
 	void VulkanRenderDevice::DisableVertexAttribute(const int32 location) {}
 	void VulkanRenderDevice::SetVertexAttributeDivisor(const int32 location, const uint32 divisor) {}
+	// See the header comment on this method and on `descriptorPool` for
+	// the sizing rationale - factored out of BindUniformBlockIfPresent()
+	// so CreatePipeline() can also ensure the pool exists before
+	// allocating a pipeline's sampler set, not just before allocating a
+	// program's UBO set.
+	bool VulkanRenderDevice::EnsureDescriptorPool()
+	{
+		if (descriptorPool != VK_NULL_HANDLE)
+			return true;
+		if (device == VK_NULL_HANDLE)
+			return false;
+
+		// See IsPerObjectDynamicBinding()'s comment - up to 7 of a
+		// program's UBO bindings are VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
+		// instead of plain UNIFORM_BUFFER, so the pool needs a
+		// reservation for that type too.
+		VkDescriptorPoolSize poolSizes[3] = {};
+		poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		poolSizes[0].descriptorCount = 64;
+		poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		poolSizes[1].descriptorCount = 131072;
+		poolSizes[2].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+		poolSizes[2].descriptorCount = 64;
+
+		VkDescriptorPoolCreateInfo poolInfo = {};
+		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+		poolInfo.maxSets = 32768;
+		poolInfo.poolSizeCount = 3;
+		poolInfo.pPoolSizes = poolSizes;
+		return vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool) == VK_SUCCESS;
+	}
+
 	void VulkanRenderDevice::BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint)
 	{
 		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(program);
@@ -1890,28 +1940,8 @@ namespace p3d {
 		// waste (thousands of redundant identical VkPipeline objects),
 		// but that's a bigger change than this cap bump - not attempted
 		// here.
-		if (descriptorPool == VK_NULL_HANDLE)
-		{
-			// See IsPerObjectDynamicBinding()'s comment - up to 7 of a
-			// program's UBO bindings are VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
-			// instead of plain UNIFORM_BUFFER, so the pool needs a
-			// reservation for that type too.
-			VkDescriptorPoolSize poolSizes[3] = {};
-			poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-			poolSizes[0].descriptorCount = 64;
-			poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			poolSizes[1].descriptorCount = 131072;
-			poolSizes[2].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-			poolSizes[2].descriptorCount = 64;
-
-			VkDescriptorPoolCreateInfo poolInfo = {};
-			poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-			poolInfo.maxSets = 32768;
-			poolInfo.poolSizeCount = 3;
-			poolInfo.pPoolSizes = poolSizes;
-			if (vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool) != VK_SUCCESS)
-				return;
-		}
+		if (!EnsureDescriptorPool())
+			return;
 
 		// Lazily allocate this program's descriptor set - see the header
 		// comment on ProgramRecord::descriptorSet.
@@ -2051,16 +2081,29 @@ namespace p3d {
 		std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
 		if (vaoIt == vaos.end())
 			return;
-		std::map<DeviceHandle, BufferRecord>::iterator vboIt = buffers.find(vaoIt->second.vertexBuffer);
 		std::map<DeviceHandle, BufferRecord>::iterator iboIt = buffers.find(vaoIt->second.indexBuffer);
-		if (vboIt == buffers.end() || iboIt == buffers.end())
+		if (iboIt == buffers.end() || vaoIt->second.vertexBuffers.empty())
 			return;
+
+		// One binding per AttributeBuffer the mesh has - see VaoRecord::
+		// vertexBuffers' comment. Order must match CreatePipeline()'s
+		// VkVertexInputBindingDescription array, which it does: both are
+		// built by iterating the same rmesh->Geometry->Attributes list in
+		// the same order (IRenderer::BindMesh()).
+		std::vector<VkBuffer> vbos;
+		std::vector<VkDeviceSize> vboOffsets;
+		for (size_t i = 0; i < vaoIt->second.vertexBuffers.size(); i++)
+		{
+			std::map<DeviceHandle, BufferRecord>::iterator vboIt = buffers.find(vaoIt->second.vertexBuffers[i]);
+			if (vboIt == buffers.end())
+				return;
+			vbos.push_back(vboIt->second.buffer);
+			vboOffsets.push_back(0);
+		}
 
 		BindCurrentPipelineDescriptorSets();
 
-		VkBuffer vbo = vboIt->second.buffer;
-		VkDeviceSize vboOffset = 0;
-		vkCmdBindVertexBuffers(activeCommandBuffer, 0, 1, &vbo, &vboOffset);
+		vkCmdBindVertexBuffers(activeCommandBuffer, 0, (uint32_t)vbos.size(), vbos.data(), vboOffsets.data());
 		// __INDEX_C_TYPE__ (Global.h) is uint32 - matches VK_INDEX_TYPE_UINT32.
 		vkCmdBindIndexBuffer(activeCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
 		vkCmdDrawIndexed(activeCommandBuffer, indexCount, 1, 0, 0, 0);
@@ -2078,16 +2121,30 @@ namespace p3d {
 		std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
 		if (vaoIt == vaos.end())
 			return;
-		std::map<DeviceHandle, BufferRecord>::iterator vboIt = buffers.find(vaoIt->second.vertexBuffer);
 		std::map<DeviceHandle, BufferRecord>::iterator iboIt = buffers.find(vaoIt->second.indexBuffer);
-		if (vboIt == buffers.end() || iboIt == buffers.end())
+		if (iboIt == buffers.end() || vaoIt->second.vertexBuffers.empty())
 			return;
+
+		// See the identical comment in DrawElements() above - one binding
+		// per AttributeBuffer, same order CreatePipeline() declared them
+		// in. This is the path that matters most for multiple bindings:
+		// an instanced mesh's per-instance AttributeBuffer (e.g.
+		// ParticlesExample's ParticleEmitter, divisor=1) is always a
+		// *second* buffer alongside the base geometry's own.
+		std::vector<VkBuffer> vbos;
+		std::vector<VkDeviceSize> vboOffsets;
+		for (size_t i = 0; i < vaoIt->second.vertexBuffers.size(); i++)
+		{
+			std::map<DeviceHandle, BufferRecord>::iterator vboIt = buffers.find(vaoIt->second.vertexBuffers[i]);
+			if (vboIt == buffers.end())
+				return;
+			vbos.push_back(vboIt->second.buffer);
+			vboOffsets.push_back(0);
+		}
 
 		BindCurrentPipelineDescriptorSets();
 
-		VkBuffer vbo = vboIt->second.buffer;
-		VkDeviceSize vboOffset = 0;
-		vkCmdBindVertexBuffers(activeCommandBuffer, 0, 1, &vbo, &vboOffset);
+		vkCmdBindVertexBuffers(activeCommandBuffer, 0, (uint32_t)vbos.size(), vbos.data(), vboOffsets.data());
 		vkCmdBindIndexBuffer(activeCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
 		vkCmdDrawIndexed(activeCommandBuffer, indexCount, instanceCount, 0, 0, 0);
 	}
@@ -2240,8 +2297,28 @@ namespace p3d {
 
 	DeviceHandle VulkanRenderDevice::CreateBuffer(const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length)
 	{
-		if (allocator == VK_NULL_HANDLE || length == 0)
+		if (allocator == VK_NULL_HANDLE)
 			return 0;
+
+		// A zero-length buffer is a real, legitimate state here, not just
+		// a degenerate input to reject - e.g. ParticlesExample's
+		// ParticleEmitter is constructed with 0 particles and grows via
+		// GeometryBuffer::Update() (-> ReallocateBuffer()) as particles
+		// spawn. Vulkan itself requires VkBufferCreateInfo::size > 0
+		// (VUID-VkBufferCreateInfo-size-00912), unlike GL (glGenBuffers
+		// hands out a valid name regardless of size, so a later
+		// glBufferData just grows it in place) - returning 0 here to
+		// mirror "no buffer" left that 0 handle permanently unrecoverable:
+		// it's never inserted into `buffers`, so every later
+		// ReallocateBuffer(0, ...) call silently no-ops forever (its own
+		// `buffers.find(buffer)` fails the same way) - the buffer never
+		// actually gets created even once real data arrives. Found via
+		// ParticlesExample rendering nothing at all on Vulkan (worked
+		// fine on GL) despite otherwise-correct draw calls once the
+		// separate per-instance-buffer binding bug (see VaoRecord::
+		// vertexBuffers) was fixed. Allocating a small placeholder here
+		// instead keeps the handle valid and re-findable from the start.
+		uint32 allocLength = (length == 0) ? 4 : length;
 
 		// bufferType (GeometryBuffer.h's Buffer::Type::Index/Vertex/
 		// Attribute) has no Vulkan-side distinction the way GL's
@@ -2252,7 +2329,7 @@ namespace p3d {
 		// only warn on missing bits, never extra ones).
 		VkBufferCreateInfo bufferInfo = {};
 		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-		bufferInfo.size = length;
+		bufferInfo.size = allocLength;
 		bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
 		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
@@ -2278,13 +2355,19 @@ namespace p3d {
 	void VulkanRenderDevice::ReallocateBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length)
 	{
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
-		if (it == buffers.end() || allocator == VK_NULL_HANDLE || length == 0)
+		if (it == buffers.end() || allocator == VK_NULL_HANDLE)
 			return;
 		vmaDestroyBuffer(allocator, it->second.buffer, it->second.allocation);
 
+		// See CreateBuffer()'s identical comment - a zero-length shrink is
+		// as legitimate as a zero-length initial allocation (e.g. every
+		// particle in an emitter dying at once), and Vulkan still won't
+		// allow size==0.
+		uint32 allocLength = (length == 0) ? 4 : length;
+
 		VkBufferCreateInfo bufferInfo = {};
 		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-		bufferInfo.size = length;
+		bufferInfo.size = allocLength;
 		bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
 		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 

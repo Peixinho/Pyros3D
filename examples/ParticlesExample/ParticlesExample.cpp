@@ -10,7 +10,12 @@
 
 using namespace p3d;
 
-ParticlesExample::ParticlesExample() : BaseExample(1024, 768, "Pyros3D - Rotating Cube", WindowType::Close | WindowType::Resize) {}
+// Must match particle.glsl's PARTICLE_LIFETIME - both the shader's
+// scale/fade curve and this removal threshold are keyed off the same
+// particle age.
+static const f32 PARTICLE_LIFETIME = 5.0f;
+
+ParticlesExample::ParticlesExample() : BaseExample(1024, 768, "Pyros3D - Particles", WindowType::Close | WindowType::Resize) {}
 
 void ParticlesExample::OnResize(const uint32 width, const uint32 height)
 {
@@ -34,7 +39,7 @@ void ParticlesExample::Init()
 	// Projection
 	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 1000.f);
 
-	FPSCamera->SetPosition(Vec3(0, 10, 80));
+	FPSCamera->SetPosition(Vec3(0, 2, 15));
 
 	particleMaterial = new ParticleMaterial();
 
@@ -57,6 +62,47 @@ void ParticlesExample::Init()
 	Scene->Add(gSmoke2);
 
 	lastTime = GetTime();
+	emissionAccumulator1 = emissionAccumulator2 = 0.f;
+
+	emissionRate = 15.f;
+	burstSize = 1;
+	spread = 0.6f;
+	riseSpeed = 2.0f;
+
+	// Initialize ImGui
+	InitImGui();
+}
+
+void ParticlesExample::SpawnParticle(ParticleEmitter* emitter, const f32 time)
+{
+	Particle p;
+	p.Position = Vec4(0, 0, 0, ((rand() % 200) - 100) * 0.01f);
+	f32 vx = ((rand() % 200) - 100) * 0.01f * spread;
+	f32 vz = ((rand() % 200) - 100) * 0.01f * spread;
+	p.Details = Vec4(vx, riseSpeed, vz, time);
+	emitter->particles.push_back(p);
+}
+
+void ParticlesExample::UpdateEmitter(ParticleEmitter* emitter, const f32 time, const f32 dt)
+{
+	for (std::vector<Particle>::iterator i = emitter->particles.begin(); i != emitter->particles.end();)
+	{
+		Particle* p = &(*i);
+		if (time - p->Details.w > PARTICLE_LIFETIME) {
+			i = emitter->particles.erase(i);
+		} else {
+			p->Position.x += p->Details.x * dt;
+			p->Position.y += p->Details.y * dt;
+			p->Position.z += p->Details.z * dt;
+			i++;
+		}
+	}
+
+	if (emitter->particles.size() > 0)
+	{
+		emitter->SetNumberInstances(emitter->particles.size());
+		emitter->particles_position_buffer->Buffer->Update(&emitter->particles[0], emitter->particles.size() * sizeof(Particle));
+	}
 }
 
 void ParticlesExample::Update()
@@ -68,66 +114,81 @@ void ParticlesExample::Update()
 
 	BaseExample::Update();
 
-	// Game Logic HereW
-
+	// Game Logic Here - continuous emission (accumulator-based, so the
+	// rate is real particles/second regardless of frame rate) instead of
+	// the previous fixed "one particle every 0.1s" - both emissionRate
+	// and burstSize are live-tunable via DrawUI().
 	f32 time = GetTime();
-	if (time-lastTime > 0.1)
+	f32 dt = time - lastTime;
+	lastTime = time;
+	if (dt < 0.f) dt = 0.f;
+	if (dt > 0.1f) dt = 0.1f; // clamp - avoid a spawn burst after a stall/breakpoint
+
+	f32 interval = 1.0f / (emissionRate > 0.01f ? emissionRate : 0.01f);
+
+	emissionAccumulator1 += dt;
+	while (emissionAccumulator1 >= interval)
 	{
-		lastTime = time;
-		{
-			Particle p;
-			p.Position = Vec4(0,0,0,(rand()%20-10.f)*0.1f);
-			p.Details = Vec4((rand()%40-20)*0.01f,3.f,(rand()%40-20)*0.01f,time);
-			emitter1->particles.push_back(p);
-		}
-		{
-			Particle p;
-			p.Position = Vec4(0,0,0,(rand()%20-10.f)*0.1f);
-			p.Details = Vec4((rand()%40-20)*0.01f,3.f,(rand()%40-20)*0.01f,time);
-			emitter2->particles.push_back(p);
-		}
+		emissionAccumulator1 -= interval;
+		for (int32 i = 0; i < burstSize; i++)
+			SpawnParticle(emitter1, time);
 	}
 
-	for (std::vector<Particle>::iterator i=emitter1->particles.begin();i!=emitter1->particles.end();)
+	emissionAccumulator2 += dt;
+	while (emissionAccumulator2 >= interval)
 	{
-		Particle* p = &(*i);
-		if (time-p->Details.w>10.0) {
-			i=emitter1->particles.erase(i);
-		} else {
-			p->Position.x += p->Details.x * 0.005f;
-			p->Position.y += p->Details.y * 0.005f;
-			p->Position.z += p->Details.z * 0.005f;
-			i++;
-		}
+		emissionAccumulator2 -= interval;
+		for (int32 i = 0; i < burstSize; i++)
+			SpawnParticle(emitter2, time);
 	}
 
-	for (std::vector<Particle>::iterator i=emitter2->particles.begin();i!=emitter2->particles.end();)
-	{
-		Particle* p = &(*i);
-		if (time-p->Details.w>10.0) {
-			i=emitter2->particles.erase(i);
-		} else {
-			p->Position.x += p->Details.x * 0.005f;
-			p->Position.y += p->Details.y * 0.005f;
-			p->Position.z += p->Details.z * 0.005f;
-			i++;
-		}
-	}
-
-	if (emitter1->particles.size() > 0)
-	{
-		emitter1->SetNumberInstances(emitter1->particles.size());
-		emitter1->particles_position_buffer->Buffer->Update(&emitter1->particles[0], emitter1->particles.size() * sizeof(Particle));
-	}
-	if (emitter2->particles.size() > 0)
-	{
-		emitter2->SetNumberInstances(emitter2->particles.size());
-		emitter2->particles_position_buffer->Buffer->Update(&emitter2->particles[0], emitter2->particles.size() * sizeof(Particle));
-	}
+	UpdateEmitter(emitter1, time, dt);
+	UpdateEmitter(emitter2, time, dt);
 
 	// Render Scene
 	Renderer->PreRender(FPSCamera, Scene);
 	Renderer->RenderScene(projection, FPSCamera, Scene);
+
+	// Render ImGui
+	RenderImGui();
+}
+
+void ParticlesExample::DrawUI()
+{
+	// Draw base UI (FPS, etc.)
+	DrawBaseUI();
+
+	// Particle System Information
+	if (ImGui::Begin("Particles Info", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::Text("Particle System Information");
+		ImGui::Separator();
+
+		ImGui::Text("Scene Objects:");
+		ImGui::Text("  Emitter 1 particles: %zu", emitter1->particles.size());
+		ImGui::Text("  Emitter 2 particles: %zu", emitter2->particles.size());
+		ImGui::Text("  Material: CustomShaderMaterial (particle.glsl)");
+		ImGui::Text("  Texture: smoke.png (alpha-blended)");
+		ImGui::Text("  Lifetime: %.1fs (fade in/out, spherical billboard)", PARTICLE_LIFETIME);
+
+		ImGui::Separator();
+		ImGui::Text("Emission Controls:");
+		ImGui::SliderFloat("Rate (particles/sec)", &emissionRate, 1.0f, 60.0f);
+		ImGui::SliderInt("Burst Size", &burstSize, 1, 10);
+		ImGui::SliderFloat("Spread", &spread, 0.0f, 2.0f);
+		ImGui::SliderFloat("Rise Speed", &riseSpeed, 0.0f, 10.0f);
+
+		ImGui::Separator();
+		ImGui::Text("Performance:");
+		ImGui::Text("  FPS: %.1f", (float)fps.getFPS());
+		ImGui::Text("  Resolution: %dx%d", Width, Height);
+
+		ImGui::Separator();
+		ImGui::Text("Controls:");
+		ImGui::Text("  Tab: Toggle mouse capture");
+		ImGui::Text("  WASD: Move camera");
+		ImGui::Text("  Mouse: Look around");
+	}
+	ImGui::End();
 }
 
 void ParticlesExample::Shutdown()

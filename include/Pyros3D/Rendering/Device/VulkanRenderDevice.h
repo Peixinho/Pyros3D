@@ -656,24 +656,40 @@ namespace p3d {
 		// FBORecord::lastTarget's comment for why that path exists).
 		void BeginOffscreenRenderPassForTarget(FBORecord &fbo, const VkFramebuffer targetFramebuffer);
 
-		// Vertex buffer / index buffer pair for a "VAO" handle - see the
+		// Vertex buffer(s) / index buffer for a "VAO" handle - see the
 		// header comment on the `pipelines` field below for the broader
 		// vertex-input limitation this is part of. GL's VAO bakes in
 		// attribute pointers/enables *and* the bound array+element buffers;
 		// this backend's vertex *attribute layout* is already baked into
-		// the pipeline (CreatePipeline()'s hardcoded VkVertexInputState),
-		// so all a "VAO" needs to remember here is which two buffers to
-		// bind at draw time. Built up the same way GL builds a VAO -
+		// the pipeline (CreatePipeline()'s VkVertexInputState, built from
+		// PipelineDesc::vertexLayout - one VkVertexInputBindingDescription
+		// per AttributeBuffer the mesh's Geometry has), so all a "VAO"
+		// needs to remember here is which buffer(s) to bind at draw time,
+		// in the same order LinkProgram()'s/CreatePipeline()'s bindings
+		// were declared. Built up the same way GL builds a VAO -
 		// BindVertexArray(cmd, vao) selects which one BindArrayBuffer()/
 		// BindElementBuffer() write into next (mirroring glBindVertexArray()
 		// making those the implicit target of subsequent glBindBuffer()
 		// calls) - and later just re-selected (via the same
 		// BindVertexArray() call) as the active one for DrawElements()/
 		// DrawElementsInstanced() to read from.
+		// vertexBuffers is a *vector*, not a single handle, because a mesh
+		// can have more than one AttributeBuffer - e.g. ParticlesExample's
+		// ParticleEmitter adds a second, separately-updated per-instance
+		// buffer (divisor=1) alongside the base Plane geometry's own
+		// buffer, via IRenderingInstancedComponent::AddBuffer(). Each
+		// AttributeBuffer gets its own VkVertexInputBindingDescription
+		// (binding 0, 1, 2...) in pipeline creation, in the exact order
+		// IRenderer::BindMesh() calls BindArrayBuffer() for each one - a
+		// single-buffer field here silently dropped every buffer but the
+		// last one bound (found via ParticlesExample rendering nothing at
+		// all on Vulkan while working fine on GL, which has no equivalent
+		// "one current buffer" limitation).
 		struct VaoRecord
 		{
-			DeviceHandle vertexBuffer, indexBuffer;
-			VaoRecord() : vertexBuffer(0), indexBuffer(0) {}
+			std::vector<DeviceHandle> vertexBuffers;
+			DeviceHandle indexBuffer;
+			VaoRecord() : indexBuffer(0) {}
 		};
 		std::map<DeviceHandle, VaoRecord> vaos;
 		DeviceHandle nextVaoHandle;
@@ -823,6 +839,23 @@ namespace p3d {
 			case 37: // LastPassFragParams
 			case 38: // PointFragParams
 			case 39: // SpotFragParams
+			case 42: // ParticleVertParams (ParticlesExample) - carries a
+			         // per-object uModelMatrix, and both of the example's
+			         // ParticleEmitters share one ParticleMaterial instance
+			         // (hence one CreateUniformBuffer() call, one shared
+			         // buffer) - the exact same single-shared-buffer,
+			         // multiple-writes-before-submit race as the rest of
+			         // this list. Missed when this material was first wired
+			         // up because the bug was masked by two unrelated, more
+			         // fundamental gaps (a second vertex buffer binding
+			         // never getting bound at all, and a zero-length
+			         // initial buffer allocation Vulkan silently refused) -
+			         // fixing those was necessary before this one could
+			         // even become visible: symptom was "only one emitter
+			         // ever renders" (matches this binding's whole class of
+			         // bug exactly, see the comment above), not caught by
+			         // validation since a stale-but-valid ModelMatrix isn't
+			         // a validation-detectable error.
 				return true;
 			default:
 				return false;
@@ -1212,6 +1245,20 @@ namespace p3d {
 		// SendUserUniforms() have written this object's texture/shadow-
 		// map descriptors via SendUniformInt()) is invalid.
 		void BindCurrentPipelineDescriptorSets();
+		// Lazily creates `descriptorPool` (idempotent - returns true
+		// immediately if it already exists) - see its header comment for
+		// sizing. Was inlined only in BindUniformBlockIfPresent(); factored
+		// out so CreatePipeline() can call it too - a pipeline's own
+		// sampler set (set=1) is allocated from this same pool, but
+		// CreatePipeline() runs *before* BindUniformBlockIfPresent() in
+		// RenderObject()'s call order (BindMesh() first, uniform-sending
+		// after), so for any material that never sends a "regular" UBO
+		// block (every CustomShaderMaterial, since SupportsUniformBlocks()
+		// defaults false) the pool didn't exist yet the first time a
+		// pipeline needed it - found via ParticlesExample (the only
+		// example whose *entire* scene is CustomShaderMaterial objects,
+		// so nothing else incidentally created the pool first).
+		bool EnsureDescriptorPool();
 		// Returns (creating if needed) the VkImageView usable as a
 		// depth-attachment render target for `nativeTextureTarget` - see
 		// TextureRecord::renderTargetViewsByTarget. VK_NULL_HANDLE only

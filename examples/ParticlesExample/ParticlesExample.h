@@ -3,7 +3,7 @@
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
-// Description : Rotating Cube Example
+// Description : Particles Example
 //============================================================================
 
 #ifndef PARTICLESEXAMPLE_H
@@ -39,6 +39,16 @@ class ParticleMaterial : public CustomShaderMaterial {
 		textures.push_back(tex);
 
 		SetTransparencyFlag(true);
+		// smoke.png is a real alpha-edged sprite and particle.glsl computes
+		// a proper fade-in/out curve into FragColor.a - neither did
+		// anything visually before: IMaterial defaults blending *off*
+		// (see its constructor), so every particle drew fully opaque
+		// regardless of the shader's alpha. Standard alpha blending, and
+		// double-sided since a spherical billboard's winding isn't
+		// guaranteed consistent from every camera angle.
+		EnableBlending();
+		BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
+		SetCullFace(CullFace::DoubleSided);
 
 		// See IMaterial.h's comment on extraUniforms[2] - matches
 		// particle.glsl's ParticleVertParams block exactly. uTex0 is a
@@ -55,8 +65,8 @@ class ParticleMaterial : public CustomShaderMaterial {
 };
 
 struct Particle {
-	Vec4 Position; // xyz position, w rotation
-	Vec4 Details; // xyz direction, w life time
+	Vec4 Position; // xyz position, w rotation speed
+	Vec4 Details; // xyz velocity (world units/sec), w spawn time
 	bool operator<(Particle& that);
 };
 
@@ -99,8 +109,12 @@ public:
 	virtual void Update();
 	virtual void Shutdown();
 	virtual void OnResize(const uint32 width, const uint32 height);
+	virtual void DrawUI();
 
 private:
+
+	void SpawnParticle(ParticleEmitter* emitter, const f32 time);
+	void UpdateEmitter(ParticleEmitter* emitter, const f32 time, const f32 dt);
 
 	// Renderer
 	ForwardRenderer* Renderer;
@@ -117,7 +131,13 @@ private:
 	ParticleMaterial* particleMaterial;
 
 	f32 lastTime;
+	f32 emissionAccumulator1, emissionAccumulator2;
+
+	// Tunable live via ImGui - see DrawUI().
+	f32 emissionRate; // particles/second, per emitter
+	int32 burstSize;  // particles spawned per emission tick
+	f32 spread;       // horizontal jitter scale
+	f32 riseSpeed;    // upward drift, world units/second
 };
 
 #endif	/* PARTICLESEXAMPLE_H */
-

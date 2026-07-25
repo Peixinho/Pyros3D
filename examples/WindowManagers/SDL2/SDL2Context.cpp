@@ -212,9 +212,16 @@ namespace p3d {
         SDL_Event sdl_event;
 		while(SDL_PollEvent(&sdl_event) > 0) /* While there are more than 0 events in the queue */
 		{
-            // Process ImGui events first
-            ImGui_ImplSDL2_ProcessEvent(&sdl_event);
-            
+            // Process ImGui events first - guarded, not every example calls
+            // BaseExample::InitImGui() (ParticlesExample didn't - see its
+            // own fix), and this runs unconditionally for every example
+            // regardless. ImGui_ImplSDL2_ProcessEvent() asserts hard on a
+            // null backend/context if called before ImGui::CreateContext()
+            // (InitImGui()'s job), so any example skipping it crashed on
+            // the very first SDL event, not just a cosmetic gap.
+            if (ImGui::GetCurrentContext() != NULL)
+                ImGui_ImplSDL2_ProcessEvent(&sdl_event);
+
             if (sdl_event.type == SDL_QUIT)
             {
 		        Close();
