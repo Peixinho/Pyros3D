@@ -1,30 +1,37 @@
-#if defined(GLES2)
-	#define varying_in varying
-	#define varying_out varying
-	#define attribute_in attribute
-	#define texture_2D texture2D
-	#define texture_cube textureCube
+#define varying_in in
+#define varying_out out
+#define attribute_in in
+#define texture_2D texture
+#define texture_cube texture
+#if defined(GLES3)
 	precision mediump float;
+#endif
+
+// See custommaterialshader.glsl's identical comment. Bindings 40/41.
+#if defined(VULKAN)
+#define UBO_BINDING(n) layout(std140, binding = n)
+#define SAMPLER_BINDING(n) layout(set = 1, binding = n)
+#define IO_LOCATION(n) layout(location = n)
 #else
-	#define varying_in in
-	#define varying_out out
-	#define attribute_in in
-	#define texture_2D texture
-	#define texture_cube texture
-	#if defined(GLES3)
-		precision mediump float;
-	#endif
+#define UBO_BINDING(n)
+#define SAMPLER_BINDING(n)
+#define IO_LOCATION(n)
 #endif
 
 #ifdef VERTEX
     const float tiling = 4.0;
-    attribute_in vec3 aPosition, aNormal;
-    attribute_in vec2 aTexcoord;
-    uniform mat4 uProjectionMatrix, uViewMatrix, uModelMatrix;
-    uniform vec3 uCameraPos;
-    varying_out vec2 vTexcoord;
-    varying_out vec4 clipSpace;
-    varying_out vec3 toCameraVector;
+    IO_LOCATION(0) attribute_in vec3 aPosition;
+    IO_LOCATION(1) attribute_in vec3 aNormal;
+    IO_LOCATION(2) attribute_in vec2 aTexcoord;
+    UBO_BINDING(40) uniform WaterVertParams {
+        mat4 uProjectionMatrix;
+        mat4 uViewMatrix;
+        mat4 uModelMatrix;
+        vec3 uCameraPos;
+    };
+    IO_LOCATION(0) varying_out vec2 vTexcoord;
+    IO_LOCATION(1) varying_out vec4 clipSpace;
+    IO_LOCATION(2) varying_out vec3 toCameraVector;
     void main()
     {
         vTexcoord = aTexcoord * tiling;
@@ -36,16 +43,18 @@
 #endif
 
 #ifdef FRAGMENT
-    uniform sampler2D uReflectionMap;
-    uniform sampler2D uRefractionMap;
-    uniform sampler2D uRefractionMapDepth;
-    uniform sampler2D uNormalmap;
-    uniform sampler2D uDUDVmap;
-    uniform vec2 uNearFarPlane;
-    uniform float uTime;
-    varying_in vec2 vTexcoord;
-    varying_in vec4 clipSpace;
-    varying_in vec3 toCameraVector;
+    SAMPLER_BINDING(0) uniform sampler2D uReflectionMap;
+    SAMPLER_BINDING(1) uniform sampler2D uRefractionMap;
+    SAMPLER_BINDING(2) uniform sampler2D uRefractionMapDepth;
+    SAMPLER_BINDING(3) uniform sampler2D uNormalmap;
+    SAMPLER_BINDING(4) uniform sampler2D uDUDVmap;
+    UBO_BINDING(41) uniform WaterFragParams {
+        vec2 uNearFarPlane;
+        float uTime;
+    };
+    IO_LOCATION(0) varying_in vec2 vTexcoord;
+    IO_LOCATION(1) varying_in vec4 clipSpace;
+    IO_LOCATION(2) varying_in vec3 toCameraVector;
     const float waveStrength = 0.02;
     const float waveSpeed = 0.03;
 
@@ -54,12 +63,8 @@
     const float reflectivity = 0.6;
     const vec3 lightColour = vec3(1,1,1);
 
-	#if defined(GLES2)
-		vec4 FragColor;	
-	#else
-		out vec4 FragColor;
-	#endif
-	
+	IO_LOCATION(0) out vec4 FragColor;
+
     void main()
     {
         float moveFactor = (uTime * waveSpeed);
@@ -69,7 +74,7 @@
 
         float depth = texture_2D(uRefractionMapDepth, refractionTexCoords).r;
         float floorDistance = 2.0 * uNearFarPlane.x * uNearFarPlane.y / (uNearFarPlane.x + uNearFarPlane.y - (2.0 * depth -1.0) * (uNearFarPlane.y - uNearFarPlane.x));
-        
+
         depth = gl_FragCoord.z;
         float waterDistance = 2.0 * uNearFarPlane.x * uNearFarPlane.y / (uNearFarPlane.x + uNearFarPlane.y - (2.0 * depth -1.0) * (uNearFarPlane.y - uNearFarPlane.x));
 
@@ -118,9 +123,5 @@
 
         // Lighting
         FragColor += vec4(specularHighlights, 0.0);
-
-		#if defined(GLES2)
-			gl_FragColor = FragColor;
-		#endif
     }
 #endif

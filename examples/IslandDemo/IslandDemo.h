@@ -30,6 +30,28 @@ public:
 		AddUniform(Uniform("uTime", Uniforms::DataUsage::Timer));
 		AddUniform(Uniform("uCameraPos", Uniforms::DataUsage::CameraPosition));
 		AddUniform(Uniform("uNearFarPlane", Uniforms::DataUsage::NearFarPlane));
+
+		// See IMaterial.h's comment on extraUniforms[2] - matches
+		// WaterShader.glsl's WaterVertParams/WaterFragParams blocks
+		// exactly. uColor registered above is never actually declared in
+		// that shader (a pre-existing, harmless dead registration - GL's
+		// glGetUniformLocation() already silently no-ops it), so it has
+		// no entry here either.
+		extraUniforms[0].binding = 40;
+		extraUniforms[0].blockName = "WaterVertParams";
+		extraUniforms[0].size = 204;
+		extraUniforms[0].scratch.resize(extraUniforms[0].size, 0);
+		extraUniforms[0].offsets["uProjectionMatrix"] = 0;
+		extraUniforms[0].offsets["uViewMatrix"] = 64;
+		extraUniforms[0].offsets["uModelMatrix"] = 128;
+		extraUniforms[0].offsets["uCameraPos"] = 192;
+
+		extraUniforms[1].binding = 41;
+		extraUniforms[1].blockName = "WaterFragParams";
+		extraUniforms[1].size = 12;
+		extraUniforms[1].scratch.resize(extraUniforms[1].size, 0);
+		extraUniforms[1].offsets["uNearFarPlane"] = 0;
+		extraUniforms[1].offsets["uTime"] = 8;
 	}
 
 	virtual ~WaterMaterial() {

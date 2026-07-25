@@ -29,6 +29,23 @@ public:
 		AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
 		AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
 		handle = AddUniform(Uniform("uColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+
+		// See IMaterial.h's comment on extraUniforms[2] - matches
+		// custommaterialshader.glsl's CustomMaterialVertParams/
+		// CustomMaterialFragParams blocks exactly.
+		extraUniforms[0].binding = 35;
+		extraUniforms[0].blockName = "CustomMaterialVertParams";
+		extraUniforms[0].size = 192;
+		extraUniforms[0].scratch.resize(extraUniforms[0].size, 0);
+		extraUniforms[0].offsets["uProjectionMatrix"] = 0;
+		extraUniforms[0].offsets["uViewMatrix"] = 64;
+		extraUniforms[0].offsets["uModelMatrix"] = 128;
+
+		extraUniforms[1].binding = 36;
+		extraUniforms[1].blockName = "CustomMaterialFragParams";
+		extraUniforms[1].size = 16;
+		extraUniforms[1].scratch.resize(extraUniforms[1].size, 0);
+		extraUniforms[1].offsets["uColor"] = 0;
 	}
 
 	virtual void PreRender()

@@ -39,6 +39,18 @@ class ParticleMaterial : public CustomShaderMaterial {
 		textures.push_back(tex);
 
 		SetTransparencyFlag(true);
+
+		// See IMaterial.h's comment on extraUniforms[2] - matches
+		// particle.glsl's ParticleVertParams block exactly. uTex0 is a
+		// sampler, exempt from the UBO-wrap rule (opaque types).
+		extraUniforms[0].binding = 42;
+		extraUniforms[0].blockName = "ParticleVertParams";
+		extraUniforms[0].size = 196;
+		extraUniforms[0].scratch.resize(extraUniforms[0].size, 0);
+		extraUniforms[0].offsets["uProjectionMatrix"] = 0;
+		extraUniforms[0].offsets["uViewMatrix"] = 64;
+		extraUniforms[0].offsets["uModelMatrix"] = 128;
+		extraUniforms[0].offsets["uTime"] = 192;
 	}
 };
 
