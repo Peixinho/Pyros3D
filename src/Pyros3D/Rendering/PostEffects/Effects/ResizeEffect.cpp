@@ -26,9 +26,20 @@ namespace p3d {
 								#if defined(GLES3)
 									"precision mediump float;\n"
 								#endif
-								"out vec4 FragColor;"
-                                "uniform sampler2D uTex0;\n"
-                                "varying_in vec2 vTexcoord;"
+								// See SSAOEffect.cpp's identical comment -
+								// no non-sampler uniforms here, so only
+								// the sampler/varying-location macros are
+								// needed.
+								"#if defined(VULKAN)\n"
+								"#define SAMPLER_BINDING(n) layout(set = 1, binding = n)\n"
+								"#define IO_LOCATION(n) layout(location = n)\n"
+								"#else\n"
+								"#define SAMPLER_BINDING(n)\n"
+								"#define IO_LOCATION(n)\n"
+								"#endif\n"
+								"IO_LOCATION(0) out vec4 FragColor;"
+                                "SAMPLER_BINDING(0) uniform sampler2D uTex0;\n"
+                                "IO_LOCATION(0) varying_in vec2 vTexcoord;"
                                 "void main(void) {\n"
                                     "FragColor = texture_2D(uTex0, vTexcoord);\n"
                                 "}\n";

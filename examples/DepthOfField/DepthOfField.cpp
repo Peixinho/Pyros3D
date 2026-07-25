@@ -37,22 +37,44 @@ DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2, con
 				"precision mediump float;\n"
 			#endif
 		#endif
+		// See PostEffects/Effects/SSAOEffect.cpp's identical comment -
+		// Vulkan/SPIR-V needs a static layout(binding=) on every UBO/
+		// sampler and layout(location=) on every varying/output, and
+		// rejects non-opaque uniforms outside a block outright; GL needs
+		// none of this. VULKAN is predefined by shaderc itself for any
+		// Vulkan-target compile. Binding 30 - see IEffect.h's comment on
+		// extraUniformsBinding for why this must be globally distinct
+		// from every other effect's own binding.
+		"#if defined(VULKAN)\n"
+		"#define UBO_BINDING(n) layout(std140, binding = n)\n"
+		"#define SAMPLER_BINDING(n) layout(set = 1, binding = n)\n"
+		"#define IO_LOCATION(n) layout(location = n)\n"
+		"#else\n"
+		"#define UBO_BINDING(n)\n"
+		"#define SAMPLER_BINDING(n)\n"
+		"#define IO_LOCATION(n)\n"
+		"#endif\n"
 		#if defined(GLES2)
 			"vec4 FragColor;"
 		#else
-			"out vec4 FragColor;"
+			"IO_LOCATION(0) out vec4 FragColor;"
 		#endif
 		"float DecodeNativeDepth(float native_z, vec4 z_info_local)\n"
 		"{\n"
 		"return z_info_local.z / (native_z * z_info_local.w + z_info_local.y);\n"
 		"}\n"
-		"uniform sampler2D uTex0; // lower res blur\n"
-		"uniform sampler2D uTex1; // medium res blur\n"
-		"uniform sampler2D uTex2; // high res\n"
-		"uniform sampler2D uTex3; // depth\n"
-		"uniform float uFocalPosition, uFocalRange, uRatioL, uRatioH;\n"
-		"uniform vec2 uNearFar;\n"
-		"varying_in vec2 vTexcoord;\n"
+		"SAMPLER_BINDING(0) uniform sampler2D uTex0; // lower res blur\n"
+		"SAMPLER_BINDING(1) uniform sampler2D uTex1; // medium res blur\n"
+		"SAMPLER_BINDING(2) uniform sampler2D uTex2; // high res\n"
+		"SAMPLER_BINDING(3) uniform sampler2D uTex3; // depth\n"
+		"UBO_BINDING(30) uniform DepthOfFieldParams {\n"
+		"	vec2 uNearFar;\n"
+		"	float uFocalPosition;\n"
+		"	float uFocalRange;\n"
+		"	float uRatioL;\n"
+		"	float uRatioH;\n"
+		"};\n"
+		"IO_LOCATION(0) varying_in vec2 vTexcoord;\n"
 		"void main() {\n"
 			"float ratioL = uRatioL;\n"
 			"float ratioH = uRatioH;\n"
@@ -86,6 +108,19 @@ DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2, con
 	AddUniform(Uniform("uFocalRange", Uniforms::DataType::Float, &fRange));
 	AddUniform(Uniform("uRatioL", Uniforms::DataType::Float, &rL));
 	AddUniform(Uniform("uRatioH", Uniforms::DataType::Float, &rH));
+
+	// See SSAOEffect.cpp's comment on extraUniformsBinding - matches the
+	// DepthOfFieldParams block declared in FragmentShaderString above
+	// (std140: vec2 uNearFar at 0, then 4 floats packed at 4-byte
+	// alignment starting at 8).
+	extraUniformsBinding = 30;
+	extraUniformsSize = 24;
+	extraUniformsScratch.resize(extraUniformsSize, 0);
+	extraUniformOffsets["uNearFar"] = 0;
+	extraUniformOffsets["uFocalPosition"] = 8;
+	extraUniformOffsets["uFocalRange"] = 12;
+	extraUniformOffsets["uRatioL"] = 16;
+	extraUniformOffsets["uRatioH"] = 20;
 }
 
 DepthOfField::DepthOfField() : BaseExample(1024, 768, "Pyros3D - Depth Of Field", WindowType::Close | WindowType::Resize) {}

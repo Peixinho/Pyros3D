@@ -22,6 +22,19 @@ namespace p3d {
 		//texResHandle = AddUniform(Uniform("uTexResolution", Uniforms::DataType::Vec2, &res));
 		velHandle = AddUniform(Uniform("uVelocityScale", Uniforms::DataType::Float, &vel));
 
+		// See SSAOEffect.cpp's comment on extraUniformsBinding - matches
+		// the MotionBlurParams block declared in FragmentShaderString
+		// below (vec2 then float packs tight, std140 align 8 then 4).
+		// uTexResolution is never actually AddUniform()'d (see the
+		// commented-out line above - a pre-existing gap on GL too, not
+		// something this fix changes), so it just stays 0 in the UBO,
+		// matching current GL behavior exactly.
+		extraUniformsBinding = 26;
+		extraUniformsSize = 16;
+		extraUniformsScratch.resize(extraUniformsSize, 0);
+		extraUniformOffsets["uTexResolution"] = 0;
+		extraUniformOffsets["uVelocityScale"] = 8;
+
 		VertexShaderString =
 									"#define varying_in in\n"
 									"#define varying_out out\n"
@@ -33,8 +46,11 @@ namespace p3d {
 									#endif
 									"#if defined(VULKAN)\n"
 									"#define gl_VertexID gl_VertexIndex\n"
+									"#define IO_LOCATION(n) layout(location = n)\n"
+									"#else\n"
+									"#define IO_LOCATION(n)\n"
 									"#endif\n"
-								"varying_out vec2 vTexcoord;\n"
+								"IO_LOCATION(0) varying_out vec2 vTexcoord;\n"
 								"void main() {\n"
 									"gl_Position = vec4(-1.0 + vec2((gl_VertexID & 1) << 2, (gl_VertexID & 2) << 1), 0.0, 1.0);\n"
 									"vTexcoord = (gl_Position.xy+1.0)*0.5;\n"
@@ -51,12 +67,24 @@ namespace p3d {
 									#if defined(GLES3)
 										"precision mediump float;\n"
 									#endif
-									"out vec4 FragColor;\n"
-								"varying_in vec2 vTexcoord;\n"
-								"uniform sampler2D uTex0;\n"
-								"uniform sampler2D uTex1;\n"
-								"uniform vec2 uTexResolution;\n"
-								"uniform float uVelocityScale;\n"
+									// See SSAOEffect.cpp's identical comment.
+									"#if defined(VULKAN)\n"
+									"#define UBO_BINDING(n) layout(std140, binding = n)\n"
+									"#define SAMPLER_BINDING(n) layout(set = 1, binding = n)\n"
+									"#define IO_LOCATION(n) layout(location = n)\n"
+									"#else\n"
+									"#define UBO_BINDING(n)\n"
+									"#define SAMPLER_BINDING(n)\n"
+									"#define IO_LOCATION(n)\n"
+									"#endif\n"
+									"IO_LOCATION(0) out vec4 FragColor;\n"
+								"IO_LOCATION(0) varying_in vec2 vTexcoord;\n"
+								"SAMPLER_BINDING(0) uniform sampler2D uTex0;\n"
+								"SAMPLER_BINDING(1) uniform sampler2D uTex1;\n"
+								"UBO_BINDING(26) uniform MotionBlurParams {\n"
+								"	vec2 uTexResolution;\n"
+								"	float uVelocityScale;\n"
+								"};\n"
 								"void main() {\n"
 									"vec2 texelSize = 1.0 / vec2(textureSize(uTex0, 0));\n"
 									"vec2 screenTexCoords = gl_FragCoord.xy * texelSize;\n"
