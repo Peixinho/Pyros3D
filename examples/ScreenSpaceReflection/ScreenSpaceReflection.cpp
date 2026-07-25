@@ -35,14 +35,25 @@ SSRFinalEffect::SSRFinalEffect(uint32 texture1, uint32 texture2, const uint32 Wi
 										"precision mediump float;\n"
 									#endif
 								#endif
+								// See SSAOEffect.cpp's identical comment -
+								// no non-sampler uniforms here, so only the
+								// sampler/varying-location macros are
+								// needed.
+								"#if defined(VULKAN)\n"
+								"#define SAMPLER_BINDING(n) layout(set = 1, binding = n)\n"
+								"#define IO_LOCATION(n) layout(location = n)\n"
+								"#else\n"
+								"#define SAMPLER_BINDING(n)\n"
+								"#define IO_LOCATION(n)\n"
+								"#endif\n"
 								#if defined(GLES2)
 									"vec4 FragColor;\n"
 								#else
-									"out vec4 FragColor;\n"
+									"IO_LOCATION(0) out vec4 FragColor;\n"
 								#endif
-								"uniform sampler2D uTex0;\n"
-								"uniform sampler2D uTex1;\n"
-								"varying_in vec2 vTexcoord;\n"
+								"SAMPLER_BINDING(0) uniform sampler2D uTex0;\n"
+								"SAMPLER_BINDING(1) uniform sampler2D uTex1;\n"
+								"IO_LOCATION(0) varying_in vec2 vTexcoord;\n"
 								"void main() {\n"
 								"	vec4 color = texture_2D(uTex0, vTexcoord);\n"
 								"	vec4 ssr = texture_2D(uTex1, vTexcoord);\n"

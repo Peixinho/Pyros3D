@@ -35,17 +35,37 @@ namespace p3d {
 								#if defined(GLES3)
 									"precision mediump float;\n"
 								#endif
-									"out vec4 FragColor;\n"
-								"uniform sampler2D uTex0;\n"
-								"uniform sampler2D uTex1;\n"
-								"uniform vec2 uNearFar;\n"
-								"uniform vec2 uScreen;\n"
-								"uniform mat4 matProj;\n"
-								"uniform mat4 uInverseView;\n"
-								"uniform int uMaxSteps;\n"
-								"uniform float uMaxDistance;\n"
-								"uniform float uReflectionStrength;\n"
-								"varying_in vec2 vTexcoord;\n"
+								// See SSAOEffect.cpp's identical comment -
+								// Vulkan/SPIR-V needs UBO_BINDING/
+								// SAMPLER_BINDING/IO_LOCATION on everything
+								// non-local; GL needs none of it. Binding 31
+								// - see IEffect.h's comment on
+								// extraUniformsBinding for why this must be
+								// globally distinct (24-30 already taken by
+								// SSAOEffect/BlurSSAOEffect/MotionBlurEffect/
+								// BlurXEffect/BlurYEffect/DepthOfFieldEffect).
+								"#if defined(VULKAN)\n"
+								"#define UBO_BINDING(n) layout(std140, binding = n)\n"
+								"#define SAMPLER_BINDING(n) layout(set = 1, binding = n)\n"
+								"#define IO_LOCATION(n) layout(location = n)\n"
+								"#else\n"
+								"#define UBO_BINDING(n)\n"
+								"#define SAMPLER_BINDING(n)\n"
+								"#define IO_LOCATION(n)\n"
+								"#endif\n"
+									"IO_LOCATION(0) out vec4 FragColor;\n"
+								"SAMPLER_BINDING(0) uniform sampler2D uTex0;\n"
+								"SAMPLER_BINDING(1) uniform sampler2D uTex1;\n"
+								"UBO_BINDING(31) uniform SSRParams {\n"
+								"	vec2 uNearFar;\n"
+								"	vec2 uScreen;\n"
+								"	mat4 matProj;\n"
+								"	mat4 uInverseView;\n"
+								"	int uMaxSteps;\n"
+								"	float uMaxDistance;\n"
+								"	float uReflectionStrength;\n"
+								"};\n"
+								"IO_LOCATION(0) varying_in vec2 vTexcoord;\n"
 								"\n"
 								"// Depth reconstruction functions\n"
 								"float DecodeLinearDepth(float z, vec4 z_info_local)\n"
@@ -183,6 +203,22 @@ namespace p3d {
 		if (uMaxStepsUniform) uMaxStepsUniform->SetValue(&maxSteps);
 		if (uMaxDistanceUniform) uMaxDistanceUniform->SetValue(&maxDistance);
 		if (uReflectionStrengthUniform) uReflectionStrengthUniform->SetValue(&reflectionStrength);
+
+		// See SSAOEffect.cpp's comment on extraUniformsBinding - matches
+		// the SSRParams block declared in FragmentShaderString above
+		// exactly (std140: vec2/vec2 pack tight at 0/8, each mat4 rounds
+		// up to the next 16-byte boundary and occupies 64 bytes, then the
+		// int/float/float run packs tight at 4-byte alignment).
+		extraUniformsBinding = 31;
+		extraUniformsSize = 160;
+		extraUniformsScratch.resize(extraUniformsSize, 0);
+		extraUniformOffsets["uNearFar"] = 0;
+		extraUniformOffsets["uScreen"] = 8;
+		extraUniformOffsets["matProj"] = 16;
+		extraUniformOffsets["uInverseView"] = 80;
+		extraUniformOffsets["uMaxSteps"] = 144;
+		extraUniformOffsets["uMaxDistance"] = 148;
+		extraUniformOffsets["uReflectionStrength"] = 152;
 	}
 
 	ScreenSpaceReflectionEffect::~ScreenSpaceReflectionEffect()
