@@ -151,6 +151,20 @@ namespace p3d {
 		void SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material);
 		void SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material);
 		void SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material);
+		// See IMaterial.h's comment on extraUniformsBinding - a material
+		// opting into this (any CustomShaderMaterial whose shader wraps its
+		// own loose uniforms in a UBO, e.g. DeferredRenderer's second-pass
+		// lighting materials) gets its current uniform values packed into
+		// extraUniformsScratch and uploaded here, once per RenderObject()
+		// call. No-op for every other material (extraUniformsBinding stays
+		// 0 by default).
+		void SendExtraUniforms(RenderingMesh* rmesh, IMaterial* Material);
+		// Helper for SendExtraUniforms() - resolves one Uniform's current
+		// value (the same per-DataUsage sources SendGlobalUniforms()/
+		// SendModelUniforms() use, plus the generic Uniform::Value path)
+		// and copies it into Material->extraUniformsScratch if its name is
+		// registered in Material->extraUniformOffsets.
+		void CaptureExtraUniform(IMaterial* Material, const Uniform &u);
 
 		void StartClippingPlanes();
 		void EndClippingPlanes();

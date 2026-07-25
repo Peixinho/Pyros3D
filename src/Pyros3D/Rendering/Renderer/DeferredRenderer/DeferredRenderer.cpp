@@ -35,9 +35,36 @@ namespace p3d {
 		colorTexture = new Texture(); colorTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height);
 		colorTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
+		// See DeferredRenderer.h's comment on forwardDepthTexture - a real
+		// copy of fbo's depth attachment, refreshed every frame in
+		// RenderScene(), used as lastPassFBO's depth attachment instead
+		// of directly aliasing fbo's own depth texture.
+		forwardDepthTexture = new Texture();
+		forwardDepthTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height, false);
+		forwardDepthTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
 		lastPassFBO = new FrameBuffer();
 		lastPassFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, colorTexture);
-		lastPassFBO->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, fbo->GetAttachments()[0]->TexturePTR);
+		lastPassFBO->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, forwardDepthTexture);
+
+		// See DeferredRenderer.h's comment on dummyShadow2D/dummyShadowCube.
+		// Same creation pattern DirectionalLight/PointLight's own real
+		// EnableCastShadows() uses, just tiny (contents never sampled).
+		dummyShadow2D = new Texture();
+		dummyShadow2D->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, 4, 4, false);
+		dummyShadow2D->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
+		dummyShadow2D->EnableCompareMode();
+
+		dummyShadowCube = new Texture();
+		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapNegative_X, TextureDataType::DepthComponent, 4, 4, false);
+		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapNegative_Y, TextureDataType::DepthComponent, 4, 4, false);
+		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapNegative_Z, TextureDataType::DepthComponent, 4, 4, false);
+		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapPositive_X, TextureDataType::DepthComponent, 4, 4, false);
+		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapPositive_Y, TextureDataType::DepthComponent, 4, 4, false);
+		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapPositive_Z, TextureDataType::DepthComponent, 4, 4, false);
+		dummyShadowCube->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		dummyShadowCube->EnableCompareMode();
+		dummyShadowsWarmedUp = false;
 
 
 		// Default View Port Init Values
@@ -56,6 +83,14 @@ namespace p3d {
 		uint32 colorID = 0;
 		deferredLastPass->AddUniform(Uniform("tColor", Uniforms::DataType::Int, &colorID));
 		deferredLastPass->AddUniform(Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
+
+		// See IMaterial.h's comment on extraUniforms[2] - matches the
+		// LastPassFragParams block declared in shaders/lastPass.glsl exactly.
+		deferredLastPass->extraUniforms[0].binding = 37;
+		deferredLastPass->extraUniforms[0].blockName = "LastPassFragParams";
+		deferredLastPass->extraUniforms[0].size = 8;
+		deferredLastPass->extraUniforms[0].scratch.resize(deferredLastPass->extraUniforms[0].size, 0);
+		deferredLastPass->extraUniforms[0].offsets["uScreenDimensions"] = 0;
 
 		uint32 texID = 0;
 		deferredMaterialAmbient->AddUniform(Uniform("tDepth", Uniforms::DataType::Int, &texID));
@@ -80,6 +115,19 @@ namespace p3d {
 
 		deferredMaterialAmbient->AddUniform(Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
 		deferredMaterialAmbient->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
+
+		// See IMaterial.h's comment on extraUniforms[2] - matches the
+		// AmbientFragParams block declared in shaders/secondpassAmbient.glsl
+		// exactly. uMatProj registered above is never actually declared in
+		// that shader (a pre-existing, harmless dead registration - GL's
+		// glGetUniformLocation() already silently no-ops it), so it has no
+		// entry here either.
+		deferredMaterialAmbient->extraUniforms[0].binding = 27;
+		deferredMaterialAmbient->extraUniforms[0].blockName = "AmbientFragParams";
+		deferredMaterialAmbient->extraUniforms[0].size = 8;
+		deferredMaterialAmbient->extraUniforms[0].scratch.resize(deferredMaterialAmbient->extraUniforms[0].size, 0);
+		deferredMaterialAmbient->extraUniforms[0].offsets["uScreenDimensions"] = 0;
+
 		deferredMaterialAmbient->DisableDepthTest();
 		deferredMaterialAmbient->DisableDepthWrite();
 		deferredMaterialAmbient->EnableBlending();
@@ -96,6 +144,26 @@ namespace p3d {
 		dirHaveShadowHandle = deferredMaterialDirectional->AddUniform(Uniform("uHaveShadowmap", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		deferredMaterialDirectional->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
 		deferredMaterialDirectional->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
+
+		// See IMaterial.h's comment on extraUniforms[2] - matches the
+		// DirectionalFragParams block declared in
+		// shaders/secondpassDirectional.glsl exactly, std140 offsets
+		// computed by hand (vec2/vec3/vec4/vec2 pack per their own
+		// alignment, each mat4 rounds up to the next 16-byte boundary).
+		deferredMaterialDirectional->extraUniforms[0].binding = 32;
+		deferredMaterialDirectional->extraUniforms[0].blockName = "DirectionalFragParams";
+		deferredMaterialDirectional->extraUniforms[0].size = 420;
+		deferredMaterialDirectional->extraUniforms[0].scratch.resize(deferredMaterialDirectional->extraUniforms[0].size, 0);
+		deferredMaterialDirectional->extraUniforms[0].offsets["uScreenDimensions"] = 0;
+		deferredMaterialDirectional->extraUniforms[0].offsets["uLightDirection"] = 16;
+		deferredMaterialDirectional->extraUniforms[0].offsets["uLightColor"] = 32;
+		deferredMaterialDirectional->extraUniforms[0].offsets["uNearFar"] = 48;
+		deferredMaterialDirectional->extraUniforms[0].offsets["uMatProj"] = 64;
+		deferredMaterialDirectional->extraUniforms[0].offsets["uPCFTexelSize"] = 128;
+		deferredMaterialDirectional->extraUniforms[0].offsets["uDirectionalDepthsMVP"] = 144;
+		deferredMaterialDirectional->extraUniforms[0].offsets["uDirectionalShadowFar"] = 400;
+		deferredMaterialDirectional->extraUniforms[0].offsets["uHaveShadowmap"] = 416;
+
 		deferredMaterialDirectional->DisableDepthTest();
 		deferredMaterialDirectional->DisableDepthWrite();
 		deferredMaterialDirectional->EnableBlending();
@@ -114,6 +182,33 @@ namespace p3d {
 		deferredMaterialPoint->AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
 		deferredMaterialPoint->AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
 		deferredMaterialPoint->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
+
+		// See IMaterial.h's comment on extraUniforms[2] - two separate
+		// blocks matching secondpassPoint.glsl's PointVertParams (VERTEX
+		// stage, binding 33) and PointFragParams (FRAGMENT stage, binding
+		// 38) exactly - see that file's comment on why it's two blocks,
+		// not one combined block used by both stages.
+		deferredMaterialPoint->extraUniforms[0].binding = 33;
+		deferredMaterialPoint->extraUniforms[0].blockName = "PointVertParams";
+		deferredMaterialPoint->extraUniforms[0].size = 192;
+		deferredMaterialPoint->extraUniforms[0].scratch.resize(deferredMaterialPoint->extraUniforms[0].size, 0);
+		deferredMaterialPoint->extraUniforms[0].offsets["uProjectionMatrix"] = 0;
+		deferredMaterialPoint->extraUniforms[0].offsets["uViewMatrix"] = 64;
+		deferredMaterialPoint->extraUniforms[0].offsets["uModelMatrix"] = 128;
+
+		deferredMaterialPoint->extraUniforms[1].binding = 38;
+		deferredMaterialPoint->extraUniforms[1].blockName = "PointFragParams";
+		deferredMaterialPoint->extraUniforms[1].size = 200;
+		deferredMaterialPoint->extraUniforms[1].scratch.resize(deferredMaterialPoint->extraUniforms[1].size, 0);
+		deferredMaterialPoint->extraUniforms[1].offsets["uScreenDimensions"] = 0;
+		deferredMaterialPoint->extraUniforms[1].offsets["uLightPosition"] = 16;
+		deferredMaterialPoint->extraUniforms[1].offsets["uLightRadius"] = 28;
+		deferredMaterialPoint->extraUniforms[1].offsets["uLightColor"] = 32;
+		deferredMaterialPoint->extraUniforms[1].offsets["uNearFar"] = 48;
+		deferredMaterialPoint->extraUniforms[1].offsets["uPointDepthsMVP"] = 64;
+		deferredMaterialPoint->extraUniforms[1].offsets["uPCFTexelSize"] = 192;
+		deferredMaterialPoint->extraUniforms[1].offsets["uHaveShadowmap"] = 196;
+
 		deferredMaterialPoint->SetCullFace(CullFace::FrontFace);
 		deferredMaterialPoint->DisableDepthTest();
 		deferredMaterialPoint->DisableDepthWrite();
@@ -136,6 +231,45 @@ namespace p3d {
 		deferredMaterialSpot->AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
 		deferredMaterialSpot->AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
 		deferredMaterialSpot->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
+		// Pre-existing bug, found and fixed alongside the attribute_in one
+		// in secondpassSpot.glsl: uMatProj (used for view-space position
+		// reconstruction in getPosViewSpace()) was never registered here,
+		// unlike Ambient/Directional's identical uMatProj registrations
+		// above - meaning it was always read as an all-zero matrix,
+		// dividing by zero in getPosViewSpace()'s uMatProj_local[0][0]/
+		// [1][1]. Broken on GL today too, not introduced by this pass.
+		deferredMaterialSpot->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
+
+		// See IMaterial.h's comment on extraUniforms[2] - two separate
+		// blocks matching secondpassSpot.glsl's SpotVertParams (VERTEX
+		// stage, binding 34) and SpotFragParams (FRAGMENT stage, binding
+		// 39) exactly (see secondpassPoint.glsl's comment on why it's two
+		// blocks, not one combined block used by both stages).
+		deferredMaterialSpot->extraUniforms[0].binding = 34;
+		deferredMaterialSpot->extraUniforms[0].blockName = "SpotVertParams";
+		deferredMaterialSpot->extraUniforms[0].size = 192;
+		deferredMaterialSpot->extraUniforms[0].scratch.resize(deferredMaterialSpot->extraUniforms[0].size, 0);
+		deferredMaterialSpot->extraUniforms[0].offsets["uProjectionMatrix"] = 0;
+		deferredMaterialSpot->extraUniforms[0].offsets["uViewMatrix"] = 64;
+		deferredMaterialSpot->extraUniforms[0].offsets["uModelMatrix"] = 128;
+
+		deferredMaterialSpot->extraUniforms[1].binding = 39;
+		deferredMaterialSpot->extraUniforms[1].blockName = "SpotFragParams";
+		deferredMaterialSpot->extraUniforms[1].size = 232;
+		deferredMaterialSpot->extraUniforms[1].scratch.resize(deferredMaterialSpot->extraUniforms[1].size, 0);
+		deferredMaterialSpot->extraUniforms[1].offsets["uScreenDimensions"] = 0;
+		deferredMaterialSpot->extraUniforms[1].offsets["uLightPosition"] = 16;
+		deferredMaterialSpot->extraUniforms[1].offsets["uLightDirection"] = 32;
+		deferredMaterialSpot->extraUniforms[1].offsets["uLightRadius"] = 44;
+		deferredMaterialSpot->extraUniforms[1].offsets["uOutterCone"] = 48;
+		deferredMaterialSpot->extraUniforms[1].offsets["uInnerCone"] = 52;
+		deferredMaterialSpot->extraUniforms[1].offsets["uLightColor"] = 64;
+		deferredMaterialSpot->extraUniforms[1].offsets["uNearFar"] = 80;
+		deferredMaterialSpot->extraUniforms[1].offsets["uMatProj"] = 96;
+		deferredMaterialSpot->extraUniforms[1].offsets["uSpotDepthsMVP"] = 160;
+		deferredMaterialSpot->extraUniforms[1].offsets["uPCFTexelSize"] = 224;
+		deferredMaterialSpot->extraUniforms[1].offsets["uHaveShadowmap"] = 228;
+
 		deferredMaterialSpot->SetCullFace(CullFace::FrontFace);
 		deferredMaterialSpot->DisableDepthTest();
 		deferredMaterialSpot->DisableDepthWrite();
@@ -162,6 +296,9 @@ namespace p3d {
 	{
 		delete lastPassFBO;
 		delete colorTexture;
+		delete forwardDepthTexture;
+		delete dummyShadow2D;
+		delete dummyShadowCube;
 		delete shadowMaterial;
 		delete shadowSkinnedMaterial;
 		delete sphereHandle;
@@ -177,6 +314,38 @@ namespace p3d {
 
 	void DeferredRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 BufferOptions)
 	{
+
+		// See DeferredRenderer.h's comment on dummyShadowsWarmedUp - a
+		// one-time, contentless render-pass begin/end for each dummy
+		// shadow texture, run inside a real frame (unlike the
+		// constructor) so it leaves them in a real, sampleable layout
+		// before any light ever binds one.
+		if (!dummyShadowsWarmedUp)
+		{
+			FrameBuffer warmup2D;
+			warmup2D.Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, dummyShadow2D);
+			warmup2D.Bind();
+			warmup2D.UnBind();
+
+			// A cube texture is 6 separate layers/subresources - each one
+			// only leaves VK_IMAGE_LAYOUT_UNDEFINED once *its own* face is
+			// attached and rendered into, same as real point-light shadow
+			// rendering's own per-face loop (IRenderer.cpp's
+			// RenderingPointShadowFace block) - a single warm-up FBO
+			// attaching just CubemapPositive_X (face/layer 0) only ever
+			// transitions that one face, found via VUID-vkCmdDraw-None-09600
+			// still firing for layers 1-5 after the single-face version of
+			// this fix.
+			for (uint32 face = 0; face < 6; face++)
+			{
+				FrameBuffer warmupCubeFace;
+				warmupCubeFace.Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::CubemapPositive_X + face, dummyShadowCube);
+				warmupCubeFace.Bind();
+				warmupCubeFace.UnBind();
+			}
+
+			dummyShadowsWarmedUp = true;
+		}
 
 		// Initialize Renderer
 		InitRender();
@@ -268,6 +437,16 @@ namespace p3d {
 		// Unbind FrameBuffer
 		FBO->UnBind();
 
+		// Refresh forwardDepthTexture with this frame's real G-buffer
+		// depth - see DeferredRenderer.h's comment on forwardDepthTexture
+		// for why lastPassFBO can't just alias FBO's depth attachment
+		// directly. Must happen after FBO->UnBind() (source depth values
+		// are only final once the G-buffer pass has finished writing them)
+		// and before lastPassFBO->Bind() (whose lighting materials sample
+		// tDepth from FBO's original depth texture, unaffected by this
+		// copy, while its own attachment set gets forwardDepthTexture).
+		device->CopyDepthTexture(FBO->GetAttachments()[0]->TexturePTR->GetBindID(), forwardDepthTexture->GetBindID(), Width, Height);
+
 		lastPassFBO->Bind();
 		ClearBufferBit(Buffer_Bit::Color);
 		ClearScreen();
@@ -304,7 +483,20 @@ namespace p3d {
 					pointPosHandle->SetValue(&pos);
 					pointRadiusHandle->SetValue((void*)&p->GetLightRadius());
 					pointColorHandle->SetValue((void*)&p->GetLightColor());
-					int shadowUnit = 0;
+					// Pre-existing bug, found and fixed alongside the other
+					// second-pass bugs above: defaulting to unit 0 when the
+					// light doesn't cast a shadow makes uShadowMap (a
+					// samplerCubeShadow) claim the same GL texture unit as
+					// tDepth (a sampler2D, always bound there) - two
+					// different sampler *types* on one unit fails
+					// glValidateProgram's sampler check with
+					// GL_INVALID_OPERATION at the next draw. 4 is the unit
+					// a real shadow bind would land on anyway (right after
+					// the 4 G-buffer attachments bound above) - harmless
+					// when nothing real is bound there since the shader
+					// only ever samples uShadowMap behind `uHaveShadowmap >
+					// 0.0`.
+					int shadowUnit = 4;
 					float haveShadow = 0.f;
 					if (p->IsCastingShadows())
 					{
@@ -318,6 +510,12 @@ namespace p3d {
 						shadowUnit = Texture::GetLastBindedUnit();
 						haveShadow = 1.f;
 					}
+					else
+					{
+						// See DeferredRenderer.h's comment on dummyShadowCube.
+						dummyShadowCube->Bind();
+						shadowUnit = Texture::GetLastBindedUnit();
+					}
 					pointShadowHandle->SetValue(&shadowUnit);
 					pointHaveShadowHandle->SetValue(&haveShadow);
 
@@ -330,6 +528,10 @@ namespace p3d {
 					{
 						p->GetShadowMapTexture()->Unbind();
 						numberPoint++;
+					}
+					else
+					{
+						dummyShadowCube->Unbind();
 					}
 				}
 				break;
@@ -346,7 +548,8 @@ namespace p3d {
 					spotInnerHandle->SetValue((void*)&s->GetLightCosInnerCone());
 					spotColorHandle->SetValue((void*)&s->GetLightColor());
 
-					int shadowUnit = 0;
+					// See the identical fix in the POINT case above.
+					int shadowUnit = 4;
 					float haveShadow = 0.f;
 					if (s->IsCastingShadows())
 					{
@@ -357,6 +560,12 @@ namespace p3d {
 						s->GetShadowMapTexture()->Bind();
 						shadowUnit = Texture::GetLastBindedUnit();
 						haveShadow = 1.f;
+					}
+					else
+					{
+						// See DeferredRenderer.h's comment on dummyShadow2D.
+						dummyShadow2D->Bind();
+						shadowUnit = Texture::GetLastBindedUnit();
 					}
 					spotShadowHandle->SetValue(&shadowUnit);
 					spotHaveShadowHandle->SetValue(&haveShadow);
@@ -372,6 +581,10 @@ namespace p3d {
 						s->GetShadowMapTexture()->Unbind();
 						numberSpot++;
 					}
+					else
+					{
+						dummyShadow2D->Unbind();
+					}
 				}
 				break;
 				case LIGHT_TYPE::DIRECTIONAL:
@@ -381,7 +594,8 @@ namespace p3d {
 					Vec3 dir = (ViewMatrix * (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f))).xyz().normalize();
 					dirDirHandle->SetValue(&dir);
 					dirColorHandle->SetValue((void*)&d->GetLightColor());
-					int shadowUnit = 0;
+					// See the identical fix in the POINT case above.
+					int shadowUnit = 4;
 					float haveShadow = 0.f;
 					if (d->IsCastingShadows())
 					{
@@ -411,6 +625,12 @@ namespace p3d {
 						shadowUnit = Texture::GetLastBindedUnit();
 						haveShadow = 1.f;
 					}
+					else
+					{
+						// See DeferredRenderer.h's comment on dummyShadow2D.
+						dummyShadow2D->Bind();
+						shadowUnit = Texture::GetLastBindedUnit();
+					}
 					dirShadowHandle->SetValue(&shadowUnit);
 					dirHaveShadowHandle->SetValue(&haveShadow);
 
@@ -420,6 +640,10 @@ namespace p3d {
 					{
 						d->GetShadowMapTexture()->Unbind();
 						numberDir++;
+					}
+					else
+					{
+						dummyShadow2D->Unbind();
 					}
 				}
 				break;

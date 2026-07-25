@@ -304,6 +304,7 @@ namespace p3d {
 
 		virtual void SetMultisampleEnabled(const bool enabled);
 		virtual void BlitFramebuffer(const uint32 srcX0, const uint32 srcY0, const uint32 srcX1, const uint32 srcY1, const uint32 dstX0, const uint32 dstY0, const uint32 dstX1, const uint32 dstY1, const uint32 engineMask, const uint32 engineFilter);
+		virtual void CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height);
 
 	private:
 
@@ -804,6 +805,23 @@ namespace p3d {
 			case 20: // BIND_VelocityObjectUniforms
 			case 22: // BIND_MaterialUniforms
 			case 23: // BIND_ObjectLightCounts
+			// DeferredRenderer's second-pass lighting materials (see
+			// IMaterial.h's comment on extraUniforms[2]) - each of these
+			// is rewritten once per light of that light's type within a
+			// single frame (secondpassPoint.glsl/secondpassSpot.glsl draw
+			// once per point/spot light via the same shared material), the
+			// exact same "single shared buffer, multiple writes before
+			// submit" race this list exists to solve. Ambient/LastPass
+			// (27/37) only ever draw once per frame today but are included
+			// for uniformity/future-proofing - dynamic-vs-not is invisible
+			// to anything except CreateUniformBuffer()'s allocation size.
+			case 27: // AmbientFragParams
+			case 32: // DirectionalFragParams
+			case 33: // PointVertParams
+			case 34: // SpotVertParams
+			case 37: // LastPassFragParams
+			case 38: // PointFragParams
+			case 39: // SpotFragParams
 				return true;
 			default:
 				return false;
@@ -1013,6 +1031,35 @@ namespace p3d {
 		// actually bind a texture. currentPipeline (below) is which of
 		// these SendUniformInt() should target.
 		std::map<DeviceHandle, VkDescriptorSet> pipelineSamplerSets;
+
+		// Dirty-check for SendUniformInt()'s sampler-descriptor writes -
+		// keyed by (pipeline, binding), remembers the VkImageView last
+		// written there. Without this, SendUniformInt() called
+		// vkUpdateDescriptorSets() unconditionally on every single
+		// RenderObject() call, even when the texture unit's actual
+		// VkImageView hadn't changed since the previous draw using the
+		// same pipeline - harmless-looking, but a real bug once a scene
+		// draws the *same* (mesh, shader, target) pipeline many times in
+		// one frame with unchanged texture bindings (e.g. DeferredRenderer's
+		// second-pass lighting materials, redrawn once per light of that
+		// type - 100 point lights in DeferredRendering's example scene):
+		// each redundant vkUpdateDescriptorSets() call mutates a
+		// VkDescriptorSet already referenced by the *previous* light's
+		// not-yet-submitted command buffer (this backend submits once per
+		// frame, not per object - see CommandBufferHandle's comment in
+		// IRenderDevice.h), which is exactly what
+		// VUID-vkCmdBindDescriptorSets-commandBuffer-recording and its
+		// cascade of "destroyed or updated without UPDATE_AFTER_BIND"
+		// follow-on errors flag - found via a real validation-layer run
+		// of DeferredRendering, not derived. Skipping genuinely-identical
+		// rewrites is the correct fix for this specific case (same
+		// texture bound every draw) and a strict improvement for the
+		// general case (fewer descriptor writes overall); it does not
+		// solve a *different*-texture-per-draw pattern sharing one
+		// pipeline within a frame, which would need real
+		// UPDATE_AFTER_BIND descriptor-indexing support - not needed by
+		// any current caller.
+		std::map<std::pair<DeviceHandle, uint32>, VkImageView> lastWrittenSamplerView;
 
 		// Real VkImage/VkImageView/VkSampler-backed texture, keyed by the
 		// handle CreateTextureObject() returns. GL's texture API is an

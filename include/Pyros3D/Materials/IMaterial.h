@@ -17,6 +17,8 @@
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Other/Export.h>
 #include <list>
+#include <map>
+#include <vector>
 
 namespace p3d {
 
@@ -33,6 +35,11 @@ namespace p3d {
 
 		friend class IRenderer;
 		friend class ForwardRenderer;
+		// Needs to set extraUniformsBinding/BlockName/Size/Offsets on its
+		// own CustomShaderMaterial instances (secondpass*.glsl/lastPass.glsl)
+		// after construction - same reasoning as IEffect's PostEffectsManager
+		// friendship.
+		friend class DeferredRenderer;
 
 	public:
 
@@ -159,6 +166,39 @@ namespace p3d {
 		// Blending
 		bool blending;
 		uint32 sfactor, dfactor, mode;
+
+		// Vulkan/SPIR-V rejects non-opaque uniforms outside a block outright
+		// (see PyrosShader.glsl's header comment, and IEffect.h's identical
+		// mechanism for post-effects). CustomShaderMaterial subclasses whose
+		// shader wraps its own loose uniforms in a UBO block set one of
+		// these (after the block's layout is decided - see
+		// DeferredRenderer.cpp's constructor for the reference usage) so
+		// IRenderer::SendExtraUniforms() can fill+upload it generically.
+		// Two slots, not one: a shader whose loose uniforms are split
+		// across both VERTEX and FRAGMENT stages needs two separate blocks/
+		// bindings (secondpassPoint.glsl/secondpassSpot.glsl - one real GPU
+		// uniform-buffer binding per stage; empirically, declaring a single
+		// block referenced from both stages of one program triggered a real
+		// GL_INVALID_OPERATION at draw time on this machine's Metal-backed
+		// GL driver - not just a style preference). A material needing only
+		// one stage's worth (every other CustomShaderMaterial so far) just
+		// leaves slot [1] at its default (binding 0 = unused).
+		struct ExtraUniformsBlock
+		{
+			// Binding 0 (the default) means "not in use" - every material
+			// not opting into this slot is unaffected. Binding must be a
+			// value no other UBO anywhere in the engine uses - see
+			// VulkanRenderDevice::CreateUniformBuffer()'s comment (a
+			// *global* registry, not per-program).
+			uint32 binding;
+			std::string blockName;
+			uint32 size;
+			uint32 bufferHandle;
+			std::vector<uchar> scratch;
+			std::map<std::string, uint32> offsets;
+			ExtraUniformsBlock() : binding(0), size(0), bufferHandle(0) {}
+		};
+		ExtraUniformsBlock extraUniforms[2];
 
 	private:
 

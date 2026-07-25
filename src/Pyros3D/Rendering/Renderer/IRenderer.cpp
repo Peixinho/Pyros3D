@@ -967,6 +967,11 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 	// Send Model Specific Uniforms
 	SendModelUniforms(rmesh, Material);
 
+	// Send Extra (UBO-wrapped) Uniforms - see IMaterial.h's comment on
+	// extraUniformsBinding. No-op for every material except the ones that
+	// opt in (DeferredRenderer's second-pass lighting materials).
+	SendExtraUniforms(rmesh, Material);
+
 	// Depth Write
 	if (Material->IsDepthWritting() != depthWritting)
 	{
@@ -1823,6 +1828,72 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			}
 		}
 		counter++;
+	}
+}
+
+void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u)
+{
+	Vec2 screenDimensions((f32)Width, (f32)Height);
+
+	const void* valuePtr = NULL;
+	uint32 valueSize = 0;
+	switch (u.Usage)
+	{
+	case Uniforms::DataUsage::ViewMatrix:
+		valuePtr = &ViewMatrix; valueSize = sizeof(Matrix);
+		break;
+	case Uniforms::DataUsage::ProjectionMatrix:
+		valuePtr = &ProjectionMatrix; valueSize = sizeof(Matrix);
+		break;
+	case Uniforms::DataUsage::NearFarPlane:
+		valuePtr = &NearFarPlane; valueSize = sizeof(NearFarPlane);
+		break;
+	case Uniforms::DataUsage::ScreenDimensions:
+		valuePtr = &screenDimensions; valueSize = sizeof(screenDimensions);
+		break;
+	case Uniforms::DataUsage::ModelMatrix:
+		valuePtr = &ModelMatrix; valueSize = sizeof(Matrix);
+		break;
+	default:
+		valuePtr = u.Value.empty() ? NULL : &u.Value[0];
+		valueSize = (uint32)u.Value.size();
+		break;
+	}
+	if (valuePtr == NULL)
+		return;
+
+	for (int i = 0; i < 2; i++)
+	{
+		IMaterial::ExtraUniformsBlock &block = Material->extraUniforms[i];
+		if (block.binding == 0)
+			continue;
+		std::map<std::string, uint32>::const_iterator offIt = block.offsets.find(u.Name);
+		if (offIt != block.offsets.end() && offIt->second + valueSize <= block.scratch.size())
+			memcpy(&block.scratch[offIt->second], valuePtr, valueSize);
+	}
+}
+
+void IRenderer::SendExtraUniforms(RenderingMesh* rmesh, IMaterial* Material)
+{
+	if (Material->extraUniforms[0].binding == 0 && Material->extraUniforms[1].binding == 0)
+		return;
+
+	for (std::list<Uniform>::const_iterator k = Material->GlobalUniforms.begin(); k != Material->GlobalUniforms.end(); k++)
+		CaptureExtraUniform(Material, *k);
+	for (std::list<Uniform>::const_iterator k = Material->UserUniforms.begin(); k != Material->UserUniforms.end(); k++)
+		CaptureExtraUniform(Material, *k);
+	for (std::list<Uniform>::const_iterator k = Material->ModelUniforms.begin(); k != Material->ModelUniforms.end(); k++)
+		CaptureExtraUniform(Material, *k);
+
+	for (int i = 0; i < 2; i++)
+	{
+		IMaterial::ExtraUniformsBlock &block = Material->extraUniforms[i];
+		if (block.binding == 0)
+			continue;
+		if (block.bufferHandle == 0)
+			block.bufferHandle = device->CreateUniformBuffer(block.size, block.binding);
+		device->BindUniformBlockIfPresent(Material->GetShader(), block.blockName, block.binding);
+		device->ReplaceUniformBuffer(block.bufferHandle, block.size, &block.scratch[0]);
 	}
 }
 

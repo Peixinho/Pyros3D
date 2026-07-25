@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Materials/IMaterial.h>
+#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 
 namespace p3d {
 
@@ -44,7 +45,12 @@ namespace p3d {
 	{
 		this->cullFace = face;
 	}
-	IMaterial::~IMaterial() {}
+	IMaterial::~IMaterial()
+	{
+		for (int i = 0; i < 2; i++)
+			if (extraUniforms[i].bufferHandle != 0)
+				GetActiveRenderDevice().DestroyUniformBuffer(extraUniforms[i].bufferHandle);
+	}
 
 	void IMaterial::SetTransparencyFlag(bool transparency)
 	{

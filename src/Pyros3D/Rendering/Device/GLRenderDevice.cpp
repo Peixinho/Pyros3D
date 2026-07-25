@@ -1503,4 +1503,33 @@ namespace p3d {
 		GLCHECKER(glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, Mask, Filter));
 	}
 
+	void GLRenderDevice::CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height)
+	{
+		// See IRenderDevice.h's comment on CopyDepthTexture - GL doesn't
+		// actually need this (aliasing one depth texture across two FBOs
+		// is fine here), but the interface is shared, so this still has
+		// to do a real copy for whichever caller (DeferredRenderer)
+		// expects `dstTexture` to hold `srcTexture`'s current contents
+		// afterward. A throwaway read/draw FBO pair + glBlitFramebuffer,
+		// torn down immediately - correctness over performance, matches
+		// GLRenderDevice's existing bar for infrequent (once-per-frame,
+		// not once-per-object) operations.
+		GLuint fbos[2] = { 0, 0 };
+		GLCHECKER(glGenFramebuffers(2, fbos));
+		GLint prevReadFBO = 0, prevDrawFBO = 0;
+		GLCHECKER(glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevReadFBO));
+		GLCHECKER(glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDrawFBO));
+
+		GLCHECKER(glBindFramebuffer(GL_READ_FRAMEBUFFER, fbos[0]));
+		GLCHECKER(glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, (GLuint)srcTexture, 0));
+		GLCHECKER(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbos[1]));
+		GLCHECKER(glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, (GLuint)dstTexture, 0));
+
+		GLCHECKER(glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_DEPTH_BUFFER_BIT, GL_NEAREST));
+
+		GLCHECKER(glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevReadFBO));
+		GLCHECKER(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)prevDrawFBO));
+		GLCHECKER(glDeleteFramebuffers(2, fbos));
+	}
+
 };

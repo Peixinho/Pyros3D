@@ -644,6 +644,26 @@ namespace p3d {
 		virtual void SetMultisampleEnabled(const bool enabled) = 0;
 		virtual void BlitFramebuffer(const uint32 srcX0, const uint32 srcY0, const uint32 srcX1, const uint32 srcY1, const uint32 dstX0, const uint32 dstY0, const uint32 dstX1, const uint32 dstY1, const uint32 engineMask, const uint32 engineFilter) = 0;
 
+		// Copies a depth texture's contents into another same-size depth
+		// texture. Exists for DeferredRenderer's benefit: its lighting
+		// pass needs to *sample* the G-buffer's depth as a plain texture
+		// (tDepth) while its later forward sub-pass (transparent objects
+		// drawn after the lighting composite) needs a *real depth
+		// attachment* with matching values for correct occlusion -
+		// aliasing the exact same texture for both roles works fine on GL
+		// (no attachment/sampled-image layout distinction), but Vulkan
+		// forbids one image being both a render pass's active depth
+		// attachment and a shader-sampled input at the same time - found
+		// via VUID-vkCmdDrawIndexed-imageLayout-00344 on a real
+		// DeferredRendering validation-layer run. A real copy (not an
+		// alias) sidesteps the conflict on the backend that actually has
+		// it; both `src`/`dst` are DeviceHandles as returned by
+		// CreateTextureObject(). GL implements it via a throwaway
+		// blit-FBO pair (correctness over performance, matches this
+		// codebase's existing bar for a first implementation of a rarely-
+		// called operation - once per frame, not once per object).
+		virtual void CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height) = 0;
+
 	};
 
 	// Texture/FrameBuffer/GeometryBuffer/Shader/RenderingComponent (the

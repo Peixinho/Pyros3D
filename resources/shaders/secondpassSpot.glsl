@@ -6,11 +6,37 @@
 #if defined(GLES3)
 	precision mediump float;
 #endif
+// See secondpassPoint.glsl's identical comment on the two-UBO split (a
+// combined block used by both stages triggers a real driver bug here).
+// Bindings 34/39 - see IMaterial.h's comment on extraUniforms[2].
+#if defined(VULKAN)
+#define UBO_BINDING(n) layout(std140, binding = n)
+#define SAMPLER_BINDING(n) layout(set = 1, binding = n)
+#define IO_LOCATION(n) layout(location = n)
+#else
+#define UBO_BINDING(n)
+#define SAMPLER_BINDING(n)
+#define IO_LOCATION(n)
+#endif
 
 #ifdef VERTEX
-attribute_in vec3 aPosition, aNormal;
-attribute_in vec2 aTexcoord;
-attribute_in mat4 uProjectionMatrix, uViewMatrix, uModelMatrix;
+IO_LOCATION(0) attribute_in vec3 aPosition;
+IO_LOCATION(1) attribute_in vec3 aNormal;
+IO_LOCATION(2) attribute_in vec2 aTexcoord;
+// Was previously declared `attribute_in mat4 uProjectionMatrix, ...` - a
+// pre-existing bug (predates this Vulkan pass, confirmed against
+// DeferredRenderer.cpp's own registration of these as real per-frame/
+// per-object *uniforms*, not a mesh vertex attribute this pass's
+// light-volume geometry never provides): as vertex attributes with no
+// matching buffer data, GL silently reads the generic-attribute default
+// (an all-zero matrix), collapsing every spot light's geometry to the
+// origin. Fixed to a real UBO here, matching secondpassPoint.glsl's
+// otherwise-identical vertex shader.
+UBO_BINDING(34) uniform SpotVertParams {
+	mat4 uProjectionMatrix;
+	mat4 uViewMatrix;
+	mat4 uModelMatrix;
+};
 void main() {
 	gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aPosition,1.0);
 }
@@ -27,7 +53,9 @@ float PCFSPOT(sampler2DShadow shadowMap, mat4 sMatrix, float scale, vec4 pos)
 	float y = 0.0;
 	for (y = -1.5 ; y <=1.5 ; y+=1.0)
 		for (x = -1.5 ; x <=1.5 ; x+=1.0)
-			shadow += texture(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
+			// See secondpassDirectional.glsl's comment on the pre-existing
+			// scalar-swizzle bug - fixed here too.
+			shadow += texture(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0)));
 	shadow /= 16.0;
 	return shadow;
 }
@@ -54,27 +82,29 @@ vec4 diffuse = vec4(0.0,0.0,0.0,1.0);
 vec4 specular = vec4(0.0,0.0,0.0,1.0);
 bool diffuseIsSet = false;
 
-uniform sampler2D tDiffuse;
-uniform sampler2D tSpecular;
-uniform sampler2D tDepth;
-uniform sampler2D tNormal;
-uniform vec2 uScreenDimensions;
-uniform vec3 uLightPosition;
-uniform vec3 uLightDirection;
-uniform float uLightRadius;
-uniform float uOutterCone;
-uniform float uInnerCone;
-uniform vec4 uLightColor;
-uniform vec2 uNearFar;
-uniform mat4 uMatProj;
+SAMPLER_BINDING(0) uniform sampler2D tDiffuse;
+SAMPLER_BINDING(1) uniform sampler2D tSpecular;
+SAMPLER_BINDING(2) uniform sampler2D tDepth;
+SAMPLER_BINDING(3) uniform sampler2D tNormal;
+UBO_BINDING(39) uniform SpotFragParams {
+	vec2 uScreenDimensions;
+	vec3 uLightPosition;
+	vec3 uLightDirection;
+	float uLightRadius;
+	float uOutterCone;
+	float uInnerCone;
+	vec4 uLightColor;
+	vec2 uNearFar;
+	mat4 uMatProj;
+	mat4 uSpotDepthsMVP;
+	float uPCFTexelSize;
+	float uHaveShadowmap;
+};
 
-uniform mat4 uSpotDepthsMVP;
-uniform sampler2DShadow uShadowMap;
-uniform float uPCFTexelSize;
-uniform float uHaveShadowmap;
+SAMPLER_BINDING(4) uniform sampler2DShadow uShadowMap;
 
 // Fragment Color
-out vec4 FragColor;
+IO_LOCATION(0) out vec4 FragColor;
 
 // Reconstruct Positions and Normals
 float DecodeLinearDepth(float z, vec4 z_info_local)

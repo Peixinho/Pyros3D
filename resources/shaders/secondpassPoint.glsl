@@ -6,12 +6,40 @@
 #if defined(GLES3)
 	precision mediump float;
 #endif
+// See secondpassAmbient.glsl's identical comment. Two separate UBOs here
+// (not one combined block referenced from both stages) - empirically,
+// declaring a single uniform block used in both the VERTEX and FRAGMENT
+// compilation units of one program triggered a real GL_INVALID_OPERATION
+// at glDrawElements() time on this machine's Metal-backed GL driver (not
+// just a style preference - confirmed via lldb backtrace pointing straight
+// at this shader's draw call, gone once split back into two bindings).
+// uProjectionMatrix/uViewMatrix/uModelMatrix are only read in VERTEX, the
+// rest only in FRAGMENT - matches PyrosShader.glsl's own "declared in
+// exactly one shader stage" discipline. Bindings 33/38 - see IMaterial.h's
+// comment on extraUniforms[2]/ExtraUniformsBlock::binding for why these
+// must all be globally distinct.
+#if defined(VULKAN)
+#define UBO_BINDING(n) layout(std140, binding = n)
+#define SAMPLER_BINDING(n) layout(set = 1, binding = n)
+#define IO_LOCATION(n) layout(location = n)
+#else
+#define UBO_BINDING(n)
+#define SAMPLER_BINDING(n)
+#define IO_LOCATION(n)
+#endif
 
 #ifdef VERTEX
-attribute_in vec3 aPosition, aNormal;
-attribute_in vec2 aTexcoord;
-uniform mat4 uProjectionMatrix, uViewMatrix, uModelMatrix;
-varying_out mat4 vProjectionMatrix;
+IO_LOCATION(0) attribute_in vec3 aPosition;
+IO_LOCATION(1) attribute_in vec3 aNormal;
+IO_LOCATION(2) attribute_in vec2 aTexcoord;
+UBO_BINDING(33) uniform PointVertParams {
+	mat4 uProjectionMatrix;
+	mat4 uViewMatrix;
+	mat4 uModelMatrix;
+};
+// A varying mat4 occupies 4 consecutive locations (one per column), same
+// as a vertex-attribute matrix elsewhere in this engine - locations 0-3.
+IO_LOCATION(0) varying_out mat4 vProjectionMatrix;
 void main() {
 	gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aPosition,1.0);
 	vProjectionMatrix = uProjectionMatrix;
@@ -34,7 +62,9 @@ float PCFPOINT(samplerCubeShadow shadowMap, mat4 Matrix1, mat4 Matrix2, float sc
 
 	for (y = -1.5 ; y <=1.5 ; y+=1.0)
 		for (x = -1.5 ; x <=1.5 ; x+=1.0)
-			shadow += texture(shadowMap, vec4(position_ls.xyz, depth - scale*5.0) + vec4(vec2(x,y) * scale,0.0,0.0)).x;
+			// See secondpassDirectional.glsl's comment on the pre-existing
+			// scalar-swizzle bug - fixed here too.
+			shadow += texture(shadowMap, vec4(position_ls.xyz, depth - scale*5.0) + vec4(vec2(x,y) * scale,0.0,0.0));
 	shadow /= 16.0;
 	return shadow;
 }
@@ -48,24 +78,26 @@ vec4 diffuse = vec4(0.0,0.0,0.0,1.0);
 vec4 specular = vec4(0.0,0.0,0.0,1.0);
 bool diffuseIsSet = false;
 
-uniform sampler2D tDiffuse;
-uniform sampler2D tSpecular;
-uniform sampler2D tDepth;
-uniform sampler2D tNormal;
-uniform vec2 uScreenDimensions;
-uniform vec3 uLightPosition;
-uniform float uLightRadius;
-uniform vec4 uLightColor;
-uniform vec2 uNearFar;
-varying_in mat4 vProjectionMatrix;
+SAMPLER_BINDING(0) uniform sampler2D tDiffuse;
+SAMPLER_BINDING(1) uniform sampler2D tSpecular;
+SAMPLER_BINDING(2) uniform sampler2D tDepth;
+SAMPLER_BINDING(3) uniform sampler2D tNormal;
+UBO_BINDING(38) uniform PointFragParams {
+	vec2 uScreenDimensions;
+	vec3 uLightPosition;
+	float uLightRadius;
+	vec4 uLightColor;
+	vec2 uNearFar;
+	mat4 uPointDepthsMVP[2];
+	float uPCFTexelSize;
+	float uHaveShadowmap;
+};
+IO_LOCATION(0) varying_in mat4 vProjectionMatrix;
 
-uniform samplerCubeShadow uShadowMap;
-uniform mat4 uPointDepthsMVP[2];
-uniform float uPCFTexelSize;
-uniform float uHaveShadowmap;
+SAMPLER_BINDING(4) uniform samplerCubeShadow uShadowMap;
 
 // Fragment Color
-out vec4 FragColor;
+IO_LOCATION(0) out vec4 FragColor;
 
 // Reconstruct Positions and Normals
 float DecodeLinearDepth(float z, vec4 z_info_local)

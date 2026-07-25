@@ -2778,6 +2778,14 @@ namespace p3d {
 		if (!RebuildSamplerIfDirty(texIt->second))
 			return;
 
+		// See lastWrittenSamplerView's comment - skip the
+		// vkUpdateDescriptorSets() call entirely if this exact texture is
+		// already what's written at this (pipeline, binding) slot.
+		std::pair<DeviceHandle, uint32> dirtyKey(currentPipeline, (uint32)handle);
+		std::map<std::pair<DeviceHandle, uint32>, VkImageView>::iterator dirtyIt = lastWrittenSamplerView.find(dirtyKey);
+		if (dirtyIt != lastWrittenSamplerView.end() && dirtyIt->second == texIt->second.view)
+			return;
+
 		VkDescriptorImageInfo imageInfo = {};
 		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		imageInfo.imageView = texIt->second.view;
@@ -2808,6 +2816,7 @@ namespace p3d {
 		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		write.pImageInfo = imageInfos.data();
 		vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
+		lastWrittenSamplerView[dirtyKey] = texIt->second.view;
 	}
 	void VulkanRenderDevice::SendUniformFloat(const int32 handle, const f32 *data, const uint32 count) {}
 	void VulkanRenderDevice::SendUniformVec2(const int32 handle, const f32 *data, const uint32 count) {}
@@ -3039,21 +3048,28 @@ namespace p3d {
 			// into directly as a depth attachment - see
 			// AttachFramebufferTexture2D()), so no TRANSFER_DST_BIT for
 			// those; color formats keep it for LoadTexture()'s staging
-			// upload below. TRANSFER_SRC_BIT on depth textures is purely
-			// for DebugReadDepthTexture()'s diagnostic readback (same
+			// upload below. TRANSFER_SRC_BIT on depth textures is for
+			// DebugReadDepthTexture()'s diagnostic readback (same
 			// reasoning as the swapchain gaining it for
-			// RequestFrameCapture()) - additive, no cost to any real
-			// shadow-map usage. COLOR_ATTACHMENT_BIT on color textures is
-			// the multi-attachment-render-pass counterpart of
-			// DEPTH_STENCIL_ATTACHMENT_BIT above - without it, a color
-			// texture created via CreateEmptyTexture() (a G-buffer output,
-			// or any post-effect render target) is sampleable but can't
-			// legally be used as a render-pass attachment
-			// (VUID-VkFramebufferCreateInfo-pAttachments-* would catch
-			// this at vkCreateFramebuffer() time) - additive, no cost to
-			// a texture that's only ever uploaded-to-and-sampled (a
-			// LoadTexture() asset) and never attached to any FBO.
-			imageInfo.usage = (isDepth ? (VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT) : (VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)) | VK_IMAGE_USAGE_SAMPLED_BIT;
+			// RequestFrameCapture()) *and* CopyDepthTexture()'s source
+			// side (DeferredRenderer's G-buffer depth, read every frame
+			// to refresh forwardDepthTexture - see IRenderDevice.h's
+			// comment on CopyDepthTexture) - additive, no cost to any
+			// real shadow-map usage. TRANSFER_DST_BIT on depth textures
+			// is CopyDepthTexture()'s destination side (forwardDepthTexture
+			// itself, also a depth texture) - found via a real validation-
+			// layer run (VUID-vkCmdCopyImage-aspect-06663) once that path
+			// was first exercised, not derived up front. COLOR_ATTACHMENT_BIT
+			// on color textures is the multi-attachment-render-pass
+			// counterpart of DEPTH_STENCIL_ATTACHMENT_BIT above - without
+			// it, a color texture created via CreateEmptyTexture() (a
+			// G-buffer output, or any post-effect render target) is
+			// sampleable but can't legally be used as a render-pass
+			// attachment (VUID-VkFramebufferCreateInfo-pAttachments-*
+			// would catch this at vkCreateFramebuffer() time) - additive,
+			// no cost to a texture that's only ever uploaded-to-and-
+			// sampled (a LoadTexture() asset) and never attached to any FBO.
+			imageInfo.usage = (isDepth ? (VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT) : (VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)) | VK_IMAGE_USAGE_SAMPLED_BIT;
 			imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 			imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
@@ -3943,6 +3959,121 @@ namespace p3d {
 
 	void VulkanRenderDevice::SetMultisampleEnabled(const bool enabled) {}
 	void VulkanRenderDevice::BlitFramebuffer(const uint32 srcX0, const uint32 srcY0, const uint32 srcX1, const uint32 srcY1, const uint32 dstX0, const uint32 dstY0, const uint32 dstX1, const uint32 dstY1, const uint32 engineMask, const uint32 engineFilter) {}
+
+	void VulkanRenderDevice::CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height)
+	{
+		// See IRenderDevice.h's comment on CopyDepthTexture for why this
+		// exists. Same "allocate a one-off command buffer, record a
+		// barrier+copy+barrier, submit, wait, free" idiom as
+		// UploadTexture2D()'s staging-buffer path above - correct and
+		// simple, not the most efficient, matches this backend's existing
+		// bar for an infrequent (once per frame, not once per object)
+		// operation.
+		if (device == VK_NULL_HANDLE)
+			return;
+		std::map<DeviceHandle, TextureRecord>::iterator srcIt = textures.find(srcTexture);
+		std::map<DeviceHandle, TextureRecord>::iterator dstIt = textures.find(dstTexture);
+		if (srcIt == textures.end() || dstIt == textures.end())
+			return;
+
+		VkCommandBufferAllocateInfo cmdAllocInfo = {};
+		cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		cmdAllocInfo.commandPool = commandPool;
+		cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		cmdAllocInfo.commandBufferCount = 1;
+		VkCommandBuffer copyCmd = VK_NULL_HANDLE;
+		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &copyCmd) != VK_SUCCESS)
+			return;
+
+		VkCommandBufferBeginInfo beginInfo = {};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		vkBeginCommandBuffer(copyCmd, &beginInfo);
+
+		// src just finished being written+finalLayout-transitioned by its
+		// own render pass (SHADER_READ_ONLY_OPTIMAL, since it's a G-buffer
+		// attachment sampled elsewhere too - see
+		// BuildMultiAttachmentRenderPass()'s finalLayout comment); dst is
+		// whatever it was left as by its own last use (its own render
+		// pass's finalLayout is also SHADER_READ_ONLY_OPTIMAL the first
+		// time it's ever bound as an FBO attachment, or DEPTH_STENCIL_
+		// ATTACHMENT_OPTIMAL after a prior frame's forward sub-pass used
+		// it - either way, TRANSFER_DST_OPTIMAL from UNDEFINED is always
+		// a safe transition since this copy is about to overwrite it
+		// completely regardless of prior contents).
+		VkImageMemoryBarrier toSrcTransfer = {};
+		toSrcTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		toSrcTransfer.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		toSrcTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		toSrcTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toSrcTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toSrcTransfer.image = srcIt->second.image;
+		toSrcTransfer.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
+		toSrcTransfer.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		toSrcTransfer.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+		VkImageMemoryBarrier toDstTransfer = {};
+		toDstTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		toDstTransfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		toDstTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		toDstTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toDstTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toDstTransfer.image = dstIt->second.image;
+		toDstTransfer.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
+		toDstTransfer.srcAccessMask = 0;
+		toDstTransfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+		VkImageMemoryBarrier toTransferBarriers[2] = { toSrcTransfer, toDstTransfer };
+		vkCmdPipelineBarrier(copyCmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 2, toTransferBarriers);
+
+		VkImageCopy copyRegion = {};
+		copyRegion.srcSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
+		copyRegion.dstSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
+		copyRegion.extent = { width, height, 1 };
+		vkCmdCopyImage(copyCmd, srcIt->second.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstIt->second.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+
+		// src goes back to SHADER_READ_ONLY_OPTIMAL (still sampled as
+		// tDepth by the same lighting pass right after this copy runs);
+		// dst goes to DEPTH_STENCIL_ATTACHMENT_OPTIMAL, matching the
+		// initialLayout its own render pass will expect the next time
+		// it's bound as an FBO's depth attachment.
+		VkImageMemoryBarrier toSrcFinal = toSrcTransfer;
+		toSrcFinal.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		toSrcFinal.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		toSrcFinal.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		toSrcFinal.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		VkImageMemoryBarrier toDstFinal = toDstTransfer;
+		toDstFinal.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		toDstFinal.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		toDstFinal.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		toDstFinal.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+		VkImageMemoryBarrier toFinalBarriers[2] = { toSrcFinal, toDstFinal };
+		vkCmdPipelineBarrier(copyCmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, 0, 0, NULL, 0, NULL, 2, toFinalBarriers);
+
+		vkEndCommandBuffer(copyCmd);
+
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &copyCmd;
+		VkFenceCreateInfo fenceInfo = {};
+		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		VkFence copyFence = VK_NULL_HANDLE;
+		vkCreateFence(device, &fenceInfo, NULL, &copyFence);
+		vkQueueSubmit(graphicsQueue, 1, &submitInfo, copyFence);
+		if (copyFence != VK_NULL_HANDLE)
+		{
+			vkWaitForFences(device, 1, &copyFence, VK_TRUE, UINT64_MAX);
+			vkDestroyFence(device, copyFence, NULL);
+		}
+		else
+		{
+			vkQueueWaitIdle(graphicsQueue);
+		}
+		vkFreeCommandBuffers(device, commandPool, 1, &copyCmd);
+	}
 
 };
 

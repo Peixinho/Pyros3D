@@ -6,10 +6,27 @@
 #if defined(GLES3)
 	precision mediump float;
 #endif
-#ifdef VERTEX
+// Vulkan/SPIR-V needs a static layout(location=) on every attribute/
+// varying/output and layout(binding=) on every UBO/sampler, and rejects
+// non-opaque uniforms outside a block outright - GL needs none of this.
+// VULKAN is predefined by shaderc itself for any Vulkan-target compile.
+// Binding 27 - see IMaterial.h's comment on extraUniformsBinding: binding
+// points are a single global registry shared with PyrosShader.glsl's own
+// UBOs and every IEffect's extra-uniforms block, not per-shader.
+#if defined(VULKAN)
+#define UBO_BINDING(n) layout(std140, binding = n)
+#define SAMPLER_BINDING(n) layout(set = 1, binding = n)
+#define IO_LOCATION(n) layout(location = n)
+#else
+#define UBO_BINDING(n)
+#define SAMPLER_BINDING(n)
+#define IO_LOCATION(n)
+#endif
 
-attribute_in vec3 aPosition, aNormal;
-attribute_in vec2 aTexcoord;
+#ifdef VERTEX
+IO_LOCATION(0) attribute_in vec3 aPosition;
+IO_LOCATION(1) attribute_in vec3 aNormal;
+IO_LOCATION(2) attribute_in vec2 aTexcoord;
 void main() {
 	gl_Position = vec4(aPosition,1.0);
 }
@@ -17,14 +34,16 @@ void main() {
 
 #ifdef FRAGMENT
 
-uniform sampler2D tDiffuse;
-uniform sampler2D tSpecular;
-uniform sampler2D tDepth;
-uniform sampler2D tNormal;
-uniform vec2 uScreenDimensions;
+SAMPLER_BINDING(0) uniform sampler2D tDiffuse;
+SAMPLER_BINDING(1) uniform sampler2D tSpecular;
+SAMPLER_BINDING(2) uniform sampler2D tDepth;
+SAMPLER_BINDING(3) uniform sampler2D tNormal;
+UBO_BINDING(27) uniform AmbientFragParams {
+	vec2 uScreenDimensions;
+};
 
 // Fragment Color
-out vec4 FragColor;
+IO_LOCATION(0) out vec4 FragColor;
 
 void main() {
 	vec2 Texcoord = vec2(gl_FragCoord.x/uScreenDimensions.x, gl_FragCoord.y/uScreenDimensions.y);

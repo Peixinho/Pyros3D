@@ -6,10 +6,23 @@
 #if defined(GLES3)
 	precision mediump float;
 #endif
+// See secondpassAmbient.glsl's identical comment - binding 32 (not 27,
+// AmbientFragParams' own - see IMaterial.h's comment on
+// extraUniformsBinding for why these must all be globally distinct).
+#if defined(VULKAN)
+#define UBO_BINDING(n) layout(std140, binding = n)
+#define SAMPLER_BINDING(n) layout(set = 1, binding = n)
+#define IO_LOCATION(n) layout(location = n)
+#else
+#define UBO_BINDING(n)
+#define SAMPLER_BINDING(n)
+#define IO_LOCATION(n)
+#endif
 
 #ifdef VERTEX
-attribute_in vec3 aPosition, aNormal;
-attribute_in vec2 aTexcoord;
+IO_LOCATION(0) attribute_in vec3 aPosition;
+IO_LOCATION(1) attribute_in vec3 aNormal;
+IO_LOCATION(2) attribute_in vec2 aTexcoord;
 void main() {
 	gl_Position = vec4(aPosition,1.0);
 }
@@ -17,7 +30,7 @@ void main() {
 
 #ifdef FRAGMENT
 
-float PCFDIRECTIONAL(sampler2DShadow shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) 
+float PCFDIRECTIONAL(sampler2DShadow shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade)
 {
 	vec4 coord = sMatrix * pos;
 	if (MoreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(width,height);
@@ -27,7 +40,15 @@ float PCFDIRECTIONAL(sampler2DShadow shadowMap, float width, float height, mat4 
 
 	for (y = -1.5 ; y <=1.5 ; y+=1.0)
 		for (x = -1.5 ; x <=1.5 ; x+=1.0)
-			shadow += texture(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
+			// texture() on a shadow sampler already returns a scalar float
+			// (the depth-compare result) - a trailing .x swizzle on a
+			// scalar is invalid GLSL, tolerated on some drivers but
+			// rejected outright by macOS's real GL41 compiler (and
+			// glslang's Vulkan validation). Pre-existing bug, unrelated to
+			// this pass's Vulkan-compat work - fixed here since it was
+			// blocking verification of that work (shader link failure ->
+			// shaderProgram==0 -> identical symptom either backend).
+			shadow += texture(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0)));
 	shadow /= 16.0;
 	return shadow;
 }
@@ -36,24 +57,26 @@ vec4 diffuse = vec4(0.0,0.0,0.0,1.0);
 vec4 specular = vec4(0.0,0.0,0.0,1.0);
 bool diffuseIsSet = false;
 
-uniform sampler2D tDiffuse;
-uniform sampler2D tSpecular;
-uniform sampler2D tDepth;
-uniform sampler2D tNormal;
-uniform vec2 uScreenDimensions;
-uniform vec3 uLightDirection;
-uniform vec4 uLightColor;
-uniform vec2 uNearFar;
-uniform mat4 uMatProj;
+SAMPLER_BINDING(0) uniform sampler2D tDiffuse;
+SAMPLER_BINDING(1) uniform sampler2D tSpecular;
+SAMPLER_BINDING(2) uniform sampler2D tDepth;
+SAMPLER_BINDING(3) uniform sampler2D tNormal;
+UBO_BINDING(32) uniform DirectionalFragParams {
+	vec2 uScreenDimensions;
+	vec3 uLightDirection;
+	vec4 uLightColor;
+	vec2 uNearFar;
+	mat4 uMatProj;
+	float uPCFTexelSize;
+	mat4 uDirectionalDepthsMVP[4];
+	vec4 uDirectionalShadowFar;
+	float uHaveShadowmap;
+};
 
-uniform sampler2DShadow uShadowMap;
-uniform float uPCFTexelSize;
-uniform mat4 uDirectionalDepthsMVP[4];
-uniform vec4 uDirectionalShadowFar;
-uniform float uHaveShadowmap;
+SAMPLER_BINDING(4) uniform sampler2DShadow uShadowMap;
 
 // Fragment Color
-out vec4 FragColor;
+IO_LOCATION(0) out vec4 FragColor;
 
 // Reconstruct Positions and Normals
 float DecodeLinearDepth(float z, vec4 z_info_local)
@@ -93,7 +116,7 @@ void main() {
 	vec4 out_dim = vec4(uScreenDimensions.x, uScreenDimensions.y, 1.0/uScreenDimensions.x, 1.0/uScreenDimensions.y);
 	vec2 screenCoord = vec2(uScreenDimensions.x*Texcoord.x, uScreenDimensions.y*Texcoord.y);
 
-	getPosViewSpace(texture(tDepth, Texcoord).r, screenCoord, z_info, v1, uMatProj, vp);	
+	getPosViewSpace(texture(tDepth, Texcoord).r, screenCoord, z_info, v1, uMatProj, vp);
 
 	vec3 vViewNormal = normalize(texture(tNormal, Texcoord).xyz);
 	vec3 color = texture(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
@@ -121,7 +144,7 @@ void main() {
 	vec3 halfVec = normalize(lightDirection + eyeVec);
 	float specularPower = (n_dot_l>0.0?pow(max(dot(halfVec,vViewNormal),0.0), 50.0):0.0);
 	specular = vec4(specularPower * Specular, 1.0);
-	
+
 	FragColor = (diffuse + specular) * pcf;
 }
 #endif
