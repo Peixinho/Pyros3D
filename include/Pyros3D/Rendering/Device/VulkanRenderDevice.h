@@ -245,6 +245,7 @@ namespace p3d {
 
 		virtual int32 GetUniformLocation(const uint32 program, const std::string &name);
 		virtual int32 GetAttributeLocation(const uint32 program, const std::string &name);
+		virtual bool GetAutoUniformBlockLayout(const uint32 program, const uint32 engineShaderType, uint32 &outBinding, std::string &outBlockName, uint32 &outSize, std::map<std::string, uint32> &outOffsets);
 
 		virtual void SendUniformInt(const int32 handle, const int32 *data, const uint32 count);
 		virtual void SendUniformFloat(const int32 handle, const f32 *data, const uint32 count);
@@ -260,7 +261,7 @@ namespace p3d {
 		virtual void DestroyTextureObject(const DeviceHandle texture);
 		virtual void BindTextureToTarget(const uint32 target, const DeviceHandle texture);
 
-		virtual void UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data);
+		virtual void UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data, const bool willMipmap);
 		virtual void UploadTexture2DMultisample(const uint32 target, const uint32 samples, const uint32 internalFormat, const uint32 width, const uint32 height);
 		virtual void GenerateMipmap(const uint32 target);
 
@@ -880,9 +881,39 @@ namespace p3d {
 			// gracefully in that configuration, same as CompileShaderStage()
 			// already does).
 			std::vector<uint32> spirv;
+			// Set by CompileShaderStage() when SpirvShaderCompiler::
+			// AutoFixForVulkan() (see ShaderCompiler.h) found this stage's
+			// source had loose non-opaque uniforms and wrapped them into a
+			// synthesized UBO - mirrors SpirvAutoUboResult's fields directly
+			// rather than storing that type (same SPIRV_TOOLING-optionality
+			// reasoning as `spirv` above). GetAutoUniformBlockLayout() reports
+			// this back to callers (CustomShaderMaterial's constructor) so
+			// IMaterial::extraUniforms[] can be auto-populated with no
+			// hand-authored wiring - see that method's comment.
+			bool autoUboHasBlock;
+			uint32 autoUboBinding;
+			std::string autoUboBlockName;
+			uint32 autoUboSize;
+			std::map<std::string, uint32> autoUboOffsets;
+			ShaderStageRecord() : engineShaderType(0), module(VK_NULL_HANDLE), autoUboHasBlock(false), autoUboBinding(0), autoUboSize(0) {}
 		};
 		std::map<DeviceHandle, ShaderStageRecord> shaderStages;
 		DeviceHandle nextShaderStageHandle;
+
+		// Next globally-unique UBO binding CompileShaderStage() hands to
+		// SpirvShaderCompiler::AutoFixForVulkan() for a stage's synthesized
+		// loose-uniform block, if it turns out to need one - see
+		// IMaterial::ExtraUniformsBlock's comment on why this has to be a
+		// persistent, ever-incrementing counter (bindings flow through
+		// this device's *global* uniformBufferByBindingPoint map, not a
+		// per-program one) and never reused, even across stages that
+		// didn't end up needing a block. Starts one past every binding
+		// this engine's own shipped shaders hand-assign today (see
+		// PyrosShader.glsl/post-effects/DeferredRenderer/the 3 example
+		// materials' UBO_BINDING numbers) - if a future hand-authored
+		// shader claims a new fixed number in that range, bump this to
+		// stay past it.
+		uint32 nextAutoUboBinding;
 
 		// A "program" is the (vertex module, fragment module) pair plus
 		// the descriptor set layout + pipeline layout LinkProgram() derives
@@ -1083,6 +1114,50 @@ namespace p3d {
 			VkImageView view;
 			VkSampler sampler;
 			uint32 width, height;
+			// 1 unless UploadTexture2D() was called with willMipmap=true,
+			// in which case it's floor(log2(max(width,height)))+1 (the
+			// full chain down to a 1x1 level) - decided once, at image-
+			// creation time, since Vulkan (unlike GL) can't extend a
+			// VkImage's level count after creation. GenerateMipmap()
+			// actually fills levels 1..mipLevels-1 via cascading blits;
+			// `view`'s subresourceRange.levelCount already covers all of
+			// them regardless of whether GenerateMipmap() has run yet
+			// (matches GL's own contract - image() is still "valid",
+			// just not blurred/filtered by mip level, until mips are
+			// actually generated).
+			uint32 mipLevels;
+			// True once UploadTexture2D() has actually staged real pixel
+			// data into level 0 (its data!=NULL branch) - false for a
+			// CreateEmptyTexture()-only texture (every render target:
+			// G-buffer attachments, post-effect RTTs, shadow maps),
+			// which leaves level 0 in VK_IMAGE_LAYOUT_UNDEFINED until
+			// something actually renders into it. GenerateMipmap() reads
+			// this to know whether level 0 is really in
+			// SHADER_READ_ONLY_OPTIMAL (safe to blit *from*) - found via
+			// a real validation-layer run (VUID-vkCmdDraw-None-09600):
+			// CreateEmptyTexture()'s own Mipmapping=true default means
+			// GenerateMipmap() runs immediately on every render target
+			// too, not just real LoadTexture()/UpdateData() uploads, and
+			// assuming level 0 was already SHADER_READ_ONLY_OPTIMAL then
+			// was a real bug (barrier lying about the actual oldLayout).
+			bool baseLevelHasRealData;
+			// True once GenerateMipmap() has actually finished blitting
+			// real content into levels 1..mipLevels-1 - *not* the same as
+			// hasMipmap (which just reflects the requested min-filter
+			// mode, e.g. LinearMipmapLinear, regardless of whether any
+			// mip data actually exists yet). Drives
+			// RebuildSamplerIfDirty()'s maxLod: a texture whose mips were
+			// requested (hasMipmap) but never generated (a pure render
+			// target - see GenerateMipmap()'s baseLevelHasRealData check)
+			// still needs maxLod clamped to 0, or the driver's automatic
+			// LOD selection can pick a level >0 at any time (screen-space
+			// derivatives, not something the engine controls per-draw)
+			// and sample genuinely undefined image memory - found via a
+			// real validation-layer run (VUID-vkCmdDraw-None-09600) on
+			// SSAOExample/ScreenSpaceReflection, both post-effect chains
+			// whose IEffect::attachment render targets default to
+			// Mipmapping=true the same as every other texture.
+			bool mipsGenerated;
 			VkFormat format;
 			uint32 wrapS, wrapT;     // TextureRepeat::* values
 			uint32 minFilter, magFilter; // TextureFilter::* values
@@ -1116,7 +1191,7 @@ namespace p3d {
 			std::map<uint32, VkImageView> renderTargetViewsByTarget;
 			TextureRecord()
 				: image(VK_NULL_HANDLE), allocation(VK_NULL_HANDLE), view(VK_NULL_HANDLE), sampler(VK_NULL_HANDLE),
-				  width(0), height(0), format(VK_FORMAT_R8G8B8A8_UNORM),
+				  width(0), height(0), mipLevels(1), baseLevelHasRealData(false), mipsGenerated(false), format(VK_FORMAT_R8G8B8A8_UNORM),
 				  wrapS(TextureRepeat::Repeat), wrapT(TextureRepeat::Repeat),
 				  minFilter(TextureFilter::Linear), magFilter(TextureFilter::Linear),
 				  hasMipmap(false), samplerDirty(true), isCubemap(false), isDepthTexture(false), compareModeEnabled(false) {}

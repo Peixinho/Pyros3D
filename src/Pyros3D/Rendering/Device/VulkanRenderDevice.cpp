@@ -53,7 +53,7 @@ namespace p3d {
 		  nextFBOHandle(1), shadowPipelineRenderPass(VK_NULL_HANDLE),
 		  nextVaoHandle(1), currentVao(0), currentPipeline(0),
 		  allocator(VK_NULL_HANDLE), descriptorPool(VK_NULL_HANDLE),
-		  nextBufferHandle(1), minUniformBufferOffsetAlignment(256), nextShaderStageHandle(1), nextProgramHandle(1), currentProgram(0), nextPipelineHandle(1),
+		  nextBufferHandle(1), minUniformBufferOffsetAlignment(256), nextShaderStageHandle(1), nextAutoUboBinding(43), nextProgramHandle(1), currentProgram(0), nextPipelineHandle(1),
 		  nextTextureHandle(1), currentlyConfiguringTexture(0), unitJustActivated(false), currentTextureUnit(0)
 	{
 		if (volkInitialize() != VK_SUCCESS)
@@ -2380,7 +2380,38 @@ namespace p3d {
 
 #ifdef SPIRV_TOOLING
 		uint32 spirvStage = (it->second.engineShaderType == ShaderType::FragmentShader) ? SpirvShaderStage::Fragment : SpirvShaderStage::Vertex;
-		if (!SpirvShaderCompiler::Compile(source, spirvStage, it->second.spirv, errorLog))
+
+		// Generic Vulkan-portability pass - see SpirvShaderCompiler::
+		// AutoFixForVulkan()'s comment. Every shader this engine ships
+		// already has explicit layout()/UBO_BINDING qualifiers (this
+		// session's hand-fixing work), so this is a verified no-op for
+		// all of them; it only actually rewrites source for shaders that
+		// don't (CustomShaderMaterial's user-authored ones - the whole
+		// point of this pass). `blockName` just needs to be a unique,
+		// valid GLSL identifier - Vulkan resolves UBOs by binding index,
+		// not name (see BindUniformBlockIfPresent()'s comment), so it's
+		// never looked up again on this backend.
+		std::string transformedSource = source;
+		SpirvAutoUboResult autoUbo;
+		std::string autoFixErr;
+		uint32 candidateBinding = nextAutoUboBinding;
+		std::string autoBlockName = std::string("AutoUBO_") + std::to_string(shader) + "_" + std::to_string(spirvStage);
+		if (!SpirvShaderCompiler::AutoFixForVulkan(transformedSource, spirvStage, candidateBinding, autoBlockName, autoUbo, autoFixErr))
+		{
+			errorLog = autoFixErr;
+			return false;
+		}
+		if (autoUbo.hasBlock)
+		{
+			nextAutoUboBinding++;
+			it->second.autoUboHasBlock = true;
+			it->second.autoUboBinding = autoUbo.binding;
+			it->second.autoUboBlockName = autoUbo.blockName;
+			it->second.autoUboSize = autoUbo.size;
+			it->second.autoUboOffsets = autoUbo.offsets;
+		}
+
+		if (!SpirvShaderCompiler::Compile(transformedSource, spirvStage, it->second.spirv, errorLog))
 			return false;
 
 		VkShaderModuleCreateInfo moduleInfo = {};
@@ -2646,6 +2677,27 @@ namespace p3d {
 		return -1;
 	}
 
+	// See the comment on ShaderStageRecord::autoUboHasBlock and
+	// IRenderDevice::GetAutoUniformBlockLayout() - just a lookup into
+	// whichever of the program's two stages CompileShaderStage() stashed
+	// this on, keyed the same way AttachShaderStage() already keys
+	// vertex-vs-fragment (by engineShaderType).
+	bool VulkanRenderDevice::GetAutoUniformBlockLayout(const uint32 program, const uint32 engineShaderType, uint32 &outBinding, std::string &outBlockName, uint32 &outSize, std::map<std::string, uint32> &outOffsets)
+	{
+		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(program);
+		if (progIt == programs.end())
+			return false;
+		DeviceHandle stageHandle = (engineShaderType == ShaderType::FragmentShader) ? progIt->second.fragmentShader : progIt->second.vertexShader;
+		std::map<DeviceHandle, ShaderStageRecord>::iterator stageIt = shaderStages.find(stageHandle);
+		if (stageIt == shaderStages.end() || !stageIt->second.autoUboHasBlock)
+			return false;
+		outBinding = stageIt->second.autoUboBinding;
+		outBlockName = stageIt->second.autoUboBlockName;
+		outSize = stageIt->second.autoUboSize;
+		outOffsets = stageIt->second.autoUboOffsets;
+		return true;
+	}
+
 	// Unlike GL (where attribute locations are assigned by the driver at
 	// link time and must be queried back), Vulkan/SPIR-V requires static
 	// `layout(location = N)` on every input - PyrosShader.glsl's LOC_a*
@@ -2702,7 +2754,13 @@ namespace p3d {
 		samplerInfo.addressModeV = TranslateTextureRepeatVk(tex.wrapT);
 		samplerInfo.addressModeW = samplerInfo.addressModeV;
 		samplerInfo.minLod = 0.0f;
-		samplerInfo.maxLod = tex.hasMipmap ? VK_LOD_CLAMP_NONE : 0.0f;
+		// See TextureRecord::mipsGenerated's comment - deliberately not
+		// tex.hasMipmap (the requested filter mode) alone: a render
+		// target whose mips were requested but never actually populated
+		// (levels 1+ still VK_IMAGE_LAYOUT_UNDEFINED) must stay clamped
+		// to LOD 0, or the driver's own automatic LOD selection can
+		// sample genuinely invalid memory at any time.
+		samplerInfo.maxLod = (tex.hasMipmap && tex.mipsGenerated) ? VK_LOD_CLAMP_NONE : 0.0f;
 		// Hardware depth-compare sampling for sampler2DShadow/
 		// samplerCubeShadow (every shadow map - see
 		// Texture::EnableCompareMode(), called by every light's
@@ -2844,6 +2902,31 @@ namespace p3d {
 	// separate "this is a depth texture" flag threaded through this
 	// call - the format itself is the signal, same as GL's own
 	// glTexImage2D(..., GL_DEPTH_COMPONENT, ...) convention).
+	// Metal (MoltenVK's real backend on the only platform this device is
+	// tested on) has no 3-component texture format at all - RGB8/RGB16F/
+	// etc are simply not representable, unlike GL where GL_RGB8 is a
+	// real, always-supported internal format. Every 3-component
+	// TextureDataType below is promoted to its 4-component equivalent
+	// (RGB8->RGBA8, RGB16F->RGBA16F, etc) and flagged via this `format`
+	// sentinel (otherwise unused by Vulkan - see the comment below) so
+	// UploadTexture2D() knows to expand the source data (tightly packed
+	// N*3-channel) into the staging buffer's N*4-channel layout instead
+	// of a straight memcpy, which would either under-fill the buffer
+	// (reading garbage padding) or, worse, misinterpret every 4th source
+	// byte as if it were a new texel's first channel. The pad channel
+	// itself is left zeroed - correct there is no real "4th value" for
+	// an RGB-semantic texture, no caller ever reads it.
+	static const uint32 VULKAN_UPLOAD_PAD_RGB_TO_RGBA = 1;
+
+	// GL's TranslateTextureFormat() fills three separate GL tokens
+	// (internalFormat/format/type) because glTexImage2D needs them
+	// separately (how the GPU stores it vs. how the *input* data is laid
+	// out). Vulkan images have one storage VkFormat and no separate
+	// input-format/type concept - `type` stays unused (0); `format` is
+	// repurposed as VULKAN_UPLOAD_PAD_RGB_TO_RGBA's sentinel (0 = no
+	// padding needed) rather than left unused, since UploadTexture2D()
+	// already receives it as a parameter and this avoids a wider
+	// interface change for a single bit of backend-local signaling.
 	void VulkanRenderDevice::TranslateTextureFormat(const uint32 engineDataType, uint32 &internalFormat, uint32 &format, uint32 &type)
 	{
 		format = 0;
@@ -2856,8 +2939,34 @@ namespace p3d {
 		case TextureDataType::RG8: internalFormat = (uint32)VK_FORMAT_R8G8_UNORM; break;
 		case TextureDataType::RGBA16F: internalFormat = (uint32)VK_FORMAT_R16G16B16A16_SFLOAT; break;
 		case TextureDataType::RGBA32F: internalFormat = (uint32)VK_FORMAT_R32G32B32A32_SFLOAT; break;
+		case TextureDataType::RGBA16I: internalFormat = (uint32)VK_FORMAT_R16G16B16A16_SINT; break;
+		case TextureDataType::RGBA32I: internalFormat = (uint32)VK_FORMAT_R32G32B32A32_SINT; break;
 		case TextureDataType::R16F: internalFormat = (uint32)VK_FORMAT_R16_SFLOAT; break;
 		case TextureDataType::R32F: internalFormat = (uint32)VK_FORMAT_R32_SFLOAT; break;
+		case TextureDataType::R16I: internalFormat = (uint32)VK_FORMAT_R16_SINT; break;
+		case TextureDataType::R32I: internalFormat = (uint32)VK_FORMAT_R32_SINT; break;
+		case TextureDataType::RG16F: internalFormat = (uint32)VK_FORMAT_R16G16_SFLOAT; break;
+		case TextureDataType::RG32F: internalFormat = (uint32)VK_FORMAT_R32G32_SFLOAT; break;
+		case TextureDataType::RG16I: internalFormat = (uint32)VK_FORMAT_R16G16_SINT; break;
+		case TextureDataType::RG32I: internalFormat = (uint32)VK_FORMAT_R32G32_SINT; break;
+		// LUMINANCE/LUMINANCE_ALPHA are GL's old single/dual-channel
+		// "replicate into RGB, keep or drop alpha" sampling modes - no
+		// Vulkan equivalent swizzle is set up here (nothing on this
+		// backend uses either yet), so these just get the same storage
+		// as their component-count equivalents (R8/RG8); a real fixed-
+		// function swizzle would need VkSamplerCreateInfo or image-view
+		// component mapping support this backend doesn't build yet.
+		case TextureDataType::LUMINANCE: internalFormat = (uint32)VK_FORMAT_R8_UNORM; break;
+		case TextureDataType::LUMINANCE_ALPHA: internalFormat = (uint32)VK_FORMAT_R8G8_UNORM; break;
+		// See VULKAN_UPLOAD_PAD_RGB_TO_RGBA's comment - every 3-component
+		// format needs a 4-component storage format plus the upload-time
+		// padding flag, since Metal doesn't support 3-component textures.
+		case TextureDataType::RGB8: internalFormat = (uint32)VK_FORMAT_R8G8B8A8_UNORM; format = VULKAN_UPLOAD_PAD_RGB_TO_RGBA; break;
+		case TextureDataType::BGR: internalFormat = (uint32)VK_FORMAT_B8G8R8A8_UNORM; format = VULKAN_UPLOAD_PAD_RGB_TO_RGBA; break;
+		case TextureDataType::RGB16F: internalFormat = (uint32)VK_FORMAT_R16G16B16A16_SFLOAT; format = VULKAN_UPLOAD_PAD_RGB_TO_RGBA; break;
+		case TextureDataType::RGB32F: internalFormat = (uint32)VK_FORMAT_R32G32B32A32_SFLOAT; format = VULKAN_UPLOAD_PAD_RGB_TO_RGBA; break;
+		case TextureDataType::RGB16I: internalFormat = (uint32)VK_FORMAT_R16G16B16A16_SINT; format = VULKAN_UPLOAD_PAD_RGB_TO_RGBA; break;
+		case TextureDataType::RGB32I: internalFormat = (uint32)VK_FORMAT_R32G32B32A32_SINT; format = VULKAN_UPLOAD_PAD_RGB_TO_RGBA; break;
 		// A widely-supported 32-bit float depth format, no stencil -
 		// every shadow FBO in this engine is depth-only (see FBORecord's
 		// comment), so there's no need to pick one of the depth+stencil
@@ -2994,9 +3103,22 @@ namespace p3d {
 		return format == VK_FORMAT_D32_SFLOAT;
 	}
 
-	void VulkanRenderDevice::UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data)
+	// Full mip chain down to a 1x1 level - matches every other Vulkan
+	// mipmap-generation implementation's formula. willMipmap==false
+	// callers (the common case) never call this, so it costs nothing
+	// then.
+	static uint32 ComputeMipLevelsVk(const uint32 width, const uint32 height)
 	{
-		(void)format; (void)type;
+		uint32 dim = width > height ? width : height;
+		uint32 levels = 1;
+		while (dim > 1) { dim >>= 1; levels++; }
+		return levels;
+	}
+
+	void VulkanRenderDevice::UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data, const bool willMipmap)
+	{
+		(void)type;
+		bool needsRgbPad = (format == VULKAN_UPLOAD_PAD_RGB_TO_RGBA);
 		if (currentlyConfiguringTexture == 0 || device == VK_NULL_HANDLE || allocator == VK_NULL_HANDLE || width == 0 || height == 0)
 			return;
 		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
@@ -3013,12 +3135,34 @@ namespace p3d {
 		// different face targets" model.
 		bool isCubemapTarget = target >= CUBEMAP_FACE_TARGET_BASE;
 		uint32 faceIndex = isCubemapTarget ? (target - CUBEMAP_FACE_TARGET_BASE) : 0;
+		// Only actually allocate room for mips if there's real data to
+		// generate them from right now (data != NULL) - CreateEmptyTexture()
+		// defaults to Mipmapping=true the same as LoadTexture() (every
+		// pure render target: G-buffer attachments, post-effect RTTs,
+		// shadow maps), but a level-0-only image whose only ever content
+		// comes from being rendered into has nothing for GenerateMipmap()
+		// to downsample, and creating tex.view with levelCount>1 anyway
+		// makes it a *descriptor* that's statically invalid for the
+		// never-populated levels - found via VUID-vkCmdDraw-None-09600
+		// on a real validation-layer run (SSAOExample/ScreenSpaceReflection's
+		// post-effect chains), independent of maxLod clamping (which
+		// only stops the *shader* from choosing a bad LOD - the
+		// descriptor's declared view range is checked regardless of
+		// what LOD ends up used). If real data *does* arrive later via
+		// Texture::UpdateData() with Mipmapping still true, needsCreate
+		// below naturally recreates the image at the right level count
+		// then, since wantedMipLevels changes from 1 to >1 at that point.
+		uint32 wantedMipLevels = (willMipmap && data != NULL) ? ComputeMipLevelsVk(width, height) : 1;
 
 		// (Re)create the image only on the *first* face's call for a
 		// cubemap (isCubemap already true + image already exists means
 		// this is face 1-5 reusing the same 6-layer image), or whenever
-		// a plain 2D texture's size/format actually changed.
-		bool needsCreate = tex.image == VK_NULL_HANDLE || tex.width != width || tex.height != height || tex.format != wantedFormat || (isCubemapTarget && !tex.isCubemap);
+		// a plain 2D texture's size/format/mip-level-count actually
+		// changed. All 6 cubemap face calls pass the same willMipmap
+		// (Texture.cpp threads the same Mipmapping bool through each),
+		// so wantedMipLevels matches tex.mipLevels by the time face 1-5
+		// call this - they don't spuriously retrigger a recreate.
+		bool needsCreate = tex.image == VK_NULL_HANDLE || tex.width != width || tex.height != height || tex.format != wantedFormat || tex.mipLevels != wantedMipLevels || (isCubemapTarget && !tex.isCubemap);
 		if (needsCreate)
 		{
 			// Any FBO this texture is already attached to (e.g. an
@@ -3039,7 +3183,7 @@ namespace p3d {
 			imageInfo.imageType = VK_IMAGE_TYPE_2D;
 			imageInfo.format = wantedFormat;
 			imageInfo.extent = { width, height, 1 };
-			imageInfo.mipLevels = 1;
+			imageInfo.mipLevels = wantedMipLevels;
 			imageInfo.arrayLayers = isCubemapTarget ? 6 : 1;
 			imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 			imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -3069,7 +3213,13 @@ namespace p3d {
 			// would catch this at vkCreateFramebuffer() time) - additive,
 			// no cost to a texture that's only ever uploaded-to-and-
 			// sampled (a LoadTexture() asset) and never attached to any FBO.
-			imageInfo.usage = (isDepth ? (VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT) : (VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)) | VK_IMAGE_USAGE_SAMPLED_BIT;
+			// TRANSFER_SRC_BIT on a *color* texture (depth already had it
+			// unconditionally, see above) is GenerateMipmap()'s cascading
+			// vkCmdBlitImage() reading each level as the source for the
+			// next - only added when this texture actually asked for
+			// mips, since every extra usage bit is a (small) real
+			// constraint on which memory types/tiling the driver can pick.
+			imageInfo.usage = (isDepth ? (VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT) : (VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (willMipmap ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0))) | VK_IMAGE_USAGE_SAMPLED_BIT;
 			imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 			imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
@@ -3087,7 +3237,7 @@ namespace p3d {
 			viewInfo.image = tex.image;
 			viewInfo.viewType = isCubemapTarget ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D;
 			viewInfo.format = wantedFormat;
-			viewInfo.subresourceRange = { (VkImageAspectFlags)(isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, 1, 0, isCubemapTarget ? 6u : 1u };
+			viewInfo.subresourceRange = { (VkImageAspectFlags)(isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, wantedMipLevels, 0, isCubemapTarget ? 6u : 1u };
 			if (vkCreateImageView(device, &viewInfo, NULL, &tex.view) != VK_SUCCESS)
 			{
 				fprintf(stderr, "VulkanRenderDevice::UploadTexture2D: vkCreateImageView failed\n");
@@ -3098,9 +3248,17 @@ namespace p3d {
 
 			tex.width = width;
 			tex.height = height;
+			tex.mipLevels = wantedMipLevels;
 			tex.format = wantedFormat;
 			tex.isCubemap = isCubemapTarget;
 			tex.isDepthTexture = isDepth;
+			// A brand-new image (or a face 0 recreate) starts with no
+			// real content again - see TextureRecord::baseLevelHasRealData's
+			// comment. Reset unconditionally here; the data!=NULL branch
+			// below sets it back to true if this call is also uploading
+			// real pixels (the common LoadTexture()/UpdateData() case).
+			tex.baseLevelHasRealData = false;
+			tex.mipsGenerated = false;
 		}
 
 		if (data == NULL)
@@ -3139,7 +3297,32 @@ namespace p3d {
 			fprintf(stderr, "VulkanRenderDevice::UploadTexture2D: staging vmaCreateBuffer failed\n");
 			return;
 		}
-		memcpy(stagingAllocationInfo.pMappedData, data, (size_t)uploadSize);
+		if (needsRgbPad)
+		{
+			// See VULKAN_UPLOAD_PAD_RGB_TO_RGBA's comment - `data` is a
+			// tightly packed N*3-channel buffer (RGB8/RGB16F/RGB32F/etc),
+			// but wantedFormat/uploadSize above are already sized for
+			// this texture's *promoted* N*4-channel storage - expand
+			// per-texel instead of a straight memcpy, which would read
+			// past the end of a correctly-sized 3-channel source buffer
+			// (or, for a coincidentally larger source buffer, silently
+			// shift every subsequent texel's channels by one). The pad
+			// channel is left zeroed (already true - VMA doesn't
+			// guarantee zeroed memory for a *staging* allocation the way
+			// CreateUniformBuffer()'s memset does, so this needs its own).
+			uint32 bytesPerChannel = BytesPerTexelVk(wantedFormat) / 4;
+			uint32 srcStride = bytesPerChannel * 3;
+			uint32 dstStride = bytesPerChannel * 4;
+			uchar* dst = (uchar*)stagingAllocationInfo.pMappedData;
+			const uchar* src = (const uchar*)data;
+			memset(dst, 0, (size_t)uploadSize);
+			for (uint32 texel = 0; texel < width * height; texel++)
+				memcpy(dst + (size_t)texel * dstStride, src + (size_t)texel * srcStride, srcStride);
+		}
+		else
+		{
+			memcpy(stagingAllocationInfo.pMappedData, data, (size_t)uploadSize);
+		}
 
 		VkCommandBufferAllocateInfo cmdAllocInfo = {};
 		cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -3187,6 +3370,12 @@ namespace p3d {
 		toShaderRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 		vkCmdPipelineBarrier(uploadCmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &toShaderRead);
 
+		// See TextureRecord::baseLevelHasRealData's comment - level 0 (all
+		// layers, once every cubemap face has been through this) is now
+		// genuinely SHADER_READ_ONLY_OPTIMAL with real content, safe for
+		// GenerateMipmap() to blit from.
+		tex.baseLevelHasRealData = true;
+
 		vkEndCommandBuffer(uploadCmd);
 
 		VkSubmitInfo submitInfo = {};
@@ -3212,7 +3401,189 @@ namespace p3d {
 		vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
 	}
 	void VulkanRenderDevice::UploadTexture2DMultisample(const uint32 target, const uint32 samples, const uint32 internalFormat, const uint32 width, const uint32 height) {}
-	void VulkanRenderDevice::GenerateMipmap(const uint32 target) {}
+
+	// Cascading vkCmdBlitImage() downsample, the standard Vulkan mipmap-
+	// generation pattern (there's no vkGenerateMipmap - GL's
+	// glGenerateMipmap has no direct Vulkan equivalent, this *is* the
+	// equivalent). Requires UploadTexture2D() to have already been
+	// called with willMipmap=true for currentlyConfiguringTexture (that's
+	// what actually allocates tex.mipLevels>1 worth of VkImage storage -
+	// see its comment); a no-op here otherwise, matching GL's own
+	// behavior of silently doing nothing useful if you call
+	// glGenerateMipmap() on a texture that doesn't have room for mips.
+	void VulkanRenderDevice::GenerateMipmap(const uint32 target)
+	{
+		(void)target;
+		if (currentlyConfiguringTexture == 0 || device == VK_NULL_HANDLE)
+			return;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end())
+			return;
+		TextureRecord &tex = it->second;
+		// See TextureRecord::baseLevelHasRealData's comment - a texture
+		// that's never actually had real pixel data staged into it (every
+		// CreateEmptyTexture()-only render target - G-buffer attachments,
+		// post-effect RTTs, shadow maps, all of which default to
+		// Mipmapping=true the same as LoadTexture()) still has level 0
+		// sitting in VK_IMAGE_LAYOUT_UNDEFINED at this point, not
+		// SHADER_READ_ONLY_OPTIMAL - nothing meaningful to downsample
+		// from yet, and treating it as already-transitioned would be a
+		// real image-layout lie (VUID-vkCmdDraw-None-09600, caught on a
+		// real validation-layer run). Matches GL's own behavior here too:
+		// nothing in this engine ever re-generates mips after rendering
+		// into a target, only after a real Texture::UpdateData() call
+		// (see Texture::UpdateMipmap()'s only caller) - a render target
+		// simply keeps whatever's in levels 1..N-1 (untouched, unsampled
+		// in practice) until/unless it's ever given real CPU-side pixels.
+		if (tex.image == VK_NULL_HANDLE || tex.mipLevels <= 1 || !tex.baseLevelHasRealData)
+			return;
+
+		uint32 layerCount = tex.isCubemap ? 6u : 1u;
+
+		VkCommandBufferAllocateInfo cmdAllocInfo = {};
+		cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		cmdAllocInfo.commandPool = commandPool;
+		cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		cmdAllocInfo.commandBufferCount = 1;
+		VkCommandBuffer cmd = VK_NULL_HANDLE;
+		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &cmd) != VK_SUCCESS)
+			return;
+
+		VkCommandBufferBeginInfo beginInfo = {};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		vkBeginCommandBuffer(cmd, &beginInfo);
+
+		int32 srcWidth = (int32)tex.width;
+		int32 srcHeight = (int32)tex.height;
+
+		for (uint32 level = 1; level < tex.mipLevels; level++)
+		{
+			int32 dstWidth = srcWidth > 1 ? srcWidth / 2 : 1;
+			int32 dstHeight = srcHeight > 1 ? srcHeight / 2 : 1;
+
+			// Level (level-1)'s *current* layout depends on how it got
+			// here: level 0 was left in SHADER_READ_ONLY_OPTIMAL by
+			// UploadTexture2D()'s own final barrier - true only the
+			// first time through (level==1). Every other source level
+			// was itself just written as *this same loop's* blit
+			// destination one iteration ago and never touched again
+			// since (deliberately - finalizing it to shader-read here
+			// would be immediately undone next iteration), so it's
+			// still sitting in TRANSFER_DST_OPTIMAL. Assuming
+			// SHADER_READ_ONLY_OPTIMAL unconditionally here was a real
+			// bug caught before ever running this - VkImageMemoryBarrier
+			// with the wrong oldLayout is exactly the kind of thing
+			// validation layers exist to catch, but it's simpler to get
+			// right by inspection than to rely on a real GPU/validation
+			// run to notice.
+			VkImageMemoryBarrier toSrc = {};
+			toSrc.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			toSrc.oldLayout = (level == 1) ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			toSrc.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			toSrc.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			toSrc.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			toSrc.image = tex.image;
+			toSrc.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, level - 1, 1, 0, layerCount };
+			toSrc.srcAccessMask = (level == 1) ? VK_ACCESS_SHADER_READ_BIT : VK_ACCESS_TRANSFER_WRITE_BIT;
+			toSrc.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+			// This level has never been touched since image creation
+			// (still VK_IMAGE_LAYOUT_UNDEFINED) - becomes a blit
+			// *destination*.
+			VkImageMemoryBarrier toDst = {};
+			toDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			toDst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			toDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			toDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			toDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			toDst.image = tex.image;
+			toDst.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, level, 1, 0, layerCount };
+			toDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+			VkImageMemoryBarrier toTransferBarriers[2] = { toSrc, toDst };
+			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 2, toTransferBarriers);
+
+			VkImageBlit blit = {};
+			blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, level - 1, 0, layerCount };
+			blit.srcOffsets[0] = { 0, 0, 0 };
+			blit.srcOffsets[1] = { srcWidth, srcHeight, 1 };
+			blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, level, 0, layerCount };
+			blit.dstOffsets[0] = { 0, 0, 0 };
+			blit.dstOffsets[1] = { dstWidth, dstHeight, 1 };
+			vkCmdBlitImage(cmd, tex.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, tex.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+
+			// Deliberately *not* finalizing level (level-1) to
+			// SHADER_READ_ONLY_OPTIMAL here - every level from 0 to
+			// mipLevels-2 ends this loop sitting in TRANSFER_SRC_OPTIMAL
+			// (this level did, one iteration after being a TRANSFER_DST_OPTIMAL
+			// blit target), and gets finalized once, in bulk, after the
+			// loop - see combinedFinal below.
+
+			srcWidth = dstWidth;
+			srcHeight = dstHeight;
+		}
+
+		// Two groups of levels need finalizing to SHADER_READ_ONLY_OPTIMAL,
+		// each in a different current layout: 0..mipLevels-2 (every level
+		// that was ever a blit *source*) ended the loop above in
+		// TRANSFER_SRC_OPTIMAL; mipLevels-1 (the last level, only ever a
+		// blit *destination*, nothing downsamples from it) is still in
+		// TRANSFER_DST_OPTIMAL from the final loop iteration.
+		VkImageMemoryBarrier finalizeSrcLevels = {};
+		finalizeSrcLevels.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		finalizeSrcLevels.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		finalizeSrcLevels.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		finalizeSrcLevels.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		finalizeSrcLevels.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		finalizeSrcLevels.image = tex.image;
+		finalizeSrcLevels.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, tex.mipLevels - 1, 0, layerCount };
+		finalizeSrcLevels.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		finalizeSrcLevels.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		VkImageMemoryBarrier lastToShaderRead = {};
+		lastToShaderRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		lastToShaderRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		lastToShaderRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		lastToShaderRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		lastToShaderRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		lastToShaderRead.image = tex.image;
+		lastToShaderRead.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, tex.mipLevels - 1, 1, 0, layerCount };
+		lastToShaderRead.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		lastToShaderRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		VkImageMemoryBarrier finalBarriers[2] = { finalizeSrcLevels, lastToShaderRead };
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 2, finalBarriers);
+
+		vkEndCommandBuffer(cmd);
+
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &cmd;
+		VkFenceCreateInfo fenceInfo = {};
+		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		VkFence fence = VK_NULL_HANDLE;
+		vkCreateFence(device, &fenceInfo, NULL, &fence);
+		vkQueueSubmit(graphicsQueue, 1, &submitInfo, fence);
+		if (fence != VK_NULL_HANDLE)
+		{
+			vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+			vkDestroyFence(device, fence, NULL);
+		}
+		else
+		{
+			vkQueueWaitIdle(graphicsQueue);
+		}
+		vkFreeCommandBuffers(device, commandPool, 1, &cmd);
+
+		tex.mipsGenerated = true;
+		// Force RebuildSamplerIfDirty()'s next call to actually rebuild -
+		// whatever sampler already exists (built the first time this
+		// texture was ever bound, likely before mips existed) still has
+		// maxLod clamped to 0 from back then.
+		tex.samplerDirty = true;
+	}
 
 	// All of these operate on currentlyConfiguringTexture (see
 	// BindTextureToTarget()'s comment) - GL applies wrap/filter state
@@ -3599,23 +3970,36 @@ namespace p3d {
 
 	VkImageView VulkanRenderDevice::GetOrCreateRenderTargetView(TextureRecord &tex, const uint32 nativeTextureTarget)
 	{
-		if (!tex.isCubemap)
-			return tex.view; // plain 2D depth texture - render-target view == sampling view, no separate one needed
+		// Only a genuinely single-mip-level, non-cubemap texture's
+		// sampling view can double as its render-target view - a
+		// VkFramebuffer attachment must reference exactly one mip level
+		// (VUID-VkFramebufferCreateInfo-pAttachments-00883), unlike
+		// tex.view, which spans tex.mipLevels level(s) since
+		// UploadTexture2D()'s willMipmap support - a texture that both
+		// gets rendered into *and* was created with willMipmap=true
+		// (CreateEmptyTexture()'s own default parameter, same as
+		// LoadTexture()'s - not unique to any one caller) needs its own
+		// level-0-only view here now, same reasoning as the cubemap case
+		// below already needed.
+		if (!tex.isCubemap && tex.mipLevels <= 1)
+			return tex.view;
 
 		std::map<uint32, VkImageView>::iterator it = tex.renderTargetViewsByTarget.find(nativeTextureTarget);
 		if (it != tex.renderTargetViewsByTarget.end())
 			return it->second;
 
-		// A full VK_IMAGE_VIEW_TYPE_CUBE view (like tex.view) can't be
-		// used as a depth-attachment render target - need a 2D view of
-		// exactly the one array layer this face occupies instead.
-		uint32 faceIndex = nativeTextureTarget - CUBEMAP_FACE_TARGET_BASE;
+		// A full VK_IMAGE_VIEW_TYPE_CUBE view, or any view spanning more
+		// than one mip level (like tex.view can now be), can't be used
+		// as a render-target attachment - need a 2D view of exactly one
+		// mip level (0 - what's actually rendered into) and one array
+		// layer (the specific cube face, or 0 for a plain 2D texture).
+		uint32 faceIndex = tex.isCubemap ? (nativeTextureTarget - CUBEMAP_FACE_TARGET_BASE) : 0;
 		VkImageViewCreateInfo viewInfo = {};
 		viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 		viewInfo.image = tex.image;
 		viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
 		viewInfo.format = tex.format;
-		viewInfo.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, faceIndex, 1 };
+		viewInfo.subresourceRange = { (VkImageAspectFlags)(tex.isDepthTexture ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, 1, faceIndex, 1 };
 		VkImageView view = VK_NULL_HANDLE;
 		if (vkCreateImageView(device, &viewInfo, NULL, &view) != VK_SUCCESS)
 		{

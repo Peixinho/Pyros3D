@@ -1030,8 +1030,9 @@ namespace p3d {
 		GLCHECKER(glBindTexture(target, texture));
 	}
 
-	void GLRenderDevice::UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data)
+	void GLRenderDevice::UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data, const bool willMipmap)
 	{
+		(void)willMipmap; // see IRenderDevice.h's comment - Vulkan-only
 		GLCHECKER(glTexImage2D(target, level, internalFormat, width, height, 0, format, type, data));
 	}
 

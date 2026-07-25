@@ -131,7 +131,7 @@ namespace p3d {
 		virtual void DestroyTextureObject(const DeviceHandle texture);
 		virtual void BindTextureToTarget(const uint32 target, const DeviceHandle texture);
 
-		virtual void UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data);
+		virtual void UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data, const bool willMipmap);
 		virtual void UploadTexture2DMultisample(const uint32 target, const uint32 samples, const uint32 internalFormat, const uint32 width, const uint32 height);
 		virtual void GenerateMipmap(const uint32 target);
 

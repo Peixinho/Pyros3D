@@ -165,7 +165,7 @@ namespace p3d {
 
 		if (Mipmapping)
 		{
-			Device().UploadTexture2D(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data));
+			Device().UploadTexture2D(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data), true);
 #if defined(GLES3)
 			Device().GenerateMipmap(GLMode);
 #else
@@ -190,13 +190,13 @@ namespace p3d {
 
 			if (!isMultisample)
 			{
-				Device().UploadTexture2D(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data));
+				Device().UploadTexture2D(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data), false);
 			}
 			else {
 				Device().UploadTexture2DMultisample(GLMode, msaa, internalFormat, Width[level], Height[level]);
 			}
 #else
-			Device().UploadTexture2D(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data));
+			Device().UploadTexture2D(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data), false);
 #endif
 			if (level > 0)
 				isMipMapManual = true;
@@ -323,7 +323,7 @@ namespace p3d {
 		Device().BindTextureToTarget(GLSubMode, GL_ID);
 		this->Width[level] = Width;
 		this->Height[level] = Height;
-		Device().UploadTexture2D(GLSubMode, level, internalFormat, Width, Height, internalFormat2, internalFormat3, NULL);
+		Device().UploadTexture2D(GLSubMode, level, internalFormat, Width, Height, internalFormat2, internalFormat3, NULL, isMipMap);
 
 		if (isMipMap)
 		{
@@ -348,7 +348,7 @@ namespace p3d {
 		{
 			// bind
 			Device().BindTextureToTarget(GLSubMode, GL_ID);
-			Device().UploadTexture2D(GLSubMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, srcPTR);
+			Device().UploadTexture2D(GLSubMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, srcPTR, isMipMap);
 
 			UpdateMipmap();
 

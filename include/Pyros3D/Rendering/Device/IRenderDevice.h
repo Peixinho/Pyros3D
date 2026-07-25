@@ -15,6 +15,7 @@
 
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Other/Export.h>
+#include <map>
 #include <string>
 #include <vector>
 #include <memory>
@@ -514,8 +515,13 @@ namespace p3d {
 		virtual void BindTextureToTarget(const uint32 target, const DeviceHandle texture) = 0;
 
 		// Texture upload - internalFormat/format/type are the native
-		// tokens TranslateTextureFormat() produced.
-		virtual void UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data) = 0;
+		// tokens TranslateTextureFormat() produced. willMipmap is only
+		// meaningful on Vulkan (see the comment on VulkanRenderDevice's
+		// override) - GL ignores it, since GenerateMipmap() there can
+		// extend an already-uploaded texture's level chain at any time;
+		// Vulkan's VkImage mip level count is fixed at creation, so it
+		// has to know up front whether GenerateMipmap() is coming.
+		virtual void UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data, const bool willMipmap) = 0;
 		virtual void UploadTexture2DMultisample(const uint32 target, const uint32 samples, const uint32 internalFormat, const uint32 width, const uint32 height) = 0;
 		virtual void GenerateMipmap(const uint32 target) = 0;
 
@@ -663,6 +669,26 @@ namespace p3d {
 		// codebase's existing bar for a first implementation of a rarely-
 		// called operation - once per frame, not once per object).
 		virtual void CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height) = 0;
+
+		// Reports whether CompileShaderStage() auto-wrapped this program's
+		// given stage's loose (non-opaque) uniforms into a synthesized UBO
+		// - see SpirvShaderCompiler::AutoFixForVulkan() and
+		// VulkanRenderDevice's override for the actual mechanism, only
+		// meaningful on that backend (CustomShaderMaterial's user-authored
+		// shaders are plain, unlabeled GLSL that already works as loose
+		// uniforms on GL - nothing to report there, so the default here
+		// - inherited as-is by GLRenderDevice - always returns false).
+		// `engineShaderType` is ShaderType::VertexShader/FragmentShader
+		// (matches CreateShaderStage()'s parameter). Fills out* only when
+		// returning true. CustomShaderMaterial's constructor calls this
+		// for both stages right after LinkProgram() to auto-populate
+		// IMaterial::extraUniforms[] with zero hand-authored wiring - the
+		// existing IRenderer::SendExtraUniforms()/CaptureExtraUniform()
+		// runtime machinery already works unchanged once that struct is
+		// populated, regardless of whether it was filled by hand (every
+		// shipped effect/material shader) or reported back from here
+		// (any future arbitrary user shader).
+		virtual bool GetAutoUniformBlockLayout(const uint32 program, const uint32 engineShaderType, uint32 &outBinding, std::string &outBlockName, uint32 &outSize, std::map<std::string, uint32> &outOffsets) { return false; }
 
 	};
 

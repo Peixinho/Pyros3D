@@ -36,6 +36,21 @@ namespace p3d
 		std::vector<Texture*> textures;
 
 	protected:
+
+		// Generic Vulkan auto-fix hookup - see IRenderDevice::
+		// GetAutoUniformBlockLayout()'s comment. Called from every place
+		// this class finishes wiring up `shader` (both constructors and
+		// SetShader()); a no-op on GL and on any shader whose loose
+		// uniforms are already hand-wrapped in an explicit UBO (every
+		// shader this engine ships today) - only actually populates
+		// extraUniforms[] for a shader that genuinely had nothing but
+		// plain, unlabeled loose uniforms. Runs before a subclass's own
+		// constructor body (base-class constructors always run first), so
+		// a subclass that still hand-assigns extraUniforms[] itself
+		// (CustomMaterialExample/WaterMaterial/ParticleMaterial) simply
+		// overwrites this afterward - manual authoring always wins.
+		void PopulateAutoExtraUniforms();
+
 		// Shader
 		Shader* shader;
 		// Owned only when `shader` was built internally (from a file, or

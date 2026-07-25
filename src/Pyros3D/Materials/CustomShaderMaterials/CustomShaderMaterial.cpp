@@ -7,9 +7,17 @@
 //=================================================================================
 
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
+#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 
 namespace p3d
 {
+
+	// Shares whichever backend is currently active - same pattern as
+	// Shaders.cpp/GeometryBuffer.cpp's own file-local Device() helper.
+	static IRenderDevice& Device()
+	{
+		return GetActiveRenderDevice();
+	}
 
 	CustomShaderMaterial::CustomShaderMaterial(const std::string& ShaderFile) : IMaterial()
 	{
@@ -48,6 +56,8 @@ namespace p3d
 		// Get Shader Program
 		shaderProgram = shader->ShaderProgram();
 
+		PopulateAutoExtraUniforms();
+
 		SetOpacity(1.0);
 	}
 
@@ -56,6 +66,8 @@ namespace p3d
 		shaderProgram = shader->ShaderProgram();
 
 		this->shader = shader;
+
+		PopulateAutoExtraUniforms();
 	}
 
 	void CustomShaderMaterial::SetShader(Shader* shader)
@@ -67,6 +79,28 @@ namespace p3d
 		// Copy shader
 		this->shader = shader;
 		shaderProgram = shader->ShaderProgram();
+
+		PopulateAutoExtraUniforms();
+	}
+
+	void CustomShaderMaterial::PopulateAutoExtraUniforms()
+	{
+		uint32 stages[2] = { ShaderType::VertexShader, ShaderType::FragmentShader };
+		for (int i = 0; i < 2; i++)
+		{
+			uint32 binding = 0, size = 0;
+			std::string blockName;
+			std::map<std::string, uint32> offsets;
+			if (!Device().GetAutoUniformBlockLayout(shaderProgram, stages[i], binding, blockName, size, offsets))
+				continue;
+			ExtraUniformsBlock &block = extraUniforms[i];
+			block.binding = binding;
+			block.blockName = blockName;
+			block.size = size;
+			block.offsets = offsets;
+			block.scratch.assign(size, 0);
+			block.bufferHandle = 0;
+		}
 	}
 
 	CustomShaderMaterial::~CustomShaderMaterial() = default;

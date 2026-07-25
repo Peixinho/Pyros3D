@@ -21,6 +21,7 @@
 
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Other/Export.h>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -94,6 +95,21 @@ namespace p3d {
 		uint32 location;
 	};
 
+	// Describes the one synthesized UBO block (if any) AutoFixForVulkan()
+	// wrapped a shader stage's loose uniforms into - see that method's
+	// comment. Mirrors IMaterial::ExtraUniformsBlock's shape exactly
+	// (binding/blockName/size/offsets) so a caller can populate that
+	// struct directly from this one without any translation step.
+	struct PYROS3D_API SpirvAutoUboResult
+	{
+		bool hasBlock;
+		uint32 binding;
+		std::string blockName;
+		uint32 size;
+		std::map<std::string, uint32> offsets;
+		SpirvAutoUboResult() : hasBlock(false), binding(0), size(0) {}
+	};
+
 	class PYROS3D_API SpirvShaderCompiler
 	{
 	public:
@@ -104,6 +120,47 @@ namespace p3d {
 		// into SPIR-V. Returns false and fills errorLog on failure;
 		// outSpirv is left empty in that case.
 		static bool Compile(const std::string &source, const uint32 stage, std::vector<uint32> &outSpirv, std::string &errorLog);
+
+		// Generic Vulkan-portability auto-fix for arbitrary, plain
+		// GL-style GLSL (CustomShaderMaterial's user-authored shaders,
+		// which - unlike PyrosShader.glsl/the engine's own effect shaders -
+		// were never written with Vulkan's stricter rules in mind - see
+		// VULKAN_ROADMAP.md's CustomShaderMaterial gap). Preprocesses
+		// `source` first (resolves this stage's #ifdef VERTEX/FRAGMENT
+		// branch and expands the shader's own macros, e.g. a shader-local
+		// `#define varying_in in`), then rewrites the flattened result so
+		// it's valid Vulkan GLSL even with zero manual authoring:
+		//   - every vertex attribute/varying `in`/`out` lacking an explicit
+		//     `layout(location=N)` gets one, numbered by sorting the names
+		//     found *within this stage* alphabetically - deterministic and
+		//     stage-independent, so a vertex `out vTexcoord` and the
+		//     matching fragment `in vTexcoord` always land on the same
+		//     location without this method ever seeing both stages at
+		//     once (Vulkan matches VS-out/FS-in by location number, not
+		//     name, unlike GL).
+		//   - every sampler-type uniform lacking an explicit
+		//     `layout(set=1,binding=N)` gets one, numbered the same way
+		//     (local to this stage/program - see LinkProgram()'s reflection-
+		//     built samplerBindings map, nothing outside this program ever
+		//     needs these numbers to agree with anything else).
+		//   - every other (non-opaque) loose `uniform TYPE name, name2...;`
+		//     declaration is collected, removed, and replaced with one
+		//     synthesized `layout(std140,binding=uboBinding) uniform
+		//     blockName { ... };`, offsets computed by std140 rules - same
+		//     shape as IMaterial::ExtraUniformsBlock, reported back via
+		//     outResult so a caller can populate that struct without
+		//     hand-authoring it. Lines that already start with `layout(`
+		//     are left untouched (already-correct/hand-authored shaders,
+		//     including every shader this engine ships, are a no-op).
+		// `uboBinding` must already be a globally-reserved value (see
+		// IMaterial::ExtraUniformsBlock's comment on the binding
+		// registry) - only actually consumed if the stage turns out to
+		// have loose uniforms to wrap (outResult.hasBlock tells the
+		// caller whether it was used). Returns false only on a genuine
+		// preprocessing failure (errorLog filled) - a stage with nothing
+		// to fix still returns true with outResult.hasBlock == false and
+		// `source` essentially unchanged.
+		static bool AutoFixForVulkan(std::string &source, const uint32 stage, const uint32 uboBinding, const std::string &blockName, SpirvAutoUboResult &outResult, std::string &errorLog);
 
 		// Enumerates the uniform-buffer and sampler resources a compiled
 		// SPIR-V module declares, and the (set, binding) SPIR-V resolved
