@@ -210,6 +210,7 @@ namespace p3d {
 		// then each mat4 rounds up to the next 16-byte boundary (36->48)
 		// and occupies 64 bytes (4 std140-aligned vec4 columns).
 		extraUniformsBinding = 24;
+		extraUniformsBlockName = "SSAOParams";
 		extraUniformsSize = 240;
 		extraUniformsScratch.resize(extraUniformsSize, 0);
 		extraUniformOffsets["uNearFar"] = 0;

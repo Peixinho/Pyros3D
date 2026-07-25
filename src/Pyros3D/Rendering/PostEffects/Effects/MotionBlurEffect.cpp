@@ -30,6 +30,7 @@ namespace p3d {
 		// something this fix changes), so it just stays 0 in the UBO,
 		// matching current GL behavior exactly.
 		extraUniformsBinding = 26;
+		extraUniformsBlockName = "MotionBlurParams";
 		extraUniformsSize = 16;
 		extraUniformsScratch.resize(extraUniformsSize, 0);
 		extraUniformOffsets["uTexResolution"] = 0;

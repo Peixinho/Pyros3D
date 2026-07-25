@@ -134,6 +134,15 @@ namespace p3d {
 		// main shader's UBOs. Binding 0 (the default) means "no extra
 		// uniforms block" - PostEffectsManager skips all of this then.
 		uint32 extraUniformsBinding;
+		// The block's own GLSL name (e.g. "SSAOParams"), exactly as
+		// declared in FragmentShaderString above. Vulkan's
+		// BindUniformBlockIfPresent() ignores this (binding points are
+		// already static in the SPIR-V), but GL's looks the block up by
+		// name via glGetUniformBlockIndex() to rebind it from its default
+		// (0) to extraUniformsBinding - passing "" there never matches
+		// any block, so the rebind silently never happens and the shader
+		// keeps reading whatever's actually bound at binding 0 instead.
+		std::string extraUniformsBlockName;
 		uint32 extraUniformsSize;
 		uint32 extraUniformsBufferHandle;
 		std::vector<uchar> extraUniformsScratch;

@@ -31,6 +31,7 @@ namespace p3d {
 		// BlurSSAOParams block declared in FragmentShaderString below
 		// (vec2 then float packs tight, std140 align 8 then 4).
 		extraUniformsBinding = 25;
+		extraUniformsBlockName = "BlurSSAOParams";
 		extraUniformsSize = 16;
 		extraUniformsScratch.resize(extraUniformsSize, 0);
 		extraUniformOffsets["uTexResolution"] = 0;

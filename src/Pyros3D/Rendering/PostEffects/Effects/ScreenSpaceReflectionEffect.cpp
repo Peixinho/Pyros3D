@@ -210,6 +210,7 @@ namespace p3d {
 		// up to the next 16-byte boundary and occupies 64 bytes, then the
 		// int/float/float run packs tight at 4-byte alignment).
 		extraUniformsBinding = 31;
+		extraUniformsBlockName = "SSRParams";
 		extraUniformsSize = 160;
 		extraUniformsScratch.resize(extraUniformsSize, 0);
 		extraUniformOffsets["uNearFar"] = 0;

@@ -27,6 +27,7 @@ namespace p3d {
 		// (BlurXEffect's own - see SSAOEffect.cpp's comment on
 		// extraUniformsBinding for why these must all be distinct).
 		extraUniformsBinding = 29;
+		extraUniformsBlockName = "BlurYParams";
 		extraUniformsSize = 4;
 		extraUniformsScratch.resize(extraUniformsSize, 0);
 		extraUniformOffsets["uTexResolution"] = 0;

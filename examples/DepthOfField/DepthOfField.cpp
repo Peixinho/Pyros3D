@@ -114,6 +114,7 @@ DepthOfFieldEffect::DepthOfFieldEffect(Texture* texture1, Texture* texture2, con
 	// (std140: vec2 uNearFar at 0, then 4 floats packed at 4-byte
 	// alignment starting at 8).
 	extraUniformsBinding = 30;
+	extraUniformsBlockName = "DepthOfFieldParams";
 	extraUniformsSize = 24;
 	extraUniformsScratch.resize(extraUniformsSize, 0);
 	extraUniformOffsets["uNearFar"] = 0;

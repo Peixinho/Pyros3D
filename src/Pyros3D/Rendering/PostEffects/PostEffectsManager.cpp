@@ -248,7 +248,7 @@ namespace p3d {
 			{
 				if ((*effect)->extraUniformsBufferHandle == 0)
 					(*effect)->extraUniformsBufferHandle = device->CreateUniformBuffer((*effect)->extraUniformsSize, (*effect)->extraUniformsBinding);
-				device->BindUniformBlockIfPresent((*effect)->shader->ShaderProgram(), "", (*effect)->extraUniformsBinding);
+				device->BindUniformBlockIfPresent((*effect)->shader->ShaderProgram(), (*effect)->extraUniformsBlockName, (*effect)->extraUniformsBinding);
 				device->ReplaceUniformBuffer((*effect)->extraUniformsBufferHandle, (*effect)->extraUniformsSize, &(*effect)->extraUniformsScratch[0]);
 			}
 

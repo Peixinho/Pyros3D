@@ -28,6 +28,7 @@ namespace p3d {
 		// fragment stage, but the mechanism (and the global binding
 		// registry it draws from) is the same either way.
 		extraUniformsBinding = 28;
+		extraUniformsBlockName = "BlurXParams";
 		extraUniformsSize = 4;
 		extraUniformsScratch.resize(extraUniformsSize, 0);
 		extraUniformOffsets["uTexResolution"] = 0;
