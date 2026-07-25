@@ -198,6 +198,18 @@ set(SOURCE_RotatingTexturedCube
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
+set(SOURCE_SkyboxTest
+	${CMAKE_CURRENT_SOURCE_DIR}/SkyboxTest/SkyboxTest.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_draw.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_widgets.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_tables.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_sdl2.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_opengl3.cpp
+	${WINDOW_MANAGER}
+	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
+)
 set(SOURCE_RotatingTextureAnimatedCube
 	${CMAKE_CURRENT_SOURCE_DIR}/RotatingTextureAnimatedCube/RotatingTextureAnimatedCube.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
@@ -446,6 +458,11 @@ add_executable(RotatingTexturedCube ${SOURCE_RotatingTexturedCube})
 include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
 target_link_libraries(RotatingTexturedCube PyrosEngine  ${SDL2_LIBRARIES} ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES} pthread dl)
 target_compile_definitions(RotatingTexturedCube PRIVATE ${DESKTOP} -DDEMO_NAME=RotatingTexturedCube -D_RotatingTexturedCube ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
+
+add_executable(SkyboxTest ${SOURCE_SkyboxTest})
+include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
+target_link_libraries(SkyboxTest PyrosEngine  ${SDL2_LIBRARIES} ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES} pthread dl)
+target_compile_definitions(SkyboxTest PRIVATE ${DESKTOP} -DDEMO_NAME=SkyboxTest -D_SkyboxTest ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
 
 add_executable(RotatingTextureAnimatedCube ${SOURCE_RotatingTextureAnimatedCube})
 include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/imgui)

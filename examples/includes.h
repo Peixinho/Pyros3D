@@ -1,5 +1,7 @@
 #if defined(_RotatingCube)
 #include "RotatingCube/RotatingCube.h"
+#elif defined(_SkyboxTest)
+#include "SkyboxTest/SkyboxTest.h"
 #elif defined(_RotatingTexturedCube)
 #include "RotatingTexturedCube/RotatingTexturedCube.h"
 #elif defined(_RotatingTextureAnimatedCube)
