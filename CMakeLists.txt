@@ -223,6 +223,7 @@ set(SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Lights/SpotLight/SpotLight.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Rendering/RenderingComponent.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Particles/ParticleSystem.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Culling/Culling.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Culling/FrustumCulling/FrustumCulling.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/PostEffectsManager.cpp
@@ -258,6 +259,7 @@ set(SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Core/Math/Quaternion.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Core/Math/Vec2.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Core/Math/Vec3.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Core/Math/Random.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Core/Context/Context.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Core/Projection/Projection.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Materials/Shaders/Shaders.cpp

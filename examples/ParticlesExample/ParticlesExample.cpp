@@ -10,11 +10,6 @@
 
 using namespace p3d;
 
-// Must match particle.glsl's PARTICLE_LIFETIME - both the shader's
-// scale/fade curve and this removal threshold are keyed off the same
-// particle age.
-static const f32 PARTICLE_LIFETIME = 5.0f;
-
 ParticlesExample::ParticlesExample() : BaseExample(1024, 768, "Pyros3D - Particles", WindowType::Close | WindowType::Resize) {}
 
 void ParticlesExample::OnResize(const uint32 width, const uint32 height)
@@ -41,109 +36,103 @@ void ParticlesExample::Init()
 
 	FPSCamera->SetPosition(Vec3(0, 2, 15));
 
-	particleMaterial = new ParticleMaterial();
+	particleTexture = new Texture();
+	particleTexture->LoadTexture(STR(EXAMPLES_PATH)"/assets/smoke.png", TextureType::Texture);
+	particleTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
-	// Create Game Object
-	gSmoke1 = new GameObject();
-	gSmoke2 = new GameObject();
-	smokeParticle1 = new Plane(1,1);
-	smokeParticle2 = new Plane(1,1);
+	// Smoke: soft, gray, alpha-blended, slow rise.
+	smokeEmissionRate = 15.f;
+	smokeSpread = 0.6f;
+	smokeRiseSpeed = 2.0f;
 
-	// Create Particle Emitter
-	emitter1 = new ParticleEmitter(smokeParticle1, particleMaterial, 0, 100);
-	emitter2 = new ParticleEmitter(smokeParticle2, particleMaterial, 0, 100);
+	ParticleSystemDesc smokeDesc;
+	smokeDesc.maxParticles = 200;
+	smokeDesc.texture = particleTexture;
+	smokeDesc.looping = true;
+	smokeDesc.emissionRate = smokeEmissionRate;
+	smokeDesc.burstCount = 1;
+	smokeDesc.minLifetime = 3.0f;
+	smokeDesc.maxLifetime = 5.0f;
+	smokeDesc.direction = Vec3(0, 1, 0);
+	smokeDesc.spreadAngle = (f32)DEGTORAD(20.0);
+	smokeDesc.minSpeed = smokeRiseSpeed * 0.8f;
+	smokeDesc.maxSpeed = smokeRiseSpeed * 1.2f;
+	smokeDesc.gravity = Vec3::ZERO;
+	smokeDesc.damping = 0.3f;
+	smokeDesc.startSize = 0.8f;
+	smokeDesc.endSize = 3.5f;
+	smokeDesc.sizeRandomJitter = 0.3f;
+	smokeDesc.startColor = Vec4(0.6f, 0.6f, 0.6f, 1.0f);
+	smokeDesc.endColor = Vec4(0.3f, 0.3f, 0.3f, 0.0f);
+	smokeDesc.fadeInFraction = 0.1f;
+	smokeDesc.fadeOutFraction = 0.6f;
+	smokeDesc.minRotationSpeed = -0.4f;
+	smokeDesc.maxRotationSpeed = 0.4f;
+	smokeDesc.blendMode = ParticleBlendMode::AlphaBlend;
 
-	gSmoke1->Add(emitter1);
-	gSmoke1->SetPosition(Vec3(-10,0,0));
-	Scene->Add(gSmoke1);
+	smoke = new ParticleSystem(smokeDesc);
+	gSmoke = new GameObject();
+	gSmoke->Add(smoke);
+	gSmoke->SetPosition(Vec3(-4, 0, 0));
+	Scene->Add(gSmoke);
 
-	gSmoke2->Add(emitter2);
-	gSmoke2->SetPosition(Vec3(10,0,0));
-	Scene->Add(gSmoke2);
+	// Embers: bright, additive, warm color gradient, faster/smaller -
+	// demonstrates the second blend mode and a real color-over-life
+	// gradient, reusing the same smoke.png sprite (additive blending
+	// against a bright gradient is what gives it a glow, not a different
+	// texture).
+	ParticleSystemDesc emberDesc;
+	emberDesc.maxParticles = 150;
+	emberDesc.texture = particleTexture;
+	emberDesc.looping = true;
+	emberDesc.emissionRate = 30.f;
+	emberDesc.burstCount = 1;
+	emberDesc.minLifetime = 1.0f;
+	emberDesc.maxLifetime = 1.8f;
+	emberDesc.direction = Vec3(0, 1, 0);
+	emberDesc.spreadAngle = (f32)DEGTORAD(25.0);
+	emberDesc.minSpeed = 3.0f;
+	emberDesc.maxSpeed = 5.0f;
+	emberDesc.gravity = Vec3(0, -1.5f, 0);
+	emberDesc.damping = 0.1f;
+	emberDesc.startSize = 0.6f;
+	emberDesc.endSize = 0.15f;
+	emberDesc.sizeRandomJitter = 0.4f;
+	emberDesc.startColor = Vec4(1.0f, 0.9f, 0.4f, 1.0f);
+	emberDesc.endColor = Vec4(1.0f, 0.2f, 0.0f, 1.0f);
+	emberDesc.fadeInFraction = 0.05f;
+	emberDesc.fadeOutFraction = 0.5f;
+	emberDesc.minRotationSpeed = -2.0f;
+	emberDesc.maxRotationSpeed = 2.0f;
+	emberDesc.blendMode = ParticleBlendMode::Additive;
 
-	lastTime = GetTime();
-	emissionAccumulator1 = emissionAccumulator2 = 0.f;
-
-	emissionRate = 15.f;
-	burstSize = 1;
-	spread = 0.6f;
-	riseSpeed = 2.0f;
+	embers = new ParticleSystem(emberDesc);
+	gEmbers = new GameObject();
+	gEmbers->Add(embers);
+	gEmbers->SetPosition(Vec3(4, 0, 0));
+	Scene->Add(gEmbers);
 
 	// Initialize ImGui
 	InitImGui();
-}
-
-void ParticlesExample::SpawnParticle(ParticleEmitter* emitter, const f32 time)
-{
-	Particle p;
-	p.Position = Vec4(0, 0, 0, ((rand() % 200) - 100) * 0.01f);
-	f32 vx = ((rand() % 200) - 100) * 0.01f * spread;
-	f32 vz = ((rand() % 200) - 100) * 0.01f * spread;
-	p.Details = Vec4(vx, riseSpeed, vz, time);
-	emitter->particles.push_back(p);
-}
-
-void ParticlesExample::UpdateEmitter(ParticleEmitter* emitter, const f32 time, const f32 dt)
-{
-	for (std::vector<Particle>::iterator i = emitter->particles.begin(); i != emitter->particles.end();)
-	{
-		Particle* p = &(*i);
-		if (time - p->Details.w > PARTICLE_LIFETIME) {
-			i = emitter->particles.erase(i);
-		} else {
-			p->Position.x += p->Details.x * dt;
-			p->Position.y += p->Details.y * dt;
-			p->Position.z += p->Details.z * dt;
-			i++;
-		}
-	}
-
-	if (emitter->particles.size() > 0)
-	{
-		emitter->SetNumberInstances(emitter->particles.size());
-		emitter->particles_position_buffer->Buffer->Update(&emitter->particles[0], emitter->particles.size() * sizeof(Particle));
-	}
 }
 
 void ParticlesExample::Update()
 {
 	// Update - Game Loop
 
-	// Update Scene
+	// Update Scene - this alone drives both particle systems' simulation
+	// (spawn/age/integrate/upload) via IComponent::Update(), automatically
+	// called for every component on every GameObject. No manual per-frame
+	// particle code needed here, unlike the old hand-rolled version of
+	// this example.
 	Scene->Update(GetTime());
 
 	BaseExample::Update();
 
-	// Game Logic Here - continuous emission (accumulator-based, so the
-	// rate is real particles/second regardless of frame rate) instead of
-	// the previous fixed "one particle every 0.1s" - both emissionRate
-	// and burstSize are live-tunable via DrawUI().
-	f32 time = GetTime();
-	f32 dt = time - lastTime;
-	lastTime = time;
-	if (dt < 0.f) dt = 0.f;
-	if (dt > 0.1f) dt = 0.1f; // clamp - avoid a spawn burst after a stall/breakpoint
-
-	f32 interval = 1.0f / (emissionRate > 0.01f ? emissionRate : 0.01f);
-
-	emissionAccumulator1 += dt;
-	while (emissionAccumulator1 >= interval)
-	{
-		emissionAccumulator1 -= interval;
-		for (int32 i = 0; i < burstSize; i++)
-			SpawnParticle(emitter1, time);
-	}
-
-	emissionAccumulator2 += dt;
-	while (emissionAccumulator2 >= interval)
-	{
-		emissionAccumulator2 -= interval;
-		for (int32 i = 0; i < burstSize; i++)
-			SpawnParticle(emitter2, time);
-	}
-
-	UpdateEmitter(emitter1, time, dt);
-	UpdateEmitter(emitter2, time, dt);
+	// Live-tune the smoke system from the ImGui sliders below.
+	smoke->SetEmissionRate(smokeEmissionRate);
+	smoke->SetSpeed(smokeRiseSpeed * 0.8f, smokeRiseSpeed * 1.2f);
+	smoke->SetSpread((f32)DEGTORAD(20.0 * smokeSpread));
 
 	// Render Scene
 	Renderer->PreRender(FPSCamera, Scene);
@@ -164,18 +153,16 @@ void ParticlesExample::DrawUI()
 		ImGui::Separator();
 
 		ImGui::Text("Scene Objects:");
-		ImGui::Text("  Emitter 1 particles: %zu", emitter1->particles.size());
-		ImGui::Text("  Emitter 2 particles: %zu", emitter2->particles.size());
-		ImGui::Text("  Material: CustomShaderMaterial (particle.glsl)");
-		ImGui::Text("  Texture: smoke.png (alpha-blended)");
-		ImGui::Text("  Lifetime: %.1fs (fade in/out, spherical billboard)", PARTICLE_LIFETIME);
+		ImGui::Text("  Smoke particles: %u (AlphaBlend)", smoke->GetLiveParticleCount());
+		ImGui::Text("  Ember particles: %u (Additive)", embers->GetLiveParticleCount());
+		ImGui::Text("  Component: p3d::ParticleSystem (engine feature)");
+		ImGui::Text("  Texture: smoke.png (shared, alpha-blended)");
 
 		ImGui::Separator();
-		ImGui::Text("Emission Controls:");
-		ImGui::SliderFloat("Rate (particles/sec)", &emissionRate, 1.0f, 60.0f);
-		ImGui::SliderInt("Burst Size", &burstSize, 1, 10);
-		ImGui::SliderFloat("Spread", &spread, 0.0f, 2.0f);
-		ImGui::SliderFloat("Rise Speed", &riseSpeed, 0.0f, 10.0f);
+		ImGui::Text("Smoke Emission Controls:");
+		ImGui::SliderFloat("Rate (particles/sec)", &smokeEmissionRate, 1.0f, 60.0f);
+		ImGui::SliderFloat("Spread", &smokeSpread, 0.0f, 2.0f);
+		ImGui::SliderFloat("Rise Speed", &smokeRiseSpeed, 0.0f, 10.0f);
 
 		ImGui::Separator();
 		ImGui::Text("Performance:");
@@ -196,19 +183,17 @@ void ParticlesExample::Shutdown()
 	// All your Shutdown Code Here
 
 	// Remove GameObjects From Scene
-	gSmoke1->Remove(emitter1);
-	Scene->Remove(gSmoke1);
-	gSmoke2->Remove(emitter2);
-	Scene->Remove(gSmoke2);
+	gSmoke->Remove(smoke);
+	Scene->Remove(gSmoke);
+	gEmbers->Remove(embers);
+	Scene->Remove(gEmbers);
 
 	// Delete
-	delete emitter1;
-	delete emitter2;
-	delete particleMaterial;
-	delete gSmoke1;
-	delete gSmoke2;
-	delete smokeParticle1;
-	delete smokeParticle2;
+	delete smoke;
+	delete embers;
+	delete gSmoke;
+	delete gEmbers;
+	delete particleTexture;
 
 	// Renderer is deleted by BaseExample::Shutdown()
 	BaseExample::Shutdown();
