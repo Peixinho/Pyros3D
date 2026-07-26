@@ -56,7 +56,12 @@ void RotatingCubeWithLightingAndShadow::Init()
 	dLight = new DirectionalLight(Vec4(1, 1, 1, 1), Vec3(-1, -1, -1));
 	// Enable Shadow Casting with reduced resolution
 	dLight->EnableCastShadows(1024, 1024, projection, 0.1f, (f32)300.0, 1);
-	dLight->SetShadowBias(5.f, 3.f);
+	// Lowered from (5.f, 3.f) - now that the shadow frustum is correctly
+	// sized to the camera's real FOV (see Cascade fixes), that much bias
+	// was pushing occluders' recorded depth back enough to cause a visible
+	// "peter panning" gap right at their own silhouette edge, at grazing
+	// angles to the light.
+	dLight->SetShadowBias(2.f, 1.f);
 	Light->Add(dLight);
 
 	Light2 = new GameObject();
@@ -162,7 +167,7 @@ void RotatingCubeWithLightingAndShadow::DrawUI()
 		ImGui::Text("Shadow System:");
 		ImGui::Text("  Directional Shadow: 1024x1024 resolution");
 		ImGui::Text("  Point Shadow: 512x512 resolution");
-		ImGui::Text("  Shadow Bias: 5.0, 3.0");
+		ImGui::Text("  Shadow Bias: 2.0, 1.0");
 		ImGui::Text("  Shadow Range: 0.1 to 300.0");
 		
 		ImGui::Separator();
