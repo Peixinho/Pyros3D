@@ -31,7 +31,15 @@ namespace p3d {
 		Height = height;
 
 		Color = new Texture();
-		Color->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
+		// RGBA16F, not RGBA8 - this is what every wrapped RenderScene()
+		// call (Forward or Deferred) draws into. Additive multi-light PBR
+		// accumulation routinely exceeds 1.0 per channel; an 8-bit unorm
+		// target would hard-clip those values here, before TonemapEffect
+		// (see Effects/TonemapEffect.h) ever gets a chance to roll them
+		// off gracefully. Both backends' format tables already handle
+		// this format fully (GLRenderDevice/VulkanRenderDevice
+		// TranslateTextureFormat()) - no backend work needed.
+		Color->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height, false);
 		Color->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 		Depth = new Texture();

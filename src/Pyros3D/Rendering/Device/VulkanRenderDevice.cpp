@@ -3860,14 +3860,18 @@ namespace p3d {
 		vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
 	}
 	// Was a complete no-op stub (return 0) alongside ReadTexturePixels above
-	// - same investigation, same fix. Every render-target texture read back
-	// through this backend today (G-buffer attachments, lastPassFBO's
-	// colorTexture) is RGBA8, so this is real and correct for all current
-	// callers, but it's not format-aware - a caller reading back a
-	// differently-sized format (e.g. a single-channel depth texture, which
-	// goes through DebugReadDepthTexture() instead, not this path) would
-	// get the wrong size.
-	uint32 VulkanRenderDevice::GetTextureDataSize(const uint32 nativeInternalFormat, const uint32 width, const uint32 height) { return width * height * 4; }
+	// - same investigation, same fix. Originally hardcoded width*height*4
+	// (RGBA8-only) - real bug found immediately once PostEffectsManager's
+	// Color/DeferredRenderer's colorTexture became RGBA16F (see their
+	// CreateEmptyTexture() call sites): PainterPick.cpp's real, production
+	// GetTextureData() call on any non-RGBA8 texture would read half as
+	// many bytes as the image actually holds, corrupting whatever it
+	// reads. nativeInternalFormat is a real VkFormat value (see
+	// Texture::GetTextureData()'s Device().TranslateTextureFormat() call,
+	// TranslateTextureFormat()'s own cast-to-VkFormat assignments) - reuse
+	// the same per-format table UploadTexture2D() already trusts for
+	// upload sizing, instead of a second, format-blind assumption.
+	uint32 VulkanRenderDevice::GetTextureDataSize(const uint32 nativeInternalFormat, const uint32 width, const uint32 height) { return width * height * BytesPerTexelVk((VkFormat)nativeInternalFormat); }
 
 	// See IRenderDevice.h's comment - this is what
 	// RenderingMesh::PipelineCache keys on, in addition to shader, to
@@ -4471,6 +4475,31 @@ namespace p3d {
 
 	void VulkanRenderDevice::BeginOffscreenRenderPassForTarget(FBORecord &fbo, const VkFramebuffer targetFramebuffer)
 	{
+		// Real bug, found chasing a "renders near-black instead of the
+		// composited scene" report the moment DeferredRenderer's own
+		// internal FBO/lastPassFBO Bind()/UnBind() cycle first got nested
+		// inside an already-open outer offscreen target
+		// (PostEffectsManager::CaptureFrame()'s ExternalFBO - the first
+		// time any renderer with its own internal offscreen passes was
+		// ever wrapped by PostEffectsManager; every prior
+		// PostEffectsManager example uses ForwardRenderer, which has none).
+		// This function used to call vkCmdBeginRenderPass unconditionally -
+		// fine every time it had previously been called (each FBO's own
+		// Bind()/UnBind() pair, or one cubemap face at a time within a
+		// single session), but the moment DeferredRenderer's FBO->Bind()
+		// ran while ExternalFBO's render pass was still open (from
+		// CaptureFrame()), this began a *second*, nested render pass on
+		// the same command buffer without ever closing the first - illegal
+		// Vulkan usage (VUID-vkCmdBeginRenderPass-renderpass-recording),
+		// and on this MoltenVK setup it silently corrupted state rather
+		// than producing a caught validation error: draws after the nested
+		// begin landed unpredictably, and the *first* target's own pending
+		// clear/content got lost the next time something tried to restore
+		// it. Ending whatever's already open first makes every
+		// begin/end pair well-formed and non-overlapping, regardless of
+		// how many offscreen targets nest within a single command buffer.
+		EndOffscreenRenderPassIfOpen();
+
 		// Begin recording the session's command buffer, once - the
 		// first time this FBO actually has something to render into
 		// within this Bind()/UnBind() session.

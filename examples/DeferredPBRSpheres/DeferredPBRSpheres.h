@@ -25,6 +25,8 @@
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
+#include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/TonemapEffect.h>
 #include <vector>
 
 using namespace p3d;
@@ -49,6 +51,16 @@ private:
 
 	DeferredRenderer* Renderer;
 	Projection projection;
+
+	// HDR capture + tonemap (ACES filmic + gamma 2.2) - the additive
+	// point-light accumulation below routinely exceeds 1.0 per channel;
+	// without this the highlights would just hard-clip. First-ever
+	// pairing of DeferredRenderer with PostEffectsManager in this
+	// codebase (every existing PostEffectsManager example uses
+	// ForwardRenderer) - the CaptureFrame()/EndCapture() mechanism is
+	// renderer-agnostic (DeferredRenderer::RenderScene()'s
+	// isMainSwapchainPass gate matches ForwardRenderer's identical gate).
+	PostEffectsManager* EffectManager;
 
 	Renderable* sphereMesh;
 

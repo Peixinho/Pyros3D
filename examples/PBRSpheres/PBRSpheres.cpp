@@ -21,6 +21,7 @@ void PBRSpheres::OnResize(const uint32 width, const uint32 height)
 	BaseExample::OnResize(width, height);
 
 	Renderer->Resize(width, height);
+	EffectManager->Resize(width, height);
 	projection.Perspective(60.f, (f32)width / (f32)height, 0.1f, 300.f);
 }
 
@@ -30,6 +31,9 @@ void PBRSpheres::Init()
 
 	Renderer = new ForwardRenderer(Width, Height);
 	Renderer->SetGlobalLight(Vec4(0.12f, 0.12f, 0.14f, 1.f));
+
+	EffectManager = new PostEffectsManager(Width, Height);
+	EffectManager->AddEffect(new TonemapEffect(RTT::Color, Width, Height));
 
 	projection.Perspective(60.f, (f32)Width / (f32)Height, 0.1f, 300.f);
 
@@ -126,8 +130,11 @@ void PBRSpheres::Update()
 
 	BaseExample::Update();
 
+	EffectManager->CaptureFrame();
 	Renderer->PreRender(FPSCamera, Scene);
 	Renderer->RenderScene(projection, FPSCamera, Scene);
+	EffectManager->EndCapture();
+	EffectManager->ProcessPostEffects(&projection);
 
 	RenderImGui();
 }
@@ -171,6 +178,9 @@ void PBRSpheres::Shutdown()
 
 	Light->Remove(dLight);
 	delete dLight;
+
+	// EffectManager's destructor deletes the TonemapEffect it owns.
+	delete EffectManager;
 
 	// Renderer/Scene/FPSCamera are deleted by BaseExample::Shutdown()
 	BaseExample::Shutdown();

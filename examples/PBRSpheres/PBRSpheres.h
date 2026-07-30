@@ -23,6 +23,8 @@
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
+#include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/TonemapEffect.h>
 #include <vector>
 
 using namespace p3d;
@@ -46,6 +48,12 @@ private:
 
 	ForwardRenderer* Renderer;
 	Projection projection;
+
+	// HDR capture + tonemap (ACES filmic + gamma 2.2) - see
+	// DeferredPBRSpheres.h's identical comment. ForwardRenderer has no
+	// accumulation buffer of its own, so this also gives it the offscreen
+	// HDR target it wouldn't otherwise have.
+	PostEffectsManager* EffectManager;
 
 	GameObject* Light;
 	DirectionalLight* dLight;

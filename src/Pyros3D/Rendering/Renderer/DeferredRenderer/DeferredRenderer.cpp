@@ -44,7 +44,14 @@ namespace p3d {
 		// reason, on the one attachment (the whole second pass's output)
 		// this session's black-screen investigation narrowed the problem
 		// down to.
-		colorTexture = new Texture(); colorTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
+		// RGBA16F, not RGBA8 - see PostEffectsManager.cpp's identical
+		// comment on its own Color texture. This is lastPassFBO's
+		// additive light-accumulation target (ambient + N lights via
+		// BlendFunc::One,One below); without float headroom here the
+		// accumulation itself clips before a wrapping PostEffectsManager
+		// (if any) ever gets a chance to capture it, regardless of that
+		// buffer's own format.
+		colorTexture = new Texture(); colorTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height, false);
 		colorTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 		// See DeferredRenderer.h's comment on forwardDepthTexture - a real
