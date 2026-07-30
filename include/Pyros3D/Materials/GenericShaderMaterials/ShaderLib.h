@@ -42,7 +42,9 @@ namespace p3d
 			DeferredRenderer_Gbuffer = 0x40000,
 			ParallaxMapping = 0x80000,
 			InstancedRendering = 0x100000,
-			VelocityRendering = 0x200000
+			VelocityRendering = 0x200000,
+			PBR = 0x400000,
+			PBRMap = 0x800000
 		};
 	};
 }

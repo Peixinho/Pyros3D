@@ -1628,8 +1628,9 @@ static const uchar* FindUserUniformValue(const std::list<Uniform> &uniforms, con
 }
 
 // std140 layout matching MaterialUniforms in PyrosShader.glsl exactly (64
-// bytes: 2 vec4 + 5 float = 32 + 20 = 52, padded to 64 by std140's
-// vec4-multiple block size rule).
+// bytes: 2 vec4 + 7 float = 32 + 28 = 60, padded to 64 by std140's
+// vec4-multiple block size rule). Metallic/Roughness (PBR) occupy 2 of what
+// used to be 3 spare padding floats - block size/binding unchanged.
 struct MaterialUniformsData
 {
 	Vec4 Color;
@@ -1639,7 +1640,9 @@ struct MaterialUniformsData
 	f32 UseLights;
 	f32 DisplacementHeight;
 	f32 Reflectivity;
-	f32 _pad[3];
+	f32 Metallic;
+	f32 Roughness;
+	f32 _pad[1];
 };
 static_assert(sizeof(MaterialUniformsData) == 64, "MaterialUniformsData must byte-match PyrosShader.glsl's MaterialUniforms std140 layout exactly");
 
@@ -1680,6 +1683,8 @@ void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uUseLights")) memcpy(&data.UseLights, v, sizeof(f32));
 		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uDisplacementHeight")) memcpy(&data.DisplacementHeight, v, sizeof(f32));
 		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uReflectivity")) memcpy(&data.Reflectivity, v, sizeof(f32));
+		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uMetallic")) memcpy(&data.Metallic, v, sizeof(f32));
+		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uRoughness")) memcpy(&data.Roughness, v, sizeof(f32));
 		// ReplaceUniformBuffer (not UpdateUniformBuffer) - see
 		// IRenderDevice.h's comment on ReplaceUniformBuffer(); still the
 		// right call here even though this now only fires on

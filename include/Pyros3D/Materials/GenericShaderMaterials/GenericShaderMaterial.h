@@ -44,6 +44,12 @@ namespace p3d
 		void SetSkyboxMap(Texture* skyboxmap);
 		// Lights
 		void SetShininess(const f32 shininess);
+		// PBR (metallic/roughness workflow - ShaderUsage::PBR/PBRMap)
+		void SetMetallic(const f32 metallic);
+		void SetRoughness(const f32 roughness);
+		// Packed ORM-style texture: G channel = roughness, B channel = metalness
+		// (R unused/free - glTF convention minus AO, not yet supported here).
+		void SetMetallicRoughnessMap(Texture* metallicRoughnessMap);
 
 		// Text
 		void SetTextFont(Font* font);
@@ -79,11 +85,16 @@ namespace p3d
 		// Environment Cube
 		f32 Reflectivity;
 
+		// PBR (metallic/roughness workflow)
+		f32 Metallic, Roughness;
+
 		// Texture IDs
 		int32 colorMapID, specularMapID, normalMapID, displacementMapID, envMapID, skyboxMapID, refractMapID, fontMapID;
+		int32 metallicRoughnessMapID;
 
 		// Uniforms Handles
 		Uniform *uColor, *uSpecular, *uReflectivity, *uShininess, *uUseLights, *uDisplacementHeight;
+		Uniform *uMetallic, *uRoughness;
 	};
 }
 

@@ -32,7 +32,19 @@ namespace p3d {
 		shadowSkinnedMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Skinning);
 		shadowSkinnedMaterial->SetCullFace(CullFace::DoubleSided);
 
-		colorTexture = new Texture(); colorTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height);
+		// Real, found-in-this-investigation inconsistency: every sibling
+		// render-target texture in this file (forwardDepthTexture right
+		// below, and every G-buffer attachment the caller creates)
+		// explicitly passes Mipmapping=false - this one didn't, silently
+		// picking up CreateEmptyTexture()'s Mipmapping=true default. A
+		// mipmapped render target still needs GetOrCreateRenderTargetView()'s
+		// level-0-only view to even be usable as a framebuffer attachment
+		// at all (see its comment) - correct on paper, but an unnecessary
+		// difference from every other render target in this class for no
+		// reason, on the one attachment (the whole second pass's output)
+		// this session's black-screen investigation narrowed the problem
+		// down to.
+		colorTexture = new Texture(); colorTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
 		colorTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 		// See DeferredRenderer.h's comment on forwardDepthTexture - a real
@@ -91,6 +103,20 @@ namespace p3d {
 		deferredLastPass->extraUniforms[0].size = 8;
 		deferredLastPass->extraUniforms[0].scratch.resize(deferredLastPass->extraUniforms[0].size, 0);
 		deferredLastPass->extraUniforms[0].offsets["uScreenDimensions"] = 0;
+		// Real, pre-existing inconsistency found while investigating a
+		// separate rendering issue: every other second-pass material
+		// (Ambient/Directional/Point/Spot, further below) explicitly
+		// disables depth test/write for its full-screen-quad draw -
+		// deferredLastPass was the only one left at IMaterial's default
+		// (depthTest=true), which is never correct for a final blit
+		// sampling an already-composited color buffer. Did not by itself
+		// resolve the issue being investigated, but is a real fix on its
+		// own merits (consistent with its four siblings) - kept.
+		deferredLastPass->DisableDepthTest();
+		deferredLastPass->DisableDepthWrite();
+		// See deferredMaterialAmbient's identical comment further below -
+		// same screen-space full-screen-quad pass, same backface-culling bug.
+		deferredLastPass->SetCullFace(CullFace::DoubleSided);
 
 		uint32 texID = 0;
 		deferredMaterialAmbient->AddUniform(Uniform("tDepth", Uniforms::DataType::Int, &texID));
@@ -112,6 +138,14 @@ namespace p3d {
 		deferredMaterialDirectional->AddUniform(Uniform("tNormal", Uniforms::DataType::Int, &texID));
 		deferredMaterialPoint->AddUniform(Uniform("tNormal", Uniforms::DataType::Int, &texID));
 		deferredMaterialSpot->AddUniform(Uniform("tNormal", Uniforms::DataType::Int, &texID));
+		// PBR metallic/roughness G-buffer attachment (Color_Attachment3) -
+		// bound as texture unit 4, matching its AddAttach() order in the
+		// caller's FBO setup (see FBO->GetAttachments() bind loop below).
+		texID = 4;
+		deferredMaterialAmbient->AddUniform(Uniform("tMetallicRoughness", Uniforms::DataType::Int, &texID));
+		deferredMaterialDirectional->AddUniform(Uniform("tMetallicRoughness", Uniforms::DataType::Int, &texID));
+		deferredMaterialPoint->AddUniform(Uniform("tMetallicRoughness", Uniforms::DataType::Int, &texID));
+		deferredMaterialSpot->AddUniform(Uniform("tMetallicRoughness", Uniforms::DataType::Int, &texID));
 
 		deferredMaterialAmbient->AddUniform(Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
 		deferredMaterialAmbient->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
@@ -133,6 +167,19 @@ namespace p3d {
 		deferredMaterialAmbient->EnableBlending();
 		deferredMaterialAmbient->BlendingEquation(BlendEq::Add);
 		deferredMaterialAmbient->BlendingFunction(BlendFunc::One, BlendFunc::One);
+		// THE root cause of the Vulkan black-screen investigation: this is a
+		// screen-space full-screen-quad pass (vertex shader is a trivial
+		// gl_Position = vec4(aPosition,1.0) passthrough, no projection
+		// matrix - see secondpassAmbient.glsl) but IMaterial defaults every
+		// material to CullFace::BackFace. On GL that convention happens to
+		// let the quad through; on Vulkan it does not, so 100% of its
+		// fragments were being backface-culled before the fragment shader
+		// ever ran - explains why even a hardcoded solid-color FragColor
+		// never showed up in lastPassFBO's colorTexture. PostEffectsManager
+		// hits the exact same class of pass and already force-overrides to
+		// CullFace::DoubleSided for this reason (see its CreatePipeline
+		// call) - a full-screen quad has no meaningful back face to cull.
+		deferredMaterialAmbient->SetCullFace(CullFace::DoubleSided);
 
 		deferredMaterialDirectional->AddUniform(Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
 		dirDirHandle = deferredMaterialDirectional->AddUniform(Uniform("uLightDirection", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
@@ -169,6 +216,9 @@ namespace p3d {
 		deferredMaterialDirectional->EnableBlending();
 		deferredMaterialDirectional->BlendingEquation(BlendEq::Add);
 		deferredMaterialDirectional->BlendingFunction(BlendFunc::One, BlendFunc::One);
+		// See deferredMaterialAmbient's identical comment above - same
+		// screen-space full-screen-quad pass, same backface-culling bug.
+		deferredMaterialDirectional->SetCullFace(CullFace::DoubleSided);
 
 		deferredMaterialPoint->AddUniform(Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
 		pointPosHandle = deferredMaterialPoint->AddUniform(Uniform("uLightPosition", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
@@ -384,6 +434,32 @@ namespace p3d {
 		ViewMatrixInverseIsDirty = true;
 		ProjectionMatrixInverseIsDirty = true;
 		ViewProjectionMatrixIsDirty = true;
+
+		// Real, pre-existing bug found chasing an unrelated black-screen
+		// report: unlike ForwardRenderer::RenderScene() (see its identical
+		// comment on this exact call), DeferredRenderer never called
+		// device->BeginFrame()/EndFrame() at all - on GL both are no-ops so
+		// this was invisible, but on Vulkan there is exactly ONE shared
+		// per-frame command buffer (VulkanRenderDevice::frameCommandBuffer,
+		// set as activeCommandBuffer inside BeginFrame()) that every
+		// vkCmdBeginRenderPass in the frame - the G-buffer pass, the
+		// lastPassFBO lighting-accumulation pass, AND the final swapchain
+		// blit - records into. With BeginFrame() never called at all,
+		// nothing in this whole function had a valid open command buffer
+		// to record into from the very first FBO->Bind() below. Must be
+		// called here, before any of that starts (matching
+		// ForwardRenderer's placement right after DrawBackground() sets
+		// the clear color) - NOT just wrapped around the final blit, which
+		// was an earlier, incomplete attempt at this same fix: by the time
+		// that ran, the G-buffer/lighting passes had already tried to
+		// record into a command buffer that didn't exist yet.
+		// isMainSwapchainPass gating matches ForwardRenderer, for the same
+		// reason: don't hijack the active command buffer if this
+		// RenderScene() call is itself targeting a caller-bound offscreen
+		// FBO (e.g. a reflection pass) rather than the real swapchain.
+		bool isMainSwapchainPass = device->GetCurrentRenderTarget() == 0;
+		if (isMainSwapchainPass)
+			device->BeginFrame();
 
 		// Bind Frame Buffer
 		FBO->Bind();
@@ -844,8 +920,11 @@ namespace p3d {
 			RenderObject(directionalLight->GetMeshes()[0], &go, deferredLastPass);
 		}
 		colorTexture->Unbind();
-		
-		EndRender();	
+
+		EndRender();
+
+		if (isMainSwapchainPass)
+			device->EndFrame();
 	}
 
 	void DeferredRenderer::SetFBO(FrameBuffer* fbo)

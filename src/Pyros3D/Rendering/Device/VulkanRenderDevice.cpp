@@ -3751,8 +3751,123 @@ namespace p3d {
 		unitJustActivated = true;
 	}
 
-	void VulkanRenderDevice::ReadTexturePixels(const uint32 target, const uint32 level, const uint32 format, const uint32 type, void *outBuffer) {}
-	uint32 VulkanRenderDevice::GetTextureDataSize(const uint32 nativeInternalFormat, const uint32 width, const uint32 height) { return 0; }
+	// Was a complete no-op stub - found chasing an unrelated black-screen
+	// report, where it made every diagnostic pixel-readback attempt via
+	// Texture::GetTextureData() silently return an all-zero buffer instead
+	// of failing loudly, which briefly looked like real evidence of a
+	// rendering bug that didn't exist. Real implementation now, mirroring
+	// DebugReadDepthTexture()'s staging-buffer pattern exactly, just for
+	// the color aspect instead of depth. `target`/`format`/`type` stay
+	// unused (same as every other GL-token parameter on this backend -
+	// see BindTextureToTarget()'s comment); the texture to read is
+	// whatever Texture::GetTextureData()'s preceding BindTextureToTarget()
+	// call left in currentlyConfiguringTexture.
+	void VulkanRenderDevice::ReadTexturePixels(const uint32 target, const uint32 level, const uint32 format, const uint32 type, void *outBuffer)
+	{
+		(void)target; (void)level; (void)format; (void)type;
+		if (outBuffer == NULL || allocator == VK_NULL_HANDLE)
+			return;
+		std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(currentlyConfiguringTexture);
+		if (texIt == textures.end() || texIt->second.image == VK_NULL_HANDLE)
+			return;
+		TextureRecord &tex = texIt->second;
+
+		VkDeviceSize bufferSize = (VkDeviceSize)tex.width * tex.height * 4;
+		VkBufferCreateInfo bufferInfo = {};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bufferInfo.size = bufferSize;
+		bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VmaAllocationCreateInfo stagingAllocInfo = {};
+		stagingAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		stagingAllocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+		VkBuffer stagingBuffer = VK_NULL_HANDLE;
+		VmaAllocation stagingAllocation = VK_NULL_HANDLE;
+		VmaAllocationInfo stagingAllocationInfo;
+		if (vmaCreateBuffer(allocator, &bufferInfo, &stagingAllocInfo, &stagingBuffer, &stagingAllocation, &stagingAllocationInfo) != VK_SUCCESS)
+			return;
+
+		VkCommandBufferAllocateInfo cmdAllocInfo = {};
+		cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		cmdAllocInfo.commandPool = commandPool;
+		cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		cmdAllocInfo.commandBufferCount = 1;
+		VkCommandBuffer cmd = VK_NULL_HANDLE;
+		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &cmd) != VK_SUCCESS)
+		{
+			vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
+			return;
+		}
+
+		VkCommandBufferBeginInfo beginInfo = {};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		vkBeginCommandBuffer(cmd, &beginInfo);
+
+		// Color render targets (G-buffer attachments, lastPassFBO's
+		// colorTexture) sit in SHADER_READ_ONLY_OPTIMAL between passes -
+		// same assumption DebugReadDepthTexture() makes for depth targets.
+		VkImageMemoryBarrier toSrc = {};
+		toSrc.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		toSrc.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		toSrc.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		toSrc.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toSrc.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toSrc.image = tex.image;
+		toSrc.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+		toSrc.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		toSrc.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &toSrc);
+
+		VkBufferImageCopy region = {};
+		region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+		region.imageExtent = { tex.width, tex.height, 1 };
+		vkCmdCopyImageToBuffer(cmd, tex.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, stagingBuffer, 1, &region);
+
+		VkImageMemoryBarrier toShaderRead = toSrc;
+		toShaderRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		toShaderRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		toShaderRead.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		toShaderRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &toShaderRead);
+
+		vkEndCommandBuffer(cmd);
+
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &cmd;
+		VkFenceCreateInfo fenceInfo = {};
+		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		VkFence fence = VK_NULL_HANDLE;
+		vkCreateFence(device, &fenceInfo, NULL, &fence);
+		vkQueueSubmit(graphicsQueue, 1, &submitInfo, fence);
+		if (fence != VK_NULL_HANDLE)
+		{
+			vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+			vkDestroyFence(device, fence, NULL);
+		}
+		else
+		{
+			vkQueueWaitIdle(graphicsQueue);
+		}
+		vkFreeCommandBuffers(device, commandPool, 1, &cmd);
+
+		memcpy(outBuffer, stagingAllocationInfo.pMappedData, (size_t)bufferSize);
+
+		vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
+	}
+	// Was a complete no-op stub (return 0) alongside ReadTexturePixels above
+	// - same investigation, same fix. Every render-target texture read back
+	// through this backend today (G-buffer attachments, lastPassFBO's
+	// colorTexture) is RGBA8, so this is real and correct for all current
+	// callers, but it's not format-aware - a caller reading back a
+	// differently-sized format (e.g. a single-channel depth texture, which
+	// goes through DebugReadDepthTexture() instead, not this path) would
+	// get the wrong size.
+	uint32 VulkanRenderDevice::GetTextureDataSize(const uint32 nativeInternalFormat, const uint32 width, const uint32 height) { return width * height * 4; }
 
 	// See IRenderDevice.h's comment - this is what
 	// RenderingMesh::PipelineCache keys on, in addition to shader, to
@@ -4213,7 +4328,23 @@ namespace p3d {
 			vkQueueWaitIdle(graphicsQueue);
 		}
 
-		activeCommandBuffer = VK_NULL_HANDLE;
+		// Real bug, found via a crash (EXC_BAD_ACCESS in vkCmdBindPipeline)
+		// once a renderer first combined offscreen FBO work with a later
+		// swapchain-targeting draw inside the *same* BeginFrame()/EndFrame()
+		// frame (DeferredRenderer::RenderScene(): G-buffer + lastPassFBO
+		// passes, both offscreen, followed by a final full-screen blit to
+		// the real swapchain). This used to unconditionally null
+		// activeCommandBuffer here - correct when nothing else is going on,
+		// but if a real frame is still open (frameInProgress, started by an
+		// earlier BeginFrame() this same frame), that null left every
+		// subsequent draw call with no valid command buffer to record into.
+		// Restore it to the frame's own command buffer instead of nulling
+		// it, so drawing can resume against the swapchain right after this
+		// offscreen detour. Every existing single-purpose caller (a
+		// standalone shadow-map FBO, IslandDemo's separate offscreen
+		// RenderScene() calls) has frameInProgress == false here, so this
+		// is a no-op for them - unchanged behavior.
+		activeCommandBuffer = frameInProgress ? frameCommandBuffer : VK_NULL_HANDLE;
 		offscreenCommandBufferRecording = false;
 		currentVao = 0;
 		currentPipeline = 0;

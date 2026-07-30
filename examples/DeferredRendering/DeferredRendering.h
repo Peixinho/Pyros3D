@@ -50,6 +50,8 @@ private:
 
 	// Deferred Settings
 	Texture* albedoTexture, *specularTexture, *depthTexture, *normalTexture;
+	// PBR metallic/roughness G-buffer attachment (Color_Attachment3, .r=roughness/.g=metalness)
+	Texture* metallicRoughnessTexture;
 	FrameBuffer* deferredFBO;
 
 };

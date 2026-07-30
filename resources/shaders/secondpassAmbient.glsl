@@ -38,6 +38,9 @@ SAMPLER_BINDING(0) uniform sampler2D tDiffuse;
 SAMPLER_BINDING(1) uniform sampler2D tSpecular;
 SAMPLER_BINDING(2) uniform sampler2D tDepth;
 SAMPLER_BINDING(3) uniform sampler2D tNormal;
+// PBR metallic/roughness G-buffer attachment - see PyrosShader.glsl's
+// FragData_pbr (.r=roughness, .g=metalness).
+SAMPLER_BINDING(5) uniform sampler2D tMetallicRoughness;
 UBO_BINDING(27) uniform AmbientFragParams {
 	vec2 uScreenDimensions;
 };
@@ -55,7 +58,10 @@ void main() {
 	ambient.z = texture_2D(tNormal, vec2(Texcoord.x,Texcoord.y)).w;
 
 	vec3 color = texture_2D(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
+	// Metals get no ambient diffuse response - matches PyrosShader.glsl's
+	// forward-path ambientPBR placeholder (kD's (1-metallic) scaling).
+	float metallic = texture_2D(tMetallicRoughness, vec2(Texcoord.x,Texcoord.y)).g;
 
-	FragColor=vec4(ambient * color, 1.0);
+	FragColor=vec4(ambient * color * (1.0 - metallic), 1.0);
 }
 #endif

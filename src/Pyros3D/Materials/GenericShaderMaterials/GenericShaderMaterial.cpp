@@ -20,10 +20,12 @@ namespace p3d
 	{
 		// Default
 		colorMapID = specularMapID = normalMapID = displacementMapID = envMapID = skyboxMapID = refractMapID = fontMapID = -1;
+		metallicRoughnessMapID = -1;
 
 		displacementHeight = 0.05f;
 
 		uColor = uSpecular = uReflectivity = NULL;
+		uMetallic = uRoughness = NULL;
 
 		// Find if Shader exists, if not, creates a new one
 		if (ShadersList.find(options) == ShadersList.end())
@@ -79,6 +81,10 @@ namespace p3d
 				define += std::string("#define INSTANCED_RENDERING\n");
 			if (options & ShaderUsage::VelocityRendering)
 				define += std::string("#define VELOCITY_RENDERING\n");
+			if (options & ShaderUsage::PBR)
+				define += std::string("#define PBR\n");
+			if (options & ShaderUsage::PBRMap)
+				define += std::string("#define PBRMAP\n");
 
 			ShadersList[options]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
 			ShadersList[options]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
@@ -128,6 +134,15 @@ namespace p3d
 			uUseLights = AddUniform(Uniform("uUseLights", Uniforms::DataType::Float, &UseLights));
 			AddUniform(Uniform("uCameraPos", Uniforms::DataUsage::CameraPosition));
 			uShininess = AddUniform(Uniform("uShininess", Uniforms::DataType::Float, &Shininess));
+		}
+
+		if (options & ShaderUsage::PBR)
+		{
+			// Sensible defaults: fully dielectric, mid-rough
+			Metallic = 0.0f;
+			Roughness = 0.5f;
+			uMetallic = AddUniform(Uniform("uMetallic", Uniforms::DataType::Float, &Metallic));
+			uRoughness = AddUniform(Uniform("uRoughness", Uniforms::DataType::Float, &Roughness));
 		}
 
 		if (options & ShaderUsage::DirectionalShadow)
@@ -300,6 +315,19 @@ namespace p3d
 		// Set Uniform
 		AddUniform(Uniform("uSpecularmap", Uniforms::DataType::Int, &specularMapID));
 	}
+	void GenericShaderMaterial::SetMetallicRoughnessMap(Texture* metallicRoughnessMap)
+	{
+		if (metallicRoughnessMapID == -1)
+			metallicRoughnessMapID = Textures.size();
+		else {
+			Textures[metallicRoughnessMapID] = metallicRoughnessMap;
+			return;
+		}
+		// Save on List
+		Textures.push_back(metallicRoughnessMap);
+		// Set Uniform
+		AddUniform(Uniform("uMetallicRoughnessmap", Uniforms::DataType::Int, &metallicRoughnessMapID));
+	}
 	void GenericShaderMaterial::SetNormalMap(Texture* normalmap)
 	{
 		if (normalMapID == -1)
@@ -346,6 +374,22 @@ namespace p3d
 			AddUniform(Uniform("uReflectivity", Uniforms::DataType::Float, &Reflectivity));
 		else
 			uReflectivity->SetValue(&Reflectivity);
+	}
+	void GenericShaderMaterial::SetMetallic(const f32 metallic)
+	{
+		Metallic = metallic;
+		if (!uMetallic)
+			uMetallic = AddUniform(Uniform("uMetallic", Uniforms::DataType::Float, &Metallic));
+		else
+			uMetallic->SetValue(&Metallic);
+	}
+	void GenericShaderMaterial::SetRoughness(const f32 roughness)
+	{
+		Roughness = roughness;
+		if (!uRoughness)
+			uRoughness = AddUniform(Uniform("uRoughness", Uniforms::DataType::Float, &Roughness));
+		else
+			uRoughness->SetValue(&Roughness);
 	}
 	void GenericShaderMaterial::SetRefractMap(Texture* refractmap)
 	{

@@ -28,6 +28,7 @@ void DeferredRendering::OnResize(const uint32 width, const uint32 height)
 	specularTexture->Resize(Width, Height);
 	depthTexture->Resize(Width, Height);
 	normalTexture->Resize(Width, Height);
+	metallicRoughnessTexture->Resize(Width, Height);
 }
 
 void DeferredRendering::Init()
@@ -36,22 +37,40 @@ void DeferredRendering::Init()
 
 	BaseExample::Init();
 
+	// Real, pre-existing bug independent of PBR: FPSCamera was never
+	// positioned, defaulting to (0,0,0) - dead center of this scene's own
+	// tiny cube/light cluster (positions range roughly [-0.5,0.5]), so the
+	// camera sat inside the geometry. Moving it outside is still correct
+	// regardless of the note below. Confirmed via git-stash that every
+	// prior visual check of this example only ever confirmed "zero GL/
+	// validation errors", not "actually visible" - the unmodified example
+	// is equally solid black, and (also confirmed via git-stash, testing
+	// the pre-PBR Blinn-Phong deferred path with this same camera fix
+	// applied) the black screen persists even with a correctly-positioned
+	// camera. So there is a second, deeper, pre-existing bug somewhere in
+	// DeferredRenderer/this example's setup, unrelated to both the camera
+	// and to this session's PBR work - out of scope here, not fixed.
+	FPSCamera->SetPosition(Vec3(0.f, 0.f, 3.f));
+
 	// Setting Deferred Rendering Framebuffer and Textures
 	albedoTexture = new Texture(); albedoTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
 	specularTexture = new Texture(); specularTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
 	depthTexture = new Texture(); depthTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height, false);
 	normalTexture = new Texture(); normalTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F, Width, Height, false);
+	metallicRoughnessTexture = new Texture(); metallicRoughnessTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
 
 	albedoTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 	specularTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 	depthTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 	normalTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+	metallicRoughnessTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 	deferredFBO = new FrameBuffer();
 	deferredFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, depthTexture);
 	deferredFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, albedoTexture);
 	deferredFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment1, TextureType::Texture, specularTexture);
 	deferredFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment2, TextureType::Texture, normalTexture);
+	deferredFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment3, TextureType::Texture, metallicRoughnessTexture);
 
 	// Initialize Renderer
 	Renderer = new DeferredRenderer(Width, Height, deferredFBO);
@@ -92,9 +111,13 @@ void DeferredRendering::Init()
 
 	// Material
 	Vec4 color = Vec4(1.0f, 0.8f, 0.8f, 1.f);
-	Diffuse = new GenericShaderMaterial(ShaderUsage::DeferredRenderer_Gbuffer | ShaderUsage::Color | ShaderUsage::SpecularColor);
+	Diffuse = new GenericShaderMaterial(ShaderUsage::DeferredRenderer_Gbuffer | ShaderUsage::Color | ShaderUsage::PBR);
 	Diffuse->SetColor(color);
-	Diffuse->SetSpecular(color);
+	// Dielectric-leaning, moderately glossy - avoids a fully-black look
+	// under this renderer's no-IBL ambient placeholder (see
+	// PyrosShader.glsl's ambientPBR comment).
+	Diffuse->SetMetallic(0.2f);
+	Diffuse->SetRoughness(0.4f);
 	Diffuse->SetCullFace(CullFace::DoubleSided);
 
 	Renderable* cubeHandle2 = new Cube(1.f, 1.f, 1.f);
@@ -177,16 +200,19 @@ void DeferredRendering::DrawUI()
 		ImGui::Text("    Albedo: RGBA (%dx%d)", Width, Height);
 		ImGui::Text("    Specular: RGBA (%dx%d)", Width, Height);
 		ImGui::Text("    Normal: RGBA32F (%dx%d)", Width, Height);
+		ImGui::Text("    Metallic/Roughness: RGBA (%dx%d)", Width, Height);
 		ImGui::Text("    Depth: DepthComponent (%dx%d)", Width, Height);
 		ImGui::Text("  Frame Buffer: Active");
-		
+		ImGui::Text("  Lighting: Cook-Torrance GGX (PBR)");
+
 		ImGui::Separator();
-		
+
 		// Material Information
 		ImGui::Text("Material Properties:");
-		ImGui::Text("  Shader Usage: DeferredRenderer_Gbuffer");
+		ImGui::Text("  Shader Usage: DeferredRenderer_Gbuffer | PBR");
 		ImGui::Text("  Color: (1.0, 0.8, 0.8, 1.0)");
-		ImGui::Text("  Specular: (1.0, 0.8, 0.8, 1.0)");
+		ImGui::Text("  Metallic: 0.2");
+		ImGui::Text("  Roughness: 0.4");
 		ImGui::Text("  Cull Face: Double Sided");
 		
 		ImGui::Separator();

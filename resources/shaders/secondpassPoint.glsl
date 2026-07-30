@@ -78,10 +78,65 @@ vec4 diffuse = vec4(0.0,0.0,0.0,1.0);
 vec4 specular = vec4(0.0,0.0,0.0,1.0);
 bool diffuseIsSet = false;
 
+// Cook-Torrance GGX BRDF - duplicated from PyrosShader.glsl's #ifdef PBR
+// block (this file has no #include mechanism to share it with).
+const float PBR_PI = 3.14159265359;
+
+float DistributionGGX(vec3 N, vec3 H, float roughness)
+{
+	float a = roughness * roughness;
+	float a2 = a * a;
+	float NdotH = max(dot(N, H), 0.0);
+	float denom = (NdotH * NdotH * (a2 - 1.0) + 1.0);
+	return a2 / max(PBR_PI * denom * denom, 1e-6);
+}
+
+float GeometrySchlickGGX(float NdotV, float roughness)
+{
+	float r = (roughness + 1.0);
+	float k = (r * r) / 8.0;
+	return NdotV / (NdotV * (1.0 - k) + k);
+}
+
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
+{
+	float NdotV = max(dot(N, V), 0.0);
+	float NdotL = max(dot(N, L), 0.0);
+	return GeometrySchlickGGX(NdotV, roughness) * GeometrySchlickGGX(NdotL, roughness);
+}
+
+vec3 FresnelSchlick(float cosTheta, vec3 F0)
+{
+	return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+vec3 CalculatePBRLighting(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 albedo, float metallic, float roughness)
+{
+	vec3 H = normalize(V + L);
+	vec3 F0 = mix(vec3(0.04), albedo, metallic);
+
+	float NDF = DistributionGGX(N, H, roughness);
+	float G = GeometrySmith(N, V, L, roughness);
+	vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
+
+	vec3 numerator = NDF * G * F;
+	float denom = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 1e-4;
+	vec3 specularTerm = numerator / denom;
+
+	vec3 kS = F;
+	vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
+
+	float NdotL = max(dot(N, L), 0.0);
+	return (kD * albedo / PBR_PI + specularTerm) * radiance * NdotL;
+}
+
 SAMPLER_BINDING(0) uniform sampler2D tDiffuse;
 SAMPLER_BINDING(1) uniform sampler2D tSpecular;
 SAMPLER_BINDING(2) uniform sampler2D tDepth;
 SAMPLER_BINDING(3) uniform sampler2D tNormal;
+// PBR metallic/roughness G-buffer attachment - see PyrosShader.glsl's
+// FragData_pbr (.r=roughness, .g=metalness).
+SAMPLER_BINDING(5) uniform sampler2D tMetallicRoughness;
 UBO_BINDING(38) uniform PointFragParams {
 	vec2 uScreenDimensions;
 	vec3 uLightPosition;
@@ -152,17 +207,17 @@ void main() {
 	vec3 lightPosition = uLightPosition;
 	vec4 lightColor = uLightColor;
 
-	vec3 lightDirection = normalize(lightPosition - v1);
-	float n_dot_l = max(dot(lightDirection, vViewNormal), 0.0);
 	float attenuation = Attenuation(v1, lightPosition, lightRadius);
-	vec3 diffuseColor = n_dot_l * lightColor.xyz;
-	diffuse = vec4((diffuseColor * color),1.0);
 
-	vec3 eyeVec = normalize(-v1);
-	vec3 halfVec = normalize(eyeVec + lightDirection);
-	float specularPower = (n_dot_l>0.0?pow(max(dot(halfVec,vViewNormal),0.0), 50.0):0.0);
-	specular = vec4(specularPower * Specular, 1.0);
+	vec2 mr = texture(tMetallicRoughness, Texcoord).rg;
+	float roughness = mr.x;
+	float metallic = mr.y;
 
-	FragColor = (diffuse + specular) * attenuation;/*# * pcf;*/
+	vec3 N = vViewNormal;
+	vec3 V = normalize(-v1);
+	vec3 L = normalize(lightPosition - v1);
+	vec3 pbrColor = CalculatePBRLighting(N, V, L, lightColor.xyz, color, metallic, roughness);
+
+	FragColor = vec4(pbrColor, 1.0) * attenuation;/*# * pcf;*/
 }
 #endif

@@ -114,6 +114,11 @@
 #define BIND_uRefractmap 13
 #define BIND_uSkyboxmap 14
 #define BIND_uSpecularmap 15
+// PBRMap's ORM-style texture (G=roughness, B=metalness, R unused). Lives in
+// the same sampler numbering track as the rest of this block (Vulkan set=1,
+// separate from the set=0 UBO bindings continuing below at 16) - see
+// SAMPLER_BINDING's comment above for why the two tracks don't collide.
+#define BIND_uMetallicRoughnessmap 16
 
 // Loose-uniform-turned-UBO bindings. Each block is declared in exactly one
 // stage (checked against actual usage: e.g. uCameraPos is only ever read
@@ -203,11 +208,11 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         IO_LOCATION(LOC_vColor) varying_out vec4 vColor;
     #endif
 
-    #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP)
+    #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP) || defined(PBRMAP)
         IO_LOCATION(LOC_vTexcoord) varying_out vec2 vTexcoord;
     #endif
 
-    #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(TEXTRENDERING)
+    #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(TEXTRENDERING) || defined(PBR)
         IO_LOCATION(LOC_vNormal) varying_out vec3 vNormal;
     #endif
 
@@ -215,7 +220,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         IO_LOCATION(LOC_vWorldPositionShadow) varying_out vec4 vWorldPositionShadow;
     #endif
 
-    #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PARALLAXMAPPING)
+    #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PARALLAXMAPPING) || defined(PBR)
         IO_LOCATION(LOC_vWorldPosition) varying_out vec4 vWorldPosition;
     #endif
 
@@ -233,7 +238,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         };
     #endif
 
-    #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) || defined(DIFFUSE) || defined(CELLSHADING)
+    #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
         UBO_BINDING(BIND_VertexFrameUniforms) uniform VertexFrameUniforms {
             vec3 uCameraPos;
         };
@@ -272,7 +277,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     // using a Color-only material with no texture-related flag) has no
     // "aTexcoord" entry in its vertex layout to satisfy that requirement
     // when this was unconditional.
-    #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP)
+    #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP) || defined(PBRMAP)
         IO_LOCATION(LOC_aTexcoord) attribute_in vec2 aTexcoord;
     #endif
     // uProjectionMatrix/uViewMatrix change once per (frame or shadow pass),
@@ -323,11 +328,11 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             vColor = aColor;
         #endif
 
-        #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP)
+        #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP) || defined(PBRMAP)
             vTexcoord = aTexcoord;
         #endif
 
-        #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) ||  defined(DIFFUSE) || defined(CELLSHADING)
+        #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) ||  defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
             #ifndef SKINNING
                 vWorldPosition=ModelMatrix * vec4(Position,1.0);
             #else
@@ -349,7 +354,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             #endif
         #endif
 
-        #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) ||  defined(DIFFUSE) || defined(CELLSHADING)
+        #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) ||  defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
             vCameraPos = uCameraPos;
         #endif
 
@@ -376,7 +381,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             vNormal = aNormal;
         #endif
 
-        #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
+        #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
             #ifndef SKINNING
                 vNormal = normalize((ModelMatrix * vec4(aNormal,0.0)).xyz);
             #else
@@ -418,28 +423,31 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
 #ifdef FRAGMENT
 
-	// Fragment Color. When DEFERRED_GBUFFER is also active, FragData_r/g/b
-	// below claim locations 0/1/2, so FragColor (unused by the G-buffer
-	// pass, but still assigned in main() below) is pinned to location 3
+	// Fragment Color. When DEFERRED_GBUFFER is also active, FragData_r/g/b/pbr
+	// below claim locations 0/1/2/3, so FragColor (unused by the G-buffer
+	// pass, but still assigned in main() below) is pinned to location 4
 	// instead - this matches what GL's implicit-location auto-assignment
 	// already does today when both are declared (it picks a location that
 	// doesn't collide with the explicit ones), just made static/explicit
 	// so SPIR-V (which requires every output to have one) can compile it.
+	// Was location 3 until FragData_pbr (PBR's metallic/roughness G-buffer
+	// output) claimed it - real collision risk once a 4th color attachment
+	// actually exists at that location, not just a cosmetic renumbering.
 	#ifdef VELOCITY_RENDERING
 		#ifdef DEFERRED_GBUFFER
-			IO_LOCATION(3) out vec2 FragColor;
+			IO_LOCATION(4) out vec2 FragColor;
 		#else
 			IO_LOCATION(0) out vec2 FragColor;
 		#endif
 	#else
 		#ifdef DEFERRED_GBUFFER
-			IO_LOCATION(3) out vec4 FragColor;
+			IO_LOCATION(4) out vec4 FragColor;
 		#else
 			IO_LOCATION(0) out vec4 FragColor;
 		#endif
 	#endif
 
-    #if defined(DIFFUSE) || defined(CELLSHADING)
+    #if defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
 
         struct LIGHT
         {
@@ -499,6 +507,65 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             specularPower = (lightIntensity>0.0?pow(max(dot(HalfVec,Normal),0.0), Shininess):0.0);
         }
 
+        #ifdef PBR
+            const float PBR_PI = 3.14159265359;
+
+            float DistributionGGX(vec3 N, vec3 H, float roughness)
+            {
+                float a = roughness * roughness;
+                float a2 = a * a;
+                float NdotH = max(dot(N, H), 0.0);
+                float denom = (NdotH * NdotH * (a2 - 1.0) + 1.0);
+                return a2 / max(PBR_PI * denom * denom, 1e-6);
+            }
+
+            float GeometrySchlickGGX(float NdotV, float roughness)
+            {
+                float r = (roughness + 1.0);
+                float k = (r * r) / 8.0;
+                return NdotV / (NdotV * (1.0 - k) + k);
+            }
+
+            float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
+            {
+                float NdotV = max(dot(N, V), 0.0);
+                float NdotL = max(dot(N, L), 0.0);
+                return GeometrySchlickGGX(NdotV, roughness) * GeometrySchlickGGX(NdotL, roughness);
+            }
+
+            vec3 FresnelSchlick(float cosTheta, vec3 F0)
+            {
+                return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+            }
+
+            // One light's outgoing radiance contribution, Cook-Torrance
+            // specular (GGX distribution + Smith geometry + Schlick Fresnel)
+            // plus energy-conserving Lambertian diffuse (kD scaled by
+            // (1-metallic), since metals have no diffuse response). Mirrors
+            // CalculateLighting()'s call-site shape (N/V/L already available
+            // as Normal/EyeVec/LightVec in every light-type branch below) so
+            // it drops into the existing per-light loop unchanged.
+            vec3 CalculatePBRLighting(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 albedo, float metallic, float roughness)
+            {
+                vec3 H = normalize(V + L);
+                vec3 F0 = mix(vec3(0.04), albedo, metallic);
+
+                float NDF = DistributionGGX(N, H, roughness);
+                float G = GeometrySmith(N, V, L, roughness);
+                vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
+
+                vec3 numerator = NDF * G * F;
+                float denom = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 1e-4;
+                vec3 specularTerm = numerator / denom;
+
+                vec3 kS = F;
+                vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
+
+                float NdotL = max(dot(N, L), 0.0);
+                return (kD * albedo / PBR_PI + specularTerm) * radiance * NdotL;
+            }
+        #endif
+
         // uLights is rebuilt every object (each object only gets its
         // nearby lights), unlike uProjectionMatrix/uViewMatrix above, but
         // it's still shared across every fragment of that object's draw
@@ -532,6 +599,12 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         float uUseLights;
         float uDisplacementHeight;
         float uReflectivity;
+        // uMetallic/uRoughness (PBR) occupy 2 of this block's 3 previously-
+        // spare std140 padding floats - total block size stays 64 bytes,
+        // BIND_MaterialUniforms stays 22. See IRenderer.cpp's
+        // MaterialUniformsData for the byte-identical C++ mirror.
+        float uMetallic;
+        float uRoughness;
     };
     // Per-object (not per-material) - see the comment above.
     UBO_BINDING(BIND_ObjectLightCounts) uniform ObjectLightCounts {
@@ -544,7 +617,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         IO_LOCATION(LOC_vColor) varying_in vec4 vColor;
     #endif
 
-    #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(SPECULARMAP) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING)
+    #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(SPECULARMAP) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(PBRMAP)
         IO_LOCATION(LOC_vTexcoord) varying_in vec2 vTexcoord;
     #endif
 
@@ -556,7 +629,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         SAMPLER_BINDING(BIND_uFontmap) uniform sampler2D uFontmap;
     #endif
 
-    #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
+    #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
         IO_LOCATION(LOC_vNormal) varying_in vec3 vNormal;
     #endif
 
@@ -685,11 +758,11 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         IO_LOCATION(LOC_vWorldPositionShadow) varying_in vec4 vWorldPositionShadow;
     #endif
 
-    #if defined(SKINNING) || defined(ENVMAP) || defined(PARALLAXMAPPING) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
+    #if defined(SKINNING) || defined(ENVMAP) || defined(PARALLAXMAPPING) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
         IO_LOCATION(LOC_vWorldPosition) varying_in vec4 vWorldPosition;
     #endif
 
-    #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) ||  defined(DIFFUSE) || defined(CELLSHADING)
+    #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) ||  defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
         IO_LOCATION(LOC_vCameraPos) varying_in vec3 vCameraPos;
     #endif
 
@@ -714,14 +787,23 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         SAMPLER_BINDING(BIND_uSpecularmap) uniform sampler2D uSpecularmap;
     #endif
 
+    #ifdef PBRMAP
+        SAMPLER_BINDING(BIND_uMetallicRoughnessmap) uniform sampler2D uMetallicRoughnessmap;
+    #endif
+
     #ifdef DEFERRED_GBUFFER
         IO_LOCATION(LOC_gbuffer_normals) varying_in vec4 gbuffer_normals;
 		layout(location = 0) out vec4 FragData_r;
 		layout(location = 1) out vec4 FragData_g;
 		layout(location = 2) out vec4 FragData_b;
+		// PBR metallic/roughness (.r=roughness, .g=metalness - same G/B
+		// convention uMetallicRoughnessmap uses, shifted since this
+		// attachment only carries these two scalars). location=4's
+		// FragColor comment above explains why this couldn't stay at 3.
+		layout(location = 3) out vec4 FragData_pbr;
     #endif
 
-   #if defined(DIFFUSE) || defined(CELLSHADING) || defined(DEFERRED_GBUFFER)
+   #if defined(DIFFUSE) || defined(CELLSHADING) || defined(DEFERRED_GBUFFER) || defined(PBR)
        UBO_BINDING(BIND_AmbientLightUniforms) uniform AmbientLightUniforms {
            vec4 uAmbientLight;
        };
@@ -765,7 +847,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             } else diffuse *= vColor;
         #endif
 
-        #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP)
+        #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP) || defined(PBRMAP)
             vec2 Texcoord = vTexcoord;
             #if defined(PARALLAXMAPPING)
                 vec3 viewDir = normalize(vTangentMatrix * (vCameraPos-vWorldPosition.xyz));
@@ -783,7 +865,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             } else diffuse *= texture_2D(uColormap,Texcoord);
         #endif
 
-        #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING)
+        #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
             vec3 Normal;
             #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING)
                 Normal = normalize(transpose3(vTangentMatrix) * (texture_2D(uNormalmap, Texcoord).rgb * 2.0 - 1.0));
@@ -838,10 +920,32 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             specular = texture_2D(uSpecularmap,Texcoord);
         #endif
 
-        #if defined(DIFFUSE) || defined(CELLSHADING)
+        #ifdef PBR
+            float metallic = uMetallic;
+            float roughness = uRoughness;
+            #ifdef PBRMAP
+                vec4 _pbrTex = texture_2D(uMetallicRoughnessmap, Texcoord);
+                roughness = _pbrTex.g;
+                metallic = _pbrTex.b;
+            #endif
+        #endif
+
+        // !defined(DEFERRED_GBUFFER): a G-buffer-writing material must write
+        // raw, unlit material properties (albedo/metallic/roughness/normal)
+        // for the second pass to light later - running this loop here would
+        // overwrite `diffuse` with an already-lit result before the
+        // DEFERRED_GBUFFER write block below gets to read it. Zero-regression
+        // guard tightening: no material anywhere in this codebase combines
+        // DIFFUSE/CELLSHADING/PBR with DEFERRED_GBUFFER today (existing
+        // G-buffer materials simply never set those flags) - this only
+        // matters for a future DeferredRenderer_Gbuffer|PBR material.
+        #if (defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)) && !defined(DEFERRED_GBUFFER)
             // Fragment Body
             vec4 _diffuse = uAmbientLight;
             vec4 _specular = vec4(0.0,0.0,0.0,1.0);
+            #ifdef PBR
+                vec3 _pbrColor = vec3(0.0);
+            #endif
 
             vec3 Position = vWorldPosition.xyz;
             vec3 EyeVec = normalize(vCameraPos-Position);
@@ -891,6 +995,14 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                             _specular += specularPower * L.Color * specular;
                             lightIntensityCellShading = max(lightIntensityCellShading, lightIntensity);
                         #endif
+
+                        #ifdef PBR
+                            #ifdef DIRECTIONALSHADOW
+                                _pbrColor += CalculatePBRLighting(Normal, EyeVec, LightVec, L.Color.rgb, diffuse.rgb, metallic, roughness) * DirectionalShadow;
+                            #else
+                                _pbrColor += CalculatePBRLighting(Normal, EyeVec, LightVec, L.Color.rgb, diffuse.rgb, metallic, roughness);
+                            #endif
+                        #endif
                     }
                     else if (L.Type == 2.0)
                     {
@@ -918,6 +1030,14 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                             _diffuse += (lightIntensity + specularPower * _specular) * L.Color * attenuation;
                             _specular += specularPower * L.Color * specular * attenuation;
                             lightIntensityCellShading = max(lightIntensityCellShading, lightIntensity * attenuation);
+                        #endif
+
+                        #ifdef PBR
+                            #ifdef POINTSHADOW
+                                _pbrColor += CalculatePBRLighting(Normal, EyeVec, LightVec, L.Color.rgb, diffuse.rgb, metallic, roughness) * attenuation * PointShadow;
+                            #else
+                                _pbrColor += CalculatePBRLighting(Normal, EyeVec, LightVec, L.Color.rgb, diffuse.rgb, metallic, roughness) * attenuation;
+                            #endif
                         #endif
                     }
                     else if (L.Type == 3.0)
@@ -948,6 +1068,14 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                             _specular += specularPower * L.Color * specular * spotEffect * attenuation;
                             lightIntensityCellShading = max(lightIntensityCellShading, lightIntensity * spotEffect * attenuation);
                         #endif
+
+                        #ifdef PBR
+                            #ifdef SPOTSHADOW
+                                _pbrColor += CalculatePBRLighting(Normal, EyeVec, LightVec, L.Color.rgb, diffuse.rgb, metallic, roughness) * spotEffect * attenuation * SpotShadow;
+                            #else
+                                _pbrColor += CalculatePBRLighting(Normal, EyeVec, LightVec, L.Color.rgb, diffuse.rgb, metallic, roughness) * spotEffect * attenuation;
+                            #endif
+                        #endif
                     }
                 }
             }
@@ -961,6 +1089,13 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 else if (lightIntensityCellShading > 0.25) factor = 0.8;
                 else factor = 0.5;
                 diffuse = factor * diffuse;
+            #elif defined(PBR)
+                // Ambient placeholder (no IBL yet): dielectric-only ambient
+                // response, scaled by the same per-channel ambient uniform
+                // every other lighting path uses. Metals get none, matching
+                // kD's (1-metallic) scaling in CalculatePBRLighting above.
+                vec3 ambientPBR = diffuse.rgb * (1.0 - metallic) * uAmbientLight.rgb;
+                diffuse = vec4(_pbrColor + ambientPBR, diffuse.w);
             #endif
         #endif
 
@@ -972,6 +1107,15 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		FragData_r=vec4(diffuse.xyz,diffuse.x*uAmbientLight.x);
 		FragData_g=vec4(specular.xyz,diffuse.y*uAmbientLight.y);
 		FragData_b=vec4(gbufferNormal.xyz,diffuse.z*uAmbientLight.z);
+		// Uses the already-resolved metallic/roughness locals (folds in
+		// uMetallicRoughnessmap sampling when PBRMAP is set too), not the
+		// raw uMetallic/uRoughness uniforms directly - see the #ifdef PBR
+		// resolution block above.
+		#ifdef PBR
+			FragData_pbr=vec4(roughness, metallic, 0.0, 1.0);
+		#else
+			FragData_pbr=vec4(0.5, 0.0, 0.0, 1.0);
+		#endif
 	#endif
 
 	#ifdef VELOCITY_RENDERING

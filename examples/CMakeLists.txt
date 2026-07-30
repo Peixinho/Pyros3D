@@ -198,6 +198,18 @@ set(SOURCE_RotatingTexturedCube
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
+set(SOURCE_PBRSpheres
+	${CMAKE_CURRENT_SOURCE_DIR}/PBRSpheres/PBRSpheres.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_draw.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_widgets.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_tables.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_sdl2.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_opengl3.cpp
+	${WINDOW_MANAGER}
+	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
+)
 set(SOURCE_SkyboxTest
 	${CMAKE_CURRENT_SOURCE_DIR}/SkyboxTest/SkyboxTest.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
@@ -236,6 +248,18 @@ set(SOURCE_CustomMaterial
 )
 set(SOURCE_DepthOfField
 	${CMAKE_CURRENT_SOURCE_DIR}/DepthOfField/DepthOfField.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_draw.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_widgets.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_tables.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_sdl2.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_opengl3.cpp
+	${WINDOW_MANAGER}
+	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
+)
+set(SOURCE_DeferredPBRSpheres
+	${CMAKE_CURRENT_SOURCE_DIR}/DeferredPBRSpheres/DeferredPBRSpheres.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_draw.cpp
@@ -471,6 +495,11 @@ include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FRE
 target_link_libraries(RotatingTexturedCube PyrosEngine  ${SDL2_LIBRARIES} ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES} pthread dl)
 target_compile_definitions(RotatingTexturedCube PRIVATE ${DESKTOP} -DDEMO_NAME=RotatingTexturedCube -D_RotatingTexturedCube ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
 
+add_executable(PBRSpheres ${SOURCE_PBRSpheres})
+include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
+target_link_libraries(PBRSpheres PyrosEngine  ${SDL2_LIBRARIES} ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES} pthread dl)
+target_compile_definitions(PBRSpheres PRIVATE ${DESKTOP} -DDEMO_NAME=PBRSpheres -D_PBRSpheres ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
+
 add_executable(SkyboxTest ${SOURCE_SkyboxTest})
 include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
 target_link_libraries(SkyboxTest PyrosEngine  ${SDL2_LIBRARIES} ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES} pthread dl)
@@ -490,6 +519,11 @@ add_executable(DepthOfField ${SOURCE_DepthOfField})
 include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
 target_link_libraries(DepthOfField PyrosEngine  ${SDL2_LIBRARIES} ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES} pthread dl)
 target_compile_definitions(DepthOfField PRIVATE ${DESKTOP} -DDEMO_NAME=DepthOfField -D_DepthOfField ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
+
+add_executable(DeferredPBRSpheres ${SOURCE_DeferredPBRSpheres})
+include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
+target_link_libraries(DeferredPBRSpheres PyrosEngine  ${SDL2_LIBRARIES} ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES} pthread dl)
+target_compile_definitions(DeferredPBRSpheres PRIVATE ${DESKTOP} -DDEMO_NAME=DeferredPBRSpheres -D_DeferredPBRSpheres ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
 
 add_executable(DeferredRendering ${SOURCE_DeferredRendering})
 include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
@@ -578,4 +612,10 @@ include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FRE
 target_link_libraries(ScreenSpaceReflection PyrosEngine  ${SDL2_LIBRARIES} ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES} pthread dl)
 target_compile_definitions(ScreenSpaceReflection PRIVATE ${DESKTOP} -DDEMO_NAME=ScreenSpaceReflection -D_ScreenSpaceReflection ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
 
-file(COPY ${CMAKE_SOURCE_DIR}/resources/shaders DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+# symlink, not file(COPY): a copy goes stale the moment resources/shaders/*.glsl
+# changes, since this line only re-runs on a cmake reconfigure, not on every
+# build - real source of a very confusing "edited the shader but nothing
+# changed" session. A symlink always reflects the live source tree.
+if(NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/shaders)
+	file(CREATE_LINK ${CMAKE_SOURCE_DIR}/resources/shaders ${CMAKE_CURRENT_BINARY_DIR}/shaders SYMBOLIC)
+endif()
