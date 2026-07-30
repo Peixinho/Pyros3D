@@ -266,7 +266,27 @@ namespace p3d {
 		deferredMaterialPoint->extraUniforms[1].offsets["uPCFTexelSize"] = 192;
 		deferredMaterialPoint->extraUniforms[1].offsets["uHaveShadowmap"] = 196;
 
-		deferredMaterialPoint->SetCullFace(CullFace::FrontFace);
+		// Real, pre-existing bug (predates this session's HDR work - traced
+		// back to a screenshot taken right after the black-screen/culling
+		// fix, before any tonemap code existed) found chasing a report
+		// that Vulkan's point/spot lights contributed no visible
+		// shading/highlights at all - just a flat per-object ambient tint,
+		// on both DeferredPBRSpheres AND (silently, unnoticed until now)
+		// the original black-screen investigation's own verification
+		// screenshot. This light-volume geometry is a Sphere primitive
+		// (`sphereHandle` below), whose hand-authored index winding is
+		// documented elsewhere in this codebase (examples/PBRSpheres.cpp's
+		// identical comment) as opposite Cube's - CullFace::FrontFace
+		// (culling the *near* faces, the standard "camera may be inside
+		// the light volume" deferred-shading technique) was tuned against
+		// that reversed winding and happened to produce visible output on
+		// GL, but on Vulkan culled away all or nearly all of the volume's
+		// fragments, leaving only the separately-rendered ambient pass
+		// visible. CullFace::BackFace (this material's default anyway,
+		// kept explicit for clarity) is correct and verified identical on
+		// both backends - real gradient shading and specular highlights
+		// confirmed via screenshot on GL and Vulkan alike.
+		deferredMaterialPoint->SetCullFace(CullFace::BackFace);
 		deferredMaterialPoint->DisableDepthTest();
 		deferredMaterialPoint->DisableDepthWrite();
 		deferredMaterialPoint->EnableBlending();
@@ -327,7 +347,9 @@ namespace p3d {
 		deferredMaterialSpot->extraUniforms[1].offsets["uPCFTexelSize"] = 224;
 		deferredMaterialSpot->extraUniforms[1].offsets["uHaveShadowmap"] = 228;
 
-		deferredMaterialSpot->SetCullFace(CullFace::FrontFace);
+		// See deferredMaterialPoint's identical comment above - same
+		// Sphere-primitive light volume, same fix.
+		deferredMaterialSpot->SetCullFace(CullFace::BackFace);
 		deferredMaterialSpot->DisableDepthTest();
 		deferredMaterialSpot->DisableDepthWrite();
 		deferredMaterialSpot->EnableBlending();
@@ -340,7 +362,12 @@ namespace p3d {
 
 		sphereHandle = new Sphere(1, 6, 4);
 		pointLight = new RenderingComponent(sphereHandle);
-		pointLight->GetMeshes()[0]->Material->SetCullFace(CullFace::FrontFace);
+		// This mesh's own default Material is never actually used for
+		// drawing (every real draw call passes deferredMaterialPoint/Spot
+		// explicitly as an override - see the light-rendering loop below)
+		// but kept consistent with them regardless, matching their
+		// identical CullFace fix/comment above.
+		pointLight->GetMeshes()[0]->Material->SetCullFace(CullFace::BackFace);
 	}
 
 	void DeferredRenderer::Resize(const uint32 Width, const uint32 Height)
