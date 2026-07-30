@@ -239,6 +239,7 @@ namespace p3d {
 			tr.setIdentity();
 			btRigidBody* m_carChassis = LocalCreateRigidBody(vehicle->GetChassis()->GetMass(), tr, compound);//chassisShape;
 			//m_carChassis->setDamping(0.2,0.2);
+			m_carChassis->setUserPointer(pcomp);
 
 			// Initial Transformation
 			btTransform startTransform;
@@ -349,6 +350,7 @@ namespace p3d {
 		ghostObject->setCollisionShape(shape);
 		ghostObject->setWorldTransform(startTransform);
 		ghostObject->setCollisionFlags(ghostObject->getCollisionFlags() | btCollisionObject::CF_NO_CONTACT_RESPONSE);
+		ghostObject->setUserPointer(pcomp);
 		m_dynamicsWorld->addCollisionObject(ghostObject);
 		m_dynamicsWorld->getBroadphase()->getOverlappingPairCache()->setInternalGhostPairCallback(new btGhostPairCallback());
 
@@ -386,6 +388,10 @@ namespace p3d {
 		// Create Rigid Body
 		btRigidBody* body = new btRigidBody(rbInfo);
 		body->setWorldTransform(startTransform);
+		// Back-reference so RayCast() (and anything else that walks bodies
+		// found via the Bullet world directly) can report which engine
+		// component a hit actually belongs to.
+		body->setUserPointer(pcomp);
 		// Add Rigid Body to World
 		m_dynamicsWorld->addRigidBody(body);
 
@@ -430,6 +436,32 @@ namespace p3d {
 	{
 		if (pcomp->GetShape() != CollisionShapes::Vehicle)
 			m_dynamicsWorld->removeRigidBody(static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR()));
+	}
+
+	RayCastHit BulletPhysics::RayCast(const Vec3 &from, const Vec3 &to)
+	{
+		RayCastHit hit;
+
+		btVector3 btFrom(from.x, from.y, from.z);
+		btVector3 btTo(to.x, to.y, to.z);
+		btCollisionWorld::ClosestRayResultCallback callback(btFrom, btTo);
+
+		m_dynamicsWorld->rayTest(btFrom, btTo, callback);
+
+		if (callback.hasHit())
+		{
+			hit.hasHit = true;
+			hit.point = Vec3(callback.m_hitPointWorld.x(), callback.m_hitPointWorld.y(), callback.m_hitPointWorld.z());
+			hit.normal = Vec3(callback.m_hitNormalWorld.x(), callback.m_hitNormalWorld.y(), callback.m_hitNormalWorld.z());
+			hit.distance = (to - from).magnitude() * callback.m_closestHitFraction;
+			// setUserPointer(pcomp) is set on every body CreateRigidBody()/
+			// CreateGhostObject()/the vehicle chassis creates - see those
+			// functions. Bodies created some other way (there are none
+			// today) would report a null component here, not crash.
+			hit.component = static_cast<IPhysicsComponent*>(callback.m_collisionObject->getUserPointer());
+		}
+
+		return hit;
 	}
 
 	// Rigid Bodys Methods

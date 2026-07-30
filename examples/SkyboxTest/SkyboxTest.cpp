@@ -54,6 +54,14 @@ void SkyboxTest::Init()
 
 	material = new GenericShaderMaterial(ShaderUsage::Skybox);
 	material->SetSkyboxMap(skyboxTexture);
+	// IMaterial defaults to CullFace::BackFace. A skybox is viewed from
+	// *inside* the cube, so every face presents its back side to the
+	// camera - back-face culling silently drops every triangle, leaving
+	// only the clear color visible. Found via EmberRush (which reuses this
+	// exact skybox setup) rendering solid black/void with zero GL errors
+	// and a verified-valid cubemap - this was the real cause, not a broken
+	// texture or shader.
+	material->SetCullFace(CullFace::DoubleSided);
 
 	// Create Game Object
 	SkyboxObject = new GameObject();

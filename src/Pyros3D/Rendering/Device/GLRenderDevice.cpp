@@ -67,6 +67,15 @@ namespace p3d {
 		{
 			GLCHECKER(glEnable(GL_DEPTH_TEST));
 
+			// GL_DITHER defaults to enabled per the GL spec and nothing in
+			// this engine ever touched it - invisible on most content, but
+			// on a large flat-shaded surface under a smooth diffuse
+			// gradient (e.g. a plain-colored floor) it produces a visible
+			// fine cross-hatch/noise pattern, since dithering exists
+			// specifically to fake extra color depth on subtle gradients.
+			// Vulkan has no equivalent fixed-function state to disable.
+			GLCHECKER(glDisable(GL_DITHER));
+
 			switch (mode)
 			{
 			case DepthTest::Always:

@@ -395,12 +395,23 @@ namespace p3d {
 
 		isBinded = false;
 
-		// Bind next FBO
+		// Bind next FBO - restores whichever FrameBuffer (if any) was bound
+		// before this one at the same access level, instead of leaving the
+		// hardcoded 0-bind above as final. The extra `i--` this used to have
+		// (on top of the for-loop's own decrement) skipped the very next
+		// stack entry right after erasing this one - harmless for every
+		// existing single-level Bind()/UnBind() pair (nothing left to
+		// restore either way), but silently broken for real nesting (e.g. a
+		// shadow-casting light's shadow FBO Bind()/UnBind() happening inside
+		// PreRender(), itself called while a caller's own FBO - like
+		// PostEffectsManager's capture target - is already bound): the outer
+		// FBO was never found and rebound, so it landed on the swapchain
+		// instead once PreRender() returned. Found via EmberRush, the first
+		// scene to combine shadow-casting lights with PostEffectsManager.
 		for (int32 i = BoundFBOs[accessBinded].size()-1; i >= 0; i--)
 		{
 			if (BoundFBOs[accessBinded][i] == this) {
 				BoundFBOs[accessBinded].erase(BoundFBOs[accessBinded].begin() + i);
-				i--;
 			}
 			else {
 				Device().BindFramebuffer(BoundFBOs[accessBinded][i]->glAccessBinded, BoundFBOs[accessBinded][i]->fbo, true);

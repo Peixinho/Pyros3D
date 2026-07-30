@@ -54,4 +54,6 @@
 #include "ScreenSpaceReflection/ScreenSpaceReflection.h"
 #elif defined(_LightPriorityExample)
 #include "LightPriorityExample/LightPriorityExample.h"
+#elif defined(_ArenaFPS)
+#include "ArenaFPS/ArenaFPS.h"
 #endif

@@ -43,6 +43,8 @@ namespace p3d {
 
 		virtual void RemovePhysicsComponent(IPhysicsComponent* pcomp);
 
+		virtual RayCastHit RayCast(const Vec3 &from, const Vec3 &to);
+
 		virtual void UpdateTransformations(IPhysicsComponent* pcomp);
 
 		btDiscreteDynamicsWorld* GetPhysicsWorld()

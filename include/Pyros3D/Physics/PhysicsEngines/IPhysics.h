@@ -19,6 +19,21 @@ namespace p3d {
 	// Circular Dependency
 	class PYROS3D_API IPhysicsComponent;
 
+	// Result of a single closest-hit raycast (RayCast() below). Mirrors the
+	// info every other engine's raycast returns: whether it hit anything,
+	// where, which way the surface faces there, how far along the ray, and
+	// which component was hit (so callers can identify/react to it, not
+	// just know a hit happened).
+	struct PYROS3D_API RayCastHit {
+		bool hasHit;
+		Vec3 point;
+		Vec3 normal;
+		f32 distance;
+		IPhysicsComponent* component;
+
+		RayCastHit() : hasHit(false), distance(0.f), component(NULL) {}
+	};
+
 	class PYROS3D_API IPhysics {
 
 		friend class IPhysicsComponent;
@@ -34,6 +49,12 @@ namespace p3d {
 		virtual void RenderDebugDraw(Projection projection, GameObject* Camera) = 0;
 		virtual void DisableDebugDraw() = 0;
 		virtual void EndPhysics() = 0;
+
+		// Closest-hit raycast between two world-space points. Was entirely
+		// absent from the engine before this - every "is this on the
+		// ground", "what am I looking at", "where did this shot land" query
+		// had no real answer.
+		virtual RayCastHit RayCast(const Vec3 &from, const Vec3 &to) = 0;
 
 		virtual void RemovePhysicsComponent(IPhysicsComponent* pcomp) = 0;
 
