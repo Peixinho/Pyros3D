@@ -152,30 +152,31 @@ endif()
 
 # Vulkan backend (Vulkan roadmap Phase 5 - VulkanRenderDevice; optional,
 # off by default since it's still a stub with nothing consuming it yet -
-# see VULKAN_ROADMAP.md). Needs three things: the Vulkan SDK pieces
-# already installed via Homebrew in an earlier session
+# see VULKAN_ROADMAP.md). Needs two things: the Vulkan SDK pieces
 # (vulkan-headers/vulkan-loader - found via CMake's built-in
-# FindVulkan.cmake, available since CMake 3.7), the real lightweight
-# Vulkan loader (Homebrew's "vulkan-volk" formula - note the package
-# literally named "volk" is an unrelated DSP/signal-processing library,
-# not this), and VMA (Vulkan Memory Allocator). VMA has no Homebrew
-# formula - it's a single-header library with no build step, so it's
-# pulled via FetchContent instead of the brew --prefix pattern used above
-# for shaderc/spirv-cross/volk.
-option(BUILD_VULKAN_BACKEND "Build the Vulkan render device (needs the Vulkan SDK + vulkan-volk)" OFF)
+# FindVulkan.cmake, available since CMake 3.7) and the real lightweight
+# Vulkan loader (zeux/volk - note the package literally named "volk" on
+# Homebrew is an unrelated DSP/signal-processing library, not this).
+# Both volk and VMA (Vulkan Memory Allocator) are pulled via FetchContent
+# rather than a package-manager lookup - neither has a Homebrew formula
+# under this name, and this way the same CMake logic works unmodified on
+# any platform's package manager (or lack thereof), including Windows.
+option(BUILD_VULKAN_BACKEND "Build the Vulkan render device (needs the Vulkan SDK)" OFF)
 if (BUILD_VULKAN_BACKEND)
 	find_package(Vulkan)
 
-	if (APPLE)
-		execute_process(COMMAND brew --prefix vulkan-volk
-			OUTPUT_VARIABLE HOMEBREW_VOLK_PREFIX
-			OUTPUT_STRIP_TRAILING_WHITESPACE
-			ERROR_QUIET)
-	endif()
-	find_package(volk CONFIG QUIET PATHS ${HOMEBREW_VOLK_PREFIX})
-
-	if (Vulkan_FOUND AND TARGET volk::volk)
+	if (Vulkan_FOUND)
 		include(FetchContent)
+		FetchContent_Declare(
+			volk
+			GIT_REPOSITORY https://github.com/zeux/volk.git
+			GIT_TAG vulkan-sdk-1.4.357.0
+		)
+		FetchContent_MakeAvailable(volk)
+		if (TARGET volk AND NOT TARGET volk::volk)
+			add_library(volk::volk ALIAS volk)
+		endif()
+
 		FetchContent_Declare(
 			VulkanMemoryAllocator
 			GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
@@ -187,10 +188,10 @@ if (BUILD_VULKAN_BACKEND)
 		add_definitions(-DVULKAN_BACKEND)
 		set(VULKAN_BACKEND_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Device/VulkanRenderDevice.cpp)
 		set(VULKAN_BACKEND_LIBS Vulkan::Vulkan volk::volk GPUOpen::VulkanMemoryAllocator)
-		message(STATUS "Vulkan backend found: Vulkan=${Vulkan_LIBRARY}, volk=${HOMEBREW_VOLK_PREFIX}, VMA fetched via FetchContent")
+		message(STATUS "Vulkan backend found: Vulkan=${Vulkan_LIBRARY}, volk+VMA fetched via FetchContent")
 	else()
 		set(VULKAN_BACKEND_FOUND OFF)
-		message(WARNING "Vulkan SDK or vulkan-volk not found - the Vulkan render device will not be built. Install via 'brew install vulkan-headers vulkan-loader vulkan-volk'.")
+		message(WARNING "Vulkan SDK not found - the Vulkan render device will not be built. Install the LunarG Vulkan SDK (or 'brew install vulkan-headers vulkan-loader' on macOS).")
 	endif()
 endif()
 
@@ -322,7 +323,21 @@ include_directories(${HEADERS} ${GLAD_INCLUDE_DIR} ${LUA_INCLUDE_DIR} ${OPENGL_I
 
 # Engine Library
 add_library(PyrosEngine ${LIB_TYPE} ${SOURCE} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS})
-target_link_libraries(PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${LUA_LIBRARIES} ${CONTEXT_LIB} ${SPIRV_TOOLING_LIBS} ${VULKAN_BACKEND_LIBS} pthread dl)
+target_link_libraries(PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${LUA_LIBRARIES} ${CONTEXT_LIB} ${SPIRV_TOOLING_LIBS} ${VULKAN_BACKEND_LIBS})
+# Neither pthread nor dl is actually used anywhere in the engine (Thread.cpp
+# is now std::thread-based - see Thread.cpp/.h - and nothing calls dlopen/
+# dlsym) - both were dead link flags, and both fail to resolve on Windows.
+
+# PYROS3D_API (Export.h) expands to __declspec(dllexport/dllimport) under
+# _WIN32, gated on _EXPORT/_IMPORT - neither was ever actually defined
+# anywhere in this build, so every dllexport/dllimport annotation in the
+# codebase has always silently expanded to nothing on Windows. _EXPORT
+# only makes sense for the actual DLL build (STATIC_LIB has no import/
+# export boundary at all). Downstream consumers (examples/CMakeLists.txt)
+# define _IMPORT the same way when linking against a shared PyrosEngine.
+if (WIN32 AND LIB_TYPE STREQUAL "SHARED")
+	target_compile_definitions(PyrosEngine PRIVATE _EXPORT)
+endif()
 
 # Model Converter
 option(BUILD_CONVERTER "Build Model Converter" OFF)

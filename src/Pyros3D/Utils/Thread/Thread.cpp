@@ -13,7 +13,19 @@ namespace p3d {
 	std::vector<Thread*> Thread::threads;
 	uint32 Thread::ThreadsCounter = 0;
 
-	Thread::~Thread() {}
+	Thread::~Thread()
+	{
+		// std::thread::~thread() calls std::terminate() if the thread is
+		// still joinable - unlike the old pthread_t member (a POD handle;
+		// destroying a Thread with a still-running pthread just leaked
+		// the handle, it never crashed). Nothing in this codebase relies
+		// on outliving an un-joined Thread today, but detach() here keeps
+		// that same "leaks rather than crashes" behavior for whoever
+		// constructs one without pairing Launch() with Terminate()+
+		// CheckThreads() first.
+		if (thread.joinable())
+			thread.detach();
+	}
 
 	Thread::Thread(void* (*ThreadFunction)(void*))
 	{
@@ -30,9 +42,20 @@ namespace p3d {
 	void Thread::Launch()
 	{
 		finished = false;
-		uint32 pID = pthread_create(&thread, NULL, *__method, __arg);
-		if (pID != 0) echo("ERROR: Thread Not Registered, CODE: " + NumberToString(pID));
-		else Thread::threads.push_back(this);
+		// std::thread's constructor throws std::system_error on failure
+		// instead of returning an error code (pthread_create's model) -
+		// caught here so a launch failure logs and leaves this Thread
+		// untracked, exactly like the old pID != 0 branch, instead of
+		// taking down the whole process via an uncaught exception.
+		try
+		{
+			thread = std::thread(__method, __arg);
+			Thread::threads.push_back(this);
+		}
+		catch (const std::system_error &e)
+		{
+			echo("ERROR: Thread Not Registered, CODE: " + NumberToString(e.code().value()));
+		}
 	}
 
 	void Thread::Terminate()
@@ -49,32 +72,37 @@ namespace p3d {
 			{
 				if ((*i)->finished)
 				{
-					uint32 pID = pthread_join((*i)->thread, NULL);
+					// join() throws std::system_error instead of
+					// pthread_join's return-code model - same catch/log
+					// shape as Launch() above, and the entry is still
+					// erased either way (matches the old code's
+					// unconditional erase regardless of the join result).
+					try
+					{
+						if ((*i)->thread.joinable())
+							(*i)->thread.join();
+					}
+					catch (const std::system_error &e)
+					{
+						echo("ERROR: Thread Not Terminated, CODE: " + NumberToString(e.code().value()));
+					}
 					i = Thread::threads.erase(i);
-					if (pID != 0)
-						echo("ERROR: Thread Not Terminated, CODE: " + NumberToString(pID));
 				}
 				else i++;
 			}
 		}
 	}
 
-	void Thread::CreateMutex()
-	{
-		pthread_mutex_init(&mutex, NULL);
-	}
+	void Thread::CreateMutex() {}
 	void Thread::LockMutex()
 	{
-		pthread_mutex_lock(&mutex);
+		mutex.lock();
 		locked = true;
 	}
 	void Thread::UnlockMutex()
 	{
-		pthread_mutex_unlock(&mutex);
+		mutex.unlock();
 		locked = false;
 	}
-	void Thread::TerminateMutex()
-	{
-		pthread_mutex_destroy(&mutex);
-	}
+	void Thread::TerminateMutex() {}
 };

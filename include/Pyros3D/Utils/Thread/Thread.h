@@ -12,7 +12,8 @@
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Other/Export.h>
-#include <pthread.h>
+#include <thread>
+#include <mutex>
 #include <vector>
 
 namespace p3d {
@@ -26,6 +27,11 @@ namespace p3d {
 		virtual ~Thread();
 		void Launch();
 		void Terminate();
+		// std::mutex needs no explicit create/destroy step (unlike
+		// pthread_mutex_t) - `mutex` below is always valid for the
+		// object's whole lifetime. Kept as real (if now trivial) calls
+		// rather than removed, so every existing call site keeps working
+		// unchanged.
 		void CreateMutex();
 		void LockMutex();
 		void UnlockMutex();
@@ -40,8 +46,8 @@ namespace p3d {
 
 	protected:
 
-		pthread_t thread;
-		pthread_mutex_t mutex;
+		std::thread thread;
+		std::mutex mutex;
 		bool finished;
 		bool locked;
 
