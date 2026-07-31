@@ -49,7 +49,7 @@ namespace p3d {
 		  pendingClearColor(0.f, 0.f, 0.f, 1.f),
 		  captureRequested(false), capturedWidth(0), capturedHeight(0), capturedRedByteOffset(0), capturedFrameValid(false),
 		  frameInProgress(false), currentImageIndex(0),
-		  activeCommandBuffer(VK_NULL_HANDLE), offscreenCommandBuffer(VK_NULL_HANDLE), offscreenPassOpen(false), offscreenCommandBufferRecording(false), currentBoundFBO(0),
+		  activeCommandBuffer(VK_NULL_HANDLE), offscreenCommandBuffer(VK_NULL_HANDLE), offscreenPassOpen(false), offscreenCommandBufferRecording(false), currentBoundFBO(0), currentReadFBO(0),
 		  nextFBOHandle(1), shadowPipelineRenderPass(VK_NULL_HANDLE),
 		  nextVaoHandle(1), currentVao(0), currentPipeline(0),
 		  allocator(VK_NULL_HANDLE), descriptorPool(VK_NULL_HANDLE),
@@ -551,6 +551,7 @@ namespace p3d {
 		VkPhysicalDeviceProperties deviceProperties;
 		vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
 		minUniformBufferOffsetAlignment = deviceProperties.limits.minUniformBufferOffsetAlignment;
+		supportedSampleCounts = deviceProperties.limits.framebufferColorSampleCounts & deviceProperties.limits.framebufferDepthSampleCounts;
 
 		// Logical device + queue.
 		f32 queuePriority = 1.0f;
@@ -1586,7 +1587,7 @@ namespace p3d {
 
 		VkPipelineMultisampleStateCreateInfo multisampling = {};
 		multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-		multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+		multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT; // real value resolved below, once targetRenderPass's FBO is known
 
 		VkPipelineDepthStencilStateCreateInfo depthStencil = {};
 		depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -1644,6 +1645,12 @@ namespace p3d {
 			{
 				targetRenderPass = fboIt->second.renderPass;
 				targetColorAttachmentCount = fboIt->second.colorAttachmentCount;
+				// Must match the render pass's own attachment sample count
+				// exactly (VUID-VkGraphicsPipelineCreateInfo-multisampledRenderToSingleSampled-06853
+				// family) - real multisample FBOs (see
+				// UploadTexture2DMultisample()) are the only case this is
+				// ever not VK_SAMPLE_COUNT_1_BIT.
+				multisampling.rasterizationSamples = fboIt->second.samples;
 			}
 		}
 
@@ -3094,6 +3101,21 @@ namespace p3d {
 		}
 	}
 
+	// Picks the largest VK_SAMPLE_COUNT_x_BIT that's both <= the caller's
+	// requested count and actually present in `supported` (a real device
+	// capability bitmask - see supportedSampleCounts's comment). The
+	// VK_SAMPLE_COUNT_x_BIT enum values are conveniently equal to the
+	// sample count they represent (1,2,4,8,16,32,64), so this is a plain
+	// bit-scan, not a lookup table. VK_SAMPLE_COUNT_1_BIT is always
+	// spec-guaranteed present, so this never returns 0.
+	VkSampleCountFlagBits VulkanRenderDevice::ClampSampleCount(const VkSampleCountFlags supported, const uint32 requested)
+	{
+		for (uint32 bit = VK_SAMPLE_COUNT_64_BIT; bit > VK_SAMPLE_COUNT_1_BIT; bit >>= 1)
+			if (bit <= requested && (supported & bit))
+				return (VkSampleCountFlagBits)bit;
+		return VK_SAMPLE_COUNT_1_BIT;
+	}
+
 	// Plain 2D textures and cubemap faces (point-light shadow maps - see
 	// PointLight.cpp's EnableCastShadows(), which calls
 	// CreateEmptyTexture()/attaches with TextureType::CubemapPositive_X
@@ -3248,6 +3270,24 @@ namespace p3d {
 		bool needsCreate = tex.image == VK_NULL_HANDLE || tex.width != width || tex.height != height || tex.format != wantedFormat || tex.mipLevels != wantedMipLevels || (isCubemapTarget && !tex.isCubemap);
 		if (needsCreate)
 		{
+			// If tex.image already exists, this is a genuine resize (e.g.
+			// Texture::Resize() called from an example's OnResize(), which
+			// fires from an SDL_WINDOWEVENT_RESIZED that can land mid-frame,
+			// asynchronously with respect to whatever's in flight) - the
+			// old view/image may still be referenced by a descriptor set
+			// bound in a command buffer that's already been submitted but
+			// hasn't finished executing yet. Destroying it out from under
+			// that submission is exactly VUID-vkDestroyImageView-imageView-
+			// 01026 (found via a real validation-layer run on MSAATest,
+			// whose PlainDisplay/ResolvedDisplay DisplayTextureEffect
+			// samples plainColor/resolvedColor every frame - the first
+			// resizable-render-target example this backend has ever run).
+			// RecreateSwapchain() already guards its own teardown the same
+			// way; this path never had the equivalent. First-time creation
+			// (tex.image == NULL) never had anything submitted against it,
+			// so skip the stall there.
+			if (tex.image != VK_NULL_HANDLE)
+				vkDeviceWaitIdle(device);
 			// Any FBO this texture is already attached to (e.g. an
 			// IEffect's own render target, resized to match the window
 			// right after creation) has a VkFramebuffer baked against the
@@ -3483,7 +3523,95 @@ namespace p3d {
 		vkFreeCommandBuffers(device, commandPool, 1, &uploadCmd);
 		vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
 	}
-	void VulkanRenderDevice::UploadTexture2DMultisample(const uint32 target, const uint32 samples, const uint32 internalFormat, const uint32 width, const uint32 height) {}
+	// Was a complete no-op stub. Real multisample VkImage creation,
+	// mirroring UploadTexture2D()'s image-creation half above (lines
+	// 3279-3361) - deliberately not the upload half, since GL's own
+	// glTexImage2DMultisample() (the semantics this mirrors) never takes
+	// a data pointer either; a multisample image is only ever populated
+	// by rendering into it as an attachment. No mip levels (Vulkan has
+	// no multisample+mipmapped image combination) and no cubemap support
+	// (this engine never creates a multisample cubemap - target is
+	// always a plain TextureType::Texture here).
+	void VulkanRenderDevice::UploadTexture2DMultisample(const uint32 target, const uint32 samples, const uint32 internalFormat, const uint32 width, const uint32 height)
+	{
+		(void)target;
+		if (currentlyConfiguringTexture == 0 || device == VK_NULL_HANDLE || allocator == VK_NULL_HANDLE || width == 0 || height == 0)
+			return;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end())
+			return;
+		TextureRecord &tex = it->second;
+		VkFormat wantedFormat = (VkFormat)internalFormat;
+		bool isDepth = IsDepthFormatVk(wantedFormat);
+		VkSampleCountFlagBits wantedSamples = ClampSampleCount(supportedSampleCounts, samples);
+
+		bool needsCreate = tex.image == VK_NULL_HANDLE || tex.width != width || tex.height != height || tex.format != wantedFormat || tex.samples != wantedSamples;
+		if (!needsCreate)
+			return;
+
+		// See UploadTexture2D()'s identical comment - same resize-races-
+		// in-flight-GPU-work hazard applies to multisample targets.
+		if (tex.image != VK_NULL_HANDLE)
+			vkDeviceWaitIdle(device);
+		InvalidateFramebuffersForTexture(currentlyConfiguringTexture);
+		if (tex.view != VK_NULL_HANDLE) { vkDestroyImageView(device, tex.view, NULL); tex.view = VK_NULL_HANDLE; }
+		for (std::map<uint32, VkImageView>::iterator rtIt = tex.renderTargetViewsByTarget.begin(); rtIt != tex.renderTargetViewsByTarget.end(); rtIt++)
+			vkDestroyImageView(device, rtIt->second, NULL);
+		tex.renderTargetViewsByTarget.clear();
+		if (tex.image != VK_NULL_HANDLE) { vmaDestroyImage(allocator, tex.image, tex.allocation); tex.image = VK_NULL_HANDLE; }
+
+		VkImageCreateInfo imageInfo = {};
+		imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+		imageInfo.imageType = VK_IMAGE_TYPE_2D;
+		imageInfo.format = wantedFormat;
+		imageInfo.extent = { width, height, 1 };
+		imageInfo.mipLevels = 1;
+		imageInfo.arrayLayers = 1;
+		imageInfo.samples = wantedSamples;
+		imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+		// TRANSFER_SRC_BIT on the color case only - vkCmdResolveImage
+		// (BlitFramebuffer()'s MSAA-resolve path) requires it on the
+		// source, but only ever operates on the color aspect (the Vulkan
+		// spec doesn't support resolving a depth/stencil aspect that way -
+		// a depth multisample attachment is written+tested against
+		// directly and never resolved through this backend).
+		imageInfo.usage = (isDepth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)) | VK_IMAGE_USAGE_SAMPLED_BIT;
+		imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+		VmaAllocationCreateInfo allocInfo = {};
+		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		if (vmaCreateImage(allocator, &imageInfo, &allocInfo, &tex.image, &tex.allocation, NULL) != VK_SUCCESS)
+		{
+			fprintf(stderr, "VulkanRenderDevice::UploadTexture2DMultisample: vmaCreateImage failed (%ux%u, format=%d, samples=%d)\n", width, height, (int)wantedFormat, (int)wantedSamples);
+			tex.image = VK_NULL_HANDLE;
+			return;
+		}
+
+		VkImageViewCreateInfo viewInfo = {};
+		viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		viewInfo.image = tex.image;
+		viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		viewInfo.format = wantedFormat;
+		viewInfo.subresourceRange = { (VkImageAspectFlags)(isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, 1, 0, 1 };
+		if (vkCreateImageView(device, &viewInfo, NULL, &tex.view) != VK_SUCCESS)
+		{
+			fprintf(stderr, "VulkanRenderDevice::UploadTexture2DMultisample: vkCreateImageView failed\n");
+			vmaDestroyImage(allocator, tex.image, tex.allocation);
+			tex.image = VK_NULL_HANDLE;
+			return;
+		}
+
+		tex.width = width;
+		tex.height = height;
+		tex.mipLevels = 1;
+		tex.format = wantedFormat;
+		tex.isCubemap = false;
+		tex.isDepthTexture = isDepth;
+		tex.samples = wantedSamples;
+		tex.baseLevelHasRealData = false;
+		tex.mipsGenerated = false;
+	}
 
 	// Cascading vkCmdBlitImage() downsample, the standard Vulkan mipmap-
 	// generation pattern (there's no vkGenerateMipmap - GL's
@@ -4015,9 +4143,22 @@ namespace p3d {
 			}
 			bool isDepth = sorted[i].format == FrameBufferAttachmentFormat::Depth_Attachment;
 
+			// All attachments in one subpass must share a single sample
+			// count (this backend doesn't use render-pass resolve
+			// attachments - see BlitFramebuffer()'s comment - so there's
+			// no separate single-sample resolve slot to disagree with).
+			// Real mismatch would be a caller bug (FrameBuffer::AddAttach()
+			// called with different msaa values across one FBO's
+			// attachments) - take the first attachment's count and flag it
+			// rather than silently building an invalid render pass.
+			if (i == 0)
+				fbo.samples = texIt->second.samples;
+			else if (texIt->second.samples != fbo.samples)
+				fprintf(stderr, "VulkanRenderDevice::BuildMultiAttachmentRenderPass: attachment sample-count mismatch (%d vs %d) - every attachment on one FBO must share the same msaa value\n", (int)texIt->second.samples, (int)fbo.samples);
+
 			VkAttachmentDescription desc = {};
 			desc.format = texIt->second.format;
-			desc.samples = VK_SAMPLE_COUNT_1_BIT;
+			desc.samples = texIt->second.samples;
 			desc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 			desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 			desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -4230,7 +4371,17 @@ namespace p3d {
 	// Bind()/UnBind() session, not per attached face.
 	void VulkanRenderDevice::BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo, const bool finalizePending)
 	{
-		(void)nativeAccess;
+		// A Read-only bind (BlitFramebuffer()'s source) mirrors GL's
+		// GL_READ_FRAMEBUFFER target - never begins a render pass or
+		// touches currentBoundFBO/the offscreen command buffer, exactly
+		// like binding something for reading doesn't make it the render
+		// target on GL either. Tracked separately - see currentReadFBO's
+		// comment.
+		if (nativeAccess == FBOAccess::Read)
+		{
+			currentReadFBO = fbo;
+			return;
+		}
 		if (fbo != 0)
 		{
 			currentBoundFBO = fbo;
@@ -4307,30 +4458,7 @@ namespace p3d {
 		}
 
 		currentBoundFBO = 0;
-		if (!offscreenCommandBufferRecording)
-			return; // AttachFramebufferTexture2D() never actually ran (e.g. attachment failed) - nothing to submit
-
-		EndOffscreenRenderPassIfOpen();
-		vkEndCommandBuffer(offscreenCommandBuffer);
-
-		VkSubmitInfo submitInfo = {};
-		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &offscreenCommandBuffer;
-		VkFenceCreateInfo fenceInfo = {};
-		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-		VkFence offscreenFence = VK_NULL_HANDLE;
-		vkCreateFence(device, &fenceInfo, NULL, &offscreenFence);
-		vkQueueSubmit(graphicsQueue, 1, &submitInfo, offscreenFence);
-		if (offscreenFence != VK_NULL_HANDLE)
-		{
-			vkWaitForFences(device, 1, &offscreenFence, VK_TRUE, UINT64_MAX);
-			vkDestroyFence(device, offscreenFence, NULL);
-		}
-		else
-		{
-			vkQueueWaitIdle(graphicsQueue);
-		}
+		FlushOffscreenCommandBuffer();
 
 		// Real bug, found via a crash (EXC_BAD_ACCESS in vkCmdBindPipeline)
 		// once a renderer first combined offscreen FBO work with a later
@@ -4556,9 +4684,61 @@ namespace p3d {
 		offscreenPassOpen = false;
 	}
 
-	// GLLEGACY-only in every light's own shadow-FBO setup (confirmed
-	// never defined in this project's CMake) - not implemented.
-	void VulkanRenderDevice::AttachFramebufferRenderbuffer(const uint32 nativeAttachmentFormat, const DeviceHandle renderbuffer) { (void)nativeAttachmentFormat; (void)renderbuffer; }
+	void VulkanRenderDevice::FlushOffscreenCommandBuffer()
+	{
+		if (!offscreenCommandBufferRecording)
+			return;
+
+		EndOffscreenRenderPassIfOpen();
+		vkEndCommandBuffer(offscreenCommandBuffer);
+
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &offscreenCommandBuffer;
+		VkFenceCreateInfo fenceInfo = {};
+		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		VkFence offscreenFence = VK_NULL_HANDLE;
+		vkCreateFence(device, &fenceInfo, NULL, &offscreenFence);
+		vkQueueSubmit(graphicsQueue, 1, &submitInfo, offscreenFence);
+		if (offscreenFence != VK_NULL_HANDLE)
+		{
+			vkWaitForFences(device, 1, &offscreenFence, VK_TRUE, UINT64_MAX);
+			vkDestroyFence(device, offscreenFence, NULL);
+		}
+		else
+		{
+			vkQueueWaitIdle(graphicsQueue);
+		}
+
+		offscreenCommandBufferRecording = false;
+	}
+
+	// Was marked GLLEGACY-only/not-implemented - wrong, FrameBuffer::
+	// AddAttach()'s RenderBuffer-object path (RenderBufferDataType::
+	// {RGBA,Depth}{,_Multisample}) reaches this on every build, not just
+	// a legacy one. Vulkan has no separate "renderbuffer object" concept
+	// (unlike GL, which distinguishes a write-only GL_RENDERBUFFER from a
+	// sampled GL_TEXTURE_2D) - a renderbuffer is just a VkImage without
+	// SAMPLED_BIT usage, so this backend reuses the exact same
+	// TextureRecord/textures-map/AttachFramebufferTexture2D() machinery
+	// the texture-attachment path already has, rather than inventing a
+	// parallel one. `renderbuffer` is a real handle in that same map -
+	// see CreateRenderbuffer()'s comment. nativeTextureTarget=1 matches
+	// TranslateTextureTarget(TextureType::Texture, ...)'s own translated
+	// value (a renderbuffer is always "plain 2D", never a cubemap face).
+	// wasAlreadyBound=false unconditionally - unlike a shadow-casting
+	// light's cubemap texture (attached once per face, across multiple
+	// frames, sometimes onto an already-built render pass -
+	// AttachFramebufferTexture2D()'s wasAlreadyBound distinguishes that
+	// case), a renderbuffer in this engine is only ever attached once, at
+	// FrameBuffer::AddAttach()'s own self-contained setup-time bind, so
+	// this is always the "pending, build lazily on first real Bind()"
+	// case that parameter's false branch handles.
+	void VulkanRenderDevice::AttachFramebufferRenderbuffer(const uint32 nativeAttachmentFormat, const DeviceHandle renderbuffer)
+	{
+		AttachFramebufferTexture2D(nativeAttachmentFormat, 1, renderbuffer, false);
+	}
 	// GL_DRAW_BUFFER/GL_READ_BUFFER state has no Vulkan equivalent - a
 	// render pass's attachments (and which subpass writes to which) are
 	// fixed at creation time, not toggled per-draw. No-ops.
@@ -4577,15 +4757,295 @@ namespace p3d {
 	uint32 VulkanRenderDevice::CheckFramebufferStatus() { return FBOStatus::Complete; }
 	uint32 VulkanRenderDevice::TranslateFramebufferStatus(const uint32 nativeStatus) { return nativeStatus; }
 
-	DeviceHandle VulkanRenderDevice::CreateRenderbuffer() { return 0; }
-	void VulkanRenderDevice::DestroyRenderbuffer(const DeviceHandle rbo) {}
-	void VulkanRenderDevice::BindRenderbuffer(const DeviceHandle rbo) {}
-	uint32 VulkanRenderDevice::TranslateRenderbufferFormat(const uint32 engineDataType) { return 0; }
-	void VulkanRenderDevice::RenderbufferStorage(const uint32 nativeFormat, const uint32 width, const uint32 height) {}
-	void VulkanRenderDevice::RenderbufferStorageMultisample(const uint32 nativeFormat, const uint32 samples, const uint32 width, const uint32 height) {}
+	// Was a complete no-op stub returning handle 0 - every real caller
+	// (FrameBuffer::AddAttach()'s RenderBuffer path) then immediately fed
+	// that 0 into BindRenderbuffer()/AttachFramebufferRenderbuffer(),
+	// silently doing nothing the whole way down. Reuses the texture
+	// handle namespace/map (see AttachFramebufferRenderbuffer()'s
+	// comment) rather than a parallel one - the record starts out with
+	// image==VK_NULL_HANDLE, same as CreateTextureObject(), until
+	// RenderbufferStorage(Multisample)() actually allocates it.
+	DeviceHandle VulkanRenderDevice::CreateRenderbuffer()
+	{
+		DeviceHandle handle = nextTextureHandle++;
+		textures[handle] = TextureRecord();
+		return handle;
+	}
+	void VulkanRenderDevice::DestroyRenderbuffer(const DeviceHandle rbo)
+	{
+		if (device == VK_NULL_HANDLE)
+			return;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(rbo);
+		if (it == textures.end())
+			return;
+		InvalidateFramebuffersForTexture(rbo);
+		if (it->second.view != VK_NULL_HANDLE) vkDestroyImageView(device, it->second.view, NULL);
+		for (std::map<uint32, VkImageView>::iterator rtIt = it->second.renderTargetViewsByTarget.begin(); rtIt != it->second.renderTargetViewsByTarget.end(); rtIt++)
+			vkDestroyImageView(device, rtIt->second, NULL);
+		if (it->second.image != VK_NULL_HANDLE) vmaDestroyImage(allocator, it->second.image, it->second.allocation);
+		textures.erase(it);
+	}
+	// Selects `rbo` as the target of the next RenderbufferStorage(Multisample)()
+	// call - reuses currentlyConfiguringTexture, the exact same "which
+	// object do my next configuration calls apply to" role
+	// BindTextureToTarget() already fills for the regular texture path
+	// (see its comment). Safe to share: nothing interleaves a
+	// BindRenderbuffer() session with a BindTextureToTarget() session -
+	// FrameBuffer::AddAttach()'s renderbuffer path runs Bind->Storage->
+	// Attach->Unbind back-to-back with no other texture work in between.
+	void VulkanRenderDevice::BindRenderbuffer(const DeviceHandle rbo) { currentlyConfiguringTexture = rbo; }
+	// Real VkFormat values, not GL tokens - matches every other
+	// Translate*Format() on this backend (see TranslateTextureFormat()'s
+	// identical convention). RenderbufferStorage(Multisample)() below
+	// feeds this straight into UploadTexture2D(Multisample)()'s
+	// internalFormat parameter, which casts it right back to VkFormat.
+	uint32 VulkanRenderDevice::TranslateRenderbufferFormat(const uint32 engineDataType)
+	{
+		switch (engineDataType)
+		{
+		case RenderBufferDataType::Depth:
+		case RenderBufferDataType::Depth_Multisample:
+			return (uint32)VK_FORMAT_D32_SFLOAT;
+		case RenderBufferDataType::RGBA:
+		case RenderBufferDataType::RGBA_Multisample:
+		default:
+			return (uint32)VK_FORMAT_R8G8B8A8_UNORM;
+		}
+	}
+	// Single-sample case: a renderbuffer never has data uploaded into it
+	// (GL's glRenderbufferStorage doesn't take one either - a renderbuffer
+	// is only ever populated by rendering into it), so this is exactly
+	// UploadTexture2D()'s image-creation half with data=NULL, willMipmap=
+	// false - delegate straight to it instead of duplicating that logic.
+	// currentlyConfiguringTexture is already correct, set by the
+	// BindRenderbuffer() call FrameBuffer::AddAttach() always makes
+	// immediately before this.
+	void VulkanRenderDevice::RenderbufferStorage(const uint32 nativeFormat, const uint32 width, const uint32 height)
+	{
+		UploadTexture2D(0, 0, nativeFormat, width, height, 0, 0, NULL, false);
+	}
+	void VulkanRenderDevice::RenderbufferStorageMultisample(const uint32 nativeFormat, const uint32 samples, const uint32 width, const uint32 height)
+	{
+		UploadTexture2DMultisample(0, samples, nativeFormat, width, height);
+	}
 
-	void VulkanRenderDevice::SetMultisampleEnabled(const bool enabled) {}
-	void VulkanRenderDevice::BlitFramebuffer(const uint32 srcX0, const uint32 srcY0, const uint32 srcX1, const uint32 srcY1, const uint32 dstX0, const uint32 dstY0, const uint32 dstX1, const uint32 dstY1, const uint32 engineMask, const uint32 engineFilter) {}
+	// A genuine no-op, not an unimplemented stub - unlike GL's GL_MULTISAMPLE
+	// cap (a single global enable/disable toggle applied on top of
+	// whatever's currently attached), Vulkan has no equivalent global
+	// switch: a target's sample count is a real, fixed property baked
+	// into its VkImage (UploadTexture2DMultisample()) and the render
+	// pass/pipeline built against it (BuildMultiAttachmentRenderPass()'s
+	// desc.samples, CreatePipeline()'s rasterizationSamples) - there's
+	// nothing left for a runtime toggle to control.
+	void VulkanRenderDevice::SetMultisampleEnabled(const bool enabled) { (void)enabled; }
+
+	// Was a complete no-op stub. Mirrors GL's glBlitFramebuffer() -
+	// src/dst are whatever's currently bound via BindFramebuffer(access=
+	// Read/Write) (currentReadFBO/currentBoundFBO - see their comments),
+	// not explicit parameters, matching GL's own GL_READ_FRAMEBUFFER/
+	// GL_DRAW_FRAMEBUFFER-implied semantics exactly. engineMask is a
+	// single FBOBufferBit value (Color/Depth/Stencil), not a real
+	// OR-able bitmask - see GLRenderDevice::BlitFramebuffer()'s
+	// identical switch-not-bitwise-AND handling, this mirrors it.
+	//
+	// Two real Vulkan copy paths depending on the source's sample count
+	// (TextureRecord::samples, see UploadTexture2DMultisample()):
+	// vkCmdResolveImage for a real multisample-to-single-sample resolve
+	// (the whole reason this function exists for MSAA - Vulkan requires
+	// this specific command for that case, vkCmdBlitImage doesn't accept
+	// a multisample source at all), vkCmdBlitImage otherwise (also
+	// handles same-sample-count scaling/filtering, which resolve doesn't
+	// support - VkImageResolve has no filter and requires equal src/dst
+	// extents). Depth/stencil resolve isn't supported by either Vulkan
+	// command in the multisample case - reported, not silently wrong.
+	void VulkanRenderDevice::BlitFramebuffer(const uint32 srcX0, const uint32 srcY0, const uint32 srcX1, const uint32 srcY1, const uint32 dstX0, const uint32 dstY0, const uint32 dstX1, const uint32 dstY1, const uint32 engineMask, const uint32 engineFilter)
+	{
+		if (device == VK_NULL_HANDLE)
+			return;
+
+		// The destination FBO's own Bind(FBOAccess::Write) (see
+		// BindFramebuffer()) already recorded a real "begin render pass
+		// (clears to the render pass's hardcoded clear value) ... end
+		// render pass" into offscreenCommandBuffer, exactly like any other
+		// FBO bind - it just hasn't been *submitted* yet (that only
+		// happens when the session later ends, e.g. the next UnBind()).
+		// Left unflushed, that still-pending clear would execute on the
+		// GPU *after* this function's own separate, synchronously-
+		// submitted blit/resolve command buffer already wrote real
+		// content into the same image - silently wiping the resolve back
+		// to black the moment whatever comes after this call ends the
+		// session (see FlushOffscreenCommandBuffer()'s comment). Flushing
+		// first guarantees any pending clear on either src or dst
+		// completes strictly before this function's own GPU work runs.
+		FlushOffscreenCommandBuffer();
+
+		std::map<DeviceHandle, FBORecord>::iterator srcFboIt = fboRecords.find(currentReadFBO);
+		std::map<DeviceHandle, FBORecord>::iterator dstFboIt = fboRecords.find(currentBoundFBO);
+		if (srcFboIt == fboRecords.end() || dstFboIt == fboRecords.end())
+		{
+			fprintf(stderr, "VulkanRenderDevice::BlitFramebuffer: needs a Read-bound source (%u) and a Write/Read_Write-bound destination (%u), one or both missing\n", currentReadFBO, currentBoundFBO);
+			return;
+		}
+
+		uint32 wantedFormat;
+		VkImageAspectFlagBits aspect;
+		switch (engineMask)
+		{
+		case FBOBufferBit::Depth:
+			wantedFormat = FrameBufferAttachmentFormat::Depth_Attachment;
+			aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+			break;
+		case FBOBufferBit::Stencil:
+			fprintf(stderr, "VulkanRenderDevice::BlitFramebuffer: FBOBufferBit::Stencil not supported - Stencil_Attachment isn't implemented anywhere on this backend\n");
+			return;
+		case FBOBufferBit::Color:
+		default:
+			wantedFormat = FrameBufferAttachmentFormat::Color_Attachment0;
+			aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+			break;
+		}
+
+		DeviceHandle srcTexId = 0, dstTexId = 0;
+		for (size_t i = 0; i < srcFboIt->second.pendingAttachments.size(); i++)
+			if (srcFboIt->second.pendingAttachments[i].format == wantedFormat) { srcTexId = srcFboIt->second.pendingAttachments[i].textureId; break; }
+		for (size_t i = 0; i < dstFboIt->second.pendingAttachments.size(); i++)
+			if (dstFboIt->second.pendingAttachments[i].format == wantedFormat) { dstTexId = dstFboIt->second.pendingAttachments[i].textureId; break; }
+		std::map<DeviceHandle, TextureRecord>::iterator srcTexIt = textures.find(srcTexId);
+		std::map<DeviceHandle, TextureRecord>::iterator dstTexIt = textures.find(dstTexId);
+		if (srcTexId == 0 || dstTexId == 0 || srcTexIt == textures.end() || dstTexIt == textures.end())
+		{
+			fprintf(stderr, "VulkanRenderDevice::BlitFramebuffer: source or destination FBO has no matching attachment for this engineMask\n");
+			return;
+		}
+		TextureRecord &srcTex = srcTexIt->second;
+		TextureRecord &dstTex = dstTexIt->second;
+
+		bool isResolve = srcTex.samples != VK_SAMPLE_COUNT_1_BIT && dstTex.samples == VK_SAMPLE_COUNT_1_BIT;
+		if (isResolve && aspect != VK_IMAGE_ASPECT_COLOR_BIT)
+		{
+			fprintf(stderr, "VulkanRenderDevice::BlitFramebuffer: multisample depth/stencil resolve isn't supported by this backend (Vulkan's vkCmdResolveImage is color-only) - the depth attachment stays multisample, sampled/tested directly instead\n");
+			return;
+		}
+		bool sameExtent = (srcX1 - srcX0) == (dstX1 - dstX0) && (srcY1 - srcY0) == (dstY1 - dstY0);
+		if (isResolve && !sameExtent)
+		{
+			fprintf(stderr, "VulkanRenderDevice::BlitFramebuffer: vkCmdResolveImage can't scale (src and dst regions must be the same size) - requested %ux%u -> %ux%u\n", srcX1 - srcX0, srcY1 - srcY0, dstX1 - dstX0, dstY1 - dstY0);
+			return;
+		}
+
+		VkCommandBufferAllocateInfo cmdAllocInfo = {};
+		cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		cmdAllocInfo.commandPool = commandPool;
+		cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		cmdAllocInfo.commandBufferCount = 1;
+		VkCommandBuffer blitCmd = VK_NULL_HANDLE;
+		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &blitCmd) != VK_SUCCESS)
+			return;
+
+		VkCommandBufferBeginInfo beginInfo = {};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		vkBeginCommandBuffer(blitCmd, &beginInfo);
+
+		// Same "just finished being written+finalLayout-transitioned by
+		// its own render pass" reasoning as CopyDepthTexture()'s identical
+		// barrier comment - both src and dst sit in SHADER_READ_ONLY_OPTIMAL
+		// (color) or DEPTH_STENCIL_ATTACHMENT_OPTIMAL (depth) between
+		// passes on this backend.
+		VkImageLayout restLayout = aspect == VK_IMAGE_ASPECT_COLOR_BIT ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		VkImageMemoryBarrier toSrcTransfer = {};
+		toSrcTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		toSrcTransfer.oldLayout = restLayout;
+		toSrcTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		toSrcTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toSrcTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toSrcTransfer.image = srcTex.image;
+		toSrcTransfer.subresourceRange = { (VkImageAspectFlags)aspect, 0, 1, 0, 1 };
+		toSrcTransfer.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		toSrcTransfer.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+		// UNDEFINED, not restLayout, for the destination: unlike src (which
+		// really did just come out of a render pass in restLayout), dst is
+		// a pure copy target whose prior contents are about to be fully
+		// overwritten and were never guaranteed to be restLayout in the
+		// first place - resolvedFBO's color attachment here is only ever
+		// a vkCmdResolveImage destination, never itself rendered into, so
+		// its real layout after creation is VK_IMAGE_LAYOUT_UNDEFINED.
+		// Claiming oldLayout=restLayout when the tracked state was really
+		// UNDEFINED left the destination stuck at UNDEFINED as far as the
+		// validation layer (and DisplayTextureEffect's subsequent sample)
+		// were concerned - VUID-vkCmdDraw-None-09600 on a real
+		// validation-layer run of MSAATest, the first thing to ever
+		// exercise this path. UNDEFINED is always a legal oldLayout when
+		// existing contents don't need preserving.
+		VkImageMemoryBarrier toDstTransfer = toSrcTransfer;
+		toDstTransfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		toDstTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		toDstTransfer.image = dstTex.image;
+		toDstTransfer.srcAccessMask = 0;
+		toDstTransfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+		VkImageMemoryBarrier toTransferBarriers[2] = { toSrcTransfer, toDstTransfer };
+		vkCmdPipelineBarrier(blitCmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 2, toTransferBarriers);
+
+		if (isResolve)
+		{
+			VkImageResolve region = {};
+			region.srcSubresource = { (VkImageAspectFlags)aspect, 0, 0, 1 };
+			region.srcOffset = { (int32_t)srcX0, (int32_t)srcY0, 0 };
+			region.dstSubresource = { (VkImageAspectFlags)aspect, 0, 0, 1 };
+			region.dstOffset = { (int32_t)dstX0, (int32_t)dstY0, 0 };
+			region.extent = { srcX1 - srcX0, srcY1 - srcY0, 1 };
+			vkCmdResolveImage(blitCmd, srcTex.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstTex.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+		}
+		else
+		{
+			VkImageBlit region = {};
+			region.srcSubresource = { (VkImageAspectFlags)aspect, 0, 0, 1 };
+			region.srcOffsets[0] = { (int32_t)srcX0, (int32_t)srcY0, 0 };
+			region.srcOffsets[1] = { (int32_t)srcX1, (int32_t)srcY1, 1 };
+			region.dstSubresource = { (VkImageAspectFlags)aspect, 0, 0, 1 };
+			region.dstOffsets[0] = { (int32_t)dstX0, (int32_t)dstY0, 0 };
+			region.dstOffsets[1] = { (int32_t)dstX1, (int32_t)dstY1, 1 };
+			VkFilter filter = engineFilter == FBOFilter::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+			vkCmdBlitImage(blitCmd, srcTex.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstTex.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, filter);
+		}
+
+		VkImageMemoryBarrier toSrcFinal = toSrcTransfer;
+		toSrcFinal.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		toSrcFinal.newLayout = restLayout;
+		toSrcFinal.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		toSrcFinal.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+
+		VkImageMemoryBarrier toDstFinal = toSrcFinal;
+		toDstFinal.image = dstTex.image;
+		toDstFinal.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+
+		VkImageMemoryBarrier toFinalBarriers[2] = { toSrcFinal, toDstFinal };
+		vkCmdPipelineBarrier(blitCmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, 0, 0, NULL, 0, NULL, 2, toFinalBarriers);
+
+		vkEndCommandBuffer(blitCmd);
+
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &blitCmd;
+		VkFenceCreateInfo fenceInfo = {};
+		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		VkFence blitFence = VK_NULL_HANDLE;
+		vkCreateFence(device, &fenceInfo, NULL, &blitFence);
+		vkQueueSubmit(graphicsQueue, 1, &submitInfo, blitFence);
+		if (blitFence != VK_NULL_HANDLE)
+		{
+			vkWaitForFences(device, 1, &blitFence, VK_TRUE, UINT64_MAX);
+			vkDestroyFence(device, blitFence, NULL);
+		}
+		else
+		{
+			vkQueueWaitIdle(graphicsQueue);
+		}
+		vkFreeCommandBuffers(device, commandPool, 1, &blitCmd);
+	}
 
 	void VulkanRenderDevice::CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height)
 	{

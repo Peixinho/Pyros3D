@@ -104,6 +104,10 @@ namespace p3d {
 		bool haveImage;
 		bool isMipMap, isMipMapManual;
 		uint32 cubemapFaces;
+		// Sample count for TextureType::Texture_Multisample - Resize() needs
+		// this to re-issue UploadTexture2DMultisample() with the same
+		// sample count the texture was originally created with.
+		uint32 storedSamples;
 
 		// GL Properties
 		f32 Transparency;

@@ -485,6 +485,17 @@ namespace p3d {
 		// 0 = none (matches BindFramebuffer(access, 0)'s GL "unbind to
 		// the default framebuffer" semantics).
 		DeviceHandle currentBoundFBO;
+		// Separate from currentBoundFBO above - GL's glBlitFramebuffer()
+		// (what BlitFramebuffer() mirrors) reads from whatever's bound to
+		// the *separate* GL_READ_FRAMEBUFFER target, independent of
+		// GL_DRAW_FRAMEBUFFER (currentBoundFBO's real equivalent here).
+		// Only ever set by a BindFramebuffer() call whose nativeAccess is
+		// FBOAccess::Read - a Read-only bind never begins a render pass
+		// or touches currentBoundFBO/the offscreen command buffer at all
+		// (see BindFramebuffer()'s comment), matching GL's own behavior
+		// (binding something for reading doesn't make it the render
+		// target). 0 = none.
+		DeviceHandle currentReadFBO;
 
 		// One real offscreen render target, keyed by the handle
 		// CreateFramebuffer() returns. Only depth-only, texture-backed
@@ -569,7 +580,18 @@ namespace p3d {
 			// the hard way via a shadow-casting draw silently never
 			// happening past frame 1, no error, just zero effect).
 			uint32 lastTarget;
-			FBORecord() : renderPass(VK_NULL_HANDLE), width(0), height(0), colorAttachmentCount(0), hasDepthAttachment(false), lastTarget(0) {}
+			// VK_SAMPLE_COUNT_1_BIT unless every attachment here is a real
+			// multisample texture (see TextureRecord::samples) -
+			// BuildMultiAttachmentRenderPass() reads each attachment's own
+			// sample count and requires them to agree (Vulkan render
+			// passes need one uniform sample count across all attachments
+			// in a subpass); CreatePipeline() reads this back to set
+			// VkPipelineMultisampleStateCreateInfo::rasterizationSamples
+			// to match, same "resolve from currentBoundFBO at creation
+			// time" pattern targetRenderPass/targetColorAttachmentCount
+			// already use.
+			VkSampleCountFlagBits samples;
+			FBORecord() : renderPass(VK_NULL_HANDLE), width(0), height(0), colorAttachmentCount(0), hasDepthAttachment(false), lastTarget(0), samples(VK_SAMPLE_COUNT_1_BIT) {}
 		};
 		std::map<DeviceHandle, FBORecord> fboRecords;
 		DeviceHandle nextFBOHandle;
@@ -645,6 +667,24 @@ namespace p3d {
 		// light's 2nd-6th cubemap face), since Vulkan can't swap a
 		// render pass's target attachment mid-pass.
 		void EndOffscreenRenderPassIfOpen();
+		// Ends+submits+waits on offscreenCommandBuffer if a session is
+		// currently recording - the same submit/fence sequence
+		// BindFramebuffer()'s fbo==0 branch already does, factored out so
+		// BlitFramebuffer() can call it too. See BlitFramebuffer()'s own
+		// comment on why it needs this: a Write-bound destination FBO
+		// (e.g. resolvedFBO, bound only to be a blit target, never
+		// actually drawn into) still records a real "begin render pass
+		// (clears to the render pass's hardcoded clear value) ... end
+		// render pass" into offscreenCommandBuffer at Bind() time, same as
+		// any other FBO - it just never submits until something later
+		// ends the session. Left unflushed, that recorded-but-not-yet-
+		// executed clear runs *after* BlitFramebuffer()'s own separate,
+		// synchronously-submitted command buffer already wrote real
+		// resolved content into the same image, silently wiping it back
+		// out - a real bug (blank/black resolvedColor) found running
+		// MSAATest, the first thing to ever bind an FBO purely as a blit
+		// destination.
+		void FlushOffscreenCommandBuffer();
 		// Begins recording offscreenCommandBuffer if this is the first
 		// render pass in the current Bind()/UnBind() session, then
 		// vkCmdBeginRenderPass()s `targetFramebuffer` (already resolved
@@ -875,6 +915,16 @@ namespace p3d {
 		// Queried once from the physical device - vkCmdBindDescriptorSets'
 		// dynamic offsets must be a multiple of this.
 		VkDeviceSize minUniformBufferOffsetAlignment;
+
+		// Queried once from the physical device - the bitmask of sample
+		// counts every color AND depth attachment format can agree on
+		// simultaneously (framebufferColorSampleCounts &
+		// framebufferDepthSampleCounts), since a multisample FBO built by
+		// this backend always attaches both. MoltenVK's real value varies
+		// by Apple Silicon generation - never trust a caller's requested
+		// sample count blindly, see ClampSampleCount()'s comment.
+		VkSampleCountFlags supportedSampleCounts;
+		static VkSampleCountFlagBits ClampSampleCount(const VkSampleCountFlags supported, const uint32 requested);
 
 		// bindingPoint -> uniform buffer handle, populated by
 		// CreateUniformBuffer() (which already receives the binding point
@@ -1222,12 +1272,20 @@ namespace p3d {
 			// Keyed by the same `nativeTextureTarget`
 			// TranslateTextureTarget() produced for that face/target.
 			std::map<uint32, VkImageView> renderTargetViewsByTarget;
+			// VK_SAMPLE_COUNT_1_BIT unless this came from
+			// UploadTexture2DMultisample() - a real (already
+			// device-capability-clamped, see ClampSampleCount()) multisample
+			// image otherwise. Never mixed with mipLevels>1 (Vulkan doesn't
+			// support multisample+mipmapped images) or isCubemap (this
+			// engine never creates a multisample cubemap).
+			VkSampleCountFlagBits samples;
 			TextureRecord()
 				: image(VK_NULL_HANDLE), allocation(VK_NULL_HANDLE), view(VK_NULL_HANDLE), sampler(VK_NULL_HANDLE),
 				  width(0), height(0), mipLevels(1), baseLevelHasRealData(false), mipsGenerated(false), format(VK_FORMAT_R8G8B8A8_UNORM),
 				  wrapS(TextureRepeat::Repeat), wrapT(TextureRepeat::Repeat),
 				  minFilter(TextureFilter::Linear), magFilter(TextureFilter::Linear),
-				  hasMipmap(false), samplerDirty(true), isCubemap(false), isDepthTexture(false), compareModeEnabled(false) {}
+				  hasMipmap(false), samplerDirty(true), isCubemap(false), isDepthTexture(false), compareModeEnabled(false),
+				  samples(VK_SAMPLE_COUNT_1_BIT) {}
 		};
 		std::map<DeviceHandle, TextureRecord> textures;
 		DeviceHandle nextTextureHandle;

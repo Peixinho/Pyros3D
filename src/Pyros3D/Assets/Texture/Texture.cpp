@@ -37,7 +37,7 @@ namespace p3d {
 
 	uint32 Texture::LastUnitBinded = 0;
 
-	Texture::Texture() : GL_ID(-1), haveImage(false), isMipMap(false), isMipMapManual(false), Anysotropic(0), cubemapFaces(0) {}
+	Texture::Texture() : GL_ID(-1), haveImage(false), isMipMap(false), isMipMapManual(false), Anysotropic(0), cubemapFaces(0), storedSamples(0) {}
 
 	Texture::~Texture()
 	{
@@ -159,6 +159,8 @@ namespace p3d {
 		GetInternalFormat();
 
 		bool isMultisample = (Type == TextureType::Texture_Multisample);
+		if (isMultisample)
+			storedSamples = msaa;
 
 		// bind
 		Device().BindTextureToTarget(GLSubMode, GL_ID);
@@ -186,7 +188,17 @@ namespace p3d {
 #if !defined(GLES3)
 			// setting manual mipmaps
 			// No gles :|
-			Device().SetTextureBaseMaxLevel(GLSubMode, 0, level);
+			// GL_TEXTURE_2D_MULTISAMPLE doesn't support GL_TEXTURE_BASE_LEVEL/
+			// MAX_LEVEL at all (same restriction as SetRepeat()/
+			// SetMinMagFilter() below, which already gate on isMultisample -
+			// this call was missing the same gate) - GL_INVALID_ENUM the
+			// moment a real multisample texture with Mipmapping=false
+			// actually exercised this path under a GLCHECKER build (every
+			// multisample texture, in fact - CreateEmptyTexture()'s own
+			// Mipmapping parameter is meaningless for a type GL never lets
+			// mipmap in the first place).
+			if (!isMultisample)
+				Device().SetTextureBaseMaxLevel(GLSubMode, 0, level);
 
 			if (!isMultisample)
 			{
@@ -323,11 +335,24 @@ namespace p3d {
 		Device().BindTextureToTarget(GLSubMode, GL_ID);
 		this->Width[level] = Width;
 		this->Height[level] = Height;
-		Device().UploadTexture2D(GLSubMode, level, internalFormat, Width, Height, internalFormat2, internalFormat3, NULL, isMipMap);
 
-		if (isMipMap)
+		// GL_TEXTURE_2D_MULTISAMPLE isn't a valid glTexImage2D target (only
+		// glTexImage2DMultisample accepts it) - same isMultisample split as
+		// CreateTexture(), which Resize() had never mirrored since nothing
+		// resized a multisample texture before MSAATest.
+		bool isMultisample = (Type == TextureType::Texture_Multisample);
+		if (!isMultisample)
 		{
-			Device().GenerateMipmap(GLSubMode);
+			Device().UploadTexture2D(GLSubMode, level, internalFormat, Width, Height, internalFormat2, internalFormat3, NULL, isMipMap);
+
+			if (isMipMap)
+			{
+				Device().GenerateMipmap(GLSubMode);
+			}
+		}
+		else
+		{
+			Device().UploadTexture2DMultisample(GLSubMode, storedSamples, internalFormat, Width, Height);
 		}
 
 		Device().BindTextureToTarget(GLSubMode, 0);
