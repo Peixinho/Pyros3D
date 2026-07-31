@@ -35,6 +35,13 @@ namespace p3d {
 	private:
 		GenericShaderMaterial* shadowMaterial, *shadowSkinnedMaterial;
 
+		// Looks up one of FBO's G-buffer attachments by its
+		// FrameBufferAttachmentFormat (e.g. Depth_Attachment,
+		// Color_Attachment2 for normal) - used by deferredLastPass's SSR
+		// pass, which needs specific named attachments rather than the
+		// whole-attachment-list loop the lighting passes use.
+		Texture* GetGBufferAttachment(const uint32 attachmentFormat) const;
+
 	protected:
 
 		// Offscreen Frame Buffer Object
@@ -51,6 +58,22 @@ namespace p3d {
 		// pass ends and before lastPassFBO's lighting pass starts
 		// sampling it.
 		Texture* forwardDepthTexture;
+
+		// Material-aware SSR's reflection source - a snapshot of last
+		// frame's fully composited color (post-lighting, post-transparent-
+		// forward-pass), refreshed once per frame right after colorTexture
+		// is finalized. Using the *previous* frame (reprojected via
+		// IRenderer::PrvProjectionMatrix/PrvViewMatrix) rather than this
+		// frame's own colorTexture sidesteps two problems at once: it
+		// naturally includes transparent objects (already baked into last
+		// frame's snapshot, even though they never touch the G-buffer this
+		// frame), and it avoids a same-frame read-while-still-writing
+		// hazard against colorTexture that a current-frame approach would
+		// need its own separate copy for anyway. Cleared to transparent
+		// black at creation so frame 1 has no reflections rather than
+		// needing an explicit "first frame" flag.
+		Texture* previousFrameColorTexture;
+		FrameBuffer* previousFrameFBO;
 
 		// Fallback shadow-comparison textures, bound to uShadowMap
 		// whenever a light being drawn this frame *doesn't* cast a real

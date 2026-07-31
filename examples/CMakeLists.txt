@@ -282,6 +282,18 @@ set(SOURCE_DeferredPBRSpheres
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
+set(SOURCE_SSRTest
+	${CMAKE_CURRENT_SOURCE_DIR}/SSRTest/SSRTest.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_draw.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_widgets.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_tables.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_sdl2.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_opengl3.cpp
+	${WINDOW_MANAGER}
+	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
+)
 set(SOURCE_DeferredRendering
 	${CMAKE_CURRENT_SOURCE_DIR}/DeferredRendering/DeferredRendering.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
@@ -541,6 +553,11 @@ add_executable(DeferredPBRSpheres ${SOURCE_DeferredPBRSpheres})
 include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
 target_link_libraries(DeferredPBRSpheres PyrosEngine  ${SDL2_LIBRARIES} ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES})
 target_compile_definitions(DeferredPBRSpheres PRIVATE ${DESKTOP} -DDEMO_NAME=DeferredPBRSpheres -D_DeferredPBRSpheres ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
+
+add_executable(SSRTest ${SOURCE_SSRTest})
+include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
+target_link_libraries(SSRTest PyrosEngine  ${SDL2_LIBRARIES} ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES})
+target_compile_definitions(SSRTest PRIVATE ${DESKTOP} -DDEMO_NAME=SSRTest -D_SSRTest ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
 
 add_executable(DeferredRendering ${SOURCE_DeferredRendering})
 include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/imgui)

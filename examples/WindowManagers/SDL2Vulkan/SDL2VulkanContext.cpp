@@ -155,6 +155,37 @@ namespace p3d {
             type
         );
 
+        // If the window manager silently clamps the requested size (a
+        // real thing SDL_CreateWindow() can't report through its return
+        // value - only the window's own actual size afterward reflects
+        // it), Width/Height (this class's own members, read by every
+        // example for its camera's aspect ratio and G-buffer/render-
+        // target sizing) must not stay at the stale, too-large requested
+        // value - no SDL_WINDOWEVENT_RESIZED fires for a size decided at
+        // creation time. SDL_Vulkan_GetDrawableSize() (not
+        // SDL_GetWindowSize(), which returns logical points and would
+        // undershoot by the display's HiDPI scale factor) is the correct
+        // query for this - see its own doc comment: "This may differ
+        // from SDL_GetWindowSize() if we're rendering to a high-DPI
+        // drawable."
+        //
+        // NOTE: this does NOT fix the specific clipped-sphere-grid report
+        // from this session - in that dev environment SDL itself reports
+        // both SDL_GetWindowSize() and SDL_Vulkan_GetDrawableSize() as
+        // the full requested 1280x720 (confirmed via temporary debug
+        // prints), while the real on-screen window is macOS-clamped to
+        // ~947x518 in a way SDL's own APIs never see (that machine's
+        // actual display is 4K - no genuine screen-space constraint - so
+        // this is a remote/screen-sharing session artifact, not SDL
+        // mis-tracking a real resize). Kept anyway: it's still the
+        // correct query for the general "window manager genuinely
+        // resized the window and SDL knows about it" case, e.g. a tiling
+        // window manager on Linux.
+        int actualWidth = width, actualHeight = height;
+        SDL_Vulkan_GetDrawableSize(rview, &actualWidth, &actualHeight);
+        Width = (uint32)actualWidth;
+        Height = (uint32)actualHeight;
+
         // Construct the real render device + swapchain here, now that a
         // window exists to create a VkSurfaceKHR against - see
         // GetRequiredInstanceExtensions()/CreateSurface() below, and the
@@ -167,7 +198,7 @@ namespace p3d {
         VkSurfaceKHR surface = VK_NULL_HANDLE;
         if (vulkanDevice->GetInstance() == VK_NULL_HANDLE ||
             !CreateSurface(vulkanDevice->GetInstance(), &surface) ||
-            !vulkanDevice->InitializeSwapchain(surface, width, height))
+            !vulkanDevice->InitializeSwapchain(surface, Width, Height))
         {
             // Matches this constructor's existing no-error-handling style
             // (SDL_CreateWindow() above isn't checked either) - a NULL
@@ -243,6 +274,25 @@ namespace p3d {
                 OnResize(sdl_event.window.data1, sdl_event.window.data2);
             }
         }
+
+        // Fallback for window managers that resize the window without
+        // ever delivering SDL_WINDOWEVENT_RESIZED - tiling window managers
+        // reposition/resize windows through the Accessibility API rather
+        // than a normal Cocoa resize drag, and SDL doesn't always
+        // translate that into a native resize event. Confirmed for real
+        // on this branch: SDL_Vulkan_GetDrawableSize() kept reporting the
+        // original requested size (1280x720) for the lifetime of a
+        // window a tiling WM had already visibly shrunk to a completely
+        // different size - Width/Height (and everything downstream:
+        // camera aspect ratio, G-buffer/swapchain sizing) silently never
+        // caught up. Polling every frame and diffing against the last
+        // known size is the general, WM-agnostic fix - cheap (a cached
+        // window-property read, not a syscall) and idempotent when
+        // nothing has actually changed.
+        int drawableW = 0, drawableH = 0;
+        SDL_Vulkan_GetDrawableSize(rview, &drawableW, &drawableH);
+        if (drawableW > 0 && drawableH > 0 && ((uint32)drawableW != Width || (uint32)drawableH != Height))
+            OnResize((uint32)drawableW, (uint32)drawableH);
 
         SetTime(SDL_GetTicks());
         fps.setFPS(SDL_GetTicks());

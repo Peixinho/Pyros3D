@@ -54,6 +54,16 @@ namespace p3d {
 		colorTexture = new Texture(); colorTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height, false);
 		colorTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
+		// See DeferredRenderer.h's comment on previousFrameColorTexture -
+		// material-aware SSR's reflection source. Its own tiny FBO exists
+		// purely to give BlitFramebuffer() a bindable destination (same
+		// pattern as MSAATest's resolvedFBO) - nothing ever draws into
+		// this FBO the normal way, it's a pure blit target.
+		previousFrameColorTexture = new Texture(); previousFrameColorTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height, false);
+		previousFrameColorTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		previousFrameFBO = new FrameBuffer();
+		previousFrameFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, previousFrameColorTexture);
+
 		// See DeferredRenderer.h's comment on forwardDepthTexture - a real
 		// copy of fbo's depth attachment, refreshed every frame in
 		// RenderScene(), used as lastPassFBO's depth attachment instead
@@ -99,17 +109,59 @@ namespace p3d {
 		deferredMaterialPoint = new CustomShaderMaterial("shaders/secondpassPoint.glsl");
 		deferredMaterialSpot = new CustomShaderMaterial("shaders/secondpassSpot.glsl");
 
-		uint32 colorID = 0;
+		// tDepth/tNormal/tMetallicRoughness (units 0-2) re-bind the same
+		// G-buffer attachments the lighting passes already sample, just
+		// scoped to this one draw - see the fresh Bind() sequence around
+		// this material's RenderObject() call in RenderScene(). tColor
+		// moved from unit 0 to 3 (it used to be the only texture this
+		// material sampled) to make room for them; tPreviousFrameColor
+		// (unit 4) is material-aware SSR's reflection source - see
+		// DeferredRenderer.h's comment on previousFrameColorTexture.
+		uint32 ssrTexID = 0;
+		deferredLastPass->AddUniform(Uniform("tDepth", Uniforms::DataType::Int, &ssrTexID));
+		ssrTexID = 1;
+		deferredLastPass->AddUniform(Uniform("tNormal", Uniforms::DataType::Int, &ssrTexID));
+		ssrTexID = 2;
+		deferredLastPass->AddUniform(Uniform("tMetallicRoughness", Uniforms::DataType::Int, &ssrTexID));
+		uint32 colorID = 3;
 		deferredLastPass->AddUniform(Uniform("tColor", Uniforms::DataType::Int, &colorID));
+		ssrTexID = 4;
+		deferredLastPass->AddUniform(Uniform("tPreviousFrameColor", Uniforms::DataType::Int, &ssrTexID));
+		// Real albedo (not just roughness/metallic) - needed for
+		// FresnelSchlick's F0 = mix(0.04, albedo, metallic), matching
+		// CalculatePBRLighting's own formula exactly, so metals reflect
+		// their own tint instead of a colorless approximation.
+		ssrTexID = 5;
+		deferredLastPass->AddUniform(Uniform("tDiffuse", Uniforms::DataType::Int, &ssrTexID));
+
 		deferredLastPass->AddUniform(Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
+		deferredLastPass->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
+		deferredLastPass->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
+		deferredLastPass->AddUniform(Uniform("uViewMatrixInverse", Uniforms::DataUsage::ViewMatrixInverse));
+		// Previous frame's camera - IRenderer's own PrvProjectionMatrix/
+		// PrvViewMatrix (already real, working state used by
+		// VelocityRenderer/ForwardRenderer for motion vectors - see
+		// RenderScene()'s new PrvProjectionMatrix=ProjectionMatrix shift
+		// above), reused here for SSR's reflection reprojection instead
+		// of inventing new frame-to-frame matrix tracking.
+		deferredLastPass->AddUniform(Uniform("uPrvProjectionMatrix", Uniforms::DataUsage::PrvProjectionMatrix));
+		deferredLastPass->AddUniform(Uniform("uPrvViewMatrix", Uniforms::DataUsage::PrvViewMatrix));
 
 		// See IMaterial.h's comment on extraUniforms[2] - matches the
-		// LastPassFragParams block declared in shaders/lastPass.glsl exactly.
+		// LastPassFragParams block declared in shaders/lastPass.glsl
+		// exactly. std140 offsets computed by hand, same discipline as
+		// DirectionalFragParams below (vec2s pack at 8-byte strides, each
+		// mat4 rounds up to the next 16-byte boundary).
 		deferredLastPass->extraUniforms[0].binding = 37;
 		deferredLastPass->extraUniforms[0].blockName = "LastPassFragParams";
-		deferredLastPass->extraUniforms[0].size = 8;
+		deferredLastPass->extraUniforms[0].size = 272;
 		deferredLastPass->extraUniforms[0].scratch.resize(deferredLastPass->extraUniforms[0].size, 0);
 		deferredLastPass->extraUniforms[0].offsets["uScreenDimensions"] = 0;
+		deferredLastPass->extraUniforms[0].offsets["uNearFar"] = 8;
+		deferredLastPass->extraUniforms[0].offsets["uMatProj"] = 16;
+		deferredLastPass->extraUniforms[0].offsets["uViewMatrixInverse"] = 80;
+		deferredLastPass->extraUniforms[0].offsets["uPrvProjectionMatrix"] = 144;
+		deferredLastPass->extraUniforms[0].offsets["uPrvViewMatrix"] = 208;
 		// Real, pre-existing inconsistency found while investigating a
 		// separate rendering issue: every other second-pass material
 		// (Ambient/Directional/Point/Spot, further below) explicitly
@@ -266,27 +318,25 @@ namespace p3d {
 		deferredMaterialPoint->extraUniforms[1].offsets["uPCFTexelSize"] = 192;
 		deferredMaterialPoint->extraUniforms[1].offsets["uHaveShadowmap"] = 196;
 
-		// Real, pre-existing bug (predates this session's HDR work - traced
-		// back to a screenshot taken right after the black-screen/culling
-		// fix, before any tonemap code existed) found chasing a report
-		// that Vulkan's point/spot lights contributed no visible
-		// shading/highlights at all - just a flat per-object ambient tint,
-		// on both DeferredPBRSpheres AND (silently, unnoticed until now)
-		// the original black-screen investigation's own verification
-		// screenshot. This light-volume geometry is a Sphere primitive
-		// (`sphereHandle` below), whose hand-authored index winding is
-		// documented elsewhere in this codebase (examples/PBRSpheres.cpp's
-		// identical comment) as opposite Cube's - CullFace::FrontFace
-		// (culling the *near* faces, the standard "camera may be inside
-		// the light volume" deferred-shading technique) was tuned against
-		// that reversed winding and happened to produce visible output on
-		// GL, but on Vulkan culled away all or nearly all of the volume's
-		// fragments, leaving only the separately-rendered ambient pass
-		// visible. CullFace::BackFace (this material's default anyway,
-		// kept explicit for clarity) is correct and verified identical on
-		// both backends - real gradient shading and specular highlights
-		// confirmed via screenshot on GL and Vulkan alike.
-		deferredMaterialPoint->SetCullFace(CullFace::BackFace);
+		// CullFace::FrontFace is correct here, on BOTH backends - a prior
+		// commit on this branch switched this to CullFace::BackFace,
+		// believing FrontFace only "happened to work" on GL while
+		// breaking Vulkan; that claim's own verification screenshot was
+		// wrong (not actually reviewed carefully - see this session's own
+		// "verification gap" pattern). Directly A/B tested this session
+		// with a controlled rebuild+screenshot of both backends: BackFace
+		// leaves point/spot lights contributing no visible shading or
+		// specular highlights at all (flat ambient-only tint) on GL AND
+		// Vulkan alike; FrontFace (culling the *near* faces, the standard
+		// "camera may be inside the light volume" deferred-shading
+		// technique, tuned against this Sphere primitive's reversed
+		// winding - see examples/PBRSpheres.cpp's identical comment)
+		// produces correct, matching, real gradient shading and specular
+		// highlights on both, zero Vulkan validation errors. Do not flip
+		// this back to BackFace without a real side-by-side screenshot of
+		// both backends - "verified on both" was claimed once already
+		// and was false.
+		deferredMaterialPoint->SetCullFace(CullFace::FrontFace);
 		deferredMaterialPoint->DisableDepthTest();
 		deferredMaterialPoint->DisableDepthWrite();
 		deferredMaterialPoint->EnableBlending();
@@ -349,7 +399,7 @@ namespace p3d {
 
 		// See deferredMaterialPoint's identical comment above - same
 		// Sphere-primitive light volume, same fix.
-		deferredMaterialSpot->SetCullFace(CullFace::BackFace);
+		deferredMaterialSpot->SetCullFace(CullFace::FrontFace);
 		deferredMaterialSpot->DisableDepthTest();
 		deferredMaterialSpot->DisableDepthWrite();
 		deferredMaterialSpot->EnableBlending();
@@ -367,19 +417,49 @@ namespace p3d {
 		// explicitly as an override - see the light-rendering loop below)
 		// but kept consistent with them regardless, matching their
 		// identical CullFace fix/comment above.
-		pointLight->GetMeshes()[0]->Material->SetCullFace(CullFace::BackFace);
+		pointLight->GetMeshes()[0]->Material->SetCullFace(CullFace::FrontFace);
 	}
 
 	void DeferredRenderer::Resize(const uint32 Width, const uint32 Height)
 	{
+		// Must run before ANY of the resource-destroying resizes below,
+		// not just before the offscreen clear that follows them. A resize
+		// can be delivered between frames while the previous frame's GPU
+		// submission is still in flight - frameFence only gets waited on
+		// at the top of the *next* BeginFrame()/DrawFrame() call, not
+		// immediately after the last EndFrame(), so lastPassFBO->Resize()/
+		// previousFrameFBO->Resize() (which destroy+recreate the
+		// underlying VkImage, and any pipeline/sampler/descriptor still
+		// referencing it) can race that still-in-flight submission.
+		// Originally placed after these two Resize() calls - looked
+		// correct (fixed the resize hang) but still let a real, distinct
+		// bug through: VUID-vkDestroyPipeline-pipeline-00765 and
+		// VUID-vkDestroySampler-sampler-01082 firing on SSRTest resize
+		// under validation layers, from destroying resources the previous
+		// frame's still-in-flight command buffer was using.
+		device->WaitIdle();
 		IRenderer::Resize(Width, Height);
 		lastPassFBO->Resize(Width, Height);
+		// Resizing recreates previousFrameColorTexture's underlying image
+		// (same "resize destroys+recreates the VkImage" behavior as any
+		// other Vulkan texture - see Texture::Resize()), which puts it
+		// right back in an undefined-content state - the one-time
+		// dummyShadowsWarmedUp-gated clear in RenderScene() only ever
+		// fires once and won't catch this. Re-clear unconditionally here
+		// instead of trying to track a second warm-up flag.
+		previousFrameFBO->Resize(Width, Height);
+		previousFrameFBO->Bind();
+		device->SetClearColor(Vec4(0.f, 0.f, 0.f, 0.f));
+		device->Clear(device->TranslateBufferBit(Buffer_Bit::Color));
+		previousFrameFBO->UnBind();
 	}
 
 	DeferredRenderer::~DeferredRenderer()
 	{
 		delete lastPassFBO;
 		delete colorTexture;
+		delete previousFrameFBO;
+		delete previousFrameColorTexture;
 		delete forwardDepthTexture;
 		delete dummyShadow2D;
 		delete dummyShadowCube;
@@ -428,6 +508,19 @@ namespace p3d {
 				warmupCubeFace.UnBind();
 			}
 
+			// previousFrameColorTexture's real content is undefined at
+			// creation on both backends (glTexImage2D(NULL) doesn't
+			// guarantee zero-fill, and a fresh VkImage starts in
+			// VK_IMAGE_LAYOUT_UNDEFINED) - same "needs a real render-pass
+			// before first use" problem as the dummy shadow textures
+			// above, so warmed up alongside them. An explicit Clear()
+			// (not just Bind()/UnBind()) since GL has no render-pass-
+			// implied clear the way Vulkan's offscreen path does.
+			previousFrameFBO->Bind();
+			device->SetClearColor(Vec4(0.f, 0.f, 0.f, 0.f));
+			device->Clear(device->TranslateBufferBit(Buffer_Bit::Color));
+			previousFrameFBO->UnBind();
+
 			dummyShadowsWarmedUp = true;
 		}
 
@@ -454,6 +547,13 @@ namespace p3d {
 		this->projection = projection;
 
 		// Universal Cache
+		// Shift current -> previous before overwriting, matching
+		// ForwardRenderer::RenderScene()'s identical pattern - real,
+		// necessary plumbing for material-aware SSR's reprojection
+		// (deferredLastPass samples uPrvProjectionMatrix/uPrvViewMatrix),
+		// not previously needed by anything DeferredRenderer itself drew.
+		PrvProjectionMatrix = ProjectionMatrix;
+		PrvViewMatrix = ViewMatrix;
 		ProjectionMatrix = projection.m;
 		NearFarPlane = Vec2(projection.Near, projection.Far);
 
@@ -947,18 +1047,86 @@ namespace p3d {
 
 		InitRender();
 
+		// deferredLastPass's material-aware SSR needs tDepth/tNormal/
+		// tMetallicRoughness/tDiffuse again - already unbound above
+		// (restoring texture-unit bookkeeping to a clean state), so
+		// re-bound here in a fresh, self-contained sequence just for this
+		// draw rather than reordering the unbind above (which other code
+		// relies on running where it already does). Units 0-5 in binding
+		// order below match deferredLastPass's tDepth/tNormal/
+		// tMetallicRoughness/tColor/tPreviousFrameColor/tDiffuse uniform
+		// values set in the constructor.
+		GetGBufferAttachment(FrameBufferAttachmentFormat::Depth_Attachment)->Bind();
+		GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment2)->Bind();
+		GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment3)->Bind();
 		colorTexture->Bind();
+		previousFrameColorTexture->Bind();
+		GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment0)->Bind();
 		// Render to Screen
 		{
 			GameObject go = GameObject();
 			RenderObject(directionalLight->GetMeshes()[0], &go, deferredLastPass);
 		}
+		GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment0)->Unbind();
+		previousFrameColorTexture->Unbind();
 		colorTexture->Unbind();
+		GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment3)->Unbind();
+		GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment2)->Unbind();
+		GetGBufferAttachment(FrameBufferAttachmentFormat::Depth_Attachment)->Unbind();
+
+		// Snapshot this frame's colorTexture (already includes translucent
+		// forward objects, composited earlier) into previousFrameColorTexture,
+		// for *next* frame's SSR to sample - see DeferredRenderer.h's
+		// comment on why the previous frame, not this one. Must run after
+		// the lastPass draw above, not before it - colorTexture's own
+		// content doesn't change either way (lastPass only *reads* it,
+		// drawing to the swapchain/caller's FBO instead), but
+		// previousFrameColorTexture's content does: this frame's
+		// deferredLastPass draw needs to sample what was captured at the
+		// *end of the previous* RenderScene() call (paired with
+		// uPrvProjectionMatrix/uPrvViewMatrix, which correctly still lag
+		// by exactly one frame) - blitting here too early overwrote it
+		// with this frame's own content before this frame's own draw read
+		// it, so every frame's "previous" camera was reprojecting this
+		// frame's own image instead of last frame's - a real, continuous
+		// mismatch that grew with any camera motion (visible as
+		// reflections shaking/swimming, on both backends, worse the more
+		// the camera moved - found via a real user report, not caught by
+		// the earlier static-camera verification screenshots).
+		lastPassFBO->Bind(FBOAccess::Read);
+		previousFrameFBO->Bind(FBOAccess::Write);
+		previousFrameFBO->BlitFrameBuffer(0, 0, Width, Height, 0, 0, Width, Height, FBOBufferBit::Color, FBOFilter::Nearest);
+		lastPassFBO->UnBind();
+		previousFrameFBO->UnBind();
+		// No "restore the caller's FBO" replay needed here (unlike this
+		// block's old position before the lastPass draw, which genuinely
+		// needed one): FrameBuffer::UnBind() always issues an
+		// unconditional rebind-to-0 as its first action regardless of
+		// whatever the device's draw target actually is, so the caller's
+		// later EndCapture() (ExternalFBO->UnBind()) doesn't depend on
+		// it. A replay *was* tried here and was actively harmful on
+		// Vulkan: rebinding an FBO with an already-built render pass
+		// (ExternalFBO, having just been drawn into by deferredLastPass
+		// above) really begins a fresh render pass for it - LOAD_OP_CLEAR
+		// wiped the frame that was just drawn, back to black, the moment
+		// this ran after the draw instead of before it. Found via a real
+		// user report (DeferredPBRSpheres - no SSR-specific code at all -
+		// going black too, confirming this affected every DeferredRenderer
+		// caller, not something SSRTest-specific).
 
 		EndRender();
 
 		if (isMainSwapchainPass)
 			device->EndFrame();
+	}
+
+	Texture* DeferredRenderer::GetGBufferAttachment(const uint32 attachmentFormat) const
+	{
+		const std::vector<FBOAttachment*> &attachments = FBO->GetAttachments();
+		for (size_t i = 0; i < attachments.size(); i++)
+			if (attachments[i]->AttachmentFormatInternal == attachmentFormat)
+				return attachments[i]->TexturePTR;
+		return NULL;
 	}
 
 	void DeferredRenderer::SetFBO(FrameBuffer* fbo)

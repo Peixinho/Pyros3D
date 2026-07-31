@@ -170,6 +170,20 @@ namespace p3d {
 		virtual void BeginFrame() = 0;
 		virtual void EndFrame() = 0;
 
+		// Blocks until all previously-submitted GPU work has completed.
+		// Vulkan-real (wraps vkDeviceWaitIdle - was already implemented,
+		// just never part of this virtual interface, so nothing backend-
+		// agnostic could call it); a genuine no-op on GL, which has no
+		// equivalent async-in-flight-work class of hazard for this
+		// pattern to race against. Needed by DeferredRenderer::Resize()
+		// (material-aware SSR's previousFrameColorTexture warm-up-on-
+		// resize) - found via a real user-reported hang resizing
+		// SSRTest on Vulkan, where a resize could interrupt an
+		// in-flight frame just before a fresh offscreen render pass
+		// began, without anything guaranteeing the interrupted frame's
+		// GPU work had actually finished first.
+		virtual void WaitIdle() = 0;
+
 		// Clearing - TranslateBufferBit() has no side effects (pure
 		// translation, cached by the caller); Clear() issues the actual
 		// clear using a previously-translated mask.

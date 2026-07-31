@@ -42,6 +42,13 @@ namespace p3d {
 	{
 	}
 
+	// Genuine no-op, not a stub - GL's context model has no equivalent
+	// async-in-flight-work hazard for a caller to defend against here
+	// (see IRenderDevice.h's comment on why this exists).
+	void GLRenderDevice::WaitIdle()
+	{
+	}
+
 	uint32 GLRenderDevice::TranslateBufferBit(const uint32 bufferBits)
 	{
 		uint32 nativeBits = 0;

@@ -3337,12 +3337,18 @@ namespace p3d {
 			// no cost to a texture that's only ever uploaded-to-and-
 			// sampled (a LoadTexture() asset) and never attached to any FBO.
 			// TRANSFER_SRC_BIT on a *color* texture (depth already had it
-			// unconditionally, see above) is GenerateMipmap()'s cascading
-			// vkCmdBlitImage() reading each level as the source for the
-			// next - only added when this texture actually asked for
-			// mips, since every extra usage bit is a (small) real
-			// constraint on which memory types/tiling the driver can pick.
-			imageInfo.usage = (isDepth ? (VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT) : (VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (willMipmap ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0))) | VK_IMAGE_USAGE_SAMPLED_BIT;
+			// unconditionally, see above) was originally only added for
+			// GenerateMipmap()'s cascading vkCmdBlitImage() (each level
+			// reading the previous as its source), gated on willMipmap
+			// since every extra usage bit is a (small) real constraint on
+			// which memory types/tiling the driver can pick. Now
+			// unconditional, matching depth - DeferredRenderer's
+			// non-mipmapped colorTexture needs to be a real
+			// BlitFramebuffer() source too (material-aware SSR's previous-
+			// frame snapshot), found via VUID-vkCmdBlitImage-srcImage-00219
+			// on a real validation-layer run the first time anything
+			// blitted from a plain (non-mipmapped) color render target.
+			imageInfo.usage = (isDepth ? (VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT) : (VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)) | VK_IMAGE_USAGE_SAMPLED_BIT;
 			imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 			imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
