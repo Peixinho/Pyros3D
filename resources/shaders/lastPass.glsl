@@ -206,11 +206,41 @@ void main() {
 	vec2 Texcoord = vec2(gl_FragCoord.x/uScreenDimensions.x, gl_FragCoord.y/uScreenDimensions.y);
 	vec3 baseColor = texture(tColor, Texcoord).rgb;
 
-	vec2 mr = texture(tMetallicRoughness, Texcoord).rg;
+	vec4 mr = texture(tMetallicRoughness, Texcoord);
 	float roughness = mr.x;
 	float metallic = mr.y;
+	// Real per-material SSR opt-in (GenericShaderMaterial::SetSSREnabled(),
+	// written into this G-buffer channel by PyrosShader.glsl's
+	// FragData_pbr.b) - the material-level control this whole SSR
+	// feature was always meant to have but didn't: before this, ANY
+	// pixel under the roughness cutoff got reflections whether its
+	// material's author wanted that or not, with no way to opt out short
+	// of raising roughness past the cutoff. uSSREnabled (above) stays the
+	// whole-DeferredRenderer master switch; this is the per-material one
+	// underneath it.
+	float ssrReflective = mr.b;
+	// Same uReflectivity value that already blends in env-map reflections
+	// (see PyrosShader.glsl's uEnvmap mix()) - reused here as a dielectric
+	// F0 scale (see F0 below), not a flat post-multiply on the final
+	// reflection color. A flat multiply was tried first and is wrong: SSR
+	// strength is already fully determined by Fresnel (from F0) and
+	// roughness in a real PBR pipeline - there's no separate "how
+	// reflective" scalar for that in the physics. The one place real
+	// engines *do* add an artist dial here (Unreal's "Specular"
+	// parameter, similarly a legacy holdover from before physically-
+	// based texturing) folds it into F0 itself, since dielectric F0 (4%
+	// reflectance at normal incidence, by convention) isn't derived from
+	// BaseColor/Metallic the way a metal's is - there's real headroom for
+	// an artist override there that doesn't exist post-Fresnel. A
+	// material needs *both* SetSSREnabled(true) (the gate above) and a
+	// real SetReflectivity() value for a *dielectric* surface to show
+	// SSR - metals don't need it (see F0's mix() below: metallic=1
+	// selects albedo as F0 regardless, same as any other PBR metal
+	// workflow - a metal's reflectivity isn't a separate artist knob,
+	// it's just its own color).
+	float materialReflectivity = mr.a;
 
-	if (uSSREnabled < 0.5 || roughness > SSR_ROUGHNESS_CUTOFF) {
+	if (uSSREnabled < 0.5 || ssrReflective < 0.5 || roughness > SSR_ROUGHNESS_CUTOFF) {
 		FragColor = vec4(baseColor, 1.0);
 		return;
 	}
@@ -225,7 +255,15 @@ void main() {
 	vec3 N = normalize(texture(tNormal, Texcoord).xyz);
 	vec3 V = normalize(-v1);
 	vec3 albedo = texture(tDiffuse, Texcoord).rgb;
-	vec3 F0 = mix(vec3(0.04), albedo, metallic);
+	// Dielectric F0 scaled by materialReflectivity (see its declaration
+	// comment) instead of the flat vec3(0.04) this used before - at
+	// reflectivity=1.0 this is exactly that same 0.04 (the standard
+	// dielectric baseline, unchanged from before this feature existed),
+	// scaling down toward 0 as the material's author dials it down.
+	// Metals ignore it entirely (mix() selects albedo at metallic=1) -
+	// correct, a metal's Fresnel response is its own color, not a
+	// separate adjustable quantity.
+	vec3 F0 = mix(vec3(0.04) * materialReflectivity, albedo, metallic);
 	vec3 F = FresnelSchlick(max(dot(N, V), 0.0), F0);
 	vec3 reflectDir = reflect(-V, N);
 
@@ -376,6 +414,10 @@ void main() {
 	// *replaces* the fraction of diffuse response Fresnel says didn't
 	// scatter diffusely - baseColor needs to fade out by the same amount
 	// the reflection fades in, not stay at full strength underneath it.
+	// materialReflectivity's contribution is already baked into F via F0
+	// above (a real PBR-consistent artist dial on dielectric reflectance,
+	// not a second, physically-meaningless multiplier stacked on top of
+	// Fresnel) - F alone is the correct, complete reflection strength.
 	vec3 reflectStrength = F * edgeFade * roughnessFade;
 	FragColor = vec4(baseColor * (1.0 - reflectStrength) + reflectionColor * reflectStrength, 1.0);
 }

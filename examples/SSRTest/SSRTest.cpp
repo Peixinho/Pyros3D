@@ -83,6 +83,18 @@ void SSRTest::Init()
 	floorMaterial->SetColor(Vec4(0.5f, 0.5f, 0.55f, 1.f));
 	floorMaterial->SetMetallic(0.0f);
 	floorMaterial->SetRoughness(0.08f);
+	// Real per-material SSR opt-in - required now, not implied by
+	// roughness alone. This is the one surface this example actually
+	// wants reflective; the spheres deliberately stay opted out (SSR
+	// reflects *them*, they don't need to reflect anything themselves
+	// for this demo). SetReflectivity() is required too now, not just
+	// SetSSREnabled() - it's the actual strength multiplier (see
+	// lastPass.glsl's materialReflectivity comment), same value that
+	// already governs env-map reflection blend elsewhere; a material
+	// that enables SSR but never sets this reads its zero default and
+	// shows no reflection at all.
+	floorMaterial->SetSSREnabled(true);
+	floorMaterial->SetReflectivity(1.0f);
 	floorMaterial->SetCullFace(CullFace::DoubleSided);
 	floorObj = new GameObject();
 	floorObj->SetPosition(Vec3(0.f, -3.f, 0.f));

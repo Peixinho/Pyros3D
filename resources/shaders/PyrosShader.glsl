@@ -605,6 +605,14 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         // MaterialUniformsData for the byte-identical C++ mirror.
         float uMetallic;
         float uRoughness;
+        // Real per-material SSR opt-in (GenericShaderMaterial::SetSSREnabled())
+        // - not uReflectivity above (an unrelated, older env-map/skybox
+        // reflection blend amount). Fills this block's last spare std140
+        // padding float - block size stays 64 bytes, no layout change
+        // needed elsewhere. Written into the G-buffer's metallicRoughness
+        // blue channel below (see FragData_pbr) and read back by
+        // DeferredRenderer's lastPass.glsl to gate SSR per-pixel.
+        float uSSRReflective;
     };
     // Per-object (not per-material) - see the comment above.
     UBO_BINDING(BIND_ObjectLightCounts) uniform ObjectLightCounts {
@@ -1110,11 +1118,26 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		// Uses the already-resolved metallic/roughness locals (folds in
 		// uMetallicRoughnessmap sampling when PBRMAP is set too), not the
 		// raw uMetallic/uRoughness uniforms directly - see the #ifdef PBR
-		// resolution block above.
+		// resolution block above. Blue channel is uSSRReflective
+		// (MaterialUniforms) directly, not resolved through any texture -
+		// real per-material SSR opt-in, see its declaration's comment.
+		// Was always a hardcoded 0.0 here in both branches before this -
+		// still 0.0/"not reflective" for any material that never calls
+		// SetSSREnabled(), so this is purely additive. Alpha channel is
+		// uReflectivity - the same per-material value that already blends
+		// in env-map reflections above (see the uEnvmap mix() call
+		// earlier in this shader) - reused here as an explicit artist-
+		// facing SSR strength multiplier on top of the physically-driven
+		// Fresnel/roughness falloff lastPass.glsl already does, not a
+		// replacement for it. Was always a hardcoded 1.0 here before this
+		// (alpha channel unused) - a material that calls SetSSREnabled()
+		// but never calls SetReflectivity() now needs both, same as an
+		// env-map material already needed uReflectivity set for its own
+		// reflection to show at all.
 		#ifdef PBR
-			FragData_pbr=vec4(roughness, metallic, 0.0, 1.0);
+			FragData_pbr=vec4(roughness, metallic, uSSRReflective, uReflectivity);
 		#else
-			FragData_pbr=vec4(0.5, 0.0, 0.0, 1.0);
+			FragData_pbr=vec4(0.5, 0.0, uSSRReflective, uReflectivity);
 		#endif
 	#endif
 

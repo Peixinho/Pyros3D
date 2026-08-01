@@ -50,6 +50,23 @@ namespace p3d
 		// Packed ORM-style texture: G channel = roughness, B channel = metalness
 		// (R unused/free - glTF convention minus AO, not yet supported here).
 		void SetMetallicRoughnessMap(Texture* metallicRoughnessMap);
+		// Real screen-space-reflection opt-in, per material - not to be
+		// confused with SetReflectivity() above (an unrelated, older
+		// env-map/skybox reflection blend amount). Defaults to false: SSR
+		// in DeferredRenderer's lastPass.glsl used to be gated purely by
+		// roughness (anything under its cutoff reflected, regardless of
+		// what the material author actually wanted), with no way for a
+		// material to opt out short of raising its roughness past the
+		// cutoff - or, for anything that never asked for it at all, opt
+		// in without also being deferred-G-buffer-compatible. This is the
+		// material-level control DeferredRenderer::EnableSSR()'s own
+		// comment always meant to imply but never actually built. Written
+		// into the G-buffer's otherwise-always-0.0 metallicRoughness blue
+		// channel (see PyrosShader.glsl's FragData_pbr) - existing
+		// materials that never call this keep reading 0.0/"not
+		// reflective" there, so this is purely additive, no behavior
+		// change for anything that doesn't opt in.
+		void SetSSREnabled(const bool enabled);
 
 		// Text
 		void SetTextFont(Font* font);
@@ -87,6 +104,9 @@ namespace p3d
 
 		// PBR (metallic/roughness workflow)
 		f32 Metallic, Roughness;
+		// See SetSSREnabled()'s comment - stored as 0.0/1.0, same
+		// float-as-bool convention as everything else in this UBO.
+		f32 SSREnabled;
 
 		// Texture IDs
 		int32 colorMapID, specularMapID, normalMapID, displacementMapID, envMapID, skyboxMapID, refractMapID, fontMapID;
@@ -95,6 +115,7 @@ namespace p3d
 		// Uniforms Handles
 		Uniform *uColor, *uSpecular, *uReflectivity, *uShininess, *uUseLights, *uDisplacementHeight;
 		Uniform *uMetallic, *uRoughness;
+		Uniform *uSSRReflective;
 	};
 }
 

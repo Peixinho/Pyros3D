@@ -26,6 +26,8 @@ namespace p3d
 
 		uColor = uSpecular = uReflectivity = NULL;
 		uMetallic = uRoughness = NULL;
+		uSSRReflective = NULL;
+		SSREnabled = 0.0f;
 
 		// Find if Shader exists, if not, creates a new one
 		if (ShadersList.find(options) == ShadersList.end())
@@ -390,6 +392,14 @@ namespace p3d
 			uRoughness = AddUniform(Uniform("uRoughness", Uniforms::DataType::Float, &Roughness));
 		else
 			uRoughness->SetValue(&Roughness);
+	}
+	void GenericShaderMaterial::SetSSREnabled(const bool enabled)
+	{
+		SSREnabled = enabled ? 1.0f : 0.0f;
+		if (!uSSRReflective)
+			uSSRReflective = AddUniform(Uniform("uSSRReflective", Uniforms::DataType::Float, &SSREnabled));
+		else
+			uSSRReflective->SetValue(&SSREnabled);
 	}
 	void GenericShaderMaterial::SetRefractMap(Texture* refractmap)
 	{
