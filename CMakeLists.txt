@@ -215,6 +215,7 @@ set(SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Utils/Mouse3D/Mouse3D.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Utils/Mouse3D/PainterPick.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosBindings.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Utils/Serialization/SceneSerializer.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Utils/Geometry/Geometry.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Utils/FPS/FPS.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Utils/DeltaTime/DeltaTime.cpp

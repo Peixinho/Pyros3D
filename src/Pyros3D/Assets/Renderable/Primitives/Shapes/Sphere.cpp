@@ -15,6 +15,10 @@ namespace p3d {
 		isFlipped = flip;
 		isSmooth = smooth;
 		calculateTangentBitangent = TangentBitangent;
+		this->radius = radius;
+		this->segmentsW = segmentsW;
+		this->segmentsH = segmentsH;
+		this->halfSphere = HalfSphere;
 
 		int i, j;
 		f32 iHor = (f32)segmentsW;

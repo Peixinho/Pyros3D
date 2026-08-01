@@ -35,7 +35,14 @@ namespace p3d
 
 		std::vector<Texture*> textures;
 
+		// Empty when constructed from a raw Shader* - that path has no
+		// recoverable source, callers (e.g. scene serialization) must
+		// treat an empty string as "can't be saved/reconstructed".
+		const std::string &GetShaderFile() const { return ShaderFilePath; }
+
 	protected:
+
+		std::string ShaderFilePath;
 
 		// Generic Vulkan auto-fix hookup - see IRenderDevice::
 		// GetAutoUniformBlockLayout()'s comment. Called from every place

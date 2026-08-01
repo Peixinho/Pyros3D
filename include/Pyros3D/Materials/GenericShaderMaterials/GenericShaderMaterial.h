@@ -81,6 +81,32 @@ namespace p3d
 		void BindTextures();
 		void UnbindTextures();
 
+		// Real getters - this material was previously write-only (every
+		// Set* above had no matching Get*, blocking anything that needs
+		// to read a material's current state back, e.g. scene
+		// serialization or an editor Inspector panel showing the actual
+		// current color instead of a disconnected local variable).
+		// GetOptions() is the critical one: the ctor's ShaderUsage bitmask
+		// selects which shader variant compiles, and without it a saved
+		// material can't be reconstructed with the right shader at all.
+		const uint32 &GetOptions() const { return shaderID; }
+		const Vec4 &GetColor() const { return Kd; }
+		const Vec4 &GetSpecular() const { return Ks; }
+		const f32 &GetDisplacementHeight() const { return displacementHeight; }
+		const f32 &GetReflectivity() const { return Reflectivity; }
+		const f32 &GetShininess() const { return Shininess; }
+		const f32 &GetMetallic() const { return Metallic; }
+		const f32 &GetRoughness() const { return Roughness; }
+		bool IsSSREnabled() const { return SSREnabled != 0.0f; }
+		Texture* GetColorMap() const { return colorMapID >= 0 ? Textures[colorMapID] : NULL; }
+		Texture* GetSpecularMap() const { return specularMapID >= 0 ? Textures[specularMapID] : NULL; }
+		Texture* GetNormalMap() const { return normalMapID >= 0 ? Textures[normalMapID] : NULL; }
+		Texture* GetDisplacementMap() const { return displacementMapID >= 0 ? Textures[displacementMapID] : NULL; }
+		Texture* GetEnvMap() const { return envMapID >= 0 ? Textures[envMapID] : NULL; }
+		Texture* GetRefractMap() const { return refractMapID >= 0 ? Textures[refractMapID] : NULL; }
+		Texture* GetSkyboxMap() const { return skyboxMapID >= 0 ? Textures[skyboxMapID] : NULL; }
+		Texture* GetMetallicRoughnessMap() const { return metallicRoughnessMapID >= 0 ? Textures[metallicRoughnessMapID] : NULL; }
+
 	private:
 
 		// List of Tetxures

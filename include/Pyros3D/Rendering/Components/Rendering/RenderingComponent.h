@@ -215,6 +215,8 @@ namespace p3d {
 		virtual void Destroy() {}
 		virtual void Unregister(SceneGraph* Scene);
 
+		virtual uint32 GetComponentType() const { return ComponentType::RenderingComponent; }
+
 		void SetCullingGeometry(const uint32 Geometry);
 		void EnableCullTest() { cullTest = true; }
 		void DisableCullTest() { cullTest = false; }
@@ -235,6 +237,9 @@ namespace p3d {
 
 		// Get LOD Number
 		const uint32 GetLODSize() const;
+
+		// Per-LOD switch distances, parallel to Meshes' LOD keys.
+		const std::vector<f32> &GetLODDistances() const { return LODDistances; }
 
 		// Returns LOD level based on distance
 		uint32 GetLODByDistance(const f32 Distance);

@@ -75,6 +75,10 @@ namespace p3d {
 			status = LoadTextureFromMemory(file->GetData(), file->Size(), Type, Mipmapping, level);
 			file->Close();
 		}
+		// Only record a real, successfully-loaded file's path - a failed
+		// load falls through to the checkerboard fallback below, which
+		// isn't actually this Filename's image data.
+		if (status) this->Filename = Filename;
 		if (!status) {
 			echo("ERROR: Couldn't find texture file or failed to load, loading default one...");
 

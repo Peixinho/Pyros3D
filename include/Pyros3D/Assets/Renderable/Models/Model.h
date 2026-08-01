@@ -55,6 +55,15 @@ namespace p3d {
 		void DebugSkeleton();
 		void GetBoneChilds(std::map<StringID, Bone> Skeleton, const int32 id, const uint32 iterations);
 
+		// Neither was stored before this - both ctor params were used
+		// once then discarded, leaving no way to recover "what file was
+		// this loaded from" after construction (needed e.g. for scene
+		// serialization). Empty Path on the default (Decal) constructor,
+		// matching Texture::GetFilename()'s same "unrecoverable source"
+		// convention.
+		const std::string &GetPath() const { return Path; }
+		bool GetMergeMeshes() const { return MergeMeshes; }
+
 	protected:
 
 		// mesh is only a scratch loader used during the parameterized
@@ -62,8 +71,11 @@ namespace p3d {
 		// Geometries); subclasses using this default constructor (e.g.
 		// Decal) never touch it, so it must start NULL rather than
 		// uninitialized.
-		Model() : mesh(NULL) {}
+		Model() : mesh(NULL), MergeMeshes(true) {}
 		uint32 MaterialOptions;
+
+		std::string Path;
+		bool MergeMeshes;
 
 	};
 };

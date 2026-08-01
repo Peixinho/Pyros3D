@@ -142,6 +142,13 @@ namespace p3d {
 		uint32 GetLiveParticleCount() const { return liveCount; }
 		bool IsPlaying() const { return playing; }
 
+		virtual uint32 GetComponentType() const { return ComponentType::ParticleSystem; }
+
+		// Full current config - e.g. for scene serialization, which
+		// otherwise has no way to read back any of this (every setter
+		// below is write-only without this).
+		const ParticleSystemDesc &GetDesc() const { return desc; }
+
 		// Live setters - each takes effect immediately for new spawns
 		// (and, where the field affects the shader directly - color/size/
 		// fade/blend mode - for already-alive particles too, since those

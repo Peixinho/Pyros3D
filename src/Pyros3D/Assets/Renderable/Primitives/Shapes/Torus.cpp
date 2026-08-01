@@ -15,6 +15,10 @@ namespace p3d {
 		isFlipped = flip;
 		isSmooth = smooth;
 		calculateTangentBitangent = TangentBitangent;
+		this->radius = radius;
+		this->tube = tube;
+		this->segmentsW = segmentsW;
+		this->segmentsH = segmentsH;
 
 		Vec3 normal;
 

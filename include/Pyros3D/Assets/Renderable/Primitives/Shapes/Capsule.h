@@ -21,6 +21,17 @@ namespace p3d {
 
 		virtual void CalculateBounding() {}
 
+		virtual uint32 GetPrimitiveType() const { return PrimitiveType::Capsule; }
+		f32 GetRadius() const { return radius; }
+		f32 GetHeight() const { return height; }
+		uint32 GetNumRings() const { return numRings; }
+		uint32 GetSegmentsW() const { return segmentsW; }
+		uint32 GetSegmentsH() const { return segmentsH; }
+
+	protected:
+
+		f32 radius, height;
+		uint32 numRings, segmentsW, segmentsH;
 	};
 };
 

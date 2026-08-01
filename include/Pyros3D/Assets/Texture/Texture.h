@@ -122,6 +122,13 @@ namespace p3d {
 		uint32 Anysotropic;
 		Vec4 borderColor;
 
+		// Not stored before this - LoadTexture()'s path was used once
+		// then discarded, leaving no way to recover "what file was this"
+		// after construction (needed e.g. for scene serialization). Empty
+		// when built via CreateEmptyTexture()/LoadTextureFromMemory()
+		// instead - those have no file source to record.
+		std::string Filename;
+
 		bool CreateTexture(uchar* data = NULL, bool Mipmapping = true, const uint32 level = 0, const uint32 msaa = 0);
 
 		void GetGLModes();
@@ -155,6 +162,7 @@ namespace p3d {
 		const uint32 GetBindID() const;
 		const uint32 GetWidth(const uint32 level = 0) const;
 		const uint32 GetHeight(const uint32 level = 0) const;
+		const std::string &GetFilename() const { return Filename; }
 
 		// Use Asset
 		void Bind();

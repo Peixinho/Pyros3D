@@ -21,6 +21,8 @@ namespace p3d
 
 	CustomShaderMaterial::CustomShaderMaterial(const std::string& ShaderFile) : IMaterial()
 	{
+		ShaderFilePath = ShaderFile;
+
 		StringID number = (MakeStringID(ShaderFile)) + (MakeStringID(ShaderFile));
 
 		{

@@ -18,6 +18,25 @@
 
 namespace p3d {
 
+	// Real type tag + the 3 flags every shape ctor already takes -
+	// needed so generic code (scene serialization) can identify which
+	// concrete shape a Primitive* is and read back its construction
+	// params (otherwise fully discarded after Build() runs - these
+	// classes are construct-once with zero introspection today).
+	namespace PrimitiveType {
+		enum {
+			Cube = 0,
+			Sphere,
+			Cone,
+			Cylinder,
+			Plane,
+			Capsule,
+			Torus,
+			TorusKnot,
+			Custom
+		};
+	}
+
 	class PYROS3D_API PrimitiveGeometry : public IGeometry {
 
 	public:
@@ -53,6 +72,11 @@ namespace p3d {
 		Primitive();
 
 		void Build();
+
+		virtual uint32 GetPrimitiveType() const { return PrimitiveType::Custom; }
+		bool IsSmooth() const { return isSmooth; }
+		bool IsFlipped() const { return isFlipped; }
+		bool HasTangentBitangent() const { return calculateTangentBitangent; }
 
 	protected:
 

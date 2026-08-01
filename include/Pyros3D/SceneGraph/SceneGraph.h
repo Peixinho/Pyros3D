@@ -38,6 +38,9 @@ namespace p3d {
 		void Add(GameObject* GO);
 		// Remove Child from Scene
 		void Remove(GameObject* GO);
+		// Remove every GameObject currently in the scene (e.g. before
+		// loading a new scene into an existing SceneGraph).
+		void RemoveAll();
 		// Get Time
 		const f64 &GetTime() const;
 

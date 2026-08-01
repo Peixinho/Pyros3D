@@ -23,6 +23,7 @@ namespace p3d {
 			virtual void RemoveBuffer(AttributeBuffer* buffer);
 			virtual const uint32 NumberOfInstances() const { return nrInstances; }
 			virtual void SetNumberInstances(const uint32 instances) { nrInstances = instances; }
+			virtual uint32 GetComponentType() const { return ComponentType::RenderingInstancedComponent; }
 
 		protected:
 			uint32 nrInstances;

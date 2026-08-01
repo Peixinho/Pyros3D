@@ -273,6 +273,23 @@ namespace p3d {
 		return -q;
 	}
 
+	// SceneGraph - save/load, see Utils/Serialization/SceneSerializer.h.
+	// "with physics" overload lets a script's own physics engine
+	// instance reconstruct Physics components on load; the plain
+	// overload passes NULL (physics components in the file are skipped
+	// with a logged warning, everything else still loads).
+	bool SceneGraph_Save(SceneGraph &scene, const std::string &path)
+	{
+		return SceneSerializer::SaveScene(&scene, path);
+	}
+	bool SceneGraph_Load(SceneGraph &scene, const std::string &path)
+	{
+		return SceneSerializer::LoadScene(&scene, path, NULL);
+	}
+	bool SceneGraph_LoadWithPhysics(SceneGraph &scene, const std::string &path, IPhysics* physics)
+	{
+		return SceneSerializer::LoadScene(&scene, path, physics);
+	}
 	// GameObject
 	bool GameObject_HaveTagSTR(GameObject &g, const std::string &tag)
 	{
@@ -759,9 +776,12 @@ namespace p3d {
 				"update", &SceneGraph::Update,
 				"add", &SceneGraph::Add,
 				"remove", &SceneGraph::Remove,
+				"removeAll", &SceneGraph::RemoveAll,
 				"addGameObject", &SceneGraph::AddGameObject,
 				"removeGameobject", &SceneGraph::RemoveGameObject,
-				"getTime", &SceneGraph::GetTime
+				"getTime", &SceneGraph::GetTime,
+				"save", &SceneGraph_Save,
+				"load", sol::overload(&SceneGraph_Load, &SceneGraph_LoadWithPhysics)
 				);
 		};
 

@@ -20,6 +20,27 @@ namespace p3d {
 	class GameObject;
 	class SceneGraph;
 
+	// Real component-type discriminator - IComponent otherwise has zero
+	// RTTI, so generic code (the scene serializer) can't tell what
+	// concrete type a GameObject::GetComponents() entry is without this.
+	// Deliberately a non-pure virtual defaulting to Unknown (not "= 0"),
+	// so no existing or future third-party IComponent subclass is forced
+	// to implement it - an unrecognized component type just can't be
+	// generically serialized, which is the correct, honest behavior.
+	namespace ComponentType {
+		enum {
+			Unknown = 0,
+			RenderingComponent,
+			RenderingInstancedComponent,
+			ParticleSystem,
+			DirectionalLight,
+			PointLight,
+			SpotLight,
+			Physics,
+			LuaComponent
+		};
+	}
+
 	class IComponent {
 
 		friend class GameObject;
@@ -36,6 +57,8 @@ namespace p3d {
 		virtual void Unregister(SceneGraph* Scene) = 0;
 
 		GameObject* GetOwner() { return Owner; }
+
+		virtual uint32 GetComponentType() const { return ComponentType::Unknown; }
 
 		bool IsActive() { return active; }
 		void Disable() { active = false; }

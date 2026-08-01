@@ -26,6 +26,7 @@ namespace p3d {
 		virtual void Start() {};
 		virtual void Update(const f64 time = 0) {};
 		virtual void Destroy() {};
+		virtual uint32 GetComponentType() const { return ComponentType::SpotLight; }
 		virtual const f32 &GetShadowFar() const
 		{
 			return Radius;

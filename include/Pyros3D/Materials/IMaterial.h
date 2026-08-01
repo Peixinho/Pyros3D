@@ -88,6 +88,13 @@ namespace p3d {
 		void DisableBlending() { blending = false; }
 		void BlendingFunction(const uint32 sFactor, const uint32 dFactor) { sfactor = sFactor; dfactor = dFactor; }
 		void BlendingEquation(const uint32 Mode) { mode = Mode; }
+		bool IsBlendingEnabled() const { return blending; }
+		uint32 GetBlendingSFactor() const { return sfactor; }
+		uint32 GetBlendingDFactor() const { return dfactor; }
+		uint32 GetBlendingEquation() const { return mode; }
+		bool IsDepthBiasEnabled() const { return depthBias; }
+		f32 GetDepthBiasFactor() const { return depthFactor; }
+		f32 GetDepthBiasUnits() const { return depthUnits; }
 
 		// Uniforms        
 		std::list<Uniform> GlobalUniforms;

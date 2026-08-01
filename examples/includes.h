@@ -44,6 +44,8 @@
 #include "SSAOExample/SSAOExample.h"
 #elif defined(_LuaScripting)
 #include "LuaScripting/LuaScripting.h"
+#elif defined(_SceneSerializationExample)
+#include "SceneSerializationExample/SceneSerializationExample.h"
 #elif defined(_MotionBlur)
 #include "MotionBlur/MotionBlur.h"
 #elif defined(_ParallaxMapping)

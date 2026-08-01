@@ -17,6 +17,9 @@ namespace p3d {
 		calculateTangentBitangent = TangentBitangent;
 		this->segmentsH = (f32)segmentsH;
 		this->height = height;
+		this->segmentsW = (f32)segmentsW;
+		this->radius = radius;
+		this->openEnded = openEnded;
 
 		size_t i, j;
 		int jMin, jMax;

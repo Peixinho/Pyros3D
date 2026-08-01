@@ -45,6 +45,7 @@
 #include <Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.h>
 #include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
 #include <Pyros3D/Core/InputManager/InputManager.h>
+#include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <map>
 #include <vector>
 
@@ -379,6 +380,7 @@ namespace p3d {
 
         virtual void Register(SceneGraph* Scene) {}
         virtual void Unregister(SceneGraph* Scene) {}
+        virtual p3d::uint32 GetComponentType() const { return p3d::ComponentType::LuaComponent; }
         // See LUA_GameObject's identical comment - Init() is kept for
         // scripts that want to call it explicitly, but on_init's real
         // firing is lazy, from the first real Update().

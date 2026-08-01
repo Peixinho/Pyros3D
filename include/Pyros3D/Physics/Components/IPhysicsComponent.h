@@ -52,6 +52,8 @@ namespace p3d {
 		const f32 GetMass() const;
 		const uint32 GetShape() const;
 
+		virtual uint32 GetComponentType() const { return ComponentType::Physics; }
+
 		void SaveRigidBodyPTR(void* ptr) { rigidBodyPTR = ptr; rigidBodyRegistered = true; }
 		void* GetRigidBodyPTR() { return rigidBodyPTR; }
 		bool RigidBodyRegistered() { return rigidBodyRegistered; }

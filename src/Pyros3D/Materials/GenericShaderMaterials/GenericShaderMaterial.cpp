@@ -247,7 +247,18 @@ namespace p3d
 	void GenericShaderMaterial::SetDisplacementHeight(const f32 height)
 	{
 		displacementHeight = height;
-		uDisplacementHeight->SetValue(&displacementHeight);
+		// Unlike every sibling Set*() here, this unconditionally
+		// dereferenced uDisplacementHeight - only ever non-null if the
+		// material was constructed with ShaderUsage::ParallaxMapping (see
+		// the constructor above), so calling this on any other material
+		// (the common case) crashed. Real bug, found via
+		// SceneSerializer round-tripping a plain Texture+Diffuse material
+		// through this setter. Same lazy-create-if-null pattern as
+		// SetReflectivity/SetMetallic/SetRoughness/SetSSREnabled.
+		if (!uDisplacementHeight)
+			uDisplacementHeight = AddUniform(Uniform("uDisplacementHeight", Uniforms::DataType::Float, &displacementHeight));
+		else
+			uDisplacementHeight->SetValue(&displacementHeight);
 	}
 
 	void GenericShaderMaterial::AddTexture(const std::string &uniformName, Texture* texture)
@@ -277,18 +288,27 @@ namespace p3d
 
 	void GenericShaderMaterial::SetColor(const Vec4& color)
 	{
-		Vec4 Color = color;
+		// Kd was declared but never actually written here - unlike every
+		// other property on this class (Reflectivity/Metallic/Shininess/
+		// etc all cache into their own member alongside the uniform),
+		// this only ever touched the uniform's byte buffer, leaving Kd
+		// permanently stale/default. Real bug, found via GetColor()
+		// (added for scene serialization) reading it back as always
+		// (0,0,0,0). Kd is otherwise unread anywhere in the engine, so
+		// this is a pure fix, not a behavior change to rendering.
+		Kd = color;
 		if (!uColor)
-			uColor = AddUniform(Uniform("uColor", Uniforms::DataType::Vec4, &Color));
+			uColor = AddUniform(Uniform("uColor", Uniforms::DataType::Vec4, &Kd));
 		else
-			uColor->SetValue(&Color);
+			uColor->SetValue(&Kd);
 	}
 	void GenericShaderMaterial::SetSpecular(const Vec4& specularColor)
 	{
-		Vec4 Specular = specularColor;
+		// See SetColor()'s identical comment - Ks was the same dead field.
+		Ks = specularColor;
 		if (!uSpecular)
-			uSpecular = AddUniform(Uniform("uSpecular", Uniforms::DataType::Vec4, &Specular));
-		else uSpecular->SetValue(&Specular);
+			uSpecular = AddUniform(Uniform("uSpecular", Uniforms::DataType::Vec4, &Ks));
+		else uSpecular->SetValue(&Ks);
 	}
 
 	void GenericShaderMaterial::SetColorMap(Texture* colormap)

@@ -423,9 +423,6 @@ namespace p3d {
 				}
 			}
 			if (!found) echo("ERROR: GameObject Not Found");
-			else {
-				_Childs.push_back(Child);
-			}
 		}
 		else {
 			echo("ERROR: GameObject Don't have a Father");

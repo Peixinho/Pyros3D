@@ -78,12 +78,19 @@ namespace p3d {
 		void Remove(GameObject* Child);
 		GameObject* GetParent() { return _Owner; }
 		bool HaveParent() { return _HaveOwner; }
+		const std::vector<GameObject*> &GetChildren() const { return _Childs; }
+
+		// Name - purely a label (editor display, save-file identification),
+		// not enforced unique, unlike Tags which are a hashed multi-value bag.
+		const std::string &GetName() const { return Name; }
+		void SetName(const std::string &name) { Name = name; }
 
 		// Tags
 		void AddTag(const std::string &tag);
 		void RemoveTag(const std::string &tag);
 		bool HaveTag(const uint32 tag);
 		bool HaveTag(const std::string &tag);
+		const std::map<uint32, std::string> &GetTags() const { return TagsList; }
 
 		// Static
 		bool IsStatic() { return isStatic; }
@@ -146,6 +153,9 @@ namespace p3d {
 
 		// Static
 		bool isStatic;
+
+		// Name
+		std::string Name;
 
 		// GameObject Owner
 		GameObject* _Owner;

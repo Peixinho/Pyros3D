@@ -365,6 +365,17 @@ set(SOURCE_LuaScripting
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
+set(SOURCE_SceneSerializationExample
+	${CMAKE_CURRENT_SOURCE_DIR}/SceneSerializationExample/SceneSerializationExample.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_draw.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_widgets.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_tables.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_sdl2.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_opengl3.cpp
+	${WINDOW_MANAGER}
+	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
+)
 set(SOURCE_ParallaxMapping
 	${CMAKE_CURRENT_SOURCE_DIR}/ParallaxMapping/ParallaxMapping.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
@@ -596,6 +607,11 @@ include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FRE
 target_link_libraries(LuaScripting PyrosEngine  ${SDL2_LIBRARIES} ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES})
 target_compile_definitions(LuaScripting PRIVATE ${DESKTOP} -DDEMO_NAME=LuaScripting -D_LuaScripting ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
 endif()
+
+add_executable(SceneSerializationExample ${SOURCE_SceneSerializationExample})
+include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
+target_link_libraries(SceneSerializationExample PyrosEngine  ${SDL2_LIBRARIES} ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES})
+target_compile_definitions(SceneSerializationExample PRIVATE ${DESKTOP} -DDEMO_NAME=SceneSerializationExample -D_SceneSerializationExample ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
 
 add_executable(ParallaxMapping ${SOURCE_ParallaxMapping})
 include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/imgui)

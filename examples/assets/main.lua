@@ -114,6 +114,10 @@ function init()
 		print("Cube left contact with the ground.")
 	end
 
+	-- Scene save/load smoke test.
+	local saveOk = scene:save("lua_scene_test.json")
+	print("scene:save() returned " .. tostring(saveOk))
+
 	-- Raycast smoke test - straight down through both bodies. Physics
 	-- components only actually register with the physics world on the
 	-- first SceneGraph:update() pass (scene:add() alone just parents the

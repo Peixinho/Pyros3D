@@ -20,7 +20,15 @@ namespace p3d {
 		Cube(const f32 width, const f32 height, const f32 depth, bool smooth = false, bool flip = false, bool TangentBitangent = false);
 
 		virtual void CalculateBounding() {}
-		
+
+		virtual uint32 GetPrimitiveType() const { return PrimitiveType::Cube; }
+		f32 GetWidth() const { return width; }
+		f32 GetHeight() const { return height; }
+		f32 GetDepth() const { return depth; }
+
+	protected:
+
+		f32 width, height, depth;
 	};
 };
 

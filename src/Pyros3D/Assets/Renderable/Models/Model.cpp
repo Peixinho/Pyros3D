@@ -53,6 +53,9 @@ namespace p3d {
 
 	Model::Model(const std::string ModelPath, bool mergeMeshes)
 	{
+		Path = ModelPath;
+		MergeMeshes = mergeMeshes;
+
 		mesh = new ModelLoader();
 		mesh->Load(ModelPath);
 

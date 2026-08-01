@@ -8,6 +8,7 @@
 
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <string.h>
+#include <algorithm>
 
 namespace p3d {
 
@@ -106,7 +107,23 @@ namespace p3d {
 			}
 		}
 		if (!found) echo("GameObject Not Found in Scene");
-		else echo("SUCCESS: GameObject Removed from Scene");
+		else
+		{
+			echo("SUCCESS: GameObject Removed from Scene");
+			// Was never pruned here before - left GetAllGameObjectList()
+			// returning dangling/removed entries after any Remove() call.
+			std::vector<GameObject*>::iterator all_it = std::find(_GameObjectListALL.begin(), _GameObjectListALL.end(), GO);
+			if (all_it != _GameObjectListALL.end()) _GameObjectListALL.erase(all_it);
+		}
+	}
+
+	void SceneGraph::RemoveAll()
+	{
+		// Copy first - Remove() mutates _GameObjectListALL, so iterating
+		// the live member while erasing from it would invalidate iterators.
+		std::vector<GameObject*> all = _GameObjectListALL;
+		for (std::vector<GameObject*>::iterator i = all.begin(); i != all.end(); i++)
+			Remove(*i);
 	}
 
 	void SceneGraph::Update(const f64 &Timer)
