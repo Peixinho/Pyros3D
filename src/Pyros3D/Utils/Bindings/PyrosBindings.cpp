@@ -413,7 +413,7 @@ namespace p3d {
 
 	void GenerateBindings(sol::state* lua)
 	{
-		lua->open_libraries(sol::lib::base, sol::lib::math);
+		lua->open_libraries(sol::lib::base, sol::lib::math, sol::lib::coroutine, sol::lib::table, sol::lib::string);
 
 		// ******************************* ENUMS *******************************
 		{
@@ -799,6 +799,7 @@ namespace p3d {
 				"isStatic", &LUA_GameObject::IsStatic,
 				"onUpdate", &LUA_GameObject::on_update,
 				"onInit", &LUA_GameObject::on_init,
+				"onDestroy", &LUA_GameObject::on_destroy,
 				sol::base_classes, sol::bases<GameObject>()
 				);
 		}
@@ -908,7 +909,10 @@ namespace p3d {
 				"activateCulling", &DeferredRenderer::ActivateCulling,
 				"deactivateCulling", &DeferredRenderer::DeactivateCulling,
 				"renderScene", &DeferredRenderer::RenderScene,
-				"preRender", sol::overload(&DeferredRenderer_PreRender, &DeferredRenderer_PreRenderTag)
+				"preRender", sol::overload(&DeferredRenderer_PreRender, &DeferredRenderer_PreRenderTag),
+				"setSSRDistances", &DeferredRenderer::SetSSRDistances,
+				"enableSSR", &DeferredRenderer::EnableSSR,
+				"disableSSR", &DeferredRenderer::DisableSSR
 				);
 		}
 
@@ -987,6 +991,7 @@ namespace p3d {
 				"getComponents", &LUA_RenderingComponent::GetComponents,
 				"onUpdate", &LUA_RenderingComponent::on_update,
 				"onInit", &LUA_RenderingComponent::on_init,
+				"onDestroy", &LUA_RenderingComponent::on_destroy,
 				sol::base_classes, sol::bases<IComponent>()
 				);
 		}
@@ -1013,8 +1018,13 @@ namespace p3d {
                 "getLODByDistance", &LUA_RenderingInstancedComponent::GetLODByDistance,
                 "updateLOD", &LUA_RenderingInstancedComponent::UpdateLOD,
                 "getComponents", &LUA_RenderingInstancedComponent::GetComponents,
+                "addBuffer", &LUA_RenderingInstancedComponent::AddBuffer,
+                "removeBuffer", &LUA_RenderingInstancedComponent::RemoveBuffer,
+                "numberOfInstances", &LUA_RenderingInstancedComponent::NumberOfInstances,
+                "setNumberInstances", &LUA_RenderingInstancedComponent::SetNumberInstances,
                 "onUpdate", &LUA_RenderingInstancedComponent::on_update,
                 "onInit", &LUA_RenderingInstancedComponent::on_init,
+                "onDestroy", &LUA_RenderingInstancedComponent::on_destroy,
                 sol::base_classes, sol::bases<IComponent>()
                 );
         }
@@ -1034,14 +1044,74 @@ namespace p3d {
 				);
 		}
 
-		lua->new_usertype<IComponent>("IComponent");
+		lua->new_usertype<IComponent>("IComponent",
+			"getOwner", &IComponent::GetOwner
+			);
 		lua->new_usertype<Renderable>("Renderable");
 		lua->new_usertype<ILightComponent>("IlightComponent",
 			sol::base_classes, sol::bases<IComponent>()
 			);
+		// Real read/write physics API - was previously registered with
+		// zero bound methods (only IPhysics::CreateBox/CreateSphere/...,
+		// which return this type, were bound), meaning physics bodies
+		// were write-only from Lua: creatable but unqueryable and
+		// undrivable by force/impulse. OnCollisionEnter/OnCollisionExit
+		// are plain fields here (like onUpdate/onInit elsewhere) - sol2
+		// auto-converts an assigned Lua closure to std::function, same
+		// proven pattern, no extra binding plumbing needed.
 		lua->new_usertype<IPhysicsComponent>("IPhysicsComponent",
+			"getMass", &IPhysicsComponent::GetMass,
+			"getShape", &IPhysicsComponent::GetShape,
+			"setPosition", &IPhysicsComponent::SetPosition,
+			"setRotation", &IPhysicsComponent::SetRotation,
+			"cleanForces", &IPhysicsComponent::CleanForces,
+			"setAngularVelocity", &IPhysicsComponent::SetAngularVelocity,
+			"setLinearVelocity", &IPhysicsComponent::SetLinearVelocity,
+			"getLinearVelocity", &IPhysicsComponent::GetLinearVelocity,
+			"getAngularVelocity", &IPhysicsComponent::GetAngularVelocity,
+			"applyCentralForce", &IPhysicsComponent::ApplyCentralForce,
+			"applyCentralImpulse", &IPhysicsComponent::ApplyCentralImpulse,
+			"setMass", &IPhysicsComponent::SetMass,
+			"activate", &IPhysicsComponent::Activate,
+			"isGhost", &IPhysicsComponent::IsGhost,
+			"onCollisionEnter", &IPhysicsComponent::OnCollisionEnter,
+			"onCollisionExit", &IPhysicsComponent::OnCollisionExit,
 			sol::base_classes, sol::bases<IComponent>()
 			);
+
+		{
+			// RayCastHit / RayCast - real raycasting from Lua, e.g. for
+			// click-picking or ground checks. hasHit gates whether the
+			// rest of the fields are meaningful (mirrors the real C++
+			// struct exactly - no Lua-side reinterpretation).
+			sol::constructors<sol::types<>> con;
+			lua->new_usertype<RayCastHit>("RayCastHit",
+				con,
+				"hasHit", &RayCastHit::hasHit,
+				"point", &RayCastHit::point,
+				"normal", &RayCastHit::normal,
+				"distance", &RayCastHit::distance,
+				"component", &RayCastHit::component
+				);
+		}
+
+		{
+			// Real, generic Lua-side "attach arbitrary behavior to any
+			// GameObject" component - see PyrosBindings.h's LuaComponent
+			// class comment. Attach via the already-bound
+			// GameObject::addComponent(), same as any other component.
+			sol::constructors<sol::types<>> con;
+			lua->new_usertype<LuaComponent>("LuaComponent",
+				con,
+				"init", &LuaComponent::Init,
+				"update", &LuaComponent::Update,
+				"destroy", &LuaComponent::Destroy,
+				"onUpdate", &LuaComponent::on_update,
+				"onInit", &LuaComponent::on_init,
+				"onDestroy", &LuaComponent::on_destroy,
+				sol::base_classes, sol::bases<IComponent>()
+				);
+		}
 
 
 		{
@@ -1060,9 +1130,9 @@ namespace p3d {
 				"getLightDirection", &LUA_DirectionalLight::GetLightDirection,
 				"setLightDirection", &LUA_DirectionalLight::SetLightDirection,
 				"getLightColor", &LUA_DirectionalLight::GetLightColor,
-				sol::base_classes, sol::bases<ILightComponent>(),
 				"onUpdate", &LUA_DirectionalLight::on_update,
 				"onInit", &LUA_DirectionalLight::on_init,
+				"onDestroy", &LUA_DirectionalLight::on_destroy,
 				"setShadowPCFTexelSize", &LUA_DirectionalLight::SetShadowPCFTexelSize,
 				sol::base_classes, sol::bases<IComponent>()
 				);
@@ -1083,13 +1153,23 @@ namespace p3d {
 				"getLightColor", &LUA_PointLight::GetLightColor,
 				"onUpdate", &LUA_PointLight::on_update,
 				"onInit", &LUA_PointLight::on_init,
+				"onDestroy", &LUA_PointLight::on_destroy,
 				"setShadowPCFTexelSize", &LUA_PointLight::SetShadowPCFTexelSize,
 				sol::base_classes, sol::bases<IComponent>()
 				);
 		}
 
 		{
-			// Spot Light
+			// Spot Light - was previously two separate registrations
+			// under the same Lua name "SpotLight" (the second silently
+			// clobbering the first's method table in sol2's per-type
+			// metatable, leaving onUpdate/onInit as effectively the only
+			// reachable methods); merged into one, matching the
+			// DirectionalLight/PointLight pattern. Also fixes a
+			// copy-paste bug: "getLightProjection"/"setLightProjection"
+			// were mapped to GetLightDirection/SetLightDirection (no
+			// light-projection accessor exists on SpotLight) - renamed
+			// to their real names.
 			sol::constructors<sol::types<>, sol::types<Vec4, float, Vec3, float, float>> con;
 			lua->new_usertype<LUA_SpotLight>("SpotLight",
 				con,
@@ -1098,8 +1178,8 @@ namespace p3d {
 				"destroy", &LUA_SpotLight::Destroy,
 				"enableShadows", &LUA_SpotLight::EnableCastShadows,
 				"getShadowFar", &LUA_SpotLight::GetShadowFar,
-				"getLightProjection", &LUA_SpotLight::GetLightDirection,
-				"setLightProjection", &LUA_SpotLight::SetLightDirection,
+				"getLightDirection", &LUA_SpotLight::GetLightDirection,
+				"setLightDirection", &LUA_SpotLight::SetLightDirection,
 				"getLightRadius", &LUA_SpotLight::GetLightRadius,
 				"setLightRadius", &LUA_SpotLight::SetLightRadius,
 				"getLightInnerCone", &LUA_SpotLight::GetLightInnerCone,
@@ -1108,18 +1188,10 @@ namespace p3d {
 				"setLightOutterCone", &LUA_SpotLight::SetLightOutterCone,
 				"getLightColor", &LUA_SpotLight::GetLightColor,
 				"setShadowPCFTexelSize", &LUA_SpotLight::SetShadowPCFTexelSize,
-				sol::base_classes, sol::bases<IComponent>()
-				);
-		}
-
-		{
-			// LUA Spot Light
-			sol::constructors<sol::types<>, sol::types<Vec4, float, Vec3, float, float>> con;
-			lua->new_usertype<LUA_SpotLight>("SpotLight",
-				con,
 				"onUpdate", &LUA_SpotLight::on_update,
 				"onInit", &LUA_SpotLight::on_init,
-				sol::base_classes, sol::bases<SpotLight>()
+				"onDestroy", &LUA_SpotLight::on_destroy,
+				sol::base_classes, sol::bases<IComponent>()
 				);
 		}
 
@@ -1236,6 +1308,10 @@ namespace p3d {
 				"setTextFont", &GenericShaderMaterial::SetTextFont,
 				"setReflectivity", &GenericShaderMaterial::SetReflectivity,
 				"setShininess", &GenericShaderMaterial::SetShininess,
+				"setMetallic", &GenericShaderMaterial::SetMetallic,
+				"setRoughness", &GenericShaderMaterial::SetRoughness,
+				"setMetallicRoughnessMap", &GenericShaderMaterial::SetMetallicRoughnessMap,
+				"setSSREnabled", &GenericShaderMaterial::SetSSREnabled,
 				"bindTextures", &GenericShaderMaterial::BindTextures,
 				"unbindTextures", &GenericShaderMaterial::UnbindTextures,
 				sol::base_classes, sol::bases<IMaterial>()
@@ -1464,6 +1540,7 @@ namespace p3d {
 				"SetAngularVelocity", &IPhysics::SetAngularVelocity,
 				"SetLinearVelocity", &IPhysics::SetLinearVelocity,
 				"Activate", &IPhysics::Activate,
+				"rayCast", &IPhysics::RayCast,
 				"createBox", &IPhysics::CreateBox,
 				"createCapsule", &IPhysics::CreateCapsule,
 				"createCone", &IPhysics::CreateCone,
@@ -1596,6 +1673,126 @@ namespace p3d {
 				"setTargetFPS", &MotionBlurEffect::SetTargetFPS,
 				"setCurrentFPS", &MotionBlurEffect::SetCurrentFPS,
 				sol::base_classes, sol::bases<IEffect>()
+				);
+		}
+
+		{
+			lua->new_enum("ParticleBlendMode",
+				"AlphaBlend", ParticleBlendMode::AlphaBlend,
+				"Additive", ParticleBlendMode::Additive
+			);
+
+			// ParticleSystemDesc - plain data, bound as a field-assignable
+			// usertype (construct with ParticleSystemDesc.new(), set the
+			// fields that matter, pass to ParticleSystem.new(desc)) rather
+			// than a giant constructor overload - matches how the C++ side
+			// itself is designed (every field has a sane default from
+			// ParticleSystemDesc()).
+			sol::constructors<sol::types<>> descCon;
+			lua->new_usertype<ParticleSystemDesc>("ParticleSystemDesc",
+				descCon,
+				"maxParticles", &ParticleSystemDesc::maxParticles,
+				"texture", &ParticleSystemDesc::texture,
+				"looping", &ParticleSystemDesc::looping,
+				"emissionRate", &ParticleSystemDesc::emissionRate,
+				"burstCount", &ParticleSystemDesc::burstCount,
+				"minLifetime", &ParticleSystemDesc::minLifetime,
+				"maxLifetime", &ParticleSystemDesc::maxLifetime,
+				"direction", &ParticleSystemDesc::direction,
+				"spreadAngle", &ParticleSystemDesc::spreadAngle,
+				"minSpeed", &ParticleSystemDesc::minSpeed,
+				"maxSpeed", &ParticleSystemDesc::maxSpeed,
+				"gravity", &ParticleSystemDesc::gravity,
+				"damping", &ParticleSystemDesc::damping,
+				"startSize", &ParticleSystemDesc::startSize,
+				"endSize", &ParticleSystemDesc::endSize,
+				"sizeRandomJitter", &ParticleSystemDesc::sizeRandomJitter,
+				"startColor", &ParticleSystemDesc::startColor,
+				"endColor", &ParticleSystemDesc::endColor,
+				"fadeInFraction", &ParticleSystemDesc::fadeInFraction,
+				"fadeOutFraction", &ParticleSystemDesc::fadeOutFraction,
+				"minRotationSpeed", &ParticleSystemDesc::minRotationSpeed,
+				"maxRotationSpeed", &ParticleSystemDesc::maxRotationSpeed,
+				"blendMode", &ParticleSystemDesc::blendMode,
+				"boundingSphereRadius", &ParticleSystemDesc::boundingSphereRadius
+				);
+
+			sol::constructors<sol::types<const ParticleSystemDesc&>> con;
+			lua->new_usertype<ParticleSystem>("ParticleSystem",
+				con,
+				"update", &ParticleSystem::Update,
+				"play", &ParticleSystem::Play,
+				"stop", &ParticleSystem::Stop,
+				"clear", &ParticleSystem::Clear,
+				"getLiveParticleCount", &ParticleSystem::GetLiveParticleCount,
+				"isPlaying", &ParticleSystem::IsPlaying,
+				"setEmissionRate", &ParticleSystem::SetEmissionRate,
+				"setBurstCount", &ParticleSystem::SetBurstCount,
+				"setLifetime", &ParticleSystem::SetLifetime,
+				"setDirection", &ParticleSystem::SetDirection,
+				"setSpread", &ParticleSystem::SetSpread,
+				"setSpeed", &ParticleSystem::SetSpeed,
+				"setGravity", &ParticleSystem::SetGravity,
+				"setDamping", &ParticleSystem::SetDamping,
+				"setSizes", &ParticleSystem::SetSizes,
+				"setColors", &ParticleSystem::SetColors,
+				"setFade", &ParticleSystem::SetFade,
+				"setRotationSpeed", &ParticleSystem::SetRotationSpeed,
+				"setBlendMode", &ParticleSystem::SetBlendMode,
+				sol::base_classes, sol::bases<IComponent>()
+				);
+		}
+
+		{
+			// Input - real keyboard/mouse enums plus the LuaInputBridge
+			// registration API (see PyrosBindings.h's LuaInputBridge
+			// class comment for why a bridge object is needed instead of
+			// binding InputManager directly).
+			lua->new_enum("Key",
+				"A", Event::Input::Keyboard::A, "B", Event::Input::Keyboard::B, "C", Event::Input::Keyboard::C,
+				"D", Event::Input::Keyboard::D, "E", Event::Input::Keyboard::E, "F", Event::Input::Keyboard::F,
+				"G", Event::Input::Keyboard::G, "H", Event::Input::Keyboard::H, "I", Event::Input::Keyboard::I,
+				"J", Event::Input::Keyboard::J, "K", Event::Input::Keyboard::K, "L", Event::Input::Keyboard::L,
+				"M", Event::Input::Keyboard::M, "N", Event::Input::Keyboard::N, "O", Event::Input::Keyboard::O,
+				"P", Event::Input::Keyboard::P, "Q", Event::Input::Keyboard::Q, "R", Event::Input::Keyboard::R,
+				"S", Event::Input::Keyboard::S, "T", Event::Input::Keyboard::T, "U", Event::Input::Keyboard::U,
+				"V", Event::Input::Keyboard::V, "W", Event::Input::Keyboard::W, "X", Event::Input::Keyboard::X,
+				"Y", Event::Input::Keyboard::Y, "Z", Event::Input::Keyboard::Z,
+				"Num0", Event::Input::Keyboard::Num0, "Num1", Event::Input::Keyboard::Num1,
+				"Num2", Event::Input::Keyboard::Num2, "Num3", Event::Input::Keyboard::Num3,
+				"Num4", Event::Input::Keyboard::Num4, "Num5", Event::Input::Keyboard::Num5,
+				"Num6", Event::Input::Keyboard::Num6, "Num7", Event::Input::Keyboard::Num7,
+				"Num8", Event::Input::Keyboard::Num8, "Num9", Event::Input::Keyboard::Num9,
+				"Escape", Event::Input::Keyboard::Escape,
+				"LControl", Event::Input::Keyboard::LControl, "LShift", Event::Input::Keyboard::LShift,
+				"LAlt", Event::Input::Keyboard::LAlt, "RControl", Event::Input::Keyboard::RControl,
+				"RShift", Event::Input::Keyboard::RShift, "RAlt", Event::Input::Keyboard::RAlt,
+				"Space", Event::Input::Keyboard::Space, "Return", Event::Input::Keyboard::Return,
+				"Back", Event::Input::Keyboard::Back, "Tab", Event::Input::Keyboard::Tab,
+				"Left", Event::Input::Keyboard::Left, "Right", Event::Input::Keyboard::Right,
+				"Up", Event::Input::Keyboard::Up, "Down", Event::Input::Keyboard::Down,
+				"F1", Event::Input::Keyboard::F1, "F2", Event::Input::Keyboard::F2,
+				"F3", Event::Input::Keyboard::F3, "F4", Event::Input::Keyboard::F4,
+				"F5", Event::Input::Keyboard::F5, "F6", Event::Input::Keyboard::F6,
+				"F7", Event::Input::Keyboard::F7, "F8", Event::Input::Keyboard::F8,
+				"F9", Event::Input::Keyboard::F9, "F10", Event::Input::Keyboard::F10,
+				"F11", Event::Input::Keyboard::F11, "F12", Event::Input::Keyboard::F12
+			);
+			lua->new_enum("MouseButton",
+				"Left", Event::Input::Mouse::Left,
+				"Middle", Event::Input::Mouse::Middle,
+				"Right", Event::Input::Mouse::Right
+			);
+
+			sol::constructors<sol::types<>> con;
+			lua->new_usertype<LuaInputBridge>("Input",
+				con,
+				"onKeyPressed", &LuaInputBridge::OnKeyPressed,
+				"onKeyReleased", &LuaInputBridge::OnKeyReleased,
+				"onMouseButtonPressed", &LuaInputBridge::OnMouseButtonPressed,
+				"onMouseButtonReleased", &LuaInputBridge::OnMouseButtonReleased,
+				"onMouseMoved", &LuaInputBridge::OnMouseMoved,
+				"onMouseWheelMoved", &LuaInputBridge::OnMouseWheelMoved
 				);
 		}
 

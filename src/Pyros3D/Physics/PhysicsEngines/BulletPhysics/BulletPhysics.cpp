@@ -55,6 +55,60 @@ namespace p3d {
 	void BulletPhysics::Update(const f64& time, const uint32 steps)
 	{
 		m_dynamicsWorld->stepSimulation(time, steps);
+		ProcessCollisionEvents();
+	}
+
+	void BulletPhysics::ProcessCollisionEvents()
+	{
+		// See IPhysicsComponent.h's OnCollisionEnter/OnCollisionExit
+		// comment - real collision notification, entirely absent before
+		// this. getUserPointer() -> IPhysicsComponent* is an already-
+		// established convention (set in CreateRigidBody()/
+		// CreateGhostObject()/the vehicle-chassis path, already consumed
+		// the same way by RayCast() below), not something new introduced
+		// here.
+		std::set<std::pair<IPhysicsComponent*, IPhysicsComponent*> > currentPairs;
+
+		int numManifolds = m_dispatcher->getNumManifolds();
+		for (int i = 0; i < numManifolds; i++)
+		{
+			btPersistentManifold* manifold = m_dispatcher->getManifoldByIndexInternal(i);
+			// A manifold can exist (broadphase overlap) with zero actual
+			// contact points (narrowphase found no real touch) - only
+			// count it as a real collision if it has at least one.
+			if (manifold->getNumContacts() == 0)
+				continue;
+
+			IPhysicsComponent* a = static_cast<IPhysicsComponent*>(manifold->getBody0()->getUserPointer());
+			IPhysicsComponent* b = static_cast<IPhysicsComponent*>(manifold->getBody1()->getUserPointer());
+			if (!a || !b)
+				continue;
+
+			// Normalize ordering so (a,b) and (b,a) are the same set key.
+			std::pair<IPhysicsComponent*, IPhysicsComponent*> pair = (a < b) ? std::make_pair(a, b) : std::make_pair(b, a);
+			currentPairs.insert(pair);
+		}
+
+		// Enter: present now, wasn't last step.
+		for (std::set<std::pair<IPhysicsComponent*, IPhysicsComponent*> >::iterator it = currentPairs.begin(); it != currentPairs.end(); it++)
+		{
+			if (m_touchingPairs.find(*it) == m_touchingPairs.end())
+			{
+				if (it->first->OnCollisionEnter) it->first->OnCollisionEnter(it->second);
+				if (it->second->OnCollisionEnter) it->second->OnCollisionEnter(it->first);
+			}
+		}
+		// Exit: was present last step, isn't now.
+		for (std::set<std::pair<IPhysicsComponent*, IPhysicsComponent*> >::iterator it = m_touchingPairs.begin(); it != m_touchingPairs.end(); it++)
+		{
+			if (currentPairs.find(*it) == currentPairs.end())
+			{
+				if (it->first->OnCollisionExit) it->first->OnCollisionExit(it->second);
+				if (it->second->OnCollisionExit) it->second->OnCollisionExit(it->first);
+			}
+		}
+
+		m_touchingPairs.swap(currentPairs);
 	}
 
 	void BulletPhysics::EnableDebugDraw()
@@ -436,6 +490,24 @@ namespace p3d {
 	{
 		if (pcomp->GetShape() != CollisionShapes::Vehicle)
 			m_dynamicsWorld->removeRigidBody(static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR()));
+
+		// Real, necessary cleanup for ProcessCollisionEvents()'s
+		// m_touchingPairs above: without this, a pair involving a
+		// component removed (destroyed) while still touching another
+		// stays in the set, and next Update()'s exit-diff would
+		// dereference a dangling IPhysicsComponent* - a real
+		// use-after-free, not hypothetical, since GameObjects/components
+		// can be destroyed at any time independent of physics state. No
+		// OnCollisionExit fired here deliberately - pcomp is on its way
+		// out, and firing into (or about) an object mid-teardown is its
+		// own hazard; silently dropping the pair is the safe choice.
+		for (std::set<std::pair<IPhysicsComponent*, IPhysicsComponent*> >::iterator it = m_touchingPairs.begin(); it != m_touchingPairs.end(); )
+		{
+			if (it->first == pcomp || it->second == pcomp)
+				it = m_touchingPairs.erase(it);
+			else
+				it++;
+		}
 	}
 
 	RayCastHit BulletPhysics::RayCast(const Vec3 &from, const Vec3 &to)
@@ -503,6 +575,42 @@ namespace p3d {
 	{
 		btRigidBody* body = static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR());
 		body->activate();
+	}
+	Vec3 BulletPhysics::GetLinearVelocity(IPhysicsComponent *pcomp)
+	{
+		btRigidBody* body = static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR());
+		btVector3 v = body->getLinearVelocity();
+		return Vec3(v.x(), v.y(), v.z());
+	}
+	Vec3 BulletPhysics::GetAngularVelocity(IPhysicsComponent *pcomp)
+	{
+		btRigidBody* body = static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR());
+		btVector3 v = body->getAngularVelocity();
+		return Vec3(v.x(), v.y(), v.z());
+	}
+	void BulletPhysics::ApplyCentralForce(IPhysicsComponent *pcomp, const Vec3 &force)
+	{
+		btRigidBody* body = static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR());
+		body->applyCentralForce(btVector3(force.x, force.y, force.z));
+	}
+	void BulletPhysics::ApplyCentralImpulse(IPhysicsComponent *pcomp, const Vec3 &impulse)
+	{
+		btRigidBody* body = static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR());
+		body->applyCentralImpulse(btVector3(impulse.x, impulse.y, impulse.z));
+	}
+	void BulletPhysics::SetMass(IPhysicsComponent *pcomp, const f32 mass)
+	{
+		btRigidBody* body = static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR());
+		// Same inertia-recompute pattern used at body creation (see
+		// CreateRigidBody()/vehicle-chassis creation above) - setMassProps()
+		// alone doesn't recompute inertia for the new mass, so skipping
+		// this would leave rotation response using the *old* mass's
+		// inertia tensor after a runtime mass change.
+		btVector3 localInertia(0, 0, 0);
+		if (mass != 0.f)
+			body->getCollisionShape()->calculateLocalInertia(mass, localInertia);
+		body->setMassProps(mass, localInertia);
+		body->updateInertiaTensor();
 	}
 
 	// Create Physics Components

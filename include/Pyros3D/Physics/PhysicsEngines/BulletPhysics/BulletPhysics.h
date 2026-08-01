@@ -18,6 +18,8 @@
 #include <Pyros3D/Physics/PhysicsEngines/BulletPhysics/DebugDraw/PhysicsDebugDraw.h>
 #include <Pyros3D/Other/Export.h>
 #include <memory>
+#include <set>
+#include <utility>
 
 namespace p3d {
 
@@ -58,6 +60,11 @@ namespace p3d {
 		void SetAngularVelocity(IPhysicsComponent *pcomp, const Vec3 &velocity);
 		void SetLinearVelocity(IPhysicsComponent *pcomp, const Vec3 &velocity);
 		void Activate(IPhysicsComponent *pcomp);
+		Vec3 GetLinearVelocity(IPhysicsComponent *pcomp);
+		Vec3 GetAngularVelocity(IPhysicsComponent *pcomp);
+		void ApplyCentralForce(IPhysicsComponent *pcomp, const Vec3 &force);
+		void ApplyCentralImpulse(IPhysicsComponent *pcomp, const Vec3 &impulse);
+		void SetMass(IPhysicsComponent *pcomp, const f32 mass);
 
 		// Create Physics Components
 		virtual IPhysicsComponent* CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass, bool ghost = false);
@@ -97,6 +104,14 @@ namespace p3d {
 		void CreateGhostObject(btCollisionShape* shape, IPhysicsComponent* pcomp);
 
 		btCollisionShape* GetCollisionShape(IPhysicsComponent* pcomp);
+
+		// Real collision-notification scan - see IPhysicsComponent.h's
+		// OnCollisionEnter/OnCollisionExit comment. Run once per Update()
+		// after stepSimulation(), diffed against the previous step's set
+		// so enter/exit fire exactly once per real state change, not once
+		// per frame two bodies happen to still be touching.
+		void ProcessCollisionEvents();
+		std::set<std::pair<IPhysicsComponent*, IPhysicsComponent*> > m_touchingPairs;
 
 	protected:
 

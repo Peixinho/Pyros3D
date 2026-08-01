@@ -68,6 +68,20 @@ namespace p3d {
 		virtual void SetAngularVelocity(IPhysicsComponent *pcomp, const Vec3 &velocity) = 0;
 		virtual void SetLinearVelocity(IPhysicsComponent *pcomp, const Vec3 &velocity) = 0;
 		virtual void Activate(IPhysicsComponent *pcomp) = 0;
+		// Real, previously-missing gap (same category as RayCast() above -
+		// scripting/gameplay code had no way to read a body's current
+		// velocity, push it, or change its mass at runtime, only set an
+		// absolute velocity or clear forces outright). Mirrors the
+		// Set*Velocity pair with real getters, and adds the two most
+		// commonly needed force-application variants (central, i.e.
+		// through the body's center of mass - no torque component) rather
+		// than the full force/impulse-at-point Bullet API surface, to
+		// keep this additive without chasing every overload.
+		virtual Vec3 GetLinearVelocity(IPhysicsComponent *pcomp) = 0;
+		virtual Vec3 GetAngularVelocity(IPhysicsComponent *pcomp) = 0;
+		virtual void ApplyCentralForce(IPhysicsComponent *pcomp, const Vec3 &force) = 0;
+		virtual void ApplyCentralImpulse(IPhysicsComponent *pcomp, const Vec3 &impulse) = 0;
+		virtual void SetMass(IPhysicsComponent *pcomp, const f32 mass) = 0;
 
 		// Create Physics Components
 		virtual IPhysicsComponent* CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass = 0.f, bool ghost = false) = 0;

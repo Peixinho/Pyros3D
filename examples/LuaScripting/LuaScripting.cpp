@@ -72,7 +72,7 @@ bool LuaScripting::LoadScript(const std::string &file)
 void LuaScripting::Update()
 {
 	sol::protected_function lua_update = lua["update"];
-	lua_update(GetTime());
+	lua_update(GetTime(), GetTimeInterval());
 }
 
 void LuaScripting::Shutdown()

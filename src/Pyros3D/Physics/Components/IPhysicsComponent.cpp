@@ -79,6 +79,27 @@ namespace p3d {
 	{
 		PhysicsEngine->Activate(this);
 	}
+	Vec3 IPhysicsComponent::GetLinearVelocity()
+	{
+		return PhysicsEngine->GetLinearVelocity(this);
+	}
+	Vec3 IPhysicsComponent::GetAngularVelocity()
+	{
+		return PhysicsEngine->GetAngularVelocity(this);
+	}
+	void IPhysicsComponent::ApplyCentralForce(const Vec3 &force)
+	{
+		PhysicsEngine->ApplyCentralForce(this, force);
+	}
+	void IPhysicsComponent::ApplyCentralImpulse(const Vec3 &impulse)
+	{
+		PhysicsEngine->ApplyCentralImpulse(this, impulse);
+	}
+	void IPhysicsComponent::SetMass(const f32 newMass)
+	{
+		mass = newMass;
+		PhysicsEngine->SetMass(this, newMass);
+	}
 	void IPhysicsComponent::InternalAddWheel(const Vec3& WheelDirection, const Vec3& WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3& Position, bool isFrontWheel)
 	{
 		PhysicsEngine->AddWheel(this, WheelDirection, WheelAxle, WheelRadius, WheelWidth, WheelFriction, WheelRollInfluence, Position, isFrontWheel);
