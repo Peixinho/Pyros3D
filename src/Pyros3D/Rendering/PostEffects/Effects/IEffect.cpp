@@ -27,6 +27,7 @@ namespace p3d {
         // Initialize Shaders
         shader = new Shader();
         pipelineHandle = 0;
+        pipelineBuiltForSwapchainGeneration = 0;
         extraUniformsBinding = 0;
         extraUniformsSize = 0;
         extraUniformsBufferHandle = 0;

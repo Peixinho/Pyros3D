@@ -338,6 +338,28 @@ namespace p3d {
 		virtual void DestroyPipeline(const DeviceHandle pipeline) = 0;
 		virtual void BindPipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline) = 0;
 
+		// Real, found-via-reproduction bug fix: a pipeline created while
+		// currentBoundFBO==0 (i.e. targeting the swapchain directly, not a
+		// Texture-backed FBO) is built against whatever VkRenderPass object
+		// happens to be VulkanRenderDevice::renderPass at that moment. On
+		// Vulkan, a window resize destroys and recreates that render pass
+		// (VulkanRenderDevice::RecreateSwapchain()) - a pipeline cached
+		// forever against the old, now-destroyed one and never rebuilt
+		// (exactly what IEffect::pipelineHandle/PostEffectsManager did,
+		// see ProcessPostEffects()'s comment) reads back as solid garbage
+		// on MoltenVK - confirmed via debug logging catching the exact
+		// moment: a real resize destroyed renderPass A and created
+		// compatible-but-different renderPass B, the cached pipeline (still
+		// built against A) kept being bound every frame after, and that's
+		// exactly when the screen turned solid red. Default 0 (GL, and any
+		// Vulkan pipeline that only ever targets a stable Texture-backed
+		// FBO - those already get correctly invalidated on resize via
+		// InvalidateFramebuffersForTexture(), a swapchain generation bump
+		// would just be redundant there) - callers that cache a pipeline
+		// targeting the swapchain directly should store the generation at
+		// creation time and rebuild whenever this getter's value changes.
+		virtual uint32 GetSwapchainGeneration() const { return 0; }
+
 		// Clip distances (no-op on GLES3, matching StartClippingPlanes()/
 		// EndClippingPlanes()'s existing #if !defined(GLES3) guard)
 		virtual void EnableClipDistance(const uint32 index) = 0;

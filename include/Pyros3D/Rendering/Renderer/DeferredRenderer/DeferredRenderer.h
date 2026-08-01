@@ -32,6 +32,26 @@ namespace p3d {
 
 		virtual void Resize(const uint32 Width, const uint32 Height);
 
+		// Real, per-scene retuning knob for material-aware SSR's ray
+		// march - see lastPass.glsl's uSSRStepDistance/uSSRMaxDistance
+		// comment. Both are view-space units; defaults (0.35/12.0, set
+		// in the constructor) are proven-correct for a human/room-scale
+		// scene. A tabletop diorama built at ~0.01-1 unit spacing wants
+		// both much smaller; a city block built at ~100-1000 unit
+		// spacing wants both much larger - call this once after
+		// construction (or whenever the scene's own scale is known) if
+		// SSR reflections are landing short (step too large, skipping
+		// past nearby geometry) or absurdly far away/never hitting
+		// anything (step too small to cover any real distance in
+		// SSR_COARSE_STEPS steps).
+		void SetSSRDistances(const f32 stepDistance, const f32 maxDistance);
+
+		// Real opt-in gate for material-aware SSR - defaults OFF (see the
+		// constructor's comment on why). Call this on an instance whose
+		// scene is actually meant to showcase reflections.
+		void EnableSSR();
+		void DisableSSR();
+
 	private:
 		GenericShaderMaterial* shadowMaterial, *shadowSkinnedMaterial;
 
@@ -129,6 +149,45 @@ namespace p3d {
 		// inside their radius (near-plane clipping the sphere proxy away
 		// entirely before rasterization).
 		Uniform *pointUseFullscreenQuadHandle, *spotUseFullscreenQuadHandle;
+
+		// Real mip count of previousFrameColorTexture, recomputed on
+		// resize - see lastPass.glsl's uMaxReflectionLod/textureLod()
+		// comment (roughness-based SSR reflection blur).
+		Uniform *lastPassMaxReflectionLodHandle;
+
+		// See SetSSRDistances()'s comment - real, per-scene-settable SSR
+		// march distances, mirrored here so SetSSRDistances() can be
+		// called any time (not just at construction) and still know what
+		// to write back into deferredLastPass's uniforms.
+		f32 ssrStepDistance, ssrMaxDistance;
+		Uniform *lastPassSSRStepDistanceHandle, *lastPassSSRMaxDistanceHandle;
+
+		// See EnableSSR()/DisableSSR()'s comment - real opt-in gate,
+		// defaults OFF.
+		f32 ssrEnabled;
+		Uniform *lastPassSSREnabledHandle;
+
+		// Real, dedicated previous-frame camera state for SSR reprojection -
+		// deliberately NOT the shared IRenderer::PrvViewMatrix/
+		// PrvProjectionMatrix (fed generically via Uniforms::DataUsage and
+		// also consumed by VelocityRenderer). Those get overwritten inside
+		// PreRender() (once unconditionally for the main camera's
+		// ViewMatrix, and repeatedly for ProjectionMatrix whenever a light
+		// in the scene casts shadows - shadow passes temporarily repurpose
+		// the same shared scratch members) before RenderScene() ever runs,
+		// so by the time RenderScene() shifted them into Prv*, it was
+		// shifting THIS frame's already-current values (or, worse, a
+		// leftover shadow-camera projection), not a real one-frame-old
+		// value - reprojection collapsed to sampling tPreviousFrameColor at
+		// this frame's own hit UV with zero motion compensation, visible as
+		// reflection smear/ghosting under camera rotation (worst at
+		// grazing-angle floor reflections, where pitch changes produce the
+		// largest true reprojection offset - see SSRTest). Updated once at
+		// the end of RenderScene() directly from this call's own Camera/
+		// projection arguments, immune to whatever PreRender() or any
+		// shadow sub-pass did to the shared scratch matrices.
+		Matrix ssrPrvViewMatrix, ssrPrvProjectionMatrix;
+		Uniform *lastPassPrvViewMatrixHandle, *lastPassPrvProjectionMatrixHandle;
 	};
 
 };

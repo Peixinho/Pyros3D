@@ -58,9 +58,14 @@ namespace p3d {
 		// material-aware SSR's reflection source. Its own tiny FBO exists
 		// purely to give BlitFramebuffer() a bindable destination (same
 		// pattern as MSAATest's resolvedFBO) - nothing ever draws into
-		// this FBO the normal way, it's a pure blit target.
-		previousFrameColorTexture = new Texture(); previousFrameColorTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height, false);
+		// this FBO the normal way, it's a pure blit target. Mipmapping
+		// enabled (was false) for real roughness-based reflection blur -
+		// see lastPass.glsl's uMaxReflectionLod/textureLod() comment;
+		// mips are regenerated every frame after the blit that refreshes
+		// this texture's content, in RenderScene() below.
+		previousFrameColorTexture = new Texture(); previousFrameColorTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height, true);
 		previousFrameColorTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		previousFrameColorTexture->SetMinMagFilter(TextureFilter::LinearMipmapLinear, TextureFilter::Linear);
 		previousFrameFBO = new FrameBuffer();
 		previousFrameFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, previousFrameColorTexture);
 
@@ -138,14 +143,54 @@ namespace p3d {
 		deferredLastPass->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
 		deferredLastPass->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
 		deferredLastPass->AddUniform(Uniform("uViewMatrixInverse", Uniforms::DataUsage::ViewMatrixInverse));
-		// Previous frame's camera - IRenderer's own PrvProjectionMatrix/
-		// PrvViewMatrix (already real, working state used by
-		// VelocityRenderer/ForwardRenderer for motion vectors - see
-		// RenderScene()'s new PrvProjectionMatrix=ProjectionMatrix shift
-		// above), reused here for SSR's reflection reprojection instead
-		// of inventing new frame-to-frame matrix tracking.
-		deferredLastPass->AddUniform(Uniform("uPrvProjectionMatrix", Uniforms::DataUsage::PrvProjectionMatrix));
-		deferredLastPass->AddUniform(Uniform("uPrvViewMatrix", Uniforms::DataUsage::PrvViewMatrix));
+		// Previous frame's camera, for SSR's reflection reprojection.
+		// Deliberately NOT IRenderer's shared PrvProjectionMatrix/
+		// PrvViewMatrix via Uniforms::DataUsage - those get clobbered
+		// inside PreRender() (ViewMatrix unconditionally, ProjectionMatrix
+		// whenever any light in the scene casts shadows) before
+		// RenderScene() ever runs, so shifting them here always captured
+		// this frame's own already-current camera, not a real previous
+		// one - reprojection was silently a no-op. See DeferredRenderer.h's
+		// comment on ssrPrvViewMatrix/ssrPrvProjectionMatrix for the full
+		// story; these two handles are fed manually from that dedicated,
+		// PreRender()-immune state instead.
+		lastPassPrvProjectionMatrixHandle = deferredLastPass->AddUniform(Uniform("uPrvProjectionMatrix", Uniforms::DataUsage::Other, Uniforms::DataType::Matrix));
+		lastPassPrvProjectionMatrixHandle->SetValue(&ssrPrvProjectionMatrix);
+		lastPassPrvViewMatrixHandle = deferredLastPass->AddUniform(Uniform("uPrvViewMatrix", Uniforms::DataUsage::Other, Uniforms::DataType::Matrix));
+		lastPassPrvViewMatrixHandle->SetValue(&ssrPrvViewMatrix);
+		// Real mip count of previousFrameColorTexture - see lastPass.glsl's
+		// uMaxReflectionLod/textureLod() comment. Not a DataUsage the
+		// renderer computes generically (it's this material's own
+		// texture, not a camera/frame property), so a plain handle +
+		// SetValue() each frame, same pattern as pointRadiusHandle etc.
+		lastPassMaxReflectionLodHandle = deferredLastPass->AddUniform(Uniform("uMaxReflectionLod", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		// Real, per-scene-settable SSR march distances - see
+		// lastPass.glsl's identical comment on why these are uniforms,
+		// not shader constants (an earlier, automatic per-pixel-depth-
+		// scaled version was a real, shipped regression: reflections
+		// landed near the horizon instead of under the object casting
+		// them). Defaults match this shader's original, proven-correct
+		// values; SetSSRDistances() below lets a caller retune them for
+		// a scene built at a very different scale.
+		ssrStepDistance = 0.35f;
+		ssrMaxDistance = 12.0f;
+		lastPassSSRStepDistanceHandle = deferredLastPass->AddUniform(Uniform("uSSRStepDistance", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		lastPassSSRStepDistanceHandle->SetValue(&ssrStepDistance);
+		lastPassSSRMaxDistanceHandle = deferredLastPass->AddUniform(Uniform("uSSRMaxDistance", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		lastPassSSRMaxDistanceHandle->SetValue(&ssrMaxDistance);
+		// Real opt-in gate - defaults OFF. SSR is new work this session,
+		// found (via real, reproduced reports) to still have a real bug
+		// under active camera pitch (reflections stretch/smear instead
+		// of tracking correctly - root cause not yet found). Every
+		// DeferredRenderer instance runs this composite pass regardless
+		// of whether its example was ever built to showcase SSR
+		// (DeferredRendering, DeferredPBRSpheres, ArenaFPS, ...), so
+        // leaving it always-on meant an unresolved bug silently reached
+		// every one of them. EnableSSR() opts a specific instance in -
+		// SSRTest calls it explicitly; nothing else needs to.
+		ssrEnabled = 0.0f;
+		lastPassSSREnabledHandle = deferredLastPass->AddUniform(Uniform("uSSREnabled", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		lastPassSSREnabledHandle->SetValue(&ssrEnabled);
 
 		// See IMaterial.h's comment on extraUniforms[2] - matches the
 		// LastPassFragParams block declared in shaders/lastPass.glsl
@@ -154,7 +199,7 @@ namespace p3d {
 		// mat4 rounds up to the next 16-byte boundary).
 		deferredLastPass->extraUniforms[0].binding = 37;
 		deferredLastPass->extraUniforms[0].blockName = "LastPassFragParams";
-		deferredLastPass->extraUniforms[0].size = 272;
+		deferredLastPass->extraUniforms[0].size = 288;
 		deferredLastPass->extraUniforms[0].scratch.resize(deferredLastPass->extraUniforms[0].size, 0);
 		deferredLastPass->extraUniforms[0].offsets["uScreenDimensions"] = 0;
 		deferredLastPass->extraUniforms[0].offsets["uNearFar"] = 8;
@@ -162,6 +207,10 @@ namespace p3d {
 		deferredLastPass->extraUniforms[0].offsets["uViewMatrixInverse"] = 80;
 		deferredLastPass->extraUniforms[0].offsets["uPrvProjectionMatrix"] = 144;
 		deferredLastPass->extraUniforms[0].offsets["uPrvViewMatrix"] = 208;
+		deferredLastPass->extraUniforms[0].offsets["uMaxReflectionLod"] = 272;
+		deferredLastPass->extraUniforms[0].offsets["uSSRStepDistance"] = 276;
+		deferredLastPass->extraUniforms[0].offsets["uSSRMaxDistance"] = 280;
+		deferredLastPass->extraUniforms[0].offsets["uSSREnabled"] = 284;
 		// Real, pre-existing inconsistency found while investigating a
 		// separate rendering issue: every other second-pass material
 		// (Ambient/Directional/Point/Spot, further below) explicitly
@@ -472,6 +521,12 @@ namespace p3d {
 		device->SetClearColor(Vec4(0.f, 0.f, 0.f, 0.f));
 		device->Clear(device->TranslateBufferBit(Buffer_Bit::Color));
 		previousFrameFBO->UnBind();
+		// Resize() also reallocates the mip chain at the new size (empty/
+		// undefined beyond level 0's clear above) - regenerate now so a
+		// blurred (rough-surface) SSR sample taken before the next real
+		// per-frame UpdateMipmap() (end of RenderScene()) doesn't read
+		// garbage from an unpopulated higher mip.
+		previousFrameColorTexture->UpdateMipmap();
 	}
 
 	DeferredRenderer::~DeferredRenderer()
@@ -540,6 +595,8 @@ namespace p3d {
 			device->SetClearColor(Vec4(0.f, 0.f, 0.f, 0.f));
 			device->Clear(device->TranslateBufferBit(Buffer_Bit::Color));
 			previousFrameFBO->UnBind();
+			// See Resize()'s identical comment - same reasoning.
+			previousFrameColorTexture->UpdateMipmap();
 
 			dummyShadowsWarmedUp = true;
 		}
@@ -750,16 +807,29 @@ namespace p3d {
 					pointHaveShadowHandle->SetValue(&haveShadow);
 
 					// See DeferredRenderer.h/PointVertParams' comment on
-					// uUseFullscreenQuad - real "camera inside the light's
-					// sphere" test (plain radius, not the FOV-inflated
-					// g(f(radius)) the sphere's own *mesh scale* uses a few
-					// lines below for a completely different reason - mesh
-					// under-coverage compensation, not a clipping-distance
-					// threshold; reusing it here by mistake made every
-					// light within ~1.4x its radius wrongly take this
-					// branch, e.g. DeferredPBRSpheres' camera-to-light
-					// distance of ~16 against a radius-35 light).
-					bool cameraInsideVolume = CameraPosition.distance(p->GetOwner()->GetWorldPosition()) < p->GetLightRadius();
+					// uUseFullscreenQuad. Real, corrected test - the
+					// original version of this check was `distance <
+					// radius` (camera literally inside the sphere), which
+					// only ever catches the narrowest case. What actually
+					// causes near-plane clipping is the sphere's *near
+					// edge* (distance-to-camera minus radius) crossing
+					// the near clip plane - a real gap this check missed
+					// even for a camera sitting just outside a light's
+					// radius, which is by far the more common case for a
+					// scene with many small lights (found via a real
+					// report that DeferredRendering's 100 radius-0.5
+					// lights still visibly cut in/out with camera pitch
+					// alone - reproduced with the fullscreen-quad branch
+					// forcibly disabled, which ruled out the substitution
+					// mechanism itself and pointed straight back at this
+					// threshold). A small multiple of the near plane
+					// distance as margin, not the FOV-inflated g(f(radius))
+					// the sphere's own *mesh scale* uses a few lines below
+					// for a completely unrelated reason (mesh under-
+					// coverage compensation, not a clipping-distance
+					// threshold - an earlier version of this check reused
+					// that by mistake instead).
+					bool cameraInsideVolume = CameraPosition.distance(p->GetOwner()->GetWorldPosition()) - p->GetLightRadius() < NearFarPlane.x * 2.0f;
 					float useFullscreenQuad = cameraInsideVolume ? 1.f : 0.f;
 					pointUseFullscreenQuadHandle->SetValue(&useFullscreenQuad);
 
@@ -839,7 +909,7 @@ namespace p3d {
 					// See deferredMaterialPoint's identical comments above -
 					// same near-plane-clipping fix, same real-radius
 					// threshold (not g(f(radius))), same mechanism.
-					bool cameraInsideVolume = CameraPosition.distance(s->GetOwner()->GetWorldPosition()) < s->GetLightRadius();
+					bool cameraInsideVolume = CameraPosition.distance(s->GetOwner()->GetWorldPosition()) - s->GetLightRadius() < NearFarPlane.x * 2.0f;
 					float useFullscreenQuad = cameraInsideVolume ? 1.f : 0.f;
 					spotUseFullscreenQuadHandle->SetValue(&useFullscreenQuad);
 
@@ -1134,11 +1204,36 @@ namespace p3d {
 		colorTexture->Bind();
 		previousFrameColorTexture->Bind();
 		GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment0)->Bind();
+		// Real mip count of previousFrameColorTexture at the current
+		// size - see lastPass.glsl's uMaxReflectionLod/textureLod()
+		// comment. Recomputed every frame rather than cached/only on
+		// resize - log2() on two ints is free next to everything else
+		// in this function, and this keeps it correct without having to
+		// remember to also update it in Resize().
+		f32 maxReflectionLod = log2f((f32)(Width > Height ? Width : Height));
+		lastPassMaxReflectionLodHandle->SetValue(&maxReflectionLod);
+		// Feed this draw with what's still *last* frame's real camera -
+		// ssrPrvViewMatrix/ssrPrvProjectionMatrix aren't updated to this
+		// frame's Camera/projection until after the draw below (see that
+		// update's comment). See DeferredRenderer.h's comment on these
+		// members for why this is dedicated state instead of IRenderer's
+		// shared Prv* (which PreRender() clobbers before this point).
+		lastPassPrvViewMatrixHandle->SetValue(&ssrPrvViewMatrix);
+		lastPassPrvProjectionMatrixHandle->SetValue(&ssrPrvProjectionMatrix);
 		// Render to Screen
 		{
 			GameObject go = GameObject();
 			RenderObject(directionalLight->GetMeshes()[0], &go, deferredLastPass);
 		}
+		// Now that this frame's draw has consumed the real previous-frame
+		// values above, capture this frame's own camera for *next* frame's
+		// reprojection - straight from RenderScene()'s own Camera/projection
+		// arguments, not the shared ViewMatrix/ProjectionMatrix scratch
+		// members (which shadow sub-passes inside PreRender() may have
+		// repeatedly repurposed and never guaranteed to still hold the main
+		// camera's values by this point).
+		ssrPrvViewMatrix = Camera->GetWorldTransformation().Inverse();
+		ssrPrvProjectionMatrix = projection.m;
 		GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment0)->Unbind();
 		previousFrameColorTexture->Unbind();
 		colorTexture->Unbind();
@@ -1165,11 +1260,31 @@ namespace p3d {
 		// reflections shaking/swimming, on both backends, worse the more
 		// the camera moved - found via a real user report, not caught by
 		// the earlier static-camera verification screenshots).
-		lastPassFBO->Bind(FBOAccess::Read);
-		previousFrameFBO->Bind(FBOAccess::Write);
-		previousFrameFBO->BlitFrameBuffer(0, 0, Width, Height, 0, 0, Width, Height, FBOBufferBit::Color, FBOFilter::Nearest);
-		lastPassFBO->UnBind();
-		previousFrameFBO->UnBind();
+		// Real cost, real fix: this blit + the mipmap regen below are a
+		// genuine per-frame GPU cost (a full-frame color copy, then a
+		// full mip chain rebuild on top) paid for previously *even when
+		// SSR was disabled* - lastPass.glsl's shader-side early-out
+		// (uSSREnabled < 0.5) skips the *math*, but this C++ side kept
+		// refreshing a texture nothing was ever going to sample. Found
+		// chasing a real question about what "SSR defaults off" actually
+		// costs a DeferredRenderer instance that never turns it on -
+		// the honest answer used to be "not nothing." Gated on the same
+		// ssrEnabled flag the shader uses, so a disabled instance now
+		// does zero extra work here, not just zero visible effect.
+		if (ssrEnabled > 0.5f)
+		{
+			lastPassFBO->Bind(FBOAccess::Read);
+			previousFrameFBO->Bind(FBOAccess::Write);
+			previousFrameFBO->BlitFrameBuffer(0, 0, Width, Height, 0, 0, Width, Height, FBOBufferBit::Color, FBOFilter::Nearest);
+			lastPassFBO->UnBind();
+			previousFrameFBO->UnBind();
+			// Regenerate mips for the content this frame's blit just wrote -
+			// real fix, not the old passthrough's problem to have: SSR's
+			// roughness-based blur (lastPass.glsl's textureLod() sample)
+			// needs a fresh mip chain every frame, since the base level's
+			// actual pixels changed.
+			previousFrameColorTexture->UpdateMipmap();
+		}
 		// No "restore the caller's FBO" replay needed here (unlike this
 		// block's old position before the lastPass draw, which genuinely
 		// needed one): FrameBuffer::UnBind() always issues an
@@ -1205,6 +1320,26 @@ namespace p3d {
 	{
 		// Save FBO
 		FBO = fbo;
+	}
+
+	void DeferredRenderer::SetSSRDistances(const f32 stepDistance, const f32 maxDistance)
+	{
+		ssrStepDistance = stepDistance;
+		ssrMaxDistance = maxDistance;
+		lastPassSSRStepDistanceHandle->SetValue(&ssrStepDistance);
+		lastPassSSRMaxDistanceHandle->SetValue(&ssrMaxDistance);
+	}
+
+	void DeferredRenderer::EnableSSR()
+	{
+		ssrEnabled = 1.0f;
+		lastPassSSREnabledHandle->SetValue(&ssrEnabled);
+	}
+
+	void DeferredRenderer::DisableSSR()
+	{
+		ssrEnabled = 0.0f;
+		lastPassSSREnabledHandle->SetValue(&ssrEnabled);
 	}
 
 };

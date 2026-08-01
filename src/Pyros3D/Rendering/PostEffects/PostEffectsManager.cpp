@@ -145,6 +145,25 @@ namespace p3d {
 			// it as, or the descriptor write lands on the wrong pipeline
 			// and this one's sampler descriptors are never updated at
 			// all - VUID-vkCmdDraw-None-08114 the moment it draws).
+			// See IEffect.h's comment on pipelineHandle/
+			// pipelineBuiltForSwapchainGeneration: only the *last* effect's
+			// pipeline (this frame's counter==effects.size() branch above)
+			// targets the swapchain directly and can go stale when it's
+			// resized - real, reproduced bug, not a hypothetical. Every
+			// other effect's pipeline targets its own stable Texture-backed
+			// FBO and never needs this rebuild (GetSwapchainGeneration()
+			// only tracks the swapchain's own render pass), so the
+			// generation check is gated on being the last effect,
+			// matching exactly which branch actually used BeginFrame()'s
+			// swapchain render pass above.
+			bool isLastEffect = (counter == effects.size());
+			bool pipelineStale = isLastEffect && (*effect)->pipelineHandle != 0 &&
+				(*effect)->pipelineBuiltForSwapchainGeneration != device->GetSwapchainGeneration();
+			if (pipelineStale)
+			{
+				device->DestroyPipeline((*effect)->pipelineHandle);
+				(*effect)->pipelineHandle = 0;
+			}
 			if ((*effect)->pipelineHandle == 0)
 			{
 				IRenderDevice::PipelineDesc pdesc;
@@ -155,6 +174,7 @@ namespace p3d {
 				pdesc.cullFace = CullFace::DoubleSided;
 				pdesc.noVertexInput = true;
 				(*effect)->pipelineHandle = device->CreatePipeline(pdesc);
+				(*effect)->pipelineBuiltForSwapchainGeneration = device->GetSwapchainGeneration();
 			}
 			device->BindPipeline(cmd, (*effect)->pipelineHandle);
 

@@ -276,23 +276,38 @@ namespace p3d {
         }
 
         // Fallback for window managers that resize the window without
-        // ever delivering SDL_WINDOWEVENT_RESIZED - tiling window managers
-        // reposition/resize windows through the Accessibility API rather
-        // than a normal Cocoa resize drag, and SDL doesn't always
-        // translate that into a native resize event. Confirmed for real
-        // on this branch: SDL_Vulkan_GetDrawableSize() kept reporting the
-        // original requested size (1280x720) for the lifetime of a
-        // window a tiling WM had already visibly shrunk to a completely
-        // different size - Width/Height (and everything downstream:
-        // camera aspect ratio, G-buffer/swapchain sizing) silently never
-        // caught up. Polling every frame and diffing against the last
-        // known size is the general, WM-agnostic fix - cheap (a cached
-        // window-property read, not a syscall) and idempotent when
+        // ever delivering SDL_WINDOWEVENT_RESIZED - tiling window
+        // managers reposition/resize windows through the Accessibility
+        // API rather than a normal Cocoa resize drag, and SDL doesn't
+        // always translate that into a native resize event. A first
+        // version of this polled SDL_Vulkan_GetDrawableSize() - proven
+        // wrong, not just theoretically insufficient: real debug prints
+        // showed it kept reporting the original requested size (e.g.
+        // 1280x720) for the entire lifetime of a window a tiling WM had
+        // already visibly resized to something completely different.
+        // Querying the real swapchain surface extent directly from
+        // Vulkan instead - vkGetPhysicalDeviceSurfaceCapabilitiesKHR's
+        // currentExtent can't go stale the way SDL's own bookkeeping
+        // does, since it's not SDL's bookkeeping; VulkanRenderDevice::
+        // RecreateSwapchain()'s own self-heal path (on
+        // VK_ERROR_OUT_OF_DATE_KHR) already relies on the exact same
+        // query. That self-heal only ever fixed the swapchain itself,
+        // though - Width/Height (and everything downstream: camera
+        // aspect ratio, DeferredRenderer's separately-sized G-buffer
+        // textures) never found out, leaving a real, persistent size
+        // mismatch between the swapchain and whatever's compositing into
+        // it - reported as "resize sometimes hangs or draws garbage
+        // under this WM" on the deferred pipeline specifically (forward
+        // rendering draws directly into the swapchain's own render pass
+        // each frame, so it has no separately-sized buffer to fall out
+        // of sync with - not a coincidence that only deferred examples
+        // were reported broken). Polling every frame and diffing against
+        // the last known size is the general, WM-agnostic fix - cheap
+        // (this query is O(1), no allocation) and idempotent when
         // nothing has actually changed.
-        int drawableW = 0, drawableH = 0;
-        SDL_Vulkan_GetDrawableSize(rview, &drawableW, &drawableH);
-        if (drawableW > 0 && drawableH > 0 && ((uint32)drawableW != Width || (uint32)drawableH != Height))
-            OnResize((uint32)drawableW, (uint32)drawableH);
+        uint32 realW = 0, realH = 0;
+        if (vulkanDevice->QueryRealSurfaceExtent(realW, realH) && (realW != Width || realH != Height))
+            OnResize(realW, realH);
 
         SetTime(SDL_GetTicks());
         fps.setFPS(SDL_GetTicks());

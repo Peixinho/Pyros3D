@@ -63,6 +63,11 @@ void SSRTest::Init()
 
 	Renderer = new DeferredRenderer(Width, Height, deferredFBO);
 	Renderer->SetGlobalLight(Vec4(0.12f, 0.12f, 0.14f, 1.f));
+	// SSR is opt-in (defaults off - see DeferredRenderer's constructor
+	// comment) precisely so examples that never asked for it don't
+	// inherit whatever's still unresolved in it. This is the one example
+	// actually built to showcase it.
+	Renderer->EnableSSR();
 
 	EffectManager = new PostEffectsManager(Width, Height);
 	EffectManager->AddEffect(new TonemapEffect(RTT::Color, Width, Height));
@@ -148,10 +153,23 @@ void SSRTest::Update()
 
 	// Slow orbit - the reprojection check (does a reflection swim/ghost
 	// when the camera moves, rather than only ever being verified static).
+	// Pitch also varies (not just yaw): this used to expose a real bug -
+	// DeferredRenderer::RenderScene() shifted PrvViewMatrix from
+	// IRenderer::ViewMatrix *after* PreRender() had already overwritten
+	// ViewMatrix with this same frame's camera, so PrvViewMatrix was
+	// never actually one frame stale - reprojection silently collapsed to
+	// sampling tPreviousFrameColor at this frame's own hit UV with zero
+	// motion compensation. Fixed by giving DeferredRenderer its own
+	// dedicated ssrPrvViewMatrix/ssrPrvProjectionMatrix, updated once at
+	// the end of RenderScene() from that call's own Camera/projection
+	// arguments - see DeferredRenderer.h's comment on those members.
+	// Kept varying pitch here (not just yaw) since that's what originally
+	// exposed the bug most clearly, as a regression check.
 	orbitAngle = (f32)GetTime() * 8.f;
 	f32 rad = orbitAngle * (3.14159265f / 180.f);
+	f32 pitchDeg = -18.f + 10.f * sinf((f32)GetTime() * 0.5f);
 	FPSCamera->SetPosition(Vec3(sinf(rad) * 18.f, 7.f, cosf(rad) * 18.f));
-	FPSCamera->SetRotation(Vec3(DEGTORAD(-18.f), DEGTORAD(orbitAngle), 0.f));
+	FPSCamera->SetRotation(Vec3(DEGTORAD(pitchDeg), DEGTORAD(orbitAngle), 0.f));
 
 	EffectManager->CaptureFrame();
 	Renderer->PreRender(FPSCamera, Scene);

@@ -10,7 +10,7 @@
 
 using namespace p3d;
 
-DeferredRendering::DeferredRendering() : BaseExample(1024, 768, "Pyros3D - Deferred Rendering Example", WindowType::Close)
+DeferredRendering::DeferredRendering() : BaseExample(1024, 768, "Pyros3D - Deferred Rendering Example", WindowType::Close | WindowType::Resize)
 {
 
 }

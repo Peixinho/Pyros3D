@@ -49,6 +49,23 @@ UBO_BINDING(37) uniform LastPassFragParams {
 	mat4 uViewMatrixInverse;
 	mat4 uPrvProjectionMatrix;
 	mat4 uPrvViewMatrix;
+	// Real mip count of tPreviousFrameColor (log2 of its largest
+	// dimension, recomputed on resize) - see the roughness-blur comment
+	// on textureLod() below.
+	float uMaxReflectionLod;
+	// Real, per-scene-settable march distances (view-space units) - see
+	// the SSR_COARSE_STEPS/SSR_THICKNESS_STEPS comment below for why
+	// these are explicit uniforms and not shader constants or an
+	// automatic per-pixel scale.
+	float uSSRStepDistance;
+	float uSSRMaxDistance;
+	// Real opt-in gate, defaults to disabled (0.0) - see
+	// DeferredRenderer::EnableSSR()'s comment. Every DeferredRenderer
+	// runs this composite pass regardless (it's where colorTexture
+	// becomes the final image, SSR or not), so this can't be skipped by
+	// just not calling into this shader - has to be an explicit runtime
+	// check.
+	float uSSREnabled;
 };
 
 float DecodeNativeDepth(float native_z, vec4 z_info_local)
@@ -78,18 +95,44 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0)
 // real, principled early-out, not a quality compromise, and keeps most
 // pixels in a typical scene out of the loop below entirely.
 const float SSR_ROUGHNESS_CUTOFF = 0.6;
-// Coarse march (fixed view-space step) to find any crossing, then a
-// short binary-search refine between the last miss and the hit - the
-// textbook-correct version of what the old standalone
-// ScreenSpaceReflectionEffect approximated with a flat, unrefined
-// 256-step march sharing one uniform default across both backends (see
-// VULKAN_ROADMAP.md - that fixed step count is what hung on Vulkan).
-// ~37 worst-case texture fetches here versus 256, on top of the
-// roughness gate above already skipping most pixels.
+// Coarse march to find any crossing, then a short binary-search refine
+// between the last miss and the hit - the textbook-correct version of
+// what the old standalone ScreenSpaceReflectionEffect approximated with
+// a flat, unrefined 256-step march sharing one uniform default across
+// both backends (see VULKAN_ROADMAP.md - that fixed step count is what
+// hung on Vulkan). ~37 worst-case texture fetches here versus 256, on
+// top of the roughness gate above already skipping most pixels.
 const int SSR_COARSE_STEPS = 32;
 const int SSR_REFINE_STEPS = 5;
-const float SSR_STEP_DISTANCE = 0.35;
-const float SSR_MAX_DISTANCE = 12.0;
+// uSSRStepDistance/uSSRMaxDistance (below, in LastPassFragParams) are
+// real *uniforms*, not hardcoded constants - DeferredRenderer.cpp
+// defaults them to 0.35/12.0 (this shader's original, proven-correct
+// values for a human-scale scene) but a scene built at a very different
+// scale (a tabletop diorama, a city block) genuinely needs different
+// absolute march distances and can set its own via
+// DeferredRenderer::SetSSRDistances(). An earlier version of this
+// shader tried to make that automatic by scaling every distance by the
+// current pixel's own view-space depth (abs(v1.z)) instead - it looked
+// principled but was a real, shipped regression: a ray marching toward
+// a *farther* surface (e.g. the floor stretching away from a nearby
+// sphere) used a step size derived from the *near* pixel it started
+// at, so thickness (below) ended up wrong for everything past the
+// first few steps and reflections landed near the horizon instead of
+// under the object casting them. Reverted to a real, explicit,
+// per-scene-settable value instead of an automatic one that turned out
+// to need a correctness guarantee ("thickness stays valid however far
+// the ray has travelled") this shader doesn't actually have.
+// How many step-lengths "behind" the sampled surface still counts as a
+// real hit - the actual thickness test. Without this (the shader's
+// original version), the hit test was `rayPos.z < samplePos.z` alone:
+// true for a ray that has gone *any* distance past a surface, which
+// treats every piece of geometry as infinitely thick going away from
+// the camera. A ray that should pass cleanly behind a thin object (a
+// leaf, a railing, a sheet of glass) and continue on to hit whatever
+// real surface is farther back instead stops at the thin object's near
+// face and reflects it - a real, visible false-positive this shader had
+// no defense against at all.
+const float SSR_THICKNESS_STEPS = 2.0;
 
 // Real, Vulkan-only bug found via a real report + a pixel-exact GL-vs-
 // Vulkan comparison at a frozen camera angle (both backends, same scene,
@@ -113,6 +156,52 @@ vec2 ClipToUV(vec4 clipPos) {
 	return uv;
 }
 
+// Same clip-to-UV math as ClipToUV() but *without* the Vulkan Y-flip -
+// real, found-via-reproduction fix for a second, independent Y-axis bug
+// (separate from the seam ClipToUV()'s own flip already fixed): every
+// getPosViewSpace() call reconstructs a view-space position from a
+// (depth, uv) pair, and its X/Y math implicitly assumes whatever uv
+// convention the caller used - v1's own call (below, in main()) feeds it
+// screenCoord = uScreenDimensions*Texcoord, gl_FragCoord's *unflipped*
+// convention. Every other call in this shader fed it a ClipToUV()-derived
+// (flipped, on Vulkan) uv instead - a real mismatch invisible to the ray
+// march's own hit test (getPosViewSpace()'s Z output depends only on the
+// sampled depth value, not uv, so hit detection - and the shapes/
+// silhouettes visible in earlier debug screenshots - looked completely
+// correct) but corrupted the X/Y of every reconstructed position used for
+// anything past that: hitWorld's reprojection sampled a Y-shifted part of
+// tPreviousFrameColor (confirmed empirically - bypassing reprojection
+// and sampling tColor directly at hitUV gave the right color; going
+// through the normal getPosViewSpace(hitUV,...) round-trip did not), and
+// the main loop's `distance(samplePos, v1) < maxDistance` check compared
+// a Y-corrupted samplePos against a correct v1. Texture *sampling*
+// (texture(tDepth, hitUV) etc) still needs ClipToUV()'s flip - it's
+// correct there, matching gl_FragCoord-based lookups. Reconstruction
+// needs this instead, matching v1's own convention.
+vec2 ClipToReconstructionUV(vec4 clipPos) {
+	return (clipPos.xy / clipPos.w) * 0.5 + 0.5;
+}
+
+// Standard interleaved-gradient-noise hash (Jimenez 2014) - real fix for
+// the coarse march's jagged/noisy-looking hit boundary. With a fixed
+// SSR_COARSE_STEPS stride, every pixel's ray crosses a given surface at
+// the same quantized set of distances, so the hit/miss boundary lines up
+// into a visible staircase pattern (worst right at a reflection's silhouette
+// edge) - found by temporarily bypassing this shader's Fresnel term during
+// debugging, which otherwise mostly hides it at non-grazing angles.
+// Jittering *where the march starts* (below) by a per-pixel fraction of one
+// step turns that shared, structured quantization into per-pixel noise
+// instead - the standard single-frame mitigation used by most ray-marched
+// SSR implementations that don't have a temporal accumulation buffer to
+// average it out further (this engine doesn't - see VULKAN_ROADMAP.md).
+// Doesn't change what a ray can hit, only exactly where along its path each
+// step lands, so it's a pure quality fix with no correctness implications.
+float InterleavedGradientNoise(vec2 screenPos)
+{
+	const vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
+	return fract(magic.z * fract(dot(screenPos, magic.xy)));
+}
+
 void main() {
 	vec2 Texcoord = vec2(gl_FragCoord.x/uScreenDimensions.x, gl_FragCoord.y/uScreenDimensions.y);
 	vec3 baseColor = texture(tColor, Texcoord).rgb;
@@ -121,7 +210,7 @@ void main() {
 	float roughness = mr.x;
 	float metallic = mr.y;
 
-	if (roughness > SSR_ROUGHNESS_CUTOFF) {
+	if (uSSREnabled < 0.5 || roughness > SSR_ROUGHNESS_CUTOFF) {
 		FragColor = vec4(baseColor, 1.0);
 		return;
 	}
@@ -140,13 +229,47 @@ void main() {
 	vec3 F = FresnelSchlick(max(dot(N, V), 0.0), F0);
 	vec3 reflectDir = reflect(-V, N);
 
-	vec3 rayPos = v1;
+	// Per-scene-settable march distances - see the SSR_COARSE_STEPS
+	// comment above on why these are real uniforms, not shader constants.
+	float stepDistance = uSSRStepDistance;
+	float thickness = stepDistance * SSR_THICKNESS_STEPS;
+	float maxDistance = uSSRMaxDistance;
+
+	// Jitter the first step by a per-pixel fraction of stepDistance - see
+	// InterleavedGradientNoise()'s comment. Applied once, before the loop,
+	// not re-added every iteration: that would just shift the whole ray by
+	// a constant offset every step, changing nothing about the
+	// quantization (still a fixed stride between samples) - jittering only
+	// the start decorrelates *where in each pixel's stride* the first
+	// sample falls, which is what actually breaks up the shared pattern.
+	float jitter = InterleavedGradientNoise(gl_FragCoord.xy);
+	vec3 rayPos = v1 + reflectDir * (stepDistance * jitter);
 	vec3 prevRayPos = v1;
+	// Real, found-via-reproduction fix: the surface Z the *previous* step
+	// was compared against, tracked so a hit requires an actual local
+	// sign change (was in front of a surface, now behind it) rather than
+	// just "is my current step's Z coincidentally within `thickness` of
+	// whatever real geometry happens to be at this step's screen
+	// position" - the shader's old test only checked the latter, with no
+	// memory of the previous step at all. That let a ray flying past an
+	// object's silhouette (screen position jumping from "near the object"
+	// to "far background" between two consecutive coarse steps) register
+	// a false hit purely from a Z coincidence at the new, unrelated
+	// location - confirmed via a real repro: a categorical debug (color
+	// per known sphere) showed two small, disconnected extra reflection
+	// blobs on the floor, each landing exactly on a real sphere's
+	// position - impossible for an actual flat-mirror reflection (a
+	// convex object's mirror image in a flat mirror is always a single
+	// connected region, never two separate ones), so these were
+	// confirmed false positives, not real geometry. v1 was itself
+	// reconstructed from the current pixel's own real depth, so it's a
+	// valid starting "previous surface Z".
+	float prevSampleZ = v1.z;
 	bool hit = false;
 
 	for (int i = 0; i < SSR_COARSE_STEPS; i++) {
 		prevRayPos = rayPos;
-		rayPos += reflectDir * SSR_STEP_DISTANCE;
+		rayPos += reflectDir * stepDistance;
 
 		vec4 clipPos = uMatProj * vec4(rayPos, 1.0);
 		if (clipPos.w <= 0.0) break;
@@ -154,7 +277,7 @@ void main() {
 		if (rayUV.x < 0.0 || rayUV.x > 1.0 || rayUV.y < 0.0 || rayUV.y > 1.0) break;
 
 		float sampleDepth = texture(tDepth, rayUV).r;
-		vec3 samplePos = getPosViewSpace(sampleDepth, rayUV * uScreenDimensions, z_info, uMatProj, vp);
+		vec3 samplePos = getPosViewSpace(sampleDepth, ClipToReconstructionUV(clipPos) * uScreenDimensions, z_info, uMatProj, vp);
 
 		// rayPos.z (view space, more negative = farther, matching
 		// getPosViewSpace's own -lDepth) has gone past the surface
@@ -162,10 +285,21 @@ void main() {
 		// surface crossing test, not a "closest point ever seen" running
 		// minimum (the old effect's actual test - see
 		// VULKAN_ROADMAP.md - which isn't a real intersection test).
-		if (rayPos.z < samplePos.z && length(rayUV - Texcoord) > 0.005 && distance(samplePos, v1) < SSR_MAX_DISTANCE) {
+		// The extra `rayPos.z > samplePos.z - thickness` half is the real
+		// thickness test this shader didn't have before: without it, any
+		// ray that has gone even slightly past a surface counts as a
+		// hit forever afterward, treating every piece of geometry as
+		// infinitely thick facing away from the camera - a ray that
+		// should pass behind a thin object (a railing, a leaf, a pane of
+		// glass) and keep going to whatever's really behind it instead
+		// stops at the thin object's near face and reflects that.
+		// `prevRayPos.z >= prevSampleZ` is the real crossing requirement -
+		// see prevSampleZ's comment above.
+		if (prevRayPos.z >= prevSampleZ && rayPos.z < samplePos.z && rayPos.z > samplePos.z - thickness && length(rayUV - Texcoord) > 0.005 && distance(samplePos, v1) < maxDistance) {
 			hit = true;
 			break;
 		}
+		prevSampleZ = samplePos.z;
 	}
 
 	if (!hit) {
@@ -182,7 +316,7 @@ void main() {
 		vec4 clipMid = uMatProj * vec4(mid, 1.0);
 		vec2 midUV = ClipToUV(clipMid);
 		float sampleDepth = texture(tDepth, midUV).r;
-		vec3 samplePos = getPosViewSpace(sampleDepth, midUV * uScreenDimensions, z_info, uMatProj, vp);
+		vec3 samplePos = getPosViewSpace(sampleDepth, ClipToReconstructionUV(clipMid) * uScreenDimensions, z_info, uMatProj, vp);
 		if (mid.z < samplePos.z) hi = mid; else lo = mid;
 	}
 
@@ -193,7 +327,7 @@ void main() {
 	// camera, then reproject through *last* frame's camera to sample
 	// tPreviousFrameColor.
 	float hitDepth = texture(tDepth, hitUV).r;
-	vec3 hitView = getPosViewSpace(hitDepth, hitUV * uScreenDimensions, z_info, uMatProj, vp);
+	vec3 hitView = getPosViewSpace(hitDepth, ClipToReconstructionUV(finalClip) * uScreenDimensions, z_info, uMatProj, vp);
 	vec4 hitWorld = uViewMatrixInverse * vec4(hitView, 1.0);
 
 	vec4 prevClip = uPrvProjectionMatrix * uPrvViewMatrix * hitWorld;
@@ -207,7 +341,19 @@ void main() {
 		return;
 	}
 
-	vec3 reflectionColor = texture(tPreviousFrameColor, prevUV).rgb;
+	// Roughness-based blur, real fix for the previous version's binary
+	// sharp-mirror-or-nothing look: tPreviousFrameColor now has real
+	// mipmaps (generated every frame after the blit that populates it -
+	// see DeferredRenderer.cpp), and sampling a higher LOD is the
+	// standard cheap approximation of glossy-reflection cone tracing
+	// used by most production SSR implementations (pre-filtered mip
+	// chain instead of per-pixel importance sampling). Linear roughness
+	// -> LOD isn't physically exact (real GGX lobe-to-mip mapping is a
+	// steeper curve) but reads correctly: 0 roughness stays mip 0 (sharp
+	// mirror), roughness approaching the cutoff pulls in a visibly
+	// blurred reflection instead of just fading opacity.
+	float reflectionLod = roughness * uMaxReflectionLod;
+	vec3 reflectionColor = textureLod(tPreviousFrameColor, prevUV, reflectionLod).rgb;
 
 	// Fade near the roughness cutoff and near screen edges, so a
 	// reflection doesn't hard-pop when it walks off-screen or roughness
@@ -216,7 +362,21 @@ void main() {
 	float edgeFade = 1.0 - smoothstep(0.7, 1.0, edgeDist);
 	float roughnessFade = 1.0 - smoothstep(SSR_ROUGHNESS_CUTOFF*0.7, SSR_ROUGHNESS_CUTOFF, roughness);
 
-	vec3 weighted = reflectionColor * F * edgeFade * roughnessFade;
-	FragColor = vec4(baseColor + weighted, 1.0);
+	// Real fix for reflections washing out to white at grazing angles
+	// (found from a real screenshot at a shallow camera angle - the floor's
+	// mirror image of colored spheres looked like flat white/gray blobs
+	// instead of carrying their color): this used to be pure
+	// `baseColor + reflectionColor*F*fades`, additive with no energy
+	// conservation. Fresnel correctly approaches (1,1,1) at grazing
+	// incidence for *any* material - that's real physics, not a bug - but
+	// adding a near-full-strength reflection on top of the surface's
+	// already-fully-lit diffuse baseColor double-counts energy, and the
+	// resulting HDR sum reliably clips toward white once TonemapEffect's
+	// ACES curve compresses it. A real surface's specular reflection
+	// *replaces* the fraction of diffuse response Fresnel says didn't
+	// scatter diffusely - baseColor needs to fade out by the same amount
+	// the reflection fades in, not stay at full strength underneath it.
+	vec3 reflectStrength = F * edgeFade * roughnessFade;
+	FragColor = vec4(baseColor * (1.0 - reflectStrength) + reflectionColor * reflectStrength, 1.0);
 }
 #endif

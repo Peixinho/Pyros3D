@@ -92,6 +92,32 @@ namespace p3d {
 		void WaitIdle();
 		bool IsVulkan() const { return true; }
 
+		// Real fix for a real, reported bug: under a tiling window
+		// manager, the OS resizes the window via the Accessibility API,
+		// which bypasses the normal Cocoa resize-notification path SDL
+		// listens to - SDL_WINDOWEVENT_RESIZED never fires, and even
+		// SDL's own size-query functions (SDL_GetWindowSize(),
+		// SDL_Vulkan_GetDrawableSize()) keep reporting the stale,
+		// originally-requested size (confirmed via real debug prints
+		// this session, not assumed). The swapchain itself doesn't have
+		// this problem - vkGetPhysicalDeviceSurfaceCapabilitiesKHR's
+		// currentExtent always reflects the real, current OS window
+		// size, which is why RecreateSwapchain()'s self-heal path (on
+		// VK_ERROR_OUT_OF_DATE_KHR) already resizes correctly. But
+		// nothing told the *engine* side (DeferredRenderer's G-buffer
+		// textures, the example's camera projection - all driven by
+		// Width/Height, which only ever changes via the SDL resize path
+		// that doesn't fire here) about the new size, leaving a real,
+		// persistent mismatch between what the swapchain is actually
+		// sized to and what everything drawing into it assumes - the
+		// likely cause of "sometimes hangs, sometimes draws garbage/red
+		// on resize under a tiling WM" (reported, not yet independently
+		// reproduced on demand - this fixes the mechanism regardless).
+		// Callers should poll this every frame (see SDL2VulkanContext::
+		// GetEvents()) and diff against their own tracked size, since -
+		// unlike SDL's queries - this always reflects reality.
+		bool QueryRealSurfaceExtent(uint32 &width, uint32 &height) const;
+
 		// Second-phase init, deliberately separate from the constructor:
 		// selects a physical device compatible with the given surface,
 		// creates the logical device + queues, and creates a swapchain
@@ -192,6 +218,7 @@ namespace p3d {
 		virtual DeviceHandle CreatePipeline(const PipelineDesc &desc);
 		virtual void DestroyPipeline(const DeviceHandle pipeline);
 		virtual void BindPipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline);
+		virtual uint32 GetSwapchainGeneration() const { return swapchainGeneration; }
 
 		virtual void EnableClipDistance(const uint32 index);
 		virtual void DisableClipDistance(const uint32 index);
@@ -363,6 +390,11 @@ namespace p3d {
 		// real engine would need render-pass variants for e.g. deferred
 		// G-buffer's multiple color attachments, out of scope until Phase 6.
 		VkRenderPass renderPass;
+		// Bumped every time CreateSwapchainAndFramebuffers() builds a new
+		// `renderPass` (initial creation and every resize) - see
+		// IRenderDevice::GetSwapchainGeneration()'s comment for why a
+		// pipeline that targets the swapchain directly needs to know this.
+		uint32 swapchainGeneration;
 		VkImage depthImage;
 		VmaAllocation depthImageAllocation;
 		VkImageView depthImageView;

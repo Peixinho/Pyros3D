@@ -101,16 +101,33 @@ namespace p3d {
 		// lazily by PostEffectsManager::ProcessPostEffects() on first use
 		// (needs a real render pass/render target to exist first, which
 		// isn't true yet at construction time), cached here since it's
-		// otherwise identical every subsequent frame (this effect's own
-		// FBO, or the swapchain for the last effect in the chain, never
-		// changes shape after the first bind - see
-		// VulkanRenderDevice::InvalidateFramebuffersForTexture()'s
-		// comment on why a *resize* doesn't invalidate the render pass
-		// itself, only the VkFramebuffer). 0 = not yet built. Same
-		// underlying type as IRenderDevice::DeviceHandle - not spelled
-		// that way here to avoid pulling in IRenderDevice.h for a type
-		// this header is otherwise device-agnostic about.
+		// otherwise identical every subsequent frame for a non-last effect
+		// (this effect's own FBO is texture-backed and format-stable
+		// across a resize - only its VkFramebuffer needs rebuilding, which
+		// VulkanRenderDevice::InvalidateFramebuffersForTexture() already
+		// handles). 0 = not yet built. Same underlying type as
+		// IRenderDevice::DeviceHandle - not spelled that way here to avoid
+		// pulling in IRenderDevice.h for a type this header is otherwise
+		// device-agnostic about.
+		//
+		// The *last* effect in the chain is a real exception to "identical
+		// every subsequent frame": it draws straight to the swapchain, and
+		// a resize on Vulkan destroys and recreates the swapchain's own
+		// VkRenderPass (VulkanRenderDevice::RecreateSwapchain()) - a
+		// pipeline built against the old one and never rebuilt reads back
+		// as solid garbage on MoltenVK, confirmed via a real reproduction
+		// (a tiling WM auto-resizing the window right after launch) and
+		// debug logging catching the exact moment the render pass got
+		// replaced underneath the cached pipeline. See
+		// pipelineBuiltForSwapchainGeneration below - PostEffectsManager
+		// rebuilds this pipeline whenever that's stale, not just when it's
+		// 0.
 		uint32 pipelineHandle;
+		// IRenderDevice::GetSwapchainGeneration() at the moment
+		// pipelineHandle was built - only meaningful for the last effect
+		// in the chain (see pipelineHandle's comment); ignored for every
+		// other effect, whose own FBO's render pass never needs this.
+		uint32 pipelineBuiltForSwapchainGeneration;
 
 		// Vulkan/SPIR-V rejects non-opaque (non-sampler) uniforms outside
 		// a block outright (see PyrosShader.glsl's header comment on the

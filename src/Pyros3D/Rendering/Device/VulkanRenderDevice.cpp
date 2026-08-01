@@ -42,7 +42,7 @@ namespace p3d {
 		: instance(VK_NULL_HANDLE), surface(VK_NULL_HANDLE), physicalDevice(VK_NULL_HANDLE), device(VK_NULL_HANDLE),
 		  graphicsQueueFamily(0), presentQueueFamily(0), graphicsQueue(VK_NULL_HANDLE), presentQueue(VK_NULL_HANDLE),
 		  swapchain(VK_NULL_HANDLE), swapchainFormat(VK_FORMAT_UNDEFINED), swapchainExtent{0, 0},
-		  renderPass(VK_NULL_HANDLE), depthImage(VK_NULL_HANDLE), depthImageAllocation(VK_NULL_HANDLE),
+		  renderPass(VK_NULL_HANDLE), swapchainGeneration(0), depthImage(VK_NULL_HANDLE), depthImageAllocation(VK_NULL_HANDLE),
 		  depthImageView(VK_NULL_HANDLE), depthFormat(VK_FORMAT_UNDEFINED),
 		  commandPool(VK_NULL_HANDLE), frameCommandBuffer(VK_NULL_HANDLE),
 		  nextAcquireSemaphoreIndex(0), currentFrameAcquireSemaphoreIndex(0), frameFence(VK_NULL_HANDLE),
@@ -370,6 +370,14 @@ namespace p3d {
 		renderPassInfo.pDependencies = &dependency;
 		if (vkCreateRenderPass(device, &renderPassInfo, NULL, &renderPass) != VK_SUCCESS)
 			return false;
+		// See GetSwapchainGeneration()'s comment - a caller that cached a
+		// pipeline built against the *previous* `renderPass` (now
+		// destroyed, by RecreateSwapchain() just above this call) needs a
+		// way to know it must rebuild. Bumped here, not in
+		// RecreateSwapchain(), so it also covers the very first call from
+		// InitializeSwapchain() consistently (generation 1 == "a real
+		// render pass exists now"), not just resizes.
+		swapchainGeneration++;
 
 		// One framebuffer per swapchain image, sharing the single depth
 		// image/view above.
@@ -780,6 +788,26 @@ namespace p3d {
 	{
 		if (device != VK_NULL_HANDLE)
 			vkDeviceWaitIdle(device);
+	}
+
+	bool VulkanRenderDevice::QueryRealSurfaceExtent(uint32 &width, uint32 &height) const
+	{
+		if (physicalDevice == VK_NULL_HANDLE || surface == VK_NULL_HANDLE)
+			return false;
+		VkSurfaceCapabilitiesKHR capabilities;
+		if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &capabilities) != VK_SUCCESS)
+			return false;
+		// 0xFFFFFFFF is the "surface doesn't dictate a size, take whatever
+		// you're given" sentinel (same one InitializeSwapchain()'s own
+		// extent-selection already checks) - no real "current size" to
+		// report in that case.
+		if (capabilities.currentExtent.width == 0xFFFFFFFF)
+			return false;
+		if (capabilities.currentExtent.width == 0 || capabilities.currentExtent.height == 0)
+			return false;
+		width = capabilities.currentExtent.width;
+		height = capabilities.currentExtent.height;
+		return true;
 	}
 
 	void VulkanRenderDevice::RequestFrameCapture()
