@@ -36,9 +36,16 @@ UBO_BINDING(34) uniform SpotVertParams {
 	mat4 uProjectionMatrix;
 	mat4 uViewMatrix;
 	mat4 uModelMatrix;
+	float uUseFullscreenQuad;
 };
 void main() {
-	gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aPosition,1.0);
+	// See secondpassPoint.glsl's identical comment - real fix for spot
+	// lights vanishing when the camera is near/inside the light's cone
+	// radius (near-plane clipping the sphere proxy away entirely).
+	if (uUseFullscreenQuad > 0.5)
+		gl_Position = vec4(aPosition, 1.0);
+	else
+		gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aPosition,1.0);
 }
 #endif
 

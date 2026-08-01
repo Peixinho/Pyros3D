@@ -184,6 +184,19 @@ namespace p3d {
 		// GPU work had actually finished first.
 		virtual void WaitIdle() = 0;
 
+		// Real, needed backend branch - not every GL/Vulkan difference is
+		// hideable behind a shared abstraction. DeferredRenderer's
+		// point/spot light-volume Sphere primitive (reversed winding vs
+		// Cube, see its own SetCullFace() comment) genuinely needs
+		// CullFace::FrontFace on GL and CullFace::BackFace on Vulkan -
+		// confirmed via repeated, real screenshot comparisons on both
+		// backends, not a single global value that happens to work on
+		// one and not the other (an earlier attempt at "one value for
+		// both" produced results that looked right on one run and wrong
+		// on another - genuinely different per-backend behavior, not a
+		// flaky test).
+		virtual bool IsVulkan() const = 0;
+
 		// Clearing - TranslateBufferBit() has no side effects (pure
 		// translation, cached by the caller); Clear() issues the actual
 		// clear using a previously-translated mask.

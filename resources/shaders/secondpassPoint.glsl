@@ -36,12 +36,26 @@ UBO_BINDING(33) uniform PointVertParams {
 	mat4 uProjectionMatrix;
 	mat4 uViewMatrix;
 	mat4 uModelMatrix;
+	float uUseFullscreenQuad;
 };
 // A varying mat4 occupies 4 consecutive locations (one per column), same
 // as a vertex-attribute matrix elsewhere in this engine - locations 0-3.
 IO_LOCATION(0) varying_out mat4 vProjectionMatrix;
 void main() {
-	gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aPosition,1.0);
+	// Real fix for point lights vanishing when the camera is near/inside
+	// the light's radius - see DeferredRenderer.cpp's comment on
+	// uUseFullscreenQuad. With no depth test, the sphere proxy's own
+	// vertices going behind the near clip plane makes the GPU discard
+	// the whole primitive before rasterization, before CullFace matters.
+	// When the C++ side detects this and swaps in a real full-screen
+	// quad mesh, skip the sphere's MVP transform entirely and emit that
+	// quad's own already-correct clip-space positions directly, exactly
+	// like secondpassAmbient.glsl/secondpassDirectional.glsl's identical
+	// full-screen-quad passes do.
+	if (uUseFullscreenQuad > 0.5)
+		gl_Position = vec4(aPosition, 1.0);
+	else
+		gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aPosition,1.0);
 	vProjectionMatrix = uProjectionMatrix;
 }
 #endif

@@ -291,6 +291,26 @@ namespace p3d {
 		deferredMaterialPoint->AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
 		deferredMaterialPoint->AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
 		deferredMaterialPoint->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
+		// Real, pre-existing bug (not something this session's SSR work
+		// introduced - the sphere light-volume technique with no depth
+		// test has always had this) found chasing a report that mouse-
+		// look pitch made point-light illumination disappear. Standard
+		// deferred-shading gap: with no depth test, the ONLY thing that
+		// puts a light's contribution on screen is its sphere proxy
+		// actually getting rasterized - and when the camera is near or
+		// inside the light's radius, the sphere's own vertices can end
+		// up entirely behind the near clip plane, so the GPU clips the
+		// whole primitive away before rasterization ever runs, before
+		// CullFace gets a say. RenderScene() below detects this per-light
+		// (distance to camera vs radius) and swaps in a real full-screen
+		// quad (directionalLight's mesh, already used by the ambient/
+		// directional passes for exactly this "guaranteed full coverage"
+		// purpose) instead of the sphere - this flag tells the vertex
+		// shader to skip the sphere's MVP transform and emit that quad's
+		// own already-correct clip-space positions directly, matching
+		// secondpassAmbient.glsl/secondpassDirectional.glsl's identical
+		// `gl_Position = vec4(aPosition,1.0)` pattern.
+		pointUseFullscreenQuadHandle = deferredMaterialPoint->AddUniform(Uniform("uUseFullscreenQuad", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 
 		// See IMaterial.h's comment on extraUniforms[2] - two separate
 		// blocks matching secondpassPoint.glsl's PointVertParams (VERTEX
@@ -299,11 +319,12 @@ namespace p3d {
 		// not one combined block used by both stages.
 		deferredMaterialPoint->extraUniforms[0].binding = 33;
 		deferredMaterialPoint->extraUniforms[0].blockName = "PointVertParams";
-		deferredMaterialPoint->extraUniforms[0].size = 192;
+		deferredMaterialPoint->extraUniforms[0].size = 196;
 		deferredMaterialPoint->extraUniforms[0].scratch.resize(deferredMaterialPoint->extraUniforms[0].size, 0);
 		deferredMaterialPoint->extraUniforms[0].offsets["uProjectionMatrix"] = 0;
 		deferredMaterialPoint->extraUniforms[0].offsets["uViewMatrix"] = 64;
 		deferredMaterialPoint->extraUniforms[0].offsets["uModelMatrix"] = 128;
+		deferredMaterialPoint->extraUniforms[0].offsets["uUseFullscreenQuad"] = 192;
 
 		deferredMaterialPoint->extraUniforms[1].binding = 38;
 		deferredMaterialPoint->extraUniforms[1].blockName = "PointFragParams";
@@ -318,25 +339,20 @@ namespace p3d {
 		deferredMaterialPoint->extraUniforms[1].offsets["uPCFTexelSize"] = 192;
 		deferredMaterialPoint->extraUniforms[1].offsets["uHaveShadowmap"] = 196;
 
-		// CullFace::FrontFace is correct here, on BOTH backends - a prior
-		// commit on this branch switched this to CullFace::BackFace,
-		// believing FrontFace only "happened to work" on GL while
-		// breaking Vulkan; that claim's own verification screenshot was
-		// wrong (not actually reviewed carefully - see this session's own
-		// "verification gap" pattern). Directly A/B tested this session
-		// with a controlled rebuild+screenshot of both backends: BackFace
-		// leaves point/spot lights contributing no visible shading or
-		// specular highlights at all (flat ambient-only tint) on GL AND
-		// Vulkan alike; FrontFace (culling the *near* faces, the standard
+		// Genuinely backend-different, not a single value that's "right"
+		// or "wrong" globally: this light-volume geometry is a Sphere
+		// primitive with reversed winding vs Cube (see examples/
+		// PBRSpheres.cpp's identical comment). GL needs
+		// CullFace::FrontFace (culling the *near* faces, the standard
 		// "camera may be inside the light volume" deferred-shading
-		// technique, tuned against this Sphere primitive's reversed
-		// winding - see examples/PBRSpheres.cpp's identical comment)
-		// produces correct, matching, real gradient shading and specular
-		// highlights on both, zero Vulkan validation errors. Do not flip
-		// this back to BackFace without a real side-by-side screenshot of
-		// both backends - "verified on both" was claimed once already
-		// and was false.
-		deferredMaterialPoint->SetCullFace(CullFace::FrontFace);
+		// technique); Vulkan needs CullFace::BackFace for the same
+		// visible result - the two backends' rasterizers disagree on
+		// which of this reversed-winding sphere's faces count as "front"
+		// closely enough that one single CullFace value can look correct
+		// on one backend and flat/highlight-less on the other depending
+		// on which one was last actually verified. IsVulkan() branch is
+		// the real fix; see IRenderDevice.h's comment on it.
+		device->IsVulkan() ? deferredMaterialPoint->SetCullFace(CullFace::BackFace) : deferredMaterialPoint->SetCullFace(CullFace::FrontFace);
 		deferredMaterialPoint->DisableDepthTest();
 		deferredMaterialPoint->DisableDepthWrite();
 		deferredMaterialPoint->EnableBlending();
@@ -366,6 +382,9 @@ namespace p3d {
 		// dividing by zero in getPosViewSpace()'s uMatProj_local[0][0]/
 		// [1][1]. Broken on GL today too, not introduced by this pass.
 		deferredMaterialSpot->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
+		// See deferredMaterialPoint's identical comment above - same
+		// near-plane-clipping fix, same mechanism.
+		spotUseFullscreenQuadHandle = deferredMaterialSpot->AddUniform(Uniform("uUseFullscreenQuad", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 
 		// See IMaterial.h's comment on extraUniforms[2] - two separate
 		// blocks matching secondpassSpot.glsl's SpotVertParams (VERTEX
@@ -374,11 +393,12 @@ namespace p3d {
 		// blocks, not one combined block used by both stages).
 		deferredMaterialSpot->extraUniforms[0].binding = 34;
 		deferredMaterialSpot->extraUniforms[0].blockName = "SpotVertParams";
-		deferredMaterialSpot->extraUniforms[0].size = 192;
+		deferredMaterialSpot->extraUniforms[0].size = 196;
 		deferredMaterialSpot->extraUniforms[0].scratch.resize(deferredMaterialSpot->extraUniforms[0].size, 0);
 		deferredMaterialSpot->extraUniforms[0].offsets["uProjectionMatrix"] = 0;
 		deferredMaterialSpot->extraUniforms[0].offsets["uViewMatrix"] = 64;
 		deferredMaterialSpot->extraUniforms[0].offsets["uModelMatrix"] = 128;
+		deferredMaterialSpot->extraUniforms[0].offsets["uUseFullscreenQuad"] = 192;
 
 		deferredMaterialSpot->extraUniforms[1].binding = 39;
 		deferredMaterialSpot->extraUniforms[1].blockName = "SpotFragParams";
@@ -398,8 +418,8 @@ namespace p3d {
 		deferredMaterialSpot->extraUniforms[1].offsets["uHaveShadowmap"] = 228;
 
 		// See deferredMaterialPoint's identical comment above - same
-		// Sphere-primitive light volume, same fix.
-		deferredMaterialSpot->SetCullFace(CullFace::FrontFace);
+		// Sphere-primitive light volume, same backend-conditional fix.
+		device->IsVulkan() ? deferredMaterialSpot->SetCullFace(CullFace::BackFace) : deferredMaterialSpot->SetCullFace(CullFace::FrontFace);
 		deferredMaterialSpot->DisableDepthTest();
 		deferredMaterialSpot->DisableDepthWrite();
 		deferredMaterialSpot->EnableBlending();
@@ -417,7 +437,7 @@ namespace p3d {
 		// explicitly as an override - see the light-rendering loop below)
 		// but kept consistent with them regardless, matching their
 		// identical CullFace fix/comment above.
-		pointLight->GetMeshes()[0]->Material->SetCullFace(CullFace::FrontFace);
+		device->IsVulkan() ? pointLight->GetMeshes()[0]->Material->SetCullFace(CullFace::BackFace) : pointLight->GetMeshes()[0]->Material->SetCullFace(CullFace::FrontFace);
 	}
 
 	void DeferredRenderer::Resize(const uint32 Width, const uint32 Height)
@@ -729,11 +749,47 @@ namespace p3d {
 					pointShadowHandle->SetValue(&shadowUnit);
 					pointHaveShadowHandle->SetValue(&haveShadow);
 
-					// Set Scale
-					f32 sc = g(f(p->GetLightRadius()));
-					Matrix m; m.Scale(sc, sc, sc);
-					pointLight->GetMeshes()[0]->Pivot = m;
-					RenderObject(pointLight->GetMeshes()[0], p->GetOwner(), deferredMaterialPoint);
+					// See DeferredRenderer.h/PointVertParams' comment on
+					// uUseFullscreenQuad - real "camera inside the light's
+					// sphere" test (plain radius, not the FOV-inflated
+					// g(f(radius)) the sphere's own *mesh scale* uses a few
+					// lines below for a completely different reason - mesh
+					// under-coverage compensation, not a clipping-distance
+					// threshold; reusing it here by mistake made every
+					// light within ~1.4x its radius wrongly take this
+					// branch, e.g. DeferredPBRSpheres' camera-to-light
+					// distance of ~16 against a radius-35 light).
+					bool cameraInsideVolume = CameraPosition.distance(p->GetOwner()->GetWorldPosition()) < p->GetLightRadius();
+					float useFullscreenQuad = cameraInsideVolume ? 1.f : 0.f;
+					pointUseFullscreenQuadHandle->SetValue(&useFullscreenQuad);
+
+					if (cameraInsideVolume)
+					{
+						// The quad substitution above needs the quad
+						// itself to actually reach the rasterizer -
+						// deferredMaterialPoint's CullFace (Front/BackFace,
+						// tuned for the *sphere's* winding, see its own
+						// SetCullFace() comment) culls this quad away
+						// entirely on one winding, silently zeroing every
+						// point light's contribution the moment the camera
+						// got within radius of any of them - found via a
+						// real regression on DeferredPBRSpheres (lights
+						// went flat/highlight-less again with a static,
+						// close camera). DoubleSided here matches how
+						// deferredMaterialAmbient/Directional already
+						// render their own identical full-screen quad.
+						deferredMaterialPoint->SetCullFace(CullFace::DoubleSided);
+						RenderObject(directionalLight->GetMeshes()[0], p->GetOwner(), deferredMaterialPoint);
+						device->IsVulkan() ? deferredMaterialPoint->SetCullFace(CullFace::BackFace) : deferredMaterialPoint->SetCullFace(CullFace::FrontFace);
+					}
+					else
+					{
+						// Set Scale
+						f32 sc = g(f(p->GetLightRadius()));
+						Matrix m; m.Scale(sc, sc, sc);
+						pointLight->GetMeshes()[0]->Pivot = m;
+						RenderObject(pointLight->GetMeshes()[0], p->GetOwner(), deferredMaterialPoint);
+					}
 					if (p->IsCastingShadows())
 					{
 						p->GetShadowMapTexture()->Unbind();
@@ -780,11 +836,27 @@ namespace p3d {
 					spotShadowHandle->SetValue(&shadowUnit);
 					spotHaveShadowHandle->SetValue(&haveShadow);
 
-					// Set Scale
-					f32 sc = g(f(s->GetLightRadius()));
-					Matrix m; m.Scale(sc, sc, sc);
-					pointLight->GetMeshes()[0]->Pivot = m;
-					RenderObject(pointLight->GetMeshes()[0], s->GetOwner(), deferredMaterialSpot);
+					// See deferredMaterialPoint's identical comments above -
+					// same near-plane-clipping fix, same real-radius
+					// threshold (not g(f(radius))), same mechanism.
+					bool cameraInsideVolume = CameraPosition.distance(s->GetOwner()->GetWorldPosition()) < s->GetLightRadius();
+					float useFullscreenQuad = cameraInsideVolume ? 1.f : 0.f;
+					spotUseFullscreenQuadHandle->SetValue(&useFullscreenQuad);
+
+					if (cameraInsideVolume)
+					{
+						deferredMaterialSpot->SetCullFace(CullFace::DoubleSided);
+						RenderObject(directionalLight->GetMeshes()[0], s->GetOwner(), deferredMaterialSpot);
+						device->IsVulkan() ? deferredMaterialSpot->SetCullFace(CullFace::BackFace) : deferredMaterialSpot->SetCullFace(CullFace::FrontFace);
+					}
+					else
+					{
+						// Set Scale
+						f32 sc = g(f(s->GetLightRadius()));
+						Matrix m; m.Scale(sc, sc, sc);
+						pointLight->GetMeshes()[0]->Pivot = m;
+						RenderObject(pointLight->GetMeshes()[0], s->GetOwner(), deferredMaterialSpot);
+					}
 
 					if (s->IsCastingShadows())
 					{

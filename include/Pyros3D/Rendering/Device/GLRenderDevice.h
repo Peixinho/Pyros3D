@@ -29,6 +29,7 @@ namespace p3d {
 		virtual void BeginFrame();
 		virtual void EndFrame();
 		virtual void WaitIdle();
+		virtual bool IsVulkan() const { return false; }
 
 		virtual uint32 TranslateBufferBit(const uint32 bufferBits);
 		virtual void Clear(const uint32 nativeBufferBits);

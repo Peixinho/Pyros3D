@@ -90,6 +90,7 @@ namespace p3d {
 		// copy of the same global symbol - crashed with a wild-pointer
 		// call the hard way discovering this (see VULKAN_ROADMAP.md).
 		void WaitIdle();
+		bool IsVulkan() const { return true; }
 
 		// Second-phase init, deliberately separate from the constructor:
 		// selects a physical device compatible with the given surface,

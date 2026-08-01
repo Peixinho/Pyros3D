@@ -123,6 +123,12 @@ namespace p3d {
 		Uniform *pointPosHandle, *pointRadiusHandle, *pointColorHandle, *pointShadowHandle, *pointShadowDepthsMVPHandle, *pointShadowPCFTexelHandle, *pointHaveShadowHandle;
 		Uniform *dirDirHandle, *dirColorHandle, *dirShadowHandle, *dirShadowPCFTexelHandle, *dirShadowDepthsMVPHandle, *dirShadowFarHandle, *dirHaveShadowHandle;
 		Uniform *spotPosHandle, *spotDirHandle, *spotRadiusHandle, *spotOutterHandle, *spotInnerHandle, *spotColorHandle, *spotShadowHandle, *spotShadowDepthsMVPHandle, *spotShadowPCFTexelHandle, *spotHaveShadowHandle;
+
+		// See RenderScene()'s comment where these are set - real fix for
+		// point/spot light volumes vanishing when the camera is near/
+		// inside their radius (near-plane clipping the sphere proxy away
+		// entirely before rasterization).
+		Uniform *pointUseFullscreenQuadHandle, *spotUseFullscreenQuadHandle;
 	};
 
 };
