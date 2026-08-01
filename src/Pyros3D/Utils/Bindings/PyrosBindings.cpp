@@ -274,22 +274,9 @@ namespace p3d {
 	}
 
 	// SceneGraph - save/load, see Utils/Serialization/SceneSerializer.h.
-	// "with physics" overload lets a script's own physics engine
-	// instance reconstruct Physics components on load; the plain
-	// overload passes NULL (physics components in the file are skipped
-	// with a logged warning, everything else still loads).
-	bool SceneGraph_Save(SceneGraph &scene, const std::string &path)
-	{
-		return SceneSerializer::SaveScene(&scene, path);
-	}
-	bool SceneGraph_Load(SceneGraph &scene, const std::string &path)
-	{
-		return SceneSerializer::LoadScene(&scene, path, NULL);
-	}
-	bool SceneGraph_LoadWithPhysics(SceneGraph &scene, const std::string &path, IPhysics* physics)
-	{
-		return SceneSerializer::LoadScene(&scene, path, physics);
-	}
+	// Bound as lambdas (not plain free functions) at the usertype
+	// registration site below - both need `lua` itself (to save/restore
+	// real LuaComponent behavior), only available inside GenerateBindings.
 	// GameObject
 	bool GameObject_HaveTagSTR(GameObject &g, const std::string &tag)
 	{
@@ -780,8 +767,17 @@ namespace p3d {
 				"addGameObject", &SceneGraph::AddGameObject,
 				"removeGameobject", &SceneGraph::RemoveGameObject,
 				"getTime", &SceneGraph::GetTime,
-				"save", &SceneGraph_Save,
-				"load", sol::overload(&SceneGraph_Load, &SceneGraph_LoadWithPhysics)
+				"save", [lua](SceneGraph &scene, const std::string &path) {
+					return SceneSerializer::SaveScene(&scene, path, lua);
+				},
+				"load", sol::overload(
+					[lua](SceneGraph &scene, const std::string &path) {
+						return SceneSerializer::LoadScene(&scene, path, NULL, lua);
+					},
+					[lua](SceneGraph &scene, const std::string &path, IPhysics* physics) {
+						return SceneSerializer::LoadScene(&scene, path, physics, lua);
+					}
+				)
 				);
 		};
 
@@ -820,6 +816,19 @@ namespace p3d {
 				"onUpdate", &LUA_GameObject::on_update,
 				"onInit", &LUA_GameObject::on_init,
 				"onDestroy", &LUA_GameObject::on_destroy,
+				// Convenience: load scriptFile (a .lua file returning a
+				// middleclass class - see LuaComponent_FromFile's
+				// comment), instantiate it, wrap it in a LuaComponent,
+				// and attach it to this GameObject in one call - the
+				// "drag a behavior script onto an object" pattern. Returns
+				// the LuaComponent (nil if scriptFile didn't return a
+				// usable class) so the caller can still reach `.data` if
+				// needed.
+				"attachScript", [lua](LUA_GameObject &go, const std::string &scriptFile) -> LuaComponent* {
+					LuaComponent* comp = LuaComponent_FromFile(*lua, scriptFile);
+					if (comp) go.AddComponent(comp);
+					return comp;
+				},
 				sol::base_classes, sol::bases<GameObject>()
 				);
 		}
@@ -1129,8 +1138,18 @@ namespace p3d {
 				"onUpdate", &LuaComponent::on_update,
 				"onInit", &LuaComponent::on_init,
 				"onDestroy", &LuaComponent::on_destroy,
+				"scriptFile", &LuaComponent::scriptFile,
+				"data", &LuaComponent::data,
 				sol::base_classes, sol::bases<IComponent>()
 				);
+			// Real, serializable behavior - see PyrosBindings.h's
+			// LuaComponent_FromFile comment. Lower-level building block;
+			// GameObject:attachScript() (below, in the GameObject
+			// usertype) is the convenient one-call version most scripts
+			// want.
+			lua->set_function("LuaComponent_fromFile", [lua](const std::string &scriptFile) {
+				return LuaComponent_FromFile(*lua, scriptFile);
+			});
 		}
 
 

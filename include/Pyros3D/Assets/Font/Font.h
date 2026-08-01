@@ -70,6 +70,12 @@ namespace p3d {
 
 		Texture* GetTexture();
 
+		// Not exposed before this - the constructor's path was stored in
+		// the private `font` member (used later by CreateText()) but
+		// never readable back, same as Model/Texture were before Phase 1
+		// of scene serialization added their path getters.
+		const std::string &GetPath() const { return font; }
+
 		f32 GetFontSize();
 
 		std::map<char, glyph_properties> GetGlyphs();

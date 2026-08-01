@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
+#include <iterator>
 
 namespace p3d {
 
@@ -20,6 +21,7 @@ namespace p3d {
 	{
 		// Keep Rendering Component
 		rcomp = Component;
+		Component->SetActiveSkeletonAnimation(this);
 
 		// Resize Vectors
 		skeleton.resize(Component->GetSkeleton().size());
@@ -254,6 +256,24 @@ namespace p3d {
 		return AnimationsToPlay[animationOrder].scale;
 	}
 
+	std::string SkeletonAnimationInstance::GetLayerName(const uint32 index) const
+	{
+		std::map<uint32, _SkeletonAnimation::AnimationLayer*>::const_iterator it = Layers.begin();
+		std::advance(it, index);
+		return it != Layers.end() ? it->second->Name : std::string();
+	}
+	std::vector<int32> SkeletonAnimationInstance::GetLayerAffectedBoneIDs(const uint32 index) const
+	{
+		std::vector<int32> result;
+		std::map<uint32, _SkeletonAnimation::AnimationLayer*>::const_iterator it = Layers.begin();
+		std::advance(it, index);
+		if (it == Layers.end()) return result;
+		const std::vector<int32> &boneIDs = it->second->boneIDs;
+		for (size_t i = 0; i < boneIDs.size(); i++)
+			if (boneIDs[i] == 1) result.push_back((int32)i);
+		return result;
+	}
+
 	int32 SkeletonAnimationInstance::GetAnimationPositionInVector(const uint32 animation)
 	{
 		for (uint32 i = 0; i < AnimationsToPlay.size(); i++)
@@ -358,6 +378,11 @@ namespace p3d {
 
 	void SkeletonAnimation::LoadAnimation(const std::string& AnimationFile)
 	{
+		// Not stored before this - the path was used once to load, then
+		// discarded, same "no recoverable source" gap Model/Texture/Font
+		// had before their own path tracking was added.
+		Path = AnimationFile;
+
 		// Loads Animation
 		animationLoader = new AnimationLoader();
 		animationLoader->Load(AnimationFile);

@@ -129,6 +129,16 @@ namespace p3d {
 		// instead - those have no file source to record.
 		std::string Filename;
 
+		// Fallback for when there's no Filename (built via
+		// LoadTextureFromMemory() directly, not through LoadTexture()) -
+		// the original compressed file bytes (PNG/DDS/etc, NOT decoded
+		// pixel data) were never retained before this, only ever used
+		// once by stbi_load_from_memory() then discarded. Only populated
+		// when Filename is empty, to avoid duplicating storage for the
+		// common path-based-load case (LoadTexture() calls
+		// LoadTextureFromMemory() internally too).
+		std::vector<uchar> RawData;
+
 		bool CreateTexture(uchar* data = NULL, bool Mipmapping = true, const uint32 level = 0, const uint32 msaa = 0);
 
 		void GetGLModes();
@@ -163,6 +173,9 @@ namespace p3d {
 		const uint32 GetWidth(const uint32 level = 0) const;
 		const uint32 GetHeight(const uint32 level = 0) const;
 		const std::string &GetFilename() const { return Filename; }
+		// Fallback raw file bytes - see RawData's declaration comment.
+		// Empty whenever GetFilename() is non-empty (redundant then).
+		const std::vector<uchar> &GetRawData() const { return RawData; }
 
 		// Use Asset
 		void Bind();

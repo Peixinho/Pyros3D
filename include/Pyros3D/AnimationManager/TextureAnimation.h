@@ -75,6 +75,20 @@ namespace p3d {
 		Texture* GetTexture();
 		// Get Frame
 		const uint32 GetFrame() const;
+
+		// Real getters - only IsPlaying()/GetFrame() existed before this;
+		// every other piece of playback state (fps, pause, loop, yoyo,
+		// repeat, direction) had a setter but no way to read it back,
+		// same class of gap fixed everywhere else for scene serialization.
+		f32 GetFrameSpeed() const { return FrameSpeed; }
+		bool IsPaused() const { return isPaused; }
+		bool IsLooping() const { return isLooping; }
+		bool IsYoyo() const { return yoyo; }
+		int32 GetRepeat() const { return repeat; }
+		bool IsReverse() const { return reverse; }
+		// The TextureAnimation asset this instance plays frames from -
+		// Owner was already stored, just never exposed.
+		TextureAnimation* GetOwner() const { return Owner; }
 		// CallBacks
 		void OnStart(void(*func) (void));
 		template< class X, class Y >

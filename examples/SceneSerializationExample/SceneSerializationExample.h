@@ -28,6 +28,11 @@
 #include <Pyros3D/Physics/Physics.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 
+#ifdef LUA_BINDINGS
+#include <Pyros3D/Ext/sol/sol.hpp>
+#include <Pyros3D/Utils/Bindings/PyrosBindings.h>
+#endif
+
 using namespace p3d;
 
 class SceneSerializationExample : public ClassName {
@@ -52,6 +57,10 @@ private:
 	Projection projection;
 	Physics* physics;
 	GameObject* camera;
+
+#ifdef LUA_BINDINGS
+	sol::state lua;
+#endif
 
 	uint32 frameCount;
 	bool verified;

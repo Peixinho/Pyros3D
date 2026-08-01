@@ -15,6 +15,13 @@
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
 #include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
+#include <Pyros3D/Physics/Components/Vehicle/PhysicsVehicle.h>
+#include <Pyros3D/Assets/Renderable/Decals/Decals.h>
+#include <Pyros3D/Assets/Renderable/Text/Text.h>
+#include <Pyros3D/Assets/Font/Font.h>
+#include <Pyros3D/Assets/Renderable/Models/Model.h>
+#include <Pyros3D/AnimationManager/SkeletonAnimation.h>
+#include <Pyros3D/AnimationManager/TextureAnimation.h>
 #include <iostream>
 #include <string>
 
@@ -78,6 +85,11 @@ void SceneSerializationExample::Init()
 	physics = new Physics();
 	physics->InitPhysics();
 
+#ifdef LUA_BINDINGS
+	GenerateBindings(&lua);
+	lua.require_file("class", STR(EXAMPLES_PATH) "/assets/middleclass.lua");
+#endif
+
 	frameCount = 0;
 	verified = false;
 
@@ -102,9 +114,23 @@ void SceneSerializationExample::BuildScene()
 	GameObject* ground = new GameObject(true);
 	ground->SetName("Ground");
 	Cube* groundMesh = new Cube(80, 2, 80);
-	ground->AddComponent(new RenderingComponent(groundMesh, diffuse));
+	RenderingComponent* groundRC = new RenderingComponent(groundMesh, diffuse);
+	ground->AddComponent(groundRC);
 	ground->AddComponent(physics->CreateBox(80, 2, 80, 0, false));
 	scene->Add(ground);
+
+	// Decal - baked from a real projection onto the ground's own mesh
+	// (ground's world transform is already valid here, scene->Add()
+	// above synchronously ran Update()/InternalUpdate() on it). Phase B:
+	// only the baked vertex data round-trips, not the DecalGeometry
+	// projector itself - see SerializeRenderable's comment.
+	{
+		DecalGeometry* decalGeom = new DecalGeometry(groundRC->GetMeshes(0)[0], ground->GetWorldTransformation(), Vec3(0, 1, 0), Vec3(0, 0, 0), Vec3(10, 10, 10));
+		GameObject* decalObj = new GameObject();
+		decalObj->SetName("Decal");
+		decalObj->AddComponent(new RenderingComponent(decalGeom->GetDecal(), diffuse));
+		scene->Add(decalObj);
+	}
 
 	// A PointLight on a CHILD object, to exercise hierarchy save/load.
 	GameObject* lampChild = new GameObject();
@@ -146,7 +172,87 @@ void SceneSerializationExample::BuildScene()
 	scripted->SetName("Scripted");
 	scripted->AddComponent(new LuaComponent());
 	scene->Add(scripted);
+
+	// Real named-class LuaComponent (Phase F) - built from a .lua file
+	// (test_behavior.lua) via GameObject:attachScript()'s underlying
+	// primitive, its Lua-side `data` table mutated before save so the
+	// round trip actually proves something (not just default-constructed
+	// state survives).
+	GameObject* namedScript = new GameObject();
+	namedScript->SetName("NamedScript");
+	LuaComponent* behaviorComp = LuaComponent_FromFile(lua, STR(EXAMPLES_PATH) "/assets/test_behavior.lua");
+	if (behaviorComp)
+	{
+		behaviorComp->data["hp"] = 42;
+		behaviorComp->data["name"] = "Goblin";
+		namedScript->AddComponent(behaviorComp);
+	}
+	scene->Add(namedScript);
 #endif
+
+	// Vehicle - real chassis + wheels.
+	{
+		GameObject* car = new GameObject();
+		car->SetName("Car");
+		car->SetPosition(Vec3(60, 5, 0));
+		IPhysicsComponent* chassis = physics->CreateBox(2, 1, 4, 500.0f, false);
+		PhysicsVehicle* vehicle = dynamic_cast<PhysicsVehicle*>(physics->CreateVehicle(chassis, false));
+		vehicle->AddWheel(Vec3(0, -1, 0), Vec3(-1, 0, 0), 0.4f, 0.3f, 1.0f, 0.1f, Vec3(-1.0f, -0.5f, 1.5f), true);
+		vehicle->AddWheel(Vec3(0, -1, 0), Vec3(-1, 0, 0), 0.4f, 0.3f, 1.0f, 0.1f, Vec3(1.0f, -0.5f, 1.5f), true);
+		vehicle->AddWheel(Vec3(0, -1, 0), Vec3(-1, 0, 0), 0.4f, 0.3f, 1.0f, 0.1f, Vec3(-1.0f, -0.5f, -1.5f), false);
+		vehicle->AddWheel(Vec3(0, -1, 0), Vec3(-1, 0, 0), 0.4f, 0.3f, 1.0f, 0.1f, Vec3(1.0f, -0.5f, -1.5f), false);
+		vehicle->SetMaxEngineForce(1500.0f);
+		vehicle->SetSuspensionStiffness(30.0f);
+		car->AddComponent(vehicle);
+		scene->Add(car);
+	}
+
+	// Skeleton animation - real model + real animation file, actually
+	// playing (not just loaded).
+	{
+		GameObject* human = new GameObject();
+		human->SetName("Human");
+		human->SetPosition(Vec3(-60, 1, 0));
+		GenericShaderMaterial* skinnedMat = new GenericShaderMaterial(ShaderUsage::Texture + ShaderUsage::Diffuse + ShaderUsage::Skinning);
+		skinnedMat->SetColorMap(tex);
+		Model* humanModel = new Model(STR(EXAMPLES_PATH) "/assets/human.p3dm", false);
+		RenderingComponent* humanRC = new RenderingComponent(humanModel, skinnedMat);
+		human->AddComponent(humanRC);
+		SkeletonAnimation* skelAnim = new SkeletonAnimation();
+		skelAnim->LoadAnimation(STR(EXAMPLES_PATH) "/assets/walk.p3da");
+		SkeletonAnimationInstance* skelInst = skelAnim->CreateInstance(humanRC);
+		skelInst->Play(0, 0.0f, 1.0f, 1.0f, 1.0f, "");
+		scene->Add(human);
+	}
+
+	// Texture animation - opt-in playback state capture (see
+	// RenderingComponent::SetActiveTextureAnimation's comment).
+	{
+		GameObject* animatedQuad = new GameObject();
+		animatedQuad->SetName("AnimatedQuad");
+		animatedQuad->SetPosition(Vec3(-60, 40, 0));
+		Cube* quadMesh = new Cube(10, 10, 10);
+		RenderingComponent* quadRC = new RenderingComponent(quadMesh, diffuse);
+		animatedQuad->AddComponent(quadRC);
+		TextureAnimation* texAnim = new TextureAnimation();
+		texAnim->AddFrame(tex);
+		texAnim->AddFrame(tex);
+		TextureAnimationInstance* texInst = texAnim->CreateInstance(12.0f);
+		texInst->Play(1);
+		quadRC->SetActiveTextureAnimation(texInst);
+		scene->Add(animatedQuad);
+	}
+
+	// Text - real font + real string.
+	{
+		Font* font = new Font(STR(EXAMPLES_PATH) "/assets/verdana.ttf", 32.0f);
+		Text* text = new Text(font, "Hello", 5.0f, 5.0f, Vec4(1, 1, 0, 1));
+		GameObject* textObj = new GameObject();
+		textObj->SetName("Text");
+		textObj->SetPosition(Vec3(0, 60, 100));
+		textObj->AddComponent(new RenderingComponent(text, diffuse));
+		scene->Add(textObj);
+	}
 }
 
 void SceneSerializationExample::RunRoundTripAndVerify()
@@ -156,18 +262,28 @@ void SceneSerializationExample::RunRoundTripAndVerify()
 	uint32 preCount = (uint32)scene->GetAllGameObjectList().size();
 	std::cout << "Pre-save root object count: " << preCount << std::endl;
 
+#ifdef LUA_BINDINGS
+	Check(SceneSerializer::SaveScene(scene, kScenePath, &lua), "SaveScene() succeeded");
+#else
 	Check(SceneSerializer::SaveScene(scene, kScenePath), "SaveScene() succeeded");
+#endif
 
 	scene->RemoveAll();
 	Check(scene->GetAllGameObjectList().size() == 0, "RemoveAll() actually emptied the scene");
 
+#ifdef LUA_BINDINGS
+	Check(SceneSerializer::LoadScene(scene, kScenePath, physics, &lua), "LoadScene() succeeded");
+#else
 	Check(SceneSerializer::LoadScene(scene, kScenePath, physics), "LoadScene() succeeded");
+#endif
 	scene->Update(0.0);
 
 	uint32 postCount = (uint32)scene->GetAllGameObjectList().size();
 	Check(postCount == preCount, "Root object count round-tripped (" + std::to_string(preCount) + " -> " + std::to_string(postCount) + ")");
 
 	GameObject* ground = NULL; GameObject* cube = NULL; GameObject* sun = NULL; GameObject* smoke = NULL; GameObject* lamp = NULL;
+	GameObject* decalObj = NULL; GameObject* car = NULL; GameObject* human = NULL; GameObject* animatedQuad = NULL; GameObject* textObj = NULL;
+	GameObject* namedScript = NULL;
 	std::vector<GameObject*> &roots = scene->GetAllGameObjectList();
 	for (size_t i = 0; i < roots.size(); i++)
 	{
@@ -175,6 +291,12 @@ void SceneSerializationExample::RunRoundTripAndVerify()
 		else if (roots[i]->GetName() == "Cube") cube = roots[i];
 		else if (roots[i]->GetName() == "Sun") sun = roots[i];
 		else if (roots[i]->GetName() == "Smoke") smoke = roots[i];
+		else if (roots[i]->GetName() == "Decal") decalObj = roots[i];
+		else if (roots[i]->GetName() == "Car") car = roots[i];
+		else if (roots[i]->GetName() == "Human") human = roots[i];
+		else if (roots[i]->GetName() == "AnimatedQuad") animatedQuad = roots[i];
+		else if (roots[i]->GetName() == "Text") textObj = roots[i];
+		else if (roots[i]->GetName() == "NamedScript") namedScript = roots[i];
 	}
 
 	Check(ground != NULL, "Ground object found after load");
@@ -220,6 +342,78 @@ void SceneSerializationExample::RunRoundTripAndVerify()
 		for (size_t i = 0; i < comps.size(); i++) if ((ps = dynamic_cast<ParticleSystem*>(comps[i]))) break;
 		Check(ps != NULL && ps->GetDesc().maxParticles == 64, "ParticleSystem desc round-tripped");
 	}
+
+	Check(decalObj != NULL, "Decal object found after load");
+	if (decalObj)
+	{
+		RenderingComponent* rc = NULL;
+		const std::vector<IComponent*> &comps = decalObj->GetComponents();
+		for (size_t i = 0; i < comps.size(); i++) if ((rc = dynamic_cast<RenderingComponent*>(comps[i]))) break;
+		Decal* decal = rc ? dynamic_cast<Decal*>(rc->GetRenderable()) : NULL;
+		Check(decal != NULL && !decal->Geometries.empty(), "Decal baked geometry round-tripped");
+	}
+
+	Check(car != NULL, "Vehicle object found after load");
+	if (car)
+	{
+		PhysicsVehicle* v = NULL;
+		const std::vector<IComponent*> &comps = car->GetComponents();
+		for (size_t i = 0; i < comps.size(); i++) if ((v = dynamic_cast<PhysicsVehicle*>(comps[i]))) break;
+		Check(v != NULL && v->GetWheels().size() == 4, "Vehicle wheel count round-tripped");
+		Check(v != NULL && NearlyEqual(v->GetMaxEngineForce(), 1500.0f), "Vehicle tunables round-tripped");
+		Check(v != NULL && v->GetChassis() != NULL && v->GetChassis()->GetShape() == CollisionShapes::Box, "Vehicle chassis round-tripped");
+	}
+
+	Check(human != NULL, "Skeleton-animated object found after load");
+	if (human)
+	{
+		RenderingComponent* rc = NULL;
+		const std::vector<IComponent*> &comps = human->GetComponents();
+		for (size_t i = 0; i < comps.size(); i++) if ((rc = dynamic_cast<RenderingComponent*>(comps[i]))) break;
+		SkeletonAnimationInstance* inst = rc ? static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation()) : NULL;
+		Check(inst != NULL && inst->GetNumberPlayingAnimations() == 1, "Skeleton animation instance round-tripped, still playing");
+	}
+
+	Check(animatedQuad != NULL, "Texture-animated object found after load");
+	if (animatedQuad)
+	{
+		RenderingComponent* rc = NULL;
+		const std::vector<IComponent*> &comps = animatedQuad->GetComponents();
+		for (size_t i = 0; i < comps.size(); i++) if ((rc = dynamic_cast<RenderingComponent*>(comps[i]))) break;
+		TextureAnimationInstance* inst = rc ? static_cast<TextureAnimationInstance*>(rc->GetActiveTextureAnimation()) : NULL;
+		Check(inst != NULL && NearlyEqual(inst->GetFrameSpeed(), 12.0f) && inst->GetOwner()->GetNumberFrames() == 2, "Texture animation playback state round-tripped");
+	}
+
+	Check(textObj != NULL, "Text object found after load");
+	if (textObj)
+	{
+		RenderingComponent* rc = NULL;
+		const std::vector<IComponent*> &comps = textObj->GetComponents();
+		for (size_t i = 0; i < comps.size(); i++) if ((rc = dynamic_cast<RenderingComponent*>(comps[i]))) break;
+		Text* text = rc ? dynamic_cast<Text*>(rc->GetRenderable()) : NULL;
+		Check(text != NULL && text->GetText() == "Hello", "Text content round-tripped");
+	}
+
+#ifdef LUA_BINDINGS
+	Check(namedScript != NULL, "Named-class LuaComponent object found after load");
+	if (namedScript)
+	{
+		LuaComponent* lc = NULL;
+		const std::vector<IComponent*> &comps = namedScript->GetComponents();
+		for (size_t i = 0; i < comps.size(); i++) if ((lc = dynamic_cast<LuaComponent*>(comps[i]))) break;
+		bool dataOk = false;
+		if (lc && lc->data.valid())
+		{
+			sol::object hp = lc->data["hp"];
+			sol::object name = lc->data["name"];
+			// Lua numbers round-trip through JSON as doubles - check
+			// numerically, not by exact C++ type (is<int>() is too
+			// strict for a value that's really a Lua/JSON double).
+			dataOk = hp.valid() && hp.is<double>() && NearlyEqual((f32)hp.as<double>(), 42.0f) && name.valid() && name.is<std::string>() && name.as<std::string>() == "Goblin";
+		}
+		Check(lc != NULL && !lc->scriptFile.empty() && dataOk, "Named-class LuaComponent real behavior/data round-tripped");
+	}
+#endif
 
 	std::cout << "=================================================" << std::endl;
 	std::cout << "SceneSerializationExample: " << gFailures << " check(s) failed" << std::endl;

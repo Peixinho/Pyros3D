@@ -78,7 +78,7 @@ namespace p3d {
 		// Only record a real, successfully-loaded file's path - a failed
 		// load falls through to the checkerboard fallback below, which
 		// isn't actually this Filename's image data.
-		if (status) this->Filename = Filename;
+		if (status) { this->Filename = Filename; this->RawData.clear(); this->RawData.shrink_to_fit(); }
 		if (!status) {
 			echo("ERROR: Couldn't find texture file or failed to load, loading default one...");
 
@@ -116,6 +116,14 @@ namespace p3d {
 	{
 		bool failed = false;
 		bool ImageLoaded = false;
+
+		// Cache the raw compressed bytes as a fallback source for scene
+		// serialization - LoadTexture() (which calls this internally)
+		// clears it right after setting a real Filename, since a path is
+		// strictly better than embedding bytes; this only actually
+		// survives for a Texture built directly via this method (no
+		// path available at all).
+		this->RawData = data;
 
 		if (this->GL_ID == -1) {
 			this->GL_ID = Device().CreateTextureObject();

@@ -260,7 +260,39 @@ namespace p3d {
 		static std::vector<RenderingComponent*> &GetRenderingComponents(SceneGraph* scene);
 
 		bool IsInstanced() { return isInstanced;  }
+
+		// Real back-reference to whichever SkeletonAnimationInstance is
+		// currently driving this component's skeleton - didn't exist
+		// before (SkeletonAnimationInstance's constructor reads a
+		// RenderingComponent's skeleton/meshes but never wrote anything
+		// back), so nothing could ever ask "what animation is this mesh
+		// playing" starting from the component itself; every example
+		// instead keeps the instance as a sibling variable in user code.
+		// Set automatically by SkeletonAnimationInstance's constructor
+		// (SkeletonAnimation.cpp) - real, minimal, automatic association,
+		// not a serializer-side shadow map. NULL if no skeleton animation
+		// has ever been created against this component.
+		void SetActiveSkeletonAnimation(void* instance) { activeSkeletonAnimation = instance; }
+		void* GetActiveSkeletonAnimation() const { return activeSkeletonAnimation; }
+
+		// Opt-in equivalent for texture animation - unlike skeleton
+		// animation there is no constructor-time link anywhere in the
+		// engine between a TextureAnimationInstance and any component/
+		// material (every example manually pushes the current frame into
+		// a material each Update()), so this is deliberately NOT set
+		// automatically - a caller calls this once after creating the
+		// instance if they want its playback state (not behavior -
+		// nothing here auto-drives a material) to be capturable.
+		void SetActiveTextureAnimation(void* instance) { activeTextureAnimation = instance; }
+		void* GetActiveTextureAnimation() const { return activeTextureAnimation; }
+
 	protected:
+
+		// void* to avoid a circular #include (AnimationManager headers
+		// already include this one) - callers cast back to
+		// SkeletonAnimationInstance*/TextureAnimationInstance*.
+		void* activeSkeletonAnimation = NULL;
+		void* activeTextureAnimation = NULL;
 
 		// Save Renderable Pointer
 		Renderable* renderable;

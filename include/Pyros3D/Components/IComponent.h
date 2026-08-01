@@ -37,6 +37,7 @@ namespace p3d {
 			PointLight,
 			SpotLight,
 			Physics,
+			Vehicle,
 			LuaComponent
 		};
 	}

@@ -401,10 +401,48 @@ namespace p3d {
         std::function<void(LuaComponent&, p3d::f64)> on_update;
         std::function<void(LuaComponent&)> on_init;
         std::function<void(LuaComponent&)> on_destroy;
+
+        // Real, serializable behavior. Empty scriptFile means "an
+        // anonymous ad-hoc component" (the pre-existing on_init/
+        // on_update/on_destroy closures above, assigned directly from a
+        // script) - SceneSerializer can only round-trip THAT as an
+        // existence marker, same as before. A non-empty scriptFile means
+        // this component was built from a .lua file (via
+        // LuaComponent_fromFile()/GameObject:attachScript() below) that
+        // `return`s a middleclass class (same class() convention
+        // main.lua already uses via middleclass.lua) - the file itself
+        // IS the identity, no separate name/registry needed. The class's
+        // real Lua instance table (`data`) can be handed to
+        // data:serialize()/ClassName.deserialize() for a working save/
+        // load contract, but it's opt-in per script, not automatic for
+        // every LuaComponent.
+        std::string scriptFile;
+        sol::table data;
     private:
         void FireInit() { if (!initialized) { initialized = true; if (on_init) on_init(*this); } }
         bool initialized = false;
     };
+
+    // Loads scriptFile (expected to `return` a middleclass class table,
+    // e.g. `local Foo = class('Foo'); ... return Foo`), instantiates it
+    // via Foo:new(), and wraps the result in a LuaComponent. Uses sol2's
+    // require_file()'s own module caching (keyed by scriptFile itself),
+    // so attaching the same script to many GameObjects only ever runs the
+    // file once. Returns NULL (nil in Lua) if the file doesn't return a
+    // usable class table.
+    inline LuaComponent* LuaComponent_FromFile(sol::state& lua, const std::string &scriptFile)
+    {
+        sol::object result = lua.require_file(scriptFile, scriptFile);
+        if (!result.valid() || result.get_type() != sol::type::table) return NULL;
+        sol::table cls = result;
+        sol::function newFn = cls["new"];
+        if (!newFn.valid()) return NULL;
+        sol::table instance = newFn(cls);
+        LuaComponent* comp = new LuaComponent();
+        comp->scriptFile = scriptFile;
+        comp->data = instance;
+        return comp;
+    }
 
 	// Real keyboard/mouse input for Lua - InputManager itself is
 	// 100% C++-only (AddEvent<X,Y> is a compile-time

@@ -37,6 +37,12 @@ namespace p3d {
 
 		virtual ~PhysicsVehicle();
 
+		// Overrides the shared IPhysicsComponent::GetComponentType() -
+		// Vehicle needs its own tag distinct from ComponentType::Physics
+		// since it has a whole extra shape (chassis) and wheel list a
+		// generic physics-shape serializer can't handle.
+		virtual uint32 GetComponentType() const { return ComponentType::Vehicle; }
+
 		int GetRightIndex() { return rightIndex; }
 		int GetUpIndex() { return upIndex; }
 		int GetForwardIndex() { return forwardIndex; }

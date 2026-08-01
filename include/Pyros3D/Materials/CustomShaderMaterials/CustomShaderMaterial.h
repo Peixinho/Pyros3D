@@ -40,6 +40,11 @@ namespace p3d
 		// treat an empty string as "can't be saved/reconstructed".
 		const std::string &GetShaderFile() const { return ShaderFilePath; }
 
+		// The underlying Shader* itself - needed so a path-less material
+		// (built from a raw Shader*) can still fall back to embedding
+		// Shader::GetShaderText()'s real cached source.
+		Shader* GetShaderObject() const { return shader; }
+
 	protected:
 
 		std::string ShaderFilePath;
