@@ -18,6 +18,7 @@ namespace p3d {
 		LightType = type;
 		isCastingShadows = false;
 		ShadowBiasFactor = ShadowBiasUnits = 0.f;
+		Intensity = 1.f;
 		pcfTexel = 0.0001f;
 	}
 

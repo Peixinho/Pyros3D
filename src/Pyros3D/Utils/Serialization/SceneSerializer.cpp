@@ -609,7 +609,13 @@ namespace p3d {
 			if (SkeletonAnimationInstance* inst = static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation()))
 			{
 				json sa;
+				// Both: "path" stays for older scene files / single-file
+				// animations, "paths" is the real one - a SkeletonAnimation
+				// concatenates every LoadAnimation() file into one clip list
+				// and a saved Play(id) indexes into that concatenation, so
+				// dropping all but the last path made those ids meaningless.
 				sa["path"] = inst->GetOwner()->GetPath();
+				sa["paths"] = inst->GetOwner()->GetPaths();
 				json playing = json::array();
 				for (uint32 order = 0; order < inst->GetNumberPlayingAnimations(); order++)
 				{
@@ -714,6 +720,7 @@ namespace p3d {
 			DirectionalLight* l = dynamic_cast<DirectionalLight*>(c);
 			j["type"] = "DirectionalLight";
 			j["color"] = ToJson(l->GetLightColor());
+			j["intensity"] = l->GetLightIntensity();
 			j["direction"] = ToJson(l->GetLightDirection());
 			j["castingShadows"] = l->IsCastingShadows();
 			if (l->IsCastingShadows())
@@ -736,6 +743,7 @@ namespace p3d {
 			PointLight* l = dynamic_cast<PointLight*>(c);
 			j["type"] = "PointLight";
 			j["color"] = ToJson(l->GetLightColor());
+			j["intensity"] = l->GetLightIntensity();
 			j["radius"] = l->GetLightRadius();
 			j["castingShadows"] = l->IsCastingShadows();
 			if (l->IsCastingShadows())
@@ -751,6 +759,7 @@ namespace p3d {
 			SpotLight* l = dynamic_cast<SpotLight*>(c);
 			j["type"] = "SpotLight";
 			j["color"] = ToJson(l->GetLightColor());
+			j["intensity"] = l->GetLightIntensity();
 			j["radius"] = l->GetLightRadius();
 			j["direction"] = ToJson(l->GetLightDirection());
 			j["innerCone"] = l->GetLightInnerCone();
@@ -1147,7 +1156,25 @@ namespace p3d {
 			uint32 matId = j.value("material", (uint32)0xFFFFFFFF);
 			IMaterial* mat = (matId < materialsById.size()) ? materialsById[matId] : NULL;
 			if (!mat) { echo("WARNING: SceneSerializer - skipping RenderingComponent, its material couldn't be rebuilt"); delete renderable; return; }
+			// LUA_RenderingComponent when lua != NULL - exactly the same
+			// reasoning (and the same failure) as DeserializeGameObject's
+			// LUA_GameObject choice below, which this was missing:
+			// GameObject_GetComponent() hands a script its owner's
+			// RenderingComponent, and plain p3d::RenderingComponent is never
+			// registered as a sol usertype (only LUA_RenderingComponent is),
+			// so every method call on it failed with "attempt to index a
+			// sol.p3d::RenderingComponent * value". That is what broke the
+			// Skeleton Animation demo: skeleton_anim.lua could never reach
+			// getActiveSkeletonAnimation(), so SkeletonAnimation::Update()
+			// was never ticked and the mesh rendered with uninitialised bone
+			// matrices (a collapsed smear, not a posed model). Note
+			// ParticleSystem doesn't need this - it's registered under its
+			// own real type, which is why smoke_tuning.lua always worked.
+#ifdef LUA_BINDINGS
+			RenderingComponent* rc = lua ? static_cast<RenderingComponent*>(new LUA_RenderingComponent(renderable, mat, 0.0f)) : new RenderingComponent(renderable, mat, 0.0f);
+#else
 			RenderingComponent* rc = new RenderingComponent(renderable, mat, 0.0f);
+#endif
 			if (j.value("cullTest", true)) rc->EnableCullTest(); else rc->DisableCullTest();
 			if (j.value("castingShadows", true)) rc->EnableCastShadows(); else rc->DisableCastShadows();
 			go->AddComponent(rc);
@@ -1159,7 +1186,13 @@ namespace p3d {
 				if (!path.empty())
 				{
 					SkeletonAnimation* anim = new SkeletonAnimation();
-					anim->LoadAnimation(path);
+					// Every clip file, in the order that assigned the ids the
+					// "playing" entries below refer to (see the save side's
+					// comment); "path" alone is the pre-"paths" fallback.
+					if (sa.find("paths") != sa.end() && !sa["paths"].empty())
+						for (auto &pp : sa["paths"]) anim->LoadAnimation(pp.get<std::string>());
+					else
+						anim->LoadAnimation(path);
 					if (outAssets) outAssets->skeletonAnimations.push_back(anim);
 					SkeletonAnimationInstance* inst = anim->CreateInstance(rc);
 					if (sa.find("layers") != sa.end())
@@ -1184,7 +1217,10 @@ namespace p3d {
 							// same start progress/speed/scale/pause state,
 							// not the precise frame it was saved at. Known,
 							// minor limitation.
-							int32 order = inst->Play(id, pj.value("startTimeProgress", 0.0f), 1.0f, pj.value("speed", 1.0f), pj.value("scale", 1.0f), layer);
+							// -1 (loop forever) as the default, not 1: every
+							// looping animation restored as a single pass
+							// played once and then froze.
+							int32 order = inst->Play(id, pj.value("startTimeProgress", 0.0f), pj.value("repeat", -1.0f), pj.value("speed", 1.0f), pj.value("scale", 1.0f), layer);
 							if (order >= 0)
 							{
 								if (pj.value("paused", false)) inst->PauseAnimation((uint32)order);
@@ -1250,6 +1286,7 @@ namespace p3d {
 			Vec4 color = (j.find("color") != j.end()) ? Vec4FromJson(j["color"]) : Vec4(1, 1, 1, 1);
 			Vec3 direction = (j.find("direction") != j.end()) ? Vec3FromJson(j["direction"]) : Vec3(0, -1, 0);
 			DirectionalLight* l = new DirectionalLight(color, direction);
+			l->SetLightIntensity(j.value("intensity", 1.0f));
 			if (j.value("castingShadows", false))
 			{
 				Projection proj;
@@ -1264,6 +1301,7 @@ namespace p3d {
 		{
 			Vec4 color = (j.find("color") != j.end()) ? Vec4FromJson(j["color"]) : Vec4(1, 1, 1, 1);
 			PointLight* l = new PointLight(color, j.value("radius", 1.0f));
+			l->SetLightIntensity(j.value("intensity", 1.0f));
 			if (j.value("castingShadows", false))
 				l->EnableCastShadows(j.value("shadowWidth", 512u), j.value("shadowHeight", 512u), j.value("shadowNear", 0.1f));
 			go->AddComponent(l);
@@ -1273,6 +1311,7 @@ namespace p3d {
 			Vec4 color = (j.find("color") != j.end()) ? Vec4FromJson(j["color"]) : Vec4(1, 1, 1, 1);
 			Vec3 direction = (j.find("direction") != j.end()) ? Vec3FromJson(j["direction"]) : Vec3(0, -1, 0);
 			SpotLight* l = new SpotLight(color, j.value("radius", 1.0f), direction, j.value("outterCone", 45.0f), j.value("innerCone", 30.0f));
+			l->SetLightIntensity(j.value("intensity", 1.0f));
 			if (j.value("castingShadows", false))
 				l->EnableCastShadows(j.value("shadowWidth", 512u), j.value("shadowHeight", 512u), j.value("shadowNear", 0.1f));
 			go->AddComponent(l);
@@ -1439,6 +1478,19 @@ namespace p3d {
 
 	void SceneSerializer::UnloadScene(SceneGraph* scene, const LoadedSceneAssets &assets)
 	{
+		// Everything freed below owns GPU resources (vertex/index buffers,
+		// textures, and on Vulkan the pipelines/descriptor sets cached
+		// against them), and the last submitted frame is routinely still
+		// executing at this point - the frame fence is only waited on at
+		// the top of the *next* BeginFrame(). Freeing them unguarded is a
+		// straight use-after-free on whatever that command buffer is still
+		// reading. It presents as an intermittent segfault a few demo
+		// switches in, and it vanishes entirely under a debugger (which
+		// slows the CPU enough that the GPU is always already done) - which
+		// is exactly why it reads as "random". Same guard, same reason, as
+		// PostEffectsManager::RemoveAllEffects() and ~DeferredRenderer().
+		if (IsActiveRenderDeviceSet())
+			GetActiveRenderDevice().WaitIdle();
 		for (GameObject* go : assets.gameObjects)
 		{
 			// Remove() is a safe no-op (logs, doesn't crash) for a

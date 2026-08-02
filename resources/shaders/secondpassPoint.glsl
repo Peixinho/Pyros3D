@@ -124,7 +124,7 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0)
 	return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-vec3 CalculatePBRLighting(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 albedo, float metallic, float roughness)
+vec3 CalculatePBRLighting(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 albedo, float metallic, float roughness, vec3 specTint)
 {
 	vec3 H = normalize(V + L);
 	vec3 F0 = mix(vec3(0.04), albedo, metallic);
@@ -135,9 +135,22 @@ vec3 CalculatePBRLighting(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 albedo, fl
 
 	vec3 numerator = NDF * G * F;
 	float denom = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 1e-4;
-	vec3 specularTerm = numerator / denom;
+	// specTint is the G-buffer's specular attachment (see PyrosShader.glsl's
+	// FragData_g comment): 1.0 for a PBR material, so that path is bit-for-bit
+	// what it was; the classic material's own uSpecular otherwise, playing the
+	// same role it plays in ForwardRenderer's Blinn-Phong loop
+	// (`_specular += specularPower * L.Color * specular`) - a gate/tint on the
+	// highlight, so a material with no SpecularColor usage gets none at all.
+	// It multiplies the finished specular term rather than folding into F0:
+	// Schlick's F0 + (1-F0)*(1-cos)^5 returns full reflectance at grazing
+	// angles no matter how small F0 is, so a specTint-scaled F0 turned "no
+	// highlight" into "grazing-only highlight" - a real bright rim/blob on
+	// the floor and ceiling, worse than the flat look it replaced.
+	vec3 specularTerm = (numerator / denom) * specTint;
 
-	vec3 kS = F;
+	// Tinted too, so the energy taken out of the diffuse lobe matches the
+	// specular actually emitted (specTint == 0 -> full diffuse, as forward).
+	vec3 kS = F * specTint;
 	vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
 
 	float NdotL = max(dot(N, L), 0.0);
@@ -216,7 +229,7 @@ void main() {
 
 	vec3 vViewNormal = normalize(texture(tNormal, Texcoord).xyz);
 	vec3 color = texture(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
-	vec3 Specular = texture(tSpecular, vec2(Texcoord.x,Texcoord.y)).xyz;
+	vec3 specTint = texture(tSpecular, vec2(Texcoord.x,Texcoord.y)).xyz;
 	float lightRadius = uLightRadius;
 	vec3 lightPosition = uLightPosition;
 	vec4 lightColor = uLightColor;
@@ -230,7 +243,7 @@ void main() {
 	vec3 N = vViewNormal;
 	vec3 V = normalize(-v1);
 	vec3 L = normalize(lightPosition - v1);
-	vec3 pbrColor = CalculatePBRLighting(N, V, L, lightColor.xyz, color, metallic, roughness);
+	vec3 pbrColor = CalculatePBRLighting(N, V, L, lightColor.xyz, color, metallic, roughness, specTint);
 
 	FragColor = vec4(pbrColor, 1.0) * attenuation;/*# * pcf;*/
 }

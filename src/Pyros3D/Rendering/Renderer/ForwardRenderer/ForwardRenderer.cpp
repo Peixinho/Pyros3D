@@ -43,7 +43,7 @@ namespace p3d {
 					DirectionalLight* d = ((DirectionalLight*)(*i));
 
 					// Directional Lights
-					Vec4 color = d->GetLightColor();
+					Vec4 color = d->GetLightRadiance();
 					Vec3 position;
 					Vec3 direction = (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize();
 					f32 attenuation = 1.f;
@@ -71,7 +71,7 @@ namespace p3d {
 					PointLight* p = ((PointLight*)(*i));
 
 					// Point Lights
-					Vec4 color = p->GetLightColor();
+					Vec4 color = p->GetLightRadiance();
 					Vec3 position = (p->GetOwner()->GetWorldPosition());
 					Vec3 direction;
 					f32 attenuation = p->GetLightRadius();
@@ -100,7 +100,7 @@ namespace p3d {
 					SpotLight* s = ((SpotLight*)(*i));
 
 					// Spot Lights
-					Vec4 color = s->GetLightColor();
+					Vec4 color = s->GetLightRadiance();
 					Vec3 position = s->GetOwner()->GetWorldPosition();
 					Vec3 direction = (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.f)).xyz().normalize();
 					f32 attenuation = s->GetLightRadius();

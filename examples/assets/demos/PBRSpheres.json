@@ -1,0 +1,2047 @@
+{
+    "materials": [
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 0,
+            "kind": "generic",
+            "metallic": 0.0,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.0500000007450581,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 1,
+            "kind": "generic",
+            "metallic": 0.0,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.287499994039536,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 2,
+            "kind": "generic",
+            "metallic": 0.0,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.524999976158142,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 3,
+            "kind": "generic",
+            "metallic": 0.0,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.762499988079071,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 4,
+            "kind": "generic",
+            "metallic": 0.0,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 1.0,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 5,
+            "kind": "generic",
+            "metallic": 0.25,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.0500000007450581,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 6,
+            "kind": "generic",
+            "metallic": 0.25,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.287499994039536,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 7,
+            "kind": "generic",
+            "metallic": 0.25,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.524999976158142,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 8,
+            "kind": "generic",
+            "metallic": 0.25,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.762499988079071,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 9,
+            "kind": "generic",
+            "metallic": 0.25,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 1.0,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 10,
+            "kind": "generic",
+            "metallic": 0.5,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.0500000007450581,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 11,
+            "kind": "generic",
+            "metallic": 0.5,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.287499994039536,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 12,
+            "kind": "generic",
+            "metallic": 0.5,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.524999976158142,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 13,
+            "kind": "generic",
+            "metallic": 0.5,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.762499988079071,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 14,
+            "kind": "generic",
+            "metallic": 0.5,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 1.0,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 15,
+            "kind": "generic",
+            "metallic": 0.75,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.0500000007450581,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 16,
+            "kind": "generic",
+            "metallic": 0.75,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.287499994039536,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 17,
+            "kind": "generic",
+            "metallic": 0.75,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.524999976158142,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 18,
+            "kind": "generic",
+            "metallic": 0.75,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.762499988079071,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 19,
+            "kind": "generic",
+            "metallic": 0.75,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 1.0,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 20,
+            "kind": "generic",
+            "metallic": 1.0,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.0500000007450581,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 21,
+            "kind": "generic",
+            "metallic": 1.0,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.287499994039536,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 22,
+            "kind": "generic",
+            "metallic": 1.0,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.524999976158142,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 23,
+            "kind": "generic",
+            "metallic": 1.0,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.762499988079071,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 24,
+            "kind": "generic",
+            "metallic": 1.0,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 1.0,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.699999988079071,
+                0.150000005960464,
+                0.150000005960464,
+                1.0
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 25,
+            "kind": "generic",
+            "metallic": 0.0,
+            "opacity": 1.0,
+            "options": 12845057,
+            "reflectivity": 0.0,
+            "roughness": 0.5,
+            "shininess": 0.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        }
+    ],
+    "roots": [
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 0,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                -16.0,
+                -16.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 1,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                -16.0,
+                -8.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 2,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                -16.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 3,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                -16.0,
+                8.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 4,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                -16.0,
+                16.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 5,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                -8.0,
+                -16.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 6,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                -8.0,
+                -8.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 7,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                -8.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 8,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                -8.0,
+                8.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 9,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                -8.0,
+                16.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 10,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                0.0,
+                -16.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 11,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                0.0,
+                -8.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 12,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 13,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                0.0,
+                8.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 14,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                0.0,
+                16.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 15,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                8.0,
+                -16.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 16,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                8.0,
+                -8.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 17,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                8.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 18,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                8.0,
+                8.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 19,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                8.0,
+                16.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 20,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                16.0,
+                -16.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 21,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                16.0,
+                -8.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 22,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                16.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 23,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                16.0,
+                8.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 24,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                16.0,
+                16.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 25,
+                    "renderable": {
+                        "flip": false,
+                        "halfSphere": false,
+                        "kind": "primitive",
+                        "radius": 3.0,
+                        "segmentsH": 16,
+                        "segmentsW": 24,
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                40.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": false,
+                    "color": [
+                        1.0,
+                        0.980000019073486,
+                        0.920000016689301,
+                        1.0
+                    ],
+                    "direction": [
+                        -0.400000005960464,
+                        -0.600000023841858,
+                        -0.699999988079071
+                    ],
+                    "type": "DirectionalLight"
+                }
+            ],
+            "name": "",
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": true,
+            "tags": []
+        }
+    ],
+    "version": 1
+}

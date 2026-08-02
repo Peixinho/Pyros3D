@@ -72,6 +72,18 @@ namespace p3d {
 	{
 		_SkeletonAnimation::SkeletonAnimation Anim;
 
+		// Anim.animation below is a raw pointer *into* Owner->animations, so
+		// an out-of-range id doesn't fail here - it silently stores a wild
+		// pointer that only blows up later, in Update()'s `Animation Anim =
+		// *(*_Anim).animation;`, with a backtrace pointing at the copy
+		// constructor rather than at whoever asked for a clip that doesn't
+		// exist. Reject it up front and say so.
+		if (animation >= Owner->GetNumberAnimations())
+		{
+			echo("ERROR: SkeletonAnimationInstance::Play - animation id out of range (asked for " + std::to_string(animation) + ", only " + std::to_string(Owner->GetNumberAnimations()) + " loaded)");
+			return -1;
+		}
+
 		if (GetAnimationPositionInVector(animation) == -1)
 		{
 			Anim.ID = animation;
@@ -382,6 +394,8 @@ namespace p3d {
 		// discarded, same "no recoverable source" gap Model/Texture/Font
 		// had before their own path tracking was added.
 		Path = AnimationFile;
+		// See GetPaths() - Path alone loses every file but the last.
+		Paths.push_back(AnimationFile);
 
 		// Loads Animation
 		animationLoader = new AnimationLoader();

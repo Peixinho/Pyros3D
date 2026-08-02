@@ -1113,7 +1113,24 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
         #ifdef DEFERRED_GBUFFER
 		FragData_r=vec4(diffuse.xyz,diffuse.x*uAmbientLight.x);
-		FragData_g=vec4(specular.xyz,diffuse.y*uAmbientLight.y);
+		// RGB is the second pass's F0 *tint*, not a Blinn-Phong specular
+		// colour any more (nothing ever read these three channels before -
+		// secondpassPoint/Spot.glsl sampled them into a local that was then
+		// dead, and directional/lastPass never sampled them at all - so this
+		// repurposing costs nothing). A classic material's uSpecular is what
+		// decides whether it has a highlight at all in ForwardRenderer
+		// (`_specular += specularPower * L.Color * specular`), so feeding it
+		// through here is what lets the deferred path reproduce that: a
+		// material with no SpecularColor usage keeps specular==vec4(0) and
+		// gets F0==0 (no highlight, same as forward), a white-specular one
+		// gets the standard 0.04 dielectric F0. A PBR material's own F0
+		// comes from albedo/metallic instead, so it writes a neutral 1.0
+		// tint here and is left exactly as it was.
+		#ifdef PBR
+			FragData_g=vec4(1.0,1.0,1.0,diffuse.y*uAmbientLight.y);
+		#else
+			FragData_g=vec4(specular.xyz,diffuse.y*uAmbientLight.y);
+		#endif
 		FragData_b=vec4(gbufferNormal.xyz,diffuse.z*uAmbientLight.z);
 		// Uses the already-resolved metallic/roughness locals (folds in
 		// uMetallicRoughnessmap sampling when PBRMAP is set too), not the
@@ -1137,7 +1154,16 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		#ifdef PBR
 			FragData_pbr=vec4(roughness, metallic, uSSRReflective, uReflectivity);
 		#else
-			FragData_pbr=vec4(0.5, 0.0, uSSRReflective, uReflectivity);
+			// Was a hardcoded 0.5 - which is why every non-PBR material
+			// looked flat and highlight-less through DeferredRenderer while
+			// the identical material through ForwardRenderer showed a tight
+			// uShininess-driven highlight (the deferred second pass is
+			// Cook-Torrance-only and has no uShininess of its own). Standard
+			// Blinn-Phong exponent -> GGX roughness mapping: a Phong lobe
+			// pow(NdotH, s) and a GGX lobe of roughness a match when
+			// s = 2/a^2 - 2. uShininess 50 -> ~0.196, i.e. the tight
+			// highlight the forward path draws, not a 0.5 smear.
+			FragData_pbr=vec4(clamp(sqrt(2.0/(max(uShininess,0.0)+2.0)),0.03,1.0), 0.0, uSSRReflective, uReflectivity);
 		#endif
 	#endif
 

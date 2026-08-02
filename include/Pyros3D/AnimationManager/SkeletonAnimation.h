@@ -247,12 +247,25 @@ namespace p3d {
 		const int32 GetAnimationIDByName(const std::string &name) const;
 
 		// Source file path - not stored before this, LoadAnimation()'s
-		// argument was used once then discarded.
+		// argument was used once then discarded. This is the path of the
+		// *last* LoadAnimation() call only; one SkeletonAnimation routinely
+		// holds several files' clips concatenated into `animations` (the
+		// Skeleton Animation demo loads walk/alert/run/walk to get ids 0-3),
+		// so use GetPaths() for anything that needs to rebuild it.
 		const std::string &GetPath() const { return Path; }
+
+		// Every LoadAnimation() path, in call order - the order *is* the
+		// data, since a clip's id is just its index in the concatenated
+		// `animations` vector. Serializing only GetPath() and reloading it
+		// once (as SceneSerializer did) rebuilt a 1-clip animation whose
+		// saved Play(id) calls then indexed `animations` out of bounds,
+		// storing dangling Animation* that crashed the next Update().
+		const std::vector<std::string> &GetPaths() const { return Paths; }
 
 	private:
 
 		std::string Path;
+		std::vector<std::string> Paths;
 	};
 
 }

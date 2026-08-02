@@ -303,7 +303,21 @@ namespace p3d {
 		for (IComponent* c : go.GetComponents())
 		{
 			if (typeName == "RenderingComponent" && c->GetComponentType() == ComponentType::RenderingComponent)
-				return sol::make_object(lua, static_cast<RenderingComponent*>(c));
+			{
+				// Must be pushed as LUA_RenderingComponent, the type actually
+				// registered as a sol usertype - sol picks the metatable from
+				// the pointer's *static* type, so pushing a plain
+				// RenderingComponent* yields a bare userdata that throws
+				// "attempt to index a sol.p3d::RenderingComponent * value" on
+				// the first method call. Anything built by SceneSerializer
+				// with a Lua state is already a LUA_RenderingComponent (see
+				// its DeserializeComponent comment); return nil rather than
+				// that unusable userdata for anything else, so a script's
+				// `if rc then` guard actually guards.
+				LUA_RenderingComponent* lrc = dynamic_cast<LUA_RenderingComponent*>(c);
+				if (lrc) return sol::make_object(lua, lrc);
+				return sol::lua_nil;
+			}
 			if (typeName == "ParticleSystem" && c->GetComponentType() == ComponentType::ParticleSystem)
 				return sol::make_object(lua, static_cast<ParticleSystem*>(c));
 		}
@@ -1103,7 +1117,18 @@ namespace p3d {
 				"onUpdate", &LUA_RenderingComponent::on_update,
 				"onInit", &LUA_RenderingComponent::on_init,
 				"onDestroy", &LUA_RenderingComponent::on_destroy,
-				sol::base_classes, sol::bases<IComponent>()
+				// RenderingComponent, not just IComponent: sol only performs
+				// a derived->base pointer conversion for bases listed here,
+				// so with IComponent alone every member bound as a free
+				// function taking RenderingComponent& (getActiveSkeletonAnimation
+				// / addLOD) rejected its own object with "expected userdata,
+				// received sol.p3d::LUA_RenderingComponent *: value at this
+				// index does not properly reflect the desired type". That is
+				// what left the Skeleton Animation demo unanimated - its
+				// script could never obtain the SkeletonAnimationInstance, so
+				// SkeletonAnimation::Update() never ran and the model
+				// rendered from uninitialised bone matrices.
+				sol::base_classes, sol::bases<RenderingComponent, IComponent>()
 				);
 		}
 
@@ -1251,6 +1276,9 @@ namespace p3d {
 				"getLightDirection", &LUA_DirectionalLight::GetLightDirection,
 				"setLightDirection", &LUA_DirectionalLight::SetLightDirection,
 				"getLightColor", &LUA_DirectionalLight::GetLightColor,
+				"setLightColor", &LUA_DirectionalLight::SetLightColor,
+				"getLightIntensity", &LUA_DirectionalLight::GetLightIntensity,
+				"setLightIntensity", &LUA_DirectionalLight::SetLightIntensity,
 				"onUpdate", &LUA_DirectionalLight::on_update,
 				"onInit", &LUA_DirectionalLight::on_init,
 				"onDestroy", &LUA_DirectionalLight::on_destroy,
@@ -1272,6 +1300,9 @@ namespace p3d {
 				"getLightRadius", &LUA_PointLight::GetLightRadius,
 				"setLightRadius", &LUA_PointLight::SetLightRadius,
 				"getLightColor", &LUA_PointLight::GetLightColor,
+				"setLightColor", &LUA_PointLight::SetLightColor,
+				"getLightIntensity", &LUA_PointLight::GetLightIntensity,
+				"setLightIntensity", &LUA_PointLight::SetLightIntensity,
 				"onUpdate", &LUA_PointLight::on_update,
 				"onInit", &LUA_PointLight::on_init,
 				"onDestroy", &LUA_PointLight::on_destroy,
@@ -1308,6 +1339,9 @@ namespace p3d {
 				"getLightOutterCone", &LUA_SpotLight::GetLightOutterCone,
 				"setLightOutterCone", &LUA_SpotLight::SetLightOutterCone,
 				"getLightColor", &LUA_SpotLight::GetLightColor,
+				"setLightColor", &LUA_SpotLight::SetLightColor,
+				"getLightIntensity", &LUA_SpotLight::GetLightIntensity,
+				"setLightIntensity", &LUA_SpotLight::SetLightIntensity,
 				"setShadowPCFTexelSize", &LUA_SpotLight::SetShadowPCFTexelSize,
 				"onUpdate", &LUA_SpotLight::on_update,
 				"onInit", &LUA_SpotLight::on_init,

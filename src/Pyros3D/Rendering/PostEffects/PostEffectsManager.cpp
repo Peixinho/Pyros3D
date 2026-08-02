@@ -78,6 +78,7 @@ namespace p3d {
 
 	void PostEffectsManager::ProcessPostEffects(Projection* projection)
 	{
+
 		// Set Counter
 		uint32 counter = 1;
 
@@ -333,6 +334,12 @@ namespace p3d {
 
 	PostEffectsManager::~PostEffectsManager()
 	{
+		// Same in-flight-submission hazard as RemoveAllEffects() below, and
+		// the same fix - at shutdown the last frame's command buffer is
+		// routinely still executing, so tearing these down unguarded is a
+		// real use-after-free (it shows up as an intermittent segfault on
+		// quit rather than a clean exit).
+		device->WaitIdle();
 		for (std::vector<IEffect*>::iterator i = effects.begin(); i != effects.end(); i++)
 		{
 			delete (*i);
@@ -369,6 +376,17 @@ namespace p3d {
 
 	void PostEffectsManager::RemoveAllEffects()
 	{
+		// An IEffect owns real GPU resources (its FBO/textures, and on
+		// Vulkan the render pass + every pipeline cached against it). The
+		// previous frame's submission can still be in flight here - the
+		// frame fence is only waited on at the top of the *next*
+		// BeginFrame() - so deleting them straight away destroys objects a
+		// live command buffer is still using: confirmed as a real
+		// VUID-vkDestroyPipeline-pipeline-00765 under validation layers,
+		// on nothing more exotic than switching demos in DemoLauncher.
+		// Same reasoning (and same fix) as DeferredRenderer::Resize()'s
+		// leading WaitIdle - see its comment.
+		device->WaitIdle();
 		for (std::vector<IEffect*>::iterator i = effects.begin(); i != effects.end(); i++)
 		{
 			delete (*i);

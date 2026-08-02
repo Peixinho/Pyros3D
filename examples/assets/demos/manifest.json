@@ -1,0 +1,80 @@
+[
+ {
+  "name": "Rotating Cube (Lighting + Shadows)",
+  "description": "Directional + point light, both casting shadows, onto a floor/ceiling and a spinning cube.",
+  "scene": "RotatingCubeWithLightingAndShadow.json",
+  "cameraPosition": [
+   0,
+   10,
+   100
+  ],
+  "effects": [
+   "tonemap"
+  ]
+ },
+ {
+  "name": "PBR Spheres",
+  "description": "Metallic/roughness calibration grid, plus a sphere driven by a metallic-roughness map texture.",
+  "scene": "PBRSpheres.json",
+  "effects": [
+   "tonemap"
+  ],
+  "cameraPosition": [
+   0,
+   0,
+   60
+  ]
+ },
+ {
+  "name": "Deferred Rendering",
+  "description": "100 small rotating cubes lit by 100 random point lights, through the deferred G-buffer.",
+  "scene": "DeferredRendering.json",
+  "cameraPosition": [
+   0,
+   0,
+   3
+  ],
+  "effects": [
+   "tonemap"
+  ]
+ },
+ {
+  "name": "Particles",
+  "description": "Smoke (alpha-blended, tunable) and embers (additive) particle emitters.",
+  "scene": "ParticlesExample.json",
+  "cameraPosition": [
+   0,
+   2,
+   15
+  ],
+  "effects": [
+   "tonemap"
+  ]
+ },
+ {
+  "name": "Simple Physics",
+  "description": "1000 dynamic physics cubes falling onto a static floor, real-time Bullet simulation.",
+  "scene": "SimplePhysics.json",
+  "cameraPosition": [
+   0,
+   20,
+   300
+  ],
+  "effects": [
+   "tonemap"
+  ]
+ },
+ {
+  "name": "Skeleton Animation",
+  "description": "Skinned human model blending between walk/run/alert animations by mouse X position.",
+  "scene": "SkeletonAnimationExample.json",
+  "cameraPosition": [
+   0,
+   10,
+   100
+  ],
+  "effects": [
+   "tonemap"
+  ]
+ }
+]

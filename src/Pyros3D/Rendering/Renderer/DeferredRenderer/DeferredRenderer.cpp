@@ -388,20 +388,26 @@ namespace p3d {
 		deferredMaterialPoint->extraUniforms[1].offsets["uPCFTexelSize"] = 192;
 		deferredMaterialPoint->extraUniforms[1].offsets["uHaveShadowmap"] = 196;
 
-		// Genuinely backend-different, not a single value that's "right"
-		// or "wrong" globally: this light-volume geometry is a Sphere
-		// primitive with reversed winding vs Cube (see examples/
-		// PBRSpheres.cpp's identical comment). GL needs
-		// CullFace::FrontFace (culling the *near* faces, the standard
-		// "camera may be inside the light volume" deferred-shading
-		// technique); Vulkan needs CullFace::BackFace for the same
-		// visible result - the two backends' rasterizers disagree on
-		// which of this reversed-winding sphere's faces count as "front"
-		// closely enough that one single CullFace value can look correct
-		// on one backend and flat/highlight-less on the other depending
-		// on which one was last actually verified. IsVulkan() branch is
-		// the real fix; see IRenderDevice.h's comment on it.
-		device->IsVulkan() ? deferredMaterialPoint->SetCullFace(CullFace::BackFace) : deferredMaterialPoint->SetCullFace(CullFace::FrontFace);
+		// FrontFace on BOTH backends - culling the light volume's *near*
+		// faces so the far hemisphere is what covers the screen, the
+		// standard "camera may be inside the light volume" deferred
+		// technique. This used to be `IsVulkan() ? BackFace : FrontFace`,
+		// justified as the two rasterizers disagreeing on this sphere's
+		// winding. They don't: with the camera *outside* the proxy the
+		// near and far hemispheres have the identical screen silhouette,
+		// so either value produces a pixel-identical image - which is why
+		// the inversion survived every previous verification pass (all of
+		// which used a camera well outside the proxy). The two only differ
+		// once the camera is *inside* the proxy sphere, where every
+		// visible face is back-facing: GL kept them, Vulkan culled them
+		// all and the light silently vanished. That happens for every
+		// camera distance between the light's radius (where the
+		// fullscreen-quad substitution below stops) and the proxy mesh's
+		// own g(f(radius)) = ~1.41x radius scale - a real, wide dead band
+		// (100..141 units for a radius-100 light) reported as "the point
+		// light disappears at certain distances". Verified by capture on
+		// both backends at 30/60/100/150/200/300/500 units.
+		deferredMaterialPoint->SetCullFace(CullFace::FrontFace);
 		deferredMaterialPoint->DisableDepthTest();
 		deferredMaterialPoint->DisableDepthWrite();
 		deferredMaterialPoint->EnableBlending();
@@ -466,9 +472,10 @@ namespace p3d {
 		deferredMaterialSpot->extraUniforms[1].offsets["uPCFTexelSize"] = 224;
 		deferredMaterialSpot->extraUniforms[1].offsets["uHaveShadowmap"] = 228;
 
-		// See deferredMaterialPoint's identical comment above - same
-		// Sphere-primitive light volume, same backend-conditional fix.
-		device->IsVulkan() ? deferredMaterialSpot->SetCullFace(CullFace::BackFace) : deferredMaterialSpot->SetCullFace(CullFace::FrontFace);
+		// See deferredMaterialPoint's comment above - same Sphere-primitive
+		// light volume, same inside-the-proxy dead band the old IsVulkan()
+		// inversion caused.
+		deferredMaterialSpot->SetCullFace(CullFace::FrontFace);
 		deferredMaterialSpot->DisableDepthTest();
 		deferredMaterialSpot->DisableDepthWrite();
 		deferredMaterialSpot->EnableBlending();
@@ -486,7 +493,7 @@ namespace p3d {
 		// explicitly as an override - see the light-rendering loop below)
 		// but kept consistent with them regardless, matching their
 		// identical CullFace fix/comment above.
-		device->IsVulkan() ? pointLight->GetMeshes()[0]->Material->SetCullFace(CullFace::BackFace) : pointLight->GetMeshes()[0]->Material->SetCullFace(CullFace::FrontFace);
+		pointLight->GetMeshes()[0]->Material->SetCullFace(CullFace::FrontFace);
 	}
 
 	void DeferredRenderer::Resize(const uint32 Width, const uint32 Height)
@@ -531,6 +538,13 @@ namespace p3d {
 
 	DeferredRenderer::~DeferredRenderer()
 	{
+		// Everything below is GPU-backed (FBOs, textures, materials and the
+		// pipelines cached against them) and the last submitted frame can
+		// still be in flight here - the frame fence is only ever waited on
+		// at the top of the *next* BeginFrame(), which will never come.
+		// Same reasoning as Resize()'s leading WaitIdle above; without it
+		// quitting is an intermittent crash rather than a clean exit.
+		device->WaitIdle();
 		delete lastPassFBO;
 		delete colorTexture;
 		delete previousFrameFBO;
@@ -669,6 +683,7 @@ namespace p3d {
 		// RenderScene() call is itself targeting a caller-bound offscreen
 		// FBO (e.g. a reflection pass) rather than the real swapchain.
 		bool isMainSwapchainPass = device->GetCurrentRenderTarget() == 0;
+
 		if (isMainSwapchainPass)
 			device->BeginFrame();
 
@@ -769,7 +784,8 @@ namespace p3d {
 					Vec3 pos = (ViewMatrix * Vec4(p->GetOwner()->GetWorldPosition(), 1.f)).xyz();
 					pointPosHandle->SetValue(&pos);
 					pointRadiusHandle->SetValue((void*)&p->GetLightRadius());
-					pointColorHandle->SetValue((void*)&p->GetLightColor());
+					Vec4 pointRadiance = p->GetLightRadiance();
+					pointColorHandle->SetValue(&pointRadiance);
 					// Pre-existing bug, found and fixed alongside the other
 					// second-pass bugs above: defaulting to unit 0 when the
 					// light doesn't cast a shadow makes uShadowMap (a
@@ -850,7 +866,7 @@ namespace p3d {
 						// render their own identical full-screen quad.
 						deferredMaterialPoint->SetCullFace(CullFace::DoubleSided);
 						RenderObject(directionalLight->GetMeshes()[0], p->GetOwner(), deferredMaterialPoint);
-						device->IsVulkan() ? deferredMaterialPoint->SetCullFace(CullFace::BackFace) : deferredMaterialPoint->SetCullFace(CullFace::FrontFace);
+						deferredMaterialPoint->SetCullFace(CullFace::FrontFace);
 					}
 					else
 					{
@@ -882,7 +898,8 @@ namespace p3d {
 					spotRadiusHandle->SetValue((void*)&s->GetLightRadius());
 					spotOutterHandle->SetValue((void*)&s->GetLightCosOutterCone());
 					spotInnerHandle->SetValue((void*)&s->GetLightCosInnerCone());
-					spotColorHandle->SetValue((void*)&s->GetLightColor());
+					Vec4 spotRadiance = s->GetLightRadiance();
+					spotColorHandle->SetValue(&spotRadiance);
 
 					// See the identical fix in the POINT case above.
 					int shadowUnit = 4;
@@ -917,7 +934,7 @@ namespace p3d {
 					{
 						deferredMaterialSpot->SetCullFace(CullFace::DoubleSided);
 						RenderObject(directionalLight->GetMeshes()[0], s->GetOwner(), deferredMaterialSpot);
-						device->IsVulkan() ? deferredMaterialSpot->SetCullFace(CullFace::BackFace) : deferredMaterialSpot->SetCullFace(CullFace::FrontFace);
+						deferredMaterialSpot->SetCullFace(CullFace::FrontFace);
 					}
 					else
 					{
@@ -945,7 +962,8 @@ namespace p3d {
 					// Directional Lights
 					Vec3 dir = (ViewMatrix * (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f))).xyz().normalize();
 					dirDirHandle->SetValue(&dir);
-					dirColorHandle->SetValue((void*)&d->GetLightColor());
+					Vec4 dirRadiance = d->GetLightRadiance();
+					dirColorHandle->SetValue(&dirRadiance);
 					// See the identical fix in the POINT case above.
 					int shadowUnit = 4;
 					float haveShadow = 0.f;
@@ -1019,7 +1037,7 @@ namespace p3d {
 						DirectionalLight* d = ((DirectionalLight*)(*i));
 
 						// Directional Lights
-						Vec4 color = d->GetLightColor();
+						Vec4 color = d->GetLightRadiance();
 						Vec3 position;
 						Vec3 direction = (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize();
 						f32 attenuation = 1.f;
@@ -1047,7 +1065,7 @@ namespace p3d {
 						PointLight* p = ((PointLight*)(*i));
 
 						// Point Lights
-						Vec4 color = p->GetLightColor();
+						Vec4 color = p->GetLightRadiance();
 						Vec3 position = (p->GetOwner()->GetWorldPosition());
 						Vec3 direction;
 						f32 attenuation = p->GetLightRadius();
@@ -1076,7 +1094,7 @@ namespace p3d {
 						SpotLight* s = ((SpotLight*)(*i));
 
 						// Spot Lights
-						Vec4 color = s->GetLightColor();
+						Vec4 color = s->GetLightRadiance();
 						Vec3 position = s->GetOwner()->GetWorldPosition();
 						Vec3 direction = (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.f)).xyz().normalize();
 						f32 attenuation = s->GetLightRadius();
