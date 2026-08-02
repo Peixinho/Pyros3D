@@ -167,21 +167,23 @@ void EffectToggleTest::Update()
 	CubeObject->SetRotation(Vec3(0.4f, (f32)GetTime(), 0.f));
 	Scene->Update(GetTime());
 
-	// Identical branch structure to DemoLauncher's: an empty chain must not go
-	// through CaptureFrame()/ProcessPostEffects(), whose last-effect-presents
-	// logic lives inside a loop that never runs for zero effects.
-	if (renderWithEffects)
+	// P3D_LEGACYBRANCH reproduces how callers had to be written before
+	// PostEffectsManager grew its implicit passthrough: branch on whether the
+	// chain is empty, which silently moves RenderScene()'s target between the
+	// swapchain and ExternalFBO and triggers the Vulkan second-target bug.
+	// Without it, the capture path is used unconditionally - one target, always.
+	if (getenv("P3D_LEGACYBRANCH") && !renderWithEffects)
+	{
+		Renderer->PreRender(Camera, Scene);
+		Renderer->RenderScene(projection, Camera, Scene);
+	}
+	else
 	{
 		EffectManager->CaptureFrame();
 		Renderer->PreRender(Camera, Scene);
 		Renderer->RenderScene(projection, Camera, Scene);
 		EffectManager->EndCapture();
 		EffectManager->ProcessPostEffects(&projection);
-	}
-	else
-	{
-		Renderer->PreRender(Camera, Scene);
-		Renderer->RenderScene(projection, Camera, Scene);
 	}
 
 	frame++;

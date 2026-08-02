@@ -66,6 +66,12 @@ namespace p3d {
 
 		// List of Effects
 		std::vector<IEffect*> effects;
+		// Built on demand the first time ProcessPostEffects() runs with an
+		// empty chain, then kept - see that function's comment. Exists so a
+		// caller's RenderScene() target never depends on whether the chain
+		// happens to be empty this frame.
+		IEffect* passthrough;
+		std::vector<IEffect*> passthroughChain;
 
 		// MRT
 		Texture *Color, *Depth, *LastRTT;
