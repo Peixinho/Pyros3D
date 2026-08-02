@@ -321,8 +321,7 @@ namespace p3d {
 
 			// Save Pointer
 			pcomp->SaveRigidBodyPTR(m_vehicle);
-			//vehicle->RaycastVehicle = m_vehicle;
-			//vehicle->VehicleRaycaster = m_vehicleRayCaster;
+			vehicle->SaveVehicleRaycasterPTR(m_vehicleRayCaster);
 
 			std::vector<VehicleWheel> Wheels = vehicle->GetWheels();
 			for (uint32 i = 0; i < Wheels.size(); i++)
@@ -488,8 +487,61 @@ namespace p3d {
 
 	void BulletPhysics::RemovePhysicsComponent(IPhysicsComponent* pcomp)
 	{
-		if (pcomp->GetShape() != CollisionShapes::Vehicle)
-			m_dynamicsWorld->removeRigidBody(static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR()));
+		// Real cleanup, not just a world-removal - nothing here ever
+		// freed the underlying Bullet objects before (rigid
+		// body/motion state/collision shape leaked on every removal,
+		// and vehicles were never even removed from the dynamics world
+		// - m_dynamicsWorld->removeVehicle() was never called anywhere
+		// in this codebase). Latent until something actually started
+		// creating and destroying physics content repeatedly within one
+		// process (a demo-switching launcher) - a single-shot example
+		// that runs once and exits never noticed either gap.
+		if (pcomp->GetShape() == CollisionShapes::Vehicle)
+		{
+			PhysicsVehicle* vehicle = static_cast<PhysicsVehicle*>(pcomp);
+			btRaycastVehicle* btVehicle = static_cast<btRaycastVehicle*>(pcomp->GetRigidBodyPTR());
+			btRigidBody* chassis = btVehicle->getRigidBody();
+
+			m_dynamicsWorld->removeVehicle(btVehicle);
+			m_dynamicsWorld->removeRigidBody(chassis);
+
+			delete chassis->getMotionState();
+			btCollisionShape* chassisShape = chassis->getCollisionShape();
+			// Always a btCompoundShape wrapping the real chassis shape -
+			// see CreatePhysicsComponent()'s Vehicle case above.
+			if (chassisShape->isCompound())
+			{
+				btCompoundShape* compound = static_cast<btCompoundShape*>(chassisShape);
+				for (int i = 0; i < compound->getNumChildShapes(); i++)
+					delete compound->getChildShape(i);
+			}
+			delete chassisShape;
+			delete chassis;
+			delete static_cast<btVehicleRaycaster*>(vehicle->GetVehicleRaycasterPTR());
+			delete btVehicle;
+		}
+		else if (pcomp->IsGhost())
+		{
+			// Previously cast to btRigidBody* and passed to
+			// removeRigidBody() here regardless of IsGhost() - wrong
+			// type, since a ghost object is added via
+			// addCollisionObject() (CreateGhostObject() above), not
+			// addRigidBody(). A pre-existing bug, unrelated to the
+			// leak/vehicle fixes above but adjacent enough to fix
+			// alongside them.
+			btGhostObject* ghost = static_cast<btGhostObject*>(pcomp->GetRigidBodyPTR());
+			m_dynamicsWorld->removeCollisionObject(ghost);
+			delete ghost->getCollisionShape();
+			delete ghost;
+		}
+		else
+		{
+			btRigidBody* body = static_cast<btRigidBody*>(pcomp->GetRigidBodyPTR());
+			m_dynamicsWorld->removeRigidBody(body);
+			delete body->getMotionState();
+			delete body->getCollisionShape();
+			delete body;
+		}
 
 		// Real, necessary cleanup for ProcessCollisionEvents()'s
 		// m_touchingPairs above: without this, a pair involving a

@@ -62,6 +62,17 @@ namespace p3d {
 
 		IPhysicsComponent* GetChassis() { return this->chassisShape; }
 
+		// void* to keep this header Bullet-agnostic (same pattern as
+		// IPhysicsComponent::rigidBodyPTR/SaveRigidBodyPTR) - the actual
+		// btVehicleRaycaster* this vehicle's btRaycastVehicle needs is
+		// otherwise unreachable after construction (btRaycastVehicle
+		// doesn't expose a getter for it), so BulletPhysics has nowhere
+		// else to stash it for later freeing when the vehicle is
+		// removed. Set once in BulletPhysics::CreatePhysicsComponent(),
+		// read+freed in BulletPhysics::RemovePhysicsComponent().
+		void SaveVehicleRaycasterPTR(void* ptr) { vehicleRaycasterPTR = ptr; }
+		void* GetVehicleRaycasterPTR() { return vehicleRaycasterPTR; }
+
 		// Setters
 		void SetMaxProxies(const uint32 maxProxies) { this->maxProxies = maxProxies; }
 		void SetMaxOverlap(const uint32 maxOverlap) { this->maxOverlap = maxOverlap; }
@@ -105,6 +116,9 @@ namespace p3d {
 
 		// List of Wheels in the Vehicle
 		std::vector<VehicleWheel> Wheels;
+
+		// See SaveVehicleRaycasterPTR() above.
+		void* vehicleRaycasterPTR = NULL;
 	};
 
 }

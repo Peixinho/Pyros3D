@@ -227,8 +227,10 @@ namespace p3d {
 	}
 	// Mirrors SerializeTextureRef - resolves either key, dedupes
 	// path-based loads via textureCache (embedded-data loads always
-	// create a fresh Texture, no natural dedup key).
-	static Texture* DeserializeTextureRef(const json &parent, const std::string &key, std::map<std::string, Texture*> &textureCache);
+	// create a fresh Texture, no natural dedup key). `outAssets`, if
+	// non-NULL, records every Texture actually constructed (not cache
+	// hits) - see LoadedSceneAssets.
+	static Texture* DeserializeTextureRef(const json &parent, const std::string &key, std::map<std::string, Texture*> &textureCache, LoadedSceneAssets* outAssets);
 
 	// ******************************* save *******************************
 
@@ -891,7 +893,7 @@ namespace p3d {
 
 	// ******************************* load *******************************
 
-	static Texture* GetOrLoadTexture(const std::string &path, std::map<std::string, Texture*> &cache)
+	static Texture* GetOrLoadTexture(const std::string &path, std::map<std::string, Texture*> &cache, LoadedSceneAssets* outAssets)
 	{
 		if (path.empty()) return NULL;
 		std::map<std::string, Texture*>::iterator it = cache.find(path);
@@ -899,13 +901,14 @@ namespace p3d {
 		Texture* tex = new Texture();
 		tex->LoadTexture(path, TextureType::Texture);
 		cache[path] = tex;
+		if (outAssets) outAssets->textures.push_back(tex);
 		return tex;
 	}
 
-	static Texture* DeserializeTextureRef(const json &parent, const std::string &key, std::map<std::string, Texture*> &textureCache)
+	static Texture* DeserializeTextureRef(const json &parent, const std::string &key, std::map<std::string, Texture*> &textureCache, LoadedSceneAssets* outAssets)
 	{
 		if (parent.find(key) != parent.end())
-			return GetOrLoadTexture(parent[key].get<std::string>(), textureCache);
+			return GetOrLoadTexture(parent[key].get<std::string>(), textureCache, outAssets);
 		std::string dataKey = key + "Data";
 		if (parent.find(dataKey) != parent.end())
 		{
@@ -914,6 +917,7 @@ namespace p3d {
 			std::vector<uchar> bytes = Base64Decode(parent[dataKey].get<std::string>());
 			Texture* tex = new Texture();
 			tex->LoadTextureFromMemory(bytes, (uint32)bytes.size(), TextureType::Texture);
+			if (outAssets) outAssets->textures.push_back(tex);
 			return tex;
 		}
 		return NULL;
@@ -939,7 +943,7 @@ namespace p3d {
 		else mat->DisableDethBias();
 	}
 
-	static IMaterial* BuildMaterial(const json &j, std::map<std::string, Texture*> &textureCache)
+	static IMaterial* BuildMaterial(const json &j, std::map<std::string, Texture*> &textureCache, LoadedSceneAssets* outAssets)
 	{
 		std::string kind = j.value("kind", "unsupported");
 		if (kind == "generic")
@@ -953,14 +957,14 @@ namespace p3d {
 			if ((j.find("metallic") != j.end())) gm->SetMetallic(j["metallic"].get<f32>());
 			if ((j.find("roughness") != j.end())) gm->SetRoughness(j["roughness"].get<f32>());
 			if (j.value("ssrEnabled", false)) gm->SetSSREnabled(true);
-			if (Texture* t = DeserializeTextureRef(j, "colorMap", textureCache)) gm->SetColorMap(t);
-			if (Texture* t = DeserializeTextureRef(j, "specularMap", textureCache)) gm->SetSpecularMap(t);
-			if (Texture* t = DeserializeTextureRef(j, "normalMap", textureCache)) gm->SetNormalMap(t);
-			if (Texture* t = DeserializeTextureRef(j, "displacementMap", textureCache)) gm->SetDisplacementMap(t);
-			if (Texture* t = DeserializeTextureRef(j, "envMap", textureCache)) gm->SetEnvMap(t);
-			if (Texture* t = DeserializeTextureRef(j, "refractMap", textureCache)) gm->SetRefractMap(t);
-			if (Texture* t = DeserializeTextureRef(j, "skyboxMap", textureCache)) gm->SetSkyboxMap(t);
-			if (Texture* t = DeserializeTextureRef(j, "metallicRoughnessMap", textureCache)) gm->SetMetallicRoughnessMap(t);
+			if (Texture* t = DeserializeTextureRef(j, "colorMap", textureCache, outAssets)) gm->SetColorMap(t);
+			if (Texture* t = DeserializeTextureRef(j, "specularMap", textureCache, outAssets)) gm->SetSpecularMap(t);
+			if (Texture* t = DeserializeTextureRef(j, "normalMap", textureCache, outAssets)) gm->SetNormalMap(t);
+			if (Texture* t = DeserializeTextureRef(j, "displacementMap", textureCache, outAssets)) gm->SetDisplacementMap(t);
+			if (Texture* t = DeserializeTextureRef(j, "envMap", textureCache, outAssets)) gm->SetEnvMap(t);
+			if (Texture* t = DeserializeTextureRef(j, "refractMap", textureCache, outAssets)) gm->SetRefractMap(t);
+			if (Texture* t = DeserializeTextureRef(j, "skyboxMap", textureCache, outAssets)) gm->SetSkyboxMap(t);
+			if (Texture* t = DeserializeTextureRef(j, "metallicRoughnessMap", textureCache, outAssets)) gm->SetMetallicRoughnessMap(t);
 			ApplyCommonMaterialFields(gm, j);
 			return gm;
 		}
@@ -1015,17 +1019,22 @@ namespace p3d {
 		return NULL;
 	}
 
-	static Renderable* DeserializeRenderable(const json &j)
+	static Renderable* DeserializeRenderable(const json &j, LoadedSceneAssets* outAssets)
 	{
 		if (j.is_null()) return NULL;
 		std::string kind = j.value("kind", "");
+		Renderable* r = NULL;
 		if (kind == "model")
-			return new Model(j.value("path", std::string()), j.value("mergeMeshes", true));
-		if (kind == "text")
+			r = new Model(j.value("path", std::string()), j.value("mergeMeshes", true));
+		else if (kind == "text")
 		{
 			// No font pooling/dedup - each loaded Text gets its own Font
 			// instance, matching what direct C++ construction would do
-			// anyway; out of scope to optimize here.
+			// anyway; out of scope to optimize here. The Font isn't
+			// tracked in LoadedSceneAssets - Text doesn't expose a way
+			// to retrieve/free it separately, and it's a small,
+			// self-contained allocation, not part of the material/
+			// texture/renderable pools this manifest targets.
 			Font* font = new Font(j.value("font", std::string()), j.value("fontSize", 16.0f));
 			std::string text = j.value("text", std::string());
 			f32 charWidth = j.value("charWidth", 1.0f);
@@ -1034,12 +1043,15 @@ namespace p3d {
 			{
 				std::vector<Vec4> colors;
 				for (auto &cj : j["charColors"]) colors.push_back(Vec4FromJson(cj));
-				return new Text(font, text, charWidth, charHeight, colors);
+				r = new Text(font, text, charWidth, charHeight, colors);
 			}
-			Vec4 color = (j.find("color") != j.end()) ? Vec4FromJson(j["color"]) : Vec4(1, 1, 1, 1);
-			return new Text(font, text, charWidth, charHeight, color);
+			else
+			{
+				Vec4 color = (j.find("color") != j.end()) ? Vec4FromJson(j["color"]) : Vec4(1, 1, 1, 1);
+				r = new Text(font, text, charWidth, charHeight, color);
+			}
 		}
-		if (kind == "decal")
+		else if (kind == "decal")
 		{
 			bool haveBones = j.value("haveBones", false);
 			std::vector<DecalVertex> verts;
@@ -1059,26 +1071,27 @@ namespace p3d {
 					verts.push_back(dv);
 				}
 			}
-			return new Decal(verts, haveBones);
+			r = new Decal(verts, haveBones);
 		}
-		if (kind != "primitive") return NULL;
+		else if (kind == "primitive")
+		{
+			bool smooth = j.value("smooth", false);
+			bool flip = j.value("flip", false);
+			bool tb = j.value("tangentBitangent", false);
+			std::string shape = j.value("shape", "");
 
-		bool smooth = j.value("smooth", false);
-		bool flip = j.value("flip", false);
-		bool tb = j.value("tangentBitangent", false);
-		std::string shape = j.value("shape", "");
-
-		if (shape == "Cube") return new Cube(j.value("width", 1.0f), j.value("height", 1.0f), j.value("depth", 1.0f), smooth, flip, tb);
-		if (shape == "Sphere") return new Sphere(j.value("radius", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), smooth, j.value("halfSphere", false), flip, tb);
-		if (shape == "Cone") return new Cone(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), j.value("openEnded", false), smooth, flip, tb);
-		if (shape == "Cylinder") return new Cylinder(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), j.value("openEnded", false), smooth, flip, tb);
-		if (shape == "Plane") return new Plane(j.value("width", 1.0f), j.value("height", 1.0f), smooth, flip, tb);
-		if (shape == "Capsule") return new Capsule(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("numRings", 8u), j.value("segmentsW", 16u), j.value("segmentsH", 16u), smooth, flip, tb);
-		if (shape == "Torus") return new Torus(j.value("radius", 1.0f), j.value("tube", 0.3f), j.value("segmentsW", 60u), j.value("segmentsH", 6u), smooth, flip, tb);
-		if (shape == "TorusKnot") return new TorusKnot(j.value("radius", 1.0f), j.value("tube", 0.3f), j.value("segmentsW", 60u), j.value("segmentsH", 6u), j.value("p", 2.0f), j.value("q", 3.0f), j.value("heightScale", 1u), smooth, flip, tb);
-
-		echo("WARNING: SceneSerializer - unrecognized primitive shape on load: " + shape);
-		return NULL;
+			if (shape == "Cube") r = new Cube(j.value("width", 1.0f), j.value("height", 1.0f), j.value("depth", 1.0f), smooth, flip, tb);
+			else if (shape == "Sphere") r = new Sphere(j.value("radius", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), smooth, j.value("halfSphere", false), flip, tb);
+			else if (shape == "Cone") r = new Cone(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), j.value("openEnded", false), smooth, flip, tb);
+			else if (shape == "Cylinder") r = new Cylinder(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), j.value("openEnded", false), smooth, flip, tb);
+			else if (shape == "Plane") r = new Plane(j.value("width", 1.0f), j.value("height", 1.0f), smooth, flip, tb);
+			else if (shape == "Capsule") r = new Capsule(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("numRings", 8u), j.value("segmentsW", 16u), j.value("segmentsH", 16u), smooth, flip, tb);
+			else if (shape == "Torus") r = new Torus(j.value("radius", 1.0f), j.value("tube", 0.3f), j.value("segmentsW", 60u), j.value("segmentsH", 6u), smooth, flip, tb);
+			else if (shape == "TorusKnot") r = new TorusKnot(j.value("radius", 1.0f), j.value("tube", 0.3f), j.value("segmentsW", 60u), j.value("segmentsH", 6u), j.value("p", 2.0f), j.value("q", 3.0f), j.value("heightScale", 1u), smooth, flip, tb);
+			else echo("WARNING: SceneSerializer - unrecognized primitive shape on load: " + shape);
+		}
+		if (r && outAssets) outAssets->renderables.push_back(r);
+		return r;
 	}
 
 	// Mirrors SerializePhysicsShape - reused by both the flat "Physics"
@@ -1123,13 +1136,13 @@ namespace p3d {
 		return NULL;
 	}
 
-	static void DeserializeComponent(GameObject* go, const json &j, const std::vector<IMaterial*> &materialsById, std::map<std::string, Texture*> &textureCache, IPhysics* physics, sol::state* lua)
+	static void DeserializeComponent(GameObject* go, const json &j, const std::vector<IMaterial*> &materialsById, std::map<std::string, Texture*> &textureCache, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets)
 	{
 		std::string type = j.value("type", "");
 
 		if (type == "RenderingComponent")
 		{
-			Renderable* renderable = DeserializeRenderable(j.value("renderable", json()));
+			Renderable* renderable = DeserializeRenderable(j.value("renderable", json()), outAssets);
 			if (!renderable) { echo("WARNING: SceneSerializer - skipping RenderingComponent, couldn't rebuild its renderable"); return; }
 			uint32 matId = j.value("material", (uint32)0xFFFFFFFF);
 			IMaterial* mat = (matId < materialsById.size()) ? materialsById[matId] : NULL;
@@ -1147,6 +1160,7 @@ namespace p3d {
 				{
 					SkeletonAnimation* anim = new SkeletonAnimation();
 					anim->LoadAnimation(path);
+					if (outAssets) outAssets->skeletonAnimations.push_back(anim);
 					SkeletonAnimationInstance* inst = anim->CreateInstance(rc);
 					if (sa.find("layers") != sa.end())
 					{
@@ -1187,7 +1201,8 @@ namespace p3d {
 				if (ta.find("frames") != ta.end() && !ta["frames"].empty())
 				{
 					TextureAnimation* anim = new TextureAnimation();
-					for (auto &fj : ta["frames"]) anim->AddFrame(DeserializeTextureRef(fj, "tex", textureCache));
+					if (outAssets) outAssets->textureAnimations.push_back(anim);
+					for (auto &fj : ta["frames"]) anim->AddFrame(DeserializeTextureRef(fj, "tex", textureCache, outAssets));
 					TextureAnimationInstance* tinst = anim->CreateInstance(ta.value("fps", 30.0f));
 					if (ta.value("reverse", false)) tinst->Reverse(true);
 					if (ta.value("yoyo", false)) tinst->YoYo(true);
@@ -1205,7 +1220,7 @@ namespace p3d {
 		{
 			ParticleSystemDesc d;
 			d.maxParticles = j.value("maxParticles", d.maxParticles);
-			if (Texture* t = DeserializeTextureRef(j, "texture", textureCache)) d.texture = t;
+			if (Texture* t = DeserializeTextureRef(j, "texture", textureCache, outAssets)) d.texture = t;
 			d.looping = j.value("looping", d.looping);
 			d.emissionRate = j.value("emissionRate", d.emissionRate);
 			d.burstCount = j.value("burstCount", d.burstCount);
@@ -1315,6 +1330,7 @@ namespace p3d {
 							LuaComponent* comp = new LuaComponent();
 							comp->scriptFile = scriptFile;
 							comp->data = instResult.get<sol::table>();
+							WireLuaComponentLifecycle(comp);
 							go->AddComponent(comp);
 						}
 						else echo("WARNING: SceneSerializer - a LuaComponent's deserialize() didn't return a table, adding as existence-only");
@@ -1342,28 +1358,46 @@ namespace p3d {
 #endif
 	}
 
-	static GameObject* DeserializeGameObject(const json &j, const std::vector<IMaterial*> &materialsById, std::map<std::string, Texture*> &textureCache, IPhysics* physics, sol::state* lua)
+	static GameObject* DeserializeGameObject(const json &j, const std::vector<IMaterial*> &materialsById, std::map<std::string, Texture*> &textureCache, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets)
 	{
+		// LUA_GameObject when lua != NULL, not plain GameObject - IComponent::
+		// GetOwner() (used by WireLuaComponentLifecycle to pass a script its
+		// own owner) returns a GameObject*, and GameObject is polymorphic, so
+		// sol2's RTTI-based automatic type resolution needs the *actual*
+		// object to be an instance of a registered usertype
+		// (LUA_GameObject, see PyrosBindings.h/.cpp - plain GameObject
+		// itself is never registered) - a real GameObject instance passed
+		// into Lua this way fails every method call on it ("attempt to
+		// index a sol.p3d::GameObject * value"), found via a real crash,
+		// not assumed. LUA_GameObject's default constructor is otherwise
+		// fully behavior-compatible (same fields; its Init/Update/Destroy
+		// overrides only add no-op-when-unset on_init/on_update/on_destroy
+		// hooks on top of the base class's own).
+#ifdef LUA_BINDINGS
+		GameObject* go = lua ? static_cast<GameObject*>(new LUA_GameObject(j.value("static", false))) : new GameObject(j.value("static", false));
+#else
 		GameObject* go = new GameObject(j.value("static", false));
+#endif
+		if (outAssets) outAssets->gameObjects.push_back(go);
 		go->SetName(j.value("name", std::string()));
 		if ((j.find("position") != j.end())) go->SetPosition(Vec3FromJson(j["position"]));
 		if ((j.find("rotation") != j.end())) go->SetRotation(Vec3FromJson(j["rotation"]));
 		if ((j.find("scale") != j.end())) go->SetScale(Vec3FromJson(j["scale"]));
 		if ((j.find("tags") != j.end())) for (auto &t : j["tags"]) go->AddTag(t.get<std::string>());
 
-		if ((j.find("components") != j.end())) for (auto &cj : j["components"]) DeserializeComponent(go, cj, materialsById, textureCache, physics, lua);
+		if ((j.find("components") != j.end())) for (auto &cj : j["components"]) DeserializeComponent(go, cj, materialsById, textureCache, physics, lua, outAssets);
 
 		if ((j.find("children") != j.end()))
 			for (auto &cj : j["children"])
 			{
-				GameObject* child = DeserializeGameObject(cj, materialsById, textureCache, physics, lua);
+				GameObject* child = DeserializeGameObject(cj, materialsById, textureCache, physics, lua, outAssets);
 				go->Add(child);
 			}
 
 		return go;
 	}
 
-	bool SceneSerializer::LoadScene(SceneGraph* scene, const std::string &filePath, IPhysics* physics, sol::state* lua)
+	bool SceneSerializer::LoadScene(SceneGraph* scene, const std::string &filePath, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets)
 	{
 		std::ifstream in(filePath.c_str());
 		if (!in.is_open())
@@ -1390,13 +1424,42 @@ namespace p3d {
 		std::vector<IMaterial*> materialsById;
 		if ((root.find("materials") != root.end()))
 			for (auto &mj : root["materials"])
-				materialsById.push_back(BuildMaterial(mj, textureCache));
+			{
+				IMaterial* mat = BuildMaterial(mj, textureCache, outAssets);
+				materialsById.push_back(mat);
+				if (mat && outAssets) outAssets->materials.push_back(mat);
+			}
 
 		if ((root.find("roots") != root.end()))
 			for (auto &rj : root["roots"])
-				scene->Add(DeserializeGameObject(rj, materialsById, textureCache, physics, lua));
+				scene->Add(DeserializeGameObject(rj, materialsById, textureCache, physics, lua, outAssets));
 
 		return true;
+	}
+
+	void SceneSerializer::UnloadScene(SceneGraph* scene, const LoadedSceneAssets &assets)
+	{
+		for (GameObject* go : assets.gameObjects)
+		{
+			// Remove() is a safe no-op (logs, doesn't crash) for a
+			// GameObject that was never actually registered with
+			// `scene` - true of every recursively-created child here
+			// (only top-level roots are ever Scene->Add()'d, see
+			// LoadedSceneAssets' comment), so it's simplest and correct
+			// to call it unconditionally rather than track root-vs-child
+			// separately.
+			scene->Remove(go);
+		}
+		for (GameObject* go : assets.gameObjects)
+		{
+			for (IComponent* c : go->GetComponents()) delete c;
+		}
+		for (GameObject* go : assets.gameObjects) delete go;
+		for (SkeletonAnimation* a : assets.skeletonAnimations) delete a;
+		for (TextureAnimation* a : assets.textureAnimations) delete a;
+		for (IMaterial* m : assets.materials) delete m;
+		for (Texture* t : assets.textures) delete t;
+		for (Renderable* r : assets.renderables) delete r;
 	}
 
 }

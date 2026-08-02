@@ -42,6 +42,19 @@ namespace p3d {
 		// Destroy Function
 		virtual void Destroy();
 
+		// Recomputes this object's local/world transformation matrix from
+		// its current Position/Rotation/Scale - normally handled for free
+		// by SceneGraph::Update()'s traversal (GO->Update(); GO->
+		// InternalUpdate();), which SetPosition()/SetRotation()/SetScale()
+		// alone never trigger (they only flip the dirty flag). An object
+		// deliberately kept outside the SceneGraph (e.g. a camera driven
+		// directly every frame so scene load/unload never touches it)
+		// needs to call this itself after changing its transform, or
+		// GetWorldTransformation()/GetWorldPosition() keep returning a
+		// stale matrix forever even though GetPosition() reads back the
+		// new value correctly.
+		void RefreshTransformation() { UpdateTransformation(); }
+
 		// Local Space
 		const Matrix &GetLocalTransformation() const;
 		const Matrix &GetPrvLocalTransformation() const;

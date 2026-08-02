@@ -423,13 +423,39 @@ namespace p3d {
         bool initialized = false;
     };
 
+    // Wires a LuaComponent's on_init/on_update/on_destroy to its Lua
+    // instance's own init(self, owner)/update(self, time)/destroy(self)
+    // methods, if defined - without this, attachScript()'d behavior
+    // (and behavior reconstructed by SceneSerializer::LoadScene) never
+    // actually runs, since LuaComponent_FromFile/the load path only
+    // ever populate `data` (the instance), not these hooks. `owner` is
+    // passed into init() (in addition to self) so a script can reach
+    // its own GameObject/sibling components (e.g.
+    // owner:getComponent("RenderingComponent")) without a separate
+    // binding - update()/destroy() only ever need `self`. `time` is the
+    // same absolute simulation time every other Update(time) call in
+    // this engine already passes (SceneGraph::Update(GetTime()), etc),
+    // not a per-frame delta.
+    inline void WireLuaComponentLifecycle(LuaComponent* comp)
+    {
+        sol::table instance = comp->data;
+        if (!instance.valid()) return;
+        if (sol::function f = instance["init"]; f.valid())
+            comp->on_init = [](LuaComponent& c) { sol::table(c.data)["init"](c.data, c.GetOwner()); };
+        if (sol::function f = instance["update"]; f.valid())
+            comp->on_update = [](LuaComponent& c, p3d::f64 time) { sol::table(c.data)["update"](c.data, time); };
+        if (sol::function f = instance["destroy"]; f.valid())
+            comp->on_destroy = [](LuaComponent& c) { sol::table(c.data)["destroy"](c.data); };
+    }
+
     // Loads scriptFile (expected to `return` a middleclass class table,
     // e.g. `local Foo = class('Foo'); ... return Foo`), instantiates it
     // via Foo:new(), and wraps the result in a LuaComponent. Uses sol2's
     // require_file()'s own module caching (keyed by scriptFile itself),
     // so attaching the same script to many GameObjects only ever runs the
     // file once. Returns NULL (nil in Lua) if the file doesn't return a
-    // usable class table.
+    // usable class table. Lifecycle hooks (init/update/destroy) are
+    // wired automatically - see WireLuaComponentLifecycle.
     inline LuaComponent* LuaComponent_FromFile(sol::state& lua, const std::string &scriptFile)
     {
         sol::object result = lua.require_file(scriptFile, scriptFile);
@@ -441,6 +467,7 @@ namespace p3d {
         LuaComponent* comp = new LuaComponent();
         comp->scriptFile = scriptFile;
         comp->data = instance;
+        WireLuaComponentLifecycle(comp);
         return comp;
     }
 

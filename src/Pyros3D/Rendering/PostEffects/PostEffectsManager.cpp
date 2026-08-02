@@ -367,4 +367,13 @@ namespace p3d {
 		return effects.size();
 	}
 
+	void PostEffectsManager::RemoveAllEffects()
+	{
+		for (std::vector<IEffect*>::iterator i = effects.begin(); i != effects.end(); i++)
+		{
+			delete (*i);
+		}
+		effects.clear();
+	}
+
 }

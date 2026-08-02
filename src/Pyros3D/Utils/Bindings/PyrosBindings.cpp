@@ -286,6 +286,29 @@ namespace p3d {
 	{
 		return g.HaveTag(tag);
 	}
+	// Real, minimal "find a sibling component by type" for Lua behavior
+	// scripts attached via attachScript() - e.g. a skeleton-animation-
+	// driving script reaching the RenderingComponent on the same
+	// GameObject, or a particle-tuning script reaching its ParticleSystem.
+	// Covers only the component types an attached script actually needs
+	// to look up this way today; grows on demand rather than trying to
+	// genericize every ComponentType up front. Takes a plain GameObject&
+	// (not LUA_GameObject&) and sol::this_state instead of a captured
+	// lua* so it can be bound identically on both the LUA_GameObject and
+	// base GameObject usertypes - self.owner in a script is always the
+	// latter's static type (see the GameObjectBase usertype's comment).
+	sol::object GameObject_GetComponent(GameObject &go, const std::string &typeName, sol::this_state s)
+	{
+		sol::state_view lua(s);
+		for (IComponent* c : go.GetComponents())
+		{
+			if (typeName == "RenderingComponent" && c->GetComponentType() == ComponentType::RenderingComponent)
+				return sol::make_object(lua, static_cast<RenderingComponent*>(c));
+			if (typeName == "ParticleSystem" && c->GetComponentType() == ComponentType::ParticleSystem)
+				return sol::make_object(lua, static_cast<ParticleSystem*>(c));
+		}
+		return sol::lua_nil;
+	}
 	// ForwardRenderer
 	void ForwardRenderer_PreRender(ForwardRenderer &r, GameObject* Camera, SceneGraph* Scene)
 	{
@@ -404,6 +427,17 @@ namespace p3d {
 	void FrameBuffer_AddAttachRenderBuffer(FrameBuffer &f, const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height, const uint32 msaa = 0)
 	{
 		f.AddAttach(attachmentFormat, attachmentDataType, Width, Height, msaa);
+	}
+	// RenderingComponent::GetActiveSkeletonAnimation() returns void* (see
+	// its header comment - avoids a circular #include), so it can't be
+	// bound to Lua directly; this wraps the documented, guaranteed-safe
+	// cast back to SkeletonAnimationInstance* (only ever set from that
+	// class's own constructor) so a Lua behavior script attached to the
+	// same GameObject can reach the skeleton animation actually driving
+	// its model (e.g. via owner:getComponent("RenderingComponent")).
+	SkeletonAnimationInstance* RenderingComponent_GetActiveSkeletonAnimation(RenderingComponent &rc)
+	{
+		return static_cast<SkeletonAnimationInstance*>(rc.GetActiveSkeletonAnimation());
 	}
 	void RenderingComponent_ADDLOD_MaterialOptions(RenderingComponent* rcomp, Renderable* renderable, const f32 Distance, IMaterial* Material)
 	{
@@ -829,7 +863,54 @@ namespace p3d {
 					if (comp) go.AddComponent(comp);
 					return comp;
 				},
+				"getComponent", &GameObject_GetComponent,
 				sol::base_classes, sol::bases<GameObject>()
+				);
+		}
+
+		{
+			// GameObject (base) - registered separately from LUA_GameObject
+			// above. sol2 selects push/index behavior from a pushed
+			// value's STATIC C++ type, not its runtime type, so a plain
+			// GameObject* (e.g. IComponent::GetOwner()'s declared return
+			// type - the case for every attachScript()'d script's
+			// self.owner) always resolved via this type even when the
+			// actual object is a LUA_GameObject. With only LUA_GameObject
+			// registered, GameObject* had no known metatable and sol2
+			// fell back to an empty, method-less userdata wrapper -
+			// "attempt to index a sol.p3d::GameObject * value" on every
+			// self.owner:method() call. Mirrors the base-only subset of
+			// LUA_GameObject's bindings (excludes the Lua-scripting-only
+			// hooks onUpdate/onInit/onDestroy/attachScript, which have no
+			// base-class equivalent - getComponent is included since it
+			// only needs GameObject::GetComponents(), shared via
+			// GameObject_GetComponent above).
+			lua->new_usertype<GameObject>("GameObjectBase",
+				"getLocalTransformation", &GameObject::GetLocalTransformation,
+				"getPosition", &GameObject::GetPosition,
+				"getRotation", &GameObject::GetRotation,
+				"getScale", &GameObject::GetScale,
+				"getDirection", &GameObject::GetDirection,
+				"getWorldTransformation", &GameObject::GetWorldTransformation,
+				"getWorldPosition", &GameObject::GetWorldPosition,
+				"getWorldRotation", &GameObject::GetWorldRotation,
+				"setPosition", &GameObject::SetPosition,
+				"setRotation", &GameObject::SetRotation,
+				"setScale", &GameObject::SetScale,
+				"setTransformationMatrix", &GameObject::SetTransformationMatrix,
+				"lookAtGameObject", &GameObject::LookAtGameObject,
+				"lookAtVec", &GameObject::LookAtVec,
+				"addComponent", &GameObject::AddComponent,
+				"removeComponent", &GameObject::RemoveComponent,
+				"addGameObject", &GameObject::AddGameObject,
+				"removeGameObject", &GameObject::RemoveGameObject,
+				"getParent", &GameObject::GetParent,
+				"haveParent", &GameObject::HaveParent,
+				"addTag", &GameObject::AddTag,
+				"removeTag", &GameObject::RemoveTag,
+				"haveTag", sol::overload(&GameObject_HaveTagSTR, &GameObject_HaveTagUINT),
+				"isStatic", &GameObject::IsStatic,
+				"getComponent", &GameObject_GetComponent
 				);
 		}
 
@@ -1018,6 +1099,7 @@ namespace p3d {
 				"getLODByDistance", &LUA_RenderingComponent::GetLODByDistance,
 				"updateLOD", &LUA_RenderingComponent::UpdateLOD,
 				"getComponents", &LUA_RenderingComponent::GetComponents,
+				"getActiveSkeletonAnimation", &RenderingComponent_GetActiveSkeletonAnimation,
 				"onUpdate", &LUA_RenderingComponent::on_update,
 				"onInit", &LUA_RenderingComponent::on_init,
 				"onDestroy", &LUA_RenderingComponent::on_destroy,
@@ -1490,6 +1572,7 @@ namespace p3d {
 			sol::constructors<sol::types<SkeletonAnimation*, RenderingComponent*>> con;
 			lua->new_usertype<SkeletonAnimationInstance>("SekeletonAnimationInstance",
 				con,
+				"getOwner", &SkeletonAnimationInstance::GetOwner,
 				"play", &SkeletonAnimationInstance::Play,
 				"changeProperties", &SkeletonAnimationInstance::ChangeProperties,
 				"pause", &SkeletonAnimationInstance::Pause,

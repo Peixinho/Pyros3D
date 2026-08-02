@@ -14,6 +14,7 @@
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
 #include <Pyros3D/Other/Export.h>
 #include <string>
+#include <vector>
 
 // Forward-declared, not #included - sol.hpp is a large single header and
 // SceneSerializer.h is a general-purpose header included well outside
@@ -23,6 +24,34 @@
 namespace sol { class state; }
 
 namespace p3d {
+
+	class IMaterial;
+	class Texture;
+	class Renderable;
+	class SkeletonAnimation;
+	class TextureAnimation;
+
+	// Precise record of everything one LoadScene() call allocated, so it
+	// can be freed exactly (via UnloadScene) with no guessing about
+	// sharing/ownership - see VULKAN_ROADMAP.md's demo-launcher work for
+	// why: nothing in the engine's type system guarantees a GameObject/
+	// component/resource belongs to exactly one Scene or isn't shared
+	// elsewhere, so a generic "delete everything currently in this
+	// SceneGraph" API would be unsound. This struct only ever contains
+	// what SceneSerializer itself constructed for one specific call.
+	// `gameObjects` is every GameObject created (both Scene->Add()'d
+	// roots and their recursively-created children, flattened) - not
+	// just top-level roots, since all of them need deleting even though
+	// only roots are ever actually registered with a SceneGraph.
+	struct PYROS3D_API LoadedSceneAssets
+	{
+		std::vector<GameObject*> gameObjects;
+		std::vector<IMaterial*> materials;
+		std::vector<Texture*> textures;
+		std::vector<Renderable*> renderables;
+		std::vector<SkeletonAnimation*> skeletonAnimations;
+		std::vector<TextureAnimation*> textureAnimations;
+	};
 
 	// Real scene save/load - GameObjects (hierarchy, transform, tags),
 	// RenderingComponent (incl. Decal/Text renderables and skeleton/
@@ -60,7 +89,24 @@ namespace p3d {
 		// with physics == NULL skips them (logs a warning per skipped
 		// component), everything else still loads. `lua`, if non-NULL,
 		// is used to reconstruct named-class LuaComponent behavior.
-		static bool LoadScene(SceneGraph* scene, const std::string &filePath, IPhysics* physics = NULL, sol::state* lua = NULL);
+		// `outAssets`, if non-NULL, is populated with everything this
+		// call allocated (see LoadedSceneAssets) - pass it to a later
+		// UnloadScene() call to free exactly that, precisely and
+		// completely. NULL (the default) preserves prior behavior
+		// exactly - nothing is tracked, nothing changes for existing
+		// callers.
+		static bool LoadScene(SceneGraph* scene, const std::string &filePath, IPhysics* physics = NULL, sol::state* lua = NULL, LoadedSceneAssets* outAssets = NULL);
+
+		// Frees exactly what one LoadScene() call recorded into
+		// `assets` (via its outAssets param): every GameObject is
+		// detached from `scene` (scene->Remove() - a safe no-op for any
+		// GameObject that was never actually registered, e.g. a child
+		// added only via GameObject::Add()) and its components deleted,
+		// then every pooled/leaf resource (materials, textures,
+		// renderables, skeleton/texture animations) is deleted once.
+		// `scene` must be the same SceneGraph the objects were loaded
+		// into.
+		static void UnloadScene(SceneGraph* scene, const LoadedSceneAssets &assets);
 	};
 
 }

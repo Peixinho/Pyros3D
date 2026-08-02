@@ -39,6 +39,13 @@ namespace p3d {
 		void AddEffect(IEffect* Effect);
 		void RemoveEffect(IEffect* Effect);
 
+		// Bulk-clear: deletes every currently-added IEffect and empties
+		// the chain, without destroying the manager itself (unlike
+		// ~PostEffectsManager(), the only place that previously did
+		// this). For callers that rebuild the effect chain repeatedly
+		// against one long-lived PostEffectsManager instance.
+		void RemoveAllEffects();
+
 		const uint32 GetNumberEffects() const;
 
 		FrameBuffer* GetExternalFrameBuffer();

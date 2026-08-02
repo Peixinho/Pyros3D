@@ -8,9 +8,9 @@
 
 #include "TextRendering.h"
 #include <Pyros3D/Assets/Font/Font.h>
-#include "../imgui/imgui.h"
-#include "../imgui/backends/imgui_impl_sdl2.h"
-#include "../imgui/backends/imgui_impl_opengl3.h"
+#include "imgui.h"
+#include "imgui_impl_sdl2.h"
+#include "imgui_impl_opengl3.h"
 
 using namespace p3d;
 
