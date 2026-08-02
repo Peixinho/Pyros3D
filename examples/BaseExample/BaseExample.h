@@ -109,6 +109,10 @@ private:
 
 	float counterX, counterY;
 	Vec2 mouseCenter, mouseLastPosition, mousePosition;
+	// Set by OnResize() after it recenters the cursor; makes LookTo()
+	// resync its reference point instead of turning the resulting jump
+	// into camera rotation - see both call sites' comments.
+	bool ignoreNextMouseDelta;
 	bool _moveFront, _moveBack, _strafeLeft, _strafeRight;
 	float lastTime;
 };

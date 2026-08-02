@@ -18,6 +18,7 @@ BaseExample::BaseExample(const uint32 width, const uint32 height, const std::str
 {
 	imguiInitialized = false;
 	mouseCaptured = true;
+	ignoreNextMouseDelta = false;
 
 	// Shutdown() guards each of these with `if (ptr)` before deleting; they
 	// must start null rather than uninitialized, since not every example
@@ -35,20 +36,36 @@ void BaseExample::OnResize(const uint32 width, const uint32 height)
 	// Execute Parent Resize Function
 	ClassName::OnResize(width, height);
 
-	// NOTE (unfixed, deliberately left alone): mouseCenter is only ever
-	// computed once, in Init(), from the window's starting size - so
-	// LookTo()'s SetMousePosition(mouseCenter) recenter keeps warping the
-	// cursor to a stale point after a resize. Recomputing it here looks
-	// like the obvious fix and is NOT: mouseCenter is consumed by
-	// SetMousePosition()/GetMousePosition(), which work in SDL's logical
-	// window points, while width/height arriving here are drawable
-	// (physical) pixels - the two only agree at scale 1. Feeding the wrong
-	// space in makes the post-warp cursor never land on mouseCenter, so
-	// LookTo()'s `mouseCenter != GetMousePosition()` guard never trips and
-	// the camera spins continuously. Fixing this properly means giving the
-	// mouse a single well-defined coordinate space (or switching the FPS
-	// camera to SDL relative-mouse mode, which needs no warping at all) -
-	// not a one-liner here.
+	// mouseCenter used to be computed once in Init() and never updated, so
+	// after any resize LookTo()'s recenter kept warping the cursor to the
+	// *old* window's center - which a shrunk window can put outside itself
+	// entirely (measured: cursor parked at 640,360 with the window down to
+	// 460x881). Recompute it, and move the cursor there now so the pointer
+	// doesn't sit somewhere unrelated to where the camera thinks it is.
+	//
+	// Integer division, deliberately - NOT width * .5f. SetMousePosition()
+	// takes uint32, so the cursor can only ever land on a whole pixel; an
+	// odd dimension put mouseCenter on a half pixel (503 wide -> 251.5)
+	// while the warp actually landed the cursor at 251. mouseCenter could
+	// then never equal GetMousePosition(), so LookTo()'s guard passed on
+	// every event and fed it a phantom (-0.5,-0.5) delta forever - the
+	// camera rotating on its own for as long as the app ran, and only when
+	// a dimension happened to be odd, which is why it looked intermittent.
+	// Confirmed by logging the real values, not derived.
+	mouseCenter = Vec2((f32)(width / 2), (f32)(height / 2));
+
+	// Recentering also has to not register as a look. This runs during
+	// event processing and a tiling WM delivers resizes in bursts, so
+	// motion events queued against the *previous* geometry can still be
+	// waiting when LookTo() next runs; without the flag each one is read as
+	// a real movement of (new center - old position) and turned into
+	// rotation - one jump per resize in the burst.
+	if (mouseCaptured)
+	{
+		SetMousePosition((uint32)mouseCenter.x, (uint32)mouseCenter.y);
+		mouseLastPosition = mouseCenter;
+		ignoreNextMouseDelta = true;
+	}
 }
 
 void BaseExample::Init()
@@ -80,8 +97,10 @@ void BaseExample::Init()
 
 	_strafeLeft = _strafeRight = _moveBack = _moveFront = false;
 	
-	SetMousePosition((uint32)(Width *.5f), (uint32)(Height *.5f));
-	mouseCenter = Vec2((f32)Width *.5f, (f32)Height *.5f);
+	// Integer division - see OnResize()'s comment for why .5f here is a
+	// real bug (this is where it originally came from).
+	SetMousePosition(Width / 2, Height / 2);
+	mouseCenter = Vec2((f32)(Width / 2), (f32)(Height / 2));
 	mouseLastPosition = mouseCenter;
 	counterX = counterY = 0.f;
 
@@ -195,6 +214,16 @@ void BaseExample::LookTo(Event::Input::Info e)
 {
 	// Only process mouse input for camera control if mouse is captured
 	if (mouseCaptured) {
+		// A resize just recentered the cursor - see OnResize()'s comment.
+		// Any motion event still queued from before that recenter refers
+		// to the old geometry; treat the first one as "this is where the
+		// cursor is now", not as a movement the user made.
+		if (ignoreNextMouseDelta)
+		{
+			ignoreNextMouseDelta = false;
+			mouseLastPosition = InputManager::GetMousePosition();
+			return;
+		}
 		if (mouseCenter != GetMousePosition())
 		{
 			mousePosition = InputManager::GetMousePosition();
