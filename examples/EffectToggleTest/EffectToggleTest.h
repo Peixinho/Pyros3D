@@ -25,6 +25,24 @@
 //                  P3D_AT=<n>       - frame for the one-shot transition
 //                  P3D_SHOT=<path>  - dump a PPM of the frame at P3D_SHOTF
 //                  P3D_SHOTF=<n>    - which frame to capture (default 200)
+//                  P3D_EXITAT=<n>   - quit after n frames (for GPU capture)
+//                  P3D_LEGACYBRANCH - branch on the chain being empty, the way
+//                                     callers had to before PostEffectsManager
+//                                     grew its implicit passthrough. Still
+//                                     reproduces the underlying Vulkan bug.
+//
+//                RenderDoc cannot be used here - it has no macOS capture
+//                support. The equivalent is a Metal frame capture, which
+//                MoltenVK can emit headlessly (needs Xcode.app to open):
+//
+//                  METAL_CAPTURE_ENABLED=1 \
+//                  MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE=1 \
+//                  MVK_CONFIG_AUTO_GPU_CAPTURE_OUTPUT_FILE=/tmp/broken.gputrace \
+//                  P3D_LEGACYBRANCH=1 P3D_MODE=branchflip P3D_AT=1 P3D_EXITAT=4 \
+//                  ./EffectToggleTest
+//
+//                Swap P3D_MODE=none for the working trace; the two differ only
+//                in which render target the composite draws into.
 //============================================================================
 
 #ifndef EFFECTTOGGLETEST_H

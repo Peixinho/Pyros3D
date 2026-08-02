@@ -187,6 +187,10 @@ void EffectToggleTest::Update()
 	}
 
 	frame++;
+	// Quit after N frames. Exists for GPU capture: MoltenVK's auto-capture
+	// records from launch, so a long run produces a multi-gigabyte trace -
+	// exiting at frame 4 keeps it to a single frame and ~500MB.
+	if (getenv("P3D_EXITAT") && frame >= atoi(getenv("P3D_EXITAT"))) exit(0);
 	CaptureIfRequested();
 }
 
