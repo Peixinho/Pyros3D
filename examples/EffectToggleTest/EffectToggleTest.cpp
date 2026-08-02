@@ -103,7 +103,7 @@ void EffectToggleTest::Init()
 	Scene->Add(LightObject);
 
 	const std::string mode = ModeName();
-	if (mode == "always" || mode == "droplate" || mode == "rebuild" || mode == "branchflip")
+	if (mode == "always" || mode == "droplate" || mode == "rebuild" || mode == "branchflip" || mode == "warmup")
 		ApplyEffectChain(true);
 
 	echo("EffectToggleTest: mode=" + mode);
@@ -148,6 +148,16 @@ void EffectToggleTest::Update()
 	// per-frame render branch flips. Isolates the capture-path/direct-path
 	// switch itself, with zero object churn.
 	bool renderWithEffects = haveEffect;
+	// Exercises BOTH render paths in the first two frames, so every pipeline
+	// either path needs already exists before the flip. If the flip then works,
+	// the problem is creating a pipeline mid-run rather than the flip itself.
+	if (mode == "warmup")
+	{
+		if (frame == 0) renderWithEffects = false;
+		else if (frame < at) renderWithEffects = true;
+		else renderWithEffects = false;
+		if (frame == at) { fprintf(stderr, "[FX] frame=%d warmup flip\n", frame); fflush(stderr); }
+	}
 	if (mode == "branchflip")
 	{
 		if (frame == at) { fprintf(stderr, "[FX] frame=%d branch flip (chain untouched, effects=%u)\n", frame, (unsigned)EffectManager->GetNumberEffects()); fflush(stderr); }
