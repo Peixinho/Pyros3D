@@ -166,8 +166,20 @@ static ResolvedDevice ResolveInitialDevice(IRenderDevice* externalDevice)
 {
 	if (externalDevice != NULL)
 		return { externalDevice, true };
+	// Borrowed, NOT owned. The registrar (SDL2VulkanContext) created this
+	// device, outlives every renderer, and now destroys it itself - see its
+	// Shutdown(). Adopting it here meant `delete Renderer` destroyed the
+	// device while a PostEffectsManager, FBOs and Textures were still alive
+	// and still holding pointers to it: every example's Shutdown() deletes
+	// its renderer before those. That was a use-after-free on clean exit
+	// (segfault inside ~PostEffectsManager), and because it aborted
+	// Shutdown() partway it also left the remaining textures' image views
+	// undestroyed - the "leaked objects" vkDestroyDevice reported.
+	// TakeRenderDeviceOwnership() is still consumed so only the first
+	// renderer treats it as pre-existing; later ones fall through to the
+	// IsActiveRenderDeviceSet() borrow below, exactly as before.
 	if (IRenderDevice* registered = TakeRenderDeviceOwnership())
-		return { registered, true };
+		return { registered, false };
 	if (IsActiveRenderDeviceSet())
 		return { &GetActiveRenderDevice(), false };
 	return { new GLRenderDevice(), true };

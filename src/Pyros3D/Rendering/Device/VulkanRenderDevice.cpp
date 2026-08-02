@@ -3223,6 +3223,18 @@ namespace p3d {
 			// ForgetSamplerDescriptorsForView()'s header comment.
 			ForgetSamplerDescriptorsForView(it->second.view);
 			if (it->second.view != VK_NULL_HANDLE) vkDestroyImageView(device, it->second.view, NULL);
+			// A render-target texture also has one cached view per attachment
+			// target (GetOrCreateRenderTargetView() - level-0-only views used
+			// as framebuffer attachments). Every other destroy path already
+			// releases these; this one didn't, so each render target left one
+			// VkImageView alive for the process's whole lifetime and
+			// vkDestroyDevice reported them as leaked objects.
+			for (std::map<uint32, VkImageView>::iterator rtIt = it->second.renderTargetViewsByTarget.begin(); rtIt != it->second.renderTargetViewsByTarget.end(); rtIt++)
+			{
+				ForgetSamplerDescriptorsForView(rtIt->second);
+				vkDestroyImageView(device, rtIt->second, NULL);
+			}
+			it->second.renderTargetViewsByTarget.clear();
 		}
 		if (allocator != VK_NULL_HANDLE && it->second.image != VK_NULL_HANDLE)
 			vmaDestroyImage(allocator, it->second.image, it->second.allocation);

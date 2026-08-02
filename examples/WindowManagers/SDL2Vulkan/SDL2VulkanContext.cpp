@@ -474,7 +474,22 @@ namespace p3d {
     // virtuals methods
     void SDL2VulkanContext::Init() {}
     void SDL2VulkanContext::Update() {}
-    void SDL2VulkanContext::Shutdown() {}
+    // Runs after the example's own Shutdown() has freed every GPU-backed
+    // object it owns (each override calls ClassName::Shutdown() last), so
+    // this is the only safe point to destroy the device - it must outlive
+    // all of them. Ownership used to transfer to the first IRenderer, which
+    // deleted it far too early; see ResolveInitialDevice() in IRenderer.cpp.
+    void SDL2VulkanContext::Shutdown()
+    {
+        if (vulkanDevice == NULL)
+            return;
+        vulkanDevice->WaitIdle();
+        // Nothing may resolve it after this point - GetActiveRenderDevice()
+        // would otherwise keep handing out a dangling pointer.
+        SetActiveRenderDevice(NULL);
+        delete vulkanDevice;
+        vulkanDevice = NULL;
+    }
     void SDL2VulkanContext::Close()
     {
         Initialized = false;
