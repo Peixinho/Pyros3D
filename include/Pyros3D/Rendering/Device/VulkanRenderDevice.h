@@ -875,6 +875,14 @@ namespace p3d {
 		// slot at the moment each individual draw is recorded - so the
 		// *recorded command* captures which slot belongs to it, not just
 		// "whatever's in the buffer" at some later, shared execution time.
+		// First binding number CompileShaderStage() hands out to
+		// AutoFixForVulkan()'s synthesized UBOs (nextAutoUboBinding's
+		// initial value, VulkanRenderDevice.cpp's constructor) - chosen to
+		// sit one past the highest engine-reserved binding used below
+		// (42), so every auto-synthesized binding is >= this value and
+		// every engine-reserved one is <, with no overlap either way.
+		static const uint32 kFirstAutoUboBinding = 43;
+
 		static bool IsPerObjectDynamicBinding(const uint32 bindingPoint)
 		{
 			switch (bindingPoint)
@@ -931,7 +939,27 @@ namespace p3d {
 			         // a validation-detectable error.
 				return true;
 			default:
-				return false;
+				// Every AutoFixForVulkan-synthesized UBO (CustomShaderMaterial
+				// shaders with no explicit UBO_BINDING macros, e.g.
+				// particleSystem.glsl) is, by construction, exactly the same
+				// "loose per-draw uniforms wrapped into one UBO" shape as the
+				// fixed bindings enumerated above - and just as capable of
+				// being written multiple times in a frame before any of
+				// those writes are actually consumed by the GPU (e.g. once
+				// for a shadow-casting instanced component's shadow-pass
+				// draw, once more for its main-pass draw, same
+				// uProjectionMatrix/uViewMatrix race case 0 exists for).
+				// Unlike the fixed list, these bindings are assigned at
+				// shader-compile time, not known in advance - so instead of
+				// enumerating them individually, anything at or past the
+				// reserved starting point is covered categorically. Found
+				// via a real, reproducible bug: p3d::ParticleSystem's
+				// particles rendering at the wrong screen position on
+				// Vulkan only (GL, with no such single-shared-buffer
+				// hazard, was unaffected) - this UBO was the one binding in
+				// its whole program still using a plain, non-dynamic
+				// buffer.
+				return bindingPoint >= kFirstAutoUboBinding;
 			}
 		}
 		// Generous, not dynamically growable - matches this codebase's

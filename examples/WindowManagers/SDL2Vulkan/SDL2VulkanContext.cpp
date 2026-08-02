@@ -268,8 +268,18 @@ namespace p3d {
             if (sdl_event.type == SDL_MOUSEWHEEL)
                 MouseWheel(sdl_event.wheel.y);
 
-            // Adjust the viewport when the window is resized
-            if (sdl_event.window.event == SDL_WINDOWEVENT_RESIZED)
+            // Adjust the viewport when the window is resized. `window` is
+            // only a valid member of this union when type==SDL_WINDOWEVENT
+            // - reading sdl_event.window.event unconditionally (the
+            // previous version of this check) reads whatever bytes another
+            // event type's own struct happens to have at that offset (e.g.
+            // SDL_MouseMotionEvent's `which`/`state` fields overlap it),
+            // which can spuriously equal SDL_WINDOWEVENT_RESIZED and call
+            // OnResize() with garbage data1/data2 read from equally
+            // unrelated fields - a real, silent source of an occasional
+            // garbage-sized swapchain recreation during any event flood
+            // (a tiling WM's resize/move/focus events are exactly that).
+            if (sdl_event.type == SDL_WINDOWEVENT && sdl_event.window.event == SDL_WINDOWEVENT_RESIZED)
             {
                 OnResize(sdl_event.window.data1, sdl_event.window.data2);
             }

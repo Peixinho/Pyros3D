@@ -1844,7 +1844,23 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u)
 {
 	Vec2 screenDimensions((f32)Width, (f32)Height);
 	f32 timerF = (f32)Timer;
-	Matrix prvModelViewProjectionMatrix = PrvProjectionMatrix * PrvViewMatrix * PrvModelMatrix;
+	// SendGlobalUniforms()'s GlobalMatricesUBO write (this file, ~line 1371)
+	// always runs every ProjectionMatrix/PrvProjectionMatrix use through
+	// device->TranslateProjectionMatrix() (Vulkan's Y-flip + [-1,1]->[0,1]
+	// Z remap; a no-op on GL) before it reaches a shader - every DataUsage
+	// below that's built from either raw matrix has to do the same, or a
+	// CustomShaderMaterial reading it via extraUniforms (the only way a
+	// shader ever sees these on Vulkan - see this function's own class
+	// comment) gets GL-only clip space and renders in the wrong place.
+	// Found via p3d::ParticleSystem's billboard rendering near the floor
+	// instead of at its emitter's height on Vulkan only - GL doesn't need
+	// the translation so it never showed the bug; a same-position "marker"
+	// test object using the regular GlobalMatrices-UBO path rendered
+	// correctly the whole time, isolating the bug to exactly this
+	// function.
+	Matrix translatedProjectionMatrix = device->TranslateProjectionMatrix(ProjectionMatrix);
+	Matrix translatedPrvProjectionMatrix = device->TranslateProjectionMatrix(PrvProjectionMatrix);
+	Matrix prvModelViewProjectionMatrix = translatedPrvProjectionMatrix * PrvViewMatrix * PrvModelMatrix;
 
 	// Mirrors SendGlobalUniforms()/SendModelUniforms()'s switches - those
 	// two only ever reach a *regular* (non-extra) uniform (Shader::
@@ -1870,10 +1886,10 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u)
 		valuePtr = &ViewMatrix; valueSize = sizeof(Matrix);
 		break;
 	case Uniforms::DataUsage::ProjectionMatrix:
-		valuePtr = &ProjectionMatrix; valueSize = sizeof(Matrix);
+		valuePtr = &translatedProjectionMatrix; valueSize = sizeof(Matrix);
 		break;
 	case Uniforms::DataUsage::ViewProjectionMatrix:
-		if (ViewProjectionMatrixIsDirty) { ViewProjectionMatrix = ProjectionMatrix * ViewMatrix; ViewProjectionMatrixIsDirty = false; }
+		if (ViewProjectionMatrixIsDirty) { ViewProjectionMatrix = translatedProjectionMatrix * ViewMatrix; ViewProjectionMatrixIsDirty = false; }
 		valuePtr = &ViewProjectionMatrix; valueSize = sizeof(Matrix);
 		break;
 	case Uniforms::DataUsage::ViewMatrixInverse:
@@ -1881,11 +1897,11 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u)
 		valuePtr = &ViewMatrixInverse; valueSize = sizeof(Matrix);
 		break;
 	case Uniforms::DataUsage::ProjectionMatrixInverse:
-		if (ProjectionMatrixInverseIsDirty) { ProjectionMatrixInverse = ProjectionMatrix.Inverse(); ProjectionMatrixInverseIsDirty = false; }
+		if (ProjectionMatrixInverseIsDirty) { ProjectionMatrixInverse = translatedProjectionMatrix.Inverse(); ProjectionMatrixInverseIsDirty = false; }
 		valuePtr = &ProjectionMatrixInverse; valueSize = sizeof(Matrix);
 		break;
 	case Uniforms::DataUsage::ViewProjectionMatrixInverse:
-		if (ViewProjectionMatrixInverseIsDirty) { ViewProjectionMatrixInverse = (ProjectionMatrix * ViewMatrix).Inverse(); ViewProjectionMatrixInverseIsDirty = false; }
+		if (ViewProjectionMatrixInverseIsDirty) { ViewProjectionMatrixInverse = (translatedProjectionMatrix * ViewMatrix).Inverse(); ViewProjectionMatrixInverseIsDirty = false; }
 		valuePtr = &ViewProjectionMatrixInverse; valueSize = sizeof(Matrix);
 		break;
 	case Uniforms::DataUsage::CameraPosition:
@@ -1922,7 +1938,7 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u)
 		valuePtr = &PrvViewMatrix; valueSize = sizeof(Matrix);
 		break;
 	case Uniforms::DataUsage::PrvProjectionMatrix:
-		valuePtr = &PrvProjectionMatrix; valueSize = sizeof(Matrix);
+		valuePtr = &translatedPrvProjectionMatrix; valueSize = sizeof(Matrix);
 		break;
 	case Uniforms::DataUsage::PrvModelViewProjectionMatrix:
 		valuePtr = &prvModelViewProjectionMatrix; valueSize = sizeof(Matrix);
@@ -1939,7 +1955,7 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u)
 		valuePtr = &ModelViewMatrix; valueSize = sizeof(Matrix);
 		break;
 	case Uniforms::DataUsage::ModelViewProjectionMatrix:
-		if (ModelViewProjectionMatrixIsDirty) { ModelViewProjectionMatrix = ProjectionMatrix * ViewMatrix * ModelMatrix; ModelViewProjectionMatrixIsDirty = false; }
+		if (ModelViewProjectionMatrixIsDirty) { ModelViewProjectionMatrix = translatedProjectionMatrix * ViewMatrix * ModelMatrix; ModelViewProjectionMatrixIsDirty = false; }
 		valuePtr = &ModelViewProjectionMatrix; valueSize = sizeof(Matrix);
 		break;
 	case Uniforms::DataUsage::ModelMatrixInverse:
@@ -1955,7 +1971,7 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u)
 		valuePtr = &ModelMatrixInverseTranspose; valueSize = sizeof(Matrix);
 		break;
 	case Uniforms::DataUsage::ModelViewProjectionMatrixInverse:
-		if (ModelViewProjectionMatrixInverseIsDirty) { ModelViewProjectionMatrixInverse = (ProjectionMatrix * ViewMatrix * ModelMatrix).Inverse(); ModelViewProjectionMatrixInverseIsDirty = false; }
+		if (ModelViewProjectionMatrixInverseIsDirty) { ModelViewProjectionMatrixInverse = (translatedProjectionMatrix * ViewMatrix * ModelMatrix).Inverse(); ModelViewProjectionMatrixInverseIsDirty = false; }
 		valuePtr = &ModelViewProjectionMatrixInverse; valueSize = sizeof(Matrix);
 		break;
 	case Uniforms::DataUsage::PrvModelMatrix:
