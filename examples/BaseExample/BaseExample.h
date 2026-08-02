@@ -18,6 +18,7 @@
 #elif defined(_SDL2VULKAN)
 #include "../WindowManagers/SDL2Vulkan/SDL2VulkanContext.h"
 #define ClassName SDL2VulkanContext
+#include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
 #elif defined(_SDL2)
 #include "../WindowManagers/SDL2/SDL2Context.h"
 #define ClassName SDL2Context
@@ -34,10 +35,12 @@
 #include <Pyros3D/Utils/DeltaTime/DeltaTime.h>
 #include <Pyros3D/Utils/FPS/FPS.h>
 
-// ImGui includes
-#include "../imgui/imgui.h"
-#include "../imgui/backends/imgui_impl_sdl2.h"
-#include "../imgui/backends/imgui_impl_opengl3.h"
+// ImGui includes - resolved via the IMGUI_INCLUDE_DIRS include path (see
+// root CMakeLists.txt), not a relative path - ImGui core now lives at
+// src/Pyros3D/Ext/imgui (engine-owned), not examples/imgui.
+#include "imgui.h"
+#include "imgui_impl_sdl2.h"
+#include "imgui_impl_opengl3.h"
 
 using namespace p3d;
 
@@ -76,6 +79,10 @@ protected:
 	void InitImGui();
 	void ShutdownImGui();
 	void BeginImGuiFrame();
+	// Begin+DrawUI+Render - call before Renderer->RenderScene() for a
+	// subclass that wants real Vulkan ImGui (paired with EndImGuiFrame()
+	// after). See its .cpp definition's comment.
+	void PrepareImGuiFrame();
 	void EndImGuiFrame();
 	void RenderImGui();
 	void DrawBaseUI(); // Base UI with FPS and mouse controls

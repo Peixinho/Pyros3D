@@ -150,6 +150,27 @@ if (BUILD_SPIRV_TOOLING)
 endif()
 
 
+# ImGui core (imgui.cpp/imgui_draw.cpp/imgui_widgets.cpp/imgui_tables.cpp) -
+# a single copy, owned by the engine (not examples/), unconditionally (both
+# the GL and Vulkan paths need it, and ImGui's global state must exist
+# exactly once per process - two independently-compiled copies linked into
+# the same executable would each think they own their own ImGui context).
+# Backend glue (imgui_impl_opengl3.cpp/imgui_impl_sdl2.cpp) stays compiled
+# per-example (see examples/CMakeLists.txt) since neither has the Vulkan
+# backend's volk-sharing constraint (see below) and the GL/SDL2-vs-
+# SDL2Vulkan choice is inherently per-example (CONTEXT); imgui_impl_vulkan.cpp
+# is the one exception, compiled into PyrosEngine below, specifically
+# because it does have that constraint.
+set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/imgui)
+set(IMGUI_CORE_SOURCE
+	${IMGUI_DIR}/imgui.cpp
+	${IMGUI_DIR}/imgui_draw.cpp
+	${IMGUI_DIR}/imgui_widgets.cpp
+	${IMGUI_DIR}/imgui_tables.cpp
+)
+set(IMGUI_INCLUDE_DIRS ${IMGUI_DIR} ${IMGUI_DIR}/backends)
+
+
 # Vulkan backend (Vulkan roadmap Phase 5 - VulkanRenderDevice; optional,
 # off by default since it's still a stub with nothing consuming it yet -
 # see VULKAN_ROADMAP.md). Needs two things: the Vulkan SDK pieces
@@ -186,7 +207,19 @@ if (BUILD_VULKAN_BACKEND)
 
 		set(VULKAN_BACKEND_FOUND ON)
 		add_definitions(-DVULKAN_BACKEND)
-		set(VULKAN_BACKEND_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Device/VulkanRenderDevice.cpp)
+		# Shares this library's already-volkLoadDevice()'d function
+		# pointers with imgui_impl_vulkan.cpp - see VulkanRenderDevice.h's
+		# InitImGuiVulkanBackend() comment for why a per-example copy of
+		# that file would instead reference its own private, never-loaded
+		# copy of the same globals and crash on the first Vulkan call.
+		# Harmless for every other Vulkan-backend file, none of which
+		# include the ImGui headers this actually affects.
+		add_definitions(-DIMGUI_IMPL_VULKAN_USE_VOLK)
+		set(VULKAN_BACKEND_SOURCE
+			${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Device/VulkanRenderDevice.cpp
+			${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Rendering/Device/VulkanImGuiBackend.cpp
+			${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp
+		)
 		set(VULKAN_BACKEND_LIBS Vulkan::Vulkan volk::volk GPUOpen::VulkanMemoryAllocator)
 		message(STATUS "Vulkan backend found: Vulkan=${Vulkan_LIBRARY}, volk+VMA fetched via FetchContent")
 	else()
@@ -311,6 +344,7 @@ set(SOURCE
 	${GL_INCLUDE}
 	${SPIRV_TOOLING_SOURCE}
 	${VULKAN_BACKEND_SOURCE}
+	${IMGUI_CORE_SOURCE}
 )
 
 
@@ -320,7 +354,7 @@ set(HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-include_directories(${HEADERS} ${GLAD_INCLUDE_DIR} ${LUA_INCLUDE_DIR} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${SPIRV_TOOLING_INCLUDE_DIRS})
+include_directories(${HEADERS} ${GLAD_INCLUDE_DIR} ${LUA_INCLUDE_DIR} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${SPIRV_TOOLING_INCLUDE_DIRS} ${IMGUI_INCLUDE_DIRS})
 
 # Engine Library
 add_library(PyrosEngine ${LIB_TYPE} ${SOURCE} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS})

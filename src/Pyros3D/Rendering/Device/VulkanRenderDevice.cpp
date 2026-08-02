@@ -48,7 +48,7 @@ namespace p3d {
 		  nextAcquireSemaphoreIndex(0), currentFrameAcquireSemaphoreIndex(0), frameFence(VK_NULL_HANDLE),
 		  pendingClearColor(0.f, 0.f, 0.f, 1.f),
 		  captureRequested(false), capturedWidth(0), capturedHeight(0), capturedRedByteOffset(0), capturedFrameValid(false),
-		  frameInProgress(false), currentImageIndex(0),
+		  frameInProgress(false), currentImageIndex(0), imguiVulkanBackendActive(false),
 		  activeCommandBuffer(VK_NULL_HANDLE), offscreenCommandBuffer(VK_NULL_HANDLE), offscreenPassOpen(false), offscreenCommandBufferRecording(false), currentBoundFBO(0), currentReadFBO(0),
 		  nextFBOHandle(1), shadowPipelineRenderPass(VK_NULL_HANDLE),
 		  nextVaoHandle(1), currentVao(0), currentPipeline(0),
@@ -277,7 +277,9 @@ namespace p3d {
 			viewInfo.components = { VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY };
 			viewInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 			if (vkCreateImageView(device, &viewInfo, NULL, &swapchainImageViews[i]) != VK_SUCCESS)
+			{
 				return false;
+			}
 		}
 
 		// Depth buffer - one shared VkImage (single-frame-in-flight, see
@@ -304,7 +306,9 @@ namespace p3d {
 		depthAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
 		depthAllocInfo.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
 		if (vmaCreateImage(allocator, &depthImageInfo, &depthAllocInfo, &depthImage, &depthImageAllocation, NULL) != VK_SUCCESS)
+		{
 			return false;
+		}
 
 		VkImageViewCreateInfo depthViewInfo = {};
 		depthViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -479,7 +483,9 @@ namespace p3d {
 		// oldSwapchain, and destroys it once the new one exists - not
 		// destroyed here.
 		if (!CreateSwapchainAndFramebuffers(width, height))
+		{
 			return false;
+		}
 
 		// renderFinishedSemaphores is sized/created once in
 		// InitializeSwapchain(), indexed by acquired swapchain image
@@ -502,6 +508,11 @@ namespace p3d {
 				if (vkCreateSemaphore(device, &semInfo, NULL, &renderFinishedSemaphores[i]) != VK_SUCCESS)
 					return false;
 		}
+
+		// No-op unless InitImGuiVulkanBackend() was called - see its
+		// declaration's comment. `renderPass` above is a new handle;
+		// ImGui's Vulkan pipeline was baked against the old one.
+		RebuildImGuiVulkanPipeline();
 
 		return true;
 	}
@@ -1186,6 +1197,10 @@ namespace p3d {
 		frameInProgress = false;
 		activeCommandBuffer = VK_NULL_HANDLE;
 		currentVao = 0;
+
+		// Last chance to record additional draw commands (e.g. ImGui)
+		// into the still-open render pass - see UIRenderHook's comment.
+		if (UIRenderHook) UIRenderHook(frameCommandBuffer);
 
 		vkCmdEndRenderPass(frameCommandBuffer);
 
@@ -2910,6 +2925,28 @@ namespace p3d {
 	// pipeline's* sampler descriptor set at that binding - see the
 	// comment on ProgramRecord::samplerSetLayout for why this is
 	// per-pipeline rather than per-program.
+	// See the header's comment on this method for why handle-keyed caching
+	// is only safe if every destruction drops the matching entries first.
+	void VulkanRenderDevice::ForgetSamplerDescriptorsForView(const VkImageView view)
+	{
+		if (view == VK_NULL_HANDLE)
+			return;
+		std::map<std::pair<DeviceHandle, uint32>, VkImageView>::iterator it = lastWrittenSamplerView.begin();
+		while (it != lastWrittenSamplerView.end())
+		{
+			if (it->second == view)
+			{
+				std::map<std::pair<DeviceHandle, uint32>, VkImageView>::iterator dead = it;
+				it++;
+				lastWrittenSamplerView.erase(dead);
+			}
+			else
+			{
+				it++;
+			}
+		}
+	}
+
 	void VulkanRenderDevice::SendUniformInt(const int32 handle, const int32 *data, const uint32 count)
 	{
 		if (handle < 0 || count == 0 || device == VK_NULL_HANDLE)
@@ -3182,6 +3219,9 @@ namespace p3d {
 		if (device != VK_NULL_HANDLE)
 		{
 			if (it->second.sampler != VK_NULL_HANDLE) vkDestroySampler(device, it->second.sampler, NULL);
+			// Same handle-recycling hazard as the resize path - see
+			// ForgetSamplerDescriptorsForView()'s header comment.
+			ForgetSamplerDescriptorsForView(it->second.view);
 			if (it->second.view != VK_NULL_HANDLE) vkDestroyImageView(device, it->second.view, NULL);
 		}
 		if (allocator != VK_NULL_HANDLE && it->second.image != VK_NULL_HANDLE)
@@ -3322,9 +3362,19 @@ namespace p3d {
 			// view about to be destroyed below - see
 			// InvalidateFramebuffersForTexture()'s comment.
 			InvalidateFramebuffersForTexture(currentlyConfiguringTexture);
+			// Before destroying: drop any sampler-descriptor cache entry
+			// keyed on these views, or a recycled handle makes the next
+			// frame skip the descriptor rewrite and sample freed memory -
+			// see ForgetSamplerDescriptorsForView()'s header comment. This
+			// is the exact path a window resize takes for every render
+			// target.
+			ForgetSamplerDescriptorsForView(tex.view);
 			if (tex.view != VK_NULL_HANDLE) { vkDestroyImageView(device, tex.view, NULL); tex.view = VK_NULL_HANDLE; }
 			for (std::map<uint32, VkImageView>::iterator rtIt = tex.renderTargetViewsByTarget.begin(); rtIt != tex.renderTargetViewsByTarget.end(); rtIt++)
+			{
+				ForgetSamplerDescriptorsForView(rtIt->second);
 				vkDestroyImageView(device, rtIt->second, NULL);
+			}
 			tex.renderTargetViewsByTarget.clear();
 			if (tex.image != VK_NULL_HANDLE) { vmaDestroyImage(allocator, tex.image, tex.allocation); tex.image = VK_NULL_HANDLE; }
 
@@ -3588,9 +3638,15 @@ namespace p3d {
 		if (tex.image != VK_NULL_HANDLE)
 			vkDeviceWaitIdle(device);
 		InvalidateFramebuffersForTexture(currentlyConfiguringTexture);
+		// See UploadTexture2D()'s identical call - same handle-recycling
+		// hazard, see ForgetSamplerDescriptorsForView()'s header comment.
+		ForgetSamplerDescriptorsForView(tex.view);
 		if (tex.view != VK_NULL_HANDLE) { vkDestroyImageView(device, tex.view, NULL); tex.view = VK_NULL_HANDLE; }
 		for (std::map<uint32, VkImageView>::iterator rtIt = tex.renderTargetViewsByTarget.begin(); rtIt != tex.renderTargetViewsByTarget.end(); rtIt++)
+		{
+			ForgetSamplerDescriptorsForView(rtIt->second);
 			vkDestroyImageView(device, rtIt->second, NULL);
+		}
 		tex.renderTargetViewsByTarget.clear();
 		if (tex.image != VK_NULL_HANDLE) { vmaDestroyImage(allocator, tex.image, tex.allocation); tex.image = VK_NULL_HANDLE; }
 
@@ -4813,9 +4869,15 @@ namespace p3d {
 		if (it == textures.end())
 			return;
 		InvalidateFramebuffersForTexture(rbo);
+		// Same handle-recycling hazard - see
+		// ForgetSamplerDescriptorsForView()'s header comment.
+		ForgetSamplerDescriptorsForView(it->second.view);
 		if (it->second.view != VK_NULL_HANDLE) vkDestroyImageView(device, it->second.view, NULL);
 		for (std::map<uint32, VkImageView>::iterator rtIt = it->second.renderTargetViewsByTarget.begin(); rtIt != it->second.renderTargetViewsByTarget.end(); rtIt++)
+		{
+			ForgetSamplerDescriptorsForView(rtIt->second);
 			vkDestroyImageView(device, rtIt->second, NULL);
+		}
 		if (it->second.image != VK_NULL_HANDLE) vmaDestroyImage(allocator, it->second.image, it->second.allocation);
 		textures.erase(it);
 	}

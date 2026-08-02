@@ -8,6 +8,8 @@
 //============================================================================
 
 #include "SDL2VulkanContext.h"
+#include "imgui.h"
+#include "imgui_impl_sdl2.h"
 
 #ifdef VULKAN_BACKEND
 
@@ -233,8 +235,41 @@ namespace p3d {
         Width = width;
         Height = height;
 
-        // resize application
-        SDL_SetWindowSize(rview,width,height);
+        // Proactively rebuild the swapchain here - see
+        // IRenderDevice::NotifySurfaceResized()'s comment for why the
+        // reactive-only (VK_ERROR_OUT_OF_DATE_KHR/VK_SUBOPTIMAL_KHR) path
+        // alone isn't enough: MoltenVK doesn't reliably raise either for
+        // a tiling-WM-driven resize, so without this call the swapchain
+        // silently keeps presenting its old-size image forever, which
+        // the compositor stretches into the window's real (now
+        // different) bounds - permanently, since nothing ever prompts a
+        // rebuild otherwise. vulkanDevice is only non-NULL once Init()
+        // has constructed it (see its own header comment) - every real
+        // OnResize() call happens well after that.
+        if (vulkanDevice != NULL)
+            vulkanDevice->NotifySurfaceResized(width, height);
+
+        // Deliberately does NOT call SDL_SetWindowSize() - every caller
+        // of OnResize() (the real SDL_WINDOWEVENT_RESIZED handler and the
+        // drawable-extent self-heal poll below, both in GetEvents()) is
+        // reporting a size the window ALREADY IS, not requesting a new
+        // one. Calling SDL_SetWindowSize(width, height) here used to feed
+        // it back in - harmless if width/height happened to be in the
+        // logical points SDL_SetWindowSize() expects, but the self-heal
+        // poll passes physical pixels (see QueryRealSurfaceExtent()) to
+        // stay consistent with Width/Height's established convention
+        // (set from SDL_Vulkan_GetDrawableSize() at Init() - see its
+        // comment). On any HiDPI/Retina display (scale factor != 1) that
+        // requested the window grow to its own *physical* pixel count
+        // *again*, which changed its real size, which the self-heal poll
+        // then saw as yet another mismatch next frame - an unbounded
+        // runaway resize loop fighting yabai's own tiling every tick,
+        // paying for a full swapchain+G-buffer rebuild each time. Zero
+        // real frames ever got through (FPS pinned at 0), and the last
+        // frame that did looked stretched (the G-buffer and swapchain
+        // mid-flight at different, no-longer-matching sizes). Nothing in
+        // this codebase needs OnResize() to *request* a resize - only to
+        // record one that already happened.
     }
     bool SDL2VulkanContext::IsRunning() const
     {
@@ -245,6 +280,14 @@ namespace p3d {
         SDL_Event sdl_event;
         while(SDL_PollEvent(&sdl_event) > 0) /* While there are more than 0 events in the queue */
         {
+            // Process ImGui events first - guarded, same reasoning as
+            // SDL2Context.cpp's identical line: ImGui_ImplSDL2_ProcessEvent()
+            // asserts hard on a null backend/context if called before
+            // ImGui::CreateContext() (InitImGui()'s job), and not every
+            // example calls it.
+            if (ImGui::GetCurrentContext() != NULL)
+                ImGui_ImplSDL2_ProcessEvent(&sdl_event);
+
             if (sdl_event.type == SDL_QUIT)
             {
                 Close();
@@ -281,7 +324,23 @@ namespace p3d {
             // (a tiling WM's resize/move/focus events are exactly that).
             if (sdl_event.type == SDL_WINDOWEVENT && sdl_event.window.event == SDL_WINDOWEVENT_RESIZED)
             {
-                OnResize(sdl_event.window.data1, sdl_event.window.data2);
+                // sdl_event.window.data1/data2 are logical points (SDL's
+                // own documented unit for SDL_WINDOWEVENT_RESIZED), but
+                // Width/Height's established convention is physical
+                // pixels - set that way at Init() via
+                // SDL_Vulkan_GetDrawableSize() (see its comment) and
+                // relied on by QueryRealSurfaceExtent()'s self-heal poll
+                // below. Feeding logical points into OnResize() here
+                // underscaled Width/Height by the display's HiDPI factor,
+                // which the self-heal poll then "corrected" back up -
+                // repeatedly, since OnResize() used to also call
+                // SDL_SetWindowSize() with whatever unit it received,
+                // see that comment for the runaway loop this produced.
+                // Query the real drawable size directly instead, so both
+                // call sites agree on units.
+                int actualWidth = sdl_event.window.data1, actualHeight = sdl_event.window.data2;
+                SDL_Vulkan_GetDrawableSize(rview, &actualWidth, &actualHeight);
+                OnResize((uint32)actualWidth, (uint32)actualHeight);
             }
         }
 

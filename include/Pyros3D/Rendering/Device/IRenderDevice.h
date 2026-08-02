@@ -360,6 +360,23 @@ namespace p3d {
 		// creation time and rebuild whenever this getter's value changes.
 		virtual uint32 GetSwapchainGeneration() const { return 0; }
 
+		// Tells the device a resize actually happened, so it can rebuild
+		// its swapchain-sized resources proactively. On Vulkan this used
+		// to be purely reactive (rebuild only once a swapchain operation
+		// returns VK_ERROR_OUT_OF_DATE_KHR/VK_SUBOPTIMAL_KHR) on the
+		// assumption that's the only way a resize ever reaches the app -
+		// true for a native drag-resize, but MoltenVK does not reliably
+		// report either result for a window resized through the
+		// Accessibility API (a tiling WM like yabai, not a user dragging
+		// an edge) - confirmed via [RESIZE] logging showing zero
+		// RecreateSwapchain() calls ever following a real, confirmed
+		// resize. The swapchain then just keeps presenting its old-size
+		// image forever, which the compositor silently stretches to fill
+		// the window's real (now different) bounds - reads as "resize
+		// hangs/stretches", indefinitely, with no reactive signal ever
+		// arriving to fix it. Default no-op (GL has no swapchain).
+		virtual void NotifySurfaceResized(const uint32 width, const uint32 height) { (void)width; (void)height; }
+
 		// Clip distances (no-op on GLES3, matching StartClippingPlanes()/
 		// EndClippingPlanes()'s existing #if !defined(GLES3) guard)
 		virtual void EnableClipDistance(const uint32 index) = 0;

@@ -47,6 +47,7 @@
 #include <vector>
 #include <map>
 #include <set>
+#include <functional>
 
 namespace p3d {
 
@@ -219,6 +220,11 @@ namespace p3d {
 		virtual void DestroyPipeline(const DeviceHandle pipeline);
 		virtual void BindPipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline);
 		virtual uint32 GetSwapchainGeneration() const { return swapchainGeneration; }
+		// See IRenderDevice::NotifySurfaceResized()'s comment - calls the
+		// same private RecreateSwapchain() the reactive OUT_OF_DATE/
+		// SUBOPTIMAL path already uses, just triggered proactively instead
+		// of waiting for a signal that may never come.
+		virtual void NotifySurfaceResized(const uint32 width, const uint32 height) { RecreateSwapchain(width, height); }
 
 		virtual void EnableClipDistance(const uint32 index);
 		virtual void DisableClipDistance(const uint32 index);
@@ -334,6 +340,28 @@ namespace p3d {
 		virtual void SetMultisampleEnabled(const bool enabled);
 		virtual void BlitFramebuffer(const uint32 srcX0, const uint32 srcY0, const uint32 srcX1, const uint32 srcY1, const uint32 dstX0, const uint32 dstY0, const uint32 dstX1, const uint32 dstY1, const uint32 engineMask, const uint32 engineFilter);
 		virtual void CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height);
+
+		// Real ImGui-on-Vulkan integration - wraps ImGui_ImplVulkan_Init/
+		// NewFrame/Shutdown so example code never links the vendored
+		// ImGui_ImplVulkan_* symbols itself. Deliberately implemented here
+		// (imgui_impl_vulkan.cpp is compiled as part of this library, see
+		// the root CMakeLists.txt) rather than in example code: with
+		// IMGUI_IMPL_VULKAN_USE_VOLK it shares this translation unit's
+		// already-volkLoadDevice()'d function-pointer table - compiled
+		// into a separate example binary instead, it would reference
+		// that binary's own private, never-loaded copy of the same
+		// globals and crash on the first Vulkan call (the identical,
+		// previously-hit crash class WaitIdle()'s comment above
+		// describes for inline Vulkan-calling methods in this header).
+		// Deliberately does NOT touch ImGui_ImplSDL2_* - that backend
+		// (imgui_impl_sdl2.cpp) has no volk/Vulkan-function dependency at
+		// all and stays compiled per-example same as the GL path already
+		// does; callers must call ImGui_ImplSDL2_InitForVulkan()/
+		// ImGui_ImplSDL2_NewFrame()/ImGui_ImplSDL2_Shutdown() themselves
+		// around these three calls.
+		bool InitImGuiVulkanBackend();
+		void NewImGuiVulkanFrame();
+		void ShutdownImGuiVulkanBackend();
 
 	private:
 
@@ -479,6 +507,28 @@ namespace p3d {
 		// all; this has one real one, shared for the whole frame).
 		bool frameInProgress;
 		uint32 currentImageIndex;
+
+		// Invoked by EndFrame() with the still-recording frameCommandBuffer,
+		// immediately before the render pass closes - the only point at
+		// which a caller can inject additional draw commands (e.g. ImGui)
+		// into the main swapchain pass. Set by InitImGuiVulkanBackend(),
+		// cleared by ShutdownImGuiVulkanBackend(); empty (no-op) otherwise.
+		std::function<void(VkCommandBuffer)> UIRenderHook;
+
+		// True between a successful InitImGuiVulkanBackend() and the next
+		// ShutdownImGuiVulkanBackend(). Gates RebuildImGuiVulkanPipeline()
+		// below (called from RecreateSwapchain() on every resize) so a
+		// device that never initialized the ImGui backend doesn't pay for
+		// (or crash on) touching it.
+		bool imguiVulkanBackendActive;
+
+		// Rebuilds ImGui's Vulkan pipeline against the just-recreated
+		// `renderPass` - called from RecreateSwapchain() right after it
+		// rebuilds `renderPass` itself, a no-op unless
+		// imguiVulkanBackendActive. Defined in VulkanImGuiBackend.cpp
+		// (not here) so this file - already compiled without any ImGui
+		// awareness - doesn't need to include imgui_impl_vulkan.h.
+		void RebuildImGuiVulkanPipeline();
 
 		// Which command buffer BindPipeline()/DrawElements()/
 		// DrawElementsInstanced()/SetViewport() actually record into -
@@ -1235,6 +1285,26 @@ namespace p3d {
 		// UPDATE_AFTER_BIND descriptor-indexing support - not needed by
 		// any current caller.
 		std::map<std::pair<DeviceHandle, uint32>, VkImageView> lastWrittenSamplerView;
+
+		// MUST be called immediately before destroying any VkImageView that
+		// could have been written into a sampler descriptor. The cache above
+		// keys on the raw VkImageView handle, and a handle is only unique
+		// while its object is alive - MoltenVK readily hands the exact same
+		// address back out for a view created right after one is destroyed
+		// (a resize destroys and recreates all ~12 render-target views in a
+		// fixed order, which is close to a best case for allocator reuse).
+		// When that happens the "is this already written?" check compares
+		// new-handle == old-handle, concludes the descriptor is current, and
+		// skips vkUpdateDescriptorSets() - leaving the descriptor set still
+		// pointing at the *destroyed* view. The next draw then samples freed
+		// memory, which faults the GPU and surfaces as
+		// VK_ERROR_DEVICE_LOST from the following frame's vkWaitForFences
+		// (reproduced live: every resize step clean, device lost on the
+		// very next frame). Validation layers hid it - they change
+		// allocation patterns enough that handles usually don't get
+		// recycled, and a recycled handle refers to a genuinely live object
+		// so no VUID fires either way.
+		void ForgetSamplerDescriptorsForView(const VkImageView view);
 
 		// Real VkImage/VkImageView/VkSampler-backed texture, keyed by the
 		// handle CreateTextureObject() returns. GL's texture API is an

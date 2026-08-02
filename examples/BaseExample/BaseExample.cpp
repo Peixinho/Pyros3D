@@ -34,6 +34,21 @@ void BaseExample::OnResize(const uint32 width, const uint32 height)
 {
 	// Execute Parent Resize Function
 	ClassName::OnResize(width, height);
+
+	// NOTE (unfixed, deliberately left alone): mouseCenter is only ever
+	// computed once, in Init(), from the window's starting size - so
+	// LookTo()'s SetMousePosition(mouseCenter) recenter keeps warping the
+	// cursor to a stale point after a resize. Recomputing it here looks
+	// like the obvious fix and is NOT: mouseCenter is consumed by
+	// SetMousePosition()/GetMousePosition(), which work in SDL's logical
+	// window points, while width/height arriving here are drawable
+	// (physical) pixels - the two only agree at scale 1. Feeding the wrong
+	// space in makes the post-warp cursor never land on mouseCenter, so
+	// LookTo()'s `mouseCenter != GetMousePosition()` guard never trips and
+	// the camera spins continuously. Fixing this properly means giving the
+	// mouse a single well-defined coordinate space (or switching the FPS
+	// camera to SDL relative-mouse mode, which needs no warping at all) -
+	// not a one-liner here.
 }
 
 void BaseExample::Init()
@@ -233,19 +248,35 @@ void BaseExample::InitImGui()
 
 	imguiInitialized = true;
 #else
-	// ImGui is hard-wired to imgui_impl_opengl3 (GetGLContext() above isn't
-	// even declared on SDL2VulkanContext) - stubbed out for the Vulkan
-	// backend rather than also standing up imgui_impl_vulkan, per
-	// VULKAN_ROADMAP.md's Step D scope. imguiInitialized stays false, so
-	// BeginImGuiFrame()/EndImGuiFrame()/ShutdownImGui() (all gated on it)
-	// are natural no-ops - no other guards needed.
+	// Real Vulkan ImGui backend (previously a stub - see
+	// VULKAN_ROADMAP.md's Step D note and examples/DemoLauncher, the
+	// first real consumer that needed this working). ImGui_ImplVulkan_*
+	// itself is never called here - VulkanRenderDevice wraps it (see its
+	// InitImGuiVulkanBackend() comment for why: sharing this library's
+	// already-loaded volk function pointers, which a copy compiled into
+	// this example binary couldn't). No viewports/docking on this path
+	// (unlike the GL branch above) - not wired up, not needed by any
+	// current Vulkan-built example.
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+
+	ImGui::StyleColorsDark();
+
+	ImGui_ImplSDL2_InitForVulkan(GetSDLWindow());
+	imguiInitialized = static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).InitImGuiVulkanBackend();
 #endif
 }
 
 void BaseExample::ShutdownImGui()
 {
 	if (imguiInitialized) {
+#if !defined(_SDL2VULKAN)
 		ImGui_ImplOpenGL3_Shutdown();
+#else
+		static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).ShutdownImGuiVulkanBackend();
+#endif
 		ImGui_ImplSDL2_Shutdown();
 		ImGui::DestroyContext();
 		imguiInitialized = false;
@@ -255,15 +286,39 @@ void BaseExample::ShutdownImGui()
 void BaseExample::BeginImGuiFrame()
 {
 	if (imguiInitialized) {
+#if !defined(_SDL2VULKAN)
 		ImGui_ImplOpenGL3_NewFrame();
+#else
+		static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).NewImGuiVulkanFrame();
+#endif
 		ImGui_ImplSDL2_NewFrame();
 		ImGui::NewFrame();
 	}
 }
 
+void BaseExample::PrepareImGuiFrame()
+{
+	// Begin+DrawUI+Render, meant to be called BEFORE Renderer->RenderScene()
+	// on the Vulkan path - see VulkanRenderDevice::EndFrame()'s UIRenderHook:
+	// it fires *inside* RenderScene(), so ImGui::Render() must have already
+	// finalized this frame's draw data by the time RenderScene() runs, not
+	// after. RenderImGui() (below) still does Begin+DrawUI+End all together
+	// AFTER RenderScene() for GL subclasses, unchanged from before - no
+	// existing subclass's Update() call order changes. A subclass that
+	// wants real Vulkan ImGui needs to call PrepareImGuiFrame() before
+	// RenderScene() and EndImGuiFrame() after, same as examples/DemoLauncher
+	// does, instead of the combined RenderImGui().
+	if (!imguiInitialized)
+		return;
+	BeginImGuiFrame();
+	DrawUI();
+	ImGui::Render();
+}
+
 void BaseExample::EndImGuiFrame()
 {
 	if (imguiInitialized) {
+#if !defined(_SDL2VULKAN)
 		// Save OpenGL state before ImGui rendering
 		GLint last_program, last_texture, last_array_buffer, last_element_array_buffer, last_vertex_array;
 		glGetIntegerv(GL_CURRENT_PROGRAM, &last_program);
@@ -271,10 +326,10 @@ void BaseExample::EndImGuiFrame()
 		glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &last_array_buffer);
 		glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &last_element_array_buffer);
 		glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &last_vertex_array);
-		
+
 		ImGui::Render();
 		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-		
+
 		// Update and Render additional Platform Windows
 		ImGuiIO& io = ImGui::GetIO(); (void)io;
 		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
@@ -285,7 +340,7 @@ void BaseExample::EndImGuiFrame()
 			ImGui::RenderPlatformWindowsDefault();
 			SDL_GL_MakeCurrent(backup_current_window, backup_current_context);
 		}
-		
+
 		// Restore OpenGL state after ImGui rendering
 		// Force restore the shader program that ImGui backend doesn't restore
 		glUseProgram(last_program);
@@ -295,10 +350,17 @@ void BaseExample::EndImGuiFrame()
 		glBindVertexArray(last_vertex_array);
 		glEnable(GL_DEPTH_TEST);
 		glEnable(GL_CULL_FACE);
-		
+
 		// Additional state restoration to ensure proper rendering
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+#endif
+		// Vulkan: no-op via RenderImGui()'s call order (see
+		// PrepareImGuiFrame()'s comment) - a subclass using the
+		// PrepareImGuiFrame()/EndImGuiFrame() split instead gets a real
+		// no-op here too, since VulkanRenderDevice::EndFrame() (called
+		// from inside RenderScene(), which already ran) already recorded
+		// the draw data via UIRenderHook.
 	}
 }
 
@@ -315,11 +377,32 @@ void BaseExample::RenderImGui()
 	// not a real frame; see VULKAN_ROADMAP.md). Gating the whole call the
 	// same way BeginImGuiFrame()/EndImGuiFrame() already are makes this a
 	// true no-op instead.
+	//
+	// Still GL-oriented even now that InitImGui() sets up a real Vulkan
+	// backend too: this combined Begin+DrawUI+End order runs AFTER
+	// RenderScene() (every subclass's existing Update() call site) - see
+	// PrepareImGuiFrame()'s comment for why that's too late on Vulkan
+	// specifically. No current subclass builds under CONTEXT=SDL2Vulkan,
+	// so this is an existing, unchanged limitation, not a regression.
 	if (!imguiInitialized)
 		return;
 	BeginImGuiFrame();
 	DrawUI();
+#if defined(_SDL2VULKAN)
+	// EndImGuiFrame()'s Vulkan branch is a no-op that assumes
+	// ImGui::Render() already ran earlier this frame via
+	// PrepareImGuiFrame() (see its comment) - true for DemoLauncher-style
+	// subclasses, not for this combined call, which runs after
+	// RenderScene() already closed the frame's only render pass. Render()
+	// must still be called here though, or the *next* frame's NewFrame()
+	// (from BeginImGuiFrame()) trips ImGui's own
+	// "Forgot to call Render()...?" sanity assertion - draw data just
+	// ends up one frame late, consumed by the next EndFrame()'s
+	// UIRenderHook instead of this one's (already past by now).
+	ImGui::Render();
+#else
 	EndImGuiFrame();
+#endif
 }
 
 void BaseExample::DrawUI()

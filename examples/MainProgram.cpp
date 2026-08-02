@@ -7,6 +7,7 @@
 //============================================================================
 
 #include "includes.h"
+#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #if defined(EMSCRIPTEN)
 #include <emscripten.h>
 #endif
@@ -70,6 +71,18 @@ int main(int argc, char** argv) {
 #endif
 
 #if !defined(EMSCRIPTEN)
+	// Every example's Shutdown() override deletes its own GPU-owned
+	// resources (materials, textures, FBOs, meshes) *before* calling
+	// BaseExample::Shutdown() (see e.g. DeferredPBRSpheres::Shutdown()) -
+	// none of that chain ever waits for the GPU to finish the last
+	// submitted frame first. On Vulkan, destroying a pipeline/sampler/
+	// image still referenced by an in-flight command buffer is exactly
+	// VUID-vkDestroyPipeline-pipeline-00765/VUID-vkDestroySampler-
+	// sampler-01082 - real, reproducible on every clean exit (seen
+	// repeatedly this session). One wait here, before any example's
+	// Shutdown() runs, covers all of them without touching each one.
+	GetActiveRenderDevice().WaitIdle();
+
 	// Shutdown Window
 	window->Shutdown();
 

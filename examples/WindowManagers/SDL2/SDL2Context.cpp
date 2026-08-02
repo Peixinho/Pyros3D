@@ -8,7 +8,7 @@
 
 #include <Pyros3D/Other/PyrosGL.h>
 #include "SDL2Context.h"
-#include "../imgui/backends/imgui_impl_sdl2.h"
+#include "imgui_impl_sdl2.h"
 
 namespace p3d {
 

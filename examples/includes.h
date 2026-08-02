@@ -66,4 +66,6 @@
 #include "DeferredPBRSpheres/DeferredPBRSpheres.h"
 #elif defined(_SSRTest)
 #include "SSRTest/SSRTest.h"
+#elif defined(_DemoLauncher)
+#include "DemoLauncher/DemoLauncher.h"
 #endif
