@@ -390,6 +390,15 @@ set(SOURCE_ScreenSpaceReflection
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
+# Minimal repro harness for the effect-count-change black screen - see
+# examples/EffectToggleTest/EffectToggleTest.h.
+set(SOURCE_EffectToggleTest
+	${CMAKE_CURRENT_SOURCE_DIR}/EffectToggleTest/EffectToggleTest.cpp
+	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
+	${WINDOW_MANAGER}
+	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
+)
+
 set(SOURCE_DemoLauncher
 	${CMAKE_CURRENT_SOURCE_DIR}/DemoLauncher/DemoLauncher.cpp
 	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
@@ -563,6 +572,11 @@ target_compile_definitions(ScreenSpaceReflection PRIVATE ${DESKTOP} -DDEMO_NAME=
 # used unconditionally, no #ifdef LUA_BINDINGS guards) - same requirement
 # LuaScripting has above.
 if (HAVE_LUA_BINDINGS)
+add_executable(EffectToggleTest ${SOURCE_EffectToggleTest})
+include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${IMGUI_INCLUDE_DIRS})
+target_link_libraries(EffectToggleTest PyrosEngine  ${SDL2_LIBRARIES} ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES})
+target_compile_definitions(EffectToggleTest PRIVATE ${DESKTOP} -DDEMO_NAME=EffectToggleTest -D_EffectToggleTest ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
+
 add_executable(DemoLauncher ${SOURCE_DemoLauncher})
 include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB} ${IMGUI_INCLUDE_DIRS})
 target_link_libraries(DemoLauncher PyrosEngine  ${SDL2_LIBRARIES} ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES})

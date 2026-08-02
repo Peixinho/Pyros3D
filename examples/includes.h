@@ -68,4 +68,6 @@
 #include "SSRTest/SSRTest.h"
 #elif defined(_DemoLauncher)
 #include "DemoLauncher/DemoLauncher.h"
+#elif defined(_EffectToggleTest)
+#include "EffectToggleTest/EffectToggleTest.h"
 #endif
