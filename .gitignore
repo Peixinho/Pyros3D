@@ -13,3 +13,8 @@ build*
 obj
 tags
 VULKAN_ROADMAP.md
+
+# Build/run artifacts that kept showing up as untracked noise
+CMakeFiles/
+compile_commands.json
+imgui.ini
