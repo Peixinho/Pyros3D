@@ -1471,7 +1471,36 @@ namespace p3d {
 
 		if ((root.find("roots") != root.end()))
 			for (auto &rj : root["roots"])
+			{
+				// A root may carry "instances": [[x,y,z], ...], in which case it
+				// is a *template* and one GameObject is built per entry, with
+				// that entry as its position and everything else (components,
+				// material, rotation, scale, children) shared. Purely a file-size
+				// measure for scenes made of many identical objects: SimplePhysics
+				// is 1000 identical 5x5x5 physics cubes at random positions, and
+				// writing each one out in full made that scene 48,140 lines of
+				// JSON. Each instance still goes through the ordinary
+				// DeserializeGameObject() path, so it lands in LoadedSceneAssets
+				// and UnloadScene() frees it exactly like any other object -
+				// nothing here is a special case after load.
+				//
+				// Load-side only: SaveScene() has no idea which objects came from
+				// a template, so re-saving such a scene writes every instance out
+				// in full. That is fine for authored content (which is loaded, not
+				// round-tripped) but worth knowing before saving over one.
+				if (rj.find("instances") != rj.end() && rj["instances"].is_array())
+				{
+					json tmpl = rj;
+					tmpl.erase("instances");
+					for (auto &inst : rj["instances"])
+					{
+						if (inst.is_array() && inst.size() >= 3) tmpl["position"] = inst;
+						scene->Add(DeserializeGameObject(tmpl, materialsById, textureCache, physics, lua, outAssets));
+					}
+					continue;
+				}
 				scene->Add(DeserializeGameObject(rj, materialsById, textureCache, physics, lua, outAssets));
+			}
 
 		return true;
 	}
