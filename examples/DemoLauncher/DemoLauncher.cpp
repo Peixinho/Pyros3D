@@ -235,20 +235,31 @@ void DemoLauncher::Update()
 	// PrepareImGuiFrame()'s declaration comment (DemoLauncher.h).
 	if (imguiInitialized) PrepareImGuiFrame();
 
-	// Unconditional, for every demo, whether or not it requested an effect:
-	// PostEffectsManager runs a trivial copy pass when its chain is empty
-	// (see its ProcessPostEffects() comment), so this no longer needs to
-	// branch. It must not: branching moved RenderScene()'s render target
-	// between ExternalFBO and the swapchain depending on the active demo,
-	// and on Vulkan the second target a given mesh+shader is ever drawn
-	// into silently stops rasterizing (examples/EffectToggleTest). That is
-	// what blacked out the whole scene after switching to a demo whose
-	// effect chain differed from the previous one's.
-	EffectManager->CaptureFrame();
-	Renderer->PreRender(FPSCamera, Scene);
-	Renderer->RenderScene(projection, FPSCamera, Scene);
-	EffectManager->EndCapture();
-	EffectManager->ProcessPostEffects(&projection);
+	// PostEffectsManager::ProcessPostEffects()'s loop body never runs
+	// for an empty effects chain (its last-effect-draws-to-swapchain
+	// case lives inside the loop) - wrapping every demo's render call
+	// in CaptureFrame()/EndCapture()/ProcessPostEffects() regardless
+	// would leave demos with no requested effects rendering into the
+	// offscreen capture FBO and never blitting it to the screen (a real
+	// black-screen bug, found via actually running this, not assumed
+	// safe). Only demos that requested at least one effect go through
+	// the capture path; everything else renders straight to the
+	// swapchain, same as examples/DeferredRendering (no PostEffectsManager
+	// at all) does.
+	bool activeDemoHasEffects = (activeDemo >= 0 && activeDemo < (int)demos.size() && !demos[activeDemo].effects.empty());
+	if (activeDemoHasEffects)
+	{
+		EffectManager->CaptureFrame();
+		Renderer->PreRender(FPSCamera, Scene);
+		Renderer->RenderScene(projection, FPSCamera, Scene);
+		EffectManager->EndCapture();
+		EffectManager->ProcessPostEffects(&projection);
+	}
+	else
+	{
+		Renderer->PreRender(FPSCamera, Scene);
+		Renderer->RenderScene(projection, FPSCamera, Scene);
+	}
 
 	if (imguiInitialized) EndImGuiFrame();
 

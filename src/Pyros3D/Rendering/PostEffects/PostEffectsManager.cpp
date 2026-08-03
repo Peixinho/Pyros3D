@@ -8,7 +8,6 @@
 
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
-#include <Pyros3D/Rendering/PostEffects/Effects/ResizeEffect.h>
 
 namespace p3d {
 
@@ -30,7 +29,6 @@ namespace p3d {
 		// Save Dimensions
 		Width = width;
 		Height = height;
-		passthrough = NULL;
 
 		Color = new Texture();
 		// RGBA16F, not RGBA8 - this is what every wrapped RenderScene()
@@ -81,25 +79,6 @@ namespace p3d {
 	void PostEffectsManager::ProcessPostEffects(Projection* projection)
 	{
 
-		// An empty chain still has to present: without this, a caller that
-		// wraps its RenderScene() in CaptureFrame()/EndCapture() would draw
-		// into ExternalFBO and nothing would ever blit that to the screen, so
-		// every caller had to branch on GetNumberEffects() and render straight
-		// to the swapchain instead. That branch is exactly what made a mesh get
-		// drawn into two different render targets over a process's lifetime,
-		// which is broken on Vulkan (see examples/EffectToggleTest - the second
-		// target a given mesh+shader is drawn into never rasterizes). Running a
-		// trivial copy pass instead keeps the caller's target constant forever.
-		if (effects.empty())
-		{
-			if (passthrough == NULL)
-			{
-				passthrough = new ResizeEffect(RTT::Color, Width, Height);
-				passthroughChain.push_back(passthrough);
-			}
-		}
-		std::vector<IEffect*> &chain = effects.empty() ? passthroughChain : effects;
-
 		// Set Counter
 		uint32 counter = 1;
 
@@ -108,9 +87,9 @@ namespace p3d {
 		Vec2 ScreenDimensions = Vec2((f32)Width, (f32)Height);
 
 		// Run Through Effects
-		for (std::vector<IEffect*>::iterator effect = chain.begin(); effect != chain.end(); effect++)
+		for (std::vector<IEffect*>::iterator effect = effects.begin(); effect != effects.end(); effect++)
 		{
-			if (counter == chain.size())
+			if (counter == effects.size())
 			{
 				// Last effect draws to the swapchain, not an offscreen
 				// FBO - a no-op on GL (no acquire/present step), but on
@@ -169,7 +148,7 @@ namespace p3d {
 			// all - VUID-vkCmdDraw-None-08114 the moment it draws).
 			// See IEffect.h's comment on pipelineHandle/
 			// pipelineBuiltForSwapchainGeneration: only the *last* effect's
-			// pipeline (this frame's counter==chain.size() branch above)
+			// pipeline (this frame's counter==effects.size() branch above)
 			// targets the swapchain directly and can go stale when it's
 			// resized - real, reproduced bug, not a hypothetical. Every
 			// other effect's pipeline targets its own stable Texture-backed
@@ -178,7 +157,7 @@ namespace p3d {
 			// generation check is gated on being the last effect,
 			// matching exactly which branch actually used BeginFrame()'s
 			// swapchain render pass above.
-			bool isLastEffect = (counter == chain.size());
+			bool isLastEffect = (counter == effects.size());
 			bool pipelineStale = isLastEffect && (*effect)->pipelineHandle != 0 &&
 				(*effect)->pipelineBuiltForSwapchainGeneration != device->GetSwapchainGeneration();
 			if (pipelineStale)
@@ -326,7 +305,7 @@ namespace p3d {
 			}
 
 			// Unbind FBO if is using and set the RTT
-			if (counter < chain.size())
+			if (counter < effects.size())
 			{
 				activeFBO->UnBind();
 				// Get RTT
@@ -365,9 +344,6 @@ namespace p3d {
 		{
 			delete (*i);
 		}
-		// Not part of `effects`, so RemoveAllEffects() never sees it - only
-		// this destructor owns it. See its declaration's comment.
-		delete passthrough;
 
 		delete ExternalFBO;
 
