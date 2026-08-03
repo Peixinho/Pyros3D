@@ -51,6 +51,14 @@ function A.build()
 	load("paddle"); load("wall"); load("brick"); load("armoured")
 	load("powerup"); load("lost"); load("levelclear"); load("launch")
 
+	-- Wall hits get a short slap-back echo - the one sound that reads as
+	-- bouncing off the arena's own boundary, so a little of the boundary's
+	-- "size" coming back on the repeat sells that without needing reverb.
+	local wall = A.sounds.wall
+	if wall ~= nil and wall:isLoaded() then
+		wall:setDelay(0.11, 0.32, 0.45, 1.0)
+	end
+
 	A.startAmbience()
 end
 
@@ -70,6 +78,10 @@ function A.startAmbience()
 	src:setSpatialization(false)
 	src:setLooping(true)
 	src:setVolume(C.audio.ambienceVolume)
+	-- A gentle low-shelf lift keeps the bed feeling like it has body without
+	-- turning it up - a flat hum reads as thin under everything else's
+	-- sharper, generated tones.
+	src:setEQ(AudioEQType.LowShelf, 220.0, 4.0, 1.0)
 	-- Faded in so the very first frame does not start with an abrupt hum.
 	src:fadeIn(1500)
 end

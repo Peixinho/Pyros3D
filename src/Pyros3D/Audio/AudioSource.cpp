@@ -12,7 +12,7 @@
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Ext/miniaudio/miniaudio.h>
-#include "AudioFilterNode.h"
+#include "AudioEffectChain.h"
 #include "AudioDopplerSafety.h"
 
 namespace p3d {
@@ -44,7 +44,7 @@ namespace p3d {
 		coneInner(6.283185f), coneOuter(6.283185f), coneOuterGain(1.f),
 		directionalAttenuation(1.f), dopplerFactor(1.f),
 		lastPosition(Vec3::ZERO), lastUpdateTime(0.0), hasLastUpdate(false),
-		filterNode(NULL), filterType(AudioFilterType::None), filterCutoff(0.f), filterOrder(2)
+		chain(new detail::AudioEffectChain())
 	{
 		if (!EngineAlive())
 		{
@@ -91,11 +91,11 @@ namespace p3d {
 		{
 			if (EngineAlive())
 			{
-				// No rerouting needed here (unlike detail::DetachFilterNode(),
-				// which SetFilter()/ClearFilter() use while the source stays
-				// alive) - `sound` itself is about to be fully uninitialized,
-				// which detaches it from the graph regardless.
-				detail::DestroyFilterNode(filterNode, filterType);
+				// No rerouting needed here (unlike chain->SetFilter()/etc,
+				// used while the source stays alive) - `sound` itself is
+				// about to be fully uninitialized, which detaches it from
+				// the graph regardless.
+				chain->Destroy();
 
 				// See Sound::~Sound() - unregister before uninitializing.
 				AudioManager::GetActive()->UnregisterVoice(sound);
@@ -104,6 +104,8 @@ namespace p3d {
 			delete sound;
 			sound = NULL;
 		}
+		delete chain;
+		chain = NULL;
 		loaded = false;
 		// `bus` (a shared_ptr) releases its reference here, after `sound` no
 		// longer points into it - the entire reason it is a shared_ptr member
@@ -242,46 +244,80 @@ namespace p3d {
 		ma_sound_set_pan(sound, pan);
 	}
 
+	// Shared by SetFilter/SetEQ/SetDelay/their Clear* counterparts below -
+	// resolves the two node-graph pointers AudioEffectChain needs, or NULL
+	// for `engine` when there is no live engine to create anything against
+	// (EngineAlive(), not just `loaded`: creating a node needs the live
+	// ma_engine itself - node graph, channel/sample-rate query, the
+	// endpoint node - not just a still-allocated, possibly
+	// force-uninitialized `sound` handle).
+	namespace {
+		void ResolveChainTargets(ma_sound* sound, AudioBus* bus, bool loaded, ma_engine* &engine, void* &soundNode, void* &target)
+		{
+			engine = NULL; soundNode = NULL; target = NULL;
+			if (!loaded || !EngineAlive()) return;
+			engine = AudioManager::GetActive()->GetEngine();
+			soundNode = reinterpret_cast<void*>(sound);
+			target = bus ? reinterpret_cast<void*>(bus->GetGroup()) : reinterpret_cast<void*>(ma_engine_get_endpoint(engine));
+		}
+	}
+
 	void AudioSource::SetFilter(const uint32 type, const f32 cutoffHz, const uint32 order)
 	{
-		if (type == AudioFilterType::None) { ClearFilter(); return; }
-
-		filterCutoff = cutoffHz;
-		filterOrder = order;
-		// Not committed to `filterType` until the node actually exists below -
-		// a failed AttachFilterNode() must leave GetFilterType() reporting
-		// what is really playing (nothing), not what was asked for.
-		if (!loaded) { filterType = type; return; }
-
-		// EngineAlive(), not just `loaded`: this needs the live ma_engine
-		// itself (node graph, channel/sample-rate query, the endpoint node),
-		// not just a still-allocated (possibly force-uninitialized) `sound`
-		// handle - see EngineAlive()'s other callers for that distinction.
-		if (!EngineAlive()) return;
-
-		ma_node* soundNode = reinterpret_cast<ma_node*>(sound);
-		ma_engine* engine = AudioManager::GetActive()->GetEngine();
-		ma_node* target = bus ? reinterpret_cast<ma_node*>(bus->GetGroup()) : ma_engine_get_endpoint(engine);
-
-		detail::DetachFilterNode(soundNode, target, filterNode, filterType);
-
-		void* node = detail::AttachFilterNode(engine, soundNode, target, type, cutoffHz, order);
-		filterNode = node;
-		filterType = (node != NULL) ? type : AudioFilterType::None;
+		ma_engine* engine; void* soundNode; void* target;
+		ResolveChainTargets(sound, bus.get(), loaded, engine, soundNode, target);
+		chain->SetFilter(engine, soundNode, target, type, cutoffHz, order);
 	}
 
 	void AudioSource::ClearFilter()
 	{
-		if (loaded && EngineAlive() && filterNode != NULL)
-		{
-			ma_engine* engine = AudioManager::GetActive()->GetEngine();
-			ma_node* target = bus ? reinterpret_cast<ma_node*>(bus->GetGroup()) : ma_engine_get_endpoint(engine);
-			detail::DetachFilterNode(reinterpret_cast<ma_node*>(sound), target, filterNode, filterType);
-		}
-		filterType = AudioFilterType::None;
-		filterCutoff = 0.f;
-		filterOrder = 2;
+		ma_engine* engine; void* soundNode; void* target;
+		ResolveChainTargets(sound, bus.get(), loaded, engine, soundNode, target);
+		chain->ClearFilter(soundNode, target);
 	}
+
+	uint32 AudioSource::GetFilterType() const { return chain->filterType; }
+	f32 AudioSource::GetFilterCutoff() const { return chain->filterCutoff; }
+	uint32 AudioSource::GetFilterOrder() const { return chain->filterOrder; }
+
+	void AudioSource::SetEQ(const uint32 type, const f32 frequencyHz, const f32 gainDB, const f32 q)
+	{
+		ma_engine* engine; void* soundNode; void* target;
+		ResolveChainTargets(sound, bus.get(), loaded, engine, soundNode, target);
+		chain->SetEQ(engine, soundNode, target, type, frequencyHz, gainDB, q);
+	}
+
+	void AudioSource::ClearEQ()
+	{
+		ma_engine* engine; void* soundNode; void* target;
+		ResolveChainTargets(sound, bus.get(), loaded, engine, soundNode, target);
+		chain->ClearEQ(soundNode, target);
+	}
+
+	uint32 AudioSource::GetEQType() const { return chain->eqType; }
+	f32 AudioSource::GetEQFrequency() const { return chain->eqFrequency; }
+	f32 AudioSource::GetEQGain() const { return chain->eqGainDB; }
+	f32 AudioSource::GetEQQ() const { return chain->eqQ; }
+
+	void AudioSource::SetDelay(const f32 delaySeconds, const f32 decay, const f32 wet, const f32 dry)
+	{
+		ma_engine* engine; void* soundNode; void* target;
+		ResolveChainTargets(sound, bus.get(), loaded, engine, soundNode, target);
+		chain->SetDelay(engine, soundNode, target, delaySeconds, decay, wet, dry);
+	}
+
+	void AudioSource::ClearDelay()
+	{
+		ma_engine* engine; void* soundNode; void* target;
+		ResolveChainTargets(sound, bus.get(), loaded, engine, soundNode, target);
+		chain->ClearDelay(soundNode, target);
+	}
+
+	bool AudioSource::HasDelay() const { return chain->hasDelay; }
+	f32 AudioSource::GetDelaySeconds() const { return chain->delaySeconds; }
+	f32 AudioSource::GetDelayDecay() const { return chain->delayDecay; }
+	f32 AudioSource::GetDelayWet() const { return chain->delayWet; }
+	f32 AudioSource::GetDelayDry() const { return chain->delayDry; }
 
 	// **************************** Playback state ****************************
 

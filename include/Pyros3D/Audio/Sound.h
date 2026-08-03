@@ -20,6 +20,9 @@ struct ma_sound;
 namespace p3d {
 
 	class AudioBus;
+	// Forward-declared only - see AudioSource.h's identical comment; the
+	// full class (and miniaudio.h) stays out of this public header.
+	namespace detail { class AudioEffectChain; }
 
 	// One sound file plus a fixed pool of voices that can play it.
 	//
@@ -82,16 +85,41 @@ namespace p3d {
 		// about when placing sounds in a scene by hand.
 		void SetAttenuation(const uint32 model, const f32 minDistance, const f32 maxDistance);
 
-		// One low-pass or high-pass filter for the WHOLE pool at once -
-		// setting one clears the other, and it applies identically to every
-		// voice (they are all "the same sound" conceptually; an individually
-		// filtered voice is what AudioSource is for). `order` is the filter's
-		// steepness (2 = 12dB/octave, a reasonable default).
+		// Three independent effect stages applied to the WHOLE pool at once -
+		// every voice is kept configured identically (they are all "the same
+		// sound" conceptually; an individually configured voice is what
+		// AudioSource is for), always chained in this fixed order (filter ->
+		// EQ -> delay) regardless of the order they're set in, so e.g. a
+		// "muffled AND echoey" effect is SetFilter(LowPass, ...) plus
+		// SetDelay(...) together, not a choice between them.
+
+		// See AudioFilterType::* - LowPass/HighPass/BandPass. `order` is the
+		// filter's steepness (2 = 12dB/octave, a reasonable default).
 		void SetFilter(const uint32 type, const f32 cutoffHz, const uint32 order = 2);
 		void ClearFilter();
-		uint32 GetFilterType() const { return filterType; }
-		f32 GetFilterCutoff() const { return filterCutoff; }
-		uint32 GetFilterOrder() const { return filterOrder; }
+		uint32 GetFilterType() const;
+		f32 GetFilterCutoff() const;
+		uint32 GetFilterOrder() const;
+
+		// See AudioEQType::* - Peak/Notch/LowShelf/HighShelf. `gainDB` is
+		// ignored for Notch; `q` shapes how narrow/broad the affected region
+		// is - 1.0 is a reasonable default for all four types.
+		void SetEQ(const uint32 type, const f32 frequencyHz, const f32 gainDB, const f32 q = 1.0f);
+		void ClearEQ();
+		uint32 GetEQType() const;
+		f32 GetEQFrequency() const;
+		f32 GetEQGain() const;
+		f32 GetEQQ() const;
+
+		// Delay/echo - see AudioSource.h's identical comment on `decay`/
+		// `wet`/`dry`.
+		void SetDelay(const f32 delaySeconds, const f32 decay, const f32 wet = 1.0f, const f32 dry = 1.0f);
+		void ClearDelay();
+		bool HasDelay() const;
+		f32 GetDelaySeconds() const;
+		f32 GetDelayDecay() const;
+		f32 GetDelayWet() const;
+		f32 GetDelayDry() const;
 
 	private:
 
@@ -111,13 +139,12 @@ namespace p3d {
 		uint32 attenuationModel;
 		f32 minDistance, maxDistance;
 
-		// One filter-node slot per voice (opaque - see AudioSource.h's
-		// comment on why ma_lpf_node/ma_hpf_node can't be forward-declared),
-		// parallel to `voices`. NULL entries mean no filter on that voice.
-		std::vector<void*> filterNodes;
-		uint32 filterType;
-		f32 filterCutoff;
-		uint32 filterOrder;
+		// One AudioEffectChain per voice, parallel to `voices` - see
+		// AudioEffectChain.h. Every SetFilter()/SetEQ()/SetDelay() call loops
+		// over all of them applying the same settings; the getters just read
+		// chains[0] back (they are always kept in sync with each other, so
+		// any one voice's state represents the whole pool's).
+		std::vector<detail::AudioEffectChain*> chains;
 	};
 
 }

@@ -1980,7 +1980,16 @@ namespace p3d {
 			lua->new_enum("AudioFilterType",
 				"None", AudioFilterType::None,
 				"LowPass", AudioFilterType::LowPass,
-				"HighPass", AudioFilterType::HighPass
+				"HighPass", AudioFilterType::HighPass,
+				"BandPass", AudioFilterType::BandPass
+			);
+
+			lua->new_enum("AudioEQType",
+				"None", AudioEQType::None,
+				"Peak", AudioEQType::Peak,
+				"Notch", AudioEQType::Notch,
+				"LowShelf", AudioEQType::LowShelf,
+				"HighShelf", AudioEQType::HighShelf
 			);
 
 			// AudioManager - construct exactly one and keep it alive; see the
@@ -2071,7 +2080,27 @@ namespace p3d {
 				"clearFilter", &Sound::ClearFilter,
 				"getFilterType", &Sound::GetFilterType,
 				"getFilterCutoff", &Sound::GetFilterCutoff,
-				"getFilterOrder", &Sound::GetFilterOrder
+				"getFilterOrder", &Sound::GetFilterOrder,
+				"setEQ", sol::overload(
+					[](Sound &s, const uint32 type, const f32 frequencyHz, const f32 gainDB) { s.SetEQ(type, frequencyHz, gainDB); },
+					[](Sound &s, const uint32 type, const f32 frequencyHz, const f32 gainDB, const f32 q) { s.SetEQ(type, frequencyHz, gainDB, q); }
+				),
+				"clearEQ", &Sound::ClearEQ,
+				"getEQType", &Sound::GetEQType,
+				"getEQFrequency", &Sound::GetEQFrequency,
+				"getEQGain", &Sound::GetEQGain,
+				"getEQQ", &Sound::GetEQQ,
+				"setDelay", sol::overload(
+					[](Sound &s, const f32 delaySeconds, const f32 decay) { s.SetDelay(delaySeconds, decay); },
+					[](Sound &s, const f32 delaySeconds, const f32 decay, const f32 wet) { s.SetDelay(delaySeconds, decay, wet); },
+					[](Sound &s, const f32 delaySeconds, const f32 decay, const f32 wet, const f32 dry) { s.SetDelay(delaySeconds, decay, wet, dry); }
+				),
+				"clearDelay", &Sound::ClearDelay,
+				"hasDelay", &Sound::HasDelay,
+				"getDelaySeconds", &Sound::GetDelaySeconds,
+				"getDelayDecay", &Sound::GetDelayDecay,
+				"getDelayWet", &Sound::GetDelayWet,
+				"getDelayDry", &Sound::GetDelayDry
 				);
 
 			// AudioSource - a positional emitter component.
@@ -2114,6 +2143,26 @@ namespace p3d {
 				"getFilterType", &AudioSource::GetFilterType,
 				"getFilterCutoff", &AudioSource::GetFilterCutoff,
 				"getFilterOrder", &AudioSource::GetFilterOrder,
+				"setEQ", sol::overload(
+					[](AudioSource &a, const uint32 type, const f32 frequencyHz, const f32 gainDB) { a.SetEQ(type, frequencyHz, gainDB); },
+					[](AudioSource &a, const uint32 type, const f32 frequencyHz, const f32 gainDB, const f32 q) { a.SetEQ(type, frequencyHz, gainDB, q); }
+				),
+				"clearEQ", &AudioSource::ClearEQ,
+				"getEQType", &AudioSource::GetEQType,
+				"getEQFrequency", &AudioSource::GetEQFrequency,
+				"getEQGain", &AudioSource::GetEQGain,
+				"getEQQ", &AudioSource::GetEQQ,
+				"setDelay", sol::overload(
+					[](AudioSource &a, const f32 delaySeconds, const f32 decay) { a.SetDelay(delaySeconds, decay); },
+					[](AudioSource &a, const f32 delaySeconds, const f32 decay, const f32 wet) { a.SetDelay(delaySeconds, decay, wet); },
+					[](AudioSource &a, const f32 delaySeconds, const f32 decay, const f32 wet, const f32 dry) { a.SetDelay(delaySeconds, decay, wet, dry); }
+				),
+				"clearDelay", &AudioSource::ClearDelay,
+				"hasDelay", &AudioSource::HasDelay,
+				"getDelaySeconds", &AudioSource::GetDelaySeconds,
+				"getDelayDecay", &AudioSource::GetDelayDecay,
+				"getDelayWet", &AudioSource::GetDelayWet,
+				"getDelayDry", &AudioSource::GetDelayDry,
 				"getLengthSeconds", &AudioSource::GetLengthSeconds,
 				"getCursorSeconds", &AudioSource::GetCursorSeconds,
 				"seekSeconds", &AudioSource::SeekSeconds,

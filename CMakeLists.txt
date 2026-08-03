@@ -244,6 +244,7 @@ set(AUDIO_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/miniaudio/miniaudio_impl.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Audio/AudioManager.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Audio/AudioBus.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Audio/AudioEffectChain.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Audio/Sound.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Audio/AudioSource.cpp
 )

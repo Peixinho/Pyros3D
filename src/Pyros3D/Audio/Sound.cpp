@@ -11,7 +11,7 @@
 #include <Pyros3D/Audio/AudioBus.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Ext/miniaudio/miniaudio.h>
-#include "AudioFilterNode.h"
+#include "AudioEffectChain.h"
 
 namespace p3d {
 
@@ -36,8 +36,7 @@ namespace p3d {
 
 	Sound::Sound(const std::string &file, const uint32 voices, const std::shared_ptr<AudioBus> &bus)
 		: file(file), loaded(false), bus(bus), nextVoice(0),
-		attenuationModel(AttenuationModel::Linear), minDistance(1.f), maxDistance(100.f),
-		filterType(AudioFilterType::None), filterCutoff(0.f), filterOrder(2)
+		attenuationModel(AttenuationModel::Linear), minDistance(1.f), maxDistance(100.f)
 	{
 		AudioManager* audio = AudioManager::GetActive();
 		if (audio == NULL || !audio->IsInitialized())
@@ -82,7 +81,7 @@ namespace p3d {
 
 			audio->RegisterVoice(voice);
 			this->voices.push_back(voice);
-			filterNodes.push_back(NULL);
+			chains.push_back(new detail::AudioEffectChain());
 		}
 
 		loaded = true;
@@ -105,8 +104,7 @@ namespace p3d {
 			{
 				// No rerouting needed - see AudioSource::~AudioSource()'s
 				// identical reasoning.
-				if (i < filterNodes.size())
-					detail::DestroyFilterNode(filterNodes[i], filterType);
+				if (i < chains.size()) chains[i]->Destroy();
 
 				// Unregister first: the manager's own teardown must not find
 				// a voice this destructor is about to uninitialize.
@@ -114,9 +112,10 @@ namespace p3d {
 				ma_sound_uninit(voices[i]);
 			}
 			delete voices[i];
+			if (i < chains.size()) delete chains[i];
 		}
 		voices.clear();
-		filterNodes.clear();
+		chains.clear();
 		// `bus` releases its reference here, after every voice that routed
 		// through it is gone.
 	}
@@ -207,49 +206,88 @@ namespace p3d {
 		}
 	}
 
+	// Shared by SetFilter/SetEQ/SetDelay below - see AudioSource.cpp's
+	// identical helper for why `engine` is NULL when there is nothing live
+	// to create a node against.
+	namespace {
+		void ResolveChainTargets(bool loaded, AudioBus* bus, ma_engine* &engine)
+		{
+			engine = NULL;
+			if (!loaded || !EngineAlive()) return;
+			engine = AudioManager::GetActive()->GetEngine();
+		}
+	}
+
 	void Sound::SetFilter(const uint32 type, const f32 cutoffHz, const uint32 order)
 	{
-		if (type == AudioFilterType::None) { ClearFilter(); return; }
-
-		filterCutoff = cutoffHz;
-		filterOrder = order;
-		// Not committed until at least one voice's node is confirmed created
-		// below - see AudioSource::SetFilter()'s identical reasoning.
-		if (!loaded || !EngineAlive())
-		{
-			filterType = type;
-			return;
-		}
-
-		ma_engine* engine = AudioManager::GetActive()->GetEngine();
-		ma_node* target = bus ? reinterpret_cast<ma_node*>(bus->GetGroup()) : ma_engine_get_endpoint(engine);
-
-		bool anySucceeded = false;
-		for (uint32 i = 0; i < voices.size(); i++)
-		{
-			ma_node* soundNode = reinterpret_cast<ma_node*>(voices[i]);
-			detail::DetachFilterNode(soundNode, target, filterNodes[i], filterType);
-			filterNodes[i] = detail::AttachFilterNode(engine, soundNode, target, type, cutoffHz, order);
-			if (filterNodes[i] != NULL) anySucceeded = true;
-		}
-		// Reported type reflects whether the pool is actually filtered - a
-		// pool where every voice failed to attach is functionally unfiltered,
-		// same as AudioSource's single-voice case.
-		filterType = anySucceeded ? type : AudioFilterType::None;
+		ma_engine* engine;
+		ResolveChainTargets(loaded, bus.get(), engine);
+		void* target = (engine != NULL) ? (bus ? reinterpret_cast<void*>(bus->GetGroup()) : reinterpret_cast<void*>(ma_engine_get_endpoint(engine))) : NULL;
+		for (uint32 i = 0; i < chains.size(); i++)
+			chains[i]->SetFilter(engine, reinterpret_cast<void*>(voices[i]), target, type, cutoffHz, order);
 	}
 
 	void Sound::ClearFilter()
 	{
-		if (loaded && EngineAlive())
-		{
-			ma_engine* engine = AudioManager::GetActive()->GetEngine();
-			ma_node* target = bus ? reinterpret_cast<ma_node*>(bus->GetGroup()) : ma_engine_get_endpoint(engine);
-			for (uint32 i = 0; i < voices.size(); i++)
-				detail::DetachFilterNode(reinterpret_cast<ma_node*>(voices[i]), target, filterNodes[i], filterType);
-		}
-		filterType = AudioFilterType::None;
-		filterCutoff = 0.f;
-		filterOrder = 2;
+		ma_engine* engine;
+		ResolveChainTargets(loaded, bus.get(), engine);
+		void* target = (engine != NULL) ? (bus ? reinterpret_cast<void*>(bus->GetGroup()) : reinterpret_cast<void*>(ma_engine_get_endpoint(engine))) : NULL;
+		for (uint32 i = 0; i < chains.size(); i++)
+			chains[i]->ClearFilter(reinterpret_cast<void*>(voices[i]), target);
 	}
+
+	// Every voice's chain is kept configured identically by the loops above,
+	// so any one of them (chains[0], if the pool isn't empty) represents the
+	// whole pool's state.
+	uint32 Sound::GetFilterType() const { return chains.empty() ? AudioFilterType::None : chains[0]->filterType; }
+	f32 Sound::GetFilterCutoff() const { return chains.empty() ? 0.f : chains[0]->filterCutoff; }
+	uint32 Sound::GetFilterOrder() const { return chains.empty() ? 2u : chains[0]->filterOrder; }
+
+	void Sound::SetEQ(const uint32 type, const f32 frequencyHz, const f32 gainDB, const f32 q)
+	{
+		ma_engine* engine;
+		ResolveChainTargets(loaded, bus.get(), engine);
+		void* target = (engine != NULL) ? (bus ? reinterpret_cast<void*>(bus->GetGroup()) : reinterpret_cast<void*>(ma_engine_get_endpoint(engine))) : NULL;
+		for (uint32 i = 0; i < chains.size(); i++)
+			chains[i]->SetEQ(engine, reinterpret_cast<void*>(voices[i]), target, type, frequencyHz, gainDB, q);
+	}
+
+	void Sound::ClearEQ()
+	{
+		ma_engine* engine;
+		ResolveChainTargets(loaded, bus.get(), engine);
+		void* target = (engine != NULL) ? (bus ? reinterpret_cast<void*>(bus->GetGroup()) : reinterpret_cast<void*>(ma_engine_get_endpoint(engine))) : NULL;
+		for (uint32 i = 0; i < chains.size(); i++)
+			chains[i]->ClearEQ(reinterpret_cast<void*>(voices[i]), target);
+	}
+
+	uint32 Sound::GetEQType() const { return chains.empty() ? AudioEQType::None : chains[0]->eqType; }
+	f32 Sound::GetEQFrequency() const { return chains.empty() ? 0.f : chains[0]->eqFrequency; }
+	f32 Sound::GetEQGain() const { return chains.empty() ? 0.f : chains[0]->eqGainDB; }
+	f32 Sound::GetEQQ() const { return chains.empty() ? 1.f : chains[0]->eqQ; }
+
+	void Sound::SetDelay(const f32 delaySeconds, const f32 decay, const f32 wet, const f32 dry)
+	{
+		ma_engine* engine;
+		ResolveChainTargets(loaded, bus.get(), engine);
+		void* target = (engine != NULL) ? (bus ? reinterpret_cast<void*>(bus->GetGroup()) : reinterpret_cast<void*>(ma_engine_get_endpoint(engine))) : NULL;
+		for (uint32 i = 0; i < chains.size(); i++)
+			chains[i]->SetDelay(engine, reinterpret_cast<void*>(voices[i]), target, delaySeconds, decay, wet, dry);
+	}
+
+	void Sound::ClearDelay()
+	{
+		ma_engine* engine;
+		ResolveChainTargets(loaded, bus.get(), engine);
+		void* target = (engine != NULL) ? (bus ? reinterpret_cast<void*>(bus->GetGroup()) : reinterpret_cast<void*>(ma_engine_get_endpoint(engine))) : NULL;
+		for (uint32 i = 0; i < chains.size(); i++)
+			chains[i]->ClearDelay(reinterpret_cast<void*>(voices[i]), target);
+	}
+
+	bool Sound::HasDelay() const { return !chains.empty() && chains[0]->hasDelay; }
+	f32 Sound::GetDelaySeconds() const { return chains.empty() ? 0.f : chains[0]->delaySeconds; }
+	f32 Sound::GetDelayDecay() const { return chains.empty() ? 0.f : chains[0]->delayDecay; }
+	f32 Sound::GetDelayWet() const { return chains.empty() ? 1.f : chains[0]->delayWet; }
+	f32 Sound::GetDelayDry() const { return chains.empty() ? 1.f : chains[0]->delayDry; }
 
 }

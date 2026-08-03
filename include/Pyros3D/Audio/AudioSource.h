@@ -19,6 +19,11 @@ struct ma_sound;
 namespace p3d {
 
 	class AudioBus;
+	// Forward-declared only - AudioSource holds this by pointer (see the
+	// private section below), so the full class, and everything it in turn
+	// needs (miniaudio.h), stays out of this public header. Defined in
+	// src/Pyros3D/Audio/AudioEffectChain.h, not part of the public API.
+	namespace detail { class AudioEffectChain; }
 
 	// A sound that lives on a GameObject and follows it.
 	//
@@ -141,15 +146,45 @@ namespace p3d {
 		void SetPan(const f32 pan);
 		f32 GetPan() const { return pan; }
 
-		// One low-pass or high-pass filter can be inserted on this source's
-		// output at a time - setting one clears the other. `order` is the
+		// Three independent effect stages, always applied in this order
+		// (filter -> EQ -> delay) regardless of the order they're set in -
+		// each can be set/cleared without disturbing the others, so e.g. a
+		// "muffled AND echoey" cave is SetFilter(LowPass, ...) plus
+		// SetDelay(...) together, not a choice between them.
+
+		// See AudioFilterType::* - LowPass/HighPass/BandPass. `order` is the
 		// filter's steepness (2 = 12dB/octave, a reasonable default; higher
 		// numbers cut more sharply per octave past the cutoff).
 		void SetFilter(const uint32 type, const f32 cutoffHz, const uint32 order = 2);
 		void ClearFilter();
-		uint32 GetFilterType() const { return filterType; }
-		f32 GetFilterCutoff() const { return filterCutoff; }
-		uint32 GetFilterOrder() const { return filterOrder; }
+		uint32 GetFilterType() const;
+		f32 GetFilterCutoff() const;
+		uint32 GetFilterOrder() const;
+
+		// See AudioEQType::* - Peak/Notch/LowShelf/HighShelf. `gainDB` is
+		// ignored for Notch (see its enum comment); `q` shapes how narrow
+		// (high Q) or broad (low Q) the affected region is - 1.0 is a
+		// reasonable default for all four types.
+		void SetEQ(const uint32 type, const f32 frequencyHz, const f32 gainDB, const f32 q = 1.0f);
+		void ClearEQ();
+		uint32 GetEQType() const;
+		f32 GetEQFrequency() const;
+		f32 GetEQGain() const;
+		f32 GetEQQ() const;
+
+		// Delay/echo. `decay` is the feedback per repeat - 0 is a single
+		// echo, close to 1 is many long trailing repeats (values at or past
+		// 1, which would never die out, are clamped just under it). `wet`/
+		// `dry` mix the delayed and original signal independently (matching
+		// miniaudio's own knobs) rather than as a single crossfade - both
+		// default to 1 (hear both in full).
+		void SetDelay(const f32 delaySeconds, const f32 decay, const f32 wet = 1.0f, const f32 dry = 1.0f);
+		void ClearDelay();
+		bool HasDelay() const;
+		f32 GetDelaySeconds() const;
+		f32 GetDelayDecay() const;
+		f32 GetDelayWet() const;
+		f32 GetDelayDry() const;
 
 		// **************************** Playback state ************************
 
@@ -223,14 +258,12 @@ namespace p3d {
 		f64 lastUpdateTime;
 		bool hasLastUpdate;
 
-		// Opaque (ma_lpf_node/ma_hpf_node are anonymous structs in miniaudio -
-		// they have no tag to forward-declare, unlike ma_sound - so this is a
-		// plain void* cast back in the .cpp, the same PIMPL idea one level
-		// blunter). NULL when no filter is active.
-		void* filterNode;
-		uint32 filterType;
-		f32 filterCutoff;
-		uint32 filterOrder;
+		// Owns the filter/EQ/delay node-graph wiring - see
+		// AudioEffectChain.h. Allocated unconditionally in the constructor
+		// (even if !loaded) purely so SetFilter()/SetEQ()/SetDelay() always
+		// have somewhere to cache a requested-but-not-yet-applied value,
+		// matching every other setter on this class.
+		detail::AudioEffectChain* chain;
 	};
 
 }

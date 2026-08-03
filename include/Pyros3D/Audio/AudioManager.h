@@ -41,8 +41,10 @@ namespace p3d {
 	}
 
 	// Shared by Sound and AudioSource - both can insert one of these on their
-	// output. Lives here rather than on either class specifically since both
-	// need it and neither is the other's header.
+	// output, as the first of three independent, always-in-this-order
+	// effect stages (filter -> EQ -> delay - see AudioEQType and
+	// SetDelay()). Lives here rather than on either class specifically
+	// since both need it and neither is the other's header.
 	namespace AudioFilterType {
 		enum {
 			None = 0,
@@ -51,7 +53,35 @@ namespace p3d {
 			LowPass,
 			// Cuts frequencies below the cutoff - thins a sound out, e.g. an
 			// old radio/telephone voice, or removing rumble.
-			HighPass
+			HighPass,
+			// Keeps only a band around the cutoff - both muffled AND thin at
+			// once, e.g. a voice coming through a walkie-talkie.
+			BandPass
+		};
+	}
+
+	// The second stage - a parametric EQ, shaping (not just cutting) a
+	// region of the spectrum. Distinct from AudioFilterType because its
+	// real parameters (frequency + gain + Q) don't fit
+	// SetFilter(type, cutoffHz, order)'s shape - order means nothing for a
+	// shelf/peak/notch, and Peak/LowShelf/HighShelf need a gain that
+	// LowPass/HighPass/BandPass don't.
+	namespace AudioEQType {
+		enum {
+			None = 0,
+			// Boosts or cuts (gainDB) a narrow region around `frequency` -
+			// "more/less bass thump", "tame a harsh mid frequency".
+			Peak,
+			// Removes a narrow region around `frequency` entirely - no gain
+			// concept, unlike Peak (SetEQ()'s gainDB argument is ignored for
+			// this type). For killing one specific tone, e.g. a hum.
+			Notch,
+			// Boosts or cuts everything BELOW `frequency` - "warmer" (boost)
+			// or "thinner, less rumble" (cut).
+			LowShelf,
+			// Boosts or cuts everything ABOVE `frequency` - "brighter" (boost)
+			// or "duller, less hiss" (cut).
+			HighShelf
 		};
 	}
 

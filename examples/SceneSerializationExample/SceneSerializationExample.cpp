@@ -186,6 +186,8 @@ void SceneSerializationExample::BuildScene()
 	hornSrc->SetDopplerFactor(0.5f);
 	hornSrc->SetPan(-0.35f);
 	hornSrc->SetFilter(AudioFilterType::LowPass, 1200.f, 4);
+	hornSrc->SetEQ(AudioEQType::Peak, 800.f, 6.f, 2.5f);
+	hornSrc->SetDelay(0.3f, 0.4f, 0.8f, 1.f);
 	horn->AddComponent(hornSrc);
 	scene->Add(horn);
 
@@ -386,6 +388,10 @@ void SceneSerializationExample::RunRoundTripAndVerify()
 			Check(NearlyEqual(a->GetPan(), -0.35f), "AudioSource pan round-tripped");
 			Check(a->GetFilterType() == (uint32)AudioFilterType::LowPass
 				&& NearlyEqual(a->GetFilterCutoff(), 1200.f) && a->GetFilterOrder() == 4, "AudioSource filter round-tripped");
+			Check(a->GetEQType() == (uint32)AudioEQType::Peak && NearlyEqual(a->GetEQFrequency(), 800.f)
+				&& NearlyEqual(a->GetEQGain(), 6.f) && NearlyEqual(a->GetEQQ(), 2.5f), "AudioSource EQ round-tripped");
+			Check(a->HasDelay() && NearlyEqual(a->GetDelaySeconds(), 0.3f) && NearlyEqual(a->GetDelayDecay(), 0.4f)
+				&& NearlyEqual(a->GetDelayWet(), 0.8f) && NearlyEqual(a->GetDelayDry(), 1.f), "AudioSource delay round-tripped");
 		}
 	}
 

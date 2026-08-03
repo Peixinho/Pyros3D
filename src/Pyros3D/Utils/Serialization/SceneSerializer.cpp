@@ -741,14 +741,29 @@ namespace p3d {
 				j["coneOuterAngle"] = a->GetConeOuterAngle();
 				j["coneOuterGain"] = a->GetConeOuterGain();
 			}
-			// Same "only if actually set" reasoning for the filter - most
-			// sources have none, and its cutoff/order are meaningless without
-			// a type to go with them.
+			// Same "only if actually set" reasoning for the filter/EQ/delay -
+			// most sources have none, and their other fields are meaningless
+			// without a type (or, for delay, without being active at all) to
+			// go with them.
 			if (a->GetFilterType() != AudioFilterType::None)
 			{
 				j["filterType"] = a->GetFilterType();
 				j["filterCutoff"] = a->GetFilterCutoff();
 				j["filterOrder"] = a->GetFilterOrder();
+			}
+			if (a->GetEQType() != AudioEQType::None)
+			{
+				j["eqType"] = a->GetEQType();
+				j["eqFrequency"] = a->GetEQFrequency();
+				j["eqGain"] = a->GetEQGain();
+				j["eqQ"] = a->GetEQQ();
+			}
+			if (a->HasDelay())
+			{
+				j["delaySeconds"] = a->GetDelaySeconds();
+				j["delayDecay"] = a->GetDelayDecay();
+				j["delayWet"] = a->GetDelayWet();
+				j["delayDry"] = a->GetDelayDry();
 			}
 			// Bus routing (AudioBus) is deliberately NOT serialized - a bus is
 			// an app-level submix construct (built once at startup, e.g. a
@@ -1344,6 +1359,10 @@ namespace p3d {
 					a->SetCone(j.value("coneInnerAngle", 6.283185f), j.value("coneOuterAngle", 6.283185f), j.value("coneOuterGain", 1.0f));
 				if (j.find("filterType") != j.end())
 					a->SetFilter(j.value("filterType", (uint32)AudioFilterType::None), j.value("filterCutoff", 1000.0f), j.value("filterOrder", 2u));
+				if (j.find("eqType") != j.end())
+					a->SetEQ(j.value("eqType", (uint32)AudioEQType::None), j.value("eqFrequency", 1000.0f), j.value("eqGain", 0.0f), j.value("eqQ", 1.0f));
+				if (j.find("delaySeconds") != j.end())
+					a->SetDelay(j.value("delaySeconds", 0.2f), j.value("delayDecay", 0.5f), j.value("delayWet", 1.0f), j.value("delayDry", 1.0f));
 				// Resume playback last, so it starts with its final settings
 				// rather than briefly sounding with the constructor defaults.
 				if (j.value("playing", false)) a->Play();
