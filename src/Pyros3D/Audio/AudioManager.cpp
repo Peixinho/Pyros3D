@@ -10,6 +10,7 @@
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Ext/miniaudio/miniaudio.h>
+#include "AudioDopplerSafety.h"
 
 namespace p3d {
 
@@ -127,6 +128,16 @@ namespace p3d {
 		Vec3 velocity(0.f, 0.f, 0.f);
 		if (dt > 0.0001f && dt < 0.25f && hasLastListenerPosition)
 			velocity = (position - lastListenerPosition) * (1.f / dt);
+
+		// Clamped regardless of how "reasonable" it looks - see
+		// AudioDopplerSafety.h. miniaudio's own Doppler formula divides by a
+		// term that reaches zero once a velocity's projection toward/away
+		// from a source hits speedOfSound/dopplerFactor, and nothing in the
+		// public API stops a caller (or ordinary finite-difference noise)
+		// from getting there. An unclamped hit is an Inf/NaN pitch reaching
+		// the audio thread - reported as sound going silent, then the
+		// process hanging on shutdown waiting for that thread to unwind.
+		velocity = detail::ClampDopplerVelocity(velocity, detail::LISTENER_ASSUMED_MAX_DOPPLER_FACTOR);
 		ma_engine_listener_set_velocity(engine, 0, velocity.x, velocity.y, velocity.z);
 
 		lastListenerPosition = position;

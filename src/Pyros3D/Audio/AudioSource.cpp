@@ -13,6 +13,7 @@
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Ext/miniaudio/miniaudio.h>
 #include "AudioFilterNode.h"
+#include "AudioDopplerSafety.h"
 
 namespace p3d {
 
@@ -348,6 +349,15 @@ namespace p3d {
 		const f64 dt = time - lastUpdateTime;
 		if (hasLastUpdate && dt > 0.0001 && dt < 0.25)
 			velocity = (position - lastPosition) * (f32)(1.0 / dt);
+
+		// Clamped against THIS source's own Doppler factor - see
+		// AudioDopplerSafety.h and AudioManager::SetListener()'s identical
+		// comment. Precise here (unlike the listener's clamp, which has to
+		// assume a ceiling since one listener velocity is shared by every
+		// source's own independently-set factor): this source's real factor
+		// is exactly what miniaudio's formula multiplies its own velocity
+		// by, so this clamp is neither too tight nor too loose.
+		velocity = detail::ClampDopplerVelocity(velocity, dopplerFactor);
 		ma_sound_set_velocity(sound, velocity.x, velocity.y, velocity.z);
 
 		lastPosition = position;
