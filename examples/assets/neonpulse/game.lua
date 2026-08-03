@@ -5,6 +5,7 @@
 local C = import("config")
 local Arena = import("arena")
 local E = import("entities")
+local Audio = import("audio")
 
 local Game = {}
 
@@ -76,6 +77,7 @@ function Game.launch()
 		E.paddle.x,
 		C.paddle.y + E.paddle.halfH + C.ball.radius + 0.5,
 		sin(ang) * speed, cos(ang) * speed)
+	Audio.playAt("launch", E.paddle.x, C.paddle.y)
 	Game.setState("play")
 end
 
@@ -123,6 +125,7 @@ function Game.hitBrick(brick, ball)
 		brick.mat:setColor(C.color.flash)
 		brick.flash = C.bricks.flashTime
 		E.burst(brick.x, brick.y, C.color.armoured, 0.6)
+		Audio.playAt("armoured", brick.x, brick.y)
 		Game.score = Game.score + C.score.armouredBonus
 		Game.shake = max(Game.shake, 0.5)
 		return
@@ -134,6 +137,9 @@ function Game.hitBrick(brick, ball)
 	Game.score = Game.score + C.score.perRow[brick.row + 1]
 	Game.shake = max(Game.shake, 1.0)
 	E.burst(brick.x, brick.y, rowColor, 1.0)
+	-- Higher rows ring higher: digging up through the wall reads as rising
+	-- pitch, which makes progress audible as well as visible.
+	Audio.playAt("brick", brick.x, brick.y, 0.92 + 0.05 * (C.bricks.rows - brick.row))
 
 	Game.speedScale = min(Game.speedScale * C.ball.speedPerHit, C.ball.maxSpeed / C.ball.baseSpeed)
 
@@ -169,11 +175,14 @@ function Game.stepBall(b, dt)
 		-- Side and top walls
 		if b.x < -a.halfW + r then
 			b.x = -a.halfW + r; b.vx = abs(b.vx)
+			Audio.playAt("wall", b.x, b.y)
 		elseif b.x > a.halfW - r then
 			b.x = a.halfW - r; b.vx = -abs(b.vx)
+			Audio.playAt("wall", b.x, b.y)
 		end
 		if b.y > a.topY - r then
 			b.y = a.topY - r; b.vy = -abs(b.vy)
+			Audio.playAt("wall", b.x, b.y)
 		end
 
 		-- Lost below the dead line
@@ -193,6 +202,9 @@ function Game.stepBall(b, dt)
 				b.y = C.paddle.y + E.paddle.halfH + r + 0.02
 				E.burst(b.x, C.paddle.y + E.paddle.halfH, C.color.paddleGlow, 0.45)
 				Game.shake = max(Game.shake, 0.35)
+				-- Pitch follows the contact point, so an edge hit (which
+				-- throws the steepest angle) sounds different from a centre one.
+				Audio.playAt("paddle", b.x, C.paddle.y, 1.0 + t * 0.18)
 			end
 		end
 
@@ -271,6 +283,7 @@ function Game.updatePowerups(dt)
 			if caughtX and caughtY then
 				E.burst(p.x, p.y, C.color.powerup[p.kind], 1.2)
 				Game.shake = max(Game.shake, 0.8)
+				Audio.playAt("powerup", p.x, p.y)
 				Game.applyPowerup(p.kind)
 				E.despawnPowerup(p)
 			elseif p.y < C.arena.deadY then
@@ -403,6 +416,7 @@ function Game.update(dt, time)
 				if not Game.stepBall(b, dt) then
 					E.burst(b.x, C.arena.deadY + 4, Vec4.new(0.45, 0.55, 1.0, 1), 1.4)
 					E.deactivateBall(b)
+					Audio.play("lost")
 				end
 			end
 		end
@@ -410,6 +424,7 @@ function Game.update(dt, time)
 		if Game.remaining <= 0 then
 			for _, b in ipairs(E.balls) do E.deactivateBall(b) end
 			Game.shake = 1.4
+			Audio.play("levelclear")
 			Game.setState("clear")
 		elseif E.activeBallCount() == 0 then
 			Game.lives = Game.lives - 1

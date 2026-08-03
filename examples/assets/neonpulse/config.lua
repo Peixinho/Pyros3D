@@ -153,6 +153,29 @@ C.color = {
 	},
 }
 
+-- ********************************* Audio *******************************
+
+C.audio = {
+	master = 0.85,
+	-- Effects are played positioned in the arena, so a brick breaking on the
+	-- left is heard on the left. The listener sits on the camera, ~165 units
+	-- back, so the falloff range has to cover the whole arena or everything
+	-- lands at minimum volume: full volume out to `minDistance`, tapering to
+	-- the floor at `maxDistance`.
+	minDistance = 90,
+	maxDistance = 340,
+	-- Per-sound trims, so the mix can be balanced without regenerating the
+	-- .wav files (see sfx/generate_sfx.py).
+	volume = {
+		paddle = 0.55, wall = 0.35, brick = 0.60, armoured = 0.50,
+		powerup = 0.70, lost = 0.70, levelclear = 0.80, launch = 0.50,
+	},
+	ambienceVolume = 0.35,
+	-- How many of each effect can overlap. Bricks need the most: a ball
+	-- ripping along a row triggers several within a few frames.
+	voices = { brick = 6, wall = 4, paddle = 3, default = 2 },
+}
+
 -- ********************************** HUD ********************************
 
 C.hud = {

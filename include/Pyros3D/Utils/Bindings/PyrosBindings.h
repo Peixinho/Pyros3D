@@ -44,6 +44,9 @@
 #include <Pyros3D/Rendering/PostEffects/Effects/VignetteEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.h>
 #include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
+#include <Pyros3D/Audio/AudioManager.h>
+#include <Pyros3D/Audio/Sound.h>
+#include <Pyros3D/Audio/AudioSource.h>
 #include <Pyros3D/Core/InputManager/InputManager.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <map>

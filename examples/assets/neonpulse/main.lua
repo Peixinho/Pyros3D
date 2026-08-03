@@ -41,7 +41,7 @@ G = {}
 
 -- ******************************** Startup ******************************
 
-local C, Arena, E, Game
+local C, Arena, E, Game, Audio
 
 function init()
 	C = import("config")
@@ -66,9 +66,12 @@ function init()
 
 	Arena = import("arena")
 	E = import("entities")
+	Audio = import("audio")
 	Game = import("game")
 
 	Arena.build()
+	-- Before E.build(): the entities' sounds are looked up through this.
+	Audio.build()
 	E.build()
 	Game.bindInput()
 
@@ -145,6 +148,10 @@ function update(time, dt)
 	-- update above is what refreshes - so queued bursts are fired here,
 	-- after it, and land where the brick actually was.
 	E.fireQueuedBursts()
+
+	-- Same reason: the listener rides the camera, whose world transform the
+	-- scene update is what refreshes.
+	Audio.update()
 
 	G.renderer:preRender(G.camera, G.scene)
 	G.renderer:renderScene(G.projection, G.camera, G.scene)

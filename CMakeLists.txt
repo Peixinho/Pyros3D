@@ -238,9 +238,34 @@ else()
 endif()
 
 
+# Audio - miniaudio (vendored single-header, see miniaudio_impl.cpp for why
+# that file exists and which decoders are compiled in).
+set(AUDIO_SOURCE
+	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/miniaudio/miniaudio_impl.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Audio/AudioManager.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Audio/Sound.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Audio/AudioSource.cpp
+)
+
+# miniaudio talks to the OS audio stack directly and has no external
+# dependency of its own, but it does need that stack's frameworks/libraries
+# linked. On Linux it dlopen()s ALSA/PulseAudio at runtime, hence libdl and
+# pthread there but nothing to find at configure time.
+if (APPLE)
+	find_library(COREAUDIO_LIBRARY CoreAudio REQUIRED)
+	find_library(COREFOUNDATION_LIBRARY CoreFoundation REQUIRED)
+	find_library(AUDIOTOOLBOX_LIBRARY AudioToolbox REQUIRED)
+	set(AUDIO_LIBS ${COREAUDIO_LIBRARY} ${COREFOUNDATION_LIBRARY} ${AUDIOTOOLBOX_LIBRARY})
+elseif (UNIX)
+	set(AUDIO_LIBS ${CMAKE_DL_LIBS} pthread m)
+else()
+	set(AUDIO_LIBS "")
+endif()
+
 # Engine Sources
 set(SOURCE
 	${SOURCE}
+	${AUDIO_SOURCE}
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Utils/Thread/Thread.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Utils/ModelLoaders/MultiModelLoader/AnimationLoader.cpp
@@ -358,7 +383,7 @@ include_directories(${HEADERS} ${GLAD_INCLUDE_DIR} ${LUA_INCLUDE_DIR} ${OPENGL_I
 
 # Engine Library
 add_library(PyrosEngine ${LIB_TYPE} ${SOURCE} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS})
-target_link_libraries(PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${LUA_LIBRARIES} ${CONTEXT_LIB} ${SPIRV_TOOLING_LIBS} ${VULKAN_BACKEND_LIBS})
+target_link_libraries(PyrosEngine ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${LUA_LIBRARIES} ${CONTEXT_LIB} ${SPIRV_TOOLING_LIBS} ${VULKAN_BACKEND_LIBS} ${AUDIO_LIBS})
 # Neither pthread nor dl is actually used anywhere in the engine (Thread.cpp
 # is now std::thread-based - see Thread.cpp/.h - and nothing calls dlopen/
 # dlsym) - both were dead link flags, and both fail to resolve on Windows.

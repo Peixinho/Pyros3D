@@ -855,7 +855,27 @@ namespace p3d {
 	struct MaybeOwningDeviceDeleter
 	{
 		bool owns = true;
-		void operator()(IRenderDevice *d) const { if (owns) delete d; }
+		void operator()(IRenderDevice *d) const
+		{
+			if (!owns) return;
+			// Clear the process-wide active pointer first if it is this
+			// device. IRenderer's constructor publishes whatever device it
+			// resolved via SetActiveRenderDevice(), and when it owns that
+			// device it also frees it here - which used to leave activeDevice
+			// dangling rather than NULL. IsActiveRenderDeviceSet() then
+			// answered "yes" and every later caller went through a freed
+			// vtable.
+			//
+			// That is not hypothetical ordering: Lua-owned objects are
+			// finalized in whatever order sol's GC picks, so a script holding
+			// both a renderer and a FrameBuffer routinely destroys the
+			// renderer first, and the FrameBuffer's destructor then calls
+			// Device().DestroyFramebuffer() on freed memory. Segfault on
+			// every clean exit, with a garbage PC.
+			if (IsActiveRenderDeviceSet() && &GetActiveRenderDevice() == d)
+				SetActiveRenderDevice(NULL);
+			delete d;
+		}
 	};
 	typedef std::unique_ptr<IRenderDevice, MaybeOwningDeviceDeleter> MaybeOwningDevicePtr;
 

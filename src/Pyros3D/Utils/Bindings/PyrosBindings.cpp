@@ -1954,6 +1954,88 @@ namespace p3d {
 		}
 
 		{
+			// ******************************* Audio *******************************
+
+			lua->new_enum("AttenuationModel",
+				"None", AttenuationModel::None,
+				"Inverse", AttenuationModel::Inverse,
+				"Linear", AttenuationModel::Linear,
+				"Exponential", AttenuationModel::Exponential
+			);
+
+			// AudioManager - construct exactly one and keep it alive; see the
+			// class comment for the active-manager registration this relies on.
+			sol::constructors<sol::types<>> audioCon;
+			lua->new_usertype<AudioManager>("AudioManager",
+				audioCon,
+				"isInitialized", &AudioManager::IsInitialized,
+				"setMasterVolume", &AudioManager::SetMasterVolume,
+				"getMasterVolume", &AudioManager::GetMasterVolume,
+				"setListener", [](AudioManager &a, const Vec3 &position, const Vec3 &forward, const Vec3 &up) {
+					a.SetListener(position, forward, up);
+				},
+				// The common case - point the listener at the camera object.
+				// Call it after scene:update(), which is what refreshes the
+				// world transform this reads.
+				"setListenerFromGameObject", &AudioManager::SetListenerFromGameObject,
+				"getListenerPosition", &AudioManager::GetListenerPosition
+				);
+
+			// Sound - pooled one-shot effects.
+			sol::constructors<sol::types<std::string>, sol::types<std::string, uint32>> soundCon;
+			lua->new_usertype<Sound>("Sound",
+				soundCon,
+				"isLoaded", &Sound::IsLoaded,
+				"getFile", &Sound::GetFile,
+				// Defaults spelled out as overloads: sol binds a function's
+				// full arity, so C++ default arguments are not optional from
+				// Lua (the same reason DeferredRenderer_RenderScene above
+				// needs its 3-argument wrapper).
+				"play", sol::overload(
+					[](Sound &s) { s.Play(); },
+					[](Sound &s, const f32 volume) { s.Play(volume); },
+					[](Sound &s, const f32 volume, const f32 pitch) { s.Play(volume, pitch); }
+				),
+				"playAt", sol::overload(
+					[](Sound &s, const Vec3 &position) { s.PlayAt(position); },
+					[](Sound &s, const Vec3 &position, const f32 volume) { s.PlayAt(position, volume); },
+					[](Sound &s, const Vec3 &position, const f32 volume, const f32 pitch) { s.PlayAt(position, volume, pitch); }
+				),
+				"stop", &Sound::Stop,
+				"getPlayingCount", &Sound::GetPlayingCount,
+				"setAttenuation", &Sound::SetAttenuation
+				);
+
+			// AudioSource - a positional emitter component.
+			sol::constructors<sol::types<std::string>, sol::types<std::string, bool>> sourceCon;
+			lua->new_usertype<AudioSource>("AudioSource",
+				sourceCon,
+				"isLoaded", &AudioSource::IsLoaded,
+				"getFile", &AudioSource::GetFile,
+				"play", &AudioSource::Play,
+				"pause", &AudioSource::Pause,
+				"stop", &AudioSource::Stop,
+				"isPlaying", &AudioSource::IsPlaying,
+				"setLooping", &AudioSource::SetLooping,
+				"isLooping", &AudioSource::IsLooping,
+				"setVolume", &AudioSource::SetVolume,
+				"getVolume", &AudioSource::GetVolume,
+				"setPitch", &AudioSource::SetPitch,
+				"getPitch", &AudioSource::GetPitch,
+				"fadeIn", &AudioSource::FadeIn,
+				"fadeOut", &AudioSource::FadeOut,
+				"setSpatialization", &AudioSource::SetSpatialization,
+				"isSpatialized", &AudioSource::IsSpatialized,
+				"setAttenuation", &AudioSource::SetAttenuation,
+				"setCone", &AudioSource::SetCone,
+				"clearCone", &AudioSource::ClearCone,
+				"setDirectionalAttenuation", &AudioSource::SetDirectionalAttenuation,
+				"setDopplerFactor", &AudioSource::SetDopplerFactor,
+				sol::base_classes, sol::bases<IComponent>()
+				);
+		}
+
+		{
 			// Input - real keyboard/mouse enums plus the LuaInputBridge
 			// registration API (see PyrosBindings.h's LuaInputBridge
 			// class comment for why a bridge object is needed instead of
