@@ -7,8 +7,6 @@
 //============================================================================
 
 #include "NeonPulse.h"
-#include <Pyros3D/Core/File/File.h>
-#include <memory>
 
 using namespace p3d;
 
@@ -54,16 +52,14 @@ void NeonPulse::Init()
 
 void NeonPulse::RunScript(const std::string &file)
 {
-	std::unique_ptr<File> f = std::make_unique<File>();
-	f->Open(file, false);
-
-	std::string code;
-	code.resize(f->Size());
-	if (f->Size() > 0) memcpy(&code[0], &f->GetData()[0], f->Size());
-
-	f->Close();
-
-	lua.script(code.c_str(), [](lua_State*, sol::protected_function_result pfr) {
+	// safe_script_file() loads and runs through sol's own protected path -
+	// same "[lua] " prefix as got_problems (Init()'s default handler for
+	// ordinary protected_function calls like init()/update()) so a syntax
+	// error here reads identically to a runtime one instead of failing
+	// silently.
+	lua.safe_script_file(file, [](lua_State*, sol::protected_function_result pfr) {
+		sol::error err = pfr;
+		fprintf(stderr, "[lua] %s\n", err.what());
 		return pfr;
 	});
 }
