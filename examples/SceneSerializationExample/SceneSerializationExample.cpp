@@ -74,6 +74,7 @@ void SceneSerializationExample::OnResize(const uint32 width, const uint32 height
 
 void SceneSerializationExample::Init()
 {
+	audio = new AudioManager();
 	scene = new SceneGraph();
 	renderer = new ForwardRenderer(1024, 768);
 	projection.Perspective(70.f, 1024.f / 768.f, 1.f, 1000.f);
@@ -166,6 +167,25 @@ void SceneSerializationExample::BuildScene()
 	desc.emissionRate = 8.f;
 	smoke->AddComponent(new ParticleSystem(desc));
 	scene->Add(smoke);
+
+	// AudioSource - deliberately given non-default settings on every axis the
+	// serializer writes (cone included), so a field silently falling back to
+	// its default on load shows up as a failed check rather than passing by
+	// coincidence.
+	GameObject* horn = new GameObject();
+	horn->SetName("Horn");
+	horn->SetPosition(Vec3(20, 5, -10));
+	AudioSource* hornSrc = new AudioSource(STR(EXAMPLES_PATH)"/assets/neonpulse/sfx/ambience.wav", true);
+	hornSrc->SetSpatialization(true);
+	hornSrc->SetLooping(true);
+	hornSrc->SetVolume(0.42f);
+	hornSrc->SetPitch(1.25f);
+	hornSrc->SetAttenuation(AttenuationModel::Exponential, 3.f, 77.f);
+	hornSrc->SetCone(0.4f, 1.1f, 0.25f);
+	hornSrc->SetDirectionalAttenuation(0.8f);
+	hornSrc->SetDopplerFactor(0.5f);
+	horn->AddComponent(hornSrc);
+	scene->Add(horn);
 
 #ifdef LUA_BINDINGS
 	GameObject* scripted = new GameObject();
@@ -282,6 +302,7 @@ void SceneSerializationExample::RunRoundTripAndVerify()
 	Check(postCount == preCount, "Root object count round-tripped (" + std::to_string(preCount) + " -> " + std::to_string(postCount) + ")");
 
 	GameObject* ground = NULL; GameObject* cube = NULL; GameObject* sun = NULL; GameObject* smoke = NULL; GameObject* lamp = NULL;
+	GameObject* horn = NULL;
 	GameObject* decalObj = NULL; GameObject* car = NULL; GameObject* human = NULL; GameObject* animatedQuad = NULL; GameObject* textObj = NULL;
 	GameObject* namedScript = NULL;
 	std::vector<GameObject*> &roots = scene->GetAllGameObjectList();
@@ -291,6 +312,7 @@ void SceneSerializationExample::RunRoundTripAndVerify()
 		else if (roots[i]->GetName() == "Cube") cube = roots[i];
 		else if (roots[i]->GetName() == "Sun") sun = roots[i];
 		else if (roots[i]->GetName() == "Smoke") smoke = roots[i];
+		else if (roots[i]->GetName() == "Horn") horn = roots[i];
 		else if (roots[i]->GetName() == "Decal") decalObj = roots[i];
 		else if (roots[i]->GetName() == "Car") car = roots[i];
 		else if (roots[i]->GetName() == "Human") human = roots[i];
@@ -341,6 +363,25 @@ void SceneSerializationExample::RunRoundTripAndVerify()
 		const std::vector<IComponent*> &comps = smoke->GetComponents();
 		for (size_t i = 0; i < comps.size(); i++) if ((ps = dynamic_cast<ParticleSystem*>(comps[i]))) break;
 		Check(ps != NULL && ps->GetDesc().maxParticles == 64, "ParticleSystem desc round-tripped");
+	}
+
+	Check(horn != NULL, "AudioSource object found after load");
+	if (horn)
+	{
+		AudioSource* a = NULL;
+		const std::vector<IComponent*> &comps = horn->GetComponents();
+		for (size_t i = 0; i < comps.size(); i++) if ((a = dynamic_cast<AudioSource*>(comps[i]))) break;
+		Check(a != NULL, "AudioSource component round-tripped");
+		if (a)
+		{
+			Check(a->IsStreamed() && a->IsLooping() && a->IsSpatialized(), "AudioSource flags round-tripped");
+			Check(NearlyEqual(a->GetVolume(), 0.42f) && NearlyEqual(a->GetPitch(), 1.25f), "AudioSource volume/pitch round-tripped");
+			Check(a->GetAttenuationModel() == (uint32)AttenuationModel::Exponential
+				&& NearlyEqual(a->GetMinDistance(), 3.f) && NearlyEqual(a->GetMaxDistance(), 77.f), "AudioSource attenuation round-tripped");
+			Check(a->HasCone() && NearlyEqual(a->GetConeInnerAngle(), 0.4f)
+				&& NearlyEqual(a->GetConeOuterAngle(), 1.1f) && NearlyEqual(a->GetConeOuterGain(), 0.25f), "AudioSource cone round-tripped");
+			Check(NearlyEqual(a->GetDirectionalAttenuation(), 0.8f) && NearlyEqual(a->GetDopplerFactor(), 0.5f), "AudioSource directional/doppler round-tripped");
+		}
 	}
 
 	Check(decalObj != NULL, "Decal object found after load");
@@ -429,4 +470,10 @@ void SceneSerializationExample::Update()
 	frameCount++;
 }
 
-void SceneSerializationExample::Shutdown() {}
+void SceneSerializationExample::Shutdown()
+{
+	// Last, so every AudioSource the scene still holds is torn down while the
+	// engine is up (see AudioManager's voice registry).
+	delete audio;
+	audio = NULL;
+}

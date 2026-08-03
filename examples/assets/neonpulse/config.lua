@@ -171,6 +171,12 @@ C.audio = {
 		powerup = 0.70, lost = 0.70, levelclear = 0.80, launch = 0.50,
 	},
 	ambienceVolume = 0.35,
+	-- The ball's own tone. This is the one genuinely spatialized, moving
+	-- source in the game: it rides the ball, so it pans and attenuates as the
+	-- ball travels, and its pitch tracks speed.
+	humVolume = 0.30,
+	humPitchAtBaseSpeed = 0.85,
+	humPitchAtMaxSpeed = 1.55,
 	-- How many of each effect can overlap. Bricks need the most: a ball
 	-- ripping along a row triggers several within a few frames.
 	voices = { brick = 6, wall = 4, paddle = 3, default = 2 },

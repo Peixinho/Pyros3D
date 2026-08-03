@@ -177,6 +177,22 @@ def ambience():
     return render(duration, f)
 
 
+def hum():
+    """
+    The ball's own tone - a spatialized loop that rides the ball, so it pans
+    and attenuates as the ball moves. Kept very plain and quiet: it plays
+    continuously, and anything with character would grate within a minute.
+
+    Length is an exact whole number of cycles of the base frequency (110 Hz
+    over 0.5 s = 55 cycles), so the loop seam lands at the same phase and is
+    inaudible.
+    """
+    duration = 0.5
+    def f(t, i, n):
+        return 0.30 * sine(t, 110.0) + 0.12 * sine(t, 220.0) + 0.05 * triangle(t, 330.0)
+    return render(duration, f)
+
+
 if __name__ == "__main__":
     write_wav("paddle.wav", paddle())
     write_wav("wall.wav", wall())
@@ -187,3 +203,4 @@ if __name__ == "__main__":
     write_wav("levelclear.wav", levelclear())
     write_wav("launch.wav", launch())
     write_wav("ambience.wav", ambience())
+    write_wav("hum.wav", hum())

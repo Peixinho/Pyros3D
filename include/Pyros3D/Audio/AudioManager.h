@@ -12,11 +12,13 @@
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Other/Export.h>
 #include <string>
+#include <vector>
 
 // miniaudio's own types are only needed by the implementation, so the header
 // stays opaque - including miniaudio.h here would drag ~95k lines into every
 // translation unit that just wants to play a sound.
 struct ma_engine;
+struct ma_sound;
 
 namespace p3d {
 
@@ -87,12 +89,24 @@ namespace p3d {
 		// For Sound/AudioSource only - the raw miniaudio engine.
 		ma_engine* GetEngine() { return engine; }
 
+		// Also for Sound/AudioSource only. Every live voice registers itself
+		// here so this class can guarantee the one ordering miniaudio cares
+		// about: ma_engine_uninit() does not touch caller-owned ma_sounds, so
+		// any still alive when the engine goes must be uninitialized first or
+		// their internal resources are stranded. Relying on the owners to be
+		// destroyed first does not work - they are routinely Lua-owned, and
+		// sol finalizes in whatever order its GC picks.
+		void RegisterVoice(ma_sound* voice);
+		void UnregisterVoice(ma_sound* voice);
+
 	private:
 
 		ma_engine* engine;
 		bool initialized;
 		f32 masterVolume;
 		Vec3 listenerPosition;
+
+		std::vector<ma_sound*> liveVoices;
 
 		static AudioManager* activeManager;
 	};

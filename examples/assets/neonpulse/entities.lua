@@ -14,6 +14,7 @@
 
 local C = import("config")
 local Arena = import("arena")
+local Audio = import("audio")
 
 local E = { keep = {} }
 
@@ -169,11 +170,16 @@ function E.buildBalls()
 		local trail = ParticleSystem.new(d)
 		go:addComponent(trail)
 
+		-- The ball's spatialized loop - the one moving positional source in
+		-- the game, and what exercises AudioSource's per-frame Update() path.
+		local hum = Audio.newBallHum()
+		if hum then go:addComponent(hum) end
+
 		G.scene:add(go)
 		keep(go); keep(rc); keep(light); keep(trail); keep(d)
 
 		E.balls[i] = {
-			go = go, light = light, trail = trail,
+			go = go, light = light, trail = trail, hum = hum,
 			x = 0, y = 0, vx = 0, vy = 0, active = false,
 		}
 		E.deactivateBall(E.balls[i])
@@ -186,6 +192,10 @@ function E.activateBall(b, x, y, vx, vy)
 	b.go:setPosition(Vec3.new(x, y, C.arena.ballZ))
 	b.light:setLightIntensity(1.5 * Arena.lightGain)
 	b.trail:play()
+	if b.hum then
+		b.hum:setVolume(C.audio.humVolume)
+		b.hum:play()
+	end
 end
 
 function E.deactivateBall(b)
@@ -194,6 +204,7 @@ function E.deactivateBall(b)
 	b.light:setLightIntensity(0)
 	b.trail:stop()
 	b.trail:clear()
+	if b.hum then b.hum:stop() end
 end
 
 function E.activeBallCount()

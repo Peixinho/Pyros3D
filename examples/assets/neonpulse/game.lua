@@ -233,6 +233,13 @@ function Game.stepBall(b, dt)
 	end
 
 	b.go:setPosition(Vec3.new(b.x, b.y, a.ballZ))
+
+	-- Hum pitch tracks speed across the whole base..max range, so a ball that
+	-- has ramped up over a level is audibly faster. The AudioSource itself
+	-- follows the ball's position on its own, from its component Update().
+	local span = C.ball.maxSpeed - C.ball.baseSpeed
+	Audio.setHumSpeed(b.hum, span > 0 and clamp((speed - C.ball.baseSpeed) / span, 0, 1) or 0)
+
 	return true
 end
 

@@ -107,7 +107,27 @@ namespace p3d {
 		// scaled. Only meaningful on a source that actually moves.
 		void SetDopplerFactor(const f32 factor);
 
+		// **************************** Read-back *****************************
+		//
+		// miniaudio has no getters for the cone or the attenuation settings, so
+		// every setter above also caches its arguments here. That is what lets
+		// the scene serializer round-trip a source rather than write out
+		// whatever the defaults happened to be.
+
+		bool IsStreamed() const { return streamed; }
+		uint32 GetAttenuationModel() const { return attenuationModel; }
+		f32 GetMinDistance() const { return minDistance; }
+		f32 GetMaxDistance() const { return maxDistance; }
+		bool HasCone() const { return hasCone; }
+		f32 GetConeInnerAngle() const { return coneInner; }
+		f32 GetConeOuterAngle() const { return coneOuter; }
+		f32 GetConeOuterGain() const { return coneOuterGain; }
+		f32 GetDirectionalAttenuation() const { return directionalAttenuation; }
+		f32 GetDopplerFactor() const { return dopplerFactor; }
+
 		// **************************** IComponent ****************************
+
+		virtual uint32 GetComponentType() const { return ComponentType::AudioSource; }
 
 		virtual void Register(SceneGraph* Scene) {}
 		virtual void Unregister(SceneGraph* Scene) {}
@@ -128,6 +148,14 @@ namespace p3d {
 		bool spatialized;
 		f32 volume;
 		f32 pitch;
+
+		bool streamed;
+		uint32 attenuationModel;
+		f32 minDistance, maxDistance;
+		bool hasCone;
+		f32 coneInner, coneOuter, coneOuterGain;
+		f32 directionalAttenuation;
+		f32 dopplerFactor;
 	};
 
 }

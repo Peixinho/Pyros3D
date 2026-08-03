@@ -71,6 +71,7 @@ namespace p3d {
 			ma_sound_set_max_distance(voice, maxDistance);
 			ma_sound_set_attenuation_model(voice, TranslateAttenuation(attenuationModel));
 
+			audio->RegisterVoice(voice);
 			this->voices.push_back(voice);
 		}
 
@@ -85,12 +86,18 @@ namespace p3d {
 		// memory. Mirrors the IsActiveRenderDeviceSet() guard on the GPU
 		// resource destructors, and for exactly the same reason - Lua-owned
 		// objects are finalized in an order nothing here controls.
-		const bool engineAlive = AudioManager::IsActiveSet() && AudioManager::GetActive()->IsInitialized();
+		AudioManager* audio = AudioManager::GetActive();
+		const bool engineAlive = audio != NULL && audio->IsInitialized();
 
 		for (uint32 i = 0; i < voices.size(); i++)
 		{
 			if (engineAlive)
+			{
+				// Unregister first: the manager's own teardown must not find
+				// a voice this destructor is about to uninitialize.
+				audio->UnregisterVoice(voices[i]);
 				ma_sound_uninit(voices[i]);
+			}
 			delete voices[i];
 		}
 		voices.clear();

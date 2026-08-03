@@ -38,7 +38,8 @@ namespace p3d {
 			SpotLight,
 			Physics,
 			Vehicle,
-			LuaComponent
+			LuaComponent,
+			AudioSource
 		};
 	}
 

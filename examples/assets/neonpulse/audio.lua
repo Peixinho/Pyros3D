@@ -74,6 +74,28 @@ function A.startAmbience()
 	src:fadeIn(1500)
 end
 
+-- Builds the ball's spatialized loop. Returned rather than attached here so
+-- entities.lua can own it alongside the rest of the ball's components.
+function A.newBallHum()
+	if not A.enabled then return nil end
+	local src = keep(AudioSource.new(SFX_PATH .. "hum.wav", false))
+	if not src:isLoaded() then return nil end
+	src:setSpatialization(true)
+	src:setLooping(true)
+	src:setVolume(0)
+	src:setAttenuation(AttenuationModel.Linear, C.audio.minDistance, C.audio.maxDistance)
+	return src
+end
+
+-- Maps ball speed onto the hum's pitch, so a ball that has sped up through a
+-- level is audibly faster as well as visually.
+function A.setHumSpeed(src, speed01)
+	if src == nil then return end
+	local a = C.audio.humPitchAtBaseSpeed
+	local b = C.audio.humPitchAtMaxSpeed
+	src:setPitch(a + (b - a) * speed01)
+end
+
 -- Positioned trigger. `x`/`y` are arena coordinates; the play plane's z is
 -- filled in here so no caller has to think about it.
 function A.playAt(name, x, y, pitch)

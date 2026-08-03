@@ -35,7 +35,11 @@ namespace p3d {
 
 	AudioSource::AudioSource(const std::string &file, const bool stream)
 		: IComponent(), file(file), loaded(false), sound(NULL),
-		looping(false), spatialized(true), volume(1.f), pitch(1.f)
+		looping(false), spatialized(true), volume(1.f), pitch(1.f),
+		streamed(stream), attenuationModel(AttenuationModel::Linear),
+		minDistance(1.f), maxDistance(100.f), hasCone(false),
+		coneInner(6.283185f), coneOuter(6.283185f), coneOuterGain(1.f),
+		directionalAttenuation(1.f), dopplerFactor(1.f)
 	{
 		if (!EngineAlive())
 		{
@@ -60,6 +64,7 @@ namespace p3d {
 		}
 
 		loaded = true;
+		AudioManager::GetActive()->RegisterVoice(sound);
 
 		// Spatialized by default with a linear falloff - the shape most
 		// callers attaching a sound to an object in the world expect. Music
@@ -76,7 +81,11 @@ namespace p3d {
 		if (sound != NULL)
 		{
 			if (EngineAlive())
+			{
+				// See Sound::~Sound() - unregister before uninitializing.
+				AudioManager::GetActive()->UnregisterVoice(sound);
 				ma_sound_uninit(sound);
+			}
 			delete sound;
 			sound = NULL;
 		}
@@ -164,6 +173,9 @@ namespace p3d {
 
 	void AudioSource::SetAttenuation(const uint32 model, const f32 minDistance, const f32 maxDistance)
 	{
+		attenuationModel = model;
+		this->minDistance = minDistance;
+		this->maxDistance = maxDistance;
 		if (!loaded) return;
 		ma_sound_set_attenuation_model(sound, TranslateAttenuation(model));
 		ma_sound_set_min_distance(sound, minDistance);
@@ -172,12 +184,19 @@ namespace p3d {
 
 	void AudioSource::SetCone(const f32 innerAngle, const f32 outerAngle, const f32 outerGain)
 	{
+		hasCone = true;
+		coneInner = innerAngle;
+		coneOuter = outerAngle;
+		coneOuterGain = outerGain;
 		if (!loaded) return;
 		ma_sound_set_cone(sound, innerAngle, outerAngle, outerGain);
 	}
 
 	void AudioSource::ClearCone()
 	{
+		hasCone = false;
+		coneInner = coneOuter = 6.283185f;
+		coneOuterGain = 1.f;
 		if (!loaded) return;
 		// A full-circle inner cone with unity outer gain is miniaudio's
 		// "no cone" state - there is no separate disable call.
@@ -186,12 +205,14 @@ namespace p3d {
 
 	void AudioSource::SetDirectionalAttenuation(const f32 factor)
 	{
+		directionalAttenuation = factor;
 		if (!loaded) return;
 		ma_sound_set_directional_attenuation_factor(sound, factor);
 	}
 
 	void AudioSource::SetDopplerFactor(const f32 factor)
 	{
+		dopplerFactor = factor;
 		if (!loaded) return;
 		ma_sound_set_doppler_factor(sound, factor);
 	}

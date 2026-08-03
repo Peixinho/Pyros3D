@@ -27,6 +27,8 @@
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Physics/Physics.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
+#include <Pyros3D/Audio/AudioManager.h>
+#include <Pyros3D/Audio/AudioSource.h>
 
 #ifdef LUA_BINDINGS
 #include <Pyros3D/Ext/sol/sol.hpp>
@@ -52,6 +54,9 @@ private:
 	void BuildScene();
 	void RunRoundTripAndVerify();
 
+	// Needed for the AudioSource round-trip check to exercise a really-loaded
+	// source rather than only its cached settings.
+	AudioManager* audio;
 	SceneGraph* scene;
 	ForwardRenderer* renderer;
 	Projection projection;

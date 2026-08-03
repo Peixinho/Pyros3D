@@ -12,6 +12,7 @@
 
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
+#include <Pyros3D/Audio/AudioSource.h>
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
@@ -715,7 +716,33 @@ namespace p3d {
 			j["boundingSphereRadius"] = d.boundingSphereRadius;
 			return j;
 		}
-		case ComponentType::DirectionalLight:
+		case ComponentType::AudioSource:
+		{
+			AudioSource* a = dynamic_cast<AudioSource*>(c);
+			j["type"] = "AudioSource";
+			j["file"] = a->GetFile();
+			j["stream"] = a->IsStreamed();
+			j["playing"] = a->IsPlaying();
+			j["looping"] = a->IsLooping();
+			j["volume"] = a->GetVolume();
+			j["pitch"] = a->GetPitch();
+			j["spatialized"] = a->IsSpatialized();
+			j["attenuationModel"] = a->GetAttenuationModel();
+			j["minDistance"] = a->GetMinDistance();
+			j["maxDistance"] = a->GetMaxDistance();
+			j["directionalAttenuation"] = a->GetDirectionalAttenuation();
+			j["dopplerFactor"] = a->GetDopplerFactor();
+			// Only written when actually set, so a plain omnidirectional
+			// source doesn't carry meaningless cone angles around.
+			if (a->HasCone())
+			{
+				j["coneInnerAngle"] = a->GetConeInnerAngle();
+				j["coneOuterAngle"] = a->GetConeOuterAngle();
+				j["coneOuterGain"] = a->GetConeOuterGain();
+			}
+			return j;
+		}
+				case ComponentType::DirectionalLight:
 		{
 			DirectionalLight* l = dynamic_cast<DirectionalLight*>(c);
 			j["type"] = "DirectionalLight";
@@ -1281,7 +1308,32 @@ namespace p3d {
 			d.boundingSphereRadius = j.value("boundingSphereRadius", d.boundingSphereRadius);
 			go->AddComponent(new ParticleSystem(d));
 		}
-		else if (type == "DirectionalLight")
+		else if (type == "AudioSource")
+		{
+			// The file path is the one field with no sensible default - without
+			// it there is nothing to construct, so skip rather than build a
+			// permanently-unloaded source.
+			const std::string file = j.value("file", std::string());
+			if (!file.empty())
+			{
+				AudioSource* a = new AudioSource(file, j.value("stream", false));
+				a->SetSpatialization(j.value("spatialized", true));
+				a->SetLooping(j.value("looping", false));
+				a->SetVolume(j.value("volume", 1.0f));
+				a->SetPitch(j.value("pitch", 1.0f));
+				a->SetAttenuation(j.value("attenuationModel", (uint32)AttenuationModel::Linear),
+					j.value("minDistance", 1.0f), j.value("maxDistance", 100.0f));
+				a->SetDirectionalAttenuation(j.value("directionalAttenuation", 1.0f));
+				a->SetDopplerFactor(j.value("dopplerFactor", 1.0f));
+				if (j.find("coneInnerAngle") != j.end())
+					a->SetCone(j.value("coneInnerAngle", 6.283185f), j.value("coneOuterAngle", 6.283185f), j.value("coneOuterGain", 1.0f));
+				// Resume playback last, so it starts with its final settings
+				// rather than briefly sounding with the constructor defaults.
+				if (j.value("playing", false)) a->Play();
+				go->AddComponent(a);
+			}
+		}
+				else if (type == "DirectionalLight")
 		{
 			Vec4 color = (j.find("color") != j.end()) ? Vec4FromJson(j["color"]) : Vec4(1, 1, 1, 1);
 			Vec3 direction = (j.find("direction") != j.end()) ? Vec3FromJson(j["direction"]) : Vec3(0, -1, 0);

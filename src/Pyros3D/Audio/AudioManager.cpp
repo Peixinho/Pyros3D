@@ -43,18 +43,46 @@ namespace p3d {
 		activeManager = this;
 	}
 
+	void AudioManager::RegisterVoice(ma_sound* voice)
+	{
+		if (voice == NULL) return;
+		liveVoices.push_back(voice);
+	}
+
+	void AudioManager::UnregisterVoice(ma_sound* voice)
+	{
+		for (std::vector<ma_sound*>::iterator i = liveVoices.begin(); i != liveVoices.end(); i++)
+		{
+			if (*i == voice)
+			{
+				liveVoices.erase(i);
+				return;
+			}
+		}
+	}
+
 	AudioManager::~AudioManager()
 	{
+		if (initialized)
+		{
+			// Anything still registered belongs to a Sound/AudioSource that
+			// will be destroyed after this manager. ma_engine_uninit() below
+			// does not uninitialize caller-owned sounds, so do it here, while
+			// the engine is still up and it is legal. Their owners then find
+			// GetActive() == NULL and skip a second uninit.
+			for (uint32 i = 0; i < liveVoices.size(); i++)
+				ma_sound_uninit(liveVoices[i]);
+		}
+		liveVoices.clear();
+
+		// Cleared before the engine goes down, so any owner destroyed later
+		// sees "no manager" and leaves its (already uninitialized, or never
+		// initialized) handles alone.
 		if (activeManager == this)
 			activeManager = NULL;
 
 		if (engine != NULL)
 		{
-			// Stops the device and tears down every node still attached,
-			// including voices owned by Sound/AudioSource objects that
-			// outlive this. Those objects check GetActive() before touching
-			// their handles afterwards, so this ordering is safe - see the
-			// comment on AudioManager itself.
 			if (initialized)
 				ma_engine_uninit(engine);
 			delete engine;
