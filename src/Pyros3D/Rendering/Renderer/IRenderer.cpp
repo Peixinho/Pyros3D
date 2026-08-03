@@ -940,22 +940,41 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 	// place.
 	SendGlobalUniforms(rmesh, Material);
 
-	// Check double sided
-	if (rmesh->Material != Material)
+	// Check double sided. Resolved into a local - this used to write the
+	// mesh's own material's cull face *into* `Material` via SetCullFace().
+	// When `Material` is an override (every DeferredRenderer second-pass
+	// material, drawn over a shared Plane/Sphere whose own material is
+	// BackFace) that permanently rewrote a shared, long-lived material:
+	// deferredLastPass/Ambient/Directional are all constructed
+	// CullFace::DoubleSided and were silently flipped to BackFace by their
+	// first draw, for the rest of the process.
+	//
+	// On GL that was invisible - cull face is dynamic state re-sent per
+	// draw, and these full-screen quads happen to be front-facing there, so
+	// culling BackFace removes nothing. On Vulkan cull mode is baked into
+	// the pipeline at BindMesh() time (it is not in the dynamic-state list),
+	// and the projection Y-flip makes the same quad *back*-facing - so any
+	// pipeline built after the mutation discarded both triangles and drew
+	// nothing at all. BindMesh() runs before this block, so the first
+	// pipeline for a given (mesh, shader) captured the correct DoubleSided
+	// and worked, while the pipeline for the *second* render target that
+	// pair was ever drawn into baked in BackFace and rendered black.
+	// That is the whole "second render target never rasterizes" bug -
+	// found by reading setCullMode:Back on a 6-index quad in a Metal
+	// frame capture, after every CPU-side probe had come back clean.
+	uint32 effectiveCullFace = Material->GetCullFace();
+	if (rmesh->Material != Material && rmesh->Material->GetCullFace() != effectiveCullFace)
 	{
-		if (rmesh->Material->GetCullFace() != Material->GetCullFace())
-		{
-			Material->SetCullFace(rmesh->Material->GetCullFace());
-			cullFaceChanged = true;
-		}
+		effectiveCullFace = rmesh->Material->GetCullFace();
+		cullFaceChanged = true;
 	}
 	if (LastMaterialPTR != Material || cullFaceChanged)
 	{
 		// Check if Material is DoubleSided
-		if (Material->GetCullFace() != cullFace)
+		if (effectiveCullFace != cullFace)
 		{
-			device->SetCullFaceMode(Material->GetCullFace());
-			cullFace = Material->GetCullFace();
+			device->SetCullFaceMode(effectiveCullFace);
+			cullFace = effectiveCullFace;
 			cullFaceChanged = false;
 		}
 
