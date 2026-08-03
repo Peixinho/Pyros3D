@@ -8,9 +8,11 @@
 
 #include <Pyros3D/Audio/AudioSource.h>
 #include <Pyros3D/Audio/AudioManager.h>
+#include <Pyros3D/Audio/AudioBus.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Ext/miniaudio/miniaudio.h>
+#include "AudioFilterNode.h"
 
 namespace p3d {
 
@@ -33,13 +35,15 @@ namespace p3d {
 		}
 	}
 
-	AudioSource::AudioSource(const std::string &file, const bool stream)
-		: IComponent(), file(file), loaded(false), sound(NULL),
-		looping(false), spatialized(true), volume(1.f), pitch(1.f),
+	AudioSource::AudioSource(const std::string &file, const bool stream, const std::shared_ptr<AudioBus> &bus)
+		: IComponent(), file(file), loaded(false), sound(NULL), bus(bus),
+		looping(false), spatialized(true), volume(1.f), pitch(1.f), pan(0.f),
 		streamed(stream), attenuationModel(AttenuationModel::Linear),
 		minDistance(1.f), maxDistance(100.f), hasCone(false),
 		coneInner(6.283185f), coneOuter(6.283185f), coneOuterGain(1.f),
-		directionalAttenuation(1.f), dopplerFactor(1.f)
+		directionalAttenuation(1.f), dopplerFactor(1.f),
+		lastPosition(Vec3::ZERO), lastUpdateTime(0.0), hasLastUpdate(false),
+		filterNode(NULL), filterType(AudioFilterType::None), filterCutoff(0.f), filterOrder(2)
 	{
 		if (!EngineAlive())
 		{
@@ -55,7 +59,11 @@ namespace p3d {
 		// latter (no decode work at trigger time).
 		ma_uint32 flags = stream ? MA_SOUND_FLAG_STREAM : MA_SOUND_FLAG_DECODE;
 
-		if (ma_sound_init_from_file(AudioManager::GetActive()->GetEngine(), file.c_str(), flags, NULL, NULL, sound) != MA_SUCCESS)
+		// Routes into the given bus's submix, or straight into the master mix
+		// if none was given - pGroup below is exactly that choice.
+		ma_sound* group = this->bus ? this->bus->GetGroup() : NULL;
+
+		if (ma_sound_init_from_file(AudioManager::GetActive()->GetEngine(), file.c_str(), flags, group, NULL, sound) != MA_SUCCESS)
 		{
 			echo("WARNING: AudioSource - could not load '" + file + "'");
 			delete sound;
@@ -82,6 +90,12 @@ namespace p3d {
 		{
 			if (EngineAlive())
 			{
+				// No rerouting needed here (unlike detail::DetachFilterNode(),
+				// which SetFilter()/ClearFilter() use while the source stays
+				// alive) - `sound` itself is about to be fully uninitialized,
+				// which detaches it from the graph regardless.
+				detail::DestroyFilterNode(filterNode, filterType);
+
 				// See Sound::~Sound() - unregister before uninitializing.
 				AudioManager::GetActive()->UnregisterVoice(sound);
 				ma_sound_uninit(sound);
@@ -90,6 +104,9 @@ namespace p3d {
 			sound = NULL;
 		}
 		loaded = false;
+		// `bus` (a shared_ptr) releases its reference here, after `sound` no
+		// longer points into it - the entire reason it is a shared_ptr member
+		// rather than a raw AudioBus*. See the constructor's comment.
 	}
 
 	// ******************************* Playback *******************************
@@ -217,6 +234,84 @@ namespace p3d {
 		ma_sound_set_doppler_factor(sound, factor);
 	}
 
+	void AudioSource::SetPan(const f32 pan)
+	{
+		this->pan = pan;
+		if (!loaded) return;
+		ma_sound_set_pan(sound, pan);
+	}
+
+	void AudioSource::SetFilter(const uint32 type, const f32 cutoffHz, const uint32 order)
+	{
+		if (type == AudioFilterType::None) { ClearFilter(); return; }
+
+		filterCutoff = cutoffHz;
+		filterOrder = order;
+		// Not committed to `filterType` until the node actually exists below -
+		// a failed AttachFilterNode() must leave GetFilterType() reporting
+		// what is really playing (nothing), not what was asked for.
+		if (!loaded) { filterType = type; return; }
+
+		// EngineAlive(), not just `loaded`: this needs the live ma_engine
+		// itself (node graph, channel/sample-rate query, the endpoint node),
+		// not just a still-allocated (possibly force-uninitialized) `sound`
+		// handle - see EngineAlive()'s other callers for that distinction.
+		if (!EngineAlive()) return;
+
+		ma_node* soundNode = reinterpret_cast<ma_node*>(sound);
+		ma_engine* engine = AudioManager::GetActive()->GetEngine();
+		ma_node* target = bus ? reinterpret_cast<ma_node*>(bus->GetGroup()) : ma_engine_get_endpoint(engine);
+
+		detail::DetachFilterNode(soundNode, target, filterNode, filterType);
+
+		void* node = detail::AttachFilterNode(engine, soundNode, target, type, cutoffHz, order);
+		filterNode = node;
+		filterType = (node != NULL) ? type : AudioFilterType::None;
+	}
+
+	void AudioSource::ClearFilter()
+	{
+		if (loaded && EngineAlive() && filterNode != NULL)
+		{
+			ma_engine* engine = AudioManager::GetActive()->GetEngine();
+			ma_node* target = bus ? reinterpret_cast<ma_node*>(bus->GetGroup()) : ma_engine_get_endpoint(engine);
+			detail::DetachFilterNode(reinterpret_cast<ma_node*>(sound), target, filterNode, filterType);
+		}
+		filterType = AudioFilterType::None;
+		filterCutoff = 0.f;
+		filterOrder = 2;
+	}
+
+	// **************************** Playback state ****************************
+
+	f32 AudioSource::GetLengthSeconds() const
+	{
+		if (!loaded) return 0.f;
+		float length = 0.f;
+		ma_sound_get_length_in_seconds(sound, &length);
+		return length;
+	}
+
+	f32 AudioSource::GetCursorSeconds() const
+	{
+		if (!loaded) return 0.f;
+		float cursor = 0.f;
+		ma_sound_get_cursor_in_seconds(sound, &cursor);
+		return cursor;
+	}
+
+	void AudioSource::SeekSeconds(const f32 seconds)
+	{
+		if (!loaded) return;
+		ma_sound_seek_to_second(sound, seconds);
+	}
+
+	bool AudioSource::AtEnd() const
+	{
+		if (!loaded) return false;
+		return ma_sound_at_end(sound) == MA_TRUE;
+	}
+
 	// ******************************* Component ******************************
 
 	void AudioSource::Update(const f64 time)
@@ -242,6 +337,22 @@ namespace p3d {
 		Vec3 forward = (world * Vec4(0.f, 0.f, -1.f, 0.f)).xyz();
 		if (forward.magnitude() > 0.0001f) forward = forward.normalize();
 		ma_sound_set_direction(sound, forward.x, forward.y, forward.z);
+
+		// Doppler - see AudioManager::SetListener()'s identical reasoning.
+		// `time` is the SceneGraph's absolute simulation time, so dt is
+		// derived from consecutive Update() calls rather than needing its own
+		// parameter; a non-positive or implausibly large gap (the first
+		// frame, or a hitch/scene reload) is treated as "no velocity" rather
+		// than a spike.
+		Vec3 velocity = Vec3::ZERO;
+		const f64 dt = time - lastUpdateTime;
+		if (hasLastUpdate && dt > 0.0001 && dt < 0.25)
+			velocity = (position - lastPosition) * (f32)(1.0 / dt);
+		ma_sound_set_velocity(sound, velocity.x, velocity.y, velocity.z);
+
+		lastPosition = position;
+		lastUpdateTime = time;
+		hasLastUpdate = true;
 	}
 
 }

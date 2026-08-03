@@ -190,9 +190,30 @@ function E.activateBall(b, x, y, vx, vy)
 	b.active = true
 	b.x, b.y, b.vx, b.vy = x, y, vx, vy
 	b.go:setPosition(Vec3.new(x, y, C.arena.ballZ))
+	-- Two things a plain setPosition() does not do, both needed because this
+	-- is a teleport (from wherever the ball was parked, e.g. Vec3(0,0,-4000)),
+	-- not real motion:
+	--
+	--  refreshTransformation() - setPosition() alone only flips a dirty flag;
+	--  GetWorldPosition() stays STALE until SceneGraph::Update()'s own
+	--  InternalUpdate() pass, which for a dynamic object runs AFTER that same
+	--  pass's component Update() calls. Without this, the hum's Update()
+	--  (called moments from now, this same frame, by scene:update() below in
+	--  main.lua) would read last frame's position - one whole frame late.
+	--
+	--  resetVelocityTracking() - even with a correctly-fresh position, the
+	--  jump from wherever the ball was parked to here is not real motion and
+	--  must not be finite-differenced into a velocity.
+	--
+	-- Skipping either half of this reproduces the same bug: an audible
+	-- Doppler shriek (a reported speed in the hundreds of thousands) on every
+	-- single ball launch, found by reading the velocity back out of
+	-- miniaudio during real play - see AudioSource.h's ResetVelocityTracking().
+	b.go:refreshTransformation()
 	b.light:setLightIntensity(1.5 * Arena.lightGain)
 	b.trail:play()
 	if b.hum then
+		b.hum:resetVelocityTracking()
 		b.hum:setVolume(C.audio.humVolume)
 		b.hum:play()
 	end
@@ -201,10 +222,15 @@ end
 function E.deactivateBall(b)
 	b.active = false
 	b.go:setPosition(Vec3.new(0, 0, PARK_Z))
+	-- Same reasoning as activateBall() - see its comment.
+	b.go:refreshTransformation()
 	b.light:setLightIntensity(0)
 	b.trail:stop()
 	b.trail:clear()
-	if b.hum then b.hum:stop() end
+	if b.hum then
+		b.hum:stop()
+		b.hum:resetVelocityTracking()
+	end
 end
 
 function E.activeBallCount()

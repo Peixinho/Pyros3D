@@ -40,6 +40,21 @@ namespace p3d {
 		};
 	}
 
+	// Shared by Sound and AudioSource - both can insert one of these on their
+	// output. Lives here rather than on either class specifically since both
+	// need it and neither is the other's header.
+	namespace AudioFilterType {
+		enum {
+			None = 0,
+			// Cuts frequencies above the cutoff - the "muffled", behind-a-wall
+			// or underwater effect.
+			LowPass,
+			// Cuts frequencies below the cutoff - thins a sound out, e.g. an
+			// old radio/telephone voice, or removing rumble.
+			HighPass
+		};
+	}
+
 	// Owns the audio device and the listener.
 	//
 	// Construct exactly one, keep it alive for as long as any sound is
@@ -71,12 +86,23 @@ namespace p3d {
 
 		// Where the ears are. `forward` is the direction being faced and `up`
 		// the head's up axis; both are normalized internally.
-		void SetListener(const Vec3 &position, const Vec3 &forward, const Vec3 &up = Vec3(0.f, 1.f, 0.f));
+		//
+		// `dt` is the real-time step since the last call, and is what drives
+		// Doppler: velocity is derived here by finite-differencing position
+		// against the previous call, rather than asking the caller for a
+		// velocity directly - a GameObject has no velocity of its own, and a
+		// derived one is one less thing for a script to get wrong. Leave it
+		// at the default 0 to move the listener without any Doppler effect
+		// (a teleport/cut, or a one-off placement before the game loop starts).
+		// Values above ~0.25s are treated as a cut too, not a fast pan - a
+		// hitch or a scene (re)load must not manufacture a velocity spike.
+		void SetListener(const Vec3 &position, const Vec3 &forward, const Vec3 &up = Vec3(0.f, 1.f, 0.f), const f32 dt = 0.f);
 
 		// Convenience for the overwhelmingly common case: the listener is the
 		// camera. Reads the object's world transform, so it must be called
-		// after the SceneGraph has updated for the frame.
-		void SetListenerFromGameObject(GameObject* object);
+		// after the SceneGraph has updated for the frame. See SetListener()
+		// for what `dt` does.
+		void SetListenerFromGameObject(GameObject* object, const f32 dt = 0.f);
 
 		const Vec3 &GetListenerPosition() const { return listenerPosition; }
 
@@ -105,6 +131,10 @@ namespace p3d {
 		bool initialized;
 		f32 masterVolume;
 		Vec3 listenerPosition;
+
+		// For Doppler - see SetListener()'s comment.
+		Vec3 lastListenerPosition;
+		bool hasLastListenerPosition;
 
 		std::vector<ma_sound*> liveVoices;
 

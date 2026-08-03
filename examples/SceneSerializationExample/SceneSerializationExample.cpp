@@ -184,6 +184,8 @@ void SceneSerializationExample::BuildScene()
 	hornSrc->SetCone(0.4f, 1.1f, 0.25f);
 	hornSrc->SetDirectionalAttenuation(0.8f);
 	hornSrc->SetDopplerFactor(0.5f);
+	hornSrc->SetPan(-0.35f);
+	hornSrc->SetFilter(AudioFilterType::LowPass, 1200.f, 4);
 	horn->AddComponent(hornSrc);
 	scene->Add(horn);
 
@@ -381,6 +383,9 @@ void SceneSerializationExample::RunRoundTripAndVerify()
 			Check(a->HasCone() && NearlyEqual(a->GetConeInnerAngle(), 0.4f)
 				&& NearlyEqual(a->GetConeOuterAngle(), 1.1f) && NearlyEqual(a->GetConeOuterGain(), 0.25f), "AudioSource cone round-tripped");
 			Check(NearlyEqual(a->GetDirectionalAttenuation(), 0.8f) && NearlyEqual(a->GetDopplerFactor(), 0.5f), "AudioSource directional/doppler round-tripped");
+			Check(NearlyEqual(a->GetPan(), -0.35f), "AudioSource pan round-tripped");
+			Check(a->GetFilterType() == (uint32)AudioFilterType::LowPass
+				&& NearlyEqual(a->GetFilterCutoff(), 1200.f) && a->GetFilterOrder() == 4, "AudioSource filter round-tripped");
 		}
 	}
 

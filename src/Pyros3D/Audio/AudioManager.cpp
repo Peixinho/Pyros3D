@@ -15,7 +15,8 @@ namespace p3d {
 
 	AudioManager* AudioManager::activeManager = NULL;
 
-	AudioManager::AudioManager() : engine(NULL), initialized(false), masterVolume(1.f)
+	AudioManager::AudioManager() : engine(NULL), initialized(false), masterVolume(1.f),
+		hasLastListenerPosition(false)
 	{
 		engine = new ma_engine();
 
@@ -99,7 +100,7 @@ namespace p3d {
 		ma_engine_set_volume(engine, volume);
 	}
 
-	void AudioManager::SetListener(const Vec3 &position, const Vec3 &forward, const Vec3 &up)
+	void AudioManager::SetListener(const Vec3 &position, const Vec3 &forward, const Vec3 &up, const f32 dt)
 	{
 		listenerPosition = position;
 		if (!initialized) return;
@@ -118,9 +119,21 @@ namespace p3d {
 		if (u.magnitude() > 0.0001f) u = u.normalize();
 		else u = Vec3(0.f, 1.f, 0.f);
 		ma_engine_listener_set_world_up(engine, 0, u.x, u.y, u.z);
+
+		// Doppler - see the header's comment on `dt`. A non-positive or
+		// suspiciously large step is treated as a cut: velocity 0 rather than
+		// a spike from dividing by (near) nothing or from a frame that
+		// covered a scene reload.
+		Vec3 velocity(0.f, 0.f, 0.f);
+		if (dt > 0.0001f && dt < 0.25f && hasLastListenerPosition)
+			velocity = (position - lastListenerPosition) * (1.f / dt);
+		ma_engine_listener_set_velocity(engine, 0, velocity.x, velocity.y, velocity.z);
+
+		lastListenerPosition = position;
+		hasLastListenerPosition = true;
 	}
 
-	void AudioManager::SetListenerFromGameObject(GameObject* object)
+	void AudioManager::SetListenerFromGameObject(GameObject* object, const f32 dt)
 	{
 		if (object == NULL) return;
 
@@ -133,7 +146,7 @@ namespace p3d {
 		Vec3 forward = (world * Vec4(0.f, 0.f, -1.f, 0.f)).xyz();
 		Vec3 up = (world * Vec4(0.f, 1.f, 0.f, 0.f)).xyz();
 
-		SetListener(object->GetWorldPosition(), forward, up);
+		SetListener(object->GetWorldPosition(), forward, up, dt);
 	}
 
 }

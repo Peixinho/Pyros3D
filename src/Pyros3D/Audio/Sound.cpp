@@ -8,8 +8,10 @@
 
 #include <Pyros3D/Audio/Sound.h>
 #include <Pyros3D/Audio/AudioManager.h>
+#include <Pyros3D/Audio/AudioBus.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Ext/miniaudio/miniaudio.h>
+#include "AudioFilterNode.h"
 
 namespace p3d {
 
@@ -25,11 +27,17 @@ namespace p3d {
 			default:                            return ma_attenuation_model_inverse;
 			}
 		}
+
+		bool EngineAlive()
+		{
+			return AudioManager::IsActiveSet() && AudioManager::GetActive()->IsInitialized();
+		}
 	}
 
-	Sound::Sound(const std::string &file, const uint32 voices)
-		: file(file), loaded(false), nextVoice(0),
-		attenuationModel(AttenuationModel::Linear), minDistance(1.f), maxDistance(100.f)
+	Sound::Sound(const std::string &file, const uint32 voices, const std::shared_ptr<AudioBus> &bus)
+		: file(file), loaded(false), bus(bus), nextVoice(0),
+		attenuationModel(AttenuationModel::Linear), minDistance(1.f), maxDistance(100.f),
+		filterType(AudioFilterType::None), filterCutoff(0.f), filterOrder(2)
 	{
 		AudioManager* audio = AudioManager::GetActive();
 		if (audio == NULL || !audio->IsInitialized())
@@ -39,6 +47,7 @@ namespace p3d {
 		}
 
 		const uint32 count = (voices == 0) ? 1 : voices;
+		ma_sound* group = this->bus ? this->bus->GetGroup() : NULL;
 
 		for (uint32 i = 0; i < count; i++)
 		{
@@ -52,7 +61,7 @@ namespace p3d {
 			// trigger, so one pool serves both 2D and positioned playback.
 			ma_uint32 flags = MA_SOUND_FLAG_DECODE | MA_SOUND_FLAG_NO_SPATIALIZATION;
 
-			if (ma_sound_init_from_file(audio->GetEngine(), file.c_str(), flags, NULL, NULL, voice) != MA_SUCCESS)
+			if (ma_sound_init_from_file(audio->GetEngine(), file.c_str(), flags, group, NULL, voice) != MA_SUCCESS)
 			{
 				delete voice;
 				// Only complain once, and tear down any voices that did load -
@@ -73,6 +82,7 @@ namespace p3d {
 
 			audio->RegisterVoice(voice);
 			this->voices.push_back(voice);
+			filterNodes.push_back(NULL);
 		}
 
 		loaded = true;
@@ -93,6 +103,11 @@ namespace p3d {
 		{
 			if (engineAlive)
 			{
+				// No rerouting needed - see AudioSource::~AudioSource()'s
+				// identical reasoning.
+				if (i < filterNodes.size())
+					detail::DestroyFilterNode(filterNodes[i], filterType);
+
 				// Unregister first: the manager's own teardown must not find
 				// a voice this destructor is about to uninitialize.
 				audio->UnregisterVoice(voices[i]);
@@ -101,6 +116,9 @@ namespace p3d {
 			delete voices[i];
 		}
 		voices.clear();
+		filterNodes.clear();
+		// `bus` releases its reference here, after every voice that routed
+		// through it is gone.
 	}
 
 	ma_sound* Sound::AcquireVoice()
@@ -126,7 +144,7 @@ namespace p3d {
 		return voice;
 	}
 
-	void Sound::Play(const f32 volume, const f32 pitch)
+	void Sound::Play(const f32 volume, const f32 pitch, const f32 pan)
 	{
 		if (!loaded) return;
 
@@ -136,6 +154,7 @@ namespace p3d {
 		ma_sound_set_spatialization_enabled(voice, MA_FALSE);
 		ma_sound_set_volume(voice, volume);
 		ma_sound_set_pitch(voice, pitch);
+		ma_sound_set_pan(voice, pan);
 		// Rewind: a stolen voice is mid-playback, and even a finished one
 		// stays parked at its end frame.
 		ma_sound_seek_to_pcm_frame(voice, 0);
@@ -186,6 +205,51 @@ namespace p3d {
 			ma_sound_set_min_distance(voices[i], minDistance);
 			ma_sound_set_max_distance(voices[i], maxDistance);
 		}
+	}
+
+	void Sound::SetFilter(const uint32 type, const f32 cutoffHz, const uint32 order)
+	{
+		if (type == AudioFilterType::None) { ClearFilter(); return; }
+
+		filterCutoff = cutoffHz;
+		filterOrder = order;
+		// Not committed until at least one voice's node is confirmed created
+		// below - see AudioSource::SetFilter()'s identical reasoning.
+		if (!loaded || !EngineAlive())
+		{
+			filterType = type;
+			return;
+		}
+
+		ma_engine* engine = AudioManager::GetActive()->GetEngine();
+		ma_node* target = bus ? reinterpret_cast<ma_node*>(bus->GetGroup()) : ma_engine_get_endpoint(engine);
+
+		bool anySucceeded = false;
+		for (uint32 i = 0; i < voices.size(); i++)
+		{
+			ma_node* soundNode = reinterpret_cast<ma_node*>(voices[i]);
+			detail::DetachFilterNode(soundNode, target, filterNodes[i], filterType);
+			filterNodes[i] = detail::AttachFilterNode(engine, soundNode, target, type, cutoffHz, order);
+			if (filterNodes[i] != NULL) anySucceeded = true;
+		}
+		// Reported type reflects whether the pool is actually filtered - a
+		// pool where every voice failed to attach is functionally unfiltered,
+		// same as AudioSource's single-voice case.
+		filterType = anySucceeded ? type : AudioFilterType::None;
+	}
+
+	void Sound::ClearFilter()
+	{
+		if (loaded && EngineAlive())
+		{
+			ma_engine* engine = AudioManager::GetActive()->GetEngine();
+			ma_node* target = bus ? reinterpret_cast<ma_node*>(bus->GetGroup()) : ma_engine_get_endpoint(engine);
+			for (uint32 i = 0; i < voices.size(); i++)
+				detail::DetachFilterNode(reinterpret_cast<ma_node*>(voices[i]), target, filterNodes[i], filterType);
+		}
+		filterType = AudioFilterType::None;
+		filterCutoff = 0.f;
+		filterOrder = 2;
 	}
 
 }

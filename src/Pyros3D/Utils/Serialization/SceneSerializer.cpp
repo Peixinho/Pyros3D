@@ -732,6 +732,7 @@ namespace p3d {
 			j["maxDistance"] = a->GetMaxDistance();
 			j["directionalAttenuation"] = a->GetDirectionalAttenuation();
 			j["dopplerFactor"] = a->GetDopplerFactor();
+			j["pan"] = a->GetPan();
 			// Only written when actually set, so a plain omnidirectional
 			// source doesn't carry meaningless cone angles around.
 			if (a->HasCone())
@@ -740,6 +741,19 @@ namespace p3d {
 				j["coneOuterAngle"] = a->GetConeOuterAngle();
 				j["coneOuterGain"] = a->GetConeOuterGain();
 			}
+			// Same "only if actually set" reasoning for the filter - most
+			// sources have none, and its cutoff/order are meaningless without
+			// a type to go with them.
+			if (a->GetFilterType() != AudioFilterType::None)
+			{
+				j["filterType"] = a->GetFilterType();
+				j["filterCutoff"] = a->GetFilterCutoff();
+				j["filterOrder"] = a->GetFilterOrder();
+			}
+			// Bus routing (AudioBus) is deliberately NOT serialized - a bus is
+			// an app-level submix construct (built once at startup, e.g. a
+			// "Music"/"SFX" split), not scene data; a saved source has no
+			// portable way to name which bus instance to rejoin.
 			return j;
 		}
 				case ComponentType::DirectionalLight:
@@ -1325,8 +1339,11 @@ namespace p3d {
 					j.value("minDistance", 1.0f), j.value("maxDistance", 100.0f));
 				a->SetDirectionalAttenuation(j.value("directionalAttenuation", 1.0f));
 				a->SetDopplerFactor(j.value("dopplerFactor", 1.0f));
+				a->SetPan(j.value("pan", 0.0f));
 				if (j.find("coneInnerAngle") != j.end())
 					a->SetCone(j.value("coneInnerAngle", 6.283185f), j.value("coneOuterAngle", 6.283185f), j.value("coneOuterGain", 1.0f));
+				if (j.find("filterType") != j.end())
+					a->SetFilter(j.value("filterType", (uint32)AudioFilterType::None), j.value("filterCutoff", 1000.0f), j.value("filterOrder", 2u));
 				// Resume playback last, so it starts with its final settings
 				// rather than briefly sounding with the constructor defaults.
 				if (j.value("playing", false)) a->Play();

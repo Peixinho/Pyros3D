@@ -890,6 +890,17 @@ namespace p3d {
 				"setRotation", &LUA_GameObject::SetRotation,
 				"setScale", &LUA_GameObject::SetScale,
 				"setTransformationMatrix", &LUA_GameObject::SetTransformationMatrix,
+				// SetPosition()/etc only flip a dirty flag - GetWorldPosition()
+				// stays stale until something calls this (normally
+				// SceneGraph::Update()'s own InternalUpdate() pass, which for a
+				// dynamic object runs AFTER that same pass's component Update()
+				// calls - see GameObject.h's comment). A script that
+				// repositions an object and needs a component reading its
+				// world position THIS SAME FRAME (e.g. an AudioSource
+				// finite-differencing velocity, right after teleporting a
+				// pooled object) must call this in between, or that read sees
+				// last frame's position instead.
+				"refreshTransformation", &LUA_GameObject::RefreshTransformation,
 				"lookAtGameObject", &LUA_GameObject::LookAtGameObject,
 				"lookAtVec", &LUA_GameObject::LookAtVec,
 				"addComponent", &LUA_GameObject::AddComponent,
@@ -953,6 +964,9 @@ namespace p3d {
 				"setRotation", &GameObject::SetRotation,
 				"setScale", &GameObject::SetScale,
 				"setTransformationMatrix", &GameObject::SetTransformationMatrix,
+				// See LUA_GameObject's identical binding above for why this
+				// exists.
+				"refreshTransformation", &GameObject::RefreshTransformation,
 				"lookAtGameObject", &GameObject::LookAtGameObject,
 				"lookAtVec", &GameObject::LookAtVec,
 				"addComponent", &GameObject::AddComponent,
@@ -1963,6 +1977,12 @@ namespace p3d {
 				"Exponential", AttenuationModel::Exponential
 			);
 
+			lua->new_enum("AudioFilterType",
+				"None", AudioFilterType::None,
+				"LowPass", AudioFilterType::LowPass,
+				"HighPass", AudioFilterType::HighPass
+			);
+
 			// AudioManager - construct exactly one and keep it alive; see the
 			// class comment for the active-manager registration this relies on.
 			sol::constructors<sol::types<>> audioCon;
@@ -1971,18 +1991,57 @@ namespace p3d {
 				"isInitialized", &AudioManager::IsInitialized,
 				"setMasterVolume", &AudioManager::SetMasterVolume,
 				"getMasterVolume", &AudioManager::GetMasterVolume,
-				"setListener", [](AudioManager &a, const Vec3 &position, const Vec3 &forward, const Vec3 &up) {
-					a.SetListener(position, forward, up);
-				},
+				// `dt` overloads spelled out: sol binds a function's full
+				// arity, so SetListener()/SetListenerFromGameObject()'s C++
+				// default (dt=0, "no Doppler this call") is not optional from
+				// Lua - same reason Sound's play()/playAt() below do this.
+				// The real per-frame call is the 4-argument one; the shorter
+				// ones are for a one-off placement/teleport with no velocity.
+				"setListener", sol::overload(
+					[](AudioManager &a, const Vec3 &position, const Vec3 &forward) { a.SetListener(position, forward); },
+					[](AudioManager &a, const Vec3 &position, const Vec3 &forward, const Vec3 &up) { a.SetListener(position, forward, up); },
+					[](AudioManager &a, const Vec3 &position, const Vec3 &forward, const Vec3 &up, const f32 dt) { a.SetListener(position, forward, up, dt); }
+				),
 				// The common case - point the listener at the camera object.
 				// Call it after scene:update(), which is what refreshes the
-				// world transform this reads.
-				"setListenerFromGameObject", &AudioManager::SetListenerFromGameObject,
+				// world transform this reads, with dt as this frame's real
+				// time step so Doppler has something to compute from.
+				"setListenerFromGameObject", sol::overload(
+					[](AudioManager &a, GameObject* object) { a.SetListenerFromGameObject(object); },
+					[](AudioManager &a, GameObject* object, const f32 dt) { a.SetListenerFromGameObject(object, dt); }
+				),
 				"getListenerPosition", &AudioManager::GetListenerPosition
 				);
 
+			// AudioBus - a named submix ("Music", "SFX"). Always shared_ptr-
+			// managed (sol::factories, not sol::constructors) - see the class
+			// comment for why: a Sound/AudioSource routed through a bus keeps
+			// its own shared_ptr to it, so the bus can't be destroyed out
+			// from under something still playing through it. `AudioBus.new()`
+			// takes an optional parent bus (also a shared_ptr<AudioBus>) to
+			// nest submixes.
+			lua->new_usertype<AudioBus>("AudioBus",
+				sol::factories(
+					[]() { return std::make_shared<AudioBus>(); },
+					[](std::shared_ptr<AudioBus> parent) { return std::make_shared<AudioBus>(parent); }
+				),
+				"isValid", &AudioBus::IsValid,
+				"setVolume", &AudioBus::SetVolume,
+				"getVolume", &AudioBus::GetVolume,
+				"setPitch", &AudioBus::SetPitch,
+				"getPitch", &AudioBus::GetPitch,
+				"pause", &AudioBus::Pause,
+				"resume", &AudioBus::Resume,
+				"fadeIn", &AudioBus::FadeIn,
+				"fadeOut", &AudioBus::FadeOut
+				);
+
 			// Sound - pooled one-shot effects.
-			sol::constructors<sol::types<std::string>, sol::types<std::string, uint32>> soundCon;
+			sol::constructors<
+				sol::types<std::string>,
+				sol::types<std::string, uint32>,
+				sol::types<std::string, uint32, std::shared_ptr<AudioBus>>
+			> soundCon;
 			lua->new_usertype<Sound>("Sound",
 				soundCon,
 				"isLoaded", &Sound::IsLoaded,
@@ -1994,7 +2053,8 @@ namespace p3d {
 				"play", sol::overload(
 					[](Sound &s) { s.Play(); },
 					[](Sound &s, const f32 volume) { s.Play(volume); },
-					[](Sound &s, const f32 volume, const f32 pitch) { s.Play(volume, pitch); }
+					[](Sound &s, const f32 volume, const f32 pitch) { s.Play(volume, pitch); },
+					[](Sound &s, const f32 volume, const f32 pitch, const f32 pan) { s.Play(volume, pitch, pan); }
 				),
 				"playAt", sol::overload(
 					[](Sound &s, const Vec3 &position) { s.PlayAt(position); },
@@ -2003,11 +2063,23 @@ namespace p3d {
 				),
 				"stop", &Sound::Stop,
 				"getPlayingCount", &Sound::GetPlayingCount,
-				"setAttenuation", &Sound::SetAttenuation
+				"setAttenuation", &Sound::SetAttenuation,
+				"setFilter", sol::overload(
+					[](Sound &s, const uint32 type, const f32 cutoffHz) { s.SetFilter(type, cutoffHz); },
+					[](Sound &s, const uint32 type, const f32 cutoffHz, const uint32 order) { s.SetFilter(type, cutoffHz, order); }
+				),
+				"clearFilter", &Sound::ClearFilter,
+				"getFilterType", &Sound::GetFilterType,
+				"getFilterCutoff", &Sound::GetFilterCutoff,
+				"getFilterOrder", &Sound::GetFilterOrder
 				);
 
 			// AudioSource - a positional emitter component.
-			sol::constructors<sol::types<std::string>, sol::types<std::string, bool>> sourceCon;
+			sol::constructors<
+				sol::types<std::string>,
+				sol::types<std::string, bool>,
+				sol::types<std::string, bool, std::shared_ptr<AudioBus>>
+			> sourceCon;
 			lua->new_usertype<AudioSource>("AudioSource",
 				sourceCon,
 				"isLoaded", &AudioSource::IsLoaded,
@@ -2022,6 +2094,8 @@ namespace p3d {
 				"getVolume", &AudioSource::GetVolume,
 				"setPitch", &AudioSource::SetPitch,
 				"getPitch", &AudioSource::GetPitch,
+				"setPan", &AudioSource::SetPan,
+				"getPan", &AudioSource::GetPan,
 				"fadeIn", &AudioSource::FadeIn,
 				"fadeOut", &AudioSource::FadeOut,
 				"setSpatialization", &AudioSource::SetSpatialization,
@@ -2031,6 +2105,19 @@ namespace p3d {
 				"clearCone", &AudioSource::ClearCone,
 				"setDirectionalAttenuation", &AudioSource::SetDirectionalAttenuation,
 				"setDopplerFactor", &AudioSource::SetDopplerFactor,
+				"resetVelocityTracking", &AudioSource::ResetVelocityTracking,
+				"setFilter", sol::overload(
+					[](AudioSource &a, const uint32 type, const f32 cutoffHz) { a.SetFilter(type, cutoffHz); },
+					[](AudioSource &a, const uint32 type, const f32 cutoffHz, const uint32 order) { a.SetFilter(type, cutoffHz, order); }
+				),
+				"clearFilter", &AudioSource::ClearFilter,
+				"getFilterType", &AudioSource::GetFilterType,
+				"getFilterCutoff", &AudioSource::GetFilterCutoff,
+				"getFilterOrder", &AudioSource::GetFilterOrder,
+				"getLengthSeconds", &AudioSource::GetLengthSeconds,
+				"getCursorSeconds", &AudioSource::GetCursorSeconds,
+				"seekSeconds", &AudioSource::SeekSeconds,
+				"atEnd", &AudioSource::AtEnd,
 				sol::base_classes, sol::bases<IComponent>()
 				);
 		}

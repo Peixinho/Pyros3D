@@ -12,10 +12,13 @@
 #include <Pyros3D/Components/IComponent.h>
 #include <Pyros3D/Other/Export.h>
 #include <string>
+#include <memory>
 
 struct ma_sound;
 
 namespace p3d {
+
+	class AudioBus;
 
 	// A sound that lives on a GameObject and follows it.
 	//
@@ -49,7 +52,14 @@ namespace p3d {
 		// memory: right for music and long ambience, wasteful for short
 		// effects (and a streamed sound can only have one voice, so it cannot
 		// overlap with itself).
-		AudioSource(const std::string &file, const bool stream = false);
+		//
+		// `bus` routes this source's output through an AudioBus (a submix -
+		// e.g. "Music" or "SFX") instead of straight into the master mix. A
+		// shared_ptr, not a raw AudioBus*: this source keeps its own
+		// reference to the bus for as long as it lives, so the bus cannot be
+		// destroyed out from under it regardless of the order a script (or
+		// its GC) happens to drop things in - see AudioBus's own comment.
+		AudioSource(const std::string &file, const bool stream = false, const std::shared_ptr<AudioBus> &bus = nullptr);
 		virtual ~AudioSource();
 
 		// False if the file could not be loaded, or there is no AudioManager.
@@ -104,8 +114,52 @@ namespace p3d {
 		void SetDirectionalAttenuation(const f32 factor);
 
 		// Pitch shift from relative motion. 0 disables it, 1 is physically
-		// scaled. Only meaningful on a source that actually moves.
+		// scaled. Only meaningful on a source that actually moves - and only
+		// audible if the source or the listener actually has a velocity,
+		// which Update()/AudioManager derive automatically each frame by
+		// finite-differencing position; there is nothing else to wire up.
 		void SetDopplerFactor(const f32 factor);
+
+		// Call after repositioning this source's owner in a way that is NOT
+		// real motion - a respawn, a pool object being parked/reactivated, a
+		// scene (re)load, snapping a camera-attached source to a cut. Without
+		// this, the very next Update() sees the jump as an ordinary frame's
+		// worth of motion and finite-differences it into a velocity of
+		// however many thousands of units the jump was divided by one frame's
+		// dt - real bug, found by reading the resulting velocity back out of
+		// miniaudio during actual play: parking a pooled source at Vec3(0,0,
+		// -4000) between uses and later reactivating it produced a reported
+		// speed in the hundreds of thousands, which is an audible Doppler
+		// shriek for one frame every single time. This makes the following
+		// Update() re-baseline instead of computing a velocity from it.
+		void ResetVelocityTracking() { hasLastUpdate = false; }
+
+		// Manual stereo balance, -1 (full left) to 1 (full right). Mainly
+		// useful on a non-spatialized source (spatialization already computes
+		// its own pan from 3D position, so the two fight each other if both
+		// are active).
+		void SetPan(const f32 pan);
+		f32 GetPan() const { return pan; }
+
+		// One low-pass or high-pass filter can be inserted on this source's
+		// output at a time - setting one clears the other. `order` is the
+		// filter's steepness (2 = 12dB/octave, a reasonable default; higher
+		// numbers cut more sharply per octave past the cutoff).
+		void SetFilter(const uint32 type, const f32 cutoffHz, const uint32 order = 2);
+		void ClearFilter();
+		uint32 GetFilterType() const { return filterType; }
+		f32 GetFilterCutoff() const { return filterCutoff; }
+		uint32 GetFilterOrder() const { return filterOrder; }
+
+		// **************************** Playback state ************************
+
+		// Seconds, using the engine's own decode of the file - real length/
+		// position, not anything this class tracks itself.
+		f32 GetLengthSeconds() const;
+		f32 GetCursorSeconds() const;
+		void SeekSeconds(const f32 seconds);
+		// True once a non-looping source has played through to its end.
+		bool AtEnd() const;
 
 		// **************************** Read-back *****************************
 		//
@@ -143,11 +197,16 @@ namespace p3d {
 		bool loaded;
 
 		ma_sound* sound;
+		// Kept alive purely so the routing target this source's node was
+		// attached to at construction (this bus, or the master mix) outlives
+		// the source - see the constructor's comment.
+		std::shared_ptr<AudioBus> bus;
 
 		bool looping;
 		bool spatialized;
 		f32 volume;
 		f32 pitch;
+		f32 pan;
 
 		bool streamed;
 		uint32 attenuationModel;
@@ -156,6 +215,22 @@ namespace p3d {
 		f32 coneInner, coneOuter, coneOuterGain;
 		f32 directionalAttenuation;
 		f32 dopplerFactor;
+
+		// Doppler - see AudioManager::SetListener()'s identical comment for
+		// why velocity is derived from position rather than asked for
+		// directly.
+		Vec3 lastPosition;
+		f64 lastUpdateTime;
+		bool hasLastUpdate;
+
+		// Opaque (ma_lpf_node/ma_hpf_node are anonymous structs in miniaudio -
+		// they have no tag to forward-declare, unlike ma_sound - so this is a
+		// plain void* cast back in the .cpp, the same PIMPL idea one level
+		// blunter). NULL when no filter is active.
+		void* filterNode;
+		uint32 filterType;
+		f32 filterCutoff;
+		uint32 filterOrder;
 	};
 
 }

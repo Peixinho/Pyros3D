@@ -151,7 +151,7 @@ function update(time, dt)
 
 	-- Same reason: the listener rides the camera, whose world transform the
 	-- scene update is what refreshes.
-	Audio.update()
+	Audio.update(dt)
 
 	G.renderer:preRender(G.camera, G.scene)
 	G.renderer:renderScene(G.projection, G.camera, G.scene)

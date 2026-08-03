@@ -115,10 +115,15 @@ function A.play(name, pitch)
 end
 
 -- Called once per frame, after the scene update, so the listener reads a
--- current world transform rather than last frame's.
-function A.update()
+-- current world transform rather than last frame's. `dt` is this frame's
+-- real time step - AudioManager finite-differences it against last frame's
+-- listener position to get a real velocity, which is what makes
+-- AudioSource:setDopplerFactor() on any moving source actually audible; with
+-- no dt (or an unmoving listener) Doppler is silently a no-op regardless of
+-- the factor.
+function A.update(dt)
 	if not A.enabled then return end
-	G.audio:setListenerFromGameObject(G.camera)
+	G.audio:setListenerFromGameObject(G.camera, dt)
 end
 
 return A
