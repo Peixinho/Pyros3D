@@ -146,6 +146,17 @@ if (CONTEXT STREQUAL "SDL2")
 	endif()
 endif()
 
+# ImGui backend glue. imgui_impl_sdl2.cpp is needed either way;
+# imgui_impl_opengl3.cpp is OpenGL-only and must be left out entirely under
+# CONTEXT=SDL2Vulkan - BaseExample.cpp never calls it there (see its
+# `#if !defined(_SDL2VULKAN)` guards around every ImGui_ImplOpenGL3_* call),
+# so compiling it into every Vulkan example was dead weight that also
+# dragged in real OpenGL dependencies for a build that never touches OpenGL.
+set(IMGUI_BACKEND_SOURCE ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp)
+if (NOT CONTEXT STREQUAL "SDL2Vulkan")
+	list(APPEND IMGUI_BACKEND_SOURCE ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp)
+endif()
+
 # freebsd
 link_directories("/usr/local/lib")
 
@@ -153,181 +164,158 @@ link_directories("/usr/local/lib")
 set(SOURCE_RotatingCube
 	${CMAKE_CURRENT_SOURCE_DIR}/RotatingCube/RotatingCube.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_MSAATest
 	${CMAKE_CURRENT_SOURCE_DIR}/MSAATest/MSAATest.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_RotatingCubeWithLighting
 	${CMAKE_CURRENT_SOURCE_DIR}/RotatingCubeWithLighting/RotatingCubeWithLighting.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_RotatingCubeWithLightingAndShadow
 	${CMAKE_CURRENT_SOURCE_DIR}/RotatingCubeWithLightingAndShadow/RotatingCubeWithLightingAndShadow.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_RotatingTexturedCube
 	${CMAKE_CURRENT_SOURCE_DIR}/RotatingTexturedCube/RotatingTexturedCube.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_PBRSpheres
 	${CMAKE_CURRENT_SOURCE_DIR}/PBRSpheres/PBRSpheres.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_SkyboxTest
 	${CMAKE_CURRENT_SOURCE_DIR}/SkyboxTest/SkyboxTest.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_RotatingTextureAnimatedCube
 	${CMAKE_CURRENT_SOURCE_DIR}/RotatingTextureAnimatedCube/RotatingTextureAnimatedCube.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_CustomMaterial
 	${CMAKE_CURRENT_SOURCE_DIR}/CustomMaterial/CustomMaterial.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_DepthOfField
 	${CMAKE_CURRENT_SOURCE_DIR}/DepthOfField/DepthOfField.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_DeferredPBRSpheres
 	${CMAKE_CURRENT_SOURCE_DIR}/DeferredPBRSpheres/DeferredPBRSpheres.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_SSRTest
 	${CMAKE_CURRENT_SOURCE_DIR}/SSRTest/SSRTest.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_DeferredRendering
 	${CMAKE_CURRENT_SOURCE_DIR}/DeferredRendering/DeferredRendering.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_Decals
 	${CMAKE_CURRENT_SOURCE_DIR}/Decals/Decals.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_IslandDemo
 	${CMAKE_CURRENT_SOURCE_DIR}/IslandDemo/IslandDemo.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_LOD_Example
 	${CMAKE_CURRENT_SOURCE_DIR}/LOD_Example/LOD_Example.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_LightPriorityExample
 	${CMAKE_CURRENT_SOURCE_DIR}/LightPriorityExample/LightPriorityExample.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_LuaScripting
 	${CMAKE_CURRENT_SOURCE_DIR}/LuaScripting/LuaScripting.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_NeonPulse
 	${CMAKE_CURRENT_SOURCE_DIR}/NeonPulse/NeonPulse.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_SceneSerializationExample
 	${CMAKE_CURRENT_SOURCE_DIR}/SceneSerializationExample/SceneSerializationExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_ParallaxMapping
 	${CMAKE_CURRENT_SOURCE_DIR}/ParallaxMapping/ParallaxMapping.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_ParticlesExample
 	${CMAKE_CURRENT_SOURCE_DIR}/ParticlesExample/ParticlesExample.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_PickingPainterMethod
 	${CMAKE_CURRENT_SOURCE_DIR}/PickingPainterMethod/PickingPainterMethod.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
@@ -344,48 +332,42 @@ set(SOURCE_RacingGame
 set(SOURCE_SimplePhysics
 	${CMAKE_CURRENT_SOURCE_DIR}/SimplePhysics/SimplePhysics.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_SkeletonAnimationExample
 	${CMAKE_CURRENT_SOURCE_DIR}/SkeletonAnimationExample/SkeletonAnimationExample.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_SSAOExample
 	${CMAKE_CURRENT_SOURCE_DIR}/SSAOExample/SSAOExample.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_TextRendering
 	${CMAKE_CURRENT_SOURCE_DIR}/TextRendering/TextRendering.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_MotionBlurExample
   ${CMAKE_CURRENT_SOURCE_DIR}/MotionBlurExample/MotionBlurExample.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
 set(SOURCE_ScreenSpaceReflection
   ${CMAKE_CURRENT_SOURCE_DIR}/ScreenSpaceReflection/ScreenSpaceReflection.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
@@ -400,8 +382,7 @@ set(SOURCE_EffectToggleTest
 
 set(SOURCE_DemoLauncher
 	${CMAKE_CURRENT_SOURCE_DIR}/DemoLauncher/DemoLauncher.cpp
-	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${IMGUI_BACKEND_SOURCE}
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
