@@ -293,6 +293,13 @@ set(SOURCE_LuaScripting
 	${WINDOW_MANAGER}
 	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 )
+set(SOURCE_NeonPulse
+	${CMAKE_CURRENT_SOURCE_DIR}/NeonPulse/NeonPulse.cpp
+	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
+	${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	${WINDOW_MANAGER}
+	${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
+)
 set(SOURCE_SceneSerializationExample
 	${CMAKE_CURRENT_SOURCE_DIR}/SceneSerializationExample/SceneSerializationExample.cpp
 	${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
@@ -504,6 +511,11 @@ add_executable(LuaScripting ${SOURCE_LuaScripting})
 include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB})
 target_link_libraries(LuaScripting PyrosEngine  ${SDL2_LIBRARIES} ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES})
 target_compile_definitions(LuaScripting PRIVATE ${DESKTOP} -DDEMO_NAME=LuaScripting -D_LuaScripting ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
+
+add_executable(NeonPulse ${SOURCE_NeonPulse})
+include_directories(${HEADERS} ${SDL2_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${CONTEXT_LIB})
+target_link_libraries(NeonPulse PyrosEngine  ${SDL2_LIBRARIES} ${OPENGL_LIBS} ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${CONTEXT_LIB} ${LUA_LIBRARIES})
+target_compile_definitions(NeonPulse PRIVATE ${DESKTOP} -DDEMO_NAME=NeonPulse -D_NeonPulse ${CONTEXT_DEFINITION} -DEXAMPLES_PATH=${EXAMPLES_PATH})
 endif()
 
 add_executable(SceneSerializationExample ${SOURCE_SceneSerializationExample})

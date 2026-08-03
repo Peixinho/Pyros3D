@@ -4126,6 +4126,20 @@ namespace p3d {
 		return handle;
 	}
 
+	void VulkanRenderDevice::SetFramebufferPreserveDepth(const DeviceHandle fbo, const bool preserve)
+	{
+		// Must be called before the FBO's render pass is built (i.e. before
+		// its first real bind) - the load op is baked in at creation time.
+		// DeferredRenderer sets it right after creating lastPassFBO, which
+		// is well before the first frame.
+		FBORecord &record = fboRecords[fbo];
+		if (record.preserveDepth == preserve)
+			return;
+		record.preserveDepth = preserve;
+		if (record.renderPass != VK_NULL_HANDLE)
+			fprintf(stderr, "VulkanRenderDevice::SetFramebufferPreserveDepth: FBO %u's render pass is already built; the new setting will not take effect\n", (uint32)fbo);
+	}
+
 	void VulkanRenderDevice::DestroyFramebuffer(const DeviceHandle fbo)
 	{
 		std::map<DeviceHandle, FBORecord>::iterator it = fboRecords.find(fbo);
@@ -4273,6 +4287,21 @@ namespace p3d {
 			// effect (or the final composite), always as a plain sampled
 			// image, never re-used as a same-format attachment directly.
 			desc.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+			// ...except a depth attachment the caller has declared it fills
+			// itself before binding (see SetFramebufferPreserveDepth). Load
+			// it instead of clearing, and both entry and exit layouts become
+			// DEPTH_STENCIL_ATTACHMENT_OPTIMAL - that is the layout
+			// CopyDepthTexture() leaves its destination in and expects to
+			// find it in again next frame, and UNDEFINED as an initialLayout
+			// would license the driver to discard exactly the contents being
+			// preserved.
+			if (isDepth && fbo.preserveDepth)
+			{
+				desc.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+				desc.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+				desc.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+			}
 
 			attachmentDescs.push_back(desc);
 

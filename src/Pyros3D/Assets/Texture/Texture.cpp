@@ -41,7 +41,13 @@ namespace p3d {
 
 	Texture::~Texture()
 	{
-		if (GL_ID != -1)
+		// See FrameBuffer::~FrameBuffer() for why the device has to still be
+		// there: without a real one, Device() hands back a static
+		// GLRenderDevice and this frees a handle that backend never created,
+		// through GL entry points a Vulkan build never loaded. Lua-owned
+		// textures hit this on every shutdown, since sol finalizes its
+		// userdata after the context has torn the device down.
+		if (GL_ID != -1 && IsActiveRenderDeviceSet())
 		{
 			Device().DestroyTextureObject(GL_ID);
 		}

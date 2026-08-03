@@ -341,6 +341,23 @@ namespace p3d {
 	{
 		r.PreRender(Camera, Scene, tag);
 	}
+	// DeferredRenderer::RenderScene() carries a fourth BufferOptions
+	// parameter that ForwardRenderer's does not. sol binds the function's
+	// full arity, so C++ default arguments are not optional from Lua -
+	// without this wrapper a script had to pass BufferOptions explicitly,
+	// which it could not even spell: the values come from Buffer_Bit,
+	// and only the unrelated FBOBufferBit enum (0/1/2 rather than
+	// 0x10/0x20/0x40) was exposed. Restoring the default here also makes
+	// renderScene() identical across both renderers, so a script can swap
+	// one for the other without touching its render loop.
+	void DeferredRenderer_RenderScene(DeferredRenderer &r, const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene)
+	{
+		r.RenderScene(projection, Camera, Scene);
+	}
+	void DeferredRenderer_RenderSceneOptions(DeferredRenderer &r, const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const uint32 BufferOptions)
+	{
+		r.RenderScene(projection, Camera, Scene, BufferOptions);
+	}
 	// Shader
 	void Shader_SendUniform(Shader &s, const Uniform &uniform, int32 Handle)
 	{
@@ -488,7 +505,18 @@ namespace p3d {
 				"Diffuse", ShaderUsage::Diffuse,
 				"TextRendering", ShaderUsage::TextRendering,
 				"DebugRendering", ShaderUsage::DebugRendering,
-				"ClipPlane", ShaderUsage::ClipPlane
+				"ClipPlane", ShaderUsage::ClipPlane,
+				// The remaining ShaderLib.h flags. Without these a Lua scene
+				// could construct a DeferredRenderer but had no way to build
+				// a material that writes the G-buffer, so every object was
+				// silently missing from the deferred pass - the enum stopped
+				// at ClipPlane while the C++ enum carried six more values.
+				"DeferredRenderer_Gbuffer", ShaderUsage::DeferredRenderer_Gbuffer,
+				"ParallaxMapping", ShaderUsage::ParallaxMapping,
+				"InstancedRendering", ShaderUsage::InstancedRendering,
+				"VelocityRendering", ShaderUsage::VelocityRendering,
+				"PBR", ShaderUsage::PBR,
+				"PBRMap", ShaderUsage::PBRMap
 			);
 
 			lua->new_enum("TextureTransparency",
@@ -599,6 +627,19 @@ namespace p3d {
 				"Color", FBOBufferBit::Color,
 				"Depth", FBOBufferBit::Depth,
 				"Stencil", FBOBufferBit::Stencil
+			);
+
+			// Distinct from FBOBufferBit above despite the similar name:
+			// these are real OR-able mask bits (0x10/0x20/0x40), whereas
+			// FBOBufferBit is a 0/1/2 index used to pick an attachment.
+			// clearBufferBit()/renderScene()'s BufferOptions take THESE -
+			// previously unreachable from Lua, so any script calling
+			// clearBufferBit(FBOBufferBit.Color) was passing 0 (None).
+			lua->new_enum("BufferBit",
+				"None", Buffer_Bit::None,
+				"Color", Buffer_Bit::Color,
+				"Depth", Buffer_Bit::Depth,
+				"Stencil", Buffer_Bit::Stencil
 			);
 
 			lua->new_enum("FBOFilter",
@@ -1032,7 +1073,7 @@ namespace p3d {
 				"resize", &DeferredRenderer::Resize,
 				"activateCulling", &DeferredRenderer::ActivateCulling,
 				"deactivateCulling", &DeferredRenderer::DeactivateCulling,
-				"renderScene", &DeferredRenderer::RenderScene,
+				"renderScene", sol::overload(&DeferredRenderer_RenderScene, &DeferredRenderer_RenderSceneOptions),
 				"preRender", sol::overload(&DeferredRenderer_PreRender, &DeferredRenderer_PreRenderTag),
 				"setSSRDistances", &DeferredRenderer::SetSSRDistances,
 				"enableSSR", &DeferredRenderer::EnableSSR,
@@ -1560,7 +1601,11 @@ namespace p3d {
 			sol::constructors<sol::types < std::vector <DecalVertex>, bool>, sol::types<std::vector < DecalVertex > > > con;
 			lua->new_usertype<Decal>("Decal",
 				con,
-				sol::base_classes, sol::bases<Model>()
+				// Renderable listed explicitly alongside Model: sol does not
+				// walk a transitive base chain, so listing only Model left
+				// Decal unusable everywhere a Renderable* is expected -
+				// including RenderingComponent's own constructor.
+				sol::base_classes, sol::bases<Model, Renderable>()
 				);
 		}
 
@@ -1583,7 +1628,16 @@ namespace p3d {
 				con,
 				"updateText", sol::overload(
 					&Text_UpdateText,
-					&Text_UpdateTextColors)
+					&Text_UpdateTextColors),
+				// Text IS a Renderable, but sol only performs the
+				// derived->base pointer conversion for bases listed here -
+				// without this, RenderingComponent.new(text, material)
+				// failed with "no matching function call takes this number
+				// of arguments and the specified types", which made it
+				// impossible to draw text at all from Lua. Same class of
+				// bug as the SkeletonAnimation one recorded on
+				// LUA_RenderingComponent above.
+				sol::base_classes, sol::bases<Renderable>()
 				);
 		}
 

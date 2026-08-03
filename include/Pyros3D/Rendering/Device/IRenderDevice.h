@@ -644,6 +644,26 @@ namespace p3d {
 		virtual DeviceHandle GetCurrentRenderTarget() = 0;
 		virtual DeviceHandle CreateFramebuffer() = 0;
 		virtual void DestroyFramebuffer(const DeviceHandle fbo) = 0;
+		// Declares that this FBO's depth attachment already holds meaningful
+		// data when it is bound, and must survive the bind rather than being
+		// cleared.
+		//
+		// Needed because the two backends express "clear" at opposite ends of
+		// a pass. GL clears imperatively *after* binding, so a caller that
+		// only wants colour cleared just calls ClearBufferBit(Color) and the
+		// depth it prepared is untouched. Vulkan bakes the choice into the
+		// render pass's load op at creation time, and this backend used
+		// LOAD_OP_CLEAR for every attachment - so any depth written before
+		// the bind was discarded before the first draw.
+		//
+		// DeferredRenderer is the caller that cares: it copies the finished
+		// G-buffer depth into lastPassFBO's depth attachment so the forward/
+		// transparent pass can depth-test against the opaque scene (the
+		// G-buffer's own depth texture can't be aliased here - it is being
+		// sampled as tDepth by the lighting materials at the same time, and
+		// on Vulkan a texture cannot be sampled and attached at once). No-op
+		// on GL, which never had the problem.
+		virtual void SetFramebufferPreserveDepth(const DeviceHandle fbo, const bool preserve) = 0;
 		virtual uint32 TranslateFramebufferAccess(const uint32 engineAccess) = 0;
 		// finalizePending distinguishes a *real* bind (FrameBuffer::Bind(),
 		// or its own "restore the previous FBO" bookkeeping on UnBind() -

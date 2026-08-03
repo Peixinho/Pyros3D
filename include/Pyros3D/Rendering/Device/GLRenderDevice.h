@@ -155,6 +155,9 @@ namespace p3d {
 		virtual DeviceHandle GetCurrentRenderTarget();
 		virtual DeviceHandle CreateFramebuffer();
 		virtual void DestroyFramebuffer(const DeviceHandle fbo);
+		// No-op: GL clears imperatively after binding, so a caller that only
+		// clears colour already keeps whatever depth it prepared.
+		virtual void SetFramebufferPreserveDepth(const DeviceHandle, const bool) {}
 		virtual uint32 TranslateFramebufferAccess(const uint32 engineAccess);
 		virtual void BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo, const bool finalizePending);
 		virtual uint32 TranslateFramebufferAttachment(const uint32 engineAttachmentFormat);

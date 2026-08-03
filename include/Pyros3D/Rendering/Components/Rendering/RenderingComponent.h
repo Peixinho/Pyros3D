@@ -74,6 +74,14 @@ namespace p3d {
 		// locations can differ across shader variants using this mesh.
 		std::map<uint32, uint32> VAOCache;
 
+		// Geometry->buffersRevision that VAOCache's entries were built
+		// against. A geometry can hand out new GPU buffers under a mesh that
+		// is already being drawn (Text::UpdateText() disposes and rebuilds
+		// in place), which leaves every cached VAO referencing freed buffer
+		// handles - BindMesh() compares this and throws the cache away when
+		// it goes stale. See IGeometry::buffersRevision.
+		uint32 VAOCacheRevision = 0;
+
 		// Vulkan pipeline cache, keyed by (shader program, current render
 		// target) packed into one uint64 - ((uint64)shader << 32) | targetFBO,
 		// see IRenderDevice::GetCurrentRenderTarget(). Mirrors VAOCache's

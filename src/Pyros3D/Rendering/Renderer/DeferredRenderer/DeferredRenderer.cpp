@@ -80,6 +80,16 @@ namespace p3d {
 		lastPassFBO = new FrameBuffer();
 		lastPassFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, colorTexture);
 		lastPassFBO->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, forwardDepthTexture);
+		// This pass's depth is not scratch: RenderScene() copies the finished
+		// G-buffer depth into forwardDepthTexture just before binding here,
+		// so the translucent forward pass can depth-test against the opaque
+		// scene. Only the color attachment is cleared on bind (see
+		// ClearBufferBit(Color) there), which is implicit on GL but has to be
+		// declared up front on Vulkan, where the load op is baked into the
+		// render pass. Without this the copied depth was cleared away before
+		// the first draw and every transparent object drew over all the
+		// opaque geometry.
+		device->SetFramebufferPreserveDepth(lastPassFBO->GetBindID(), true);
 
 		// See DeferredRenderer.h's comment on dummyShadow2D/dummyShadowCube.
 		// Same creation pattern DirectionalLight/PointLight's own real
@@ -1127,6 +1137,23 @@ namespace p3d {
 			}
 		}
 
+		// Release the G-buffer's texture units *before* the translucent pass
+		// below, not after it. The light passes above are the last thing
+		// that needs them, and Texture::Bind()/Unbind() share one global
+		// unit counter: leaving five attachments bound meant every material
+		// in the translucent pass got units 5+, while GenericShaderMaterial
+		// sends its sampler uniforms as the texture's index in its own
+		// Textures list (0, 1, ...) - an assumption that only holds when the
+		// counter starts at zero, as it always does under ForwardRenderer.
+		// So a textured transparent object sampled a G-buffer attachment
+		// instead of its own texture: text rendered as solid blocks of the
+		// font colour (uFontmap read attachment 0 - depth - which is 1.0
+		// almost everywhere, so every glyph quad came out fully covered).
+		// Unbinding here restores exactly the state ForwardRenderer gives
+		// these same materials.
+		for (int i = FBO->GetAttachments().size() - 1; i >= 0; i--)
+			FBO->GetAttachments()[i]->TexturePTR->Unbind();
+
 		// Scissor Test
 		StartScissorTest();
 
@@ -1196,8 +1223,8 @@ namespace p3d {
 		// End Rendering
 		EndRender();
 
-		for (int i = FBO->GetAttachments().size()-1; i>=0; i--)
-			FBO->GetAttachments()[i]->TexturePTR->Unbind();
+		// (The G-buffer attachments were already unbound above, ahead of the
+		// translucent pass - see the comment there.)
 
 		lastPassFBO->UnBind();
 

@@ -2053,6 +2053,21 @@ void IRenderer::SendExtraUniforms(RenderingMesh* rmesh, IMaterial* Material)
 
 void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 {
+	// Drop every cached VAO if the geometry has been given new GPU buffers
+	// since they were built. A VAO bakes in the buffer handles it was
+	// recorded against, so one built before the rebuild would keep sourcing
+	// vertices from the freed buffers while the draw count - read from
+	// CPU-side index data - tracks the new geometry. Only the VAOs are
+	// invalidated: the shader attribute/uniform location caches alongside
+	// them depend on the shader, not on the buffers, and stay valid.
+	if (rmesh->Geometry != NULL && rmesh->VAOCacheRevision != rmesh->Geometry->buffersRevision)
+	{
+		for (std::map<uint32, uint32>::iterator i = rmesh->VAOCache.begin(); i != rmesh->VAOCache.end(); i++)
+			device->DeleteVertexArray(i->second);
+		rmesh->VAOCache.clear();
+		rmesh->VAOCacheRevision = rmesh->Geometry->buffersRevision;
+	}
+
 	std::vector< std::vector<int32> >* _ShadersAttributesCache = &rmesh->ShadersAttributesCache[material->GetShader()];
 	if ((*_ShadersAttributesCache).size()==0)
 	{

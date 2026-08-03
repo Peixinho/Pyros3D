@@ -241,7 +241,19 @@ namespace p3d {
 		// Attributes Buffer
 		std::vector<AttributeArray*> Attributes;
 
-		IGeometry() : IndexBuffer(NULL) {
+		// Bumped every time SendBuffers() hands a fresh set of GPU buffers to
+		// this geometry. Anything that caches state derived from those
+		// buffers' handles - IRenderer::BindMesh()'s per-shader VAO cache
+		// above all - has to compare this against the revision it cached at
+		// and rebuild when they differ. Without it, a geometry that is
+		// disposed and rebuilt in place (Text::UpdateText() is the one that
+		// does this today) keeps being drawn through a VAO still pointing at
+		// the freed buffers: the index count updates, because it is read
+		// from CPU-side data, while the vertex data does not. The visible
+		// symptom is new text drawn with the previous string's glyphs.
+		uint32 buffersRevision;
+
+		IGeometry() : IndexBuffer(NULL), buffersRevision(0) {
 
 			// Internal ID
 			ID = _InternalID++;
@@ -275,6 +287,9 @@ namespace p3d {
 				AttributeBuffer* bf = (AttributeBuffer*)(*i);
 				bf->SendBuffer();
 			}
+
+			// New buffer handles - see buffersRevision's declaration.
+			buffersRevision++;
 		}
 
 		virtual void Dispose()

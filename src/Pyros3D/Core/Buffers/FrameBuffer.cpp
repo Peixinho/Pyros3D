@@ -55,8 +55,17 @@ namespace p3d {
 		// flag FBO Stoped
 		FBOInitialized = false;
 
-		// destroy fbo and rbo
-		Device().DestroyFramebuffer(fbo);
+		// Only if a real device is still around. Device() falls back to a
+		// static GLRenderDevice when none is set, so a FrameBuffer that
+		// outlives its device would try to free a Vulkan-created handle
+		// through GL entry points that were never loaded in this process -
+		// a jump through a null/garbage function pointer, which is what a
+		// Lua-owned FrameBuffer did on every shutdown (sol's state is torn
+		// down, and its userdata finalized, after the context has already
+		// destroyed the render device). Nothing leaks by skipping it:
+		// no device means the GPU-side objects are already gone with it.
+		if (IsActiveRenderDeviceSet())
+			Device().DestroyFramebuffer(fbo);
 
 		for (std::vector<FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
 			delete (*i);

@@ -317,6 +317,7 @@ namespace p3d {
 		virtual DeviceHandle GetCurrentRenderTarget();
 		virtual DeviceHandle CreateFramebuffer();
 		virtual void DestroyFramebuffer(const DeviceHandle fbo);
+		virtual void SetFramebufferPreserveDepth(const DeviceHandle fbo, const bool preserve);
 		virtual uint32 TranslateFramebufferAccess(const uint32 engineAccess);
 		virtual void BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo, const bool finalizePending);
 		virtual uint32 TranslateFramebufferAttachment(const uint32 engineAttachmentFormat);
@@ -674,7 +675,12 @@ namespace p3d {
 			// time" pattern targetRenderPass/targetColorAttachmentCount
 			// already use.
 			VkSampleCountFlagBits samples;
-			FBORecord() : renderPass(VK_NULL_HANDLE), width(0), height(0), colorAttachmentCount(0), hasDepthAttachment(false), lastTarget(0), samples(VK_SAMPLE_COUNT_1_BIT) {}
+			// See IRenderDevice::SetFramebufferPreserveDepth(). When set, this
+			// FBO's render pass loads its depth attachment instead of clearing
+			// it, and leaves it in DEPTH_STENCIL_ATTACHMENT_OPTIMAL so the next
+			// frame's CopyDepthTexture() finds the layout it expects.
+			bool preserveDepth;
+			FBORecord() : renderPass(VK_NULL_HANDLE), width(0), height(0), colorAttachmentCount(0), hasDepthAttachment(false), lastTarget(0), samples(VK_SAMPLE_COUNT_1_BIT), preserveDepth(false) {}
 		};
 		std::map<DeviceHandle, FBORecord> fboRecords;
 		DeviceHandle nextFBOHandle;
