@@ -60,8 +60,6 @@
 #include "ScreenSpaceReflection/ScreenSpaceReflection.h"
 #elif defined(_LightPriorityExample)
 #include "LightPriorityExample/LightPriorityExample.h"
-#elif defined(_ArenaFPS)
-#include "ArenaFPS/ArenaFPS.h"
 #elif defined(_PBRSpheres)
 #include "PBRSpheres/PBRSpheres.h"
 #elif defined(_DeferredPBRSpheres)
