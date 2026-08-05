@@ -26,9 +26,9 @@ BaseExample::BaseExample(const uint32 width, const uint32 height, const std::str
 	// safely dereference the rest.
 	Scene = nullptr;
 	Renderer = nullptr;
-	FPSCamera = nullptr;
-	Light = nullptr;
-	dLight = nullptr;
+	FPSCamera.reset();
+	Light.reset();
+	dLight.reset();
 }
 
 void BaseExample::OnResize(const uint32 width, const uint32 height)
@@ -77,7 +77,7 @@ void BaseExample::Init()
 	Scene = new SceneGraph();
 
 	// Create Camera
-	FPSCamera = new GameObject();
+	FPSCamera = std::make_shared<GameObject>();
 	FPSCamera->SetPosition(Vec3(0, 0, 80));
 
 	Scene->Add(FPSCamera);
@@ -150,17 +150,10 @@ void BaseExample::Shutdown()
 		Scene = nullptr;
 	}
 	
-	// Clean up camera
-	if (FPSCamera) {
-		delete FPSCamera;
-		FPSCamera = nullptr;
-	}
-	
-	// Clean up light
-	if (Light) {
-		delete Light;
-		Light = nullptr;
-	}
+	// Clean up camera / light - shared_ptr drops last ref
+	FPSCamera.reset();
+	Light.reset();
+	dLight.reset();
 	
 	// Clean up renderer
 	if (Renderer) {

@@ -13,6 +13,7 @@
 #include <Pyros3D/Ext/Signals/Signal.h>
 #include <Pyros3D/Ext/Signals/Delegate.h>
 #include <vector>
+#include <memory>
 #include <Pyros3D/Other/Export.h>
 
 namespace p3d {
@@ -125,7 +126,7 @@ namespace p3d {
 		// internal timer
 		f32 timer;
 		// frames
-		std::vector<Texture*> Frames;
+		std::vector<std::shared_ptr<Texture>> Frames;
 		// Instances
 		std::vector<TextureAnimationInstance*> Instances;
 
@@ -138,7 +139,7 @@ namespace p3d {
 		TextureAnimation();
 
 		// Add Frame
-		void AddFrame(Texture* texture);
+		void AddFrame(const std::shared_ptr<Texture> &texture);
 
 		// Void Update
 		void Update(const f32 &time);

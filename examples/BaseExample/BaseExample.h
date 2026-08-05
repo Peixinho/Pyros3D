@@ -34,6 +34,7 @@
 #include <Pyros3D/Utils/Colors/Colors.h>
 #include <Pyros3D/Utils/DeltaTime/DeltaTime.h>
 #include <Pyros3D/Utils/FPS/FPS.h>
+#include <memory>
 
 // ImGui includes - resolved via the IMGUI_INCLUDE_DIRS include path (see
 // root CMakeLists.txt), not a relative path - ImGui core now lives at
@@ -66,10 +67,10 @@ protected:
 	// Projection
 	Projection projection;
 	// Camera - Its a regular GameObject
-	GameObject* FPSCamera;
+	std::shared_ptr<GameObject> FPSCamera;
 	// Light
-	GameObject* Light;
-	DirectionalLight* dLight;
+	std::shared_ptr<GameObject> Light;
+	std::shared_ptr<DirectionalLight> dLight;
 
 	// ImGui support
 	bool imguiInitialized;

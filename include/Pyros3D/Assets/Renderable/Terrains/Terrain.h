@@ -38,7 +38,7 @@ namespace p3d {
 
 	public:
 
-		TerrainRenderingComponent(Terrain* renderable, IMaterial* Material = NULL);
+		TerrainRenderingComponent(const std::shared_ptr<Terrain> &renderable, const std::shared_ptr<IMaterial> &Material = nullptr);
 		bool GetHeightFromLocalCoords(Vec3 &coords);
 		bool GetHeightFromGlobalCoords(Vec3 &coords);
 

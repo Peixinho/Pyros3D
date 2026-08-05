@@ -55,6 +55,7 @@
 
 #include <string>
 #include <vector>
+#include <memory>
 
 using namespace p3d;
 
@@ -112,8 +113,8 @@ private:
 	// (which only ever sees what its paired LoadScene() call produced)
 	// and never cleared on a demo switch. Its camera_fly.lua behavior is
 	// driven directly (FPSCamera->GetComponents(), not Scene->Update()).
-	GameObject* FPSCamera;
-	LuaComponent* cameraComponent;
+	std::shared_ptr<GameObject> FPSCamera;
+	std::shared_ptr<LuaComponent> cameraComponent;
 	Projection projection;
 
 	// G-buffer (4 color attachments + depth) + DeferredRenderer, built
@@ -152,7 +153,7 @@ private:
 	// demo's scene has a GameObject with both a ParticleSystem and an
 	// attached LuaComponent (smoke_tuning.lua) - found once in
 	// SwitchDemo(), written into every frame before Scene->Update().
-	LuaComponent* smokeTuningComponent;
+	std::shared_ptr<LuaComponent> smokeTuningComponent;
 	float smokeEmissionRate, smokeSpread, smokeRiseSpeed;
 
 	bool imguiInitialized;

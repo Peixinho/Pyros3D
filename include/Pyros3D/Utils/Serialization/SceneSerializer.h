@@ -15,6 +15,7 @@
 #include <Pyros3D/Other/Export.h>
 #include <string>
 #include <vector>
+#include <memory>
 
 // Forward-declared, not #included - sol.hpp is a large single header and
 // SceneSerializer.h is a general-purpose header included well outside
@@ -45,12 +46,14 @@ namespace p3d {
 	// only roots are ever actually registered with a SceneGraph.
 	struct PYROS3D_API LoadedSceneAssets
 	{
-		std::vector<GameObject*> gameObjects;
-		std::vector<IMaterial*> materials;
-		std::vector<Texture*> textures;
-		std::vector<Renderable*> renderables;
-		std::vector<SkeletonAnimation*> skeletonAnimations;
-		std::vector<TextureAnimation*> textureAnimations;
+		// All Stage-1/2 owned types use shared_ptr (SHARED_OWNERSHIP_PLAN.md),
+		// including skeleton/texture animations.
+		std::vector<std::shared_ptr<GameObject>> gameObjects;
+		std::vector<std::shared_ptr<IMaterial>> materials;
+		std::vector<std::shared_ptr<Texture>> textures;
+		std::vector<std::shared_ptr<Renderable>> renderables;
+		std::vector<std::shared_ptr<SkeletonAnimation>> skeletonAnimations;
+		std::vector<std::shared_ptr<TextureAnimation>> textureAnimations;
 	};
 
 	// Real scene save/load - GameObjects (hierarchy, transform, tags),
@@ -98,15 +101,12 @@ namespace p3d {
 		static bool LoadScene(SceneGraph* scene, const std::string &filePath, IPhysics* physics = NULL, sol::state* lua = NULL, LoadedSceneAssets* outAssets = NULL);
 
 		// Frees exactly what one LoadScene() call recorded into
-		// `assets` (via its outAssets param): every GameObject is
-		// detached from `scene` (scene->Remove() - a safe no-op for any
-		// GameObject that was never actually registered, e.g. a child
-		// added only via GameObject::Add()) and its components deleted,
-		// then every pooled/leaf resource (materials, textures,
-		// renderables, skeleton/texture animations) is deleted once.
-		// `scene` must be the same SceneGraph the objects were loaded
-		// into.
-		static void UnloadScene(SceneGraph* scene, const LoadedSceneAssets &assets);
+		// `assets`: detach GameObjects from `scene`, then drop every
+		// shared_ptr vector (GOs/components/materials/textures/renderables/
+		// skeleton & texture animations). `assets` is non-const so vectors
+		// can be cleared. `scene` must be the same SceneGraph the objects
+		// were loaded into.
+		static void UnloadScene(SceneGraph* scene, LoadedSceneAssets &assets);
 	};
 
 }

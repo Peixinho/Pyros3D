@@ -33,7 +33,7 @@ namespace p3d
 
 		virtual void AfterRender();
 
-		std::vector<Texture*> textures;
+		std::vector<std::shared_ptr<Texture>> textures;
 
 		// Empty when constructed from a raw Shader* - that path has no
 		// recoverable source, callers (e.g. scene serialization) must

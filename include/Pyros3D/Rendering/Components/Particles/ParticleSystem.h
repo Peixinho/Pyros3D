@@ -14,6 +14,7 @@
 #include <Pyros3D/Core/Math/Random.h>
 #include <Pyros3D/Other/Export.h>
 #include <vector>
+#include <memory>
 
 namespace p3d {
 
@@ -38,9 +39,9 @@ namespace p3d {
 		// dropped) rather than a growable buffer.
 		uint32 maxParticles;
 
-		// Caller-owned - ParticleSystem does not take ownership and will
-		// not delete this.
-		Texture* texture;
+		// Shared with the material (and any other holders) - ParticleSystem
+		// does not uniquely own this texture.
+		std::shared_ptr<Texture> texture;
 
 		// true: continuous emission at `emissionRate`, `burstCount`
 		// particles per emission tick. false: `burstCount` particles all

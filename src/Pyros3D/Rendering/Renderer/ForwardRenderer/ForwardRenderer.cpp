@@ -269,7 +269,7 @@ namespace p3d {
 					});
 
 					NumberOfLights = Lights.size();
-					RenderObject((*i), (*i)->renderingComponent->GetOwner(), (*i)->Material);
+					RenderObject((*i), (*i)->renderingComponent->GetOwner(), (*i)->Material.get());
 				}
 			}
 		}

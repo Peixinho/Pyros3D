@@ -36,7 +36,7 @@ namespace p3d {
 		}
 	}
 
-	RenderingComponent::RenderingComponent(Renderable* renderable, IMaterial* Material, const f32 Distance) : IComponent()
+	RenderingComponent::RenderingComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, const f32 Distance) : IComponent()
 	{
 		// Keep renderable pointer
 		this->renderable = renderable;
@@ -95,7 +95,7 @@ namespace p3d {
 
 	}
 
-	RenderingComponent::RenderingComponent(Renderable* renderable, const uint32 MaterialOptions, const f32 Distance) : IComponent()
+	RenderingComponent::RenderingComponent(const std::shared_ptr<Renderable> &renderable, const uint32 MaterialOptions, const f32 Distance) : IComponent()
 	{
 
 		isInstanced = false;
@@ -148,7 +148,7 @@ namespace p3d {
 		
 	}
 
-	void RenderingComponent::AddLOD(Renderable* renderable, const f32 Distance, IMaterial* Material)
+	void RenderingComponent::AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const std::shared_ptr<IMaterial> &Material)
 	{
 		isInstanced = false;
 
@@ -179,7 +179,7 @@ namespace p3d {
 		LOD = true;
 	}
 
-	void RenderingComponent::AddLOD(Renderable* renderable, const f32 Distance, const uint32 MaterialOptions)
+	void RenderingComponent::AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const uint32 MaterialOptions)
 	{
 		isInstanced = false;
 

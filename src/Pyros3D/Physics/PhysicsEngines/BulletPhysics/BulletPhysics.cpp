@@ -666,69 +666,56 @@ namespace p3d {
 	}
 
 	// Create Physics Components
-	IPhysicsComponent* BulletPhysics::CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass, bool ghost)
 	{
-		PhysicsBox* box = new PhysicsBox(this, width, height, depth, mass, ghost);
-		return box;
+		return std::make_shared<PhysicsBox>(this, width, height, depth, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateCapsule(const f32 radius, const f32 height, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateCapsule(const f32 radius, const f32 height, const f32 mass, bool ghost)
 	{
-		PhysicsCapsule* capsule = new PhysicsCapsule(this, radius, height, mass, ghost);
-		return capsule;
+		return std::make_shared<PhysicsCapsule>(this, radius, height, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateCone(const f32 radius, const f32 height, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateCone(const f32 radius, const f32 height, const f32 mass, bool ghost)
 	{
-		PhysicsCone* cone = new PhysicsCone(this, radius, height, mass, ghost);
-		return cone;
+		return std::make_shared<PhysicsCone>(this, radius, height, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateConvexHull(const std::vector<Vec3> &points, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateConvexHull(const std::vector<Vec3> &points, const f32 mass, bool ghost)
 	{
-		PhysicsConvexHull* convexHull = new PhysicsConvexHull(this, points, mass, ghost);
-		return convexHull;
+		return std::make_shared<PhysicsConvexHull>(this, points, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateConvexTriangleMesh(RenderingComponent* rcomp, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateConvexTriangleMesh(RenderingComponent* rcomp, const f32 mass, bool ghost)
 	{
-		PhysicsConvexTriangleMesh* convexTriangleMesh = new PhysicsConvexTriangleMesh(this, rcomp, mass, ghost);
-		return convexTriangleMesh;
+		return std::make_shared<PhysicsConvexTriangleMesh>(this, rcomp, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateConvexTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateConvexTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost)
 	{
-		PhysicsConvexTriangleMesh* convexTriangleMesh = new PhysicsConvexTriangleMesh(this, index, vertex, mass, ghost);
-		return convexTriangleMesh;
+		return std::make_shared<PhysicsConvexTriangleMesh>(this, index, vertex, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateCylinder(const f32 radius, const f32 height, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateCylinder(const f32 radius, const f32 height, const f32 mass, bool ghost)
 	{
-		PhysicsCylinder* cylinder = new PhysicsCylinder(this, radius, height, mass, ghost);
-		return cylinder;
+		return std::make_shared<PhysicsCylinder>(this, radius, height, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateMultipleSphere(const std::vector<Vec3> &positions, const std::vector<f32> &radius, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateMultipleSphere(const std::vector<Vec3> &positions, const std::vector<f32> &radius, const f32 mass, bool ghost)
 	{
-		PhysicsMultipleSphere* multipleSphere = new PhysicsMultipleSphere(this, positions, radius, mass, ghost);
-		return multipleSphere;
+		return std::make_shared<PhysicsMultipleSphere>(this, positions, radius, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateSphere(const f32 radius, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateSphere(const f32 radius, const f32 mass, bool ghost)
 	{
-		PhysicsSphere* sphere = new PhysicsSphere(this, radius, mass, ghost);
-		return sphere;
+		return std::make_shared<PhysicsSphere>(this, radius, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateStaticPlane(const Vec3 &Normal, const f32 Constant, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateStaticPlane(const Vec3 &Normal, const f32 Constant, const f32 mass, bool ghost)
 	{
-		PhysicsStaticPlane* plane = new PhysicsStaticPlane(this, Normal, Constant, mass, ghost);
-		return plane;
+		return std::make_shared<PhysicsStaticPlane>(this, Normal, Constant, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateTriangleMesh(RenderingComponent* rcomp, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateTriangleMesh(RenderingComponent* rcomp, const f32 mass, bool ghost)
 	{
-		PhysicsTriangleMesh* triangleMesh = new PhysicsTriangleMesh(this, rcomp, mass, ghost);
-		return triangleMesh;
+		return std::make_shared<PhysicsTriangleMesh>(this, rcomp, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost)
 	{
-		PhysicsTriangleMesh* triangleMesh = new PhysicsTriangleMesh(this, index, vertex, mass, ghost);
-		return triangleMesh;
+		return std::make_shared<PhysicsTriangleMesh>(this, index, vertex, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateVehicle(IPhysicsComponent* ChassisShape, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateVehicle(const std::shared_ptr<IPhysicsComponent> &ChassisShape, bool ghost)
 	{
-		PhysicsVehicle* vehicle = new PhysicsVehicle(this, ChassisShape, ghost);
-		return vehicle;
+		return std::make_shared<PhysicsVehicle>(this, ChassisShape, ghost);
 	}
 }

@@ -206,8 +206,6 @@ namespace p3d {
 
 		// internal timer
 		f32 timer;
-		// frames
-		std::vector<Texture*> Frames;
 		// Instances
 		std::vector<SkeletonAnimationInstance*> Instances;
 		// Animations

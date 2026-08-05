@@ -138,7 +138,7 @@ namespace p3d {
 
 	}
 
-	TerrainRenderingComponent::TerrainRenderingComponent(Terrain* renderable, IMaterial* Material) : RenderingComponent(renderable, Material)
+	TerrainRenderingComponent::TerrainRenderingComponent(const std::shared_ptr<Terrain> &renderable, const std::shared_ptr<IMaterial> &Material) : RenderingComponent(renderable, Material)
 	{
 		segunits = renderable->seg * renderable->unit;
 	}
@@ -147,7 +147,7 @@ namespace p3d {
 	{
 		if ((coords.x >= 0 && coords.x <= segunits) && (coords.z >= 0 && coords.z <= segunits))
 		{
-			Terrain* t = (Terrain*)renderable;
+			Terrain* t = static_cast<Terrain*>(renderable.get());
 
 			f32 indexX = (int)(coords.x / t->unit) * t->seg * 6;
 			f32 indexZ = (int)(coords.z / t->unit) * 6;

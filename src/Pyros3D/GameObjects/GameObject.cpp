@@ -267,17 +267,22 @@ namespace p3d {
 		_IsLookingAtPositionVec = Position;
 	}
 
-	void GameObject::Add(IComponent* Component)
+	void GameObject::Add(const std::shared_ptr<IComponent> &Component)
 	{
+		if (!Component)
+		{
+			echo("ERROR: Null Component");
+			return;
+		}
 		if (Component->GetOwner() != NULL)
 		{
 			echo("ERROR: Component Is Already in Another GameObject");
 		}
 		else {
 			bool found = false;
-			for (std::vector<IComponent*>::iterator i = Components.begin(); i != Components.end(); i++)
+			for (std::vector<std::shared_ptr<IComponent>>::iterator i = Components.begin(); i != Components.end(); i++)
 			{
-				if ((*i) == Component)
+				if ((*i).get() == Component.get())
 				{
 					found = true;
 					break;
@@ -319,12 +324,21 @@ namespace p3d {
 			}
 		}
 	}
+	void GameObject::Remove(const std::shared_ptr<IComponent> &Component)
+	{
+		if (Component) Remove(Component.get());
+	}
 	void GameObject::Remove(IComponent* Component)
 	{
-		bool found = false;
-		for (std::vector<IComponent*>::iterator i = Components.begin(); i != Components.end(); i++)
+		if (!Component)
 		{
-			if ((*i) == Component)
+			echo("ERROR: Null Component");
+			return;
+		}
+		bool found = false;
+		for (std::vector<std::shared_ptr<IComponent>>::iterator i = Components.begin(); i != Components.end(); i++)
+		{
+			if ((*i).get() == Component)
 			{
 				// Fire the Mothafucka!
 				Component->Owner = NULL;
@@ -343,9 +357,9 @@ namespace p3d {
 				minBounds = maxBounds = BoundingSphereCenter = Vec3();
 				BoundingSphereRadius = 0;
 
-				for (std::vector<IComponent*>::iterator i = Components.begin(); i != Components.end(); i++)
+				for (std::vector<std::shared_ptr<IComponent>>::iterator i = Components.begin(); i != Components.end(); i++)
 				{
-					IComponent* Component = (*i);
+					IComponent* Component = (*i).get();
 					if (BoundingSphereRadius < Component->BoundingSphereRadius)
 					{
 						BoundingSphereRadius = Component->BoundingSphereRadius;
@@ -372,23 +386,28 @@ namespace p3d {
 	}
 	void GameObject::UpdateComponents(const f64 time)
 	{
-		for (std::vector<IComponent*>::iterator i = Components.begin(); i != Components.end(); i++)
+		for (std::vector<std::shared_ptr<IComponent>>::iterator i = Components.begin(); i != Components.end(); i++)
 		{
 			(*i)->Update(time);
 		}
 	}
 
-	void GameObject::Add(GameObject* Child)
+	void GameObject::Add(const std::shared_ptr<GameObject> &Child)
 	{
+		if (!Child)
+		{
+			echo("ERROR: Null GameObject");
+			return;
+		}
 		if (!Child->_HaveOwner)
 		{
 			Child->_Owner = this;
 			Child->_HaveOwner = true;
 
 			bool found = false;
-			for (std::vector<GameObject*>::iterator i = _Childs.begin(); i != _Childs.end(); i++)
+			for (std::vector<std::shared_ptr<GameObject>>::iterator i = _Childs.begin(); i != _Childs.end(); i++)
 			{
-				if ((*i) == Child)
+				if ((*i).get() == Child.get())
 				{
 					found = true;
 					break;
@@ -404,17 +423,26 @@ namespace p3d {
 			echo("ERROR: GameObject Already have a Father");
 		}
 	}
+	void GameObject::Remove(const std::shared_ptr<GameObject> &Child)
+	{
+		if (Child) Remove(Child.get());
+	}
 	void GameObject::Remove(GameObject* Child)
 	{
+		if (!Child)
+		{
+			echo("ERROR: Null GameObject");
+			return;
+		}
 		if (Child->_HaveOwner)
 		{
 			Child->_Owner = NULL;
 			Child->_HaveOwner = false;
 
 			bool found = false;
-			for (std::vector<GameObject*>::iterator i = _Childs.begin(); i != _Childs.end(); i++)
+			for (std::vector<std::shared_ptr<GameObject>>::iterator i = _Childs.begin(); i != _Childs.end(); i++)
 			{
-				if ((*i) == Child)
+				if ((*i).get() == Child)
 				{
 					_Childs.erase(i);
 					found = true;
@@ -433,7 +461,7 @@ namespace p3d {
 	{
 		if (_ComponentsChanged)
 		{
-			for (std::vector<IComponent*>::iterator i = Components.begin(); i != Components.end(); i++)
+			for (std::vector<std::shared_ptr<IComponent>>::iterator i = Components.begin(); i != Components.end(); i++)
 			{
 				(*i)->Register(Scene);
 			}
@@ -443,7 +471,7 @@ namespace p3d {
 	void GameObject::UnregisterComponents(SceneGraph* Scene)
 	{
 		_ComponentsChanged = true;
-		for (std::vector<IComponent*>::iterator i = Components.begin(); i != Components.end(); i++)
+		for (std::vector<std::shared_ptr<IComponent>>::iterator i = Components.begin(); i != Components.end(); i++)
 		{
 			(*i)->Unregister(Scene);
 		}
@@ -469,9 +497,11 @@ namespace p3d {
 	}
 
 	// Helpers
-	void GameObject::AddComponent(IComponent* Component) { Add(Component); }
-	void GameObject::AddGameObject(GameObject* GO) { Add(GO); }
+	void GameObject::AddComponent(const std::shared_ptr<IComponent> &Component) { Add(Component); }
+	void GameObject::AddGameObject(const std::shared_ptr<GameObject> &GO) { Add(GO); }
+	void GameObject::RemoveComponent(const std::shared_ptr<IComponent> &Component) { Remove(Component); }
 	void GameObject::RemoveComponent(IComponent* Component) { Remove(Component); }
+	void GameObject::RemoveGameObject(const std::shared_ptr<GameObject> &GO) { Remove(GO); }
 	void GameObject::RemoveGameObject(GameObject* GO) { Remove(GO); }
 	void GameObject::LookAtGameObject(GameObject* GO) { LookAt(GO); }
 	void GameObject::LookAtVec(const Vec3 &center) { LookAt(center); }

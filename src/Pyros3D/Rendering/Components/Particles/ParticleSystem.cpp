@@ -17,7 +17,7 @@ namespace p3d {
 	ParticleSystemDesc::ParticleSystemDesc()
 	{
 		maxParticles = 200;
-		texture = NULL;
+		texture.reset();
 		looping = true;
 		emissionRate = 20.0f;
 		burstCount = 1;
@@ -50,14 +50,14 @@ namespace p3d {
 	class ParticleSystemMaterial : public CustomShaderMaterial
 	{
 	public:
-		ParticleSystemMaterial(Texture* texture) : CustomShaderMaterial("shaders/particleSystem.glsl")
+		ParticleSystemMaterial(const std::shared_ptr<Texture> &texture) : CustomShaderMaterial("shaders/particleSystem.glsl")
 		{
 			AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
 			AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
 
 			int32 texUnit = 0;
 			AddUniform(Uniform("uTex0", Uniforms::DataType::Int, &texUnit));
-			if (texture != NULL)
+			if (texture)
 				textures.push_back(texture);
 
 			startColorHandle = AddUniform(Uniform("uStartColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
@@ -126,14 +126,14 @@ namespace p3d {
 		// reentrant, not meant to be.
 		ParticleSystemMaterial* g_pendingParticleMaterial = NULL;
 
-		ParticleSystemMaterial* BuildParticleMaterial(const ParticleSystemDesc &desc)
+		std::shared_ptr<ParticleSystemMaterial> BuildParticleMaterial(const ParticleSystemDesc &desc)
 		{
-			ParticleSystemMaterial* mat = new ParticleSystemMaterial(desc.texture);
+			auto mat = std::make_shared<ParticleSystemMaterial>(desc.texture);
 			mat->SetColors(desc.startColor, desc.endColor);
 			mat->SetSizes(desc.startSize, desc.endSize, desc.sizeRandomJitter);
 			mat->SetFade(desc.fadeInFraction, desc.fadeOutFraction);
 			mat->SetBlendMode(desc.blendMode);
-			g_pendingParticleMaterial = mat;
+			g_pendingParticleMaterial = mat.get();
 			return mat;
 		}
 
@@ -156,7 +156,7 @@ namespace p3d {
 	}
 
 	ParticleSystem::ParticleSystem(const ParticleSystemDesc &d)
-		: IRenderingInstancedComponent(new Plane(0.5f, 0.5f), BuildParticleMaterial(d), 0, EstimateBoundingSphereRadius(d))
+		: IRenderingInstancedComponent(std::make_shared<Plane>(0.5f, 0.5f), BuildParticleMaterial(d), 0, EstimateBoundingSphereRadius(d))
 		, desc(d)
 		, rng()
 		, liveCount(0)
@@ -202,8 +202,10 @@ namespace p3d {
 	{
 		RemoveBuffer(particleBuffer);
 		delete particleBuffer;
-		delete material;
-		delete quad;
+		// material + quad (Plane) are owned by RenderingComponent's
+		// shared_ptr members - do not delete here.
+		material = NULL;
+		quad = NULL;
 	}
 
 	void ParticleSystem::Play()

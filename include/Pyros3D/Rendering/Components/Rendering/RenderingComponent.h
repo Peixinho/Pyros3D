@@ -41,12 +41,6 @@ namespace p3d {
 
 	class PYROS3D_API RenderingMesh {
 
-	protected:
-		// Owned only when built internally by BuildMaterials() - null (and
-		// therefore a no-op to destroy) when Material points at a caller-
-		// owned material instead.
-		std::unique_ptr<IMaterial> InternalMaterial;
-
 	public:
 
 		RenderingMesh(const uint32 lod = 0) : drawingType(DrawingType::Triangles), CullingGeometry(0), Active(true), Clickable(true), LodLevel(lod) {} // Triangles by Default
@@ -106,8 +100,11 @@ namespace p3d {
 		// given mesh/shader/target combination.
 		std::map<uint64, uint32> PipelineCache;
 
-		// Materials
-		IMaterial* Material;
+		// Materials - shared_ptr so many meshes/components can share one
+		// IMaterial (and Lua/C++ share one refcount). BuildMaterials()
+		// assigns a freshly-made material here; a caller-supplied material
+		// is stored the same way.
+		std::shared_ptr<IMaterial> Material;
 
 		// Drawing Type
 		uint32 drawingType;
@@ -130,9 +127,6 @@ namespace p3d {
 		std::map<int32, Matrix> BoneOffsetMatrix;
 		// Bones Matrix List
 		std::vector<Matrix> SkinningBones;
-
-		// Owned only for textures created internally by BuildMaterials().
-		std::vector<std::unique_ptr<Texture>> Texturesvector;
 
 		// LOD
 		uint32 LodLevel;
@@ -177,30 +171,26 @@ namespace p3d {
 			if (Geometry->materialProperties.Opacity) genMat->SetOpacity(Geometry->materialProperties.Opacity);
 			if (Geometry->materialProperties.haveColorMap)
 			{
-				Texture* colorMap = new Texture();
+				std::shared_ptr<Texture> colorMap = std::make_shared<Texture>();
 				colorMap->LoadTexture(Geometry->materialProperties.colorMap, TextureType::Texture);
 				colorMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 				genMat->SetColorMap(colorMap);
-				Texturesvector.emplace_back(colorMap);
 			}
 			if (Geometry->materialProperties.haveSpecularMap)
 			{
-				Texture* specularMap = new Texture();
+				std::shared_ptr<Texture> specularMap = std::make_shared<Texture>();
 				specularMap->LoadTexture(Geometry->materialProperties.specularMap, TextureType::Texture);
 				specularMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 				genMat->SetSpecularMap(specularMap);
-				Texturesvector.emplace_back(specularMap);
 			}
 			if (Geometry->materialProperties.haveNormalMap)
 			{
-				Texture* normalMap = new Texture();
+				std::shared_ptr<Texture> normalMap = std::make_shared<Texture>();
 				normalMap->LoadTexture(Geometry->materialProperties.normalMap, TextureType::Texture);
 				normalMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 				genMat->SetNormalMap(normalMap);
-				Texturesvector.emplace_back(normalMap);
 			}
-			InternalMaterial.reset(genMat);
-			Material = genMat;
+			Material.reset(genMat);
 		}
 	};
 
@@ -210,10 +200,10 @@ namespace p3d {
 
 	public:
 
-		RenderingComponent(Renderable* renderable, IMaterial* Material, const f32 Distance = 0.0f);
-		RenderingComponent(Renderable* renderable, const uint32 MaterialOptions = 0, const f32 Distance = 0.0f);
-		void AddLOD(Renderable* renderable, const f32 Distance, IMaterial* Material);
-		void AddLOD(Renderable* renderable, const f32 Distance, const uint32 MaterialOptions = 0);
+		RenderingComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, const f32 Distance = 0.0f);
+		RenderingComponent(const std::shared_ptr<Renderable> &renderable, const uint32 MaterialOptions = 0, const f32 Distance = 0.0f);
+		void AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const std::shared_ptr<IMaterial> &Material);
+		void AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const uint32 MaterialOptions = 0);
 
 		virtual ~RenderingComponent();
 
@@ -234,7 +224,7 @@ namespace p3d {
 		void DisableCastShadows();
 		bool IsCastingShadows();
 
-		Renderable* GetRenderable() { return renderable; }
+		Renderable* GetRenderable() { return renderable.get(); }
 
 		// Get Model Skeleton
 		const std::map<StringID, Bone> &GetSkeleton() const { return skeleton; }
@@ -303,7 +293,7 @@ namespace p3d {
 		void* activeTextureAnimation = NULL;
 
 		// Save Renderable Pointer
-		Renderable* renderable;
+		std::shared_ptr<Renderable> renderable;
 
 		// Casting Shadows
 		bool isCastingShadows;

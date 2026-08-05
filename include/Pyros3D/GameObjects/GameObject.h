@@ -16,6 +16,7 @@
 #include <Pyros3D/Other/Export.h>
 #include <vector>
 #include <map>
+#include <memory>
 using namespace p3d::Math;
 
 namespace p3d {
@@ -82,16 +83,19 @@ namespace p3d {
 		void LookAt(GameObject* GO);
 		void LookAt(const Vec3 &Position);
 
-		// Components
-		void Add(IComponent* Component);
+		// Components - owned via shared_ptr (Lua + C++ share one refcount;
+		// back-pointer Owner stays raw to avoid cycles - see SHARED_OWNERSHIP_PLAN.md).
+		void Add(const std::shared_ptr<IComponent> &Component);
+		void Remove(const std::shared_ptr<IComponent> &Component);
 		void Remove(IComponent* Component);
 
-		// Parent
-		void Add(GameObject* Child);
+		// Parent / children - same ownership model as components.
+		void Add(const std::shared_ptr<GameObject> &Child);
+		void Remove(const std::shared_ptr<GameObject> &Child);
 		void Remove(GameObject* Child);
 		GameObject* GetParent() { return _Owner; }
 		bool HaveParent() { return _HaveOwner; }
-		const std::vector<GameObject*> &GetChildren() const { return _Childs; }
+		const std::vector<std::shared_ptr<GameObject>> &GetChildren() const { return _Childs; }
 
 		// Name - purely a label (editor display, save-file identification),
 		// not enforced unique, unlike Tags which are a hashed multi-value bag.
@@ -109,10 +113,12 @@ namespace p3d {
 		bool IsStatic() { return isStatic; }
 
 		// Helpers
-		void AddComponent(IComponent* Component);
-		void AddGameObject(GameObject* Component);
+		void AddComponent(const std::shared_ptr<IComponent> &Component);
+		void AddGameObject(const std::shared_ptr<GameObject> &Child);
+		void RemoveComponent(const std::shared_ptr<IComponent> &Component);
 		void RemoveComponent(IComponent* Component);
-		void RemoveGameObject(GameObject* Component);
+		void RemoveGameObject(const std::shared_ptr<GameObject> &Child);
+		void RemoveGameObject(GameObject* Child);
 		void LookAtGameObject(GameObject* GO);
 		void LookAtVec(const Vec3 &center);
 
@@ -128,7 +134,7 @@ namespace p3d {
 		const float GetBoundingSphereRadiusWorldSpace() const { return BoundingSphereRadiusWorldSpace; }
 
 		// Get Components List
-		const std::vector<IComponent*> &GetComponents() const { return Components; }
+		const std::vector<std::shared_ptr<IComponent>> &GetComponents() const { return Components; }
 
 	private:
 
@@ -157,7 +163,7 @@ namespace p3d {
 		Vec3 _IsLookingAtPositionVec;
 
 		// Components
-		std::vector<IComponent*> Components;
+		std::vector<std::shared_ptr<IComponent>> Components;
 
 	protected:
 
@@ -175,7 +181,7 @@ namespace p3d {
 		bool _HaveOwner;
 
 		// GameObject Childs
-		std::vector<GameObject*> _Childs;
+		std::vector<std::shared_ptr<GameObject>> _Childs;
 
 		// Components Add/Removed
 		bool _ComponentsChanged;

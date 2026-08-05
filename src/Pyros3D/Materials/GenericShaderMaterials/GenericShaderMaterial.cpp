@@ -261,7 +261,7 @@ namespace p3d
 			uDisplacementHeight->SetValue(&displacementHeight);
 	}
 
-	void GenericShaderMaterial::AddTexture(const std::string &uniformName, Texture* texture)
+	void GenericShaderMaterial::AddTexture(const std::string &uniformName, const std::shared_ptr<Texture> &texture)
 	{
 		uint32 id = Textures.size();
 
@@ -273,14 +273,14 @@ namespace p3d
 
 	void GenericShaderMaterial::BindTextures()
 	{
-		for (std::vector<Texture*>::iterator i = Textures.begin(); i != Textures.end(); i++)
+		for (std::vector<std::shared_ptr<Texture>>::iterator i = Textures.begin(); i != Textures.end(); i++)
 		{
 			(*i)->Bind();
 		}
 	}
 	void GenericShaderMaterial::UnbindTextures()
 	{
-		for (std::vector<Texture*>::reverse_iterator i = Textures.rbegin(); i != Textures.rend(); i++)
+		for (std::vector<std::shared_ptr<Texture>>::reverse_iterator i = Textures.rbegin(); i != Textures.rend(); i++)
 		{
 			(*i)->Unbind();
 		}
@@ -311,7 +311,7 @@ namespace p3d
 		else uSpecular->SetValue(&Ks);
 	}
 
-	void GenericShaderMaterial::SetColorMap(Texture* colormap)
+	void GenericShaderMaterial::SetColorMap(const std::shared_ptr<Texture> &colormap)
 	{
 		if (colorMapID == -1)
 			colorMapID = Textures.size();
@@ -324,7 +324,7 @@ namespace p3d
 		// Set Uniform
 		AddUniform(Uniform("uColormap", Uniforms::DataType::Int, &colorMapID));
 	}
-	void GenericShaderMaterial::SetSpecularMap(Texture* specular)
+	void GenericShaderMaterial::SetSpecularMap(const std::shared_ptr<Texture> &specular)
 	{
 		if (specularMapID == -1)
 			specularMapID = Textures.size();
@@ -337,7 +337,7 @@ namespace p3d
 		// Set Uniform
 		AddUniform(Uniform("uSpecularmap", Uniforms::DataType::Int, &specularMapID));
 	}
-	void GenericShaderMaterial::SetMetallicRoughnessMap(Texture* metallicRoughnessMap)
+	void GenericShaderMaterial::SetMetallicRoughnessMap(const std::shared_ptr<Texture> &metallicRoughnessMap)
 	{
 		if (metallicRoughnessMapID == -1)
 			metallicRoughnessMapID = Textures.size();
@@ -350,7 +350,7 @@ namespace p3d
 		// Set Uniform
 		AddUniform(Uniform("uMetallicRoughnessmap", Uniforms::DataType::Int, &metallicRoughnessMapID));
 	}
-	void GenericShaderMaterial::SetNormalMap(Texture* normalmap)
+	void GenericShaderMaterial::SetNormalMap(const std::shared_ptr<Texture> &normalmap)
 	{
 		if (normalMapID == -1)
 			normalMapID = Textures.size();
@@ -363,7 +363,7 @@ namespace p3d
 		// Set Uniform
 		AddUniform(Uniform("uNormalmap", Uniforms::DataType::Int, &normalMapID));
 	}
-	void GenericShaderMaterial::SetDisplacementMap(Texture* displacementmap)
+	void GenericShaderMaterial::SetDisplacementMap(const std::shared_ptr<Texture> &displacementmap)
 	{
 		if (displacementMapID == -1)
 			displacementMapID = Textures.size();
@@ -376,7 +376,7 @@ namespace p3d
 		// Set Uniform
 		AddUniform(Uniform("uDisplacementmap", Uniforms::DataType::Int, &displacementMapID));
 	}
-	void GenericShaderMaterial::SetEnvMap(Texture* envmap)
+	void GenericShaderMaterial::SetEnvMap(const std::shared_ptr<Texture> &envmap)
 	{
 		if (envMapID == -1)
 			envMapID = Textures.size();
@@ -421,7 +421,7 @@ namespace p3d
 		else
 			uSSRReflective->SetValue(&SSREnabled);
 	}
-	void GenericShaderMaterial::SetRefractMap(Texture* refractmap)
+	void GenericShaderMaterial::SetRefractMap(const std::shared_ptr<Texture> &refractmap)
 	{
 		if (refractMapID == -1)
 			refractMapID = Textures.size();
@@ -434,7 +434,7 @@ namespace p3d
 		// Set Uniform
 		AddUniform(Uniform("uRefractmap", Uniforms::DataType::Int, &refractMapID));
 	}
-	void GenericShaderMaterial::SetSkyboxMap(Texture* skyboxmap)
+	void GenericShaderMaterial::SetSkyboxMap(const std::shared_ptr<Texture> &skyboxmap)
 	{
 		if (skyboxMapID == -1)
 			skyboxMapID = Textures.size();
@@ -449,14 +449,15 @@ namespace p3d
 	}
 	void GenericShaderMaterial::SetTextFont(Font* font)
 	{
+		const std::shared_ptr<Texture> &fontTex = font->GetTextureShared();
 		if (fontMapID == -1)
 			fontMapID = Textures.size();
 		else {
-			Textures[fontMapID] = font->GetTexture();
+			Textures[fontMapID] = fontTex;
 			return;
 		}
 		// Save on List
-		Textures.push_back(font->GetTexture());
+		Textures.push_back(fontTex);
 		// Set Uniform
 		AddUniform(Uniform("uFontmap", Uniforms::DataType::Int, &fontMapID));
 	}

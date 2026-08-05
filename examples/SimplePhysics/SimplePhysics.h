@@ -18,6 +18,7 @@
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Physics/Physics.h>
 #include <Pyros3D/Physics/Components/IPhysicsComponent.h>
+#include <memory>
 
 using namespace p3d;
 
@@ -41,28 +42,27 @@ private:
 	// Projection
 	Projection projection;
 	// GameObject
-	std::vector<GameObject*> Cubes;
-	std::vector<RenderingComponent*> rCubes;
-	std::vector<IPhysicsComponent*> pCubes;
-	Renderable* cubeMesh;
+	std::vector<std::shared_ptr<GameObject>> Cubes;
+	std::vector<std::shared_ptr<RenderingComponent>> rCubes;
+	std::vector<std::shared_ptr<IPhysicsComponent>> pCubes;
 	// Light
-	GameObject* Light;
-	DirectionalLight* dLight;
+	std::shared_ptr<GameObject> Light;
+	std::shared_ptr<DirectionalLight> dLight;
 
 	// Floor GameObject
-	GameObject* Floor;
+	std::shared_ptr<GameObject> Floor;
 	// Floor Rendering Component
-	RenderingComponent* rFloor;
+	std::shared_ptr<RenderingComponent> rFloor;
 	// Floor Physics Component
-	IPhysicsComponent* pFloor;
-	// Mesh
-	Renderable* cubeHandle, *floorHandle;
+	std::shared_ptr<IPhysicsComponent> pFloor;
+	// Mesh - one Cube shared by 1000 RenderingComponents (Stage 2 proof)
+	std::shared_ptr<Renderable> cubeHandle, floorHandle;
 
 	// Physics Method
 	Physics* physics;
 
 	// Material for Selected Mesh
-	GenericShaderMaterial *Diffuse;
+	std::shared_ptr<GenericShaderMaterial> Diffuse;
 
 	// Selected Mesh
 	RenderingMesh* SelectedMesh;

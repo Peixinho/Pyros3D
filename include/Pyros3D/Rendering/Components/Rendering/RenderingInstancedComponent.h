@@ -16,8 +16,8 @@ namespace p3d {
 	class PYROS3D_API  IRenderingInstancedComponent : public RenderingComponent
 	{
 		public:
-            IRenderingInstancedComponent(Renderable* renderable, IMaterial* Material, const uint32 nrInstances, const f32 boundingSphere);
-            IRenderingInstancedComponent(Renderable* renderable, const uint32 MaterialProperties, const uint32 nrInstances, const f32 boundingSphere);
+            IRenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, const uint32 nrInstances, const f32 boundingSphere);
+            IRenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const uint32 MaterialProperties, const uint32 nrInstances, const f32 boundingSphere);
 			virtual ~IRenderingInstancedComponent();
 			virtual void AddBuffer(AttributeBuffer* buffer);
 			virtual void RemoveBuffer(AttributeBuffer* buffer);
@@ -35,8 +35,8 @@ namespace p3d {
 			std::vector<Matrix> transform;
 			AttributeBuffer* transform_buffer;
 
-			RenderingInstancedComponent(Renderable* renderable, IMaterial* Material, const uint32 nrInstances, const f32 &boundingSphere);
-			RenderingInstancedComponent(Renderable* renderable, const uint32 MaterialProperties, const uint32 nrInstances, const f32 &boundingSphere);
+			RenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, const uint32 nrInstances, const f32 &boundingSphere);
+			RenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const uint32 MaterialProperties, const uint32 nrInstances, const f32 &boundingSphere);
 		 	virtual ~RenderingInstancedComponent();
 			void UpdateTransforms();
 	};

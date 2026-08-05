@@ -300,7 +300,7 @@ namespace p3d {
 	sol::object GameObject_GetComponent(GameObject &go, const std::string &typeName, sol::this_state s)
 	{
 		sol::state_view lua(s);
-		for (IComponent* c : go.GetComponents())
+		for (const auto& c : go.GetComponents())
 		{
 			if (typeName == "RenderingComponent" && c->GetComponentType() == ComponentType::RenderingComponent)
 			{
@@ -313,13 +313,14 @@ namespace p3d {
 				// with a Lua state is already a LUA_RenderingComponent (see
 				// its DeserializeComponent comment); return nil rather than
 				// that unusable userdata for anything else, so a script's
-				// `if rc then` guard actually guards.
-				LUA_RenderingComponent* lrc = dynamic_cast<LUA_RenderingComponent*>(c);
+				// `if rc then` guard actually guards. Prefer the matching
+				// shared_ptr so Lua holds a real ownership ref.
+				auto lrc = std::dynamic_pointer_cast<LUA_RenderingComponent>(c);
 				if (lrc) return sol::make_object(lua, lrc);
 				return sol::lua_nil;
 			}
 			if (typeName == "ParticleSystem" && c->GetComponentType() == ComponentType::ParticleSystem)
-				return sol::make_object(lua, static_cast<ParticleSystem*>(c));
+				return sol::make_object(lua, std::static_pointer_cast<ParticleSystem>(c));
 		}
 		return sol::lua_nil;
 	}
@@ -426,19 +427,19 @@ namespace p3d {
 		t.UpdateText(text, color);
 	}
 	// IPhysics
-	IPhysicsComponent* IPhysics_CreateTriangleMeshRCOMP(IPhysics &p, RenderingComponent* rcomp, const f32 mass = 0.f)
+	std::shared_ptr<IPhysicsComponent> IPhysics_CreateTriangleMeshRCOMP(IPhysics &p, RenderingComponent* rcomp, const f32 mass = 0.f)
 	{
 		return p.CreateTriangleMesh(rcomp, mass);
 	}
-	IPhysicsComponent* IPhysics_CreateTriangleMesh(IPhysics &p, const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass = 0.f)
+	std::shared_ptr<IPhysicsComponent> IPhysics_CreateTriangleMesh(IPhysics &p, const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass = 0.f)
 	{
 		return p.CreateTriangleMesh(index, vertex, mass);
 	}
-	IPhysicsComponent* IPhysics_CreateConvexTriangleMeshRCOMP(IPhysics &p, RenderingComponent* rcomp, const f32 mass = 0.f)
+	std::shared_ptr<IPhysicsComponent> IPhysics_CreateConvexTriangleMeshRCOMP(IPhysics &p, RenderingComponent* rcomp, const f32 mass = 0.f)
 	{
 		return p.CreateConvexTriangleMesh(rcomp, mass);
 	}
-	IPhysicsComponent* IPhysics_CreateConvexTriangleMesh(IPhysics &p, const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass = 0.f)
+	std::shared_ptr<IPhysicsComponent> IPhysics_CreateConvexTriangleMesh(IPhysics &p, const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass = 0.f)
 	{
 		return p.CreateConvexTriangleMesh(index, vertex, mass);
 	}
@@ -470,11 +471,11 @@ namespace p3d {
 	{
 		return static_cast<SkeletonAnimationInstance*>(rc.GetActiveSkeletonAnimation());
 	}
-	void RenderingComponent_ADDLOD_MaterialOptions(RenderingComponent* rcomp, Renderable* renderable, const f32 Distance, IMaterial* Material)
+	void RenderingComponent_ADDLOD_MaterialOptions(RenderingComponent* rcomp, const std::shared_ptr<Renderable>& renderable, const f32 Distance, const std::shared_ptr<IMaterial>& Material)
 	{
 		rcomp->AddLOD(renderable, Distance, Material);
 	}
-	void RenderingComponent_ADDLOD_MaterialPointer(RenderingComponent* rcomp, Renderable* renderable, const f32 Distance, const uint32 MaterialOptions = 0)
+	void RenderingComponent_ADDLOD_MaterialPointer(RenderingComponent* rcomp, const std::shared_ptr<Renderable>& renderable, const f32 Distance, const uint32 MaterialOptions = 0)
 	{
 		rcomp->AddLOD(renderable, Distance, MaterialOptions);
 	}
@@ -851,10 +852,10 @@ namespace p3d {
 			lua->new_usertype<SceneGraph>("Scene",
 				"update", &SceneGraph::Update,
 				"add", &SceneGraph::Add,
-				"remove", &SceneGraph::Remove,
+				"remove", static_cast<void (SceneGraph::*)(const std::shared_ptr<GameObject> &)>(&SceneGraph::Remove),
 				"removeAll", &SceneGraph::RemoveAll,
 				"addGameObject", &SceneGraph::AddGameObject,
-				"removeGameobject", &SceneGraph::RemoveGameObject,
+				"removeGameobject", static_cast<void (SceneGraph::*)(const std::shared_ptr<GameObject> &)>(&SceneGraph::RemoveGameObject),
 				"getTime", &SceneGraph::GetTime,
 				"save", [lua](SceneGraph &scene, const std::string &path) {
 					return SceneSerializer::SaveScene(&scene, path, lua);
@@ -871,10 +872,11 @@ namespace p3d {
 		};
 
 		{
-			// GameObject
-			sol::constructors<sol::types<>> con;
+			// GameObject - shared_ptr via sol::factories (same pattern as AudioBus)
 			lua->new_usertype<LUA_GameObject>("GameObject",
-				con,
+				sol::factories(
+					[]() { return std::make_shared<LUA_GameObject>(); }
+				),
 				"init", &LUA_GameObject::Init,
 				"update", &LUA_GameObject::Update,
 				"destroy", &LUA_GameObject::Destroy,
@@ -904,9 +906,9 @@ namespace p3d {
 				"lookAtGameObject", &LUA_GameObject::LookAtGameObject,
 				"lookAtVec", &LUA_GameObject::LookAtVec,
 				"addComponent", &LUA_GameObject::AddComponent,
-				"removeComponent", &LUA_GameObject::RemoveComponent,
+				"removeComponent", static_cast<void (GameObject::*)(const std::shared_ptr<IComponent> &)>(&GameObject::RemoveComponent),
 				"addGameObject", &LUA_GameObject::AddGameObject,
-				"removeGameObject", &LUA_GameObject::RemoveGameObject,
+				"removeGameObject", static_cast<void (GameObject::*)(const std::shared_ptr<GameObject> &)>(&GameObject::RemoveGameObject),
 				"getParent", &LUA_GameObject::GetParent,
 				"haveParent", &LUA_GameObject::HaveParent,
 				"addTag", &LUA_GameObject::AddTag,
@@ -924,8 +926,8 @@ namespace p3d {
 				// the LuaComponent (nil if scriptFile didn't return a
 				// usable class) so the caller can still reach `.data` if
 				// needed.
-				"attachScript", [lua](LUA_GameObject &go, const std::string &scriptFile) -> LuaComponent* {
-					LuaComponent* comp = LuaComponent_FromFile(*lua, scriptFile);
+				"attachScript", [lua](LUA_GameObject &go, const std::string &scriptFile) -> std::shared_ptr<LuaComponent> {
+					auto comp = LuaComponent_FromFile(*lua, scriptFile);
 					if (comp) go.AddComponent(comp);
 					return comp;
 				},
@@ -970,9 +972,9 @@ namespace p3d {
 				"lookAtGameObject", &GameObject::LookAtGameObject,
 				"lookAtVec", &GameObject::LookAtVec,
 				"addComponent", &GameObject::AddComponent,
-				"removeComponent", &GameObject::RemoveComponent,
+				"removeComponent", static_cast<void (GameObject::*)(const std::shared_ptr<IComponent> &)>(&GameObject::RemoveComponent),
 				"addGameObject", &GameObject::AddGameObject,
-				"removeGameObject", &GameObject::RemoveGameObject,
+				"removeGameObject", static_cast<void (GameObject::*)(const std::shared_ptr<GameObject> &)>(&GameObject::RemoveGameObject),
 				"getParent", &GameObject::GetParent,
 				"haveParent", &GameObject::HaveParent,
 				"addTag", &GameObject::AddTag,
@@ -1142,10 +1144,14 @@ namespace p3d {
 		}
 
 		{
-			// LUA RenderingComponent
-			sol::constructors<sol::types<Renderable*, IMaterial*, float>, sol::types<Renderable*, IMaterial*>, sol::types<Renderable*, int, float>, sol::types<Renderable*, int>> con;
+			// LUA RenderingComponent - shared_ptr via sol::factories (same pattern as AudioBus)
 			lua->new_usertype<LUA_RenderingComponent>("RenderingComponent",
-				con,
+				sol::factories(
+					[](const std::shared_ptr<Renderable>& renderable, const std::shared_ptr<IMaterial>& Material, float Distance) { return std::make_shared<LUA_RenderingComponent>(renderable, Material, Distance); },
+					[](const std::shared_ptr<Renderable>& renderable, const std::shared_ptr<IMaterial>& Material) { return std::make_shared<LUA_RenderingComponent>(renderable, Material); },
+					[](const std::shared_ptr<Renderable>& renderable, int MaterialOptions, float Distance) { return std::make_shared<LUA_RenderingComponent>(renderable, MaterialOptions, Distance); },
+					[](const std::shared_ptr<Renderable>& renderable, int MaterialOptions) { return std::make_shared<LUA_RenderingComponent>(renderable, MaterialOptions); }
+				),
 				"addLOD", sol::overload(
 					&RenderingComponent_ADDLOD_MaterialPointer, 
 					& RenderingComponent_ADDLOD_MaterialOptions
@@ -1188,10 +1194,12 @@ namespace p3d {
 		}
 
         {
-            // LUA RenderingInstancedComponent
-            sol::constructors<sol::types<Renderable*, IMaterial*, int, float>, sol::types<Renderable*, int, int, float>> con;
+            // LUA RenderingInstancedComponent - shared_ptr via sol::factories
             lua->new_usertype<LUA_RenderingInstancedComponent>("RenderingInstancedComponent",
-                con,
+                sol::factories(
+                    [](const std::shared_ptr<Renderable>& renderable, const std::shared_ptr<IMaterial>& Material, int nrInstances, float boundingSphere) { return std::make_shared<LUA_RenderingInstancedComponent>(renderable, Material, nrInstances, boundingSphere); },
+                    [](const std::shared_ptr<Renderable>& renderable, int MaterialProperties, int nrInstances, float boundingSphere) { return std::make_shared<LUA_RenderingInstancedComponent>(renderable, MaterialProperties, nrInstances, boundingSphere); }
+                ),
                 "init", &LUA_RenderingInstancedComponent::Init,
                 "update", &LUA_RenderingInstancedComponent::Update,
                 "destroy", &LUA_RenderingInstancedComponent::Destroy,
@@ -1291,9 +1299,10 @@ namespace p3d {
 			// GameObject" component - see PyrosBindings.h's LuaComponent
 			// class comment. Attach via the already-bound
 			// GameObject::addComponent(), same as any other component.
-			sol::constructors<sol::types<>> con;
 			lua->new_usertype<LuaComponent>("LuaComponent",
-				con,
+				sol::factories(
+					[]() { return std::make_shared<LuaComponent>(); }
+				),
 				"init", &LuaComponent::Init,
 				"update", &LuaComponent::Update,
 				"destroy", &LuaComponent::Destroy,
@@ -1316,10 +1325,13 @@ namespace p3d {
 
 
 		{
-			// Directional Light
-			sol::constructors<sol::types<>, sol::types<Vec4>, sol::types<Vec4, Vec3>> con;
+			// Directional Light - shared_ptr via sol::factories
 			lua->new_usertype<LUA_DirectionalLight>("DirectionalLight",
-				con,
+				sol::factories(
+					[]() { return std::make_shared<LUA_DirectionalLight>(); },
+					[](const Vec4 &color) { return std::make_shared<LUA_DirectionalLight>(color); },
+					[](const Vec4 &color, const Vec3 &direction) { return std::make_shared<LUA_DirectionalLight>(color, direction); }
+				),
 				"start", &LUA_DirectionalLight::Start,
 				"update", &LUA_DirectionalLight::Update,
 				"destroy", &LUA_DirectionalLight::Destroy,
@@ -1343,10 +1355,12 @@ namespace p3d {
 		}
 
 		{
-			// Point Light
-			sol::constructors<sol::types<>, sol::types<Vec4, float>> con;
+			// Point Light - shared_ptr via sol::factories
 			lua->new_usertype<LUA_PointLight>("PointLight",
-				con,
+				sol::factories(
+					[]() { return std::make_shared<LUA_PointLight>(); },
+					[](const Vec4 &color, float radius) { return std::make_shared<LUA_PointLight>(color, radius); }
+				),
 				"start", &LUA_PointLight::Start,
 				"update", &LUA_PointLight::Update,
 				"destroy", &LUA_PointLight::Destroy,
@@ -1376,10 +1390,12 @@ namespace p3d {
 			// copy-paste bug: "getLightProjection"/"setLightProjection"
 			// were mapped to GetLightDirection/SetLightDirection (no
 			// light-projection accessor exists on SpotLight) - renamed
-			// to their real names.
-			sol::constructors<sol::types<>, sol::types<Vec4, float, Vec3, float, float>> con;
+			// to their real names. shared_ptr via sol::factories.
 			lua->new_usertype<LUA_SpotLight>("SpotLight",
-				con,
+				sol::factories(
+					[]() { return std::make_shared<LUA_SpotLight>(); },
+					[](const Vec4 &color, float radius, const Vec3 &direction, float OutterCone, float InnerCone) { return std::make_shared<LUA_SpotLight>(color, radius, direction, OutterCone, InnerCone); }
+				),
 				"start", &LUA_SpotLight::Start,
 				"update", &LUA_SpotLight::Update,
 				"destroy", &LUA_SpotLight::Destroy,
@@ -1415,10 +1431,11 @@ namespace p3d {
 		}
 
 		{
-			// Texture
-			sol::constructors<sol::types<>> con;
+			// Texture - shared_ptr via sol::factories (Stage 2 / LoadedSceneAssets)
 			lua->new_usertype<Texture>("Texture",
-				con,
+				sol::factories(
+					[]() { return std::make_shared<Texture>(); }
+				),
 				"loadTexture", &Texture::LoadTexture,
 				"loadTextureFromMemory", &Texture::LoadTextureFromMemory,
 				"createEmptyTexture", &Texture::CreateEmptyTexture,
@@ -1461,10 +1478,11 @@ namespace p3d {
 		}
 
 		{
-			// IMaterial
-			sol::constructors<sol::types<>> con;
+			// IMaterial - shared_ptr via sol::factories
 			lua->new_usertype<IMaterial>("IMaterial",
-				con,
+				sol::factories(
+					[]() { return std::make_shared<IMaterial>(); }
+				),
 				"preRender", &IMaterial::PreRender,
 				"render", &IMaterial::Render,
 				"afterRender", &IMaterial::AfterRender,
@@ -1500,10 +1518,11 @@ namespace p3d {
 		}
 
 		{
-			// GenericShaderMaterial
-			sol::constructors<sol::types<int>> con;
+			// GenericShaderMaterial - shared_ptr via sol::factories
 			lua->new_usertype<GenericShaderMaterial>("GenericShaderMaterial",
-				con,
+				sol::factories(
+					[](int options) { return std::make_shared<GenericShaderMaterial>(options); }
+				),
 				"setColor", &GenericShaderMaterial::SetColor,
 				"setSpecular", &GenericShaderMaterial::SetSpecular,
 				"setColorMap", &GenericShaderMaterial::SetColorMap,
@@ -1529,92 +1548,138 @@ namespace p3d {
 		}
 
 		{
-			// CustomShaderMaterial
-			sol::constructors<sol::types<std::string>, sol::types<Shader*>> con;
+			// CustomShaderMaterial - shared_ptr via sol::factories
 			lua->new_usertype<CustomShaderMaterial>("CustomShaderMaterial",
-				con,
+				sol::factories(
+					[](const std::string &shaderFile) { return std::make_shared<CustomShaderMaterial>(shaderFile); },
+					[](Shader* shader) { return std::make_shared<CustomShaderMaterial>(shader); }
+				),
 				"setShader", &CustomShaderMaterial::SetShader,
 				sol::base_classes, sol::bases<IMaterial>()
 				);
 		}
 
 		{
-			// Cube
-			sol::constructors<sol::types<float, float, float, bool, bool, bool>, sol::types<float, float, float, bool, bool>, sol::types<float, float, float, bool>, sol::types<float, float, float>> con;
+			// Cube - shared_ptr via sol::factories
 			lua->new_usertype<Cube>("Cube",
-				con,
+				sol::factories(
+					[](float width, float height, float depth, bool smooth, bool flip, bool TangentBitangent) { return std::make_shared<Cube>(width, height, depth, smooth, flip, TangentBitangent); },
+					[](float width, float height, float depth, bool smooth, bool flip) { return std::make_shared<Cube>(width, height, depth, smooth, flip); },
+					[](float width, float height, float depth, bool smooth) { return std::make_shared<Cube>(width, height, depth, smooth); },
+					[](float width, float height, float depth) { return std::make_shared<Cube>(width, height, depth); }
+				),
 				sol::base_classes, sol::bases<Renderable>()
 				);
 		}
 		{
-			// Capsule
-			sol::constructors<sol::types<float, float, float, int, int, bool, bool, bool>, sol::types<float, float, float, int, int, bool, bool>, sol::types<float, float, float, int, int, bool>, sol::types<float, float, float, int, int>> con;
+			// Capsule - shared_ptr via sol::factories
 			lua->new_usertype<Capsule>("Capsule",
-				con,
+				sol::factories(
+					[](float radius, float height, int numRings, int segmentsW, int segmentsH, bool smooth, bool flip, bool TangentBitangent) { return std::make_shared<Capsule>(radius, height, numRings, segmentsW, segmentsH, smooth, flip, TangentBitangent); },
+					[](float radius, float height, int numRings, int segmentsW, int segmentsH, bool smooth, bool flip) { return std::make_shared<Capsule>(radius, height, numRings, segmentsW, segmentsH, smooth, flip); },
+					[](float radius, float height, int numRings, int segmentsW, int segmentsH, bool smooth) { return std::make_shared<Capsule>(radius, height, numRings, segmentsW, segmentsH, smooth); },
+					[](float radius, float height, int numRings, int segmentsW, int segmentsH) { return std::make_shared<Capsule>(radius, height, numRings, segmentsW, segmentsH); }
+				),
 				sol::base_classes, sol::bases<Renderable>()
 				);
 		}
 		{
-			// Cone
-			sol::constructors<sol::types<float, float, int, int, bool, bool, bool, bool>, sol::types<float, float, int, int, bool, bool, bool>, sol::types<float, float, int, int, bool, bool>, sol::types<float, float, int, int, bool>> con;
+			// Cone - shared_ptr via sol::factories
 			lua->new_usertype<Cone>("Cone",
-				con,
+				sol::factories(
+					[](float radius, float height, int segmentsW, int segmentsH, bool openEnded, bool smooth, bool flip, bool TangentBitangent) { return std::make_shared<Cone>(radius, height, segmentsW, segmentsH, openEnded, smooth, flip, TangentBitangent); },
+					[](float radius, float height, int segmentsW, int segmentsH, bool openEnded, bool smooth, bool flip) { return std::make_shared<Cone>(radius, height, segmentsW, segmentsH, openEnded, smooth, flip); },
+					[](float radius, float height, int segmentsW, int segmentsH, bool openEnded, bool smooth) { return std::make_shared<Cone>(radius, height, segmentsW, segmentsH, openEnded, smooth); },
+					[](float radius, float height, int segmentsW, int segmentsH, bool openEnded) { return std::make_shared<Cone>(radius, height, segmentsW, segmentsH, openEnded); }
+				),
 				sol::base_classes, sol::bases<Renderable>()
 				);
 		}
 		{
-			// Cylinder
-			sol::constructors<sol::types<float, float, int, int, bool, bool, bool, bool>, sol::types<float, float, int, int, bool, bool, bool>, sol::types<float, float, int, int, bool, bool>, sol::types<float, float, int, int, bool>> con;
+			// Cylinder - shared_ptr via sol::factories
 			lua->new_usertype<Cylinder>("Cylinder",
-				con,
+				sol::factories(
+					[](float radius, float height, int segmentsW, int segmentsH, bool openEnded, bool smooth, bool flip, bool TangentBitangent) { return std::make_shared<Cylinder>(radius, height, segmentsW, segmentsH, openEnded, smooth, flip, TangentBitangent); },
+					[](float radius, float height, int segmentsW, int segmentsH, bool openEnded, bool smooth, bool flip) { return std::make_shared<Cylinder>(radius, height, segmentsW, segmentsH, openEnded, smooth, flip); },
+					[](float radius, float height, int segmentsW, int segmentsH, bool openEnded, bool smooth) { return std::make_shared<Cylinder>(radius, height, segmentsW, segmentsH, openEnded, smooth); },
+					[](float radius, float height, int segmentsW, int segmentsH, bool openEnded) { return std::make_shared<Cylinder>(radius, height, segmentsW, segmentsH, openEnded); }
+				),
 				sol::base_classes, sol::bases<Renderable>()
 				);
 		}
 		{
-			// Plane
-			sol::constructors<sol::types<float, float, bool, bool, bool>, sol::types<float, float, bool, bool>, sol::types<float, float, bool>, sol::types<float, float>> con;
+			// Plane - shared_ptr via sol::factories
 			lua->new_usertype<Plane>("Plane",
-				con,
+				sol::factories(
+					[](float width, float height, bool smooth, bool flip, bool TangentBitangent) { return std::make_shared<Plane>(width, height, smooth, flip, TangentBitangent); },
+					[](float width, float height, bool smooth, bool flip) { return std::make_shared<Plane>(width, height, smooth, flip); },
+					[](float width, float height, bool smooth) { return std::make_shared<Plane>(width, height, smooth); },
+					[](float width, float height) { return std::make_shared<Plane>(width, height); }
+				),
 				sol::base_classes, sol::bases<Renderable>()
 				);
 		}
 		{
-			// Sphere
-			sol::constructors<sol::types<float, int, int, bool, bool, bool, bool>, sol::types<float, int, int, bool, bool, bool>, sol::types<float, int, int, bool, bool>, sol::types<float, int, int, bool>, sol::types<float, int, int>> con;
+			// Sphere - shared_ptr via sol::factories
 			lua->new_usertype<Sphere>("Sphere",
-				con,
+				sol::factories(
+					[](float radius, int segmentsW, int segmentsH, bool smooth, bool HalfSphere, bool flip, bool TangentBitangent) { return std::make_shared<Sphere>(radius, segmentsW, segmentsH, smooth, HalfSphere, flip, TangentBitangent); },
+					[](float radius, int segmentsW, int segmentsH, bool smooth, bool HalfSphere, bool flip) { return std::make_shared<Sphere>(radius, segmentsW, segmentsH, smooth, HalfSphere, flip); },
+					[](float radius, int segmentsW, int segmentsH, bool smooth, bool HalfSphere) { return std::make_shared<Sphere>(radius, segmentsW, segmentsH, smooth, HalfSphere); },
+					[](float radius, int segmentsW, int segmentsH, bool smooth) { return std::make_shared<Sphere>(radius, segmentsW, segmentsH, smooth); },
+					[](float radius, int segmentsW, int segmentsH) { return std::make_shared<Sphere>(radius, segmentsW, segmentsH); }
+				),
 				sol::base_classes, sol::bases<Renderable>()
 				);
 		}
 		{
-			// Torus
-			sol::constructors<sol::types<float, float, int, int, bool, bool, bool>, sol::types<float, float, int, int, bool, bool>, sol::types<float, float, int, int, bool>, sol::types<float, float, int, int>, sol::types<float, float, int>, sol::types<float, float>> con;
+			// Torus - shared_ptr via sol::factories
 			lua->new_usertype<Torus>("Torus",
-				con,
+				sol::factories(
+					[](float radius, float tube, int segmentsW, int segmentsH, bool smooth, bool flip, bool TangentBitangent) { return std::make_shared<Torus>(radius, tube, segmentsW, segmentsH, smooth, flip, TangentBitangent); },
+					[](float radius, float tube, int segmentsW, int segmentsH, bool smooth, bool flip) { return std::make_shared<Torus>(radius, tube, segmentsW, segmentsH, smooth, flip); },
+					[](float radius, float tube, int segmentsW, int segmentsH, bool smooth) { return std::make_shared<Torus>(radius, tube, segmentsW, segmentsH, smooth); },
+					[](float radius, float tube, int segmentsW, int segmentsH) { return std::make_shared<Torus>(radius, tube, segmentsW, segmentsH); },
+					[](float radius, float tube, int segmentsW) { return std::make_shared<Torus>(radius, tube, segmentsW); },
+					[](float radius, float tube) { return std::make_shared<Torus>(radius, tube); }
+				),
 				sol::base_classes, sol::bases<Renderable>()
 				);
 		}
 		{
-			// TorusKnot
-			sol::constructors<sol::types<float, float, int, int, float, float, int, bool, bool, bool>, sol::types<float, float, int, int, float, float, int, bool, bool>, sol::types<float, float, int, int, float, float, int, bool>, sol::types<float, float, int, int, float, float, int>, sol::types<float, float, int, int, float, float>, sol::types<float, float, int, int, float>, sol::types<float, float, int, int>, sol::types<float, float, int>, sol::types<float, float>> con;
+			// TorusKnot - shared_ptr via sol::factories
 			lua->new_usertype<TorusKnot>("TorusKnot",
-				con,
+				sol::factories(
+					[](float radius, float tube, int segmentsW, int segmentsH, float p, float q, int heightscale, bool smooth, bool flip, bool TangentBitangent) { return std::make_shared<TorusKnot>(radius, tube, segmentsW, segmentsH, p, q, heightscale, smooth, flip, TangentBitangent); },
+					[](float radius, float tube, int segmentsW, int segmentsH, float p, float q, int heightscale, bool smooth, bool flip) { return std::make_shared<TorusKnot>(radius, tube, segmentsW, segmentsH, p, q, heightscale, smooth, flip); },
+					[](float radius, float tube, int segmentsW, int segmentsH, float p, float q, int heightscale, bool smooth) { return std::make_shared<TorusKnot>(radius, tube, segmentsW, segmentsH, p, q, heightscale, smooth); },
+					[](float radius, float tube, int segmentsW, int segmentsH, float p, float q, int heightscale) { return std::make_shared<TorusKnot>(radius, tube, segmentsW, segmentsH, p, q, heightscale); },
+					[](float radius, float tube, int segmentsW, int segmentsH, float p, float q) { return std::make_shared<TorusKnot>(radius, tube, segmentsW, segmentsH, p, q); },
+					[](float radius, float tube, int segmentsW, int segmentsH, float p) { return std::make_shared<TorusKnot>(radius, tube, segmentsW, segmentsH, p); },
+					[](float radius, float tube, int segmentsW, int segmentsH) { return std::make_shared<TorusKnot>(radius, tube, segmentsW, segmentsH); },
+					[](float radius, float tube, int segmentsW) { return std::make_shared<TorusKnot>(radius, tube, segmentsW); },
+					[](float radius, float tube) { return std::make_shared<TorusKnot>(radius, tube); }
+				),
 				sol::base_classes, sol::bases<Renderable>()
 				);
 		}
 		{
-			// Model
-			sol::constructors<sol::types<std::string>, sol::types<std::string, bool>,sol::types<std::string, bool>> con;
+			// Model - shared_ptr via sol::factories
 			lua->new_usertype<Model>("Model",
-				con,
+				sol::factories(
+					[](const std::string &path) { return std::make_shared<Model>(path); },
+					[](const std::string &path, bool mergeMeshes) { return std::make_shared<Model>(path, mergeMeshes); }
+				),
 				sol::base_classes, sol::bases<Renderable>()
 				);
 		}
 		{
-			// Decals
-			sol::constructors<sol::types < std::vector <DecalVertex>, bool>, sol::types<std::vector < DecalVertex > > > con;
+			// Decals - shared_ptr via sol::factories
 			lua->new_usertype<Decal>("Decal",
-				con,
+				sol::factories(
+					[](std::vector<DecalVertex> vertices, bool haveBones) { return std::make_shared<Decal>(vertices, haveBones); },
+					[](std::vector<DecalVertex> vertices) { return std::make_shared<Decal>(vertices); }
+				),
 				// Renderable listed explicitly alongside Model: sol does not
 				// walk a transitive base chain, so listing only Model left
 				// Decal unusable everywhere a Renderable* is expected -
@@ -1636,10 +1701,11 @@ namespace p3d {
 		}
 
 		{
-			// Text
-			sol::constructors<sol::types<Font*, std::string, float, float, const Vec4&, bool>> con;
+			// Text - shared_ptr via sol::factories
 			lua->new_usertype<Text>("Text",
-				con,
+				sol::factories(
+					[](Font* font, const std::string &text, float charWidth, float charHeight, const Vec4 &color, bool DynamicText) { return std::make_shared<Text>(font, text, charWidth, charHeight, color, DynamicText); }
+				),
 				"updateText", sol::overload(
 					&Text_UpdateText,
 					&Text_UpdateTextColors),
@@ -1941,9 +2007,10 @@ namespace p3d {
 				"boundingSphereRadius", &ParticleSystemDesc::boundingSphereRadius
 				);
 
-			sol::constructors<sol::types<const ParticleSystemDesc&>> con;
 			lua->new_usertype<ParticleSystem>("ParticleSystem",
-				con,
+				sol::factories(
+					[](const ParticleSystemDesc &desc) { return std::make_shared<ParticleSystem>(desc); }
+				),
 				"update", &ParticleSystem::Update,
 				"play", &ParticleSystem::Play,
 				"stop", &ParticleSystem::Stop,
@@ -2103,14 +2170,14 @@ namespace p3d {
 				"getDelayDry", &Sound::GetDelayDry
 				);
 
-			// AudioSource - a positional emitter component.
-			sol::constructors<
-				sol::types<std::string>,
-				sol::types<std::string, bool>,
-				sol::types<std::string, bool, std::shared_ptr<AudioBus>>
-			> sourceCon;
+			// AudioSource - a positional emitter component. shared_ptr via
+			// sol::factories (same pattern as AudioBus / Stage 1 components).
 			lua->new_usertype<AudioSource>("AudioSource",
-				sourceCon,
+				sol::factories(
+					[](const std::string &file) { return std::make_shared<AudioSource>(file); },
+					[](const std::string &file, bool stream) { return std::make_shared<AudioSource>(file, stream); },
+					[](const std::string &file, bool stream, std::shared_ptr<AudioBus> bus) { return std::make_shared<AudioSource>(file, stream, bus); }
+				),
 				"isLoaded", &AudioSource::IsLoaded,
 				"getFile", &AudioSource::GetFile,
 				"play", &AudioSource::Play,

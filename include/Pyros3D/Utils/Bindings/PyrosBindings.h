@@ -252,16 +252,16 @@ namespace p3d {
 	{
 	public:
 
-		LUA_RenderingComponent(p3d::Renderable* renderable, p3d::IMaterial* Material, const p3d::f32 Distance = 0.f) : p3d::RenderingComponent(renderable, Material, Distance) {}
-		LUA_RenderingComponent(p3d::Renderable* renderable, const uint32 MaterialOptions, const p3d::f32 Distance = 0.f) : p3d::RenderingComponent(renderable, MaterialOptions, Distance) {}
+		LUA_RenderingComponent(const std::shared_ptr<p3d::Renderable>& renderable, const std::shared_ptr<p3d::IMaterial>& Material, const p3d::f32 Distance = 0.f) : p3d::RenderingComponent(renderable, Material, Distance) {}
+		LUA_RenderingComponent(const std::shared_ptr<p3d::Renderable>& renderable, const uint32 MaterialOptions, const p3d::f32 Distance = 0.f) : p3d::RenderingComponent(renderable, MaterialOptions, Distance) {}
 
 		// Lua Instantiation
-		LUA_RenderingComponent(sol::state* lua, const std::string name, p3d::Renderable* renderable, p3d::IMaterial* Material, const f32 Distance = 0.f) : p3d::RenderingComponent(renderable, Material, Distance)
+		LUA_RenderingComponent(sol::state* lua, const std::string name, const std::shared_ptr<p3d::Renderable>& renderable, const std::shared_ptr<p3d::IMaterial>& Material, const f32 Distance = 0.f) : p3d::RenderingComponent(renderable, Material, Distance)
 		{
 			// Register object in Lua
 			(*lua)[name.c_str()] = this;
 		}
-		LUA_RenderingComponent(sol::state* lua, const std::string name, p3d::Renderable* renderable, const p3d::f32 MaterialOptions, const f32 Distance = 0.f) : p3d::RenderingComponent(renderable, MaterialOptions, Distance)
+		LUA_RenderingComponent(sol::state* lua, const std::string name, const std::shared_ptr<p3d::Renderable>& renderable, const p3d::f32 MaterialOptions, const f32 Distance = 0.f) : p3d::RenderingComponent(renderable, MaterialOptions, Distance)
 		{
 			// Register object in Lua
 			(*lua)[name.c_str()] = this;
@@ -302,16 +302,16 @@ namespace p3d {
     {
     public:
 
-        LUA_RenderingInstancedComponent(p3d::Renderable* renderable, p3d::IMaterial* Material, const uint32 nrInstances, const p3d::f32 &boundingSphere) : p3d::RenderingInstancedComponent(renderable, Material, nrInstances, BoundingSphereRadius) {}
-        LUA_RenderingInstancedComponent(p3d::Renderable* renderable, const uint32 MaterialProperties, const p3d::uint32 nrInstances, const p3d::f32 boundingSphere) : p3d::RenderingInstancedComponent(renderable, MaterialProperties, nrInstances, boundingSphere) {}
+        LUA_RenderingInstancedComponent(const std::shared_ptr<p3d::Renderable>& renderable, const std::shared_ptr<p3d::IMaterial>& Material, const uint32 nrInstances, const p3d::f32 &boundingSphere) : p3d::RenderingInstancedComponent(renderable, Material, nrInstances, boundingSphere) {}
+        LUA_RenderingInstancedComponent(const std::shared_ptr<p3d::Renderable>& renderable, const uint32 MaterialProperties, const p3d::uint32 nrInstances, const p3d::f32 boundingSphere) : p3d::RenderingInstancedComponent(renderable, MaterialProperties, nrInstances, boundingSphere) {}
 
         // Lua Instantiation
-        LUA_RenderingInstancedComponent(sol::state* lua, const std::string name, p3d::Renderable* renderable, p3d::IMaterial* Material, const p3d::uint32 nrInstances, const p3d::f32 boundingSphere) : p3d::RenderingInstancedComponent(renderable, Material, nrInstances, boundingSphere)
+        LUA_RenderingInstancedComponent(sol::state* lua, const std::string name, const std::shared_ptr<p3d::Renderable>& renderable, const std::shared_ptr<p3d::IMaterial>& Material, const p3d::uint32 nrInstances, const p3d::f32 boundingSphere) : p3d::RenderingInstancedComponent(renderable, Material, nrInstances, boundingSphere)
         {
             // Register object in Lua
             (*lua)[name.c_str()] = this;
         }
-        LUA_RenderingInstancedComponent(sol::state* lua, const std::string name, p3d::Renderable* renderable, const p3d::f32 MaterialOptions, const p3d::uint32 nrInstances, const p3d::f32 boundingSphere) : p3d::RenderingInstancedComponent(renderable, MaterialOptions, nrInstances, boundingSphere)
+        LUA_RenderingInstancedComponent(sol::state* lua, const std::string name, const std::shared_ptr<p3d::Renderable>& renderable, const p3d::f32 MaterialOptions, const p3d::uint32 nrInstances, const p3d::f32 boundingSphere) : p3d::RenderingInstancedComponent(renderable, MaterialOptions, nrInstances, boundingSphere)
         {
             // Register object in Lua
             (*lua)[name.c_str()] = this;
@@ -457,21 +457,23 @@ namespace p3d {
     // via Foo:new(), and wraps the result in a LuaComponent. Uses sol2's
     // require_file()'s own module caching (keyed by scriptFile itself),
     // so attaching the same script to many GameObjects only ever runs the
-    // file once. Returns NULL (nil in Lua) if the file doesn't return a
+    // file once. Returns nullptr (nil in Lua) if the file doesn't return a
     // usable class table. Lifecycle hooks (init/update/destroy) are
-    // wired automatically - see WireLuaComponentLifecycle.
-    inline LuaComponent* LuaComponent_FromFile(sol::state& lua, const std::string &scriptFile)
+    // wired automatically - see WireLuaComponentLifecycle. Returns
+    // shared_ptr so the result can be handed straight to
+    // GameObject::AddComponent (Stage 1 ownership).
+    inline std::shared_ptr<LuaComponent> LuaComponent_FromFile(sol::state& lua, const std::string &scriptFile)
     {
         sol::object result = lua.require_file(scriptFile, scriptFile);
-        if (!result.valid() || result.get_type() != sol::type::table) return NULL;
+        if (!result.valid() || result.get_type() != sol::type::table) return nullptr;
         sol::table cls = result;
         sol::function newFn = cls["new"];
-        if (!newFn.valid()) return NULL;
+        if (!newFn.valid()) return nullptr;
         sol::table instance = newFn(cls);
-        LuaComponent* comp = new LuaComponent();
+        auto comp = std::make_shared<LuaComponent>();
         comp->scriptFile = scriptFile;
         comp->data = instance;
-        WireLuaComponentLifecycle(comp);
+        WireLuaComponentLifecycle(comp.get());
         return comp;
     }
 
@@ -509,6 +511,29 @@ namespace p3d {
 			}
 			InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &LuaInputBridge::OnMouseMove);
 			InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Wheel, this, &LuaInputBridge::OnMouseWheel);
+		}
+
+		~LuaInputBridge()
+		{
+			for (uint32 i = 0; i < Event::Input::Keyboard::Count; i++)
+			{
+				InputManager::RemoveEvent(Event::Type::OnPress, i, this, &LuaInputBridge::OnKeyPress);
+				InputManager::RemoveEvent(Event::Type::OnRelease, i, this, &LuaInputBridge::OnKeyRelease);
+			}
+			const uint32 mouseButtons[3] = { Event::Input::Mouse::Left, Event::Input::Mouse::Middle, Event::Input::Mouse::Right };
+			for (uint32 i = 0; i < 3; i++)
+			{
+				InputManager::RemoveEvent(Event::Type::OnPress, mouseButtons[i], this, &LuaInputBridge::OnMouseButtonPress);
+				InputManager::RemoveEvent(Event::Type::OnRelease, mouseButtons[i], this, &LuaInputBridge::OnMouseButtonRelease);
+			}
+			InputManager::RemoveEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &LuaInputBridge::OnMouseMove);
+			InputManager::RemoveEvent(Event::Type::OnMove, Event::Input::Mouse::Wheel, this, &LuaInputBridge::OnMouseWheel);
+			keyPressCallbacks.clear();
+			keyReleaseCallbacks.clear();
+			mousePressCallbacks.clear();
+			mouseReleaseCallbacks.clear();
+			mouseMoveCallbacks.clear();
+			mouseWheelCallbacks.clear();
 		}
 
 		// Lua-facing registration API

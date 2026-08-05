@@ -493,10 +493,10 @@ namespace p3d {
 		deferredMaterialSpot->BlendingFunction(BlendFunc::One, BlendFunc::One);
 
 		// Light Volume
-		quadHandle = new Plane(1, 1);
+		quadHandle = std::make_shared<Plane>(1, 1);
 		directionalLight = new RenderingComponent(quadHandle);
 
-		sphereHandle = new Sphere(1, 6, 4);
+		sphereHandle = std::make_shared<Sphere>(1, 6, 4);
 		pointLight = new RenderingComponent(sphereHandle);
 		// This mesh's own default Material is never actually used for
 		// drawing (every real draw call passes deferredMaterialPoint/Spot
@@ -564,8 +564,8 @@ namespace p3d {
 		delete dummyShadowCube;
 		delete shadowMaterial;
 		delete shadowSkinnedMaterial;
-		delete sphereHandle;
-		delete quadHandle;
+		sphereHandle.reset();
+		quadHandle.reset();
 		delete deferredLastPass;
 		delete deferredMaterialAmbient;
 		delete deferredMaterialDirectional;
@@ -734,7 +734,7 @@ namespace p3d {
 					}
 
 					if (cullingTest && (*j)->renderingComponent->IsActive() && (*j)->Active == true)
-						RenderObject((*j), (*j)->renderingComponent->GetOwner(), (*j)->Material);
+						RenderObject((*j), (*j)->renderingComponent->GetOwner(), (*j)->Material.get());
 
 				}
 				else {
@@ -1209,7 +1209,7 @@ namespace p3d {
 					});
 
 					NumberOfLights = Lights.size();
-					RenderObject((*i), (*i)->renderingComponent->GetOwner(), (*i)->Material);
+					RenderObject((*i), (*i)->renderingComponent->GetOwner(), (*i)->Material.get());
 				}
 			}
 		}

@@ -17,18 +17,23 @@ namespace p3d {
 		echo("SUCCESS: Scene Created");
 	}
 
-	void SceneGraph::Add(GameObject* GO)
+	void SceneGraph::Add(const std::shared_ptr<GameObject> &GO)
 	{
+		if (!GO)
+		{
+			echo("ERROR: Null GameObject");
+			return;
+		}
 		if (GO->Scene == NULL)
 		{
 			_GameObjectListALL.push_back(GO);
 
-			std::vector<GameObject*> *vec = (GO->IsStatic() ? &_GameObjectListStaticPrevious : &_GameObjectListDynamic);
+			std::vector<std::shared_ptr<GameObject>> *vec = (GO->IsStatic() ? &_GameObjectListStaticPrevious : &_GameObjectListDynamic);
 
 			bool found = false;
-			for (std::vector<GameObject*>::iterator i = vec->begin(); i != vec->end(); i++)
+			for (std::vector<std::shared_ptr<GameObject>>::iterator i = vec->begin(); i != vec->end(); i++)
 			{
-				if (*i == GO)
+				if ((*i).get() == GO.get())
 				{
 					found = true;
 					break;
@@ -67,14 +72,24 @@ namespace p3d {
 		}
 	}
 
+	void SceneGraph::Remove(const std::shared_ptr<GameObject> &GO)
+	{
+		if (GO) Remove(GO.get());
+	}
+
 	void SceneGraph::Remove(GameObject* GO)
 	{
-		std::vector<GameObject*> *vec = (GO->IsStatic() ? &_GameObjectListStaticAfter : &_GameObjectListDynamic);
+		if (!GO)
+		{
+			echo("ERROR: Null GameObject");
+			return;
+		}
+		std::vector<std::shared_ptr<GameObject>> *vec = (GO->IsStatic() ? &_GameObjectListStaticAfter : &_GameObjectListDynamic);
 
 		bool found = false;
-		for (std::vector<GameObject*>::iterator i = vec->begin(); i != vec->end(); i++)
+		for (std::vector<std::shared_ptr<GameObject>>::iterator i = vec->begin(); i != vec->end(); i++)
 		{
-			if (*i == GO)
+			if ((*i).get() == GO)
 			{
 				// Unregister Components
 				(*i)->UnregisterComponents(this);
@@ -90,9 +105,9 @@ namespace p3d {
 		if (!found && GO->IsStatic())
 		{
 			vec = &_GameObjectListStaticPrevious;
-			for (std::vector<GameObject*>::iterator i = vec->begin(); i != vec->end(); i++)
+			for (std::vector<std::shared_ptr<GameObject>>::iterator i = vec->begin(); i != vec->end(); i++)
 			{
-				if (*i == GO)
+				if ((*i).get() == GO)
 				{
 					// Unregister Components
 					(*i)->UnregisterComponents(this);
@@ -112,7 +127,9 @@ namespace p3d {
 			echo("SUCCESS: GameObject Removed from Scene");
 			// Was never pruned here before - left GetAllGameObjectList()
 			// returning dangling/removed entries after any Remove() call.
-			std::vector<GameObject*>::iterator all_it = std::find(_GameObjectListALL.begin(), _GameObjectListALL.end(), GO);
+			std::vector<std::shared_ptr<GameObject>>::iterator all_it = std::find_if(
+				_GameObjectListALL.begin(), _GameObjectListALL.end(),
+				[GO](const std::shared_ptr<GameObject> &p) { return p.get() == GO; });
 			if (all_it != _GameObjectListALL.end()) _GameObjectListALL.erase(all_it);
 		}
 	}
@@ -121,8 +138,8 @@ namespace p3d {
 	{
 		// Copy first - Remove() mutates _GameObjectListALL, so iterating
 		// the live member while erasing from it would invalidate iterators.
-		std::vector<GameObject*> all = _GameObjectListALL;
-		for (std::vector<GameObject*>::iterator i = all.begin(); i != all.end(); i++)
+		std::vector<std::shared_ptr<GameObject>> all = _GameObjectListALL;
+		for (std::vector<std::shared_ptr<GameObject>>::iterator i = all.begin(); i != all.end(); i++)
 			Remove(*i);
 	}
 
@@ -134,7 +151,7 @@ namespace p3d {
 		minBounds = maxBounds = Vec3();
 
 		// Update Dynamic Objects Every Frame
-		for (std::vector<GameObject*>::iterator i = _GameObjectListDynamic.begin(); i != _GameObjectListDynamic.end(); i++)
+		for (std::vector<std::shared_ptr<GameObject>>::iterator i = _GameObjectListDynamic.begin(); i != _GameObjectListDynamic.end(); i++)
 		{
 			// Update GameObject - User Change
 			(*i)->Update(timer);
@@ -158,7 +175,7 @@ namespace p3d {
 		}
 
 		// Update Static Components
-		for (std::vector<GameObject*>::iterator i = _GameObjectListStaticAfter.begin(); i != _GameObjectListStaticAfter.end(); i++)
+		for (std::vector<std::shared_ptr<GameObject>>::iterator i = _GameObjectListStaticAfter.begin(); i != _GameObjectListStaticAfter.end(); i++)
 		{
 			// Register Components
 			(*i)->RegisterComponents(this);
@@ -179,7 +196,7 @@ namespace p3d {
 		}
 
 		// Update Static Once
-		for (std::vector<GameObject*>::iterator i = _GameObjectListStaticPrevious.begin(); i != _GameObjectListStaticPrevious.end(); i++)
+		for (std::vector<std::shared_ptr<GameObject>>::iterator i = _GameObjectListStaticPrevious.begin(); i != _GameObjectListStaticPrevious.end(); i++)
 		{
 			// Update GameObject - User Change
 			(*i)->Update(timer);
@@ -222,20 +239,21 @@ namespace p3d {
 		return timer;
 	}
 
-	void SceneGraph::AddGameObject(GameObject* GO) { Add(GO); }
+	void SceneGraph::AddGameObject(const std::shared_ptr<GameObject> &GO) { Add(GO); }
+	void SceneGraph::RemoveGameObject(const std::shared_ptr<GameObject> &GO) { Remove(GO); }
 	void SceneGraph::RemoveGameObject(GameObject* GO) { Remove(GO); }
 
-	std::vector<GameObject*> &SceneGraph::GetDynamicGameObjectList()
+	std::vector<std::shared_ptr<GameObject>> &SceneGraph::GetDynamicGameObjectList()
 	{
 		return _GameObjectListDynamic;
 	}
 
-	std::vector<GameObject*> &SceneGraph::GetStaticGameObjectList()
+	std::vector<std::shared_ptr<GameObject>> &SceneGraph::GetStaticGameObjectList()
 	{
 		return _GameObjectListStaticAfter;
 	}
 
-	std::vector<GameObject*> &SceneGraph::GetAllGameObjectList()
+	std::vector<std::shared_ptr<GameObject>> &SceneGraph::GetAllGameObjectList()
 	{
 		return _GameObjectListALL;
 	}

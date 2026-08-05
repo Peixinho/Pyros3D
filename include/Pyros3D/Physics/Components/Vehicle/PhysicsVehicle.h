@@ -11,6 +11,7 @@
 
 #include <Pyros3D/Physics/Components/IPhysicsComponent.h>
 #include <vector>
+#include <memory>
 
 namespace p3d {
 
@@ -33,7 +34,7 @@ namespace p3d {
 
 	public:
 
-		PhysicsVehicle(IPhysics* engine, IPhysicsComponent* ChassisShape, bool ghost);
+		PhysicsVehicle(IPhysics* engine, const std::shared_ptr<IPhysicsComponent> &ChassisShape, bool ghost);
 
 		virtual ~PhysicsVehicle();
 
@@ -60,7 +61,7 @@ namespace p3d {
 		f32 GetSuspensionCompression() { return suspensionCompression; }
 		f32 GetSuspensionRestLength() { return suspensionRestLength; }
 
-		IPhysicsComponent* GetChassis() { return this->chassisShape; }
+		IPhysicsComponent* GetChassis() { return this->chassisShape.get(); }
 
 		// void* to keep this header Bullet-agnostic (same pattern as
 		// IPhysicsComponent::rigidBodyPTR/SaveRigidBodyPTR) - the actual
@@ -111,8 +112,9 @@ namespace p3d {
 		f32 suspensionCompression;
 		f32 suspensionRestLength;
 
-		// Save Chassis Shape of the Vehicle
-		IPhysicsComponent* chassisShape;
+		// Save Chassis Shape of the Vehicle (shared_ptr - orphan shape not
+		// attached to a GameObject, kept alive for the vehicle's lifetime).
+		std::shared_ptr<IPhysicsComponent> chassisShape;
 
 		// List of Wheels in the Vehicle
 		std::vector<VehicleWheel> Wheels;

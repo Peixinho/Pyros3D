@@ -963,7 +963,7 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 	// found by reading setCullMode:Back on a 6-index quad in a Metal
 	// frame capture, after every CPU-side probe had come back clean.
 	uint32 effectiveCullFace = Material->GetCullFace();
-	if (rmesh->Material != Material && rmesh->Material->GetCullFace() != effectiveCullFace)
+	if (rmesh->Material.get() != Material && rmesh->Material->GetCullFace() != effectiveCullFace)
 	{
 		effectiveCullFace = rmesh->Material->GetCullFace();
 		cullFaceChanged = true;

@@ -109,13 +109,13 @@ namespace p3d
 
 	void CustomShaderMaterial::PreRender()
 	{
-		for (std::vector<Texture*>::iterator i = textures.begin(); i != textures.end(); i++)
+		for (std::vector<std::shared_ptr<Texture>>::iterator i = textures.begin(); i != textures.end(); i++)
 			(*i)->Bind();
 	}
 
 	void CustomShaderMaterial::AfterRender()
 	{
-		for (std::vector<Texture*>::reverse_iterator i = textures.rbegin(); i != textures.rend(); i++)
+		for (std::vector<std::shared_ptr<Texture>>::reverse_iterator i = textures.rbegin(); i != textures.rend(); i++)
 			(*i)->Unbind();
 	}
 }

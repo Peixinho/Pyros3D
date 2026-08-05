@@ -15,6 +15,7 @@
 #include <Pyros3D/Other/Export.h>
 #include <iostream>
 #include <map>
+#include <memory>
 
 namespace p3d
 {
@@ -33,15 +34,15 @@ namespace p3d
 		void SetColor(const Vec4 &color);
 		void SetSpecular(const Vec4 &specularColor);
 		// Set Textures
-		void SetColorMap(Texture* colormap);
-		void SetSpecularMap(Texture* specular);
-		void SetNormalMap(Texture* normalmap);
-		void SetDisplacementMap(Texture* displacementMap);
+		void SetColorMap(const std::shared_ptr<Texture> &colormap);
+		void SetSpecularMap(const std::shared_ptr<Texture> &specular);
+		void SetNormalMap(const std::shared_ptr<Texture> &normalmap);
+		void SetDisplacementMap(const std::shared_ptr<Texture> &displacementMap);
 		void SetDisplacementHeight(const f32 height);
-		void SetEnvMap(Texture* envmap);
+		void SetEnvMap(const std::shared_ptr<Texture> &envmap);
 		void SetReflectivity(const f32 reflectivity);
-		void SetRefractMap(Texture* refractmap);
-		void SetSkyboxMap(Texture* skyboxmap);
+		void SetRefractMap(const std::shared_ptr<Texture> &refractmap);
+		void SetSkyboxMap(const std::shared_ptr<Texture> &skyboxmap);
 		// Lights
 		void SetShininess(const f32 shininess);
 		// PBR (metallic/roughness workflow - ShaderUsage::PBR/PBRMap)
@@ -49,7 +50,7 @@ namespace p3d
 		void SetRoughness(const f32 roughness);
 		// Packed ORM-style texture: G channel = roughness, B channel = metalness
 		// (R unused/free - glTF convention minus AO, not yet supported here).
-		void SetMetallicRoughnessMap(Texture* metallicRoughnessMap);
+		void SetMetallicRoughnessMap(const std::shared_ptr<Texture> &metallicRoughnessMap);
 		// Real screen-space-reflection opt-in, per material - not to be
 		// confused with SetReflectivity() above (an unrelated, older
 		// env-map/skybox reflection blend amount). Defaults to false: SSR
@@ -71,7 +72,7 @@ namespace p3d
 		// Text
 		void SetTextFont(Font* font);
 
-		void AddTexture(const std::string &uniformName, Texture* texture);
+		void AddTexture(const std::string &uniformName, const std::shared_ptr<Texture> &texture);
 
 		// Render
 		virtual void PreRender();
@@ -98,19 +99,20 @@ namespace p3d
 		const f32 &GetMetallic() const { return Metallic; }
 		const f32 &GetRoughness() const { return Roughness; }
 		bool IsSSREnabled() const { return SSREnabled != 0.0f; }
-		Texture* GetColorMap() const { return colorMapID >= 0 ? Textures[colorMapID] : NULL; }
-		Texture* GetSpecularMap() const { return specularMapID >= 0 ? Textures[specularMapID] : NULL; }
-		Texture* GetNormalMap() const { return normalMapID >= 0 ? Textures[normalMapID] : NULL; }
-		Texture* GetDisplacementMap() const { return displacementMapID >= 0 ? Textures[displacementMapID] : NULL; }
-		Texture* GetEnvMap() const { return envMapID >= 0 ? Textures[envMapID] : NULL; }
-		Texture* GetRefractMap() const { return refractMapID >= 0 ? Textures[refractMapID] : NULL; }
-		Texture* GetSkyboxMap() const { return skyboxMapID >= 0 ? Textures[skyboxMapID] : NULL; }
-		Texture* GetMetallicRoughnessMap() const { return metallicRoughnessMapID >= 0 ? Textures[metallicRoughnessMapID] : NULL; }
+		// Observing raw pointers - Material owns the shared_ptrs in Textures.
+		Texture* GetColorMap() const { return colorMapID >= 0 ? Textures[colorMapID].get() : NULL; }
+		Texture* GetSpecularMap() const { return specularMapID >= 0 ? Textures[specularMapID].get() : NULL; }
+		Texture* GetNormalMap() const { return normalMapID >= 0 ? Textures[normalMapID].get() : NULL; }
+		Texture* GetDisplacementMap() const { return displacementMapID >= 0 ? Textures[displacementMapID].get() : NULL; }
+		Texture* GetEnvMap() const { return envMapID >= 0 ? Textures[envMapID].get() : NULL; }
+		Texture* GetRefractMap() const { return refractMapID >= 0 ? Textures[refractMapID].get() : NULL; }
+		Texture* GetSkyboxMap() const { return skyboxMapID >= 0 ? Textures[skyboxMapID].get() : NULL; }
+		Texture* GetMetallicRoughnessMap() const { return metallicRoughnessMapID >= 0 ? Textures[metallicRoughnessMapID].get() : NULL; }
 
 	private:
 
-		// List of Tetxures
-		std::vector<Texture*> Textures;
+		// List of Textures
+		std::vector<std::shared_ptr<Texture>> Textures;
 
 	protected:
 		// Shaders List

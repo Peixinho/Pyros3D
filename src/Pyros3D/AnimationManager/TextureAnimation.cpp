@@ -64,7 +64,7 @@ namespace p3d {
 
 	Texture* TextureAnimation::GetFrame(const uint32 &frame)
 	{
-		return Frames[frame];
+		return Frames[frame].get();
 	}
 
 	uint32 TextureAnimation::GetNumberFrames()
@@ -96,7 +96,7 @@ namespace p3d {
 
 	Texture* TextureAnimationInstance::GetTexture()
 	{
-		return Owner->Frames[_frame];
+		return Owner->Frames[_frame].get();
 	}
 	const uint32 TextureAnimationInstance::GetFrame() const
 	{
@@ -107,7 +107,7 @@ namespace p3d {
 		yoyo = yo;
 	}
 
-	void TextureAnimation::AddFrame(Texture* texture)
+	void TextureAnimation::AddFrame(const std::shared_ptr<Texture> &texture)
 	{
 		Frames.push_back(texture);
 	}

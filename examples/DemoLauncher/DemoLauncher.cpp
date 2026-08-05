@@ -22,15 +22,15 @@ DemoLauncher::DemoLauncher() : ClassName(1280, 720, "Pyros3D - Demos", WindowTyp
 {
 	Scene = nullptr;
 	physics = nullptr;
-	FPSCamera = nullptr;
-	cameraComponent = nullptr;
+	FPSCamera.reset();
+	cameraComponent.reset();
 	Renderer = nullptr;
 	EffectManager = nullptr;
 	deferredFBO = nullptr;
 	albedoTexture = specularTexture = depthTexture = normalTexture = metallicRoughnessTexture = nullptr;
 	activeDemo = -1;
 	activeDemoHasPhysics = false;
-	smokeTuningComponent = nullptr;
+	smokeTuningComponent.reset();
 	smokeEmissionRate = 15.0f;
 	smokeSpread = 1.0f;
 	smokeRiseSpeed = 2.0f;
@@ -103,7 +103,7 @@ void DemoLauncher::Init()
 	// methods if the actual instance is a registered usertype
 	// (LUA_GameObject - plain GameObject itself is never registered, see
 	// SceneSerializer.cpp's DeserializeGameObject for the identical fix).
-	FPSCamera = new LUA_GameObject();
+	FPSCamera = std::make_shared<LUA_GameObject>();
 	FPSCamera->SetPosition(Vec3(0.f, 10.f, 100.f));
 	cameraComponent = LuaComponent_FromFile(lua, STR(EXAMPLES_PATH) "/assets/demos/scripts/camera_fly.lua");
 	if (cameraComponent) FPSCamera->AddComponent(cameraComponent);
@@ -168,19 +168,19 @@ void DemoLauncher::SwitchDemo(int index)
 	SceneSerializer::LoadScene(Scene, STR(EXAMPLES_PATH) + std::string("/assets/demos/") + entry.scene, physics, &lua, &currentAssets);
 
 	activeDemoHasPhysics = false;
-	smokeTuningComponent = nullptr;
-	for (GameObject* go : currentAssets.gameObjects)
+	smokeTuningComponent.reset();
+	for (const std::shared_ptr<GameObject> &go : currentAssets.gameObjects)
 	{
 		bool hasParticleSystem = false;
-		LuaComponent* luaComp = nullptr;
-		for (IComponent* c : go->GetComponents())
+		std::shared_ptr<LuaComponent> luaComp;
+		for (const std::shared_ptr<IComponent> &c : go->GetComponents())
 		{
 			if (c->GetComponentType() == ComponentType::Physics || c->GetComponentType() == ComponentType::Vehicle)
 				activeDemoHasPhysics = true;
 			else if (c->GetComponentType() == ComponentType::ParticleSystem)
 				hasParticleSystem = true;
 			else if (c->GetComponentType() == ComponentType::LuaComponent)
-				luaComp = static_cast<LuaComponent*>(c);
+				luaComp = std::static_pointer_cast<LuaComponent>(c);
 		}
 		if (hasParticleSystem && luaComp) smokeTuningComponent = luaComp;
 	}
@@ -218,7 +218,7 @@ void DemoLauncher::Update()
 	// change GetPosition()'s raw value but never touch the actual
 	// GetWorldTransformation() the renderer reads, so the camera's
 	// internal state moves while the rendered view never does.
-	for (IComponent* c : FPSCamera->GetComponents()) c->Update(time);
+	for (const std::shared_ptr<IComponent> &c : FPSCamera->GetComponents()) c->Update(time);
 	FPSCamera->RefreshTransformation();
 
 	if (smokeTuningComponent)
@@ -250,15 +250,15 @@ void DemoLauncher::Update()
 	if (activeDemoHasEffects)
 	{
 		EffectManager->CaptureFrame();
-		Renderer->PreRender(FPSCamera, Scene);
-		Renderer->RenderScene(projection, FPSCamera, Scene);
+		Renderer->PreRender(FPSCamera.get(), Scene);
+		Renderer->RenderScene(projection, FPSCamera.get(), Scene);
 		EffectManager->EndCapture();
 		EffectManager->ProcessPostEffects(&projection);
 	}
 	else
 	{
-		Renderer->PreRender(FPSCamera, Scene);
-		Renderer->RenderScene(projection, FPSCamera, Scene);
+		Renderer->PreRender(FPSCamera.get(), Scene);
+		Renderer->RenderScene(projection, FPSCamera.get(), Scene);
 	}
 
 	if (imguiInitialized) EndImGuiFrame();
@@ -270,6 +270,7 @@ void DemoLauncher::DrawUI()
 	ImGui::Begin("Pyros3D Demos");
 
 	ImGui::Text("FPS: %.1u", (uint32)fps.getFPS());
+	ImGui::Text("Backend: %s", GetActiveRenderDevice().IsVulkan() ? "Vulkan" : "OpenGL");
 	ImGui::Separator();
 
 	for (size_t i = 0; i < demos.size(); i++)
@@ -299,6 +300,8 @@ void DemoLauncher::Shutdown()
 {
 	ShutdownImGui();
 
+	smokeTuningComponent.reset();
+
 	if (!currentAssets.gameObjects.empty())
 		SceneSerializer::UnloadScene(Scene, currentAssets);
 
@@ -306,10 +309,23 @@ void DemoLauncher::Shutdown()
 
 	if (FPSCamera)
 	{
-		for (IComponent* c : FPSCamera->GetComponents()) delete c;
-		delete FPSCamera;
-		FPSCamera = nullptr;
+		if (cameraComponent)
+		{
+			cameraComponent->Destroy();
+			FPSCamera->Remove(cameraComponent);
+		}
+		cameraComponent.reset();
+		FPSCamera.reset();
 	}
+
+	// sol::require_file cache + any leftover usertype userdata keep
+	// shared_ptrs to RenderingComponents/meshes alive after UnloadScene().
+	// ~sol::state runs their destructors (→ DeleteVertexArray /
+	// DestroyPipeline). That MUST happen while the render device is still
+	// registered - ClassName::Shutdown() (Vulkan) nulls it, and
+	// ~SDL2Context deletes the GL context; either way ~RenderingMesh
+	// SEGV's on a null gl*/device (seen after cycling every demo).
+	lua = sol::state{};
 
 	if (Renderer) { delete Renderer; Renderer = nullptr; }
 	if (EffectManager) { delete EffectManager; EffectManager = nullptr; }

@@ -12,6 +12,7 @@
 
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
+#include <Pyros3D/Audio/AudioManager.h>
 #include <Pyros3D/Audio/AudioSource.h>
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
@@ -231,7 +232,7 @@ namespace p3d {
 	// create a fresh Texture, no natural dedup key). `outAssets`, if
 	// non-NULL, records every Texture actually constructed (not cache
 	// hits) - see LoadedSceneAssets.
-	static Texture* DeserializeTextureRef(const json &parent, const std::string &key, std::map<std::string, Texture*> &textureCache, LoadedSceneAssets* outAssets);
+	static std::shared_ptr<Texture> DeserializeTextureRef(const json &parent, const std::string &key, std::map<std::string, std::shared_ptr<Texture>> &textureCache, LoadedSceneAssets* outAssets);
 
 	// ******************************* save *******************************
 
@@ -593,7 +594,7 @@ namespace p3d {
 			json renderableJson = SerializeRenderable(rc->GetRenderable());
 			if (renderableJson.is_null()) return json();
 			if (rc->GetMeshes(0).empty()) return json();
-			IMaterial* mat = rc->GetMeshes(0)[0]->Material;
+			IMaterial* mat = rc->GetMeshes(0)[0]->Material.get();
 			if (!mat) return json();
 
 			j["type"] = "RenderingComponent";
@@ -691,7 +692,7 @@ namespace p3d {
 			const ParticleSystemDesc &d = ps->GetDesc();
 			j["type"] = "ParticleSystem";
 			j["maxParticles"] = d.maxParticles;
-			SerializeTextureRef(j, "texture", d.texture);
+			SerializeTextureRef(j, "texture", d.texture.get());
 			j["looping"] = d.looping;
 			j["emissionRate"] = d.emissionRate;
 			j["burstCount"] = d.burstCount;
@@ -912,18 +913,18 @@ namespace p3d {
 		j["tags"] = tags;
 
 		json components = json::array();
-		const std::vector<IComponent*> &comps = go->GetComponents();
+		const std::vector<std::shared_ptr<IComponent>> &comps = go->GetComponents();
 		for (size_t i = 0; i < comps.size(); i++)
 		{
-			json cj = SerializeComponent(comps[i], materialsArray, materialIdMap, lua);
+			json cj = SerializeComponent(comps[i].get(), materialsArray, materialIdMap, lua);
 			if (!cj.is_null()) components.push_back(cj);
 		}
 		j["components"] = components;
 
 		json children = json::array();
-		const std::vector<GameObject*> &kids = go->GetChildren();
+		const std::vector<std::shared_ptr<GameObject>> &kids = go->GetChildren();
 		for (size_t i = 0; i < kids.size(); i++)
-			children.push_back(SerializeGameObject(kids[i], materialsArray, materialIdMap, lua));
+			children.push_back(SerializeGameObject(kids[i].get(), materialsArray, materialIdMap, lua));
 		j["children"] = children;
 
 		return j;
@@ -938,9 +939,9 @@ namespace p3d {
 		std::map<IMaterial*, uint32> materialIdMap;
 
 		json roots = json::array();
-		std::vector<GameObject*> &all = scene->GetAllGameObjectList();
+		std::vector<std::shared_ptr<GameObject>> &all = scene->GetAllGameObjectList();
 		for (size_t i = 0; i < all.size(); i++)
-			roots.push_back(SerializeGameObject(all[i], materialsArray, materialIdMap, lua));
+			roots.push_back(SerializeGameObject(all[i].get(), materialsArray, materialIdMap, lua));
 
 		root["materials"] = materialsArray;
 		root["roots"] = roots;
@@ -958,19 +959,19 @@ namespace p3d {
 
 	// ******************************* load *******************************
 
-	static Texture* GetOrLoadTexture(const std::string &path, std::map<std::string, Texture*> &cache, LoadedSceneAssets* outAssets)
+	static std::shared_ptr<Texture> GetOrLoadTexture(const std::string &path, std::map<std::string, std::shared_ptr<Texture>> &cache, LoadedSceneAssets* outAssets)
 	{
-		if (path.empty()) return NULL;
-		std::map<std::string, Texture*>::iterator it = cache.find(path);
+		if (path.empty()) return nullptr;
+		std::map<std::string, std::shared_ptr<Texture>>::iterator it = cache.find(path);
 		if (it != cache.end()) return it->second;
-		Texture* tex = new Texture();
+		std::shared_ptr<Texture> tex = std::make_shared<Texture>();
 		tex->LoadTexture(path, TextureType::Texture);
 		cache[path] = tex;
 		if (outAssets) outAssets->textures.push_back(tex);
 		return tex;
 	}
 
-	static Texture* DeserializeTextureRef(const json &parent, const std::string &key, std::map<std::string, Texture*> &textureCache, LoadedSceneAssets* outAssets)
+	static std::shared_ptr<Texture> DeserializeTextureRef(const json &parent, const std::string &key, std::map<std::string, std::shared_ptr<Texture>> &textureCache, LoadedSceneAssets* outAssets)
 	{
 		if (parent.find(key) != parent.end())
 			return GetOrLoadTexture(parent[key].get<std::string>(), textureCache, outAssets);
@@ -980,12 +981,12 @@ namespace p3d {
 			// No natural dedup key for embedded data (unlike paths) -
 			// always creates a fresh Texture.
 			std::vector<uchar> bytes = Base64Decode(parent[dataKey].get<std::string>());
-			Texture* tex = new Texture();
+			std::shared_ptr<Texture> tex = std::make_shared<Texture>();
 			tex->LoadTextureFromMemory(bytes, (uint32)bytes.size(), TextureType::Texture);
 			if (outAssets) outAssets->textures.push_back(tex);
 			return tex;
 		}
-		return NULL;
+		return nullptr;
 	}
 
 	static void ApplyCommonMaterialFields(IMaterial* mat, const json &j)
@@ -1008,12 +1009,12 @@ namespace p3d {
 		else mat->DisableDethBias();
 	}
 
-	static IMaterial* BuildMaterial(const json &j, std::map<std::string, Texture*> &textureCache, LoadedSceneAssets* outAssets)
+	static std::shared_ptr<IMaterial> BuildMaterial(const json &j, std::map<std::string, std::shared_ptr<Texture>> &textureCache, LoadedSceneAssets* outAssets)
 	{
 		std::string kind = j.value("kind", "unsupported");
 		if (kind == "generic")
 		{
-			GenericShaderMaterial* gm = new GenericShaderMaterial(j.value("options", 0u));
+			std::shared_ptr<GenericShaderMaterial> gm = std::make_shared<GenericShaderMaterial>(j.value("options", 0u));
 			if ((j.find("color") != j.end())) gm->SetColor(Vec4FromJson(j["color"]));
 			if ((j.find("specular") != j.end())) gm->SetSpecular(Vec4FromJson(j["specular"]));
 			if ((j.find("displacementHeight") != j.end())) gm->SetDisplacementHeight(j["displacementHeight"].get<f32>());
@@ -1022,22 +1023,22 @@ namespace p3d {
 			if ((j.find("metallic") != j.end())) gm->SetMetallic(j["metallic"].get<f32>());
 			if ((j.find("roughness") != j.end())) gm->SetRoughness(j["roughness"].get<f32>());
 			if (j.value("ssrEnabled", false)) gm->SetSSREnabled(true);
-			if (Texture* t = DeserializeTextureRef(j, "colorMap", textureCache, outAssets)) gm->SetColorMap(t);
-			if (Texture* t = DeserializeTextureRef(j, "specularMap", textureCache, outAssets)) gm->SetSpecularMap(t);
-			if (Texture* t = DeserializeTextureRef(j, "normalMap", textureCache, outAssets)) gm->SetNormalMap(t);
-			if (Texture* t = DeserializeTextureRef(j, "displacementMap", textureCache, outAssets)) gm->SetDisplacementMap(t);
-			if (Texture* t = DeserializeTextureRef(j, "envMap", textureCache, outAssets)) gm->SetEnvMap(t);
-			if (Texture* t = DeserializeTextureRef(j, "refractMap", textureCache, outAssets)) gm->SetRefractMap(t);
-			if (Texture* t = DeserializeTextureRef(j, "skyboxMap", textureCache, outAssets)) gm->SetSkyboxMap(t);
-			if (Texture* t = DeserializeTextureRef(j, "metallicRoughnessMap", textureCache, outAssets)) gm->SetMetallicRoughnessMap(t);
-			ApplyCommonMaterialFields(gm, j);
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "colorMap", textureCache, outAssets)) gm->SetColorMap(t);
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "specularMap", textureCache, outAssets)) gm->SetSpecularMap(t);
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "normalMap", textureCache, outAssets)) gm->SetNormalMap(t);
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "displacementMap", textureCache, outAssets)) gm->SetDisplacementMap(t);
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "envMap", textureCache, outAssets)) gm->SetEnvMap(t);
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "refractMap", textureCache, outAssets)) gm->SetRefractMap(t);
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "skyboxMap", textureCache, outAssets)) gm->SetSkyboxMap(t);
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "metallicRoughnessMap", textureCache, outAssets)) gm->SetMetallicRoughnessMap(t);
+			ApplyCommonMaterialFields(gm.get(), j);
 			return gm;
 		}
 		else if (kind == "custom")
 		{
-			CustomShaderMaterial* cm;
+			std::shared_ptr<CustomShaderMaterial> cm;
 			if (j.find("shaderFile") != j.end())
-				cm = new CustomShaderMaterial(j.value("shaderFile", std::string()));
+				cm = std::make_shared<CustomShaderMaterial>(j.value("shaderFile", std::string()));
 			else if (j.find("shaderSource") != j.end())
 			{
 				// Mirrors CustomShaderMaterial's real file-based
@@ -1070,27 +1071,27 @@ namespace p3d {
 				s->CompileShader(ShaderType::VertexShader, std::string("#define VERTEX\n") + define);
 				s->CompileShader(ShaderType::FragmentShader, std::string("#define FRAGMENT\n") + define);
 				s->LinkProgram();
-				cm = new CustomShaderMaterial(s);
+				cm = std::make_shared<CustomShaderMaterial>(s);
 			}
 			else
 			{
 				echo("WARNING: SceneSerializer - skipping a CustomShaderMaterial entry with neither shaderFile nor shaderSource");
-				return NULL;
+				return nullptr;
 			}
-			ApplyCommonMaterialFields(cm, j);
+			ApplyCommonMaterialFields(cm.get(), j);
 			return cm;
 		}
 		echo("WARNING: SceneSerializer - skipping an unsupported material entry on load");
-		return NULL;
+		return nullptr;
 	}
 
-	static Renderable* DeserializeRenderable(const json &j, LoadedSceneAssets* outAssets)
+	static std::shared_ptr<Renderable> DeserializeRenderable(const json &j, LoadedSceneAssets* outAssets)
 	{
-		if (j.is_null()) return NULL;
+		if (j.is_null()) return nullptr;
 		std::string kind = j.value("kind", "");
-		Renderable* r = NULL;
+		std::shared_ptr<Renderable> r;
 		if (kind == "model")
-			r = new Model(j.value("path", std::string()), j.value("mergeMeshes", true));
+			r = std::make_shared<Model>(j.value("path", std::string()), j.value("mergeMeshes", true));
 		else if (kind == "text")
 		{
 			// No font pooling/dedup - each loaded Text gets its own Font
@@ -1108,12 +1109,12 @@ namespace p3d {
 			{
 				std::vector<Vec4> colors;
 				for (auto &cj : j["charColors"]) colors.push_back(Vec4FromJson(cj));
-				r = new Text(font, text, charWidth, charHeight, colors);
+				r = std::make_shared<Text>(font, text, charWidth, charHeight, colors);
 			}
 			else
 			{
 				Vec4 color = (j.find("color") != j.end()) ? Vec4FromJson(j["color"]) : Vec4(1, 1, 1, 1);
-				r = new Text(font, text, charWidth, charHeight, color);
+				r = std::make_shared<Text>(font, text, charWidth, charHeight, color);
 			}
 		}
 		else if (kind == "decal")
@@ -1136,7 +1137,7 @@ namespace p3d {
 					verts.push_back(dv);
 				}
 			}
-			r = new Decal(verts, haveBones);
+			r = std::make_shared<Decal>(verts, haveBones);
 		}
 		else if (kind == "primitive")
 		{
@@ -1145,14 +1146,14 @@ namespace p3d {
 			bool tb = j.value("tangentBitangent", false);
 			std::string shape = j.value("shape", "");
 
-			if (shape == "Cube") r = new Cube(j.value("width", 1.0f), j.value("height", 1.0f), j.value("depth", 1.0f), smooth, flip, tb);
-			else if (shape == "Sphere") r = new Sphere(j.value("radius", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), smooth, j.value("halfSphere", false), flip, tb);
-			else if (shape == "Cone") r = new Cone(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), j.value("openEnded", false), smooth, flip, tb);
-			else if (shape == "Cylinder") r = new Cylinder(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), j.value("openEnded", false), smooth, flip, tb);
-			else if (shape == "Plane") r = new Plane(j.value("width", 1.0f), j.value("height", 1.0f), smooth, flip, tb);
-			else if (shape == "Capsule") r = new Capsule(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("numRings", 8u), j.value("segmentsW", 16u), j.value("segmentsH", 16u), smooth, flip, tb);
-			else if (shape == "Torus") r = new Torus(j.value("radius", 1.0f), j.value("tube", 0.3f), j.value("segmentsW", 60u), j.value("segmentsH", 6u), smooth, flip, tb);
-			else if (shape == "TorusKnot") r = new TorusKnot(j.value("radius", 1.0f), j.value("tube", 0.3f), j.value("segmentsW", 60u), j.value("segmentsH", 6u), j.value("p", 2.0f), j.value("q", 3.0f), j.value("heightScale", 1u), smooth, flip, tb);
+			if (shape == "Cube") r = std::make_shared<Cube>(j.value("width", 1.0f), j.value("height", 1.0f), j.value("depth", 1.0f), smooth, flip, tb);
+			else if (shape == "Sphere") r = std::make_shared<Sphere>(j.value("radius", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), smooth, j.value("halfSphere", false), flip, tb);
+			else if (shape == "Cone") r = std::make_shared<Cone>(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), j.value("openEnded", false), smooth, flip, tb);
+			else if (shape == "Cylinder") r = std::make_shared<Cylinder>(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), j.value("openEnded", false), smooth, flip, tb);
+			else if (shape == "Plane") r = std::make_shared<Plane>(j.value("width", 1.0f), j.value("height", 1.0f), smooth, flip, tb);
+			else if (shape == "Capsule") r = std::make_shared<Capsule>(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("numRings", 8u), j.value("segmentsW", 16u), j.value("segmentsH", 16u), smooth, flip, tb);
+			else if (shape == "Torus") r = std::make_shared<Torus>(j.value("radius", 1.0f), j.value("tube", 0.3f), j.value("segmentsW", 60u), j.value("segmentsH", 6u), smooth, flip, tb);
+			else if (shape == "TorusKnot") r = std::make_shared<TorusKnot>(j.value("radius", 1.0f), j.value("tube", 0.3f), j.value("segmentsW", 60u), j.value("segmentsH", 6u), j.value("p", 2.0f), j.value("q", 3.0f), j.value("heightScale", 1u), smooth, flip, tb);
 			else echo("WARNING: SceneSerializer - unrecognized primitive shape on load: " + shape);
 		}
 		if (r && outAssets) outAssets->renderables.push_back(r);
@@ -1163,9 +1164,9 @@ namespace p3d {
 	// component case and Vehicle's nested "chassis" (an orphan
 	// IPhysicsComponent* the vehicle owns directly, not a tree-attached
 	// component).
-	static IPhysicsComponent* DeserializePhysicsShape(const json &j, IPhysics* physics)
+	static std::shared_ptr<IPhysicsComponent> DeserializePhysicsShape(const json &j, IPhysics* physics)
 	{
-		if (!physics) { echo("WARNING: SceneSerializer - can't rebuild a physics shape, LoadScene() was called with physics == NULL"); return NULL; }
+		if (!physics) { echo("WARNING: SceneSerializer - can't rebuild a physics shape, LoadScene() was called with physics == NULL"); return nullptr; }
 		std::string shape = j.value("shape", "");
 		f32 mass = j.value("mass", 0.0f);
 		bool ghost = j.value("ghost", false);
@@ -1198,20 +1199,20 @@ namespace p3d {
 			return physics->CreateMultipleSphere(pos, rad, mass, ghost);
 		}
 		echo("WARNING: SceneSerializer - skipping a physics component with an unsupported shape on load: " + shape);
-		return NULL;
+		return nullptr;
 	}
 
-	static void DeserializeComponent(GameObject* go, const json &j, const std::vector<IMaterial*> &materialsById, std::map<std::string, Texture*> &textureCache, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets)
+	static void DeserializeComponent(GameObject* go, const json &j, const std::vector<std::shared_ptr<IMaterial>> &materialsById, std::map<std::string, std::shared_ptr<Texture>> &textureCache, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets)
 	{
 		std::string type = j.value("type", "");
 
 		if (type == "RenderingComponent")
 		{
-			Renderable* renderable = DeserializeRenderable(j.value("renderable", json()), outAssets);
+			std::shared_ptr<Renderable> renderable = DeserializeRenderable(j.value("renderable", json()), outAssets);
 			if (!renderable) { echo("WARNING: SceneSerializer - skipping RenderingComponent, couldn't rebuild its renderable"); return; }
 			uint32 matId = j.value("material", (uint32)0xFFFFFFFF);
-			IMaterial* mat = (matId < materialsById.size()) ? materialsById[matId] : NULL;
-			if (!mat) { echo("WARNING: SceneSerializer - skipping RenderingComponent, its material couldn't be rebuilt"); delete renderable; return; }
+			std::shared_ptr<IMaterial> mat = (matId < materialsById.size()) ? materialsById[matId] : nullptr;
+			if (!mat) { echo("WARNING: SceneSerializer - skipping RenderingComponent, its material couldn't be rebuilt"); return; }
 			// LUA_RenderingComponent when lua != NULL - exactly the same
 			// reasoning (and the same failure) as DeserializeGameObject's
 			// LUA_GameObject choice below, which this was missing:
@@ -1227,9 +1228,11 @@ namespace p3d {
 			// ParticleSystem doesn't need this - it's registered under its
 			// own real type, which is why smoke_tuning.lua always worked.
 #ifdef LUA_BINDINGS
-			RenderingComponent* rc = lua ? static_cast<RenderingComponent*>(new LUA_RenderingComponent(renderable, mat, 0.0f)) : new RenderingComponent(renderable, mat, 0.0f);
+			std::shared_ptr<RenderingComponent> rc = lua
+				? std::static_pointer_cast<RenderingComponent>(std::make_shared<LUA_RenderingComponent>(renderable, mat, 0.0f))
+				: std::make_shared<RenderingComponent>(renderable, mat, 0.0f);
 #else
-			RenderingComponent* rc = new RenderingComponent(renderable, mat, 0.0f);
+			std::shared_ptr<RenderingComponent> rc = std::make_shared<RenderingComponent>(renderable, mat, 0.0f);
 #endif
 			if (j.value("cullTest", true)) rc->EnableCullTest(); else rc->DisableCullTest();
 			if (j.value("castingShadows", true)) rc->EnableCastShadows(); else rc->DisableCastShadows();
@@ -1241,7 +1244,7 @@ namespace p3d {
 				std::string path = sa.value("path", std::string());
 				if (!path.empty())
 				{
-					SkeletonAnimation* anim = new SkeletonAnimation();
+					std::shared_ptr<SkeletonAnimation> anim = std::make_shared<SkeletonAnimation>();
 					// Every clip file, in the order that assigned the ids the
 					// "playing" entries below refer to (see the save side's
 					// comment); "path" alone is the pre-"paths" fallback.
@@ -1250,7 +1253,7 @@ namespace p3d {
 					else
 						anim->LoadAnimation(path);
 					if (outAssets) outAssets->skeletonAnimations.push_back(anim);
-					SkeletonAnimationInstance* inst = anim->CreateInstance(rc);
+					SkeletonAnimationInstance* inst = anim->CreateInstance(rc.get());
 					if (sa.find("layers") != sa.end())
 					{
 						for (auto &lj : sa["layers"])
@@ -1292,7 +1295,7 @@ namespace p3d {
 				const json &ta = j["textureAnimation"];
 				if (ta.find("frames") != ta.end() && !ta["frames"].empty())
 				{
-					TextureAnimation* anim = new TextureAnimation();
+					std::shared_ptr<TextureAnimation> anim = std::make_shared<TextureAnimation>();
 					if (outAssets) outAssets->textureAnimations.push_back(anim);
 					for (auto &fj : ta["frames"]) anim->AddFrame(DeserializeTextureRef(fj, "tex", textureCache, outAssets));
 					TextureAnimationInstance* tinst = anim->CreateInstance(ta.value("fps", 30.0f));
@@ -1312,7 +1315,7 @@ namespace p3d {
 		{
 			ParticleSystemDesc d;
 			d.maxParticles = j.value("maxParticles", d.maxParticles);
-			if (Texture* t = DeserializeTextureRef(j, "texture", textureCache, outAssets)) d.texture = t;
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "texture", textureCache, outAssets)) d.texture = t;
 			d.looping = j.value("looping", d.looping);
 			d.emissionRate = j.value("emissionRate", d.emissionRate);
 			d.burstCount = j.value("burstCount", d.burstCount);
@@ -1335,7 +1338,7 @@ namespace p3d {
 			d.maxRotationSpeed = j.value("maxRotationSpeed", d.maxRotationSpeed);
 			d.blendMode = j.value("blendMode", d.blendMode);
 			d.boundingSphereRadius = j.value("boundingSphereRadius", d.boundingSphereRadius);
-			go->AddComponent(new ParticleSystem(d));
+			go->AddComponent(std::make_shared<ParticleSystem>(d));
 		}
 		else if (type == "AudioSource")
 		{
@@ -1345,7 +1348,7 @@ namespace p3d {
 			const std::string file = j.value("file", std::string());
 			if (!file.empty())
 			{
-				AudioSource* a = new AudioSource(file, j.value("stream", false));
+				auto a = std::make_shared<AudioSource>(file, j.value("stream", false));
 				a->SetSpatialization(j.value("spatialized", true));
 				a->SetLooping(j.value("looping", false));
 				a->SetVolume(j.value("volume", 1.0f));
@@ -1373,7 +1376,7 @@ namespace p3d {
 		{
 			Vec4 color = (j.find("color") != j.end()) ? Vec4FromJson(j["color"]) : Vec4(1, 1, 1, 1);
 			Vec3 direction = (j.find("direction") != j.end()) ? Vec3FromJson(j["direction"]) : Vec3(0, -1, 0);
-			DirectionalLight* l = new DirectionalLight(color, direction);
+			auto l = std::make_shared<DirectionalLight>(color, direction);
 			l->SetLightIntensity(j.value("intensity", 1.0f));
 			if (j.value("castingShadows", false))
 			{
@@ -1388,7 +1391,7 @@ namespace p3d {
 		else if (type == "PointLight")
 		{
 			Vec4 color = (j.find("color") != j.end()) ? Vec4FromJson(j["color"]) : Vec4(1, 1, 1, 1);
-			PointLight* l = new PointLight(color, j.value("radius", 1.0f));
+			auto l = std::make_shared<PointLight>(color, j.value("radius", 1.0f));
 			l->SetLightIntensity(j.value("intensity", 1.0f));
 			if (j.value("castingShadows", false))
 				l->EnableCastShadows(j.value("shadowWidth", 512u), j.value("shadowHeight", 512u), j.value("shadowNear", 0.1f));
@@ -1398,7 +1401,7 @@ namespace p3d {
 		{
 			Vec4 color = (j.find("color") != j.end()) ? Vec4FromJson(j["color"]) : Vec4(1, 1, 1, 1);
 			Vec3 direction = (j.find("direction") != j.end()) ? Vec3FromJson(j["direction"]) : Vec3(0, -1, 0);
-			SpotLight* l = new SpotLight(color, j.value("radius", 1.0f), direction, j.value("outterCone", 45.0f), j.value("innerCone", 30.0f));
+			auto l = std::make_shared<SpotLight>(color, j.value("radius", 1.0f), direction, j.value("outterCone", 45.0f), j.value("innerCone", 30.0f));
 			l->SetLightIntensity(j.value("intensity", 1.0f));
 			if (j.value("castingShadows", false))
 				l->EnableCastShadows(j.value("shadowWidth", 512u), j.value("shadowHeight", 512u), j.value("shadowNear", 0.1f));
@@ -1406,16 +1409,16 @@ namespace p3d {
 		}
 		else if (type == "Physics")
 		{
-			IPhysicsComponent* pc = DeserializePhysicsShape(j, physics);
+			std::shared_ptr<IPhysicsComponent> pc = DeserializePhysicsShape(j, physics);
 			if (pc) go->AddComponent(pc);
 		}
 		else if (type == "Vehicle")
 		{
 			if (!physics) { echo("WARNING: SceneSerializer - skipping a Vehicle, LoadScene() was called with physics == NULL"); return; }
-			IPhysicsComponent* chassis = (j.find("chassis") != j.end()) ? DeserializePhysicsShape(j["chassis"], physics) : NULL;
+			std::shared_ptr<IPhysicsComponent> chassis = (j.find("chassis") != j.end()) ? DeserializePhysicsShape(j["chassis"], physics) : nullptr;
 			if (!chassis) { echo("WARNING: SceneSerializer - skipping a Vehicle, its chassis couldn't be rebuilt"); return; }
-			IPhysicsComponent* vc = physics->CreateVehicle(chassis, j.value("ghost", false));
-			PhysicsVehicle* v = dynamic_cast<PhysicsVehicle*>(vc);
+			std::shared_ptr<IPhysicsComponent> vc = physics->CreateVehicle(chassis, j.value("ghost", false));
+			PhysicsVehicle* v = dynamic_cast<PhysicsVehicle*>(vc.get());
 			if (!v) { echo("WARNING: SceneSerializer - CreateVehicle() didn't return a PhysicsVehicle"); return; }
 			v->SetMaxProxies(j.value("maxProxies", 1u)); v->SetMaxOverlap(j.value("maxOverlap", 1u));
 			v->SetEngineForce(j.value("engineForce", 0.0f)); v->SetBreakingForce(j.value("breakingForce", 0.0f));
@@ -1435,7 +1438,7 @@ namespace p3d {
 						wj.value("isFrontWheel", false));
 				}
 			}
-			go->AddComponent(v);
+			go->AddComponent(vc);
 		}
 #ifdef LUA_BINDINGS
 		else if (type == "LuaComponent")
@@ -1454,10 +1457,10 @@ namespace p3d {
 						sol::protected_function_result instResult = deserializeFn(dataTable);
 						if (instResult.valid() && instResult.get_type() == sol::type::table)
 						{
-							LuaComponent* comp = new LuaComponent();
+							auto comp = std::make_shared<LuaComponent>();
 							comp->scriptFile = scriptFile;
 							comp->data = instResult.get<sol::table>();
-							WireLuaComponentLifecycle(comp);
+							WireLuaComponentLifecycle(comp.get());
 							go->AddComponent(comp);
 						}
 						else echo("WARNING: SceneSerializer - a LuaComponent's deserialize() didn't return a table, adding as existence-only");
@@ -1465,13 +1468,13 @@ namespace p3d {
 					else
 					{
 						echo("WARNING: SceneSerializer - a LuaComponent's class has no deserialize() method, adding as existence-only");
-						go->AddComponent(new LuaComponent());
+						go->AddComponent(std::make_shared<LuaComponent>());
 					}
 				}
 				else
 				{
 					echo("WARNING: SceneSerializer - couldn't load LuaComponent's scriptFile: " + scriptFile + ", adding as existence-only");
-					go->AddComponent(new LuaComponent());
+					go->AddComponent(std::make_shared<LuaComponent>());
 				}
 			}
 			else
@@ -1479,13 +1482,13 @@ namespace p3d {
 				// Existence only, no behavior - either an ad-hoc
 				// component (no scriptFile was ever saved) or LoadScene()
 				// was called with lua == NULL.
-				go->AddComponent(new LuaComponent());
+				go->AddComponent(std::make_shared<LuaComponent>());
 			}
 		}
 #endif
 	}
 
-	static GameObject* DeserializeGameObject(const json &j, const std::vector<IMaterial*> &materialsById, std::map<std::string, Texture*> &textureCache, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets)
+	static std::shared_ptr<GameObject> DeserializeGameObject(const json &j, const std::vector<std::shared_ptr<IMaterial>> &materialsById, std::map<std::string, std::shared_ptr<Texture>> &textureCache, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets)
 	{
 		// LUA_GameObject when lua != NULL, not plain GameObject - IComponent::
 		// GetOwner() (used by WireLuaComponentLifecycle to pass a script its
@@ -1501,9 +1504,11 @@ namespace p3d {
 		// overrides only add no-op-when-unset on_init/on_update/on_destroy
 		// hooks on top of the base class's own).
 #ifdef LUA_BINDINGS
-		GameObject* go = lua ? static_cast<GameObject*>(new LUA_GameObject(j.value("static", false))) : new GameObject(j.value("static", false));
+		std::shared_ptr<GameObject> go = lua
+			? std::static_pointer_cast<GameObject>(std::make_shared<LUA_GameObject>(j.value("static", false)))
+			: std::make_shared<GameObject>(j.value("static", false));
 #else
-		GameObject* go = new GameObject(j.value("static", false));
+		std::shared_ptr<GameObject> go = std::make_shared<GameObject>(j.value("static", false));
 #endif
 		if (outAssets) outAssets->gameObjects.push_back(go);
 		go->SetName(j.value("name", std::string()));
@@ -1512,12 +1517,12 @@ namespace p3d {
 		if ((j.find("scale") != j.end())) go->SetScale(Vec3FromJson(j["scale"]));
 		if ((j.find("tags") != j.end())) for (auto &t : j["tags"]) go->AddTag(t.get<std::string>());
 
-		if ((j.find("components") != j.end())) for (auto &cj : j["components"]) DeserializeComponent(go, cj, materialsById, textureCache, physics, lua, outAssets);
+		if ((j.find("components") != j.end())) for (auto &cj : j["components"]) DeserializeComponent(go.get(), cj, materialsById, textureCache, physics, lua, outAssets);
 
 		if ((j.find("children") != j.end()))
 			for (auto &cj : j["children"])
 			{
-				GameObject* child = DeserializeGameObject(cj, materialsById, textureCache, physics, lua, outAssets);
+				std::shared_ptr<GameObject> child = DeserializeGameObject(cj, materialsById, textureCache, physics, lua, outAssets);
 				go->Add(child);
 			}
 
@@ -1547,12 +1552,12 @@ namespace p3d {
 		if (root.value("version", 0) != 1)
 			echo("WARNING: SceneSerializer::LoadScene - unexpected scene file version, attempting to load anyway");
 
-		std::map<std::string, Texture*> textureCache;
-		std::vector<IMaterial*> materialsById;
+		std::map<std::string, std::shared_ptr<Texture>> textureCache;
+		std::vector<std::shared_ptr<IMaterial>> materialsById;
 		if ((root.find("materials") != root.end()))
 			for (auto &mj : root["materials"])
 			{
-				IMaterial* mat = BuildMaterial(mj, textureCache, outAssets);
+				std::shared_ptr<IMaterial> mat = BuildMaterial(mj, textureCache, outAssets);
 				materialsById.push_back(mat);
 				if (mat && outAssets) outAssets->materials.push_back(mat);
 			}
@@ -1593,7 +1598,7 @@ namespace p3d {
 		return true;
 	}
 
-	void SceneSerializer::UnloadScene(SceneGraph* scene, const LoadedSceneAssets &assets)
+	void SceneSerializer::UnloadScene(SceneGraph* scene, LoadedSceneAssets &assets)
 	{
 		// Everything freed below owns GPU resources (vertex/index buffers,
 		// textures, and on Vulkan the pipelines/descriptor sets cached
@@ -1608,7 +1613,7 @@ namespace p3d {
 		// PostEffectsManager::RemoveAllEffects() and ~DeferredRenderer().
 		if (IsActiveRenderDeviceSet())
 			GetActiveRenderDevice().WaitIdle();
-		for (GameObject* go : assets.gameObjects)
+		for (const std::shared_ptr<GameObject> &go : assets.gameObjects)
 		{
 			// Remove() is a safe no-op (logs, doesn't crash) for a
 			// GameObject that was never actually registered with
@@ -1619,16 +1624,15 @@ namespace p3d {
 			// separately.
 			scene->Remove(go);
 		}
-		for (GameObject* go : assets.gameObjects)
-		{
-			for (IComponent* c : go->GetComponents()) delete c;
-		}
-		for (GameObject* go : assets.gameObjects) delete go;
-		for (SkeletonAnimation* a : assets.skeletonAnimations) delete a;
-		for (TextureAnimation* a : assets.textureAnimations) delete a;
-		for (IMaterial* m : assets.materials) delete m;
-		for (Texture* t : assets.textures) delete t;
-		for (Renderable* r : assets.renderables) delete r;
+		// Drop GameObject/IComponent shared_ptrs first so components release
+		// their shared refs to materials/textures/renderables/animations;
+		// then clear those vectors (no delete - shared_ptr owns them).
+		assets.gameObjects.clear();
+		assets.skeletonAnimations.clear();
+		assets.textureAnimations.clear();
+		assets.materials.clear();
+		assets.textures.clear();
+		assets.renderables.clear();
 	}
 
 }

@@ -15,6 +15,7 @@
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
+#include <memory>
 
 namespace p3d {
 
@@ -136,8 +137,8 @@ namespace p3d {
 		RenderingComponent *directionalLight;
 		RenderingComponent *pointLight;
 
-		Renderable* sphereHandle;
-		Renderable* quadHandle;
+		std::shared_ptr<Renderable> sphereHandle;
+		std::shared_ptr<Renderable> quadHandle;
 
 		// Uniform Handlers
 		Uniform *pointPosHandle, *pointRadiusHandle, *pointColorHandle, *pointShadowHandle, *pointShadowDepthsMVPHandle, *pointShadowPCFTexelHandle, *pointHaveShadowHandle;
