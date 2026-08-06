@@ -25,14 +25,20 @@ elseif (OPENGL_VERSION STREQUAL "GL41")
 	set(OPENGL_LIBS ${OPENGL_LIBRARIES})
 elseif (OPENGL_VERSION STREQUAL "GLES3")
 	add_compile_definitions(GLES3)
-	# Always use glad GLES3 (desktop ES, Emscripten/WebGL2, embedded).
+	# ImGui OpenGL3 backend must use ES shaders on GLES / WebGL2.
+	add_compile_definitions(IMGUI_IMPL_OPENGL_ES3)
+	# Always use glad GLES3 (desktop ES, Emscripten/WebGL2, Raspberry Pi / embedded).
 	set(GL_INCLUDE ${PYROS_EXT_DIR}/gles3/glad.c)
 	set(GLAD_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include/Pyros3D/Ext/gles3)
 	if (EMSCRIPTEN)
 		# Browser / emscripten GL; do not link system GLESv2.
 		set(OPENGL_LIBS "")
 	else()
-		set(OPENGL_LIBS GLESv2)
+		# Mesa / Pi OS: libGLESv2.so + libEGL.so (not the legacy Broadcom /opt/vc stack).
+		find_library(PYROS_GLESV2_LIBRARY NAMES GLESv2 libGLESv2 REQUIRED)
+		find_library(PYROS_EGL_LIBRARY NAMES EGL libEGL REQUIRED)
+		set(OPENGL_LIBS ${PYROS_GLESV2_LIBRARY} ${PYROS_EGL_LIBRARY})
+		message(STATUS "GLES3 libs: GLESv2=${PYROS_GLESV2_LIBRARY} EGL=${PYROS_EGL_LIBRARY}")
 	endif()
 else()
 	message(FATAL_ERROR "Unknown OPENGL_VERSION='${OPENGL_VERSION}' (expected GL45, GL42, GL41, or GLES3)")

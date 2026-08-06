@@ -132,14 +132,10 @@ namespace p3d {
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 #elif defined(GLES3)
-#if defined(EMSCRIPTEN)
-        // WebGL2 ≈ OpenGL ES 3.0
+        // ES 3.0 everywhere: WebGL2, Raspberry Pi (Mesa), desktop GLES.
+        // Requesting 3.1 broke older Pi / Mesa drivers that only expose 3.0.
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-#else
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
-#endif
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 #else
 		SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
@@ -184,6 +180,10 @@ namespace p3d {
 		);
 
 		mainGLContext = SDL_GL_CreateContext(rview);
+		if (!mainGLContext)
+		{
+			echo(std::string("ERROR: SDL_GL_CreateContext failed: ") + SDL_GetError());
+		}
 
 		// See SDL2VulkanContext's identical fix/comment - the window
 		// manager can silently clamp the requested size, and no

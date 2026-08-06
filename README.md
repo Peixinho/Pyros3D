@@ -5,7 +5,7 @@ Pyros3D is a work in progress game engine, focused on 3D, but that has 2 project
 - [Bang! Bang! Bunny](https://play.google.com/store/apps/details?id=com.madblowfish.bangbangbunny)
 - [Bang! Bang! Judas](https://play.google.com/store/apps/details?id=com.madblowfish.bangbangjudas)
 
-You can compile for Windows, Linux, MacOSX, Android, and Web (Emscripten / WebGL2).
+You can compile for Windows, Linux, MacOSX, Android, Raspberry Pi (GLES3), and Web (Emscripten / WebGL2).
 
 ## Dependencies
 - BulletPhysics 2.8+
@@ -35,6 +35,19 @@ emcmake cmake -S . -B build_web -G "Unix Makefiles" \
   -DBUILD_DEMOS=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 cmake --build build_web -j --target Pyros3D
 # serve build_web/examples/ and open web/index.html (JS owns the engine)
+```
+
+## Raspberry Pi (GLES3)
+
+Same OpenGL ES 3.0 profile as WebGL2, via Mesa + SDL2 (on-device CMake).  
+See [otherplatforms/raspberry-pi/README.md](otherplatforms/raspberry-pi/README.md).
+
+```bash
+cmake -S . -B build_rpi -G Ninja \
+  -DOPENGL_VERSION=GLES3 -DCONTEXT=SDL2 \
+  -DBUILD_VULKAN_BACKEND=OFF -DBUILD_SPIRV_TOOLING=OFF \
+  -DBUILD_DEMOS=ON -DSTATIC_LIB=ON
+cmake --build build_rpi -j
 ```
 
 ## Running Example
