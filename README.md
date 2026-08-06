@@ -1,5 +1,5 @@
 # Pyros3D Game Engine
-[![Build Status](https://travis-ci.org/Peixinho/Pyros3D.svg?branch=master)](https://travis-ci.org/Peixinho/Pyros3D)
+[![Build](https://github.com/Peixinho/Pyros3D/actions/workflows/build.yml/badge.svg)](https://github.com/Peixinho/Pyros3D/actions/workflows/build.yml)
 
 Pyros3D is a work in progress game engine, focused on 3D, but that has 2 projects launched on android in 2D.
 - [Bang! Bang! Bunny](https://play.google.com/store/apps/details?id=com.madblowfish.bangbangbunny)
