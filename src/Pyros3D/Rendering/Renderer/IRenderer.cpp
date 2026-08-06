@@ -1545,7 +1545,16 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			memcmp(&CachedPrvProjectionMatrix, &PrvProjectionMatrix, sizeof(Matrix)) != 0 ||
 			memcmp(&CachedPrvViewMatrix, &PrvViewMatrix, sizeof(Matrix)) != 0)
 		{
-			Matrix velocityFrameData[2] = { PrvProjectionMatrix, PrvViewMatrix };
+			// Must match GlobalMatricesUBO: uProjectionMatrix is always
+			// TranslateProjectionMatrix()'d (Vulkan Y-flip + Z remap; no-op
+			// on GL). Uploading raw PrvProjection here made velocity
+			// (a_current - b_previous) explode on Vulkan every frame -
+			// MotionBlur then smeared the whole screen. Same rule as
+			// CaptureExtraUniform()'s translatedPrvProjectionMatrix.
+			Matrix velocityFrameData[2] = {
+				device->TranslateProjectionMatrix(PrvProjectionMatrix),
+				PrvViewMatrix
+			};
 			device->ReplaceUniformBuffer(VelocityFrameUniformsUBO, sizeof(Matrix) * 2, velocityFrameData);
 			CachedPrvProjectionMatrix = PrvProjectionMatrix;
 			CachedPrvViewMatrix = PrvViewMatrix;
@@ -1672,11 +1681,15 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 				Shader::SendUniform((*k), &PrvViewMatrix, (*_ShadersGlobalCache)[counter]);
 				break;
 			case Uniforms::DataUsage::PrvProjectionMatrix:
-				Shader::SendUniform((*k), &PrvProjectionMatrix, (*_ShadersGlobalCache)[counter]);
+				{
+					Matrix translatedPrvProjection = device->TranslateProjectionMatrix(PrvProjectionMatrix);
+					Shader::SendUniform((*k), &translatedPrvProjection, (*_ShadersGlobalCache)[counter]);
+				}
 				break;
 			case Uniforms::DataUsage::PrvModelViewProjectionMatrix:
 				{
-					Matrix PrvModelViewProjectionMatrix = PrvProjectionMatrix*PrvViewMatrix*PrvModelMatrix;
+					Matrix PrvModelViewProjectionMatrix =
+						device->TranslateProjectionMatrix(PrvProjectionMatrix) * PrvViewMatrix * PrvModelMatrix;
 					Shader::SendUniform((*k), &PrvModelViewProjectionMatrix, (*_ShadersGlobalCache)[counter]);
 				}
 				break;

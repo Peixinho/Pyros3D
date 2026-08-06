@@ -4701,14 +4701,13 @@ namespace p3d {
 			// fboIt->second.width/height - that field is only refreshed by
 			// the "renderPass doesn't exist yet" branch above, but a
 			// texture can be re-attached to an *already-built* renderPass
-			// many times after that (VelocityRenderer::RenderVelocityMap()
-			// re-attaches its target every frame, after its own Bind() -
-			// see FrameBuffer::AddAttach()'s wasAlreadyBound=true case).
-			// Falling back to the stale field here created a VkFramebuffer
-			// declaring the *old* (pre-resize) width/height while
-			// targetView pointed at the texture's *new*, smaller image -
-			// VUID-VkFramebufferCreateInfo-flags-04533 the moment a resize
-			// landed between two frames.
+			// many times after that (e.g. point-light cubemap faces after
+			// Bind() - see FrameBuffer::AddAttach()'s wasAlreadyBound=true
+			// case). Falling back to the stale field here created a
+			// VkFramebuffer declaring the *old* (pre-resize) width/height
+			// while targetView pointed at the texture's *new*, smaller
+			// image - VUID-VkFramebufferCreateInfo-flags-04533 the moment
+			// a resize landed between two frames.
 			fboIt->second.width = texIt->second.width;
 			fboIt->second.height = texIt->second.height;
 			VkFramebufferCreateInfo fbInfo = {};

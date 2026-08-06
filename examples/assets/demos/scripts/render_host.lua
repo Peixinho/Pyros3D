@@ -19,6 +19,8 @@ local state = {
 	projFar = 2000,
 	drawOverride = nil,
 	onResize = nil,
+	motionBlur = false,
+	lastDrawTime = nil,
 }
 
 local function makeTarget(dataType, width, height)
@@ -36,9 +38,14 @@ local function clear()
 	if state.effectManager then
 		pcall(function() state.effectManager:removeAllEffects() end)
 	end
+	-- VelocityRenderer owns the velocity texture MotionBlur sampled; delete
+	-- only after the effect has been destroyed above.
+	if destroyMotionBlurVelocity then destroyMotionBlurVelocity() end
 	effectManager = nil
 	state.effectManager = nil
 	state.effectCount = 0
+	state.motionBlur = false
+	state.lastDrawTime = nil
 	collectgarbage()
 	collectgarbage()
 
@@ -113,6 +120,7 @@ function RenderHost.setup(cfg, width, height)
 
 	local effects = cfg.effects or {}
 	state.effectCount = #effects
+	state.motionBlur = false
 	if #effects > 0 then
 		local em = PostEffectsManager.new(width, height)
 		for _, name in ipairs(effects) do
@@ -120,6 +128,9 @@ function RenderHost.setup(cfg, width, height)
 				buildSSAOPostChain(em, width, height)
 			elseif name == "dof" then
 				buildDOFPostChain(em, width, height)
+			elseif name == "motionblur" then
+				buildMotionBlurPostChain(em, width, height)
+				state.motionBlur = true
 			else
 				addPostEffect(em, name, width, height)
 			end
@@ -166,6 +177,9 @@ function RenderHost.resize(width, height)
 	if state.fbo then state.fbo:resize(width, height) end
 	renderer:resize(width, height)
 	if state.effectManager then state.effectManager:resize(width, height) end
+	if state.motionBlur and motionBlurResize then
+		motionBlurResize(width, height)
+	end
 
 	if projection then
 		projection:perspective(state.projFov, width / height, state.projNear, state.projFar)
@@ -182,11 +196,31 @@ function RenderHost.draw(camera, scene, projection)
 
 	local em = state.effectManager
 	if em and state.effectCount > 0 then
-		em:captureFrame()
-		renderer:preRender(camera, scene)
-		renderer:renderScene(projection, camera, scene)
-		em:endCapture()
-		em:processPostEffects(projection)
+		-- Motion blur needs a velocity pass between PreRender (which
+		-- latches previous-frame matrices) and the colour capture.
+		if state.motionBlur and motionBlurRenderVelocity then
+			renderer:preRender(camera, scene)
+			motionBlurRenderVelocity(projection, camera, scene)
+			em:captureFrame()
+			renderer:renderScene(projection, camera, scene)
+			em:endCapture()
+			if motionBlurSetFPS then
+				local now = scene.getTime and scene:getTime() or nil
+				local fps = 60.0
+				if now and state.lastDrawTime and now > state.lastDrawTime then
+					fps = 1.0 / (now - state.lastDrawTime)
+				end
+				state.lastDrawTime = now
+				motionBlurSetFPS(fps)
+			end
+			em:processPostEffects(projection)
+		else
+			em:captureFrame()
+			renderer:preRender(camera, scene)
+			renderer:renderScene(projection, camera, scene)
+			em:endCapture()
+			em:processPostEffects(projection)
+		end
 	else
 		renderer:preRender(camera, scene)
 		renderer:renderScene(projection, camera, scene)

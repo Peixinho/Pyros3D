@@ -1593,11 +1593,13 @@ namespace p3d {
 		}
 
 		{
-			// VelocityRenderer
-			sol::constructors<sol::types<float, float>> con;
+			// VelocityRenderer - used by DemoLauncher motion-blur demos.
+			sol::constructors<sol::types<uint32, uint32>> con;
 			lua->new_usertype<VelocityRenderer>("VelocityRenderer",
 				con,
-				"renderVelocityMap", &VelocityRenderer::RenderVelocityMap
+				"renderVelocityMap", &VelocityRenderer::RenderVelocityMap,
+				"resize", &VelocityRenderer::Resize,
+				"getTexture", &VelocityRenderer::GetTexture
 				);
 		}
 
@@ -2457,10 +2459,46 @@ namespace p3d {
 			// by clearPostEffectHandles() when the chain is torn down.
 			static SSAOEffect *g_ssao = nullptr;
 			static BlurSSAOEffect *g_ssaoBlur = nullptr;
+			static VelocityRenderer *g_velocityRenderer = nullptr;
+			static MotionBlurEffect *g_motionBlur = nullptr;
 			lua->set_function("clearPostEffectHandles", []() {
 				g_ssao = nullptr;
 				g_ssaoBlur = nullptr;
+				// Null the MotionBlurEffect handle only - the effect itself is
+				// owned by PostEffectsManager and deleted in removeAllEffects.
+				// VelocityRenderer owns the velocity texture the effect samples,
+				// so it must outlive that delete (see destroyMotionBlurVelocity).
+				g_motionBlur = nullptr;
 				Texture::ResetUnitCounter();
+			});
+			lua->set_function("destroyMotionBlurVelocity", []() {
+				delete g_velocityRenderer;
+				g_velocityRenderer = nullptr;
+			});
+			lua->set_function("buildMotionBlurPostChain", [](PostEffectsManager &m, int width, int height) {
+				delete g_velocityRenderer;
+				g_velocityRenderer = new VelocityRenderer((uint32)width, (uint32)height);
+				g_motionBlur = new MotionBlurEffect(RTT::Color, g_velocityRenderer->GetTexture(), (uint32)width, (uint32)height);
+				g_motionBlur->SetTargetFPS(60.0f);
+				g_motionBlur->SetCurrentFPS(60.0f);
+				m.AddEffect(g_motionBlur);
+			});
+			lua->set_function("motionBlurRenderVelocity", [](const Projection &proj, GameObject *cam, SceneGraph *scene) {
+				if (g_velocityRenderer && cam && scene)
+					g_velocityRenderer->RenderVelocityMap(proj, cam, scene);
+			});
+			lua->set_function("motionBlurSetFPS", [](float currentFps) {
+				if (g_motionBlur)
+					g_motionBlur->SetCurrentFPS(currentFps);
+			});
+			lua->set_function("motionBlurResize", [](int width, int height) {
+				if (g_velocityRenderer)
+					g_velocityRenderer->Resize((uint32)width, (uint32)height);
+				if (g_motionBlur)
+					g_motionBlur->Resize((uint32)width, (uint32)height);
+			});
+			lua->set_function("motionBlurActive", []() {
+				return g_velocityRenderer != nullptr && g_motionBlur != nullptr;
 			});
 			lua->set_function("buildSSAOPostChain", [](PostEffectsManager &m, int width, int height) {
 				g_ssao = new SSAOEffect(RTT::Depth, width, height);

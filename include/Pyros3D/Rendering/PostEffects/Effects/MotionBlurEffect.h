@@ -21,8 +21,8 @@ namespace p3d {
 		void SetTargetFPS(const f32 &targetfps);
 
 	private:
-		Uniform *velHandle, velocityScale;
-		f32 cfps, tfps;
+		Uniform *velHandle;
+		f32 cfps, tfps, strength;
 	};
 
 };

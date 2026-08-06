@@ -86,6 +86,11 @@ namespace p3d {
 		Vec2 NearFarPlane = Vec2(projection->Near, projection->Far);
 		Vec2 ScreenDimensions = Vec2((f32)Width, (f32)Height);
 
+		// Post-effect RTT binds start at unit 0; a prior RenderScene that
+		// leaked UnitBinded would make uTex0/uTex1 point at the wrong units
+		// while the uniforms still say 0/1 (sharp colour, zero velocity).
+		Texture::ResetUnitCounter();
+
 		// Run Through Effects
 		for (std::vector<IEffect*>::iterator effect = effects.begin(); effect != effects.end(); effect++)
 		{

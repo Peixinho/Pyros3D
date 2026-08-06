@@ -34,6 +34,7 @@ namespace p3d {
 
 		GameObject* Camera;
 		Texture* velocityMap;
+		Texture* depthMap;
 		FrameBuffer* fbo;
 		GenericShaderMaterial* velocityMaterial;
 

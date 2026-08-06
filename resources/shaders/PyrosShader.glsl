@@ -465,9 +465,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 	// actually exists at that location, not just a cosmetic renumbering.
 	#ifdef VELOCITY_RENDERING
 		#ifdef DEFERRED_GBUFFER
-			IO_LOCATION(4) out vec2 FragColor;
+			IO_LOCATION(4) out vec4 FragColor;
 		#else
-			IO_LOCATION(0) out vec2 FragColor;
+			IO_LOCATION(0) out vec4 FragColor;
 		#endif
 	#else
 		#ifdef DEFERRED_GBUFFER
@@ -1208,7 +1208,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 	#ifdef VELOCITY_RENDERING
 		vec2 a = (vScreenSpaceWorldPosition.xy / vScreenSpaceWorldPosition.w) * 0.5 + 0.5;
 		vec2 b = (vPrvScreenSpaceWorldPosition.xy / vPrvScreenSpaceWorldPosition.w) * 0.5 + 0.5;
-		FragColor = a - b;
+		// vec4 (not vec2): matches RGBA16F velocity target; RG16F+vec2 was
+		// a no-op write on some macOS GL drivers while Vulkan was fine.
+		FragColor = vec4(a - b, 0.0, 1.0);
 	#else
 		FragColor = vec4(diffuse.xyz,diffuse.w*uOpacity);
         #endif

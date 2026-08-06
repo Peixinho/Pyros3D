@@ -5,8 +5,15 @@
   "scene": "RotatingCubeWithLighting.json",
   "render": {
    "type": "deferred",
-   "globalLight": [0.12, 0.12, 0.14, 1],
-   "effects": ["tonemap"]
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ],
+   "effects": [
+    "tonemap"
+   ]
   }
  },
  {
@@ -15,8 +22,15 @@
   "scene": "RotatingTexturedCube.json",
   "render": {
    "type": "deferred",
-   "globalLight": [0.12, 0.12, 0.14, 1],
-   "effects": ["tonemap"]
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ],
+   "effects": [
+    "tonemap"
+   ]
   }
  },
  {
@@ -25,8 +39,15 @@
   "scene": "ParallaxMapping.json",
   "render": {
    "type": "deferred",
-   "globalLight": [0.12, 0.12, 0.14, 1],
-   "effects": ["tonemap"]
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ],
+   "effects": [
+    "tonemap"
+   ]
   }
  },
  {
@@ -35,8 +56,15 @@
   "scene": "RotatingTextureAnimatedCube.json",
   "render": {
    "type": "deferred",
-   "globalLight": [0.12, 0.12, 0.14, 1],
-   "effects": ["tonemap"]
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ],
+   "effects": [
+    "tonemap"
+   ]
   }
  },
  {
@@ -45,8 +73,15 @@
   "scene": "RotatingCubeWithLightingAndShadow.json",
   "render": {
    "type": "deferred",
-   "globalLight": [0.12, 0.12, 0.14, 1],
-   "effects": ["tonemap"]
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ],
+   "effects": [
+    "tonemap"
+   ]
   }
  },
  {
@@ -55,8 +90,15 @@
   "scene": "SkyboxTest.json",
   "render": {
    "type": "deferred",
-   "globalLight": [0.12, 0.12, 0.14, 1],
-   "effects": ["tonemap"]
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ],
+   "effects": [
+    "tonemap"
+   ]
   }
  },
  {
@@ -65,8 +107,15 @@
   "scene": "Decals.json",
   "render": {
    "type": "deferred",
-   "globalLight": [0.12, 0.12, 0.14, 1],
-   "effects": ["tonemap"]
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ],
+   "effects": [
+    "tonemap"
+   ]
   }
  },
  {
@@ -75,8 +124,15 @@
   "scene": "PBRSpheres.json",
   "render": {
    "type": "deferred",
-   "globalLight": [0.12, 0.12, 0.14, 1],
-   "effects": ["tonemap"]
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ],
+   "effects": [
+    "tonemap"
+   ]
   }
  },
  {
@@ -85,8 +141,15 @@
   "scene": "DeferredRendering.json",
   "render": {
    "type": "deferred",
-   "globalLight": [0.12, 0.12, 0.14, 1],
-   "effects": ["tonemap"]
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ],
+   "effects": [
+    "tonemap"
+   ]
   }
  },
  {
@@ -95,7 +158,12 @@
   "scene": "ParticlesExample.json",
   "render": {
    "type": "deferred",
-   "globalLight": [0.12, 0.12, 0.14, 1]
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ]
   }
  },
  {
@@ -104,8 +172,15 @@
   "scene": "SimplePhysics.json",
   "render": {
    "type": "deferred",
-   "globalLight": [0.12, 0.12, 0.14, 1],
-   "effects": ["tonemap"]
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ],
+   "effects": [
+    "tonemap"
+   ]
   }
  },
  {
@@ -114,8 +189,15 @@
   "scene": "SkeletonAnimationExample.json",
   "render": {
    "type": "deferred",
-   "globalLight": [0.12, 0.12, 0.14, 1],
-   "effects": ["tonemap"]
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ],
+   "effects": [
+    "tonemap"
+   ]
   }
  },
  {
@@ -124,11 +206,25 @@
   "scene": "SSRTest.json",
   "render": {
    "type": "deferred",
-   "globalLight": [0.12, 0.12, 0.14, 1],
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ],
    "ssr": true,
-   "ssrDistances": [0.35, 12.0],
-   "projection": { "fov": 60, "near": 0.1, "far": 200 },
-   "effects": ["tonemap"]
+   "ssrDistances": [
+    0.35,
+    12.0
+   ],
+   "projection": {
+    "fov": 60,
+    "near": 0.1,
+    "far": 200
+   },
+   "effects": [
+    "tonemap"
+   ]
   }
  },
  {
@@ -137,9 +233,48 @@
   "scene": "SSAOExample.json",
   "render": {
    "type": "forward",
-   "globalLight": [0.2, 0.2, 0.2, 0.2],
-   "projection": { "fov": 70, "near": 0.01, "far": 50 },
-   "effects": ["ssao"]
+   "globalLight": [
+    0.2,
+    0.2,
+    0.2,
+    0.2
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 0.01,
+    "far": 50
+   },
+   "effects": [
+    "ssao"
+   ]
+  }
+ },
+ {
+  "name": "Motion Blur",
+  "description": "Velocity-map motion blur on fast orbiting coloured objects; static cubes stay sharp for contrast.",
+  "scene": "MotionBlur.json",
+  "render": {
+   "type": "forward",
+   "globalLight": [
+    0.08,
+    0.08,
+    0.1,
+    1
+   ],
+   "background": [
+    0.04,
+    0.04,
+    0.06,
+    1
+   ],
+   "projection": {
+    "fov": 60,
+    "near": 1,
+    "far": 2000
+   },
+   "effects": [
+    "motionblur"
+   ]
   }
  },
  {
@@ -148,10 +283,26 @@
   "scene": "DepthOfField.json",
   "render": {
    "type": "forward",
-   "globalLight": [0.12, 0.12, 0.14, 1],
-   "background": [1, 0, 0, 1],
-   "projection": { "fov": 70, "near": 1, "far": 1000 },
-   "effects": ["dof"]
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ],
+   "background": [
+    1,
+    0,
+    0,
+    1
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 1,
+    "far": 1000
+   },
+   "effects": [
+    "dof"
+   ]
   }
  },
  {
@@ -160,10 +311,19 @@
   "scene": "LOD_Example.json",
   "render": {
    "type": "forward",
-   "globalLight": [0, 0, 0, 1],
+   "globalLight": [
+    0,
+    0,
+    0,
+    1
+   ],
    "lod": true,
    "culling": "FrustumCulling",
-   "projection": { "fov": 70, "near": 1, "far": 3000 }
+   "projection": {
+    "fov": 70,
+    "near": 1,
+    "far": 3000
+   }
   }
  },
  {
@@ -172,8 +332,17 @@
   "scene": "IslandDemo.json",
   "render": {
    "type": "forward",
-   "globalLight": [0.3, 0.3, 0.35, 1],
-   "projection": { "fov": 70, "near": 1, "far": 10000 }
+   "globalLight": [
+    0.3,
+    0.3,
+    0.35,
+    1
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 1,
+    "far": 10000
+   }
   }
  },
  {
@@ -182,8 +351,15 @@
   "scene": "NeonPulse.json",
   "render": {
    "type": "deferred",
-   "globalLight": [0.12, 0.12, 0.14, 1],
-   "effects": ["tonemap"]
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ],
+   "effects": [
+    "tonemap"
+   ]
   }
  }
 ]
