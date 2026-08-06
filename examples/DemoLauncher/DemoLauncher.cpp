@@ -318,7 +318,7 @@ void DemoLauncher::Update()
 	f64 time = GetTime();
 	f64 dt = GetTimeInterval();
 
-	if (physics)
+	if (activeDemoHasPhysics)
 		physics->Update(dt, 10);
 
 	Scene->Update(time);
