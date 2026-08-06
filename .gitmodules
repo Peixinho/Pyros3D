@@ -2,7 +2,3 @@
 	path = src/Pyros3D/Ext/imgui
 	url = https://github.com/ocornut/imgui.git
 	branch = docking
-[submodule "examples/RacingGame/imgui"]
-	path = examples/RacingGame/imgui
-	url = https://github.com/ocornut/imgui
-	branch = docking
