@@ -12,6 +12,7 @@
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Other/Export.h>
+#include <memory>
 #define generic GenericFromFreeTypeLibrary
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -39,7 +40,7 @@ namespace p3d {
 		f32 fontSize;
 
 		// Font Map
-		Texture* glyphMap;
+		std::shared_ptr<Texture> glyphMap;
 
 		// Glyph Map Data
 		uchar glyphMapData[MAP_SIZE*MAP_SIZE];
@@ -68,7 +69,15 @@ namespace p3d {
 
 		virtual ~Font();
 
-		Texture* GetTexture();
+		// Observing raw for draw paths; Font keeps the owning shared_ptr.
+		Texture* GetTexture() { return glyphMap.get(); }
+		const std::shared_ptr<Texture> &GetTextureShared() const { return glyphMap; }
+
+		// Not exposed before this - the constructor's path was stored in
+		// the private `font` member (used later by CreateText()) but
+		// never readable back, same as Model/Texture were before Phase 1
+		// of scene serialization added their path getters.
+		const std::string &GetPath() const { return font; }
 
 		f32 GetFontSize();
 

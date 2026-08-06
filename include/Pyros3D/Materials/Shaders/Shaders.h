@@ -43,6 +43,13 @@ namespace p3d {
 
 		const uint32 &ShaderProgram() const;
 
+		// Already cached (LoadShaderFile/LoadShaderText both set
+		// shaderString, never cleared after CompileShader() reads it) -
+		// just wasn't exposed. Lets a CustomShaderMaterial built from a
+		// raw Shader* (no recoverable file path) still be serialized by
+		// embedding its actual source text directly.
+		const std::string &GetShaderText() const { return shaderString; }
+
 		static const int32 GetUniformLocation(const uint32 program, const std::string &name);
 		static const int32 GetAttributeLocation(const uint32 program, const std::string &name);
 

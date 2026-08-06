@@ -23,7 +23,18 @@ namespace p3d {
 		Cylinder(const f32 radius, const f32 height, const uint32 segmentsW, const uint32 segmentsH, bool openEnded, bool smooth = false, bool flip = false, bool TangentBitangent = false);
 
 		virtual void CalculateBounding() {}
-		
+
+		virtual uint32 GetPrimitiveType() const { return PrimitiveType::Cylinder; }
+		f32 GetRadius() const { return radius; }
+		f32 GetHeight() const { return height; }
+		uint32 GetSegmentsW() const { return (uint32)segmentsW; }
+		uint32 GetSegmentsH() const { return (uint32)segmentsH; }
+		bool IsOpenEnded() const { return openEnded; }
+
+	protected:
+
+		f32 radius, segmentsW;
+		bool openEnded;
 	};
 };
 

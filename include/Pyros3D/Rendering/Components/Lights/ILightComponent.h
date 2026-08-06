@@ -48,6 +48,24 @@ namespace p3d {
 		const Vec4 &GetLightColor() const;
 		void SetLightColor(const Vec4 &color) { Color = color; }
 
+		// Scalar multiplier on Color, kept separate from it so a light's hue
+		// and its brightness stay independently authorable (a Vec4 colour
+		// clamped at 1.0 per channel can't express "white, but 3x") - the
+		// deferred second pass is a real Cook-Torrance BRDF whose diffuse
+		// lobe is albedo/PI, so reproducing ForwardRenderer's non-physical
+		// bare-Lambert brightness needs roughly a PI multiplier here rather
+		// than a washed-out colour. Defaults to 1.0, so every existing light
+		// keeps its exact current output.
+		f32 GetLightIntensity() const { return Intensity; }
+		void SetLightIntensity(const f32 intensity) { Intensity = intensity; }
+
+		// What every renderer feeds its shaders - GetLightColor() stays the
+		// raw authored value (that's what serialization and any UI wants to
+		// round-trip). Alpha is deliberately left unscaled: it isn't part of
+		// the light's radiance, it's carried through into the forward path's
+		// _diffuse.w accumulator.
+		Vec4 GetLightRadiance() const { return Vec4(Color.x * Intensity, Color.y * Intensity, Color.z * Intensity, Color.w); }
+
 		bool IsCastingShadows() { return isCastingShadows; }
 		void DisableCastShadows();
 
@@ -127,6 +145,8 @@ namespace p3d {
 		f32 ShadowBiasFactor, ShadowBiasUnits;
 		// Light Color
 		Vec4 Color;
+		// Brightness multiplier on Color - see GetLightIntensity().
+		f32 Intensity;
 
 		// Internal - List of Lights
 		static std::vector<IComponent*> Components;

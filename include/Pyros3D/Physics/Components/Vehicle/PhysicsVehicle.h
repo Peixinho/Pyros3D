@@ -11,6 +11,7 @@
 
 #include <Pyros3D/Physics/Components/IPhysicsComponent.h>
 #include <vector>
+#include <memory>
 
 namespace p3d {
 
@@ -33,9 +34,15 @@ namespace p3d {
 
 	public:
 
-		PhysicsVehicle(IPhysics* engine, IPhysicsComponent* ChassisShape, bool ghost);
+		PhysicsVehicle(IPhysics* engine, const std::shared_ptr<IPhysicsComponent> &ChassisShape, bool ghost);
 
 		virtual ~PhysicsVehicle();
+
+		// Overrides the shared IPhysicsComponent::GetComponentType() -
+		// Vehicle needs its own tag distinct from ComponentType::Physics
+		// since it has a whole extra shape (chassis) and wheel list a
+		// generic physics-shape serializer can't handle.
+		virtual uint32 GetComponentType() const { return ComponentType::Vehicle; }
 
 		int GetRightIndex() { return rightIndex; }
 		int GetUpIndex() { return upIndex; }
@@ -54,7 +61,18 @@ namespace p3d {
 		f32 GetSuspensionCompression() { return suspensionCompression; }
 		f32 GetSuspensionRestLength() { return suspensionRestLength; }
 
-		IPhysicsComponent* GetChassis() { return this->chassisShape; }
+		IPhysicsComponent* GetChassis() { return this->chassisShape.get(); }
+
+		// void* to keep this header Bullet-agnostic (same pattern as
+		// IPhysicsComponent::rigidBodyPTR/SaveRigidBodyPTR) - the actual
+		// btVehicleRaycaster* this vehicle's btRaycastVehicle needs is
+		// otherwise unreachable after construction (btRaycastVehicle
+		// doesn't expose a getter for it), so BulletPhysics has nowhere
+		// else to stash it for later freeing when the vehicle is
+		// removed. Set once in BulletPhysics::CreatePhysicsComponent(),
+		// read+freed in BulletPhysics::RemovePhysicsComponent().
+		void SaveVehicleRaycasterPTR(void* ptr) { vehicleRaycasterPTR = ptr; }
+		void* GetVehicleRaycasterPTR() { return vehicleRaycasterPTR; }
 
 		// Setters
 		void SetMaxProxies(const uint32 maxProxies) { this->maxProxies = maxProxies; }
@@ -94,11 +112,15 @@ namespace p3d {
 		f32 suspensionCompression;
 		f32 suspensionRestLength;
 
-		// Save Chassis Shape of the Vehicle
-		IPhysicsComponent* chassisShape;
+		// Save Chassis Shape of the Vehicle (shared_ptr - orphan shape not
+		// attached to a GameObject, kept alive for the vehicle's lifetime).
+		std::shared_ptr<IPhysicsComponent> chassisShape;
 
 		// List of Wheels in the Vehicle
 		std::vector<VehicleWheel> Wheels;
+
+		// See SaveVehicleRaycasterPTR() above.
+		void* vehicleRaycasterPTR = NULL;
 	};
 
 }

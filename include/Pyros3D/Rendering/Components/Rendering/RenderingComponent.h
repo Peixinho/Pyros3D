@@ -41,12 +41,6 @@ namespace p3d {
 
 	class PYROS3D_API RenderingMesh {
 
-	protected:
-		// Owned only when built internally by BuildMaterials() - null (and
-		// therefore a no-op to destroy) when Material points at a caller-
-		// owned material instead.
-		std::unique_ptr<IMaterial> InternalMaterial;
-
 	public:
 
 		RenderingMesh(const uint32 lod = 0) : drawingType(DrawingType::Triangles), CullingGeometry(0), Active(true), Clickable(true), LodLevel(lod) {} // Triangles by Default
@@ -72,11 +66,45 @@ namespace p3d {
 		// instead of re-issuing glEnableVertexAttribArray/glVertexAttribPointer
 		// per attribute on every switch. Keyed by shader because attribute
 		// locations can differ across shader variants using this mesh.
-		// Not used on GLES2, which has no VAOs.
 		std::map<uint32, uint32> VAOCache;
 
-		// Materials
-		IMaterial* Material;
+		// Geometry->buffersRevision that VAOCache's entries were built
+		// against. A geometry can hand out new GPU buffers under a mesh that
+		// is already being drawn (Text::UpdateText() disposes and rebuilds
+		// in place), which leaves every cached VAO referencing freed buffer
+		// handles - BindMesh() compares this and throws the cache away when
+		// it goes stale. See IGeometry::buffersRevision.
+		uint32 VAOCacheRevision = 0;
+
+		// Vulkan pipeline cache, keyed by (shader program, current render
+		// target) packed into one uint64 - ((uint64)shader << 32) | targetFBO,
+		// see IRenderDevice::GetCurrentRenderTarget(). Mirrors VAOCache's
+		// shader-only keying (see RenderObject()/BindMesh() in IRenderer.cpp)
+		// plus the render-target dimension a Vulkan pipeline needs, since
+		// it bakes in a specific render pass's attachment shape at
+		// creation time - the same mesh+shader drawn into two
+		// differently-shaped targets (e.g. a color-only reflection FBO
+		// versus the main color+depth swapchain pass) needs two separate
+		// pipelines. Only ever populated on the Vulkan backend
+		// (GLRenderDevice::CreatePipeline() exists too, but nothing calls
+		// it outside this cache - GL still uses the individual
+		// SetCullFaceMode/SetBlendingEnabled/etc calls directly, and
+		// GetCurrentRenderTarget() always returns 0 there, collapsing
+		// this back to shader-only keying, matching prior behavior
+		// exactly since GL has no render-pass-shape concept to
+		// disambiguate). Built from Material's blend/depth/cull/wireframe
+		// state at the moment this (mesh, shader, target) triple is first
+		// bound, not re-evaluated per object the way GL's own
+		// dirty-tracked state is - correct for any Material whose
+		// blend/depth/cull state doesn't change after the fact for a
+		// given mesh/shader/target combination.
+		std::map<uint64, uint32> PipelineCache;
+
+		// Materials - shared_ptr so many meshes/components can share one
+		// IMaterial (and Lua/C++ share one refcount). BuildMaterials()
+		// assigns a freshly-made material here; a caller-supplied material
+		// is stored the same way.
+		std::shared_ptr<IMaterial> Material;
 
 		// Drawing Type
 		uint32 drawingType;
@@ -100,9 +128,6 @@ namespace p3d {
 		// Bones Matrix List
 		std::vector<Matrix> SkinningBones;
 
-		// Owned only for textures created internally by BuildMaterials().
-		std::vector<std::unique_ptr<Texture>> Texturesvector;
-
 		// LOD
 		uint32 LodLevel;
 
@@ -118,7 +143,26 @@ namespace p3d {
 			if (Geometry->materialProperties.haveSpecularMap) options = options | ShaderUsage::SpecularMap;
 			if (Geometry->materialProperties.haveNormalMap) options = options | ShaderUsage::BumpMapping;
 
-			GenericShaderMaterial* genMat = new GenericShaderMaterial(options | MaterialOptions);
+			// Callers can pass ShaderUsage::Skinning explicitly (e.g. one
+			// material applied uniformly across every submesh of an
+			// animated Model, see SkeletonAnimationExample.cpp) even for a
+			// submesh that has no per-vertex bone data at all (a rigid
+			// prop submesh within an otherwise-skinned model, or any
+			// geometry loaded without bone weights) - GL silently
+			// tolerated this (the aBonesID/aBonesWeight attributes just
+			// went unbound and were never sampled), but Vulkan requires
+			// every attribute a compiled shader variant declares to have
+			// a matching vertex buffer attribute
+			// (VUID-VkGraphicsPipelineCreateInfo-Input-07904, found via a
+			// live SkeletonAnimationExample crash). Mask it off here,
+			// the same "derive from what the geometry actually has"
+			// pattern already used for Color/Texture/etc above, so a
+			// caller's blanket MaterialOptions can't request a shader
+			// variant this specific submesh's vertex data can't satisfy.
+			uint32 requestedOptions = MaterialOptions;
+			if (!Geometry->materialProperties.haveBones) requestedOptions &= ~ShaderUsage::Skinning;
+
+			GenericShaderMaterial* genMat = new GenericShaderMaterial(options | requestedOptions);
 
 			// Material Properties
 			if (Geometry->materialProperties.Twosided) genMat->SetCullFace(CullFace::DoubleSided);
@@ -127,30 +171,26 @@ namespace p3d {
 			if (Geometry->materialProperties.Opacity) genMat->SetOpacity(Geometry->materialProperties.Opacity);
 			if (Geometry->materialProperties.haveColorMap)
 			{
-				Texture* colorMap = new Texture();
+				std::shared_ptr<Texture> colorMap = std::make_shared<Texture>();
 				colorMap->LoadTexture(Geometry->materialProperties.colorMap, TextureType::Texture);
 				colorMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 				genMat->SetColorMap(colorMap);
-				Texturesvector.emplace_back(colorMap);
 			}
 			if (Geometry->materialProperties.haveSpecularMap)
 			{
-				Texture* specularMap = new Texture();
+				std::shared_ptr<Texture> specularMap = std::make_shared<Texture>();
 				specularMap->LoadTexture(Geometry->materialProperties.specularMap, TextureType::Texture);
 				specularMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 				genMat->SetSpecularMap(specularMap);
-				Texturesvector.emplace_back(specularMap);
 			}
 			if (Geometry->materialProperties.haveNormalMap)
 			{
-				Texture* normalMap = new Texture();
+				std::shared_ptr<Texture> normalMap = std::make_shared<Texture>();
 				normalMap->LoadTexture(Geometry->materialProperties.normalMap, TextureType::Texture);
 				normalMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 				genMat->SetNormalMap(normalMap);
-				Texturesvector.emplace_back(normalMap);
 			}
-			InternalMaterial.reset(genMat);
-			Material = genMat;
+			Material.reset(genMat);
 		}
 	};
 
@@ -160,10 +200,10 @@ namespace p3d {
 
 	public:
 
-		RenderingComponent(Renderable* renderable, IMaterial* Material, const f32 Distance = 0.0f);
-		RenderingComponent(Renderable* renderable, const uint32 MaterialOptions = 0, const f32 Distance = 0.0f);
-		void AddLOD(Renderable* renderable, const f32 Distance, IMaterial* Material);
-		void AddLOD(Renderable* renderable, const f32 Distance, const uint32 MaterialOptions = 0);
+		RenderingComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, const f32 Distance = 0.0f);
+		RenderingComponent(const std::shared_ptr<Renderable> &renderable, const uint32 MaterialOptions = 0, const f32 Distance = 0.0f);
+		void AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const std::shared_ptr<IMaterial> &Material);
+		void AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const uint32 MaterialOptions = 0);
 
 		virtual ~RenderingComponent();
 
@@ -172,6 +212,8 @@ namespace p3d {
 		virtual void Update(const f64 time = 0) {}
 		virtual void Destroy() {}
 		virtual void Unregister(SceneGraph* Scene);
+
+		virtual uint32 GetComponentType() const { return ComponentType::RenderingComponent; }
 
 		void SetCullingGeometry(const uint32 Geometry);
 		void EnableCullTest() { cullTest = true; }
@@ -182,7 +224,7 @@ namespace p3d {
 		void DisableCastShadows();
 		bool IsCastingShadows();
 
-		Renderable* GetRenderable() { return renderable; }
+		Renderable* GetRenderable() { return renderable.get(); }
 
 		// Get Model Skeleton
 		const std::map<StringID, Bone> &GetSkeleton() const { return skeleton; }
@@ -193,6 +235,9 @@ namespace p3d {
 
 		// Get LOD Number
 		const uint32 GetLODSize() const;
+
+		// Per-LOD switch distances, parallel to Meshes' LOD keys.
+		const std::vector<f32> &GetLODDistances() const { return LODDistances; }
 
 		// Returns LOD level based on distance
 		uint32 GetLODByDistance(const f32 Distance);
@@ -213,10 +258,42 @@ namespace p3d {
 		static std::vector<RenderingComponent*> &GetRenderingComponents(SceneGraph* scene);
 
 		bool IsInstanced() { return isInstanced;  }
+
+		// Real back-reference to whichever SkeletonAnimationInstance is
+		// currently driving this component's skeleton - didn't exist
+		// before (SkeletonAnimationInstance's constructor reads a
+		// RenderingComponent's skeleton/meshes but never wrote anything
+		// back), so nothing could ever ask "what animation is this mesh
+		// playing" starting from the component itself; every example
+		// instead keeps the instance as a sibling variable in user code.
+		// Set automatically by SkeletonAnimationInstance's constructor
+		// (SkeletonAnimation.cpp) - real, minimal, automatic association,
+		// not a serializer-side shadow map. NULL if no skeleton animation
+		// has ever been created against this component.
+		void SetActiveSkeletonAnimation(void* instance) { activeSkeletonAnimation = instance; }
+		void* GetActiveSkeletonAnimation() const { return activeSkeletonAnimation; }
+
+		// Opt-in equivalent for texture animation - unlike skeleton
+		// animation there is no constructor-time link anywhere in the
+		// engine between a TextureAnimationInstance and any component/
+		// material (every example manually pushes the current frame into
+		// a material each Update()), so this is deliberately NOT set
+		// automatically - a caller calls this once after creating the
+		// instance if they want its playback state (not behavior -
+		// nothing here auto-drives a material) to be capturable.
+		void SetActiveTextureAnimation(void* instance) { activeTextureAnimation = instance; }
+		void* GetActiveTextureAnimation() const { return activeTextureAnimation; }
+
 	protected:
 
+		// void* to avoid a circular #include (AnimationManager headers
+		// already include this one) - callers cast back to
+		// SkeletonAnimationInstance*/TextureAnimationInstance*.
+		void* activeSkeletonAnimation = NULL;
+		void* activeTextureAnimation = NULL;
+
 		// Save Renderable Pointer
-		Renderable* renderable;
+		std::shared_ptr<Renderable> renderable;
 
 		// Casting Shadows
 		bool isCastingShadows;

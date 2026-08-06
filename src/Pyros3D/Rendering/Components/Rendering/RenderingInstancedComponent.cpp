@@ -9,7 +9,7 @@
 #include <Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.h>
 
 namespace p3d {
-    IRenderingInstancedComponent::IRenderingInstancedComponent(Renderable* renderable, IMaterial* Material, const uint32 nrInstances, const f32 boundingSphere) : RenderingComponent(renderable, Material)
+    IRenderingInstancedComponent::IRenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, const uint32 nrInstances, const f32 boundingSphere) : RenderingComponent(renderable, Material)
 	{
 		this->nrInstances = nrInstances;
 		this->renderable = renderable;
@@ -18,7 +18,7 @@ namespace p3d {
 		isInstanced = true;
 	}
 
-    IRenderingInstancedComponent::IRenderingInstancedComponent(Renderable* renderable, const uint32 MaterialProperties, const uint32 nrInstances, const f32 boundingSphere) : RenderingComponent(renderable, MaterialProperties)
+    IRenderingInstancedComponent::IRenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const uint32 MaterialProperties, const uint32 nrInstances, const f32 boundingSphere) : RenderingComponent(renderable, MaterialProperties)
 	{
 		this->nrInstances = nrInstances;
 		this->renderable = renderable;
@@ -55,7 +55,7 @@ namespace p3d {
 		}
 	}
 
-	RenderingInstancedComponent::RenderingInstancedComponent(Renderable* renderable, IMaterial* Material, const uint32 nrInstances, const f32 &boundingSphere) : IRenderingInstancedComponent(renderable, Material, nrInstances, boundingSphere)
+	RenderingInstancedComponent::RenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, const uint32 nrInstances, const f32 &boundingSphere) : IRenderingInstancedComponent(renderable, Material, nrInstances, boundingSphere)
 	{
 		this->nrInstances = nrInstances;
 		this->transform.resize(nrInstances);
@@ -64,7 +64,7 @@ namespace p3d {
 		transform_buffer->SendBuffer();
 		AddBuffer(transform_buffer);
 	}	
-	RenderingInstancedComponent::RenderingInstancedComponent(Renderable* renderable, const uint32 MaterialProperties, const uint32 nrInstances, const f32 &boundingSphere) : IRenderingInstancedComponent(renderable, MaterialProperties, nrInstances, boundingSphere)
+	RenderingInstancedComponent::RenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const uint32 MaterialProperties, const uint32 nrInstances, const f32 &boundingSphere) : IRenderingInstancedComponent(renderable, MaterialProperties, nrInstances, boundingSphere)
 	{
 		this->nrInstances = nrInstances;
 		this->transform.resize(nrInstances);

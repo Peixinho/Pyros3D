@@ -7,9 +7,22 @@
 //============================================================================
 
 #include <Pyros3D/Core/Buffers/FrameBuffer.h>
-#include <Pyros3D/Other/PyrosGL.h>
+#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 
 namespace p3d {
+
+	// Every FrameBuffer shares whichever backend is currently active (see
+	// GetActiveRenderDevice() in IRenderDevice.h) rather than each
+	// FrameBuffer needing an injected IRenderDevice* - same pattern as
+	// GeometryBuffer.cpp/Shaders.cpp/Texture.cpp. Previously hardcoded to
+	// a static GLRenderDevice (missed when Texture.cpp got this same fix
+	// - a separate file, same historical pattern) - crashed the same way
+	// Texture.cpp did, through an unloaded/null GLAD function pointer,
+	// the first time a real Vulkan shadow FBO was created.
+	static IRenderDevice& Device()
+	{
+		return GetActiveRenderDevice();
+	}
 
 	FBOAttachment::~FBOAttachment()
 	{
@@ -17,7 +30,7 @@ namespace p3d {
 		// attachments don't own TexturePTR (borrowed from the caller), so
 		// there's nothing to release for those.
 		if (AttachmentType == FBOAttachmentType::RenderBuffer)
-			GLCHECKER(glDeleteRenderbuffers(1, (GLuint*)&rboID));
+			Device().DestroyRenderbuffer(rboID);
 	}
 
 	// 3 types of bound framebuffers (Read, Write and Read_Write)
@@ -42,8 +55,17 @@ namespace p3d {
 		// flag FBO Stoped
 		FBOInitialized = false;
 
-		// destroy fbo and rbo
-		GLCHECKER(glDeleteFramebuffers(1, (GLuint*)&fbo));
+		// Only if a real device is still around. Device() falls back to a
+		// static GLRenderDevice when none is set, so a FrameBuffer that
+		// outlives its device would try to free a Vulkan-created handle
+		// through GL entry points that were never loaded in this process -
+		// a jump through a null/garbage function pointer, which is what a
+		// Lua-owned FrameBuffer did on every shutdown (sol's state is torn
+		// down, and its userdata finalized, after the context has already
+		// destroyed the render device). Nothing leaks by skipping it:
+		// no device means the GPU-side objects are already gone with it.
+		if (IsActiveRenderDeviceSet())
+			Device().DestroyFramebuffer(fbo);
 
 		for (std::vector<FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
 			delete (*i);
@@ -53,46 +75,15 @@ namespace p3d {
 	}
 	void FrameBuffer::BlitFrameBuffer(const uint32 initSrcX, const uint32 initSrcY, const uint32 endSrcX, const uint32 endSrcY, const uint32 initDestX, const uint32 initDestY, const uint32 endDestX, const uint32 endDestY, const uint32 mask, const uint32 filter)
 	{
-#if !defined(GLES2)
-		GLuint Mask;
-		switch (mask)
-		{
-		case FBOBufferBit::Depth:
-			Mask = GL_DEPTH_BUFFER_BIT;
-			break;
-		case FBOBufferBit::Stencil:
-			Mask = GL_STENCIL_BUFFER_BIT;
-			break;
-		case FBOBufferBit::Color:
-		default:
-			Mask = GL_COLOR_BUFFER_BIT;
-			break;
-		};
-		GLuint Filter;
-		switch (filter)
-		{
-		case FBOFilter::Nearest:
-			Filter = GL_NEAREST;
-			break;
-		case FBOFilter::Linear:
-		default:
-			Filter = GL_LINEAR;
-			break;
-		};
-		GLCHECKER(glBlitFramebuffer(initSrcX, initSrcY, endSrcX, endSrcY, initDestX, initDestY, endDestX, endDestY, Mask, Filter));
-#endif
+		Device().BlitFramebuffer(initSrcX, initSrcY, endSrcX, endSrcY, initDestX, initDestY, endDestX, endDestY, mask, filter);
 	}
 	void FrameBuffer::EnableMultisample()
 	{
-#if !defined(GLES2) && !defined(GLES3)
-		GLCHECKER(glEnable(GL_MULTISAMPLE));
-#endif
+		Device().SetMultisampleEnabled(true);
 	}
 	void FrameBuffer::DisableMultisample()
 	{
-#if !defined(GLES2) && !defined(GLES3)
-		GLCHECKER(glDisable(GL_MULTISAMPLE));
-#endif
+		Device().SetMultisampleEnabled(false);
 	}
 	void FrameBuffer::Init(const uint32 attachmentFormat, const uint32 TextureType, p3d::Texture *attachment)
 	{
@@ -100,7 +91,7 @@ namespace p3d {
 		if (FBOInitialized == true)
 		{
 			// destroy fbo and rbo
-			GLCHECKER(glDeleteFramebuffers(1, (GLuint*)&fbo));
+			Device().DestroyFramebuffer(fbo);
 
 			// flag FBO Stoped
 			FBOInitialized = false;
@@ -109,7 +100,7 @@ namespace p3d {
 		// flag FBO Initialized
 		FBOInitialized = true;
 
-		GLCHECKER(glGenFramebuffers(1, (GLuint*)&fbo));
+		fbo = Device().CreateFramebuffer();
 
 		isBinded = false;
 
@@ -123,7 +114,7 @@ namespace p3d {
 		if (FBOInitialized == true)
 		{
 			// destroy fbo and rbo
-			GLCHECKER(glDeleteFramebuffers(1, (GLuint*)&fbo));
+			Device().DestroyFramebuffer(fbo);
 
 			// flag FBO Stoped
 			FBOInitialized = false;
@@ -132,7 +123,7 @@ namespace p3d {
 		// flag FBO Initialized
 		FBOInitialized = true;
 
-		GLCHECKER(glGenFramebuffers(1, (GLuint*)&fbo));
+		fbo = Device().CreateFramebuffer();
 
 		isBinded = false;
 
@@ -142,9 +133,9 @@ namespace p3d {
 	}
 	void FrameBuffer::CheckFBOStatus()
 	{
-		switch (glCheckFramebufferStatus(GL_FRAMEBUFFER))
+		switch (Device().TranslateFramebufferStatus(Device().CheckFramebufferStatus()))
 		{
-		case GL_FRAMEBUFFER_COMPLETE:
+		case FBOStatus::Complete:
 		{
 
 #ifdef _DEBUG
@@ -152,29 +143,27 @@ namespace p3d {
 #endif
 			break;
 		}
-		case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+		case FBOStatus::IncompleteAttachment:
 		{
-			echo("FBO: One or more attachment points are not framebuffer attachment complete. This could mean theres no texture attached or the format isnt renderable. For color textures this means the base format must be RGB or RGBA and for depth textures it must be a DEPTH_COMPONENT format. Other causes of this error are that the width or height is zero or the z-offset is out of range in case of render to volume.");
+			echo("FBO: One or more attachment points are not framebuffer attachment complete. This could mean theres no texture attached or the format isnt renderable. For color textures this means the base format must be RGB or RGBA and for depth textures it must be a DEPTH_COMPONENT format. Other causes of this error are that the width or height is zero or the z-offset is out of range in case of render to volume.");
 			break;
 		}
-		case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+		case FBOStatus::IncompleteMissingAttachment:
 		{
 			echo("FBO: There are no attachments.");
 			break;
 		}
-#if !defined(GLES2) && !defined(GLES3)
-		case GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER:
+		case FBOStatus::IncompleteDrawBuffer:
 		{
 			echo("FBO: An attachment point referenced by GL.DrawBuffers() doesn't have an attachment.");
 			break;
 		}
-		case GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER:
+		case FBOStatus::IncompleteReadBuffer:
 		{
 			echo("FBO: The attachment point referenced by GL.ReadBuffers() doesn't have an attachment.");
 			break;
 		}
-#endif
-		case GL_FRAMEBUFFER_UNSUPPORTED:
+		case FBOStatus::Unsupported:
 		{
 			echo("FBO: This particular FBO configuration is not supported by the implementation.");
 			break;
@@ -196,135 +185,55 @@ namespace p3d {
 		attach->TextureType = TextureType;
 
 		// Get Attatchment Format
-		switch (attach->AttachmentFormatInternal)
-		{
-		case FrameBufferAttachmentFormat::Color_Attachment0:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT0;
-			break;
-#if !defined(GLES2)
-		case FrameBufferAttachmentFormat::Color_Attachment1:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT1;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment2:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT2;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment3:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT3;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment4:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT4;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment5:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT5;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment6:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT6;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment7:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT7;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment8:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT8;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment9:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT9;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment10:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT10;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment11:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT11;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment12:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT12;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment13:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT13;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment14:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT14;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment15:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT15;
-			break;
-#endif
-		case FrameBufferAttachmentFormat::Depth_Attachment:
-			attach->AttachmentFormat = GL_DEPTH_ATTACHMENT;
-			break;
-		case FrameBufferAttachmentFormat::Stencil_Attachment:
-			attach->AttachmentFormat = GL_STENCIL_ATTACHMENT;
-			break;
-		};
+		attach->AttachmentFormat = Device().TranslateFramebufferAttachment(attach->AttachmentFormatInternal);
 
 		if (attach->AttachmentFormatInternal >= FrameBufferAttachmentFormat::Color_Attachment0 && attachmentFormat <= FrameBufferAttachmentFormat::Color_Attachment15 && !drawBuffers)
 			drawBuffers = true;
 
-		switch (TextureType)
-		{
-		case TextureType::CubemapNegative_X:
-			attach->TextureType = GL_TEXTURE_CUBE_MAP_NEGATIVE_X;
-			break;
-		case TextureType::CubemapNegative_Y:
-			attach->TextureType = GL_TEXTURE_CUBE_MAP_NEGATIVE_Y;
-			break;
-		case TextureType::CubemapNegative_Z:
-			attach->TextureType = GL_TEXTURE_CUBE_MAP_NEGATIVE_Z;
-			break;
-		case TextureType::CubemapPositive_X:
-			attach->TextureType = GL_TEXTURE_CUBE_MAP_POSITIVE_X;
-			break;
-		case TextureType::CubemapPositive_Y:
-			attach->TextureType = GL_TEXTURE_CUBE_MAP_POSITIVE_Y;
-			break;
-		case TextureType::CubemapPositive_Z:
-			attach->TextureType = GL_TEXTURE_CUBE_MAP_POSITIVE_Z;
-			break;
-#if !defined(GLES2) && !defined(GLES3)
-		case TextureType::Texture_Multisample:
-			attach->TextureType = GL_TEXTURE_2D_MULTISAMPLE;
-			break;
-#endif
-		case TextureType::Texture:
-		default:
-			attach->TextureType = GL_TEXTURE_2D;
-			break;
-		}
+		// TextureType translation reuses the same GL_TEXTURE_CUBE_MAP_*/
+		// GL_TEXTURE_2D/GL_TEXTURE_2D_MULTISAMPLE table as Texture::GetGLModes()
+		// (TranslateTextureTarget's `mode` output); `subMode` is discarded
+		// since a framebuffer attachment target is always the specific
+		// face/2D target, never the GL_TEXTURE_CUBE_MAP "family" token.
+		uint32 unusedSubMode;
+		Device().TranslateTextureTarget(TextureType, attach->TextureType, unusedSubMode);
 
 		AddAttachToVector(attach);
 
+		bool wasAlreadyBound = isBinded;
 		if (!isBinded)
-			GLCHECKER(glBindFramebuffer(GL_FRAMEBUFFER, fbo));
+			Device().BindFramebuffer(Device().TranslateFramebufferAccess(FBOAccess::Read_Write), fbo, false);
 
 		// Add Attach
-		GLCHECKER(glFramebufferTexture2D(GL_FRAMEBUFFER, attach->AttachmentFormat, attach->TextureType, attach->TexturePTR->GetBindID(), 0));
+		Device().AttachFramebufferTexture2D(attach->AttachmentFormat, attach->TextureType, attach->TexturePTR->GetBindID(), wasAlreadyBound);
 
-#if !defined(GLES2) && !defined(GLES3)
+#if !defined(GLES3)
 
 		if (!drawBuffers)
 		{
-			GLCHECKER(glDrawBuffer(GL_NONE));
-			GLCHECKER(glReadBuffer(GL_NONE));
+			Device().SetDrawBufferNone();
+			Device().SetReadBufferNone();
 		}
 
 		if (attachments.size() > 0 && drawBuffers)
 		{
-			std::vector<GLenum> BufferIDs;
+			std::vector<uint32> ColorAttachmentIndices;
 			uint32 counter = 0;
 			for (std::vector<FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
 			{
 				if ((*i)->AttachmentFormatInternal >= FrameBufferAttachmentFormat::Color_Attachment0 && (*i)->AttachmentFormatInternal <= FrameBufferAttachmentFormat::Color_Attachment15) {
-					BufferIDs.push_back(GL_COLOR_ATTACHMENT0 + counter++);
+					ColorAttachmentIndices.push_back(counter++);
 				}
 			}
 
-			GLCHECKER(glDrawBuffers(BufferIDs.size(), &BufferIDs[0]));
+			Device().SetDrawBuffers(ColorAttachmentIndices);
 		}
 #endif
 
 		CheckFBOStatus();
 
 		if (!isBinded)
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			Device().BindFramebuffer(Device().TranslateFramebufferAccess(FBOAccess::Read_Write), 0, false);
 	}
 	void FrameBuffer::AddAttach(const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height, const uint32 msaa)
 	{
@@ -338,71 +247,13 @@ namespace p3d {
 		attach->DataType = attachmentDataType;
 
 		if (!isBinded)
-			GLCHECKER(glBindFramebuffer(GL_FRAMEBUFFER, fbo));
+			Device().BindFramebuffer(Device().TranslateFramebufferAccess(FBOAccess::Read_Write), fbo, false);
 
-		GLCHECKER(glGenRenderbuffers(1, (GLuint*)&attach->rboID));
-		GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, attach->rboID));
+		attach->rboID = Device().CreateRenderbuffer();
+		Device().BindRenderbuffer(attach->rboID);
 
 		// Get Attatchment Format
-		switch (attach->AttachmentFormatInternal)
-		{
-		case FrameBufferAttachmentFormat::Color_Attachment0:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT0;
-			break;
-#if !defined(GLES2)
-		case FrameBufferAttachmentFormat::Color_Attachment1:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT1;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment2:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT2;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment3:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT3;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment4:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT4;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment5:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT5;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment6:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT6;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment7:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT7;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment8:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT8;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment9:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT9;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment10:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT10;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment11:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT11;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment12:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT12;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment13:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT13;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment14:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT14;
-			break;
-		case FrameBufferAttachmentFormat::Color_Attachment15:
-			attach->AttachmentFormat = GL_COLOR_ATTACHMENT15;
-			break;
-#endif
-		case FrameBufferAttachmentFormat::Depth_Attachment:
-			attach->AttachmentFormat = GL_DEPTH_ATTACHMENT;
-			break;
-		case FrameBufferAttachmentFormat::Stencil_Attachment:
-			attach->AttachmentFormat = GL_STENCIL_ATTACHMENT;
-			break;
-		};
+		attach->AttachmentFormat = Device().TranslateFramebufferAttachment(attach->AttachmentFormatInternal);
 
 		AddAttachToVector(attach);
 
@@ -412,27 +263,19 @@ namespace p3d {
 		{
 		case RenderBufferDataType::Depth:
 		case RenderBufferDataType::Depth_Multisample:
-#if defined(GLES2) || defined(GLES3)
-			attach->DataType = GL_DEPTH_COMPONENT16;
-#else
-			attach->DataType = GL_DEPTH_COMPONENT;
-#endif
+			attach->DataType = Device().TranslateRenderbufferFormat(dataType);
 
-#if !defined (GLES2)
 			// Add RenderBuffer
 			if (dataType == RenderBufferDataType::Depth)
 			{
-				GLCHECKER(glRenderbufferStorage(GL_RENDERBUFFER, attach->DataType, attach->Width, attach->Height));
+				Device().RenderbufferStorage(attach->DataType, attach->Width, attach->Height);
 			}
 			else {
-				GLCHECKER(glRenderbufferStorageMultisample(GL_RENDERBUFFER, msaa, attach->DataType, attach->Width, attach->Height));
+				Device().RenderbufferStorageMultisample(attach->DataType, msaa, attach->Width, attach->Height);
 			}
-#else
-			GLCHECKER(glRenderbufferStorage(GL_RENDERBUFFER, attach->DataType, attach->Width, attach->Height));
-#endif
 			// Same code for both types
-			GLCHECKER(glFramebufferRenderbuffer(GL_FRAMEBUFFER, attach->AttachmentFormat, GL_RENDERBUFFER, attach->rboID));
-			GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, 0));
+			Device().AttachFramebufferRenderbuffer(attach->AttachmentFormat, attach->rboID);
+			Device().BindRenderbuffer(0);
 
 			break;
 			// case RenderBufferDataType::Stencil:
@@ -441,54 +284,50 @@ namespace p3d {
 		case RenderBufferDataType::RGBA:
 		case RenderBufferDataType::RGBA_Multisample:
 		default:
-			attach->DataType = GL_RGBA;
+			attach->DataType = Device().TranslateRenderbufferFormat(dataType);
 
-#if !defined (GLES2)
 			// Add RenderBuffer
 			if (dataType == RenderBufferDataType::RGBA)
 			{
-				GLCHECKER(glRenderbufferStorage(GL_RENDERBUFFER, attach->DataType, attach->Width, attach->Height));
+				Device().RenderbufferStorage(attach->DataType, attach->Width, attach->Height);
 			}
 			else {
-				GLCHECKER(glRenderbufferStorageMultisample(GL_RENDERBUFFER, msaa, attach->DataType, attach->Width, attach->Height));
+				Device().RenderbufferStorageMultisample(attach->DataType, msaa, attach->Width, attach->Height);
 			}
-#else
-			GLCHECKER(glRenderbufferStorage(GL_RENDERBUFFER, attach->DataType, attach->Width, attach->Height));
-#endif
 			// Same code for both types
-			GLCHECKER(glFramebufferRenderbuffer(GL_FRAMEBUFFER, attach->AttachmentFormat, GL_RENDERBUFFER, attach->rboID));
-			GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, 0));
+			Device().AttachFramebufferRenderbuffer(attach->AttachmentFormat, attach->rboID);
+			Device().BindRenderbuffer(0);
 			break;
 		}
 
 		CheckFBOStatus();
 
-#if !defined(GLES2) && !defined(GLES3)
+#if !defined(GLES3)
 
 		if (!drawBuffers)
 		{
-			GLCHECKER(glDrawBuffer(GL_NONE));
-			GLCHECKER(glReadBuffer(GL_NONE));
+			Device().SetDrawBufferNone();
+			Device().SetReadBufferNone();
 		}
 
 		if (attachments.size() > 0 && drawBuffers)
 		{
-			std::vector<GLenum> BufferIDs;
+			std::vector<uint32> ColorAttachmentIndices;
 			uint32 counter = 0;
 			for (std::vector<FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
 			{
 				if ((*i)->AttachmentFormatInternal >= FrameBufferAttachmentFormat::Color_Attachment0 && (*i)->AttachmentFormatInternal <= FrameBufferAttachmentFormat::Color_Attachment15) {
-					BufferIDs.push_back(GL_COLOR_ATTACHMENT0 + counter++);
+					ColorAttachmentIndices.push_back(counter++);
 				}
 			}
 
-			GLCHECKER(glDrawBuffers(BufferIDs.size(), &BufferIDs[0]));
+			Device().SetDrawBuffers(ColorAttachmentIndices);
 		}
 
 #endif
 
 		if (!isBinded)
-			GLCHECKER(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+			Device().BindFramebuffer(Device().TranslateFramebufferAccess(FBOAccess::Read_Write), 0, false);
 	}
 	void FrameBuffer::AddAttachToVector(FBOAttachment* attach)
 	{
@@ -506,19 +345,17 @@ namespace p3d {
 	void FrameBuffer::Bind(const uint32 access)
 	{
 		// bind fbo
-		glAccessBinded = GL_FRAMEBUFFER;
+		glAccessBinded = Device().TranslateFramebufferAccess(FBOAccess::Read_Write);
 		switch (access)
 		{
-#if !defined(GLES2)
 		case FBOAccess::Read:
-			glAccessBinded = GL_READ_FRAMEBUFFER;
+			glAccessBinded = Device().TranslateFramebufferAccess(FBOAccess::Read);
 			break;
 		case FBOAccess::Write:
-			glAccessBinded = GL_DRAW_FRAMEBUFFER;
+			glAccessBinded = Device().TranslateFramebufferAccess(FBOAccess::Write);
 			break;
-#endif
 		default:
-			glAccessBinded = GL_FRAMEBUFFER;
+			glAccessBinded = Device().TranslateFramebufferAccess(FBOAccess::Read_Write);
 			break;
 		}
 
@@ -528,7 +365,7 @@ namespace p3d {
 		// Add to bound FBOs
 		BoundFBOs[accessBinded].push_back(this);
 
-		GLCHECKER(glBindFramebuffer(glAccessBinded, fbo));
+		Device().BindFramebuffer(glAccessBinded, fbo, true);
 		isBinded = true;
 	}
 	uint32 FrameBuffer::GetBindID()
@@ -538,15 +375,22 @@ namespace p3d {
 	void FrameBuffer::UnBind()
 	{
 		// unbind fbo
-		GLCHECKER(glBindFramebuffer(glAccessBinded, 0));
+		Device().BindFramebuffer(glAccessBinded, 0, true);
 
-#if !defined(GLES2) && !defined(GLES3)
+#if !defined(GLES3)
 		if (drawBuffers)
 		{
-			if (glAccessBinded == GL_DRAW_FRAMEBUFFER || glAccessBinded == GL_FRAMEBUFFER)
-				GLCHECKER(glDrawBuffer(GL_BACK));
-			if (glAccessBinded == GL_READ_BUFFER || glAccessBinded == GL_FRAMEBUFFER)
-				GLCHECKER(glReadBuffer(GL_BACK));
+			if (accessBinded == FBOAccess::Write || accessBinded == FBOAccess::Read_Write)
+				Device().SetDrawBufferBack();
+			// NOTE: preserves a pre-existing bug from before this device-seam
+			// migration - the original compared glAccessBinded against
+			// GL_READ_BUFFER (a glGet parameter enum, not a framebuffer-target
+			// enum like GL_READ_FRAMEBUFFER), so this half of the condition
+			// was always false. FBOAccess::Read-bound framebuffers never
+			// actually got their read buffer reset to GL_BACK here. Not
+			// fixed during this mechanical migration.
+			if (accessBinded == FBOAccess::Read_Write)
+				Device().SetReadBufferBack();
 		}
 #endif
 
@@ -560,15 +404,26 @@ namespace p3d {
 
 		isBinded = false;
 
-		// Bind next FBO
+		// Bind next FBO - restores whichever FrameBuffer (if any) was bound
+		// before this one at the same access level, instead of leaving the
+		// hardcoded 0-bind above as final. The extra `i--` this used to have
+		// (on top of the for-loop's own decrement) skipped the very next
+		// stack entry right after erasing this one - harmless for every
+		// existing single-level Bind()/UnBind() pair (nothing left to
+		// restore either way), but silently broken for real nesting (e.g. a
+		// shadow-casting light's shadow FBO Bind()/UnBind() happening inside
+		// PreRender(), itself called while a caller's own FBO - like
+		// PostEffectsManager's capture target - is already bound): the outer
+		// FBO was never found and rebound, so it landed on the swapchain
+		// instead once PreRender() returned. Found via EmberRush, the first
+		// scene to combine shadow-casting lights with PostEffectsManager.
 		for (int32 i = BoundFBOs[accessBinded].size()-1; i >= 0; i--)
 		{
 			if (BoundFBOs[accessBinded][i] == this) {
 				BoundFBOs[accessBinded].erase(BoundFBOs[accessBinded].begin() + i);
-				i--;
 			}
 			else {
-				GLCHECKER(glBindFramebuffer(BoundFBOs[accessBinded][i]->glAccessBinded, BoundFBOs[accessBinded][i]->fbo));
+				Device().BindFramebuffer(BoundFBOs[accessBinded][i]->glAccessBinded, BoundFBOs[accessBinded][i]->fbo, true);
 				break;
 			}
 		}
@@ -584,9 +439,9 @@ namespace p3d {
 		{
 			if ((*i)->AttachmentType == FBOAttachmentType::RenderBuffer)
 			{
-				GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, (*i)->rboID));
-				GLCHECKER(glRenderbufferStorage(GL_RENDERBUFFER, (*i)->DataType, Width, Height));
-				GLCHECKER(glBindRenderbuffer(GL_RENDERBUFFER, 0));
+				Device().BindRenderbuffer((*i)->rboID);
+				Device().RenderbufferStorage((*i)->DataType, Width, Height);
+				Device().BindRenderbuffer(0);
 			}
 			else
 			{

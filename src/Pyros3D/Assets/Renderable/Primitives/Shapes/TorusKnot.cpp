@@ -19,6 +19,9 @@ namespace p3d {
 		this->p = p;
 		this->q = q;
 		this->heightScale = (f32)heightscale;
+		this->tube = tube;
+		this->segmentsW = segmentsW;
+		this->segmentsH = segmentsH;
 
 		Vec3 normal;
 

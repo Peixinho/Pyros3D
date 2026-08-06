@@ -15,6 +15,10 @@
 #if defined(_SDL)
 #include "../WindowManagers/SDL/SDLContext.h"
 #define ClassName SDLContext
+#elif defined(_SDL2VULKAN)
+#include "../WindowManagers/SDL2Vulkan/SDL2VulkanContext.h"
+#define ClassName SDL2VulkanContext
+#include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
 #elif defined(_SDL2)
 #include "../WindowManagers/SDL2/SDL2Context.h"
 #define ClassName SDL2Context
@@ -30,11 +34,14 @@
 #include <Pyros3D/Utils/Colors/Colors.h>
 #include <Pyros3D/Utils/DeltaTime/DeltaTime.h>
 #include <Pyros3D/Utils/FPS/FPS.h>
+#include <memory>
 
-// ImGui includes
-#include "../imgui/imgui.h"
-#include "../imgui/backends/imgui_impl_sdl2.h"
-#include "../imgui/backends/imgui_impl_opengl3.h"
+// ImGui includes - resolved via the IMGUI_INCLUDE_DIRS include path (see
+// root CMakeLists.txt), not a relative path - ImGui core now lives at
+// src/Pyros3D/Ext/imgui (engine-owned), not examples/imgui.
+#include "imgui.h"
+#include "imgui_impl_sdl2.h"
+#include "imgui_impl_opengl3.h"
 
 using namespace p3d;
 
@@ -60,10 +67,10 @@ protected:
 	// Projection
 	Projection projection;
 	// Camera - Its a regular GameObject
-	GameObject* FPSCamera;
+	std::shared_ptr<GameObject> FPSCamera;
 	// Light
-	GameObject* Light;
-	DirectionalLight* dLight;
+	std::shared_ptr<GameObject> Light;
+	std::shared_ptr<DirectionalLight> dLight;
 
 	// ImGui support
 	bool imguiInitialized;
@@ -73,6 +80,10 @@ protected:
 	void InitImGui();
 	void ShutdownImGui();
 	void BeginImGuiFrame();
+	// Begin+DrawUI+Render - call before Renderer->RenderScene() for a
+	// subclass that wants real Vulkan ImGui (paired with EndImGuiFrame()
+	// after). See its .cpp definition's comment.
+	void PrepareImGuiFrame();
 	void EndImGuiFrame();
 	void RenderImGui();
 	void DrawBaseUI(); // Base UI with FPS and mouse controls
@@ -95,10 +106,19 @@ protected:
 	void LookTo(Event::Input::Info e);
 	void Exit(Event::Input::Info e);
 
+	// FPS look yaw (counterX) / pitch (counterY) in degrees. Protected so
+	// demos that mirror the camera (Island water reflection) can use the
+	// same angles the mouse look wrote, instead of GetRotation() Euler
+	// which swims after quaternion→euler round-trips.
+	float counterX, counterY;
+
 private:
 
-	float counterX, counterY;
 	Vec2 mouseCenter, mouseLastPosition, mousePosition;
+	// Set by OnResize() after it recenters the cursor; makes LookTo()
+	// resync its reference point instead of turning the resulting jump
+	// into camera rotation - see both call sites' comments.
+	bool ignoreNextMouseDelta;
 	bool _moveFront, _moveBack, _strafeLeft, _strafeRight;
 	float lastTime;
 };

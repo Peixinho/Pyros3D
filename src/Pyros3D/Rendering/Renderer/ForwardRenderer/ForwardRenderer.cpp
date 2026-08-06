@@ -10,7 +10,7 @@
 #include <Pyros3D/Other/PyrosGL.h>
 namespace p3d {
 
-	ForwardRenderer::ForwardRenderer(const uint32 Width, const uint32 Height) : IRenderer(Width, Height)
+	ForwardRenderer::ForwardRenderer(const uint32 Width, const uint32 Height, IRenderDevice* externalDevice) : IRenderer(Width, Height, externalDevice)
 	{
 		echo("SUCCESS: Forward Renderer Created");
 
@@ -25,7 +25,6 @@ namespace p3d {
 
 	void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
 	{
-
 		InitRender();
 
 		// Prepare and Pack Lights to Send to Shaders
@@ -44,7 +43,7 @@ namespace p3d {
 					DirectionalLight* d = ((DirectionalLight*)(*i));
 
 					// Directional Lights
-					Vec4 color = d->GetLightColor();
+					Vec4 color = d->GetLightRadiance();
 					Vec3 position;
 					Vec3 direction = (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize();
 					f32 attenuation = 1.f;
@@ -72,7 +71,7 @@ namespace p3d {
 					PointLight* p = ((PointLight*)(*i));
 
 					// Point Lights
-					Vec4 color = p->GetLightColor();
+					Vec4 color = p->GetLightRadiance();
 					Vec3 position = (p->GetOwner()->GetWorldPosition());
 					Vec3 direction;
 					f32 attenuation = p->GetLightRadius();
@@ -101,7 +100,7 @@ namespace p3d {
 					SpotLight* s = ((SpotLight*)(*i));
 
 					// Spot Lights
-					Vec4 color = s->GetLightColor();
+					Vec4 color = s->GetLightRadiance();
 					Vec3 position = s->GetOwner()->GetWorldPosition();
 					Vec3 direction = (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.f)).xyz().normalize();
 					f32 attenuation = s->GetLightRadius();
@@ -177,12 +176,46 @@ namespace p3d {
 		// Scissor Test
 		StartScissorTest();
 
-		EndClippingPlanes();
+		// Enable user clip distances when ClipPlane is active (Island water
+		// reflection/refraction). Was incorrectly EndClippingPlanes() here,
+		// which disabled them before any draw.
+		StartClippingPlanes();
 
 		// Draw Background
 		DrawBackground();
 
-		// Clear Screen
+		// Real per-frame boundary - see the comment on
+		// IRenderDevice::BeginFrame()/EndFrame(). No-op on GL; on Vulkan
+		// this is the actual swapchain acquire + render pass begin (which
+		// bakes in the clear DrawBackground() just configured via
+		// SetClearColor() - must run after it, not before), paired with
+		// EndFrame()'s submit + present at the end of this function.
+		// Deliberately placed here (this function, called once per frame
+		// by every example) and not inside the shared
+		// IRenderer::EndRender()/PreRender(), which also run for a shadow
+		// sub-pass that has no swapchain-framebuffer target at all - see
+		// the interface comment for why that's out of scope for now.
+		//
+		// Gated on GetCurrentRenderTarget()==0 (the swapchain, not some
+		// caller-bound offscreen FBO) - some examples (IslandDemo's water
+		// reflection/refraction) call RenderScene() *multiple* times per
+		// real frame, each wrapped in their own FrameBuffer::Bind()/UnBind()
+		// around an offscreen render target. Calling BeginFrame()
+		// unconditionally here (as before this check existed) would
+		// acquire/begin the *swapchain*'s own frame on every one of those
+		// calls too, hijacking activeCommandBuffer away from the offscreen
+		// command buffer FrameBuffer::Bind() had just correctly set up -
+		// found via a live regression (VUID-vkCmdDrawIndexed-renderPass-02684:
+		// a pipeline correctly built against the reflection FBO's render
+		// pass, but the actual draw landing in the swapchain's) once
+		// color-attachment FBOs started working at all, exposing a call
+		// pattern that was never reachable before.
+		bool isMainSwapchainPass = device->GetCurrentRenderTarget() == 0;
+		if (isMainSwapchainPass)
+			device->BeginFrame();
+
+		// Clear Screen - a no-op on Vulkan (BeginFrame() above already
+		// cleared via the render pass's LOAD_OP_CLEAR).
 		ClearScreen();
 
 		// Render Scene with Objects Material
@@ -239,7 +272,7 @@ namespace p3d {
 					});
 
 					NumberOfLights = Lights.size();
-					RenderObject((*i), (*i)->renderingComponent->GetOwner(), (*i)->Material);
+					RenderObject((*i), (*i)->renderingComponent->GetOwner(), (*i)->Material.get());
 				}
 			}
 		}
@@ -252,5 +285,9 @@ namespace p3d {
 
 		// End Rendering
 		EndRender();
+
+		// See the comment on BeginFrame() above.
+		if (isMainSwapchainPass)
+			device->EndFrame();
 	}
 };

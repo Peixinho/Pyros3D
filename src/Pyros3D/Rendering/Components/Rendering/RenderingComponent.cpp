@@ -7,25 +7,36 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
-#include <Pyros3D/Other/PyrosGL.h>
+#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 
 namespace p3d {
+
+	// Every RenderingMesh shares whichever backend is currently active
+	// (see GetActiveRenderDevice() in IRenderDevice.h) - same pattern as
+	// GeometryBuffer.cpp/Shaders.cpp. Texture.cpp/FrameBuffer.cpp still
+	// hardcode GLRenderDevice directly (not part of RotatingCube's
+	// Vulkan-validation path - see VULKAN_ROADMAP.md Phase 5 Step D).
+	static IRenderDevice& Device()
+	{
+		return GetActiveRenderDevice();
+	}
 
 	// Initialize Rendering Components vector
 	std::vector<IComponent*> RenderingComponent::Components;
 
 	RenderingMesh::~RenderingMesh()
 	{
-#ifndef GLES2
 		for (std::map<uint32, uint32>::iterator i = VAOCache.begin(); i != VAOCache.end(); i++)
 		{
-			GLuint vao = i->second;
-			GLCHECKER(glDeleteVertexArrays(1, &vao));
+			Device().DeleteVertexArray(i->second);
 		}
-#endif
+		for (std::map<uint64, uint32>::iterator i = PipelineCache.begin(); i != PipelineCache.end(); i++)
+		{
+			Device().DestroyPipeline(i->second);
+		}
 	}
 
-	RenderingComponent::RenderingComponent(Renderable* renderable, IMaterial* Material, const f32 Distance) : IComponent()
+	RenderingComponent::RenderingComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, const f32 Distance) : IComponent()
 	{
 		// Keep renderable pointer
 		this->renderable = renderable;
@@ -84,7 +95,7 @@ namespace p3d {
 
 	}
 
-	RenderingComponent::RenderingComponent(Renderable* renderable, const uint32 MaterialOptions, const f32 Distance) : IComponent()
+	RenderingComponent::RenderingComponent(const std::shared_ptr<Renderable> &renderable, const uint32 MaterialOptions, const f32 Distance) : IComponent()
 	{
 
 		isInstanced = false;
@@ -137,7 +148,7 @@ namespace p3d {
 		
 	}
 
-	void RenderingComponent::AddLOD(Renderable* renderable, const f32 Distance, IMaterial* Material)
+	void RenderingComponent::AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const std::shared_ptr<IMaterial> &Material)
 	{
 		isInstanced = false;
 
@@ -168,7 +179,7 @@ namespace p3d {
 		LOD = true;
 	}
 
-	void RenderingComponent::AddLOD(Renderable* renderable, const f32 Distance, const uint32 MaterialOptions)
+	void RenderingComponent::AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const uint32 MaterialOptions)
 	{
 		isInstanced = false;
 

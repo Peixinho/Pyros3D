@@ -8,9 +8,22 @@
 
 #include <Pyros3D/Materials/Shaders/Shaders.h>
 #include <stdlib.h>
-#include <Pyros3D/Other/PyrosGL.h>
+#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 
 namespace p3d {
+
+	// Every Shader shares whichever backend is currently active (see
+	// GetActiveRenderDevice() in IRenderDevice.h) rather than each Shader
+	// needing an injected IRenderDevice* - avoids plumbing one through
+	// every call site that constructs a Shader or calls its static
+	// GetUniformLocation/GetAttributeLocation/SendUniform methods, while
+	// still respecting the actual backend in use (GL vs Vulkan), unlike
+	// the file-local `static GLRenderDevice instance` this used to
+	// hardcode - same pattern as GeometryBuffer.cpp.
+	static IRenderDevice& Device()
+	{
+		return GetActiveRenderDevice();
+	}
 
 	Shader::Shader()
 	{
@@ -53,7 +66,7 @@ namespace p3d {
 					std::string fileToInclude = line.substr(line.find_first_of("'")+1, line.find_last_of("'")-(line.find_first_of("'")+1));
 					shaderSource+=LoadFileSource(fileToInclude.c_str());
 					continue;
-				} 
+				}
 				if (line.find_first_of("\"")!=std::string::npos)
 				{
 					std::string fileToInclude = line.substr(line.find_first_of("\"")+1, line.find_last_of("\"")-(line.find_first_of("\"")+1));
@@ -81,93 +94,58 @@ namespace p3d {
 
 	bool Shader::CompileShader(const uint32 type, std::string definitions, std::string *output)
 	{
-		std::string LOG;
 		std::string shaderType;
 		uint32 shader;
 		switch (type) {
 		case ShaderType::VertexShader:
-			vertexID = shader = glCreateShader(GL_VERTEX_SHADER);
+			vertexID = shader = Device().CreateShaderStage(ShaderType::VertexShader);
 			shaderType = "Vertex Shader";
 			break;
 		case ShaderType::FragmentShader:
-			fragmentID = shader = glCreateShader(GL_FRAGMENT_SHADER);
+			fragmentID = shader = Device().CreateShaderStage(ShaderType::FragmentShader);
 			shaderType = "Fragment Shader";
 			break;
 		case ShaderType::GeometryShader:
-			//geometryID = shader = glCreateShader(GL_GEOMETRY_SHADER);
+			//geometryID = shader = Device().CreateShaderStage(ShaderType::GeometryShader);
 			shaderType = "Geometry Shader";
 			break;
 		}
 
-		#if defined(GLES2)
-			std::string finalShaderString = (std::string("#version 100\n#define GLES2\n") + definitions + std::string(" ") + shaderString);
-		#elif defined(GLES3)
-			std::string finalShaderString = (std::string("#version 300 es\n#define GLES3\n") + definitions + std::string(" ") + shaderString);
-		#elif defined(GL42)
-			std::string finalShaderString = (std::string("#version 420\n") + definitions + std::string(" ") + shaderString);
-		#elif defined(GL41)
-			std::string finalShaderString = (std::string("#version 410\n") + definitions + std::string(" ") + shaderString);
-		#else
-			std::string finalShaderString = (std::string("#version 450\n") + definitions + std::string(" ") + shaderString);
-		#endif
+		std::string finalShaderString = Device().BuildShaderSource(definitions, shaderString);
 
-		uint32 len = finalShaderString.length();
-		
-		// batatas because is a good example :P
-		const char *batatas = finalShaderString.c_str();
-
-		GLCHECKER(glShaderSource(shader, 1, (const GLchar**)&batatas, (const GLint *)&len));
-		GLCHECKER(glCompileShader(shader));
-
-		GLint result, length = 0;
-
-		GLCHECKER(glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length));
-		if (length > 1)
+		std::string LOG;
+		bool compiled = Device().CompileShaderStage(shader, finalShaderString, LOG);
+		if (!LOG.empty())
 		{
-			char* log = (char*)malloc(length);
-			GLCHECKER(glGetShaderInfoLog(shader, length, &result, log));
-			GLCHECKER(glGetShaderiv(shader, GL_COMPILE_STATUS, &result));
-			LOG = std::string(log);
-			echo(std::string(shaderType.c_str() + std::string((result == GL_FALSE ? " COMPILATION ERROR:" + LOG : ": " + LOG))));
+			echo(std::string(shaderType.c_str() + std::string((!compiled ? " COMPILATION ERROR:" + LOG : ": " + LOG))));
 
 			if (output != NULL)
 				*output = LOG;
 
-			if (result == GL_FALSE) {
+			if (!compiled) {
 				echo(finalShaderString);
 				return false;
 			}
 		}
 		if (shaderProgram == 0)
-			shaderProgram = (uint32)glCreateProgram();
+			shaderProgram = Device().CreateProgram();
 
 		// Attach shader
-		GLCHECKER(glAttachShader(shaderProgram, shader));
+		Device().AttachShaderStage(shaderProgram, shader);
 
 		return true;
 	}
 	bool Shader::LinkProgram(std::string *output) const
 	{
-		// Link Program
-		GLCHECKER(glLinkProgram(shaderProgram));
-
-		GLint result, length = 0;
 		std::string LOG;
-
-		// Get Linkage error
-		GLCHECKER(glGetProgramiv(shaderProgram, GL_LINK_STATUS, &result));
-		if (result == GL_FALSE)
+		bool linked = Device().LinkProgram(shaderProgram, LOG);
+		if (!linked)
 		{
-			GLCHECKER(glGetProgramiv(shaderProgram, GL_INFO_LOG_LENGTH, &length));
-			char* log = (char*)malloc(length);
-			GLCHECKER(glGetProgramInfoLog(shaderProgram, length, &result, log));
-			LOG = std::string(log);
 			echo(std::string(std::string("SHADER PROGRAM LINK ERROR: ") + LOG));
 
 			if (output != NULL)
 				*output = LOG;
 
-			free(log);
 			return false;
 		}
 
@@ -180,28 +158,28 @@ namespace p3d {
 
 	void Shader::DeleteShader()
 	{
-		if (glIsProgram(shaderProgram)) {
-			if (glIsShader(vertexID)) {
-				GLCHECKER(glDetachShader(shaderProgram, vertexID));
-				GLCHECKER(glDeleteShader(vertexID));
+		if (Device().IsProgram(shaderProgram)) {
+			if (Device().IsShaderStage(vertexID)) {
+				Device().DetachShaderStage(shaderProgram, vertexID);
+				Device().DeleteShaderStage(vertexID);
 				//            std::cout << "Shader Destroyed: " << shader << std::endl;
 			}
-			if (glIsShader(fragmentID)) {
-				GLCHECKER(glDetachShader(shaderProgram, fragmentID));
-				GLCHECKER(glDeleteShader(fragmentID));
+			if (Device().IsShaderStage(fragmentID)) {
+				Device().DetachShaderStage(shaderProgram, fragmentID);
+				Device().DeleteShaderStage(fragmentID);
 				//            std::cout << "Shader Destroyed: " << shader << std::endl;
 			}
-			//if (glIsShader(geometryID)) {
-			//	glDetachShader(shaderProgram, geometryID);
-			//	glDeleteShader(geometryID);
+			//if (Device().IsShaderStage(geometryID)) {
+			//	Device().DetachShaderStage(shaderProgram, geometryID);
+			//	Device().DeleteShaderStage(geometryID);
    // //            std::cout << "Shader Destroyed: " << shader << std::endl;
    //         }
 	//        else std::cout << "Shader Not Found: " << shader << std::endl;
 		}
 		//    else std::cout << "Shader Program Object Not Found: " << shaderProgram << std::endl;
 
-		if (glIsProgram(shaderProgram)) {
-			GLCHECKER(glDeleteProgram(shaderProgram));
+		if (Device().IsProgram(shaderProgram)) {
+			Device().DeleteProgram(shaderProgram);
 			//      std::cout << "Shader Program Destroyed: " << *shaderProgram << std::endl;
 			shaderProgram = 0;
 		}
@@ -210,10 +188,10 @@ namespace p3d {
 
 	// Get positions
 	const int32 Shader::GetUniformLocation(const uint32 program, const std::string &name) {
-		return glGetUniformLocation(program, name.c_str());
+		return Device().GetUniformLocation(program, name);
 	}
 	const int32 Shader::GetAttributeLocation(const uint32 program, const std::string &name) {
-		return glGetAttribLocation(program, name.c_str());
+		return Device().GetAttributeLocation(program, name);
 	}
 
 	void Shader::SendUniform(const Uniform &uniform, const int32 Handle)
@@ -222,35 +200,23 @@ namespace p3d {
 			switch (uniform.Type)
 			{
 			case Uniforms::DataType::Int:
-			{
-				GLCHECKER(glUniform1iv(Handle, uniform.ElementCount, (GLint*)&uniform.Value[0]));
+				Device().SendUniformInt(Handle, (const int32*)&uniform.Value[0], uniform.ElementCount);
 				break;
-			}
 			case Uniforms::DataType::Float:
-			{
-				GLCHECKER(glUniform1fv(Handle, uniform.ElementCount, (f32*)&uniform.Value[0]));
+				Device().SendUniformFloat(Handle, (const f32*)&uniform.Value[0], uniform.ElementCount);
 				break;
-			}
 			case Uniforms::DataType::Vec2:
-			{
-				GLCHECKER(glUniform2fv(Handle, uniform.ElementCount, (f32*)&uniform.Value[0]));
+				Device().SendUniformVec2(Handle, (const f32*)&uniform.Value[0], uniform.ElementCount);
 				break;
-			}
 			case Uniforms::DataType::Vec3:
-			{
-				GLCHECKER(glUniform3fv(Handle, uniform.ElementCount, (f32*)&uniform.Value[0]));
+				Device().SendUniformVec3(Handle, (const f32*)&uniform.Value[0], uniform.ElementCount);
 				break;
-			}
 			case Uniforms::DataType::Vec4:
-			{
-				GLCHECKER(glUniform4fv(Handle, uniform.ElementCount, (f32*)&uniform.Value[0]));
+				Device().SendUniformVec4(Handle, (const f32*)&uniform.Value[0], uniform.ElementCount);
 				break;
-			}
 			case Uniforms::DataType::Matrix:
-			{
-				GLCHECKER(glUniformMatrix4fv(Handle, uniform.ElementCount, false, (f32*)&uniform.Value[0]));
+				Device().SendUniformMatrix(Handle, (const f32*)&uniform.Value[0], uniform.ElementCount);
 				break;
-			}
 			}
 	}
 
@@ -261,35 +227,23 @@ namespace p3d {
 			switch (uniform.Type)
 			{
 			case Uniforms::DataType::Int:
-			{
-				GLCHECKER(glUniform1iv(Handle, elementCount, (GLint*)((int32*)data)));
+				Device().SendUniformInt(Handle, (const int32*)data, elementCount);
 				break;
-			}
 			case Uniforms::DataType::Float:
-			{
-				GLCHECKER(glUniform1fv(Handle, elementCount, (f32*)data));
+				Device().SendUniformFloat(Handle, (const f32*)data, elementCount);
 				break;
-			}
 			case Uniforms::DataType::Vec2:
-			{
-				GLCHECKER(glUniform2fv(Handle, elementCount, (f32*)data));
+				Device().SendUniformVec2(Handle, (const f32*)data, elementCount);
 				break;
-			}
 			case Uniforms::DataType::Vec3:
-			{
-				GLCHECKER(glUniform3fv(Handle, elementCount, (f32*)data));
+				Device().SendUniformVec3(Handle, (const f32*)data, elementCount);
 				break;
-			}
 			case Uniforms::DataType::Vec4:
-			{
-				GLCHECKER(glUniform4fv(Handle, elementCount, (f32*)data));
+				Device().SendUniformVec4(Handle, (const f32*)data, elementCount);
 				break;
-			}
 			case Uniforms::DataType::Matrix:
-			{
-				GLCHECKER(glUniformMatrix4fv(Handle, elementCount, false, (f32*)data));
+				Device().SendUniformMatrix(Handle, (const f32*)data, elementCount);
 				break;
-			}
 			}
 		}
 	}

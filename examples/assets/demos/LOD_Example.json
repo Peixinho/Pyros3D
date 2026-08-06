@@ -1,0 +1,67 @@
+{
+    "version": 1,
+    "materials": [],
+    "roots": [
+        {
+            "name": "Camera",
+            "tags": [
+                "Camera"
+            ],
+            "position": [
+                0,
+                10,
+                80
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_fly.lua",
+                    "data": {
+                        "yaw": 0,
+                        "pitch": 0
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Setup",
+            "tags": [],
+            "position": [
+                0,
+                0,
+                0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/lod_spawn.lua",
+                    "data": {}
+                }
+            ]
+        }
+    ]
+}

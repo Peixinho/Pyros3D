@@ -18,6 +18,8 @@
 #include <Pyros3D/Physics/PhysicsEngines/BulletPhysics/DebugDraw/PhysicsDebugDraw.h>
 #include <Pyros3D/Other/Export.h>
 #include <memory>
+#include <set>
+#include <utility>
 
 namespace p3d {
 
@@ -43,6 +45,8 @@ namespace p3d {
 
 		virtual void RemovePhysicsComponent(IPhysicsComponent* pcomp);
 
+		virtual RayCastHit RayCast(const Vec3 &from, const Vec3 &to);
+
 		virtual void UpdateTransformations(IPhysicsComponent* pcomp);
 
 		btDiscreteDynamicsWorld* GetPhysicsWorld()
@@ -56,21 +60,26 @@ namespace p3d {
 		void SetAngularVelocity(IPhysicsComponent *pcomp, const Vec3 &velocity);
 		void SetLinearVelocity(IPhysicsComponent *pcomp, const Vec3 &velocity);
 		void Activate(IPhysicsComponent *pcomp);
+		Vec3 GetLinearVelocity(IPhysicsComponent *pcomp);
+		Vec3 GetAngularVelocity(IPhysicsComponent *pcomp);
+		void ApplyCentralForce(IPhysicsComponent *pcomp, const Vec3 &force);
+		void ApplyCentralImpulse(IPhysicsComponent *pcomp, const Vec3 &impulse);
+		void SetMass(IPhysicsComponent *pcomp, const f32 mass);
 
 		// Create Physics Components
-		virtual IPhysicsComponent* CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass, bool ghost = false);
-		virtual IPhysicsComponent* CreateCapsule(const f32 radius, const f32 height, const f32 mass, bool ghost = false);
-		virtual IPhysicsComponent* CreateCone(const f32 radius, const f32 height, const f32 mass, bool ghost = false);
-		virtual IPhysicsComponent* CreateConvexHull(const std::vector<Vec3> &points, const f32 mass, bool ghost = false);
-		virtual IPhysicsComponent* CreateConvexTriangleMesh(RenderingComponent* rcomp, const f32 mass, bool ghost = false);
-		virtual IPhysicsComponent* CreateConvexTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost = false);
-		virtual IPhysicsComponent* CreateCylinder(const f32 radius, const f32 height, const f32 mass, bool ghost = false);
-		virtual IPhysicsComponent* CreateMultipleSphere(const std::vector<Vec3> &positions, const std::vector<f32> &radius, const f32 mass, bool ghost = false);
-		virtual IPhysicsComponent* CreateSphere(const f32 radius, const f32 mass, bool ghost = false);
-		virtual IPhysicsComponent* CreateStaticPlane(const Vec3 &Normal, const f32 Constant, const f32 mass, bool ghost = false);
-		virtual IPhysicsComponent* CreateTriangleMesh(RenderingComponent* rcomp, const f32 mass, bool ghost = false);
-		virtual IPhysicsComponent* CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost = false);
-		virtual IPhysicsComponent* CreateVehicle(IPhysicsComponent* ChassisShape, bool ghost = false);
+		virtual std::shared_ptr<IPhysicsComponent> CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass, bool ghost = false);
+		virtual std::shared_ptr<IPhysicsComponent> CreateCapsule(const f32 radius, const f32 height, const f32 mass, bool ghost = false);
+		virtual std::shared_ptr<IPhysicsComponent> CreateCone(const f32 radius, const f32 height, const f32 mass, bool ghost = false);
+		virtual std::shared_ptr<IPhysicsComponent> CreateConvexHull(const std::vector<Vec3> &points, const f32 mass, bool ghost = false);
+		virtual std::shared_ptr<IPhysicsComponent> CreateConvexTriangleMesh(RenderingComponent* rcomp, const f32 mass, bool ghost = false);
+		virtual std::shared_ptr<IPhysicsComponent> CreateConvexTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost = false);
+		virtual std::shared_ptr<IPhysicsComponent> CreateCylinder(const f32 radius, const f32 height, const f32 mass, bool ghost = false);
+		virtual std::shared_ptr<IPhysicsComponent> CreateMultipleSphere(const std::vector<Vec3> &positions, const std::vector<f32> &radius, const f32 mass, bool ghost = false);
+		virtual std::shared_ptr<IPhysicsComponent> CreateSphere(const f32 radius, const f32 mass, bool ghost = false);
+		virtual std::shared_ptr<IPhysicsComponent> CreateStaticPlane(const Vec3 &Normal, const f32 Constant, const f32 mass, bool ghost = false);
+		virtual std::shared_ptr<IPhysicsComponent> CreateTriangleMesh(RenderingComponent* rcomp, const f32 mass, bool ghost = false);
+		virtual std::shared_ptr<IPhysicsComponent> CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost = false);
+		virtual std::shared_ptr<IPhysicsComponent> CreateVehicle(const std::shared_ptr<IPhysicsComponent> &ChassisShape, bool ghost = false);
 
 		// Vehicle Add Wheel
 		void AddWheel(IPhysicsComponent *pcomp, const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3 &Position, bool isFrontWheel);
@@ -95,6 +104,14 @@ namespace p3d {
 		void CreateGhostObject(btCollisionShape* shape, IPhysicsComponent* pcomp);
 
 		btCollisionShape* GetCollisionShape(IPhysicsComponent* pcomp);
+
+		// Real collision-notification scan - see IPhysicsComponent.h's
+		// OnCollisionEnter/OnCollisionExit comment. Run once per Update()
+		// after stepSimulation(), diffed against the previous step's set
+		// so enter/exit fire exactly once per real state change, not once
+		// per frame two bodies happen to still be touching.
+		void ProcessCollisionEvents();
+		std::set<std::pair<IPhysicsComponent*, IPhysicsComponent*> > m_touchingPairs;
 
 	protected:
 

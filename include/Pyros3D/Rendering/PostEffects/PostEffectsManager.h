@@ -39,6 +39,13 @@ namespace p3d {
 		void AddEffect(IEffect* Effect);
 		void RemoveEffect(IEffect* Effect);
 
+		// Bulk-clear: deletes every currently-added IEffect and empties
+		// the chain, without destroying the manager itself (unlike
+		// ~PostEffectsManager(), the only place that previously did
+		// this). For callers that rebuild the effect chain repeatedly
+		// against one long-lived PostEffectsManager instance.
+		void RemoveAllEffects();
+
 		const uint32 GetNumberEffects() const;
 
 		FrameBuffer* GetExternalFrameBuffer();
@@ -65,6 +72,18 @@ namespace p3d {
 
 		// Frame Buffers
 		FrameBuffer *ExternalFBO, *activeFBO;
+
+		// See IRenderDevice.h - same seam IRenderer uses, since
+		// PostEffectsManager's full-screen-quad pass has its own small GL
+		// call surface. MaybeOwningDevicePtr (not a plain
+		// unique_ptr<IRenderDevice>) so this can borrow the already-active
+		// device instead of always constructing its own GLRenderDevice -
+		// see IRenderDevice.h's comment on MaybeOwningDeviceDeleter/
+		// IsActiveRenderDeviceSet() (a hardcoded `new GLRenderDevice()`
+		// here crashed every PostEffectsManager-based Vulkan example the
+		// instant it made a real GL call, since no real GL context exists
+		// in a Vulkan-only process).
+		MaybeOwningDevicePtr device;
 	};
 
 };

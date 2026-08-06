@@ -64,6 +64,12 @@ namespace p3d {
 
 	Texture* TextureAnimation::GetFrame(const uint32 &frame)
 	{
+		return Frames[frame].get();
+	}
+
+	std::shared_ptr<Texture> TextureAnimation::GetFrameShared(const uint32 &frame)
+	{
+		if (frame >= Frames.size()) return nullptr;
 		return Frames[frame];
 	}
 
@@ -96,7 +102,13 @@ namespace p3d {
 
 	Texture* TextureAnimationInstance::GetTexture()
 	{
-		return Owner->Frames[_frame];
+		return Owner->Frames[_frame].get();
+	}
+
+	std::shared_ptr<Texture> TextureAnimationInstance::GetTextureShared()
+	{
+		if (!Owner || _frame < 0 || (uint32)_frame >= Owner->GetNumberFrames()) return nullptr;
+		return Owner->GetFrameShared((uint32)_frame);
 	}
 	const uint32 TextureAnimationInstance::GetFrame() const
 	{
@@ -107,7 +119,7 @@ namespace p3d {
 		yoyo = yo;
 	}
 
-	void TextureAnimation::AddFrame(Texture* texture)
+	void TextureAnimation::AddFrame(const std::shared_ptr<Texture> &texture)
 	{
 		Frames.push_back(texture);
 	}

@@ -1,0 +1,242 @@
+{
+    "materials": [
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.600000023841858,
+                0.600000023841858,
+                0.600000023841858,
+                1.0
+            ],
+            "colorMap": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/test_m.png",
+            "cullFace": 0,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.0500000007450581,
+            "id": 0,
+            "kind": "generic",
+            "metallic": 0.0,
+            "opacity": 1.0,
+            "options": 279075,
+            "reflectivity": 0.0,
+            "roughness": 0.0,
+            "shininess": 50.0,
+            "specular": [
+                0.899999976158142,
+                0.899999976158142,
+                0.899999976158142,
+                1.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        }
+    ],
+    "roots": [
+        {
+            "name": "Camera",
+            "tags": [
+                "Camera"
+            ],
+            "position": [
+                0,
+                10,
+                100
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_fly.lua",
+                    "data": {
+                        "yaw": 0,
+                        "pitch": 0
+                    }
+                }
+            ]
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": false,
+                    "color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "direction": [
+                        -1.0,
+                        -1.0,
+                        -1.0
+                    ],
+                    "intensity": 3.14159,
+                    "type": "DirectionalLight"
+                }
+            ],
+            "name": "",
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": true,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": false,
+                    "cullTest": false,
+                    "material": 0,
+                    "renderable": {
+                        "kind": "model",
+                        "mergeMeshes": false,
+                        "path": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/human.p3dm"
+                    },
+                    "skeletonAnimation": {
+                        "layers": [
+                            {
+                                "bones": [
+                                    "Bip01_Spine1",
+                                    "Bip01_Neck",
+                                    "Bip01_Head",
+                                    "Bip01_L_Clavicle",
+                                    "Bip01_L_UpperArm",
+                                    "Bip01_L_Forearm",
+                                    "Bip01_L_Hand",
+                                    "Bip01_L_Finger0",
+                                    "Bip01_L_Finger01",
+                                    "Bip01_L_Finger1",
+                                    "Bip01_L_Finger11",
+                                    "Bip01_L_Finger2",
+                                    "Bip01_L_Finger21",
+                                    "Bip01_L_Finger3",
+                                    "Bip01_L_Finger31",
+                                    "Bip01_L_Finger4",
+                                    "Bip01_L_Finger41",
+                                    "Bip01_R_Clavicle",
+                                    "Bip01_R_UpperArm",
+                                    "Bip01_R_Forearm",
+                                    "Bip01_R_Hand",
+                                    "Bip01_R_Finger0",
+                                    "Bip01_R_Finger01",
+                                    "Bip01_R_Finger1",
+                                    "Bip01_R_Finger11",
+                                    "Bip01_R_Finger2",
+                                    "Bip01_R_Finger21",
+                                    "Bip01_R_Finger3",
+                                    "Bip01_R_Finger31",
+                                    "Bip01_R_Finger4",
+                                    "Bip01_R_Finger41"
+                                ],
+                                "name": "Layer1"
+                            }
+                        ],
+                        "path": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/walk.p3da",
+                        "paths": [
+                            "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/walk.p3da",
+                            "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/alert.p3da",
+                            "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/run.p3da",
+                            "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/walk.p3da"
+                        ],
+                        "playing": [
+                            {
+                                "currentTime": 0.0,
+                                "id": 0,
+                                "paused": false,
+                                "scale": 0.899999976158142,
+                                "speed": 1.0,
+                                "startTimeProgress": 0.0
+                            },
+                            {
+                                "currentTime": 0.0,
+                                "id": 2,
+                                "paused": false,
+                                "scale": 0.100000001490116,
+                                "speed": 1.0,
+                                "startTimeProgress": 0.0
+                            },
+                            {
+                                "currentTime": 0.0,
+                                "id": 1,
+                                "layer": "Layer1",
+                                "paused": false,
+                                "scale": 0.5,
+                                "speed": 1.0,
+                                "startTimeProgress": 0.0
+                            },
+                            {
+                                "currentTime": 0.0,
+                                "id": 3,
+                                "layer": "Layer1",
+                                "paused": false,
+                                "scale": 0.5,
+                                "speed": 1.0,
+                                "startTimeProgress": 0.0
+                            }
+                        ]
+                    },
+                    "type": "RenderingComponent"
+                },
+                {
+                    "data": {
+                        "animationPos": 0.0,
+                        "animationPos2": 1.0
+                    },
+                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/skeleton_anim.lua",
+                    "type": "LuaComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                -10.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                2.0,
+                2.0,
+                2.0
+            ],
+            "static": false,
+            "tags": []
+        }
+    ],
+    "version": 1
+}

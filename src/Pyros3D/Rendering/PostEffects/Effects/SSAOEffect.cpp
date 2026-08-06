@@ -35,41 +35,55 @@ namespace p3d {
 
 		// Create Fragment Shader
 		FragmentShaderString =
-								#if defined(GLES2)
-									"#define varying_in varying\n"
-									"#define varying_out varying\n"
-									"#define attribute_in attribute\n"
-									"#define texture_2D texture2D\n"
-									"#define texture_cube textureCube\n"
+								"#define varying_in in\n"
+								"#define varying_out out\n"
+								"#define attribute_in in\n"
+								"#define texture_2D texture\n"
+								"#define texture_cube texture\n"
+								#if defined(GLES3)
 									"precision mediump float;\n"
-								#else
-									"#define varying_in in\n"
-									"#define varying_out out\n"
-									"#define attribute_in in\n"
-									"#define texture_2D texture\n"
-									"#define texture_cube texture\n"
-									#if defined(GLES3)
-										"precision mediump float;\n"
-									#endif
 								#endif
-								#if defined(GLES2)
-									"vec4 FragColor;\n"
-								#else
-									"out vec4 FragColor;\n"
-								#endif
-								"uniform sampler2D uTex0;\n"
-								"uniform sampler2D uTex1;\n"
-								"uniform vec2 uNearFar;\n"
-								"uniform vec2 uScreen;\n"
-								"uniform float uStrength;\n"
-								"uniform int uSamples;\n"
-								"uniform float uRadius;\n"
-								"uniform float uScale;\n"
-								"uniform float uTreshOld;\n"
-								"varying_in vec2 vTexcoord;\n"
-								"uniform mat4 matProj;\n"
-								"uniform mat4 uInverseView;\n"
-								"uniform mat4 uView;\n"
+								// Vulkan/SPIR-V rejects non-opaque uniforms
+								// outside a block outright, and needs a
+								// static layout(binding=) on every UBO/
+								// sampler - GL needs neither (matches by
+								// name/unit at runtime). VULKAN is
+								// predefined by shaderc itself for any
+								// Vulkan-target compile (see
+								// SpirvShaderCompiler::Compile()'s
+								// comment) - same pattern as
+								// PyrosShader.glsl's own IO_LOCATION/
+								// UBO_BINDING/SAMPLER_BINDING macros.
+								// Binding 24 (not 0-23) - see IEffect.h's
+								// comment on extraUniformsBinding: binding
+								// points are a single global registry
+								// shared with PyrosShader.glsl's own
+								// UBOs, not per-shader.
+								"#if defined(VULKAN)\n"
+								"#define UBO_BINDING(n) layout(std140, binding = n)\n"
+								"#define SAMPLER_BINDING(n) layout(set = 1, binding = n)\n"
+								"#define IO_LOCATION(n) layout(location = n)\n"
+								"#else\n"
+								"#define UBO_BINDING(n) layout(std140)\n"
+								"#define SAMPLER_BINDING(n)\n"
+								"#define IO_LOCATION(n)\n"
+								"#endif\n"
+									"IO_LOCATION(0) out vec4 FragColor;\n"
+								"SAMPLER_BINDING(0) uniform sampler2D uTex0;\n"
+								"SAMPLER_BINDING(1) uniform sampler2D uTex1;\n"
+								"UBO_BINDING(24) uniform SSAOParams {\n"
+								"	vec2 uNearFar;\n"
+								"	vec2 uScreen;\n"
+								"	float uStrength;\n"
+								"	int uSamples;\n"
+								"	float uRadius;\n"
+								"	float uScale;\n"
+								"	float uTreshOld;\n"
+								"	mat4 matProj;\n"
+								"	mat4 uInverseView;\n"
+								"	mat4 uView;\n"
+								"};\n"
+								"IO_LOCATION(0) varying_in vec2 vTexcoord;\n"
 								"\n"
 								"// Reconstruct Positions and Normals\n"
 								"float DecodeLinearDepth(float z, vec4 z_info_local)\n"
@@ -168,9 +182,6 @@ namespace p3d {
 								"	}\n"
 								"	float ao = (1.0 - (occlusion / float(samples)) * total_strength);\n"
 								"	FragColor = vec4(ao);\n"
-									#if defined(GLES2)
-								"gl_FragColor = FragColor;\n"
-									#endif
 								"}";
 
 		CompileShaders();
@@ -191,6 +202,27 @@ namespace p3d {
 		uRadiusHandle = AddUniform(Uniform("uRadius", Uniforms::DataType::Float, &radius));
 		uScaleHandle = AddUniform(Uniform("uScale", Uniforms::DataType::Float, &scale));
 		uTreshOldHandle = AddUniform(Uniform("uTreshOld", Uniforms::DataType::Float, &treshOld));
+
+		// See IEffect.h's comment on extraUniformsBinding - matches the
+		// SSAOParams block declared in FragmentShaderString above exactly
+		// (member order/types), std140 layout computed by hand: vec2/vec2
+		// pack tight (align 8), the float/int run packs tight (align 4),
+		// then each mat4 rounds up to the next 16-byte boundary (36->48)
+		// and occupies 64 bytes (4 std140-aligned vec4 columns).
+		extraUniformsBinding = 24;
+		extraUniformsBlockName = "SSAOParams";
+		extraUniformsSize = 240;
+		extraUniformsScratch.resize(extraUniformsSize, 0);
+		extraUniformOffsets["uNearFar"] = 0;
+		extraUniformOffsets["uScreen"] = 8;
+		extraUniformOffsets["uStrength"] = 16;
+		extraUniformOffsets["uSamples"] = 20;
+		extraUniformOffsets["uRadius"] = 24;
+		extraUniformOffsets["uScale"] = 28;
+		extraUniformOffsets["uTreshOld"] = 32;
+		extraUniformOffsets["matProj"] = 48;
+		extraUniformOffsets["uInverseView"] = 112;
+		extraUniformOffsets["uView"] = 176;
 	}
 
 	SSAOEffect::~SSAOEffect()

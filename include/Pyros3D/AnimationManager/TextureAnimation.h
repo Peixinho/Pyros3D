@@ -13,6 +13,7 @@
 #include <Pyros3D/Ext/Signals/Signal.h>
 #include <Pyros3D/Ext/Signals/Delegate.h>
 #include <vector>
+#include <memory>
 #include <Pyros3D/Other/Export.h>
 
 namespace p3d {
@@ -73,8 +74,25 @@ namespace p3d {
 
 		// Get Texture
 		Texture* GetTexture();
+		// Owning shared_ptr to the current frame - for Lua/SetColorMap
+		// (GetTexture() stays raw for existing C++ observers).
+		std::shared_ptr<Texture> GetTextureShared();
 		// Get Frame
 		const uint32 GetFrame() const;
+
+		// Real getters - only IsPlaying()/GetFrame() existed before this;
+		// every other piece of playback state (fps, pause, loop, yoyo,
+		// repeat, direction) had a setter but no way to read it back,
+		// same class of gap fixed everywhere else for scene serialization.
+		f32 GetFrameSpeed() const { return FrameSpeed; }
+		bool IsPaused() const { return isPaused; }
+		bool IsLooping() const { return isLooping; }
+		bool IsYoyo() const { return yoyo; }
+		int32 GetRepeat() const { return repeat; }
+		bool IsReverse() const { return reverse; }
+		// The TextureAnimation asset this instance plays frames from -
+		// Owner was already stored, just never exposed.
+		TextureAnimation* GetOwner() const { return Owner; }
 		// CallBacks
 		void OnStart(void(*func) (void));
 		template< class X, class Y >
@@ -111,20 +129,21 @@ namespace p3d {
 		// internal timer
 		f32 timer;
 		// frames
-		std::vector<Texture*> Frames;
+		std::vector<std::shared_ptr<Texture>> Frames;
 		// Instances
 		std::vector<TextureAnimationInstance*> Instances;
 
 	public:
 
 		Texture* GetFrame(const uint32 &frame);
+		std::shared_ptr<Texture> GetFrameShared(const uint32 &frame);
 		uint32 GetNumberFrames();
 
 		// Constructor
 		TextureAnimation();
 
 		// Add Frame
-		void AddFrame(Texture* texture);
+		void AddFrame(const std::shared_ptr<Texture> &texture);
 
 		// Void Update
 		void Update(const f32 &time);

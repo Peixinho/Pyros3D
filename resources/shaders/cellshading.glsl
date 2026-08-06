@@ -48,7 +48,7 @@
         uniform float uShininess;
         uniform vec4 uAmbientLight;
 
-        #if defined(GLES2) || defined(GLLEGACY)
+        #if defined(GLLEGACY)
         float shadowBias;
         #endif
 
@@ -111,7 +111,7 @@
         }
 
         #if defined(DIRECTIONALSHADOW)
-            #if defined(GLES2) || defined(GLLEGACY)
+            #if defined(GLLEGACY)
                 float PCFDIRECTIONAL(sampler2D shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) 
             #else
                 float PCFDIRECTIONAL(sampler2DShadow shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) 
@@ -123,7 +123,7 @@
                     float x = 0.0;
                     float y = 0.0;
                     
-                    #if defined(GLES2) || defined(GLLEGACY)
+                    #if defined(GLLEGACY)
                     
                         float shadowSample = DecodeFloatRGBA(texture2D(shadowMap, coord.xy));
                         shadow = shadowSample - coord.z + shadowBias < 0.0 ? 0.0:1.0;
@@ -144,7 +144,7 @@
                 uniform mat4 uDirectionalDepthsMVP[4];
                 uniform vec4 uDirectionalShadowFar[4];
 
-                #if defined(GLES2) || defined(GLLEGACY)
+                #if defined(GLLEGACY)
                 
                 uniform sampler2D uDirectionalShadowMaps;
                 
@@ -158,7 +158,7 @@
 
         #ifdef POINTSHADOW
         
-            #if defined(GLES2) || defined(GLLEGACY)
+            #if defined(GLLEGACY)
                 float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos) 
             #else
                 #extension GL_EXT_gpu_shader4 : require
@@ -175,7 +175,7 @@
                     float x = 0.0;
                     float y = 0.0;
                     
-                    #if defined(GLES2) || defined(GLLEGACY)
+                    #if defined(GLLEGACY)
 
                         float shadowSample = DecodeFloatRGBA(textureCube(shadowMap, position_ls.xyz));
                         shadow = shadowSample - depth + shadowBias < 0.0 ? 0.0:1.0;
@@ -195,7 +195,7 @@
 
                 uniform int uNumberOfPointShadows;
 
-                #if defined(GLES2) || defined(GLLEGACY)
+                #if defined(GLLEGACY)
             
                 uniform mat4 uPointDepthsMVP[2];
                 uniform samplerCube uPointShadowMaps;
@@ -211,7 +211,7 @@
 
         #ifdef SPOTSHADOW
 
-            #if defined(GLES2) || defined(GLLEGACY)
+            #if defined(GLLEGACY)
                 float PCFSPOT(sampler2D shadowMap, mat4 sMatrix, float scale, vec4 pos)
             #else
                 float PCFSPOT(sampler2DShadow shadowMap, mat4 sMatrix, float scale, vec4 pos)
@@ -223,7 +223,7 @@
                     float x = 0.0;
                     float y = 0.0;
                     
-                    #if defined(GLES2) || defined(GLLEGACY)
+                    #if defined(GLLEGACY)
                 
                         float shadowSample = DecodeFloatRGBA(texture2D(shadowMap, coord.xy));
                         shadow = shadowSample - coord.z + shadowBias < 0.0 ? 0.0:1.0;
@@ -240,7 +240,7 @@
                     return shadow;
                 }
             
-                #if defined(GLES2) || defined(GLLEGACY)
+                #if defined(GLLEGACY)
                 
                 uniform sampler2D uSpotShadowMaps;
                 uniform mat4 uSpotDepthsMVP;
@@ -289,7 +289,7 @@
                         #ifdef DIRECTIONALSHADOW
                             float DirectionalShadow = 1.0; 
                             if (L.HaveShadowMap) {
-                                #if defined(GLES2) || defined(GLLEGACY)
+                                #if defined(GLLEGACY)
                                 shadowBias = max(0.001 * (1.0 - dot(Normal, LightDir)), 0.00001);
                                 #endif
                                 bool MoreThanOneCascade = (uDirectionalShadowFar[0].y>0.0);
@@ -321,7 +321,7 @@
                             if (attenuation>0.0 && L.HaveShadowMap)
                             {
                                 PointShadow = 0.0;
-                                #if defined(GLES2) || defined(GLLEGACY)
+                                #if defined(GLLEGACY)
                                 shadowBias = max(0.001 * (1.0 - dot(Normal, LightDir)), 0.00001);
                                 PointShadow=PCFPOINT(uPointShadowMaps,uPointDepthsMVP[0],uPointDepthsMVP[1],L.PCFTexelSize,vs_position);
                                 #else
@@ -352,7 +352,7 @@
                             if (spotEffect>0.0 && attenuation>0.0 && L.HaveShadowMap)
                             {
                                 SpotShadow = 0.0;
-                                #if defined(GLES2) || defined(GLLEGACY)
+                                #if defined(GLLEGACY)
                                 shadowBias = max(0.001 * (1.0 - dot(Normal, LightDir)), 0.00001);
                                 SpotShadow=PCFSPOT(uSpotShadowMaps,uSpotDepthsMVP,L.PCFTexelSize,vs_position);
                                 #else

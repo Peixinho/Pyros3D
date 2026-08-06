@@ -1,24 +1,28 @@
-#if defined(GLES2)
-	#define varying_in varying
-	#define varying_out varying
-	#define attribute_in attribute
-	#define texture_2D texture2D
-	#define texture_cube textureCube
+#define varying_in in
+#define varying_out out
+#define attribute_in in
+#define texture_2D texture
+#define texture_cube texture
+#if defined(GLES3)
 	precision mediump float;
+#endif
+// See secondpassAmbient.glsl's identical comment - binding 32 (not 27,
+// AmbientFragParams' own - see IMaterial.h's comment on
+// extraUniformsBinding for why these must all be globally distinct).
+#if defined(VULKAN)
+#define UBO_BINDING(n) layout(std140, binding = n)
+#define SAMPLER_BINDING(n) layout(set = 1, binding = n)
+#define IO_LOCATION(n) layout(location = n)
 #else
-	#define varying_in in
-	#define varying_out out
-	#define attribute_in in
-	#define texture_2D texture
-	#define texture_cube texture
-	#if defined(GLES3)
-		precision mediump float;
-	#endif
+#define UBO_BINDING(n) layout(std140)
+#define SAMPLER_BINDING(n)
+#define IO_LOCATION(n)
 #endif
 
 #ifdef VERTEX
-attribute_in vec3 aPosition, aNormal;
-attribute_in vec2 aTexcoord;
+IO_LOCATION(0) attribute_in vec3 aPosition;
+IO_LOCATION(1) attribute_in vec3 aNormal;
+IO_LOCATION(2) attribute_in vec2 aTexcoord;
 void main() {
 	gl_Position = vec4(aPosition,1.0);
 }
@@ -26,7 +30,7 @@ void main() {
 
 #ifdef FRAGMENT
 
-float PCFDIRECTIONAL(sampler2DShadow shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade) 
+float PCFDIRECTIONAL(sampler2DShadow shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade)
 {
 	vec4 coord = sMatrix * pos;
 	if (MoreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(width,height);
@@ -36,7 +40,15 @@ float PCFDIRECTIONAL(sampler2DShadow shadowMap, float width, float height, mat4 
 
 	for (y = -1.5 ; y <=1.5 ; y+=1.0)
 		for (x = -1.5 ; x <=1.5 ; x+=1.0)
-			shadow += texture(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0))).x;
+			// texture() on a shadow sampler already returns a scalar float
+			// (the depth-compare result) - a trailing .x swizzle on a
+			// scalar is invalid GLSL, tolerated on some drivers but
+			// rejected outright by macOS's real GL41 compiler (and
+			// glslang's Vulkan validation). Pre-existing bug, unrelated to
+			// this pass's Vulkan-compat work - fixed here since it was
+			// blocking verification of that work (shader link failure ->
+			// shaderProgram==0 -> identical symptom either backend).
+			shadow += texture(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0)));
 	shadow /= 16.0;
 	return shadow;
 }
@@ -45,28 +57,94 @@ vec4 diffuse = vec4(0.0,0.0,0.0,1.0);
 vec4 specular = vec4(0.0,0.0,0.0,1.0);
 bool diffuseIsSet = false;
 
-uniform sampler2D tDiffuse;
-uniform sampler2D tSpecular;
-uniform sampler2D tDepth;
-uniform sampler2D tNormal;
-uniform vec2 uScreenDimensions;
-uniform vec3 uLightDirection;
-uniform vec4 uLightColor;
-uniform vec2 uNearFar;
-uniform mat4 uMatProj;
+// Cook-Torrance GGX BRDF - duplicated from PyrosShader.glsl's #ifdef PBR
+// block (this file has no #include mechanism to share it with).
+const float PBR_PI = 3.14159265359;
 
-uniform sampler2DShadow uShadowMap;
-uniform float uPCFTexelSize;
-uniform mat4 uDirectionalDepthsMVP[4];
-uniform vec4 uDirectionalShadowFar;
-uniform float uHaveShadowmap;
+float DistributionGGX(vec3 N, vec3 H, float roughness)
+{
+	float a = roughness * roughness;
+	float a2 = a * a;
+	float NdotH = max(dot(N, H), 0.0);
+	float denom = (NdotH * NdotH * (a2 - 1.0) + 1.0);
+	return a2 / max(PBR_PI * denom * denom, 1e-6);
+}
+
+float GeometrySchlickGGX(float NdotV, float roughness)
+{
+	float r = (roughness + 1.0);
+	float k = (r * r) / 8.0;
+	return NdotV / (NdotV * (1.0 - k) + k);
+}
+
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
+{
+	float NdotV = max(dot(N, V), 0.0);
+	float NdotL = max(dot(N, L), 0.0);
+	return GeometrySchlickGGX(NdotV, roughness) * GeometrySchlickGGX(NdotL, roughness);
+}
+
+vec3 FresnelSchlick(float cosTheta, vec3 F0)
+{
+	return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+vec3 CalculatePBRLighting(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 albedo, float metallic, float roughness, vec3 specTint)
+{
+	vec3 H = normalize(V + L);
+	vec3 F0 = mix(vec3(0.04), albedo, metallic);
+
+	float NDF = DistributionGGX(N, H, roughness);
+	float G = GeometrySmith(N, V, L, roughness);
+	vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
+
+	vec3 numerator = NDF * G * F;
+	float denom = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 1e-4;
+	// specTint is the G-buffer's specular attachment (see PyrosShader.glsl's
+	// FragData_g comment): 1.0 for a PBR material, so that path is bit-for-bit
+	// what it was; the classic material's own uSpecular otherwise, playing the
+	// same role it plays in ForwardRenderer's Blinn-Phong loop
+	// (`_specular += specularPower * L.Color * specular`) - a gate/tint on the
+	// highlight, so a material with no SpecularColor usage gets none at all.
+	// It multiplies the finished specular term rather than folding into F0:
+	// Schlick's F0 + (1-F0)*(1-cos)^5 returns full reflectance at grazing
+	// angles no matter how small F0 is, so a specTint-scaled F0 turned "no
+	// highlight" into "grazing-only highlight" - a real bright rim/blob on
+	// the floor and ceiling, worse than the flat look it replaced.
+	vec3 specularTerm = (numerator / denom) * specTint;
+
+	// Tinted too, so the energy taken out of the diffuse lobe matches the
+	// specular actually emitted (specTint == 0 -> full diffuse, as forward).
+	vec3 kS = F * specTint;
+	vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
+
+	float NdotL = max(dot(N, L), 0.0);
+	return (kD * albedo / PBR_PI + specularTerm) * radiance * NdotL;
+}
+
+SAMPLER_BINDING(0) uniform sampler2D tDiffuse;
+SAMPLER_BINDING(1) uniform sampler2D tSpecular;
+SAMPLER_BINDING(2) uniform sampler2D tDepth;
+SAMPLER_BINDING(3) uniform sampler2D tNormal;
+// PBR metallic/roughness G-buffer attachment - see PyrosShader.glsl's
+// FragData_pbr (.r=roughness, .g=metalness).
+SAMPLER_BINDING(5) uniform sampler2D tMetallicRoughness;
+UBO_BINDING(32) uniform DirectionalFragParams {
+	vec2 uScreenDimensions;
+	vec3 uLightDirection;
+	vec4 uLightColor;
+	vec2 uNearFar;
+	mat4 uMatProj;
+	float uPCFTexelSize;
+	mat4 uDirectionalDepthsMVP[4];
+	vec4 uDirectionalShadowFar;
+	float uHaveShadowmap;
+};
+
+SAMPLER_BINDING(4) uniform sampler2DShadow uShadowMap;
 
 // Fragment Color
-#if defined(GLES2)
-	vec4 FragColor;	
-#else
-	out vec4 FragColor;
-#endif
+IO_LOCATION(0) out vec4 FragColor;
 
 // Reconstruct Positions and Normals
 float DecodeLinearDepth(float z, vec4 z_info_local)
@@ -106,10 +184,11 @@ void main() {
 	vec4 out_dim = vec4(uScreenDimensions.x, uScreenDimensions.y, 1.0/uScreenDimensions.x, 1.0/uScreenDimensions.y);
 	vec2 screenCoord = vec2(uScreenDimensions.x*Texcoord.x, uScreenDimensions.y*Texcoord.y);
 
-	getPosViewSpace(texture(tDepth, Texcoord).r, screenCoord, z_info, v1, uMatProj, vp);	
+	getPosViewSpace(texture(tDepth, Texcoord).r, screenCoord, z_info, v1, uMatProj, vp);
 
 	vec3 vViewNormal = normalize(texture(tNormal, Texcoord).xyz);
 	vec3 color = texture(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
+	vec3 specTint = texture(tSpecular, vec2(Texcoord.x,Texcoord.y)).xyz;
 	vec4 lightColor = uLightColor;
 
 	float pcf = 1.0;
@@ -123,22 +202,15 @@ void main() {
 	    else if (texture(tDepth, Texcoord).r<uDirectionalShadowFar.z) pcf = PCFDIRECTIONAL(uShadowMap, 0.0, 0.5, uDirectionalDepthsMVP[2],uPCFTexelSize,worldPos, MoreThanOneCascade);
 	    else if (texture(tDepth, Texcoord).r<uDirectionalShadowFar.w) pcf = PCFDIRECTIONAL(uShadowMap, 0.5,0.5, uDirectionalDepthsMVP[3],uPCFTexelSize,worldPos, MoreThanOneCascade);
 	}
-	vec3 lightDirection = normalize(-uLightDirection);
-	float n_dot_l = max(dot(lightDirection, vViewNormal), 0.0);
-	vec3 diffuseColor = n_dot_l * lightColor.xyz;
+	vec2 mr = texture(tMetallicRoughness, Texcoord).rg;
+	float roughness = mr.x;
+	float metallic = mr.y;
 
-	diffuse = vec4((diffuseColor * color),1.0);
+	vec3 N = vViewNormal;
+	vec3 V = normalize(-v1);
+	vec3 L = normalize(-uLightDirection);
+	vec3 pbrColor = CalculatePBRLighting(N, V, L, lightColor.xyz, color, metallic, roughness, specTint);
 
-	vec3 Specular = texture(tSpecular, vec2(Texcoord.x,Texcoord.y)).xyz;
-	vec3 eyeVec = normalize(-v1);
-	vec3 halfVec = normalize(lightDirection + eyeVec);
-	float specularPower = (n_dot_l>0.0?pow(max(dot(halfVec,vViewNormal),0.0), 50.0):0.0);
-	specular = vec4(specularPower * Specular, 1.0);
-	
-	FragColor = (diffuse + specular) * pcf;
-
-	#if defined(GLES2)
-		gl_FragColor = FragColor;
-	#endif
+	FragColor = vec4(pbrColor, 1.0) * pcf;
 }
 #endif

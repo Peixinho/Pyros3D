@@ -9,15 +9,6 @@
 #ifndef PYROSGL_H
 #define PYROSGL_H
 
-#if defined(GLES2) 
-	#if defined(DESKTOP)
-		#include <Pyros3D/Ext/gles2/glad/glad.h>
-	#else
-		#include <GLES2/gl2.h>
-		#include <GLES2/gl2ext.h>
-	#endif
-#endif
-
 #if defined(GLES3)
 	#if defined(DESKTOP)
 		#include <Pyros3D/Ext/gles3/glad/glad.h>

@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
+#include <iterator>
 
 namespace p3d {
 
@@ -20,6 +21,7 @@ namespace p3d {
 	{
 		// Keep Rendering Component
 		rcomp = Component;
+		Component->SetActiveSkeletonAnimation(this);
 
 		// Resize Vectors
 		skeleton.resize(Component->GetSkeleton().size());
@@ -69,6 +71,18 @@ namespace p3d {
 	int32 SkeletonAnimationInstance::Play(const uint32 animation, const f32 startTime, const f32 repetition, const f32 speed, const f32 scale, const std::string &LayerName)
 	{
 		_SkeletonAnimation::SkeletonAnimation Anim;
+
+		// Anim.animation below is a raw pointer *into* Owner->animations, so
+		// an out-of-range id doesn't fail here - it silently stores a wild
+		// pointer that only blows up later, in Update()'s `Animation Anim =
+		// *(*_Anim).animation;`, with a backtrace pointing at the copy
+		// constructor rather than at whoever asked for a clip that doesn't
+		// exist. Reject it up front and say so.
+		if (animation >= Owner->GetNumberAnimations())
+		{
+			echo("ERROR: SkeletonAnimationInstance::Play - animation id out of range (asked for " + std::to_string(animation) + ", only " + std::to_string(Owner->GetNumberAnimations()) + " loaded)");
+			return -1;
+		}
 
 		if (GetAnimationPositionInVector(animation) == -1)
 		{
@@ -254,6 +268,24 @@ namespace p3d {
 		return AnimationsToPlay[animationOrder].scale;
 	}
 
+	std::string SkeletonAnimationInstance::GetLayerName(const uint32 index) const
+	{
+		std::map<uint32, _SkeletonAnimation::AnimationLayer*>::const_iterator it = Layers.begin();
+		std::advance(it, index);
+		return it != Layers.end() ? it->second->Name : std::string();
+	}
+	std::vector<int32> SkeletonAnimationInstance::GetLayerAffectedBoneIDs(const uint32 index) const
+	{
+		std::vector<int32> result;
+		std::map<uint32, _SkeletonAnimation::AnimationLayer*>::const_iterator it = Layers.begin();
+		std::advance(it, index);
+		if (it == Layers.end()) return result;
+		const std::vector<int32> &boneIDs = it->second->boneIDs;
+		for (size_t i = 0; i < boneIDs.size(); i++)
+			if (boneIDs[i] == 1) result.push_back((int32)i);
+		return result;
+	}
+
 	int32 SkeletonAnimationInstance::GetAnimationPositionInVector(const uint32 animation)
 	{
 		for (uint32 i = 0; i < AnimationsToPlay.size(); i++)
@@ -358,6 +390,13 @@ namespace p3d {
 
 	void SkeletonAnimation::LoadAnimation(const std::string& AnimationFile)
 	{
+		// Not stored before this - the path was used once to load, then
+		// discarded, same "no recoverable source" gap Model/Texture/Font
+		// had before their own path tracking was added.
+		Path = AnimationFile;
+		// See GetPaths() - Path alone loses every file but the last.
+		Paths.push_back(AnimationFile);
+
 		// Loads Animation
 		animationLoader = new AnimationLoader();
 		animationLoader->Load(AnimationFile);

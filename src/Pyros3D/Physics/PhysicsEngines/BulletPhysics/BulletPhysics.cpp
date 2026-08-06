@@ -55,6 +55,60 @@ namespace p3d {
 	void BulletPhysics::Update(const f64& time, const uint32 steps)
 	{
 		m_dynamicsWorld->stepSimulation(time, steps);
+		ProcessCollisionEvents();
+	}
+
+	void BulletPhysics::ProcessCollisionEvents()
+	{
+		// See IPhysicsComponent.h's OnCollisionEnter/OnCollisionExit
+		// comment - real collision notification, entirely absent before
+		// this. getUserPointer() -> IPhysicsComponent* is an already-
+		// established convention (set in CreateRigidBody()/
+		// CreateGhostObject()/the vehicle-chassis path, already consumed
+		// the same way by RayCast() below), not something new introduced
+		// here.
+		std::set<std::pair<IPhysicsComponent*, IPhysicsComponent*> > currentPairs;
+
+		int numManifolds = m_dispatcher->getNumManifolds();
+		for (int i = 0; i < numManifolds; i++)
+		{
+			btPersistentManifold* manifold = m_dispatcher->getManifoldByIndexInternal(i);
+			// A manifold can exist (broadphase overlap) with zero actual
+			// contact points (narrowphase found no real touch) - only
+			// count it as a real collision if it has at least one.
+			if (manifold->getNumContacts() == 0)
+				continue;
+
+			IPhysicsComponent* a = static_cast<IPhysicsComponent*>(manifold->getBody0()->getUserPointer());
+			IPhysicsComponent* b = static_cast<IPhysicsComponent*>(manifold->getBody1()->getUserPointer());
+			if (!a || !b)
+				continue;
+
+			// Normalize ordering so (a,b) and (b,a) are the same set key.
+			std::pair<IPhysicsComponent*, IPhysicsComponent*> pair = (a < b) ? std::make_pair(a, b) : std::make_pair(b, a);
+			currentPairs.insert(pair);
+		}
+
+		// Enter: present now, wasn't last step.
+		for (std::set<std::pair<IPhysicsComponent*, IPhysicsComponent*> >::iterator it = currentPairs.begin(); it != currentPairs.end(); it++)
+		{
+			if (m_touchingPairs.find(*it) == m_touchingPairs.end())
+			{
+				if (it->first->OnCollisionEnter) it->first->OnCollisionEnter(it->second);
+				if (it->second->OnCollisionEnter) it->second->OnCollisionEnter(it->first);
+			}
+		}
+		// Exit: was present last step, isn't now.
+		for (std::set<std::pair<IPhysicsComponent*, IPhysicsComponent*> >::iterator it = m_touchingPairs.begin(); it != m_touchingPairs.end(); it++)
+		{
+			if (currentPairs.find(*it) == currentPairs.end())
+			{
+				if (it->first->OnCollisionExit) it->first->OnCollisionExit(it->second);
+				if (it->second->OnCollisionExit) it->second->OnCollisionExit(it->first);
+			}
+		}
+
+		m_touchingPairs.swap(currentPairs);
 	}
 
 	void BulletPhysics::EnableDebugDraw()
@@ -239,6 +293,7 @@ namespace p3d {
 			tr.setIdentity();
 			btRigidBody* m_carChassis = LocalCreateRigidBody(vehicle->GetChassis()->GetMass(), tr, compound);//chassisShape;
 			//m_carChassis->setDamping(0.2,0.2);
+			m_carChassis->setUserPointer(pcomp);
 
 			// Initial Transformation
 			btTransform startTransform;
@@ -266,8 +321,7 @@ namespace p3d {
 
 			// Save Pointer
 			pcomp->SaveRigidBodyPTR(m_vehicle);
-			//vehicle->RaycastVehicle = m_vehicle;
-			//vehicle->VehicleRaycaster = m_vehicleRayCaster;
+			vehicle->SaveVehicleRaycasterPTR(m_vehicleRayCaster);
 
 			std::vector<VehicleWheel> Wheels = vehicle->GetWheels();
 			for (uint32 i = 0; i < Wheels.size(); i++)
@@ -349,6 +403,7 @@ namespace p3d {
 		ghostObject->setCollisionShape(shape);
 		ghostObject->setWorldTransform(startTransform);
 		ghostObject->setCollisionFlags(ghostObject->getCollisionFlags() | btCollisionObject::CF_NO_CONTACT_RESPONSE);
+		ghostObject->setUserPointer(pcomp);
 		m_dynamicsWorld->addCollisionObject(ghostObject);
 		m_dynamicsWorld->getBroadphase()->getOverlappingPairCache()->setInternalGhostPairCallback(new btGhostPairCallback());
 
@@ -386,6 +441,10 @@ namespace p3d {
 		// Create Rigid Body
 		btRigidBody* body = new btRigidBody(rbInfo);
 		body->setWorldTransform(startTransform);
+		// Back-reference so RayCast() (and anything else that walks bodies
+		// found via the Bullet world directly) can report which engine
+		// component a hit actually belongs to.
+		body->setUserPointer(pcomp);
 		// Add Rigid Body to World
 		m_dynamicsWorld->addRigidBody(body);
 
@@ -428,8 +487,105 @@ namespace p3d {
 
 	void BulletPhysics::RemovePhysicsComponent(IPhysicsComponent* pcomp)
 	{
-		if (pcomp->GetShape() != CollisionShapes::Vehicle)
-			m_dynamicsWorld->removeRigidBody(static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR()));
+		// Real cleanup, not just a world-removal - nothing here ever
+		// freed the underlying Bullet objects before (rigid
+		// body/motion state/collision shape leaked on every removal,
+		// and vehicles were never even removed from the dynamics world
+		// - m_dynamicsWorld->removeVehicle() was never called anywhere
+		// in this codebase). Latent until something actually started
+		// creating and destroying physics content repeatedly within one
+		// process (a demo-switching launcher) - a single-shot example
+		// that runs once and exits never noticed either gap.
+		if (pcomp->GetShape() == CollisionShapes::Vehicle)
+		{
+			PhysicsVehicle* vehicle = static_cast<PhysicsVehicle*>(pcomp);
+			btRaycastVehicle* btVehicle = static_cast<btRaycastVehicle*>(pcomp->GetRigidBodyPTR());
+			btRigidBody* chassis = btVehicle->getRigidBody();
+
+			m_dynamicsWorld->removeVehicle(btVehicle);
+			m_dynamicsWorld->removeRigidBody(chassis);
+
+			delete chassis->getMotionState();
+			btCollisionShape* chassisShape = chassis->getCollisionShape();
+			// Always a btCompoundShape wrapping the real chassis shape -
+			// see CreatePhysicsComponent()'s Vehicle case above.
+			if (chassisShape->isCompound())
+			{
+				btCompoundShape* compound = static_cast<btCompoundShape*>(chassisShape);
+				for (int i = 0; i < compound->getNumChildShapes(); i++)
+					delete compound->getChildShape(i);
+			}
+			delete chassisShape;
+			delete chassis;
+			delete static_cast<btVehicleRaycaster*>(vehicle->GetVehicleRaycasterPTR());
+			delete btVehicle;
+		}
+		else if (pcomp->IsGhost())
+		{
+			// Previously cast to btRigidBody* and passed to
+			// removeRigidBody() here regardless of IsGhost() - wrong
+			// type, since a ghost object is added via
+			// addCollisionObject() (CreateGhostObject() above), not
+			// addRigidBody(). A pre-existing bug, unrelated to the
+			// leak/vehicle fixes above but adjacent enough to fix
+			// alongside them.
+			btGhostObject* ghost = static_cast<btGhostObject*>(pcomp->GetRigidBodyPTR());
+			m_dynamicsWorld->removeCollisionObject(ghost);
+			delete ghost->getCollisionShape();
+			delete ghost;
+		}
+		else
+		{
+			btRigidBody* body = static_cast<btRigidBody*>(pcomp->GetRigidBodyPTR());
+			m_dynamicsWorld->removeRigidBody(body);
+			delete body->getMotionState();
+			delete body->getCollisionShape();
+			delete body;
+		}
+
+		// Real, necessary cleanup for ProcessCollisionEvents()'s
+		// m_touchingPairs above: without this, a pair involving a
+		// component removed (destroyed) while still touching another
+		// stays in the set, and next Update()'s exit-diff would
+		// dereference a dangling IPhysicsComponent* - a real
+		// use-after-free, not hypothetical, since GameObjects/components
+		// can be destroyed at any time independent of physics state. No
+		// OnCollisionExit fired here deliberately - pcomp is on its way
+		// out, and firing into (or about) an object mid-teardown is its
+		// own hazard; silently dropping the pair is the safe choice.
+		for (std::set<std::pair<IPhysicsComponent*, IPhysicsComponent*> >::iterator it = m_touchingPairs.begin(); it != m_touchingPairs.end(); )
+		{
+			if (it->first == pcomp || it->second == pcomp)
+				it = m_touchingPairs.erase(it);
+			else
+				it++;
+		}
+	}
+
+	RayCastHit BulletPhysics::RayCast(const Vec3 &from, const Vec3 &to)
+	{
+		RayCastHit hit;
+
+		btVector3 btFrom(from.x, from.y, from.z);
+		btVector3 btTo(to.x, to.y, to.z);
+		btCollisionWorld::ClosestRayResultCallback callback(btFrom, btTo);
+
+		m_dynamicsWorld->rayTest(btFrom, btTo, callback);
+
+		if (callback.hasHit())
+		{
+			hit.hasHit = true;
+			hit.point = Vec3(callback.m_hitPointWorld.x(), callback.m_hitPointWorld.y(), callback.m_hitPointWorld.z());
+			hit.normal = Vec3(callback.m_hitNormalWorld.x(), callback.m_hitNormalWorld.y(), callback.m_hitNormalWorld.z());
+			hit.distance = (to - from).magnitude() * callback.m_closestHitFraction;
+			// setUserPointer(pcomp) is set on every body CreateRigidBody()/
+			// CreateGhostObject()/the vehicle chassis creates - see those
+			// functions. Bodies created some other way (there are none
+			// today) would report a null component here, not crash.
+			hit.component = static_cast<IPhysicsComponent*>(callback.m_collisionObject->getUserPointer());
+		}
+
+		return hit;
 	}
 
 	// Rigid Bodys Methods
@@ -472,71 +628,94 @@ namespace p3d {
 		btRigidBody* body = static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR());
 		body->activate();
 	}
+	Vec3 BulletPhysics::GetLinearVelocity(IPhysicsComponent *pcomp)
+	{
+		btRigidBody* body = static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR());
+		btVector3 v = body->getLinearVelocity();
+		return Vec3(v.x(), v.y(), v.z());
+	}
+	Vec3 BulletPhysics::GetAngularVelocity(IPhysicsComponent *pcomp)
+	{
+		btRigidBody* body = static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR());
+		btVector3 v = body->getAngularVelocity();
+		return Vec3(v.x(), v.y(), v.z());
+	}
+	void BulletPhysics::ApplyCentralForce(IPhysicsComponent *pcomp, const Vec3 &force)
+	{
+		btRigidBody* body = static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR());
+		body->applyCentralForce(btVector3(force.x, force.y, force.z));
+	}
+	void BulletPhysics::ApplyCentralImpulse(IPhysicsComponent *pcomp, const Vec3 &impulse)
+	{
+		btRigidBody* body = static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR());
+		body->applyCentralImpulse(btVector3(impulse.x, impulse.y, impulse.z));
+	}
+	void BulletPhysics::SetMass(IPhysicsComponent *pcomp, const f32 mass)
+	{
+		btRigidBody* body = static_cast<btRigidBody*> (pcomp->GetRigidBodyPTR());
+		// Same inertia-recompute pattern used at body creation (see
+		// CreateRigidBody()/vehicle-chassis creation above) - setMassProps()
+		// alone doesn't recompute inertia for the new mass, so skipping
+		// this would leave rotation response using the *old* mass's
+		// inertia tensor after a runtime mass change.
+		btVector3 localInertia(0, 0, 0);
+		if (mass != 0.f)
+			body->getCollisionShape()->calculateLocalInertia(mass, localInertia);
+		body->setMassProps(mass, localInertia);
+		body->updateInertiaTensor();
+	}
 
 	// Create Physics Components
-	IPhysicsComponent* BulletPhysics::CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass, bool ghost)
 	{
-		PhysicsBox* box = new PhysicsBox(this, width, height, depth, mass, ghost);
-		return box;
+		return std::make_shared<PhysicsBox>(this, width, height, depth, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateCapsule(const f32 radius, const f32 height, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateCapsule(const f32 radius, const f32 height, const f32 mass, bool ghost)
 	{
-		PhysicsCapsule* capsule = new PhysicsCapsule(this, radius, height, mass, ghost);
-		return capsule;
+		return std::make_shared<PhysicsCapsule>(this, radius, height, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateCone(const f32 radius, const f32 height, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateCone(const f32 radius, const f32 height, const f32 mass, bool ghost)
 	{
-		PhysicsCone* cone = new PhysicsCone(this, radius, height, mass, ghost);
-		return cone;
+		return std::make_shared<PhysicsCone>(this, radius, height, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateConvexHull(const std::vector<Vec3> &points, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateConvexHull(const std::vector<Vec3> &points, const f32 mass, bool ghost)
 	{
-		PhysicsConvexHull* convexHull = new PhysicsConvexHull(this, points, mass, ghost);
-		return convexHull;
+		return std::make_shared<PhysicsConvexHull>(this, points, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateConvexTriangleMesh(RenderingComponent* rcomp, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateConvexTriangleMesh(RenderingComponent* rcomp, const f32 mass, bool ghost)
 	{
-		PhysicsConvexTriangleMesh* convexTriangleMesh = new PhysicsConvexTriangleMesh(this, rcomp, mass, ghost);
-		return convexTriangleMesh;
+		return std::make_shared<PhysicsConvexTriangleMesh>(this, rcomp, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateConvexTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateConvexTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost)
 	{
-		PhysicsConvexTriangleMesh* convexTriangleMesh = new PhysicsConvexTriangleMesh(this, index, vertex, mass, ghost);
-		return convexTriangleMesh;
+		return std::make_shared<PhysicsConvexTriangleMesh>(this, index, vertex, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateCylinder(const f32 radius, const f32 height, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateCylinder(const f32 radius, const f32 height, const f32 mass, bool ghost)
 	{
-		PhysicsCylinder* cylinder = new PhysicsCylinder(this, radius, height, mass, ghost);
-		return cylinder;
+		return std::make_shared<PhysicsCylinder>(this, radius, height, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateMultipleSphere(const std::vector<Vec3> &positions, const std::vector<f32> &radius, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateMultipleSphere(const std::vector<Vec3> &positions, const std::vector<f32> &radius, const f32 mass, bool ghost)
 	{
-		PhysicsMultipleSphere* multipleSphere = new PhysicsMultipleSphere(this, positions, radius, mass, ghost);
-		return multipleSphere;
+		return std::make_shared<PhysicsMultipleSphere>(this, positions, radius, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateSphere(const f32 radius, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateSphere(const f32 radius, const f32 mass, bool ghost)
 	{
-		PhysicsSphere* sphere = new PhysicsSphere(this, radius, mass, ghost);
-		return sphere;
+		return std::make_shared<PhysicsSphere>(this, radius, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateStaticPlane(const Vec3 &Normal, const f32 Constant, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateStaticPlane(const Vec3 &Normal, const f32 Constant, const f32 mass, bool ghost)
 	{
-		PhysicsStaticPlane* plane = new PhysicsStaticPlane(this, Normal, Constant, mass, ghost);
-		return plane;
+		return std::make_shared<PhysicsStaticPlane>(this, Normal, Constant, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateTriangleMesh(RenderingComponent* rcomp, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateTriangleMesh(RenderingComponent* rcomp, const f32 mass, bool ghost)
 	{
-		PhysicsTriangleMesh* triangleMesh = new PhysicsTriangleMesh(this, rcomp, mass, ghost);
-		return triangleMesh;
+		return std::make_shared<PhysicsTriangleMesh>(this, rcomp, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost)
 	{
-		PhysicsTriangleMesh* triangleMesh = new PhysicsTriangleMesh(this, index, vertex, mass, ghost);
-		return triangleMesh;
+		return std::make_shared<PhysicsTriangleMesh>(this, index, vertex, mass, ghost);
 	}
-	IPhysicsComponent* BulletPhysics::CreateVehicle(IPhysicsComponent* ChassisShape, bool ghost)
+	std::shared_ptr<IPhysicsComponent> BulletPhysics::CreateVehicle(const std::shared_ptr<IPhysicsComponent> &ChassisShape, bool ghost)
 	{
-		PhysicsVehicle* vehicle = new PhysicsVehicle(this, ChassisShape, ghost);
-		return vehicle;
+		return std::make_shared<PhysicsVehicle>(this, ChassisShape, ghost);
 	}
 }

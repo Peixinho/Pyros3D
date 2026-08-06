@@ -45,6 +45,9 @@ namespace p3d {
 			const Vec2 xy() const { return Vec2(x, y); }
 			const Vec3 xyz() const { return Vec3(x, y, z); }
 
+			// Lerp
+			Vec4 Lerp(const Vec4 &b, const f32 t) const;
+
 			// toString
 			std::string toString() const;
 

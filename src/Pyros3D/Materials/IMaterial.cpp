@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Materials/IMaterial.h>
+#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 
 namespace p3d {
 
@@ -44,7 +45,12 @@ namespace p3d {
 	{
 		this->cullFace = face;
 	}
-	IMaterial::~IMaterial() {}
+	IMaterial::~IMaterial()
+	{
+		for (int i = 0; i < 2; i++)
+			if (extraUniforms[i].bufferHandle != 0)
+				GetActiveRenderDevice().DestroyUniformBuffer(extraUniforms[i].bufferHandle);
+	}
 
 	void IMaterial::SetTransparencyFlag(bool transparency)
 	{
@@ -130,6 +136,18 @@ namespace p3d {
 			UserUniforms.push_back(Data);
 			return &(UserUniforms.back());
 		}
+	}
+
+	void IMaterial::SetExtraUniformBlock(int index, uint32 binding, const std::string &blockName,
+		uint32 size, const std::map<std::string, uint32> &offsets)
+	{
+		if (index < 0 || index > 1) return;
+		ExtraUniformsBlock &b = extraUniforms[index];
+		b.binding = binding;
+		b.blockName = blockName;
+		b.size = size;
+		b.scratch.assign(size, 0);
+		b.offsets = offsets;
 	}
 	
 	void IMaterial::RemoveUniform(Uniform* handle)

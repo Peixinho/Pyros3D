@@ -1,19 +1,10 @@
-#if defined(GLES2)
-	#define varying_in varying
-	#define varying_out varying
-	#define attribute_in attribute
-	#define texture_2D texture2D
-	#define texture_cube textureCube
+#define varying_in in
+#define varying_out out
+#define attribute_in in
+#define texture_2D texture
+#define texture_cube texture
+#if defined(GLES3)
 	precision mediump float;
-#else
-	#define varying_in in
-	#define varying_out out
-	#define attribute_in in
-	#define texture_2D texture
-	#define texture_cube texture
-	#if defined(GLES3)
-		precision mediump float;
-	#endif
 #endif
 
 #ifdef VERTEX
@@ -36,21 +27,13 @@ uniform float uOpacity;
 uniform vec4 uColor;
 uniform vec4 uSpecular;
 varying_in vec4 normals;
-#if !defined(GLES2)
-	layout(location = 0) out vec4 FragData_r;
-	layout(location = 1) out vec4 FragData_g;
-	layout(location = 2) out vec4 FragData_b;
-#endif
+layout(location = 0) out vec4 FragData_r;
+layout(location = 1) out vec4 FragData_g;
+layout(location = 2) out vec4 FragData_b;
 void main() {
 	if (!diffuseIsSet) {diffuse=uColor; diffuseIsSet=true;} else diffuse *= uColor;
-	#if defined(GLES2)
-		gl_FragData[0]=vec4(diffuse.xyz,1.0);
-		gl_FragData[1]=vec4(uSpecular.xyz,1.0);
-		gl_FragData[2]=vec4(normals.xyz,1.0);
-	#else
-		FragData_r=vec4(diffuse.xyz,1.0);
-		FragData_g=vec4(uSpecular.xyz,1.0);
-		FragData_b=vec4(normals.xyz,1.0);
-	#endif
+	FragData_r=vec4(diffuse.xyz,1.0);
+	FragData_g=vec4(uSpecular.xyz,1.0);
+	FragData_b=vec4(normals.xyz,1.0);
 }
 #endif

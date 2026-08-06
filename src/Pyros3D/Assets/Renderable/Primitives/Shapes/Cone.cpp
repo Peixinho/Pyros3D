@@ -17,6 +17,9 @@ namespace p3d {
 		calculateTangentBitangent = TangentBitangent;
 		this->segmentsW = (f32)segmentsW;
 		this->segmentsH = (f32)segmentsH;
+		this->radius = radius;
+		this->height = height;
+		this->openEnded = openEnded;
 
 		Vec3 normal;
 

@@ -21,6 +21,13 @@ namespace p3d {
 
 		virtual void CalculateBounding() {}
 
+		virtual uint32 GetPrimitiveType() const { return PrimitiveType::Plane; }
+		f32 GetWidth() const { return width; }
+		f32 GetHeight() const { return height; }
+
+	protected:
+
+		f32 width, height;
 	};
 };
 

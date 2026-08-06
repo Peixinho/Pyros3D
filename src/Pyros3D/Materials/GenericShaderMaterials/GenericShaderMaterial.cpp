@@ -20,10 +20,14 @@ namespace p3d
 	{
 		// Default
 		colorMapID = specularMapID = normalMapID = displacementMapID = envMapID = skyboxMapID = refractMapID = fontMapID = -1;
+		metallicRoughnessMapID = -1;
 
 		displacementHeight = 0.05f;
 
 		uColor = uSpecular = uReflectivity = NULL;
+		uMetallic = uRoughness = NULL;
+		uSSRReflective = NULL;
+		SSREnabled = 0.0f;
 
 		// Find if Shader exists, if not, creates a new one
 		if (ShadersList.find(options) == ShadersList.end())
@@ -79,6 +83,10 @@ namespace p3d
 				define += std::string("#define INSTANCED_RENDERING\n");
 			if (options & ShaderUsage::VelocityRendering)
 				define += std::string("#define VELOCITY_RENDERING\n");
+			if (options & ShaderUsage::PBR)
+				define += std::string("#define PBR\n");
+			if (options & ShaderUsage::PBRMap)
+				define += std::string("#define PBRMAP\n");
 
 			ShadersList[options]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
 			ShadersList[options]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
@@ -128,6 +136,15 @@ namespace p3d
 			uUseLights = AddUniform(Uniform("uUseLights", Uniforms::DataType::Float, &UseLights));
 			AddUniform(Uniform("uCameraPos", Uniforms::DataUsage::CameraPosition));
 			uShininess = AddUniform(Uniform("uShininess", Uniforms::DataType::Float, &Shininess));
+		}
+
+		if (options & ShaderUsage::PBR)
+		{
+			// Sensible defaults: fully dielectric, mid-rough
+			Metallic = 0.0f;
+			Roughness = 0.5f;
+			uMetallic = AddUniform(Uniform("uMetallic", Uniforms::DataType::Float, &Metallic));
+			uRoughness = AddUniform(Uniform("uRoughness", Uniforms::DataType::Float, &Roughness));
 		}
 
 		if (options & ShaderUsage::DirectionalShadow)
@@ -230,10 +247,21 @@ namespace p3d
 	void GenericShaderMaterial::SetDisplacementHeight(const f32 height)
 	{
 		displacementHeight = height;
-		uDisplacementHeight->SetValue(&displacementHeight);
+		// Unlike every sibling Set*() here, this unconditionally
+		// dereferenced uDisplacementHeight - only ever non-null if the
+		// material was constructed with ShaderUsage::ParallaxMapping (see
+		// the constructor above), so calling this on any other material
+		// (the common case) crashed. Real bug, found via
+		// SceneSerializer round-tripping a plain Texture+Diffuse material
+		// through this setter. Same lazy-create-if-null pattern as
+		// SetReflectivity/SetMetallic/SetRoughness/SetSSREnabled.
+		if (!uDisplacementHeight)
+			uDisplacementHeight = AddUniform(Uniform("uDisplacementHeight", Uniforms::DataType::Float, &displacementHeight));
+		else
+			uDisplacementHeight->SetValue(&displacementHeight);
 	}
 
-	void GenericShaderMaterial::AddTexture(const std::string &uniformName, Texture* texture)
+	void GenericShaderMaterial::AddTexture(const std::string &uniformName, const std::shared_ptr<Texture> &texture)
 	{
 		uint32 id = Textures.size();
 
@@ -245,14 +273,14 @@ namespace p3d
 
 	void GenericShaderMaterial::BindTextures()
 	{
-		for (std::vector<Texture*>::iterator i = Textures.begin(); i != Textures.end(); i++)
+		for (std::vector<std::shared_ptr<Texture>>::iterator i = Textures.begin(); i != Textures.end(); i++)
 		{
 			(*i)->Bind();
 		}
 	}
 	void GenericShaderMaterial::UnbindTextures()
 	{
-		for (std::vector<Texture*>::reverse_iterator i = Textures.rbegin(); i != Textures.rend(); i++)
+		for (std::vector<std::shared_ptr<Texture>>::reverse_iterator i = Textures.rbegin(); i != Textures.rend(); i++)
 		{
 			(*i)->Unbind();
 		}
@@ -260,21 +288,30 @@ namespace p3d
 
 	void GenericShaderMaterial::SetColor(const Vec4& color)
 	{
-		Vec4 Color = color;
+		// Kd was declared but never actually written here - unlike every
+		// other property on this class (Reflectivity/Metallic/Shininess/
+		// etc all cache into their own member alongside the uniform),
+		// this only ever touched the uniform's byte buffer, leaving Kd
+		// permanently stale/default. Real bug, found via GetColor()
+		// (added for scene serialization) reading it back as always
+		// (0,0,0,0). Kd is otherwise unread anywhere in the engine, so
+		// this is a pure fix, not a behavior change to rendering.
+		Kd = color;
 		if (!uColor)
-			uColor = AddUniform(Uniform("uColor", Uniforms::DataType::Vec4, &Color));
+			uColor = AddUniform(Uniform("uColor", Uniforms::DataType::Vec4, &Kd));
 		else
-			uColor->SetValue(&Color);
+			uColor->SetValue(&Kd);
 	}
 	void GenericShaderMaterial::SetSpecular(const Vec4& specularColor)
 	{
-		Vec4 Specular = specularColor;
+		// See SetColor()'s identical comment - Ks was the same dead field.
+		Ks = specularColor;
 		if (!uSpecular)
-			uSpecular = AddUniform(Uniform("uSpecular", Uniforms::DataType::Vec4, &Specular));
-		else uSpecular->SetValue(&Specular);
+			uSpecular = AddUniform(Uniform("uSpecular", Uniforms::DataType::Vec4, &Ks));
+		else uSpecular->SetValue(&Ks);
 	}
 
-	void GenericShaderMaterial::SetColorMap(Texture* colormap)
+	void GenericShaderMaterial::SetColorMap(const std::shared_ptr<Texture> &colormap)
 	{
 		if (colorMapID == -1)
 			colorMapID = Textures.size();
@@ -287,7 +324,7 @@ namespace p3d
 		// Set Uniform
 		AddUniform(Uniform("uColormap", Uniforms::DataType::Int, &colorMapID));
 	}
-	void GenericShaderMaterial::SetSpecularMap(Texture* specular)
+	void GenericShaderMaterial::SetSpecularMap(const std::shared_ptr<Texture> &specular)
 	{
 		if (specularMapID == -1)
 			specularMapID = Textures.size();
@@ -300,7 +337,20 @@ namespace p3d
 		// Set Uniform
 		AddUniform(Uniform("uSpecularmap", Uniforms::DataType::Int, &specularMapID));
 	}
-	void GenericShaderMaterial::SetNormalMap(Texture* normalmap)
+	void GenericShaderMaterial::SetMetallicRoughnessMap(const std::shared_ptr<Texture> &metallicRoughnessMap)
+	{
+		if (metallicRoughnessMapID == -1)
+			metallicRoughnessMapID = Textures.size();
+		else {
+			Textures[metallicRoughnessMapID] = metallicRoughnessMap;
+			return;
+		}
+		// Save on List
+		Textures.push_back(metallicRoughnessMap);
+		// Set Uniform
+		AddUniform(Uniform("uMetallicRoughnessmap", Uniforms::DataType::Int, &metallicRoughnessMapID));
+	}
+	void GenericShaderMaterial::SetNormalMap(const std::shared_ptr<Texture> &normalmap)
 	{
 		if (normalMapID == -1)
 			normalMapID = Textures.size();
@@ -313,7 +363,7 @@ namespace p3d
 		// Set Uniform
 		AddUniform(Uniform("uNormalmap", Uniforms::DataType::Int, &normalMapID));
 	}
-	void GenericShaderMaterial::SetDisplacementMap(Texture* displacementmap)
+	void GenericShaderMaterial::SetDisplacementMap(const std::shared_ptr<Texture> &displacementmap)
 	{
 		if (displacementMapID == -1)
 			displacementMapID = Textures.size();
@@ -326,7 +376,7 @@ namespace p3d
 		// Set Uniform
 		AddUniform(Uniform("uDisplacementmap", Uniforms::DataType::Int, &displacementMapID));
 	}
-	void GenericShaderMaterial::SetEnvMap(Texture* envmap)
+	void GenericShaderMaterial::SetEnvMap(const std::shared_ptr<Texture> &envmap)
 	{
 		if (envMapID == -1)
 			envMapID = Textures.size();
@@ -343,11 +393,35 @@ namespace p3d
 	{
 		Reflectivity = reflectivity;
 		if (!uReflectivity)
-			AddUniform(Uniform("uReflectivity", Uniforms::DataType::Float, &Reflectivity));
+			uReflectivity = AddUniform(Uniform("uReflectivity", Uniforms::DataType::Float, &Reflectivity));
 		else
 			uReflectivity->SetValue(&Reflectivity);
 	}
-	void GenericShaderMaterial::SetRefractMap(Texture* refractmap)
+	void GenericShaderMaterial::SetMetallic(const f32 metallic)
+	{
+		Metallic = metallic;
+		if (!uMetallic)
+			uMetallic = AddUniform(Uniform("uMetallic", Uniforms::DataType::Float, &Metallic));
+		else
+			uMetallic->SetValue(&Metallic);
+	}
+	void GenericShaderMaterial::SetRoughness(const f32 roughness)
+	{
+		Roughness = roughness;
+		if (!uRoughness)
+			uRoughness = AddUniform(Uniform("uRoughness", Uniforms::DataType::Float, &Roughness));
+		else
+			uRoughness->SetValue(&Roughness);
+	}
+	void GenericShaderMaterial::SetSSREnabled(const bool enabled)
+	{
+		SSREnabled = enabled ? 1.0f : 0.0f;
+		if (!uSSRReflective)
+			uSSRReflective = AddUniform(Uniform("uSSRReflective", Uniforms::DataType::Float, &SSREnabled));
+		else
+			uSSRReflective->SetValue(&SSREnabled);
+	}
+	void GenericShaderMaterial::SetRefractMap(const std::shared_ptr<Texture> &refractmap)
 	{
 		if (refractMapID == -1)
 			refractMapID = Textures.size();
@@ -360,7 +434,7 @@ namespace p3d
 		// Set Uniform
 		AddUniform(Uniform("uRefractmap", Uniforms::DataType::Int, &refractMapID));
 	}
-	void GenericShaderMaterial::SetSkyboxMap(Texture* skyboxmap)
+	void GenericShaderMaterial::SetSkyboxMap(const std::shared_ptr<Texture> &skyboxmap)
 	{
 		if (skyboxMapID == -1)
 			skyboxMapID = Textures.size();
@@ -375,14 +449,15 @@ namespace p3d
 	}
 	void GenericShaderMaterial::SetTextFont(Font* font)
 	{
+		const std::shared_ptr<Texture> &fontTex = font->GetTextureShared();
 		if (fontMapID == -1)
 			fontMapID = Textures.size();
 		else {
-			Textures[fontMapID] = font->GetTexture();
+			Textures[fontMapID] = fontTex;
 			return;
 		}
 		// Save on List
-		Textures.push_back(font->GetTexture());
+		Textures.push_back(fontTex);
 		// Set Uniform
 		AddUniform(Uniform("uFontmap", Uniforms::DataType::Int, &fontMapID));
 	}

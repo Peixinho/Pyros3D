@@ -20,104 +20,28 @@
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
 #include <Pyros3D/Rendering/Components/Lights/ILightComponent.h>
 #include <Pyros3D/Rendering/Culling/FrustumCulling/FrustumCulling.h>
+#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Other/Export.h>
 #include <algorithm>
 #include <memory>
 
 namespace p3d {
 
-	namespace Buffer_Bit
-	{
-		enum {
-			None = 0,
-			Color = 0x10,
-			Depth = 0x20,
-			Stencil = 0x40
-		};
-	}
-
-	namespace StencilOp
-	{
-		enum {
-			Keep = 0,
-			Zero,
-			Replace,
-			Incr,
-			Incr_Wrap,
-			Decr,
-			Decr_Wrap,
-			Invert
-		};
-	}
-
-	namespace StencilFunc
-	{
-		enum {
-			Always = 0,
-			Never,
-			Less,
-			LEqual,
-			Greater,
-			GEqual,
-			Equal,
-			Notequal
-		};
-	}
-
-	namespace BlendFunc
-	{
-		enum {
-			Zero = 0,
-			One,
-			Src_Color,
-			One_Minus_Src_Color,
-			Dst_Color,
-			One_Minus_Dst_Color,
-			Src_Alpha,
-			One_Minus_Src_Alpha,
-			Dst_Alpha,
-			One_Minus_Dst_Alpha,
-			Constant_Color,
-			One_Minus_Constant_Color,
-			Constant_Alpha,
-			One_Minus_Constant_Alpha,
-			Src_Alpha_Saturate,
-			Src1_Color,
-			One_Minus_Src1_Color,
-			Src1_Alpha,
-			One_Minus_Src1_Alpha
-		};
-	}
-
-	namespace BlendEq
-	{
-		enum {
-			Add = 0,
-			Subtract,
-			Reverse_Subtract
-		};
-	}
-
-	namespace DepthTest
-	{
-		enum {
-			Less = 0,
-			Never,
-			Greater,
-			Equal,
-			Always,
-			LEqual,
-			GEqual,
-			NotEqual
-		};
-	}
-
 	class PYROS3D_API IRenderer {
 
 	public:
 
 		IRenderer();
-		IRenderer(const uint32 Width, const uint32 Height);
+		// externalDevice, if non-NULL, is taken as this instance's device
+		// instead of the default GLRenderDevice - lets a backend other than
+		// GL (e.g. VulkanRenderDevice) be injected at construction time,
+		// per the roadmap's "construction-time not compile-time backend
+		// choice" design goal (VULKAN_ROADMAP.md). Also registered as the
+		// process-wide active device (see SetActiveRenderDevice() in
+		// IRenderDevice.h) so Shader/GeometryBuffer/RenderingComponent
+		// resource creation elsewhere in the engine - constructed with no
+		// IRenderer reference available - picks up the same backend.
+		IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* externalDevice = NULL);
 		virtual ~IRenderer();
 		void ClearBufferBit(const uint32 Option);
 
@@ -227,6 +151,20 @@ namespace p3d {
 		void SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material);
 		void SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material);
 		void SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material);
+		// See IMaterial.h's comment on extraUniformsBinding - a material
+		// opting into this (any CustomShaderMaterial whose shader wraps its
+		// own loose uniforms in a UBO, e.g. DeferredRenderer's second-pass
+		// lighting materials) gets its current uniform values packed into
+		// extraUniformsScratch and uploaded here, once per RenderObject()
+		// call. No-op for every other material (extraUniformsBinding stays
+		// 0 by default).
+		void SendExtraUniforms(RenderingMesh* rmesh, IMaterial* Material);
+		// Helper for SendExtraUniforms() - resolves one Uniform's current
+		// value (the same per-DataUsage sources SendGlobalUniforms()/
+		// SendModelUniforms() use, plus the generic Uniform::Value path)
+		// and copies it into Material->extraUniformsScratch if its name is
+		// registered in Material->extraUniformOffsets.
+		void CaptureExtraUniform(IMaterial* Material, const Uniform &u);
 
 		void StartClippingPlanes();
 		void EndClippingPlanes();
@@ -329,6 +267,17 @@ namespace p3d {
 		std::unique_ptr<FrustumCulling>
 			culling;
 
+		// Backend seam for the state/bind/draw calls this class used to
+		// issue directly against OpenGL - see IRenderDevice.h. One per
+		// instance (GLRenderDevice itself holds no state, so this is cheap);
+		// only the shared UBO handles below are refcounted/static.
+		// MaybeOwningDevicePtr (not a plain unique_ptr<IRenderDevice>) so
+		// this can sometimes *borrow* an already-active device instead of
+		// always owning one - see IRenderDevice.h's comment on
+		// MaybeOwningDeviceDeleter/IsActiveRenderDeviceSet().
+		MaybeOwningDevicePtr
+			device;
+
 		// True only for instances built via IRenderer(Width, Height) - the
 		// no-arg IRenderer() used by DebugRenderer never touches the shared
 		// UBOs below, so it must not increment SharedUBORefCount either;
@@ -352,8 +301,7 @@ namespace p3d {
 		// (std140: 2 mat4, 128 bytes), bound once to binding point 0 and
 		// re-uploaded via glBufferSubData in SendGlobalUniforms() instead of
 		// resending both as individual glUniform calls on every mesh/material
-		// switch. Not used on GLES2, which has no uniform buffer objects -
-		// PyrosShader.glsl falls back to plain uniforms there.
+		// switch.
 		static uint32 GlobalMatricesUBO;
 
 		// Same idea for PyrosShader.glsl's uLights[MAX_LIGHTS] array (bound
@@ -368,6 +316,31 @@ namespace p3d {
 		static uint32 DirectionalShadowUBO;
 		static uint32 PointShadowUBO;
 		static uint32 SpotShadowUBO;
+
+		// UBOs for what used to be "loose" (non-block) uniforms in
+		// PyrosShader.glsl - uModelMatrix/uCameraPos/uOpacity/etc - moved
+		// into fixed-binding blocks (binding points 16-23, see the BIND_*
+		// macros in that file) so the shader also compiles for Vulkan/SPIR-V,
+		// which rejects non-opaque uniforms outside a block outright. Only
+		// used for materials where Material->SupportsUniformBlocks() is
+		// true (GenericShaderMaterial - see IMaterial.h); other materials'
+		// shaders (CustomShaderMaterial) keep declaring these as plain
+		// uniforms and keep receiving them via the pre-existing individual
+		// Shader::SendUniform() path, unaffected by any of this. Same
+		// refcounted/shared lifecycle as the UBOs above.
+		static uint32 VertexFrameUniformsUBO;
+		static uint32 VelocityFrameUniformsUBO;
+		static uint32 ObjectMatrixUniformsUBO;
+		static uint32 BoneMatricesUBO;
+		static uint32 VelocityObjectUniformsUBO;
+		static uint32 AmbientLightUniformsUBO;
+		static uint32 MaterialUniformsUBO;
+		// Split out of MaterialUniformsUBO: uNumberOfLights/etc are
+		// per-object (each object gets its own nearby-lights count from
+		// the renderer's light-culling loop), not per-material, so they
+		// can't be gated on material-change the way the rest of
+		// MaterialUniforms now is - see SendModelUniforms()/SendUserUniforms().
+		static uint32 ObjectLightCountsUBO;
 
 		// Last-uploaded contents of each UBO above, compared byte-for-byte
 		// in SendGlobalUniforms() to skip the glBufferSubData call (and the
@@ -384,6 +357,12 @@ namespace p3d {
 		// since there's nothing meaningful to compare against yet.
 		static bool GlobalMatricesUBOValid;
 		static Matrix CachedProjectionMatrix, CachedViewMatrix;
+		// Part of the same dirty-check as CachedProjectionMatrix/
+		// CachedViewMatrix above - RenderingPointShadowFace changes which
+		// *translation* of an otherwise-possibly-identical ProjectionMatrix
+		// gets uploaded (see SendGlobalUniforms()), so it has to be part of
+		// what "unchanged" means too, not just the untranslated source matrices.
+		static bool CachedRenderingPointShadowFace;
 		static bool LightsUBOValid;
 		static std::vector<Matrix> CachedLights;
 		static bool DirectionalShadowUBOValid;
@@ -393,6 +372,24 @@ namespace p3d {
 		static std::vector<Matrix> CachedPointShadowMatrix;
 		static bool SpotShadowUBOValid;
 		static std::vector<Matrix> CachedSpotShadowMatrix;
+
+		// Dirty-tracking for the per-frame UBOs above (VertexFrameUniforms/
+		// AmbientLightUniforms/VelocityFrameUniforms) - same
+		// skip-if-unchanged reasoning as GlobalMatricesUBOValid. The
+		// per-object ones (ObjectMatrixUniforms/BoneMatrices/
+		// VelocityObjectUniforms/MaterialUniforms) aren't cached here: their
+		// source data (ModelMatrix, skinning bones, material scalars)
+		// changes on essentially every RenderObject() call anyway - same as
+		// how SendModelUniforms()/SendUserUniforms() already resend their
+		// individual uniforms unconditionally every call, no dirty-check.
+		static bool VertexFrameUniformsUBOValid;
+		static Vec3 CachedCameraPosition;
+		static bool CachedClipPlaneEnabled;
+		static Vec4 CachedClipPlane0;
+		static bool AmbientLightUniformsUBOValid;
+		static Vec4 CachedGlobalLight;
+		static bool VelocityFrameUniformsUBOValid;
+		static Matrix CachedPrvProjectionMatrix, CachedPrvViewMatrix;
 
 		// Universal Uniforms Cache
 		Matrix
@@ -407,6 +404,15 @@ namespace p3d {
 			ProjectionMatrixInverseIsDirty,
 			ViewMatrixInverseIsDirty,
 			ViewProjectionMatrixIsDirty;
+
+		// Set for the duration of a point light's 6-face shadow cubemap
+		// render loop (PreRender()), read by SendGlobalUniforms() to skip
+		// device->TranslateProjectionMatrix()'s Y-flip for those draws
+		// only - see the comment on that method in IRenderDevice.h for
+		// why a cubemap face specifically must not get it. False the rest
+		// of the time (every other pass - main camera, directional/spot
+		// shadows - needs the normal flip).
+		bool RenderingPointShadowFace;
 
 		Vec3
 			CameraPosition;
@@ -491,8 +497,6 @@ namespace p3d {
 	private:
 
 		void BindMesh(RenderingMesh* rmesh, IMaterial* material);
-		void UnbindMesh(RenderingMesh* rmesh, IMaterial* material);
-		void SendAttributes(RenderingMesh* rmesh, IMaterial* material);
 		void BindShadowMaps(IMaterial* material);
 		void UnbindShadowMaps(IMaterial* material);
 

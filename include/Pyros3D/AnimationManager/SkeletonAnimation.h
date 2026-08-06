@@ -105,6 +105,40 @@ namespace p3d {
 		// Get Animation Position
 		int32 GetAnimationPositionInVector(const uint32 animation);
 
+		// Real enumeration - AnimationsToPlay had per-order getters
+		// (GetAnimationCurrentTime(order) etc, above) but no way to know
+		// how many were actually playing or iterate them; needed to save
+		// "everything currently playing" rather than one animation at a
+		// time. animationOrder IS the AnimationsToPlay index directly
+		// (confirmed via Play()'s own "return AnimationsToPlay.size()-1;
+		// // Return Order").
+		uint32 GetNumberPlayingAnimations() const { return (uint32)AnimationsToPlay.size(); }
+		// Empty string if this playing animation isn't using a layer.
+		std::string GetAnimationLayerName(const uint32 animationOrder) const
+		{
+			return AnimationsToPlay[animationOrder].HaveLayers && AnimationsToPlay[animationOrder].Layer
+				? AnimationsToPlay[animationOrder].Layer->Name : std::string();
+		}
+
+		// Real enumeration of Layers (CreateLayer/AddBone* only ever let
+		// you write layer state, never read it back). Iterates the
+		// internal map in a stable (key-sorted) order - `index` is that
+		// enumeration position, not the layer's own ID.
+		uint32 GetNumberLayers() const { return (uint32)Layers.size(); }
+		std::string GetLayerName(const uint32 index) const;
+		// Bone IDs actually affected by (added to) this layer - i.e.
+		// entries in the layer's internal per-bone flag array equal to 1
+		// (see AddBone()'s implementation). Resolve to bone names via the
+		// owning RenderingComponent's GetSkeleton() before calling
+		// AddBone() again on load - IDs are only meaningful relative to
+		// the same skeleton.
+		std::vector<int32> GetLayerAffectedBoneIDs(const uint32 index) const;
+
+		// The SkeletonAnimation asset this instance plays animations
+		// from - needed to recover its source path (GetOwner()->GetPath())
+		// for serialization; Owner was already stored, just never exposed.
+		SkeletonAnimation* GetOwner() const { return Owner; }
+
 		// Layers
 		uint32 CreateLayer(const std::string &name);
 		// Add Bone
@@ -172,8 +206,6 @@ namespace p3d {
 
 		// internal timer
 		f32 timer;
-		// frames
-		std::vector<Texture*> Frames;
 		// Instances
 		std::vector<SkeletonAnimationInstance*> Instances;
 		// Animations
@@ -211,6 +243,27 @@ namespace p3d {
 
 		// Get Animation ID By Name
 		const int32 GetAnimationIDByName(const std::string &name) const;
+
+		// Source file path - not stored before this, LoadAnimation()'s
+		// argument was used once then discarded. This is the path of the
+		// *last* LoadAnimation() call only; one SkeletonAnimation routinely
+		// holds several files' clips concatenated into `animations` (the
+		// Skeleton Animation demo loads walk/alert/run/walk to get ids 0-3),
+		// so use GetPaths() for anything that needs to rebuild it.
+		const std::string &GetPath() const { return Path; }
+
+		// Every LoadAnimation() path, in call order - the order *is* the
+		// data, since a clip's id is just its index in the concatenated
+		// `animations` vector. Serializing only GetPath() and reloading it
+		// once (as SceneSerializer did) rebuilt a 1-clip animation whose
+		// saved Play(id) calls then indexed `animations` out of bounds,
+		// storing dangling Animation* that crashed the next Update().
+		const std::vector<std::string> &GetPaths() const { return Paths; }
+
+	private:
+
+		std::string Path;
+		std::vector<std::string> Paths;
 	};
 
 }

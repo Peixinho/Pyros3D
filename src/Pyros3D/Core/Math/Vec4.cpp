@@ -40,6 +40,17 @@ namespace p3d {
 			return Vec4(fabs(x), fabs(y), fabs(z), fabs(w));
 		}
 
+		Vec4 Vec4::Lerp(const Vec4 &b, const f32 t) const
+		{
+			Vec4 v;
+			v.x = x + (b.x - x) * t;
+			v.y = y + (b.y - y) * t;
+			v.z = z + (b.z - z) * t;
+			v.w = w + (b.w - w) * t;
+
+			return v;
+		}
+
 		Vec4 Vec4::operator+(const Vec4 &v) const
 		{
 			return Vec4(x + v.x, y + v.y, z + v.z, w + v.w);

@@ -21,7 +21,7 @@ namespace p3d {
 		fontSize = size;
 
 		// Create Texture
-		glyphMap = new Texture();
+		glyphMap = std::make_shared<Texture>();
 		glyphMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::R8, MAP_SIZE, MAP_SIZE, true);
 		glyphMap->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 		glyphMap->SetTextureByteAlignment(1);
@@ -138,11 +138,6 @@ namespace p3d {
 	{
 		FT_Done_Face(face);
 		FT_Done_FreeType(ft);
-		delete glyphMap;
-	}
-
-	Texture* Font::GetTexture()
-	{
-		return glyphMap;
+		glyphMap.reset();
 	}
 }

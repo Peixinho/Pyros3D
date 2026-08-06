@@ -7,20 +7,27 @@
 //=================================================================================
 
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
+#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 
 namespace p3d
 {
 
+	// Shares whichever backend is currently active - same pattern as
+	// Shaders.cpp/GeometryBuffer.cpp's own file-local Device() helper.
+	static IRenderDevice& Device()
+	{
+		return GetActiveRenderDevice();
+	}
+
 	CustomShaderMaterial::CustomShaderMaterial(const std::string& ShaderFile) : IMaterial()
 	{
+		ShaderFilePath = ShaderFile;
+
 		StringID number = (MakeStringID(ShaderFile)) + (MakeStringID(ShaderFile));
 
 		{
 
 			std::string define;
-#if defined(GLES2)
-			define += std::string("#define GLES2\n");
-#endif
 #if defined(GLES3)
 			define += std::string("#define GLES3\n");
 #endif
@@ -51,6 +58,8 @@ namespace p3d
 		// Get Shader Program
 		shaderProgram = shader->ShaderProgram();
 
+		PopulateAutoExtraUniforms();
+
 		SetOpacity(1.0);
 	}
 
@@ -59,6 +68,8 @@ namespace p3d
 		shaderProgram = shader->ShaderProgram();
 
 		this->shader = shader;
+
+		PopulateAutoExtraUniforms();
 	}
 
 	void CustomShaderMaterial::SetShader(Shader* shader)
@@ -70,19 +81,48 @@ namespace p3d
 		// Copy shader
 		this->shader = shader;
 		shaderProgram = shader->ShaderProgram();
+
+		PopulateAutoExtraUniforms();
+	}
+
+	void CustomShaderMaterial::PopulateAutoExtraUniforms()
+	{
+		uint32 stages[2] = { ShaderType::VertexShader, ShaderType::FragmentShader };
+		for (int i = 0; i < 2; i++)
+		{
+			uint32 binding = 0, size = 0;
+			std::string blockName;
+			std::map<std::string, uint32> offsets;
+			if (!Device().GetAutoUniformBlockLayout(shaderProgram, stages[i], binding, blockName, size, offsets))
+				continue;
+			ExtraUniformsBlock &block = extraUniforms[i];
+			block.binding = binding;
+			block.blockName = blockName;
+			block.size = size;
+			block.offsets = offsets;
+			block.scratch.assign(size, 0);
+			block.bufferHandle = 0;
+		}
 	}
 
 	CustomShaderMaterial::~CustomShaderMaterial() = default;
 
 	void CustomShaderMaterial::PreRender()
 	{
-		for (std::vector<Texture*>::iterator i = textures.begin(); i != textures.end(); i++)
+		for (std::vector<std::shared_ptr<Texture>>::iterator i = textures.begin(); i != textures.end(); i++)
 			(*i)->Bind();
 	}
 
 	void CustomShaderMaterial::AfterRender()
 	{
-		for (std::vector<Texture*>::reverse_iterator i = textures.rbegin(); i != textures.rend(); i++)
+		for (std::vector<std::shared_ptr<Texture>>::reverse_iterator i = textures.rbegin(); i != textures.rend(); i++)
 			(*i)->Unbind();
+	}
+
+	void CustomShaderMaterial::AddSampler(const std::string &uniformName, const std::shared_ptr<Texture> &tex)
+	{
+		int32 imgID = (int32)textures.size();
+		textures.push_back(tex);
+		AddUniform(Uniform(uniformName, Uniforms::DataType::Int, &imgID));
 	}
 }

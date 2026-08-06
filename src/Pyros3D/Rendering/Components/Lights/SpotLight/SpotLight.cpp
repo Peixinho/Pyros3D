@@ -41,7 +41,7 @@ namespace p3d {
 		// GPU Shadows
 		ShadowMap.reset(new Texture());
 
-#if defined(GLES2) || defined(GLLEGACY)
+#if defined(GLLEGACY)
 
 		ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
 		ShadowMap->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);

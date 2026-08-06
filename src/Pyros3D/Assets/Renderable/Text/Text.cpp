@@ -44,6 +44,10 @@ namespace p3d {
 
 	void Text::UpdateText(const std::string &text, const Vec4 &color)
 	{
+		// Set unconditionally, even if the text-unchanged early-out below
+		// skips a real rebuild - see Text.h's GetColor() comment.
+		this->color = color;
+		this->charColors.clear();
 		if (this->text != text)
 		{
 			this->text = text;
@@ -142,6 +146,8 @@ namespace p3d {
 
 	void Text::UpdateText(const std::string &text, const std::vector<Vec4> &colors)
 	{
+		// See the single-color overload's identical comment.
+		this->charColors = colors;
 		if (this->text != text)
 		{
 			this->text = text;

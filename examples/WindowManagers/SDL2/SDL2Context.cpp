@@ -8,7 +8,7 @@
 
 #include <Pyros3D/Other/PyrosGL.h>
 #include "SDL2Context.h"
-#include "../imgui/backends/imgui_impl_sdl2.h"
+#include "imgui_impl_sdl2.h"
 
 namespace p3d {
 
@@ -179,6 +179,24 @@ namespace p3d {
 
 		mainGLContext = SDL_GL_CreateContext(rview);
 
+		// See SDL2VulkanContext's identical fix/comment - the window
+		// manager can silently clamp the requested size, and no
+		// SDL_WINDOWEVENT_RESIZED fires for a size decided at creation
+		// time, so Width/Height (read by every example for its camera's
+		// aspect ratio and render-target sizing) must come from the
+		// window's real post-creation size, not the caller's request.
+		// SDL_GL_GetDrawableSize() (not SDL_GetWindowSize(), which
+		// returns logical points and undershoots by the display's HiDPI
+		// scale factor - the exact bug found and fixed on the Vulkan
+		// path this session) needs a live GL context to query, hence
+		// called after SDL_GL_CreateContext() above rather than
+		// immediately after SDL_CreateWindow() the way the Vulkan path
+		// (which has no such ordering constraint) does it.
+		int actualWidth = width, actualHeight = height;
+		SDL_GL_GetDrawableSize(rview, &actualWidth, &actualHeight);
+		Width = (uint32)actualWidth;
+		Height = (uint32)actualHeight;
+
 #if !defined(GLES2) && !defined(GLES3)
 		gladLoadGL();
 #elif defined(DESKTOP)
@@ -212,9 +230,16 @@ namespace p3d {
         SDL_Event sdl_event;
 		while(SDL_PollEvent(&sdl_event) > 0) /* While there are more than 0 events in the queue */
 		{
-            // Process ImGui events first
-            ImGui_ImplSDL2_ProcessEvent(&sdl_event);
-            
+            // Process ImGui events first - guarded, not every example calls
+            // BaseExample::InitImGui() (ParticlesExample didn't - see its
+            // own fix), and this runs unconditionally for every example
+            // regardless. ImGui_ImplSDL2_ProcessEvent() asserts hard on a
+            // null backend/context if called before ImGui::CreateContext()
+            // (InitImGui()'s job), so any example skipping it crashed on
+            // the very first SDL event, not just a cosmetic gap.
+            if (ImGui::GetCurrentContext() != NULL)
+                ImGui_ImplSDL2_ProcessEvent(&sdl_event);
+
             if (sdl_event.type == SDL_QUIT)
             {
 		        Close();
@@ -256,6 +281,17 @@ namespace p3d {
                 OnResize(sdl_event.window.data1, sdl_event.window.data2);
             }
 		}
+
+        // See SDL2VulkanContext::GetEvents()'s identical fix/comment - a
+        // tiling window manager can resize the window via the
+        // Accessibility API without ever delivering
+        // SDL_WINDOWEVENT_RESIZED, so poll the real drawable size every
+        // frame and self-correct if it no longer matches what we last
+        // recorded.
+        int drawableW = 0, drawableH = 0;
+        SDL_GL_GetDrawableSize(rview, &drawableW, &drawableH);
+        if (drawableW > 0 && drawableH > 0 && ((uint32)drawableW != Width || (uint32)drawableH != Height))
+            OnResize((uint32)drawableW, (uint32)drawableH);
 
         SetTime(SDL_GetTicks());
         fps.setFPS(SDL_GetTicks());

@@ -1,0 +1,184 @@
+{
+    "materials": [],
+    "roots": [
+        {
+            "name": "Camera",
+            "tags": [
+                "Camera"
+            ],
+            "position": [
+                0,
+                2,
+                15
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_fly.lua",
+                    "data": {
+                        "yaw": 0,
+                        "pitch": 0
+                    }
+                }
+            ]
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "blendMode": 0,
+                    "boundingSphereRadius": 0.0,
+                    "burstCount": 1,
+                    "damping": 0.300000011920929,
+                    "direction": [
+                        0.0,
+                        1.0,
+                        0.0
+                    ],
+                    "emissionRate": 15.0,
+                    "endColor": [
+                        0.300000011920929,
+                        0.300000011920929,
+                        0.300000011920929,
+                        0.0
+                    ],
+                    "endSize": 3.5,
+                    "fadeInFraction": 0.100000001490116,
+                    "fadeOutFraction": 0.600000023841858,
+                    "gravity": [
+                        0.0,
+                        0.0,
+                        0.0
+                    ],
+                    "looping": true,
+                    "maxLifetime": 5.0,
+                    "maxParticles": 200,
+                    "maxRotationSpeed": 0.400000005960464,
+                    "maxSpeed": 2.40000009536743,
+                    "minLifetime": 3.0,
+                    "minRotationSpeed": -0.400000005960464,
+                    "minSpeed": 1.60000002384186,
+                    "sizeRandomJitter": 0.300000011920929,
+                    "spreadAngle": 0.349065840244293,
+                    "startColor": [
+                        0.600000023841858,
+                        0.600000023841858,
+                        0.600000023841858,
+                        1.0
+                    ],
+                    "startSize": 0.800000011920929,
+                    "texture": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/smoke.png",
+                    "type": "ParticleSystem"
+                },
+                {
+                    "data": {
+                        "emissionRate": 15.0,
+                        "riseSpeed": 2.0,
+                        "spread": 0.600000023841858
+                    },
+                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/smoke_tuning.lua",
+                    "type": "LuaComponent"
+                }
+            ],
+            "name": "",
+            "position": [
+                -4.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "blendMode": 1,
+                    "boundingSphereRadius": 0.0,
+                    "burstCount": 1,
+                    "damping": 0.100000001490116,
+                    "direction": [
+                        0.0,
+                        1.0,
+                        0.0
+                    ],
+                    "emissionRate": 30.0,
+                    "endColor": [
+                        1.0,
+                        0.200000002980232,
+                        0.0,
+                        1.0
+                    ],
+                    "endSize": 0.150000005960464,
+                    "fadeInFraction": 0.0500000007450581,
+                    "fadeOutFraction": 0.5,
+                    "gravity": [
+                        0.0,
+                        -1.5,
+                        0.0
+                    ],
+                    "looping": true,
+                    "maxLifetime": 1.79999995231628,
+                    "maxParticles": 150,
+                    "maxRotationSpeed": 2.0,
+                    "maxSpeed": 5.0,
+                    "minLifetime": 1.0,
+                    "minRotationSpeed": -2.0,
+                    "minSpeed": 3.0,
+                    "sizeRandomJitter": 0.400000005960464,
+                    "spreadAngle": 0.436332315206528,
+                    "startColor": [
+                        1.0,
+                        0.899999976158142,
+                        0.400000005960464,
+                        1.0
+                    ],
+                    "startSize": 0.600000023841858,
+                    "texture": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/smoke.png",
+                    "type": "ParticleSystem"
+                }
+            ],
+            "name": "",
+            "position": [
+                4.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "static": false,
+            "tags": []
+        }
+    ],
+    "version": 1
+}

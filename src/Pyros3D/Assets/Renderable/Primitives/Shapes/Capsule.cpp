@@ -15,6 +15,11 @@ namespace p3d {
 		isFlipped = flip;
 		isSmooth = smooth;
 		calculateTangentBitangent = TangentBitangent;
+		this->radius = radius;
+		this->height = height;
+		this->numRings = numRings;
+		this->segmentsW = segmentsW;
+		this->segmentsH = segmentsH;
 		f32 fDeltaRingAngle = (f32)(PI / 2 / numRings);
 		f32 fDeltaSegAngle = (f32)(PI * 2 / segmentsW);
 

@@ -28,28 +28,15 @@ namespace p3d {
         
         // Create Fragment Shader
 		FragmentShaderString =
-								#if defined(GLES2)
-									"#define varying_in varying"
-									"#define varying_out varying"
-									"#define attribute_in attribute"
-									"#define texture_2D texture2D"
-									"#define texture_cube textureCube"
+								"#define varying_in in"
+								"#define varying_out out"
+								"#define attribute_in in"
+								"#define texture_2D texture"
+								"#define texture_cube texture"
+								#if defined(GLES3)
 									"precision mediump float;"
-								#else
-									"#define varying_in in"
-									"#define varying_out out"
-									"#define attribute_in in"
-									"#define texture_2D texture"
-									"#define texture_cube texture"
-									#if defined(GLES3)
-										"precision mediump float;"
-									#endif
 								#endif
-								#if defined(GLES2)
-									"vec4 FragColor;"
-								#else
 									"out vec4 FragColor;"
-								#endif
 								"uniform sampler2D uTex0;\n"
 								"uniform vec2 uResolution;\n"
 								"uniform float uRADIUS;\n"
@@ -65,9 +52,6 @@ namespace p3d {
 									"float vignette = smoothstep(uRADIUS, uRADIUS - uSOFTNESS, len);\n"
 									"vec3 texColor = mix(aColor.rgb, aColor.rgb * vignette, 1.0);\n"
 									"FragColor = vec4(texColor, 1.0);\n"
-									#if defined(GLES2)
-									"gl_FragColor = FragColor;\n"
-									#endif
 								"}\n";
         
         CompileShaders();

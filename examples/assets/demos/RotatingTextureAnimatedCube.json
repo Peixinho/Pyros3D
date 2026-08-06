@@ -1,0 +1,199 @@
+{
+    "materials": [
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": true,
+            "color": [
+                1,
+                1,
+                1,
+                1
+            ],
+            "cullFace": 0,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.05,
+            "id": 0,
+            "kind": "generic",
+            "metallic": 0.0,
+            "opacity": 1.0,
+            "options": 278530,
+            "reflectivity": 0.0,
+            "roughness": 0.0,
+            "shininess": 50,
+            "specular": [
+                0,
+                0,
+                0,
+                0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false,
+            "colorMap": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textureanimation/1.png"
+        }
+    ],
+    "roots": [
+        {
+            "name": "Camera",
+            "tags": [
+                "Camera"
+            ],
+            "position": [
+                0,
+                10,
+                80
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_fly.lua",
+                    "data": {
+                        "yaw": 0,
+                        "pitch": 0
+                    }
+                }
+            ]
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "aspect": 1.77777779102325,
+                    "cascades": 1,
+                    "castingShadows": false,
+                    "color": [
+                        1,
+                        1,
+                        1,
+                        1
+                    ],
+                    "direction": [
+                        -1,
+                        -1,
+                        0
+                    ],
+                    "fov": 70.0,
+                    "intensity": 3.14159,
+                    "shadowBiasFactor": 2.0,
+                    "shadowBiasUnits": 1.0,
+                    "shadowFar": 300.0,
+                    "shadowHeight": 1024,
+                    "shadowNear": 0.1,
+                    "shadowWidth": 1024,
+                    "type": "DirectionalLight"
+                }
+            ],
+            "name": "Sun",
+            "position": [
+                0,
+                0,
+                0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": true,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 0,
+                    "renderable": {
+                        "depth": 15.0,
+                        "flip": false,
+                        "height": 15.0,
+                        "kind": "primitive",
+                        "shape": "Cube",
+                        "smooth": false,
+                        "tangentBitangent": false,
+                        "width": 15.0
+                    },
+                    "type": "RenderingComponent",
+                    "textureAnimation": {
+                        "frames": [
+                            {
+                                "tex": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textureanimation/1.png"
+                            },
+                            {
+                                "tex": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textureanimation/2.png"
+                            },
+                            {
+                                "tex": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textureanimation/3.png"
+                            },
+                            {
+                                "tex": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textureanimation/4.png"
+                            },
+                            {
+                                "tex": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textureanimation/5.png"
+                            },
+                            {
+                                "tex": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textureanimation/6.png"
+                            }
+                        ],
+                        "fps": 30.0,
+                        "paused": false,
+                        "looping": true,
+                        "yoyo": true,
+                        "repeat": 0,
+                        "reverse": false,
+                        "currentFrame": 0
+                    }
+                },
+                {
+                    "data": {},
+                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/texture_anim.lua",
+                    "type": "LuaComponent"
+                }
+            ],
+            "name": "Cube",
+            "position": [
+                0,
+                0,
+                0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "tags": []
+        }
+    ],
+    "version": 1
+}

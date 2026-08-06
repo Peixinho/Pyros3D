@@ -16,6 +16,8 @@
 #include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <Pyros3D/Other/Export.h>
 #include <list>
+#include <map>
+#include <vector>
 
 //#include <iostream>
 
@@ -95,7 +97,75 @@ namespace p3d {
 		// Shaders
 		Shader* shader;
 
-		// Texture Units 
+		// Pipeline for this effect's full-screen-triangle draw - built
+		// lazily by PostEffectsManager::ProcessPostEffects() on first use
+		// (needs a real render pass/render target to exist first, which
+		// isn't true yet at construction time), cached here since it's
+		// otherwise identical every subsequent frame for a non-last effect
+		// (this effect's own FBO is texture-backed and format-stable
+		// across a resize - only its VkFramebuffer needs rebuilding, which
+		// VulkanRenderDevice::InvalidateFramebuffersForTexture() already
+		// handles). 0 = not yet built. Same underlying type as
+		// IRenderDevice::DeviceHandle - not spelled that way here to avoid
+		// pulling in IRenderDevice.h for a type this header is otherwise
+		// device-agnostic about.
+		//
+		// The *last* effect in the chain is a real exception to "identical
+		// every subsequent frame": it draws straight to the swapchain, and
+		// a resize on Vulkan destroys and recreates the swapchain's own
+		// VkRenderPass (VulkanRenderDevice::RecreateSwapchain()) - a
+		// pipeline built against the old one and never rebuilt reads back
+		// as solid garbage on MoltenVK, confirmed via a real reproduction
+		// (a tiling WM auto-resizing the window right after launch) and
+		// debug logging catching the exact moment the render pass got
+		// replaced underneath the cached pipeline. See
+		// pipelineBuiltForSwapchainGeneration below - PostEffectsManager
+		// rebuilds this pipeline whenever that's stale, not just when it's
+		// 0.
+		uint32 pipelineHandle;
+		// IRenderDevice::GetSwapchainGeneration() at the moment
+		// pipelineHandle was built - only meaningful for the last effect
+		// in the chain (see pipelineHandle's comment); ignored for every
+		// other effect, whose own FBO's render pass never needs this.
+		uint32 pipelineBuiltForSwapchainGeneration;
+
+		// Vulkan/SPIR-V rejects non-opaque (non-sampler) uniforms outside
+		// a block outright (see PyrosShader.glsl's header comment on the
+		// same rule for the main shader) - unlike that shader, individual
+		// IEffect subclasses are hand-written per-effect GLSL, so there's
+		// no single shared UBO layout to reuse. A subclass with any
+		// non-sampler uniform (SSAOEffect's uStrength/uRadius/matProj/
+		// etc.) wraps them in its own UBO block and sets these three (in
+		// its constructor, after the block's layout is decided) so
+		// PostEffectsManager can create+fill it generically: binding must
+		// be a value no other UBO anywhere in the engine uses (see
+		// VulkanRenderDevice::CreateUniformBuffer()'s comment - binding
+		// points are a *global* registry, not per-program, so this can't
+		// reuse PyrosShader.glsl's 0-23 range) - Effects/IEffect.h's
+		// comment block. size is the block's total std140 byte size.
+		// extraUniformOffsets maps each member's GLSL name to its std140
+		// byte offset within that block, matched by hand against the
+		// shader's own declared member order/types - same "author both
+		// sides, keep them in sync by hand" discipline IRenderer.cpp's
+		// MaterialUniformsData/ObjectLightCountsData already use for the
+		// main shader's UBOs. Binding 0 (the default) means "no extra
+		// uniforms block" - PostEffectsManager skips all of this then.
+		uint32 extraUniformsBinding;
+		// The block's own GLSL name (e.g. "SSAOParams"), exactly as
+		// declared in FragmentShaderString above. Vulkan's
+		// BindUniformBlockIfPresent() ignores this (binding points are
+		// already static in the SPIR-V), but GL's looks the block up by
+		// name via glGetUniformBlockIndex() to rebind it from its default
+		// (0) to extraUniformsBinding - passing "" there never matches
+		// any block, so the rebind silently never happens and the shader
+		// keeps reading whatever's actually bound at binding 0 instead.
+		std::string extraUniformsBlockName;
+		uint32 extraUniformsSize;
+		uint32 extraUniformsBufferHandle;
+		std::vector<uchar> extraUniformsScratch;
+		std::map<std::string, uint32> extraUniformOffsets;
+
+		// Texture Units
 		int32 TextureUnits;
 
 		// RTT Order

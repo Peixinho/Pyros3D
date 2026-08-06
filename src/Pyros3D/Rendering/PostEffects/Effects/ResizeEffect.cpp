@@ -18,35 +18,30 @@ namespace p3d {
 
         // Create Fragment Shader
 		FragmentShaderString =
-								#if defined(GLES2)
-									"#define varying_in varying\n"
-									"#define varying_out varying\n"
-									"#define attribute_in attribute\n"
-									"#define texture_2D texture2D\n"
-									"#define texture_cube textureCube\n"
-									"precision mediump float;"
-								#else
-									"#define varying_in in\n"
-									"#define varying_out out\n"
-									"#define attribute_in in\n"
-									"#define texture_2D texture\n"
-									"#define texture_cube texture\n"
-									#if defined(GLES3)
-										"precision mediump float;\n"
-									#endif
+								"#define varying_in in\n"
+								"#define varying_out out\n"
+								"#define attribute_in in\n"
+								"#define texture_2D texture\n"
+								"#define texture_cube texture\n"
+								#if defined(GLES3)
+									"precision mediump float;\n"
 								#endif
-								#if defined(GLES2)
-									"vec4 FragColor;"
-								#else
-									"out vec4 FragColor;"
-								#endif
-                                "uniform sampler2D uTex0;\n"
-                                "varying_in vec2 vTexcoord;"
+								// See SSAOEffect.cpp's identical comment -
+								// no non-sampler uniforms here, so only
+								// the sampler/varying-location macros are
+								// needed.
+								"#if defined(VULKAN)\n"
+								"#define SAMPLER_BINDING(n) layout(set = 1, binding = n)\n"
+								"#define IO_LOCATION(n) layout(location = n)\n"
+								"#else\n"
+								"#define SAMPLER_BINDING(n)\n"
+								"#define IO_LOCATION(n)\n"
+								"#endif\n"
+								"IO_LOCATION(0) out vec4 FragColor;"
+                                "SAMPLER_BINDING(0) uniform sampler2D uTex0;\n"
+                                "IO_LOCATION(0) varying_in vec2 vTexcoord;"
                                 "void main(void) {\n"
                                     "FragColor = texture_2D(uTex0, vTexcoord);\n"
-									#if defined(GLES2)
-									"gl_FragColor = FragColor;\n"
-									#endif
                                 "}\n";
         
         CompileShaders();

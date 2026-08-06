@@ -17,46 +17,29 @@ namespace p3d {
 		UseRTT(Tex1);
 		UseCustomTexture(VelocityMap);
 
-		//Vec2 res = Vec2(Width, Height);
-		f32 vel =  3.25f;
-		//texResHandle = AddUniform(Uniform("uTexResolution", Uniforms::DataType::Vec2, &res));
+		cfps = 60.0f;
+		tfps = 60.0f;
+		strength = 3.25f;
+		f32 vel = strength * (cfps / tfps);
 		velHandle = AddUniform(Uniform("uVelocityScale", Uniforms::DataType::Float, &vel));
 
-		VertexShaderString =
-								#if defined(GLES2)
-									"#define varying_in varying\n"
-									"#define varying_out varying\n"
-									"#define attribute_in attribute\n"
-									"#define texture_2D texture2D\n"
-									"#define texture_cube textureCube\n"
-									"precision mediump float;"
-								#else
-									"#define varying_in in\n"
-									"#define varying_out out\n"
-									"#define attribute_in in\n"
-									"#define texture_2D texture\n"
-									"#define texture_cube texture\n"
-									#if defined(GLES3)
-										"precision mediump float;\n"
-									#endif
-								#endif
-								"varying_out vec2 vTexcoord;\n"
-								"void main() {\n"
-									"gl_Position = vec4(-1.0 + vec2((gl_VertexID & 1) << 2, (gl_VertexID & 2) << 1), 0.0, 1.0);\n"
-									"vTexcoord = (gl_Position.xy+1.0)*0.5;\n"
-								"}";
+#if defined(VULKAN_BACKEND)
+		// Vulkan rejects loose floats - deliver scale via UBO (vec4.x).
+		extraUniformsBinding = 26;
+		extraUniformsBlockName = "MotionBlurParams";
+		extraUniformsSize = 16;
+		extraUniformsScratch.resize(extraUniformsSize, 0);
+		extraUniformOffsets["uVelocityScale"] = 0;
+#else
+		// GL: plain uniform + SendUniform. Avoids macOS driver std140
+		// packing mismatches that left the scale at 0 (identity blur).
+		extraUniformsBinding = 0;
+#endif
 
-		// Create Fragment Shader
+		// Fragment: VULKAN (shaderc) uses a UBO; GL uses a loose float.
+		// Sample with vTexcoord like every other post effect.
 		FragmentShaderString =
 								"#define MAX_SAMPLES 32\n"
-								#if defined(GLES2)
-									"#define varying_in varying\n"
-									"#define varying_out varying\n"
-									"#define attribute_in attribute\n"
-									"#define texture_2D texture2D\n"
-									"#define texture_cube textureCube\n"
-									"precision mediump float;"
-								#else
 									"#define varying_in in\n"
 									"#define varying_out out\n"
 									"#define attribute_in in\n"
@@ -65,33 +48,43 @@ namespace p3d {
 									#if defined(GLES3)
 										"precision mediump float;\n"
 									#endif
-								#endif
-								#if defined(GLES2)
-									"vec4 FragColor;\n"
-								#else
-									"out vec4 FragColor;\n"
-								#endif
-								"varying_in vec2 vTexcoord;\n"
-								"uniform sampler2D uTex0;\n"
-								"uniform sampler2D uTex1;\n"
-								"uniform vec2 uTexResolution;\n"
+									"#if defined(VULKAN)\n"
+									"#define UBO_BINDING(n) layout(std140, binding = n)\n"
+									"#define SAMPLER_BINDING(n) layout(set = 1, binding = n)\n"
+									"#define IO_LOCATION(n) layout(location = n)\n"
+									"#else\n"
+									"#define UBO_BINDING(n) layout(std140)\n"
+									"#define SAMPLER_BINDING(n)\n"
+									"#define IO_LOCATION(n)\n"
+									"#endif\n"
+									"IO_LOCATION(0) out vec4 FragColor;\n"
+								"IO_LOCATION(0) varying_in vec2 vTexcoord;\n"
+								"SAMPLER_BINDING(0) uniform sampler2D uTex0;\n"
+								"SAMPLER_BINDING(1) uniform sampler2D uTex1;\n"
+								"#if defined(VULKAN)\n"
+								"UBO_BINDING(26) uniform MotionBlurParams {\n"
+								"	vec4 uVelocityScale;\n"
+								"};\n"
+								"#else\n"
 								"uniform float uVelocityScale;\n"
+								"#endif\n"
 								"void main() {\n"
 									"vec2 texelSize = 1.0 / vec2(textureSize(uTex0, 0));\n"
-									"vec2 screenTexCoords = gl_FragCoord.xy * texelSize;\n"
+									"vec2 screenTexCoords = vTexcoord;\n"
 									"vec2 velocity = texture(uTex1, screenTexCoords).rg;\n"
+									"#if defined(VULKAN)\n"
+									"velocity *= uVelocityScale.x;\n"
+									"#else\n"
 									"velocity *= uVelocityScale;\n"
+									"#endif\n"
 									"float speed = length(velocity / texelSize);\n"
-									"float nSamples = clamp(int(speed), 1, MAX_SAMPLES);\n"
+									"int nSamples = int(clamp(speed, 1.0, float(MAX_SAMPLES)));\n"
 									"vec4 oResult = texture(uTex0, screenTexCoords);\n"
 									"for (int i = 1; i < nSamples; ++i) {\n"
-									"      vec2 offset = velocity * (float(i) / float(nSamples - 1) - 0.5);\n"
+									"      vec2 offset = velocity * (float(i) / float(max(nSamples - 1, 1)) - 0.5);\n"
 									"      oResult += texture(uTex0, screenTexCoords + offset);\n"
 									"}\n"
 									"FragColor = oResult / float(nSamples);\n"
-									#if defined(GLES2)
-									"gl_FragColor = FragColor;\n"
-									#endif
 								"}";
 
 		CompileShaders();
@@ -101,14 +94,14 @@ namespace p3d {
     }
 
     void MotionBlurEffect::SetCurrentFPS(const f32 &currentfps) {
-	    this->cfps = currentfps;
-	    f32 v = cfps/tfps;
+	    this->cfps = currentfps > 1.0f ? currentfps : 1.0f;
+	    f32 v = strength * (cfps / tfps);
 	    velHandle->SetValue(&v);
     }
 
     void MotionBlurEffect::SetTargetFPS(const f32 &targetfps) {
-	    this->tfps = targetfps;
-	    f32 v = cfps/tfps;
+	    this->tfps = targetfps > 1.0f ? targetfps : 1.0f;
+	    f32 v = strength * (cfps / tfps);
 	    velHandle->SetValue(&v);
     }
 

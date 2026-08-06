@@ -15,6 +15,8 @@ namespace p3d {
 		isFlipped = flip;
 		isSmooth = smooth;
 		calculateTangentBitangent = TangentBitangent;
+		this->width = width;
+		this->height = height;
 
 		f32 w2 = width; f32 h2 = height;
 

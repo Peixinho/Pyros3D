@@ -1,10 +1,10 @@
 #include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
-#include <Pyros3D/Other/PyrosGL.h>
+#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <iostream>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 namespace p3d {
 
-	DebugRenderer::DebugRenderer()
+	DebugRenderer::DebugRenderer() : device(new GLRenderDevice())
 	{
 		DebugMaterial = new GenericShaderMaterial(ShaderUsage::DebugRendering);
 		DebugMaterial->EnableDepthTest(DepthTest::Equal);
@@ -34,11 +34,11 @@ namespace p3d {
 
 	void DebugRenderer::ClearScreen()
 	{
-		GLCHECKER(glClear(GL_COLOR_BUFFER_BIT));
+		device->Clear(device->TranslateBufferBit(Buffer_Bit::Color));
 	}
 	void DebugRenderer::SetViewPort(const int32 &w0, const int32 h0, const int32 w1, const int32 h1)
 	{
-		glViewport(w0, h0, w1, h1);
+		device->SetViewport(w0, h0, w1, h1);
 	}
 
 	void DebugRenderer::ClearBuffers()
@@ -52,11 +52,9 @@ namespace p3d {
 
 	void DebugRenderer::Render(const Matrix &camera, const Matrix &projection)
 	{
-		#ifndef GLES2
-			GLuint vao=0;
-			glGenVertexArrays(1,&vao);
-			glBindVertexArray(vao);
-		#endif
+		DeviceHandle vao = device->CreateVertexArray();
+		CommandBufferHandle cmd = device->BeginCommandBuffer();
+		device->BindVertexArray(cmd, vao);
 
 
 		// Updating Buffers
@@ -99,10 +97,9 @@ namespace p3d {
 		projectionMatrix = projection;
 		viewMatrix = camera;
 
-		GLCHECKER(glEnable(GL_DEPTH_TEST));
-		GLCHECKER(glDepthFunc(GL_LEQUAL));
+		device->SetDepthTest(true, DepthTest::LEqual);
 
-		GLCHECKER(glUseProgram(DebugMaterial->GetShader()));
+		device->UseProgram(DebugMaterial->GetShader());
 
 		int32 vertexHandle = Shader::GetAttributeLocation(DebugMaterial->GetShader(), "aPosition");
 		int32 colorHandle = Shader::GetAttributeLocation(DebugMaterial->GetShader(), "aColor");
@@ -124,42 +121,26 @@ namespace p3d {
 		{
 			// Send Attributes
 			if (vertexLines.size() > 0 && vertexHandle>=0) {
-				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, VertexLinesBF->ID));
-				GLCHECKER(glEnableVertexAttribArray(vertexHandle))
-				GLCHECKER(glVertexAttribPointer(
-					vertexHandle,
-					3,
-					GL_FLOAT,
-					GL_FALSE,
-					sizeof(Vec3),
-					BUFFER_OFFSET(0))
-				);
+				device->BindArrayBuffer(VertexLinesBF->ID);
+				device->SetFloatVertexAttribute(vertexHandle, 3, sizeof(Vec3), 0);
 			}
 
 			if (colorLines.size() > 0 && colorHandle>=0) {
-				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, ColorLinesBF->ID));
-				GLCHECKER(glEnableVertexAttribArray(colorHandle));
-				GLCHECKER(glVertexAttribPointer(
-					colorHandle,
-					4,
-					GL_FLOAT,
-					GL_FALSE,
-					sizeof(Vec4),
-					BUFFER_OFFSET(0))
-				);
+				device->BindArrayBuffer(ColorLinesBF->ID);
+				device->SetFloatVertexAttribute(colorHandle, 4, sizeof(Vec4), 0);
 			}
 
 			// Draw Quad
 			if (vertexLines.size() > 0)
-				GLCHECKER(glDrawArrays(GL_LINES, 0, vertexLines.size()));
+				device->DrawArrays(device->TranslateDrawType(DrawingType::Lines), 0, vertexLines.size());
 
 			// Disable Attributes
 			if (colorLines.size() > 0 && colorHandle>=0)
-				GLCHECKER(glDisableVertexAttribArray(colorHandle));
+				device->DisableVertexAttribute(colorHandle);
 			if (vertexLines.size() > 0 && vertexHandle>=0)
-				GLCHECKER(glDisableVertexAttribArray(vertexHandle));
+				device->DisableVertexAttribute(vertexHandle);
 
-				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, 0));
+				device->BindArrayBuffer(0);
 		}
 
 		if (vertexTriangles.size()>=0)
@@ -168,89 +149,49 @@ namespace p3d {
 			// Send Attributes
 			if (vertexTriangles.size() > 0 && vertexHandle>=0)
 			{
-				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, VertexTrianglesBF->ID));
-				GLCHECKER(glEnableVertexAttribArray(vertexHandle));
-				GLCHECKER(glVertexAttribPointer(
-					vertexHandle,
-					3,
-					GL_FLOAT,
-					GL_FALSE,
-					sizeof(Vec3),
-					BUFFER_OFFSET(0))
-				);
+				device->BindArrayBuffer(VertexTrianglesBF->ID);
+				device->SetFloatVertexAttribute(vertexHandle, 3, sizeof(Vec3), 0);
 			}
 			if (colorTriangles.size() > 0 && colorHandle>=0)
 			{
-				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, ColorTrianglesBF->ID));
-				GLCHECKER(glEnableVertexAttribArray(colorHandle));
-				GLCHECKER(glVertexAttribPointer(
-					colorHandle,
-					4,
-					GL_FLOAT,
-					GL_FALSE,
-					sizeof(Vec4),
-					BUFFER_OFFSET(0))
-				);
+				device->BindArrayBuffer(ColorTrianglesBF->ID);
+				device->SetFloatVertexAttribute(colorHandle, 4, sizeof(Vec4), 0);
 			}
 
 			// Draw Quad
 			if (vertexTriangles.size() > 0)
-				GLCHECKER(glDrawArrays(GL_TRIANGLES, 0, vertexTriangles.size()));
+				device->DrawArrays(device->TranslateDrawType(DrawingType::Triangles), 0, vertexTriangles.size());
 
 			// Disable Attributes
 			if (colorTriangles.size() > 0 && colorHandle>=0)
-				GLCHECKER(glDisableVertexAttribArray(colorHandle));
+				device->DisableVertexAttribute(colorHandle);
 
 			if (vertexTriangles.size() > 0 && vertexHandle>=0)
-				GLCHECKER(glDisableVertexAttribArray(vertexHandle));
+				device->DisableVertexAttribute(vertexHandle);
 
 		}
 
 
-		GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, 0));
+		device->BindArrayBuffer(0);
 
 		// Draw Points
-#if !defined(GLES2) && !defined(GLES3)
+#if !defined(GLES3)
 		if (points.size()>=0)
 		{
 
 			// Send Attributes
 			if (points.size() > 0 && vertexHandle>=0) {
-				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, PointsBF->ID));
-				GLCHECKER(glEnableVertexAttribArray(vertexHandle));
-				GLCHECKER(glVertexAttribPointer(
-					vertexHandle,
-					3,
-					GL_FLOAT,
-					GL_FALSE,
-					sizeof(Vec3),
-					BUFFER_OFFSET(0))
-				);
+				device->BindArrayBuffer(PointsBF->ID);
+				device->SetFloatVertexAttribute(vertexHandle, 3, sizeof(Vec3), 0);
 			}
 
 			if (colorPoints.size() > 0 && colorHandle>=0) {
-				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, ColorPointsBF->ID));
-				GLCHECKER(glEnableVertexAttribArray(colorHandle));
-				GLCHECKER(glVertexAttribPointer(
-					colorHandle,
-					4,
-					GL_FLOAT,
-					GL_FALSE,
-					sizeof(Vec4),
-					BUFFER_OFFSET(0))
-				);
+				device->BindArrayBuffer(ColorPointsBF->ID);
+				device->SetFloatVertexAttribute(colorHandle, 4, sizeof(Vec4), 0);
 			}
 
 			if (pointsSize.size() > 0) {
-				GLCHECKER(glEnableVertexAttribArray(pointSizeHandle));
-				GLCHECKER(glVertexAttribPointer(
-					vertexHandle,
-					1,
-					GL_FLOAT,
-					GL_FALSE,
-					sizeof(float),
-					BUFFER_OFFSET(0))
-				);
+				device->SetFloatVertexAttribute(pointSizeHandle, 1, sizeof(float), 0);
 			}
 
 			if (points.size() > 0) {
@@ -265,18 +206,18 @@ namespace p3d {
 
 			// Disable Attributes
 			if (pointsSize.size() > 0 && pointSizeHandle>=0)
-				GLCHECKER(glDisableVertexAttribArray(pointSizeHandle));
+				device->DisableVertexAttribute(pointSizeHandle);
 			if (colorPoints.size() > 0 && colorHandle>=0)
-				GLCHECKER(glDisableVertexAttribArray(colorHandle));
+				device->DisableVertexAttribute(colorHandle);
 			if (points.size() > 0 && vertexHandle>=0)
-				GLCHECKER(glDisableVertexAttribArray(vertexHandle));
+				device->DisableVertexAttribute(vertexHandle);
 
-				GLCHECKER(glBindBuffer(GL_ARRAY_BUFFER, 0));
+				device->BindArrayBuffer(0);
 		}
 
 #endif
 
-		GLCHECKER(glUseProgram(0));
+		device->UseProgram(0);
 
 		// clean values
 		vertexLines.clear();
@@ -287,7 +228,9 @@ namespace p3d {
 		colorPoints.clear();
 		pointsSize.clear();
 
-		GLCHECKER(glDepthFunc(GL_LESS));
+		device->SetDepthTest(true, DepthTest::Less);
+
+		device->EndCommandBuffer(cmd);
 	}
 
 	void DebugRenderer::drawLine(const Vec3 &from, const Vec3 &to, const Vec4 &fromColor, const Vec4 &toColor)

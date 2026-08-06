@@ -23,15 +23,16 @@ namespace p3d {
 		texRes.SetValue(&res);
 		AddUniform(texRes);
 
+		// See BlurXEffect.cpp's identical comment - binding 29, not 28
+		// (BlurXEffect's own - see SSAOEffect.cpp's comment on
+		// extraUniformsBinding for why these must all be distinct).
+		extraUniformsBinding = 29;
+		extraUniformsBlockName = "BlurYParams";
+		extraUniformsSize = 4;
+		extraUniformsScratch.resize(extraUniformsSize, 0);
+		extraUniformOffsets["uTexResolution"] = 0;
+
 		VertexShaderString =
-								#if defined(GLES2)
-									"#define varying_in varying\n"
-									"#define varying_out varying\n"
-									"#define attribute_in attribute\n"
-									"#define texture_2D texture2D\n"
-									"#define texture_cube textureCube\n"
-									"precision mediump float;"
-								#else
 									"#define varying_in in\n"
 									"#define varying_out out\n"
 									"#define attribute_in in\n"
@@ -40,10 +41,19 @@ namespace p3d {
 									#if defined(GLES3)
 										"precision mediump float;\n"
 									#endif
-								#endif
-								"varying_out vec2 vTexcoord;\n"
-								"varying_out vec2 vblurTexCoords[6];\n"
-								"uniform float uTexResolution;\n"
+									"#if defined(VULKAN)\n"
+									"#define gl_VertexID gl_VertexIndex\n"
+									"#define UBO_BINDING(n) layout(std140, binding = n)\n"
+									"#define IO_LOCATION(n) layout(location = n)\n"
+									"#else\n"
+									"#define UBO_BINDING(n) layout(std140)\n"
+									"#define IO_LOCATION(n)\n"
+									"#endif\n"
+								"IO_LOCATION(0) varying_out vec2 vTexcoord;\n"
+								"IO_LOCATION(1) varying_out vec2 vblurTexCoords[6];\n"
+								"UBO_BINDING(29) uniform BlurYParams {\n"
+								"	float uTexResolution;\n"
+								"};\n"
 								"void main() {\n"
 									"gl_Position = vec4(-1.0 + vec2((gl_VertexID & 1) << 2, (gl_VertexID & 2) << 1), 0.0, 1.0);\n"
 									"vTexcoord = (gl_Position.xy+1.0)*0.5;\n"
@@ -57,14 +67,6 @@ namespace p3d {
 
 		// Create Fragment Shader
 		FragmentShaderString =
-								#if defined(GLES2)
-									"#define varying_in varying\n"
-									"#define varying_out varying\n"
-									"#define attribute_in attribute\n"
-									"#define texture_2D texture2D\n"
-									"#define texture_cube textureCube\n"
-									"precision mediump float;"
-								#else
 									"#define varying_in in\n"
 									"#define varying_out out\n"
 									"#define attribute_in in\n"
@@ -73,15 +75,17 @@ namespace p3d {
 									#if defined(GLES3)
 										"precision mediump float;\n"
 									#endif
-								#endif
-								#if defined(GLES2)
-									"vec4 FragColor;"
-								#else
-									"out vec4 FragColor;"
-								#endif
-								"varying_in vec2 vTexcoord;\n"
-								"uniform sampler2D uTex0;\n"
-								"varying_in vec2 vblurTexCoords[6];\n"
+									"#if defined(VULKAN)\n"
+									"#define SAMPLER_BINDING(n) layout(set = 1, binding = n)\n"
+									"#define IO_LOCATION(n) layout(location = n)\n"
+									"#else\n"
+									"#define SAMPLER_BINDING(n)\n"
+									"#define IO_LOCATION(n)\n"
+									"#endif\n"
+									"IO_LOCATION(0) out vec4 FragColor;"
+								"IO_LOCATION(0) varying_in vec2 vTexcoord;\n"
+								"SAMPLER_BINDING(0) uniform sampler2D uTex0;\n"
+								"IO_LOCATION(1) varying_in vec2 vblurTexCoords[6];\n"
 								"void main() {\n"
 									"FragColor = texture_2D(uTex0, vblurTexCoords[ 0])*0.00598;\n"
 									"FragColor += texture_2D(uTex0, vblurTexCoords[ 1])*0.060626;\n"
@@ -90,9 +94,6 @@ namespace p3d {
 									"FragColor += texture_2D(uTex0, vblurTexCoords[ 3])*0.241843;\n"
 									"FragColor += texture_2D(uTex0, vblurTexCoords[ 4])*0.060626;\n"
 									"FragColor += texture_2D(uTex0, vblurTexCoords[ 5])*0.00598;\n"
-									#if defined(GLES2)
-									"gl_FragColor = FragColor;\n"
-									#endif
 								"}";
 
 		CompileShaders();

@@ -16,16 +16,30 @@ namespace p3d {
 
 		echo("SUCCESS: Velocity Renderer Created");
 
-		ActivateCulling(CullingMode::FrustumCulling);
+		// Don't frustum-cull the velocity pass: a mismatched VP (or a
+		// shared-UBO hangover from Forward PreRender shadows) can drop
+		// every mesh, leaving a cleared velocity map and an identity blur
+		// that looks like "motion blur does nothing" on GL.
+		//ActivateCulling(CullingMode::FrustumCulling);
 
-		// Create Texture (CubeMap), Frame Buffer and Set the Texture as Attachment
+		// Create Texture, Frame Buffer and Set the Texture as Attachment
 		velocityMap = new Texture();
-		velocityMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::RG16F, Width, Height, false);
+		// RGBA16F (not RG16F): macOS GL has been unreliable with RG16F
+		// colour attachments + out vec2; PostEffectsManager already uses
+		// RGBA16F successfully on both backends. Velocity still lives in .rg.
+		velocityMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height, false);
 		velocityMap->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+		// Depth as a texture (not a renderbuffer) - same multi-attach path
+		// as PostEffectsManager / Deferred G-buffer. Keeps Vulkan's
+		// pending-attachment finalize path consistent across backends.
+		depthMap = new Texture();
+		depthMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height, false);
+		depthMap->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 		// Initialize Frame Buffer
 		fbo = new FrameBuffer();
-		fbo->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, Width, Height);
+		fbo->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, depthMap);
 		fbo->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, velocityMap);
 		velocityMaterial = new GenericShaderMaterial(ShaderUsage::VelocityRendering);
 
@@ -45,6 +59,7 @@ namespace p3d {
 	VelocityRenderer::~VelocityRenderer()
 	{
 		delete velocityMap;
+		delete depthMap;
 		delete fbo;
 		delete velocityMaterial;
 	}
@@ -73,8 +88,11 @@ namespace p3d {
 		ProjectionMatrixInverseIsDirty = true;
 		ViewProjectionMatrixIsDirty = true;
 
-		// Group and Sort Meshes
-		rmesh = RenderingComponent::GetRenderingMeshesSorted(Scene); // using last ordered meshes
+		// Sort ourselves - don't rely on a prior Forward PreRender having
+		// filled Scene's sorted list (shadow-less / empty-light paths skip
+		// that, and CubemapRenderer's old "reuse last sort" assumption is
+		// fragile for DemoLauncher).
+		rmesh = GroupAndSortAssets(Scene, Camera);
 
 		if (rmesh.size() > 0)
 		{
@@ -82,11 +100,12 @@ namespace p3d {
 			// Save Time
 			Timer = Scene->GetTime();
 
-			// Bind FBO
+			// Bind FBO (color + depth were attached once in the ctor).
+			// Re-AddAttach every frame breaks Vulkan: Bind already opens a
+			// multi-attachment render pass, and AttachFramebufferTexture2D
+			// with wasAlreadyBound=true builds a 1-attachment framebuffer
+			// against it (MoltenVK EXC_BAD_ACCESS in image-view setup).
 			fbo->Bind();
-
-			// Frame Buffer Attachment
-			fbo->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, velocityMap);
 
 			// Set ViewPort
 			if (viewPortEndX == 0 || viewPortEndY == 0)
@@ -103,28 +122,12 @@ namespace p3d {
 			ClearDepthBuffer();
 			ClearScreen();
 
-			// Update Culling
-			UpdateCulling(ProjectionMatrix*ViewMatrix);
-
 			// Render Scene with Objects Material
 			for (std::vector<RenderingMesh*>::iterator k = rmesh.begin(); k != rmesh.end(); k++)
 			{
 				if ((*k)->renderingComponent->GetOwner() != NULL)
 				{
-					// Culling Test
-					bool cullingTest = false;
-					switch ((*k)->CullingGeometry)
-					{
-					case CullingGeometry::Box:
-						cullingTest = CullingBoxTest((*k), (*k)->renderingComponent->GetOwner());
-						break;
-					case CullingGeometry::Sphere:
-					default:
-						cullingTest = CullingSphereTest((*k), (*k)->renderingComponent->GetOwner());
-						break;
-					}
-					if (!(*k)->renderingComponent->IsCullTesting()) cullingTest = true;
-					if (cullingTest && (*k)->renderingComponent->IsActive() && (*k)->Active == true)
+					if ((*k)->renderingComponent->IsActive() && (*k)->Active == true)
 					{
 						RenderObject((*k), (*k)->renderingComponent->GetOwner(), velocityMaterial);
 					}

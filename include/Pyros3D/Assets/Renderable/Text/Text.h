@@ -113,6 +113,22 @@ namespace p3d {
 		void UpdateText(const std::string &text, const Vec4 &color = Vec4(1, 1, 1, 1));
 		void UpdateText(const std::string &text, const std::vector<Vec4> &color);
 
+		// Real getters - neither constructor nor either UpdateText()
+		// overload stored any of this before (the color arg(s) only ever
+		// fed per-vertex mesh-build math, then were discarded - same
+		// class of dead-field bug as GenericShaderMaterial::SetColor's
+		// Kd from the Phase 1 serialization work). Needed for scene
+		// serialization to read a Text object's actual current state.
+		Font* GetFont() const { return font; }
+		const std::string &GetText() const { return text; }
+		f32 GetCharWidth() const { return charWidth; }
+		f32 GetCharHeight() const { return charHeight; }
+		// Valid when charColors is empty (i.e. the single-color
+		// constructor/UpdateText overload was used).
+		const Vec4 &GetColor() const { return color; }
+		// Non-empty only when the per-character-color overload was used.
+		const std::vector<Vec4> &GetCharColors() const { return charColors; }
+
 	private:
 
 		// Char Dimensions
@@ -121,6 +137,13 @@ namespace p3d {
 
 		// String
 		std::string text;
+
+		// See GetColor()/GetCharColors()'s comments - set unconditionally
+		// at the top of both UpdateText() overloads (even when the
+		// text-unchanged early-out skips a real mesh rebuild), so these
+		// always reflect the most recent call's color argument(s).
+		Vec4 color;
+		std::vector<Vec4> charColors;
 
 		// Initialized Flag
 		bool Initialized;

@@ -59,16 +59,11 @@ if (OPENGL_VERSION STREQUAL "GL45")
 	add_definitions(-DGL45)
 	SET(GL_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/gl45/glad.c)
 	else()
-		if (OPENGL_VERSION STREQUAL "GLES2")
-			add_definitions(-DGLES2)
-			SET(GL_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/gles2/glad.c)
-		else()
 		if (OPENGL_VERSION STREQUAL "GLES3")
 			add_definitions(-DGLES3)
 			SET(GL_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/src/Pyros3D/Ext/gles3/glad.c)
 		endif()
 	endif()
-endif()
 
 
 # Lib Type

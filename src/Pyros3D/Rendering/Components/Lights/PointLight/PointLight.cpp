@@ -36,7 +36,7 @@ namespace p3d {
 
 		ShadowMap.reset(new Texture());
 
-#if defined(GLES2) || defined(GLLEGACY)
+#if defined(GLLEGACY)
 		// Regular Shadows
 		// Create Texture (CubeMap), Frame Buffer and Set the Texture as Attachment
 		ShadowMap->CreateEmptyTexture(TextureType::CubemapNegative_X, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);

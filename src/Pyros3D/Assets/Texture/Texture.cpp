@@ -8,7 +8,7 @@
 
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
-#include <Pyros3D/Other/PyrosGL.h>
+#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <string.h>
 #include <Pyros3D/Resources/Resources.h>
 #define STB_IMAGE_IMPLEMENTATION
@@ -16,17 +16,40 @@
 
 namespace p3d {
 
+	// Every Texture shares whichever backend is currently active (see
+	// GetActiveRenderDevice() in IRenderDevice.h) rather than each Texture
+	// needing an injected IRenderDevice* - avoids plumbing one through
+	// every call site that constructs a Texture, while still respecting
+	// the actual backend in use (GL vs Vulkan) - same pattern as
+	// GeometryBuffer.cpp/Shaders.cpp/RenderingComponent.cpp. Previously
+	// hardcoded to a static GLRenderDevice (deliberately, before this
+	// backend had any real texture support) - calling any GL function
+	// with no current GL context (true for a Vulkan-only window) is
+	// undefined behavior, and crashed the hard way through an unloaded/
+	// null GLAD function pointer once a real Vulkan texture load was
+	// actually attempted.
+	static IRenderDevice& Device()
+	{
+		return GetActiveRenderDevice();
+	}
+
 	uint32 Texture::UnitBinded = 0;
 
 	uint32 Texture::LastUnitBinded = 0;
 
-	Texture::Texture() : GL_ID(-1), haveImage(false), isMipMap(false), isMipMapManual(false), Anysotropic(0), cubemapFaces(0) {}
+	Texture::Texture() : GL_ID(-1), haveImage(false), isMipMap(false), isMipMapManual(false), Anysotropic(0), cubemapFaces(0), storedSamples(0) {}
 
 	Texture::~Texture()
 	{
-		if (GL_ID != -1)
+		// See FrameBuffer::~FrameBuffer() for why the device has to still be
+		// there: without a real one, Device() hands back a static
+		// GLRenderDevice and this frees a handle that backend never created,
+		// through GL entry points a Vulkan build never loaded. Lua-owned
+		// textures hit this on every shutdown, since sol finalizes its
+		// userdata after the context has torn the device down.
+		if (GL_ID != -1 && IsActiveRenderDeviceSet())
 		{
-			GLCHECKER(glDeleteTextures(1, (GLuint*)&GL_ID));
+			Device().DestroyTextureObject(GL_ID);
 		}
 	}
 
@@ -34,200 +57,12 @@ namespace p3d {
 
 	void Texture::GetInternalFormat()
 	{
-		switch (DataType)
-		{
-
-#if defined(GLES2)
-		case TextureDataType::DepthComponent:
-		case TextureDataType::DepthComponent16:
-		case TextureDataType::DepthComponent24:
-		case TextureDataType::DepthComponent32:
-			internalFormat = GL_RGBA;
-			internalFormat2 = GL_RGBA;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
-#else
-		case TextureDataType::DepthComponent:
-		case TextureDataType::DepthComponent24:
-			internalFormat = GL_DEPTH_COMPONENT24;
-			internalFormat2 = GL_DEPTH_COMPONENT;
-			#if defined(GLES3)
-			internalFormat3 = GL_UNSIGNED_INT;
-			#else
-			internalFormat3 = GL_FLOAT;
-			#endif
-			break;
-		case TextureDataType::DepthComponent16:
-			internalFormat = GL_DEPTH_COMPONENT16;
-			internalFormat2 = GL_DEPTH_COMPONENT;
-			#if defined(GLES3)
-			internalFormat3 = GL_UNSIGNED_INT;
-			#else
-			internalFormat3 = GL_FLOAT;
-			#endif
-			break;
-		case TextureDataType::DepthComponent32:
-			internalFormat = GL_DEPTH_COMPONENT32F;
-			internalFormat2 = GL_DEPTH_COMPONENT;
-			internalFormat3 = GL_FLOAT;
-			break;
-		case TextureDataType::R16F:
-			internalFormat = GL_R16F;
-			internalFormat2 = GL_RED;
-			internalFormat3 = GL_FLOAT;
-			break;
-		case TextureDataType::R32F:
-			internalFormat = GL_R32F;
-			internalFormat2 = GL_RED;
-			internalFormat3 = GL_FLOAT;
-			break;
-		case TextureDataType::R16I:
-			internalFormat = GL_R16I;
-			internalFormat2 = GL_R8;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
-		case TextureDataType::R32I:
-			internalFormat = GL_R32I;
-			internalFormat2 = GL_R8;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
-		case TextureDataType::RG8:
-			internalFormat = GL_RG8;
-			internalFormat2 = GL_RG;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
-		case TextureDataType::RG16F:
-			internalFormat = GL_RG16F;
-			internalFormat2 = GL_RG;
-			internalFormat3 = GL_FLOAT;
-			break;
-		case TextureDataType::RG32F:
-			internalFormat = GL_RG32F;
-			internalFormat2 = GL_RG;
-			internalFormat3 = GL_FLOAT;
-			break;
-		case TextureDataType::RG16I:
-			internalFormat = GL_RG16I;
-			internalFormat2 = GL_RG;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
-		case TextureDataType::RG32I:
-			internalFormat = GL_RG32I;
-			internalFormat2 = GL_RG;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
-		case TextureDataType::RGB8:
-			internalFormat = GL_RGB8;
-			internalFormat2 = GL_RGB;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
-		case TextureDataType::RGB16F:
-			internalFormat = GL_RGB16F;
-			internalFormat2 = GL_RGB;
-			internalFormat3 = GL_FLOAT;
-			break;
-		case TextureDataType::RGB32F:
-			internalFormat = GL_RGB32F;
-			internalFormat2 = GL_RGB;
-			internalFormat3 = GL_FLOAT;
-			break;
-		case TextureDataType::RGB16I:
-			internalFormat = GL_RGB16I;
-			internalFormat2 = GL_RGB;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
-		case TextureDataType::RGB32I:
-			internalFormat = GL_RGB32I;
-			internalFormat2 = GL_RGB;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
-		case TextureDataType::RGBA16F:
-			internalFormat = GL_RGBA16F;
-			internalFormat2 = GL_RGBA;
-			internalFormat3 = GL_FLOAT;
-			break;
-		case TextureDataType::RGBA32F:
-			internalFormat = GL_RGBA32F;
-			internalFormat2 = GL_RGBA;
-			internalFormat3 = GL_FLOAT;
-			break;
-		case TextureDataType::RGBA16I:
-			internalFormat = GL_RGBA16I;
-			internalFormat2 = GL_RGBA;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
-		case TextureDataType::RGBA32I:
-			internalFormat = GL_RGBA32I;
-			internalFormat2 = GL_RGBA;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
-		case TextureDataType::R8:
-			internalFormat = GL_R8;
-			internalFormat2 = GL_RED;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
-#if !defined(GLES3)
-		case TextureDataType::BGR:
-			internalFormat = GL_RGB8;
-			internalFormat2 = GL_BGR;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
-		case TextureDataType::BGRA:
-			internalFormat = GL_RGBA8;
-			internalFormat2 = GL_BGRA;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
-#endif
-#endif
-		case TextureDataType::RGBA:
-		default:
-			internalFormat = GL_RGBA;
-			internalFormat2 = GL_RGBA;
-			internalFormat3 = GL_UNSIGNED_BYTE;
-			break;
-		}
+		Device().TranslateTextureFormat(DataType, internalFormat, internalFormat2, internalFormat3);
 	}
 
 	void Texture::GetGLModes()
 	{
-		// default texture
-		switch (Type) {
-		case TextureType::CubemapNegative_X:
-			GLMode = GL_TEXTURE_CUBE_MAP_NEGATIVE_X;
-			GLSubMode = GL_TEXTURE_CUBE_MAP;
-			break;
-		case TextureType::CubemapNegative_Y:
-			GLMode = GL_TEXTURE_CUBE_MAP_NEGATIVE_Y;
-			GLSubMode = GL_TEXTURE_CUBE_MAP;
-			break;
-		case TextureType::CubemapNegative_Z:
-			GLMode = GL_TEXTURE_CUBE_MAP_NEGATIVE_Z;
-			GLSubMode = GL_TEXTURE_CUBE_MAP;
-			break;
-		case TextureType::CubemapPositive_X:
-			GLMode = GL_TEXTURE_CUBE_MAP_POSITIVE_X;
-			GLSubMode = GL_TEXTURE_CUBE_MAP;
-			break;
-		case TextureType::CubemapPositive_Y:
-			GLMode = GL_TEXTURE_CUBE_MAP_POSITIVE_Y;
-			GLSubMode = GL_TEXTURE_CUBE_MAP;
-			break;
-		case TextureType::CubemapPositive_Z:
-			GLMode = GL_TEXTURE_CUBE_MAP_POSITIVE_Z;
-			GLSubMode = GL_TEXTURE_CUBE_MAP;
-			break;
-#if !defined(GLES2) && !defined(GLES3)
-		case TextureType::Texture_Multisample:
-			GLMode = GL_TEXTURE_2D_MULTISAMPLE;
-			GLSubMode = GL_TEXTURE_2D_MULTISAMPLE;
-			break;
-#endif
-		case TextureType::Texture:
-		default:
-			GLMode = GL_TEXTURE_2D;
-			GLSubMode = GL_TEXTURE_2D;
-			break;
-		}
+		Device().TranslateTextureTarget(Type, GLMode, GLSubMode);
 	}
 
 	bool Texture::LoadTexture(const std::string& Filename, const uint32 Type, bool Mipmapping, const uint32 level)
@@ -236,7 +71,7 @@ namespace p3d {
 		bool status;
 
 		if (this->GL_ID == -1)
-			GLCHECKER(glGenTextures(1, (GLuint*)&this->GL_ID));
+			this->GL_ID = Device().CreateTextureObject();
 
 		this->Type = Type;
 
@@ -246,11 +81,15 @@ namespace p3d {
 			status = LoadTextureFromMemory(file->GetData(), file->Size(), Type, Mipmapping, level);
 			file->Close();
 		}
+		// Only record a real, successfully-loaded file's path - a failed
+		// load falls through to the checkerboard fallback below, which
+		// isn't actually this Filename's image data.
+		if (status) { this->Filename = Filename; this->RawData.clear(); this->RawData.shrink_to_fit(); }
 		if (!status) {
 			echo("ERROR: Couldn't find texture file or failed to load, loading default one...");
 
 			int i, j, c;
-			GLubyte checkImage[4][4][4];
+			uchar checkImage[4][4][4];
 			for (i = 0; i < 4; i++) {
 				for (j = 0; j < 4; j++) {
 					if ((i%2==0 && j%2!=0) || (i%2!=0 && j%2==0)) {
@@ -284,8 +123,16 @@ namespace p3d {
 		bool failed = false;
 		bool ImageLoaded = false;
 
+		// Cache the raw compressed bytes as a fallback source for scene
+		// serialization - LoadTexture() (which calls this internally)
+		// clears it right after setting a real Filename, since a path is
+		// strictly better than embedding bytes; this only actually
+		// survives for a Texture built directly via this method (no
+		// path available at all).
+		this->RawData = data;
+
 		if (this->GL_ID == -1) {
-			GLCHECKER(glGenTextures(1, (GLuint*)&this->GL_ID));
+			this->GL_ID = Device().CreateTextureObject();
 		}
 
 		int32 w, h, bpp;
@@ -329,57 +176,68 @@ namespace p3d {
 		GetGLModes();
 		GetInternalFormat();
 
+		bool isMultisample = (Type == TextureType::Texture_Multisample);
+		if (isMultisample)
+			storedSamples = msaa;
+
 		// bind
-		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
+		Device().BindTextureToTarget(GLSubMode, GL_ID);
 
 		if (Mipmapping)
 		{
-#if defined(GLES2) || defined(GLES3)
-			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
-			GLCHECKER(glGenerateMipmap(GLMode));
+			Device().UploadTexture2D(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data), true);
+#if defined(GLES3)
+			Device().GenerateMipmap(GLMode);
 #else
-
-			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
-			if (GLSubMode == GL_TEXTURE_CUBE_MAP)
+			if (Type <= TextureType::CubemapNegative_Z)
 			{
 				cubemapFaces++;
 				if (cubemapFaces == 6)
-					GLCHECKER(glGenerateMipmap(GLSubMode));
+					Device().GenerateMipmap(GLSubMode);
 
 			}
-			else GLCHECKER(glGenerateMipmap(GLSubMode));
+			else Device().GenerateMipmap(GLSubMode);
 #endif
 			isMipMap = true;
 
 		}
 		else {
 
-#if !defined(GLES2) && !defined(GLES3)
+#if !defined(GLES3)
 			// setting manual mipmaps
 			// No gles :|
-			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_BASE_LEVEL, 0));
-			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MAX_LEVEL, level));
+			// GL_TEXTURE_2D_MULTISAMPLE doesn't support GL_TEXTURE_BASE_LEVEL/
+			// MAX_LEVEL at all (same restriction as SetRepeat()/
+			// SetMinMagFilter() below, which already gate on isMultisample -
+			// this call was missing the same gate) - GL_INVALID_ENUM the
+			// moment a real multisample texture with Mipmapping=false
+			// actually exercised this path under a GLCHECKER build (every
+			// multisample texture, in fact - CreateEmptyTexture()'s own
+			// Mipmapping parameter is meaningless for a type GL never lets
+			// mipmap in the first place).
+			if (!isMultisample)
+				Device().SetTextureBaseMaxLevel(GLSubMode, 0, level);
 
-			if (GLMode != GL_TEXTURE_2D_MULTISAMPLE)
+			if (!isMultisample)
 			{
-				GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
+				Device().UploadTexture2D(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data), false);
 			}
 			else {
-				GLCHECKER(glTexImage2DMultisample(GLMode, msaa, internalFormat, Width[level], Height[level], true));
+				Device().UploadTexture2DMultisample(GLMode, msaa, internalFormat, Width[level], Height[level]);
 			}
 #else
-			GLCHECKER(glTexImage2D(GLMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, (haveImage == false ? NULL : data)));
+			Device().UploadTexture2D(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data), false);
 #endif
 			if (level > 0)
 				isMipMapManual = true;
 		}
 
 		// unbind
-		GLCHECKER(glBindTexture(GLSubMode, 0));
+		Device().BindTextureToTarget(GLSubMode, 0);
 
 		// default values
-#if !defined(GLES2) && !defined(GLES3)
-		if (GLMode != GL_TEXTURE_2D_MULTISAMPLE)
+#if !defined(GLES3)
+		if (!isMultisample)
 #endif
 		{
 			SetRepeat(TextureRepeat::Repeat, TextureRepeat::Repeat);
@@ -403,7 +261,7 @@ namespace p3d {
 		this->haveImage = false;
 
 		if (GL_ID == -1) {
-			GLCHECKER(glGenTextures(1, (GLuint*)&GL_ID));
+			GL_ID = Device().CreateTextureObject();
 		}
 		if (GL_ID == -1)
 		{
@@ -423,77 +281,19 @@ namespace p3d {
 		if (WrapR > -1) RRepeat = WrapR;
 
 		// bind
-		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
+		Device().BindTextureToTarget(GLSubMode, GL_ID);
 
-		switch (SRepeat)
+		Device().SetTextureWrapS(GLSubMode, SRepeat);
+		Device().SetTextureWrapT(GLSubMode, TRepeat);
+
+#if !defined(GLES3)
+		if (WrapR > -1 && Type <= TextureType::CubemapNegative_Z)
 		{
-#if defined(GLES2) || defined(GLES3)
-		case TextureRepeat::ClampToEdge:
-			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
-			break;
-		case TextureRepeat::Repeat:
-		default:
-			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_REPEAT));
-			break;
-#else
-		case TextureRepeat::ClampToEdge:
-			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
-			break;
-		case TextureRepeat::ClampToBorder:
-			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER));
-			break;
-		case TextureRepeat::Repeat:
-		default:
-			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_S, GL_REPEAT));
-			break;
-#endif
-		};
-
-		switch (TRepeat)
-		{
-#if defined(GLES2) || defined(GLES3)
-		case TextureRepeat::ClampToEdge:
-			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
-			break;
-		case TextureRepeat::Repeat:
-		default:
-			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_REPEAT));
-			break;
-#else
-		case TextureRepeat::ClampToEdge:
-			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
-			break;
-
-		case TextureRepeat::ClampToBorder:
-			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER));
-			break;
-		case TextureRepeat::Repeat:
-		default:
-			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_T, GL_REPEAT));
-			break;
-#endif
-		};
-
-#if !defined(GLES2) && !defined(GLES3)
-		if (WrapR > -1 && GLSubMode == GL_TEXTURE_CUBE_MAP)
-		{
-			switch (RRepeat)
-			{
-			case TextureRepeat::ClampToEdge:
-				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE));
-				break;
-			case TextureRepeat::ClampToBorder:
-				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER));
-				break;
-			case TextureRepeat::Repeat:
-			default:
-				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_WRAP_R, GL_REPEAT));
-				break;
-			};
+			Device().SetTextureWrapR(GLSubMode, RRepeat);
 		}
 #endif
 		// unbind
-		GLCHECKER(glBindTexture(GLSubMode, 0));
+		Device().BindTextureToTarget(GLSubMode, 0);
 
 	}
 
@@ -504,79 +304,30 @@ namespace p3d {
 		this->MagFilter = MagFilter;
 
 		// bind
-		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
+		Device().BindTextureToTarget(GLSubMode, GL_ID);
 
-		switch (MagFilter)
-		{
-		case TextureFilter::Nearest:
-			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
-			break;
-		default:
-			GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
-			break;
-		}
-
-		switch (MinFilter)
-		{
-		case TextureFilter::Nearest:
-		case TextureFilter::NearestMipmapNearest:
-			if (isMipMap || isMipMapManual) {
-				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST));
-			}
-			else {
-				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_NEAREST));
-			}
-			break;
-		case TextureFilter::NearestMipmapLinear:
-			if (isMipMap || isMipMapManual) {
-				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR));
-			}
-			else {
-				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_NEAREST));
-			}
-			break;
-		case TextureFilter::LinearMipmapNearest:
-			if (isMipMap || isMipMapManual) {
-				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST));
-			}
-			else {
-				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
-			}
-			break;
-		case TextureFilter::Linear:
-		case TextureFilter::LinearMipmapLinear:
-		default:
-			if (isMipMap || isMipMapManual)
-			{
-				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR));
-			}
-			else {
-				GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
-			}
-			break;
-		}
+		Device().SetTextureMagFilter(GLSubMode, MagFilter);
+		Device().SetTextureMinFilter(GLSubMode, MinFilter, isMipMap || isMipMapManual);
 
 		// unbind
-		GLCHECKER(glBindTexture(GLSubMode, 0));
+		Device().BindTextureToTarget(GLSubMode, 0);
 
 	}
-	
+
 	void Texture::EnableCompareMode()
 	{
-#if !defined(GLES2) and !defined(GLES3)
+#if !defined(GLES3)
 		// USED ONLY FOR DEPTH MAPS
 		// Bind
-		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
+		Device().BindTextureToTarget(GLSubMode, GL_ID);
 
-		GLfloat l_ClampColor[] = { 1.0, 1.0, 1.0, 1.0 };
-		GLCHECKER(glTexParameterfv(GLSubMode, GL_TEXTURE_BORDER_COLOR, l_ClampColor));
+		Device().SetTextureBorderColor(GLSubMode, Vec4(1.0f, 1.0f, 1.0f, 1.0f));
 
 		// This is to allow usage of shadow2DProj function in the shader
-		GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE));
-		GLCHECKER(glTexParameteri(GLSubMode, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL));
+		Device().SetTextureCompareMode(GLSubMode);
 
 		// Unbind
-		GLCHECKER(glBindTexture(GLSubMode, 0));
+		Device().BindTextureToTarget(GLSubMode, 0);
 #endif
 	}
 
@@ -589,41 +340,49 @@ namespace p3d {
 
 	void Texture::SetBorderColor(const Vec4 &Color)
 	{
-#if !defined(GLES2) and !defined(GLES3)
+#if !defined(GLES3)
 		borderColor = Color;
-		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
-		glTexParameterfv(GLSubMode, GL_TEXTURE_BORDER_COLOR, (GLfloat*)&borderColor);
-		GLCHECKER(glBindTexture(GLSubMode, 0));
+		Device().BindTextureToTarget(GLSubMode, GL_ID);
+		Device().SetTextureBorderColor(GLSubMode, borderColor);
+		Device().BindTextureToTarget(GLSubMode, 0);
 #endif
 	}
 
 	void Texture::Resize(const uint32 Width, const uint32 Height, const uint32 level)
 	{
-		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
+		Device().BindTextureToTarget(GLSubMode, GL_ID);
 		this->Width[level] = Width;
 		this->Height[level] = Height;
-		GLCHECKER(glTexImage2D(GLSubMode, level, internalFormat, Width, Height, 0, internalFormat2, internalFormat3, NULL));
 
-		if (isMipMap)
+		// GL_TEXTURE_2D_MULTISAMPLE isn't a valid glTexImage2D target (only
+		// glTexImage2DMultisample accepts it) - same isMultisample split as
+		// CreateTexture(), which Resize() had never mirrored since nothing
+		// resized a multisample texture before MSAATest.
+		bool isMultisample = (Type == TextureType::Texture_Multisample);
+		if (!isMultisample)
 		{
-#if defined(GLES2) || defined(GLES3)
-			GLCHECKER(glGenerateMipmap(GLSubMode));
-#else
+			Device().UploadTexture2D(GLSubMode, level, internalFormat, Width, Height, internalFormat2, internalFormat3, NULL, isMipMap);
 
-			GLCHECKER(glGenerateMipmap(GLSubMode));
-#endif
+			if (isMipMap)
+			{
+				Device().GenerateMipmap(GLSubMode);
+			}
+		}
+		else
+		{
+			Device().UploadTexture2DMultisample(GLSubMode, storedSamples, internalFormat, Width, Height);
 		}
 
-		GLCHECKER(glBindTexture(GLSubMode, 0));
+		Device().BindTextureToTarget(GLSubMode, 0);
 	}
 
 	void Texture::SetTextureByteAlignment(const uint32 Value)
 	{
-		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
+		Device().BindTextureToTarget(GLSubMode, GL_ID);
 
-		GLCHECKER(glPixelStorei(GL_UNPACK_ALIGNMENT, Value));
+		Device().SetPixelUnpackAlignment(Value);
 
-		GLCHECKER(glBindTexture(GLSubMode, 0));
+		Device().BindTextureToTarget(GLSubMode, 0);
 	}
 
 	void Texture::UpdateData(void* srcPTR, const uint32 level)
@@ -631,13 +390,13 @@ namespace p3d {
 		if (GL_ID > 0)
 		{
 			// bind
-			GLCHECKER(glBindTexture(GLSubMode, GL_ID));
-			GLCHECKER(glTexImage2D(GLSubMode, level, internalFormat, Width[level], Height[level], 0, internalFormat2, internalFormat3, srcPTR));
+			Device().BindTextureToTarget(GLSubMode, GL_ID);
+			Device().UploadTexture2D(GLSubMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, srcPTR, isMipMap);
 
 			UpdateMipmap();
 
 			// unbind
-			GLCHECKER(glBindTexture(GLSubMode, 0));
+			Device().BindTextureToTarget(GLSubMode, 0);
 		}
 	}
 
@@ -646,28 +405,25 @@ namespace p3d {
 		if (isMipMap)
 		{
 			// bind
-			GLCHECKER(glBindTexture(GLSubMode, GL_ID));
+			Device().BindTextureToTarget(GLSubMode, GL_ID);
 
-#if defined(GLES2) || defined(GLES3)
-			GLCHECKER(glGenerateMipmap(GLSubMode));
-#else
-			GLCHECKER(glGenerateMipmap(GLSubMode));
-#endif            
+			Device().GenerateMipmap(GLSubMode);
+
 			// unbind
-			GLCHECKER(glBindTexture(GLSubMode, 0));
+			Device().BindTextureToTarget(GLSubMode, 0);
 		}
 	}
 
 	void Texture::Bind()
 	{
-		GLCHECKER(glActiveTexture(GL_TEXTURE0 + UnitBinded));
-		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
+		Device().ActivateTextureUnit(UnitBinded);
+		Device().BindTextureToTarget(GLSubMode, GL_ID);
 
 		// For Transparency
 		if (Transparency == TextureTransparency::Transparent)
 		{
-			GLCHECKER(glEnable(GL_BLEND));
-			GLCHECKER(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+			Device().SetBlendingEnabled(true);
+			Device().SetBlendFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
 		}
 		// Save Last Unit Binded
 		LastUnitBinded = UnitBinded;
@@ -678,9 +434,9 @@ namespace p3d {
 	void Texture::Unbind()
 	{
 		UnitBinded--;
-		if (Transparency == TextureTransparency::Transparent) GLCHECKER(glDisable(GL_BLEND));
-		GLCHECKER(glActiveTexture(GL_TEXTURE0 + UnitBinded));
-		GLCHECKER(glBindTexture(GLSubMode, 0));
+		if (Transparency == TextureTransparency::Transparent) Device().SetBlendingEnabled(false);
+		Device().ActivateTextureUnit(UnitBinded);
+		Device().BindTextureToTarget(GLSubMode, 0);
 
 		// Save Last Unit Binded
 		LastUnitBinded = UnitBinded;
@@ -709,83 +465,12 @@ namespace p3d {
 	std::vector<uchar> Texture::GetTextureData(const uint32 level)
 	{
 		std::vector<uchar> pixels;
-#if !defined(GLES2) && !defined(GLES3)
+#if !defined(GLES3)
+		pixels.resize(Device().GetTextureDataSize(internalFormat, Width[level], Height[level]));
 
-		switch (internalFormat)
-		{
-		case GL_DEPTH_COMPONENT16:
-			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
-			break;
-		case GL_DEPTH_COMPONENT24:
-			pixels.resize(sizeof(uchar) * 3 * Width[level] * Height[level]);
-			break;
-		case GL_DEPTH_COMPONENT32F:
-			pixels.resize(sizeof(f32)*Width[level] * Height[level]);
-			break;
-		case GL_R16F:
-			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
-			break;
-		case GL_R32F:
-			pixels.resize(sizeof(f32)*Width[level] * Height[level]);
-			break;
-		case GL_RG8:
-			pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 2);
-			break;
-		case GL_R16I:
-			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
-			break;
-		case GL_R32I:
-			pixels.resize(sizeof(int32)*Width[level] * Height[level]);
-			break;
-		case GL_RG16F:
-			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 2);
-			break;
-		case GL_RG32F:
-			pixels.resize(sizeof(f32)*Width[level] * Height[level] * 2);
-			break;
-		case GL_RG16I:
-			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level]);
-			break;
-		case GL_RG32I:
-			pixels.resize(sizeof(int32)*Width[level] * Height[level] * 2);
-			break;
-		case GL_RGB8:
-			pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 2);
-			break;
-		case GL_RGB16F:
-			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 3);
-			break;
-		case GL_RGB32F:
-			pixels.resize(sizeof(f32)*Width[level] * Height[level] * 3);
-			break;
-		case GL_RGB16I:
-			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 3);
-			break;
-		case GL_RGB32I:
-			pixels.resize(sizeof(int32)*Width[level] * Height[level] * 3);
-			break;
-		case GL_RGBA16F:
-			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 4);
-			break;
-		case GL_RGBA32F:
-			pixels.resize(sizeof(f32)*Width[level] * Height[level] * 4);
-			break;
-		case GL_RGBA16I:
-			pixels.resize(sizeof(uchar) * 2 * Width[level] * Height[level] * 4);
-			break;
-		case GL_RGBA32I:
-			pixels.resize(sizeof(int32)*Width[level] * Height[level] * 4);
-			break;
-		case GL_R8:
-			pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 4);
-			break;
-		default:
-			pixels.resize(sizeof(uchar)*Width[level] * Height[level] * 4);
-			break;
-		}
-		GLCHECKER(glBindTexture(GLSubMode, GL_ID));
-		GLCHECKER(glGetTexImage(GLSubMode, level, internalFormat2, internalFormat3, &pixels[0]));
-		GLCHECKER(glBindTexture(GLSubMode, 0));
+		Device().BindTextureToTarget(GLSubMode, GL_ID);
+		Device().ReadTexturePixels(GLSubMode, level, internalFormat2, internalFormat3, &pixels[0]);
+		Device().BindTextureToTarget(GLSubMode, 0);
 #endif
 
 		return pixels;

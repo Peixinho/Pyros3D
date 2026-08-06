@@ -13,7 +13,14 @@ namespace p3d {
 	void Cascade::UpdateFrustumPoints(const Vec3& position, const Vec3& direction)
 	{
 		Vec3 _direction = direction *-1.f;
-		Vec3 right = _direction.cross(Vec3::UP);
+
+		// Vec3::UP degenerates as a right-vector reference when the camera looks
+		// nearly straight up/down (_direction ~parallel to it): the cross product
+		// collapses toward zero, the frustum corners become unstable, and the
+		// shadow crop box clips out geometry that's actually in view. Use a
+		// different reference axis in that case.
+		Vec3 upReference = fabs(_direction.dotProduct(Vec3::UP)) > 0.99f ? Vec3(1.f, 0.f, 0.f) : Vec3::UP;
+		Vec3 right = _direction.cross(upReference);
 
 		Vec3 fc = position + _direction * Far;
 		Vec3 nc = position + _direction * Near;
@@ -23,9 +30,16 @@ namespace p3d {
 
 		// these heights and widths are half the heights and widths of
 		// the near and far plane rectangles
-		f32 near_height = tan(Fov / 2.0f) * Near;
+		// Fov is stored in DEGREES (see EnableCastShadows: RADTODEG(projection.Fov)
+		// + CASCADE_FACTOR) but tan() needs radians - this silently fed e.g. ~70
+		// straight into tan() as if it were radians (~70 rad, many wrapped
+		// multiples of 2*PI past the intended angle), giving a wrong, constant
+		// frustum width/height scale that had nothing to do with the camera's
+		// real FOV.
+		f32 fovRad = (f32)DEGTORAD(Fov);
+		f32 near_height = tan(fovRad / 2.0f) * Near;
 		f32 near_width = near_height * Ratio;
-		f32 far_height = tan(Fov / 2.0f) * Far;
+		f32 far_height = tan(fovRad / 2.0f) * Far;
 		f32 far_width = far_height * Ratio;
 
 		point[0] = nc - up*near_height - right*near_width;
@@ -67,9 +81,38 @@ namespace p3d {
 
 		for (std::vector<RenderingMesh*>::iterator i = rcomps.begin(); i != rcomps.end(); i++)
 		{
-			Vec3 pos = Vec3((*i)->Geometry->GetBoundingSphereCenter().x*(*i)->renderingComponent->GetOwner()->GetWorldPosition().x, (*i)->Geometry->GetBoundingSphereCenter().y*(*i)->renderingComponent->GetOwner()->GetWorldPosition().y, (*i)->Geometry->GetBoundingSphereCenter().z*(*i)->renderingComponent->GetOwner()->GetWorldPosition().z);
+			// Was multiplying local bounding-sphere-center by world position
+			// component-wise (dimensionally nonsensical, and always (0,0,0)
+			// for any mesh centered at its local origin - i.e. every
+			// primitive shape - regardless of where it actually is in the
+			// world). That silently broke the Z-range extension below for
+			// any caster not sitting at the world origin: the crop matrix's
+			// near/far only ever "saw" the camera frustum's own corners, so
+			// casters like a ceiling or floor away from the origin were
+			// clipped out of the shadow pass whenever the frustum-corner Z
+			// range didn't happen to reach them - view-dependent, matching
+			// the "shadow disappears depending on camera angle" report.
+			//
+			// Also was reading Geometry->GetBoundingSphereCenter/Radius() -
+			// Geometry is the per-submesh IGeometry, whose own bounding-sphere
+			// fields are never populated (default/zero) for these primitive
+			// shapes; the real, correctly-computed aggregate bounding sphere
+			// lives on the RenderingComponent itself (copied from the
+			// Renderable in its constructor - RenderingComponent.cpp:79-80/
+			// 133-134). Radius was silently always 0, so this Z-range
+			// extension never actually accounted for a caster's real size,
+			// only its center point - matches the convention already used in
+			// IRenderer.cpp:97's LOD-distance calc, which reads off the
+			// RenderingComponent, not the Geometry.
+			RenderingComponent* rc = (*i)->renderingComponent;
+			GameObject* owner = rc->GetOwner();
+			Vec3 scale = owner->GetScale();
+			Vec3 pos = owner->GetWorldPosition() + rc->GetBoundingSphereCenter() * scale;
 			transf = viewMatrix * Vec4(pos.x, pos.y, pos.z, 1.0f);
-			if (transf.z + (*i)->Geometry->GetBoundingSphereRadius() > maxZ) maxZ = transf.z + (*i)->Geometry->GetBoundingSphereRadius();
+			// Scale the radius by the largest axis so the sphere still
+			// conservatively bounds the mesh under non-uniform scale.
+			f32 scaledRadius = rc->GetBoundingSphereRadius() * Max(Max(scale.x, scale.y), scale.z);
+			if (transf.z + scaledRadius > maxZ) maxZ = transf.z + scaledRadius;
 		}
 
 		// Make Ortho
@@ -142,7 +185,7 @@ namespace p3d {
 
 			ShadowMap.reset(new Texture());
 
-#if defined(GLES2) || defined(GLLEGACY)
+#if defined(GLLEGACY)
 
 			// Create Texture, Frame Buffer and Set the Texture as Attachment
 			ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, ShadowWidthFBO, ShadowHeightFBO, false);
@@ -168,8 +211,19 @@ namespace p3d {
 
 			for (uint32 i = 0; i < MAX_SPLITS; i++)
 			{
-				// note that fov is in radians here and in OpenGL it is in degrees.
-				this->Cascades[i].Fov = (f32)(RADTODEG(projection.Fov) + CASCADE_FACTOR);
+				// projection.Fov is already in degrees (Projection::Perspective
+				// stores its raw `fov` parameter with no conversion, and every
+				// caller - e.g. the examples' projection.Perspective(70.f,...) -
+				// passes degrees). This used to run it through RADTODEG() anyway,
+				// as if it were radians, producing a bogus ~4011-degree value
+				// (RADTODEG(70) = 70*180/PI) instead of ~70 - which, combined
+				// with Cascade::UpdateFrustumPoints correctly converting back to
+				// radians before tan(), aliased through tan()'s periodicity into
+				// a wrong-but-plausible-looking, constant ~32% undersized
+				// frustum half-angle. That silently made the shadow crop box
+				// tighter than the camera's real frustum on every frame,
+				// clipping real on-screen geometry near the edges of view.
+				this->Cascades[i].Fov = projection.Fov + CASCADE_FACTOR;
 				this->Cascades[i].Ratio = projection.Aspect;
 			}
 

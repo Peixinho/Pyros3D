@@ -7,52 +7,33 @@
 //============================================================================
 
 #include <Pyros3D/Core/Buffers/GeometryBuffer.h>
-#include <Pyros3D/Other/PyrosGL.h>
+#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 
 namespace p3d {
+
+	// Every GeometryBuffer shares whichever backend is currently active
+	// (see GetActiveRenderDevice() in IRenderDevice.h) - avoids plumbing
+	// an IRenderDevice* through every call site that constructs a
+	// GeometryBuffer (there's no IRenderer/IRenderDevice reference
+	// available at most of those - asset loading, mesh construction, etc.)
+	// while still respecting the actual backend in use (GL vs Vulkan).
+	static IRenderDevice& Device()
+	{
+		return GetActiveRenderDevice();
+	}
 
 	GeometryBuffer::GeometryBuffer() : ID(-1), DataLength(0) {}
 
 	GeometryBuffer::GeometryBuffer(const uint32 bufferType, const uint32 bufferDraw) : ID(-1)
 	{
-
-		// getting buffer type
-		switch (bufferType)
-		{
-
-		case Buffer::Type::Index:
-			this->bufferType = GL_ELEMENT_ARRAY_BUFFER;
-			break;
-		case Buffer::Type::Vertex:
-			this->bufferType = GL_ARRAY_BUFFER;
-			break;
-		case Buffer::Type::Attribute:
-			this->bufferType = GL_ARRAY_BUFFER;
-			break;
-
-		}
-
-		// getting buffer draw type            
-		switch (bufferDraw)
-		{
-
-		case Buffer::Draw::Static:
-			this->bufferDraw = GL_STATIC_DRAW;
-			break;
-		case Buffer::Draw::Dynamic:
-			this->bufferDraw = GL_DYNAMIC_DRAW;
-			break;
-		case Buffer::Draw::Stream:
-			this->bufferDraw = GL_STREAM_DRAW;
-			break;
-
-		}
+		this->bufferType = bufferType;
+		this->bufferDraw = bufferDraw;
 	}
 
 	GeometryBuffer::~GeometryBuffer()
 	{
 		if (ID != -1) {
-			GLCHECKER(glDeleteBuffers(1, (GLuint*)&ID));
+			Device().DestroyBuffer(ID);
 		}
 	}
 
@@ -60,17 +41,12 @@ namespace p3d {
 	{
 		// Destroy buffer if exists
 		if (ID != -1) {
-			GLCHECKER(glBindBuffer(this->bufferType, ID));
-			GLCHECKER(glDeleteBuffers(1, (GLuint*)&ID));
-			GLCHECKER(glBindBuffer(this->bufferType, 0));
+			Device().DestroyBuffer(ID);
 			ID = -1;
 		}
 
 		// creating buffer
-		GLCHECKER(glGenBuffers(1, (GLuint*)&ID));
-		GLCHECKER(glBindBuffer(this->bufferType, ID));
-		GLCHECKER(glBufferData(this->bufferType, length, GeometryData, this->bufferDraw));
-		GLCHECKER(glBindBuffer(this->bufferType, 0));
+		ID = Device().CreateBuffer(bufferType, bufferDraw, GeometryData, length);
 
 		DataLength = length;
 	}
@@ -81,67 +57,20 @@ namespace p3d {
 		if (length != DataLength)
 		{
 			DataLength = length;
-
-			GLCHECKER(glBindBuffer(this->bufferType, ID));
-			#if !defined(GLES2) && !defined(GLES3) && !defined(GLLEGACY) && !defined(GL42) && !defined(GL41)
-				GLCHECKER(glInvalidateBufferData(ID));
-			#endif
-			GLCHECKER(glBufferData(this->bufferType, DataLength, GeometryData, this->bufferDraw));
-			GLCHECKER(glBindBuffer(this->bufferType, 0));
+			Device().ReallocateBuffer(ID, bufferType, bufferDraw, GeometryData, DataLength);
 		}
 		else {
-
-			// Updating buffer
-			GLCHECKER(glBindBuffer(this->bufferType, ID));
-			#if !defined(GLES2) && !defined(GLES3) && !defined(GLLEGACY) && !defined(GL42) && !defined(GL41)
-				GLCHECKER(glInvalidateBufferData(ID));
-			#endif
-			glBufferSubData(this->bufferType, 0, DataLength, GeometryData);
-			GLCHECKER(glBindBuffer(this->bufferType, 0));
+			Device().UpdateBufferSubData(ID, bufferType, GeometryData, DataLength);
 		}
 	}
 
 	void *GeometryBuffer::Map(const uint32 MappingType)
 	{
-#if !defined(GLES2) && !defined(GLES3)
-		GLCHECKER(glBindBuffer(this->bufferType, ID));
-		uint32 MP;
-		switch (MappingType)
-		{
-		case Buffer::Mapping::Read:
-			MP = GL_READ_ONLY;
-			break;
-		case Buffer::Mapping::Write:
-			MP = GL_WRITE_ONLY;
-			break;
-		case Buffer::Mapping::ReadAndWrite:
-			MP = GL_READ_WRITE;
-			break;
-		}
-
-		void* vboData = glMapBuffer(bufferType, MP);
-		if (vboData)
-		{
-			GLCHECKER(glBindBuffer(this->bufferType, 0));
-			return vboData;
-		}
-		else if (!vboData)
-		{
-			GLCHECKER(glGetBufferPointerv(this->bufferType, GL_BUFFER_MAP_POINTER, &vboData));
-			GLCHECKER(glBindBuffer(this->bufferType, 0));
-			if (vboData) return vboData;
-		}
-#endif
-		return NULL;
-
+		return Device().MapBuffer(ID, bufferType, MappingType);
 	}
 	void GeometryBuffer::Unmap()
 	{
-#if !defined(GLES2)
-		GLCHECKER(glBindBuffer(this->bufferType, ID));
-		GLCHECKER(glUnmapBuffer(this->bufferType));
-		GLCHECKER(glBindBuffer(this->bufferType, 0));
-#endif
+		Device().UnmapBuffer(ID, bufferType);
 	}
 
 	namespace Buffer {
@@ -206,23 +135,7 @@ namespace p3d {
 			}
 			const uint32 GetType(const uint32 type)
 			{
-				switch (type) {
-
-				case Buffer::Attribute::Type::Int:
-					return GL_INT;
-					break;
-				case Buffer::Attribute::Type::Short:
-					return GL_SHORT;
-					break;
-				case Buffer::Attribute::Type::Float:
-				case Buffer::Attribute::Type::Vec2:
-				case Buffer::Attribute::Type::Vec3:
-				case Buffer::Attribute::Type::Vec4:
-				case Buffer::Attribute::Type::Matrix:
-					return GL_FLOAT;
-					break;
-				}
-				return 0;
+				return Device().TranslateAttributeType(type);
 			}
 		}
 	}
