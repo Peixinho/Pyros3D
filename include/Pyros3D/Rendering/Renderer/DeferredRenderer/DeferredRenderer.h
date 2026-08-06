@@ -53,6 +53,12 @@ namespace p3d {
 		void EnableSSR();
 		void DisableSSR();
 
+		// 0 = normal composite, 1 = show G-buffer ssrReflective (mr.b),
+		// 2 = paint ray-march hits red, 3 = full hit color (ignore Fresnel).
+		// For isolating whether SSR is gated off, missing hits, or just dim.
+		void SetSSRDebugMode(const uint32 mode);
+		uint32 GetSSRDebugMode() const { return (uint32)ssrDebugMode; }
+
 	private:
 		GenericShaderMaterial* shadowMaterial, *shadowSkinnedMaterial;
 
@@ -167,6 +173,10 @@ namespace p3d {
 		// defaults OFF.
 		f32 ssrEnabled;
 		Uniform *lastPassSSREnabledHandle;
+
+		// See SetSSRDebugMode() - isolation modes for SSRTest / demos.
+		f32 ssrDebugMode;
+		Uniform *lastPassSSRDebugHandle;
 
 		// Real, dedicated previous-frame camera state for SSR reprojection -
 		// deliberately NOT the shared IRenderer::PrvViewMatrix/

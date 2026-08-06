@@ -28,6 +28,7 @@
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/TonemapEffect.h>
+#include <memory>
 
 using namespace p3d;
 
@@ -54,28 +55,27 @@ private:
 
 	PostEffectsManager* EffectManager;
 
-	Renderable* sphereMesh;
-	Renderable* floorMesh;
+	std::shared_ptr<Renderable> sphereMesh;
+	std::shared_ptr<Renderable> floorMesh;
 
-	GameObject* sphereObjs[NUM_SPHERES];
-	RenderingComponent* rSpheres[NUM_SPHERES];
-	GenericShaderMaterial* sphereMaterials[NUM_SPHERES];
+	std::shared_ptr<GameObject> sphereObjs[NUM_SPHERES];
+	std::shared_ptr<RenderingComponent> rSpheres[NUM_SPHERES];
+	std::shared_ptr<GenericShaderMaterial> sphereMaterials[NUM_SPHERES];
 
-	GameObject* floorObj;
-	RenderingComponent* rFloor;
-	GenericShaderMaterial* floorMaterial;
+	std::shared_ptr<GameObject> floorObj;
+	std::shared_ptr<RenderingComponent> rFloor;
+	std::shared_ptr<GenericShaderMaterial> floorMaterial;
 
-	GameObject* lightObjs[NUM_LIGHTS];
-	PointLight* pointLights[NUM_LIGHTS];
-	GameObject* dirLightObj;
-	DirectionalLight* dirLight;
-
-	f32 orbitAngle;
+	std::shared_ptr<GameObject> lightObjs[NUM_LIGHTS];
+	std::shared_ptr<PointLight> pointLights[NUM_LIGHTS];
+	std::shared_ptr<GameObject> dirLightObj;
+	std::shared_ptr<DirectionalLight> dirLight;
 
 	// G-buffer (4 color attachments + depth - see DeferredRenderer's
-	// caller-constructed-FBO convention).
-	Texture *albedoTexture, *specularTexture, *depthTexture, *normalTexture;
-	Texture *metallicRoughnessTexture;
+	// caller-constructed-FBO convention). FrameBuffer still takes raw
+	// Texture* (IslandDemo pattern: own via shared_ptr, pass .get()).
+	std::shared_ptr<Texture> albedoTexture, specularTexture, depthTexture, normalTexture;
+	std::shared_ptr<Texture> metallicRoughnessTexture;
 	FrameBuffer* deferredFBO;
 
 };

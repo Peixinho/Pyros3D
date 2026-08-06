@@ -182,8 +182,8 @@ namespace p3d {
 		// them). Defaults match this shader's original, proven-correct
 		// values; SetSSRDistances() below lets a caller retune them for
 		// a scene built at a very different scale.
-		ssrStepDistance = 0.35f;
-		ssrMaxDistance = 12.0f;
+		ssrStepDistance = 0.22f;
+		ssrMaxDistance = 40.0f;
 		lastPassSSRStepDistanceHandle = deferredLastPass->AddUniform(Uniform("uSSRStepDistance", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		lastPassSSRStepDistanceHandle->SetValue(&ssrStepDistance);
 		lastPassSSRMaxDistanceHandle = deferredLastPass->AddUniform(Uniform("uSSRMaxDistance", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
@@ -194,6 +194,9 @@ namespace p3d {
 		ssrEnabled = 0.0f;
 		lastPassSSREnabledHandle = deferredLastPass->AddUniform(Uniform("uSSREnabled", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		lastPassSSREnabledHandle->SetValue(&ssrEnabled);
+		ssrDebugMode = 0.0f;
+		lastPassSSRDebugHandle = deferredLastPass->AddUniform(Uniform("uSSRDebug", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		lastPassSSRDebugHandle->SetValue(&ssrDebugMode);
 
 		// See IMaterial.h's comment on extraUniforms[2] - matches the
 		// LastPassFragParams block declared in shaders/lastPass.glsl
@@ -202,7 +205,7 @@ namespace p3d {
 		// mat4 rounds up to the next 16-byte boundary).
 		deferredLastPass->extraUniforms[0].binding = 37;
 		deferredLastPass->extraUniforms[0].blockName = "LastPassFragParams";
-		deferredLastPass->extraUniforms[0].size = 288;
+		deferredLastPass->extraUniforms[0].size = 304;
 		deferredLastPass->extraUniforms[0].scratch.resize(deferredLastPass->extraUniforms[0].size, 0);
 		deferredLastPass->extraUniforms[0].offsets["uScreenDimensions"] = 0;
 		deferredLastPass->extraUniforms[0].offsets["uNearFar"] = 8;
@@ -214,6 +217,18 @@ namespace p3d {
 		deferredLastPass->extraUniforms[0].offsets["uSSRStepDistance"] = 276;
 		deferredLastPass->extraUniforms[0].offsets["uSSRMaxDistance"] = 280;
 		deferredLastPass->extraUniforms[0].offsets["uSSREnabled"] = 284;
+		deferredLastPass->extraUniforms[0].offsets["uSSRDebug"] = 288;
+		// PopulateAutoExtraUniforms() stashes the fragment UBO on slot [1]
+		// (vertex has none). Hand-written offsets above go on [0]. Leaving
+		// both at binding 37 made SendExtraUniforms upload two buffers to
+		// the same slot - the auto one won and could disagree with these
+		// offsets (uSSREnabled reading as 0 → zero SSR on Vulkan). Only
+		// the hand layout is authoritative for this material.
+		deferredLastPass->extraUniforms[1].binding = 0;
+		deferredLastPass->extraUniforms[1].bufferHandle = 0;
+		deferredLastPass->extraUniforms[1].size = 0;
+		deferredLastPass->extraUniforms[1].offsets.clear();
+		deferredLastPass->extraUniforms[1].scratch.clear();
 		// Real, pre-existing inconsistency found while investigating a
 		// separate rendering issue: every other second-pass material
 		// (Ambient/Directional/Point/Spot, further below) explicitly
@@ -1258,6 +1273,13 @@ namespace p3d {
 		// shared Prv* (which PreRender() clobbers before this point).
 		lastPassPrvViewMatrixHandle->SetValue(&ssrPrvViewMatrix);
 		lastPassPrvProjectionMatrixHandle->SetValue(&ssrPrvProjectionMatrix);
+		// Re-poke SSR uniforms every frame so EnableSSR()/SetSSRDistances()
+		// values are definitely in the UBO scratch (Other uniforms are only
+		// copied from Uniform::Value during CaptureExtraUniform).
+		lastPassSSREnabledHandle->SetValue(&ssrEnabled);
+		lastPassSSRStepDistanceHandle->SetValue(&ssrStepDistance);
+		lastPassSSRMaxDistanceHandle->SetValue(&ssrMaxDistance);
+		lastPassSSRDebugHandle->SetValue(&ssrDebugMode);
 		// Render to Screen
 		{
 			GameObject go = GameObject();
@@ -1334,6 +1356,12 @@ namespace p3d {
 	{
 		ssrEnabled = 0.0f;
 		lastPassSSREnabledHandle->SetValue(&ssrEnabled);
+	}
+
+	void DeferredRenderer::SetSSRDebugMode(const uint32 mode)
+	{
+		ssrDebugMode = (f32)mode;
+		lastPassSSRDebugHandle->SetValue(&ssrDebugMode);
 	}
 
 };
