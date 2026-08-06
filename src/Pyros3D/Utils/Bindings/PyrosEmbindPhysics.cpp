@@ -157,7 +157,7 @@ EMSCRIPTEN_BINDINGS(pyros3d_physics)
 		.function("getWheelTransform", &PhysicsVehicle_GetWheelTransform)
 		.function("isFrontWheel", &PhysicsVehicle_IsFrontWheel);
 
-	function("asPhysicsVehicle", &AsPhysicsVehicle);
+	emscripten::function("asPhysicsVehicle", &AsPhysicsVehicle);
 
 	class_<IPhysics>("IPhysics")
 		.function("initPhysics", &IPhysics::InitPhysics)
