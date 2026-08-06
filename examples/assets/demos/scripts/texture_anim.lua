@@ -10,15 +10,26 @@ end
 function TextureAnim:init(owner)
 	self.owner = owner
 	local rc = owner:getComponent("RenderingComponent")
-	if rc then
-		self.instance = rc:getActiveTextureAnimation()
-		if self.instance then
-			self.anim = self.instance:getOwner()
+	if not rc then return end
+
+	self.instance = rc:getActiveTextureAnimation()
+	if self.instance then
+		self.anim = self.instance:getOwner()
+		-- Ensure looping playback (JSON repeat=0 → Play(0) already loops,
+		-- but re-play in case init order left the instance stopped).
+		if self.instance.play and not self.instance:isPlaying() then
+			self.instance:play(0)
 		end
-		local meshes = rc:getMeshes()
-		if meshes and #meshes > 0 then
-			self.material = meshes[1]:getGenericMaterial()
-		end
+	end
+
+	-- getMeshes() must be the no-arg binding (sol ignores C++ defaults).
+	-- Prefer getMeshes(); fall back to getMeshesLOD(0) on older binaries.
+	local ok, meshes = pcall(function() return rc:getMeshes() end)
+	if not ok or not meshes then
+		ok, meshes = pcall(function() return rc:getMeshesLOD(0) end)
+	end
+	if ok and meshes and #meshes > 0 and meshes[1].getGenericMaterial then
+		self.material = meshes[1]:getGenericMaterial()
 	end
 end
 

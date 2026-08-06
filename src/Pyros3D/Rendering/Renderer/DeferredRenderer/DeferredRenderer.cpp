@@ -188,16 +188,9 @@ namespace p3d {
 		lastPassSSRStepDistanceHandle->SetValue(&ssrStepDistance);
 		lastPassSSRMaxDistanceHandle = deferredLastPass->AddUniform(Uniform("uSSRMaxDistance", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		lastPassSSRMaxDistanceHandle->SetValue(&ssrMaxDistance);
-		// Real opt-in gate - defaults OFF. SSR is new work this session,
-		// found (via real, reproduced reports) to still have a real bug
-		// under active camera pitch (reflections stretch/smear instead
-		// of tracking correctly - root cause not yet found). Every
-		// DeferredRenderer instance runs this composite pass regardless
-		// of whether its example was ever built to showcase SSR
-		// (DeferredRendering, DeferredPBRSpheres, ArenaFPS, ...), so
-        // leaving it always-on meant an unresolved bug silently reached
-		// every one of them. EnableSSR() opts a specific instance in -
-		// SSRTest calls it explicitly; nothing else needs to.
+		// Real opt-in gate - defaults OFF so demos that never asked for SSR
+		// don't pay for the previous-frame blit/mip path. EnableSSR() opts
+		// a specific instance in (SSRTest / DemoLauncher SSR Test).
 		ssrEnabled = 0.0f;
 		lastPassSSREnabledHandle = deferredLastPass->AddUniform(Uniform("uSSREnabled", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		lastPassSSREnabledHandle->SetValue(&ssrEnabled);
@@ -1286,56 +1279,6 @@ namespace p3d {
 		GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment2)->Unbind();
 		GetGBufferAttachment(FrameBufferAttachmentFormat::Depth_Attachment)->Unbind();
 
-		// Snapshot this frame's colorTexture (already includes translucent
-		// forward objects, composited earlier) into previousFrameColorTexture,
-		// for *next* frame's SSR to sample - see DeferredRenderer.h's
-		// comment on why the previous frame, not this one. Must run after
-		// the lastPass draw above, not before it - colorTexture's own
-		// content doesn't change either way (lastPass only *reads* it,
-		// drawing to the swapchain/caller's FBO instead), but
-		// previousFrameColorTexture's content does: this frame's
-		// deferredLastPass draw needs to sample what was captured at the
-		// *end of the previous* RenderScene() call (paired with
-		// uPrvProjectionMatrix/uPrvViewMatrix, which correctly still lag
-		// by exactly one frame) - blitting here too early overwrote it
-		// with this frame's own content before this frame's own draw read
-		// it, so every frame's "previous" camera was reprojecting this
-		// frame's own image instead of last frame's - a real, continuous
-		// mismatch that grew with any camera motion (visible as
-		// reflections shaking/swimming, on both backends, worse the more
-		// the camera moved - found via a real user report, not caught by
-		// the earlier static-camera verification screenshots).
-		// Real cost, real fix: this blit + the mipmap regen below are a
-		// genuine per-frame GPU cost (a full-frame color copy, then a
-		// full mip chain rebuild on top) paid for previously *even when
-		// SSR was disabled* - lastPass.glsl's shader-side early-out
-		// (uSSREnabled < 0.5) skips the *math*, but this C++ side kept
-		// refreshing a texture nothing was ever going to sample. Found
-		// chasing a real question about what "SSR defaults off" actually
-		// costs a DeferredRenderer instance that never turns it on -
-		// the honest answer used to be "not nothing." Gated on the same
-		// ssrEnabled flag the shader uses, so a disabled instance now
-		// does zero extra work here, not just zero visible effect.
-		if (ssrEnabled > 0.5f)
-		{
-			lastPassFBO->Bind(FBOAccess::Read);
-			previousFrameFBO->Bind(FBOAccess::Write);
-			previousFrameFBO->BlitFrameBuffer(0, 0, Width, Height, 0, 0, Width, Height, FBOBufferBit::Color, FBOFilter::Nearest);
-			lastPassFBO->UnBind();
-			previousFrameFBO->UnBind();
-			// Regenerate mips for the content this frame's blit just wrote -
-			// real fix, not the old passthrough's problem to have: SSR's
-			// roughness-based blur (lastPass.glsl's textureLod() sample)
-			// needs a fresh mip chain every frame, since the base level's
-			// actual pixels changed.
-			//
-			// Do NOT rebind the caller's Read_Write FBO here. That was tried
-			// and is actively harmful on Vulkan: rebinding ExternalFBO after
-			// the lastPass draw begins a fresh render pass with LOAD_OP_CLEAR
-			// and wipes the frame black. Leave GL/Vulkan FBO state alone;
-			// EndCapture()'s UnBind does not depend on the draw target.
-			previousFrameColorTexture->UpdateMipmap();
-		}
 		// No "restore the caller's FBO" replay needed here (unlike this
 		// block's old position before the lastPass draw, which genuinely
 		// needed one): FrameBuffer::UnBind() always issues an

@@ -184,9 +184,10 @@ namespace p3d {
 		// reflection smear/ghosting under camera rotation (worst at
 		// grazing-angle floor reflections, where pitch changes produce the
 		// largest true reprojection offset - see SSRTest). Updated once at
-		// the end of RenderScene() directly from this call's own Camera/
-		// projection arguments, immune to whatever PreRender() or any
-		// shadow sub-pass did to the shared scratch matrices.
+		// ssrPrvViewMatrix/ssrPrvProjectionMatrix - kept for the previous-
+		// frame color blit path and any future temporal reuse. lastPass
+		// currently samples same-frame tColor at the ray hit UV (see
+		// lastPass.glsl) so pitch smear from broken prv reprojection is gone.
 		Matrix ssrPrvViewMatrix, ssrPrvProjectionMatrix;
 		Uniform *lastPassPrvViewMatrixHandle, *lastPassPrvProjectionMatrixHandle;
 	};

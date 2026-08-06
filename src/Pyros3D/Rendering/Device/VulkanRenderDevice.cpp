@@ -2218,9 +2218,12 @@ namespace p3d {
 			// every plain, non-dynamic UBO binding contributes nothing
 			// here regardless of where it falls in that order. Fixed-size
 			// stack array, not a std::vector - this runs on every single
-			// draw call, and IsPerObjectDynamicBinding()'s list is capped
-			// at 7 entries, so there's no reason to heap-allocate here.
-			uint32_t dynamicOffsets[7];
+			// draw call. Sized for the densest engine shader (GlobalMatrices
+			// + Lights + VertexFrame + ObjectMatrix + Bones + Velocity +
+			// Material + LightCounts, plus a deferred/extraUniforms block)
+			// rather than the historical "7" that predated VertexFrame/
+			// Water becoming dynamic.
+			uint32_t dynamicOffsets[16];
 			uint32_t dynamicOffsetCount = 0;
 			for (std::set<uint32>::iterator bIt = progIt->second.reflectedBindings.begin(); bIt != progIt->second.reflectedBindings.end(); bIt++)
 			{
@@ -2232,8 +2235,8 @@ namespace p3d {
 				std::map<DeviceHandle, BufferRecord>::iterator bufRecIt = buffers.find(bufHandleIt->second);
 				if (bufRecIt == buffers.end())
 					continue;
-				if (dynamicOffsetCount >= 7)
-					break; // can't happen - IsPerObjectDynamicBinding() only ever recognizes 7 binding points
+				if (dynamicOffsetCount >= 16)
+					break;
 				dynamicOffsets[dynamicOffsetCount++] = (uint32_t)((VkDeviceSize)bufRecIt->second.currentSlot * bufRecIt->second.alignedSlotSize);
 			}
 			vkCmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet,
@@ -4764,6 +4767,26 @@ namespace p3d {
 		// within this Bind()/UnBind() session.
 		if (!offscreenCommandBufferRecording)
 		{
+			// IslandDemo (and any multipass that FrameBuffer::Bind()s
+			// before the swapchain BeginFrame) rewrites color/depth
+			// attachments the *previous* frame's still-in-flight draws
+			// may still be sampling (water reflection/refraction maps).
+			// BeginFrame() waits on frameFence, but that wait happens
+			// *after* these offscreen passes - so without this, frame N
+			// clears+redraws the reflection texture while frame N-1's
+			// water shader is still reading it. GL's implicit sync hides
+			// the race; Vulkan shows it as reflection flashing
+			// black↔expected and island pieces flickering as the shared
+			// clip UBO is rewritten under in-flight draws. Must not wait
+			// when frameInProgress: fence is unsignaled until EndFrame
+			// submits (would deadlock nested offscreen inside a
+			// swapchain frame, e.g. DeferredRenderer G-buffer).
+			if (!frameInProgress && frameFence != VK_NULL_HANDLE)
+			{
+				static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
+				vkWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS);
+			}
+
 			vkResetCommandBuffer(offscreenCommandBuffer, 0);
 			VkCommandBufferBeginInfo beginInfo = {};
 			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -4779,9 +4802,16 @@ namespace p3d {
 		// then depth last if present) - BuildDepthOnlyRenderPass()'s
 		// single-depth-attachment case is just the hasDepthAttachment-only,
 		// colorAttachmentCount==0 special case of the same layout.
+		//
+		// Use pendingClearColor (SetClearColor / SetBackground), not a
+		// hardcoded black. GL's ClearScreen runs glClear after
+		// DrawBackground sets glClearColor; Vulkan clears only at
+		// vkCmdBeginRenderPass, so Island reflection/refraction FBOs were
+		// always black on Vulkan while GL showed the sky background in
+		// the water fresnel mix.
 		std::vector<VkClearValue> clearValues(fbo.colorAttachmentCount + (fbo.hasDepthAttachment ? 1 : 0));
 		for (uint32 i = 0; i < fbo.colorAttachmentCount; i++)
-			clearValues[i].color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+			clearValues[i].color = { { pendingClearColor.x, pendingClearColor.y, pendingClearColor.z, pendingClearColor.w } };
 		if (fbo.hasDepthAttachment)
 			clearValues[fbo.colorAttachmentCount].depthStencil = { 1.0f, 0 };
 

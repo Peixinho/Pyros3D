@@ -13,6 +13,7 @@
 #include <SDL2/SDL.h>
 #include <cstring>
 #include <fstream>
+#include <cstdlib>
 
 using namespace p3d;
 
@@ -145,7 +146,14 @@ void DemoLauncher::Init()
 	lua["ASSETS_PATH"] = STR(EXAMPLES_PATH) "/assets/";
 
 	LoadManifest();
-	if (!demos.empty()) SwitchDemo(0);
+	if (!demos.empty())
+	{
+		int start = 0;
+		if (const char *env = std::getenv("PYROS_DEMO_INDEX"))
+			start = atoi(env);
+		if (start < 0 || start >= (int)demos.size()) start = 0;
+		SwitchDemo(start);
+	}
 
 	InitImGui();
 }
@@ -219,18 +227,46 @@ void DemoLauncher::SwitchDemo(int index)
 
 	// Camera scripts (and other scene Lua) register globals like `camera`
 	// during init - run before the first Update/draw.
+	{
+		std::ofstream dbg("/tmp/pyros_demolauncher_switch.log", std::ios::app);
+		if (dbg)
+		{
+			dbg << "  pre-Init globals: scene_type=" << (int)lua["scene"].get_type()
+				<< " assets=" << lua.get_or<std::string>("ASSETS_PATH", "<nil>")
+				<< " renderer_type=" << (int)lua["renderer"].get_type()
+				<< std::endl;
+		}
+	}
 	for (const std::shared_ptr<GameObject> &go : currentAssets.gameObjects)
 	{
 		for (const std::shared_ptr<IComponent> &c : go->GetComponents())
 		{
 			if (c && c->GetComponentType() == ComponentType::LuaComponent)
 			{
+				auto lc = std::static_pointer_cast<LuaComponent>(c);
+				const bool hasInit = lc->on_init != nullptr;
+				const bool hasData = lc->data.valid();
+				{
+					std::ofstream dbg("/tmp/pyros_demolauncher_switch.log", std::ios::app);
+					if (dbg) dbg << "  LuaComponent go='" << go->GetName() << "' script='" << lc->scriptFile
+						<< "' data=" << (hasData ? "yes" : "no") << " on_init=" << (hasInit ? "yes" : "no") << std::endl;
+				}
 				try {
 					c->Init();
+				} catch (const sol::error &e) {
+					const std::string msg = std::string("ERROR: DemoLauncher LuaComponent::Init - ") + e.what();
+					echo(msg);
+					std::ofstream dbg("/tmp/pyros_demolauncher_switch.log", std::ios::app);
+					if (dbg) dbg << msg << std::endl;
 				} catch (const std::exception &e) {
-					echo(std::string("ERROR: DemoLauncher LuaComponent::Init - ") + e.what());
+					const std::string msg = std::string("ERROR: DemoLauncher LuaComponent::Init - ") + e.what();
+					echo(msg);
+					std::ofstream dbg("/tmp/pyros_demolauncher_switch.log", std::ios::app);
+					if (dbg) dbg << msg << std::endl;
 				} catch (...) {
 					echo("ERROR: DemoLauncher LuaComponent::Init - unknown exception");
+					std::ofstream dbg("/tmp/pyros_demolauncher_switch.log", std::ios::app);
+					if (dbg) dbg << "ERROR: unknown exception" << std::endl;
 				}
 			}
 		}
@@ -240,6 +276,19 @@ void DemoLauncher::SwitchDemo(int index)
 	// transforms settle before the next draw.
 	Scene->Update(GetTime());
 
+	{
+		const size_t meshCount = Scene->GetRenderingMeshes().size();
+		const size_t lightCount = Scene->GetLights().size();
+		const size_t goCount = Scene->GetAllGameObjectList().size();
+		const bool hasCamera = lua["camera"].valid() && lua["camera"].get_type() != sol::type::lua_nil;
+		const std::string line = std::string("DemoLauncher SwitchDemo '") + entry.name + "': meshes=" + std::to_string(meshCount)
+			+ " lights=" + std::to_string(lightCount)
+			+ " gos=" + std::to_string(goCount)
+			+ " camera=" + (hasCamera ? "ok" : "MISSING");
+		echo(line);
+		std::ofstream dbg("/tmp/pyros_demolauncher_switch.log", std::ios::app);
+		if (dbg) dbg << line << std::endl;
+	}
 	for (const std::shared_ptr<GameObject> &go : currentAssets.gameObjects)
 	{
 		for (const std::shared_ptr<IComponent> &c : go->GetComponents())
@@ -264,9 +313,19 @@ void DemoLauncher::Update()
 	sol::table host = lua["RenderHost"];
 	if (host.valid())
 	{
-		sol::function draw = host["draw"];
+		sol::protected_function draw = host["draw"];
 		if (draw.valid())
-			draw(lua["camera"], lua["scene"], lua["projection"]);
+		{
+			sol::protected_function_result r = draw(lua["camera"], lua["scene"], lua["projection"]);
+			if (!r.valid())
+			{
+				sol::error err = r;
+				const std::string msg = std::string("ERROR: RenderHost.draw - ") + err.what();
+				echo(msg);
+				std::ofstream dbg("/tmp/pyros_demolauncher_draw.log", std::ios::app);
+				if (dbg) dbg << msg << std::endl;
+			}
+		}
 	}
 
 	if (imguiInitialized) EndImGuiFrame();

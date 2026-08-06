@@ -126,6 +126,8 @@
    "type": "deferred",
    "globalLight": [0.12, 0.12, 0.14, 1],
    "ssr": true,
+   "ssrDistances": [0.35, 12.0],
+   "projection": { "fov": 60, "near": 0.1, "far": 200 },
    "effects": ["tonemap"]
   }
  },

@@ -954,11 +954,20 @@ namespace p3d {
 			         // because it looks like a once-per-frame UBO from the
 			         // main pass alone.
 			case 1:  // BIND_LightsBlock
+			case 16: // BIND_VertexFrameUniforms - IslandDemo's water
+			         // multipass Enable/DisableClipPlane + SetClipPlane0
+			         // rewrites this three times per frame (reflection,
+			         // refraction, main). Each offscreen UnBind flushes
+			         // today, but keep it dynamic so a future batched
+			         // path can't stomp clip-enable under an in-flight
+			         // draw (symptom: island triangles discard-flicker).
 			case 18: // BIND_ObjectMatrixUniforms
 			case 19: // BIND_BoneMatrices
 			case 20: // BIND_VelocityObjectUniforms
 			case 22: // BIND_MaterialUniforms
 			case 23: // BIND_ObjectLightCounts
+			case 40: // WaterVertParams (IslandDemo WaterMaterial)
+			case 41: // WaterFragParams (IslandDemo WaterMaterial)
 			// DeferredRenderer's second-pass lighting materials (see
 			// IMaterial.h's comment on extraUniforms[2]) - each of these
 			// is rewritten once per light of that light's type within a

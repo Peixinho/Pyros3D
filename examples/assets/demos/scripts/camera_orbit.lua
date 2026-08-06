@@ -21,6 +21,12 @@ function CameraOrbit:update(time)
 	local pitchDeg = self.basePitch + self.pitchAmp * math.sin(time * self.pitchFreq)
 	self.owner:setPosition(Vec3.new(math.sin(rad) * self.radius, self.height, math.cos(rad) * self.radius))
 	self.owner:setRotation(Vec3.new(math.rad(pitchDeg), math.rad(orbitAngle), 0))
+	-- Scene::Update calls InternalUpdate after components, but keep the
+	-- world matrix explicit so SSR's view/reprojection matches the orbit
+	-- pose the same frame (standalone sets the camera after Scene::Update).
+	if self.owner.refreshTransformation then
+		self.owner:refreshTransformation()
+	end
 end
 
 function CameraOrbit:destroy()

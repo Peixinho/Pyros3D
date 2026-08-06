@@ -288,6 +288,155 @@ namespace p3d {
 	{
 		return g.HaveTag(tag);
 	}
+
+	// sol's shared_ptr<Derived> -> shared_ptr<IComponent> conversion is
+	// unreliable across the engine dylib / DemoLauncher exe boundary on
+	// macOS GL (typeinfo for LUA_* classes lives in the header and ends
+	// up duplicated). Same pattern as LuaObjectToRenderable: pull the
+	// concrete userdata out of sol::object and static_pointer_cast.
+	std::shared_ptr<IComponent> LuaObjectToComponent(const sol::object &o)
+	{
+		if (!o.valid()) return nullptr;
+		if (o.is<std::shared_ptr<LUA_RenderingComponent>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<LUA_RenderingComponent>>());
+		if (o.is<std::shared_ptr<RenderingComponent>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<RenderingComponent>>());
+		if (o.is<std::shared_ptr<LUA_RenderingInstancedComponent>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<LUA_RenderingInstancedComponent>>());
+		if (o.is<std::shared_ptr<LUA_DirectionalLight>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<LUA_DirectionalLight>>());
+		if (o.is<std::shared_ptr<DirectionalLight>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<DirectionalLight>>());
+		if (o.is<std::shared_ptr<LUA_PointLight>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<LUA_PointLight>>());
+		if (o.is<std::shared_ptr<PointLight>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<PointLight>>());
+		if (o.is<std::shared_ptr<LUA_SpotLight>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<LUA_SpotLight>>());
+		if (o.is<std::shared_ptr<SpotLight>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<SpotLight>>());
+		if (o.is<std::shared_ptr<LuaComponent>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<LuaComponent>>());
+		if (o.is<std::shared_ptr<ParticleSystem>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<ParticleSystem>>());
+		if (o.is<std::shared_ptr<AudioSource>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<AudioSource>>());
+		if (o.is<std::shared_ptr<IPhysicsComponent>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<IPhysicsComponent>>());
+		if (o.is<std::shared_ptr<IComponent>>())
+			return o.as<std::shared_ptr<IComponent>>();
+		return nullptr;
+	}
+
+	void GameObject_AddComponentObj(GameObject &go, sol::object compObj)
+	{
+		std::shared_ptr<IComponent> c = LuaObjectToComponent(compObj);
+		if (!c)
+			throw std::runtime_error("GameObject:addComponent: argument is not a Component");
+		go.AddComponent(c);
+	}
+	void GameObject_RemoveComponentObj(GameObject &go, sol::object compObj)
+	{
+		std::shared_ptr<IComponent> c = LuaObjectToComponent(compObj);
+		if (!c)
+			throw std::runtime_error("GameObject:removeComponent: argument is not a Component");
+		go.RemoveComponent(c);
+	}
+
+	// Same shared_ptr<Derived>→shared_ptr<Base> hole as components: GameObject.new()
+	// returns shared_ptr<LUA_GameObject>, but Scene:add / addGameObject take
+	// shared_ptr<GameObject>. sol will not convert those; without an explicit
+	// cast, Lua spawn demos die on scene:add(go) with
+	// "unrecognized userdata ... LUA_GameObject ... shared_ptr<GameObject>".
+	std::shared_ptr<GameObject> LuaObjectToGameObject(const sol::object &o)
+	{
+		if (!o.valid()) return nullptr;
+		if (o.is<std::shared_ptr<LUA_GameObject>>())
+			return std::static_pointer_cast<GameObject>(o.as<std::shared_ptr<LUA_GameObject>>());
+		if (o.is<std::shared_ptr<GameObject>>())
+			return o.as<std::shared_ptr<GameObject>>();
+		return nullptr;
+	}
+
+	// Resolve a Lua camera argument to GameObject*. Scene scripts pass either
+	// a raw GameObject* (camera_fly's `camera = owner` from GetOwner()) or a
+	// shared_ptr from GameObject.new() (Island reflection cam). sol will not
+	// coerce shared_ptr<LUA_GameObject> into GameObject* for a bound
+	// &ForwardRenderer::RenderScene - the call throws and DemoLauncher's
+	// protected draw aborts the whole frame (full black Island on GL).
+	//
+	// Check shared_ptr FIRST: on some sol2/build combos, is<T*>() can
+	// spuriously succeed for shared_ptr userdata and as<T*>() then yields
+	// a garbage pointer (Island reflection cam → black / crash).
+	GameObject* LuaObjectToGameObjectPtr(const sol::object &o)
+	{
+		if (!o.valid() || o.get_type() == sol::type::lua_nil)
+			return nullptr;
+		std::shared_ptr<GameObject> owned = LuaObjectToGameObject(o);
+		if (owned)
+			return owned.get();
+		if (o.is<LUA_GameObject*>())
+			return o.as<LUA_GameObject*>();
+		if (o.is<GameObject*>())
+			return o.as<GameObject*>();
+		return nullptr;
+	}
+
+	// Expose the same resolution to Lua so scripts can coerce GameObject.new()
+	// (shared_ptr<LUA_GameObject>) into a raw GameObject* for renderScene /
+	// preRender. Returning GameObject* pushes the GameObjectBase usertype,
+	// which is exactly what camera_fly's `camera = owner` already is.
+	GameObject* AsGameObject(sol::object o)
+	{
+		GameObject* go = LuaObjectToGameObjectPtr(o);
+		if (!go)
+			throw std::runtime_error("asGameObject: argument is not a GameObject");
+		return go;
+	}
+
+	void SceneGraph_AddObj(SceneGraph &scene, sol::object goObj)
+	{
+		std::shared_ptr<GameObject> go = LuaObjectToGameObject(goObj);
+		if (!go)
+			throw std::runtime_error("Scene:add: argument is not a GameObject");
+		scene.Add(go);
+	}
+	void SceneGraph_RemoveObj(SceneGraph &scene, sol::object goObj)
+	{
+		std::shared_ptr<GameObject> go = LuaObjectToGameObject(goObj);
+		if (!go)
+			throw std::runtime_error("Scene:remove: argument is not a GameObject");
+		scene.Remove(go);
+	}
+	void SceneGraph_AddGameObjectObj(SceneGraph &scene, sol::object goObj)
+	{
+		std::shared_ptr<GameObject> go = LuaObjectToGameObject(goObj);
+		if (!go)
+			throw std::runtime_error("Scene:addGameObject: argument is not a GameObject");
+		scene.AddGameObject(go);
+	}
+	void SceneGraph_RemoveGameObjectObj(SceneGraph &scene, sol::object goObj)
+	{
+		std::shared_ptr<GameObject> go = LuaObjectToGameObject(goObj);
+		if (!go)
+			throw std::runtime_error("Scene:removeGameobject: argument is not a GameObject");
+		scene.RemoveGameObject(go);
+	}
+	void GameObject_AddGameObjectObj(GameObject &parent, sol::object childObj)
+	{
+		std::shared_ptr<GameObject> child = LuaObjectToGameObject(childObj);
+		if (!child)
+			throw std::runtime_error("GameObject:addGameObject: argument is not a GameObject");
+		parent.AddGameObject(child);
+	}
+	void GameObject_RemoveGameObjectObj(GameObject &parent, sol::object childObj)
+	{
+		std::shared_ptr<GameObject> child = LuaObjectToGameObject(childObj);
+		if (!child)
+			throw std::runtime_error("GameObject:removeGameObject: argument is not a GameObject");
+		parent.RemoveGameObject(child);
+	}
+
 	// Real, minimal "find a sibling component by type" for Lua behavior
 	// scripts attached via attachScript() - e.g. a skeleton-animation-
 	// driving script reaching the RenderingComponent on the same
@@ -327,22 +476,75 @@ namespace p3d {
 		return sol::lua_nil;
 	}
 	// ForwardRenderer
-	void ForwardRenderer_PreRender(ForwardRenderer &r, GameObject* Camera, SceneGraph* Scene)
+	void ForwardRenderer_EnableClipPlane(ForwardRenderer &r, uint32 numberOfClipPlanes)
 	{
-		r.PreRender(Camera, Scene);
+		r.EnableClipPlane(numberOfClipPlanes);
 	}
-	void ForwardRenderer_PreRenderTag(ForwardRenderer &r, GameObject* Camera, SceneGraph* Scene, const std::string &tag)
+	void ForwardRenderer_EnableClipPlaneDefault(ForwardRenderer &r)
 	{
-		r.PreRender(Camera, Scene, tag);
+		r.EnableClipPlane(1);
+	}
+	void ForwardRenderer_ClearBufferBit(ForwardRenderer &r, uint32 option)
+	{
+		r.ClearBufferBit(option);
+	}
+	void DeferredRenderer_EnableClipPlane(DeferredRenderer &r, uint32 numberOfClipPlanes)
+	{
+		r.EnableClipPlane(numberOfClipPlanes);
+	}
+	void DeferredRenderer_EnableClipPlaneDefault(DeferredRenderer &r)
+	{
+		r.EnableClipPlane(1);
+	}
+	void DeferredRenderer_ClearBufferBit(DeferredRenderer &r, uint32 option)
+	{
+		r.ClearBufferBit(option);
+	}
+
+	void ForwardRenderer_PreRender(ForwardRenderer &r, sol::object camObj, SceneGraph* Scene)
+	{
+		GameObject* cam = LuaObjectToGameObjectPtr(camObj);
+		if (!cam) throw std::runtime_error("ForwardRenderer:preRender: camera is not a GameObject");
+		r.PreRender(cam, Scene);
+	}
+	void ForwardRenderer_PreRenderTag(ForwardRenderer &r, sol::object camObj, SceneGraph* Scene, const std::string &tag)
+	{
+		GameObject* cam = LuaObjectToGameObjectPtr(camObj);
+		if (!cam) throw std::runtime_error("ForwardRenderer:preRender: camera is not a GameObject");
+		r.PreRender(cam, Scene, tag);
+	}
+	void ForwardRenderer_RenderScene(ForwardRenderer &r, sol::object projObj, sol::object camObj, SceneGraph* Scene)
+	{
+		GameObject* cam = LuaObjectToGameObjectPtr(camObj);
+		if (!cam) throw std::runtime_error("ForwardRenderer:renderScene: camera is not a GameObject");
+		// DemoLauncher stores lua["projection"] = &projection (Projection*).
+		// Accept pointer or value so Island multipass matches other demos.
+		if (projObj.is<Projection*>())
+		{
+			Projection* p = projObj.as<Projection*>();
+			if (!p) throw std::runtime_error("ForwardRenderer:renderScene: null Projection*");
+			r.RenderScene(*p, cam, Scene);
+			return;
+		}
+		if (projObj.is<Projection>())
+		{
+			r.RenderScene(projObj.as<Projection>(), cam, Scene);
+			return;
+		}
+		throw std::runtime_error("ForwardRenderer:renderScene: projection is not a Projection");
 	}
 	// DeferredRenderer
-	void DeferredRenderer_PreRender(DeferredRenderer &r, GameObject* Camera, SceneGraph* Scene)
+	void DeferredRenderer_PreRender(DeferredRenderer &r, sol::object camObj, SceneGraph* Scene)
 	{
-		r.PreRender(Camera, Scene);
+		GameObject* cam = LuaObjectToGameObjectPtr(camObj);
+		if (!cam) throw std::runtime_error("DeferredRenderer:preRender: camera is not a GameObject");
+		r.PreRender(cam, Scene);
 	}
-	void DeferredRenderer_PreRenderTag(DeferredRenderer &r, GameObject* Camera, SceneGraph* Scene, const std::string &tag)
+	void DeferredRenderer_PreRenderTag(DeferredRenderer &r, sol::object camObj, SceneGraph* Scene, const std::string &tag)
 	{
-		r.PreRender(Camera, Scene, tag);
+		GameObject* cam = LuaObjectToGameObjectPtr(camObj);
+		if (!cam) throw std::runtime_error("DeferredRenderer:preRender: camera is not a GameObject");
+		r.PreRender(cam, Scene, tag);
 	}
 	// DeferredRenderer::RenderScene() carries a fourth BufferOptions
 	// parameter that ForwardRenderer's does not. sol binds the function's
@@ -353,13 +555,17 @@ namespace p3d {
 	// 0x10/0x20/0x40) was exposed. Restoring the default here also makes
 	// renderScene() identical across both renderers, so a script can swap
 	// one for the other without touching its render loop.
-	void DeferredRenderer_RenderScene(DeferredRenderer &r, const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene)
+	void DeferredRenderer_RenderScene(DeferredRenderer &r, const p3d::Projection &projection, sol::object camObj, SceneGraph* Scene)
 	{
-		r.RenderScene(projection, Camera, Scene);
+		GameObject* cam = LuaObjectToGameObjectPtr(camObj);
+		if (!cam) throw std::runtime_error("DeferredRenderer:renderScene: camera is not a GameObject");
+		r.RenderScene(projection, cam, Scene);
 	}
-	void DeferredRenderer_RenderSceneOptions(DeferredRenderer &r, const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene, const uint32 BufferOptions)
+	void DeferredRenderer_RenderSceneOptions(DeferredRenderer &r, const p3d::Projection &projection, sol::object camObj, SceneGraph* Scene, const uint32 BufferOptions)
 	{
-		r.RenderScene(projection, Camera, Scene, BufferOptions);
+		GameObject* cam = LuaObjectToGameObjectPtr(camObj);
+		if (!cam) throw std::runtime_error("DeferredRenderer:renderScene: camera is not a GameObject");
+		r.RenderScene(projection, cam, Scene, BufferOptions);
 	}
 	// Shader
 	void Shader_SendUniform(Shader &s, const Uniform &uniform, int32 Handle)
@@ -472,6 +678,26 @@ namespace p3d {
 	{
 		f.AddAttach(attachmentFormat, attachmentDataType, Width, Height, msaa);
 	}
+	// FrameBuffer::Bind(access = Read_Write) - C++ default is invisible to
+	// sol; Lua's fbo:bind() was throwing "expected number, received no
+	// value" into void(unsigned int) and aborting Island multipass every
+	// frame (flash via main-only fallback).
+	void FrameBuffer_Bind(FrameBuffer &f, uint32 access)
+	{
+		f.Bind(access);
+	}
+	void FrameBuffer_BindDefault(FrameBuffer &f)
+	{
+		f.Bind();
+	}
+	void Texture_Resize3(Texture &t, uint32 width, uint32 height, uint32 level)
+	{
+		t.Resize(width, height, level);
+	}
+	void Texture_Resize2(Texture &t, uint32 width, uint32 height)
+	{
+		t.Resize(width, height, 0);
+	}
 	// RenderingComponent::GetActiveSkeletonAnimation() returns void* (see
 	// its header comment - avoids a circular #include), so it can't be
 	// bound to Lua directly; this wraps the documented, guaranteed-safe
@@ -523,30 +749,47 @@ namespace p3d {
 	std::shared_ptr<IMaterial> LuaObjectToMaterial(const sol::object &o)
 	{
 		if (!o.valid()) return nullptr;
+		if (o.get_type() != sol::type::userdata) return nullptr;
 		if (o.is<std::shared_ptr<GenericShaderMaterial>>()) return o.as<std::shared_ptr<GenericShaderMaterial>>();
 		if (o.is<std::shared_ptr<CustomShaderMaterial>>()) return o.as<std::shared_ptr<CustomShaderMaterial>>();
 		if (o.is<std::shared_ptr<IMaterial>>()) return o.as<std::shared_ptr<IMaterial>>();
 		return nullptr;
 	}
 
-	// Same shared_ptr inheritance issue as RenderingComponent.new — Model
-	// won't match shared_ptr<Renderable> via sol overload alone. Third arg
-	// is int options or IMaterial (one function avoids sol::object/uint32
-	// overload ambiguity).
+	// ShaderUsage.* from sol::new_enum is a Lua number. NEVER call
+	// o.as<uint32>() on userdata (GenericShaderMaterial / CustomShaderMaterial):
+	// sol reports that via lua_error/longjmp, which bypasses C++ catch and
+	// aborts RenderingComponent.new(mesh, mat) with
+	// "expected number, received GenericShaderMaterial" - that left LOD
+	// teapots, Neon arena, and Island water uncreated (lights-only / blue /
+	// no water). Only accept real Lua numbers as material-options ints.
+	bool LuaObjectToMaterialOptions(const sol::object &o, uint32 &out)
+	{
+		if (!o.valid()) return false;
+		if (o.get_type() != sol::type::number)
+			return false;
+		out = o.as<uint32>();
+		return true;
+	}
+
 	void RenderingComponent_ADDLOD(RenderingComponent* rcomp, sol::object renderableObj, const f32 Distance, sol::object materialOrOptions)
 	{
 		std::shared_ptr<Renderable> renderable = LuaObjectToRenderable(renderableObj);
 		if (!renderable)
 			throw std::runtime_error("RenderingComponent:addLOD: first argument is not a Renderable");
-		if (materialOrOptions.get_type() == sol::type::number)
+		std::shared_ptr<IMaterial> material = LuaObjectToMaterial(materialOrOptions);
+		if (material)
 		{
-			rcomp->AddLOD(renderable, Distance, materialOrOptions.as<uint32>());
+			rcomp->AddLOD(renderable, Distance, material);
 			return;
 		}
-		std::shared_ptr<IMaterial> material = LuaObjectToMaterial(materialOrOptions);
-		if (!material)
-			throw std::runtime_error("RenderingComponent:addLOD: third argument is not an IMaterial or material options int");
-		rcomp->AddLOD(renderable, Distance, material);
+		uint32 options = 0;
+		if (LuaObjectToMaterialOptions(materialOrOptions, options))
+		{
+			rcomp->AddLOD(renderable, Distance, options);
+			return;
+		}
+		throw std::runtime_error("RenderingComponent:addLOD: third argument is not an IMaterial or material options int");
 	}
 	void RenderingComponent_ADDLOD_DistOnly(RenderingComponent* rcomp, sol::object renderableObj, const f32 Distance)
 	{
@@ -561,12 +804,16 @@ namespace p3d {
 		std::shared_ptr<Renderable> renderable = LuaObjectToRenderable(renderableObj);
 		if (!renderable)
 			throw std::runtime_error("RenderingComponent.new: first argument is not a Renderable");
-		if (materialOrOptions.get_type() == sol::type::number)
-			return std::make_shared<LUA_RenderingComponent>(renderable, materialOrOptions.as<int>());
+		// Prefer IMaterial when the 2nd arg is userdata - options are numbers
+		// only (see LuaObjectToMaterialOptions). Checking material first keeps
+		// RenderingComponent.new(mesh, mat) off the options path entirely.
 		std::shared_ptr<IMaterial> material = LuaObjectToMaterial(materialOrOptions);
-		if (!material)
-			throw std::runtime_error("RenderingComponent.new: second argument is not an IMaterial or material options int");
-		return std::make_shared<LUA_RenderingComponent>(renderable, material);
+		if (material)
+			return std::make_shared<LUA_RenderingComponent>(renderable, material);
+		uint32 options = 0;
+		if (LuaObjectToMaterialOptions(materialOrOptions, options))
+			return std::make_shared<LUA_RenderingComponent>(renderable, (int)options);
+		throw std::runtime_error("RenderingComponent.new: second argument is not an IMaterial or material options int");
 	}
 
 	std::shared_ptr<LUA_RenderingComponent> LuaNewRenderingComponentDist(sol::object renderableObj, sol::object materialOrOptions, float distance)
@@ -574,12 +821,13 @@ namespace p3d {
 		std::shared_ptr<Renderable> renderable = LuaObjectToRenderable(renderableObj);
 		if (!renderable)
 			throw std::runtime_error("RenderingComponent.new: first argument is not a Renderable");
-		if (materialOrOptions.get_type() == sol::type::number)
-			return std::make_shared<LUA_RenderingComponent>(renderable, materialOrOptions.as<int>(), distance);
 		std::shared_ptr<IMaterial> material = LuaObjectToMaterial(materialOrOptions);
-		if (!material)
-			throw std::runtime_error("RenderingComponent.new: second argument is not an IMaterial or material options int");
-		return std::make_shared<LUA_RenderingComponent>(renderable, material, distance);
+		if (material)
+			return std::make_shared<LUA_RenderingComponent>(renderable, material, distance);
+		uint32 options = 0;
+		if (LuaObjectToMaterialOptions(materialOrOptions, options))
+			return std::make_shared<LUA_RenderingComponent>(renderable, (int)options, distance);
+		throw std::runtime_error("RenderingComponent.new: second argument is not an IMaterial or material options int");
 	}
 
 	// Keeps DecalGeometry (owner of GetDecal() mesh) alive for the process.
@@ -1085,11 +1333,11 @@ namespace p3d {
 			lua->new_usertype<SceneGraph>("Scene",
 				sol::constructors<sol::types<>>(),
 				"update", &SceneGraph::Update,
-				"add", &SceneGraph::Add,
-				"remove", static_cast<void (SceneGraph::*)(const std::shared_ptr<GameObject> &)>(&SceneGraph::Remove),
+				"add", &SceneGraph_AddObj,
+				"remove", &SceneGraph_RemoveObj,
 				"removeAll", &SceneGraph::RemoveAll,
-				"addGameObject", &SceneGraph::AddGameObject,
-				"removeGameobject", static_cast<void (SceneGraph::*)(const std::shared_ptr<GameObject> &)>(&SceneGraph::RemoveGameObject),
+				"addGameObject", &SceneGraph_AddGameObjectObj,
+				"removeGameobject", &SceneGraph_RemoveGameObjectObj,
 				"getTime", &SceneGraph::GetTime,
 				"getAllGameObjects", &SceneGraph::GetAllGameObjectList,
 				"save", [lua](SceneGraph &scene, const std::string &path) {
@@ -1143,10 +1391,10 @@ namespace p3d {
 				"refreshTransformation", &LUA_GameObject::RefreshTransformation,
 				"lookAtGameObject", &LUA_GameObject::LookAtGameObject,
 				"lookAtVec", &LUA_GameObject::LookAtVec,
-				"addComponent", &LUA_GameObject::AddComponent,
-				"removeComponent", static_cast<void (GameObject::*)(const std::shared_ptr<IComponent> &)>(&GameObject::RemoveComponent),
-				"addGameObject", &LUA_GameObject::AddGameObject,
-				"removeGameObject", static_cast<void (GameObject::*)(const std::shared_ptr<GameObject> &)>(&GameObject::RemoveGameObject),
+				"addComponent", &GameObject_AddComponentObj,
+				"removeComponent", &GameObject_RemoveComponentObj,
+				"addGameObject", &GameObject_AddGameObjectObj,
+				"removeGameObject", &GameObject_RemoveGameObjectObj,
 				"getParent", &LUA_GameObject::GetParent,
 				"haveParent", &LUA_GameObject::HaveParent,
 				"addTag", &LUA_GameObject::AddTag,
@@ -1211,10 +1459,10 @@ namespace p3d {
 				"refreshTransformation", &GameObject::RefreshTransformation,
 				"lookAtGameObject", &GameObject::LookAtGameObject,
 				"lookAtVec", &GameObject::LookAtVec,
-				"addComponent", &GameObject::AddComponent,
-				"removeComponent", static_cast<void (GameObject::*)(const std::shared_ptr<IComponent> &)>(&GameObject::RemoveComponent),
-				"addGameObject", &GameObject::AddGameObject,
-				"removeGameObject", static_cast<void (GameObject::*)(const std::shared_ptr<GameObject> &)>(&GameObject::RemoveGameObject),
+				"addComponent", &GameObject_AddComponentObj,
+				"removeComponent", &GameObject_RemoveComponentObj,
+				"addGameObject", &GameObject_AddGameObjectObj,
+				"removeGameObject", &GameObject_RemoveGameObjectObj,
 				"getParent", &GameObject::GetParent,
 				"haveParent", &GameObject::HaveParent,
 				"addTag", &GameObject::AddTag,
@@ -1223,6 +1471,7 @@ namespace p3d {
 				"isStatic", &GameObject::IsStatic,
 				"getComponent", &GameObject_GetComponent
 				);
+			lua->set_function("asGameObject", &AsGameObject);
 		}
 
 		{
@@ -1239,11 +1488,15 @@ namespace p3d {
 			sol::constructors<sol::types<float, float>> con;
 			lua->new_usertype<ForwardRenderer>("ForwardRenderer",
 				con,
-				"clearBufferBit", &ForwardRenderer::ClearBufferBit,
+				"clearBufferBit", &ForwardRenderer_ClearBufferBit,
 				"enableClearDepthBuffer", &ForwardRenderer::EnableClearDepthBuffer,
 				"disableClearDepthBuffer", &ForwardRenderer::DisableClearDepthBuffer,
 				"clearDepthBuffer", &ForwardRenderer::ClearDepthBuffer,
-				"enableClipPlane", &ForwardRenderer::EnableClipPlane,
+				// EnableClipPlane takes const uint32& with a C++ default -
+				// sol drops/mangles that and Lua's enableClipPlane(1) then
+				// throws "expected number, received no value". Bind by-value
+				// wrappers (with a no-arg default) instead.
+				"enableClipPlane", sol::overload(&ForwardRenderer_EnableClipPlane, &ForwardRenderer_EnableClipPlaneDefault),
 				"disableClipPlane", &ForwardRenderer::DisableClipPlane,
 				"setClipPlane0", &ForwardRenderer::SetClipPlane0,
 				"setClipaPlane0", &ForwardRenderer::SetClipPlane0,
@@ -1280,7 +1533,7 @@ namespace p3d {
 				"resize", &ForwardRenderer::Resize,
 				"activateCulling", &ForwardRenderer::ActivateCulling,
 				"deactivateCulling", &ForwardRenderer::DeactivateCulling,
-				"renderScene", &ForwardRenderer::RenderScene,
+				"renderScene", &ForwardRenderer_RenderScene,
 				"preRender", sol::overload(&ForwardRenderer_PreRender, &ForwardRenderer_PreRenderTag)
 				);
 		}
@@ -1290,11 +1543,11 @@ namespace p3d {
 			sol::constructors<sol::types<float, float, FrameBuffer*>> con;
 			lua->new_usertype<DeferredRenderer>("DeferredRenderer",
 				con,
-				"clearBufferBit", &DeferredRenderer::ClearBufferBit,
+				"clearBufferBit", &DeferredRenderer_ClearBufferBit,
 				"enableClearDepthBuffer", &DeferredRenderer::EnableClearDepthBuffer,
 				"disableClearDepthBuffer", &DeferredRenderer::DisableClearDepthBuffer,
 				"clearDepthBuffer", &DeferredRenderer::ClearDepthBuffer,
-				"enableClipPlane", &DeferredRenderer::EnableClipPlane,
+				"enableClipPlane", sol::overload(&DeferredRenderer_EnableClipPlane, &DeferredRenderer_EnableClipPlaneDefault),
 				"disableClipPlane", &DeferredRenderer::DisableClipPlane,
 				"setClipPlane0", &DeferredRenderer::SetClipPlane0,
 				"setClipaPlane0", &DeferredRenderer::SetClipPlane0,
@@ -1373,7 +1626,7 @@ namespace p3d {
 					&FrameBuffer_AddAttachRenderBuffer5
 				),
 				"resize", &FrameBuffer::Resize,
-				"bind", &FrameBuffer::Bind,
+				"bind", sol::overload(&FrameBuffer_Bind, &FrameBuffer_BindDefault),
 				"isBinded", &FrameBuffer::IsBinded,
 				"getBindID", &FrameBuffer::GetBindID,
 				"unbind", &FrameBuffer::UnBind,
@@ -1649,7 +1902,7 @@ namespace p3d {
 				"setRepeat", &Texture::SetRepeat,
 				"enableCompareMode", &Texture::EnableCompareMode,
 				"setTransparency", &Texture::SetTransparency,
-				"resize", &Texture::Resize,
+				"resize", sol::overload(&Texture_Resize3, &Texture_Resize2),
 				"updateData", &Texture::UpdateData,
 				"UpdateMipmap", &Texture::UpdateMipmap,
 				"setTextureByteAlignment", &Texture::SetTextureByteAlignment,
@@ -1947,7 +2200,15 @@ namespace p3d {
 				"getRenderable", &LUA_RenderingComponent::GetRenderable,
 				"getSkeleton", &LUA_RenderingComponent::GetSkeleton,
 				"hasBones", &LUA_RenderingComponent::HasBones,
-				"getMeshes", &LUA_RenderingComponent::GetMeshes,
+				"getMeshes", [](RenderingComponent &rc) -> std::vector<RenderingMesh*> & {
+					// sol2 does not honour C++ default args - GetMeshes(LOD=0)
+					// called as getMeshes() from Lua was failing with
+					// "expected number, received no value", which aborted
+					// Island's setIslandCull every frame (reflection cull)
+					// and texture_anim.lua's init.
+					return rc.GetMeshes(0);
+				},
+				"getMeshesLOD", &RenderingComponent::GetMeshes,
 				"getLODSize", &LUA_RenderingComponent::GetLODSize,
 				"getLODByDistance", &LUA_RenderingComponent::GetLODByDistance,
 				"updateLOD", &LUA_RenderingComponent::UpdateLOD,

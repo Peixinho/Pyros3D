@@ -8,6 +8,7 @@
 
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
+#include <Pyros3D/Assets/Texture/Texture.h>
 #include <cstring>
 
 // Must match MAX_LIGHTS in resources/shaders/PyrosShader.glsl - sizes and
@@ -801,6 +802,12 @@ void IRenderer::InitRender()
 	depthWritting = true;
 	DepthWrite();
 
+	// Samplers in materials are hard-coded to units 0..N via AddSampler;
+	// PreRender() binds starting at Texture::UnitBinded. If a previous
+	// pass leaked the counter, water/custom materials sample the wrong
+	// units (white/garbage). Reset once per RenderScene.
+	Texture::ResetUnitCounter();
+
 	// No VAO to create here anymore - BindMesh() creates and caches one per
 	// (mesh, shader) pair on demand. This used to glGenVertexArrays a new
 	// VAO on every InitRender() call (up to 3x per frame in
@@ -1300,47 +1307,59 @@ void IRenderer::EndScissorTest()
 void IRenderer::SetClipPlane0(const Vec4 &clipPlane)
 {
 	ClipPlanes[0] = clipPlane;
+	VertexFrameUniformsUBOValid = false;
 }
 
 void IRenderer::SetClipPlane1(const Vec4 &clipPlane)
 {
 	ClipPlanes[1] = clipPlane;
+	VertexFrameUniformsUBOValid = false;
 }
 
 void IRenderer::SetClipPlane2(const Vec4 &clipPlane)
 {
 	ClipPlanes[2] = clipPlane;
+	VertexFrameUniformsUBOValid = false;
 }
 
 void IRenderer::SetClipPlane3(const Vec4 &clipPlane)
 {
 	ClipPlanes[3] = clipPlane;
+	VertexFrameUniformsUBOValid = false;
 }
 
 void IRenderer::SetClipPlane4(const Vec4 &clipPlane)
 {
 	ClipPlanes[4] = clipPlane;
+	VertexFrameUniformsUBOValid = false;
 }
 
 void IRenderer::SetClipPlane5(const Vec4 &clipPlane)
 {
 	ClipPlanes[5] = clipPlane;
+	VertexFrameUniformsUBOValid = false;
 }
 
 void IRenderer::SetClipPlane6(const Vec4 &clipPlane)
 {
 	ClipPlanes[6] = clipPlane;
+	VertexFrameUniformsUBOValid = false;
 }
 
 void IRenderer::SetClipPlane7(const Vec4 &clipPlane)
 {
 	ClipPlanes[7] = clipPlane;
+	VertexFrameUniformsUBOValid = false;
 }
 
 void IRenderer::SetBackground(const Vec4& Color)
 {
 	BackgroundColor = Color;
 	BackgroundColorSet = true;
+	// Apply immediately so the next offscreen FBO Bind() (Vulkan clears at
+	// begin-render-pass; GL at glClear) sees this colour - Island water
+	// reflection/refraction must match GL's sky clear on Vulkan too.
+	if (device) device->SetClearColor(BackgroundColor);
 }
 
 void IRenderer::UnsetBackground()

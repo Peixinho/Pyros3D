@@ -394,16 +394,21 @@ namespace p3d {
 
 	void GLRenderDevice::EnableClipDistance(const uint32 index)
 	{
-#if !defined(GLES3)
-		GLCHECKER(glEnable(GL_CLIP_DISTANCE0 + index));
-#endif
+		// Intentionally a no-op (same as VulkanRenderDevice). Island water
+		// and any ShaderUsage::ClipPlane material clip via PyrosShader's
+		// CLIPSPACE discard (uClipPlane0 in VertexFrameUniforms), not
+		// gl_ClipDistance. Enabling GL_CLIP_DISTANCEi without the vertex
+		// shader writing gl_ClipDistance[i] is undefined - on some GL
+		// drivers (seen as DemoLauncher Island multipass going fully
+		// black while the same C++ IslandDemo looked fine) that discards
+		// every triangle into the reflection/refraction FBOs. Keep clip
+		// in the shader discard path only.
+		(void)index;
 	}
 
 	void GLRenderDevice::DisableClipDistance(const uint32 index)
 	{
-#if !defined(GLES3)
-		GLCHECKER(glDisable(GL_CLIP_DISTANCE0 + index));
-#endif
+		(void)index;
 	}
 
 	void GLRenderDevice::SetViewport(const uint32 x, const uint32 y, const uint32 width, const uint32 height)
@@ -541,6 +546,7 @@ namespace p3d {
 		GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeBytes, NULL, GL_DYNAMIC_DRAW));
 		GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, bindingPoint, ubo));
 		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+		uniformBufferBindings[ubo] = bindingPoint;
 		return ubo;
 	}
 
@@ -558,11 +564,18 @@ namespace p3d {
 		// storage instead of overwriting it in place - see the comment on
 		// ReplaceUniformBuffer() in IRenderDevice.h for why this matters.
 		GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeBytes, data, GL_DYNAMIC_DRAW));
+		// Re-bind the indexed slot after orphaning - required on some macOS
+		// GL drivers that drop the BindBufferBase association when storage
+		// is replaced (Vulkan path is unaffected; this is GL-only).
+		std::map<DeviceHandle, uint32>::iterator it = uniformBufferBindings.find(buffer);
+		if (it != uniformBufferBindings.end())
+			GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, it->second, buffer));
 		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
 	}
 
 	void GLRenderDevice::DestroyUniformBuffer(const DeviceHandle buffer)
 	{
+		uniformBufferBindings.erase(buffer);
 		GLuint id = buffer;
 		GLCHECKER(glDeleteBuffers(1, &id));
 	}
@@ -1274,9 +1287,9 @@ namespace p3d {
 #endif
 	}
 
-	// See IRenderDevice.h's comment - GL has no render-pass-shape concept
-	// to disambiguate, so this always returns 0.
-	DeviceHandle GLRenderDevice::GetCurrentRenderTarget() { return 0; }
+	// Track the draw-bound FBO so ForwardRenderer's swapchain vs offscreen
+	// gate matches Vulkan (Island multipass Bind/UnBind).
+	DeviceHandle GLRenderDevice::GetCurrentRenderTarget() { return currentDrawFBO; }
 
 	DeviceHandle GLRenderDevice::CreateFramebuffer()
 	{
@@ -1289,6 +1302,8 @@ namespace p3d {
 	{
 		GLuint id = fbo;
 		GLCHECKER(glDeleteFramebuffers(1, &id));
+		if (currentDrawFBO == fbo)
+			currentDrawFBO = 0;
 	}
 
 	uint32 GLRenderDevice::TranslateFramebufferAccess(const uint32 engineAccess)
@@ -1308,6 +1323,9 @@ namespace p3d {
 	{
 		(void)finalizePending; // no render-pass/attachment-shape concept to defer - see IRenderDevice.h's comment
 		GLCHECKER(glBindFramebuffer(nativeAccess, fbo));
+		// Read-only binds must not change the draw target (matches Vulkan).
+		if (nativeAccess != GL_READ_FRAMEBUFFER)
+			currentDrawFBO = fbo;
 	}
 
 	uint32 GLRenderDevice::TranslateFramebufferAttachment(const uint32 engineAttachmentFormat)

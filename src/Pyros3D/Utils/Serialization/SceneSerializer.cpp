@@ -1482,7 +1482,30 @@ namespace p3d {
 			std::string scriptFile = j.value("scriptFile", std::string());
 			if (!scriptFile.empty() && lua && j.find("data") != j.end())
 			{
-				sol::object result = lua->require_file(scriptFile, scriptFile);
+				// Always load a fresh chunk (do not use require_file).
+				// DemoLauncher does not open sol::lib::package, so touching
+				// package.loaded would convert nil→sol::table and abort.
+				// load_file also picks up script edits without a process restart.
+				sol::object result = sol::lua_nil;
+				{
+					sol::load_result chunk = lua->load_file(scriptFile);
+					if (chunk.valid())
+					{
+						sol::protected_function_result loaded = chunk();
+						if (loaded.valid())
+							result = loaded;
+						else
+						{
+							sol::error err = loaded;
+							echo(std::string("WARNING: SceneSerializer - Lua load error in ") + scriptFile + ": " + err.what());
+						}
+					}
+					else
+					{
+						sol::error err = chunk;
+						echo(std::string("WARNING: SceneSerializer - couldn't read ") + scriptFile + ": " + err.what());
+					}
+				}
 				if (result.valid() && result.get_type() == sol::type::table)
 				{
 					sol::table cls = result;

@@ -449,11 +449,36 @@ namespace p3d {
         sol::table instance = comp->data;
         if (!instance.valid()) return;
         if (sol::function f = instance["init"]; f.valid())
-            comp->on_init = [](LuaComponent& c) { sol::table(c.data)["init"](c.data, c.GetOwner()); };
+            comp->on_init = [](LuaComponent& c) {
+                sol::protected_function pf = sol::table(c.data)["init"];
+                sol::protected_function_result r = pf(c.data, c.GetOwner());
+                if (!r.valid()) {
+                    sol::error err = r;
+                    const std::string msg = std::string("ERROR: LuaComponent init - ") + err.what();
+                    echo(msg);
+                    // Re-throw so DemoLauncher SwitchDemo can record the
+                    // failure (meshes=0) instead of silently continuing.
+                    throw std::runtime_error(msg);
+                }
+            };
         if (sol::function f = instance["update"]; f.valid())
-            comp->on_update = [](LuaComponent& c, p3d::f64 time) { sol::table(c.data)["update"](c.data, time); };
+            comp->on_update = [](LuaComponent& c, p3d::f64 time) {
+                sol::protected_function pf = sol::table(c.data)["update"];
+                sol::protected_function_result r = pf(c.data, time);
+                if (!r.valid()) {
+                    sol::error err = r;
+                    echo(std::string("ERROR: LuaComponent update - ") + err.what());
+                }
+            };
         if (sol::function f = instance["destroy"]; f.valid())
-            comp->on_destroy = [](LuaComponent& c) { sol::table(c.data)["destroy"](c.data); };
+            comp->on_destroy = [](LuaComponent& c) {
+                sol::protected_function pf = sol::table(c.data)["destroy"];
+                sol::protected_function_result r = pf(c.data);
+                if (!r.valid()) {
+                    sol::error err = r;
+                    echo(std::string("ERROR: LuaComponent destroy - ") + err.what());
+                }
+            };
     }
 
     // Loads scriptFile (expected to `return` a middleclass class table,

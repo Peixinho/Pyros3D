@@ -182,6 +182,11 @@ void SSRTest::Update()
 	f32 pitchDeg = -18.f + 10.f * sinf((f32)GetTime() * 0.5f);
 	FPSCamera->SetPosition(Vec3(sinf(rad) * 18.f, 7.f, cosf(rad) * 18.f));
 	FPSCamera->SetRotation(Vec3(DEGTORAD(pitchDeg), DEGTORAD(orbitAngle), 0.f));
+	// SetPosition/SetRotation only flip the dirty flag - without this,
+	// GetWorldTransformation() (and therefore ViewMatrix / SSR) keeps
+	// last Scene::Update's matrix. DemoLauncher's camera_orbit.lua already
+	// calls refreshTransformation for the same reason.
+	FPSCamera->RefreshTransformation();
 
 	EffectManager->CaptureFrame();
 	Renderer->PreRender(FPSCamera, Scene);

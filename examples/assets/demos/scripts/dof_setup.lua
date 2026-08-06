@@ -9,21 +9,28 @@ end
 
 function DOFSetup:init(owner)
 	self.owner = owner
-	if not scene or not ASSETS_PATH then return end
+	if not scene then error("DOFSetup:init - global scene is nil") end
+	if not ASSETS_PATH then error("DOFSetup:init - global ASSETS_PATH is nil") end
 	if renderer and renderer.setBackground then
 		renderer:setBackground(Vec4.new(1, 0, 0, 1))
 	end
 
-	local mesh = Model.new(ASSETS_PATH .. "suzanne.p3dm", false)
+	local path = ASSETS_PATH .. "suzanne.p3dm"
+	local mesh = Model.new(path, false)
+	if not mesh then error("DOFSetup:init - Model.new failed for " .. path) end
 	self.keep[#self.keep + 1] = mesh
 	for i = 0, 9 do
 		local go = GameObject.new()
 		go:setPosition(Vec3.new(-23 + i * 3, 0, -15 + i * 3))
 		local rc = RenderingComponent.new(mesh, ShaderUsage.Diffuse)
+		if not rc then error("DOFSetup:init - RenderingComponent.new failed") end
 		go:addComponent(rc)
 		scene:add(go)
 		self.owned[#self.owned + 1] = go
 		self.keep[#self.keep + 1] = rc
+	end
+	if #self.owned ~= 10 then
+		error("DOFSetup:init - expected 10 owned gos, got " .. tostring(#self.owned))
 	end
 end
 

@@ -1,23 +1,19 @@
 -- Opt the shared DemoLauncher DeferredRenderer into material-aware SSR
--- for the lifetime of the GameObject this is attached to. enableSSR/
--- disableSSR are already bound on DeferredRenderer; DemoLauncher exposes
--- the live instance as the global `renderer` (see DemoLauncher::Init).
--- destroy() must run on demo switch so SSR doesn't leak into the next
--- demo - SceneSerializer::UnloadScene alone never calls IComponent::
--- Destroy(), so DemoLauncher fires it on LuaComponents before unload.
+-- for the lifetime of this GameObject. Matches standalone SSRTest:
+-- EnableSSR + the proven human-scale march distances (0.35 / 12).
 local EnableSSR = class('EnableSSR')
 
 function EnableSSR:initialize()
 end
 
 function EnableSSR:init(owner)
-	if renderer then
-		renderer:enableSSR()
-	end
+	if not renderer then return end
+	if renderer.enableSSR then renderer:enableSSR() end
+	if renderer.setSSRDistances then renderer:setSSRDistances(0.35, 12.0) end
 end
 
 function EnableSSR:destroy()
-	if renderer then
+	if renderer and renderer.disableSSR then
 		renderer:disableSSR()
 	end
 end

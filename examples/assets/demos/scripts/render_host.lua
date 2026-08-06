@@ -136,6 +136,10 @@ function RenderHost.setup(cfg, width, height)
 	if cfg.background and renderer.setBackground then
 		local b = cfg.background
 		renderer:setBackground(Vec4.new(b[1], b[2], b[3], b[4] or 1))
+	elseif renderer.unsetBackground then
+		-- Clear a previous demo's SetBackground (e.g. Island sky / DoF red)
+		-- so FBO clears don't stay stuck on that colour.
+		renderer:unsetBackground()
 	end
 
 	local proj = cfg.projection or {}

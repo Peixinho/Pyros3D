@@ -16,6 +16,7 @@
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
+#include <memory>
 
 using namespace p3d;
 
@@ -39,7 +40,8 @@ public:
 		// no entry here either.
 		extraUniforms[0].binding = 40;
 		extraUniforms[0].blockName = "WaterVertParams";
-		extraUniforms[0].size = 204;
+		// std140: 3x mat4 (192) + vec3 at 192 padded to 16 → 208
+		extraUniforms[0].size = 208;
 		extraUniforms[0].scratch.resize(extraUniforms[0].size, 0);
 		extraUniforms[0].offsets["uProjectionMatrix"] = 0;
 		extraUniforms[0].offsets["uViewMatrix"] = 64;
@@ -48,30 +50,14 @@ public:
 
 		extraUniforms[1].binding = 41;
 		extraUniforms[1].blockName = "WaterFragParams";
-		extraUniforms[1].size = 12;
+		// std140: vec2 at 0 + float at 8, block rounded to 16
+		extraUniforms[1].size = 16;
 		extraUniforms[1].scratch.resize(extraUniforms[1].size, 0);
 		extraUniforms[1].offsets["uNearFarPlane"] = 0;
 		extraUniforms[1].offsets["uTime"] = 8;
 	}
 
-	virtual ~WaterMaterial() {
-		for (std::vector<Texture*>::iterator i = textures.begin(); i != textures.end(); i++)
-			delete (*i);
-	}
-
-	virtual void PreRender()
-	{
-		for (std::vector<Texture*>::iterator i = textures.begin(); i != textures.end(); i++)
-			(*i)->Bind();
-	}
-
-	virtual void AfterRender()
-	{
-		for (std::vector<Texture*>::reverse_iterator i = textures.rbegin(); i != textures.rend(); i++)
-			(*i)->Unbind();
-	}
-
-	std::vector<Texture*> textures;
+	virtual ~WaterMaterial() {}
 };
 
 class IslandDemo : public BaseExample
@@ -90,38 +76,39 @@ public:
 
 private:
 
-	// Scene
-	SceneGraph* SceneWater;
 	// Renderer
 	ForwardRenderer* Renderer;
 	// Projection
 	Projection projection;
 	// Camera - Its a regular GameObject
-	GameObject* CameraReflection;
+	std::shared_ptr<GameObject> CameraReflection;
 	// GameObject
-	GameObject* gIsland;
+	std::shared_ptr<GameObject> gIsland;
 	// Rendering Component
-	RenderingComponent* rIsland;
+	std::shared_ptr<RenderingComponent> rIsland;
 	// Mesh
-	Renderable* island;
+	std::shared_ptr<Renderable> island;
 
-	GameObject* Light;
-	DirectionalLight* dLight;
+	std::shared_ptr<GameObject> Light;
+	std::shared_ptr<DirectionalLight> dLight;
 
-	// Water
-	GameObject* gWater;
-	Renderable* water;
-	RenderingComponent* rWater;
-	WaterMaterial* matWater;
+	// Water (same Scene as the island - one final swapchain RenderScene.
+	// A second SceneWater pass used to call BeginFrame/EndFrame twice per
+	// frame on Vulkan and flash.)
+	std::shared_ptr<GameObject> gWater;
+	std::shared_ptr<Renderable> water;
+	std::shared_ptr<RenderingComponent> rWater;
+	std::shared_ptr<WaterMaterial> matWater;
 
-	Texture *normalMap, *DUDVmap;
+	std::shared_ptr<Texture> normalMap, DUDVmap;
 
 	FrameBuffer* fboReflection;
-	Texture* reflectionTexture;
+	std::shared_ptr<Texture> reflectionTexture;
 	FrameBuffer* fboRefraction;
-	Texture* refractionTexture;
-	Texture* refractionTextureDepth;
+	std::shared_ptr<Texture> refractionTexture;
+	std::shared_ptr<Texture> refractionTextureDepth;
+
+	void SetIslandCullFace(const uint32 face);
 };
 
 #endif	/* IslandDemo_H */
-

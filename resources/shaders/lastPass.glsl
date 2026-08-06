@@ -364,37 +364,20 @@ void main() {
 	vec4 finalClip = uMatProj * vec4(hi, 1.0);
 	vec2 hitUV = ClipToUV(finalClip);
 
-	// Reconstruct the hit's world position using the *current* frame's
-	// camera, then reproject through *last* frame's camera to sample
-	// tPreviousFrameColor.
-	float hitDepth = texture(tDepth, hitUV).r;
-	vec3 hitView = getPosViewSpace(hitDepth, ClipToReconstructionUV(finalClip) * uScreenDimensions, z_info, uMatProj, vp);
-	vec4 hitWorld = uViewMatrixInverse * vec4(hitView, 1.0);
-
-	vec4 prevClip = uPrvProjectionMatrix * uPrvViewMatrix * hitWorld;
-	if (prevClip.w <= 0.0) {
-		FragColor = vec4(baseColor, 1.0);
-		return;
-	}
-	vec2 prevUV = ClipToUV(prevClip);
-	if (prevUV.x < 0.0 || prevUV.x > 1.0 || prevUV.y < 0.0 || prevUV.y > 1.0) {
-		FragColor = vec4(baseColor, 1.0);
-		return;
-	}
-
-	// Roughness-based blur, real fix for the previous version's binary
-	// sharp-mirror-or-nothing look: tPreviousFrameColor now has real
-	// mipmaps (generated every frame after the blit that populates it -
-	// see DeferredRenderer.cpp), and sampling a higher LOD is the
-	// standard cheap approximation of glossy-reflection cone tracing
-	// used by most production SSR implementations (pre-filtered mip
-	// chain instead of per-pixel importance sampling). Linear roughness
-	// -> LOD isn't physically exact (real GGX lobe-to-mip mapping is a
-	// steeper curve) but reads correctly: 0 roughness stays mip 0 (sharp
-	// mirror), roughness approaching the cutoff pulls in a visibly
-	// blurred reflection instead of just fading opacity.
-	float reflectionLod = roughness * uMaxReflectionLod;
-	vec3 reflectionColor = textureLod(tPreviousFrameColor, prevUV, reflectionLod).rgb;
+	// Sample the current frame's lit color at the hit. lastPass writes to
+	// the swapchain / PostEffects capture FBO, not colorTexture, so this
+	// has no read/write feedback. colorTexture already includes translucent
+	// forward objects composited earlier in RenderScene - the historical
+	// reason for sampling a reprojected previous frame.
+	//
+	// Previous-frame reprojection (uPrvProjectionMatrix * uPrvViewMatrix *
+	// hitWorld → prevUV) was the remaining pitch-smear bug on both
+	// backends: under orbit+pitch the reflected color swam/ghosted instead
+	// of tracking the hit, even after dedicated ssrPrv* state (the
+	// TranslateProjectionMatrix vs raw projection.m / ClipToUV conventions
+	// never stayed consistent for that path). Same-frame hitUV sampling
+	// is the correct mirror of what's on screen at the intersection.
+	vec3 reflectionColor = texture(tColor, hitUV).rgb;
 
 	// Fade near the roughness cutoff and near screen edges, so a
 	// reflection doesn't hard-pop when it walks off-screen or roughness

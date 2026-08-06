@@ -14,223 +14,217 @@ IslandDemo::IslandDemo() : BaseExample(1024, 768, "Pyros3D - Island Demo", Windo
 
 void IslandDemo::OnResize(const uint32 width, const uint32 height)
 {
-	// Execute Parent Resize Function
 	BaseExample::OnResize(width, height);
 
-	// Resize
 	Renderer->Resize(width, height);
 	projection.Perspective(70.f, (f32)width / (f32)height, 1.f, 10000.f);
 	fboReflection->Resize(width, height);
 	fboRefraction->Resize(width, height);
 }
 
+void IslandDemo::SetIslandCullFace(const uint32 face)
+{
+	if (!rIsland) return;
+	std::vector<RenderingMesh*> &meshes = rIsland->GetMeshes();
+	for (size_t i = 0; i < meshes.size(); i++)
+	{
+		if (meshes[i]->Material)
+			meshes[i]->Material->SetCullFace(face);
+	}
+}
+
 void IslandDemo::Init()
 {
-	// Initialization
 	BaseExample::Init();
 
-	// Initialize Scene
-	SceneWater = new SceneGraph();
-
-	// Initialize Renderer
 	Renderer = new ForwardRenderer(Width, Height);
 
-	// Projection
 	projection.Perspective(70.f, (f32)Width / (f32)Height, 1.f, 10000.f);
 
-	// Create Reflection Camera
-	CameraReflection = new GameObject();
+	FPSCamera->SetPosition(Vec3(0.f, 30.f, 80.f));
 
-	// Create Game Object
-	gIsland = new GameObject();
-	island = new Model(STR(EXAMPLES_PATH)"/assets/island.p3dm", true);
-	rIsland = new RenderingComponent(island, ShaderUsage::Diffuse | ShaderUsage::ClipPlane);
+	CameraReflection = std::make_shared<GameObject>();
+
+	gIsland = std::make_shared<GameObject>();
+	island = std::make_shared<Model>(STR(EXAMPLES_PATH)"/assets/island.p3dm", true);
+	rIsland = std::make_shared<RenderingComponent>(island, ShaderUsage::Diffuse | ShaderUsage::ClipPlane);
+	rIsland->DisableCullTest();
 	gIsland->Add(rIsland);
-	// Add GameObject to Scene
 	Scene->Add(gIsland);
 
-	// Add a Directional Light
-	Light = new GameObject();
-	dLight = new DirectionalLight(Vec4(1, 1, 1, 1), Vec3(-1, -1, 0));
+	Light = std::make_shared<GameObject>();
+	dLight = std::make_shared<DirectionalLight>(Vec4(1, 1, 1, 1), Vec3(-1, -1, 0));
 	Light->Add(dLight);
 	Scene->Add(Light);
 
-	// Add Camera to Scene
 	Scene->Add(CameraReflection);
 
-	// Water
-	gWater = new GameObject();
-	water = new Plane(500, 500);
-	matWater = new WaterMaterial(STR(EXAMPLES_PATH)"/assets/WaterShader.glsl");
-	rWater = new RenderingComponent(water, matWater);
+	gWater = std::make_shared<GameObject>();
+	water = std::make_shared<Plane>(500, 500);
+	matWater = std::make_shared<WaterMaterial>(STR(EXAMPLES_PATH)"/assets/WaterShader.glsl");
+	matWater->SetTransparencyFlag(true);
+	matWater->EnableBlending();
+	matWater->BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
+	matWater->DisableDepthWrite();
+	rWater = std::make_shared<RenderingComponent>(water, matWater);
 	gWater->Add(rWater);
 	gWater->SetRotation(Vec3((f32)DEGTORAD(-90.f), 0.f, 0.f));
 	gWater->SetPosition(Vec3(0.f, 6.8f, 0.f));
-	SceneWater->Add(gWater);
+	Scene->Add(gWater);
 
 	fboReflection = new FrameBuffer();
-	reflectionTexture = new Texture();
+	reflectionTexture = std::make_shared<Texture>();
 	reflectionTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
+	reflectionTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 	fboReflection->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, Width, Height);
-	fboReflection->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, reflectionTexture);
+	fboReflection->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, reflectionTexture.get());
 
 	fboRefraction = new FrameBuffer();
-	refractionTexture = new Texture();
-	refractionTextureDepth = new Texture();
+	refractionTexture = std::make_shared<Texture>();
+	refractionTextureDepth = std::make_shared<Texture>();
 	refractionTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
+	refractionTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 	refractionTextureDepth->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height, false);
-	fboRefraction->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, refractionTextureDepth);
-	fboRefraction->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, refractionTexture);
+	refractionTextureDepth->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+	refractionTextureDepth->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+	fboRefraction->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, refractionTextureDepth.get());
+	fboRefraction->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, refractionTexture.get());
 
-	int32 imgID = matWater->textures.size();
-	matWater->textures.push_back(reflectionTexture);
-	matWater->AddUniform(Uniform("uReflectionMap", Uniforms::DataType::Int, &imgID));
-	imgID = matWater->textures.size();
-	matWater->textures.push_back(refractionTextureDepth);
-	matWater->AddUniform(Uniform("uRefractionMapDepth", Uniforms::DataType::Int, &imgID));
-	imgID = matWater->textures.size();
-	matWater->textures.push_back(refractionTexture);
-	matWater->AddUniform(Uniform("uRefractionMap", Uniforms::DataType::Int, &imgID));
+	// Sampler order must match WaterShader.glsl bindings.
+	matWater->AddSampler("uReflectionMap", reflectionTexture);
+	matWater->AddSampler("uRefractionMap", refractionTexture);
+	matWater->AddSampler("uRefractionMapDepth", refractionTextureDepth);
 
-	normalMap = new Texture();
+	normalMap = std::make_shared<Texture>();
 	normalMap->LoadTexture(STR(EXAMPLES_PATH)"/assets/normal.png");
-	DUDVmap = new Texture();
+	DUDVmap = std::make_shared<Texture>();
 	DUDVmap->LoadTexture(STR(EXAMPLES_PATH)"/assets/waterDUDV.png");
 
-	imgID = matWater->textures.size();
-	matWater->textures.push_back(normalMap);
-	matWater->AddUniform(Uniform("uNormalmap", Uniforms::DataType::Int, &imgID));
+	matWater->AddSampler("uNormalmap", normalMap);
+	matWater->AddSampler("uDUDVmap", DUDVmap);
 
-	imgID = matWater->textures.size();
-	matWater->textures.push_back(DUDVmap);
-	matWater->AddUniform(Uniform("uDUDVmap", Uniforms::DataType::Int, &imgID));
-	
-	// Initialize ImGui
 	InitImGui();
 }
 
 void IslandDemo::Update()
 {
-	// Update - Game Loop
-	
-	float distance = 2 * (FPSCamera->GetPosition().y - gWater->GetPosition().y);
-	CameraReflection->SetPosition(Vec3(FPSCamera->GetPosition().x, FPSCamera->GetPosition().y - distance, FPSCamera->GetPosition().z));
-	CameraReflection->SetRotation(Vec3(-FPSCamera->GetRotation().x, FPSCamera->GetRotation().y, -FPSCamera->GetRotation().z));
-
-	// Update Scene
-	Scene->Update(GetTime());
-	SceneWater->Update(GetTime());
-
+	// Move / look first so reflection matches the camera that will draw
+	// the main pass. Was inverted before: reflection used last frame's
+	// position while BaseExample::Update ran after, which swam the water
+	// whenever WASD moved the camera.
 	BaseExample::Update();
 
+	// Keep the FPS camera on the same Euler the mouse counters track
+	// (matches camera_fly.lua). LookTo writes via quaternion→euler which
+	// does not round-trip to (pitch,yaw,0); reflection must use the
+	// counters, so force the view camera onto them too.
+	FPSCamera->SetRotation(Vec3((f32)DEGTORAD(counterY), (f32)DEGTORAD(counterX), 0.f));
+
+	const f32 waterY = gWater->GetPosition().y;
+	const Vec3 camPos = FPSCamera->GetPosition();
+	const f32 distance = 2.f * (camPos.y - waterY);
+	CameraReflection->SetPosition(Vec3(camPos.x, camPos.y - distance, camPos.z));
+	CameraReflection->SetRotation(Vec3((f32)DEGTORAD(-counterY), (f32)DEGTORAD(counterX), 0.f));
+	CameraReflection->RefreshTransformation();
+
+	Scene->Update(GetTime());
+
+	rWater->Disable();
+
+	// Camera-mirror reflection (inverted pitch / mirrored position) does NOT
+	// reverse triangle winding - FrontFace cull here was discarding the
+	// island's exterior and leaving the reflection FBO mostly cleared
+	// (black), which made the water flash black↔color as the view moved.
+	// Clip plane alone clips below-water geometry; keep BackFace.
 	fboReflection->Bind();
 	Renderer->EnableClipPlane();
-	Renderer->SetClipPlane0(Vec4(0, 1, 0, -gWater->GetPosition().y));
+	Renderer->SetClipPlane0(Vec4(0, 1, 0, -waterY));
 	Renderer->ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
-	Renderer->PreRender(CameraReflection, Scene);
-	Renderer->RenderScene(projection, CameraReflection, Scene);
+	Renderer->PreRender(CameraReflection.get(), Scene);
+	Renderer->RenderScene(projection, CameraReflection.get(), Scene);
 	Renderer->DisableClipPlane();
 	fboReflection->UnBind();
 
 	fboRefraction->Bind();
 	Renderer->ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
 	Renderer->EnableClipPlane();
-	Renderer->SetClipPlane0(Vec4(0, -1, 0, gWater->GetPosition().y));
-	Renderer->PreRender(FPSCamera, Scene);
-	Renderer->RenderScene(projection, FPSCamera, Scene);
+	Renderer->SetClipPlane0(Vec4(0, -1, 0, waterY));
+	Renderer->PreRender(FPSCamera.get(), Scene);
+	Renderer->RenderScene(projection, FPSCamera.get(), Scene);
 	Renderer->DisableClipPlane();
 	fboRefraction->UnBind();
 
-	// Render Scene
+	rWater->Enable();
+
+	PrepareImGuiFrame();
 	Renderer->ClearBufferBit(Buffer_Bit::Depth | Buffer_Bit::Color);
 	Renderer->EnableClearDepthBuffer();
-	Renderer->RenderScene(projection, FPSCamera, Scene);
-	Renderer->ClearBufferBit(Buffer_Bit::None);
-	Renderer->PreRender(FPSCamera, SceneWater);
-	Renderer->RenderScene(projection, FPSCamera, SceneWater);
-
-	// Render ImGui
-	RenderImGui();
+	Renderer->PreRender(FPSCamera.get(), Scene);
+	Renderer->RenderScene(projection, FPSCamera.get(), Scene);
+	EndImGuiFrame();
 }
 
 void IslandDemo::DrawUI()
 {
-	// Draw base UI (FPS, etc.)
 	DrawBaseUI();
-	
-	// Island Demo System Information
+
 	if (ImGui::Begin("Island Demo System Info", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 		ImGui::Text("Island Demo System Information");
 		ImGui::Separator();
-		
-		// Scene Information
 		ImGui::Text("Scene Objects:");
 		ImGui::Text("  Island: 3D island model (island.p3dm)");
 		ImGui::Text("  Water: Animated water plane (500x500)");
 		ImGui::Text("  Directional Light: White light from (-1, -1, 0)");
 		ImGui::Text("  Reflection Camera: Mirror camera for water");
-		
 		ImGui::Separator();
-		
-		// Water System Information
 		ImGui::Text("Water System:");
 		ImGui::Text("  Material: Custom WaterMaterial");
 		ImGui::Text("  Shader: WaterShader.glsl");
-		ImGui::Text("  Textures: Normal map, DUDV map");
-		ImGui::Text("  Reflection: Real-time reflection mapping");
-		ImGui::Text("  Refraction: Real-time refraction mapping");
-		ImGui::Text("  Clip Planes: Active for water rendering");
-		
+		ImGui::Text("  Reflection / refraction FBOs + clip planes");
 		ImGui::Separator();
-		
-		// Rendering Information
-		ImGui::Text("Rendering System:");
-		ImGui::Text("  Renderer: ForwardRenderer");
-		ImGui::Text("  Frame Buffers: Reflection and Refraction FBOs");
-		ImGui::Text("  Water Position: (0, 6.8, 0)");
-		ImGui::Text("  Water Rotation: -90 degrees on X-axis");
-		
-		ImGui::Separator();
-		
-		// Performance Information
-		ImGui::Text("Performance:");
-		ImGui::Text("  FPS: %.1f", (float)fps.getFPS());
-		ImGui::Text("  Resolution: %dx%d", Width, Height);
-		ImGui::Text("  Camera Position: (%.1f, %.1f, %.1f)", 
-			FPSCamera->GetPosition().x, 
-			FPSCamera->GetPosition().y, 
+		ImGui::Text("FPS: %.1f", (float)fps.getFPS());
+		ImGui::Text("Camera: (%.1f, %.1f, %.1f)",
+			FPSCamera->GetPosition().x,
+			FPSCamera->GetPosition().y,
 			FPSCamera->GetPosition().z);
-		
 		ImGui::Separator();
-		
-		// Controls
-		ImGui::Text("Controls:");
-		ImGui::Text("  Tab: Toggle mouse capture");
-		ImGui::Text("  WASD: Move camera");
-		ImGui::Text("  Mouse: Look around");
-		ImGui::Text("  Water animates automatically");
-		ImGui::Text("  Real-time reflections and refractions");
+		ImGui::Text("Tab: mouse capture | WASD + mouse: fly");
 	}
 	ImGui::End();
 }
 
 void IslandDemo::Shutdown()
 {
-	// All your Shutdown Code Here
-
-	// Remove GameObjects From Scene
 	Scene->Remove(gIsland);
 	Scene->Remove(CameraReflection);
+	Scene->Remove(Light);
+	Scene->Remove(gWater);
 
 	gIsland->Remove(rIsland);
+	Light->Remove(dLight);
+	gWater->Remove(rWater);
 
-	// Delete
-	delete island;
-	delete rIsland;
-	delete gIsland;
-	delete CameraReflection;
+	rIsland.reset();
+	gIsland.reset();
+	CameraReflection.reset();
+	Light.reset();
+	dLight.reset();
+	rWater.reset();
+	gWater.reset();
+	matWater.reset();
+	island.reset();
+	water.reset();
+	normalMap.reset();
+	DUDVmap.reset();
+	reflectionTexture.reset();
+	refractionTexture.reset();
+	refractionTextureDepth.reset();
+
+	delete fboReflection;
+	delete fboRefraction;
 	delete Renderer;
-	delete Scene;
+
+	BaseExample::Shutdown();
 }
 
 IslandDemo::~IslandDemo() {}

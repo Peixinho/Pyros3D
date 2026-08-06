@@ -106,9 +106,14 @@ protected:
 	void LookTo(Event::Input::Info e);
 	void Exit(Event::Input::Info e);
 
+	// FPS look yaw (counterX) / pitch (counterY) in degrees. Protected so
+	// demos that mirror the camera (Island water reflection) can use the
+	// same angles the mouse look wrote, instead of GetRotation() Euler
+	// which swims after quaternion→euler round-trips.
+	float counterX, counterY;
+
 private:
 
-	float counterX, counterY;
 	Vec2 mouseCenter, mouseLastPosition, mousePosition;
 	// Set by OnResize() after it recenters the cursor; makes LookTo()
 	// resync its reference point instead of turning the resulting jump

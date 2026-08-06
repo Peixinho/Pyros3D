@@ -439,6 +439,13 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             #else
                 vClipDist = (uCameraPos.w > 0.5) ? dot(ModelMatrix * vec4(Position,1.0), uClipPlane0) : 1.0;
             #endif
+            // Kept for drivers that honor user clip planes when enabled;
+            // IRenderDevice::EnableClipDistance is a no-op on both backends
+            // today (clip is the fragment discard below), so this write is
+            // harmless and keeps the varying consistent if that changes.
+            #if !defined(VULKAN) && !defined(GLES3)
+                gl_ClipDistance[0] = vClipDist;
+            #endif
         #endif
     }
 

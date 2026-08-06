@@ -393,7 +393,7 @@ namespace p3d
 	{
 		Reflectivity = reflectivity;
 		if (!uReflectivity)
-			AddUniform(Uniform("uReflectivity", Uniforms::DataType::Float, &Reflectivity));
+			uReflectivity = AddUniform(Uniform("uReflectivity", Uniforms::DataType::Float, &Reflectivity));
 		else
 			uReflectivity->SetValue(&Reflectivity);
 	}

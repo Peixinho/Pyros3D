@@ -10,13 +10,13 @@ local function createWaterMaterial(shaderPath)
 	mat:addUniform(Uniform.new("uCameraPos", UniformUsage.CameraPosition, 0))
 	mat:addUniform(Uniform.new("uNearFarPlane", UniformUsage.NearFarPlane, 0))
 
-	setMaterialExtraUniformBlock(mat, 0, 40, "WaterVertParams", 204, {
+	setMaterialExtraUniformBlock(mat, 0, 40, "WaterVertParams", 208, {
 		uProjectionMatrix = 0,
 		uViewMatrix = 64,
 		uModelMatrix = 128,
 		uCameraPos = 192,
 	})
-	setMaterialExtraUniformBlock(mat, 1, 41, "WaterFragParams", 12, {
+	setMaterialExtraUniformBlock(mat, 1, 41, "WaterFragParams", 16, {
 		uNearFarPlane = 0,
 		uTime = 8,
 	})

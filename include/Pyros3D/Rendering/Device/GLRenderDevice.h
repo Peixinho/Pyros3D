@@ -193,6 +193,18 @@ namespace p3d {
 		std::map<DeviceHandle, PipelineDesc> pipelines;
 		DeviceHandle nextPipelineHandle = 1;
 
+		// Indexed binding point used at CreateUniformBuffer time - needed so
+		// ReplaceUniformBuffer can re-issue BindBufferBase after glBufferData
+		// orphans storage (some macOS GL drivers drop the indexed binding).
+		std::map<DeviceHandle, uint32> uniformBufferBindings;
+
+		// Draw-bound FBO (0 = default framebuffer). ForwardRenderer gates
+		// BeginFrame/EndFrame on GetCurrentRenderTarget()==0; returning 0
+		// unconditionally made every offscreen RenderScene look like a
+		// swapchain pass (harmless for GL BeginFrame no-ops, but wrong for
+		// any code that keys on the real target).
+		DeviceHandle currentDrawFBO = 0;
+
 	};
 
 };

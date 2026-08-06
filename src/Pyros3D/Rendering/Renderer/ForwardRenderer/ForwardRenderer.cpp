@@ -176,7 +176,10 @@ namespace p3d {
 		// Scissor Test
 		StartScissorTest();
 
-		EndClippingPlanes();
+		// Enable user clip distances when ClipPlane is active (Island water
+		// reflection/refraction). Was incorrectly EndClippingPlanes() here,
+		// which disabled them before any draw.
+		StartClippingPlanes();
 
 		// Draw Background
 		DrawBackground();
