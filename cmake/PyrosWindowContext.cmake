@@ -1,0 +1,63 @@
+# Resolve window manager + ImGui backend from PYROS_CONTEXT.
+# Used by examples/ (and anything else that needs a window).
+# Expects: PYROS_CONTEXT, VULKAN_BACKEND_FOUND, IMGUI_DIR
+
+set(PYROS_WINDOW_MANAGER "")
+set(PYROS_CONTEXT_LIB "")
+set(PYROS_CONTEXT_DEFINITION "")
+set(PYROS_IMGUI_BACKEND_SOURCE "")
+
+if (PYROS_CONTEXT STREQUAL "SDL2")
+	find_package(SDL2 REQUIRED)
+	set(PYROS_WINDOW_MANAGER ${CMAKE_SOURCE_DIR}/examples/WindowManagers/SDL2/SDL2Context.cpp)
+	if (TARGET SDL2::SDL2)
+		set(PYROS_CONTEXT_LIB SDL2::SDL2)
+	else()
+		set(PYROS_CONTEXT_LIB ${SDL2_LIBRARIES})
+	endif()
+	set(PYROS_CONTEXT_DEFINITION _SDL2)
+	set(PYROS_IMGUI_BACKEND_SOURCE
+		${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
+		${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	)
+
+elseif (PYROS_CONTEXT STREQUAL "SDL2Vulkan")
+	if (NOT VULKAN_BACKEND_FOUND)
+		message(FATAL_ERROR "SDL2Vulkan requires a successful BUILD_VULKAN_BACKEND (Vulkan SDK + volk + VMA)")
+	endif()
+	find_package(SDL2 REQUIRED)
+	set(PYROS_WINDOW_MANAGER ${CMAKE_SOURCE_DIR}/examples/WindowManagers/SDL2Vulkan/SDL2VulkanContext.cpp)
+	if (TARGET SDL2::SDL2)
+		set(PYROS_CONTEXT_LIB SDL2::SDL2 Vulkan::Vulkan volk::volk GPUOpen::VulkanMemoryAllocator)
+	else()
+		set(PYROS_CONTEXT_LIB ${SDL2_LIBRARIES} Vulkan::Vulkan volk::volk GPUOpen::VulkanMemoryAllocator)
+	endif()
+	set(PYROS_CONTEXT_DEFINITION _SDL2VULKAN)
+	# OpenGL ImGui backend must stay out of Vulkan builds.
+	set(PYROS_IMGUI_BACKEND_SOURCE ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp)
+
+elseif (PYROS_CONTEXT STREQUAL "SDL")
+	find_package(SDL REQUIRED)
+	set(PYROS_WINDOW_MANAGER ${CMAKE_SOURCE_DIR}/examples/WindowManagers/SDL/SDLContext.cpp)
+	set(PYROS_CONTEXT_LIB ${SDL_LIBRARY})
+	set(PYROS_CONTEXT_DEFINITION _SDL2)
+	set(PYROS_IMGUI_BACKEND_SOURCE
+		${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
+		${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	)
+
+elseif (PYROS_CONTEXT STREQUAL "SFML")
+	find_package(SFML REQUIRED)
+	set(PYROS_WINDOW_MANAGER ${CMAKE_SOURCE_DIR}/examples/WindowManagers/SFML/SFMLContext.cpp)
+	set(PYROS_CONTEXT_LIB ${SFML_LIBRARIES})
+	set(PYROS_CONTEXT_DEFINITION _SFML)
+	set(PYROS_IMGUI_BACKEND_SOURCE
+		${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
+		${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+	)
+
+else()
+	message(FATAL_ERROR "Unknown PYROS_CONTEXT='${PYROS_CONTEXT}' (expected SDL2, SDL2Vulkan, SDL, or SFML)")
+endif()
+
+message(STATUS "  Window manager      = ${PYROS_CONTEXT} → ${PYROS_WINDOW_MANAGER}")
