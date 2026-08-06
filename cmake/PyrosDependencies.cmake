@@ -19,6 +19,24 @@ if (EMSCRIPTEN)
 	set(FREETYPE_FOUND TRUE)
 	set(FREETYPE_INCLUDE_DIRS "")
 	set(FREETYPE_LIBRARIES "")
+elseif (ANDROID)
+	# No reliable system FreeType in the NDK — fetch a static build.
+	include(FetchContent)
+	set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
+	set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
+	set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
+	set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
+	set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
+	FetchContent_Declare(freetype
+		GIT_REPOSITORY https://gitlab.freedesktop.org/freetype/freetype.git
+		GIT_TAG VER-2-13-2
+		GIT_SHALLOW TRUE
+	)
+	FetchContent_MakeAvailable(freetype)
+	set(FREETYPE_FOUND TRUE)
+	set(FREETYPE_INCLUDE_DIRS "")
+	set(FREETYPE_LIBRARIES freetype)
+	message(STATUS "FreeType: FetchContent (Android)")
 else()
 	find_package(Freetype REQUIRED)
 	if (NOT FREETYPE_FOUND)
@@ -29,8 +47,8 @@ endif()
 # ---------------------------------------------------------------------------
 # Bullet
 # ---------------------------------------------------------------------------
-if (EMSCRIPTEN)
-	# No reliable system Bullet on emsdk — fetch a static build.
+if (EMSCRIPTEN OR ANDROID)
+	# No reliable system Bullet on emsdk / NDK — fetch a static build.
 	include(FetchContent)
 	# bullet3 3.25 still declares cmake_minimum_required(<3.5); modern CMake rejects that.
 	set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
@@ -119,6 +137,13 @@ endif()
 if (EMSCRIPTEN)
 	# miniaudio uses Web Audio; no extra system libs.
 	set(AUDIO_LIBS "")
+elseif (ANDROID)
+	# miniaudio OpenSL ES / AAudio via NDK; link OpenSLES when present.
+	find_library(PYROS_OPENSLES_LIBRARY OpenSLES)
+	set(AUDIO_LIBS ${CMAKE_DL_LIBS})
+	if (PYROS_OPENSLES_LIBRARY)
+		list(APPEND AUDIO_LIBS ${PYROS_OPENSLES_LIBRARY})
+	endif()
 elseif (APPLE)
 	find_library(COREAUDIO_LIBRARY CoreAudio REQUIRED)
 	find_library(COREFOUNDATION_LIBRARY CoreFoundation REQUIRED)
@@ -128,4 +153,27 @@ elseif (UNIX)
 	set(AUDIO_LIBS ${CMAKE_DL_LIBS} pthread m)
 else()
 	set(AUDIO_LIBS "")
+endif()
+
+# ---------------------------------------------------------------------------
+# SDL2 on Android — required by File.cpp (SDL_RWops) even when BUILD_DEMOS=OFF.
+# Supply via Gradle (SDL2::SDL2 already defined) or:
+#   -DSDL2_INCLUDE_DIR=... -DSDL2_LIBRARY=...
+# ---------------------------------------------------------------------------
+if (ANDROID)
+	if (TARGET SDL2::SDL2)
+		# Parent project / earlier find already defined it.
+	elseif (SDL2_INCLUDE_DIR AND SDL2_LIBRARY)
+		add_library(SDL2::SDL2 UNKNOWN IMPORTED)
+		set_target_properties(SDL2::SDL2 PROPERTIES
+			IMPORTED_LOCATION "${SDL2_LIBRARY}"
+			INTERFACE_INCLUDE_DIRECTORIES "${SDL2_INCLUDE_DIR}"
+		)
+	else()
+		message(FATAL_ERROR
+			"Android build requires SDL2. Pass -DSDL2_INCLUDE_DIR and -DSDL2_LIBRARY "
+			"(from SDL2's android build) or define an SDL2::SDL2 imported target before "
+			"including Pyros3D. See otherplatforms/android/README.md")
+	endif()
+	message(STATUS "SDL2 (Android): using SDL2::SDL2")
 endif()

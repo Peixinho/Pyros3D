@@ -1,9 +1,6 @@
 //============================================================================
 // Name        : File.cpp
-// Author      : Duarte Peixinho
-// Version     :
-// Copyright   : ;)
-// Description : Creates a File - Android Version using SDL
+// Description : Android file I/O via SDL_RWops (APK assets / internal storage).
 //============================================================================
 
 #include <Pyros3D/Core/File/File.h>
@@ -11,61 +8,82 @@
 
 namespace p3d {
 
-    #if defined(ANDROID)
-    bool File::Open(const std::string &filename, bool write)
-    {
-        // Using SDL_Rwops
-        SDL_RWops *file;
-        file = SDL_RWFromFile(filename.c_str(), (write?"wb":"rb"));
-        if (file!=NULL)
-        {
-            int n_blocks = 1024;
-            while(n_blocks != 0)
-            {
-                data.resize(data.size() + n_blocks);
-                n_blocks = SDL_RWread(file, &data[data.size() - n_blocks], 1, n_blocks);
-            }
-            positionStream = 0;
-            SDL_RWclose(file);
+#if defined(ANDROID)
 
-            return true;
-        }
+	bool File::Open(const std::string &filename, bool write)
+	{
+		opened = false;
+		file = NULL;
+		data.clear();
+		positionStream = 0;
 
-        echo("Error: Couldn't Open File");
-        return false;
-    }
-    
-    void File::Read(const void* src, const uint32 size)
-    {
-        memcpy((char*)src, &data[positionStream], sizeof(unsigned char)*size);
-        positionStream += size * sizeof(unsigned char);
-    }
+		SDL_RWops *rw = SDL_RWFromFile(filename.c_str(), write ? "wb" : "rb");
+		if (rw == NULL)
+		{
+			echo(std::string("Error: Couldn't Open File: ") + filename + " (" + SDL_GetError() + ")");
+			return false;
+		}
 
-    void File::Write(const void* src, const uint32 size)
-    {
-        // Not Implemented Yet
-        //fwrite(src,1,size,file);
-    }
+		Sint64 sz = SDL_RWsize(rw);
+		if (sz > 0)
+		{
+			data.resize((size_t)sz);
+			const size_t got = (size_t)SDL_RWread(rw, data.data(), 1, (size_t)sz);
+			data.resize(got);
+		}
+		else
+		{
+			// Unknown size — read in chunks (same idea as the desktop path).
+			int n_blocks = 1024;
+			while (n_blocks != 0)
+			{
+				data.resize(data.size() + n_blocks);
+				n_blocks = (int)SDL_RWread(rw, &data[data.size() - n_blocks], 1, n_blocks);
+				data.resize(data.size() - (1024 - n_blocks));
+			}
+		}
 
-    void File::Rewind()
-    {
-        positionStream = 0;
-    }
+		SDL_RWclose(rw);
+		opened = true;
+		return true;
+	}
 
-    const uint32 File::Size() const
-    {
-        return data.size();
-    }
+	void File::Read(const char *src, const uint32 size)
+	{
+		if (!opened) return;
+		memcpy((char *)src, &data[positionStream], sizeof(unsigned char) * size);
+		positionStream += size * sizeof(unsigned char);
+	}
 
-    std::vector<uchar> &File::GetData()
-    {
-        return data;
-    }
+	void File::Write(const char *src, const uint32 size)
+	{
+		(void)src;
+		(void)size;
+		// APK assets are read-only; writing to internal storage can be added later.
+	}
 
-    void File::Close()
-    {
-        data.clear();
-        positionStream = 0;
-    }
-    #endif
-}
+	void File::Rewind()
+	{
+		if (opened) positionStream = 0;
+	}
+
+	const uint32 File::Size() const
+	{
+		return (uint32)data.size();
+	}
+
+	std::vector<uchar> &File::GetData()
+	{
+		return data;
+	}
+
+	void File::Close()
+	{
+		data.clear();
+		positionStream = 0;
+		opened = false;
+	}
+
+#endif /* ANDROID */
+
+} // namespace p3d

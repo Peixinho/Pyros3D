@@ -41,6 +41,12 @@ target_link_libraries(PyrosEngine
 		${AUDIO_LIBS}
 )
 
+# Android File.cpp uses SDL_RWops — link SDL2 into the engine itself.
+if (ANDROID)
+	target_link_libraries(PyrosEngine PUBLIC SDL2::SDL2)
+endif()
+
+
 # PYROS3D_API (Export.h): dllexport when building the shared DLL on Windows.
 if (WIN32 AND LIB_TYPE STREQUAL "SHARED")
 	target_compile_definitions(PyrosEngine PRIVATE _EXPORT)

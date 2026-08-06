@@ -50,6 +50,11 @@ cmake -S . -B build_rpi -G Ninja \
 cmake --build build_rpi -j
 ```
 
+## Android (GLES3 + SDL2)
+
+NDK CMake scaffolding (engine static lib). **Not tested on device yet.** Legacy ndk-build / GLES2 removed.  
+See [otherplatforms/android/README.md](otherplatforms/android/README.md).
+
 ## Running Example
 [Legacy WebGL JS demo](https://www.duartepeixinho.com/pyrosjs/) — new path is the emcmake `Pyros3D` library + `examples/web/`.
 

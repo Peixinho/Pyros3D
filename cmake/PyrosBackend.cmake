@@ -33,6 +33,18 @@ elseif (OPENGL_VERSION STREQUAL "GLES3")
 	if (EMSCRIPTEN)
 		# Browser / emscripten GL; do not link system GLESv2.
 		set(OPENGL_LIBS "")
+	elseif (ANDROID)
+		# NDK: GLESv3 is preferred; GLESv2 + EGL still required for loader symbols.
+		find_library(PYROS_GLESV3_LIBRARY GLESv3)
+		find_library(PYROS_GLESV2_LIBRARY GLESv2 REQUIRED)
+		find_library(PYROS_EGL_LIBRARY EGL REQUIRED)
+		find_library(PYROS_ANDROID_LIBRARY android REQUIRED)
+		find_library(PYROS_LOG_LIBRARY log REQUIRED)
+		set(OPENGL_LIBS ${PYROS_GLESV2_LIBRARY} ${PYROS_EGL_LIBRARY} ${PYROS_ANDROID_LIBRARY} ${PYROS_LOG_LIBRARY})
+		if (PYROS_GLESV3_LIBRARY)
+			list(APPEND OPENGL_LIBS ${PYROS_GLESV3_LIBRARY})
+		endif()
+		message(STATUS "GLES3 Android libs: ${OPENGL_LIBS}")
 	else()
 		# Mesa / Pi OS: libGLESv2.so + libEGL.so (not the legacy Broadcom /opt/vc stack).
 		find_library(PYROS_GLESV2_LIBRARY NAMES GLESv2 libGLESv2 REQUIRED)

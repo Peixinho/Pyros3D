@@ -1,8 +1,9 @@
 # User-facing build options (cmake-gui / ccmake dropdowns via STRINGS).
 # Included from the root CMakeLists.txt.
 
-# Emscripten (emcmake) forces GLES3 / SDL2 / no Vulkan before the rest.
+# Emscripten (emcmake) and Android NDK force GLES3 / SDL2 / no Vulkan first.
 include(${CMAKE_CURRENT_LIST_DIR}/PyrosEmscripten.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/PyrosAndroid.cmake)
 
 # ---------------------------------------------------------------------------
 # Primary graphics stack
@@ -97,6 +98,9 @@ message(STATUS "  LIB_TYPE             = ${LIB_TYPE}")
 if (EMSCRIPTEN)
 	message(STATUS "  EMSCRIPTEN           = ON (WebGL2)")
 endif()
-if (OPENGL_VERSION STREQUAL "GLES3" AND NOT EMSCRIPTEN)
+if (ANDROID)
+	message(STATUS "  ANDROID              = ON (GLES3 + SDL2 — untested; see otherplatforms/android/README.md)")
+endif()
+if (OPENGL_VERSION STREQUAL "GLES3" AND NOT EMSCRIPTEN AND NOT ANDROID)
 	message(STATUS "  Native GLES3         = ON (Raspberry Pi / embedded — see otherplatforms/raspberry-pi/README.md)")
 endif()

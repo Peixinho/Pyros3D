@@ -54,14 +54,13 @@ cmake --build build_rpi -j"$(nproc)"
 `IS_DESKTOP=ON` keeps the glad GLES3 loader (same as Web). Leave Vulkan off —
 the interesting path on Pi is GLES3 parity with the browser.
 
-Run a demo from the build tree (cwd must see `examples/assets` / shaders as usual), e.g.:
+Run from the examples build dir (shaders are resolved relative to the binary / `EXAMPLES_PATH`):
 
 ```bash
 cd build_rpi/examples
-./RotatingCube   # name depends on which demos were enabled
+./CppApiDemo          # minimal ForwardRenderer cube — best first smoke test
+# ./DemoLauncher      # only if HAVE_LUA_BINDINGS=ON
 ```
-
-Or use `DemoLauncher` if Lua bindings are on.
 
 ## Notes
 

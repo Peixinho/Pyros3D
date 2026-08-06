@@ -61,7 +61,6 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Buffers/FrameBuffer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Buffers/GeometryBuffer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/InputManager/InputManager.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/File/File.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Math/Matrix.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Math/Math.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Math/Vec4.cpp
@@ -118,6 +117,17 @@ set(PYROS_ENGINE_SOURCE
 	${VULKAN_BACKEND_SOURCE}
 	${IMGUI_CORE_SOURCE}
 )
+
+# File I/O: Android loads from the APK via SDL_RWops; everyone else uses fopen.
+if (ANDROID)
+	list(APPEND PYROS_ENGINE_SOURCE
+		${CMAKE_SOURCE_DIR}/otherplatforms/android/src/File.cpp
+	)
+else()
+	list(APPEND PYROS_ENGINE_SOURCE
+		${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/File/File.cpp
+	)
+endif()
 
 # Embind surface (WebAssembly) — compiled only under emcmake.
 if (EMSCRIPTEN)
