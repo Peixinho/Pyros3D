@@ -107,10 +107,9 @@ if (EMSCRIPTEN)
 	endif()
 	pyros_emscripten_apply_compile(Pyros3D)
 	pyros_emscripten_apply_library_link(Pyros3D)
-	# Keep .data small: engine shaders + Neon Pulse web assets only.
+	# Keep .data small: shaders + font + sfx still in VFS; game textures fetch over HTTP.
 	target_link_options(Pyros3D PRIVATE
 		"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/resources/shaders@shaders"
-		"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/examples/assets/smoke.png@assets/smoke.png"
 		"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/examples/assets/verdana.ttf@assets/verdana.ttf"
 		"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/examples/assets/neonpulse/sfx@assets/neonpulse/sfx"
 	)
@@ -120,7 +119,11 @@ if (EMSCRIPTEN)
 		COMMAND ${CMAKE_COMMAND} -E copy_directory
 			${CMAKE_CURRENT_SOURCE_DIR}/web
 			$<TARGET_FILE_DIR:Pyros3D>/web
-		COMMENT "Copy examples/web into build output"
+		COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:Pyros3D>/web/assets
+		COMMAND ${CMAKE_COMMAND} -E copy
+			${CMAKE_SOURCE_DIR}/examples/assets/smoke.png
+			$<TARGET_FILE_DIR:Pyros3D>/web/assets/smoke.png
+		COMMENT "Copy examples/web (+ HTTP assets) into build output"
 	)
 endif()
 

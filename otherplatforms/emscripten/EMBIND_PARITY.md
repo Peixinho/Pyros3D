@@ -26,7 +26,7 @@ JS clients load `createPyros3D` (MODULARIZE) and construct `Application` + engin
 | RayCastHit | done |
 | LuaComponent / LuaComponent_fromFile | skipped (Lua-only) |
 | DirectionalLight, PointLight, SpotLight | done (C++ types; no Lua onUpdate hooks) |
-| Uniform, Texture, Shader | done (Uniform::SetValue void* skipped) |
+| Uniform, Texture, Shader | done (Uniform::SetValue void* skipped; +loadTextureFromMemory / JS loadFromUrl) |
 | GenericShaderMaterial, CustomShaderMaterial | done (`fromShader` factory — Embind arity-only overloads) |
 | setMaterialExtraUniformBlock | skipped (sol::table) |
 | Cube…TorusKnot, Model, Font, Text | done |

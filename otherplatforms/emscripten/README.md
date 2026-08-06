@@ -74,4 +74,11 @@ API parity with Lua is tracked in `EMBIND_PARITY.md`.
 - Vulkan / SPIR-V are not used on the web path.
 - miniaudio uses the browser Web Audio backend (ScriptProcessorNode today). Chrome may log a deprecation warning; AudioWorklet needs ASYNCIFY/pthreads and breaks Embind sync APIs — left for a later miniaudio upgrade.
 - Embind is linked (`-lembind`); expand `PyrosEmbind.cpp` toward full Lua surface.
-- `Pyros3D.data` packs `resources/shaders`, `smoke.png`, `verdana.ttf`, and `neonpulse/sfx` (~1MB). Extra game assets should be fetched over HTTP or added to that preload list.
+- `Pyros3D.data` packs shaders + `verdana.ttf` + `neonpulse/sfx`. Game textures should use HTTP:
+  ```js
+  import { installPyrosAssets } from "./pyros-assets.js";
+  installPyrosAssets(P);
+  await tex.loadFromUrl("./assets/foo.png");           // or P.loadTextureFromUrl(url)
+  // tex.loadTextureFromMemory(uint8Array)             // Embind, sync
+  ```
+  `fopen` / `loadTexture(path)` still only sees the VFS (`.data` or `FS.writeFile`).

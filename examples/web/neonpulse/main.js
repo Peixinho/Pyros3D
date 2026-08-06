@@ -26,8 +26,11 @@ export async function startNeonPulse(P, app, canvas, setStatus) {
   G.camera.lookAtVec(C.camera.lookAt);
   G.scene.add(G.camera);
 
-  G.sprite = new P.Texture();
-  G.sprite.loadTextureFull("assets/smoke.png", P.TextureType_Texture, true, 0);
+  // HTTP fetch → memory (no VFS / .data). File is copied next to this page at build time.
+  G.sprite = await P.loadTextureFromUrl("./assets/smoke.png", {
+    type: P.TextureType_Texture,
+    mipmap: true,
+  });
 
   const Arena = createArena(P, G, C);
   const Audio = createAudio(P, G, C, "assets/neonpulse/sfx/");

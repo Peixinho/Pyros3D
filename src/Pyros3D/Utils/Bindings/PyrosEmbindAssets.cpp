@@ -6,8 +6,10 @@
 #if defined(__EMSCRIPTEN__) || defined(EMSCRIPTEN)
 
 #include <emscripten/bind.h>
+#include <emscripten/val.h>
 
 #include <Pyros3D/Utils/Bindings/PyrosEmbindHelpers.h>
+#include <vector>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Capsule.h>
@@ -82,6 +84,33 @@ namespace {
 	std::shared_ptr<Font> MakeFont(const std::string &path, float size) { return std::make_shared<Font>(path, size); }
 	std::shared_ptr<Texture> Font_GetTextureShared(Font &f) { return f.GetTextureShared(); }
 
+	// Copy a JS Uint8Array (or ArrayBuffer) into a std::vector for stb_image.
+	std::vector<uchar> BytesFromJS(emscripten::val bytes)
+	{
+		emscripten::val u8 = bytes;
+		if (bytes.instanceof(emscripten::val::global("ArrayBuffer")))
+			u8 = emscripten::val::global("Uint8Array").new_(bytes);
+		const unsigned n = u8["length"].as<unsigned>();
+		std::vector<uchar> data(n);
+		emscripten::val view(typed_memory_view(n, data.data()));
+		view.call<void>("set", u8);
+		return data;
+	}
+
+	bool Texture_LoadFromMemory(Texture &tex, emscripten::val bytes)
+	{
+		std::vector<uchar> data = BytesFromJS(bytes);
+		const uint32 n = (uint32)data.size();
+		return tex.LoadTextureFromMemory(std::move(data), n, TextureType::Texture, true, 0);
+	}
+
+	bool Texture_LoadFromMemoryFull(Texture &tex, emscripten::val bytes, uint32 type, bool mipmap, uint32 level)
+	{
+		std::vector<uchar> data = BytesFromJS(bytes);
+		const uint32 n = (uint32)data.size();
+		return tex.LoadTextureFromMemory(std::move(data), n, type, mipmap, level);
+	}
+
 	bool Texture_CreateEmpty(Texture &t, uint32 type, uint32 dataType, int32 w, int32 h)
 	{
 		return t.CreateEmptyTexture(type, dataType, w, h);
@@ -152,6 +181,8 @@ EMSCRIPTEN_BINDINGS(pyros3d_assets)
 		.smart_ptr_constructor("Texture", &MakeTexture)
 		.function("loadTexture", &Texture_LoadTexture)
 		.function("loadTextureFull", &Texture_LoadTextureFull)
+		.function("loadTextureFromMemory", &Texture_LoadFromMemory)
+		.function("loadTextureFromMemoryFull", &Texture_LoadFromMemoryFull)
 		.function("createEmptyTexture", &Texture_CreateEmpty)
 		.function("createEmptyTextureFull", &Texture_CreateEmptyFull)
 		.function("setMinMagFilter", &Texture::SetMinMagFilter)

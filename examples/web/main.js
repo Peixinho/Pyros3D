@@ -1,5 +1,7 @@
 // Neon Pulse — JS API port of the Lua game (assets/neonpulse).
 
+import { installPyrosAssets } from "./pyros-assets.js";
+
 const statusEl = document.getElementById("status");
 const canvas = document.getElementById("canvas");
 const createPyros3D = globalThis.createPyros3D;
@@ -19,6 +21,7 @@ async function main() {
     canvas,
     locateFile: (path) => `../${path}`,
   });
+  installPyrosAssets(P);
 
   const app = new P.Application(
     canvas.width,
