@@ -7,7 +7,8 @@ The primary web product is a **JS-first library**: load `Pyros3D.js`, then creat
 ## Prerequisites
 
 1. [Emscripten SDK](https://emscripten.org/docs/getting_started/downloads.html) (`emsdk`) activated in the shell (`emcc` / `emcmake` on `PATH`).
-2. Network on first configure (FetchContent pulls Bullet; Emscripten ports pull SDL2 + FreeType).
+2. Submodules initialized (`git submodule update --init --recursive`) — **imgui** + **box3d**.
+3. Emscripten ports pull SDL2 + FreeType on first configure. Physics is the Box3D submodule (compiled into the wasm; SIMD disabled under Emscripten via `BOX3D_DISABLE_SIMD`).
 
 ## Configure & build
 
@@ -15,8 +16,7 @@ The primary web product is a **JS-first library**: load `Pyros3D.js`, then creat
 # from repo root, with emsdk/homebrew emscripten on PATH
 emcmake cmake -S . -B build_web -G "Unix Makefiles" \
   -DCMAKE_BUILD_TYPE=Release \
-  -DBUILD_DEMOS=ON \
-  -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+  -DBUILD_DEMOS=ON
 
 cmake --build build_web -j --target Pyros3D
 ```
@@ -71,6 +71,7 @@ API parity with Lua is tracked in `EMBIND_PARITY.md`.
 
 ## Notes
 
+- Physics is **Box3D** (same as native): `new P.Box3DPhysics()` from Embind; linked from the `src/Pyros3D/Ext/box3d` submodule.
 - Vulkan / SPIR-V are not used on the web path.
 - miniaudio uses the browser Web Audio backend (ScriptProcessorNode today). Chrome may log a deprecation warning; AudioWorklet needs ASYNCIFY/pthreads and breaks Embind sync APIs — left for a later miniaudio upgrade.
 - Embind is linked (`-lembind`); expand `PyrosEmbind.cpp` toward full Lua surface.

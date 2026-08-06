@@ -35,7 +35,7 @@ JS clients load `createPyros3D` (MODULARIZE) and construct `Application` + engin
 | ParticleSystem* | done |
 | SekeletonAnimation / SekeletonAnimationInstance | done (Lua typo names kept) |
 | TextureAnimation* | done |
-| IPhysics / BulletPhysics | done (convex-hull / multi-sphere vector APIs partial) |
+| IPhysics / Box3DPhysics | done (convex-hull / multi-sphere vector APIs partial) |
 | PostEffectsManager + effect types | done |
 | VignetEffect / MotionBlur | done (Lua typo names) |
 | addPostEffect, clearPostEffectHandles, motionBlur*, ssao*, buildDOF* | done |
@@ -53,7 +53,7 @@ JS clients load `createPyros3D` (MODULARIZE) and construct `Application` + engin
 - `PyrosEmbindMath.cpp` — Vec/Quat/Matrix
 - `PyrosEmbindRender.cpp` — Deferred/Velocity/Cubemap, FBO, materials, lights, RC
 - `PyrosEmbindAssets.cpp` — Texture, shapes, Model, Font, Text, anim, particles
-- `PyrosEmbindPhysics.cpp` — Bullet / raycast
+- `PyrosEmbindPhysics.cpp` — Box3D / raycast
 - `PyrosEmbindPostFX.cpp` — post FX + helpers
 - `PyrosEmbindAudio.cpp` — audio
 - `PyrosEmbindMisc.cpp` — File, getMousePosition

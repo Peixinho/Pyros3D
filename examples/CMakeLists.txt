@@ -1,5 +1,5 @@
 # Examples — inherits options/deps/backend from the parent (BUILD_DEMOS).
-# Do not re-find OpenGL/Bullet/Lua here; only resolve the window context.
+# Do not re-find OpenGL/Box3D/Lua here; only resolve the window context.
 
 cmake_minimum_required(VERSION 3.11)
 
@@ -40,7 +40,7 @@ function(pyros_add_example target_name)
 		PyrosEngine
 		${PYROS_CONTEXT_LIB}
 		${OPENGL_LIBS}
-		${BULLET_LIBRARIES}
+		${BOX3D_LIBRARIES}
 		${FREETYPE_LIBRARIES}
 		${LUA_LIBRARIES}
 	)
@@ -95,7 +95,7 @@ if (EMSCRIPTEN)
 		PyrosEngine
 		${PYROS_CONTEXT_LIB}
 		${OPENGL_LIBS}
-		${BULLET_LIBRARIES}
+		${BOX3D_LIBRARIES}
 		${FREETYPE_LIBRARIES}
 	)
 	target_compile_definitions(Pyros3D PRIVATE

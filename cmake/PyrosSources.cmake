@@ -90,8 +90,8 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Components/StaticPlane/PhysicsStaticPlane.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Components/ConvexHull/PhysicsConvexHull.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Physics.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/PhysicsEngines/BulletPhysics/DebugDraw/PhysicsDebugDraw.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/PhysicsEngines/BulletPhysics/BulletPhysics.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/PhysicsEngines/Box3D/DebugDraw/PhysicsDebugDraw.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/PhysicsEngines/Box3D/Box3DPhysics.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/PhysicsEngines/IPhysics.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Resources/Resources.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/AnimationManager/SkeletonAnimation.cpp

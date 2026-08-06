@@ -20,7 +20,7 @@ Forced by `cmake/PyrosAndroid.cmake`:
 
 Also:
 
-- Bullet + FreeType via FetchContent
+- Box3D via submodule `src/Pyros3D/Ext/box3d`; FreeType via FetchContent
 - `File` uses `SDL_RWops` (`otherplatforms/android/src/File.cpp`)
 - Links `GLESv2`, `EGL`, `android`, `log` (+ `GLESv3` / `OpenSLES` when present)
 

@@ -45,38 +45,26 @@ else()
 endif()
 
 # ---------------------------------------------------------------------------
-# Bullet
+# Box3D (submodule: src/Pyros3D/Ext/box3d @ v0.1.0)
 # ---------------------------------------------------------------------------
-if (EMSCRIPTEN OR ANDROID)
-	# No reliable system Bullet on emsdk / NDK — fetch a static build.
-	include(FetchContent)
-	# bullet3 3.25 still declares cmake_minimum_required(<3.5); modern CMake rejects that.
-	set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
-	set(BUILD_BULLET2_DEMOS OFF CACHE BOOL "" FORCE)
-	set(BUILD_BULLET3 OFF CACHE BOOL "" FORCE)
-	set(BUILD_EXTRAS OFF CACHE BOOL "" FORCE)
-	set(BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
-	set(BUILD_CPU_DEMOS OFF CACHE BOOL "" FORCE)
-	set(BUILD_OPENGL3_DEMOS OFF CACHE BOOL "" FORCE)
-	set(USE_GRAPHICAL_BENCHMARK OFF CACHE BOOL "" FORCE)
-	set(INSTALL_LIBS OFF CACHE BOOL "" FORCE)
-	set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-	FetchContent_Declare(bullet3
-		GIT_REPOSITORY https://github.com/bulletphysics/bullet3.git
-		GIT_TAG 3.25
-		GIT_SHALLOW TRUE
-	)
-	FetchContent_MakeAvailable(bullet3)
-	set(BULLET_FOUND TRUE)
-	set(BULLET_INCLUDE_DIRS ${bullet3_SOURCE_DIR}/src)
-	set(BULLET_LIBRARIES BulletDynamics BulletCollision LinearMath)
-	message(STATUS "Bullet: FetchContent ${bullet3_SOURCE_DIR}")
-else()
-	find_package(Bullet REQUIRED)
-	if (NOT BULLET_FOUND)
-		message(FATAL_ERROR "Bullet not found")
-	endif()
+set(BOX3D_DIR ${CMAKE_SOURCE_DIR}/src/Pyros3D/Ext/box3d)
+if (NOT EXISTS "${BOX3D_DIR}/CMakeLists.txt")
+	message(FATAL_ERROR
+		"Box3D submodule missing at ${BOX3D_DIR}. "
+		"Run: git submodule update --init --recursive")
 endif()
+set(BOX3D_SAMPLES OFF CACHE BOOL "" FORCE)
+set(BOX3D_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+set(BOX3D_BENCHMARKS OFF CACHE BOOL "" FORCE)
+set(BOX3D_DOCS OFF CACHE BOOL "" FORCE)
+set(BOX3D_VALIDATE OFF CACHE BOOL "" FORCE)
+if (EMSCRIPTEN)
+	set(BOX3D_DISABLE_SIMD ON CACHE BOOL "" FORCE)
+endif()
+add_subdirectory(${BOX3D_DIR} ${CMAKE_BINARY_DIR}/_deps/box3d)
+set(BOX3D_INCLUDE_DIRS ${BOX3D_DIR}/include)
+set(BOX3D_LIBRARIES box3d)
+message(STATUS "Box3D: submodule ${BOX3D_DIR}")
 
 # ---------------------------------------------------------------------------
 # Lua (optional)

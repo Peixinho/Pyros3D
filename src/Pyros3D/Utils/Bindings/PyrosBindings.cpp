@@ -2407,12 +2407,13 @@ namespace p3d {
 		}
 
 		{
-			// Bullet Physics
+			// Box3D Physics (BulletPhysics kept as Lua alias for old scripts)
 			sol::constructors<sol::types<>> con;
-			lua->new_usertype<BulletPhysics>("BulletPhysics",
+			lua->new_usertype<Box3DPhysics>("Box3DPhysics",
 				con,
 				sol::base_classes, sol::bases<IPhysics>()
 				);
+			(*lua)["BulletPhysics"] = (*lua)["Box3DPhysics"];
 		}
 
 		{

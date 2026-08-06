@@ -78,7 +78,7 @@ function init()
 	scene:add(particleObject)
 
 	-- ************************** Physics **************************
-	physics = BulletPhysics.new()
+	physics = Box3DPhysics.new()
 	physics:initPhysics()
 
 	-- Static ground

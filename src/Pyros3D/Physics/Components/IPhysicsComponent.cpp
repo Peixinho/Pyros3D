@@ -13,14 +13,14 @@ namespace p3d {
 
 	IPhysicsComponent::~IPhysicsComponent()
 	{
-		// Deliberately empty, not a gap: the real Bullet-side cleanup
-		// (rigid body/motion state/collision shape/vehicle) happens in
-		// BulletPhysics::RemovePhysicsComponent(), called from
+		// Deliberately empty, not a gap: the real physics-side cleanup
+		// (body/shapes/joints/handles) happens in
+		// Box3DPhysics::RemovePhysicsComponent(), called from
 		// Unregister() below while PhysicsEngine/rigidBodyPTR are still
 		// valid. By the time this destructor runs, Unregister() has
 		// already nulled PhysicsEngine - too late to route through it
 		// even if rigidBodyPTR's void* could be blindly deleted (it
-		// can't; the concrete Bullet type varies by shape).
+		// can't; the concrete backend handles type varies by shape).
 	}
 
 	void IPhysicsComponent::Register(SceneGraph* Scene)

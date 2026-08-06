@@ -18,11 +18,7 @@ if (NOT FREETYPE_FOUND)
 endif(NOT FREETYPE_FOUND)
 
 
-# Find Bullet
-find_package(Bullet REQUIRED)
-if (NOT BULLET_FOUND)
-	message(ERROR " Bullet not found!")
-endif(NOT BULLET_FOUND)
+# Physics is Box3D (linked through PyrosEngine).
 
 
 # LUA Support
@@ -94,4 +90,4 @@ set(HEADERS
 link_directories("/usr/local/lib")
 add_executable(AssimpImporter ${SOURCE})
 include_directories(${HEADERS})
-target_link_libraries(AssimpImporter PyrosEngine ${BULLET_LIBRARIES} ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${LUA_LIBRARIES} pthread dl)
+target_link_libraries(AssimpImporter PyrosEngine ${FREETYPE_LIBRARIES} ${ASSIMP_LIBRARIES} ${LUA_LIBRARIES} pthread dl)

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.11)
+cmake_minimum_required(VERSION 3.22)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 project(Pyros3D)
@@ -23,7 +23,7 @@ target_include_directories(PyrosEngine
 		${IMGUI_INCLUDE_DIRS}
 		${LUA_INCLUDE_DIR}
 		${FREETYPE_INCLUDE_DIRS}
-		${BULLET_INCLUDE_DIRS}
+		${BOX3D_INCLUDE_DIRS}
 		${GLAD_INCLUDE_DIR}
 	PRIVATE
 		${OPENGL_INCLUDE_DIRS}
@@ -33,7 +33,7 @@ target_include_directories(PyrosEngine
 target_link_libraries(PyrosEngine
 	PUBLIC
 		${OPENGL_LIBS}
-		${BULLET_LIBRARIES}
+		${BOX3D_LIBRARIES}
 		${FREETYPE_LIBRARIES}
 		${LUA_LIBRARIES}
 		${SPIRV_TOOLING_LIBS}

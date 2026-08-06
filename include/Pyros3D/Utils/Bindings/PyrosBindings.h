@@ -34,6 +34,7 @@
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
 #include <Pyros3D/Physics/Components/IPhysicsComponent.h>
+#include <Pyros3D/Physics/PhysicsEngines/Box3D/Box3DPhysics.h>
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/BloomEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/BlurXEffect.h>

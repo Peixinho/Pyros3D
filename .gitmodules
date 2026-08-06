@@ -2,3 +2,6 @@
 	path = src/Pyros3D/Ext/imgui
 	url = https://github.com/ocornut/imgui.git
 	branch = docking
+[submodule "src/Pyros3D/Ext/box3d"]
+	path = src/Pyros3D/Ext/box3d
+	url = https://github.com/erincatto/box3d.git

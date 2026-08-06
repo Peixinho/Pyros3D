@@ -63,14 +63,10 @@ namespace p3d {
 
 		IPhysicsComponent* GetChassis() { return this->chassisShape.get(); }
 
-		// void* to keep this header Bullet-agnostic (same pattern as
-		// IPhysicsComponent::rigidBodyPTR/SaveRigidBodyPTR) - the actual
-		// btVehicleRaycaster* this vehicle's btRaycastVehicle needs is
-		// otherwise unreachable after construction (btRaycastVehicle
-		// doesn't expose a getter for it), so BulletPhysics has nowhere
-		// else to stash it for later freeing when the vehicle is
-		// removed. Set once in BulletPhysics::CreatePhysicsComponent(),
-		// read+freed in BulletPhysics::RemovePhysicsComponent().
+		// Legacy/optional extra storage (same void* pattern as
+		// IPhysicsComponent::rigidBodyPTR). Unused by the Box3D backend
+		// (wheel bodies/joints live in Box3DBodyHandles via
+		// SaveRigidBodyPTR); kept for API compatibility / engine extras.
 		void SaveVehicleRaycasterPTR(void* ptr) { vehicleRaycasterPTR = ptr; }
 		void* GetVehicleRaycasterPTR() { return vehicleRaycasterPTR; }
 

@@ -12,7 +12,7 @@
 #include <iostream>
 #include <functional>
 #include <Pyros3D/Components/IComponent.h>
-#include <Pyros3D/Physics/Physics.h>
+#include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
 #include <Pyros3D/Other/Export.h>
 
 namespace p3d {
@@ -90,7 +90,7 @@ namespace p3d {
 		// lifecycle moment" pattern in this codebase (see e.g.
 		// LUA_GameObject::on_update in PyrosBindings.h) and binds to Lua
         // as a plain assignable property the same proven way. Populated
-		// by BulletPhysics::Update()'s post-step contact-manifold scan;
+		// by Box3DPhysics::Update()'s post-step contact/sensor events;
 		// fires with the *other* component involved. Left unset (empty)
 		// costs nothing to check per-frame for a component that doesn't
 		// use it.

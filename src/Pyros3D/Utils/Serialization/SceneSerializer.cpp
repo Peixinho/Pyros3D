@@ -9,6 +9,7 @@
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>

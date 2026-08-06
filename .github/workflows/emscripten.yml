@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
 
       - name: Install build tools
         run: |
@@ -34,8 +34,7 @@ jobs:
           emcmake cmake -S . -B build_web -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_DEMOS=ON \
-            -DHAVE_LUA_BINDINGS=OFF \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+            -DHAVE_LUA_BINDINGS=OFF
 
       - name: Build Pyros3D library
         run: cmake --build build_web --parallel "$(nproc)" --target Pyros3D

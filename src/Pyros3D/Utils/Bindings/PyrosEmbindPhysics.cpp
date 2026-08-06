@@ -1,6 +1,6 @@
 //============================================================================
 // Name        : PyrosEmbindPhysics.cpp
-// Description : Embind BulletPhysics / IPhysics / RayCastHit.
+// Description : Embind Box3DPhysics / IPhysics / RayCastHit.
 //============================================================================
 
 #if defined(__EMSCRIPTEN__) || defined(EMSCRIPTEN)
@@ -8,7 +8,7 @@
 #include <emscripten/bind.h>
 
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
-#include <Pyros3D/Physics/PhysicsEngines/BulletPhysics/BulletPhysics.h>
+#include <Pyros3D/Physics/PhysicsEngines/Box3D/Box3DPhysics.h>
 #include <Pyros3D/Physics/Components/IPhysicsComponent.h>
 #include <Pyros3D/Components/IComponent.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
@@ -142,7 +142,7 @@ EMSCRIPTEN_BINDINGS(pyros3d_physics)
 		.function("createVehicle", &IPhysics_CreateVehicle)
 		.function("addWheel", &IPhysics::AddWheel, allow_raw_pointers());
 
-	class_<BulletPhysics, base<IPhysics>>("BulletPhysics")
+	class_<Box3DPhysics, base<IPhysics>>("Box3DPhysics")
 		.constructor<>();
 }
 

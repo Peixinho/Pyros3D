@@ -168,7 +168,7 @@
  },
  {
   "name": "Simple Physics",
-  "description": "1000 dynamic physics cubes falling onto a static floor, real-time Bullet simulation.",
+  "description": "1000 dynamic physics cubes falling onto a static floor, real-time Box3D simulation.",
   "scene": "SimplePhysics.json",
   "render": {
    "type": "deferred",

@@ -7,14 +7,16 @@ Pyros3D is a work in progress game engine, focused on 3D, but that has 2 project
 
 You can compile for Windows, Linux, MacOSX, Android, Raspberry Pi (GLES3), and Web (Emscripten / WebGL2).
 
+After clone: `git submodule update --init --recursive` (imgui + **box3d**).
+
 ## Dependencies
-- BulletPhysics 2.8+
+- **Box3D** (physics) — git submodule `src/Pyros3D/Ext/box3d` (@ v0.1.0). Same backend on desktop, Raspberry Pi, Android, and **Emscripten / WebGL2** (`BOX3D_DISABLE_SIMD` under emcmake).
 - Freetype 2.6+
 - Assimp 3.0 (to build tools/AssimImporter that converts regular 3D models (obj,dae, ...) to pyros format)
 - SDL2 (examples / DemoLauncher)
 - Lua 5.1–5.4 (optional, for Lua bindings / DemoLauncher)
 
-To build natively, run CMake (see also `cmake/PyrosOptions.cmake` for `PYROS_GRAPHICS`, `OPENGL_VERSION`, `CONTEXT`).
+To build natively, run CMake (see also `cmake/PyrosOptions.cmake` for `PYROS_GRAPHICS`, `OPENGL_VERSION`, `CONTEXT`). Requires **CMake 3.22+**.
 
 ```bash
 cmake -S . -B build -G Ninja \
@@ -26,16 +28,19 @@ cmake --build build -j
 
 ## Emscripten / WebGL2
 
-Use **emcmake** (GLES3 + SDL2). The old Premake/GLES2 tree was removed.
+Use **emcmake** (GLES3 + SDL2 + **Box3D**). Init submodules first. The old Premake/GLES2 tree was removed.
 
 See [otherplatforms/emscripten/README.md](otherplatforms/emscripten/README.md).
 
 ```bash
+git submodule update --init --recursive
 emcmake cmake -S . -B build_web -G "Unix Makefiles" \
-  -DBUILD_DEMOS=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+  -DBUILD_DEMOS=ON
 cmake --build build_web -j --target Pyros3D
 # serve build_web/examples/ and open web/index.html (JS owns the engine)
 ```
+
+Physics from JS: `new P.Box3DPhysics()` (Embind). DemoLauncher “Simple Physics” on native uses the same `Physics` → `Box3DPhysics` path.
 
 ## Raspberry Pi (GLES3)
 

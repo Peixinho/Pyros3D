@@ -1,40 +1,51 @@
 //============================================================================
-// Name        : Bullet Physics.h
+// Name        : Box3DPhysics.h
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
-// Description : Bullet Physics Wrapper
+// Description : Box3D Physics Wrapper
 //============================================================================
 
-#ifndef BULLETPHYSICS_H
-#define BULLETPHYSICS_H
+#ifndef BOX3DPHYSICS_H
+#define BOX3DPHYSICS_H
 
-#include <btBulletDynamicsCommon.h>
-#include <LinearMath/btIDebugDraw.h>
-#include <BulletCollision/CollisionShapes/btMultimaterialTriangleMeshShape.h>
-#include <BulletCollision/CollisionDispatch/btGhostObject.h>
+#include <box3d/box3d.h>
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
 #include <Pyros3D/Core/Math/Math.h>
-#include <Pyros3D/Physics/PhysicsEngines/BulletPhysics/DebugDraw/PhysicsDebugDraw.h>
+#include <Pyros3D/Physics/PhysicsEngines/Box3D/DebugDraw/PhysicsDebugDraw.h>
 #include <Pyros3D/Other/Export.h>
 #include <memory>
 #include <set>
 #include <utility>
+#include <vector>
+#include <cstdint>
 
 namespace p3d {
 
-	// Circular Dependency
 	class PYROS3D_API PhysicsDebugDraw;
 
-	class PYROS3D_API BulletPhysics : public IPhysics
+	// Backend handles stored via IPhysicsComponent::SaveRigidBodyPTR
+	struct Box3DBodyHandles {
+		b3BodyId body;
+		std::vector<b3BodyId> wheelBodies;
+		std::vector<b3JointId> wheelJoints;
+		b3HullData* ownedHull;
+		b3MeshData* ownedMesh;
+		std::vector<b3Vec3> meshVerts;
+		std::vector<int32_t> meshIndices;
+
+		Box3DBodyHandles() : body(b3_nullBodyId), ownedHull(NULL), ownedMesh(NULL) {}
+	};
+
+	class PYROS3D_API Box3DPhysics : public IPhysics
 	{
 
 		friend class IPhysicsComponent;
 
 	public:
 
-		BulletPhysics();
-		virtual ~BulletPhysics();
+		Box3DPhysics();
+		virtual ~Box3DPhysics();
 
 		virtual void InitPhysics();
 		virtual void Update(const f64 &time, const uint32 steps = 10);
@@ -49,24 +60,20 @@ namespace p3d {
 
 		virtual void UpdateTransformations(IPhysicsComponent* pcomp);
 
-		btDiscreteDynamicsWorld* GetPhysicsWorld()
-		{
-			return m_dynamicsWorld.get();
-		}
+		b3WorldId GetWorld() const { return m_world; }
 
-		void UpdatePosition(IPhysicsComponent *pcomp, const Vec3 &position);
-		void UpdateRotation(IPhysicsComponent *pcomp, const Vec3 &rotation);
-		void CleanForces(IPhysicsComponent *pcomp);
-		void SetAngularVelocity(IPhysicsComponent *pcomp, const Vec3 &velocity);
-		void SetLinearVelocity(IPhysicsComponent *pcomp, const Vec3 &velocity);
-		void Activate(IPhysicsComponent *pcomp);
-		Vec3 GetLinearVelocity(IPhysicsComponent *pcomp);
-		Vec3 GetAngularVelocity(IPhysicsComponent *pcomp);
-		void ApplyCentralForce(IPhysicsComponent *pcomp, const Vec3 &force);
-		void ApplyCentralImpulse(IPhysicsComponent *pcomp, const Vec3 &impulse);
-		void SetMass(IPhysicsComponent *pcomp, const f32 mass);
+		virtual void UpdatePosition(IPhysicsComponent *pcomp, const Vec3 &position);
+		virtual void UpdateRotation(IPhysicsComponent *pcomp, const Vec3 &rotation);
+		virtual void CleanForces(IPhysicsComponent *pcomp);
+		virtual void SetAngularVelocity(IPhysicsComponent *pcomp, const Vec3 &velocity);
+		virtual void SetLinearVelocity(IPhysicsComponent *pcomp, const Vec3 &velocity);
+		virtual void Activate(IPhysicsComponent *pcomp);
+		virtual Vec3 GetLinearVelocity(IPhysicsComponent *pcomp);
+		virtual Vec3 GetAngularVelocity(IPhysicsComponent *pcomp);
+		virtual void ApplyCentralForce(IPhysicsComponent *pcomp, const Vec3 &force);
+		virtual void ApplyCentralImpulse(IPhysicsComponent *pcomp, const Vec3 &impulse);
+		virtual void SetMass(IPhysicsComponent *pcomp, const f32 mass);
 
-		// Create Physics Components
 		virtual std::shared_ptr<IPhysicsComponent> CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass, bool ghost = false);
 		virtual std::shared_ptr<IPhysicsComponent> CreateCapsule(const f32 radius, const f32 height, const f32 mass, bool ghost = false);
 		virtual std::shared_ptr<IPhysicsComponent> CreateCone(const f32 radius, const f32 height, const f32 mass, bool ghost = false);
@@ -81,37 +88,26 @@ namespace p3d {
 		virtual std::shared_ptr<IPhysicsComponent> CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost = false);
 		virtual std::shared_ptr<IPhysicsComponent> CreateVehicle(const std::shared_ptr<IPhysicsComponent> &ChassisShape, bool ghost = false);
 
-		// Vehicle Add Wheel
-		void AddWheel(IPhysicsComponent *pcomp, const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3 &Position, bool isFrontWheel);
+		virtual void AddWheel(IPhysicsComponent *pcomp, const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3 &Position, bool isFrontWheel);
 
 	private:
 
-		// Bullet Physics Essentials. Declaration order matters: member
-		// destruction runs in reverse declaration order, which must destroy
-		// m_dynamicsWorld before the objects it depends on (m_solver,
-		// m_broadphase, m_dispatcher, m_collisionConfiguration).
-		std::unique_ptr<btBroadphaseInterface> m_broadphase;
-		std::unique_ptr<btCollisionDispatcher> m_dispatcher;
-		std::unique_ptr<btConstraintSolver> m_solver;
-		std::unique_ptr<btDefaultCollisionConfiguration> m_collisionConfiguration;
-		std::unique_ptr<btDiscreteDynamicsWorld> m_dynamicsWorld;
+		b3WorldId m_world;
 		std::unique_ptr<PhysicsDebugDraw> m_debugDraw;
+		b3DebugDraw m_draw;
 
-		// Function to Create Rigid Bodys and Add them to the Physics World
-		void CreateRigidBody(btCollisionShape* shape, IPhysicsComponent* pcomp);
+		void CreateBody(IPhysicsComponent* pcomp);
+		void AttachShapes(IPhysicsComponent* pcomp, Box3DBodyHandles* handles, b3BodyId body, const b3ShapeDef &shapeDef);
+		void AttachChassisShapes(IPhysicsComponent* chassis, Box3DBodyHandles* handles, b3BodyId body, const b3ShapeDef &shapeDef);
+		b3ShapeDef MakeShapeDef(IPhysicsComponent* pcomp) const;
+		b3BodyDef MakeBodyDef(IPhysicsComponent* pcomp) const;
 
-		btRigidBody* LocalCreateRigidBody(f32 mass, const btTransform& startTransform, btCollisionShape* shape);
-		void CreateGhostObject(btCollisionShape* shape, IPhysicsComponent* pcomp);
-
-		btCollisionShape* GetCollisionShape(IPhysicsComponent* pcomp);
-
-		// Real collision-notification scan - see IPhysicsComponent.h's
-		// OnCollisionEnter/OnCollisionExit comment. Run once per Update()
-		// after stepSimulation(), diffed against the previous step's set
-		// so enter/exit fire exactly once per real state change, not once
-		// per frame two bodies happen to still be touching.
 		void ProcessCollisionEvents();
 		std::set<std::pair<IPhysicsComponent*, IPhysicsComponent*> > m_touchingPairs;
+
+		static Box3DBodyHandles* GetHandles(IPhysicsComponent* pcomp);
+		static IPhysicsComponent* ComponentFromShape(b3ShapeId shapeId);
+		static void DestroyHandles(Box3DBodyHandles* handles);
 
 	protected:
 
@@ -120,4 +116,4 @@ namespace p3d {
 
 }
 
-#endif /*BULLETPHYSICS_H*/
+#endif /* BOX3DPHYSICS_H */
