@@ -60,8 +60,7 @@ jobs:
             libfreetype-dev \
             liblua5.3-dev \
             libgl1-mesa-dev \
-            libvulkan-dev \
-            vulkan-headers
+            libvulkan-dev
 
       - name: Configure
         run: |
