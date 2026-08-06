@@ -150,20 +150,26 @@ namespace p3d {
 
 		minBounds = maxBounds = Vec3();
 
-		// Update Dynamic Objects Every Frame
-		for (std::vector<std::shared_ptr<GameObject>>::iterator i = _GameObjectListDynamic.begin(); i != _GameObjectListDynamic.end(); i++)
+		// Snapshot before iterating: Lua (and other) components may
+		// scene:add / scene:remove during UpdateComponents, which mutates
+		// these vectors and would otherwise invalidate live iterators
+		// (e.g. Physics Stress continuous spawn).
+		const std::vector<std::shared_ptr<GameObject>> dynamicSnapshot = _GameObjectListDynamic;
+		for (const std::shared_ptr<GameObject> &go : dynamicSnapshot)
 		{
-			// Update GameObject - User Change
-			(*i)->Update(timer);
-			// Register Components
-			(*i)->RegisterComponents(this);
-			// Update Components
-			(*i)->UpdateComponents(timer);
-			// Update Transforms Not Using Threads
-			(*i)->InternalUpdate();
+			if (!go || go->Scene != this) continue;
 
-			Vec3 _min = (*i)->GetBoundingMinValue();
-			Vec3 _max = (*i)->GetBoundingMaxValue();
+			// Update GameObject - User Change
+			go->Update(timer);
+			// Register Components
+			go->RegisterComponents(this);
+			// Update Components
+			go->UpdateComponents(timer);
+			// Update Transforms Not Using Threads
+			go->InternalUpdate();
+
+			Vec3 _min = go->GetBoundingMinValue();
+			Vec3 _max = go->GetBoundingMaxValue();
 
 			if (_min.x < minBounds.x) minBounds.x = _min.x;
 			if (_min.y < minBounds.y) minBounds.y = _min.y;
@@ -175,17 +181,20 @@ namespace p3d {
 		}
 
 		// Update Static Components
-		for (std::vector<std::shared_ptr<GameObject>>::iterator i = _GameObjectListStaticAfter.begin(); i != _GameObjectListStaticAfter.end(); i++)
+		const std::vector<std::shared_ptr<GameObject>> staticAfterSnapshot = _GameObjectListStaticAfter;
+		for (const std::shared_ptr<GameObject> &go : staticAfterSnapshot)
 		{
-			// Register Components
-			(*i)->RegisterComponents(this);
-			// Update Components
-			(*i)->UpdateComponents(timer);
-			// Update Transforms Not Using Threads
-			(*i)->InternalUpdate();
+			if (!go || go->Scene != this) continue;
 
-			Vec3 _min = (*i)->GetBoundingMinValue();
-			Vec3 _max = (*i)->GetBoundingMaxValue();
+			// Register Components
+			go->RegisterComponents(this);
+			// Update Components
+			go->UpdateComponents(timer);
+			// Update Transforms Not Using Threads
+			go->InternalUpdate();
+
+			Vec3 _min = go->GetBoundingMinValue();
+			Vec3 _max = go->GetBoundingMaxValue();
 
 			if (_min.x < minBounds.x) minBounds.x = _min.x;
 			if (_min.y < minBounds.y) minBounds.y = _min.y;

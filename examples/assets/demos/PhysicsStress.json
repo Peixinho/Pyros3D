@@ -1,0 +1,252 @@
+{
+  "materials": [
+    {
+      "id": 0,
+      "kind": "generic",
+      "options": 1,
+      "color": [0.55, 0.55, 0.58, 1.0],
+      "specular": [0.05, 0.05, 0.05, 1.0],
+      "shininess": 16.0,
+      "metallic": 0.0,
+      "roughness": 0.8,
+      "opacity": 1.0,
+      "transparent": false,
+      "blending": false,
+      "depthTest": true,
+      "depthWrite": true,
+      "wireframe": false,
+      "castingShadows": true,
+      "cullFace": 0
+    }
+  ],
+  "roots": [
+    {
+      "name": "Camera",
+      "tags": ["Camera"],
+      "position": [0, 22, 42],
+      "rotation": [0, 0, 0],
+      "scale": [1, 1, 1],
+      "static": false,
+      "children": [],
+      "components": [
+        {
+          "type": "LuaComponent",
+          "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_fly.lua",
+          "data": { "yaw": 0, "pitch": -18 }
+        }
+      ]
+    },
+    {
+      "name": "Sun",
+      "position": [0, 0, 0],
+      "rotation": [0, 0, 0],
+      "scale": [1, 1, 1],
+      "static": true,
+      "children": [],
+      "components": [
+        {
+          "type": "DirectionalLight",
+          "color": [1, 1, 1, 1],
+          "direction": [-0.4, -1, -0.2],
+          "intensity": 3.14159,
+          "castingShadows": false
+        }
+      ]
+    },
+    {
+      "name": "Floor",
+      "position": [0, -0.5, 0],
+      "rotation": [0, 0, 0],
+      "scale": [1, 1, 1],
+      "static": true,
+      "children": [],
+      "components": [
+        {
+          "type": "RenderingComponent",
+          "material": 0,
+          "castingShadows": true,
+          "cullTest": true,
+          "renderable": {
+            "kind": "primitive",
+            "shape": "Cube",
+            "width": 10,
+            "height": 0.5,
+            "depth": 10,
+            "smooth": false,
+            "flip": false,
+            "tangentBitangent": false
+          }
+        },
+        {
+          "type": "Physics",
+          "shape": "Box",
+          "width": 10,
+          "height": 0.5,
+          "depth": 10,
+          "mass": 0,
+          "ghost": false
+        }
+      ]
+    },
+    {
+      "name": "WallNorth",
+      "position": [0, 7.5, 10.5],
+      "rotation": [0, 0, 0],
+      "scale": [1, 1, 1],
+      "static": true,
+      "children": [],
+      "components": [
+        {
+          "type": "RenderingComponent",
+          "material": 0,
+          "castingShadows": false,
+          "cullTest": true,
+          "renderable": {
+            "kind": "primitive",
+            "shape": "Cube",
+            "width": 11,
+            "height": 7.5,
+            "depth": 0.5,
+            "smooth": false,
+            "flip": false,
+            "tangentBitangent": false
+          }
+        },
+        {
+          "type": "Physics",
+          "shape": "Box",
+          "width": 11,
+          "height": 7.5,
+          "depth": 0.5,
+          "mass": 0,
+          "ghost": false
+        }
+      ]
+    },
+    {
+      "name": "WallSouth",
+      "position": [0, 7.5, -10.5],
+      "rotation": [0, 0, 0],
+      "scale": [1, 1, 1],
+      "static": true,
+      "children": [],
+      "components": [
+        {
+          "type": "RenderingComponent",
+          "material": 0,
+          "castingShadows": false,
+          "cullTest": true,
+          "renderable": {
+            "kind": "primitive",
+            "shape": "Cube",
+            "width": 11,
+            "height": 7.5,
+            "depth": 0.5,
+            "smooth": false,
+            "flip": false,
+            "tangentBitangent": false
+          }
+        },
+        {
+          "type": "Physics",
+          "shape": "Box",
+          "width": 11,
+          "height": 7.5,
+          "depth": 0.5,
+          "mass": 0,
+          "ghost": false
+        }
+      ]
+    },
+    {
+      "name": "WallEast",
+      "position": [10.5, 7.5, 0],
+      "rotation": [0, 0, 0],
+      "scale": [1, 1, 1],
+      "static": true,
+      "children": [],
+      "components": [
+        {
+          "type": "RenderingComponent",
+          "material": 0,
+          "castingShadows": false,
+          "cullTest": true,
+          "renderable": {
+            "kind": "primitive",
+            "shape": "Cube",
+            "width": 0.5,
+            "height": 7.5,
+            "depth": 10,
+            "smooth": false,
+            "flip": false,
+            "tangentBitangent": false
+          }
+        },
+        {
+          "type": "Physics",
+          "shape": "Box",
+          "width": 0.5,
+          "height": 7.5,
+          "depth": 10,
+          "mass": 0,
+          "ghost": false
+        }
+      ]
+    },
+    {
+      "name": "WallWest",
+      "position": [-10.5, 7.5, 0],
+      "rotation": [0, 0, 0],
+      "scale": [1, 1, 1],
+      "static": true,
+      "children": [],
+      "components": [
+        {
+          "type": "RenderingComponent",
+          "material": 0,
+          "castingShadows": false,
+          "cullTest": true,
+          "renderable": {
+            "kind": "primitive",
+            "shape": "Cube",
+            "width": 0.5,
+            "height": 7.5,
+            "depth": 10,
+            "smooth": false,
+            "flip": false,
+            "tangentBitangent": false
+          }
+        },
+        {
+          "type": "Physics",
+          "shape": "Box",
+          "width": 0.5,
+          "height": 7.5,
+          "depth": 10,
+          "mass": 0,
+          "ghost": false
+        }
+      ]
+    },
+    {
+      "name": "StressSpawner",
+      "position": [0, 0, 0],
+      "rotation": [0, 0, 0],
+      "scale": [1, 1, 1],
+      "static": false,
+      "children": [],
+      "components": [
+        {
+          "type": "LuaComponent",
+          "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/physics_stress.lua",
+          "data": {
+            "maxBodies": 20000,
+            "spawnPerSecond": 200,
+            "radius": 0.2,
+            "mass": 0.25
+          }
+        }
+      ]
+    }
+  ]
+}

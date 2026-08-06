@@ -77,6 +77,7 @@ void DemoLauncher::Init()
 	physics->InitPhysics();
 
 	GenerateBindings(&lua);
+	lua["physics"] = static_cast<IPhysics*>(physics);
 	lua.require_file("class", STR(EXAMPLES_PATH) "/assets/middleclass.lua");
 	lua.require_file("RenderHost", STR(EXAMPLES_PATH) "/assets/demos/scripts/render_host.lua");
 
@@ -420,6 +421,7 @@ void DemoLauncher::Shutdown()
 	lua["projection"] = sol::lua_nil;
 	lua["imgui"] = sol::lua_nil;
 	lua["RenderHost"] = sol::lua_nil;
+	lua["physics"] = sol::lua_nil;
 
 	lua.script("collectgarbage(); collectgarbage()");
 	lua = sol::state{};

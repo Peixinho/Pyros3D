@@ -184,6 +184,20 @@
   }
  },
  {
+  "name": "Physics Stress (20k)",
+  "description": "Box3D stress test: small spheres continuously raining into a boxed arena (up to 20k bodies, FIFO cull).",
+  "scene": "PhysicsStress.json",
+  "render": {
+   "type": "forward",
+   "globalLight": [
+    0.15,
+    0.15,
+    0.18,
+    1
+   ]
+  }
+ },
+ {
   "name": "Skeleton Animation",
   "description": "Skinned human model blending between walk/run/alert animations by mouse X position.",
   "scene": "SkeletonAnimationExample.json",
