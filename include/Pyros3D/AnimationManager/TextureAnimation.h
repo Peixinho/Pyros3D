@@ -74,6 +74,9 @@ namespace p3d {
 
 		// Get Texture
 		Texture* GetTexture();
+		// Owning shared_ptr to the current frame - for Lua/SetColorMap
+		// (GetTexture() stays raw for existing C++ observers).
+		std::shared_ptr<Texture> GetTextureShared();
 		// Get Frame
 		const uint32 GetFrame() const;
 
@@ -133,6 +136,7 @@ namespace p3d {
 	public:
 
 		Texture* GetFrame(const uint32 &frame);
+		std::shared_ptr<Texture> GetFrameShared(const uint32 &frame);
 		uint32 GetNumberFrames();
 
 		// Constructor

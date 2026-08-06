@@ -74,7 +74,7 @@ namespace p3d {
 									"#define SAMPLER_BINDING(n) layout(set = 1, binding = n)\n"
 									"#define IO_LOCATION(n) layout(location = n)\n"
 									"#else\n"
-									"#define UBO_BINDING(n)\n"
+									"#define UBO_BINDING(n) layout(std140)\n"
 									"#define SAMPLER_BINDING(n)\n"
 									"#define IO_LOCATION(n)\n"
 									"#endif\n"

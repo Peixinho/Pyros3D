@@ -1,0 +1,54 @@
+-- Automatic orbit camera (SSRTest). Sets global `camera` to this owner.
+local CameraOrbit = class('CameraOrbit')
+
+function CameraOrbit:initialize()
+	self.radius = 18.0
+	self.height = 7.0
+	self.yawSpeed = 8.0
+	self.basePitch = -18.0
+	self.pitchAmp = 10.0
+	self.pitchFreq = 0.5
+end
+
+function CameraOrbit:init(owner)
+	self.owner = owner
+	camera = owner
+end
+
+function CameraOrbit:update(time)
+	local orbitAngle = time * self.yawSpeed
+	local rad = math.rad(orbitAngle)
+	local pitchDeg = self.basePitch + self.pitchAmp * math.sin(time * self.pitchFreq)
+	self.owner:setPosition(Vec3.new(math.sin(rad) * self.radius, self.height, math.cos(rad) * self.radius))
+	self.owner:setRotation(Vec3.new(math.rad(pitchDeg), math.rad(orbitAngle), 0))
+end
+
+function CameraOrbit:destroy()
+	if camera == self.owner then camera = nil end
+end
+
+function CameraOrbit:serialize()
+	return {
+		radius = self.radius,
+		height = self.height,
+		yawSpeed = self.yawSpeed,
+		basePitch = self.basePitch,
+		pitchAmp = self.pitchAmp,
+		pitchFreq = self.pitchFreq,
+	}
+end
+
+function CameraOrbit.deserialize(data)
+	local o = CameraOrbit:new()
+	if data then
+		if data.radius then o.radius = data.radius end
+		if data.height then o.height = data.height end
+		if data.yawSpeed then o.yawSpeed = data.yawSpeed end
+		if data.basePitch then o.basePitch = data.basePitch end
+		if data.pitchAmp then o.pitchAmp = data.pitchAmp end
+		if data.pitchFreq then o.pitchFreq = data.pitchFreq end
+	end
+	return o
+end
+
+return CameraOrbit

@@ -7,13 +7,12 @@
 	precision mediump float;
 #endif
 
-// See custommaterialshader.glsl's identical comment. Bindings 40/41.
 #if defined(VULKAN)
 #define UBO_BINDING(n) layout(std140, binding = n)
 #define SAMPLER_BINDING(n) layout(set = 1, binding = n)
 #define IO_LOCATION(n) layout(location = n)
 #else
-#define UBO_BINDING(n)
+#define UBO_BINDING(n) layout(std140)
 #define SAMPLER_BINDING(n)
 #define IO_LOCATION(n)
 #endif
@@ -70,7 +69,7 @@
         float moveFactor = (uTime * waveSpeed);
         vec2 ndc = (clipSpace.xy/clipSpace.w) * 0.5 + 0.5;
         vec2 refractionTexCoords = ndc;
-        vec2 reflectionTexCoords = vec2(ndc.x, -ndc.y);
+        vec2 reflectionTexCoords = vec2(ndc.x, 1.0 - ndc.y);
 
         float depth = texture_2D(uRefractionMapDepth, refractionTexCoords).r;
         float floorDistance = 2.0 * uNearFarPlane.x * uNearFarPlane.y / (uNearFarPlane.x + uNearFarPlane.y - (2.0 * depth -1.0) * (uNearFarPlane.y - uNearFarPlane.x));
@@ -88,9 +87,8 @@
         reflectionTexCoords += totalDistortion;
         refractionTexCoords += totalDistortion;
 
-        // Fix Edges on Screen
         reflectionTexCoords.x = clamp(reflectionTexCoords.x, 0.001, 0.999);
-        reflectionTexCoords.y = clamp(reflectionTexCoords.y, -0.999, -0.001);
+        reflectionTexCoords.y = clamp(reflectionTexCoords.y, 0.001, 0.999);
         refractionTexCoords.x = clamp(refractionTexCoords.x, 0.001, 0.999);
         refractionTexCoords.y = clamp(refractionTexCoords.y, 0.001, 0.999);
 
@@ -98,30 +96,22 @@
         vec4 refractColor = texture_2D(uRefractionMap, refractionTexCoords);
 
         vec4 normalMapColor = texture_2D(uNormalmap, distortedTexCoords);
-
         vec3 normal = vec3(normalMapColor.r * 2.0 -1.0, normalMapColor.b, normalMapColor.g * 2.0-1.0);
-
-        // point normals upper
         normal.y *= 3.0;
-
         normal = normalize(normal);
 
         vec3 viewVector = normalize(toCameraVector);
-        float refractiveFactor = pow(dot(viewVector, normal),2.0);
+        float refractiveFactor = pow(max(dot(viewVector, normal), 0.0), 2.0);
+        refractiveFactor = clamp(refractiveFactor, 0.0, 1.0);
 
-        // Lighting
         vec3 reflectedLight = reflect(normalize(lightVector), normal);
         float specular = max(dot(reflectedLight, viewVector), 0.0);
         specular = pow(specular, shineDamper);
         vec3 specularHighlights = lightColour * specular * reflectivity;
-        // Lighting
 
         FragColor = mix(reflectColor, refractColor, refractiveFactor);
-        FragColor = mix(FragColor, vec4(0.0,0.3,0.5,1.0),0.2);
-
-        FragColor.a = clamp(waterDepth/5.0, 0.0, 1.0);
-
-        // Lighting
+        FragColor = mix(FragColor, vec4(0.0,0.3,0.5,1.0), 0.2);
+        FragColor.a = max(clamp(waterDepth/5.0, 0.0, 1.0), 0.75);
         FragColor += vec4(specularHighlights, 0.0);
     }
 #endif

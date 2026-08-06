@@ -137,6 +137,18 @@ namespace p3d {
 			return &(UserUniforms.back());
 		}
 	}
+
+	void IMaterial::SetExtraUniformBlock(int index, uint32 binding, const std::string &blockName,
+		uint32 size, const std::map<std::string, uint32> &offsets)
+	{
+		if (index < 0 || index > 1) return;
+		ExtraUniformsBlock &b = extraUniforms[index];
+		b.binding = binding;
+		b.blockName = blockName;
+		b.size = size;
+		b.scratch.assign(size, 0);
+		b.offsets = offsets;
+	}
 	
 	void IMaterial::RemoveUniform(Uniform* handle)
 	{

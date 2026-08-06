@@ -64,6 +64,8 @@ uint32 IRenderer::MaterialUniformsUBO = 0;
 uint32 IRenderer::ObjectLightCountsUBO = 0;
 bool IRenderer::VertexFrameUniformsUBOValid = false;
 Vec3 IRenderer::CachedCameraPosition;
+bool IRenderer::CachedClipPlaneEnabled = false;
+Vec4 IRenderer::CachedClipPlane0;
 bool IRenderer::AmbientLightUniformsUBOValid = false;
 Vec4 IRenderer::CachedGlobalLight;
 bool IRenderer::VelocityFrameUniformsUBOValid = false;
@@ -276,7 +278,7 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* ext
 		// is true; created unconditionally here regardless, same as every
 		// UBO above, since creating a small buffer nobody currently binds
 		// to is harmless and keeps this block simple.
-		VertexFrameUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4), 16);
+		VertexFrameUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 2, 16);
 		VelocityFrameUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix) * 2, 17);
 		ObjectMatrixUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix), 18);
 		BoneMatricesUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_BONES, 19);
@@ -837,13 +839,13 @@ void IRenderer::EndRender()
 	DisableBlending();
 }
 
-// See the comment on RenderingMesh::PipelineCache (RenderingComponent.h) -
-// packs (shader, targetFBO) into one key. Shader program handles and FBO
-// handles are both DeviceHandle (uint32), so a plain 32-bit shift keeps
-// each half exact with no risk of collision.
-static uint64 PipelineCacheKey(const uint32 shader, const uint32 targetFBO)
+// Packs (shader, targetFBO, cullFace). Cull is baked into Vulkan pipelines
+// (SetCullFaceMode is a no-op there) - without it in the key, toggling
+// FrontFace/BackFace for water reflection kept reusing the first-baked
+// cull and flashed dark/lit.
+static uint64 PipelineCacheKey(const uint32 shader, const uint32 targetFBO, const uint32 cullFace)
 {
-	return ((uint64)shader << 32) | (uint64)targetFBO;
+	return ((uint64)shader << 32) | ((uint64)(cullFace & 0xFFu) << 24) | (uint64)(targetFBO & 0xFFFFFFu);
 }
 
 void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material)
@@ -909,7 +911,7 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 		// was current *before* this switch (or none at all), silently
 		// leaving the real descriptor unwritten
 		// (VUID-vkCmdDrawIndexed-None-08114 caught this the hard way).
-		device->BindPipeline(cmd, rmesh->PipelineCache[PipelineCacheKey(Material->GetShader(), device->GetCurrentRenderTarget())]);
+		device->BindPipeline(cmd, rmesh->PipelineCache[PipelineCacheKey(Material->GetShader(), device->GetCurrentRenderTarget(), Material->GetCullFace())]);
 
 		// Material Stuff Pre Render
 		Material->PreRender();
@@ -1245,11 +1247,19 @@ void IRenderer::EnableClipPlane(const uint32 &numberOfClipPlanes)
 {
 	ClipPlane = true;
 	ClipPlaneNumber = numberOfClipPlanes;
+	// Force VertexFrameUniforms re-upload — stale uClipEnabled after a
+	// disable/enable sequence was leaving reflection passes unclipped or
+	// fully discarded on alternate frames.
+	VertexFrameUniformsUBOValid = false;
 }
 
 void IRenderer::DisableClipPlane()
 {
 	ClipPlane = false;
+	// Prevent stale uClipPlanes uploads on materials that still declare
+	// the uniform (SendGlobalUniforms always sends ClipPlaneNumber entries).
+	ClipPlaneNumber = 0;
+	VertexFrameUniformsUBOValid = false;
 }
 
 void IRenderer::StartClippingPlanes()
@@ -1354,11 +1364,13 @@ void IRenderer::DeactivateCulling()
 
 bool IRenderer::CullingSphereTest(RenderingMesh* rmesh, GameObject* owner)
 {
+	if (!IsCulling || !culling) return true;
 	return culling->SphereInFrustum(owner->GetWorldPosition(), owner->GetBoundingSphereRadiusWorldSpace());
 }
 
 bool IRenderer::CullingBoxTest(RenderingMesh* rmesh, GameObject* owner)
 {
+	if (!IsCulling || !culling) return true;
 	AABox aabb = AABox(owner->GetBoundingMinValueWorldSpace(), owner->GetBoundingMaxValueWorldSpace());
 
 	// Return test
@@ -1367,11 +1379,13 @@ bool IRenderer::CullingBoxTest(RenderingMesh* rmesh, GameObject* owner)
 
 bool IRenderer::CullingPointTest(RenderingMesh* rmesh, GameObject* owner)
 {
+	if (!IsCulling || !culling) return true;
 	return culling->PointInFrustum(owner->GetWorldPosition());
 }
 
 void IRenderer::UpdateCulling(const Matrix& ViewProjectionMatrix)
 {
+	if (!IsCulling || !culling) return;
 	culling->Update(ViewProjectionMatrix);
 }
 
@@ -1485,11 +1499,21 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 	// nothing needs to be removed there, this just adds the actual upload.
 	if (Material->SupportsUniformBlocks())
 	{
-		if (!VertexFrameUniformsUBOValid || memcmp(&CachedCameraPosition, &CameraPosition, sizeof(Vec3)) != 0)
+		if (!VertexFrameUniformsUBOValid ||
+			memcmp(&CachedCameraPosition, &CameraPosition, sizeof(Vec3)) != 0 ||
+			CachedClipPlaneEnabled != ClipPlane ||
+			memcmp(&CachedClipPlane0, &ClipPlanes[0], sizeof(Vec4)) != 0)
 		{
-			Vec4 cameraPosPadded(CameraPosition, 0.0f);
-			device->ReplaceUniformBuffer(VertexFrameUniformsUBO, sizeof(Vec4), &cameraPosPadded);
+			// std140: vec4 uCameraPos (xyz + clipEnabled in w), vec4 uClipPlane0.
+			f32 vertexFrameData[8] = {
+				CameraPosition.x, CameraPosition.y, CameraPosition.z,
+				ClipPlane ? 1.0f : 0.0f,
+				ClipPlanes[0].x, ClipPlanes[0].y, ClipPlanes[0].z, ClipPlanes[0].w
+			};
+			device->ReplaceUniformBuffer(VertexFrameUniformsUBO, sizeof(vertexFrameData), vertexFrameData);
 			CachedCameraPosition = CameraPosition;
+			CachedClipPlaneEnabled = ClipPlane;
+			CachedClipPlane0 = ClipPlanes[0];
 			VertexFrameUniformsUBOValid = true;
 		}
 		if (!AmbientLightUniformsUBOValid || memcmp(&CachedGlobalLight, &GlobalLight, sizeof(Vec4)) != 0)
@@ -1765,8 +1789,15 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		device->ReplaceUniformBuffer(ObjectMatrixUniformsUBO, sizeof(Matrix), &ModelMatrix);
 		if (rmesh->SkinningBones.size() > 0)
 		{
-			uint32 bonesToUpload = rmesh->SkinningBones.size() < PYROS_MAX_BONES ? rmesh->SkinningBones.size() : PYROS_MAX_BONES;
-			device->ReplaceUniformBuffer(BoneMatricesUBO, sizeof(Matrix) * bonesToUpload, &rmesh->SkinningBones[0]);
+			// Always upload the full UBO size. ReplaceUniformBuffer →
+			// glBufferData with a shorter size orphans storage smaller than
+			// the shader's mat4 uBoneMatrix[MAX_BONES] block; on macOS GL
+			// that left the binding unloadable / zeros, so skinned meshes
+			// stayed in bind pose ("no animation").
+			uint32 bonesToUpload = rmesh->SkinningBones.size() < PYROS_MAX_BONES ? (uint32)rmesh->SkinningBones.size() : PYROS_MAX_BONES;
+			Matrix boneUpload[PYROS_MAX_BONES]; // default-ctor = identity pad past bonesToUpload
+			memcpy(boneUpload, &rmesh->SkinningBones[0], sizeof(Matrix) * bonesToUpload);
+			device->ReplaceUniformBuffer(BoneMatricesUBO, sizeof(Matrix) * PYROS_MAX_BONES, boneUpload);
 		}
 		device->ReplaceUniformBuffer(VelocityObjectUniformsUBO, sizeof(Matrix), &PrvModelMatrix);
 
@@ -2218,7 +2249,7 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 	// unless BindPipeline() is also called, which RenderObject() only
 	// does at this exact same (mesh, shader) switch cadence, and
 	// GetCurrentRenderTarget() always returns 0 there.
-	uint64 pipelineKey = PipelineCacheKey(material->GetShader(), device->GetCurrentRenderTarget());
+	uint64 pipelineKey = PipelineCacheKey(material->GetShader(), device->GetCurrentRenderTarget(), material->GetCullFace());
 	if (rmesh->PipelineCache.find(pipelineKey) == rmesh->PipelineCache.end())
 	{
 		IRenderDevice::PipelineDesc pdesc;

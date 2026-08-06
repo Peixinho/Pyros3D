@@ -1,9 +1,6 @@
--- Attached to ParticlesExample's smoke GameObject (the one holding a
--- ParticleSystem component). DemoLauncher's ImGui panel writes the 3
--- tunables (emissionRate/spread/riseSpeed) into this instance's own
--- table every frame (no ImGui<->Lua binding exists - see the plan), and
--- this script pushes them into the real ParticleSystem each update, the
--- same 3 setters the original C++ ParticlesExample called directly.
+-- Attached to ParticlesExample's smoke GameObject (ParticleSystem + this
+-- script). Tunables live here; DemoLauncher only hosts a generic imgui
+-- surface and calls optional drawUI() on LuaComponents.
 local SmokeTuning = class('SmokeTuning')
 
 function SmokeTuning:initialize()
@@ -14,6 +11,14 @@ end
 
 function SmokeTuning:init(owner)
 	self.particleSystem = owner:getComponent("ParticleSystem")
+end
+
+function SmokeTuning:drawUI()
+	if not imgui then return end
+	imgui.text("Smoke Particle Tuning")
+	self.emissionRate = imgui.sliderFloat("Rate (particles/sec)", self.emissionRate, 1.0, 60.0)
+	self.spread = imgui.sliderFloat("Spread", self.spread, 0.0, 2.0)
+	self.riseSpeed = imgui.sliderFloat("Rise Speed", self.riseSpeed, 0.0, 10.0)
 end
 
 function SmokeTuning:update(time)

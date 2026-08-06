@@ -33,6 +33,9 @@ namespace p3d
 
 		virtual void AfterRender();
 
+		// Bind tex as next sampler unit and register uniformName = unit index.
+		void AddSampler(const std::string &uniformName, const std::shared_ptr<Texture> &tex);
+
 		std::vector<std::shared_ptr<Texture>> textures;
 
 		// Empty when constructed from a raw Shader* - that path has no
@@ -59,7 +62,7 @@ namespace p3d
 		// plain, unlabeled loose uniforms. Runs before a subclass's own
 		// constructor body (base-class constructors always run first), so
 		// a subclass that still hand-assigns extraUniforms[] itself
-		// (CustomMaterialExample/WaterMaterial/ParticleMaterial) simply
+		// (CustomMaterialExample/ParticleMaterial/Lua water_material) simply
 		// overwrites this afterward - manual authoring always wins.
 		void PopulateAutoExtraUniforms();
 

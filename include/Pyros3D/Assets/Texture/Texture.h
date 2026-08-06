@@ -188,6 +188,11 @@ namespace p3d {
 		// Get Last Binded Texture
 		static uint32 GetLastBindedUnit();
 
+		// Reset the static Bind()/Unbind() unit counter - call on demo/renderer
+		// teardown so a mismatched Bind/Unbind cannot permanently shift every
+		// subsequent texture unit assignment (black screen / unloadable tex).
+		static void ResetUnitCounter() { UnitBinded = 0; LastUnitBinded = 0; }
+
 		// Destructor
 		virtual ~Texture();
 

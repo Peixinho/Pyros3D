@@ -424,6 +424,10 @@ end
 
 function E.fireQueuedBursts()
 	for i = 1, #E.fx.armed do
+		-- play() samples the owner's world matrix; refresh so hosted mode
+		-- (LuaComponent mid Scene::Update, no trailing scene:update) and
+		-- standalone stay equivalent.
+		E.fx.armed[i].go:refreshTransformation()
 		E.fx.armed[i].ps:play()
 		E.fx.armed[i] = nil
 	end

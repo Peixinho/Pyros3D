@@ -11,6 +11,11 @@
 --    The C++ side of this game (examples/NeonPulse) is a window, a
 --    sol::state and a call to update(). Everything else is here.
 --
+--    DemoLauncher hosts the same files through a scene LuaComponent
+--    (demos/scripts/neonpulse.lua): when the host already exposes
+--    scene/renderer/camera/projection globals, this script reuses them
+--    instead of building a second stack, and skips owning the frame.
+--
 -- ****************************************************************
 
 -- ****************************** Module loading *************************
@@ -46,19 +51,52 @@ local C, Arena, E, Game, Audio
 function init()
 	C = import("config")
 
-	G.scene = Scene.new()
-	G.projection = Projection.new()
+	-- Hosted by DemoLauncher (or any host that already owns the stack):
+	-- reuse its Scene/DeferredRenderer/shell camera/projection. Standalone
+	-- NeonPulse.cpp leaves these globals unset and we build our own.
+	local hosted = (scene ~= nil and renderer ~= nil and camera ~= nil and projection ~= nil)
+	G._hosted = hosted
 
-	if C.renderer == "deferred" then
-		buildDeferredRenderer(SCREEN_W, SCREEN_H)
+	if hosted then
+		-- Proxy Scene:add so destroy() can Scene:remove exactly what we
+		-- created, without touching the host's shell or other demos'
+		-- leftover state (UnloadScene only knows about JSON roots).
+		local realScene = scene
+		G._scene = realScene
+		G.owned = {}
+		G.scene = {
+			add = function(_, go)
+				G.owned[#G.owned + 1] = go
+				realScene:add(go)
+			end,
+			remove = function(_, go) realScene:remove(go) end,
+			update = function(_, t) realScene:update(t) end,
+		}
+		G.renderer = renderer
+		G.camera = camera
+		G.projection = projection
+		-- JSON camera_none leaves rotation at identity; Neon needs the
+		-- designed lookAt or the arena sits off-frustum / empty-looking.
+		if G.camera and C.camera then
+			G.camera:setPosition(C.camera.pos)
+			G.camera:lookAtVec(C.camera.lookAt)
+			if G.camera.refreshTransformation then G.camera:refreshTransformation() end
+		end
 	else
-		G.renderer = ForwardRenderer.new(SCREEN_W, SCREEN_H)
-	end
+		G.scene = Scene.new()
+		G.projection = Projection.new()
 
-	G.camera = GameObject.new()
-	G.camera:setPosition(C.camera.pos)
-	G.camera:lookAtVec(C.camera.lookAt)
-	G.scene:add(G.camera)
+		if C.renderer == "deferred" then
+			buildDeferredRenderer(SCREEN_W, SCREEN_H)
+		else
+			G.renderer = ForwardRenderer.new(SCREEN_W, SCREEN_H)
+		end
+
+		G.camera = GameObject.new()
+		G.camera:setPosition(C.camera.pos)
+		G.camera:lookAtVec(C.camera.lookAt)
+		G.scene:add(G.camera)
+	end
 
 	-- One soft sprite shared by the ball trails and every impact burst.
 	G.sprite = Texture.new()
@@ -142,6 +180,19 @@ function update(time, dt)
 
 	Game.update(dt, time)
 
+	if G._hosted then
+		-- Host SceneGraph::Update is already mid-pass (we are a
+		-- LuaComponent on it) - do not recurse into scene:update.
+		-- Refresh the shell camera so the audio listener (and the host's
+		-- post-Update RefreshTransformation / RenderScene) see shake.
+		if G.camera and G.camera.refreshTransformation then
+			G.camera:refreshTransformation()
+		end
+		E.fireQueuedBursts()
+		Audio.update(dt)
+		return
+	end
+
 	G.scene:update(time)
 
 	-- Burst emitters read their owner's *world* position, which the scene
@@ -160,6 +211,10 @@ end
 function resize(width, height)
 	if not C then return end
 	fitProjection(width, height)
+	if G._hosted then
+		-- Host owns renderer + G-buffer resize (DemoLauncher::OnResize).
+		return
+	end
 	G.renderer:resize(width, height)
 	-- The renderer resizes its own internal targets, but the G-buffer
 	-- textures are ours - miss these and the deferred pass keeps sampling
@@ -169,4 +224,39 @@ function resize(width, height)
 		-- createEmptyTexture call above for the same reason).
 		for _, tex in pairs(G.gbuffer) do tex:resize(width, height, 0) end
 	end
+end
+
+-- Standalone: optional. Hosted: required so the next demo does not inherit
+-- Neon Pulse's dynamically-added GameObjects / Input bridge / lights.
+function destroy()
+	if G then
+		if G._hosted and G._scene and G.owned then
+			for _, go in ipairs(G.owned) do
+				pcall(function() G._scene:remove(go) end)
+			end
+			-- Restore launcher defaults Arena.build() overwrote.
+			if G.renderer then
+				G.renderer:setGlobalLight(Vec4.new(0.12, 0.12, 0.14, 1))
+				G.renderer:unsetBackground()
+			end
+		end
+		-- Drop Input.new() so ~LuaInputBridge unregisters from InputManager.
+		G.input = nil
+		G.scene = nil
+		G.renderer = nil
+		G.camera = nil
+		G.gbuffer = nil
+		G.gbufferFBO = nil
+		G.projection = nil
+		G.sprite = nil
+		G.owned = nil
+		G._scene = nil
+	end
+	for k in pairs(loaded) do loaded[k] = nil end
+	G = nil
+	C = nil
+	Arena = nil
+	E = nil
+	Game = nil
+	Audio = nil
 end

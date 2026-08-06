@@ -1,0 +1,129 @@
+{
+    "materials": [
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                1,
+                1,
+                1,
+                1
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.05,
+            "id": 0,
+            "kind": "generic",
+            "metallic": 0.0,
+            "opacity": 1.0,
+            "options": 8,
+            "reflectivity": 0.0,
+            "roughness": 0.0,
+            "shininess": 50.0,
+            "specular": [
+                0,
+                0,
+                0,
+                0
+            ],
+            "ssrEnabled": false,
+            "transparent": true,
+            "wireframe": false,
+            "skyboxMap": {
+                "negx": "/Users/peixinho/dev/cpp/Pyros3D/examples/RacingGame/assets/textures/skybox/negx.png",
+                "negy": "/Users/peixinho/dev/cpp/Pyros3D/examples/RacingGame/assets/textures/skybox/negy.png",
+                "negz": "/Users/peixinho/dev/cpp/Pyros3D/examples/RacingGame/assets/textures/skybox/negz.png",
+                "posx": "/Users/peixinho/dev/cpp/Pyros3D/examples/RacingGame/assets/textures/skybox/posx.png",
+                "posy": "/Users/peixinho/dev/cpp/Pyros3D/examples/RacingGame/assets/textures/skybox/posy.png",
+                "posz": "/Users/peixinho/dev/cpp/Pyros3D/examples/RacingGame/assets/textures/skybox/posz.png"
+            }
+        }
+    ],
+    "roots": [
+        {
+            "name": "Camera",
+            "tags": [
+                "Camera"
+            ],
+            "position": [
+                0,
+                0,
+                0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_fly.lua",
+                    "data": {
+                        "yaw": 0,
+                        "pitch": 0
+                    }
+                }
+            ]
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": false,
+                    "cullTest": false,
+                    "material": 0,
+                    "renderable": {
+                        "depth": 1000.0,
+                        "flip": false,
+                        "height": 1000.0,
+                        "kind": "primitive",
+                        "shape": "Cube",
+                        "smooth": false,
+                        "tangentBitangent": false,
+                        "width": 1000.0
+                    },
+                    "type": "RenderingComponent"
+                },
+                {
+                    "data": {},
+                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/skybox_follow.lua",
+                    "type": "LuaComponent"
+                }
+            ],
+            "name": "Skybox",
+            "position": [
+                0,
+                0,
+                0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "tags": []
+        }
+    ],
+    "version": 1
+}

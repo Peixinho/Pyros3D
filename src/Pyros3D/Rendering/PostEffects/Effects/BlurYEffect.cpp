@@ -46,7 +46,7 @@ namespace p3d {
 									"#define UBO_BINDING(n) layout(std140, binding = n)\n"
 									"#define IO_LOCATION(n) layout(location = n)\n"
 									"#else\n"
-									"#define UBO_BINDING(n)\n"
+									"#define UBO_BINDING(n) layout(std140)\n"
 									"#define IO_LOCATION(n)\n"
 									"#endif\n"
 								"IO_LOCATION(0) varying_out vec2 vTexcoord;\n"

@@ -9,6 +9,8 @@
 #ifdef LUA_BINDINGS
 
 #include <Pyros3D/Utils/Bindings/PyrosBindings.h>
+#include <Pyros3D/Utils/Mouse3D/Mouse3D.h>
+#include <memory>
 namespace p3d {
 
 	// ******************************* OVERLOADS *******************************
@@ -443,20 +445,30 @@ namespace p3d {
 	{
 		return p.CreateConvexTriangleMesh(index, vertex, mass);
 	}
-	// Frame Buffer
-	void FrameBuffer_Init(FrameBuffer &f, const uint32 attachmentFormat, const uint32 TextureType, Texture* attachment)
+	// Frame Buffer — Texture args must be shared_ptr (Lua factories); sol
+	// also drops C++ default args, so renderbuffer overloads need both
+	// 4-arg and 5-arg wrappers.
+	void FrameBuffer_InitTex(FrameBuffer &f, const uint32 attachmentFormat, const uint32 texType, const std::shared_ptr<Texture> &attachment)
 	{
-		f.Init(attachmentFormat, TextureType, attachment);
+		f.Init(attachmentFormat, texType, attachment.get());
 	}
-	void FrameBuffer_InitRenderBuffer(FrameBuffer &f, const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height, const uint32 msaa = 0)
+	void FrameBuffer_InitRenderBuffer4(FrameBuffer &f, const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height)
+	{
+		f.Init(attachmentFormat, attachmentDataType, Width, Height, 0);
+	}
+	void FrameBuffer_InitRenderBuffer5(FrameBuffer &f, const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height, const uint32 msaa)
 	{
 		f.Init(attachmentFormat, attachmentDataType, Width, Height, msaa);
 	}
-	void FrameBuffer_AddAttach(FrameBuffer &f, const uint32 attachmentFormat, const uint32 TextureType, Texture* attachment)
+	void FrameBuffer_AddAttachTex(FrameBuffer &f, const uint32 attachmentFormat, const uint32 texType, const std::shared_ptr<Texture> &attachment)
 	{
-		f.AddAttach(attachmentFormat, TextureType, attachment);
+		f.AddAttach(attachmentFormat, texType, attachment.get());
 	}
-	void FrameBuffer_AddAttachRenderBuffer(FrameBuffer &f, const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height, const uint32 msaa = 0)
+	void FrameBuffer_AddAttachRenderBuffer4(FrameBuffer &f, const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height)
+	{
+		f.AddAttach(attachmentFormat, attachmentDataType, Width, Height, 0);
+	}
+	void FrameBuffer_AddAttachRenderBuffer5(FrameBuffer &f, const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height, const uint32 msaa)
 	{
 		f.AddAttach(attachmentFormat, attachmentDataType, Width, Height, msaa);
 	}
@@ -471,13 +483,221 @@ namespace p3d {
 	{
 		return static_cast<SkeletonAnimationInstance*>(rc.GetActiveSkeletonAnimation());
 	}
-	void RenderingComponent_ADDLOD_MaterialOptions(RenderingComponent* rcomp, const std::shared_ptr<Renderable>& renderable, const f32 Distance, const std::shared_ptr<IMaterial>& Material)
+	// Same void*-to-typed cast pattern as GetActiveSkeletonAnimation -
+	// TextureAnimationInstance is the only type ever stored via
+	// SetActiveTextureAnimation (see SceneSerializer load path).
+	TextureAnimationInstance* RenderingComponent_GetActiveTextureAnimation(RenderingComponent &rc)
 	{
-		rcomp->AddLOD(renderable, Distance, Material);
+		return static_cast<TextureAnimationInstance*>(rc.GetActiveTextureAnimation());
 	}
-	void RenderingComponent_ADDLOD_MaterialPointer(RenderingComponent* rcomp, const std::shared_ptr<Renderable>& renderable, const f32 Distance, const uint32 MaterialOptions = 0)
+	// RenderingMesh::Material is shared_ptr<IMaterial>; Lua scripts that
+	// need GenericShaderMaterial::SetColorMap (e.g. texture_anim.lua)
+	// can't call it through the IMaterial usertype alone.
+	std::shared_ptr<GenericShaderMaterial> RenderingMesh_GetGenericMaterial(RenderingMesh &m)
 	{
-		rcomp->AddLOD(renderable, Distance, MaterialOptions);
+		return std::dynamic_pointer_cast<GenericShaderMaterial>(m.Material);
+	}
+
+	// SOL_CHECK_ARGUMENTS rejects shared_ptr<Cube> for a parameter typed
+	// shared_ptr<Renderable> even when Cube lists bases<Renderable> - sol's
+	// factory overload matcher does not walk that inheritance for
+	// shared_ptr. Pull the concrete userdata out of sol::object instead.
+	std::shared_ptr<Renderable> LuaObjectToRenderable(const sol::object &o)
+	{
+		if (!o.valid()) return nullptr;
+		if (o.is<std::shared_ptr<Cube>>()) return o.as<std::shared_ptr<Cube>>();
+		if (o.is<std::shared_ptr<Sphere>>()) return o.as<std::shared_ptr<Sphere>>();
+		if (o.is<std::shared_ptr<Plane>>()) return o.as<std::shared_ptr<Plane>>();
+		if (o.is<std::shared_ptr<Capsule>>()) return o.as<std::shared_ptr<Capsule>>();
+		if (o.is<std::shared_ptr<Cone>>()) return o.as<std::shared_ptr<Cone>>();
+		if (o.is<std::shared_ptr<Cylinder>>()) return o.as<std::shared_ptr<Cylinder>>();
+		if (o.is<std::shared_ptr<Torus>>()) return o.as<std::shared_ptr<Torus>>();
+		if (o.is<std::shared_ptr<TorusKnot>>()) return o.as<std::shared_ptr<TorusKnot>>();
+		if (o.is<std::shared_ptr<Text>>()) return o.as<std::shared_ptr<Text>>();
+		if (o.is<std::shared_ptr<Model>>()) return o.as<std::shared_ptr<Model>>();
+		if (o.is<std::shared_ptr<Decal>>()) return o.as<std::shared_ptr<Decal>>();
+		if (o.is<std::shared_ptr<Renderable>>()) return o.as<std::shared_ptr<Renderable>>();
+		return nullptr;
+	}
+
+	std::shared_ptr<IMaterial> LuaObjectToMaterial(const sol::object &o)
+	{
+		if (!o.valid()) return nullptr;
+		if (o.is<std::shared_ptr<GenericShaderMaterial>>()) return o.as<std::shared_ptr<GenericShaderMaterial>>();
+		if (o.is<std::shared_ptr<CustomShaderMaterial>>()) return o.as<std::shared_ptr<CustomShaderMaterial>>();
+		if (o.is<std::shared_ptr<IMaterial>>()) return o.as<std::shared_ptr<IMaterial>>();
+		return nullptr;
+	}
+
+	// Same shared_ptr inheritance issue as RenderingComponent.new — Model
+	// won't match shared_ptr<Renderable> via sol overload alone. Third arg
+	// is int options or IMaterial (one function avoids sol::object/uint32
+	// overload ambiguity).
+	void RenderingComponent_ADDLOD(RenderingComponent* rcomp, sol::object renderableObj, const f32 Distance, sol::object materialOrOptions)
+	{
+		std::shared_ptr<Renderable> renderable = LuaObjectToRenderable(renderableObj);
+		if (!renderable)
+			throw std::runtime_error("RenderingComponent:addLOD: first argument is not a Renderable");
+		if (materialOrOptions.get_type() == sol::type::number)
+		{
+			rcomp->AddLOD(renderable, Distance, materialOrOptions.as<uint32>());
+			return;
+		}
+		std::shared_ptr<IMaterial> material = LuaObjectToMaterial(materialOrOptions);
+		if (!material)
+			throw std::runtime_error("RenderingComponent:addLOD: third argument is not an IMaterial or material options int");
+		rcomp->AddLOD(renderable, Distance, material);
+	}
+	void RenderingComponent_ADDLOD_DistOnly(RenderingComponent* rcomp, sol::object renderableObj, const f32 Distance)
+	{
+		std::shared_ptr<Renderable> renderable = LuaObjectToRenderable(renderableObj);
+		if (!renderable)
+			throw std::runtime_error("RenderingComponent:addLOD: first argument is not a Renderable");
+		rcomp->AddLOD(renderable, Distance, 0u);
+	}
+
+	std::shared_ptr<LUA_RenderingComponent> LuaNewRenderingComponent(sol::object renderableObj, sol::object materialOrOptions)
+	{
+		std::shared_ptr<Renderable> renderable = LuaObjectToRenderable(renderableObj);
+		if (!renderable)
+			throw std::runtime_error("RenderingComponent.new: first argument is not a Renderable");
+		if (materialOrOptions.get_type() == sol::type::number)
+			return std::make_shared<LUA_RenderingComponent>(renderable, materialOrOptions.as<int>());
+		std::shared_ptr<IMaterial> material = LuaObjectToMaterial(materialOrOptions);
+		if (!material)
+			throw std::runtime_error("RenderingComponent.new: second argument is not an IMaterial or material options int");
+		return std::make_shared<LUA_RenderingComponent>(renderable, material);
+	}
+
+	std::shared_ptr<LUA_RenderingComponent> LuaNewRenderingComponentDist(sol::object renderableObj, sol::object materialOrOptions, float distance)
+	{
+		std::shared_ptr<Renderable> renderable = LuaObjectToRenderable(renderableObj);
+		if (!renderable)
+			throw std::runtime_error("RenderingComponent.new: first argument is not a Renderable");
+		if (materialOrOptions.get_type() == sol::type::number)
+			return std::make_shared<LUA_RenderingComponent>(renderable, materialOrOptions.as<int>(), distance);
+		std::shared_ptr<IMaterial> material = LuaObjectToMaterial(materialOrOptions);
+		if (!material)
+			throw std::runtime_error("RenderingComponent.new: second argument is not an IMaterial or material options int");
+		return std::make_shared<LUA_RenderingComponent>(renderable, material, distance);
+	}
+
+	// Keeps DecalGeometry (owner of GetDecal() mesh) alive for the process.
+	static std::vector<std::unique_ptr<DecalGeometry> > g_LuaDecalGeometries;
+
+	static bool LuaGetIntersectedTriangle(RenderingComponent* rcomp, const Mouse3D &mouse, GameObject* camera, Vec3* intersection, Vec3* normal)
+	{
+		Vec3 _intersection, finalIntersection, _normal;
+		f32 t = 0.f, dist = 0.f;
+		bool init = false;
+
+		for (size_t k = 0; k < rcomp->GetMeshes().size(); k++)
+		{
+			RenderingMesh* mesh = rcomp->GetMeshes()[k];
+			if (!mesh || !mesh->Geometry) continue;
+				const std::vector<Vec3> &verts = mesh->Geometry->GetVertexData();
+			const std::vector<Vec3> &norms = mesh->Geometry->GetNormalData();
+			const std::vector<__INDEX_C_TYPE__> &idx = mesh->Geometry->GetIndexData();
+			for (size_t i = 0; i + 2 < idx.size(); i += 3)
+			{
+				if (!mouse.rayIntersectionTriangle(verts[idx[i]], verts[idx[i + 1]], verts[idx[i + 2]], &_intersection, &t))
+					continue;
+
+				Vec3 forward = camera->GetDirection().negate();
+				if (forward.dotProduct(rcomp->GetOwner()->GetWorldTransformation() * _intersection - camera->GetWorldPosition()) < 0)
+					continue;
+
+				if (!init)
+				{
+					finalIntersection = _intersection;
+					_normal = norms.empty() ? Vec3(0, 1, 0) : norms[idx[i]];
+					dist = t;
+					init = true;
+					continue;
+				}
+				if (t < dist)
+				{
+					dist = t;
+					finalIntersection = _intersection;
+					_normal = norms.empty() ? Vec3(0, 1, 0) : norms[idx[i]];
+				}
+			}
+		}
+		if (!init) return false;
+		*intersection = finalIntersection;
+		*normal = _normal;
+		return true;
+	}
+
+	// Port of examples/Decals::CreateDecal for DemoLauncher scene Lua.
+	bool PlaceDecalAtCursor(float winW, float winH, float mouseX, float mouseY,
+		GameObject* camera, Projection* projection, SceneGraph* scene,
+		sol::object materialObj, const Vec3 &dimensions)
+	{
+		if (!camera || !projection || !scene) return false;
+		std::shared_ptr<IMaterial> material = LuaObjectToMaterial(materialObj);
+		if (!material) return false;
+
+		Mouse3D mouse;
+		Vec3 FinalIntersection, FinalNormal;
+		f32 bestDist = 1e30f;
+		RenderingComponent* bestRc = NULL;
+		std::shared_ptr<GameObject> bestGo;
+
+		const Matrix viewInv = camera->GetWorldTransformation().Inverse();
+		const Matrix &proj = projection->GetProjectionMatrix();
+
+		for (const std::shared_ptr<GameObject> &go : scene->GetAllGameObjectList())
+		{
+			if (!go) continue;
+			RenderingComponent* rcomp = NULL;
+			for (const std::shared_ptr<IComponent> &c : go->GetComponents())
+			{
+				if (c && c->GetComponentType() == ComponentType::RenderingComponent)
+				{
+					rcomp = static_cast<RenderingComponent*>(c.get());
+					break;
+				}
+			}
+			if (!rcomp || rcomp->GetMeshes().empty()) continue;
+
+			mouse.GenerateRay(winW, winH, mouseX, mouseY, go->GetWorldTransformation(), viewInv, proj);
+			f32 t = 0.f;
+			if (!mouse.rayIntersectionBox(rcomp->GetBoundingMinValue(), rcomp->GetBoundingMaxValue(), &t))
+				continue;
+
+			Vec3 intersection, normal;
+			if (!LuaGetIntersectedTriangle(rcomp, mouse, camera, &intersection, &normal))
+				continue;
+
+			f32 dist2 = intersection.distanceSQR(camera->GetWorldPosition());
+			if (dist2 < bestDist)
+			{
+				bestDist = dist2;
+				bestRc = rcomp;
+				bestGo = go;
+				FinalIntersection = intersection;
+				FinalNormal = normal;
+			}
+		}
+
+		if (!bestRc || !bestGo) return false;
+
+		Matrix m;
+		m.LookAt(FinalIntersection, FinalNormal.negate(), Vec3(0, 1, 0));
+		m = m.Inverse();
+		m.Translate(FinalIntersection);
+
+		auto geom = std::unique_ptr<DecalGeometry>(new DecalGeometry(bestRc->GetMeshes()[0], bestGo->GetWorldTransformation(), m, dimensions));
+		Renderable* decalMesh = geom->GetDecal();
+		if (!decalMesh) return false;
+
+		// DecalGeometry owns the mesh; RC holds a non-owning shared_ptr view.
+		std::shared_ptr<Renderable> renderable(decalMesh, [](Renderable*) {});
+		auto rc = std::make_shared<LUA_RenderingComponent>(renderable, material);
+		bestGo->AddComponent(rc);
+		g_LuaDecalGeometries.push_back(std::move(geom));
+		return true;
 	}
 	// ******************************* OVERLOADS *******************************
 
@@ -641,6 +861,19 @@ namespace p3d {
 				"Color", Buffer_Bit::Color,
 				"Depth", Buffer_Bit::Depth,
 				"Stencil", Buffer_Bit::Stencil
+			);
+			lua->new_enum("BlendFunc",
+				"Zero", BlendFunc::Zero,
+				"One", BlendFunc::One,
+				"Src_Alpha", BlendFunc::Src_Alpha,
+				"One_Minus_Src_Alpha", BlendFunc::One_Minus_Src_Alpha,
+				"Dst_Alpha", BlendFunc::Dst_Alpha,
+				"One_Minus_Dst_Alpha", BlendFunc::One_Minus_Dst_Alpha
+			);
+			lua->new_enum("CullFace",
+				"BackFace", CullFace::BackFace,
+				"FrontFace", CullFace::FrontFace,
+				"DoubleSided", CullFace::DoubleSided
 			);
 
 			lua->new_enum("FBOFilter",
@@ -850,6 +1083,7 @@ namespace p3d {
 		{
 			// SceneGraph
 			lua->new_usertype<SceneGraph>("Scene",
+				sol::constructors<sol::types<>>(),
 				"update", &SceneGraph::Update,
 				"add", &SceneGraph::Add,
 				"remove", static_cast<void (SceneGraph::*)(const std::shared_ptr<GameObject> &)>(&SceneGraph::Remove),
@@ -857,6 +1091,7 @@ namespace p3d {
 				"addGameObject", &SceneGraph::AddGameObject,
 				"removeGameobject", static_cast<void (SceneGraph::*)(const std::shared_ptr<GameObject> &)>(&SceneGraph::RemoveGameObject),
 				"getTime", &SceneGraph::GetTime,
+				"getAllGameObjects", &SceneGraph::GetAllGameObjectList,
 				"save", [lua](SceneGraph &scene, const std::string &path) {
 					return SceneSerializer::SaveScene(&scene, path, lua);
 				},
@@ -875,7 +1110,8 @@ namespace p3d {
 			// GameObject - shared_ptr via sol::factories (same pattern as AudioBus)
 			lua->new_usertype<LUA_GameObject>("GameObject",
 				sol::factories(
-					[]() { return std::make_shared<LUA_GameObject>(); }
+					[]() { return std::make_shared<LUA_GameObject>(); },
+					[](bool isStatic) { return std::make_shared<LUA_GameObject>(isStatic); }
 				),
 				"init", &LUA_GameObject::Init,
 				"update", &LUA_GameObject::Update,
@@ -891,6 +1127,8 @@ namespace p3d {
 				"setPosition", &LUA_GameObject::SetPosition,
 				"setRotation", &LUA_GameObject::SetRotation,
 				"setScale", &LUA_GameObject::SetScale,
+				"getName", &LUA_GameObject::GetName,
+				"setName", &LUA_GameObject::SetName,
 				"setTransformationMatrix", &LUA_GameObject::SetTransformationMatrix,
 				// SetPosition()/etc only flip a dirty flag - GetWorldPosition()
 				// stays stale until something calls this (normally
@@ -965,6 +1203,8 @@ namespace p3d {
 				"setPosition", &GameObject::SetPosition,
 				"setRotation", &GameObject::SetRotation,
 				"setScale", &GameObject::SetScale,
+				"getName", &GameObject::GetName,
+				"setName", &GameObject::SetName,
 				"setTransformationMatrix", &GameObject::SetTransformationMatrix,
 				// See LUA_GameObject's identical binding above for why this
 				// exists.
@@ -1005,6 +1245,7 @@ namespace p3d {
 				"clearDepthBuffer", &ForwardRenderer::ClearDepthBuffer,
 				"enableClipPlane", &ForwardRenderer::EnableClipPlane,
 				"disableClipPlane", &ForwardRenderer::DisableClipPlane,
+				"setClipPlane0", &ForwardRenderer::SetClipPlane0,
 				"setClipaPlane0", &ForwardRenderer::SetClipPlane0,
 				"setClipaPlane1", &ForwardRenderer::SetClipPlane1,
 				"setClipaPlane2", &ForwardRenderer::SetClipPlane2,
@@ -1055,6 +1296,7 @@ namespace p3d {
 				"clearDepthBuffer", &DeferredRenderer::ClearDepthBuffer,
 				"enableClipPlane", &DeferredRenderer::EnableClipPlane,
 				"disableClipPlane", &DeferredRenderer::DisableClipPlane,
+				"setClipPlane0", &DeferredRenderer::SetClipPlane0,
 				"setClipaPlane0", &DeferredRenderer::SetClipPlane0,
 				"setClipaPlane1", &DeferredRenderer::SetClipPlane1,
 				"setClipaPlane2", &DeferredRenderer::SetClipPlane2,
@@ -1121,13 +1363,14 @@ namespace p3d {
 			lua->new_usertype<FrameBuffer>("FrameBuffer",
 				con,
 				"init", sol::overload(
-
-					&FrameBuffer_Init,
-					&FrameBuffer_InitRenderBuffer
+					&FrameBuffer_InitTex,
+					&FrameBuffer_InitRenderBuffer4,
+					&FrameBuffer_InitRenderBuffer5
 				),
 				"addAttach", sol::overload(
-					&FrameBuffer_AddAttach,
-					&FrameBuffer_AddAttachRenderBuffer
+					&FrameBuffer_AddAttachTex,
+					&FrameBuffer_AddAttachRenderBuffer4,
+					&FrameBuffer_AddAttachRenderBuffer5
 				),
 				"resize", &FrameBuffer::Resize,
 				"bind", &FrameBuffer::Bind,
@@ -1143,90 +1386,50 @@ namespace p3d {
 				);
 		}
 
+		// Base usertypes for mesh/material hierarchies.
+		lua->new_usertype<Renderable>("Renderable");
+
 		{
-			// LUA RenderingComponent - shared_ptr via sol::factories (same pattern as AudioBus)
-			lua->new_usertype<LUA_RenderingComponent>("RenderingComponent",
+			// IMaterial - shared_ptr via sol::factories
+			lua->new_usertype<IMaterial>("IMaterial",
 				sol::factories(
-					[](const std::shared_ptr<Renderable>& renderable, const std::shared_ptr<IMaterial>& Material, float Distance) { return std::make_shared<LUA_RenderingComponent>(renderable, Material, Distance); },
-					[](const std::shared_ptr<Renderable>& renderable, const std::shared_ptr<IMaterial>& Material) { return std::make_shared<LUA_RenderingComponent>(renderable, Material); },
-					[](const std::shared_ptr<Renderable>& renderable, int MaterialOptions, float Distance) { return std::make_shared<LUA_RenderingComponent>(renderable, MaterialOptions, Distance); },
-					[](const std::shared_ptr<Renderable>& renderable, int MaterialOptions) { return std::make_shared<LUA_RenderingComponent>(renderable, MaterialOptions); }
+					[]() { return std::make_shared<IMaterial>(); }
 				),
-				"addLOD", sol::overload(
-					&RenderingComponent_ADDLOD_MaterialPointer, 
-					& RenderingComponent_ADDLOD_MaterialOptions
-				),
-				"init", &LUA_RenderingComponent::Init,
-				"update", &LUA_RenderingComponent::Update,
-				"destroy", &LUA_RenderingComponent::Destroy,
-				"setCullingGeometry", &LUA_RenderingComponent::SetCullingGeometry,
-				"enableCullTest", &LUA_RenderingComponent::EnableCullTest,
-				"disableCullTest", &LUA_RenderingComponent::DisableCullTest,
-				"isCullTesting", &LUA_RenderingComponent::IsCullTesting,
-				"enableCastShadows", &LUA_RenderingComponent::EnableCastShadows,
-				"disableCastShadows", &LUA_RenderingComponent::DisableCastShadows,
-				"isCastingShadows", &LUA_RenderingComponent::IsCastingShadows,
-				"getRenderable", &LUA_RenderingComponent::GetRenderable,
-				"getSkeleton", &LUA_RenderingComponent::GetSkeleton,
-				"hasBones", &LUA_RenderingComponent::HasBones,
-				"getMeshes", &LUA_RenderingComponent::GetMeshes,
-				"getLODSize", &LUA_RenderingComponent::GetLODSize,
-				"getLODByDistance", &LUA_RenderingComponent::GetLODByDistance,
-				"updateLOD", &LUA_RenderingComponent::UpdateLOD,
-				"getComponents", &LUA_RenderingComponent::GetComponents,
-				"getActiveSkeletonAnimation", &RenderingComponent_GetActiveSkeletonAnimation,
-				"onUpdate", &LUA_RenderingComponent::on_update,
-				"onInit", &LUA_RenderingComponent::on_init,
-				"onDestroy", &LUA_RenderingComponent::on_destroy,
-				// RenderingComponent, not just IComponent: sol only performs
-				// a derived->base pointer conversion for bases listed here,
-				// so with IComponent alone every member bound as a free
-				// function taking RenderingComponent& (getActiveSkeletonAnimation
-				// / addLOD) rejected its own object with "expected userdata,
-				// received sol.p3d::LUA_RenderingComponent *: value at this
-				// index does not properly reflect the desired type". That is
-				// what left the Skeleton Animation demo unanimated - its
-				// script could never obtain the SkeletonAnimationInstance, so
-				// SkeletonAnimation::Update() never ran and the model
-				// rendered from uninitialised bone matrices.
-				sol::base_classes, sol::bases<RenderingComponent, IComponent>()
+				"preRender", &IMaterial::PreRender,
+				"render", &IMaterial::Render,
+				"afterRender", &IMaterial::AfterRender,
+				"setCullFace", &IMaterial::SetCullFace,
+				"getCullFace", &IMaterial::GetCullFace,
+				"isWireFrame", &IMaterial::IsWireFrame,
+				"getOpacity", &IMaterial::GetOpacity,
+				"isTransparent", &IMaterial::IsTransparent,
+				"setOpacity", &IMaterial::SetOpacity,
+				"setTransparencyFlag", &IMaterial::SetTransparencyFlag,
+				"enableDepthBias", &IMaterial::EnableDethBias,
+				"disableDepthBias", &IMaterial::DisableDethBias,
+				"enableBlending", &IMaterial::EnableBlending,
+				"disableBlending", &IMaterial::DisableBlending,
+				"blendingFunction", &IMaterial::BlendingFunction,
+				"blendingEquation", &IMaterial::BlendingEquation,
+				"addUniform", &IMaterial::AddUniform,
+				"startRenderWireFrame", &IMaterial::StartRenderWireFrame,
+				"stopRenderWireFrame", &IMaterial::StopRenderWireFrame,
+				"enableCastingShadows", &IMaterial::EnableCastingShadows,
+				"disableCastingShadows", &IMaterial::DisableCastingShadows,
+				"isCastingShadows", &IMaterial::IsCastingShadows,
+				"destroy", &IMaterial::Destroy,
+				"getShader", &IMaterial::GetShader,
+				"getInternalID", &IMaterial::GetInternalID,
+				"enableDepthTest", &IMaterial::EnableDepthTest,
+				"disableDepthTest", &IMaterial::DisableDepthTest,
+				"enableDepthWrite", &IMaterial::EnableDepthWrite,
+				"disableDepthWrite", &IMaterial::DisableDepthWrite,
+				"isDepthWritting", &IMaterial::IsDepthWritting,
+				"isDepthTesting", &IMaterial::IsDepthTesting
 				);
 		}
 
-        {
-            // LUA RenderingInstancedComponent - shared_ptr via sol::factories
-            lua->new_usertype<LUA_RenderingInstancedComponent>("RenderingInstancedComponent",
-                sol::factories(
-                    [](const std::shared_ptr<Renderable>& renderable, const std::shared_ptr<IMaterial>& Material, int nrInstances, float boundingSphere) { return std::make_shared<LUA_RenderingInstancedComponent>(renderable, Material, nrInstances, boundingSphere); },
-                    [](const std::shared_ptr<Renderable>& renderable, int MaterialProperties, int nrInstances, float boundingSphere) { return std::make_shared<LUA_RenderingInstancedComponent>(renderable, MaterialProperties, nrInstances, boundingSphere); }
-                ),
-                "init", &LUA_RenderingInstancedComponent::Init,
-                "update", &LUA_RenderingInstancedComponent::Update,
-                "destroy", &LUA_RenderingInstancedComponent::Destroy,
-                "setCullingGeometry", &LUA_RenderingInstancedComponent::SetCullingGeometry, "enableCullTest", &LUA_RenderingInstancedComponent::EnableCullTest,
-                "disableCullTest", &LUA_RenderingInstancedComponent::DisableCullTest,
-                "isCullTesting", &LUA_RenderingInstancedComponent::IsCullTesting,
-                "enableCastShadows", &LUA_RenderingInstancedComponent::EnableCastShadows,
-                "disableCastShadows", &LUA_RenderingInstancedComponent::DisableCastShadows,
-                "isCastingShadows", &LUA_RenderingInstancedComponent::IsCastingShadows,
-                "getRenderable", &LUA_RenderingInstancedComponent::GetRenderable,
-                "getSkeleton", &LUA_RenderingInstancedComponent::GetSkeleton,
-                "hasBones", &LUA_RenderingInstancedComponent::HasBones,
-                "getMeshes", &LUA_RenderingInstancedComponent::GetMeshes,
-                "getLODSize", &LUA_RenderingInstancedComponent::GetLODSize,
-                "getLODByDistance", &LUA_RenderingInstancedComponent::GetLODByDistance,
-                "updateLOD", &LUA_RenderingInstancedComponent::UpdateLOD,
-                "getComponents", &LUA_RenderingInstancedComponent::GetComponents,
-                "addBuffer", &LUA_RenderingInstancedComponent::AddBuffer,
-                "removeBuffer", &LUA_RenderingInstancedComponent::RemoveBuffer,
-                "numberOfInstances", &LUA_RenderingInstancedComponent::NumberOfInstances,
-                "setNumberInstances", &LUA_RenderingInstancedComponent::SetNumberInstances,
-                "onUpdate", &LUA_RenderingInstancedComponent::on_update,
-                "onInit", &LUA_RenderingInstancedComponent::on_init,
-                "onDestroy", &LUA_RenderingInstancedComponent::on_destroy,
-                sol::base_classes, sol::bases<IComponent>()
-                );
-        }
+
 
 		{
 			sol::constructors<sol::types<int>, sol::types<>> con;
@@ -1235,6 +1438,7 @@ namespace p3d {
 				"getDrawingType", &RenderingMesh::GetDrawingType,
 				"geometry", &RenderingMesh::Geometry,
 				"material", &RenderingMesh::Material,
+				"getGenericMaterial", &RenderingMesh_GetGenericMaterial,
 				"drawingType", &RenderingMesh::drawingType,
 				"renderingComponent", &RenderingMesh::renderingComponent,
 				"cullingGeometry", &RenderingMesh::CullingGeometry,
@@ -1244,9 +1448,11 @@ namespace p3d {
 		}
 
 		lua->new_usertype<IComponent>("IComponent",
-			"getOwner", &IComponent::GetOwner
+			"getOwner", &IComponent::GetOwner,
+			"enable", &IComponent::Enable,
+			"disable", &IComponent::Disable,
+			"isActive", &IComponent::IsActive
 			);
-		lua->new_usertype<Renderable>("Renderable");
 		lua->new_usertype<ILightComponent>("IlightComponent",
 			sol::base_classes, sol::bases<IComponent>()
 			);
@@ -1478,46 +1684,6 @@ namespace p3d {
 		}
 
 		{
-			// IMaterial - shared_ptr via sol::factories
-			lua->new_usertype<IMaterial>("IMaterial",
-				sol::factories(
-					[]() { return std::make_shared<IMaterial>(); }
-				),
-				"preRender", &IMaterial::PreRender,
-				"render", &IMaterial::Render,
-				"afterRender", &IMaterial::AfterRender,
-				"setCullFace", &IMaterial::SetCullFace,
-				"getCullFace", &IMaterial::GetCullFace,
-				"isWireFrame", &IMaterial::IsWireFrame,
-				"getOpacity", &IMaterial::GetOpacity,
-				"isTransparent", &IMaterial::IsTransparent,
-				"setOpacity", &IMaterial::SetOpacity,
-				"setTransparencyFlag", &IMaterial::SetTransparencyFlag,
-				"enableDepthBias", &IMaterial::EnableDethBias,
-				"disableDepthBias", &IMaterial::DisableDethBias,
-				"enableBlending", &IMaterial::EnableBlending,
-				"disableBlending", &IMaterial::DisableBlending,
-				"blendingFunction", &IMaterial::BlendingFunction,
-				"blendingEquation", &IMaterial::BlendingEquation,
-				"addUniform", &IMaterial::AddUniform,
-				"startRenderWireFrame", &IMaterial::StartRenderWireFrame,
-				"stopRenderWireFrame", &IMaterial::StopRenderWireFrame,
-				"enableCastingShadows", &IMaterial::EnableCastingShadows,
-				"disableCastingShadows", &IMaterial::DisableCastingShadows,
-				"isCastingShadows", &IMaterial::IsCastingShadows,
-				"destroy", &IMaterial::Destroy,
-				"getShader", &IMaterial::GetShader,
-				"getInternalID", &IMaterial::GetInternalID,
-				"enableDepthTest", &IMaterial::EnableDepthTest,
-				"disableDepthTest", &IMaterial::DisableDepthTest,
-				"enableDepthWrite", &IMaterial::EnableDepthWrite,
-				"disableDepthWrite", &IMaterial::DisableDepthWrite,
-				"isDepthWritting", &IMaterial::IsDepthWritting,
-				"isDepthTesting", &IMaterial::IsDepthTesting
-				);
-		}
-
-		{
 			// GenericShaderMaterial - shared_ptr via sol::factories
 			lua->new_usertype<GenericShaderMaterial>("GenericShaderMaterial",
 				sol::factories(
@@ -1555,8 +1721,38 @@ namespace p3d {
 					[](Shader* shader) { return std::make_shared<CustomShaderMaterial>(shader); }
 				),
 				"setShader", &CustomShaderMaterial::SetShader,
+				"addSampler", &CustomShaderMaterial::AddSampler,
 				sol::base_classes, sol::bases<IMaterial>()
 				);
+		}
+		{
+			lua->new_enum("UniformUsage",
+				"ProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix,
+				"ViewMatrix", Uniforms::DataUsage::ViewMatrix,
+				"ModelMatrix", Uniforms::DataUsage::ModelMatrix,
+				"CameraPosition", Uniforms::DataUsage::CameraPosition,
+				"Timer", Uniforms::DataUsage::Timer,
+				"NearFarPlane", Uniforms::DataUsage::NearFarPlane,
+				"Other", Uniforms::DataUsage::Other
+			);
+			lua->new_enum("UniformDataType",
+				"Int", Uniforms::DataType::Int,
+				"Float", Uniforms::DataType::Float,
+				"Vec2", Uniforms::DataType::Vec2,
+				"Vec3", Uniforms::DataType::Vec3,
+				"Vec4", Uniforms::DataType::Vec4,
+				"Matrix", Uniforms::DataType::Matrix
+			);
+			// Configure IMaterial::extraUniforms[index] from Lua (WaterShader blocks, etc.).
+			lua->set_function("setMaterialExtraUniformBlock",
+				[](IMaterial &m, int index, uint32 binding, const std::string &blockName, uint32 size, sol::table offsets) {
+					std::map<std::string, uint32> off;
+					offsets.for_each([&](sol::object key, sol::object value) {
+						if (key.get_type() == sol::type::string && value.get_type() == sol::type::number)
+							off[key.as<std::string>()] = (uint32)value.as<double>();
+					});
+					m.SetExtraUniformBlock(index, binding, blockName, size, off);
+				});
 		}
 
 		{
@@ -1721,6 +1917,96 @@ namespace p3d {
 				);
 		}
 
+
+		// RenderingComponent.new(mesh, material) - factories take sol::object
+		// and convert explicitly (see LuaObjectToRenderable). SOL_CHECK_ARGUMENTS
+		// will not match shared_ptr<Cube> to shared_ptr<Renderable> on its own.
+		{
+			lua->new_usertype<LUA_RenderingComponent>("RenderingComponent",
+				sol::factories(
+					&LuaNewRenderingComponentDist,
+					&LuaNewRenderingComponent
+				),
+				"addLOD", sol::overload(
+					&RenderingComponent_ADDLOD,
+					&RenderingComponent_ADDLOD_DistOnly
+				),
+				"enable", &IComponent::Enable,
+				"disable", &IComponent::Disable,
+				"isActive", &IComponent::IsActive,
+				"init", &LUA_RenderingComponent::Init,
+				"update", &LUA_RenderingComponent::Update,
+				"destroy", &LUA_RenderingComponent::Destroy,
+				"setCullingGeometry", &LUA_RenderingComponent::SetCullingGeometry,
+				"enableCullTest", &LUA_RenderingComponent::EnableCullTest,
+				"disableCullTest", &LUA_RenderingComponent::DisableCullTest,
+				"isCullTesting", &LUA_RenderingComponent::IsCullTesting,
+				"enableCastShadows", &LUA_RenderingComponent::EnableCastShadows,
+				"disableCastShadows", &LUA_RenderingComponent::DisableCastShadows,
+				"isCastingShadows", &LUA_RenderingComponent::IsCastingShadows,
+				"getRenderable", &LUA_RenderingComponent::GetRenderable,
+				"getSkeleton", &LUA_RenderingComponent::GetSkeleton,
+				"hasBones", &LUA_RenderingComponent::HasBones,
+				"getMeshes", &LUA_RenderingComponent::GetMeshes,
+				"getLODSize", &LUA_RenderingComponent::GetLODSize,
+				"getLODByDistance", &LUA_RenderingComponent::GetLODByDistance,
+				"updateLOD", &LUA_RenderingComponent::UpdateLOD,
+				"getComponents", &LUA_RenderingComponent::GetComponents,
+				"getActiveSkeletonAnimation", &RenderingComponent_GetActiveSkeletonAnimation,
+				"getActiveTextureAnimation", &RenderingComponent_GetActiveTextureAnimation,
+				"onUpdate", &LUA_RenderingComponent::on_update,
+				"onInit", &LUA_RenderingComponent::on_init,
+				"onDestroy", &LUA_RenderingComponent::on_destroy,
+				// RenderingComponent, not just IComponent: sol only performs
+				// a derived->base pointer conversion for bases listed here,
+				// so with IComponent alone every member bound as a free
+				// function taking RenderingComponent& (getActiveSkeletonAnimation
+				// / addLOD) rejected its own object with "expected userdata,
+				// received sol.p3d::LUA_RenderingComponent *: value at this
+				// index does not properly reflect the desired type". That is
+				// what left the Skeleton Animation demo unanimated - its
+				// script could never obtain the SkeletonAnimationInstance, so
+				// SkeletonAnimation::Update() never ran and the model
+				// rendered from uninitialised bone matrices.
+				sol::base_classes, sol::bases<RenderingComponent, IComponent>()
+				);
+		}
+
+        {
+            // LUA RenderingInstancedComponent - shared_ptr via sol::factories
+            lua->new_usertype<LUA_RenderingInstancedComponent>("RenderingInstancedComponent",
+                sol::factories(
+                    [](const std::shared_ptr<Renderable>& renderable, const std::shared_ptr<IMaterial>& Material, int nrInstances, float boundingSphere) { return std::make_shared<LUA_RenderingInstancedComponent>(renderable, Material, nrInstances, boundingSphere); },
+                    [](const std::shared_ptr<Renderable>& renderable, int MaterialProperties, int nrInstances, float boundingSphere) { return std::make_shared<LUA_RenderingInstancedComponent>(renderable, MaterialProperties, nrInstances, boundingSphere); }
+                ),
+                "init", &LUA_RenderingInstancedComponent::Init,
+                "update", &LUA_RenderingInstancedComponent::Update,
+                "destroy", &LUA_RenderingInstancedComponent::Destroy,
+                "setCullingGeometry", &LUA_RenderingInstancedComponent::SetCullingGeometry, "enableCullTest", &LUA_RenderingInstancedComponent::EnableCullTest,
+                "disableCullTest", &LUA_RenderingInstancedComponent::DisableCullTest,
+                "isCullTesting", &LUA_RenderingInstancedComponent::IsCullTesting,
+                "enableCastShadows", &LUA_RenderingInstancedComponent::EnableCastShadows,
+                "disableCastShadows", &LUA_RenderingInstancedComponent::DisableCastShadows,
+                "isCastingShadows", &LUA_RenderingInstancedComponent::IsCastingShadows,
+                "getRenderable", &LUA_RenderingInstancedComponent::GetRenderable,
+                "getSkeleton", &LUA_RenderingInstancedComponent::GetSkeleton,
+                "hasBones", &LUA_RenderingInstancedComponent::HasBones,
+                "getMeshes", &LUA_RenderingInstancedComponent::GetMeshes,
+                "getLODSize", &LUA_RenderingInstancedComponent::GetLODSize,
+                "getLODByDistance", &LUA_RenderingInstancedComponent::GetLODByDistance,
+                "updateLOD", &LUA_RenderingInstancedComponent::UpdateLOD,
+                "getComponents", &LUA_RenderingInstancedComponent::GetComponents,
+                "addBuffer", &LUA_RenderingInstancedComponent::AddBuffer,
+                "removeBuffer", &LUA_RenderingInstancedComponent::RemoveBuffer,
+                "numberOfInstances", &LUA_RenderingInstancedComponent::NumberOfInstances,
+                "setNumberInstances", &LUA_RenderingInstancedComponent::SetNumberInstances,
+                "onUpdate", &LUA_RenderingInstancedComponent::on_update,
+                "onInit", &LUA_RenderingInstancedComponent::on_init,
+                "onDestroy", &LUA_RenderingInstancedComponent::on_destroy,
+                sol::base_classes, sol::bases<IComponent>()
+                );
+        }
+
 		{
 			// Skeleton Animation
 			sol::constructors<sol::types<>> con;
@@ -1790,6 +2076,7 @@ namespace p3d {
 			lua->new_usertype<TextureAnimation>("TextureAnimation",
 				con,
 				"getFrame", &TextureAnimation::GetFrame,
+				"getFrameShared", &TextureAnimation::GetFrameShared,
 				"getNumberFrames", &TextureAnimation::GetNumberFrames,
 				"addFrame", &TextureAnimation::AddFrame,
 				"update", &TextureAnimation::Update,
@@ -1808,8 +2095,12 @@ namespace p3d {
 				"stop", &TextureAnimationInstance::Stop,
 				"isPlaying", &TextureAnimationInstance::IsPlaying,
 				"yoyo", &TextureAnimationInstance::YoYo,
-				"getTexture", &TextureAnimationInstance::GetTexture,
-				"getFrame", &TextureAnimationInstance::GetFrame
+				// shared_ptr - SetColorMap/etc. expect shared ownership;
+				// binding the raw GetTexture() made sol invent a bogus
+				// shared_ptr from Texture* and SEGV in SetColorMap.
+				"getTexture", &TextureAnimationInstance::GetTextureShared,
+				"getFrame", &TextureAnimationInstance::GetFrame,
+				"getOwner", &TextureAnimationInstance::GetOwner
 				);
 		}
 
@@ -1872,12 +2163,88 @@ namespace p3d {
 				"processPostEffects", &PostEffectsManager::ProcessPostEffects,
 				"addEffect", &PostEffectsManager::AddEffect,
 				"removeEffect", &PostEffectsManager::RemoveEffect,
+				"removeAllEffects", &PostEffectsManager::RemoveAllEffects,
 				"getNumberEffects", &PostEffectsManager::GetNumberEffects,
 				"getExternalFrameBuffer", &PostEffectsManager::GetExternalFrameBuffer,
 				"getColor", &PostEffectsManager::GetColor,
 				"getDepth", &PostEffectsManager::GetDepth,
 				"getLastRTT", &PostEffectsManager::GetLastRTT
 				);
+		}
+		{
+			// RTT source flags for IEffect constructors (TonemapEffect, etc.)
+			lua->new_enum("RTT",
+				"Color", RTT::Color,
+				"Depth", RTT::Depth,
+				"LastRTT", RTT::LastRTT,
+				"CustomTexture", RTT::CustomTexture
+			);
+		}
+		{
+			// Named post-effect factory - AddEffect takes ownership (see
+			// PostEffectsManager::RemoveAllEffects), so Lua must not also
+			// own a TonemapEffect userdata that would double-delete on GC.
+			lua->set_function("addPostEffect", [](PostEffectsManager &m, const std::string &name, int width, int height) {
+				if (name == "tonemap")
+					m.AddEffect(new TonemapEffect(RTT::Color, width, height));
+				else
+					echo("ERROR: addPostEffect - unknown effect '" + name + "'");
+			});
+
+			// SSAO full chain (ssao → blur → composite). Returns nothing;
+			// per-frame view matrix via ssaoSetViewMatrix. Handles cleared
+			// by clearPostEffectHandles() when the chain is torn down.
+			static SSAOEffect *g_ssao = nullptr;
+			static BlurSSAOEffect *g_ssaoBlur = nullptr;
+			lua->set_function("clearPostEffectHandles", []() {
+				g_ssao = nullptr;
+				g_ssaoBlur = nullptr;
+				Texture::ResetUnitCounter();
+			});
+			lua->set_function("buildSSAOPostChain", [](PostEffectsManager &m, int width, int height) {
+				g_ssao = new SSAOEffect(RTT::Depth, width, height);
+				g_ssao->SetRadius(0.2f);
+				g_ssao->SetStrength(1.5f);
+				g_ssao->SetTreshOld(2.0f);
+				g_ssao->SetScale(1.0f);
+				g_ssaoBlur = new BlurSSAOEffect(RTT::LastRTT, width, height);
+				m.AddEffect(g_ssao);
+				m.AddEffect(g_ssaoBlur);
+				m.AddEffect(new SSAOCompositeEffect(RTT::Color, RTT::LastRTT, width, height));
+			});
+			lua->set_function("ssaoSetViewMatrix", [](const Matrix &m) {
+				if (g_ssao) g_ssao->SetViewMatrix(m);
+			});
+			lua->set_function("ssaoSetParams", [](float radius, float strength, float threshold, float scale, float blurIntensity) {
+				if (g_ssao)
+				{
+					g_ssao->SetRadius(radius);
+					g_ssao->SetStrength(strength);
+					g_ssao->SetTreshOld(threshold);
+					g_ssao->SetScale(scale);
+				}
+				if (g_ssaoBlur) g_ssaoBlur->SetIntensity(blurIntensity);
+			});
+			lua->set_function("buildDOFPostChain", [](PostEffectsManager &m, int width, int height) {
+				auto *blurX = new BlurXEffect(RTT::Color, width, height);
+				auto *blurY = new BlurYEffect(RTT::LastRTT, width, height);
+				Texture *fullRes = blurY->GetTexture();
+				const int lw = (int)(width * 0.25f), lh = (int)(height * 0.25f);
+				auto *resize = new ResizeEffect(RTT::Color, lw, lh);
+				auto *blurXlow = new BlurXEffect(RTT::LastRTT, lw, lh);
+				auto *blurYlow = new BlurYEffect(RTT::LastRTT, lw, lh);
+				Texture *lowRes = blurYlow->GetTexture();
+				m.AddEffect(blurX);
+				m.AddEffect(blurY);
+				m.AddEffect(resize);
+				m.AddEffect(blurXlow);
+				m.AddEffect(blurYlow);
+				m.AddEffect(new DepthOfFieldEffect(lowRes, fullRes, width, height));
+			});
+
+			lua->new_enum("CullingMode",
+				"FrustumCulling", CullingMode::FrustumCulling
+			);
 		}
 		{
 			// IEffect
@@ -2305,6 +2672,12 @@ namespace p3d {
 				"getData", &File::GetData
 				);
 		}
+
+		lua->set_function("getMousePosition", []() {
+			Vec2 p = InputManager::GetMousePosition();
+			return std::make_tuple(p.x, p.y);
+		});
+		lua->set_function("placeDecalAtCursor", &PlaceDecalAtCursor);
 		// ******************************* CLASS *******************************
 }
 

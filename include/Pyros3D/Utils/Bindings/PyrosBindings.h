@@ -43,6 +43,10 @@
 #include <Pyros3D/Rendering/PostEffects/Effects/SSAOEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/VignetteEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/TonemapEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/BlurSSAOEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/SSAOCompositeEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/DepthOfFieldEffect.h>
 #include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
 #include <Pyros3D/Audio/AudioManager.h>
 #include <Pyros3D/Audio/AudioBus.h>

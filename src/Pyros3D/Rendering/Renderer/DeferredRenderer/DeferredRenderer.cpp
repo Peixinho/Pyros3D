@@ -1328,6 +1328,12 @@ namespace p3d {
 			// roughness-based blur (lastPass.glsl's textureLod() sample)
 			// needs a fresh mip chain every frame, since the base level's
 			// actual pixels changed.
+			//
+			// Do NOT rebind the caller's Read_Write FBO here. That was tried
+			// and is actively harmful on Vulkan: rebinding ExternalFBO after
+			// the lastPass draw begins a fresh render pass with LOAD_OP_CLEAR
+			// and wipes the frame black. Leave GL/Vulkan FBO state alone;
+			// EndCapture()'s UnBind does not depend on the draw target.
 			previousFrameColorTexture->UpdateMipmap();
 		}
 		// No "restore the caller's FBO" replay needed here (unlike this

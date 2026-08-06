@@ -1,0 +1,643 @@
+{
+    "materials": [
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.5,
+                0.5,
+                0.55,
+                1
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.05,
+            "id": 0,
+            "kind": "generic",
+            "metallic": 0.0,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 1.0,
+            "roughness": 0.08,
+            "shininess": 0.0,
+            "specular": [
+                0,
+                0,
+                0,
+                0
+            ],
+            "ssrEnabled": true,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.75,
+                0.2,
+                0.15,
+                1
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.05,
+            "id": 1,
+            "kind": "generic",
+            "metallic": 1.0,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.05,
+            "shininess": 0.0,
+            "specular": [
+                0,
+                0,
+                0,
+                0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.75,
+                0.2,
+                0.15,
+                1
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.05,
+            "id": 2,
+            "kind": "generic",
+            "metallic": 0.0,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.15,
+            "shininess": 0.0,
+            "specular": [
+                0,
+                0,
+                0,
+                0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.75,
+                0.2,
+                0.15,
+                1
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.05,
+            "id": 3,
+            "kind": "generic",
+            "metallic": 1.0,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.35,
+            "shininess": 0.0,
+            "specular": [
+                0,
+                0,
+                0,
+                0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.75,
+                0.2,
+                0.15,
+                1
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.05,
+            "id": 4,
+            "kind": "generic",
+            "metallic": 0.0,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.6,
+            "shininess": 0.0,
+            "specular": [
+                0,
+                0,
+                0,
+                0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                0.75,
+                0.2,
+                0.15,
+                1
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.05,
+            "id": 5,
+            "kind": "generic",
+            "metallic": 0.5,
+            "opacity": 1.0,
+            "options": 4456449,
+            "reflectivity": 0.0,
+            "roughness": 0.9,
+            "shininess": 0.0,
+            "specular": [
+                0,
+                0,
+                0,
+                0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        }
+    ],
+    "roots": [
+        {
+            "name": "Camera",
+            "tags": [
+                "Camera"
+            ],
+            "position": [
+                0,
+                7,
+                18
+            ],
+            "rotation": [
+                -0.3141592653589793,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_orbit.lua",
+                    "data": {
+                        "radius": 18.0,
+                        "height": 7.0,
+                        "yawSpeed": 8.0,
+                        "basePitch": -18.0,
+                        "pitchAmp": 10.0,
+                        "pitchFreq": 0.5
+                    }
+                }
+            ]
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": false,
+                    "cullTest": true,
+                    "material": 0,
+                    "renderable": {
+                        "width": 30.0,
+                        "height": 30.0,
+                        "kind": "primitive",
+                        "shape": "Plane",
+                        "smooth": true,
+                        "flip": false,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "Floor",
+            "position": [
+                0,
+                -3,
+                0
+            ],
+            "rotation": [
+                -1.5707963267948966,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": true,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": false,
+                    "cullTest": true,
+                    "material": 1,
+                    "renderable": {
+                        "radius": 1.4,
+                        "segmentsW": 24,
+                        "segmentsH": 16,
+                        "kind": "primitive",
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "flip": false,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "Sphere0",
+            "position": [
+                -6,
+                0,
+                -2
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": false,
+                    "cullTest": true,
+                    "material": 2,
+                    "renderable": {
+                        "radius": 1.4,
+                        "segmentsW": 24,
+                        "segmentsH": 16,
+                        "kind": "primitive",
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "flip": false,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "Sphere1",
+            "position": [
+                -3,
+                0,
+                1
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": false,
+                    "cullTest": true,
+                    "material": 3,
+                    "renderable": {
+                        "radius": 1.4,
+                        "segmentsW": 24,
+                        "segmentsH": 16,
+                        "kind": "primitive",
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "flip": false,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "Sphere2",
+            "position": [
+                0,
+                0,
+                -1
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": false,
+                    "cullTest": true,
+                    "material": 4,
+                    "renderable": {
+                        "radius": 1.4,
+                        "segmentsW": 24,
+                        "segmentsH": 16,
+                        "kind": "primitive",
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "flip": false,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "Sphere3",
+            "position": [
+                3,
+                0,
+                1
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": false,
+                    "cullTest": true,
+                    "material": 5,
+                    "renderable": {
+                        "radius": 1.4,
+                        "segmentsW": 24,
+                        "segmentsH": 16,
+                        "kind": "primitive",
+                        "shape": "Sphere",
+                        "smooth": true,
+                        "flip": false,
+                        "tangentBitangent": false
+                    },
+                    "type": "RenderingComponent"
+                }
+            ],
+            "name": "Sphere4",
+            "position": [
+                6,
+                0,
+                -2
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": false,
+                    "color": [
+                        1.6,
+                        1.6,
+                        1.6,
+                        1.0
+                    ],
+                    "radius": 30.0,
+                    "type": "PointLight"
+                }
+            ],
+            "name": "PointLight0",
+            "position": [
+                -8,
+                8,
+                10
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": true,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": false,
+                    "color": [
+                        1.6,
+                        1.6,
+                        1.6,
+                        1.0
+                    ],
+                    "radius": 30.0,
+                    "type": "PointLight"
+                }
+            ],
+            "name": "PointLight1",
+            "position": [
+                8,
+                8,
+                10
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": true,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "aspect": 1.7778,
+                    "cascades": 1,
+                    "castingShadows": false,
+                    "color": [
+                        0.5,
+                        0.5,
+                        0.5,
+                        1.0
+                    ],
+                    "direction": [
+                        -0.3,
+                        -0.7,
+                        -0.5
+                    ],
+                    "fov": 70.0,
+                    "intensity": 3.14159,
+                    "shadowBiasFactor": 2.0,
+                    "shadowBiasUnits": 1.0,
+                    "shadowFar": 300.0,
+                    "shadowHeight": 1024,
+                    "shadowNear": 0.1,
+                    "shadowWidth": 1024,
+                    "type": "DirectionalLight"
+                }
+            ],
+            "name": "Sun",
+            "position": [
+                0,
+                0,
+                0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": true,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "data": {},
+                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/enable_ssr.lua",
+                    "type": "LuaComponent"
+                }
+            ],
+            "name": "SSRSetup",
+            "position": [
+                0,
+                0,
+                0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": true,
+            "tags": []
+        }
+    ],
+    "version": 1
+}

@@ -1,0 +1,172 @@
+{
+    "materials": [
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": true,
+            "color": [
+                1,
+                1,
+                1,
+                1
+            ],
+            "cullFace": 0,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.05,
+            "id": 0,
+            "kind": "generic",
+            "metallic": 0.0,
+            "opacity": 1.0,
+            "options": 803458,
+            "reflectivity": 0.0,
+            "roughness": 0.0,
+            "shininess": 32,
+            "specular": [
+                1,
+                1,
+                1,
+                1
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false,
+            "colorMap": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/bricks.png",
+            "normalMap": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/bricks_normal.png",
+            "displacementMap": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/bricks_disp.png"
+        }
+    ],
+    "roots": [
+        {
+            "name": "Camera",
+            "tags": [
+                "Camera"
+            ],
+            "position": [
+                0,
+                0,
+                80
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_fly.lua",
+                    "data": {
+                        "yaw": 0,
+                        "pitch": 0
+                    }
+                }
+            ]
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "aspect": 1.77777779102325,
+                    "cascades": 1,
+                    "castingShadows": false,
+                    "color": [
+                        1,
+                        1,
+                        1,
+                        1
+                    ],
+                    "direction": [
+                        1,
+                        -1,
+                        0
+                    ],
+                    "fov": 70.0,
+                    "intensity": 3.14159,
+                    "shadowBiasFactor": 2.0,
+                    "shadowBiasUnits": 1.0,
+                    "shadowFar": 300.0,
+                    "shadowHeight": 1024,
+                    "shadowNear": 0.1,
+                    "shadowWidth": 1024,
+                    "type": "DirectionalLight"
+                }
+            ],
+            "name": "Sun",
+            "position": [
+                0,
+                0,
+                0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": true,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 0,
+                    "renderable": {
+                        "depth": 30.0,
+                        "flip": false,
+                        "height": 30.0,
+                        "kind": "primitive",
+                        "shape": "Cube",
+                        "smooth": false,
+                        "tangentBitangent": true,
+                        "width": 30.0
+                    },
+                    "type": "RenderingComponent"
+                },
+                {
+                    "data": {},
+                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/spin_y.lua",
+                    "type": "LuaComponent"
+                }
+            ],
+            "name": "Cube",
+            "position": [
+                0,
+                0,
+                0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "tags": []
+        }
+    ],
+    "version": 1
+}

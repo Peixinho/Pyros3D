@@ -97,8 +97,6 @@ function A.box(w, h, d, x, y, z, material)
 	return go
 end
 
--- ******************************** Build ********************************
-
 function A.build()
 	local a = C.arena
 	local col = C.color

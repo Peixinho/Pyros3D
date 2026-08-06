@@ -18,7 +18,7 @@
 #define SAMPLER_BINDING(n) layout(set = 1, binding = n)
 #define IO_LOCATION(n) layout(location = n)
 #else
-#define UBO_BINDING(n)
+#define UBO_BINDING(n) layout(std140)
 #define SAMPLER_BINDING(n)
 #define IO_LOCATION(n)
 #endif

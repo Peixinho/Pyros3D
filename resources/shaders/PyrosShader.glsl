@@ -87,6 +87,7 @@
 #define LOC_vViewMatrix 15
 #define LOC_vScreenSpaceWorldPosition 19
 #define LOC_vPrvScreenSpaceWorldPosition 20
+#define LOC_vClipDist 21
 
 // Existing UBO/sampler bindings - match the fixed runtime binding points
 // IRenderer.cpp already uses via glUniformBlockBinding (see
@@ -238,11 +239,20 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         };
     #endif
 
-    #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
+    #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR) || defined(CLIPSPACE)
         UBO_BINDING(BIND_VertexFrameUniforms) uniform VertexFrameUniforms {
-            vec3 uCameraPos;
+            // xyz = camera, w = clip enable (1/0). vec4 avoids std140
+            // vec3+float packing differences between GL drivers that left
+            // the UBO undersized/mismatched and drew black on macOS GL.
+            vec4 uCameraPos;
+            vec4 uClipPlane0;
         };
+    #endif
+    #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
         IO_LOCATION(LOC_vCameraPos) varying_out vec3 vCameraPos;
+    #endif
+    #ifdef CLIPSPACE
+        IO_LOCATION(LOC_vClipDist) varying_out float vClipDist;
     #endif
 
     #ifdef REFRACTION
@@ -332,6 +342,16 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             vTexcoord = aTexcoord;
         #endif
 
+        // Skinning matrix must be built before any use (vWorldPosition /
+        // gl_Position / normals). Computing it after those writes left
+        // matAnimation uninitialized on some GL drivers → bind-pose mesh.
+        #ifdef SKINNING
+            matAnimation = uBoneMatrix[int(aBonesID.x)] * aBonesWeight.x;
+            matAnimation += uBoneMatrix[int(aBonesID.y)] * aBonesWeight.y;
+            matAnimation += uBoneMatrix[int(aBonesID.z)] * aBonesWeight.z;
+            matAnimation += uBoneMatrix[int(aBonesID.w)] * aBonesWeight.w;
+        #endif
+
         #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) ||  defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
             #ifndef SKINNING
                 vWorldPosition=ModelMatrix * vec4(Position,1.0);
@@ -355,26 +375,21 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         #endif
 
         #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) ||  defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
-            vCameraPos = uCameraPos;
+            vCameraPos = uCameraPos.xyz;
         #endif
 
         #ifdef SKYBOX
             v3Texcoord = Position.xyz;
         #endif
 
-        gl_Position = uProjectionMatrix * uViewMatrix * ModelMatrix * vec4(Position,1.0);
+        #ifndef SKINNING
+            gl_Position = uProjectionMatrix * uViewMatrix * ModelMatrix * vec4(Position,1.0);
+        #else
+            gl_Position = uProjectionMatrix * uViewMatrix * ModelMatrix * matAnimation * vec4(Position,1.0);
+        #endif
 
         #ifdef DEBUGRENDERING
            if (aSize != 1.0) gl_PointSize = aSize;
-        #endif
-
-        // This Overwrites GL Position
-        #ifdef SKINNING
-            matAnimation = uBoneMatrix[int(aBonesID.x)] * aBonesWeight.x;
-            matAnimation += uBoneMatrix[int(aBonesID.y)] * aBonesWeight.y;
-            matAnimation += uBoneMatrix[int(aBonesID.z)] * aBonesWeight.z;
-            matAnimation += uBoneMatrix[int(aBonesID.w)] * aBonesWeight.w;
-            gl_Position = uProjectionMatrix * uViewMatrix * ModelMatrix * matAnimation * vec4(Position,1.0);
         #endif
 
         #ifdef TEXTRENDERING
@@ -403,7 +418,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             fresnelScale=0.7;
             fresnelPower=1.0;
             etaRatio=vec3(0.943,0.949,0.945);
-            vec3 I = normalize(vWorldPosition.xyz - uCameraPos);
+            vec3 I = normalize(vWorldPosition.xyz - uCameraPos.xyz);
             vTRed = refract(I,vNormal,etaRatio.x);
             vTGreen =  refract(I,vNormal,etaRatio.y);
             vTBlue = refract(I,vNormal,etaRatio.z);
@@ -415,6 +430,14 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 gbuffer_normals = uViewMatrix * ModelMatrix * (matAnimation * vec4(aNormal,0.0));
             #else
                 gbuffer_normals = uViewMatrix * ModelMatrix * vec4(aNormal,0.0);
+            #endif
+        #endif
+
+        #ifdef CLIPSPACE
+            #if defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR) || defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) || defined(SKINNING)
+                vClipDist = (uCameraPos.w > 0.5) ? dot(vWorldPosition, uClipPlane0) : 1.0;
+            #else
+                vClipDist = (uCameraPos.w > 0.5) ? dot(ModelMatrix * vec4(Position,1.0), uClipPlane0) : 1.0;
             #endif
         #endif
     }
@@ -826,7 +849,15 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 	IO_LOCATION(LOC_vPrvScreenSpaceWorldPosition) varying_smooth_in vec4 vPrvScreenSpaceWorldPosition;
    #endif
 
+    #ifdef CLIPSPACE
+        IO_LOCATION(LOC_vClipDist) varying_in float vClipDist;
+    #endif
+
     void main() {
+
+        #ifdef CLIPSPACE
+            if (vClipDist < 0.0) discard;
+        #endif
 
         // gbuffer_normals is a fragment-stage input (the vertex-interpolated
         // geometric normal); bump/parallax mapping below needs to replace it

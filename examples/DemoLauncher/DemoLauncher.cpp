@@ -8,32 +8,47 @@
 
 #include "DemoLauncher.h"
 
-#include <Pyros3D/Utils/Json/json.hpp>
-#include <Pyros3D/Rendering/PostEffects/Effects/TonemapEffect.h>
 #include <Pyros3D/Other/PyrosGL.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <SDL2/SDL.h>
+#include <cstring>
 #include <fstream>
 
 using namespace p3d;
-using json = nlohmann::json;
+
+namespace {
+
+sol::object JsonToSol(sol::state &lua, const json &j)
+{
+	if (j.is_null()) return sol::make_object(lua, sol::lua_nil);
+	if (j.is_boolean()) return sol::make_object(lua, j.get<bool>());
+	if (j.is_number()) return sol::make_object(lua, j.get<double>());
+	if (j.is_string()) return sol::make_object(lua, j.get<std::string>());
+	if (j.is_array())
+	{
+		sol::table t = lua.create_table((int)j.size(), 0);
+		for (size_t i = 0; i < j.size(); ++i)
+			t[i + 1] = JsonToSol(lua, j[i]);
+		return t;
+	}
+	if (j.is_object())
+	{
+		sol::table t = lua.create_table(0, (int)j.size());
+		for (auto it = j.begin(); it != j.end(); ++it)
+			t[it.key()] = JsonToSol(lua, it.value());
+		return t;
+	}
+	return sol::make_object(lua, sol::lua_nil);
+}
+
+} // namespace
 
 DemoLauncher::DemoLauncher() : ClassName(1280, 720, "Pyros3D - Demos", WindowType::Close | WindowType::Resize)
 {
 	Scene = nullptr;
 	physics = nullptr;
-	FPSCamera.reset();
-	cameraComponent.reset();
-	Renderer = nullptr;
-	EffectManager = nullptr;
-	deferredFBO = nullptr;
-	albedoTexture = specularTexture = depthTexture = normalTexture = metallicRoughnessTexture = nullptr;
 	activeDemo = -1;
 	activeDemoHasPhysics = false;
-	smokeTuningComponent.reset();
-	smokeEmissionRate = 15.0f;
-	smokeSpread = 1.0f;
-	smokeRiseSpeed = 2.0f;
 	imguiInitialized = false;
 }
 
@@ -43,15 +58,12 @@ void DemoLauncher::OnResize(const uint32 width, const uint32 height)
 {
 	ClassName::OnResize(width, height);
 
-	Renderer->Resize(width, height);
-	EffectManager->Resize(width, height);
-	projection.Perspective(70.f, (f32)width / (f32)height, 0.1f, 2000.f);
-
-	albedoTexture->Resize(Width, Height);
-	specularTexture->Resize(Width, Height);
-	depthTexture->Resize(Width, Height);
-	normalTexture->Resize(Width, Height);
-	metallicRoughnessTexture->Resize(Width, Height);
+	sol::table host = lua["RenderHost"];
+	if (host.valid())
+	{
+		sol::function resize = host["resize"];
+		if (resize.valid()) resize((int)width, (int)height);
+	}
 }
 
 void DemoLauncher::Init()
@@ -63,51 +75,74 @@ void DemoLauncher::Init()
 	physics = new Physics();
 	physics->InitPhysics();
 
-	lua.open_libraries(sol::lib::base, sol::lib::math, sol::lib::table, sol::lib::string);
 	GenerateBindings(&lua);
 	lua.require_file("class", STR(EXAMPLES_PATH) "/assets/middleclass.lua");
+	lua.require_file("RenderHost", STR(EXAMPLES_PATH) "/assets/demos/scripts/render_host.lua");
 
-	// G-buffer - same 5-texture shape as examples/DeferredPBRSpheres.
-	albedoTexture = new Texture(); albedoTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
-	specularTexture = new Texture(); specularTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
-	depthTexture = new Texture(); depthTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height, false);
-	normalTexture = new Texture(); normalTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F, Width, Height, false);
-	metallicRoughnessTexture = new Texture(); metallicRoughnessTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
+	lua.set_function("setMouseCaptured", [this](bool captured) {
+		if (captured)
+		{
+			SDL_WarpMouseInWindow(GetSDLWindow(), (int)(Width / 2), (int)(Height / 2));
+			SDL_SetRelativeMouseMode(SDL_TRUE);
+			SDL_ShowCursor(SDL_DISABLE);
+			if (ImGui::GetCurrentContext() != NULL)
+				ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouse;
+		}
+		else
+		{
+			SDL_SetRelativeMouseMode(SDL_FALSE);
+			SDL_ShowCursor(SDL_ENABLE);
+			if (ImGui::GetCurrentContext() != NULL)
+				ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
+		}
+	});
+	lua.set_function("isMouseCaptured", []() {
+		return SDL_GetRelativeMouseMode() == SDL_TRUE;
+	});
+	lua.set_function("warpMouseToCenter", [this]() {
+		SDL_WarpMouseInWindow(GetSDLWindow(), (int)(Width / 2), (int)(Height / 2));
+	});
+	lua.set_function("getWindowSize", [this]() {
+		return std::make_tuple((int)Width, (int)Height);
+	});
 
-	albedoTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-	specularTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-	depthTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-	normalTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-	metallicRoughnessTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+	sol::table imgui = lua.create_table();
+	imgui["text"] = [](const std::string &s) { ImGui::TextUnformatted(s.c_str()); };
+	imgui["separator"] = []() { ImGui::Separator(); };
+	imgui["sliderFloat"] = [](const std::string &label, float value, float minV, float maxV) {
+		ImGui::SliderFloat(label.c_str(), &value, minV, maxV);
+		return value;
+	};
+	imgui["checkbox"] = [](const std::string &label, bool value) {
+		ImGui::Checkbox(label.c_str(), &value);
+		return value;
+	};
+	imgui["drawCrosshair"] = []() {
+		ImGuiIO &io = ImGui::GetIO();
+		ImVec2 aim = (SDL_GetRelativeMouseMode() == SDL_TRUE)
+			? ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f)
+			: io.MousePos;
+		ImDrawList *dl = ImGui::GetForegroundDrawList();
+		const float arm = 10.0f, gap = 3.0f;
+		const ImU32 col = IM_COL32(255, 255, 255, 220);
+		const ImU32 outline = IM_COL32(0, 0, 0, 180);
+		auto line = [&](float x0, float y0, float x1, float y1) {
+			dl->AddLine(ImVec2(x0, y0), ImVec2(x1, y1), outline, 3.0f);
+			dl->AddLine(ImVec2(x0, y0), ImVec2(x1, y1), col, 1.5f);
+		};
+		line(aim.x - arm, aim.y, aim.x - gap, aim.y);
+		line(aim.x + gap, aim.y, aim.x + arm, aim.y);
+		line(aim.x, aim.y - arm, aim.x, aim.y - gap);
+		line(aim.x, aim.y + gap, aim.x, aim.y + arm);
+		dl->AddCircle(aim, 2.5f, outline, 12, 2.0f);
+		dl->AddCircle(aim, 2.5f, col, 12, 1.0f);
+	};
+	lua["imgui"] = imgui;
 
-	deferredFBO = new FrameBuffer();
-	deferredFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, depthTexture);
-	deferredFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, albedoTexture);
-	deferredFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment1, TextureType::Texture, specularTexture);
-	deferredFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment2, TextureType::Texture, normalTexture);
-	deferredFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment3, TextureType::Texture, metallicRoughnessTexture);
-
-	Renderer = new DeferredRenderer(Width, Height, deferredFBO);
-	Renderer->SetGlobalLight(Vec4(0.12f, 0.12f, 0.14f, 1.f));
-
-	EffectManager = new PostEffectsManager(Width, Height);
-
-	projection.Perspective(70.f, (f32)Width / (f32)Height, 0.1f, 2000.f);
-
-	// Persistent shell camera - see DemoLauncher.h's FPSCamera comment.
-	// LUA_GameObject, not plain GameObject - camera_fly.lua receives this
-	// object as its `owner` (via IComponent::GetOwner(), see
-	// WireLuaComponentLifecycle) and calls real methods on it
-	// (getDirection/getPosition/setPosition/setRotation); sol2's RTTI-based
-	// type resolution for a polymorphic GameObject* only finds those
-	// methods if the actual instance is a registered usertype
-	// (LUA_GameObject - plain GameObject itself is never registered, see
-	// SceneSerializer.cpp's DeserializeGameObject for the identical fix).
-	FPSCamera = std::make_shared<LUA_GameObject>();
-	FPSCamera->SetPosition(Vec3(0.f, 10.f, 100.f));
-	cameraComponent = LuaComponent_FromFile(lua, STR(EXAMPLES_PATH) "/assets/demos/scripts/camera_fly.lua");
-	if (cameraComponent) FPSCamera->AddComponent(cameraComponent);
-	else echo("ERROR: DemoLauncher - couldn't load camera_fly.lua");
+	lua["scene"] = Scene;
+	lua["projection"] = &projection;
+	lua["EXAMPLES_PATH"] = STR(EXAMPLES_PATH);
+	lua["ASSETS_PATH"] = STR(EXAMPLES_PATH) "/assets/";
 
 	LoadManifest();
 	if (!demos.empty()) SwitchDemo(0);
@@ -136,12 +171,15 @@ void DemoLauncher::LoadManifest()
 		entry.name = e.value("name", std::string());
 		entry.description = e.value("description", std::string());
 		entry.scene = e.value("scene", std::string());
-		if (e.find("effects") != e.end())
-			for (auto &fx : e["effects"]) entry.effects.push_back(fx.get<std::string>());
-		if (e.find("cameraPosition") != e.end())
-			entry.cameraPosition = Vec3(e["cameraPosition"][0].get<f32>(), e["cameraPosition"][1].get<f32>(), e["cameraPosition"][2].get<f32>());
+		if (e.find("render") != e.end())
+			entry.render = e["render"];
 		else
-			entry.cameraPosition = Vec3(0.f, 10.f, 100.f);
+		{
+			entry.render = json::object();
+			entry.render["type"] = "deferred";
+			if (e.find("effects") != e.end())
+				entry.render["effects"] = e["effects"];
+		}
 		demos.push_back(entry);
 	}
 }
@@ -150,57 +188,66 @@ void DemoLauncher::SwitchDemo(int index)
 {
 	if (index < 0 || index >= (int)demos.size()) return;
 
-	// Frees exactly what the outgoing demo's LoadScene() call allocated -
-	// see SceneSerializer.h's LoadedSceneAssets/UnloadScene comments.
+	for (const std::shared_ptr<GameObject> &go : currentAssets.gameObjects)
+	{
+		for (const std::shared_ptr<IComponent> &c : go->GetComponents())
+		{
+			if (c && c->GetComponentType() == ComponentType::LuaComponent)
+				c->Destroy();
+		}
+	}
+
 	if (!currentAssets.gameObjects.empty())
 		SceneSerializer::UnloadScene(Scene, currentAssets);
 	currentAssets = LoadedSceneAssets();
-
-	EffectManager->RemoveAllEffects();
+	activeDemoHasPhysics = false;
+	lua["camera"] = sol::lua_nil;
 
 	const DemoEntry &entry = demos[index];
-	for (const std::string &fx : entry.effects)
+	activeDemo = index;
+
 	{
-		if (fx == "tonemap")
-			EffectManager->AddEffect(new TonemapEffect(RTT::Color, Width, Height));
+		sol::table host = lua["RenderHost"];
+		sol::function setup = host.valid() ? host["setup"] : sol::function();
+		if (setup.valid())
+			setup(JsonToSol(lua, entry.render), (int)Width, (int)Height);
+		else
+			echo("ERROR: DemoLauncher - RenderHost.setup missing");
 	}
 
 	SceneSerializer::LoadScene(Scene, STR(EXAMPLES_PATH) + std::string("/assets/demos/") + entry.scene, physics, &lua, &currentAssets);
 
-	activeDemoHasPhysics = false;
-	smokeTuningComponent.reset();
+	// Camera scripts (and other scene Lua) register globals like `camera`
+	// during init - run before the first Update/draw.
 	for (const std::shared_ptr<GameObject> &go : currentAssets.gameObjects)
 	{
-		bool hasParticleSystem = false;
-		std::shared_ptr<LuaComponent> luaComp;
+		for (const std::shared_ptr<IComponent> &c : go->GetComponents())
+		{
+			if (c && c->GetComponentType() == ComponentType::LuaComponent)
+			{
+				try {
+					c->Init();
+				} catch (const std::exception &e) {
+					echo(std::string("ERROR: DemoLauncher LuaComponent::Init - ") + e.what());
+				} catch (...) {
+					echo("ERROR: DemoLauncher LuaComponent::Init - unknown exception");
+				}
+			}
+		}
+	}
+
+	// One Update so components spawned during Init() register and
+	// transforms settle before the next draw.
+	Scene->Update(GetTime());
+
+	for (const std::shared_ptr<GameObject> &go : currentAssets.gameObjects)
+	{
 		for (const std::shared_ptr<IComponent> &c : go->GetComponents())
 		{
 			if (c->GetComponentType() == ComponentType::Physics || c->GetComponentType() == ComponentType::Vehicle)
 				activeDemoHasPhysics = true;
-			else if (c->GetComponentType() == ComponentType::ParticleSystem)
-				hasParticleSystem = true;
-			else if (c->GetComponentType() == ComponentType::LuaComponent)
-				luaComp = std::static_pointer_cast<LuaComponent>(c);
 		}
-		if (hasParticleSystem && luaComp) smokeTuningComponent = luaComp;
 	}
-
-	FPSCamera->SetPosition(entry.cameraPosition);
-	FPSCamera->SetRotation(Vec3(0.f, 0.f, 0.f));
-	// camera_fly.lua tracks its own accumulated yaw/pitch/last-mouse-
-	// position and only reapplies rotation reactively (on mouse move),
-	// so the SetRotation() above alone would get silently overwritten
-	// by stale state on the next mouse move - reset its data table too.
-	if (cameraComponent)
-	{
-		sol::table data = cameraComponent->data;
-		data["yaw"] = 0.0f;
-		data["pitch"] = 0.0f;
-		data["lastMouseX"] = sol::lua_nil;
-		data["lastMouseY"] = sol::lua_nil;
-	}
-
-	activeDemo = index;
 }
 
 void DemoLauncher::Update()
@@ -210,59 +257,19 @@ void DemoLauncher::Update()
 
 	if (activeDemoHasPhysics) physics->Update(dt, 10);
 
-	// Camera-fly script tick - the camera is deliberately never part of
-	// `Scene`, so it's driven directly rather than via Scene->Update().
-	// RefreshTransformation() is the part SceneGraph::Update() would
-	// otherwise provide for free (GO->Update(); GO->InternalUpdate();) -
-	// without it, camera_fly.lua's SetPosition()/SetRotation() calls
-	// change GetPosition()'s raw value but never touch the actual
-	// GetWorldTransformation() the renderer reads, so the camera's
-	// internal state moves while the rendered view never does.
-	for (const std::shared_ptr<IComponent> &c : FPSCamera->GetComponents()) c->Update(time);
-	FPSCamera->RefreshTransformation();
-
-	if (smokeTuningComponent)
-	{
-		sol::table data = smokeTuningComponent->data;
-		data["emissionRate"] = smokeEmissionRate;
-		data["spread"] = smokeSpread;
-		data["riseSpeed"] = smokeRiseSpeed;
-	}
-
 	Scene->Update(time);
 
-	// Must run before Renderer->RenderScene() below, not after - see
-	// PrepareImGuiFrame()'s declaration comment (DemoLauncher.h).
 	if (imguiInitialized) PrepareImGuiFrame();
 
-	// PostEffectsManager::ProcessPostEffects()'s loop body never runs
-	// for an empty effects chain (its last-effect-draws-to-swapchain
-	// case lives inside the loop) - wrapping every demo's render call
-	// in CaptureFrame()/EndCapture()/ProcessPostEffects() regardless
-	// would leave demos with no requested effects rendering into the
-	// offscreen capture FBO and never blitting it to the screen (a real
-	// black-screen bug, found via actually running this, not assumed
-	// safe). Only demos that requested at least one effect go through
-	// the capture path; everything else renders straight to the
-	// swapchain, same as examples/DeferredRendering (no PostEffectsManager
-	// at all) does.
-	bool activeDemoHasEffects = (activeDemo >= 0 && activeDemo < (int)demos.size() && !demos[activeDemo].effects.empty());
-	if (activeDemoHasEffects)
+	sol::table host = lua["RenderHost"];
+	if (host.valid())
 	{
-		EffectManager->CaptureFrame();
-		Renderer->PreRender(FPSCamera.get(), Scene);
-		Renderer->RenderScene(projection, FPSCamera.get(), Scene);
-		EffectManager->EndCapture();
-		EffectManager->ProcessPostEffects(&projection);
-	}
-	else
-	{
-		Renderer->PreRender(FPSCamera.get(), Scene);
-		Renderer->RenderScene(projection, FPSCamera.get(), Scene);
+		sol::function draw = host["draw"];
+		if (draw.valid())
+			draw(lua["camera"], lua["scene"], lua["projection"]);
 	}
 
 	if (imguiInitialized) EndImGuiFrame();
-
 }
 
 void DemoLauncher::DrawUI()
@@ -271,6 +278,7 @@ void DemoLauncher::DrawUI()
 
 	ImGui::Text("FPS: %.1u", (uint32)fps.getFPS());
 	ImGui::Text("Backend: %s", GetActiveRenderDevice().IsVulkan() ? "Vulkan" : "OpenGL");
+	ImGui::Text("Mouse: %s (TAB to toggle)", SDL_GetRelativeMouseMode() ? "Captured" : "Free");
 	ImGui::Separator();
 
 	for (size_t i = 0; i < demos.size(); i++)
@@ -284,57 +292,78 @@ void DemoLauncher::DrawUI()
 			ImGui::SetTooltip("%s", demos[i].description.c_str());
 	}
 
-	if (smokeTuningComponent)
+	bool drewScriptUI = false;
+	auto callMethod = [&](const std::shared_ptr<LuaComponent> &lc, const char *name) {
+		if (!lc || !lc->data.valid()) return;
+		sol::function f = lc->data[name];
+		if (!f.valid()) return;
+		if (strcmp(name, "drawUI") == 0 && !drewScriptUI) { ImGui::Separator(); drewScriptUI = true; }
+		f(lc->data);
+	};
+	for (const std::shared_ptr<GameObject> &go : currentAssets.gameObjects)
 	{
-		ImGui::Separator();
-		ImGui::Text("Smoke Particle Tuning");
-		ImGui::SliderFloat("Rate (particles/sec)", &smokeEmissionRate, 1.0f, 60.0f);
-		ImGui::SliderFloat("Spread", &smokeSpread, 0.0f, 2.0f);
-		ImGui::SliderFloat("Rise Speed", &smokeRiseSpeed, 0.0f, 10.0f);
+		for (const std::shared_ptr<IComponent> &c : go->GetComponents())
+		{
+			if (c && c->GetComponentType() == ComponentType::LuaComponent)
+				callMethod(std::static_pointer_cast<LuaComponent>(c), "drawUI");
+		}
 	}
 
 	ImGui::End();
+
+	for (const std::shared_ptr<GameObject> &go : currentAssets.gameObjects)
+	{
+		for (const std::shared_ptr<IComponent> &c : go->GetComponents())
+		{
+			if (c && c->GetComponentType() == ComponentType::LuaComponent)
+				callMethod(std::static_pointer_cast<LuaComponent>(c), "drawOverlay");
+		}
+	}
 }
 
 void DemoLauncher::Shutdown()
 {
 	ShutdownImGui();
 
-	smokeTuningComponent.reset();
+	for (const std::shared_ptr<GameObject> &go : currentAssets.gameObjects)
+	{
+		for (const std::shared_ptr<IComponent> &c : go->GetComponents())
+		{
+			if (c && c->GetComponentType() == ComponentType::LuaComponent)
+				c->Destroy();
+		}
+	}
 
 	if (!currentAssets.gameObjects.empty())
 		SceneSerializer::UnloadScene(Scene, currentAssets);
 
-	if (EffectManager) EffectManager->RemoveAllEffects();
-
-	if (FPSCamera)
 	{
-		if (cameraComponent)
+		sol::table host = lua["RenderHost"];
+		if (host.valid())
 		{
-			cameraComponent->Destroy();
-			FPSCamera->Remove(cameraComponent);
+			sol::protected_function destroy = host["destroy"];
+			if (destroy.valid())
+			{
+				sol::protected_function_result r = destroy();
+				if (!r.valid())
+				{
+					sol::error err = r;
+					echo(std::string("ERROR: RenderHost.destroy - ") + err.what());
+				}
+			}
 		}
-		cameraComponent.reset();
-		FPSCamera.reset();
 	}
 
-	// sol::require_file cache + any leftover usertype userdata keep
-	// shared_ptrs to RenderingComponents/meshes alive after UnloadScene().
-	// ~sol::state runs their destructors (→ DeleteVertexArray /
-	// DestroyPipeline). That MUST happen while the render device is still
-	// registered - ClassName::Shutdown() (Vulkan) nulls it, and
-	// ~SDL2Context deletes the GL context; either way ~RenderingMesh
-	// SEGV's on a null gl*/device (seen after cycling every demo).
-	lua = sol::state{};
+	lua["renderer"] = sol::lua_nil;
+	lua["effectManager"] = sol::lua_nil;
+	lua["camera"] = sol::lua_nil;
+	lua["scene"] = sol::lua_nil;
+	lua["projection"] = sol::lua_nil;
+	lua["imgui"] = sol::lua_nil;
+	lua["RenderHost"] = sol::lua_nil;
 
-	if (Renderer) { delete Renderer; Renderer = nullptr; }
-	if (EffectManager) { delete EffectManager; EffectManager = nullptr; }
-	if (deferredFBO) { delete deferredFBO; deferredFBO = nullptr; }
-	if (albedoTexture) { delete albedoTexture; albedoTexture = nullptr; }
-	if (specularTexture) { delete specularTexture; specularTexture = nullptr; }
-	if (depthTexture) { delete depthTexture; depthTexture = nullptr; }
-	if (normalTexture) { delete normalTexture; normalTexture = nullptr; }
-	if (metallicRoughnessTexture) { delete metallicRoughnessTexture; metallicRoughnessTexture = nullptr; }
+	lua.script("collectgarbage(); collectgarbage()");
+	lua = sol::state{};
 
 	if (physics) { delete physics; physics = nullptr; }
 	if (Scene) { delete Scene; Scene = nullptr; }
@@ -348,7 +377,8 @@ void DemoLauncher::InitImGui()
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
-	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+	// Do not enable NavEnableKeyboard - ImGui steals Tab for widget
+	// focus, which breaks camera_fly.lua's Tab mouse-capture toggle.
 
 	ImGui::StyleColorsDark();
 
@@ -360,14 +390,10 @@ void DemoLauncher::InitImGui()
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
-	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-
+	// Do not enable NavEnableKeyboard - ImGui steals Tab for widget
+	// focus, which breaks camera_fly.lua's Tab mouse-capture toggle.
 	ImGui::StyleColorsDark();
 
-	// imgui_impl_sdl2.cpp has no volk/Vulkan-function dependency, stays
-	// example-side (called directly here); the actual ImGui_ImplVulkan_*
-	// calls live behind VulkanRenderDevice's wrapper - see its
-	// InitImGuiVulkanBackend() comment for why.
 	ImGui_ImplSDL2_InitForVulkan(GetSDLWindow());
 	imguiInitialized = static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).InitImGuiVulkanBackend();
 #endif
@@ -428,9 +454,4 @@ void DemoLauncher::EndImGuiFrame()
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 #endif
-	// Vulkan: no-op - VulkanRenderDevice::EndFrame() (called from inside
-	// Renderer->RenderScene(), which already ran by the time this is
-	// called) already recorded ImGui's draw data via UIRenderHook, using
-	// the draw data PrepareImGuiFrame()'s ImGui::Render() finalized
-	// before RenderScene() was called.
 }

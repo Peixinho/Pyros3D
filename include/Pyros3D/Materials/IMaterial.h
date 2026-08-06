@@ -105,6 +105,11 @@ namespace p3d {
 		Uniform* AddUniform(const Uniform Data);
 		void RemoveUniform(Uniform* handle);
 
+		// Configure extraUniforms[index] for Vulkan/UBO materials (Lua / tooling).
+		// index must be 0 or 1; binding 0 means unused.
+		void SetExtraUniformBlock(int index, uint32 binding, const std::string &blockName,
+			uint32 size, const std::map<std::string, uint32> &offsets);
+
 		// Render WireFrame
 		void StartRenderWireFrame();
 		void StopRenderWireFrame();

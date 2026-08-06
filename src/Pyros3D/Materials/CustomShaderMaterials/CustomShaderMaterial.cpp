@@ -118,4 +118,11 @@ namespace p3d
 		for (std::vector<std::shared_ptr<Texture>>::reverse_iterator i = textures.rbegin(); i != textures.rend(); i++)
 			(*i)->Unbind();
 	}
+
+	void CustomShaderMaterial::AddSampler(const std::string &uniformName, const std::shared_ptr<Texture> &tex)
+	{
+		int32 imgID = (int32)textures.size();
+		textures.push_back(tex);
+		AddUniform(Uniform(uniformName, Uniforms::DataType::Int, &imgID));
+	}
 }

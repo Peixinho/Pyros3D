@@ -971,10 +971,46 @@ namespace p3d {
 		return tex;
 	}
 
+	// Cubemap as a JSON object with the six face paths (posx/negx/...).
+	// Cached under a composite key so repeated skyboxMap refs share one
+	// Texture. Face order matches SkyboxTest/RacingGame LoadTexture calls.
+	static std::shared_ptr<Texture> GetOrLoadCubemap(const json &faces, std::map<std::string, std::shared_ptr<Texture>> &cache, LoadedSceneAssets* outAssets)
+	{
+		std::string posx = faces.value("posx", std::string());
+		std::string negx = faces.value("negx", std::string());
+		std::string posy = faces.value("posy", std::string());
+		std::string negy = faces.value("negy", std::string());
+		std::string posz = faces.value("posz", std::string());
+		std::string negz = faces.value("negz", std::string());
+		if (posx.empty() || negx.empty() || posy.empty() || negy.empty() || posz.empty() || negz.empty())
+		{
+			echo("WARNING: SceneSerializer - cubemap missing one or more faces (need posx/negx/posy/negy/posz/negz)");
+			return nullptr;
+		}
+		std::string cacheKey = "cubemap|" + posx + "|" + negx + "|" + posy + "|" + negy + "|" + posz + "|" + negz;
+		std::map<std::string, std::shared_ptr<Texture>>::iterator it = cache.find(cacheKey);
+		if (it != cache.end()) return it->second;
+		std::shared_ptr<Texture> tex = std::make_shared<Texture>();
+		tex->LoadTexture(negx, TextureType::CubemapNegative_X);
+		tex->LoadTexture(negy, TextureType::CubemapNegative_Y);
+		tex->LoadTexture(negz, TextureType::CubemapNegative_Z);
+		tex->LoadTexture(posx, TextureType::CubemapPositive_X);
+		tex->LoadTexture(posy, TextureType::CubemapPositive_Y);
+		tex->LoadTexture(posz, TextureType::CubemapPositive_Z);
+		tex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		cache[cacheKey] = tex;
+		if (outAssets) outAssets->textures.push_back(tex);
+		return tex;
+	}
+
 	static std::shared_ptr<Texture> DeserializeTextureRef(const json &parent, const std::string &key, std::map<std::string, std::shared_ptr<Texture>> &textureCache, LoadedSceneAssets* outAssets)
 	{
 		if (parent.find(key) != parent.end())
+		{
+			if (parent[key].is_object())
+				return GetOrLoadCubemap(parent[key], textureCache, outAssets);
 			return GetOrLoadTexture(parent[key].get<std::string>(), textureCache, outAssets);
+		}
 		std::string dataKey = key + "Data";
 		if (parent.find(dataKey) != parent.end())
 		{

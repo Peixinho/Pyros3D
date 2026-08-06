@@ -384,6 +384,8 @@ namespace p3d {
 		// individual uniforms unconditionally every call, no dirty-check.
 		static bool VertexFrameUniformsUBOValid;
 		static Vec3 CachedCameraPosition;
+		static bool CachedClipPlaneEnabled;
+		static Vec4 CachedClipPlane0;
 		static bool AmbientLightUniformsUBOValid;
 		static Vec4 CachedGlobalLight;
 		static bool VelocityFrameUniformsUBOValid;
