@@ -468,7 +468,15 @@ namespace p3d {
 
 	void GLRenderDevice::SetVertexAttributeDivisor(const int32 location, const uint32 divisor)
 	{
-#if !defined(GLES3)
+		// GLES3 / WebGL2 have glVertexAttribDivisor as core. Skipping it
+		// here made ParticleSystem (and any divisor=1 AttributeBuffer) feed
+		// a different instance slot to each quad vertex — folded billboards
+		// and only a couple of visible fragments. Plain GLES2 is the only
+		// profile that needs an extension path we don't use on web.
+#if defined(GLES2) && !defined(GLES3)
+		(void)location;
+		(void)divisor;
+#else
 		GLCHECKER(glVertexAttribDivisor(location, divisor));
 #endif
 	}
@@ -547,6 +555,7 @@ namespace p3d {
 		GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, bindingPoint, ubo));
 		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
 		uniformBufferBindings[ubo] = bindingPoint;
+		uniformBufferSizes[ubo] = sizeBytes;
 		return ubo;
 	}
 
@@ -560,10 +569,33 @@ namespace p3d {
 	void GLRenderDevice::ReplaceUniformBuffer(const DeviceHandle buffer, const uint32 sizeBytes, const void *data)
 	{
 		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, buffer));
-		// glBufferData on an already-allocated buffer orphans its old
-		// storage instead of overwriting it in place - see the comment on
-		// ReplaceUniformBuffer() in IRenderDevice.h for why this matters.
-		GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeBytes, data, GL_DYNAMIC_DRAW));
+		// Orphan storage (see IRenderDevice.h). Never shrink below the
+		// capacity established at CreateUniformBuffer — WebGL2 rejects draws
+		// when the bound UBO is smaller than the shader's uniform block.
+		uint32 capacity = sizeBytes;
+		std::map<DeviceHandle, uint32>::iterator sizeIt = uniformBufferSizes.find(buffer);
+		if (sizeIt != uniformBufferSizes.end())
+		{
+			if (sizeBytes < sizeIt->second)
+				capacity = sizeIt->second;
+			else
+				sizeIt->second = sizeBytes;
+		}
+		else
+		{
+			uniformBufferSizes[buffer] = sizeBytes;
+		}
+
+		if (capacity == sizeBytes)
+		{
+			GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, capacity, data, GL_DYNAMIC_DRAW));
+		}
+		else
+		{
+			GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, capacity, NULL, GL_DYNAMIC_DRAW));
+			if (data && sizeBytes > 0)
+				GLCHECKER(glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeBytes, data));
+		}
 		// Re-bind the indexed slot after orphaning - required on some macOS
 		// GL drivers that drop the BindBufferBase association when storage
 		// is replaced (Vulkan path is unaffected; this is GL-only).
@@ -576,6 +608,7 @@ namespace p3d {
 	void GLRenderDevice::DestroyUniformBuffer(const DeviceHandle buffer)
 	{
 		uniformBufferBindings.erase(buffer);
+		uniformBufferSizes.erase(buffer);
 		GLuint id = buffer;
 		GLCHECKER(glDeleteBuffers(1, &id));
 	}

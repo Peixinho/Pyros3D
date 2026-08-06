@@ -1,0 +1,61 @@
+name: Emscripten
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: emscripten-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: WebGL2 / Pyros3D.js
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.74
+
+      - name: Configure
+        run: |
+          emcmake cmake -S . -B build_web -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_DEMOS=ON \
+            -DHAVE_LUA_BINDINGS=OFF \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+
+      - name: Build Pyros3D library
+        run: cmake --build build_web --parallel "$(nproc)" --target Pyros3D
+
+      - name: Check artifacts
+        run: |
+          ls -lh build_web/examples/Pyros3D.js \
+                build_web/examples/Pyros3D.wasm \
+                build_web/examples/Pyros3D.data \
+                build_web/examples/web/index.html \
+                build_web/examples/web/main.js \
+                build_web/examples/web/neonpulse/main.js
+
+      - name: Upload web artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pyros3D-web
+          path: |
+            build_web/examples/Pyros3D.js
+            build_web/examples/Pyros3D.wasm
+            build_web/examples/Pyros3D.data
+            build_web/examples/web/
+          if-no-files-found: error

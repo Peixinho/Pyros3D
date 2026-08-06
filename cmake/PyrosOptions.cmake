@@ -1,6 +1,9 @@
 # User-facing build options (cmake-gui / ccmake dropdowns via STRINGS).
 # Included from the root CMakeLists.txt.
 
+# Emscripten (emcmake) forces GLES3 / SDL2 / no Vulkan before the rest.
+include(${CMAKE_CURRENT_LIST_DIR}/PyrosEmscripten.cmake)
+
 # ---------------------------------------------------------------------------
 # Primary graphics stack
 # ---------------------------------------------------------------------------
@@ -39,7 +42,13 @@ endif()
 # Feature toggles
 # ---------------------------------------------------------------------------
 option(IS_DESKTOP "Desktop target (vs embedded)" ON)
-option(HAVE_LUA_BINDINGS "Build Lua/sol bindings" ON)
+# Lua defaults off under Emscripten (CppApiDemo first); on for native.
+if (EMSCRIPTEN)
+	set(_pyros_lua_default OFF)
+else()
+	set(_pyros_lua_default ON)
+endif()
+option(HAVE_LUA_BINDINGS "Build Lua/sol bindings" ${_pyros_lua_default})
 option(STATIC_LIB "Build PyrosEngine as a static library" OFF)
 option(BUILD_SPIRV_TOOLING "GLSL→SPIR-V tooling (shaderc + spirv-cross)" ON)
 option(BUILD_CONVERTER "Build Assimp model converter tool" OFF)
@@ -58,6 +67,10 @@ if (PYROS_CONTEXT STREQUAL "SDL2Vulkan" AND NOT BUILD_VULKAN_BACKEND)
 	message(FATAL_ERROR
 		"CONTEXT/PYROS_CONTEXT=SDL2Vulkan requires BUILD_VULKAN_BACKEND=ON "
 		"(or set -DPYROS_GRAPHICS=Vulkan / -DBUILD_VULKAN_BACKEND=ON).")
+endif()
+
+if (EMSCRIPTEN AND BUILD_VULKAN_BACKEND)
+	message(FATAL_ERROR "Vulkan backend is not supported under Emscripten (use GLES3 / WebGL2).")
 endif()
 
 # ---------------------------------------------------------------------------
@@ -81,3 +94,6 @@ message(STATUS "  BUILD_SPIRV_TOOLING  = ${BUILD_SPIRV_TOOLING}")
 message(STATUS "  BUILD_DEMOS          = ${BUILD_DEMOS}")
 message(STATUS "  HAVE_LUA_BINDINGS    = ${HAVE_LUA_BINDINGS}")
 message(STATUS "  LIB_TYPE             = ${LIB_TYPE}")
+if (EMSCRIPTEN)
+	message(STATUS "  EMSCRIPTEN           = ON (WebGL2)")
+endif()

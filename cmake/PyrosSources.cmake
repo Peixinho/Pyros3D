@@ -118,3 +118,18 @@ set(PYROS_ENGINE_SOURCE
 	${VULKAN_BACKEND_SOURCE}
 	${IMGUI_CORE_SOURCE}
 )
+
+# Embind surface (WebAssembly) — compiled only under emcmake.
+if (EMSCRIPTEN)
+	list(APPEND PYROS_ENGINE_SOURCE
+		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindEnums.cpp
+		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindMath.cpp
+		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbind.cpp
+		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindRender.cpp
+		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindAssets.cpp
+		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindPhysics.cpp
+		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindPostFX.cpp
+		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindAudio.cpp
+		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindMisc.cpp
+	)
+endif()

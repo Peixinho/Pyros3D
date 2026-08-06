@@ -1051,20 +1051,14 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 	}
 	else if (blending && (!Material->IsTransparent() || !Material->blending)) DisableBlending();
 
-	// Draw
-	#if !defined(GLES3)
-		if (rmesh->renderingComponent->IsInstanced())
-		{
-			device->DrawElementsInstanced(cmd, DrawType, rmesh->Geometry->GetIndexData().size(), ((IRenderingInstancedComponent*)rmesh->renderingComponent)->NumberOfInstances());
-		}
-		else {
-			device->DrawElements(cmd, DrawType, rmesh->Geometry->GetIndexData().size());
-		}
-	#else
-
+	// Draw — WebGL2/GLES3 support instanced draws (needed by ParticleSystem).
+	if (rmesh->renderingComponent->IsInstanced())
+	{
+		device->DrawElementsInstanced(cmd, DrawType, rmesh->Geometry->GetIndexData().size(), ((IRenderingInstancedComponent*)rmesh->renderingComponent)->NumberOfInstances());
+	}
+	else {
 		device->DrawElements(cmd, DrawType, rmesh->Geometry->GetIndexData().size());
-
-	#endif
+	}
 
 	device->EndCommandBuffer(cmd);
 

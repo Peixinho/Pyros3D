@@ -46,6 +46,10 @@ if (WIN32 AND LIB_TYPE STREQUAL "SHARED")
 	target_compile_definitions(PyrosEngine PRIVATE _EXPORT)
 endif()
 
+if (EMSCRIPTEN)
+	pyros_emscripten_apply_compile(PyrosEngine)
+endif()
+
 # ---------------------------------------------------------------------------
 # Optional tools / demos
 # ---------------------------------------------------------------------------

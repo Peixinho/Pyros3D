@@ -442,7 +442,11 @@ void DemoLauncher::InitImGui()
 	ImGui::StyleColorsDark();
 
 	ImGui_ImplSDL2_InitForOpenGL(GetSDLWindow(), GetGLContext());
+#if defined(GLES3) || defined(EMSCRIPTEN)
+	ImGui_ImplOpenGL3_Init("#version 300 es");
+#else
 	ImGui_ImplOpenGL3_Init("#version 330");
+#endif
 
 	imguiInitialized = true;
 #else

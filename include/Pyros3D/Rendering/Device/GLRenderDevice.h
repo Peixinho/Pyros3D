@@ -197,6 +197,12 @@ namespace p3d {
 		// ReplaceUniformBuffer can re-issue BindBufferBase after glBufferData
 		// orphans storage (some macOS GL drivers drop the indexed binding).
 		std::map<DeviceHandle, uint32> uniformBufferBindings;
+		// Capacity at CreateUniformBuffer (or last grow). ReplaceUniformBuffer
+		// must not shrink below this: WebGL2 validates BindBufferBase against
+		// the shader's full std140 block size (e.g. mat4 uLights[MAX_LIGHTS]),
+		// and a partial orphan left the buffer undersized →
+		// GL_INVALID_OPERATION on glDrawElements.
+		std::map<DeviceHandle, uint32> uniformBufferSizes;
 
 		// Draw-bound FBO (0 = default framebuffer). ForwardRenderer gates
 		// BeginFrame/EndFrame on GetCurrentRenderTarget()==0; returning 0

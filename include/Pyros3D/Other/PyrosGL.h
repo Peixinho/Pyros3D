@@ -10,7 +10,7 @@
 #define PYROSGL_H
 
 #if defined(GLES3)
-	#if defined(DESKTOP)
+	#if defined(DESKTOP) || defined(EMSCRIPTEN)
 		#include <Pyros3D/Ext/gles3/glad/glad.h>
 	#else
 		#include <GLES3/gl3.h>

@@ -56,6 +56,15 @@ function(pyros_add_example target_name)
 	if (WIN32 AND LIB_TYPE STREQUAL "SHARED")
 		target_compile_definitions(${target_name} PRIVATE _IMPORT)
 	endif()
+	if (EMSCRIPTEN)
+		pyros_emscripten_apply_compile(${target_name})
+		pyros_emscripten_apply_link(${target_name})
+		# Pack common assets + engine shaders into the virtual FS.
+		target_link_options(${target_name} PRIVATE
+			"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/examples/assets@assets"
+			"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/resources/shaders@shaders"
+		)
+	endif()
 endfunction()
 
 # Minimal C++ API demo (ForwardRenderer + cube + light).
@@ -65,6 +74,55 @@ pyros_add_example(CppApiDemo
 		${CMAKE_CURRENT_SOURCE_DIR}/CppApiDemo/CppApiDemo.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
 )
+
+# JS-first Embind library: import createPyros3D and drive the engine from JS.
+# (Replaces the old C++-host JsApiDemo + pyrosInit pattern.)
+if (EMSCRIPTEN)
+	add_executable(Pyros3D
+		${CMAKE_CURRENT_SOURCE_DIR}/web/native/main.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/web/native/JsApplication.cpp
+		${PYROS_WINDOW_MANAGER}
+		${PYROS_IMGUI_BACKEND_SOURCE}
+	)
+	target_include_directories(Pyros3D PRIVATE
+		${CMAKE_SOURCE_DIR}/include
+		${CMAKE_CURRENT_SOURCE_DIR}
+		${CMAKE_CURRENT_SOURCE_DIR}/web/native
+		${SDL2_INCLUDE_DIRS}
+		${IMGUI_INCLUDE_DIRS}
+	)
+	target_link_libraries(Pyros3D PRIVATE
+		PyrosEngine
+		${PYROS_CONTEXT_LIB}
+		${OPENGL_LIBS}
+		${BULLET_LIBRARIES}
+		${FREETYPE_LIBRARIES}
+	)
+	target_compile_definitions(Pyros3D PRIVATE
+		${PYROS_CONTEXT_DEFINITION}
+		EXAMPLES_PATH=${EXAMPLES_PATH}
+	)
+	if (IS_DESKTOP)
+		target_compile_definitions(Pyros3D PRIVATE DESKTOP)
+	endif()
+	pyros_emscripten_apply_compile(Pyros3D)
+	pyros_emscripten_apply_library_link(Pyros3D)
+	# Keep .data small: engine shaders + Neon Pulse web assets only.
+	target_link_options(Pyros3D PRIVATE
+		"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/resources/shaders@shaders"
+		"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/examples/assets/smoke.png@assets/smoke.png"
+		"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/examples/assets/verdana.ttf@assets/verdana.ttf"
+		"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/examples/assets/neonpulse/sfx@assets/neonpulse/sfx"
+	)
+	# Serveable JS example next to Pyros3D.js / .wasm / .data
+	add_custom_command(TARGET Pyros3D POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E remove_directory $<TARGET_FILE_DIR:Pyros3D>/web
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+			${CMAKE_CURRENT_SOURCE_DIR}/web
+			$<TARGET_FILE_DIR:Pyros3D>/web
+		COMMENT "Copy examples/web into build output"
+	)
+endif()
 
 # Unified demo browser (JSON + Lua) — needs Lua bindings.
 if (HAVE_LUA_BINDINGS)
@@ -78,6 +136,7 @@ else()
 endif()
 
 # Symlink resources/shaders into the examples build dir (live edits).
-if (NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/shaders)
+# Skip under Emscripten — shaders are --preload-file'd into the VFS instead.
+if (NOT EMSCRIPTEN AND NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/shaders)
 	file(CREATE_LINK ${CMAKE_SOURCE_DIR}/resources/shaders ${CMAKE_CURRENT_BINARY_DIR}/shaders SYMBOLIC)
 endif()

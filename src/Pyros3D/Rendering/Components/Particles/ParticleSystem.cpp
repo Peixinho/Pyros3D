@@ -265,8 +265,15 @@ namespace p3d {
 		// Reads the owner's CURRENT world position - see the header
 		// comment on SpawnParticle() for the one-frame-lag this can imply
 		// relative to a GameObject::Update() override moving the emitter
-		// this same frame.
-		Vec3 origin = GetOwner() != NULL ? GetOwner()->GetWorldPosition() : Vec3::ZERO;
+		// this same frame. RefreshTransformation() forces local→world now
+		// so a freshly positioned emitter (e.g. JS setPosition before the
+		// next SceneGraph InternalUpdate) does not spawn at the origin.
+		Vec3 origin = Vec3::ZERO;
+		if (GetOwner() != NULL)
+		{
+			GetOwner()->RefreshTransformation();
+			origin = GetOwner()->GetWorldPosition();
+		}
 
 		// Sample a random direction within the emission cone: pick a polar
 		// angle in [0,spreadAngle] and a uniform azimuth around it, in a

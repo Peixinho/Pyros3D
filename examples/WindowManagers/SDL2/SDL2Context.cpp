@@ -132,8 +132,14 @@ namespace p3d {
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 #elif defined(GLES3)
+#if defined(EMSCRIPTEN)
+        // WebGL2 ≈ OpenGL ES 3.0
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#else
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+#endif
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 #else
 		SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
@@ -199,8 +205,8 @@ namespace p3d {
 
 #if !defined(GLES2) && !defined(GLES3)
 		gladLoadGL();
-#elif defined(DESKTOP)
-		gladLoadGLES2Loader(SDL_GL_GetProcAddress);
+#elif defined(DESKTOP) || defined(EMSCRIPTEN)
+		gladLoadGLES2Loader((GLADloadproc)SDL_GL_GetProcAddress);
 #endif
 		// Set OpenGL Major and Minor Versions
 		SDL_GL_GetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,(int*)&glMajor);

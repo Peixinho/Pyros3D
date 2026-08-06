@@ -251,7 +251,9 @@ void BaseExample::InitImGui()
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
+#if !defined(EMSCRIPTEN)
 	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;       // Enable Multi-Viewport
+#endif
 
 	// Setup Dear ImGui style
 	ImGui::StyleColorsDark();
@@ -266,7 +268,11 @@ void BaseExample::InitImGui()
 
 	// Setup Platform/Renderer backends
 	ImGui_ImplSDL2_InitForOpenGL(GetSDLWindow(), GetGLContext());
+#if defined(GLES3) || defined(EMSCRIPTEN)
+	ImGui_ImplOpenGL3_Init("#version 300 es");
+#else
 	ImGui_ImplOpenGL3_Init("#version 330");
+#endif
 
 	imguiInitialized = true;
 #else

@@ -8,8 +8,9 @@
 
 #include "includes.h"
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
-#if defined(EMSCRIPTEN)
+#if defined(__EMSCRIPTEN__) || defined(EMSCRIPTEN)
 #include <emscripten.h>
+#define PYROS_EMSCRIPTEN 1
 #endif
 using namespace std;
 using namespace p3d;
@@ -51,8 +52,9 @@ int main(int argc, char** argv) {
 
 	initialized = false;
 
-#ifdef EMSCRIPTEN
-	emscripten_set_main_loop(mainloop, 0, 0);
+#ifdef PYROS_EMSCRIPTEN
+	// fps=0 → browser refresh rate; simulate_infinite_loop=1 never returns.
+	emscripten_set_main_loop(mainloop, 0, 1);
 #else
 	// Create Context Window
 	window = new DEMO_NAME();
@@ -70,7 +72,7 @@ int main(int argc, char** argv) {
 	}
 #endif
 
-#if !defined(EMSCRIPTEN)
+#if !defined(PYROS_EMSCRIPTEN)
 	// Every example's Shutdown() override deletes its own GPU-owned
 	// resources (materials, textures, FBOs, meshes) *before* calling
 	// BaseExample::Shutdown() (see e.g. DeferredPBRSpheres::Shutdown()) -

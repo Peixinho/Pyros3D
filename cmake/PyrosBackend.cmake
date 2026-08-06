@@ -25,13 +25,21 @@ elseif (OPENGL_VERSION STREQUAL "GL41")
 	set(OPENGL_LIBS ${OPENGL_LIBRARIES})
 elseif (OPENGL_VERSION STREQUAL "GLES3")
 	add_compile_definitions(GLES3)
-	set(OPENGL_LIBS GLESv2)
-	if (IS_DESKTOP)
-		set(GL_INCLUDE ${PYROS_EXT_DIR}/gles3/glad.c)
-		set(GLAD_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include/Pyros3D/Ext/gles3)
+	# Always use glad GLES3 (desktop ES, Emscripten/WebGL2, embedded).
+	set(GL_INCLUDE ${PYROS_EXT_DIR}/gles3/glad.c)
+	set(GLAD_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include/Pyros3D/Ext/gles3)
+	if (EMSCRIPTEN)
+		# Browser / emscripten GL; do not link system GLESv2.
+		set(OPENGL_LIBS "")
+	else()
+		set(OPENGL_LIBS GLESv2)
 	endif()
 else()
 	message(FATAL_ERROR "Unknown OPENGL_VERSION='${OPENGL_VERSION}' (expected GL45, GL42, GL41, or GLES3)")
+endif()
+
+if (EMSCRIPTEN AND NOT OPENGL_VERSION STREQUAL "GLES3")
+	message(FATAL_ERROR "Emscripten builds require OPENGL_VERSION=GLES3 (WebGL2)")
 endif()
 
 # ---------------------------------------------------------------------------
