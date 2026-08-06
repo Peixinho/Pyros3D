@@ -37,12 +37,12 @@
             "transparent": true,
             "wireframe": false,
             "skyboxMap": {
-                "negx": "/Users/peixinho/dev/cpp/Pyros3D/examples/RacingGame/assets/textures/skybox/negx.png",
-                "negy": "/Users/peixinho/dev/cpp/Pyros3D/examples/RacingGame/assets/textures/skybox/negy.png",
-                "negz": "/Users/peixinho/dev/cpp/Pyros3D/examples/RacingGame/assets/textures/skybox/negz.png",
-                "posx": "/Users/peixinho/dev/cpp/Pyros3D/examples/RacingGame/assets/textures/skybox/posx.png",
-                "posy": "/Users/peixinho/dev/cpp/Pyros3D/examples/RacingGame/assets/textures/skybox/posy.png",
-                "posz": "/Users/peixinho/dev/cpp/Pyros3D/examples/RacingGame/assets/textures/skybox/posz.png"
+                "negx": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textures/skybox/negx.png",
+                "negy": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textures/skybox/negy.png",
+                "negz": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textures/skybox/negz.png",
+                "posx": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textures/skybox/posx.png",
+                "posy": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textures/skybox/posy.png",
+                "posz": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textures/skybox/posz.png"
             }
         }
     ],
