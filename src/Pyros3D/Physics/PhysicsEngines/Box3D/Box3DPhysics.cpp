@@ -242,6 +242,28 @@ namespace p3d {
 		timeInterval = 0;
 	}
 
+	void Box3DPhysics::ApplyVehicleMotors(IPhysicsComponent* pcomp)
+	{
+		if (!pcomp || pcomp->GetShape() != CollisionShapes::Vehicle) return;
+		Box3DBodyHandles* handles = GetHandles(pcomp);
+		if (!handles || handles->body.index1 == 0) return;
+
+		PhysicsVehicle* vcomp = static_cast<PhysicsVehicle*>(pcomp);
+		std::vector<VehicleWheel> &wheels = vcomp->GetWheels();
+		const f32 steer = vcomp->GetVehicleSteering();
+		const size_t jointCount = std::min(wheels.size(), handles->wheelJoints.size());
+
+		// Only push authored steering into the joints. Drive/brake are demo-side
+		// (Lua applyCentralForce / etc.) — do not special-case propulsion here.
+		for (size_t i = 0; i < jointCount; ++i)
+		{
+			b3JointId joint = handles->wheelJoints[i];
+			if (joint.index1 == 0) continue;
+			if (wheels[i].IsFrontWheel)
+				b3WheelJoint_SetTargetSteeringAngle(joint, steer);
+		}
+	}
+
 	void Box3DPhysics::Update(const f64 &time, const uint32 steps)
 	{
 		PYROS_PROFILE_SCOPE("Physics.Update");
@@ -259,6 +281,11 @@ namespace p3d {
 		int taken = 0;
 		while (timeInterval >= (f64)fixed && taken < maxSteps)
 		{
+			// Motors must be set before the solver step (DemoLauncher steps
+			// physics before Scene/Lua UpdateTransformations).
+			for (size_t i = 0; i < m_vehicles.size(); ++i)
+				ApplyVehicleMotors(m_vehicles[i]);
+
 			b3World_Step(m_world, fixed, 4);
 			timeInterval -= (f64)fixed;
 			++taken;
@@ -353,6 +380,7 @@ namespace p3d {
 			m_world = b3_nullWorldId;
 		}
 		m_touchingPairs.clear();
+		m_vehicles.clear();
 		physicsInitialized = false;
 	}
 
@@ -598,6 +626,7 @@ namespace p3d {
 				AttachChassisShapes(chassis, handles, handles->body, shapeDef);
 
 			pcomp->SaveRigidBodyPTR(handles);
+			m_vehicles.push_back(pcomp);
 
 			std::vector<VehicleWheel> &wheels = vehicle->GetWheels();
 			for (uint32 i = 0; i < wheels.size(); ++i)
@@ -615,7 +644,6 @@ namespace p3d {
 	void Box3DPhysics::AddWheel(IPhysicsComponent *pcomp, const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3 &Position, bool isFrontWheel)
 	{
 		(void)WheelDirection;
-		(void)WheelAxle;
 		(void)WheelWidth;
 		(void)WheelRollInfluence;
 
@@ -623,8 +651,14 @@ namespace p3d {
 		Box3DBodyHandles* handles = GetHandles(pcomp);
 		if (!handles || handles->body.index1 == 0) return;
 
+		// Sphere wheels: keep body orientation = chassis so getWheelTransform
+		// matches Bullet/mesh authorship. Put spin/suspension axes in the joint
+		// frames (Driving tips the body for cylinders — wrong for mesh spheres).
 		b3Pos chassisPos = b3Body_GetPosition(handles->body);
 		b3Quat chassisRot = b3Body_GetRotation(handles->body);
+		b3Vec3 axle = b3Normalize(ToB3(WheelAxle));
+		if (b3LengthSquared(axle) < 0.01f)
+			axle = b3Vec3_axisX;
 		b3Vec3 worldOffset = b3RotateVector(chassisRot, ToB3(Position));
 
 		b3BodyDef wheelDef = b3DefaultBodyDef();
@@ -640,12 +674,14 @@ namespace p3d {
 
 		b3ShapeDef shapeDef = b3DefaultShapeDef();
 		shapeDef.density = 2.f;
-		shapeDef.baseMaterial.friction = WheelFriction;
+		shapeDef.baseMaterial.friction = WheelFriction > 0.1f ? WheelFriction : 3.f;
+		if (shapeDef.baseMaterial.friction < 1.5f)
+			shapeDef.baseMaterial.friction = 3.f;
 		shapeDef.enableContactEvents = true;
 
 		b3Sphere sphere;
 		sphere.center = b3Vec3_zero;
-		sphere.radius = WheelRadius;
+		sphere.radius = WheelRadius > 0.05f ? WheelRadius : 0.35f;
 		b3CreateSphereShape(wheelBody, &shapeDef, &sphere);
 		b3Body_ApplyMassFromShapes(wheelBody);
 
@@ -653,27 +689,39 @@ namespace p3d {
 		jointDef.base.bodyIdA = handles->body;
 		jointDef.base.bodyIdB = wheelBody;
 		jointDef.base.localFrameA.p = ToB3(Position);
+		// Suspension along chassis Y (joint X → Y).
 		jointDef.base.localFrameA.q = b3ComputeQuatBetweenUnitVectors(b3Vec3_axisX, b3Vec3_axisY);
-		jointDef.base.localFrameB.q = b3ComputeQuatBetweenUnitVectors(b3Vec3_axisZ, b3Vec3_axisY);
+		jointDef.base.localFrameB.p = b3Vec3_zero;
+		// Spin around WheelAxle in body space (joint Z → axle).
+		jointDef.base.localFrameB.q = b3ComputeQuatBetweenUnitVectors(b3Vec3_axisZ, axle);
 		jointDef.base.collideConnected = false;
 
+		// Map legacy Bullet-ish suspension params into Box3D Hertz/ratio.
+		f32 hertz = vehicle->GetSuspensionStiffness();
+		if (hertz > 12.f) hertz = 4.f;
+		if (hertz < 1.f) hertz = 4.f;
+		f32 damp = vehicle->GetSuspensionDamping();
+		if (damp > 1.2f || damp < 0.05f) damp = 0.7f;
+
 		jointDef.enableSuspensionSpring = true;
-		jointDef.suspensionHertz = vehicle->GetSuspensionStiffness();
-		jointDef.suspensionDampingRatio = vehicle->GetSuspensionDamping();
+		jointDef.suspensionHertz = hertz;
+		jointDef.suspensionDampingRatio = damp;
 		jointDef.enableSuspensionLimit = true;
-		const f32 rest = vehicle->GetSuspensionRestLength();
-		jointDef.lowerSuspensionLimit = -rest;
-		jointDef.upperSuspensionLimit = rest * 0.25f;
+		jointDef.lowerSuspensionLimit = -0.2f;
+		jointDef.upperSuspensionLimit = 0.15f;
 
 		jointDef.enableSpinMotor = !isFrontWheel;
-		jointDef.maxSpinTorque = vehicle->GetMaxEngineForce();
+		jointDef.spinSpeed = 0.f;
+		jointDef.maxSpinTorque = 80.f;
 		jointDef.enableSteering = isFrontWheel;
-		jointDef.steeringHertz = 20.f;
+		jointDef.steeringHertz = 10.f;
 		jointDef.steeringDampingRatio = 0.7f;
-		jointDef.maxSteeringTorque = 100.f;
+		jointDef.targetSteeringAngle = 0.f;
+		jointDef.maxSteeringTorque = 40.f;
 		jointDef.enableSteeringLimit = true;
-		jointDef.lowerSteeringLimit = -vehicle->GetSteeringClamp();
-		jointDef.upperSteeringLimit = vehicle->GetSteeringClamp();
+		const f32 steerClamp = vehicle->GetSteeringClamp() > 0.05f ? vehicle->GetSteeringClamp() : 0.45f;
+		jointDef.lowerSteeringLimit = -steerClamp;
+		jointDef.upperSteeringLimit = steerClamp;
 
 		b3JointId joint = b3CreateWheelJoint(m_world, &jointDef);
 
@@ -691,6 +739,29 @@ namespace p3d {
 		GameObject* owner = pcomp->GetOwner();
 		if (!owner) return;
 
+		// Vehicles report mass 0 on the component (mass lives on the chassis
+		// orphan) but are dynamic bodies — must not hit the static path below
+		// or the chassis is glued to the GameObject and never simulates.
+		if (pcomp->GetShape() == CollisionShapes::Vehicle)
+		{
+			PhysicsVehicle* vcomp = static_cast<PhysicsVehicle*>(pcomp);
+			std::vector<VehicleWheel> &wheels = vcomp->GetWheels();
+
+			// Drive motors are applied in Update() before b3World_Step.
+			b3Pos p = b3Body_GetPosition(handles->body);
+			b3Quat q = b3Body_GetRotation(handles->body);
+			owner->SetPosition(FromB3Pos(p));
+			owner->SetRotation(FromB3Quat(q).GetEulerFromQuaternion());
+
+			const size_t count = std::min(wheels.size(), handles->wheelBodies.size());
+			for (size_t i = 0; i < count; ++i)
+			{
+				if (handles->wheelBodies[i].index1 != 0)
+					wheels[i].Transformation = BodyToMatrix(handles->wheelBodies[i]);
+			}
+			return;
+		}
+
 		// Static / sensor: keep the Box3D body glued to the authored GameObject
 		// pose (never the other way around — solver noise must not move walls).
 		if (pcomp->GetMass() <= 0.f || pcomp->IsGhost())
@@ -705,23 +776,20 @@ namespace p3d {
 		b3Quat q = b3Body_GetRotation(handles->body);
 		owner->SetPosition(FromB3Pos(p));
 		owner->SetRotation(FromB3Quat(q).GetEulerFromQuaternion());
-
-		if (pcomp->GetShape() == CollisionShapes::Vehicle)
-		{
-			PhysicsVehicle* vcomp = static_cast<PhysicsVehicle*>(pcomp);
-			std::vector<VehicleWheel> &wheels = vcomp->GetWheels();
-			const size_t count = std::min(wheels.size(), handles->wheelBodies.size());
-			for (size_t i = 0; i < count; ++i)
-			{
-				if (handles->wheelBodies[i].index1 != 0)
-					wheels[i].Transformation = BodyToMatrix(handles->wheelBodies[i]);
-			}
-		}
 	}
 
 	void Box3DPhysics::RemovePhysicsComponent(IPhysicsComponent* pcomp)
 	{
 		if (!pcomp->RigidBodyRegistered()) return;
+
+		for (size_t i = 0; i < m_vehicles.size(); ++i)
+		{
+			if (m_vehicles[i] == pcomp)
+			{
+				m_vehicles.erase(m_vehicles.begin() + (std::ptrdiff_t)i);
+				break;
+			}
+		}
 
 		Box3DBodyHandles* handles = GetHandles(pcomp);
 		DestroyHandles(handles);
@@ -758,8 +826,23 @@ namespace p3d {
 	{
 		Box3DBodyHandles* handles = GetHandles(pcomp);
 		if (!handles || handles->body.index1 == 0) return;
+		b3Pos oldPos = b3Body_GetPosition(handles->body);
 		b3Quat q = b3Body_GetRotation(handles->body);
-		b3Body_SetTransform(handles->body, ToB3Pos(position), q);
+		b3Pos newPos = ToB3Pos(position);
+		const b3Vec3 delta = { newPos.x - oldPos.x, newPos.y - oldPos.y, newPos.z - oldPos.z };
+		b3Body_SetTransform(handles->body, newPos, q);
+		b3Body_SetLinearVelocity(handles->body, b3Vec3_zero);
+		b3Body_SetAngularVelocity(handles->body, b3Vec3_zero);
+		for (size_t i = 0; i < handles->wheelBodies.size(); ++i)
+		{
+			if (handles->wheelBodies[i].index1 == 0) continue;
+			b3Pos wp = b3Body_GetPosition(handles->wheelBodies[i]);
+			wp.x += delta.x; wp.y += delta.y; wp.z += delta.z;
+			b3Quat wq = b3Body_GetRotation(handles->wheelBodies[i]);
+			b3Body_SetTransform(handles->wheelBodies[i], wp, wq);
+			b3Body_SetLinearVelocity(handles->wheelBodies[i], b3Vec3_zero);
+			b3Body_SetAngularVelocity(handles->wheelBodies[i], b3Vec3_zero);
+		}
 	}
 
 	void Box3DPhysics::UpdateRotation(IPhysicsComponent *pcomp, const Vec3 &rotation)
@@ -767,7 +850,27 @@ namespace p3d {
 		Box3DBodyHandles* handles = GetHandles(pcomp);
 		if (!handles || handles->body.index1 == 0) return;
 		b3Pos p = b3Body_GetPosition(handles->body);
-		b3Body_SetTransform(handles->body, p, EulerToB3Quat(rotation));
+		b3Quat q = EulerToB3Quat(rotation);
+		b3Body_SetTransform(handles->body, p, q);
+		b3Body_SetLinearVelocity(handles->body, b3Vec3_zero);
+		b3Body_SetAngularVelocity(handles->body, b3Vec3_zero);
+
+		if (pcomp->GetShape() == CollisionShapes::Vehicle)
+		{
+			PhysicsVehicle* vehicle = static_cast<PhysicsVehicle*>(pcomp);
+			std::vector<VehicleWheel> &wheels = vehicle->GetWheels();
+			const size_t count = std::min(wheels.size(), handles->wheelBodies.size());
+			for (size_t i = 0; i < count; ++i)
+			{
+				if (handles->wheelBodies[i].index1 == 0) continue;
+				b3Vec3 worldOffset = b3RotateVector(q, ToB3(wheels[i].Position));
+				b3Pos wp = { p.x + worldOffset.x, p.y + worldOffset.y, p.z + worldOffset.z };
+				// Same orientation as chassis — spin axis lives in the joint frame.
+				b3Body_SetTransform(handles->wheelBodies[i], wp, q);
+				b3Body_SetLinearVelocity(handles->wheelBodies[i], b3Vec3_zero);
+				b3Body_SetAngularVelocity(handles->wheelBodies[i], b3Vec3_zero);
+			}
+		}
 	}
 
 	void Box3DPhysics::CleanForces(IPhysicsComponent *pcomp)
@@ -777,6 +880,12 @@ namespace p3d {
 		if (!handles || handles->body.index1 == 0) return;
 		b3Body_SetLinearVelocity(handles->body, b3Vec3_zero);
 		b3Body_SetAngularVelocity(handles->body, b3Vec3_zero);
+		for (size_t i = 0; i < handles->wheelBodies.size(); ++i)
+		{
+			if (handles->wheelBodies[i].index1 == 0) continue;
+			b3Body_SetLinearVelocity(handles->wheelBodies[i], b3Vec3_zero);
+			b3Body_SetAngularVelocity(handles->wheelBodies[i], b3Vec3_zero);
+		}
 	}
 
 	void Box3DPhysics::SetAngularVelocity(IPhysicsComponent *pcomp, const Vec3 &velocity)

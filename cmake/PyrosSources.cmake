@@ -18,6 +18,16 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Mouse3D/Mouse3D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Mouse3D/PainterPick.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosBindings.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaHelpers.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaEnums.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaMath.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaCore.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaRender.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaAssets.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaPhysics.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaPostFX.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaAudio.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaMisc.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Serialization/SceneSerializer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Geometry/Geometry.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/FPS/FPS.cpp

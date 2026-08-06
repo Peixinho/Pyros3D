@@ -101,9 +101,11 @@ namespace p3d {
 		void AttachChassisShapes(IPhysicsComponent* chassis, Box3DBodyHandles* handles, b3BodyId body, const b3ShapeDef &shapeDef);
 		b3ShapeDef MakeShapeDef(IPhysicsComponent* pcomp) const;
 		b3BodyDef MakeBodyDef(IPhysicsComponent* pcomp) const;
+		void ApplyVehicleMotors(IPhysicsComponent* pcomp);
 
 		void ProcessCollisionEvents();
 		std::set<std::pair<IPhysicsComponent*, IPhysicsComponent*> > m_touchingPairs;
+		std::vector<IPhysicsComponent*> m_vehicles;
 
 		static Box3DBodyHandles* GetHandles(IPhysicsComponent* pcomp);
 		static IPhysicsComponent* ComponentFromShape(b3ShapeId shapeId);

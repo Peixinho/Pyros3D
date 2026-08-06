@@ -1,6 +1,6 @@
 //============================================================================
 // Name        : PyrosEmbindPhysics.cpp
-// Description : Embind Box3DPhysics / IPhysics / RayCastHit.
+// Description : Embind Box3DPhysics / IPhysics / RayCastHit / PhysicsVehicle.
 //============================================================================
 
 #if defined(__EMSCRIPTEN__) || defined(EMSCRIPTEN)
@@ -10,6 +10,7 @@
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
 #include <Pyros3D/Physics/PhysicsEngines/Box3D/Box3DPhysics.h>
 #include <Pyros3D/Physics/Components/IPhysicsComponent.h>
+#include <Pyros3D/Physics/Components/Vehicle/PhysicsVehicle.h>
 #include <Pyros3D/Components/IComponent.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/GameObjects/GameObject.h>
@@ -79,6 +80,24 @@ namespace {
 		p.Update(time, steps);
 	}
 
+	uint32 PhysicsVehicle_GetWheelCount(PhysicsVehicle &v)
+	{
+		return (uint32)v.GetWheels().size();
+	}
+	Matrix PhysicsVehicle_GetWheelTransform(PhysicsVehicle &v, uint32 i)
+	{
+		if (i >= v.GetWheels().size()) return Matrix();
+		return v.GetWheels()[i].Transformation;
+	}
+	bool PhysicsVehicle_IsFrontWheel(PhysicsVehicle &v, uint32 i)
+	{
+		return i < v.GetWheels().size() ? v.GetWheels()[i].IsFrontWheel : false;
+	}
+	std::shared_ptr<PhysicsVehicle> AsPhysicsVehicle(std::shared_ptr<IPhysicsComponent> c)
+	{
+		return std::dynamic_pointer_cast<PhysicsVehicle>(c);
+	}
+
 } // namespace
 
 namespace p3d {
@@ -112,6 +131,33 @@ EMSCRIPTEN_BINDINGS(pyros3d_physics)
 		.function("activate", &IPhysicsComponent::Activate)
 		.function("isGhost", &IPhysicsComponent::IsGhost);
 		// onCollisionEnter/Exit — std::function Lua callbacks; bind JS-friendly later
+
+	class_<PhysicsVehicle, base<IPhysicsComponent>>("PhysicsVehicle")
+		.smart_ptr<std::shared_ptr<PhysicsVehicle>>("PhysicsVehiclePtr")
+		.function("setEngineForce", &PhysicsVehicle::SetEngineForce)
+		.function("getEngineForce", &PhysicsVehicle::GetEngineForce)
+		.function("setBreakingForce", &PhysicsVehicle::SetBreakingForce)
+		.function("getBreakingForce", &PhysicsVehicle::GetBreakingForce)
+		.function("setMaxEngineForce", &PhysicsVehicle::SetMaxEngineForce)
+		.function("getMaxEngineForce", &PhysicsVehicle::GetMaxEngineForce)
+		.function("setMaxBreakingForce", &PhysicsVehicle::SetMaxBreakingForce)
+		.function("getMaxBreakingForce", &PhysicsVehicle::GetMaxBreakingForce)
+		.function("setVehicleSteering", &PhysicsVehicle::SetVehicleSteering)
+		.function("getVehicleSteering", &PhysicsVehicle::GetVehicleSteering)
+		.function("setSteeringIncrement", &PhysicsVehicle::SetSteeringIncrement)
+		.function("getSteeringIncrement", &PhysicsVehicle::GetSteeringIncrement)
+		.function("setSteeringClamp", &PhysicsVehicle::SetSteeringClamp)
+		.function("getSteeringClamp", &PhysicsVehicle::GetSteeringClamp)
+		.function("setSuspensionStiffness", &PhysicsVehicle::SetSuspensionStiffness)
+		.function("setSuspensionDamping", &PhysicsVehicle::SetSuspensionDamping)
+		.function("setSuspensionCompression", &PhysicsVehicle::SetSuspensionCompression)
+		.function("setSuspensionRestLength", &PhysicsVehicle::SetSuspensionRestLength)
+		.function("addWheel", &PhysicsVehicle::AddWheel)
+		.function("getWheelCount", &PhysicsVehicle_GetWheelCount)
+		.function("getWheelTransform", &PhysicsVehicle_GetWheelTransform)
+		.function("isFrontWheel", &PhysicsVehicle_IsFrontWheel);
+
+	function("asPhysicsVehicle", &AsPhysicsVehicle);
 
 	class_<IPhysics>("IPhysics")
 		.function("initPhysics", &IPhysics::InitPhysics)

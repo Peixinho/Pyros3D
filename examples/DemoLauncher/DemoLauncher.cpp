@@ -290,10 +290,12 @@ void DemoLauncher::SwitchDemo(int index)
 		std::ofstream dbg("/tmp/pyros_demolauncher_switch.log", std::ios::app);
 		if (dbg) dbg << line << std::endl;
 	}
-	for (const std::shared_ptr<GameObject> &go : currentAssets.gameObjects)
+	for (const std::shared_ptr<GameObject> &go : Scene->GetAllGameObjectList())
 	{
+		if (!go) continue;
 		for (const std::shared_ptr<IComponent> &c : go->GetComponents())
 		{
+			if (!c) continue;
 			if (c->GetComponentType() == ComponentType::Physics || c->GetComponentType() == ComponentType::Vehicle)
 				activeDemoHasPhysics = true;
 		}
@@ -316,7 +318,7 @@ void DemoLauncher::Update()
 	f64 time = GetTime();
 	f64 dt = GetTimeInterval();
 
-	if (activeDemoHasPhysics)
+	if (physics)
 		physics->Update(dt, 10);
 
 	Scene->Update(time);
