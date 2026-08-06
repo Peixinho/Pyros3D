@@ -1,0 +1,80 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master, vulkan-backend]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-opengl:
+    name: Linux OpenGL
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build \
+            libsdl2-dev \
+            libbullet-dev \
+            libfreetype-dev \
+            liblua5.3-dev \
+            libgl1-mesa-dev
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPYROS_GRAPHICS=OpenGL \
+            -DOPENGL_VERSION=GL41 \
+            -DCONTEXT=SDL2 \
+            -DBUILD_DEMOS=ON \
+            -DBUILD_SPIRV_TOOLING=OFF \
+            -DSTATIC_LIB=ON \
+            -DLUA_INCLUDE_DIR=/usr/include/lua5.3 \
+            -DLUA_LIBRARY=/usr/lib/x86_64-linux-gnu/liblua5.3.so
+
+      - name: Build
+        run: cmake --build build --parallel "$(nproc)"
+
+  linux-vulkan:
+    name: Linux Vulkan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build git \
+            libsdl2-dev \
+            libbullet-dev \
+            libfreetype-dev \
+            liblua5.3-dev \
+            libgl1-mesa-dev \
+            libvulkan-dev \
+            vulkan-headers
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPYROS_GRAPHICS=Vulkan \
+            -DOPENGL_VERSION=GL41 \
+            -DCONTEXT=Auto \
+            -DBUILD_DEMOS=ON \
+            -DBUILD_SPIRV_TOOLING=OFF \
+            -DSTATIC_LIB=ON \
+            -DLUA_INCLUDE_DIR=/usr/include/lua5.3 \
+            -DLUA_LIBRARY=/usr/lib/x86_64-linux-gnu/liblua5.3.so
+
+      - name: Build
+        run: cmake --build build --parallel "$(nproc)"
