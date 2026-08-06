@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Physics/PhysicsEngines/Box3D/Box3DPhysics.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Physics/Components/Box/PhysicsBox.h>
 #include <Pyros3D/Physics/Components/Sphere/PhysicsSphere.h>
 #include <Pyros3D/Physics/Components/MultipleSphere/PhysicsMultipleSphere.h>
@@ -80,10 +81,56 @@ namespace p3d {
 			return m;
 		}
 
-		float ShapeDensity(f32 mass)
+		float EstimateVolume(IPhysicsComponent* pcomp)
 		{
+			if (!pcomp) return 1.f;
+			switch (pcomp->GetShape())
+			{
+			case CollisionShapes::Box:
+			{
+				PhysicsBox* box = static_cast<PhysicsBox*>(pcomp);
+				// width/height/depth are half-extents (same as Cube primitive)
+				return 8.f * box->GetWidth() * box->GetHeight() * box->GetDepth();
+			}
+			case CollisionShapes::Sphere:
+			{
+				PhysicsSphere* sphere = static_cast<PhysicsSphere*>(pcomp);
+				const f32 r = sphere->GetRadius();
+				return (4.f / 3.f) * 3.14159265358979323846f * r * r * r;
+			}
+			case CollisionShapes::Capsule:
+			{
+				PhysicsCapsule* capsule = static_cast<PhysicsCapsule*>(pcomp);
+				const f32 r = capsule->GetRadius();
+				const f32 h = capsule->GetHeight();
+				return 3.14159265358979323846f * r * r * h + (4.f / 3.f) * 3.14159265358979323846f * r * r * r;
+			}
+			case CollisionShapes::Cylinder:
+			{
+				PhysicsCylinder* cylinder = static_cast<PhysicsCylinder*>(pcomp);
+				const f32 r = cylinder->GetRadius();
+				return 3.14159265358979323846f * r * r * (2.f * cylinder->GetHeight());
+			}
+			case CollisionShapes::Cone:
+			{
+				PhysicsCone* cone = static_cast<PhysicsCone*>(pcomp);
+				const f32 r = cone->GetRadius();
+				return (1.f / 3.f) * 3.14159265358979323846f * r * r * cone->GetHeight();
+			}
+			default:
+				return 1.f;
+			}
+		}
+
+		// density so that density * volume ~= authored mass (was wrongly using mass as density)
+		float ShapeDensity(IPhysicsComponent* pcomp)
+		{
+			const f32 mass = pcomp->GetMass();
 			if (mass <= 0.f) return 0.f;
-			return mass > 0.001f ? mass : 0.001f;
+			const float vol = EstimateVolume(pcomp);
+			if (vol < 1e-8f) return mass > 0.001f ? mass : 0.001f;
+			const float density = mass / vol;
+			return density > 1e-6f ? density : 1e-6f;
 		}
 
 		void FillMeshBuffers(const std::vector<Vec3> &vertex, const std::vector<unsigned> &index,
@@ -184,6 +231,10 @@ namespace p3d {
 	void Box3DPhysics::InitPhysics()
 	{
 		b3WorldDef def = b3DefaultWorldDef();
+		// Stress piles easily hit the default 400 m/s cap and tunnel through walls.
+		def.maximumLinearSpeed = 40.f;
+		def.contactHertz = 60.f;
+		def.contactDampingRatio = 10.f;
 		m_world = b3CreateWorld(&def);
 		b3World_SetGravity(m_world, ToB3(Vec3(0.f, -9.8f, 0.f)));
 		physicsInitialized = true;
@@ -193,12 +244,28 @@ namespace p3d {
 
 	void Box3DPhysics::Update(const f64 &time, const uint32 steps)
 	{
+		PYROS_PROFILE_SCOPE("Physics.Update");
+
 		if (m_world.index1 == 0) return;
-		const float timeStep = (float)time;
-		int subSteps = (int)steps;
-		if (subSteps < 1) subSteps = 1;
-		if (subSteps > 8) subSteps = 8;
-		b3World_Step(m_world, timeStep, subSteps);
+
+		// Fixed-step accumulator: variable frame dt (especially under load)
+		// was detonating contact islands so containment looked like walls crumbled.
+		timeInterval += time;
+		const float fixed = 1.f / 60.f;
+		int maxSteps = (int)steps;
+		if (maxSteps < 1) maxSteps = 1;
+		if (maxSteps > 8) maxSteps = 8;
+
+		int taken = 0;
+		while (timeInterval >= (f64)fixed && taken < maxSteps)
+		{
+			b3World_Step(m_world, fixed, 4);
+			timeInterval -= (f64)fixed;
+			++taken;
+		}
+		if (timeInterval > (f64)fixed * 2.0)
+			timeInterval = 0.0;
+
 		ProcessCollisionEvents();
 	}
 
@@ -292,8 +359,14 @@ namespace p3d {
 	b3ShapeDef Box3DPhysics::MakeShapeDef(IPhysicsComponent* pcomp) const
 	{
 		b3ShapeDef def = b3DefaultShapeDef();
-		def.density = ShapeDensity(pcomp->GetMass());
-		def.enableContactEvents = true;
+		def.density = ShapeDensity(pcomp);
+		// Contact events on every stress-test sphere dominate CPU past a few
+		// thousand bodies and feed the same frame-time spiral. Opt in via
+		// callbacks if a demo needs OnCollisionEnter (main.lua etc. can set
+		// enableContactEvents after creation later if required).
+		def.enableContactEvents = false;
+		def.baseMaterial.restitution = 0.f;
+		def.baseMaterial.friction = 0.5f;
 		if (pcomp->IsGhost())
 		{
 			def.isSensor = true;
@@ -309,6 +382,15 @@ namespace p3d {
 		b3BodyDef def = b3DefaultBodyDef();
 		const f32 mass = pcomp->GetMass();
 		def.type = (mass == 0.f || pcomp->IsGhost()) ? b3_staticBody : b3_dynamicBody;
+		if (def.type == b3_staticBody)
+		{
+			def.motionLocks.linearX = true;
+			def.motionLocks.linearY = true;
+			def.motionLocks.linearZ = true;
+			def.motionLocks.angularX = true;
+			def.motionLocks.angularY = true;
+			def.motionLocks.angularZ = true;
+		}
 		if (pcomp->GetOwner())
 		{
 			def.position = ToB3Pos(pcomp->GetOwner()->GetPosition());
@@ -501,8 +583,9 @@ namespace p3d {
 			b3Body_SetUserData(handles->body, pcomp);
 
 			b3ShapeDef shapeDef = b3DefaultShapeDef();
-			shapeDef.density = ShapeDensity(chassisMass);
-			shapeDef.enableContactEvents = true;
+			shapeDef.density = chassis ? ShapeDensity(chassis) : 0.f;
+			shapeDef.enableContactEvents = false;
+			shapeDef.baseMaterial.restitution = 0.f;
 			if (pcomp->IsGhost())
 			{
 				shapeDef.isSensor = true;
@@ -603,11 +686,25 @@ namespace p3d {
 		if (!pcomp->RigidBodyRegistered()) return;
 		Box3DBodyHandles* handles = GetHandles(pcomp);
 		if (!handles || handles->body.index1 == 0) return;
+		if (!b3Body_IsValid(handles->body)) return;
+
+		GameObject* owner = pcomp->GetOwner();
+		if (!owner) return;
+
+		// Static / sensor: keep the Box3D body glued to the authored GameObject
+		// pose (never the other way around — solver noise must not move walls).
+		if (pcomp->GetMass() <= 0.f || pcomp->IsGhost())
+		{
+			b3Body_SetTransform(handles->body,
+				ToB3Pos(owner->GetPosition()),
+				EulerToB3Quat(owner->GetRotation()));
+			return;
+		}
 
 		b3Pos p = b3Body_GetPosition(handles->body);
 		b3Quat q = b3Body_GetRotation(handles->body);
-		pcomp->GetOwner()->SetPosition(FromB3Pos(p));
-		pcomp->GetOwner()->SetRotation(FromB3Quat(q).GetEulerFromQuaternion());
+		owner->SetPosition(FromB3Pos(p));
+		owner->SetRotation(FromB3Quat(q).GetEulerFromQuaternion());
 
 		if (pcomp->GetShape() == CollisionShapes::Vehicle)
 		{
@@ -628,6 +725,7 @@ namespace p3d {
 
 		Box3DBodyHandles* handles = GetHandles(pcomp);
 		DestroyHandles(handles);
+		pcomp->ClearRigidBodyPTR();
 
 		for (std::set<std::pair<IPhysicsComponent*, IPhysicsComponent*> >::iterator it = m_touchingPairs.begin(); it != m_touchingPairs.end(); )
 		{

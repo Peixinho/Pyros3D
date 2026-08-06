@@ -9,6 +9,7 @@
 #include <Pyros3D/Other/PyrosGL.h>
 #include "SDL2Context.h"
 #include "imgui_impl_sdl2.h"
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 
 namespace p3d {
 
@@ -305,6 +306,7 @@ namespace p3d {
 
     void SDL2Context::Draw()
     {
+        PYROS_PROFILE_SCOPE("GL.SwapWindow");
         SDL_GL_SwapWindow(rview);
     }
 

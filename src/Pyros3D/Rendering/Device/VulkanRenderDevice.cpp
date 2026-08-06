@@ -18,7 +18,10 @@
 // those same global names.
 #define VMA_IMPLEMENTATION
 #include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 
 #ifdef VULKAN_BACKEND
 
@@ -44,18 +47,35 @@ namespace p3d {
 		  swapchain(VK_NULL_HANDLE), swapchainFormat(VK_FORMAT_UNDEFINED), swapchainExtent{0, 0},
 		  renderPass(VK_NULL_HANDLE), swapchainGeneration(0), depthImage(VK_NULL_HANDLE), depthImageAllocation(VK_NULL_HANDLE),
 		  depthImageView(VK_NULL_HANDLE), depthFormat(VK_FORMAT_UNDEFINED),
-		  commandPool(VK_NULL_HANDLE), frameCommandBuffer(VK_NULL_HANDLE),
+		  commandPool(VK_NULL_HANDLE), frameCommandBuffer(VK_NULL_HANDLE), currentFrameSlot(0),
 		  nextAcquireSemaphoreIndex(0), currentFrameAcquireSemaphoreIndex(0), frameFence(VK_NULL_HANDLE),
 		  pendingClearColor(0.f, 0.f, 0.f, 1.f),
 		  captureRequested(false), capturedWidth(0), capturedHeight(0), capturedRedByteOffset(0), capturedFrameValid(false),
 		  frameInProgress(false), currentImageIndex(0), imguiVulkanBackendActive(false),
-		  activeCommandBuffer(VK_NULL_HANDLE), offscreenCommandBuffer(VK_NULL_HANDLE), offscreenPassOpen(false), offscreenCommandBufferRecording(false), currentBoundFBO(0), currentReadFBO(0),
+		  activeCommandBuffer(VK_NULL_HANDLE), offscreenCommandBuffer(VK_NULL_HANDLE), offscreenPassOpen(false), offscreenCommandBufferRecording(false),
+		  offscreenFence(VK_NULL_HANDLE), offscreenDoneSemaphore(VK_NULL_HANDLE), offscreenSubmitPending(false),
+		  currentBoundFBO(0), currentReadFBO(0),
 		  nextFBOHandle(1), shadowPipelineRenderPass(VK_NULL_HANDLE),
 		  nextVaoHandle(1), currentVao(0), currentPipeline(0),
 		  allocator(VK_NULL_HANDLE), descriptorPool(VK_NULL_HANDLE),
 		  nextBufferHandle(1), minUniformBufferOffsetAlignment(256), nextShaderStageHandle(1), nextAutoUboBinding(kFirstAutoUboBinding), nextProgramHandle(1), currentProgram(0), nextPipelineHandle(1),
 		  nextTextureHandle(1), currentlyConfiguringTexture(0), unitJustActivated(false), currentTextureUnit(0)
 	{
+		for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			frameCommandBuffers[i] = VK_NULL_HANDLE;
+			frameFences[i] = VK_NULL_HANDLE;
+		}
+#if defined(__APPLE__)
+		// Keep MoltenVK queue submits synchronous on macOS.
+		// Async (MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS=0) dispatches Metal
+		// encode + CAMetalLayer nextDrawable onto a GCD thread. Off-main
+		// nextDrawable gets display-paced (~60 FPS) even with IMMEDIATE
+		// present + displaySyncEnabled=NO. Sync submits keep drawable
+		// acquisition on the main thread so IMMEDIATE can run uncapped;
+		// the tradeoff is VK.Submit includes Vulkan→Metal encode time.
+		setenv("MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", "1", 1);
+#endif
 		if (volkInitialize() != VK_SUCCESS)
 			return;
 
@@ -83,6 +103,7 @@ namespace p3d {
 		// installed) despite VULKAN_ROADMAP.md stating validation-clean
 		// output as part of the correctness bar from the start.
 		extensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+		extensions.push_back(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
 #endif
 
 		VkInstanceCreateInfo createInfo = {};
@@ -91,6 +112,22 @@ namespace p3d {
 		createInfo.flags = flags;
 		createInfo.enabledExtensionCount = (uint32_t)extensions.size();
 		createInfo.ppEnabledExtensionNames = extensions.empty() ? NULL : extensions.data();
+
+#if defined(__APPLE__)
+		VkBool32 syncQueueSubmits = VK_TRUE;
+		VkLayerSettingEXT mvkSetting = {};
+		mvkSetting.pLayerName = "MoltenVK";
+		mvkSetting.pSettingName = "MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS";
+		mvkSetting.type = VK_LAYER_SETTING_TYPE_BOOL32_EXT;
+		mvkSetting.valueCount = 1;
+		mvkSetting.pValues = &syncQueueSubmits;
+
+		VkLayerSettingsCreateInfoEXT layerSettingsCI = {};
+		layerSettingsCI.sType = VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT;
+		layerSettingsCI.settingCount = 1;
+		layerSettingsCI.pSettings = &mvkSetting;
+		createInfo.pNext = &layerSettingsCI;
+#endif
 
 		if (vkCreateInstance(&createInfo, NULL, &instance) == VK_SUCCESS)
 			volkLoadInstance(instance);
@@ -156,7 +193,15 @@ namespace p3d {
 
 			if (allocator != VK_NULL_HANDLE) vmaDestroyAllocator(allocator);
 
-			if (frameFence != VK_NULL_HANDLE) vkDestroyFence(device, frameFence, NULL);
+			WaitOffscreenSubmitIfPending();
+			for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+			{
+				if (frameFences[i] != VK_NULL_HANDLE) vkDestroyFence(device, frameFences[i], NULL);
+				frameFences[i] = VK_NULL_HANDLE;
+			}
+			frameFence = VK_NULL_HANDLE;
+			if (offscreenFence != VK_NULL_HANDLE) vkDestroyFence(device, offscreenFence, NULL);
+			if (offscreenDoneSemaphore != VK_NULL_HANDLE) vkDestroySemaphore(device, offscreenDoneSemaphore, NULL);
 			for (size_t i = 0; i < imageAvailableSemaphores.size(); i++)
 				vkDestroySemaphore(device, imageAvailableSemaphores[i], NULL);
 			for (size_t i = 0; i < renderFinishedSemaphores.size(); i++)
@@ -192,11 +237,9 @@ namespace p3d {
 	{
 		VkSwapchainKHR oldSwapchain = swapchain;
 
-		// Swapchain: pick the first available surface format, FIFO present
-		// mode (the only mode every implementation is required to support -
-		// simplest correct choice, MAILBOX/low-latency tuning is a later
-		// refinement), and clamp the requested width/height to what the
-		// surface actually allows.
+		// Swapchain: pick B8G8R8A8 when available, an uncapped present
+		// mode when the surface supports it (see chosenPresentMode below),
+		// and clamp the requested width/height to what the surface allows.
 		VkSurfaceCapabilitiesKHR capabilities;
 		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &capabilities);
 
@@ -227,6 +270,41 @@ namespace p3d {
 		if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount)
 			imageCount = capabilities.maxImageCount;
 
+		// Prefer uncapped present modes. On MoltenVK/macOS MAILBOX is
+		// typically absent and IMMEDIATE is the uncapped option; FIFO is
+		// vsync (was pinning demos at 60). Prefer IMMEDIATE first.
+		uint32 presentModeCount = 0;
+		vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, NULL);
+		std::vector<VkPresentModeKHR> presentModes(presentModeCount);
+		if (presentModeCount > 0)
+			vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, presentModes.data());
+
+		VkPresentModeKHR chosenPresentMode = VK_PRESENT_MODE_FIFO_KHR;
+		const VkPresentModeKHR preferred[] = {
+			VK_PRESENT_MODE_IMMEDIATE_KHR,
+			VK_PRESENT_MODE_MAILBOX_KHR,
+			VK_PRESENT_MODE_FIFO_RELAXED_KHR,
+			VK_PRESENT_MODE_FIFO_KHR,
+		};
+		bool foundPresentMode = false;
+		for (size_t p = 0; p < sizeof(preferred) / sizeof(preferred[0]) && !foundPresentMode; ++p)
+		{
+			for (size_t i = 0; i < presentModes.size(); ++i)
+			{
+				if (presentModes[i] == preferred[p])
+				{
+					chosenPresentMode = preferred[p];
+					foundPresentMode = true;
+					break;
+				}
+			}
+		}
+		const char *presentName = "FIFO";
+		if (chosenPresentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) presentName = "IMMEDIATE";
+		else if (chosenPresentMode == VK_PRESENT_MODE_MAILBOX_KHR) presentName = "MAILBOX";
+		else if (chosenPresentMode == VK_PRESENT_MODE_FIFO_RELAXED_KHR) presentName = "FIFO_RELAXED";
+		fprintf(stderr, "VulkanRenderDevice: swapchain presentMode=%s\n", presentName);
+
 		VkSwapchainCreateInfoKHR swapchainCreateInfo = {};
 		swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
 		swapchainCreateInfo.surface = surface;
@@ -246,7 +324,7 @@ namespace p3d {
 		swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		swapchainCreateInfo.preTransform = capabilities.currentTransform;
 		swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-		swapchainCreateInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+		swapchainCreateInfo.presentMode = chosenPresentMode;
 		swapchainCreateInfo.clipped = VK_TRUE;
 		swapchainCreateInfo.oldSwapchain = oldSwapchain;
 
@@ -454,6 +532,11 @@ namespace p3d {
 		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &capabilities);
 		if (capabilities.currentExtent.width == 0 || capabilities.currentExtent.height == 0)
 			return false;
+
+		const uint32 targetW = (capabilities.currentExtent.width != 0xFFFFFFFFu) ? capabilities.currentExtent.width : width;
+		const uint32 targetH = (capabilities.currentExtent.height != 0xFFFFFFFFu) ? capabilities.currentExtent.height : height;
+		if (swapchain != VK_NULL_HANDLE && targetW == swapchainExtent.width && targetH == swapchainExtent.height)
+			return true;
 
 		vkDeviceWaitIdle(device);
 
@@ -667,24 +750,25 @@ namespace p3d {
 		cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 		cmdAllocInfo.commandPool = commandPool;
 		cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-		cmdAllocInfo.commandBufferCount = 1;
-		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &frameCommandBuffer) != VK_SUCCESS)
+		cmdAllocInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
+		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, frameCommandBuffers) != VK_SUCCESS)
 			return false;
+		currentFrameSlot = 0;
+		frameCommandBuffer = frameCommandBuffers[0];
 		// See the header comment on offscreenCommandBuffer - a separate,
 		// dedicated command buffer for offscreen FBO passes (shadow maps),
 		// since those must record+submit+wait before the swapchain
 		// frame's own command buffer even exists yet.
+		cmdAllocInfo.commandBufferCount = 1;
 		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &offscreenCommandBuffer) != VK_SUCCESS)
 			return false;
 
 		VkSemaphoreCreateInfo semInfo = {};
 		semInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 		// See the header comment on nextAcquireSemaphoreIndex for why this
-		// is a small rotating pool rather than one shared semaphore. 3 is
-		// comfortably more than the 1 frame ever actually in flight here -
-		// it just needs to be large enough that a burst of back-to-back
-		// failed acquires (a resize) never wraps back onto a semaphore
-		// still holding an unconsumed signal from a couple of calls ago.
+		// is a small rotating pool rather than one shared semaphore. Sized
+		// above MAX_FRAMES_IN_FLIGHT so a burst of failed acquires (resize)
+		// never wraps onto a still-signaled semaphore.
 		imageAvailableSemaphores.resize(3);
 		for (size_t i = 0; i < imageAvailableSemaphores.size(); i++)
 			if (vkCreateSemaphore(device, &semInfo, NULL, &imageAvailableSemaphores[i]) != VK_SUCCESS) return false;
@@ -697,7 +781,14 @@ namespace p3d {
 		VkFenceCreateInfo fenceInfo = {};
 		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 		fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-		if (vkCreateFence(device, &fenceInfo, NULL, &frameFence) != VK_SUCCESS) return false;
+		for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+			if (vkCreateFence(device, &fenceInfo, NULL, &frameFences[i]) != VK_SUCCESS) return false;
+		frameFence = frameFences[0];
+		// Unsignaled: WaitOffscreenSubmitIfPending is a no-op until first Flush.
+		fenceInfo.flags = 0;
+		if (vkCreateFence(device, &fenceInfo, NULL, &offscreenFence) != VK_SUCCESS) return false;
+		if (vkCreateSemaphore(device, &semInfo, NULL, &offscreenDoneSemaphore) != VK_SUCCESS) return false;
+		offscreenSubmitPending = false;
 
 		return true;
 	}
@@ -724,13 +815,13 @@ namespace p3d {
 		uint32 acquireSemIndex = nextAcquireSemaphoreIndex;
 		nextAcquireSemaphoreIndex = (nextAcquireSemaphoreIndex + 1) % (uint32)imageAvailableSemaphores.size();
 		VkResult acquireResult = vkAcquireNextImageKHR(device, swapchain, FRAME_WAIT_TIMEOUT_NS, imageAvailableSemaphores[acquireSemIndex], VK_NULL_HANDLE, &imageIndex);
-		if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR || acquireResult == VK_SUBOPTIMAL_KHR)
+		if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
 		{
 			ResetAcquireSemaphore(acquireSemIndex);
 			RecreateSwapchain(swapchainExtent.width, swapchainExtent.height);
 			return false;
 		}
-		if (acquireResult != VK_SUCCESS)
+		if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
 		{
 			ResetAcquireSemaphore(acquireSemIndex);
 			return false;
@@ -792,6 +883,9 @@ namespace p3d {
 		presentInfo.pSwapchains = &swapchain;
 		presentInfo.pImageIndices = &imageIndex;
 		VkResult presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
+		currentFrameSlot = (currentFrameSlot + 1) % MAX_FRAMES_IN_FLIGHT;
+		frameCommandBuffer = frameCommandBuffers[currentFrameSlot];
+		frameFence = frameFences[currentFrameSlot];
 		return presentResult == VK_SUCCESS || presentResult == VK_SUBOPTIMAL_KHR;
 	}
 
@@ -965,13 +1059,13 @@ namespace p3d {
 		uint32 acquireSemIndex = nextAcquireSemaphoreIndex;
 		nextAcquireSemaphoreIndex = (nextAcquireSemaphoreIndex + 1) % (uint32)imageAvailableSemaphores.size();
 		VkResult acquireResult = vkAcquireNextImageKHR(device, swapchain, FRAME_WAIT_TIMEOUT_NS, imageAvailableSemaphores[acquireSemIndex], VK_NULL_HANDLE, &imageIndex);
-		if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR || acquireResult == VK_SUBOPTIMAL_KHR)
+		if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
 		{
 			ResetAcquireSemaphore(acquireSemIndex);
 			RecreateSwapchain(swapchainExtent.width, swapchainExtent.height);
 			return false;
 		}
-		if (acquireResult != VK_SUCCESS)
+		if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
 		{
 			ResetAcquireSemaphore(acquireSemIndex);
 			return false;
@@ -1048,6 +1142,9 @@ namespace p3d {
 		presentInfo.pSwapchains = &swapchain;
 		presentInfo.pImageIndices = &imageIndex;
 		VkResult presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
+		currentFrameSlot = (currentFrameSlot + 1) % MAX_FRAMES_IN_FLIGHT;
+		frameCommandBuffer = frameCommandBuffers[currentFrameSlot];
+		frameFence = frameFences[currentFrameSlot];
 		return presentResult == VK_SUCCESS || presentResult == VK_SUBOPTIMAL_KHR;
 	}
 
@@ -1099,8 +1196,11 @@ namespace p3d {
 		// GPU workload this backend does, so it never fires under normal
 		// operation.
 		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
-		if (vkWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS) != VK_SUCCESS)
-			return;
+		{
+			PYROS_PROFILE_SCOPE("VK.WaitFence");
+			if (vkWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS) != VK_SUCCESS)
+				return;
+		}
 
 		// Do *not* reset frameFence until we know this frame is actually
 		// going to submit and re-signal it (right before
@@ -1125,26 +1225,23 @@ namespace p3d {
 		// acquire actually succeeds.
 		uint32 acquireSemIndex = nextAcquireSemaphoreIndex;
 		nextAcquireSemaphoreIndex = (nextAcquireSemaphoreIndex + 1) % (uint32)imageAvailableSemaphores.size();
-		VkResult acquireResult = vkAcquireNextImageKHR(device, swapchain, FRAME_WAIT_TIMEOUT_NS, imageAvailableSemaphores[acquireSemIndex], VK_NULL_HANDLE, &imageIndex);
-		// VK_ERROR_OUT_OF_DATE_KHR (surface changed size/properties enough
-		// that this swapchain can no longer be used at all) and
-		// VK_SUBOPTIMAL_KHR (still usable, but no longer an exact match -
-		// also worth rebuilding, or the mismatch just persists forever)
-		// are both the surface telling us a resize happened - see
-		// RecreateSwapchain()'s comment. Skip this frame either way; the
-		// next BeginFrame() call retries against the freshly-rebuilt
-		// swapchain. VK_TIMEOUT (drawable not ready yet, still mid-resize)
-		// is handled the same way - just try again next tick. frameFence
-		// is still signaled from the last real completed frame in every
-		// one of these cases, so the *next* call's vkWaitForFences above
-		// returns immediately rather than blocking again.
-		if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR || acquireResult == VK_SUBOPTIMAL_KHR)
+		VkResult acquireResult;
+		{
+			PYROS_PROFILE_SCOPE("VK.Acquire");
+			acquireResult = vkAcquireNextImageKHR(device, swapchain, FRAME_WAIT_TIMEOUT_NS, imageAvailableSemaphores[acquireSemIndex], VK_NULL_HANDLE, &imageIndex);
+		}
+		// OUT_OF_DATE: surface really changed - rebuild and skip this frame.
+		// SUBOPTIMAL: image is still usable. MoltenVK on macOS often returns
+		// SUBOPTIMAL every acquire (HiDPI / CAMetalLayer quirks); treating it
+		// like OUT_OF_DATE recreated the swapchain every frame (~200 FPS and
+		// a flood of presentMode= logs). Only OUT_OF_DATE forces a recreate.
+		if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
 		{
 			ResetAcquireSemaphore(acquireSemIndex);
 			RecreateSwapchain(swapchainExtent.width, swapchainExtent.height);
 			return;
 		}
-		if (acquireResult != VK_SUCCESS)
+		if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
 		{
 			ResetAcquireSemaphore(acquireSemIndex);
 			return;
@@ -1154,6 +1251,14 @@ namespace p3d {
 		currentImageIndex = imageIndex;
 		currentVao = 0;
 		currentPipeline = 0;
+
+		// Previous frame's GPU work is done (fence wait above) - dynamic
+		// UBO slots may be reused from the start of the ring again.
+		for (std::map<DeviceHandle, BufferRecord>::iterator it = buffers.begin(); it != buffers.end(); ++it)
+		{
+			if (it->second.isDynamicUniform)
+				it->second.writesThisFrame = 0;
+		}
 
 		vkResetCommandBuffer(frameCommandBuffer, 0);
 
@@ -1268,21 +1373,40 @@ namespace p3d {
 
 		vkEndCommandBuffer(frameCommandBuffer);
 
-		VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		// Capture/shadow offscreen submit may still be on the queue - wait
+		// on its semaphore so tonemap/main-pass sampling sees finished
+		// images without a mid-frame CPU fence (GL pipelines the same way).
+		VkSemaphore waitSems[2];
+		VkPipelineStageFlags waitStages[2];
+		uint32 waitCount = 0;
+		waitSems[waitCount] = imageAvailableSemaphores[currentFrameAcquireSemaphoreIndex];
+		waitStages[waitCount] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		waitCount++;
+		if (offscreenSubmitPending)
+		{
+			waitSems[waitCount] = offscreenDoneSemaphore;
+			waitStages[waitCount] = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+			waitCount++;
+			offscreenSubmitPending = false;
+		}
+
 		VkSubmitInfo submitInfo = {};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		submitInfo.waitSemaphoreCount = 1;
-		submitInfo.pWaitSemaphores = &imageAvailableSemaphores[currentFrameAcquireSemaphoreIndex];
-		submitInfo.pWaitDstStageMask = &waitStage;
+		submitInfo.waitSemaphoreCount = waitCount;
+		submitInfo.pWaitSemaphores = waitSems;
+		submitInfo.pWaitDstStageMask = waitStages;
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &frameCommandBuffer;
 		submitInfo.signalSemaphoreCount = 1;
 		submitInfo.pSignalSemaphores = &renderFinishedSemaphores[currentImageIndex];
-		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, frameFence) != VK_SUCCESS)
 		{
-			if (captureStagingBuffer != VK_NULL_HANDLE)
-				vmaDestroyBuffer(allocator, captureStagingBuffer, captureStagingAllocation);
-			return;
+			PYROS_PROFILE_SCOPE("VK.Submit");
+			if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, frameFence) != VK_SUCCESS)
+			{
+				if (captureStagingBuffer != VK_NULL_HANDLE)
+					vmaDestroyBuffer(allocator, captureStagingBuffer, captureStagingAllocation);
+				return;
+			}
 		}
 
 		if (capturingThisFrame)
@@ -1311,7 +1435,19 @@ namespace p3d {
 		presentInfo.swapchainCount = 1;
 		presentInfo.pSwapchains = &swapchain;
 		presentInfo.pImageIndices = &currentImageIndex;
-		vkQueuePresentKHR(presentQueue, &presentInfo);
+		VkResult presentResult;
+		{
+			PYROS_PROFILE_SCOPE("VK.Present");
+			presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
+		}
+		// Only OUT_OF_DATE forces a rebuild. Persistent SUBOPTIMAL on
+		// MoltenVK must not recreate every frame (see BeginFrame acquire).
+		if (presentResult == VK_ERROR_OUT_OF_DATE_KHR)
+			RecreateSwapchain(swapchainExtent.width, swapchainExtent.height);
+
+		currentFrameSlot = (currentFrameSlot + 1) % MAX_FRAMES_IN_FLIGHT;
+		frameCommandBuffer = frameCommandBuffers[currentFrameSlot];
+		frameFence = frameFences[currentFrameSlot];
 	}
 
 	uint32 VulkanRenderDevice::TranslateBufferBit(const uint32 bufferBits) { return 0; }
@@ -2263,7 +2399,13 @@ namespace p3d {
 		{
 			VkDeviceSize align = minUniformBufferOffsetAlignment > 0 ? minUniformBufferOffsetAlignment : 256;
 			alignedSlotSize = ((VkDeviceSize)sizeBytes + align - 1) / align * align;
-			slotCount = DYNAMIC_UBO_SLOT_COUNT;
+			// Scale ring depth by slot size so a 20k-object stress test has
+			// enough ModelMatrix slots without allocating hundreds of MB for
+			// BoneMatrices (60*mat4). Cap total ~64MB per dynamic UBO.
+			const VkDeviceSize kMaxDynamicUboBytes = 64ull * 1024ull * 1024ull;
+			slotCount = (uint32)(kMaxDynamicUboBytes / alignedSlotSize);
+			if (slotCount < 4096u) slotCount = 4096u;
+			if (slotCount > DYNAMIC_UBO_SLOT_COUNT) slotCount = DYNAMIC_UBO_SLOT_COUNT;
 		}
 		VkDeviceSize totalSize = alignedSlotSize * slotCount;
 
@@ -2339,7 +2481,24 @@ namespace p3d {
 		// finish sending an object's uniforms before drawing it.
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it != buffers.end() && it->second.isDynamicUniform)
+		{
+			// Within-frame wrap: an earlier vkCmdDraw in this command buffer
+			// still references that slot. Overwriting it makes static meshes
+			// inherit later objects' ModelMatrices (Vulkan-only "walls
+			// crumbling" under high draw counts).
+			if (it->second.writesThisFrame >= it->second.slotCount)
+			{
+				static bool warned = false;
+				if (!warned)
+				{
+					fprintf(stderr, "VulkanRenderDevice: dynamic UBO ring exhausted mid-frame (%u slots) - increase DYNAMIC_UBO_SLOT_COUNT\n",
+						it->second.slotCount);
+					warned = true;
+				}
+			}
 			it->second.currentSlot = (it->second.currentSlot + 1) % it->second.slotCount;
+			it->second.writesThisFrame++;
+		}
 		UpdateUniformBuffer(buffer, 0, sizeBytes, data);
 	}
 
@@ -4499,10 +4658,10 @@ namespace p3d {
 	// currentBoundFBO for the design. fbo!=0 (Bind()) just records which
 	// FBO is now selected - AttachFramebufferTexture2D() does the actual
 	// render-pass-begin work, since only it knows which texture/face to
-	// target. fbo==0 (UnBind()) ends whatever's open and submits+waits
-	// synchronously (matches UploadTexture2D()'s established "correctness
-	// over throughput" immediate-submit precedent) - one submit per
-	// Bind()/UnBind() session, not per attached face.
+		// target. fbo==0 (UnBind()) ends whatever's open and submits the
+		// offscreen CB (completion via offscreenDoneSemaphore on EndFrame,
+		// or WaitOffscreenSubmitIfPending when the CB must be reused) - one
+		// submit per Bind()/UnBind() session, not per attached face.
 	void VulkanRenderDevice::BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo, const bool finalizePending)
 	{
 		// A Read-only bind (BlitFramebuffer()'s source) mirrors GL's
@@ -4780,11 +4939,11 @@ namespace p3d {
 			// when frameInProgress: fence is unsignaled until EndFrame
 			// submits (would deadlock nested offscreen inside a
 			// swapchain frame, e.g. DeferredRenderer G-buffer).
-			if (!frameInProgress && frameFence != VK_NULL_HANDLE)
-			{
-				static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
-				vkWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS);
-			}
+			if (!frameInProgress)
+				WaitAllFrameFences();
+			// Previous Capture/UnBind may have submitted without a CPU
+			// wait - finish it before resetting this command buffer.
+			WaitOffscreenSubmitIfPending();
 
 			vkResetCommandBuffer(offscreenCommandBuffer, 0);
 			VkCommandBufferBeginInfo beginInfo = {};
@@ -4844,6 +5003,49 @@ namespace p3d {
 		offscreenPassOpen = false;
 	}
 
+	void VulkanRenderDevice::WaitAllFrameFences()
+	{
+		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
+		for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			if (frameFences[i] != VK_NULL_HANDLE)
+				vkWaitForFences(device, 1, &frameFences[i], VK_TRUE, FRAME_WAIT_TIMEOUT_NS);
+		}
+	}
+
+	void VulkanRenderDevice::WaitOffscreenSubmitIfPending()
+	{
+		if (!offscreenSubmitPending || offscreenFence == VK_NULL_HANDLE)
+			return;
+
+		vkWaitForFences(device, 1, &offscreenFence, VK_TRUE, UINT64_MAX);
+
+		// Binary semaphore is still signaled - consume it with an empty
+		// submit so the next Flush can signal again (EndFrame did not
+		// take this path).
+		VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+		VkSubmitInfo consume = {};
+		consume.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		consume.waitSemaphoreCount = 1;
+		consume.pWaitSemaphores = &offscreenDoneSemaphore;
+		consume.pWaitDstStageMask = &stage;
+		VkFenceCreateInfo fenceInfo = {};
+		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		VkFence consumeFence = VK_NULL_HANDLE;
+		if (vkCreateFence(device, &fenceInfo, NULL, &consumeFence) == VK_SUCCESS)
+		{
+			vkQueueSubmit(graphicsQueue, 1, &consume, consumeFence);
+			vkWaitForFences(device, 1, &consumeFence, VK_TRUE, UINT64_MAX);
+			vkDestroyFence(device, consumeFence, NULL);
+		}
+		else
+		{
+			vkQueueSubmit(graphicsQueue, 1, &consume, VK_NULL_HANDLE);
+			vkQueueWaitIdle(graphicsQueue);
+		}
+		offscreenSubmitPending = false;
+	}
+
 	void VulkanRenderDevice::FlushOffscreenCommandBuffer()
 	{
 		if (!offscreenCommandBufferRecording)
@@ -4852,23 +5054,30 @@ namespace p3d {
 		EndOffscreenRenderPassIfOpen();
 		vkEndCommandBuffer(offscreenCommandBuffer);
 
+		// Do not CPU-wait here. Capture→tonemap (and shadow→main) used to
+		// stall the CPU until the offscreen GPU work finished before even
+		// recording the next pass - GL never does that. Signal a semaphore
+		// EndFrame waits on so sampling sees completed images; reuse a
+		// persistent fence for rare WaitOffscreenSubmitIfPending() callers.
+		if (offscreenSubmitPending)
+			WaitOffscreenSubmitIfPending();
+
+		vkResetFences(device, 1, &offscreenFence);
+
 		VkSubmitInfo submitInfo = {};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &offscreenCommandBuffer;
-		VkFenceCreateInfo fenceInfo = {};
-		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-		VkFence offscreenFence = VK_NULL_HANDLE;
-		vkCreateFence(device, &fenceInfo, NULL, &offscreenFence);
-		vkQueueSubmit(graphicsQueue, 1, &submitInfo, offscreenFence);
-		if (offscreenFence != VK_NULL_HANDLE)
+		submitInfo.signalSemaphoreCount = 1;
+		submitInfo.pSignalSemaphores = &offscreenDoneSemaphore;
+		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, offscreenFence) != VK_SUCCESS)
 		{
-			vkWaitForFences(device, 1, &offscreenFence, VK_TRUE, UINT64_MAX);
-			vkDestroyFence(device, offscreenFence, NULL);
+			vkQueueWaitIdle(graphicsQueue);
+			offscreenSubmitPending = false;
 		}
 		else
 		{
-			vkQueueWaitIdle(graphicsQueue);
+			offscreenSubmitPending = true;
 		}
 
 		offscreenCommandBufferRecording = false;
@@ -5044,6 +5253,7 @@ namespace p3d {
 		// first guarantees any pending clear on either src or dst
 		// completes strictly before this function's own GPU work runs.
 		FlushOffscreenCommandBuffer();
+		WaitOffscreenSubmitIfPending();
 
 		std::map<DeviceHandle, FBORecord>::iterator srcFboIt = fboRecords.find(currentReadFBO);
 		std::map<DeviceHandle, FBORecord>::iterator dstFboIt = fboRecords.find(currentBoundFBO);

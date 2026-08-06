@@ -4,15 +4,12 @@
   "description": "Red diffuse cube under a directional light, spinning on Y.",
   "scene": "RotatingCubeWithLighting.json",
   "render": {
-   "type": "deferred",
+   "type": "forward",
    "globalLight": [
     0.12,
     0.12,
     0.14,
     1
-   ],
-   "effects": [
-    "tonemap"
    ]
   }
  },
@@ -185,7 +182,7 @@
  },
  {
   "name": "Physics Stress (20k)",
-  "description": "Box3D stress test: small spheres continuously raining into a boxed arena (up to 20k bodies, FIFO cull).",
+  "description": "Box3D stress test: small spheres continuously raining into a boxed arena (up to 20k bodies).",
   "scene": "PhysicsStress.json",
   "render": {
    "type": "forward",

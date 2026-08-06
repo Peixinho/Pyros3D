@@ -302,34 +302,57 @@ void DemoLauncher::SwitchDemo(int index)
 
 void DemoLauncher::Update()
 {
+	FrameProfiler &prof = FrameProfiler::Instance();
+
+	{
+		static bool f3WasDown = false;
+		const Uint8 *keys = SDL_GetKeyboardState(NULL);
+		const bool f3Down = keys && keys[SDL_SCANCODE_F3];
+		if (f3Down && !f3WasDown)
+			prof.Toggle();
+		f3WasDown = f3Down;
+	}
+
 	f64 time = GetTime();
 	f64 dt = GetTimeInterval();
 
-	if (activeDemoHasPhysics) physics->Update(dt, 10);
+	if (activeDemoHasPhysics)
+		physics->Update(dt, 10);
 
 	Scene->Update(time);
 
-	if (imguiInitialized) PrepareImGuiFrame();
-
-	sol::table host = lua["RenderHost"];
-	if (host.valid())
+	if (imguiInitialized)
 	{
-		sol::protected_function draw = host["draw"];
-		if (draw.valid())
+		PYROS_PROFILE_SCOPE("ImGui.Prepare");
+		PrepareImGuiFrame();
+	}
+
+	{
+		PYROS_PROFILE_SCOPE("RenderHost.Draw");
+		sol::table host = lua["RenderHost"];
+		if (host.valid())
 		{
-			sol::protected_function_result r = draw(lua["camera"], lua["scene"], lua["projection"]);
-			if (!r.valid())
+			sol::protected_function draw = host["draw"];
+			if (draw.valid())
 			{
-				sol::error err = r;
-				const std::string msg = std::string("ERROR: RenderHost.draw - ") + err.what();
-				echo(msg);
-				std::ofstream dbg("/tmp/pyros_demolauncher_draw.log", std::ios::app);
-				if (dbg) dbg << msg << std::endl;
+				sol::protected_function_result r = draw(lua["camera"], lua["scene"], lua["projection"]);
+				if (!r.valid())
+				{
+					sol::error err = r;
+					const std::string msg = std::string("ERROR: RenderHost.draw - ") + err.what();
+					echo(msg);
+					std::ofstream dbg("/tmp/pyros_demolauncher_draw.log", std::ios::app);
+					if (dbg) dbg << msg << std::endl;
+				}
 			}
 		}
 	}
 
-	if (imguiInitialized) EndImGuiFrame();
+	if (imguiInitialized)
+	{
+		PYROS_PROFILE_SCOPE("ImGui.End");
+		EndImGuiFrame();
+	}
 }
 
 void DemoLauncher::DrawUI()
@@ -339,7 +362,10 @@ void DemoLauncher::DrawUI()
 	ImGui::Text("FPS: %.1u", (uint32)fps.getFPS());
 	ImGui::Text("Backend: %s", GetActiveRenderDevice().IsVulkan() ? "Vulkan" : "OpenGL");
 	ImGui::Text("Mouse: %s (TAB to toggle)", SDL_GetRelativeMouseMode() ? "Captured" : "Free");
+	ImGui::Text("Profiler: F3");
 	ImGui::Separator();
+
+	FrameProfiler::Instance().DrawImGui();
 
 	for (size_t i = 0; i < demos.size(); i++)
 	{

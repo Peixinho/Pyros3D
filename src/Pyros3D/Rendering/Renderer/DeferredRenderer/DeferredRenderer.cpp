@@ -8,6 +8,7 @@
 
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Other/PyrosGL.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 
 namespace p3d {
 
@@ -585,6 +586,7 @@ namespace p3d {
 
 	void DeferredRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 BufferOptions)
 	{
+		PYROS_PROFILE_SCOPE("Deferred.RenderScene");
 
 		// See DeferredRenderer.h's comment on dummyShadowsWarmedUp - a
 		// one-time, contentless render-pass begin/end for each dummy

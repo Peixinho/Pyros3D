@@ -22,6 +22,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Geometry/Geometry.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/FPS/FPS.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/DeltaTime/DeltaTime.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Profiler/FrameProfiler.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Lights/ILightComponent.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Lights/PointLight/PointLight.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.cpp

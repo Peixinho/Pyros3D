@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/SceneGraph/SceneGraph.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <string.h>
 #include <algorithm>
 
@@ -145,6 +146,8 @@ namespace p3d {
 
 	void SceneGraph::Update(const f64 &Timer)
 	{
+		PYROS_PROFILE_SCOPE("SceneGraph.Update");
+
 		// Save Time
 		timer = Timer;
 
@@ -154,82 +157,76 @@ namespace p3d {
 		// scene:add / scene:remove during UpdateComponents, which mutates
 		// these vectors and would otherwise invalidate live iterators
 		// (e.g. Physics Stress continuous spawn).
-		const std::vector<std::shared_ptr<GameObject>> dynamicSnapshot = _GameObjectListDynamic;
-		for (const std::shared_ptr<GameObject> &go : dynamicSnapshot)
 		{
-			if (!go || go->Scene != this) continue;
+			PYROS_PROFILE_SCOPE("Scene.Dynamic");
+			const std::vector<std::shared_ptr<GameObject>> dynamicSnapshot = _GameObjectListDynamic;
+			for (const std::shared_ptr<GameObject> &go : dynamicSnapshot)
+			{
+				if (!go || go->Scene != this) continue;
 
-			// Update GameObject - User Change
-			go->Update(timer);
-			// Register Components
-			go->RegisterComponents(this);
-			// Update Components
-			go->UpdateComponents(timer);
-			// Update Transforms Not Using Threads
-			go->InternalUpdate();
+				go->Update(timer);
+				go->RegisterComponents(this);
+				go->UpdateComponents(timer);
+				go->InternalUpdate();
 
-			Vec3 _min = go->GetBoundingMinValue();
-			Vec3 _max = go->GetBoundingMaxValue();
+				Vec3 _min = go->GetBoundingMinValue();
+				Vec3 _max = go->GetBoundingMaxValue();
 
-			if (_min.x < minBounds.x) minBounds.x = _min.x;
-			if (_min.y < minBounds.y) minBounds.y = _min.y;
-			if (_min.z < minBounds.z) minBounds.z = _min.z;
-			if (_max.x > maxBounds.x) maxBounds.x = _max.x;
-			if (_max.y > maxBounds.y) maxBounds.y = _max.y;
-			if (_max.z > maxBounds.z) maxBounds.z = _max.z;
-
+				if (_min.x < minBounds.x) minBounds.x = _min.x;
+				if (_min.y < minBounds.y) minBounds.y = _min.y;
+				if (_min.z < minBounds.z) minBounds.z = _min.z;
+				if (_max.x > maxBounds.x) maxBounds.x = _max.x;
+				if (_max.y > maxBounds.y) maxBounds.y = _max.y;
+				if (_max.z > maxBounds.z) maxBounds.z = _max.z;
+			}
 		}
 
-		// Update Static Components
-		const std::vector<std::shared_ptr<GameObject>> staticAfterSnapshot = _GameObjectListStaticAfter;
-		for (const std::shared_ptr<GameObject> &go : staticAfterSnapshot)
 		{
-			if (!go || go->Scene != this) continue;
+			PYROS_PROFILE_SCOPE("Scene.StaticAfter");
+			const std::vector<std::shared_ptr<GameObject>> staticAfterSnapshot = _GameObjectListStaticAfter;
+			for (const std::shared_ptr<GameObject> &go : staticAfterSnapshot)
+			{
+				if (!go || go->Scene != this) continue;
 
-			// Register Components
-			go->RegisterComponents(this);
-			// Update Components
-			go->UpdateComponents(timer);
-			// Update Transforms Not Using Threads
-			go->InternalUpdate();
+				go->RegisterComponents(this);
+				go->UpdateComponents(timer);
+				go->InternalUpdate();
 
-			Vec3 _min = go->GetBoundingMinValue();
-			Vec3 _max = go->GetBoundingMaxValue();
+				Vec3 _min = go->GetBoundingMinValue();
+				Vec3 _max = go->GetBoundingMaxValue();
 
-			if (_min.x < minBounds.x) minBounds.x = _min.x;
-			if (_min.y < minBounds.y) minBounds.y = _min.y;
-			if (_min.z < minBounds.z) minBounds.z = _min.z;
-			if (_max.x > maxBounds.x) maxBounds.x = _max.x;
-			if (_max.y > maxBounds.y) maxBounds.y = _max.y;
-			if (_max.z > maxBounds.z) maxBounds.z = _max.z;
+				if (_min.x < minBounds.x) minBounds.x = _min.x;
+				if (_min.y < minBounds.y) minBounds.y = _min.y;
+				if (_min.z < minBounds.z) minBounds.z = _min.z;
+				if (_max.x > maxBounds.x) maxBounds.x = _max.x;
+				if (_max.y > maxBounds.y) maxBounds.y = _max.y;
+				if (_max.z > maxBounds.z) maxBounds.z = _max.z;
+			}
 		}
 
-		// Update Static Once
-		for (std::vector<std::shared_ptr<GameObject>>::iterator i = _GameObjectListStaticPrevious.begin(); i != _GameObjectListStaticPrevious.end(); i++)
 		{
-			// Update GameObject - User Change
-			(*i)->Update(timer);
-			// Register Components
-			(*i)->RegisterComponents(this);
-			// Update Components
-			(*i)->UpdateComponents(timer);
-			// Update Transforms Not Using Threads
-			(*i)->InternalUpdate();
+			PYROS_PROFILE_SCOPE("Scene.StaticInit");
+			for (std::vector<std::shared_ptr<GameObject>>::iterator i = _GameObjectListStaticPrevious.begin(); i != _GameObjectListStaticPrevious.end(); i++)
+			{
+				(*i)->Update(timer);
+				(*i)->RegisterComponents(this);
+				(*i)->UpdateComponents(timer);
+				(*i)->InternalUpdate();
 
-			Vec3 _min = (*i)->GetBoundingMinValue();
-			Vec3 _max = (*i)->GetBoundingMaxValue();
+				Vec3 _min = (*i)->GetBoundingMinValue();
+				Vec3 _max = (*i)->GetBoundingMaxValue();
 
-			if (_min.x < minBounds.x) minBounds.x = _min.x;
-			if (_min.y < minBounds.y) minBounds.y = _min.y;
-			if (_min.z < minBounds.z) minBounds.z = _min.z;
-			if (_max.x > maxBounds.x) maxBounds.x = _max.x;
-			if (_max.y > maxBounds.y) maxBounds.y = _max.y;
-			if (_max.z > maxBounds.z) maxBounds.z = _max.z;
+				if (_min.x < minBounds.x) minBounds.x = _min.x;
+				if (_min.y < minBounds.y) minBounds.y = _min.y;
+				if (_min.z < minBounds.z) minBounds.z = _min.z;
+				if (_max.x > maxBounds.x) maxBounds.x = _max.x;
+				if (_max.y > maxBounds.y) maxBounds.y = _max.y;
+				if (_max.z > maxBounds.z) maxBounds.z = _max.z;
 
-			// Add to After and Remove From Previous
-			_GameObjectListStaticAfter.push_back((*i));
-			i = _GameObjectListStaticPrevious.erase(i);
-			if (i == _GameObjectListStaticPrevious.end()) break;
+				_GameObjectListStaticAfter.push_back((*i));
+				i = _GameObjectListStaticPrevious.erase(i);
+				if (i == _GameObjectListStaticPrevious.end()) break;
+			}
 		}
 	}
 

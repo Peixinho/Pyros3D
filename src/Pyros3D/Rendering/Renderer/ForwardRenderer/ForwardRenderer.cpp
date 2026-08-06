@@ -8,6 +8,7 @@
 
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Other/PyrosGL.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 namespace p3d {
 
 	ForwardRenderer::ForwardRenderer(const uint32 Width, const uint32 Height, IRenderDevice* externalDevice) : IRenderer(Width, Height, externalDevice)
@@ -25,6 +26,8 @@ namespace p3d {
 
 	void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
 	{
+		PYROS_PROFILE_SCOPE("Forward.RenderScene");
+
 		InitRender();
 
 		// Prepare and Pack Lights to Send to Shaders
@@ -219,8 +222,10 @@ namespace p3d {
 		ClearScreen();
 
 		// Render Scene with Objects Material
-		for (std::vector<RenderingMesh*>::iterator i = rmesh.begin(); i != rmesh.end(); i++)
 		{
+			PYROS_PROFILE_SCOPE("Forward.DrawMeshes");
+			for (std::vector<RenderingMesh*>::iterator i = rmesh.begin(); i != rmesh.end(); i++)
+			{
 
 			Lights.clear();
 			if ((*i)->renderingComponent->GetOwner() != NULL)
@@ -274,6 +279,7 @@ namespace p3d {
 					NumberOfLights = Lights.size();
 					RenderObject((*i), (*i)->renderingComponent->GetOwner(), (*i)->Material.get());
 				}
+			}
 			}
 		}
 

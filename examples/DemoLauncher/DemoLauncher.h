@@ -28,6 +28,7 @@
 #include <Pyros3D/Physics/Physics.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Utils/Json/json.hpp>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"

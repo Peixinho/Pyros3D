@@ -223,8 +223,17 @@ namespace p3d {
 		// See IRenderDevice::NotifySurfaceResized()'s comment - calls the
 		// same private RecreateSwapchain() the reactive OUT_OF_DATE/
 		// SUBOPTIMAL path already uses, just triggered proactively instead
-		// of waiting for a signal that may never come.
-		virtual void NotifySurfaceResized(const uint32 width, const uint32 height) { RecreateSwapchain(width, height); }
+		// of waiting for a signal that may never come. No-op when already
+		// at that extent - GetEvents polls every frame; without this a
+		// tiny mismatch would vkDeviceWaitIdle+rebuild forever (~200 FPS).
+		virtual void NotifySurfaceResized(const uint32 width, const uint32 height)
+		{
+			if (width == 0 || height == 0)
+				return;
+			if (swapchain != VK_NULL_HANDLE && width == swapchainExtent.width && height == swapchainExtent.height)
+				return;
+			RecreateSwapchain(width, height);
+		}
 
 		virtual void EnableClipDistance(const uint32 index);
 		virtual void DisableClipDistance(const uint32 index);
@@ -430,25 +439,16 @@ namespace p3d {
 		VkFormat depthFormat;
 		std::vector<VkFramebuffer> framebuffers;
 
-		// Minimal single-frame-in-flight sync (no double/triple buffering
-		// of these yet - good enough for the "does presenting work at all"
-		// checkpoint this step is verifying, not production frame pacing).
-		// renderFinishedSemaphore is one-per-swapchain-image (not for the
-		// same reason imageAvailableSemaphores is a pool - see that
-		// field's own comment - frameFence stays genuinely singular). A
-		// single shared one caused a real validation error
-		// (VUID-vkQueueSubmit-pSignalSemaphores-00067, only ever surfaced
-		// once validation layers were actually enabled for the first time):
-		// the semaphore signaled by frame N's vkQueueSubmit is still being
-		// consumed by the presentation engine when frame N+1's submit
-		// tries to signal the same semaphore again, since presenting is
-		// asynchronous and isn't covered by frameFence (which only tracks
-		// GPU completion of the submitted commands, not the swapchain's
-		// present). Indexing by the acquired image index - the standard
-		// fix - avoids this since a given swapchain image can't be
-		// re-acquired until its previous present completes.
+		// Double-buffered frames in flight so the CPU can record frame N+1
+		// while the GPU finishes frame N (single-buffer was leaving MoltenVK
+		// ~5× behind GL on a one-cube forward demo).
+		static const uint32 MAX_FRAMES_IN_FLIGHT = 2;
 		VkCommandPool commandPool;
+		VkCommandBuffer frameCommandBuffers[MAX_FRAMES_IN_FLIGHT];
+		// Alias of frameCommandBuffers[currentFrameSlot] for the open frame -
+		// BeginFrame() assigns it; existing record paths keep using this name.
 		VkCommandBuffer frameCommandBuffer;
+		uint32 currentFrameSlot;
 		// A small rotating pool, not one shared semaphore - see
 		// nextAcquireSemaphoreIndex's comment for why one semaphore isn't
 		// enough even in this single-frame-in-flight model, unlike
@@ -476,6 +476,11 @@ namespace p3d {
 		// not whatever nextAcquireSemaphoreIndex has since advanced to.
 		uint32 currentFrameAcquireSemaphoreIndex;
 		std::vector<VkSemaphore> renderFinishedSemaphores;
+		VkFence frameFences[MAX_FRAMES_IN_FLIGHT];
+		// Convenience for paths that wait "until GPU is idle enough to
+		// touch shared resources" - equals frameFences[currentFrameSlot]
+		// only while a frame is open; prefer WaitAllFrameFences() for
+		// offscreen pre-frame sync.
 		VkFence frameFence;
 
 		// Set by SetClearColor(), read by BeginFrame() when it builds the
@@ -564,6 +569,15 @@ namespace p3d {
 		// which toggles per *render pass* (once per cubemap face) within
 		// that same still-recording command buffer.
 		bool offscreenCommandBufferRecording;
+		// Signaled when the last FlushOffscreenCommandBuffer() submit
+		// finished. EndFrame waits on offscreenDoneSemaphore (not a CPU
+		// fence) so tonemap/post can be *recorded* while the capture
+		// still runs on the GPU - matching GL's pipeline overlap. The
+		// fence is only waited when we must reuse offscreenCommandBuffer
+		// or tear down.
+		VkFence offscreenFence;
+		VkSemaphore offscreenDoneSemaphore;
+		bool offscreenSubmitPending;
 		// Which FBO handle BindFramebuffer(access, fbo!=0) most recently
 		// selected - AttachFramebufferTexture2D() operates on this.
 		// 0 = none (matches BindFramebuffer(access, 0)'s GL "unbind to
@@ -774,6 +788,8 @@ namespace p3d {
 		// MSAATest, the first thing to ever bind an FBO purely as a blit
 		// destination.
 		void FlushOffscreenCommandBuffer();
+		void WaitOffscreenSubmitIfPending();
+		void WaitAllFrameFences();
 		// Begins recording offscreenCommandBuffer if this is the first
 		// render pass in the current Bind()/UnBind() session, then
 		// vkCmdBeginRenderPass()s `targetFramebuffer` (already resolved
@@ -888,8 +904,12 @@ namespace p3d {
 			// the pipeline/descriptor bind + draw it's meant for - see
 			// IRenderer.cpp's SendGlobalUniforms()/BindMesh() ordering).
 			uint32 currentSlot;
+			// ReplaceUniformBuffer() calls since BeginFrame() reset -
+			// used to detect mid-frame ring wrap (GPU still references
+			// earlier slots in this command buffer).
+			uint32 writesThisFrame;
 			BufferRecord() : buffer(VK_NULL_HANDLE), allocation(VK_NULL_HANDLE), mapped(NULL), size(0),
-				isDynamicUniform(false), alignedSlotSize(0), slotCount(1), currentSlot(0) {}
+				isDynamicUniform(false), alignedSlotSize(0), slotCount(1), currentSlot(0), writesThisFrame(0) {}
 		};
 		std::map<DeviceHandle, BufferRecord> buffers;
 		DeviceHandle nextBufferHandle;
@@ -1027,17 +1047,14 @@ namespace p3d {
 				return bindingPoint >= kFirstAutoUboBinding;
 			}
 		}
-		// Generous, not dynamically growable - matches this codebase's
-		// existing sizing philosophy for the descriptor pool/sampler set
-		// caps (see descriptorPool's comment). A scene drawing more than
-		// this many (object, dynamic-UBO) writes within a single frame
-		// would wrap around and start reusing slots still logically
-		// "current" - safe from a GPU-synchronization standpoint (the
-		// single-frame-in-flight model guarantees any slot last written
-		// in a *previous* frame is no longer being read), but would mean
-		// two objects within the *same* frame sharing a slot, silently
-		// reintroducing this exact bug at a much higher object count.
-		static const uint32 DYNAMIC_UBO_SLOT_COUNT = 4096;
+		// Cap on per-draw dynamic UBO ring depth. CreateUniformBuffer()
+		// also caps total ring bytes (~64MB) so BoneMatrices (large slots)
+		// get fewer entries than ObjectMatrix. Mid-frame wrap reuses a
+		// slot still referenced by an earlier vkCmdDraw - Vulkan then
+		// shows static geometry (walls) "jumping" to later ModelMatrices;
+		// GL hides it via driver sync/orphaning. Cross-frame wrap is fine:
+		// BeginFrame waits on frameFence first.
+		static const uint32 DYNAMIC_UBO_SLOT_COUNT = 65536;
 		// Queried once from the physical device - vkCmdBindDescriptorSets'
 		// dynamic offsets must be a multiple of this.
 		VkDeviceSize minUniformBufferOffsetAlignment;

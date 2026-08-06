@@ -8,6 +8,7 @@
 
 #include "includes.h"
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #if defined(__EMSCRIPTEN__) || defined(EMSCRIPTEN)
 #include <emscripten.h>
 #define PYROS_EMSCRIPTEN 1
@@ -38,14 +39,25 @@ void mainloop()
 		initialized = true;
 	}
 
-	// Get Events
-	window->GetEvents();
+	FrameProfiler &prof = FrameProfiler::Instance();
+	prof.BeginFrame();
 
-	// Update
-	window->Update();
+	{
+		PYROS_PROFILE_SCOPE("App.GetEvents");
+		window->GetEvents();
+	}
 
-	// Draw in Screen
-	window->Draw();
+	{
+		PYROS_PROFILE_SCOPE("App.Update");
+		window->Update();
+	}
+
+	{
+		PYROS_PROFILE_SCOPE("App.Draw");
+		window->Draw();
+	}
+
+	prof.EndFrame();
 }
 
 int main(int argc, char** argv) {

@@ -8,6 +8,7 @@
 
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 
 namespace p3d {
 
@@ -78,6 +79,7 @@ namespace p3d {
 
 	void PostEffectsManager::ProcessPostEffects(Projection* projection)
 	{
+		PYROS_PROFILE_SCOPE("PostFX.Process");
 
 		// Set Counter
 		uint32 counter = 1;

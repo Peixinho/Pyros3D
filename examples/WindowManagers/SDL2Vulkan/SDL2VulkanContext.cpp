@@ -16,6 +16,53 @@
 #include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
 #include <cstdio>
 
+#if defined(__APPLE__)
+#include <objc/message.h>
+#include <objc/runtime.h>
+#include <SDL2/SDL_syswm.h>
+
+namespace {
+
+// MoltenVK maps IMMEDIATE to Metal, but CAMetalLayer still defaults to
+// displaySyncEnabled=YES on macOS, so nextDrawable paces to refresh (~60)
+// even after we pick IMMEDIATE. Force it off on every CAMetalLayer under
+// the SDL window (MoltenVK's view/layer and any subviews).
+void DisableDisplaySyncOnLayer(id layer)
+{
+	if (!layer) return;
+	Class metalCls = objc_getClass("CAMetalLayer");
+	if (!metalCls) return;
+	const bool isMetal = ((BOOL(*)(id, SEL, Class))objc_msgSend)(layer, sel_registerName("isKindOfClass:"), metalCls);
+	if (!isMetal) return;
+	((void(*)(id, SEL, BOOL))objc_msgSend)(layer, sel_registerName("setDisplaySyncEnabled:"), NO);
+}
+
+void DisableMetalDisplaySync(SDL_Window *window)
+{
+	if (!window) return;
+	SDL_SysWMinfo info;
+	SDL_VERSION(&info.version);
+	if (!SDL_GetWindowWMInfo(window, &info)) return;
+#if defined(SDL_VIDEO_DRIVER_COCOA)
+	id nsWindow = (id)info.info.cocoa.window;
+	if (!nsWindow) return;
+	id contentView = ((id(*)(id, SEL))objc_msgSend)(nsWindow, sel_registerName("contentView"));
+	if (!contentView) return;
+	DisableDisplaySyncOnLayer(((id(*)(id, SEL))objc_msgSend)(contentView, sel_registerName("layer")));
+	id subviews = ((id(*)(id, SEL))objc_msgSend)(contentView, sel_registerName("subviews"));
+	if (!subviews) return;
+	const unsigned long count = ((unsigned long(*)(id, SEL))objc_msgSend)(subviews, sel_registerName("count"));
+	for (unsigned long i = 0; i < count; ++i)
+	{
+		id sub = ((id(*)(id, SEL, unsigned long))objc_msgSend)(subviews, sel_registerName("objectAtIndex:"), i);
+		DisableDisplaySyncOnLayer(((id(*)(id, SEL))objc_msgSend)(sub, sel_registerName("layer")));
+	}
+#endif
+}
+
+} // namespace
+#endif // __APPLE__
+
 namespace p3d {
 
     std::map<uint32, uint32> SDL2VulkanContext::MapSDLKeyboard;
@@ -208,6 +255,10 @@ namespace p3d {
             // time anything tries to use it, same as today.
             fprintf(stderr, "SDL2VulkanContext: failed to initialize VulkanRenderDevice/swapchain\n");
         }
+#if defined(__APPLE__)
+        else
+            DisableMetalDisplaySync(rview);
+#endif
         RegisterRenderDeviceForOwnership(vulkanDevice);
     }
     SDL2VulkanContext::~SDL2VulkanContext()
@@ -248,6 +299,9 @@ namespace p3d {
         // OnResize() call happens well after that.
         if (vulkanDevice != NULL)
             vulkanDevice->NotifySurfaceResized(width, height);
+#if defined(__APPLE__)
+        DisableMetalDisplaySync(rview);
+#endif
 
         // Deliberately does NOT call SDL_SetWindowSize() - every caller
         // of OnResize() (the real SDL_WINDOWEVENT_RESIZED handler and the
@@ -378,8 +432,15 @@ namespace p3d {
         if (vulkanDevice->QueryRealSurfaceExtent(realW, realH) && (realW != Width || realH != Height))
             OnResize(realW, realH);
 
-        SetTime(SDL_GetTicks());
+		SetTime(SDL_GetTicks());
         fps.setFPS(SDL_GetTicks());
+#if defined(__APPLE__)
+        // MoltenVK creates/replaces the CAMetalLayer on first present (and
+        // sometimes on swapchain recreate). displaySyncEnabled defaults YES
+        // → hard ~60 FPS even with IMMEDIATE. Must re-apply after the layer
+        // exists; a one-shot at Init() runs too early and leaves vsync on.
+        DisableMetalDisplaySync(rview);
+#endif
     }
 
     void SDL2VulkanContext::Draw()

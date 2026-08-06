@@ -9,6 +9,7 @@
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <cstring>
 
 // Must match MAX_LIGHTS in resources/shaders/PyrosShader.glsl - sizes and
@@ -397,6 +398,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const std::stri
 
 void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Tag)
 {
+	PYROS_PROFILE_SCOPE("Renderer.PreRender");
 
 	// Group and Sort Meshes
 	rmesh = GroupAndSortAssets(Scene, Camera, Tag);
