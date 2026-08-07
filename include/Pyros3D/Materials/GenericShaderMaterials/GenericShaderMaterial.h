@@ -141,9 +141,9 @@ namespace p3d
 		int32 metallicRoughnessMapID;
 
 		// Uniforms Handles
-		Uniform *uColor, *uSpecular, *uReflectivity, *uShininess, *uUseLights, *uDisplacementHeight;
-		Uniform *uMetallic, *uRoughness;
-		Uniform *uSSRReflective;
+		Uniform *uColor = NULL, *uSpecular = NULL, *uReflectivity = NULL, *uShininess = NULL, *uUseLights = NULL, *uDisplacementHeight = NULL;
+		Uniform *uMetallic = NULL, *uRoughness = NULL;
+		Uniform *uSSRReflective = NULL;
 	};
 }
 

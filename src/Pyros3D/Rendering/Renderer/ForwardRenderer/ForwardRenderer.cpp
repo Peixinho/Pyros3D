@@ -154,7 +154,9 @@ namespace p3d {
 		ProjectionMatrix = projection.m;
 		NearFarPlane = Vec2(projection.Near, projection.Far);
 
-		// View Matrix and Position
+		// View Matrix and Position (latch previous view before overwrite -
+		// velocity / motion-blur materials sample PrvViewMatrix)
+		PrvViewMatrix = ViewMatrix;
 		ViewMatrix = Camera->GetWorldTransformation().Inverse();
 		CameraPosition = Camera->GetWorldPosition();
 

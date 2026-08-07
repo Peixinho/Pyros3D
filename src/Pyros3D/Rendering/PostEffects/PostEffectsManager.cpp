@@ -25,7 +25,7 @@ namespace p3d {
 		return MaybeOwningDevicePtr(new GLRenderDevice(), MaybeOwningDeviceDeleter{true});
 	}
 
-	PostEffectsManager::PostEffectsManager(const uint32 width, const uint32 height) : device(ResolvePostEffectsDevice())
+	PostEffectsManager::PostEffectsManager(const uint32 width, const uint32 height) : device(ResolvePostEffectsDevice()), fullscreenVao(0)
 	{
 		// Save Dimensions
 		Width = width;
@@ -51,6 +51,8 @@ namespace p3d {
 		ExternalFBO = new FrameBuffer();
 		ExternalFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, Depth);
 		ExternalFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, Color);
+
+		fullscreenVao = device->CreateVertexArray();
 	}
 
 	FrameBuffer* PostEffectsManager::GetExternalFrameBuffer()
@@ -79,10 +81,8 @@ namespace p3d {
 
 	void PostEffectsManager::ProcessPostEffects(Projection* projection)
 	{
-		PYROS_PROFILE_SCOPE("PostFX.Process");
-
-		// Set Counter
-		uint32 counter = 1;
+		if (effects.empty())
+			return;
 
 		// Save Near and Far Planes
 		Vec2 NearFarPlane = Vec2(projection->Near, projection->Far);
@@ -93,51 +93,17 @@ namespace p3d {
 		// while the uniforms still say 0/1 (sharp colour, zero velocity).
 		Texture::ResetUnitCounter();
 
-		// Run Through Effects
-		for (std::vector<IEffect*>::iterator effect = effects.begin(); effect != effects.end(); effect++)
+		auto drawEffect = [&](IEffect *effect, const bool isLastEffect)
 		{
-			if (counter == effects.size())
-			{
-				// Last effect draws to the swapchain, not an offscreen
-				// FBO - a no-op on GL (no acquire/present step), but on
-				// Vulkan nothing else in this class's callers ever
-				// acquires+presents a swapchain frame: every example
-				// using PostEffectsManager wraps its *only* RenderScene()
-				// call in CaptureFrame()/EndCapture() (an offscreen FBO),
-				// so RenderScene()'s own isMainSwapchainPass gate always
-				// skips BeginFrame()/EndFrame() there. Without this call,
-				// the swapchain is never acquired for the whole frame -
-				// found via every PostEffectsManager-based example
-				// (SSAOExample/DepthOfField/MotionBlurExample) hanging
-				// forever in vkWaitForFences() on this loop's *next*
-				// offscreen FBO fence (or, for a single-effect chain,
-				// this exact draw's own eventual submit) - a real GPU
-				// completion signal that, per MoltenVK's own behavior on
-				// this machine, never arrives without an actual
-				// swapchain present somewhere in the frame to drive it.
-				device->BeginFrame();
-				device->SetViewport(0, 0, Width, Height);
-			}
-			else {
-
-				activeFBO = (*effect)->fbo;
-
-				device->SetViewport(0, 0, (*effect)->Width, (*effect)->Height);
-
-				// Bind FBO
-				activeFBO->Bind();
-			}
-
 			// Clear Screen
 			device->SetClearColor(Vec4(0.f, 0.f, 0.f, 0.f));
 			device->Clear(device->TranslateBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth));
 
-			DeviceHandle vao = device->CreateVertexArray();
 			CommandBufferHandle cmd = device->BeginCommandBuffer();
-			device->BindVertexArray(cmd, vao);
+			device->BindVertexArray(cmd, fullscreenVao);
 
 			// Start Shader Program
-			device->UseProgram((*effect)->shader->ShaderProgram());
+			device->UseProgram(effect->shader->ShaderProgram());
 
 			// Bind this effect's pipeline (built lazily, once - see
 			// IEffect.h's comment on pipelineHandle) - PostEffectsManager
@@ -155,39 +121,36 @@ namespace p3d {
 			// all - VUID-vkCmdDraw-None-08114 the moment it draws).
 			// See IEffect.h's comment on pipelineHandle/
 			// pipelineBuiltForSwapchainGeneration: only the *last* effect's
-			// pipeline (this frame's counter==effects.size() branch above)
-			// targets the swapchain directly and can go stale when it's
-			// resized - real, reproduced bug, not a hypothetical. Every
-			// other effect's pipeline targets its own stable Texture-backed
-			// FBO and never needs this rebuild (GetSwapchainGeneration()
-			// only tracks the swapchain's own render pass), so the
-			// generation check is gated on being the last effect,
-			// matching exactly which branch actually used BeginFrame()'s
-			// swapchain render pass above.
-			bool isLastEffect = (counter == effects.size());
-			bool pipelineStale = isLastEffect && (*effect)->pipelineHandle != 0 &&
-				(*effect)->pipelineBuiltForSwapchainGeneration != device->GetSwapchainGeneration();
+			// pipeline (swapchain present pass) targets the swapchain
+			// directly and can go stale when it's resized - real,
+			// reproduced bug, not a hypothetical. Every other effect's
+			// pipeline targets its own stable Texture-backed FBO and never
+			// needs this rebuild (GetSwapchainGeneration() only tracks the
+			// swapchain's own render pass), so the generation check is
+			// gated on being the last effect.
+			bool pipelineStale = isLastEffect && effect->pipelineHandle != 0 &&
+				effect->pipelineBuiltForSwapchainGeneration != device->GetSwapchainGeneration();
 			if (pipelineStale)
 			{
-				device->DestroyPipeline((*effect)->pipelineHandle);
-				(*effect)->pipelineHandle = 0;
+				device->DestroyPipeline(effect->pipelineHandle);
+				effect->pipelineHandle = 0;
 			}
-			if ((*effect)->pipelineHandle == 0)
+			if (effect->pipelineHandle == 0)
 			{
 				IRenderDevice::PipelineDesc pdesc;
-				pdesc.shaderProgram = (*effect)->shader->ShaderProgram();
+				pdesc.shaderProgram = effect->shader->ShaderProgram();
 				pdesc.depthTest = false;
 				pdesc.depthWrite = false;
 				pdesc.blendingEnabled = false;
 				pdesc.cullFace = CullFace::DoubleSided;
 				pdesc.noVertexInput = true;
-				(*effect)->pipelineHandle = device->CreatePipeline(pdesc);
-				(*effect)->pipelineBuiltForSwapchainGeneration = device->GetSwapchainGeneration();
+				effect->pipelineHandle = device->CreatePipeline(pdesc);
+				effect->pipelineBuiltForSwapchainGeneration = device->GetSwapchainGeneration();
 			}
-			device->BindPipeline(cmd, (*effect)->pipelineHandle);
+			device->BindPipeline(cmd, effect->pipelineHandle);
 
 			// Bind MRT
-			for (std::vector<RTT::Info>::iterator i = (*effect)->RTTOrder.begin(); i != (*effect)->RTTOrder.end(); i++)
+			for (std::vector<RTT::Info>::iterator i = effect->RTTOrder.begin(); i != effect->RTTOrder.end(); i++)
 			{
 				switch ((*i).Type)
 				{
@@ -207,11 +170,11 @@ namespace p3d {
 			}
 
 			// Send Uniforms
-			for (std::list<__UniformPostProcess>::iterator i = (*effect)->Uniforms.begin(); i != (*effect)->Uniforms.end(); i++)
+			for (std::list<__UniformPostProcess>::iterator i = effect->Uniforms.begin(); i != effect->Uniforms.end(); i++)
 			{
 				if ((*i).handle == -2)
 				{
-					(*i).handle = Shader::GetUniformLocation((*effect)->shader->ShaderProgram(), (*i).uniform.Name);
+					(*i).handle = Shader::GetUniformLocation(effect->shader->ShaderProgram(), (*i).uniform.Name);
 				}
 
 				// Resolve this uniform's current value + byte size,
@@ -244,11 +207,11 @@ namespace p3d {
 					break;
 				}
 
-				if (!(*effect)->extraUniformOffsets.empty() && valuePtr != NULL)
+				if (!effect->extraUniformOffsets.empty() && valuePtr != NULL)
 				{
-					std::map<std::string, uint32>::const_iterator offIt = (*effect)->extraUniformOffsets.find((*i).uniform.Name);
-					if (offIt != (*effect)->extraUniformOffsets.end() && offIt->second + valueSize <= (*effect)->extraUniformsScratch.size())
-						memcpy(&(*effect)->extraUniformsScratch[offIt->second], valuePtr, valueSize);
+					std::map<std::string, uint32>::const_iterator offIt = effect->extraUniformOffsets.find((*i).uniform.Name);
+					if (offIt != effect->extraUniformOffsets.end() && offIt->second + valueSize <= effect->extraUniformsScratch.size())
+						memcpy(&effect->extraUniformsScratch[offIt->second], valuePtr, valueSize);
 				}
 
 				if ((*i).handle != -1)
@@ -280,19 +243,19 @@ namespace p3d {
 			// touch this). Created lazily since it needs a linked program
 			// (for BindUniformBlockIfPresent()'s reflectedBindings check)
 			// to already exist, which CompileShaders() guarantees by now.
-			if ((*effect)->extraUniformsBinding != 0)
+			if (effect->extraUniformsBinding != 0)
 			{
-				if ((*effect)->extraUniformsBufferHandle == 0)
-					(*effect)->extraUniformsBufferHandle = device->CreateUniformBuffer((*effect)->extraUniformsSize, (*effect)->extraUniformsBinding);
-				device->BindUniformBlockIfPresent((*effect)->shader->ShaderProgram(), (*effect)->extraUniformsBlockName, (*effect)->extraUniformsBinding);
-				device->ReplaceUniformBuffer((*effect)->extraUniformsBufferHandle, (*effect)->extraUniformsSize, &(*effect)->extraUniformsScratch[0]);
+				if (effect->extraUniformsBufferHandle == 0)
+					effect->extraUniformsBufferHandle = device->CreateUniformBuffer(effect->extraUniformsSize, effect->extraUniformsBinding);
+				device->BindUniformBlockIfPresent(effect->shader->ShaderProgram(), effect->extraUniformsBlockName, effect->extraUniformsBinding);
+				device->ReplaceUniformBuffer(effect->extraUniformsBufferHandle, effect->extraUniformsSize, &effect->extraUniformsScratch[0]);
 			}
 
 			device->DrawArrays(device->TranslateDrawType(DrawingType::Triangles), 0, 3);
 			device->EndCommandBuffer(cmd);
 
 			// Unbind MRT
-			for (std::vector<RTT::Info>::reverse_iterator i = (*effect)->RTTOrder.rbegin(); i != (*effect)->RTTOrder.rend(); i++)
+			for (std::vector<RTT::Info>::reverse_iterator i = effect->RTTOrder.rbegin(); i != effect->RTTOrder.rend(); i++)
 			{
 				switch ((*i).Type)
 				{
@@ -310,18 +273,47 @@ namespace p3d {
 					break;
 				}
 			}
+		};
 
-			// Unbind FBO if is using and set the RTT
-			if (counter < effects.size())
+		// Offscreen ping-pong only - keep BeginFrame/EndFrame (fence wait,
+		// acquire, submit, present) *outside* this scope so the profiler
+		// does not attribute the whole swapchain frame to "PostFX" the
+		// way Deferred.RenderScene used to own them before Capture.
+		{
+			PYROS_PROFILE_SCOPE("PostFX.Process");
+			for (size_t idx = 0; idx + 1 < effects.size(); ++idx)
 			{
+				IEffect *effect = effects[idx];
+				activeFBO = effect->fbo;
+				device->SetViewport(0, 0, effect->Width, effect->Height);
+				activeFBO->Bind();
+				drawEffect(effect, false);
 				activeFBO->UnBind();
-				// Get RTT
 				LastRTT = activeFBO->GetAttachments()[0]->TexturePTR;
 			}
+		}
 
-			// count loop
-			counter++;
-
+		// Last effect draws to the swapchain, not an offscreen FBO - a
+		// no-op on GL (no acquire/present step), but on Vulkan nothing
+		// else in this class's callers ever acquires+presents a swapchain
+		// frame: every example using PostEffectsManager wraps its *only*
+		// RenderScene() call in CaptureFrame()/EndCapture() (an offscreen
+		// FBO), so RenderScene()'s own isMainSwapchainPass gate always
+		// skips BeginFrame()/EndFrame() there. Without this call, the
+		// swapchain is never acquired for the whole frame - found via
+		// every PostEffectsManager-based example
+		// (SSAOExample/DepthOfField/MotionBlurExample) hanging forever in
+		// vkWaitForFences() on this loop's *next* offscreen FBO fence
+		// (or, for a single-effect chain, this exact draw's own eventual
+		// submit) - a real GPU completion signal that, per MoltenVK's own
+		// behavior on this machine, never arrives without an actual
+		// swapchain present somewhere in the frame to drive it.
+		IEffect *lastEffect = effects.back();
+		device->BeginFrame();
+		device->SetViewport(0, 0, Width, Height);
+		{
+			PYROS_PROFILE_SCOPE("PostFX.Present");
+			drawEffect(lastEffect, true);
 		}
 
 		// Disable Shader Program
@@ -347,6 +339,11 @@ namespace p3d {
 		// real use-after-free (it shows up as an intermittent segfault on
 		// quit rather than a clean exit).
 		device->WaitIdle();
+		if (fullscreenVao != 0)
+		{
+			device->DeleteVertexArray(fullscreenVao);
+			fullscreenVao = 0;
+		}
 		for (std::vector<IEffect*>::iterator i = effects.begin(); i != effects.end(); i++)
 		{
 			delete (*i);

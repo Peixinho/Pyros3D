@@ -84,6 +84,12 @@ namespace p3d {
 		// instant it made a real GL call, since no real GL context exists
 		// in a Vulkan-only process).
 		MaybeOwningDevicePtr device;
+
+		// Full-screen triangle path uses noVertexInput pipelines +
+		// DrawArrays; the VAO is only needed so BindVertexArray has a
+		// non-zero handle. Creating a fresh one every effect every frame
+		// leaked entries in VulkanRenderDevice::vaos without bound.
+		DeviceHandle fullscreenVao;
 	};
 
 };

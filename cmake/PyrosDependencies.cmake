@@ -99,8 +99,8 @@ if (HAVE_LUA_BINDINGS)
 		set(LUA_LIBRARIES lua54)
 		set(LUA51_FOUND TRUE)
 	else()
-		# sol.hpp only supports Lua 5.1–5.4. Prefer Homebrew lua@5.4 over the
-		# unversioned formula (often 5.5+).
+		# sol.hpp only supports Lua 5.1–5.4. Unversioned "lua" packages are often
+		# 5.5+ now; prefer an explicit 5.4/5.3/5.1 install when present.
 		if (APPLE)
 			execute_process(COMMAND brew --prefix lua@5.4
 				OUTPUT_VARIABLE HOMEBREW_LUA54_PREFIX
@@ -110,11 +110,80 @@ if (HAVE_LUA_BINDINGS)
 				set(LUA_INCLUDE_DIR "${HOMEBREW_LUA54_PREFIX}/include/lua" CACHE PATH "Lua include directory")
 				set(LUA_LIBRARY "${HOMEBREW_LUA54_PREFIX}/lib/liblua.dylib" CACHE FILEPATH "Lua library")
 			endif()
+		elseif (UNIX)
+			# Prefer versioned distro packages over /usr/include + liblua.so (5.5).
+			# Only override when unset or pointing at the unversioned headers.
+			if (NOT LUA_INCLUDE_DIR OR LUA_INCLUDE_DIR STREQUAL "/usr/include")
+				foreach(_pyros_lua_ver 5.4 5.3 5.1)
+					if (EXISTS "/usr/include/lua${_pyros_lua_ver}/lua.h")
+						find_library(_pyros_lua_lib
+							NAMES lua${_pyros_lua_ver} lua-${_pyros_lua_ver}
+							PATHS /usr/lib /usr/lib64
+							PATH_SUFFIXES x86_64-linux-gnu aarch64-linux-gnu
+						)
+						if (_pyros_lua_lib)
+							set(LUA_INCLUDE_DIR "/usr/include/lua${_pyros_lua_ver}" CACHE PATH "Lua include directory" FORCE)
+							set(LUA_LIBRARY "${_pyros_lua_lib}" CACHE FILEPATH "Lua library" FORCE)
+							unset(_pyros_lua_lib CACHE)
+							break()
+						endif()
+						unset(_pyros_lua_lib CACHE)
+					endif()
+				endforeach()
+				unset(_pyros_lua_ver)
+			endif()
 		endif()
 
 		find_package(Lua51 REQUIRED)
 		if (NOT LUA51_FOUND)
 			message(FATAL_ERROR "Lua not found (need 5.1–5.4 for sol.hpp)")
+		endif()
+
+		# Keep LUA_LIBRARIES in sync with LUA_LIBRARY — a stale cache entry can
+		# leave headers on 5.1 while still linking the unversioned 5.5 .so.
+		set(_pyros_lua_libs "${LUA_LIBRARY}")
+		if (LUA_MATH_LIBRARY)
+			list(APPEND _pyros_lua_libs "${LUA_MATH_LIBRARY}")
+		endif()
+		set(LUA_LIBRARIES "${_pyros_lua_libs}" CACHE STRING "Lua link libraries" FORCE)
+		unset(_pyros_lua_libs)
+
+		# Reject Lua 5.5+ even if FindLua51 accepted a mismatched cache.
+		if (EXISTS "${LUA_INCLUDE_DIR}/lua.h")
+			unset(_pyros_lua_num)
+			file(STRINGS "${LUA_INCLUDE_DIR}/lua.h" _pyros_lua_ver_line
+				REGEX "^[ \t]*#define[ \t]+LUA_VERSION_NUM")
+			if (_pyros_lua_ver_line MATCHES "LUA_VERSION_NUM[ \t]+([0-9]+)")
+				set(_pyros_lua_num "${CMAKE_MATCH_1}")
+			else()
+				# Lua 5.5+: LUA_VERSION_NUM is an expression over MAJOR_N/MINOR_N.
+				file(STRINGS "${LUA_INCLUDE_DIR}/lua.h" _pyros_lua_maj
+					REGEX "^[ \t]*#define[ \t]+LUA_VERSION_MAJOR_N[ \t]+")
+				file(STRINGS "${LUA_INCLUDE_DIR}/lua.h" _pyros_lua_min
+					REGEX "^[ \t]*#define[ \t]+LUA_VERSION_MINOR_N[ \t]+")
+				if (_pyros_lua_maj MATCHES "MAJOR_N[ \t]+([0-9]+)"
+						AND _pyros_lua_min MATCHES "MINOR_N[ \t]+([0-9]+)")
+					set(_pyros_lua_maj_n "${CMAKE_MATCH_1}")
+					# Second MATCH overwrote CMAKE_MATCH_1 — re-parse minor.
+					string(REGEX MATCH "MINOR_N[ \t]+([0-9]+)" _ "${_pyros_lua_min}")
+					set(_pyros_lua_min_n "${CMAKE_MATCH_1}")
+					string(REGEX MATCH "MAJOR_N[ \t]+([0-9]+)" _ "${_pyros_lua_maj}")
+					set(_pyros_lua_maj_n "${CMAKE_MATCH_1}")
+					math(EXPR _pyros_lua_num "${_pyros_lua_maj_n} * 100 + ${_pyros_lua_min_n}")
+				endif()
+			endif()
+			if (DEFINED _pyros_lua_num AND (_pyros_lua_num LESS 501 OR _pyros_lua_num GREATER 504))
+				message(FATAL_ERROR
+					"sol.hpp needs Lua 5.1–5.4, but LUA_INCLUDE_DIR=${LUA_INCLUDE_DIR} "
+					"is version ${_pyros_lua_num}. Pass -DLUA_INCLUDE_DIR=.../lua5.4 "
+					"(or 5.3/5.1) and matching -DLUA_LIBRARY, or clear the build cache.")
+			endif()
+			unset(_pyros_lua_ver_line)
+			unset(_pyros_lua_maj)
+			unset(_pyros_lua_min)
+			unset(_pyros_lua_maj_n)
+			unset(_pyros_lua_min_n)
+			unset(_pyros_lua_num)
 		endif()
 	endif()
 endif()

@@ -36,7 +36,7 @@
             "ssrEnabled": false,
             "transparent": false,
             "wireframe": false,
-            "colorMap": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textureanimation/1.png"
+            "colorMap": "textureanimation/1.png"
         }
     ],
     "roots": [
@@ -65,7 +65,7 @@
             "components": [
                 {
                     "type": "LuaComponent",
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_fly.lua",
+                    "scriptFile": "demos/scripts/camera_fly.lua",
                     "data": {
                         "yaw": 0,
                         "pitch": 0
@@ -142,22 +142,22 @@
                     "textureAnimation": {
                         "frames": [
                             {
-                                "tex": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textureanimation/1.png"
+                                "tex": "textureanimation/1.png"
                             },
                             {
-                                "tex": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textureanimation/2.png"
+                                "tex": "textureanimation/2.png"
                             },
                             {
-                                "tex": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textureanimation/3.png"
+                                "tex": "textureanimation/3.png"
                             },
                             {
-                                "tex": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textureanimation/4.png"
+                                "tex": "textureanimation/4.png"
                             },
                             {
-                                "tex": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textureanimation/5.png"
+                                "tex": "textureanimation/5.png"
                             },
                             {
-                                "tex": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textureanimation/6.png"
+                                "tex": "textureanimation/6.png"
                             }
                         ],
                         "fps": 30.0,
@@ -171,7 +171,7 @@
                 },
                 {
                     "data": {},
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/texture_anim.lua",
+                    "scriptFile": "demos/scripts/texture_anim.lua",
                     "type": "LuaComponent"
                 }
             ],

@@ -37,12 +37,12 @@
             "transparent": true,
             "wireframe": false,
             "skyboxMap": {
-                "negx": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textures/skybox/negx.png",
-                "negy": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textures/skybox/negy.png",
-                "negz": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textures/skybox/negz.png",
-                "posx": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textures/skybox/posx.png",
-                "posy": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textures/skybox/posy.png",
-                "posz": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/textures/skybox/posz.png"
+                "negx": "textures/skybox/negx.png",
+                "negy": "textures/skybox/negy.png",
+                "negz": "textures/skybox/negz.png",
+                "posx": "textures/skybox/posx.png",
+                "posy": "textures/skybox/posy.png",
+                "posz": "textures/skybox/posz.png"
             }
         }
     ],
@@ -72,7 +72,7 @@
             "components": [
                 {
                     "type": "LuaComponent",
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_fly.lua",
+                    "scriptFile": "demos/scripts/camera_fly.lua",
                     "data": {
                         "yaw": 0,
                         "pitch": 0
@@ -101,7 +101,7 @@
                 },
                 {
                     "data": {},
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/skybox_follow.lua",
+                    "scriptFile": "demos/scripts/skybox_follow.lua",
                     "type": "LuaComponent"
                 }
             ],

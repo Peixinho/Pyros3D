@@ -27,7 +27,7 @@
             "components": [
                 {
                     "type": "LuaComponent",
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_fly.lua",
+                    "scriptFile": "demos/scripts/camera_fly.lua",
                     "data": {
                         "yaw": 0,
                         "pitch": -12
@@ -106,7 +106,7 @@
             "components": [
                 {
                     "type": "LuaComponent",
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/motion_blur_setup.lua",
+                    "scriptFile": "demos/scripts/motion_blur_setup.lua",
                     "data": {}
                 }
             ]

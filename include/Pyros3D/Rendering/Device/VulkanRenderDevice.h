@@ -483,6 +483,24 @@ namespace p3d {
 		// offscreen pre-frame sync.
 		VkFence frameFence;
 
+		// Batched asset uploads (UploadTexture2D / GenerateMipmap). One
+		// command buffer + one fence for a whole load burst instead of
+		// submit+wait per texture. Flushed before the first frame that
+		// can sample them (BeginFrame) and before WaitIdle/teardown.
+		VkCommandBuffer transferCommandBuffer;
+		bool transferCommandBufferRecording;
+		VkFence transferFence;
+		struct PendingStagingBuffer
+		{
+			VkBuffer buffer;
+			VmaAllocation allocation;
+		};
+		std::vector<PendingStagingBuffer> pendingStagingBuffers;
+		VkDeviceSize pendingStagingBytes;
+
+		// Persistent VkPipelineCache (loaded/saved under ~/.cache/pyros3d).
+		VkPipelineCache pipelineCache;
+
 		// Set by SetClearColor(), read by BeginFrame() when it builds the
 		// render pass's VkClearValue - GL sets this as persistent state
 		// (glClearColor) ahead of a separate Clear() call, but Vulkan has
@@ -562,12 +580,12 @@ namespace p3d {
 		// (frameInProgress || offscreenPassOpen) instead of
 		// frameInProgress alone.
 		bool offscreenPassOpen;
-		// True from the first AttachFramebufferTexture2D() call in a
-		// FrameBuffer::Bind()/UnBind() session (which vkBeginCommandBuffer()s
-		// offscreenCommandBuffer) until BindFramebuffer(access, 0)
-		// (UnBind) submits and ends it - distinct from offscreenPassOpen,
-		// which toggles per *render pass* (once per cubemap face) within
-		// that same still-recording command buffer.
+		// True from the first BeginOffscreenRenderPassForTarget() that
+		// starts recording until FlushOffscreenCommandBuffer() submits.
+		// UnBind (BindFramebuffer 0) ends the open render pass but keeps
+		// recording so G-buffer → CopyDepthTexture → lighting (and nested
+		// Capture FBO restores) batch into one submit. Distinct from
+		// offscreenPassOpen, which toggles per render pass within that CB.
 		bool offscreenCommandBufferRecording;
 		// Signaled when the last FlushOffscreenCommandBuffer() submit
 		// finished. EndFrame waits on offscreenDoneSemaphore (not a CPU
@@ -577,7 +595,19 @@ namespace p3d {
 		// or tear down.
 		VkFence offscreenFence;
 		VkSemaphore offscreenDoneSemaphore;
+		// True while EndFrame still needs to wait on offscreenDoneSemaphore
+		// (GPU timeline). Cleared when EndFrame queues that wait, or when
+		// WaitOffscreenSubmitIfPending consumes the semaphore on the CPU.
 		bool offscreenSubmitPending;
+		// True after a FlushOffscreenCommandBuffer submit until its fence
+		// has been waited on the CPU. Distinct from offscreenSubmitPending:
+		// EndFrame may take the semaphore (pending=false) without a CPU
+		// fence wait - resetting offscreenFence while that submit is still
+		// in flight hangs. Flush/Wait must wait this fence whenever set.
+		bool offscreenFenceInFlight;
+		// Cleared each BeginFrame; set after EnsureHostMappedBufferWritable
+		// so multiple STREAM buffer updates in one tick share one wait.
+		bool hostMappedBuffersSafeThisFrame;
 		// Which FBO handle BindFramebuffer(access, fbo!=0) most recently
 		// selected - AttachFramebufferTexture2D() operates on this.
 		// 0 = none (matches BindFramebuffer(access, 0)'s GL "unbind to
@@ -790,6 +820,24 @@ namespace p3d {
 		void FlushOffscreenCommandBuffer();
 		void WaitOffscreenSubmitIfPending();
 		void WaitAllFrameFences();
+		// Wait in-flight frame/offscreen work that may still read a
+		// host-mapped vertex/index buffer before CPU rewrite/destroy.
+		// Skips the current frame slot while frameInProgress (fence reset,
+		// not yet re-signaled - would deadlock).
+		void EnsureHostMappedBufferWritable();
+		// If a deferred offscreen batch is still recording but the draw
+		// target is the swapchain (currentBoundFBO==0 inside BeginFrame),
+		// flush that batch and point activeCommandBuffer at the frame CB.
+		void EnsureFrameCommandBufferForSwapchainDraw();
+		// Records into transferCommandBuffer (begins it on first use).
+		VkCommandBuffer BeginOrGetTransferCommandBuffer();
+		// Submits pending UploadTexture2D/GenerateMipmap work and frees
+		// staging buffers. Safe no-op when nothing is pending.
+		void FlushPendingTransfers();
+		void CreatePipelineCache();
+		void DestroyPipelineCache();
+		// Sets deviceIdleSinceLastSubmit=false then vkQueueSubmit.
+		VkResult SubmitGraphics(uint32 submitCount, const VkSubmitInfo *infos, VkFence fence);
 		// Begins recording offscreenCommandBuffer if this is the first
 		// render pass in the current Bind()/UnBind() session, then
 		// vkCmdBeginRenderPass()s `targetFramebuffer` (already resolved

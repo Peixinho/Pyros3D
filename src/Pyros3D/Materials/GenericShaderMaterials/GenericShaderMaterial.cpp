@@ -27,6 +27,7 @@ namespace p3d
 		uColor = uSpecular = uReflectivity = NULL;
 		uMetallic = uRoughness = NULL;
 		uSSRReflective = NULL;
+		uShininess = uUseLights = uDisplacementHeight = NULL;
 		SSREnabled = 0.0f;
 
 		// Find if Shader exists, if not, creates a new one
@@ -236,11 +237,14 @@ namespace p3d
 		if (ShadersList.find(shaderID) != ShadersList.end())
 		{
 			ShadersList[shaderID]->currentMaterials--;
-			if (ShadersList[shaderID]->currentMaterials == 0)
-			{
-				delete ShadersList[shaderID];
-				ShadersList.erase(ShadersList.find(shaderID));
-			}
+			// Keep the compiled Shader* alive when the last material of
+			// this options bitset goes away - demo switches tear down
+			// every GenericShaderMaterial, and recreating PyrosShader
+			// variants (shaderc + LinkProgram reflect) dominated Vulkan
+			// reload time. GL's glCompileShader is cheap enough that
+			// deleting was fine; Vulkan is not. Leaks one Shader per
+			// distinct options mask for the process lifetime - tiny.
+			(void)0;
 		}
 	}
 

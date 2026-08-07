@@ -36,9 +36,9 @@
             "ssrEnabled": false,
             "transparent": false,
             "wireframe": false,
-            "colorMap": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/bricks.png",
-            "normalMap": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/bricks_normal.png",
-            "displacementMap": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/bricks_disp.png"
+            "colorMap": "bricks.png",
+            "normalMap": "bricks_normal.png",
+            "displacementMap": "bricks_disp.png"
         }
     ],
     "roots": [
@@ -67,7 +67,7 @@
             "components": [
                 {
                     "type": "LuaComponent",
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_fly.lua",
+                    "scriptFile": "demos/scripts/camera_fly.lua",
                     "data": {
                         "yaw": 0,
                         "pitch": 0
@@ -144,7 +144,7 @@
                 },
                 {
                     "data": {},
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/spin_y.lua",
+                    "scriptFile": "demos/scripts/spin_y.lua",
                     "type": "LuaComponent"
                 }
             ],

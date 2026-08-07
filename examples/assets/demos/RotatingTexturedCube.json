@@ -36,7 +36,7 @@
             "ssrEnabled": false,
             "transparent": false,
             "wireframe": false,
-            "colorMap": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/pyros.png"
+            "colorMap": "pyros.png"
         }
     ],
     "roots": [
@@ -65,7 +65,7 @@
             "components": [
                 {
                     "type": "LuaComponent",
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_fly.lua",
+                    "scriptFile": "demos/scripts/camera_fly.lua",
                     "data": {
                         "yaw": 0,
                         "pitch": 0
@@ -142,7 +142,7 @@
                 },
                 {
                     "data": {},
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/spin_y.lua",
+                    "scriptFile": "demos/scripts/spin_y.lua",
                     "type": "LuaComponent"
                 }
             ],

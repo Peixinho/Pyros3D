@@ -81,7 +81,10 @@ if (BUILD_SPIRV_TOOLING)
 	endif()
 
 	find_path(SHADERC_INCLUDE_DIR shaderc/shaderc.hpp PATHS ${HOMEBREW_SHADERC_PREFIX}/include)
-	find_library(SHADERC_LIBRARY NAMES shaderc_combined PATHS ${HOMEBREW_SHADERC_PREFIX}/lib)
+	# Prefer the shared lib: Arch's libshaderc_combined.a is a thin archive that
+	# still needs glslang + SPIRV-Tools at link time (Homebrew's combined is fat).
+	find_library(SHADERC_LIBRARY NAMES shaderc_shared shaderc shaderc_combined
+		PATHS ${HOMEBREW_SHADERC_PREFIX}/lib)
 	find_path(SPIRV_CROSS_INCLUDE_DIR spirv_cross/spirv_cross.hpp PATHS ${HOMEBREW_SPIRV_CROSS_PREFIX}/include)
 	find_library(SPIRV_CROSS_CORE_LIBRARY NAMES spirv-cross-core PATHS ${HOMEBREW_SPIRV_CROSS_PREFIX}/lib)
 	find_library(SPIRV_CROSS_GLSL_LIBRARY NAMES spirv-cross-glsl PATHS ${HOMEBREW_SPIRV_CROSS_PREFIX}/lib)
@@ -99,9 +102,31 @@ if (BUILD_SPIRV_TOOLING)
 			${SPIRV_CROSS_GLSL_LIBRARY}
 			${SPIRV_CROSS_CORE_LIBRARY}
 		)
+		# Thin shaderc_combined.a (e.g. Arch) leaves glslang/SPIRV-Tools unresolved.
+		if (SHADERC_LIBRARY MATCHES "combined" OR SHADERC_LIBRARY MATCHES "\\.(a|lib)$")
+			find_library(GLSLANG_LIBRARY NAMES glslang)
+			find_library(GLSLANG_SPIRV_LIBRARY NAMES SPIRV)
+			find_library(SPIRV_TOOLS_OPT_LIBRARY NAMES SPIRV-Tools-opt)
+			find_library(SPIRV_TOOLS_LIBRARY NAMES SPIRV-Tools-shared SPIRV-Tools)
+			if (GLSLANG_LIBRARY)
+				list(APPEND SPIRV_TOOLING_LIBS ${GLSLANG_LIBRARY})
+			endif()
+			if (GLSLANG_SPIRV_LIBRARY)
+				list(APPEND SPIRV_TOOLING_LIBS ${GLSLANG_SPIRV_LIBRARY})
+			endif()
+			if (SPIRV_TOOLS_OPT_LIBRARY)
+				list(APPEND SPIRV_TOOLING_LIBS ${SPIRV_TOOLS_OPT_LIBRARY})
+			endif()
+			if (SPIRV_TOOLS_LIBRARY)
+				list(APPEND SPIRV_TOOLING_LIBS ${SPIRV_TOOLS_LIBRARY})
+			endif()
+		endif()
 		message(STATUS "SPIR-V tooling: shaderc=${SHADERC_LIBRARY}")
 	else()
-		message(WARNING "shaderc/spirv-cross not found — SPIR-V tooling disabled. Install: brew install shaderc spirv-cross")
+		message(WARNING
+			"shaderc/spirv-cross not found — SPIR-V tooling disabled. "
+			"Install shaderc + spirv-cross (e.g. pacman -S shaderc spirv-cross, "
+			"apt install libshaderc-dev spirv-cross, brew install shaderc spirv-cross).")
 	endif()
 endif()
 

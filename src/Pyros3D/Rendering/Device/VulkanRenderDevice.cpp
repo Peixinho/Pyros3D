@@ -22,6 +22,10 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
+#include <string>
+#include <sys/stat.h>
+#include <errno.h>
 
 #ifdef VULKAN_BACKEND
 
@@ -41,6 +45,35 @@ namespace p3d {
 	// TextureType::CubemapPositive_X..CubemapNegative_Z's enum order).
 	static const uint32 CUBEMAP_FACE_TARGET_BASE = 100;
 
+	static std::string PyrosCacheDir()
+	{
+		const char *xdg = getenv("XDG_CACHE_HOME");
+		if (xdg && xdg[0])
+			return std::string(xdg) + "/pyros3d";
+		const char *home = getenv("HOME");
+		if (home && home[0])
+			return std::string(home) + "/.cache/pyros3d";
+		return std::string(".cache/pyros3d");
+	}
+
+	static bool EnsureDirectoryExists(const std::string &path)
+	{
+		if (path.empty())
+			return false;
+		struct stat st;
+		if (stat(path.c_str(), &st) == 0)
+			return S_ISDIR(st.st_mode);
+		size_t slash = path.find_last_of('/');
+		if (slash != std::string::npos && slash > 0)
+		{
+			if (!EnsureDirectoryExists(path.substr(0, slash)))
+				return false;
+		}
+		if (mkdir(path.c_str(), 0755) != 0 && errno != EEXIST)
+			return false;
+		return true;
+	}
+
 	VulkanRenderDevice::VulkanRenderDevice(const std::vector<const char*> &requiredInstanceExtensions)
 		: instance(VK_NULL_HANDLE), surface(VK_NULL_HANDLE), physicalDevice(VK_NULL_HANDLE), device(VK_NULL_HANDLE),
 		  graphicsQueueFamily(0), presentQueueFamily(0), graphicsQueue(VK_NULL_HANDLE), presentQueue(VK_NULL_HANDLE),
@@ -49,11 +82,14 @@ namespace p3d {
 		  depthImageView(VK_NULL_HANDLE), depthFormat(VK_FORMAT_UNDEFINED),
 		  commandPool(VK_NULL_HANDLE), frameCommandBuffer(VK_NULL_HANDLE), currentFrameSlot(0),
 		  nextAcquireSemaphoreIndex(0), currentFrameAcquireSemaphoreIndex(0), frameFence(VK_NULL_HANDLE),
+		  transferCommandBuffer(VK_NULL_HANDLE), transferCommandBufferRecording(false), transferFence(VK_NULL_HANDLE),
+		  pendingStagingBytes(0), pipelineCache(VK_NULL_HANDLE),
 		  pendingClearColor(0.f, 0.f, 0.f, 1.f),
 		  captureRequested(false), capturedWidth(0), capturedHeight(0), capturedRedByteOffset(0), capturedFrameValid(false),
 		  frameInProgress(false), currentImageIndex(0), imguiVulkanBackendActive(false),
 		  activeCommandBuffer(VK_NULL_HANDLE), offscreenCommandBuffer(VK_NULL_HANDLE), offscreenPassOpen(false), offscreenCommandBufferRecording(false),
-		  offscreenFence(VK_NULL_HANDLE), offscreenDoneSemaphore(VK_NULL_HANDLE), offscreenSubmitPending(false),
+		  offscreenFence(VK_NULL_HANDLE), offscreenDoneSemaphore(VK_NULL_HANDLE), offscreenSubmitPending(false), offscreenFenceInFlight(false),
+		  hostMappedBuffersSafeThisFrame(false),
 		  currentBoundFBO(0), currentReadFBO(0),
 		  nextFBOHandle(1), shadowPipelineRenderPass(VK_NULL_HANDLE),
 		  nextVaoHandle(1), currentVao(0), currentPipeline(0),
@@ -137,6 +173,7 @@ namespace p3d {
 	{
 		if (device != VK_NULL_HANDLE)
 		{
+			FlushPendingTransfers();
 			vkDeviceWaitIdle(device);
 
 			// Resource tables (buffers/shader modules/pipelines/pipeline
@@ -149,6 +186,7 @@ namespace p3d {
 			for (std::map<DeviceHandle, VkPipeline>::iterator it = pipelines.begin(); it != pipelines.end(); it++)
 				vkDestroyPipeline(device, it->second, NULL);
 			pipelines.clear();
+			DestroyPipelineCache();
 			if (descriptorPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, descriptorPool, NULL);
 			for (std::map<DeviceHandle, ProgramRecord>::iterator it = programs.begin(); it != programs.end(); it++)
 			{
@@ -201,6 +239,7 @@ namespace p3d {
 			}
 			frameFence = VK_NULL_HANDLE;
 			if (offscreenFence != VK_NULL_HANDLE) vkDestroyFence(device, offscreenFence, NULL);
+			if (transferFence != VK_NULL_HANDLE) vkDestroyFence(device, transferFence, NULL);
 			if (offscreenDoneSemaphore != VK_NULL_HANDLE) vkDestroySemaphore(device, offscreenDoneSemaphore, NULL);
 			for (size_t i = 0; i < imageAvailableSemaphores.size(); i++)
 				vkDestroySemaphore(device, imageAvailableSemaphores[i], NULL);
@@ -790,6 +829,19 @@ namespace p3d {
 		if (vkCreateSemaphore(device, &semInfo, NULL, &offscreenDoneSemaphore) != VK_SUCCESS) return false;
 		offscreenSubmitPending = false;
 
+		cmdAllocInfo.commandBufferCount = 1;
+		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &transferCommandBuffer) != VK_SUCCESS)
+			return false;
+		// Signaled so the first FlushPendingTransfers can vkResetFences
+		// (VUID-vkResetFences-pFences-01105 requires signaled state).
+		fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+		if (vkCreateFence(device, &fenceInfo, NULL, &transferFence) != VK_SUCCESS)
+			return false;
+		transferCommandBufferRecording = false;
+		pendingStagingBytes = 0;
+
+		CreatePipelineCache();
+
 		return true;
 	}
 
@@ -872,7 +924,7 @@ namespace p3d {
 		submitInfo.pCommandBuffers = &frameCommandBuffer;
 		submitInfo.signalSemaphoreCount = 1;
 		submitInfo.pSignalSemaphores = &renderFinishedSemaphores[imageIndex];
-		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, frameFence) != VK_SUCCESS)
+		if (SubmitGraphics(1, &submitInfo, frameFence) != VK_SUCCESS)
 			return false;
 
 		VkPresentInfoKHR presentInfo = {};
@@ -891,8 +943,14 @@ namespace p3d {
 
 	void VulkanRenderDevice::WaitIdle()
 	{
+		FlushPendingTransfers();
 		if (device != VK_NULL_HANDLE)
 			vkDeviceWaitIdle(device);
+	}
+
+	VkResult VulkanRenderDevice::SubmitGraphics(uint32 submitCount, const VkSubmitInfo *infos, VkFence fence)
+	{
+		return vkQueueSubmit(graphicsQueue, submitCount, infos, fence);
 	}
 
 	bool VulkanRenderDevice::QueryRealSurfaceExtent(uint32 &width, uint32 &height) const
@@ -1010,7 +1068,7 @@ namespace p3d {
 		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 		VkFence fence = VK_NULL_HANDLE;
 		vkCreateFence(device, &fenceInfo, NULL, &fence);
-		vkQueueSubmit(graphicsQueue, 1, &submitInfo, fence);
+		SubmitGraphics(1, &submitInfo, fence);
 		if (fence != VK_NULL_HANDLE)
 		{
 			vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
@@ -1131,7 +1189,7 @@ namespace p3d {
 		submitInfo.pCommandBuffers = &frameCommandBuffer;
 		submitInfo.signalSemaphoreCount = 1;
 		submitInfo.pSignalSemaphores = &renderFinishedSemaphores[imageIndex];
-		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, frameFence) != VK_SUCCESS)
+		if (SubmitGraphics(1, &submitInfo, frameFence) != VK_SUCCESS)
 			return false;
 
 		VkPresentInfoKHR presentInfo = {};
@@ -1169,6 +1227,17 @@ namespace p3d {
 	{
 		if (swapchain == VK_NULL_HANDLE || frameInProgress)
 			return;
+
+		hostMappedBuffersSafeThisFrame = false;
+
+		// Shadow / pre-frame offscreen work (PreRender) may still be
+		// recording after UnBind deferred its flush - submit before we
+		// start the swapchain frame so EndFrame can wait on it.
+		if (offscreenCommandBufferRecording)
+			FlushOffscreenCommandBuffer();
+		// Asset loads batch into transferCommandBuffer - make sure every
+		// texture/mip is GPU-ready before any draw can sample them.
+		FlushPendingTransfers();
 
 		// Self-heal: if a previous RecreateSwapchain() call bailed out
 		// (e.g. a momentarily degenerate 0x0 extent mid-resize - see its
@@ -1299,6 +1368,13 @@ namespace p3d {
 	{
 		if (!frameInProgress)
 			return;
+
+		// Safety: anything still batched offscreen (should already have
+		// been flushed by EnsureFrameCommandBufferForSwapchainDraw when
+		// deferredLastPass ran) must submit before we end the frame CB.
+		if (offscreenCommandBufferRecording)
+			FlushOffscreenCommandBuffer();
+
 		frameInProgress = false;
 		activeCommandBuffer = VK_NULL_HANDLE;
 		currentVao = 0;
@@ -1401,7 +1477,7 @@ namespace p3d {
 		submitInfo.pSignalSemaphores = &renderFinishedSemaphores[currentImageIndex];
 		{
 			PYROS_PROFILE_SCOPE("VK.Submit");
-			if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, frameFence) != VK_SUCCESS)
+			if (SubmitGraphics(1, &submitInfo, frameFence) != VK_SUCCESS)
 			{
 				if (captureStagingBuffer != VK_NULL_HANDLE)
 					vmaDestroyBuffer(allocator, captureStagingBuffer, captureStagingAllocation);
@@ -1865,8 +1941,20 @@ namespace p3d {
 		pipelineInfo.renderPass = targetRenderPass;
 		pipelineInfo.subpass = 0;
 
-		VkPipeline pipeline;
-		VkResult result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline);
+		VkPipeline pipeline = VK_NULL_HANDLE;
+		VkResult result = vkCreateGraphicsPipelines(device, pipelineCache != VK_NULL_HANDLE ? pipelineCache : VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline);
+		// Bad/stale pipeline-cache data can make some drivers fail (or
+		// worse) - drop the cache and retry once with a fresh one.
+		if (result != VK_SUCCESS && pipelineCache != VK_NULL_HANDLE)
+		{
+			fprintf(stderr, "VulkanRenderDevice::CreatePipeline: vkCreateGraphicsPipelines failed (%d) with pipeline cache - recreating cache and retrying\n", (int)result);
+			DestroyPipelineCache();
+			VkPipelineCacheCreateInfo emptyCache = {};
+			emptyCache.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+			if (vkCreatePipelineCache(device, &emptyCache, NULL, &pipelineCache) != VK_SUCCESS)
+				pipelineCache = VK_NULL_HANDLE;
+			result = vkCreateGraphicsPipelines(device, pipelineCache != VK_NULL_HANDLE ? pipelineCache : VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline);
+		}
 		if (result != VK_SUCCESS)
 		{
 			fprintf(stderr, "VulkanRenderDevice::CreatePipeline: vkCreateGraphicsPipelines FAILED with VkResult=%d\n", (int)result);
@@ -1929,6 +2017,7 @@ namespace p3d {
 
 	void VulkanRenderDevice::BindPipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline)
 	{
+		EnsureFrameCommandBufferForSwapchainDraw();
 		if (!(frameInProgress || offscreenPassOpen) || cmd == 0)
 			return;
 		std::map<DeviceHandle, VkPipeline>::iterator it = pipelines.find(pipeline);
@@ -1971,6 +2060,7 @@ namespace p3d {
 	// wants something narrower.
 	void VulkanRenderDevice::SetViewport(const uint32 x, const uint32 y, const uint32 width, const uint32 height)
 	{
+		EnsureFrameCommandBufferForSwapchainDraw();
 		if (!(frameInProgress || offscreenPassOpen) || activeCommandBuffer == VK_NULL_HANDLE)
 			return;
 		VkViewport viewport = { (f32)x, (f32)y, (f32)width, (f32)height, 0.0f, 1.0f };
@@ -2244,6 +2334,7 @@ namespace p3d {
 	void VulkanRenderDevice::DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count)
 	{
 		(void)nativeDrawType;
+		EnsureFrameCommandBufferForSwapchainDraw();
 		if (!(frameInProgress || offscreenPassOpen))
 			return;
 		if (currentPipeline == 0)
@@ -2257,6 +2348,7 @@ namespace p3d {
 
 	void VulkanRenderDevice::DrawElements(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount)
 	{
+		EnsureFrameCommandBufferForSwapchainDraw();
 		if (!(frameInProgress || offscreenPassOpen) || cmd == 0 || currentVao == 0)
 			return;
 		if (currentPipeline == 0)
@@ -2297,6 +2389,7 @@ namespace p3d {
 
 	void VulkanRenderDevice::DrawElementsInstanced(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount, const uint32 instanceCount)
 	{
+		EnsureFrameCommandBufferForSwapchainDraw();
 		if (!(frameInProgress || offscreenPassOpen) || cmd == 0 || currentVao == 0)
 			return;
 		if (currentPipeline == 0)
@@ -2441,6 +2534,16 @@ namespace p3d {
 		buffers[handle] = record;
 		// See the comment on uniformBufferByBindingPoint in the header -
 		// this is what BindUniformBlockIfPresent() looks up later.
+		// If this binding point already had a buffer (or a stale handle
+		// after DestroyUniformBuffer missed the map - older path), any
+		// program that already wrote that binding must rewrite against
+		// the new VkBuffer.
+		std::map<uint32, DeviceHandle>::iterator existing = uniformBufferByBindingPoint.find(bindingPoint);
+		if (existing != uniformBufferByBindingPoint.end() && existing->second != handle)
+		{
+			for (std::map<DeviceHandle, ProgramRecord>::iterator pIt = programs.begin(); pIt != programs.end(); ++pIt)
+				pIt->second.writtenBindings.erase(bindingPoint);
+		}
 		uniformBufferByBindingPoint[bindingPoint] = handle;
 		return handle;
 	}
@@ -2504,6 +2607,28 @@ namespace p3d {
 
 	void VulkanRenderDevice::DestroyUniformBuffer(const DeviceHandle buffer)
 	{
+		// Drop binding-point bookkeeping and force every program that had
+		// already written this UBO into its descriptor set to re-bind on
+		// next use. Without this, keeping GenericShaderMaterial's compiled
+		// Shader* across a DeferredRenderer teardown (demo switch) leaves
+		// ProgramRecord::writtenBindings set while IRenderer destroys and
+		// recreates the shared UBOs - BindUniformBlockIfPresent then skips
+		// the rewrite and draws with descriptors pointing at freed
+		// VkBuffers (A→B→A segfault).
+		for (std::map<uint32, DeviceHandle>::iterator it = uniformBufferByBindingPoint.begin(); it != uniformBufferByBindingPoint.end(); )
+		{
+			if (it->second != buffer)
+			{
+				++it;
+				continue;
+			}
+			const uint32 bindingPoint = it->first;
+			for (std::map<DeviceHandle, ProgramRecord>::iterator pIt = programs.begin(); pIt != programs.end(); ++pIt)
+				pIt->second.writtenBindings.erase(bindingPoint);
+			std::map<uint32, DeviceHandle>::iterator eraseIt = it;
+			++it;
+			uniformBufferByBindingPoint.erase(eraseIt);
+		}
 		DestroyBuffer(buffer);
 	}
 
@@ -2569,6 +2694,7 @@ namespace p3d {
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it == buffers.end() || allocator == VK_NULL_HANDLE)
 			return;
+		EnsureHostMappedBufferWritable();
 		vmaDestroyBuffer(allocator, it->second.buffer, it->second.allocation);
 
 		// See CreateBuffer()'s identical comment - a zero-length shrink is
@@ -2607,6 +2733,7 @@ namespace p3d {
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it == buffers.end() || it->second.mapped == NULL)
 			return;
+		EnsureHostMappedBufferWritable();
 		memcpy(it->second.mapped, data, length);
 	}
 
@@ -2676,38 +2803,68 @@ namespace p3d {
 #ifdef SPIRV_TOOLING
 		uint32 spirvStage = (it->second.engineShaderType == ShaderType::FragmentShader) ? SpirvShaderStage::Fragment : SpirvShaderStage::Vertex;
 
-		// Generic Vulkan-portability pass - see SpirvShaderCompiler::
-		// AutoFixForVulkan()'s comment. Every shader this engine ships
-		// already has explicit layout()/UBO_BINDING qualifiers (this
-		// session's hand-fixing work), so this is a verified no-op for
-		// all of them; it only actually rewrites source for shaders that
-		// don't (CustomShaderMaterial's user-authored ones - the whole
-		// point of this pass). `blockName` just needs to be a unique,
-		// valid GLSL identifier - Vulkan resolves UBOs by binding index,
-		// not name (see BindUniformBlockIfPresent()'s comment), so it's
-		// never looked up again on this backend.
-		std::string transformedSource = source;
-		SpirvAutoUboResult autoUbo;
-		std::string autoFixErr;
-		uint32 candidateBinding = nextAutoUboBinding;
-		std::string autoBlockName = std::string("AutoUBO_") + std::to_string(shader) + "_" + std::to_string(spirvStage);
-		if (!SpirvShaderCompiler::AutoFixForVulkan(transformedSource, spirvStage, candidateBinding, autoBlockName, autoUbo, autoFixErr))
+		// Prefer compiling as-is when the source is already Vulkan-correct
+		// (every engine-shipped shader). AutoFixForVulkan always runs
+		// shaderc PreprocessGlsl even when it rewrites nothing - that was
+		// most of the remaining load cost after SPIR-V caching, because
+		// the cache key was the *post*-AutoFix text so AutoFix still ran
+		// every time. Fall back to AutoFix only when needed (or when the
+		// direct compile fails - e.g. macro-wrapped varyings).
+		std::string compileSource = source;
+		bool usedAutoFix = false;
+		if (SpirvShaderCompiler::NeedsAutoFixForVulkan(source))
 		{
-			errorLog = autoFixErr;
-			return false;
-		}
-		if (autoUbo.hasBlock)
-		{
-			nextAutoUboBinding++;
-			it->second.autoUboHasBlock = true;
-			it->second.autoUboBinding = autoUbo.binding;
-			it->second.autoUboBlockName = autoUbo.blockName;
-			it->second.autoUboSize = autoUbo.size;
-			it->second.autoUboOffsets = autoUbo.offsets;
+			SpirvAutoUboResult autoUbo;
+			std::string autoFixErr;
+			uint32 candidateBinding = nextAutoUboBinding;
+			std::string autoBlockName = std::string("AutoUBO_") + std::to_string(shader) + "_" + std::to_string(spirvStage);
+			if (!SpirvShaderCompiler::AutoFixForVulkan(compileSource, spirvStage, candidateBinding, autoBlockName, autoUbo, autoFixErr))
+			{
+				errorLog = autoFixErr;
+				return false;
+			}
+			usedAutoFix = true;
+			if (autoUbo.hasBlock)
+			{
+				nextAutoUboBinding++;
+				it->second.autoUboHasBlock = true;
+				it->second.autoUboBinding = autoUbo.binding;
+				it->second.autoUboBlockName = autoUbo.blockName;
+				it->second.autoUboSize = autoUbo.size;
+				it->second.autoUboOffsets = autoUbo.offsets;
+			}
 		}
 
-		if (!SpirvShaderCompiler::Compile(transformedSource, spirvStage, it->second.spirv, errorLog))
-			return false;
+		if (!SpirvShaderCompiler::Compile(compileSource, spirvStage, it->second.spirv, errorLog))
+		{
+			if (usedAutoFix)
+				return false;
+			// Direct compile failed - retry through AutoFix (CustomShader
+			// with macros / atypical formatting that the cheap Needs*
+			// scan missed).
+			SpirvAutoUboResult autoUbo;
+			std::string autoFixErr;
+			uint32 candidateBinding = nextAutoUboBinding;
+			std::string autoBlockName = std::string("AutoUBO_") + std::to_string(shader) + "_" + std::to_string(spirvStage);
+			compileSource = source;
+			if (!SpirvShaderCompiler::AutoFixForVulkan(compileSource, spirvStage, candidateBinding, autoBlockName, autoUbo, autoFixErr))
+			{
+				errorLog = autoFixErr;
+				return false;
+			}
+			if (autoUbo.hasBlock)
+			{
+				nextAutoUboBinding++;
+				it->second.autoUboHasBlock = true;
+				it->second.autoUboBinding = autoUbo.binding;
+				it->second.autoUboBlockName = autoUbo.blockName;
+				it->second.autoUboSize = autoUbo.size;
+				it->second.autoUboOffsets = autoUbo.offsets;
+			}
+			errorLog.clear();
+			if (!SpirvShaderCompiler::Compile(compileSource, spirvStage, it->second.spirv, errorLog))
+				return false;
+		}
 
 		VkShaderModuleCreateInfo moduleInfo = {};
 		moduleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -3529,7 +3686,10 @@ namespace p3d {
 			// (tex.image == NULL) never had anything submitted against it,
 			// so skip the stall there.
 			if (tex.image != VK_NULL_HANDLE)
+			{
+				FlushPendingTransfers();
 				vkDeviceWaitIdle(device);
+			}
 			// Any FBO this texture is already attached to (e.g. an
 			// IEffect's own render target, resized to match the window
 			// right after creation) has a VkFramebuffer baked against the
@@ -3650,16 +3810,15 @@ namespace p3d {
 			return;
 		}
 
-		// One-time-submit staging upload, since texture loading typically
-		// happens outside any per-frame command buffer (asset loading
-		// before the render loop even starts) - allocate a temporary
-		// command buffer, record a barrier+copy+barrier, submit, wait,
-		// and free it, all synchronously. Not the most efficient (no
-		// overlap with anything else), but correct and simple - matches
-		// this backend's existing "correctness over throughput" bar for
-		// a first real implementation (see e.g. RequestFrameCapture()'s
-		// similarly synchronous design).
+		// One-time-submit staging upload batched into transferCommandBuffer
+		// so a demo load of N textures pays one fence wait (on
+		// FlushPendingTransfers / BeginFrame), not N. Staging buffers are
+		// kept alive in pendingStagingBuffers until that flush.
 		VkDeviceSize uploadSize = (VkDeviceSize)width * height * BytesPerTexelVk(wantedFormat);
+		// Cap staging peak during huge loads - flush mid-batch if needed.
+		if (pendingStagingBytes + uploadSize > (VkDeviceSize)256 * 1024 * 1024)
+			FlushPendingTransfers();
+
 		VkBufferCreateInfo stagingInfo = {};
 		stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 		stagingInfo.size = uploadSize;
@@ -3705,22 +3864,12 @@ namespace p3d {
 			memcpy(stagingAllocationInfo.pMappedData, data, (size_t)uploadSize);
 		}
 
-		VkCommandBufferAllocateInfo cmdAllocInfo = {};
-		cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-		cmdAllocInfo.commandPool = commandPool;
-		cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-		cmdAllocInfo.commandBufferCount = 1;
-		VkCommandBuffer uploadCmd = VK_NULL_HANDLE;
-		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &uploadCmd) != VK_SUCCESS)
+		VkCommandBuffer uploadCmd = BeginOrGetTransferCommandBuffer();
+		if (uploadCmd == VK_NULL_HANDLE)
 		{
 			vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
 			return;
 		}
-
-		VkCommandBufferBeginInfo beginInfo = {};
-		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-		vkBeginCommandBuffer(uploadCmd, &beginInfo);
 
 		VkImageMemoryBarrier toDst = {};
 		toDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -3757,29 +3906,11 @@ namespace p3d {
 		// GenerateMipmap() to blit from.
 		tex.baseLevelHasRealData = true;
 
-		vkEndCommandBuffer(uploadCmd);
-
-		VkSubmitInfo submitInfo = {};
-		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &uploadCmd;
-		VkFenceCreateInfo fenceInfo = {};
-		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-		VkFence uploadFence = VK_NULL_HANDLE;
-		vkCreateFence(device, &fenceInfo, NULL, &uploadFence);
-		vkQueueSubmit(graphicsQueue, 1, &submitInfo, uploadFence);
-		if (uploadFence != VK_NULL_HANDLE)
-		{
-			vkWaitForFences(device, 1, &uploadFence, VK_TRUE, UINT64_MAX);
-			vkDestroyFence(device, uploadFence, NULL);
-		}
-		else
-		{
-			vkQueueWaitIdle(graphicsQueue);
-		}
-
-		vkFreeCommandBuffers(device, commandPool, 1, &uploadCmd);
-		vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
+		PendingStagingBuffer pending;
+		pending.buffer = stagingBuffer;
+		pending.allocation = stagingAllocation;
+		pendingStagingBuffers.push_back(pending);
+		pendingStagingBytes += uploadSize;
 	}
 	// Was a complete no-op stub. Real multisample VkImage creation,
 	// mirroring UploadTexture2D()'s image-creation half above (lines
@@ -3915,19 +4046,9 @@ namespace p3d {
 
 		uint32 layerCount = tex.isCubemap ? 6u : 1u;
 
-		VkCommandBufferAllocateInfo cmdAllocInfo = {};
-		cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-		cmdAllocInfo.commandPool = commandPool;
-		cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-		cmdAllocInfo.commandBufferCount = 1;
-		VkCommandBuffer cmd = VK_NULL_HANDLE;
-		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &cmd) != VK_SUCCESS)
+		VkCommandBuffer cmd = BeginOrGetTransferCommandBuffer();
+		if (cmd == VK_NULL_HANDLE)
 			return;
-
-		VkCommandBufferBeginInfo beginInfo = {};
-		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-		vkBeginCommandBuffer(cmd, &beginInfo);
 
 		int32 srcWidth = (int32)tex.width;
 		int32 srcHeight = (int32)tex.height;
@@ -4029,28 +4150,6 @@ namespace p3d {
 
 		VkImageMemoryBarrier finalBarriers[2] = { finalizeSrcLevels, lastToShaderRead };
 		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 2, finalBarriers);
-
-		vkEndCommandBuffer(cmd);
-
-		VkSubmitInfo submitInfo = {};
-		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &cmd;
-		VkFenceCreateInfo fenceInfo = {};
-		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-		VkFence fence = VK_NULL_HANDLE;
-		vkCreateFence(device, &fenceInfo, NULL, &fence);
-		vkQueueSubmit(graphicsQueue, 1, &submitInfo, fence);
-		if (fence != VK_NULL_HANDLE)
-		{
-			vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
-			vkDestroyFence(device, fence, NULL);
-		}
-		else
-		{
-			vkQueueWaitIdle(graphicsQueue);
-		}
-		vkFreeCommandBuffers(device, commandPool, 1, &cmd);
 
 		tex.mipsGenerated = true;
 		// Force RebuildSamplerIfDirty()'s next call to actually rebuild -
@@ -4235,7 +4334,7 @@ namespace p3d {
 		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 		VkFence fence = VK_NULL_HANDLE;
 		vkCreateFence(device, &fenceInfo, NULL, &fence);
-		vkQueueSubmit(graphicsQueue, 1, &submitInfo, fence);
+		SubmitGraphics(1, &submitInfo, fence);
 		if (fence != VK_NULL_HANDLE)
 		{
 			vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
@@ -4658,10 +4757,11 @@ namespace p3d {
 	// currentBoundFBO for the design. fbo!=0 (Bind()) just records which
 	// FBO is now selected - AttachFramebufferTexture2D() does the actual
 	// render-pass-begin work, since only it knows which texture/face to
-		// target. fbo==0 (UnBind()) ends whatever's open and submits the
-		// offscreen CB (completion via offscreenDoneSemaphore on EndFrame,
-		// or WaitOffscreenSubmitIfPending when the CB must be reused) - one
-		// submit per Bind()/UnBind() session, not per attached face.
+	// target. fbo==0 (UnBind()) ends the open render pass but keeps the
+	// offscreen CB recording when possible so CopyDepthTexture / the
+	// next Bind / a restored outer FBO can continue the same batch;
+	// EnsureFrameCommandBufferForSwapchainDraw / BeginFrame / EndFrame
+	// (and BlitFramebuffer) submit when the batch must leave the GPU.
 	void VulkanRenderDevice::BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo, const bool finalizePending)
 	{
 		// A Read-only bind (BlitFramebuffer()'s source) mirrors GL's
@@ -4751,26 +4851,18 @@ namespace p3d {
 		}
 
 		currentBoundFBO = 0;
-		FlushOffscreenCommandBuffer();
-
-		// Real bug, found via a crash (EXC_BAD_ACCESS in vkCmdBindPipeline)
-		// once a renderer first combined offscreen FBO work with a later
-		// swapchain-targeting draw inside the *same* BeginFrame()/EndFrame()
-		// frame (DeferredRenderer::RenderScene(): G-buffer + lastPassFBO
-		// passes, both offscreen, followed by a final full-screen blit to
-		// the real swapchain). This used to unconditionally null
-		// activeCommandBuffer here - correct when nothing else is going on,
-		// but if a real frame is still open (frameInProgress, started by an
-		// earlier BeginFrame() this same frame), that null left every
-		// subsequent draw call with no valid command buffer to record into.
-		// Restore it to the frame's own command buffer instead of nulling
-		// it, so drawing can resume against the swapchain right after this
-		// offscreen detour. Every existing single-purpose caller (a
-		// standalone shadow-map FBO, IslandDemo's separate offscreen
-		// RenderScene() calls) has frameInProgress == false here, so this
-		// is a no-op for them - unchanged behavior.
-		activeCommandBuffer = frameInProgress ? frameCommandBuffer : VK_NULL_HANDLE;
-		offscreenCommandBufferRecording = false;
+		// End the open render pass only - keep offscreenCommandBuffer
+		// recording so DeferredRenderer's G-buffer UnBind → CopyDepthTexture
+		// → lastPass Bind (and FrameBuffer's restore of an outer Capture
+		// FBO) stays one GPU submit. Flushing here used to force
+		// WaitOffscreenSubmitIfPending on the next Bind plus a full
+		// CPU fence inside CopyDepthTexture - the mid-frame stall that
+		// pinned deferred demos near ~60 FPS with present mode IMMEDIATE.
+		EndOffscreenRenderPassIfOpen();
+		if (offscreenCommandBufferRecording)
+			activeCommandBuffer = offscreenCommandBuffer;
+		else
+			activeCommandBuffer = frameInProgress ? frameCommandBuffer : VK_NULL_HANDLE;
 		currentVao = 0;
 		currentPipeline = 0;
 	}
@@ -5013,37 +5105,203 @@ namespace p3d {
 		}
 	}
 
+	void VulkanRenderDevice::EnsureHostMappedBufferWritable()
+	{
+		if (hostMappedBuffersSafeThisFrame)
+			return;
+		// Particle / STREAM AttributeBuffers rewrite the same host-mapped
+		// VkBuffer every Update while MAX_FRAMES_IN_FLIGHT > 1 - the other
+		// slot's submit may still be reading it. Wait those fences (and any
+		// pending offscreen batch) before memcpy/destroy.
+		WaitOffscreenSubmitIfPending();
+		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
+		for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			if (frameInProgress && i == currentFrameSlot)
+				continue;
+			if (frameFences[i] != VK_NULL_HANDLE)
+				vkWaitForFences(device, 1, &frameFences[i], VK_TRUE, FRAME_WAIT_TIMEOUT_NS);
+		}
+		hostMappedBuffersSafeThisFrame = true;
+	}
+
 	void VulkanRenderDevice::WaitOffscreenSubmitIfPending()
 	{
-		if (!offscreenSubmitPending || offscreenFence == VK_NULL_HANDLE)
+		// EndFrame may have already waited on offscreenDoneSemaphore
+		// (cleared offscreenSubmitPending) without a CPU fence wait.
+		// Always drain the fence if a prior Flush left it in flight.
+		if (!offscreenFenceInFlight || offscreenFence == VK_NULL_HANDLE)
 			return;
 
 		vkWaitForFences(device, 1, &offscreenFence, VK_TRUE, UINT64_MAX);
 
-		// Binary semaphore is still signaled - consume it with an empty
-		// submit so the next Flush can signal again (EndFrame did not
-		// take this path).
-		VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-		VkSubmitInfo consume = {};
-		consume.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		consume.waitSemaphoreCount = 1;
-		consume.pWaitSemaphores = &offscreenDoneSemaphore;
-		consume.pWaitDstStageMask = &stage;
-		VkFenceCreateInfo fenceInfo = {};
-		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-		VkFence consumeFence = VK_NULL_HANDLE;
-		if (vkCreateFence(device, &fenceInfo, NULL, &consumeFence) == VK_SUCCESS)
+		if (offscreenSubmitPending)
 		{
-			vkQueueSubmit(graphicsQueue, 1, &consume, consumeFence);
-			vkWaitForFences(device, 1, &consumeFence, VK_TRUE, UINT64_MAX);
-			vkDestroyFence(device, consumeFence, NULL);
+			// Binary semaphore still signaled - EndFrame did not take it.
+			// Consume with an empty submit so the next Flush can signal again.
+			VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+			VkSubmitInfo consume = {};
+			consume.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+			consume.waitSemaphoreCount = 1;
+			consume.pWaitSemaphores = &offscreenDoneSemaphore;
+			consume.pWaitDstStageMask = &stage;
+
+			VkFenceCreateInfo fenceInfo = {};
+			fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+			VkFence consumeFence = VK_NULL_HANDLE;
+			if (vkCreateFence(device, &fenceInfo, NULL, &consumeFence) == VK_SUCCESS)
+			{
+				SubmitGraphics(1, &consume, consumeFence);
+				vkWaitForFences(device, 1, &consumeFence, VK_TRUE, UINT64_MAX);
+				vkDestroyFence(device, consumeFence, NULL);
+			}
+			else
+			{
+				SubmitGraphics(1, &consume, VK_NULL_HANDLE);
+				vkQueueWaitIdle(graphicsQueue);
+			}
+			offscreenSubmitPending = false;
+		}
+
+		offscreenFenceInFlight = false;
+	}
+
+	void VulkanRenderDevice::EnsureFrameCommandBufferForSwapchainDraw()
+	{
+		if (currentBoundFBO != 0 || !frameInProgress)
+			return;
+		if (offscreenCommandBufferRecording)
+			FlushOffscreenCommandBuffer();
+		activeCommandBuffer = frameCommandBuffer;
+	}
+
+	VkCommandBuffer VulkanRenderDevice::BeginOrGetTransferCommandBuffer()
+	{
+		if (transferCommandBuffer == VK_NULL_HANDLE || device == VK_NULL_HANDLE)
+			return VK_NULL_HANDLE;
+		if (!transferCommandBufferRecording)
+		{
+			vkResetCommandBuffer(transferCommandBuffer, 0);
+			VkCommandBufferBeginInfo beginInfo = {};
+			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+			beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+			if (vkBeginCommandBuffer(transferCommandBuffer, &beginInfo) != VK_SUCCESS)
+				return VK_NULL_HANDLE;
+			transferCommandBufferRecording = true;
+		}
+		return transferCommandBuffer;
+	}
+
+	void VulkanRenderDevice::FlushPendingTransfers()
+	{
+		if (!transferCommandBufferRecording || transferCommandBuffer == VK_NULL_HANDLE)
+			return;
+
+		vkEndCommandBuffer(transferCommandBuffer);
+
+		vkResetFences(device, 1, &transferFence);
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &transferCommandBuffer;
+		if (SubmitGraphics(1, &submitInfo, transferFence) != VK_SUCCESS)
+		{
+			vkQueueWaitIdle(graphicsQueue);
 		}
 		else
 		{
-			vkQueueSubmit(graphicsQueue, 1, &consume, VK_NULL_HANDLE);
-			vkQueueWaitIdle(graphicsQueue);
+			vkWaitForFences(device, 1, &transferFence, VK_TRUE, UINT64_MAX);
 		}
-		offscreenSubmitPending = false;
+
+		for (size_t i = 0; i < pendingStagingBuffers.size(); i++)
+			vmaDestroyBuffer(allocator, pendingStagingBuffers[i].buffer, pendingStagingBuffers[i].allocation);
+		pendingStagingBuffers.clear();
+		pendingStagingBytes = 0;
+		transferCommandBufferRecording = false;
+	}
+
+	void VulkanRenderDevice::CreatePipelineCache()
+	{
+		pipelineCache = VK_NULL_HANDLE;
+		if (device == VK_NULL_HANDLE || physicalDevice == VK_NULL_HANDLE)
+			return;
+
+		VkPhysicalDeviceProperties props = {};
+		vkGetPhysicalDeviceProperties(physicalDevice, &props);
+
+		std::string cachePath = PyrosCacheDir() + "/pipeline_cache.bin";
+		std::vector<char> initialData;
+		{
+			std::ifstream in(cachePath.c_str(), std::ios::binary);
+			if (in)
+			{
+				in.seekg(0, std::ios::end);
+				std::streamoff sz = in.tellg();
+				in.seekg(0, std::ios::beg);
+				// Header: vendorId, deviceId, driverVersion, pipelineCacheUUID
+				const size_t headerBytes = sizeof(uint32) * 3 + VK_UUID_SIZE;
+				if (sz > (std::streamoff)headerBytes)
+				{
+					uint32 vendorId = 0, deviceId = 0, driverVersion = 0;
+					uint8_t uuid[VK_UUID_SIZE];
+					in.read(reinterpret_cast<char*>(&vendorId), sizeof(vendorId));
+					in.read(reinterpret_cast<char*>(&deviceId), sizeof(deviceId));
+					in.read(reinterpret_cast<char*>(&driverVersion), sizeof(driverVersion));
+					in.read(reinterpret_cast<char*>(uuid), VK_UUID_SIZE);
+					if (vendorId == props.vendorID && deviceId == props.deviceID && driverVersion == props.driverVersion
+						&& memcmp(uuid, props.pipelineCacheUUID, VK_UUID_SIZE) == 0)
+					{
+						size_t dataSize = (size_t)sz - headerBytes;
+						initialData.resize(dataSize);
+						in.read(initialData.data(), (std::streamsize)dataSize);
+					}
+				}
+			}
+		}
+
+		VkPipelineCacheCreateInfo cacheInfo = {};
+		cacheInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+		if (!initialData.empty())
+		{
+			cacheInfo.initialDataSize = initialData.size();
+			cacheInfo.pInitialData = initialData.data();
+		}
+		if (vkCreatePipelineCache(device, &cacheInfo, NULL, &pipelineCache) != VK_SUCCESS)
+			pipelineCache = VK_NULL_HANDLE;
+	}
+
+	void VulkanRenderDevice::DestroyPipelineCache()
+	{
+		if (pipelineCache == VK_NULL_HANDLE || device == VK_NULL_HANDLE)
+			return;
+
+		size_t dataSize = 0;
+		if (vkGetPipelineCacheData(device, pipelineCache, &dataSize, NULL) == VK_SUCCESS && dataSize > 0)
+		{
+			std::vector<char> data(dataSize);
+			if (vkGetPipelineCacheData(device, pipelineCache, &dataSize, data.data()) == VK_SUCCESS)
+			{
+				VkPhysicalDeviceProperties props = {};
+				vkGetPhysicalDeviceProperties(physicalDevice, &props);
+				std::string dir = PyrosCacheDir();
+				if (EnsureDirectoryExists(dir))
+				{
+					std::string cachePath = dir + "/pipeline_cache.bin";
+					std::ofstream out(cachePath.c_str(), std::ios::binary | std::ios::trunc);
+					if (out)
+					{
+						out.write(reinterpret_cast<const char*>(&props.vendorID), sizeof(props.vendorID));
+						out.write(reinterpret_cast<const char*>(&props.deviceID), sizeof(props.deviceID));
+						out.write(reinterpret_cast<const char*>(&props.driverVersion), sizeof(props.driverVersion));
+						out.write(reinterpret_cast<const char*>(props.pipelineCacheUUID), VK_UUID_SIZE);
+						out.write(data.data(), (std::streamsize)dataSize);
+					}
+				}
+			}
+		}
+
+		vkDestroyPipelineCache(device, pipelineCache, NULL);
+		pipelineCache = VK_NULL_HANDLE;
 	}
 
 	void VulkanRenderDevice::FlushOffscreenCommandBuffer()
@@ -5054,13 +5312,10 @@ namespace p3d {
 		EndOffscreenRenderPassIfOpen();
 		vkEndCommandBuffer(offscreenCommandBuffer);
 
-		// Do not CPU-wait here. Capture→tonemap (and shadow→main) used to
-		// stall the CPU until the offscreen GPU work finished before even
-		// recording the next pass - GL never does that. Signal a semaphore
-		// EndFrame waits on so sampling sees completed images; reuse a
-		// persistent fence for rare WaitOffscreenSubmitIfPending() callers.
-		if (offscreenSubmitPending)
-			WaitOffscreenSubmitIfPending();
+		// Finish any prior offscreen submit before resetting its fence.
+		// EndFrame may have consumed offscreenDoneSemaphore (pending=false)
+		// without a CPU fence wait - resetting while in flight hangs.
+		WaitOffscreenSubmitIfPending();
 
 		vkResetFences(device, 1, &offscreenFence);
 
@@ -5070,14 +5325,16 @@ namespace p3d {
 		submitInfo.pCommandBuffers = &offscreenCommandBuffer;
 		submitInfo.signalSemaphoreCount = 1;
 		submitInfo.pSignalSemaphores = &offscreenDoneSemaphore;
-		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, offscreenFence) != VK_SUCCESS)
+		if (SubmitGraphics(1, &submitInfo, offscreenFence) != VK_SUCCESS)
 		{
 			vkQueueWaitIdle(graphicsQueue);
 			offscreenSubmitPending = false;
+			offscreenFenceInFlight = false;
 		}
 		else
 		{
 			offscreenSubmitPending = true;
+			offscreenFenceInFlight = true;
 		}
 
 		offscreenCommandBufferRecording = false;
@@ -5410,7 +5667,7 @@ namespace p3d {
 		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 		VkFence blitFence = VK_NULL_HANDLE;
 		vkCreateFence(device, &fenceInfo, NULL, &blitFence);
-		vkQueueSubmit(graphicsQueue, 1, &submitInfo, blitFence);
+		SubmitGraphics(1, &submitInfo, blitFence);
 		if (blitFence != VK_NULL_HANDLE)
 		{
 			vkWaitForFences(device, 1, &blitFence, VK_TRUE, UINT64_MAX);
@@ -5426,12 +5683,11 @@ namespace p3d {
 	void VulkanRenderDevice::CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height)
 	{
 		// See IRenderDevice.h's comment on CopyDepthTexture for why this
-		// exists. Same "allocate a one-off command buffer, record a
-		// barrier+copy+barrier, submit, wait, free" idiom as
-		// UploadTexture2D()'s staging-buffer path above - correct and
-		// simple, not the most efficient, matches this backend's existing
-		// bar for an infrequent (once per frame, not once per object)
-		// operation.
+		// exists. Prefer recording into the still-open offscreen command
+		// buffer (DeferredRenderer calls this between G-buffer UnBind and
+		// lastPass Bind) so we never mid-frame CPU-wait on a one-off
+		// submit. Fall back to the old sync path only when nothing is
+		// recording (standalone callers).
 		if (device == VK_NULL_HANDLE)
 			return;
 		std::map<DeviceHandle, TextureRecord>::iterator srcIt = textures.find(srcTexture);
@@ -5439,19 +5695,31 @@ namespace p3d {
 		if (srcIt == textures.end() || dstIt == textures.end())
 			return;
 
-		VkCommandBufferAllocateInfo cmdAllocInfo = {};
-		cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-		cmdAllocInfo.commandPool = commandPool;
-		cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-		cmdAllocInfo.commandBufferCount = 1;
+		const bool useOffscreenBatch = offscreenCommandBufferRecording;
 		VkCommandBuffer copyCmd = VK_NULL_HANDLE;
-		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &copyCmd) != VK_SUCCESS)
-			return;
+		if (useOffscreenBatch)
+		{
+			// Nested Capture may have restored an outer FBO render pass
+			// between G-buffer UnBind and this call - transfers are illegal
+			// inside a render pass.
+			EndOffscreenRenderPassIfOpen();
+			copyCmd = offscreenCommandBuffer;
+		}
+		else
+		{
+			VkCommandBufferAllocateInfo cmdAllocInfo = {};
+			cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+			cmdAllocInfo.commandPool = commandPool;
+			cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+			cmdAllocInfo.commandBufferCount = 1;
+			if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &copyCmd) != VK_SUCCESS)
+				return;
 
-		VkCommandBufferBeginInfo beginInfo = {};
-		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-		vkBeginCommandBuffer(copyCmd, &beginInfo);
+			VkCommandBufferBeginInfo beginInfo = {};
+			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+			beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+			vkBeginCommandBuffer(copyCmd, &beginInfo);
+		}
 
 		// src just finished being written+finalLayout-transitioned by its
 		// own render pass (SHADER_READ_ONLY_OPTIMAL, since it's a G-buffer
@@ -5515,6 +5783,9 @@ namespace p3d {
 		VkImageMemoryBarrier toFinalBarriers[2] = { toSrcFinal, toDstFinal };
 		vkCmdPipelineBarrier(copyCmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, 0, 0, NULL, 0, NULL, 2, toFinalBarriers);
 
+		if (useOffscreenBatch)
+			return;
+
 		vkEndCommandBuffer(copyCmd);
 
 		VkSubmitInfo submitInfo = {};
@@ -5525,7 +5796,7 @@ namespace p3d {
 		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 		VkFence copyFence = VK_NULL_HANDLE;
 		vkCreateFence(device, &fenceInfo, NULL, &copyFence);
-		vkQueueSubmit(graphicsQueue, 1, &submitInfo, copyFence);
+		SubmitGraphics(1, &submitInfo, copyFence);
 		if (copyFence != VK_NULL_HANDLE)
 		{
 			vkWaitForFences(device, 1, &copyFence, VK_TRUE, UINT64_MAX);

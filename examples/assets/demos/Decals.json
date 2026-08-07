@@ -138,7 +138,7 @@
             "components": [
                 {
                     "type": "LuaComponent",
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_fly.lua",
+                    "scriptFile": "demos/scripts/camera_fly.lua",
                     "data": {
                         "yaw": 0,
                         "pitch": 0
@@ -199,7 +199,7 @@
             "components": [
                 {
                     "data": {},
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/decal_aim.lua",
+                    "scriptFile": "demos/scripts/decal_aim.lua",
                     "type": "LuaComponent"
                 }
             ],
@@ -243,7 +243,7 @@
                 },
                 {
                     "data": {},
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/spin_y.lua",
+                    "scriptFile": "demos/scripts/spin_y.lua",
                     "type": "LuaComponent"
                 }
             ],
@@ -288,7 +288,7 @@
                 },
                 {
                     "data": {},
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/spin_y.lua",
+                    "scriptFile": "demos/scripts/spin_y.lua",
                     "type": "LuaComponent"
                 }
             ],
@@ -320,14 +320,14 @@
                     "material": 2,
                     "renderable": {
                         "kind": "model",
-                        "path": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/teapotLOD1.p3dm",
+                        "path": "teapotLOD1.p3dm",
                         "mergeMeshes": false
                     },
                     "type": "RenderingComponent"
                 },
                 {
                     "data": {},
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/spin_y.lua",
+                    "scriptFile": "demos/scripts/spin_y.lua",
                     "type": "LuaComponent"
                 }
             ],

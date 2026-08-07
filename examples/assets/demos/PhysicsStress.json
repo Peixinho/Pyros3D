@@ -31,7 +31,7 @@
       "components": [
         {
           "type": "LuaComponent",
-          "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_fly.lua",
+          "scriptFile": "demos/scripts/camera_fly.lua",
           "data": { "yaw": 0, "pitch": -22 }
         }
       ]
@@ -247,7 +247,7 @@
       "components": [
         {
           "type": "LuaComponent",
-          "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/physics_stress.lua",
+          "scriptFile": "demos/scripts/physics_stress.lua",
           "data": {
             "maxBodies": 20000,
             "spawnPerSecond": 200,

@@ -249,7 +249,7 @@
             "components": [
                 {
                     "type": "LuaComponent",
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_orbit.lua",
+                    "scriptFile": "demos/scripts/camera_orbit.lua",
                     "data": {
                         "radius": 18.0,
                         "height": 7.0,
@@ -615,7 +615,7 @@
             "components": [
                 {
                     "data": {},
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/enable_ssr.lua",
+                    "scriptFile": "demos/scripts/enable_ssr.lua",
                     "type": "LuaComponent"
                 }
             ],

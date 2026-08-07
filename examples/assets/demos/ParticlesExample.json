@@ -26,7 +26,7 @@
             "components": [
                 {
                     "type": "LuaComponent",
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_fly.lua",
+                    "scriptFile": "demos/scripts/camera_fly.lua",
                     "data": {
                         "yaw": 0,
                         "pitch": 0
@@ -79,7 +79,7 @@
                         1.0
                     ],
                     "startSize": 0.800000011920929,
-                    "texture": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/smoke.png",
+                    "texture": "smoke.png",
                     "type": "ParticleSystem"
                 },
                 {
@@ -88,7 +88,7 @@
                         "riseSpeed": 2.0,
                         "spread": 0.600000023841858
                     },
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/smoke_tuning.lua",
+                    "scriptFile": "demos/scripts/smoke_tuning.lua",
                     "type": "LuaComponent"
                 }
             ],
@@ -156,7 +156,7 @@
                         1.0
                     ],
                     "startSize": 0.600000023841858,
-                    "texture": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/smoke.png",
+                    "texture": "smoke.png",
                     "type": "ParticleSystem"
                 }
             ],

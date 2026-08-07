@@ -26,7 +26,7 @@
             "components": [
                 {
                     "type": "LuaComponent",
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/camera_none.lua",
+                    "scriptFile": "demos/scripts/camera_none.lua",
                     "data": {}
                 }
             ]
@@ -36,7 +36,7 @@
             "components": [
                 {
                     "data": {},
-                    "scriptFile": "/Users/peixinho/dev/cpp/Pyros3D/examples/assets/demos/scripts/neonpulse.lua",
+                    "scriptFile": "demos/scripts/neonpulse.lua",
                     "type": "LuaComponent"
                 }
             ],

@@ -118,8 +118,16 @@ namespace p3d {
 		// #define definitions, and the shader body, the same way
 		// IRenderDevice::BuildShaderSource() assembles it for the GL path)
 		// into SPIR-V. Returns false and fills errorLog on failure;
-		// outSpirv is left empty in that case.
+		// outSpirv is left empty in that case. Results are cached in
+		// memory and under ~/.cache/pyros3d/spirv/ keyed by source hash.
 		static bool Compile(const std::string &source, const uint32 stage, std::vector<uint32> &outSpirv, std::string &errorLog);
+
+		// True when `source` still has loose in/out/uniform declarations
+		// that need AutoFixForVulkan() (no `layout(...)` prefix). Engine
+		// shaders that already ship with explicit layouts return false so
+		// callers can skip the expensive shaderc preprocess AutoFix always
+		// runs; CustomShaderMaterial's plain GL GLSL returns true.
+		static bool NeedsAutoFixForVulkan(const std::string &source);
 
 		// Generic Vulkan-portability auto-fix for arbitrary, plain
 		// GL-style GLSL (CustomShaderMaterial's user-authored shaders,

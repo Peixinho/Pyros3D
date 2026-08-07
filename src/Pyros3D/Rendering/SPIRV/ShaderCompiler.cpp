@@ -13,14 +13,121 @@
 #include <shaderc/shaderc.hpp>
 #include <spirv_cross/spirv_cross.hpp>
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <errno.h>
+#include <fstream>
+#include <map>
+#include <mutex>
 #include <regex>
 #include <sstream>
+#include <sys/stat.h>
 
 namespace p3d {
+
+	namespace {
+
+		uint64 HashSpirvKey(const std::string &source, const uint32 stage)
+		{
+			// FNV-1a 64-bit
+			uint64 h = 14695981039346656037ull;
+			for (size_t i = 0; i < source.size(); i++)
+			{
+				h ^= (uint8_t)source[i];
+				h *= 1099511628211ull;
+			}
+			h ^= (uint64)stage + 0x9e3779b97f4a7c15ull;
+			h *= 1099511628211ull;
+			return h;
+		}
+
+		std::string SpirvCacheDir()
+		{
+			const char *xdg = getenv("XDG_CACHE_HOME");
+			if (xdg && xdg[0])
+				return std::string(xdg) + "/pyros3d/spirv";
+			const char *home = getenv("HOME");
+			if (home && home[0])
+				return std::string(home) + "/.cache/pyros3d/spirv";
+			return std::string(".cache/pyros3d/spirv");
+		}
+
+		bool EnsureDir(const std::string &path)
+		{
+			if (path.empty())
+				return false;
+			struct stat st;
+			if (stat(path.c_str(), &st) == 0)
+				return S_ISDIR(st.st_mode);
+			size_t slash = path.find_last_of('/');
+			if (slash != std::string::npos && slash > 0)
+			{
+				if (!EnsureDir(path.substr(0, slash)))
+					return false;
+			}
+			if (mkdir(path.c_str(), 0755) != 0 && errno != EEXIST)
+				return false;
+			return true;
+		}
+
+		std::string SpirvCachePath(uint64 key)
+		{
+			char name[64];
+			std::snprintf(name, sizeof(name), "%016llx.spv", (unsigned long long)key);
+			return SpirvCacheDir() + "/" + name;
+		}
+
+		std::mutex gSpirvCacheMutex;
+		std::map<uint64, std::vector<uint32> > gSpirvMemCache;
+
+		bool LoadSpirvFromDisk(uint64 key, std::vector<uint32> &out)
+		{
+			std::ifstream in(SpirvCachePath(key).c_str(), std::ios::binary);
+			if (!in)
+				return false;
+			in.seekg(0, std::ios::end);
+			std::streamoff sz = in.tellg();
+			in.seekg(0, std::ios::beg);
+			if (sz <= 0 || (sz % 4) != 0)
+				return false;
+			out.resize((size_t)sz / 4);
+			in.read(reinterpret_cast<char*>(out.data()), sz);
+			return (bool)in;
+		}
+
+		void StoreSpirvToDisk(uint64 key, const std::vector<uint32> &spirv)
+		{
+			if (spirv.empty())
+				return;
+			if (!EnsureDir(SpirvCacheDir()))
+				return;
+			std::ofstream out(SpirvCachePath(key).c_str(), std::ios::binary | std::ios::trunc);
+			if (!out)
+				return;
+			out.write(reinterpret_cast<const char*>(spirv.data()), (std::streamsize)(spirv.size() * sizeof(uint32)));
+		}
+
+	}
 
 	bool SpirvShaderCompiler::Compile(const std::string &source, const uint32 stage, std::vector<uint32> &outSpirv, std::string &errorLog)
 	{
 		outSpirv.clear();
+
+		const uint64 key = HashSpirvKey(source, stage);
+		{
+			std::lock_guard<std::mutex> lock(gSpirvCacheMutex);
+			std::map<uint64, std::vector<uint32> >::iterator it = gSpirvMemCache.find(key);
+			if (it != gSpirvMemCache.end())
+			{
+				outSpirv = it->second;
+				return true;
+			}
+			if (LoadSpirvFromDisk(key, outSpirv))
+			{
+				gSpirvMemCache[key] = outSpirv;
+				return true;
+			}
+		}
 
 		shaderc_shader_kind kind = (stage == SpirvShaderStage::Fragment) ? shaderc_glsl_fragment_shader : shaderc_glsl_vertex_shader;
 
@@ -38,7 +145,38 @@ namespace p3d {
 		}
 
 		outSpirv.assign(result.cbegin(), result.cend());
+
+		{
+			std::lock_guard<std::mutex> lock(gSpirvCacheMutex);
+			gSpirvMemCache[key] = outSpirv;
+			StoreSpirvToDisk(key, outSpirv);
+		}
 		return true;
+	}
+
+	bool SpirvShaderCompiler::NeedsAutoFixForVulkan(const std::string &source)
+	{
+		// Cheap line scan - no shaderc. Matches AutoFixForVulkan's rule that
+		// anything already starting with layout( is left alone; if every
+		// in/out/uniform line is already laid out, AutoFix would be a no-op
+		// after an expensive PreprocessGlsl.
+		std::stringstream ss(source);
+		std::string line;
+		while (std::getline(ss, line))
+		{
+			size_t a = line.find_first_not_of(" \t\r\n");
+			if (a == std::string::npos)
+				continue;
+			if (line.compare(a, 2, "//") == 0)
+				continue;
+			if (line.compare(a, 6, "layout") == 0)
+				continue;
+			if (line.compare(a, 8, "uniform ") == 0)
+				return true;
+			if (line.compare(a, 3, "in ") == 0 || line.compare(a, 4, "out ") == 0)
+				return true;
+		}
+		return false;
 	}
 
 	namespace {

@@ -63,6 +63,44 @@ namespace p3d {
 
 	using json = nlohmann::json;
 
+	// Demo JSON files were often saved with absolute host paths
+	// (/Users/.../examples/assets/...). Remap those (and plain relative
+	// paths) against ASSETS_PATH when the recorded file is missing.
+	static std::string g_sceneAssetRoot;
+
+	static bool SceneAssetFileExists(const std::string &path)
+	{
+		if (path.empty()) return false;
+		std::ifstream in(path.c_str());
+		return in.good();
+	}
+
+	static std::string ResolveSceneAssetPath(const std::string &path)
+	{
+		if (path.empty()) return path;
+		if (SceneAssetFileExists(path)) return path;
+
+		std::string relative = path;
+		const std::string markers[] = { "examples/assets/", "examples\\assets\\" };
+		for (const std::string &marker : markers)
+		{
+			const size_t pos = path.find(marker);
+			if (pos != std::string::npos)
+			{
+				relative = path.substr(pos + marker.size());
+				break;
+			}
+		}
+
+		if (!g_sceneAssetRoot.empty())
+		{
+			const std::string candidate = g_sceneAssetRoot + relative;
+			if (SceneAssetFileExists(candidate) || relative != path)
+				return candidate;
+		}
+		return path;
+	}
+
 	// ******************************* helpers *******************************
 
 #ifdef LUA_BINDINGS
@@ -962,12 +1000,13 @@ namespace p3d {
 
 	static std::shared_ptr<Texture> GetOrLoadTexture(const std::string &path, std::map<std::string, std::shared_ptr<Texture>> &cache, LoadedSceneAssets* outAssets)
 	{
-		if (path.empty()) return nullptr;
-		std::map<std::string, std::shared_ptr<Texture>>::iterator it = cache.find(path);
+		const std::string resolved = ResolveSceneAssetPath(path);
+		if (resolved.empty()) return nullptr;
+		std::map<std::string, std::shared_ptr<Texture>>::iterator it = cache.find(resolved);
 		if (it != cache.end()) return it->second;
 		std::shared_ptr<Texture> tex = std::make_shared<Texture>();
-		tex->LoadTexture(path, TextureType::Texture);
-		cache[path] = tex;
+		tex->LoadTexture(resolved, TextureType::Texture);
+		cache[resolved] = tex;
 		if (outAssets) outAssets->textures.push_back(tex);
 		return tex;
 	}
@@ -977,12 +1016,12 @@ namespace p3d {
 	// Texture. Face order matches SkyboxTest/RacingGame LoadTexture calls.
 	static std::shared_ptr<Texture> GetOrLoadCubemap(const json &faces, std::map<std::string, std::shared_ptr<Texture>> &cache, LoadedSceneAssets* outAssets)
 	{
-		std::string posx = faces.value("posx", std::string());
-		std::string negx = faces.value("negx", std::string());
-		std::string posy = faces.value("posy", std::string());
-		std::string negy = faces.value("negy", std::string());
-		std::string posz = faces.value("posz", std::string());
-		std::string negz = faces.value("negz", std::string());
+		std::string posx = ResolveSceneAssetPath(faces.value("posx", std::string()));
+		std::string negx = ResolveSceneAssetPath(faces.value("negx", std::string()));
+		std::string posy = ResolveSceneAssetPath(faces.value("posy", std::string()));
+		std::string negy = ResolveSceneAssetPath(faces.value("negy", std::string()));
+		std::string posz = ResolveSceneAssetPath(faces.value("posz", std::string()));
+		std::string negz = ResolveSceneAssetPath(faces.value("negz", std::string()));
 		if (posx.empty() || negx.empty() || posy.empty() || negy.empty() || posz.empty() || negz.empty())
 		{
 			echo("WARNING: SceneSerializer - cubemap missing one or more faces (need posx/negx/posy/negy/posz/negz)");
@@ -1075,7 +1114,7 @@ namespace p3d {
 		{
 			std::shared_ptr<CustomShaderMaterial> cm;
 			if (j.find("shaderFile") != j.end())
-				cm = std::make_shared<CustomShaderMaterial>(j.value("shaderFile", std::string()));
+				cm = std::make_shared<CustomShaderMaterial>(ResolveSceneAssetPath(j.value("shaderFile", std::string())));
 			else if (j.find("shaderSource") != j.end())
 			{
 				// Mirrors CustomShaderMaterial's real file-based
@@ -1128,7 +1167,7 @@ namespace p3d {
 		std::string kind = j.value("kind", "");
 		std::shared_ptr<Renderable> r;
 		if (kind == "model")
-			r = std::make_shared<Model>(j.value("path", std::string()), j.value("mergeMeshes", true));
+			r = std::make_shared<Model>(ResolveSceneAssetPath(j.value("path", std::string())), j.value("mergeMeshes", true));
 		else if (kind == "text")
 		{
 			// No font pooling/dedup - each loaded Text gets its own Font
@@ -1138,7 +1177,7 @@ namespace p3d {
 			// to retrieve/free it separately, and it's a small,
 			// self-contained allocation, not part of the material/
 			// texture/renderable pools this manifest targets.
-			Font* font = new Font(j.value("font", std::string()), j.value("fontSize", 16.0f));
+			Font* font = new Font(ResolveSceneAssetPath(j.value("font", std::string())), j.value("fontSize", 16.0f));
 			std::string text = j.value("text", std::string());
 			f32 charWidth = j.value("charWidth", 1.0f);
 			f32 charHeight = j.value("charHeight", 1.0f);
@@ -1278,7 +1317,7 @@ namespace p3d {
 			if (j.find("skeletonAnimation") != j.end())
 			{
 				const json &sa = j["skeletonAnimation"];
-				std::string path = sa.value("path", std::string());
+				std::string path = ResolveSceneAssetPath(sa.value("path", std::string()));
 				if (!path.empty())
 				{
 					std::shared_ptr<SkeletonAnimation> anim = std::make_shared<SkeletonAnimation>();
@@ -1286,7 +1325,7 @@ namespace p3d {
 					// "playing" entries below refer to (see the save side's
 					// comment); "path" alone is the pre-"paths" fallback.
 					if (sa.find("paths") != sa.end() && !sa["paths"].empty())
-						for (auto &pp : sa["paths"]) anim->LoadAnimation(pp.get<std::string>());
+						for (auto &pp : sa["paths"]) anim->LoadAnimation(ResolveSceneAssetPath(pp.get<std::string>()));
 					else
 						anim->LoadAnimation(path);
 					if (outAssets) outAssets->skeletonAnimations.push_back(anim);
@@ -1480,7 +1519,7 @@ namespace p3d {
 #ifdef LUA_BINDINGS
 		else if (type == "LuaComponent")
 		{
-			std::string scriptFile = j.value("scriptFile", std::string());
+			std::string scriptFile = ResolveSceneAssetPath(j.value("scriptFile", std::string()));
 			if (!scriptFile.empty() && lua && j.find("data") != j.end())
 			{
 				// Always load a fresh chunk (do not use require_file).
@@ -1609,6 +1648,25 @@ namespace p3d {
 		}
 		in.close();
 
+		// Remap absolute/host asset paths against ASSETS_PATH (DemoLauncher
+		// sets it) or, failing that, the scene file's own assets/ parent.
+		g_sceneAssetRoot.clear();
+#ifdef LUA_BINDINGS
+		if (lua)
+		{
+			sol::object assets = (*lua)["ASSETS_PATH"];
+			if (assets.valid() && assets.get_type() == sol::type::string)
+				g_sceneAssetRoot = assets.as<std::string>();
+		}
+#endif
+		if (g_sceneAssetRoot.empty())
+		{
+			const std::string marker = "examples/assets/";
+			const size_t pos = filePath.find(marker);
+			if (pos != std::string::npos)
+				g_sceneAssetRoot = filePath.substr(0, pos + marker.size());
+		}
+
 		if (root.value("version", 0) != 1)
 			echo("WARNING: SceneSerializer::LoadScene - unexpected scene file version, attempting to load anyway");
 
@@ -1655,6 +1713,7 @@ namespace p3d {
 				scene->Add(DeserializeGameObject(rj, materialsById, textureCache, physics, lua, outAssets));
 			}
 
+		g_sceneAssetRoot.clear();
 		return true;
 	}
 
