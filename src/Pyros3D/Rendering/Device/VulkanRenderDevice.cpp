@@ -2657,32 +2657,44 @@ namespace p3d {
 		// instead keeps the handle valid and re-findable from the start.
 		uint32 allocLength = (length == 0) ? 4 : length;
 
-		// bufferType (GeometryBuffer.h's Buffer::Type::Index/Vertex/
-		// Attribute) has no Vulkan-side distinction the way GL's
-		// GL_ELEMENT_ARRAY_BUFFER/GL_ARRAY_BUFFER targets do - a VkBuffer
-		// declares its allowed uses via usage flags at creation instead of
-		// a bind target, so this covers every value with the union of
-		// vertex+index usage (harmless to over-declare; validation layers
-		// only warn on missing bits, never extra ones).
-		VkBufferCreateInfo bufferInfo = {};
-		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-		bufferInfo.size = allocLength;
-		bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-		VmaAllocationCreateInfo allocInfo = {};
-		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-		allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+		// STREAM/DYNAMIC: ring of (FIF+1) host-mapped buffers so CPU can
+		// rewrite every frame without waiting on in-flight draws (Update
+		// runs before BeginFrame's fence wait). Static stays a single
+		// buffer. bufferType has no Vulkan-side bind-target distinction
+		// (unlike GL ELEMENT/ARRAY) - usage is the union of vertex+index.
+		const bool useStreamRing = (bufferDraw == Buffer::Draw::Stream || bufferDraw == Buffer::Draw::Dynamic);
+		const uint32 ringCount = useStreamRing ? BufferRecord::kMaxStreamRing : 1;
 
 		BufferRecord record;
 		record.size = length;
-		VmaAllocationInfo allocationInfo;
-		if (vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &record.buffer, &record.allocation, &allocationInfo) != VK_SUCCESS)
-			return 0;
-		record.mapped = allocationInfo.pMappedData;
+		record.streamRingCount = useStreamRing ? ringCount : 0;
+		record.streamWriteIndex = 0;
 
-		if (data != NULL && record.mapped != NULL)
-			memcpy(record.mapped, data, length);
+		for (uint32 i = 0; i < ringCount; i++)
+		{
+			VkBuffer buf = VK_NULL_HANDLE;
+			VmaAllocation alloc = VK_NULL_HANDLE;
+			void *mapped = NULL;
+			if (!AllocHostVisibleVertexBuffer(allocLength, &buf, &alloc, &mapped))
+			{
+				DestroyBufferRecordResources(record);
+				return 0;
+			}
+			if (useStreamRing)
+			{
+				record.streamBuffers[i] = buf;
+				record.streamAllocations[i] = alloc;
+				record.streamMapped[i] = mapped;
+			}
+			if (i == 0)
+			{
+				record.buffer = buf;
+				record.allocation = alloc;
+				record.mapped = mapped;
+			}
+			if (data != NULL && mapped != NULL && length > 0)
+				memcpy(mapped, data, length);
+		}
 
 		DeviceHandle handle = nextBufferHandle++;
 		buffers[handle] = record;
@@ -2695,13 +2707,87 @@ namespace p3d {
 		if (it == buffers.end() || allocator == VK_NULL_HANDLE)
 			return;
 		EnsureHostMappedBufferWritable();
-		vmaDestroyBuffer(allocator, it->second.buffer, it->second.allocation);
+		DestroyBufferRecordResources(it->second);
 
-		// See CreateBuffer()'s identical comment - a zero-length shrink is
-		// as legitimate as a zero-length initial allocation (e.g. every
-		// particle in an emitter dying at once), and Vulkan still won't
-		// allow size==0.
 		uint32 allocLength = (length == 0) ? 4 : length;
+		const bool useStreamRing = (bufferDraw == Buffer::Draw::Stream || bufferDraw == Buffer::Draw::Dynamic);
+		const uint32 ringCount = useStreamRing ? BufferRecord::kMaxStreamRing : 1;
+
+		BufferRecord record;
+		record.size = length;
+		record.streamRingCount = useStreamRing ? ringCount : 0;
+		record.streamWriteIndex = 0;
+
+		for (uint32 i = 0; i < ringCount; i++)
+		{
+			VkBuffer buf = VK_NULL_HANDLE;
+			VmaAllocation alloc = VK_NULL_HANDLE;
+			void *mapped = NULL;
+			if (!AllocHostVisibleVertexBuffer(allocLength, &buf, &alloc, &mapped))
+			{
+				DestroyBufferRecordResources(record);
+				buffers.erase(it);
+				return;
+			}
+			if (useStreamRing)
+			{
+				record.streamBuffers[i] = buf;
+				record.streamAllocations[i] = alloc;
+				record.streamMapped[i] = mapped;
+			}
+			if (i == 0)
+			{
+				record.buffer = buf;
+				record.allocation = alloc;
+				record.mapped = mapped;
+			}
+			if (data != NULL && mapped != NULL && length > 0)
+				memcpy(mapped, data, length);
+		}
+
+		it->second = record;
+	}
+
+	void VulkanRenderDevice::UpdateBufferSubData(const DeviceHandle buffer, const uint32 bufferType, const void *data, const uint32 length)
+	{
+		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
+		if (it == buffers.end() || data == NULL)
+			return;
+		BufferRecord &rec = it->second;
+
+		if (rec.streamRingCount > 1)
+		{
+			// Advance to a slot the GPU is no longer reading (FIF+1 ring).
+			rec.streamWriteIndex = (rec.streamWriteIndex + 1) % rec.streamRingCount;
+			rec.buffer = rec.streamBuffers[rec.streamWriteIndex];
+			rec.allocation = rec.streamAllocations[rec.streamWriteIndex];
+			rec.mapped = rec.streamMapped[rec.streamWriteIndex];
+			if (rec.mapped != NULL && length > 0)
+				memcpy(rec.mapped, data, length);
+			return;
+		}
+
+		if (rec.mapped == NULL)
+			return;
+		// Rare non-ring path (shouldn't update Static every frame) - sync.
+		EnsureHostMappedBufferWritable();
+		memcpy(rec.mapped, data, length);
+	}
+
+	void VulkanRenderDevice::DestroyBuffer(const DeviceHandle buffer)
+	{
+		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
+		if (it == buffers.end())
+			return;
+		EnsureHostMappedBufferWritable();
+		DestroyBufferRecordResources(it->second);
+		buffers.erase(it);
+	}
+
+	bool VulkanRenderDevice::AllocHostVisibleVertexBuffer(uint32 allocLength, VkBuffer *outBuffer, VmaAllocation *outAllocation, void **outMapped)
+	{
+		if (allocator == VK_NULL_HANDLE || outBuffer == NULL || outAllocation == NULL || outMapped == NULL)
+			return false;
 
 		VkBufferCreateInfo bufferInfo = {};
 		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -2713,37 +2799,36 @@ namespace p3d {
 		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
 		allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
-		BufferRecord record;
-		record.size = length;
 		VmaAllocationInfo allocationInfo;
-		if (vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &record.buffer, &record.allocation, &allocationInfo) != VK_SUCCESS)
+		if (vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, outBuffer, outAllocation, &allocationInfo) != VK_SUCCESS)
+			return false;
+		*outMapped = allocationInfo.pMappedData;
+		return true;
+	}
+
+	void VulkanRenderDevice::DestroyBufferRecordResources(BufferRecord &rec)
+	{
+		if (rec.streamRingCount > 1)
 		{
-			buffers.erase(it);
+			for (uint32 i = 0; i < rec.streamRingCount; i++)
+			{
+				if (rec.streamBuffers[i] != VK_NULL_HANDLE)
+					vmaDestroyBuffer(allocator, rec.streamBuffers[i], rec.streamAllocations[i]);
+				rec.streamBuffers[i] = VK_NULL_HANDLE;
+				rec.streamAllocations[i] = VK_NULL_HANDLE;
+				rec.streamMapped[i] = NULL;
+			}
+			rec.buffer = VK_NULL_HANDLE;
+			rec.allocation = VK_NULL_HANDLE;
+			rec.mapped = NULL;
+			rec.streamRingCount = 0;
 			return;
 		}
-		record.mapped = allocationInfo.pMappedData;
-		if (data != NULL && record.mapped != NULL)
-			memcpy(record.mapped, data, length);
-
-		it->second = record;
-	}
-
-	void VulkanRenderDevice::UpdateBufferSubData(const DeviceHandle buffer, const uint32 bufferType, const void *data, const uint32 length)
-	{
-		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
-		if (it == buffers.end() || it->second.mapped == NULL)
-			return;
-		EnsureHostMappedBufferWritable();
-		memcpy(it->second.mapped, data, length);
-	}
-
-	void VulkanRenderDevice::DestroyBuffer(const DeviceHandle buffer)
-	{
-		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
-		if (it == buffers.end())
-			return;
-		vmaDestroyBuffer(allocator, it->second.buffer, it->second.allocation);
-		buffers.erase(it);
+		if (rec.buffer != VK_NULL_HANDLE)
+			vmaDestroyBuffer(allocator, rec.buffer, rec.allocation);
+		rec.buffer = VK_NULL_HANDLE;
+		rec.allocation = VK_NULL_HANDLE;
+		rec.mapped = NULL;
 	}
 
 	void *VulkanRenderDevice::MapBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 mappingType)
@@ -5109,10 +5194,9 @@ namespace p3d {
 	{
 		if (hostMappedBuffersSafeThisFrame)
 			return;
-		// Particle / STREAM AttributeBuffers rewrite the same host-mapped
-		// VkBuffer every Update while MAX_FRAMES_IN_FLIGHT > 1 - the other
-		// slot's submit may still be reading it. Wait those fences (and any
-		// pending offscreen batch) before memcpy/destroy.
+		// Used when destroying/reallocating a buffer that may still be
+		// referenced by in-flight draws. STREAM/DYNAMIC updates use a
+		// (FIF+1) ring instead and skip this path.
 		WaitOffscreenSubmitIfPending();
 		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
 		for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)

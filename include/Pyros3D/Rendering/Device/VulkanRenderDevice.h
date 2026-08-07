@@ -820,10 +820,8 @@ namespace p3d {
 		void FlushOffscreenCommandBuffer();
 		void WaitOffscreenSubmitIfPending();
 		void WaitAllFrameFences();
-		// Wait in-flight frame/offscreen work that may still read a
-		// host-mapped vertex/index buffer before CPU rewrite/destroy.
-		// Skips the current frame slot while frameInProgress (fence reset,
-		// not yet re-signaled - would deadlock).
+		// Wait in-flight frame/offscreen work before destroying or
+		// reallocating a host-mapped buffer that may still be bound.
 		void EnsureHostMappedBufferWritable();
 		// If a deferred offscreen batch is still recording but the draw
 		// target is the swapchain (currentBoundFBO==0 inside BeginFrame),
@@ -927,6 +925,18 @@ namespace p3d {
 			VmaAllocation allocation;
 			void* mapped; // persistently mapped pointer, valid for the buffer's whole lifetime
 			uint32 size;
+			// STREAM/DYNAMIC vertex+attribute buffers: ring of
+			// (MAX_FRAMES_IN_FLIGHT+1) host-mapped VkBuffers. Update()
+			// advances writeIndex and retargets buffer/mapped so Draw sees
+			// the fresh slot without a CPU fence wait (Update runs before
+			// BeginFrame's fence wait, so a 2-slot ping-pong still races;
+			// +1 covers that ordering). Static buffers leave ringCount=0.
+			static const uint32 kMaxStreamRing = MAX_FRAMES_IN_FLIGHT + 1;
+			uint32 streamRingCount;
+			uint32 streamWriteIndex;
+			VkBuffer streamBuffers[kMaxStreamRing];
+			VmaAllocation streamAllocations[kMaxStreamRing];
+			void* streamMapped[kMaxStreamRing];
 			// The following four fields are only meaningful for a uniform
 			// buffer created at one of IsPerObjectDynamicBinding()'s
 			// binding points - see that function's comment for the "why".
@@ -957,10 +967,21 @@ namespace p3d {
 			// earlier slots in this command buffer).
 			uint32 writesThisFrame;
 			BufferRecord() : buffer(VK_NULL_HANDLE), allocation(VK_NULL_HANDLE), mapped(NULL), size(0),
-				isDynamicUniform(false), alignedSlotSize(0), slotCount(1), currentSlot(0), writesThisFrame(0) {}
+				streamRingCount(0), streamWriteIndex(0),
+				isDynamicUniform(false), alignedSlotSize(0), slotCount(1), currentSlot(0), writesThisFrame(0)
+			{
+				for (uint32 i = 0; i < kMaxStreamRing; i++)
+				{
+					streamBuffers[i] = VK_NULL_HANDLE;
+					streamAllocations[i] = VK_NULL_HANDLE;
+					streamMapped[i] = NULL;
+				}
+			}
 		};
 		std::map<DeviceHandle, BufferRecord> buffers;
 		DeviceHandle nextBufferHandle;
+		bool AllocHostVisibleVertexBuffer(uint32 allocLength, VkBuffer *outBuffer, VmaAllocation *outAllocation, void **outMapped);
+		void DestroyBufferRecordResources(BufferRecord &rec);
 
 		// True for the handful of UBO binding points PyrosShader.glsl
 		// declares that genuinely vary *within* a single frame - either
