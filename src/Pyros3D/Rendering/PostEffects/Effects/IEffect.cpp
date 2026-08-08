@@ -63,7 +63,24 @@ namespace p3d {
 				"IO_LOCATION(0) varying_out vec2 vTexcoord;\n"
 				"void main() {\n"
 					"gl_Position = vec4(-1.0 + vec2((gl_VertexID & 1) << 2, (gl_VertexID & 2) << 1), 0.0, 1.0);\n"
+					// v is derived from clip-space Y, so it inherits whichever
+					// way NDC Y points - and it then indexes a texture, whose
+					// v=0 row is whichever end the *render target* stored
+					// first. Those two agree on GL (NDC Y up, texture v=0 at
+					// the bottom = the end NDC -1 wrote) and on Vulkan (NDC Y
+					// down, v=0 at the top = again the end NDC -1 wrote), so
+					// the naive mapping is correct on both. Metal is the odd
+					// one out: NDC Y up like GL, but v=0 at the *top* like
+					// Vulkan - so NDC -1 (bottom) has to read v=1, not v=0.
+					// Without this every post-effect sampled its input
+					// upside down, which is why deferred+tonemap scenes came
+					// out vertically mirrored while plain forward ones (no
+					// post-effect, drawing straight to the swapchain) did not.
+					"#if defined(METAL)\n"
+					"vTexcoord = vec2((gl_Position.x+1.0)*0.5, (1.0-gl_Position.y)*0.5);\n"
+					"#else\n"
 					"vTexcoord = (gl_Position.xy+1.0)*0.5;\n"
+					"#endif\n"
 				"}\n";
 
         // Reset

@@ -1331,7 +1331,14 @@ namespace p3d {
 	// differs (SPIRV-Cross MSL backend here, vkCreateShaderModule there).
 	std::string MetalRenderDevice::BuildShaderSource(const std::string &definitions, const std::string &shaderBody)
 	{
-		return std::string("#version 450\n") + definitions + std::string(" ") + shaderBody;
+		// METAL is additive to shaderc's predefined VULKAN (which every
+		// shader's IO_LOCATION/UBO_BINDING/SAMPLER_BINDING macros key off,
+		// and which Metal needs exactly as much as Vulkan does - explicit
+		// bindings either way). It exists for the handful of places where
+		// Metal's NDC/texture-origin combination genuinely differs from
+		// both other backends - see IEffect's full-screen-quad vertex
+		// shader, the only user today.
+		return std::string("#version 450\n#define METAL 1\n") + definitions + std::string(" ") + shaderBody;
 	}
 
 	DeviceHandle MetalRenderDevice::CreateShaderStage(const uint32 engineShaderType)
