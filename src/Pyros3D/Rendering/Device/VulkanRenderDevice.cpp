@@ -4936,14 +4936,35 @@ namespace p3d {
 		}
 
 		currentBoundFBO = 0;
-		// End the open render pass only - keep offscreenCommandBuffer
-		// recording so DeferredRenderer's G-buffer UnBind → CopyDepthTexture
-		// → lastPass Bind (and FrameBuffer's restore of an outer Capture
-		// FBO) stays one GPU submit. Flushing here used to force
-		// WaitOffscreenSubmitIfPending on the next Bind plus a full
-		// CPU fence inside CopyDepthTexture - the mid-frame stall that
-		// pinned deferred demos near ~60 FPS with present mode IMMEDIATE.
+		// End the open render pass. Keep offscreenCommandBuffer recording
+		// so DeferredRenderer's G-buffer UnBind → CopyDepthTexture →
+		// lastPass Bind (and FrameBuffer's restore of an outer Capture
+		// FBO) stays one GPU submit - but only while a real frame is in
+		// progress. Batching across *pre-frame* work too (every shadow-
+		// casting light's own shadow-map FBO Bind()/UnBind(), all run
+		// before the first BeginFrame()) let an earlier light's still-
+		// unsubmitted render pass in this same shared buffer outlive its
+		// own VkFramebuffer: a shared/reused shadow-map render target
+		// getting resized between two lights calls
+		// InvalidateFramebuffersForTexture(), which destroyed a
+		// VkFramebuffer a previous, still-unsubmitted vkCmdBeginRenderPass
+		// in this batch already referenced by handle - MoltenVK dereferenced
+		// that dangling handle the moment the whole batch was finally
+		// submitted at the first BeginFrame(), reproduced as an
+		// EXC_BAD_ACCESS inside MVKImageView::
+		// populateMTLRenderPassAttachmentDescriptor on every deferred-
+		// renderer demo. Flushing immediately whenever there's no
+		// enclosing frame restores one-submit-per-session for that
+		// pre-frame work (its old, safe behavior) while leaving the
+		// in-frame batching this was added for untouched. Flushing here
+		// used to force WaitOffscreenSubmitIfPending on the next Bind plus
+		// a full CPU fence inside CopyDepthTexture - the mid-frame stall
+		// that pinned deferred demos near ~60 FPS with present mode
+		// IMMEDIATE; that regression only applies inside a frame, so it's
+		// unaffected by this frameInProgress guard.
 		EndOffscreenRenderPassIfOpen();
+		if (!frameInProgress && offscreenCommandBufferRecording)
+			FlushOffscreenCommandBuffer();
 		if (offscreenCommandBufferRecording)
 			activeCommandBuffer = offscreenCommandBuffer;
 		else
