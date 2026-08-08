@@ -480,6 +480,14 @@ namespace p3d {
 			id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
 			currentRenderEncoder = (void*)CFBridgingRetain(encoder);
 
+			// PyrosShader.glsl's geometry is authored CCW-front (OpenGL's
+			// convention). TranslateProjectionMatrix() no longer negates Y
+			// (see its own comment - that was compensating for a Vulkan-only
+			// quirk that doesn't apply to Metal), so winding survives
+			// untouched from authoring to here - Metal's own default
+			// (MTLWindingClockwise) is the wrong one to leave in place.
+			[encoder setFrontFacingWinding:MTLWindingCounterClockwise];
+
 			// Full-target default viewport at frame start - same
 			// convention as VulkanRenderDevice::BeginFrame()'s comment.
 			MTLViewport viewport = { 0.0, 0.0, (double)drawableWidth, (double)drawableHeight, 0.0, 1.0 };
@@ -912,34 +920,36 @@ namespace p3d {
 	// Vulkan paths) doesn't need a Metal-specific branch.
 	void MetalRenderDevice::BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint) { (void)program; (void)blockName; (void)bindingPoint; }
 
-	// Identical NDC correction to VulkanRenderDevice's (Metal's clip space
-	// matches Vulkan's exactly: Z in [0,1], Y+ down) - see
-	// IRenderDevice::TranslateProjectionMatrix()'s comment for the full
-	// derivation. Copied rather than shared: VulkanRenderDevice's version
-	// is a private member function, and duplicating four constants is
-	// cheaper than introducing a shared base for exactly one method pair.
+	// Metal's clip space is NOT identical to Vulkan's: both remap Z to
+	// [0,1], but Metal's NDC Y axis points *up*, matching OpenGL - it's
+	// only Vulkan whose NDC Y points down (a well-documented Vulkan-
+	// specific quirk). The fixed-function NDC-to-viewport step already
+	// handles converting NDC-Y-up into top-left-origin/Y-down framebuffer
+	// coordinates on both GL and Metal identically - that's not something
+	// a GL-authored projection matrix needs to compensate for. The
+	// previous version of this function copied Vulkan's Y-negation
+	// unconditionally, which took an already-correct GL-convention Y and
+	// flipped it again - every ForwardRenderer scene rendered directly to
+	// the swapchain came out upside down (confirmed via direct pixel
+	// sampling: PhysicsStress's walled arena and falling spheres, plumb
+	// wrong relative to each other). Only Z needs remapping here.
 	Matrix MetalRenderDevice::TranslateProjectionMatrix(const Matrix &projectionMatrix, const bool skipYFlip)
 	{
+		(void)skipYFlip;
 		// Matrix's constructor takes arguments column-by-column, not
 		// row-by-row (see VulkanRenderDevice::TranslateProjectionMatrix()'s
 		// identical comment) - this is the column-major encoding of:
 		//   [1  0  0   0 ]
-		//   [0 -1  0   0 ]
+		//   [0  1  0   0 ]
 		//   [0  0  0.5 0.5]
 		//   [0  0  0   1 ]
 		static const Matrix clipCorrection(
-			1.f, 0.f, 0.f, 0.f,
-			0.f, -1.f, 0.f, 0.f,
-			0.f, 0.f, 0.5f, 0.f,
-			0.f, 0.f, 0.5f, 1.f
-		);
-		static const Matrix clipCorrectionNoYFlip(
 			1.f, 0.f, 0.f, 0.f,
 			0.f, 1.f, 0.f, 0.f,
 			0.f, 0.f, 0.5f, 0.f,
 			0.f, 0.f, 0.5f, 1.f
 		);
-		return (skipYFlip ? clipCorrectionNoYFlip : clipCorrection) * projectionMatrix;
+		return clipCorrection * projectionMatrix;
 	}
 	Matrix MetalRenderDevice::TranslateShadowBiasMatrix()
 	{
@@ -2179,6 +2189,7 @@ namespace p3d {
 					id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)currentCommandBuffer;
 					id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
 					currentRenderEncoder = (void*)CFBridgingRetain(encoder);
+					[encoder setFrontFacingWinding:MTLWindingCounterClockwise];
 					MTLViewport viewport = { 0.0, 0.0, (double)drawableWidth, (double)drawableHeight, 0.0, 1.0 };
 					[encoder setViewport:viewport];
 				}
@@ -2412,6 +2423,7 @@ namespace p3d {
 			id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)currentCommandBuffer;
 			id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
 			currentRenderEncoder = (void*)CFBridgingRetain(encoder);
+			[encoder setFrontFacingWinding:MTLWindingCounterClockwise];
 
 			if (targetWidth > 0 && targetHeight > 0)
 			{

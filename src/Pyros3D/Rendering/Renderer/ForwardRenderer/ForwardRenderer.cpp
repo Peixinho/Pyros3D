@@ -175,17 +175,6 @@ namespace p3d {
 			viewPortEndY = Height;
 		}
 
-		_SetViewPort(viewPortStartX, viewPortStartY, viewPortEndX, viewPortEndY);
-		ClearDepthBuffer();
-
-		// Scissor Test
-		StartScissorTest();
-
-		// Enable user clip distances when ClipPlane is active (Island water
-		// reflection/refraction). Was incorrectly EndClippingPlanes() here,
-		// which disabled them before any draw.
-		StartClippingPlanes();
-
 		// Draw Background
 		DrawBackground();
 
@@ -218,6 +207,28 @@ namespace p3d {
 		bool isMainSwapchainPass = device->GetCurrentRenderTarget() == 0;
 		if (isMainSwapchainPass)
 			device->BeginFrame();
+
+		// Viewport/scissor/depth-clear moved here, after BeginFrame() opens
+		// the swapchain's render encoder - on Metal these are no-ops
+		// without a current encoder (see MetalRenderDevice::SetViewport()/
+		// SetScissorRect()'s NULL guards), so calling them beforehand (as
+		// this used to, matching where DrawBackground() still runs) silently
+		// dropped every one of them for the swapchain-direct path. Every
+		// object then rendered with whatever encoder-default state Metal's
+		// *next* BeginFrame() happened to leave (a plain, un-Y-flipped
+		// default viewport) instead of this renderer's own. DeferredRenderer
+		// never hit this: its FBO->Bind() (which opens its own encoder)
+		// always runs before its own _SetViewPort() call.
+		_SetViewPort(viewPortStartX, viewPortStartY, viewPortEndX, viewPortEndY);
+		ClearDepthBuffer();
+
+		// Scissor Test
+		StartScissorTest();
+
+		// Enable user clip distances when ClipPlane is active (Island water
+		// reflection/refraction). Was incorrectly EndClippingPlanes() here,
+		// which disabled them before any draw.
+		StartClippingPlanes();
 
 		// Clear Screen - a no-op on Vulkan (BeginFrame() above already
 		// cleared via the render pass's LOAD_OP_CLEAR).
