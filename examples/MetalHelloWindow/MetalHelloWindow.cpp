@@ -17,12 +17,11 @@ namespace {
 
 	// Explicit layout()s throughout - CompileShaderStage() fails loudly on
 	// anything needing AutoFixForVulkan() (loose uniforms), not implemented
-	// on this backend yet (see its comment). Binding 8/9, not 0/1: MSL
-	// shares one buffer-index namespace between per-vertex attribute
-	// buffers (bound at indices 0..vertexLayout.size()-1, see
-	// MetalRenderDevice::CreatePipeline()'s vertex descriptor) and UBOs -
-	// reserving 0-7 for vertex buffers avoids colliding with this cube's
-	// own position buffer at index 0.
+	// on this backend yet (see its comment). Bindings 8/9 are arbitrary
+	// here (this test isn't PyrosShader.glsl) - just needs to stay below
+	// MetalRenderDevice::kFirstVertexBufferIndex (24), which is where
+	// vertex attribute buffers live in MSL's shared buffer-index
+	// namespace (see that constant's header comment).
 	const char* kVertexSource =
 		"#version 450\n"
 		"layout(location = 0) in vec3 aPosition;\n"

@@ -494,6 +494,21 @@ namespace p3d {
 		// fresh per draw for whichever bindings the bound program's
 		// ProgramRecord::bindingStageMask says it actually uses.
 		std::map<uint32, DeviceHandle> uniformBufferByBindingPoint;
+		// MSL shares one buffer-index namespace (0..30, Metal's guaranteed
+		// minimum per stage) between per-vertex attribute buffers and
+		// UBOs - unlike Vulkan, where they're different descriptor sets/
+		// binding domains that can't collide by construction. PyrosShader.glsl's
+		// own UBO_BINDING numbering (BIND_GlobalMatrices=0 through
+		// BIND_ObjectLightCounts=23 - see that file's #define block) already
+		// spans most of the low range, so vertex attribute buffers are
+		// placed *above* it instead of at 0..N - the reverse of the more
+		// obvious-looking choice, but the shader's own numbering isn't
+		// engine-negotiable (Vulkan already depends on it) while this
+		// offset is purely an internal MetalRenderDevice convention.
+		// 24..30 (7 slots) is comfortably more than any mesh this engine
+		// builds needs (almost always 1, occasionally 2 - e.g. an
+		// instanced per-object transform buffer).
+		static const uint32 kFirstVertexBufferIndex = 24;
 
 		// One MTLTexture per handle, plus the small dirty-tracked sampler
 		// descriptor mentioned on the Set*Filter/Wrap methods above -

@@ -472,24 +472,26 @@ namespace p3d {
 
 	// =====================================================================
 	// State that's really pipeline state on Metal (see the header comment
-	// on this group) - CreatePipeline() below is what actually consumes
-	// these; nothing here bakes anything into a live encoder. Not wired up
-	// yet: no caller stages a PipelineDesc through Set*() calls before
-	// CreatePipeline() the way GL/Vulkan's IRenderer does today - every
-	// current CreatePipeline() call site (this milestone's own test code)
-	// fills PipelineDesc directly instead. Logged as stubs so a future
-	// IRenderer integration attempt notices immediately if it relies on
-	// these actually staging anything.
+	// on this group) - CreatePipeline() is what actually consumes it, via
+	// the PipelineDesc IRenderer builds directly from the active
+	// material's own settings, not by tracking these calls. Real, empty
+	// no-ops here, not stubs - confirmed against a live CppApiDemo run
+	// through IRenderer: it calls SetDepthTest()/SetDepthMask()/
+	// PrepareDepthClear() (and the rest of this group) unconditionally,
+	// every object, same as it always has for GL/Vulkan - VulkanRenderDevice's
+	// identical empty bodies are the proof this is the correct, intentional
+	// contract, not a gap: GL is the only backend where these calls are
+	// live immediate-mode state rather than inert.
 	// =====================================================================
 
-	void MetalRenderDevice::SetDepthTest(const bool enabled, const uint32 mode) { (void)enabled; (void)mode; LogStub("SetDepthTest"); }
-	void MetalRenderDevice::SetDepthMask(const bool enabled) { (void)enabled; LogStub("SetDepthMask"); }
-	void MetalRenderDevice::PrepareDepthClear() { LogStub("PrepareDepthClear"); }
+	void MetalRenderDevice::SetDepthTest(const bool enabled, const uint32 mode) { (void)enabled; (void)mode; }
+	void MetalRenderDevice::SetDepthMask(const bool enabled) { (void)enabled; }
+	void MetalRenderDevice::PrepareDepthClear() {}
 
-	void MetalRenderDevice::SetStencilTestEnabled(const bool enabled) { (void)enabled; LogStub("SetStencilTestEnabled"); }
-	void MetalRenderDevice::SetClearStencilValue() { LogStub("SetClearStencilValue"); }
-	void MetalRenderDevice::SetStencilFunction(const uint32 func, const uint32 ref, const uint32 mask) { (void)func; (void)ref; (void)mask; LogStub("SetStencilFunction"); }
-	void MetalRenderDevice::SetStencilOperation(const uint32 sfail, const uint32 dpfail, const uint32 dppass) { (void)sfail; (void)dpfail; (void)dppass; LogStub("SetStencilOperation"); }
+	void MetalRenderDevice::SetStencilTestEnabled(const bool enabled) { (void)enabled; }
+	void MetalRenderDevice::SetClearStencilValue() {}
+	void MetalRenderDevice::SetStencilFunction(const uint32 func, const uint32 ref, const uint32 mask) { (void)func; (void)ref; (void)mask; }
+	void MetalRenderDevice::SetStencilOperation(const uint32 sfail, const uint32 dpfail, const uint32 dppass) { (void)sfail; (void)dpfail; (void)dppass; }
 
 	void MetalRenderDevice::SetScissorRect(const f32 x, const f32 y, const f32 width, const f32 height)
 	{
@@ -506,7 +508,7 @@ namespace p3d {
 			[encoder setScissorRect:rect];
 		}
 	}
-	void MetalRenderDevice::SetScissorTestEnabled(const bool enabled) { (void)enabled; LogStub("SetScissorTestEnabled"); }
+	void MetalRenderDevice::SetScissorTestEnabled(const bool enabled) { (void)enabled; }
 
 	void MetalRenderDevice::SetWireFrame(const bool enabled)
 	{
@@ -519,9 +521,9 @@ namespace p3d {
 		}
 	}
 
-	void MetalRenderDevice::SetColorMask(const bool r, const bool g, const bool b, const bool a) { (void)r; (void)g; (void)b; (void)a; LogStub("SetColorMask"); }
+	void MetalRenderDevice::SetColorMask(const bool r, const bool g, const bool b, const bool a) { (void)r; (void)g; (void)b; (void)a; }
 
-	void MetalRenderDevice::SetPolygonOffsetEnabled(const bool enabled) { (void)enabled; LogStub("SetPolygonOffsetEnabled"); }
+	void MetalRenderDevice::SetPolygonOffsetEnabled(const bool enabled) { (void)enabled; }
 	void MetalRenderDevice::SetPolygonOffset(const f32 factor, const f32 units)
 	{
 		if (!frameInProgress || currentRenderEncoder == NULL)
@@ -533,9 +535,9 @@ namespace p3d {
 		}
 	}
 
-	void MetalRenderDevice::SetBlendingEnabled(const bool enabled) { (void)enabled; LogStub("SetBlendingEnabled"); }
-	void MetalRenderDevice::SetBlendFunction(const uint32 sfactor, const uint32 dfactor) { (void)sfactor; (void)dfactor; LogStub("SetBlendFunction"); }
-	void MetalRenderDevice::SetBlendEquation(const uint32 mode) { (void)mode; LogStub("SetBlendEquation"); }
+	void MetalRenderDevice::SetBlendingEnabled(const bool enabled) { (void)enabled; }
+	void MetalRenderDevice::SetBlendFunction(const uint32 sfactor, const uint32 dfactor) { (void)sfactor; (void)dfactor; }
+	void MetalRenderDevice::SetBlendEquation(const uint32 mode) { (void)mode; }
 
 	void MetalRenderDevice::SetCullFaceMode(const uint32 cullFace)
 	{
@@ -636,10 +638,15 @@ namespace p3d {
 						uint32 location = locIt->second;
 						vertexDesc.attributes[location].format = TranslateVertexFormatMSL(attr.type);
 						vertexDesc.attributes[location].offset = attr.offset;
-						vertexDesc.attributes[location].bufferIndex = (NSUInteger)bufferIdx;
+						// See the header comment on kFirstVertexBufferIndex -
+						// vertex attribute buffers live above the UBO
+						// binding range, not at 0..N, to avoid colliding
+						// with PyrosShader.glsl's own UBO_BINDING numbers
+						// in MSL's single shared buffer-index namespace.
+						vertexDesc.attributes[location].bufferIndex = (NSUInteger)(kFirstVertexBufferIndex + bufferIdx);
 					}
-					vertexDesc.layouts[bufferIdx].stride = layout.stride;
-					vertexDesc.layouts[bufferIdx].stepFunction = MTLVertexStepFunctionPerVertex;
+					vertexDesc.layouts[kFirstVertexBufferIndex + bufferIdx].stride = layout.stride;
+					vertexDesc.layouts[kFirstVertexBufferIndex + bufferIdx].stepFunction = MTLVertexStepFunctionPerVertex;
 					// A buffer's attributes share one step rate on Metal,
 					// unlike GL/Vulkan's per-attribute divisor - true for
 					// every AttributeBuffer this engine builds today (one
@@ -647,8 +654,8 @@ namespace p3d {
 					// IRenderingInstancedComponent::AddBuffer()).
 					if (!layout.attributes.empty() && layout.attributes[0].divisor > 0)
 					{
-						vertexDesc.layouts[bufferIdx].stepFunction = MTLVertexStepFunctionPerInstance;
-						vertexDesc.layouts[bufferIdx].stepRate = layout.attributes[0].divisor;
+						vertexDesc.layouts[kFirstVertexBufferIndex + bufferIdx].stepFunction = MTLVertexStepFunctionPerInstance;
+						vertexDesc.layouts[kFirstVertexBufferIndex + bufferIdx].stepRate = layout.attributes[0].divisor;
 					}
 				}
 				pipelineDesc.vertexDescriptor = vertexDesc;
@@ -710,8 +717,8 @@ namespace p3d {
 		currentPipeline = pipeline;
 	}
 
-	void MetalRenderDevice::EnableClipDistance(const uint32 index) { (void)index; LogStub("EnableClipDistance"); }
-	void MetalRenderDevice::DisableClipDistance(const uint32 index) { (void)index; LogStub("DisableClipDistance"); }
+	void MetalRenderDevice::EnableClipDistance(const uint32 index) { (void)index; }
+	void MetalRenderDevice::DisableClipDistance(const uint32 index) { (void)index; }
 
 	void MetalRenderDevice::SetViewport(const uint32 x, const uint32 y, const uint32 width, const uint32 height)
 	{
@@ -891,7 +898,7 @@ namespace p3d {
 				if (vboIt == buffers.end() || vboIt->second.buffer == NULL)
 					return;
 				id<MTLBuffer> vbo = (__bridge id<MTLBuffer>)vboIt->second.buffer;
-				[encoder setVertexBuffer:vbo offset:0 atIndex:(NSUInteger)i];
+				[encoder setVertexBuffer:vbo offset:0 atIndex:(NSUInteger)(kFirstVertexBufferIndex + i)];
 			}
 
 			BindProgramUniformBuffers(pipeIt->second.programHandle);
@@ -931,7 +938,7 @@ namespace p3d {
 				if (vboIt == buffers.end() || vboIt->second.buffer == NULL)
 					return;
 				id<MTLBuffer> vbo = (__bridge id<MTLBuffer>)vboIt->second.buffer;
-				[encoder setVertexBuffer:vbo offset:0 atIndex:(NSUInteger)i];
+				[encoder setVertexBuffer:vbo offset:0 atIndex:(NSUInteger)(kFirstVertexBufferIndex + i)];
 			}
 
 			BindProgramUniformBuffers(pipeIt->second.programHandle);

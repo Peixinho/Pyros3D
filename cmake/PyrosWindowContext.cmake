@@ -61,12 +61,20 @@ elseif (PYROS_CONTEXT STREQUAL "SDL2Metal")
 		set(PYROS_CONTEXT_LIB ${SDL2_LIBRARIES} ${METAL_BACKEND_LIBS})
 	endif()
 	set(PYROS_CONTEXT_DEFINITION _SDL2METAL)
-	# No ImGui backend wired in yet - matches SDL2VulkanContext's own
-	# bring-up order (window + device + clear/present came first, ImGui
-	# came later - see VulkanImGuiBackend.cpp's history). imgui_impl_metal.mm
+	# imgui_impl_sdl2.cpp only, same as SDL2Vulkan - SDL2MetalContext::
+	# GetEvents() calls ImGui_ImplSDL2_ProcessEvent() unconditionally
+	# (build-time symbol, even though the runtime call is guarded), so
+	# this must always be linked in regardless of whether ImGui is ever
+	# actually initialized. No real ImGui-on-Metal *rendering* backend
+	# wired in yet (imgui_impl_opengl3.cpp is deliberately excluded, same
+	# as Vulkan) - matches SDL2VulkanContext's own bring-up order (window +
+	# device + clear/present came first, ImGui came later - see
+	# VulkanImGuiBackend.cpp's history); BaseExample::InitImGui() leaves
+	# imguiInitialized false on _SDL2METAL, which already makes every
+	# other ImGui* method a no-op - see its comment. imgui_impl_metal.mm
 	# already exists vendored under src/Pyros3D/Ext/imgui/backends if/when
 	# that's the next step.
-	set(PYROS_IMGUI_BACKEND_SOURCE "")
+	set(PYROS_IMGUI_BACKEND_SOURCE ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp)
 
 elseif (PYROS_CONTEXT STREQUAL "SDL")
 	find_package(SDL REQUIRED)
