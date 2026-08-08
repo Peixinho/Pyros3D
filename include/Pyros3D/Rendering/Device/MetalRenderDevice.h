@@ -47,6 +47,7 @@
 #ifdef METAL_BACKEND
 
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
+#include <Pyros3D/Assets/Texture/Texture.h>
 #include <vector>
 #include <map>
 #include <string>
@@ -466,6 +467,17 @@ namespace p3d {
 			std::map<std::string, uint32> attributeLocations;
 			// bit0 = used by vertex stage, bit1 = used by fragment stage.
 			std::map<uint32, uint32> bindingStageMask;
+			// Sampler name -> reflected binding index, and which stage(s)
+			// use it - GetUniformLocation()/SendUniformInt()'s mechanism,
+			// see their comments. Separate from bindingStageMask/UBOs above:
+			// samplers and buffers are different MSL argument tables
+			// (setFragmentTexture: vs setFragmentBuffer:), so a texture and
+			// a UBO can validly share the same *numeric* binding without
+			// colliding (matches PyrosShader.glsl's own numbering, which
+			// interleaves SAMPLER_BINDING and UBO_BINDING values freely -
+			// see that file's #define block).
+			std::map<std::string, uint32> samplerBindings;
+			std::map<uint32, uint32> samplerStageMask;
 			ProgramRecord() : vertexShader(0), fragmentShader(0) {}
 		};
 		std::map<DeviceHandle, ProgramRecord> programs;
@@ -549,13 +561,56 @@ namespace p3d {
 			void* texture; // id<MTLTexture>
 			uint32 width, height;
 			uint32 samples;
+			bool isCubemap;
+			bool hasMipmap;    // requested (Texture::Mipmapping) - see mipsGenerated
+			bool mipsGenerated; // GenerateMipmap() actually ran since the last (re)upload
+			// Wrap/filter/compare state, applied lazily into samplerState -
+			// see RebuildSamplerIfDirty()'s comment (mirrors
+			// VulkanRenderDevice::TextureRecord's identical split: GL applies
+			// these immediately per glTexParameter* call, Metal/Vulkan both
+			// bake them into one immutable sampler object instead).
+			uint32 wrapS, wrapT;
+			uint32 minFilter, magFilter;
+			bool compareModeEnabled;
 			bool samplerDirty;
 			void* samplerState; // id<MTLSamplerState>, rebuilt when samplerDirty
-			TextureRecord() : texture(NULL), width(0), height(0), samples(1), samplerDirty(true), samplerState(NULL) {}
+			TextureRecord()
+				: texture(NULL), width(0), height(0), samples(1), isCubemap(false),
+				  hasMipmap(false), mipsGenerated(false),
+				  wrapS(TextureRepeat::Repeat), wrapT(TextureRepeat::Repeat),
+				  minFilter(TextureFilter::Linear), magFilter(TextureFilter::Linear),
+				  compareModeEnabled(false), samplerDirty(true), samplerState(NULL) {}
 		};
 		std::map<DeviceHandle, TextureRecord> textures;
 		DeviceHandle nextTextureHandle;
-		DeviceHandle currentActiveTextureUnit;
+		// Dual-purpose BindTextureToTarget() state machine, copied from
+		// VulkanRenderDevice (see its identical comment on BindTextureToTarget()) -
+		// most calls just select which texture subsequent Upload/SetWrap*/
+		// SetFilter* calls configure (currentlyConfiguringTexture), but a
+		// call immediately following ActivateTextureUnit() instead means
+		// "this texture is what unit N should read from at render time"
+		// (textureUnitBindings), consumed later by SendUniformInt() once
+		// the material tells this backend which reflected sampler binding
+		// that unit belongs to (see GetUniformLocation()'s comment for the
+		// rest of this mechanism - unlike GL, a Metal/Vulkan sampler has no
+		// real "location" to query, so GetUniformLocation() repurposes it
+		// to mean "this name's reflected binding index" instead).
+		uint32 currentTextureUnit;
+		bool unitJustActivated;
+		std::map<uint32, DeviceHandle> textureUnitBindings;
+		DeviceHandle currentlyConfiguringTexture;
+		// TranslateTextureTarget()'s cubemap-face sentinel - same value and
+		// same reasoning as VulkanRenderDevice::CUBEMAP_FACE_TARGET_BASE
+		// (an engine-wide "distinguish targets, not a real API token"
+		// convention both backends independently need).
+		static const uint32 kCubemapFaceTargetBase = 100;
+		// Lazily (re)builds a texture's MTLSamplerState from its currently-
+		// tracked wrap/filter/compare state - mirrors
+		// VulkanRenderDevice::RebuildSamplerIfDirty()'s identical reasoning
+		// (GL applies these immediately; Metal bakes them into one
+		// immutable object instead, so this only runs when something
+		// actually changed since the last build).
+		bool RebuildSamplerIfDirty(TextureRecord &tex);
 
 		// FBORecord's Metal equivalent - deliberately tiny compared to
 		// VulkanRenderDevice's version. No VkRenderPass/VkFramebuffer

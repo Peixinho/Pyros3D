@@ -31,6 +31,7 @@
 #include <dispatch/dispatch.h>
 #include <cstdio>
 #include <cstring>
+#include <cfloat>
 #include <set>
 #include <string>
 
@@ -137,6 +138,72 @@ namespace {
 		}
 	}
 
+	// Metal has no 3-component texture formats any more than Vulkan does -
+	// TranslateTextureFormat() reuses this exact sentinel-in-the-`format`-
+	// out-param convention from VulkanRenderDevice::VULKAN_UPLOAD_PAD_RGB_TO_RGBA
+	// (same reasoning, same trick, different backend) so UploadTexture2D()
+	// knows to expand a 3-byte-per-texel source buffer into 4 before
+	// calling replaceRegion:.
+	const p3d::uint32 kMetalUploadPadRgbToRgba = 1;
+
+	// Real per-texel byte size of whatever TranslateTextureFormat() picked -
+	// needed for both the RGB->RGBA padding above and computing
+	// replaceRegion:'s bytesPerRow. Mirrors VulkanRenderDevice::BytesPerTexelVk()'s
+	// identical table (found there via a real crash - see that function's
+	// comment - so this is the already-debugged answer, not a guess).
+	p3d::uint32 BytesPerTexelMSL(MTLPixelFormat format)
+	{
+		switch (format)
+		{
+			case MTLPixelFormatR8Unorm: return 1;
+			case MTLPixelFormatRG8Unorm: return 2;
+			case MTLPixelFormatR16Float: return 2;
+			case MTLPixelFormatRGBA8Unorm:
+			case MTLPixelFormatBGRA8Unorm:
+			case MTLPixelFormatR32Float:
+				return 4;
+			case MTLPixelFormatRGBA16Float: return 8;
+			case MTLPixelFormatRGBA32Float: return 16;
+			default: return 4;
+		}
+	}
+
+	p3d::uint32 ComputeMipLevelsMSL(p3d::uint32 width, p3d::uint32 height)
+	{
+		p3d::uint32 dim = width > height ? width : height;
+		p3d::uint32 levels = 1;
+		while (dim > 1) { dim >>= 1; levels++; }
+		return levels;
+	}
+
+	void TranslateTextureFilterMSL(p3d::uint32 engineFilter, MTLSamplerMinMagFilter &outFilter, MTLSamplerMipFilter &outMipFilter)
+	{
+		using namespace p3d;
+		switch (engineFilter)
+		{
+			case TextureFilter::Nearest:                outFilter = MTLSamplerMinMagFilterNearest; outMipFilter = MTLSamplerMipFilterNotMipmapped; break;
+			case TextureFilter::Linear:                 outFilter = MTLSamplerMinMagFilterLinear;  outMipFilter = MTLSamplerMipFilterNotMipmapped; break;
+			case TextureFilter::LinearMipmapLinear:     outFilter = MTLSamplerMinMagFilterLinear;  outMipFilter = MTLSamplerMipFilterLinear; break;
+			case TextureFilter::LinearMipmapNearest:    outFilter = MTLSamplerMinMagFilterLinear;  outMipFilter = MTLSamplerMipFilterNearest; break;
+			case TextureFilter::NearestMipmapNearest:   outFilter = MTLSamplerMinMagFilterNearest; outMipFilter = MTLSamplerMipFilterNearest; break;
+			case TextureFilter::NearestMipmapLinear:    outFilter = MTLSamplerMinMagFilterNearest; outMipFilter = MTLSamplerMipFilterLinear; break;
+			default:                                    outFilter = MTLSamplerMinMagFilterLinear;  outMipFilter = MTLSamplerMipFilterNotMipmapped; break;
+		}
+	}
+
+	MTLSamplerAddressMode TranslateTextureRepeatMSL(p3d::uint32 engineRepeat)
+	{
+		using namespace p3d;
+		switch (engineRepeat)
+		{
+			case TextureRepeat::Clamp:         return MTLSamplerAddressModeClampToEdge;
+			case TextureRepeat::ClampToBorder: return MTLSamplerAddressModeClampToBorderColor;
+			case TextureRepeat::ClampToEdge:   return MTLSamplerAddressModeClampToEdge;
+			case TextureRepeat::Repeat:        return MTLSamplerAddressModeRepeat;
+			default:                           return MTLSamplerAddressModeRepeat;
+		}
+	}
+
 }
 
 namespace p3d {
@@ -148,7 +215,8 @@ namespace p3d {
 		  currentDrawable(NULL), lastSubmittedCommandBuffer(NULL),
 		  nextVaoHandle(1), currentVao(0), currentPipeline(0),
 		  nextShaderStageHandle(1), nextProgramHandle(1),
-		  nextBufferHandle(1), nextTextureHandle(1), currentActiveTextureUnit(0),
+		  nextBufferHandle(1), nextTextureHandle(1),
+		  currentTextureUnit(0), unitJustActivated(false), currentlyConfiguringTexture(0),
 		  nextFBOHandle(1), currentBoundFBO(0), currentReadFBO(0),
 		  nextPipelineHandle(1), pipelineArchive(NULL),
 		  pendingClearColor(0.f, 0.f, 0.f, 1.f), frameInProgress(false)
@@ -1356,12 +1424,35 @@ namespace p3d {
 			it->second.attributeLocations[vsInputs[i].name] = vsInputs[i].location;
 
 		it->second.bindingStageMask.clear();
+		it->second.samplerBindings.clear();
+		it->second.samplerStageMask.clear();
 		std::vector<SpirvResourceBinding> vsResources = SpirvShaderCompiler::Reflect(vs->second.spirv);
 		std::vector<SpirvResourceBinding> fsResources = SpirvShaderCompiler::Reflect(fs->second.spirv);
-		for (size_t i = 0; i < vsResources.size(); i++)
-			it->second.bindingStageMask[vsResources[i].binding] |= 1u;
-		for (size_t i = 0; i < fsResources.size(); i++)
-			it->second.bindingStageMask[fsResources[i].binding] |= 2u;
+		for (int stagePass = 0; stagePass < 2; stagePass++)
+		{
+			std::vector<SpirvResourceBinding> &resources = (stagePass == 0) ? vsResources : fsResources;
+			uint32 stageBit = (stagePass == 0) ? 1u : 2u;
+			for (size_t i = 0; i < resources.size(); i++)
+			{
+				const SpirvResourceBinding &res = resources[i];
+				if (res.type == SpirvResourceType::SampledImage)
+				{
+					// Separate MSL argument table from UBOs (setFragmentTexture:
+					// vs setFragmentBuffer:) - see the header comment on
+					// ProgramRecord::samplerBindings for why a texture and a
+					// UBO safely sharing one numeric binding (PyrosShader.glsl
+					// does this - e.g. BIND_uMetallicRoughnessmap and
+					// BIND_VertexFrameUniforms are both 16) isn't a collision
+					// here the way it would be in a single shared namespace.
+					it->second.samplerBindings[res.name] = res.binding;
+					it->second.samplerStageMask[res.binding] |= stageBit;
+				}
+				else
+				{
+					it->second.bindingStageMask[res.binding] |= stageBit;
+				}
+			}
+		}
 #endif
 		return true;
 	}
@@ -1386,7 +1477,21 @@ namespace p3d {
 	}
 	void MetalRenderDevice::DeleteProgram(const DeviceHandle program) { programs.erase(program); }
 
-	int32 MetalRenderDevice::GetUniformLocation(const uint32 program, const std::string &name) { (void)program; (void)name; return -1; }
+	// Unlike GL, a Metal sampler has no real "uniform location" to query -
+	// repurposed (same as VulkanRenderDevice's identical override) to mean
+	// "this name's reflected sampler binding index", consumed by
+	// SendUniformInt() below. Every non-sampler loose uniform this engine
+	// ever sends is UBO-backed by this point (see CompileShaderStage()'s
+	// AutoFixForVulkan rejection), so a sampler name is the only thing
+	// this can meaningfully return.
+	int32 MetalRenderDevice::GetUniformLocation(const uint32 program, const std::string &name)
+	{
+		std::map<DeviceHandle, ProgramRecord>::iterator it = programs.find(program);
+		if (it == programs.end())
+			return -1;
+		std::map<std::string, uint32>::iterator samplerIt = it->second.samplerBindings.find(name);
+		return samplerIt == it->second.samplerBindings.end() ? -1 : (int32)samplerIt->second;
+	}
 	int32 MetalRenderDevice::GetAttributeLocation(const uint32 program, const std::string &name)
 	{
 		std::map<DeviceHandle, ProgramRecord>::iterator it = programs.find(program);
@@ -1397,12 +1502,58 @@ namespace p3d {
 	}
 	bool MetalRenderDevice::GetAutoUniformBlockLayout(const uint32 program, const uint32 engineShaderType, uint32 &outBinding, std::string &outBlockName, uint32 &outSize, std::map<std::string, uint32> &outOffsets) { (void)program; (void)engineShaderType; (void)outBinding; (void)outBlockName; (void)outSize; (void)outOffsets; return false; }
 
-	// Unreachable - loose uniforms have no Metal equivalent any more than
-	// they have a Vulkan one (everything goes through a buffer, reflected
-	// at LinkProgram() time - see its comment). Kept as stubs, not
-	// removed, only because they're part of IRenderDevice's shared
-	// interface.
-	void MetalRenderDevice::SendUniformInt(const int32 handle, const int32 *data, const uint32 count) { (void)handle; (void)data; (void)count; }
+	// The other half of GetUniformLocation()'s mechanism (see its comment):
+	// `handle` is a sampler's reflected binding index, `data[0]` is the
+	// texture *unit* Texture::Bind() just activated it at (see
+	// textureUnitBindings, populated by ActivateTextureUnit()/
+	// BindTextureToTarget()'s render-time pairing). Resolves unit -> real
+	// texture and binds it directly onto the currently-open render
+	// encoder - simpler than VulkanRenderDevice's equivalent (which writes
+	// into a descriptor set cached across draws, since this call happens
+	// before the draw that needs it): Metal's setFragmentTexture:/
+	// setFragmentSamplerState: are themselves just per-encoder state that
+	// persists until overwritten, exactly like setVertexBuffer:, so
+	// binding immediately here needs no deferral to draw time at all.
+	void MetalRenderDevice::SendUniformInt(const int32 handle, const int32 *data, const uint32 count)
+	{
+		if (handle < 0 || count == 0 || currentRenderEncoder == NULL || currentPipeline == 0)
+			return;
+		std::map<DeviceHandle, PipelineRecord>::iterator pipeIt = pipelines.find(currentPipeline);
+		if (pipeIt == pipelines.end())
+			return;
+		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(pipeIt->second.programHandle);
+		if (progIt == programs.end())
+			return;
+		std::map<uint32, uint32>::iterator maskIt = progIt->second.samplerStageMask.find((uint32)handle);
+		if (maskIt == progIt->second.samplerStageMask.end())
+			return; // program doesn't declare a sampler at this binding - matches GL's no-op contract
+
+		std::map<uint32, DeviceHandle>::iterator unitIt = textureUnitBindings.find((uint32)data[0]);
+		if (unitIt == textureUnitBindings.end())
+			return; // no Texture::Bind() at this unit (yet, or ever)
+		std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(unitIt->second);
+		if (texIt == textures.end() || texIt->second.texture == NULL)
+			return;
+
+		@autoreleasepool
+		{
+			id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)currentRenderEncoder;
+			id<MTLTexture> tex = (__bridge id<MTLTexture>)texIt->second.texture;
+			RebuildSamplerIfDirty(texIt->second);
+			id<MTLSamplerState> sampler = (__bridge id<MTLSamplerState>)texIt->second.samplerState;
+			const uint32 stageMask = maskIt->second;
+			if (stageMask & 1u)
+			{
+				[encoder setVertexTexture:tex atIndex:(NSUInteger)handle];
+				if (sampler != nil) [encoder setVertexSamplerState:sampler atIndex:(NSUInteger)handle];
+			}
+			if (stageMask & 2u)
+			{
+				[encoder setFragmentTexture:tex atIndex:(NSUInteger)handle];
+				if (sampler != nil) [encoder setFragmentSamplerState:sampler atIndex:(NSUInteger)handle];
+			}
+		}
+	}
 	void MetalRenderDevice::SendUniformFloat(const int32 handle, const f32 *data, const uint32 count) { (void)handle; (void)data; (void)count; }
 	void MetalRenderDevice::SendUniformVec2(const int32 handle, const f32 *data, const uint32 count) { (void)handle; (void)data; (void)count; }
 	void MetalRenderDevice::SendUniformVec3(const int32 handle, const f32 *data, const uint32 count) { (void)handle; (void)data; (void)count; }
@@ -1410,33 +1561,358 @@ namespace p3d {
 	void MetalRenderDevice::SendUniformMatrix(const int32 handle, const f32 *data, const uint32 count) { (void)handle; (void)data; (void)count; }
 
 	// =====================================================================
-	// Everything below is still a stub - framebuffers/textures/samplers,
-	// none of which this milestone's swapchain-only draw path needs (see
-	// the file header comment).
+	// Textures/samplers - plain 2D and cubemap faces (point/spot-light-style
+	// shadow maps aside - those need real framebuffer support too, still a
+	// stub below). Multisample targets are not implemented, matching
+	// VulkanRenderDevice's identical scope note: no example needs one yet.
 	// =====================================================================
 
-	void MetalRenderDevice::TranslateTextureFormat(const uint32 engineDataType, uint32 &internalFormat, uint32 &format, uint32 &type) { (void)engineDataType; internalFormat = format = type = 0; LogStub("TranslateTextureFormat"); }
-	void MetalRenderDevice::TranslateTextureTarget(const uint32 engineTextureType, uint32 &mode, uint32 &subMode) { (void)engineTextureType; mode = subMode = 0; LogStub("TranslateTextureTarget"); }
+	// format/type stay unused for everything except the RGB->RGBA padding
+	// sentinel (see kMetalUploadPadRgbToRgba's comment) - same as
+	// VulkanRenderDevice::TranslateTextureFormat(), and for the same
+	// reason: this backend's upload path doesn't need GL's separate
+	// format/type tokens once internalFormat alone says everything.
+	void MetalRenderDevice::TranslateTextureFormat(const uint32 engineDataType, uint32 &internalFormat, uint32 &format, uint32 &type)
+	{
+		format = 0;
+		type = 0;
+		switch (engineDataType)
+		{
+			case TextureDataType::RGBA: internalFormat = (uint32)MTLPixelFormatRGBA8Unorm; break;
+			case TextureDataType::BGRA: internalFormat = (uint32)MTLPixelFormatBGRA8Unorm; break;
+			case TextureDataType::R8: internalFormat = (uint32)MTLPixelFormatR8Unorm; break;
+			case TextureDataType::RG8: internalFormat = (uint32)MTLPixelFormatRG8Unorm; break;
+			case TextureDataType::RGBA16F: internalFormat = (uint32)MTLPixelFormatRGBA16Float; break;
+			case TextureDataType::RGBA32F: internalFormat = (uint32)MTLPixelFormatRGBA32Float; break;
+			case TextureDataType::RGBA16I: internalFormat = (uint32)MTLPixelFormatRGBA16Sint; break;
+			case TextureDataType::RGBA32I: internalFormat = (uint32)MTLPixelFormatRGBA32Sint; break;
+			case TextureDataType::R16F: internalFormat = (uint32)MTLPixelFormatR16Float; break;
+			case TextureDataType::R32F: internalFormat = (uint32)MTLPixelFormatR32Float; break;
+			case TextureDataType::R16I: internalFormat = (uint32)MTLPixelFormatR16Sint; break;
+			case TextureDataType::R32I: internalFormat = (uint32)MTLPixelFormatR32Sint; break;
+			case TextureDataType::RG16F: internalFormat = (uint32)MTLPixelFormatRG16Float; break;
+			case TextureDataType::RG32F: internalFormat = (uint32)MTLPixelFormatRG32Float; break;
+			case TextureDataType::RG16I: internalFormat = (uint32)MTLPixelFormatRG16Sint; break;
+			case TextureDataType::RG32I: internalFormat = (uint32)MTLPixelFormatRG32Sint; break;
+			// No swizzle set up for these (replicate-into-RGB GL legacy
+			// modes) any more than VulkanRenderDevice bothers to - same
+			// "nothing on this backend uses either yet" reasoning.
+			case TextureDataType::LUMINANCE: internalFormat = (uint32)MTLPixelFormatR8Unorm; break;
+			case TextureDataType::LUMINANCE_ALPHA: internalFormat = (uint32)MTLPixelFormatRG8Unorm; break;
+			// Metal has no 3-component texture formats either - same
+			// upload-time-padding answer as Vulkan.
+			case TextureDataType::RGB8: internalFormat = (uint32)MTLPixelFormatRGBA8Unorm; format = kMetalUploadPadRgbToRgba; break;
+			case TextureDataType::BGR: internalFormat = (uint32)MTLPixelFormatBGRA8Unorm; format = kMetalUploadPadRgbToRgba; break;
+			case TextureDataType::RGB16F: internalFormat = (uint32)MTLPixelFormatRGBA16Float; format = kMetalUploadPadRgbToRgba; break;
+			case TextureDataType::RGB32F: internalFormat = (uint32)MTLPixelFormatRGBA32Float; format = kMetalUploadPadRgbToRgba; break;
+			case TextureDataType::RGB16I: internalFormat = (uint32)MTLPixelFormatRGBA16Sint; format = kMetalUploadPadRgbToRgba; break;
+			case TextureDataType::RGB32I: internalFormat = (uint32)MTLPixelFormatRGBA32Sint; format = kMetalUploadPadRgbToRgba; break;
+			case TextureDataType::DepthComponent:
+			case TextureDataType::DepthComponent16:
+			case TextureDataType::DepthComponent24:
+			case TextureDataType::DepthComponent32:
+				internalFormat = (uint32)MTLPixelFormatDepth32Float;
+				break;
+			default: internalFormat = (uint32)MTLPixelFormatRGBA8Unorm; break;
+		}
+	}
 
-	DeviceHandle MetalRenderDevice::CreateTextureObject() { LogStub("CreateTextureObject"); return 0; }
-	void MetalRenderDevice::DestroyTextureObject(const DeviceHandle texture) { (void)texture; LogStub("DestroyTextureObject"); }
-	void MetalRenderDevice::BindTextureToTarget(const uint32 target, const DeviceHandle texture) { (void)target; (void)texture; LogStub("BindTextureToTarget"); }
+	// Same "distinguish targets, not translate to a real API token"
+	// sentinel scheme as VulkanRenderDevice::TranslateTextureTarget() (see
+	// its comment) - 1 for plain 2D, kCubemapFaceTargetBase+faceIndex for
+	// a cube face, 0 for anything else (multisample - not implemented).
+	void MetalRenderDevice::TranslateTextureTarget(const uint32 engineTextureType, uint32 &mode, uint32 &subMode)
+	{
+		if (engineTextureType == TextureType::Texture)
+			mode = subMode = 1;
+		else if (engineTextureType <= TextureType::CubemapNegative_Z)
+			mode = subMode = kCubemapFaceTargetBase + engineTextureType;
+		else
+			mode = subMode = 0;
+	}
 
-	void MetalRenderDevice::UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data, const bool willMipmap) { (void)target; (void)level; (void)internalFormat; (void)width; (void)height; (void)format; (void)type; (void)data; (void)willMipmap; LogStub("UploadTexture2D"); }
+	DeviceHandle MetalRenderDevice::CreateTextureObject()
+	{
+		DeviceHandle handle = nextTextureHandle++;
+		textures[handle] = TextureRecord();
+		return handle;
+	}
+
+	void MetalRenderDevice::DestroyTextureObject(const DeviceHandle texture)
+	{
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(texture);
+		if (it == textures.end())
+			return;
+		@autoreleasepool
+		{
+			if (it->second.samplerState != NULL) CFBridgingRelease(it->second.samplerState);
+			if (it->second.texture != NULL) CFBridgingRelease(it->second.texture);
+		}
+		textures.erase(it);
+		if (currentlyConfiguringTexture == texture)
+			currentlyConfiguringTexture = 0;
+		// Also drop it from whatever unit(s) it was bound to render with -
+		// same reasoning as VulkanRenderDevice would need if a destroyed
+		// texture were left resolvable via SendUniformInt()'s unit lookup
+		// (it isn't there today, but this backend's own textureUnitBindings
+		// has the identical stale-handle hazard without this).
+		for (std::map<uint32, DeviceHandle>::iterator uIt = textureUnitBindings.begin(); uIt != textureUnitBindings.end(); )
+		{
+			if (uIt->second == texture)
+			{
+				std::map<uint32, DeviceHandle>::iterator dead = uIt;
+				++uIt;
+				textureUnitBindings.erase(dead);
+			}
+			else ++uIt;
+		}
+	}
+
+	// Dual-purpose - see the header comment on textureUnitBindings/
+	// currentlyConfiguringTexture for the full mechanism (copied from
+	// VulkanRenderDevice::BindTextureToTarget() verbatim).
+	void MetalRenderDevice::BindTextureToTarget(const uint32 target, const DeviceHandle texture)
+	{
+		(void)target;
+		if (unitJustActivated)
+		{
+			unitJustActivated = false;
+			if (texture != 0)
+				textureUnitBindings[currentTextureUnit] = texture;
+			else
+				textureUnitBindings.erase(currentTextureUnit);
+			return;
+		}
+		currentlyConfiguringTexture = texture;
+	}
+
+	void MetalRenderDevice::ActivateTextureUnit(const uint32 unit)
+	{
+		currentTextureUnit = unit;
+		unitJustActivated = true;
+	}
+
+	void MetalRenderDevice::UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data, const bool willMipmap)
+	{
+		(void)type;
+		if (currentlyConfiguringTexture == 0 || device == NULL || width == 0 || height == 0)
+			return;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end())
+			return;
+		TextureRecord &tex = it->second;
+
+		bool needsRgbPad = (format == kMetalUploadPadRgbToRgba);
+		MTLPixelFormat wantedFormat = (MTLPixelFormat)internalFormat;
+		bool isCubemapTarget = target >= kCubemapFaceTargetBase;
+		uint32 faceIndex = isCubemapTarget ? (target - kCubemapFaceTargetBase) : 0;
+		// Same "only reserve mip room if there's real data to build them
+		// from right now" reasoning as VulkanRenderDevice::UploadTexture2D()'s
+		// identical guard - see its comment.
+		uint32 wantedMipLevels = (willMipmap && data != NULL) ? ComputeMipLevelsMSL(width, height) : 1;
+
+		bool needsCreate = (tex.texture == NULL) || tex.width != width || tex.height != height
+			|| tex.isCubemap != isCubemapTarget;
+
+		@autoreleasepool
+		{
+			id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
+
+			if (needsCreate)
+			{
+				if (tex.texture != NULL) { CFBridgingRelease(tex.texture); tex.texture = NULL; }
+				MTLTextureDescriptor* texDesc = [[MTLTextureDescriptor alloc] init];
+				texDesc.textureType = isCubemapTarget ? MTLTextureTypeCube : MTLTextureType2D;
+				texDesc.pixelFormat = wantedFormat;
+				texDesc.width = width;
+				texDesc.height = height;
+				texDesc.mipmapLevelCount = wantedMipLevels;
+				texDesc.usage = MTLTextureUsageShaderRead;
+				texDesc.storageMode = MTLStorageModeShared;
+				id<MTLTexture> newTex = [mtlDevice newTextureWithDescriptor:texDesc];
+				if (newTex == nil)
+				{
+					fprintf(stderr, "MetalRenderDevice::UploadTexture2D: newTextureWithDescriptor failed\n");
+					return;
+				}
+				tex.texture = (void*)CFBridgingRetain(newTex);
+				tex.width = width;
+				tex.height = height;
+				tex.isCubemap = isCubemapTarget;
+				tex.hasMipmap = willMipmap;
+				tex.mipsGenerated = false;
+			}
+
+			if (data != NULL)
+			{
+				id<MTLTexture> mtlTex = (__bridge id<MTLTexture>)tex.texture;
+				uint32 bytesPerTexel = BytesPerTexelMSL(wantedFormat);
+				const void* uploadData = data;
+				std::vector<uint8_t> padded;
+				if (needsRgbPad)
+				{
+					// Expand 3 bytes/texel source into bytesPerTexel/texel
+					// (4, or 8 for RGB16F->RGBA16F etc) - alpha (or the
+					// trailing 1-2 bytes for the wide float formats) left
+					// zeroed, matching VulkanRenderDevice's identical
+					// padding (opaque textures never read their own alpha
+					// channel back).
+					uint32 srcBytesPerTexel = bytesPerTexel * 3 / 4;
+					padded.resize((size_t)width * height * bytesPerTexel, 0);
+					const uint8_t* src = (const uint8_t*)data;
+					for (uint32 p = 0; p < width * height; p++)
+						memcpy(&padded[(size_t)p * bytesPerTexel], &src[(size_t)p * srcBytesPerTexel], srcBytesPerTexel);
+					uploadData = padded.data();
+				}
+				MTLRegion region = MTLRegionMake2D(0, 0, width, height);
+				// bytesPerImage only matters for a 3D texture (0 = "not
+				// applicable", per Apple's docs) - the slice-taking overload
+				// still requires the argument even for a 2D/cube texture.
+				[mtlTex replaceRegion:region mipmapLevel:level slice:faceIndex withBytes:uploadData bytesPerRow:(NSUInteger)width * bytesPerTexel bytesPerImage:0];
+			}
+		}
+	}
+
 	void MetalRenderDevice::UploadTexture2DMultisample(const uint32 target, const uint32 samples, const uint32 internalFormat, const uint32 width, const uint32 height) { (void)target; (void)samples; (void)internalFormat; (void)width; (void)height; LogStub("UploadTexture2DMultisample"); }
-	void MetalRenderDevice::GenerateMipmap(const uint32 target) { (void)target; LogStub("GenerateMipmap"); }
 
-	void MetalRenderDevice::SetTextureWrapS(const uint32 target, const uint32 engineRepeat) { (void)target; (void)engineRepeat; LogStub("SetTextureWrapS"); }
-	void MetalRenderDevice::SetTextureWrapT(const uint32 target, const uint32 engineRepeat) { (void)target; (void)engineRepeat; LogStub("SetTextureWrapT"); }
-	void MetalRenderDevice::SetTextureWrapR(const uint32 target, const uint32 engineRepeat) { (void)target; (void)engineRepeat; LogStub("SetTextureWrapR"); }
-	void MetalRenderDevice::SetTextureMagFilter(const uint32 target, const uint32 engineFilter) { (void)target; (void)engineFilter; LogStub("SetTextureMagFilter"); }
-	void MetalRenderDevice::SetTextureMinFilter(const uint32 target, const uint32 engineFilter, const bool hasMipmap) { (void)target; (void)engineFilter; (void)hasMipmap; LogStub("SetTextureMinFilter"); }
-	void MetalRenderDevice::SetTextureBaseMaxLevel(const uint32 target, const uint32 baseLevel, const uint32 maxLevel) { (void)target; (void)baseLevel; (void)maxLevel; LogStub("SetTextureBaseMaxLevel"); }
-	void MetalRenderDevice::SetTextureBorderColor(const uint32 target, const Vec4 &color) { (void)target; (void)color; LogStub("SetTextureBorderColor"); }
-	void MetalRenderDevice::SetTextureCompareMode(const uint32 target) { (void)target; LogStub("SetTextureCompareMode"); }
-	void MetalRenderDevice::SetPixelUnpackAlignment(const uint32 value) { (void)value; LogStub("SetPixelUnpackAlignment"); }
+	void MetalRenderDevice::GenerateMipmap(const uint32 target)
+	{
+		(void)target;
+		if (currentlyConfiguringTexture == 0 || device == NULL || commandQueue == NULL)
+			return;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end() || it->second.texture == NULL)
+			return;
+		@autoreleasepool
+		{
+			id<MTLTexture> mtlTex = (__bridge id<MTLTexture>)it->second.texture;
+			id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)commandQueue;
+			id<MTLCommandBuffer> cmdBuf = [queue commandBuffer];
+			id<MTLBlitCommandEncoder> blit = [cmdBuf blitCommandEncoder];
+			[blit generateMipmapsForTexture:mtlTex];
+			[blit endEncoding];
+			[cmdBuf commit];
+			[cmdBuf waitUntilCompleted];
+		}
+		it->second.mipsGenerated = true;
+	}
 
-	void MetalRenderDevice::ActivateTextureUnit(const uint32 unit) { (void)unit; LogStub("ActivateTextureUnit"); }
+	// Lazily (re)builds a texture's MTLSamplerState - see the header
+	// comment. Called from SendUniformInt() right before a texture is
+	// actually bound for a draw, mirroring
+	// VulkanRenderDevice::RebuildSamplerIfDirty()'s identical call site
+	// reasoning (only worth rebuilding once wrap/filter state has
+	// actually settled, not on every individual setter call).
+	bool MetalRenderDevice::RebuildSamplerIfDirty(TextureRecord &tex)
+	{
+		if (!tex.samplerDirty)
+			return tex.samplerState != NULL;
+		if (device == NULL)
+			return false;
+		@autoreleasepool
+		{
+			if (tex.samplerState != NULL) { CFBridgingRelease(tex.samplerState); tex.samplerState = NULL; }
+
+			MTLSamplerMinMagFilter minFilter, magFilter;
+			MTLSamplerMipFilter mipFilter;
+			TranslateTextureFilterMSL(tex.minFilter, minFilter, mipFilter);
+			MTLSamplerMipFilter unusedMipFilter;
+			TranslateTextureFilterMSL(tex.magFilter, magFilter, unusedMipFilter);
+
+			MTLSamplerDescriptor* samplerDesc = [[MTLSamplerDescriptor alloc] init];
+			samplerDesc.minFilter = minFilter;
+			samplerDesc.magFilter = magFilter;
+			samplerDesc.mipFilter = mipFilter;
+			samplerDesc.sAddressMode = TranslateTextureRepeatMSL(tex.wrapS);
+			samplerDesc.tAddressMode = TranslateTextureRepeatMSL(tex.wrapT);
+			samplerDesc.rAddressMode = samplerDesc.tAddressMode;
+			// See VulkanRenderDevice::RebuildSamplerIfDirty()'s identical
+			// guard - a render-target whose mips were requested but never
+			// actually populated must stay clamped to LOD 0, or automatic
+			// LOD selection can sample undefined memory. Not reachable via
+			// UploadTexture2D() alone yet (no framebuffer/render-target
+			// support - still a stub), but harmless to already get right.
+			samplerDesc.lodMinClamp = 0.0f;
+			samplerDesc.lodMaxClamp = (tex.hasMipmap && tex.mipsGenerated) ? FLT_MAX : 0.0f;
+			// LEQUAL matches GL's default GL_TEXTURE_COMPARE_FUNC, same as
+			// VulkanRenderDevice's identical choice - PyrosShader.glsl's PCF
+			// functions were written against that convention.
+			samplerDesc.compareFunction = tex.compareModeEnabled ? MTLCompareFunctionLessEqual : MTLCompareFunctionNever;
+
+			id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
+			id<MTLSamplerState> sampler = [mtlDevice newSamplerStateWithDescriptor:samplerDesc];
+			if (sampler == nil)
+				return false;
+			tex.samplerState = (void*)CFBridgingRetain(sampler);
+		}
+		tex.samplerDirty = false;
+		return true;
+	}
+
+	void MetalRenderDevice::SetTextureWrapS(const uint32 target, const uint32 engineRepeat)
+	{
+		(void)target;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end()) return;
+		it->second.wrapS = engineRepeat;
+		it->second.samplerDirty = true;
+	}
+	void MetalRenderDevice::SetTextureWrapT(const uint32 target, const uint32 engineRepeat)
+	{
+		(void)target;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end()) return;
+		it->second.wrapT = engineRepeat;
+		it->second.samplerDirty = true;
+	}
+	// Metal's sAddressMode/tAddressMode/rAddressMode are three independent
+	// fields, but this engine only ever tracks S/T (see TextureRecord) -
+	// RebuildSamplerIfDirty() reuses wrapT for R too, same as
+	// VulkanRenderDevice's identical addressModeW = addressModeV choice
+	// (no cubemap/3D-texture material on either backend sets R differently
+	// from T today).
+	void MetalRenderDevice::SetTextureWrapR(const uint32 target, const uint32 engineRepeat) { (void)target; (void)engineRepeat; }
+	void MetalRenderDevice::SetTextureMagFilter(const uint32 target, const uint32 engineFilter)
+	{
+		(void)target;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end()) return;
+		it->second.magFilter = engineFilter;
+		it->second.samplerDirty = true;
+	}
+	void MetalRenderDevice::SetTextureMinFilter(const uint32 target, const uint32 engineFilter, const bool hasMipmap)
+	{
+		(void)target; (void)hasMipmap;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end()) return;
+		it->second.minFilter = engineFilter;
+		it->second.samplerDirty = true;
+	}
+	// GL_TEXTURE_BASE_LEVEL/MAX_LEVEL has no Metal equivalent the way
+	// lodMinClamp/lodMaxClamp (set from hasMipmap/mipsGenerated - see
+	// RebuildSamplerIfDirty()) already covers the same "don't sample
+	// unpopulated levels" need - same no-op as VulkanRenderDevice's
+	// identical method.
+	void MetalRenderDevice::SetTextureBaseMaxLevel(const uint32 target, const uint32 baseLevel, const uint32 maxLevel) { (void)target; (void)baseLevel; (void)maxLevel; }
+	// Not implemented - MTLSamplerDescriptor's borderColor is one of three
+	// fixed enum values (transparent/opaque black, opaque white), not an
+	// arbitrary Vec4 the way GL_TEXTURE_BORDER_COLOR is; nothing on this
+	// backend uses ClampToBorder with a non-default color yet (matches
+	// VulkanRenderDevice, which also never wired VkSamplerCreateInfo's
+	// equivalent up).
+	void MetalRenderDevice::SetTextureBorderColor(const uint32 target, const Vec4 &color) { (void)target; (void)color; }
+	void MetalRenderDevice::SetTextureCompareMode(const uint32 target)
+	{
+		(void)target;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end()) return;
+		it->second.compareModeEnabled = true;
+		it->second.samplerDirty = true;
+	}
+	// GL_UNPACK_ALIGNMENT has no Metal equivalent - replaceRegion:'s source
+	// is always tightly packed (see UploadTexture2D()), same as
+	// VulkanRenderDevice's identical no-op.
+	void MetalRenderDevice::SetPixelUnpackAlignment(const uint32 value) { (void)value; }
 
 	void MetalRenderDevice::ReadTexturePixels(const uint32 target, const uint32 level, const uint32 format, const uint32 type, void *outBuffer) { (void)target; (void)level; (void)format; (void)type; (void)outBuffer; LogStub("ReadTexturePixels"); }
 	uint32 MetalRenderDevice::GetTextureDataSize(const uint32 nativeInternalFormat, const uint32 width, const uint32 height) { (void)nativeInternalFormat; (void)width; (void)height; LogStub("GetTextureDataSize"); return 0; }
