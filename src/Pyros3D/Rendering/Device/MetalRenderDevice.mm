@@ -216,7 +216,7 @@ namespace p3d {
 		  frameBoundarySemaphore(NULL), currentCommandBuffer(NULL), currentRenderEncoder(NULL),
 		  currentDrawable(NULL), lastSubmittedCommandBuffer(NULL),
 		  nextVaoHandle(1), currentVao(0), currentPipeline(0),
-		  nextShaderStageHandle(1), nextProgramHandle(1),
+		  nextShaderStageHandle(1), nextAutoUboBinding(kFirstAutoUboBinding), nextProgramHandle(1),
 		  nextBufferHandle(1), nextTextureHandle(1),
 		  currentTextureUnit(0), unitJustActivated(false), currentlyConfiguringTexture(0),
 		  nextFBOHandle(1), currentBoundFBO(0), currentReadFBO(0),
@@ -1342,23 +1342,71 @@ namespace p3d {
 #ifdef METAL_SHADER_TOOLING
 		uint32 spirvStage = (it->second.engineShaderType == ShaderType::FragmentShader) ? SpirvShaderStage::Fragment : SpirvShaderStage::Vertex;
 
+		// CustomShaderMaterial-authored shaders (particleSystem.glsl and
+		// friends) use loose uniforms with no explicit layout(binding=) -
+		// fine for GL, meaningless for a descriptor-free binding model
+		// like Vulkan's or this one. AutoFixForVulkan() (SPIRV/ShaderCompiler.cpp)
+		// is already backend-agnostic despite the name - it just rewrites
+		// the loose uniforms into one explicit-binding UBO block - so this
+		// mirrors VulkanRenderDevice::CompileShaderStage()'s identical
+		// call verbatim instead of reimplementing it. The synthesized
+		// binding (kFirstAutoUboBinding=43) lands well above
+		// kFirstVertexBufferIndex, so the existing highBindingRemap loop
+		// below compacts it into a real MSL buffer slot the same way it
+		// already does for lastPass.glsl/secondpass*.glsl's hardcoded
+		// high bindings - no separate remap path needed for this one.
+		std::string compileSource = source;
+		bool usedAutoFix = false;
 		if (SpirvShaderCompiler::NeedsAutoFixForVulkan(source))
 		{
-			// No AutoFix-equivalent wired up on this backend yet (see
-			// BindUniformBlockIfPresent()'s comment on why the descriptor-
-			// free binding model still needs *some* explicit binding
-			// number per resource, same as Vulkan) - every shader this
-			// milestone compiles is hand-authored with explicit
-			// layout(location=)/layout(binding=) qualifiers already, so
-			// this should never actually trigger. Fail loudly instead of
-			// silently producing a shader with unreflectable bindings if
-			// it ever does.
-			errorLog = "MetalRenderDevice::CompileShaderStage: shader needs AutoFixForVulkan (loose uniforms/no explicit layout) - not implemented on this backend yet; author with explicit layout(location=)/layout(binding=) qualifiers";
-			return false;
+			SpirvAutoUboResult autoUbo;
+			std::string autoFixErr;
+			uint32 candidateBinding = nextAutoUboBinding;
+			std::string autoBlockName = std::string("AutoUBO_") + std::to_string(shader) + "_" + std::to_string(spirvStage);
+			if (!SpirvShaderCompiler::AutoFixForVulkan(compileSource, spirvStage, candidateBinding, autoBlockName, autoUbo, autoFixErr))
+			{
+				errorLog = autoFixErr;
+				return false;
+			}
+			usedAutoFix = true;
+			if (autoUbo.hasBlock)
+			{
+				nextAutoUboBinding++;
+				it->second.autoUboHasBlock = true;
+				it->second.autoUboBinding = autoUbo.binding;
+				it->second.autoUboBlockName = autoUbo.blockName;
+				it->second.autoUboSize = autoUbo.size;
+				it->second.autoUboOffsets = autoUbo.offsets;
+			}
 		}
 
-		if (!SpirvShaderCompiler::Compile(source, spirvStage, it->second.spirv, errorLog))
-			return false;
+		if (!SpirvShaderCompiler::Compile(compileSource, spirvStage, it->second.spirv, errorLog))
+		{
+			if (usedAutoFix)
+				return false;
+			SpirvAutoUboResult autoUbo;
+			std::string autoFixErr;
+			uint32 candidateBinding = nextAutoUboBinding;
+			std::string autoBlockName = std::string("AutoUBO_") + std::to_string(shader) + "_" + std::to_string(spirvStage);
+			compileSource = source;
+			if (!SpirvShaderCompiler::AutoFixForVulkan(compileSource, spirvStage, candidateBinding, autoBlockName, autoUbo, autoFixErr))
+			{
+				errorLog = autoFixErr;
+				return false;
+			}
+			if (autoUbo.hasBlock)
+			{
+				nextAutoUboBinding++;
+				it->second.autoUboHasBlock = true;
+				it->second.autoUboBinding = autoUbo.binding;
+				it->second.autoUboBlockName = autoUbo.blockName;
+				it->second.autoUboSize = autoUbo.size;
+				it->second.autoUboOffsets = autoUbo.offsets;
+			}
+			errorLog.clear();
+			if (!SpirvShaderCompiler::Compile(compileSource, spirvStage, it->second.spirv, errorLog))
+				return false;
+		}
 
 		@autoreleasepool
 		{
@@ -1447,7 +1495,6 @@ namespace p3d {
 				errorLog = std::string("SPIRV-Cross MSL compile failed: ") + e.what();
 				return false;
 			}
-
 			NSString* mslNSString = [NSString stringWithUTF8String:mslSource.c_str()];
 			NSError* nsError = nil;
 			id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
@@ -1603,7 +1650,25 @@ namespace p3d {
 		std::map<std::string, uint32>::iterator locIt = it->second.attributeLocations.find(name);
 		return locIt == it->second.attributeLocations.end() ? -1 : (int32)locIt->second;
 	}
-	bool MetalRenderDevice::GetAutoUniformBlockLayout(const uint32 program, const uint32 engineShaderType, uint32 &outBinding, std::string &outBlockName, uint32 &outSize, std::map<std::string, uint32> &outOffsets) { (void)program; (void)engineShaderType; (void)outBinding; (void)outBlockName; (void)outSize; (void)outOffsets; return false; }
+	// See ShaderStageRecord::autoUboHasBlock's comment - matches
+	// VulkanRenderDevice::GetAutoUniformBlockLayout() verbatim: a lookup
+	// into whichever of the program's two stages CompileShaderStage()
+	// stashed this on.
+	bool MetalRenderDevice::GetAutoUniformBlockLayout(const uint32 program, const uint32 engineShaderType, uint32 &outBinding, std::string &outBlockName, uint32 &outSize, std::map<std::string, uint32> &outOffsets)
+	{
+		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(program);
+		if (progIt == programs.end())
+			return false;
+		DeviceHandle stageHandle = (engineShaderType == ShaderType::FragmentShader) ? progIt->second.fragmentShader : progIt->second.vertexShader;
+		std::map<DeviceHandle, ShaderStageRecord>::iterator stageIt = shaderStages.find(stageHandle);
+		if (stageIt == shaderStages.end() || !stageIt->second.autoUboHasBlock)
+			return false;
+		outBinding = stageIt->second.autoUboBinding;
+		outBlockName = stageIt->second.autoUboBlockName;
+		outSize = stageIt->second.autoUboSize;
+		outOffsets = stageIt->second.autoUboOffsets;
+		return true;
+	}
 
 	// The other half of GetUniformLocation()'s mechanism (see its comment):
 	// `handle` is a sampler's reflected binding index, `data[0]` is the
@@ -2200,7 +2265,58 @@ namespace p3d {
 
 	void MetalRenderDevice::SetMultisampleEnabled(const bool enabled) { (void)enabled; LogStub("SetMultisampleEnabled"); }
 	void MetalRenderDevice::BlitFramebuffer(const uint32 srcX0, const uint32 srcY0, const uint32 srcX1, const uint32 srcY1, const uint32 dstX0, const uint32 dstY0, const uint32 dstX1, const uint32 dstY1, const uint32 engineMask, const uint32 engineFilter) { (void)srcX0; (void)srcY0; (void)srcX1; (void)srcY1; (void)dstX0; (void)dstY0; (void)dstX1; (void)dstY1; (void)engineMask; (void)engineFilter; LogStub("BlitFramebuffer"); }
-	void MetalRenderDevice::CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height) { (void)srcTexture; (void)dstTexture; (void)width; (void)height; LogStub("CopyDepthTexture"); }
+	// See IRenderDevice.h's comment on CopyDepthTexture for why this
+	// exists - DeferredRenderer needs forwardDepthTexture (lastPassFBO's
+	// real depth attachment) populated with the G-buffer's just-finished
+	// depth values so its translucent sub-pass depth-tests correctly.
+	// Left as a no-op stub, forwardDepthTexture stayed at its cleared/
+	// allocated value (effectively all-zero, i.e. "nearest possible"),
+	// failing every translucent draw's depth test against real scene
+	// geometry - SkyboxTest (a single huge DoubleSided cube, nothing else
+	// in the scene) went fully black because its *only* object never
+	// passed depth test. Encoded onto the frame's existing
+	// currentCommandBuffer, not a new one - CopyDepthTexture() runs
+	// between FBO->UnBind() (which already ended the G-buffer's render
+	// encoder - see EndCurrentRenderEncoderIfOpen()) and lastPassFBO->Bind(),
+	// so no render encoder is open here and this stays correctly ordered
+	// with the rest of the frame without a separate submit/wait. That
+	// holds when this DeferredRenderer pass *is* the main swapchain pass,
+	// but not when it's nested inside PostEffectsManager's capture:
+	// FrameBuffer::UnBind() (called just above by DeferredRenderer, right
+	// before this) unconditionally rebinds whatever FBO was underneath on
+	// its BoundFBOs stack (ExternalFBO), reopening a render encoder for
+	// it - a blit encoder can't coexist with an open render encoder on
+	// the same command buffer (AGXG15GFamilyCommandBuffer's "already
+	// encoding" assertion, hit running SkyboxTest with its tonemap
+	// effect). End it here unconditionally instead of assuming it's
+	// already closed - matches VulkanRenderDevice::CopyDepthTexture()'s
+	// own EndOffscreenRenderPassIfOpen() call for the identical reason
+	// (a transfer can't run inside a render pass there either). Whatever
+	// needs a render encoder next just opens a fresh one with Load
+	// actions - see BindFramebuffer()'s comment on why that's safe.
+	void MetalRenderDevice::CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height)
+	{
+		if (currentCommandBuffer == NULL)
+			return;
+		std::map<DeviceHandle, TextureRecord>::iterator srcIt = textures.find(srcTexture);
+		std::map<DeviceHandle, TextureRecord>::iterator dstIt = textures.find(dstTexture);
+		if (srcIt == textures.end() || dstIt == textures.end() || srcIt->second.texture == NULL || dstIt->second.texture == NULL)
+			return;
+		EndCurrentRenderEncoderIfOpen();
+		@autoreleasepool
+		{
+			id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)currentCommandBuffer;
+			id<MTLTexture> srcTex = (__bridge id<MTLTexture>)srcIt->second.texture;
+			id<MTLTexture> dstTex = (__bridge id<MTLTexture>)dstIt->second.texture;
+			id<MTLBlitCommandEncoder> blit = [cmdBuf blitCommandEncoder];
+			[blit copyFromTexture:srcTex sourceSlice:0 sourceLevel:0
+				sourceOrigin:MTLOriginMake(0, 0, 0)
+				sourceSize:MTLSizeMake(width, height, 1)
+				toTexture:dstTex destinationSlice:0 destinationLevel:0
+				destinationOrigin:MTLOriginMake(0, 0, 0)];
+			[blit endEncoding];
+		}
+	}
 
 	void MetalRenderDevice::EndCurrentRenderEncoderIfOpen()
 	{

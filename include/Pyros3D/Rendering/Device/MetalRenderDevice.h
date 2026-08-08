@@ -489,10 +489,26 @@ namespace p3d {
 			// absent means "MSL buffer index equals the engine binding",
 			// still true for every PyrosShader.glsl material (0-23).
 			std::map<uint32, uint32> highBindingRemap;
-			ShaderStageRecord() : engineShaderType(0), function(NULL) {}
+			// See GetAutoUniformBlockLayout()'s comment - populated only
+			// when CompileShaderStage() had to run AutoFixForVulkan()
+			// (loose, non-layout-qualified uniforms - CustomShaderMaterial
+			// shaders like particleSystem.glsl) on this stage's source.
+			bool autoUboHasBlock;
+			uint32 autoUboBinding;
+			std::string autoUboBlockName;
+			uint32 autoUboSize;
+			std::map<std::string, uint32> autoUboOffsets;
+			ShaderStageRecord() : engineShaderType(0), function(NULL), autoUboHasBlock(false), autoUboBinding(0), autoUboSize(0) {}
 		};
 		std::map<DeviceHandle, ShaderStageRecord> shaderStages;
 		DeviceHandle nextShaderStageHandle;
+		// See VulkanRenderDevice::nextAutoUboBinding's identical comment -
+		// starts well above kFirstVertexBufferIndex so every synthesized
+		// AutoFix UBO always takes the highBindingRemap path. Shares
+		// kFirstAutoUboBinding with IsPerObjectDynamicBinding() below,
+		// not a coincidence - that function's own >= kFirstAutoUboBinding
+		// fallback already anticipated this counter existing.
+		uint32 nextAutoUboBinding;
 
 		// No VkDescriptorSetLayout/VkPipelineLayout equivalent to build here
 		// (see BindUniformBlockIfPresent()'s comment) - LinkProgram() only

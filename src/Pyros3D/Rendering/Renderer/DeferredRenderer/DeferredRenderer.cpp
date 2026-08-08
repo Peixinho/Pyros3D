@@ -504,6 +504,20 @@ namespace p3d {
 		// Light Volume
 		quadHandle = std::make_shared<Plane>(1, 1);
 		directionalLight = new RenderingComponent(quadHandle);
+		// This mesh's own default Material is never actually used for
+		// drawing (every real draw call passes deferredMaterialAmbient/
+		// Directional/Point/Spot/deferredLastPass explicitly as an
+		// override), but IRenderer::RenderObject() falls back to *this*
+		// material's cull face whenever it differs from the override's
+		// (see its own comment on effectiveCullFace) - left at the
+		// RenderingComponent default (BackFace) that fallback silently
+		// discarded the quad on every backend where SetCullFaceMode()
+		// is not a no-op (GL was saved only by winding luck, Vulkan by
+		// SetCullFaceMode() being baked into the pipeline instead - see
+		// deferredMaterialPoint/Spot's identical temporary DoubleSided
+		// toggle a few hundred lines below, which relies on this same
+		// mesh already reading DoubleSided here to actually take effect).
+		directionalLight->GetMeshes()[0]->Material->SetCullFace(CullFace::DoubleSided);
 
 		sphereHandle = std::make_shared<Sphere>(1, 6, 4);
 		pointLight = new RenderingComponent(sphereHandle);
