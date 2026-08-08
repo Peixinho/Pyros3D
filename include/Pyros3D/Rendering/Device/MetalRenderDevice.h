@@ -476,16 +476,41 @@ namespace p3d {
 		// newBufferWithLength:options:/newBufferWithBytes:... calls are
 		// the allocator; see CreateBuffer()'s comment on why the usual
 		// staging-buffer path is likely unnecessary here.
+		// alignedSlotSize/slotCount/currentSlot: see IsPerObjectDynamicBinding()'s
+		// comment - a per-object UBO (ObjectMatrixUniforms etc) gets
+		// rewritten once per object before the GPU has executed *any* of
+		// this frame's draws, so a single-slot buffer means every draw
+		// reads whichever object wrote last (confirmed: a real,
+		// reproducible bug on the Vulkan backend before it gained the
+		// identical fix this ports - "a two-object scene... reproducibly
+		// renders only the second object"). isDynamicUniform buffers get
+		// slotCount slots instead of 1; ReplaceUniformBuffer() advances
+		// currentSlot before writing, and BindProgramUniformBuffers()
+		// binds at that slot's byte offset instead of 0 - Metal's
+		// setBuffer:offset:atIndex: takes a plain byte offset into one
+		// larger buffer, direct equivalent of Vulkan's dynamic-descriptor
+		// offset for the exact same problem.
 		struct BufferRecord
 		{
 			void* buffer; // id<MTLBuffer>
 			uint32 length;
 			bool isDynamicUniform;
-			uint32 writesThisFrame;
-			BufferRecord() : buffer(NULL), length(0), isDynamicUniform(false), writesThisFrame(0) {}
+			uint32 alignedSlotSize;
+			uint32 slotCount;
+			uint32 currentSlot;
+			BufferRecord() : buffer(NULL), length(0), isDynamicUniform(false), alignedSlotSize(0), slotCount(1), currentSlot(0) {}
 		};
 		std::map<DeviceHandle, BufferRecord> buffers;
 		DeviceHandle nextBufferHandle;
+		// Same binding-number convention as VulkanRenderDevice::
+		// IsPerObjectDynamicBinding() (copied, not shared - see this
+		// class's own file for why sharing one method across two
+		// unrelated device classes isn't worth it for a handful of
+		// constants) - these are PyrosShader.glsl's own UBO_BINDING
+		// numbers, an engine-wide convention independent of backend.
+		static bool IsPerObjectDynamicBinding(const uint32 bindingPoint);
+		static const uint32 kFirstAutoUboBinding = 43;
+		static const uint32 kMaxDynamicUboSlots = 65536;
 		// Which buffer handle currently occupies a given uniform binding
 		// index, globally - set by CreateUniformBuffer() (bindingPoint is a
 		// stable, project-wide convention the same way it already is on

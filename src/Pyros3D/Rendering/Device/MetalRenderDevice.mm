@@ -851,10 +851,17 @@ namespace p3d {
 				if (bufIt == buffers.end() || bufIt->second.buffer == NULL)
 					continue;
 				id<MTLBuffer> buf = (__bridge id<MTLBuffer>)bufIt->second.buffer;
+				// currentSlot's byte offset for a per-object dynamic UBO
+				// (see the header comment on BufferRecord) - captured at
+				// the moment *this draw* is recorded, same as Vulkan's
+				// dynamic descriptor offset, so a later ReplaceUniformBuffer()
+				// advancing to a new slot for the next object can't affect
+				// a draw already recorded against this one.
+				NSUInteger slotOffset = bufIt->second.isDynamicUniform ? (NSUInteger)bufIt->second.currentSlot * bufIt->second.alignedSlotSize : 0;
 				if (stageMask & 1u)
-					[encoder setVertexBuffer:buf offset:0 atIndex:(NSUInteger)bindingPoint];
+					[encoder setVertexBuffer:buf offset:slotOffset atIndex:(NSUInteger)bindingPoint];
 				if (stageMask & 2u)
-					[encoder setFragmentBuffer:buf offset:0 atIndex:(NSUInteger)bindingPoint];
+					[encoder setFragmentBuffer:buf offset:slotOffset atIndex:(NSUInteger)bindingPoint];
 			}
 		}
 	}
@@ -962,14 +969,79 @@ namespace p3d {
 	// no separate map/unmap ceremony.
 	// =====================================================================
 
+	// Copied from VulkanRenderDevice::IsPerObjectDynamicBinding() verbatim
+	// (see the header comment on why this isn't shared code) - these are
+	// PyrosShader.glsl's own UBO_BINDING numbers, not anything Vulkan-
+	// specific, so the same list applies here unchanged. Bindings this
+	// backend doesn't reach yet (DeferredRenderer/water materials, 27-42)
+	// are still included for exact parity - harmless if never actually
+	// created, and one less thing to get wrong later when they are.
+	bool MetalRenderDevice::IsPerObjectDynamicBinding(const uint32 bindingPoint)
+	{
+		switch (bindingPoint)
+		{
+		case 0:  // BIND_GlobalMatrices
+		case 1:  // BIND_LightsBlock
+		case 16: // BIND_VertexFrameUniforms
+		case 18: // BIND_ObjectMatrixUniforms
+		case 19: // BIND_BoneMatrices
+		case 20: // BIND_VelocityObjectUniforms
+		case 22: // BIND_MaterialUniforms
+		case 23: // BIND_ObjectLightCounts
+		case 27: case 32: case 33: case 34: case 37: case 38: case 39:
+		case 40: case 41: case 42:
+			return true;
+		default:
+			return bindingPoint >= kFirstAutoUboBinding;
+		}
+	}
+
 	DeviceHandle MetalRenderDevice::CreateUniformBuffer(const uint32 sizeBytes, const uint32 bindingPoint)
 	{
-		DeviceHandle handle = CreateBuffer(Buffer::Type::Attribute, Buffer::Draw::Dynamic, NULL, sizeBytes);
-		if (handle == 0)
+		if (device == NULL || sizeBytes == 0)
 			return 0;
-		buffers[handle].isDynamicUniform = true;
-		uniformBufferByBindingPoint[bindingPoint] = handle;
-		return handle;
+
+		bool dynamic = IsPerObjectDynamicBinding(bindingPoint);
+		uint32 alignedSlotSize = sizeBytes;
+		uint32 slotCount = 1;
+		if (dynamic)
+		{
+			// See the header comment on BufferRecord - same sizing
+			// formula as VulkanRenderDevice::CreateUniformBuffer() (256-byte
+			// align, ~64MB budget per UBO, 4096..65536 slots). Metal has
+			// no queryable "minimum uniform buffer offset alignment" the
+			// way vkGetPhysicalDeviceProperties does; 256 is the common,
+			// safely-conservative convention (comfortably above the
+			// actual per-type alignment Metal structs need).
+			const uint32 align = 256;
+			alignedSlotSize = (sizeBytes + align - 1) / align * align;
+			const uint64_t kMaxDynamicUboBytes = 64ull * 1024ull * 1024ull;
+			uint64_t computedSlots = kMaxDynamicUboBytes / alignedSlotSize;
+			slotCount = (uint32)(computedSlots < 4096ull ? 4096ull : computedSlots);
+			if (slotCount > kMaxDynamicUboSlots)
+				slotCount = kMaxDynamicUboSlots;
+		}
+
+		@autoreleasepool
+		{
+			id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
+			id<MTLBuffer> buf = [mtlDevice newBufferWithLength:(NSUInteger)alignedSlotSize * slotCount options:MTLResourceStorageModeShared];
+			if (buf == nil)
+				return 0;
+			memset(buf.contents, 0, (size_t)alignedSlotSize * slotCount);
+
+			BufferRecord record;
+			record.buffer = (void*)CFBridgingRetain(buf);
+			record.length = sizeBytes;
+			record.isDynamicUniform = dynamic;
+			record.alignedSlotSize = alignedSlotSize;
+			record.slotCount = slotCount;
+			record.currentSlot = 0;
+			DeviceHandle handle = nextBufferHandle++;
+			buffers[handle] = record;
+			uniformBufferByBindingPoint[bindingPoint] = handle;
+			return handle;
+		}
 	}
 	void MetalRenderDevice::UpdateUniformBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void *data)
 	{
@@ -979,11 +1051,26 @@ namespace p3d {
 		@autoreleasepool
 		{
 			id<MTLBuffer> buf = (__bridge id<MTLBuffer>)it->second.buffer;
-			memcpy((char*)buf.contents + offset, data, sizeBytes);
+			// Writes into the *current* slot, same as
+			// VulkanRenderDevice::UpdateUniformBuffer() - never advances it
+			// (that's ReplaceUniformBuffer()'s job, see its comment), so a
+			// caller that splits one logical write across multiple calls
+			// (offset varying, slot fixed) lands them all in the same slot.
+			size_t slotBase = it->second.isDynamicUniform ? (size_t)it->second.currentSlot * it->second.alignedSlotSize : 0;
+			memcpy((char*)buf.contents + slotBase + offset, data, sizeBytes);
 		}
 	}
 	void MetalRenderDevice::ReplaceUniformBuffer(const DeviceHandle buffer, const uint32 sizeBytes, const void *data)
 	{
+		// Advance to the next slot *before* writing - see the header
+		// comment on BufferRecord for why a single shared slot silently
+		// corrupts any scene with more than one object sharing this
+		// binding. Non-dynamic buffers (slotCount==1) wrap back to the
+		// same slot 0 every time, identical to today's single-buffer
+		// behavior.
+		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
+		if (it != buffers.end() && it->second.isDynamicUniform)
+			it->second.currentSlot = (it->second.currentSlot + 1) % it->second.slotCount;
 		UpdateUniformBuffer(buffer, 0, sizeBytes, data);
 	}
 	void MetalRenderDevice::DestroyUniformBuffer(const DeviceHandle buffer)
