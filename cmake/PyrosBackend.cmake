@@ -223,6 +223,27 @@ if (BUILD_METAL_BACKEND)
 			PROPERTIES COMPILE_FLAGS "-fobjc-arc"
 		)
 		set(METAL_BACKEND_LIBS ${METAL_FRAMEWORK} ${QUARTZCORE_FRAMEWORK} ${FOUNDATION_FRAMEWORK})
+
+		# GLSL -> SPIR-V (shaderc, already found above for the Vulkan path)
+		# -> MSL (spirv-cross-msl, the one spirv-cross backend library the
+		# Vulkan path never needed - it only ever reflects SPIR-V, never
+		# regenerates shader *source* from it). Real shader compilation is
+		# unavailable without both; MetalRenderDevice::CompileShaderStage()
+		# checks METAL_SHADER_TOOLING itself and fails loudly rather than
+		# silently, same pattern as VulkanRenderDevice's SPIRV_TOOLING check.
+		if (SPIRV_TOOLING_FOUND)
+			find_library(SPIRV_CROSS_MSL_LIBRARY NAMES spirv-cross-msl PATHS ${HOMEBREW_SPIRV_CROSS_PREFIX}/lib)
+			if (SPIRV_CROSS_MSL_LIBRARY)
+				add_compile_definitions(METAL_SHADER_TOOLING)
+				list(APPEND METAL_BACKEND_LIBS ${SPIRV_CROSS_MSL_LIBRARY})
+				message(STATUS "Metal shader tooling: spirv-cross-msl=${SPIRV_CROSS_MSL_LIBRARY}")
+			else()
+				message(WARNING "spirv-cross-msl not found — MetalRenderDevice will fail to compile any shader (brew install spirv-cross should already provide it alongside the glsl/core backends BUILD_SPIRV_TOOLING found)")
+			endif()
+		else()
+			message(WARNING "BUILD_SPIRV_TOOLING is OFF or shaderc/spirv-cross weren't found — MetalRenderDevice will fail to compile any shader")
+		endif()
+
 		message(STATUS "Metal backend: Metal=${METAL_FRAMEWORK}")
 	else()
 		message(WARNING "Metal/QuartzCore/Foundation frameworks not found — Metal backend disabled.")

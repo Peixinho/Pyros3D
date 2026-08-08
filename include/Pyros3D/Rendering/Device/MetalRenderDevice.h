@@ -379,6 +379,12 @@ namespace p3d {
 		void* commandQueue;
 		void* metalLayer;      // CAMetalLayer* - set by BindToLayer()
 		uint32 drawableWidth, drawableHeight;
+		// One shared depth buffer sized to match the drawable - mirrors
+		// VulkanRenderDevice's single swapchain-wide depthImage (see its
+		// comment: only one frame's worth of swapchain rendering is ever
+		// in flight against it). (Re)built by BindToLayer()/
+		// NotifySurfaceResized() whenever drawableWidth/Height change.
+		void* depthTexture; // id<MTLTexture>, nullable until BindToLayer() succeeds
 
 		// Frames-in-flight throttling: Apple's own documented pattern
 		// (dispatch_semaphore_t, signalled from each MTLCommandBuffer's
@@ -429,6 +435,42 @@ namespace p3d {
 		DeviceHandle currentVao;
 		DeviceHandle currentPipeline;
 
+		// GLSL -> SPIR-V -> MSL, reusing the exact same GLSL->SPIR-V step
+		// (SpirvShaderCompiler/shaderc) the Vulkan backend already has -
+		// only the last step (SPIR-V -> MSL source via SPIRV-Cross, then
+		// MSL source -> MTLLibrary/MTLFunction) is Metal-specific. spirv
+		// is kept per stage (not just the compiled MTLFunction) because
+		// LinkProgram() reflects both stages together the same way
+		// VulkanRenderDevice::LinkProgram() does.
+		struct ShaderStageRecord
+		{
+			uint32 engineShaderType;
+			std::vector<uint32> spirv;
+			void* function; // id<MTLFunction>
+			ShaderStageRecord() : engineShaderType(0), function(NULL) {}
+		};
+		std::map<DeviceHandle, ShaderStageRecord> shaderStages;
+		DeviceHandle nextShaderStageHandle;
+
+		// No VkDescriptorSetLayout/VkPipelineLayout equivalent to build here
+		// (see BindUniformBlockIfPresent()'s comment) - LinkProgram() only
+		// needs to reflect attribute locations (for CreatePipeline()'s
+		// MTLVertexDescriptor) and which binding indices exist / which
+		// stage(s) use each (for DrawElements()'s setVertexBuffer/
+		// setFragmentBuffer calls, done fresh per draw instead of once into
+		// a cached descriptor set - see the comment there for why that's
+		// simpler here, not just differently-shaped).
+		struct ProgramRecord
+		{
+			DeviceHandle vertexShader, fragmentShader;
+			std::map<std::string, uint32> attributeLocations;
+			// bit0 = used by vertex stage, bit1 = used by fragment stage.
+			std::map<uint32, uint32> bindingStageMask;
+			ProgramRecord() : vertexShader(0), fragmentShader(0) {}
+		};
+		std::map<DeviceHandle, ProgramRecord> programs;
+		DeviceHandle nextProgramHandle;
+
 		// One MTLBuffer per handle (void* -> id<MTLBuffer> in the .mm).
 		// No VMA/allocator member at all - MTLDevice's own
 		// newBufferWithLength:options:/newBufferWithBytes:... calls are
@@ -444,6 +486,14 @@ namespace p3d {
 		};
 		std::map<DeviceHandle, BufferRecord> buffers;
 		DeviceHandle nextBufferHandle;
+		// Which buffer handle currently occupies a given uniform binding
+		// index, globally - set by CreateUniformBuffer() (bindingPoint is a
+		// stable, project-wide convention the same way it already is on
+		// the Vulkan/GL side, e.g. "binding 8 is always this material's
+		// MVP block"). DrawElements()/DrawElementsInstanced() read this
+		// fresh per draw for whichever bindings the bound program's
+		// ProgramRecord::bindingStageMask says it actually uses.
+		std::map<uint32, DeviceHandle> uniformBufferByBindingPoint;
 
 		// One MTLTexture per handle, plus the small dirty-tracked sampler
 		// descriptor mentioned on the Set*Filter/Wrap methods above -
@@ -505,10 +555,49 @@ namespace p3d {
 		// every attach just updates FBORecord and the *next* real bind
 		// builds the descriptor from whatever's there right then.
 		void BeginRenderEncoderForTarget(const DeviceHandle fbo);
+		// (Re)allocates depthTexture at drawableWidth x drawableHeight -
+		// called by BindToLayer()/NotifySurfaceResized() (both know the
+		// new size already). Depth32Float, private storage (never sampled
+		// or read back on this milestone's swapchain path).
+		void RebuildDepthTexture();
+		// Binds whatever buffer currently occupies each of `programHandle`'s
+		// reflected UBO bindings onto currentRenderEncoder, for whichever
+		// stage(s) ProgramRecord::bindingStageMask says use it - the
+		// per-draw equivalent of Vulkan's cached-descriptor-set bind (see
+		// BindUniformBlockIfPresent()'s comment for why this is fresh
+		// per-draw instead of write-once). Called from DrawArrays()/
+		// DrawElements()/DrawElementsInstanced() right before the actual
+		// draw call, mirroring VulkanRenderDevice's identical placement/
+		// reasoning (a material's PreRender() may still be writing uniform
+		// data between BindPipeline() and here).
+		void BindProgramUniformBuffers(const DeviceHandle programHandle);
 
-		std::map<DeviceHandle, void*> pipelines; // id<MTLRenderPipelineState>
+		// programHandle kept alongside the compiled pipeline state so
+		// BindPipeline()/DrawElements() know which ProgramRecord's
+		// attribute/binding reflection applies to whatever's currently
+		// bound - a Vulkan VkPipeline has no equivalent back-reference
+		// need (its descriptor set is looked up via ProgramRecord
+		// directly, not through the pipeline), but this backend binds
+		// buffers fresh per draw (see the comment on
+		// uniformBufferByBindingPoint) and needs to know *which*
+		// program's bindings to walk.
+		struct PipelineRecord
+		{
+			void* pipelineState;     // id<MTLRenderPipelineState>
+			void* depthStencilState; // id<MTLDepthStencilState>
+			DeviceHandle programHandle;
+			// Buffer index each VaoRecord::vertexBuffers[i] should bind at -
+			// currently always i itself (see DrawElements()'s comment on
+			// the shared vertex-buffer/UBO index namespace), kept as an
+			// explicit field rather than an implicit assumption so a
+			// future multi-buffer-layout pipeline has somewhere to record
+			// a different assignment without changing DrawElements()'s
+			// contract.
+			uint32 vertexBufferCount;
+			PipelineRecord() : pipelineState(NULL), depthStencilState(NULL), programHandle(0), vertexBufferCount(0) {}
+		};
+		std::map<DeviceHandle, PipelineRecord> pipelines;
 		DeviceHandle nextPipelineHandle;
-		std::map<DeviceHandle, void*> depthStencilStates; // id<MTLDepthStencilState>, keyed same as pipelines
 
 		// Persistent pipeline cache equivalent - MTLBinaryArchive
 		// (macOS 11+) mirrors VkPipelineCache's "save compiled variants,
