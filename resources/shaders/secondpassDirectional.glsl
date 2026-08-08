@@ -160,6 +160,17 @@ float DecodeNativeDepth(float native_z, vec4 z_info_local)
 vec2 getPosViewSpace(vec2 uv, vec4 z_info_local, mat4 uMatProj_local, vec4 viewport_transform_local)
 {
 	vec2 screenPos = (uv + .5) * viewport_transform_local.zw - viewport_transform_local.xy;
+	// uv is gl_FragCoord-derived, so its Y origin follows the backend:
+	// bottom-left on GL (matching NDC Y up) and top-left on Vulkan
+	// (matching NDC Y down) - either way the line above lands on the
+	// right NDC Y already. Metal is the mismatch: top-left gl_FragCoord
+	// but NDC Y *up*, so the mapping comes out negated and the
+	// reconstructed view-space ray points the wrong way vertically -
+	// deferred lighting slid along Y with the camera instead of staying
+	// put on the geometry.
+#if defined(METAL)
+	screenPos.y = -screenPos.y;
+#endif
 	vec2 screenSpaceRay = vec2(screenPos.x / uMatProj_local[0][0],screenPos.y / uMatProj_local[1][1]);
 	return screenSpaceRay;
 }
