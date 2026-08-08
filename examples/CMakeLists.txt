@@ -75,6 +75,45 @@ pyros_add_example(CppApiDemo
 		${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
 )
 
+# Metal backend's first-light smoke test (see MetalHelloWindow.h) - a
+# bespoke target, not pyros_add_example(): that helper always links the
+# *build-wide* ${PYROS_WINDOW_MANAGER} (one window context per configure,
+# chosen via PYROS_CONTEXT), so a normal -DPYROS_GRAPHICS=OpenGL/Vulkan
+# configure would link the wrong window manager into anything using
+# SDL2MetalContext directly. Building this explicitly against
+# SDL2MetalContext.cpp regardless of the primary PYROS_CONTEXT means Metal
+# bring-up can be verified without disturbing whatever the rest of this
+# configure already builds (GL/Vulkan examples keep working unchanged) -
+# only needs BUILD_METAL_BACKEND=ON, independent of PYROS_GRAPHICS/CONTEXT.
+if (METAL_BACKEND_FOUND)
+	add_executable(MetalHelloWindow
+		${CMAKE_CURRENT_SOURCE_DIR}/MetalHelloWindow/MetalHelloWindow.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/WindowManagers/SDL2Metal/SDL2MetalContext.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
+		${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
+	)
+	find_package(SDL2 REQUIRED)
+	target_include_directories(MetalHelloWindow PRIVATE
+		${CMAKE_SOURCE_DIR}/include
+		${CMAKE_CURRENT_SOURCE_DIR}
+		${SDL2_INCLUDE_DIRS}
+		${IMGUI_INCLUDE_DIRS}
+	)
+	target_link_libraries(MetalHelloWindow PRIVATE
+		PyrosEngine
+		$<IF:$<TARGET_EXISTS:SDL2::SDL2>,SDL2::SDL2,${SDL2_LIBRARIES}>
+		${METAL_BACKEND_LIBS}
+	)
+	target_compile_definitions(MetalHelloWindow PRIVATE
+		DEMO_NAME=MetalHelloWindow
+		_MetalHelloWindow
+		EXAMPLES_PATH=${EXAMPLES_PATH}
+	)
+	if (IS_DESKTOP)
+		target_compile_definitions(MetalHelloWindow PRIVATE DESKTOP)
+	endif()
+endif()
+
 # JS-first Embind library: import createPyros3D and drive the engine from JS.
 # (Replaces the old C++-host JsApiDemo + pyrosInit pattern.)
 if (EMSCRIPTEN)

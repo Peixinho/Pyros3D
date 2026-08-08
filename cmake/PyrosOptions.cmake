@@ -9,7 +9,11 @@ include(${CMAKE_CURRENT_LIST_DIR}/PyrosAndroid.cmake)
 # Primary graphics stack
 # ---------------------------------------------------------------------------
 set(PYROS_GRAPHICS "OpenGL" CACHE STRING "Primary graphics backend")
-set_property(CACHE PYROS_GRAPHICS PROPERTY STRINGS OpenGL Vulkan)
+set_property(CACHE PYROS_GRAPHICS PROPERTY STRINGS OpenGL Vulkan Metal)
+
+if (PYROS_GRAPHICS STREQUAL "Metal" AND NOT APPLE)
+	message(FATAL_ERROR "PYROS_GRAPHICS=Metal is only available on Apple platforms (use Vulkan on Windows/Linux)")
+endif()
 
 # ---------------------------------------------------------------------------
 # OpenGL / GLES profile (glad loader). Still compiled into the engine even
@@ -21,22 +25,29 @@ set_property(CACHE OPENGL_VERSION PROPERTY STRINGS GL45 GL42 GL41 GLES3)
 
 # ---------------------------------------------------------------------------
 # Window / swapchain context
-#   Auto       → SDL2 for OpenGL, SDL2Vulkan for Vulkan
+#   Auto       → SDL2 for OpenGL, SDL2Vulkan for Vulkan, SDL2Metal for Metal
 #   SDL2       → OpenGL window via SDL2
 #   SDL2Vulkan → Vulkan window via SDL2 (requires Vulkan backend)
+#   SDL2Metal  → native Metal window via SDL2 (requires Metal backend, Apple only)
 #   SFML / SDL → legacy contexts
 # ---------------------------------------------------------------------------
-set(CONTEXT "Auto" CACHE STRING "Window context (Auto picks SDL2 or SDL2Vulkan from PYROS_GRAPHICS)")
-set_property(CACHE CONTEXT PROPERTY STRINGS Auto SDL2 SDL2Vulkan SFML SDL)
+set(CONTEXT "Auto" CACHE STRING "Window context (Auto picks SDL2/SDL2Vulkan/SDL2Metal from PYROS_GRAPHICS)")
+set_property(CACHE CONTEXT PROPERTY STRINGS Auto SDL2 SDL2Vulkan SDL2Metal SFML SDL)
 
 if (CONTEXT STREQUAL "Auto" OR CONTEXT STREQUAL "")
 	if (PYROS_GRAPHICS STREQUAL "Vulkan")
 		set(PYROS_CONTEXT "SDL2Vulkan")
+	elseif (PYROS_GRAPHICS STREQUAL "Metal")
+		set(PYROS_CONTEXT "SDL2Metal")
 	else()
 		set(PYROS_CONTEXT "SDL2")
 	endif()
 else()
 	set(PYROS_CONTEXT "${CONTEXT}")
+endif()
+
+if (PYROS_CONTEXT STREQUAL "SDL2Metal" AND NOT APPLE)
+	message(FATAL_ERROR "CONTEXT=SDL2Metal is only available on Apple platforms (use SDL2Vulkan on Windows/Linux)")
 endif()
 
 # ---------------------------------------------------------------------------
@@ -74,6 +85,32 @@ if (EMSCRIPTEN AND BUILD_VULKAN_BACKEND)
 	message(FATAL_ERROR "Vulkan backend is not supported under Emscripten (use GLES3 / WebGL2).")
 endif()
 
+# Metal render device: on when the user picked Metal graphics or an
+# explicit SDL2Metal context. Still overridable via -DBUILD_METAL_BACKEND=.
+# APPLE-only (guarded above already for PYROS_GRAPHICS/PYROS_CONTEXT
+# directly - this covers the "neither was set to Metal but the user passed
+# -DBUILD_METAL_BACKEND=ON by hand on Linux/Windows" case).
+if (PYROS_GRAPHICS STREQUAL "Metal" OR PYROS_CONTEXT STREQUAL "SDL2Metal")
+	set(_pyros_metal_default ON)
+else()
+	set(_pyros_metal_default OFF)
+endif()
+option(BUILD_METAL_BACKEND "Build MetalRenderDevice (Metal.framework + QuartzCore, Apple only)" ${_pyros_metal_default})
+
+if (BUILD_METAL_BACKEND AND NOT APPLE)
+	message(FATAL_ERROR "BUILD_METAL_BACKEND is only available on Apple platforms")
+endif()
+
+if (PYROS_CONTEXT STREQUAL "SDL2Metal" AND NOT BUILD_METAL_BACKEND)
+	message(FATAL_ERROR
+		"CONTEXT/PYROS_CONTEXT=SDL2Metal requires BUILD_METAL_BACKEND=ON "
+		"(or set -DPYROS_GRAPHICS=Metal / -DBUILD_METAL_BACKEND=ON).")
+endif()
+
+if (EMSCRIPTEN AND BUILD_METAL_BACKEND)
+	message(FATAL_ERROR "Metal backend is not supported under Emscripten (use GLES3 / WebGL2).")
+endif()
+
 # ---------------------------------------------------------------------------
 # Library type
 # ---------------------------------------------------------------------------
@@ -91,6 +128,7 @@ message(STATUS "  PYROS_GRAPHICS     = ${PYROS_GRAPHICS}")
 message(STATUS "  OPENGL_VERSION     = ${OPENGL_VERSION}")
 message(STATUS "  CONTEXT (resolved) = ${PYROS_CONTEXT}  [cache=${CONTEXT}]")
 message(STATUS "  BUILD_VULKAN_BACKEND = ${BUILD_VULKAN_BACKEND}")
+message(STATUS "  BUILD_METAL_BACKEND  = ${BUILD_METAL_BACKEND}")
 message(STATUS "  BUILD_SPIRV_TOOLING  = ${BUILD_SPIRV_TOOLING}")
 message(STATUS "  BUILD_DEMOS          = ${BUILD_DEMOS}")
 message(STATUS "  HAVE_LUA_BINDINGS    = ${HAVE_LUA_BINDINGS}")

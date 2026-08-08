@@ -49,6 +49,25 @@ elseif (PYROS_CONTEXT STREQUAL "SDL2Vulkan")
 	# OpenGL ImGui backend must stay out of Vulkan builds.
 	set(PYROS_IMGUI_BACKEND_SOURCE ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp)
 
+elseif (PYROS_CONTEXT STREQUAL "SDL2Metal")
+	if (NOT METAL_BACKEND_FOUND)
+		message(FATAL_ERROR "SDL2Metal requires a successful BUILD_METAL_BACKEND (Metal/QuartzCore/Foundation frameworks, Apple only)")
+	endif()
+	find_package(SDL2 REQUIRED)
+	set(PYROS_WINDOW_MANAGER ${CMAKE_SOURCE_DIR}/examples/WindowManagers/SDL2Metal/SDL2MetalContext.cpp)
+	if (TARGET SDL2::SDL2)
+		set(PYROS_CONTEXT_LIB SDL2::SDL2 ${METAL_BACKEND_LIBS})
+	else()
+		set(PYROS_CONTEXT_LIB ${SDL2_LIBRARIES} ${METAL_BACKEND_LIBS})
+	endif()
+	set(PYROS_CONTEXT_DEFINITION _SDL2METAL)
+	# No ImGui backend wired in yet - matches SDL2VulkanContext's own
+	# bring-up order (window + device + clear/present came first, ImGui
+	# came later - see VulkanImGuiBackend.cpp's history). imgui_impl_metal.mm
+	# already exists vendored under src/Pyros3D/Ext/imgui/backends if/when
+	# that's the next step.
+	set(PYROS_IMGUI_BACKEND_SOURCE "")
+
 elseif (PYROS_CONTEXT STREQUAL "SDL")
 	find_package(SDL REQUIRED)
 	set(PYROS_WINDOW_MANAGER ${CMAKE_SOURCE_DIR}/examples/WindowManagers/SDL/SDLContext.cpp)
@@ -70,7 +89,7 @@ elseif (PYROS_CONTEXT STREQUAL "SFML")
 	)
 
 else()
-	message(FATAL_ERROR "Unknown PYROS_CONTEXT='${PYROS_CONTEXT}' (expected SDL2, SDL2Vulkan, SDL, or SFML)")
+	message(FATAL_ERROR "Unknown PYROS_CONTEXT='${PYROS_CONTEXT}' (expected SDL2, SDL2Vulkan, SDL2Metal, SDL, or SFML)")
 endif()
 
 message(STATUS "  Window manager      = ${PYROS_CONTEXT} → ${PYROS_WINDOW_MANAGER}")

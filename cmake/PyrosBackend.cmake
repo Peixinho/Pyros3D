@@ -188,3 +188,46 @@ if (BUILD_VULKAN_BACKEND)
 		endif()
 	endif()
 endif()
+
+# ---------------------------------------------------------------------------
+# Metal backend (optional, Apple only)
+# ---------------------------------------------------------------------------
+set(METAL_BACKEND_FOUND OFF)
+set(METAL_BACKEND_SOURCE "")
+set(METAL_BACKEND_LIBS "")
+
+if (BUILD_METAL_BACKEND)
+	find_library(METAL_FRAMEWORK Metal)
+	find_library(QUARTZCORE_FRAMEWORK QuartzCore)
+	find_library(FOUNDATION_FRAMEWORK Foundation)
+
+	if (METAL_FRAMEWORK AND QUARTZCORE_FRAMEWORK AND FOUNDATION_FRAMEWORK)
+		# MetalRenderDevice.mm is Objective-C++ (talks to real id<MTLXxx>
+		# types, unlike everything else in this engine) - CMake only knows
+		# to compile a .mm source with the Objective-C++ frontend once this
+		# language is enabled at least once per configure. Harmless to call
+		# more than once/redundantly with other CMake files that might also
+		# need it later (e.g. a real ImGui-on-Metal backend).
+		enable_language(OBJCXX)
+		set(METAL_BACKEND_FOUND ON)
+		add_compile_definitions(METAL_BACKEND)
+		set(METAL_BACKEND_SOURCE
+			${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/MetalRenderDevice.mm
+		)
+		# ARC only for this file - it's the one place that stores id<MTLXxx>
+		# objects across calls (as CFBridgingRetain()'d void* members, see
+		# its header comment); everywhere else in this engine is plain C++
+		# with no Objective-C object lifetimes to manage.
+		set_source_files_properties(
+			${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/MetalRenderDevice.mm
+			PROPERTIES COMPILE_FLAGS "-fobjc-arc"
+		)
+		set(METAL_BACKEND_LIBS ${METAL_FRAMEWORK} ${QUARTZCORE_FRAMEWORK} ${FOUNDATION_FRAMEWORK})
+		message(STATUS "Metal backend: Metal=${METAL_FRAMEWORK}")
+	else()
+		message(WARNING "Metal/QuartzCore/Foundation frameworks not found — Metal backend disabled.")
+		if (PYROS_CONTEXT STREQUAL "SDL2Metal")
+			message(FATAL_ERROR "SDL2Metal context was selected but the required frameworks are missing")
+		endif()
+	endif()
+endif()

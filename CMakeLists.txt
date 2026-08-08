@@ -38,6 +38,7 @@ target_link_libraries(PyrosEngine
 		${LUA_LIBRARIES}
 		${SPIRV_TOOLING_LIBS}
 		${VULKAN_BACKEND_LIBS}
+		${METAL_BACKEND_LIBS}
 		${AUDIO_LIBS}
 )
 
