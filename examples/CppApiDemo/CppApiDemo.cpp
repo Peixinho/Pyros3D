@@ -85,7 +85,11 @@ void CppApiDemo::DrawUI()
 		ImGui::Text("Mouse - look (while captured)");
 		ImGui::Separator();
 		ImGui::Text("For scene JSON + Lua demos, run DemoLauncher.");
+#if defined(_SDL2METAL)
+		ImGui::Text("Backend: Metal");
+#else
 		ImGui::Text("Backend: %s", GetActiveRenderDevice().IsVulkan() ? "Vulkan" : "OpenGL");
+#endif
 	}
 	ImGui::End();
 }

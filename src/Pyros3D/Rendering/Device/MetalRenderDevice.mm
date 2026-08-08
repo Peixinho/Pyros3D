@@ -212,6 +212,7 @@ namespace p3d {
 	MetalRenderDevice::MetalRenderDevice()
 		: device(NULL), commandQueue(NULL), metalLayer(NULL), drawableWidth(0), drawableHeight(0),
 		  depthTexture(NULL),
+		  imguiMetalBackendActive(false), imguiDummyColorTexture(NULL),
 		  frameBoundarySemaphore(NULL), currentCommandBuffer(NULL), currentRenderEncoder(NULL),
 		  currentDrawable(NULL), lastSubmittedCommandBuffer(NULL),
 		  nextVaoHandle(1), currentVao(0), currentPipeline(0),
@@ -497,6 +498,12 @@ namespace p3d {
 
 		@autoreleasepool
 		{
+			// Last chance to record additional draw commands (ImGui) into
+			// the still-open swapchain render pass - see UIRenderHook's
+			// header comment. Mirrors VulkanRenderDevice::EndFrame()'s
+			// identical placement, right before ending the pass.
+			if (UIRenderHook) UIRenderHook(currentCommandBuffer, currentRenderEncoder);
+
 			id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)currentRenderEncoder;
 			[encoder endEncoding];
 			CFBridgingRelease(currentRenderEncoder);
@@ -685,14 +692,50 @@ namespace p3d {
 			// the draw the way Vulkan's validation layer does - it just
 			// silently never writes real depth, leaving every shadow
 			// map at its clear value and every receiving surface fully
-			// "in shadow"). Every other pipeline still targets the
-			// swapchain's BGRA8Unorm/Depth32Float pair - real per-target
-			// color formats for a non-shadow offscreen target (deferred
-			// G-buffer) are still out of scope.
+			// "in shadow").
+			//
+			// A pipeline targeting a real *offscreen* FBO (DeferredRenderer's
+			// G-buffer: 4 simultaneous color attachments, each a different
+			// format - RGBA8/RGBA8/RGBA32F/RGBA8 per render_host.lua's
+			// makeTarget() calls) needs each colorAttachments[slot]'s real
+			// pixel format too, same render-pass-compatibility reasoning -
+			// found the same way as the shadow bug: Metal doesn't reject
+			// pipeline creation for this mismatch the way Vulkan's
+			// validation layer would, it just silently never stores
+			// whatever the fragment shader wrote to the slots this pipeline
+			// left at MTLPixelFormatInvalid, leaving every DeferredRenderer
+			// demo's screen black despite the G-buffer write, lighting
+			// accumulation, and swapchain composite/present sequence all
+			// otherwise completing without error (confirmed identical scene
+			// renders correctly on Vulkan - this is Metal-specific).
+			// currentBoundFBO is always the target this pipeline is about
+			// to draw into: CreatePipeline() only ever runs from
+			// IRenderer::BindMesh()/PostEffectsManager, both called with
+			// the real target already bound, matching how a Vulkan
+			// pipeline's VkRenderPass is always known at creation time too.
 			if (desc.isShadowPass)
+			{
 				pipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatInvalid;
+			}
 			else
-				pipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+			{
+				std::map<DeviceHandle, FBORecord>::iterator fboIt = fboRecords.find(currentBoundFBO);
+				if (currentBoundFBO != 0 && fboIt != fboRecords.end() && !fboIt->second.colorAttachments.empty())
+				{
+					for (std::map<uint32, FBOAttachmentRef>::iterator cIt = fboIt->second.colorAttachments.begin(); cIt != fboIt->second.colorAttachments.end(); cIt++)
+					{
+						std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(cIt->second.texture);
+						if (texIt == textures.end() || texIt->second.texture == NULL)
+							continue;
+						id<MTLTexture> attachmentTex = (__bridge id<MTLTexture>)texIt->second.texture;
+						pipelineDesc.colorAttachments[cIt->first].pixelFormat = attachmentTex.pixelFormat;
+					}
+				}
+				else
+				{
+					pipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+				}
+			}
 			pipelineDesc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
 
 			if (desc.blendingEnabled)
@@ -941,10 +984,21 @@ namespace p3d {
 				// advancing to a new slot for the next object can't affect
 				// a draw already recorded against this one.
 				NSUInteger slotOffset = bufIt->second.isDynamicUniform ? (NSUInteger)bufIt->second.currentSlot * bufIt->second.alignedSlotSize : 0;
+				// uniformBufferByBindingPoint (above) is keyed by the engine
+				// binding point regardless of backend, but the *compiled
+				// shader* may read this UBO from a different, compacted MSL
+				// buffer index - see ProgramRecord::highBindingMslIndex's
+				// comment (CompileShaderStage() remaps any binding >=
+				// kFirstVertexBufferIndex, since Metal caps buffer indices
+				// at 30).
+				NSUInteger mslIndex = bindingPoint;
+				std::map<uint32, uint32>::iterator remapIt = progIt->second.highBindingMslIndex.find(bindingPoint);
+				if (remapIt != progIt->second.highBindingMslIndex.end())
+					mslIndex = remapIt->second;
 				if (stageMask & 1u)
-					[encoder setVertexBuffer:buf offset:slotOffset atIndex:(NSUInteger)bindingPoint];
+					[encoder setVertexBuffer:buf offset:slotOffset atIndex:mslIndex];
 				if (stageMask & 2u)
-					[encoder setFragmentBuffer:buf offset:slotOffset atIndex:(NSUInteger)bindingPoint];
+					[encoder setFragmentBuffer:buf offset:slotOffset atIndex:mslIndex];
 			}
 		}
 	}
@@ -1332,8 +1386,21 @@ namespace p3d {
 				// still rendered nothing - the vertex shader was reading
 				// buffer index 0, not 8, because nothing told SPIRV-Cross
 				// to keep them in sync). Force every uniform buffer's MSL
-				// index to equal its original SPIR-V binding explicitly.
+				// index to equal its original SPIR-V binding explicitly -
+				// EXCEPT bindings >= kFirstVertexBufferIndex, which get a
+				// compacted index instead (see the loop below): Metal only
+				// allows [[buffer(0)]] through [[buffer(30)]], but several
+				// deferred/post-effect shaders (lastPass.glsl,
+				// secondpassSpot.glsl, PostEffects/Effects/*.cpp, ...) were
+				// authored against Vulkan's much larger descriptor space and
+				// hardcode UBO_BINDING values up to 39 - a direct passthrough
+				// makes newLibraryWithSource: fail with "'buffer' attribute
+				// parameter is out of bounds" (found running DemoLauncher's
+				// deferred-by-default demos - every one of them hit this).
+				// PyrosShader.glsl's own materials never use a binding that
+				// high (max is 23), so this remap is a no-op for them.
 				spirv_cross::ShaderResources resources = mslCompiler.get_shader_resources();
+				uint32 nextCompactHighBinding = kFirstVertexBufferIndex;
 				for (size_t i = 0; i < resources.uniform_buffers.size(); i++)
 				{
 					const spirv_cross::Resource &res = resources.uniform_buffers[i];
@@ -1341,13 +1408,26 @@ namespace p3d {
 					binding.stage = mslCompiler.get_execution_model();
 					binding.desc_set = mslCompiler.get_decoration(res.id, spv::DecorationDescriptorSet);
 					binding.binding = mslCompiler.get_decoration(res.id, spv::DecorationBinding);
-					binding.msl_buffer = binding.binding;
+					if (binding.binding >= kFirstVertexBufferIndex)
+					{
+						uint32 compact = nextCompactHighBinding++;
+						it->second.highBindingRemap[binding.binding] = compact;
+						binding.msl_buffer = compact;
+					}
+					else
+					{
+						binding.msl_buffer = binding.binding;
+					}
 					mslCompiler.add_msl_resource_binding(binding);
 				}
 				// Same reasoning for sampled images (textures aren't
 				// exercised by this milestone's shader, but the next
 				// texture-sampling material this backend compiles would
 				// hit the exact same silent-garbage-read bug without this).
+				// Metal's texture/sampler argument tables are separate from
+				// the buffer one used above, so none of these ever need the
+				// same >=kFirstVertexBufferIndex remap - no post-effect
+				// shader samples more than a handful of textures.
 				for (size_t i = 0; i < resources.sampled_images.size(); i++)
 				{
 					const spirv_cross::Resource &res = resources.sampled_images[i];
@@ -1441,6 +1521,14 @@ namespace p3d {
 		it->second.bindingStageMask.clear();
 		it->second.samplerBindings.clear();
 		it->second.samplerStageMask.clear();
+		// Merge both stages' CompileShaderStage()-computed remaps (see the
+		// header comment on ShaderStageRecord::highBindingRemap) - in
+		// practice a given high engine binding only ever appears in one of
+		// the two stages (post-effect UBOs like LastPassFragParams are
+		// fragment-only), so there's nothing to reconcile between them.
+		it->second.highBindingMslIndex.clear();
+		it->second.highBindingMslIndex.insert(vs->second.highBindingRemap.begin(), vs->second.highBindingRemap.end());
+		it->second.highBindingMslIndex.insert(fs->second.highBindingRemap.begin(), fs->second.highBindingRemap.end());
 		std::vector<SpirvResourceBinding> vsResources = SpirvShaderCompiler::Reflect(vs->second.spirv);
 		std::vector<SpirvResourceBinding> fsResources = SpirvShaderCompiler::Reflect(fs->second.spirv);
 		for (int stagePass = 0; stagePass < 2; stagePass++)

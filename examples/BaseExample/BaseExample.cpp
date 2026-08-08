@@ -244,17 +244,17 @@ void BaseExample::LookTo(Event::Input::Info e)
 void BaseExample::InitImGui()
 {
 #if defined(_SDL2METAL)
-	// No ImGui-on-Metal backend wired up yet (see MetalRenderDevice.mm's
-	// stub list and SDL2Metal's PyrosWindowContext.cmake comment - same
-	// "window+device+draw path first, ImGui later" bring-up order the
-	// Vulkan backend used). imguiInitialized stays false, which already
-	// makes every other ImGui* method here a real no-op (see their own
-	// `if (imguiInitialized)` guards) - a Metal-built subclass calling
-	// InitImGui()/DrawUI()/PrepareImGuiFrame() etc (as CppApiDemo::Init()
-	// does unconditionally) just skips ImGui entirely instead of failing
-	// to compile (GetGLContext(), used by the GL branch below, doesn't
-	// exist on SDL2MetalContext) or crashing on a real ImGui call against
-	// a context that's never been created.
+	// Real ImGui-on-Metal backend - MetalRenderDevice wraps ImGui_ImplMetal_*
+	// the same way VulkanRenderDevice wraps ImGui_ImplVulkan_* below (see
+	// InitImGuiMetalBackend()'s header comment).
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+	ImGui::StyleColorsDark();
+
+	ImGui_ImplSDL2_InitForMetal(GetSDLWindow());
+	imguiInitialized = static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).InitImGuiMetalBackend();
 #elif !defined(_SDL2VULKAN)
 	// Setup Dear ImGui context
 	IMGUI_CHECKVERSION();
@@ -312,14 +312,8 @@ void BaseExample::InitImGui()
 void BaseExample::ShutdownImGui()
 {
 	if (imguiInitialized) {
-		// Real Metal ImGui backend not wired up yet - see InitImGui()'s
-		// comment. This whole block is unreachable on that path anyway
-		// (imguiInitialized never becomes true there), but must still not
-		// *reference* ImGui_ImplOpenGL3_Shutdown - that symbol doesn't
-		// exist in a Metal build (imgui_impl_opengl3.cpp is GL-only,
-		// never compiled in - see PyrosWindowContext.cmake's SDL2Metal
-		// branch).
 #if defined(_SDL2METAL)
+		static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).ShutdownImGuiMetalBackend();
 #elif !defined(_SDL2VULKAN)
 		ImGui_ImplOpenGL3_Shutdown();
 #else
@@ -334,8 +328,8 @@ void BaseExample::ShutdownImGui()
 void BaseExample::BeginImGuiFrame()
 {
 	if (imguiInitialized) {
-		// See ShutdownImGui()'s identical comment.
 #if defined(_SDL2METAL)
+		static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).NewImGuiMetalFrame();
 #elif !defined(_SDL2VULKAN)
 		ImGui_ImplOpenGL3_NewFrame();
 #else
@@ -368,9 +362,11 @@ void BaseExample::PrepareImGuiFrame()
 void BaseExample::EndImGuiFrame()
 {
 	if (imguiInitialized) {
-		// See ShutdownImGui()'s comment - unreachable on _SDL2METAL
-		// (imguiInitialized never becomes true there) but must still not
-		// reference the GL-only ImGui_ImplOpenGL3_* backend.
+		// GL-only: Metal's ImGui draw call happens inside
+		// MetalRenderDevice::EndFrame() via UIRenderHook (see its header
+		// comment), and Vulkan's identical UIRenderHook mechanism already
+		// handles that backend the same way - this whole block is a no-op
+		// for both.
 #if !defined(_SDL2METAL) && !defined(_SDL2VULKAN)
 		// Save OpenGL state before ImGui rendering
 		GLint last_program, last_texture, last_array_buffer, last_element_array_buffer, last_vertex_array;

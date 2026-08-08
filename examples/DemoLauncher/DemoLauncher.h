@@ -17,6 +17,10 @@
 #include "../WindowManagers/SDL2Vulkan/SDL2VulkanContext.h"
 #define ClassName SDL2VulkanContext
 #include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
+#elif defined(_SDL2METAL)
+#include "../WindowManagers/SDL2Metal/SDL2MetalContext.h"
+#define ClassName SDL2MetalContext
+#include <Pyros3D/Rendering/Device/MetalRenderDevice.h>
 #else
 #include "../WindowManagers/SDL2/SDL2Context.h"
 #define ClassName SDL2Context

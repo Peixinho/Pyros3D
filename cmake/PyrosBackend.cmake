@@ -213,13 +213,20 @@ if (BUILD_METAL_BACKEND)
 		add_compile_definitions(METAL_BACKEND)
 		set(METAL_BACKEND_SOURCE
 			${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/MetalRenderDevice.mm
+			${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/MetalImGuiBackend.mm
+			${IMGUI_DIR}/backends/imgui_impl_metal.mm
 		)
-		# ARC only for this file - it's the one place that stores id<MTLXxx>
-		# objects across calls (as CFBridgingRetain()'d void* members, see
-		# its header comment); everywhere else in this engine is plain C++
-		# with no Objective-C object lifetimes to manage.
+		# ARC for MetalRenderDevice.mm/MetalImGuiBackend.mm - both store
+		# id<MTLXxx> objects across calls (as CFBridgingRetain()'d void*
+		# members, see MetalRenderDevice.h's header comment); everywhere
+		# else in this engine is plain C++ with no Objective-C object
+		# lifetimes to manage. imgui_impl_metal.mm is vendored upstream code
+		# written for manual retain/release (see its own ARC-feature
+		# comments) - deliberately left at this file's own default (no ARC),
+		# same as imgui_impl_vulkan.cpp needs no such override.
 		set_source_files_properties(
 			${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/MetalRenderDevice.mm
+			${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/MetalImGuiBackend.mm
 			PROPERTIES COMPILE_FLAGS "-fobjc-arc"
 		)
 		set(METAL_BACKEND_LIBS ${METAL_FRAMEWORK} ${QUARTZCORE_FRAMEWORK} ${FOUNDATION_FRAMEWORK})

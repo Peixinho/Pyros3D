@@ -362,7 +362,11 @@ void DemoLauncher::DrawUI()
 	ImGui::Begin("Pyros3D Demos");
 
 	ImGui::Text("FPS: %.1u", (uint32)fps.getFPS());
+#if defined(_SDL2METAL)
+	ImGui::Text("Backend: Metal");
+#else
 	ImGui::Text("Backend: %s", GetActiveRenderDevice().IsVulkan() ? "Vulkan" : "OpenGL");
+#endif
 	ImGui::Text("Mouse: %s (TAB to toggle)", SDL_GetRelativeMouseMode() ? "Captured" : "Free");
 	ImGui::Text("Profiler: F3");
 	ImGui::Separator();
@@ -462,7 +466,21 @@ void DemoLauncher::Shutdown()
 
 void DemoLauncher::InitImGui()
 {
-#if !defined(_SDL2VULKAN)
+#if defined(_SDL2METAL)
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	// Do not enable NavEnableKeyboard - ImGui steals Tab for widget
+	// focus, which breaks camera_fly.lua's Tab mouse-capture toggle.
+	ImGui::StyleColorsDark();
+
+	// SDL2's Metal init path is backend-agnostic - same InitForOther() a
+	// bespoke non-GL/Vulkan renderer would use (ImGui_ImplSDL2.h's own
+	// comment); it only wires up platform (mouse/keyboard/clipboard), no
+	// GL context or Vulkan instance/device required.
+	ImGui_ImplSDL2_InitForMetal(GetSDLWindow());
+	imguiInitialized = static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).InitImGuiMetalBackend();
+#elif !defined(_SDL2VULKAN)
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
@@ -496,10 +514,12 @@ void DemoLauncher::ShutdownImGui()
 {
 	if (imguiInitialized)
 	{
-#if !defined(_SDL2VULKAN)
-		ImGui_ImplOpenGL3_Shutdown();
-#else
+#if defined(_SDL2VULKAN)
 		static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).ShutdownImGuiVulkanBackend();
+#elif defined(_SDL2METAL)
+		static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).ShutdownImGuiMetalBackend();
+#else
+		ImGui_ImplOpenGL3_Shutdown();
 #endif
 		ImGui_ImplSDL2_Shutdown();
 		ImGui::DestroyContext();
@@ -509,7 +529,9 @@ void DemoLauncher::ShutdownImGui()
 
 void DemoLauncher::BeginImGuiFrame()
 {
-#if !defined(_SDL2VULKAN)
+#if defined(_SDL2METAL)
+	static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).NewImGuiMetalFrame();
+#elif !defined(_SDL2VULKAN)
 	ImGui_ImplOpenGL3_NewFrame();
 #else
 	static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).NewImGuiVulkanFrame();
@@ -520,6 +542,7 @@ void DemoLauncher::BeginImGuiFrame()
 
 void DemoLauncher::PrepareImGuiFrame()
 {
+	if (!imguiInitialized) return;
 	BeginImGuiFrame();
 	DrawUI();
 	ImGui::Render();
@@ -527,7 +550,7 @@ void DemoLauncher::PrepareImGuiFrame()
 
 void DemoLauncher::EndImGuiFrame()
 {
-#if !defined(_SDL2VULKAN)
+#if !defined(_SDL2VULKAN) && !defined(_SDL2METAL)
 	GLint last_program, last_texture, last_array_buffer, last_element_array_buffer, last_vertex_array;
 	glGetIntegerv(GL_CURRENT_PROGRAM, &last_program);
 	glGetIntegerv(GL_TEXTURE_BINDING_2D, &last_texture);

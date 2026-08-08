@@ -51,6 +51,7 @@
 #include <vector>
 #include <map>
 #include <string>
+#include <functional>
 
 namespace p3d {
 
@@ -88,6 +89,24 @@ namespace p3d {
 		// driven by IRenderer once those are real) exists. This is this
 		// backend's actual first-light milestone - see MetalHelloWindow.
 		bool ClearAndPresent(const Vec4 &clearColor);
+
+		// ImGui-on-Metal, mirroring VulkanRenderDevice::InitImGuiVulkanBackend()/
+		// NewImGuiVulkanFrame()/ShutdownImGuiVulkanBackend() - example code
+		// (BaseExample.cpp/DemoLauncher.cpp) calls these three instead of
+		// linking ImGui_ImplMetal_* itself, same reasoning as Vulkan's
+		// comment (imgui_impl_metal.mm is compiled into this library, see
+		// the root CMakeLists.txt), plus one Metal-specific wrinkle:
+		// ImGui_ImplMetal_NewFrame() needs a render pass descriptor to read
+		// pixel formats from, but the real swapchain one isn't built until
+		// BeginFrame() - which hasn't run yet when DemoLauncher's
+		// PrepareImGuiFrame() calls NewImGuiMetalFrame(), earlier in the
+		// same frame. Defined in MetalImGuiBackend.mm, using a persistent
+		// 1x1 dummy color texture + the real (also persistent) depthTexture
+		// member so the format ImGui's pipeline bakes in always matches
+		// what EndFrame() will actually draw into later this same frame.
+		bool InitImGuiMetalBackend();
+		void NewImGuiMetalFrame();
+		void ShutdownImGuiMetalBackend();
 
 		virtual CommandBufferHandle BeginCommandBuffer();
 		virtual void EndCommandBuffer(const CommandBufferHandle cmd);
@@ -387,6 +406,22 @@ namespace p3d {
 		// NotifySurfaceResized() whenever drawableWidth/Height change.
 		void* depthTexture; // id<MTLTexture>, nullable until BindToLayer() succeeds
 
+		// Set by InitImGuiMetalBackend(), cleared by
+		// ShutdownImGuiMetalBackend() - called from EndFrame() right before
+		// ending the swapchain encoder, mirroring VulkanRenderDevice::
+		// UIRenderHook's identical "last chance to record into the
+		// still-open render pass" role. Takes the raw command
+		// buffer/encoder (not id<MTLXxx> - this header is also parsed by
+		// plain C++) since MetalImGuiBackend.mm, not this class's own .mm
+		// file, is the one place that needs to know about ImGui at all.
+		std::function<void(void* commandBuffer, void* encoder)> UIRenderHook;
+		bool imguiMetalBackendActive;
+		// 1x1 BGRA8Unorm/RenderTarget texture, real for the whole time
+		// imguiMetalBackendActive is true - see NewImGuiMetalFrame()'s
+		// comment on why ImGui needs *some* real texture's pixel format
+		// before the real swapchain drawable exists this frame.
+		void* imguiDummyColorTexture;
+
 		// Frames-in-flight throttling: Apple's own documented pattern
 		// (dispatch_semaphore_t, signalled from each MTLCommandBuffer's
 		// addCompletedHandler:) replaces VulkanRenderDevice's
@@ -448,6 +483,12 @@ namespace p3d {
 			uint32 engineShaderType;
 			std::vector<uint32> spirv;
 			void* function; // id<MTLFunction>
+			// Engine UBO binding -> actual MSL [[buffer(N)]] index this
+			// stage's compiled MTLFunction reads from, populated only for
+			// bindings CompileShaderStage() had to remap (see its comment) -
+			// absent means "MSL buffer index equals the engine binding",
+			// still true for every PyrosShader.glsl material (0-23).
+			std::map<uint32, uint32> highBindingRemap;
 			ShaderStageRecord() : engineShaderType(0), function(NULL) {}
 		};
 		std::map<DeviceHandle, ShaderStageRecord> shaderStages;
@@ -478,6 +519,11 @@ namespace p3d {
 			// see that file's #define block).
 			std::map<std::string, uint32> samplerBindings;
 			std::map<uint32, uint32> samplerStageMask;
+			// Merged from both stages' ShaderStageRecord::highBindingRemap -
+			// see its comment. BindProgramUniformBuffers() consults this
+			// instead of assuming "MSL buffer index == engine binding"
+			// whenever a binding appears here.
+			std::map<uint32, uint32> highBindingMslIndex;
 			ProgramRecord() : vertexShader(0), fragmentShader(0) {}
 		};
 		std::map<DeviceHandle, ProgramRecord> programs;
