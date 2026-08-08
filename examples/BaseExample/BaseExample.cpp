@@ -518,12 +518,17 @@ void BaseExample::OnTabPress(Event::Input::Info p)
 
 void BaseExample::DisableImGuiMouseInput()
 {
+	// No ImGui context exists at all on _SDL2METAL (see InitImGui()'s
+	// comment) - ImGui::GetIO() dereferences a null current-context
+	// pointer in that case, crashing on the very first TAB press.
+	if (!imguiInitialized) return;
 	ImGuiIO& io = ImGui::GetIO();
 	io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
 }
 
 void BaseExample::EnableImGuiMouseInput()
 {
+	if (!imguiInitialized) return;
 	ImGuiIO& io = ImGui::GetIO();
 	io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
 }

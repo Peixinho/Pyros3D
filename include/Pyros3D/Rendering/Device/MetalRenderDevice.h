@@ -625,12 +625,28 @@ namespace p3d {
 		// still-recording command buffer (the exact bug class fixed in
 		// VulkanRenderDevice::BindFramebuffer() - see its comment history -
 		// structurally can't recur here).
+		//
+		// Each attachment is recorded as its texture + target together -
+		// target carries the same TranslateTextureTarget() sentinel
+		// UploadTexture2D()/BindTextureToTarget() already use (1 = plain
+		// 2D, kCubemapFaceTargetBase+faceIndex = one face of a cubemap,
+		// e.g. a point light's shadow map) - MTLRenderPassAttachmentDescriptor's
+		// `slice` property (faceIndex, 0 for a plain 2D texture) is how
+		// Metal points a render pass at one face of a cube texture,
+		// directly, with no separate single-face texture *view* object
+		// needed the way some other operations require.
+		struct FBOAttachmentRef
+		{
+			DeviceHandle texture;
+			uint32 target;
+			FBOAttachmentRef() : texture(0), target(1) {}
+		};
 		struct FBORecord
 		{
-			std::map<uint32, DeviceHandle> colorAttachments; // slot -> texture handle
-			DeviceHandle depthAttachment;
+			std::map<uint32, FBOAttachmentRef> colorAttachments; // slot -> attachment
+			FBOAttachmentRef depthAttachment; // depthAttachment.texture == 0 means "none"
 			bool preserveDepth;
-			FBORecord() : depthAttachment(0), preserveDepth(false) {}
+			FBORecord() : preserveDepth(false) {}
 		};
 		std::map<DeviceHandle, FBORecord> fboRecords;
 		DeviceHandle nextFBOHandle;

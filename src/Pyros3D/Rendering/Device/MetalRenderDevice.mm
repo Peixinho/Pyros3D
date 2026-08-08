@@ -36,6 +36,7 @@
 #include <string>
 
 #include <Pyros3D/Core/Buffers/GeometryBuffer.h>
+#include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <Pyros3D/Materials/Shaders/Shaders.h>
 
 #ifdef METAL_SHADER_TOOLING
@@ -563,7 +564,7 @@ namespace p3d {
 
 	void MetalRenderDevice::SetScissorRect(const f32 x, const f32 y, const f32 width, const f32 height)
 	{
-		if (!frameInProgress || currentRenderEncoder == NULL)
+		if (currentRenderEncoder == NULL)
 			return;
 		@autoreleasepool
 		{
@@ -580,7 +581,7 @@ namespace p3d {
 
 	void MetalRenderDevice::SetWireFrame(const bool enabled)
 	{
-		if (!frameInProgress || currentRenderEncoder == NULL)
+		if (currentRenderEncoder == NULL)
 			return;
 		@autoreleasepool
 		{
@@ -594,7 +595,7 @@ namespace p3d {
 	void MetalRenderDevice::SetPolygonOffsetEnabled(const bool enabled) { (void)enabled; }
 	void MetalRenderDevice::SetPolygonOffset(const f32 factor, const f32 units)
 	{
-		if (!frameInProgress || currentRenderEncoder == NULL)
+		if (currentRenderEncoder == NULL)
 			return;
 		@autoreleasepool
 		{
@@ -609,7 +610,7 @@ namespace p3d {
 
 	void MetalRenderDevice::SetCullFaceMode(const uint32 cullFace)
 	{
-		if (!frameInProgress || currentRenderEncoder == NULL)
+		if (currentRenderEncoder == NULL)
 			return;
 		@autoreleasepool
 		{
@@ -627,7 +628,7 @@ namespace p3d {
 	}
 	void MetalRenderDevice::DisableCullFace()
 	{
-		if (!frameInProgress || currentRenderEncoder == NULL)
+		if (currentRenderEncoder == NULL)
 			return;
 		@autoreleasepool
 		{
@@ -672,12 +673,26 @@ namespace p3d {
 			MTLRenderPipelineDescriptor* pipelineDesc = [[MTLRenderPipelineDescriptor alloc] init];
 			pipelineDesc.vertexFunction = vertexFn;
 			pipelineDesc.fragmentFunction = fragmentFn;
-			// Both hardcoded to what BeginFrame()'s swapchain render pass
-			// actually uses - see GetCurrentRenderTarget()'s header
-			// comment: real per-target pixel formats (an offscreen FBO's
-			// own texture format) are out of scope until framebuffers are
-			// (BindFramebuffer() etc are still stubs).
-			pipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+			// desc.isShadowPass (see its header comment - same flag
+			// VulkanRenderDevice's shadowPipelineRenderPass exists for)
+			// means this pipeline only ever runs inside a depth-only
+			// offscreen render pass (IRenderer::PreRender()'s shadow
+			// maps), which has no color attachment at all - a pipeline
+			// declaring colorAttachments[0].pixelFormat there is a
+			// render-pass-compatibility mismatch, same shape as the
+			// VUID-vkCmdDrawIndexed-renderPass-02684 bug that comment
+			// describes, just caught differently (Metal doesn't reject
+			// the draw the way Vulkan's validation layer does - it just
+			// silently never writes real depth, leaving every shadow
+			// map at its clear value and every receiving surface fully
+			// "in shadow"). Every other pipeline still targets the
+			// swapchain's BGRA8Unorm/Depth32Float pair - real per-target
+			// color formats for a non-shadow offscreen target (deferred
+			// G-buffer) are still out of scope.
+			if (desc.isShadowPass)
+				pipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatInvalid;
+			else
+				pipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
 			pipelineDesc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
 
 			if (desc.blendingEnabled)
@@ -767,7 +782,7 @@ namespace p3d {
 	void MetalRenderDevice::BindPipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline)
 	{
 		(void)cmd;
-		if (!frameInProgress || currentRenderEncoder == NULL)
+		if (currentRenderEncoder == NULL)
 			return;
 		std::map<DeviceHandle, PipelineRecord>::iterator it = pipelines.find(pipeline);
 		if (it == pipelines.end())
@@ -790,7 +805,7 @@ namespace p3d {
 
 	void MetalRenderDevice::SetViewport(const uint32 x, const uint32 y, const uint32 width, const uint32 height)
 	{
-		if (!frameInProgress || currentRenderEncoder == NULL)
+		if (currentRenderEncoder == NULL)
 			return;
 		@autoreleasepool
 		{
@@ -937,7 +952,7 @@ namespace p3d {
 	void MetalRenderDevice::DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count)
 	{
 		(void)nativeDrawType;
-		if (!frameInProgress || currentRenderEncoder == NULL || currentPipeline == 0)
+		if (currentRenderEncoder == NULL || currentPipeline == 0)
 			return;
 		std::map<DeviceHandle, PipelineRecord>::iterator pipeIt = pipelines.find(currentPipeline);
 		if (pipeIt == pipelines.end())
@@ -953,7 +968,7 @@ namespace p3d {
 	void MetalRenderDevice::DrawElements(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount)
 	{
 		(void)cmd; (void)nativeDrawType;
-		if (!frameInProgress || currentRenderEncoder == NULL || currentVao == 0 || currentPipeline == 0)
+		if (currentRenderEncoder == NULL || currentVao == 0 || currentPipeline == 0)
 			return;
 		std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
 		std::map<DeviceHandle, PipelineRecord>::iterator pipeIt = pipelines.find(currentPipeline);
@@ -993,7 +1008,7 @@ namespace p3d {
 	void MetalRenderDevice::DrawElementsInstanced(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount, const uint32 instanceCount)
 	{
 		(void)cmd; (void)nativeDrawType;
-		if (!frameInProgress || currentRenderEncoder == NULL || currentVao == 0 || currentPipeline == 0)
+		if (currentRenderEncoder == NULL || currentVao == 0 || currentPipeline == 0)
 			return;
 		std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
 		std::map<DeviceHandle, PipelineRecord>::iterator pipeIt = pipelines.find(currentPipeline);
@@ -1727,7 +1742,17 @@ namespace p3d {
 				texDesc.width = width;
 				texDesc.height = height;
 				texDesc.mipmapLevelCount = wantedMipLevels;
-				texDesc.usage = MTLTextureUsageShaderRead;
+				// MTLTextureUsageRenderTarget is required for a texture to
+				// ever be attached as a color/depth target (see
+				// BeginRenderEncoderForTarget()) - every shadow-casting
+				// light's ShadowMap (Texture::CreateEmptyTexture() with no
+				// initial data, routed through here same as an uploaded
+				// texture) needs it despite never going through
+				// UploadTexture2D() with real pixel data. Harmless to set on
+				// every texture on Apple's unified memory architecture, so
+				// no separate "is this a render target" signal is threaded
+				// through from the caller.
+				texDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
 				texDesc.storageMode = MTLStorageModeShared;
 				id<MTLTexture> newTex = [mtlDevice newTextureWithDescriptor:texDesc];
 				if (newTex == nil)
@@ -1829,9 +1854,7 @@ namespace p3d {
 			// See VulkanRenderDevice::RebuildSamplerIfDirty()'s identical
 			// guard - a render-target whose mips were requested but never
 			// actually populated must stay clamped to LOD 0, or automatic
-			// LOD selection can sample undefined memory. Not reachable via
-			// UploadTexture2D() alone yet (no framebuffer/render-target
-			// support - still a stub), but harmless to already get right.
+			// LOD selection can sample undefined memory.
 			samplerDesc.lodMinClamp = 0.0f;
 			samplerDesc.lodMaxClamp = (tex.hasMipmap && tex.mipsGenerated) ? FLT_MAX : 0.0f;
 			// LEQUAL matches GL's default GL_TEXTURE_COMPARE_FUNC, same as
@@ -1917,22 +1940,168 @@ namespace p3d {
 	void MetalRenderDevice::ReadTexturePixels(const uint32 target, const uint32 level, const uint32 format, const uint32 type, void *outBuffer) { (void)target; (void)level; (void)format; (void)type; (void)outBuffer; LogStub("ReadTexturePixels"); }
 	uint32 MetalRenderDevice::GetTextureDataSize(const uint32 nativeInternalFormat, const uint32 width, const uint32 height) { (void)nativeInternalFormat; (void)width; (void)height; LogStub("GetTextureDataSize"); return 0; }
 
+	// =====================================================================
+	// Framebuffers - real now. See the header comment on FBORecord: no
+	// VkRenderPass/VkFramebuffer-equivalent persistent object exists at
+	// all, so AttachFramebufferTexture2D() just records attachments and
+	// BeginRenderEncoderForTarget() builds a fresh MTLRenderPassDescriptor
+	// from them on every bind - the whole "defer building until enough
+	// attachments are known" problem VulkanRenderDevice's wasAlreadyBound/
+	// finalizePending machinery exists to solve doesn't apply here.
+	// =====================================================================
+
 	DeviceHandle MetalRenderDevice::GetCurrentRenderTarget() { return currentBoundFBO; }
-	DeviceHandle MetalRenderDevice::CreateFramebuffer() { LogStub("CreateFramebuffer"); return 0; }
-	void MetalRenderDevice::DestroyFramebuffer(const DeviceHandle fbo) { (void)fbo; LogStub("DestroyFramebuffer"); }
-	void MetalRenderDevice::SetFramebufferPreserveDepth(const DeviceHandle fbo, const bool preserve) { (void)fbo; (void)preserve; LogStub("SetFramebufferPreserveDepth"); }
-	uint32 MetalRenderDevice::TranslateFramebufferAccess(const uint32 engineAccess) { (void)engineAccess; LogStub("TranslateFramebufferAccess"); return 0; }
-	void MetalRenderDevice::BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo, const bool finalizePending) { (void)nativeAccess; (void)fbo; (void)finalizePending; LogStub("BindFramebuffer"); }
-	uint32 MetalRenderDevice::TranslateFramebufferAttachment(const uint32 engineAttachmentFormat) { (void)engineAttachmentFormat; LogStub("TranslateFramebufferAttachment"); return 0; }
-	void MetalRenderDevice::AttachFramebufferTexture2D(const uint32 nativeAttachmentFormat, const uint32 nativeTextureTarget, const uint32 textureId, const bool wasAlreadyBound) { (void)nativeAttachmentFormat; (void)nativeTextureTarget; (void)textureId; (void)wasAlreadyBound; LogStub("AttachFramebufferTexture2D"); }
+
+	DeviceHandle MetalRenderDevice::CreateFramebuffer()
+	{
+		DeviceHandle handle = nextFBOHandle++;
+		fboRecords[handle] = FBORecord();
+		return handle;
+	}
+	void MetalRenderDevice::DestroyFramebuffer(const DeviceHandle fbo)
+	{
+		fboRecords.erase(fbo);
+		if (currentBoundFBO == fbo) currentBoundFBO = 0;
+		if (currentReadFBO == fbo) currentReadFBO = 0;
+	}
+	void MetalRenderDevice::SetFramebufferPreserveDepth(const DeviceHandle fbo, const bool preserve)
+	{
+		std::map<DeviceHandle, FBORecord>::iterator it = fboRecords.find(fbo);
+		if (it != fboRecords.end())
+			it->second.preserveDepth = preserve;
+	}
+	uint32 MetalRenderDevice::TranslateFramebufferAccess(const uint32 engineAccess) { return engineAccess; }
+
+	// A Read-only bind (BlitFramebuffer()'s source - still a stub, see
+	// below) mirrors GL's GL_READ_FRAMEBUFFER target: never touches
+	// currentBoundFBO or the render encoder, same as
+	// VulkanRenderDevice::BindFramebuffer()'s identical early return.
+	void MetalRenderDevice::BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo, const bool finalizePending)
+	{
+		// No deferred-build step to finalize - see this block's header
+		// comment - so finalizePending has nothing to do here.
+		(void)finalizePending;
+		if (nativeAccess == FBOAccess::Read)
+		{
+			currentReadFBO = fbo;
+			return;
+		}
+
+		if (fbo != 0)
+		{
+			currentBoundFBO = fbo;
+			BeginRenderEncoderForTarget(fbo);
+			return;
+		}
+
+		currentBoundFBO = 0;
+		EndCurrentRenderEncoderIfOpen();
+		if (frameInProgress)
+		{
+			// Resume the swapchain target - Metal encoders, unlike Vulkan
+			// render passes, can't be "resumed" once ended, so this opens
+			// a *new* encoder against the same drawable/depth texture with
+			// Load actions (preserve whatever the frame's own encoder -
+			// or an earlier offscreen detour - already wrote), instead of
+			// the original BeginFrame() encoder that just got ended above.
+			// currentDrawable/depthTexture are still valid: both are held
+			// for the whole frame regardless of how many offscreen detours
+			// happen in between (see EndFrame()'s release timing).
+			if (currentDrawable != NULL && currentCommandBuffer != NULL)
+			{
+				@autoreleasepool
+				{
+					id<CAMetalDrawable> drawable = (__bridge id<CAMetalDrawable>)currentDrawable;
+					MTLRenderPassDescriptor* rpd = [MTLRenderPassDescriptor renderPassDescriptor];
+					rpd.colorAttachments[0].texture = drawable.texture;
+					rpd.colorAttachments[0].loadAction = MTLLoadActionLoad;
+					rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
+					if (depthTexture != NULL)
+					{
+						id<MTLTexture> depthTex = (__bridge id<MTLTexture>)depthTexture;
+						rpd.depthAttachment.texture = depthTex;
+						rpd.depthAttachment.loadAction = MTLLoadActionLoad;
+						rpd.depthAttachment.storeAction = MTLStoreActionStore;
+					}
+					id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)currentCommandBuffer;
+					id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
+					currentRenderEncoder = (void*)CFBridgingRetain(encoder);
+					MTLViewport viewport = { 0.0, 0.0, (double)drawableWidth, (double)drawableHeight, 0.0, 1.0 };
+					[encoder setViewport:viewport];
+				}
+			}
+		}
+		else if (currentCommandBuffer != NULL)
+		{
+			// Pre-frame offscreen work (shadow maps, rendered from
+			// IRenderer::PreRender() before RenderScene()/BeginFrame()
+			// ever runs) - submit and wait right here, one submit per
+			// Bind()/UnBind() session. Deliberately not the batched-
+			// across-sessions approach VulkanRenderDevice eventually grew
+			// for its swapchain path (see git history around that
+			// backend's BindFramebuffer() fix) - that batching is a
+			// deferred-rendering-specific optimization, and taking it
+			// here first, unproven, is exactly how that backend acquired
+			// a real cross-session-corruption bug. Submitting synchronously
+			// per light keeps this correct by construction: by the time a
+			// real frame's BeginFrame() runs, every shadow map it needs is
+			// already fully rendered.
+			@autoreleasepool
+			{
+				id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)currentCommandBuffer;
+				[cmdBuf commit];
+				[cmdBuf waitUntilCompleted];
+			}
+			CFBridgingRelease(currentCommandBuffer);
+			currentCommandBuffer = NULL;
+		}
+	}
+
+	uint32 MetalRenderDevice::TranslateFramebufferAttachment(const uint32 engineAttachmentFormat) { return engineAttachmentFormat; }
+
+	void MetalRenderDevice::AttachFramebufferTexture2D(const uint32 nativeAttachmentFormat, const uint32 nativeTextureTarget, const uint32 textureId, const bool wasAlreadyBound)
+	{
+		// wasAlreadyBound is VulkanRenderDevice's signal for whether it's
+		// safe to defer building a render pass - meaningless here (see
+		// this block's header comment), so unlike that backend this
+		// applies immediately either way; a re-attach mid-session (a
+		// point light's 2nd-6th cubemap face) just overwrites the same
+		// map slot, picked up the next time BeginRenderEncoderForTarget()
+		// runs.
+		(void)wasAlreadyBound;
+		if (currentBoundFBO == 0)
+			return;
+		std::map<DeviceHandle, FBORecord>::iterator it = fboRecords.find(currentBoundFBO);
+		if (it == fboRecords.end())
+			return;
+		FBOAttachmentRef ref;
+		ref.texture = textureId;
+		ref.target = nativeTextureTarget;
+		if (nativeAttachmentFormat == FrameBufferAttachmentFormat::Depth_Attachment)
+			it->second.depthAttachment = ref;
+		else if (nativeAttachmentFormat <= FrameBufferAttachmentFormat::Color_Attachment15)
+			it->second.colorAttachments[nativeAttachmentFormat] = ref;
+		else
+			fprintf(stderr, "MetalRenderDevice::AttachFramebufferTexture2D: Stencil_Attachment is not implemented - attachment format %u ignored\n", nativeAttachmentFormat);
+	}
 	void MetalRenderDevice::AttachFramebufferRenderbuffer(const uint32 nativeAttachmentFormat, const DeviceHandle renderbuffer) { (void)nativeAttachmentFormat; (void)renderbuffer; LogStub("AttachFramebufferRenderbuffer"); }
-	void MetalRenderDevice::SetDrawBufferNone() { LogStub("SetDrawBufferNone"); }
-	void MetalRenderDevice::SetReadBufferNone() { LogStub("SetReadBufferNone"); }
-	void MetalRenderDevice::SetDrawBufferBack() { LogStub("SetDrawBufferBack"); }
-	void MetalRenderDevice::SetReadBufferBack() { LogStub("SetReadBufferBack"); }
-	void MetalRenderDevice::SetDrawBuffers(const std::vector<uint32> &colorAttachmentIndices) { (void)colorAttachmentIndices; LogStub("SetDrawBuffers"); }
-	uint32 MetalRenderDevice::CheckFramebufferStatus() { LogStub("CheckFramebufferStatus"); return 0; }
-	uint32 MetalRenderDevice::TranslateFramebufferStatus(const uint32 nativeStatus) { (void)nativeStatus; LogStub("TranslateFramebufferStatus"); return 0; }
+	// No-ops, same as VulkanRenderDevice's identical set - GL's separate
+	// draw/read-buffer selection has no Metal (or Vulkan) equivalent;
+	// every color attachment a render pass declares is always written,
+	// and there's no glReadPixels-shaped "current read buffer" concept.
+	void MetalRenderDevice::SetDrawBufferNone() {}
+	void MetalRenderDevice::SetReadBufferNone() {}
+	void MetalRenderDevice::SetDrawBufferBack() {}
+	void MetalRenderDevice::SetReadBufferBack() {}
+	void MetalRenderDevice::SetDrawBuffers(const std::vector<uint32> &colorAttachmentIndices) { (void)colorAttachmentIndices; }
+	// Real Vulkan/Metal render passes are validated at creation time
+	// (vkCreateRenderPass / newRenderPipelineStateWithDescriptor:error:),
+	// not queried after the fact the way glCheckFramebufferStatus() is -
+	// same optimistic "always complete" answer as VulkanRenderDevice's
+	// identical override; a real failure surfaces as a loud fprintf at
+	// the actual creation call instead.
+	uint32 MetalRenderDevice::CheckFramebufferStatus() { return FBOStatus::Complete; }
+	uint32 MetalRenderDevice::TranslateFramebufferStatus(const uint32 nativeStatus) { return nativeStatus; }
 
 	DeviceHandle MetalRenderDevice::CreateRenderbuffer() { LogStub("CreateRenderbuffer"); return 0; }
 	void MetalRenderDevice::DestroyRenderbuffer(const DeviceHandle rbo) { (void)rbo; LogStub("DestroyRenderbuffer"); }
@@ -1958,10 +2127,97 @@ namespace p3d {
 		currentRenderEncoder = NULL;
 	}
 
+	// Builds a fresh MTLRenderPassDescriptor from fboRecords[fbo] and opens
+	// a new encoder on it - see the header comment on FBORecord for why
+	// there's no persistent render-pass object to reuse across binds the
+	// way VulkanRenderDevice's FBORecord::renderPass/framebuffersByTarget
+	// cache needs. Each FBOAttachmentRef.target is whatever
+	// TranslateTextureTarget() produced (1 for a plain 2D texture,
+	// kCubemapFaceTargetBase+faceIndex for one cube face - see that
+	// function's comment) - a cube face resolves to Metal's `slice`,
+	// which happens to need no reordering since TextureType::CubemapPositive_X
+	// .. CubemapNegative_Z (0..5) is already Metal's own +X,-X,+Y,-Y,+Z,-Z
+	// cube-slice order.
 	void MetalRenderDevice::BeginRenderEncoderForTarget(const DeviceHandle fbo)
 	{
-		(void)fbo;
-		LogStub("BeginRenderEncoderForTarget");
+		std::map<DeviceHandle, FBORecord>::iterator it = fboRecords.find(fbo);
+		if (it == fboRecords.end())
+			return;
+		FBORecord &record = it->second;
+
+		EndCurrentRenderEncoderIfOpen();
+
+		@autoreleasepool
+		{
+			if (currentCommandBuffer == NULL)
+			{
+				// Pre-frame case: a shadow map rendered from
+				// IRenderer::PreRender(), strictly before BeginFrame() ever
+				// runs, so there's no swapchain command buffer yet to reuse.
+				// BindFramebuffer(0,...)'s !frameInProgress branch commits +
+				// waits on this one once this FBO's Bind()/UnBind() session
+				// ends.
+				id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)commandQueue;
+				id<MTLCommandBuffer> cmdBuf = [queue commandBuffer];
+				currentCommandBuffer = (void*)CFBridgingRetain(cmdBuf);
+			}
+
+			MTLRenderPassDescriptor* rpd = [MTLRenderPassDescriptor renderPassDescriptor];
+			uint32 targetWidth = 0, targetHeight = 0;
+
+			for (std::map<uint32, FBOAttachmentRef>::iterator cIt = record.colorAttachments.begin(); cIt != record.colorAttachments.end(); cIt++)
+			{
+				std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(cIt->second.texture);
+				if (texIt == textures.end() || texIt->second.texture == NULL)
+					continue;
+				id<MTLTexture> tex = (__bridge id<MTLTexture>)texIt->second.texture;
+				uint32 slot = cIt->first;
+				rpd.colorAttachments[slot].texture = tex;
+				rpd.colorAttachments[slot].loadAction = MTLLoadActionClear;
+				rpd.colorAttachments[slot].storeAction = MTLStoreActionStore;
+				rpd.colorAttachments[slot].clearColor = MTLClearColorMake(pendingClearColor.x, pendingClearColor.y, pendingClearColor.z, pendingClearColor.w);
+				if (cIt->second.target >= kCubemapFaceTargetBase)
+					rpd.colorAttachments[slot].slice = cIt->second.target - kCubemapFaceTargetBase;
+				targetWidth = texIt->second.width;
+				targetHeight = texIt->second.height;
+			}
+
+			if (record.depthAttachment.texture != 0)
+			{
+				std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(record.depthAttachment.texture);
+				if (texIt != textures.end() && texIt->second.texture != NULL)
+				{
+					id<MTLTexture> depthTex = (__bridge id<MTLTexture>)texIt->second.texture;
+					rpd.depthAttachment.texture = depthTex;
+					// preserveDepth (SetFramebufferPreserveDepth()) means a
+					// prior pass already wrote depth this session and it must
+					// survive - e.g. VelocityRenderer sampling the same depth
+					// buffer the main pass just wrote - so Load instead of
+					// Clear, matching VulkanRenderDevice's identical use of
+					// this flag.
+					rpd.depthAttachment.loadAction = record.preserveDepth ? MTLLoadActionLoad : MTLLoadActionClear;
+					rpd.depthAttachment.storeAction = MTLStoreActionStore;
+					rpd.depthAttachment.clearDepth = 1.0;
+					if (record.depthAttachment.target >= kCubemapFaceTargetBase)
+						rpd.depthAttachment.slice = record.depthAttachment.target - kCubemapFaceTargetBase;
+					if (targetWidth == 0) targetWidth = texIt->second.width;
+					if (targetHeight == 0) targetHeight = texIt->second.height;
+				}
+			}
+
+			id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)currentCommandBuffer;
+			id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
+			currentRenderEncoder = (void*)CFBridgingRetain(encoder);
+
+			if (targetWidth > 0 && targetHeight > 0)
+			{
+				MTLViewport viewport = { 0.0, 0.0, (double)targetWidth, (double)targetHeight, 0.0, 1.0 };
+				[encoder setViewport:viewport];
+			}
+		}
+
+		currentVao = 0;
+		currentPipeline = 0;
 	}
 
 }
