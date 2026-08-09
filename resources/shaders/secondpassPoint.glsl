@@ -78,6 +78,26 @@ void main() {
 // hardware path. It does mean the cube shadow map must NOT have compare
 // mode enabled (see PointLight::EnableCastShadows) - a compare-mode
 // texture read by a non-comparison sampler is undefined.
+// Constant offset in stored-depth units, applied to the comparison below.
+//
+// Needed because the cube map moved from a depth attachment to an R32F
+// colour one (see PointLight::EnableCastShadows): polygon offset - what
+// ILightComponent::SetShadowBias configures - biases the *depth buffer*
+// only, and does not touch the colour the shadow shader writes. So the
+// acne protection the depth attachment got for free disappeared with the
+// conversion, and without this every lit surface sits one rounding error
+// from shadowing itself (measured as the fraction of floor pixels PCFPOINT
+// reports occluded, with no bias: GL 26.8%, Vulkan 47.6%, both far above
+// the true shadow area).
+//
+// TUNING: this file is loaded at runtime from resources/shaders (the build
+// trees symlink to it), so changing this value only needs the demo
+// relaunched - no rebuild. Too large and a real occluder stops registering,
+// and Vulkan's usable window is narrower than GL's because its stored/
+// reference margins come out smaller for the same geometry: 0.0005 gives GL
+// a correct shadow but erases Vulkan's entirely.
+const float SHADOW_BIAS = 0.00002;
+
 float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos)
 {
 	vec4 position_ls = Matrix2 * pos;
@@ -113,7 +133,7 @@ float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, v
 			// existed to hide the double remap this used to do. Real depth
 			// bias comes from the shadow pass's polygon offset
 			// (ILightComponent::SetShadowBias).
-			shadow += (texture(shadowMap, position_ls.xyz + vec3(vec2(x,y) * scale, 0.0)).r >= depth) ? 1.0 : 0.0;
+			shadow += (texture(shadowMap, position_ls.xyz + vec3(vec2(x,y) * scale, 0.0)).r + SHADOW_BIAS >= depth) ? 1.0 : 0.0;
 	shadow /= 16.0;
 	return shadow;
 }
@@ -326,7 +346,9 @@ void main() {
 	// there, so something further along still is. Shadowless beats wrongly
 	// shadowed; the gate stays until Vulkan produces a correct shadow, not
 	// merely correct samples.
-#if defined(VULKAN) || defined(METAL)
+#if defined(METAL)
+	// Metal still reads ~57% of the cube map as 0 even after the R32F
+	// conversion and its own pipeline colour-format fix, so it stays off.
 	FragColor = vec4(pbrColor, 1.0) * attenuation;
 #else
 	FragColor = vec4(pbrColor, 1.0) * attenuation * pcf;
