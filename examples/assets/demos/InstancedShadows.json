@@ -1,0 +1,66 @@
+{
+    "materials": [],
+    "roots": [
+        {
+            "name": "Camera",
+            "tags": [
+                "Camera"
+            ],
+            "position": [
+                0,
+                125,
+                205
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "demos/scripts/camera_fly.lua",
+                    "data": {
+                        "yaw": 0,
+                        "pitch": -32
+                    }
+                }
+            ]
+        },
+        {
+            "name": "InstancedShadowsSetup",
+            "tags": [],
+            "position": [
+                0,
+                0,
+                0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "demos/scripts/instanced_shadows_setup.lua",
+                    "data": {}
+                }
+            ]
+        }
+    ]
+}

@@ -338,6 +338,25 @@
   }
  },
  {
+  "name": "Instanced Shadows",
+  "description": "144 blocks in one instanced draw call, casting per-instance directional shadows onto the ground.",
+  "scene": "InstancedShadows.json",
+  "render": {
+   "type": "forward",
+   "globalLight": [
+    0.16,
+    0.16,
+    0.19,
+    1
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 1,
+    "far": 600
+   }
+  }
+ },
+ {
   "name": "Island (Planar Reflections)",
   "description": "Island water reflected/refracted by a clip-plane multipass: mirrored camera into a reflection FBO, below-water pass into a refraction FBO, composited by WaterShader.glsl (forward).",
   "scene": "IslandDemo.json",
