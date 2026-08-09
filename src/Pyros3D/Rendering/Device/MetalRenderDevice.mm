@@ -56,6 +56,28 @@ namespace {
 			fprintf(stderr, "MetalRenderDevice::%s: not implemented yet (framebuffers/textures/samplers - the swapchain draw path is real)\n", fn);
 	}
 
+	// Bytes per texel for the formats this backend's textures actually
+	// use - readback sizing (GetTextureDataSize/ReadTexturePixels) needs it.
+	p3d::uint32 BytesPerPixelMSL(MTLPixelFormat fmt)
+	{
+		switch (fmt)
+		{
+			case MTLPixelFormatR8Unorm:        return 1;
+			case MTLPixelFormatRG8Unorm:       return 2;
+			case MTLPixelFormatR16Float:       return 2;
+			case MTLPixelFormatDepth16Unorm:   return 2;
+			case MTLPixelFormatRGBA8Unorm:
+			case MTLPixelFormatBGRA8Unorm:
+			case MTLPixelFormatRGBA8Unorm_sRGB:
+			case MTLPixelFormatR32Float:
+			case MTLPixelFormatRG16Float:
+			case MTLPixelFormatDepth32Float:   return 4;
+			case MTLPixelFormatRGBA16Float:    return 8;
+			case MTLPixelFormatRGBA32Float:    return 16;
+			default:                           return 4;
+		}
+	}
+
 	MTLVertexFormat TranslateVertexFormatMSL(p3d::uint32 engineType)
 	{
 		using namespace p3d;
@@ -2231,8 +2253,68 @@ namespace p3d {
 	// VulkanRenderDevice's identical no-op.
 	void MetalRenderDevice::SetPixelUnpackAlignment(const uint32 value) { (void)value; }
 
-	void MetalRenderDevice::ReadTexturePixels(const uint32 target, const uint32 level, const uint32 format, const uint32 type, void *outBuffer) { (void)target; (void)level; (void)format; (void)type; (void)outBuffer; LogStub("ReadTexturePixels"); }
-	uint32 MetalRenderDevice::GetTextureDataSize(const uint32 nativeInternalFormat, const uint32 width, const uint32 height) { (void)nativeInternalFormat; (void)width; (void)height; LogStub("GetTextureDataSize"); return 0; }
+	// Real readback, not a stub. Both of these returning nothing meant any
+	// caller reading a texture back on Metal silently got an empty buffer -
+	// which is not a neutral failure: the point-shadow cube map viewer
+	// reported every face as a uniform 1.0 and looked like evidence that
+	// Metal's shadow map was empty, when in fact nothing had been read at
+	// all. `target` selects the cube face, same contract as GL's
+	// glGetTexImage and VulkanRenderDevice::ReadTexturePixels().
+	void MetalRenderDevice::ReadTexturePixels(const uint32 target, const uint32 level, const uint32 format, const uint32 type, void *outBuffer)
+	{
+		(void)format; (void)type;
+		if (outBuffer == NULL || device == NULL)
+			return;
+		std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(currentlyConfiguringTexture);
+		if (texIt == textures.end() || texIt->second.texture == NULL)
+			return;
+
+		@autoreleasepool
+		{
+			id<MTLDevice> dev = (__bridge id<MTLDevice>)device;
+			id<MTLTexture> tex = (__bridge id<MTLTexture>)texIt->second.texture;
+			const uint32 w = texIt->second.width, h = texIt->second.height;
+			const uint32 bytesPerPixel = BytesPerPixelMSL((MTLPixelFormat)tex.pixelFormat);
+			if (w == 0 || h == 0 || bytesPerPixel == 0)
+				return;
+			const NSUInteger bytesPerRow = (NSUInteger)w * bytesPerPixel;
+			const NSUInteger total = bytesPerRow * h;
+
+			id<MTLBuffer> staging = [dev newBufferWithLength:total options:MTLResourceStorageModeShared];
+			if (staging == nil)
+				return;
+
+			const NSUInteger slice = (texIt->second.isCubemap && target >= kCubemapFaceTargetBase)
+				? (NSUInteger)(target - kCubemapFaceTargetBase) : 0;
+
+			id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)commandQueue;
+			id<MTLCommandBuffer> cmd = [queue commandBuffer];
+			id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
+			[blit copyFromTexture:tex
+					  sourceSlice:slice
+					  sourceLevel:(NSUInteger)level
+					 sourceOrigin:MTLOriginMake(0, 0, 0)
+					   sourceSize:MTLSizeMake(w, h, 1)
+						 toBuffer:staging
+				destinationOffset:0
+		   destinationBytesPerRow:bytesPerRow
+		 destinationBytesPerImage:total];
+			[blit endEncoding];
+			[cmd commit];
+			[cmd waitUntilCompleted];
+
+			memcpy(outBuffer, [staging contents], total);
+		}
+	}
+
+	// Mirrors GLRenderDevice::GetTextureDataSize()'s contract - the byte
+	// size the caller should size its buffer to - but switches on
+	// MTLPixelFormat, since that is what TranslateTextureFormat() packs
+	// into `internalFormat` on this backend.
+	uint32 MetalRenderDevice::GetTextureDataSize(const uint32 nativeInternalFormat, const uint32 width, const uint32 height)
+	{
+		return BytesPerPixelMSL((MTLPixelFormat)nativeInternalFormat) * width * height;
+	}
 
 	// =====================================================================
 	// Framebuffers - real now. See the header comment on FBORecord: no
@@ -2372,12 +2454,40 @@ namespace p3d {
 		FBOAttachmentRef ref;
 		ref.texture = textureId;
 		ref.target = nativeTextureTarget;
+		// Re-attaching a *different* target to a slot mid-session has to
+		// restart the encoder. A Metal encoder is bound to the slice it was
+		// created with, and recording this attach without ending it left
+		// all six of a point light's cube faces drawing into whichever
+		// slice happened to be current when the first face began: one face
+		// held every face's geometry (the caster showed up in +X instead of
+		// -Y) and the other five stayed at their clear value. The old
+		// "picked up the next time BeginRenderEncoderForTarget() runs"
+		// assumption only held while nothing re-attached mid-pass, which
+		// was true until point-light shadows moved to a colour cube map.
+		const FBOAttachmentRef *existing = NULL;
+		if (nativeAttachmentFormat == FrameBufferAttachmentFormat::Depth_Attachment)
+			existing = &it->second.depthAttachment;
+		else
+		{
+			std::map<uint32, FBOAttachmentRef>::iterator cIt = it->second.colorAttachments.find(nativeAttachmentFormat);
+			if (cIt != it->second.colorAttachments.end())
+				existing = &cIt->second;
+		}
+		const bool retargeting = existing != NULL && existing->texture != 0
+			&& (existing->texture != ref.texture || existing->target != ref.target);
+
 		if (nativeAttachmentFormat == FrameBufferAttachmentFormat::Depth_Attachment)
 			it->second.depthAttachment = ref;
 		else if (nativeAttachmentFormat <= FrameBufferAttachmentFormat::Color_Attachment15)
 			it->second.colorAttachments[nativeAttachmentFormat] = ref;
 		else
 			fprintf(stderr, "MetalRenderDevice::AttachFramebufferTexture2D: Stencil_Attachment is not implemented - attachment format %u ignored\n", nativeAttachmentFormat);
+
+		if (retargeting)
+		{
+			EndCurrentRenderEncoderIfOpen();
+			BeginRenderEncoderForTarget(currentBoundFBO);
+		}
 	}
 	// A renderbuffer here is just a texture nobody samples (see
 	// CreateRenderbuffer()), so this is the same attach as a real texture -
