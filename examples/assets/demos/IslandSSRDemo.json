@@ -1,0 +1,205 @@
+{
+    "version": 1,
+    "materials": [
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": false,
+            "color": [
+                1,
+                1,
+                1,
+                1
+            ],
+            "cullFace": 2,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.05,
+            "id": 0,
+            "kind": "generic",
+            "metallic": 0.0,
+            "opacity": 1.0,
+            "options": 8,
+            "reflectivity": 0.0,
+            "roughness": 0.0,
+            "shininess": 50.0,
+            "specular": [
+                0,
+                0,
+                0,
+                0
+            ],
+            "ssrEnabled": false,
+            "transparent": true,
+            "wireframe": false,
+            "skyboxMap": {
+                "negx": "textures/skybox/negx.png",
+                "negy": "textures/skybox/negy.png",
+                "negz": "textures/skybox/negz.png",
+                "posx": "textures/skybox/posx.png",
+                "posy": "textures/skybox/posy.png",
+                "posz": "textures/skybox/posz.png"
+            }
+        }
+    ],
+    "roots": [
+        {
+            "name": "Camera",
+            "tags": [
+                "Camera"
+            ],
+            "position": [
+                0,
+                18,
+                260
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "demos/scripts/camera_fly.lua",
+                    "data": {
+                        "yaw": 0,
+                        "pitch": -6
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Sun",
+            "tags": [],
+            "position": [
+                0,
+                0,
+                0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": true,
+            "children": [],
+            "components": [
+                {
+                    "type": "DirectionalLight",
+                    "color": [
+                        1,
+                        1,
+                        1,
+                        1
+                    ],
+                    "direction": [
+                        -1,
+                        -1,
+                        0
+                    ],
+                    "intensity": 1.0,
+                    "castingShadows": false,
+                    "aspect": 1.777,
+                    "cascades": 1,
+                    "fov": 70.0,
+                    "shadowBiasFactor": 2.0,
+                    "shadowBiasUnits": 1.0,
+                    "shadowFar": 300.0,
+                    "shadowHeight": 1024,
+                    "shadowNear": 0.1,
+                    "shadowWidth": 1024
+                }
+            ]
+        },
+        {
+            "name": "Skybox",
+            "tags": [],
+            "position": [
+                0,
+                0,
+                0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "RenderingComponent",
+                    "castingShadows": false,
+                    "cullTest": false,
+                    "material": 0,
+                    "renderable": {
+                        "kind": "primitive",
+                        "shape": "Cube",
+                        "width": 1800.0,
+                        "height": 1800.0,
+                        "depth": 1800.0,
+                        "smooth": false,
+                        "flip": false,
+                        "tangentBitangent": false
+                    }
+                },
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "demos/scripts/skybox_follow.lua",
+                    "data": {}
+                }
+            ]
+        },
+        {
+            "name": "Setup",
+            "tags": [],
+            "position": [
+                0,
+                0,
+                0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "demos/scripts/island_ssr_setup.lua",
+                    "data": {}
+                }
+            ]
+        }
+    ]
+}

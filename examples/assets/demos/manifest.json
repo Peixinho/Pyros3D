@@ -338,8 +338,8 @@
   }
  },
  {
-  "name": "Island",
-  "description": "Island with real-time water reflection and refraction (forward multipass).",
+  "name": "Island (Planar Reflections)",
+  "description": "Island water reflected/refracted by a clip-plane multipass: mirrored camera into a reflection FBO, below-water pass into a refraction FBO, composited by WaterShader.glsl (forward).",
   "scene": "IslandDemo.json",
   "render": {
    "type": "forward",
@@ -353,6 +353,30 @@
     "fov": 70,
     "near": 1,
     "far": 10000
+   }
+  }
+ },
+ {
+  "name": "Island (SSR Water)",
+  "description": "The same island, reflected by screen-space reflections instead: one opaque G-buffer water surface with per-material SSR, no mirror pass and no extra render targets.",
+  "scene": "IslandSSRDemo.json",
+  "render": {
+   "type": "deferred",
+   "globalLight": [
+    0.3,
+    0.3,
+    0.35,
+    1
+   ],
+   "ssr": true,
+   "ssrDistances": [
+    6.0,
+    500.0
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 1,
+    "far": 3500
    }
   }
  },
