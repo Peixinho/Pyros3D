@@ -255,6 +255,10 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* ext
 	shadowMaterial->SetCullFace(CullFace::DoubleSided);
 	shadowSkinnedMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Skinning);
 	shadowSkinnedMaterial->SetCullFace(CullFace::DoubleSided);
+	// See PickShadowMaterial()'s comment in IRenderer.h - without this
+	// variant an instanced caster's shadow collapsed onto one instance.
+	shadowInstancedMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::InstancedRendering);
+	shadowInstancedMaterial->SetCullFace(CullFace::DoubleSided);
 
 	// Created once, by whichever IRenderer instance happens to be first -
 	// see the "shared/static" comment on these members in IRenderer.h.
@@ -387,6 +391,31 @@ IRenderer::~IRenderer()
 	}
 	delete shadowMaterial;
 	delete shadowSkinnedMaterial;
+	delete shadowInstancedMaterial;
+}
+
+GenericShaderMaterial* IRenderer::PickShadowMaterial(RenderingMesh* mesh)
+{
+	// Instanced first - see the members' comment in IRenderer.h for why
+	// skinned+instanced resolves this way rather than getting its own
+	// variant.
+	if (mesh->renderingComponent->IsInstanced()) return shadowInstancedMaterial;
+	if (mesh->SkinningBones.size() > 0) return shadowSkinnedMaterial;
+	return shadowMaterial;
+}
+
+bool IRenderer::IsShadowMaterial(IMaterial* material) const
+{
+	return material == shadowMaterial
+		|| material == shadowSkinnedMaterial
+		|| material == shadowInstancedMaterial;
+}
+
+void IRenderer::SetShadowDepthBias(const f32 factor, const f32 units)
+{
+	shadowMaterial->EnableDethBias(factor, units);
+	shadowSkinnedMaterial->EnableDethBias(factor, units);
+	shadowInstancedMaterial->EnableDethBias(factor, units);
 }
 
 void IRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene) {
@@ -471,7 +500,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					StartClippingPlanes();
 
 					// Enable Depth Bias
-					shadowMaterial->EnableDethBias(d->GetShadowBiasFactor(), d->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
+					SetShadowDepthBias(d->GetShadowBiasFactor(), d->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
 
 					ViewMatrix.identity();
 					ViewMatrix.LookAt(Vec3::ZERO, direction, Vec3(0.f, 0.f, -1.f));
@@ -495,7 +524,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 							if ((*k)->renderingComponent->GetOwner() != NULL && !(*k)->Material->IsTransparent())
 							{
 								if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-									RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
+									RenderObject((*k), (*k)->renderingComponent->GetOwner(), PickShadowMaterial(*k));
 							}
 						}
 
@@ -624,7 +653,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 						StartClippingPlanes();
 
 						// Enable Depth Bias
-						shadowMaterial->EnableDethBias(p->GetShadowBiasFactor(), p->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
+						SetShadowDepthBias(p->GetShadowBiasFactor(), p->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
 
 						// Set Viewport
 						_SetViewPort(0, 0, p->GetShadowWidth(), p->GetShadowHeight());
@@ -651,7 +680,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 								if (/*cullingTest && */ (*k)->renderingComponent->GetOwner() != NULL && !(*k)->Material->IsTransparent() && !(*k)->Material->IsTransparent())
 								{
 									if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-										RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
+										RenderObject((*k), (*k)->renderingComponent->GetOwner(), PickShadowMaterial(*k));
 								}
 							}
 						}
@@ -738,7 +767,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					StartClippingPlanes();
 
 					// Enable Depth Bias
-					shadowMaterial->EnableDethBias(s->GetShadowBiasFactor(), s->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
+					SetShadowDepthBias(s->GetShadowBiasFactor(), s->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
 
 					// Set Viewport
 					_SetViewPort(0, 0, s->GetShadowWidth(), s->GetShadowHeight());
@@ -765,7 +794,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 							if (/*cullingTest && */ (*k)->renderingComponent->GetOwner() != NULL && !(*k)->Material->IsTransparent() && !(*k)->Material->IsTransparent())
 							{
 								if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-									RenderObject((*k), (*k)->renderingComponent->GetOwner(), ((*k)->SkinningBones.size() > 0 ? shadowSkinnedMaterial : shadowMaterial));
+									RenderObject((*k), (*k)->renderingComponent->GetOwner(), PickShadowMaterial(*k));
 							}
 						}
 					}
@@ -2304,12 +2333,16 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		pdesc.depthWrite = material->IsDepthWritting();
 		pdesc.cullFace = material->GetCullFace();
 		pdesc.wireframe = material->IsWireFrame();
-		// See the comment on PipelineDesc::isShadowPass - shadowMaterial/
-		// shadowSkinnedMaterial are the two specific shared IRenderer
-		// members RenderObject() passes in as `Material` while rendering
-		// a shadow-casting pass (see PreRender()'s DIRECTIONAL/POINT/
-		// SPOT blocks), never for a real scene material.
-		pdesc.isShadowPass = (material == shadowMaterial || material == shadowSkinnedMaterial);
+		// See the comment on PipelineDesc::isShadowPass - the shadow
+		// materials are the specific shared IRenderer members
+		// RenderObject() passes in as `Material` while rendering a
+		// shadow-casting pass (see PreRender()'s DIRECTIONAL/POINT/SPOT
+		// blocks), never for a real scene material. Asking
+		// IsShadowMaterial() rather than comparing against the two that
+		// existed when this was written is what keeps a newly added
+		// variant from silently building its pipeline against the wrong
+		// render pass on Vulkan/Metal.
+		pdesc.isShadowPass = IsShadowMaterial(material);
 		// Mesh's actual per-buffer vertex attribute layout (name/type/
 		// offset/divisor per attribute, stride per buffer) - see the
 		// comment on IRenderDevice::PipelineDesc::vertexLayout.

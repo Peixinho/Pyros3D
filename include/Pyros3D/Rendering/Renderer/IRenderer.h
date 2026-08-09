@@ -500,9 +500,53 @@ namespace p3d {
 		void BindShadowMaps(IMaterial* material);
 		void UnbindShadowMaps(IMaterial* material);
 
-		GenericShaderMaterial	
-			*shadowMaterial, 
-			*shadowSkinnedMaterial;
+		// The shadow pass overrides every caster's own material with one of
+		// these, so each vertex-shader variant a caster can need has to
+		// exist here - the override is picked purely from the mesh, by
+		// PickShadowMaterial() below.
+		//
+		// shadowInstancedMaterial is why that's now a function rather than
+		// the inline `SkinningBones.size() > 0 ? ... : ...` ternary it used
+		// to be at all three call sites. RenderObject() issues a real
+		// DrawElementsInstanced() for any mesh whose component
+		// IsInstanced(), whatever material is bound - but shadowMaterial
+		// has no ShaderUsage::InstancedRendering, so its shader never
+		// declares aInstancedTransform, BindMesh()'s attribute lookup
+		// returned -1 for it, and the divisor setup was skipped: every
+		// instance drew at the component's own uModelMatrix. An instanced
+		// mesh cast N identical shadows stacked in one spot instead of one
+		// per instance.
+		//
+		// There is deliberately no skinned+instanced variant: per-instance
+		// bones would need a per-instance bones UBO, which this engine
+		// doesn't have, so that combination can't be rendered correctly in
+		// the main pass either. PickShadowMaterial() takes instanced first
+		// on the grounds that a wrong-but-placed shadow beats N shadows in
+		// a heap.
+		GenericShaderMaterial
+			*shadowMaterial,
+			*shadowSkinnedMaterial,
+			*shadowInstancedMaterial;
+
+		// Picks the shadow-pass override material for one caster.
+		GenericShaderMaterial* PickShadowMaterial(RenderingMesh* mesh);
+
+		// True for exactly the materials PickShadowMaterial() can return.
+		// Single source of truth for "is this draw part of a shadow pass",
+		// which RenderObject() needs for PipelineDesc::isShadowPass - that
+		// flag decides which render pass the pipeline is built against on
+		// Vulkan/Metal, so a shadow material missing from this list builds
+		// against the wrong one.
+		bool IsShadowMaterial(IMaterial* material) const;
+
+		// Applies this light's shadow depth bias to *every* shadow material,
+		// not just shadowMaterial. Only shadowMaterial was getting it
+		// before, so a skinned caster shadowed with no polygon offset at
+		// all - the z-fighting/acne the bias exists to prevent, on exactly
+		// the animated characters most likely to show it. Adding
+		// shadowInstancedMaterial to the same blind spot is what turned
+		// this from someone else's bug into one this change would own.
+		void SetShadowDepthBias(const f32 factor, const f32 units);
 
 		// Last Mesh Rendered
 		int32
