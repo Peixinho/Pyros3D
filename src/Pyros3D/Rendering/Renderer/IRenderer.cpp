@@ -28,6 +28,13 @@
 
 namespace p3d {
 
+// What a scene with no SetBackground() of its own clears to - matches the
+// value every backend's device already initialises its own clear colour to
+// (see e.g. MetalRenderDevice's pendingClearColor), so re-asserting it is a
+// no-op on a fresh device and only matters once some *other* renderer has
+// overwritten that shared state. See DrawBackground()/UnsetBackground().
+static const Vec4 kDefaultBackgroundColor(0.f, 0.f, 0.f, 1.f);
+
 // ViewPort Dimension
 uint32 IRenderer::_viewPortStartX = 0;
 uint32 IRenderer::_viewPortStartY = 0;
@@ -1093,8 +1100,15 @@ void IRenderer::ClearBufferBit(const uint32 Option)
 
 void IRenderer::DrawBackground()
 {
-	if (BackgroundColorSet)
-		device->SetClearColor(BackgroundColor);
+	// Push a colour every frame, including the "no background" one. The
+	// clear colour is device-global state that outlives any single
+	// IRenderer, so only writing it when a background *is* set left
+	// whatever the last renderer to set one had chosen in place forever:
+	// switching from IslandDemo (which sets its sky) to any scene without
+	// a background of its own kept clearing to Island's blue. Not
+	// backend-specific - reproduced identically on GL, Vulkan and Metal,
+	// since all three just hold the last SetClearColor() value.
+	device->SetClearColor(BackgroundColorSet ? BackgroundColor : kDefaultBackgroundColor);
 }
 
 void IRenderer::DepthTest(const uint32 test)
@@ -1361,6 +1375,9 @@ void IRenderer::SetBackground(const Vec4& Color)
 void IRenderer::UnsetBackground()
 {
 	BackgroundColorSet = false;
+	// Mirror SetBackground()'s immediate apply, so a caller that unsets
+	// between frames doesn't have to wait for the next DrawBackground().
+	if (device) device->SetClearColor(kDefaultBackgroundColor);
 }
 
 void IRenderer::ActivateCulling(const uint32 cullingType)
