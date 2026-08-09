@@ -756,6 +756,15 @@ namespace p3d {
 						cullingTest = CullingSphereTest((*j), (*j)->renderingComponent->GetOwner());
 						break;
 					}
+					// RenderingComponent::DisableCullTest() was honoured by
+					// ForwardRenderer::RenderScene() and by the translucent
+					// loop further down in this very function, but not here
+					// - so on the deferred path it silently did nothing for
+					// any opaque (G-buffer) mesh, which is most of a scene.
+					// A caller that knows its bounding volume is wrong (or
+					// just wants a mesh drawn unconditionally) had no way to
+					// say so. Same one-liner as those two loops.
+					if (!(*j)->renderingComponent->IsCullTesting()) cullingTest = true;
 
 					if (cullingTest && (*j)->renderingComponent->IsActive() && (*j)->Active == true)
 						RenderObject((*j), (*j)->renderingComponent->GetOwner(), (*j)->Material.get());
