@@ -1528,7 +1528,7 @@ namespace p3d {
 
 	uint32 VulkanRenderDevice::TranslateBufferBit(const uint32 bufferBits) { return 0; }
 	void VulkanRenderDevice::Clear(const uint32 nativeBufferBits) {}
-	void VulkanRenderDevice::SetClearColor(const Vec4 &color) { pendingClearColor = color; }
+	void VulkanRenderDevice::SetClearColor(const Vec4 &color) { lastClearColor = color; pendingClearColor = color; }
 
 	void VulkanRenderDevice::SetDepthTest(const bool enabled, const uint32 mode) {}
 	void VulkanRenderDevice::SetDepthMask(const bool enabled) {}

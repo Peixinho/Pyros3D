@@ -93,6 +93,18 @@ namespace p3d {
 		// while the uniforms still say 0/1 (sharp colour, zero velocity).
 		Texture::ResetUnitCounter();
 
+		// Each effect pass below clears its own target to transparent
+		// black, which overwrites the device-wide clear colour the *scene*
+		// wants. On GL that was invisible: RenderScene() issues its own
+		// glClear() after DrawBackground() has re-applied the colour. On
+		// Vulkan/Metal the scene's clear happens implicitly when
+		// CaptureFrame() binds ExternalFBO - i.e. *before* RenderScene()
+		// runs at all - so it used whatever this loop left behind on the
+		// previous frame, and any scene with both a background and a post
+		// chain rendered on black instead (DepthOfField's red background,
+		// most visibly). Put back what we found once the chain is done.
+		const Vec4 sceneClearColor = device->GetClearColor();
+
 		auto drawEffect = [&](IEffect *effect, const bool isLastEffect)
 		{
 			// Clear Screen
@@ -329,6 +341,10 @@ namespace p3d {
 		// harmless if BeginFrame() above was itself a no-op (already in
 		// progress from something else).
 		device->EndFrame();
+
+		// See sceneClearColor's comment above - hand the scene's own clear
+		// colour back so the next frame's CaptureFrame() bind clears to it.
+		device->SetClearColor(sceneClearColor);
 	}
 
 	PostEffectsManager::~PostEffectsManager()

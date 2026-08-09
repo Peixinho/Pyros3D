@@ -65,6 +65,7 @@ namespace p3d {
 
 	void GLRenderDevice::SetClearColor(const Vec4 &color)
 	{
+		lastClearColor = color;
 		GLCHECKER(glClearColor(color.x, color.y, color.z, color.w));
 	}
 

@@ -203,6 +203,13 @@ namespace p3d {
 		virtual uint32 TranslateBufferBit(const uint32 bufferBits) = 0;
 		virtual void Clear(const uint32 nativeBufferBits) = 0;
 		virtual void SetClearColor(const Vec4 &color) = 0;
+		// Last colour handed to SetClearColor(). Exists so a caller that has
+		// to clear to something else for a sub-pass can put back what it
+		// found instead of leaving this shared state clobbered - see
+		// PostEffectsManager::RenderEffects(). Non-virtual: every override of
+		// SetClearColor() routes through SetClearColorTracked() below, so
+		// there is nothing per-backend to answer here.
+		const Vec4 &GetClearColor() const { return lastClearColor; }
 
 		// Depth
 		virtual void SetDepthTest(const bool enabled, const uint32 mode) = 0;
@@ -776,6 +783,12 @@ namespace p3d {
 		// (any future arbitrary user shader).
 		virtual bool GetAutoUniformBlockLayout(const uint32 program, const uint32 engineShaderType, uint32 &outBinding, std::string &outBlockName, uint32 &outSize, std::map<std::string, uint32> &outOffsets) { return false; }
 
+	protected:
+		// Backing store for GetClearColor(). Every backend's
+		// SetClearColor() override records the colour here as well as
+		// applying it, so the getter needs no per-backend implementation.
+		// Initialised to the value the backends themselves start at.
+		Vec4 lastClearColor = Vec4(0.f, 0.f, 0.f, 1.f);
 	};
 
 	// Texture/FrameBuffer/GeometryBuffer/Shader/RenderingComponent (the

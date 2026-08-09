@@ -552,7 +552,7 @@ namespace p3d {
 	// there's no separate "clear now" operation outside a render pass on
 	// this backend either.
 	void MetalRenderDevice::Clear(const uint32 nativeBufferBits) { (void)nativeBufferBits; }
-	void MetalRenderDevice::SetClearColor(const Vec4 &color) { pendingClearColor = color; }
+	void MetalRenderDevice::SetClearColor(const Vec4 &color) { lastClearColor = color; pendingClearColor = color; }
 
 	// =====================================================================
 	// State that's really pipeline state on Metal (see the header comment
