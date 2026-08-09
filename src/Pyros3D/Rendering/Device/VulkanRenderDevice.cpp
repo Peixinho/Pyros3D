@@ -5189,6 +5189,21 @@ namespace p3d {
 		}
 
 		fboIt->second.lastTarget = nativeTextureTarget;
+		// This image is a render-pass attachment from here on, so the pass
+		// owns its layout and its finalLayout leaves it sampleable.
+		// Without this, EnsureSampledLayout() still thinks the image was
+		// never written and issues a UNDEFINED -> SHADER_READ_ONLY barrier
+		// across every layer - and UNDEFINED as a source layout explicitly
+		// permits the driver to DISCARD the contents. That silently threw
+		// away cube faces that had just been rendered, which showed up as
+		// point-light shadow lookups returning ~0 for whole ranges of
+		// directions. The pendingAttachments loop in
+		// BeginOffscreenRenderPassForTarget() does the same job for FBOs
+		// built the normal way; a point light's per-face re-attach never
+		// goes through it.
+		std::map<DeviceHandle, TextureRecord>::iterator attIt = textures.find(textureId);
+		if (attIt != textures.end())
+			attIt->second.layoutInitialized = true;
 		BeginOffscreenRenderPassForTarget(fboIt->second, targetFramebuffer);
 	}
 

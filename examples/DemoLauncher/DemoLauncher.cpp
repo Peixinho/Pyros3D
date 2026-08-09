@@ -414,8 +414,8 @@ void DemoLauncher::DrawShadowCubemapViewer()
 	static const char *kFaceNames[6] = { "+X", "-X", "+Y", "-Y", "+Z", "-Z" };
 
 	const uint32 srcW = light->GetShadowWidth(), srcH = light->GetShadowHeight();
-	const int cells = 48;                 // downsample grid per face
-	const float cellPx = 3.0f;
+	const int cells = 32;                 // downsample grid per face
+	const float cellPx = 2.0f;
 	ImGui::Text("%ux%u depth cubemap, downsampled to %dx%d per face.", srcW, srcH, cells, cells);
 	ImGui::Text("White = far/cleared (1.0), dark = something was drawn.");
 	ImGui::Separator();
@@ -459,6 +459,22 @@ void DemoLauncher::DrawShadowCubemapViewer()
 			}
 		}
 		ImGui::Dummy(ImVec2(cells * cellPx, cells * cellPx));
+		// Centroid of everything measurably nearer than the far/cleared
+		// value - i.e. where the caster actually landed in this face. Printed
+		// rather than eyeballed: a mirrored or rotated face looks nearly
+		// identical at thumbnail size, but its centroid moves.
+		if (depth != NULL && dmax > dmin)
+		{
+			const float thresh = dmin + (dmax - dmin) * 0.05f;
+			double sx = 0.0, sy = 0.0; int n = 0;
+			for (uint32 y = 0; y < srcH; y++)
+				for (uint32 x = 0; x < srcW; x++)
+					if (depth[y * srcW + x] < thresh) { sx += x; sy += y; n++; }
+			if (n > 0)
+				ImGui::Text("blob %.0f,%.0f n=%d", sx / n, sy / n, n);
+			else
+				ImGui::Text("blob none");
+		}
 		ImGui::Text("%.5f..%.5f", dmin, dmax);
 		ImGui::EndGroup();
 	}
