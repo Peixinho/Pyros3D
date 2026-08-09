@@ -5177,11 +5177,46 @@ namespace p3d {
 			// a resize landed between two frames.
 			fboIt->second.width = texIt->second.width;
 			fboIt->second.height = texIt->second.height;
+			// One view per attachment the render pass declares, in the same
+			// colour-then-depth order BuildMultiAttachmentRenderPass()
+			// sorts them into - Vulkan attachment references are plain
+			// indices, so a single-view framebuffer against a colour+depth
+			// pass is VUID-VkFramebufferCreateInfo-attachmentCount-00876.
+			// Only ever more than one since point-light shadow cube maps
+			// became R32F colour plus a shared depth buffer; every other
+			// user of this path is still single-attachment and takes the
+			// same code with a one-element vector.
+			std::vector<PendingAttachment> ordered = fboIt->second.pendingAttachments;
+			std::sort(ordered.begin(), ordered.end(), [](const PendingAttachment &a, const PendingAttachment &b) {
+				bool aDepth = a.format == FrameBufferAttachmentFormat::Depth_Attachment;
+				bool bDepth = b.format == FrameBufferAttachmentFormat::Depth_Attachment;
+				if (aDepth != bDepth) return bDepth;
+				return a.format < b.format;
+			});
+			std::vector<VkImageView> views;
+			for (size_t vi = 0; vi < ordered.size(); vi++)
+			{
+				if (ordered[vi].format == nativeAttachmentFormat)
+				{
+					views.push_back(targetView);
+					continue;
+				}
+				std::map<DeviceHandle, TextureRecord>::iterator otherIt = textures.find(ordered[vi].textureId);
+				if (otherIt == textures.end())
+					return;
+				VkImageView otherView = GetOrCreateRenderTargetView(otherIt->second, ordered[vi].target);
+				if (otherView == VK_NULL_HANDLE)
+					return;
+				views.push_back(otherView);
+			}
+			if (views.empty())
+				views.push_back(targetView);
+
 			VkFramebufferCreateInfo fbInfo = {};
 			fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 			fbInfo.renderPass = fboIt->second.renderPass;
-			fbInfo.attachmentCount = 1;
-			fbInfo.pAttachments = &targetView;
+			fbInfo.attachmentCount = (uint32_t)views.size();
+			fbInfo.pAttachments = views.data();
 			fbInfo.width = fboIt->second.width;
 			fbInfo.height = fboIt->second.height;
 			fbInfo.layers = 1;

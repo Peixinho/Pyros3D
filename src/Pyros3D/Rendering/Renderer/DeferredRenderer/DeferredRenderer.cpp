@@ -631,7 +631,18 @@ namespace p3d {
 			for (uint32 face = 0; face < 6; face++)
 			{
 				FrameBuffer warmupCubeFace;
-				warmupCubeFace.Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::CubemapPositive_X + face, dummyShadowCube);
+				// Colour, not depth: dummyShadowCube is R32F now, matching
+				// the real point-light shadow cube map it stands in for
+				// (see PointLight::EnableCastShadows). Attaching an R32F
+				// image as a depth-stencil attachment builds a render pass
+				// declaring R32_SFLOAT as its depth format, which MoltenVK
+				// runs anyway but validation rejects outright
+				// (VUID-VkSubpassDescription-pDepthStencilAttachment-02650,
+				// and VUID-VkFramebufferCreateInfo-pAttachments-02633 for
+				// the usage flags that follow). Six of these warm-ups ran
+				// per DeferredRenderer, which is where the bulk of demo 4's
+				// validation errors came from.
+				warmupCubeFace.Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::CubemapPositive_X + face, dummyShadowCube);
 				warmupCubeFace.Bind();
 				warmupCubeFace.UnBind();
 			}
