@@ -142,12 +142,69 @@ namespace p3d {
 		extensions.push_back(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
 #endif
 
+		// VK_LAYER_KHRONOS_validation, opt-in via PYROS_VK_VALIDATION=1.
+		//
+		// Nothing here ever set enabledLayerCount before, so no run of this
+		// engine had validation attached unless the caller went around it
+		// with the loader's own VK_LOADER_LAYERS_ENABLE - which means every
+		// "no validation errors" claim about this backend was really "no
+		// validation was listening". VULKAN_ROADMAP.md treats
+		// validation-clean output as part of the correctness bar, so that
+		// bar was never actually being measured. Enabling it here makes it
+		// checkable from a normal run.
+		//
+		// Opt-in rather than always-on in debug builds: the layer is a
+		// separate install (Homebrew's vulkan-validationlayers on this
+		// machine), it costs real frame time, and STATIC_LIB/release
+		// consumers shouldn't pay for it or fail without it. Enumerating
+		// first and warning - rather than passing the name blind - because
+		// vkCreateInstance returns VK_ERROR_LAYER_NOT_PRESENT for a missing
+		// layer, which here would silently degrade to "no Vulkan device at
+		// all" (the constructor just returns on failure) and look like a
+		// far worse bug than the missing layer.
+		std::vector<const char*> layers;
+		const char *validationEnv = getenv("PYROS_VK_VALIDATION");
+		const bool wantValidation = validationEnv != NULL && validationEnv[0] != '\0'
+			&& strcmp(validationEnv, "0") != 0;
+		if (wantValidation)
+		{
+			static const char *kValidationLayer = "VK_LAYER_KHRONOS_validation";
+			uint32_t layerCount = 0;
+			vkEnumerateInstanceLayerProperties(&layerCount, NULL);
+			std::vector<VkLayerProperties> available(layerCount);
+			if (layerCount > 0)
+				vkEnumerateInstanceLayerProperties(&layerCount, available.data());
+
+			bool found = false;
+			for (uint32_t i = 0; i < layerCount && !found; i++)
+				found = strcmp(available[i].layerName, kValidationLayer) == 0;
+
+			if (found)
+			{
+				layers.push_back(kValidationLayer);
+				fprintf(stderr, "VulkanRenderDevice: %s enabled (PYROS_VK_VALIDATION)\n", kValidationLayer);
+			}
+			else
+			{
+				// The layer being installed is not enough - the loader only
+				// finds it via its manifest directory, which on a Homebrew
+				// install is not one of the loader's default search paths.
+				fprintf(stderr,
+					"VulkanRenderDevice: PYROS_VK_VALIDATION set but %s is not available - continuing without it.\n"
+					"  Install the validation layers and point the loader at their manifest, e.g.\n"
+					"  VK_LAYER_PATH=/opt/homebrew/share/vulkan/explicit_layer.d\n",
+					kValidationLayer);
+			}
+		}
+
 		VkInstanceCreateInfo createInfo = {};
 		createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 		createInfo.pApplicationInfo = &appInfo;
 		createInfo.flags = flags;
 		createInfo.enabledExtensionCount = (uint32_t)extensions.size();
 		createInfo.ppEnabledExtensionNames = extensions.empty() ? NULL : extensions.data();
+		createInfo.enabledLayerCount = (uint32_t)layers.size();
+		createInfo.ppEnabledLayerNames = layers.empty() ? NULL : layers.data();
 
 #if defined(__APPLE__)
 		VkBool32 syncQueueSubmits = VK_TRUE;
