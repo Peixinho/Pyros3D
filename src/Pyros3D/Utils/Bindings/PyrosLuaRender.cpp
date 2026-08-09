@@ -513,9 +513,31 @@ namespace p3d {
         {
             // LUA RenderingInstancedComponent - shared_ptr via sol::factories
             lua->new_usertype<LUA_RenderingInstancedComponent>("RenderingInstancedComponent",
+                // sol::object + LuaObjectToRenderable/LuaObjectToMaterial,
+                // exactly like RenderingComponent's LuaNewRenderingComponent
+                // above and for the same reason: sol will NOT match a
+                // shared_ptr<Cube> (or any other concrete primitive) to a
+                // shared_ptr<Renderable> parameter on its own. These
+                // factories used to take the base shared_ptrs directly, so
+                // every RenderingInstancedComponent.new(Cube.new(...), ...)
+                // from Lua failed to match any overload - the type was bound
+                // but could not actually be constructed with any mesh the
+                // engine can produce.
                 sol::factories(
-                    [](const std::shared_ptr<Renderable>& renderable, const std::shared_ptr<IMaterial>& Material, int nrInstances, float boundingSphere) { return std::make_shared<LUA_RenderingInstancedComponent>(renderable, Material, nrInstances, boundingSphere); },
-                    [](const std::shared_ptr<Renderable>& renderable, int MaterialProperties, int nrInstances, float boundingSphere) { return std::make_shared<LUA_RenderingInstancedComponent>(renderable, MaterialProperties, nrInstances, boundingSphere); }
+                    [](sol::object renderableObj, sol::object materialOrOptions, int nrInstances, float boundingSphere) {
+                        std::shared_ptr<Renderable> renderable = LuaObjectToRenderable(renderableObj);
+                        if (!renderable)
+                            throw std::runtime_error("RenderingInstancedComponent.new: first argument is not a Renderable");
+                        // Material before options, same precedence as
+                        // LuaNewRenderingComponent: options are numbers only.
+                        std::shared_ptr<IMaterial> material = LuaObjectToMaterial(materialOrOptions);
+                        if (material)
+                            return std::make_shared<LUA_RenderingInstancedComponent>(renderable, material, (uint32)nrInstances, (f32)boundingSphere);
+                        uint32 options = 0;
+                        if (LuaObjectToMaterialOptions(materialOrOptions, options))
+                            return std::make_shared<LUA_RenderingInstancedComponent>(renderable, options, (uint32)nrInstances, (f32)boundingSphere);
+                        throw std::runtime_error("RenderingInstancedComponent.new: second argument is not a Material or ShaderUsage options");
+                    }
                 ),
                 "init", &LUA_RenderingInstancedComponent::Init,
                 "update", &LUA_RenderingInstancedComponent::Update,
@@ -538,6 +560,31 @@ namespace p3d {
                 "removeBuffer", &LUA_RenderingInstancedComponent::RemoveBuffer,
                 "numberOfInstances", &LUA_RenderingInstancedComponent::NumberOfInstances,
                 "setNumberInstances", &LUA_RenderingInstancedComponent::SetNumberInstances,
+                // The per-instance transforms, and the upload that makes an
+                // edit to them visible. Everything above this was already
+                // bound, but none of it can place an instance: without these
+                // two, a Lua caller could construct the component and add it
+                // to a GameObject and then had no way to say where any
+                // instance goes - every one of them drew at the component's
+                // own model matrix. RenderingInstancedComponent::transform is
+                // a std::vector<Matrix> sized to nrInstances by the
+                // constructor, so this is an index-assign, not a push.
+                //
+                // 1-based to match Lua's own array convention (the demo
+                // scripts index everything else that way), and bounds-checked
+                // rather than trusted: transform[] is written straight into a
+                // GPU-mapped buffer, so an out-of-range index here is a heap
+                // corruption, not a Lua error.
+                "setTransform", [](LUA_RenderingInstancedComponent &c, int index, const Matrix &m) {
+                    if (index < 1 || (size_t)index > c.transform.size()) return false;
+                    c.transform[index - 1] = m;
+                    return true;
+                },
+                "getTransform", [](LUA_RenderingInstancedComponent &c, int index) {
+                    if (index < 1 || (size_t)index > c.transform.size()) return Matrix();
+                    return c.transform[index - 1];
+                },
+                "updateTransforms", &LUA_RenderingInstancedComponent::UpdateTransforms,
                 "onUpdate", &LUA_RenderingInstancedComponent::on_update,
                 "onInit", &LUA_RenderingInstancedComponent::on_init,
                 "onDestroy", &LUA_RenderingInstancedComponent::on_destroy,
