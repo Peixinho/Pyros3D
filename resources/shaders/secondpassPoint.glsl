@@ -346,13 +346,7 @@ void main() {
 	// there, so something further along still is. Shadowless beats wrongly
 	// shadowed; the gate stays until Vulkan produces a correct shadow, not
 	// merely correct samples.
-#if defined(METAL)
-	// Metal still reads ~57% of the cube map as 0 even after the R32F
-	// conversion and its own pipeline colour-format fix, so it stays off.
-	FragColor = vec4(pbrColor, 1.0) * attenuation;
-#else
 	FragColor = vec4(pbrColor, 1.0) * attenuation * pcf;
-#endif
 
 }
 #endif

@@ -2473,8 +2473,16 @@ namespace p3d {
 			if (cIt != it->second.colorAttachments.end())
 				existing = &cIt->second;
 		}
-		const bool retargeting = existing != NULL && existing->texture != 0
-			&& (existing->texture != ref.texture || existing->target != ref.target);
+		// Any attach while an encoder is already open for this FBO has to
+		// restart it, not just one that changes the recorded target. The
+		// first face of a point light's cube map re-attaches
+		// CubemapPositive_X - exactly what FrameBuffer::Init() already
+		// recorded - so a "did the target change" test says no and face 0
+		// inherits whatever encoder was left open, which is the *previous*
+		// frame's face 5. That is why +X came back full of zeroes after the
+		// other five faces started rendering correctly.
+		(void)existing;
+		const bool retargeting = currentRenderEncoder != NULL;
 
 		if (nativeAttachmentFormat == FrameBufferAttachmentFormat::Depth_Attachment)
 			it->second.depthAttachment = ref;
