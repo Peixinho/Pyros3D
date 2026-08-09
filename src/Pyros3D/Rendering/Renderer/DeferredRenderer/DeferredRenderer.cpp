@@ -182,7 +182,10 @@ namespace p3d {
 		// landed near the horizon instead of under the object casting
 		// them). Defaults match this shader's original, proven-correct
 		// values; SetSSRDistances() below lets a caller retune them for
-		// a scene built at a very different scale.
+		// a scene built at a very different scale. Note 0.22 is below the
+		// shader's stride floor of 1 pixel, so the default marches at
+		// stride 1 - which is what it did back when the shader ignored
+		// this uniform entirely. See SetSSRDistances()'s comment.
 		ssrStepDistance = 0.22f;
 		ssrMaxDistance = 40.0f;
 		lastPassSSRStepDistanceHandle = deferredLastPass->AddUniform(Uniform("uSSRStepDistance", Uniforms::DataUsage::Other, Uniforms::DataType::Float));

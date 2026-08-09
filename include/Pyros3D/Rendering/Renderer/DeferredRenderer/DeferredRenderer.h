@@ -35,16 +35,24 @@ namespace p3d {
 
 		// Real, per-scene retuning knob for material-aware SSR's ray
 		// march - see lastPass.glsl's uSSRStepDistance/uSSRMaxDistance
-		// comment. Both are view-space units; defaults (0.35/12.0, set
-		// in the constructor) are proven-correct for a human/room-scale
-		// scene. A tabletop diorama built at ~0.01-1 unit spacing wants
-		// both much smaller; a city block built at ~100-1000 unit
-		// spacing wants both much larger - call this once after
-		// construction (or whenever the scene's own scale is known) if
-		// SSR reflections are landing short (step too large, skipping
-		// past nearby geometry) or absurdly far away/never hitting
-		// anything (step too small to cover any real distance in
-		// SSR_COARSE_STEPS steps).
+		// comment. The two arguments are NOT in the same units:
+		//
+		// stepDistance is the coarse DDA's stride in SCREEN PIXELS,
+		// clamped up to 1.0 (the march is a screen-space DDA, so this is
+		// what actually decides reach: a reflection cannot travel further
+		// than SSR_COARSE_STEPS * stride pixels). It was silently ignored
+		// by the shader before the island SSR demo, so every value below
+		// 1.0 that predates that - SSRTest's 0.35, the constructor's 0.22
+		// - keeps marching at stride 1 exactly as it always did. Raise it
+		// for scenes whose reflections span a lot of screen (open water,
+		// long corridors): stride N buys N times the reach for
+		// SSR_REFINE_STEPS extra taps, at the cost of coarser first-hit
+		// quantization.
+		//
+		// maxDistance is view-space, and only clips the ray's far end -
+		// raising it alone cannot make reflections reach further. Scale
+		// it with the scene: room-scale wants ~12, an open landscape
+		// wants hundreds.
 		void SetSSRDistances(const f32 stepDistance, const f32 maxDistance);
 
 		// Real opt-in gate for material-aware SSR - defaults OFF (see the

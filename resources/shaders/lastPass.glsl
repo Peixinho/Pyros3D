@@ -56,10 +56,20 @@ UBO_BINDING(37) uniform LastPassFragParams {
 	// dimension, recomputed on resize) - see the roughness-blur comment
 	// on textureLod() below.
 	float uMaxReflectionLod;
-	// Real, per-scene-settable march distances (view-space units) - see
-	// the SSR_COARSE_STEPS/SSR_THICKNESS_STEPS comment below for why
-	// these are explicit uniforms and not shader constants or an
-	// automatic per-pixel scale.
+	// Real, per-scene-settable march parameters - see the
+	// SSR_COARSE_STEPS/SSR_PIXEL_STRIDE comment below for why these are
+	// explicit uniforms and not shader constants or an automatic
+	// per-pixel scale.
+	//
+	// uSSRStepDistance is the coarse DDA's stride in SCREEN PIXELS (it was
+	// declared here but never read at all until the island SSR demo needed
+	// reflections to reach further than 128px; the march has been a
+	// pixel-space DDA since the McGuire/Mara rewrite, so a view-space step
+	// no longer has anything to scale). Clamped up to SSR_PIXEL_STRIDE
+	// below, so the old room-scale values (SSRTest's 0.35, the
+	// constructor's 0.22) all land on stride 1 and march exactly as they
+	// did before. uSSRMaxDistance stays view-space: it only clips the
+	// ray's far end, it cannot buy reach.
 	float uSSRStepDistance;
 	float uSSRMaxDistance;
 	// Real opt-in gate, defaults to disabled (0.0) - see
@@ -112,9 +122,18 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0)
 // real, principled early-out, not a quality compromise, and keeps most
 // pixels in a typical scene out of the loop below entirely.
 const float SSR_ROUGHNESS_CUTOFF = 0.6;
-// McGuire/Mara screen-space DDA. Stride 1 + no jitter: without a temporal
-// filter, stride/jitter just turns quantization into the stipple/comb
-// noise SSRTest showed (view-dependent holes along sphere silhouettes).
+// McGuire/Mara screen-space DDA. SSR_PIXEL_STRIDE is the FLOOR on the
+// coarse stride, not the stride itself - uSSRStepDistance raises it (see
+// its comment above). Never go below 1: no temporal filter runs after
+// this, so a sub-pixel stride only burns steps, and jitter would turn
+// quantization into the stipple/comb noise SSRTest showed (view-dependent
+// holes along sphere silhouettes). Above 1 is a different trade and is
+// what the refine loop below exists for - it re-walks the last stride by
+// binary search, so a coarse stride of N costs SSR_REFINE_STEPS extra
+// taps and buys N times the reach out of the same SSR_COARSE_STEPS. The
+// hard cap is SSR_COARSE_STEPS*stride pixels: at stride 1 a reflection
+// physically cannot reach further than 128px across the screen, which is
+// fine for a room and useless for an open-water horizon.
 const int SSR_COARSE_STEPS = 128;
 const int SSR_REFINE_STEPS = 6;
 const float SSR_PIXEL_STRIDE = 1.0;
@@ -198,7 +217,7 @@ vec2 TraceSSR(vec3 rayOrigin, vec3 rayDir, vec4 z_info, out float outConfidence)
 	float dk = (k1 - k0) * invdx;
 	vec2 dP = vec2(stepDir, delta.y * invdx);
 
-	float pixStride = SSR_PIXEL_STRIDE;
+	float pixStride = max(SSR_PIXEL_STRIDE, uSSRStepDistance);
 	dP *= pixStride;
 	dQ *= pixStride;
 	dk *= pixStride;
