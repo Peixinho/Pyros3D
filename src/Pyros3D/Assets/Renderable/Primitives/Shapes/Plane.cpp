@@ -45,6 +45,18 @@ namespace p3d {
 
 		// Bounding Sphere
 		BoundingSphereCenter = Vec3(0, 0, 0);
-		BoundingSphereRadius = Max(w2, h2);
+		// Was Max(w2, h2) - the half-EDGE, not the half-DIAGONAL, so the
+		// sphere didn't contain the plane's own corners: a 50x50 quad got
+		// radius 25 when it needs sqrt(25^2+25^2) = 35.36, leaving each
+		// corner 10.4 units outside. IRenderer::CullingSphereTest() then
+		// frustum-culled quads that were still partly on screen, which
+		// showed up as whole tiles vanishing from a tiled water surface at
+		// specific camera angles (island SSR demo) - deterministic, and
+		// identical on GL/Vulkan/Metal since the test is CPU-side. Every
+		// other primitive here already derives this from its bounding box
+		// corner (see Cube/Cone/Cylinder/Torus's min.distance(ZERO));
+		// Plane was the one that didn't. Only ever makes the sphere
+		// bigger, so this cannot cull anything it previously drew.
+		BoundingSphereRadius = minBounds.distance(Vec3::ZERO);
 	}
 };
