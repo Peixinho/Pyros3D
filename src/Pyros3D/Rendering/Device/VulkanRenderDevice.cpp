@@ -102,6 +102,11 @@ namespace p3d {
 			frameCommandBuffers[i] = VK_NULL_HANDLE;
 			frameFences[i] = VK_NULL_HANDLE;
 		}
+		// 0 = "not created yet" - GetOrCreateFallbackTexture() makes each
+		// one lazily, on the first draw that actually leaves that kind of
+		// sampler unbound.
+		for (uint32 i = 0; i < SAMPLER_KIND_COUNT; i++)
+			fallbackSamplerTextures[i] = 0;
 #if defined(__APPLE__)
 		// Keep MoltenVK queue submits synchronous on macOS.
 		// Async (MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS=0) dispatches Metal
@@ -2530,7 +2535,13 @@ namespace p3d {
 		}
 		std::map<DeviceHandle, VkDescriptorSet>::iterator samplerSetIt = pipelineSamplerSets.find(currentPipeline);
 		if (samplerSetIt != pipelineSamplerSets.end() && samplerSetIt->second != VK_NULL_HANDLE)
+		{
+			// Last chance to make this set valid - every material uniform
+			// for this draw has been sent by now, so anything still
+			// unwritten is a sampler nothing is ever going to bind.
+			FillUnwrittenSamplerDescriptors(progIt->second, samplerSetIt->second);
 			vkCmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 1, 1, &samplerSetIt->second, 0, NULL);
+		}
 	}
 
 	DeviceHandle VulkanRenderDevice::CreateUniformBuffer(const uint32 sizeBytes, const uint32 bindingPoint)
@@ -3112,6 +3123,11 @@ namespace p3d {
 				{
 					it->second.samplerBindings[res.name] = res.binding;
 					it->second.samplerArraySizes[res.binding] = res.arraySize;
+					// See BindCurrentPipelineDescriptorSets()'s fallback
+					// fill - a sampler this program declares but nothing
+					// ever binds still needs a *type-matching* descriptor.
+					it->second.samplerKinds[res.binding] =
+						(res.isCube ? SAMPLER_KIND_CUBE : 0) | (res.isDepthCompare ? SAMPLER_KIND_DEPTH : 0);
 				}
 				std::map<uint32, VkDescriptorSetLayoutBinding>::iterator existing = targetMap.find(res.binding);
 				if (existing != targetMap.end())
@@ -3451,6 +3467,18 @@ namespace p3d {
 
 		if (!RebuildSamplerIfDirty(texIt->second))
 			return;
+
+		// Before the cache check below, not after: the layout an image is
+		// in is a property of the *image*, not of whether this pipeline
+		// slot already points at it. A texture written once while valid
+		// and then recreated (a resize drops its VkImage back to
+		// VK_IMAGE_LAYOUT_UNDEFINED) would otherwise take the early-out
+		// here and never be transitioned again - which is exactly why
+		// putting this after the cache check left SSAOExample and
+		// SkeletonAnimation still failing VUID-vkCmdDraw-None-09600.
+		// No-op for anything already in a real layout, so the common path
+		// costs one bool test.
+		EnsureSampledLayout(texIt->second);
 
 		// See lastWrittenSamplerView's comment - skip the
 		// vkUpdateDescriptorSets() call entirely if this exact texture is
@@ -3942,6 +3970,8 @@ namespace p3d {
 			// real pixels (the common LoadTexture()/UpdateData() case).
 			tex.baseLevelHasRealData = false;
 			tex.mipsGenerated = false;
+			// Brand-new VkImage - see TextureRecord::layoutInitialized.
+			tex.layoutInitialized = false;
 		}
 
 		if (data == NULL)
@@ -4047,6 +4077,9 @@ namespace p3d {
 		// genuinely SHADER_READ_ONLY_OPTIMAL with real content, safe for
 		// GenerateMipmap() to blit from.
 		tex.baseLevelHasRealData = true;
+		// ...and out of VK_IMAGE_LAYOUT_UNDEFINED - see
+		// TextureRecord::layoutInitialized.
+		tex.layoutInitialized = true;
 
 		PendingStagingBuffer pending;
 		pending.buffer = stagingBuffer;
@@ -5235,6 +5268,20 @@ namespace p3d {
 		renderPassBegin.renderArea.extent = { fbo.width, fbo.height };
 		renderPassBegin.clearValueCount = (uint32_t)clearValues.size();
 		renderPassBegin.pClearValues = clearValues.empty() ? NULL : clearValues.data();
+		// From here this pass owns its attachments' layouts, and its
+		// finalLayout leaves them sampleable - so SendUniformInt() must
+		// stop treating them as never-written. Deliberately NOT done when
+		// the attachment view is merely *created*: being an attachment is
+		// not the same as having been rendered into, and a post-effect
+		// target sampled on the frame before its first pass runs is
+		// exactly the VUID-vkCmdDraw-None-09600 case EnsureSampledLayout()
+		// exists for.
+		for (size_t i = 0; i < fbo.pendingAttachments.size(); i++)
+		{
+			std::map<DeviceHandle, TextureRecord>::iterator attIt = textures.find(fbo.pendingAttachments[i].textureId);
+			if (attIt != textures.end())
+				attIt->second.layoutInitialized = true;
+		}
 		vkCmdBeginRenderPass(offscreenCommandBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
 
 		VkViewport viewport = { 0.0f, 0.0f, (f32)fbo.width, (f32)fbo.height, 0.0f, 1.0f };
@@ -5335,6 +5382,197 @@ namespace p3d {
 		if (offscreenCommandBufferRecording)
 			FlushOffscreenCommandBuffer();
 		activeCommandBuffer = frameCommandBuffer;
+	}
+
+	// See TextureRecord::layoutInitialized. No-op for anything that has
+	// been uploaded to or used as a render-pass attachment.
+	void VulkanRenderDevice::EnsureSampledLayout(TextureRecord &tex)
+	{
+		if (tex.layoutInitialized || tex.image == VK_NULL_HANDLE)
+			return;
+		VkCommandBuffer cmd = BeginOrGetTransferCommandBuffer();
+		if (cmd == VK_NULL_HANDLE)
+			return;
+
+		VkImageMemoryBarrier toShaderRead = {};
+		toShaderRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		// UNDEFINED as the *source* layout is what makes this safe to do
+		// blind: it explicitly permits the driver to discard the contents,
+		// which is exactly the situation this is for.
+		toShaderRead.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		toShaderRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		toShaderRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toShaderRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toShaderRead.image = tex.image;
+		toShaderRead.subresourceRange.aspectMask = tex.isDepthTexture ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+		toShaderRead.subresourceRange.baseMipLevel = 0;
+		toShaderRead.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+		toShaderRead.subresourceRange.baseArrayLayer = 0;
+		toShaderRead.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+		toShaderRead.srcAccessMask = 0;
+		toShaderRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+			0, 0, NULL, 0, NULL, 1, &toShaderRead);
+
+		// Same reasoning as GetOrCreateFallbackTexture()'s flush: this runs
+		// mid-frame from a draw that is about to sample the image, so the
+		// barrier cannot be left sitting in the batched transfer buffer.
+		// Once per image for the whole run.
+		FlushPendingTransfers();
+		tex.layoutInitialized = true;
+	}
+
+	// See the fallbackSamplerTextures comment in the header. One 1x1 image
+	// per sampler kind, created on first demand and kept for the device's
+	// lifetime (four images of one texel each - not worth pooling).
+	DeviceHandle VulkanRenderDevice::GetOrCreateFallbackTexture(const uint32 samplerKind)
+	{
+		if (samplerKind >= SAMPLER_KIND_COUNT)
+			return 0;
+		if (fallbackSamplerTextures[samplerKind] != 0)
+			return fallbackSamplerTextures[samplerKind];
+
+		const bool isCube = (samplerKind & SAMPLER_KIND_CUBE) != 0;
+		const bool isDepth = (samplerKind & SAMPLER_KIND_DEPTH) != 0;
+
+		DeviceHandle handle = CreateTextureObject();
+		if (handle == 0)
+			return 0;
+
+		// Go through the same public path Texture:: uses rather than
+		// hand-rolling an image here, so these get the identical
+		// format/usage/view/sampler treatment every other texture gets -
+		// including the cube-vs-2D view type, which is the whole point.
+		uint32 internalFormat = 0, uploadFormat = 0, uploadType = 0;
+		TranslateTextureFormat(isDepth ? TextureDataType::DepthComponent : TextureDataType::RGBA,
+			internalFormat, uploadFormat, uploadType);
+
+		// Opaque white: a colour sampler that nothing bound reads as "no
+		// texture", and white is the identity for the multiply every
+		// PyrosShader.glsl sampler feeds into (`diffuse *= texture(...)`) -
+		// black would silently turn an unbound map into a black surface,
+		// which is exactly the kind of "looks like a real bug" GL's
+		// read-black behaviour already causes.
+		const unsigned char whiteTexel[4] = { 255, 255, 255, 255 };
+		const uint32 faceCount = isCube ? 6u : 1u;
+		for (uint32 face = 0; face < faceCount; face++)
+		{
+			const uint32 target = isCube ? (CUBEMAP_FACE_TARGET_BASE + face) : 1;
+			BindTextureToTarget(target, handle);
+			UploadTexture2D(target, 0, internalFormat, 1, 1, uploadFormat, uploadType,
+				isDepth ? NULL : (const void*)whiteTexel, false);
+		}
+		if (isDepth)
+		{
+			// UploadTexture2D() refuses pixel data for a depth format (see
+			// its comment - depth images are only ever rendered into), so
+			// the image exists but is still VK_IMAGE_LAYOUT_UNDEFINED, and
+			// sampling an UNDEFINED image is itself invalid
+			// (VUID-vkCmdDraw-None-09600). Nothing will ever render into
+			// *this* one, so transition it directly instead. Contents stay
+			// undefined, which is fine: every shader that samples a shadow
+            // map does so behind a `uHaveShadowmap > 0.0` branch that is
+			// false precisely when this fallback is what's bound.
+			std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(handle);
+			VkCommandBuffer cmd = BeginOrGetTransferCommandBuffer();
+			if (texIt != textures.end() && texIt->second.image != VK_NULL_HANDLE && cmd != VK_NULL_HANDLE)
+			{
+				VkImageMemoryBarrier toShaderRead = {};
+				toShaderRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+				toShaderRead.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				toShaderRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				toShaderRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				toShaderRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				toShaderRead.image = texIt->second.image;
+				toShaderRead.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+				toShaderRead.subresourceRange.baseMipLevel = 0;
+				toShaderRead.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+				toShaderRead.subresourceRange.baseArrayLayer = 0;
+				toShaderRead.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+				toShaderRead.srcAccessMask = 0;
+				toShaderRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+				vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+					0, 0, NULL, 0, NULL, 1, &toShaderRead);
+			}
+			// Comparison sampler - a sampler2DShadow/samplerCubeShadow
+			// descriptor must be backed by one with compareEnable set.
+			currentlyConfiguringTexture = handle;
+			SetTextureCompareMode(0);
+		}
+
+		// Submit the upload (and the depth barrier above) right now rather
+		// than letting it sit in the batched transfer command buffer until
+		// the next BeginFrame(). This runs mid-frame, from a draw that is
+		// about to sample this very image: leaving the transfer pending
+		// means the queue submit for that draw happens first and the image
+		// is still VK_IMAGE_LAYOUT_UNDEFINED when it is read
+		// (VUID-vkCmdDraw-None-09600 - which is exactly what the first
+		// version of this did). The stall is paid at most SAMPLER_KIND_COUNT
+		// times for the whole run, since these are cached above.
+		FlushPendingTransfers();
+
+		fallbackSamplerTextures[samplerKind] = handle;
+		return handle;
+	}
+
+	// Every sampler binding the bound pipeline declares must be a valid
+	// descriptor at draw time, whether or not the shader's control flow
+	// reaches it (VUID-vkCmdDrawIndexed-None-08114). Anything a material
+	// actually bound has already been written by SendUniformInt(); this
+	// fills in whatever is left with a type-matching fallback.
+	void VulkanRenderDevice::FillUnwrittenSamplerDescriptors(ProgramRecord &prog, const VkDescriptorSet samplerSet)
+	{
+		if (samplerSet == VK_NULL_HANDLE)
+			return;
+		for (std::set<uint32>::iterator bIt = prog.reflectedSamplerBindings.begin(); bIt != prog.reflectedSamplerBindings.end(); bIt++)
+		{
+			const uint32 binding = *bIt;
+			// Same (pipeline, binding) key SendUniformInt() records into -
+			// a present entry means a real texture is already written
+			// there, and descriptor writes persist until overwritten, so
+			// this only ever runs once per slot that nothing binds.
+			std::pair<DeviceHandle, uint32> key(currentPipeline, binding);
+			if (lastWrittenSamplerView.find(key) != lastWrittenSamplerView.end())
+				continue;
+
+			uint32 kind = 0;
+			std::map<uint32, uint32>::iterator kIt = prog.samplerKinds.find(binding);
+			if (kIt != prog.samplerKinds.end())
+				kind = kIt->second;
+
+			DeviceHandle fallback = GetOrCreateFallbackTexture(kind);
+			std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(fallback);
+			if (texIt == textures.end() || texIt->second.view == VK_NULL_HANDLE)
+				continue;
+			// Samplers are built lazily, and only SendUniformInt() normally
+			// triggers it - which by definition never ran for this binding.
+			// Without this the write carries VkSampler 0
+			// (VUID-VkWriteDescriptorSet-descriptorType-00325).
+			if (!RebuildSamplerIfDirty(texIt->second) || texIt->second.sampler == VK_NULL_HANDLE)
+				continue;
+
+			VkDescriptorImageInfo imageInfo = {};
+			imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			imageInfo.imageView = texIt->second.view;
+			imageInfo.sampler = texIt->second.sampler;
+
+			uint32 arraySize = 1;
+			std::map<uint32, uint32>::iterator arrIt = prog.samplerArraySizes.find(binding);
+			if (arrIt != prog.samplerArraySizes.end())
+				arraySize = arrIt->second;
+			std::vector<VkDescriptorImageInfo> imageInfos(arraySize, imageInfo);
+
+			VkWriteDescriptorSet write = {};
+			write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			write.dstSet = samplerSet;
+			write.dstBinding = binding;
+			write.dstArrayElement = 0;
+			write.descriptorCount = arraySize;
+			write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			write.pImageInfo = imageInfos.data();
+			vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
+			lastWrittenSamplerView[key] = texIt->second.view;
+		}
 	}
 
 	VkCommandBuffer VulkanRenderDevice::BeginOrGetTransferCommandBuffer()

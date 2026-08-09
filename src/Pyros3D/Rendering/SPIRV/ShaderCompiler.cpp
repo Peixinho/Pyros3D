@@ -537,6 +537,22 @@ namespace p3d {
 			// empty `array` vector means "not an array" (length 1).
 			const spirv_cross::SPIRType &type = compiler.get_type(resource.type_id);
 			binding.arraySize = type.array.empty() ? 1 : (type.array[0] > 0 ? type.array[0] : 1);
+			// See SpirvResourceBinding::isCube/isDepthCompare. Both come
+			// off the image type, not the resource: SPIR-V models
+			// sampler2D/samplerCube/sampler2DShadow as one OpTypeImage
+			// differing only in Dim and the depth flag. Meaningless for a
+			// UBO, so left false there rather than read off a type that
+			// has no `image` member filled in.
+			binding.isCube = false;
+			binding.isDepthCompare = false;
+			if (resourceType == SpirvResourceType::SampledImage)
+			{
+				binding.isCube = (type.image.dim == spv::DimCube);
+				// image.depth is SPIR-V's "this is a depth *comparison*
+				// image" flag (1), distinct from 0 (not) and 2 (unknown -
+				// GLSL never produces it for these declarations).
+				binding.isDepthCompare = (type.image.depth == 1);
+			}
 			out.push_back(binding);
 		}
 	}

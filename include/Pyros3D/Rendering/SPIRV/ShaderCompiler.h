@@ -76,6 +76,18 @@ namespace p3d {
 		// time instead - VUID-vkCmdDrawIndexed-None-08114 - the moment
 		// the shader indexes past what got bound).
 		uint32 arraySize;
+		// Only meaningful when type == SampledImage. A Vulkan descriptor
+		// must be backed by an image whose *view type* matches what the
+		// shader declares - a 2D image cannot stand in for a samplerCube,
+		// and a non-comparison sampler cannot stand in for a
+		// sampler2DShadow/samplerCubeShadow. DeferredRenderer already
+		// discovered this the hard way and hand-rolled one dummy per kind
+		// (see its dummyShadow2D/dummyShadowCube members); reflecting the
+		// kind here is what lets VulkanRenderDevice do that generically,
+		// for every sampler a pipeline declares but nothing binds, instead
+		// of one call site at a time.
+		bool isCube;
+		bool isDepthCompare;
 	};
 
 	// One reflected vertex-shader input (a vertex attribute) and the

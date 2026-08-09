@@ -1326,6 +1326,10 @@ namespace p3d {
 			// (VUID-vkCmdDrawIndexed-None-08114) regardless of whether
 			// the shader dynamically indexes past it.
 			std::map<uint32, uint32> samplerArraySizes;
+			// SAMPLER_KIND_* bitmask per sampler binding, from SPIR-V
+			// reflection - which fallback image a binding needs when
+			// nothing bound a real one. See BindCurrentPipelineDescriptorSets().
+			std::map<uint32, uint32> samplerKinds;
 			ProgramRecord() : vertexShader(0), fragmentShader(0), descriptorSetLayout(VK_NULL_HANDLE), pipelineLayout(VK_NULL_HANDLE), descriptorSet(VK_NULL_HANDLE), samplerSetLayout(VK_NULL_HANDLE) {}
 		};
 		std::map<DeviceHandle, ProgramRecord> programs;
@@ -1357,6 +1361,31 @@ namespace p3d {
 		// actually bind a texture. currentPipeline (below) is which of
 		// these SendUniformInt() should target.
 		std::map<DeviceHandle, VkDescriptorSet> pipelineSamplerSets;
+
+		// Fallback ("dummy") images for sampler bindings a pipeline
+		// declares but nothing ever binds a real texture to. GL tolerates
+		// that - an unbound sampler just reads black - so materials have
+		// always been free to compile a shader variant whose sampler they
+		// never fill (a PBRMap material with no metallic/roughness map, a
+		// light that casts no shadow). Vulkan requires every descriptor a
+		// bound pipeline statically references to be valid at draw time
+		// (VUID-vkCmdDrawIndexed-None-08114), even behind a branch the
+		// shader never takes.
+		//
+		// Four, not one: a descriptor must match the *declared* sampler
+		// type, so a 2D image cannot back a samplerCube and a plain
+		// sampler cannot back a sampler2DShadow/samplerCubeShadow.
+		// DeferredRenderer already hit this and hand-rolled two of these
+		// as members of its own (dummyShadow2D/dummyShadowCube); this is
+		// the same idea applied generically, from reflection, so a new
+		// shader variant can't reintroduce the bug one call site at a time.
+		// Indexed by the SAMPLER_KIND_* bitmask.
+		enum { SAMPLER_KIND_CUBE = 1, SAMPLER_KIND_DEPTH = 2, SAMPLER_KIND_COUNT = 4 };
+		DeviceHandle fallbackSamplerTextures[SAMPLER_KIND_COUNT];
+		DeviceHandle GetOrCreateFallbackTexture(const uint32 samplerKind);
+		// Writes a type-matching fallback into every sampler binding of the
+		// current pipeline's set that nothing has written yet.
+		void FillUnwrittenSamplerDescriptors(ProgramRecord &prog, const VkDescriptorSet samplerSet);
 
 		// Dirty-check for SendUniformInt()'s sampler-descriptor writes -
 		// keyed by (pipeline, binding), remembers the VkImageView last
@@ -1473,6 +1502,23 @@ namespace p3d {
 			// whose IEffect::attachment render targets default to
 			// Mipmapping=true the same as every other texture.
 			bool mipsGenerated;
+			// False until something has actually put this image into a
+			// real layout - an upload's transfer barrier, or a render pass
+			// that has it as an attachment. A freshly created image is
+			// VK_IMAGE_LAYOUT_UNDEFINED, and sampling an UNDEFINED image is
+			// invalid (VUID-vkCmdDraw-None-09600) even though the
+			// descriptor itself is perfectly well-formed - which is why
+			// this is a *separate* problem from the unwritten-descriptor
+			// one fallbackSamplerTextures solves, and why it bites exactly
+			// the textures that pass through CreateEmptyTexture() and get
+			// sampled before anything draws into them (post-effect
+			// attachments on their first frame; see also
+			// DeferredRenderer's previousFrameColorTexture, which
+			// hand-rolls a warm-up render pass for this same reason).
+			// SendUniformInt() transitions any image still flagged here
+			// before writing its descriptor. Contents stay undefined,
+			// which they already were.
+			bool layoutInitialized;
 			VkFormat format;
 			uint32 wrapS, wrapT;     // TextureRepeat::* values
 			uint32 minFilter, magFilter; // TextureFilter::* values
@@ -1520,6 +1566,12 @@ namespace p3d {
 				  samples(VK_SAMPLE_COUNT_1_BIT) {}
 		};
 		std::map<DeviceHandle, TextureRecord> textures;
+		// Moves an image that has never been written out of
+		// VK_IMAGE_LAYOUT_UNDEFINED so it can legally be sampled - see
+		// TextureRecord::layoutInitialized. Declared here rather than
+		// beside GetOrCreateFallbackTexture() (its sibling in purpose)
+		// because TextureRecord is only defined this far down the class.
+		void EnsureSampledLayout(TextureRecord &tex);
 		DeviceHandle nextTextureHandle;
 		// Lazily (re)builds tex.sampler from its wrap/filter state if
 		// dirty - see the comment on TextureRecord::samplerDirty. Returns
