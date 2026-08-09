@@ -988,7 +988,6 @@ namespace p3d {
 	// wrong relative to each other). Only Z needs remapping here.
 	Matrix MetalRenderDevice::TranslateProjectionMatrix(const Matrix &projectionMatrix, const bool skipYFlip)
 	{
-		(void)skipYFlip;
 		// Matrix's constructor takes arguments column-by-column, not
 		// row-by-row (see VulkanRenderDevice::TranslateProjectionMatrix()'s
 		// identical comment) - this is the column-major encoding of:
@@ -1002,7 +1001,28 @@ namespace p3d {
 			0.f, 0.f, 0.5f, 0.f,
 			0.f, 0.f, 0.5f, 1.f
 		);
-		return clipCorrection * projectionMatrix;
+		// The cube-face case (skipYFlip, set by
+		// IRenderer::RenderingPointShadowFace) needs the *opposite* of
+		// Metal's usual convention, not "the same minus a flip". Metal's
+		// NDC Y points up like GL's, so the correction above deliberately
+		// doesn't flip - correct for anything whose result is presented or
+		// sampled with normal UVs. A cube face is neither: it is stored in
+		// a top-origin texture and then read back by direction, so it has
+		// to land in the same orientation GL's bottom-origin FBO produces,
+		// or every lookup is mirrored about the face's horizontal axis.
+		//
+		// Measured with the shadow cube-map viewer, caster off-centre so
+		// the mirror is visible: GL puts it at 459,120 in -Y and Vulkan at
+		// 459,121; Metal had it at 460,394, i.e. 512-120 flipped. The
+		// visible symptom was a point-light shadow falling on the wrong
+		// side of its caster.
+		static const Matrix clipCorrectionYFlip(
+			1.f, 0.f, 0.f, 0.f,
+			0.f, -1.f, 0.f, 0.f,
+			0.f, 0.f, 0.5f, 0.f,
+			0.f, 0.f, 0.5f, 1.f
+		);
+		return (skipYFlip ? clipCorrectionYFlip : clipCorrection) * projectionMatrix;
 	}
 	// Maps a light-space clip position to a shadow-map texcoord. Z needs no
 	// remap (TranslateProjectionMatrix() above already put it in [0,1],
