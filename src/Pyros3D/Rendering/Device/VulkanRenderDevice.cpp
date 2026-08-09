@@ -3487,6 +3487,12 @@ namespace p3d {
 		// SkeletonAnimation still failing VUID-vkCmdDraw-None-09600.
 		// No-op for anything already in a real layout, so the common path
 		// costs one bool test.
+		// An upload recorded this frame is not on the GPU until its batch
+		// is submitted, and the draw about to sample this texture will be
+		// submitted first - see TextureRecord::pendingUpload.
+		if (texIt->second.pendingUpload)
+			FlushPendingTransfers();
+
 		EnsureSampledLayout(texIt->second);
 
 		// See lastWrittenSamplerView's comment - skip the
@@ -3981,6 +3987,7 @@ namespace p3d {
 			tex.mipsGenerated = false;
 			// Brand-new VkImage - see TextureRecord::layoutInitialized.
 			tex.layoutInitialized = false;
+			tex.pendingUpload = false;
 		}
 
 		if (data == NULL)
@@ -4087,8 +4094,10 @@ namespace p3d {
 		// GenerateMipmap() to blit from.
 		tex.baseLevelHasRealData = true;
 		// ...and out of VK_IMAGE_LAYOUT_UNDEFINED - see
-		// TextureRecord::layoutInitialized.
+		// TextureRecord::layoutInitialized. Not visible to the GPU until
+		// the transfer is submitted, though - see pendingUpload.
 		tex.layoutInitialized = true;
+		tex.pendingUpload = true;
 
 		PendingStagingBuffer pending;
 		pending.buffer = stagingBuffer;
@@ -4603,6 +4612,17 @@ namespace p3d {
 			return;
 		if (device != VK_NULL_HANDLE)
 		{
+			// A VkRenderPass/VkFramebuffer may not be destroyed while any
+			// submitted command buffer still refers to it
+			// (VUID-vkDestroyRenderPass-renderPass-00873,
+			// VUID-vkDestroyFramebuffer-framebuffer-00892). This runs on
+			// teardown and on FrameBuffer::Init() replacing an existing
+			// FBO - both after frames have been submitted, neither with
+			// any guarantee they have completed. Particles and Island (SSR
+			// Water) hit it on every demo switch. Idling the device is the
+			// blunt fix, and the right one here: these paths are not
+			// per-frame, so the stall costs nothing that matters.
+			WaitIdle();
 			for (std::map<uint32, VkFramebuffer>::iterator fIt = it->second.framebuffersByTarget.begin(); fIt != it->second.framebuffersByTarget.end(); fIt++)
 				vkDestroyFramebuffer(device, fIt->second, NULL);
 			if (it->second.renderPass != VK_NULL_HANDLE)
@@ -4892,6 +4912,11 @@ namespace p3d {
 			}
 			if (!referencesTexture)
 				continue;
+			// Same in-use rule as DestroyFramebuffer() above - this drops
+			// framebuffers because a texture they reference was recreated
+			// (a resize), which happens between frames whose work may still
+			// be in flight.
+			WaitIdle();
 			for (std::map<uint32, VkFramebuffer>::iterator fIt = fboIt->second.framebuffersByTarget.begin(); fIt != fboIt->second.framebuffersByTarget.end(); fIt++)
 				vkDestroyFramebuffer(device, fIt->second, NULL);
 			fboIt->second.framebuffersByTarget.clear();
@@ -5666,6 +5691,10 @@ namespace p3d {
 	{
 		if (!transferCommandBufferRecording || transferCommandBuffer == VK_NULL_HANDLE)
 			return;
+		// Everything recorded so far is about to be submitted - see
+		// TextureRecord::pendingUpload.
+		for (std::map<DeviceHandle, TextureRecord>::iterator pIt = textures.begin(); pIt != textures.end(); pIt++)
+			pIt->second.pendingUpload = false;
 
 		vkEndCommandBuffer(transferCommandBuffer);
 

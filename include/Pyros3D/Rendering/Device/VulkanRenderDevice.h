@@ -1519,6 +1519,17 @@ namespace p3d {
 			// before writing its descriptor. Contents stay undefined,
 			// which they already were.
 			bool layoutInitialized;
+			// True between an upload recording its staging copy + barrier
+			// and that transfer actually being submitted. Uploads are
+			// batched into one command buffer and flushed at BeginFrame(),
+			// which is fine for an asset loaded before it is ever drawn -
+			// but a texture uploaded *during* a frame that also samples it
+			// (a post-effect building its noise texture in its constructor,
+			// mid demo-switch) is read while its copy is still unsubmitted:
+			// the image is legitimately still VK_IMAGE_LAYOUT_UNDEFINED at
+			// draw time (VUID-vkCmdDraw-None-09600), even though the
+			// barrier that fixes it has already been recorded.
+			bool pendingUpload;
 			VkFormat format;
 			uint32 wrapS, wrapT;     // TextureRepeat::* values
 			uint32 minFilter, magFilter; // TextureFilter::* values
