@@ -69,7 +69,22 @@ float PCFPOINT(samplerCubeShadow shadowMap, mat4 Matrix1, mat4 Matrix2, float sc
 	vec4 abs_position = abs(position_ls);
 	float fs_z = -max(abs_position.x, max(abs_position.y, abs_position.z));
 	vec4 clip = Matrix1 * vec4(0.0, 0.0, fs_z, 1.0);
-	float depth = (clip.z / clip.w) * 0.5 + 0.5;
+	// Matrix1 (uPointDepthsMVP, IRenderer.cpp) already includes the
+	// device's own shadow-bias remap (device->TranslateShadowBiasMatrix() *
+	// TranslateProjectionMatrix()) - GL's is Matrix::BIAS's Z row, the
+	// exact 0.5/0.5 remap this used to hardcode here; Vulkan's is a Z
+	// passthrough, since TranslateProjectionMatrix() already remapped Z to
+	// [0,1]. This is the identical fix PyrosShader.glsl's own PCFPOINT
+	// already carries (see its comment): re-applying *0.5+0.5 on top
+	// squashes every comparison depth into the upper half of the range, so
+	// the test passes almost everywhere and the light reads as blocked
+	// across whole surfaces at once - which is what the deferred point
+	// shadow did, and why the multiply was commented out at the call site
+	// in 2021 rather than debugged (see that commit, "Fixed Deferred
+	// Rendering Example in intel gpus"). The forward path was fixed and
+	// this copy was missed, so deferred point lights have been the only
+	// light type in the engine casting no shadow at all since.
+	float depth = clip.z / clip.w;
 	float shadow = 0.0;
 	float x = 0.0;
 	float y = 0.0;
@@ -77,8 +92,15 @@ float PCFPOINT(samplerCubeShadow shadowMap, mat4 Matrix1, mat4 Matrix2, float sc
 	for (y = -1.5 ; y <=1.5 ; y+=1.0)
 		for (x = -1.5 ; x <=1.5 ; x+=1.0)
 			// See secondpassDirectional.glsl's comment on the pre-existing
-			// scalar-swizzle bug - fixed here too.
-			shadow += texture(shadowMap, vec4(position_ls.xyz, depth - scale*5.0) + vec4(vec2(x,y) * scale,0.0,0.0));
+			// scalar-swizzle bug - fixed here too. No extra `- scale*5.0`
+			// depth bias either: `scale` is a texel size in the cube face's
+			// XY, so subtracting a multiple of it from a [0,1] depth was
+			// never dimensionally meaningful - it just pushed the whole
+			// comparison far enough to hide the double-remap above. The
+			// forward PCFPOINT has never needed one; real depth bias comes
+			// from the shadow pass's polygon offset
+			// (ILightComponent::SetShadowBias).
+			shadow += texture(shadowMap, vec4(position_ls.xyz, depth) + vec4(vec2(x,y) * scale,0.0,0.0));
 	shadow /= 16.0;
 	return shadow;
 }
@@ -256,6 +278,38 @@ void main() {
 	vec3 L = normalize(lightPosition - v1);
 	vec3 pbrColor = CalculatePBRLighting(N, V, L, lightColor.xyz, color, metallic, roughness, specTint);
 
-	FragColor = vec4(pbrColor, 1.0) * attenuation;/*# * pcf;*/
+	// GL ONLY, deliberately. This multiply was commented out in Feb 2021
+	// ("Fixed Deferred Rendering Example in intel gpus") - a workaround for
+	// the broken depth remap in PCFPOINT above, not a driver issue - and
+	// every deferred point light has been shadowless since. With that remap
+	// fixed, GL now casts a correct point shadow that tracks its caster
+	// (verified against the rotating cube in
+	// RotatingCubeWithLightingAndShadow).
+	//
+	// Vulkan and Metal do NOT, and the cause is upstream of this file. The
+	// depth being compared is right on all three: GL reaches [0,1] via
+	// Matrix::BIAS's Z row over an untranslated projection, Vulkan and
+	// Metal via TranslateProjectionMatrix()'s own 0.5/0.5 Z row under a
+	// Z-passthrough bias - algebraically the same value. What differs is
+	// what the cube map contains. With this enabled:
+	//
+	//   - Vulkan draws no point shadow at all (confirmed by switching the
+	//     scene's directional light's shadow off, leaving the point light
+	//     as the only caster - the floor stays unshadowed under the cube).
+	//   - Metal breaks lit surfaces into hard triangular wedges whose
+	//     boundaries follow the cube map's own face partition.
+	//
+	// Both smell like the 6-face cube shadow render (see IRenderer.cpp's
+	// point-shadow loop and its RenderingPointShadowFace Y-flip special
+	// case) rather than this sampling code - the same scene's 2D-shadow-map
+	// spot and directional lights are correct on both backends. That is a
+	// separate, uninvestigated bug; enabling this there would replace
+	// "no point shadow" with "visibly wrong point shadow", so it stays off
+	// until the cube map itself is fixed.
+#if defined(VULKAN) || defined(METAL)
+	FragColor = vec4(pbrColor, 1.0) * attenuation;
+#else
+	FragColor = vec4(pbrColor, 1.0) * attenuation * pcf;
+#endif
 }
 #endif

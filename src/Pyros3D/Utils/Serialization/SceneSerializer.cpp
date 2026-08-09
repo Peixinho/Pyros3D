@@ -847,6 +847,14 @@ namespace p3d {
 				j["shadowWidth"] = l->GetShadowWidth();
 				j["shadowHeight"] = l->GetShadowHeight();
 				j["shadowNear"] = l->GetShadowNear();
+				// Same two keys DirectionalLight above already round-trips.
+				// Point/spot were writing everything about their shadow
+				// except its depth bias, so a scene could not carry one at
+				// all - it silently reset to ILightComponent's 0/0 on load,
+				// and the only shadow acne that made visible belonged to
+				// spot lights, since deferred point shadows didn't render.
+				j["shadowBiasFactor"] = l->GetShadowBiasFactor();
+				j["shadowBiasUnits"] = l->GetShadowBiasUnits();
 			}
 			return j;
 		}
@@ -866,6 +874,9 @@ namespace p3d {
 				j["shadowWidth"] = l->GetShadowWidth();
 				j["shadowHeight"] = l->GetShadowHeight();
 				j["shadowNear"] = l->GetShadowNear();
+				// See the identical pair on PointLight above.
+				j["shadowBiasFactor"] = l->GetShadowBiasFactor();
+				j["shadowBiasUnits"] = l->GetShadowBiasUnits();
 			}
 			return j;
 		}
@@ -1470,7 +1481,13 @@ namespace p3d {
 			auto l = std::make_shared<PointLight>(color, j.value("radius", 1.0f));
 			l->SetLightIntensity(j.value("intensity", 1.0f));
 			if (j.value("castingShadows", false))
+			{
 				l->EnableCastShadows(j.value("shadowWidth", 512u), j.value("shadowHeight", 512u), j.value("shadowNear", 0.1f));
+				// Matches DirectionalLight's identical block above - see the
+				// serialize side's comment on why point/spot were missing it.
+				if ((j.find("shadowBiasFactor") != j.end()) || (j.find("shadowBiasUnits") != j.end()))
+					l->SetShadowBias(j.value("shadowBiasFactor", 1.0f), j.value("shadowBiasUnits", 1.0f));
+			}
 			go->AddComponent(l);
 		}
 		else if (type == "SpotLight")
@@ -1480,7 +1497,12 @@ namespace p3d {
 			auto l = std::make_shared<SpotLight>(color, j.value("radius", 1.0f), direction, j.value("outterCone", 45.0f), j.value("innerCone", 30.0f));
 			l->SetLightIntensity(j.value("intensity", 1.0f));
 			if (j.value("castingShadows", false))
+			{
 				l->EnableCastShadows(j.value("shadowWidth", 512u), j.value("shadowHeight", 512u), j.value("shadowNear", 0.1f));
+				// See the identical block on PointLight above.
+				if ((j.find("shadowBiasFactor") != j.end()) || (j.find("shadowBiasUnits") != j.end()))
+					l->SetShadowBias(j.value("shadowBiasFactor", 1.0f), j.value("shadowBiasUnits", 1.0f));
+			}
 			go->AddComponent(l);
 		}
 		else if (type == "Physics")

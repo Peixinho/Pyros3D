@@ -170,6 +170,8 @@
                     ],
                     "intensity": 3.14159,
                     "radius": 100.0,
+                    "shadowBiasFactor": 2.0,
+                    "shadowBiasUnits": 1.0,
                     "shadowHeight": 512,
                     "shadowNear": 0.100000001490116,
                     "shadowWidth": 512,
