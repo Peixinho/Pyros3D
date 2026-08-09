@@ -2348,7 +2348,14 @@ namespace p3d {
 		else
 			fprintf(stderr, "MetalRenderDevice::AttachFramebufferTexture2D: Stencil_Attachment is not implemented - attachment format %u ignored\n", nativeAttachmentFormat);
 	}
-	void MetalRenderDevice::AttachFramebufferRenderbuffer(const uint32 nativeAttachmentFormat, const DeviceHandle renderbuffer) { (void)nativeAttachmentFormat; (void)renderbuffer; LogStub("AttachFramebufferRenderbuffer"); }
+	// A renderbuffer here is just a texture nobody samples (see
+	// CreateRenderbuffer()), so this is the same attach as a real texture -
+	// mirrors VulkanRenderDevice::AttachFramebufferRenderbuffer(), which
+	// forwards to its own AttachFramebufferTexture2D() for the same reason.
+	void MetalRenderDevice::AttachFramebufferRenderbuffer(const uint32 nativeAttachmentFormat, const DeviceHandle renderbuffer)
+	{
+		AttachFramebufferTexture2D(nativeAttachmentFormat, 1, renderbuffer, true);
+	}
 	// No-ops, same as VulkanRenderDevice's identical set - GL's separate
 	// draw/read-buffer selection has no Metal (or Vulkan) equivalent;
 	// every color attachment a render pass declares is always written,
@@ -2367,12 +2374,50 @@ namespace p3d {
 	uint32 MetalRenderDevice::CheckFramebufferStatus() { return FBOStatus::Complete; }
 	uint32 MetalRenderDevice::TranslateFramebufferStatus(const uint32 nativeStatus) { return nativeStatus; }
 
-	DeviceHandle MetalRenderDevice::CreateRenderbuffer() { LogStub("CreateRenderbuffer"); return 0; }
-	void MetalRenderDevice::DestroyRenderbuffer(const DeviceHandle rbo) { (void)rbo; LogStub("DestroyRenderbuffer"); }
-	void MetalRenderDevice::BindRenderbuffer(const DeviceHandle rbo) { (void)rbo; LogStub("BindRenderbuffer"); }
-	uint32 MetalRenderDevice::TranslateRenderbufferFormat(const uint32 engineDataType) { (void)engineDataType; LogStub("TranslateRenderbufferFormat"); return 0; }
-	void MetalRenderDevice::RenderbufferStorage(const uint32 nativeFormat, const uint32 width, const uint32 height) { (void)nativeFormat; (void)width; (void)height; LogStub("RenderbufferStorage"); }
-	void MetalRenderDevice::RenderbufferStorageMultisample(const uint32 nativeFormat, const uint32 samples, const uint32 width, const uint32 height) { (void)nativeFormat; (void)samples; (void)width; (void)height; LogStub("RenderbufferStorageMultisample"); }
+	// Metal has no renderbuffer object - a write-only attachment is just an
+	// MTLTexture nobody binds to a sampler - so these map straight onto the
+	// texture machinery above, exactly as VulkanRenderDevice's equivalents
+	// map onto its own. Left as stubs, an FBO built with a renderbuffer
+	// depth attachment (FrameBuffer::AddAttach()'s RenderBuffer path, e.g.
+	// IslandDemo's water *reflection* target - its refraction target uses a
+	// depth texture instead, because the water shader samples that one) got
+	// no depth attachment at all on Metal: the reflection pass then had
+	// nothing to depth-test against and drew in submission order.
+	DeviceHandle MetalRenderDevice::CreateRenderbuffer() { return CreateTextureObject(); }
+	void MetalRenderDevice::DestroyRenderbuffer(const DeviceHandle rbo) { DestroyTextureObject(rbo); }
+	void MetalRenderDevice::BindRenderbuffer(const DeviceHandle rbo) { currentlyConfiguringTexture = rbo; }
+	// Real MTLPixelFormat values, not GL tokens - matches every other
+	// Translate*Format() on this backend. RenderbufferStorage() below feeds
+	// the result straight into UploadTexture2D() as its internalFormat.
+	uint32 MetalRenderDevice::TranslateRenderbufferFormat(const uint32 engineDataType)
+	{
+		switch (engineDataType)
+		{
+		case RenderBufferDataType::Depth:
+		case RenderBufferDataType::Depth_Multisample:
+			return (uint32)MTLPixelFormatDepth32Float;
+		case RenderBufferDataType::Stencil:
+		case RenderBufferDataType::Stencil_Multisample:
+			return (uint32)MTLPixelFormatStencil8;
+		case RenderBufferDataType::RGBA:
+		case RenderBufferDataType::RGBA_Multisample:
+		default:
+			return (uint32)MTLPixelFormatRGBA8Unorm;
+		}
+	}
+	void MetalRenderDevice::RenderbufferStorage(const uint32 nativeFormat, const uint32 width, const uint32 height)
+	{
+		UploadTexture2D(0, 0, nativeFormat, width, height, 0, 0, NULL, false);
+	}
+	// MSAA render targets aren't implemented on this backend yet (see
+	// UploadTexture2DMultisample()); fall back to a single-sampled
+	// attachment so the FBO is still complete and depth-tests correctly,
+	// rather than leaving it with no attachment at all.
+	void MetalRenderDevice::RenderbufferStorageMultisample(const uint32 nativeFormat, const uint32 samples, const uint32 width, const uint32 height)
+	{
+		(void)samples;
+		RenderbufferStorage(nativeFormat, width, height);
+	}
 
 	void MetalRenderDevice::SetMultisampleEnabled(const bool enabled) { (void)enabled; LogStub("SetMultisampleEnabled"); }
 	void MetalRenderDevice::BlitFramebuffer(const uint32 srcX0, const uint32 srcY0, const uint32 srcX1, const uint32 srcY1, const uint32 dstX0, const uint32 dstY0, const uint32 dstX1, const uint32 dstY1, const uint32 engineMask, const uint32 engineFilter) { (void)srcX0; (void)srcY0; (void)srcX1; (void)srcY1; (void)dstX0; (void)dstY0; (void)dstX1; (void)dstY1; (void)engineMask; (void)engineFilter; LogStub("BlitFramebuffer"); }
