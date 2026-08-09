@@ -1927,7 +1927,16 @@ namespace p3d {
 		// per-draw-buffer).
 		uint32 targetColorAttachmentCount = 1;
 		VkRenderPass targetRenderPass = renderPass;
-		if (desc.isShadowPass)
+		// A bound FBO's own render pass always wins. isShadowPass exists to
+		// avoid building one shared depth-only pass per shadow FBO, and
+		// that was safe while every shadow FBO *was* depth-only - but a
+		// point light's cube map is an R32F colour attachment now, and
+		// forcing its pipeline onto a depth-only render pass makes the two
+		// render-pass-incompatible, so the draws produce nothing at all.
+		std::map<DeviceHandle, FBORecord>::iterator boundFboIt = fboRecords.find(currentBoundFBO);
+		const bool boundFboHasOwnPass = currentBoundFBO != 0 && boundFboIt != fboRecords.end()
+			&& boundFboIt->second.renderPass != VK_NULL_HANDLE;
+		if (desc.isShadowPass && !boundFboHasOwnPass)
 		{
 			if (shadowPipelineRenderPass == VK_NULL_HANDLE)
 			{

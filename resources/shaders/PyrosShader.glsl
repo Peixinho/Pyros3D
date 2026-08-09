@@ -1148,7 +1148,17 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         #endif
 
         #ifdef CASTSHADOWS
-            diffuse = EncodeFloatRGBA(gl_FragCoord.z);
+            #if defined(GLLEGACY)
+                diffuse = EncodeFloatRGBA(gl_FragCoord.z);
+            #else
+                // Plain depth in R. Directional and spot shadow FBOs are
+                // depth-only, so their colour output is discarded either
+                // way; a point light's cube map is an R32F colour target
+                // (see PointLight::EnableCastShadows) and this is the value
+                // it stores - the same gl_FragCoord.z its depth attachment
+                // used to receive, so PCFPOINT's reference is unchanged.
+                diffuse = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
+            #endif
         #endif
 
         #ifdef DEFERRED_GBUFFER

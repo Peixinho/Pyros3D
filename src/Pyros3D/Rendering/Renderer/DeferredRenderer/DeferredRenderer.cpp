@@ -101,12 +101,12 @@ namespace p3d {
 		dummyShadow2D->EnableCompareMode();
 
 		dummyShadowCube = new Texture();
-		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapNegative_X, TextureDataType::DepthComponent, 4, 4, false);
-		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapNegative_Y, TextureDataType::DepthComponent, 4, 4, false);
-		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapNegative_Z, TextureDataType::DepthComponent, 4, 4, false);
-		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapPositive_X, TextureDataType::DepthComponent, 4, 4, false);
-		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapPositive_Y, TextureDataType::DepthComponent, 4, 4, false);
-		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapPositive_Z, TextureDataType::DepthComponent, 4, 4, false);
+		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapNegative_X, TextureDataType::R32F, 4, 4, false);
+		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapNegative_Y, TextureDataType::R32F, 4, 4, false);
+		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapNegative_Z, TextureDataType::R32F, 4, 4, false);
+		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapPositive_X, TextureDataType::R32F, 4, 4, false);
+		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapPositive_Y, TextureDataType::R32F, 4, 4, false);
+		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapPositive_Z, TextureDataType::R32F, 4, 4, false);
 		dummyShadowCube->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 		// No compare mode, matching the real point-light shadow cubemap it
 		// stands in for - secondpassPoint.glsl reads both as a plain

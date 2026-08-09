@@ -643,9 +643,24 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 						UpdateCulling(ShadowProjection.m*ViewMatrix);
 
 						// GPU Shadows
-						p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::CubemapPositive_X + i, p->GetShadowMapTexture());
+						// Colour slot - see PointLight::EnableCastShadows for why
+						// the cube map is R32F colour rather than a depth format.
+						p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::CubemapPositive_X + i, p->GetShadowMapTexture());
 
-						ClearBufferBit(Buffer_Bit::Depth);
+						// Colour too, not just depth: the cube face is an R32F
+						// colour attachment now (see
+						// PointLight::EnableCastShadows), and anything the
+						// shadow pass doesn't draw over has to read as "far"
+						// or PCFPOINT treats it as an occluder at distance 0.
+						// Clearing only depth left those texels at 0 and
+						// shadowed everything they covered.
+						// Straight to the device rather than SetBackground(),
+						// which is persistent scene state - setting it here
+						// leaked a white clear colour into the main pass and
+						// washed the whole frame out. Restored right after
+						// the six faces, below.
+						device->SetClearColor(Vec4(1.f, 1.f, 1.f, 1.f));
+						ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
 						EnableClearDepthBuffer();
 						ClearDepthBuffer();
 						ClearScreen();
@@ -688,6 +703,10 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 						EndClippingPlanes();
 
 					}
+
+					// Put the scene's own clear colour back - see the
+					// device->SetClearColor() call in the face loop above.
+					device->SetClearColor(BackgroundColorSet ? BackgroundColor : Vec4(0.f, 0.f, 0.f, 1.f));
 
 					// Done rendering the 6 faces - every other pass from
 					// here on (this light's own record-keeping, the next

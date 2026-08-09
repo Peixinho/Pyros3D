@@ -290,7 +290,6 @@ void main() {
 	vec3 V = normalize(-v1);
 	vec3 L = normalize(lightPosition - v1);
 	vec3 pbrColor = CalculatePBRLighting(N, V, L, lightColor.xyz, color, metallic, roughness, specTint);
-
 	// This multiply was commented out in Feb 2021
 	// ("Fixed Deferred Rendering Example in intel gpus") - a workaround for
 	// the broken depth remap in PCFPOINT above, not a driver issue - and
@@ -319,17 +318,14 @@ void main() {
 	// separate, uninvestigated bug; enabling this there would replace
 	// "no point shadow" with "visibly wrong point shadow", so it stays off
 	// until the cube map itself is fixed.
-	// GL only. The manual comparison above fixed the depth *comparison*
-	// everywhere, but Vulkan and Metal have a second, independent problem
-	// on top of it: the cube map's per-face orientation. With
-	// RenderingPointShadowFace's skipYFlip left on, Vulkan shadows a large
-	// region matching the -Y face's footprint and misses the caster
-	// entirely; with it off, no shadow at all. Neither is right, so the
-	// face content is mirrored or rotated relative to what the lookup
-	// expects - most likely the six LookAt up-vectors need to account for
-	// Vulkan's flipped clip-space Y, which is not something this file can
-	// fix. Enabling it there trades "no point shadow" for "wrong point
-	// shadow", so it stays off until that is sorted.
+	// GL only, still. The R32F conversion fixed what the shader *reads*:
+	// measured as the fraction of floor pixels sampling the cube map as ~0,
+	// Vulkan went from 43.0% to 0.0% (GL 0.5% throughout, Metal 82.4% ->
+	// 56.7% and still wrong). So the sampling path is no longer the
+	// problem on Vulkan - but the resulting shadow is still not right
+	// there, so something further along still is. Shadowless beats wrongly
+	// shadowed; the gate stays until Vulkan produces a correct shadow, not
+	// merely correct samples.
 #if defined(VULKAN) || defined(METAL)
 	FragColor = vec4(pbrColor, 1.0) * attenuation;
 #else

@@ -728,7 +728,18 @@ namespace p3d {
 			// IRenderer::BindMesh()/PostEffectsManager, both called with
 			// the real target already bound, matching how a Vulkan
 			// pipeline's VkRenderPass is always known at creation time too.
-			if (desc.isShadowPass)
+			// Same reasoning as VulkanRenderDevice's boundFboHasOwnPass: a
+			// bound FBO's real colour attachments win over the "shadow
+			// passes are depth-only" shortcut. That shortcut was safe while
+			// every shadow FBO was depth-only, but a point light's cube map
+			// is an R32F colour attachment now, and declaring
+			// MTLPixelFormatInvalid for it means Metal silently never
+			// stores what the shadow shader wrote - exactly the failure
+			// mode this block's own comment describes above.
+			std::map<DeviceHandle, FBORecord>::iterator boundFboIt = fboRecords.find(currentBoundFBO);
+			const bool boundFboHasColor = currentBoundFBO != 0 && boundFboIt != fboRecords.end()
+				&& !boundFboIt->second.colorAttachments.empty();
+			if (desc.isShadowPass && !boundFboHasColor)
 			{
 				pipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatInvalid;
 			}
