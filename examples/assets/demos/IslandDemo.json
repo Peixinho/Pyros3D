@@ -9,8 +9,8 @@
             ],
             "position": [
                 0,
-                40,
-                120
+                18,
+                260
             ],
             "rotation": [
                 0.0,
@@ -30,7 +30,7 @@
                     "scriptFile": "demos/scripts/camera_fly.lua",
                     "data": {
                         "yaw": 0,
-                        "pitch": 0
+                        "pitch": -6
                     }
                 }
             ]
