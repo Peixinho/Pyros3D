@@ -67,6 +67,19 @@ float PCFSPOT(sampler2DShadow shadowMap, mat4 sMatrix, float scale, vec4 pos)
 	return shadow;
 }
 
+// One tap, for the volumetric march below. PCFSPOT's 4x4 kernel is the
+// right trade for a surface - it is evaluated once per pixel - but the
+// march evaluates a shadow test at every step, so 16 taps there would be
+// 16 * steps samples per pixel for softness nobody can see: the march
+// already averages tens of samples along the ray, which hides the
+// aliasing the kernel exists to hide.
+float ShadowSpotSingle(sampler2DShadow shadowMap, mat4 sMatrix, vec4 pos)
+{
+	vec4 coord = sMatrix * pos;
+	coord.xyz /= coord.w;
+	return texture(shadowMap, coord.xyz);
+}
+
 float Attenuation(vec3 Vertex, vec3 LightPosition, float Radius)
 {
 	float d = distance(Vertex,LightPosition);
@@ -174,6 +187,14 @@ UBO_BINDING(39) uniform SpotFragParams {
 	mat4 uSpotDepthsMVP;
 	float uPCFTexelSize;
 	float uHaveShadowmap;
+	// Volumetric in-scattering. x = density (0 disables the march
+	// entirely, which is the default, so nothing that doesn't ask for it
+	// pays anything), y = Henyey-Greenstein anisotropy g in (-1,1),
+	// z = step count. Explicit vec4 at a 16-byte boundary rather than
+	// three loose floats after uHaveShadowmap - see DeferredRenderer's
+	// offset table, which is hand-computed and easier to keep honest when
+	// every member is aligned to its own natural boundary.
+	vec4 uVolumetricParams;
 };
 
 SAMPLER_BINDING(4) uniform sampler2DShadow uShadowMap;
@@ -259,6 +280,94 @@ void main() {
 	vec3 L = lightDirection;
 	vec3 pbrColor = CalculatePBRLighting(N, V, L, lightColor.xyz, color, metallic, roughness, specTint);
 
-	FragColor = vec4(pbrColor, 1.0) * spotEffect * attenuation * pcf;
+	vec3 lit = pbrColor * spotEffect * attenuation * pcf;
+
+	// Volumetric in-scattering: what the light does to the medium between
+	// the camera and this pixel, rather than to the surface at it. Marched
+	// here instead of in a separate pass because everything it needs is
+	// already bound and set up - the shadow map with its matrices and PCF,
+	// the light's cone and attenuation, additive One/One blending onto an
+	// HDR target - so the whole feature is this loop plus three uniforms.
+	//
+	// Deliberately NOT multiplied by the surface BRDF or its shadow term:
+	// this is light scattered toward the eye by the medium, so it adds on
+	// top of whatever the surface returned, including where the surface is
+	// fully shadowed.
+	float density = uVolumetricParams.x;
+	if (density > 0.0)
+	{
+		int steps = int(uVolumetricParams.z);
+		vec3 rayEnd = v1;                 // the surface, in view space
+		float rayLen = length(rayEnd);
+		if (rayLen > 0.0001 && steps > 0)
+		{
+			vec3 rayDir = rayEnd / rayLen;
+			// Only the stretch of the view ray that can possibly be lit:
+			// inside the light's radius, in front of the camera, and no
+			// further than the surface. Marching the whole ray instead
+			// wastes every sample beyond the light's reach AND, on a pixel
+			// with no geometry, stretches the ray to the far plane - so
+			// stepLen grows with it and the few samples that do land inside
+			// the light get multiplied by a huge step, which blew the
+			// background out to white. Clipping to the sphere makes the
+			// step length depend on the light's size rather than on how far
+			// away whatever is behind it happens to be.
+			vec3 oc = -lightPosition;
+			float bq = dot(oc, rayDir);
+			float cq = dot(oc, oc) - lightRadius * lightRadius;
+			float disc = bq * bq - cq;
+			if (disc > 0.0)
+			{
+			float sq = sqrt(disc);
+			float t0 = max(-bq - sq, 0.0);
+			float t1 = min(-bq + sq, rayLen);
+			if (t1 > t0)
+			{
+			float segLen = t1 - t0;
+			float stepLen = segLen / float(steps);
+
+			// Interleaved gradient noise on the ray's start offset. Without
+			// it a fixed step pattern puts every sample of neighbouring
+			// pixels at the same depths and the cone reads as hard banded
+			// shells; jittering by up to one step turns that into
+			// per-pixel noise the eye integrates instead.
+			float dither = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+
+			// Henyey-Greenstein: forward-scattering when g > 0, which is
+			// what makes a beam brighten as you look into it.
+			float g = clamp(uVolumetricParams.y, -0.95, 0.95);
+			float gg = g * g;
+
+			float inScatter = 0.0;
+			for (int i = 0; i < steps; i++)
+			{
+				vec3 p = rayDir * (t0 + (float(i) + dither) * stepLen);
+
+				float sAtt = Attenuation(p, lightPosition, lightRadius);
+				if (sAtt <= 0.0)
+					continue;
+				float sCone = 1.0 - DualConeSpotLight(p, lightPosition, lightDirection, outterCone, innerCone);
+				if (sCone <= 0.0)
+					continue;
+
+				float sShadow = 1.0;
+				if (uHaveShadowmap > 0.0)
+					sShadow = ShadowSpotSingle(uShadowMap, uSpotDepthsMVP, vec4(p, 1.0));
+
+				// Angle between the view ray and the light arriving at this
+				// sample - the phase function's argument.
+				vec3 toLight = normalize(lightPosition - p);
+				float cosTheta = dot(rayDir, -toLight);
+				float phase = (1.0 - gg) / (4.0 * 3.14159265 * pow(1.0 + gg - 2.0 * g * cosTheta, 1.5));
+
+				inScatter += sAtt * sCone * sShadow * phase;
+			}
+			lit += lightColor.xyz * inScatter * density * stepLen;
+			}
+			}
+		}
+	}
+
+	FragColor = vec4(lit, 1.0);
 }
 #endif

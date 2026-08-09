@@ -618,6 +618,27 @@ namespace p3d {
 		}
 	}
 
+// Volumetric scattering round-trips for point and spot lights - see
+// ILightComponent::SetVolumetricScattering(). Written unconditionally so a
+// saved scene always states it; read only when present, so every existing
+// scene keeps the 0 default and behaves exactly as before.
+static void WriteVolumetric(json &j, ILightComponent *l)
+{
+	j["volumetricScattering"] = l->GetVolumetricScattering();
+	j["volumetricAnisotropy"] = l->GetVolumetricAnisotropy();
+	j["volumetricSteps"] = l->GetVolumetricSteps();
+}
+
+static void ReadVolumetric(const json &j, ILightComponent *l)
+{
+	if (j.find("volumetricScattering") != j.end())
+		l->SetVolumetricScattering(j.value("volumetricScattering", 0.0f));
+	if (j.find("volumetricAnisotropy") != j.end())
+		l->SetVolumetricAnisotropy(j.value("volumetricAnisotropy", 0.6f));
+	if (j.find("volumetricSteps") != j.end())
+		l->SetVolumetricSteps(j.value("volumetricSteps", 32u));
+}
+
 	static json SerializeComponent(IComponent* c, json &materialsArray, std::map<IMaterial*, uint32> &materialIdMap, sol::state* lua)
 	{
 		json j;
@@ -856,6 +877,10 @@ namespace p3d {
 				j["shadowBiasFactor"] = l->GetShadowBiasFactor();
 				j["shadowBiasUnits"] = l->GetShadowBiasUnits();
 			}
+			// Outside the castingShadows block - volumetric scattering
+			// works with or without a shadow map (unshadowed just means the
+			// medium glows uniformly inside the light's reach).
+			WriteVolumetric(j, l);
 			return j;
 		}
 		case ComponentType::SpotLight:
@@ -878,6 +903,7 @@ namespace p3d {
 				j["shadowBiasFactor"] = l->GetShadowBiasFactor();
 				j["shadowBiasUnits"] = l->GetShadowBiasUnits();
 			}
+			WriteVolumetric(j, l);
 			return j;
 		}
 		case ComponentType::Physics:
@@ -1488,6 +1514,7 @@ namespace p3d {
 				if ((j.find("shadowBiasFactor") != j.end()) || (j.find("shadowBiasUnits") != j.end()))
 					l->SetShadowBias(j.value("shadowBiasFactor", 1.0f), j.value("shadowBiasUnits", 1.0f));
 			}
+			ReadVolumetric(j, l.get());
 			go->AddComponent(l);
 		}
 		else if (type == "SpotLight")
@@ -1503,6 +1530,7 @@ namespace p3d {
 				if ((j.find("shadowBiasFactor") != j.end()) || (j.find("shadowBiasUnits") != j.end()))
 					l->SetShadowBias(j.value("shadowBiasFactor", 1.0f), j.value("shadowBiasUnits", 1.0f));
 			}
+			ReadVolumetric(j, l.get());
 			go->AddComponent(l);
 		}
 		else if (type == "Physics")

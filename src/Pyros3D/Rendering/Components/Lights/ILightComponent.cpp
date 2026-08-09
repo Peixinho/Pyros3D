@@ -18,6 +18,10 @@ namespace p3d {
 		LightType = type;
 		isCastingShadows = false;
 		ShadowBiasFactor = ShadowBiasUnits = 0.f;
+		// Off by default - see SetVolumetricScattering().
+		volumetricDensity = 0.f;
+		volumetricAnisotropy = 0.6f;
+		volumetricSteps = 32.f;
 		Intensity = 1.f;
 		pcfTexel = 0.0001f;
 	}

@@ -357,6 +357,28 @@
   }
  },
  {
+  "name": "Volumetric Lights",
+  "description": "Spot and point lights scattering through the air: shadowed light shafts marched per-pixel in the deferred lighting pass.",
+  "scene": "VolumetricLights.json",
+  "render": {
+   "type": "deferred",
+   "globalLight": [
+    0.03,
+    0.03,
+    0.045,
+    1
+   ],
+   "effects": [
+    "tonemap"
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 1,
+    "far": 600
+   }
+  }
+ },
+ {
   "name": "Island (Planar Reflections)",
   "description": "Island water reflected/refracted by a clip-plane multipass: mirrored camera into a reflection FBO, below-water pass into a refraction FBO, composited by WaterShader.glsl (forward).",
   "scene": "IslandDemo.json",

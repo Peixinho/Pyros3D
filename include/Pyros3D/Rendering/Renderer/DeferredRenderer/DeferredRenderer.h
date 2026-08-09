@@ -165,6 +165,10 @@ namespace p3d {
 		// entirely before rasterization).
 		Uniform *pointUseFullscreenQuadHandle, *spotUseFullscreenQuadHandle;
 
+		// Per-light volumetric params (density, anisotropy, steps) packed
+		// into one vec4 - see ILightComponent::SetVolumetricScattering().
+		Uniform *pointVolumetricHandle, *spotVolumetricHandle;
+
 		// Real mip count of previousFrameColorTexture, recomputed on
 		// resize - see lastPass.glsl's uMaxReflectionLod/textureLod()
 		// comment (roughness-based SSR reflection blur).

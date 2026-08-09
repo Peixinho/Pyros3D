@@ -73,6 +73,27 @@ namespace p3d {
 
 		Texture* GetShadowMapTexture() { return ShadowMap.get(); }
 
+		// Volumetric in-scattering - how much light this one scatters back
+		// to the eye out of the medium it passes through, on top of what it
+		// does to surfaces. Consumed by DeferredRenderer's point and spot
+		// passes (see secondpassSpot.glsl's march); directional lights
+		// ignore it for now.
+		//
+		// Density defaults to 0, which skips the march entirely - so this
+		// costs nothing at all for every light that doesn't ask for it, and
+		// no existing scene changes behaviour.
+		void SetVolumetricScattering(const f32 density) { volumetricDensity = density; }
+		f32 GetVolumetricScattering() const { return volumetricDensity; }
+		// Henyey-Greenstein g in (-1,1). Positive is forward-scattering,
+		// which is what makes a beam brighten as you look into it; 0 is
+		// isotropic. Clamped to +-0.95 in the shader.
+		void SetVolumetricAnisotropy(const f32 g) { volumetricAnisotropy = g; }
+		f32 GetVolumetricAnisotropy() const { return volumetricAnisotropy; }
+		// Samples along the view ray. Cost is linear in this and paid per
+		// pixel the light's volume covers.
+		void SetVolumetricSteps(const uint32 steps) { volumetricSteps = (f32)steps; }
+		uint32 GetVolumetricSteps() const { return (uint32)volumetricSteps; }
+
 		void SetShadowPCFTexelSize(f32 texel) { pcfTexel = texel; }
 		f32 GetShadowPCFTexelSize() { return pcfTexel; }
 
@@ -154,6 +175,9 @@ namespace p3d {
 		uint32 LightType;
 
 		f32 pcfTexel;
+
+		// See SetVolumetricScattering() - density 0 disables the march.
+		f32 volumetricDensity, volumetricAnisotropy, volumetricSteps;
 
 	};
 

@@ -360,6 +360,7 @@ namespace p3d {
 		pointShadowPCFTexelHandle = deferredMaterialPoint->AddUniform(Uniform("uPCFTexelSize", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		pointShadowDepthsMVPHandle = deferredMaterialPoint->AddUniform(Uniform("uPointDepthsMVP", Uniforms::DataUsage::Other, Uniforms::DataType::Matrix));
 		pointHaveShadowHandle = deferredMaterialPoint->AddUniform(Uniform("uHaveShadowmap", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		pointVolumetricHandle = deferredMaterialPoint->AddUniform(Uniform("uVolumetricParams", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		deferredMaterialPoint->AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
 		deferredMaterialPoint->AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
 		deferredMaterialPoint->AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
@@ -401,7 +402,7 @@ namespace p3d {
 
 		deferredMaterialPoint->extraUniforms[1].binding = 38;
 		deferredMaterialPoint->extraUniforms[1].blockName = "PointFragParams";
-		deferredMaterialPoint->extraUniforms[1].size = 200;
+		deferredMaterialPoint->extraUniforms[1].size = 224;
 		deferredMaterialPoint->extraUniforms[1].scratch.resize(deferredMaterialPoint->extraUniforms[1].size, 0);
 		deferredMaterialPoint->extraUniforms[1].offsets["uScreenDimensions"] = 0;
 		deferredMaterialPoint->extraUniforms[1].offsets["uLightPosition"] = 16;
@@ -411,6 +412,8 @@ namespace p3d {
 		deferredMaterialPoint->extraUniforms[1].offsets["uPointDepthsMVP"] = 64;
 		deferredMaterialPoint->extraUniforms[1].offsets["uPCFTexelSize"] = 192;
 		deferredMaterialPoint->extraUniforms[1].offsets["uHaveShadowmap"] = 196;
+		// vec4 -> next 16-byte boundary after 200.
+		deferredMaterialPoint->extraUniforms[1].offsets["uVolumetricParams"] = 208;
 
 		// FrontFace on BOTH backends - culling the light volume's *near*
 		// faces so the far hemisphere is what covers the screen, the
@@ -448,6 +451,7 @@ namespace p3d {
 		spotShadowPCFTexelHandle = deferredMaterialSpot->AddUniform(Uniform("uPCFTexelSize", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		spotShadowDepthsMVPHandle = deferredMaterialSpot->AddUniform(Uniform("uSpotDepthsMVP", Uniforms::DataUsage::Other, Uniforms::DataType::Matrix));
 		spotHaveShadowHandle = deferredMaterialSpot->AddUniform(Uniform("uHaveShadowmap", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		spotVolumetricHandle = deferredMaterialSpot->AddUniform(Uniform("uVolumetricParams", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		deferredMaterialSpot->AddUniform(Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
 		deferredMaterialSpot->AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
 		deferredMaterialSpot->AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
@@ -481,7 +485,7 @@ namespace p3d {
 
 		deferredMaterialSpot->extraUniforms[1].binding = 39;
 		deferredMaterialSpot->extraUniforms[1].blockName = "SpotFragParams";
-		deferredMaterialSpot->extraUniforms[1].size = 232;
+		deferredMaterialSpot->extraUniforms[1].size = 256;
 		deferredMaterialSpot->extraUniforms[1].scratch.resize(deferredMaterialSpot->extraUniforms[1].size, 0);
 		deferredMaterialSpot->extraUniforms[1].offsets["uScreenDimensions"] = 0;
 		deferredMaterialSpot->extraUniforms[1].offsets["uLightPosition"] = 16;
@@ -495,6 +499,8 @@ namespace p3d {
 		deferredMaterialSpot->extraUniforms[1].offsets["uSpotDepthsMVP"] = 160;
 		deferredMaterialSpot->extraUniforms[1].offsets["uPCFTexelSize"] = 224;
 		deferredMaterialSpot->extraUniforms[1].offsets["uHaveShadowmap"] = 228;
+		// vec4 -> next 16-byte boundary after 232.
+		deferredMaterialSpot->extraUniforms[1].offsets["uVolumetricParams"] = 240;
 
 		// See deferredMaterialPoint's comment above - same Sphere-primitive
 		// light volume, same inside-the-proxy dead band the old IsVulkan()
@@ -845,6 +851,11 @@ namespace p3d {
 					pointRadiusHandle->SetValue((void*)&p->GetLightRadius());
 					Vec4 pointRadiance = p->GetLightRadiance();
 					pointColorHandle->SetValue(&pointRadiance);
+					// See ILightComponent::SetVolumetricScattering() - x
+					// density, y anisotropy, z steps; density 0 makes the
+					// shader skip the march entirely.
+					Vec4 pointVolumetric(p->GetVolumetricScattering(), p->GetVolumetricAnisotropy(), (f32)p->GetVolumetricSteps(), 0.f);
+					pointVolumetricHandle->SetValue(&pointVolumetric);
 					// Pre-existing bug, found and fixed alongside the other
 					// second-pass bugs above: defaulting to unit 0 when the
 					// light doesn't cast a shadow makes uShadowMap (a
@@ -959,6 +970,9 @@ namespace p3d {
 					spotInnerHandle->SetValue((void*)&s->GetLightCosInnerCone());
 					Vec4 spotRadiance = s->GetLightRadiance();
 					spotColorHandle->SetValue(&spotRadiance);
+					// See the identical block in the POINT case above.
+					Vec4 spotVolumetric(s->GetVolumetricScattering(), s->GetVolumetricAnisotropy(), (f32)s->GetVolumetricSteps(), 0.f);
+					spotVolumetricHandle->SetValue(&spotVolumetric);
 
 					// See the identical fix in the POINT case above.
 					int shadowUnit = 4;

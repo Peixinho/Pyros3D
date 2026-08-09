@@ -138,6 +138,21 @@ float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, v
 	return shadow;
 }
 
+// One tap, for the volumetric march - see secondpassSpot.glsl's
+// ShadowSpotSingle() for why the march doesn't use the 4x4 kernel. Same
+// manual comparison and bias as PCFPOINT above, since this reads the same
+// R32F colour cube map.
+float ShadowPointSingle(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, vec4 pos)
+{
+	vec4 position_ls = Matrix2 * pos;
+	position_ls.xyz /= position_ls.w;
+	vec4 abs_position = abs(position_ls);
+	float fs_z = -max(abs_position.x, max(abs_position.y, abs_position.z));
+	vec4 clip = Matrix1 * vec4(0.0, 0.0, fs_z, 1.0);
+	float depth = clip.z / clip.w;
+	return (texture(shadowMap, position_ls.xyz).r + SHADOW_BIAS >= depth) ? 1.0 : 0.0;
+}
+
 float Attenuation(vec3 Vertex, vec3 LightPosition, float Radius)
 {
 	float d = distance(Vertex,LightPosition);
@@ -228,6 +243,9 @@ UBO_BINDING(38) uniform PointFragParams {
 	mat4 uPointDepthsMVP[2];
 	float uPCFTexelSize;
 	float uHaveShadowmap;
+	// See secondpassSpot.glsl's identical member - x = density (0 = off,
+	// the default), y = Henyey-Greenstein g, z = step count.
+	vec4 uVolumetricParams;
 };
 IO_LOCATION(0) varying_in mat4 vProjectionMatrix;
 
@@ -346,7 +364,75 @@ void main() {
 	// there, so something further along still is. Shadowless beats wrongly
 	// shadowed; the gate stays until Vulkan produces a correct shadow, not
 	// merely correct samples.
-	FragColor = vec4(pbrColor, 1.0) * attenuation * pcf;
+	vec3 lit = pbrColor * attenuation * pcf;
+
+	// Volumetric in-scattering - see secondpassSpot.glsl for the full
+	// reasoning. Same march, minus the cone test: a point light scatters in
+	// every direction, so attenuation and the shadow cube are the only
+	// things gating a sample. Added on top of the surface term rather than
+	// multiplied into it, since this is light the medium sends to the eye,
+	// not light the surface returns.
+	float density = uVolumetricParams.x;
+	if (density > 0.0)
+	{
+		int steps = int(uVolumetricParams.z);
+		float rayLen = length(v1);
+		if (rayLen > 0.0001 && steps > 0)
+		{
+			vec3 rayDir = v1 / rayLen;
+			// Only the stretch of the view ray that can possibly be lit:
+			// inside the light's radius, in front of the camera, and no
+			// further than the surface. Marching the whole ray instead
+			// wastes every sample beyond the light's reach AND, on a pixel
+			// with no geometry, stretches the ray to the far plane - so
+			// stepLen grows with it and the few samples that do land inside
+			// the light get multiplied by a huge step, which blew the
+			// background out to white. Clipping to the sphere makes the
+			// step length depend on the light's size rather than on how far
+			// away whatever is behind it happens to be.
+			vec3 oc = -lightPosition;
+			float bq = dot(oc, rayDir);
+			float cq = dot(oc, oc) - lightRadius * lightRadius;
+			float disc = bq * bq - cq;
+			if (disc > 0.0)
+			{
+			float sq = sqrt(disc);
+			float t0 = max(-bq - sq, 0.0);
+			float t1 = min(-bq + sq, rayLen);
+			if (t1 > t0)
+			{
+			float segLen = t1 - t0;
+			float stepLen = segLen / float(steps);
+			float dither = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+			float g = clamp(uVolumetricParams.y, -0.95, 0.95);
+			float gg = g * g;
+
+			float inScatter = 0.0;
+			for (int i = 0; i < steps; i++)
+			{
+				vec3 p = rayDir * (t0 + (float(i) + dither) * stepLen);
+
+				float sAtt = Attenuation(p, lightPosition, lightRadius);
+				if (sAtt <= 0.0)
+					continue;
+
+				float sShadow = 1.0;
+				if (uHaveShadowmap > 0.0)
+					sShadow = ShadowPointSingle(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], vec4(p, 1.0));
+
+				vec3 toLight = normalize(lightPosition - p);
+				float cosTheta = dot(rayDir, -toLight);
+				float phase = (1.0 - gg) / (4.0 * 3.14159265 * pow(1.0 + gg - 2.0 * g * cosTheta, 1.5));
+
+				inScatter += sAtt * sShadow * phase;
+			}
+			lit += lightColor.xyz * inScatter * density * stepLen;
+			}
+			}
+		}
+	}
+
+	FragColor = vec4(lit, 1.0);
 
 }
 #endif

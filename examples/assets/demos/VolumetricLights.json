@@ -1,0 +1,516 @@
+{
+    "materials": [
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": true,
+            "color": [
+                0.8,
+                0.8,
+                0.84,
+                1.0
+            ],
+            "cullFace": 0,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.05,
+            "id": 0,
+            "kind": "generic",
+            "metallic": 0.0,
+            "opacity": 1.0,
+            "options": 4210689,
+            "reflectivity": 0.0,
+            "roughness": 0.35,
+            "shininess": 50.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        },
+        {
+            "blendDFactor": 0,
+            "blendEquation": 0,
+            "blendSFactor": 0,
+            "blending": false,
+            "castingShadows": true,
+            "color": [
+                0.75,
+                0.35,
+                0.28,
+                1.0
+            ],
+            "cullFace": 0,
+            "depthBias": false,
+            "depthBiasFactor": 0.0,
+            "depthBiasUnits": 0.0,
+            "depthTest": true,
+            "depthWrite": true,
+            "displacementHeight": 0.05,
+            "id": 1,
+            "kind": "generic",
+            "metallic": 0.0,
+            "opacity": 1.0,
+            "options": 4210689,
+            "reflectivity": 0.0,
+            "roughness": 0.35,
+            "shininess": 50.0,
+            "specular": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "ssrEnabled": false,
+            "transparent": false,
+            "wireframe": false
+        }
+    ],
+    "roots": [
+        {
+            "name": "Camera",
+            "tags": [],
+            "position": [
+                18,
+                54,
+                128
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "demos/scripts/camera_fly.lua",
+                    "data": {
+                        "yaw": 0,
+                        "pitch": -20
+                    }
+                }
+            ]
+        },
+        {
+            "name": "VolumetricSpot",
+            "tags": [],
+            "position": [
+                -14,
+                46,
+                14
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "SpotLight",
+                    "color": [
+                        1.0,
+                        0.93,
+                        0.78,
+                        1.0
+                    ],
+                    "intensity": 5.0,
+                    "radius": 120.0,
+                    "direction": [
+                        0.32,
+                        -1.0,
+                        -0.12
+                    ],
+                    "innerCone": 9.0,
+                    "outterCone": 22.0,
+                    "castingShadows": true,
+                    "shadowWidth": 1024,
+                    "shadowHeight": 1024,
+                    "shadowNear": 0.5,
+                    "shadowBiasFactor": 2.0,
+                    "shadowBiasUnits": 1.0,
+                    "volumetricScattering": 0.004,
+                    "volumetricAnisotropy": 0.72,
+                    "volumetricSteps": 48
+                }
+            ]
+        },
+        {
+            "name": "VolumetricLamp",
+            "tags": [],
+            "position": [
+                22,
+                7,
+                -2
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "PointLight",
+                    "color": [
+                        0.45,
+                        0.68,
+                        1.0,
+                        1.0
+                    ],
+                    "intensity": 4.0,
+                    "radius": 55.0,
+                    "castingShadows": true,
+                    "shadowWidth": 512,
+                    "shadowHeight": 512,
+                    "shadowNear": 0.5,
+                    "shadowBiasFactor": 2.0,
+                    "shadowBiasUnits": 1.0,
+                    "volumetricScattering": 0.003,
+                    "volumetricAnisotropy": 0.35,
+                    "volumetricSteps": 40
+                }
+            ]
+        },
+        {
+            "name": "Floor",
+            "tags": [],
+            "position": [
+                0,
+                -6,
+                0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "RenderingComponent",
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 0,
+                    "renderable": {
+                        "kind": "primitive",
+                        "shape": "Cube",
+                        "width": 240.0,
+                        "height": 4.0,
+                        "depth": 240.0,
+                        "smooth": false,
+                        "flip": false,
+                        "tangentBitangent": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Slat0",
+            "tags": [],
+            "position": [
+                -26.0,
+                10,
+                6
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "RenderingComponent",
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 1,
+                    "renderable": {
+                        "kind": "primitive",
+                        "shape": "Cube",
+                        "width": 3.0,
+                        "height": 16.0,
+                        "depth": 26.0,
+                        "smooth": false,
+                        "flip": false,
+                        "tangentBitangent": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Slat1",
+            "tags": [],
+            "position": [
+                -17.0,
+                10,
+                6
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "RenderingComponent",
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 1,
+                    "renderable": {
+                        "kind": "primitive",
+                        "shape": "Cube",
+                        "width": 3.0,
+                        "height": 16.0,
+                        "depth": 26.0,
+                        "smooth": false,
+                        "flip": false,
+                        "tangentBitangent": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Slat2",
+            "tags": [],
+            "position": [
+                -8.0,
+                10,
+                6
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "RenderingComponent",
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 1,
+                    "renderable": {
+                        "kind": "primitive",
+                        "shape": "Cube",
+                        "width": 3.0,
+                        "height": 16.0,
+                        "depth": 26.0,
+                        "smooth": false,
+                        "flip": false,
+                        "tangentBitangent": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Slat3",
+            "tags": [],
+            "position": [
+                1.0,
+                10,
+                6
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "RenderingComponent",
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 1,
+                    "renderable": {
+                        "kind": "primitive",
+                        "shape": "Cube",
+                        "width": 3.0,
+                        "height": 16.0,
+                        "depth": 26.0,
+                        "smooth": false,
+                        "flip": false,
+                        "tangentBitangent": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Slat4",
+            "tags": [],
+            "position": [
+                10.0,
+                10,
+                6
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "RenderingComponent",
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 1,
+                    "renderable": {
+                        "kind": "primitive",
+                        "shape": "Cube",
+                        "width": 3.0,
+                        "height": 16.0,
+                        "depth": 26.0,
+                        "smooth": false,
+                        "flip": false,
+                        "tangentBitangent": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "BlockA",
+            "tags": [],
+            "position": [
+                16,
+                1,
+                4
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "RenderingComponent",
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 1,
+                    "renderable": {
+                        "kind": "primitive",
+                        "shape": "Cube",
+                        "width": 9.0,
+                        "height": 9.0,
+                        "depth": 9.0,
+                        "smooth": false,
+                        "flip": false,
+                        "tangentBitangent": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "BlockB",
+            "tags": [],
+            "position": [
+                30,
+                5,
+                -14
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "RenderingComponent",
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "material": 1,
+                    "renderable": {
+                        "kind": "primitive",
+                        "shape": "Cube",
+                        "width": 7.0,
+                        "height": 18.0,
+                        "depth": 7.0,
+                        "smooth": false,
+                        "flip": false,
+                        "tangentBitangent": false
+                    }
+                }
+            ]
+        }
+    ]
+}
