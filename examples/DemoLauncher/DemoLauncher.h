@@ -71,6 +71,9 @@ private:
 	void LoadManifest();
 	void SwitchDemo(int index);
 	void DrawUI();
+	// See its definition - reads the active point light's shadow
+	// cubemap back and draws all six faces.
+	void DrawShadowCubemapViewer();
 
 	void InitImGui();
 	void ShutdownImGui();
@@ -91,6 +94,7 @@ private:
 	bool activeDemoHasPhysics;
 
 	bool imguiInitialized;
+	bool showCubemapViewer;
 
 };
 

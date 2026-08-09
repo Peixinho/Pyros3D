@@ -49,6 +49,7 @@ DemoLauncher::DemoLauncher() : ClassName(1280, 720, "Pyros3D - Demos", WindowTyp
 	Scene = nullptr;
 	physics = nullptr;
 	activeDemo = -1;
+	showCubemapViewer = false;
 	activeDemoHasPhysics = false;
 	imguiInitialized = false;
 }
@@ -357,6 +358,114 @@ void DemoLauncher::Update()
 	}
 }
 
+
+// Point-light shadow cubemap viewer. Reads the six faces of the first
+// shadow-casting PointLight in the scene back to the CPU and draws them as
+// downsampled grids, so what is actually *in* the shadow map is visible
+// instead of inferred from the lit result. Built while chasing deferred
+// point shadows working on GL but not Vulkan/Metal, where every
+// screenshot-level probe (does a shadow appear, is the reference depth
+// right) had run out of resolution - the map's own contents were the one
+// thing nobody could see. Drawn as ImDrawList rects rather than
+// ImGui::Image() deliberately: an ImTextureID means a backend-specific
+// binding (GLuint vs VkDescriptorSet vs id<MTLTexture>), and this needs to
+// work identically on all three to be worth anything as a comparison tool.
+void DemoLauncher::DrawShadowCubemapViewer()
+{
+	if (!showCubemapViewer || !Scene)
+		return;
+	if (!ImGui::Begin("Point Shadow Cubemap", &showCubemapViewer))
+	{
+		ImGui::End();
+		return;
+	}
+
+	PointLight *light = NULL;
+	std::vector<std::shared_ptr<GameObject> > objs = Scene->GetAllGameObjectList();
+	for (size_t i = 0; i < objs.size() && light == NULL; i++)
+	{
+		const std::vector<std::shared_ptr<IComponent> > &comps = objs[i]->GetComponents();
+		for (size_t c = 0; c < comps.size(); c++)
+		{
+			PointLight *p = dynamic_cast<PointLight*>(comps[c].get());
+			if (p != NULL && p->IsCastingShadows()) { light = p; break; }
+		}
+	}
+	if (light == NULL)
+	{
+		ImGui::Text("No shadow-casting PointLight in this scene.");
+		ImGui::End();
+		return;
+	}
+
+	Texture *shadowMap = light->GetShadowMapTexture();
+	if (shadowMap == NULL)
+	{
+		ImGui::Text("PointLight has no shadow map texture.");
+		ImGui::End();
+		return;
+	}
+
+	static const uint32 kFaceTypes[6] = {
+		TextureType::CubemapPositive_X, TextureType::CubemapNegative_X,
+		TextureType::CubemapPositive_Y, TextureType::CubemapNegative_Y,
+		TextureType::CubemapPositive_Z, TextureType::CubemapNegative_Z
+	};
+	static const char *kFaceNames[6] = { "+X", "-X", "+Y", "-Y", "+Z", "-Z" };
+
+	const uint32 srcW = light->GetShadowWidth(), srcH = light->GetShadowHeight();
+	const int cells = 48;                 // downsample grid per face
+	const float cellPx = 3.0f;
+	ImGui::Text("%ux%u depth cubemap, downsampled to %dx%d per face.", srcW, srcH, cells, cells);
+	ImGui::Text("White = far/cleared (1.0), dark = something was drawn.");
+	ImGui::Separator();
+
+	for (uint32 f = 0; f < 6; f++)
+	{
+		std::vector<uchar> data = shadowMap->GetTextureData(0, (int32)kFaceTypes[f]);
+		// Depth reads back as 32-bit float per texel on both backends.
+		const uint32 texels = srcW * srcH;
+		const bool haveFloats = data.size() >= (size_t)texels * 4;
+		const float *depth = haveFloats ? (const float*)&data[0] : NULL;
+
+		if (f % 3 != 0) ImGui::SameLine();
+		ImGui::BeginGroup();
+		ImGui::Text("%s", kFaceNames[f]);
+		ImDrawList *dl = ImGui::GetWindowDrawList();
+		ImVec2 origin = ImGui::GetCursorScreenPos();
+		float dmin = 1.0f, dmax = 0.0f;
+		for (int y = 0; y < cells; y++)
+		{
+			for (int x = 0; x < cells; x++)
+			{
+				float d = 1.0f;
+				if (depth != NULL)
+				{
+					const uint32 sx = (uint32)((float)x / cells * srcW);
+					const uint32 sy = (uint32)((float)y / cells * srcH);
+					d = depth[sy * srcW + sx];
+				}
+				if (d < dmin) dmin = d;
+				if (d > dmax) dmax = d;
+				// Depth here sits in a narrow band just under 1.0, so a
+				// raw 0..1 ramp is a flat white square - stretch the top
+				// of the range, which is where all the detail lives.
+				float v = d;
+				v = (v - 0.95f) / 0.05f;
+				if (v < 0.0f) v = 0.0f; else if (v > 1.0f) v = 1.0f;
+				const ImU32 col = ImGui::GetColorU32(ImVec4(v, v, v, 1.0f));
+				dl->AddRectFilled(ImVec2(origin.x + x * cellPx, origin.y + y * cellPx),
+					ImVec2(origin.x + (x + 1) * cellPx, origin.y + (y + 1) * cellPx), col);
+			}
+		}
+		ImGui::Dummy(ImVec2(cells * cellPx, cells * cellPx));
+		ImGui::Text("%.5f..%.5f", dmin, dmax);
+		ImGui::EndGroup();
+	}
+
+	ImGui::End();
+}
+
 void DemoLauncher::DrawUI()
 {
 	ImGui::Begin("Pyros3D Demos");
@@ -369,6 +478,7 @@ void DemoLauncher::DrawUI()
 #endif
 	ImGui::Text("Mouse: %s (TAB to toggle)", SDL_GetRelativeMouseMode() ? "Captured" : "Free");
 	ImGui::Text("Profiler: F3");
+	ImGui::Checkbox("Point shadow cubemap", &showCubemapViewer);
 	ImGui::Separator();
 
 	FrameProfiler::Instance().DrawImGui();
@@ -402,6 +512,8 @@ void DemoLauncher::DrawUI()
 	}
 
 	ImGui::End();
+
+	DrawShadowCubemapViewer();
 
 	for (const std::shared_ptr<GameObject> &go : currentAssets.gameObjects)
 	{

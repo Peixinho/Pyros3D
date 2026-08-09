@@ -4430,13 +4430,24 @@ namespace p3d {
 	// call left in currentlyConfiguringTexture.
 	void VulkanRenderDevice::ReadTexturePixels(const uint32 target, const uint32 level, const uint32 format, const uint32 type, void *outBuffer)
 	{
-		(void)target; (void)level; (void)format; (void)type;
+		(void)level; (void)format; (void)type;
 		if (outBuffer == NULL || allocator == VK_NULL_HANDLE)
 			return;
 		std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(currentlyConfiguringTexture);
 		if (texIt == textures.end() || texIt->second.image == VK_NULL_HANDLE)
 			return;
 		TextureRecord &tex = texIt->second;
+
+		// `target` selects which cube face to read (GL reads it straight
+		// out of glGetTexImage's target); it was ignored entirely here, so
+		// every face of a cubemap read back as face 0 - and a depth
+		// texture read back as garbage, since the aspect below was
+		// hardcoded to COLOR. Both matter for the point-light shadow
+		// cubemap viewer, which is the first caller to read anything but a
+		// plain 2D colour texture.
+		const VkImageAspectFlags aspect = tex.isDepthTexture ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+		const uint32 faceLayer = (tex.isCubemap && target >= CUBEMAP_FACE_TARGET_BASE)
+			? (target - CUBEMAP_FACE_TARGET_BASE) : 0;
 
 		VkDeviceSize bufferSize = (VkDeviceSize)tex.width * tex.height * 4;
 		VkBufferCreateInfo bufferInfo = {};
@@ -4482,13 +4493,13 @@ namespace p3d {
 		toSrc.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		toSrc.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		toSrc.image = tex.image;
-		toSrc.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+		toSrc.subresourceRange = { aspect, 0, 1, faceLayer, 1 };
 		toSrc.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
 		toSrc.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &toSrc);
 
 		VkBufferImageCopy region = {};
-		region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+		region.imageSubresource = { aspect, 0, faceLayer, 1 };
 		region.imageExtent = { tex.width, tex.height, 1 };
 		vkCmdCopyImageToBuffer(cmd, tex.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, stagingBuffer, 1, &region);
 

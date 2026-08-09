@@ -462,15 +462,33 @@ namespace p3d {
 		return GL_ID;
 	}
 
-	std::vector<uchar> Texture::GetTextureData(const uint32 level)
+	std::vector<uchar> Texture::GetTextureData(const uint32 level, const int32 faceType)
 	{
 		std::vector<uchar> pixels;
 #if !defined(GLES3)
 		pixels.resize(Device().GetTextureDataSize(internalFormat, Width[level], Height[level]));
 
-		Device().BindTextureToTarget(GLSubMode, GL_ID);
-		Device().ReadTexturePixels(GLSubMode, level, internalFormat2, internalFormat3, &pixels[0]);
-		Device().BindTextureToTarget(GLSubMode, 0);
+		// See the header - a cubemap needs its face named explicitly, or
+		// GLSubMode (whatever was bound last) decides for us.
+		// Bind target and read target are NOT the same thing for a
+		// cubemap: glBindTexture() only accepts GL_TEXTURE_CUBE_MAP (the
+		// GLMode), while glGetTexImage() needs the individual face
+		// (GL_TEXTURE_CUBE_MAP_POSITIVE_X + n, the GLSubMode). Binding
+		// with the face enum is invalid and leaves nothing bound, which
+		// reads back as all zeroes.
+		uint32 bindTarget = GLMode;
+		uint32 readTarget = GLSubMode;
+		if (faceType >= 0)
+		{
+			uint32 mode = 0, subMode = 0;
+			Device().TranslateTextureTarget((uint32)faceType, mode, subMode);
+			bindTarget = mode;
+			readTarget = subMode;
+		}
+
+		Device().BindTextureToTarget(bindTarget, GL_ID);
+		Device().ReadTexturePixels(readTarget, level, internalFormat2, internalFormat3, &pixels[0]);
+		Device().BindTextureToTarget(bindTarget, 0);
 #endif
 
 		return pixels;

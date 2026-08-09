@@ -1269,10 +1269,20 @@ namespace p3d {
 #if !defined(GLES3)
 		switch (nativeInternalFormat)
 		{
+		// All three depth formats size by the *read* type, not the storage
+		// format: TranslateTextureFormat() pairs every GL_DEPTH_COMPONENT*
+		// internal format with GL_FLOAT as the read type on desktop, so
+		// glGetTexImage() writes 4 bytes per texel regardless of whether
+		// the texture stores 16, 24 or 32 bits. Sizing 16/24 by their
+		// storage width (2 and 3 bytes) under-allocated the caller's
+		// buffer by width*height bytes and glGetTexImage() wrote past the
+		// end of it - a real heap overflow on any depth readback, not a
+		// cosmetic rounding quirk. Found via the point-shadow cubemap
+		// viewer, whose faces are DepthComponent (-> GL_DEPTH_COMPONENT24)
+		// and which read back as all-1.0 because the short buffer was
+		// rejected before it could be overflowed.
 		case GL_DEPTH_COMPONENT16:
-			return sizeof(uchar) * 2 * width * height;
 		case GL_DEPTH_COMPONENT24:
-			return sizeof(uchar) * 3 * width * height;
 		case GL_DEPTH_COMPONENT32F:
 			return sizeof(f32) * width * height;
 		case GL_R16F:

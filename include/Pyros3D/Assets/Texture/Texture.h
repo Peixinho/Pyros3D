@@ -183,7 +183,13 @@ namespace p3d {
 		void DeleteTexture();
 
 		// Get Texture Data
-		std::vector<uchar> GetTextureData(const uint32 level = 0);
+		// `faceType` overrides which sub-target is read - pass a
+		// TextureType::Cubemap* value to read one face of a cubemap.
+		// Without it a cubemap reads back whichever face happened to be
+		// current (the last one CreateEmptyTexture() touched), which makes
+		// reading all six impossible. TextureType::Texture (the default)
+		// keeps the previous behaviour exactly.
+		std::vector<uchar> GetTextureData(const uint32 level = 0, const int32 faceType = -1);
 
 		// Get Last Binded Texture
 		static uint32 GetLastBindedUnit();
