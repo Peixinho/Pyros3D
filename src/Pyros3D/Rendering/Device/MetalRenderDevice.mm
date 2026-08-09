@@ -66,16 +66,23 @@ namespace {
 			case Buffer::Attribute::Type::Vec3:   return MTLVertexFormatFloat3;
 			case Buffer::Attribute::Type::Vec4:   return MTLVertexFormatFloat4;
 			case Buffer::Attribute::Type::Int:    return MTLVertexFormatInt;
-			// Matrix (4 consecutive Vec4 attribute slots, one engine
-			// "attribute" spanning several MSL vertex-descriptor
-			// attributes) isn't reachable via this single-format
-			// translation - no shipped shader's vertex input uses one
-			// (RenderingInstancedComponent's per-instance transform is
-			// its own separate concern, not modeled through
-			// VertexAttributeDesc today). Fall through to Float3 rather
-			// than silently mis-sizing a real attribute if that ever
-			// changes - CreatePipeline() failing loudly beats rendering
-			// garbage.
+			// A Matrix attribute is ONE engine attribute spanning four
+			// MSL vertex-descriptor attributes, one vec4 column each -
+			// this returns the format of a single column, and
+			// CreatePipeline() below is what emits the four consecutive
+			// locations at offset + c*16. Same split as Vulkan's
+			// TranslateAttributeFormatVk()/componentCount pair and GL's
+			// SetVertexAttribute(location+1/+2/+3) in
+			// IRenderer::BindMesh(). Until this case existed, Metal fell
+			// through to the default below: RenderingInstancedComponent's
+			// aInstancedTransform got a Float3 at its base location and
+			// nothing at all at the other three, so
+			// newRenderPipelineStateWithDescriptor: failed outright
+			// ("Vertex attribute aInstancedTransform_1(10) is missing
+			// from the vertex descriptor") and every instanced draw was
+			// skipped - instanced rendering did not work on Metal at all,
+			// main pass or shadow pass.
+			case Buffer::Attribute::Type::Matrix: return MTLVertexFormatFloat4;
 			default:
 				fprintf(stderr, "MetalRenderDevice: TranslateVertexFormatMSL: unhandled engine attribute type %u, defaulting to Float3\n", engineType);
 				return MTLVertexFormatFloat3;
@@ -770,14 +777,27 @@ namespace p3d {
 						if (locIt == progIt->second.attributeLocations.end())
 							continue; // shader doesn't use this attribute - matches GL's -1-location no-op, not an error
 						uint32 location = locIt->second;
-						vertexDesc.attributes[location].format = TranslateVertexFormatMSL(attr.type);
-						vertexDesc.attributes[location].offset = attr.offset;
-						// See the header comment on kFirstVertexBufferIndex -
-						// vertex attribute buffers live above the UBO
-						// binding range, not at 0..N, to avoid colliding
-						// with PyrosShader.glsl's own UBO_BINDING numbers
-						// in MSL's single shared buffer-index namespace.
-						vertexDesc.attributes[location].bufferIndex = (NSUInteger)(kFirstVertexBufferIndex + bufferIdx);
+						// A Matrix attribute occupies 4 consecutive
+						// locations, one vec4 column each - mirrors
+						// VulkanRenderDevice's componentCount loop and GL's
+						// SetVertexAttribute(location+1/+2/+3) in
+						// IRenderer::BindMesh(). SPIRV-Cross reflects the
+						// extra three as aInstancedTransform_1/_2/_3, which
+						// is what Metal's own pipeline validation names when
+						// they are absent.
+						uint32 componentCount = (attr.type == Buffer::Attribute::Type::Matrix) ? 4 : 1;
+						MTLVertexFormat attrFormat = TranslateVertexFormatMSL(attr.type);
+						for (uint32 c = 0; c < componentCount; c++)
+						{
+							vertexDesc.attributes[location + c].format = attrFormat;
+							vertexDesc.attributes[location + c].offset = attr.offset + c * 16;
+							// See the header comment on kFirstVertexBufferIndex -
+							// vertex attribute buffers live above the UBO
+							// binding range, not at 0..N, to avoid colliding
+							// with PyrosShader.glsl's own UBO_BINDING numbers
+							// in MSL's single shared buffer-index namespace.
+							vertexDesc.attributes[location + c].bufferIndex = (NSUInteger)(kFirstVertexBufferIndex + bufferIdx);
+						}
 					}
 					vertexDesc.layouts[kFirstVertexBufferIndex + bufferIdx].stride = layout.stride;
 					vertexDesc.layouts[kFirstVertexBufferIndex + bufferIdx].stepFunction = MTLVertexStepFunctionPerVertex;
