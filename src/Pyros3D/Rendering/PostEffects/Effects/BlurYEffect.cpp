@@ -56,7 +56,17 @@ namespace p3d {
 								"};\n"
 								"void main() {\n"
 									"gl_Position = vec4(-1.0 + vec2((gl_VertexID & 1) << 2, (gl_VertexID & 2) << 1), 0.0, 1.0);\n"
+									// See BlurXEffect.cpp's identical comment (and
+									// IEffect.cpp's, on the shared shader both shadow).
+									// The vertical per-tap offsets below are symmetric
+									// (-3..-1, +1..+3 with matching weights), so flipping
+									// the direction they walk changes nothing - only this
+									// base coordinate needs correcting.
+									"#if defined(METAL)\n"
+									"vTexcoord = vec2((gl_Position.x+1.0)*0.5, (1.0-gl_Position.y)*0.5);\n"
+									"#else\n"
 									"vTexcoord = (gl_Position.xy+1.0)*0.5;\n"
+									"#endif\n"
 									"vblurTexCoords[0] = vTexcoord + vec2(0.0, -3.0/uTexResolution);\n"
 									"vblurTexCoords[1] = vTexcoord + vec2(0.0, -2.0/uTexResolution);\n"
 									"vblurTexCoords[2] = vTexcoord + vec2(0.0, -1.0/uTexResolution);\n"

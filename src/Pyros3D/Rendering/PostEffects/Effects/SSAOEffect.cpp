@@ -99,6 +99,21 @@ namespace p3d {
 								"vec2 getPosViewSpace(vec2 uv, vec4 z_info_local, mat4 matProj_local, vec4 viewport_transform_local)\n"
 								"{\n"
 								"	vec2 screenPos = (uv + .5) * viewport_transform_local.zw - viewport_transform_local.xy;\n"
+								// Same NDC-vs-texture-origin mismatch secondpass*.glsl's
+								// identical getPosViewSpace() already compensates for, reached
+								// from the other direction: there `uv` comes from
+								// gl_FragCoord, here from vTexcoord, and IEffect's own
+								// full-screen-quad vertex shader already flips vTexcoord.y on
+								// Metal (NDC Y up like GL, but render-target v=0 at the top
+								// like Vulkan - see its comment). That flip is right for
+								// *sampling* the scene textures and wrong for treating the
+								// same value as an NDC coordinate: screenPos.y comes out as
+								// -NDC_y, so the reconstructed view-space ray points the wrong
+								// way vertically and the whole AO field ends up computed
+								// against a scene mirrored about the horizon.
+								"#if defined(METAL)\n"
+								"	screenPos.y = -screenPos.y;\n"
+								"#endif\n"
 								"	vec2 screenSpaceRay = vec2(screenPos.x / matProj_local[0][0], screenPos.y / matProj_local[1][1]);\n"
 								"	return screenSpaceRay;\n"
 								"}\n"
@@ -147,7 +162,19 @@ namespace p3d {
 								" 	getPosViewSpace(texture_2D(uTex0, vTexcoord).r, screenCoord, z_info, v1, matProj, ssao_vp);\n"
 								"    getPosViewSpace(texture_2D(uTex0, vTexcoord + vec2(out_dim.z, 0)).r, screenCoord + vec2(1, 0), z_info, v2, matProj, ssao_vp);\n"
 								"    getPosViewSpace(texture_2D(uTex0, vTexcoord + vec2(0,out_dim.w)).r, screenCoord + vec2(0, 1), z_info, v3, matProj, ssao_vp);\n"
+								// v2 steps one texel along +u (right on screen on both
+								// backends), v3 one texel along +v - which is *up* the screen
+								// on GL and *down* on Metal (v=0 at the top). The two edge
+								// vectors therefore come out in opposite handedness, so the
+								// cross product's operands have to swap or the reconstructed
+								// normal points into the surface - and sample_sphere is a
+								// hemisphere oriented along that normal, so every sample would
+								// land inside the geometry and read as fully occluded.
+								"#if defined(METAL)\n"
+								"	vec3 vViewNormal = normalize(cross(v1 - v3, v1 - v2));\n"
+								"#else\n"
 								"	vec3 vViewNormal = normalize(cross(v1 - v2, v1 - v3));\n"
+								"#endif\n"
 								"\n"
 								"	vec4 vs_position = vec4(v1, 1.0);\n"
 								"	vec4 ws_position = uInverseView * vec4(v1, 1.0);\n"
@@ -171,6 +198,16 @@ namespace p3d {
 								"		offset = matProj * offset;\n"
 								"		offset.xy /= offset.w;\n"
 								"		offset.xy = offset.xy * 0.5 + 0.5;\n"
+								// offset.xy is now a GL-convention texcoord (v=0 at NDC
+								// y=-1, the bottom). uTex0's v=0 row is the *top* on Metal,
+								// so the kernel sample would read the vertically mirrored
+								// pixel - the depth comparison below then tests each sample
+								// against unrelated geometry. Same flip IEffect's vertex
+								// shader applies to vTexcoord, applied here because this
+								// texcoord is computed in the shader rather than interpolated.
+								"#if defined(METAL)\n"
+								"		offset.y = 1.0 - offset.y;\n"
+								"#endif\n"
 								"		\n"
 								"		float sampleDepth = texture_2D(uTex0, offset.xy).r;\n"
 								"		float zz = DecodeNativeDepth(sampleDepth, z_info);\n"

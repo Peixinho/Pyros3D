@@ -23,8 +23,22 @@ namespace p3d {
 		f32 vel = strength * (cfps / tfps);
 		velHandle = AddUniform(Uniform("uVelocityScale", Uniforms::DataType::Float, &vel));
 
-#if defined(VULKAN_BACKEND)
-		// Vulkan rejects loose floats - deliver scale via UBO (vec4.x).
+		// Must stay in lockstep with the fragment shader's own `#if
+		// defined(VULKAN)` below, and those two macros are NOT the same
+		// thing: VULKAN_BACKEND/METAL_BACKEND are C++ build flags
+		// (cmake/PyrosBackend.cmake), while VULKAN is predefined by
+		// shaderc for *any* SPIR-V target - which includes the Metal
+		// backend, since it compiles GLSL through shaderc before handing
+		// the SPIR-V to SPIRV-Cross. Guarding this half on VULKAN_BACKEND
+		// alone (as it did, from before the Metal backend existed) left
+		// Metal taking the UBO branch in the shader and the loose-uniform
+		// branch here: nothing ever created or filled MotionBlurParams, so
+		// uVelocityScale.x read back as 0, velocity scaled to nothing and
+		// nSamples collapsed to 1 - the effect ran every frame as an exact
+		// pass-through. The velocity map itself was fine; only the scale
+		// was missing (confirmed by rendering both to screen).
+#if defined(VULKAN_BACKEND) || defined(METAL_BACKEND)
+		// Vulkan/Metal reject loose floats - deliver scale via UBO (vec4.x).
 		extraUniformsBinding = 26;
 		extraUniformsBlockName = "MotionBlurParams";
 		extraUniformsSize = 16;

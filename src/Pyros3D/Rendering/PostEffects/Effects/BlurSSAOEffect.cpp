@@ -37,26 +37,20 @@ namespace p3d {
 		extraUniformOffsets["uTexResolution"] = 0;
 		extraUniformOffsets["uIntensity"] = 8;
 
-		VertexShaderString =
-									"#define varying_in in\n"
-									"#define varying_out out\n"
-									"#define attribute_in in\n"
-									"#define texture_2D texture\n"
-									"#define texture_cube texture\n"
-									#if defined(GLES3)
-										"precision mediump float;\n"
-									#endif
-									"#if defined(VULKAN)\n"
-									"#define gl_VertexID gl_VertexIndex\n"
-									"#define IO_LOCATION(n) layout(location = n)\n"
-									"#else\n"
-									"#define IO_LOCATION(n)\n"
-									"#endif\n"
-								"IO_LOCATION(0) varying_out vec2 vTexcoord;\n"
-								"void main() {\n"
-									"gl_Position = vec4(-1.0 + vec2((gl_VertexID & 1) << 2, (gl_VertexID & 2) << 1), 0.0, 1.0);\n"
-									"vTexcoord = (gl_Position.xy+1.0)*0.5;\n"
-								"}";
+		// No VertexShaderString override: IEffect's constructor already
+		// installed the shared full-screen-quad vertex shader, and this
+		// effect adds nothing to it (no extra varyings, no vertex-stage
+		// UBO - unlike BlurX/BlurYEffect, whose own copies genuinely do).
+		// It used to carry a byte-identical private copy, which quietly
+		// stopped tracking the shared one when that gained its Metal
+		// vTexcoord flip (see IEffect.cpp's comment): this pass then
+		// sampled its input upside down on Metal, and being an *odd*
+		// number of mirroring hops in the ssao -> blur -> composite chain,
+		// nothing downstream cancelled it - the finished AO term arrived
+		// at the composite vertically mirrored and got multiplied over an
+		// upright scene, which is the doubled/ghosted look the SSAO demo
+		// had on Metal. Inheriting the shared shader is what keeps that
+		// from silently happening again.
 
 		// Create Fragment Shader
 		FragmentShaderString =

@@ -129,8 +129,23 @@ const float SSR_COPLANAR_DOT = 0.95;
 // on BOTH backends. An older `#if VULKAN uv.y = 1-uv.y` here double-flipped
 // Vulkan only and turned reflections into large wrong-colored floor blobs
 // (SSRTest 2026-08-06). Do not reintroduce that flip.
+// Metal is a third case, not the Vulkan one above: its
+// TranslateProjectionMatrix() deliberately does NOT flip Y (Metal's NDC Y
+// points up, same as GL - see that function's comment), so ndc*0.5+0.5
+// comes out in GL's bottom-origin convention while its render targets are
+// top-origin like Vulkan's. Nothing upstream compensates, so the traced
+// ray walked the depth buffer mirrored about the horizon and essentially
+// never registered a hit - SSRTest rendered with no reflections at all on
+// Metal while GL showed them. This is the same flip secondpass*.glsl's
+// getPosViewSpace() and SSAOEffect's kernel-sample reprojection need, for
+// the same reason, and it is deliberately NOT the Vulkan flip that was
+// removed on 2026-08-06.
 vec2 ClipToUV(vec4 clipPos) {
-	return (clipPos.xy / clipPos.w) * 0.5 + 0.5;
+	vec2 uv = (clipPos.xy / clipPos.w) * 0.5 + 0.5;
+#if defined(METAL)
+	uv.y = 1.0 - uv.y;
+#endif
+	return uv;
 }
 
 // Perspective-correct screen-space ray trace against tDepth (McGuire & Mara

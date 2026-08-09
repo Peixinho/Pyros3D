@@ -64,7 +64,18 @@ namespace p3d {
 									"};\n"
 									"void main() {\n"
 										"gl_Position = vec4(-1.0 + vec2((gl_VertexID & 1) << 2, (gl_VertexID & 2) << 1), 0.0, 1.0);\n"
+										// Metal's NDC-Y-up / texture-v=0-at-top mismatch -
+										// see IEffect.cpp's full comment on the shared
+										// full-screen-quad shader this one shadows (it can't
+										// just inherit it: vblurTexCoords/BlurXParams below
+										// are this effect's own vertex-stage additions). The
+										// per-tap offsets are symmetric and horizontal, so
+										// only this base coordinate needs the flip.
+										"#if defined(METAL)\n"
+										"vTexcoord = vec2((gl_Position.x+1.0)*0.5, (1.0-gl_Position.y)*0.5);\n"
+										"#else\n"
 										"vTexcoord = (gl_Position.xy+1.0)*0.5;\n"
+										"#endif\n"
 										"vblurTexCoords[0] = vTexcoord + vec2(-3.0/uTexResolution, 0.0);\n"
 										"vblurTexCoords[1] = vTexcoord + vec2(-2.0/uTexResolution, 0.0);\n"
 										"vblurTexCoords[2] = vTexcoord + vec2(-1.0/uTexResolution, 0.0);\n"

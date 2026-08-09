@@ -68,7 +68,22 @@
     {
         float moveFactor = (uTime * waveSpeed);
         vec2 ndc = (clipSpace.xy/clipSpace.w) * 0.5 + 0.5;
+        // *0.5+0.5 produces a GL-convention texcoord (v=0 at NDC y=-1, the
+        // bottom). Metal's NDC Y points up like GL's, but its render targets
+        // store v=0 at the top - the same mismatch IEffect.cpp's full-screen
+        // quad documents - so a projective lookup computed in the shader
+        // (rather than interpolated) has to flip v to hit the texel this
+        // fragment actually corresponds to. Without it the reflection and
+        // refraction maps were sampled vertically mirrored, so the water
+        // showed a plausible-looking image that slid around as the camera
+        // moved instead of staying locked to the scene it reflects.
+        #if defined(METAL)
+        ndc.y = 1.0 - ndc.y;
+        #endif
         vec2 refractionTexCoords = ndc;
+        // Reflection is rendered by a mirrored camera, so it is always the
+        // opposite of the refraction coordinate - that relationship holds on
+        // either backend, on top of whichever base convention ndc is in.
         vec2 reflectionTexCoords = vec2(ndc.x, 1.0 - ndc.y);
 
         float depth = texture_2D(uRefractionMapDepth, refractionTexCoords).r;
