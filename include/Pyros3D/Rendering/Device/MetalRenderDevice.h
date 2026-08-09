@@ -489,6 +489,15 @@ namespace p3d {
 			// absent means "MSL buffer index equals the engine binding",
 			// still true for every PyrosShader.glsl material (0-23).
 			std::map<uint32, uint32> highBindingRemap;
+			// Engine sampler binding -> actual MSL [[sampler(N)]] index.
+			// Unlike textures ([[texture(N)]], N up to 127) MSL caps the
+			// sampler argument table at 16 entries per stage, and
+			// PyrosShader.glsl's SAMPLER_BINDING numbering runs past that
+			// (uMetallicRoughnessmap is 16), so sampler indices have to be
+			// compacted even though texture indices don't. Per-stage, not
+			// per-program: the two stages declare different sampler sets
+			// and each gets its own table.
+			std::map<uint32, uint32> samplerIndexRemap;
 			// See GetAutoUniformBlockLayout()'s comment - populated only
 			// when CompileShaderStage() had to run AutoFixForVulkan()
 			// (loose, non-layout-qualified uniforms - CustomShaderMaterial
@@ -540,6 +549,13 @@ namespace p3d {
 			// instead of assuming "MSL buffer index == engine binding"
 			// whenever a binding appears here.
 			std::map<uint32, uint32> highBindingMslIndex;
+			// Each stage's ShaderStageRecord::samplerIndexRemap, kept
+			// separate (index 0 = vertex, 1 = fragment) rather than merged
+			// the way highBindingMslIndex is: MSL's sampler argument table
+			// is per-stage, so the same engine binding legitimately maps to
+			// a different [[sampler(N)]] in each stage, and merging them
+			// would make one stage bind into the other's slot.
+			std::map<uint32, uint32> samplerMslIndex[2];
 			ProgramRecord() : vertexShader(0), fragmentShader(0) {}
 		};
 		std::map<DeviceHandle, ProgramRecord> programs;
@@ -608,6 +624,11 @@ namespace p3d {
 		// builds needs (almost always 1, occasionally 2 - e.g. an
 		// instanced per-object transform buffer).
 		static const uint32 kFirstVertexBufferIndex = 24;
+
+		// Metal's per-stage sampler argument table is 16 entries
+		// ([[sampler(0)]]..[[sampler(15)]]) - a hard limit, unlike the
+		// texture table's 128. See CompileShaderStage()'s sampler remap.
+		static const uint32 kMaxMslSamplersPerStage = 16;
 
 		// One MTLTexture per handle, plus the small dirty-tracked sampler
 		// descriptor mentioned on the Set*Filter/Wrap methods above -

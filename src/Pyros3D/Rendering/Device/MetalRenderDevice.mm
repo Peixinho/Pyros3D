@@ -951,11 +951,28 @@ namespace p3d {
 		);
 		return clipCorrection * projectionMatrix;
 	}
+	// Maps a light-space clip position to a shadow-map texcoord. Z needs no
+	// remap (TranslateProjectionMatrix() above already put it in [0,1],
+	// which is what the depth texture stores), so only X/Y are biased -
+	// that much matches VulkanRenderDevice's version this was copied from.
+	// The Y *sign* does not: this is the same NDC-Y trap
+	// TranslateProjectionMatrix() had (see its comment). Vulkan's NDC Y
+	// points down, so its render targets' v=0 row is the one NDC -1 wrote
+	// and a plain +0.5y+0.5 lands on the right texel. Metal's NDC Y points
+	// up while its render targets still store v=0 at the top - the same
+	// mismatch IEffect.cpp's full-screen-quad shader documents - so the
+	// mapping has to be -0.5y+0.5 instead. With the Vulkan copy left in
+	// place every shadow lookup sampled the shadow map vertically mirrored:
+	// RotatingCubeWithLightingAndShadow's cube lost its shadow entirely
+	// (the mirrored texel is unoccluded floor), and SimplePhysics' shadows
+	// slid around as the camera moved, because the deferred path feeds this
+	// matrix a position reconstructed from depth - so a mirrored lookup
+	// moves with the view instead of staying put on the geometry.
 	Matrix MetalRenderDevice::TranslateShadowBiasMatrix()
 	{
 		static const Matrix xyOnlyBias(
 			0.5f, 0.f, 0.f, 0.f,
-			0.f, 0.5f, 0.f, 0.f,
+			0.f, -0.5f, 0.f, 0.f,
 			0.f, 0.f, 1.f, 0.f,
 			0.5f, 0.5f, 0.f, 1.f
 		);
@@ -1464,8 +1481,38 @@ namespace p3d {
 				// deferred-by-default demos - every one of them hit this).
 				// PyrosShader.glsl's own materials never use a binding that
 				// high (max is 23), so this remap is a no-op for them.
+				//
+				// The compacted indices are handed out from *below*
+				// kFirstVertexBufferIndex, filling whichever of 0..23 this
+				// stage doesn't already occupy with a passthrough binding.
+				// They used to start AT kFirstVertexBufferIndex and count
+				// up, which put the first remapped UBO at exactly the index
+				// DrawElements()/DrawElementsInstanced() bind vertex
+				// attribute buffer 0 to (kFirstVertexBufferIndex + 0) - one
+				// shared MSL buffer-index namespace, so the two aliased.
+				// BindProgramUniformBuffers() runs after the vertex-buffer
+				// binds in both draw paths, so the UBO won, and every
+				// [[stage_in]] attribute in that shader read the UBO's
+				// matrices as vertex data. Only bit any shader declaring a
+				// >=24 UBO binding in its VERTEX stage (fragment-stage
+				// remaps land in the separate setFragmentBuffer: table and
+				// were always harmless): secondpassPoint.glsl's/
+				// secondpassSpot.glsl's PointVertParams/SpotVertParams
+				// (33/34) and particleSystem.glsl's synthesized AutoUBO
+				// (kFirstAutoUboBinding=43). Their light-volume/particle
+				// meshes rasterized as garbage spikes fanning out of the
+				// scene - a deferred point light lit thin slivers of
+				// geometry instead of a sphere's worth, and the particle
+				// quads never landed anywhere near their emitter.
 				spirv_cross::ShaderResources resources = mslCompiler.get_shader_resources();
-				uint32 nextCompactHighBinding = kFirstVertexBufferIndex;
+				std::set<uint32> passthroughBindings;
+				for (size_t i = 0; i < resources.uniform_buffers.size(); i++)
+				{
+					uint32 b = mslCompiler.get_decoration(resources.uniform_buffers[i].id, spv::DecorationBinding);
+					if (b < kFirstVertexBufferIndex)
+						passthroughBindings.insert(b);
+				}
+				uint32 nextCompactHighBinding = 0;
 				for (size_t i = 0; i < resources.uniform_buffers.size(); i++)
 				{
 					const spirv_cross::Resource &res = resources.uniform_buffers[i];
@@ -1475,6 +1522,18 @@ namespace p3d {
 					binding.binding = mslCompiler.get_decoration(res.id, spv::DecorationBinding);
 					if (binding.binding >= kFirstVertexBufferIndex)
 					{
+						while (nextCompactHighBinding < kFirstVertexBufferIndex &&
+							passthroughBindings.find(nextCompactHighBinding) != passthroughBindings.end())
+							nextCompactHighBinding++;
+						if (nextCompactHighBinding >= kFirstVertexBufferIndex)
+						{
+							// 24 free slots against at most a handful of UBOs
+							// per stage - unreachable in practice, but a wrong
+							// index here is exactly the kind of silent
+							// garbage-read this whole remap exists to prevent.
+							errorLog = "Metal: no free MSL buffer index left to remap high UBO binding " + std::to_string(binding.binding);
+							return false;
+						}
 						uint32 compact = nextCompactHighBinding++;
 						it->second.highBindingRemap[binding.binding] = compact;
 						binding.msl_buffer = compact;
@@ -1485,14 +1544,24 @@ namespace p3d {
 					}
 					mslCompiler.add_msl_resource_binding(binding);
 				}
-				// Same reasoning for sampled images (textures aren't
-				// exercised by this milestone's shader, but the next
-				// texture-sampling material this backend compiles would
-				// hit the exact same silent-garbage-read bug without this).
-				// Metal's texture/sampler argument tables are separate from
-				// the buffer one used above, so none of these ever need the
-				// same >=kFirstVertexBufferIndex remap - no post-effect
-				// shader samples more than a handful of textures.
+				// Same reasoning for sampled images (see the silent-
+				// garbage-read bug above), with one asymmetry: an MSL
+				// [[texture(N)]] index may go up to 127, so passing the
+				// engine binding straight through is fine there, but the
+				// [[sampler(N)]] table is capped at 16 entries per stage.
+				// PyrosShader.glsl's SAMPLER_BINDING numbering runs past
+				// that (BIND_uMetallicRoughnessmap is 16), so a passthrough
+				// made newLibraryWithSource: fail outright with "'sampler'
+				// attribute parameter is out of bounds: must be between 0
+				// and 15". That killed the whole fragment stage, so the
+				// program had no vertex+fragment pair, CreatePipeline()
+				// returned 0, and every draw using it was skipped behind a
+				// flood of "pipeline handle 0 not found" - hit by any PBR
+				// material with a metallic/roughness map (PBRSpheres).
+				// Compact sampler indices into 0..15 in declaration order
+				// and remember the mapping for SendUniformInt(), which
+				// binds the sampler state by engine binding.
+				uint32 nextSamplerIndex = 0;
 				for (size_t i = 0; i < resources.sampled_images.size(); i++)
 				{
 					const spirv_cross::Resource &res = resources.sampled_images[i];
@@ -1501,7 +1570,16 @@ namespace p3d {
 					binding.desc_set = mslCompiler.get_decoration(res.id, spv::DecorationDescriptorSet);
 					binding.binding = mslCompiler.get_decoration(res.id, spv::DecorationBinding);
 					binding.msl_texture = binding.binding;
-					binding.msl_sampler = binding.binding;
+					if (nextSamplerIndex >= kMaxMslSamplersPerStage)
+					{
+						errorLog = "Metal: more than " + std::to_string(kMaxMslSamplersPerStage) +
+							" samplers in one shader stage - no free MSL sampler index for binding " +
+							std::to_string(binding.binding);
+						return false;
+					}
+					binding.msl_sampler = nextSamplerIndex;
+					it->second.samplerIndexRemap[binding.binding] = nextSamplerIndex;
+					nextSamplerIndex++;
 					mslCompiler.add_msl_resource_binding(binding);
 				}
 
@@ -1593,6 +1671,9 @@ namespace p3d {
 		it->second.highBindingMslIndex.clear();
 		it->second.highBindingMslIndex.insert(vs->second.highBindingRemap.begin(), vs->second.highBindingRemap.end());
 		it->second.highBindingMslIndex.insert(fs->second.highBindingRemap.begin(), fs->second.highBindingRemap.end());
+		// Kept per-stage rather than merged - see ProgramRecord::samplerMslIndex.
+		it->second.samplerMslIndex[0] = vs->second.samplerIndexRemap;
+		it->second.samplerMslIndex[1] = fs->second.samplerIndexRemap;
 		std::vector<SpirvResourceBinding> vsResources = SpirvShaderCompiler::Reflect(vs->second.spirv);
 		std::vector<SpirvResourceBinding> fsResources = SpirvShaderCompiler::Reflect(fs->second.spirv);
 		for (int stagePass = 0; stagePass < 2; stagePass++)
@@ -1727,15 +1808,27 @@ namespace p3d {
 			RebuildSamplerIfDirty(texIt->second);
 			id<MTLSamplerState> sampler = (__bridge id<MTLSamplerState>)texIt->second.samplerState;
 			const uint32 stageMask = maskIt->second;
-			if (stageMask & 1u)
+			// Texture index is the engine binding as-is; the sampler index
+			// is whatever CompileShaderStage() compacted it to for *this*
+			// stage (see its comment on Metal's 16-entry sampler table).
+			// Absent from the map means the stage declares no sampler at
+			// this binding, so there is nothing to bind for it.
+			for (int stage = 0; stage < 2; stage++)
 			{
-				[encoder setVertexTexture:tex atIndex:(NSUInteger)handle];
-				if (sampler != nil) [encoder setVertexSamplerState:sampler atIndex:(NSUInteger)handle];
-			}
-			if (stageMask & 2u)
-			{
-				[encoder setFragmentTexture:tex atIndex:(NSUInteger)handle];
-				if (sampler != nil) [encoder setFragmentSamplerState:sampler atIndex:(NSUInteger)handle];
+				if (!(stageMask & (1u << stage)))
+					continue;
+				std::map<uint32, uint32>::iterator sIt = progIt->second.samplerMslIndex[stage].find((uint32)handle);
+				NSUInteger samplerIndex = (sIt != progIt->second.samplerMslIndex[stage].end()) ? (NSUInteger)sIt->second : (NSUInteger)handle;
+				if (stage == 0)
+				{
+					[encoder setVertexTexture:tex atIndex:(NSUInteger)handle];
+					if (sampler != nil) [encoder setVertexSamplerState:sampler atIndex:samplerIndex];
+				}
+				else
+				{
+					[encoder setFragmentTexture:tex atIndex:(NSUInteger)handle];
+					if (sampler != nil) [encoder setFragmentSamplerState:sampler atIndex:samplerIndex];
+				}
 			}
 		}
 	}
