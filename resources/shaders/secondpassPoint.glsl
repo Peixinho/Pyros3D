@@ -62,7 +62,23 @@ void main() {
 
 #ifdef FRAGMENT
 
-float PCFPOINT(samplerCubeShadow shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos)
+// Deliberately a plain samplerCube with the depth comparison done here,
+// not a samplerCubeShadow with hardware PCF. The hardware path silently
+// does not work through MoltenVK: with everything else provably identical
+// to GL - the cube map's contents byte for byte, Matrix1, fs_z, clip.w,
+// the sampler's own compareEnable - texture(samplerCubeShadow, ...)
+// returned 1.0 for every texel, so nothing was ever in shadow. Metal
+// broke differently again, into wedges following the cube's face
+// partition. 2D shadow maps (directional, spot) are unaffected and still
+// use hardware comparison; it is specifically cube depth comparison that
+// is unreliable there.
+//
+// Comparing manually costs one extra instruction per tap and behaves
+// identically on all three backends, which is worth more than the
+// hardware path. It does mean the cube shadow map must NOT have compare
+// mode enabled (see PointLight::EnableCastShadows) - a compare-mode
+// texture read by a non-comparison sampler is undefined.
+float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos)
 {
 	vec4 position_ls = Matrix2 * pos;
 	position_ls.xyz/=position_ls.w;
@@ -91,16 +107,13 @@ float PCFPOINT(samplerCubeShadow shadowMap, mat4 Matrix1, mat4 Matrix2, float sc
 
 	for (y = -1.5 ; y <=1.5 ; y+=1.0)
 		for (x = -1.5 ; x <=1.5 ; x+=1.0)
-			// See secondpassDirectional.glsl's comment on the pre-existing
-			// scalar-swizzle bug - fixed here too. No extra `- scale*5.0`
-			// depth bias either: `scale` is a texel size in the cube face's
-			// XY, so subtracting a multiple of it from a [0,1] depth was
-			// never dimensionally meaningful - it just pushed the whole
-			// comparison far enough to hide the double-remap above. The
-			// forward PCFPOINT has never needed one; real depth bias comes
-			// from the shadow pass's polygon offset
+			// No extra `- scale*5.0` depth bias: `scale` is a texel size in
+			// the cube face's XY, so subtracting a multiple of it from a
+			// [0,1] depth was never dimensionally meaningful - it only
+			// existed to hide the double remap this used to do. Real depth
+			// bias comes from the shadow pass's polygon offset
 			// (ILightComponent::SetShadowBias).
-			shadow += texture(shadowMap, vec4(position_ls.xyz, depth) + vec4(vec2(x,y) * scale,0.0,0.0));
+			shadow += (texture(shadowMap, position_ls.xyz + vec3(vec2(x,y) * scale, 0.0)).r >= depth) ? 1.0 : 0.0;
 	shadow /= 16.0;
 	return shadow;
 }
@@ -198,7 +211,7 @@ UBO_BINDING(38) uniform PointFragParams {
 };
 IO_LOCATION(0) varying_in mat4 vProjectionMatrix;
 
-SAMPLER_BINDING(4) uniform samplerCubeShadow uShadowMap;
+SAMPLER_BINDING(4) uniform samplerCube uShadowMap;
 
 // Fragment Color
 IO_LOCATION(0) out vec4 FragColor;
@@ -278,7 +291,7 @@ void main() {
 	vec3 L = normalize(lightPosition - v1);
 	vec3 pbrColor = CalculatePBRLighting(N, V, L, lightColor.xyz, color, metallic, roughness, specTint);
 
-	// GL ONLY, deliberately. This multiply was commented out in Feb 2021
+	// This multiply was commented out in Feb 2021
 	// ("Fixed Deferred Rendering Example in intel gpus") - a workaround for
 	// the broken depth remap in PCFPOINT above, not a driver issue - and
 	// every deferred point light has been shadowless since. With that remap
@@ -306,10 +319,22 @@ void main() {
 	// separate, uninvestigated bug; enabling this there would replace
 	// "no point shadow" with "visibly wrong point shadow", so it stays off
 	// until the cube map itself is fixed.
+	// GL only. The manual comparison above fixed the depth *comparison*
+	// everywhere, but Vulkan and Metal have a second, independent problem
+	// on top of it: the cube map's per-face orientation. With
+	// RenderingPointShadowFace's skipYFlip left on, Vulkan shadows a large
+	// region matching the -Y face's footprint and misses the caster
+	// entirely; with it off, no shadow at all. Neither is right, so the
+	// face content is mirrored or rotated relative to what the lookup
+	// expects - most likely the six LookAt up-vectors need to account for
+	// Vulkan's flipped clip-space Y, which is not something this file can
+	// fix. Enabling it there trades "no point shadow" for "wrong point
+	// shadow", so it stays off until that is sorted.
 #if defined(VULKAN) || defined(METAL)
 	FragColor = vec4(pbrColor, 1.0) * attenuation;
 #else
 	FragColor = vec4(pbrColor, 1.0) * attenuation * pcf;
 #endif
+
 }
 #endif

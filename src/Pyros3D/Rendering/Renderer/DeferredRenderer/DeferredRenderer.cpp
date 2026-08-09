@@ -108,7 +108,9 @@ namespace p3d {
 		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapPositive_Y, TextureDataType::DepthComponent, 4, 4, false);
 		dummyShadowCube->CreateEmptyTexture(TextureType::CubemapPositive_Z, TextureDataType::DepthComponent, 4, 4, false);
 		dummyShadowCube->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-		dummyShadowCube->EnableCompareMode();
+		// No compare mode, matching the real point-light shadow cubemap it
+		// stands in for - secondpassPoint.glsl reads both as a plain
+		// samplerCube (see its PCFPOINT comment).
 		dummyShadowsWarmedUp = false;
 
 

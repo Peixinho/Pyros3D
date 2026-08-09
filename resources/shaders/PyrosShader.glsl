@@ -740,7 +740,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         #endif
 
         #ifdef POINTSHADOW
-            float PCFPOINT(samplerCubeShadow shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos)
+            // See secondpassPoint.glsl's PCFPOINT for why this is a plain
+            // samplerCube compared by hand rather than hardware PCF.
+            float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos)
             {
                 vec4 position_ls = Matrix2 * pos;
                 position_ls.xyz/=position_ls.w;
@@ -763,7 +765,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
                 for (y = -1.5 ; y <=1.5 ; y+=1.0)
                     for (x = -1.5 ; x <=1.5 ; x+=1.0)
-                        shadow += texture(shadowMap, vec4(position_ls.xyz, depth) + vec4(vec2(x,y) * scale,0.0,0.0));
+                        shadow += (texture(shadowMap, position_ls.xyz + vec3(vec2(x,y) * scale, 0.0)).r >= depth) ? 1.0 : 0.0;
                 shadow /= 16.0;
                 return shadow;
             }
@@ -773,7 +775,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             UBO_BINDING(BIND_PointShadowBlock) uniform PointShadowBlock {
                 mat4 uPointDepthsMVP[8];
             };
-            SAMPLER_BINDING(BIND_uPointShadowMaps) uniform samplerCubeShadow uPointShadowMaps[4];
+            SAMPLER_BINDING(BIND_uPointShadowMaps) uniform samplerCube uPointShadowMaps[4];
         #endif
 
         #ifdef SPOTSHADOW

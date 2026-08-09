@@ -471,19 +471,26 @@ namespace p3d {
 		// See the header - a cubemap needs its face named explicitly, or
 		// GLSubMode (whatever was bound last) decides for us.
 		// Bind target and read target are NOT the same thing for a
-		// cubemap: glBindTexture() only accepts GL_TEXTURE_CUBE_MAP (the
-		// GLMode), while glGetTexImage() needs the individual face
-		// (GL_TEXTURE_CUBE_MAP_POSITIVE_X + n, the GLSubMode). Binding
-		// with the face enum is invalid and leaves nothing bound, which
-		// reads back as all zeroes.
-		uint32 bindTarget = GLMode;
-		uint32 readTarget = GLSubMode;
+		// cubemap: glBindTexture() only accepts GL_TEXTURE_CUBE_MAP while
+		// glGetTexImage() needs the individual face
+		// (GL_TEXTURE_CUBE_MAP_POSITIVE_X + n). Binding with the face enum
+		// is invalid and leaves nothing bound, which reads back as all
+		// zeroes.
+		//
+		// Note which is which: TranslateTextureTarget() puts the *face* in
+		// `mode` and the bindable GL_TEXTURE_CUBE_MAP in `subMode` - the
+		// opposite of what the names suggest. The rest of this class
+		// already relies on that (it binds GLSubMode and uploads to
+		// GLMode, just above), so matching it here keeps one convention
+		// rather than two.
+		uint32 bindTarget = GLSubMode;
+		uint32 readTarget = GLMode;
 		if (faceType >= 0)
 		{
 			uint32 mode = 0, subMode = 0;
 			Device().TranslateTextureTarget((uint32)faceType, mode, subMode);
-			bindTarget = mode;
-			readTarget = subMode;
+			bindTarget = subMode;
+			readTarget = mode;
 		}
 
 		Device().BindTextureToTarget(bindTarget, GL_ID);

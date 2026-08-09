@@ -62,7 +62,10 @@ namespace p3d {
 		ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Y, TextureDataType::DepthComponent, ShadowWidth, ShadowHeight, false);
 		ShadowMap->CreateEmptyTexture(TextureType::CubemapPositive_Z, TextureDataType::DepthComponent, ShadowWidth, ShadowHeight, false);
 		ShadowMap->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-		ShadowMap->EnableCompareMode();
+		// No compare mode: both PCFPOINT implementations read this as a
+		// plain samplerCube and compare in the shader - see
+		// secondpassPoint.glsl's PCFPOINT for why. A compare-mode texture
+		// read by a non-comparison sampler is undefined.
 
 		// Initialize Frame Buffer
 		shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::CubemapPositive_X, ShadowMap.get());
