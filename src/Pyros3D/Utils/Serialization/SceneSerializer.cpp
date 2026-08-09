@@ -303,6 +303,7 @@ namespace p3d {
 			SerializeTextureRef(m, "displacementMap", gm->GetDisplacementMap());
 			SerializeTextureRef(m, "envMap", gm->GetEnvMap());
 			SerializeTextureRef(m, "refractMap", gm->GetRefractMap());
+			m["alphaCutoff"] = gm->GetAlphaCutoff();
 			SerializeTextureRef(m, "skyboxMap", gm->GetSkyboxMap());
 			SerializeTextureRef(m, "metallicRoughnessMap", gm->GetMetallicRoughnessMap());
 		}
@@ -1142,6 +1143,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "displacementMap", textureCache, outAssets)) gm->SetDisplacementMap(t);
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "envMap", textureCache, outAssets)) gm->SetEnvMap(t);
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "refractMap", textureCache, outAssets)) gm->SetRefractMap(t);
+			if (j.find("alphaCutoff") != j.end()) gm->SetAlphaCutoff(j.value("alphaCutoff", 0.5f));
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "skyboxMap", textureCache, outAssets)) gm->SetSkyboxMap(t);
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "metallicRoughnessMap", textureCache, outAssets)) gm->SetMetallicRoughnessMap(t);
 			ApplyCommonMaterialFields(gm.get(), j);

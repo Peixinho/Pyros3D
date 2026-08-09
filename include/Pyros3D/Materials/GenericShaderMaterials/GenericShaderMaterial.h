@@ -69,6 +69,13 @@ namespace p3d
 		// change for anything that doesn't opt in.
 		void SetSSREnabled(const bool enabled);
 
+		// Alpha cutoff for ShaderUsage::AlphaTest - fragments whose alpha
+		// falls below this are discarded outright. Ignored entirely by a
+		// material that doesn't compile the flag, so setting it is
+		// harmless either way. Defaults to 0.5.
+		void SetAlphaCutoff(const f32 cutoff);
+		f32 GetAlphaCutoff() const { return AlphaCutoff; }
+
 		// Text
 		void SetTextFont(Font* font);
 
@@ -135,6 +142,8 @@ namespace p3d
 		// See SetSSREnabled()'s comment - stored as 0.0/1.0, same
 		// float-as-bool convention as everything else in this UBO.
 		f32 SSREnabled;
+		// See SetAlphaCutoff().
+		f32 AlphaCutoff;
 
 		// Texture IDs
 		int32 colorMapID, specularMapID, normalMapID, displacementMapID, envMapID, skyboxMapID, refractMapID, fontMapID;
@@ -144,6 +153,8 @@ namespace p3d
 		Uniform *uColor = NULL, *uSpecular = NULL, *uReflectivity = NULL, *uShininess = NULL, *uUseLights = NULL, *uDisplacementHeight = NULL;
 		Uniform *uMetallic = NULL, *uRoughness = NULL;
 		Uniform *uSSRReflective = NULL;
+		// See SetAlphaCutoff().
+		Uniform *uAlphaCutoffUniform = NULL;
 	};
 }
 

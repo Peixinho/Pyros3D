@@ -643,6 +643,13 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         // blue channel below (see FragData_pbr) and read back by
         // DeferredRenderer's lastPass.glsl to gate SSR per-pixel.
         float uSSRReflective;
+        // Alpha cutoff (ShaderUsage::AlphaTest). Grows this block past its
+        // previously-exact 64 bytes to 80 - std140 rounds a block up to a
+        // multiple of 16, so 9 floats after two vec4s lands at 80, not 68.
+        // IRenderer's MaterialUniformsData mirror and its
+        // CreateUniformBuffer() size both move with it; the static_assert
+        // there is what catches the two drifting apart.
+        float uAlphaCutoff;
     };
     // Per-object (not per-material) - see the comment above.
     UBO_BINDING(BIND_ObjectLightCounts) uniform ObjectLightCounts {
@@ -1145,6 +1152,17 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 vec3 ambientPBR = diffuse.rgb * (1.0 - metallic) * uAmbientLight.rgb;
                 diffuse = vec4(_pbrColor + ambientPBR, diffuse.w);
             #endif
+        #endif
+
+        // Cutout. Deliberately before everything that consumes `diffuse`
+        // below - the lighting, the G-buffer writes and the CASTSHADOWS
+        // depth write are all downstream, so one test here covers the
+        // forward path, the deferred path and (for any shadow material
+        // that samples a colormap) the shadow pass, rather than needing a
+        // copy in each.
+        #ifdef ALPHATEST
+            if (diffuse.w < uAlphaCutoff)
+                discard;
         #endif
 
         #ifdef CASTSHADOWS

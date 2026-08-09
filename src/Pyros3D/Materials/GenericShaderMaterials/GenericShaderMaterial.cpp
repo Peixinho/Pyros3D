@@ -27,6 +27,10 @@ namespace p3d
 		uColor = uSpecular = uReflectivity = NULL;
 		uMetallic = uRoughness = NULL;
 		uSSRReflective = NULL;
+		uAlphaCutoffUniform = NULL;
+		// Half is the usual default for a cutout map; only consulted
+		// when ShaderUsage::AlphaTest is on.
+		AlphaCutoff = 0.5f;
 		uShininess = uUseLights = uDisplacementHeight = NULL;
 		SSREnabled = 0.0f;
 
@@ -88,6 +92,8 @@ namespace p3d
 				define += std::string("#define PBR\n");
 			if (options & ShaderUsage::PBRMap)
 				define += std::string("#define PBRMAP\n");
+			if (options & ShaderUsage::AlphaTest)
+				define += std::string("#define ALPHATEST\n");
 
 			ShadersList[options]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
 			ShadersList[options]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
@@ -424,6 +430,15 @@ namespace p3d
 			uSSRReflective = AddUniform(Uniform("uSSRReflective", Uniforms::DataType::Float, &SSREnabled));
 		else
 			uSSRReflective->SetValue(&SSREnabled);
+	}
+
+	void GenericShaderMaterial::SetAlphaCutoff(const f32 cutoff)
+	{
+		AlphaCutoff = cutoff;
+		if (!uAlphaCutoffUniform)
+			uAlphaCutoffUniform = AddUniform(Uniform("uAlphaCutoff", Uniforms::DataType::Float, &AlphaCutoff));
+		else
+			uAlphaCutoffUniform->SetValue(&AlphaCutoff);
 	}
 	void GenericShaderMaterial::SetRefractMap(const std::shared_ptr<Texture> &refractmap)
 	{

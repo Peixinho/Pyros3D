@@ -44,7 +44,13 @@ namespace p3d
 			InstancedRendering = 0x100000,
 			VelocityRendering = 0x200000,
 			PBR = 0x400000,
-			PBRMap = 0x800000
+			PBRMap = 0x800000,
+			// Alpha-tested (cutout) rendering: fragments below the
+			// material's alpha cutoff are discarded outright rather than
+			// blended. The only way to draw foliage, fences, grates or
+			// anything else with holes through a deferred renderer, which
+			// cannot blend into a G-buffer at all.
+			AlphaTest = 0x1000000
 		};
 	};
 }

@@ -300,7 +300,7 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* ext
 		// vec4 uColor + vec4 uSpecular + 5 floats = 52 bytes, padded to 64
 		// (std140 vec4-alignment) - see MaterialUniformsData in
 		// SendUserUniforms().
-		MaterialUniformsUBO = device->CreateUniformBuffer(64, 22);
+		MaterialUniformsUBO = device->CreateUniformBuffer(80, 22);
 		// 3 ints padded to 16 bytes (std140) - see ObjectLightCountsData in
 		// SendModelUniforms().
 		ObjectLightCountsUBO = device->CreateUniformBuffer(16, 23);
@@ -1800,8 +1800,16 @@ struct MaterialUniformsData
 	// per-material SSR opt-in, not uReflectivity above (unrelated,
 	// older env-map/skybox reflection blend amount).
 	f32 SSRReflective;
+	// See GenericShaderMaterial::SetAlphaCutoff() - fragments below this
+	// are discarded when ShaderUsage::AlphaTest is on.
+	f32 AlphaCutoff;
+	// std140 rounds the block to a multiple of 16: two vec4s (32) plus 9
+	// floats (36) is 68, which becomes 80. The padding is explicit so the
+	// static_assert below measures the real layout rather than relying on
+	// the compiler happening to agree.
+	f32 _pad[3];
 };
-static_assert(sizeof(MaterialUniformsData) == 64, "MaterialUniformsData must byte-match PyrosShader.glsl's MaterialUniforms std140 layout exactly");
+static_assert(sizeof(MaterialUniformsData) == 80, "MaterialUniformsData must byte-match PyrosShader.glsl's MaterialUniforms std140 layout exactly");
 
 // std140 layout matching ObjectLightCounts in PyrosShader.glsl exactly (16
 // bytes: 3 int = 12, padded to 16 by std140's vec4-multiple block size rule).
@@ -1843,6 +1851,7 @@ void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uMetallic")) memcpy(&data.Metallic, v, sizeof(f32));
 		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uRoughness")) memcpy(&data.Roughness, v, sizeof(f32));
 		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uSSRReflective")) memcpy(&data.SSRReflective, v, sizeof(f32));
+		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uAlphaCutoff")) memcpy(&data.AlphaCutoff, v, sizeof(f32));
 		// ReplaceUniformBuffer (not UpdateUniformBuffer) - see
 		// IRenderDevice.h's comment on ReplaceUniformBuffer(); still the
 		// right call here even though this now only fires on

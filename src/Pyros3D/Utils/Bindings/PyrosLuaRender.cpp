@@ -397,6 +397,8 @@ namespace p3d {
 				"setMetallicRoughnessMap", &GenericShaderMaterial::SetMetallicRoughnessMap,
 				"setSSREnabled", &GenericShaderMaterial::SetSSREnabled,
 				"bindTextures", &GenericShaderMaterial::BindTextures,
+				"setAlphaCutoff", &GenericShaderMaterial::SetAlphaCutoff,
+				"getAlphaCutoff", &GenericShaderMaterial::GetAlphaCutoff,
 				"unbindTextures", &GenericShaderMaterial::UnbindTextures,
 				sol::base_classes, sol::bases<IMaterial>()
 				);
