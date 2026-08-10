@@ -18,7 +18,14 @@
 -- brings the flicker back is the culprit.
 local LodFlickerTest = class('LodFlickerTest')
 
-local GRID = 5               -- GRID x GRID instanced components
+-- Cell counts. GRID_SMALL is comfortable to watch; GRID_LARGE matches the
+-- grass demo's 11x11 pool, because scale is one of the few differences
+-- left between this scene (which does not flicker) and that one (which
+-- does), and a pool four times bigger changes how far streaming lags and
+-- how many pipelines exist.
+local GRID_SMALL = 5
+local GRID_LARGE = 11
+local GRID = GRID_SMALL
 local PER_CELL = 520         -- items per component (dense enough that a
                              -- one-frame glitch is obvious, not a judgement call)
 local QUADS_PER_ITEM = 2
@@ -60,6 +67,8 @@ function LodFlickerTest:initialize()
 	-- VertexFrameUniforms - both per-object dynamic UBOs - and makes the
 	-- latter re-upload every frame instead of on its dirty check.
 	self.optWind = false
+	-- rebuild: switch the pool to the grass demo's 11x11
+	self.optLargeField = false
 	self.autoCamera = true
 
 	self.t = 0
@@ -68,6 +77,7 @@ function LodFlickerTest:initialize()
 	self.lastLodMeshLOD = false
 	self.lastLodMaterial = false
 	self.lastWind = false
+	self.lastLargeField = false
 end
 
 function LodFlickerTest:init(owner)
@@ -178,6 +188,8 @@ function LodFlickerTest:buildField()
 	self.lastLodMeshLOD = self.optMeshLOD
 	self.lastLodMaterial = self.optLodMaterial
 	self.lastWind = self.optWind
+	self.lastLargeField = self.optLargeField
+	GRID = self.optLargeField and GRID_LARGE or GRID_SMALL
 
 	local total = PER_CELL * QUADS_PER_ITEM
 	local half = math.floor(GRID / 2)
@@ -311,6 +323,11 @@ function LodFlickerTest:drawUI()
 	if e ~= self.optShadowToggle then self.optShadowToggle = e end
 	local g = imgui.checkbox("6 Wind (VertexWind)", self.optWind)
 	if g ~= self.optWind then self.optWind = g end
+	local h = imgui.checkbox("7 Large field (11x11, as grass demo)", self.optLargeField)
+	if h ~= self.optLargeField then self.optLargeField = h end
+	if self.optLargeField ~= self.lastLargeField then
+		self:buildField()
+	end
 	if self.optWind ~= self.lastWind then
 		-- Wind is a ShaderUsage flag, fixed when the material is built, so
 		-- toggling it rebuilds the materials and the field.
