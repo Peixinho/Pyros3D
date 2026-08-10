@@ -587,24 +587,47 @@ namespace p3d {
 		// Capture FBO restores) batch into one submit. Distinct from
 		// offscreenPassOpen, which toggles per render pass within that CB.
 		bool offscreenCommandBufferRecording;
-		// Signaled when the last FlushOffscreenCommandBuffer() submit
-		// finished. EndFrame waits on offscreenDoneSemaphore (not a CPU
-		// fence) so tonemap/post can be *recorded* while the capture
-		// still runs on the GPU - matching GL's pipeline overlap. The
-		// fence is only waited when we must reuse offscreenCommandBuffer
-		// or tear down.
-		VkFence offscreenFence;
-		VkSemaphore offscreenDoneSemaphore;
-		// True while EndFrame still needs to wait on offscreenDoneSemaphore
-		// (GPU timeline). Cleared when EndFrame queues that wait, or when
-		// WaitOffscreenSubmitIfPending consumes the semaphore on the CPU.
-		bool offscreenSubmitPending;
-		// True after a FlushOffscreenCommandBuffer submit until its fence
-		// has been waited on the CPU. Distinct from offscreenSubmitPending:
-		// EndFrame may take the semaphore (pending=false) without a CPU
-		// fence wait - resetting offscreenFence while that submit is still
-		// in flight hangs. Flush/Wait must wait this fence whenever set.
-		bool offscreenFenceInFlight;
+		// A ring of offscreen submission slots rather than one command
+		// buffer + one fence. With a single slot, every offscreen session
+		// had to block the CPU in vkWaitForFences before it could
+		// vkResetCommandBuffer and record the next one - so a deferred
+		// frame's shadow / capture / G-buffer / lighting sessions ran as
+		// four serialized CPU->GPU round-trips with no overlap at all.
+		// That was 84% of the Vulkan main thread (sampled on GrassField:
+		// 3073 of 3670 samples inside vkWaitForFences), and it is why the
+		// deferred and shadowed demos sat at 21-23ms against GL's 3-5ms
+		// while the unshadowed ones hit vsync fine.
+		//
+		// Rotating slots lets the CPU record session N+1 while the GPU is
+		// still running session N. GPU-side *ordering* is unchanged: see
+		// offscreenChainSemaphore - each submit waits on the previous
+		// one's semaphore, so passes still execute in the order they were
+		// recorded, which is what a G-buffer written by one session and
+		// sampled by the next relies on. Only the CPU's wait is gone.
+		static const uint32 OFFSCREEN_SLOTS = 4;
+		struct OffscreenSlot
+		{
+			VkCommandBuffer cmd;
+			VkFence fence;
+			VkSemaphore done;
+			// Submitted, fence not yet waited on the CPU. Its command
+			// buffer must not be reset and its fence must not be reset
+			// while this is set.
+			bool fenceInFlight;
+			OffscreenSlot() : cmd(VK_NULL_HANDLE), fence(VK_NULL_HANDLE), done(VK_NULL_HANDLE), fenceInFlight(false) {}
+		};
+		OffscreenSlot offscreenSlots[OFFSCREEN_SLOTS];
+		// Slot currently recording, or most recently submitted.
+		uint32 offscreenSlotIndex;
+		// The `done` semaphore of the most recent offscreen submit that
+		// nothing has waited on yet, or VK_NULL_HANDLE. Exactly one waiter
+		// ever takes it - the next offscreen submit (which is what keeps
+		// offscreen work ordered), or EndFrame if the frame's own draws
+		// are next. A binary semaphore that is signaled and never waited
+		// cannot legally be signaled again, so this must be consumed
+		// before its slot is reused; WaitOffscreenSlot() does that with an
+		// empty submit when it has to.
+		VkSemaphore offscreenChainSemaphore;
 		// Cleared each BeginFrame; set after EnsureHostMappedBufferWritable
 		// so multiple STREAM buffer updates in one tick share one wait.
 		bool hostMappedBuffersSafeThisFrame;
@@ -818,7 +841,12 @@ namespace p3d {
 		// MSAATest, the first thing to ever bind an FBO purely as a blit
 		// destination.
 		void FlushOffscreenCommandBuffer();
+		// Drains every offscreen slot. The broad barrier - for teardown,
+		// buffer reallocation, and anything that has to know no offscreen
+		// GPU work is outstanding. Not for the record path: that only
+		// needs the one slot it is about to reuse, via WaitOffscreenSlot.
 		void WaitOffscreenSubmitIfPending();
+		void WaitOffscreenSlot(OffscreenSlot &slot);
 		void WaitAllFrameFences();
 		// Wait in-flight frame/offscreen work before destroying or
 		// reallocating a host-mapped buffer that may still be bound.

@@ -88,7 +88,7 @@ namespace p3d {
 		  captureRequested(false), capturedWidth(0), capturedHeight(0), capturedRedByteOffset(0), capturedFrameValid(false),
 		  frameInProgress(false), currentImageIndex(0), imguiVulkanBackendActive(false),
 		  activeCommandBuffer(VK_NULL_HANDLE), offscreenCommandBuffer(VK_NULL_HANDLE), offscreenPassOpen(false), offscreenCommandBufferRecording(false),
-		  offscreenFence(VK_NULL_HANDLE), offscreenDoneSemaphore(VK_NULL_HANDLE), offscreenSubmitPending(false), offscreenFenceInFlight(false),
+		  offscreenSlotIndex(0), offscreenChainSemaphore(VK_NULL_HANDLE),
 		  hostMappedBuffersSafeThisFrame(false),
 		  currentBoundFBO(0), currentReadFBO(0),
 		  nextFBOHandle(1), shadowPipelineRenderPass(VK_NULL_HANDLE),
@@ -300,9 +300,14 @@ namespace p3d {
 				frameFences[i] = VK_NULL_HANDLE;
 			}
 			frameFence = VK_NULL_HANDLE;
-			if (offscreenFence != VK_NULL_HANDLE) vkDestroyFence(device, offscreenFence, NULL);
+			for (uint32 i = 0; i < OFFSCREEN_SLOTS; i++)
+			{
+				if (offscreenSlots[i].fence != VK_NULL_HANDLE) vkDestroyFence(device, offscreenSlots[i].fence, NULL);
+				if (offscreenSlots[i].done != VK_NULL_HANDLE) vkDestroySemaphore(device, offscreenSlots[i].done, NULL);
+				offscreenSlots[i] = OffscreenSlot();
+			}
+			offscreenChainSemaphore = VK_NULL_HANDLE;
 			if (transferFence != VK_NULL_HANDLE) vkDestroyFence(device, transferFence, NULL);
-			if (offscreenDoneSemaphore != VK_NULL_HANDLE) vkDestroySemaphore(device, offscreenDoneSemaphore, NULL);
 			for (size_t i = 0; i < imageAvailableSemaphores.size(); i++)
 				vkDestroySemaphore(device, imageAvailableSemaphores[i], NULL);
 			for (size_t i = 0; i < renderFinishedSemaphores.size(); i++)
@@ -860,9 +865,17 @@ namespace p3d {
 		// dedicated command buffer for offscreen FBO passes (shadow maps),
 		// since those must record+submit+wait before the swapchain
 		// frame's own command buffer even exists yet.
-		cmdAllocInfo.commandBufferCount = 1;
-		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &offscreenCommandBuffer) != VK_SUCCESS)
-			return false;
+		{
+			VkCommandBuffer offscreenCmds[OFFSCREEN_SLOTS];
+			cmdAllocInfo.commandBufferCount = OFFSCREEN_SLOTS;
+			if (vkAllocateCommandBuffers(device, &cmdAllocInfo, offscreenCmds) != VK_SUCCESS)
+				return false;
+			for (uint32 i = 0; i < OFFSCREEN_SLOTS; i++)
+				offscreenSlots[i].cmd = offscreenCmds[i];
+			// Last slot, so the first acquire rotates onto slot 0.
+			offscreenSlotIndex = OFFSCREEN_SLOTS - 1;
+			offscreenCommandBuffer = offscreenSlots[offscreenSlotIndex].cmd;
+		}
 
 		VkSemaphoreCreateInfo semInfo = {};
 		semInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -885,11 +898,16 @@ namespace p3d {
 		for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 			if (vkCreateFence(device, &fenceInfo, NULL, &frameFences[i]) != VK_SUCCESS) return false;
 		frameFence = frameFences[0];
-		// Unsignaled: WaitOffscreenSubmitIfPending is a no-op until first Flush.
+		// Unsignaled: WaitOffscreenSlot is a no-op until that slot's first
+		// Flush, which is what fenceInFlight already tracks.
 		fenceInfo.flags = 0;
-		if (vkCreateFence(device, &fenceInfo, NULL, &offscreenFence) != VK_SUCCESS) return false;
-		if (vkCreateSemaphore(device, &semInfo, NULL, &offscreenDoneSemaphore) != VK_SUCCESS) return false;
-		offscreenSubmitPending = false;
+		for (uint32 i = 0; i < OFFSCREEN_SLOTS; i++)
+		{
+			if (vkCreateFence(device, &fenceInfo, NULL, &offscreenSlots[i].fence) != VK_SUCCESS) return false;
+			if (vkCreateSemaphore(device, &semInfo, NULL, &offscreenSlots[i].done) != VK_SUCCESS) return false;
+			offscreenSlots[i].fenceInFlight = false;
+		}
+		offscreenChainSemaphore = VK_NULL_HANDLE;
 
 		cmdAllocInfo.commandBufferCount = 1;
 		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &transferCommandBuffer) != VK_SUCCESS)
@@ -1520,12 +1538,15 @@ namespace p3d {
 		waitSems[waitCount] = imageAvailableSemaphores[currentFrameAcquireSemaphoreIndex];
 		waitStages[waitCount] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 		waitCount++;
-		if (offscreenSubmitPending)
+		if (offscreenChainSemaphore != VK_NULL_HANDLE)
 		{
-			waitSems[waitCount] = offscreenDoneSemaphore;
+			// Only the newest offscreen submit needs waiting on: they are
+			// chained to each other in FlushOffscreenCommandBuffer(), so
+			// this one completing means all of them have.
+			waitSems[waitCount] = offscreenChainSemaphore;
 			waitStages[waitCount] = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
 			waitCount++;
-			offscreenSubmitPending = false;
+			offscreenChainSemaphore = VK_NULL_HANDLE;
 		}
 
 		VkSubmitInfo submitInfo = {};
@@ -5324,9 +5345,14 @@ namespace p3d {
 			// swapchain frame, e.g. DeferredRenderer G-buffer).
 			if (!frameInProgress)
 				WaitAllFrameFences();
-			// Previous Capture/UnBind may have submitted without a CPU
-			// wait - finish it before resetting this command buffer.
-			WaitOffscreenSubmitIfPending();
+			// Rotate onto the next slot rather than reusing the one just
+			// submitted, so this wait lands on a submit several sessions
+			// old (already finished) instead of the one the GPU is running
+			// right now. See the header comment on offscreenSlots.
+			offscreenSlotIndex = (offscreenSlotIndex + 1) % OFFSCREEN_SLOTS;
+			OffscreenSlot &slot = offscreenSlots[offscreenSlotIndex];
+			WaitOffscreenSlot(slot);
+			offscreenCommandBuffer = slot.cmd;
 
 			vkResetCommandBuffer(offscreenCommandBuffer, 0);
 			VkCommandBufferBeginInfo beginInfo = {};
@@ -5429,25 +5455,25 @@ namespace p3d {
 		hostMappedBuffersSafeThisFrame = true;
 	}
 
-	void VulkanRenderDevice::WaitOffscreenSubmitIfPending()
+	void VulkanRenderDevice::WaitOffscreenSlot(OffscreenSlot &slot)
 	{
-		// EndFrame may have already waited on offscreenDoneSemaphore
-		// (cleared offscreenSubmitPending) without a CPU fence wait.
-		// Always drain the fence if a prior Flush left it in flight.
-		if (!offscreenFenceInFlight || offscreenFence == VK_NULL_HANDLE)
+		if (!slot.fenceInFlight || slot.fence == VK_NULL_HANDLE)
 			return;
 
-		vkWaitForFences(device, 1, &offscreenFence, VK_TRUE, UINT64_MAX);
+		vkWaitForFences(device, 1, &slot.fence, VK_TRUE, UINT64_MAX);
 
-		if (offscreenSubmitPending)
+		if (offscreenChainSemaphore == slot.done)
 		{
-			// Binary semaphore still signaled - EndFrame did not take it.
-			// Consume with an empty submit so the next Flush can signal again.
+			// This slot's binary semaphore is still signaled - neither the
+			// next offscreen submit nor EndFrame has taken it. Consume it
+			// with an empty submit, since signaling an already-signaled
+			// binary semaphore is illegal and the slot is about to be
+			// reused.
 			VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
 			VkSubmitInfo consume = {};
 			consume.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 			consume.waitSemaphoreCount = 1;
-			consume.pWaitSemaphores = &offscreenDoneSemaphore;
+			consume.pWaitSemaphores = &slot.done;
 			consume.pWaitDstStageMask = &stage;
 
 			VkFenceCreateInfo fenceInfo = {};
@@ -5464,10 +5490,16 @@ namespace p3d {
 				SubmitGraphics(1, &consume, VK_NULL_HANDLE);
 				vkQueueWaitIdle(graphicsQueue);
 			}
-			offscreenSubmitPending = false;
+			offscreenChainSemaphore = VK_NULL_HANDLE;
 		}
 
-		offscreenFenceInFlight = false;
+		slot.fenceInFlight = false;
+	}
+
+	void VulkanRenderDevice::WaitOffscreenSubmitIfPending()
+	{
+		for (uint32 i = 0; i < OFFSCREEN_SLOTS; i++)
+			WaitOffscreenSlot(offscreenSlots[i]);
 	}
 
 	void VulkanRenderDevice::EnsureFrameCommandBufferForSwapchainDraw()
@@ -5808,32 +5840,47 @@ namespace p3d {
 		if (!offscreenCommandBufferRecording)
 			return;
 
+		OffscreenSlot &slot = offscreenSlots[offscreenSlotIndex];
+
 		EndOffscreenRenderPassIfOpen();
-		vkEndCommandBuffer(offscreenCommandBuffer);
+		vkEndCommandBuffer(slot.cmd);
 
-		// Finish any prior offscreen submit before resetting its fence.
-		// EndFrame may have consumed offscreenDoneSemaphore (pending=false)
-		// without a CPU fence wait - resetting while in flight hangs.
-		WaitOffscreenSubmitIfPending();
+		// No-op in the normal case: the acquire in
+		// BeginOffscreenRenderPassForTarget already drained this slot, and
+		// nothing has submitted it since. Kept because the fence reset
+		// below is illegal while a submit using it is still in flight.
+		WaitOffscreenSlot(slot);
 
-		vkResetFences(device, 1, &offscreenFence);
+		vkResetFences(device, 1, &slot.fence);
 
+		// Wait on the previous offscreen submit's semaphore, so offscreen
+		// sessions still execute on the GPU in the order they were
+		// recorded even though the CPU no longer blocks between them - a
+		// G-buffer written by one session and sampled by the next used to
+		// be ordered by that CPU fence wait, and this is what replaces it.
+		VkPipelineStageFlags chainStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
 		VkSubmitInfo submitInfo = {};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		if (offscreenChainSemaphore != VK_NULL_HANDLE)
+		{
+			submitInfo.waitSemaphoreCount = 1;
+			submitInfo.pWaitSemaphores = &offscreenChainSemaphore;
+			submitInfo.pWaitDstStageMask = &chainStage;
+		}
 		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &offscreenCommandBuffer;
+		submitInfo.pCommandBuffers = &slot.cmd;
 		submitInfo.signalSemaphoreCount = 1;
-		submitInfo.pSignalSemaphores = &offscreenDoneSemaphore;
-		if (SubmitGraphics(1, &submitInfo, offscreenFence) != VK_SUCCESS)
+		submitInfo.pSignalSemaphores = &slot.done;
+		if (SubmitGraphics(1, &submitInfo, slot.fence) != VK_SUCCESS)
 		{
 			vkQueueWaitIdle(graphicsQueue);
-			offscreenSubmitPending = false;
-			offscreenFenceInFlight = false;
+			slot.fenceInFlight = false;
+			offscreenChainSemaphore = VK_NULL_HANDLE;
 		}
 		else
 		{
-			offscreenSubmitPending = true;
-			offscreenFenceInFlight = true;
+			slot.fenceInFlight = true;
+			offscreenChainSemaphore = slot.done;
 		}
 
 		offscreenCommandBufferRecording = false;
