@@ -71,9 +71,6 @@ private:
 	void LoadManifest();
 	void SwitchDemo(int index);
 	void DrawUI();
-	// See its definition - reads the active point light's shadow
-	// cubemap back and draws all six faces.
-	void DrawShadowCubemapViewer();
 	// Reads LOG::_LOG's ring buffer - see its comment. The engine records
 	// unconditionally and knows nothing about ImGui; this is just one view
 	// onto it, which is what lets it show messages logged long before any
@@ -99,7 +96,6 @@ private:
 	bool activeDemoHasPhysics;
 
 	bool imguiInitialized;
-	bool showCubemapViewer;
 	bool showLog;
 	bool logErrorsOnly;
 	// Highest message index already seen, so the window can flag that
