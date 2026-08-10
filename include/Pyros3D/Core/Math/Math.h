@@ -77,8 +77,20 @@ namespace p3d {
 		// these replace were happily called with mixed int/float arguments
 		// (Mouse3D's ray-slab test does exactly that) and the usual
 		// arithmetic conversions are the behaviour those call sites expect.
-		template <typename A, typename B> inline auto Min(const A a, const B b) -> decltype(a < b ? a : b) { return a < b ? a : b; }
-		template <typename A, typename B> inline auto Max(const A a, const B b) -> decltype(a > b ? a : b) { return a > b ? a : b; }
+		//
+		// The return type is decltype(a + b), NOT decltype(a > b ? a : b),
+		// and the difference is not cosmetic. `a` and `b` are lvalues, so the
+		// conditional expression is an lvalue too, and that decltype yields
+		// `const A&` - a reference to a by-value parameter, dangling the
+		// moment the function returns. It compiled, and GL and Vulkan
+		// happened to survive it; Metal's codegen reused the stack slot, so
+		// ParticleSystem's `sqrtf(Max(0.0f, 1.0f - z*z))` came back holding
+		// whatever had last been written there (the adjacent `phi`), every
+		// particle was emitted with a garbage direction, and the whole
+		// system sat at the origin. decltype(a + b) is a prvalue with the
+		// usual arithmetic conversions, which is what was meant all along.
+		template <typename A, typename B> inline auto Min(const A a, const B b) -> decltype(a + b) { return a < b ? a : b; }
+		template <typename A, typename B> inline auto Max(const A a, const B b) -> decltype(a + b) { return a > b ? a : b; }
 		template <typename T> inline T Clamp(const T x) { return (T)Min(Max(x, (T)-1), (T)1); }
 	}
 }
