@@ -1,463 +1,485 @@
 [
- {
-  "name": "Rotating Cube (Lighting)",
-  "description": "Red diffuse cube under a directional light, spinning on Y.",
-  "scene": "RotatingCubeWithLighting.json",
-  "render": {
-   "type": "forward",
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ]
-  }
- },
- {
-  "name": "Rotating Textured Cube",
-  "description": "Cube textured with the Pyros logo, spinning on Y.",
-  "scene": "RotatingTexturedCube.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ],
-   "effects": [
-    "tonemap"
-   ]
-  }
- },
- {
-  "name": "Parallax Mapping",
-  "description": "Brick cube with diffuse, normal and displacement (parallax) maps.",
-  "scene": "ParallaxMapping.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ],
-   "effects": [
-    "tonemap"
-   ]
-  }
- },
- {
-  "name": "Texture Animation",
-  "description": "Cube with a 6-frame YoYo texture animation at 30 fps.",
-  "scene": "RotatingTextureAnimatedCube.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ],
-   "effects": [
-    "tonemap"
-   ]
-  }
- },
- {
-  "name": "Rotating Cube (Lighting + Shadows)",
-  "description": "Directional + point light, both casting shadows, onto a floor/ceiling and a spinning cube.",
-  "scene": "RotatingCubeWithLightingAndShadow.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ],
-   "effects": [
-    "tonemap"
-   ]
-  }
- },
- {
-  "name": "Skybox",
-  "description": "Cubemap skybox that follows the camera.",
-  "scene": "SkyboxTest.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ],
-   "effects": [
-    "tonemap"
-   ]
-  }
- },
- {
-  "name": "Decals",
-  "description": "Left-click places a Pyros logo decal on the cube, sphere or teapot. Free mouse (Tab capture disabled); WASD to move.",
-  "scene": "Decals.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ],
-   "effects": [
-    "tonemap"
-   ]
-  }
- },
- {
-  "name": "PBR Spheres",
-  "description": "Metallic/roughness calibration grid, plus a sphere driven by a metallic-roughness map texture.",
-  "scene": "PBRSpheres.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ],
-   "effects": [
-    "tonemap"
-   ]
-  }
- },
- {
-  "name": "Deferred Rendering",
-  "description": "100 small rotating cubes lit by 100 random point lights, through the deferred G-buffer.",
-  "scene": "DeferredRendering.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ],
-   "effects": [
-    "tonemap"
-   ]
-  }
- },
- {
-  "name": "Particles",
-  "description": "Smoke (alpha-blended, tunable) and embers (additive) particle emitters.",
-  "scene": "ParticlesExample.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ]
-  }
- },
- {
-  "name": "Simple Physics",
-  "description": "1000 dynamic physics cubes falling onto a static floor, real-time Box3D simulation.",
-  "scene": "SimplePhysics.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ],
-   "effects": [
-    "tonemap"
-   ]
-  }
- },
- {
-  "name": "Physics Stress (20k)",
-  "description": "Box3D stress test: small spheres continuously raining into a boxed arena (up to 20k bodies).",
-  "scene": "PhysicsStress.json",
-  "render": {
-   "type": "forward",
-   "globalLight": [
-    0.15,
-    0.15,
-    0.18,
-    1
-   ]
-  }
- },
- {
-  "name": "Skeleton Animation",
-  "description": "Skinned human model blending between walk/run/alert animations by mouse X position.",
-  "scene": "SkeletonAnimationExample.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ],
-   "effects": [
-    "tonemap"
-   ]
-  }
- },
- {
-  "name": "SSR Test",
-  "description": "Material-aware screen-space reflections on a glossy floor under an orbiting camera.",
-  "scene": "SSRTest.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ],
-   "ssr": true,
-   "ssrDistances": [
-    0.35,
-    12.0
-   ],
-   "projection": {
-    "fov": 60,
-    "near": 0.1,
-    "far": 200
-   },
-   "effects": [
-    "tonemap"
-   ]
-  }
- },
- {
-  "name": "SSAO",
-  "description": "Screen-space ambient occlusion on a teapot grid (forward + SSAO post chain).",
-  "scene": "SSAOExample.json",
-  "render": {
-   "type": "forward",
-   "globalLight": [
-    0.2,
-    0.2,
-    0.2,
-    0.2
-   ],
-   "projection": {
-    "fov": 70,
-    "near": 0.01,
-    "far": 50
-   },
-   "effects": [
-    "ssao"
-   ]
-  }
- },
- {
-  "name": "Motion Blur",
-  "description": "Velocity-map motion blur on fast orbiting coloured objects; static cubes stay sharp for contrast.",
-  "scene": "MotionBlur.json",
-  "render": {
-   "type": "forward",
-   "globalLight": [
-    0.08,
-    0.08,
-    0.1,
-    1
-   ],
-   "background": [
-    0.04,
-    0.04,
-    0.06,
-    1
-   ],
-   "projection": {
-    "fov": 60,
-    "near": 1,
-    "far": 2000
-   },
-   "effects": [
-    "motionblur"
-   ]
-  }
- },
- {
-  "name": "Depth of Field",
-  "description": "Suzanne row with multi-resolution blur DoF post chain.",
-  "scene": "DepthOfField.json",
-  "render": {
-   "type": "forward",
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ],
-   "background": [
-    1,
-    0,
-    0,
-    1
-   ],
-   "projection": {
-    "fov": 70,
-    "near": 1,
-    "far": 1000
-   },
-   "effects": [
-    "dof"
-   ]
-  }
- },
- {
-  "name": "LOD",
-  "description": "10k static teapots with 3 LOD levels, frustum culling and point lights.",
-  "scene": "LOD_Example.json",
-  "render": {
-   "type": "forward",
-   "globalLight": [
-    0,
-    0,
-    0,
-    1
-   ],
-   "lod": true,
-   "culling": "FrustumCulling",
-   "projection": {
-    "fov": 70,
-    "near": 1,
-    "far": 3000
-   }
-  }
- },
- {
-  "name": "Instanced Shadows",
-  "description": "144 blocks in one instanced draw call, casting per-instance directional shadows onto the ground.",
-  "scene": "InstancedShadows.json",
-  "render": {
-   "type": "forward",
-   "globalLight": [
-    0.16,
-    0.16,
-    0.19,
-    1
-   ],
-   "projection": {
-    "fov": 70,
-    "near": 1,
-    "far": 600
-   }
-  }
- },
- {
-  "name": "Volumetric Lights",
-  "description": "Spot and point lights scattering through the air: shadowed light shafts marched per-pixel in the deferred lighting pass.",
-  "scene": "VolumetricLights.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.03,
-    0.03,
-    0.045,
-    1
-   ],
-   "effects": [
-    "tonemap"
-   ],
-   "projection": {
-    "fov": 70,
-    "near": 1,
-    "far": 600
-   }
-  }
- },
- {
-  "name": "Grass Field",
-  "description": "Alpha-cutout grass on crossed quads, chunked into one instanced draw call per grid cell.",
-  "scene": "GrassField.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.3,
-    0.34,
-    0.3,
-    1
-   ],
-   "effects": [
-    "tonemap"
-   ],
-   "projection": {
-    "fov": 70,
-    "near": 1,
-    "far": 900
-   }
-  }
- },
- {
-  "name": "Island (Planar Reflections)",
-  "description": "Island water reflected/refracted by a clip-plane multipass: mirrored camera into a reflection FBO, below-water pass into a refraction FBO, composited by WaterShader.glsl (forward).",
-  "scene": "IslandDemo.json",
-  "render": {
-   "type": "forward",
-   "globalLight": [
-    0.3,
-    0.3,
-    0.35,
-    1
-   ],
-   "projection": {
-    "fov": 70,
-    "near": 1,
-    "far": 10000
-   }
-  }
- },
- {
-  "name": "Island (SSR Water)",
-  "description": "The same island, reflected by screen-space reflections instead: one opaque G-buffer water surface with per-material SSR, no mirror pass and no extra render targets.",
-  "scene": "IslandSSRDemo.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.3,
-    0.3,
-    0.35,
-    1
-   ],
-   "ssr": true,
-   "ssrDistances": [
-    6.0,
-    500.0
-   ],
-   "projection": {
-    "fov": 70,
-    "near": 1,
-    "far": 3500
-   }
-  }
- },
- {
-  "name": "Neon Pulse",
-  "description": "Full Lua breakout-style game - arena, paddle and ball lit through the deferred renderer.",
-  "scene": "NeonPulse.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ],
-   "effects": [
-    "tonemap"
-   ]
-  }
- }
+    {
+        "name": "Rotating Cube (Lighting)",
+        "description": "Red diffuse cube under a directional light, spinning on Y.",
+        "scene": "RotatingCubeWithLighting.json",
+        "render": {
+            "type": "forward",
+            "globalLight": [
+                0.12,
+                0.12,
+                0.14,
+                1
+            ]
+        }
+    },
+    {
+        "name": "Rotating Textured Cube",
+        "description": "Cube textured with the Pyros logo, spinning on Y.",
+        "scene": "RotatingTexturedCube.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.12,
+                0.12,
+                0.14,
+                1
+            ],
+            "effects": [
+                "tonemap"
+            ]
+        }
+    },
+    {
+        "name": "Parallax Mapping",
+        "description": "Brick cube with diffuse, normal and displacement (parallax) maps.",
+        "scene": "ParallaxMapping.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.12,
+                0.12,
+                0.14,
+                1
+            ],
+            "effects": [
+                "tonemap"
+            ]
+        }
+    },
+    {
+        "name": "Texture Animation",
+        "description": "Cube with a 6-frame YoYo texture animation at 30 fps.",
+        "scene": "RotatingTextureAnimatedCube.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.12,
+                0.12,
+                0.14,
+                1
+            ],
+            "effects": [
+                "tonemap"
+            ]
+        }
+    },
+    {
+        "name": "Rotating Cube (Lighting + Shadows)",
+        "description": "Directional + point light, both casting shadows, onto a floor/ceiling and a spinning cube.",
+        "scene": "RotatingCubeWithLightingAndShadow.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.12,
+                0.12,
+                0.14,
+                1
+            ],
+            "effects": [
+                "tonemap"
+            ]
+        }
+    },
+    {
+        "name": "Skybox",
+        "description": "Cubemap skybox that follows the camera.",
+        "scene": "SkyboxTest.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.12,
+                0.12,
+                0.14,
+                1
+            ],
+            "effects": [
+                "tonemap"
+            ]
+        }
+    },
+    {
+        "name": "Decals",
+        "description": "Left-click places a Pyros logo decal on the cube, sphere or teapot. Free mouse (Tab capture disabled); WASD to move.",
+        "scene": "Decals.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.12,
+                0.12,
+                0.14,
+                1
+            ],
+            "effects": [
+                "tonemap"
+            ]
+        }
+    },
+    {
+        "name": "PBR Spheres",
+        "description": "Metallic/roughness calibration grid, plus a sphere driven by a metallic-roughness map texture.",
+        "scene": "PBRSpheres.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.12,
+                0.12,
+                0.14,
+                1
+            ],
+            "effects": [
+                "tonemap"
+            ]
+        }
+    },
+    {
+        "name": "Deferred Rendering",
+        "description": "100 small rotating cubes lit by 100 random point lights, through the deferred G-buffer.",
+        "scene": "DeferredRendering.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.12,
+                0.12,
+                0.14,
+                1
+            ],
+            "effects": [
+                "tonemap"
+            ]
+        }
+    },
+    {
+        "name": "Particles",
+        "description": "Smoke (alpha-blended, tunable) and embers (additive) particle emitters.",
+        "scene": "ParticlesExample.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.12,
+                0.12,
+                0.14,
+                1
+            ]
+        }
+    },
+    {
+        "name": "Simple Physics",
+        "description": "1000 dynamic physics cubes falling onto a static floor, real-time Box3D simulation.",
+        "scene": "SimplePhysics.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.12,
+                0.12,
+                0.14,
+                1
+            ],
+            "effects": [
+                "tonemap"
+            ]
+        }
+    },
+    {
+        "name": "Physics Stress (20k)",
+        "description": "Box3D stress test: small spheres continuously raining into a boxed arena (up to 20k bodies).",
+        "scene": "PhysicsStress.json",
+        "render": {
+            "type": "forward",
+            "globalLight": [
+                0.15,
+                0.15,
+                0.18,
+                1
+            ]
+        }
+    },
+    {
+        "name": "Skeleton Animation",
+        "description": "Skinned human model blending between walk/run/alert animations by mouse X position.",
+        "scene": "SkeletonAnimationExample.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.12,
+                0.12,
+                0.14,
+                1
+            ],
+            "effects": [
+                "tonemap"
+            ]
+        }
+    },
+    {
+        "name": "SSR Test",
+        "description": "Material-aware screen-space reflections on a glossy floor under an orbiting camera.",
+        "scene": "SSRTest.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.12,
+                0.12,
+                0.14,
+                1
+            ],
+            "ssr": true,
+            "ssrDistances": [
+                0.35,
+                12.0
+            ],
+            "projection": {
+                "fov": 60,
+                "near": 0.1,
+                "far": 200
+            },
+            "effects": [
+                "tonemap"
+            ]
+        }
+    },
+    {
+        "name": "SSAO",
+        "description": "Screen-space ambient occlusion on a teapot grid (forward + SSAO post chain).",
+        "scene": "SSAOExample.json",
+        "render": {
+            "type": "forward",
+            "globalLight": [
+                0.2,
+                0.2,
+                0.2,
+                0.2
+            ],
+            "projection": {
+                "fov": 70,
+                "near": 0.01,
+                "far": 50
+            },
+            "effects": [
+                "ssao"
+            ]
+        }
+    },
+    {
+        "name": "Motion Blur",
+        "description": "Velocity-map motion blur on fast orbiting coloured objects; static cubes stay sharp for contrast.",
+        "scene": "MotionBlur.json",
+        "render": {
+            "type": "forward",
+            "globalLight": [
+                0.08,
+                0.08,
+                0.1,
+                1
+            ],
+            "background": [
+                0.04,
+                0.04,
+                0.06,
+                1
+            ],
+            "projection": {
+                "fov": 60,
+                "near": 1,
+                "far": 2000
+            },
+            "effects": [
+                "motionblur"
+            ]
+        }
+    },
+    {
+        "name": "Depth of Field",
+        "description": "Suzanne row with multi-resolution blur DoF post chain.",
+        "scene": "DepthOfField.json",
+        "render": {
+            "type": "forward",
+            "globalLight": [
+                0.12,
+                0.12,
+                0.14,
+                1
+            ],
+            "background": [
+                1,
+                0,
+                0,
+                1
+            ],
+            "projection": {
+                "fov": 70,
+                "near": 1,
+                "far": 1000
+            },
+            "effects": [
+                "dof"
+            ]
+        }
+    },
+    {
+        "name": "LOD",
+        "description": "10k static teapots with 3 LOD levels, frustum culling and point lights.",
+        "scene": "LOD_Example.json",
+        "render": {
+            "type": "forward",
+            "globalLight": [
+                0,
+                0,
+                0,
+                1
+            ],
+            "lod": true,
+            "culling": "FrustumCulling",
+            "projection": {
+                "fov": 70,
+                "near": 1,
+                "far": 3000
+            }
+        }
+    },
+    {
+        "name": "Instanced Shadows",
+        "description": "144 blocks in one instanced draw call, casting per-instance directional shadows onto the ground.",
+        "scene": "InstancedShadows.json",
+        "render": {
+            "type": "forward",
+            "globalLight": [
+                0.16,
+                0.16,
+                0.19,
+                1
+            ],
+            "projection": {
+                "fov": 70,
+                "near": 1,
+                "far": 600
+            }
+        }
+    },
+    {
+        "name": "Volumetric Lights",
+        "description": "Spot and point lights scattering through the air: shadowed light shafts marched per-pixel in the deferred lighting pass.",
+        "scene": "VolumetricLights.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.03,
+                0.03,
+                0.045,
+                1
+            ],
+            "effects": [
+                "tonemap"
+            ],
+            "projection": {
+                "fov": 70,
+                "near": 1,
+                "far": 600
+            }
+        }
+    },
+    {
+        "name": "Grass Field",
+        "description": "Alpha-cutout grass on crossed quads, chunked into one instanced draw call per grid cell.",
+        "scene": "GrassField.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.3,
+                0.34,
+                0.3,
+                1
+            ],
+            "effects": [
+                "tonemap"
+            ],
+            "projection": {
+                "fov": 70,
+                "near": 1,
+                "far": 900
+            }
+        }
+    },
+    {
+        "name": "Island (Planar Reflections)",
+        "description": "Island water reflected/refracted by a clip-plane multipass: mirrored camera into a reflection FBO, below-water pass into a refraction FBO, composited by WaterShader.glsl (forward).",
+        "scene": "IslandDemo.json",
+        "render": {
+            "type": "forward",
+            "globalLight": [
+                0.3,
+                0.3,
+                0.35,
+                1
+            ],
+            "projection": {
+                "fov": 70,
+                "near": 1,
+                "far": 10000
+            }
+        }
+    },
+    {
+        "name": "Island (SSR Water)",
+        "description": "The same island, reflected by screen-space reflections instead: one opaque G-buffer water surface with per-material SSR, no mirror pass and no extra render targets.",
+        "scene": "IslandSSRDemo.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.3,
+                0.3,
+                0.35,
+                1
+            ],
+            "ssr": true,
+            "ssrDistances": [
+                6.0,
+                500.0
+            ],
+            "projection": {
+                "fov": 70,
+                "near": 1,
+                "far": 3500
+            }
+        }
+    },
+    {
+        "name": "Neon Pulse",
+        "description": "Full Lua breakout-style game - arena, paddle and ball lit through the deferred renderer.",
+        "scene": "NeonPulse.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.12,
+                0.12,
+                0.14,
+                1
+            ],
+            "effects": [
+                "tonemap"
+            ]
+        }
+    },
+    {
+        "name": "LOD Flicker Test",
+        "description": "Bisection harness for the Vulkan/Metal flicker: toggle each suspect independently while the camera sweeps through the LOD switch.",
+        "scene": "LodFlickerTest.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.3,
+                0.34,
+                0.3,
+                1
+            ],
+            "effects": [
+                "tonemap"
+            ],
+            "projection": {
+                "fov": 70,
+                "near": 1,
+                "far": 900
+            }
+        }
+    }
 ]
