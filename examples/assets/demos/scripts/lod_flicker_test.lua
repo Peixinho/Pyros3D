@@ -268,42 +268,49 @@ end
 
 function LodFlickerTest:drawUI()
 	if not imgui then return end
-	imgui.text("Flicker bisection. Start with everything off, then")
-	imgui.text("turn ONE on at a time. The first that brings the")
-	imgui.text("flicker back is the cause. Watch while the camera")
-	imgui.text("sweeps in and out on its own.")
-	imgui.separator()
 
-	local a = imgui.checkbox("Mesh LOD (AddLOD)", self.optMeshLOD)
-	local b = imgui.checkbox("...with its own material", self.optLodMaterial)
+	-- Options first and always visible. They were previously below a block
+	-- of explanatory text in a narrow docked panel, and the two streaming
+	-- sub-toggles were nested behind the streaming checkbox - so the two
+	-- controls that matter most could not be found.
+	local a = imgui.checkbox("1 Mesh LOD (AddLOD)", self.optMeshLOD)
 	if a ~= self.optMeshLOD then self.optMeshLOD = a end
+	local b = imgui.checkbox("2 ...LOD gets its own material", self.optLodMaterial)
 	if b ~= self.optLodMaterial then self.optLodMaterial = b end
 	if self.optMeshLOD ~= self.lastLodMeshLOD or self.optLodMaterial ~= self.lastLodMaterial then
-		imgui.text("(rebuilding...)")
 		self:buildField()
 	end
 
-	local c = imgui.checkbox("Density (setNumberInstances)", self.optDensity)
+	local c = imgui.checkbox("3 Density (setNumberInstances)", self.optDensity)
 	if c ~= self.optDensity then self.optDensity = c end
-	local d = imgui.checkbox("Streaming (re-scatter)", self.optStreaming)
+
+	local d = imgui.checkbox("4 Streaming (re-scatter)", self.optStreaming)
 	if d ~= self.optStreaming then self.optStreaming = d end
-	if self.optStreaming then
-		imgui.text("  which half of streaming:")
-		local m = imgui.checkbox("  move cell GameObject", self.streamMove)
-		if m ~= self.streamMove then self.streamMove = m end
-		local w = imgui.checkbox("  rewrite instance buffers", self.streamRewrite)
-		if w ~= self.streamRewrite then self.streamRewrite = w end
-	end
-	local e = imgui.checkbox("Shadow toggling", self.optShadowToggle)
+
+	-- Always shown, not nested: these are the decisive pair. They only do
+	-- anything while 4 is on, which the label says rather than the UI
+	-- hiding them.
+	local m = imgui.checkbox("4a  ...move cell GameObject", self.streamMove)
+	if m ~= self.streamMove then self.streamMove = m end
+	local w = imgui.checkbox("4b  ...rewrite instance buffers", self.streamRewrite)
+	if w ~= self.streamRewrite then self.streamRewrite = w end
+
+	local e = imgui.checkbox("5 Shadow toggling", self.optShadowToggle)
 	if e ~= self.optShadowToggle then self.optShadowToggle = e end
+
 	imgui.separator()
 	local f = imgui.checkbox("Auto camera sweep", self.autoCamera)
 	if f ~= self.autoCamera then self.autoCamera = f end
+	imgui.text(string.format("camera z %.0f  (LOD swaps at %.0f)", self.camZ or 0, LOD_MESH_SWAP))
+	imgui.text(string.format("%d cells, %d / %d quads, %d rebuild(s)",
+		#self.cells, self.drawn, (self.total or 0) * #self.cells, self.rebuilds))
 
-	imgui.text(string.format("camera z %.0f   (LOD swaps at %.0f)", self.camZ or 0, LOD_MESH_SWAP))
-	imgui.text(string.format("%d cells, drawing %d / %d quads",
-		#self.cells, self.drawn, (self.total or 0) * #self.cells))
-	imgui.text(string.format("%d field rebuild(s)", self.rebuilds))
+	imgui.separator()
+	imgui.text("All off = should be rock solid. Turn ONE on at")
+	imgui.text("a time; the first that flickers is the cause.")
+	imgui.text("If 4 flickers, use 4a/4b to say which half:")
+	imgui.text("4b only = a buffer is rewritten while in use.")
+	imgui.text("4a only = moving a component mid-frame.")
 end
 
 function LodFlickerTest:destroy()
