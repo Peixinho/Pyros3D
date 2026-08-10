@@ -20,3 +20,6 @@ VULKAN_ROADMAP.md
 CMakeFiles/
 compile_commands.json
 imgui.ini
+
+# Local scratch checkout, not part of the engine.
+editor_old/
