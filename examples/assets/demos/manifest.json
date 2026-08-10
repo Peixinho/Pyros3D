@@ -379,6 +379,28 @@
   }
  },
  {
+  "name": "Grass Field",
+  "description": "Alpha-cutout grass on crossed quads, chunked into one instanced draw call per grid cell.",
+  "scene": "GrassField.json",
+  "render": {
+   "type": "deferred",
+   "globalLight": [
+    0.3,
+    0.34,
+    0.3,
+    1
+   ],
+   "effects": [
+    "tonemap"
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 1,
+    "far": 900
+   }
+  }
+ },
+ {
   "name": "Island (Planar Reflections)",
   "description": "Island water reflected/refracted by a clip-plane multipass: mirrored camera into a reflection FBO, below-water pass into a refraction FBO, composited by WaterShader.glsl (forward).",
   "scene": "IslandDemo.json",

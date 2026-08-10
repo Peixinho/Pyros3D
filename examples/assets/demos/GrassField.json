@@ -1,0 +1,66 @@
+{
+    "materials": [],
+    "roots": [
+        {
+            "name": "Camera",
+            "tags": [
+                "Camera"
+            ],
+            "position": [
+                0,
+                9,
+                34
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "demos/scripts/camera_fly.lua",
+                    "data": {
+                        "yaw": 0,
+                        "pitch": -14
+                    }
+                }
+            ]
+        },
+        {
+            "name": "GrassFieldSetup",
+            "tags": [],
+            "position": [
+                0,
+                0,
+                0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "demos/scripts/grass_field_setup.lua",
+                    "data": {}
+                }
+            ]
+        }
+    ]
+}
