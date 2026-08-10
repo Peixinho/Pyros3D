@@ -803,12 +803,14 @@ namespace p3d {
 				for (size_t bufferIdx = 0; bufferIdx < desc.vertexLayout.size(); bufferIdx++)
 				{
 					const IRenderDevice::VertexBufferLayoutDesc &layout = desc.vertexLayout[bufferIdx];
+					bool bufferHasBoundAttribute = false;
 					for (size_t a = 0; a < layout.attributes.size(); a++)
 					{
 						const IRenderDevice::VertexAttributeDesc &attr = layout.attributes[a];
 						std::map<std::string, uint32>::iterator locIt = progIt->second.attributeLocations.find(attr.name);
 						if (locIt == progIt->second.attributeLocations.end())
 							continue; // shader doesn't use this attribute - matches GL's -1-location no-op, not an error
+						bufferHasBoundAttribute = true;
 						uint32 location = locIt->second;
 						// A Matrix attribute occupies 4 consecutive
 						// locations, one vec4 column each - mirrors
@@ -832,6 +834,25 @@ namespace p3d {
 							vertexDesc.attributes[location + c].bufferIndex = (NSUInteger)(kFirstVertexBufferIndex + bufferIdx);
 						}
 					}
+					// Only describe the buffer's layout if the shader actually
+					// reads something out of it. Metal validates the vertex
+					// descriptor as a whole and asserts outright on a layout
+					// that has a stride but no attribute pointing at it
+					// ("None of the attributes set bufferIndex to N, but
+					// MTLVertexDescriptor set buffer layout[N].stride(...)"),
+					// where GL and Vulkan both just leave the buffer unread.
+					// A mesh reaches here with a buffer no shader variant
+					// wants whenever a component carries an attribute buffer
+					// the material's shader doesn't declare - e.g. an
+					// instanced component whose material was built without
+					// ShaderUsage::InstancedRendering, so the vertex shader
+					// has no aInstancedTransform to point at the per-instance
+					// buffer (which is a material bug in its own right, but
+					// one GL and Vulkan render wrongly rather than abort on).
+					// The buffer still gets bound in DrawElements(); nothing
+					// samples it.
+					if (!bufferHasBoundAttribute)
+						continue;
 					vertexDesc.layouts[kFirstVertexBufferIndex + bufferIdx].stride = layout.stride;
 					vertexDesc.layouts[kFirstVertexBufferIndex + bufferIdx].stepFunction = MTLVertexStepFunctionPerVertex;
 					// A buffer's attributes share one step rate on Metal,
