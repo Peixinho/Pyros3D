@@ -6,6 +6,21 @@ include(${CMAKE_CURRENT_LIST_DIR}/PyrosEmscripten.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/PyrosAndroid.cmake)
 
 # ---------------------------------------------------------------------------
+# Logging
+#
+# echo() is the engine's only error-reporting channel - 42 call sites, most
+# of them echo("ERROR: ..."), including the one that reports a Lua component
+# script raising. It expands to a body wrapped in
+# #if defined(LOG_TO_FILE)/LOG_DISABLE/LOG_TO_CONSOLE/_DEBUG, and nothing
+# defined any of them, so every one of those messages was discarded. A
+# script failing on an unbound binding therefore looked exactly like a
+# renderer that drew nothing, which is a genuinely expensive way to debug.
+# Console by default: silence should be opted into, not the default.
+# ---------------------------------------------------------------------------
+set(PYROS_LOG "Console" CACHE STRING "Where echo() output goes")
+set_property(CACHE PYROS_LOG PROPERTY STRINGS Console File Off)
+
+# ---------------------------------------------------------------------------
 # Primary graphics stack
 # ---------------------------------------------------------------------------
 set(PYROS_GRAPHICS "OpenGL" CACHE STRING "Primary graphics backend")

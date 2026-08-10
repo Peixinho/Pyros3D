@@ -74,6 +74,11 @@ private:
 	// See its definition - reads the active point light's shadow
 	// cubemap back and draws all six faces.
 	void DrawShadowCubemapViewer();
+	// Reads LOG::_LOG's ring buffer - see its comment. The engine records
+	// unconditionally and knows nothing about ImGui; this is just one view
+	// onto it, which is what lets it show messages logged long before any
+	// of the UI existed.
+	void DrawLogWindow();
 
 	void InitImGui();
 	void ShutdownImGui();
@@ -95,6 +100,16 @@ private:
 
 	bool imguiInitialized;
 	bool showCubemapViewer;
+	bool showLog;
+	bool logErrorsOnly;
+	// Highest message index already seen, so the window can flag that
+	// something new arrived while it was closed rather than requiring the
+	// user to have been watching.
+	unsigned int logSeen;
+	// One-shot: the first error of the session pops the window open. The
+	// whole reason this exists is that errors were invisible; requiring the
+	// user to already suspect something and go looking would keep them so.
+	bool logAutoOpened;
 
 };
 

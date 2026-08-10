@@ -15,6 +15,9 @@ namespace p3d {
 		std::ofstream _LOG::outputFile(LOG_FILE_PATH, std::ios::app);
 #endif
 		bool _LOG::_initiated = false;
+		std::vector<Entry> _LOG::_entries;
+		unsigned int _LOG::_entriesStart = 0;
+		int _LOG::_threshold = Level::Warning;
 
 	};
 

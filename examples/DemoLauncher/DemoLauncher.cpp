@@ -50,6 +50,10 @@ DemoLauncher::DemoLauncher() : ClassName(1280, 720, "Pyros3D - Demos", WindowTyp
 	physics = nullptr;
 	activeDemo = -1;
 	showCubemapViewer = false;
+	showLog = false;
+	logErrorsOnly = false;
+	logSeen = 0;
+	logAutoOpened = false;
 	activeDemoHasPhysics = false;
 	imguiInitialized = false;
 }
@@ -482,6 +486,62 @@ void DemoLauncher::DrawShadowCubemapViewer()
 	ImGui::End();
 }
 
+// The engine's log has no idea this exists - it records into a ring buffer
+// and this reads it. Keeping the dependency pointing this way is what lets
+// the same messages also reach a console, a file, or an editor panel later,
+// and is why anything logged during device or script init is still here to
+// be read once the UI finally comes up.
+void DemoLauncher::DrawLogWindow()
+{
+	if (!showLog)
+	{
+		// Not open: just remember where we are, so reopening does not claim
+		// everything is new.
+		logSeen = p3d::LOG::_LOG::MessageCount();
+		return;
+	}
+
+	ImGui::SetNextWindowSize(ImVec2(760, 260), ImGuiCond_FirstUseEver);
+	if (ImGui::Begin("Log", &showLog))
+	{
+		if (ImGui::Button("Clear")) { p3d::LOG::_LOG::ClearMessages(); logSeen = 0; }
+		ImGui::SameLine();
+		ImGui::Checkbox("Errors only", &logErrorsOnly);
+		ImGui::SameLine();
+		// Raising this is retroactive only for what arrives next - anything
+		// already dropped was never recorded. Errors and warnings are always
+		// kept, which is the point of the default.
+		{
+			int level = p3d::LOG::_LOG::GetLevel();
+			ImGui::SetNextItemWidth(150.0f);
+			if (ImGui::Combo("Level", &level, "Errors\0+ Warnings\0+ Success\0Everything\0"))
+				p3d::LOG::_LOG::SetLevel(level);
+		}
+		ImGui::SameLine();
+		ImGui::Text("%u line(s)", p3d::LOG::_LOG::MessageCount());
+		ImGui::Separator();
+
+		ImGui::BeginChild("loglines", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
+		const unsigned int count = p3d::LOG::_LOG::MessageCount();
+		for (unsigned int i = 0; i < count; i++)
+		{
+			const p3d::LOG::Entry &e = p3d::LOG::_LOG::MessageAt(i);
+			if (logErrorsOnly && !e.error) continue;
+			if (e.error)
+				ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "%s", e.text.c_str());
+			else
+				ImGui::TextUnformatted(e.text.c_str());
+		}
+		// Only stick to the bottom while the user is already there, so
+		// scrolling back to read something is not fought by new messages.
+		if (count != logSeen && ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
+			ImGui::SetScrollHereY(1.0f);
+		ImGui::EndChild();
+		logSeen = count;
+	}
+	ImGui::End();
+}
+
 void DemoLauncher::DrawUI()
 {
 	ImGui::Begin("Pyros3D Demos");
@@ -495,9 +555,22 @@ void DemoLauncher::DrawUI()
 	ImGui::Text("Mouse: %s (TAB to toggle)", SDL_GetRelativeMouseMode() ? "Captured" : "Free");
 	ImGui::Text("Profiler: F3");
 	ImGui::Checkbox("Point shadow cubemap", &showCubemapViewer);
+	{
+		const unsigned int total = p3d::LOG::_LOG::MessageCount();
+		unsigned int errors = 0;
+		for (unsigned int i = 0; i < total; i++)
+			if (p3d::LOG::_LOG::MessageAt(i).error) errors++;
+		if (errors > 0)
+		{
+			ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "%u error(s) logged", errors);
+			if (!logAutoOpened) { logAutoOpened = true; showLog = true; }
+		}
+		ImGui::Checkbox("Log", &showLog);
+	}
 	ImGui::Separator();
 
 	FrameProfiler::Instance().DrawImGui();
+	DrawLogWindow();
 
 	for (size_t i = 0; i < demos.size(); i++)
 	{

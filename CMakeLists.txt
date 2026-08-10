@@ -48,6 +48,17 @@ if (ANDROID)
 endif()
 
 
+# echo() is a macro around an inline function in Log.h, so the define has to
+# reach every translation unit that calls it, not just the engine's own -
+# hence PUBLIC rather than PRIVATE.
+if (PYROS_LOG STREQUAL "Console")
+	target_compile_definitions(PyrosEngine PUBLIC LOG_TO_CONSOLE)
+elseif (PYROS_LOG STREQUAL "File")
+	target_compile_definitions(PyrosEngine PUBLIC LOG_TO_FILE)
+else()
+	target_compile_definitions(PyrosEngine PUBLIC LOG_DISABLE)
+endif()
+
 # PYROS3D_API (Export.h): dllexport when building the shared DLL on Windows.
 if (WIN32 AND LIB_TYPE STREQUAL "SHARED")
 	target_compile_definitions(PyrosEngine PRIVATE _EXPORT)

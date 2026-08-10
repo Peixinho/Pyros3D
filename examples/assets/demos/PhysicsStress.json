@@ -1,261 +1,382 @@
 {
-  "materials": [
-    {
-      "id": 0,
-      "kind": "generic",
-      "options": 17409,
-      "color": [0.55, 0.55, 0.58, 1.0],
-      "specular": [0.08, 0.08, 0.08, 1.0],
-      "shininess": 24.0,
-      "metallic": 0.0,
-      "roughness": 0.8,
-      "opacity": 1.0,
-      "transparent": false,
-      "blending": false,
-      "depthTest": true,
-      "depthWrite": true,
-      "wireframe": false,
-      "castingShadows": true,
-      "cullFace": 0
-    }
-  ],
-  "roots": [
-    {
-      "name": "Camera",
-      "tags": ["Camera"],
-      "position": [0, 28, 55],
-      "rotation": [0, 0, 0],
-      "scale": [1, 1, 1],
-      "static": false,
-      "children": [],
-      "components": [
+    "version": 1,
+    "materials": [
         {
-          "type": "LuaComponent",
-          "scriptFile": "demos/scripts/camera_fly.lua",
-          "data": { "yaw": 0, "pitch": -22 }
+            "id": 0,
+            "kind": "generic",
+            "options": 17409,
+            "color": [
+                0.55,
+                0.55,
+                0.58,
+                1.0
+            ],
+            "specular": [
+                0.08,
+                0.08,
+                0.08,
+                1.0
+            ],
+            "shininess": 24.0,
+            "metallic": 0.0,
+            "roughness": 0.8,
+            "opacity": 1.0,
+            "transparent": false,
+            "blending": false,
+            "depthTest": true,
+            "depthWrite": true,
+            "wireframe": false,
+            "castingShadows": true,
+            "cullFace": 0
         }
-      ]
-    },
-    {
-      "name": "Sun",
-      "position": [0, 0, 0],
-      "rotation": [0, 0, 0],
-      "scale": [1, 1, 1],
-      "static": true,
-      "children": [],
-      "components": [
+    ],
+    "roots": [
         {
-          "type": "DirectionalLight",
-          "color": [1, 1, 1, 1],
-          "direction": [-0.45, -1, -0.35],
-          "intensity": 3.14159,
-          "castingShadows": true,
-          "cascades": 1,
-          "fov": 70.0,
-          "aspect": 1.0,
-          "shadowNear": 1.0,
-          "shadowFar": 120.0,
-          "shadowWidth": 2048,
-          "shadowHeight": 2048,
-          "shadowBiasFactor": 1.0,
-          "shadowBiasUnits": 3.0
-        }
-      ]
-    },
-    {
-      "name": "Floor",
-      "position": [0, -0.5, 0],
-      "rotation": [0, 0, 0],
-      "scale": [1, 1, 1],
-      "static": true,
-      "children": [],
-      "components": [
-        {
-          "type": "RenderingComponent",
-          "material": 0,
-          "castingShadows": true,
-          "cullTest": true,
-          "renderable": {
-            "kind": "primitive",
-            "shape": "Cube",
-            "width": 12,
-            "height": 0.5,
-            "depth": 12,
-            "smooth": false,
-            "flip": false,
-            "tangentBitangent": false
-          }
+            "name": "Camera",
+            "tags": [
+                "Camera"
+            ],
+            "position": [
+                0,
+                28,
+                55
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "demos/scripts/camera_fly.lua",
+                    "data": {
+                        "yaw": 0,
+                        "pitch": -22
+                    }
+                }
+            ]
         },
         {
-          "type": "Physics",
-          "shape": "Box",
-          "width": 12,
-          "height": 0.5,
-          "depth": 12,
-          "mass": 0,
-          "ghost": false
-        }
-      ]
-    },
-    {
-      "name": "WallNorth",
-      "position": [0, 12, 11.5],
-      "rotation": [0, 0, 0],
-      "scale": [1, 1, 1],
-      "static": true,
-      "children": [],
-      "components": [
-        {
-          "type": "RenderingComponent",
-          "material": 0,
-          "castingShadows": true,
-          "cullTest": true,
-          "renderable": {
-            "kind": "primitive",
-            "shape": "Cube",
-            "width": 13,
-            "height": 12,
-            "depth": 1.5,
-            "smooth": false,
-            "flip": false,
-            "tangentBitangent": false
-          }
+            "name": "Sun",
+            "position": [
+                0,
+                0,
+                0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": true,
+            "children": [],
+            "components": [
+                {
+                    "type": "DirectionalLight",
+                    "color": [
+                        1,
+                        1,
+                        1,
+                        1
+                    ],
+                    "direction": [
+                        -0.45,
+                        -1,
+                        -0.35
+                    ],
+                    "intensity": 3.14159,
+                    "castingShadows": true,
+                    "cascades": 1,
+                    "fov": 70.0,
+                    "aspect": 1.0,
+                    "shadowNear": 1.0,
+                    "shadowFar": 120.0,
+                    "shadowWidth": 2048,
+                    "shadowHeight": 2048,
+                    "shadowBiasFactor": 1.0,
+                    "shadowBiasUnits": 3.0
+                }
+            ]
         },
         {
-          "type": "Physics",
-          "shape": "Box",
-          "width": 13,
-          "height": 12,
-          "depth": 1.5,
-          "mass": 0,
-          "ghost": false
-        }
-      ]
-    },
-    {
-      "name": "WallSouth",
-      "position": [0, 12, -11.5],
-      "rotation": [0, 0, 0],
-      "scale": [1, 1, 1],
-      "static": true,
-      "children": [],
-      "components": [
-        {
-          "type": "RenderingComponent",
-          "material": 0,
-          "castingShadows": true,
-          "cullTest": true,
-          "renderable": {
-            "kind": "primitive",
-            "shape": "Cube",
-            "width": 13,
-            "height": 12,
-            "depth": 1.5,
-            "smooth": false,
-            "flip": false,
-            "tangentBitangent": false
-          }
+            "name": "Floor",
+            "position": [
+                0,
+                -0.5,
+                0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": true,
+            "children": [],
+            "components": [
+                {
+                    "type": "RenderingComponent",
+                    "material": 0,
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "renderable": {
+                        "kind": "primitive",
+                        "shape": "Cube",
+                        "width": 12,
+                        "height": 0.5,
+                        "depth": 12,
+                        "smooth": false,
+                        "flip": false,
+                        "tangentBitangent": false
+                    }
+                },
+                {
+                    "type": "Physics",
+                    "shape": "Box",
+                    "width": 12,
+                    "height": 0.5,
+                    "depth": 12,
+                    "mass": 0,
+                    "ghost": false
+                }
+            ]
         },
         {
-          "type": "Physics",
-          "shape": "Box",
-          "width": 13,
-          "height": 12,
-          "depth": 1.5,
-          "mass": 0,
-          "ghost": false
-        }
-      ]
-    },
-    {
-      "name": "WallEast",
-      "position": [11.5, 12, 0],
-      "rotation": [0, 0, 0],
-      "scale": [1, 1, 1],
-      "static": true,
-      "children": [],
-      "components": [
-        {
-          "type": "RenderingComponent",
-          "material": 0,
-          "castingShadows": true,
-          "cullTest": true,
-          "renderable": {
-            "kind": "primitive",
-            "shape": "Cube",
-            "width": 1.5,
-            "height": 12,
-            "depth": 10,
-            "smooth": false,
-            "flip": false,
-            "tangentBitangent": false
-          }
+            "name": "WallNorth",
+            "position": [
+                0,
+                12,
+                11.5
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": true,
+            "children": [],
+            "components": [
+                {
+                    "type": "RenderingComponent",
+                    "material": 0,
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "renderable": {
+                        "kind": "primitive",
+                        "shape": "Cube",
+                        "width": 13,
+                        "height": 12,
+                        "depth": 1.5,
+                        "smooth": false,
+                        "flip": false,
+                        "tangentBitangent": false
+                    }
+                },
+                {
+                    "type": "Physics",
+                    "shape": "Box",
+                    "width": 13,
+                    "height": 12,
+                    "depth": 1.5,
+                    "mass": 0,
+                    "ghost": false
+                }
+            ]
         },
         {
-          "type": "Physics",
-          "shape": "Box",
-          "width": 1.5,
-          "height": 12,
-          "depth": 10,
-          "mass": 0,
-          "ghost": false
-        }
-      ]
-    },
-    {
-      "name": "WallWest",
-      "position": [-11.5, 12, 0],
-      "rotation": [0, 0, 0],
-      "scale": [1, 1, 1],
-      "static": true,
-      "children": [],
-      "components": [
-        {
-          "type": "RenderingComponent",
-          "material": 0,
-          "castingShadows": true,
-          "cullTest": true,
-          "renderable": {
-            "kind": "primitive",
-            "shape": "Cube",
-            "width": 1.5,
-            "height": 12,
-            "depth": 10,
-            "smooth": false,
-            "flip": false,
-            "tangentBitangent": false
-          }
+            "name": "WallSouth",
+            "position": [
+                0,
+                12,
+                -11.5
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": true,
+            "children": [],
+            "components": [
+                {
+                    "type": "RenderingComponent",
+                    "material": 0,
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "renderable": {
+                        "kind": "primitive",
+                        "shape": "Cube",
+                        "width": 13,
+                        "height": 12,
+                        "depth": 1.5,
+                        "smooth": false,
+                        "flip": false,
+                        "tangentBitangent": false
+                    }
+                },
+                {
+                    "type": "Physics",
+                    "shape": "Box",
+                    "width": 13,
+                    "height": 12,
+                    "depth": 1.5,
+                    "mass": 0,
+                    "ghost": false
+                }
+            ]
         },
         {
-          "type": "Physics",
-          "shape": "Box",
-          "width": 1.5,
-          "height": 12,
-          "depth": 10,
-          "mass": 0,
-          "ghost": false
-        }
-      ]
-    },
-    {
-      "name": "StressSpawner",
-      "position": [0, 0, 0],
-      "rotation": [0, 0, 0],
-      "scale": [1, 1, 1],
-      "static": false,
-      "children": [],
-      "components": [
+            "name": "WallEast",
+            "position": [
+                11.5,
+                12,
+                0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": true,
+            "children": [],
+            "components": [
+                {
+                    "type": "RenderingComponent",
+                    "material": 0,
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "renderable": {
+                        "kind": "primitive",
+                        "shape": "Cube",
+                        "width": 1.5,
+                        "height": 12,
+                        "depth": 10,
+                        "smooth": false,
+                        "flip": false,
+                        "tangentBitangent": false
+                    }
+                },
+                {
+                    "type": "Physics",
+                    "shape": "Box",
+                    "width": 1.5,
+                    "height": 12,
+                    "depth": 10,
+                    "mass": 0,
+                    "ghost": false
+                }
+            ]
+        },
         {
-          "type": "LuaComponent",
-          "scriptFile": "demos/scripts/physics_stress.lua",
-          "data": {
-            "maxBodies": 20000,
-            "spawnPerSecond": 200,
-            "radius": 0.2,
-            "mass": 0.15
-          }
+            "name": "WallWest",
+            "position": [
+                -11.5,
+                12,
+                0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": true,
+            "children": [],
+            "components": [
+                {
+                    "type": "RenderingComponent",
+                    "material": 0,
+                    "castingShadows": true,
+                    "cullTest": true,
+                    "renderable": {
+                        "kind": "primitive",
+                        "shape": "Cube",
+                        "width": 1.5,
+                        "height": 12,
+                        "depth": 10,
+                        "smooth": false,
+                        "flip": false,
+                        "tangentBitangent": false
+                    }
+                },
+                {
+                    "type": "Physics",
+                    "shape": "Box",
+                    "width": 1.5,
+                    "height": 12,
+                    "depth": 10,
+                    "mass": 0,
+                    "ghost": false
+                }
+            ]
+        },
+        {
+            "name": "StressSpawner",
+            "position": [
+                0,
+                0,
+                0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "children": [],
+            "components": [
+                {
+                    "type": "LuaComponent",
+                    "scriptFile": "demos/scripts/physics_stress.lua",
+                    "data": {
+                        "maxBodies": 20000,
+                        "spawnPerSecond": 200,
+                        "radius": 0.2,
+                        "mass": 0.15
+                    }
+                }
+            ]
         }
-      ]
-    }
-  ]
+    ]
 }
