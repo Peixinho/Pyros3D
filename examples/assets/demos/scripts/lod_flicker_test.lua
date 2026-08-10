@@ -248,7 +248,11 @@ function LodFlickerTest:update(time)
 	local camCellX = math.floor(cp.x / CELL_SIZE + 0.5)
 	local camCellZ = math.floor(cp.z / CELL_SIZE + 0.5)
 
-	local budget = 4
+	-- Was 4, which is what made the grass demo appear to flicker: a
+	-- boundary crossing retires a row and a column at once, and a small
+	-- budget leaves them popping into place over several frames. Sized to
+	-- drain a crossing in one frame instead.
+	local budget = 2 * GRID + 4
 	local drawn = 0
 	for i = 1, #self.cells do
 		local c = self.cells[i]

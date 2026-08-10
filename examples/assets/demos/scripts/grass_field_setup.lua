@@ -39,11 +39,25 @@ local CHUNK_SIZE = 26.0
 local BLADE_W = 2.6
 local BLADE_H = 3.4
 
--- Re-scatters allowed per frame. Crossing a cell boundary retires a whole
--- row at once; spreading that over a few frames keeps the spike out of the
--- frame time, and a chunk that has not caught up yet simply stays where it
--- was, which is still valid grass rather than a hole.
-local RESCATTER_BUDGET = 4
+-- Re-scatters allowed per frame.
+--
+-- This was 4, which was far too low and was the whole of the "grass
+-- flickers when the camera moves" bug. Crossing a cell boundary diagonally
+-- retires a row *and* a column - 21 chunks on an 11x11 pool, and every
+-- chunk on a teleport - so a budget of 4 left a backlog draining over six
+-- or more frames, with chunks visibly popping to their new positions a few
+-- at a time. It read as flickering rather than as lag because each chunk
+-- jumps the full width of the field.
+--
+-- It looked like a Vulkan/Metal bug only because those are vsync-capped at
+-- 60fps here while GL runs at 300+: the same six-frame backlog is 100ms on
+-- one and 20ms on the other. Nothing about it was GPU-side.
+--
+-- Sized to drain a boundary crossing in a single frame. ScatterInstances()
+-- is C++ and costs roughly 1400 matrices per chunk, so a full row+column is
+-- well under a millisecond - cheap enough that spreading it was never worth
+-- the artifact it caused.
+local RESCATTER_BUDGET = 2 * RING + 4
 
 -- Distance bands, measured to the chunk centre. The thinning band is kept
 -- deliberately short: thinning removes whole blades, so a long band reads
@@ -72,6 +86,7 @@ function GrassFieldSetup:initialize()
 	self.owned = {}
 	self.keep = {}
 	self.chunks = {}
+	self.pending = {}
 	self.cutoff = 0.5
 	self.wind = 0.16
 	self.lodEnabled = true
@@ -255,20 +270,32 @@ function GrassFieldSetup:update(time)
 		self.groundGO:setPosition(Vec3.new(camCellX * CHUNK_SIZE, 0.0, camCellZ * CHUNK_SIZE))
 	end
 
-	local budget = RESCATTER_BUDGET
+	-- Nearest first: if the budget is ever exhausted, the chunks left over
+	-- are the far ones, where being a frame late is invisible.
+	if self.streaming then
+		local pending = self.pending
+		for i = 1, #pending do pending[i] = nil end
+		local n = 0
+		for i = 1, #self.chunks do
+			local c = self.chunks[i]
+			if c.cellX ~= camCellX + c.ox or c.cellZ ~= camCellZ + c.oz then
+				n = n + 1
+				pending[n] = c
+				local dx, dz = cp.x - c.x, cp.z - c.z
+				c.pendD = dx * dx + dz * dz
+			end
+		end
+		if n > 1 then table.sort(pending, function(p, q) return p.pendD < q.pendD end) end
+		for i = 1, math.min(n, RESCATTER_BUDGET) do
+			local c = pending[i]
+			self:scatterChunk(c, camCellX + c.ox, camCellZ + c.oz)
+		end
+	end
+
 	local drawn = 0
 	local visible = 0
 	for i = 1, #self.chunks do
 		local c = self.chunks[i]
-
-		if self.streaming then
-			local wantX = camCellX + c.ox
-			local wantZ = camCellZ + c.oz
-			if (c.cellX ~= wantX or c.cellZ ~= wantZ) and budget > 0 then
-				budget = budget - 1
-				self:scatterChunk(c, wantX, wantZ)
-			end
-		end
 
 		local n = total
 		if self.lodEnabled then
