@@ -7,6 +7,7 @@
 //============================================================================
 
 #include "DemoLauncher.h"
+#include "imgui_internal.h"   // DockBuilder* - see Math.h on why order used to matter
 
 #include <Pyros3D/Other/PyrosGL.h>
 #include <Pyros3D/Core/Logs/Log.h>
@@ -544,6 +545,36 @@ void DemoLauncher::DrawLogWindow()
 
 void DemoLauncher::DrawUI()
 {
+	// PassthruCentralNode: the centre of the dockspace stays transparent and
+	// does not eat mouse input, so the 3D scene drawn underneath is still
+	// visible and still clickable. Without it the dockspace host window
+	// would cover the whole viewport with a solid background.
+	const ImGuiID dockspaceId = ImGui::DockSpaceOverViewport(0, NULL, ImGuiDockNodeFlags_PassthruCentralNode);
+
+	if (buildDefaultDockLayout)
+	{
+		buildDefaultDockLayout = false;
+		ImGui::DockBuilderRemoveNode(dockspaceId);
+		ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
+		ImGui::DockBuilderSetNodeSize(dockspaceId, ImGui::GetMainViewport()->Size);
+
+		// Each split takes a fraction of what is left, so `centre` shrinks as
+		// we go and whatever remains is the passthru region the scene shows
+		// through.
+		ImGuiID centre = dockspaceId;
+		const ImGuiID left = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Left, 0.22f, NULL, &centre);
+		const ImGuiID bottom = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Down, 0.30f, NULL, &centre);
+		const ImGuiID right = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.26f, NULL, &centre);
+
+		ImGui::DockBuilderDockWindow("Pyros3D Demos", left);
+		// Same node for both, so they share one tab bar along the bottom
+		// rather than each taking half of it - both want the full width.
+		ImGui::DockBuilderDockWindow("Profiler", bottom);
+		ImGui::DockBuilderDockWindow("Log", bottom);
+		ImGui::DockBuilderDockWindow("Point Shadow Cubemap", right);
+		ImGui::DockBuilderFinish(dockspaceId);
+	}
+
 	ImGui::Begin("Pyros3D Demos");
 
 	ImGui::Text("FPS: %.1u", (uint32)fps.getFPS());
@@ -671,6 +702,13 @@ void DemoLauncher::InitImGui()
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	// Docking is in ImGui master as of 1.92 - no separate branch needed.
+	// DockingEnable only: ViewportsEnable would additionally require real
+	// multi-viewport support from all three platform/renderer backends.
+	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	// Only lay out the default arrangement when there is no saved one, so a
+	// layout the user has dragged into shape survives a restart.
+	buildDefaultDockLayout = !std::ifstream(io.IniFilename ? io.IniFilename : "imgui.ini").good();
 	// Do not enable NavEnableKeyboard - ImGui steals Tab for widget
 	// focus, which breaks camera_fly.lua's Tab mouse-capture toggle.
 	ImGui::StyleColorsDark();
@@ -685,6 +723,13 @@ void DemoLauncher::InitImGui()
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	// Docking is in ImGui master as of 1.92 - no separate branch needed.
+	// DockingEnable only: ViewportsEnable would additionally require real
+	// multi-viewport support from all three platform/renderer backends.
+	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	// Only lay out the default arrangement when there is no saved one, so a
+	// layout the user has dragged into shape survives a restart.
+	buildDefaultDockLayout = !std::ifstream(io.IniFilename ? io.IniFilename : "imgui.ini").good();
 	// Do not enable NavEnableKeyboard - ImGui steals Tab for widget
 	// focus, which breaks camera_fly.lua's Tab mouse-capture toggle.
 
@@ -702,6 +747,13 @@ void DemoLauncher::InitImGui()
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	// Docking is in ImGui master as of 1.92 - no separate branch needed.
+	// DockingEnable only: ViewportsEnable would additionally require real
+	// multi-viewport support from all three platform/renderer backends.
+	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	// Only lay out the default arrangement when there is no saved one, so a
+	// layout the user has dragged into shape survives a restart.
+	buildDefaultDockLayout = !std::ifstream(io.IniFilename ? io.IniFilename : "imgui.ini").good();
 	// Do not enable NavEnableKeyboard - ImGui steals Tab for widget
 	// focus, which breaks camera_fly.lua's Tab mouse-capture toggle.
 	ImGui::StyleColorsDark();

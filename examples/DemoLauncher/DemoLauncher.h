@@ -110,6 +110,8 @@ private:
 	// whole reason this exists is that errors were invisible; requiring the
 	// user to already suspect something and go looking would keep them so.
 	bool logAutoOpened;
+	// Set at init when no imgui.ini exists; consumed by the first DrawUI().
+	bool buildDefaultDockLayout;
 
 };
 
