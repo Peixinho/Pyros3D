@@ -46,6 +46,12 @@ function LodFlickerTest:initialize()
 	self.optLodMaterial = false    -- rebuild: that level gets its OWN material
 	self.optDensity = false        -- per frame: setNumberInstances by distance
 	self.optStreaming = false      -- per frame: re-scatter cells as they move
+	-- Streaming does two separable things. These pick which half runs, so
+	-- "streaming causes it" can be narrowed to one of them:
+	--   move    the cell's GameObject teleports to its new position
+	--   rewrite scatterInstances() rewrites the transform+colour buffers
+	self.streamMove = true
+	self.streamRewrite = true
 	self.optShadowToggle = false   -- per frame: enable/disableCastShadows
 	self.autoCamera = true
 
@@ -135,13 +141,17 @@ function LodFlickerTest:buildGround()
 	self.keep[#self.keep + 1] = rc
 end
 
-function LodFlickerTest:scatterCell(c, cellX, cellZ)
+function LodFlickerTest:scatterCell(c, cellX, cellZ, force)
 	c.cellX, c.cellZ = cellX, cellZ
-	c.x, c.z = cellX * CELL_SIZE, cellZ * CELL_SIZE
-	c.go:setPosition(Vec3.new(c.x, 0.0, c.z))
-	c.rc:scatterInstances(cellSeed(cellX, cellZ), CELL_SIZE, CELL_SIZE, ITEM_H,
-		0.75, 1.45, PER_CELL, QUADS_PER_ITEM,
-		Vec4.new(0.60, 0.72, 0.42, 1.0), Vec4.new(1.05, 1.14, 0.72, 1.0))
+	if force or self.streamMove then
+		c.x, c.z = cellX * CELL_SIZE, cellZ * CELL_SIZE
+		c.go:setPosition(Vec3.new(c.x, 0.0, c.z))
+	end
+	if force or self.streamRewrite then
+		c.rc:scatterInstances(cellSeed(cellX, cellZ), CELL_SIZE, CELL_SIZE, ITEM_H,
+			0.75, 1.45, PER_CELL, QUADS_PER_ITEM,
+			Vec4.new(0.60, 0.72, 0.42, 1.0), Vec4.new(1.05, 1.14, 0.72, 1.0))
+	end
 end
 
 -- Destroys and recreates the field. Needed for the two rebuild-scoped
@@ -176,7 +186,7 @@ function LodFlickerTest:buildField()
 			-- rebuild-scoped option changes, and destroy() would otherwise
 			-- accumulate a dead handle per toggle.
 			local c = { rc = rc, go = go, ox = ox, oz = oz, casts = true }
-			self:scatterCell(c, ox, oz)
+			self:scatterCell(c, ox, oz, true)
 			self.cells[#self.cells + 1] = c
 			self.cellKeep[#self.cellKeep + 1] = rc
 		end
@@ -277,6 +287,13 @@ function LodFlickerTest:drawUI()
 	if c ~= self.optDensity then self.optDensity = c end
 	local d = imgui.checkbox("Streaming (re-scatter)", self.optStreaming)
 	if d ~= self.optStreaming then self.optStreaming = d end
+	if self.optStreaming then
+		imgui.text("  which half of streaming:")
+		local m = imgui.checkbox("  move cell GameObject", self.streamMove)
+		if m ~= self.streamMove then self.streamMove = m end
+		local w = imgui.checkbox("  rewrite instance buffers", self.streamRewrite)
+		if w ~= self.streamRewrite then self.streamRewrite = w end
+	end
 	local e = imgui.checkbox("Shadow toggling", self.optShadowToggle)
 	if e ~= self.optShadowToggle then self.optShadowToggle = e end
 	imgui.separator()
