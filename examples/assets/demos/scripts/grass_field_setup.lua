@@ -50,9 +50,22 @@ local RESCATTER_BUDGET = 4
 -- as isolated dots on bare ground rather than as distant grass. Holding
 -- half density most of the way out and cutting late looks better than a
 -- gentle fade, until there is an impostor card to hand off to.
+-- Distance bands, measured to the chunk centre. In order outward:
+--   <= LOD_FULL        crossed quads, every blade
+--   <= LOD_MESH_SWAP   one quad per blade (the buffer's first half)
+--   <= LOD_THIN        clump impostor, thinning to nothing
+--
+-- LOD_MESH_SWAP is RenderingComponent::AddLOD's own switch, evaluated per
+-- component by the renderer; the other two are instance counts this script
+-- sets. They have to stay ordered - an earlier band that overlaps a later
+-- one makes the later one unreachable.
 local LOD_FULL = 60.0
-local LOD_HALF = 125.0
-local LOD_THIN = 155.0
+local LOD_MESH_SWAP = 70.0
+local LOD_THIN = 170.0
+-- How many blades one impostor card stands in for. Drives both its width
+-- and the instance count once it is in use - a clump covering three blades
+-- at the same count would put three times the green on the ground.
+local CLUMP_BLADES = 3
 local SHADOW_RADIUS = 70.0
 
 function GrassFieldSetup:initialize()
@@ -152,6 +165,40 @@ function GrassFieldSetup:buildGrass()
 	local mesh = Plane.new(BLADE_W * 0.5, BLADE_H * 0.5)
 	self.keep[#self.keep + 1] = mesh
 
+	-- Far LOD: one wider card carrying a tuft of blades instead of a single
+	-- blade, so a distant chunk draws the same amount of green through far
+	-- fewer fragments. This is the hand-off the thinning band alone could
+	-- not do - thinning removes whole blades, which at distance reads as
+	-- isolated dots on bare ground rather than as grass.
+	--
+	-- Mesh LOD on an instanced component only started working once AddLOD
+	-- stopped clearing isInstanced; the per-instance transforms carry over
+	-- to the LOD level untouched, so the clumps stand exactly where their
+	-- blades did.
+	local clumpTex = Texture.new()
+	clumpTex:loadTexture(ASSETS_PATH .. "textures/grass_clump.png", TextureType.Texture, true, 0)
+	clumpTex:setMinMagFilter(TextureFilter.LinearMipmapLinear, TextureFilter.Linear)
+	self.keep[#self.keep + 1] = clumpTex
+
+	local lodMat = GenericShaderMaterial.new(
+		ShaderUsage.Texture + ShaderUsage.Diffuse + ShaderUsage.PBR +
+		ShaderUsage.AlphaTest + ShaderUsage.InstancedRendering +
+		ShaderUsage.InstancedColor + ShaderUsage.VertexWind +
+		ShaderUsage.DeferredRenderer_Gbuffer)
+	lodMat:setColorMap(clumpTex)
+	lodMat:setAlphaCutoff(self.cutoff)
+	lodMat:setRoughness(0.85)
+	lodMat:setCullFace(CullFace.DoubleSided)
+	lodMat:setWind(self.wind, 1.6, 0.14)
+	self.keep[#self.keep + 1] = lodMat
+	self.lodMat = lodMat
+
+	local lodMesh = Plane.new(BLADE_W * 0.5 * CLUMP_BLADES, BLADE_H * 0.5)
+	self.keep[#self.keep + 1] = lodMesh
+	self.lodMesh = lodMesh
+
+	if renderer and renderer.enableLOD then renderer:enableLOD() end
+
 	local total = PER_CHUNK * QUADS_PER_BLADE
 	local halfRing = math.floor(RING / 2)
 	local radius = CHUNK_SIZE * 0.5 * 1.415 + BLADE_H
@@ -164,6 +211,7 @@ function GrassFieldSetup:buildGrass()
 			-- what makes a chunk relocatable: moving the GameObject moves
 			-- every blade with it, no transform rewrite needed.
 			local rc = RenderingInstancedComponent.new(mesh, mat, total, radius)
+			rc:addLOD(self.lodMesh, LOD_MESH_SWAP, self.lodMat)
 			rc:enableInstanceColors()
 
 			local go = GameObject.new()
@@ -229,12 +277,13 @@ function GrassFieldSetup:update(time)
 			local d = math.sqrt(dx * dx + dz * dz)
 			if d > LOD_THIN then
 				n = 0
-			elseif d > LOD_HALF then
-				-- Thin the blades themselves. Continuous rather than
-				-- stepped, so blades wink out one at a time instead of a
-				-- chunk changing all at once.
-				local t = (d - LOD_HALF) / (LOD_THIN - LOD_HALF)
-				n = math.floor(PER_CHUNK * (1.0 - t))
+			elseif d > LOD_MESH_SWAP then
+				-- Past here the renderer has swapped this chunk to the clump
+				-- impostor, so each instance is worth CLUMP_BLADES blades and
+				-- the count comes down to match. Still thinning to nothing by
+				-- LOD_THIN, just from a lower starting point.
+				local t = (d - LOD_MESH_SWAP) / (LOD_THIN - LOD_MESH_SWAP)
+				n = math.floor((PER_CHUNK / CLUMP_BLADES) * (1.0 - t))
 			elseif d > LOD_FULL then
 				-- One quad per blade instead of a cross. The first half of
 				-- the buffer is exactly that, by construction.
@@ -280,11 +329,13 @@ function GrassFieldSetup:drawUI()
 	if c ~= self.cutoff then
 		self.cutoff = c
 		if self.grassMat then self.grassMat:setAlphaCutoff(c) end
+		if self.lodMat then self.lodMat:setAlphaCutoff(c) end
 	end
 	local w = imgui.sliderFloat("Wind", self.wind, 0.0, 0.5)
 	if w ~= self.wind then
 		self.wind = w
 		if self.grassMat then self.grassMat:setWind(w, 1.6, 0.14) end
+		if self.lodMat then self.lodMat:setWind(w, 1.6, 0.14) end
 	end
 	imgui.separator()
 	imgui.text("Shadows are cutout too: the shadow pass picks an")
