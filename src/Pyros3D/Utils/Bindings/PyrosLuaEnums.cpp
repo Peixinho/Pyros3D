@@ -44,7 +44,8 @@ namespace p3d {
 				"InstancedRendering", ShaderUsage::InstancedRendering,
 				"VelocityRendering", ShaderUsage::VelocityRendering,
 				"PBR", ShaderUsage::PBR,
-				"PBRMap", ShaderUsage::PBRMap
+				"PBRMap", ShaderUsage::PBRMap,
+				"AlphaTest", ShaderUsage::AlphaTest
 			);
 
 			lua->new_enum("TextureTransparency",
