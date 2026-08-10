@@ -53,6 +53,13 @@ function LodFlickerTest:initialize()
 	self.streamMove = true
 	self.streamRewrite = true
 	self.optShadowToggle = false   -- per frame: enable/disableCastShadows
+	-- rebuild: compile the materials with ShaderUsage.VertexWind. The grass
+	-- demo has this and this scene did not, which is the largest single
+	-- difference between the one that flickers and the one that does not.
+	-- Wind writes uWind into ObjectMatrixUniforms and uTimeParams into
+	-- VertexFrameUniforms - both per-object dynamic UBOs - and makes the
+	-- latter re-upload every frame instead of on its dirty check.
+	self.optWind = false
 	self.autoCamera = true
 
 	self.t = 0
@@ -60,6 +67,7 @@ function LodFlickerTest:initialize()
 	self.rebuilds = 0
 	self.lastLodMeshLOD = false
 	self.lastLodMaterial = false
+	self.lastWind = false
 end
 
 function LodFlickerTest:init(owner)
@@ -95,12 +103,14 @@ function LodFlickerTest:buildShared()
 	local usage = ShaderUsage.Texture + ShaderUsage.Diffuse + ShaderUsage.PBR +
 		ShaderUsage.AlphaTest + ShaderUsage.InstancedRendering +
 		ShaderUsage.InstancedColor + ShaderUsage.DeferredRenderer_Gbuffer
+	if self.optWind then usage = usage + ShaderUsage.VertexWind end
 
 	local mat = GenericShaderMaterial.new(usage)
 	mat:setColorMap(tex)
 	mat:setAlphaCutoff(0.5)
 	mat:setRoughness(0.85)
 	mat:setCullFace(CullFace.DoubleSided)
+	if self.optWind then mat:setWind(0.16, 1.6, 0.14) end
 	self.keep[#self.keep + 1] = mat
 	self.mat = mat
 
@@ -111,6 +121,7 @@ function LodFlickerTest:buildShared()
 	lodMat:setAlphaCutoff(0.5)
 	lodMat:setRoughness(0.85)
 	lodMat:setCullFace(CullFace.DoubleSided)
+	if self.optWind then lodMat:setWind(0.16, 1.6, 0.14) end
 	self.keep[#self.keep + 1] = lodMat
 	self.lodMat = lodMat
 
@@ -166,6 +177,7 @@ function LodFlickerTest:buildField()
 	self.rebuilds = self.rebuilds + 1
 	self.lastLodMeshLOD = self.optMeshLOD
 	self.lastLodMaterial = self.optLodMaterial
+	self.lastWind = self.optWind
 
 	local total = PER_CELL * QUADS_PER_ITEM
 	local half = math.floor(GRID / 2)
@@ -297,6 +309,14 @@ function LodFlickerTest:drawUI()
 
 	local e = imgui.checkbox("5 Shadow toggling", self.optShadowToggle)
 	if e ~= self.optShadowToggle then self.optShadowToggle = e end
+	local g = imgui.checkbox("6 Wind (VertexWind)", self.optWind)
+	if g ~= self.optWind then self.optWind = g end
+	if self.optWind ~= self.lastWind then
+		-- Wind is a ShaderUsage flag, fixed when the material is built, so
+		-- toggling it rebuilds the materials and the field.
+		self:buildShared()
+		self:buildField()
+	end
 
 	imgui.separator()
 	local f = imgui.checkbox("Auto camera sweep", self.autoCamera)
