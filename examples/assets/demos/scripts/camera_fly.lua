@@ -17,6 +17,33 @@ function CameraFly:initialize()
 	self.captured = false
 end
 
+-- Yaw and pitch composed as quaternions, yaw first, exactly as
+-- BaseExample::LookTo does in C++.
+--
+-- This was owner:setRotation(Vec3(pitch, yaw, 0)) - handing the two angles
+-- over as Euler and letting SetRotation compose them in its own order. That
+-- applies pitch about the *world* X axis rather than the camera's own right
+-- axis, so the pitch response depends on where you are facing: measured by
+-- sweeping yaw and comparing the view direction at pitch +30 and -30, dir.y
+-- went -0.5, -0.35, 0.00, +0.35, +0.5 across yaw 0..180. Past 90 degrees of
+-- yaw, looking up looked down; at exactly 90 and 270, pitch did nothing at
+-- all - world X had swung onto the view axis, which is gimbal lock.
+--
+-- Composing the two rotations explicitly and handing the result over as
+-- Euler gives a constant response at every yaw. The 0 is RotationOrder::XYZ
+-- and has to be passed: sol does not apply C++ default arguments, so
+-- getEulerRotation() with none raises.
+function CameraFly:applyRotation()
+	local qPitch = Quaternion.new()
+	local qYaw = Quaternion.new()
+	qPitch:axisToQuaternion(Vec3.new(1, 0, 0), math.rad(self.pitch))
+	qYaw:axisToQuaternion(Vec3.new(0, 1, 0), math.rad(self.yaw))
+	self.owner:setRotation((qYaw * qPitch):getEulerRotation(0))
+	-- Degrees, for anything mirroring this camera (island water reflection).
+	cameraFlyYaw = self.yaw
+	cameraFlyPitch = self.pitch
+end
+
 function CameraFly:init(owner)
 	self.owner = owner
 	camera = owner
@@ -25,10 +52,7 @@ function CameraFly:init(owner)
 	if setMouseCaptured then setMouseCaptured(false) end
 
 	-- Apply yaw/pitch from serialized data / scene rotation seed.
-	self.owner:setRotation(Vec3.new(math.rad(self.pitch), math.rad(self.yaw), 0))
-	-- Stash degrees for reflection cameras (stable; avoid GetRotation Euler).
-	cameraFlyYaw = self.yaw
-	cameraFlyPitch = self.pitch
+	self:applyRotation()
 
 	local input = Input.new()
 	self.input = input
@@ -81,14 +105,27 @@ function CameraFly:init(owner)
 				self.pitch = self.pitch - dy / 10.0
 				if self.pitch < -80 then self.pitch = -80 end
 				if self.pitch > 80 then self.pitch = 80 end
-				self.owner:setRotation(Vec3.new(math.rad(self.pitch), math.rad(self.yaw), 0))
-				cameraFlyYaw = self.yaw
-				cameraFlyPitch = self.pitch
+				self:applyRotation()
 				warpMouseToCenter()
+				-- math.floor, NOT w * 0.5, and this is the whole reason the
+				-- camera drifted. warpMouseToCenter() targets
+				-- (int)(Width / 2) - integer division - so on an odd width
+				-- (1905) the cursor lands at 952 while w * 0.5 records
+				-- 952.5. Every event after that carries a phantom -0.5
+				-- delta, and the camera keeps rotating on its own with the
+				-- mouse still. BaseExample.cpp hit exactly this and its
+				-- mouseCenter comment spells it out; the Lua port did not
+				-- carry the fix over.
 				local w, h = getWindowSize()
-				self.lastMouseX = w * 0.5
-				self.lastMouseY = h * 0.5
-				self.ignoreNextMouseDelta = true
+				self.lastMouseX = math.floor(w / 2)
+				self.lastMouseY = math.floor(h / 2)
+				-- No ignoreNextMouseDelta here. The warp generates a motion
+				-- event at exactly the position just recorded, so it already
+				-- produces a zero delta and is ignored by the dx/dy test
+				-- above. Setting the flag as well discarded the *next real*
+				-- movement instead, which is why look felt like it dropped
+				-- input. C++ LookTo() does not set it either - only the
+				-- resize path does, where the jump is real.
 				return
 			end
 		end
