@@ -5456,6 +5456,16 @@ namespace p3d {
 	// revisiting then - the fix would be double-buffering the pre-frame
 	// render targets so this wait can be narrowed to the textures a pass
 	// actually rewrites, not removing the wait.
+	//
+	// Re-measured by ablation on the worst case rather than the grass scene,
+	// because the grass numbers above understate it: Island (Planar
+	// Reflections) calls this 4x per frame at ~0.88ms, so ~3.5ms of a 16.7ms
+	// frame - 21% of the budget, which looks alarming until you remove the
+	// wait entirely and the frame pacing moves by 0.008ms (4.172 -> 4.180ms
+	// per call). 21% of the budget, 0% of the critical path. Do not "fix"
+	// this on the strength of the 21%; the number that would justify the
+	// work is frame pacing improving when the wait is skipped, and today it
+	// does not move.
 	void VulkanRenderDevice::WaitAllFrameFences()
 	{
 		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
