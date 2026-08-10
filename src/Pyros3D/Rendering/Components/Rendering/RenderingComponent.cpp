@@ -148,29 +148,23 @@ namespace p3d {
 		
 	}
 
-	// Both overloads used to open with `isInstanced = false`, which silently
-	// turned an instanced component into a non-instanced one the moment it
-	// was given an LOD level: the draw stopped being a
-	// DrawElementsInstanced and every chunk collapsed to a single item at
-	// the component's own model matrix, with no diagnostic.
+	// Neither overload sets `isInstanced = false` any more. It used to, which
+	// silently turned an instanced component into a non-instanced one the
+	// moment it was given an LOD level - the draw stopped being a
+	// DrawElementsInstanced and every chunk collapsed to a single item at the
+	// component's own model matrix, with no diagnostic.
 	//
-	// Refusing outright is not the fix, it is the honest failure. The
-	// buffer plumbing is fine - since ownAttributeBuffers moved the
-	// per-instance transform onto the component, BindMesh() does append it
-	// to every LOD level's mesh, and those meshes do issue
-	// DrawElementsInstanced with the full instance count (verified). The
-	// result on screen is still wrong - roughly one small clump per
-	// component instead of a full field - for a reason not yet found. Until
-	// it is, a loud no-op beats either silently dropping instancing or
-	// rendering something incorrect.
+	// It was defensible once: the per-instance transform buffer used to live
+	// on the base Renderable's geometries, so an LOD level built from a
+	// *different* renderable would never have received it. That is no longer
+	// where it lives - see RenderingComponent::ownAttributeBuffers - and
+	// BindMesh() appends the component's own buffers to every mesh it owns,
+	// LOD levels included. Verified by logging the VAO build: each LOD mesh
+	// binds its own component's transform buffer and draws the full instance
+	// count, and a field of instanced chunks switches to its LOD mesh with
+	// every instance still in place.
 	void RenderingComponent::AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const std::shared_ptr<IMaterial> &Material)
 	{
-		if (isInstanced)
-		{
-			echo("ERROR: RenderingComponent::AddLOD - LOD levels are not supported on instanced components; ignoring. Use per-chunk instance counts (SetNumberInstances) for distance detail instead.");
-			return;
-		}
-
 		uint32 LODLVL = Meshes.size();
 		for (uint32 i = 0; i < renderable->Geometries.size(); i++)
 		{
@@ -200,12 +194,6 @@ namespace p3d {
 
 	void RenderingComponent::AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const uint32 MaterialOptions)
 	{
-		if (isInstanced)
-		{
-			echo("ERROR: RenderingComponent::AddLOD - LOD levels are not supported on instanced components; ignoring. Use per-chunk instance counts (SetNumberInstances) for distance detail instead.");
-			return;
-		}
-
 		uint32 LODLVL = Meshes.size();
 		for (uint32 i = 0; i < renderable->Geometries.size(); i++)
 		{
