@@ -459,27 +459,5 @@
                 "tonemap"
             ]
         }
-    },
-    {
-        "name": "LOD Flicker Test",
-        "description": "Bisection harness for the Vulkan/Metal flicker: toggle each suspect independently while the camera sweeps through the LOD switch.",
-        "scene": "LodFlickerTest.json",
-        "render": {
-            "type": "deferred",
-            "globalLight": [
-                0.3,
-                0.34,
-                0.3,
-                1
-            ],
-            "effects": [
-                "tonemap"
-            ],
-            "projection": {
-                "fov": 70,
-                "near": 1,
-                "far": 900
-            }
-        }
     }
 ]
