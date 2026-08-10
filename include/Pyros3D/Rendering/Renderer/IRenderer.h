@@ -542,6 +542,12 @@ namespace p3d {
 			*shadowAlphaTestMaterial,
 			*shadowInstancedAlphaTestMaterial;
 
+		// Sticky once any VertexWind material has been drawn: makes
+		// SendGlobalUniforms re-upload VertexFrameUniforms every frame so
+		// uTimeParams advances. Left alone otherwise, so scenes with no
+		// wind keep the dirty-gated single upload they had.
+		bool WindInUseThisFrame = false;
+
 		// Picks the shadow-pass override material for one caster.
 		GenericShaderMaterial* PickShadowMaterial(RenderingMesh* mesh);
 

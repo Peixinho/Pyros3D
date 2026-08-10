@@ -55,6 +55,8 @@ EMSCRIPTEN_BINDINGS(pyros3d_enums)
 	constant("ShaderUsage_PBR", (int)ShaderUsage::PBR);
 	constant("ShaderUsage_PBRMap", (int)ShaderUsage::PBRMap);
 	constant("ShaderUsage_AlphaTest", (int)ShaderUsage::AlphaTest);
+	constant("ShaderUsage_InstancedColor", (int)ShaderUsage::InstancedColor);
+	constant("ShaderUsage_VertexWind", (int)ShaderUsage::VertexWind);
 
 	constant("TextureTransparency_Opaque", (int)TextureTransparency::Opaque);
 	constant("TextureTransparency_Transparent", (int)TextureTransparency::Transparent);

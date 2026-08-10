@@ -50,7 +50,21 @@ namespace p3d
 			// blended. The only way to draw foliage, fences, grates or
 			// anything else with holes through a deferred renderer, which
 			// cannot blend into a G-buffer at all.
-			AlphaTest = 0x1000000
+			AlphaTest = 0x1000000,
+			// Per-instance tint, read from the aInstancedColor vertex
+			// attribute RenderingInstancedComponent::EnableInstanceColors()
+			// creates. Opt-in rather than always-on because it costs a
+			// vec4 per instance, and because Vulkan requires every
+			// attribute a compiled shader declares to have a matching
+			// vertex buffer attribute - a shader declaring
+			// aInstancedColor for a component that never allocated the
+			// buffer would fail pipeline creation outright.
+			InstancedColor = 0x2000000,
+			// Vertex-stage wind sway (GenericShaderMaterial::SetWind()).
+			// Displaces vertices above the mesh's local origin along a
+			// travelling wave, phase-offset per instance, so a field of
+			// instanced cards doesn't move in lockstep.
+			VertexWind = 0x4000000
 		};
 	};
 }

@@ -261,9 +261,14 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* ext
 	shadowInstancedMaterial->SetCullFace(CullFace::DoubleSided);
 	// Cutout casters - see the members' comment in IRenderer.h. The
 	// colormap and cutoff are filled in per draw by PickShadowMaterial().
-	shadowAlphaTestMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Texture | ShaderUsage::AlphaTest);
+	// VertexWind unconditionally: uWind arrives per object from whatever
+	// material is being drawn, and PickShadowMaterial() lends the caster's,
+	// so a caster with no wind sends zero strength and the shader's
+	// `if (uWind.x > 0.0)` skips it. Cheaper than a variant per combination,
+	// and without it a swaying blade would cast a rigid shadow.
+	shadowAlphaTestMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Texture | ShaderUsage::AlphaTest | ShaderUsage::VertexWind);
 	shadowAlphaTestMaterial->SetCullFace(CullFace::DoubleSided);
-	shadowInstancedAlphaTestMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Texture | ShaderUsage::AlphaTest | ShaderUsage::InstancedRendering);
+	shadowInstancedAlphaTestMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Texture | ShaderUsage::AlphaTest | ShaderUsage::InstancedRendering | ShaderUsage::VertexWind);
 	shadowInstancedAlphaTestMaterial->SetCullFace(CullFace::DoubleSided);
 
 	// Created once, by whichever IRenderer instance happens to be first -
@@ -297,9 +302,9 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* ext
 		// is true; created unconditionally here regardless, same as every
 		// UBO above, since creating a small buffer nobody currently binds
 		// to is harmless and keeps this block simple.
-		VertexFrameUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 2, 16);
+		VertexFrameUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 3, 16);
 		VelocityFrameUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix) * 2, 17);
-		ObjectMatrixUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix), 18);
+		ObjectMatrixUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix) + sizeof(Vec4), 18);
 		BoneMatricesUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_BONES, 19);
 		VelocityObjectUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix), 20);
 		AmbientLightUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4), 21);
@@ -436,6 +441,8 @@ GenericShaderMaterial* IRenderer::PickShadowMaterial(RenderingMesh* mesh)
 				: shadowAlphaTestMaterial;
 			cutoutShadow->SetColorMap(caster->GetColorMapShared());
 			cutoutShadow->SetAlphaCutoff(caster->GetAlphaCutoff());
+			const Vec4 &casterWind = caster->GetWind();
+			cutoutShadow->SetWind(casterWind.x, casterWind.y, casterWind.z);
 			return cutoutShadow;
 		}
 	}
@@ -1633,16 +1640,21 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 	// nothing needs to be removed there, this just adds the actual upload.
 	if (Material->SupportsUniformBlocks())
 	{
-		if (!VertexFrameUniformsUBOValid ||
+		// Deliberately not part of the dirty check below: uTimeParams
+		// changes every frame by definition, so this block re-uploads every
+		// frame whenever anything animates from it (VERTEXWIND). 48 bytes.
+		if (WindInUseThisFrame || !VertexFrameUniformsUBOValid ||
 			memcmp(&CachedCameraPosition, &CameraPosition, sizeof(Vec3)) != 0 ||
 			CachedClipPlaneEnabled != ClipPlane ||
 			memcmp(&CachedClipPlane0, &ClipPlanes[0], sizeof(Vec4)) != 0)
 		{
-			// std140: vec4 uCameraPos (xyz + clipEnabled in w), vec4 uClipPlane0.
-			f32 vertexFrameData[8] = {
+			// std140: vec4 uCameraPos (xyz + clipEnabled in w), vec4
+			// uClipPlane0, vec4 uTimeParams (x = seconds).
+			f32 vertexFrameData[12] = {
 				CameraPosition.x, CameraPosition.y, CameraPosition.z,
 				ClipPlane ? 1.0f : 0.0f,
-				ClipPlanes[0].x, ClipPlanes[0].y, ClipPlanes[0].z, ClipPlanes[0].w
+				ClipPlanes[0].x, ClipPlanes[0].y, ClipPlanes[0].z, ClipPlanes[0].w,
+				(f32)Timer, 0.0f, 0.0f, 0.0f
 			};
 			device->ReplaceUniformBuffer(VertexFrameUniformsUBO, sizeof(vertexFrameData), vertexFrameData);
 			CachedCameraPosition = CameraPosition;
@@ -1942,7 +1954,20 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		// bone indices a mesh's vertices actually reference, so orphaning
 		// the unwritten tail is harmless - same reasoning already applies
 		// to LightsBlock's existing partial writes.
-		device->ReplaceUniformBuffer(ObjectMatrixUniformsUBO, sizeof(Matrix), &ModelMatrix);
+		// std140: mat4 uModelMatrix then vec4 uWind - one upload, so the
+		// two can't drift apart the way two separate writes could.
+		struct { Matrix model; Vec4 wind; } objectMatrixData;
+		objectMatrixData.model = ModelMatrix;
+		objectMatrixData.wind = Vec4(0.f, 0.f, 0.f, 0.f);
+		{
+			GenericShaderMaterial* genericMat = dynamic_cast<GenericShaderMaterial*>(Material);
+			if (genericMat != NULL && (genericMat->GetOptions() & ShaderUsage::VertexWind))
+			{
+				objectMatrixData.wind = genericMat->GetWind();
+				WindInUseThisFrame = true;
+			}
+		}
+		device->ReplaceUniformBuffer(ObjectMatrixUniformsUBO, sizeof(objectMatrixData), &objectMatrixData);
 		if (rmesh->SkinningBones.size() > 0)
 		{
 			// Always upload the full UBO size. ReplaceUniformBuffer →

@@ -399,6 +399,11 @@ namespace p3d {
 				"bindTextures", &GenericShaderMaterial::BindTextures,
 				"setAlphaCutoff", &GenericShaderMaterial::SetAlphaCutoff,
 				"getAlphaCutoff", &GenericShaderMaterial::GetAlphaCutoff,
+				"setWind", sol::overload(
+					[](GenericShaderMaterial &m, f32 strength) { m.SetWind(strength); },
+					[](GenericShaderMaterial &m, f32 strength, f32 rate) { m.SetWind(strength, rate); },
+					[](GenericShaderMaterial &m, f32 strength, f32 rate, f32 freq) { m.SetWind(strength, rate, freq); }),
+				"getWind", &GenericShaderMaterial::GetWind,
 				"unbindTextures", &GenericShaderMaterial::UnbindTextures,
 				sol::base_classes, sol::bases<IMaterial>()
 				);
@@ -587,6 +592,20 @@ namespace p3d {
                     return c.transform[index - 1];
                 },
                 "updateTransforms", &LUA_RenderingInstancedComponent::UpdateTransforms,
+                // Per-instance tint. Same 1-based, bounds-checked contract
+                // as setTransform above and for the same reason.
+                "enableInstanceColors", &LUA_RenderingInstancedComponent::EnableInstanceColors,
+                "hasInstanceColors", &LUA_RenderingInstancedComponent::HasInstanceColors,
+                "setInstanceColor", [](LUA_RenderingInstancedComponent &c, int index, const Vec4 &color) {
+                    if (index < 1 || (size_t)index > c.instanceColor.size()) return false;
+                    c.instanceColor[index - 1] = color;
+                    return true;
+                },
+                "getInstanceColor", [](LUA_RenderingInstancedComponent &c, int index) {
+                    if (index < 1 || (size_t)index > c.instanceColor.size()) return Vec4();
+                    return c.instanceColor[index - 1];
+                },
+                "updateInstanceColors", &LUA_RenderingInstancedComponent::UpdateInstanceColors,
                 "onUpdate", &LUA_RenderingInstancedComponent::on_update,
                 "onInit", &LUA_RenderingInstancedComponent::on_init,
                 "onDestroy", &LUA_RenderingInstancedComponent::on_destroy,

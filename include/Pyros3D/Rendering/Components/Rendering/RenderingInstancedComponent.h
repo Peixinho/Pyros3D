@@ -35,6 +35,18 @@ namespace p3d {
 			std::vector<Matrix> transform;
 			AttributeBuffer* transform_buffer;
 
+			// Per-instance tint, for materials built with
+			// ShaderUsage::InstancedColor. Opt-in and NULL until
+			// EnableInstanceColors() is called: it costs a vec4 per
+			// instance, and a shader declaring aInstancedColor with no
+			// buffer behind it fails Vulkan pipeline creation, so the two
+			// have to be turned on together.
+			std::vector<Vec4> instanceColor;
+			AttributeBuffer* color_buffer;
+			void EnableInstanceColors();
+			bool HasInstanceColors() const { return color_buffer != NULL; }
+			void UpdateInstanceColors();
+
 			RenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, const uint32 nrInstances, const f32 &boundingSphere);
 			RenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const uint32 MaterialProperties, const uint32 nrInstances, const f32 &boundingSphere);
 		 	virtual ~RenderingInstancedComponent();

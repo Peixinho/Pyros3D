@@ -65,6 +65,8 @@
 #define LOC_aBonesID 7
 #define LOC_aBonesWeight 8
 #define LOC_aInstancedTransform 9
+// 9..12 are the transform's four columns - the next free location is 13.
+#define LOC_aInstancedColor 13
 
 // Varying locations - unique per name, shared between this file's VERTEX
 // (out) and FRAGMENT (in) compilations via these same macros, so the two
@@ -88,6 +90,7 @@
 #define LOC_vScreenSpaceWorldPosition 19
 #define LOC_vPrvScreenSpaceWorldPosition 20
 #define LOC_vClipDist 21
+#define LOC_vInstanceColor 22
 
 // Existing UBO/sampler bindings - match the fixed runtime binding points
 // IRenderer.cpp already uses via glUniformBlockBinding (see
@@ -239,13 +242,17 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         };
     #endif
 
-    #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR) || defined(CLIPSPACE)
+    #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR) || defined(CLIPSPACE) || defined(VERTEXWIND)
         UBO_BINDING(BIND_VertexFrameUniforms) uniform VertexFrameUniforms {
             // xyz = camera, w = clip enable (1/0). vec4 avoids std140
             // vec3+float packing differences between GL drivers that left
             // the UBO undersized/mismatched and drew black on macOS GL.
             vec4 uCameraPos;
             vec4 uClipPlane0;
+            // x = seconds since start, the wind's only time source. Lives
+            // here rather than in MaterialUniforms because it is per frame,
+            // not per material - see IRenderer's vertexFrameData.
+            vec4 uTimeParams;
         };
     #endif
     #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
@@ -300,11 +307,31 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     };
     UBO_BINDING(BIND_ObjectMatrixUniforms) uniform ObjectMatrixUniforms {
         mat4 uModelMatrix;
+        // xyz = wind strength / rate / spatial frequency, w unused.
+        // Wind is a material property (GenericShaderMaterial::SetWind())
+        // but rides this per-object block rather than MaterialUniforms
+        // because it is needed in the VERTEX stage and MaterialUniforms is
+        // declared only in the fragment one - duplicating that whole block
+        // here just to reach three floats would mean keeping two std140
+        // layouts in step forever. IRenderer::SendModelUniforms() fills it
+        // from whatever material is being drawn, which is also what lets
+        // the shadow pass inherit a caster's wind (see
+        // PickShadowMaterial()) so blades and their shadows sway together.
+        vec4 uWind;
     };
 
     // Instanced
     #ifdef INSTANCED_RENDERING
         IO_LOCATION(LOC_aInstancedTransform) attribute_in mat4 aInstancedTransform;
+        // Per-instance tint. Guarded separately from INSTANCED_RENDERING:
+        // the buffer behind it is opt-in
+        // (RenderingInstancedComponent::EnableInstanceColors()), and on
+        // Vulkan an attribute a shader declares with no matching vertex
+        // buffer attribute fails pipeline creation.
+        #ifdef INSTANCED_COLOR
+            IO_LOCATION(LOC_aInstancedColor) attribute_in vec4 aInstancedColor;
+            IO_LOCATION(LOC_vInstanceColor) varying_out vec4 vInstanceColor;
+        #endif
     #endif
 
     #ifdef VELOCITY_RENDERING
@@ -328,6 +355,34 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
         #ifdef INSTANCED_RENDERING
             ModelMatrix *= aInstancedTransform;
+            #ifdef INSTANCED_COLOR
+                vInstanceColor = aInstancedColor;
+            #endif
+        #endif
+
+        #ifdef VERTEXWIND
+            // Sway anything above the mesh's own origin, leaving what is
+            // below it planted - a blade card modelled around its centre
+            // therefore bends from the middle up and keeps its base on the
+            // ground. Amount is uWind.x, wave rate uWind.y, spatial
+            // frequency uWind.z.
+            //
+            // The phase comes from the *instanced* model matrix's
+            // translation, so every blade in a field is offset by where it
+            // stands. Without that a chunk of instances sharing one draw
+            // call sways in perfect lockstep, which reads as the ground
+            // moving rather than the grass.
+            if (uWind.x > 0.0)
+            {
+                float windHeight = max(Position.y, 0.0);
+                vec3 windOrigin = vec3(ModelMatrix[3][0], ModelMatrix[3][1], ModelMatrix[3][2]);
+                float windPhase = uTimeParams.x * uWind.y + (windOrigin.x + windOrigin.z) * uWind.z;
+                // Two waves at an irrational ratio, so the field never
+                // visibly resets to a single repeating gust.
+                float windSway = sin(windPhase) * 0.75 + sin(windPhase * 2.37 + 1.7) * 0.25;
+                Position.x += windSway * windHeight * uWind.x;
+                Position.z += windSway * windHeight * uWind.x * 0.35;
+            }
         #endif
 
         #if defined(DEFERRED_GBUFFER) && (defined(PARALLAXMAPPING) || defined(BUMPMAPPING))
@@ -658,6 +713,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         int uNumberOfSpotShadows;
     };
 
+    #if defined(INSTANCED_RENDERING) && defined(INSTANCED_COLOR)
+        IO_LOCATION(LOC_vInstanceColor) varying_in vec4 vInstanceColor;
+    #endif
     #ifdef DEBUGRENDERING
         IO_LOCATION(LOC_vColor) varying_in vec4 vColor;
     #endif
@@ -900,6 +958,21 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 diffuse=vColor;
                 diffuseIsSet=true;
             } else diffuse *= vColor;
+        #endif
+
+        #if defined(INSTANCED_RENDERING) && defined(INSTANCED_COLOR)
+            // Multiplied, not assigned: this is a per-instance *tint* over
+            // whatever the material already produces, so one shared grass
+            // texture can yield a field that isn't all exactly one green.
+            // Alpha is included, so an instance can also be faded - and it
+            // is applied before the ALPHATEST discard below, which means a
+            // tint's alpha participates in the cutout rather than being
+            // silently ignored.
+            if (!diffuseIsSet)
+            {
+                diffuse=vInstanceColor;
+                diffuseIsSet=true;
+            } else diffuse *= vInstanceColor;
         #endif
 
         #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP) || defined(PBRMAP)

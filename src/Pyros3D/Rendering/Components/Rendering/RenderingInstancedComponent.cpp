@@ -61,6 +61,7 @@ namespace p3d {
 		transform_buffer->AddAttribute("aInstancedTransform", Buffer::Attribute::Type::Matrix, &transform[0], transform.size(), 1);
 		transform_buffer->SendBuffer();
 		AddBuffer(transform_buffer);
+		color_buffer = NULL;
 	}	
 	RenderingInstancedComponent::RenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const uint32 MaterialProperties, const uint32 nrInstances, const f32 &boundingSphere) : IRenderingInstancedComponent(renderable, MaterialProperties, nrInstances, boundingSphere)
 	{
@@ -70,6 +71,29 @@ namespace p3d {
 		transform_buffer->AddAttribute("aInstancedTransform", Buffer::Attribute::Type::Matrix, &transform[0], transform.size(), 1);
 		transform_buffer->SendBuffer();
 		AddBuffer(transform_buffer);
+		color_buffer = NULL;
+	}
+
+	// Separate buffer rather than interleaving the tint into
+	// transform_buffer, because that one is sized and uploaded as a plain
+	// array of Matrix (UpdateTransforms writes transform.size()*sizeof(Matrix)
+	// straight from the vector) and every existing caller depends on that.
+	void RenderingInstancedComponent::EnableInstanceColors()
+	{
+		if (color_buffer != NULL)
+			return;
+		instanceColor.resize(nrInstances, Vec4(1.f, 1.f, 1.f, 1.f));
+		color_buffer = new AttributeBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
+		color_buffer->AddAttribute("aInstancedColor", Buffer::Attribute::Type::Vec4, &instanceColor[0], instanceColor.size(), 1);
+		color_buffer->SendBuffer();
+		AddBuffer(color_buffer);
+	}
+
+	void RenderingInstancedComponent::UpdateInstanceColors()
+	{
+		if (color_buffer == NULL)
+			return;
+		color_buffer->Buffer->Update(&instanceColor[0], instanceColor.size()*sizeof(Vec4));
 	}
 
 	void RenderingInstancedComponent::UpdateTransforms()
@@ -81,5 +105,10 @@ namespace p3d {
 	{
 		RemoveBuffer(transform_buffer);
 		delete transform_buffer;
+		if (color_buffer != NULL)
+		{
+			RemoveBuffer(color_buffer);
+			delete color_buffer;
+		}
 	}
 };

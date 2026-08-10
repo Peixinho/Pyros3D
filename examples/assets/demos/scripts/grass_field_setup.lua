@@ -29,6 +29,7 @@ function GrassFieldSetup:initialize()
 	self.keep = {}
 	self.chunks = {}
 	self.cutoff = 0.5
+	self.wind = 0.16
 end
 
 function GrassFieldSetup:init(owner)
@@ -77,11 +78,13 @@ function GrassFieldSetup:buildGrass()
 	local mat = GenericShaderMaterial.new(
 		ShaderUsage.Texture + ShaderUsage.Diffuse + ShaderUsage.PBR +
 		ShaderUsage.AlphaTest + ShaderUsage.InstancedRendering +
+		ShaderUsage.InstancedColor + ShaderUsage.VertexWind +
 		ShaderUsage.DeferredRenderer_Gbuffer)
 	mat:setColorMap(tex)
 	mat:setAlphaCutoff(self.cutoff)
 	mat:setRoughness(0.85)
 	mat:setCullFace(CullFace.DoubleSided)
+	mat:setWind(self.wind, 1.6, 0.14)
 	self.keep[#self.keep + 1] = mat
 	self.grassMat = mat
 
@@ -108,6 +111,7 @@ function GrassFieldSetup:buildGrass()
 			-- so culling can't clip a chunk whose blades still poke into view.
 			local radius = cell * 1.415 + BLADE_H
 			local rc = RenderingInstancedComponent.new(mesh, mat, PER_CHUNK * 2, radius)
+			rc:enableInstanceColors()
 
 			local n = 0
 			for b = 1, PER_CHUNK do
@@ -125,6 +129,16 @@ function GrassFieldSetup:buildGrass()
 				local yaw = rr * math.pi
 				local scl = 0.75 + rr * 0.7
 
+				-- Tint per blade, not per chunk: one shared texture reads as
+				-- a monoculture otherwise. Kept narrow (a little yellower or
+				-- bluer, a little darker) so it looks like grass rather than
+				-- confetti, and correlated with scale so the short blades
+				-- are the darker ones, the way real undergrowth is.
+				local tint = 0.72 + rr * 0.42
+				local r = tint * (0.82 + rz * 0.28)
+				local g = tint
+				local b = tint * (0.58 + rx * 0.22)
+
 				for q = 0, 1 do
 					n = n + 1
 					local m = Matrix.new()
@@ -132,9 +146,11 @@ function GrassFieldSetup:buildGrass()
 					m:rotationY(yaw + q * math.pi * 0.5)
 					m:translate(x, BLADE_H * 0.5 * scl, z)
 					rc:setTransform(n, m)
+					rc:setInstanceColor(n, Vec4.new(r, g, b, 1.0))
 				end
 			end
 			rc:updateTransforms()
+			rc:updateInstanceColors()
 
 			local go = GameObject.new()
 			go:addComponent(rc)
@@ -174,9 +190,16 @@ function GrassFieldSetup:drawUI()
 		self.cutoff = c
 		if self.grassMat then self.grassMat:setAlphaCutoff(c) end
 	end
+	local w = imgui.sliderFloat("Wind", self.wind, 0.0, 0.5)
+	if w ~= self.wind then
+		self.wind = w
+		if self.grassMat then self.grassMat:setWind(w, 1.6, 0.14) end
+	end
+	imgui.separator()
 	imgui.text("Shadows are cutout too: the shadow pass picks an")
 	imgui.text("alpha-tested override material and samples this")
-	imgui.text("same map, so blades cast blade-shaped shadows.")
+	imgui.text("same map, so blades cast blade-shaped shadows -")
+	imgui.text("and inherit the wind, so they sway together.")
 end
 
 function GrassFieldSetup:destroy()

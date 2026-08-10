@@ -76,6 +76,16 @@ namespace p3d
 		void SetAlphaCutoff(const f32 cutoff);
 		f32 GetAlphaCutoff() const { return AlphaCutoff; }
 
+		// Vertex sway for ShaderUsage::VertexWind materials: strength in
+		// world units at the top of the mesh, rate in radians/second,
+		// spatial frequency deciding how quickly the phase varies across
+		// the scene (so a field ripples instead of moving as one). Read by
+		// IRenderer::SendModelUniforms() into ObjectMatrixUniforms' uWind,
+		// which is why this is stored here rather than in the fragment-only
+		// MaterialUniforms block.
+		void SetWind(const f32 strength, const f32 rate = 1.6f, const f32 spatialFrequency = 0.12f) { Wind = Vec4(strength, rate, spatialFrequency, 0.f); }
+		const Vec4 &GetWind() const { return Wind; }
+
 		// Text
 		void SetTextFont(Font* font);
 
@@ -150,6 +160,9 @@ namespace p3d
 		f32 SSREnabled;
 		// See SetAlphaCutoff().
 		f32 AlphaCutoff;
+		// See SetWind(). Not in the MaterialUniforms mirror - it travels in
+		// ObjectMatrixUniforms because it is needed in the vertex stage.
+		Vec4 Wind;
 
 		// Texture IDs
 		int32 colorMapID, specularMapID, normalMapID, displacementMapID, envMapID, skyboxMapID, refractMapID, fontMapID;

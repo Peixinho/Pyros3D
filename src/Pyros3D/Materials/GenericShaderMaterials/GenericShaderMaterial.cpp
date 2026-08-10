@@ -31,6 +31,7 @@ namespace p3d
 		// Half is the usual default for a cutout map; only consulted
 		// when ShaderUsage::AlphaTest is on.
 		AlphaCutoff = 0.5f;
+		Wind = Vec4(0.f, 0.f, 0.f, 0.f);
 		uShininess = uUseLights = uDisplacementHeight = NULL;
 		SSREnabled = 0.0f;
 
@@ -94,6 +95,10 @@ namespace p3d
 				define += std::string("#define PBRMAP\n");
 			if (options & ShaderUsage::AlphaTest)
 				define += std::string("#define ALPHATEST\n");
+			if (options & ShaderUsage::InstancedColor)
+				define += std::string("#define INSTANCED_COLOR\n");
+			if (options & ShaderUsage::VertexWind)
+				define += std::string("#define VERTEXWIND\n");
 
 			ShadersList[options]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
 			ShadersList[options]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
