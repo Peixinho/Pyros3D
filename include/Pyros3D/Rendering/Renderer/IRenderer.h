@@ -523,10 +523,24 @@ namespace p3d {
 		// the main pass either. PickShadowMaterial() takes instanced first
 		// on the grounds that a wrong-but-placed shadow beats N shadows in
 		// a heap.
+		//
+		// The AlphaTest pair exists because a cutout caster is only opaque
+		// where its colormap's alpha says so, and a shadow material that
+		// doesn't sample that map casts the caster's whole quad. Grass
+		// blades shadowed as solid rectangles is the visible version of
+		// that. These carry ShaderUsage::Texture too, since the discard
+		// needs the map; PickShadowMaterial() lends it the caster's own
+		// colormap and cutoff per draw, which is what lets one shared
+		// override material stand in for casters that don't share a
+		// texture. PyrosShader.glsl already runs its ALPHATEST discard
+		// ahead of the CASTSHADOWS depth write, so no shader change was
+		// needed for this - only a variant that reaches it.
 		GenericShaderMaterial
 			*shadowMaterial,
 			*shadowSkinnedMaterial,
-			*shadowInstancedMaterial;
+			*shadowInstancedMaterial,
+			*shadowAlphaTestMaterial,
+			*shadowInstancedAlphaTestMaterial;
 
 		// Picks the shadow-pass override material for one caster.
 		GenericShaderMaterial* PickShadowMaterial(RenderingMesh* mesh);

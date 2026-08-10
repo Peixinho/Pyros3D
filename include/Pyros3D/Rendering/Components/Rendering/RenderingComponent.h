@@ -43,7 +43,7 @@ namespace p3d {
 
 	public:
 
-		RenderingMesh(const uint32 lod = 0) : drawingType(DrawingType::Triangles), CullingGeometry(0), Active(true), Clickable(true), LodLevel(lod) {} // Triangles by Default
+		RenderingMesh(const uint32 lod = 0) : drawingType(DrawingType::Triangles), CullingGeometry(0), Active(true), Clickable(true), hasTexcoordAttribute(-1), LodLevel(lod) {} // Triangles by Default
 
 		// Not = default: releases the cached VAOs in VAOCache, which needs
 		// glDeleteVertexArrays (defined out-of-line in RenderingComponent.cpp
@@ -127,6 +127,17 @@ namespace p3d {
 		std::map<int32, Matrix> BoneOffsetMatrix;
 		// Bones Matrix List
 		std::vector<Matrix> SkinningBones;
+
+		// Whether this mesh's geometry actually supplies aTexcoord, cached
+		// because IRenderer::PickShadowMaterial() has to know it per draw.
+		// A cutout caster only gets the alpha-test shadow material if its
+		// geometry can feed that shader's texcoord attribute: Vulkan
+		// requires every attribute a compiled shader declares to have a
+		// matching vertex buffer attribute
+		// (VUID-VkGraphicsPipelineCreateInfo-Input-07904), the same rule
+		// BuildMaterials() masks ShaderUsage::Skinning off for.
+		// -1 not yet determined, 0 no, 1 yes.
+		int8 hasTexcoordAttribute;
 
 		// LOD
 		uint32 LodLevel;

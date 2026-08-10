@@ -259,6 +259,12 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* ext
 	// variant an instanced caster's shadow collapsed onto one instance.
 	shadowInstancedMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::InstancedRendering);
 	shadowInstancedMaterial->SetCullFace(CullFace::DoubleSided);
+	// Cutout casters - see the members' comment in IRenderer.h. The
+	// colormap and cutoff are filled in per draw by PickShadowMaterial().
+	shadowAlphaTestMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Texture | ShaderUsage::AlphaTest);
+	shadowAlphaTestMaterial->SetCullFace(CullFace::DoubleSided);
+	shadowInstancedAlphaTestMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Texture | ShaderUsage::AlphaTest | ShaderUsage::InstancedRendering);
+	shadowInstancedAlphaTestMaterial->SetCullFace(CullFace::DoubleSided);
 
 	// Created once, by whichever IRenderer instance happens to be first -
 	// see the "shared/static" comment on these members in IRenderer.h.
@@ -389,6 +395,8 @@ IRenderer::~IRenderer()
 			VelocityFrameUniformsUBOValid = false;
 		}
 	}
+	delete shadowAlphaTestMaterial;
+	delete shadowInstancedAlphaTestMaterial;
 	delete shadowMaterial;
 	delete shadowSkinnedMaterial;
 	delete shadowInstancedMaterial;
@@ -396,6 +404,42 @@ IRenderer::~IRenderer()
 
 GenericShaderMaterial* IRenderer::PickShadowMaterial(RenderingMesh* mesh)
 {
+	// A cutout caster needs a shadow material that samples its colormap,
+	// or its shadow is the silhouette of the whole quad rather than of
+	// what survives the alpha test. Only when the geometry can actually
+	// feed that shader's texcoord attribute - see
+	// RenderingMesh::hasTexcoordAttribute.
+	GenericShaderMaterial* caster = dynamic_cast<GenericShaderMaterial*>(mesh->Material.get());
+	if (caster != NULL && (caster->GetOptions() & ShaderUsage::AlphaTest) && caster->GetColorMap() != NULL)
+	{
+		if (mesh->hasTexcoordAttribute < 0)
+		{
+			mesh->hasTexcoordAttribute = 0;
+			for (std::vector<AttributeArray*>::iterator i = mesh->Geometry->Attributes.begin(); i != mesh->Geometry->Attributes.end() && mesh->hasTexcoordAttribute == 0; i++)
+				for (std::vector<VertexAttribute*>::iterator k = (*i)->Attributes.begin(); k != (*i)->Attributes.end(); k++)
+					if ((*k)->Name.compare(std::string("aTexcoord")) == 0)
+					{
+						mesh->hasTexcoordAttribute = 1;
+						break;
+					}
+		}
+
+		if (mesh->hasTexcoordAttribute == 1)
+		{
+			// Lend the caster its own map and threshold. One shared
+			// override material can stand in for casters with different
+			// textures because RenderObject() sends this material's
+			// uniforms and binds its textures per draw, immediately after
+			// this call.
+			GenericShaderMaterial* cutoutShadow = mesh->renderingComponent->IsInstanced()
+				? shadowInstancedAlphaTestMaterial
+				: shadowAlphaTestMaterial;
+			cutoutShadow->SetColorMap(caster->GetColorMapShared());
+			cutoutShadow->SetAlphaCutoff(caster->GetAlphaCutoff());
+			return cutoutShadow;
+		}
+	}
+
 	// Instanced first - see the members' comment in IRenderer.h for why
 	// skinned+instanced resolves this way rather than getting its own
 	// variant.
@@ -408,7 +452,9 @@ bool IRenderer::IsShadowMaterial(IMaterial* material) const
 {
 	return material == shadowMaterial
 		|| material == shadowSkinnedMaterial
-		|| material == shadowInstancedMaterial;
+		|| material == shadowInstancedMaterial
+		|| material == shadowAlphaTestMaterial
+		|| material == shadowInstancedAlphaTestMaterial;
 }
 
 void IRenderer::SetShadowDepthBias(const f32 factor, const f32 units)
@@ -416,6 +462,8 @@ void IRenderer::SetShadowDepthBias(const f32 factor, const f32 units)
 	shadowMaterial->EnableDethBias(factor, units);
 	shadowSkinnedMaterial->EnableDethBias(factor, units);
 	shadowInstancedMaterial->EnableDethBias(factor, units);
+	shadowAlphaTestMaterial->EnableDethBias(factor, units);
+	shadowInstancedAlphaTestMaterial->EnableDethBias(factor, units);
 }
 
 void IRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene) {

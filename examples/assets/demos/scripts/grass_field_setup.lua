@@ -22,6 +22,7 @@ local PER_CHUNK = 650       -- blades per component
 local CHUNK_SIZE = 26.0
 local BLADE_W = 2.6
 local BLADE_H = 3.4
+local GROUND_SIZE = CHUNKS * CHUNK_SIZE * 1.8
 
 function GrassFieldSetup:initialize()
 	self.owned = {}
@@ -48,7 +49,11 @@ function GrassFieldSetup:buildGround()
 	mat:setRoughness(0.9)
 	self.keep[#self.keep + 1] = mat
 
-	local mesh = Plane.new(CHUNKS * CHUNK_SIZE, CHUNKS * CHUNK_SIZE)
+	-- Deliberately larger than the grass field. The blades' own shadows are
+	-- only legible where they fall on something that isn't more grass, so
+	-- the ground runs past the field edge and the sun is low enough to
+	-- throw them out across it.
+	local mesh = Plane.new(GROUND_SIZE, GROUND_SIZE)
 	self.keep[#self.keep + 1] = mesh
 
 	local go = GameObject.new()
@@ -147,7 +152,7 @@ function GrassFieldSetup:buildSun()
 	proj:perspective(70.0, 1.7777, 1.0, 400.0)
 	self.shadowProjection = proj
 
-	local sun = DirectionalLight.new(Vec4.new(1.0, 0.96, 0.86, 1.0), Vec3.new(-0.55, -0.72, -0.42))
+	local sun = DirectionalLight.new(Vec4.new(1.0, 0.96, 0.86, 1.0), Vec3.new(0.66, -0.42, -0.18))
 	sun:enableShadows(2048, 2048, proj, 1.0, 400.0, 1)
 	local go = GameObject.new()
 	go:addComponent(sun)
@@ -169,8 +174,9 @@ function GrassFieldSetup:drawUI()
 		self.cutoff = c
 		if self.grassMat then self.grassMat:setAlphaCutoff(c) end
 	end
-	imgui.text("Note: blades cast solid-quad shadows - the shadow")
-	imgui.text("pass has no cutout variant yet.")
+	imgui.text("Shadows are cutout too: the shadow pass picks an")
+	imgui.text("alpha-tested override material and samples this")
+	imgui.text("same map, so blades cast blade-shaped shadows.")
 end
 
 function GrassFieldSetup:destroy()

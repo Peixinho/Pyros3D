@@ -7,9 +7,9 @@
                 "Camera"
             ],
             "position": [
-                0,
-                9,
-                34
+                46,
+                30,
+                4
             ],
             "rotation": [
                 0.0,
@@ -29,7 +29,7 @@
                     "scriptFile": "demos/scripts/camera_fly.lua",
                     "data": {
                         "yaw": 0,
-                        "pitch": -14
+                        "pitch": -52
                     }
                 }
             ]

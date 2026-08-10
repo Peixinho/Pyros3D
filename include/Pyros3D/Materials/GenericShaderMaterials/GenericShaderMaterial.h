@@ -108,6 +108,12 @@ namespace p3d
 		bool IsSSREnabled() const { return SSREnabled != 0.0f; }
 		// Observing raw pointers - Material owns the shared_ptrs in Textures.
 		Texture* GetColorMap() const { return colorMapID >= 0 ? Textures[colorMapID].get() : NULL; }
+		// Shares ownership rather than observing, for handing one material's
+		// colormap to another - IRenderer::PickShadowMaterial() lends a
+		// cutout caster's map to the shared alpha-test shadow material, and
+		// that material must not be left holding a dangling pointer if the
+		// caster is destroyed while the shadow material still refers to it.
+		std::shared_ptr<Texture> GetColorMapShared() const { return colorMapID >= 0 ? Textures[colorMapID] : std::shared_ptr<Texture>(); }
 		Texture* GetSpecularMap() const { return specularMapID >= 0 ? Textures[specularMapID].get() : NULL; }
 		Texture* GetNormalMap() const { return normalMapID >= 0 ? Textures[normalMapID].get() : NULL; }
 		Texture* GetDisplacementMap() const { return displacementMapID >= 0 ? Textures[displacementMapID].get() : NULL; }
