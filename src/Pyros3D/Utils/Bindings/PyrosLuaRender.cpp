@@ -546,6 +546,18 @@ namespace p3d {
                         throw std::runtime_error("RenderingInstancedComponent.new: second argument is not a Material or ShaderUsage options");
                     }
                 ),
+                // Bound here as well as on RenderingComponent: sol usertypes
+                // do not inherit members, so this was a nil field on every
+                // instanced component - rc:addLOD(...) raised, and because a
+                // raising setup script simply stops, it looked like the LOD
+                // meshes were rendering nothing.
+                "addLOD", sol::overload(
+                    [](LUA_RenderingInstancedComponent &c, sol::object renderable, f32 distance, sol::object materialOrOptions) {
+                        RenderingComponent_ADDLOD(&c, renderable, distance, materialOrOptions);
+                    },
+                    [](LUA_RenderingInstancedComponent &c, sol::object renderable, f32 distance) {
+                        RenderingComponent_ADDLOD_DistOnly(&c, renderable, distance);
+                    }),
                 "init", &LUA_RenderingInstancedComponent::Init,
                 "update", &LUA_RenderingInstancedComponent::Update,
                 "destroy", &LUA_RenderingInstancedComponent::Destroy,
