@@ -11,6 +11,7 @@
 
 #include <Pyros3D/Other/PyrosGL.h>
 #include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <SDL2/SDL.h>
 #include <cstring>
 #include <fstream>
@@ -50,6 +51,8 @@ DemoLauncher::DemoLauncher() : ClassName(1280, 720, "Pyros3D - Demos", WindowTyp
 	Scene = nullptr;
 	physics = nullptr;
 	activeDemo = -1;
+	showRenderTargets = false;
+	renderTargetThumbSize = 200.0f;
 	showLog = false;
 	logErrorsOnly = false;
 	logSeen = 0;
@@ -419,6 +422,101 @@ void DemoLauncher::DrawLogWindow()
 	ImGui::End();
 }
 
+
+void DemoLauncher::DrawRenderTargetViewer()
+{
+	if (!showRenderTargets)
+		return;
+
+	ImGui::SetNextWindowSize(ImVec2(560, 620), ImGuiCond_FirstUseEver);
+	if (ImGui::Begin("Render Targets", &showRenderTargets))
+	{
+		const std::vector<FrameBuffer*> &fbos = FrameBuffer::GetLiveFrameBuffers();
+		ImGui::SliderFloat("Size", &renderTargetThumbSize, 90.0f, 480.0f, "%.0f px");
+		ImGui::Text("%d live framebuffer(s)", (int)fbos.size());
+		ImGui::Separator();
+
+		if (fbos.empty())
+			ImGui::TextDisabled("None. Deferred, shadowed and post-effect demos create them.");
+
+		for (size_t f = 0; f < fbos.size(); f++)
+		{
+			FrameBuffer *fbo = fbos[f];
+			if (fbo == NULL)
+				continue;
+			const std::vector<FBOAttachment*> attachments = fbo->GetAttachments();
+
+			ImGui::PushID((int)f);
+			// Not "FBO f": the index is a slot in a list that changes as
+			// demos come and go, so show the GPU handle too - that is what
+			// identifies it across frames.
+			if (ImGui::CollapsingHeader(("Framebuffer #" + std::to_string(f) +
+					"  (id " + std::to_string(fbo->GetBindID()) + ", " +
+					std::to_string(attachments.size()) + " attachment(s))").c_str(),
+					ImGuiTreeNodeFlags_DefaultOpen))
+			{
+				for (size_t a = 0; a < attachments.size(); a++)
+				{
+					FBOAttachment *att = attachments[a];
+					if (att == NULL)
+						continue;
+					ImGui::PushID((int)a);
+
+					const bool isDepth = (att->AttachmentFormat == FrameBufferAttachmentFormat::Depth_Attachment);
+					const bool isStencil = (att->AttachmentFormat == FrameBufferAttachmentFormat::Stencil_Attachment);
+					const char *kind = isDepth ? "depth" : (isStencil ? "stencil" : "colour");
+
+					if (att->AttachmentType == FBOAttachmentType::RenderBuffer)
+					{
+						// A renderbuffer has no texture to sample at all.
+						ImGui::TextDisabled("attachment %d: %s renderbuffer %ux%u - not sampleable",
+							(int)a, kind, att->Width, att->Height);
+						ImGui::PopID();
+						continue;
+					}
+
+					Texture *tex = att->TexturePTR;
+					if (tex == NULL)
+					{
+						ImGui::TextDisabled("attachment %d: %s, no texture", (int)a, kind);
+						ImGui::PopID();
+						continue;
+					}
+
+					// tex->GetTextureType(), NOT att->TextureType: the
+					// attachment stores the *native* target (GL_TEXTURE_2D,
+					// 3553), while the device expects the engine enum.
+					void *id = GetActiveRenderDevice().GetImGuiTextureID(tex->GetBindID(), tex->GetTextureType());
+					ImGui::Text("attachment %d: %s  %ux%u", (int)a, kind, tex->GetWidth(), tex->GetHeight());
+					if (id != NULL && !isDepth && !isStencil)
+					{
+						const float w = renderTargetThumbSize;
+						const float aspect = (tex->GetWidth() > 0)
+							? ((float)tex->GetHeight() / (float)tex->GetWidth()) : 1.0f;
+						// uv flipped vertically: render targets are written
+						// bottom-up relative to how ImGui samples them.
+						ImGui::Image((ImTextureID)id, ImVec2(w, w * aspect), ImVec2(0, 1), ImVec2(1, 0));
+					}
+					else
+					{
+						// Deliberately explicit about *why* rather than
+						// drawing something misleading: a depth texture
+						// sampled as colour is a near-white rectangle, and a
+						// cube or multisample target cannot be sampled by
+						// ImGui at all.
+						ImGui::TextDisabled("   (not viewable yet: %s)",
+							(isDepth || isStencil) ? "depth/stencil needs linearising"
+												   : "cube or multisample target");
+					}
+					ImGui::PopID();
+				}
+			}
+			ImGui::PopID();
+		}
+	}
+	ImGui::End();
+}
+
 void DemoLauncher::DrawUI()
 {
 	// PassthruCentralNode: the centre of the dockspace stays transparent and
@@ -472,11 +570,13 @@ void DemoLauncher::DrawUI()
 			if (!logAutoOpened) { logAutoOpened = true; showLog = true; }
 		}
 		ImGui::Checkbox("Log", &showLog);
+		ImGui::Checkbox("Render targets", &showRenderTargets);
 	}
 	ImGui::Separator();
 
 	FrameProfiler::Instance().DrawImGui();
 	DrawLogWindow();
+	DrawRenderTargetViewer();
 
 	for (size_t i = 0; i < demos.size(); i++)
 	{

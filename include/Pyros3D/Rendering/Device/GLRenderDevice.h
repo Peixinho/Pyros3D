@@ -129,6 +129,7 @@ namespace p3d {
 		virtual void TranslateTextureFormat(const uint32 engineDataType, uint32 &internalFormat, uint32 &format, uint32 &type);
 		virtual void TranslateTextureTarget(const uint32 engineTextureType, uint32 &mode, uint32 &subMode);
 
+		virtual void *GetImGuiTextureID(const DeviceHandle texture, const uint32 engineTextureType);
 		virtual DeviceHandle CreateTextureObject();
 		virtual void DestroyTextureObject(const DeviceHandle texture);
 		virtual void BindTextureToTarget(const uint32 target, const DeviceHandle texture);

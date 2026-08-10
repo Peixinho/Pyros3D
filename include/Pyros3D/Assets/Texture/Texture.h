@@ -170,6 +170,11 @@ namespace p3d {
 		void UpdateMipmap();
 		void SetTextureByteAlignment(const uint32 Value);
 		const uint32 GetBindID() const;
+		// The engine's TextureType::* this was created as. Distinct from
+		// FBOAttachment::TextureType, which holds the *native* target
+		// (GL_TEXTURE_2D and friends) - a real trap, since both are called
+		// "texture type" and only one of them means the engine enum.
+		const uint32 GetTextureType() const { return Type; }
 		const uint32 GetWidth(const uint32 level = 0) const;
 		const uint32 GetHeight(const uint32 level = 0) const;
 		const std::string &GetFilename() const { return Filename; }

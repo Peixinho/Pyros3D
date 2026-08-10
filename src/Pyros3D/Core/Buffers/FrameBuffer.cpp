@@ -35,6 +35,7 @@ namespace p3d {
 
 	// 3 types of bound framebuffers (Read, Write and Read_Write)
 	std::vector< std::vector<FrameBuffer*> > FrameBuffer::BoundFBOs(3);
+	std::vector<FrameBuffer*> FrameBuffer::LiveFBOs;
 
 	FrameBuffer::FrameBuffer()
 	{
@@ -48,9 +49,15 @@ namespace p3d {
 		fbo = 0;
 		// DrawBuffers
 		drawBuffers = false;
+
+		LiveFBOs.push_back(this);
 	}
 	FrameBuffer::~FrameBuffer()
 	{
+		for (std::vector<FrameBuffer*>::iterator i = LiveFBOs.begin(); i != LiveFBOs.end(); i++)
+		{
+			if ((*i) == this) { LiveFBOs.erase(i); break; }
+		}
 
 		// flag FBO Stoped
 		FBOInitialized = false;

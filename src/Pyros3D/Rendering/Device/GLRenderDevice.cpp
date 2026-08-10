@@ -1075,6 +1075,17 @@ namespace p3d {
 		}
 	}
 
+	void *GLRenderDevice::GetImGuiTextureID(const DeviceHandle texture, const uint32 engineTextureType)
+	{
+		// GL's ImGui backend takes the texture name straight through as the
+		// ImTextureID, so the engine handle is already what is wanted. Only
+		// plain 2D colour targets: ImGui samples with a 2D sampler, so a
+		// cube face or a multisample target would draw as garbage.
+		if (texture == 0 || engineTextureType != TextureType::Texture)
+			return NULL;
+		return (void *)(intptr_t)texture;
+	}
+
 	DeviceHandle GLRenderDevice::CreateTextureObject()
 	{
 		GLuint id = 0;

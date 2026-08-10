@@ -300,6 +300,10 @@ namespace p3d {
 		virtual void TranslateTextureFormat(const uint32 engineDataType, uint32 &internalFormat, uint32 &format, uint32 &type);
 		virtual void TranslateTextureTarget(const uint32 engineTextureType, uint32 &mode, uint32 &subMode);
 
+		virtual void *GetImGuiTextureID(const DeviceHandle texture, const uint32 engineTextureType);
+		// Frees a set handed out above. Defined beside it, in the only
+		// translation unit that includes imgui_impl_vulkan.h.
+		void ReleaseImGuiTextureID(void *descriptorSet);
 		virtual DeviceHandle CreateTextureObject();
 		virtual void DestroyTextureObject(const DeviceHandle texture);
 		virtual void BindTextureToTarget(const uint32 target, const DeviceHandle texture);
@@ -1605,6 +1609,25 @@ namespace p3d {
 				  samples(VK_SAMPLE_COUNT_1_BIT) {}
 		};
 		std::map<DeviceHandle, TextureRecord> textures;
+		// ImTextureID (VkDescriptorSet) per texture, for the render-target
+		// viewer. Cached because ImGui_ImplVulkan_AddTexture() allocates a
+		// descriptor set per call - doing that every frame would exhaust
+		// ImGui's pool in seconds.
+		//
+		// The view and sampler it was built against are kept alongside it,
+		// because caching on the texture handle alone is not enough: the
+		// sampler is rebuilt lazily whenever a filter/wrap setter dirties it
+		// and views are recreated on resize, and a descriptor still pointing
+		// at the destroyed one fails VUID-vkCmdDrawIndexed-None-08114 the
+		// next time ImGui draws. Rebuilt when either has changed.
+		struct ImGuiTextureBinding
+		{
+			void *set;          // VkDescriptorSet
+			VkImageView view;
+			VkSampler sampler;
+			ImGuiTextureBinding() : set(NULL), view(VK_NULL_HANDLE), sampler(VK_NULL_HANDLE) {}
+		};
+		std::map<DeviceHandle, ImGuiTextureBinding> imguiTextureIDs;
 		// Moves an image that has never been written out of
 		// VK_IMAGE_LAYOUT_UNDEFINED so it can legally be sampled - see
 		// TextureRecord::layoutInitialized. Declared here rather than

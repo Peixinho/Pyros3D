@@ -77,6 +77,12 @@ private:
 	// of the UI existed.
 	void DrawLogWindow();
 
+	// Lists every live FrameBuffer and draws the colour attachments it can
+	// get an ImTextureID for. Built on FrameBuffer::GetLiveFrameBuffers(),
+	// so it follows whatever the active demo actually creates rather than
+	// any fixed list.
+	void DrawRenderTargetViewer();
+
 	void InitImGui();
 	void ShutdownImGui();
 	void BeginImGuiFrame();
@@ -96,6 +102,8 @@ private:
 	bool activeDemoHasPhysics;
 
 	bool imguiInitialized;
+	bool showRenderTargets;
+	float renderTargetThumbSize;
 	bool showLog;
 	bool logErrorsOnly;
 	// Highest message index already seen, so the window can flag that

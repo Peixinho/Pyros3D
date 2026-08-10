@@ -3738,6 +3738,20 @@ namespace p3d {
 
 	void VulkanRenderDevice::DestroyTextureObject(const DeviceHandle texture)
 	{
+		// Drop any ImGui descriptor handed out for this texture - it points
+		// at the view being destroyed below (see GetImGuiTextureID()).
+		// Freed through ImGui rather than just forgotten, or its descriptor
+		// set leaks from ImGui's pool.
+		{
+			std::map<DeviceHandle, ImGuiTextureBinding>::iterator imIt = imguiTextureIDs.find(texture);
+			if (imIt != imguiTextureIDs.end())
+			{
+				if (imIt->second.set != NULL)
+					ReleaseImGuiTextureID(imIt->second.set);
+				imguiTextureIDs.erase(imIt);
+			}
+		}
+
 		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(texture);
 		if (it == textures.end())
 			return;

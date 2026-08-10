@@ -583,6 +583,14 @@ namespace p3d {
 		virtual void TranslateTextureTarget(const uint32 engineTextureType, uint32 &mode, uint32 &subMode) = 0;
 
 		// Texture object lifecycle
+		// An ImTextureID for `texture`, or NULL if this backend cannot hand
+		// one over for that kind of target. Debug UI only (the render-target
+		// viewer): ImGui draws whatever it is given as a plain 2D colour
+		// sample, so depth, cube and multisampled targets return NULL rather
+		// than something that would draw as garbage. Not pure - a backend
+		// that has not implemented it simply reports nothing viewable.
+		virtual void *GetImGuiTextureID(const DeviceHandle texture, const uint32 engineTextureType) { (void)texture; (void)engineTextureType; return NULL; }
+
 		virtual DeviceHandle CreateTextureObject() = 0;
 		virtual void DestroyTextureObject(const DeviceHandle texture) = 0;
 		virtual void BindTextureToTarget(const uint32 target, const DeviceHandle texture) = 0;

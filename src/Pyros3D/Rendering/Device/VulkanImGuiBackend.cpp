@@ -104,6 +104,59 @@ namespace p3d {
 		ImGui_ImplVulkan_CreateMainPipeline(&pipelineInfo);
 	}
 
+	// Debug UI only - see IRenderDevice::GetImGuiTextureID(). Implemented in
+	// this file rather than VulkanRenderDevice.cpp because this is the
+	// translation unit that has imgui_impl_vulkan.h; the device deliberately
+	// keeps ImGui out of its main source (see InitImGuiVulkanBackend()).
+	void VulkanRenderDevice::ReleaseImGuiTextureID(void *descriptorSet)
+	{
+		if (descriptorSet != NULL)
+			ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)descriptorSet);
+	}
+
+	void *VulkanRenderDevice::GetImGuiTextureID(const DeviceHandle texture, const uint32 engineTextureType)
+	{
+		if (texture == 0 || device == VK_NULL_HANDLE || engineTextureType != TextureType::Texture)
+			return NULL;
+
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(texture);
+		if (it == textures.end() || it->second.view == VK_NULL_HANDLE)
+			return NULL;
+		// ImGui samples with a plain 2D sampler, so a cube view would be
+		// read as the wrong type entirely.
+		if (it->second.isCubemap)
+			return NULL;
+
+		// The sampler is built lazily on first use; a render target that has
+		// never been sampled by the scene may not have one yet.
+		RebuildSamplerIfDirty(it->second);
+		if (it->second.sampler == VK_NULL_HANDLE)
+			return NULL;
+
+		ImGuiTextureBinding &binding = imguiTextureIDs[texture];
+		if (binding.set != NULL)
+		{
+			if (binding.view == it->second.view && binding.sampler == it->second.sampler)
+				return binding.set;
+			// Rebuilt underneath us - drop the stale set rather than let a
+			// draw reference a destroyed view or sampler.
+			ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)binding.set);
+			binding.set = NULL;
+		}
+
+		// SHADER_READ_ONLY_OPTIMAL is what the target is in by the time ImGui
+		// draws: ImGui renders last, after every pass that wrote this target
+		// has finished and left it readable.
+		VkDescriptorSet set = ImGui_ImplVulkan_AddTexture(it->second.sampler, it->second.view,
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		if (set == VK_NULL_HANDLE)
+			return NULL;
+		binding.set = (void*)set;
+		binding.view = it->second.view;
+		binding.sampler = it->second.sampler;
+		return binding.set;
+	}
+
 }
 
 #endif /* VULKAN_BACKEND */

@@ -146,6 +146,13 @@ namespace p3d {
 
 		bool IsInitialized() { return FBOInitialized; }
 
+		// Every live FrameBuffer, in creation order. Registered by the
+		// constructor and dropped by the destructor, so anything that
+		// creates a render target appears here without having to be told
+		// about it - which is the point: a debug view built on this stays
+		// correct as renderers and effects come and go.
+		static const std::vector<FrameBuffer*> &GetLiveFrameBuffers() { return LiveFBOs; }
+
 		static void EnableMultisample();
 		static void DisableMultisample();
 		static void BlitFrameBuffer(const uint32 initSrcX, const uint32 initSrcY, const uint32 endSrcX, const uint32 endSrcY, const uint32 initDestX, const uint32 initDestY, const uint32 endDestX, const uint32 endDestY, const uint32 mask, const uint32 filter);
@@ -154,6 +161,8 @@ namespace p3d {
 
 		// Bound FBOs
 		static std::vector<std::vector<FrameBuffer*> > BoundFBOs;
+		// See GetLiveFrameBuffers().
+		static std::vector<FrameBuffer*> LiveFBOs;
 
 		// Binded
 		bool isBinded;

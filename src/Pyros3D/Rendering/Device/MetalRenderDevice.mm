@@ -2019,6 +2019,23 @@ namespace p3d {
 			mode = subMode = 0;
 	}
 
+	void *MetalRenderDevice::GetImGuiTextureID(const DeviceHandle texture, const uint32 engineTextureType)
+	{
+		// ImGui's Metal backend takes an id<MTLTexture> as the ImTextureID
+		// directly. Bridged without transferring ownership - the record
+		// keeps the reference, and this pointer is only used to draw during
+		// the frame it was fetched in.
+		if (texture == 0 || engineTextureType != TextureType::Texture)
+			return NULL;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(texture);
+		if (it == textures.end() || it->second.texture == NULL)
+			return NULL;
+		// Multisample targets cannot be sampled by ImGui's shader.
+		if (it->second.samples > 1 || it->second.isCubemap)
+			return NULL;
+		return it->second.texture;
+	}
+
 	DeviceHandle MetalRenderDevice::CreateTextureObject()
 	{
 		DeviceHandle handle = nextTextureHandle++;
