@@ -41,6 +41,8 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <map>
+#include <utility>
 
 using namespace p3d;
 using json = nlohmann::json;
@@ -82,6 +84,24 @@ private:
 	// so it follows whatever the active demo actually creates rather than
 	// any fixed list.
 	void DrawRenderTargetViewer();
+	// Depth and cube attachments cannot be handed to ImGui directly (see
+	// IRenderDevice::GetImGuiTextureID). These read the texture back on the
+	// CPU, normalise it, and keep a small RGBA8 copy that ImGui can draw.
+	// Keyed on the source Texture* and cube face; cleared on demo switch,
+	// since those pointers die with the scene.
+	struct RenderTargetPreview
+	{
+		Texture *preview;      // owned
+		f64 lastUpdate;
+		uint32 width, height;
+		float rangeMin, rangeMax;
+		RenderTargetPreview() : preview(NULL), lastUpdate(-1.0), width(0), height(0), rangeMin(0.f), rangeMax(1.f) {}
+	};
+	// face is -1 for a plain 2D depth target, or a TextureType::Cubemap*.
+	RenderTargetPreview *GetRenderTargetPreview(Texture *src, const int32 face, const bool refresh);
+	void ClearRenderTargetPreviews();
+	std::map<std::pair<Texture*, int32>, RenderTargetPreview> rtPreviews;
+	float rtRefreshSeconds;
 
 	void InitImGui();
 	void ShutdownImGui();

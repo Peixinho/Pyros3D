@@ -53,6 +53,7 @@ DemoLauncher::DemoLauncher() : ClassName(1280, 720, "Pyros3D - Demos", WindowTyp
 	activeDemo = -1;
 	showRenderTargets = false;
 	renderTargetThumbSize = 200.0f;
+	rtRefreshSeconds = 0.25f;
 	showLog = false;
 	logErrorsOnly = false;
 	logSeen = 0;
@@ -203,6 +204,10 @@ void DemoLauncher::LoadManifest()
 
 void DemoLauncher::SwitchDemo(int index)
 {
+	// Previews are keyed on source Texture* and those die with the scene -
+	// a new texture could land on the same address and inherit a stale one.
+	ClearRenderTargetPreviews();
+
 	if (index < 0 || index >= (int)demos.size()) return;
 
 	for (const std::shared_ptr<GameObject> &go : currentAssets.gameObjects)
@@ -423,6 +428,97 @@ void DemoLauncher::DrawLogWindow()
 }
 
 
+
+// Reads `src` back on the CPU and keeps a small RGBA8 copy ImGui can draw.
+// This is the fallback for everything GetImGuiTextureID() cannot hand over
+// directly - depth, and cube faces.
+//
+// Deliberately throttled and only called for sections the user has expanded.
+// A 2048x2048 shadow cube is 16MB of floats per face, and reading one back
+// stalls the pipeline; at a few frames a second on a panel you opened on
+// purpose that is a fair trade, every frame would not be.
+//
+// Depth is normalised between the min and max actually present rather than
+// shown raw. A raw depth buffer is almost entirely values near 1.0 and reads
+// as a white rectangle - technically correct and completely useless, which
+// is what the old cubemap viewer had to work around too.
+DemoLauncher::RenderTargetPreview *DemoLauncher::GetRenderTargetPreview(Texture *src, const int32 face, const bool refresh)
+{
+	if (src == NULL)
+		return NULL;
+
+	std::pair<Texture*, int32> key(src, face);
+	RenderTargetPreview &pv = rtPreviews[key];
+
+	const f64 now = GetTime();
+	const bool due = (pv.lastUpdate < 0.0) || (now - pv.lastUpdate >= (f64)rtRefreshSeconds);
+	if (pv.preview != NULL && (!refresh || !due))
+		return pv.preview != NULL ? &pv : NULL;
+	if (!refresh && pv.preview == NULL)
+		return NULL;
+
+	const uint32 srcW = src->GetWidth(), srcH = src->GetHeight();
+	if (srcW == 0 || srcH == 0)
+		return NULL;
+
+	std::vector<uchar> data = src->GetTextureData(0, face);
+	const size_t texels = (size_t)srcW * (size_t)srcH;
+	if (data.size() < texels)
+		return NULL;
+
+	// Depth comes back as 32-bit float per texel on all three backends.
+	const bool haveFloats = data.size() >= texels * 4;
+	const float *depth = haveFloats ? (const float*)&data[0] : NULL;
+
+	// Fixed preview size, point-sampled down - the source can be 2048 square
+	// and the panel shows it a couple of hundred pixels wide.
+	const uint32 pw = 256, ph = 256;
+	std::vector<uchar> rgba((size_t)pw * ph * 4, 0);
+
+	float lo = 1.0e30f, hi = -1.0e30f;
+	std::vector<float> sampled((size_t)pw * ph, 0.0f);
+	for (uint32 y = 0; y < ph; y++)
+	{
+		const uint32 sy = (uint32)((f32)y / (f32)ph * (f32)srcH);
+		for (uint32 x = 0; x < pw; x++)
+		{
+			const uint32 sx = (uint32)((f32)x / (f32)pw * (f32)srcW);
+			const size_t si = (size_t)sy * srcW + sx;
+			float v = depth != NULL ? depth[si] : (float)data[si] / 255.0f;
+			sampled[(size_t)y * pw + x] = v;
+			if (v < lo) lo = v;
+			if (v > hi) hi = v;
+		}
+	}
+	// A flat buffer (nothing drawn, all cleared) must not blow up into noise.
+	const float span = (hi - lo) > 1.0e-6f ? (hi - lo) : 1.0f;
+	for (size_t i = 0; i < sampled.size(); i++)
+	{
+		const float n = (sampled[i] - lo) / span;
+		const uchar c = (uchar)(n * 255.0f);
+		rgba[i * 4 + 0] = c; rgba[i * 4 + 1] = c; rgba[i * 4 + 2] = c; rgba[i * 4 + 3] = 255;
+	}
+
+	if (pv.preview == NULL)
+	{
+		pv.preview = new Texture();
+		pv.preview->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, (int32)pw, (int32)ph, false);
+		pv.width = pw; pv.height = ph;
+	}
+	pv.preview->UpdateData(&rgba[0], 0);
+	pv.lastUpdate = now;
+	pv.rangeMin = lo;
+	pv.rangeMax = hi;
+	return &pv;
+}
+
+void DemoLauncher::ClearRenderTargetPreviews()
+{
+	for (std::map<std::pair<Texture*, int32>, RenderTargetPreview>::iterator i = rtPreviews.begin(); i != rtPreviews.end(); i++)
+		delete i->second.preview;
+	rtPreviews.clear();
+}
+
 void DemoLauncher::DrawRenderTargetViewer()
 {
 	if (!showRenderTargets)
@@ -433,7 +529,12 @@ void DemoLauncher::DrawRenderTargetViewer()
 	{
 		const std::vector<FrameBuffer*> &fbos = FrameBuffer::GetLiveFrameBuffers();
 		ImGui::SliderFloat("Size", &renderTargetThumbSize, 90.0f, 480.0f, "%.0f px");
+		// Depth and cube previews are CPU readbacks and stall the pipeline,
+		// so they refresh on a timer rather than every frame.
+		ImGui::SliderFloat("Readback every", &rtRefreshSeconds, 0.05f, 2.0f, "%.2f s");
 		ImGui::Text("%d live framebuffer(s)", (int)fbos.size());
+		ImGui::TextDisabled("Expand one to view it. Depth and cube previews are");
+		ImGui::TextDisabled("CPU readbacks, so only expanded ones cost anything.");
 		ImGui::Separator();
 
 		if (fbos.empty())
@@ -453,7 +554,7 @@ void DemoLauncher::DrawRenderTargetViewer()
 			if (ImGui::CollapsingHeader(("Framebuffer #" + std::to_string(f) +
 					"  (id " + std::to_string(fbo->GetBindID()) + ", " +
 					std::to_string(attachments.size()) + " attachment(s))").c_str(),
-					ImGuiTreeNodeFlags_DefaultOpen))
+					0))
 			{
 				for (size_t a = 0; a < attachments.size(); a++)
 				{
@@ -462,8 +563,20 @@ void DemoLauncher::DrawRenderTargetViewer()
 						continue;
 					ImGui::PushID((int)a);
 
-					const bool isDepth = (att->AttachmentFormat == FrameBufferAttachmentFormat::Depth_Attachment);
-					const bool isStencil = (att->AttachmentFormat == FrameBufferAttachmentFormat::Stencil_Attachment);
+					// Depth is decided from the texture's data type, not from
+					// att->AttachmentFormat: that field holds a
+					// backend-translated value (GL_DEPTH_ATTACHMENT = 36096
+					// on GL, the untranslated engine 16 on Vulkan), so
+					// comparing it against the engine enum silently reported
+					// every GL depth target as colour - which is exactly what
+					// it did to the 2048x2048 cascaded shadow map.
+					Texture *attTex = att->TexturePTR;
+					const uint32 dataType = (attTex != NULL) ? attTex->GetDataType() : 0;
+					const bool isDepth = (dataType == TextureDataType::DepthComponent ||
+										  dataType == TextureDataType::DepthComponent16 ||
+										  dataType == TextureDataType::DepthComponent24 ||
+										  dataType == TextureDataType::DepthComponent32);
+					const bool isStencil = false;
 					const char *kind = isDepth ? "depth" : (isStencil ? "stencil" : "colour");
 
 					if (att->AttachmentType == FBOAttachmentType::RenderBuffer)
@@ -486,27 +599,77 @@ void DemoLauncher::DrawRenderTargetViewer()
 					// tex->GetTextureType(), NOT att->TextureType: the
 					// attachment stores the *native* target (GL_TEXTURE_2D,
 					// 3553), while the device expects the engine enum.
+					const bool isCube = (tex->GetTextureType() >= TextureType::CubemapPositive_X &&
+										 tex->GetTextureType() <= TextureType::CubemapNegative_Z);
+					const bool isMultisample = (tex->GetTextureType() == TextureType::Texture_Multisample);
 					void *id = GetActiveRenderDevice().GetImGuiTextureID(tex->GetBindID(), tex->GetTextureType());
 					ImGui::Text("attachment %d: %s  %ux%u", (int)a, kind, tex->GetWidth(), tex->GetHeight());
+
+					const float w = renderTargetThumbSize;
 					if (id != NULL && !isDepth && !isStencil)
 					{
-						const float w = renderTargetThumbSize;
 						const float aspect = (tex->GetWidth() > 0)
 							? ((float)tex->GetHeight() / (float)tex->GetWidth()) : 1.0f;
 						// uv flipped vertically: render targets are written
 						// bottom-up relative to how ImGui samples them.
 						ImGui::Image((ImTextureID)id, ImVec2(w, w * aspect), ImVec2(0, 1), ImVec2(1, 0));
 					}
+					else if (isMultisample)
+					{
+						// Nothing can sample or read back a multisample
+						// image; it needs resolving to a single-sample
+						// target first, which is not this panel's job.
+						ImGui::TextDisabled("   (multisample - needs a resolve first)");
+					}
+					else if (isCube)
+					{
+						// Six faces, read back one at a time. Laid out 3 per
+						// row rather than as a cross: this is for seeing
+						// whether a face has content at all, not for judging
+						// continuity across edges.
+						static const int32 kFaces[6] = {
+							TextureType::CubemapPositive_X, TextureType::CubemapNegative_X,
+							TextureType::CubemapPositive_Y, TextureType::CubemapNegative_Y,
+							TextureType::CubemapPositive_Z, TextureType::CubemapNegative_Z };
+						static const char *kNames[6] = { "+X", "-X", "+Y", "-Y", "+Z", "-Z" };
+						const float fw = w / 3.2f;
+						for (int fc = 0; fc < 6; fc++)
+						{
+							RenderTargetPreview *pv = GetRenderTargetPreview(tex, kFaces[fc], true);
+							if (fc % 3 != 0) ImGui::SameLine();
+							ImGui::BeginGroup();
+							ImGui::TextDisabled("%s", kNames[fc]);
+							void *pid = (pv != NULL && pv->preview != NULL)
+								? GetActiveRenderDevice().GetImGuiTextureID(pv->preview->GetBindID(), TextureType::Texture)
+								: NULL;
+							if (pid != NULL)
+								ImGui::Image((ImTextureID)pid, ImVec2(fw, fw));
+							else
+								ImGui::Dummy(ImVec2(fw, fw));
+							ImGui::EndGroup();
+						}
+						RenderTargetPreview *any = GetRenderTargetPreview(tex, kFaces[0], false);
+						if (any != NULL)
+							ImGui::TextDisabled("   depth range %.4f .. %.4f (normalised)", any->rangeMin, any->rangeMax);
+					}
 					else
 					{
-						// Deliberately explicit about *why* rather than
-						// drawing something misleading: a depth texture
-						// sampled as colour is a near-white rectangle, and a
-						// cube or multisample target cannot be sampled by
-						// ImGui at all.
-						ImGui::TextDisabled("   (not viewable yet: %s)",
-							(isDepth || isStencil) ? "depth/stencil needs linearising"
-												   : "cube or multisample target");
+						// Depth/stencil: read back and normalised, because
+						// raw depth is almost all values near 1.0 and draws
+						// as a flat white rectangle.
+						RenderTargetPreview *pv = GetRenderTargetPreview(tex, -1, true);
+						void *pid = (pv != NULL && pv->preview != NULL)
+							? GetActiveRenderDevice().GetImGuiTextureID(pv->preview->GetBindID(), TextureType::Texture)
+							: NULL;
+						if (pid != NULL)
+						{
+							ImGui::Image((ImTextureID)pid, ImVec2(w, w));
+							ImGui::TextDisabled("   range %.4f .. %.4f (normalised)", pv->rangeMin, pv->rangeMax);
+						}
+						else
+						{
+							ImGui::TextDisabled("   (could not read back)");
+						}
 					}
 					ImGui::PopID();
 				}

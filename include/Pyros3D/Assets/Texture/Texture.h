@@ -175,6 +175,12 @@ namespace p3d {
 		// (GL_TEXTURE_2D and friends) - a real trap, since both are called
 		// "texture type" and only one of them means the engine enum.
 		const uint32 GetTextureType() const { return Type; }
+		// The engine's TextureDataType::* this was created with. The reliable
+		// way to tell a depth target from a colour one: FBOAttachment's
+		// AttachmentFormat is backend-translated (GL reports 36096 for depth
+		// where the engine enum is 16, and Vulkan does not translate at all),
+		// so it cannot be compared against the engine enum portably.
+		const uint32 GetDataType() const { return DataType; }
 		const uint32 GetWidth(const uint32 level = 0) const;
 		const uint32 GetHeight(const uint32 level = 0) const;
 		const std::string &GetFilename() const { return Filename; }
