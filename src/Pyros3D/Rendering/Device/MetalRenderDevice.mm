@@ -1348,7 +1348,7 @@ namespace p3d {
 
 	DeviceHandle MetalRenderDevice::CreateBuffer(const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length)
 	{
-		(void)bufferType; (void)bufferDraw;
+		(void)bufferType;
 		if (device == NULL)
 			return 0;
 		// A zero-length buffer is a real, legitimate state (e.g.
@@ -1365,8 +1365,21 @@ namespace p3d {
 			if (buf == nil)
 				return 0;
 			BufferRecord record;
-			record.buffer = (void*)CFBridgingRetain(buf);
 			record.length = length;
+			// See BufferRecord::streamBuffers. Static buffers stay single.
+			const bool useStreamRing = (bufferDraw == Buffer::Draw::Stream || bufferDraw == Buffer::Draw::Dynamic);
+			record.streamRingCount = useStreamRing ? BufferRecord::kMaxStreamRing : 0;
+			record.streamBuffers[0] = (void*)CFBridgingRetain(buf);
+			for (uint32 i = 1; i < record.streamRingCount; i++)
+			{
+				id<MTLBuffer> extra = (data != NULL)
+					? [mtlDevice newBufferWithBytes:data length:allocLength options:MTLResourceStorageModeShared]
+					: [mtlDevice newBufferWithLength:allocLength options:MTLResourceStorageModeShared];
+				if (extra == nil)
+					return 0;
+				record.streamBuffers[i] = (void*)CFBridgingRetain(extra);
+			}
+			record.buffer = record.streamBuffers[0];
 			DeviceHandle handle = nextBufferHandle++;
 			buffers[handle] = record;
 			return handle;
@@ -1380,14 +1393,36 @@ namespace p3d {
 			return;
 		@autoreleasepool
 		{
-			if (it->second.buffer != NULL) { CFBridgingRelease(it->second.buffer); it->second.buffer = NULL; }
+			// The whole ring is rebuilt, not just the slot `buffer` happens to
+			// alias right now - releasing that one alone would leave the other
+			// slots holding a freed buffer and double-release them later.
+			const uint32 ring = it->second.streamRingCount;
+			if (ring > 1)
+			{
+				for (uint32 i = 0; i < ring; i++)
+					if (it->second.streamBuffers[i] != NULL) { CFBridgingRelease(it->second.streamBuffers[i]); it->second.streamBuffers[i] = NULL; }
+			}
+			else if (it->second.buffer != NULL)
+			{
+				CFBridgingRelease(it->second.buffer);
+			}
+			it->second.buffer = NULL;
+
 			uint32 allocLength = (length == 0) ? 4 : length;
 			id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
-			id<MTLBuffer> buf = (data != NULL)
-				? [mtlDevice newBufferWithBytes:data length:allocLength options:MTLResourceStorageModeShared]
-				: [mtlDevice newBufferWithLength:allocLength options:MTLResourceStorageModeShared];
-			if (buf != nil)
-				it->second.buffer = (void*)CFBridgingRetain(buf);
+			const uint32 slots = (ring > 1) ? ring : 1;
+			for (uint32 i = 0; i < slots; i++)
+			{
+				id<MTLBuffer> buf = (data != NULL)
+					? [mtlDevice newBufferWithBytes:data length:allocLength options:MTLResourceStorageModeShared]
+					: [mtlDevice newBufferWithLength:allocLength options:MTLResourceStorageModeShared];
+				if (buf == nil)
+					continue;
+				void *retained = (void*)CFBridgingRetain(buf);
+				if (ring > 1) it->second.streamBuffers[i] = retained;
+				if (i == 0) it->second.buffer = retained;
+			}
+			it->second.streamWriteIndex = 0;
 			it->second.length = length;
 		}
 	}
@@ -1399,6 +1434,13 @@ namespace p3d {
 			return;
 		@autoreleasepool
 		{
+			// Rotate before writing, so this write lands in a slot no
+			// in-flight draw is still reading - see BufferRecord::streamBuffers.
+			if (it->second.streamRingCount > 1)
+			{
+				it->second.streamWriteIndex = (it->second.streamWriteIndex + 1) % it->second.streamRingCount;
+				it->second.buffer = it->second.streamBuffers[it->second.streamWriteIndex];
+			}
 			id<MTLBuffer> buf = (__bridge id<MTLBuffer>)it->second.buffer;
 			memcpy(buf.contents, data, length);
 		}
@@ -1408,7 +1450,13 @@ namespace p3d {
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it == buffers.end())
 			return;
-		if (it->second.buffer != NULL)
+		if (it->second.streamRingCount > 1)
+		{
+			for (uint32 i = 0; i < it->second.streamRingCount; i++)
+				if (it->second.streamBuffers[i] != NULL)
+					CFBridgingRelease(it->second.streamBuffers[i]);
+		}
+		else if (it->second.buffer != NULL)
 			CFBridgingRelease(it->second.buffer);
 		buffers.erase(it);
 	}

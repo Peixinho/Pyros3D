@@ -582,13 +582,33 @@ namespace p3d {
 		// offset for the exact same problem.
 		struct BufferRecord
 		{
-			void* buffer; // id<MTLBuffer>
+			void* buffer; // id<MTLBuffer> - always the slot currently being written
 			uint32 length;
 			bool isDynamicUniform;
 			uint32 alignedSlotSize;
 			uint32 slotCount;
 			uint32 currentSlot;
-			BufferRecord() : buffer(NULL), length(0), isDynamicUniform(false), alignedSlotSize(0), slotCount(1), currentSlot(0) {}
+
+			// STREAM/DYNAMIC buffers get a small ring of MTLBuffers, the same
+			// way VulkanRenderDevice::BufferRecord does and for the same
+			// reason: UpdateBufferSubData() is a plain memcpy into shared
+			// storage, so rewriting a buffer the GPU is still reading for a
+			// previous frame corrupts that draw. Metal had no ring at all,
+			// which GL never needed (the driver orphans behind your back) and
+			// Vulkan already had - so a per-instance transform buffer
+			// rewritten as the camera moved would tear for a frame.
+			// `buffer` is repointed at the newest slot on every update, and
+			// draws resolve it then, so nothing downstream has to know.
+			static const uint32 kMaxStreamRing = 3;
+			uint32 streamRingCount;   // 0 for static buffers
+			uint32 streamWriteIndex;
+			void* streamBuffers[kMaxStreamRing];
+
+			BufferRecord() : buffer(NULL), length(0), isDynamicUniform(false), alignedSlotSize(0), slotCount(1), currentSlot(0),
+				streamRingCount(0), streamWriteIndex(0)
+			{
+				for (uint32 i = 0; i < kMaxStreamRing; i++) streamBuffers[i] = NULL;
+			}
 		};
 		std::map<DeviceHandle, BufferRecord> buffers;
 		DeviceHandle nextBufferHandle;
