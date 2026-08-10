@@ -2437,8 +2437,8 @@ namespace p3d {
 		// One binding per AttributeBuffer the mesh has - see VaoRecord::
 		// vertexBuffers' comment. Order must match CreatePipeline()'s
 		// VkVertexInputBindingDescription array, which it does: both are
-		// built by iterating the same rmesh->Geometry->Attributes list in
-		// the same order (IRenderer::BindMesh()).
+		// built by iterating the same list in the same order
+		// (IRenderer::BindMesh()'s meshAttributes).
 		std::vector<VkBuffer> vbos;
 		std::vector<VkDeviceSize> vboOffsets;
 		for (size_t i = 0; i < vaoIt->second.vertexBuffers.size(); i++)

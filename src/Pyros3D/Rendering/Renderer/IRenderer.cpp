@@ -2207,11 +2207,26 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		rmesh->VAOCacheRevision = rmesh->Geometry->buffersRevision;
 	}
 
+	// Everything this draw sources vertex data from: the geometry's own
+	// attribute buffers, then any the component owns (the per-instance
+	// transform stream, particle streams - see
+	// RenderingComponent::ownAttributeBuffers for why those can't live on
+	// the shared geometry). Built once here because all three passes below
+	// - the attribute-location cache, the VAO, and the pipeline's vertex
+	// layout - have to walk the exact same list in the exact same order:
+	// _ShadersAttributesCache is indexed positionally.
+	std::vector<AttributeArray*> meshAttributes = rmesh->Geometry->Attributes;
+	if (rmesh->renderingComponent != NULL)
+	{
+		for (std::vector<AttributeBuffer*>::iterator i = rmesh->renderingComponent->ownAttributeBuffers.begin(); i != rmesh->renderingComponent->ownAttributeBuffers.end(); i++)
+			meshAttributes.push_back(*i);
+	}
+
 	std::vector< std::vector<int32> >* _ShadersAttributesCache = &rmesh->ShadersAttributesCache[material->GetShader()];
 	if ((*_ShadersAttributesCache).size()==0)
 	{
 		// Reset Attribute IDs
-		for (std::vector<AttributeArray*>::iterator i = rmesh->Geometry->Attributes.begin(); i != rmesh->Geometry->Attributes.end(); i++)
+		for (std::vector<AttributeArray*>::iterator i = meshAttributes.begin(); i != meshAttributes.end(); i++)
 		{
 			std::vector<int32> attribs;
 			for (std::vector<VertexAttribute*>::iterator k = (*i)->Attributes.begin(); k != (*i)->Attributes.end(); k++)
@@ -2250,10 +2265,10 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		CommandBufferHandle bindMeshCmd = device->BeginCommandBuffer();
 		device->BindVertexArray(bindMeshCmd, vao);
 
-		if (rmesh->Geometry->Attributes.size() > 0)
+		if (meshAttributes.size() > 0)
 		{
 			uint32 counterBuffers = 0;
-			for (std::vector<AttributeArray*>::iterator k = rmesh->Geometry->Attributes.begin(); k != rmesh->Geometry->Attributes.end(); k++)
+			for (std::vector<AttributeArray*>::iterator k = meshAttributes.begin(); k != meshAttributes.end(); k++)
 			{
 				AttributeBuffer* bf = (AttributeBuffer*)(*k);
 
@@ -2380,7 +2395,7 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		// Mesh's actual per-buffer vertex attribute layout (name/type/
 		// offset/divisor per attribute, stride per buffer) - see the
 		// comment on IRenderDevice::PipelineDesc::vertexLayout.
-		for (std::vector<AttributeArray*>::iterator k = rmesh->Geometry->Attributes.begin(); k != rmesh->Geometry->Attributes.end(); k++)
+		for (std::vector<AttributeArray*>::iterator k = meshAttributes.begin(); k != meshAttributes.end(); k++)
 		{
 			AttributeBuffer* bf = (AttributeBuffer*)(*k);
 			IRenderDevice::VertexBufferLayoutDesc bufferLayout;

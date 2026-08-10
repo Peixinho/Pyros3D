@@ -32,25 +32,23 @@ namespace p3d {
 
 	}
 
+	// Both of these keep the buffer on the component (see
+	// RenderingComponent::ownAttributeBuffers) rather than pushing it onto
+	// the Renderable's geometries, which are shared between every component
+	// drawing the same mesh.
 	void IRenderingInstancedComponent::AddBuffer(AttributeBuffer* buffer)
 	{
-		for (std::vector<IGeometry*>::iterator i = renderable->Geometries.begin(); i != renderable->Geometries.end(); i++)
-		{
-			(*i)->Attributes.push_back(buffer);
-		}
+		ownAttributeBuffers.push_back(buffer);
 	}
 
 	void IRenderingInstancedComponent::RemoveBuffer(AttributeBuffer* buffer)
 	{
-		for (std::vector<IGeometry*>::iterator i = renderable->Geometries.begin(); i != renderable->Geometries.end(); i++)
+		for (std::vector<AttributeBuffer*>::iterator i = ownAttributeBuffers.begin(); i != ownAttributeBuffers.end(); i++)
 		{
-			for (std::vector<AttributeArray*>::iterator j = (*i)->Attributes.begin(); j != (*i)->Attributes.end(); j++)
+			if ((*i) == buffer)
 			{
-				if ((*j)==buffer)
-				{
-					(*i)->Attributes.erase(j);
-					break;
-				}
+				ownAttributeBuffers.erase(i);
+				break;
 			}
 		}
 	}

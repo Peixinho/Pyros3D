@@ -226,6 +226,18 @@ namespace p3d {
 
 		Renderable* GetRenderable() { return renderable.get(); }
 
+		// Attribute buffers belonging to this component rather than to the
+		// geometry it draws - the per-instance transform stream, particle
+		// streams, whatever AddBuffer() is handed. Deliberately not stored
+		// on Renderable's IGeometry::Attributes: a Renderable is shared, so
+		// two instanced components drawing the same mesh (a grass field cut
+		// into one component per chunk, say) would each append their own
+		// buffer to that one shared list, and every component would then
+		// bind all of them to the same attribute location - last write
+		// wins, and every chunk ends up drawing the last chunk's instances.
+		// BindMesh() walks the geometry's attributes and then these.
+		std::vector<AttributeBuffer*> ownAttributeBuffers;
+
 		// Get Model Skeleton
 		const std::map<StringID, Bone> &GetSkeleton() const { return skeleton; }
 		bool HasBones() { return hasBones; }
