@@ -5426,6 +5426,22 @@ namespace p3d {
 		offscreenPassOpen = false;
 	}
 
+	// Measured, so it does not get "optimised" again on suspicion: under a
+	// vsync-capped present this is where the frame's idle lands, not where
+	// it is created. On the streamed grass scene the whole frame is ~16.7ms
+	// of which ~1.3ms is real work (SceneGraph 0.34, PreRender 0.44,
+	// RenderScene 0.45, submit+present 0.09) - sampling puts ~2270 of the
+	// main thread's samples inside this call, and VK.Acquire and VK.Present
+	// are 0.008ms and 0.009ms. It absorbs the wait because it is the first
+	// blocking call in the frame; remove it and the same wait reappears at
+	// acquire.
+	//
+	// So it costs nothing today. What it does cost is pipelining depth:
+	// frame N cannot begin GPU work until N-1 has completed, which only
+	// matters once a frame's real work exceeds the refresh interval. Worth
+	// revisiting then - the fix would be double-buffering the pre-frame
+	// render targets so this wait can be narrowed to the textures a pass
+	// actually rewrites, not removing the wait.
 	void VulkanRenderDevice::WaitAllFrameFences()
 	{
 		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;

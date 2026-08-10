@@ -367,6 +367,22 @@ namespace p3d {
 			// framebufferOnly's perf benefit (lets the driver skip a
 			// present-compatible memory layout) is free to take.
 			layer.framebufferOnly = YES;
+			// Deliberately not setting displaySyncEnabled = NO here, having
+			// measured it. The backend is capped at exactly 60fps and that
+			// property looks like the cause (it defaults to YES, and
+			// MoltenVK sets it to NO for VK_PRESENT_MODE_IMMEDIATE_KHR),
+			// but it is not: with it set to NO and reading back 0, timing
+			// BeginFrame showed [layer nextDrawable] blocking 16.1ms per
+			// frame while the frame-boundary semaphore cost 0.03ms. The
+			// pacing is WindowServer recycling one drawable per refresh for
+			// a composited window, which that property does not control -
+			// it only changed frame times from a steady 16.67ms to a
+			// jittery 16.7-18.5ms. GL is uncapped here only because its
+			// presentation path does not go through a CAMetalLayer at all.
+			//
+			// This caps throughput measurement, not real work: per-scope
+			// CPU timings are unaffected by present pacing, which is how
+			// the Vulkan offscreen-stall fix was measured.
 			layer.drawableSize = CGSizeMake((CGFloat)width, (CGFloat)height);
 		}
 
