@@ -59,9 +59,29 @@ namespace p3d {
 #define INT_MAX 2147483647
 #endif
 
-#define Min(a,b) ((a)<(b)?(a):(b))
-#define Max(a,b) ((a)>(b)?(a):(b))
-#define Clamp(x) ( Min(Max(x,-1),1) )
+// Were function-like macros. A macro named Min/Max is not scoped to
+// anything, so it rewrites those identifiers everywhere - including inside
+// unrelated third-party headers included afterwards. ImGui's ImRect has
+// members literally called Min and Max, so any translation unit that
+// included this before imgui_internal.h failed to compile with
+// "too few arguments provided to function-like macro invocation", which
+// says nothing at all about the actual cause. Templates keep the spelling
+// at all 15 call sites while confining them to p3d::Math, which every user
+// already pulls in via the using-directive below.
+//
+// They also evaluate their arguments once each, where the macros evaluated
+// one of them twice - Max(i++, n) was a latent bug waiting for a caller.
+namespace p3d {
+	namespace Math {
+		// Two type parameters, returning the common type, because the macros
+		// these replace were happily called with mixed int/float arguments
+		// (Mouse3D's ray-slab test does exactly that) and the usual
+		// arithmetic conversions are the behaviour those call sites expect.
+		template <typename A, typename B> inline auto Min(const A a, const B b) -> decltype(a < b ? a : b) { return a < b ? a : b; }
+		template <typename A, typename B> inline auto Max(const A a, const B b) -> decltype(a > b ? a : b) { return a > b ? a : b; }
+		template <typename T> inline T Clamp(const T x) { return (T)Min(Max(x, (T)-1), (T)1); }
+	}
+}
 
 using namespace p3d::Math;
 
