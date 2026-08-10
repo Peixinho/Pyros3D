@@ -186,15 +186,15 @@ namespace p3d {
 	{
 		// Add Attachment
 		FBOAttachment* attach = new FBOAttachment();
-		attach->AttachmentFormatInternal = attachmentFormat;
+		attach->EngineAttachmentFormat = attachmentFormat;
 		attach->AttachmentType = FBOAttachmentType::Texture;
 		attach->TexturePTR = attachment;
-		attach->TextureType = TextureType;
+		attach->NativeTextureTarget = TextureType;
 
 		// Get Attatchment Format
-		attach->AttachmentFormat = Device().TranslateFramebufferAttachment(attach->AttachmentFormatInternal);
+		attach->NativeAttachmentFormat = Device().TranslateFramebufferAttachment(attach->EngineAttachmentFormat);
 
-		if (attach->AttachmentFormatInternal >= FrameBufferAttachmentFormat::Color_Attachment0 && attachmentFormat <= FrameBufferAttachmentFormat::Color_Attachment15 && !drawBuffers)
+		if (attach->EngineAttachmentFormat >= FrameBufferAttachmentFormat::Color_Attachment0 && attachmentFormat <= FrameBufferAttachmentFormat::Color_Attachment15 && !drawBuffers)
 			drawBuffers = true;
 
 		// TextureType translation reuses the same GL_TEXTURE_CUBE_MAP_*/
@@ -203,7 +203,7 @@ namespace p3d {
 		// since a framebuffer attachment target is always the specific
 		// face/2D target, never the GL_TEXTURE_CUBE_MAP "family" token.
 		uint32 unusedSubMode;
-		Device().TranslateTextureTarget(TextureType, attach->TextureType, unusedSubMode);
+		Device().TranslateTextureTarget(TextureType, attach->NativeTextureTarget, unusedSubMode);
 
 		AddAttachToVector(attach);
 
@@ -212,7 +212,7 @@ namespace p3d {
 			Device().BindFramebuffer(Device().TranslateFramebufferAccess(FBOAccess::Read_Write), fbo, false);
 
 		// Add Attach
-		Device().AttachFramebufferTexture2D(attach->AttachmentFormat, attach->TextureType, attach->TexturePTR->GetBindID(), wasAlreadyBound);
+		Device().AttachFramebufferTexture2D(attach->NativeAttachmentFormat, attach->NativeTextureTarget, attach->TexturePTR->GetBindID(), wasAlreadyBound);
 
 #if !defined(GLES3)
 
@@ -228,7 +228,7 @@ namespace p3d {
 			uint32 counter = 0;
 			for (std::vector<FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
 			{
-				if ((*i)->AttachmentFormatInternal >= FrameBufferAttachmentFormat::Color_Attachment0 && (*i)->AttachmentFormatInternal <= FrameBufferAttachmentFormat::Color_Attachment15) {
+				if ((*i)->EngineAttachmentFormat >= FrameBufferAttachmentFormat::Color_Attachment0 && (*i)->EngineAttachmentFormat <= FrameBufferAttachmentFormat::Color_Attachment15) {
 					ColorAttachmentIndices.push_back(counter++);
 				}
 			}
@@ -247,7 +247,7 @@ namespace p3d {
 
 		// Add Attachment
 		FBOAttachment* attach = new FBOAttachment();
-		attach->AttachmentFormatInternal = attachmentFormat;
+		attach->EngineAttachmentFormat = attachmentFormat;
 		attach->AttachmentType = FBOAttachmentType::RenderBuffer;
 		attach->Width = Width;
 		attach->Height = Height;
@@ -260,7 +260,7 @@ namespace p3d {
 		Device().BindRenderbuffer(attach->rboID);
 
 		// Get Attatchment Format
-		attach->AttachmentFormat = Device().TranslateFramebufferAttachment(attach->AttachmentFormatInternal);
+		attach->NativeAttachmentFormat = Device().TranslateFramebufferAttachment(attach->EngineAttachmentFormat);
 
 		AddAttachToVector(attach);
 
@@ -281,7 +281,7 @@ namespace p3d {
 				Device().RenderbufferStorageMultisample(attach->DataType, msaa, attach->Width, attach->Height);
 			}
 			// Same code for both types
-			Device().AttachFramebufferRenderbuffer(attach->AttachmentFormat, attach->rboID);
+			Device().AttachFramebufferRenderbuffer(attach->NativeAttachmentFormat, attach->rboID);
 			Device().BindRenderbuffer(0);
 
 			break;
@@ -302,7 +302,7 @@ namespace p3d {
 				Device().RenderbufferStorageMultisample(attach->DataType, msaa, attach->Width, attach->Height);
 			}
 			// Same code for both types
-			Device().AttachFramebufferRenderbuffer(attach->AttachmentFormat, attach->rboID);
+			Device().AttachFramebufferRenderbuffer(attach->NativeAttachmentFormat, attach->rboID);
 			Device().BindRenderbuffer(0);
 			break;
 		}
@@ -323,7 +323,7 @@ namespace p3d {
 			uint32 counter = 0;
 			for (std::vector<FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
 			{
-				if ((*i)->AttachmentFormatInternal >= FrameBufferAttachmentFormat::Color_Attachment0 && (*i)->AttachmentFormatInternal <= FrameBufferAttachmentFormat::Color_Attachment15) {
+				if ((*i)->EngineAttachmentFormat >= FrameBufferAttachmentFormat::Color_Attachment0 && (*i)->EngineAttachmentFormat <= FrameBufferAttachmentFormat::Color_Attachment15) {
 					ColorAttachmentIndices.push_back(counter++);
 				}
 			}
@@ -340,7 +340,7 @@ namespace p3d {
 	{
 		for (std::vector<FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
 		{
-			if ((*i)->AttachmentFormat == attach->AttachmentFormat)
+			if ((*i)->NativeAttachmentFormat == attach->NativeAttachmentFormat)
 			{
 				delete *i;
 				*i = attach;

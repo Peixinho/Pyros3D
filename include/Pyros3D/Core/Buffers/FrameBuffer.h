@@ -104,14 +104,33 @@ namespace p3d {
 	class PYROS3D_API FBOAttachment
 	{
 	public:
-		uint32 AttachmentFormatInternal;
-		uint32 AttachmentFormat;
+		// Two of these used to be named as if they held engine enums while
+		// actually holding backend-translated values, which cost two separate
+		// debugging sessions on the render-target viewer: a GL depth
+		// attachment reports GL_DEPTH_ATTACHMENT (36096) where
+		// FrameBufferAttachmentFormat::Depth_Attachment is 16, and a 2D
+		// colour target reports GL_TEXTURE_2D (3553) where
+		// TextureType::Texture is 7. Vulkan does not translate the
+		// attachment format at all, so the same comparison "worked" there
+		// and failed on GL. The Native prefix is the whole point: compare
+		// these against nothing, pass them to the device.
+		//
+		// EngineAttachmentFormat is the one that can be compared - it is the
+		// FrameBufferAttachmentFormat::* the caller actually passed. It was
+		// called AttachmentFormatInternal, which reads like GL's
+		// `internalFormat` (a pixel format) and means the opposite of what it
+		// says.
+		uint32 EngineAttachmentFormat;
+		uint32 NativeAttachmentFormat;
 		uint32 AttachmentType;
 
 		// Texture Specific - TexturePTR is borrowed (owned by whoever called
 		// AddAttach), never freed here.
 		Texture *TexturePTR;
-		uint32 TextureType;
+		// Native target (GL_TEXTURE_2D, GL_TEXTURE_CUBE_MAP_POSITIVE_X, ...),
+		// not TextureType::*. For the engine value ask the texture:
+		// TexturePTR->GetTextureType().
+		uint32 NativeTextureTarget;
 
 		// RenderBuffer Specific - rboID is owned; released in the destructor.
 		uint32 Width;

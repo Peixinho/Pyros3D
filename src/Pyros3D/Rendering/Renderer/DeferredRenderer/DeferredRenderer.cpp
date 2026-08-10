@@ -1382,7 +1382,7 @@ namespace p3d {
 	{
 		const std::vector<FBOAttachment*> &attachments = FBO->GetAttachments();
 		for (size_t i = 0; i < attachments.size(); i++)
-			if (attachments[i]->AttachmentFormatInternal == attachmentFormat)
+			if (attachments[i]->EngineAttachmentFormat == attachmentFormat)
 				return attachments[i]->TexturePTR;
 		return NULL;
 	}

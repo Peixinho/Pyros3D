@@ -564,7 +564,7 @@ void DemoLauncher::DrawRenderTargetViewer()
 					ImGui::PushID((int)a);
 
 					// Depth is decided from the texture's data type, not from
-					// att->AttachmentFormat: that field holds a
+					// att->NativeAttachmentFormat: that field holds a
 					// backend-translated value (GL_DEPTH_ATTACHMENT = 36096
 					// on GL, the untranslated engine 16 on Vulkan), so
 					// comparing it against the engine enum silently reported
@@ -596,7 +596,7 @@ void DemoLauncher::DrawRenderTargetViewer()
 						continue;
 					}
 
-					// tex->GetTextureType(), NOT att->TextureType: the
+					// tex->GetTextureType(), NOT att->NativeTextureTarget: the
 					// attachment stores the *native* target (GL_TEXTURE_2D,
 					// 3553), while the device expects the engine enum.
 					const bool isCube = (tex->GetTextureType() >= TextureType::CubemapPositive_X &&
