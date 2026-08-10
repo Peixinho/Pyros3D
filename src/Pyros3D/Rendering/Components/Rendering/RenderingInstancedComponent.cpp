@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.h>
+#include <cmath>
 
 namespace p3d {
     IRenderingInstancedComponent::IRenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, const uint32 nrInstances, const f32 boundingSphere) : RenderingComponent(renderable, Material)
@@ -94,6 +95,72 @@ namespace p3d {
 		if (color_buffer == NULL)
 			return;
 		color_buffer->Buffer->Update(&instanceColor[0], instanceColor.size()*sizeof(Vec4));
+	}
+
+	// Same sin-based hash the shader/script scatters have always used here,
+	// kept deliberately so a field generated in C++ matches one generated in
+	// Lua from the same seed - a scene can move a chunk from one to the other
+	// without the grass visibly rearranging itself.
+	static inline f32 ScatterHash(const f32 a, const f32 b)
+	{
+		f32 v = sinf(a * 12.9898f + b * 78.233f) * 43758.5453f;
+		return v - floorf(v);
+	}
+
+	void RenderingInstancedComponent::ScatterInstances(const uint32 seed, const f32 cellSizeX, const f32 cellSizeZ,
+	                                                   const f32 itemHeight, const f32 minScale, const f32 maxScale,
+	                                                   const uint32 items, const uint32 quadsPerItem,
+	                                                   const Vec4 &tintLow, const Vec4 &tintHigh)
+	{
+		if (items == 0 || quadsPerItem == 0)
+			return;
+
+		const f32 seedF = (f32)seed;
+		const bool tint = (color_buffer != NULL);
+
+		// Quad-major, not item-major - see the header comment. Instance
+		// index = quad * items + item, so instances [0, items) are one quad
+		// for every item, which is the useful half-quality version.
+		for (uint32 q = 0; q < quadsPerItem; q++)
+		{
+			for (uint32 i = 0; i < items; i++)
+			{
+				const uint32 index = q * items + i;
+				if (index >= transform.size())
+					return;
+
+				const f32 fi = (f32)i + 1.f;
+				const f32 rx = ScatterHash(fi, seedF + 1.7f);
+				const f32 rz = ScatterHash(fi, seedF + 5.3f);
+				const f32 rr = ScatterHash(fi, seedF + 9.1f);
+
+				const f32 scale = minScale + rr * (maxScale - minScale);
+				// Quads of one item share a position and differ only in yaw,
+				// spread evenly over a half turn so two of them make a cross.
+				const f32 yaw = rr * (f32)M_PI + (f32)q * (f32)M_PI / (f32)quadsPerItem;
+
+				Matrix m;
+				m.Scale(scale, scale, scale);
+				m.RotationY(yaw);
+				m.Translate((rx - 0.5f) * cellSizeX, itemHeight * 0.5f * scale, (rz - 0.5f) * cellSizeZ);
+				transform[index] = m;
+
+				if (tint && index < instanceColor.size())
+				{
+					// Darkness correlates with scale (rr drives both), so the
+					// short blades are the dark ones.
+					const f32 t = rr;
+					instanceColor[index] = Vec4(
+						tintLow.x + (tintHigh.x - tintLow.x) * t,
+						tintLow.y + (tintHigh.y - tintLow.y) * t,
+						tintLow.z + (tintHigh.z - tintLow.z) * t,
+						tintLow.w + (tintHigh.w - tintLow.w) * t);
+				}
+			}
+		}
+
+		UpdateTransforms();
+		UpdateInstanceColors();
 	}
 
 	void RenderingInstancedComponent::UpdateTransforms()

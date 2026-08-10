@@ -606,6 +606,17 @@ namespace p3d {
                     return c.instanceColor[index - 1];
                 },
                 "updateInstanceColors", &LUA_RenderingInstancedComponent::UpdateInstanceColors,
+                // Bulk scatter in C++ - see ScatterInstances()' comment.
+                // The per-instance setTransform path above costs one bound
+                // call each, which is fine for a fixed set laid out at load
+                // and hopeless for streaming chunks in at runtime.
+                "scatterInstances", sol::overload(
+                    [](LUA_RenderingInstancedComponent &c, uint32 seed, f32 sx, f32 sz, f32 h, f32 mins, f32 maxs, uint32 items, uint32 quads) {
+                        c.ScatterInstances(seed, sx, sz, h, mins, maxs, items, quads);
+                    },
+                    [](LUA_RenderingInstancedComponent &c, uint32 seed, f32 sx, f32 sz, f32 h, f32 mins, f32 maxs, uint32 items, uint32 quads, const Vec4 &lo, const Vec4 &hi) {
+                        c.ScatterInstances(seed, sx, sz, h, mins, maxs, items, quads, lo, hi);
+                    }),
                 "onUpdate", &LUA_RenderingInstancedComponent::on_update,
                 "onInit", &LUA_RenderingInstancedComponent::on_init,
                 "onDestroy", &LUA_RenderingInstancedComponent::on_destroy,
