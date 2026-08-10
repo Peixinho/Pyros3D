@@ -5450,22 +5450,39 @@ namespace p3d {
 	// blocking call in the frame; remove it and the same wait reappears at
 	// acquire.
 	//
-	// So it costs nothing today. What it does cost is pipelining depth:
-	// frame N cannot begin GPU work until N-1 has completed, which only
-	// matters once a frame's real work exceeds the refresh interval. Worth
-	// revisiting then - the fix would be double-buffering the pre-frame
-	// render targets so this wait can be narrowed to the textures a pass
-	// actually rewrites, not removing the wait.
+	// So it costs nothing today. What it costs in theory is pipelining
+	// depth: frame N cannot begin GPU work until N-1 has completed. An
+	// earlier version of this comment said that would start to matter once a
+	// frame's real work exceeded the refresh interval, and recommended
+	// double-buffering the pre-frame render targets when it did. That
+	// condition has since been built and measured, and it does not matter
+	// there either - see below before acting on the suggestion.
 	//
-	// Re-measured by ablation on the worst case rather than the grass scene,
-	// because the grass numbers above understate it: Island (Planar
-	// Reflections) calls this 4x per frame at ~0.88ms, so ~3.5ms of a 16.7ms
-	// frame - 21% of the budget, which looks alarming until you remove the
-	// wait entirely and the frame pacing moves by 0.008ms (4.172 -> 4.180ms
-	// per call). 21% of the budget, 0% of the critical path. Do not "fix"
-	// this on the strength of the 21%; the number that would justify the
-	// work is frame pacing improving when the wait is skipped, and today it
-	// does not move.
+	// Re-measured by ablation (skip the wait, compare frame pacing) on
+	// Island (Planar Reflections), the worst case, since the grass numbers
+	// above understate it - it calls this 4x per frame:
+	//
+	//   at native RT size   stall 0.88ms/call, 21% of budget
+	//                       pacing with 4.172ms/call, without 4.180ms
+	//   at 6x supersampled  stall ~6.9ms/call, 82% of CPU wall time
+	//   RTs (~30ms frames,  pacing with 8.334ms/call, without 8.334ms
+	//   genuinely GPU-bound)
+	//
+	// Both regimes: identical throughput. Below the display cap the wait
+	// lands in idle that reappears at acquire; above it the GPU is the
+	// bottleneck, so a CPU wait on the GPU is free by definition. The wait
+	// is only ever reached by scenes doing pre-frame offscreen passes, and
+	// those are GPU-heavy by construction - which is why there is no regime
+	// in between where it bites.
+	//
+	// Two traps if you re-run this. Run-to-run variance from thermal
+	// throttling is ~20% on a laptop, far larger than the effect: a cold
+	// first run showed a 7% "difference" that vanished once both configs ran
+	// settled. And macOS presents at a hard 60Hz through CAMetalLayer even
+	// though the swapchain reports presentMode=IMMEDIATE, so below the cap
+	// no amount of extra GPU load changes pacing at all - a 16x increase in
+	// offscreen pixels moved it by nothing. You have to actually exceed the
+	// frame budget before the numbers mean anything.
 	void VulkanRenderDevice::WaitAllFrameFences()
 	{
 		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
