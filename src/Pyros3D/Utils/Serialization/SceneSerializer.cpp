@@ -1700,6 +1700,18 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		}
 		in.close();
 
+		// Parsed as JSON, but that does not make it a scene. Every lookup
+		// below assumes an object - root.value("version", ...) on a JSON
+		// array throws type_error.306 straight out of this function, which
+		// contradicts the bool return and terminated the caller. Any .json
+		// reaches this: a file browser filtered to *.json will happily
+		// offer compile_commands.json, which is a top-level array.
+		if (!root.is_object())
+		{
+			echo("ERROR: SceneSerializer::LoadScene - not a scene file (expected a JSON object): " + filePath);
+			return false;
+		}
+
 		// Remap absolute/host asset paths against ASSETS_PATH (DemoLauncher
 		// sets it) or, failing that, the scene file's own assets/ parent.
 		g_sceneAssetRoot.clear();

@@ -4,7 +4,20 @@
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 namespace p3d {
 
-	DebugRenderer::DebugRenderer() : device(new GLRenderDevice())
+	// Same reasoning as PostEffectsManager's ResolvePostEffectsDevice()
+	// (PostEffectsManager.cpp): borrow the already-active device rather
+	// than always constructing a GLRenderDevice, which has no valid glad
+	// function pointers in a Vulkan- or Metal-only process. The editor hit
+	// this immediately on Vulkan - DebugRenderer::Render() called
+	// CreateVertexArray() and jumped to address 0.
+	static MaybeOwningDevicePtr ResolveDebugRendererDevice()
+	{
+		if (IsActiveRenderDeviceSet())
+			return MaybeOwningDevicePtr(&GetActiveRenderDevice(), MaybeOwningDeviceDeleter{false});
+		return MaybeOwningDevicePtr(new GLRenderDevice(), MaybeOwningDeviceDeleter{true});
+	}
+
+	DebugRenderer::DebugRenderer() : device(ResolveDebugRendererDevice())
 	{
 		DebugMaterial = new GenericShaderMaterial(ShaderUsage::DebugRendering);
 		DebugMaterial->EnableDepthTest(DepthTest::Equal);

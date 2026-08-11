@@ -78,3 +78,7 @@ endif()
 if (BUILD_DEMOS)
 	add_subdirectory(${CMAKE_SOURCE_DIR}/examples)
 endif()
+
+if (BUILD_EDITOR)
+	add_subdirectory(${CMAKE_SOURCE_DIR}/editor)
+endif()

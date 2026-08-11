@@ -66,7 +66,12 @@ namespace p3d {
 		// See IRenderDevice.h - same seam IRenderer uses, since
 		// DebugRenderer doesn't inherit IRenderer and has its own small
 		// GL call surface.
-		std::unique_ptr<IRenderDevice> device;
+		// MaybeOwningDevicePtr, not unique_ptr: this used to always own a
+		// freshly constructed GLRenderDevice, which jumps through a NULL
+		// glad pointer the moment it is used in a Vulkan or Metal process
+		// (no GL context exists). Borrow the active device instead - the
+		// same fix PostEffectsManager already carries.
+		MaybeOwningDevicePtr device;
 
 	};
 

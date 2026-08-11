@@ -61,7 +61,11 @@ namespace p3d {
 	for (GLenum __glErr = glGetError(); __glErr != GL_NO_ERROR; __glErr = glGetError()) { \
 		__glHadError = true; \
 		std::ostringstream __glMsg; \
-		__glMsg << "GL Error: " << p3d::GLErrorString(__glErr) << " (0x" << std::hex << __glErr << std::dec << ")" \
+		/* "ERROR:" prefix so LOG::_classify() rates this Level::Error - \
+		   without it the line is Info, which the default Warning \
+		   threshold drops, and the BRK below then kills the process \
+		   without ever saying which GL call failed. */ \
+		__glMsg << "ERROR: GL Error: " << p3d::GLErrorString(__glErr) << " (0x" << std::hex << __glErr << std::dec << ")" \
 			<< " FUNCTION: " << #caller << " LINE: " << __LINE__ << " FILE: " << __FILE__; \
 		echo(__glMsg.str()); \
 	} \

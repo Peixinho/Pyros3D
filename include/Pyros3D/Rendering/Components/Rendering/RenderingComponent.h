@@ -236,6 +236,12 @@ namespace p3d {
 		bool IsCastingShadows();
 
 		Renderable* GetRenderable() { return renderable.get(); }
+		// The owning handle, for callers that need to build another
+		// component over the same geometry (the editor's selection
+		// highlight draws a second RenderingComponent on the same
+		// Renderable) - GetRenderable() alone can't do that any more now
+		// that the constructors take a shared_ptr.
+		const std::shared_ptr<Renderable> &GetRenderableShared() const { return renderable; }
 
 		// Attribute buffers belonging to this component rather than to the
 		// geometry it draws - the per-instance transform stream, particle

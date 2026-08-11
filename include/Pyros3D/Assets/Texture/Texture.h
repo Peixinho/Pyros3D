@@ -144,12 +144,16 @@ namespace p3d {
 		void GetGLModes();
 		void GetInternalFormat();
 
-#if !defined(GLES3)
-		bool LoadDDS(uchar* data, bool Mipmapping = true, const uint32 level = 0);
-#else
-		bool LoadETC1(uchar* data, bool Mipmapping = true, const uint32 level = 0);
-		uint16 swapBytes(uint16 aData);
-#endif
+		// LoadDDS()/LoadETC1() used to live here - a DXT1/3/5 parser for
+		// desktop and an ETC1/PKM one for Android, both added in f45680b.
+		// 5321eb4 ("Massive changes", the OpenGL 4.5 / CMake refactor)
+		// deleted both implementations and the extension dispatch that
+		// chose them, but left these declarations behind. Nothing has
+		// defined them since, so .dds/.pkm now fall through to
+		// LoadTextureFromMemory() and stb_image, which decodes neither.
+		// Declarations dropped rather than left dangling; restoring the
+		// feature means a real compressed-upload path on IRenderDevice
+		// (which has none) or CPU-decoding to RGBA first.
 
 	public:
 

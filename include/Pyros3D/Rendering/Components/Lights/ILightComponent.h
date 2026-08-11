@@ -69,6 +69,18 @@ namespace p3d {
 		bool IsCastingShadows() { return isCastingShadows; }
 		void DisableCastShadows();
 
+	protected:
+
+		// Releases the shadow FBO and map, waiting for the GPU to finish with
+		// them first. The wait is the whole point on Vulkan and Metal, where
+		// the frames that sampled this shadow map may still be in flight when
+		// a reconfiguration destroys it - the same in-flight-submission hazard
+		// PostEffectsManager's destructor guards against. It is a genuine
+		// no-op on GL, so this costs nothing there.
+		void ReleaseShadowResources();
+
+	public:
+
 		FrameBuffer* GetShadowFBO();
 
 		Texture* GetShadowMapTexture() { return ShadowMap.get(); }

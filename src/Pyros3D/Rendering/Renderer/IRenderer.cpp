@@ -1768,9 +1768,36 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 				Shader::SendUniform((*k), &dim, (*_ShadersGlobalCache)[counter]);
 			}
 			break;
+			// A sampler that is never assigned a texture unit keeps the
+			// default of 0. SAMPLER_BINDING() expands to nothing on GL (see
+			// PyrosShader.glsl), so these three are the C++ side's job every
+			// bind - but they were only assigned when the scene actually had
+			// shadow-casting lights. With none, uDirectionalShadowMaps
+			// (sampler2DShadow), uPointShadowMaps (samplerCube) and
+			// uSpotShadowMaps (sampler2DShadow) all sat on unit 0, and GL
+			// makes it a draw-time GL_INVALID_OPERATION for two active
+			// samplers of different types to name the same texture image
+			// unit. Every draw with a shadow-capable material therefore
+			// failed the moment the scene had no shadow casters - which is
+			// every scene before the first light is added.
+			//
+			// Nothing needs to be *bound* to the fallback units: the shader
+			// only samples these inside its per-light loops, which run zero
+			// times when uNumberOfDirectionalShadows/etc are 0. They just
+			// have to be distinct from each other so the type conflict goes
+			// away. Units 13-15 are used because material samplers are
+			// allocated upward from 0 by Texture::Bind() and there are only
+			// eight of them (colormap/fontmap/normalmap/displacement/env/
+			// refract/skybox/specular), while GL 4.1 guarantees at least 16
+			// per-stage texture image units.
 			case Uniforms::DataUsage::DirectionalShadowMap:
 				if (DirectionalShadowMapsUnits.size() > 0)
 					Shader::SendUniform((*k), &DirectionalShadowMapsUnits[0], (*_ShadersGlobalCache)[counter], DirectionalShadowMapsUnits.size());
+				else
+				{
+					int32 unusedUnit = 13;
+					Shader::SendUniform((*k), &unusedUnit, (*_ShadersGlobalCache)[counter], 1);
+				}
 				break;
 			case Uniforms::DataUsage::DirectionalShadowMatrix:
 				if (DirectionalShadowMatrix.size() > 0)
@@ -1785,18 +1812,33 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			case Uniforms::DataUsage::PointShadowMap:
 				if (PointShadowMapsUnits.size() > 0)
 					Shader::SendUniform((*k), &PointShadowMapsUnits[0], (*_ShadersGlobalCache)[counter], PointShadowMapsUnits.size());
+				else
+				{
+					int32 unusedUnit = 14;   // distinct from the directional one above
+					Shader::SendUniform((*k), &unusedUnit, (*_ShadersGlobalCache)[counter], 1);
+				}
 				break;
 			case Uniforms::DataUsage::PointShadowMatrix:
-				Shader::SendUniform((*k), &PointShadowMatrix[0], (*_ShadersGlobalCache)[counter], PointShadowMatrix.size());
+				if (PointShadowMatrix.size() > 0)
+					Shader::SendUniform((*k), &PointShadowMatrix[0], (*_ShadersGlobalCache)[counter], PointShadowMatrix.size());
 				break;
 			case Uniforms::DataUsage::NumberOfPointShadows:
 				Shader::SendUniform((*k), &NumberOfPointShadows, (*_ShadersGlobalCache)[counter]);
 				break;
 			case Uniforms::DataUsage::SpotShadowMap:
-				Shader::SendUniform((*k), &SpotShadowMapsUnits[0], (*_ShadersGlobalCache)[counter], SpotShadowMapsUnits.size());
+				// Was &SpotShadowMapsUnits[0] unguarded, unlike its
+				// Directional/Point neighbours - indexing an empty vector.
+				if (SpotShadowMapsUnits.size() > 0)
+					Shader::SendUniform((*k), &SpotShadowMapsUnits[0], (*_ShadersGlobalCache)[counter], SpotShadowMapsUnits.size());
+				else
+				{
+					int32 unusedUnit = 15;   // distinct from the two above
+					Shader::SendUniform((*k), &unusedUnit, (*_ShadersGlobalCache)[counter], 1);
+				}
 				break;
 			case Uniforms::DataUsage::SpotShadowMatrix:
-				Shader::SendUniform((*k), &SpotShadowMatrix[0], (*_ShadersGlobalCache)[counter], SpotShadowMatrix.size());
+				if (SpotShadowMatrix.size() > 0)
+					Shader::SendUniform((*k), &SpotShadowMatrix[0], (*_ShadersGlobalCache)[counter], SpotShadowMatrix.size());
 				break;
 			case Uniforms::DataUsage::NumberOfSpotShadows:
 				Shader::SendUniform((*k), &NumberOfSpotShadows, (*_ShadersGlobalCache)[counter]);
@@ -2455,6 +2497,11 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		pdesc.depthWrite = material->IsDepthWritting();
 		pdesc.cullFace = material->GetCullFace();
 		pdesc.wireframe = material->IsWireFrame();
+		// Vulkan bakes primitive topology into the pipeline. The cache this
+		// feeds is per-RenderingMesh and drawingType is a per-mesh property,
+		// so no pipeline key change is needed - two meshes with different
+		// topologies already get separate pipelines.
+		pdesc.drawingType = rmesh->drawingType;
 		// See the comment on PipelineDesc::isShadowPass - the shadow
 		// materials are the specific shared IRenderer members
 		// RenderObject() passes in as `Material` while rendering a

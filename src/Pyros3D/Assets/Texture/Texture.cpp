@@ -140,14 +140,24 @@ namespace p3d {
 
 		uchar* imagePTR;
 		imagePTR = stbi_load_from_memory(&data[0], length, &w, &h, &bpp ,4);
-		pixels.resize(w * h * 4 * sizeof(uchar));
-		memcpy(&pixels[0], imagePTR, w * h * 4 * sizeof(uchar));
-		stbi_image_free(imagePTR);
+
+		// Check the result *before* touching w/h/imagePTR. On failure stb
+		// returns NULL and leaves w/h uninitialized, so the resize() below
+		// was handed a garbage size - std::length_error escaping as far as
+		// terminate() - and the memcpy() read from NULL. The check existed
+		// already; it just ran three lines too late to do its job. Any
+		// format stb cannot decode reaches this (it has no DDS support at
+		// all), so an unreadable texture killed the process instead of
+		// returning false.
 		ImageLoaded = imagePTR!=NULL;
 		if (!ImageLoaded) {
 			echo("ERROR: Failed to Open Texture");
 			return false;
 		}
+
+		pixels.resize(w * h * 4 * sizeof(uchar));
+		memcpy(&pixels[0], imagePTR, w * h * 4 * sizeof(uchar));
+		stbi_image_free(imagePTR);
 
 		if (this->Width.size() < level + 1)
 		{

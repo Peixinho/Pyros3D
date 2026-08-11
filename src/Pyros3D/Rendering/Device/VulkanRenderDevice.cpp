@@ -19,6 +19,7 @@
 #define VMA_IMPLEMENTATION
 #include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>   // DrawingType
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -1874,7 +1875,7 @@ namespace p3d {
 
 		VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
 		inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-		inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+		inputAssembly.topology = (VkPrimitiveTopology)TranslateDrawType(desc.drawingType);
 
 		// Viewport/scissor left dynamic (set per-command-buffer via
 		// vkCmdSetViewport/vkCmdSetScissor once real draw recording exists)
@@ -2417,7 +2418,29 @@ namespace p3d {
 		return xyOnlyBias;
 	}
 
-	uint32 VulkanRenderDevice::TranslateDrawType(const uint32 engineDrawType) { return 0; }
+	// Vulkan bakes primitive topology into the pipeline rather than the draw
+	// call, so this feeds CreatePipeline()'s inputAssembly instead of
+	// DrawElements(). It used to return 0 unconditionally while CreatePipeline()
+	// hardcoded TRIANGLE_LIST - so every line/point mesh (the editor's grid,
+	// every DebugRenderer bounding volume) was drawn as triangles.
+	// Line_Loop, Quads and Polygons have no Vulkan topology; they fall back to
+	// the nearest primitive that still draws something.
+	uint32 VulkanRenderDevice::TranslateDrawType(const uint32 engineDrawType)
+	{
+		switch (engineDrawType)
+		{
+		case DrawingType::Lines:          return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+		case DrawingType::Line_Loop:      return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;  // no loop topology; last segment missing
+		case DrawingType::Line_Strip:     return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+		case DrawingType::Points:         return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+		case DrawingType::Triangle_Strip: return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+		case DrawingType::Triangle_Fan:   return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
+		case DrawingType::Quads:
+		case DrawingType::Polygons:
+		case DrawingType::Triangles:
+		default:                          return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+		}
+	}
 
 	// Non-indexed draw - PostEffectsManager's full-screen-triangle pass is
 	// the only user (IEffect.cpp's shared vertex shader computes its

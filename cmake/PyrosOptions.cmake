@@ -80,6 +80,7 @@ option(STATIC_LIB "Build PyrosEngine as a static library" OFF)
 option(BUILD_SPIRV_TOOLING "GLSL→SPIR-V tooling (shaderc + spirv-cross)" ON)
 option(BUILD_CONVERTER "Build Assimp model converter tool" OFF)
 option(BUILD_DEMOS "Build DemoLauncher / CppApiDemo" OFF)
+option(BUILD_EDITOR "Build the PyrosBuilder scene editor (needs an OpenGL context)" OFF)
 
 # Vulkan render device: on when the user picked Vulkan graphics or an
 # explicit SDL2Vulkan context. Still overridable via -DBUILD_VULKAN_BACKEND=.
@@ -146,6 +147,7 @@ message(STATUS "  BUILD_VULKAN_BACKEND = ${BUILD_VULKAN_BACKEND}")
 message(STATUS "  BUILD_METAL_BACKEND  = ${BUILD_METAL_BACKEND}")
 message(STATUS "  BUILD_SPIRV_TOOLING  = ${BUILD_SPIRV_TOOLING}")
 message(STATUS "  BUILD_DEMOS          = ${BUILD_DEMOS}")
+message(STATUS "  BUILD_EDITOR         = ${BUILD_EDITOR}")
 message(STATUS "  HAVE_LUA_BINDINGS    = ${HAVE_LUA_BINDINGS}")
 message(STATUS "  LIB_TYPE             = ${LIB_TYPE}")
 if (EMSCRIPTEN)

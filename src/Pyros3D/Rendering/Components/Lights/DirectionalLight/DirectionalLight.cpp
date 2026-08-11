@@ -157,97 +157,102 @@ namespace p3d {
 
 	void DirectionalLight::EnableCastShadows(const uint32 Width, const uint32 Height, const Projection &projection, const f32 Near, const f32 Far, const uint32 Cascades)
 	{
-		if (!isCastingShadows)
+		// Was wrapped in if (!isCastingShadows), which made this a silent
+		// no-op when called on a light that was already casting - so nothing
+		// could change a live shadow map's resolution, range or cascade
+		// count without disabling it first. Reconfiguration is now the
+		// supported path; release the old FBO/map (waiting for the GPU, see
+		// ReleaseShadowResources) before building the replacements.
+		if (isCastingShadows) ReleaseShadowResources();
+
+		// Save Dimensions
+		uint32 ShadowWidthFBO = Width;
+		uint32 ShadowHeightFBO = Height;
+		ShadowWidth = Width;
+		ShadowHeight = Height;
+
+		// Set Flag
+		isCastingShadows = true;
+
+		// Initiate FBO (releases any previously owned FBO/texture first)
+		shadowsFBO.reset(new FrameBuffer());
+
+		// Minimum 1 and Maximum is 4 Cascades
+		if (Cascades <= 0) ShadowCascades = 1;
+		else if (Cascades >= 4) ShadowCascades = 4;
+		else ShadowCascades = Cascades;
+
+		// Set FBO Dimensions
+		if (ShadowCascades > 1)
 		{
-			// Save Dimensions
-			uint32 ShadowWidthFBO = Width;
-			uint32 ShadowHeightFBO = Height;
-			ShadowWidth = Width;
-			ShadowHeight = Height;
+			ShadowWidthFBO = Width * 2;
+			ShadowHeightFBO = Height * 2;
+		}
 
-			// Set Flag
-			isCastingShadows = true;
-
-			// Initiate FBO (releases any previously owned FBO/texture first)
-			shadowsFBO.reset(new FrameBuffer());
-
-			// Minimum 1 and Maximum is 4 Cascades
-			if (Cascades <= 0) ShadowCascades = 1;
-			else if (Cascades >= 4) ShadowCascades = 4;
-			else ShadowCascades = Cascades;
-
-			// Set FBO Dimensions
-			if (ShadowCascades > 1)
-			{
-				ShadowWidthFBO = Width * 2;
-				ShadowHeightFBO = Height * 2;
-			}
-
-			ShadowMap.reset(new Texture());
+		ShadowMap.reset(new Texture());
 
 #if defined(GLLEGACY)
 
-			// Create Texture, Frame Buffer and Set the Texture as Attachment
-			ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, ShadowWidthFBO, ShadowHeightFBO, false);
-			ShadowMap->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
+		// Create Texture, Frame Buffer and Set the Texture as Attachment
+		ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, ShadowWidthFBO, ShadowHeightFBO, false);
+		ShadowMap->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
 
-			// Initialize Frame Buffer
-			shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
-			shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, ShadowMap.get());
+		// Initialize Frame Buffer
+		shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
+		shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, ShadowMap.get());
 #else
-			// GPU Shadow Maps
-			// Create Texture, Frame Buffer and Set the Texture as Attachment
-			ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, ShadowWidthFBO, ShadowHeightFBO, false);
-			ShadowMap->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
-			ShadowMap->EnableCompareMode();
-			shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, ShadowMap.get());
+		// GPU Shadow Maps
+		// Create Texture, Frame Buffer and Set the Texture as Attachment
+		ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, ShadowWidthFBO, ShadowHeightFBO, false);
+		ShadowMap->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
+		ShadowMap->EnableCompareMode();
+		shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, ShadowMap.get());
 #endif
-			// Near and Far Clip Planes
-			ShadowNear = Near;
-			ShadowFar = Far;
+		// Near and Far Clip Planes
+		ShadowNear = Near;
+		ShadowFar = Far;
 
-			// View Projection Matrix
-			ShadowProjection = projection.m;
+		// View Projection Matrix
+		ShadowProjection = projection.m;
 
-			for (uint32 i = 0; i < MAX_SPLITS; i++)
-			{
-				// projection.Fov is already in degrees (Projection::Perspective
-				// stores its raw `fov` parameter with no conversion, and every
-				// caller - e.g. the examples' projection.Perspective(70.f,...) -
-				// passes degrees). This used to run it through RADTODEG() anyway,
-				// as if it were radians, producing a bogus ~4011-degree value
-				// (RADTODEG(70) = 70*180/PI) instead of ~70 - which, combined
-				// with Cascade::UpdateFrustumPoints correctly converting back to
-				// radians before tan(), aliased through tan()'s periodicity into
-				// a wrong-but-plausible-looking, constant ~32% undersized
-				// frustum half-angle. That silently made the shadow crop box
-				// tighter than the camera's real frustum on every frame,
-				// clipping real on-screen geometry near the edges of view.
-				this->Cascades[i].Fov = projection.Fov + CASCADE_FACTOR;
-				this->Cascades[i].Ratio = projection.Aspect;
-			}
-
-			// Build Frustums
-			f32 lambda = SPLIT_WEIGHT;
-			f32 ratio = Far / Near;
-			this->Cascades[0].Near = Near;
-			this->Cascades[0].Width = (f32)Width;
-			this->Cascades[0].Height = (f32)Height;
-
-			for (uint32 i = 1; i < ShadowCascades; i++)
-			{
-				f32 si = (f32)i / (f32)ShadowCascades;
-
-				this->Cascades[i].Near = lambda*(Near*powf(ratio, si)) + (1.f - lambda)*(Near + (Far - Near)*si);
-				this->Cascades[i - 1].Far = this->Cascades[i].Near * 1.005f;
-				this->Cascades[i].Width = (f32)Width;
-				this->Cascades[i].Height = (f32)Height;
-			}
-			// Set Far on Last Split
-			this->Cascades[ShadowCascades - 1].Far = Far;
-			this->Cascades[ShadowCascades - 1].Width = (f32)Width;
-			this->Cascades[ShadowCascades - 1].Height = (f32)Height;
+		for (uint32 i = 0; i < MAX_SPLITS; i++)
+		{
+			// projection.Fov is already in degrees (Projection::Perspective
+			// stores its raw `fov` parameter with no conversion, and every
+			// caller - e.g. the examples' projection.Perspective(70.f,...) -
+			// passes degrees). This used to run it through RADTODEG() anyway,
+			// as if it were radians, producing a bogus ~4011-degree value
+			// (RADTODEG(70) = 70*180/PI) instead of ~70 - which, combined
+			// with Cascade::UpdateFrustumPoints correctly converting back to
+			// radians before tan(), aliased through tan()'s periodicity into
+			// a wrong-but-plausible-looking, constant ~32% undersized
+			// frustum half-angle. That silently made the shadow crop box
+			// tighter than the camera's real frustum on every frame,
+			// clipping real on-screen geometry near the edges of view.
+			this->Cascades[i].Fov = projection.Fov + CASCADE_FACTOR;
+			this->Cascades[i].Ratio = projection.Aspect;
 		}
+
+		// Build Frustums
+		f32 lambda = SPLIT_WEIGHT;
+		f32 ratio = Far / Near;
+		this->Cascades[0].Near = Near;
+		this->Cascades[0].Width = (f32)Width;
+		this->Cascades[0].Height = (f32)Height;
+
+		for (uint32 i = 1; i < ShadowCascades; i++)
+		{
+			f32 si = (f32)i / (f32)ShadowCascades;
+
+			this->Cascades[i].Near = lambda*(Near*powf(ratio, si)) + (1.f - lambda)*(Near + (Far - Near)*si);
+			this->Cascades[i - 1].Far = this->Cascades[i].Near * 1.005f;
+			this->Cascades[i].Width = (f32)Width;
+			this->Cascades[i].Height = (f32)Height;
+		}
+		// Set Far on Last Split
+		this->Cascades[ShadowCascades - 1].Far = Far;
+		this->Cascades[ShadowCascades - 1].Width = (f32)Width;
+		this->Cascades[ShadowCascades - 1].Height = (f32)Height;
 	}
 
 	Matrix DirectionalLight::GetLightProjection(const Matrix &ShadowViewMatrix, const uint32 Cascade, const std::vector<RenderingMesh*> RCompList)

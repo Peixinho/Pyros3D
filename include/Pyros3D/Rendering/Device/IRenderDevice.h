@@ -302,6 +302,12 @@ namespace p3d {
 			uint32 blendEquation; // BlendEq::* value, meaningful only if blendingEnabled
 			uint32 cullFace; // IMaterial.h's CullFace::* value; DoubleSided means "no culling"
 			bool wireframe;
+			// The mesh's DrawingType::* value. GL and Metal take the
+			// primitive type as a draw-call argument and ignore this;
+			// Vulkan bakes topology into the pipeline, so it has to be
+			// known here. Defaults to Triangles so any caller that does
+			// not set it behaves exactly as before.
+			uint32 drawingType;
 			// Mesh's actual per-buffer vertex attribute layout - see
 			// VertexBufferLayoutDesc above. Left empty by any caller that
 			// never populates it (none today - IRenderer::BindMesh()
@@ -339,7 +345,8 @@ namespace p3d {
 			PipelineDesc()
 				: shaderProgram(0), depthTest(true), depthTestMode(DepthTest::Less), depthWrite(true),
 				  blendingEnabled(false), blendSrcFactor(BlendFunc::One), blendDstFactor(BlendFunc::Zero),
-				  blendEquation(BlendEq::Add), cullFace(0), wireframe(false), isShadowPass(false), noVertexInput(false) {}
+				  blendEquation(BlendEq::Add), cullFace(0), wireframe(false), drawingType(0 /* DrawingType::Triangles */),
+				  isShadowPass(false), noVertexInput(false) {}
 		};
 		virtual DeviceHandle CreatePipeline(const PipelineDesc &desc) = 0;
 		virtual void DestroyPipeline(const DeviceHandle pipeline) = 0;

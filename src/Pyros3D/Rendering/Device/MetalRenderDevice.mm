@@ -36,6 +36,7 @@
 #include <string>
 
 #include <Pyros3D/Core/Buffers/GeometryBuffer.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>   // DrawingType
 #include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <Pyros3D/Materials/Shaders/Shaders.h>
 
@@ -1093,7 +1094,31 @@ namespace p3d {
 	// (CreatePipeline() hardcodes MTLPrimitiveTypeTriangle in
 	// DrawElements()/DrawElementsInstanced() directly), not the draw call,
 	// same reasoning as VulkanRenderDevice's identical stub.
-	uint32 MetalRenderDevice::TranslateDrawType(const uint32 engineDrawType) { (void)engineDrawType; return 0; }
+	// Metal takes the primitive type as a draw-call argument (unlike Vulkan,
+	// which bakes it into the pipeline), so a real translation is all this
+	// backend needs. Was a stub returning 0, which meant every mesh drew as
+	// MTLPrimitiveTypeTriangle regardless - the editor's line grid came out
+	// as filled triangles, as did every DebugRenderer bounding volume.
+	// Line_Loop, Quads and Polygons have no Metal equivalent (Metal dropped
+	// them along with the fixed-function pipeline); they fall back to the
+	// nearest primitive that still shows something rather than drawing
+	// nothing at all.
+	uint32 MetalRenderDevice::TranslateDrawType(const uint32 engineDrawType)
+	{
+		switch (engineDrawType)
+		{
+		case DrawingType::Lines:          return MTLPrimitiveTypeLine;
+		case DrawingType::Line_Loop:      return MTLPrimitiveTypeLineStrip;  // no loop primitive; last segment is missing
+		case DrawingType::Line_Strip:     return MTLPrimitiveTypeLineStrip;
+		case DrawingType::Points:         return MTLPrimitiveTypePoint;
+		case DrawingType::Triangle_Strip: return MTLPrimitiveTypeTriangleStrip;
+		case DrawingType::Triangle_Fan:   return MTLPrimitiveTypeTriangle;   // no fan primitive in Metal
+		case DrawingType::Quads:
+		case DrawingType::Polygons:
+		case DrawingType::Triangles:
+		default:                          return MTLPrimitiveTypeTriangle;
+		}
+	}
 
 	void MetalRenderDevice::BindProgramUniformBuffers(const DeviceHandle programHandle)
 	{
@@ -1142,7 +1167,6 @@ namespace p3d {
 
 	void MetalRenderDevice::DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count)
 	{
-		(void)nativeDrawType;
 		if (currentRenderEncoder == NULL || currentPipeline == 0)
 			return;
 		std::map<DeviceHandle, PipelineRecord>::iterator pipeIt = pipelines.find(currentPipeline);
@@ -1152,13 +1176,13 @@ namespace p3d {
 		@autoreleasepool
 		{
 			id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)currentRenderEncoder;
-			[encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:first vertexCount:count];
+			[encoder drawPrimitives:(MTLPrimitiveType)nativeDrawType vertexStart:first vertexCount:count];
 		}
 	}
 
 	void MetalRenderDevice::DrawElements(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount)
 	{
-		(void)cmd; (void)nativeDrawType;
+		(void)cmd;
 		if (currentRenderEncoder == NULL || currentVao == 0 || currentPipeline == 0)
 			return;
 		std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
@@ -1188,7 +1212,7 @@ namespace p3d {
 			// MTLIndexTypeUInt32, same as VulkanRenderDevice's identical
 			// comment on its own DrawElements().
 			id<MTLBuffer> ibo = (__bridge id<MTLBuffer>)iboIt->second.buffer;
-			[encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+			[encoder drawIndexedPrimitives:(MTLPrimitiveType)nativeDrawType
 				indexCount:indexCount
 				indexType:MTLIndexTypeUInt32
 				indexBuffer:ibo
@@ -1198,7 +1222,7 @@ namespace p3d {
 
 	void MetalRenderDevice::DrawElementsInstanced(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount, const uint32 instanceCount)
 	{
-		(void)cmd; (void)nativeDrawType;
+		(void)cmd;
 		if (currentRenderEncoder == NULL || currentVao == 0 || currentPipeline == 0)
 			return;
 		std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
@@ -1225,7 +1249,7 @@ namespace p3d {
 			BindProgramUniformBuffers(pipeIt->second.programHandle);
 
 			id<MTLBuffer> ibo = (__bridge id<MTLBuffer>)iboIt->second.buffer;
-			[encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+			[encoder drawIndexedPrimitives:(MTLPrimitiveType)nativeDrawType
 				indexCount:indexCount
 				indexType:MTLIndexTypeUInt32
 				indexBuffer:ibo

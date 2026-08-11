@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Components/Lights/ILightComponent.h>
+#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 
 namespace p3d {
 
@@ -80,11 +81,20 @@ namespace p3d {
 		return Color;
 	}
 
+	void ILightComponent::ReleaseShadowResources()
+	{
+		// See the header. Nothing is bound at this point, but the GPU may
+		// still be reading these from an earlier submission.
+		if (IsActiveRenderDeviceSet())
+			GetActiveRenderDevice().WaitIdle();
+		shadowsFBO.reset();
+		ShadowMap.reset();
+	}
+
 	void ILightComponent::DisableCastShadows()
 	{
 		isCastingShadows = false;
-		shadowsFBO.reset();
-		ShadowMap.reset();
+		ReleaseShadowResources();
 	}
 
 	FrameBuffer* ILightComponent::GetShadowFBO()
