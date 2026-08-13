@@ -1,4 +1,18 @@
 #include "SceneObjects.h"
+#include "Helpers/IHelper.h"
+#include "Helpers/LightHelper.h"
+#include "Helpers/GameObjectHelper.h"
+#include "Helpers/SoundHelper.h"
+#include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/Physics/Physics.h>
+#include <Pyros3D/Physics/Components/Box/PhysicsBox.h>
+#include <Pyros3D/Physics/Components/Sphere/PhysicsSphere.h>
+#include <Pyros3D/Physics/Components/Capsule/PhysicsCapsule.h>
+#include <Pyros3D/Physics/Components/Cone/PhysicsCone.h>
+#include <Pyros3D/Physics/Components/Cylinder/PhysicsCylinder.h>
+#include <Pyros3D/Physics/Components/StaticPlane/PhysicsStaticPlane.h>
+#include <Pyros3D/Audio/AudioManager.h>
+#include <filesystem>
 #include <ostream>
 #include <vector>
 
@@ -9,6 +23,14 @@
 	#include <unistd.h>
 #endif
 
+namespace {
+	std::string ScriptStemName(const std::string& path)
+	{
+		if (path.empty()) return "Script";
+		std::string stem = std::filesystem::path(path).stem().string();
+		return stem.empty() ? "Script" : stem;
+	}
+}
 	SceneObjects::SceneObjects(SceneGraph* scene)
 	{
 		Scene = scene;
@@ -65,7 +87,12 @@
 	{
 		try {
 			uint32 id = ++_ID;
+#ifdef LUA_BINDINGS
+			// LUA_GameObject so script init(owner) sol usertype resolution works.
+			std::shared_ptr<GameObject> go = std::static_pointer_cast<GameObject>(std::make_shared<LUA_GameObject>());
+#else
 			std::shared_ptr<GameObject> go = std::make_shared<GameObject>();
+#endif
 			Scene->Add(go);
 
 			SceneObject* obj = new SceneObject(Name, go.get(), id, SceneObjectTypes::GAMEOBJECT);
@@ -76,11 +103,11 @@
 			return obj;
 		}
 		catch (const std::exception& e) {
-			fprintf(stderr, "[ERROR] Failed to create GameObject: %s\n", e.what());
+			echo(std::string("ERROR: Failed to create GameObject: ") + e.what());
 			return NULL;
 		}
 		catch (...) {
-			fprintf(stderr, "[ERROR] Failed to create GameObject: Unknown error\n");
+			echo("ERROR: Failed to create GameObject: Unknown error");
 			return NULL;
 		}
 	}
@@ -109,10 +136,20 @@
 			case ComponentType::PointLight:          type = SceneObjectTypes::POINTLIGHT_COMPONENT;     cname = "Point Light";       break;
 			case ComponentType::SpotLight:           type = SceneObjectTypes::SPOTLIGHT_COMPONENT;      cname = "Spot Light";        break;
 			case ComponentType::Physics:             type = SceneObjectTypes::PHYSICS_COMPONENT;        cname = "Physics";           break;
+			case ComponentType::AudioSource:         type = SceneObjectTypes::AUDIO_SOURCE_COMPONENT;  cname = "Sound";             break;
+#ifdef LUA_BINDINGS
+			case ComponentType::LuaComponent:
+			{
+				type = SceneObjectTypes::LUA_COMPONENT;
+				LuaComponent* lc = dynamic_cast<LuaComponent*>((*c).get());
+				cname = lc ? ScriptStemName(lc->scriptFile) : "Script";
+				break;
+			}
+#endif
 			default:
-				// Particles, Lua, audio, vehicles: the engine round-trips
-				// them, but this editor has no UI for them, so they stay
-				// attached to their GameObject and simply aren't listed.
+				// Particles, vehicles: the engine round-trips them, but
+				// this editor has no UI for them, so they stay attached to
+				// their GameObject and simply aren't listed.
 				continue;
 			}
 			uint32 cid = ++_ID;
@@ -407,6 +444,39 @@
 
 		return obj;
 	}
+
+	SceneObject* SceneObjects::CreateAudioSource(GameObject *go, const std::string &path, bool stream,
+		bool looping, bool spatialized, f32 volume)
+	{
+		uint32 id = ++_ID;
+		std::shared_ptr<AudioSource> source = std::make_shared<AudioSource>(path, stream);
+		source->SetLooping(looping);
+		source->SetSpatialization(spatialized);
+		source->SetVolume(volume);
+		source->EnsureLoaded();
+		go->Add(source);
+
+		SceneObject* obj = new SceneObject("Sound", source.get(), id, SceneObjectTypes::AUDIO_SOURCE_COMPONENT);
+		listObjects[id] = obj;
+		obj->SetParentID(GetSceneObjectID(go));
+		SetName(id, "Sound");
+		return obj;
+	}
+
+#ifdef LUA_BINDINGS
+	SceneObject* SceneObjects::CreateLuaComponent(GameObject *go, const std::shared_ptr<LuaComponent> &comp)
+	{
+		if (!go || !comp) return NULL;
+		go->Add(comp);
+		uint32 id = ++_ID;
+		const std::string cname = ScriptStemName(comp->scriptFile);
+		SceneObject* obj = new SceneObject(cname, comp.get(), id, SceneObjectTypes::LUA_COMPONENT);
+		listObjects[id] = obj;
+		obj->SetParentID(GetSceneObjectID(go));
+		SetName(id, cname);
+		return obj;
+	}
+#endif
 	
 	void SceneObjects::DestroySceneObject(const uint32 id)
 	{
@@ -417,6 +487,21 @@
 			// SceneObject* for an id that is not in the map and then
 			// dereferences it.
 			std::map<uint32, SceneObject*>::iterator entry = listObjects.find(idToRemove);
+			if (entry == listObjects.end() || entry->second == NULL) return;
+
+			// Children (components) first while the owning GameObject is still
+			// alive. Destroying the GO via Scene->Remove() first freed it and
+			// left child DestroySceneObject() calling Remove() on a dead
+			// owner ("Component Not Found" / Vulkan use-after-free).
+			std::vector<uint32> children;
+			for (std::map<uint32,SceneObject*>::iterator i=listObjects.begin();i!=listObjects.end();i++)
+				if ((*i).second != NULL && (*i).second->GetParentID()==id)
+					children.push_back((*i).second->GetID());
+
+			for (std::vector<uint32>::iterator c = children.begin(); c != children.end(); c++)
+				DestroySceneObject(*c);
+
+			entry = listObjects.find(idToRemove);
 			if (entry == listObjects.end() || entry->second == NULL) return;
 
 			if (listObjects[idToRemove]->GetType()==SceneObjectTypes::GAMEOBJECT)
@@ -442,22 +527,6 @@
 			}
 			delete listObjects[idToRemove];
 			listObjects.erase(idToRemove);
-
-			// Collect the children before destroying any of them. The
-			// recursive call erases from listObjects, invalidating any
-			// iterator into it - the previous version reset the iterator to
-			// begin() after each recursion and then let the for-loop's i++
-			// run, so it skipped whatever had become the first element.
-			// Deleting a parent with more than two children therefore left
-			// orphaned SceneObjects behind, still listed in the scene tree
-			// but pointing at components that had already been freed.
-			std::vector<uint32> children;
-			for (std::map<uint32,SceneObject*>::iterator i=listObjects.begin();i!=listObjects.end();i++)
-				if ((*i).second != NULL && (*i).second->GetParentID()==id)
-					children.push_back((*i).second->GetID());
-
-			for (std::vector<uint32>::iterator c = children.begin(); c != children.end(); c++)
-				DestroySceneObject(*c);
 		}
 	}
     uint32 SceneObjects::GetSceneObjectID(void* go)
@@ -468,3 +537,313 @@
         }
         return 0;
     }
+
+	std::shared_ptr<GameObject> SceneObjects::FindSharedGameObject(SceneGraph* scene, GameObject* go)
+	{
+		if (!scene || !go) return std::shared_ptr<GameObject>();
+		std::vector<std::shared_ptr<GameObject>>& all = scene->GetAllGameObjectList();
+		for (std::vector<std::shared_ptr<GameObject>>::iterator i = all.begin(); i != all.end(); ++i)
+			if ((*i).get() == go) return *i;
+		return std::shared_ptr<GameObject>();
+	}
+
+	std::shared_ptr<IComponent> SceneObjects::FindSharedComponent(GameObject* owner, IComponent* comp)
+	{
+		if (!owner || !comp) return std::shared_ptr<IComponent>();
+		const std::vector<std::shared_ptr<IComponent>>& comps = owner->GetComponents();
+		for (std::vector<std::shared_ptr<IComponent>>::const_iterator i = comps.begin(); i != comps.end(); ++i)
+			if ((*i).get() == comp) return *i;
+		return std::shared_ptr<IComponent>();
+	}
+
+	bool SceneObjects::IsDescendant(const uint32 ancestorId, const uint32 candidateId) const
+	{
+		uint32 id = candidateId;
+		while (id != 0)
+		{
+			if (id == ancestorId) return true;
+			std::map<uint32, SceneObject*>::const_iterator it = listObjects.find(id);
+			if (it == listObjects.end() || it->second == NULL) return false;
+			id = it->second->GetParentID();
+		}
+		return false;
+	}
+
+	bool SceneObjects::ReparentGameObject(const uint32 childId, const uint32 newParentId)
+	{
+		if (childId == 0 || childId == newParentId) return false;
+		if (newParentId != 0 && IsDescendant(childId, newParentId)) return false;
+
+		SceneObject* childObj = GetSceneObject(childId);
+		if (!childObj || childObj->GetType() != SceneObjectTypes::GAMEOBJECT) return false;
+
+		GameObject* child = (GameObject*)childObj->GetPTR();
+		std::shared_ptr<GameObject> childPtr = FindSharedGameObject(Scene, child);
+		if (!childPtr) return false;
+
+		if (child->HaveParent())
+			child->GetParent()->Remove(child);
+
+		if (newParentId != 0)
+		{
+			SceneObject* parentObj = GetSceneObject(newParentId);
+			if (!parentObj || parentObj->GetType() != SceneObjectTypes::GAMEOBJECT) return false;
+			GameObject* newParent = (GameObject*)parentObj->GetPTR();
+			std::shared_ptr<GameObject> parentPtr = FindSharedGameObject(Scene, newParent);
+			if (!parentPtr) return false;
+			parentPtr->Add(childPtr);
+			childObj->SetParentID(newParentId);
+		}
+		else
+		{
+			childObj->SetParentID(0);
+			bool inScene = false;
+			std::vector<std::shared_ptr<GameObject>>& all = Scene->GetAllGameObjectList();
+			for (std::vector<std::shared_ptr<GameObject>>::iterator i = all.begin(); i != all.end(); ++i)
+			{
+				if ((*i).get() == child)
+				{
+					inScene = true;
+					break;
+				}
+			}
+			if (!inScene)
+				Scene->Add(childPtr);
+		}
+		return true;
+	}
+
+	bool SceneObjects::MoveComponent(const uint32 compId, const uint32 targetGoId)
+	{
+		SceneObject* compObj = GetSceneObject(compId);
+		SceneObject* targetObj = GetSceneObject(targetGoId);
+		if (!compObj || !targetObj || targetObj->GetType() != SceneObjectTypes::GAMEOBJECT) return false;
+		if (compObj->GetType() == SceneObjectTypes::GAMEOBJECT) return false;
+
+		IComponent* comp = (IComponent*)compObj->GetPTR();
+		GameObject* target = (GameObject*)targetObj->GetPTR();
+		if (!comp || !target) return false;
+		GameObject* owner = comp->GetOwner();
+		if (!owner || owner == target) return false;
+
+		std::shared_ptr<IComponent> compPtr = FindSharedComponent(owner, comp);
+		if (!compPtr) return false;
+
+		owner->Remove(compPtr);
+		target->Add(compPtr);
+		compObj->SetParentID(targetGoId);
+
+		if (compObj->Helper)
+			((IHelper*)compObj->Helper.get())->owner = target;
+
+		return true;
+	 }
+
+	SceneObject* SceneObjects::DuplicateGameObject(const uint32 id, Physics* physicsEngine)
+	{
+		SceneObject* src = GetSceneObject(id);
+		if (!src || src->GetType() != SceneObjectTypes::GAMEOBJECT) return NULL;
+		return DuplicateGameObjectUnder(id, src->GetParentID(), physicsEngine);
+	}
+
+	SceneObject* SceneObjects::DuplicateGameObjectUnder(const uint32 id, const uint32 newParentId, Physics* physicsEngine)
+	{
+		SceneObject* srcObj = GetSceneObject(id);
+		if (!srcObj || srcObj->GetType() != SceneObjectTypes::GAMEOBJECT) return NULL;
+		GameObject* srcGo = (GameObject*)srcObj->GetPTR();
+		if (!srcGo) return NULL;
+
+		SceneObject* dupObj = CreateGameObject(srcObj->GetName() + " Copy");
+		if (!dupObj) return NULL;
+		GameObject* dupGo = (GameObject*)dupObj->GetPTR();
+
+		dupGo->SetPosition(srcGo->GetPosition());
+		dupGo->SetRotation(srcGo->GetRotation());
+		dupGo->SetScale(srcGo->GetScale());
+		dupObj->LocalTransform = srcObj->LocalTransform;
+		dupObj->ScaleTransform = srcObj->ScaleTransform;
+		dupObj->globalRotation = srcObj->globalRotation;
+
+		const std::map<uint32, std::string>& tags = srcGo->GetTags();
+		for (std::map<uint32, std::string>::const_iterator t = tags.begin(); t != tags.end(); ++t)
+			dupGo->AddTag(t->second);
+
+		if (newParentId != 0)
+			ReparentGameObject(dupObj->GetID(), newParentId);
+
+		const std::vector<std::shared_ptr<IComponent>>& comps = srcGo->GetComponents();
+		for (std::vector<std::shared_ptr<IComponent>>::const_iterator c = comps.begin(); c != comps.end(); ++c)
+		{
+			switch ((*c)->GetComponentType())
+			{
+			case ComponentType::RenderingComponent:
+			{
+				RenderingComponent* srcRc = (RenderingComponent*)(*c).get();
+				std::shared_ptr<IMaterial> mat = GenericMaterial;
+				std::vector<RenderingMesh*>& meshes = srcRc->GetMeshes();
+				if (!meshes.empty() && meshes[0]->Material)
+					mat = meshes[0]->Material;
+				std::shared_ptr<RenderingComponent> newRc = std::make_shared<RenderingComponent>(
+					srcRc->GetRenderableShared(), mat);
+				dupGo->Add(newRc);
+				uint32 cid = ++_ID;
+				SceneObject* cobj = new SceneObject("Mesh", newRc.get(), cid, SceneObjectTypes::RENDERING_COMPONENT);
+				listObjects[cid] = cobj;
+				cobj->SetParentID(dupObj->GetID());
+				SetName(cid, "Mesh");
+				break;
+			}
+			case ComponentType::DirectionalLight:
+			{
+				DirectionalLight* srcLight = (DirectionalLight*)(*c).get();
+				SceneObject* lightObj = CreateDirectionalLight(dupGo, srcLight->GetLightDirection(), srcLight->GetLightColor());
+				std::shared_ptr<LightHelper> h = std::make_shared<LightHelper>(dupGo);
+				lightObj->Helper = h;
+				Scene->Add(h);
+				break;
+			}
+			case ComponentType::PointLight:
+			{
+				PointLight* srcLight = (PointLight*)(*c).get();
+				SceneObject* lightObj = CreatePointLight(dupGo, srcLight->GetLightRadius(), srcLight->GetLightColor());
+				std::shared_ptr<LightHelper> h = std::make_shared<LightHelper>(dupGo);
+				lightObj->Helper = h;
+				Scene->Add(h);
+				break;
+			}
+			case ComponentType::SpotLight:
+			{
+				SpotLight* srcLight = (SpotLight*)(*c).get();
+				SceneObject* lightObj = CreateSpotLight(dupGo, srcLight->GetLightRadius(), srcLight->GetLightDirection(),
+					srcLight->GetLightOutterCone(), srcLight->GetLightInnerCone(), srcLight->GetLightColor());
+				std::shared_ptr<LightHelper> h = std::make_shared<LightHelper>(dupGo);
+				lightObj->Helper = h;
+				Scene->Add(h);
+				break;
+			}
+			case ComponentType::AudioSource:
+			{
+				AudioSource* srcAudio = (AudioSource*)(*c).get();
+				SceneObject* soundObj = CreateAudioSource(dupGo, srcAudio->GetFile(), srcAudio->IsStreamed(),
+					srcAudio->IsLooping(), srcAudio->IsSpatialized(), srcAudio->GetVolume());
+				if (soundObj)
+				{
+					AudioSource* dst = (AudioSource*)soundObj->GetPTR();
+					dst->SetPitch(srcAudio->GetPitch());
+					dst->SetPan(srcAudio->GetPan());
+					dst->SetAttenuation(srcAudio->GetAttenuationModel(), srcAudio->GetMinDistance(), srcAudio->GetMaxDistance());
+					dst->SetDirectionalAttenuation(srcAudio->GetDirectionalAttenuation());
+					dst->SetDopplerFactor(srcAudio->GetDopplerFactor());
+					if (srcAudio->HasCone())
+						dst->SetCone(srcAudio->GetConeInnerAngle(), srcAudio->GetConeOuterAngle(), srcAudio->GetConeOuterGain());
+					if (srcAudio->GetFilterType() != AudioFilterType::None)
+						dst->SetFilter(srcAudio->GetFilterType(), srcAudio->GetFilterCutoff(), srcAudio->GetFilterOrder());
+					if (srcAudio->GetEQType() != AudioEQType::None)
+						dst->SetEQ(srcAudio->GetEQType(), srcAudio->GetEQFrequency(), srcAudio->GetEQGain(), srcAudio->GetEQQ());
+					if (srcAudio->HasDelay())
+						dst->SetDelay(srcAudio->GetDelaySeconds(), srcAudio->GetDelayDecay(), srcAudio->GetDelayWet(), srcAudio->GetDelayDry());
+					std::shared_ptr<SoundHelper> h = std::make_shared<SoundHelper>(dupGo);
+					soundObj->Helper = h;
+					Scene->Add(h);
+				}
+				break;
+			}
+#ifdef LUA_BINDINGS
+			case ComponentType::LuaComponent:
+			{
+				LuaComponent* srcLc = (LuaComponent*)(*c).get();
+				if (!srcLc || srcLc->scriptFile.empty() || !srcLc->data.valid()) break;
+				sol::state_view lua(srcLc->data.lua_state());
+				std::shared_ptr<LuaComponent> newLc = LuaComponent_FromFile(lua, srcLc->scriptFile);
+				if (newLc)
+					CreateLuaComponent(dupGo, newLc);
+				break;
+			}
+#endif
+			case ComponentType::Physics:
+			{
+				if (!physicsEngine) break;
+				IPhysicsComponent* srcPhys = (IPhysicsComponent*)(*c).get();
+				std::shared_ptr<IPhysicsComponent> newPhys;
+				const char* physName = "Physics";
+				switch (srcPhys->GetShape())
+				{
+				case CollisionShapes::Box:
+				{
+					PhysicsBox* b = (PhysicsBox*)srcPhys;
+					newPhys = physicsEngine->CreateBox(b->GetWidth(), b->GetHeight(), b->GetDepth(), b->GetMass(), b->IsGhost());
+					physName = "Physics Box";
+					break;
+				}
+				case CollisionShapes::Sphere:
+				{
+					PhysicsSphere* s = (PhysicsSphere*)srcPhys;
+					newPhys = physicsEngine->CreateSphere(s->GetRadius(), s->GetMass(), s->IsGhost());
+					physName = "Physics Sphere";
+					break;
+				}
+				case CollisionShapes::Capsule:
+				{
+					PhysicsCapsule* cap = (PhysicsCapsule*)srcPhys;
+					newPhys = physicsEngine->CreateCapsule(cap->GetRadius(), cap->GetHeight(), cap->GetMass(), cap->IsGhost());
+					physName = "Physics Capsule";
+					break;
+				}
+				case CollisionShapes::Cone:
+				{
+					PhysicsCone* cone = (PhysicsCone*)srcPhys;
+					newPhys = physicsEngine->CreateCone(cone->GetRadius(), cone->GetHeight(), cone->GetMass(), cone->IsGhost());
+					physName = "Physics Cone";
+					break;
+				}
+				case CollisionShapes::Cylinder:
+				{
+					PhysicsCylinder* cyl = (PhysicsCylinder*)srcPhys;
+					newPhys = physicsEngine->CreateCylinder(cyl->GetRadius(), cyl->GetHeight(), cyl->GetMass(), cyl->IsGhost());
+					physName = "Physics Cylinder";
+					break;
+				}
+				case CollisionShapes::StaticPlane:
+				{
+					PhysicsStaticPlane* plane = (PhysicsStaticPlane*)srcPhys;
+					newPhys = physicsEngine->CreateStaticPlane(plane->GetNormal(), plane->GetConstant(), plane->GetMass(), plane->IsGhost());
+					physName = "Physics Static Plane";
+					break;
+				}
+				default:
+					break;
+				}
+				if (newPhys)
+				{
+					dupGo->Add(newPhys);
+					uint32 cid = ++_ID;
+					SceneObject* cobj = new SceneObject(physName, newPhys.get(), cid, SceneObjectTypes::PHYSICS_COMPONENT);
+					listObjects[cid] = cobj;
+					cobj->SetParentID(dupObj->GetID());
+					SetName(cid, physName);
+				}
+				break;
+			}
+			default:
+				break;
+			}
+		}
+
+		if (srcObj->Helper)
+		{
+			std::shared_ptr<GameObjectHelper> h = std::make_shared<GameObjectHelper>(dupGo);
+			dupObj->Helper = h;
+			Scene->Add(h);
+		}
+
+		std::vector<uint32> childIds;
+		for (std::map<uint32, SceneObject*>::iterator i = listObjects.begin(); i != listObjects.end(); ++i)
+		{
+			if (i->second != NULL && i->second->GetParentID() == id && i->second->GetType() == SceneObjectTypes::GAMEOBJECT)
+				childIds.push_back(i->second->GetID());
+		}
+		for (std::vector<uint32>::iterator ci = childIds.begin(); ci != childIds.end(); ++ci)
+			DuplicateGameObjectUnder(*ci, dupObj->GetID(), physicsEngine);
+
+		return dupObj;
+	}

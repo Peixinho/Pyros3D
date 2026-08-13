@@ -50,6 +50,7 @@ uint32 IRenderer::DirectionalShadowUBO = 0;
 uint32 IRenderer::PointShadowUBO = 0;
 uint32 IRenderer::SpotShadowUBO = 0;
 bool IRenderer::GlobalMatricesUBOValid = false;
+bool IRenderer::MaterialUniformsNeedsReupload = false;
 Matrix IRenderer::CachedProjectionMatrix;
 Matrix IRenderer::CachedViewMatrix;
 bool IRenderer::CachedRenderingPointShadowFace = false;
@@ -242,9 +243,9 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* ext
 	lod = false;
 	ClipPlane = false;
 	IsCulling = false;
+	skipShadowMaps = false;
 
 	// GlobalMatricesUBOValid etc. are NOT reset here - they're static/shared
-	// (see IRenderer.h), already correctly initialized to false exactly
 	// once at program start, and must stay whatever they currently are if
 	// another IRenderer instance is already alive and has valid data
 	// uploaded to the shared UBOs.
@@ -271,52 +272,7 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* ext
 	shadowInstancedAlphaTestMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows | ShaderUsage::Texture | ShaderUsage::AlphaTest | ShaderUsage::InstancedRendering | ShaderUsage::VertexWind);
 	shadowInstancedAlphaTestMaterial->SetCullFace(CullFace::DoubleSided);
 
-	// Created once, by whichever IRenderer instance happens to be first -
-	// see the "shared/static" comment on these members in IRenderer.h.
-	// Later instances just add themselves to the refcount below.
-	if (SharedUBORefCount == 0)
-	{
-		// Global matrices UBO: sized for uProjectionMatrix + uViewMatrix,
-		// bound to binding point 0. Contents are uploaded in SendGlobalUniforms().
-		GlobalMatricesUBO = device->CreateUniformBuffer(sizeof(Matrix) * 2, 0);
-
-		// Lights UBO: sized for uLights[PYROS_MAX_LIGHTS], bound to binding
-		// point 1. Contents are uploaded in SendGlobalUniforms().
-		LightsUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_LIGHTS, 1);
-
-		// Directional shadow UBO (binding point 2): PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES
-		// cascade matrices followed by uDirectionalShadowFar[4] (std140 needs
-		// no padding between them - the matrix array's size is already a
-		// multiple of vec4's 16-byte alignment).
-		DirectionalShadowUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES + sizeof(Vec4) * 4, 2);
-
-		// Point shadow UBO (binding point 3): PYROS_MAX_POINT_SHADOW_MATRICES matrices.
-		PointShadowUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_POINT_SHADOW_MATRICES, 3);
-
-		// Spot shadow UBO (binding point 4): PYROS_MAX_SPOT_SHADOW_MATRICES matrices.
-		SpotShadowUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_SPOT_SHADOW_MATRICES, 4);
-
-		// UBOs for PyrosShader.glsl's formerly-loose uniforms (binding
-		// points 16-22 - see the BIND_* macros in that file). Only ever
-		// written to for materials where Material->SupportsUniformBlocks()
-		// is true; created unconditionally here regardless, same as every
-		// UBO above, since creating a small buffer nobody currently binds
-		// to is harmless and keeps this block simple.
-		VertexFrameUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 3, 16);
-		VelocityFrameUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix) * 2, 17);
-		ObjectMatrixUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix) + sizeof(Vec4), 18);
-		BoneMatricesUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_BONES, 19);
-		VelocityObjectUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix), 20);
-		AmbientLightUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4), 21);
-		// vec4 uColor + vec4 uSpecular + 5 floats = 52 bytes, padded to 64
-		// (std140 vec4-alignment) - see MaterialUniformsData in
-		// SendUserUniforms().
-		MaterialUniformsUBO = device->CreateUniformBuffer(80, 22);
-		// 3 ints padded to 16 bytes (std140) - see ObjectLightCountsData in
-		// SendModelUniforms().
-		ObjectLightCountsUBO = device->CreateUniformBuffer(16, 23);
-	}
-	SharedUBORefCount++;
+	RetainSharedUniformBuffers(device.get());
 }
 
 void IRenderer::Reset()
@@ -367,44 +323,98 @@ void IRenderer::_SetViewPort(const uint32 initX, const uint32 initY, const uint3
 IRenderer::~IRenderer()
 {
 	// UsesSharedUBOs is false for instances built via the no-arg
-	// IRenderer() (DebugRenderer) - they never incremented SharedUBORefCount
-	// in the constructor, so they must not decrement it here either.
+	// IRenderer() - they never retained the shared UBOs.
 	if (UsesSharedUBOs)
-	{
-		SharedUBORefCount--;
-		if (SharedUBORefCount == 0)
-		{
-			device->DestroyUniformBuffer(GlobalMatricesUBO);
-			device->DestroyUniformBuffer(LightsUBO);
-			device->DestroyUniformBuffer(DirectionalShadowUBO);
-			device->DestroyUniformBuffer(PointShadowUBO);
-			device->DestroyUniformBuffer(SpotShadowUBO);
-			device->DestroyUniformBuffer(VertexFrameUniformsUBO);
-			device->DestroyUniformBuffer(VelocityFrameUniformsUBO);
-			device->DestroyUniformBuffer(ObjectMatrixUniformsUBO);
-			device->DestroyUniformBuffer(BoneMatricesUBO);
-			device->DestroyUniformBuffer(VelocityObjectUniformsUBO);
-			device->DestroyUniformBuffer(AmbientLightUniformsUBO);
-			device->DestroyUniformBuffer(MaterialUniformsUBO);
-			device->DestroyUniformBuffer(ObjectLightCountsUBO);
-			// The next IRenderer instance (if any) will create brand new
-			// (empty) buffers - the dirty-tracking cache must not survive
-			// to wrongly skip that instance's first upload.
-			GlobalMatricesUBOValid = false;
-			LightsUBOValid = false;
-			DirectionalShadowUBOValid = false;
-			PointShadowUBOValid = false;
-			SpotShadowUBOValid = false;
-			VertexFrameUniformsUBOValid = false;
-			AmbientLightUniformsUBOValid = false;
-			VelocityFrameUniformsUBOValid = false;
-		}
-	}
+		ReleaseSharedUniformBuffers(device.get());
 	delete shadowAlphaTestMaterial;
 	delete shadowInstancedAlphaTestMaterial;
 	delete shadowMaterial;
 	delete shadowSkinnedMaterial;
 	delete shadowInstancedMaterial;
+}
+
+void IRenderer::RetainSharedUniformBuffers(IRenderDevice* device)
+{
+	if (device == NULL)
+		return;
+	// Created once by the first retainer - see the shared/static comment
+	// on these members in IRenderer.h.
+	if (SharedUBORefCount == 0)
+	{
+		GlobalMatricesUBO = device->CreateUniformBuffer(sizeof(Matrix) * 2, 0);
+		LightsUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_LIGHTS, 1);
+		DirectionalShadowUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES + sizeof(Vec4) * 4, 2);
+		PointShadowUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_POINT_SHADOW_MATRICES, 3);
+		SpotShadowUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_SPOT_SHADOW_MATRICES, 4);
+		VertexFrameUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 3, 16);
+		VelocityFrameUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix) * 2, 17);
+		ObjectMatrixUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix) + sizeof(Vec4), 18);
+		BoneMatricesUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_BONES, 19);
+		VelocityObjectUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix), 20);
+		AmbientLightUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4), 21);
+		MaterialUniformsUBO = device->CreateUniformBuffer(80, 22);
+		ObjectLightCountsUBO = device->CreateUniformBuffer(16, 23);
+	}
+	SharedUBORefCount++;
+}
+
+void IRenderer::ReleaseSharedUniformBuffers(IRenderDevice* device)
+{
+	if (SharedUBORefCount == 0)
+		return;
+	SharedUBORefCount--;
+	if (SharedUBORefCount != 0 || device == NULL)
+		return;
+
+	device->DestroyUniformBuffer(GlobalMatricesUBO);
+	device->DestroyUniformBuffer(LightsUBO);
+	device->DestroyUniformBuffer(DirectionalShadowUBO);
+	device->DestroyUniformBuffer(PointShadowUBO);
+	device->DestroyUniformBuffer(SpotShadowUBO);
+	device->DestroyUniformBuffer(VertexFrameUniformsUBO);
+	device->DestroyUniformBuffer(VelocityFrameUniformsUBO);
+	device->DestroyUniformBuffer(ObjectMatrixUniformsUBO);
+	device->DestroyUniformBuffer(BoneMatricesUBO);
+	device->DestroyUniformBuffer(VelocityObjectUniformsUBO);
+	device->DestroyUniformBuffer(AmbientLightUniformsUBO);
+	device->DestroyUniformBuffer(MaterialUniformsUBO);
+	device->DestroyUniformBuffer(ObjectLightCountsUBO);
+	GlobalMatricesUBO = LightsUBO = DirectionalShadowUBO = PointShadowUBO = SpotShadowUBO = 0;
+	VertexFrameUniformsUBO = VelocityFrameUniformsUBO = ObjectMatrixUniformsUBO = BoneMatricesUBO = 0;
+	VelocityObjectUniformsUBO = AmbientLightUniformsUBO = MaterialUniformsUBO = ObjectLightCountsUBO = 0;
+	GlobalMatricesUBOValid = false;
+	LightsUBOValid = false;
+	DirectionalShadowUBOValid = false;
+	PointShadowUBOValid = false;
+	SpotShadowUBOValid = false;
+	VertexFrameUniformsUBOValid = false;
+	AmbientLightUniformsUBOValid = false;
+	VelocityFrameUniformsUBOValid = false;
+	MaterialUniformsNeedsReupload = true;
+}
+
+void IRenderer::MarkSharedUniformsDirty()
+{
+	GlobalMatricesUBOValid = false;
+	MaterialUniformsNeedsReupload = true;
+}
+
+void IRenderer::InvalidateSharedUniformCaches()
+{
+	GlobalMatricesUBOValid = false;
+	LightsUBOValid = false;
+	DirectionalShadowUBOValid = false;
+	PointShadowUBOValid = false;
+	SpotShadowUBOValid = false;
+	VertexFrameUniformsUBOValid = false;
+	AmbientLightUniformsUBOValid = false;
+	VelocityFrameUniformsUBOValid = false;
+	MaterialUniformsNeedsReupload = true;
+}
+
+void IRenderer::MarkSharedGlobalMatricesDirty()
+{
+	GlobalMatricesUBOValid = false;
 }
 
 GenericShaderMaterial* IRenderer::PickShadowMaterial(RenderingMesh* mesh)
@@ -539,7 +549,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 				Vec3 direction = (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize();
 
 				// Shadows
-				if (d->IsCastingShadows())
+				if (!skipShadowMaps && d->IsCastingShadows())
 				{
 					// Increase Number of Shadows
 					NumberOfDirectionalShadows++;
@@ -654,7 +664,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 				PointLight* p = ((PointLight*)(*i));
 
 				// Shadows
-				if (p->IsCastingShadows())
+				if (!skipShadowMaps && p->IsCastingShadows())
 				{
 					// Increase Number of Shadows
 					NumberOfPointShadows++;
@@ -814,7 +824,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 				SpotLight* s = ((SpotLight*)(*i));
 
 				// Shadows
-				if (s->IsCastingShadows())
+				if (!skipShadowMaps && s->IsCastingShadows())
 				{
 
 					Vec3 direction = (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.f)).xyz().normalize();
@@ -1481,6 +1491,11 @@ void IRenderer::SetBackground(const Vec4& Color)
 	if (device) device->SetClearColor(BackgroundColor);
 }
 
+void IRenderer::ApplyBackgroundClearColor()
+{
+	DrawBackground();
+}
+
 void IRenderer::UnsetBackground()
 {
 	BackgroundColorSet = false;
@@ -1940,8 +1955,9 @@ void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 	// runs before RenderObject() updates LastMeshRenderedPTR/LastMaterialPTR
 	// (see the end of RenderObject()), so they still hold the *previous*
 	// object's pointers here.
-	if (Material->SupportsUniformBlocks() && (LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material))
+	if (Material->SupportsUniformBlocks() && (MaterialUniformsNeedsReupload || LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material))
 	{
+		MaterialUniformsNeedsReupload = false;
 		MaterialUniformsData data = MaterialUniformsData();
 		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uColor")) memcpy(&data.Color, v, sizeof(Vec4));
 		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uSpecular")) memcpy(&data.Specular, v, sizeof(Vec4));
@@ -2556,6 +2572,10 @@ void IRenderer::BindShadowMaps(IMaterial* material)
 		DirectionalShadowMapsUnits.clear();
 		for (std::vector<Texture*>::iterator i = DirectionalShadowMapsTextures.begin(); i != DirectionalShadowMapsTextures.end(); i++)
 		{
+			// Depth+compare + Linear is unloadable on Apple GL (sampler2DShadow
+			// then hits unit 0's colour map). Maps created before the Nearest
+			// fix in EnableCastShadows still need this every bind.
+			(*i)->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
 			(*i)->Bind();
 			DirectionalShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
 		}
@@ -2570,6 +2590,7 @@ void IRenderer::BindShadowMaps(IMaterial* material)
 		SpotShadowMapsUnits.clear();
 		for (std::vector<Texture*>::iterator i = SpotShadowMapsTextures.begin(); i != SpotShadowMapsTextures.end(); i++)
 		{
+			(*i)->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
 			(*i)->Bind();
 			SpotShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
 		}

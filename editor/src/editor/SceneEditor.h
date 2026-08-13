@@ -16,6 +16,9 @@
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <Pyros3D/Physics/Physics.h>
+#include <Pyros3D/Audio/AudioManager.h>
+#include <Pyros3D/Audio/AudioSource.h>
+#include <Pyros3D/Audio/Sound.h>
 #include <Pyros3D/Utils/Mouse3D/PainterPick.h>
 #include <Pyros3D/Assets/Renderable/Text/Text.h>
 #include <Pyros3D/Assets/Renderable/Renderables.h>
@@ -24,6 +27,8 @@
 #include <Pyros3D/Utils/Mouse3D/Mouse3D.h>
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
+#include "EditorDebugDraw.h"
+#include "EditorIcons.h"
 #include "UI/IUInterface.h"
 #include "libgizmo/IGizmo.h"
 #include "SceneObjects.h"
@@ -32,12 +37,22 @@
 #include "AxisHelper.h"
 #include "Helpers/LightHelper.h"
 #include "Helpers/GameObjectHelper.h"
+#include "Helpers/SoundHelper.h"
 #include "SelectedMaterial.h"
 #include "UI/OpenDir.h"
+#include "ProjectManager.h"
+#include <map>
 #include <memory>
+#include <set>
+#include <vector>
+#include <utility>
 //#include "../UI/OpenDir.h"
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
+
+#ifdef LUA_BINDINGS
+#include <Pyros3D/Utils/Bindings/PyrosBindings.h>
+#endif
 
 using namespace p3d;
 
@@ -53,17 +68,26 @@ namespace GizmoFunction {
 class SceneEditor : public IUInterface {
     public:
 
-        SceneEditor(bool *open, bool *openTree);
+        SceneEditor(uint32 documentId);
         virtual ~SceneEditor();
 
 	virtual void Init(const uint32 width, const uint32 height);
 	virtual void OnResize(const uint32 width, const uint32 height);
 	virtual void Update(const f64 time);
 	virtual void Show();
+	void ShowViewport();
+	void ShowHierarchy();
 	virtual void ShowProperties();
 	virtual void ShowMenubarOptions();
+	void ShowViewOptions();
 	virtual void ShowTools();
 	virtual void Shutdown();
+
+	uint32 GetDocumentId() const { return documentId; }
+	// Filename stem, or "Untitled" when unsaved/new.
+	std::string GetSceneDisplayName() const;
+	// Rebind process-wide gizmo/physics debug hooks to this document.
+	void BindSharedEditorHooks();
 
     private:
 
@@ -83,22 +107,160 @@ class SceneEditor : public IUInterface {
 
 public:
 
-	void NewScene();
+	void NewScene(bool applyProjectDefaults = true);
 	bool SaveSceneToFile(const std::string &path);
 	bool LoadSceneFromFile(const std::string &path);
 	const std::string &GetScenePath() const { return scenePath; }
+	bool IsSceneDirty() const { return sceneDirty; }
+	void MarkSceneDirty() { sceneDirty = true; }
+	void ClearSceneDirty() { sceneDirty = false; }
+	bool IsShowingSaveDialog() const { return showingSceneDialog && sceneDialogIsSave; }
+	void OpenSaveSceneDialog();
+	bool TrySaveCurrentScene(); // true if saved now; false if Save As dialog opened
+	bool HasUnsavedWork() const;
+	// Gate: if dirty, open modal and remember `action`. Returns true if caller may proceed now.
+	bool ConfirmUnsavedThen(int action, const std::string& path = std::string());
+	void DrawUnsavedChangesModal();
+	void SetHostCallbacks(void (*onCloseProject)(), void (*onQuitApp)(),
+		void (*onNewProject)() = NULL, void (*onOpenProject)() = NULL,
+		void (*onQuitDiscardingUnsaved)() = NULL);
+	void SetHostDocumentCallbacks(void (*onActivate)(SceneEditor*), void (*onRequestClose)(SceneEditor*),
+		void (*onNewSceneDocument)() = NULL, void (*onOpenSceneDocument)(const std::string&) = NULL,
+		void (*onOpenLuaScript)(const std::string&) = NULL);
+	void EnterPlayMode();
+	void StopPlayMode();
+	bool IsPlaying() const { return playMode; }
+	bool PlaceAssetInScene(const std::string& absolutePath);
+	// Renders a .p3dm once and writes modelDir/.thumbnails/preview.png.
+	// Returns absolute thumbnail path on success, empty on failure.
+	std::string EnsureModelThumbnail(const std::string& p3dmPath, bool force = false);
+	// Queue thumbnail work for ProcessPendingModelThumbnails (safe outside ImGui/Metal frame).
+	void QueueModelThumbnail(const std::string& p3dmPath, bool force = false);
+	void QueueMissingProjectModelThumbnails();
+	// Process up to maxPerFrame queued thumbnails (call from Editor::Update before DrawUI).
+	void ProcessPendingModelThumbnails(int maxPerFrame = 1);
+	static std::string ModelThumbnailPath(const std::string& p3dmPath);
+	// Assets-panel sound preview (non-spatialized, one-shot / stoppable).
+	void PreviewAssetSound(const std::string& absolutePath);
+	void StopAssetSoundPreview();
+	bool IsAssetSoundPreviewPlaying() const;
+	const std::string& GetAssetSoundPreviewPath() const { return assetSoundPreviewPath; }
+	void SetProjectManager(ProjectManager* pm) { project = pm; }
+	ProjectManager* GetProjectManager() const { return project; }
+	void SetSharedAudioManager(AudioManager* mgr) { sharedAudioManager = mgr; }
+#ifdef LUA_BINDINGS
+	void SetSharedLua(sol::state* state) { sharedLua = state; }
+	sol::state* GetSharedLua() const { return sharedLua; }
+	bool AttachLuaScriptToGameObject(uint32 goId, const std::string& absoluteScriptPath);
+	bool SetSceneMainScript(const std::string& absoluteOrRelativePath);
+	void ClearSceneMainScript();
+	const std::string& GetSceneMainScript() const { return sceneMainScriptPath; }
+	bool EnsureAndBindSceneCompanionScript();
+	bool DebugAutoAttachScript(const std::string& absoluteScriptPath);
+#endif
+	void SetAsActiveAudioDevice();
+	std::string ResolveSoundPath(const std::string& path) const;
 	// Drawn by Editor::DrawUI() unconditionally rather than from Show(), so
 	// the modal survives the Scene View panel being closed.
 	void DrawSceneFileDialog();
+	void DrawSceneSettingsInProperties(); // when scene root is selected
+	bool IsSceneRootSelected() const { return sceneRootSelected; }
+	std::string ResolveScriptPath(const std::string& path) const;
+
+	enum UnsavedAction {
+		UnsavedNone = 0,
+		UnsavedNewScene,
+		UnsavedOpenDialog,
+		UnsavedLoadPath,
+		UnsavedCloseProject,
+		UnsavedQuitApp,
+		UnsavedOpenProject,
+		UnsavedNewProject
+	};
 
 private:
 
+	ProjectManager* project;
 	std::string scenePath;
+	bool sceneDirty;
+	int pendingUnsavedAction;
+	std::string pendingLoadPath;
+	bool showUnsavedModal;
+	// Deferred model thumbnail jobs (processed outside ImGui/Metal UI frame).
+	std::vector<std::pair<std::string, bool> > pendingModelThumbnails;
+	std::set<std::string> pendingModelThumbnailSet;
+	bool awaitingSaveDialog;
+	void (*hostCloseProject)();
+	void (*hostQuitApp)();
+	void (*hostQuitDiscardingUnsaved)();
+	void (*hostNewProject)();
+	void (*hostOpenProject)();
+	void (*hostActivateDocument)(SceneEditor*);
+	void (*hostRequestCloseDocument)(SceneEditor*);
+	void (*hostNewSceneDocument)();
+	void (*hostOpenSceneDocument)(const std::string&);
+	void (*hostOpenLuaScript)(const std::string&);
+	void ExecutePendingUnsavedAction();
 	// Open Scene and Save Scene As share one modal.
 	bool showingSceneDialog, sceneDialogIsSave, sceneDialogBrowse;
 	std::string sceneDialogPath;
 	std::string sceneDialogError;
 	void CreateGameObject(const std::string &name = "GameObject");
+	void CreateSceneCamera();
+	void SetActiveSceneCamera(uint32 sceneObjectId);
+	void ClearActiveSceneCamera();
+	GameObject* GetViewCameraGO() const;
+	f32 GetViewFovDeg() const;
+
+	std::map<uint32, EditorCameraSettings> sceneCameras;
+	uint32 activeSceneCameraId;
+	ForwardRenderer* previewRenderer;
+	PostEffectsManager* previewEffects;
+	// Dedicated offscreen path for model Assets thumbnails — never resize
+	// the camera-preview FBO (that was crashing Metal readback).
+	ForwardRenderer* thumbRenderer;
+	PostEffectsManager* thumbEffects;
+	enum { previewWidth = 320, previewHeight = 180 };
+	enum { thumbWidth = 128, thumbHeight = 128 };
+
+	bool IsSceneCamera(uint32 id) const;
+	void UnregisterSceneCamera(uint32 id);
+	void RegisterSceneCamera(uint32 id, const EditorCameraSettings& settings = EditorCameraSettings());
+	void ApplyCameraTagsFromScene();
+	bool SaveEditorSidecar(const std::string& scenePath) const;
+	bool LoadEditorSidecar(const std::string& scenePath);
+	void BuildSceneCameraDebugList(std::vector<SceneCameraDebugEntry>& out) const;
+	Texture* RenderCameraPreview(GameObject* camGO);
+	// Owner GO for the current selection (component → GetOwner()).
+	GameObject* GetSelectedOwnerGameObject() const;
+	// Offscreen render used by EnsureModelThumbnail (RGBA8 PNG on disk).
+	bool RenderModelPreviewToRGBA8(const std::string& p3dmPath, std::vector<unsigned char>& outRGBA,
+		uint32& outW, uint32& outH);
+	std::string TreeLabel(SceneObject* obj) const;
+	void DrawSceneViewportIcons(const ImVec2& imgMin, const ImVec2& imgSize, GameObject* viewCam);
+	bool TryPickViewportIcon(const Vec2& viewportMouse, uint32& outSceneObjectId);
+	void OpenAddFormOnGameObject(uint32 goId, uint32 formType);
+	void AddQuickLightOnGameObject(uint32 goId, uint32 formType);
+	void ShowAddComponentMenu(uint32 goId);
+	void DeleteGameObjectById(uint32 objId);
+	void DeleteComponentById(uint32 objId);
+	void DeleteSelected();
+	uint32 DuplicateSelected();
+	void CaptureGizmoBaseline();
+	void PrepareGizmoForDraw(GameObject* viewCam);
+	void HandleViewportGizmoInput(GameObject* viewCam);
+	void ApplyGizmoTransformToObject();
+	void ViewportPickAtMouse();
+	void SyncPhysicsFromScene();
+	void SyncPhysicsForGameObject(GameObject* go);
+	void UpdateViewportMouse();
+	void SyncTransformFromGameObject(SceneObject* obj);
+	ImVec2 viewportImgMin;
+	ImVec2 viewportImgSize;
+	bool viewportOverlayValid;
+	Vec2 viewportMouse;
+	bool viewportMouseValid;
+	bool viewportHovered;
 
         virtual void MouseWheel(Event::Input::Info e);
         virtual void MouseLeftRelease(Event::Input::Info e);
@@ -144,8 +306,31 @@ private:
         Projection projection, projectionOrtho;
         // Physics
         Physics* physics;
-        // Camera - Its a regular GameObject
-        std::shared_ptr<GameObject> Camera, CameraPivot;
+	// Audio device + listener (required before any AudioSource can load)
+	AudioManager* audio;
+	AudioManager* sharedAudioManager;
+#ifdef LUA_BINDINGS
+	sol::state* sharedLua;
+	void PushLuaHostGlobals();
+	void ResetLuaComponentsLifecycle();
+	// Scene-level main script (not attached to a GameObject).
+	std::string sceneMainScriptPath; // absolute preferred after resolve
+	std::shared_ptr<LuaComponent> sceneMainScript;
+	bool RebuildSceneMainScriptInstance();
+	void InitSceneMainScript();
+	void UpdateSceneMainScript(f64 time);
+	void ResetSceneMainScriptLifecycle();
+	void DrawGameObjectScriptProperties(uint32 goId);
+	// Combo of assets/lua scripts only (not scenes/*.lua) + ASSET_REL drag-drop.
+	void DrawScriptAssetPicker(const char* id, std::string& pathBuf);
+#endif
+	bool sceneRootSelected;
+	f64 lastListenerTime;
+	// Transient Assets-panel preview (not placed in the scene).
+	Sound* assetSoundPreview;
+	std::string assetSoundPreviewPath;
+	// Camera - Its a regular GameObject
+	std::shared_ptr<GameObject> Camera, CameraPivot;
 
         // GameObject
         std::shared_ptr<GameObject> grid;
@@ -160,6 +345,22 @@ private:
 	IGizmo* gizmo;
 	bool localTransform;
 	uint32 GizmoInUse;
+	bool gizmoDragging;
+	Matrix gizmoBaselineLocal;
+	Matrix gizmoBaselineParentWorld;
+	Matrix gizmoBaselineWorld;
+
+	struct PlayModeObjectSnapshot {
+		Vec3 position, rotation, scale;
+		Matrix localTransform, scaleTransform, globalRotation;
+	};
+	bool playMode;
+	bool showPhysicsDebug;
+	std::map<uint32, PlayModeObjectSnapshot> playModeSnapshots;
+	// Edit-mode active camera restored when leaving play mode.
+	uint32 playModeSavedCameraId;
+	void ResolvePlayModeCamera();
+	void SetEditorChromeVisible(bool visible);
 
 	// Selected Scene Object
 	SceneObject* SelectedSceneObject;
@@ -193,6 +394,8 @@ private:
 	int32 droppin_id;
 	int32 node_clicked;
 	void DrawNodes(uint32 parentID = 0, uint32 depth = 0);
+	void DrawTreeNodeWidgets(SceneObject* obj, bool node_open);
+	bool IsInternalGameObject(p3d::GameObject* go) const;
 
 	// Selected Mesh
 	std::shared_ptr<SelectedMaterial> SelectedMeshMaterial;
@@ -203,6 +406,7 @@ private:
 
 	// Debug Renderer
 	DebugRenderer* debugRenderer;
+	EditorDebugDraw* editorDebugDraw;
 	void DrawBoundings(SceneObject* obj);
 	void DrawBoundingBox(const Vec3 &min, const Vec3 &max, const Matrix &transform);
 	void DrawBoundingSphere(const f32 radius, const Matrix &transform);
@@ -231,8 +435,14 @@ private:
 	// Add Form
 	void AddFormSubmit();
 	f32 AddForm_w, AddForm_h, AddForm_d, AddForm_p, AddForm_q, AddForm_oc, AddForm_ic;
+	f32 AddForm_mass;
 	int32 AddForm_sw, AddForm_sh, AddForm_r, AddForm_hscale;
 	bool AddForm_sn, AddForm_fn, AddForm_cgo, AddForm_hs, AddForm_oe, AddForm_cs;
+	bool AddForm_ghost;
+	bool AddForm_stream;
+	bool AddForm_loop;
+	bool AddForm_spatialized;
+	f32 AddForm_volume;
 	string AddForm_go;
 	Vec3 AddForm_dir;
 	Vec4 AddForm_color;
@@ -240,17 +450,24 @@ private:
 	bool showingAddFrom;
 	uint32 showingAddFormType;
 	string AddForm_modelPath;
+	string AddForm_soundPath;
+#ifdef LUA_BINDINGS
+	// Draft paths for Properties panel InputText (not menus of script names).
+	std::string propertiesScriptAttachPath;
+	std::string propertiesNewGoScriptName;
+	bool openNewGoScriptModal;
+	std::string propertiesNewGoScriptError;
+	// After attaching a script, keep this GameObject selected and expand it in the tree.
+	uint32 hierarchyForceOpenId;
+#endif
 
 	bool showDir;
-
-	bool showRightMenu;
 
 	// Icons
 	Texture *icons;
 
-	// Window
-	bool* Open;
-	bool* OpenTree;
+	uint32 documentId;
+	bool shutDownDone;
 };
 
 #endif	/* SCENEEDITOR_H */

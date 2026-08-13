@@ -50,6 +50,7 @@ namespace p3d {
 		virtual void InitPhysics();
 		virtual void Update(const f64 &time, const uint32 steps = 10);
 		virtual void EnableDebugDraw();
+		void SetDebugRenderer(DebugRenderer* renderer);
 		virtual void RenderDebugDraw(Projection projection, GameObject* Camera);
 		virtual void DisableDebugDraw();
 		virtual void EndPhysics();
@@ -90,7 +91,14 @@ namespace p3d {
 
 		virtual void AddWheel(IPhysicsComponent *pcomp, const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3 &Position, bool isFrontWheel);
 
+		// When false (editor idle), dynamic bodies follow the GameObject.
+		// When true (play mode), the solver drives the GameObject.
+		void SetSimulationEnabled(bool enabled) { m_simulationEnabled = enabled; }
+		bool IsSimulationEnabled() const { return m_simulationEnabled; }
+
 	private:
+
+		bool m_simulationEnabled;
 
 		b3WorldId m_world;
 		std::unique_ptr<PhysicsDebugDraw> m_debugDraw;

@@ -27,6 +27,7 @@
 
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
+#import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
 #include <dispatch/dispatch.h>
 #include <cstdio>
@@ -241,6 +242,8 @@ namespace p3d {
 
 	MetalRenderDevice::MetalRenderDevice()
 		: device(NULL), commandQueue(NULL), metalLayer(NULL), drawableWidth(0), drawableHeight(0),
+		  swapchainPixelFormat((uint32)MTLPixelFormatBGRA8Unorm),
+		  presentAsLinear(false),
 		  depthTexture(NULL),
 		  imguiMetalBackendActive(false), imguiDummyColorTexture(NULL),
 		  frameBoundarySemaphore(NULL), currentCommandBuffer(NULL), currentRenderEncoder(NULL),
@@ -360,7 +363,13 @@ namespace p3d {
 			CAMetalLayer* layer = (__bridge CAMetalLayer*)layerPtr;
 			id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
 			layer.device = mtlDevice;
+			// BGRA8Unorm (not _sRGB): ImGui writes already-sRGB UI colours
+			// into this drawable. An sRGB pixel format encoded them again
+			// and washed the chrome out. Scene brightness for the editor
+			// viewport is handled by gamma-encoding the offscreen capture
+			// (PostEffectsManager::GetViewportColor), not the swapchain.
 			layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+			swapchainPixelFormat = (uint32)MTLPixelFormatBGRA8Unorm;
 			// This engine only ever samples an offscreen render target back
 			// as a texture (see IRenderDevice::CopyDepthTexture()'s comment
 			// on the same distinction on the Vulkan side) - the swapchain/
@@ -384,6 +393,9 @@ namespace p3d {
 			// This caps throughput measurement, not real work: per-scope
 			// CPU timings are unaffected by present pacing, which is how
 			// the Vulkan offscreen-stall fix was measured.
+			//
+			// colorspace left at the system sRGB default unless the editor
+			// calls SetPresentAsLinear(true) - see that method's comment.
 			layer.drawableSize = CGSizeMake((CGFloat)width, (CGFloat)height);
 		}
 
@@ -392,6 +404,25 @@ namespace p3d {
 		drawableHeight = height;
 		RebuildDepthTexture();
 		return true;
+	}
+
+	void MetalRenderDevice::SetPresentAsLinear(const bool enabled)
+	{
+		presentAsLinear = enabled;
+		if (metalLayer == NULL)
+			return;
+		@autoreleasepool
+		{
+			CAMetalLayer* layer = (__bridge CAMetalLayer*)metalLayer;
+			// Linear: UNORM bytes are linear light, ColorSync maps to the
+			// display - same brightness model as typical OpenGL default FB
+			// content. sRGB: UNORM bytes are display-encoded (TonemapEffect).
+			CGColorSpaceRef cs = CGColorSpaceCreateWithName(
+				enabled ? kCGColorSpaceLinearSRGB : kCGColorSpaceSRGB);
+			layer.colorspace = cs;
+			if (cs != NULL)
+				CGColorSpaceRelease(cs);
+		}
 	}
 
 	void MetalRenderDevice::NotifySurfaceResized(const uint32 width, const uint32 height)
@@ -716,7 +747,12 @@ namespace p3d {
 		std::map<DeviceHandle, ShaderStageRecord>::iterator fs = shaderStages.find(progIt->second.fragmentShader);
 		if (vs == shaderStages.end() || fs == shaderStages.end() || vs->second.function == NULL || fs->second.function == NULL)
 		{
-			fprintf(stderr, "MetalRenderDevice::CreatePipeline: program %u has no compiled vertex+fragment function pair\n", desc.shaderProgram);
+			fprintf(stderr, "MetalRenderDevice::CreatePipeline: program %u has no compiled vertex+fragment function pair (vs_handle=%u,fs_handle=%u,vs_found=%d,fs_found=%d,vs_fn=%p,fs_fn=%p)\n",
+				desc.shaderProgram,
+				progIt->second.vertexShader, progIt->second.fragmentShader,
+				vs != shaderStages.end(), fs != shaderStages.end(),
+				vs != shaderStages.end() ? vs->second.function : NULL,
+				fs != shaderStages.end() ? fs->second.function : NULL);
 			return 0;
 		}
 		if (desc.vertexLayout.empty() && !desc.noVertexInput)
@@ -798,10 +834,20 @@ namespace p3d {
 				}
 				else
 				{
-					pipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+					pipelineDesc.colorAttachments[0].pixelFormat = (MTLPixelFormat)swapchainPixelFormat;
 				}
 			}
-			pipelineDesc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+			pipelineDesc.depthAttachmentPixelFormat = MTLPixelFormatInvalid;
+			if (currentBoundFBO != 0 && boundFboIt != fboRecords.end() && boundFboIt->second.depthAttachment.texture != 0)
+				pipelineDesc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+			else if (currentBoundFBO == 0)
+				pipelineDesc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+			// Color-only offscreen targets (every IEffect FBO, including
+			// PostEffectsManager::GetViewportColor()'s gamma blit) must keep
+			// Invalid: a pipeline that declares Depth32Float against a
+			// depth-less render pass fails newRenderPipelineState or draws
+			// nothing - the editor viewport stayed black/dark because the
+			// gamma encode pass never actually ran.
 
 			if (desc.blendingEnabled)
 			{
@@ -1172,10 +1218,31 @@ namespace p3d {
 		std::map<DeviceHandle, PipelineRecord>::iterator pipeIt = pipelines.find(currentPipeline);
 		if (pipeIt == pipelines.end())
 			return;
-		BindProgramUniformBuffers(pipeIt->second.programHandle);
+
 		@autoreleasepool
 		{
 			id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)currentRenderEncoder;
+
+			// DebugRenderer (and any other DrawArrays path with real vertex
+			// input) records VBOs on the current VAO via BindArrayBuffer().
+			// PostEffects uses noVertexInput and leaves vertexBuffers empty.
+			if (currentVao != 0)
+			{
+				std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
+				if (vaoIt != vaos.end())
+				{
+					for (size_t i = 0; i < vaoIt->second.vertexBuffers.size(); i++)
+					{
+						std::map<DeviceHandle, BufferRecord>::iterator vboIt = buffers.find(vaoIt->second.vertexBuffers[i]);
+						if (vboIt == buffers.end() || vboIt->second.buffer == NULL)
+							return;
+						id<MTLBuffer> vbo = (__bridge id<MTLBuffer>)vboIt->second.buffer;
+						[encoder setVertexBuffer:vbo offset:0 atIndex:(NSUInteger)(kFirstVertexBufferIndex + i)];
+					}
+				}
+			}
+
+			BindProgramUniformBuffers(pipeIt->second.programHandle);
 			[encoder drawPrimitives:(MTLPrimitiveType)nativeDrawType vertexStart:first vertexCount:count];
 		}
 	}
@@ -1550,6 +1617,7 @@ namespace p3d {
 
 		if (!SpirvShaderCompiler::Compile(compileSource, spirvStage, it->second.spirv, errorLog))
 		{
+			fprintf(stderr, "[METAL] SpirvShaderCompiler::Compile FAILED: %s\n", errorLog.c_str());
 			if (usedAutoFix)
 				return false;
 			SpirvAutoUboResult autoUbo;
@@ -1678,46 +1746,59 @@ namespace p3d {
 					}
 					mslCompiler.add_msl_resource_binding(binding);
 				}
-				// Same reasoning for sampled images (see the silent-
-				// garbage-read bug above), with one asymmetry: an MSL
-				// [[texture(N)]] index may go up to 127, so passing the
-				// engine binding straight through is fine there, but the
-				// [[sampler(N)]] table is capped at 16 entries per stage.
-				// PyrosShader.glsl's SAMPLER_BINDING numbering runs past
-				// that (BIND_uMetallicRoughnessmap is 16), so a passthrough
-				// made newLibraryWithSource: fail outright with "'sampler'
-				// attribute parameter is out of bounds: must be between 0
-				// and 15". That killed the whole fragment stage, so the
-				// program had no vertex+fragment pair, CreatePipeline()
-				// returned 0, and every draw using it was skipped behind a
-				// flood of "pipeline handle 0 not found" - hit by any PBR
-				// material with a metallic/roughness map (PBRSpheres).
-				// Compact sampler indices into 0..15 in declaration order
-				// and remember the mapping for SendUniformInt(), which
-				// binds the sampler state by engine binding.
+				// Compact both [[texture(N)]] and [[sampler(N)]] into
+				// contiguous ranges, advancing by each resource's array
+				// size. Texture passthrough used to work for single
+				// samplers (N up to 127), but PyrosShader.glsl's
+				// `uPointShadowMaps[4]` at engine binding 10 and
+				// `uSpotShadowMaps[4]` at 11 make Metal reserve 10..13 and
+				// 11..14 - overlapping ranges that make
+				// newLibraryWithSource fail ("cannot reserve 'texture'
+				// resource locations"). Sampler compaction already existed
+				// for the 16-entry cap, but only advanced by 1 per
+				// resource, so `array<sampler, 4> [[sampler(1)]]` and
+				// `array<sampler, 4> [[sampler(2)]]` collided the same way.
+				// Remember both remaps for SendUniformInt().
 				uint32 nextSamplerIndex = 0;
+				uint32 nextTextureIndex = 0;
 				for (size_t i = 0; i < resources.sampled_images.size(); i++)
 				{
 					const spirv_cross::Resource &res = resources.sampled_images[i];
+					const spirv_cross::SPIRType &type = mslCompiler.get_type(res.type_id);
+					uint32 arraySize = type.array.empty() ? 1 : (type.array[0] > 0 ? type.array[0] : 1);
 					spirv_cross::MSLResourceBinding binding;
 					binding.stage = mslCompiler.get_execution_model();
 					binding.desc_set = mslCompiler.get_decoration(res.id, spv::DecorationDescriptorSet);
 					binding.binding = mslCompiler.get_decoration(res.id, spv::DecorationBinding);
-					binding.msl_texture = binding.binding;
-					if (nextSamplerIndex >= kMaxMslSamplersPerStage)
+					if (nextTextureIndex + arraySize > kMaxMslTexturesPerStage)
+					{
+						errorLog = "Metal: more than " + std::to_string(kMaxMslTexturesPerStage) +
+							" textures in one shader stage - no free MSL texture index for binding " +
+							std::to_string(binding.binding);
+						return false;
+					}
+					if (nextSamplerIndex + arraySize > kMaxMslSamplersPerStage)
 					{
 						errorLog = "Metal: more than " + std::to_string(kMaxMslSamplersPerStage) +
 							" samplers in one shader stage - no free MSL sampler index for binding " +
 							std::to_string(binding.binding);
 						return false;
 					}
+					binding.msl_texture = nextTextureIndex;
 					binding.msl_sampler = nextSamplerIndex;
+					it->second.textureIndexRemap[binding.binding] = nextTextureIndex;
 					it->second.samplerIndexRemap[binding.binding] = nextSamplerIndex;
-					nextSamplerIndex++;
+					nextTextureIndex += arraySize;
+					nextSamplerIndex += arraySize;
 					mslCompiler.add_msl_resource_binding(binding);
 				}
 
 				mslSource = mslCompiler.compile();
+				if (mslSource.empty())
+				{
+					errorLog = "SPIRV-Cross produced empty MSL source";
+					return false;
+				}
 			}
 			catch (const std::exception &e)
 			{
@@ -1731,6 +1812,7 @@ namespace p3d {
 			if (library == nil)
 			{
 				errorLog = nsError ? std::string([[nsError localizedDescription] UTF8String]) : "newLibraryWithSource failed";
+				fprintf(stderr, "[METAL] newLibraryWithSource failed (shader=%u): %s\n", (uint32)shader, errorLog.c_str());
 				return false;
 			}
 			// SPIRV-Cross names every stage's entry point "main0" by
@@ -1739,7 +1821,9 @@ namespace p3d {
 			id<MTLFunction> function = [library newFunctionWithName:@"main0"];
 			if (function == nil)
 			{
-				errorLog = "MSL library has no main0 entry point";
+				NSArray<NSString*>* names = [library functionNames];
+				errorLog = std::string("MSL library has no main0 entry point, available functions: ") + [[names description] UTF8String];
+				fprintf(stderr, "[METAL] %s\n", errorLog.c_str());
 				return false;
 			}
 			it->second.function = (void*)CFBridgingRetain(function);
@@ -1808,6 +1892,9 @@ namespace p3d {
 		// Kept per-stage rather than merged - see ProgramRecord::samplerMslIndex.
 		it->second.samplerMslIndex[0] = vs->second.samplerIndexRemap;
 		it->second.samplerMslIndex[1] = fs->second.samplerIndexRemap;
+		it->second.textureMslIndex[0] = vs->second.textureIndexRemap;
+		it->second.textureMslIndex[1] = fs->second.textureIndexRemap;
+		it->second.samplerArraySizes.clear();
 		std::vector<SpirvResourceBinding> vsResources = SpirvShaderCompiler::Reflect(vs->second.spirv);
 		std::vector<SpirvResourceBinding> fsResources = SpirvShaderCompiler::Reflect(fs->second.spirv);
 		for (int stagePass = 0; stagePass < 2; stagePass++)
@@ -1828,6 +1915,7 @@ namespace p3d {
 					// here the way it would be in a single shared namespace.
 					it->second.samplerBindings[res.name] = res.binding;
 					it->second.samplerStageMask[res.binding] |= stageBit;
+					it->second.samplerArraySizes[res.binding] = res.arraySize;
 				}
 				else
 				{
@@ -1928,40 +2016,54 @@ namespace p3d {
 		if (maskIt == progIt->second.samplerStageMask.end())
 			return; // program doesn't declare a sampler at this binding - matches GL's no-op contract
 
-		std::map<uint32, DeviceHandle>::iterator unitIt = textureUnitBindings.find((uint32)data[0]);
-		if (unitIt == textureUnitBindings.end())
-			return; // no Texture::Bind() at this unit (yet, or ever)
-		std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(unitIt->second);
-		if (texIt == textures.end() || texIt->second.texture == NULL)
+		uint32 arraySize = 1;
+		std::map<uint32, uint32>::iterator arrIt = progIt->second.samplerArraySizes.find((uint32)handle);
+		if (arrIt != progIt->second.samplerArraySizes.end())
+			arraySize = arrIt->second;
+		// Bind every declared array element. IRenderer may send fewer units
+		// than the shader array (or a single fallback unit when there are
+		// no shadow casters) - pad the remaining slots with the last valid
+		// texture so Metal/Vulkan both see a complete array, matching
+		// VulkanRenderDevice::SendUniformInt()'s fill behaviour.
+		uint32 bindCount = arraySize > count ? arraySize : count;
+		if (bindCount == 0)
 			return;
 
 		@autoreleasepool
 		{
 			id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)currentRenderEncoder;
-			id<MTLTexture> tex = (__bridge id<MTLTexture>)texIt->second.texture;
-			RebuildSamplerIfDirty(texIt->second);
-			id<MTLSamplerState> sampler = (__bridge id<MTLSamplerState>)texIt->second.samplerState;
 			const uint32 stageMask = maskIt->second;
-			// Texture index is the engine binding as-is; the sampler index
-			// is whatever CompileShaderStage() compacted it to for *this*
-			// stage (see its comment on Metal's 16-entry sampler table).
-			// Absent from the map means the stage declares no sampler at
-			// this binding, so there is nothing to bind for it.
-			for (int stage = 0; stage < 2; stage++)
+			for (uint32 elem = 0; elem < bindCount; elem++)
 			{
-				if (!(stageMask & (1u << stage)))
+				uint32 unitIndex = elem < count ? elem : (count - 1);
+				std::map<uint32, DeviceHandle>::iterator unitIt = textureUnitBindings.find((uint32)data[unitIndex]);
+				if (unitIt == textureUnitBindings.end())
 					continue;
-				std::map<uint32, uint32>::iterator sIt = progIt->second.samplerMslIndex[stage].find((uint32)handle);
-				NSUInteger samplerIndex = (sIt != progIt->second.samplerMslIndex[stage].end()) ? (NSUInteger)sIt->second : (NSUInteger)handle;
-				if (stage == 0)
+				std::map<DeviceHandle, TextureRecord>::iterator texIt = textures.find(unitIt->second);
+				if (texIt == textures.end() || texIt->second.texture == NULL)
+					continue;
+
+				id<MTLTexture> tex = (__bridge id<MTLTexture>)texIt->second.texture;
+				RebuildSamplerIfDirty(texIt->second);
+				id<MTLSamplerState> sampler = (__bridge id<MTLSamplerState>)texIt->second.samplerState;
+				for (int stage = 0; stage < 2; stage++)
 				{
-					[encoder setVertexTexture:tex atIndex:(NSUInteger)handle];
-					if (sampler != nil) [encoder setVertexSamplerState:sampler atIndex:samplerIndex];
-				}
-				else
-				{
-					[encoder setFragmentTexture:tex atIndex:(NSUInteger)handle];
-					if (sampler != nil) [encoder setFragmentSamplerState:sampler atIndex:samplerIndex];
+					if (!(stageMask & (1u << stage)))
+						continue;
+					std::map<uint32, uint32>::iterator tIt = progIt->second.textureMslIndex[stage].find((uint32)handle);
+					std::map<uint32, uint32>::iterator sIt = progIt->second.samplerMslIndex[stage].find((uint32)handle);
+					NSUInteger textureIndex = ((tIt != progIt->second.textureMslIndex[stage].end()) ? (NSUInteger)tIt->second : (NSUInteger)handle) + elem;
+					NSUInteger samplerIndex = ((sIt != progIt->second.samplerMslIndex[stage].end()) ? (NSUInteger)sIt->second : (NSUInteger)handle) + elem;
+					if (stage == 0)
+					{
+						[encoder setVertexTexture:tex atIndex:textureIndex];
+						if (sampler != nil) [encoder setVertexSamplerState:sampler atIndex:samplerIndex];
+					}
+					else
+					{
+						[encoder setFragmentTexture:tex atIndex:textureIndex];
+						if (sampler != nil) [encoder setFragmentSamplerState:sampler atIndex:samplerIndex];
+					}
 				}
 			}
 		}

@@ -38,6 +38,10 @@ namespace p3d {
 
 	private:
 
+		void EnsureGpuResources();
+		void DestroyGpuResources();
+		DeviceHandle EnsurePipeline(const uint32 drawingType);
+
 		IMaterial* DebugMaterial;
 		Matrix projectionMatrix;
 		Matrix viewMatrix;
@@ -45,6 +49,7 @@ namespace p3d {
 
 		bool pushedMatrix;
 		Matrix temp;
+		bool holdsSharedUbos;
 
 		std::vector<Vec3> vertexLines;
 		std::vector<Vec4> colorLines;
@@ -55,13 +60,28 @@ namespace p3d {
 		std::vector<f32> pointsSize;
 
 		// Buffers
-		GeometryBuffer* VertexLinesBF;
-		GeometryBuffer* ColorLinesBF;
-		GeometryBuffer* VertexTrianglesBF;
-		GeometryBuffer* ColorTrianglesBF;
-		GeometryBuffer* PointsBF;
-		GeometryBuffer* ColorPointsBF;
-		GeometryBuffer* PointsSizeBF;
+		GeometryBuffer* VertexLinesBF = nullptr;
+		GeometryBuffer* ColorLinesBF = nullptr;
+		GeometryBuffer* VertexTrianglesBF = nullptr;
+		GeometryBuffer* ColorTrianglesBF = nullptr;
+		GeometryBuffer* PointsBF = nullptr;
+		GeometryBuffer* ColorPointsBF = nullptr;
+		GeometryBuffer* PointsSizeBF = nullptr;
+
+		// Stable VAOs + pipelines (same model as IRenderer::BindMesh /
+		// PostEffectsManager). Built once; pipelines rebuilt when the
+		// render target / swapchain generation changes.
+		DeviceHandle linesVao;
+		DeviceHandle trianglesVao;
+		DeviceHandle pointsVao;
+		bool linesVaoBuilt;
+		bool trianglesVaoBuilt;
+		bool pointsVaoBuilt;
+		DeviceHandle linesPipeline;
+		DeviceHandle trianglesPipeline;
+		DeviceHandle pointsPipeline;
+		DeviceHandle pipelinesBuiltForTarget;
+		uint32 pipelinesBuiltForSwapchainGeneration;
 
 		// See IRenderDevice.h - same seam IRenderer uses, since
 		// DebugRenderer doesn't inherit IRenderer and has its own small

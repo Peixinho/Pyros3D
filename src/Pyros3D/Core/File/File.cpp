@@ -14,31 +14,74 @@ namespace p3d {
 	bool File::Open(const std::string &filename, bool write)
 	{
 		opened = false;
+		data.clear();
+		positionStream = 0;
 		file = fopen(filename.c_str(), (write ? "wb" : "rb"));
-		if (file != NULL)
+		if (file == NULL)
 		{
-			int32 n_blocks = 1024;
-			while (n_blocks != 0)
-			{
-				data.resize(data.size() + n_blocks);
-				n_blocks = fread(&data[data.size() - n_blocks], 1, n_blocks, file);
-			}
-			positionStream = 0;
-			opened = true;
-			return opened;
+			echo("Error: Couldn't Open File: " + filename);
+			return false;
 		}
 
-		echo("Error: Couldn't Open File: " + filename);
-		return opened;
+		if (write)
+		{
+			// Writers only fwrite(); keep an empty in-memory buffer.
+			opened = true;
+			return true;
+		}
+
+		// Old path resized +1024 and fread in a loop. For island.p3dm (~16MB)
+		// that is ~16k realloc/copies (O(n²) memcpy) and the editor appeared
+		// hung until the process was killed. Size the buffer once, then read.
+		if (fseek(file, 0, SEEK_END) != 0)
+		{
+			fclose(file);
+			file = NULL;
+			echo("Error: Couldn't Open File: " + filename);
+			return false;
+		}
+		const long sz = ftell(file);
+		if (sz < 0)
+		{
+			fclose(file);
+			file = NULL;
+			echo("Error: Couldn't Open File: " + filename);
+			return false;
+		}
+		if (fseek(file, 0, SEEK_SET) != 0)
+		{
+			fclose(file);
+			file = NULL;
+			echo("Error: Couldn't Open File: " + filename);
+			return false;
+		}
+
+		data.resize((size_t)sz);
+		size_t got = 0;
+		while (got < (size_t)sz)
+		{
+			const size_t n = fread(&data[got], 1, (size_t)sz - got, file);
+			if (n == 0)
+				break;
+			got += n;
+		}
+		data.resize(got);
+		positionStream = 0;
+		opened = true;
+		return true;
 	}
 
 	void File::Read(const char* src, const uint32 size)
 	{
-		if (opened)
+		if (!opened || size == 0)
+			return;
+		if (positionStream + (uint32)size > (uint32)data.size())
 		{
-			memcpy((char*)src, &data[positionStream], sizeof(unsigned char)*size);
-			positionStream += size * sizeof(unsigned char);
+			echo("ERROR: File::Read past end of buffer");
+			return;
 		}
+		memcpy((char*)src, &data[positionStream], size);
+		positionStream += size;
 	}
 
 	void File::Write(const char* src, const uint32 size)
@@ -55,7 +98,7 @@ namespace p3d {
 
 	const uint32 File::Size() const
 	{
-		return data.size();
+		return (uint32)data.size();
 	}
 
 	std::vector<uchar> &File::GetData()
@@ -68,8 +111,10 @@ namespace p3d {
 		if (opened)
 		{
 			fclose(file);
+			file = NULL;
 			data.clear();
 			positionStream = 0;
+			opened = false;
 		}
 	}
 #endif

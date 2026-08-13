@@ -19,8 +19,15 @@
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
 #include <Pyros3D/Rendering/Components/Lights/SpotLight/SpotLight.h>
+#include <Pyros3D/Audio/AudioSource.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <memory>
+
+#ifdef LUA_BINDINGS
+#include <Pyros3D/Utils/Bindings/PyrosBindings.h>
+#endif
+
+namespace p3d { class Physics; }
 
 using namespace p3d;
 
@@ -31,7 +38,9 @@ namespace SceneObjectTypes {
 		DIRECTIONALLIGHT_COMPONENT,
 		POINTLIGHT_COMPONENT,
 		SPOTLIGHT_COMPONENT,
-		PHYSICS_COMPONENT
+		PHYSICS_COMPONENT,
+		AUDIO_SOURCE_COMPONENT,
+		LUA_COMPONENT
 	};
 };
 
@@ -66,6 +75,7 @@ class SceneObject {
 
 class SceneObjects
 {
+	friend class SceneEditor;
 	public:
 		SceneObjects(SceneGraph* scene);
 		virtual ~SceneObjects(void);
@@ -90,6 +100,18 @@ class SceneObjects
 		uint32 GetSceneObjectID(void* go);
 		const std::map<uint32,SceneObject*> &GetList() const { return listObjects; }
 
+		bool ReparentGameObject(const uint32 childId, const uint32 newParentId);
+		bool MoveComponent(const uint32 compId, const uint32 targetGoId);
+		bool IsDescendant(const uint32 ancestorId, const uint32 candidateId) const;
+
+		// Deep-clones a GameObject (transform, components, child hierarchy).
+		// When physicsEngine is non-null, physics components are recreated with
+		// the same shape parameters rather than sharing rigid bodies.
+		SceneObject* DuplicateGameObject(const uint32 id, Physics* physicsEngine = NULL);
+
+		static std::shared_ptr<GameObject> FindSharedGameObject(SceneGraph* scene, GameObject* go);
+		static std::shared_ptr<IComponent> FindSharedComponent(GameObject* owner, IComponent* comp);
+
 		// Rendering Components
 		SceneObject* CreateRenderingCube(GameObject *go,const f32 width, const f32 height, const f32 depth, bool smoothnormals, bool flipnormals);
 		SceneObject* CreateRenderingSphere(GameObject *go, const f32 radius, const f32 segmentsw, const f32 segmentsh, bool smoothnormals, bool halfsphere, bool flipnormals);
@@ -103,6 +125,13 @@ class SceneObjects
 		SceneObject* CreateDirectionalLight(GameObject *go, const Vec3 &direction, const Vec4 &color);
 		SceneObject* CreatePointLight(GameObject *go, const f32 radius, const Vec4 &color);
 		SceneObject* CreateSpotLight(GameObject *go, const f32 radius, const Vec3 &direction, const f32 outter, const f32 inner, const Vec4 &color);
+		SceneObject* CreateAudioSource(GameObject *go, const std::string &path, bool stream = false,
+			bool looping = false, bool spatialized = true, f32 volume = 1.f);
+#ifdef LUA_BINDINGS
+		// Registers an already-built LuaComponent (from LuaComponent_FromFile /
+		// load) as a tree node under `go`.
+		SceneObject* CreateLuaComponent(GameObject *go, const std::shared_ptr<LuaComponent> &comp);
+#endif
 
 	protected:
 		std::map<uint32,SceneObject*> listObjects;
@@ -111,5 +140,6 @@ class SceneObjects
 		SceneGraph* SceneHelpers;
 
 	private:
+		SceneObject* DuplicateGameObjectUnder(const uint32 id, const uint32 newParentId, Physics* physicsEngine);
 		uint32 _ID;
 };

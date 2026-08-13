@@ -45,7 +45,10 @@ void CGizmoTransformRender::Initialize()
 
 void CGizmoTransformRender::Destroy()
 {
-	debug = NULL;
+	// Do not clear the static `debug` pointer. It is owned by SceneEditor
+	// (SetDebugRenderer) and shared by every gizmo instance. UseTranslation/
+	// Rotation/ScaleManipulator delete the old gizmo when switching tools;
+	// nulling `debug` here made DrawVertices() no-op for the replacement.
 	initialized = false;
 }
 

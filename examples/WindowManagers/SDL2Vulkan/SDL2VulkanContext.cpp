@@ -10,6 +10,8 @@
 #include "SDL2VulkanContext.h"
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
+#include "../FileDropHook.h"
+#include "../CloseHook.h"
 
 #ifdef VULKAN_BACKEND
 
@@ -342,9 +344,11 @@ namespace p3d {
             if (ImGui::GetCurrentContext() != NULL)
                 ImGui_ImplSDL2_ProcessEvent(&sdl_event);
 
-            if (sdl_event.type == SDL_QUIT)
+            if (sdl_event.type == SDL_QUIT
+                || (sdl_event.type == SDL_WINDOWEVENT && sdl_event.window.event == SDL_WINDOWEVENT_CLOSE))
             {
-                Close();
+                if (PyrosWindowClose::AllowClose())
+                    Close();
             }
 
             if (sdl_event.type == SDL_KEYDOWN)
@@ -364,6 +368,12 @@ namespace p3d {
 
             if (sdl_event.type == SDL_MOUSEWHEEL)
                 MouseWheel(sdl_event.wheel.y);
+
+            if (sdl_event.type == SDL_DROPFILE && sdl_event.drop.file)
+            {
+                PyrosFileDrop::Notify(sdl_event.drop.file);
+                SDL_free(sdl_event.drop.file);
+            }
 
             // Adjust the viewport when the window is resized. `window` is
             // only a valid member of this union when type==SDL_WINDOWEVENT

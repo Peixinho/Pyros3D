@@ -230,8 +230,10 @@ namespace p3d {
 				aiString path;
 				aiReturn texFound;
 
-				// Diffuse
+				// Diffuse / base color (glTF PBR often only sets BASE_COLOR)
 				texFound = assimp_model->mMaterials[i]->GetTexture(aiTextureType_DIFFUSE, 0, &path);
+				if (texFound != AI_SUCCESS)
+					texFound = assimp_model->mMaterials[i]->GetTexture(aiTextureType_BASE_COLOR, 0, &path);
 				if (texFound == AI_SUCCESS)
 				{
 					material.haveColorMap = true;

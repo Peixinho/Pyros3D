@@ -20,7 +20,8 @@ namespace HELPER_TYPE
 {
 	enum {
 		GAMEOBJECT,
-		LIGHT
+		LIGHT,
+		SOUND
 	};
 }
 

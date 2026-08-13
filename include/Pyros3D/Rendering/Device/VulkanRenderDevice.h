@@ -92,6 +92,7 @@ namespace p3d {
 		// call the hard way discovering this (see VULKAN_ROADMAP.md).
 		void WaitIdle();
 		bool IsVulkan() const { return true; }
+		bool NeedsManualDisplayGamma() const { return true; }
 
 		// Real fix for a real, reported bug: under a tiling window
 		// manager, the OS resizes the window via the Accessibility API,
@@ -371,8 +372,10 @@ namespace p3d {
 		// (imgui_impl_sdl2.cpp) has no volk/Vulkan-function dependency at
 		// all and stays compiled per-example same as the GL path already
 		// does; callers must call ImGui_ImplSDL2_InitForVulkan()/
-		// ImGui_ImplSDL2_NewFrame()/ImGui_ImplSDL2_Shutdown() themselves
-		// around these three calls.
+		// ImGui_ImplSDL2_Shutdown() themselves. Call
+		// ImGui_ImplSDL2_NewFrame() *before* NewImGuiVulkanFrame() so the
+		// latter can correct DisplayFramebufferScale against the real
+		// swapchain extent (SDL_Vulkan_GetDrawableSize can lag).
 		bool InitImGuiVulkanBackend();
 		void NewImGuiVulkanFrame();
 		void ShutdownImGuiVulkanBackend();

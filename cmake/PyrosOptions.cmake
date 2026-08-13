@@ -82,6 +82,17 @@ option(BUILD_CONVERTER "Build Assimp model converter tool" OFF)
 option(BUILD_DEMOS "Build DemoLauncher / CppApiDemo" OFF)
 option(BUILD_EDITOR "Build the PyrosBuilder scene editor (needs an OpenGL context)" OFF)
 
+# Prefer enabling the converter with the editor when Assimp is available.
+if (BUILD_EDITOR AND NOT BUILD_CONVERTER)
+	find_package(assimp QUIET)
+	if (assimp_FOUND OR ASSIMP_FOUND)
+		set(BUILD_CONVERTER ON CACHE BOOL "Build Assimp model converter tool" FORCE)
+		message(STATUS "BUILD_EDITOR + Assimp found → enabling BUILD_CONVERTER")
+	else()
+		message(STATUS "Assimp not found — Import Model will still accept .p3dm; source conversion needs AssimpImporter")
+	endif()
+endif()
+
 # Vulkan render device: on when the user picked Vulkan graphics or an
 # explicit SDL2Vulkan context. Still overridable via -DBUILD_VULKAN_BACKEND=.
 if (PYROS_GRAPHICS STREQUAL "Vulkan" OR PYROS_CONTEXT STREQUAL "SDL2Vulkan")

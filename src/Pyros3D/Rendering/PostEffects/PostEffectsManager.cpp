@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/GammaEncodeEffect.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 
@@ -25,7 +26,7 @@ namespace p3d {
 		return MaybeOwningDevicePtr(new GLRenderDevice(), MaybeOwningDeviceDeleter{true});
 	}
 
-	PostEffectsManager::PostEffectsManager(const uint32 width, const uint32 height) : device(ResolvePostEffectsDevice()), fullscreenVao(0)
+	PostEffectsManager::PostEffectsManager(const uint32 width, const uint32 height) : device(ResolvePostEffectsDevice()), fullscreenVao(0), viewportGammaEffect(NULL)
 	{
 		// Save Dimensions
 		Width = width;
@@ -71,12 +72,120 @@ namespace p3d {
 
 	void PostEffectsManager::Resize(const uint32 width, const uint32 height)
 	{
+		if (width == 0 || height == 0)
+			return;
+		if (width == Width && height == Height)
+			return;
+
 		// Save Dimensions
 		Width = width;
 		Height = height;
 
 		// Resize External FBO
 		ExternalFBO->Resize(Width, Height);
+
+		if (viewportGammaEffect != NULL)
+			viewportGammaEffect->Resize(Width, Height);
+	}
+
+	void PostEffectsManager::EnsureViewportGammaEffect()
+	{
+		if (viewportGammaEffect != NULL)
+			return;
+		// Gamma only - not TonemapEffect. ACES + encode made the editor
+		// viewport brighter than OpenGL's linear ImGui display of the same
+		// RGBA16F capture; pow(1/2.2) is enough to undo UNORM-as-sRGB
+		// darkening without the filmic lift.
+		viewportGammaEffect = new GammaEncodeEffect(RTT::Color, Width, Height);
+	}
+
+	void PostEffectsManager::BlitViewportGamma()
+	{
+		EnsureViewportGammaEffect();
+		IEffect *effect = viewportGammaEffect;
+
+		// Do not clobber the scene clear colour with transparent black
+		// before binding - CaptureFrame()'s next Bind uses pendingClearColor.
+		// The display FBO is fully overwritten by the blit either way.
+		activeFBO = effect->fbo;
+		activeFBO->Bind();
+		device->SetViewport(0, 0, effect->Width, effect->Height);
+
+		CommandBufferHandle cmd = device->BeginCommandBuffer();
+		device->BindVertexArray(cmd, fullscreenVao);
+		device->UseProgram(effect->shader->ShaderProgram());
+
+		if (effect->pipelineHandle == 0)
+		{
+			IRenderDevice::PipelineDesc pdesc;
+			pdesc.shaderProgram = effect->shader->ShaderProgram();
+			pdesc.depthTest = false;
+			pdesc.depthWrite = false;
+			pdesc.blendingEnabled = false;
+			pdesc.cullFace = CullFace::DoubleSided;
+			pdesc.noVertexInput = true;
+			effect->pipelineHandle = device->CreatePipeline(pdesc);
+			effect->pipelineBuiltForSwapchainGeneration = device->GetSwapchainGeneration();
+			if (effect->pipelineHandle == 0)
+			{
+				fprintf(stderr, "PostEffectsManager::BlitViewportGamma: CreatePipeline failed - viewport will stay linear/dark\n");
+				activeFBO->UnBind();
+				return;
+			}
+		}
+		// BindPipeline before sampler SendUniformInt - same ordering
+		// ProcessPostEffects requires (writes go to pipelineSamplerSets).
+		device->BindPipeline(cmd, effect->pipelineHandle);
+
+		Texture::ResetUnitCounter();
+		for (std::vector<RTT::Info>::iterator i = effect->RTTOrder.begin(); i != effect->RTTOrder.end(); i++)
+		{
+			switch ((*i).Type)
+			{
+			case RTT::Color: Color->Bind(); break;
+			case RTT::Depth: Depth->Bind(); break;
+			case RTT::LastRTT: if (LastRTT) LastRTT->Bind(); break;
+			default: if ((*i).texture) (*i).texture->Bind(); break;
+			}
+		}
+
+		// Deliver sampler unit ints the same way ProcessPostEffects does -
+		// a hard-coded SendUniformInt(0) misses Vulkan/Metal reflection
+		// when the binding id is not 0 or the name fails to resolve.
+		for (std::list<__UniformPostProcess>::iterator i = effect->Uniforms.begin(); i != effect->Uniforms.end(); i++)
+		{
+			if ((*i).handle == -2)
+				(*i).handle = Shader::GetUniformLocation(effect->shader->ShaderProgram(), (*i).uniform.Name);
+			if ((*i).handle != -1)
+				Shader::SendUniform((*i).uniform, (*i).handle);
+		}
+
+		device->DrawArrays(device->TranslateDrawType(DrawingType::Triangles), 0, 3);
+		device->EndCommandBuffer(cmd);
+
+		for (std::vector<RTT::Info>::reverse_iterator i = effect->RTTOrder.rbegin(); i != effect->RTTOrder.rend(); i++)
+		{
+			switch ((*i).Type)
+			{
+			case RTT::Color: Color->Unbind(); break;
+			case RTT::Depth: Depth->Unbind(); break;
+			case RTT::LastRTT: if (LastRTT) LastRTT->Unbind(); break;
+			default: if ((*i).texture) (*i).texture->Unbind(); break;
+			}
+		}
+		activeFBO->UnBind();
+		device->UseProgram(0);
+	}
+
+	Texture* PostEffectsManager::GetViewportColor()
+	{
+		// Editor ImGui path: show the linear RGBA16F capture as-is, same as
+		// OpenGL. A pow(1/2.2) blit made VK/Metal midtones brighter than GL
+		// (e.g. clear 0.2 → ~0.48). Swapchain UNORM darkening is a present
+		// issue for demos that draw to the backbuffer; this texture is only
+		// sampled by ImGui, which already matched GL once the capture clear
+		// colour was applied before Bind.
+		return Color;
 	}
 
 	void PostEffectsManager::ProcessPostEffects(Projection* projection)
@@ -370,6 +479,12 @@ namespace p3d {
 		// Destroy Textures
 		delete Color;
 		delete Depth;
+
+		if (viewportGammaEffect != NULL)
+		{
+			delete viewportGammaEffect;
+			viewportGammaEffect = NULL;
+		}
 	}
 
 	void PostEffectsManager::AddEffect(IEffect* Effect)

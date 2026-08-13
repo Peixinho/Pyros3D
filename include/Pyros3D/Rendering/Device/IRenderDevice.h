@@ -197,6 +197,13 @@ namespace p3d {
 		// flaky test).
 		virtual bool IsVulkan() const = 0;
 
+		// True when the swapchain is UNORM but presentation still treats
+		// bytes as sRGB (Vulkan + Metal). Linear HDR shown through ImGui
+		// needs a manual gamma encode (GetViewportColor); do NOT flip the
+		// swapchain to an SRGB format for that - ImGui UI colours are
+		// already sRGB-authored and wash out on an SRGB target.
+		virtual bool NeedsManualDisplayGamma() const { return false; }
+
 		// Clearing - TranslateBufferBit() has no side effects (pure
 		// translation, cached by the caller); Clear() issues the actual
 		// clear using a previously-translated mask.

@@ -400,13 +400,35 @@ namespace p3d {
         }
         virtual void Update(const p3d::f64 time)
         {
-            FireInit();
-            if (on_update) { on_update(*this, time); }
+            // Editor edit-mode leaves this false so scripts only run in Play.
+            if (!s_updatesEnabled) return;
+            // WireLua rethrows on init/update failure (DemoLauncher needs it).
+            // Swallow here so a bad script cannot abort the editor host.
+            try {
+                FireInit();
+                if (on_update) { on_update(*this, time); }
+            }
+            catch (const std::exception&) {}
+            catch (...) {}
         }
         virtual void Destroy()
         {
             if (on_destroy) { on_destroy(*this); }
         }
+
+        // Call destroy hooks and allow Init to fire again (editor Stop Play).
+        void ResetLifecycle()
+        {
+            if (initialized && on_destroy) {
+                try { on_destroy(*this); }
+                catch (...) {}
+            }
+            initialized = false;
+            initFailed = false;
+        }
+
+        static void SetUpdatesEnabled(bool enabled) { s_updatesEnabled = enabled; }
+        static bool UpdatesEnabled() { return s_updatesEnabled; }
 
         std::function<void(LuaComponent&, p3d::f64)> on_update;
         std::function<void(LuaComponent&)> on_init;
@@ -429,8 +451,23 @@ namespace p3d {
         std::string scriptFile;
         sol::table data;
     private:
-        void FireInit() { if (!initialized) { initialized = true; if (on_init) on_init(*this); } }
+        // Only mark initialized after on_init succeeds. On failure, set
+        // initFailed so Update does not re-enter and rethrow every frame.
+        void FireInit()
+        {
+            if (initialized || initFailed) return;
+            try {
+                if (on_init) on_init(*this);
+                initialized = true;
+            }
+            catch (...) {
+                initFailed = true;
+                throw;
+            }
+        }
         bool initialized = false;
+        bool initFailed = false;
+        static bool s_updatesEnabled;
     };
 
     // Wires a LuaComponent's on_init/on_update/on_destroy to its Lua
@@ -485,25 +522,27 @@ namespace p3d {
 
     // Loads scriptFile (expected to `return` a middleclass class table,
     // e.g. `local Foo = class('Foo'); ... return Foo`), instantiates it
-    // via Foo:new(), and wraps the result in a LuaComponent. Uses sol2's
-    // require_file()'s own module caching (keyed by scriptFile itself),
-    // so attaching the same script to many GameObjects only ever runs the
-    // file once. Returns nullptr (nil in Lua) if the file doesn't return a
-    // usable class table. Lifecycle hooks (init/update/destroy) are
-    // wired automatically - see WireLuaComponentLifecycle. Returns
-    // shared_ptr so the result can be handed straight to
-    // GameObject::AddComponent (Stage 1 ownership).
-    inline std::shared_ptr<LuaComponent> LuaComponent_FromFile(sol::state& lua, const std::string &scriptFile)
+    // via Foo:new(), and wraps the result in a LuaComponent.
+    // Uses load_file (not require_file) so: (1) edits are picked up without
+    // restarting, (2) we never touch package.loaded (DemoLauncher/editor
+    // often omit sol::lib::package — require_file can abort or wedge there).
+    // Lifecycle hooks (init/update/destroy) are wired automatically - see
+    // WireLuaComponentLifecycle. Returns shared_ptr so the result can be
+    // handed straight to GameObject::AddComponent (Stage 1 ownership).
+    inline std::shared_ptr<LuaComponent> LuaComponent_FromFile(sol::state_view lua, const std::string &scriptFile)
     {
-        sol::object result = lua.require_file(scriptFile, scriptFile);
-        if (!result.valid() || result.get_type() != sol::type::table) return nullptr;
-        sol::table cls = result;
+        sol::load_result chunk = lua.load_file(scriptFile);
+        if (!chunk.valid()) return nullptr;
+        sol::protected_function_result loaded = chunk();
+        if (!loaded.valid() || loaded.get_type() != sol::type::table) return nullptr;
+        sol::table cls = loaded;
         sol::function newFn = cls["new"];
         if (!newFn.valid()) return nullptr;
-        sol::table instance = newFn(cls);
+        sol::protected_function_result inst = newFn(cls);
+        if (!inst.valid() || inst.get_type() != sol::type::table) return nullptr;
         auto comp = std::make_shared<LuaComponent>();
         comp->scriptFile = scriptFile;
-        comp->data = instance;
+        comp->data = inst.get<sol::table>();
         WireLuaComponentLifecycle(comp.get());
         return comp;
     }

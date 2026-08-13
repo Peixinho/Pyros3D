@@ -74,6 +74,24 @@ namespace p3d {
 	void VulkanRenderDevice::NewImGuiVulkanFrame()
 	{
 		ImGui_ImplVulkan_NewFrame();
+
+		// Must run *after* ImGui_ImplSDL2_NewFrame(): that sets DisplaySize
+		// from SDL_GetWindowSize and FramebufferScale from
+		// SDL_Vulkan_GetDrawableSize. Drawable size can lag the real Vulkan
+		// surface extent (tiling WMs / MoltenVK - see SDL2VulkanContext's
+		// QueryRealSurfaceExtent poll), while our swapchain always matches
+		// capabilities.currentExtent. ImGui_ImplVulkan_RenderDrawData
+		// scales clip rects by DisplaySize*FramebufferScale - if that
+		// product disagrees with swapchainExtent, the whole UI (and the
+		// scene Image inside it) stretches/clips into garbage after resize.
+		ImGuiIO &io = ImGui::GetIO();
+		if (swapchainExtent.width > 0 && swapchainExtent.height > 0 &&
+			io.DisplaySize.x > 0.0f && io.DisplaySize.y > 0.0f)
+		{
+			io.DisplayFramebufferScale = ImVec2(
+				(float)swapchainExtent.width / io.DisplaySize.x,
+				(float)swapchainExtent.height / io.DisplaySize.y);
+		}
 	}
 
 	void VulkanRenderDevice::ShutdownImGuiVulkanBackend()
@@ -132,6 +150,14 @@ namespace p3d {
 		RebuildSamplerIfDirty(it->second);
 		if (it->second.sampler == VK_NULL_HANDLE)
 			return NULL;
+
+		// Same hazard as SendUniformInt: LoadTexture during an ImGui frame
+		// (Assets thumbnails) only records the upload. ImGui draws in
+		// EndFrame before BeginFrame's transfer flush — sampling an
+		// unsubmitted / UNDEFINED image crashes MoltenVK. Flush here.
+		if (it->second.pendingUpload)
+			FlushPendingTransfers();
+		EnsureSampledLayout(it->second);
 
 		ImGuiTextureBinding &binding = imguiTextureIDs[texture];
 		if (binding.set != NULL)

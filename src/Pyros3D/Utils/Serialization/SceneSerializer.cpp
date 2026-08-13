@@ -58,15 +58,56 @@
 
 #include <fstream>
 #include <map>
+#include <filesystem>
 
 namespace p3d {
 
 	using json = nlohmann::json;
+	namespace fs = std::filesystem;
 
 	// Demo JSON files were often saved with absolute host paths
 	// (/Users/.../examples/assets/...). Remap those (and plain relative
 	// paths) against ASSETS_PATH when the recorded file is missing.
+	// Editor projects use the folder that contains scenes/ as the root.
 	static std::string g_sceneAssetRoot;
+
+	static std::string NormalizeSlashes(std::string p)
+	{
+		for (size_t i = 0; i < p.size(); ++i)
+			if (p[i] == '\\') p[i] = '/';
+		return p;
+	}
+
+	static std::string EnsureTrailingSlash(std::string p)
+	{
+		p = NormalizeSlashes(p);
+		if (!p.empty() && p.back() != '/') p.push_back('/');
+		return p;
+	}
+
+	static std::string InferAssetRootFromScenePath(const std::string &filePath)
+	{
+		fs::path sp(filePath);
+		std::error_code ec;
+		sp = fs::weakly_canonical(sp, ec);
+		if (ec) sp = fs::path(filePath);
+		// <project>/scenes/<file>.json → <project>/
+		if (sp.parent_path().filename() == "scenes")
+			return EnsureTrailingSlash(sp.parent_path().parent_path().string());
+		return std::string();
+	}
+
+	static std::string RelativizeSceneAssetPath(const std::string &path)
+	{
+		if (path.empty() || g_sceneAssetRoot.empty()) return path;
+		const std::string root = EnsureTrailingSlash(g_sceneAssetRoot);
+		const std::string norm = NormalizeSlashes(path);
+		const std::string rootNorm = NormalizeSlashes(root);
+		if (norm.size() >= rootNorm.size()
+			&& norm.compare(0, rootNorm.size(), rootNorm) == 0)
+			return norm.substr(rootNorm.size());
+		return path;
+	}
 
 	static bool SceneAssetFileExists(const std::string &path)
 	{
@@ -80,23 +121,68 @@ namespace p3d {
 		if (path.empty()) return path;
 		if (SceneAssetFileExists(path)) return path;
 
-		std::string relative = path;
-		const std::string markers[] = { "examples/assets/", "examples\\assets\\" };
-		for (const std::string &marker : markers)
+		std::string relative = NormalizeSlashes(path);
+
+		// Legacy demos: strip host prefix through examples/assets/ so
+		// ASSETS_PATH (the assets folder itself) + remainder still works.
 		{
-			const size_t pos = path.find(marker);
+			const std::string marker = "examples/assets/";
+			const size_t pos = relative.find(marker);
 			if (pos != std::string::npos)
 			{
-				relative = path.substr(pos + marker.size());
+				relative = relative.substr(pos + marker.size());
+				if (!g_sceneAssetRoot.empty())
+				{
+					const std::string candidate = EnsureTrailingSlash(g_sceneAssetRoot) + relative;
+					if (SceneAssetFileExists(candidate) || relative != NormalizeSlashes(path))
+						return candidate;
+				}
+			}
+		}
+
+		// Editor projects: keep paths relative to the project root
+		// (assets/models/..., scenes/...).
+		const std::string projectMarkers[] = {
+			"assets/models/", "assets/textures/", "assets/sounds/",
+			"assets/shaders/", "assets/lua/", "assets/materials/",
+			"assets/", "scenes/"
+		};
+		for (size_t mi = 0; mi < sizeof(projectMarkers) / sizeof(projectMarkers[0]); ++mi)
+		{
+			const size_t pos = relative.find(projectMarkers[mi]);
+			if (pos != std::string::npos)
+			{
+				relative = relative.substr(pos);
 				break;
 			}
 		}
 
 		if (!g_sceneAssetRoot.empty())
 		{
-			const std::string candidate = g_sceneAssetRoot + relative;
-			if (SceneAssetFileExists(candidate) || relative != path)
-				return candidate;
+			const std::string root = EnsureTrailingSlash(g_sceneAssetRoot);
+			const std::string joined = root + relative;
+			if (SceneAssetFileExists(joined))
+				return joined;
+
+			// ASSETS_PATH may be .../assets/ while the path already starts with
+			// assets/ (editor project layout). Try the project root once.
+			std::string rootNorm = NormalizeSlashes(root);
+			while (!rootNorm.empty() && rootNorm.back() == '/') rootNorm.pop_back();
+			const bool rootIsAssetsFolder =
+				rootNorm.size() >= 6
+				&& (rootNorm.compare(rootNorm.size() - 6, 6, "assets") == 0);
+			if (rootIsAssetsFolder && relative.find("assets/") == 0)
+			{
+				const std::string viaProject = EnsureTrailingSlash(fs::path(rootNorm).parent_path().string()) + relative;
+				if (SceneAssetFileExists(viaProject))
+					return viaProject;
+			}
+
+			if (!fs::path(path).is_absolute())
+				return joined;
+			if (relative != NormalizeSlashes(path)
+				&& (relative.find("assets/") == 0 || relative.find("scenes/") == 0))
+				return joined;
 		}
 		return path;
 	}
@@ -263,7 +349,7 @@ namespace p3d {
 	static void SerializeTextureRef(json &parent, const std::string &key, Texture* t)
 	{
 		if (!t) return;
-		if (!t->GetFilename().empty()) { parent[key] = t->GetFilename(); return; }
+		if (!t->GetFilename().empty()) { parent[key] = RelativizeSceneAssetPath(t->GetFilename()); return; }
 		if (!t->GetRawData().empty()) { parent[key + "Data"] = Base64Encode(t->GetRawData()); return; }
 	}
 	// Mirrors SerializeTextureRef - resolves either key, dedupes
@@ -424,7 +510,7 @@ namespace p3d {
 				return json();
 			}
 			j["kind"] = "model";
-			j["path"] = model->GetPath();
+			j["path"] = RelativizeSceneAssetPath(model->GetPath());
 			j["mergeMeshes"] = model->GetMergeMeshes();
 			return j;
 		}
@@ -677,8 +763,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				// concatenates every LoadAnimation() file into one clip list
 				// and a saved Play(id) indexes into that concatenation, so
 				// dropping all but the last path made those ids meaningless.
-				sa["path"] = inst->GetOwner()->GetPath();
-				sa["paths"] = inst->GetOwner()->GetPaths();
+				sa["path"] = RelativizeSceneAssetPath(inst->GetOwner()->GetPath());
+				json pathsArr = json::array();
+				const std::vector<std::string> &paths = inst->GetOwner()->GetPaths();
+				for (size_t pi = 0; pi < paths.size(); ++pi)
+					pathsArr.push_back(RelativizeSceneAssetPath(paths[pi]));
+				sa["paths"] = pathsArr;
 				json playing = json::array();
 				for (uint32 order = 0; order < inst->GetNumberPlayingAnimations(); order++)
 				{
@@ -946,25 +1036,24 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		{
 			LuaComponent* lc = dynamic_cast<LuaComponent*>(c);
 			j["type"] = "LuaComponent";
-			// Real behavior only for components built via
-			// GameObject:attachScript()/LuaComponent_fromFile() (non-empty
-			// scriptFile) whose class defines a real serialize() method -
-			// anything else (ad-hoc on_init/on_update closures) round-trips
-			// as existence-only, same as before.
-			if (!lc->scriptFile.empty() && lc->data.valid())
+			// Always persist scriptFile when set so the editor can round-trip
+			// attachments even if serialize() is missing. data defaults to {}.
+			if (!lc->scriptFile.empty())
 			{
-				sol::function serializeFn = lc->data["serialize"];
-				if (serializeFn.valid())
+				j["scriptFile"] = RelativizeSceneAssetPath(lc->scriptFile);
+				j["data"] = json::object();
+				if (lc->data.valid())
 				{
-					sol::protected_function_result result = serializeFn(lc->data);
-					if (result.valid() && result.get_type() == sol::type::table)
+					sol::function serializeFn = lc->data["serialize"];
+					if (serializeFn.valid())
 					{
-						j["scriptFile"] = lc->scriptFile;
-						j["data"] = LuaTableToJson(result.get<sol::table>());
+						sol::protected_function_result result = serializeFn(lc->data);
+						if (result.valid() && result.get_type() == sol::type::table)
+							j["data"] = LuaTableToJson(result.get<sol::table>());
+						else
+							echo("WARNING: SceneSerializer - LuaComponent serialize() did not return a table; saving empty data");
 					}
-					else echo("WARNING: SceneSerializer - a LuaComponent's serialize() didn't return a table, saving as existence-only");
 				}
-				else echo("WARNING: SceneSerializer - a LuaComponent's class has no serialize() method, saving as existence-only");
 			}
 			return j;
 		}
@@ -1007,10 +1096,14 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		return j;
 	}
 
-	bool SceneSerializer::SaveScene(SceneGraph* scene, const std::string &filePath, sol::state* lua)
+	bool SceneSerializer::SaveScene(SceneGraph* scene, const std::string &filePath, sol::state* lua, const SceneMeta* meta)
 	{
+		g_sceneAssetRoot = InferAssetRootFromScenePath(filePath);
+
 		json root;
 		root["version"] = 1;
+		if (meta && !meta->mainScript.empty())
+			root["mainScript"] = RelativizeSceneAssetPath(meta->mainScript);
 
 		json materialsArray = json::array();
 		std::map<IMaterial*, uint32> materialIdMap;
@@ -1026,11 +1119,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		std::ofstream out(filePath.c_str());
 		if (!out.is_open())
 		{
+			g_sceneAssetRoot.clear();
 			echo("ERROR: SceneSerializer::SaveScene - couldn't open file for writing: " + filePath);
 			return false;
 		}
 		out << root.dump(4);
 		out.close();
+		g_sceneAssetRoot.clear();
 		return true;
 	}
 
@@ -1327,28 +1422,40 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (!renderable) { echo("WARNING: SceneSerializer - skipping RenderingComponent, couldn't rebuild its renderable"); return; }
 			uint32 matId = j.value("material", (uint32)0xFFFFFFFF);
 			std::shared_ptr<IMaterial> mat = (matId < materialsById.size()) ? materialsById[matId] : nullptr;
-			if (!mat) { echo("WARNING: SceneSerializer - skipping RenderingComponent, its material couldn't be rebuilt"); return; }
-			// LUA_RenderingComponent when lua != NULL - exactly the same
-			// reasoning (and the same failure) as DeserializeGameObject's
-			// LUA_GameObject choice below, which this was missing:
-			// GameObject_GetComponent() hands a script its owner's
-			// RenderingComponent, and plain p3d::RenderingComponent is never
-			// registered as a sol usertype (only LUA_RenderingComponent is),
-			// so every method call on it failed with "attempt to index a
-			// sol.p3d::RenderingComponent * value". That is what broke the
-			// Skeleton Animation demo: skeleton_anim.lua could never reach
-			// getActiveSkeletonAnimation(), so SkeletonAnimation::Update()
-			// was never ticked and the mesh rendered with uninitialised bone
-			// matrices (a collapsed smear, not a posed model). Note
-			// ParticleSystem doesn't need this - it's registered under its
-			// own real type, which is why smoke_tuning.lua always worked.
+
+			// Models: rebuild per-submesh materials from the .p3dm (texture
+			// paths resolve next to the package). Applying one serialized
+			// material to every mesh dropped package textures on reload.
+			const bool isModel = (dynamic_cast<Model*>(renderable.get()) != NULL);
+			if (!isModel && !mat) { echo("WARNING: SceneSerializer - skipping RenderingComponent, its material couldn't be rebuilt"); return; }
+
+			std::shared_ptr<RenderingComponent> rc;
+			if (isModel)
+			{
+				// Diffuse only here — shadow shader variants sample depth
+				// maps that may not exist yet on load (GL: unloadable depth
+				// sampler; Vulkan: validation/segfault). Shadows still work
+				// via EnableCastShadows + lights; the material picks up
+				// Texture/Specular from the .p3dm in BuildMaterials.
+				const uint32 opts = ShaderUsage::Diffuse;
 #ifdef LUA_BINDINGS
-			std::shared_ptr<RenderingComponent> rc = lua
-				? std::static_pointer_cast<RenderingComponent>(std::make_shared<LUA_RenderingComponent>(renderable, mat, 0.0f))
-				: std::make_shared<RenderingComponent>(renderable, mat, 0.0f);
+				rc = lua
+					? std::static_pointer_cast<RenderingComponent>(std::make_shared<LUA_RenderingComponent>(renderable, opts))
+					: std::make_shared<RenderingComponent>(renderable, opts);
 #else
-			std::shared_ptr<RenderingComponent> rc = std::make_shared<RenderingComponent>(renderable, mat, 0.0f);
+				rc = std::make_shared<RenderingComponent>(renderable, opts);
 #endif
+			}
+			else
+			{
+#ifdef LUA_BINDINGS
+				rc = lua
+					? std::static_pointer_cast<RenderingComponent>(std::make_shared<LUA_RenderingComponent>(renderable, mat, 0.0f))
+					: std::make_shared<RenderingComponent>(renderable, mat, 0.0f);
+#else
+				rc = std::make_shared<RenderingComponent>(renderable, mat, 0.0f);
+#endif
+			}
 			if (j.value("cullTest", true)) rc->EnableCullTest(); else rc->DisableCullTest();
 			if (j.value("castingShadows", true)) rc->EnableCastShadows(); else rc->DisableCastShadows();
 			go->AddComponent(rc);
@@ -1481,6 +1588,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					a->SetEQ(j.value("eqType", (uint32)AudioEQType::None), j.value("eqFrequency", 1000.0f), j.value("eqGain", 0.0f), j.value("eqQ", 1.0f));
 				if (j.find("delaySeconds") != j.end())
 					a->SetDelay(j.value("delaySeconds", 0.2f), j.value("delayDecay", 0.5f), j.value("delayWet", 1.0f), j.value("delayDry", 1.0f));
+				a->EnsureLoaded();
 				// Resume playback last, so it starts with its final settings
 				// rather than briefly sounding with the constructor defaults.
 				if (j.value("playing", false)) a->Play();
@@ -1572,7 +1680,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		else if (type == "LuaComponent")
 		{
 			std::string scriptFile = ResolveSceneAssetPath(j.value("scriptFile", std::string()));
-			if (!scriptFile.empty() && lua && j.find("data") != j.end())
+			if (!scriptFile.empty() && lua)
 			{
 				// Always load a fresh chunk (do not use require_file).
 				// DemoLauncher does not open sol::lib::package, so touching
@@ -1601,24 +1709,47 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				if (result.valid() && result.get_type() == sol::type::table)
 				{
 					sol::table cls = result;
+					sol::table instance;
+					bool ok = false;
 					sol::function deserializeFn = cls["deserialize"];
 					if (deserializeFn.valid())
 					{
-						sol::table dataTable = JsonToLuaTable(*lua, j["data"]);
+						sol::table dataTable = (j.find("data") != j.end())
+							? JsonToLuaTable(*lua, j["data"])
+							: lua->create_table();
 						sol::protected_function_result instResult = deserializeFn(dataTable);
 						if (instResult.valid() && instResult.get_type() == sol::type::table)
 						{
-							auto comp = std::make_shared<LuaComponent>();
-							comp->scriptFile = scriptFile;
-							comp->data = instResult.get<sol::table>();
-							WireLuaComponentLifecycle(comp.get());
-							go->AddComponent(comp);
+							instance = instResult.get<sol::table>();
+							ok = true;
 						}
-						else echo("WARNING: SceneSerializer - a LuaComponent's deserialize() didn't return a table, adding as existence-only");
+						else
+							echo("WARNING: SceneSerializer - LuaComponent deserialize() did not return a table");
+					}
+					if (!ok)
+					{
+						sol::function newFn = cls["new"];
+						if (newFn.valid())
+						{
+							sol::protected_function_result instResult = newFn(cls);
+							if (instResult.valid() && instResult.get_type() == sol::type::table)
+							{
+								instance = instResult.get<sol::table>();
+								ok = true;
+							}
+						}
+					}
+					if (ok)
+					{
+						auto comp = std::make_shared<LuaComponent>();
+						comp->scriptFile = scriptFile;
+						comp->data = instance;
+						WireLuaComponentLifecycle(comp.get());
+						go->AddComponent(comp);
 					}
 					else
 					{
-						echo("WARNING: SceneSerializer - a LuaComponent's class has no deserialize() method, adding as existence-only");
+						echo("WARNING: SceneSerializer - couldn't instantiate LuaComponent from " + scriptFile);
 						go->AddComponent(std::make_shared<LuaComponent>());
 					}
 				}
@@ -1680,7 +1811,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		return go;
 	}
 
-	bool SceneSerializer::LoadScene(SceneGraph* scene, const std::string &filePath, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets)
+	bool SceneSerializer::LoadScene(SceneGraph* scene, const std::string &filePath, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets, SceneMeta* outMeta)
 	{
 		std::ifstream in(filePath.c_str());
 		if (!in.is_open())
@@ -1712,11 +1843,17 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			return false;
 		}
 
-		// Remap absolute/host asset paths against ASSETS_PATH (DemoLauncher
-		// sets it) or, failing that, the scene file's own assets/ parent.
+		// Remap asset paths. Editor scenes live under <project>/scenes/ and
+		// store project-relative paths (assets/models/...). Prefer the project
+		// root inferred from the scene file. DemoLauncher sets ASSETS_PATH to
+		// the assets/ folder itself and paths are relative to that — only use
+		// it when we cannot infer a project root (otherwise we join
+		// .../assets/ + assets/models/... → assets/assets/... and the model
+		// fails to open, leaving a corrupt empty Model that crashes on select).
 		g_sceneAssetRoot.clear();
+		g_sceneAssetRoot = InferAssetRootFromScenePath(filePath);
 #ifdef LUA_BINDINGS
-		if (lua)
+		if (g_sceneAssetRoot.empty() && lua)
 		{
 			sol::object assets = (*lua)["ASSETS_PATH"];
 			if (assets.valid() && assets.get_type() == sol::type::string)
@@ -1731,8 +1868,22 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				g_sceneAssetRoot = filePath.substr(0, pos + marker.size());
 		}
 
-		if (root.value("version", 0) != 1)
+		int sceneVersion = 0;
+		if (root.contains("version") && root["version"].is_number())
+			sceneVersion = (int)root["version"].get<double>();
+		if (sceneVersion != 1)
 			echo("WARNING: SceneSerializer::LoadScene - unexpected scene file version, attempting to load anyway");
+
+		if (outMeta)
+		{
+			outMeta->mainScript.clear();
+			if (root.contains("mainScript") && root["mainScript"].is_string())
+			{
+				const std::string raw = root["mainScript"].get<std::string>();
+				if (!raw.empty())
+					outMeta->mainScript = ResolveSceneAssetPath(raw);
+			}
+		}
 
 		std::map<std::string, std::shared_ptr<Texture>> textureCache;
 		std::vector<std::shared_ptr<IMaterial>> materialsById;

@@ -115,17 +115,21 @@ namespace p3d {
 
 		std::string LOG;
 		bool compiled = Device().CompileShaderStage(shader, finalShaderString, LOG);
-		if (!LOG.empty())
+		if (!compiled)
 		{
-			echo(std::string(shaderType.c_str() + std::string((!compiled ? " COMPILATION ERROR:" + LOG : ": " + LOG))));
+			echo(std::string(shaderType.c_str() + std::string(" COMPILATION FAILED") + (!LOG.empty() ? (":" + LOG) : "")));
 
 			if (output != NULL)
 				*output = LOG;
 
-			if (!compiled) {
-				echo(finalShaderString);
-				return false;
-			}
+			echo(finalShaderString);
+			return false;
+		}
+		if (!LOG.empty())
+		{
+			echo(std::string(shaderType.c_str() + std::string(": " + LOG)));
+			if (output != NULL)
+				*output = LOG;
 		}
 		if (shaderProgram == 0)
 			shaderProgram = Device().CreateProgram();

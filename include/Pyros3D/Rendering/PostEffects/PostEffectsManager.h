@@ -54,9 +54,18 @@ namespace p3d {
 		Texture* GetDepth() { return Depth; }
 		Texture* GetLastRTT() { return LastRTT; }
 
+		// For ImGui (or any UNORM-sRGB-interpreted present path): returns a
+		// gamma-encoded LDR copy of Color on backends where
+		// NeedsManualDisplayGamma() is true (pow 1/2.2). On OpenGL returns
+		// Color as-is. Call after EndCapture() / after the frame's debug
+		// overlays have been drawn into Color.
+		Texture* GetViewportColor();
+
 	private:
 
 		void CreateQuad();
+		void EnsureViewportGammaEffect();
+		void BlitViewportGamma();
 
 		// Set Quad Geometry
 		std::vector<Vec3> vertex;
@@ -90,6 +99,10 @@ namespace p3d {
 		// non-zero handle. Creating a fresh one every effect every frame
 		// leaked entries in VulkanRenderDevice::vaos without bound.
 		DeviceHandle fullscreenVao;
+
+		// Lazy GammaEncodeEffect (pow 1/2.2) used only by GetViewportColor()
+		// - not part of the public effects chain.
+		IEffect* viewportGammaEffect;
 	};
 
 };

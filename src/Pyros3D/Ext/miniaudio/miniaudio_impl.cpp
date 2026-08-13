@@ -11,11 +11,8 @@
 // is a meaningful chunk of compile time and binary size:
 //   - the low-level device/context API is still needed (ma_engine sits on it),
 //     so only the decoders and unused backends are trimmed.
-//   - MP3/FLAC decoding pulls in dr_mp3/dr_flac; the engine ships WAV assets
-//     and OGG/Vorbis is not built in by default anyway. Re-enable by deleting
-//     the matching define if a project needs those formats.
-#define MA_NO_MP3
-#define MA_NO_FLAC
-
+//   - MP3/FLAC decoding is enabled: the editor Assets panel (and Sound
+ //     components) load .mp3/.flac; disabling them made preview/load fail
+ //     with "could not load" while the UI still advertised those formats.
 #define MINIAUDIO_IMPLEMENTATION
 #include <Pyros3D/Ext/miniaudio/miniaudio.h>

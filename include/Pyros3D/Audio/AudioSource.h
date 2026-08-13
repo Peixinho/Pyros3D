@@ -70,6 +70,8 @@ namespace p3d {
 		// False if the file could not be loaded, or there is no AudioManager.
 		// Every method below is a safe no-op in that state.
 		bool IsLoaded() const { return loaded; }
+		// Load the file if it was deferred or an earlier attempt failed.
+		bool EnsureLoaded();
 		const std::string &GetFile() const { return file; }
 
 		// ***************************** Playback *****************************
@@ -227,6 +229,8 @@ namespace p3d {
 		virtual void Update(const f64 time = 0);
 
 	private:
+
+		bool TryLoadFromFile();
 
 		std::string file;
 		bool loaded;

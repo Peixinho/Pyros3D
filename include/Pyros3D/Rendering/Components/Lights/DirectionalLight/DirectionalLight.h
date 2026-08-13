@@ -49,9 +49,9 @@ namespace p3d {
 
 	public:
 
-		DirectionalLight() : ILightComponent(LIGHT_TYPE::DIRECTIONAL) { Color = Vec4(1, 1, 1, 1); Direction = Vec3(0, 1, 0); }
-		DirectionalLight(const Vec4 &color) : ILightComponent(LIGHT_TYPE::DIRECTIONAL) { Color = color; Direction = Vec3(0, -1, 0); }
-		DirectionalLight(const Vec4 &color, const Vec3 &direction) : ILightComponent(LIGHT_TYPE::DIRECTIONAL) { Color = color; Direction = direction; }
+		DirectionalLight() : ILightComponent(LIGHT_TYPE::DIRECTIONAL) { Color = Vec4(1, 1, 1, 1); Direction = Vec3(0, 1, 0); ShadowCascades = 0; }
+		DirectionalLight(const Vec4 &color) : ILightComponent(LIGHT_TYPE::DIRECTIONAL) { Color = color; Direction = Vec3(0, -1, 0); ShadowCascades = 0; }
+		DirectionalLight(const Vec4 &color, const Vec3 &direction) : ILightComponent(LIGHT_TYPE::DIRECTIONAL) { Color = color; Direction = direction; ShadowCascades = 0; }
 		virtual ~DirectionalLight() {}
 
 		virtual void Start() {};

@@ -9,6 +9,8 @@
 
 namespace p3d {
 
+	bool LuaComponent::s_updatesEnabled = true;
+
 	void GenerateBindings(sol::state* lua)
 	{
 		lua->open_libraries(sol::lib::base, sol::lib::math, sol::lib::coroutine, sol::lib::table, sol::lib::string);

@@ -37,11 +37,9 @@ namespace p3d {
 			if (!ImGui_ImplMetal_Init(mtlDevice))
 				return false;
 
-			// See the header comment on imguiDummyColorTexture - a real,
-			// persistent 1x1 texture purely so NewImGuiMetalFrame() has a
-			// non-nil BGRA8Unorm texture to hand ImGui_ImplMetal_NewFrame()
-			// before the real swapchain drawable exists this frame; nothing
-			// ever samples or renders into it beyond that format read.
+			// Must match MetalRenderDevice::swapchainPixelFormat /
+			// CAMetalLayer.pixelFormat (BGRA8Unorm): ImGui_ImplMetal_
+			// NewFrame() keys its pipeline cache off this dummy's format.
 			MTLTextureDescriptor* dummyDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
 				width:1 height:1 mipmapped:NO];
 			dummyDesc.usage = MTLTextureUsageRenderTarget;

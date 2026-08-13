@@ -1125,12 +1125,7 @@ namespace p3d {
 						directionalLight.m[13] = (f32)type;	  	 directionalLight.m[14] = d->GetShadowPCFTexelSize();  directionalLight.m[15] = (d->IsCastingShadows() ? 1.f : 0.f);
 
 						_Lights.push_back(directionalLight);
-
-						if (d->IsCastingShadows())
-						{
-							// Increase Number of Shadows
-							NumberOfDirectionalShadows++;
-						}
+						// NumberOfDirectionalShadows is set in PreRender only.
 					}
 					break;
 					case LIGHT_TYPE::POINT:
@@ -1156,7 +1151,7 @@ namespace p3d {
 						{
 							pointLight.m[14] = p->GetShadowPCFTexelSize();
 							pointLight.m[15] = (f32)pointCounter++;
-							NumberOfPointShadows++;
+							// NumberOfPointShadows counted in PreRender only.
 						}
 
 						_Lights.push_back(pointLight);
@@ -1185,7 +1180,7 @@ namespace p3d {
 						{
 							spotLight.m[14] = s->GetShadowPCFTexelSize();
 							spotLight.m[15] = (f32)spotCounter++;
-							NumberOfSpotShadows++;
+							// NumberOfSpotShadows counted in PreRender only.
 						}
 
 						_Lights.push_back(spotLight);

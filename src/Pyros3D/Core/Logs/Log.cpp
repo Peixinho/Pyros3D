@@ -18,6 +18,7 @@ namespace p3d {
 		std::vector<Entry> _LOG::_entries;
 		unsigned int _LOG::_entriesStart = 0;
 		int _LOG::_threshold = Level::Warning;
+		bool _LOG::_mirrorStdout = true;
 
 	};
 

@@ -208,7 +208,11 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
     #ifdef DEBUGRENDERING
         IO_LOCATION(LOC_aColor) attribute_in vec4 aColor;
-        IO_LOCATION(LOC_aSize) attribute_in float aSize;
+        // aSize / gl_PointSize omitted: DebugRenderer's point path is
+        // disabled, and declaring aSize without a matching vertex-input
+        // binding fails CreatePipeline on Vulkan (same rule as aNormal /
+        // aTexcoord). PointSize in a LINE_LIST/TRIANGLE_LIST pipeline is
+        // also a frequent MoltenVK compile failure.
         IO_LOCATION(LOC_vColor) varying_out vec4 vColor;
     #endif
 
@@ -283,7 +287,13 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
     // Defaults
     IO_LOCATION(LOC_aPosition) attribute_in vec3 aPosition;
+    // Same Vulkan rule as aTexcoord below: every SPIR-V input must have a
+    // matching VkVertexInputAttributeDescription. DebugRenderer only feeds
+    // aPosition + aColor (see DebugRenderer::EnsurePipeline), so aNormal
+    // must not appear in the DEBUGRENDERING variant.
+    #ifndef DEBUGRENDERING
     IO_LOCATION(LOC_aNormal) attribute_in vec3 aNormal;
+    #endif
     // Gated the same as its only use (vTexcoord = aTexcoord, below) - GL
     // tolerates an unconditionally-declared-but-unbound vertex attribute
     // (it's simply never sampled), but Vulkan requires every SPIR-V input
@@ -441,10 +451,6 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             gl_Position = uProjectionMatrix * uViewMatrix * ModelMatrix * vec4(Position,1.0);
         #else
             gl_Position = uProjectionMatrix * uViewMatrix * ModelMatrix * matAnimation * vec4(Position,1.0);
-        #endif
-
-        #ifdef DEBUGRENDERING
-           if (aSize != 1.0) gl_PointSize = aSize;
         #endif
 
         #ifdef TEXTRENDERING

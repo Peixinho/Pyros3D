@@ -58,7 +58,8 @@ void LightHelper::Update(GameObject* Camera, Matrix projection, bool isPerspecti
 
 LightHelper::~LightHelper()
 {
-	Remove(rcomp);
+	if (rcomp && rcomp->GetOwner() == this)
+		Remove(rcomp);
 	rcomp.reset();
 
 	if (--LightResourcesCounter == 0)

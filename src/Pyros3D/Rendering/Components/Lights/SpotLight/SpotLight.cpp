@@ -61,6 +61,9 @@ namespace p3d {
 
 		ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, ShadowWidth, ShadowHeight, false);
 		ShadowMap->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		// See DirectionalLight::EnableCastShadows - Linear depth+compare is
+		// unloadable on Apple GL; PCF is shader-side so Nearest is fine.
+		ShadowMap->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
 		ShadowMap->EnableCompareMode();
 
 		// Initialize Frame Buffer

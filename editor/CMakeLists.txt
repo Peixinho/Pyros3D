@@ -32,12 +32,17 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AxisHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditor.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneObjects.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/ProjectManager.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/EditorDebugDraw.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/CodeEditorDocument.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/GameObjectHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/LightHelper.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/SoundHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/IUInterface.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/OpenDir.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Utils/ReadDirectory.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/UISettings.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/third_party/ImGuiColorTextEdit/TextEditor.cpp
 )
 
 # Backend-agnostic since it draws through DebugRenderer.
@@ -62,6 +67,7 @@ add_executable(PyrosBuilder
 target_include_directories(PyrosBuilder PRIVATE
 	${CMAKE_SOURCE_DIR}/include
 	${CMAKE_CURRENT_SOURCE_DIR}/src
+	${CMAKE_CURRENT_SOURCE_DIR}/third_party/ImGuiColorTextEdit
 	# WindowManagers/ (not .../SDL2) so Editor.h's "SDL2/SDL2Context.h"
 	# resolves to the same context the examples use.
 	${CMAKE_SOURCE_DIR}/examples/WindowManagers
@@ -81,15 +87,16 @@ target_link_libraries(PyrosBuilder PRIVATE
 
 target_compile_definitions(PyrosBuilder PRIVATE ${PYROS_CONTEXT_DEFINITION})
 
-# DebugRenderer has never been ported to the pipeline model: it issues
-# UseProgram/BindVertexArray/DrawArrays with by-name uniforms and never creates
-# or binds a VkPipeline, so any *non-empty* debug geometry crashes MoltenVK
-# inside vkQueueSubmit. It only appeared to work on Vulkan because the editor
-# never had anything selected to draw bounds for. The gizmo now renders
-# through DebugRenderer too, so both ride on this.
-if (PYROS_EDITOR_GL_CONTEXT)
-	target_compile_definitions(PyrosBuilder PRIVATE PYROS_EDITOR_HAS_DEBUG_DRAW)
-endif()
+# Same EXAMPLES_PATH trick DemoLauncher uses — middleclass.lua + demo scripts.
+target_compile_definitions(PyrosBuilder PRIVATE
+	PYROS_EXAMPLES_PATH=${CMAKE_SOURCE_DIR}/examples
+)
+
+# DebugRenderer now follows the same pipeline + UBO path as Forward/
+# PostEffects (CreatePipeline/BindPipeline, shared GlobalMatrices/
+# ObjectMatrix/MaterialUniforms UBOs, DrawArrays with VAO VBOs), so gizmos
+# and bounds work on OpenGL, Vulkan and Metal.
+target_compile_definitions(PyrosBuilder PRIVATE PYROS_EDITOR_HAS_DEBUG_DRAW)
 
 if (IS_DESKTOP)
 	target_compile_definitions(PyrosBuilder PRIVATE DESKTOP)
@@ -107,4 +114,14 @@ if (NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/assets)
 endif()
 if (NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/shaders)
 	file(CREATE_LINK ${CMAKE_SOURCE_DIR}/resources/shaders ${CMAKE_CURRENT_BINARY_DIR}/shaders SYMBOLIC)
+endif()
+
+# Ship AssimpImporter next to PyrosBuilder so Import Model can find it.
+if (TARGET AssimpImporter)
+	add_dependencies(PyrosBuilder AssimpImporter)
+	add_custom_command(TARGET PyrosBuilder POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			$<TARGET_FILE:AssimpImporter>
+			$<TARGET_FILE_DIR:PyrosBuilder>
+		COMMENT "Copy AssimpImporter next to PyrosBuilder")
 endif()

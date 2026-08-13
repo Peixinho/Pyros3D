@@ -44,11 +44,10 @@ namespace p3d {
 				if (tVertex[i].z > maxBounds.z) maxBounds.z = tVertex[i].z;
 			}
 		}
-		// Bounding Sphere
-		BoundingSphereCenter = Vec3::ZERO;
-		f32 a = maxBounds.distance(BoundingSphereCenter);
-		f32 b = minBounds.distance(BoundingSphereCenter);
-		BoundingSphereRadius = Max(a, b);
+		// Bounding Sphere — center on the AABB, not the origin (offset meshes
+		// used to get a huge radius = distance from 0 to the farthest corner).
+		BoundingSphereCenter = (minBounds + maxBounds) * 0.5f;
+		BoundingSphereRadius = maxBounds.distance(BoundingSphereCenter);
 	}
 
 	Model::Model(const std::string ModelPath, bool mergeMeshes)
@@ -57,7 +56,13 @@ namespace p3d {
 		MergeMeshes = mergeMeshes;
 
 		mesh = new ModelLoader();
-		mesh->Load(ModelPath);
+		if (!mesh->Load(ModelPath))
+		{
+			echo(std::string("ERROR: Model - failed to load ") + ModelPath);
+			delete mesh;
+			mesh = NULL;
+			return;
+		}
 
 		std::map<uint32, ModelGeometry*> meshes;
 
@@ -83,42 +88,23 @@ namespace p3d {
 						// Set Material From ID
 						c_submesh->materialProperties = materialProperties[mesh->subMeshes[i].materialID];
 
-						// Fix passing for short if needed
-						for (uint32 indexx = 0; indexx < mesh->subMeshes[i].tIndex.size(); indexx++)
-						{
-							c_submesh->index.push_back(mesh->subMeshes[i].tIndex[indexx]);
-						}
+						c_submesh->index = mesh->subMeshes[i].tIndex;
 
 						if (mesh->subMeshes[i].hasVertex == true)
-						{
-							c_submesh->tVertex.resize(mesh->subMeshes[i].tVertex.size());
-							memcpy(&c_submesh->tVertex[0], &mesh->subMeshes[i].tVertex[0], mesh->subMeshes[i].tVertex.size()*sizeof(Vec3));
-						}
+							c_submesh->tVertex = std::move(mesh->subMeshes[i].tVertex);
 						if (mesh->subMeshes[i].hasNormal == true)
-						{
-							c_submesh->tNormal.resize(mesh->subMeshes[i].tNormal.size());
-							memcpy(&c_submesh->tNormal[0], &mesh->subMeshes[i].tNormal[0], mesh->subMeshes[i].tNormal.size()*sizeof(Vec3));
-						}
+							c_submesh->tNormal = std::move(mesh->subMeshes[i].tNormal);
 						if (mesh->subMeshes[i].hasTexcoord == true)
-						{
-							c_submesh->tTexcoord.resize(mesh->subMeshes[i].tTexcoord.size());
-							memcpy(&c_submesh->tTexcoord[0], &mesh->subMeshes[i].tTexcoord[0], mesh->subMeshes[i].tTexcoord.size()*sizeof(Vec2));
-						}
+							c_submesh->tTexcoord = std::move(mesh->subMeshes[i].tTexcoord);
 						if (mesh->subMeshes[i].hasTangentBitangent == true)
 						{
-							c_submesh->tTangent.resize(mesh->subMeshes[i].tTangent.size());
-							memcpy(&c_submesh->tTangent[0], &mesh->subMeshes[i].tTangent[0], mesh->subMeshes[i].tTangent.size()*sizeof(Vec3));
-
-							c_submesh->tBitangent.resize(mesh->subMeshes[i].tBitangent.size());
-							memcpy(&c_submesh->tBitangent[0], &mesh->subMeshes[i].tBitangent[0], mesh->subMeshes[i].tBitangent.size()*sizeof(Vec3));
+							c_submesh->tTangent = std::move(mesh->subMeshes[i].tTangent);
+							c_submesh->tBitangent = std::move(mesh->subMeshes[i].tBitangent);
 						}
 						if (mesh->subMeshes[i].hasBones == true)
 						{
-							c_submesh->tBonesID.resize(mesh->subMeshes[i].tVertex.size());
-							memcpy(&c_submesh->tBonesID[0], &mesh->subMeshes[i].tBonesID[0], mesh->subMeshes[i].tVertex.size()*sizeof(Vec4));
-
-							c_submesh->tBonesWeight.resize(mesh->subMeshes[i].tVertex.size());
-							memcpy(&c_submesh->tBonesWeight[0], &mesh->subMeshes[i].tBonesWeight[0], mesh->subMeshes[i].tVertex.size()*sizeof(Vec4));
+							c_submesh->tBonesID = std::move(mesh->subMeshes[i].tBonesID);
+							c_submesh->tBonesWeight = std::move(mesh->subMeshes[i].tBonesWeight);
 
 							// Save SubMesh Map
 							c_submesh->MapBoneIDs = mesh->subMeshes[i].MapBoneIDs;
@@ -138,12 +124,11 @@ namespace p3d {
 						// Set SubMesh From Material ID
 						ModelGeometry* c_submesh = meshes[mesh->subMeshes[i].materialID];
 
-						uint32 offset = c_submesh->tVertex.size();
-
-						for (uint32 k = 0; k < mesh->subMeshes[i].tIndex.size(); k++)
-						{
+						uint32 offset = (uint32)c_submesh->tVertex.size();
+						const size_t addIdx = mesh->subMeshes[i].tIndex.size();
+						c_submesh->index.reserve(c_submesh->index.size() + addIdx);
+						for (uint32 k = 0; k < addIdx; k++)
 							c_submesh->index.push_back(mesh->subMeshes[i].tIndex[k] + offset);
-						}
 
 						if (mesh->subMeshes[i].hasVertex == true)
 						{

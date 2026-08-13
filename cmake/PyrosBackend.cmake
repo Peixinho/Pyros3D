@@ -200,6 +200,7 @@ if (BUILD_METAL_BACKEND)
 	find_library(METAL_FRAMEWORK Metal)
 	find_library(QUARTZCORE_FRAMEWORK QuartzCore)
 	find_library(FOUNDATION_FRAMEWORK Foundation)
+	find_library(COREGRAPHICS_FRAMEWORK CoreGraphics)
 
 	if (METAL_FRAMEWORK AND QUARTZCORE_FRAMEWORK AND FOUNDATION_FRAMEWORK)
 		# MetalRenderDevice.mm is Objective-C++ (talks to real id<MTLXxx>
@@ -229,7 +230,7 @@ if (BUILD_METAL_BACKEND)
 			${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/MetalImGuiBackend.mm
 			PROPERTIES COMPILE_FLAGS "-fobjc-arc"
 		)
-		set(METAL_BACKEND_LIBS ${METAL_FRAMEWORK} ${QUARTZCORE_FRAMEWORK} ${FOUNDATION_FRAMEWORK})
+		set(METAL_BACKEND_LIBS ${METAL_FRAMEWORK} ${QUARTZCORE_FRAMEWORK} ${FOUNDATION_FRAMEWORK} ${COREGRAPHICS_FRAMEWORK})
 
 		# GLSL -> SPIR-V (shaderc, already found above for the Vulkan path)
 		# -> MSL (spirv-cross-msl, the one spirv-cross backend library the

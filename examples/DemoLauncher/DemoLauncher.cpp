@@ -87,7 +87,10 @@ void DemoLauncher::Init()
 
 	GenerateBindings(&lua);
 	lua["physics"] = static_cast<IPhysics*>(physics);
-	lua.require_file("class", STR(EXAMPLES_PATH) "/assets/middleclass.lua");
+	{
+		sol::object classMod = lua.require_file("class", STR(EXAMPLES_PATH) "/assets/middleclass.lua");
+		lua["class"] = classMod;
+	}
 	lua.require_file("RenderHost", STR(EXAMPLES_PATH) "/assets/demos/scripts/render_host.lua");
 
 	lua.set_function("setMouseCaptured", [this](bool captured) {
@@ -919,14 +922,15 @@ void DemoLauncher::ShutdownImGui()
 
 void DemoLauncher::BeginImGuiFrame()
 {
+	ImGui_ImplSDL2_NewFrame();
 #if defined(_SDL2METAL)
 	static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).NewImGuiMetalFrame();
 #elif !defined(_SDL2VULKAN)
 	ImGui_ImplOpenGL3_NewFrame();
 #else
+	// After SDL NewFrame - corrects FramebufferScale to swapchainExtent.
 	static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).NewImGuiVulkanFrame();
 #endif
-	ImGui_ImplSDL2_NewFrame();
 	ImGui::NewFrame();
 }
 

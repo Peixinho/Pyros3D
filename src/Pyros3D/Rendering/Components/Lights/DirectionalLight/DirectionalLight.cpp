@@ -205,6 +205,11 @@ namespace p3d {
 		// Create Texture, Frame Buffer and Set the Texture as Attachment
 		ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, ShadowWidthFBO, ShadowHeightFBO, false);
 		ShadowMap->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
+		// CreateEmptyTexture defaults to Linear; depth+compare samplers with
+		// Linear are "unloadable" on Apple GL (and then sampler2DShadow
+		// falls back to zero → shadows disappear / scene looks brighter).
+		// PCF is done in the shader with multiple taps, so Nearest is correct.
+		ShadowMap->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
 		ShadowMap->EnableCompareMode();
 		shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, ShadowMap.get());
 #endif

@@ -328,14 +328,15 @@ void BaseExample::ShutdownImGui()
 void BaseExample::BeginImGuiFrame()
 {
 	if (imguiInitialized) {
+		ImGui_ImplSDL2_NewFrame();
 #if defined(_SDL2METAL)
 		static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).NewImGuiMetalFrame();
 #elif !defined(_SDL2VULKAN)
 		ImGui_ImplOpenGL3_NewFrame();
 #else
+		// After SDL NewFrame - corrects FramebufferScale to swapchainExtent.
 		static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).NewImGuiVulkanFrame();
 #endif
-		ImGui_ImplSDL2_NewFrame();
 		ImGui::NewFrame();
 	}
 }

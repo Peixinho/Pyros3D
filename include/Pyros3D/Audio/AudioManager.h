@@ -141,6 +141,10 @@ namespace p3d {
 		// NULL until an AudioManager exists, and again after it is destroyed.
 		static AudioManager* GetActive() { return activeManager; }
 		static bool IsActiveSet() { return activeManager != NULL; }
+		// Which manager Sound/AudioSource construction binds to. The editor
+		// switches this when the active scene tab changes so new sources and
+		// the listener always share one ma_engine.
+		static void MakeActive(AudioManager* manager) { activeManager = manager; }
 
 		// For Sound/AudioSource only - the raw miniaudio engine.
 		ma_engine* GetEngine() { return engine; }

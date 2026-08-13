@@ -88,6 +88,13 @@ namespace p3d {
 			static void SetLevel(const int level) { _threshold = level; }
 			static int GetLevel() { return _threshold; }
 
+			// When false, skip std::cout / Android log even if LOG_TO_CONSOLE
+			// or _DEBUG is compiled in. The ring buffer still records. The
+			// editor turns this off so messages only appear in the Log panel.
+			static bool _mirrorStdout;
+			static void SetMirrorStdout(const bool enabled) { _mirrorStdout = enabled; }
+			static bool GetMirrorStdout() { return _mirrorStdout; }
+
 			static int _classify(const std::string &Message)
 			{
 				if (Message.compare(0, 6, "ERROR:") == 0) return Level::Error;
@@ -132,11 +139,14 @@ namespace p3d {
 				(void)Message;
 
 #elif defined(LOG_TO_CONSOLE) || defined(_DEBUG)
+				if (_mirrorStdout)
+				{
 #if defined(ANDROID)
-				__android_log_print(ANDROID_LOG_DEBUG, "Pyros3D", "%s", Message.c_str());
+					__android_log_print(ANDROID_LOG_DEBUG, "Pyros3D", "%s", Message.c_str());
 #else
-				std::cout << Message << std::endl;
+					std::cout << Message << std::endl;
 #endif
+				}
 #endif
 			}
 			static void _echo(const std::string &Message)

@@ -73,6 +73,13 @@ namespace p3d {
 	// Shader*, an in-memory texture) have no recoverable source and are
 	// skipped with a logged warning rather than silently producing a
 	// broken save.
+	struct PYROS3D_API SceneMeta
+	{
+		// Optional scene-level Lua (middleclass class), relative to project/assets
+		// root when possible (e.g. "assets/lua/main.lua"). Empty = none.
+		std::string mainScript;
+	};
+
 	class PYROS3D_API SceneSerializer {
 
 	public:
@@ -82,7 +89,8 @@ namespace p3d {
 		// `lua`, if non-NULL, is used to serialize named-class
 		// LuaComponent behavior (see the class comment) - NULL skips
 		// that (existence-only, as before).
-		static bool SaveScene(SceneGraph* scene, const std::string &filePath, sol::state* lua = NULL);
+		// `meta`, if non-NULL, writes scene-level fields (mainScript, …).
+		static bool SaveScene(SceneGraph* scene, const std::string &filePath, sol::state* lua = NULL, const SceneMeta* meta = NULL);
 
 		// Populates `scene` from `filePath` - does NOT clear it first,
 		// call SceneGraph::RemoveAll() beforehand if starting fresh is
@@ -98,7 +106,8 @@ namespace p3d {
 		// completely. NULL (the default) preserves prior behavior
 		// exactly - nothing is tracked, nothing changes for existing
 		// callers.
-		static bool LoadScene(SceneGraph* scene, const std::string &filePath, IPhysics* physics = NULL, sol::state* lua = NULL, LoadedSceneAssets* outAssets = NULL);
+		// `outMeta`, if non-NULL, receives scene-level fields (mainScript).
+		static bool LoadScene(SceneGraph* scene, const std::string &filePath, IPhysics* physics = NULL, sol::state* lua = NULL, LoadedSceneAssets* outAssets = NULL, SceneMeta* outMeta = NULL);
 
 		// Frees exactly what one LoadScene() call recorded into
 		// `assets`: detach GameObjects from `scene`, then drop every

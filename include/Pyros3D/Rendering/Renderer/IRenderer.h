@@ -92,6 +92,11 @@ namespace p3d {
 
 		void SetBackground(const Vec4 &Color);
 		void UnsetBackground();
+		// Push BackgroundColor (or the default) to the device immediately.
+		// Required before PostEffectsManager::CaptureFrame() on Vulkan/Metal:
+		// those backends clear at FBO Bind (LOAD_OP_CLEAR), while
+		// DrawBackground() inside RenderScene runs too late for that clear.
+		void ApplyBackgroundClearColor();
 		void SetGlobalLight(const Vec4 &Light);
 		void EnableDepthBias(const Vec2 &Bias);
 		void DisableDepthBias();
@@ -110,6 +115,33 @@ namespace p3d {
 		virtual void PreRender(GameObject* Camera, SceneGraph* Scene, const std::string &Tag);
 		virtual void PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Tag);
 		virtual void PreRender(GameObject* Camera, SceneGraph* Scene);
+
+		// Editor camera preview/thumbnail renderers share the process-wide
+		// view/proj UBO with the main viewport renderer — skip shadow sub-passes
+		// so PreRender doesn't rebind FBOs or stomp shared uniform caches.
+		void SetSkipShadowMaps(const bool skip) { skipShadowMaps = skip; }
+		bool GetSkipShadowMaps() const { return skipShadowMaps; }
+
+		// Shared PyrosShader UBO handles (bindings 0/18/22, …). DebugRenderer
+		// must Retain/Release these rather than CreateUniformBuffer() at the
+		// same bindings, which would steal uniformBufferByBindingPoint from
+		// Forward/Deferred. After writing, call MarkSharedUniformsDirty() so
+		// dynamic-UBO slots and Valid caches stay coherent with the next
+		// RenderObject().
+		static void RetainSharedUniformBuffers(IRenderDevice* device);
+		static void ReleaseSharedUniformBuffers(IRenderDevice* device);
+		static uint32 GetSharedGlobalMatricesUBO() { return GlobalMatricesUBO; }
+		static uint32 GetSharedObjectMatrixUniformsUBO() { return ObjectMatrixUniformsUBO; }
+		static uint32 GetSharedMaterialUniformsUBO() { return MaterialUniformsUBO; }
+		static void MarkSharedUniformsDirty();
+		// Clears every shared UBO dirty-cache flag so the next draw re-uploads
+		// fresh data. Use when two IRenderer instances alternate in one frame.
+		static void InvalidateSharedUniformCaches();
+		// Invalidates only the view/proj UBO cache (e.g. DebugRenderer after
+		// writing GlobalMatrices). Does not touch MaterialUniforms — rewriting
+		// that block with UseLights=0 after a lit pass made the next frame
+		// look unlit/brighter while a selection overlay was flushing.
+		static void MarkSharedGlobalMatricesDirty();
 
 	protected:
 
@@ -261,6 +293,8 @@ namespace p3d {
 		void UpdateCulling(const Matrix &ViewProjectionMatrix);
 		bool
 			IsCulling;
+		bool
+			skipShadowMaps;
 		// Owned whenever IsCulling is true; ActivateCulling()/DeactivateCulling()
 		// always go through .reset() so re-activating or repeated deactivation
 		// can't leak or double-free the previous FrustumCulling.
@@ -356,6 +390,10 @@ namespace p3d {
 		// *Valid flags start false to force the first upload unconditionally,
 		// since there's nothing meaningful to compare against yet.
 		static bool GlobalMatricesUBOValid;
+		// Set by MarkSharedUniformsDirty() when a non-RenderObject path
+		// (DebugRenderer) overwrites MaterialUniformsUBO - forces the next
+		// SendUserUniforms() upload even if LastMesh/Material are unchanged.
+		static bool MaterialUniformsNeedsReupload;
 		static Matrix CachedProjectionMatrix, CachedViewMatrix;
 		// Part of the same dirty-check as CachedProjectionMatrix/
 		// CachedViewMatrix above - RenderingPointShadowFace changes which

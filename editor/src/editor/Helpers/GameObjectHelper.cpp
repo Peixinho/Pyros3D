@@ -58,7 +58,8 @@ void GameObjectHelper::Update(GameObject* Camera, Matrix projection, bool isPers
 
 GameObjectHelper::~GameObjectHelper()
 {
-	Remove(rcomp);
+	if (rcomp && rcomp->GetOwner() == this)
+		Remove(rcomp);
 	rcomp.reset();
 
 	if (--GameObjectResourcesCounter == 0)

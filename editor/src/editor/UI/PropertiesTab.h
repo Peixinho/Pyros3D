@@ -27,7 +27,7 @@ public:
 	virtual void Show()
 	{
 		// End() pairs with Begin() unconditionally - see TabLog.h.
-		if (ImGui::Begin(Name.c_str(), Open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+		if (ImGui::Begin(Name.c_str(), Open))
 		{
 			// Show Stuff
 			if (caller != NULL) caller->ShowProperties();

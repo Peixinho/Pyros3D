@@ -77,8 +77,22 @@ namespace p3d {
 		// GPU, layer already bound elsewhere).
 		bool BindToLayer(void* metalLayer, const uint32 width, const uint32 height);
 
+		// CAMetalLayer defaults to an sRGB colorspace while using a UNORM
+		// pixel format: written bytes are treated as already-encoded, so
+		// linear scene values (and ImGui::Image of an HDR capture) look
+		// much darker than the same content on OpenGL. Call this with
+		// true from the editor after BindToLayer so presentation treats
+		// values as linear (matching GL). DemoLauncher must NOT enable
+		// this - TonemapEffect already writes display-encoded LDR that
+		// expects the default sRGB interpretation.
+		// Pair with converting ImGui style colours sRGB→linear (see
+		// Editor.cpp) so UI chrome stays the same brightness.
+		void SetPresentAsLinear(const bool enabled);
+		bool IsPresentLinear() const { return presentAsLinear; }
+
 		void WaitIdle();
 		bool IsVulkan() const { return false; }
+		bool NeedsManualDisplayGamma() const { return !presentAsLinear; }
 
 		// Minimal "hello window" frame loop - acquires the next drawable,
 		// clears it to clearColor, and presents. Not part of IRenderDevice,
@@ -400,6 +414,12 @@ namespace p3d {
 		void* commandQueue;
 		void* metalLayer;      // CAMetalLayer* - set by BindToLayer()
 		uint32 drawableWidth, drawableHeight;
+		// MTLPixelFormat of the CAMetalLayer / swapchain pipelines - kept
+		// in sync with BindToLayer() so CreatePipeline()'s no-FBO path
+		// declares the same format the drawable actually has.
+		uint32 swapchainPixelFormat;
+		// See SetPresentAsLinear() - default false (CAMetalLayer sRGB).
+		bool presentAsLinear;
 		// One shared depth buffer sized to match the drawable - mirrors
 		// VulkanRenderDevice's single swapchain-wide depthImage (see its
 		// comment: only one frame's worth of swapchain rendering is ever
@@ -420,7 +440,8 @@ namespace p3d {
 		// 1x1 BGRA8Unorm/RenderTarget texture, real for the whole time
 		// imguiMetalBackendActive is true - see NewImGuiMetalFrame()'s
 		// comment on why ImGui needs *some* real texture's pixel format
-		// before the real swapchain drawable exists this frame.
+		// before the real swapchain drawable exists this frame. Format
+		// must match swapchainPixelFormat.
 		void* imguiDummyColorTexture;
 
 		// Frames-in-flight throttling: Apple's own documented pattern
@@ -490,15 +511,19 @@ namespace p3d {
 			// absent means "MSL buffer index equals the engine binding",
 			// still true for every PyrosShader.glsl material (0-23).
 			std::map<uint32, uint32> highBindingRemap;
-			// Engine sampler binding -> actual MSL [[sampler(N)]] index.
-			// Unlike textures ([[texture(N)]], N up to 127) MSL caps the
-			// sampler argument table at 16 entries per stage, and
-			// PyrosShader.glsl's SAMPLER_BINDING numbering runs past that
-			// (uMetallicRoughnessmap is 16), so sampler indices have to be
-			// compacted even though texture indices don't. Per-stage, not
-			// per-program: the two stages declare different sampler sets
-			// and each gets its own table.
+			// Engine sampler binding -> base MSL [[sampler(N)]] /
+			// [[texture(N)]] index. Both tables are compacted in
+			// declaration order, advancing by the resource's array size:
+			// `array<texturecube, 4> [[texture(10)]]` reserves slots
+			// 10..13, so a following `array<depth2d, 4>` cannot also start
+			// at engine binding 11 (that was the GenericMaterial
+			// Diffuse+Point+Spot shadow failure - newLibraryWithSource
+			// rejected overlapping texture/sampler ranges). Samplers are
+			// additionally capped at 16 entries per stage
+			// (uMetallicRoughnessmap's engine binding 16 already exceeds
+			// that without compaction). Per-stage, not per-program.
 			std::map<uint32, uint32> samplerIndexRemap;
+			std::map<uint32, uint32> textureIndexRemap;
 			// See GetAutoUniformBlockLayout()'s comment - populated only
 			// when CompileShaderStage() had to run AutoFixForVulkan()
 			// (loose, non-layout-qualified uniforms - CustomShaderMaterial
@@ -550,13 +575,20 @@ namespace p3d {
 			// instead of assuming "MSL buffer index == engine binding"
 			// whenever a binding appears here.
 			std::map<uint32, uint32> highBindingMslIndex;
-			// Each stage's ShaderStageRecord::samplerIndexRemap, kept
-			// separate (index 0 = vertex, 1 = fragment) rather than merged
-			// the way highBindingMslIndex is: MSL's sampler argument table
-			// is per-stage, so the same engine binding legitimately maps to
-			// a different [[sampler(N)]] in each stage, and merging them
-			// would make one stage bind into the other's slot.
+			// Each stage's ShaderStageRecord::samplerIndexRemap /
+			// textureIndexRemap, kept separate (index 0 = vertex, 1 =
+			// fragment) rather than merged the way highBindingMslIndex is:
+			// MSL's sampler/texture argument tables are per-stage, so the
+			// same engine binding legitimately maps to a different slot in
+			// each stage, and merging them would make one stage bind into
+			// the other's slot.
 			std::map<uint32, uint32> samplerMslIndex[2];
+			std::map<uint32, uint32> textureMslIndex[2];
+			// Engine binding -> declared array length (1 if not an array).
+			// SendUniformInt() needs this to fill every MSL array element
+			// and to stride consecutive texture/sampler slots - same role
+			// as VulkanRenderDevice::ProgramRecord::samplerArraySizes.
+			std::map<uint32, uint32> samplerArraySizes;
 			ProgramRecord() : vertexShader(0), fragmentShader(0) {}
 		};
 		std::map<DeviceHandle, ProgramRecord> programs;
@@ -627,9 +659,11 @@ namespace p3d {
 		static const uint32 kFirstVertexBufferIndex = 24;
 
 		// Metal's per-stage sampler argument table is 16 entries
-		// ([[sampler(0)]]..[[sampler(15)]]) - a hard limit, unlike the
-		// texture table's 128. See CompileShaderStage()'s sampler remap.
+		// ([[sampler(0)]]..[[sampler(15)]]); the texture table allows 128.
+		// See CompileShaderStage()'s resource remap (both advance by array
+		// size so shadow-map arrays don't overlap).
 		static const uint32 kMaxMslSamplersPerStage = 16;
+		static const uint32 kMaxMslTexturesPerStage = 128;
 
 		// One MTLTexture per handle, plus the small dirty-tracked sampler
 		// descriptor mentioned on the Set*Filter/Wrap methods above -

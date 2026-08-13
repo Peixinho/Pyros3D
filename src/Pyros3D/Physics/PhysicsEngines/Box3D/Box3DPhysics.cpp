@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Physics/PhysicsEngines/Box3D/Box3DPhysics.h>
+#include <Pyros3D/Physics/PhysicsEngines/Box3D/DebugDraw/PhysicsDebugDraw.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Physics/Components/Box/PhysicsBox.h>
 #include <Pyros3D/Physics/Components/Sphere/PhysicsSphere.h>
@@ -168,7 +169,7 @@ namespace p3d {
 
 	}
 
-	Box3DPhysics::Box3DPhysics() : m_world(b3_nullWorldId)
+	Box3DPhysics::Box3DPhysics() : m_world(b3_nullWorldId), m_simulationEnabled(false)
 	{
 		m_draw = b3DefaultDebugDraw();
 	}
@@ -235,11 +236,16 @@ namespace p3d {
 		def.maximumLinearSpeed = 40.f;
 		def.contactHertz = 60.f;
 		def.contactDampingRatio = 10.f;
+		def.createDebugShape = PhysicsDebugDraw::CreateDebugShapeCallback;
+		def.destroyDebugShape = PhysicsDebugDraw::DestroyDebugShapeCallback;
 		m_world = b3CreateWorld(&def);
 		b3World_SetGravity(m_world, ToB3(Vec3(0.f, -9.8f, 0.f)));
 		physicsInitialized = true;
 		lastTime = 0;
 		timeInterval = 0;
+		// Runtime (demos, games) simulates by default. The editor disables
+		// this in edit mode and re-enables only during Play.
+		m_simulationEnabled = true;
 	}
 
 	void Box3DPhysics::ApplyVehicleMotors(IPhysicsComponent* pcomp)
@@ -357,12 +363,41 @@ namespace p3d {
 		m_draw = m_debugDraw->CreateDraw();
 	}
 
+	void Box3DPhysics::SetDebugRenderer(DebugRenderer* renderer)
+	{
+		if (m_debugDraw)
+			m_debugDraw->SetDebugRenderer(renderer);
+	}
+
 	void Box3DPhysics::RenderDebugDraw(Projection projection, GameObject* Camera)
 	{
-		if (!m_debugDraw || m_world.index1 == 0) return;
-		m_debugDraw->ClearBuffers();
-		b3World_Draw(m_world, &m_draw, ~0ull);
-		m_debugDraw->Render(Camera->GetWorldTransformation().Inverse(), projection.m);
+		if (!m_debugDraw || m_world.index1 == 0 || !Camera) return;
+
+		// Examples/lua never call SetDebugRenderer - lazily own one.
+		// SceneEditor installs a shared renderer first, so this is a no-op.
+		m_debugDraw->EnsureDebugRenderer();
+
+		// Broad-phase cull uses drawingBounds; center a large box on the camera.
+		const Vec3 camPos = Camera->GetWorldPosition();
+		const f32 extent = 500.f;
+		m_draw.drawingBounds.lowerBound = { camPos.x - extent, camPos.y - extent, camPos.z - extent };
+		m_draw.drawingBounds.upperBound = { camPos.x + extent, camPos.y + extent, camPos.z + extent };
+
+		// Owned renderer: full clear / draw / flush (examples, lua).
+		// Shared renderer (SceneEditor): only append into the caller's
+		// DebugRenderer - ClearBuffers/Render would wipe gizmos/bounds and
+		// flush mid-pass (Metal/Vulkan are intolerant of that).
+		if (m_debugDraw->OwnsDebugRenderer())
+		{
+			m_debugDraw->ClearBuffers();
+			b3World_Draw(m_world, &m_draw, B3_DEFAULT_MASK_BITS);
+			m_debugDraw->Render(Camera->GetWorldTransformation().Inverse(), projection.m);
+		}
+		else
+		{
+			b3World_Draw(m_world, &m_draw, B3_DEFAULT_MASK_BITS);
+			(void)projection;
+		}
 	}
 
 	void Box3DPhysics::DisableDebugDraw()
@@ -762,9 +797,10 @@ namespace p3d {
 			return;
 		}
 
-		// Static / sensor: keep the Box3D body glued to the authored GameObject
-		// pose (never the other way around — solver noise must not move walls).
-		if (pcomp->GetMass() <= 0.f || pcomp->IsGhost())
+		// Outside play mode the GameObject is authoritative — push its pose
+		// into the body so gizmo/properties edits are not overwritten. Static /
+		// sensor bodies always use this path (solver noise must not move walls).
+		if (!m_simulationEnabled || pcomp->GetMass() <= 0.f || pcomp->IsGhost())
 		{
 			b3Body_SetTransform(handles->body,
 				ToB3Pos(owner->GetPosition()),
@@ -945,10 +981,31 @@ namespace p3d {
 		if (mass <= 0.f)
 		{
 			b3Body_SetType(handles->body, b3_staticBody);
+			const b3MotionLocks locks = { true, true, true, true, true, true };
+			b3Body_SetMotionLocks(handles->body, locks);
+			b3Body_SetLinearVelocity(handles->body, b3Vec3_zero);
+			b3Body_SetAngularVelocity(handles->body, b3Vec3_zero);
 			return;
 		}
 
 		b3Body_SetType(handles->body, b3_dynamicBody);
+		const b3MotionLocks unlock = {};
+		b3Body_SetMotionLocks(handles->body, unlock);
+
+		// Static bodies are created with zero density; refresh from the
+		// authored mass before applying so static->dynamic actually simulates.
+		const float density = ShapeDensity(pcomp);
+		const int shapeCount = b3Body_GetShapeCount(handles->body);
+		if (shapeCount > 0)
+		{
+			std::vector<b3ShapeId> shapes((size_t)shapeCount);
+			b3Body_GetShapes(handles->body, shapes.data(), shapeCount);
+			for (int i = 0; i < shapeCount; ++i)
+				b3Shape_SetDensity(shapes[i], density, false);
+			b3Body_ApplyMassFromShapes(handles->body);
+			return;
+		}
+
 		b3MassData md = b3Body_GetMassData(handles->body);
 		const float oldMass = md.mass > 1e-6f ? md.mass : 1.f;
 		const float scale = mass / oldMass;

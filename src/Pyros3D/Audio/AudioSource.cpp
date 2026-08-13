@@ -46,42 +46,56 @@ namespace p3d {
 		lastPosition(Vec3::ZERO), lastUpdateTime(0.0), hasLastUpdate(false),
 		chain(new detail::AudioEffectChain())
 	{
+	}
+
+	bool AudioSource::TryLoadFromFile()
+	{
+		if (loaded) return true;
+		if (file.empty()) return false;
 		if (!EngineAlive())
 		{
 			echo("WARNING: AudioSource - no initialized AudioManager, '" + file + "' not loaded");
-			return;
+			return false;
 		}
 
 		sound = new ma_sound();
 
-		// STREAM decodes on demand and keeps only a small buffer resident;
-		// DECODE pays the whole decode once up front and never again. Music
-		// wants the former (a decoded track is tens of MB), an effect the
-		// latter (no decode work at trigger time).
-		ma_uint32 flags = stream ? MA_SOUND_FLAG_STREAM : MA_SOUND_FLAG_DECODE;
+		// Match Sound's init flags — proven path for asset preview in the editor.
+		ma_uint32 flags = streamed
+			? (MA_SOUND_FLAG_STREAM | MA_SOUND_FLAG_NO_SPATIALIZATION)
+			: (MA_SOUND_FLAG_DECODE | MA_SOUND_FLAG_NO_SPATIALIZATION);
 
-		// Routes into the given bus's submix, or straight into the master mix
-		// if none was given - pGroup below is exactly that choice.
-		ma_sound* group = this->bus ? this->bus->GetGroup() : NULL;
+		ma_sound* group = bus ? bus->GetGroup() : NULL;
 
 		if (ma_sound_init_from_file(AudioManager::GetActive()->GetEngine(), file.c_str(), flags, group, NULL, sound) != MA_SUCCESS)
 		{
 			echo("WARNING: AudioSource - could not load '" + file + "'");
 			delete sound;
 			sound = NULL;
-			return;
+			return false;
 		}
 
 		loaded = true;
 		AudioManager::GetActive()->RegisterVoice(sound);
 
-		// Spatialized by default with a linear falloff - the shape most
-		// callers attaching a sound to an object in the world expect. Music
-		// and ambience turn it off via SetSpatialization(false).
-		ma_sound_set_spatialization_enabled(sound, MA_TRUE);
-		ma_sound_set_attenuation_model(sound, TranslateAttenuation(AttenuationModel::Linear));
-		ma_sound_set_min_distance(sound, 1.f);
-		ma_sound_set_max_distance(sound, 100.f);
+		ma_sound_set_spatialization_enabled(sound, spatialized ? MA_TRUE : MA_FALSE);
+		ma_sound_set_attenuation_model(sound, TranslateAttenuation(attenuationModel));
+		ma_sound_set_min_distance(sound, minDistance);
+		ma_sound_set_max_distance(sound, maxDistance);
+		ma_sound_set_looping(sound, looping ? MA_TRUE : MA_FALSE);
+		ma_sound_set_volume(sound, volume);
+		ma_sound_set_pitch(sound, pitch);
+		ma_sound_set_pan(sound, pan);
+		ma_sound_set_doppler_factor(sound, dopplerFactor);
+		ma_sound_set_directional_attenuation_factor(sound, directionalAttenuation);
+		if (hasCone)
+			ma_sound_set_cone(sound, coneInner, coneOuter, coneOuterGain);
+		return true;
+	}
+
+	bool AudioSource::EnsureLoaded()
+	{
+		return TryLoadFromFile();
 	}
 
 	AudioSource::~AudioSource()
@@ -116,7 +130,24 @@ namespace p3d {
 
 	void AudioSource::Play()
 	{
-		if (!loaded) return;
+		if (!EnsureLoaded())
+			return;
+		// Push the owner's world pose before starting so the first audible
+		// sample is already panned/attenuated correctly - Update() has not
+		// necessarily run yet (play-on-awake, editor play mode, etc.).
+		if (spatialized)
+		{
+			GameObject* owner = GetOwner();
+			if (owner != NULL)
+			{
+				const Vec3 position = owner->GetWorldPosition();
+				ma_sound_set_position(sound, position.x, position.y, position.z);
+				const Matrix &world = owner->GetWorldTransformation();
+				Vec3 forward = (world * Vec4(0.f, 0.f, -1.f, 0.f)).xyz();
+				if (forward.magnitude() > 0.0001f) forward = forward.normalize();
+				ma_sound_set_direction(sound, forward.x, forward.y, forward.z);
+			}
+		}
 		ma_sound_start(sound);
 	}
 

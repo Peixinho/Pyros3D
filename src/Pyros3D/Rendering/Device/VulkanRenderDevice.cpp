@@ -357,6 +357,13 @@ namespace p3d {
 		std::vector<VkSurfaceFormatKHR> formats(formatCount);
 		vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, formats.data());
 		VkSurfaceFormatKHR chosenFormat = formats[0];
+		// UNORM, not SRGB: ImGui (and every other UI path) authors colours
+		// as already-sRGB and writes them straight to the swapchain. An
+		// SRGB attachment would encode those again and wash the UI out
+		// (reproduced). Scene linear → display encode is the caller's job
+		// - TonemapEffect does pow(1/2.2) for demos; the editor's ImGui
+		// viewport uses PostEffectsManager::GetViewportColor() for the
+		// same encode without touching the swapchain format.
 		for (size_t i = 0; i < formats.size(); i++)
 			if (formats[i].format == VK_FORMAT_B8G8R8A8_UNORM)
 			{
@@ -647,24 +654,26 @@ namespace p3d {
 
 		vkDeviceWaitIdle(device);
 
-		for (size_t i = 0; i < framebuffers.size(); i++)
-			vkDestroyFramebuffer(device, framebuffers[i], NULL);
-		framebuffers.clear();
+		// Stash dependents and only destroy them after a successful rebuild.
+		// CreateSwapchainAndFramebuffers used to be preceded by an
+		// unconditional teardown - any mid-create failure then left
+		// renderPass/framebuffers null forever (CreatePipeline refuses to
+		// build, ImGui has nothing to target) even though BeginFrame's
+		// self-heal keeps calling us. Prefer a briefly-stale present over
+		// a permanent black screen.
+		VkRenderPass oldRenderPass = renderPass;
+		std::vector<VkFramebuffer> oldFramebuffers = std::move(framebuffers);
+		VkImageView oldDepthImageView = depthImageView;
+		VkImage oldDepthImage = depthImage;
+		VmaAllocation oldDepthImageAllocation = depthImageAllocation;
+		std::vector<VkImageView> oldSwapchainImageViews = std::move(swapchainImageViews);
+		std::vector<VkImage> oldSwapchainImages = std::move(swapchainImages);
 
-		if (renderPass != VK_NULL_HANDLE)
-			vkDestroyRenderPass(device, renderPass, NULL);
 		renderPass = VK_NULL_HANDLE;
-
-		if (depthImageView != VK_NULL_HANDLE)
-			vkDestroyImageView(device, depthImageView, NULL);
+		framebuffers.clear();
 		depthImageView = VK_NULL_HANDLE;
-		if (depthImage != VK_NULL_HANDLE)
-			vmaDestroyImage(allocator, depthImage, depthImageAllocation);
 		depthImage = VK_NULL_HANDLE;
 		depthImageAllocation = VK_NULL_HANDLE;
-
-		for (size_t i = 0; i < swapchainImageViews.size(); i++)
-			vkDestroyImageView(device, swapchainImageViews[i], NULL);
 		swapchainImageViews.clear();
 		swapchainImages.clear();
 
@@ -674,8 +683,27 @@ namespace p3d {
 		// destroyed here.
 		if (!CreateSwapchainAndFramebuffers(width, height))
 		{
+			renderPass = oldRenderPass;
+			framebuffers = std::move(oldFramebuffers);
+			depthImageView = oldDepthImageView;
+			depthImage = oldDepthImage;
+			depthImageAllocation = oldDepthImageAllocation;
+			swapchainImageViews = std::move(oldSwapchainImageViews);
+			swapchainImages = std::move(oldSwapchainImages);
 			return false;
 		}
+
+		for (size_t i = 0; i < oldFramebuffers.size(); i++)
+			vkDestroyFramebuffer(device, oldFramebuffers[i], NULL);
+		if (oldRenderPass != VK_NULL_HANDLE)
+			vkDestroyRenderPass(device, oldRenderPass, NULL);
+		if (oldDepthImageView != VK_NULL_HANDLE)
+			vkDestroyImageView(device, oldDepthImageView, NULL);
+		if (oldDepthImage != VK_NULL_HANDLE)
+			vmaDestroyImage(allocator, oldDepthImage, oldDepthImageAllocation);
+		for (size_t i = 0; i < oldSwapchainImageViews.size(); i++)
+			vkDestroyImageView(device, oldSwapchainImageViews[i], NULL);
+		(void)oldSwapchainImages;
 
 		// renderFinishedSemaphores is sized/created once in
 		// InitializeSwapchain(), indexed by acquired swapchain image
@@ -1025,6 +1053,18 @@ namespace p3d {
 	void VulkanRenderDevice::WaitIdle()
 	{
 		FlushPendingTransfers();
+		// Editor camera preview calls WaitIdle while a swapchain frame is
+		// open (viewport CaptureFrame runs between BeginFrame/EndFrame).
+		// vkDeviceWaitIdle with a recording frame CB is undefined and was
+		// flashing the preview after that reorder. Sync only the offscreen
+		// work the preview just submitted; the frame CB finishes in EndFrame.
+		if (frameInProgress || offscreenCommandBufferRecording || offscreenPassOpen)
+		{
+			if (offscreenCommandBufferRecording)
+				FlushOffscreenCommandBuffer();
+			WaitOffscreenSubmitIfPending();
+			return;
+		}
 		if (device != VK_NULL_HANDLE)
 			vkDeviceWaitIdle(device);
 	}
@@ -1610,8 +1650,80 @@ namespace p3d {
 		frameFence = frameFences[currentFrameSlot];
 	}
 
-	uint32 VulkanRenderDevice::TranslateBufferBit(const uint32 bufferBits) { return 0; }
-	void VulkanRenderDevice::Clear(const uint32 nativeBufferBits) {}
+	// Pass through engine Buffer_Bit flags - Clear() consumes them directly
+	// (there is no GL-style bitmask translation on this backend). Returning
+	// 0 here used to make every ClearScreen() a permanent no-op even after
+	// Clear() gained a real vkCmdClearAttachments implementation.
+	uint32 VulkanRenderDevice::TranslateBufferBit(const uint32 bufferBits) { return bufferBits; }
+	void VulkanRenderDevice::Clear(const uint32 bufferBits)
+	{
+		// Mid-pass clear - needed when CaptureFrame() already began the
+		// offscreen render pass (LOAD_OP_CLEAR used whatever pendingClearColor
+		// was at Bind), then DrawBackground()/ClearScreen() run inside
+		// RenderScene with the real background. Without this, the editor
+		// viewport stayed black on Vulkan while GL's glClear applied 0.2.
+		//
+		// Must NOT treat frameInProgress alone as "inside a render pass":
+		// deferred demos call ClearScreen() after lastPassFBO->UnBind() while
+		// the swapchain frame is open on frameCommandBuffer but
+		// activeCommandBuffer points at the (pass-closed) offscreen CB -
+		// vkCmdClearAttachments then crashes inside MoltenVK.
+		if (bufferBits == 0 || activeCommandBuffer == VK_NULL_HANDLE)
+			return;
+		const bool renderPassOpenOnActiveBuffer =
+			offscreenPassOpen ||
+			(frameInProgress && activeCommandBuffer == frameCommandBuffer);
+		if (!renderPassOpenOnActiveBuffer)
+			return;
+
+		std::vector<VkClearAttachment> attachments;
+		if (bufferBits & Buffer_Bit::Color)
+		{
+			uint32 colorCount = 1;
+			if (currentBoundFBO != 0)
+			{
+				std::map<DeviceHandle, FBORecord>::iterator fboIt = fboRecords.find(currentBoundFBO);
+				if (fboIt != fboRecords.end() && fboIt->second.colorAttachmentCount > 0)
+					colorCount = fboIt->second.colorAttachmentCount;
+			}
+			for (uint32 i = 0; i < colorCount; i++)
+			{
+				VkClearAttachment ca = {};
+				ca.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				ca.colorAttachment = i;
+				ca.clearValue.color.float32[0] = pendingClearColor.x;
+				ca.clearValue.color.float32[1] = pendingClearColor.y;
+				ca.clearValue.color.float32[2] = pendingClearColor.z;
+				ca.clearValue.color.float32[3] = pendingClearColor.w;
+				attachments.push_back(ca);
+			}
+		}
+		if (bufferBits & Buffer_Bit::Depth)
+		{
+			VkClearAttachment ca = {};
+			ca.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+			ca.clearValue.depthStencil.depth = 1.0f;
+			ca.clearValue.depthStencil.stencil = 0;
+			attachments.push_back(ca);
+		}
+		if (attachments.empty())
+			return;
+
+		VkExtent2D extent = swapchainExtent;
+		if (currentBoundFBO != 0)
+		{
+			std::map<DeviceHandle, FBORecord>::iterator fboIt = fboRecords.find(currentBoundFBO);
+			if (fboIt != fboRecords.end() && fboIt->second.width > 0 && fboIt->second.height > 0)
+				extent = { fboIt->second.width, fboIt->second.height };
+		}
+
+		VkClearRect rect = {};
+		rect.rect.offset = { 0, 0 };
+		rect.rect.extent = extent;
+		rect.baseArrayLayer = 0;
+		rect.layerCount = 1;
+		vkCmdClearAttachments(activeCommandBuffer, (uint32_t)attachments.size(), attachments.data(), 1, &rect);
+	}
 	void VulkanRenderDevice::SetClearColor(const Vec4 &color) { lastClearColor = color; pendingClearColor = color; }
 
 	void VulkanRenderDevice::SetDepthTest(const bool enabled, const uint32 mode) {}
@@ -1780,10 +1892,16 @@ namespace p3d {
 	DeviceHandle VulkanRenderDevice::CreatePipeline(const PipelineDesc &desc)
 	{
 		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(desc.shaderProgram);
-		if (device == VK_NULL_HANDLE || renderPass == VK_NULL_HANDLE || progIt == programs.end() || progIt->second.pipelineLayout == VK_NULL_HANDLE)
+		// Offscreen FBO pipelines (editor viewport, post effects, shadows)
+		// only need the bound FBO's render pass - the swapchain renderPass
+		// can legitimately be null mid-RecreateSwapchain. Defer the
+		// swapchain-RP requirement until after we resolve the real target
+		// below; requiring it up front made every CreatePipeline fail for
+		// the whole frame whenever a resize briefly cleared renderPass.
+		if (device == VK_NULL_HANDLE || progIt == programs.end() || progIt->second.pipelineLayout == VK_NULL_HANDLE)
 		{
-			fprintf(stderr, "VulkanRenderDevice::CreatePipeline: FAILED - device=%p renderPass=%p programFound=%d pipelineLayout=%p (shaderProgram handle=%u)\n",
-				(void*)device, (void*)renderPass, progIt != programs.end(),
+			fprintf(stderr, "VulkanRenderDevice::CreatePipeline: FAILED - device=%p programFound=%d pipelineLayout=%p (shaderProgram handle=%u)\n",
+				(void*)device, progIt != programs.end(),
 				progIt != programs.end() ? (void*)progIt->second.pipelineLayout : (void*)0, desc.shaderProgram);
 			return 0;
 		}
@@ -2002,6 +2120,13 @@ namespace p3d {
 			}
 		}
 
+		if (targetRenderPass == VK_NULL_HANDLE)
+		{
+			fprintf(stderr, "VulkanRenderDevice::CreatePipeline: FAILED - no render pass (swapchain RP=%p, boundFBO=%u)\n",
+				(void*)renderPass, (uint32)currentBoundFBO);
+			return 0;
+		}
+
 		VkPipelineColorBlendAttachmentState blendAttachment = {};
 		blendAttachment.blendEnable = desc.blendingEnabled ? VK_TRUE : VK_FALSE;
 		blendAttachment.srcColorBlendFactor = TranslateBlendFactorVk(desc.blendSrcFactor);
@@ -2201,14 +2326,9 @@ namespace p3d {
 	}
 
 	// Appends, not overwrites - see VaoRecord::vertexBuffers' comment.
-	// IRenderer::BindMesh() only ever calls this in the middle of
-	// building a *fresh* VAO (right after CreateVertexArray()), once per
-	// AttributeBuffer, so appending here always means "the next binding
-	// index" - never a stale accumulation across separate draws. (Note:
-	// DebugRenderer.cpp calls this too, from its own per-frame immediate-
-	// mode path, but that path draws via DrawArrays(), which doesn't
-	// consult vertexBuffers - a pre-existing, separate gap, not affected
-	// either way by this change.)
+	// IRenderer::BindMesh() and DebugRenderer only call this while building
+	// a *fresh* VAO (right after CreateVertexArray()), once per attribute
+	// buffer, so appending always means "the next binding index".
 	void VulkanRenderDevice::BindArrayBuffer(const uint32 buffer)
 	{
 		if (currentVao == 0)
@@ -2442,10 +2562,11 @@ namespace p3d {
 		}
 	}
 
-	// Non-indexed draw - PostEffectsManager's full-screen-triangle pass is
-	// the only user (IEffect.cpp's shared vertex shader computes its
-	// position purely from gl_VertexIndex, so there's deliberately no
-	// vertex/index buffer to bind - see PipelineDesc::noVertexInput).
+	// Non-indexed draw. PostEffectsManager uses this with
+	// PipelineDesc::noVertexInput (gl_VertexIndex fullscreen triangle).
+	// DebugRenderer uses it with a real VAO + vertexLayout - bind those
+	// VBOs the same way DrawElements() does, otherwise lines/triangles
+	// draw with unbound vertex input.
 	void VulkanRenderDevice::DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count)
 	{
 		(void)nativeDrawType;
@@ -2457,6 +2578,28 @@ namespace p3d {
 			fprintf(stderr, "VulkanRenderDevice::DrawArrays: skipped draw - no valid pipeline is currently bound\n");
 			return;
 		}
+
+		if (currentVao != 0)
+		{
+			std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
+			if (vaoIt != vaos.end() && !vaoIt->second.vertexBuffers.empty())
+			{
+				std::vector<VkBuffer> vbos;
+				std::vector<VkDeviceSize> vboOffsets;
+				vbos.reserve(vaoIt->second.vertexBuffers.size());
+				vboOffsets.reserve(vaoIt->second.vertexBuffers.size());
+				for (size_t i = 0; i < vaoIt->second.vertexBuffers.size(); i++)
+				{
+					std::map<DeviceHandle, BufferRecord>::iterator vboIt = buffers.find(vaoIt->second.vertexBuffers[i]);
+					if (vboIt == buffers.end())
+						return;
+					vbos.push_back(vboIt->second.buffer);
+					vboOffsets.push_back(0);
+				}
+				vkCmdBindVertexBuffers(activeCommandBuffer, 0, (uint32_t)vbos.size(), vbos.data(), vboOffsets.data());
+			}
+		}
+
 		BindCurrentPipelineDescriptorSets();
 		vkCmdDraw(activeCommandBuffer, count, 1, first, 0);
 	}
@@ -3939,6 +4082,23 @@ namespace p3d {
 			// view about to be destroyed below - see
 			// InvalidateFramebuffersForTexture()'s comment.
 			InvalidateFramebuffersForTexture(currentlyConfiguringTexture);
+			// Drop ImGui descriptors that still point at the old view -
+			// GetImGuiTextureID() rebuilds when the view handle changes,
+			// but only if we ask it again; leaving a stale set in the map
+			// while ImGui draw data from *this* frame already recorded the
+			// old descriptor (Scene View Image before Resize on the next
+			// frame's dock layout) is a real use-after-free during live
+			// resize. Erase now so the next GetImGuiTextureID allocates
+			// fresh.
+			{
+				std::map<DeviceHandle, ImGuiTextureBinding>::iterator imIt = imguiTextureIDs.find(currentlyConfiguringTexture);
+				if (imIt != imguiTextureIDs.end())
+				{
+					if (imIt->second.set != NULL)
+						ReleaseImGuiTextureID(imIt->second.set);
+					imguiTextureIDs.erase(imIt);
+				}
+			}
 			// Before destroying: drop any sampler-descriptor cache entry
 			// keyed on these views, or a recycled handle makes the next
 			// frame skip the descriptor rewrite and sample freed memory -
@@ -4162,6 +4322,14 @@ namespace p3d {
 		pending.allocation = stagingAllocation;
 		pendingStagingBuffers.push_back(pending);
 		pendingStagingBytes += uploadSize;
+
+		// MoltenVK (Apple M3): submitting a transfer CB that batches many
+		// vkCmdCopyBufferToImage ops (scene loads with several large
+		// albedo maps) segfaults inside MVKCmdBufferImageCopy::encode.
+		// Flushing each CPU upload immediately keeps submits small and
+		// matches GL's synchronous texImage behavior. BeginFrame still
+		// flushes any leftover GenerateMipmap work.
+		FlushPendingTransfers();
 	}
 	// Was a complete no-op stub. Real multisample VkImage creation,
 	// mirroring UploadTexture2D()'s image-creation half above (lines
@@ -4408,6 +4576,10 @@ namespace p3d {
 		// texture was ever bound, likely before mips existed) still has
 		// maxLod clamped to 0 from back then.
 		tex.samplerDirty = true;
+		// Same MoltenVK batching hazard as UploadTexture2D - don't leave a
+		// large mip-chain blit sequence sitting in the transfer CB to be
+		// merged with the next texture's staging copy.
+		FlushPendingTransfers();
 	}
 
 	// All of these operate on currentlyConfiguringTexture (see
@@ -4525,7 +4697,14 @@ namespace p3d {
 		const uint32 faceLayer = (tex.isCubemap && target >= CUBEMAP_FACE_TARGET_BASE)
 			? (target - CUBEMAP_FACE_TARGET_BASE) : 0;
 
-		VkDeviceSize bufferSize = (VkDeviceSize)tex.width * tex.height * 4;
+		// Must match GetTextureDataSize / BytesPerTexelVk — a hardcoded *4
+		// under-sized the staging buffer for RGBA16F (post-effect / editor
+		// thumbnail captures). vkCmdCopyImageToBuffer into a too-small
+		// buffer segfaults under MoltenVK; Metal already used the real bpp.
+		const uint32 bytesPerTexel = tex.isDepthTexture
+			? (uint32)sizeof(f32)
+			: BytesPerTexelVk(tex.format);
+		VkDeviceSize bufferSize = (VkDeviceSize)tex.width * tex.height * bytesPerTexel;
 		VkBufferCreateInfo bufferInfo = {};
 		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 		bufferInfo.size = bufferSize;
@@ -5380,8 +5559,24 @@ namespace p3d {
 			// when frameInProgress: fence is unsignaled until EndFrame
 			// submits (would deadlock nested offscreen inside a
 			// swapchain frame, e.g. DeferredRenderer G-buffer).
+			//
+			// Editor viewport CaptureFrame runs with frameInProgress
+			// (Editor::Draw). Skipping *all* waits then lets frame N
+			// rewrite the viewport color while frame N-1's ImGui is
+			// still sampling it → main scene flicker. Wait every other
+			// frame slot; never the current one (reset, unsignaled).
 			if (!frameInProgress)
 				WaitAllFrameFences();
+			else
+			{
+				static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
+				for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+				{
+					if (i == currentFrameSlot) continue;
+					if (frameFences[i] != VK_NULL_HANDLE)
+						vkWaitForFences(device, 1, &frameFences[i], VK_TRUE, FRAME_WAIT_TIMEOUT_NS);
+				}
+			}
 			// Rotate onto the next slot rather than reusing the one just
 			// submitted, so this wait lands on a submit several sessions
 			// old (already finished) instead of the one the GPU is running

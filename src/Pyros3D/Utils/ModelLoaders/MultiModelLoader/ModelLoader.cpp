@@ -7,8 +7,46 @@
 //============================================================================
 
 #include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h>
+#include <filesystem>
+#include <algorithm>
+#include <utility>
+
+namespace fs = std::filesystem;
 
 namespace p3d {
+
+	namespace {
+		std::string ResolveModelTexturePath(const std::string& modelFilename, const std::string& storedRaw)
+		{
+			std::string stored = storedRaw;
+			for (size_t i = 0; i < stored.size(); ++i)
+				if (stored[i] == '\\') stored[i] = '/';
+
+			// Strip leading "./"
+			while (stored.size() >= 2 && stored[0] == '.' && stored[1] == '/')
+				stored = stored.substr(2);
+
+			if (stored.empty()) return stored;
+
+			// Embedded Assimp textures (*0) — leave as-is (loader/packager handle).
+			if (stored[0] == '*') return stored;
+
+			fs::path storedPath(stored);
+			// Absolute paths must not be prefixed with the .p3dm directory.
+			if (storedPath.is_absolute())
+				return storedPath.lexically_normal().string();
+			// Unix-style absolute that fs::path may not treat as absolute on Windows.
+			if (!stored.empty() && stored[0] == '/')
+				return stored;
+
+			fs::path modelPath(modelFilename);
+			fs::path parent = modelPath.parent_path();
+			if (parent.empty())
+				return storedPath.lexically_normal().generic_string();
+
+			return (parent / storedPath).lexically_normal().string();
+		}
+	}
 
 	ModelLoader::ModelLoader() {}
 
@@ -16,18 +54,25 @@ namespace p3d {
 
 	bool ModelLoader::Load(const std::string& Filename)
 	{
-		std::string path = "";
-		std::string needle = "/";
-
-		std::size_t found = Filename.rfind(needle);
-		if (found < Filename.size())
-			path = Filename.substr(0, found) + needle;
-
 		BinaryFile* bin = new BinaryFile();
-		bin->Open(Filename.c_str(), 'r');
+		if (!bin->Open(Filename.c_str(), 'r'))
+		{
+			echo(std::string("ERROR: ModelLoader - couldn't open ") + Filename);
+			delete bin;
+			return false;
+		}
 
-		int32 materialsSize;
+		int32 materialsSize = 0;
 		bin->Read(&materialsSize, sizeof(int32));
+		if (materialsSize < 0 || materialsSize > 100000)
+		{
+			echo(std::string("ERROR: ModelLoader - corrupt materials header in ") + Filename);
+			bin->Close();
+			delete bin;
+			return false;
+		}
+		if (materialsSize > 0)
+			materials.reserve((size_t)materialsSize);
 
 		// Materials
 		for (int i = 0; i < materialsSize; i++)
@@ -91,7 +136,7 @@ namespace p3d {
 			{
 				std::string c; c.resize(nameSize);
 				bin->Read(&c[0], nameSize);
-				mat.colorMap = path + c;
+				mat.colorMap = ResolveModelTexturePath(Filename, c);
 			}
 
 			// Specular Map
@@ -102,7 +147,7 @@ namespace p3d {
 			{
 				std::string c; c.resize(nameSize);
 				bin->Read(&c[0], nameSize);
-				mat.specularMap = path + c;
+				mat.specularMap = ResolveModelTexturePath(Filename, c);
 			}
 			// Normal Map
 			bin->Read(&In, sizeof(uchar));
@@ -112,7 +157,7 @@ namespace p3d {
 			{
 				std::string c; c.resize(nameSize);
 				bin->Read(&c[0], nameSize);
-				mat.normalMap = path + c;
+				mat.normalMap = ResolveModelTexturePath(Filename, c);
 			}
 
 			bin->Read(&In, sizeof(uchar));
@@ -170,6 +215,12 @@ namespace p3d {
 		// SubMeshes
 		int subMeshesSize;
 		bin->Read(&subMeshesSize, sizeof(int32));
+		// Reserve + move: SubMesh holds full vertex/index arrays. push_back
+		// without reserve reallocated the vector repeatedly and copy-ctored
+		// every prior mesh (O(N²) memcpy) — island.p3dm (~16MB) looked like
+		// a hard hang on project/scene open.
+		if (subMeshesSize > 0)
+			subMeshes.reserve((size_t)subMeshesSize);
 
 		for (int32 i = 0; i < subMeshesSize; i++)
 		{
@@ -189,8 +240,8 @@ namespace p3d {
 			bin->Read(&indexSize, sizeof(int32));
 			if (indexSize > 0)
 			{
-				c_submesh.tIndex.resize(indexSize);
-				bin->Read(&c_submesh.tIndex[0], sizeof(int32)*indexSize);
+				c_submesh.tIndex.resize((size_t)indexSize);
+				bin->Read(&c_submesh.tIndex[0], sizeof(int32) * (uint32)indexSize);
 			}
 			// Vertex
 			int vertexSize;
@@ -198,8 +249,8 @@ namespace p3d {
 			if (vertexSize > 0)
 			{
 				c_submesh.hasVertex = true;
-				c_submesh.tVertex.resize(vertexSize);
-				bin->Read(&c_submesh.tVertex[0], sizeof(Vec3)*vertexSize);
+				c_submesh.tVertex.resize((size_t)vertexSize);
+				bin->Read(&c_submesh.tVertex[0], sizeof(Vec3) * (uint32)vertexSize);
 			}
 			else c_submesh.hasVertex = false;
 
@@ -290,7 +341,7 @@ namespace p3d {
 
 			bin->Read(&c_submesh.materialID, sizeof(int32));
 
-			subMeshes.push_back(c_submesh);
+			subMeshes.push_back(std::move(c_submesh));
 
 		}
 

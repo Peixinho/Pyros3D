@@ -369,11 +369,9 @@ namespace p3d {
 					if ((*i)->GetBoundingMinValue().z < minBounds.z) minBounds.z = (*i)->GetBoundingMinValue().z;
 				}
 			}
-			// Set Sphere Radius and Bounds
-			BoundingSphereCenter = Vec3::ZERO;
-			f32 a = maxBounds.distance(BoundingSphereCenter);
-			f32 b = minBounds.distance(BoundingSphereCenter);
-			BoundingSphereRadius = Max(a, b);
+			// Set Sphere Radius and Bounds — center on AABB, not origin.
+			BoundingSphereCenter = (minBounds + maxBounds) * 0.5f;
+			BoundingSphereRadius = maxBounds.distance(BoundingSphereCenter);
 		}
 
 		// Bounds of the Whole Model

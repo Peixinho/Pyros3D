@@ -56,6 +56,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/ScreenSpaceReflectionEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/TonemapEffect.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/GammaEncodeEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/DisplayTextureEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/DepthOfFieldEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/CubemapRenderer/CubemapRenderer.cpp
