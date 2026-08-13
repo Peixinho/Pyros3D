@@ -96,6 +96,7 @@ protected:
 	void LoadDefaultLayout();
 	void BuildDefaultLayout(const ImGuiID dockspaceID, const ImVec2 &size);
 	void DrawWelcomeScreen();
+	void EnsureWelcomeLogo();
 	void DrawProjectDialogs();
 	void DrawAssetsWindow();
 	void DrawSceneTreeWindow();
@@ -197,6 +198,7 @@ private:
 	std::string newScriptName;
 	std::string newScriptError;
 	std::map<std::string, Texture*> assetPreviewCache;
+	Texture* welcomeLogo = NULL;
 	// Freed after EndFrame so ImGui never samples a destroyed MTLTexture /
 	// VkDescriptorSet from the same frame's draw list (Metal crash was
 	// setFragmentTexture on a released id).

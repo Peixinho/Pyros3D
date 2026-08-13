@@ -17,6 +17,8 @@
 #include <filesystem>
 #include <fstream>
 #include <cstdlib>
+#include <algorithm>
+#include <cfloat>
 
 using namespace p3d;
 namespace fs = std::filesystem;
@@ -475,6 +477,24 @@ void Editor::DrawUI()
         ImGui::EndMainMenuBar();
     }
 
+	// No project: skip the dock host entirely — empty dock nodes / the
+	// fullscreen "Main" window were painting over the welcome splash.
+	DrawProjectDialogs();
+	if (!project.IsOpen())
+	{
+		DrawWelcomeScreen();
+		ImGui::EndFrame();
+		ImGui::Render();
+#if !defined(_SDL2VULKAN) && !defined(_SDL2METAL)
+		ImGuiIO& io = ImGui::GetIO(); (void)io;
+		glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
+		glClearColor(0.16f, 0.14f, 0.15f, 1.f);
+		glClear(GL_COLOR_BUFFER_BIT);
+		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+#endif
+		return;
+	}
+
 	// "Main" is a host window for the dockspace and nothing else: it fills
 	// the viewport below the menu bar and every panel docks into it. The
 	// panels used to be submitted *inside* this Begin()/End() pair, which
@@ -507,20 +527,6 @@ void Editor::DrawUI()
 
 	// Panels are submitted at top level so they can dock into the space above.
 	DrawProjectDialogs();
-	if (!project.IsOpen())
-	{
-		DrawWelcomeScreen();
-		ImGui::EndFrame();
-		ImGui::Render();
-#if !defined(_SDL2VULKAN) && !defined(_SDL2METAL)
-		ImGuiIO& io = ImGui::GetIO(); (void)io;
-		glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-		glClearColor(0, 0, 0, 0);
-		glClear(GL_COLOR_BUFFER_BIT);
-		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-#endif
-		return;
-	}
 
 	if (sceneView)
 	{
@@ -784,48 +790,173 @@ Texture* Editor::GetAssetPreviewTexture(const std::string& absPath)
 	return NULL;
 }
 
+void Editor::EnsureWelcomeLogo()
+{
+	if (welcomeLogo) return;
+	Texture* tex = new Texture();
+	if (!tex->LoadTexture("assets/pyros.png", TextureType::Texture, false))
+	{
+		delete tex;
+		return;
+	}
+	welcomeLogo = tex;
+}
+
 void Editor::DrawWelcomeScreen()
 {
-	ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-	ImGui::Begin("Welcome", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking);
-	ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.2f, 1.0f), "PyrosBuilder");
-	ImGui::Separator();
-	ImGui::TextDisabled("Create or open a project to start");
-	ImGui::Spacing();
-	if (ImGui::Button("New Project", ImVec2(280, 0)))
+	EnsureWelcomeLogo();
+
+	const ImGuiViewport* vp = ImGui::GetMainViewport();
+	const ImVec2 p0 = vp->WorkPos;
+	const ImVec2 size = vp->WorkSize;
+	const ImVec2 p1(p0.x + size.x, p0.y + size.y);
+
+	ImGui::SetNextWindowPos(p0);
+	ImGui::SetNextWindowSize(size);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));
+	ImGui::Begin("##pyros_welcome", NULL,
+		ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize
+		| ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking
+		| ImGuiWindowFlags_NoNavFocus);
+
+	ImDrawList* dl = ImGui::GetWindowDrawList();
+
+	// Readable warm slate — not near-black (logo sits on it cleanly).
+	dl->AddRectFilledMultiColor(p0, p1,
+		IM_COL32(42, 38, 40, 255), IM_COL32(42, 38, 40, 255),
+		IM_COL32(58, 36, 30, 255), IM_COL32(58, 36, 30, 255));
+
+	const ImVec2 hero(p0.x + size.x * 0.5f, p0.y + size.y * 0.34f);
+	// Stronger heat bloom so the mark pops.
+	for (int i = 6; i >= 1; --i)
+	{
+		const float r = 48.f + (float)i * 42.f;
+		const int a = 10 + (7 - i) * 10;
+		dl->AddCircleFilled(hero, r, IM_COL32(230, 90, 40, a), 64);
+	}
+
+	const float logoSz = std::min(220.f, std::max(140.f, size.y * 0.28f));
+	if (welcomeLogo)
+	{
+		void* tid = GetActiveRenderDevice().GetImGuiTextureID(
+			welcomeLogo->GetBindID(), welcomeLogo->GetTextureType());
+		if (tid)
+		{
+			const ImVec2 logoMin(hero.x - logoSz * 0.5f, hero.y - logoSz * 0.62f);
+			const ImVec2 logoMax(logoMin.x + logoSz, logoMin.y + logoSz);
+			// Texture is authored top-down; do not Y-flip (GL path was inverted).
+			dl->AddImage((ImTextureID)tid, logoMin, logoMax);
+		}
+	}
+
+	const float contentW = std::min(440.f, size.x * 0.78f);
+	float y = hero.y + logoSz * 0.48f;
+	ImGui::SetCursorScreenPos(ImVec2(hero.x - contentW * 0.5f, y));
+	ImGui::BeginChild("##welcome_body", ImVec2(contentW, size.y - (y - p0.y) - 36.f), false,
+		ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar);
+
+	{
+		const float titleSize = ImGui::GetFontSize() * 2.15f;
+		ImFont* font = ImGui::GetFont();
+		const char* title = "PyrosBuilder";
+		const ImVec2 ts = font->CalcTextSizeA(titleSize, FLT_MAX, -1.f, title);
+		const float tx = (contentW - ts.x) * 0.5f;
+		ImGui::SetCursorPosX(tx);
+		const ImVec2 tp = ImGui::GetCursorScreenPos();
+		dl->AddText(font, titleSize, tp, IM_COL32(255, 250, 245, 255), title);
+		ImGui::Dummy(ImVec2(ts.x, ts.y + 2.f));
+	}
+
+	{
+		const char* tag = "Build worlds. Attach scripts. Press Play.";
+		const ImVec2 ts = ImGui::CalcTextSize(tag);
+		ImGui::SetCursorPosX((contentW - ts.x) * 0.5f);
+		ImGui::TextColored(ImVec4(0.92f, 0.78f, 0.68f, 1.f), "%s", tag);
+	}
+
+	ImGui::Dummy(ImVec2(0, 18.f));
+
+	const float btnW = contentW;
+	const float btnH = 42.f;
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.f);
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.f, 10.f));
+
+	ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.88f, 0.32f, 0.16f, 1.f));
+	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.96f, 0.42f, 0.20f, 1.f));
+	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.75f, 0.24f, 0.12f, 1.f));
+	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 1.f, 1.f, 1.f));
+	if (ImGui::Button("New Project", ImVec2(btnW, btnH)))
 	{
 		openNewProjectModal = true;
 		projectDialogError.clear();
 	}
-	if (ImGui::Button("Open Project", ImVec2(280, 0)))
+	ImGui::PopStyleColor(4);
+
+	ImGui::Dummy(ImVec2(0, 8.f));
+
+	ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.32f, 0.28f, 0.28f, 1.f));
+	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.42f, 0.34f, 0.30f, 1.f));
+	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.26f, 0.22f, 0.22f, 1.f));
+	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.98f, 0.94f, 0.90f, 1.f));
+	ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.85f, 0.45f, 0.28f, 0.95f));
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.4f);
+	if (ImGui::Button("Open Project", ImVec2(btnW, btnH)))
 	{
 		openOpenProjectModal = true;
 		projectDialogError.clear();
 	}
+	ImGui::PopStyleVar();
+	ImGui::PopStyleColor(5);
+	ImGui::PopStyleVar(2);
 
 	if (!recentProjects.empty())
 	{
-		ImGui::Spacing();
-		ImGui::Separator();
-		ImGui::TextDisabled("Recent projects");
-		ImGui::BeginChild("##recentprojs", ImVec2(280, 180), true);
+		ImGui::Dummy(ImVec2(0, 22.f));
+		ImGui::SetCursorPosX(4.f);
+		ImGui::TextColored(ImVec4(0.90f, 0.78f, 0.68f, 1.f), "RECENT");
+		ImGui::Dummy(ImVec2(0, 4.f));
+
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.22f, 0.19f, 0.18f, 0.92f));
+		ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.55f, 0.32f, 0.22f, 0.75f));
+		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.92f, 0.88f, 1.f));
+		ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 10.f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.f, 8.f));
+		const float recentH = std::min(200.f, ImGui::GetContentRegionAvail().y - 8.f);
+		ImGui::BeginChild("##recentprojs", ImVec2(btnW, recentH), true);
+
+		int shown = 0;
 		for (size_t i = 0; i < recentProjects.size(); ++i)
 		{
 			const std::string& p = recentProjects[i];
 			std::error_code ec;
 			if (!fs::exists(p, ec))
 				continue;
-			const std::string label = fs::path(p).filename().string();
+			const std::string name = fs::path(p).filename().string();
 			ImGui::PushID((int)i);
-			if (ImGui::Selectable(label.c_str()))
+			ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.36f, 0.24f, 0.18f, 0.95f));
+			ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.55f, 0.30f, 0.18f, 1.f));
+			ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.70f, 0.34f, 0.16f, 1.f));
+			if (ImGui::Selectable(("  " + name).c_str(), false, 0, ImVec2(0, 28.f)))
 				OpenProjectFromPath(p);
+			ImGui::PopStyleColor(3);
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("%s", p.c_str());
 			ImGui::PopID();
+			++shown;
 		}
+		if (shown == 0)
+			ImGui::TextColored(ImVec4(0.75f, 0.68f, 0.62f, 1.f), "No recent projects on disk");
+
 		ImGui::EndChild();
+		ImGui::PopStyleVar(2);
+		ImGui::PopStyleColor(3);
 	}
+
+	ImGui::EndChild();
 	ImGui::End();
+	ImGui::PopStyleVar(3);
 }
 
 std::string Editor::RecentProjectsFilePath()
@@ -1642,6 +1773,11 @@ void Editor::Shutdown()
 	PyrosWindowClose::SetHandler(NULL);
 	ClearAssetPreviews();
 	FlushDeferredPreviewDestroy();
+	if (welcomeLogo)
+	{
+		delete welcomeLogo;
+		welcomeLogo = NULL;
+	}
 
 	CloseAllSceneDocuments();
 	CloseAllLuaScriptDocuments();
