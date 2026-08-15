@@ -36,6 +36,17 @@ namespace p3d
 		// Bind tex as next sampler unit and register uniformName = unit index.
 		void AddSampler(const std::string &uniformName, const std::shared_ptr<Texture> &tex);
 
+		// Removes every texture added via AddSampler() and their unit-index
+		// uniforms (AddSampler registers those as Usage::Other, same bucket
+		// as any other plain user uniform) - only safe on a material whose
+		// Usage::Other uniforms are exclusively sampler units it added
+		// itself; a subclass that also uses AddUniform(..., Other, ...) for
+		// its own non-sampler tunables (e.g. ParticleSystemMaterial) must
+		// not call this. Used by the Material Editor to reset bindings
+		// before re-wiring a node graph whose Texture nodes may have
+		// changed count/order since the last Apply.
+		void ClearSamplers();
+
 		std::vector<std::shared_ptr<Texture>> textures;
 
 		// Empty when constructed from a raw Shader* - that path has no

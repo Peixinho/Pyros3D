@@ -37,6 +37,7 @@
 #include "editor/UI/PropertiesTab.h"
 #include "editor/UI/ToolsTab.h"
 #include "editor/UI/MaterialEditor.h"
+#include "editor/MaterialEditorDocument.h"
 #include "editor/SceneEditor.h"
 #include "editor/ProjectManager.h"
 #include "editor/CodeEditorDocument.h"
@@ -106,11 +107,27 @@ protected:
 	void DrawSceneViewWindow();
 	void DrawSceneTabBar();
 	void DrawScriptEditorWindows();
+	void DrawMaterialEditorWindows();
 	void UpdateWindowTitle();
+	// Live renderer switch, shared by the Project Settings "Apply" button
+	// and the "set_renderer" AgentServer command - applies to every open
+	// scene tab (SceneEditor::SwitchRenderer() no-ops if already the
+	// requested type). Does not touch project.json itself; callers decide
+	// whether/how to persist the choice.
+	void SwitchAllScenesRenderer(bool useDeferred);
 	bool OpenLuaScriptDocument(const std::string& absPath);
 	void CloseLuaScriptDocument(uint32_t id);
 	void CloseAllLuaScriptDocuments();
 	CodeEditorDocument* FindLuaScriptDocument(const std::string& absPath);
+	// Opens (or focuses, if already open) the .mat file as a dockable window.
+	bool OpenMaterialDocument(const std::string& absPath);
+	// Properties-panel "Edit Material" case: no backing file yet. Finds-or-
+	// creates a document keyed by the live IMaterial* pointer identity so
+	// clicking twice on the same submesh re-focuses the same window.
+	MaterialEditorDocument* EditMaterialInline(std::shared_ptr<p3d::IMaterial> mat, const std::string& ownerLabel);
+	void CloseMaterialDocument(uint32_t id);
+	void CloseAllMaterialDocuments();
+	MaterialEditorDocument* FindMaterialDocumentByPath(const std::string& absPath) const;
 	bool CreateNewProject(const std::string& parentDir, const std::string& name);
 	bool OpenProjectFromPath(const std::string& path);
 	void CloseProject();
@@ -147,10 +164,23 @@ private:
 	// Dispatches one agent command (cmd + args) to the editor API. Runs on
 	// the main thread. Throws std::runtime_error on error.
 	nlohmann::json HandleAgentCommand(const nlohmann::json& cmd);
+	// Agent/MCP bridge helper: resolves a project-relative or absolute .mat
+	// path and finds-or-opens it as a live MaterialEditorDocument. Returns
+	// NULL and sets errOut on failure (no project, file doesn't exist, ...).
+	MaterialEditorDocument* AgentOpenMaterial(const std::string& pathArg, std::string& errOut);
+	// Which of a generated material's two compiled branches (see
+	// MaterialCodegen.cpp) is active - driven by the project's Renderer
+	// setting, not a per-scene choice (see ProjectManager::rendererType's
+	// own comment on why).
+	bool UseDeferredGBuffer() const { return project.GetSettings().rendererType == ProjectRendererType::Deferred; }
+	// Loads/opens materialPath and assigns it onto the given object's
+	// submesh in the active scene document. Shared by the agent bridge
+	// (assign_material) and the Properties panel's material picker.
+	bool AssignMaterialAsset(const std::string& objectName, int submeshIndex, const std::string& materialPath, std::string& errOut);
+	static std::string HostAssignMaterialAsset(const std::string& objectName, int submeshIndex, const std::string& materialPath);
 
 	PropertiesTab* tabProperties;
 	ToolsTab* tabTools;
-	MaterialEditor* matEditor;
 	// Set by LoadDefaultLayout(); consumed by the next DrawUI().
 	bool resetLayout;
 
@@ -167,6 +197,14 @@ private:
 	uint32 pendingSelectScriptId;
 	// Center dock node from BuildDefaultLayout — new script windows dock here.
 	ImGuiID dockCenterId;
+
+	// Material editors are top-level dock windows (peer of Scene View and
+	// scripts), same convention as scriptDocs above - no permanent panel.
+	std::vector<MaterialEditorDocument*> materialDocs;
+	MaterialEditorDocument* activeMaterialDoc;
+	uint32 nextMaterialDocId;
+	// Forces focus on a material window after OpenMaterialDocument()/EditMaterialInline().
+	uint32 pendingSelectMaterialDocId;
 
 	SceneEditor* CreateSceneDocument();
 	void DestroySceneDocument(SceneEditor* doc);
@@ -185,12 +223,13 @@ private:
 	static void HostNewSceneDocument();
 	static void HostOpenSceneDocument(const std::string& absPath);
 	static void HostOpenLuaScript(const std::string& absPath);
+	static void HostEditMaterialInline(std::shared_ptr<p3d::IMaterial> mat, const std::string& ownerLabel);
 
 	ProjectManager project;
 	AudioManager* sharedAudio;
 	std::vector<std::string> recentProjects;
 
-	bool showingSceneView, showingTabTools, showingTabProperties, showingLog, showingSceneTree, showingMaterialEditor;
+	bool showingSceneView, showingTabTools, showingTabProperties, showingLog, showingSceneTree;
 	bool showingAssets;
 	bool assetsWindowHovered;
 
@@ -208,6 +247,10 @@ private:
 	bool openNewScriptModal;
 	std::string newScriptName;
 	std::string newScriptError;
+	bool openNewMaterialModal;
+	std::string newMaterialName;
+	std::string newMaterialError;
+	int newMaterialKindCombo; // 0 = Generic, 1 = Custom
 	std::map<std::string, Texture*> assetPreviewCache;
 	Texture* welcomeLogo = NULL;
 	// Freed after EndFrame so ImGui never samples a destroyed MTLTexture /

@@ -540,7 +540,7 @@ namespace p3d {
 		pointLight->GetMeshes()[0]->Material->SetCullFace(CullFace::FrontFace);
 	}
 
-	void DeferredRenderer::Resize(const uint32 Width, const uint32 Height)
+	void DeferredRenderer::Resize(const uint32 &Width, const uint32 &Height)
 	{
 		// Must run before ANY of the resource-destroying resizes below,
 		// not just before the offscreen clear that follows them. A resize
@@ -609,7 +609,7 @@ namespace p3d {
 		delete pointLight;
 	}
 
-	void DeferredRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 BufferOptions)
+	void DeferredRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
 	{
 		PYROS_PROFILE_SCOPE("Deferred.RenderScene");
 

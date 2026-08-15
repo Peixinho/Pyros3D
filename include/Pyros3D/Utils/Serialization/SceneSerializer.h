@@ -78,6 +78,15 @@ namespace p3d {
 		// Optional scene-level Lua (middleclass class), relative to project/assets
 		// root when possible (e.g. "assets/lua/main.lua"). Empty = none.
 		std::string mainScript;
+
+		// Flat ambient colour, fed to IRenderer::SetGlobalLight() - only
+		// .xyz matter (see PyrosShader.glsl's uAmbientLight.rgb / w is
+		// never sampled by any shader). Defaults to IRenderer's own
+		// constructor default so a scene saved without ever touching this
+		// round-trips to the same look; a scene file predating this field
+		// loads the same default too (LoadScene leaves it untouched when
+		// the JSON key is absent).
+		Vec4 ambientLight = Vec4(0.2f, 0.2f, 0.2f, 0.2f);
 	};
 
 	class PYROS3D_API SceneSerializer {

@@ -11,6 +11,8 @@
 #include "editor/FileDropQueue.h"
 #include <Pyros3D/Audio/AudioManager.h>
 #include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
+#include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <FileDropHook.h>
 #include <CloseHook.h>
 #include <glad/glad.h>
@@ -112,6 +114,10 @@ Editor::Editor() : ClassName(1024,768,"PyrosBuilder",WindowType::Close | WindowT
 	openNewScriptModal = false;
 	newScriptName.clear();
 	newScriptError.clear();
+	openNewMaterialModal = false;
+	newMaterialName.clear();
+	newMaterialError.clear();
+	newMaterialKindCombo = 0;
 	sceneView = NULL;
 	nextSceneDocId = 1;
 	sharedAudio = NULL;
@@ -122,6 +128,9 @@ Editor::Editor() : ClassName(1024,768,"PyrosBuilder",WindowType::Close | WindowT
 	nextScriptDocId = 1;
 	pendingSelectScriptId = 0;
 	dockCenterId = 0;
+	activeMaterialDoc = NULL;
+	nextMaterialDocId = 1;
+	pendingSelectMaterialDocId = 0;
 }
 
 #ifdef LUA_BINDINGS
@@ -269,7 +278,6 @@ void Editor::Init()
 	tabLog = new TabLog("Log", &showingLog);
 	tabProperties = new PropertiesTab(&showingTabProperties);
 	tabTools = new ToolsTab(&showingTabTools);
-	matEditor = new MaterialEditor(&showingMaterialEditor);
 	// Editor Log panel is the only sink — no OS terminal spam. Everything
 	// includes Info so Lua print() shows up.
 	p3d::LOG::_LOG::SetMirrorStdout(false);
@@ -279,7 +287,7 @@ void Editor::Init()
 	InitLuaHost();
 #endif
 	sceneView = CreateSceneDocument();
-	showingLog = showingSceneTree = showingSceneView = showingTabProperties = showingTabTools = showingMaterialEditor = true;
+	showingLog = showingSceneTree = showingSceneView = showingTabProperties = showingTabTools = true;
 	showingAssets = true;
 	PyrosFileDrop::SetHandler(&EditorOnOsFileDrop);
 	PyrosWindowClose::SetHandler(&Editor::EditorOnWindowClose);
@@ -309,7 +317,7 @@ void Editor::Init()
 
 void Editor::LoadDefaultLayout()
 {
-	showingLog = showingSceneTree = showingSceneView = showingTabProperties = showingTabTools = showingMaterialEditor = true;
+	showingLog = showingSceneTree = showingSceneView = showingTabProperties = showingTabTools = true;
 	showingAssets = true;
 	// The dock nodes can only be rebuilt while a frame is in flight, so
 	// just arm it here and let DrawUI() do the work.
@@ -334,7 +342,6 @@ void Editor::BuildDefaultLayout(const ImGuiID dockspaceID, const ImVec2 &size)
 	ImGui::DockBuilderDockWindow("Scene View", center);
 	ImGui::DockBuilderDockWindow("Assets", bottom);
 	ImGui::DockBuilderDockWindow("Log", bottom);
-	ImGui::DockBuilderDockWindow("Material Editor", bottom);
 	ImGui::DockBuilderDockWindow("Tools", right);
 	ImGui::DockBuilderDockWindow("Properties", rightBottom);
 	dockCenterId = center;
@@ -354,6 +361,42 @@ void Editor::Update()
 	// BeginFrame so Vulkan offscreen binds skip WaitAllFrameFences
 	// (that wait was freezing the editor: ShowViewport ran with
 	// !frameInProgress every tick and parked on MoltenVK fence waits).
+}
+
+MaterialEditorDocument* Editor::AgentOpenMaterial(const std::string& pathArg, std::string& errOut)
+{
+	if (pathArg.empty()) { errOut = "'path' is required"; return NULL; }
+	if (!project.IsOpen()) { errOut = "no project open"; return NULL; }
+	// Treat as project-relative unless it already looks like an absolute
+	// filesystem path (matches ResolveTexturePath's convention elsewhere).
+	std::string abs = pathArg;
+	if (pathArg[0] != '/' && !(pathArg.size() >= 2 && pathArg[1] == ':'))
+		abs = project.AbsolutePath(pathArg);
+	if (!OpenMaterialDocument(abs))
+	{
+		errOut = "could not open material: " + pathArg;
+		return NULL;
+	}
+	return FindMaterialDocumentByPath(abs);
+}
+
+bool Editor::AssignMaterialAsset(const std::string& objectName, int submeshIndex, const std::string& materialPath, std::string& errOut)
+{
+	MaterialEditorDocument* doc = AgentOpenMaterial(materialPath, errOut);
+	if (!doc) return false;
+	if (!doc->currentMaterial) { errOut = "material has no constructed instance yet"; return false; }
+	if (!sceneView) { errOut = "no scene open"; return false; }
+	return sceneView->AgentAssignMaterial(objectName, submeshIndex, doc->currentMaterial, errOut);
+}
+
+std::string Editor::HostAssignMaterialAsset(const std::string& objectName, int submeshIndex, const std::string& materialPath)
+{
+	Editor* ed = Editor::getInstance();
+	if (!ed) return "editor not available";
+	std::string err;
+	if (!ed->AssignMaterialAsset(objectName, submeshIndex, materialPath, err))
+		return err;
+	return std::string();
 }
 
 nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
@@ -425,6 +468,65 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			r["scenePath"] = sceneView->GetScenePath();
 			r["scene"] = sceneView->GetSceneDisplayName();
 		}
+		return r;
+	}
+
+	if (name == "create_material")
+	{
+		if (!project.IsOpen())
+			throw std::runtime_error("no project open");
+		const std::string matName = A("name");
+		const std::string kindStr = (a.is_object() ? a.value("kind", std::string("generic")) : std::string("generic"));
+		const MaterialAssetKind kind = (kindStr == "custom") ? MaterialAssetKind::Custom : MaterialAssetKind::Generic;
+		std::string abs, cerr;
+		if (!project.CreateMaterial(matName, kind, abs, &cerr))
+			throw std::runtime_error(cerr);
+		project.Save();
+		if (!OpenMaterialDocument(abs))
+			throw std::runtime_error("material created but could not be opened: " + abs);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["path"] = project.RelativePath(abs);
+		r["kind"] = kindStr;
+		return r;
+	}
+	if (name == "get_material_graph")
+	{
+		std::string aerr;
+		MaterialEditorDocument* doc = AgentOpenMaterial(A("path"), aerr);
+		if (!doc) throw std::runtime_error(aerr);
+		return doc->AgentGetGraph();
+	}
+	if (name == "set_material_graph")
+	{
+		std::string aerr;
+		MaterialEditorDocument* doc = AgentOpenMaterial(A("path"), aerr);
+		if (!doc) throw std::runtime_error(aerr);
+		if (doc->editKind != MaterialEditKind::Custom)
+			throw std::runtime_error("material is Generic kind - node graphs only apply to Custom Shader materials");
+		std::string gerr;
+		if (!doc->AgentSetGraph(a.contains("nodes") ? a["nodes"] : nlohmann::json::array(),
+			a.contains("connections") ? a["connections"] : nlohmann::json::array(), gerr))
+			throw std::runtime_error(gerr);
+		if (!MaterialEditor::SaveToFile(*doc, doc->absolutePath, project.GetProjectPath(), UseDeferredGBuffer()))
+			throw std::runtime_error("failed to save material to " + doc->absolutePath);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["path"] = project.RelativePath(doc->absolutePath);
+		if (!doc->lastApplyError.empty())
+			r["applyWarning"] = doc->lastApplyError; // graph saved, but the compile that SaveToFile also runs failed
+		return r;
+	}
+	if (name == "apply_material")
+	{
+		std::string aerr;
+		MaterialEditorDocument* doc = AgentOpenMaterial(A("path"), aerr);
+		if (!doc) throw std::runtime_error(aerr);
+		std::string cerr;
+		if (!MaterialEditor::ApplyGraphOrTextToLiveMaterial(*doc, project.GetProjectPath(), UseDeferredGBuffer(), &cerr))
+			throw std::runtime_error(cerr);
+		nlohmann::json r;
+		r["ok"] = true;
 		return r;
 	}
 
@@ -559,6 +661,15 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	if (name == "assign_material")
+	{
+		const int submesh = (a.is_object() ? a.value("submesh", 0) : 0);
+		if (!AssignMaterialAsset(A("object"), submesh, A("path"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "save_scene")
 	{
 		if (!sceneView->AgentSave(err))
@@ -584,6 +695,17 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		nlohmann::json r;
 		r["ok"] = true;
 		r["path"] = sceneView->GetScenePath();
+		return r;
+	}
+	if (name == "set_renderer")
+	{
+		const std::string type = A("type");
+		if (type != "forward" && type != "deferred")
+			throw std::runtime_error("set_renderer requires type='forward' or 'deferred'");
+		SwitchAllScenesRenderer(type == "deferred");
+		nlohmann::json r;
+		r["ok"] = true;
+		r["rendererType"] = type;
 		return r;
 	}
 	if (name == "play")
@@ -741,7 +863,6 @@ void Editor::DrawUI()
                 if (ImGui::MenuItem("Properties", "", &showingTabProperties)) {}
                 if (ImGui::MenuItem("Tools", "", &showingTabTools)) {}
                 if (ImGui::MenuItem("Assets", "", &showingAssets)) {}
-                if (ImGui::MenuItem("Material Editor", "", &showingMaterialEditor)) {}
                 ImGui::EndMenu();
             }
             ImGui::Separator();
@@ -818,6 +939,7 @@ void Editor::DrawUI()
 		DrawSceneViewWindow();
 
 	DrawScriptEditorWindows();
+	DrawMaterialEditorWindows();
 
 	if (showingLog)
 		tabLog->Show();
@@ -830,9 +952,6 @@ void Editor::DrawUI()
 
 	if (showingAssets)
 		DrawAssetsWindow();
-
-	if (showingMaterialEditor && matEditor)
-		matEditor->Show();
 
     ImGui::EndFrame();
     ImGui::Render();
@@ -862,6 +981,7 @@ bool Editor::CreateNewProject(const std::string& parentDir, const std::string& n
 	ClearAssetPreviews();
 	selectedAssetRel.clear();
 	CloseAllLuaScriptDocuments();
+	CloseAllMaterialDocuments();
 	CloseAllSceneDocuments();
 	sceneView = CreateSceneDocument();
 	const std::string sceneAbs = project.AbsolutePath(project.GetActiveSceneRel());
@@ -888,6 +1008,7 @@ bool Editor::OpenProjectFromPath(const std::string& path)
 	ClearAssetPreviews();
 	selectedAssetRel.clear();
 	CloseAllLuaScriptDocuments();
+	CloseAllMaterialDocuments();
 	CloseAllSceneDocuments();
 	sceneView = CreateSceneDocument();
 	const std::string sceneAbs = project.AbsolutePath(project.GetActiveSceneRel());
@@ -917,6 +1038,7 @@ void Editor::CloseProjectImmediate()
 	ClearAssetPreviews();
 	selectedAssetRel.clear();
 	CloseAllLuaScriptDocuments();
+	CloseAllMaterialDocuments();
 	CloseAllSceneDocuments();
 	sceneView = CreateSceneDocument();
 	project.Close();
@@ -1446,6 +1568,8 @@ void Editor::DrawProjectDialogs()
 			}
 			else
 			{
+				// Apply live instead of only writing project.json.
+				SwitchAllScenesRenderer(project.GetSettings().rendererType == ProjectRendererType::Deferred);
 				UpdateWindowTitle();
 				ImGui::CloseCurrentPopup();
 			}
@@ -1455,6 +1579,12 @@ void Editor::DrawProjectDialogs()
 			ImGui::CloseCurrentPopup();
 		ImGui::EndPopup();
 	}
+}
+
+void Editor::SwitchAllScenesRenderer(bool useDeferred)
+{
+	for (size_t i = 0; i < sceneDocs.size(); ++i)
+		sceneDocs[i]->SwitchRenderer(useDeferred);
 }
 
 void Editor::UpdateWindowTitle()
@@ -1603,6 +1733,64 @@ void Editor::DrawScriptEditorWindows()
 		CloseLuaScriptDocument(closeIds[i]);
 }
 
+void Editor::DrawMaterialEditorWindows()
+{
+	// Same live dock-node retargeting DrawScriptEditorWindows() does -
+	// materials end up as tabs alongside scripts and Scene View.
+	if (ImGuiWindow* sv = ImGui::FindWindowByName("Scene View"))
+	{
+		if (sv->DockId != 0)
+			dockCenterId = sv->DockId;
+	}
+
+	const std::string projectRoot = project.GetProjectPath();
+	std::vector<uint32_t> closeIds;
+	for (size_t i = 0; i < materialDocs.size(); ++i)
+	{
+		MaterialEditorDocument* doc = materialDocs[i];
+		if (!doc) continue;
+
+		char title[512];
+		snprintf(title, sizeof(title), u8" %s###material_win_%u", doc->displayName.c_str(), doc->id);
+
+		const bool forceDock = (pendingSelectMaterialDocId == doc->id);
+		if (dockCenterId != 0)
+		{
+			ImGui::SetNextWindowDockID(dockCenterId,
+				forceDock ? ImGuiCond_Always : ImGuiCond_FirstUseEver);
+		}
+		if (forceDock)
+			ImGui::SetNextWindowFocus();
+
+		bool open = true;
+		ImGuiWindowFlags wflags = ImGuiWindowFlags_None;
+		if (doc->dirty)
+			wflags |= ImGuiWindowFlags_UnsavedDocument;
+
+		if (!ImGui::Begin(title, &open, wflags))
+		{
+			ImGui::End();
+			if (!open)
+				closeIds.push_back(doc->id);
+			continue;
+		}
+
+		if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+			activeMaterialDoc = doc;
+		if (pendingSelectMaterialDocId == doc->id)
+			pendingSelectMaterialDocId = 0;
+
+		MaterialEditor::DrawWindow(*doc, projectRoot, UseDeferredGBuffer());
+
+		ImGui::End();
+
+		if (!open)
+			closeIds.push_back(doc->id);
+	}
+	for (size_t i = 0; i < closeIds.size(); ++i)
+		CloseMaterialDocument(closeIds[i]);
+}
+
 void Editor::DrawSceneViewWindow()
 {
 	ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
@@ -1698,6 +1886,48 @@ void Editor::DrawAssetsWindow()
 		ImGui::EndPopup();
 	}
 
+	if (openNewMaterialModal)
+	{
+		ImGui::SetNextWindowFocus();
+		ImGui::OpenPopup("New Material");
+		openNewMaterialModal = false;
+	}
+	if (ImGui::BeginPopupModal("New Material", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		ImGui::TextUnformatted("Create a material under assets/materials/");
+		ImGui::SetNextItemWidth(280.f);
+		ImGui::InputText("Name", &newMaterialName);
+		static const char* kindLabels[] = { "Generic Shader", "Custom Shader" };
+		ImGui::SetNextItemWidth(280.f);
+		ImGui::Combo("Type", &newMaterialKindCombo, kindLabels, IM_ARRAYSIZE(kindLabels));
+		if (!newMaterialError.empty())
+			ImGui::TextColored(ImVec4(1.f, 0.45f, 0.4f, 1.f), "%s", newMaterialError.c_str());
+		ImGui::Spacing();
+		if (ImGui::Button("Create", ImVec2(120, 0)))
+		{
+			std::string abs;
+			std::string err;
+			MaterialAssetKind kind = (newMaterialKindCombo == 1) ? MaterialAssetKind::Custom : MaterialAssetKind::Generic;
+			if (project.CreateMaterial(newMaterialName, kind, abs, &err))
+			{
+				echo("SUCCESS: Created material " + abs);
+				selectedAssetRel = project.RelativePath(abs);
+				OpenMaterialDocument(abs);
+				project.Save();
+				ImGui::CloseCurrentPopup();
+			}
+			else
+			{
+				newMaterialError = err;
+				echo("ERROR: " + err);
+			}
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", ImVec2(120, 0)))
+			ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
+	}
+
 	const bool highlightDrop = assetsWindowHovered;
 	if (highlightDrop)
 		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.15f, 0.35f, 0.2f, 0.45f));
@@ -1772,6 +2002,7 @@ void Editor::DrawAssetsWindow()
 		const bool isModel = ProjectManager::IsP3dm(e.relativePath);
 		const bool isSound = ProjectManager::IsSoundExtension(e.relativePath);
 		const bool isTex = ProjectManager::IsTextureExtension(e.relativePath);
+		const bool isMat = ProjectManager::IsMaterialExtension(e.relativePath);
 		const bool selected = (selectedAssetRel == e.relativePath);
 
 		const char* typeIcon = isScene ? u8"\uf1c0"
@@ -1899,6 +2130,8 @@ void Editor::DrawAssetsWindow()
 				OpenSceneDocument(abs);
 			else if (isLua)
 				OpenLuaScriptDocument(abs);
+			else if (isMat)
+				OpenMaterialDocument(abs);
 			else if (isSound)
 			{
 				// Double-click sound also previews (same as play button).
@@ -1940,6 +2173,12 @@ void Editor::DrawAssetsWindow()
 				newScriptName = "NewScript";
 				newScriptError.clear();
 			}
+			if (ImGui::MenuItem(u8"\uf53f New Material"))
+			{
+				openNewMaterialModal = true;
+				newMaterialName = "NewMaterial";
+				newMaterialError.clear();
+			}
 			ImGui::Separator();
 			if (ImGui::MenuItem("Delete"))
 			{
@@ -1950,6 +2189,8 @@ void Editor::DrawAssetsWindow()
 				OpenSceneDocument(abs);
 			if (isLua && ImGui::MenuItem("Open Script"))
 				OpenLuaScriptDocument(abs);
+			if (isMat && ImGui::MenuItem("Open Material"))
+				OpenMaterialDocument(abs);
 			if ((isModel || isSound) && ImGui::MenuItem("Place in Scene") && sceneView)
 				sceneView->PlaceAssetInScene(abs);
 			ImGui::EndPopup();
@@ -2076,6 +2317,7 @@ void Editor::Shutdown()
 
 	CloseAllSceneDocuments();
 	CloseAllLuaScriptDocuments();
+	CloseAllMaterialDocuments();
 	sceneView = NULL;
 
 	delete sharedAudio;
@@ -2084,7 +2326,6 @@ void Editor::Shutdown()
 	luaReady = false;
 #endif
 
-	delete matEditor;
 	delete tabProperties;
 	delete tabTools;
 	delete tabLog;
@@ -2108,6 +2349,9 @@ SceneEditor* Editor::CreateSceneDocument()
 	if (luaReady)
 		doc->SetSharedLua(&lua);
 #endif
+	// Must be set before Init() - that's where the renderer actually gets
+	// constructed (Forward or Deferred, see SceneEditor::Init()'s comment).
+	doc->SetUseDeferredRenderer(UseDeferredGBuffer());
 	doc->Init(Width, Height);
 	doc->SetProjectManager(&project);
 	doc->SetHostCallbacks(&Editor::HostCloseProject, &Editor::HostQuitApp,
@@ -2117,7 +2361,9 @@ SceneEditor* Editor::CreateSceneDocument()
 		&Editor::HostRequestCloseSceneDocument,
 		&Editor::HostNewSceneDocument,
 		&Editor::HostOpenSceneDocument,
-		&Editor::HostOpenLuaScript);
+		&Editor::HostOpenLuaScript,
+		&Editor::HostEditMaterialInline,
+		&Editor::HostAssignMaterialAsset);
 	sceneDocs.push_back(doc);
 	SetActiveSceneDocument(doc);
 	return doc;
@@ -2179,6 +2425,112 @@ void Editor::CloseAllLuaScriptDocuments()
 		delete scriptDocs[i];
 	scriptDocs.clear();
 	activeScriptDoc = NULL;
+}
+
+MaterialEditorDocument* Editor::FindMaterialDocumentByPath(const std::string& absPath) const
+{
+	if (absPath.empty()) return NULL;
+	for (size_t i = 0; i < materialDocs.size(); ++i)
+	{
+		if (materialDocs[i] && materialDocs[i]->absolutePath == absPath)
+			return materialDocs[i];
+	}
+	return NULL;
+}
+
+bool Editor::OpenMaterialDocument(const std::string& absPath)
+{
+	if (absPath.empty() || !project.IsOpen()) return false;
+	if (MaterialEditorDocument* existing = FindMaterialDocumentByPath(absPath))
+	{
+		activeMaterialDoc = existing;
+		pendingSelectMaterialDocId = existing->id;
+		return true;
+	}
+
+	MaterialEditorDocument* doc = new MaterialEditorDocument();
+	doc->id = nextMaterialDocId++;
+	if (!MaterialEditor::LoadFromFile(*doc, absPath, project.GetProjectPath(), UseDeferredGBuffer()))
+	{
+		echo("ERROR: Could not open material " + absPath);
+		delete doc;
+		return false;
+	}
+	materialDocs.push_back(doc);
+	activeMaterialDoc = doc;
+	pendingSelectMaterialDocId = doc->id;
+	echo("SUCCESS: Opened material " + absPath);
+	return true;
+}
+
+MaterialEditorDocument* Editor::EditMaterialInline(std::shared_ptr<IMaterial> mat, const std::string& ownerLabel)
+{
+	if (!mat) return NULL;
+	// Keyed by the live IMaterial* pointer, not a path - there isn't one yet
+	// for a material that only exists attached to a scene object.
+	for (size_t i = 0; i < materialDocs.size(); ++i)
+	{
+		if (materialDocs[i] && materialDocs[i]->currentMaterial.get() == mat.get())
+		{
+			activeMaterialDoc = materialDocs[i];
+			pendingSelectMaterialDocId = materialDocs[i]->id;
+			return materialDocs[i];
+		}
+	}
+
+	MaterialEditorDocument* doc = new MaterialEditorDocument();
+	doc->id = nextMaterialDocId++;
+	doc->currentMaterial = mat;
+	doc->materialName = ownerLabel;
+	doc->displayName = ownerLabel;
+	doc->dirty = false;
+	if (dynamic_cast<GenericShaderMaterial*>(mat.get()))
+	{
+		doc->editKind = MaterialEditKind::Generic;
+		doc->editMode = MaterialEditMode::Inspector;
+	}
+	else
+	{
+		doc->editKind = MaterialEditKind::Custom;
+		doc->editMode = MaterialEditMode::Text;
+		if (auto* cm = dynamic_cast<CustomShaderMaterial*>(mat.get()))
+		{
+			doc->generatedGlslPath = cm->GetShaderFile();
+			doc->codeDoc = new CodeEditorDocument();
+			doc->codeDoc->editor.SetLanguageDefinition(TextEditor::LanguageDefinition::GLSL());
+			doc->codeDoc->editor.SetPalette(TextEditor::GetDarkPalette());
+			doc->codeDoc->editor.SetShowWhitespaces(false);
+			doc->codeDoc->editor.SetTabSize(4);
+			if (cm->GetShaderObject())
+				doc->codeDoc->editor.SetText(cm->GetShaderObject()->GetShaderText());
+		}
+	}
+	materialDocs.push_back(doc);
+	activeMaterialDoc = doc;
+	pendingSelectMaterialDocId = doc->id;
+	return doc;
+}
+
+void Editor::CloseMaterialDocument(uint32_t id)
+{
+	for (size_t i = 0; i < materialDocs.size(); ++i)
+	{
+		if (!materialDocs[i] || materialDocs[i]->id != id) continue;
+		MaterialEditorDocument* doc = materialDocs[i];
+		if (activeMaterialDoc == doc)
+			activeMaterialDoc = NULL;
+		delete doc;
+		materialDocs.erase(materialDocs.begin() + (std::ptrdiff_t)i);
+		break;
+	}
+}
+
+void Editor::CloseAllMaterialDocuments()
+{
+	for (size_t i = 0; i < materialDocs.size(); ++i)
+		delete materialDocs[i];
+	materialDocs.clear();
+	activeMaterialDoc = NULL;
 }
 
 void Editor::DestroySceneDocument(SceneEditor* doc)
@@ -2377,6 +2729,12 @@ void Editor::HostOpenLuaScript(const std::string& absPath)
 {
 	Editor* ed = Editor::getInstance();
 	if (ed) ed->OpenLuaScriptDocument(absPath);
+}
+
+void Editor::HostEditMaterialInline(std::shared_ptr<IMaterial> mat, const std::string& ownerLabel)
+{
+	Editor* ed = Editor::getInstance();
+	if (ed) ed->EditMaterialInline(mat, ownerLabel);
 }
 
 Editor::~Editor() 

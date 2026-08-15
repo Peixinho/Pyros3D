@@ -31,6 +31,10 @@ enum class LuaScriptKind {
 	Scene       // scenes/<Name>.lua — one per scene, not listed in Assets
 };
 
+// Mirrors MaterialEditKind (editor/MaterialGraphTypes.h) without depending
+// on it - ProjectManager is a lower layer than the Material Editor UI.
+enum class MaterialAssetKind { Generic, Custom };
+
 class ProjectManager {
 public:
 	ProjectManager();
@@ -103,6 +107,12 @@ public:
 	// GameObject → assets/lua/<name>.lua. Scene → scenes/<name>.lua.
 	bool CreateLuaScript(const std::string& name, std::string& outAbsolute,
 		std::string* errorOut = NULL, LuaScriptKind kind = LuaScriptKind::GameObject);
+
+	// name → assets/materials/<name>.mat, seeded with a minimal starter
+	// document (Custom kind gets a small starter node graph so the Node
+	// Graph tab isn't empty on first open).
+	bool CreateMaterial(const std::string& name, MaterialAssetKind kind, std::string& outAbsolute,
+		std::string* errorOut = NULL);
 
 	// Absolute path of the companion script for a scene .json (…/Foo.json → …/Foo.lua).
 	static std::string SceneScriptPathForSceneJson(const std::string& sceneJsonAbsolute);

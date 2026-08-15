@@ -19,7 +19,20 @@ AxisHelper::AxisHelper()
 
 	// Initialize Renderer
 	Renderer = new ForwardRenderer(100, 100);
-	Renderer->SetGlobalLight(Vec4(0.5, 0.5, 0.5, 0.5));
+	// No SetGlobalLight() call here (was hardcoded to 0.5,0.5,0.5,0.5) -
+	// IRenderer's ambient UBO (AmbientLightUniformsUBO/CachedGlobalLight)
+	// is a process-wide static, shared by every IRenderer instance, and
+	// this renderer's Render() runs every frame right after the main
+	// SceneEditor viewport's - so a fixed value here silently won that
+	// per-frame race and overwrote whatever ambient the real scene had
+	// just configured, every single frame, regardless of what the value
+	// was (0.5 originally; still true even at IRenderer's own 0.2 default
+	// once the explicit call was removed, since this Renderer keeps
+	// rendering every frame either way) - found chasing a "scene ambient
+	// light setting has no visible effect" report. See SetAmbientLight():
+	// the actual fix is SceneEditor calling it every frame to keep this
+	// renderer's value equal to the real scene's, so there's no
+	// conflicting value left to race over regardless of draw order.
 	axisHelper = std::make_shared<GameObject>();
 	axisHelperHandle = std::make_shared<Model>("assets/axis.p3dm", false);
 	axisRcomp = std::make_shared<RenderingComponent>(axisHelperHandle, ShaderUsage::Diffuse);

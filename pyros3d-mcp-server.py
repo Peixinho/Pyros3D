@@ -812,7 +812,14 @@ def set_project_settings(project_path: str, default_main_script: str | None = No
         else:
             settings.pop("rendererType", None)
     _write_project(proj, data)
-    return f"Updated project settings: {json.dumps(settings)}"
+
+    live_note = ""
+    if renderer_type is not None and _live_project_matches(proj):
+        ok, res = _editor_call("set_renderer", {"type": renderer_type})
+        live_note = "\nApplied live in the running editor" if ok else \
+            f"\nNOTE: could not apply live in the running editor: {res}"
+
+    return f"Updated project settings: {json.dumps(settings)}{live_note}"
 
 
 @mcp.tool()
@@ -1973,6 +1980,175 @@ def set_material(project_path: str, scene_name: str, material_id: int,
 
     _save_scene(scene_file, data)
     return f"Updated material #{material_id}: {', '.join(updates) if updates else 'no fields given'}"
+
+
+# --------------------------------------------------------------------------
+# TOOLS — Material Editor (node graph / custom-shader materials)
+#
+# Unlike set_material above (which patches an already-baked GenericShader
+# material's scalar fields directly in scene.json), these drive the actual
+# Material Editor: project-level assets/materials/<name>.mat files, authored
+# via a node graph and compiled to real GLSL. There is no file-based
+# fallback for the mutating ones - the node graph -> GLSL compile step only
+# exists inside the running engine (MaterialCodegen.cpp + real shader
+# compilation), so a live PyrosBuilder editor is required. Read-only
+# get_material_graph also requires it for simplicity/consistency, even
+# though it could in principle read the .mat JSON directly.
+# --------------------------------------------------------------------------
+
+def _require_live_project(proj: Path) -> str:
+    """Best-effort: ensure a running editor has `proj` open live.
+
+    Returns "" if a live editor already/now has the project open, otherwise
+    a human-readable error string explaining why not.
+    """
+    if not _editor_endpoint():
+        return "No running editor detected. The Material Editor's node-graph " \
+               "compiler only runs inside the live engine - start PyrosBuilder first."
+    if _live_project_matches(proj):
+        return ""
+    ok, res = _editor_call("open_project", {"path": str(proj)})
+    if not ok:
+        return f"Could not open project '{proj}' in the running editor: {res}"
+    return ""
+
+
+@mcp.tool()
+def create_material(project_path: str, name: str, kind: str = "generic") -> str:
+    """Create a new material asset under assets/materials/<name>.mat and open
+    it live in the running editor (editor: Assets panel > New Material).
+
+    kind: 'generic' (fixed PBR property sliders, no shader code) or
+          'custom' (node graph / hand-written GLSL - seeded with a small
+          starter graph: Base Color -> Albedo, two Float nodes -> Metallic/
+          Roughness). Use set_material_graph to build out a 'custom' graph,
+          then apply_material to compile it and assign_material to put it
+          on an object.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    live_err = _require_live_project(proj)
+    if live_err:
+        return _fail(live_err)
+    ok, res = _editor_call("create_material", {"name": name, "kind": kind})
+    if not ok:
+        return _fail(str(res))
+    return f"Created material: {res.get('path')} (kind={res.get('kind')})"
+
+
+@mcp.tool()
+def get_material_graph(project_path: str, material_path: str) -> str:
+    """Read a Custom Shader material's current node graph (nodes + connections)
+    plus its kind/editMode/compiled-shader-path, as JSON.
+
+    material_path: 'assets/materials/Foo.mat' (relative) or absolute.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    live_err = _require_live_project(proj)
+    if live_err:
+        return _fail(live_err)
+    ok, res = _editor_call("get_material_graph", {"path": material_path})
+    if not ok:
+        return _fail(str(res))
+    return json.dumps(res, indent=2)
+
+
+@mcp.tool()
+def set_material_graph(project_path: str, material_path: str, nodes: list[dict], connections: list[dict] | None = None) -> str:
+    """Replace a Custom Shader material's node graph and save it to disk
+    (editor: Material Editor's Node Graph tab).
+
+    Only applies to 'custom' kind materials (see create_material). Does NOT
+    compile/apply the shader by itself - call apply_material afterward to
+    make the change render live.
+
+    nodes: list of {"id": int, "type": str, "name": str, "pos": [x, y],
+      "userData": str, "texturePath": str}. `id`s must be unique positive
+      ints; a graph needs exactly one node with type "Output". `type` is one
+      of: Color, Float, Texture, Int, Bool, Vec2, Vec3, Vec4, Add, Subtract,
+      Multiply, Divide, Power, Modulo, Negate, Abs, Sqrt, Sin, Cos, Tan, Min,
+      Max, Clamp, Lerp, DotProduct, CrossProduct, Length, Normalize,
+      Distance, Equal, NotEqual, GreaterThan, LessThan, And, Or, Not, Step,
+      SmoothStep, SplitVec2, SplitVec3, SplitVec4, CombineVec2, CombineVec3,
+      CombineVec4, Output, ObjectPosition, CameraPosition, UVCoordinate,
+      NormalVector, TimeValue.
+      userData holds constant values as comma-separated floats (e.g. a Color
+      node's "1,0,0,1"; a Float node's "0.5"); leave "" for non-constant
+      nodes. texturePath is only used by Texture nodes (path under
+      assets/textures/, e.g. "brick.png").
+    connections: list of {"fromNode": int, "fromPinIndex": int, "toNode": int,
+      "toPinIndex": int}. Output's input pins are, in order: Albedo(0),
+      Normal(1), Metallic(2), Roughness(3), Emissive(4), Occlusion(5).
+      Color's output pins are R(0) G(1) B(2) A(3) RGBA(4).
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    live_err = _require_live_project(proj)
+    if live_err:
+        return _fail(live_err)
+    ok, res = _editor_call("set_material_graph", {
+        "path": material_path, "nodes": nodes, "connections": connections or [],
+    })
+    if not ok:
+        return _fail(str(res))
+    note = f"\nWARNING: saved, but the shader failed to compile: {res.get('applyWarning')}" \
+        if res.get("applyWarning") else ""
+    return f"Saved graph to {res.get('path')}{note}"
+
+
+@mcp.tool()
+def apply_material(project_path: str, material_path: str) -> str:
+    """Compile a Custom Shader material's current graph/text into real GLSL
+    and hot-swap it onto the live material (editor: Material Editor's
+    Apply / Save Shader button).
+
+    On a compile error, the material's previous working shader is left
+    untouched and the error is returned - fix the graph (set_material_graph)
+    or hand-edited text and call apply_material again.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    live_err = _require_live_project(proj)
+    if live_err:
+        return _fail(live_err)
+    ok, res = _editor_call("apply_material", {"path": material_path})
+    if not ok:
+        return _fail(str(res))
+    return f"Applied and compiled: {material_path}"
+
+
+@mcp.tool()
+def assign_material(project_path: str, scene_name: str, object_name: str, material_path: str, submesh: int = 0) -> str:
+    """Assign a material asset onto a scene object's submesh, replacing
+    whatever it had (editor: Properties panel > Edit Material, then picking
+    a different material - this is the "attach" step; use create_material /
+    set_material_graph / apply_material first to build the material itself).
+
+    Requires the target scene to be open live in the running editor.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    s_err = _scene_error(scene_file)
+    if s_err:
+        return _fail(s_err)
+    live_err = _require_live_project(proj)
+    if live_err:
+        return _fail(live_err)
+    if not _live_scene_matches(scene_file):
+        ok, res = _editor_call("load_scene", {"path": str(scene_file)})
+        if not ok:
+            return _fail(f"Could not load scene '{scene_name}' live: {res}")
+    ok, res = _editor_call("assign_material", {"object": object_name, "path": material_path, "submesh": submesh})
+    if not ok:
+        return _fail(str(res))
+    return f"Assigned {material_path} to '{object_name}' submesh {submesh}"
 
 
 # --------------------------------------------------------------------------

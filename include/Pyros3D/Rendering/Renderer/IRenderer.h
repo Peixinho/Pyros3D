@@ -143,6 +143,17 @@ namespace p3d {
 		// look unlit/brighter while a selection overlay was flushing.
 		static void MarkSharedGlobalMatricesDirty();
 
+		// Public passthrough to the protected RenderObject() below, for a
+		// caller that wants a single extra object drawn into whatever's
+		// currently bound without going through RenderScene()/the
+		// SceneGraph at all - e.g. the editor's viewport grid, which is
+		// deliberately not scene content (so it isn't serialized, picked,
+		// or shadow-cast) but still wants to depth-test against the real
+		// scene the way DebugRenderer's depth-disabled immediate-mode
+		// lines don't. Not virtual: RenderObject() itself isn't, and every
+		// subclass shares this one implementation.
+		void RenderOverlayObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material) { RenderObject(rmesh, owner, Material); }
+
 	protected:
 
 		// Group by:

@@ -296,6 +296,11 @@ vec3 getPosViewSpace(float depth_sampled, vec2 uv, vec4 z_info_local, out vec3 v
 
 void main() {
 	vec2 Texcoord = vec2(gl_FragCoord.x/uScreenDimensions.x, gl_FragCoord.y/uScreenDimensions.y);
+	// See secondpassAmbient.glsl's identical comment - depth clears to
+	// 1.0 (far) at background/sky pixels, which this shader would
+	// otherwise light using whatever garbage sits in the cleared G-buffer
+	// there.
+	if (texture(tDepth, Texcoord).r >= 1.0) discard;
 	vec4 z_info = vec4(uNearFar.x, uNearFar.y, uNearFar.x*uNearFar.y, uNearFar.x - uNearFar.y);
 	vec2 Out = vec2(uScreenDimensions.x, uScreenDimensions.y);
 	vec4 vp = vec4(1.0, 1.0, 2.0/Out.x, 2.0/Out.y);

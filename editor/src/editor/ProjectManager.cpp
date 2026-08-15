@@ -883,6 +883,85 @@ bool ProjectManager::CreateLuaScript(const std::string& name, std::string& outAb
 	return true;
 }
 
+bool ProjectManager::CreateMaterial(const std::string& name, MaterialAssetKind kind, std::string& outAbsolute,
+	std::string* errorOut)
+{
+	outAbsolute.clear();
+	if (!IsOpen())
+	{
+		if (errorOut) *errorOut = "No project open";
+		return false;
+	}
+
+	std::string stem = name;
+	while (!stem.empty() && (stem.front() == ' ' || stem.front() == '\t')) stem.erase(stem.begin());
+	while (!stem.empty() && (stem.back() == ' ' || stem.back() == '\t')) stem.pop_back();
+	if (stem.empty())
+	{
+		if (errorOut) *errorOut = "Material name is empty";
+		return false;
+	}
+	if (stem.find('/') != std::string::npos || stem.find('\\') != std::string::npos)
+	{
+		if (errorOut) *errorOut = "Name cannot contain path separators";
+		return false;
+	}
+	if (stem.size() < 4 || stem.compare(stem.size() - 4, 4, ".mat") != 0)
+		stem += ".mat";
+
+	const std::string rel = "assets/materials/" + stem;
+	const std::string abs = AbsolutePath(rel);
+
+	std::error_code ec;
+	fs::create_directories(fs::path(abs).parent_path(), ec);
+	if (fs::exists(abs, ec))
+	{
+		if (errorOut) *errorOut = "Material already exists: " + rel;
+		return false;
+	}
+
+	const std::string materialName = fs::path(stem).stem().string();
+	json j;
+	j["name"] = materialName;
+	if (kind == MaterialAssetKind::Generic)
+	{
+		j["kind"] = "generic";
+	}
+	else
+	{
+		// Small starter graph: Base Color -> Albedo, Metallic -> Metallic,
+		// Roughness -> Roughness, matching MaterialEditor's own
+		// SeedDefaultCustomGraph() (kept as a plain JSON literal here since
+		// ProjectManager shouldn't depend on the node-graph editor's types).
+		j["kind"] = "custom";
+		j["editMode"] = "nodegraph";
+		j["nodes"] = json::array({
+			{ {"id", 1}, {"type", "Color"}, {"name", "Base Color"}, {"pos", {80.0, 140.0}}, {"userData", "1.000000,1.000000,1.000000,1.000000"}, {"texturePath", ""} },
+			{ {"id", 2}, {"type", "Float"}, {"name", "Metallic"}, {"pos", {80.0, 320.0}}, {"userData", "0.000000"}, {"texturePath", ""} },
+			{ {"id", 3}, {"type", "Float"}, {"name", "Roughness"}, {"pos", {80.0, 460.0}}, {"userData", "0.500000"}, {"texturePath", ""} },
+			{ {"id", 4}, {"type", "Output"}, {"name", "Output"}, {"pos", {560.0, 280.0}}, {"userData", ""}, {"texturePath", ""} }
+		});
+		j["connections"] = json::array({
+			{ {"fromNode", 1}, {"fromPinIndex", 4}, {"toNode", 4}, {"toPinIndex", 0} },
+			{ {"fromNode", 2}, {"fromPinIndex", 0}, {"toNode", 4}, {"toPinIndex", 2} },
+			{ {"fromNode", 3}, {"fromPinIndex", 0}, {"toNode", 4}, {"toPinIndex", 3} }
+		});
+	}
+
+	std::ofstream out(abs);
+	if (!out)
+	{
+		if (errorOut) *errorOut = "Could not create " + rel;
+		return false;
+	}
+	out << j.dump(2);
+	out.close();
+
+	outAbsolute = abs;
+	projectDirty = true;
+	return true;
+}
+
 std::string ProjectManager::SceneScriptPathForSceneJson(const std::string& sceneJsonAbsolute)
 {
 	if (sceneJsonAbsolute.empty()) return std::string();

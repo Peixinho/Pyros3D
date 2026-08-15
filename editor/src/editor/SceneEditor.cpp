@@ -192,10 +192,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		hostNewSceneDocument = NULL;
 		hostOpenSceneDocument = NULL;
 		hostOpenLuaScript = NULL;
+		hostEditMaterialInline = NULL;
+		hostAssignMaterialAsset = NULL;
 		previewRenderer = NULL;
 		previewEffects = NULL;
 		thumbRenderer = NULL;
 		thumbEffects = NULL;
+		Renderer = NULL;
+		usingDeferredRenderer = false;
+		pendingUseDeferredRenderer = false;
+		gbufferDepth = gbufferAlbedo = gbufferSpecular = gbufferNormal = gbufferMatRough = NULL;
+		gbufferFBO = NULL;
 		assetSoundPreview = NULL;
 		sharedAudioManager = NULL;
 		lastListenerTime = -1.0;
@@ -255,8 +262,132 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		Height = height;
 
 		// Resize
+		if (usingDeferredRenderer && gbufferFBO)
+		{
+			gbufferDepth->Resize(width, height);
+			gbufferAlbedo->Resize(width, height);
+			gbufferSpecular->Resize(width, height);
+			gbufferNormal->Resize(width, height);
+			gbufferMatRough->Resize(width, height);
+			gbufferFBO->Resize(width, height);
+		}
 		Renderer->Resize(width, height);
 		Renderer->SetViewPort(0, 0, width, height);
+	}
+
+	// G-buffer for DeferredRenderer, matching the shared demo render stack's
+	// own setup (examples/assets/demos/scripts/render_host.lua) exactly:
+	// depth + 4 color attachments (albedo/specular/normal/metallic-roughness).
+	void SceneEditor::BuildGBuffer(uint32 width, uint32 height)
+	{
+		gbufferDepth = new Texture();
+		gbufferDepth->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, width, height, false);
+		gbufferDepth->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+		gbufferAlbedo = new Texture();
+		gbufferAlbedo->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, width, height, false);
+		gbufferAlbedo->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+		gbufferSpecular = new Texture();
+		gbufferSpecular->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, width, height, false);
+		gbufferSpecular->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+		gbufferNormal = new Texture();
+		gbufferNormal->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F, width, height, false);
+		gbufferNormal->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+		gbufferMatRough = new Texture();
+		gbufferMatRough->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, width, height, false);
+		gbufferMatRough->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+		gbufferFBO = new FrameBuffer();
+		gbufferFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, gbufferDepth);
+		gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, gbufferAlbedo);
+		gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment1, TextureType::Texture, gbufferSpecular);
+		gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment2, TextureType::Texture, gbufferNormal);
+		gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment3, TextureType::Texture, gbufferMatRough);
+	}
+
+	void SceneEditor::DestroyGBuffer()
+	{
+		delete gbufferFBO; gbufferFBO = NULL;
+		delete gbufferDepth; gbufferDepth = NULL;
+		delete gbufferAlbedo; gbufferAlbedo = NULL;
+		delete gbufferSpecular; gbufferSpecular = NULL;
+		delete gbufferNormal; gbufferNormal = NULL;
+		delete gbufferMatRough; gbufferMatRough = NULL;
+	}
+
+	void SceneEditor::SwitchRenderer(bool useDeferred)
+	{
+		// Deferred to the start of ShowViewport() (see
+		// ApplyPendingRendererSwitchIfAny()), not executed here - this is
+		// called from a UI callback (Project Settings' Apply button, or
+		// the "set_renderer" AgentServer command), which can fire mid-frame
+		// while THIS frame's own render commands are still being recorded
+		// with an open, unended render pass (worse the heavier the active
+		// material's shader - a lit Diffuse/PBR object's G-buffer+shadow+
+		// lighting passes stay "in flight" longer into the frame than a
+		// trivial unlit Color one does). WaitIdle()'ing straight into that
+        // is a real Vulkan deadlock, not just a stall - reproduced as a
+		// hang that only happened with a lit object in the scene. Applying
+		// at the next ShowViewport() start guarantees no command buffer
+		// from a previous frame is still open.
+		if (useDeferred == usingDeferredRenderer)
+			return;
+		queuedRendererSwitch = true;
+		queuedUseDeferredRenderer = useDeferred;
+	}
+
+	void SceneEditor::ApplyPendingRendererSwitchIfAny()
+	{
+		if (!queuedRendererSwitch)
+			return;
+		queuedRendererSwitch = false;
+		const bool useDeferred = queuedUseDeferredRenderer;
+		if (useDeferred == usingDeferredRenderer)
+			return;
+
+		// A frame can still be in flight referencing the old Renderer's
+		// pipelines/descriptors/FBOs the moment this runs (this is a live,
+		// mid-session toggle, not app startup/shutdown) - WaitIdle first,
+		// same reasoning as DeferredRenderer::Resize()'s leading WaitIdle.
+		GetActiveRenderDevice().WaitIdle();
+
+		delete EffectsManager;
+		EffectsManager = NULL;
+		delete Renderer;
+		Renderer = NULL;
+		if (usingDeferredRenderer)
+			DestroyGBuffer();
+
+		usingDeferredRenderer = useDeferred;
+		if (usingDeferredRenderer)
+		{
+			BuildGBuffer(Width, Height);
+			Renderer = new DeferredRenderer(Width, Height, gbufferFBO);
+		}
+		else
+		{
+			Renderer = new ForwardRenderer(Width, Height);
+		}
+		Renderer->SetViewPort(0, 0, Width, Height);
+		Renderer->SetBackground(Vec4(0.2f, 0.2f, 0.2f, 1.0f));
+		// A freshly constructed Renderer resets to IRenderer's own
+		// hardcoded ambient default - reapply the scene's actual value so
+		// switching Forward<->Deferred doesn't silently change the look.
+		Renderer->SetGlobalLight(ambientLightColor);
+
+		// Freshly constructed, not yet Bound - SetFramebufferPreserveDepth()
+		// only takes effect before ExternalFBO's render pass is first
+		// built (see Init()'s identical call), which is exactly why this
+		// recreates EffectsManager wholesale instead of reusing the old
+		// one: a live-recreated PostEffectsManager is the only way to set
+		// this again once the previous instance's render pass was already
+		// built and cached.
+		EffectsManager = new PostEffectsManager(Width, Height);
+		if (usingDeferredRenderer)
+			GetActiveRenderDevice().SetFramebufferPreserveDepth(EffectsManager->GetExternalFrameBuffer()->GetBindID(), true);
 	}
 
 	void SceneEditor::Init(const uint32 width, const uint32 height)
@@ -267,8 +398,21 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// Initialize Scene
 		scene = new SceneGraph();
 
-		// Initialize Renderer
-		Renderer = new ForwardRenderer(Width, Height);
+		// Initialize Renderer - Forward or Deferred, chosen by
+		// SetUseDeferredRenderer() (called before Init() by whoever creates
+		// this document) from the project's Renderer setting. Used for both
+		// the edit viewport and Play Mode so materials render consistently
+		// in both - see the Renderer/usingDeferredRenderer comment in the header.
+		usingDeferredRenderer = pendingUseDeferredRenderer;
+		if (usingDeferredRenderer)
+		{
+			BuildGBuffer(Width, Height);
+			Renderer = new DeferredRenderer(Width, Height, gbufferFBO);
+		}
+		else
+		{
+			Renderer = new ForwardRenderer(Width, Height);
+		}
 		Renderer->SetViewPort(0, 0, Width, Height);
 		Renderer->SetBackground(Vec4(0.2, 0.2, 0.2, 1.0));
 
@@ -301,6 +445,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		scene->Add(Camera);
 
 		// Create Grid
+		// grid/gridhandle/rGrid/GridMaterial stay constructed (several other
+		// systems - IsInternalGameObject, SetEditorChromeVisible,
+		// RenderCameraPreview, viewport picking exclusion - reference them)
+		// but `grid` is deliberately never scene->Add()'d any more: the grid
+		// is an editor-only helper with nothing to do with the actual scene,
+		// so it's now drawn immediate-mode via DebugRenderer instead (see
+		// ShowViewport()) - same as gizmos/axis-helper/physics-debug - and
+		// never touches Renderer->RenderScene() (Forward or Deferred) at all.
 		grid = std::make_shared<GameObject>();
 		gridhandle = std::make_shared<Grid>(30.f, 30,
 			Vec4(0.35f, 0.35f, 0.35f, 1.f), Vec4(0.55f, 0.25f, 0.25f, 1.f));
@@ -311,9 +463,6 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		grid->Add(rGrid);
 		RenderingMesh* rGridMesh = rGrid->GetMeshes()[0];
 		rGridMesh->drawingType = DrawingType::Lines;
-
-		// Add GameObject to Scene
-		scene->Add(grid);
 
 		_leftMouse = _middleMouse = _rightMouse = _mousePanned = false;
 
@@ -337,6 +486,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		UseTranslationManipulator();
 
 		EffectsManager = new PostEffectsManager(Width, Height);
+		// Deferred's gizmo/grid overlay (see ShowViewport()) explicitly
+		// copies DeferredRenderer's real scene depth into this FBO's Depth
+		// attachment right before rebinding it each frame, so that bind
+		// must not clear depth back to 1.0 the way a normal capture would -
+		// must be set before ExternalFBO's render pass is first built (i.e.
+		// before any Bind()), same as DeferredRenderer.cpp does for its own
+		// lastPassFBO. Forward mode never touches this (its capture wraps
+		// the real RenderScene() call, which needs depth cleared fresh each
+		// frame like any normal draw), so left at the default there.
+		if (usingDeferredRenderer)
+			GetActiveRenderDevice().SetFramebufferPreserveDepth(EffectsManager->GetExternalFrameBuffer()->GetBindID(), true);
 		previewRenderer = new ForwardRenderer(previewWidth, previewHeight);
 		previewRenderer->SetSkipShadowMaps(true);
 		previewEffects = new PostEffectsManager(previewWidth, previewHeight);
@@ -407,13 +567,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::SetHostDocumentCallbacks(void (*onActivate)(SceneEditor*), void (*onRequestClose)(SceneEditor*),
 		void (*onNewSceneDocument)(), void (*onOpenSceneDocument)(const std::string&),
-		void (*onOpenLuaScript)(const std::string&))
+		void (*onOpenLuaScript)(const std::string&),
+		void (*onEditMaterialInline)(std::shared_ptr<p3d::IMaterial>, const std::string&),
+		std::string (*onAssignMaterialAsset)(const std::string&, int, const std::string&))
 	{
 		hostActivateDocument = onActivate;
 		hostRequestCloseDocument = onRequestClose;
 		hostNewSceneDocument = onNewSceneDocument;
 		hostOpenSceneDocument = onOpenSceneDocument;
 		hostOpenLuaScript = onOpenLuaScript;
+		hostEditMaterialInline = onEditMaterialInline;
+		hostAssignMaterialAsset = onAssignMaterialAsset;
 	}
 
 	std::string SceneEditor::GetSceneDisplayName() const
@@ -433,6 +597,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::ShowViewport()
 	{
+		// Must run before anything below touches Renderer/EffectsManager -
+		// see its own comment on why a queued SwitchRenderer() is applied
+		// here instead of inline from whatever UI callback requested it.
+		ApplyPendingRendererSwitchIfAny();
+
 		const bool scene_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
 		// Escape always exits play (even with mouse capture / other panels focused).
 		if (playMode && ImGui::IsKeyPressed(ImGuiKey_Escape))
@@ -558,6 +727,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		IRenderer::InvalidateSharedUniformCaches();
 		EffectsManager->ProcessPostEffects((isPerspective?&projection:&projectionOrtho));
 		EffectsManager->Resize(viewW, viewH);
+		// DeferredRenderer::Resize() only resizes its own internal FBOs, not
+		// this SceneEditor-owned gbufferFBO handed in at construction - has
+		// to be resized independently, same as render_host.lua's setup.
+		if (usingDeferredRenderer && gbufferFBO && (viewW != gbufferAlbedo->GetWidth() || viewH != gbufferAlbedo->GetHeight()))
+		{
+			gbufferDepth->Resize(viewW, viewH);
+			gbufferAlbedo->Resize(viewW, viewH);
+			gbufferSpecular->Resize(viewW, viewH);
+			gbufferNormal->Resize(viewW, viewH);
+			gbufferMatRough->Resize(viewW, viewH);
+			gbufferFBO->Resize(viewW, viewH);
+		}
 		Renderer->Resize(viewW, viewH);
 		Renderer->ResetViewPort();
 		Renderer->SetViewPort(0, 0, viewW, viewH);
@@ -569,6 +750,32 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		else
 			Renderer->RenderScene(projectionOrtho, viewCam, scene);
 
+		// Debug/gizmo/grid/axis-helper below draw into whatever framebuffer
+		// is currently bound - for Deferred, DeferredRenderer::RenderScene()
+		// leaves that as framebuffer 0 (see GetColorTexture()'s comment),
+		// which gets fully overdrawn by the rest of ImGui before the frame
+		// presents, so none of this ever showed up. Re-bind EffectsManager's
+		// capture target fresh here and treat it as a transparent overlay
+		// canvas, composited as a second layer over colorTexture below (see
+		// the ImGui::Image() pair further down). Safe to rebind color
+		// (unlike lastPassFBO - see DeferredRenderer.cpp's LOAD_OP_CLEAR
+		// comment): ExternalFBO was never actually drawn into this frame for
+		// Deferred (RenderScene() bypassed it entirely), so there is nothing
+		// in it to lose. Depth is a different story - copy DeferredRenderer's
+		// real scene depth in first (SetFramebufferPreserveDepth() in Init()
+		// tells this FBO's Vulkan render pass to LOAD rather than CLEAR its
+		// depth attachment, so this copy survives the Bind() right below it),
+		// so the grid/physics-debug draws that follow depth-test against the
+		// actual opaque scene instead of drawing blind.
+		if (usingDeferredRenderer)
+		{
+			DeferredRenderer* dr = static_cast<DeferredRenderer*>(Renderer);
+			GetActiveRenderDevice().CopyDepthTexture(dr->GetDepthTexture()->GetBindID(),
+				EffectsManager->GetDepth()->GetBindID(), viewW, viewH);
+			GetActiveRenderDevice().SetClearColor(Vec4(0.f, 0.f, 0.f, 0.f));
+			EffectsManager->CaptureFrame();
+		}
+
 		// Gizmo must submit into DebugRenderer before the flush below.
 		if (!playMode)
 		{
@@ -578,6 +785,26 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 			if (showPhysicsDebug && physics)
 				physics->RenderDebugDraw((isPerspective ? projection : projectionOrtho), viewCam);
+
+			// The grid is an editor-only helper, not scene content - it's
+			// deliberately NOT a SceneGraph object, so it never goes through
+			// Renderer->RenderScene() (nor gets serialized/picked/etc. as if
+			// it were real scene content). Drawn as a real RenderObject()
+			// call instead of an immediate-mode DebugRenderer line batch
+			// specifically so it depth-tests against the opaque scene
+			// (DebugMaterial disables depth test/write for everything drawn
+			// through DebugRenderer, by design, so gizmo/physics-debug below
+			// stay always-on-top - the grid is the one thing here that
+			// should actually be occluded by/occlude real geometry). Targets
+			// whatever's currently bound, which by this point already has
+			// the right depth for either renderer - EffectsManager's own
+			// capture-wrapped RenderScene() for Forward, or the copy from
+			// DeferredRenderer's forwardDepthTexture above for Deferred.
+			// IsActive() respected so RenderCameraPreview()'s temporary
+			// rGrid->Disable() (hiding it from camera-preview renders)
+			// applies here too.
+			if (rGrid && rGrid->IsActive())
+				Renderer->RenderOverlayObject(rGrid->GetMeshes()[0], grid.get(), GridMaterial.get());
 
 			std::vector<SceneCameraDebugEntry> sceneCameraDebugScratch;
 			BuildSceneCameraDebugList(sceneCameraDebugScratch);
@@ -590,6 +817,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				debugRenderer->Render(viewCam->GetWorldTransformation().Inverse(),
 					(isPerspective ? projection : projectionOrtho).GetProjectionMatrix());
 
+			// See AxisHelper::SetAmbientLight()'s comment - its internal
+			// Renderer shares IRenderer's process-wide ambient UBO with
+			// this SceneEditor's own Renderer, and renders every frame
+			// right after it does, so keeping the two values equal is
+			// what actually prevents them fighting over that shared slot
+			// (not just leaving AxisHelper's alone).
+			axisHelper->SetAmbientLight(ambientLightColor);
 #if defined(_SDL2VULKAN) || defined(_SDL2METAL)
 			axisHelper->Render((uint32)(dim.x - 90), 10, 80, 80, isPerspective);
 #else
@@ -599,9 +833,21 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		EffectsManager->EndCapture();
 		void* viewportTex = NULL;
-		Texture* color = EffectsManager->GetViewportColor();
+		// DeferredRenderer::RenderScene()'s final composite always targets
+		// framebuffer 0, not whatever EffectsManager captured (see
+		// DeferredRenderer::GetColorTexture()'s comment) - so its actual
+		// output has to be read directly instead of through EffectsManager's
+		// capture, unlike Forward. For Deferred, EffectsManager's capture
+		// target instead holds this frame's gizmo/grid/debug/axis overlay
+		// (see the CaptureFrame() re-bind above) - drawn as a second layer
+		// over colorTexture below, not used as the primary viewport image.
+		Texture* color = usingDeferredRenderer
+			? static_cast<DeferredRenderer*>(Renderer)->GetColorTexture()
+			: EffectsManager->GetViewportColor();
+		Texture* overlay = usingDeferredRenderer ? EffectsManager->GetViewportColor() : NULL;
 		if (color)
 			viewportTex = GetActiveRenderDevice().GetImGuiTextureID(color->GetBindID(), color->GetTextureType());
+		void* overlayTex = overlay ? GetActiveRenderDevice().GetImGuiTextureID(overlay->GetBindID(), overlay->GetTextureType()) : NULL;
 
 #if defined(_SDL2VULKAN) || defined(_SDL2METAL)
 		const ImVec2 uv0(0, 0), uv1(1, 1);
@@ -609,7 +855,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		const ImVec2 uv0(0, 1), uv1(1, 0);
 #endif
 		if (viewportTex != NULL)
+		{
+			const ImVec2 drawPos = ImGui::GetCursorScreenPos();
 			ImGui::Image((ImTextureID)viewportTex, ImVec2(dim.x, dim.y), uv0, uv1);
+			// Layered on top via ImGui's normal alpha blending - overlay is
+			// transparent everywhere except the gizmo/grid/debug/axis pixels
+			// actually drawn into it this frame.
+			if (overlayTex != NULL)
+			{
+				ImGui::SetCursorScreenPos(drawPos);
+				ImGui::Image((ImTextureID)overlayTex, ImVec2(dim.x, dim.y), uv0, uv1);
+			}
+		}
 		else
 			ImGui::Dummy(ImVec2(dim.x, dim.y));
 		const ImVec2 imgMin = ImGui::GetItemRectMin();
@@ -617,6 +874,21 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		viewportImgMin = imgMin;
 		viewportImgSize = imgSize;
 		viewportOverlayValid = true;
+
+		// Which renderer is actually active - top left, clear of the axis
+		// gizmo (top right) and the T/R/S + Play toolbar row above the image.
+		{
+			const char* label = usingDeferredRenderer ? "Deferred" : "Forward";
+			ImDrawList* dl = ImGui::GetWindowDrawList();
+			ImVec2 textSize = ImGui::CalcTextSize(label);
+			const float pad = 6.f;
+			ImVec2 textPos(imgMin.x + pad + 4.f, imgMin.y + pad + 4.f);
+			ImVec2 bgMin(textPos.x - pad, textPos.y - 3.f);
+			ImVec2 bgMax(textPos.x + textSize.x + pad, textPos.y + textSize.y + 3.f);
+			dl->AddRectFilled(bgMin, bgMax, ImGui::GetColorU32(ImVec4(0.f, 0.f, 0.f, 0.5f)), 3.f);
+			dl->AddText(textPos, ImGui::GetColorU32(usingDeferredRenderer
+				? ImVec4(0.55f, 0.8f, 1.f, 1.f) : ImVec4(1.f, 0.8f, 0.4f, 1.f)), label);
+		}
 		ImGui::SetCursorScreenPos(imgMin);
 		ImGui::InvisibleButton("##scene_viewport_capture", imgSize,
 			ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
@@ -1950,6 +2222,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::TextWrapped("File: %s", scenePath.c_str());
 		else
 			ImGui::TextDisabled("File: (unsaved)");
+
+		ImGui::Spacing();
+		ImGui::TextUnformatted("Ambient Light");
+		// Flat colour added to every lit surface regardless of real
+		// lights - see SceneMeta::ambientLight's comment. Only .xyz are
+		// meaningful (no shader reads .w), so a 3-component picker is
+		// exact, not a simplification.
+		if (ImGui::ColorEdit3("##ambient_light", (float*)&ambientLightColor))
+		{
+			Renderer->SetGlobalLight(ambientLightColor);
+			sceneDirty = true;
+		}
 #ifdef LUA_BINDINGS
 		ImGui::Spacing();
 		ImGui::TextUnformatted("Scene Script");
@@ -3434,6 +3718,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 #endif
 		sceneRootSelected = true;
 		sceneDirty = false;
+
+		ambientLightColor = Vec4(0.2f, 0.2f, 0.2f, 0.2f);
+		Renderer->SetGlobalLight(ambientLightColor);
 	}
 
 	bool SceneEditor::SaveSceneToFile(const std::string &path)
@@ -3461,13 +3748,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		DetachEditorObjects(furniture);
 		bool ok = false;
 		try {
+			SceneMeta meta;
+			meta.ambientLight = ambientLightColor;
 #ifdef LUA_BINDINGS
 			PushLuaHostGlobals();
-			SceneMeta meta;
 			meta.mainScript = sceneMainScriptPath;
 			ok = SceneSerializer::SaveScene(scene, path, sharedLua, &meta);
 #else
-			ok = SceneSerializer::SaveScene(scene, path);
+			ok = SceneSerializer::SaveScene(scene, path, NULL, &meta);
 #endif
 		}
 		catch (const std::exception &e) { echo(std::string("ERROR: scene save threw: ") + e.what()); ok = false; }
@@ -3502,10 +3790,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// still trip over. A bad pick should be a dialog error, never a
 		// terminate.
 		bool ok = false;
+		SceneMeta meta;
 		try {
 #ifdef LUA_BINDINGS
 			PushLuaHostGlobals();
-			SceneMeta meta;
 			ok = SceneSerializer::LoadScene(scene, path, physics, sharedLua, NULL, &meta);
 			if (ok)
 			{
@@ -3525,10 +3813,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				RebuildSceneMainScriptInstance();
 			}
 #else
-			ok = SceneSerializer::LoadScene(scene, path, physics);
+			ok = SceneSerializer::LoadScene(scene, path, physics, NULL, NULL, &meta);
 #endif
 		}
 		catch (const std::exception &e) { echo(std::string("ERROR: scene load threw: ") + e.what()); ok = false; }
+
+		if (ok)
+		{
+			ambientLightColor = meta.ambientLight;
+			Renderer->SetGlobalLight(ambientLightColor);
+		}
 
 		if (ok)
 		{
@@ -3947,6 +4241,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		audio = NULL;
 		delete Renderer;
 		Renderer = NULL;
+		// Renderer (if DeferredRenderer) doesn't own gbufferFBO - SceneEditor
+		// does, so it's torn down after, matching render_host.lua's ordering
+		// (renderer, then fbo, then gbuffer textures).
+		if (usingDeferredRenderer)
+			DestroyGBuffer();
 
 		InputManager::RemoveEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &SceneEditor::MouseMove);
 		InputManager::RemoveEvent(Event::Type::OnMove, Event::Input::Mouse::Wheel, this, &SceneEditor::MouseWheel);
@@ -4355,6 +4654,69 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 #ifdef LUA_BINDINGS
 					DrawGameObjectScriptProperties(SelectedSceneObject->GetID());
 #endif
+				}
+				break;
+				case SceneObjectTypes::RENDERING_COMPONENT:
+				{
+					RenderingComponent* r = (RenderingComponent*)SelectedSceneObject->GetPTR();
+					std::vector<RenderingMesh*>& meshes = r->GetMeshes();
+					if (meshes.empty())
+						ImGui::TextDisabled("(no submeshes)");
+					for (size_t m = 0; m < meshes.size(); ++m)
+					{
+						ImGui::PushID((int)m);
+						ImGui::Text("Submesh %zu", m);
+						if (meshes[m]->Material)
+						{
+							ImGui::SameLine();
+							if (ImGui::SmallButton("Edit Material") && hostEditMaterialInline)
+								hostEditMaterialInline(meshes[m]->Material,
+									SelectedSceneObject->Name + " / Submesh " + std::to_string(m));
+						}
+						else
+							ImGui::TextDisabled("(no material)");
+
+						// Attach a different material asset to this submesh
+						// (drop a tile from the Assets panel, or pick from the combo).
+						ImGui::SetNextItemWidth(-1.f);
+						if (ImGui::BeginCombo("##assign_material", "Assign material asset..."))
+						{
+							if (project && project->IsOpen())
+							{
+								std::vector<ProjectAssetEntry> mats;
+								project->ListAssets("assets/materials", mats, true);
+								bool any = false;
+								for (size_t mi = 0; mi < mats.size(); ++mi)
+								{
+									const ProjectAssetEntry& e = mats[mi];
+									if (e.isDirectory || !ProjectManager::IsMaterialExtension(e.relativePath))
+										continue;
+									any = true;
+									if (ImGui::Selectable(e.relativePath.c_str()) && hostAssignMaterialAsset)
+										propertiesMaterialAssignError = hostAssignMaterialAsset(SelectedSceneObject->Name, (int)m, e.relativePath);
+								}
+								if (!any)
+									ImGui::TextDisabled("No materials in assets/materials");
+							}
+							else
+								ImGui::TextDisabled("Open a project first");
+							ImGui::EndCombo();
+						}
+						if (ImGui::BeginDragDropTarget())
+						{
+							if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_REL"))
+							{
+								const char* rel = (const char*)payload->Data;
+								if (rel && ProjectManager::IsMaterialExtension(rel) && hostAssignMaterialAsset)
+									propertiesMaterialAssignError = hostAssignMaterialAsset(SelectedSceneObject->Name, (int)m, rel);
+							}
+							ImGui::EndDragDropTarget();
+						}
+						if (!propertiesMaterialAssignError.empty())
+							ImGui::TextColored(ImVec4(1.f, 0.4f, 0.35f, 1.f), "%s", propertiesMaterialAssignError.c_str());
+
+						ImGui::PopID();
+					}
 				}
 				break;
 				case SceneObjectTypes::LUA_COMPONENT:
@@ -6136,6 +6498,25 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (fields.is_object() && fields.contains("opacity")) mat->SetOpacity((f32)fields["opacity"].get<double>());
 		if (fields.is_object() && fields.contains("transparent")) mat->SetTransparencyFlag(fields["transparent"].get<bool>());
 		if (fields.is_object() && fields.contains("cullFace")) mat->SetCullFace((uint32)fields["cullFace"].get<int>());
+		MarkSceneDirty();
+		return true;
+	}
+
+	bool SceneEditor::AgentAssignMaterial(const std::string& objectName, int submeshIndex, std::shared_ptr<IMaterial> mat, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		if (!mat) { errOut = "no material to assign"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
+		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		RenderingComponent* rc = NULL;
+		for (auto& c : go->GetComponents())
+			if ((rc = dynamic_cast<RenderingComponent*>(c.get()))) break;
+		if (!rc) { errOut = "object '" + objectName + "' has no RenderingComponent"; return false; }
+		std::vector<RenderingMesh*>& meshes = rc->GetMeshes(0);
+		if (submeshIndex < 0 || (size_t)submeshIndex >= meshes.size())
+			{ errOut = "submesh index " + std::to_string(submeshIndex) + " out of range (object has " + std::to_string(meshes.size()) + ")"; return false; }
+		meshes[submeshIndex]->Material = mat;
 		MarkSceneDirty();
 		return true;
 	}

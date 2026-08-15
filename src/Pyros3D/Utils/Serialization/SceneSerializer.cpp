@@ -1104,6 +1104,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		root["version"] = 1;
 		if (meta && !meta->mainScript.empty())
 			root["mainScript"] = RelativizeSceneAssetPath(meta->mainScript);
+		if (meta)
+			root["ambientLight"] = json::array({ meta->ambientLight.x, meta->ambientLight.y, meta->ambientLight.z });
 
 		json materialsArray = json::array();
 		std::map<IMaterial*, uint32> materialIdMap;
@@ -1882,6 +1884,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				const std::string raw = root["mainScript"].get<std::string>();
 				if (!raw.empty())
 					outMeta->mainScript = ResolveSceneAssetPath(raw);
+			}
+			// Left at SceneMeta's own default (matching IRenderer's
+			// constructor default) when the file predates this field.
+			if (root.contains("ambientLight") && root["ambientLight"].is_array() && root["ambientLight"].size() >= 3)
+			{
+				const auto &al = root["ambientLight"];
+				outMeta->ambientLight = Vec4(al[0].get<f32>(), al[1].get<f32>(), al[2].get<f32>(), al[0].get<f32>());
 			}
 		}
 

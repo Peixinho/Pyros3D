@@ -82,6 +82,21 @@ class SceneEditor : public IUInterface {
         SceneEditor(uint32 documentId);
         virtual ~SceneEditor();
 
+	// Must be called before Init() - Init() overrides IUInterface's pure
+	// virtual Init(width,height), so the renderer choice can't just be an
+	// extra Init() parameter; Init() reads this member instead.
+	void SetUseDeferredRenderer(bool use) { pendingUseDeferredRenderer = use; }
+	// Live toggle (unlike SetUseDeferredRenderer(), safe to call any time
+	// after Init() - queues the switch rather than doing it inline; see
+	// ApplyPendingRendererSwitchIfAny()'s comment for why a UI-callback-
+	// timed WaitIdle() is a real deadlock risk here, not just a stall.
+	void SwitchRenderer(bool useDeferred);
+	// Actually swaps Renderer/EffectsManager/gbufferFBO for a queued
+	// SwitchRenderer() call, matching Init()'s construction order and
+	// Shutdown()'s teardown order. Must run at the very start of
+	// ShowViewport(), before this frame's own rendering begins - never
+	// call this from a UI callback directly.
+	void ApplyPendingRendererSwitchIfAny();
 	virtual void Init(const uint32 width, const uint32 height);
 	virtual void OnResize(const uint32 width, const uint32 height);
 	virtual void Update(const f64 time);
@@ -137,7 +152,9 @@ public:
 		void (*onQuitDiscardingUnsaved)() = NULL);
 	void SetHostDocumentCallbacks(void (*onActivate)(SceneEditor*), void (*onRequestClose)(SceneEditor*),
 		void (*onNewSceneDocument)() = NULL, void (*onOpenSceneDocument)(const std::string&) = NULL,
-		void (*onOpenLuaScript)(const std::string&) = NULL);
+		void (*onOpenLuaScript)(const std::string&) = NULL,
+		void (*onEditMaterialInline)(std::shared_ptr<p3d::IMaterial>, const std::string&) = NULL,
+		std::string (*onAssignMaterialAsset)(const std::string&, int, const std::string&) = NULL);
 	void EnterPlayMode();
 	void StopPlayMode();
 	bool IsPlaying() const { return playMode; }
@@ -177,6 +194,9 @@ public:
 	bool AgentDeleteObject(const std::string& name, std::string& errOut);
 	bool AgentAttachScript(const std::string& name, const std::string& scriptFile, const json& data, std::string& errOut);
 	bool AgentSetMaterial(const std::string& objectName, const json& fields, std::string& errOut);
+	// Assigns an already-constructed material (e.g. from a Material Editor
+	// document) onto a submesh directly, replacing whatever it had.
+	bool AgentAssignMaterial(const std::string& objectName, int submeshIndex, std::shared_ptr<p3d::IMaterial> mat, std::string& errOut);
 	json  AgentSceneState();
 	bool AgentSave(std::string& errOut);
 	bool AgentSaveAs(const std::string& path, std::string& errOut);
@@ -237,6 +257,12 @@ private:
 	ProjectManager* project;
 	std::string scenePath;
 	bool sceneDirty;
+	// Scene-level ambient colour - see SceneMeta::ambientLight. Kept in
+	// sync with Renderer->SetGlobalLight() any time it changes (edited in
+	// Properties), a scene loads, or SwitchRenderer() replaces Renderer
+	// wholesale (a freshly constructed one resets to IRenderer's own
+	// hardcoded default otherwise).
+	Vec4 ambientLightColor = Vec4(0.2f, 0.2f, 0.2f, 0.2f);
 	// mtime of the scene file as of the last successful load — AgentServer
 	// uses this to detect external edits (AgentReloadIfChanged).
 	time_t lastLoadMtime = 0;
@@ -257,6 +283,8 @@ private:
 	void (*hostNewSceneDocument)();
 	void (*hostOpenSceneDocument)(const std::string&);
 	void (*hostOpenLuaScript)(const std::string&);
+	void (*hostEditMaterialInline)(std::shared_ptr<p3d::IMaterial>, const std::string&);
+	std::string (*hostAssignMaterialAsset)(const std::string&, int, const std::string&);
 	void ExecutePendingUnsavedAction();
 	// Open Scene and Save Scene As share one modal.
 	bool showingSceneDialog, sceneDialogIsSave, sceneDialogBrowse;
@@ -361,13 +389,27 @@ private:
 
 	// Scene
 	SceneGraph* scene;
-	// Renderer (editor viewport always uses ForwardRenderer)
-	ForwardRenderer* Renderer;
-	// PlayMode renderer + G-buffer for projects configured with DeferredRenderer.
-	DeferredRenderer* playModeDeferredRenderer;
+	// Chosen once in Init() from the project's Renderer setting (see
+	// ProjectManager::ProjectSettings::rendererType) - Forward or Deferred,
+	// used uniformly for both the edit viewport and Play Mode so a
+	// project's materials render the same in both. Gizmos/axis-helper/
+	// physics-debug draw independently of this (see ShowViewport()) so
+	// they're unaffected either way; the grid IS a real SceneGraph object
+	// and gets ShaderUsage::DeferredRenderer_Gbuffer added to its material
+	// when Deferred is active (see Init()).
+	IRenderer* Renderer;
+	bool usingDeferredRenderer;
+	bool pendingUseDeferredRenderer; // set via SetUseDeferredRenderer() before Init() runs
+	// Live post-Init() switch, queued by SwitchRenderer() and consumed by
+	// ApplyPendingRendererSwitchIfAny() - deliberately separate from
+	// pendingUseDeferredRenderer above, which only ever matters once, pre-Init().
+	bool queuedRendererSwitch = false;
+	bool queuedUseDeferredRenderer = false;
+	// G-buffer backing Renderer when usingDeferredRenderer is true - owned
+	// here (not by DeferredRenderer), built in Init(), resized in
+	// OnResize()/ShowViewport(), torn down in Shutdown().
 	Texture* gbufferDepth, *gbufferAlbedo, *gbufferSpecular, *gbufferNormal, *gbufferMatRough;
 	FrameBuffer* gbufferFBO;
-	bool usePlayModeDeferred;
 	void BuildGBuffer(uint32 width, uint32 height);
 	void DestroyGBuffer();
 	// Projection
@@ -523,6 +565,7 @@ private:
 #ifdef LUA_BINDINGS
 	// Draft paths for Properties panel InputText (not menus of script names).
 	std::string propertiesScriptAttachPath;
+	std::string propertiesMaterialAssignError;
 	std::string propertiesNewGoScriptName;
 	bool openNewGoScriptModal;
 	std::string propertiesNewGoScriptError;

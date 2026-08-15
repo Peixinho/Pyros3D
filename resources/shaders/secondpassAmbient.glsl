@@ -51,6 +51,15 @@ IO_LOCATION(0) out vec4 FragColor;
 void main() {
 	vec2 Texcoord = vec2(gl_FragCoord.x/uScreenDimensions.x, gl_FragCoord.y/uScreenDimensions.y);
 
+	// Depth clears to 1.0 (far) wherever the G-buffer pass drew no
+	// geometry - background/sky pixels. Without this, every second-pass
+	// light (this one included) reads whatever garbage sits in the
+	// cleared G-buffer there and lights it anyway, brightening the
+	// background above DrawBackground()'s own clear colour - found via a
+	// Forward-vs-Deferred viewport background colour mismatch that traced
+	// back to this shader having no notion of "no geometry here" at all.
+	if (texture_2D(tDepth, Texcoord).r >= 1.0) discard;
+
 	vec3 ambient;
 
 	ambient.x = texture_2D(tDiffuse, vec2(Texcoord.x,Texcoord.y)).w;

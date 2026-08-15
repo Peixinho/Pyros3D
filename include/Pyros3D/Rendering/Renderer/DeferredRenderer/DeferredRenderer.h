@@ -27,11 +27,44 @@ namespace p3d {
 
 		~DeferredRenderer();
 
-		virtual void RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 BufferOptions = Buffer_Bit::Color | Buffer_Bit::Depth);
+		// Signature must match IRenderer::RenderScene() exactly (3 args) -
+		// a 4th BufferOptions param used to sit here, unused in the body,
+		// which meant this never actually overrode the base virtual (name
+		// hiding introduced a sibling overload instead). Every call made
+		// through an IRenderer* - which is exactly how SceneEditor's
+		// viewport holds `Renderer` when usingDeferredRenderer is true -
+		// resolved to IRenderer::RenderScene()'s own body instead of this
+		// one, so the whole G-buffer/lighting/SSR pipeline below never ran
+		// and the viewport showed nothing but debug/gizmo overlays. Direct
+		// DeferredRenderer* callers were unaffected (name hiding still let
+		// them reach this one via the 4th arg's default), which is why the
+		// bug stayed latent until the editor's IRenderer*-polymorphic path
+		// exercised it.
+		virtual void RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene);
+
+		// Kept only for the Lua/Embind "renderSceneOptions" bindings' sake -
+		// BufferOptions was already unused by RenderScene()'s body before
+		// the signature fix above, so this stays a thin, non-virtual,
+		// behaviorally-identical forwarder rather than restoring the
+		// param to the virtual itself (which is what silently broke
+		// IRenderer*-polymorphic callers in the first place).
+		void RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene, const uint32 BufferOptions) { RenderScene(projection, Camera, Scene); }
 
 		void SetFBO(FrameBuffer* fbo);
 
-		virtual void Resize(const uint32 Width, const uint32 Height);
+		// By-reference params, matching IRenderer::Resize() exactly - same
+		// class of bug as RenderScene() above (see its comment). By-value
+		// params here meant this never overrode the base virtual either,
+		// so SceneEditor's per-frame `Renderer->Resize(viewW, viewH)` (an
+		// IRenderer*-polymorphic call) silently ran IRenderer::Resize()'s
+		// own body instead - which updates Width/Height/viewport bookkeeping
+		// but never touches lastPassFBO, so colorTexture stayed frozen at
+		// whatever size the SceneEditor doc's Init() first constructed
+		// DeferredRenderer with, regardless of how the viewport panel was
+		// later resized/docked. The mismatch between that stale texture
+		// and the ImGui::Image() rect it's stretched into is what looked
+		// like "the texture is half the size it should be".
+		virtual void Resize(const uint32 &Width, const uint32 &Height);
 
 		// Real, per-scene retuning knob for material-aware SSR's ray
 		// march - see lastPass.glsl's uSSRStepDistance/uSSRMaxDistance
@@ -66,6 +99,27 @@ namespace p3d {
 		// For isolating whether SSR is gated off, missing hits, or just dim.
 		void SetSSRDebugMode(const uint32 mode);
 		uint32 GetSSRDebugMode() const { return (uint32)ssrDebugMode; }
+
+		// The final composited frame (lastPassFBO's Color_Attachment0).
+		// RenderScene()'s own final "Render to Screen" draw always targets
+		// framebuffer 0 (see its own comment on why a caller-FBO restore
+		// there was previously tried and found harmful - LOAD_OP_CLEAR wiped
+		// an in-progress frame), so a caller embedding this renderer's
+		// output inside its own framebuffer (e.g. an editor viewport texture,
+		// as opposed to DeferredRenderer being the whole application's only
+		// output) cannot rely on PostEffectsManager-style capture-around-
+		// RenderScene() the way ForwardRenderer supports - it must read this
+		// texture directly instead.
+		Texture* GetColorTexture() const { return colorTexture; }
+
+		// A real copy of the opaque scene's depth (see forwardDepthTexture's
+		// own comment), refreshed once per frame in RenderScene() right
+		// after the G-buffer pass ends. Lets a caller depth-test its own
+		// overlay content (e.g. an editor viewport's gizmo/grid draws)
+		// against the actual scene instead of drawing blind - see
+		// GetColorTexture()'s comment for why a caller can't just reuse
+		// whatever depth its own capture-wrap left behind for Deferred.
+		Texture* GetDepthTexture() const { return forwardDepthTexture; }
 
 	private:
 		GenericShaderMaterial* shadowMaterial, *shadowSkinnedMaterial;

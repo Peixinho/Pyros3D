@@ -125,4 +125,10 @@ namespace p3d
 		textures.push_back(tex);
 		AddUniform(Uniform(uniformName, Uniforms::DataType::Int, &imgID));
 	}
+
+	void CustomShaderMaterial::ClearSamplers()
+	{
+		textures.clear();
+		UserUniforms.clear();
+	}
 }

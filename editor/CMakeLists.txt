@@ -36,6 +36,9 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AgentServer.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/EditorDebugDraw.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/CodeEditorDocument.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/MaterialGraphTypes.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/MaterialCodegen.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/MaterialEditorDocument.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/GameObjectHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/LightHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/SoundHelper.cpp

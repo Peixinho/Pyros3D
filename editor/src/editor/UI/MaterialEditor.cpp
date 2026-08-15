@@ -1,1008 +1,1028 @@
 //============================================================================
 // Name        : MaterialEditor.cpp
-// Description : Material editor window implementation
+// Description : Material editor window content implementation. See
+//               MaterialEditor.h for the split between this (drawing +
+//               engine actions) and MaterialEditorDocument (data + JSON).
 //============================================================================
 
 #include "MaterialEditor.h"
+#include "OpenDir.h"
 #include "../CodeEditorDocument.h"
+#include "../MaterialCodegen.h"
+#include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
+#include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
+#include <Pyros3D/Materials/Shaders/Shaders.h>
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
+#include <Pyros3D/Assets/Texture/Texture.h>
+#include <imgui.h>
+#include <imgui_internal.h> // ImGuiStorage - per-slot texture-browse toggle state
+#include <misc/cpp/imgui_stdlib.h>
+#include <algorithm>
+#include <cmath>
 #include <fstream>
+#include <functional>
+#include <sstream>
 
 using namespace p3d;
 
-static std::string ResolveTexturePath(const std::string& relOrAbs) {
-    if (relOrAbs.empty()) return "";
-    if (!relOrAbs[0] == '/' && !relOrAbs[1] == ':') {
-        return "assets/textures/" + relOrAbs;
-    }
-    return relOrAbs;
+namespace {
+
+// A relative texture path like "brick.png" is resolved against
+// assets/textures/; anything that already looks absolute (starts with '/'
+// or a drive letter) is left as-is.
+// Fixed a real bug here: the original `!relOrAbs[0] == '/'` negated the
+// *char* (true only when it's '\0') before comparing to '/', so the
+// "prepend assets/textures/" branch almost never triggered.
+std::string ResolveTexturePath(const std::string& relOrAbs) {
+	if (relOrAbs.empty()) return "";
+	const bool looksAbsolute = (relOrAbs[0] == '/') || (relOrAbs.size() >= 2 && relOrAbs[1] == ':');
+	return looksAbsolute ? relOrAbs : ("assets/textures/" + relOrAbs);
 }
 
-MaterialEditor::MaterialEditor(bool* open) : Open(open), dirty(false) {}
-
-MaterialEditor::~MaterialEditor() {
-    Shutdown();
+std::string JoinPath(const std::string& root, const std::string& rel) {
+	if (root.empty()) return rel;
+	std::string r = root;
+	if (r.back() != '/' && r.back() != '\\') r += "/";
+	return r + rel;
 }
 
-void MaterialEditor::Shutdown() {
-    if (codeDoc) {
-        delete codeDoc;
-        codeDoc = nullptr;
-    }
+const char* kTextureExtensions = "png,jpg,jpeg,tga,bmp,gif,hdr,exr,webp";
 
-    // Clean up preview textures in nodes
-    for (auto& node : nodes) {
-        delete node.previewTex;
-        node.previewTex = nullptr;
-    }
+void SetupGlslEditor(CodeEditorDocument* doc) {
+	doc->editor.SetLanguageDefinition(TextEditor::LanguageDefinition::GLSL());
+	doc->editor.SetPalette(TextEditor::GetDarkPalette());
+	doc->editor.SetShowWhitespaces(false);
+	doc->editor.SetTabSize(4);
 }
 
-std::shared_ptr<IMaterial> MaterialEditor::CreateNewMaterial(MaterialEditKind kind) {
-    // Clean up existing preview textures
-    for (auto& node : nodes) {
-        delete node.previewTex;
-        node.previewTex = nullptr;
-    }
-
-    currentMaterial.reset();
-    editKind = kind;
-    dirty = true;
-
-    if (kind == MaterialEditKind::Generic) {
-        auto mat = std::make_shared<GenericShaderMaterial>(ShaderUsage::Color | ShaderUsage::Diffuse);
-        mat->SetColor(Vec4(1.f, 1.f, 1.f, 1.f));
-        currentMaterial = mat;
-    } else {
-        auto mat = std::make_shared<CustomShaderMaterial>("");
-        currentMaterial = mat;
-    }
-
-    materialName = "NewMaterial";
-    nodes.clear();
-    connections.clear();
-    if (kind == MaterialEditKind::Generic) {
-        CreateNode(MaterialNode::Color, "Base Color", ImVec2(100.f, 150.f));
-        CreateNode(MaterialNode::Float, "Metallic", ImVec2(100.f, 300.f));
-        CreateNode(MaterialNode::Float, "Roughness", ImVec2(100.f, 450.f));
-        CreateNode(MaterialNode::Output, "PBR Output", ImVec2(600.f, 300.f));
-    }
-
-    return currentMaterial;
+void SeedDefaultCustomGraph(MaterialEditorDocument& doc) {
+	doc.ClearNodes();
+	const uint32_t colorId = doc.CreateNode(MaterialNode::Color, "Base Color", ImVec2(80.f, 140.f));
+	const uint32_t metallicId = doc.CreateNode(MaterialNode::Float, "Metallic", ImVec2(80.f, 320.f));
+	const uint32_t roughnessId = doc.CreateNode(MaterialNode::Float, "Roughness", ImVec2(80.f, 460.f));
+	const uint32_t outputId = doc.CreateNode(MaterialNode::Output, "Output", ImVec2(560.f, 280.f));
+	for (auto& n : doc.nodes) {
+		if (n.id == colorId) n.userData = "1.000000,1.000000,1.000000,1.000000";
+		if (n.id == metallicId) n.userData = "0.000000";
+		if (n.id == roughnessId) n.userData = "0.500000";
+	}
+	MaterialConnection c1; c1.fromNode = colorId; c1.fromPinIndex = 4; c1.toNode = outputId; c1.toPinIndex = 0;
+	MaterialConnection c2; c2.fromNode = metallicId; c2.fromPinIndex = 0; c2.toNode = outputId; c2.toPinIndex = 2;
+	MaterialConnection c3; c3.fromNode = roughnessId; c3.fromPinIndex = 0; c3.toNode = outputId; c3.toPinIndex = 3;
+	doc.connections.push_back(c1);
+	doc.connections.push_back(c2);
+	doc.connections.push_back(c3);
 }
 
-std::shared_ptr<IMaterial> MaterialEditor::LoadFromFile(const std::string& path) {
-    std::ifstream f(path);
-    if (!f.is_open()) return nullptr;
-
-    json j;
-    try {
-        f >> j;
-    } catch (...) {
-        return nullptr;
-    }
-
-    currentMaterial = DeserializeMaterial(j);
-    if (!currentMaterial) return nullptr;
-
-    materialName = j.value("name", path.substr(path.find_last_of("/\\") + 1));
-    dirty = false;
-
-    editKind = dynamic_cast<GenericShaderMaterial*>(currentMaterial.get()) ? MaterialEditKind::Generic : MaterialEditKind::Custom;
-
-    nodes.clear();
-    connections.clear();
-    if (editKind == MaterialEditKind::Generic) {
-        CreateNode(MaterialNode::Color, "Base Color", ImVec2(100.f, 150.f));
-        CreateNode(MaterialNode::Float, "Metallic", ImVec2(100.f, 300.f));
-        CreateNode(MaterialNode::Float, "Roughness", ImVec2(100.f, 450.f));
-        CreateNode(MaterialNode::Output, "PBR Output", ImVec2(600.f, 300.f));
-    }
-
-    return currentMaterial;
+// A single-instance file-browse toggle keyed by the current ImGui ID scope -
+// ImGui::_priv's own state (path/extension/selection) is itself a single
+// global instance (see OpenDir.cpp), so per-call-site tracking only needs to
+// remember each site's own open/closed bool, not a whole dialog's state.
+bool DrawBrowseButton(const char* buttonLabel, const std::string& rootDir, const char* extensions, std::string& outPickedAbsolute) {
+	ImGuiStorage* storage = ImGui::GetStateStorage();
+	const ImGuiID key = ImGui::GetID("##browse_open");
+	bool open = storage->GetBool(key, false);
+	bool picked = false;
+	if (ImGui::Button(buttonLabel))
+		ImGui::_priv::OpenLocation(rootDir, extensions, &open);
+	if (open) {
+		std::string result;
+		if (ImGui::FilePath("##browse_path", rootDir, extensions, &result, 1024, &open)) {
+			if (!result.empty()) { outPickedAbsolute = result; picked = true; }
+		}
+	}
+	storage->SetBool(key, open);
+	return picked;
 }
 
-bool MaterialEditor::SaveToFile(const std::string& path) {
-    if (!currentMaterial) return false;
-
-    json j = SerializeMaterial(currentMaterial.get());
-    j["name"] = materialName;
-
-    std::ofstream f(path);
-    if (!f.is_open()) return false;
-
-    f << j.dump(2);
-    dirty = false;
-    return true;
+void DrawTextureSlot(const char* label, Texture* tex, const std::string& textureRoot,
+	const std::function<void(std::shared_ptr<Texture>)>& setter) {
+	ImGui::PushID(label);
+	ImGui::Text("%s", label);
+	std::string picked;
+	if (DrawBrowseButton("Browse...", textureRoot, kTextureExtensions, picked) && setter) {
+		auto newTex = std::make_shared<Texture>();
+		if (newTex->LoadTexture(picked, TextureType::Texture))
+			setter(newTex);
+	}
+	ImGui::SameLine();
+	if (tex) {
+		ImGui::TextDisabled("(loaded)");
+		ImVec2 slotSize = ImVec2(ImGui::GetContentRegionAvail().x, 64.f);
+		void* tid = GetActiveRenderDevice().GetImGuiTextureID(tex->GetBindID(), tex->GetTextureType());
+		if (tid) ImGui::Image((ImTextureID)tid, slotSize);
+		else ImGui::TextDisabled("[texture preview unavailable]");
+	} else {
+		ImGui::TextDisabled("(none)");
+	}
+	ImGui::PopID();
 }
 
-void MaterialEditor::EditMaterial(std::shared_ptr<IMaterial> mat) {
-    currentMaterial = mat;
-    editKind = dynamic_cast<GenericShaderMaterial*>(mat.get()) ? MaterialEditKind::Generic : MaterialEditKind::Custom;
-    dirty = false;
-    materialName = "SceneMaterial";
-
-    nodes.clear();
-    connections.clear();
-    if (editKind == MaterialEditKind::Generic) {
-        CreateNode(MaterialNode::Color, "Base Color", ImVec2(100.f, 150.f));
-        CreateNode(MaterialNode::Float, "Metallic", ImVec2(100.f, 300.f));
-        CreateNode(MaterialNode::Float, "Roughness", ImVec2(100.f, 450.f));
-        CreateNode(MaterialNode::Output, "PBR Output", ImVec2(600.f, 300.f));
-    }
+bool IsPinHovered(ImVec2 pinPos, float radius) {
+	ImGuiIO& io = ImGui::GetIO();
+	ImVec2 delta(io.MousePos.x - pinPos.x, io.MousePos.y - pinPos.y);
+	return (delta.x * delta.x + delta.y * delta.y) <= (radius * radius);
 }
 
-void MaterialEditor::SetProjectRoot(const std::string& root) {
-    projectRoot = root;
+void HandleConnectionDrag(MaterialEditorDocument& doc, ImDrawList* drawList, const std::vector<PinPosition>& allPins) {
+	if (!doc.isDraggingConnection) return;
+	ImGuiIO& io = ImGui::GetIO();
+	drawList->AddLine(doc.dragStartPos, io.MousePos, ImGui::GetColorU32(ImVec4(0.6f, 0.8f, 1.f, 0.9f)), 2.f);
+
+	if (!ImGui::IsMouseDown(0)) {
+		for (const auto& p : allPins) {
+			if (!p.isOutput && p.nodeId != doc.dragFromNode && IsPinHovered(p.screenPos, 8.f)) {
+				MaterialConnection conn;
+				conn.fromNode = doc.dragFromNode;
+				conn.fromPinIndex = doc.dragFromPinIndex;
+				conn.toNode = p.nodeId;
+				conn.toPinIndex = p.pinIndex;
+				// A pin accepts only one incoming connection - replace any existing one.
+				doc.connections.erase(std::remove_if(doc.connections.begin(), doc.connections.end(),
+					[&](const MaterialConnection& c) { return c.toNode == conn.toNode && c.toPinIndex == conn.toPinIndex; }),
+					doc.connections.end());
+				doc.connections.push_back(conn);
+				doc.dirty = true;
+			}
+		}
+		doc.isDraggingConnection = false;
+	}
 }
 
-void MaterialEditor::Show() {
-    ImGuiWindowFlags flags = ImGuiWindowFlags_None;
-    if (dirty) flags |= ImGuiWindowFlags_UnsavedDocument;
-
-    if (!ImGui::Begin(Name.c_str(), Open, flags)) {
-        ImGui::End();
-        return;
-    }
-
-    DrawToolbar();
-    ImGui::Separator();
-
-    if (!currentMaterial) {
-        ImGui::TextDisabled("No material loaded.");
-        ImGui::Spacing();
-        if (ImGui::Button("New Generic Material")) {
-            CreateNewMaterial(MaterialEditKind::Generic);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("New Custom Shader Material")) {
-            CreateNewMaterial(MaterialEditKind::Custom);
-        }
-    } else {
-        switch (editMode) {
-        case MaterialEditMode::Inspector:
-            DrawInspectorTab();
-            break;
-        case MaterialEditMode::Text:
-            DrawTextEditorTab();
-            break;
-        case MaterialEditMode::NodeGraph:
-            DrawNodeGraphTab();
-            break;
-        }
-    }
-
-    ImGui::End();
+void DrawAddNodeItem(MaterialEditorDocument& doc, MaterialNode::Type type, ImVec2 pos) {
+	if (ImGui::MenuItem(MaterialNode::TypeToString(type))) {
+		doc.CreateNode(type, MaterialNode::TypeToString(type), pos);
+		doc.dirty = true;
+	}
 }
 
-void MaterialEditor::DrawToolbar() {
-    if (!currentMaterial) return;
+} // namespace
 
-    ImGui::SetNextItemWidth(180.f);
-    ImGui::InputText("Name", &materialName);
-    dirty = true;
-    ImGui::SameLine();
+std::shared_ptr<IMaterial> MaterialEditor::CreateNewMaterial(MaterialEditorDocument& doc, MaterialEditKind kind) {
+	doc.ClearNodes();
+	doc.currentMaterial.reset();
+	doc.compiledShader.reset();
+	doc.generatedGlslPath.clear();
+	doc.absolutePath.clear();
+	doc.editKind = kind;
+	doc.materialName = "NewMaterial";
+	doc.displayName = doc.materialName;
+	doc.dirty = true;
+	doc.lastApplyError.clear();
 
-    static const char* kindLabels[] = { "Generic Shader", "Custom Shader" };
-    int currentKind = (int)editKind;
-    if (ImGui::Combo("Type", &currentKind, kindLabels, IM_ARRAYSIZE(kindLabels))) {
-        MaterialEditKind newKind = (MaterialEditKind)currentKind;
-        if (newKind != editKind) {
-            CreateNewMaterial(newKind);
-        }
-    }
-
-    ImGui::SameLine();
-    static const char* modeLabels[] = { "Inspector", "Text", "Node Graph" };
-    int currentMode = (int)editMode;
-    if (ImGui::Combo("Edit Mode", &currentMode, modeLabels, IM_ARRAYSIZE(modeLabels))) {
-        editMode = (MaterialEditMode)currentMode;
-        if (editMode == MaterialEditMode::Text && !codeDoc) {
-            codeDoc = new CodeEditorDocument();
-            codeDoc->SetupForLua();
-            codeDoc->editor.SetLanguageDefinition(TextEditor::LanguageDefinition::GLSL());
-        }
-    }
-
-    ImGui::SameLine(ImGui::GetWindowWidth() - 200.f);
-    if (ImGui::Button("Save...")) {
-        dirty = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Load...")) {}
+	if (kind == MaterialEditKind::Generic) {
+		doc.editMode = MaterialEditMode::Inspector;
+		auto mat = std::make_shared<GenericShaderMaterial>(ShaderUsage::Color | ShaderUsage::Diffuse);
+		mat->SetColor(Vec4(1.f, 1.f, 1.f, 1.f));
+		doc.currentMaterial = mat;
+	} else {
+		doc.editMode = MaterialEditMode::NodeGraph;
+		doc.currentMaterial = std::make_shared<CustomShaderMaterial>(std::string());
+		SeedDefaultCustomGraph(doc);
+	}
+	return doc.currentMaterial;
 }
 
-void MaterialEditor::DrawInspectorTab() {
-    if (!currentMaterial) return;
+bool MaterialEditor::LoadFromFile(MaterialEditorDocument& doc, const std::string& path, const std::string& projectRoot, bool deferredGBuffer) {
+	if (!doc.LoadFromFile(path)) return false;
+	doc.lastApplyError.clear();
 
-    if (editKind == MaterialEditKind::Generic) {
-        DrawGenericMaterialInspector();
-    } else {
-        DrawCustomMaterialInspector();
-    }
-
-    ImGui::Separator();
-    DrawCommonMaterialSettings(currentMaterial.get());
+	if (doc.editKind == MaterialEditKind::Custom) {
+		if (doc.editMode == MaterialEditMode::Text && !doc.generatedGlslPath.empty()) {
+			std::ifstream f(JoinPath(projectRoot, doc.generatedGlslPath));
+			if (f) {
+				std::stringstream ss;
+				ss << f.rdbuf();
+				if (!doc.codeDoc) doc.codeDoc = new CodeEditorDocument();
+				SetupGlslEditor(doc.codeDoc);
+				doc.codeDoc->editor.SetText(ss.str());
+			}
+		}
+		std::string err;
+		if (!ApplyGraphOrTextToLiveMaterial(doc, projectRoot, deferredGBuffer, &err))
+			doc.lastApplyError = err;
+	}
+	return true;
 }
 
-void MaterialEditor::DrawGenericMaterialInspector() {
-    auto* gm = dynamic_cast<GenericShaderMaterial*>(currentMaterial.get());
-    if (!gm) return;
-
-    ImGui::Text("Shader Options");
-    uint32 opts = gm->GetOptions();
-
-    #define CHK(flag, label) do { bool v = (opts & ShaderUsage::flag); \
-        if (ImGui::Checkbox(label, &v)) { \
-            dirty = true; \
-            if (v) opts |= ShaderUsage::flag; else opts &= ~ShaderUsage::flag; \
-        } ImGui::SameLine(); } while(0)
-
-    CHK(Color, "Color");
-    CHK(Texture, "Texture");
-    CHK(PBR, "PBR");
-    CHK(PBRMap, "PBR Map");
-    ImGui::Separator();
-    CHK(BumpMapping, "Normal Map");
-    CHK(SpecularMap, "Specular Map");
-    CHK(EnvMap, "Env Map");
-    CHK(Refraction, "Refract");
-    ImGui::Separator();
-    CHK(CastShadows, "Cast Shadows");
-    CHK(DirectionalShadow, "Dir Shadow");
-    CHK(PointShadow, "Point Shadow");
-    CHK(SpotShadow, "Spot Shadow");
-    ImGui::Separator();
-    CHK(AlphaTest, "Alpha Cutout");
-    CHK(VertexWind, "Vertex Wind");
-
-    #undef CHK
-
-    if (opts != gm->GetOptions()) {
-        dirty = true;
-    }
-
-    ImGui::Spacing();
-    ImGui::Text("Colors");
-
-    Vec4 color = gm->GetColor();
-    float c[4] = { color.x, color.y, color.z, color.w };
-    if (ImGui::ColorEdit4("Base Color", c, ImGuiColorEditFlags_AlphaBar)) {
-        gm->SetColor(Vec4(c[0], c[1], c[2], c[3]));
-        dirty = true;
-    }
-
-    Vec4 spec = gm->GetSpecular();
-    float s[4] = { spec.x, spec.y, spec.z, spec.w };
-    if (ImGui::ColorEdit4("Specular Color", s, ImGuiColorEditFlags_AlphaBar)) {
-        gm->SetSpecular(Vec4(s[0], s[1], s[2], s[3]));
-        dirty = true;
-    }
-
-    ImGui::Spacing();
-    ImGui::Text("Textures");
-
-    DrawTextureSlot("Color Map", gm->GetColorMap());
-    DrawTextureSlot("Normal Map", gm->GetNormalMap());
-    DrawTextureSlot("Specular Map", gm->GetSpecularMap());
-    DrawTextureSlot("Env Map", gm->GetEnvMap());
-    DrawTextureSlot("Metallic/Roughness Map", gm->GetMetallicRoughnessMap());
-
-    ImGui::Spacing();
-    ImGui::Text("PBR");
-
-    float metallic = gm->GetMetallic();
-    if (ImGui::SliderFloat("Metallic", &metallic, 0.f, 1.f)) {
-        gm->SetMetallic(metallic);
-        dirty = true;
-    }
-
-    float roughness = gm->GetRoughness();
-    if (ImGui::SliderFloat("Roughness", &roughness, 0.f, 1.f)) {
-        gm->SetRoughness(roughness);
-        dirty = true;
-    }
-
-    bool ssr = gm->IsSSREnabled();
-    if (ImGui::Checkbox("Screen Space Reflections", &ssr)) {
-        gm->SetSSREnabled(ssr);
-        dirty = true;
-    }
-
-    float alphaCutoff = gm->GetAlphaCutoff();
-    if (ImGui::SliderFloat("Alpha Cutoff", &alphaCutoff, 0.f, 1.f)) {
-        gm->SetAlphaCutoff(alphaCutoff);
-        dirty = true;
-    }
-
-    ImGui::Spacing();
-    ImGui::Text("Lighting");
-
-    float shininess = gm->GetShininess();
-    if (ImGui::SliderFloat("Shininess", &shininess, 0.f, 128.f)) {
-        gm->SetShininess(shininess);
-        dirty = true;
-    }
-
-    float reflectivity = gm->GetReflectivity();
-    if (ImGui::SliderFloat("Reflectivity", &reflectivity, 0.f, 1.f)) {
-        gm->SetReflectivity(reflectivity);
-        dirty = true;
-    }
-
-    float dispHeight = gm->GetDisplacementHeight();
-    if (ImGui::DragFloat("Displacement Height", &dispHeight, 0.01f, -1.f, 5.f)) {
-        gm->SetDisplacementHeight(dispHeight);
-        dirty = true;
-    }
-
-    const Vec4& wind = gm->GetWind();
-    float wStr = wind.x;
-    if (ImGui::DragFloat("Wind Strength", &wStr, 0.1f, 0.f, 5.f)) {
-        dirty = true;
-    }
+bool MaterialEditor::SaveToFile(MaterialEditorDocument& doc, const std::string& path, const std::string& projectRoot, bool deferredGBuffer) {
+	if (doc.editKind == MaterialEditKind::Custom) {
+		std::string err;
+		if (!ApplyGraphOrTextToLiveMaterial(doc, projectRoot, deferredGBuffer, &err))
+			doc.lastApplyError = err; // still save the graph/text below so in-progress work isn't lost
+	}
+	return doc.SaveToFile(path);
 }
 
-void MaterialEditor::DrawCustomMaterialInspector() {
-    auto* cm = dynamic_cast<CustomShaderMaterial*>(currentMaterial.get());
-    if (!cm) return;
+bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer, std::string* errorOut) {
+	auto* cm = dynamic_cast<CustomShaderMaterial*>(doc.currentMaterial.get());
+	if (!cm) { if (errorOut) *errorOut = "Not a Custom Shader material"; return false; }
 
-    ImGui::Text("Shader Source");
-    static std::string shaderPath;
-    shaderPath = cm->GetShaderFile();
-    ImGui::SetNextItemWidth(-1);
-    if (ImGui::InputText("##shaderPath", &shaderPath)) {
-        dirty = true;
-    }
+	if (doc.generatedGlslPath.empty()) {
+		if (doc.absolutePath.empty()) {
+			if (errorOut) *errorOut = "Save the material (Save As...) before applying the shader";
+			return false;
+		}
+		// doc.absolutePath is a full filesystem path; generatedGlslPath must
+		// stay project-relative like every other call site here assumes
+		// (they all do JoinPath(projectRoot, doc.generatedGlslPath)) - strip
+		// the root prefix or this doubles up into a broken path.
+		std::string base = doc.absolutePath;
+		if (!projectRoot.empty() && base.compare(0, projectRoot.size(), projectRoot) == 0) {
+			base = base.substr(projectRoot.size());
+			while (!base.empty() && (base[0] == '/' || base[0] == '\\')) base.erase(0, 1);
+		}
+		const size_t dot = base.find_last_of('.');
+		if (dot != std::string::npos) base = base.substr(0, dot);
+		doc.generatedGlslPath = base + ".generated.glsl";
+	}
 
-    ImGui::Spacing();
-    ImGui::BulletText("Use Text or Node Graph mode to edit shader code.");
+	std::string glslText;
+	std::vector<std::pair<uint32_t, std::string>> textureSamplers;
+
+	if (doc.editMode == MaterialEditMode::Text) {
+		if (!doc.codeDoc) { if (errorOut) *errorOut = "No shader text to compile"; return false; }
+		glslText = doc.codeDoc->editor.GetText();
+		// Sampler wiring still comes from whichever Texture nodes exist in
+		// the graph (if any) - same convention Text mode's seed uses.
+		MaterialCodegenResult tmp = GenerateGLSL(doc.nodes, doc.connections);
+		textureSamplers = tmp.textureSamplers;
+	} else {
+		MaterialCodegenResult gen = GenerateGLSL(doc.nodes, doc.connections);
+		if (!gen.error.empty()) { if (errorOut) *errorOut = gen.error; return false; }
+		glslText = gen.glsl;
+		textureSamplers = gen.textureSamplers;
+		if (doc.codeDoc) doc.codeDoc->editor.SetText(glslText); // keep Text mode in sync for inspection
+	}
+
+	const std::string glslAbsPath = JoinPath(projectRoot, doc.generatedGlslPath);
+	{
+		std::ofstream f(glslAbsPath);
+		if (!f) { if (errorOut) *errorOut = "Could not write " + glslAbsPath; return false; }
+		f << glslText;
+	}
+
+	const std::string deferredDefine = deferredGBuffer ? "#define DEFERRED_GBUFFER\n" : "";
+
+	std::unique_ptr<Shader> newShader(new Shader());
+	newShader->LoadShaderFile(glslAbsPath.c_str());
+	std::string vErr, fErr, lErr;
+	const bool vOk = newShader->CompileShader(ShaderType::VertexShader, "#define VERTEX\n" + deferredDefine, &vErr);
+	const bool fOk = newShader->CompileShader(ShaderType::FragmentShader, "#define FRAGMENT\n" + deferredDefine, &fErr);
+	const bool linkOk = (vOk && fOk) && newShader->LinkProgram(&lErr);
+	if (!vOk || !fOk || !linkOk || newShader->ShaderProgram() == 0) {
+		if (errorOut) {
+			*errorOut = "Shader compile/link failed:";
+			if (!vOk) *errorOut += "\n[vertex] " + vErr;
+			if (!fOk) *errorOut += "\n[fragment] " + fErr;
+			if (vOk && fOk && !linkOk) *errorOut += "\n[link] " + lErr;
+		}
+		return false; // newShader cleans itself up; live material's previous shader is untouched
+	}
+
+	// SetShader() does NOT take ownership - only reset compiledShader
+	// (which owns the previously swapped-in shader, if any) AFTER the swap,
+	// so the material never points at a shader that's already been freed.
+	cm->SetShader(newShader.get());
+	doc.compiledShader = std::move(newShader);
+
+	// Fixed uniform set, always (re-)issued. SendUniform silently skips any
+	// name the active shader doesn't declare (GetUniformLocation returns -1
+	// -> Shaders.cpp's `Handle > -1` guard), so over-issuing is harmless.
+	cm->AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
+	cm->AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
+	cm->AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
+	cm->AddUniform(Uniform("uAmbientLight", Uniforms::DataUsage::GlobalAmbientLight));
+	cm->AddUniform(Uniform("uCameraPosition", Uniforms::DataUsage::CameraPosition));
+	cm->AddUniform(Uniform("uTime", Uniforms::DataUsage::Timer));
+	// Forward branch only (harmless to also issue in Deferred mode - the
+	// compiled shader simply doesn't declare these, so SendUniform's
+	// GetUniformLocation()==-1 guard skips them).
+	cm->AddUniform(Uniform("uLights", Uniforms::DataUsage::Lights));
+	cm->AddUniform(Uniform("uNumberOfLights", Uniforms::DataUsage::NumberOfLights));
+
+	cm->ClearSamplers();
+	for (const auto& ts : textureSamplers) {
+		const MaterialNode* node = nullptr;
+		for (const auto& n : doc.nodes) if (n.id == ts.first) { node = &n; break; }
+		if (!node || node->texturePath.empty()) continue;
+		auto tex = std::make_shared<Texture>();
+		if (tex->LoadTexture(JoinPath(projectRoot, ResolveTexturePath(node->texturePath)), TextureType::Texture))
+			cm->AddSampler(ts.second, tex);
+	}
+
+	if (errorOut) errorOut->clear();
+	doc.lastApplyError.clear();
+	return true;
 }
 
-void MaterialEditor::DrawCommonMaterialSettings(IMaterial* mat) {
-    if (!mat) return;
+// ---------------------------------------------------------------------------
+// Drawing
+// ---------------------------------------------------------------------------
 
-    ImGui::Text("Rendering");
+static void DrawToolbar(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer) {
+	if (!doc.currentMaterial) return;
 
-    float opacity = mat->GetOpacity();
-    if (ImGui::SliderFloat("Opacity", &opacity, 0.f, 1.f)) {
-        mat->SetOpacity(opacity);
-        dirty = true;
-    }
+	// Fixed-offset SameLine() right-alignment breaks in a narrow docked
+	// window (Save button would land under/inside the combos above it) - so
+	// every control gets its own row instead of trying to pack a variable-
+	// width set of labeled widgets onto one line.
+	ImGui::SetNextItemWidth(220.f);
+	if (ImGui::InputText("Name", &doc.materialName)) {
+		doc.displayName = doc.materialName;
+		doc.dirty = true;
+	}
 
-    bool transparent = mat->IsTransparent();
-    if (ImGui::Checkbox("Transparent", &transparent)) {
-        mat->SetTransparencyFlag(transparent);
-        dirty = true;
-    }
+	ImGui::SetNextItemWidth(220.f);
+	static const char* kindLabels[] = { "Generic Shader", "Custom Shader" };
+	int currentKind = (int)doc.editKind;
+	if (ImGui::Combo("Type", &currentKind, kindLabels, IM_ARRAYSIZE(kindLabels))) {
+		MaterialEditKind newKind = (MaterialEditKind)currentKind;
+		if (newKind != doc.editKind)
+			MaterialEditor::CreateNewMaterial(doc, newKind);
+	}
 
-    bool blending = mat->IsBlendingEnabled();
-    if (ImGui::Checkbox("Blending", &blending)) {
-        if (blending) mat->EnableBlending(); else mat->DisableBlending();
-        dirty = true;
-    }
+	if (doc.editKind == MaterialEditKind::Generic) {
+		ImGui::TextDisabled("Inspector only");
+	} else {
+		ImGui::SetNextItemWidth(220.f);
+		static const char* modeLabels[] = { "Inspector", "Text", "Node Graph" };
+		int currentMode = (int)doc.editMode;
+		if (ImGui::Combo("Edit Mode", &currentMode, modeLabels, IM_ARRAYSIZE(modeLabels))) {
+			doc.editMode = (MaterialEditMode)currentMode;
+			if (doc.editMode == MaterialEditMode::Text) {
+				if (!doc.codeDoc) doc.codeDoc = new CodeEditorDocument();
+				SetupGlslEditor(doc.codeDoc);
+				MaterialCodegenResult gen = GenerateGLSL(doc.nodes, doc.connections);
+				doc.codeDoc->editor.SetText(gen.error.empty() ? gen.glsl : ("// " + gen.error + "\n"));
+			}
+		}
+	}
 
-    bool depthTest = mat->IsDepthTesting();
-    if (ImGui::Checkbox("Depth Test", &depthTest)) {
-        if (depthTest) mat->EnableDepthTest(); else mat->DisableDepthTest();
-        dirty = true;
-    }
+	const bool hasPath = !doc.absolutePath.empty();
+	if (ImGui::Button(hasPath ? "Save" : "Save As...", ImVec2(120.f, 0.f))) {
+		std::string path = doc.absolutePath;
+		if (path.empty())
+			path = JoinPath(projectRoot, "assets/materials/" + doc.materialName + ".mat");
+		if (!MaterialEditor::SaveToFile(doc, path, projectRoot, deferredGBuffer))
+			doc.lastApplyError = "Could not save to " + path;
+	}
+	if (hasPath) {
+		ImGui::SameLine();
+		ImGui::TextDisabled("%s", doc.absolutePath.c_str());
+	}
 
-    bool depthWrite = mat->IsDepthWritting();
-    if (ImGui::Checkbox("Depth Write", &depthWrite)) {
-        if (depthWrite) mat->EnableDepthWrite(); else mat->DisableDepthWrite();
-        dirty = true;
-    }
-
-    uint32 cullFace = mat->GetCullFace();
-    static const char* cullLabels[] = { "None", "Front", "Back" };
-    int cullIdx = (int)cullFace;
-    if (ImGui::Combo("Cull Face", &cullIdx, cullLabels, IM_ARRAYSIZE(cullLabels))) {
-        mat->SetCullFace((uint32)cullIdx);
-        dirty = true;
-    }
-
-    bool wireframe = mat->IsWireFrame();
-    if (ImGui::Checkbox("Wireframe", &wireframe)) {
-        if (wireframe) mat->StartRenderWireFrame(); else mat->StopRenderWireFrame();
-        dirty = true;
-    }
-
-    bool castShadows = mat->IsCastingShadows();
-    if (ImGui::Checkbox("Cast Shadows", &castShadows)) {
-        if (castShadows) mat->EnableCastingShadows(); else mat->DisableCastingShadows();
-        dirty = true;
-    }
+	if (!doc.lastApplyError.empty())
+		ImGui::TextColored(ImVec4(1.f, 0.4f, 0.35f, 1.f), "%s", doc.lastApplyError.c_str());
 }
 
-void MaterialEditor::DrawTextureSlot(const char* label, Texture* tex) {
-    ImGui::Text("%s", label);
-    if (ImGui::Button("Browse...")) {}
-    ImGui::SameLine();
-    if (tex) {
-        ImGui::TextDisabled("(loaded)");
-        ImVec2 slotSize = ImVec2(ImGui::GetContentRegionAvail().x, 64.f);
-        void* tid = GetActiveRenderDevice().GetImGuiTextureID(tex->GetBindID(), tex->GetTextureType());
-        if (tid) {
-            ImGui::Image((ImTextureID)tid, slotSize);
-        } else {
-            ImGui::TextDisabled("[texture preview unavailable]");
-        }
-    } else {
-        ImGui::TextDisabled("(none)");
-    }
+static void DrawTextureSlots(MaterialEditorDocument& doc, GenericShaderMaterial* gm, const std::string& textureRoot) {
+	DrawTextureSlot("Color Map", gm->GetColorMap(), textureRoot, [&doc, gm](std::shared_ptr<Texture> t) { gm->SetColorMap(t); doc.dirty = true; });
+	DrawTextureSlot("Normal Map", gm->GetNormalMap(), textureRoot, [&doc, gm](std::shared_ptr<Texture> t) { gm->SetNormalMap(t); doc.dirty = true; });
+	DrawTextureSlot("Specular Map", gm->GetSpecularMap(), textureRoot, [&doc, gm](std::shared_ptr<Texture> t) { gm->SetSpecularMap(t); doc.dirty = true; });
+	DrawTextureSlot("Env Map", gm->GetEnvMap(), textureRoot, [&doc, gm](std::shared_ptr<Texture> t) { gm->SetEnvMap(t); doc.dirty = true; });
+	DrawTextureSlot("Metallic/Roughness Map", gm->GetMetallicRoughnessMap(), textureRoot, [&doc, gm](std::shared_ptr<Texture> t) { gm->SetMetallicRoughnessMap(t); doc.dirty = true; });
 }
 
-void MaterialEditor::DrawTextEditorTab() {
-    if (!codeDoc) {
-        codeDoc = new CodeEditorDocument();
-        codeDoc->SetupForLua();
-        codeDoc->editor.SetLanguageDefinition(TextEditor::LanguageDefinition::GLSL());
-    }
+static void DrawGenericMaterialInspector(MaterialEditorDocument& doc, const std::string& projectRoot) {
+	auto* gm = dynamic_cast<GenericShaderMaterial*>(doc.currentMaterial.get());
+	if (!gm) return;
 
-    if (ImGui::Button("Save Shader")) {
-        dirty = true;
-    }
+	// GenericShaderMaterial has no in-place "change options" API - the
+	// ShaderUsage bitmask picks/compiles a shader permutation once, in the
+	// constructor (see GetOptions()'s doc comment). Toggling a flag here
+	// therefore has to construct a *new* GenericShaderMaterial and replace
+	// doc.currentMaterial - which cannot propagate back onto a scene
+	// object's RenderingMesh::Material this doc might be editing in place
+	// (EditMaterialInline holds its own shared_ptr copy of the same
+	// original object; reassigning doc.currentMaterial only changes this
+	// document's copy). Warn for that case rather than silently doing
+	// nothing, which is what the original inspector did.
+	if (doc.absolutePath.empty()) {
+		ImGui::TextColored(ImVec4(1.f, 0.75f, 0.3f, 1.f),
+			"Editing a live object's material - shader-option changes below create a new\n"
+			"material object and will NOT reflect back onto the selected object.");
+		ImGui::Spacing();
+	}
 
-    ImGui::Separator();
+	ImGui::Text("Shader Options (changing these recreates the shader)");
+	const uint32 opts = gm->GetOptions();
+	uint32 newOpts = opts;
 
-    const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-    codeDoc->editor.SetHandleKeyboardInputs(focused);
-    ImVec2 avail = ImGui::GetContentRegionAvail();
-    codeDoc->editor.Render("##material_shader_editor", avail, true);
+	#define CHK(flag, label) do { bool v = (newOpts & ShaderUsage::flag) != 0; \
+		if (ImGui::Checkbox(label, &v)) { \
+			if (v) newOpts |= ShaderUsage::flag; else newOpts &= ~ShaderUsage::flag; \
+		} ImGui::SameLine(); } while(0)
+
+	CHK(Color, "Color");
+	CHK(Texture, "Texture");
+	CHK(PBR, "PBR");
+	CHK(PBRMap, "PBR Map");
+	ImGui::Separator();
+	CHK(BumpMapping, "Normal Map");
+	CHK(SpecularMap, "Specular Map");
+	CHK(EnvMap, "Env Map");
+	CHK(Refraction, "Refract");
+	ImGui::Separator();
+	CHK(CastShadows, "Cast Shadows");
+	CHK(DirectionalShadow, "Dir Shadow");
+	CHK(PointShadow, "Point Shadow");
+	CHK(SpotShadow, "Spot Shadow");
+	ImGui::Separator();
+	CHK(AlphaTest, "Alpha Cutout");
+	CHK(VertexWind, "Vertex Wind");
+
+	#undef CHK
+	ImGui::NewLine();
+
+	if (newOpts != opts) {
+		auto fresh = std::make_shared<GenericShaderMaterial>(newOpts);
+		fresh->SetColor(gm->GetColor());
+		fresh->SetSpecular(gm->GetSpecular());
+		fresh->SetMetallic(gm->GetMetallic());
+		fresh->SetRoughness(gm->GetRoughness());
+		fresh->SetSSREnabled(gm->IsSSREnabled());
+		fresh->SetAlphaCutoff(gm->GetAlphaCutoff());
+		fresh->SetShininess(gm->GetShininess());
+		fresh->SetReflectivity(gm->GetReflectivity());
+		fresh->SetDisplacementHeight(gm->GetDisplacementHeight());
+		// Only the color map is recoverable as a shared_ptr (GetColorMapShared) -
+		// other slots only expose a raw Texture*, so they're lost across a
+		// recreate. A pre-existing engine gap, not something to newly break.
+		if (gm->GetColorMapShared()) fresh->SetColorMap(gm->GetColorMapShared());
+		doc.currentMaterial = fresh;
+		gm = fresh.get();
+		doc.dirty = true;
+	}
+
+	ImGui::Spacing();
+	ImGui::Text("Colors");
+
+	Vec4 color = gm->GetColor();
+	float c[4] = { color.x, color.y, color.z, color.w };
+	if (ImGui::ColorEdit4("Base Color", c, ImGuiColorEditFlags_AlphaBar)) {
+		gm->SetColor(Vec4(c[0], c[1], c[2], c[3]));
+		doc.dirty = true;
+	}
+
+	Vec4 spec = gm->GetSpecular();
+	float s[4] = { spec.x, spec.y, spec.z, spec.w };
+	if (ImGui::ColorEdit4("Specular Color", s, ImGuiColorEditFlags_AlphaBar)) {
+		gm->SetSpecular(Vec4(s[0], s[1], s[2], s[3]));
+		doc.dirty = true;
+	}
+
+	ImGui::Spacing();
+	ImGui::Text("Textures");
+	DrawTextureSlots(doc, gm, projectRoot.empty() ? std::string() : JoinPath(projectRoot, "assets/textures"));
+
+	ImGui::Spacing();
+	ImGui::Text("PBR");
+
+	float metallic = gm->GetMetallic();
+	if (ImGui::SliderFloat("Metallic", &metallic, 0.f, 1.f)) { gm->SetMetallic(metallic); doc.dirty = true; }
+
+	float roughness = gm->GetRoughness();
+	if (ImGui::SliderFloat("Roughness", &roughness, 0.f, 1.f)) { gm->SetRoughness(roughness); doc.dirty = true; }
+
+	bool ssr = gm->IsSSREnabled();
+	if (ImGui::Checkbox("Screen Space Reflections", &ssr)) { gm->SetSSREnabled(ssr); doc.dirty = true; }
+
+	float alphaCutoff = gm->GetAlphaCutoff();
+	if (ImGui::SliderFloat("Alpha Cutoff", &alphaCutoff, 0.f, 1.f)) { gm->SetAlphaCutoff(alphaCutoff); doc.dirty = true; }
+
+	ImGui::Spacing();
+	ImGui::Text("Lighting");
+
+	float shininess = gm->GetShininess();
+	if (ImGui::SliderFloat("Shininess", &shininess, 0.f, 128.f)) { gm->SetShininess(shininess); doc.dirty = true; }
+
+	float reflectivity = gm->GetReflectivity();
+	if (ImGui::SliderFloat("Reflectivity", &reflectivity, 0.f, 1.f)) { gm->SetReflectivity(reflectivity); doc.dirty = true; }
+
+	float dispHeight = gm->GetDisplacementHeight();
+	if (ImGui::DragFloat("Displacement Height", &dispHeight, 0.01f, -1.f, 5.f)) { gm->SetDisplacementHeight(dispHeight); doc.dirty = true; }
 }
 
-void MaterialEditor::DrawNodeGraphTab() {
-    ImVec2 avail = ImGui::GetContentRegionAvail();
-    if (avail.x < 10 || avail.y < 10) return;
-
-    bool canvasHovered = false;
-    ImGuiIO& io = ImGui::GetIO();
-    static const float pinRadius = 5.f;
-    static const float pinSpacing = 24.f;
-
-    // Draw background grid first
-    ImDrawList* bgDrawList = ImGui::GetWindowDrawList();
-    ImVec2 canvasScreenPos = ImGui::GetCursorScreenPos();
-    ImVec2 gridSize(40.f * graphZoom, 40.f * graphZoom);
-    int startX = (int)((-graphOffset.x / graphZoom));
-    int startY = (int)((-graphOffset.y / graphZoom));
-    int endX = startX + (int)(avail.x / gridSize.x) + 2;
-    int endY = startY + (int)(avail.y / gridSize.y) + 2;
-
-    for (int x = startX; x <= endX; x++) {
-        float sx = canvasScreenPos.x + graphOffset.x + x * gridSize.x;
-        bgDrawList->AddLine(ImVec2(sx, canvasScreenPos.y), ImVec2(sx, canvasScreenPos.y + avail.y),
-            ImGui::GetColorU32(ImVec4(0.1f, 0.1f, 0.15f, 0.8f)), 1.f);
-    }
-    for (int y = startY; y <= endY; y++) {
-        float sy = canvasScreenPos.y + graphOffset.y + y * gridSize.y;
-        bgDrawList->AddLine(ImVec2(canvasScreenPos.x, sy), ImVec2(canvasScreenPos.x + avail.x, sy),
-            ImGui::GetColorU32(ImVec4(0.1f, 0.1f, 0.15f, 0.8f)), 1.f);
-    }
-
-    // Collect pin positions during node rendering
-    std::vector<PinPosition> allPins;
-
-    // Draw nodes as child windows positioned in screen space
-    for (auto& node : nodes) {
-        ImVec2 screenPos(node.pos.x * graphZoom + canvasScreenPos.x + graphOffset.x,
-                         node.pos.y * graphZoom + canvasScreenPos.y + graphOffset.y);
-
-        char title[128];
-        snprintf(title, sizeof(title), "%s##node_%u", node.name.c_str(), node.id);
-
-        ImVec4 bgColor(0.15f, 0.15f, 0.18f, 0.95f);
-        switch (node.type) {
-            case MaterialNode::Color: bgColor = ImVec4(0.3f, 0.2f, 0.4f, 0.95f); break;
-            case MaterialNode::Texture: bgColor = ImVec4(0.2f, 0.35f, 0.2f, 0.95f); break;
-            case MaterialNode::Float: bgColor = ImVec4(0.2f, 0.25f, 0.4f, 0.95f); break;
-            case MaterialNode::Output: bgColor = ImVec4(0.4f, 0.3f, 0.15f, 0.95f); break;
-            default: break;
-        }
-
-        ImGui::SetNextWindowPos(screenPos);
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, bgColor);
-        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(bgColor.x * 0.7f, bgColor.y * 0.7f, bgColor.z * 0.7f, 1.f));
-
-        ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
-                                 ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking;
-
-        if (!ImGui::Begin(title, nullptr, flags)) {
-            ImGui::End();
-            ImGui::PopStyleColor(2);
-            continue;
-        }
-
-        bool nodeHovered = ImGui::IsWindowHovered();
-        if (nodeHovered) canvasHovered = true;
-
-        switch (node.type) {
-            case MaterialNode::Color: {
-                float color[4] = {1, 1, 1, 1};
-                if (!node.userData.empty()) {
-                    sscanf(node.userData.c_str(), "%f,%f,%f,%f", &color[0], &color[1], &color[2], &color[3]);
-                }
-                ImGui::ColorEdit4("Value", color);
-                node.userData = std::to_string(color[0]) + "," + std::to_string(color[1]) + "," +
-                                std::to_string(color[2]) + "," + std::to_string(color[3]);
-
-                // Color preview swatch below editor - height matches pin count spacing
-                ImVec4 colVec(color[0], color[1], color[2], color[3]);
-                float swatchWidth = ImGui::GetContentRegionAvail().x;
-                int outPins = MaterialNode::GetOutputPinCount(MaterialNode::Color);
-                float swatchHeight = (outPins - 1) * pinSpacing + 20.f;
-                ImVec2 swatchPos = ImGui::GetCursorScreenPos();
-                bgDrawList->AddRectFilled(swatchPos,
-                    ImVec2(swatchPos.x + swatchWidth, swatchPos.y + swatchHeight),
-                    ImGui::GetColorU32(colVec));
-                break;
-            }
-            case MaterialNode::Float: {
-                float val = 0.5f;
-                if (!node.userData.empty()) {
-                    sscanf(node.userData.c_str(), "%f", &val);
-                }
-                ImGui::SliderFloat("Value", &val, 0.f, 1.f);
-                node.userData = std::to_string(val);
-
-                // Visual bar preview
-                float barWidth = ImGui::GetContentRegionAvail().x;
-                ImVec2 cursor = ImGui::GetCursorScreenPos();
-                bgDrawList->AddRectFilled(cursor,
-                    ImVec2(cursor.x + barWidth * val, cursor.y + 8.f),
-                    ImGui::GetColorU32(ImVec4(0.5f, 0.6f, 1.f, 1.f)));
-                break;
-            }
-            case MaterialNode::Texture: {
-                if (ImGui::Button("Load...")) {
-                    node.texturePath = projectRoot + "assets/textures/";
-                }
-
-                // Show texture preview if loaded
-                if (!node.texturePath.empty()) {
-                    ImGui::TextDisabled("%s", node.texturePath.c_str());
-
-                    if (!node.previewTex) {
-                        node.previewTex = new p3d::Texture();
-                        node.previewTex->LoadTexture(node.texturePath, TextureType::Texture);
-                    }
-
-                    ImVec2 slotSize(ImGui::GetContentRegionAvail().x, 64.f);
-                    void* tid = GetActiveRenderDevice().GetImGuiTextureID(node.previewTex->GetBindID(), node.previewTex->GetTextureType());
-                    if (tid) {
-                        ImGui::Image((ImTextureID)tid, slotSize);
-                    } else {
-                        ImGui::TextDisabled("[preview unavailable]");
-                    }
-                }
-
-                // Accept drag-and-drop of texture files onto this node
-                if (ImGui::BeginDragDropTarget()) {
-                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("TEXTURE_FILE")) {
-                        const char* path = reinterpret_cast<const char*>(payload->Data);
-                        node.texturePath = std::string(path);
-                        delete node.previewTex;
-                        node.previewTex = new p3d::Texture();
-                        node.previewTex->LoadTexture(node.texturePath, TextureType::Texture);
-                    }
-                    ImGui::EndDragDropTarget();
-                }
-                break;
-            }
-            case MaterialNode::Output: {
-                // Output node shows final material preview (simplified)
-                ImGui::Text("Material Preview");
-
-                // Compute albedo from connected input pin 0, or default to white
-                Vec4 albedo(1.f, 1.f, 1.f, 1.f);
-                for (const auto& conn : connections) {
-                    if (conn.toNode == node.id && conn.toPinIndex == 0) { // Albedo pin
-                        for (const auto& srcNode : nodes) {
-                            if (srcNode.id == conn.fromNode) {
-                                albedo = srcNode.ComputePreviewValue(srcNode, nodes, connections);
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // Preview box showing computed albedo color - sized for 6 input pins, indented to not overlap labels
-                ImVec2 avail = ImGui::GetContentRegionAvail();
-                float previewSize = fmin(avail.x, 80.f);
-                int inPins = MaterialNode::GetInputPinCount(MaterialNode::Output);
-                float previewHeight = (inPins - 1) * pinSpacing + 20.f;
-                ImVec2 basePos = ImGui::GetCursorScreenPos();
-                ImVec2 previewPos(basePos.x + 10.f, basePos.y);
-                bgDrawList->AddRectFilled(previewPos,
-                    ImVec2(previewPos.x + previewSize, previewPos.y + previewHeight),
-                    ImGui::GetColorU32(ImVec4(albedo.x, albedo.y, albedo.z, albedo.w)));
-                break;
-            }
-            default: {
-                // Math nodes show computed preview based on connections
-                Vec4 previewVal = node.ComputePreviewValue(node, nodes, connections);
-
-                // Show operation name and result
-                const char* opName = node.GetOpName();
-                if (opName && opName[0] != '\0') {
-                    ImGui::Text("%s", opName);
-                } else {
-                    ImGui::TextDisabled(node.name.c_str());
-                }
-
-                // Preview rectangle sized for pin count - shows computed color/value
-                float previewWidth = ImGui::GetContentRegionAvail().x;
-                int totalPins = MaterialNode::GetInputPinCount(node.type) + MaterialNode::GetOutputPinCount(node.type);
-                if (totalPins == 0) totalPins = 1;
-                float previewHeight = fmaxf(16.f, (totalPins - 1) * pinSpacing + 20.f);
-                ImVec2 previewPos = ImGui::GetCursorScreenPos();
-                bgDrawList->AddRectFilled(previewPos,
-                    ImVec2(previewPos.x + previewWidth, previewPos.y + previewHeight),
-                    ImGui::GetColorU32(ImVec4(previewVal.x, previewVal.y, previewVal.z, previewVal.w)));
-
-                // Show numeric value as text overlay
-                char valStr[64];
-                snprintf(valStr, sizeof(valStr), "%.2f", previewVal.x);
-                ImVec2 textSize = ImGui::CalcTextSize(valStr);
-                bgDrawList->AddText(ImVec2(previewPos.x + 4.f, previewPos.y + 3.f),
-                    ImGui::GetColorU32(ImVec4(1.f, 1.f, 1.f, 0.9f)), valStr);
-                break;
-            }
-        }
-
-        // Get window size AFTER content is drawn to know actual height for pin placement
-        ImVec2 winPos = ImGui::GetWindowPos();
-        ImVec2 winSize = ImGui::GetWindowSize();
-        float centerY = winPos.y + winSize.y * 0.5f;
-
-        int numInputs = MaterialNode::GetInputPinCount(node.type);
-        int numOutputs = MaterialNode::GetOutputPinCount(node.type);
-
-        ImDrawList* fgDrawList = ImGui::GetForegroundDrawList();
-
-        // Draw input pins (left side) with labels - positioned outside node window to left
-        for (int i = 0; i < numInputs; i++) {
-            float y = centerY + (i - (numInputs - 1) * 0.5f) * pinSpacing;
-            ImVec2 pinPos(winPos.x, y);
-
-            // Draw label to the LEFT of input pins (outside node window) using foreground list so it appears on top
-            const char* label = MaterialNode::GetInputPinLabel(node.type, i);
-            if (!label) {
-                static char lbl[8];
-                snprintf(lbl, sizeof(lbl), "In%d", i + 1);
-                label = lbl;
-            }
-            ImVec2 textSize = ImGui::CalcTextSize(label);
-            fgDrawList->AddText(ImVec2(pinPos.x - pinRadius - 4.f - textSize.x, y - 6.f),
-                ImGui::GetColorU32(ImVec4(0.9f, 0.9f, 0.9f, 1.f)), label);
-
-            bgDrawList->AddCircleFilled(pinPos, pinRadius, ImGui::GetColorU32(ImVec4(0.5f, 0.6f, 1.f, 1.f)));
-
-            PinPosition pp;
-            pp.nodeId = node.id; pp.pinIndex = i; pp.isOutput = false; pp.screenPos = pinPos;
-            allPins.push_back(pp);
-        }
-
-        // Draw output pins (right side) with labels - skip for Output node type
-        if (numOutputs > 0) {
-            for (int i = 0; i < numOutputs; i++) {
-                float y = centerY + (i - (numOutputs - 1) * 0.5f) * pinSpacing;
-                ImVec4 pinColor(0.5f, 0.8f, 0.5f, 1.f);
-                ImVec2 pinPos(winPos.x + winSize.x, y);
-                bgDrawList->AddCircleFilled(pinPos, pinRadius, ImGui::GetColorU32(pinColor));
-
-                // Draw label next to output pin using proper labels (R,G,B,A for Color etc) - foreground list
-                const char* label = MaterialNode::GetOutputPinLabel(node.type, i);
-                if (!label) {
-                    static char lbl[8];
-                    snprintf(lbl, sizeof(lbl), "Out%d", i + 1);
-                    label = lbl;
-                }
-                fgDrawList->AddText(ImVec2(pinPos.x + pinRadius + 4.f, y - 6.f),
-                    ImGui::GetColorU32(ImVec4(0.7f, 0.8f, 0.5f, 1.f)), label);
-
-                PinPosition pp;
-                pp.nodeId = node.id; pp.pinIndex = i; pp.isOutput = true; pp.screenPos = pinPos;
-                allPins.push_back(pp);
-
-                // Start connection drag from output pin
-                if (IsPinHovered(pinPos, pinRadius + 2.f) && ImGui::IsMouseClicked(0)) {
-                    isDraggingConnection = true;
-                    dragFromNode = node.id;
-                    dragFromPinIndex = i;
-                    dragStartPos = pinPos;
-                }
-            }
-        }
-
-        // Right-click on node for context menu
-        if (nodeHovered && ImGui::IsMouseClicked(1)) {
-            ImGui::OpenPopup("NodeContextMenu");
-        }
-
-        if (ImGui::BeginPopup("NodeContextMenu")) {
-            if (ImGui::MenuItem("Delete Node")) {
-                // Clean up preview texture before deleting node
-                for (auto& n : nodes) {
-                    if (n.id == node.id && n.previewTex) {
-                        delete n.previewTex;
-                        n.previewTex = nullptr;
-                        break;
-                    }
-                }
-
-                nodes.erase(std::remove_if(nodes.begin(), nodes.end(), [&node](const MaterialNode& n) { return n.id == node.id; }), nodes.end());
-                connections.erase(std::remove_if(connections.begin(), connections.end(), [&node](const MaterialConnection& c) {
-                    return c.fromNode == node.id || c.toNode == node.id;
-                }), connections.end());
-            }
-            ImGui::EndPopup();
-        }
-
-        // Drag node: track mouse delta when left-click on title bar (not during connection drag)
-        if (!isDraggingConnection && ImGui::IsWindowHovered() && ImGui::IsMouseDragging(0)) {
-            ImVec2 delta(io.MouseDelta.x / graphZoom, io.MouseDelta.y / graphZoom);
-            node.pos.x += delta.x;
-            node.pos.y += delta.y;
-        }
-
-        ImGui::End();
-        ImGui::PopStyleColor(2);
-    }
-
-    // Draw connections using stored pin positions
-    for (const auto& conn : connections) {
-        ImVec2 fromPos, toPos;
-        bool foundFrom = false, foundTo = false;
-
-        for (const auto& p : allPins) {
-            if (!foundFrom && p.nodeId == conn.fromNode && p.pinIndex == conn.fromPinIndex && p.isOutput) {
-                fromPos = p.screenPos; foundFrom = true;
-            }
-            if (!foundTo && p.nodeId == conn.toNode && p.pinIndex == conn.toPinIndex && !p.isOutput) {
-                toPos = p.screenPos; foundTo = true;
-            }
-        }
-
-        if (foundFrom && foundTo) {
-            float dx = (toPos.x - fromPos.x) * 0.5f;
-            bgDrawList->AddBezierCubic(fromPos, ImVec2(fromPos.x + dx, fromPos.y),
-                ImVec2(toPos.x - dx, toPos.y), toPos,
-                ImGui::GetColorU32(ImVec4(0.4f, 0.6f, 0.9f, 0.7f)), 2.f);
-        }
-    }
-
-    // Canvas interactions (only when not hovering a node and not dragging connection)
-    if (!canvasHovered && !isDraggingConnection && ImGui::IsWindowHovered()) {
-        if (io.MouseWheel != 0) {
-            graphZoom *= 1.f + io.MouseWheel * 0.1f;
-            graphZoom = fmaxf(0.25f, fminf(graphZoom, 4.f));
-        }
-
-        if (ImGui::IsMouseDragging(1)) {
-            graphOffset.x += io.MouseDelta.x;
-            graphOffset.y += io.MouseDelta.y;
-        }
-
-        // Right-click on empty canvas for add node menu
-        if (ImGui::IsMouseClicked(1) && !canvasHovered) {
-            ImGui::OpenPopup("AddNodeMenu");
-        }
-    }
-
-    // Handle connection dragging on top of everything
-    HandleConnectionDrag(bgDrawList, allPins);
-
-    if (ImGui::BeginPopup("AddNodeMenu")) {
-        ImVec2 mouseGraphPos = ImVec2(
-            (io.MousePos.x - canvasScreenPos.x - graphOffset.x) / graphZoom,
-            (io.MousePos.y - canvasScreenPos.y - graphOffset.y) / graphZoom);
-
-        if (ImGui::MenuItem("Color Node")) {
-            CreateNode(MaterialNode::Color, "Color", mouseGraphPos);
-        }
-        if (ImGui::MenuItem("Float Node")) {
-            CreateNode(MaterialNode::Float, "Float", mouseGraphPos);
-        }
-        if (ImGui::MenuItem("Texture Node")) {
-            CreateNode(MaterialNode::Texture, "Texture", mouseGraphPos);
-        }
-        if (ImGui::MenuItem("Output Node")) {
-            CreateNode(MaterialNode::Output, "Output", mouseGraphPos);
-        }
-
-        ImGui::Separator();
-
-        if (ImGui::MenuItem("Add: Add")) {
-            CreateNode(MaterialNode::Add, "+", mouseGraphPos);
-        }
-        if (ImGui::MenuItem("Add: Multiply")) {
-            CreateNode(MaterialNode::Multiply, "*", mouseGraphPos);
-        }
-        if (ImGui::MenuItem("Add: Lerp")) {
-            CreateNode(MaterialNode::Lerp, "lerp", mouseGraphPos);
-        }
-
-        ImGui::EndPopup();
-    }
+static void DrawCustomMaterialInspector(MaterialEditorDocument& doc) {
+	ImGui::Text("Shader File");
+	ImGui::TextDisabled("%s", doc.generatedGlslPath.empty() ? "(not saved yet)" : doc.generatedGlslPath.c_str());
+	ImGui::Spacing();
+	ImGui::BulletText("Use the Text or Node Graph edit mode to author shader logic.");
+	if (!doc.lastApplyError.empty()) {
+		ImGui::Spacing();
+		ImGui::TextColored(ImVec4(1.f, 0.4f, 0.35f, 1.f), "%s", doc.lastApplyError.c_str());
+	}
 }
 
-uint32_t MaterialEditor::CreateNode(MaterialNode::Type type, const std::string& name, ImVec2 pos) {
-    MaterialNode node;
-    node.id = nextNodeId++;
-    node.name = name;
-    node.pos = pos; // store in graph space directly
-    node.type = type;
-    nodes.push_back(node);
-    return node.id;
+static void DrawCommonMaterialSettings(MaterialEditorDocument& doc, IMaterial* mat) {
+	if (!mat) return;
+
+	ImGui::Text("Rendering");
+
+	float opacity = mat->GetOpacity();
+	if (ImGui::SliderFloat("Opacity", &opacity, 0.f, 1.f)) { mat->SetOpacity(opacity); doc.dirty = true; }
+
+	bool transparent = mat->IsTransparent();
+	if (ImGui::Checkbox("Transparent", &transparent)) { mat->SetTransparencyFlag(transparent); doc.dirty = true; }
+
+	bool blending = mat->IsBlendingEnabled();
+	if (ImGui::Checkbox("Blending", &blending)) { if (blending) mat->EnableBlending(); else mat->DisableBlending(); doc.dirty = true; }
+
+	bool depthTest = mat->IsDepthTesting();
+	if (ImGui::Checkbox("Depth Test", &depthTest)) { if (depthTest) mat->EnableDepthTest(); else mat->DisableDepthTest(); doc.dirty = true; }
+
+	bool depthWrite = mat->IsDepthWritting();
+	if (ImGui::Checkbox("Depth Write", &depthWrite)) { if (depthWrite) mat->EnableDepthWrite(); else mat->DisableDepthWrite(); doc.dirty = true; }
+
+	uint32 cullFace = mat->GetCullFace();
+	static const char* cullLabels[] = { "None", "Front", "Back" };
+	int cullIdx = (int)cullFace;
+	if (ImGui::Combo("Cull Face", &cullIdx, cullLabels, IM_ARRAYSIZE(cullLabels))) { mat->SetCullFace((uint32)cullIdx); doc.dirty = true; }
+
+	bool wireframe = mat->IsWireFrame();
+	if (ImGui::Checkbox("Wireframe", &wireframe)) { if (wireframe) mat->StartRenderWireFrame(); else mat->StopRenderWireFrame(); doc.dirty = true; }
+
+	bool castShadows = mat->IsCastingShadows();
+	if (ImGui::Checkbox("Cast Shadows", &castShadows)) { if (castShadows) mat->EnableCastingShadows(); else mat->DisableCastingShadows(); doc.dirty = true; }
 }
 
-Vec4 MaterialNode::ComputePreviewValue(const MaterialNode& self, const std::vector<MaterialNode>& nodes,
-                                       const std::vector<MaterialConnection>& connections) const {
-    auto GetInputValue = [&](int pinIndex) -> Vec4 {
-        for (const auto& conn : connections) {
-            if (conn.toNode == self.id && conn.toPinIndex == pinIndex) {
-                for (const auto& n : nodes) {
-                    if (n.id == conn.fromNode) {
-                        return n.ComputePreviewValue(n, nodes, connections);
-                    }
-                }
-            }
-        }
-        return Vec4(0.f, 0.f, 0.f, 0.f); // default disconnected value
-    };
-
-    switch (type) {
-        case Color: {
-            float c[4] = {1, 1, 1, 1};
-            if (!self.userData.empty()) {
-                sscanf(self.userData.c_str(), "%f,%f,%f,%f", &c[0], &c[1], &c[2], &c[3]);
-            }
-            return Vec4(c[0], c[1], c[2], c[3]);
-        }
-        case Float: {
-            float val = 0.5f;
-            if (!self.userData.empty()) sscanf(self.userData.c_str(), "%f", &val);
-            return Vec4(val, val, val, 1.f);
-        }
-        case Add: return GetInputValue(0) + GetInputValue(1);
-        case Subtract: return GetInputValue(0) - GetInputValue(1);
-        case Multiply: {
-            Vec4 a = GetInputValue(0), b = GetInputValue(1);
-            return Vec4(a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w);
-        }
-        case Divide: {
-            Vec4 a = GetInputValue(0), b = GetInputValue(1);
-            return Vec4(a.x / (b.x + 0.001f), a.y / (b.y + 0.001f),
-                       a.z / (b.z + 0.001f), a.w / (b.w + 0.001f));
-        }
-        case Lerp: {
-            Vec4 a = GetInputValue(0), b = GetInputValue(1), t = GetInputValue(2);
-            return a + (b - a) * t.x;
-        }
-        default: return Vec4(0.5f, 0.5f, 0.5f, 1.f);
-    }
+static void DrawInspectorTab(MaterialEditorDocument& doc, const std::string& projectRoot) {
+	if (!doc.currentMaterial) return;
+	if (doc.editKind == MaterialEditKind::Generic)
+		DrawGenericMaterialInspector(doc, projectRoot);
+	else
+		DrawCustomMaterialInspector(doc);
+	ImGui::Separator();
+	DrawCommonMaterialSettings(doc, doc.currentMaterial.get());
 }
 
-json MaterialEditor::SerializeMaterial(const IMaterial* mat) {
-    json j;
+static void DrawTextEditorTab(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer) {
+	if (!doc.codeDoc) {
+		doc.codeDoc = new CodeEditorDocument();
+		SetupGlslEditor(doc.codeDoc);
+		MaterialCodegenResult gen = GenerateGLSL(doc.nodes, doc.connections);
+		doc.codeDoc->editor.SetText(gen.error.empty() ? gen.glsl : ("// " + gen.error + "\n"));
+	}
 
-    if (auto* gm = dynamic_cast<const GenericShaderMaterial*>(mat)) {
-        j["kind"] = "generic";
-        j["options"] = gm->GetOptions();
-        const auto& c = gm->GetColor();
-        j["color"] = {c.x, c.y, c.z, c.w};
-        const auto& s = gm->GetSpecular();
-        j["specular"] = {s.x, s.y, s.z, s.w};
-        j["metallic"] = gm->GetMetallic();
-        j["roughness"] = gm->GetRoughness();
-        j["ssrEnabled"] = gm->IsSSREnabled();
-        j["alphaCutoff"] = gm->GetAlphaCutoff();
-        j["shininess"] = gm->GetShininess();
-        j["reflectivity"] = gm->GetReflectivity();
-        j["displacementHeight"] = gm->GetDisplacementHeight();
-    } else if (auto* cm = dynamic_cast<const CustomShaderMaterial*>(mat)) {
-        j["kind"] = "custom";
-        if (!cm->GetShaderFile().empty()) {
-            j["shaderFile"] = cm->GetShaderFile();
-        }
-    }
+	if (ImGui::Button("Save Shader")) {
+		std::string err;
+		if (!MaterialEditor::ApplyGraphOrTextToLiveMaterial(doc, projectRoot, deferredGBuffer, &err)) {
+			doc.lastApplyError = err;
+		} else {
+			doc.dirty = true; // .mat's generatedGlslPath/mode may now need saving too
+		}
+	}
+	ImGui::SameLine();
+	ImGui::TextDisabled("Compiles and hot-swaps this text onto the live material.");
+	if (!doc.lastApplyError.empty())
+		ImGui::TextColored(ImVec4(1.f, 0.4f, 0.35f, 1.f), "%s", doc.lastApplyError.c_str());
 
-    IMaterial* nonConstMat = const_cast<IMaterial*>(mat);
-    j["opacity"] = mat->GetOpacity();
-    j["transparent"] = mat->IsTransparent();
-    j["cullFace"] = mat->GetCullFace();
-    j["wireframe"] = mat->IsWireFrame();
-    j["castingShadows"] = nonConstMat->IsCastingShadows();
-    j["depthTest"] = nonConstMat->IsDepthTesting();
-    j["depthWrite"] = nonConstMat->IsDepthWritting();
-    j["blending"] = mat->IsBlendingEnabled();
+	ImGui::Separator();
 
-    return j;
+	const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+	doc.codeDoc->editor.SetHandleKeyboardInputs(focused);
+	ImVec2 avail = ImGui::GetContentRegionAvail();
+	doc.codeDoc->editor.Render("##material_shader_editor", avail, true);
+	if (doc.codeDoc->editor.IsTextChanged())
+		doc.dirty = true;
 }
 
-std::shared_ptr<IMaterial> MaterialEditor::DeserializeMaterial(const json& j) {
-    std::string kind = j.value("kind", "generic");
+static void DrawNodeBody(MaterialEditorDocument& doc, MaterialNode& node, const std::string& projectRoot) {
+	static const float pinSpacing = 24.f;
+	// The node is now its own clipped child window (see DrawNodeGraphTab) -
+	// its own draw list is naturally clipped to its bounds, unlike the
+	// shared canvas draw list previously passed in here.
+	ImDrawList* bgDrawList = ImGui::GetWindowDrawList();
 
-    if (kind == "generic") {
-        auto mat = std::make_shared<GenericShaderMaterial>(j.value("options", 0u));
+	switch (node.type) {
+		case MaterialNode::Color: {
+			float color[4] = {1, 1, 1, 1};
+			if (!node.userData.empty())
+				sscanf(node.userData.c_str(), "%f,%f,%f,%f", &color[0], &color[1], &color[2], &color[3]);
+			if (ImGui::ColorEdit4("Value", color)) doc.dirty = true;
+			node.userData = std::to_string(color[0]) + "," + std::to_string(color[1]) + "," +
+				std::to_string(color[2]) + "," + std::to_string(color[3]);
 
-        if (j.find("color") != j.end() && j["color"].size() >= 4) {
-            mat->SetColor(Vec4(j["color"][0], j["color"][1], j["color"][2], j["color"][3]));
-        }
-        if (j.find("specular") != j.end() && j["specular"].size() >= 4) {
-            mat->SetSpecular(Vec4(j["specular"][0], j["specular"][1], j["specular"][2], j["specular"][3]));
-        }
+			ImVec4 colVec(color[0], color[1], color[2], color[3]);
+			float swatchWidth = ImGui::GetContentRegionAvail().x;
+			int outPins = MaterialNode::GetOutputPinCount(MaterialNode::Color);
+			float swatchHeight = (outPins - 1) * pinSpacing + 20.f;
+			ImVec2 swatchPos = ImGui::GetCursorScreenPos();
+			bgDrawList->AddRectFilled(swatchPos, ImVec2(swatchPos.x + swatchWidth, swatchPos.y + swatchHeight), ImGui::GetColorU32(colVec));
+			break;
+		}
+		case MaterialNode::Float: {
+			float val = 0.5f;
+			if (!node.userData.empty()) sscanf(node.userData.c_str(), "%f", &val);
+			if (ImGui::DragFloat("Value", &val, 0.01f)) doc.dirty = true;
+			node.userData = std::to_string(val);
 
-        if (j.find("metallic") != j.end()) mat->SetMetallic(j["metallic"]);
-        if (j.find("roughness") != j.end()) mat->SetRoughness(j["roughness"]);
-        if (j.value("ssrEnabled", false)) mat->SetSSREnabled(true);
-        if (j.find("alphaCutoff") != j.end()) mat->SetAlphaCutoff(j["alphaCutoff"]);
-        if (j.find("shininess") != j.end()) mat->SetShininess(j["shininess"]);
-        if (j.find("reflectivity") != j.end()) mat->SetReflectivity(j["reflectivity"]);
-        if (j.find("displacementHeight") != j.end()) mat->SetDisplacementHeight(j["displacementHeight"]);
+			float barWidth = ImGui::GetContentRegionAvail().x;
+			ImVec2 cursor = ImGui::GetCursorScreenPos();
+			float t = std::min(std::max(val, 0.f), 1.f);
+			bgDrawList->AddRectFilled(cursor, ImVec2(cursor.x + barWidth * t, cursor.y + 8.f), ImGui::GetColorU32(ImVec4(0.5f, 0.6f, 1.f, 1.f)));
+			break;
+		}
+		case MaterialNode::Int: {
+			int val = 0;
+			if (!node.userData.empty()) sscanf(node.userData.c_str(), "%d", &val);
+			if (ImGui::DragInt("Value", &val)) doc.dirty = true;
+			node.userData = std::to_string(val);
+			break;
+		}
+		case MaterialNode::Bool: {
+			bool val = (node.userData == "1");
+			if (ImGui::Checkbox("Value", &val)) doc.dirty = true;
+			node.userData = val ? "1" : "0";
+			break;
+		}
+		case MaterialNode::Vec2Type: {
+			float v[2] = {0, 0};
+			if (!node.userData.empty()) sscanf(node.userData.c_str(), "%f,%f", &v[0], &v[1]);
+			if (ImGui::DragFloat2("Value", v, 0.01f)) doc.dirty = true;
+			node.userData = std::to_string(v[0]) + "," + std::to_string(v[1]);
+			break;
+		}
+		case MaterialNode::Vec3Type: {
+			float v[3] = {0, 0, 0};
+			if (!node.userData.empty()) sscanf(node.userData.c_str(), "%f,%f,%f", &v[0], &v[1], &v[2]);
+			if (ImGui::DragFloat3("Value", v, 0.01f)) doc.dirty = true;
+			node.userData = std::to_string(v[0]) + "," + std::to_string(v[1]) + "," + std::to_string(v[2]);
+			break;
+		}
+		case MaterialNode::Vec4Type: {
+			float v[4] = {0, 0, 0, 1};
+			if (!node.userData.empty()) sscanf(node.userData.c_str(), "%f,%f,%f,%f", &v[0], &v[1], &v[2], &v[3]);
+			if (ImGui::DragFloat4("Value", v, 0.01f)) doc.dirty = true;
+			node.userData = std::to_string(v[0]) + "," + std::to_string(v[1]) + "," + std::to_string(v[2]) + "," + std::to_string(v[3]);
+			break;
+		}
+		case MaterialNode::Texture: {
+			const std::string textureRoot = JoinPath(projectRoot, "assets/textures");
+			std::string picked;
+			if (DrawBrowseButton("Load...", textureRoot, kTextureExtensions, picked)) {
+				std::string rel = picked;
+				const std::string prefix = textureRoot.empty() ? std::string() : (textureRoot + "/");
+				if (!prefix.empty() && rel.compare(0, prefix.size(), prefix) == 0)
+					rel = rel.substr(prefix.size());
+				node.texturePath = rel;
+				delete node.previewTex;
+				node.previewTex = new Texture();
+				node.previewTex->LoadTexture(picked, TextureType::Texture);
+				doc.dirty = true;
+			}
 
-        return mat;
-    } else if (kind == "custom") {
-        std::string shaderFile = j.value("shaderFile", "");
-        if (!shaderFile.empty()) {
-            return std::make_shared<CustomShaderMaterial>(ResolveTexturePath(shaderFile));
-        }
-    }
+			if (!node.texturePath.empty()) {
+				ImGui::TextDisabled("%s", node.texturePath.c_str());
+				if (!node.previewTex) {
+					node.previewTex = new Texture();
+					node.previewTex->LoadTexture(JoinPath(projectRoot, ResolveTexturePath(node.texturePath)), TextureType::Texture);
+				}
+				ImVec2 slotSize(ImGui::GetContentRegionAvail().x, 64.f);
+				void* tid = GetActiveRenderDevice().GetImGuiTextureID(node.previewTex->GetBindID(), node.previewTex->GetTextureType());
+				if (tid) ImGui::Image((ImTextureID)tid, slotSize);
+				else ImGui::TextDisabled("[preview unavailable]");
+			}
 
-    return nullptr;
+			if (ImGui::BeginDragDropTarget()) {
+				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_REL")) {
+					const char* relPathC = reinterpret_cast<const char*>(payload->Data);
+					std::string relPath(relPathC);
+					const std::string texPrefix = "assets/textures/";
+					if (relPath.compare(0, texPrefix.size(), texPrefix) == 0) {
+						node.texturePath = relPath.substr(texPrefix.size());
+						delete node.previewTex;
+						node.previewTex = new Texture();
+						node.previewTex->LoadTexture(JoinPath(projectRoot, relPath), TextureType::Texture);
+						doc.dirty = true;
+					}
+				}
+				ImGui::EndDragDropTarget();
+			}
+			break;
+		}
+		case MaterialNode::Output: {
+			ImGui::Text("Material Output");
+			Vec4 albedo(1.f, 1.f, 1.f, 1.f);
+			for (const auto& conn : doc.connections) {
+				if (conn.toNode == node.id && conn.toPinIndex == 0) {
+					for (const auto& srcNode : doc.nodes) {
+						if (srcNode.id == conn.fromNode) {
+							albedo = srcNode.ComputePreviewValue(srcNode, doc.nodes, doc.connections);
+							break;
+						}
+					}
+				}
+			}
+			ImVec2 avail = ImGui::GetContentRegionAvail();
+			float previewSize = std::min(avail.x, 80.f);
+			int inPins = MaterialNode::GetInputPinCount(MaterialNode::Output);
+			float previewHeight = (inPins - 1) * pinSpacing + 20.f;
+			ImVec2 basePos = ImGui::GetCursorScreenPos();
+			ImVec2 previewPos(basePos.x + 10.f, basePos.y);
+			bgDrawList->AddRectFilled(previewPos, ImVec2(previewPos.x + previewSize, previewPos.y + previewHeight),
+				ImGui::GetColorU32(ImVec4(albedo.x, albedo.y, albedo.z, albedo.w)));
+			break;
+		}
+		default: {
+			Vec4 previewVal = node.ComputePreviewValue(node, doc.nodes, doc.connections);
+			const char* opName = node.GetOpName();
+			if (opName && opName[0] != '\0') ImGui::Text("%s", opName);
+			else ImGui::TextDisabled("%s", node.name.c_str());
+
+			float previewWidth = ImGui::GetContentRegionAvail().x;
+			int totalPins = MaterialNode::GetInputPinCount(node.type) + MaterialNode::GetOutputPinCount(node.type);
+			if (totalPins == 0) totalPins = 1;
+			float previewHeight = std::max(16.f, (totalPins - 1) * pinSpacing + 20.f);
+			ImVec2 previewPos = ImGui::GetCursorScreenPos();
+			bgDrawList->AddRectFilled(previewPos, ImVec2(previewPos.x + previewWidth, previewPos.y + previewHeight),
+				ImGui::GetColorU32(ImVec4(previewVal.x, previewVal.y, previewVal.z, previewVal.w)));
+
+			char valStr[64];
+			snprintf(valStr, sizeof(valStr), "%.2f", previewVal.x);
+			bgDrawList->AddText(ImVec2(previewPos.x + 4.f, previewPos.y + 3.f), ImGui::GetColorU32(ImVec4(1.f, 1.f, 1.f, 0.9f)), valStr);
+			break;
+		}
+	}
 }
 
-bool MaterialEditor::IsPinHovered(ImVec2 pinPos, float radius) const {
-    ImGuiIO& io = ImGui::GetIO();
-    ImVec2 delta(io.MousePos.x - pinPos.x, io.MousePos.y - pinPos.y);
-    return (delta.x * delta.x + delta.y * delta.y) <= (radius * radius);
+// Fixed-ish size per node type (nested child windows can't auto-size to
+// content the way a top-level ImGui::Begin(..., AlwaysAutoResize) window
+// can), roughly matching how much room each type's widget + pin count need.
+static ImVec2 EstimateNodeSize(const MaterialNode& node) {
+	const int numInputs = MaterialNode::GetInputPinCount(node.type);
+	const int numOutputs = MaterialNode::GetOutputPinCount(node.type);
+	const int numPins = std::max(numInputs, numOutputs);
+	float contentHeight;
+	switch (node.type) {
+		case MaterialNode::Color: contentHeight = 66.f; break;
+		case MaterialNode::Texture: contentHeight = 112.f; break;
+		case MaterialNode::Output: contentHeight = 44.f; break;
+		default: contentHeight = 40.f; break;
+	}
+	const float pinsHeight = (numPins > 0) ? (float)(numPins - 1) * 24.f + 20.f : 0.f;
+	const float height = 30.f /* header */ + std::max(contentHeight, pinsHeight) + 14.f;
+	return ImVec2(190.f, height);
 }
 
-void MaterialEditor::DrawAddNodePalette() {
-    if (!ImGui::Begin("Add Node Palette", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
-        ImGui::End();
-        return;
-    }
+static void DrawNodeGraphTab(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer) {
+	ImVec2 avail = ImGui::GetContentRegionAvail();
+	if (avail.x < 10 || avail.y < 10) return;
 
-    auto AddCategory = [&](const char* label) {
-        if (ImGui::TreeNode(label)) {
-            ImGui::TreePop();
-        }
-    };
+	if (ImGui::Button("Apply")) {
+		std::string err;
+		if (!MaterialEditor::ApplyGraphOrTextToLiveMaterial(doc, projectRoot, deferredGBuffer, &err))
+			doc.lastApplyError = err;
+		else
+			doc.dirty = true;
+	}
+	ImGui::SameLine();
+	ImGui::TextDisabled("Right-click canvas to add a node. Drag a node's title to move it.");
+	if (!doc.lastApplyError.empty())
+		ImGui::TextColored(ImVec4(1.f, 0.4f, 0.35f, 1.f), "%s", doc.lastApplyError.c_str());
+	ImGui::Separator();
 
-    AddCategory("Constants");
-    AddCategory("Math");
-    AddCategory("Vector");
-    AddCategory("Comparison");
-    AddCategory("Special");
+	avail = ImGui::GetContentRegionAvail();
+	if (avail.x < 10 || avail.y < 10) return;
 
-    ImGui::End();
+	bool canvasHovered = false;
+	ImGuiIO& io = ImGui::GetIO();
+	static const float pinRadius = 5.f;
+
+	// Everything below lives inside one clipped child - nodes are nested
+	// children of THIS, not independent top-level windows, so nothing can
+	// render or be dragged outside the Node Graph tab's own bounds.
+	ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.f);
+	ImGui::BeginChild("##node_canvas", avail, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+	ImGui::PopStyleVar();
+
+	ImDrawList* canvasDrawList = ImGui::GetWindowDrawList();
+	ImVec2 canvasScreenPos = ImGui::GetCursorScreenPos();
+	ImVec2 gridSize(40.f * doc.graphZoom, 40.f * doc.graphZoom);
+	int startX = (int)(-doc.graphOffset.x / doc.graphZoom);
+	int startY = (int)(-doc.graphOffset.y / doc.graphZoom);
+	int endX = startX + (int)(avail.x / gridSize.x) + 2;
+	int endY = startY + (int)(avail.y / gridSize.y) + 2;
+
+	for (int x = startX; x <= endX; x++) {
+		float sx = canvasScreenPos.x + doc.graphOffset.x + x * gridSize.x;
+		canvasDrawList->AddLine(ImVec2(sx, canvasScreenPos.y), ImVec2(sx, canvasScreenPos.y + avail.y), ImGui::GetColorU32(ImVec4(0.1f, 0.1f, 0.15f, 0.8f)), 1.f);
+	}
+	for (int y = startY; y <= endY; y++) {
+		float sy = canvasScreenPos.y + doc.graphOffset.y + y * gridSize.y;
+		canvasDrawList->AddLine(ImVec2(canvasScreenPos.x, sy), ImVec2(canvasScreenPos.x + avail.x, sy), ImGui::GetColorU32(ImVec4(0.1f, 0.1f, 0.15f, 0.8f)), 1.f);
+	}
+
+	std::vector<PinPosition> allPins;
+
+	for (auto& node : doc.nodes) {
+		const ImVec2 screenPos(node.pos.x * doc.graphZoom + canvasScreenPos.x + doc.graphOffset.x,
+			node.pos.y * doc.graphZoom + canvasScreenPos.y + doc.graphOffset.y);
+		const ImVec2 nodeSize = EstimateNodeSize(node);
+
+		ImGui::PushID((int)node.id);
+
+		ImVec4 bgColor(0.15f, 0.15f, 0.18f, 0.95f);
+		switch (node.type) {
+			case MaterialNode::Color: bgColor = ImVec4(0.3f, 0.2f, 0.4f, 0.95f); break;
+			case MaterialNode::Texture: bgColor = ImVec4(0.2f, 0.35f, 0.2f, 0.95f); break;
+			case MaterialNode::Float: bgColor = ImVec4(0.2f, 0.25f, 0.4f, 0.95f); break;
+			case MaterialNode::Output: bgColor = ImVec4(0.4f, 0.3f, 0.15f, 0.95f); break;
+			default: break;
+		}
+
+		ImGui::SetCursorScreenPos(screenPos);
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, bgColor);
+		ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.05f, 0.05f, 0.06f, 1.f));
+
+		// A real nested child - clipped to, and unable to move outside, the
+		// canvas child above (unlike a top-level ImGui::Begin() window).
+		ImGui::BeginChild("node", nodeSize, ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoMove);
+
+		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.95f, 1.f));
+		ImGui::TextUnformatted(node.name.c_str());
+		ImGui::PopStyleColor();
+		const bool headerHovered = ImGui::IsItemHovered(); // drag handle: only the title text, not the whole node body
+		ImGui::Separator();
+
+		const bool nodeHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+		if (nodeHovered) canvasHovered = true;
+
+		DrawNodeBody(doc, node, projectRoot);
+
+		if (nodeHovered && ImGui::IsMouseClicked(1))
+			ImGui::OpenPopup("NodeContextMenu");
+
+		if (ImGui::BeginPopup("NodeContextMenu")) {
+			if (ImGui::MenuItem("Delete Node")) {
+				const uint32_t deleteId = node.id;
+				for (auto& n : doc.nodes) {
+					if (n.id == deleteId && n.previewTex) { delete n.previewTex; n.previewTex = nullptr; break; }
+				}
+				doc.nodes.erase(std::remove_if(doc.nodes.begin(), doc.nodes.end(), [deleteId](const MaterialNode& n) { return n.id == deleteId; }), doc.nodes.end());
+				doc.connections.erase(std::remove_if(doc.connections.begin(), doc.connections.end(), [deleteId](const MaterialConnection& c) { return c.fromNode == deleteId || c.toNode == deleteId; }), doc.connections.end());
+				doc.dirty = true;
+			}
+			ImGui::EndPopup();
+		}
+
+		if (!doc.isDraggingConnection && headerHovered && ImGui::IsMouseDragging(0)) {
+			ImVec2 delta(io.MouseDelta.x / doc.graphZoom, io.MouseDelta.y / doc.graphZoom);
+			node.pos.x += delta.x;
+			node.pos.y += delta.y;
+			if (delta.x != 0.f || delta.y != 0.f) doc.dirty = true;
+		}
+
+		ImGui::EndChild();
+		ImGui::PopStyleColor(2);
+
+		// Pins are drawn on the CANVAS's draw list (not the node's own,
+		// which would clip a pin circle sitting right on the node's edge)
+		// using the node's known screen rect - no need to query
+		// GetWindowPos/Size since we already have screenPos/nodeSize.
+		const float centerY = screenPos.y + nodeSize.y * 0.5f;
+		const int numInputs = MaterialNode::GetInputPinCount(node.type);
+		const int numOutputs = MaterialNode::GetOutputPinCount(node.type);
+
+		for (int i = 0; i < numInputs; i++) {
+			float y = centerY + (i - (numInputs - 1) * 0.5f) * 24.f;
+			ImVec2 pinPos(screenPos.x, y);
+
+			const char* label = MaterialNode::GetInputPinLabel(node.type, i);
+			char lbl[8];
+			if (!label) { snprintf(lbl, sizeof(lbl), "In%d", i + 1); label = lbl; }
+			ImVec2 textSize = ImGui::CalcTextSize(label);
+			canvasDrawList->AddText(ImVec2(pinPos.x - pinRadius - 4.f - textSize.x, y - 6.f), ImGui::GetColorU32(ImVec4(0.9f, 0.9f, 0.9f, 1.f)), label);
+			canvasDrawList->AddCircleFilled(pinPos, pinRadius, ImGui::GetColorU32(ImVec4(0.5f, 0.6f, 1.f, 1.f)));
+
+			PinPosition pp; pp.nodeId = node.id; pp.pinIndex = i; pp.isOutput = false; pp.screenPos = pinPos;
+			allPins.push_back(pp);
+		}
+
+		if (numOutputs > 0) {
+			for (int i = 0; i < numOutputs; i++) {
+				float y = centerY + (i - (numOutputs - 1) * 0.5f) * 24.f;
+				ImVec2 pinPos(screenPos.x + nodeSize.x, y);
+				canvasDrawList->AddCircleFilled(pinPos, pinRadius, ImGui::GetColorU32(ImVec4(0.5f, 0.8f, 0.5f, 1.f)));
+
+				const char* label = MaterialNode::GetOutputPinLabel(node.type, i);
+				char lbl[8];
+				if (!label) { snprintf(lbl, sizeof(lbl), "Out%d", i + 1); label = lbl; }
+				canvasDrawList->AddText(ImVec2(pinPos.x + pinRadius + 4.f, y - 6.f), ImGui::GetColorU32(ImVec4(0.7f, 0.8f, 0.5f, 1.f)), label);
+
+				PinPosition pp; pp.nodeId = node.id; pp.pinIndex = i; pp.isOutput = true; pp.screenPos = pinPos;
+				allPins.push_back(pp);
+
+				if (IsPinHovered(pinPos, pinRadius + 2.f) && ImGui::IsMouseClicked(0)) {
+					doc.isDraggingConnection = true;
+					doc.dragFromNode = node.id;
+					doc.dragFromPinIndex = i;
+					doc.dragStartPos = pinPos;
+				}
+			}
+		}
+
+		ImGui::PopID();
+	}
+
+	ImDrawList* bgDrawList = canvasDrawList; // connections/drag-line drawing below is unchanged, just renamed
+	for (const auto& conn : doc.connections) {
+		ImVec2 fromPos, toPos;
+		bool foundFrom = false, foundTo = false;
+		for (const auto& p : allPins) {
+			if (!foundFrom && p.nodeId == conn.fromNode && p.pinIndex == conn.fromPinIndex && p.isOutput) { fromPos = p.screenPos; foundFrom = true; }
+			if (!foundTo && p.nodeId == conn.toNode && p.pinIndex == conn.toPinIndex && !p.isOutput) { toPos = p.screenPos; foundTo = true; }
+		}
+		if (foundFrom && foundTo) {
+			float dx = (toPos.x - fromPos.x) * 0.5f;
+			bgDrawList->AddBezierCubic(fromPos, ImVec2(fromPos.x + dx, fromPos.y), ImVec2(toPos.x - dx, toPos.y), toPos, ImGui::GetColorU32(ImVec4(0.4f, 0.6f, 0.9f, 0.7f)), 2.f);
+		}
+	}
+
+	if (!canvasHovered && !doc.isDraggingConnection && ImGui::IsWindowHovered()) {
+		if (io.MouseWheel != 0) {
+			doc.graphZoom *= 1.f + io.MouseWheel * 0.1f;
+			doc.graphZoom = std::max(0.25f, std::min(doc.graphZoom, 4.f));
+		}
+		if (ImGui::IsMouseDragging(1)) {
+			doc.graphOffset.x += io.MouseDelta.x;
+			doc.graphOffset.y += io.MouseDelta.y;
+		}
+		if (ImGui::IsMouseClicked(1))
+			ImGui::OpenPopup("AddNodeMenu");
+	}
+
+	HandleConnectionDrag(doc, bgDrawList, allPins);
+
+	if (ImGui::BeginPopup("AddNodeMenu")) {
+		ImVec2 mouseGraphPos(
+			(io.MousePos.x - canvasScreenPos.x - doc.graphOffset.x) / doc.graphZoom,
+			(io.MousePos.y - canvasScreenPos.y - doc.graphOffset.y) / doc.graphZoom);
+
+		if (ImGui::BeginMenu("Constants")) {
+			DrawAddNodeItem(doc, MaterialNode::Color, mouseGraphPos);
+			DrawAddNodeItem(doc, MaterialNode::Float, mouseGraphPos);
+			DrawAddNodeItem(doc, MaterialNode::Texture, mouseGraphPos);
+			DrawAddNodeItem(doc, MaterialNode::Int, mouseGraphPos);
+			DrawAddNodeItem(doc, MaterialNode::Bool, mouseGraphPos);
+			DrawAddNodeItem(doc, MaterialNode::Vec2Type, mouseGraphPos);
+			DrawAddNodeItem(doc, MaterialNode::Vec3Type, mouseGraphPos);
+			DrawAddNodeItem(doc, MaterialNode::Vec4Type, mouseGraphPos);
+			ImGui::EndMenu();
+		}
+		if (ImGui::BeginMenu("Math")) {
+			for (auto t : { MaterialNode::Add, MaterialNode::Subtract, MaterialNode::Multiply, MaterialNode::Divide,
+				MaterialNode::Power, MaterialNode::Modulo, MaterialNode::Negate, MaterialNode::Abs, MaterialNode::Sqrt,
+				MaterialNode::Sin, MaterialNode::Cos, MaterialNode::Tan, MaterialNode::Min, MaterialNode::Max,
+				MaterialNode::Clamp, MaterialNode::Lerp, MaterialNode::DotProduct, MaterialNode::CrossProduct,
+				MaterialNode::Length, MaterialNode::Normalize, MaterialNode::Distance })
+				DrawAddNodeItem(doc, t, mouseGraphPos);
+			ImGui::EndMenu();
+		}
+		if (ImGui::BeginMenu("Comparison / Logic")) {
+			for (auto t : { MaterialNode::Equal, MaterialNode::NotEqual, MaterialNode::GreaterThan, MaterialNode::LessThan,
+				MaterialNode::And, MaterialNode::Or, MaterialNode::Not, MaterialNode::Step, MaterialNode::SmoothStep })
+				DrawAddNodeItem(doc, t, mouseGraphPos);
+			ImGui::EndMenu();
+		}
+		if (ImGui::BeginMenu("Vector")) {
+			for (auto t : { MaterialNode::SplitVec2, MaterialNode::SplitVec3, MaterialNode::SplitVec4,
+				MaterialNode::CombineVec2, MaterialNode::CombineVec3, MaterialNode::CombineVec4 })
+				DrawAddNodeItem(doc, t, mouseGraphPos);
+			ImGui::EndMenu();
+		}
+		if (ImGui::BeginMenu("Special")) {
+			for (auto t : { MaterialNode::ObjectPosition, MaterialNode::CameraPosition, MaterialNode::UVCoordinate,
+				MaterialNode::NormalVector, MaterialNode::TimeValue })
+				DrawAddNodeItem(doc, t, mouseGraphPos);
+			ImGui::EndMenu();
+		}
+		ImGui::Separator();
+		DrawAddNodeItem(doc, MaterialNode::Output, mouseGraphPos);
+
+		ImGui::EndPopup();
+	}
+
+	ImGui::EndChild(); // ##node_canvas
 }
 
-void MaterialEditor::HandleConnectionDrag(ImDrawList* drawList, const std::vector<PinPosition>& allPins) {
-    if (!isDraggingConnection) return;
+void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer) {
+	DrawToolbar(doc, projectRoot, deferredGBuffer);
+	ImGui::Separator();
 
-    ImGuiIO& io = ImGui::GetIO();
+	if (!doc.currentMaterial) {
+		ImGui::TextDisabled("No material loaded.");
+		ImGui::Spacing();
+		if (ImGui::Button("New Generic Material")) CreateNewMaterial(doc, MaterialEditKind::Generic);
+		ImGui::SameLine();
+		if (ImGui::Button("New Custom Shader Material")) CreateNewMaterial(doc, MaterialEditKind::Custom);
+		return;
+	}
 
-    // Use stored pin screen position from drag start
-    ImVec2 outPinPos = dragStartPos;
-
-    drawList->AddLine(outPinPos, io.MousePos, ImGui::GetColorU32(ImVec4(0.6f, 0.8f, 1.f, 0.9f)), 2.f);
-
-    if (!ImGui::IsMouseDown(0)) {
-        // Check all input pins for snap target
-        for (const auto& p : allPins) {
-            if (!p.isOutput && p.nodeId != dragFromNode && IsPinHovered(p.screenPos, 8.f)) {
-                MaterialConnection conn;
-                conn.fromNode = dragFromNode;
-                conn.fromPinIndex = dragFromPinIndex;
-                conn.toNode = p.nodeId;
-                conn.toPinIndex = p.pinIndex;
-                connections.push_back(conn);
-            }
-        }
-
-        isDraggingConnection = false;
-    }
+	switch (doc.editMode) {
+		case MaterialEditMode::Inspector: DrawInspectorTab(doc, projectRoot); break;
+		case MaterialEditMode::Text: DrawTextEditorTab(doc, projectRoot, deferredGBuffer); break;
+		case MaterialEditMode::NodeGraph: DrawNodeGraphTab(doc, projectRoot, deferredGBuffer); break;
+	}
 }
