@@ -1,0 +1,17 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "pyros3d": {
+      "type": "local",
+      "command": ["python3", "/Users/peixinho/dev/cpp/Pyros3D_master/pyros3d-mcp-server.py"],
+      "cwd": "/Users/peixinho/dev/cpp/Pyros3D_master",
+      "enabled": true,
+      "environment": {
+        "PYROS_ROOT": "/Users/peixinho/dev/cpp/Pyros3D_master"
+      }
+    }
+  },
+  "tools": {
+    "pyros3d_*": true
+  }
+}

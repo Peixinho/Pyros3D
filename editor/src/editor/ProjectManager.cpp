@@ -1210,6 +1210,10 @@ bool ProjectManager::WriteProjectJson(std::string* errorOut) const
 
 	json settingsJ;
 	settingsJ["defaultMainScript"] = settings.defaultMainScript;
+	if (settings.rendererType == ProjectRendererType::Deferred)
+		settingsJ["rendererType"] = "deferred";
+	else
+		settingsJ["rendererType"] = "forward";
 	root["settings"] = settingsJ;
 
 	std::vector<std::string> scenes;
@@ -1259,6 +1263,9 @@ bool ProjectManager::LoadProjectJson(const std::string& jsonPath, std::string* e
 	{
 		const json& s = root["settings"];
 		settings.defaultMainScript = s.value("defaultMainScript", std::string());
+		std::string rt = s.value("rendererType", "forward");
+		if (rt == "deferred") settings.rendererType = ProjectRendererType::Deferred;
+		else settings.rendererType = ProjectRendererType::Forward;
 	}
 
 	std::error_code ec;

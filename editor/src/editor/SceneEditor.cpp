@@ -14,11 +14,16 @@
 
 #include "SceneEditor.h"
 #include "ProjectManager.h"
+#include "AgentServer.h"
 #include "libgizmo/GizmoTransformRender.h"
+#include <Pyros3D/Core/Logs/Log.h>
+#include <chrono>
+#include <functional>
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
+#include <Pyros3D/Assets/Renderable/Decals/Decals.h>
 #include <cmath>
 #ifdef isnan
 #undef isnan
@@ -973,6 +978,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	GameObject* SceneEditor::GetViewCameraGO() const
 	{
+		if (playMode && scriptRenderCamera != nullptr)
+			return scriptRenderCamera;
+
 		if (activeSceneCameraId != 0)
 		{
 			SceneObject* so = sceneObjects->GetSceneObject(activeSceneCameraId);
@@ -980,6 +988,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				return (GameObject*)so->GetPTR();
 		}
 		return Camera.get();
+	}
+
+	void SceneEditor::SetScriptRenderCamera(GameObject* go)
+	{
+		scriptRenderCamera = go;
+		if (go && playMode)
+			echo(std::string("SUCCESS: Render camera set to \"") + go->GetName() + "\"");
+		else if (!go)
+			echo("SUCCESS: Render camera cleared (using scene camera)");
 	}
 
 	f32 SceneEditor::GetViewFovDeg() const
@@ -1495,6 +1512,37 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (!sharedLua) return;
 		(*sharedLua)["physics"] = static_cast<IPhysics*>(physics);
 		(*sharedLua)["scene"] = scene;
+
+		// Expose the active scene camera so game scripts can use it for audio/shake.
+		GameObject* luaCamera = nullptr;
+		if (activeSceneCameraId != 0)
+		{
+			SceneObject* so = sceneObjects->GetSceneObject(activeSceneCameraId);
+			if (so && so->GetType() == SceneObjectTypes::GAMEOBJECT)
+				luaCamera = static_cast<GameObject*>(so->GetPTR());
+		}
+		if (!luaCamera && !sceneCameras.empty())
+		{
+			for (auto& kv : sceneCameras)
+			{
+				SceneObject* so = sceneObjects->GetSceneObject(kv.first);
+				if (so && so->GetType() == SceneObjectTypes::GAMEOBJECT)
+				{
+					luaCamera = static_cast<GameObject*>(so->GetPTR());
+					break;
+				}
+			}
+		}
+		if (!luaCamera) luaCamera = Camera.get();
+		(*sharedLua)["camera"] = luaCamera;
+
+		// Expose setRenderCamera() so scripts can override which camera renders the viewport.
+		SceneEditor* self = this;
+		(*sharedLua)["setRenderCamera"] = [self](GameObject* go) { self->SetScriptRenderCamera(go); };
+
+		// Expose echo() so Lua scripts can write to the editor log window.
+		(*sharedLua)["echo"] = [](const std::string& msg) { p3d::LOG::_LOG::_echo(msg); };
+
 		if (project && project->IsOpen())
 		{
 			std::string assets = project->AssetsPath();
@@ -1746,8 +1794,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		if (openNewGoScriptModal)
 		{
+			ImGui::SetNextWindowFocus();
 			ImGui::OpenPopup("New GameObject Script");
-			openNewGoScriptModal = false;
+		openNewGoScriptModal = false;
+		openAddFormTrigger = false;
 		}
 		if (ImGui::BeginPopupModal("New GameObject Script", NULL, ImGuiWindowFlags_AlwaysAutoResize))
 		{
@@ -2695,6 +2745,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	void SceneEditor::EnterPlayMode()
 	{
 		if (playMode) return;
+		scriptRenderCamera = nullptr;
 		echo("SUCCESS: Entering play mode");
 		playModeSnapshots.clear();
 		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
@@ -2768,6 +2819,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	void SceneEditor::StopPlayMode()
 	{
 		if (!playMode) return;
+		scriptRenderCamera = nullptr;
 		echo("SUCCESS: Stopping play mode");
 #ifdef LUA_BINDINGS
 		LuaComponent::SetUpdatesEnabled(false);
@@ -3089,6 +3141,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			DeselectSceneObject();
 			selection.clear();
 		}
+		// Clear scriptRenderCamera before destruction to avoid dangling pointer.
+		if (scriptRenderCamera == go)
+			scriptRenderCamera = nullptr;
 		sceneObjects->DestroySceneObject(objId);
 		if (wasCamera)
 		{
@@ -3207,7 +3262,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (!showingSceneDialog) return;
 
 		const char* title = sceneDialogIsSave ? "Save Scene" : "Open Scene";
-		ImGui::OpenPopup(title);
+		ImGui::SetNextWindowFocus();
+		if (!ImGui::IsPopupOpen(title, ImGuiPopupFlags_AnyPopupId))
+			ImGui::OpenPopup(title);
+		
 		if (ImGui::BeginPopupModal(title, &showingSceneDialog,
 			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
 		{
@@ -3481,6 +3539,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			LoadEditorSidecar(path);
 			scenePath = path;
 			sceneDirty = false;
+			lastLoadMtime = SceneEditor::FileMtime(path);
 		}
 		else echo("ERROR: failed to load scene from " + path);
 
@@ -3627,6 +3686,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		ImGuiViewport* vp = ImGui::GetMainViewport();
 		if (vp)
 			ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		ImGui::SetNextWindowFocus();
 
 		if (ImGui::BeginPopupModal("Unsaved Changes", NULL, ImGuiWindowFlags_AlwaysAutoResize))
 		{
@@ -4766,8 +4826,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	#define MAX_INT32 2147483647
 	void SceneEditor::ShowAddForm()
 	{
-		ImGui::OpenPopup("Add");
-		if (ImGui::BeginPopupModal("Add", &showingAddFrom, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+		if (openAddFormTrigger)
+		{
+			ImGuiViewport* vp = ImGui::GetMainViewport();
+			ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+			ImGui::OpenPopup("Add");
+			openAddFormTrigger = false;
+		}
+		
+		if (ImGui::BeginPopupModal("Add", NULL, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 		{
 			editorDisabled = true;
 
@@ -5261,47 +5328,48 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (playMode) return;
 		if (ImGui::BeginMenu("Add", ""))
 		{
-            if (ImGui::MenuItem("Game Object", "")) { showingAddFrom = true; showingAddFormType = 0; AddForm_go = "GameObject"; }
+            if (ImGui::MenuItem("Game Object", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 0; AddForm_go = "GameObject"; }
             if (ImGui::MenuItem("Camera", "")) CreateSceneCamera();
 			ImGui::Separator();
 			if (ImGui::BeginMenu("Mesh", ""))
 			{
 				if (ImGui::BeginMenu("Primitives"))
 				{
-                    if (ImGui::MenuItem("Cube", "")) { showingAddFrom = true; showingAddFormType = 1; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_d = 1.0; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-                    if (ImGui::MenuItem("Sphere", "")) { showingAddFrom = true; showingAddFormType = 2; AddForm_w = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_cgo = false; AddForm_hs = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-                    if (ImGui::MenuItem("Capsule", "")) { showingAddFrom = true; showingAddFormType = 3; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_r = 8.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-                    if (ImGui::MenuItem("Plane", "")) { showingAddFrom = true; showingAddFormType = 4; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-                    if (ImGui::MenuItem("Cone", "")) { showingAddFrom = true; showingAddFormType = 5; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_oe = false; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-                    if (ImGui::MenuItem("Cylinder", "")) { showingAddFrom = true; showingAddFormType = 6; AddForm_w = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_oe = false; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-                    if (ImGui::MenuItem("Torus", "")) { showingAddFrom = true; showingAddFormType = 7; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-					if (ImGui::MenuItem("Torus Knot", "")) { showingAddFrom = true; showingAddFormType = 8; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_p = 1.0; AddForm_q = 1.0; AddForm_hscale = 1.0; AddForm_cgo = false; AddForm_go.clear(); AddForm_sn = false; AddForm_fn = false; }
+                    if (ImGui::MenuItem("Cube", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 1; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_d = 1.0; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+                    if (ImGui::MenuItem("Sphere", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 2; AddForm_w = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_cgo = false; AddForm_hs = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+                    if (ImGui::MenuItem("Capsule", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 3; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_r = 8.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+                    if (ImGui::MenuItem("Plane", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 4; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+                    if (ImGui::MenuItem("Cone", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 5; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_oe = false; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+                    if (ImGui::MenuItem("Cylinder", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 6; AddForm_w = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_oe = false; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+                    if (ImGui::MenuItem("Torus", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 7; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+					if (ImGui::MenuItem("Torus Knot", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 8; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_p = 1.0; AddForm_q = 1.0; AddForm_hscale = 1.0; AddForm_cgo = false; AddForm_go.clear(); AddForm_sn = false; AddForm_fn = false; }
 					ImGui::EndMenu();
 				}
 				ImGui::Separator();
-                if (ImGui::MenuItem("Import Model")) { showingAddFrom = true; showingAddFormType = 9; AddForm_modelPath.clear(); AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; AddForm_cgo = false; }
+                if (ImGui::MenuItem("Import Model")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 9; AddForm_modelPath.clear(); AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; AddForm_cgo = false; }
 				ImGui::EndMenu();
 			}
 			if (ImGui::BeginMenu("Lights", ""))
 			{
-                if (ImGui::MenuItem("Directional", "")) { showingAddFrom = true; showingAddFormType = 10; AddForm_color = Vec4(1, 1, 1, 1); AddForm_dir = Vec3(0, -1, 0); AddForm_cs = false; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-                if (ImGui::MenuItem("Point", "")) { showingAddFrom = true; showingAddFormType = 11; AddForm_w = 10.0; AddForm_color = Vec4(1, 1, 1, 1); AddForm_cs = false; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-                if (ImGui::MenuItem("Spot", "")) { showingAddFrom = true; showingAddFormType = 12; AddForm_w = 10.0; AddForm_color = Vec4(1, 1, 1, 1); AddForm_dir = Vec3(0, -1, 0); AddForm_cs = false; AddForm_oc = 45.f; AddForm_ic = 30.f; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+                if (ImGui::MenuItem("Directional", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 10; AddForm_color = Vec4(1, 1, 1, 1); AddForm_dir = Vec3(0, -1, 0); AddForm_cs = false; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+                if (ImGui::MenuItem("Point", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 11; AddForm_w = 10.0; AddForm_color = Vec4(1, 1, 1, 1); AddForm_cs = false; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+                if (ImGui::MenuItem("Spot", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 12; AddForm_w = 10.0; AddForm_color = Vec4(1, 1, 1, 1); AddForm_dir = Vec3(0, -1, 0); AddForm_cs = false; AddForm_oc = 45.f; AddForm_ic = 30.f; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
 				ImGui::EndMenu();
 			}
 			if (ImGui::BeginMenu("Physics", ""))
 			{
-				if (ImGui::MenuItem("Box", "")) { showingAddFrom = true; showingAddFormType = 13; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_d = 1.0; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
-				if (ImGui::MenuItem("Capsule", "")) { showingAddFrom = true; showingAddFormType = 14; AddForm_w = 0.5f; AddForm_h = 1.0; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
-				if (ImGui::MenuItem("Cone", "")) { showingAddFrom = true; showingAddFormType = 15; AddForm_w = 0.5f; AddForm_h = 1.0; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
-				if (ImGui::MenuItem("Cylinder", "")) { showingAddFrom = true; showingAddFormType = 16; AddForm_w = 0.5f; AddForm_h = 1.0; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
-				if (ImGui::MenuItem("Sphere", "")) { showingAddFrom = true; showingAddFormType = 17; AddForm_w = 0.5f; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
-				if (ImGui::MenuItem("Static Plane", "")) { showingAddFrom = true; showingAddFormType = 18; AddForm_dir = Vec3(0, 1, 0); AddForm_w = 0.0f; AddForm_mass = 0.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
+				if (ImGui::MenuItem("Box", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 13; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_d = 1.0; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
+				if (ImGui::MenuItem("Capsule", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 14; AddForm_w = 0.5f; AddForm_h = 1.0; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
+				if (ImGui::MenuItem("Cone", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 15; AddForm_w = 0.5f; AddForm_h = 1.0; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
+				if (ImGui::MenuItem("Cylinder", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 16; AddForm_w = 0.5f; AddForm_h = 1.0; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
+				if (ImGui::MenuItem("Sphere", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 17; AddForm_w = 0.5f; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
+				if (ImGui::MenuItem("Static Plane", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 18; AddForm_dir = Vec3(0, 1, 0); AddForm_w = 0.0f; AddForm_mass = 0.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
 				ImGui::EndMenu();
 			}
 			if (ImGui::MenuItem("Sound", ""))
 			{
 				showingAddFrom = true;
+				openAddFormTrigger = true;
 				showingAddFormType = 19;
 				AddForm_soundPath.clear();
 				AddForm_stream = false;
@@ -5427,4 +5495,917 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				break;
 			}
 		}
+	}
+
+	//=========================================================================
+	// Agent API implementation (driven by AgentServer on the main thread)
+	//=========================================================================
+
+	namespace {
+
+		SceneObject* AgentFindGameObjectByName(SceneObjects* so, const std::string& name)
+		{
+			const std::map<uint32, SceneObject*>& list = so->GetList();
+			for (std::map<uint32, SceneObject*>::const_iterator i = list.begin(); i != list.end(); i++)
+			{
+				if (i->second && i->second->GetType() == SceneObjectTypes::GAMEOBJECT
+					&& i->second->GetName() == name)
+					return i->second;
+			}
+			return NULL;
+		}
+
+		void AgentApplyTransform(GameObject* go, const std::vector<f32>& p,
+			const std::vector<f32>& r, const std::vector<f32>& s)
+		{
+			if (!go) return;
+			if (p.size() == 3) go->SetPosition(Vec3(p[0], p[1], p[2]));
+			if (r.size() == 3) go->SetRotation(Vec3(r[0], r[1], r[2]));
+			if (s.size() == 3) go->SetScale(Vec3(s[0], s[1], s[2]));
+		}
+
+		Vec3 AgentQuatToEuler(const std::vector<f32>& q)
+		{
+			const f32 x = q[0], y = q[1], z = q[2], w = q[3];
+			f32 pitch = atan2f(2.f * (w * x + y * z), 1.f - 2.f * (x * x + y * y));
+			f32 yaw = asinf(std::max(f32(-1.f), std::min(f32(1.f), 2.f * (w * y - z * x))));
+			f32 roll = atan2f(2.f * (w * z + x * y), 1.f - 2.f * (y * y + z * z));
+			return Vec3(pitch, yaw, roll);
+		}
+
+		std::string AgentPrimitiveTypeName(uint32 t)
+		{
+			switch (t)
+			{
+			case PrimitiveType::Cube: return "Cube";
+			case PrimitiveType::Sphere: return "Sphere";
+			case PrimitiveType::Cone: return "Cone";
+			case PrimitiveType::Cylinder: return "Cylinder";
+			case PrimitiveType::Plane: return "Plane";
+			case PrimitiveType::Capsule: return "Capsule";
+			case PrimitiveType::Torus: return "Torus";
+			case PrimitiveType::TorusKnot: return "TorusKnot";
+			default: return "Custom";
+			}
+		}
+
+		json AgentRenderableToJson(Renderable* r)
+		{
+			if (!r) return json();
+			if (Decal* d = dynamic_cast<Decal*>(r)) { json j; j["kind"] = "decal"; return j; }
+			if (Text* t = dynamic_cast<Text*>(r)) { json j; j["kind"] = "text"; return j; }
+			if (Model* m = dynamic_cast<Model*>(r))
+			{
+				json j;
+				j["kind"] = "model";
+				if (!m->GetPath().empty()) j["path"] = m->GetPath();
+				return j;
+			}
+			if (Primitive* p = dynamic_cast<Primitive*>(r))
+			{
+				json j;
+				j["kind"] = "primitive";
+				j["shape"] = AgentPrimitiveTypeName(p->GetPrimitiveType());
+				return j;
+			}
+			return json();
+		}
+
+		json AgentComponentToJson(IComponent* c)
+		{
+			if (!c) return json();
+			json j;
+			if (RenderingComponent* rc = dynamic_cast<RenderingComponent*>(c))
+			{
+				j["type"] = "RenderingComponent";
+				j["cullTest"] = rc->IsCullTesting();
+				j["castingShadows"] = rc->IsCastingShadows();
+				if (!rc->GetMeshes(0).empty() && rc->GetMeshes(0)[0]->Material)
+				{
+					IMaterial* mat = rc->GetMeshes(0)[0]->Material.get();
+					j["opacity"] = (double)mat->GetOpacity();
+					if (GenericShaderMaterial* gm = dynamic_cast<GenericShaderMaterial*>(mat))
+					{
+						const Vec4 col = gm->GetColor();
+						j["materialColor"] = { (double)col.x, (double)col.y, (double)col.z, (double)col.w };
+					}
+				}
+				json rj = AgentRenderableToJson(rc->GetRenderable());
+				if (rj.is_object()) j["renderable"] = rj;
+				return j;
+			}
+			if (DirectionalLight* l = dynamic_cast<DirectionalLight*>(c))
+			{
+				j["type"] = "DirectionalLight";
+				const Vec4 col = l->GetLightColor();
+				j["color"] = { (double)col.x, (double)col.y, (double)col.z, (double)col.w };
+				const Vec3 dir = l->GetLightDirection();
+				j["direction"] = { (double)dir.x, (double)dir.y, (double)dir.z };
+				j["intensity"] = (double)l->GetLightIntensity();
+				return j;
+			}
+			if (SpotLight* l = dynamic_cast<SpotLight*>(c))
+			{
+				j["type"] = "SpotLight";
+				j["intensity"] = (double)l->GetLightIntensity();
+				j["radius"] = (double)l->GetLightRadius();
+				j["innerCone"] = (double)l->GetLightInnerCone();
+				j["outerCone"] = (double)l->GetLightOutterCone();
+				return j;
+			}
+			if (PointLight* l = dynamic_cast<PointLight*>(c))
+			{
+				j["type"] = "PointLight";
+				j["intensity"] = (double)l->GetLightIntensity();
+				j["radius"] = (double)l->GetLightRadius();
+				return j;
+			}
+			if (AudioSource* a = dynamic_cast<AudioSource*>(c))
+			{
+				j["type"] = "AudioSource";
+				j["file"] = a->GetFile();
+				j["volume"] = (double)a->GetVolume();
+				j["looping"] = a->IsLooping();
+				j["spatialized"] = a->IsSpatialized();
+				j["playing"] = a->IsPlaying();
+				return j;
+			}
+			if (IPhysicsComponent* p = dynamic_cast<IPhysicsComponent*>(c))
+			{
+				j["type"] = "Physics";
+				j["mass"] = (double)p->GetMass();
+				j["ghost"] = p->IsGhost();
+				return j;
+			}
+#ifdef LUA_BINDINGS
+			if (LuaComponent* lc = dynamic_cast<LuaComponent*>(c))
+			{
+				j["type"] = "LuaComponent";
+				if (!lc->scriptFile.empty()) j["scriptFile"] = lc->scriptFile;
+				return j;
+			}
+#endif
+			return json();
+		}
+
+	} // namespace
+
+	bool SceneEditor::AgentAddObject(const std::string& name, const std::string& parentName,
+		const std::vector<f32>& position, const std::vector<f32>& rotation,
+		const std::vector<f32>& scale, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* parent = NULL;
+		if (!parentName.empty())
+		{
+			parent = AgentFindGameObjectByName(sceneObjects, parentName);
+			if (!parent) { errOut = "parent '" + parentName + "' not found"; return false; }
+		}
+		SceneObject* obj = sceneObjects->CreateGameObject(name.empty() ? "GameObject" : name);
+		if (!obj) { errOut = "failed to create game object"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		AgentApplyTransform(go, position, rotation, scale);
+		if (parent)
+			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
+		MarkSceneDirty();
+		return true;
+	}
+
+	bool SceneEditor::AgentAddPrimitive(const std::string& name, const std::string& shape, const json& p,
+		const std::string& parentName, const json& color, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* parent = NULL;
+		if (!parentName.empty())
+		{
+			parent = AgentFindGameObjectByName(sceneObjects, parentName);
+			if (!parent) { errOut = "parent '" + parentName + "' not found"; return false; }
+		}
+
+		SceneObject* obj = sceneObjects->CreateGameObject(name.empty() ? shape : name);
+		if (!obj) { errOut = "failed to create game object"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+
+		auto F = [&p](const char* key, f32 dflt) -> f32 { return p.is_object() ? (f32)p.value(key, (double)dflt) : dflt; };
+		auto B = [&p](const char* key, bool dflt) -> bool { return p.is_object() ? p.value(key, dflt) : dflt; };
+
+		bool created = false;
+		if (shape == "Cube")
+			created = sceneObjects->CreateRenderingCube(go, F("width", 1), F("height", 1), F("depth", 1), false, false) != NULL;
+		else if (shape == "Sphere")
+			created = sceneObjects->CreateRenderingSphere(go, F("radius", 1), (uint32)F("segmentsW", 8), (uint32)F("segmentsH", 6), false, B("halfSphere", false), false) != NULL;
+		else if (shape == "Cone")
+			created = sceneObjects->CreateRenderingCone(go, F("radius", 1), F("height", 1), (uint32)F("segmentsW", 8), (uint32)F("segmentsH", 6), B("openEnded", false), false, false) != NULL;
+		else if (shape == "Cylinder")
+			created = sceneObjects->CreateRenderingCylinder(go, F("radius", 1), F("height", 1), (uint32)F("segmentsW", 8), (uint32)F("segmentsH", 6), B("openEnded", false), false, false) != NULL;
+		else if (shape == "Plane")
+			created = sceneObjects->CreateRenderingPlane(go, F("width", 1), F("height", 1), false, false) != NULL;
+		else if (shape == "Capsule")
+			created = sceneObjects->CreateRenderingCapsule(go, F("radius", 1), F("height", 1), (uint32)F("numRings", 8), (uint32)F("segmentsW", 8), (uint32)F("segmentsH", 6), false, false) != NULL;
+		else if (shape == "Torus")
+			created = sceneObjects->CreateRenderingTorus(go, F("radius", 1), F("tube", 0.5), (uint32)F("segmentsW", 8), (uint32)F("segmentsH", 6), false, false) != NULL;
+		else if (shape == "TorusKnot")
+			created = sceneObjects->CreateRenderingTorusKnot(go, F("radius", 1), F("tube", 0.5), (uint32)F("segmentsW", 8), (uint32)F("segmentsH", 6), (uint32)F("p", 1), (uint32)F("q", 1), false, false) != NULL;
+		else
+			{ errOut = "unknown primitive shape '" + shape + "'"; sceneObjects->DestroySceneObject(obj->GetID()); return false; }
+
+		if (!created)
+		{
+			errOut = "failed to create " + shape;
+			sceneObjects->DestroySceneObject(obj->GetID());
+			return false;
+		}
+
+		if (color.is_array() && color.size() >= 3)
+		{
+			RenderingComponent* rc = NULL;
+			for (auto& c : go->GetComponents())
+				if ((rc = dynamic_cast<RenderingComponent*>(c.get()))) break;
+			if (rc && !rc->GetMeshes(0).empty() && rc->GetMeshes(0)[0]->Material)
+			{
+				if (GenericShaderMaterial* gm = dynamic_cast<GenericShaderMaterial*>(rc->GetMeshes(0)[0]->Material.get()))
+				{
+					const f32 r = (f32)color[0].get<double>();
+					const f32 g = (f32)color[1].get<double>();
+					const f32 b = (f32)color[2].get<double>();
+					const f32 a = color.size() > 3 ? (f32)color[3].get<double>() : 1.f;
+					gm->SetColor(Vec4(r, g, b, a));
+				}
+			}
+		}
+
+		AgentApplyTransform(go,
+			p.is_object() && p.contains("position") && p["position"].is_array() ? std::vector<f32>{ (f32)p["position"][0].get<double>(), (f32)p["position"][1].get<double>(), (f32)p["position"][2].get<double>() } : std::vector<f32>(),
+			p.is_object() && p.contains("rotation") && p["rotation"].is_array() ? std::vector<f32>{ (f32)p["rotation"][0].get<double>(), (f32)p["rotation"][1].get<double>(), (f32)p["rotation"][2].get<double>() } : std::vector<f32>(),
+			p.is_object() && p.contains("scale") && p["scale"].is_array() ? std::vector<f32>{ (f32)p["scale"][0].get<double>(), (f32)p["scale"][1].get<double>(), (f32)p["scale"][2].get<double>() } : std::vector<f32>());
+
+		if (parent)
+			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
+		MarkSceneDirty();
+		return true;
+	}
+
+	bool SceneEditor::AgentAddLight(const std::string& name, const std::string& type, const json& p,
+		const std::string& parentName, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* parent = NULL;
+		if (!parentName.empty())
+		{
+			parent = AgentFindGameObjectByName(sceneObjects, parentName);
+			if (!parent) { errOut = "parent '" + parentName + "' not found"; return false; }
+		}
+
+		SceneObject* obj = sceneObjects->CreateGameObject(name.empty() ? type : name);
+		if (!obj) { errOut = "failed to create game object"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+
+		auto F = [&p](const char* key, f32 dflt) -> f32 { return p.is_object() ? (f32)p.value(key, (double)dflt) : dflt; };
+		Vec4 color(1.f, 1.f, 1.f, 1.f);
+		Vec3 direction(0.f, -1.f, 0.f);
+		if (p.is_object())
+		{
+			if (p.contains("color") && p["color"].is_array() && p["color"].size() >= 3)
+				color = Vec4((f32)p["color"][0].get<double>(), (f32)p["color"][1].get<double>(), (f32)p["color"][2].get<double>(), p["color"].size() > 3 ? (f32)p["color"][3].get<double>() : 1.f);
+			if (p.contains("direction") && p["direction"].is_array() && p["direction"].size() == 3)
+				direction = Vec3((f32)p["direction"][0].get<double>(), (f32)p["direction"][1].get<double>(), (f32)p["direction"][2].get<double>());
+		}
+
+		SceneObject* lightObj = NULL;
+		if (type == "DirectionalLight")
+			lightObj = sceneObjects->CreateDirectionalLight(go, direction, color);
+		else if (type == "PointLight")
+			lightObj = sceneObjects->CreatePointLight(go, F("radius", 10.f), color);
+		else if (type == "SpotLight")
+			lightObj = sceneObjects->CreateSpotLight(go, F("radius", 10.f), direction, F("outer", 45.f), F("inner", 30.f), color);
+		else
+			{ errOut = "unknown light type '" + type + "'"; sceneObjects->DestroySceneObject(obj->GetID()); return false; }
+
+		if (!lightObj)
+		{
+			errOut = "failed to create " + type;
+			sceneObjects->DestroySceneObject(obj->GetID());
+			return false;
+		}
+
+		IComponent* light = (IComponent*)lightObj->GetPTR();
+		if (p.is_object() && p.contains("intensity"))
+		{
+			ILightComponent* il = dynamic_cast<ILightComponent*>(light);
+			if (il) il->SetLightIntensity((f32)p["intensity"].get<double>());
+		}
+		if (p.is_object() && p.contains("radius"))
+		{
+			if (PointLight* pl = dynamic_cast<PointLight*>(light)) pl->SetLightRadius((f32)p["radius"].get<double>());
+			if (SpotLight* sl = dynamic_cast<SpotLight*>(light)) sl->SetLightRadius((f32)p["radius"].get<double>());
+		}
+
+		AgentApplyTransform(go,
+			p.is_object() && p.contains("position") && p["position"].is_array() ? std::vector<f32>{ (f32)p["position"][0].get<double>(), (f32)p["position"][1].get<double>(), (f32)p["position"][2].get<double>() } : std::vector<f32>(),
+			std::vector<f32>(),
+			std::vector<f32>());
+
+		if (parent)
+			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
+		MarkSceneDirty();
+		return true;
+	}
+
+	bool SceneEditor::AgentAddAudio(const std::string& name, const std::string& file, const json& p,
+		const std::string& parentName, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		if (file.empty()) { errOut = "audio file path is required"; return false; }
+		SceneObject* parent = NULL;
+		if (!parentName.empty())
+		{
+			parent = AgentFindGameObjectByName(sceneObjects, parentName);
+			if (!parent) { errOut = "parent '" + parentName + "' not found"; return false; }
+		}
+
+		std::string resolved = ResolveSoundPath(file);
+		std::error_code ec;
+		if (!std::filesystem::exists(resolved, ec))
+			{ errOut = "sound file not found: " + file; return false; }
+
+		SceneObject* obj = sceneObjects->CreateGameObject(name.empty() ? "Sound" : name);
+		if (!obj) { errOut = "failed to create game object"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+
+		auto F = [&p](const char* key, f32 dflt) -> f32 { return p.is_object() ? (f32)p.value(key, (double)dflt) : dflt; };
+		auto B = [&p](const char* key, bool dflt) -> bool { return p.is_object() ? p.value(key, dflt) : dflt; };
+
+		SceneObject* soundObj = sceneObjects->CreateAudioSource(go, resolved,
+			B("stream", false), B("looping", false), B("spatialized", true), F("volume", 1.f));
+		if (!soundObj)
+		{
+			errOut = "failed to create audio source";
+			sceneObjects->DestroySceneObject(obj->GetID());
+			return false;
+		}
+		std::shared_ptr<SoundHelper> h = std::make_shared<SoundHelper>(go);
+		soundObj->Helper = h;
+		scene->Add(h);
+
+		if (AudioSource* a = dynamic_cast<AudioSource*>((IComponent*)soundObj->GetPTR()))
+		{
+			a->SetPitch(F("pitch", 1.f));
+			a->SetPan(F("pan", 0.f));
+		}
+
+		if (parent)
+			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
+		MarkSceneDirty();
+		return true;
+	}
+
+	bool SceneEditor::AgentAddPhysics(const std::string& name, const json& p, const std::string& parentName, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* parent = NULL;
+		if (!parentName.empty())
+		{
+			parent = AgentFindGameObjectByName(sceneObjects, parentName);
+			if (!parent) { errOut = "parent '" + parentName + "' not found"; return false; }
+		}
+		if (!physics) { errOut = "physics engine not available"; return false; }
+
+		const std::string shape = p.is_object() ? p.value("shape", std::string("Box")) : std::string("Box");
+		auto F = [&p](const char* key, f32 dflt) -> f32 { return p.is_object() ? (f32)p.value(key, (double)dflt) : dflt; };
+		const f32 mass = F("mass", 1.f);
+		const bool ghost = p.is_object() ? p.value("ghost", false) : false;
+
+		SceneObject* obj = sceneObjects->CreateGameObject(name.empty() ? ("Physics " + shape) : name);
+		if (!obj) { errOut = "failed to create game object"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+
+		std::shared_ptr<IPhysicsComponent> pcomp;
+		if (shape == "Box")
+			pcomp = physics->CreateBox(F("width", 1), F("height", 1), F("depth", 1), mass, ghost);
+		else if (shape == "Sphere")
+			pcomp = physics->CreateSphere(F("radius", 0.5), mass, ghost);
+		else if (shape == "Capsule")
+			pcomp = physics->CreateCapsule(F("radius", 0.5), F("height", 1), mass, ghost);
+		else if (shape == "Cone")
+			pcomp = physics->CreateCone(F("radius", 0.5), F("height", 1), mass, ghost);
+		else if (shape == "Cylinder")
+			pcomp = physics->CreateCylinder(F("radius", 0.5), F("height", 1), mass, ghost);
+		else if (shape == "StaticPlane")
+		{
+			Vec3 normal(0.f, 1.f, 0.f);
+			if (p.is_object() && p.contains("normal") && p["normal"].is_array() && p["normal"].size() == 3)
+				normal = Vec3((f32)p["normal"][0].get<double>(), (f32)p["normal"][1].get<double>(), (f32)p["normal"][2].get<double>());
+			pcomp = physics->CreateStaticPlane(normal, F("constant", 0.f), 0.f, false);
+		}
+		else
+			{ errOut = "unknown physics shape '" + shape + "'"; sceneObjects->DestroySceneObject(obj->GetID()); return false; }
+
+		if (!pcomp)
+		{
+			errOut = "failed to create physics shape " + shape;
+			sceneObjects->DestroySceneObject(obj->GetID());
+			return false;
+		}
+
+		go->Add(pcomp);
+		uint32 id = ++sceneObjects->_ID;
+		SceneObject* compObj = new SceneObject("Physics " + shape, pcomp.get(), id, SceneObjectTypes::PHYSICS_COMPONENT);
+		sceneObjects->listObjects[id] = compObj;
+		compObj->SetParentID(sceneObjects->GetSceneObjectID(go));
+
+		AgentApplyTransform(go,
+			p.is_object() && p.contains("position") && p["position"].is_array() ? std::vector<f32>{ (f32)p["position"][0].get<double>(), (f32)p["position"][1].get<double>(), (f32)p["position"][2].get<double>() } : std::vector<f32>(),
+			std::vector<f32>(),
+			std::vector<f32>());
+
+		if (parent)
+			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
+		MarkSceneDirty();
+		return true;
+	}
+
+	bool SceneEditor::AgentAddModel(const std::string& name, const std::string& modelFile, const std::string& parentName, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		if (modelFile.empty()) { errOut = "model file path is required"; return false; }
+		SceneObject* parent = NULL;
+		if (!parentName.empty())
+		{
+			parent = AgentFindGameObjectByName(sceneObjects, parentName);
+			if (!parent) { errOut = "parent '" + parentName + "' not found"; return false; }
+		}
+
+		std::string p3dm = modelFile;
+		if (project && project->IsOpen() && !ProjectManager::IsP3dm(modelFile))
+		{
+			std::string outAbs, err;
+			if (!project->ImportModel(modelFile, outAbs, &err))
+			{
+				errOut = "model import failed: " + err;
+				return false;
+			}
+			p3dm = outAbs;
+		}
+		std::error_code ec;
+		if (!std::filesystem::exists(p3dm, ec))
+			{ errOut = "model file not found: " + modelFile; return false; }
+
+		SceneObject* obj = sceneObjects->CreateGameObject(name.empty() ? std::filesystem::path(modelFile).stem().string() : name);
+		if (!obj) { errOut = "failed to create game object"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+
+		if (!sceneObjects->CreateRenderingModel(go, p3dm))
+		{
+			errOut = "failed to create model renderable";
+			sceneObjects->DestroySceneObject(obj->GetID());
+			return false;
+		}
+
+		if (parent)
+			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
+		MarkSceneDirty();
+		return true;
+	}
+
+	bool SceneEditor::AgentAddCamera(const std::string& name, const std::vector<f32>& position,
+		f32 fov, f32 nearPlane, f32 farPlane, bool active, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = sceneObjects->CreateGameObject(name.empty() ? "Camera" : name);
+		if (!obj) { errOut = "failed to create camera"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		if (position.size() == 3)
+			go->SetPosition(Vec3(position[0], position[1], position[2]));
+
+		EditorCameraSettings cs;
+		cs.fov = fov;
+		cs.nearPlane = nearPlane;
+		cs.farPlane = farPlane;
+		RegisterSceneCamera(obj->GetID(), cs);
+		if (active)
+			SetActiveSceneCamera(obj->GetID());
+		MarkSceneDirty();
+		return true;
+	}
+
+	bool SceneEditor::AgentSetTransform(const std::string& name, const json& t, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		if (t.is_object())
+		{
+			if (t.contains("position") && t["position"].is_array() && t["position"].size() == 3)
+				go->SetPosition(Vec3((f32)t["position"][0].get<double>(), (f32)t["position"][1].get<double>(), (f32)t["position"][2].get<double>()));
+			if (t.contains("rotation") && t["rotation"].is_array())
+			{
+				const auto& r = t["rotation"];
+				if (r.size() == 4)
+					go->SetRotation(AgentQuatToEuler({ (f32)r[0].get<double>(), (f32)r[1].get<double>(), (f32)r[2].get<double>(), (f32)r[3].get<double>() }));
+				else if (r.size() == 3)
+					go->SetRotation(Vec3((f32)r[0].get<double>(), (f32)r[1].get<double>(), (f32)r[2].get<double>()));
+			}
+			if (t.contains("scale") && t["scale"].is_array() && t["scale"].size() == 3)
+				go->SetScale(Vec3((f32)t["scale"][0].get<double>(), (f32)t["scale"][1].get<double>(), (f32)t["scale"][2].get<double>()));
+		}
+		MarkSceneDirty();
+		return true;
+	}
+
+	bool SceneEditor::AgentSetTags(const std::string& name, const json& addTags, const json& removeTags, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		if (addTags.is_array())
+			for (auto& tag : addTags) if (tag.is_string()) go->AddTag(tag.get<std::string>());
+		if (removeTags.is_array())
+			for (auto& tag : removeTags) if (tag.is_string()) go->RemoveTag(tag.get<std::string>());
+		MarkSceneDirty();
+		return true;
+	}
+
+	bool SceneEditor::AgentRename(const std::string& name, const std::string& newName, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		if (newName.empty()) { errOut = "new name is empty"; return false; }
+		sceneObjects->SetName(obj->GetID(), newName);
+		MarkSceneDirty();
+		return true;
+	}
+
+	bool SceneEditor::AgentReparent(const std::string& name, const std::string& newParentName, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* child = AgentFindGameObjectByName(sceneObjects, name);
+		if (!child) { errOut = "object '" + name + "' not found"; return false; }
+		uint32 parentId = 0;
+		if (!newParentName.empty())
+		{
+			SceneObject* parent = AgentFindGameObjectByName(sceneObjects, newParentName);
+			if (!parent) { errOut = "parent '" + newParentName + "' not found"; return false; }
+			parentId = parent->GetID();
+		}
+		if (!sceneObjects->ReparentGameObject(child->GetID(), parentId))
+			{ errOut = "reparent failed (cycle or invalid)"; return false; }
+		MarkSceneDirty();
+		return true;
+	}
+
+	bool SceneEditor::AgentDuplicate(const std::string& name, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		if (!sceneObjects->DuplicateGameObject(obj->GetID(), physics))
+			{ errOut = "duplicate failed"; return false; }
+		MarkSceneDirty();
+		return true;
+	}
+
+	bool SceneEditor::AgentDeleteObject(const std::string& name, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		sceneObjects->DestroySceneObject(obj->GetID());
+		MarkSceneDirty();
+		return true;
+	}
+
+	bool SceneEditor::AgentAttachScript(const std::string& name, const std::string& scriptFile, const json& data, std::string& errOut)
+	{
+		(void)data; // live attach uses an empty data table; set via script serialize()
+#ifdef LUA_BINDINGS
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		if (scriptFile.empty()) { errOut = "script path is required"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		std::string resolved = ResolveScriptPath(scriptFile);
+		std::error_code ec;
+		if (!std::filesystem::exists(resolved, ec))
+			{ errOut = "script not found: " + scriptFile; return false; }
+		bool ok = AttachLuaScriptToGameObject(obj->GetID(), resolved);
+		if (ok)
+			MarkSceneDirty();
+		else
+			errOut = "failed to attach script (Lua host unavailable?)";
+		return ok;
+#else
+		errOut = "editor built without Lua bindings";
+		return false;
+#endif
+	}
+
+	bool SceneEditor::AgentSetMaterial(const std::string& objectName, const json& fields, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
+		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		RenderingComponent* rc = NULL;
+		for (auto& c : go->GetComponents())
+			if ((rc = dynamic_cast<RenderingComponent*>(c.get()))) break;
+		if (!rc || rc->GetMeshes(0).empty() || !rc->GetMeshes(0)[0]->Material)
+			{ errOut = "object has no renderable material"; return false; }
+		IMaterial* mat = rc->GetMeshes(0)[0]->Material.get();
+		GenericShaderMaterial* gm = dynamic_cast<GenericShaderMaterial*>(mat);
+
+		if (gm)
+		{
+			if (fields.is_object() && fields.contains("color") && fields["color"].is_array() && fields["color"].size() >= 3)
+			{
+				const auto& c = fields["color"];
+				gm->SetColor(Vec4((f32)c[0].get<double>(), (f32)c[1].get<double>(), (f32)c[2].get<double>(), c.size() > 3 ? (f32)c[3].get<double>() : 1.f));
+			}
+			if (fields.is_object() && fields.contains("specular") && fields["specular"].is_array() && fields["specular"].size() >= 3)
+			{
+				const auto& c = fields["specular"];
+				gm->SetSpecular(Vec4((f32)c[0].get<double>(), (f32)c[1].get<double>(), (f32)c[2].get<double>(), c.size() > 3 ? (f32)c[3].get<double>() : 1.f));
+			}
+			if (fields.is_object() && fields.contains("shininess")) gm->SetShininess((f32)fields["shininess"].get<double>());
+			if (fields.is_object() && fields.contains("reflectivity")) gm->SetReflectivity((f32)fields["reflectivity"].get<double>());
+			if (fields.is_object() && fields.contains("metallic")) gm->SetMetallic((f32)fields["metallic"].get<double>());
+			if (fields.is_object() && fields.contains("roughness")) gm->SetRoughness((f32)fields["roughness"].get<double>());
+			if (fields.is_object() && fields.contains("alphaCutoff")) gm->SetAlphaCutoff((f32)fields["alphaCutoff"].get<double>());
+		}
+		if (fields.is_object() && fields.contains("opacity")) mat->SetOpacity((f32)fields["opacity"].get<double>());
+		if (fields.is_object() && fields.contains("transparent")) mat->SetTransparencyFlag(fields["transparent"].get<bool>());
+		if (fields.is_object() && fields.contains("cullFace")) mat->SetCullFace((uint32)fields["cullFace"].get<int>());
+		MarkSceneDirty();
+		return true;
+	}
+
+	json SceneEditor::AgentSceneState()
+	{
+		json out;
+		out["name"] = GetSceneDisplayName();
+		out["scenePath"] = scenePath;
+		out["dirty"] = sceneDirty;
+		out["playing"] = playMode;
+
+		std::vector<std::shared_ptr<GameObject>>& all = scene->GetAllGameObjectList();
+
+		// Collect user objects (skip editor furniture).
+		std::vector<GameObject*> order;
+		std::map<GameObject*, size_t> idx;
+		for (auto& goPtr : all)
+		{
+			GameObject* go = goPtr.get();
+			if (!go || IsInternalGameObject(go)) continue;
+			idx[go] = order.size();
+			order.push_back(go);
+		}
+
+		std::vector<json> nodeJson(order.size());
+		for (size_t i = 0; i < order.size(); i++)
+		{
+			GameObject* go = order[i];
+			json j;
+			j["name"] = go->GetName();
+			const Vec3& p = go->GetPosition();
+			const Vec3& r = go->GetRotation();
+			const Vec3& s = go->GetScale();
+			j["position"] = { (double)p.x, (double)p.y, (double)p.z };
+			j["rotation"] = { (double)r.x, (double)r.y, (double)r.z };
+			j["scale"] = { (double)s.x, (double)s.y, (double)s.z };
+			json tags = json::array();
+			for (auto& t : go->GetTags()) tags.push_back(t.second);
+			j["tags"] = std::move(tags);
+			json comps = json::array();
+			for (auto& c : go->GetComponents())
+			{
+				if (!c) continue;
+				json cj = AgentComponentToJson(c.get());
+				if (cj.is_object()) comps.push_back(std::move(cj));
+			}
+			j["components"] = std::move(comps);
+			nodeJson[i] = std::move(j);
+		}
+
+		// Recursively assemble the tree (cycle-guarded).
+		std::map<GameObject*, bool> visiting;
+		std::function<json(GameObject*)> build;
+		build = [&](GameObject* go) -> json
+		{
+			auto it = idx.find(go);
+			if (it == idx.end() || visiting.count(go))
+				return json();
+			visiting[go] = true;
+			json& base = nodeJson[it->second];
+			json arr = json::array();
+			for (auto& child : go->GetChildren())
+			{
+				json cj = build(child.get());
+				if (cj.is_object()) arr.push_back(std::move(cj));
+			}
+			base["children"] = std::move(arr);
+			visiting.erase(go);
+			return std::move(base);
+		};
+
+		json roots = json::array();
+		for (auto* go : order)
+		{
+			GameObject* parent = go->GetParent();
+			if (parent == NULL || IsInternalGameObject(parent))
+			{
+				json cj = build(go);
+				if (cj.is_object()) roots.push_back(std::move(cj));
+			}
+		}
+		out["objects"] = std::move(roots);
+		return out;
+	}
+
+	bool SceneEditor::AgentSave(std::string& errOut)
+	{
+		if (scenePath.empty())
+		{
+			errOut = "scene has no path yet — use saveAs with a path";
+			return false;
+		}
+		if (SaveSceneToFile(scenePath))
+			return true;
+		errOut = "save failed (a Save As dialog may have opened)";
+		return false;
+	}
+
+	bool SceneEditor::AgentSaveAs(const std::string& path, std::string& errOut)
+	{
+		if (path.empty()) { errOut = "path is required"; return false; }
+		if (!SaveSceneToFile(path))
+		{
+			errOut = "save failed";
+			return false;
+		}
+		if (project && project->IsOpen())
+		{
+			std::string rel = project->RelativePath(path);
+			if (!rel.empty())
+			{
+				project->SetActiveSceneRel(rel);
+				project->Save();
+			}
+		}
+		return true;
+	}
+
+	bool SceneEditor::AgentLoadScene(const std::string& path, std::string& errOut)
+	{
+		if (path.empty()) { errOut = "path is required"; return false; }
+		std::error_code ec;
+		if (!std::filesystem::exists(path, ec))
+			{ errOut = "scene file not found: " + path; return false; }
+		if (sceneDirty)
+		{
+			errOut = "current scene has unsaved changes — save before loading";
+			return false;
+		}
+		if (!LoadSceneFromFile(path))
+		{
+			errOut = "failed to load scene: " + path;
+			return false;
+		}
+		if (project && project->IsOpen())
+		{
+			std::string rel = project->RelativePath(path);
+			if (!rel.empty())
+			{
+				project->SetActiveSceneRel(rel);
+				project->Save();
+			}
+		}
+		return true;
+	}
+
+	bool SceneEditor::AgentPlay(std::string& errOut)
+	{
+		if (playMode) return true;
+		EnterPlayMode();
+		return true;
+	}
+
+	bool SceneEditor::AgentStopPlay(std::string& errOut)
+	{
+		(void)errOut;
+		if (!playMode) return true;
+		StopPlayMode();
+		return true;
+	}
+
+	std::string SceneEditor::AgentScreenshot()
+	{
+		try
+		{
+			// Render the current view into the dedicated offscreen preview
+			// targets (the same proven path as RenderCameraPreview / model
+			// thumbnails), then read back. Reading the *live* main viewport
+			// texture mid-frame crashes macOS's GLImage pixel processor.
+			GameObject* viewCam = GetViewCameraGO();
+			if (!viewCam || !previewRenderer || !previewEffects)
+				return std::string();
+
+			Projection proj;
+			proj.Perspective(GetViewFovDeg(), (f32)previewWidth / (f32)previewHeight, 0.1f, 100000.f);
+
+			IRenderer::InvalidateSharedUniformCaches();
+			previewEffects->ProcessPostEffects(&proj);
+			previewEffects->Resize(previewWidth, previewHeight);
+			previewRenderer->Resize(previewWidth, previewHeight);
+			previewRenderer->ResetViewPort();
+			previewRenderer->SetViewPort(0, 0, previewWidth, previewHeight);
+			previewRenderer->PreRender(viewCam, scene);
+			previewRenderer->ApplyBackgroundClearColor();
+			previewEffects->CaptureFrame();
+			previewRenderer->RenderScene(proj, viewCam, scene);
+			previewEffects->EndCapture();
+			GetActiveRenderDevice().WaitIdle();
+			IRenderer::InvalidateSharedUniformCaches();
+
+			Texture* src = previewEffects->GetViewportColor();
+			if (!src) return std::string();
+			const uint32 w = src->GetWidth();
+			const uint32 h = src->GetHeight();
+			if (w == 0 || h == 0) return std::string();
+			const uint32 srcType = src->GetDataType();
+			std::vector<uchar> pixels = src->GetTextureData();
+			std::vector<unsigned char> rgba;
+			if (!ConvertPreviewPixelsToRGBA8(pixels, srcType, w, h, rgba))
+				return std::string();
+#if !defined(_SDL2VULKAN) && !defined(_SDL2METAL)
+			FlipRGBA8Vertically(rgba, w, h);
+#endif
+			int len = 0;
+			unsigned char* png = stbi_write_png_to_mem(rgba.data(), (int)(w * 4), (int)w, (int)h, 4, &len);
+			if (!png || len <= 0)
+			{
+				if (png) STBIW_FREE(png);
+				return std::string();
+			}
+			std::string b64 = AgentServer::Base64Encode(png, (size_t)len);
+			STBIW_FREE(png);
+			return b64;
+		}
+		catch (const std::exception& e)
+		{
+			echo(std::string("AGENT: screenshot failed: ") + e.what());
+			return std::string();
+		}
+		catch (...)
+		{
+			return std::string();
+		}
+	}
+
+	std::string SceneEditor::AgentLogTail(int maxLines)
+	{
+		std::string buf;
+		const unsigned int count = p3d::LOG::_LOG::MessageCount();
+		const unsigned int start = (maxLines > 0 && count > (unsigned)maxLines) ? count - (unsigned)maxLines : 0;
+		for (unsigned int i = start; i < count; i++)
+		{
+			const p3d::LOG::Entry& e = p3d::LOG::_LOG::MessageAt(i);
+			buf += e.text;
+			buf += "\n";
+		}
+		return buf;
+	}
+
+	time_t SceneEditor::FileMtime(const std::string& path)
+	{
+		std::error_code ec;
+		std::filesystem::file_time_type lwt = std::filesystem::last_write_time(path, ec);
+		if (ec) return 0;
+		auto dur = std::chrono::duration_cast<std::chrono::seconds>(lwt.time_since_epoch());
+		return (time_t)dur.count();
+	}
+
+	bool SceneEditor::AgentReloadIfChanged()
+	{
+		if (scenePath.empty()) return false;
+		const time_t m = FileMtime(scenePath);
+		if (m == 0) return false;
+		if (m == lastLoadMtime) return false;
+		if (sceneDirty)
+		{
+			echo("AGENT: reload skipped — unsaved editor changes");
+			return false;
+		}
+		if (playMode)
+		{
+			echo("AGENT: reload skipped — play mode is active");
+			return false;
+		}
+		// NOTE: pass a COPY — LoadSceneFromFile() calls NewScene(), which does
+		// scenePath.clear(); binding its const reference to the member would
+		// wipe the path mid-load (serializer then gets an empty file name).
+		const std::string pathCopy = scenePath;
+		const bool ok = LoadSceneFromFile(pathCopy);
+		echo(ok ? "AGENT: scene reloaded from disk" : "AGENT: scene reload failed");
+		return ok;
 	}

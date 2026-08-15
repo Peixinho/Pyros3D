@@ -9,10 +9,20 @@
 #ifndef SCENEEDITOR_H
 #define	SCENEEDITOR_H
 
+// nlohmann json is self-contained, so include it BEFORE Mouse3D.h below,
+// which defines a global `isnan` macro that would corrupt json.hpp's own
+// std::isnan() calls if json.hpp were parsed first (see the `#undef isnan`
+// pattern in SceneEditor.cpp).
+#include <Pyros3D/Utils/Json/json.hpp>
+// Same alias the rest of the editor code uses (MaterialEditor.h defines it
+// identically; redeclaring a namespace-scope alias to the same type is legal).
+using json = nlohmann::json;
+
 #include <Pyros3D/Core/InputManager/InputManager.h>
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
+#include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <Pyros3D/Physics/Physics.h>
@@ -41,6 +51,7 @@
 #include "SelectedMaterial.h"
 #include "UI/OpenDir.h"
 #include "ProjectManager.h"
+#include <ctime>
 #include <map>
 #include <memory>
 #include <set>
@@ -139,6 +150,49 @@ public:
 	void QueueMissingProjectModelThumbnails();
 	// Process up to maxPerFrame queued thumbnails (call from Editor::Update before DrawUI).
 	void ProcessPendingModelThumbnails(int maxPerFrame = 1);
+
+	// ---- Agent API ---------------------------------------------------------
+	// Executed on the editor's main thread by AgentServer (see AgentServer.h).
+	// Each mutation mirrors what the corresponding UI menu action does, and
+	// marks the scene dirty like the UI does. All return true on success;
+	// on failure `errOut` carries a human-readable message.
+	bool AgentAddObject(const std::string& name, const std::string& parentName,
+		const std::vector<f32>& position, const std::vector<f32>& rotation,
+		const std::vector<f32>& scale, std::string& errOut);
+	bool AgentAddPrimitive(const std::string& name, const std::string& shape, const json& p,
+		const std::string& parentName, const json& color, std::string& errOut);
+	bool AgentAddLight(const std::string& name, const std::string& type, const json& p,
+		const std::string& parentName, std::string& errOut);
+	bool AgentAddAudio(const std::string& name, const std::string& file, const json& p,
+		const std::string& parentName, std::string& errOut);
+	bool AgentAddPhysics(const std::string& name, const json& p, const std::string& parentName, std::string& errOut);
+	bool AgentAddModel(const std::string& name, const std::string& modelFile, const std::string& parentName, std::string& errOut);
+	bool AgentAddCamera(const std::string& name, const std::vector<f32>& position,
+		f32 fov, f32 nearPlane, f32 farPlane, bool active, std::string& errOut);
+	bool AgentSetTransform(const std::string& name, const json& t, std::string& errOut);
+	bool AgentSetTags(const std::string& name, const json& addTags, const json& removeTags, std::string& errOut);
+	bool AgentRename(const std::string& name, const std::string& newName, std::string& errOut);
+	bool AgentReparent(const std::string& name, const std::string& newParentName, std::string& errOut);
+	bool AgentDuplicate(const std::string& name, std::string& errOut);
+	bool AgentDeleteObject(const std::string& name, std::string& errOut);
+	bool AgentAttachScript(const std::string& name, const std::string& scriptFile, const json& data, std::string& errOut);
+	bool AgentSetMaterial(const std::string& objectName, const json& fields, std::string& errOut);
+	json  AgentSceneState();
+	bool AgentSave(std::string& errOut);
+	bool AgentSaveAs(const std::string& path, std::string& errOut);
+	bool AgentLoadScene(const std::string& path, std::string& errOut);
+	bool AgentPlay(std::string& errOut);
+	bool AgentStopPlay(std::string& errOut);
+	// Base64 PNG of the current viewport; empty string on failure.
+	std::string AgentScreenshot();
+	// Last `maxLines` entries of the editor log ring ("" if none).
+	static std::string AgentLogTail(int maxLines);
+	// File modification time, or 0 if it cannot be determined.
+	static time_t FileMtime(const std::string& path);
+	// Reloads the scene from disk if its mtime changed since the last load
+	// and the editor has no unsaved edits. Returns true if it reloaded.
+	bool AgentReloadIfChanged();
+	// ------------------------------------------------------------------------
 	static std::string ModelThumbnailPath(const std::string& p3dmPath);
 	// Assets-panel sound preview (non-spatialized, one-shot / stoppable).
 	void PreviewAssetSound(const std::string& absolutePath);
@@ -183,6 +237,9 @@ private:
 	ProjectManager* project;
 	std::string scenePath;
 	bool sceneDirty;
+	// mtime of the scene file as of the last successful load — AgentServer
+	// uses this to detect external edits (AgentReloadIfChanged).
+	time_t lastLoadMtime = 0;
 	int pendingUnsavedAction;
 	std::string pendingLoadPath;
 	bool showUnsavedModal;
@@ -211,6 +268,10 @@ private:
 	void ClearActiveSceneCamera();
 	GameObject* GetViewCameraGO() const;
 	f32 GetViewFovDeg() const;
+
+	// Script-controlled render camera override (set via Lua setRenderCamera()).
+	GameObject* scriptRenderCamera;
+	void SetScriptRenderCamera(GameObject* go);
 
 	std::map<uint32, EditorCameraSettings> sceneCameras;
 	uint32 activeSceneCameraId;
@@ -298,12 +359,19 @@ private:
         Vec2 mouseCenter, mouseLastPosition, mousePosition;
         f32 counterX, counterY;
 
-        // Scene
-        SceneGraph* scene;
-        // Renderer
-        ForwardRenderer* Renderer;
-        // Projection
-        Projection projection, projectionOrtho;
+	// Scene
+	SceneGraph* scene;
+	// Renderer (editor viewport always uses ForwardRenderer)
+	ForwardRenderer* Renderer;
+	// PlayMode renderer + G-buffer for projects configured with DeferredRenderer.
+	DeferredRenderer* playModeDeferredRenderer;
+	Texture* gbufferDepth, *gbufferAlbedo, *gbufferSpecular, *gbufferNormal, *gbufferMatRough;
+	FrameBuffer* gbufferFBO;
+	bool usePlayModeDeferred;
+	void BuildGBuffer(uint32 width, uint32 height);
+	void DestroyGBuffer();
+	// Projection
+	Projection projection, projectionOrtho;
         // Physics
         Physics* physics;
 	// Audio device + listener (required before any AudioSource can load)
@@ -448,6 +516,7 @@ private:
 	Vec4 AddForm_color;
 	void ShowAddForm();
 	bool showingAddFrom;
+	bool openAddFormTrigger;
 	uint32 showingAddFormType;
 	string AddForm_modelPath;
 	string AddForm_soundPath;

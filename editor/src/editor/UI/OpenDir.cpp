@@ -71,7 +71,10 @@ namespace ImGui {
 
 		if (*Open)
 		{
-			ImGui::OpenPopup("Open");
+			ImGui::SetNextWindowFocus();
+			if (!ImGui::IsPopupOpen("Open", ImGuiPopupFlags_AnyPopupId))
+				ImGui::OpenPopup("Open");
+			
 			if (ImGui::BeginPopupModal("Open", Open, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 			{
 				ImGui::Text("Path: %s", _priv::path.c_str());

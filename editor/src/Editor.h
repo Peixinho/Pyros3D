@@ -36,9 +36,12 @@
 #include "editor/UI/TabLog.h"
 #include "editor/UI/PropertiesTab.h"
 #include "editor/UI/ToolsTab.h"
+#include "editor/UI/MaterialEditor.h"
 #include "editor/SceneEditor.h"
 #include "editor/ProjectManager.h"
 #include "editor/CodeEditorDocument.h"
+#include "editor/AgentServer.h"
+#include <Pyros3D/Utils/Json/json.hpp>
 
 #ifdef LUA_BINDINGS
 #include <Pyros3D/Utils/Bindings/PyrosBindings.h>
@@ -137,9 +140,17 @@ private:
 	void PromptQuitWithUnsaved();
 
 	TabLog* tabLog;
-	
+	// Local command server for external agents (MCP bridge). Started in
+	// Init(), processed once per frame from Update() (main thread), stopped
+	// in Shutdown(). See AgentServer.h.
+	AgentServer agentServer;
+	// Dispatches one agent command (cmd + args) to the editor API. Runs on
+	// the main thread. Throws std::runtime_error on error.
+	nlohmann::json HandleAgentCommand(const nlohmann::json& cmd);
+
 	PropertiesTab* tabProperties;
 	ToolsTab* tabTools;
+	MaterialEditor* matEditor;
 	// Set by LoadDefaultLayout(); consumed by the next DrawUI().
 	bool resetLayout;
 

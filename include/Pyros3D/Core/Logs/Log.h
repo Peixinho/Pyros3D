@@ -157,6 +157,10 @@ namespace p3d {
 					_message("=== Pyros3D Start ===");
 				}
 
+				// Always write to stderr so logs are visible even when editor crashes/segfaults.
+#if !defined(ANDROID) && !defined(LOG_DISABLE)
+				std::cerr << Message << std::endl;
+#endif
 				_message(Message);
 
 			}

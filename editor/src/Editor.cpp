@@ -269,6 +269,7 @@ void Editor::Init()
 	tabLog = new TabLog("Log", &showingLog);
 	tabProperties = new PropertiesTab(&showingTabProperties);
 	tabTools = new ToolsTab(&showingTabTools);
+	matEditor = new MaterialEditor(&showingMaterialEditor);
 	// Editor Log panel is the only sink — no OS terminal spam. Everything
 	// includes Info so Lua print() shows up.
 	p3d::LOG::_LOG::SetMirrorStdout(false);
@@ -297,6 +298,13 @@ void Editor::Init()
 		if (autoOpen[0])
 			OpenProjectFromPath(autoOpen);
 	}
+
+	// Local command server for external agents (MCP bridge). Loopback-only,
+	// token-authenticated; commands are executed on the main thread from
+	// Update() so the SceneGraph/render device are safe.
+	agentServer.Start([this](const nlohmann::json& cmd) {
+		return HandleAgentCommand(cmd);
+	});
 }
 
 void Editor::LoadDefaultLayout()
@@ -326,6 +334,7 @@ void Editor::BuildDefaultLayout(const ImGuiID dockspaceID, const ImVec2 &size)
 	ImGui::DockBuilderDockWindow("Scene View", center);
 	ImGui::DockBuilderDockWindow("Assets", bottom);
 	ImGui::DockBuilderDockWindow("Log", bottom);
+	ImGui::DockBuilderDockWindow("Material Editor", bottom);
 	ImGui::DockBuilderDockWindow("Tools", right);
 	ImGui::DockBuilderDockWindow("Properties", rightBottom);
 	dockCenterId = center;
@@ -333,8 +342,10 @@ void Editor::BuildDefaultLayout(const ImGuiID dockspaceID, const ImVec2 &size)
 	ImGui::DockBuilderFinish(dockspaceID);
 }
 
-void Editor::Update() 
+void Editor::Update()
 {
+	// Drain agent commands first so the result is visible in this frame's draw.
+	agentServer.Process();
 	ProcessPendingFileDrops();
 	FlushPendingSceneDocumentCloses();
 	for (size_t i = 0; i < sceneDocs.size(); ++i)
@@ -343,6 +354,272 @@ void Editor::Update()
 	// BeginFrame so Vulkan offscreen binds skip WaitAllFrameFences
 	// (that wait was freezing the editor: ShowViewport ran with
 	// !frameInProgress every tick and parked on MoltenVK fence waits).
+}
+
+nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
+{
+	const std::string name = cmd.value("cmd", std::string());
+	const nlohmann::json& a = cmd.contains("args") ? cmd["args"] : nlohmann::json::object();
+
+	auto A = [&](const char* k) -> std::string { return a.is_object() ? a.value(k, std::string()) : std::string(); };
+	auto AV = [&](const char* k) -> std::vector<f32> {
+		std::vector<f32> out;
+		if (a.is_object() && a.contains(k) && a[k].is_array())
+			for (auto& v : a[k])
+				if (v.is_number()) out.push_back((f32)v.get<double>());
+		return out;
+	};
+
+	if (name == "ping")
+	{
+		nlohmann::json r;
+		r["pong"] = true;
+		r["server"] = "PyrosBuilder";
+		r["port"] = (int)agentServer.GetPort();
+		return r;
+	}
+
+	if (name == "status")
+	{
+		nlohmann::json r;
+		r["editor"] = "PyrosBuilder";
+		r["agentServer"] = agentServer.IsRunning();
+		r["port"] = (int)agentServer.GetPort();
+		r["projectOpen"] = project.IsOpen();
+		if (project.IsOpen())
+			r["projectPath"] = project.GetProjectPath();
+		if (sceneView)
+		{
+			r["scene"] = sceneView->GetSceneDisplayName();
+			r["scenePath"] = sceneView->GetScenePath();
+			r["dirty"] = sceneView->IsSceneDirty();
+			r["playing"] = sceneView->IsPlaying();
+		}
+		return r;
+	}
+
+	if (name == "log")
+	{
+		int lines = 50;
+		if (a.is_object() && a.contains("lines") && a["lines"].is_number())
+			lines = (int)a["lines"].get<int>();
+		nlohmann::json r;
+		r["log"] = SceneEditor::AgentLogTail(lines);
+		return r;
+	}
+
+	if (name == "open_project")
+	{
+		const std::string path = A("path");
+		if (path.empty())
+			throw std::runtime_error("open_project requires 'path'");
+		projectDialogError.clear();
+		if (!OpenProjectFromPath(path))
+			throw std::runtime_error(projectDialogError.empty()
+				? ("failed to open project: " + path) : projectDialogError);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["projectPath"] = project.GetProjectPath();
+		if (sceneView)
+		{
+			r["scenePath"] = sceneView->GetScenePath();
+			r["scene"] = sceneView->GetSceneDisplayName();
+		}
+		return r;
+	}
+
+	if (!sceneView)
+		throw std::runtime_error("no scene is open in the editor");
+
+	std::string err;
+	if (name == "scene_state")
+		return sceneView->AgentSceneState();
+
+	if (name == "add_object")
+	{
+		if (!sceneView->AgentAddObject(A("name"), A("parent"), AV("position"), AV("rotation"), AV("scale"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "add_primitive")
+	{
+		if (!sceneView->AgentAddPrimitive(A("name"), A("shape"), a, A("parent"), a.contains("color") ? a["color"] : nlohmann::json(), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "add_light")
+	{
+		if (!sceneView->AgentAddLight(A("name"), A("type"), a, A("parent"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "add_audio")
+	{
+		if (!sceneView->AgentAddAudio(A("name"), A("file"), a, A("parent"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "add_physics")
+	{
+		if (!sceneView->AgentAddPhysics(A("name"), a, A("parent"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "add_model")
+	{
+		if (!sceneView->AgentAddModel(A("name"), A("file"), A("parent"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "add_camera")
+	{
+		const bool active = a.is_object() ? a.value("active", true) : true;
+		const f32 fov = a.is_object() ? (f32)a.value("fov", 70.0) : 70.f;
+		const f32 nearP = a.is_object() ? (f32)a.value("near", 0.1) : 0.1f;
+		const f32 farP = a.is_object() ? (f32)a.value("far", 2000.0) : 2000.f;
+		if (!sceneView->AgentAddCamera(A("name"), AV("position"), fov, nearP, farP, active, err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "set_transform")
+	{
+		if (!sceneView->AgentSetTransform(A("name"), a.contains("transform") ? a["transform"] : a, err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "set_tags")
+	{
+		if (!sceneView->AgentSetTags(A("name"), a.contains("add") ? a["add"] : nlohmann::json::array(), a.contains("remove") ? a["remove"] : nlohmann::json::array(), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "rename")
+	{
+		if (!sceneView->AgentRename(A("name"), A("newName"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "reparent")
+	{
+		if (!sceneView->AgentReparent(A("name"), A("newParent"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "duplicate")
+	{
+		if (!sceneView->AgentDuplicate(A("name"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "delete_object")
+	{
+		if (!sceneView->AgentDeleteObject(A("name"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "attach_script")
+	{
+		if (!sceneView->AgentAttachScript(A("name"), A("scriptFile"), a.contains("data") ? a["data"] : nlohmann::json::object(), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "set_material")
+	{
+		if (!sceneView->AgentSetMaterial(A("object"), a.contains("material") ? a["material"] : a, err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "save_scene")
+	{
+		if (!sceneView->AgentSave(err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["path"] = sceneView->GetScenePath();
+		return r;
+	}
+	if (name == "save_scene_as")
+	{
+		if (!sceneView->AgentSaveAs(A("path"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["path"] = sceneView->GetScenePath();
+		return r;
+	}
+	if (name == "load_scene")
+	{
+		if (!sceneView->AgentLoadScene(A("path"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["path"] = sceneView->GetScenePath();
+		return r;
+	}
+	if (name == "play")
+	{
+		if (!sceneView->AgentPlay(err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["playing"] = true;
+		return r;
+	}
+	if (name == "stop_play")
+	{
+		if (!sceneView->AgentStopPlay(err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["playing"] = false;
+		return r;
+	}
+	if (name == "screenshot")
+	{
+		const std::string b64 = sceneView->AgentScreenshot();
+		if (b64.empty())
+			throw std::runtime_error("screenshot failed (viewport not ready?)");
+		nlohmann::json r;
+		r["pngBase64"] = b64;
+		return r;
+	}
+	if (name == "reload")
+	{
+		const bool reloaded = sceneView->AgentReloadIfChanged();
+		nlohmann::json r;
+		r["reloaded"] = reloaded;
+		return r;
+	}
+
+	throw std::runtime_error("unknown agent command '" + name + "'");
 }
 
 void Editor::ProcessPendingFileDrops()
@@ -479,9 +756,9 @@ void Editor::DrawUI()
 
 	// No project: skip the dock host entirely — empty dock nodes / the
 	// fullscreen "Main" window were painting over the welcome splash.
-	DrawProjectDialogs();
 	if (!project.IsOpen())
 	{
+		DrawProjectDialogs();
 		DrawWelcomeScreen();
 		ImGui::EndFrame();
 		ImGui::Render();
@@ -553,6 +830,9 @@ void Editor::DrawUI()
 
 	if (showingAssets)
 		DrawAssetsWindow();
+
+	if (showingMaterialEditor && matEditor)
+		matEditor->Show();
 
     ImGui::EndFrame();
     ImGui::Render();
@@ -1026,16 +1306,19 @@ void Editor::DrawProjectDialogs()
 {
 	if (openNewProjectModal)
 	{
+		ImGui::SetNextWindowFocus();
 		ImGui::OpenPopup("New Project");
 		openNewProjectModal = false;
 	}
 	if (openOpenProjectModal)
 	{
+		ImGui::SetNextWindowFocus();
 		ImGui::OpenPopup("Open Project");
 		openOpenProjectModal = false;
 	}
 	if (openProjectSettingsModal)
 	{
+		ImGui::SetNextWindowFocus();
 		ImGui::OpenPopup("Project Settings");
 		openProjectSettingsModal = false;
 	}
@@ -1130,6 +1413,15 @@ void Editor::DrawProjectDialogs()
 		ImGui::TextUnformatted("Global project options (stored in project.json).");
 		ImGui::Separator();
 		ImGui::InputText("Project Name", &projectSettingsName);
+
+		int rendererIdx = (project.GetSettings().rendererType == ProjectRendererType::Deferred) ? 1 : 0;
+		if (ImGui::Combo("Renderer", &rendererIdx, "Forward\0Deferred\0"))
+		{
+			auto& s = project.GetSettingsMutable();
+			s.rendererType = (rendererIdx == 1) ? ProjectRendererType::Deferred : ProjectRendererType::Forward;
+			project.MarkDirty();
+		}
+
 		ImGui::TextDisabled("Each scene has scenes/<SceneName>.lua — open via Scene menu, or click Scene in the tree → Properties.");
 		if (sceneView && !sceneView->GetScenePath().empty())
 		{
@@ -1370,6 +1662,7 @@ void Editor::DrawAssetsWindow()
 
 	if (openNewScriptModal)
 	{
+		ImGui::SetNextWindowFocus();
 		ImGui::OpenPopup("New Script");
 		openNewScriptModal = false;
 	}
@@ -1688,6 +1981,7 @@ void Editor::DrawAssetsWindow()
 
 	if (openDeleteAssetModal)
 	{
+		ImGui::SetNextWindowFocus();
 		ImGui::OpenPopup("Delete Asset");
 		openDeleteAssetModal = false;
 	}
@@ -1769,6 +2063,7 @@ void Editor::MouseMove(Event::Input::Info e)
 void Editor::Shutdown()
 {
     // All your Shutdown Code Here
+	agentServer.Stop();
 	PyrosFileDrop::SetHandler(NULL);
 	PyrosWindowClose::SetHandler(NULL);
 	ClearAssetPreviews();
@@ -1789,6 +2084,7 @@ void Editor::Shutdown()
 	luaReady = false;
 #endif
 
+	delete matEditor;
 	delete tabProperties;
 	delete tabTools;
 	delete tabLog;

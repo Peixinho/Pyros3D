@@ -26,8 +26,6 @@ public:
 
 	virtual void Show()
 	{
-		// Same ring-buffer reader as DemoLauncher::DrawLogWindow — engine
-		// records into LOG::_LOG; this panel only displays it.
 		if (!Open || !*Open)
 		{
 			logSeen = p3d::LOG::_LOG::MessageCount();
@@ -40,6 +38,19 @@ public:
 			{
 				p3d::LOG::_LOG::ClearMessages();
 				logSeen = 0;
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Copy All"))
+			{
+				std::string buf;
+				const unsigned int count = p3d::LOG::_LOG::MessageCount();
+				for (unsigned int i = 0; i < count; i++)
+				{
+					const p3d::LOG::Entry &e = p3d::LOG::_LOG::MessageAt(i);
+					if (logErrorsOnly && !e.error) continue;
+					buf += e.text + "\n";
+				}
+				ImGui::SetClipboardText(buf.c_str());
 			}
 			ImGui::SameLine();
 			ImGui::Checkbox("Errors only", &logErrorsOnly);
@@ -60,14 +71,9 @@ public:
 			{
 				const p3d::LOG::Entry &e = p3d::LOG::_LOG::MessageAt(i);
 				if (logErrorsOnly && !e.error) continue;
-				if (e.level == p3d::LOG::Level::Error)
-					ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "%s", e.text.c_str());
-				else if (e.level == p3d::LOG::Level::Warning)
-					ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.25f, 1.0f), "%s", e.text.c_str());
-				else if (e.level == p3d::LOG::Level::Success)
-					ImGui::TextColored(ImVec4(0.45f, 0.9f, 0.5f, 1.0f), "%s", e.text.c_str());
-				else
-					ImGui::TextUnformatted(e.text.c_str());
+				ImGui::PushID((int)i);
+				ImGui::Selectable(e.text.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick);
+				ImGui::PopID();
 			}
 			if (count != logSeen && ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
 				ImGui::SetScrollHereY(1.0f);

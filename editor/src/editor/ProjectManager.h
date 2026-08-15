@@ -18,9 +18,12 @@ struct ProjectAssetEntry {
 	bool isDirectory;
 };
 
+enum class ProjectRendererType { Forward, Deferred };
+
 struct ProjectSettings {
 	// Deprecated: scene scripts are scenes/<SceneName>.lua companions.
 	std::string defaultMainScript;
+	ProjectRendererType rendererType = ProjectRendererType::Forward;
 };
 
 enum class LuaScriptKind {

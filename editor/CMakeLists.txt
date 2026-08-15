@@ -33,6 +33,7 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditor.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneObjects.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/ProjectManager.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AgentServer.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/EditorDebugDraw.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/CodeEditorDocument.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/GameObjectHelper.cpp
@@ -40,6 +41,7 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/SoundHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/IUInterface.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/OpenDir.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/MaterialEditor.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Utils/ReadDirectory.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/UISettings.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/third_party/ImGuiColorTextEdit/TextEditor.cpp
