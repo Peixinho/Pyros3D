@@ -4,6 +4,9 @@
 //============================================================================
 
 #include "MaterialEditorDocument.h"
+// Complete MaterialPreview type: ~MaterialEditorDocument() (below) destroys
+// the unique_ptr<MaterialPreview> member, which needs the full definition.
+#include "MaterialPreview.h"
 #include "CodeEditorDocument.h"
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>

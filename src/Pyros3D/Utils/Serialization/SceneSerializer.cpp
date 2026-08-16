@@ -1290,6 +1290,33 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				echo("WARNING: SceneSerializer - skipping a CustomShaderMaterial entry with neither shaderFile nor shaderSource");
 				return nullptr;
 			}
+			// CustomShaderMaterial's own constructors never call AddUniform -
+			// unlike GenericShaderMaterial (whose constructor wires its
+			// fixed uniform set internally), a CustomShaderMaterial is
+			// meant to be flexible/user-defined, so wiring these is left to
+			// the caller. The Material Editor's own compile paths
+			// (MaterialEditor::ApplyGraphOrTextToLiveMaterial/
+			// RecompileFromDisk) do this - but a material reconstructed
+			// straight from a scene file via this function bypasses both of
+			// those entirely, and nothing here ever did it either. Result:
+			// every CustomShaderMaterial loaded with a scene (as opposed to
+			// opened fresh in the Material Editor) silently never received
+			// uAmbientLight (or any other standard uniform) at all - not a
+			// wrong value, no value ever sent, permanently zero. Verified
+			// by dumping the auto-UBO scratch buffer right before upload:
+			// (0,0,0,0) for uAmbientLight on every frame. SendUniform/
+			// CaptureExtraUniform silently skip any name the compiled
+			// shader doesn't declare, so issuing the same fixed set
+			// ApplyGraphOrTextToLiveMaterial does is harmless for a shader
+			// that only uses some of them.
+			cm->AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
+			cm->AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
+			cm->AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
+			cm->AddUniform(Uniform("uAmbientLight", Uniforms::DataUsage::GlobalAmbientLight));
+			cm->AddUniform(Uniform("uCameraPosition", Uniforms::DataUsage::CameraPosition));
+			cm->AddUniform(Uniform("uTime", Uniforms::DataUsage::Timer));
+			cm->AddUniform(Uniform("uLights", Uniforms::DataUsage::Lights));
+			cm->AddUniform(Uniform("uNumberOfLights", Uniforms::DataUsage::NumberOfLights));
 			ApplyCommonMaterialFields(cm.get(), j);
 			return cm;
 		}

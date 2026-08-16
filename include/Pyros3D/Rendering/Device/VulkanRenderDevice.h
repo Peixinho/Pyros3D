@@ -1078,6 +1078,26 @@ namespace p3d {
 			         // because it looks like a once-per-frame UBO from the
 			         // main pass alone.
 			case 1:  // BIND_LightsBlock
+			case 21: // BIND_AmbientLightUniforms - IRenderer::GlobalLight is
+			         // a per-instance member, but every IRenderer instance
+			         // that draws a uniform-block material within the same
+			         // frame (the main SceneEditor viewport, AxisHelper's own
+			         // tiny gizmo viewport, camera/thumbnail preview
+			         // renderers) shares this one buffer - the exact
+			         // single-shared-buffer, multiple-writes-before-submit
+			         // race this list exists to solve for every binding
+			         // below. Missed originally because it looks like a
+			         // once-per-frame UBO from the main pass alone (same
+			         // blind spot as binding 0's). Symptom: whichever
+			         // IRenderer instance rendered *last* in a frame silently
+			         // won this binding for every draw already recorded
+			         // against it that frame, regardless of which instance's
+			         // ambient value that draw was actually meant to see -
+			         // e.g. AxisHelper's fixed gizmo ambient overwriting the
+			         // real scene's ambient on the main viewport's own
+			         // objects, or the scene ambient never visibly applying
+			         // at all once the axis gizmo/preview renderers overwrote
+			         // it.
 			case 16: // BIND_VertexFrameUniforms - IslandDemo's water
 			         // multipass Enable/DisableClipPlane + SetClipPlane0
 			         // rewrites this three times per frame (reflection,

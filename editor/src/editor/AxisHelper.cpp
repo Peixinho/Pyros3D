@@ -19,20 +19,10 @@ AxisHelper::AxisHelper()
 
 	// Initialize Renderer
 	Renderer = new ForwardRenderer(100, 100);
-	// No SetGlobalLight() call here (was hardcoded to 0.5,0.5,0.5,0.5) -
-	// IRenderer's ambient UBO (AmbientLightUniformsUBO/CachedGlobalLight)
-	// is a process-wide static, shared by every IRenderer instance, and
-	// this renderer's Render() runs every frame right after the main
-	// SceneEditor viewport's - so a fixed value here silently won that
-	// per-frame race and overwrote whatever ambient the real scene had
-	// just configured, every single frame, regardless of what the value
-	// was (0.5 originally; still true even at IRenderer's own 0.2 default
-	// once the explicit call was removed, since this Renderer keeps
-	// rendering every frame either way) - found chasing a "scene ambient
-	// light setting has no visible effect" report. See SetAmbientLight():
-	// the actual fix is SceneEditor calling it every frame to keep this
-	// renderer's value equal to the real scene's, so there's no
-	// conflicting value left to race over regardless of draw order.
+	// This gizmo is a fixed-size navigation overlay, not scene geometry -
+	// it must always look the same regardless of the real scene's ambient
+	// light. Render() re-asserts a fixed ambient every frame (see its own
+	// comment for why "every frame" and not just here in the constructor).
 	axisHelper = std::make_shared<GameObject>();
 	axisHelperHandle = std::make_shared<Model>("assets/axis.p3dm", false);
 	axisRcomp = std::make_shared<RenderingComponent>(axisHelperHandle, ShaderUsage::Diffuse);
@@ -302,6 +292,15 @@ void AxisHelper::Render(const uint32 x, const uint32 y, const uint32 distx, cons
 	projection.Ortho(-6, 6, -6, 6, 0.01, 100);
 
 	lastDim = Vec4(x, y, distx, disty);
+	// IRenderer::GlobalLight's backing UBO (AmbientLightUniformsUBO) is a
+	// process-wide static, shared by every IRenderer instance including
+	// SceneEditor's own - this renderer runs every frame right after that
+	// one, so whatever value it asserts here is what's left behind for
+	// whoever reads that UBO next. Re-asserting this gizmo's own fixed
+	// value every single frame (not just once in the constructor) is what
+	// stops it drifting to whatever ambient the real scene last set -
+	// this widget must look the same no matter the scene's lighting.
+	Renderer->SetGlobalLight(Vec4(0.5f, 0.5f, 0.5f, 0.5f));
 	Renderer->ClearBufferBit(Buffer_Bit::Depth);
 	Renderer->ResetViewPort();
 	Renderer->SetViewPort(x, y, distx, disty);

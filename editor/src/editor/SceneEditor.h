@@ -136,6 +136,17 @@ public:
 	void NewScene(bool applyProjectDefaults = true);
 	bool SaveSceneToFile(const std::string &path);
 	bool LoadSceneFromFile(const std::string &path);
+	// Recompiles every CustomShaderMaterial assigned to a GameObject in
+	// this scene (LOD 0 only, matching AgentSetMaterial/AgentAssignMaterial's
+	// own convention) that isn't in skipMaterials - those are handled by
+	// the caller via their own open MaterialEditorDocument instead, so
+	// their doc state (compiledShader ownership, generated GLSL text) stays
+	// in sync. Used after a live Forward/Deferred renderer switch and after
+	// a fresh scene load: SceneSerializer::BuildMaterial never chooses a
+	// DEFERRED_GBUFFER branch at all, so scene-only custom materials would
+	// otherwise keep rendering with a stale/wrong one.
+	void RecompileOrphanedCustomMaterials(const std::string& projectRoot, bool deferredGBuffer,
+	                                      const std::set<p3d::IMaterial*>& skipMaterials);
 	const std::string &GetScenePath() const { return scenePath; }
 	bool IsSceneDirty() const { return sceneDirty; }
 	void MarkSceneDirty() { sceneDirty = true; }

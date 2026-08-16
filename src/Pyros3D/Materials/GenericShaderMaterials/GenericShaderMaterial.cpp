@@ -16,6 +16,70 @@ namespace p3d
 	// Shaders List
 	std::map<uint32, Shader* > GenericShaderMaterial::ShadersList;
 
+	// Shared by the constructor and GetOrBuildGBufferProgram() - both need
+	// the exact same options-bitmask -> #define text, or the two compiled
+	// variants of "the same options" (with/without DeferredRenderer_Gbuffer
+	// OR'd in) would drift out of sync with each other.
+	static std::string BuildShaderUsageDefines(const uint32 options)
+	{
+		std::string define;
+		if (options & ShaderUsage::Color)
+			define += std::string("#define COLOR\n");
+		if (options & ShaderUsage::DebugRendering)
+			define += std::string("#define DEBUGRENDERING\n");
+		if (options & ShaderUsage::Texture)
+			define += std::string("#define TEXTURE\n");
+		if (options & ShaderUsage::TextRendering)
+			define += std::string("#define TEXTRENDERING\n");
+		if (options & ShaderUsage::DirectionalShadow)
+			define += std::string("#define DIRECTIONALSHADOW\n");
+		if (options & ShaderUsage::PointShadow)
+			define += std::string("#define POINTSHADOW\n");
+		if (options & ShaderUsage::SpotShadow)
+			define += std::string("#define SPOTSHADOW\n");
+		if (options & ShaderUsage::CastShadows)
+			define += std::string("#define CASTSHADOWS\n");
+		if (options & ShaderUsage::BumpMapping)
+			define += std::string("#define BUMPMAPPING\n");
+		if (options & ShaderUsage::ParallaxMapping)
+			define += std::string("#define PARALLAXMAPPING\n");
+		if (options & ShaderUsage::Skinning)
+			define += std::string("#define SKINNING\n");
+		if (options & ShaderUsage::EnvMap)
+			define += std::string("#define ENVMAP\n");
+		if (options & ShaderUsage::Skybox)
+			define += std::string("#define SKYBOX\n");
+		if (options & ShaderUsage::Refraction)
+			define += std::string("#define REFRACTION\n");
+		if (options & ShaderUsage::SpecularColor)
+			define += std::string("#define SPECULARCOLOR\n");
+		if (options & ShaderUsage::SpecularMap)
+			define += std::string("#define SPECULARMAP\n");
+		if (options & ShaderUsage::Diffuse)
+			define += std::string("#define DIFFUSE\n");
+		if (options & ShaderUsage::CellShading)
+			define += std::string("#define CELLSHADING\n");
+		if (options & ShaderUsage::ClipPlane)
+			define += std::string("#define CLIPSPACE\n");
+		if (options & ShaderUsage::DeferredRenderer_Gbuffer)
+			define += std::string("#define DEFERRED_GBUFFER\n");
+		if (options & ShaderUsage::InstancedRendering)
+			define += std::string("#define INSTANCED_RENDERING\n");
+		if (options & ShaderUsage::VelocityRendering)
+			define += std::string("#define VELOCITY_RENDERING\n");
+		if (options & ShaderUsage::PBR)
+			define += std::string("#define PBR\n");
+		if (options & ShaderUsage::PBRMap)
+			define += std::string("#define PBRMAP\n");
+		if (options & ShaderUsage::AlphaTest)
+			define += std::string("#define ALPHATEST\n");
+		if (options & ShaderUsage::InstancedColor)
+			define += std::string("#define INSTANCED_COLOR\n");
+		if (options & ShaderUsage::VertexWind)
+			define += std::string("#define VERTEXWIND\n");
+		return define;
+	}
+
 	GenericShaderMaterial::GenericShaderMaterial(const uint32 options) : IMaterial()
 	{
 		// Default
@@ -44,62 +108,7 @@ namespace p3d
 
 			ShadersList[options]->LoadShaderFile("shaders/PyrosShader.glsl");
 
-			std::string define;
-			if (options & ShaderUsage::Color)
-				define += std::string("#define COLOR\n");
-			if (options & ShaderUsage::DebugRendering)
-				define += std::string("#define DEBUGRENDERING\n");
-			if (options & ShaderUsage::Texture)
-				define += std::string("#define TEXTURE\n");
-			if (options & ShaderUsage::TextRendering)
-				define += std::string("#define TEXTRENDERING\n");
-			if (options & ShaderUsage::DirectionalShadow)
-				define += std::string("#define DIRECTIONALSHADOW\n");
-			if (options & ShaderUsage::PointShadow)
-				define += std::string("#define POINTSHADOW\n");
-			if (options & ShaderUsage::SpotShadow)
-				define += std::string("#define SPOTSHADOW\n");
-			if (options & ShaderUsage::CastShadows)
-				define += std::string("#define CASTSHADOWS\n");
-			if (options & ShaderUsage::BumpMapping)
-				define += std::string("#define BUMPMAPPING\n");
-			if (options & ShaderUsage::ParallaxMapping)
-				define += std::string("#define PARALLAXMAPPING\n");
-			if (options & ShaderUsage::Skinning)
-				define += std::string("#define SKINNING\n");
-			if (options & ShaderUsage::EnvMap)
-				define += std::string("#define ENVMAP\n");
-			if (options & ShaderUsage::Skybox)
-				define += std::string("#define SKYBOX\n");
-			if (options & ShaderUsage::Refraction)
-				define += std::string("#define REFRACTION\n");
-			if (options & ShaderUsage::SpecularColor)
-				define += std::string("#define SPECULARCOLOR\n");
-			if (options & ShaderUsage::SpecularMap)
-				define += std::string("#define SPECULARMAP\n");
-			if (options & ShaderUsage::Diffuse)
-				define += std::string("#define DIFFUSE\n");
-			if (options & ShaderUsage::CellShading)
-				define += std::string("#define CELLSHADING\n");
-			if (options & ShaderUsage::ClipPlane)
-				define += std::string("#define CLIPSPACE\n");
-			if (options & ShaderUsage::DeferredRenderer_Gbuffer)
-				define += std::string("#define DEFERRED_GBUFFER\n");
-			if (options & ShaderUsage::InstancedRendering)
-				define += std::string("#define INSTANCED_RENDERING\n");
-			if (options & ShaderUsage::VelocityRendering)
-				define += std::string("#define VELOCITY_RENDERING\n");
-			if (options & ShaderUsage::PBR)
-				define += std::string("#define PBR\n");
-			if (options & ShaderUsage::PBRMap)
-				define += std::string("#define PBRMAP\n");
-			if (options & ShaderUsage::AlphaTest)
-				define += std::string("#define ALPHATEST\n");
-			if (options & ShaderUsage::InstancedColor)
-				define += std::string("#define INSTANCED_COLOR\n");
-			if (options & ShaderUsage::VertexWind)
-				define += std::string("#define VERTEXWIND\n");
-
+			const std::string define = BuildShaderUsageDefines(options);
 			ShadersList[options]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
 			ShadersList[options]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
 
@@ -235,6 +244,61 @@ namespace p3d
 			AddUniform(Uniform("uPrvViewMatrix", Uniforms::DataUsage::PrvViewMatrix));
 			AddUniform(Uniform("uPrvProjectionMatrix", Uniforms::DataUsage::PrvProjectionMatrix));
 		}
+	}
+
+	uint32 GenericShaderMaterial::GetOrBuildGBufferProgram()
+	{
+		// shaderID (this material's own options, chosen once at
+		// construction - by SceneObjects::GenericMaterial for editor-added
+		// primitives, or straight from a scene's serialized "options" field
+		// for anything loaded from disk) never has DeferredRenderer_Gbuffer
+		// OR'd in - nothing upstream of GenericShaderMaterial's constructor
+		// ever sets it for ordinary scene content, only the editor's own
+		// grid special-cases it. So this material's own shaderProgram is
+		// Forward-only: PyrosShader.glsl's `void main()` for it never had
+        // DEFERRED_GBUFFER defined, so it only declares/writes the single
+		// `FragColor` output (already fully lit - ambient and any real
+		// lights baked straight into diffuse.xyz by the DIFFUSE branch's
+		// `diffuse = _diffuse*diffuse + ...`), never FragData_r/g/b/pbr.
+		//
+		// DeferredRenderer's G-buffer pass binds *whatever* Material->
+		// GetShader() returns without checking that - so drawing this mesh
+		// there wrote that already-lit FragColor into the G-buffer's first
+		// attachment as if it were raw unlit albedo, and left the other
+		// three MRT attachments as whatever the render pass's own default
+		// load left them. The ambient composite pass then read that
+		// attachment's alpha (meant to carry "diffuse.x*uAmbientLight.x")
+		// back out as an ambient scalar - but this program's FragColor.w is
+		// just diffuse.w*uOpacity (~1.0 for an opaque material, regardless
+		// of the real scene ambient) - producing a uniform overbrightness
+		// with no directional shape, on every single built-in-material mesh
+		// in every Deferred scene, independent of light count. Found by
+		// measuring pixel-exact Forward (204,204,204) vs Deferred
+		// (255,255,255) on a zero-light scene with ambient=0.8 - Forward
+		// matched ambient*255 exactly, Deferred didn't, and editing every
+		// line inside PyrosShader.glsl's `#ifdef DEFERRED_GBUFFER` block
+		// (including an unconditional solid-magenta override at the very
+		// top of main()) had zero visible effect, proving this material's
+		// bound program never had that branch compiled in at all.
+		//
+		// Fix: lazily compile+cache a sibling program for shaderID |
+		// DeferredRenderer_Gbuffer (same ShadersList cache CustomShaderMaterial-
+		// style branch selection already uses elsewhere in the engine), and
+		// have the G-buffer pass bind *that* instead of this material's own
+		// program - see DeferredRenderer::RenderScene()'s G-buffer loop.
+		const uint32 gbufferOptions = shaderID | ShaderUsage::DeferredRenderer_Gbuffer;
+		if (ShadersList.find(gbufferOptions) == ShadersList.end())
+		{
+			ShadersList[gbufferOptions] = new Shader();
+			ShadersList[gbufferOptions]->currentMaterials = 0;
+			ShadersList[gbufferOptions]->LoadShaderFile("shaders/PyrosShader.glsl");
+
+			const std::string define = BuildShaderUsageDefines(gbufferOptions);
+			ShadersList[gbufferOptions]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
+			ShadersList[gbufferOptions]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
+			ShadersList[gbufferOptions]->LinkProgram();
+		}
+		return ShadersList[gbufferOptions]->ShaderProgram();
 	}
 
 	void GenericShaderMaterial::SetShininess(const f32 shininess)

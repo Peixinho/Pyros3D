@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <algorithm>
 #include <cfloat>
+#include <set>
 
 using namespace p3d;
 namespace fs = std::filesystem;
@@ -1585,6 +1586,37 @@ void Editor::SwitchAllScenesRenderer(bool useDeferred)
 {
 	for (size_t i = 0; i < sceneDocs.size(); ++i)
 		sceneDocs[i]->SwitchRenderer(useDeferred);
+	RecompileCustomMaterialsForRenderer(useDeferred);
+}
+
+void Editor::RecompileCustomMaterialsForRenderer(bool useDeferred)
+{
+	if (!project.IsOpen()) return;
+	const std::string projectRoot = project.GetProjectPath();
+
+	// Open editor tabs first: their doc owns compiledShader, so their
+	// material must be recompiled through ApplyGraphOrTextToLiveMaterial
+	// (which re-wires uniforms/samplers and updates the doc's tracking
+	// fields) rather than the orphan path's RecompileFromDisk.
+	std::set<IMaterial*> handled;
+	for (size_t i = 0; i < materialDocs.size(); ++i)
+	{
+		MaterialEditorDocument* doc = materialDocs[i];
+		if (!doc || doc->editKind != MaterialEditKind::Custom || !doc->currentMaterial) continue;
+		handled.insert(doc->currentMaterial.get());
+		// Already on the right branch (or never compiled) - nothing to do.
+		if (!doc->hasCompiledShader || doc->compiledForDeferredGBuffer == useDeferred) continue;
+		std::string err;
+		if (!MaterialEditor::ApplyGraphOrTextToLiveMaterial(*doc, projectRoot, useDeferred, &err))
+			doc->lastApplyError = err;
+	}
+
+	// Then every scene-assigned custom material NOT owned by an open tab
+	// (the "orphaned" ones - e.g. a material loaded with the scene and
+	// never opened in the editor).
+	for (size_t i = 0; i < sceneDocs.size(); ++i)
+		if (sceneDocs[i])
+			sceneDocs[i]->RecompileOrphanedCustomMaterials(projectRoot, useDeferred, handled);
 }
 
 void Editor::UpdateWindowTitle()
@@ -2212,6 +2244,12 @@ void Editor::DrawAssetsWindow()
 			newScriptName = "NewScript";
 			newScriptError.clear();
 		}
+		if (ImGui::MenuItem(u8"\uf53f New Material"))
+		{
+			openNewMaterialModal = true;
+			newMaterialName = "NewMaterial";
+			newMaterialError.clear();
+		}
 		ImGui::EndPopup();
 	}
 
@@ -2294,6 +2332,7 @@ void Editor::Draw()
 	ClassName::Draw();
 	// After ImGui has consumed texture IDs from this frame's draw list.
 	FlushDeferredPreviewDestroy();
+	FlushDeferredPreviewRenderers();
 }
 
 void Editor::MouseMove(Event::Input::Info e)
@@ -2318,6 +2357,9 @@ void Editor::Shutdown()
 	CloseAllSceneDocuments();
 	CloseAllLuaScriptDocuments();
 	CloseAllMaterialDocuments();
+	// CloseAllMaterialDocuments() queued any live previews above - finish
+	// them now (no more frames coming on the shutdown path).
+	FlushDeferredPreviewRenderers();
 	sceneView = NULL;
 
 	delete sharedAudio;
@@ -2511,6 +2553,30 @@ MaterialEditorDocument* Editor::EditMaterialInline(std::shared_ptr<IMaterial> ma
 	return doc;
 }
 
+// The doc owns its live material's Shader* (doc.compiledShader) while
+// CustomShaderMaterial::shader is only a non-owning raw pointer to it. If
+// the material outlives the doc (still assigned to a scene GameObject),
+// move ownership into the material BEFORE `delete doc` frees it -
+// otherwise the material's shader pointer dangles.
+static void AdoptDocumentShaderIfShared(MaterialEditorDocument* doc)
+{
+	if (!doc || !doc->compiledShader || !doc->currentMaterial || doc->currentMaterial.use_count() <= 1)
+		return;
+	if (auto* cm = dynamic_cast<CustomShaderMaterial*>(doc->currentMaterial.get()))
+		cm->AdoptShader(std::move(doc->compiledShader));
+}
+
+// The doc's sphere preview owns an FBO whose color texture this frame's
+// ImGui draw list already sampled (its window was drawn earlier this frame)
+// - freeing it mid-frame is the Metal/Vulkan crash class
+// deferredDestroyPreviews guards against. Pull it out of the doc and
+// destroy it after the frame's rasterization instead.
+void Editor::QueuePreviewForDeferredDestroy(MaterialEditorDocument* doc)
+{
+	if (doc && doc->preview)
+		deferredDestroyPreviewRenderers.push_back(doc->preview.release());
+}
+
 void Editor::CloseMaterialDocument(uint32_t id)
 {
 	for (size_t i = 0; i < materialDocs.size(); ++i)
@@ -2519,6 +2585,8 @@ void Editor::CloseMaterialDocument(uint32_t id)
 		MaterialEditorDocument* doc = materialDocs[i];
 		if (activeMaterialDoc == doc)
 			activeMaterialDoc = NULL;
+		AdoptDocumentShaderIfShared(doc);
+		QueuePreviewForDeferredDestroy(doc);
 		delete doc;
 		materialDocs.erase(materialDocs.begin() + (std::ptrdiff_t)i);
 		break;
@@ -2528,9 +2596,20 @@ void Editor::CloseMaterialDocument(uint32_t id)
 void Editor::CloseAllMaterialDocuments()
 {
 	for (size_t i = 0; i < materialDocs.size(); ++i)
+	{
+		AdoptDocumentShaderIfShared(materialDocs[i]);
+		QueuePreviewForDeferredDestroy(materialDocs[i]);
 		delete materialDocs[i];
+	}
 	materialDocs.clear();
 	activeMaterialDoc = NULL;
+}
+
+void Editor::FlushDeferredPreviewRenderers()
+{
+	for (size_t i = 0; i < deferredDestroyPreviewRenderers.size(); ++i)
+		delete deferredDestroyPreviewRenderers[i];
+	deferredDestroyPreviewRenderers.clear();
 }
 
 void Editor::DestroySceneDocument(SceneEditor* doc)
@@ -2737,8 +2816,11 @@ void Editor::HostEditMaterialInline(std::shared_ptr<IMaterial> mat, const std::s
 	if (ed) ed->EditMaterialInline(mat, ownerLabel);
 }
 
-Editor::~Editor() 
+Editor::~Editor()
 {
+	// Belt and braces for shutdown paths that delete the editor without a
+	// full Shutdown() (queued material previews must not leak).
+	FlushDeferredPreviewRenderers();
 	if (instance == this) {
 		instance = NULL;
 	}

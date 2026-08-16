@@ -107,6 +107,28 @@ namespace p3d
 		// GetOptions() is the critical one: the ctor's ShaderUsage bitmask
 		// selects which shader variant compiles, and without it a saved
 		// material can't be reconstructed with the right shader at all.
+		// True when this material's own compiled program (shaderID, set
+		// once at construction) already has DeferredRenderer_Gbuffer in
+		// its options - i.e. it's safe to bind as-is during a
+		// DeferredRenderer G-buffer pass. False for every ordinary
+		// scene material (SceneObjects::GenericMaterial, anything loaded
+		// via SceneSerializer::BuildMaterial's "options" field) - see
+		// GetOrBuildGBufferProgram()'s comment.
+		bool IsCompiledForGBuffer() const { return (shaderID & ShaderUsage::DeferredRenderer_Gbuffer) != 0; }
+		// Lazily compiles (once per distinct options value, cached like
+		// every other ShadersList entry) a DEFERRED_GBUFFER sibling of
+		// this material's own shader and returns its program handle,
+		// without touching this material's own shaderProgram. See the
+		// .cpp for why this exists.
+		uint32 GetOrBuildGBufferProgram();
+		// Paired calls around a single G-buffer RenderObject() -
+		// DeferredRenderer::RenderScene() is the only caller. Swaps
+		// shaderProgram to the G-buffer sibling for exactly that one
+		// draw, then must be restored before this material is used for
+		// anything else (a Forward pass, a shadow pass, another
+		// material's uniforms being resolved against the wrong program).
+		void UseGBufferProgramForNextDraw() { shaderProgram = GetOrBuildGBufferProgram(); }
+		void RestoreOwnProgram() { shaderProgram = ShadersList[shaderID]->ShaderProgram(); }
 		const uint32 &GetOptions() const { return shaderID; }
 		const Vec4 &GetColor() const { return Kd; }
 		const Vec4 &GetSpecular() const { return Ks; }

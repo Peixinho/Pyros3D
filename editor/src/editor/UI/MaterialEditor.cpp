@@ -9,6 +9,7 @@
 #include "OpenDir.h"
 #include "../CodeEditorDocument.h"
 #include "../MaterialCodegen.h"
+#include "../MaterialPreview.h"
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <Pyros3D/Materials/Shaders/Shaders.h>
@@ -214,6 +215,55 @@ bool MaterialEditor::SaveToFile(MaterialEditorDocument& doc, const std::string& 
 	return doc.SaveToFile(path);
 }
 
+// Minimal, self-contained (no #includes, no node-graph dependency) solid
+// magenta placeholder, built for exactly one branch. Compiled and bound
+// whenever a material's real shader fails to (re)compile for a branch
+// other than the one it's already running - see the callers below for why
+// leaving the old cross-branch program bound is worse than this.
+static std::string BuildErrorFallbackShaderGLSL(bool deferredGBuffer) {
+	std::ostringstream out;
+	out <<
+		"#define varying_out out\n"
+		"#define attribute_in in\n"
+		"#ifdef VERTEX\n"
+		"attribute_in vec3 aPosition;\n"
+		"uniform mat4 uProjectionMatrix, uViewMatrix, uModelMatrix;\n"
+		"void main() {\n"
+		"\tgl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aPosition, 1.0);\n"
+		"}\n"
+		"#endif\n"
+		"#ifdef FRAGMENT\n";
+	if (deferredGBuffer) {
+		out <<
+			"layout(location = 0) out vec4 FragData_r;\n"
+			"layout(location = 1) out vec4 FragData_g;\n"
+			"layout(location = 2) out vec4 FragData_b;\n"
+			"layout(location = 3) out vec4 FragData_pbr;\n"
+			"void main() {\n"
+			"\tFragData_r = vec4(1.0, 0.0, 1.0, 1.0);\n"
+			"\tFragData_g = vec4(1.0, 1.0, 1.0, 1.0);\n"
+			"\tFragData_b = vec4(0.0, 0.0, 1.0, 1.0);\n"
+			"\tFragData_pbr = vec4(0.5, 0.0, 0.0, 0.0);\n"
+			"}\n";
+	} else {
+		out <<
+			"varying_out vec4 FragColor;\n"
+			"void main() {\n"
+			"\tFragColor = vec4(1.0, 0.0, 1.0, 1.0);\n"
+			"}\n";
+	}
+	out << "#endif\n";
+	return out.str();
+}
+
+// Always produces a branch-correct shader (matching the exact attribute/
+// output contract `deferredGBuffer` requires) - the source above has no
+// external dependencies, so this is only expected to fail on a genuinely
+// broken graphics context, not on anything project-data-related.
+static bool CompileFallbackErrorShader(bool deferredGBuffer, std::unique_ptr<Shader>* outShader) {
+	return MaterialEditor::CompileMaterialShaderText(BuildErrorFallbackShaderGLSL(deferredGBuffer), deferredGBuffer, outShader, NULL);
+}
+
 bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer, std::string* errorOut) {
 	auto* cm = dynamic_cast<CustomShaderMaterial*>(doc.currentMaterial.get());
 	if (!cm) { if (errorOut) *errorOut = "Not a Custom Shader material"; return false; }
@@ -262,22 +312,29 @@ bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc,
 		f << glslText;
 	}
 
-	const std::string deferredDefine = deferredGBuffer ? "#define DEFERRED_GBUFFER\n" : "";
-
-	std::unique_ptr<Shader> newShader(new Shader());
-	newShader->LoadShaderFile(glslAbsPath.c_str());
-	std::string vErr, fErr, lErr;
-	const bool vOk = newShader->CompileShader(ShaderType::VertexShader, "#define VERTEX\n" + deferredDefine, &vErr);
-	const bool fOk = newShader->CompileShader(ShaderType::FragmentShader, "#define FRAGMENT\n" + deferredDefine, &fErr);
-	const bool linkOk = (vOk && fOk) && newShader->LinkProgram(&lErr);
-	if (!vOk || !fOk || !linkOk || newShader->ShaderProgram() == 0) {
-		if (errorOut) {
-			*errorOut = "Shader compile/link failed:";
-			if (!vOk) *errorOut += "\n[vertex] " + vErr;
-			if (!fOk) *errorOut += "\n[fragment] " + fErr;
-			if (vOk && fOk && !linkOk) *errorOut += "\n[link] " + lErr;
+	std::unique_ptr<Shader> newShader;
+	if (!CompileMaterialShaderFile(glslAbsPath, deferredGBuffer, &newShader, errorOut))
+	{
+		// live material's previous shader is untouched, UNLESS it was
+		// compiled for the other branch: running a Forward-branch shader's
+		// real per-fragment lighting code inside a Deferred G-buffer MRT
+		// pass (or vice versa) silently corrupts rendering - phantom
+		// lighting baked from stale shared-UBO data, wrong output/
+		// attachment count, wrong depth behavior. A branch-correct magenta
+		// placeholder beats that. Same-branch failures (e.g. a typo while
+		// iterating without switching renderers) keep the old behavior so
+		// editing isn't disrupted mid-edit.
+		if (!cm->HasKnownShaderBranch() || cm->IsShaderCompiledForDeferredGBuffer() != deferredGBuffer)
+		{
+			std::unique_ptr<Shader> fallback;
+			if (CompileFallbackErrorShader(deferredGBuffer, &fallback))
+			{
+				cm->SetShader(fallback.get());
+				doc.compiledShader = std::move(fallback);
+				cm->MarkShaderBranch(deferredGBuffer);
+			}
 		}
-		return false; // newShader cleans itself up; live material's previous shader is untouched
+		return false;
 	}
 
 	// SetShader() does NOT take ownership - only reset compiledShader
@@ -285,6 +342,7 @@ bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc,
 	// so the material never points at a shader that's already been freed.
 	cm->SetShader(newShader.get());
 	doc.compiledShader = std::move(newShader);
+	cm->MarkShaderBranch(deferredGBuffer);
 
 	// Fixed uniform set, always (re-)issued. SendUniform silently skips any
 	// name the active shader doesn't declare (GetUniformLocation returns -1
@@ -301,18 +359,128 @@ bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc,
 	cm->AddUniform(Uniform("uLights", Uniforms::DataUsage::Lights));
 	cm->AddUniform(Uniform("uNumberOfLights", Uniforms::DataUsage::NumberOfLights));
 
-	cm->ClearSamplers();
-	for (const auto& ts : textureSamplers) {
-		const MaterialNode* node = nullptr;
-		for (const auto& n : doc.nodes) if (n.id == ts.first) { node = &n; break; }
-		if (!node || node->texturePath.empty()) continue;
-		auto tex = std::make_shared<Texture>();
-		if (tex->LoadTexture(JoinPath(projectRoot, ResolveTexturePath(node->texturePath)), TextureType::Texture))
-			cm->AddSampler(ts.second, tex);
-	}
+	WireSamplers(cm, textureSamplers, doc.nodes, projectRoot);
 
 	if (errorOut) errorOut->clear();
 	doc.lastApplyError.clear();
+	doc.hasCompiledShader = true;
+	doc.compiledForDeferredGBuffer = deferredGBuffer;
+	doc.applyGeneration++;
+	return true;
+}
+
+// Runs the VERTEX+FRAGMENT compile/link on a Shader that already has its
+// source loaded (via LoadShaderFile or LoadShaderText). Returns false and
+// sets *errorOut on failure. Shared by the file- and text-compile wrappers.
+static bool CompileAndLinkShader(Shader* shader, bool deferredGBuffer, std::string* errorOut) {
+	const std::string deferredDefine = deferredGBuffer ? "#define DEFERRED_GBUFFER\n" : "";
+	std::string vErr, fErr, lErr;
+	const bool vOk = shader->CompileShader(ShaderType::VertexShader, "#define VERTEX\n" + deferredDefine, &vErr);
+	const bool fOk = shader->CompileShader(ShaderType::FragmentShader, "#define FRAGMENT\n" + deferredDefine, &fErr);
+	const bool linkOk = (vOk && fOk) && shader->LinkProgram(&lErr);
+	if (!vOk || !fOk || !linkOk || shader->ShaderProgram() == 0) {
+		if (errorOut) {
+			*errorOut = "Shader compile/link failed:";
+			if (!vOk) *errorOut += "\n[vertex] " + vErr;
+			if (!fOk) *errorOut += "\n[fragment] " + fErr;
+			if (vOk && fOk && !linkOk) *errorOut += "\n[link] " + lErr;
+		}
+		return false; // caller's Shader cleans itself up; live material's previous shader is untouched
+	}
+	return true;
+}
+
+bool MaterialEditor::CompileMaterialShaderFile(const std::string& glslAbsPath, bool deferredGBuffer,
+                                                std::unique_ptr<Shader>* outShader, std::string* errorOut) {
+	std::unique_ptr<Shader> newShader(new Shader());
+	newShader->LoadShaderFile(glslAbsPath.c_str());
+	if (!CompileAndLinkShader(newShader.get(), deferredGBuffer, errorOut))
+		return false; // newShader cleans itself up; live material's previous shader is untouched
+	*outShader = std::move(newShader);
+	return true;
+}
+
+bool MaterialEditor::CompileMaterialShaderText(const std::string& glslText, bool deferredGBuffer,
+                                                std::unique_ptr<Shader>* outShader, std::string* errorOut) {
+	if (glslText.empty()) { if (errorOut) *errorOut = "no shader text"; return false; }
+	std::unique_ptr<Shader> newShader(new Shader());
+	newShader->LoadShaderText(glslText);
+	if (!CompileAndLinkShader(newShader.get(), deferredGBuffer, errorOut))
+		return false; // newShader cleans itself up; live material's previous shader is untouched
+	*outShader = std::move(newShader);
+	return true;
+}
+
+void MaterialEditor::WireSamplers(CustomShaderMaterial* mat,
+                                  const std::vector<std::pair<uint32_t, std::string>>& textureSamplers,
+                                  const std::vector<MaterialNode>& nodes, const std::string& projectRoot) {
+	if (!mat) return;
+	mat->ClearSamplers();
+	for (const auto& ts : textureSamplers) {
+		const MaterialNode* node = nullptr;
+		for (const auto& n : nodes) if (n.id == ts.first) { node = &n; break; }
+		if (!node || node->texturePath.empty()) continue;
+		auto tex = std::make_shared<Texture>();
+		if (tex->LoadTexture(JoinPath(projectRoot, ResolveTexturePath(node->texturePath)), TextureType::Texture))
+			mat->AddSampler(ts.second, tex);
+	}
+}
+
+bool MaterialEditor::RecompileFromDisk(CustomShaderMaterial* mat, const std::string& projectRoot,
+                                       bool deferredGBuffer, std::string* errorOut) {
+	if (!mat) { if (errorOut) *errorOut = "no material"; return false; }
+
+	std::unique_ptr<Shader> newShader;
+	bool compiledOk;
+	if (!mat->GetShaderFile().empty())
+	{
+		const std::string shaderPath = mat->GetShaderFile();
+		const bool looksAbsolute = (shaderPath[0] == '/') || (shaderPath.size() >= 2 && shaderPath[1] == ':');
+		const std::string glslAbsPath = looksAbsolute ? shaderPath : JoinPath(projectRoot, shaderPath);
+		compiledOk = CompileMaterialShaderFile(glslAbsPath, deferredGBuffer, &newShader, errorOut);
+	}
+	else if (mat->GetShaderObject() && !mat->GetShaderObject()->GetShaderText().empty())
+	{
+		// No recoverable file - the usual case for a Material-Editor-created
+		// material assigned to a scene, which SceneSerializer saves via its
+		// embedded shaderSource and rebuilds from raw Shader* on load. The
+		// cached text is the full generated GLSL (both branches), so it
+		// recompiles for the other branch the same way the file path does.
+		compiledOk = CompileMaterialShaderText(mat->GetShaderObject()->GetShaderText(), deferredGBuffer, &newShader, errorOut);
+	}
+	else
+	{
+		if (errorOut) *errorOut = "no shader file or source";
+		compiledOk = false;
+	}
+
+	if (!compiledOk)
+	{
+		// Never leave a shader compiled for the OTHER branch bound - see
+		// ApplyGraphOrTextToLiveMaterial's identical guard for why (stale
+		// Forward per-fragment lighting running inside the Deferred
+		// G-buffer pass or vice versa). A same-branch failure (e.g. the
+		// disk source just has a genuine syntax error) keeps the old,
+		// still branch-correct shader running instead.
+		if (!mat->HasKnownShaderBranch() || mat->IsShaderCompiledForDeferredGBuffer() != deferredGBuffer)
+		{
+			std::unique_ptr<Shader> fallback;
+			if (CompileFallbackErrorShader(deferredGBuffer, &fallback))
+			{
+				mat->SetShader(fallback.get());
+				mat->AdoptShader(std::move(fallback));
+				mat->MarkShaderBranch(deferredGBuffer);
+			}
+		}
+		return false;
+	}
+
+	// No MaterialEditorDocument owns this material's shader, so adopt it
+	// into the material itself - SetShader() alone doesn't take ownership
+	// (same as the doc path, where doc.compiledShader plays this role).
+	mat->SetShader(newShader.get());
+	mat->AdoptShader(std::move(newShader));
+	mat->MarkShaderBranch(deferredGBuffer);
 	return true;
 }
 
@@ -843,7 +1011,22 @@ static void DrawNodeGraphTab(MaterialEditorDocument& doc, const std::string& pro
 		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.95f, 1.f));
 		ImGui::TextUnformatted(node.name.c_str());
 		ImGui::PopStyleColor();
-		const bool headerHovered = ImGui::IsItemHovered(); // drag handle: only the title text, not the whole node body
+		// An InvisibleButton laid directly over the title text, not
+		// IsItemHovered() on the text itself: Text widgets have no notion
+		// of "active" in ImGui, so the old check re-tested hover on the
+		// title's rect every single frame of the drag - the instant the
+		// cursor left that ~13px-tall label (trivially easy at normal drag
+		// speed, since node.pos hasn't moved yet on the frame hover is
+		// lost), the drag silently stopped applying delta. Net effect: the
+		// node never visibly moved. IsItemActive() on a real button latches
+		// from mouse-down to mouse-up regardless of where the cursor drifts
+		// meanwhile - the same idiom ImGui's own drag/slider widgets use
+		// internally, and what "drag a node's title to move it" needs.
+		const ImVec2 titleMin = ImGui::GetItemRectMin();
+		const ImVec2 titleSize = ImGui::GetItemRectSize();
+		ImGui::SetCursorScreenPos(titleMin);
+		ImGui::InvisibleButton("##drag_handle", titleSize);
+		const bool headerHovered = ImGui::IsItemActive();
 		ImGui::Separator();
 
 		const bool nodeHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
@@ -1018,6 +1201,23 @@ void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& 
 		ImGui::SameLine();
 		if (ImGui::Button("New Custom Shader Material")) CreateNewMaterial(doc, MaterialEditKind::Custom);
 		return;
+	}
+
+	// Live sphere preview (Custom kind only) - a fixed-size child above the
+	// tab content so its mouse orbit/pan/zoom can't leak into the node
+	// graph canvas. DrawWindow is only reached when ImGui::Begin() returned
+	// true, so the doc's window is visible this frame.
+	if (doc.editKind == MaterialEditKind::Custom) {
+		if (!doc.preview) doc.preview = std::make_unique<MaterialPreview>();
+		doc.preview->EnsureInit();
+		doc.preview->SyncFromDoc(doc, projectRoot);
+		ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.f);
+		ImGui::BeginChild("##MaterialPreview", ImVec2(0.f, (float)doc.preview->height + 4.f), ImGuiChildFlags_None,
+			ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+		doc.preview->DrawAndUpdate();
+		ImGui::EndChild();
+		ImGui::PopStyleVar();
+		ImGui::Separator();
 	}
 
 	switch (doc.editMode) {

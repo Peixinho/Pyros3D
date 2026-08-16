@@ -41,16 +41,6 @@ public:
 	void Render(const uint32 x, const uint32 y, const uint32 distx, const uint32 disty, bool isPerspective = true);
 	int32 MouseClick();
 
-	// IRenderer::GlobalLight's backing UBO (AmbientLightUniformsUBO) is a
-	// process-wide static, shared by every IRenderer instance regardless
-	// of which one currently "wants" a given value there (see Render()'s
-	// own comment) - the only actual fix is for every renderer sharing a
-	// frame to agree on the same value rather than each asserting its
-	// own, so the caller (SceneEditor) calls this every frame with the
-	// real scene's current ambient right before Render().
-	void SetAmbientLight(const Vec4 &light) { Renderer->SetGlobalLight(light); }
-	
-
 private:
 
 	// Scene

@@ -15,6 +15,7 @@
 #include "SceneEditor.h"
 #include "ProjectManager.h"
 #include "AgentServer.h"
+#include "UI/MaterialEditor.h"
 #include "libgizmo/GizmoTransformRender.h"
 #include <Pyros3D/Core/Logs/Log.h>
 #include <chrono>
@@ -817,13 +818,6 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				debugRenderer->Render(viewCam->GetWorldTransformation().Inverse(),
 					(isPerspective ? projection : projectionOrtho).GetProjectionMatrix());
 
-			// See AxisHelper::SetAmbientLight()'s comment - its internal
-			// Renderer shares IRenderer's process-wide ambient UBO with
-			// this SceneEditor's own Renderer, and renders every frame
-			// right after it does, so keeping the two values equal is
-			// what actually prevents them fighting over that shared slot
-			// (not just leaving AxisHelper's alone).
-			axisHelper->SetAmbientLight(ambientLightColor);
 #if defined(_SDL2VULKAN) || defined(_SDL2METAL)
 			axisHelper->Render((uint32)(dim.x - 90), 10, 80, 80, isPerspective);
 #else
@@ -1814,6 +1808,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		// Expose echo() so Lua scripts can write to the editor log window.
 		(*sharedLua)["echo"] = [](const std::string& msg) { p3d::LOG::_LOG::_echo(msg); };
+
+		// Expose which renderer the editor viewport is actually using, so
+		// scripts that build their own materials/usage flags based on
+		// "am I under a deferred renderer" (e.g. NeonPulse's Arena.build())
+		// can match reality instead of guessing/hardcoding - a mismatch here
+		// means a material never gets flagged transparent/gbuffer-compiled
+		// the way the *actual* active renderer (this one, not whatever the
+		// script assumes) needs it to be.
+		(*sharedLua)["editorRendererType"] = usingDeferredRenderer ? std::string("deferred") : std::string("forward");
 
 		if (project && project->IsOpen())
 		{
@@ -3771,6 +3774,31 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return ok;
 	}
 
+	void SceneEditor::RecompileOrphanedCustomMaterials(const std::string& projectRoot, bool deferredGBuffer,
+	                                                    const std::set<IMaterial*>& skipMaterials)
+	{
+		if (!scene) return;
+		std::set<IMaterial*> visited;
+		for (auto& goPtr : scene->GetAllGameObjectList())
+		{
+			GameObject* go = goPtr.get();
+			if (!go) continue;
+			RenderingComponent* rc = NULL;
+			for (auto& c : go->GetComponents())
+				if ((rc = dynamic_cast<RenderingComponent*>(c.get()))) break;
+			if (!rc) continue;
+			for (RenderingMesh* mesh : rc->GetMeshes(0))
+			{
+				auto* cm = dynamic_cast<CustomShaderMaterial*>(mesh->Material.get());
+				if (!cm || skipMaterials.count(cm) || visited.count(cm)) continue;
+				visited.insert(cm);
+				std::string err;
+				if (!MaterialEditor::RecompileFromDisk(cm, projectRoot, deferredGBuffer, &err))
+					echo("WARNING: could not recompile material for renderer switch: " + err);
+			}
+		}
+	}
+
 	bool SceneEditor::LoadSceneFromFile(const std::string &path)
 	{
 		if (path.size() == 0) return false;
@@ -3836,6 +3864,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			lastLoadMtime = SceneEditor::FileMtime(path);
 		}
 		else echo("ERROR: failed to load scene from " + path);
+
+		// SceneSerializer::BuildMaterial compiles custom materials with the
+		// platform #defines only - it never chooses a DEFERRED_GBUFFER branch
+		// (see its header comment), so without this every freshly loaded
+		// scene's custom materials would be stuck on whichever branch they
+		// happened to compile as. Recompile them for the renderer THIS scene
+		// is currently using. No MaterialEditorDocuments reference these
+		// just-built materials yet, so the skip-set stays empty.
+		if (ok && project)
+			RecompileOrphanedCustomMaterials(project->GetProjectPath(), usingDeferredRenderer, std::set<IMaterial*>());
 
 		AttachEditorObjects(furniture);
 		if (ok) RebuildHelpers();

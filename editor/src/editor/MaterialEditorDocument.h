@@ -17,7 +17,8 @@
 #include <vector>
 
 struct CodeEditorDocument;
-namespace p3d { class IMaterial; class Shader; }
+struct MaterialPreview;
+namespace p3d { class IMaterial; class Shader; class CustomShaderMaterial; }
 
 struct MaterialEditorDocument {
 	uint32_t id = 0;
@@ -50,6 +51,27 @@ struct MaterialEditorDocument {
 	std::unique_ptr<p3d::Shader> compiledShader;
 	std::string generatedGlslPath; // assets/materials/<Name>.generated.glsl
 	std::string lastApplyError;    // transient UI feedback, not serialized
+
+	// Which branch compiledShader (if any) was last compiled with - set on
+	// every successful ApplyGraphOrTextToLiveMaterial. Lets a live
+	// Forward/Deferred renderer switch recompile only the docs whose
+	// material is running the other branch (see
+	// Editor::RecompileCustomMaterialsForRenderer).
+	bool hasCompiledShader = false;
+	bool compiledForDeferredGBuffer = false;
+	// Bumped on every successful ApplyGraphOrTextToLiveMaterial.
+	// MaterialPreview polls it to lazily recompile its own Forward-only
+	// copy of the shader (no callback/hook needed at the Apply call sites).
+	uint32_t applyGeneration = 0;
+
+	// Live sphere preview (Custom kind only), lazily constructed by
+	// MaterialEditor::DrawWindow. Forward-declared here; complete type
+	// only needed where the doc's destructor runs (see the .cpp include).
+	// NOTE: Editor's close path pulls this out (preview.release()) and
+	// destroys it after the frame's ImGui rasterization - see
+	// Editor::deferredDestroyPreviewRenderers - because its FBO color
+	// texture is still referenced by this frame's draw list.
+	std::unique_ptr<MaterialPreview> preview;
 
 	~MaterialEditorDocument();
 

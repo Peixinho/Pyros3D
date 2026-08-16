@@ -444,6 +444,34 @@
         }
     },
     {
+        "name": "Ambient Bug Repro (Forward)",
+        "description": "Bare-engine repro: one CustomShaderMaterial sphere, zero lights, ambient only. Forward baseline.",
+        "scene": "AmbientBugRepro.json",
+        "render": {
+            "type": "forward",
+            "globalLight": [
+                0.9557521939277649,
+                0.38906726241111755,
+                0.38906726241111755,
+                1
+            ]
+        }
+    },
+    {
+        "name": "Ambient Bug Repro (Deferred)",
+        "description": "Same scene/material as the Forward repro, Deferred renderer, no post effects.",
+        "scene": "AmbientBugRepro.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.9557521939277649,
+                0.38906726241111755,
+                0.38906726241111755,
+                1
+            ]
+        }
+    },
+    {
         "name": "Neon Pulse",
         "description": "Full Lua breakout-style game - arena, paddle and ball lit through the deferred renderer.",
         "scene": "NeonPulse.json",

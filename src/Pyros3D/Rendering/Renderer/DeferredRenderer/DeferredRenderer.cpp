@@ -298,7 +298,22 @@ namespace p3d {
 		deferredMaterialAmbient->DisableDepthWrite();
 		deferredMaterialAmbient->EnableBlending();
 		deferredMaterialAmbient->BlendingEquation(BlendEq::Add);
-		deferredMaterialAmbient->BlendingFunction(BlendFunc::One, BlendFunc::One);
+		// One,Zero (not One,One like the point/spot/directional lights below)
+		// - ambient is always the *first* thing drawn into lastPassFBO after
+		// ClearScreen(), and that clear uses DrawBackground()'s clear colour
+		// (device-global state, still whatever the scene's background is,
+		// not black - see DrawBackground()'s comment), not (0,0,0,x). With
+		// One,One this pass added its own lit result *on top of* that
+		// leftover background colour for every geometry pixel (background/
+		// sky pixels are unaffected - secondpassAmbient.glsl discards those),
+		// uniformly over-brightening every object by the scene's background
+		// colour - e.g. a 0.2/0.2/0.2 grey editor viewport background made
+		// Deferred's ambient-only spheres visibly brighter than Forward's,
+		// for the exact same ambient light. One,Zero replaces the stale
+		// clear value outright for the pixels this pass actually writes,
+		// while leaving discarded background pixels (which never reach the
+		// blend stage at all) exactly as ClearScreen() left them.
+		deferredMaterialAmbient->BlendingFunction(BlendFunc::One, BlendFunc::Zero);
 		// THE root cause of the Vulkan black-screen investigation: this is a
 		// screen-space full-screen-quad pass (vertex shader is a trivial
 		// gl_Position = vec4(aPosition,1.0) passthrough, no projection
@@ -789,7 +804,56 @@ namespace p3d {
 					if (!(*j)->renderingComponent->IsCullTesting()) cullingTest = true;
 
 					if (cullingTest && (*j)->renderingComponent->IsActive() && (*j)->Active == true)
+					{
+						// Only materials that actually run PyrosShader.glsl's
+						// lit path (DIFFUSE/CELLSHADING/PBR) need swapping -
+						// their G-buffer branch reads gbuffer_normals, which
+						// the vertex stage only computes from aNormal when
+						// one of those is set (see PyrosShader.glsl). An
+						// unlit Color-only material (e.g. the editor's own
+						// grid helper, drawn through this same per-object
+						// loop) has no aNormal in its own mesh at all - the
+						// vertex shader for ITS G-buffer variant would need
+						// one anyway (DEFERRED_GBUFFER's gbuffer_normals
+						// write isn't itself gated on DIFFUSE), so swapping
+						// it in builds a pipeline whose vertex input state
+						// is missing a location the shader declares
+						// (VUID-VkGraphicsPipelineCreateInfo-Input-07904) -
+						// found via exactly this: the grid's own material
+						// failing pipeline creation once this swap covered
+						// every GenericShaderMaterial instead of just lit
+						// ones. An unlit material was never miscounted as
+						// "ambient" by the composite pass to begin with (its
+						// FragColor.w is just opacity either way), so
+						// leaving it on its own Forward-only program changes
+						// nothing it was already relying on.
+						static const uint32 kLitUsageMask = ShaderUsage::Diffuse | ShaderUsage::CellShading | ShaderUsage::PBR;
+						IMaterial* mat = (*j)->Material.get();
+						GenericShaderMaterial* gsm = dynamic_cast<GenericShaderMaterial*>(mat);
+						const bool needsGBufferSwap = gsm && !gsm->IsCompiledForGBuffer() && (gsm->GetOptions() & kLitUsageMask) != 0;
+						if (needsGBufferSwap)
+							gsm->UseGBufferProgramForNextDraw();
+
+						// Scoped to exactly CustomShaderMaterial (typeid, not
+						// dynamic_cast) rather than any subclass - subclasses
+						// like ParticleMaterial/CustomMaterialExample hand-
+						// assign extraUniforms[] themselves for an explicit
+						// hand-authored UBO, which this swap's std140 auto-
+						// layout probe (GetAutoUniformBlockLayout) doesn't
+						// know how to reproduce for a second, G-buffer-only
+						// program - see CustomShaderMaterial::
+						// UseGBufferProgramForNextDraw()'s comment for what
+						// this fixes for the base class.
+						CustomShaderMaterial* csm = (typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : nullptr;
+						const bool usedCustomGBufferSwap = csm && !csm->IsCompiledForGBuffer() && csm->UseGBufferProgramForNextDraw();
+
 						RenderObject((*j), (*j)->renderingComponent->GetOwner(), (*j)->Material.get());
+
+						if (needsGBufferSwap)
+							gsm->RestoreOwnProgram();
+						if (usedCustomGBufferSwap)
+							csm->RestoreOwnProgram();
+					}
 
 				}
 				else {

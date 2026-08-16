@@ -15,6 +15,7 @@
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
+#include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <memory>
 
 namespace p3d {

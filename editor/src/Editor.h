@@ -36,9 +36,10 @@
 #include "editor/UI/TabLog.h"
 #include "editor/UI/PropertiesTab.h"
 #include "editor/UI/ToolsTab.h"
-#include "editor/UI/MaterialEditor.h"
-#include "editor/MaterialEditorDocument.h"
-#include "editor/SceneEditor.h"
+	#include "editor/UI/MaterialEditor.h"
+	#include "editor/MaterialEditorDocument.h"
+	#include "editor/MaterialPreview.h"
+	#include "editor/SceneEditor.h"
 #include "editor/ProjectManager.h"
 #include "editor/CodeEditorDocument.h"
 #include "editor/AgentServer.h"
@@ -115,6 +116,15 @@ protected:
 	// requested type). Does not touch project.json itself; callers decide
 	// whether/how to persist the choice.
 	void SwitchAllScenesRenderer(bool useDeferred);
+	// Recompiles every live CustomShaderMaterial for the branch matching
+	// useDeferred: open Material Editor tabs through their own docs (whose
+	// compiledShader ownership and generated-GLSL text stay in sync),
+	// scene-assigned ones through SceneEditor::RecompileOrphanedCustomMaterials.
+	// Called at the end of SwitchAllScenesRenderer() - safe there because
+	// program compile/link already runs synchronously from UI callbacks
+	// (the Apply/Save buttons); it's the G-buffer FBO rebuild that stays
+	// deferred to the next ShowViewport, not the shader recompilation.
+	void RecompileCustomMaterialsForRenderer(bool useDeferred);
 	bool OpenLuaScriptDocument(const std::string& absPath);
 	void CloseLuaScriptDocument(uint32_t id);
 	void CloseAllLuaScriptDocuments();
@@ -258,6 +268,16 @@ private:
 	// setFragmentTexture on a released id).
 	std::vector<Texture*> deferredDestroyPreviews;
 	void FlushDeferredPreviewDestroy();
+	// MaterialPreview objects pulled out of a closing material document
+	// (doc.preview.release()) and destroyed after the frame's ImGui
+	// rasterization - their FBO color texture is still referenced by this
+	// frame's draw list, the same mid-frame-free hazard as
+	// deferredDestroyPreviews above.
+	std::vector<MaterialPreview*> deferredDestroyPreviewRenderers;
+	void FlushDeferredPreviewRenderers();
+	// Pulls doc's sphere preview (if any) out of the doc so it can be
+	// destroyed after the frame's rasterization instead of mid-frame.
+	void QueuePreviewForDeferredDestroy(MaterialEditorDocument* doc);
 #ifdef LUA_BINDINGS
 	void InitLuaHost();
 	sol::state lua;

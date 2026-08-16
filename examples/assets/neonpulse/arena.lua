@@ -103,6 +103,7 @@ function A.build()
 
 	A.deferred = (C.renderer == "deferred")
 	A.lightGain = A.deferred and C.deferredLightGain or 1.0
+	print("GBUFDBG-LUA C.renderer=" .. tostring(C.renderer) .. " A.deferred=" .. tostring(A.deferred) .. " G._hosted=" .. tostring(G._hosted))
 
 	A.mat.panel  = A.lit(col.panel, 8)
 	A.mat.wall   = A.lit(col.wall, 40)

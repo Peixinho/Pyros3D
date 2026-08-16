@@ -1320,9 +1320,24 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		// vec4 (not vec2): matches RGBA16F velocity target; RG16F+vec2 was
 		// a no-op write on some macOS GL drivers while Vulkan was fine.
 		FragColor = vec4(a - b, 0.0, 1.0);
-	#else
+	#elif !defined(DEFERRED_GBUFFER)
 		FragColor = vec4(diffuse.xyz,diffuse.w*uOpacity);
-        #endif
+	#endif
+	// !defined(VELOCITY_RENDERING) && defined(DEFERRED_GBUFFER): no write
+	// here at all, on purpose - this branch's FragColor is declared at
+	// IO_LOCATION(4) above only because GL's own implicit-location
+	// assignment picks something past FragData_pbr's location 3 when both
+	// are declared together (see that comment), not because the G-buffer
+	// MRT pass actually has a 5th attachment for it to land in. Writing to
+	// it anyway compiled fine on GL (a harmlessly-discarded extra output)
+	// but SPIR-V/Vulkan pipeline creation rejects a fragment shader that
+	// writes a location with no matching
+	// VkSubpassDescription::pColorAttachments entry outright (VUID: no
+	// matching interfaces-fragmentoutput) - found via GenericShaderMaterial::
+	// GetOrBuildGBufferProgram()'s very first real use of this branch
+	// (nothing else in the engine had ever compiled a plain
+	// GenericShaderMaterial with DEFERRED_GBUFFER for the actual
+	// 4-attachment G-buffer pass before that existed).
 
     }
 

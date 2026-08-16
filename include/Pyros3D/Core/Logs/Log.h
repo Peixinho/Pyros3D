@@ -157,9 +157,17 @@ namespace p3d {
 					_message("=== Pyros3D Start ===");
 				}
 
-				// Always write to stderr so logs are visible even when editor crashes/segfaults.
+				// Crash-safe stderr echo, but respect the same two knobs
+				// _message() below applies to its own std::cout mirror -
+				// _threshold (Editor.cpp raises this to Info so the Log
+				// panel sees everything) and _mirrorStdout (Editor.cpp sets
+				// this false specifically so the console stays quiet while
+				// the panel stays verbose). Ignoring _mirrorStdout here was
+				// the whole reason turning it off didn't actually silence
+				// the console - this path never checked it.
 #if !defined(ANDROID) && !defined(LOG_DISABLE)
-				std::cerr << Message << std::endl;
+				if (_mirrorStdout && _classify(Message) <= _threshold)
+					std::cerr << Message << std::endl;
 #endif
 				_message(Message);
 
