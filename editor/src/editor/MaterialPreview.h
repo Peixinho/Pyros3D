@@ -1,10 +1,11 @@
 //=============================================================================
 // Name        : MaterialPreview.h
 // Description : Live sphere preview for Custom Shader materials in the
-//               Material Editor. Renders the doc's generated GLSL (always
-//               the Forward branch - see MaterialPreview.cpp's design note)
-//               through its own private ForwardRenderer + PostEffectsManager
-//               into an ImGui::Image, with mouse orbit/pan/zoom.
+//               Material Editor. Renders the doc's generated GLSL through
+//               its own private renderer (Forward or Deferred, matching the
+//               project's configured renderer type - see EnsureInit()) +
+//               PostEffectsManager into an ImGui::Image, with mouse
+//               orbit/pan/zoom.
 //=============================================================================
 
 #ifndef MATERIALPREVIEW_H
@@ -15,14 +16,28 @@
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
+#include <Pyros3D/Core/Buffers/FrameBuffer.h>
+#include <Pyros3D/Assets/Texture/Texture.h>
 #include <memory>
 #include <string>
 
 struct MaterialPreview {
 	// Lazily built once, on the first EnsureInit() call.
-	p3d::IRenderer* renderer = nullptr;      // ForwardRenderer, owned
+	p3d::IRenderer* renderer = nullptr;      // Forward- or DeferredRenderer, owned
 	p3d::PostEffectsManager* effects = nullptr; // owned
 	p3d::SceneGraph* scene = nullptr;        // owned, private scene
+	// True once EnsureInit() has built a DeferredRenderer instead of a
+	// ForwardRenderer. Fixed for the document's lifetime (see EnsureInit()'s
+	// comment on why this isn't a live-toggleable setting).
+	bool usingDeferred = false;
+	// G-buffer for the Deferred case only (mirrors SceneEditor::BuildGBuffer);
+	// left null when usingDeferred is false.
+	p3d::Texture* gbufferDepth = nullptr;
+	p3d::Texture* gbufferAlbedo = nullptr;
+	p3d::Texture* gbufferSpecular = nullptr;
+	p3d::Texture* gbufferNormal = nullptr;
+	p3d::Texture* gbufferMatRough = nullptr;
+	p3d::FrameBuffer* gbufferFBO = nullptr;
 	std::shared_ptr<p3d::GameObject> sphereGO;
 	std::shared_ptr<p3d::GameObject> cameraGO;
 	// The key light's GameObject. The "Lights" toggle in DrawAndUpdate()
@@ -30,12 +45,16 @@ struct MaterialPreview {
 	// on why Enable()/Disable() alone wouldn't switch the light off).
 	std::shared_ptr<p3d::GameObject> lightGO;
 	bool lightsEnabled = true;
-	// Forward-only copy of the doc's compiled material. Deliberately NOT
-	// the doc's own currentMaterial: that one tracks the project's live
-	// renderer, this one never does (isolated offscreen render).
+	// Own copy of the doc's compiled material, deliberately NOT the doc's
+	// own currentMaterial (a distinct instance, own CustomShaderMaterial -
+	// see SyncFromDoc()), so this isolated offscreen render never aliases
+	// whatever the live scene/other preview is doing with the same shader.
 	std::shared_ptr<p3d::CustomShaderMaterial> previewMaterial;
 
-	int width = 300, height = 300;
+	// Kept small - this renders as a floating overlay in the corner of the
+	// node graph/text editor (see MaterialEditor::DrawWindow), not a full
+	// stacked panel, so it shouldn't dominate the window.
+	int width = 220, height = 220;
 
 	// Orbit camera state.
 	float yaw = 0.6f, pitch = 0.35f, distance = 3.5f;
@@ -48,7 +67,13 @@ struct MaterialPreview {
 	// list may still reference - see Editor's deferred-destroy queue for
 	// why destruction can be punted to after rasterization).
 	~MaterialPreview();
-	void EnsureInit();
+	// useDeferred: the project's currently configured renderer type
+	// (Editor::UseDeferredGBuffer()). Only consulted on the first call -
+	// once renderer exists, later calls with a different value are ignored
+	// (see .cpp for why: rebuilding it live hits the same mid-frame
+	// WaitIdle() hazard SceneEditor::SwitchRenderer() defers via a queued
+	// switch, which this preview doesn't need the machinery for).
+	void EnsureInit(bool useDeferred);
 	// Recompiles previewMaterial from doc's already-written generated GLSL
 	// (doc.generatedGlslPath) if doc.applyGeneration has advanced since
 	// last call. Re-wires texture samplers from doc.nodes the same way
@@ -61,6 +86,10 @@ struct MaterialPreview {
 private:
 	p3d::Vec3 ComputeEye() const;
 	void CreateSphere();
+	// Depth + 4 color attachments, matching SceneEditor::BuildGBuffer()'s
+	// setup exactly - DeferredRenderer expects that exact layout.
+	void BuildGBuffer(uint32_t width, uint32_t height);
+	void DestroyGBuffer();
 	// Builds the view matrix from yaw/pitch/distance/panTarget and runs the
 	// pipeline (same call sequence as SceneEditor::RenderCameraPreview,
 	// including the shared-UBO invalidation + WaitIdle around it).

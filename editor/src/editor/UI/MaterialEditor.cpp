@@ -87,11 +87,58 @@ std::string JoinPath(const std::string& root, const std::string& rel) {
 
 const char* kTextureExtensions = "png,jpg,jpeg,tga,bmp,gif,hdr,exr,webp";
 
+bool FileExists(const std::string& path) {
+	std::ifstream f(path);
+	return f.good();
+}
+
+// A material only shows up in the scene's "Assign material asset" picker
+// (or as an Assets-panel drag source) once it's a real file under
+// assets/materials/ - the Assets panel's own "New Material" flow already
+// writes one immediately (ProjectManager::CreateMaterial), but the toolbar's
+// New Generic/Custom Material buttons and the Type combo (below) used to
+// leave a freshly created material unsaved (doc.absolutePath empty) until
+// the user explicitly hit Save, so it was invisible to both of those and
+// couldn't be assigned to anything. Picks the first non-colliding
+// "<baseName>[N].mat" so repeated creates don't silently overwrite an
+// earlier unsaved one, and writes nameInOut back so the doc's own Name
+// field matches what actually got saved to disk.
+std::string UniqueMaterialPath(const std::string& projectRoot, std::string& nameInOut) {
+	const std::string base = nameInOut;
+	for (int suffix = 0; ; ++suffix) {
+		const std::string candidateName = (suffix == 0) ? base : (base + std::to_string(suffix));
+		const std::string relPath = "assets/materials/" + candidateName + ".mat";
+		if (!FileExists(JoinPath(projectRoot, relPath))) {
+			nameInOut = candidateName;
+			return relPath;
+		}
+	}
+}
+
+// Called right after CreateNewMaterial() at every call site below, so a
+// freshly created material is a real assets/materials/*.mat file the moment
+// it exists - see UniqueMaterialPath's comment for why that matters.
+void AutoSaveNewMaterial(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer) {
+	if (!doc.absolutePath.empty()) return; // already has a path somehow - don't touch it
+	const std::string relPath = UniqueMaterialPath(projectRoot, doc.materialName);
+	doc.displayName = doc.materialName;
+	// doc.SaveToFile() directly (not MaterialEditor::SaveToFile, which
+	// Applies BEFORE writing) - ApplyGraphOrTextToLiveMaterial derives
+	// generatedGlslPath from absolutePath and refuses to compile until
+	// that's set, so establish the path/write the file first, then Apply.
+	if (!doc.SaveToFile(JoinPath(projectRoot, relPath))) {
+		doc.lastApplyError = "Could not auto-save new material to " + relPath;
+		return;
+	}
+	if (doc.editKind == MaterialEditKind::Custom) {
+		std::string err;
+		if (!MaterialEditor::ApplyGraphOrTextToLiveMaterial(doc, projectRoot, deferredGBuffer, &err))
+			doc.lastApplyError = err;
+	}
+}
+
 void SetupGlslEditor(CodeEditorDocument* doc) {
-	doc->editor.SetLanguageDefinition(TextEditor::LanguageDefinition::GLSL());
-	doc->editor.SetPalette(TextEditor::GetDarkPalette());
-	doc->editor.SetShowWhitespaces(false);
-	doc->editor.SetTabSize(4);
+	doc->SetupForGlsl();
 }
 
 void SeedDefaultCustomGraph(MaterialEditorDocument& doc) {
@@ -237,15 +284,10 @@ bool MaterialEditor::LoadFromFile(MaterialEditorDocument& doc, const std::string
 	doc.lastApplyError.clear();
 
 	if (doc.editKind == MaterialEditKind::Custom) {
-		if (doc.editMode == MaterialEditMode::Text && !doc.generatedGlslPath.empty()) {
-			std::ifstream f(JoinPath(projectRoot, doc.generatedGlslPath));
-			if (f) {
-				std::stringstream ss;
-				ss << f.rdbuf();
-				if (!doc.codeDoc) doc.codeDoc = new CodeEditorDocument();
-				SetupGlslEditor(doc.codeDoc);
-				doc.codeDoc->editor.SetText(ss.str());
-			}
+		if (doc.editMode == MaterialEditMode::Text) {
+			if (!doc.codeDoc) doc.codeDoc = new CodeEditorDocument();
+			SetupGlslEditor(doc.codeDoc);
+			doc.codeDoc->editor.SetText(doc.simpleShaderText.empty() ? kDefaultSimpleShaderText : doc.simpleShaderText);
 		}
 		std::string err;
 		if (!ApplyGraphOrTextToLiveMaterial(doc, projectRoot, deferredGBuffer, &err))
@@ -340,17 +382,20 @@ bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc,
 
 	if (doc.editMode == MaterialEditMode::Text) {
 		if (!doc.codeDoc) { if (errorOut) *errorOut = "No shader text to compile"; return false; }
-		glslText = doc.codeDoc->editor.GetText();
-		// Sampler wiring still comes from whichever Texture nodes exist in
-		// the graph (if any) - same convention Text mode's seed uses.
-		MaterialCodegenResult tmp = GenerateGLSL(doc.nodes, doc.connections);
-		textureSamplers = tmp.textureSamplers;
+		doc.simpleShaderText = doc.codeDoc->editor.GetText();
+		MaterialCodegenResult gen = GenerateGLSLFromSimpleText(doc.simpleShaderText);
+		if (!gen.error.empty()) { if (errorOut) *errorOut = gen.error; return false; }
+		glslText = gen.glsl;
+		textureSamplers = gen.textureSamplers; // always empty - see GenerateGLSLFromSimpleText's doc comment
 	} else {
 		MaterialCodegenResult gen = GenerateGLSL(doc.nodes, doc.connections);
 		if (!gen.error.empty()) { if (errorOut) *errorOut = gen.error; return false; }
 		glslText = gen.glsl;
 		textureSamplers = gen.textureSamplers;
-		if (doc.codeDoc) doc.codeDoc->editor.SetText(glslText); // keep Text mode in sync for inspection
+		// codeDoc (if it exists from a previous visit to Text mode) is
+		// deliberately left untouched here - it holds the user's own simple
+		// snippet, an independent alternate representation of the material,
+		// not a mirror of whatever the graph currently produces.
 	}
 
 	const std::string glslAbsPath = JoinPath(projectRoot, doc.generatedGlslPath);
@@ -554,8 +599,10 @@ static void DrawToolbar(MaterialEditorDocument& doc, const std::string& projectR
 	int currentKind = (int)doc.editKind;
 	if (ImGui::Combo("Type", &currentKind, kindLabels, IM_ARRAYSIZE(kindLabels))) {
 		MaterialEditKind newKind = (MaterialEditKind)currentKind;
-		if (newKind != doc.editKind)
+		if (newKind != doc.editKind) {
 			MaterialEditor::CreateNewMaterial(doc, newKind);
+			AutoSaveNewMaterial(doc, projectRoot, deferredGBuffer);
+		}
 	}
 
 	if (doc.editKind == MaterialEditKind::Generic) {
@@ -569,8 +616,7 @@ static void DrawToolbar(MaterialEditorDocument& doc, const std::string& projectR
 			if (doc.editMode == MaterialEditMode::Text) {
 				if (!doc.codeDoc) doc.codeDoc = new CodeEditorDocument();
 				SetupGlslEditor(doc.codeDoc);
-				MaterialCodegenResult gen = GenerateGLSL(doc.nodes, doc.connections);
-				doc.codeDoc->editor.SetText(gen.error.empty() ? gen.glsl : ("// " + gen.error + "\n"));
+				doc.codeDoc->editor.SetText(doc.simpleShaderText.empty() ? kDefaultSimpleShaderText : doc.simpleShaderText);
 			}
 		}
 	}
@@ -861,31 +907,38 @@ static void DrawTextEditorTab(MaterialEditorDocument& doc, const std::string& pr
 	if (!doc.codeDoc) {
 		doc.codeDoc = new CodeEditorDocument();
 		SetupGlslEditor(doc.codeDoc);
-		MaterialCodegenResult gen = GenerateGLSL(doc.nodes, doc.connections);
-		doc.codeDoc->editor.SetText(gen.error.empty() ? gen.glsl : ("// " + gen.error + "\n"));
+		doc.codeDoc->editor.SetText(doc.simpleShaderText.empty() ? kDefaultSimpleShaderText : doc.simpleShaderText);
 	}
 
-	if (ImGui::Button("Save Shader")) {
-		std::string err;
-		if (!MaterialEditor::ApplyGraphOrTextToLiveMaterial(doc, projectRoot, deferredGBuffer, &err)) {
-			doc.lastApplyError = err;
-		} else {
-			doc.dirty = true; // .mat's generatedGlslPath/mode may now need saving too
-		}
-	}
-	ImGui::SameLine();
-	ImGui::TextDisabled("Compiles and hot-swaps this text onto the live material.");
+	// No manual Save Shader button - MaterialEditor::DrawWindow debounce-
+	// applies this text to the live material automatically as it changes.
+	ImGui::TextDisabled("Set Albedo/Normal/Metallic/Roughness/Emissive/Occlusion - applies automatically. F1/Ctrl+Space for suggestions.");
 	if (!doc.lastApplyError.empty())
 		ImGui::TextColored(ImVec4(1.f, 0.4f, 0.35f, 1.f), "%s", doc.lastApplyError.c_str());
 
 	ImGui::Separator();
 
+	// Same drive sequence as Editor::DrawScriptEditorWindows() (Lua scripts)
+	// - vim mode + inline completion are handled identically for both, see
+	// CodeEditorDocument.h's completionUseGlsl comment for the one place
+	// their behavior actually diverges.
+	CodeEditorDocument* cd = doc.codeDoc;
 	const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-	doc.codeDoc->editor.SetHandleKeyboardInputs(focused);
+	if (focused || cd->completionOpen)
+		cd->HandleEditorInput();
+
+	const bool editorKeys = focused && !cd->completionOpen && !cd->completionBlockEditorKeys
+		&& (!cd->vimEnabled || cd->vimMode == CodeEditorDocument::VimMode::Insert);
+	cd->editor.SetHandleKeyboardInputs(editorKeys);
 	ImVec2 avail = ImGui::GetContentRegionAvail();
-	doc.codeDoc->editor.Render("##material_shader_editor", avail, true);
-	if (doc.codeDoc->editor.IsTextChanged())
+	cd->editor.Render("##material_shader_editor", avail, true);
+	cd->editor.SetHandleKeyboardInputs(true);
+	cd->completionBlockEditorKeys = false;
+	if (cd->editor.IsTextChanged())
 		doc.dirty = true;
+	cd->AfterEditorRender();
+	if (cd->completionOpen)
+		cd->DrawCompletionPopup();
 }
 
 static void DrawNodeBody(MaterialEditorDocument& doc, MaterialNode& node, const std::string& projectRoot) {
@@ -1077,18 +1130,12 @@ static void DrawNodeGraphTab(MaterialEditorDocument& doc, const std::string& pro
 	ImVec2 avail = ImGui::GetContentRegionAvail();
 	if (avail.x < 10 || avail.y < 10) return;
 
-	if (ImGui::Button("Apply")) {
-		std::string err;
-		if (!MaterialEditor::ApplyGraphOrTextToLiveMaterial(doc, projectRoot, deferredGBuffer, &err))
-			doc.lastApplyError = err;
-		else
-			doc.dirty = true;
-	}
-	ImGui::SameLine();
-	ImGui::TextDisabled("Right-click canvas to add a node. Drag a node's title to move it.");
-	if (!doc.lastApplyError.empty())
+	// No manual Apply button - MaterialEditor::DrawWindow debounce-applies
+	// the graph to the live material automatically as it changes.
+	if (!doc.lastApplyError.empty()) {
 		ImGui::TextColored(ImVec4(1.f, 0.4f, 0.35f, 1.f), "%s", doc.lastApplyError.c_str());
-	ImGui::Separator();
+		ImGui::Separator();
+	}
 
 	avail = ImGui::GetContentRegionAvail();
 	if (avail.x < 10 || avail.y < 10) return;
@@ -1355,32 +1402,98 @@ void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& 
 	if (!doc.currentMaterial) {
 		ImGui::TextDisabled("No material loaded.");
 		ImGui::Spacing();
-		if (ImGui::Button("New Generic Material")) CreateNewMaterial(doc, MaterialEditKind::Generic);
+		if (ImGui::Button("New Generic Material")) {
+			CreateNewMaterial(doc, MaterialEditKind::Generic);
+			AutoSaveNewMaterial(doc, projectRoot, deferredGBuffer);
+		}
 		ImGui::SameLine();
-		if (ImGui::Button("New Custom Shader Material")) CreateNewMaterial(doc, MaterialEditKind::Custom);
+		if (ImGui::Button("New Custom Shader Material")) {
+			CreateNewMaterial(doc, MaterialEditKind::Custom);
+			AutoSaveNewMaterial(doc, projectRoot, deferredGBuffer);
+		}
 		return;
 	}
 
-	// Live sphere preview (Custom kind only) - a fixed-size child above the
-	// tab content so its mouse orbit/pan/zoom can't leak into the node
-	// graph canvas. DrawWindow is only reached when ImGui::Begin() returned
-	// true, so the doc's window is visible this frame.
-	if (doc.editKind == MaterialEditKind::Custom) {
-		if (!doc.preview) doc.preview = std::make_unique<MaterialPreview>();
-		doc.preview->EnsureInit();
-		doc.preview->SyncFromDoc(doc, projectRoot);
-		ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.f);
-		ImGui::BeginChild("##MaterialPreview", ImVec2(0.f, (float)doc.preview->height + 4.f), ImGuiChildFlags_None,
-			ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-		doc.preview->DrawAndUpdate();
-		ImGui::EndChild();
-		ImGui::PopStyleVar();
-		ImGui::Separator();
-	}
+	// Node graph / text content fills the whole remaining area - the preview
+	// (below) floats over its top-right corner afterward instead of
+	// stacking above it, so editing space isn't cut into a fixed-height
+	// horizontal band. contentTopLeft is captured now (absolute screen
+	// coords, so it survives whatever cursor/scroll state the mode content
+	// leaves behind) purely to anchor that overlay once the content beneath
+	// it has actually been drawn.
+	const ImVec2 contentTopLeft = ImGui::GetCursorScreenPos();
+	const float contentWidth = ImGui::GetContentRegionAvail().x;
 
 	switch (doc.editMode) {
 		case MaterialEditMode::Inspector: DrawInspectorTab(doc, projectRoot); break;
 		case MaterialEditMode::Text: DrawTextEditorTab(doc, projectRoot, deferredGBuffer); break;
 		case MaterialEditMode::NodeGraph: DrawNodeGraphTab(doc, projectRoot, deferredGBuffer); break;
+	}
+
+	// Debounced auto-apply (Custom kind only) - no separate Apply/Save
+	// Shader click needed, the live material just stays in sync with
+	// whatever's in the graph/text editor. Debounced on a content-changed
+	// timer (not "mouse released"/IsAnyItemActive - the node canvas and the
+	// vendored TextEditor don't reliably surface either) so a shader
+	// recompile+link doesn't fire on every single frame of a slider drag or
+	// keystroke, only once things hold still for a moment. `dirty` can't
+	// double as this signal - Apply intentionally never clears it, since a
+	// live-compiled material can still need an explicit File Save.
+	if (doc.editKind == MaterialEditKind::Custom) {
+		const std::string liveFingerprint = (doc.editMode == MaterialEditMode::Text)
+			? (doc.codeDoc ? doc.codeDoc->editor.GetText() : std::string())
+			: doc.AgentGetGraph().dump();
+		if (liveFingerprint != doc.pendingFingerprint) {
+			doc.pendingFingerprint = liveFingerprint;
+			doc.pendingFingerprintSince = ImGui::GetTime();
+		}
+		constexpr double kAutoApplyDebounceSeconds = 0.35;
+		const bool settled = (ImGui::GetTime() - doc.pendingFingerprintSince) > kAutoApplyDebounceSeconds;
+		if (settled && (!doc.autoAppliedValid || doc.pendingFingerprint != doc.autoAppliedFingerprint)) {
+			std::string err;
+			MaterialEditor::ApplyGraphOrTextToLiveMaterial(doc, projectRoot, deferredGBuffer, &err);
+			doc.lastApplyError = err;
+			doc.autoAppliedFingerprint = doc.pendingFingerprint;
+			doc.autoAppliedValid = true;
+		}
+	}
+
+	// Live sphere preview (Custom kind only) - a genuine floating top-level
+	// window (Begin, not BeginChild) positioned over the top-right corner
+	// of whatever the node graph canvas / text editor just drew. This has
+	// to be a real window, not a second overlapping BeginChild sibling of
+	// the canvas: Dear ImGui only resolves hover/input ownership between
+	// truly overlapping regions through its top-level window z-stack -
+	// sibling child windows of the same parent don't get that, so orbit-
+	// dragging the sphere could drag the canvas underneath instead (or vice
+	// versa) depending on which one ImGui happened to treat as hovered.
+	// AlwaysAutoResize (rather than a hand-computed fixed height) means the
+	// "Lights" checkbox row below the image can never end up clipped by a
+	// height guess that didn't leave quite enough room.
+	if (doc.editKind == MaterialEditKind::Custom) {
+		if (!doc.preview) doc.preview = std::make_unique<MaterialPreview>();
+		doc.preview->EnsureInit(deferredGBuffer);
+		doc.preview->SyncFromDoc(doc, projectRoot);
+
+		const float margin = 8.f;
+		const float pw = (float)doc.preview->width;
+		ImGui::SetNextWindowPos(ImVec2(contentTopLeft.x + std::max(0.f, contentWidth - pw) - margin, contentTopLeft.y + margin), ImGuiCond_Always);
+		ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
+			| ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoSavedSettings
+			| ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoNav
+			| ImGuiWindowFlags_AlwaysAutoResize;
+		ImGui::Begin("##MaterialPreviewFloat", nullptr, flags);
+		// Being a real window (see the comment above) only fixes hover
+		// ownership if it's actually topmost - being freshly Begin()'d
+		// doesn't raise it in the display/hit-test order on its own, and
+		// this window is never "appearing" (NoFocusOnAppearing, same ID
+		// every frame) or clicked-to-focus (nothing here calls
+		// SetWindowFocus, which would steal keyboard focus from the
+		// node/text editor every single frame). BringWindowToDisplayFront
+		// reorders it for rendering/hit-testing only, every frame,
+		// independent of focus - exactly what's needed here.
+		ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+		doc.preview->DrawAndUpdate();
+		ImGui::End();
 	}
 }

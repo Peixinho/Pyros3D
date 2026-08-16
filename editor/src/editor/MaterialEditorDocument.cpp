@@ -200,6 +200,7 @@ bool MaterialEditorDocument::LoadFromFile(const std::string& path) {
 	} else {
 		editKind = MaterialEditKind::Custom;
 		generatedGlslPath = j.value("generatedGlslPath", std::string());
+		simpleShaderText = j.value("customShaderText", std::string());
 		if (j.find("nodes") != j.end())
 			DeserializeNodes(j["nodes"], nodes, nextNodeId);
 		if (j.find("connections") != j.end())
@@ -242,6 +243,7 @@ bool MaterialEditorDocument::SaveToFile(const std::string& path) {
 	} else {
 		j["kind"] = "custom";
 		j["generatedGlslPath"] = generatedGlslPath;
+		j["customShaderText"] = simpleShaderText;
 		j["nodes"] = SerializeNodes(nodes);
 		j["connections"] = SerializeConnections(connections);
 	}
@@ -289,6 +291,7 @@ json MaterialEditorDocument::AgentGetGraph() const {
 	j["editMode"] = (editMode == MaterialEditMode::Text) ? "text"
 		: (editMode == MaterialEditMode::NodeGraph) ? "nodegraph" : "inspector";
 	j["generatedGlslPath"] = generatedGlslPath;
+	j["customShaderText"] = simpleShaderText;
 	j["nodes"] = SerializeNodes(nodes);
 	j["connections"] = SerializeConnections(connections);
 	return j;

@@ -403,6 +403,43 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
 
 } // namespace
 
+const char* const kDefaultSimpleShaderText =
+	"vec3 Albedo = vec3(1.0, 1.0, 1.0);\n"
+	"float Metallic = 0.0;\n"
+	"float Roughness = 0.5;\n"
+	"vec3 Emissive = vec3(0.0, 0.0, 0.0);\n"
+	"float Occlusion = 1.0;\n"
+	"\n"
+	"// Leave Normal at (0,0,0) to use the surface's own normal.\n"
+	"vec3 Normal = vec3(0.0, 0.0, 0.0);\n";
+
+MaterialCodegenResult GenerateGLSLFromSimpleText(const std::string& userBody) {
+	MaterialCodegenResult result;
+
+	std::vector<std::string> statements;
+	// Defaults declared first so a snippet that only touches e.g. Roughness
+	// still compiles - the user's statements below can reassign any of
+	// these (ordinary GLSL name lookup, no scoping trickery needed).
+	statements.push_back(
+		"vec3 Albedo = vec3(1.0); vec3 Normal = vec3(0.0); float Metallic = 0.0; "
+		"float Roughness = 0.5; vec3 Emissive = vec3(0.0); float Occlusion = 1.0;");
+	statements.push_back(userBody);
+
+	// Normal is always "connected" here (unlike the node-graph path, there's
+	// no separate isPinConnected signal) - a zero vector is the sentinel for
+	// "not overridden", falling back to the geometric normal. Mathematically
+	// identical to the unconnected-Normal branch in both Forward and
+	// Deferred (vNormalWorld transformed by uViewMatrix == vNormal).
+	const std::string normalExpr = "(dot(Normal, Normal) > 0.0001 ? Normal : vNormalWorld)";
+
+	result.glsl = BuildTemplate("vec4(Albedo, 1.0)", /*normalConnected=*/true, normalExpr,
+		"vec4(Metallic)", "vec4(Roughness)", "vec4(Emissive, 0.0)", "vec4(Occlusion)",
+		statements, /*textureSamplers=*/{}, /*usesTime=*/true);
+	result.usesCameraPosition = true;
+	result.usesTime = true;
+	return result;
+}
+
 MaterialCodegenResult GenerateGLSL(const std::vector<MaterialNode>& nodes, const std::vector<MaterialConnection>& connections) {
 	MaterialCodegenResult result;
 

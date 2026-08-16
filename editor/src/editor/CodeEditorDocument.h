@@ -33,6 +33,12 @@ struct CodeEditorDocument
 	const char* completionDebug = "";
 
 	static constexpr int kCompletionVisible = 10;
+	// Which CollectCandidates() RefreshCompletionList() calls - set by
+	// SetupForLua()/SetupForGlsl(). Everything else in the completion
+	// pipeline (open/close triggers, popup, key handling) is language-
+	// agnostic (see CodeEditorDocument.cpp), so this one flag is the whole
+	// diff between a Lua script window and the Material Editor's Text mode.
+	bool completionUseGlsl = false;
 
 	// Vim (on by default)
 	enum class VimMode { Normal, Insert, Visual, Command };
@@ -52,6 +58,19 @@ struct CodeEditorDocument
 		editor.SetPalette(TextEditor::GetDarkPalette());
 		editor.SetShowWhitespaces(false);
 		editor.SetTabSize(4);
+		completionUseGlsl = false;
+	}
+
+	// Material Editor Text mode's counterpart to SetupForLua() - same
+	// widget, same vim/completion machinery, just GLSL syntax highlighting
+	// and GLSL-flavored completion candidates (see GlslCompletion.h).
+	void SetupForGlsl()
+	{
+		editor.SetLanguageDefinition(TextEditor::LanguageDefinition::GLSL());
+		editor.SetPalette(TextEditor::GetDarkPalette());
+		editor.SetShowWhitespaces(false);
+		editor.SetTabSize(4);
+		completionUseGlsl = true;
 	}
 
 	bool LoadFromFile(const std::string& path);

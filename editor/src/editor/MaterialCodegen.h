@@ -33,4 +33,18 @@ struct MaterialCodegenResult {
 MaterialCodegenResult GenerateGLSL(const std::vector<MaterialNode>& nodes,
                                     const std::vector<MaterialConnection>& connections);
 
+// The Text-mode equivalent of GenerateGLSL(): wraps a short user-written
+// snippet (just plain GLSL statements assigning Albedo/Normal/Metallic/
+// Roughness/Emissive/Occlusion locals - see kDefaultSimpleShaderText) in the
+// exact same boilerplate/dual-branch template GenerateGLSL() uses, so Text
+// mode never shows the user the #ifdef DEFERRED_GBUFFER machinery, the
+// vertex shader, or the PBR lighting library - only the handful of lines
+// that actually describe their surface. Texture sampling isn't available
+// this way yet (loose `uniform sampler2D` can't be declared from inside a
+// function body) - use the node graph's Texture node for that.
+MaterialCodegenResult GenerateGLSLFromSimpleText(const std::string& userBody);
+
+// Seed text for a freshly created/mode-switched Text-mode document.
+extern const char* const kDefaultSimpleShaderText;
+
 #endif /* MATERIALCODEGEN_H */

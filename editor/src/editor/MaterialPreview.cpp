@@ -3,15 +3,17 @@
 // Description : Live sphere preview for Custom Shader materials. See
 //               MaterialPreview.h for the class contract.
 //
-// Design note: the preview ALWAYS compiles its own Forward-only shader
-// (never #define DEFERRED_GBUFFER), regardless of the project's live
-// renderer. Building a second full G-buffer + DeferredRenderer pipeline
-// just to preview one sphere is a lot of machinery for no visual benefit -
-// MaterialCodegen.cpp's Forward and Deferred branches compute identical PBR
-// shading math, they only differ in how the final result is written to
-// render targets. The preview is an isolated offscreen render, not part of
-// the scene's G-buffer pass, so it should never need to match the project's
-// mode.
+// Design note: the preview's shader is still always compiled Forward
+// (/*deferredGBuffer=*/false in SyncFromDoc below) regardless of which
+// renderer EnsureInit() built. That's fine, not a shortcut: the generated
+// GLSL always contains BOTH #ifdef DEFERRED_GBUFFER branches (see
+// MaterialCodegen.cpp), and CustomShaderMaterial::UseGBufferProgramForNextDraw()
+// lazily compiles+caches the Deferred sibling from that same source text the
+// first time DeferredRenderer::RenderScene() draws it, swapping it in for
+// that draw and restoring the Forward program after - see
+// CustomShaderMaterial.cpp. So which renderer is active is what actually
+// determines which branch's math the preview exercises; the initial compile
+// flag here only picks which one links first.
 //=============================================================================
 
 #include "MaterialPreview.h"
@@ -21,6 +23,7 @@
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
+#include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <imgui.h>
@@ -55,12 +58,58 @@ MaterialPreview::~MaterialPreview() {
 	scene = nullptr;
 	effects = nullptr;
 	renderer = nullptr;
+	DestroyGBuffer();
 }
 
-void MaterialPreview::EnsureInit() {
+void MaterialPreview::BuildGBuffer(uint32_t w, uint32_t h) {
+	using namespace p3d;
+	gbufferDepth = new Texture();
+	gbufferDepth->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, w, h, false);
+	gbufferDepth->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+	gbufferAlbedo = new Texture();
+	gbufferAlbedo->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, w, h, false);
+	gbufferAlbedo->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+	gbufferSpecular = new Texture();
+	gbufferSpecular->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, w, h, false);
+	gbufferSpecular->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+	gbufferNormal = new Texture();
+	gbufferNormal->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F, w, h, false);
+	gbufferNormal->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+	gbufferMatRough = new Texture();
+	gbufferMatRough->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, w, h, false);
+	gbufferMatRough->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+	gbufferFBO = new FrameBuffer();
+	gbufferFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, gbufferDepth);
+	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, gbufferAlbedo);
+	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment1, TextureType::Texture, gbufferSpecular);
+	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment2, TextureType::Texture, gbufferNormal);
+	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment3, TextureType::Texture, gbufferMatRough);
+}
+
+void MaterialPreview::DestroyGBuffer() {
+	delete gbufferFBO; gbufferFBO = nullptr;
+	delete gbufferDepth; gbufferDepth = nullptr;
+	delete gbufferAlbedo; gbufferAlbedo = nullptr;
+	delete gbufferSpecular; gbufferSpecular = nullptr;
+	delete gbufferNormal; gbufferNormal = nullptr;
+	delete gbufferMatRough; gbufferMatRough = nullptr;
+}
+
+void MaterialPreview::EnsureInit(bool useDeferred) {
 	if (renderer) return;
 
-	renderer = new p3d::ForwardRenderer((uint32)width, (uint32)height);
+	usingDeferred = useDeferred;
+	if (usingDeferred) {
+		BuildGBuffer((uint32)width, (uint32)height);
+		renderer = new p3d::DeferredRenderer((uint32)width, (uint32)height, gbufferFBO);
+	} else {
+		renderer = new p3d::ForwardRenderer((uint32)width, (uint32)height);
+	}
 	effects = new p3d::PostEffectsManager((uint32)width, (uint32)height);
 	scene = new p3d::SceneGraph();
 
@@ -214,6 +263,33 @@ void MaterialPreview::DrawAndUpdate() {
 		return;
 	}
 
+	RenderFrame();
+
+	// DeferredRenderer::RenderScene()'s final composite always lands on
+	// framebuffer 0, not on effects' capture target (FrameBuffer::UnBind()
+	// rebinds fb 0 as its first action) - same divergence SceneEditor's
+	// viewport handles by reading GetColorTexture() directly for Deferred.
+	p3d::Texture* color = usingDeferred
+		? static_cast<p3d::DeferredRenderer*>(renderer)->GetColorTexture()
+		: effects->GetViewportColor();
+	if (!color) {
+		ImGui::TextDisabled("No preview texture");
+		return;
+	}
+	void* tid = GetActiveRenderDevice().GetImGuiTextureID(color->GetBindID(), color->GetTextureType());
+	if (!tid) {
+		ImGui::TextDisabled("[preview texture unavailable]");
+		return;
+	}
+	ImGui::Image((ImTextureID)tid, ImVec2((f32)width, (f32)height));
+	// Captured immediately after Image - IsItemHovered() always refers to
+	// the LAST submitted widget, so this has to happen before the Checkbox
+	// below (or it'd report the checkbox's hover state instead of the
+	// image's, which is exactly what silently broke orbit-drag: hovering
+	// the actual sphere never registered as "hovered" once the checkbox
+	// became the last item, so the drag code below never ran).
+	const bool hovered = ImGui::IsItemHovered();
+
 	// Toggle row, kept inside this same child region so it can't steal
 	// mouse handling from the node graph / text editor below.
 	//
@@ -227,29 +303,10 @@ void MaterialPreview::DrawAndUpdate() {
 		if (lightsEnabled) scene->Add(lightGO);
 		else scene->Remove(lightGO);
 	}
-	ImGui::SameLine();
-	ImGui::TextDisabled("left-drag orbit · right-drag pan · wheel zoom");
-	ImGui::Spacing();
-
-	RenderFrame();
-
-	p3d::Texture* color = effects->GetViewportColor();
-	if (!color) {
-		ImGui::TextDisabled("No preview texture");
-		return;
-	}
-	void* tid = GetActiveRenderDevice().GetImGuiTextureID(color->GetBindID(), color->GetTextureType());
-	if (!tid) {
-		ImGui::TextDisabled("[preview texture unavailable]");
-		return;
-	}
-	ImGui::Image((ImTextureID)tid, ImVec2((f32)width, (f32)height));
 
 	// Mouse orbit/pan/zoom - plain ImGui polling (same style the node-graph
-	// canvas uses), gated on IsItemHovered so it can't leak into the
-	// node-graph canvas below, and contained to this widget's child region
-	// by the caller.
-	const bool hovered = ImGui::IsItemHovered();
+	// canvas uses), gated on `hovered` so it can't leak into the node-graph
+	// canvas below, and contained to this widget's child region by the caller.
 	if (!hovered) return;
 
 	ImGuiIO& io = ImGui::GetIO();

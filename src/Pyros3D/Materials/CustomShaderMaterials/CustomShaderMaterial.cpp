@@ -104,12 +104,25 @@ namespace p3d
 			if (!Device().GetAutoUniformBlockLayout(program, stages[i], binding, blockName, size, offsets))
 				continue;
 			ExtraUniformsBlock &block = outBlocks[i];
+			// A previous shader compile (SetShader()/Apply - can fire every
+			// ~350ms while live-editing a Custom material, see
+			// MaterialEditor::DrawWindow's auto-apply) may have already
+			// lazily allocated a GPU buffer for this slot via
+			// SendExtraUniforms(). It's about to be replaced (blockName/
+			// size/offsets can all differ for the new program) - free it
+			// now instead of just dropping the handle, which orphaned one
+			// GPU uniform buffer (sized up to 64MB for a dynamic binding -
+			// see IsPerObjectDynamicBinding()) per recompile.
+			if (block.bufferHandle != 0)
+			{
+				Device().DestroyUniformBuffer(block.bufferHandle);
+				block.bufferHandle = 0;
+			}
 			block.binding = binding;
 			block.blockName = blockName;
 			block.size = size;
 			block.offsets = offsets;
 			block.scratch.assign(size, 0);
-			block.bufferHandle = 0;
 		}
 	}
 

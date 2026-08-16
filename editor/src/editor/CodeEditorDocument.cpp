@@ -4,6 +4,7 @@
 
 #include "CodeEditorDocument.h"
 #include "LuaCompletion.h"
+#include "GlslCompletion.h"
 #include <imgui.h>
 #include <fstream>
 #include <sstream>
@@ -73,7 +74,10 @@ void CodeEditorDocument::RefreshCompletionList()
 	std::string buf;
 	if (!completionReceiver.empty())
 		buf = editor.GetText();
-	LuaCompletion::CollectCandidates(completionReceiver, completionPrefix, buf, completionItems);
+	if (completionUseGlsl)
+		GlslCompletion::CollectCandidates(completionReceiver, completionPrefix, buf, completionItems);
+	else
+		LuaCompletion::CollectCandidates(completionReceiver, completionPrefix, buf, completionItems);
 	if (completionItems.empty())
 		completionIndex = 0;
 	else if (completionIndex >= (int)completionItems.size())

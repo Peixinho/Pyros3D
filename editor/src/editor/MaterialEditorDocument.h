@@ -32,8 +32,16 @@ struct MaterialEditorDocument {
 	MaterialEditMode editMode = MaterialEditMode::Inspector;
 	std::string materialName = "NewMaterial";
 
-	// Custom-shader-only state (node graph + GLSL text editing)
+	// Custom-shader-only state (node graph + GLSL text editing). codeDoc's
+	// buffer holds a short user snippet (just the Albedo/Normal/Metallic/
+	// Roughness/Emissive/Occlusion assignments) - NOT the full boilerplate/
+	// dual-branch GLSL file, which stays generated (see MaterialCodegen::
+	// GenerateGLSLFromSimpleText) and written to generatedGlslPath, never
+	// shown to the user. simpleShaderText mirrors codeDoc's text so it
+	// round-trips through the .mat JSON the same way nodes/connections do,
+	// without needing codeDoc constructed just to reload a saved file.
 	CodeEditorDocument* codeDoc = nullptr;
+	std::string simpleShaderText;
 	uint32_t nextNodeId = 1;
 	std::vector<MaterialNode> nodes;
 	std::vector<MaterialConnection> connections;
@@ -88,6 +96,20 @@ struct MaterialEditorDocument {
 	std::unique_ptr<p3d::Shader> compiledShader;
 	std::string generatedGlslPath; // assets/materials/<Name>.generated.glsl
 	std::string lastApplyError;    // transient UI feedback, not serialized
+
+	// Debounced auto-apply (Custom kind only - see MaterialEditor::
+	// DrawWindow). pendingFingerprint/-Since track the live graph/text's
+	// most recent content and when it last changed; once it's held still
+	// for a short debounce window, DrawWindow calls
+	// ApplyGraphOrTextToLiveMaterial and records the applied content in
+	// autoAppliedFingerprint. None of this is `dirty` - Apply deliberately
+	// never clears that (a live-compiled material can still need an
+	// explicit File Save), so a separate marker is needed to know whether
+	// the CURRENT content has already been compiled.
+	std::string autoAppliedFingerprint;
+	bool autoAppliedValid = false;
+	std::string pendingFingerprint;
+	double pendingFingerprintSince = 0.0;
 
 	// Which branch compiledShader (if any) was last compiled with - set on
 	// every successful ApplyGraphOrTextToLiveMaterial. Lets a live

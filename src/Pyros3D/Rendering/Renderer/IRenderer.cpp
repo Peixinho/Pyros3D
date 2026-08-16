@@ -2214,6 +2214,16 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u)
 	case Uniforms::DataUsage::GlobalAmbientLight:
 		valuePtr = &GlobalLight; valueSize = sizeof(GlobalLight);
 		break;
+	case Uniforms::DataUsage::Lights:
+		// Mirrors the LightsUBO upload in SendGlobalUniforms() above: the
+		// trailing unused slots (lightsToUpload < PYROS_MAX_LIGHTS) are
+		// never read since the shader loop is gated by uNumberOfLights.
+		if (Lights.size() > 0)
+		{
+			uint32 lightsToUpload = NumberOfLights < PYROS_MAX_LIGHTS ? NumberOfLights : PYROS_MAX_LIGHTS;
+			valuePtr = &Lights[0]; valueSize = sizeof(Matrix) * lightsToUpload;
+		}
+		break;
 	case Uniforms::DataUsage::NumberOfLights:
 		valuePtr = &NumberOfLights; valueSize = sizeof(NumberOfLights);
 		break;
