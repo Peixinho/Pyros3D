@@ -9,6 +9,7 @@
 #include "Editor.h"
 #include "editor/UI/OpenDir.h"
 #include "editor/FileDropQueue.h"
+#include "editor/AssetCommands.h"
 #include <Pyros3D/Audio/AudioManager.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
@@ -482,13 +483,32 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		std::string abs, cerr;
 		if (!project.CreateMaterial(matName, kind, abs, &cerr))
 			throw std::runtime_error(cerr);
+		const std::string createdRel = project.RelativePath(abs);
+		if (sceneView && !createdRel.empty())
+			sceneView->PushUndoCommand(std::make_unique<CreateAssetCommand>(&project, createdRel, "Create Material '" + createdRel + "'"));
 		project.Save();
 		if (!OpenMaterialDocument(abs))
 			throw std::runtime_error("material created but could not be opened: " + abs);
 		nlohmann::json r;
 		r["ok"] = true;
-		r["path"] = project.RelativePath(abs);
+		r["path"] = createdRel;
 		r["kind"] = kindStr;
+		return r;
+	}
+	if (name == "delete_asset")
+	{
+		if (!project.IsOpen())
+			throw std::runtime_error("no project open");
+		const std::string rel = A("path");
+		std::string derr, trashRel, movedFromRel;
+		if (!project.DeleteAsset(rel, &derr, &trashRel, &movedFromRel))
+			throw std::runtime_error(derr);
+		if (sceneView && !trashRel.empty())
+			sceneView->PushUndoCommand(std::make_unique<DeleteAssetCommand>(&project, movedFromRel, trashRel));
+		project.Save();
+		nlohmann::json r;
+		r["ok"] = true;
+		r["trashed"] = trashRel;
 		return r;
 	}
 	if (name == "get_material_graph")
@@ -505,10 +525,15 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		if (!doc) throw std::runtime_error(aerr);
 		if (doc->editKind != MaterialEditKind::Custom)
 			throw std::runtime_error("material is Generic kind - node graphs only apply to Custom Shader materials");
+		const MaterialEditorDocument::GraphSnapshot graphBefore = doc->CaptureGraphSnapshot();
 		std::string gerr;
 		if (!doc->AgentSetGraph(a.contains("nodes") ? a["nodes"] : nlohmann::json::array(),
 			a.contains("connections") ? a["connections"] : nlohmann::json::array(), gerr))
 			throw std::runtime_error(gerr);
+		// Unifies this with the UI's own per-widget undo (GraphUndoCommit in
+		// UI/MaterialEditor.cpp) - a bulk agent-driven graph replace is one
+		// undo step, same as any other single edit.
+		doc->undo.Push(std::make_unique<GraphEditCommand>(doc, graphBefore, doc->CaptureGraphSnapshot(), "Set Material Graph"));
 		if (!MaterialEditor::SaveToFile(*doc, doc->absolutePath, project.GetProjectPath(), UseDeferredGBuffer()))
 			throw std::runtime_error("failed to save material to " + doc->absolutePath);
 		nlohmann::json r;
@@ -660,6 +685,16 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	if (name == "undo_material" || name == "redo_material")
+	{
+		std::string aerr;
+		MaterialEditorDocument* doc = AgentOpenMaterial(A("path"), aerr);
+		if (!doc) throw std::runtime_error(aerr);
+		if (name == "undo_material") doc->undo.Undo(); else doc->undo.Redo();
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "attach_script")
 	{
 		if (!sceneView->AgentAttachScript(A("name"), A("scriptFile"), a.contains("data") ? a["data"] : nlohmann::json::object(), err))
@@ -787,11 +822,24 @@ void Editor::ProcessPendingFileDrops()
 	{
 		std::string out;
 		std::string err;
-		if (project.ImportAssetFile(dropped[i], out, &err))
+		std::string trashedExisting;
+		if (project.ImportAssetFile(dropped[i], out, &err, &trashedExisting))
 		{
 			++okCount;
 			const std::string rel = project.RelativePath(out);
 			echo("Imported: " + (rel.empty() ? out : rel));
+			if (sceneView && !trashedExisting.empty() && !rel.empty())
+			{
+				// A .p3dm import trashes the whole package folder (see
+				// ImportModel), not the .p3dm file itself - `out` is the
+				// .p3dm path either way, so the undo command needs the
+				// package folder's relative path in that case.
+				const std::string importedRel = ProjectManager::IsP3dm(out)
+					? std::filesystem::path(rel).parent_path().string() : rel;
+				if (!importedRel.empty())
+					sceneView->PushUndoCommand(std::make_unique<ImportOverwriteCommand>(&project, importedRel, trashedExisting,
+						"Import (overwrite) '" + importedRel + "'"));
+			}
 			if (sceneView && ProjectManager::IsP3dm(out))
 			{
 				sceneView->QueueModelThumbnail(out, true);
@@ -835,20 +883,44 @@ void Editor::DrawUI()
 		sceneView->StopPlayMode();
 
 	// Ctrl+Z / Ctrl+Shift+Z (and the Windows-convention Ctrl+Y) act on
-	// whichever document last had focus (see FocusedDocKind). Only a Scene
-	// document has an undo stack today (Material Editor undo is a later
-	// phase) - !WantTextInput keeps this from firing while typing in an
-	// InputText, where ImGui's own per-widget text-undo already owns Ctrl+Z.
-	if (ImGui::GetIO().KeyCtrl && !ImGui::GetIO().WantTextInput
-		&& lastFocusedDocKind == FocusedDocKind::Scene && sceneView)
+	// whichever document last had focus (see FocusedDocKind) - !WantTextInput
+	// keeps this from firing while typing in an InputText, where ImGui's own
+	// per-widget text-undo already owns Ctrl+Z. The Project Settings modal
+	// takes priority over FocusedDocKind whenever it's open: it isn't a
+	// document tab, and its Renderer combo (unlike Cancel) applies live, so
+	// this is the only way to revert an accidental change while the modal
+	// is still up.
+	if (ImGui::GetIO().KeyCtrl && !ImGui::GetIO().WantTextInput && ImGui::IsPopupOpen("Project Settings"))
 	{
 		const bool shift = ImGui::GetIO().KeyShift;
 		if (ImGui::IsKeyPressed(ImGuiKey_Z))
 		{
-			if (shift) sceneView->Redo(); else sceneView->Undo();
+			if (shift) projectUndo.Redo(); else projectUndo.Undo();
 		}
 		else if (!shift && ImGui::IsKeyPressed(ImGuiKey_Y))
-			sceneView->Redo();
+			projectUndo.Redo();
+	}
+	else if (ImGui::GetIO().KeyCtrl && !ImGui::GetIO().WantTextInput)
+	{
+		const bool shift = ImGui::GetIO().KeyShift;
+		if (lastFocusedDocKind == FocusedDocKind::Scene && sceneView)
+		{
+			if (ImGui::IsKeyPressed(ImGuiKey_Z))
+			{
+				if (shift) sceneView->Redo(); else sceneView->Undo();
+			}
+			else if (!shift && ImGui::IsKeyPressed(ImGuiKey_Y))
+				sceneView->Redo();
+		}
+		else if (lastFocusedDocKind == FocusedDocKind::Material && activeMaterialDoc)
+		{
+			if (ImGui::IsKeyPressed(ImGuiKey_Z))
+			{
+				if (shift) activeMaterialDoc->undo.Redo(); else activeMaterialDoc->undo.Undo();
+			}
+			else if (!shift && ImGui::IsKeyPressed(ImGuiKey_Y))
+				activeMaterialDoc->undo.Redo();
+		}
 	}
 
     // Menu bar
@@ -893,19 +965,34 @@ void Editor::DrawUI()
 
 		if (ImGui::BeginMenu("Edit"))
 		{
-			// Material Editor undo lands in a later phase - the menu items
-			// stay visible but disabled while a material window has focus,
-			// same convention as every other conditionally-available item
-			// in this menu bar (e.g. "Save Project" above).
-			const bool sceneFocused = (lastFocusedDocKind == FocusedDocKind::Scene && sceneView);
-			const bool canUndo = sceneFocused && sceneView->CanUndo();
-			const bool canRedo = sceneFocused && sceneView->CanRedo();
-			const std::string undoLabel = canUndo ? ("Undo " + sceneView->UndoDescription()) : "Undo";
-			const std::string redoLabel = canRedo ? ("Redo " + sceneView->RedoDescription()) : "Redo";
+			// Scoped to whichever document last had focus (see
+			// FocusedDocKind) - greyed out otherwise, same convention as
+			// every other conditionally-available item in this menu bar
+			// (e.g. "Save Project" above).
+			bool canUndo = false, canRedo = false;
+			std::string undoDesc, redoDesc;
+			if (lastFocusedDocKind == FocusedDocKind::Scene && sceneView)
+			{
+				canUndo = sceneView->CanUndo(); canRedo = sceneView->CanRedo();
+				undoDesc = sceneView->UndoDescription(); redoDesc = sceneView->RedoDescription();
+			}
+			else if (lastFocusedDocKind == FocusedDocKind::Material && activeMaterialDoc)
+			{
+				canUndo = activeMaterialDoc->undo.CanUndo(); canRedo = activeMaterialDoc->undo.CanRedo();
+				undoDesc = activeMaterialDoc->undo.UndoDescription(); redoDesc = activeMaterialDoc->undo.RedoDescription();
+			}
+			const std::string undoLabel = canUndo ? ("Undo " + undoDesc) : "Undo";
+			const std::string redoLabel = canRedo ? ("Redo " + redoDesc) : "Redo";
 			if (ImGui::MenuItem(undoLabel.c_str(), "CTRL+Z", false, canUndo))
-				sceneView->Undo();
+			{
+				if (lastFocusedDocKind == FocusedDocKind::Scene && sceneView) sceneView->Undo();
+				else if (activeMaterialDoc) activeMaterialDoc->undo.Undo();
+			}
 			if (ImGui::MenuItem(redoLabel.c_str(), "CTRL+SHIFT+Z", false, canRedo))
-				sceneView->Redo();
+			{
+				if (lastFocusedDocKind == FocusedDocKind::Scene && sceneView) sceneView->Redo();
+				else if (activeMaterialDoc) activeMaterialDoc->undo.Redo();
+			}
 			ImGui::EndMenu();
 		}
 
@@ -1100,6 +1187,7 @@ void Editor::CloseProjectImmediate()
 	CloseAllSceneDocuments();
 	sceneView = CreateSceneDocument();
 	project.Close();
+	projectUndo.Clear(); // its entries reference the project just closed
 	UpdateWindowTitle();
 }
 
@@ -1597,9 +1685,19 @@ void Editor::DrawProjectDialogs()
 		int rendererIdx = (project.GetSettings().rendererType == ProjectRendererType::Deferred) ? 1 : 0;
 		if (ImGui::Combo("Renderer", &rendererIdx, "Forward\0Deferred\0"))
 		{
-			auto& s = project.GetSettingsMutable();
-			s.rendererType = (rendererIdx == 1) ? ProjectRendererType::Deferred : ProjectRendererType::Forward;
+			// Note: unlike Project Name below, this applies to the setting
+			// immediately (matching the pre-existing behavior - Cancel does
+			// NOT revert it, only skips the Name/Save step) - Ctrl+Z while
+			// this modal is open is the only way to revert an accidental
+			// change today.
+			const ProjectRendererType before = project.GetSettings().rendererType;
+			const ProjectRendererType after = (rendererIdx == 1) ? ProjectRendererType::Deferred : ProjectRendererType::Forward;
+			project.GetSettingsMutable().rendererType = after;
 			project.MarkDirty();
+			projectUndo.Push(std::make_unique<ApplyClosureCommand>(
+				[this, before]() { project.GetSettingsMutable().rendererType = before; project.MarkDirty(); },
+				[this, after]() { project.GetSettingsMutable().rendererType = after; project.MarkDirty(); },
+				"Set Renderer Type"));
 		}
 
 		ImGui::TextDisabled("Each scene has scenes/<SceneName>.lua — open via Scene menu, or click Scene in the tree → Properties.");
@@ -1617,7 +1715,14 @@ void Editor::DrawProjectDialogs()
 			ImGui::TextColored(ImVec4(1.f, 0.4f, 0.3f, 1.f), "%s", projectDialogError.c_str());
 		if (ImGui::Button("Apply", ImVec2(110, 0)))
 		{
+			const std::string oldName = project.GetProjectName();
+			const std::string newName = projectSettingsName;
 			project.SetProjectName(projectSettingsName);
+			if (oldName != newName)
+				projectUndo.Push(std::make_unique<ApplyClosureCommand>(
+					[this, oldName]() { project.SetProjectName(oldName); },
+					[this, newName]() { project.SetProjectName(newName); },
+					"Set Project Name"));
 			std::string err;
 			if (!project.Save(&err))
 			{
@@ -1967,6 +2072,8 @@ void Editor::DrawAssetsWindow()
 			{
 				echo("SUCCESS: Created script " + abs);
 				selectedAssetRel = project.RelativePath(abs);
+				if (sceneView && !selectedAssetRel.empty())
+					sceneView->PushUndoCommand(std::make_unique<CreateAssetCommand>(&project, selectedAssetRel, "Create Script '" + selectedAssetRel + "'"));
 				OpenLuaScriptDocument(abs);
 				project.Save();
 				ImGui::CloseCurrentPopup();
@@ -2009,6 +2116,8 @@ void Editor::DrawAssetsWindow()
 			{
 				echo("SUCCESS: Created material " + abs);
 				selectedAssetRel = project.RelativePath(abs);
+				if (sceneView && !selectedAssetRel.empty())
+					sceneView->PushUndoCommand(std::make_unique<CreateAssetCommand>(&project, selectedAssetRel, "Create Material '" + selectedAssetRel + "'"));
 				OpenMaterialDocument(abs);
 				project.Save();
 				ImGui::CloseCurrentPopup();
@@ -2331,7 +2440,7 @@ void Editor::DrawAssetsWindow()
 	}
 	if (ImGui::BeginPopupModal("Delete Asset", NULL, ImGuiWindowFlags_AlwaysAutoResize))
 	{
-		ImGui::TextWrapped("Delete \"%s\" from the project?\nThis cannot be undone.", pendingDeleteAssetRel.c_str());
+		ImGui::TextWrapped("Delete \"%s\" from the project? (Ctrl+Z to undo.)", pendingDeleteAssetRel.c_str());
 		if (ProjectManager::IsP3dm(pendingDeleteAssetRel))
 			ImGui::TextDisabled("Deletes the whole model package folder (textures included).");
 		if (pendingDeleteAssetRel == project.GetActiveSceneRel())
@@ -2347,11 +2456,14 @@ void Editor::DrawAssetsWindow()
 					deferredDestroyPreviews.push_back(assetPreviewCache[abs]);
 				assetPreviewCache.erase(abs);
 			}
-			if (project.DeleteAsset(pendingDeleteAssetRel, &err))
+			std::string trashRel, movedFromRel;
+			if (project.DeleteAsset(pendingDeleteAssetRel, &err, &trashRel, &movedFromRel))
 			{
 				echo("SUCCESS: Deleted " + pendingDeleteAssetRel);
 				if (selectedAssetRel == pendingDeleteAssetRel)
 					selectedAssetRel.clear();
+				if (sceneView && !trashRel.empty())
+					sceneView->PushUndoCommand(std::make_unique<DeleteAssetCommand>(&project, movedFromRel, trashRel));
 				project.Save();
 			}
 			else

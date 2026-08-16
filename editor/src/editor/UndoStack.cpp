@@ -68,3 +68,11 @@ void UndoStack::EnforceLimits()
 		undoStack_.erase(undoStack_.begin());
 	}
 }
+
+ApplyClosureCommand::ApplyClosureCommand(std::function<void()> undoFn, std::function<void()> redoFn, const std::string& description)
+	: undoFn_(std::move(undoFn)), redoFn_(std::move(redoFn)), description_(description)
+{
+}
+
+void ApplyClosureCommand::Undo() { undoFn_(); }
+void ApplyClosureCommand::Redo() { redoFn_(); }

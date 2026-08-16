@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -70,4 +71,26 @@ private:
 	size_t maxMemoryBytes_;
 
 	void EnforceLimits();
+};
+
+// Generic reversible edit for narrow, one-off value changes that don't
+// warrant their own command class (camera FOV/Near/Far, per-field light
+// color/direction/radius/cone edits, generic-material scalar sliders, ...):
+// the call site provides two closures that each know how to apply "their"
+// value (typically capturing an owning id/pointer and the specific
+// before/after value) via whatever typed setter/resync the field actually
+// needs. Deliberately document-agnostic (no scene or material coupling) so
+// both SceneEditor and MaterialEditorDocument call sites can share it,
+// rather than writing near-identical command classes per document type.
+class ApplyClosureCommand : public IUndoableCommand {
+public:
+	ApplyClosureCommand(std::function<void()> undoFn, std::function<void()> redoFn, const std::string& description);
+
+	void Undo() override;
+	void Redo() override;
+	std::string Description() const override { return description_; }
+
+private:
+	std::function<void()> undoFn_, redoFn_;
+	std::string description_;
 };

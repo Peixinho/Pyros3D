@@ -19,6 +19,7 @@
 #include <map>
 #include <iterator>
 #include <filesystem>
+#include <chrono>
 
 using nlohmann::json;
 namespace fs = std::filesystem;
@@ -701,9 +702,11 @@ bool ProjectManager::PackageReferencedModelTextures(const std::string& p3dmPath,
 	return true;
 }
 
-bool ProjectManager::ImportAssetFile(const std::string& sourcePath, std::string& outAbsolute, std::string* errorOut)
+bool ProjectManager::ImportAssetFile(const std::string& sourcePath, std::string& outAbsolute, std::string* errorOut,
+	std::string* outTrashedExisting)
 {
 	outAbsolute.clear();
+	if (outTrashedExisting) outTrashedExisting->clear();
 	if (!IsOpen())
 	{
 		if (errorOut) *errorOut = "Open a project first";
@@ -733,7 +736,7 @@ bool ProjectManager::ImportAssetFile(const std::string& sourcePath, std::string&
 	}
 
 	if (IsP3dm(sourcePath) || IsModelSourceExtension(sourcePath))
-		return ImportModel(sourcePath, outAbsolute, errorOut);
+		return ImportModel(sourcePath, outAbsolute, errorOut, outTrashedExisting);
 
 	std::string destDir;
 	if (IsTextureExtension(sourcePath)) destDir = TexturesPath();
@@ -750,6 +753,18 @@ bool ProjectManager::ImportAssetFile(const std::string& sourcePath, std::string&
 
 	fs::create_directories(destDir, ec);
 	fs::path dest = fs::path(destDir) / fs::path(sourcePath).filename();
+
+	// Trash whatever's already at `dest` before the copy overwrites it, so
+	// undo can put it back exactly (same rationale as ImportModel's package
+	// case above).
+	if (fs::exists(dest, ec))
+	{
+		const std::string trashRel = MoveToTrash(dest.string(), errorOut);
+		if (trashRel.empty())
+			return false;
+		if (outTrashedExisting) *outTrashedExisting = trashRel;
+	}
+
 	fs::copy_file(sourcePath, dest, fs::copy_options::overwrite_existing, ec);
 	if (ec)
 	{
@@ -761,8 +776,96 @@ bool ProjectManager::ImportAssetFile(const std::string& sourcePath, std::string&
 	return true;
 }
 
-bool ProjectManager::DeleteAsset(const std::string& relativePath, std::string* errorOut)
+// Trash lives at <project>/.trash/, a sibling of assets/ - ListAssets()
+// only ever walks under "assets" (see its default underRelative), so
+// trashed files never leak into the Assets panel or any Agent listing
+// without needing their own exclusion filter. Nothing here ever deletes a
+// .trash/ entry once it's there: undo commands hold a reference to it and
+// may need it back at any point in the session, and a stale entry from a
+// finished undo history is harmless clutter, not a bug - a future "Empty
+// Trash" action or age-based sweep is a deliberate v2, not this one.
+std::string ProjectManager::MoveToTrash(const std::string& absolutePath, std::string* errorOut)
 {
+	if (!IsOpen())
+	{
+		if (errorOut) *errorOut = "No project open";
+		return std::string();
+	}
+	std::error_code ec;
+	if (!fs::exists(absolutePath, ec))
+	{
+		if (errorOut) *errorOut = "Nothing to trash: " + absolutePath;
+		return std::string();
+	}
+
+	const std::string trashDir = AbsolutePath(".trash");
+	fs::create_directories(trashDir, ec);
+	if (ec)
+	{
+		if (errorOut) *errorOut = "Failed to create .trash: " + ec.message();
+		return std::string();
+	}
+
+	const std::string rel = RelativePath(absolutePath);
+	std::string safeName = rel.empty() ? fs::path(absolutePath).filename().string() : rel;
+	for (char& c : safeName) if (c == '/' || c == '\\') c = '_';
+
+	const long long stamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::system_clock::now().time_since_epoch()).count();
+	std::string trashRel = ".trash/" + std::to_string(stamp) + "_" + safeName;
+	std::string trashAbs = AbsolutePath(trashRel);
+	// Same-millisecond collision is astronomically unlikely but cheap to guard.
+	for (int suffix = 1; fs::exists(trashAbs, ec); ++suffix)
+	{
+		trashRel = ".trash/" + std::to_string(stamp) + "_" + std::to_string(suffix) + "_" + safeName;
+		trashAbs = AbsolutePath(trashRel);
+	}
+
+	fs::rename(absolutePath, trashAbs, ec);
+	if (ec)
+	{
+		if (errorOut) *errorOut = "Failed to move to trash: " + ec.message();
+		return std::string();
+	}
+	projectDirty = true;
+	return trashRel;
+}
+
+bool ProjectManager::MoveFromTrash(const std::string& trashRelativePath, const std::string& destinationAbsolute, std::string* errorOut)
+{
+	if (!IsOpen())
+	{
+		if (errorOut) *errorOut = "No project open";
+		return false;
+	}
+	const std::string trashAbs = AbsolutePath(trashRelativePath);
+	std::error_code ec;
+	if (!fs::exists(trashAbs, ec))
+	{
+		if (errorOut) *errorOut = "Trash entry missing: " + trashRelativePath;
+		return false;
+	}
+	if (fs::exists(destinationAbsolute, ec))
+	{
+		if (errorOut) *errorOut = "Destination already occupied: " + destinationAbsolute;
+		return false;
+	}
+	fs::create_directories(fs::path(destinationAbsolute).parent_path(), ec);
+	fs::rename(trashAbs, destinationAbsolute, ec);
+	if (ec)
+	{
+		if (errorOut) *errorOut = "Failed to restore from trash: " + ec.message();
+		return false;
+	}
+	projectDirty = true;
+	return true;
+}
+
+bool ProjectManager::DeleteAsset(const std::string& relativePath, std::string* errorOut, std::string* outTrashRelativePath,
+	std::string* outMovedFromRelativePath)
+{
+	if (outTrashRelativePath) outTrashRelativePath->clear();
+	if (outMovedFromRelativePath) outMovedFromRelativePath->clear();
 	if (!IsOpen())
 	{
 		if (errorOut) *errorOut = "No project open";
@@ -788,7 +891,7 @@ bool ProjectManager::DeleteAsset(const std::string& relativePath, std::string* e
 	}
 
 	// Model packages live at assets/models/<stem>/ — deleting the .p3dm
-	// removes the whole package (textures, staged source, etc.).
+	// trashes the whole package (textures, staged source, etc.) as one unit.
 	if (IsP3dm(relativePath))
 	{
 		fs::path rel(relativePath);
@@ -796,34 +899,27 @@ bool ProjectManager::DeleteAsset(const std::string& relativePath, std::string* e
 		if (!parent.empty() && parent.filename() == rel.stem()
 			&& parent.string().find("assets/models/") == 0)
 		{
-			fs::remove_all(AbsolutePath(parent.string()), ec);
-			if (ec)
-			{
-				if (errorOut) *errorOut = "Delete failed: " + ec.message();
+			const std::string trashRel = MoveToTrash(AbsolutePath(parent.string()), errorOut);
+			if (trashRel.empty())
 				return false;
-			}
+			if (outTrashRelativePath) *outTrashRelativePath = trashRel;
+			if (outMovedFromRelativePath) *outMovedFromRelativePath = parent.string();
 			projectDirty = true;
 			return true;
 		}
 	}
 
-	if (fs::is_directory(abs, ec))
+	if (fs::is_directory(abs, ec) && !fs::is_empty(abs, ec))
 	{
-		if (!fs::is_empty(abs, ec))
-		{
-			if (errorOut) *errorOut = "Folder is not empty";
-			return false;
-		}
-		fs::remove(abs, ec);
-	}
-	else
-		fs::remove(abs, ec);
-
-	if (ec)
-	{
-		if (errorOut) *errorOut = "Delete failed: " + ec.message();
+		if (errorOut) *errorOut = "Folder is not empty";
 		return false;
 	}
+
+	const std::string trashRel = MoveToTrash(abs, errorOut);
+	if (trashRel.empty())
+		return false;
+	if (outTrashRelativePath) *outTrashRelativePath = trashRel;
+	if (outMovedFromRelativePath) *outMovedFromRelativePath = relativePath;
 	projectDirty = true;
 	return true;
 }
@@ -1122,9 +1218,11 @@ std::string ProjectManager::FindAssimpImporterBinary()
 	return std::string();
 }
 
-bool ProjectManager::ImportModel(const std::string& sourcePath, std::string& outP3dmAbsolute, std::string* errorOut)
+bool ProjectManager::ImportModel(const std::string& sourcePath, std::string& outP3dmAbsolute, std::string* errorOut,
+	std::string* outTrashedPackageDir)
 {
 	outP3dmAbsolute.clear();
+	if (outTrashedPackageDir) outTrashedPackageDir->clear();
 	if (!IsOpen())
 	{
 		if (errorOut) *errorOut = "Open a project before importing models";
@@ -1145,6 +1243,35 @@ bool ProjectManager::ImportModel(const std::string& sourcePath, std::string& out
 	}
 
 	const fs::path modelDir = fs::path(ModelsPath()) / stem;
+
+	// A .p3dm re-"imported" from right where it already lives is a true
+	// no-op - must be checked BEFORE the trash step below, or re-importing
+	// an unchanged in-place model would trash the very file it then tries
+	// to report success against.
+	if (IsP3dm(sourcePath))
+	{
+		const std::string alreadyRel = RelativePath(sourcePath);
+		if (!alreadyRel.empty() && alreadyRel.find("assets/models/") == 0)
+		{
+			outP3dmAbsolute = sourcePath;
+			return true;
+		}
+	}
+
+	// Re-importing over an existing package (same model name imported
+	// again, from a genuinely different source) would otherwise silently
+	// overwrite its contents file-by-file below - trash the whole
+	// pre-existing folder as one unit first so undo can restore it
+	// exactly, rather than trying to reconstruct which individual files
+	// got clobbered.
+	if (fs::exists(modelDir, ec) && !fs::is_empty(modelDir, ec))
+	{
+		const std::string trashRel = MoveToTrash(modelDir.string(), errorOut);
+		if (trashRel.empty())
+			return false;
+		if (outTrashedPackageDir) *outTrashedPackageDir = trashRel;
+	}
+
 	fs::create_directories(modelDir, ec);
 	if (ec)
 	{
@@ -1154,13 +1281,6 @@ bool ProjectManager::ImportModel(const std::string& sourcePath, std::string& out
 
 	if (IsP3dm(sourcePath))
 	{
-		const std::string alreadyRel = RelativePath(sourcePath);
-		if (!alreadyRel.empty() && alreadyRel.find("assets/models/") == 0)
-		{
-			outP3dmAbsolute = sourcePath;
-			return true;
-		}
-
 		const fs::path dest = modelDir / (stem + ".p3dm");
 		fs::copy_file(sourcePath, dest, fs::copy_options::overwrite_existing, ec);
 		if (ec)

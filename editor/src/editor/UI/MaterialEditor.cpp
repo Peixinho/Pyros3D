@@ -10,6 +10,7 @@
 #include "../CodeEditorDocument.h"
 #include "../MaterialCodegen.h"
 #include "../MaterialPreview.h"
+#include "../UndoValueEdit.h"
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <Pyros3D/Materials/Shaders/Shaders.h>
@@ -27,6 +28,43 @@
 using namespace p3d;
 
 namespace {
+
+// Commit-boundary helper for the many small widgets below that each touch
+// the node graph or generic-material properties - call immediately after
+// the widget, regardless of whether this frame's call returned true (it
+// only acts on IsItemActivated()/IsItemDeactivatedAfterEdit() edges, same
+// pattern as UndoValueEdit.h's scalar version, just backed by
+// MaterialEditorDocument's own whole-graph BeginGraphEdit()/
+// CommitGraphEdit() rather than a per-call-site value baseline).
+void GraphUndoCommit(MaterialEditorDocument& doc, const char* description)
+{
+	if (ImGui::IsItemActivated())
+		doc.BeginGraphEdit();
+	if (ImGui::IsItemDeactivatedAfterEdit())
+		doc.CommitGraphEdit(description);
+}
+
+// Commit-boundary helper for a value that lives on the live IMaterial
+// itself (generic-material scalar/color fields) rather than in the node
+// graph - `setter(doc, value)` re-fetches whatever typed material pointer
+// it needs from doc->currentMaterial fresh each call, since that shared_ptr
+// can be replaced with a freshly-constructed instance (see the render-
+// options-changed block in DrawGenericMaterialInspector) between when this
+// pushes a command and when Undo()/Redo() later runs it.
+template<typename T>
+void UndoMaterialValue(MaterialEditorDocument& doc, T& baseline, const T& liveValue,
+	const std::function<void(MaterialEditorDocument*, const T&)>& setter, const char* description)
+{
+	MaterialEditorDocument* docPtr = &doc;
+	UndoValueEdit<T>(baseline, liveValue, [docPtr, setter, description](const T& before, const T& after) {
+		docPtr->undo.Push(std::make_unique<ApplyClosureCommand>(
+			[docPtr, setter, before]() { setter(docPtr, before); },
+			[docPtr, setter, after]() { setter(docPtr, after); },
+			description));
+	});
+}
+
+
 
 // A relative texture path like "brick.png" is resolved against
 // assets/textures/; anything that already looks absolute (starts with '/'
@@ -138,12 +176,19 @@ void HandleConnectionDrag(MaterialEditorDocument& doc, ImDrawList* drawList, con
 				conn.fromPinIndex = doc.dragFromPinIndex;
 				conn.toNode = p.nodeId;
 				conn.toPinIndex = p.pinIndex;
+				// Custom canvas gesture, not a standard ImGui widget - no
+				// IsItemActivated/IsItemDeactivatedAfterEdit to hang a
+				// commit boundary on, but the whole mutation happens in
+				// this one frame, so a plain before/after capture is enough
+				// (unlike node dragging below, which spans frames).
+				const MaterialEditorDocument::GraphSnapshot before = doc.CaptureGraphSnapshot();
 				// A pin accepts only one incoming connection - replace any existing one.
 				doc.connections.erase(std::remove_if(doc.connections.begin(), doc.connections.end(),
 					[&](const MaterialConnection& c) { return c.toNode == conn.toNode && c.toPinIndex == conn.toPinIndex; }),
 					doc.connections.end());
 				doc.connections.push_back(conn);
 				doc.dirty = true;
+				doc.undo.Push(std::make_unique<GraphEditCommand>(&doc, before, doc.CaptureGraphSnapshot(), "Connect Nodes"));
 			}
 		}
 		doc.isDraggingConnection = false;
@@ -152,8 +197,11 @@ void HandleConnectionDrag(MaterialEditorDocument& doc, ImDrawList* drawList, con
 
 void DrawAddNodeItem(MaterialEditorDocument& doc, MaterialNode::Type type, ImVec2 pos) {
 	if (ImGui::MenuItem(MaterialNode::TypeToString(type))) {
+		const MaterialEditorDocument::GraphSnapshot before = doc.CaptureGraphSnapshot();
 		doc.CreateNode(type, MaterialNode::TypeToString(type), pos);
 		doc.dirty = true;
+		doc.undo.Push(std::make_unique<GraphEditCommand>(&doc, before, doc.CaptureGraphSnapshot(),
+			std::string("Add ") + MaterialNode::TypeToString(type) + " Node"));
 	}
 }
 
@@ -626,12 +674,19 @@ static void DrawGenericMaterialInspector(MaterialEditorDocument& doc, const std:
 	ImGui::Spacing();
 	ImGui::Text("Colors");
 
+	// Undo here is a value-diff on the live GenericShaderMaterial, NOT a
+	// GraphSnapshot (GraphUndoCommit) - Generic-kind materials have no node
+	// graph, so a graph snapshot would be an empty no-op.
+	#define GM_SETTER(Fn) [](MaterialEditorDocument* d, const auto& v) { \
+		if (auto* g = dynamic_cast<GenericShaderMaterial*>(d->currentMaterial.get())) { g->Fn(v); d->dirty = true; } }
+
 	Vec4 color = gm->GetColor();
 	float c[4] = { color.x, color.y, color.z, color.w };
 	if (ImGui::ColorEdit4("Base Color", c, ImGuiColorEditFlags_AlphaBar)) {
 		gm->SetColor(Vec4(c[0], c[1], c[2], c[3]));
 		doc.dirty = true;
 	}
+	{ static Vec4 baseline; UndoMaterialValue<Vec4>(doc, baseline, gm->GetColor(), GM_SETTER(SetColor), "Set Base Color"); }
 
 	Vec4 spec = gm->GetSpecular();
 	float s[4] = { spec.x, spec.y, spec.z, spec.w };
@@ -639,6 +694,7 @@ static void DrawGenericMaterialInspector(MaterialEditorDocument& doc, const std:
 		gm->SetSpecular(Vec4(s[0], s[1], s[2], s[3]));
 		doc.dirty = true;
 	}
+	{ static Vec4 baseline; UndoMaterialValue<Vec4>(doc, baseline, gm->GetSpecular(), GM_SETTER(SetSpecular), "Set Specular Color"); }
 
 	ImGui::Spacing();
 	ImGui::Text("Textures");
@@ -649,27 +705,44 @@ static void DrawGenericMaterialInspector(MaterialEditorDocument& doc, const std:
 
 	float metallic = gm->GetMetallic();
 	if (ImGui::SliderFloat("Metallic", &metallic, 0.f, 1.f)) { gm->SetMetallic(metallic); doc.dirty = true; }
+	{ static f32 baseline; UndoMaterialValue<f32>(doc, baseline, gm->GetMetallic(), GM_SETTER(SetMetallic), "Set Metallic"); }
 
 	float roughness = gm->GetRoughness();
 	if (ImGui::SliderFloat("Roughness", &roughness, 0.f, 1.f)) { gm->SetRoughness(roughness); doc.dirty = true; }
+	{ static f32 baseline; UndoMaterialValue<f32>(doc, baseline, gm->GetRoughness(), GM_SETTER(SetRoughness), "Set Roughness"); }
 
 	bool ssr = gm->IsSSREnabled();
-	if (ImGui::Checkbox("Screen Space Reflections", &ssr)) { gm->SetSSREnabled(ssr); doc.dirty = true; }
+	const bool ssrBefore = ssr;
+	if (ImGui::Checkbox("Screen Space Reflections", &ssr)) {
+		gm->SetSSREnabled(ssr);
+		doc.dirty = true;
+		MaterialEditorDocument* docPtr = &doc;
+		docPtr->undo.Push(std::make_unique<ApplyClosureCommand>(
+			[docPtr, ssrBefore]() { if (auto* g = dynamic_cast<GenericShaderMaterial*>(docPtr->currentMaterial.get())) { g->SetSSREnabled(ssrBefore); docPtr->dirty = true; } },
+			[docPtr, ssr]() { if (auto* g = dynamic_cast<GenericShaderMaterial*>(docPtr->currentMaterial.get())) { g->SetSSREnabled(ssr); docPtr->dirty = true; } },
+			"Toggle Screen Space Reflections"));
+	}
 
 	float alphaCutoff = gm->GetAlphaCutoff();
 	if (ImGui::SliderFloat("Alpha Cutoff", &alphaCutoff, 0.f, 1.f)) { gm->SetAlphaCutoff(alphaCutoff); doc.dirty = true; }
+	{ static f32 baseline; UndoMaterialValue<f32>(doc, baseline, gm->GetAlphaCutoff(), GM_SETTER(SetAlphaCutoff), "Set Alpha Cutoff"); }
 
 	ImGui::Spacing();
 	ImGui::Text("Lighting");
 
 	float shininess = gm->GetShininess();
 	if (ImGui::SliderFloat("Shininess", &shininess, 0.f, 128.f)) { gm->SetShininess(shininess); doc.dirty = true; }
+	{ static f32 baseline; UndoMaterialValue<f32>(doc, baseline, gm->GetShininess(), GM_SETTER(SetShininess), "Set Shininess"); }
 
 	float reflectivity = gm->GetReflectivity();
 	if (ImGui::SliderFloat("Reflectivity", &reflectivity, 0.f, 1.f)) { gm->SetReflectivity(reflectivity); doc.dirty = true; }
+	{ static f32 baseline; UndoMaterialValue<f32>(doc, baseline, gm->GetReflectivity(), GM_SETTER(SetReflectivity), "Set Reflectivity"); }
 
 	float dispHeight = gm->GetDisplacementHeight();
 	if (ImGui::DragFloat("Displacement Height", &dispHeight, 0.01f, -1.f, 5.f)) { gm->SetDisplacementHeight(dispHeight); doc.dirty = true; }
+	{ static f32 baseline; UndoMaterialValue<f32>(doc, baseline, gm->GetDisplacementHeight(), GM_SETTER(SetDisplacementHeight), "Set Displacement Height"); }
+
+	#undef GM_SETTER
 }
 
 static void DrawCustomMaterialInspector(MaterialEditorDocument& doc) {
@@ -685,34 +758,93 @@ static void DrawCustomMaterialInspector(MaterialEditorDocument& doc) {
 
 static void DrawCommonMaterialSettings(MaterialEditorDocument& doc, IMaterial* mat) {
 	if (!mat) return;
+	MaterialEditorDocument* docPtr = &doc;
+	// Same re-fetch-fresh rationale as DrawGenericMaterialInspector's
+	// GM_SETTER - closures read docPtr->currentMaterial rather than
+	// capturing `mat` directly.
+	#define MAT_TOGGLE(before, EnableCall, DisableCall) \
+		docPtr->undo.Push(std::make_unique<ApplyClosureCommand>( \
+			[docPtr, before]() { if (docPtr->currentMaterial) { if (before) docPtr->currentMaterial->EnableCall; else docPtr->currentMaterial->DisableCall; docPtr->dirty = true; } }, \
+			[docPtr, before]() { if (docPtr->currentMaterial) { if (!before) docPtr->currentMaterial->EnableCall; else docPtr->currentMaterial->DisableCall; docPtr->dirty = true; } }, \
+			"Toggle " #EnableCall))
 
 	ImGui::Text("Rendering");
 
 	float opacity = mat->GetOpacity();
 	if (ImGui::SliderFloat("Opacity", &opacity, 0.f, 1.f)) { mat->SetOpacity(opacity); doc.dirty = true; }
+	{
+		static f32 baseline;
+		UndoMaterialValue<f32>(doc, baseline, mat->GetOpacity(),
+			[](MaterialEditorDocument* d, const f32& v) { if (d->currentMaterial) { d->currentMaterial->SetOpacity(v); d->dirty = true; } },
+			"Set Opacity");
+	}
 
 	bool transparent = mat->IsTransparent();
-	if (ImGui::Checkbox("Transparent", &transparent)) { mat->SetTransparencyFlag(transparent); doc.dirty = true; }
+	if (ImGui::Checkbox("Transparent", &transparent)) {
+		const bool before = !transparent;
+		mat->SetTransparencyFlag(transparent);
+		doc.dirty = true;
+		docPtr->undo.Push(std::make_unique<ApplyClosureCommand>(
+			[docPtr, before]() { if (docPtr->currentMaterial) { docPtr->currentMaterial->SetTransparencyFlag(before); docPtr->dirty = true; } },
+			[docPtr, transparent]() { if (docPtr->currentMaterial) { docPtr->currentMaterial->SetTransparencyFlag(transparent); docPtr->dirty = true; } },
+			"Toggle Transparent"));
+	}
 
 	bool blending = mat->IsBlendingEnabled();
-	if (ImGui::Checkbox("Blending", &blending)) { if (blending) mat->EnableBlending(); else mat->DisableBlending(); doc.dirty = true; }
+	if (ImGui::Checkbox("Blending", &blending)) {
+		const bool before = !blending;
+		if (blending) mat->EnableBlending(); else mat->DisableBlending();
+		doc.dirty = true;
+		MAT_TOGGLE(before, EnableBlending(), DisableBlending());
+	}
 
 	bool depthTest = mat->IsDepthTesting();
-	if (ImGui::Checkbox("Depth Test", &depthTest)) { if (depthTest) mat->EnableDepthTest(); else mat->DisableDepthTest(); doc.dirty = true; }
+	if (ImGui::Checkbox("Depth Test", &depthTest)) {
+		const bool before = !depthTest;
+		if (depthTest) mat->EnableDepthTest(); else mat->DisableDepthTest();
+		doc.dirty = true;
+		MAT_TOGGLE(before, EnableDepthTest(), DisableDepthTest());
+	}
 
 	bool depthWrite = mat->IsDepthWritting();
-	if (ImGui::Checkbox("Depth Write", &depthWrite)) { if (depthWrite) mat->EnableDepthWrite(); else mat->DisableDepthWrite(); doc.dirty = true; }
+	if (ImGui::Checkbox("Depth Write", &depthWrite)) {
+		const bool before = !depthWrite;
+		if (depthWrite) mat->EnableDepthWrite(); else mat->DisableDepthWrite();
+		doc.dirty = true;
+		MAT_TOGGLE(before, EnableDepthWrite(), DisableDepthWrite());
+	}
 
 	uint32 cullFace = mat->GetCullFace();
 	static const char* cullLabels[] = { "None", "Front", "Back" };
 	int cullIdx = (int)cullFace;
-	if (ImGui::Combo("Cull Face", &cullIdx, cullLabels, IM_ARRAYSIZE(cullLabels))) { mat->SetCullFace((uint32)cullIdx); doc.dirty = true; }
+	if (ImGui::Combo("Cull Face", &cullIdx, cullLabels, IM_ARRAYSIZE(cullLabels))) {
+		const uint32 before = cullFace;
+		mat->SetCullFace((uint32)cullIdx);
+		doc.dirty = true;
+		const uint32 after = (uint32)cullIdx;
+		docPtr->undo.Push(std::make_unique<ApplyClosureCommand>(
+			[docPtr, before]() { if (docPtr->currentMaterial) { docPtr->currentMaterial->SetCullFace(before); docPtr->dirty = true; } },
+			[docPtr, after]() { if (docPtr->currentMaterial) { docPtr->currentMaterial->SetCullFace(after); docPtr->dirty = true; } },
+			"Set Cull Face"));
+	}
 
 	bool wireframe = mat->IsWireFrame();
-	if (ImGui::Checkbox("Wireframe", &wireframe)) { if (wireframe) mat->StartRenderWireFrame(); else mat->StopRenderWireFrame(); doc.dirty = true; }
+	if (ImGui::Checkbox("Wireframe", &wireframe)) {
+		const bool before = !wireframe;
+		if (wireframe) mat->StartRenderWireFrame(); else mat->StopRenderWireFrame();
+		doc.dirty = true;
+		MAT_TOGGLE(before, StartRenderWireFrame(), StopRenderWireFrame());
+	}
 
 	bool castShadows = mat->IsCastingShadows();
-	if (ImGui::Checkbox("Cast Shadows", &castShadows)) { if (castShadows) mat->EnableCastingShadows(); else mat->DisableCastingShadows(); doc.dirty = true; }
+	if (ImGui::Checkbox("Cast Shadows", &castShadows)) {
+		const bool before = !castShadows;
+		if (castShadows) mat->EnableCastingShadows(); else mat->DisableCastingShadows();
+		doc.dirty = true;
+		MAT_TOGGLE(before, EnableCastingShadows(), DisableCastingShadows());
+	}
+
+	#undef MAT_TOGGLE
 }
 
 static void DrawInspectorTab(MaterialEditorDocument& doc, const std::string& projectRoot) {
@@ -769,6 +901,7 @@ static void DrawNodeBody(MaterialEditorDocument& doc, MaterialNode& node, const 
 			if (!node.userData.empty())
 				sscanf(node.userData.c_str(), "%f,%f,%f,%f", &color[0], &color[1], &color[2], &color[3]);
 			if (ImGui::ColorEdit4("Value", color)) doc.dirty = true;
+			GraphUndoCommit(doc, "Set Node Color");
 			node.userData = std::to_string(color[0]) + "," + std::to_string(color[1]) + "," +
 				std::to_string(color[2]) + "," + std::to_string(color[3]);
 
@@ -784,6 +917,7 @@ static void DrawNodeBody(MaterialEditorDocument& doc, MaterialNode& node, const 
 			float val = 0.5f;
 			if (!node.userData.empty()) sscanf(node.userData.c_str(), "%f", &val);
 			if (ImGui::DragFloat("Value", &val, 0.01f)) doc.dirty = true;
+			GraphUndoCommit(doc, "Set Node Value");
 			node.userData = std::to_string(val);
 
 			float barWidth = ImGui::GetContentRegionAvail().x;
@@ -796,12 +930,14 @@ static void DrawNodeBody(MaterialEditorDocument& doc, MaterialNode& node, const 
 			int val = 0;
 			if (!node.userData.empty()) sscanf(node.userData.c_str(), "%d", &val);
 			if (ImGui::DragInt("Value", &val)) doc.dirty = true;
+			GraphUndoCommit(doc, "Set Node Value");
 			node.userData = std::to_string(val);
 			break;
 		}
 		case MaterialNode::Bool: {
 			bool val = (node.userData == "1");
 			if (ImGui::Checkbox("Value", &val)) doc.dirty = true;
+			GraphUndoCommit(doc, "Set Node Value");
 			node.userData = val ? "1" : "0";
 			break;
 		}
@@ -809,6 +945,7 @@ static void DrawNodeBody(MaterialEditorDocument& doc, MaterialNode& node, const 
 			float v[2] = {0, 0};
 			if (!node.userData.empty()) sscanf(node.userData.c_str(), "%f,%f", &v[0], &v[1]);
 			if (ImGui::DragFloat2("Value", v, 0.01f)) doc.dirty = true;
+			GraphUndoCommit(doc, "Set Node Value");
 			node.userData = std::to_string(v[0]) + "," + std::to_string(v[1]);
 			break;
 		}
@@ -816,6 +953,7 @@ static void DrawNodeBody(MaterialEditorDocument& doc, MaterialNode& node, const 
 			float v[3] = {0, 0, 0};
 			if (!node.userData.empty()) sscanf(node.userData.c_str(), "%f,%f,%f", &v[0], &v[1], &v[2]);
 			if (ImGui::DragFloat3("Value", v, 0.01f)) doc.dirty = true;
+			GraphUndoCommit(doc, "Set Node Value");
 			node.userData = std::to_string(v[0]) + "," + std::to_string(v[1]) + "," + std::to_string(v[2]);
 			break;
 		}
@@ -823,6 +961,7 @@ static void DrawNodeBody(MaterialEditorDocument& doc, MaterialNode& node, const 
 			float v[4] = {0, 0, 0, 1};
 			if (!node.userData.empty()) sscanf(node.userData.c_str(), "%f,%f,%f,%f", &v[0], &v[1], &v[2], &v[3]);
 			if (ImGui::DragFloat4("Value", v, 0.01f)) doc.dirty = true;
+			GraphUndoCommit(doc, "Set Node Value");
 			node.userData = std::to_string(v[0]) + "," + std::to_string(v[1]) + "," + std::to_string(v[2]) + "," + std::to_string(v[3]);
 			break;
 		}
@@ -1027,6 +1166,12 @@ static void DrawNodeGraphTab(MaterialEditorDocument& doc, const std::string& pro
 		ImGui::SetCursorScreenPos(titleMin);
 		ImGui::InvisibleButton("##drag_handle", titleSize);
 		const bool headerHovered = ImGui::IsItemActive();
+		// Must be read right here, immediately after the InvisibleButton -
+		// IsItemActivated()/IsItemDeactivated() refer to the *last* ImGui
+		// item, and DrawNodeBody()/the context-menu popup below draw many
+		// more items before the drag logic that consumes these runs.
+		const bool dragHandleActivated = ImGui::IsItemActivated();
+		const bool dragHandleDeactivated = ImGui::IsItemDeactivated();
 		ImGui::Separator();
 
 		const bool nodeHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
@@ -1039,6 +1184,7 @@ static void DrawNodeGraphTab(MaterialEditorDocument& doc, const std::string& pro
 
 		if (ImGui::BeginPopup("NodeContextMenu")) {
 			if (ImGui::MenuItem("Delete Node")) {
+				const MaterialEditorDocument::GraphSnapshot before = doc.CaptureGraphSnapshot();
 				const uint32_t deleteId = node.id;
 				for (auto& n : doc.nodes) {
 					if (n.id == deleteId && n.previewTex) { delete n.previewTex; n.previewTex = nullptr; break; }
@@ -1046,16 +1192,28 @@ static void DrawNodeGraphTab(MaterialEditorDocument& doc, const std::string& pro
 				doc.nodes.erase(std::remove_if(doc.nodes.begin(), doc.nodes.end(), [deleteId](const MaterialNode& n) { return n.id == deleteId; }), doc.nodes.end());
 				doc.connections.erase(std::remove_if(doc.connections.begin(), doc.connections.end(), [deleteId](const MaterialConnection& c) { return c.fromNode == deleteId || c.toNode == deleteId; }), doc.connections.end());
 				doc.dirty = true;
+				doc.undo.Push(std::make_unique<GraphEditCommand>(&doc, before, doc.CaptureGraphSnapshot(), "Delete Node"));
 			}
 			ImGui::EndPopup();
 		}
 
+		// Node drag spans multiple frames (mouse held down), unlike the
+		// one-shot mutations above - IsItemActivated()/IsItemDeactivated()
+		// on the drag-handle InvisibleButton (captured right after it was
+		// drawn, see dragHandleActivated/dragHandleDeactivated above) give
+		// the same begin/end gesture boundary IsItemDeactivatedAfterEdit()
+		// gives standard widgets (a plain InvisibleButton has no "edited"
+		// concept, so the plain Deactivated edge is used instead).
+		if (dragHandleActivated)
+			doc.BeginGraphEdit();
 		if (!doc.isDraggingConnection && headerHovered && ImGui::IsMouseDragging(0)) {
 			ImVec2 delta(io.MouseDelta.x / doc.graphZoom, io.MouseDelta.y / doc.graphZoom);
 			node.pos.x += delta.x;
 			node.pos.y += delta.y;
 			if (delta.x != 0.f || delta.y != 0.f) doc.dirty = true;
 		}
+		if (dragHandleDeactivated)
+			doc.CommitGraphEdit("Move Node");
 
 		ImGui::EndChild();
 		ImGui::PopStyleColor(2);

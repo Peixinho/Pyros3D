@@ -238,6 +238,12 @@ public:
 	std::string RedoDescription() const { return sceneUndo.RedoDescription(); }
 	void Undo() { sceneUndo.Undo(); }
 	void Redo() { sceneUndo.Redo(); }
+	// Escape hatch for command types SceneEditor doesn't know about (e.g.
+	// AssetCommands' filesystem undo commands) - asset operations are
+	// triggered from the Assets panel, which is global chrome rather than
+	// belonging to any one document, so they're routed onto the active
+	// scene document's stack, same as everything else here.
+	void PushUndoCommand(std::unique_ptr<IUndoableCommand> cmd) { sceneUndo.Push(std::move(cmd)); }
 	SceneObjects* GetSceneObjects() const { return sceneObjects; }
 	// Selects `obj` (NULL clears selection) and focuses it in the hierarchy
 	// tree - used by undo/redo commands to restore selection the same way
@@ -597,6 +603,15 @@ private:
 	int32 draggin_id;
 	int32 droppin_id;
 	int32 node_clicked;
+	// Set by DrawTreeNodeWidgets' "Delete GameObject"/"Delete Component"
+	// menu items instead of deleting immediately, and processed once
+	// DrawNodes() has fully returned (see ShowHierarchy()) - DrawNodes()
+	// walks sceneObjects->GetList() directly and keeps dereferencing the
+	// SceneObject* for the node it just drew even after the popup menu
+	// runs, so erasing/freeing it mid-walk is a use-after-free. 0 = none
+	// (SceneObjects hands out ids starting at 1, same "0 = none/root"
+	// convention ParentID already uses).
+	uint32 pendingDeleteId;
 	void DrawNodes(uint32 parentID = 0, uint32 depth = 0);
 	void DrawTreeNodeWidgets(SceneObject* obj, bool node_open);
 	bool IsInternalGameObject(p3d::GameObject* go) const;

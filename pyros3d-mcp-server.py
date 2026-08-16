@@ -2449,6 +2449,15 @@ def delete_asset(project_path: str, asset_path: str) -> str:
     if rel == "project.json":
         return _fail("Cannot delete project.json")
 
+    if _live_project_matches(proj):
+        ok, res = _editor_call("delete_asset", {"path": rel})
+        if ok:
+            return f"Deleted (moved to .trash/, live editor - Ctrl+Z to undo): {rel}"
+        # Live editor is running but the call itself failed (e.g. folder
+        # not empty) - surface that instead of silently falling through to
+        # a permanent, non-undoable file-based delete.
+        return _fail(str(res))
+
     path = (proj / rel).resolve()
     if not path.exists():
         return _fail(f"Asset not found: {asset_path}")

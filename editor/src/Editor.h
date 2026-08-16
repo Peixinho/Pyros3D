@@ -43,6 +43,7 @@
 #include "editor/ProjectManager.h"
 #include "editor/CodeEditorDocument.h"
 #include "editor/AgentServer.h"
+#include "editor/UndoStack.h"
 #include <Pyros3D/Utils/Json/json.hpp>
 
 #ifdef LUA_BINDINGS
@@ -174,6 +175,12 @@ private:
 	// immediately in the common case of a single scene document open.
 	enum class FocusedDocKind { Scene, Material };
 	FocusedDocKind lastFocusedDocKind = FocusedDocKind::Scene;
+	// Project-wide settings (name, renderer type) aren't "a document" the
+	// way a scene/material tab is, so they get their own small stack rather
+	// than being folded into FocusedDocKind - routed to whenever the
+	// Project Settings modal is the thing currently open (see DrawUI()'s
+	// Ctrl+Z handling), independent of which tab last had focus.
+	UndoStack projectUndo;
 
 	TabLog* tabLog;
 	// Local command server for external agents (MCP bridge). Started in

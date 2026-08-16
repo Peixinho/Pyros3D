@@ -14,6 +14,7 @@
 
 #include "SceneEditor.h"
 #include "SceneCommands.h"
+#include "AssetCommands.h"
 #include "UndoValueEdit.h"
 #include "ProjectManager.h"
 #include "AgentServer.h"
@@ -519,6 +520,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		axisHelper = new AxisHelper();
 
 		node_clicked = -1;
+		pendingDeleteId = 0;
 
 		draggin_id = -1;
 		droppin_id = -1;
@@ -950,6 +952,24 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 
 			DrawNodes();
+
+			// Deferred delete (see pendingDeleteId's declaration) - now
+			// safe to mutate sceneObjects since DrawNodes() has fully
+			// returned and nothing is still holding a pointer/iterator
+			// into the map it walks.
+			if (pendingDeleteId != 0)
+			{
+				const uint32 deleteId = pendingDeleteId;
+				pendingDeleteId = 0;
+				SceneObject* toDelete = sceneObjects->GetSceneObject(deleteId);
+				if (toDelete)
+				{
+					if (toDelete->GetType() == SceneObjectTypes::GAMEOBJECT)
+						DeleteGameObjectById(deleteId);
+					else
+						DeleteComponentById(deleteId);
+				}
+			}
 
 			if (node_clicked != -1)
 			{
@@ -2102,6 +2122,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					std::string err;
 					if (project->CreateLuaScript(propertiesNewGoScriptName, abs, &err, LuaScriptKind::GameObject))
 					{
+						const std::string createdRel = project->RelativePath(abs);
+						if (!createdRel.empty())
+							sceneUndo.Push(std::make_unique<CreateAssetCommand>(project, createdRel, "Create Script '" + createdRel + "'"));
 						project->Save();
 						if (hostOpenLuaScript) hostOpenLuaScript(abs);
 						if (AttachLuaScriptToGameObject(goId, abs))
@@ -2512,14 +2535,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					? "Detach Script" : "Delete Component";
 				if (ImGui::MenuItem(deleteLabel))
 				{
-					DeleteComponentById(obj->GetID());
+					// Deferred (see pendingDeleteId's declaration) - the
+					// caller (DrawNodes) is still mid-walk over
+					// sceneObjects->GetList() and keeps dereferencing `obj`
+					// after this function returns, so deleting immediately
+					// here would free it out from under that walk.
+					pendingDeleteId = obj->GetID();
 					ImGui::EndPopup();
 					return;
 				}
 			}
 			if (obj->GetType() == SceneObjectTypes::GAMEOBJECT && ImGui::MenuItem("Delete GameObject"))
 			{
-				DeleteGameObjectById(obj->GetID());
+				pendingDeleteId = obj->GetID();
 			}
 			ImGui::EndPopup();
 		}
@@ -3299,9 +3327,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::ViewportPickAtMouse()
 	{
+		char pickDbg[256];
+		snprintf(pickDbg, sizeof(pickDbg),
+			"DEBUG PICK: ViewportPickAtMouse called, mouse (%.1f, %.1f), dim %dx%d",
+			viewportMouse.x, viewportMouse.y, dim.x, dim.y);
+		echo(pickDbg);
+
 		uint32 iconPickId = 0;
 		if (TryPickViewportIcon(viewportMouse, iconPickId))
 		{
+			snprintf(pickDbg, sizeof(pickDbg), "DEBUG PICK: icon hit id %u", iconPickId);
+			echo(pickDbg);
 			DeselectMesh();
 			SelectSceneObject(sceneObjects->GetSceneObject(iconPickId));
 			node_clicked = iconPickId;
@@ -3313,6 +3349,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		Picking->SetViewPort(0, 0, dim.x, dim.y);
 		RenderingMesh* rm = Picking->PickObject(viewportMouse.x, viewportMouse.y,
 			(isPerspective ? projection : projectionOrtho), GetViewCameraGO(), scene);
+
+		if (rm == NULL)
+		{
+			echo("DEBUG PICK: PickObject returned NULL (no mesh under cursor)");
+		}
+		else if (rm->renderingComponent == rGrid.get())
+		{
+			echo("DEBUG PICK: hit the grid - rejected");
+		}
 
 		if (rm != NULL && rm->renderingComponent != rGrid.get())
 		{
@@ -3334,6 +3379,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (!helper)
 				node_clicked = sceneObjects->GetSceneObjectID(rm->renderingComponent->GetOwner());
 
+			snprintf(pickDbg, sizeof(pickDbg), "DEBUG PICK: selected id %u (helper=%d)", node_clicked, helper);
+			echo(pickDbg);
 			DeselectMesh();
 			SelectSceneObject(sceneObjects->GetSceneObject(node_clicked));
 		}
@@ -5630,10 +5677,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			std::string modelPath = AddForm_modelPath;
 			if (project && project->IsOpen())
 			{
-				std::string imported;
-				std::string err;
-				if (project->ImportModel(AddForm_modelPath, imported, &err))
+				std::string imported, err, trashedPackageDir;
+				if (project->ImportModel(AddForm_modelPath, imported, &err, &trashedPackageDir))
+				{
 					modelPath = imported;
+					if (!trashedPackageDir.empty())
+					{
+						const std::string importedRel = project->RelativePath(imported);
+						const std::string packageRel = std::filesystem::path(importedRel).parent_path().string();
+						if (!packageRel.empty())
+							sceneUndo.Push(std::make_unique<ImportOverwriteCommand>(project, packageRel, trashedPackageDir,
+								"Import Model (overwrite) '" + packageRel + "'"));
+					}
+				}
 				else
 					echo("ERROR: model import failed: " + err);
 			}
@@ -6474,11 +6530,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		std::string p3dm = modelFile;
 		if (project && project->IsOpen() && !ProjectManager::IsP3dm(modelFile))
 		{
-			std::string outAbs, err;
-			if (!project->ImportModel(modelFile, outAbs, &err))
+			std::string outAbs, err, trashedPackageDir;
+			if (!project->ImportModel(modelFile, outAbs, &err, &trashedPackageDir))
 			{
 				errOut = "model import failed: " + err;
 				return false;
+			}
+			if (!trashedPackageDir.empty())
+			{
+				const std::string importedRel = project->RelativePath(outAbs);
+				const std::string packageRel = std::filesystem::path(importedRel).parent_path().string();
+				if (!packageRel.empty())
+					sceneUndo.Push(std::make_unique<ImportOverwriteCommand>(project, packageRel, trashedPackageDir,
+						"Import Model (overwrite) '" + packageRel + "'"));
 			}
 			p3dm = outAbs;
 		}

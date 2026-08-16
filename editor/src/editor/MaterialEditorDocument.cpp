@@ -127,6 +127,44 @@ void MaterialEditorDocument::ClearNodes() {
 	connections.clear();
 }
 
+MaterialEditorDocument::GraphSnapshot MaterialEditorDocument::CaptureGraphSnapshot() const {
+	GraphSnapshot snap;
+	snap.nodes = nodes;
+	for (auto& n : snap.nodes) n.previewTex = nullptr; // never alias the owning pointer
+	snap.connections = connections;
+	snap.nextNodeId = nextNodeId;
+	return snap;
+}
+
+void MaterialEditorDocument::RestoreGraphSnapshot(const GraphSnapshot& snap) {
+	ClearNodes(); // frees existing preview textures before nodes/connections are replaced
+	nodes = snap.nodes;
+	connections = snap.connections;
+	nextNodeId = snap.nextNodeId;
+	dirty = true;
+}
+
+void MaterialEditorDocument::BeginGraphEdit() {
+	pendingEditBaseline = CaptureGraphSnapshot();
+	pendingEditBaselineValid = true;
+}
+
+void MaterialEditorDocument::CommitGraphEdit(const std::string& description) {
+	if (!pendingEditBaselineValid) return;
+	pendingEditBaselineValid = false;
+	GraphSnapshot after = CaptureGraphSnapshot();
+	undo.Push(std::make_unique<GraphEditCommand>(this, pendingEditBaseline, after, description));
+}
+
+GraphEditCommand::GraphEditCommand(MaterialEditorDocument* doc, const MaterialEditorDocument::GraphSnapshot& before,
+	const MaterialEditorDocument::GraphSnapshot& after, const std::string& description)
+	: doc_(doc), before_(before), after_(after), description_(description)
+{
+}
+
+void GraphEditCommand::Undo() { doc_->RestoreGraphSnapshot(before_); }
+void GraphEditCommand::Redo() { doc_->RestoreGraphSnapshot(after_); }
+
 bool MaterialEditorDocument::LoadFromFile(const std::string& path) {
 	std::ifstream f(path);
 	if (!f.is_open()) return false;

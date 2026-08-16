@@ -93,16 +93,50 @@ public:
 
 	// Convert source model → assets/models/<stem>/<stem>.p3dm via AssimpImporter,
 	// packaging textures and companion files into that folder.
-	// Returns absolute path to .p3dm on success.
-	bool ImportModel(const std::string& sourcePath, std::string& outP3dmAbsolute, std::string* errorOut = NULL);
+	// Returns absolute path to .p3dm on success. If a package folder already
+	// exists at that destination (re-importing over an existing model), the
+	// whole pre-existing folder is trashed first (see MoveToTrash) rather
+	// than having its contents silently overwritten file-by-file -
+	// `outTrashedPackageDir`, if non-NULL, receives the .trash/-relative
+	// path it was moved to ("" if nothing existed there before).
+	bool ImportModel(const std::string& sourcePath, std::string& outP3dmAbsolute, std::string* errorOut = NULL,
+		std::string* outTrashedPackageDir = NULL);
 
 	// Copy/convert a dropped or browsed file into the matching assets/ folder
 	// by extension (models, textures, sounds, shaders, lua, materials, scenes).
-	bool ImportAssetFile(const std::string& sourcePath, std::string& outAbsolute, std::string* errorOut = NULL);
+	// If a file already exists at the destination, it's trashed first (see
+	// MoveToTrash) rather than overwritten outright - `outTrashedExisting`,
+	// if non-NULL, receives the .trash/-relative path it was moved to (""
+	// if nothing existed there before).
+	bool ImportAssetFile(const std::string& sourcePath, std::string& outAbsolute, std::string* errorOut = NULL,
+		std::string* outTrashedExisting = NULL);
 
-	// Delete a file or empty directory under the project (relative path).
-	// Deleting a .p3dm under assets/models/<stem>/ removes the whole package folder.
-	bool DeleteAsset(const std::string& relativePath, std::string* errorOut = NULL);
+	// Delete a file or empty directory under the project (relative path) -
+	// actually moves it to .trash/ (see MoveToTrash) rather than removing
+	// it outright. Deleting a .p3dm under assets/models/<stem>/ removes
+	// (trashes) the whole package folder - in that case `outMovedFromRelativePath`
+	// (if non-NULL) is the package folder's relative path, NOT `relativePath`
+	// itself, since that's what actually got moved and is what a later
+	// MoveFromTrash restore needs as its destination. `outTrashRelativePath`,
+	// if non-NULL, receives the .trash/-relative path it was moved to (for
+	// that MoveFromTrash call) - both out-params are empty on failure.
+	bool DeleteAsset(const std::string& relativePath, std::string* errorOut = NULL,
+		std::string* outTrashRelativePath = NULL, std::string* outMovedFromRelativePath = NULL);
+
+	// Moves `absolutePath` (a file or directory, anywhere under the
+	// project) into <project>/.trash/, returning the .trash/-relative path
+	// it was moved to ("" on failure). Name is
+	// "<unix-ms-timestamp>_<original-relative-path with / -> _>", unique
+	// per call so repeated delete/undo/delete cycles of the same path
+	// never collide. Trash is never garbage-collected automatically (see
+	// the .trash/ comment in ProjectManager.cpp) - a v2 concern, not this
+	// one.
+	std::string MoveToTrash(const std::string& absolutePath, std::string* errorOut = NULL);
+	// Reverses MoveToTrash(): moves the entry at .trash/<trashRelativePath>
+	// back to `destinationAbsolute`. Fails if the trash entry is missing or
+	// something already occupies the destination.
+	bool MoveFromTrash(const std::string& trashRelativePath, const std::string& destinationAbsolute,
+		std::string* errorOut = NULL);
 
 	// GameObject → assets/lua/<name>.lua. Scene → scenes/<name>.lua.
 	bool CreateLuaScript(const std::string& name, std::string& outAbsolute,

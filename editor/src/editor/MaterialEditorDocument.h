@@ -10,6 +10,7 @@
 #define MATERIALEDITORDOCUMENT_H
 
 #include "MaterialGraphTypes.h"
+#include "UndoStack.h"
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <cstdint>
 #include <memory>
@@ -42,6 +43,42 @@ struct MaterialEditorDocument {
 	uint32_t dragFromNode = 0;
 	int dragFromPinIndex = -1;
 	ImVec2 dragStartPos = ImVec2(0, 0);
+
+	// Per-document undo/redo history (see UndoStack.h / the undo/redo plan).
+	// Custom-kind-only in practice (Generic kind has no graph, but the
+	// stack is harmless and unused for it).
+	UndoStack undo;
+
+	// Coarse whole-graph snapshot used for undo: nodes+connections+
+	// nextNodeId, with each node's previewTex reset to null - previewTex is
+	// a raw *owning* pointer (see ClearNodes()/MaterialEditor.cpp's lazy
+	// load sites), so a naive vector copy would alias it between the live
+	// graph and the snapshot and double-free on the next ClearNodes(); the
+	// lazy-load code already regenerates a null previewTex on next draw, so
+	// dropping it here is free.
+	struct GraphSnapshot {
+		std::vector<MaterialNode> nodes;
+		std::vector<MaterialConnection> connections;
+		uint32_t nextNodeId = 1;
+	};
+	GraphSnapshot CaptureGraphSnapshot() const;
+	// ClearNodes()'s then reassigns from `snap` - safe to call with a
+	// snapshot captured from this same document at an earlier point.
+	void RestoreGraphSnapshot(const GraphSnapshot& snap);
+
+	// Commit-boundary pair for the many small ImGui widgets in
+	// UI/MaterialEditor.cpp that each touch the graph (node value fields,
+	// generic-material sliders/checkboxes): BeginGraphEdit() on
+	// IsItemActivated(), CommitGraphEdit() on IsItemDeactivatedAfterEdit()
+	// (see MaterialEditor.cpp's GraphUndoCommit() helper). One shared
+	// pending baseline is enough for the whole document - only one ImGui
+	// widget can be mid-gesture at a time, unlike UndoValueEdit's
+	// per-call-site baseline (used where a scalar before/after pair is
+	// cheap to keep per widget; a whole GraphSnapshot is not).
+	GraphSnapshot pendingEditBaseline;
+	bool pendingEditBaselineValid = false;
+	void BeginGraphEdit();
+	void CommitGraphEdit(const std::string& description);
 
 	// Runtime-compiled shader (Custom kind only). SetShader() on
 	// CustomShaderMaterial does NOT take ownership of what's handed to it -
@@ -94,6 +131,26 @@ struct MaterialEditorDocument {
 	bool AgentSetGraph(const nlohmann::json& nodesArr, const nlohmann::json& connectionsArr, std::string& errOut);
 	// Agent/MCP bridge: serialize the current graph back to JSON for inspection.
 	nlohmann::json AgentGetGraph() const;
+};
+
+// Reverses one discrete graph edit (a widget commit gesture, a node drag,
+// a connection made/broken, or one AgentSetGraph call) by swapping which
+// GraphSnapshot is live - coarse (whole-graph) rather than per-field, since
+// node values can cascade through the graph and a whole-snapshot diff is
+// cheap for graphs this size.
+class GraphEditCommand : public IUndoableCommand {
+public:
+	GraphEditCommand(MaterialEditorDocument* doc, const MaterialEditorDocument::GraphSnapshot& before,
+		const MaterialEditorDocument::GraphSnapshot& after, const std::string& description);
+
+	void Undo() override;
+	void Redo() override;
+	std::string Description() const override { return description_; }
+
+private:
+	MaterialEditorDocument* doc_;
+	MaterialEditorDocument::GraphSnapshot before_, after_;
+	std::string description_;
 };
 
 #endif /* MATERIALEDITORDOCUMENT_H */

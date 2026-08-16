@@ -154,28 +154,9 @@ private:
 	std::string description_;
 };
 
-// Generic reversible edit for narrow, one-off value changes that don't
-// warrant their own command class (camera FOV/Near/Far, per-field light
-// color/direction/radius/cone edits, ...): the call site provides two
-// closures that each know how to apply "their" value (typically capturing
-// the owning id and the specific before/after value) via whatever typed
-// setter/resync the field actually needs. Kept separate from the
-// dedicated command classes above because those cover structural edits
-// where a fixed set of fields is always known ahead of time; this one is
-// for call sites where writing a whole class per field would just be
-// boilerplate around a single setter call.
-class ApplyClosureCommand : public IUndoableCommand {
-public:
-	ApplyClosureCommand(std::function<void()> undoFn, std::function<void()> redoFn, const std::string& description);
-
-	void Undo() override;
-	void Redo() override;
-	std::string Description() const override { return description_; }
-
-private:
-	std::function<void()> undoFn_, redoFn_;
-	std::string description_;
-};
+// ApplyClosureCommand moved to UndoStack.h - it has no scene-specific
+// coupling (just two closures + a description), so both this file and
+// MaterialEditorDocument/MaterialEditor.cpp can share one definition.
 
 // Reverses "a submesh's material was reassigned" - just swaps the
 // RenderingMesh::Material shared_ptr back and forth, no serialization
