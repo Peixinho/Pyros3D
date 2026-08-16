@@ -51,6 +51,7 @@ using json = nlohmann::json;
 #include "SelectedMaterial.h"
 #include "UI/OpenDir.h"
 #include "ProjectManager.h"
+#include "UndoStack.h"
 #include <ctime>
 #include <map>
 #include <memory>
@@ -204,6 +205,11 @@ public:
 	bool AgentDuplicate(const std::string& name, std::string& errOut);
 	bool AgentDeleteObject(const std::string& name, std::string& errOut);
 	bool AgentAttachScript(const std::string& name, const std::string& scriptFile, const json& data, std::string& errOut);
+	// Detaches the first component of `componentType` (matching the "type"
+	// strings AgentComponentToJson/find_game_objects_with_component use:
+	// RenderingComponent, DirectionalLight, PointLight, SpotLight, Physics,
+	// AudioSource, LuaComponent) found on the named object.
+	bool AgentDetachComponent(const std::string& objectName, const std::string& componentType, std::string& errOut);
 	bool AgentSetMaterial(const std::string& objectName, const json& fields, std::string& errOut);
 	// Assigns an already-constructed material (e.g. from a Material Editor
 	// document) onto a submesh directly, replacing whatever it had.
@@ -224,6 +230,63 @@ public:
 	// and the editor has no unsaved edits. Returns true if it reloaded.
 	bool AgentReloadIfChanged();
 	// ------------------------------------------------------------------------
+
+	// ---- Undo/Redo ---------------------------------------------------------
+	bool CanUndo() const { return sceneUndo.CanUndo(); }
+	bool CanRedo() const { return sceneUndo.CanRedo(); }
+	std::string UndoDescription() const { return sceneUndo.UndoDescription(); }
+	std::string RedoDescription() const { return sceneUndo.RedoDescription(); }
+	void Undo() { sceneUndo.Undo(); }
+	void Redo() { sceneUndo.Redo(); }
+	SceneObjects* GetSceneObjects() const { return sceneObjects; }
+	// Selects `obj` (NULL clears selection) and focuses it in the hierarchy
+	// tree - used by undo/redo commands to restore selection the same way
+	// ordinary create/duplicate does.
+	void SelectAndFocusSceneObject(SceneObject* obj);
+
+	// ---- Unified edit chokepoint (SceneEditOps.cpp) -------------------------
+	// Every Op* method performs the mutation, applies the same selection/
+	// camera fixups the UI already relies on, pushes exactly one undo
+	// command, and marks the scene dirty - both interactive UI code (below)
+	// and the Agent* methods above route through these so the two front
+	// ends can no longer drift out of sync with each other.
+	bool OpDeleteGameObject(uint32 objId, std::string& errOut);
+	uint32 OpDuplicateGameObject(uint32 objId, std::string& errOut);
+	bool OpReparentGameObject(uint32 childId, uint32 newParentId, std::string& errOut);
+	bool OpRenameGameObject(uint32 objId, const std::string& newName, std::string& errOut);
+	bool OpSetTransform(uint32 objId, const Vec3& pos, const Vec3& rot, const Vec3& scale, std::string& errOut);
+	bool OpAssignMaterial(uint32 goId, int submeshIndex, std::shared_ptr<p3d::IMaterial> mat, std::string& errOut);
+
+	// Low-level primitives shared by the Op* methods above and by
+	// SceneCommands' Undo()/Redo() implementations - no undo bookkeeping,
+	// callers own that.
+	void RawDeleteSubtree(uint32 objId);
+	SceneObject* RawInsertSubtree(const std::string& subtreeJson, uint32 parentId, bool wasCamera, const EditorCameraSettings& camSettings, bool hadHelper);
+	void ApplyTransform(uint32 objId, const Vec3& pos, const Vec3& rot, const Vec3& scale);
+	void RawAssignMaterial(uint32 goId, int submeshIndex, std::shared_ptr<p3d::IMaterial> mat);
+	// Setter + PropertiesLight*/sceneCameras resync + MarkSceneDirty for one
+	// field each - used both by the live widget in ShowProperties() and by
+	// the ApplyClosureCommand it pushes on commit (see UndoValueEdit.h).
+	void ApplyCameraFov(uint32 goId, f32 fov);
+	void ApplyCameraNear(uint32 goId, f32 nearPlane);
+	void ApplyCameraFar(uint32 goId, f32 farPlane);
+	void ApplyLightColor(uint32 lightId, const Vec4& color);
+	void ApplyLightDirection(uint32 lightId, const Vec3& direction);
+	void ApplyLightRadius(uint32 lightId, f32 radius);
+	void ApplyLightInnerCone(uint32 lightId, f32 innerCone);
+	void ApplyLightOuterCone(uint32 lightId, f32 outerCone);
+	// Captures `created`'s current subtree and pushes one
+	// AddGameObjectCommand - shared tail of every "a new GameObject now
+	// fully exists" flow (AgentAdd*, AddFormSubmit, PlaceAssetInScene,
+	// CreateSceneCamera).
+	void PushAddCommand(SceneObject* created);
+	// Pushes one ReplaceGameObjectCommand wrapping `ownerId`'s CURRENT
+	// (post-edit) subtree as the "after" state - shared tail of
+	// AttachComponent/DetachComponent flows, which capture `beforeSnapshot`
+	// themselves (via SerializeSubtree) right before making their edit.
+	void PushReplaceCommand(uint32 ownerId, const std::string& beforeSnapshot, const std::string& description);
+	// --------------------------------------------------------------------
+
 	static std::string ModelThumbnailPath(const std::string& p3dmPath);
 	// Assets-panel sound preview (non-spatialized, one-shot / stoppable).
 	void PreviewAssetSound(const std::string& absolutePath);
@@ -268,6 +331,25 @@ private:
 	ProjectManager* project;
 	std::string scenePath;
 	bool sceneDirty;
+	// Per-document undo/redo history (see UndoStack.h / the undo/redo plan).
+	UndoStack sceneUndo;
+	// Commit-boundary baseline for the Properties panel's Name InputText -
+	// captured on IsItemActivated(), consumed on IsItemDeactivatedAfterEdit()
+	// to push exactly one RenameGameObjectCommand per rename gesture.
+	std::string undoBaselineName;
+	// Same pattern (see UndoValueEdit.h) for the Properties panel's
+	// Position/Rotation/Scale DragFloat3 widgets - independent of the
+	// gizmo's own gizmoBaselinePos/Rot/Scale, since dragging a gizmo and
+	// typing in these fields are different gestures that could in
+	// principle interleave across frames.
+	Vec3 undoBaselinePos, undoBaselineRot, undoBaselineScale;
+	// Commit-boundary baselines for camera FOV/Near/Far and light color/
+	// direction/radius/cone-angle widgets - see the UndoValueEdit call
+	// sites in ShowProperties() for which one backs which widget.
+	f32 undoBaselineFov, undoBaselineNear, undoBaselineFar;
+	Vec4 undoBaselineLightColor;
+	Vec3 undoBaselineLightDirection;
+	f32 undoBaselineLightRadius, undoBaselineLightInnerCone, undoBaselineLightOuterCone;
 	// Scene-level ambient colour - see SceneMeta::ambientLight. Kept in
 	// sync with Renderer->SetGlobalLight() any time it changes (edited in
 	// Properties), a scene loads, or SwitchRenderer() replaces Renderer
@@ -470,6 +552,11 @@ private:
 	Matrix gizmoBaselineLocal;
 	Matrix gizmoBaselineParentWorld;
 	Matrix gizmoBaselineWorld;
+	// Position/Rotation/Scale (matching _translation/_rotation/_scale) as of
+	// the drag's mouse-down - captured alongside the Matrix baseline above,
+	// used to push exactly one SetTransformCommand per whole drag gesture
+	// on mouse-up rather than per dragged frame.
+	Vec3 gizmoBaselinePos, gizmoBaselineRot, gizmoBaselineScale;
 
 	struct PlayModeObjectSnapshot {
 		Vec3 position, rotation, scale;

@@ -166,6 +166,15 @@ private:
 	void DrawUI();
 	void PromptQuitWithUnsaved();
 
+	// Which document Ctrl+Z/Ctrl+Shift+Z should act on - tracks whichever of
+	// {Scene View, Scene Tree, Properties} vs a Material Editor window last
+	// had focus (Properties is scene-only chrome, so it doesn't need its
+	// own tracking: it only ever gets focus while a scene document is
+	// already the last-focused kind). Defaults to Scene so undo works
+	// immediately in the common case of a single scene document open.
+	enum class FocusedDocKind { Scene, Material };
+	FocusedDocKind lastFocusedDocKind = FocusedDocKind::Scene;
+
 	TabLog* tabLog;
 	// Local command server for external agents (MCP bridge). Started in
 	// Init(), processed once per frame from Update() (main thread), stopped

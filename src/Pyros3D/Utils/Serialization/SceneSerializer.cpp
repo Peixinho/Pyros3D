@@ -1131,6 +1131,25 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		return true;
 	}
 
+	std::string SceneSerializer::SerializeSubtree(GameObject* root, const std::string &scenePathForAssetRoot, sol::state* lua)
+	{
+		if (!root) return std::string();
+
+		g_sceneAssetRoot = InferAssetRootFromScenePath(scenePathForAssetRoot);
+
+		json materialsArray = json::array();
+		std::map<IMaterial*, uint32> materialIdMap;
+
+		json out;
+		out["version"] = 1;
+		out["materials"] = json::array();
+		out["root"] = SerializeGameObject(root, materialsArray, materialIdMap, lua);
+		out["materials"] = materialsArray;
+
+		g_sceneAssetRoot.clear();
+		return out.dump();
+	}
+
 	// ******************************* load *******************************
 
 	static std::shared_ptr<Texture> GetOrLoadTexture(const std::string &path, std::map<std::string, std::shared_ptr<Texture>> &cache, LoadedSceneAssets* outAssets)
@@ -1966,6 +1985,43 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 
 		g_sceneAssetRoot.clear();
 		return true;
+	}
+
+	std::shared_ptr<GameObject> SceneSerializer::DeserializeSubtree(const std::string &subtreeJson, const std::string &scenePathForAssetRoot,
+		IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets)
+	{
+		json subtree;
+		try
+		{
+			subtree = json::parse(subtreeJson);
+		}
+		catch (const std::exception&)
+		{
+			echo("ERROR: SceneSerializer::DeserializeSubtree - invalid JSON");
+			return nullptr;
+		}
+		if (!subtree.is_object() || subtree.find("root") == subtree.end())
+		{
+			echo("ERROR: SceneSerializer::DeserializeSubtree - missing 'root'");
+			return nullptr;
+		}
+
+		g_sceneAssetRoot = InferAssetRootFromScenePath(scenePathForAssetRoot);
+
+		std::map<std::string, std::shared_ptr<Texture>> textureCache;
+		std::vector<std::shared_ptr<IMaterial>> materialsById;
+		if (subtree.find("materials") != subtree.end())
+			for (auto &mj : subtree["materials"])
+			{
+				std::shared_ptr<IMaterial> mat = BuildMaterial(mj, textureCache, outAssets);
+				materialsById.push_back(mat);
+				if (mat && outAssets) outAssets->materials.push_back(mat);
+			}
+
+		std::shared_ptr<GameObject> result = DeserializeGameObject(subtree["root"], materialsById, textureCache, physics, lua, outAssets);
+
+		g_sceneAssetRoot.clear();
+		return result;
 	}
 
 	void SceneSerializer::UnloadScene(SceneGraph* scene, LoadedSceneAssets &assets)

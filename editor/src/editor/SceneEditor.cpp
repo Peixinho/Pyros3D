@@ -13,6 +13,8 @@
 #include <algorithm>
 
 #include "SceneEditor.h"
+#include "SceneCommands.h"
+#include "UndoValueEdit.h"
 #include "ProjectManager.h"
 #include "AgentServer.h"
 #include "UI/MaterialEditor.h"
@@ -941,8 +943,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("GO_ID"))
 				{
 					uint32 draggedId = *(const uint32*)payload->Data;
-					sceneObjects->ReparentGameObject(draggedId, 0);
-					MarkSceneDirty();
+					std::string err;
+					OpReparentGameObject(draggedId, 0, err);
 				}
 				ImGui::EndDragDropTarget();
 			}
@@ -1411,6 +1413,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			RegisterSceneCamera(obj->GetID());
 			MarkSceneDirty();
+			PushAddCommand(obj);
 		}
 	}
 
@@ -1860,6 +1863,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			return false;
 		}
 
+		// Captured before attaching so a successful attach can be pushed as
+		// one ReplaceGameObjectCommand (same mechanism as AddFormSubmit's
+		// attach-to-existing-GameObject path / DeleteComponentById).
+		std::string beforeSnapshot = SceneSerializer::SerializeSubtree(go, scenePath, sharedLua);
+
 		PushLuaHostGlobals();
 		std::shared_ptr<LuaComponent> comp;
 		try {
@@ -1911,6 +1919,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		node_clicked = -1;
 		hierarchyForceOpenId = goId;
 		echo("SUCCESS: Attached script " + absoluteScriptPath + " to " + goObj->GetName());
+		if (!beforeSnapshot.empty())
+			PushReplaceCommand(goId, beforeSnapshot, "Attach Script");
 		return true;
 	}
 
@@ -2461,7 +2471,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				if (go && go->HaveParent() && !IsInternalGameObject(go))
 				{
 					if (ImGui::MenuItem("Unparent to Root"))
-						sceneObjects->ReparentGameObject(obj->GetID(), 0);
+					{
+						std::string err;
+						OpReparentGameObject(obj->GetID(), 0, err);
+					}
 					ImGui::Separator();
 				}
 				if (go && IsSceneCamera(obj->GetID()))
@@ -2560,7 +2573,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					{
 						uint32 draggedId = *(const uint32*)payload->Data;
 						if (draggedId != obj->GetID())
-							sceneObjects->ReparentGameObject(draggedId, obj->GetID());
+						{
+							std::string err;
+							OpReparentGameObject(draggedId, obj->GetID(), err);
+						}
 					}
 					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("COMP_ID"))
 					{
@@ -3034,6 +3050,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (playMode) return;
 		scriptRenderCamera = nullptr;
 		echo("SUCCESS: Entering play mode");
+		// Every mutator already refuses to run while playMode is true, so
+		// nothing new can be pushed during play - this just protects
+		// against replaying stale edit-mode undo history against the
+		// post-play state StopPlayMode() restores.
+		sceneUndo.Clear();
 		playModeSnapshots.clear();
 		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
 			i != sceneObjects->GetList().end(); ++i)
@@ -3328,6 +3349,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			{
 				gizmoDragging = true;
 				CaptureGizmoBaseline();
+				gizmoBaselinePos = _translation;
+				gizmoBaselineRot = _rotation;
+				gizmoBaselineScale = _scale;
 			}
 			else
 			{
@@ -3374,6 +3398,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				}
 				ApplyGizmoTransformToObject();
 				SyncTransformFromGameObject(SelectedSceneObject);
+				if (_translation != gizmoBaselinePos || _rotation != gizmoBaselineRot || _scale != gizmoBaselineScale)
+					sceneUndo.Push(std::make_unique<SetTransformCommand>(this, SelectedSceneObject->GetID(),
+						gizmoBaselinePos, gizmoBaselineRot, gizmoBaselineScale,
+						_translation, _rotation, _scale, SelectedSceneObject->GetName()));
 				CaptureGizmoBaseline();
 			}
 			gizmoDragging = false;
@@ -3385,6 +3413,24 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	{
 		SceneObject* obj = sceneObjects->GetSceneObject(objId);
 		if (!obj || obj->GetType() == SceneObjectTypes::GAMEOBJECT) return;
+
+		// Capture the owner's subtree before detaching, so the edit can be
+		// pushed as one ReplaceGameObjectCommand afterward - same mechanism
+		// AddFormSubmit's attach-to-existing-GameObject path uses, just the
+		// other direction.
+		const uint32 ownerId = obj->GetParentID();
+		SceneObject* ownerObj = sceneObjects->GetSceneObject(ownerId);
+		std::string beforeSnapshot;
+		if (ownerObj && ownerObj->GetType() == SceneObjectTypes::GAMEOBJECT)
+		{
+			GameObject* ownerGo = (GameObject*)ownerObj->GetPTR();
+#ifdef LUA_BINDINGS
+			beforeSnapshot = SceneSerializer::SerializeSubtree(ownerGo, scenePath, sharedLua);
+#else
+			beforeSnapshot = SceneSerializer::SerializeSubtree(ownerGo, scenePath, NULL);
+#endif
+		}
+
 		editorDebugDraw->ForgetComponent((IComponent*)obj->GetPTR());
 		if (SelectedSceneObject == obj)
 		{
@@ -3394,52 +3440,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 		sceneObjects->DestroySceneObject(objId);
 		MarkSceneDirty();
+
+		if (!beforeSnapshot.empty())
+			PushReplaceCommand(ownerId, beforeSnapshot, "Detach Component");
 	}
 
 	void SceneEditor::DeleteGameObjectById(uint32 objId)
 	{
-		SceneObject* obj = sceneObjects->GetSceneObject(objId);
-		if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) return;
-		GameObject* go = (GameObject*)obj->GetPTR();
-		if (IsInternalGameObject(go)) return;
-
-		const bool wasCamera = IsSceneCamera(objId);
-		if (wasCamera)
-			editorDebugDraw->ForgetCamera(go);
-		for (std::map<uint32, SceneObject*>::const_iterator j = sceneObjects->GetList().begin(); j != sceneObjects->GetList().end(); j++)
-		{
-			if (j->second == NULL || j->second->GetType() == SceneObjectTypes::GAMEOBJECT) continue;
-			uint32 pid = j->second->GetParentID();
-			while (pid != 0)
-			{
-				if (pid == objId)
-				{
-					editorDebugDraw->ForgetComponent((IComponent*)j->second->GetPTR());
-					break;
-				}
-				SceneObject* parent = sceneObjects->GetSceneObject(pid);
-				if (parent == NULL || parent->GetType() != SceneObjectTypes::GAMEOBJECT) break;
-				pid = parent->GetParentID();
-			}
-		}
-		if (SelectedSceneObject == obj)
-		{
-			DeselectMesh();
-			DeselectSceneObject();
-			selection.clear();
-		}
-		// Clear scriptRenderCamera before destruction to avoid dangling pointer.
-		if (scriptRenderCamera == go)
-			scriptRenderCamera = nullptr;
-		sceneObjects->DestroySceneObject(objId);
-		if (wasCamera)
-		{
-			if (activeSceneCameraId == objId)
-				activeSceneCameraId = 0;
-			UnregisterSceneCamera(objId);
-		}
-		node_clicked = -1;
-		MarkSceneDirty();
+		std::string err;
+		OpDeleteGameObject(objId, err);
 	}
 
 	void SceneEditor::DeleteSelected()
@@ -3454,25 +3463,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	uint32 SceneEditor::DuplicateSelected()
 	{
 		if (!SelectedSceneObject || SelectedSceneObject->GetType() != SceneObjectTypes::GAMEOBJECT) return 0;
-		GameObject* go = (GameObject*)SelectedSceneObject->GetPTR();
-		if (IsInternalGameObject(go)) return 0;
-
-		const uint32 srcId = SelectedSceneObject->GetID();
-		const bool wasCamera = IsSceneCamera(srcId);
-		EditorCameraSettings camSettings;
-		if (wasCamera)
-			camSettings = sceneCameras[srcId];
-
-		SceneObject* dup = sceneObjects->DuplicateGameObject(srcId, physics);
-		if (!dup) return 0;
-
-		if (wasCamera)
-			RegisterSceneCamera(dup->GetID(), camSettings);
-
-		SelectSceneObject(dup);
-		node_clicked = dup->GetID();
-		MarkSceneDirty();
-		return dup->GetID();
+		std::string err;
+		return OpDuplicateGameObject(SelectedSceneObject->GetID(), err);
 	}
 
     	void SceneEditor::SelectSceneObject(SceneObject* go)
@@ -4140,6 +4132,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (SelectedSceneObject && SelectedSceneObject->GetType() == SceneObjectTypes::GAMEOBJECT)
 			parentGo = (GameObject*)SelectedSceneObject->GetPTR();
 
+		// A new top-level GameObject is only created (and undo-tracked) when
+		// nothing was already selected to drop the model/sound onto -
+		// dropping onto an existing selection instead attaches a component
+		// to it (AttachComponent territory - not yet undoable).
+		const bool createdNewObject = (parentGo == NULL);
 		if (!parentGo)
 		{
 			CreateGameObject(name.empty() ? (isSound ? "Sound" : "Model") : name);
@@ -4151,6 +4148,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			sceneObjects->CreateRenderingModel(parentGo, absolutePath);
 			MarkSceneDirty();
+			if (createdNewObject)
+				PushAddCommand(SelectedSceneObject);
 			echo("Placed model: " + absolutePath);
 			return true;
 		}
@@ -4162,6 +4161,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			soundObj->Helper = h;
 			scene->Add(h);
 			MarkSceneDirty();
+			if (createdNewObject)
+				PushAddCommand(SelectedSceneObject);
 			echo("Placed sound: " + absolutePath);
 			return true;
 		}
@@ -4642,6 +4643,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			{
 				case SceneObjectTypes::GAMEOBJECT:
 				{
+                    // Baseline snapshot taken BEFORE the widget call so it is
+                    // correct even if this turns out to be the activation
+                    // frame (InputText could in principle mutate the buffer
+                    // the same frame focus is gained, e.g. via paste).
+                    const std::string preEditName = SelectedSceneObject->Name;
                     if (ImGui::InputText("Name", &SelectedSceneObject->Name))
 					{
 						sceneObjects->SetName(SelectedSceneObject->GetID(), SelectedSceneObject->Name);
@@ -4649,10 +4655,27 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					}
 					else
 						sceneObjects->SetName(SelectedSceneObject->GetID(), SelectedSceneObject->Name);
+					if (ImGui::IsItemActivated())
+						undoBaselineName = preEditName;
+					if (ImGui::IsItemDeactivatedAfterEdit())
+					{
+						const std::string finalName = SelectedSceneObject->Name;
+						if (finalName != undoBaselineName)
+							sceneUndo.Push(std::make_unique<RenameGameObjectCommand>(this,
+								SelectedSceneObject->GetID(), undoBaselineName, finalName));
+					}
 					if (ImGui::DragFloat3("Position", (float *)&_translation, 0.1f, 0.0f, 0.0f))
 						MarkSceneDirty();
+					UndoValueEdit<Vec3>(undoBaselinePos, _translation, [this](const Vec3& before, const Vec3& after) {
+						sceneUndo.Push(std::make_unique<SetTransformCommand>(this, SelectedSceneObject->GetID(),
+							before, _rotation, _scale, after, _rotation, _scale, SelectedSceneObject->GetName()));
+					});
 					if (ImGui::DragFloat3("Rotation", (float *)&_rotation, 0.1f, 0.0f, 0.0f))
 						MarkSceneDirty();
+					UndoValueEdit<Vec3>(undoBaselineRot, _rotation, [this](const Vec3& before, const Vec3& after) {
+						sceneUndo.Push(std::make_unique<SetTransformCommand>(this, SelectedSceneObject->GetID(),
+							_translation, before, _scale, _translation, after, _scale, SelectedSceneObject->GetName()));
+					});
 					if (IsSceneCamera(SelectedSceneObject->GetID()))
 					{
 						if (ImGui::DragFloat3("Scale", (float *)&_scale, 0.1f, 0.001f, 0.0f))
@@ -4660,14 +4683,34 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					}
 					else if (ImGui::DragFloat3("Scale", (float *)&_scale, 0.1f, 0.0f, 0.0f))
 						MarkSceneDirty();
+					UndoValueEdit<Vec3>(undoBaselineScale, _scale, [this](const Vec3& before, const Vec3& after) {
+						sceneUndo.Push(std::make_unique<SetTransformCommand>(this, SelectedSceneObject->GetID(),
+							_translation, _rotation, before, _translation, _rotation, after, SelectedSceneObject->GetName()));
+					});
 					if (IsSceneCamera(SelectedSceneObject->GetID()))
 					{
 						EditorCameraSettings& cam = sceneCameras[SelectedSceneObject->GetID()];
+						const uint32 camGoId = SelectedSceneObject->GetID();
 						ImGui::Separator();
 						ImGui::Text("Camera");
 						ImGui::DragFloat("FOV", &cam.fov, 0.5f, 10.f, 170.f);
+						UndoValueEdit<f32>(undoBaselineFov, cam.fov, [this, camGoId](const f32& before, const f32& after) {
+							sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+								[this, camGoId, before]() { ApplyCameraFov(camGoId, before); },
+								[this, camGoId, after]() { ApplyCameraFov(camGoId, after); }, "Set Camera FOV"));
+						});
 						ImGui::DragFloat("Near", &cam.nearPlane, 0.01f, 0.001f, 100.f);
+						UndoValueEdit<f32>(undoBaselineNear, cam.nearPlane, [this, camGoId](const f32& before, const f32& after) {
+							sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+								[this, camGoId, before]() { ApplyCameraNear(camGoId, before); },
+								[this, camGoId, after]() { ApplyCameraNear(camGoId, after); }, "Set Camera Near"));
+						});
 						ImGui::DragFloat("Far", &cam.farPlane, 1.f, 1.f, 100000.f);
+						UndoValueEdit<f32>(undoBaselineFar, cam.farPlane, [this, camGoId](const f32& before, const f32& after) {
+							sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+								[this, camGoId, before]() { ApplyCameraFar(camGoId, before); },
+								[this, camGoId, after]() { ApplyCameraFar(camGoId, after); }, "Set Camera Far"));
+						});
 						if (ImGui::Button("Set Active Camera"))
 							SetActiveSceneCamera(SelectedSceneObject->GetID());
 						if (activeSceneCameraId == SelectedSceneObject->GetID() && ImGui::Button("Use Editor Camera"))
@@ -4829,16 +4872,27 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				case SceneObjectTypes::DIRECTIONALLIGHT_COMPONENT:
 				{
 					DirectionalLight* l = (DirectionalLight*)SelectedSceneObject->GetPTR();
+					const uint32 lightId = SelectedSceneObject->GetID();
 					if (ImGui::ColorEdit4("Color", (float*)&PropertiesLightColor))
 					{
 						l->SetLightColor(PropertiesLightColor);
 						MarkSceneDirty();
 					}
+					UndoValueEdit<Vec4>(undoBaselineLightColor, PropertiesLightColor, [this, lightId](const Vec4& before, const Vec4& after) {
+						sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+							[this, lightId, before]() { ApplyLightColor(lightId, before); },
+							[this, lightId, after]() { ApplyLightColor(lightId, after); }, "Set Light Color"));
+					});
 					if (ImGui::DragFloat3("Direction", (float *)&PropertiesLightDirection, 0.01f, -1.0f, 1.0f))
 					{
 						l->SetLightDirection(PropertiesLightDirection);
 						MarkSceneDirty();
 					}
+					UndoValueEdit<Vec3>(undoBaselineLightDirection, PropertiesLightDirection, [this, lightId](const Vec3& before, const Vec3& after) {
+						sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+							[this, lightId, before]() { ApplyLightDirection(lightId, before); },
+							[this, lightId, after]() { ApplyLightDirection(lightId, after); }, "Set Light Direction"));
+					});
 					if (ImGui::Checkbox("Cast Shadows", &AddForm_cs))
 					{
 						if (AddForm_cs)
@@ -4864,16 +4918,27 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				case SceneObjectTypes::POINTLIGHT_COMPONENT:
 				{
 					PointLight* l = (PointLight*)SelectedSceneObject->GetPTR();
+					const uint32 lightId = SelectedSceneObject->GetID();
 					if (ImGui::ColorEdit4("Color", (float*)&PropertiesLightColor))
 					{
 						l->SetLightColor(PropertiesLightColor);
 						MarkSceneDirty();
 					}
+					UndoValueEdit<Vec4>(undoBaselineLightColor, PropertiesLightColor, [this, lightId](const Vec4& before, const Vec4& after) {
+						sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+							[this, lightId, before]() { ApplyLightColor(lightId, before); },
+							[this, lightId, after]() { ApplyLightColor(lightId, after); }, "Set Light Color"));
+					});
 					if (ImGui::DragFloat("Radius", (float *)&PropertiesLightRadius, 0.01f, 0.001f, 0.0f))
 					{
 						l->SetLightRadius(PropertiesLightRadius);
 						MarkSceneDirty();
 					}
+					UndoValueEdit<f32>(undoBaselineLightRadius, PropertiesLightRadius, [this, lightId](const f32& before, const f32& after) {
+						sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+							[this, lightId, before]() { ApplyLightRadius(lightId, before); },
+							[this, lightId, after]() { ApplyLightRadius(lightId, after); }, "Set Light Radius"));
+					});
 					if (ImGui::Checkbox("Cast Shadows", &AddForm_cs))
 					{
 						if (AddForm_cs)
@@ -4896,31 +4961,57 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				case SceneObjectTypes::SPOTLIGHT_COMPONENT:
 				{
 					SpotLight* l = (SpotLight*)SelectedSceneObject->GetPTR();
+					const uint32 lightId = SelectedSceneObject->GetID();
 					if (ImGui::ColorEdit4("Color", (float*)&PropertiesLightColor))
 					{
 						l->SetLightColor(PropertiesLightColor);
 						MarkSceneDirty();
 					}
+					UndoValueEdit<Vec4>(undoBaselineLightColor, PropertiesLightColor, [this, lightId](const Vec4& before, const Vec4& after) {
+						sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+							[this, lightId, before]() { ApplyLightColor(lightId, before); },
+							[this, lightId, after]() { ApplyLightColor(lightId, after); }, "Set Light Color"));
+					});
 					if (ImGui::DragFloat("Radius", (float *)&PropertiesLightRadius, 0.01f, 0.001f, 0.0f))
 					{
 						l->SetLightRadius(PropertiesLightRadius);
 						MarkSceneDirty();
 					}
+					UndoValueEdit<f32>(undoBaselineLightRadius, PropertiesLightRadius, [this, lightId](const f32& before, const f32& after) {
+						sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+							[this, lightId, before]() { ApplyLightRadius(lightId, before); },
+							[this, lightId, after]() { ApplyLightRadius(lightId, after); }, "Set Light Radius"));
+					});
 					if (ImGui::DragFloat3("Direction", (float *)&PropertiesLightDirection, 0.01f, -1.0f, 1.0f))
 					{
 						l->SetLightDirection(PropertiesLightDirection);
 						MarkSceneDirty();
 					}
+					UndoValueEdit<Vec3>(undoBaselineLightDirection, PropertiesLightDirection, [this, lightId](const Vec3& before, const Vec3& after) {
+						sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+							[this, lightId, before]() { ApplyLightDirection(lightId, before); },
+							[this, lightId, after]() { ApplyLightDirection(lightId, after); }, "Set Light Direction"));
+					});
 					if (ImGui::DragFloat("Outter Cone", (float *)&PropertiesLightOutterCone, 0.01f, 0.002f, 0.0f))
 					{
 						l->SetLightOutterCone(PropertiesLightOutterCone);
 						MarkSceneDirty();
 					}
+					UndoValueEdit<f32>(undoBaselineLightOuterCone, PropertiesLightOutterCone, [this, lightId](const f32& before, const f32& after) {
+						sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+							[this, lightId, before]() { ApplyLightOuterCone(lightId, before); },
+							[this, lightId, after]() { ApplyLightOuterCone(lightId, after); }, "Set Light Outer Cone"));
+					});
 					if (ImGui::DragFloat("Inner Cone", (float *)&PropertiesLightInnerCone, 0.01f, 0.001f, 0.0f))
 					{
 						l->SetLightInnerCone(PropertiesLightInnerCone);
 						MarkSceneDirty();
 					}
+					UndoValueEdit<f32>(undoBaselineLightInnerCone, PropertiesLightInnerCone, [this, lightId](const f32& before, const f32& after) {
+						sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+							[this, lightId, before]() { ApplyLightInnerCone(lightId, before); },
+							[this, lightId, after]() { ApplyLightInnerCone(lightId, after); }, "Set Light Inner Cone"));
+					});
 					if (ImGui::Checkbox("Cast Shadows", &AddForm_cs))
 					{
 						if (AddForm_cs)
@@ -5466,6 +5557,23 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			return;
 		}
 
+		// Attach-to-existing-GameObject case (AddForm_cgo false): capture the
+		// owner's subtree before the switch below attaches anything, so the
+		// whole gesture can be pushed as one ReplaceGameObjectCommand at the
+		// end (see the AddForm_cgo check after the switch).
+		uint32 attachOwnerId = 0;
+		std::string attachBeforeSnapshot;
+		if (!AddForm_cgo && ownerGO != NULL)
+		{
+			attachOwnerId = sceneObjects->GetSceneObjectID(ownerGO);
+			if (attachOwnerId != 0)
+#ifdef LUA_BINDINGS
+				attachBeforeSnapshot = SceneSerializer::SerializeSubtree(ownerGO, scenePath, sharedLua);
+#else
+				attachBeforeSnapshot = SceneSerializer::SerializeSubtree(ownerGO, scenePath, NULL);
+#endif
+		}
+
 		switch (showingAddFormType)
 		{
 		case 0:
@@ -5630,6 +5738,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			break;
 		}
 		MarkSceneDirty();
+		// AddForm_cgo == true means CreateGameObject() above created a brand
+		// new GameObject and the switch just attached its component(s) to
+		// it - capture the whole gesture as one Add command. When false, an
+		// existing GameObject was selected and a component was attached to
+		// it instead - one Replace command (before/after snapshot of the
+		// owner, captured above/here) covers that case identically to
+		// DetachComponent, without needing per-component-kind undo logic.
+		if (AddForm_cgo && SelectedSceneObject && SelectedSceneObject->GetType() == SceneObjectTypes::GAMEOBJECT)
+			PushAddCommand(SelectedSceneObject);
+		else if (!AddForm_cgo && attachOwnerId != 0 && !attachBeforeSnapshot.empty())
+			PushReplaceCommand(attachOwnerId, attachBeforeSnapshot, "Attach Component");
 	}
 
 	void SceneEditor::ShowMenubarOptions()
@@ -6068,6 +6187,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (parent)
 			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
 		MarkSceneDirty();
+		PushAddCommand(obj);
 		return true;
 	}
 
@@ -6142,6 +6262,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (parent)
 			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
 		MarkSceneDirty();
+		PushAddCommand(obj);
 		return true;
 	}
 
@@ -6208,6 +6329,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (parent)
 			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
 		MarkSceneDirty();
+		PushAddCommand(obj);
 		return true;
 	}
 
@@ -6256,6 +6378,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (parent)
 			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
 		MarkSceneDirty();
+		PushAddCommand(obj);
 		return true;
 	}
 
@@ -6321,6 +6444,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (parent)
 			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
 		MarkSceneDirty();
+		PushAddCommand(obj);
 		return true;
 	}
 
@@ -6364,6 +6488,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (parent)
 			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
 		MarkSceneDirty();
+		PushAddCommand(obj);
 		return true;
 	}
 
@@ -6385,6 +6510,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (active)
 			SetActiveSceneCamera(obj->GetID());
 		MarkSceneDirty();
+		PushAddCommand(obj);
 		return true;
 	}
 
@@ -6394,23 +6520,23 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
 		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
 		GameObject* go = (GameObject*)obj->GetPTR();
+		Vec3 pos = go->GetPosition(), rot = go->GetRotation(), scale = go->GetScale();
 		if (t.is_object())
 		{
 			if (t.contains("position") && t["position"].is_array() && t["position"].size() == 3)
-				go->SetPosition(Vec3((f32)t["position"][0].get<double>(), (f32)t["position"][1].get<double>(), (f32)t["position"][2].get<double>()));
+				pos = Vec3((f32)t["position"][0].get<double>(), (f32)t["position"][1].get<double>(), (f32)t["position"][2].get<double>());
 			if (t.contains("rotation") && t["rotation"].is_array())
 			{
 				const auto& r = t["rotation"];
 				if (r.size() == 4)
-					go->SetRotation(AgentQuatToEuler({ (f32)r[0].get<double>(), (f32)r[1].get<double>(), (f32)r[2].get<double>(), (f32)r[3].get<double>() }));
+					rot = AgentQuatToEuler({ (f32)r[0].get<double>(), (f32)r[1].get<double>(), (f32)r[2].get<double>(), (f32)r[3].get<double>() });
 				else if (r.size() == 3)
-					go->SetRotation(Vec3((f32)r[0].get<double>(), (f32)r[1].get<double>(), (f32)r[2].get<double>()));
+					rot = Vec3((f32)r[0].get<double>(), (f32)r[1].get<double>(), (f32)r[2].get<double>());
 			}
 			if (t.contains("scale") && t["scale"].is_array() && t["scale"].size() == 3)
-				go->SetScale(Vec3((f32)t["scale"][0].get<double>(), (f32)t["scale"][1].get<double>(), (f32)t["scale"][2].get<double>()));
+				scale = Vec3((f32)t["scale"][0].get<double>(), (f32)t["scale"][1].get<double>(), (f32)t["scale"][2].get<double>());
 		}
-		MarkSceneDirty();
-		return true;
+		return OpSetTransform(obj->GetID(), pos, rot, scale, errOut);
 	}
 
 	bool SceneEditor::AgentSetTags(const std::string& name, const json& addTags, const json& removeTags, std::string& errOut)
@@ -6433,9 +6559,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
 		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
 		if (newName.empty()) { errOut = "new name is empty"; return false; }
-		sceneObjects->SetName(obj->GetID(), newName);
-		MarkSceneDirty();
-		return true;
+		return OpRenameGameObject(obj->GetID(), newName, errOut);
 	}
 
 	bool SceneEditor::AgentReparent(const std::string& name, const std::string& newParentName, std::string& errOut)
@@ -6450,10 +6574,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (!parent) { errOut = "parent '" + newParentName + "' not found"; return false; }
 			parentId = parent->GetID();
 		}
-		if (!sceneObjects->ReparentGameObject(child->GetID(), parentId))
-			{ errOut = "reparent failed (cycle or invalid)"; return false; }
-		MarkSceneDirty();
-		return true;
+		return OpReparentGameObject(child->GetID(), parentId, errOut);
 	}
 
 	bool SceneEditor::AgentDuplicate(const std::string& name, std::string& errOut)
@@ -6461,10 +6582,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (playMode) { errOut = "editor is in play mode"; return false; }
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
 		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
-		if (!sceneObjects->DuplicateGameObject(obj->GetID(), physics))
-			{ errOut = "duplicate failed"; return false; }
-		MarkSceneDirty();
-		return true;
+		return OpDuplicateGameObject(obj->GetID(), errOut) != 0;
 	}
 
 	bool SceneEditor::AgentDeleteObject(const std::string& name, std::string& errOut)
@@ -6472,9 +6590,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (playMode) { errOut = "editor is in play mode"; return false; }
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
 		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
-		sceneObjects->DestroySceneObject(obj->GetID());
-		MarkSceneDirty();
-		return true;
+		return OpDeleteGameObject(obj->GetID(), errOut);
 	}
 
 	bool SceneEditor::AgentAttachScript(const std::string& name, const std::string& scriptFile, const json& data, std::string& errOut)
@@ -6499,6 +6615,38 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		errOut = "editor built without Lua bindings";
 		return false;
 #endif
+	}
+
+	bool SceneEditor::AgentDetachComponent(const std::string& objectName, const std::string& componentType, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
+		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
+
+		uint32 compId = 0;
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin(); i != sceneObjects->GetList().end(); i++)
+		{
+			SceneObject* c = i->second;
+			if (!c || c->GetParentID() != obj->GetID() || c->GetType() == SceneObjectTypes::GAMEOBJECT) continue;
+			std::string typeStr;
+			switch (c->GetType())
+			{
+			case SceneObjectTypes::RENDERING_COMPONENT: typeStr = "RenderingComponent"; break;
+			case SceneObjectTypes::DIRECTIONALLIGHT_COMPONENT: typeStr = "DirectionalLight"; break;
+			case SceneObjectTypes::POINTLIGHT_COMPONENT: typeStr = "PointLight"; break;
+			case SceneObjectTypes::SPOTLIGHT_COMPONENT: typeStr = "SpotLight"; break;
+			case SceneObjectTypes::PHYSICS_COMPONENT: typeStr = "Physics"; break;
+			case SceneObjectTypes::AUDIO_SOURCE_COMPONENT: typeStr = "AudioSource"; break;
+#ifdef LUA_BINDINGS
+			case SceneObjectTypes::LUA_COMPONENT: typeStr = "LuaComponent"; break;
+#endif
+			default: break;
+			}
+			if (typeStr == componentType) { compId = c->GetID(); break; }
+		}
+		if (compId == 0) { errOut = "no " + componentType + " found on '" + objectName + "'"; return false; }
+		DeleteComponentById(compId);
+		return true;
 	}
 
 	bool SceneEditor::AgentSetMaterial(const std::string& objectName, const json& fields, std::string& errOut)
@@ -6543,20 +6691,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	bool SceneEditor::AgentAssignMaterial(const std::string& objectName, int submeshIndex, std::shared_ptr<IMaterial> mat, std::string& errOut)
 	{
 		if (playMode) { errOut = "editor is in play mode"; return false; }
-		if (!mat) { errOut = "no material to assign"; return false; }
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
 		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
-		GameObject* go = (GameObject*)obj->GetPTR();
-		RenderingComponent* rc = NULL;
-		for (auto& c : go->GetComponents())
-			if ((rc = dynamic_cast<RenderingComponent*>(c.get()))) break;
-		if (!rc) { errOut = "object '" + objectName + "' has no RenderingComponent"; return false; }
-		std::vector<RenderingMesh*>& meshes = rc->GetMeshes(0);
-		if (submeshIndex < 0 || (size_t)submeshIndex >= meshes.size())
-			{ errOut = "submesh index " + std::to_string(submeshIndex) + " out of range (object has " + std::to_string(meshes.size()) + ")"; return false; }
-		meshes[submeshIndex]->Material = mat;
-		MarkSceneDirty();
-		return true;
+		return OpAssignMaterial(obj->GetID(), submeshIndex, mat, errOut);
 	}
 
 	json SceneEditor::AgentSceneState()

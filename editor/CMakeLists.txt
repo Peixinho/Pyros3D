@@ -31,6 +31,9 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Editor.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AxisHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditor.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditOps.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneCommands.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UndoStack.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneObjects.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/ProjectManager.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AgentServer.cpp

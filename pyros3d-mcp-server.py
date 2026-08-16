@@ -1636,6 +1636,10 @@ def detach_component(project_path: str, scene_name: str, object_name: str, compo
     if s_err:
         return _fail(s_err)
 
+    live = _live_or_none("detach_component", {"name": object_name, "componentType": component_type}, scene_file)
+    if live is not None:
+        return _fail(live) if isinstance(live, str) else f"Detached {component_type} from '{object_name}' (live editor)"
+
     data = _load_scene(scene_file)
     node = _find_object(data, object_name)
     if node is None:
@@ -2710,6 +2714,21 @@ def reload_scene() -> str:
         return "Editor reloaded the scene from disk."
     return "Editor did not reload (file unchanged, unsaved changes, or play mode active). " + \
            "Check editor_log for details."
+
+
+@mcp.tool()
+def undo_redo(action: str = "undo") -> str:
+    """Undo or redo the last scene edit in the running editor's active document.
+
+    action: 'undo' or 'redo'. Only meaningful against a live editor session -
+    there is no file-based equivalent, unlike most other scene-editing tools
+    here (undo history only exists in the running editor's memory).
+    """
+    cmd = "undo" if action == "undo" else "redo"
+    ok, res = _editor_call(cmd, {})
+    if not ok:
+        return _fail(f"{cmd.capitalize()} failed: {res}")
+    return f"{cmd.capitalize()} ok"
 
 
 if __name__ == "__main__":

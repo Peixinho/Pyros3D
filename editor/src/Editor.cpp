@@ -646,9 +646,31 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	if (name == "undo")
+	{
+		sceneView->Undo();
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "redo")
+	{
+		sceneView->Redo();
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "attach_script")
 	{
 		if (!sceneView->AgentAttachScript(A("name"), A("scriptFile"), a.contains("data") ? a["data"] : nlohmann::json::object(), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "detach_component")
+	{
+		if (!sceneView->AgentDetachComponent(A("name"), A("componentType"), err))
 			throw std::runtime_error(err);
 		nlohmann::json r;
 		r["ok"] = true;
@@ -812,6 +834,23 @@ void Editor::DrawUI()
 	if (sceneView && sceneView->IsPlaying() && ImGui::IsKeyPressed(ImGuiKey_Escape))
 		sceneView->StopPlayMode();
 
+	// Ctrl+Z / Ctrl+Shift+Z (and the Windows-convention Ctrl+Y) act on
+	// whichever document last had focus (see FocusedDocKind). Only a Scene
+	// document has an undo stack today (Material Editor undo is a later
+	// phase) - !WantTextInput keeps this from firing while typing in an
+	// InputText, where ImGui's own per-widget text-undo already owns Ctrl+Z.
+	if (ImGui::GetIO().KeyCtrl && !ImGui::GetIO().WantTextInput
+		&& lastFocusedDocKind == FocusedDocKind::Scene && sceneView)
+	{
+		const bool shift = ImGui::GetIO().KeyShift;
+		if (ImGui::IsKeyPressed(ImGuiKey_Z))
+		{
+			if (shift) sceneView->Redo(); else sceneView->Undo();
+		}
+		else if (!shift && ImGui::IsKeyPressed(ImGuiKey_Y))
+			sceneView->Redo();
+	}
+
     // Menu bar
     if (ImGui::BeginMainMenuBar())
     {
@@ -851,6 +890,24 @@ void Editor::DrawUI()
 				CloseProject();
             ImGui::EndMenu();
         }
+
+		if (ImGui::BeginMenu("Edit"))
+		{
+			// Material Editor undo lands in a later phase - the menu items
+			// stay visible but disabled while a material window has focus,
+			// same convention as every other conditionally-available item
+			// in this menu bar (e.g. "Save Project" above).
+			const bool sceneFocused = (lastFocusedDocKind == FocusedDocKind::Scene && sceneView);
+			const bool canUndo = sceneFocused && sceneView->CanUndo();
+			const bool canRedo = sceneFocused && sceneView->CanRedo();
+			const std::string undoLabel = canUndo ? ("Undo " + sceneView->UndoDescription()) : "Undo";
+			const std::string redoLabel = canRedo ? ("Redo " + sceneView->RedoDescription()) : "Redo";
+			if (ImGui::MenuItem(undoLabel.c_str(), "CTRL+Z", false, canUndo))
+				sceneView->Undo();
+			if (ImGui::MenuItem(redoLabel.c_str(), "CTRL+SHIFT+Z", false, canRedo))
+				sceneView->Redo();
+			ImGui::EndMenu();
+		}
 
         if (project.IsOpen() && sceneView)
 			sceneView->ShowMenubarOptions();
@@ -1808,7 +1865,10 @@ void Editor::DrawMaterialEditorWindows()
 		}
 
 		if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+		{
 			activeMaterialDoc = doc;
+			lastFocusedDocKind = FocusedDocKind::Material;
+		}
 		if (pendingSelectMaterialDocId == doc->id)
 			pendingSelectMaterialDocId = 0;
 
@@ -1833,6 +1893,9 @@ void Editor::DrawSceneViewWindow()
 		return;
 	}
 
+	if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+		lastFocusedDocKind = FocusedDocKind::Scene;
+
 	DrawSceneTabBar();
 	ImGui::Separator();
 	if (sceneView)
@@ -1849,6 +1912,8 @@ void Editor::DrawSceneTreeWindow()
 		ImGui::End();
 		return;
 	}
+	if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+		lastFocusedDocKind = FocusedDocKind::Scene;
 	ImGui::BeginChild("##scene_tree_scroll", ImVec2(0, 0), false);
 	if (sceneView)
 		sceneView->ShowHierarchy();

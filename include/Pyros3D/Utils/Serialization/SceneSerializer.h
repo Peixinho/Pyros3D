@@ -125,6 +125,40 @@ namespace p3d {
 		// can be cleared. `scene` must be the same SceneGraph the objects
 		// were loaded into.
 		static void UnloadScene(SceneGraph* scene, LoadedSceneAssets &assets);
+
+		// Captures exactly one GameObject subtree (itself, its full
+		// descendant hierarchy, and every component on every node in it,
+		// including a materials pool scoped to just what this subtree
+		// references) as a JSON string - the same shape SaveScene's
+		// per-root entries use, just scoped to one subtree rather than the
+		// whole scene. Used by the editor's undo system to snapshot a
+		// GameObject before an operation that would otherwise lose it
+		// irrecoverably (delete) or need to replay it exactly on redo
+		// (add/duplicate). Returns JSON text rather than a json object so
+		// this header (like the rest of include/Pyros3D) never needs to
+		// expose nlohmann::json in its public API.
+		// `scenePathForAssetRoot` should be whatever path SaveScene/LoadScene
+		// would be called with for this scene (SceneEditor::GetScenePath()) -
+		// it's used the same way those do, to resolve relative asset paths
+		// found on materials/models within the subtree; pass an empty string
+		// for a scene that has never been saved (matches SaveScene's own
+		// behavior in that case).
+		static std::string SerializeSubtree(GameObject* root, const std::string &scenePathForAssetRoot, sol::state* lua = NULL);
+
+		// Reconstructs a GameObject subtree previously captured by
+		// SerializeSubtree(). Returns the reconstructed root with its
+		// children already attached (go->Add()'d), or a null shared_ptr if
+		// `subtreeJson` isn't valid JSON. The caller is responsible for
+		// scene->Add(result) and re-adopting it into the editor's
+		// SceneObjects registry (SceneObjects::Adopt). `outAssets`, if
+		// non-NULL, collects everything this call allocated (same contract
+		// as LoadScene's outAssets) so a later UnloadScene(scene, assets)
+		// call frees it deterministically and GPU-safely - required when an
+		// undo/redo command holding this snapshot is discarded (e.g. the
+		// undo stack's redo half is cleared by a new edit) before ever
+		// being applied to the scene.
+		static std::shared_ptr<GameObject> DeserializeSubtree(const std::string &subtreeJson, const std::string &scenePathForAssetRoot,
+			IPhysics* physics = NULL, sol::state* lua = NULL, LoadedSceneAssets* outAssets = NULL);
 	};
 
 }
