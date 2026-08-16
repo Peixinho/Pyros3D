@@ -186,11 +186,34 @@ void CGizmoTransformRotate::Rotate1Axe(const tvector3& rayOrigin,const tvector3&
 		mt.RotationAxis(m_Axis,m_Ng2);
 		*m_pMatrix=mt;
 	} else {
-		mt.RotationAxis(m_Axis,m_Ng2);
+		// m_Axis is the rotation axis in world space (the object's local
+		// axis as seen from the camera), but m_pMatrix is expressed in the
+		// parent's frame. Conjugate the axis through the inverse parent
+		// transform before pre-multiplying (identity for a root object),
+		// otherwise a child of a rotated parent rotates about the wrong axis.
+		tvector3 axis = m_Axis;
+		tmatrix iparent;
+		iparent = globalTransform;
+		iparent.Inverse();
+		axis.TransformVector(iparent);
+		if (axis.Length() > 0.0001f)
+			axis.Normalize();
+
+		tmatrix svg = m_svgMatrix;
+		tvector3 trf = svg.GetTranslation();
+		svg.NoTrans();
+
+		mt.RotationAxis(axis,m_Ng2);
 		mt.Multiply(m_InvOrigScale);
-		mt.Multiply(m_svgMatrix);
+		mt.Multiply(svg);
 		mt2 = m_OrigScale;
 		mt2.Multiply(mt);
+
+		// Restore the start translation - rotating the full start matrix
+		// would swing the position around the origin.
+		mt2.V4.position.x = trf.x;
+		mt2.V4.position.y = trf.y;
+		mt2.V4.position.z = trf.z;
 		*m_pMatrix=mt2;
 	}
 

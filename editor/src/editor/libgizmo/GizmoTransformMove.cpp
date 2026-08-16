@@ -162,7 +162,6 @@ void CGizmoTransformMove::OnMouseMove(unsigned int x, unsigned int y)
 
         tvector3 adf;
 
-		tmatrix mt;
 		if (m_bUseSnap)
 		{
 			SnapIt(df.x,m_MoveSnap.x);
@@ -176,9 +175,16 @@ void CGizmoTransformMove::OnMouseMove(unsigned int x, unsigned int y)
 		ilocaltransform.Inverse();
 		adf.TransformVector(ilocaltransform);
 
-		mt.Translation(adf);
+		// Add the delta to the translation only. Pre-multiplying the full
+		// start matrix (svg * T(delta)) rotated the delta by the object's
+		// own rotation, so a rotated object - and a child of a rotated
+		// parent - moved along R*delta instead of tracking the mouse.
 		*m_pMatrix = m_svgMatrix;
-		m_pMatrix->Multiply(mt);
+		tvector3 newPos = m_pMatrix->GetTranslation();
+		newPos += adf;
+		m_pMatrix->V4.position.x = newPos.x;
+		m_pMatrix->V4.position.y = newPos.y;
+		m_pMatrix->V4.position.z = newPos.z;
         //if (mTransform) mTransform->Update();
 
         if (mEditPos)

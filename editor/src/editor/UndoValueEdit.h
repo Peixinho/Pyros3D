@@ -4,8 +4,9 @@
 
 // Wraps one ImGui scalar/vector/color widget with undo commit boundaries,
 // mirroring the gizmo-drag baseline/commit pattern already used for
-// transform gizmos (SceneEditor::CaptureGizmoBaseline/
-// ApplyGizmoTransformToObject). Does NOT change how the widget's backing
+// transform gizmos (the gizmoBaselinePos/Rot/Scale capture in
+// HandleViewportGizmoInput / ApplyGizmoTransformToObject). Does NOT change
+// how the widget's backing
 // storage is read/written each frame - callers keep doing that themselves
 // (e.g. SceneEditor::Update() pushing _translation onto the live
 // GameObject every frame); this only observes the widget's activate/

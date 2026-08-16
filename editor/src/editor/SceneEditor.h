@@ -428,9 +428,9 @@ private:
 	void DeleteComponentById(uint32 objId);
 	void DeleteSelected();
 	uint32 DuplicateSelected();
-	void CaptureGizmoBaseline();
 	void PrepareGizmoForDraw(GameObject* viewCam);
 	void HandleViewportGizmoInput(GameObject* viewCam);
+	Matrix LocalizeWorldRotation(const Matrix &worldDelta);
 	void ApplyGizmoTransformToObject();
 	void ViewportPickAtMouse();
 	void SyncPhysicsFromScene();
@@ -549,13 +549,9 @@ private:
 	bool localTransform;
 	uint32 GizmoInUse;
 	bool gizmoDragging;
-	Matrix gizmoBaselineLocal;
-	Matrix gizmoBaselineParentWorld;
-	Matrix gizmoBaselineWorld;
 	// Position/Rotation/Scale (matching _translation/_rotation/_scale) as of
-	// the drag's mouse-down - captured alongside the Matrix baseline above,
-	// used to push exactly one SetTransformCommand per whole drag gesture
-	// on mouse-up rather than per dragged frame.
+	// the drag's mouse-down, used to push exactly one SetTransformCommand per
+	// whole drag gesture on mouse-up rather than per dragged frame.
 	Vec3 gizmoBaselinePos, gizmoBaselineRot, gizmoBaselineScale;
 
 	struct PlayModeObjectSnapshot {

@@ -3176,16 +3176,6 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			SelectSceneObject(SelectedSceneObject);
 	}
 
-	void SceneEditor::CaptureGizmoBaseline()
-	{
-		if (!SelectedSceneObject || SelectedSceneObject->GetType() != SceneObjectTypes::GAMEOBJECT) return;
-		GameObject* go = (GameObject*)SelectedSceneObject->GetPTR();
-		if (!go) return;
-		gizmoBaselineLocal = SelectedSceneObject->LocalTransform;
-		gizmoBaselineParentWorld = go->HaveParent() ? go->GetParent()->GetWorldTransformation() : Matrix();
-		gizmoBaselineWorld = gizmoBaselineParentWorld * gizmoBaselineLocal;
-	}
-
 	void SceneEditor::PrepareGizmoForDraw(GameObject* viewCam)
 	{
 		if (!viewCam || playMode || !gizmo || !SelectedSceneObject
@@ -3194,10 +3184,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		GameObject* selGo = (GameObject*)SelectedSceneObject->GetPTR();
 		const bool hasParent = selGo->HaveParent();
-		Matrix liveWorld = selGo->GetWorldTransformation();
 		Matrix liveParentWorld = hasParent ? selGo->GetParent()->GetWorldTransformation() : Matrix();
-		Matrix anchorWorld = gizmoDragging ? gizmoBaselineWorld : liveWorld;
-		Matrix parentWorld = gizmoDragging ? gizmoBaselineParentWorld : liveParentWorld;
+		// Child anchor: compose the parent's (stable) world matrix with the
+		// editor's live LocalTransform. The gizmo edits LocalTransform in
+		// place while dragging (move updates it every frame; rotate/scale
+		// keep its translation), so this tracks the mouse exactly. The GO's
+		// world matrix is only rebuilt in scene->Update() and would lag a
+		// frame behind, and a drag-start baseline would freeze the gizmo at
+		// its initial spot.
+		Matrix anchorWorld = hasParent
+			? (liveParentWorld * SelectedSceneObject->LocalTransform)
+			: SelectedSceneObject->LocalTransform;
+		Matrix parentWorld = liveParentWorld;
 
 		gizmo->SetDisplayScale(isPerspective ? .15f : .22f);
 
@@ -3240,32 +3238,55 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			(isPerspective ? projection : projectionOrtho).GetProjectionMatrix().m);
 	}
 
+	Matrix SceneEditor::LocalizeWorldRotation(const Matrix &worldDelta)
+	{
+		// Conjugates a world-space rotation delta into the selected object's
+		// local (parent) frame: P^-1 * delta * P. Only the parent's rotation
+		// part takes part - its translation/scale are irrelevant to the
+		// conjugation and would corrupt it for a scaled parent.
+		if (!SelectedSceneObject || SelectedSceneObject->GetType() != SceneObjectTypes::GAMEOBJECT)
+			return worldDelta;
+		GameObject* go = (GameObject*)SelectedSceneObject->GetPTR();
+		if (!go || !go->HaveParent())
+			return worldDelta;
+		GameObject* parent = go->GetParent();
+		Vec3 parentScale = parent->GetScale();
+		if (fabs(parentScale.x) < 0.0001f) parentScale.x = 1.0f;
+		if (fabs(parentScale.y) < 0.0001f) parentScale.y = 1.0f;
+		if (fabs(parentScale.z) < 0.0001f) parentScale.z = 1.0f;
+		Matrix parentRot = parent->GetWorldTransformation().GetRotation(parentScale);
+		return parentRot.Inverse() * worldDelta * parentRot;
+	}
+
 	void SceneEditor::ApplyGizmoTransformToObject()
 	{
 		if (!SelectedSceneObject || SelectedSceneObject->GetType() != SceneObjectTypes::GAMEOBJECT)
 			return;
 
-		// World rotate: libgizmo writes only a delta into globalRotation.
-		// Bake it onto the *orientation* of LocalTransform and keep translation
-		// — Pyros Matrix multiply would otherwise rotate the position around
-		// the world origin (R * T).
+		// World rotate: libgizmo writes a delta into globalRotation around a
+		// world axis. Bake it onto the *orientation* of LocalTransform and
+		// keep translation — Pyros Matrix multiply would otherwise rotate the
+		// position around the world origin (R * T). When the object has a
+		// parent the local frame is the parent's, so the world delta must be
+		// conjugated by the parent's rotation first (P^-1 * delta * P).
 		Matrix baked = SelectedSceneObject->LocalTransform;
 		if (GizmoInUse == GizmoFunction::ROTATION && !localTransform)
 		{
 			const Vec3 pos = SelectedSceneObject->LocalTransform.GetTranslation();
 			Matrix orient = SelectedSceneObject->LocalTransform;
 			orient.Translate(Vec3(0, 0, 0));
-			baked = SelectedSceneObject->globalRotation * orient;
+			baked = LocalizeWorldRotation(SelectedSceneObject->globalRotation) * orient;
 			baked.Translate(pos);
 		}
 
 		Vec3 pos = baked.GetTranslation();
 		Vec3 scl = SelectedSceneObject->ScaleTransform.GetScale();
-		Vec3 basisScale = baked.GetScale();
-		if (fabs(basisScale.x) < 0.0001f) basisScale.x = 1.0f;
-		if (fabs(basisScale.y) < 0.0001f) basisScale.y = 1.0f;
-		if (fabs(basisScale.z) < 0.0001f) basisScale.z = 1.0f;
-		Vec3 rot = baked.GetRotation(basisScale).GetEulerFromRotationMatrix();
+		// LocalTransform carries no scale (it is T*R; the scale lives in
+		// ScaleTransform), so the 3x3 of baked is a pure rotation and the
+		// Euler angles are read off directly. Dividing by baked.GetScale()
+		// treated the rotation's diagonal as scale and produced garbage
+		// angles for any non-trivial rotation.
+		Vec3 rot = baked.GetEulerFromRotationMatrix();
 
 		SetObjectProperties(pos, rot, scl);
 		GameObject* go = (GameObject*)SelectedSceneObject->GetPTR();
@@ -3348,7 +3369,6 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (gizmoHit)
 			{
 				gizmoDragging = true;
-				CaptureGizmoBaseline();
 				gizmoBaselinePos = _translation;
 				gizmoBaselineRot = _rotation;
 				gizmoBaselineScale = _scale;
@@ -3363,10 +3383,6 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			gizmo->OnMouseMove(gizmoX, gizmoY);
 			ApplyGizmoTransformToObject();
-
-			GameObject* selGo = (GameObject*)SelectedSceneObject->GetPTR();
-			if (selGo->HaveParent())
-				gizmo->SetLocalTransform((float*)&selGo->GetWorldTransformation().m);
 		}
 		else
 		{
@@ -3381,16 +3397,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				gizmo->OnMouseUp(gizmoX, gizmoY);
 				if (GizmoInUse == GizmoFunction::ROTATION && !localTransform)
 				{
-					// Fold world delta into LocalTransform (orientation only).
+					// Fold world delta into LocalTransform (orientation only),
+					// conjugating it into the parent's frame when the object
+					// has a parent (see LocalizeWorldRotation).
 					const Vec3 trans = SelectedSceneObject->LocalTransform.GetTranslation();
 					Matrix orient = SelectedSceneObject->LocalTransform;
 					orient.Translate(Vec3(0, 0, 0));
-					Matrix baked = SelectedSceneObject->globalRotation * orient;
-					Vec3 basisScale = baked.GetScale();
-					if (fabs(basisScale.x) < 0.0001f) basisScale.x = 1.0f;
-					if (fabs(basisScale.y) < 0.0001f) basisScale.y = 1.0f;
-					if (fabs(basisScale.z) < 0.0001f) basisScale.z = 1.0f;
-					const Vec3 rot = baked.GetRotation(basisScale).GetEulerFromRotationMatrix();
+					Matrix baked = LocalizeWorldRotation(SelectedSceneObject->globalRotation) * orient;
+					const Vec3 rot = baked.GetEulerFromRotationMatrix();
 					SelectedSceneObject->LocalTransform.identity();
 					SelectedSceneObject->LocalTransform.Translate(trans);
 					SelectedSceneObject->LocalTransform.SetRotationFromEuler(rot);
@@ -3402,7 +3416,6 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					sceneUndo.Push(std::make_unique<SetTransformCommand>(this, SelectedSceneObject->GetID(),
 						gizmoBaselinePos, gizmoBaselineRot, gizmoBaselineScale,
 						_translation, _rotation, _scale, SelectedSceneObject->GetName()));
-				CaptureGizmoBaseline();
 			}
 			gizmoDragging = false;
 			_leftMouse = false;
@@ -3480,7 +3493,6 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			case SceneObjectTypes::GAMEOBJECT:
 			{
 				SyncTransformFromGameObject(go);
-				CaptureGizmoBaseline();
 #ifdef LUA_BINDINGS
 				propertiesScriptAttachPath.clear();
 #endif
