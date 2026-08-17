@@ -620,6 +620,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// see its own comment on why a queued SwitchRenderer() is applied
 		// here instead of inline from whatever UI callback requested it.
 		ApplyPendingRendererSwitchIfAny();
+#ifdef LUA_BINDINGS
+		// Same safe point, same reason - between frames, before anything
+		// this frame touches the scene graph.
+		ApplyPendingSceneLoadIfAny();
+#endif
 
 		const bool scene_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
 		// Escape always exits play (even with mouse capture / other panels focused).
@@ -1888,6 +1893,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		SceneEditor* self = this;
 		(*sharedLua)["setRenderCamera"] = [self](GameObject* go) { self->SetScriptRenderCamera(go); };
 
+		// Scene transitions. Queued, not immediate: the caller is running
+		// inside a LuaComponent owned by the scene graph this tears down,
+		// so switching here would free the running script. Applied between
+		// frames by ApplyPendingSceneLoadIfAny(). Takes a bare scene name
+		// ("Level2") or an explicit project-relative .json path.
+		(*sharedLua)["loadScene"] = [self](const std::string& name) { self->pendingLoadSceneName = name; };
+		// Which scene is running, for a boot script that branches on it.
+		(*sharedLua)["currentScene"] = [self]() { return self->GetSceneDisplayName(); };
 		// Expose echo() so Lua scripts can write to the editor log window.
 		(*sharedLua)["echo"] = [](const std::string& msg) { p3d::LOG::_LOG::_echo(msg); };
 
@@ -2790,7 +2803,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		scene->Update(time);
 #ifdef LUA_BINDINGS
 		if (playMode)
+		{
+			// Project script first: a boot script that calls loadScene()
+			// should get its request in before the scene it is leaving runs
+			// another frame of its own logic.
+			if (projectMainScript)
+			{
+				try { projectMainScript->Update(time); }
+				catch (const std::exception& e) { echo(std::string("ERROR: Project main script update: ") + e.what()); }
+				catch (...) { echo("ERROR: Project main script update failed"); }
+			}
 			UpdateSceneMainScript(time);
+		}
 #endif
 
 		// Listener follows the active view camera after scene transforms update.
@@ -3098,6 +3122,126 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		echo("WARNING: Play mode - no camera in the scene; using the editor camera");
 	}
 
+	void SceneEditor::InitSceneLuaComponents()
+	{
+		lastSceneLuaInitCount = 0;
+#ifdef LUA_BINDINGS
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
+			i != sceneObjects->GetList().end(); ++i)
+		{
+			if (!i->second || i->second->GetType() != SceneObjectTypes::LUA_COMPONENT) continue;
+			LuaComponent* lc = (LuaComponent*)i->second->GetPTR();
+			if (!lc) continue;
+			try {
+				lc->Init();
+				++lastSceneLuaInitCount;
+				if (!lc->scriptFile.empty())
+					echo(std::string("SUCCESS: Lua init — ") + lc->scriptFile);
+			}
+			catch (const std::exception& e) { echo(std::string("ERROR: LuaComponent::Init - ") + e.what()); }
+			catch (...) { echo("ERROR: LuaComponent::Init - unknown exception"); }
+		}
+#endif
+	}
+
+#ifdef LUA_BINDINGS
+	void SceneEditor::StartProjectMainScript()
+	{
+		projectMainScript.reset();
+		projectMainScriptPath.clear();
+		if (!sharedLua || !project || !project->IsOpen()) return;
+		const std::string rel = project->GetSettings().defaultMainScript;
+		if (rel.empty()) return;
+
+		projectMainScriptPath = (rel.find('/') == 0 || (rel.size() > 1 && rel[1] == ':'))
+			? rel : project->AbsolutePath(rel);
+		std::error_code ec;
+		if (!std::filesystem::exists(projectMainScriptPath, ec))
+		{
+			echo("ERROR: Project main script not found: " + projectMainScriptPath);
+			projectMainScriptPath.clear();
+			return;
+		}
+		try {
+			projectMainScript = LuaComponent_FromFile(*sharedLua, projectMainScriptPath);
+		}
+		catch (const std::exception& e) {
+			echo(std::string("ERROR: Project main script load: ") + e.what());
+			projectMainScript.reset();
+			projectMainScriptPath.clear();
+			return;
+		}
+		catch (...) {
+			echo("ERROR: Project main script load failed");
+			projectMainScript.reset();
+			projectMainScriptPath.clear();
+			return;
+		}
+		if (!projectMainScript) return;
+		try { projectMainScript->ResetLifecycle(); projectMainScript->Init(); }
+		catch (const std::exception& e) { echo(std::string("ERROR: Project main script Init: ") + e.what()); }
+		catch (...) { echo("ERROR: Project main script Init failed"); }
+		echo("SUCCESS: Project main script — " + projectMainScriptPath);
+	}
+
+	void SceneEditor::ApplyPendingSceneLoadIfAny()
+	{
+		if (pendingLoadSceneName.empty()) return;
+		const std::string name = pendingLoadSceneName;
+		pendingLoadSceneName.clear();
+		if (!playMode) return; // loadScene() is a play-mode API; ignore stragglers
+
+		// Resolve the way a game author would name it: "Level2", or an
+		// explicit project-relative path if they prefer.
+		std::string rel = name;
+		if (rel.size() < 5 || rel.compare(rel.size() - 5, 5, ".json") != 0)
+			rel = "scenes/" + rel + ".json";
+		const std::string abs = (project && project->IsOpen()) ? project->AbsolutePath(rel) : rel;
+		std::error_code ec;
+		if (!std::filesystem::exists(abs, ec))
+		{
+			echo("ERROR: loadScene('" + name + "') - no such scene: " + abs);
+			return;
+		}
+
+		// The scene graph is about to be replaced wholesale, so everything
+		// hanging off the old one goes first. projectMainScript deliberately
+		// survives - that persistence is the point of it.
+		static_cast<Box3DPhysics*>(physics)->SetSimulationEnabled(false);
+		sceneMainScript.reset();
+		sceneMainScriptPath.clear();
+		DeselectSceneObject();
+
+		// Snapshots key on the OLD scene's object ids; a later real stop must
+		// not try to restore them onto a different graph.
+		playModeSnapshots.clear();
+		loadingSceneForPlay = true;
+		const bool ok = LoadSceneFromFile(abs);
+		loadingSceneForPlay = false;
+		if (!ok)
+		{
+			echo("ERROR: loadScene('" + name + "') failed to load " + abs);
+			static_cast<Box3DPhysics*>(physics)->SetSimulationEnabled(true);
+			return;
+		}
+
+		// Put the fresh graph into the same state EnterPlayMode() leaves one
+		// in - LoadSceneFromFile() builds it for editing, not for playing.
+		SetEditorChromeVisible(false);
+		ResolvePlayModeCamera();
+		SyncPhysicsFromScene();
+		static_cast<Box3DPhysics*>(physics)->SetSimulationEnabled(true);
+		PushLuaHostGlobals();
+		LuaComponent::SetUpdatesEnabled(true);
+		ResetLuaComponentsLifecycle();
+		InitSceneLuaComponents();
+		ResetSceneMainScriptLifecycle();
+		InitSceneMainScript();
+		editorDisabled = true;
+		echo("SUCCESS: loadScene('" + name + "')");
+	}
+#endif
+
 	void SceneEditor::EnterPlayMode()
 	{
 		if (playMode) return;
@@ -3152,28 +3296,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		LuaComponent::SetUpdatesEnabled(true);
 		ResetLuaComponentsLifecycle();
 		// Explicit Init so camera scripts register input before the first frame.
-		int luaInited = 0;
-		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
-			i != sceneObjects->GetList().end(); ++i)
-		{
-			if (!i->second || i->second->GetType() != SceneObjectTypes::LUA_COMPONENT) continue;
-			LuaComponent* lc = (LuaComponent*)i->second->GetPTR();
-			if (!lc) continue;
-			try {
-				lc->Init();
-				++luaInited;
-				if (!lc->scriptFile.empty())
-					echo(std::string("SUCCESS: Lua init — ") + lc->scriptFile);
-			}
-			catch (const std::exception& e) { echo(std::string("ERROR: LuaComponent::Init - ") + e.what()); }
-			catch (...) { echo("ERROR: LuaComponent::Init - unknown exception"); }
-		}
+		const int luaInited = (InitSceneLuaComponents(), lastSceneLuaInitCount);
 		if (luaInited == 0)
 			echo("WARNING: Play mode — no LuaComponent on any GameObject (attach a script and Save scene)");
 		else
 			echo("SUCCESS: Play mode — Tab toggles mouse capture; Esc stops play");
 		ResetSceneMainScriptLifecycle();
 		InitSceneMainScript();
+		StartProjectMainScript();
 #endif
 	}
 
@@ -3214,6 +3344,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// SyncPhysicsForGameObject skips while playMode is true — clear it
 		// before pushing restored transforms back into the physics world.
 		playMode = false;
+#ifdef LUA_BINDINGS
+		// The project script's whole point is outliving scene loads, so it is
+		// dropped here rather than anywhere in the scene-load path - a play
+		// session is its lifetime.
+		projectMainScript.reset();
+		projectMainScriptPath.clear();
+		pendingLoadSceneName.clear();
+#endif
 		static_cast<Box3DPhysics*>(physics)->SetSimulationEnabled(false);
 		SyncPhysicsFromScene();
 		playModeSnapshots.clear();
@@ -3792,7 +3930,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	void SceneEditor::NewScene(bool applyProjectDefaults)
 	{
 		(void)applyProjectDefaults;
-		if (playMode)
+		// A script-driven loadScene() keeps playing straight through the swap;
+		// only an editor-initiated load ends the session.
+		if (playMode && !loadingSceneForPlay)
 			StopPlayMode();
 		DeselectMesh();
 		DeselectSceneObject();

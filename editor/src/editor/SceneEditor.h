@@ -573,6 +573,38 @@ private:
 	// Scene-level main script (not attached to a GameObject).
 	std::string sceneMainScriptPath; // absolute preferred after resolve
 	std::shared_ptr<LuaComponent> sceneMainScript;
+	// The project's own main script (ProjectSettings::defaultMainScript).
+	// Deliberately NOT a LuaComponent hanging off the scene the way
+	// sceneMainScript is: it is never rebuilt on load, so its Lua state
+	// survives a scene change, which is the entire reason a multi-scene game
+	// needs one - boot flow, save data, anything spanning levels. Play mode
+	// only, created in EnterPlayMode() and dropped in StopPlayMode(); the
+	// editor never runs it, so a script cannot swap scenes underneath you
+	// while you are editing.
+	std::string projectMainScriptPath;
+	std::shared_ptr<LuaComponent> projectMainScript;
+	// Scene a script asked for via loadScene(). Applied between frames rather
+	// than inside the call: the caller is running from a LuaComponent owned by
+	// the very scene graph the load tears down, so switching there would free
+	// the script mid-execution. Same deferral ApplyPendingRendererSwitchIfAny()
+	// exists for. Empty means nothing pending.
+	std::string pendingLoadSceneName;
+	// True only while ApplyPendingSceneLoadIfAny() is swapping scenes for a
+	// script. NewScene() stops play mode on the way in, which is right when
+	// the *editor* loads a scene and wrong for an in-game transition - the
+	// game would halt the moment it changed level.
+	bool loadingSceneForPlay = false;
+	void ApplyPendingSceneLoadIfAny();
+	// Loads and Init()s the project script, if the project names one. Called
+	// once per play session.
+	void StartProjectMainScript();
+	// How many LuaComponents the last InitSceneLuaComponents() initialised -
+	// only used for EnterPlayMode()'s "no script attached" warning.
+	int lastSceneLuaInitCount = 0;
+	// Re-runs Init() on every LuaComponent in the current scene. Shared by
+	// EnterPlayMode() and a mid-play loadScene(), which lands a brand new
+	// scene graph whose components have never been initialised.
+	void InitSceneLuaComponents();
 	bool RebuildSceneMainScriptInstance();
 	void InitSceneMainScript();
 	void UpdateSceneMainScript(f64 time);

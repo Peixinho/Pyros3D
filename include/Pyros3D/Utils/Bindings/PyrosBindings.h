@@ -402,11 +402,33 @@ namespace p3d {
         {
             // Editor edit-mode leaves this false so scripts only run in Play.
             if (!s_updatesEnabled) return;
+
+            // Callers hand this the SceneGraph's ABSOLUTE timer, and that
+            // cannot change: SceneGraph::Update() stores the same value for
+            // the renderers to read back as a shader's uTime
+            // (`Timer = Scene->GetTime()` in Forward/DeferredRenderer), so
+            // turning it into a delta upstream would break every time-driven
+            // material. Scripts want the frame delta though - every script in
+            // the tree accumulates its argument, e.g. MoveObject.lua's
+            // `self.time = self.time + time` - so the conversion happens here,
+            // once, for all of them. Passing absolute time straight through
+            // made that accumulation meaningless: a script starting 40s into
+            // the session jumped to 40 on its very first frame.
+            p3d::f64 dt = 0.0;
+            if (hasLastUpdateTime) dt = time - lastUpdateTime;
+            hasLastUpdateTime = true;
+            lastUpdateTime = time;
+            // A scene load, a paused session or a stall leaves an arbitrarily
+            // large gap, and one frame of that would teleport anything
+            // integrating it. Clamped rather than passed on.
+            if (dt < 0.0) dt = 0.0;
+            if (dt > 0.25) dt = 0.25;
+
             // WireLua rethrows on init/update failure (DemoLauncher needs it).
             // Swallow here so a bad script cannot abort the editor host.
             try {
                 FireInit();
-                if (on_update) { on_update(*this, time); }
+                if (on_update) { on_update(*this, dt); }
             }
             catch (const std::exception&) {}
             catch (...) {}
@@ -425,12 +447,21 @@ namespace p3d {
             }
             initialized = false;
             initFailed = false;
+            // Next Update() starts a fresh delta - without this the first
+            // frame of a new play session would carry the whole gap since the
+            // last one.
+            hasLastUpdateTime = false;
+            lastUpdateTime = 0.0;
         }
 
         static void SetUpdatesEnabled(bool enabled) { s_updatesEnabled = enabled; }
         static bool UpdatesEnabled() { return s_updatesEnabled; }
 
         std::function<void(LuaComponent&, p3d::f64)> on_update;
+        // Previous absolute time seen by Update(), for the delta it
+        // hands the script. See Update()'s comment.
+        p3d::f64 lastUpdateTime = 0.0;
+        bool hasLastUpdateTime = false;
         std::function<void(LuaComponent&)> on_init;
         std::function<void(LuaComponent&)> on_destroy;
 
