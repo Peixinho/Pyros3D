@@ -781,6 +781,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			EffectsManager->CaptureFrame();
 		}
 
+		// The gizmo/grid/debug overlay below never sets a viewport of its own
+		// (DebugRenderer::SetViewPort() is not called from here at all) - it
+		// relies on the render pass it lands in having the right one already.
+		// Say so explicitly rather than inheriting it, so this does not
+		// silently depend on which pass happened to be opened last.
+		GetActiveRenderDevice().SetViewport(0, 0, viewW, viewH);
+
 		// Gizmo must submit into DebugRenderer before the flush below.
 		if (!playMode)
 		{

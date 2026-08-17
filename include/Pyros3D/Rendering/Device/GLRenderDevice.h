@@ -80,7 +80,7 @@ namespace p3d {
 		virtual void SetFloatVertexAttribute(const int32 location, const uint32 componentCount, const uint32 stride, const uint32 offset);
 		virtual void DisableVertexAttribute(const int32 location);
 		virtual void SetVertexAttributeDivisor(const int32 location, const uint32 divisor);
-		virtual void BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint);
+		virtual void BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint, const DeviceHandle bufferHandle = 0);
 
 		virtual Matrix TranslateProjectionMatrix(const Matrix &projectionMatrix, const bool skipYFlip = false);
 		virtual Matrix TranslateShadowBiasMatrix();

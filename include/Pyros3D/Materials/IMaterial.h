@@ -199,12 +199,21 @@ namespace p3d {
 		{
 			// Binding 0 (the default) means "not in use" - every material
 			// not opting into this slot is unaffected. Binding must be a
-			// value no other UBO anywhere in the engine uses - see
-			// VulkanRenderDevice::CreateUniformBuffer()'s comment (a
-			// *global* registry, not per-program).
+			// value no *differently shaped* block anywhere in the engine
+			// uses (the engine's own shared UBOs occupy 0-23 - see the
+			// BindUniformBlockIfPresent() run at the end of
+			// IRenderer::BindMesh()); two instances of the
+			// same material type sharing this binding is fine and expected,
+			// since SendExtraUniforms() points each program's descriptor at
+			// bufferHandle below rather than at the device's global
+			// binding-point registry (see
+			// IRenderDevice::BindUniformBlockIfPresent()).
 			uint32 binding;
 			std::string blockName;
 			uint32 size;
+			// This block's own UBO, allocated lazily on first use by
+			// IRenderer::SendExtraUniforms() - one per material instance,
+			// NOT one per binding point.
 			uint32 bufferHandle;
 			std::vector<uchar> scratch;
 			std::map<std::string, uint32> offsets;

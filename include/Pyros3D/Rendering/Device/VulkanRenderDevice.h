@@ -251,7 +251,7 @@ namespace p3d {
 		virtual void SetFloatVertexAttribute(const int32 location, const uint32 componentCount, const uint32 stride, const uint32 offset);
 		virtual void DisableVertexAttribute(const int32 location);
 		virtual void SetVertexAttributeDivisor(const int32 location, const uint32 divisor);
-		virtual void BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint);
+		virtual void BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint, const DeviceHandle bufferHandle = 0);
 
 		virtual Matrix TranslateProjectionMatrix(const Matrix &projectionMatrix, const bool skipYFlip = false);
 		virtual Matrix TranslateShadowBiasMatrix();
@@ -1321,9 +1321,22 @@ namespace p3d {
 			// (caught via VUID-vkCmdBindPipeline-commandBuffer-recording
 			// cascading into every subsequent command in that buffer).
 			// Tracking which bindings are already written and skipping
-			// them is correct, not just a workaround - the value being
-			// written is unconditionally the same either way.
-			std::set<uint32> writtenBindings;
+			// them is correct, not just a workaround - for any given
+			// program the value being written is the same every time.
+			//
+			// Stores *which buffer* each written binding was pointed at,
+			// not just that it was written: the skip has to be conditional
+			// on the buffer being unchanged, or a program whose binding
+			// genuinely moved to a different VkBuffer (the shared UBOs
+			// being destroyed and recreated across a renderer teardown;
+			// see DestroyUniformBuffer()) would keep a descriptor aimed at
+			// a freed buffer forever. Per-material extraUniforms blocks
+			// (see IRenderDevice::BindUniformBlockIfPresent()'s comment)
+			// pass their own buffer handle rather than the global
+			// binding-point registry's, and each such material has its own
+			// program, so in practice each entry here is still written
+			// once and then matches on every later call.
+			std::map<uint32, DeviceHandle> writtenBindings;
 			// Vertex attribute name -> location, reflected from the
 			// vertex stage's compiled SPIR-V in LinkProgram() (see
 			// SpirvShaderCompiler::ReflectStageInputs()). CreatePipeline()

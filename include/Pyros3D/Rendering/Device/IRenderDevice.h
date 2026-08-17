@@ -429,7 +429,21 @@ namespace p3d {
 		virtual void SetVertexAttributeDivisor(const int32 location, const uint32 divisor) = 0;
 		// glGetUniformBlockIndex + glUniformBlockBinding, no-op if the
 		// shader doesn't declare a block with this name.
-		virtual void BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint) = 0;
+		//
+		// bufferHandle names *which* UBO this program should read at
+		// bindingPoint. 0 means "whatever CreateUniformBuffer() registered
+		// at this binding point last" - correct for the engine's shared,
+		// single-instance UBOs (GlobalMatrices, LightsBlock, ... - see
+		// IRenderer's 0-23 range), where exactly one buffer ever exists per
+		// binding. It is NOT correct for the per-material/per-effect
+		// extraUniforms blocks (IMaterial::ExtraUniformsBlock,
+		// IEffect::extraUniformsBinding): two live instances of the same
+		// material type - two DeferredRenderers, e.g. the editor's Scene
+		// View plus the Material Editor's preview - each allocate their own
+		// buffer at the same binding, and the global registry only remembers
+		// the last one. Those callers pass their own handle so every
+		// program keeps reading its own buffer.
+		virtual void BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint, const DeviceHandle bufferHandle = 0) = 0;
 
 		// Backend-specific clip-space correction for the projection matrix
 		// Matrix::PerspectiveMatrix()/OrthoMatrix() build (see

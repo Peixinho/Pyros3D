@@ -482,8 +482,17 @@ namespace p3d {
 #endif
 	}
 
-	void GLRenderDevice::BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint)
+	void GLRenderDevice::BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint, const DeviceHandle bufferHandle)
 	{
+		// bufferHandle is Vulkan-only bookkeeping (see IRenderDevice.h).
+		// GL's binding-point -> buffer table is glBindBufferBase's, and
+		// ReplaceUniformBuffer() re-issues it for the buffer it just wrote
+		// on every call - which, for the per-material extraUniforms blocks,
+		// is immediately before that material's own draw. So GL already
+		// reads the right buffer even when two live materials share one
+		// binding point; only the program-side block -> binding point
+		// mapping is this function's job here.
+		(void)bufferHandle;
 		GLuint blockIndex = glGetUniformBlockIndex(program, blockName.c_str());
 		if (blockIndex != GL_INVALID_INDEX)
 		{

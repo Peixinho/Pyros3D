@@ -2326,7 +2326,16 @@ void IRenderer::SendExtraUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			continue;
 		if (block.bufferHandle == 0)
 			block.bufferHandle = device->CreateUniformBuffer(block.size, block.binding);
-		device->BindUniformBlockIfPresent(Material->GetShader(), block.blockName, block.binding);
+		// This material's own buffer, explicitly - NOT whatever the device's
+		// global binding-point registry happens to hold (see
+		// IRenderDevice::BindUniformBlockIfPresent()). Two live instances of
+		// the same material type - two DeferredRenderers, say the editor's
+		// Scene View plus the Material Editor's live preview - each allocate
+		// a buffer at this same binding, and only one of them can be the
+		// registry's entry; the other one's shader would otherwise read its
+		// rival's block (which is how a 220x220 preview's uScreenDimensions
+		// ended up driving the full-size viewport's deferred composite).
+		device->BindUniformBlockIfPresent(Material->GetShader(), block.blockName, block.binding, block.bufferHandle);
 		device->ReplaceUniformBuffer(block.bufferHandle, block.size, &block.scratch[0]);
 	}
 }

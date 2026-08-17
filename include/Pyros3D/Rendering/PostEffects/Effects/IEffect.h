@@ -138,11 +138,14 @@ namespace p3d {
 		// etc.) wraps them in its own UBO block and sets these three (in
 		// its constructor, after the block's layout is decided) so
 		// PostEffectsManager can create+fill it generically: binding must
-		// be a value no other UBO anywhere in the engine uses (see
-		// VulkanRenderDevice::CreateUniformBuffer()'s comment - binding
-		// points are a *global* registry, not per-program, so this can't
-		// reuse PyrosShader.glsl's 0-23 range) - Effects/IEffect.h's
-		// comment block. size is the block's total std140 byte size.
+		// be a value no *differently shaped* block anywhere in the engine
+		// uses, so this can't reuse PyrosShader.glsl's 0-23 range. Two
+		// live PostEffectsManagers each holding their own instance of the
+		// same effect at this binding is fine, though - PostEffectsManager
+		// points each program's descriptor at extraUniformsBufferHandle
+		// below rather than at the device's global binding-point registry
+		// (see IRenderDevice::BindUniformBlockIfPresent()).
+		// size is the block's total std140 byte size.
 		// extraUniformOffsets maps each member's GLSL name to its std140
 		// byte offset within that block, matched by hand against the
 		// shader's own declared member order/types - same "author both

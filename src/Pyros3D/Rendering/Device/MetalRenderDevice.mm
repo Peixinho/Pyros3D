@@ -1055,7 +1055,7 @@ namespace p3d {
 	// Nothing left to do here except match GL's no-op-if-absent contract,
 	// so a caller that always calls this defensively (same as the GL/
 	// Vulkan paths) doesn't need a Metal-specific branch.
-	void MetalRenderDevice::BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint) { (void)program; (void)blockName; (void)bindingPoint; }
+	void MetalRenderDevice::BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint, const DeviceHandle bufferHandle) { (void)program; (void)blockName; (void)bindingPoint; (void)bufferHandle; }
 
 	// Metal's clip space is NOT identical to Vulkan's: both remap Z to
 	// [0,1], but Metal's NDC Y axis points *up*, matching OpenGL - it's

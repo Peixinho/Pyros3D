@@ -2382,7 +2382,7 @@ namespace p3d {
 		return vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool) == VK_SUCCESS;
 	}
 
-	void VulkanRenderDevice::BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint)
+	void VulkanRenderDevice::BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint, const DeviceHandle bufferHandle)
 	{
 		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(program);
 		if (device == VK_NULL_HANDLE || progIt == programs.end() || progIt->second.descriptorSetLayout == VK_NULL_HANDLE)
@@ -2399,13 +2399,25 @@ namespace p3d {
 		(void)blockName;
 		if (progIt->second.reflectedBindings.find(bindingPoint) == progIt->second.reflectedBindings.end())
 			return; // shader doesn't declare a block at this binding - matches GL's no-op contract
-		if (progIt->second.writtenBindings.find(bindingPoint) != progIt->second.writtenBindings.end())
-			return; // already written for this program - see the comment on ProgramRecord::writtenBindings for why re-writing it is unsafe, not just wasteful
 
-		std::map<uint32, DeviceHandle>::iterator bufIt = uniformBufferByBindingPoint.find(bindingPoint);
-		if (bufIt == uniformBufferByBindingPoint.end())
-			return; // no CreateUniformBuffer() at this binding point yet
-		std::map<DeviceHandle, BufferRecord>::iterator recIt = buffers.find(bufIt->second);
+		// An explicit handle wins over the global binding-point registry -
+		// see IRenderDevice::BindUniformBlockIfPresent()'s comment on why
+		// the per-material/per-effect extraUniforms blocks can't use that
+		// registry (two live instances of one material type overwrite each
+		// other's entry, and the loser's shader then reads the winner's
+		// buffer).
+		DeviceHandle wanted = bufferHandle;
+		if (wanted == 0)
+		{
+			std::map<uint32, DeviceHandle>::iterator bufIt = uniformBufferByBindingPoint.find(bindingPoint);
+			if (bufIt == uniformBufferByBindingPoint.end())
+				return; // no CreateUniformBuffer() at this binding point yet
+			wanted = bufIt->second;
+		}
+		std::map<uint32, DeviceHandle>::iterator writtenIt = progIt->second.writtenBindings.find(bindingPoint);
+		if (writtenIt != progIt->second.writtenBindings.end() && writtenIt->second == wanted)
+			return; // already pointed at this exact buffer - see the comment on ProgramRecord::writtenBindings for why re-writing it is unsafe, not just wasteful
+		std::map<DeviceHandle, BufferRecord>::iterator recIt = buffers.find(wanted);
 		if (recIt == buffers.end())
 			return;
 
@@ -2465,7 +2477,7 @@ namespace p3d {
 		write.descriptorType = recIt->second.isDynamicUniform ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		write.pBufferInfo = &bufferInfo;
 		vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
-		progIt->second.writtenBindings.insert(bindingPoint);
+		progIt->second.writtenBindings[bindingPoint] = wanted;
 	}
 
 	// Unused by DrawElements()/DrawElementsInstanced() below - Vulkan bakes
@@ -2797,17 +2809,16 @@ namespace p3d {
 		DeviceHandle handle = nextBufferHandle++;
 		buffers[handle] = record;
 		// See the comment on uniformBufferByBindingPoint in the header -
-		// this is what BindUniformBlockIfPresent() looks up later.
-		// If this binding point already had a buffer (or a stale handle
-		// after DestroyUniformBuffer missed the map - older path), any
-		// program that already wrote that binding must rewrite against
-		// the new VkBuffer.
-		std::map<uint32, DeviceHandle>::iterator existing = uniformBufferByBindingPoint.find(bindingPoint);
-		if (existing != uniformBufferByBindingPoint.end() && existing->second != handle)
-		{
-			for (std::map<DeviceHandle, ProgramRecord>::iterator pIt = programs.begin(); pIt != programs.end(); ++pIt)
-				pIt->second.writtenBindings.erase(bindingPoint);
-		}
+		// this is what BindUniformBlockIfPresent() looks up for callers
+		// that don't name a buffer of their own. Nothing to invalidate
+		// here when this binding point already had a buffer: programs
+		// record which buffer their descriptor was written against
+		// (ProgramRecord::writtenBindings), so the next call for a program
+		// that resolves to a different one rewrites on its own - and,
+		// crucially, a program that named its *own* buffer explicitly is
+		// left alone instead of being forced into a pointless (and, mid
+		// command-buffer, unsafe) rewrite every time some other instance
+		// of the same material type allocates at the same binding.
 		uniformBufferByBindingPoint[bindingPoint] = handle;
 		return handle;
 	}
@@ -2879,19 +2890,30 @@ namespace p3d {
 		// recreates the shared UBOs - BindUniformBlockIfPresent then skips
 		// the rewrite and draws with descriptors pointing at freed
 		// VkBuffers (A→B→A segfault).
+		//
+		// Driven by what each program actually wrote, not by which handle
+		// the binding-point registry currently holds: a per-material
+		// extraUniforms buffer (see BindUniformBlockIfPresent()) is often
+		// NOT the registry's entry for its binding point - another live
+		// instance of the same material type registered later - yet the
+		// program pointed at it is exactly the one that must not keep a
+		// descriptor aimed at freed memory.
+		for (std::map<DeviceHandle, ProgramRecord>::iterator pIt = programs.begin(); pIt != programs.end(); ++pIt)
+		{
+			for (std::map<uint32, DeviceHandle>::iterator wIt = pIt->second.writtenBindings.begin(); wIt != pIt->second.writtenBindings.end(); )
+			{
+				if (wIt->second == buffer)
+					pIt->second.writtenBindings.erase(wIt++);
+				else
+					++wIt;
+			}
+		}
 		for (std::map<uint32, DeviceHandle>::iterator it = uniformBufferByBindingPoint.begin(); it != uniformBufferByBindingPoint.end(); )
 		{
-			if (it->second != buffer)
-			{
+			if (it->second == buffer)
+				uniformBufferByBindingPoint.erase(it++);
+			else
 				++it;
-				continue;
-			}
-			const uint32 bindingPoint = it->first;
-			for (std::map<DeviceHandle, ProgramRecord>::iterator pIt = programs.begin(); pIt != programs.end(); ++pIt)
-				pIt->second.writtenBindings.erase(bindingPoint);
-			std::map<uint32, DeviceHandle>::iterator eraseIt = it;
-			++it;
-			uniformBufferByBindingPoint.erase(eraseIt);
 		}
 		DestroyBuffer(buffer);
 	}

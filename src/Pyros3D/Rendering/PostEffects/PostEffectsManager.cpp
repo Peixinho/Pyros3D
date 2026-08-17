@@ -368,7 +368,13 @@ namespace p3d {
 			{
 				if (effect->extraUniformsBufferHandle == 0)
 					effect->extraUniformsBufferHandle = device->CreateUniformBuffer(effect->extraUniformsSize, effect->extraUniformsBinding);
-				device->BindUniformBlockIfPresent(effect->shader->ShaderProgram(), effect->extraUniformsBlockName, effect->extraUniformsBinding);
+				// This effect's own buffer, explicitly - see
+				// IRenderDevice::BindUniformBlockIfPresent(): two live
+				// PostEffectsManagers (the editor runs one per viewport plus
+				// one per material preview) each allocate an effect buffer
+				// at the same binding, and the device's global binding-point
+				// registry only remembers whichever came last.
+				device->BindUniformBlockIfPresent(effect->shader->ShaderProgram(), effect->extraUniformsBlockName, effect->extraUniformsBinding, effect->extraUniformsBufferHandle);
 				device->ReplaceUniformBuffer(effect->extraUniformsBufferHandle, effect->extraUniformsSize, &effect->extraUniformsScratch[0]);
 			}
 

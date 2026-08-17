@@ -238,7 +238,7 @@ namespace p3d {
 		// VkDescriptorSet machinery to build first. Likely a no-op or a
 		// small bookkeeping step (remember which index a name maps to,
 		// from SPIRV-Cross's reflection output) rather than a real bind.
-		virtual void BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint);
+		virtual void BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint, const DeviceHandle bufferHandle = 0);
 
 		// Same NDC-correction seam as Vulkan (Z remap [-1,1]->[0,1], Y
 		// flip) - Metal's clip space matches Vulkan's here (both left
