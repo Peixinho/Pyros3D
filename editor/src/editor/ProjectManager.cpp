@@ -980,7 +980,7 @@ bool ProjectManager::CreateLuaScript(const std::string& name, std::string& outAb
 }
 
 bool ProjectManager::CreateMaterial(const std::string& name, MaterialAssetKind kind, std::string& outAbsolute,
-	std::string* errorOut)
+	std::string* errorOut, bool useTextMode)
 {
 	outAbsolute.clear();
 	if (!IsOpen())
@@ -1022,6 +1022,27 @@ bool ProjectManager::CreateMaterial(const std::string& name, MaterialAssetKind k
 	if (kind == MaterialAssetKind::Generic)
 	{
 		j["kind"] = "generic";
+	}
+	else if (useTextMode)
+	{
+		// Text and Node Graph are two INCOMPATIBLE representations of a
+		// Custom material - neither converts to the other (see
+		// MaterialCodegen.h) - so a text-mode material is seeded with only
+		// the text snippet, not the starter node graph below (an empty,
+		// never-shown Node Graph tab would be misleading, not a real
+		// alternate copy of this material). Kept as a plain string literal,
+		// matching kDefaultSimpleShaderText in MaterialCodegen.cpp, since
+		// ProjectManager shouldn't depend on the node-graph editor's types.
+		j["kind"] = "custom";
+		j["editMode"] = "text";
+		j["customShaderText"] =
+			"vec3 Albedo = vec3(1.0, 1.0, 1.0);\n"
+			"float Metallic = 0.0;\n"
+			"float Roughness = 0.5;\n"
+			"vec3 Emissive = vec3(0.0, 0.0, 0.0);\n"
+			"float Occlusion = 1.0;\n"
+			"\n// Leave Normal at (0,0,0) to use the surface's own normal.\n"
+			"vec3 Normal = vec3(0.0, 0.0, 0.0);\n";
 	}
 	else
 	{

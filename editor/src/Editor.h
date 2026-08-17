@@ -110,6 +110,13 @@ protected:
 	void DrawSceneTabBar();
 	void DrawScriptEditorWindows();
 	void DrawMaterialEditorWindows();
+	// Fills the Properties panel with the focused material document's
+	// property sheet (textures / settings / Generic inspector - see
+	// MaterialEditor::DrawProperties), returning true when it did. False
+	// means no material has focus and Properties falls back to the scene
+	// selection, which is what it has always shown. Installed on
+	// PropertiesTab via SetOverrideDrawer() in Init().
+	bool DrawActiveMaterialProperties();
 	void UpdateWindowTitle();
 	// Live renderer switch, shared by the Project Settings "Apply" button
 	// and the "set_renderer" AgentServer command - applies to every open
@@ -194,6 +201,11 @@ private:
 	// path and finds-or-opens it as a live MaterialEditorDocument. Returns
 	// NULL and sets errOut on failure (no project, file doesn't exist, ...).
 	MaterialEditorDocument* AgentOpenMaterial(const std::string& pathArg, std::string& errOut);
+	// Same find-or-load as AgentOpenMaterial, but for callers that only want
+	// the compiled IMaterial (to assign it somewhere) and must NOT pop open
+	// a Material Editor tab as a side effect - see AssignMaterialAsset and
+	// MaterialEditorDocument::hiddenFromTabs.
+	MaterialEditorDocument* LoadMaterialQuietly(const std::string& pathArg, std::string& errOut);
 	// Which of a generated material's two compiled branches (see
 	// MaterialCodegen.cpp) is active - driven by the project's Renderer
 	// setting, not a per-scene choice (see ProjectManager::rendererType's
@@ -277,6 +289,7 @@ private:
 	std::string newMaterialName;
 	std::string newMaterialError;
 	int newMaterialKindCombo; // 0 = Generic, 1 = Custom
+	int newMaterialCustomModeCombo; // 0 = Node Graph, 1 = Text - only asked/used when newMaterialKindCombo == 1
 	std::map<std::string, Texture*> assetPreviewCache;
 	Texture* welcomeLogo = NULL;
 	// Freed after EndFrame so ImGui never samples a destroyed MTLTexture /

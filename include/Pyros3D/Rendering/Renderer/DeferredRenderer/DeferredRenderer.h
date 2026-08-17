@@ -101,17 +101,33 @@ namespace p3d {
 		void SetSSRDebugMode(const uint32 mode);
 		uint32 GetSSRDebugMode() const { return (uint32)ssrDebugMode; }
 
-		// The final composited frame (lastPassFBO's Color_Attachment0).
-		// RenderScene()'s own final "Render to Screen" draw always targets
-		// framebuffer 0 (see its own comment on why a caller-FBO restore
-		// there was previously tried and found harmful - LOAD_OP_CLEAR wiped
-		// an in-progress frame), so a caller embedding this renderer's
-		// output inside its own framebuffer (e.g. an editor viewport texture,
-		// as opposed to DeferredRenderer being the whole application's only
-		// output) cannot rely on PostEffectsManager-style capture-around-
-		// RenderScene() the way ForwardRenderer supports - it must read this
-		// texture directly instead.
+		// The final composited frame (lastPassFBO's Color_Attachment0),
+		// already complete by the time RenderScene() reaches its "Render to
+		// Screen" draw (see SetSkipRenderToScreen()'s comment) - so a caller
+		// embedding this renderer's output inside its own framebuffer (e.g.
+		// an editor viewport texture, as opposed to DeferredRenderer being
+		// the whole application's only output) cannot rely on
+		// PostEffectsManager-style capture-around-RenderScene() the way
+		// ForwardRenderer supports - it must read this texture directly
+		// instead.
 		Texture* GetColorTexture() const { return colorTexture; }
+
+		// RenderScene()'s final "Render to Screen" draw re-renders the
+		// already-finished composite (this same colorTexture, above) as one
+		// more full-screen pass, unconditionally targeting framebuffer 0 -
+		// useful ONLY when this DeferredRenderer instance is the whole
+		// application's own direct output (its default, off, preserves that
+		// use). Any caller that only reads GetColorTexture() - every editor
+		// use today: SceneEditor's own viewport, and MaterialPreview's
+		// offscreen preview - gets nothing from that extra draw but a stomp
+		// on whatever else is targeting framebuffer 0 that frame (which is
+		// exactly what corrupted the main viewport whenever a second
+		// DeferredRenderer, e.g. the Material Editor's live preview, also
+		// rendered in the same frame - two unrelated full-screen draws
+		// racing for the same real screen buffer). Set true on any instance
+		// a caller only ever reads via GetColorTexture() from.
+		void SetSkipRenderToScreen(bool skip) { skipRenderToScreen = skip; }
+		bool GetSkipRenderToScreen() const { return skipRenderToScreen; }
 
 		// A real copy of the opaque scene's depth (see forwardDepthTexture's
 		// own comment), refreshed once per frame in RenderScene() right
@@ -244,6 +260,11 @@ namespace p3d {
 		// See SetSSRDebugMode() - isolation modes for SSRTest / demos.
 		f32 ssrDebugMode;
 		Uniform *lastPassSSRDebugHandle;
+
+		// See SetSkipRenderToScreen() - defaults OFF (preserves this
+		// instance being the application's own direct output, the original
+		// behavior every non-editor caller still gets).
+		bool skipRenderToScreen = false;
 
 		// Real, dedicated previous-frame camera state for SSR reprojection -
 		// deliberately NOT the shared IRenderer::PrvViewMatrix/

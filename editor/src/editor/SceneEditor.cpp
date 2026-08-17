@@ -884,6 +884,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		viewportImgSize = imgSize;
 		viewportOverlayValid = true;
 
+
 		// Which renderer is actually active - top left, clear of the axis
 		// gizmo (top right) and the T/R/S + Play toolbar row above the image.
 		{
@@ -4828,6 +4829,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				{
 					RenderingComponent* r = (RenderingComponent*)SelectedSceneObject->GetPTR();
 					std::vector<RenderingMesh*>& meshes = r->GetMeshes();
+					// SelectedSceneObject here is the *component's* own tree
+					// entry (each component gets its own SceneObject/hierarchy
+					// node - see the RENDERING_COMPONENT case in the tree-draw
+					// switch above), so GetName() returns a generic component
+					// label ("Mesh"), not the owning GameObject's actual name.
+					// AgentAssignMaterial/AgentFindGameObjectByName resolve by
+					// GameObject name, so passing the component's own name
+					// here always failed with "object 'Mesh' not found" -
+					// resolve the real owner via ParentID once and use that
+					// for every assign call below instead.
+					SceneObject* ownerGO = sceneObjects->GetSceneObject(SelectedSceneObject->GetParentID());
+					const std::string ownerName = ownerGO ? ownerGO->GetName() : SelectedSceneObject->Name;
 					if (meshes.empty())
 						ImGui::TextDisabled("(no submeshes)");
 					for (size_t m = 0; m < meshes.size(); ++m)
@@ -4839,7 +4852,112 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 							ImGui::SameLine();
 							if (ImGui::SmallButton("Edit Material") && hostEditMaterialInline)
 								hostEditMaterialInline(meshes[m]->Material,
-									SelectedSceneObject->Name + " / Submesh " + std::to_string(m));
+									ownerName + " / Submesh " + std::to_string(m));
+
+							// Same common fields as the Material Editor's own
+							// Inspector tab (DrawCommonMaterialSettings) -
+							// editable right here too so a quick tweak
+							// doesn't require leaving the Properties panel.
+							// This IS the live material instance (matPtr),
+							// not a copy - a material can be assigned to
+							// multiple submeshes/objects, so a change here
+							// is visible everywhere else it's used too,
+							// same as editing it from the Material Editor
+							// would be. matPtr is captured by value (not
+							// just a raw IMaterial*) in every undo/redo
+							// closure below so Undo still mutates the right
+							// object even if this submesh gets a different
+							// material assigned later.
+							if (ImGui::TreeNodeEx("Material Settings", ImGuiTreeNodeFlags_None))
+							{
+								std::shared_ptr<IMaterial> matPtr = meshes[m]->Material;
+								IMaterial* mat = matPtr.get();
+								ImGui::TextDisabled("Shared material - affects everything using it");
+
+								#define MAT_TOGGLE(before, EnableCall, DisableCall) \
+									sceneUndo.Push(std::make_unique<ApplyClosureCommand>( \
+										[matPtr, before]() { if (before) matPtr->EnableCall; else matPtr->DisableCall; }, \
+										[matPtr, before]() { if (!before) matPtr->EnableCall; else matPtr->DisableCall; }, \
+										"Toggle " #EnableCall))
+
+								float opacity = mat->GetOpacity();
+								if (ImGui::SliderFloat("Opacity", &opacity, 0.f, 1.f))
+									mat->SetOpacity(opacity);
+								{
+									static f32 undoBaselineOpacity;
+									UndoValueEdit<f32>(undoBaselineOpacity, opacity, [this, matPtr](const f32& before, const f32& after) {
+										sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+											[matPtr, before]() { matPtr->SetOpacity(before); },
+											[matPtr, after]() { matPtr->SetOpacity(after); },
+											"Set Material Opacity"));
+									});
+								}
+
+								bool transparent = mat->IsTransparent();
+								if (ImGui::Checkbox("Transparent", &transparent))
+								{
+									const bool before = !transparent;
+									mat->SetTransparencyFlag(transparent);
+									MAT_TOGGLE(before, SetTransparencyFlag(true), SetTransparencyFlag(false));
+								}
+
+								bool blending = mat->IsBlendingEnabled();
+								if (ImGui::Checkbox("Blending", &blending))
+								{
+									const bool before = !blending;
+									if (blending) mat->EnableBlending(); else mat->DisableBlending();
+									MAT_TOGGLE(before, EnableBlending(), DisableBlending());
+								}
+
+								bool depthTest = mat->IsDepthTesting();
+								if (ImGui::Checkbox("Depth Test", &depthTest))
+								{
+									const bool before = !depthTest;
+									if (depthTest) mat->EnableDepthTest(); else mat->DisableDepthTest();
+									MAT_TOGGLE(before, EnableDepthTest(), DisableDepthTest());
+								}
+
+								bool depthWrite = mat->IsDepthWritting();
+								if (ImGui::Checkbox("Depth Write", &depthWrite))
+								{
+									const bool before = !depthWrite;
+									if (depthWrite) mat->EnableDepthWrite(); else mat->DisableDepthWrite();
+									MAT_TOGGLE(before, EnableDepthWrite(), DisableDepthWrite());
+								}
+
+								uint32 cullFace = mat->GetCullFace();
+								static const char* cullLabels[] = { "None", "Front", "Back" };
+								int cullIdx = (int)cullFace;
+								if (ImGui::Combo("Cull Face", &cullIdx, cullLabels, IM_ARRAYSIZE(cullLabels)))
+								{
+									const uint32 before = cullFace;
+									const uint32 after = (uint32)cullIdx;
+									mat->SetCullFace(after);
+									sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+										[matPtr, before]() { matPtr->SetCullFace(before); },
+										[matPtr, after]() { matPtr->SetCullFace(after); },
+										"Set Material Cull Face"));
+								}
+
+								bool wireframe = mat->IsWireFrame();
+								if (ImGui::Checkbox("Wireframe", &wireframe))
+								{
+									const bool before = !wireframe;
+									if (wireframe) mat->StartRenderWireFrame(); else mat->StopRenderWireFrame();
+									MAT_TOGGLE(before, StartRenderWireFrame(), StopRenderWireFrame());
+								}
+
+								bool castShadows = mat->IsCastingShadows();
+								if (ImGui::Checkbox("Cast Shadows", &castShadows))
+								{
+									const bool before = !castShadows;
+									if (castShadows) mat->EnableCastingShadows(); else mat->DisableCastingShadows();
+									MAT_TOGGLE(before, EnableCastingShadows(), DisableCastingShadows());
+								}
+
+								#undef MAT_TOGGLE
+								ImGui::TreePop();
+							}
 						}
 						else
 							ImGui::TextDisabled("(no material)");
@@ -4861,7 +4979,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 										continue;
 									any = true;
 									if (ImGui::Selectable(e.relativePath.c_str()) && hostAssignMaterialAsset)
-										propertiesMaterialAssignError = hostAssignMaterialAsset(SelectedSceneObject->Name, (int)m, e.relativePath);
+										propertiesMaterialAssignError = hostAssignMaterialAsset(ownerName, (int)m, e.relativePath);
 								}
 								if (!any)
 									ImGui::TextDisabled("No materials in assets/materials");
@@ -4876,10 +4994,82 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 							{
 								const char* rel = (const char*)payload->Data;
 								if (rel && ProjectManager::IsMaterialExtension(rel) && hostAssignMaterialAsset)
-									propertiesMaterialAssignError = hostAssignMaterialAsset(SelectedSceneObject->Name, (int)m, rel);
+									propertiesMaterialAssignError = hostAssignMaterialAsset(ownerName, (int)m, rel);
 							}
 							ImGui::EndDragDropTarget();
 						}
+
+						// No existing material asset fits -> make one from
+						// scratch and attach it in one step, rather than
+						// requiring a detour through the Assets panel's own
+						// New Material flow followed by coming back here to
+						// assign it.
+						if (ImGui::SmallButton("New Material...") && project)
+							ImGui::OpenPopup("NewSubmeshMaterial");
+						if (ImGui::BeginPopup("NewSubmeshMaterial"))
+						{
+							static char newSubmeshMatName[128] = "";
+							static int newSubmeshMatKindCombo = 1; // default Custom Shader
+							static int newSubmeshMatModeCombo = 0; // default Node Graph - only asked when kind == Custom
+							static std::string newSubmeshMatError;
+							if (ImGui::IsWindowAppearing())
+							{
+								snprintf(newSubmeshMatName, sizeof(newSubmeshMatName), "%s_Material", ownerName.c_str());
+								newSubmeshMatError.clear();
+							}
+							ImGui::SetNextItemWidth(220.f);
+							ImGui::InputText("Name", newSubmeshMatName, sizeof(newSubmeshMatName));
+							static const char* kindLabels[] = { "Generic Shader", "Custom Shader" };
+							ImGui::SetNextItemWidth(220.f);
+							ImGui::Combo("Type", &newSubmeshMatKindCombo, kindLabels, IM_ARRAYSIZE(kindLabels));
+							if (newSubmeshMatKindCombo == 1)
+							{
+								// Text and Node Graph are two separate,
+								// INCOMPATIBLE representations of a Custom
+								// material (see MaterialCodegen.h) - asked
+								// up front rather than defaulted, since
+								// switching later throws away whichever
+								// one you're leaving.
+								static const char* modeLabels[] = { "Node Graph", "Text (GLSL)" };
+								ImGui::SetNextItemWidth(220.f);
+								ImGui::Combo("Editing Mode", &newSubmeshMatModeCombo, modeLabels, IM_ARRAYSIZE(modeLabels));
+							}
+							if (!newSubmeshMatError.empty())
+								ImGui::TextColored(ImVec4(1.f, 0.45f, 0.4f, 1.f), "%s", newSubmeshMatError.c_str());
+							if (ImGui::Button("Create && Assign"))
+							{
+								std::string abs, err;
+								MaterialAssetKind kind = (newSubmeshMatKindCombo == 1) ? MaterialAssetKind::Custom : MaterialAssetKind::Generic;
+								const bool useTextMode = (newSubmeshMatKindCombo == 1) && (newSubmeshMatModeCombo == 1);
+								if (project->CreateMaterial(newSubmeshMatName, kind, abs, &err, useTextMode))
+								{
+									const std::string rel = project->RelativePath(abs);
+									propertiesMaterialAssignError = hostAssignMaterialAsset ? hostAssignMaterialAsset(ownerName, (int)m, rel) : std::string();
+									if (propertiesMaterialAssignError.empty())
+									{
+										// Assigning alone stays quiet (no tab
+										// pops open - see
+										// Editor::LoadMaterialQuietly), but a
+										// material JUST CREATED here is one
+										// the user obviously wants to start
+										// editing right away, so open it same
+										// as clicking "Edit Material" would.
+										if (hostEditMaterialInline && meshes[m]->Material)
+											hostEditMaterialInline(meshes[m]->Material, ownerName + " / Submesh " + std::to_string(m));
+										ImGui::CloseCurrentPopup();
+									}
+								}
+								else
+								{
+									newSubmeshMatError = err;
+								}
+							}
+							ImGui::SameLine();
+							if (ImGui::Button("Cancel"))
+								ImGui::CloseCurrentPopup();
+							ImGui::EndPopup();
+						}
+
 						if (!propertiesMaterialAssignError.empty())
 							ImGui::TextColored(ImVec4(1.f, 0.4f, 0.35f, 1.f), "%s", propertiesMaterialAssignError.c_str());
 

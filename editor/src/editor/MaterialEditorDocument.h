@@ -26,6 +26,16 @@ struct MaterialEditorDocument {
 	std::string absolutePath;      // empty => inline/unsaved (Properties-panel "Edit Material" case)
 	std::string displayName = "NewMaterial";
 	bool dirty = false;
+	// True for a doc loaded purely to get a compiled IMaterial to assign
+	// onto a scene object (Editor::AssignMaterialAsset picking an existing
+	// asset from the Properties panel's list) - kept in Editor::materialDocs
+	// so it stays alive for as long as something references its compiled
+	// shader (see CustomShaderMaterial::SetShader's non-owning contract),
+	// but Editor::DrawMaterialEditorWindows skips it, so assigning a
+	// material never pops open a Material Editor tab as a side effect.
+	// Cleared back to false the moment the user actually asks to edit it
+	// (Editor::OpenMaterialDocument / EditMaterialInline).
+	bool hiddenFromTabs = false;
 
 	std::shared_ptr<p3d::IMaterial> currentMaterial;
 	MaterialEditKind editKind = MaterialEditKind::Generic;
@@ -45,6 +55,17 @@ struct MaterialEditorDocument {
 	uint32_t nextNodeId = 1;
 	std::vector<MaterialNode> nodes;
 	std::vector<MaterialConnection> connections;
+
+	// Text mode's named texture-uniform inputs (see MaterialTextureInput) -
+	// independent of nodes/connections, since Text mode has no node to hang
+	// a texturePath off of. Declared as `uniform sampler2D <name>;` and
+	// sampled directly by name in the user's snippet (see
+	// MaterialCodegen::GenerateGLSLFromSimpleText).
+	uint32_t nextTextureInputId = 1;
+	std::vector<MaterialTextureInput> textTextures;
+	// Frees textTextures' previewTex pointers before clearing - mirrors
+	// ClearNodes()'s ownership handling for MaterialNode::previewTex.
+	void ClearTextTextures();
 	ImVec2 graphOffset = ImVec2(0.f, 0.f);
 	float graphZoom = 1.0f;
 	bool isDraggingConnection = false;

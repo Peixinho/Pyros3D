@@ -39,10 +39,20 @@ MaterialCodegenResult GenerateGLSL(const std::vector<MaterialNode>& nodes,
 // exact same boilerplate/dual-branch template GenerateGLSL() uses, so Text
 // mode never shows the user the #ifdef DEFERRED_GBUFFER machinery, the
 // vertex shader, or the PBR lighting library - only the handful of lines
-// that actually describe their surface. Texture sampling isn't available
-// this way yet (loose `uniform sampler2D` can't be declared from inside a
-// function body) - use the node graph's Texture node for that.
-MaterialCodegenResult GenerateGLSLFromSimpleText(const std::string& userBody);
+// that actually describe their surface.
+//
+// `textureNames` are the Text-mode document's named texture inputs (see
+// MaterialTextureInput / MaterialEditorDocument::textTextures) - each gets a
+// top-level `uniform sampler2D <name>;` declaration (the one thing a
+// function-body-only snippet can't emit for itself), and `userBody` can then
+// sample it directly, e.g. `Albedo = texture_2D(uAlbedoTex, vTexcoord).rgb;`.
+// Duplicate-declaration-safe: only the six Albedo/Normal/... locals that
+// `userBody` doesn't already declare itself get a default injected ahead of
+// it (see GenerateGLSLFromSimpleText's .cpp comment) - this is what lets
+// kDefaultSimpleShaderText redeclare all six with real types without
+// tripping a GLSL redefinition error.
+MaterialCodegenResult GenerateGLSLFromSimpleText(const std::string& userBody,
+                                                  const std::vector<std::string>& textureNames = {});
 
 // Seed text for a freshly created/mode-switched Text-mode document.
 extern const char* const kDefaultSimpleShaderText;

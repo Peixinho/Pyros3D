@@ -254,8 +254,9 @@ void DrawAddNodeItem(MaterialEditorDocument& doc, MaterialNode::Type type, ImVec
 
 } // namespace
 
-std::shared_ptr<IMaterial> MaterialEditor::CreateNewMaterial(MaterialEditorDocument& doc, MaterialEditKind kind) {
+std::shared_ptr<IMaterial> MaterialEditor::CreateNewMaterial(MaterialEditorDocument& doc, MaterialEditKind kind, MaterialEditMode customMode) {
 	doc.ClearNodes();
+	doc.ClearTextTextures();
 	doc.currentMaterial.reset();
 	doc.compiledShader.reset();
 	doc.generatedGlslPath.clear();
@@ -272,9 +273,20 @@ std::shared_ptr<IMaterial> MaterialEditor::CreateNewMaterial(MaterialEditorDocum
 		mat->SetColor(Vec4(1.f, 1.f, 1.f, 1.f));
 		doc.currentMaterial = mat;
 	} else {
-		doc.editMode = MaterialEditMode::NodeGraph;
+		// Locked in immediately, permanently (see DrawToolbar - no UI
+		// switches this after creation): Text and Node Graph are two
+		// separate, incompatible representations, so whichever one the
+		// caller asked for up front is the only one this doc ever uses.
+		doc.editMode = (customMode == MaterialEditMode::Text) ? MaterialEditMode::Text : MaterialEditMode::NodeGraph;
 		doc.currentMaterial = std::make_shared<CustomShaderMaterial>(std::string());
-		SeedDefaultCustomGraph(doc);
+		if (doc.editMode == MaterialEditMode::Text) {
+			doc.simpleShaderText = kDefaultSimpleShaderText;
+			if (!doc.codeDoc) doc.codeDoc = new CodeEditorDocument();
+			SetupGlslEditor(doc.codeDoc);
+			doc.codeDoc->editor.SetText(doc.simpleShaderText);
+		} else {
+			SeedDefaultCustomGraph(doc);
+		}
 	}
 	return doc.currentMaterial;
 }
@@ -378,20 +390,22 @@ bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc,
 	}
 
 	std::string glslText;
-	std::vector<std::pair<uint32_t, std::string>> textureSamplers;
+	std::vector<std::pair<std::string, std::string>> samplerList;
 
 	if (doc.editMode == MaterialEditMode::Text) {
 		if (!doc.codeDoc) { if (errorOut) *errorOut = "No shader text to compile"; return false; }
 		doc.simpleShaderText = doc.codeDoc->editor.GetText();
-		MaterialCodegenResult gen = GenerateGLSLFromSimpleText(doc.simpleShaderText);
+		std::vector<std::string> textureNames;
+		for (const auto& t : doc.textTextures) textureNames.push_back(t.name);
+		MaterialCodegenResult gen = GenerateGLSLFromSimpleText(doc.simpleShaderText, textureNames);
 		if (!gen.error.empty()) { if (errorOut) *errorOut = gen.error; return false; }
 		glslText = gen.glsl;
-		textureSamplers = gen.textureSamplers; // always empty - see GenerateGLSLFromSimpleText's doc comment
+		samplerList = BuildTextSamplerList(doc.textTextures);
 	} else {
 		MaterialCodegenResult gen = GenerateGLSL(doc.nodes, doc.connections);
 		if (!gen.error.empty()) { if (errorOut) *errorOut = gen.error; return false; }
 		glslText = gen.glsl;
-		textureSamplers = gen.textureSamplers;
+		samplerList = BuildNodeSamplerList(gen.textureSamplers, doc.nodes);
 		// codeDoc (if it exists from a previous visit to Text mode) is
 		// deliberately left untouched here - it holds the user's own simple
 		// snippet, an independent alternate representation of the material,
@@ -452,7 +466,7 @@ bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc,
 	cm->AddUniform(Uniform("uLights", Uniforms::DataUsage::Lights));
 	cm->AddUniform(Uniform("uNumberOfLights", Uniforms::DataUsage::NumberOfLights));
 
-	WireSamplers(cm, textureSamplers, doc.nodes, projectRoot);
+	WireSamplers(cm, samplerList, projectRoot);
 
 	if (errorOut) errorOut->clear();
 	doc.lastApplyError.clear();
@@ -505,18 +519,34 @@ bool MaterialEditor::CompileMaterialShaderText(const std::string& glslText, bool
 }
 
 void MaterialEditor::WireSamplers(CustomShaderMaterial* mat,
-                                  const std::vector<std::pair<uint32_t, std::string>>& textureSamplers,
-                                  const std::vector<MaterialNode>& nodes, const std::string& projectRoot) {
+                                  const std::vector<std::pair<std::string, std::string>>& samplerNameToTexturePath,
+                                  const std::string& projectRoot) {
 	if (!mat) return;
 	mat->ClearSamplers();
-	for (const auto& ts : textureSamplers) {
-		const MaterialNode* node = nullptr;
-		for (const auto& n : nodes) if (n.id == ts.first) { node = &n; break; }
-		if (!node || node->texturePath.empty()) continue;
+	for (const auto& s : samplerNameToTexturePath) {
+		if (s.second.empty()) continue;
 		auto tex = std::make_shared<Texture>();
-		if (tex->LoadTexture(JoinPath(projectRoot, ResolveTexturePath(node->texturePath)), TextureType::Texture))
-			mat->AddSampler(ts.second, tex);
+		if (tex->LoadTexture(JoinPath(projectRoot, ResolveTexturePath(s.second)), TextureType::Texture))
+			mat->AddSampler(s.first, tex);
 	}
+}
+
+std::vector<std::pair<std::string, std::string>> MaterialEditor::BuildNodeSamplerList(
+	const std::vector<std::pair<uint32_t, std::string>>& textureSamplers, const std::vector<MaterialNode>& nodes) {
+	std::vector<std::pair<std::string, std::string>> out;
+	for (const auto& ts : textureSamplers) {
+		for (const auto& n : nodes) {
+			if (n.id == ts.first) { out.push_back({ts.second, n.texturePath}); break; }
+		}
+	}
+	return out;
+}
+
+std::vector<std::pair<std::string, std::string>> MaterialEditor::BuildTextSamplerList(
+	const std::vector<MaterialTextureInput>& textTextures) {
+	std::vector<std::pair<std::string, std::string>> out;
+	for (const auto& t : textTextures) out.push_back({t.name, t.texturePath});
+	return out;
 }
 
 bool MaterialEditor::RecompileFromDisk(CustomShaderMaterial* mat, const std::string& projectRoot,
@@ -594,31 +624,29 @@ static void DrawToolbar(MaterialEditorDocument& doc, const std::string& projectR
 		doc.dirty = true;
 	}
 
-	ImGui::SetNextItemWidth(220.f);
-	static const char* kindLabels[] = { "Generic Shader", "Custom Shader" };
-	int currentKind = (int)doc.editKind;
-	if (ImGui::Combo("Type", &currentKind, kindLabels, IM_ARRAYSIZE(kindLabels))) {
-		MaterialEditKind newKind = (MaterialEditKind)currentKind;
-		if (newKind != doc.editKind) {
-			MaterialEditor::CreateNewMaterial(doc, newKind);
-			AutoSaveNewMaterial(doc, projectRoot, deferredGBuffer);
-		}
-	}
+	// Kind (Generic/Custom) is locked at creation too, permanently - no
+	// combo here, ever. Switching kind live would mean either silently
+	// throwing away the current material's graph/text/properties, or
+	// somehow keeping two totally different representations in sync -
+	// neither is a real "switch," just a new material wearing this one's
+	// name. Pick the kind (and, for Custom, Node Graph vs Text) once, in
+	// the New Material dialogs, and it's final for this doc.
+	ImGui::TextDisabled("Kind: %s (set at creation)", doc.editKind == MaterialEditKind::Generic ? "Generic Shader" : "Custom Shader");
 
 	if (doc.editKind == MaterialEditKind::Generic) {
 		ImGui::TextDisabled("Inspector only");
 	} else {
-		ImGui::SetNextItemWidth(220.f);
-		static const char* modeLabels[] = { "Inspector", "Text", "Node Graph" };
-		int currentMode = (int)doc.editMode;
-		if (ImGui::Combo("Edit Mode", &currentMode, modeLabels, IM_ARRAYSIZE(modeLabels))) {
-			doc.editMode = (MaterialEditMode)currentMode;
-			if (doc.editMode == MaterialEditMode::Text) {
-				if (!doc.codeDoc) doc.codeDoc = new CodeEditorDocument();
-				SetupGlslEditor(doc.codeDoc);
-				doc.codeDoc->editor.SetText(doc.simpleShaderText.empty() ? kDefaultSimpleShaderText : doc.simpleShaderText);
-			}
-		}
+		// Locked at creation, permanently - deliberately no combo/switcher
+		// here. Text and Node Graph are two separate, INCOMPATIBLE
+		// representations of a Custom material (see MaterialCodegen.h);
+		// letting this be switched here silently stops compiling whichever
+		// one you're leaving with no warning that it's now dead weight.
+		// The choice is made once, up front, in the New Material dialogs
+		// (Editor.cpp's Assets-panel modal, SceneEditor.cpp's submesh
+		// popup) and never again.
+		const char* modeLabel = (doc.editMode == MaterialEditMode::Text) ? "Text (GLSL)"
+			: (doc.editMode == MaterialEditMode::NodeGraph) ? "Node Graph" : "Inspector";
+		ImGui::TextDisabled("Mode: %s (set at creation)", modeLabel);
 	}
 
 	const bool hasPath = !doc.absolutePath.empty();
@@ -893,14 +921,103 @@ static void DrawCommonMaterialSettings(MaterialEditorDocument& doc, IMaterial* m
 	#undef MAT_TOGGLE
 }
 
+// Inspector *mode* content for the Material Editor window itself. The
+// material's actual properties - the Generic inspector, the texture inputs
+// and the shared Rendering settings - all live in the Properties panel now
+// (MaterialEditor::DrawProperties), so a Generic material has nothing of its
+// own left to put in this window; say where its controls went rather than
+// leaving a blank panel. Custom materials in this mode still get their
+// generated-shader-file readout, which is document state rather than
+// material state.
 static void DrawInspectorTab(MaterialEditorDocument& doc, const std::string& projectRoot) {
+	(void)projectRoot;
 	if (!doc.currentMaterial) return;
-	if (doc.editKind == MaterialEditKind::Generic)
-		DrawGenericMaterialInspector(doc, projectRoot);
-	else
-		DrawCustomMaterialInspector(doc);
-	ImGui::Separator();
-	DrawCommonMaterialSettings(doc, doc.currentMaterial.get());
+	if (doc.editKind == MaterialEditKind::Generic) {
+		ImGui::TextDisabled("This material's settings are in the Properties panel.");
+		return;
+	}
+	DrawCustomMaterialInspector(doc);
+}
+
+// Text mode's named `uniform sampler2D` inputs. Lives in the Properties
+// panel rather than in the Material Editor window - see
+// MaterialEditor::DrawProperties().
+static void DrawTextTextureInputs(MaterialEditorDocument& doc, const std::string& projectRoot) {
+	// Text mode's stand-in for the node graph's Texture node: a flat list of
+	// named `uniform sampler2D` inputs, declared at the top of the generated
+	// shader by MaterialCodegen::GenerateGLSLFromSimpleText and sampled
+	// directly by name from the snippet in the Material Editor window.
+	if (ImGui::TreeNodeEx("Textures", ImGuiTreeNodeFlags_DefaultOpen)) {
+		const std::string textureRoot = JoinPath(projectRoot, "assets/textures");
+		int removeIdx = -1;
+		for (size_t i = 0; i < doc.textTextures.size(); ++i) {
+			MaterialTextureInput& t = doc.textTextures[i];
+			ImGui::PushID((int)t.id);
+
+			char nameBuf[128];
+			snprintf(nameBuf, sizeof(nameBuf), "%s", t.name.c_str());
+			ImGui::SetNextItemWidth(160.f);
+			if (ImGui::InputText("##name", nameBuf, sizeof(nameBuf))) {
+				t.name = nameBuf;
+				doc.dirty = true;
+			}
+			ImGui::SameLine();
+
+			std::string picked;
+			if (DrawBrowseButton("Load...", textureRoot, kTextureExtensions, picked)) {
+				std::string rel = picked;
+				const std::string prefix = textureRoot.empty() ? std::string() : (textureRoot + "/");
+				if (!prefix.empty() && rel.compare(0, prefix.size(), prefix) == 0)
+					rel = rel.substr(prefix.size());
+				t.texturePath = rel;
+				delete t.previewTex;
+				t.previewTex = nullptr;
+				doc.dirty = true;
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("X")) removeIdx = (int)i;
+
+			if (!t.texturePath.empty()) {
+				ImGui::TextDisabled("%s", t.texturePath.c_str());
+				if (!t.previewTex) {
+					t.previewTex = new Texture();
+					t.previewTex->LoadTexture(JoinPath(projectRoot, ResolveTexturePath(t.texturePath)), TextureType::Texture);
+				}
+				void* tid = GetActiveRenderDevice().GetImGuiTextureID(t.previewTex->GetBindID(), t.previewTex->GetTextureType());
+				if (tid) ImGui::Image((ImTextureID)tid, ImVec2(48.f, 48.f));
+			}
+
+			if (ImGui::BeginDragDropTarget()) {
+				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_REL")) {
+					const char* relPathC = reinterpret_cast<const char*>(payload->Data);
+					std::string relPath(relPathC);
+					const std::string texPrefix = "assets/textures/";
+					if (relPath.compare(0, texPrefix.size(), texPrefix) == 0) {
+						t.texturePath = relPath.substr(texPrefix.size());
+						delete t.previewTex;
+						t.previewTex = nullptr;
+						doc.dirty = true;
+					}
+				}
+				ImGui::EndDragDropTarget();
+			}
+
+			ImGui::PopID();
+		}
+		if (removeIdx >= 0) {
+			delete doc.textTextures[removeIdx].previewTex;
+			doc.textTextures.erase(doc.textTextures.begin() + removeIdx);
+			doc.dirty = true;
+		}
+		if (ImGui::SmallButton("+ Add Texture")) {
+			MaterialTextureInput t;
+			t.id = doc.nextTextureInputId++;
+			t.name = "uTexture" + std::to_string(t.id);
+			doc.textTextures.push_back(t);
+			doc.dirty = true;
+		}
+		ImGui::TreePop();
+	}
 }
 
 static void DrawTextEditorTab(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer) {
@@ -913,6 +1030,7 @@ static void DrawTextEditorTab(MaterialEditorDocument& doc, const std::string& pr
 	// No manual Save Shader button - MaterialEditor::DrawWindow debounce-
 	// applies this text to the live material automatically as it changes.
 	ImGui::TextDisabled("Set Albedo/Normal/Metallic/Roughness/Emissive/Occlusion - applies automatically. F1/Ctrl+Space for suggestions.");
+	ImGui::TextDisabled("Sample a texture by the name it was given in Properties, e.g. Albedo = texture_2D(uAlbedoTex, vTexcoord).rgb;");
 	if (!doc.lastApplyError.empty())
 		ImGui::TextColored(ImVec4(1.f, 0.4f, 0.35f, 1.f), "%s", doc.lastApplyError.c_str());
 
@@ -1395,6 +1513,33 @@ static void DrawNodeGraphTab(MaterialEditorDocument& doc, const std::string& pro
 	ImGui::EndChild(); // ##node_canvas
 }
 
+void MaterialEditor::DrawProperties(MaterialEditorDocument& doc, const std::string& projectRoot) {
+	if (!doc.currentMaterial) {
+		ImGui::TextDisabled("No material loaded.");
+		return;
+	}
+
+	// The Properties panel is shared with the scene selection, and the
+	// Material Editor window no longer repeats the material's identity next
+	// to its own controls - so name what these properties belong to.
+	ImGui::Text("%s", doc.displayName.empty() ? "(unnamed material)" : doc.displayName.c_str());
+	ImGui::TextDisabled("%s", doc.editKind == MaterialEditKind::Generic ? "Generic Shader" : "Custom Shader");
+	ImGui::Separator();
+
+	if (doc.editKind == MaterialEditKind::Generic) {
+		DrawGenericMaterialInspector(doc, projectRoot);
+		ImGui::Separator();
+	} else if (doc.editMode == MaterialEditMode::Text) {
+		// Node Graph mode deliberately has no equivalent section: its
+		// textures are Texture *nodes* on the canvas, wired into the graph,
+		// not a flat list of named sampler inputs.
+		DrawTextTextureInputs(doc, projectRoot);
+		ImGui::Separator();
+	}
+
+	DrawCommonMaterialSettings(doc, doc.currentMaterial.get());
+}
+
 void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer) {
 	DrawToolbar(doc, projectRoot, deferredGBuffer);
 	ImGui::Separator();
@@ -1407,12 +1552,33 @@ void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& 
 			AutoSaveNewMaterial(doc, projectRoot, deferredGBuffer);
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("New Custom Shader Material")) {
-			CreateNewMaterial(doc, MaterialEditKind::Custom);
-			AutoSaveNewMaterial(doc, projectRoot, deferredGBuffer);
+		if (ImGui::Button("New Custom Shader Material"))
+			ImGui::OpenPopup("NewCustomFromEmpty");
+		if (ImGui::BeginPopup("NewCustomFromEmpty")) {
+			static int modeCombo = 0; // 0 = Node Graph, 1 = Text
+			ImGui::TextUnformatted("Custom materials can't switch between Node\nGraph and Text later - pick one:");
+			static const char* modeLabels[] = { "Node Graph", "Text (GLSL)" };
+			ImGui::SetNextItemWidth(220.f);
+			ImGui::Combo("Editing Mode", &modeCombo, modeLabels, IM_ARRAYSIZE(modeLabels));
+			if (ImGui::Button("Create")) {
+				CreateNewMaterial(doc, MaterialEditKind::Custom, modeCombo == 1 ? MaterialEditMode::Text : MaterialEditMode::NodeGraph);
+				AutoSaveNewMaterial(doc, projectRoot, deferredGBuffer);
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel"))
+				ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
 		}
 		return;
 	}
+
+	// Material Settings used to be a collapsing header right here. It moved
+	// to the Properties panel (MaterialEditor::DrawProperties) along with
+	// the texture inputs and the Generic inspector, so this window is now
+	// only the document's own header plus its graph/text canvas - the
+	// editing surface gets the whole window instead of sharing it with a
+	// property sheet that was collapsed most of the time anyway.
 
 	// Node graph / text content fills the whole remaining area - the preview
 	// (below) floats over its top-right corner afterward instead of
@@ -1441,9 +1607,17 @@ void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& 
 	// double as this signal - Apply intentionally never clears it, since a
 	// live-compiled material can still need an explicit File Save.
 	if (doc.editKind == MaterialEditKind::Custom) {
-		const std::string liveFingerprint = (doc.editMode == MaterialEditMode::Text)
-			? (doc.codeDoc ? doc.codeDoc->editor.GetText() : std::string())
-			: doc.AgentGetGraph().dump();
+		std::string liveFingerprint;
+		if (doc.editMode == MaterialEditMode::Text) {
+			liveFingerprint = doc.codeDoc ? doc.codeDoc->editor.GetText() : std::string();
+			// Fold in the named texture-input list too - it's not part of
+			// codeDoc's text, but changing it (rename/pick/remove) still
+			// needs a recompile+rewire, same as editing the snippet itself.
+			for (const auto& t : doc.textTextures)
+				liveFingerprint += "\n//tex:" + t.name + "=" + t.texturePath;
+		} else {
+			liveFingerprint = doc.AgentGetGraph().dump();
+		}
 		if (liveFingerprint != doc.pendingFingerprint) {
 			doc.pendingFingerprint = liveFingerprint;
 			doc.pendingFingerprintSince = ImGui::GetTime();
@@ -1459,8 +1633,11 @@ void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& 
 		}
 	}
 
-	// Live sphere preview (Custom kind only) - a genuine floating top-level
-	// window (Begin, not BeginChild) positioned over the top-right corner
+	// Live sphere preview (Generic and Custom both - MaterialPreview::
+	// SyncFromDoc branches internally, Generic just points the sphere at
+	// the doc's own live GenericShaderMaterial with no compile step) - a
+	// genuine floating top-level window (Begin, not BeginChild) positioned
+	// over the top-right corner
 	// of whatever the node graph canvas / text editor just drew. This has
 	// to be a real window, not a second overlapping BeginChild sibling of
 	// the canvas: Dear ImGui only resolves hover/input ownership between

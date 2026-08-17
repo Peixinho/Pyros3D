@@ -280,6 +280,7 @@ namespace p3d {
 			if (det == 0) {
 				echo("ERROR: Can't invert matrix, determinant is 0");
 				m2.identity();
+				return m2;
 			}
 
 			m2 = m2 * (1 / det);

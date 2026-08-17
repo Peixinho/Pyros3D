@@ -49,6 +49,7 @@ MaterialPreview::~MaterialPreview() {
 	// frame's ImGui draw list samples - the same mid-frame-free hazard
 	// Editor::deferredDestroyPreviews guards against).
 	sphereGO.reset();
+	sphereRC = nullptr; // non-owning, freed along with sphereGO above
 	cameraGO.reset();
 	lightGO.reset();
 	previewMaterial.reset();
@@ -106,7 +107,14 @@ void MaterialPreview::EnsureInit(bool useDeferred) {
 	usingDeferred = useDeferred;
 	if (usingDeferred) {
 		BuildGBuffer((uint32)width, (uint32)height);
-		renderer = new p3d::DeferredRenderer((uint32)width, (uint32)height, gbufferFBO);
+		auto* deferred = new p3d::DeferredRenderer((uint32)width, (uint32)height, gbufferFBO);
+		// This preview only ever reads GetColorTexture() (see RenderFrame()/
+		// DrawAndUpdate() below) - never relies on RenderScene()'s own
+		// direct-to-screen draw, which otherwise races the main viewport's
+		// own DeferredRenderer for framebuffer 0 whenever both render in the
+		// same frame (see DeferredRenderer::SetSkipRenderToScreen()).
+		deferred->SetSkipRenderToScreen(true);
+		renderer = deferred;
 	} else {
 		renderer = new p3d::ForwardRenderer((uint32)width, (uint32)height);
 	}
@@ -137,6 +145,7 @@ void MaterialPreview::CreateSphere() {
 	auto mesh = std::make_shared<p3d::Sphere>(1.0f, 32, 24, /*smooth=*/true);
 	auto rc = std::make_shared<p3d::RenderingComponent>(mesh, previewMaterial);
 	rc->DisableCastShadows();
+	sphereRC = rc.get();
 	sphereGO->Add(rc);
 	scene->Add(sphereGO);
 	scene->Update(0);
@@ -151,6 +160,18 @@ p3d::Vec3 MaterialPreview::ComputeEye() const {
 }
 
 void MaterialPreview::SyncFromDoc(const MaterialEditorDocument& doc, const std::string& projectRoot) {
+	if (doc.editKind == MaterialEditKind::Generic) {
+		// No compile step, no texture/uniform staging - point the preview
+		// sphere straight at the doc's own live GenericShaderMaterial
+		// instance every call (cheap - just a pointer assign) so Inspector
+		// slider edits, which mutate that instance directly, show up
+		// immediately with no separate Apply/sync step.
+		previewMaterial = doc.currentMaterial;
+		if (!sphereGO) CreateSphere();
+		if (sphereRC && !sphereRC->GetMeshes().empty())
+			sphereRC->GetMeshes()[0]->Material = doc.currentMaterial;
+		return;
+	}
 	if (doc.editKind != MaterialEditKind::Custom) return;
 	// Deliberately NOT gated on applyGeneration != 0 (as this used to be) -
 	// a doc opened via the Scene Tree's "Edit Material" button
@@ -190,13 +211,19 @@ void MaterialPreview::SyncFromDoc(const MaterialEditorDocument& doc, const std::
 	if (!compiled)
 		return; // keep showing the last-good preview material on failure
 
-	if (!previewMaterial)
-		previewMaterial = std::make_shared<p3d::CustomShaderMaterial>(newShader.get());
-	else
-		previewMaterial->SetShader(newShader.get());
+	// previewMaterial is IMaterial-typed (shared with the Generic-kind
+	// branch above) - SetShader/AdoptShader are CustomShaderMaterial-only,
+	// so keep a same-instance typed alias for those two calls.
+	std::shared_ptr<p3d::CustomShaderMaterial> customPreview = std::dynamic_pointer_cast<p3d::CustomShaderMaterial>(previewMaterial);
+	if (!customPreview) {
+		customPreview = std::make_shared<p3d::CustomShaderMaterial>(newShader.get());
+		previewMaterial = customPreview;
+	} else {
+		customPreview->SetShader(newShader.get());
+	}
 	// The Shader* constructor and SetShader() don't take ownership - adopt
 	// explicitly (same recurring gotcha as every other path in this code).
-	previewMaterial->AdoptShader(std::move(newShader));
+	customPreview->AdoptShader(std::move(newShader));
 
 	// Fixed uniforms - same set ApplyGraphOrTextToLiveMaterial issues.
 	// SendUniform skips names the active shader doesn't declare, so
@@ -210,9 +237,18 @@ void MaterialPreview::SyncFromDoc(const MaterialEditorDocument& doc, const std::
 	previewMaterial->AddUniform(p3d::Uniform("uLights", p3d::Uniforms::DataUsage::Lights));
 	previewMaterial->AddUniform(p3d::Uniform("uNumberOfLights", p3d::Uniforms::DataUsage::NumberOfLights));
 
-	// Sampler wiring - same texture-node walk as the live-apply path.
-	MaterialCodegenResult gen = GenerateGLSL(doc.nodes, doc.connections);
-	MaterialEditor::WireSamplers(previewMaterial.get(), gen.textureSamplers, doc.nodes, projectRoot);
+	// Sampler wiring - same source split as the live-apply path
+	// (MaterialEditor::ApplyGraphOrTextToLiveMaterial): NodeGraph mode walks
+	// Texture nodes reachable from Output, Text mode uses the document's
+	// named texture-input list.
+	std::vector<std::pair<std::string, std::string>> samplerList;
+	if (doc.editMode == MaterialEditMode::Text) {
+		samplerList = MaterialEditor::BuildTextSamplerList(doc.textTextures);
+	} else {
+		MaterialCodegenResult gen = GenerateGLSL(doc.nodes, doc.connections);
+		samplerList = MaterialEditor::BuildNodeSamplerList(gen.textureSamplers, doc.nodes);
+	}
+	MaterialEditor::WireSamplers(customPreview.get(), samplerList, projectRoot);
 
 	if (!sphereGO)
 		CreateSphere();
@@ -227,7 +263,19 @@ void MaterialPreview::RenderFrame() {
 	view.LookAt(eye, panTarget, p3d::Vec3::UP);
 	// GameObject stores world transform, not view.
 	cameraGO->SetTransformationMatrix(view.Inverse());
-	scene->Update(0);
+	// Real elapsed time, not 0. Both renderers take the value behind
+	// Uniforms::DataUsage::Timer - what a shader reads as uTime - straight
+	// from the SceneGraph they are handed (ForwardRenderer.cpp /
+	// DeferredRenderer.cpp both do `Timer = Scene->GetTime()`), and
+	// SceneGraph::GetTime() returns whatever was last passed to Update().
+	// Passing 0 every frame, as this did, pinned uTime at 0 for the whole
+	// life of the preview: every time-driven material - anything scrolling,
+	// pulsing or flowing - rendered as a single frozen frame here while
+	// animating correctly in the Scene View, whose SceneEditor::Update()
+	// passes the real time. ImGui's clock is the same one the auto-apply
+	// debounce in MaterialEditor::DrawWindow already runs on, and
+	// RenderFrame() is only ever reached from inside an ImGui frame.
+	scene->Update(ImGui::GetTime());
 
 	p3d::Projection proj;
 	proj.Perspective(45.0f, (f32)width / (f32)height, 0.05f, 100.0f);
@@ -278,7 +326,25 @@ void MaterialPreview::DrawAndUpdate() {
 		return;
 	}
 
-	RenderFrame();
+	// Render on every other call instead of every one. This preview and the
+	// main Scene View viewport share low-level renderer state (the
+	// GlobalMatrices UBO, and - for Deferred - framebuffer 0 itself; see
+	// RenderFrame()'s and DeferredRenderer::SetSkipRenderToScreen()'s own
+	// comments) in a way that's proven unsafe to interleave within the same
+	// frame even with the explicit WaitIdle()/cache-invalidation this class
+	// already does around its own render - the two GPU command streams
+	// don't actually serialize the way that CPU-side ordering implies.
+	// Skipping every other frame is a hard guarantee instead of another
+	// attempt at making concurrent rendering safe: this preview's render
+	// and the main viewport's simply never happen in the same frame, so
+	// there's nothing left to race. GetColorTexture()/GetViewportColor()
+	// below still return a valid, fully-formed image on skipped frames
+	// (last real render's result - a persistent texture, not cleared
+	// between calls), so the displayed preview just updates at half
+	// framerate, imperceptible for a mostly-static preview sphere.
+	skipRenderThisCall = !skipRenderThisCall;
+	if (!skipRenderThisCall)
+		RenderFrame();
 
 	// DeferredRenderer::RenderScene()'s final composite always lands on
 	// framebuffer 0, not on effects' capture target (FrameBuffer::UnBind()

@@ -6,6 +6,7 @@
 #include "MaterialCodegen.h"
 #include <cstdio>
 #include <map>
+#include <regex>
 #include <set>
 #include <sstream>
 
@@ -216,7 +217,7 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
                            const std::string& metallicExpr, const std::string& roughnessExpr,
                            const std::string& emissiveExpr, const std::string& occlusionExpr,
                            const std::vector<std::string>& statements,
-                           const std::vector<std::pair<uint32_t, std::string>>& textureSamplers,
+                           const std::vector<std::string>& samplerNames,
                            bool usesTime) {
 	std::ostringstream out;
 	out <<
@@ -258,8 +259,8 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
 		"uniform vec4 uAmbientLight;\n"
 		"uniform mat4 uViewMatrix;\n"
 		"uniform vec3 uCameraPosition;\n";
-	for (const auto& ts : textureSamplers)
-		out << "uniform sampler2D " << ts.second << ";\n";
+	for (const auto& name : samplerNames)
+		out << "uniform sampler2D " << name << ";\n";
 	if (usesTime) out << "uniform float uTime;\n";
 	out <<
 		"#ifndef DEFERRED_GBUFFER\n"
@@ -413,16 +414,36 @@ const char* const kDefaultSimpleShaderText =
 	"// Leave Normal at (0,0,0) to use the surface's own normal.\n"
 	"vec3 Normal = vec3(0.0, 0.0, 0.0);\n";
 
-MaterialCodegenResult GenerateGLSLFromSimpleText(const std::string& userBody) {
+namespace {
+// Crude but sufficient word-boundary check for "<type> <name>" appearing
+// anywhere in the user's snippet - used only to decide whether a default
+// declaration would collide with one the user already wrote themselves.
+bool DeclaresVar(const std::string& body, const char* type, const char* name) {
+	std::regex re(std::string("\\b") + type + "\\s+" + name + "\\b");
+	return std::regex_search(body, re);
+}
+} // namespace
+
+MaterialCodegenResult GenerateGLSLFromSimpleText(const std::string& userBody, const std::vector<std::string>& textureNames) {
 	MaterialCodegenResult result;
 
 	std::vector<std::string> statements;
-	// Defaults declared first so a snippet that only touches e.g. Roughness
-	// still compiles - the user's statements below can reassign any of
-	// these (ordinary GLSL name lookup, no scoping trickery needed).
-	statements.push_back(
-		"vec3 Albedo = vec3(1.0); vec3 Normal = vec3(0.0); float Metallic = 0.0; "
-		"float Roughness = 0.5; vec3 Emissive = vec3(0.0); float Occlusion = 1.0;");
+	// Only inject a default declaration for a name the user's own text
+	// doesn't already declare. kDefaultSimpleShaderText - the seed text
+	// every fresh/mode-switched Text document starts from - declares all six
+	// itself (with real types, not just assignments), so unconditionally
+	// injecting a second declaration of the same name in the same scope
+	// used to be a guaranteed GLSL "already defined" error on first use of
+	// Text mode. A snippet that only touches e.g. Roughness still compiles,
+	// since the other five fall back to their injected defaults.
+	std::ostringstream defaults;
+	if (!DeclaresVar(userBody, "vec3", "Albedo"))     defaults << "vec3 Albedo = vec3(1.0); ";
+	if (!DeclaresVar(userBody, "vec3", "Normal"))     defaults << "vec3 Normal = vec3(0.0); ";
+	if (!DeclaresVar(userBody, "float", "Metallic"))  defaults << "float Metallic = 0.0; ";
+	if (!DeclaresVar(userBody, "float", "Roughness")) defaults << "float Roughness = 0.5; ";
+	if (!DeclaresVar(userBody, "vec3", "Emissive"))   defaults << "vec3 Emissive = vec3(0.0); ";
+	if (!DeclaresVar(userBody, "float", "Occlusion")) defaults << "float Occlusion = 1.0; ";
+	if (!defaults.str().empty()) statements.push_back(defaults.str());
 	statements.push_back(userBody);
 
 	// Normal is always "connected" here (unlike the node-graph path, there's
@@ -434,7 +455,7 @@ MaterialCodegenResult GenerateGLSLFromSimpleText(const std::string& userBody) {
 
 	result.glsl = BuildTemplate("vec4(Albedo, 1.0)", /*normalConnected=*/true, normalExpr,
 		"vec4(Metallic)", "vec4(Roughness)", "vec4(Emissive, 0.0)", "vec4(Occlusion)",
-		statements, /*textureSamplers=*/{}, /*usesTime=*/true);
+		statements, textureNames, /*usesTime=*/true);
 	result.usesCameraPosition = true;
 	result.usesTime = true;
 	return result;
@@ -480,8 +501,12 @@ MaterialCodegenResult GenerateGLSL(const std::vector<MaterialNode>& nodes, const
 
 	if (!cg.error.empty()) { result.error = cg.error; return result; }
 
+	std::vector<std::string> samplerNames;
+	samplerNames.reserve(cg.textureSamplers.size());
+	for (const auto& ts : cg.textureSamplers) samplerNames.push_back(ts.second);
+
 	result.glsl = BuildTemplate(albedoExpr, normalConnected, normalConnectedExpr, metallicExpr, roughnessExpr, emissiveExpr, occlusionExpr,
-		cg.statements, cg.textureSamplers, cg.usesTime);
+		cg.statements, samplerNames, cg.usesTime);
 	result.textureSamplers = cg.textureSamplers;
 	result.usesCameraPosition = cg.usesCameraPosition;
 	result.usesTime = cg.usesTime;

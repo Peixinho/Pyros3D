@@ -119,7 +119,8 @@ Editor::Editor() : ClassName(1024,768,"PyrosBuilder",WindowType::Close | WindowT
 	openNewMaterialModal = false;
 	newMaterialName.clear();
 	newMaterialError.clear();
-	newMaterialKindCombo = 0;
+	newMaterialKindCombo = 1; // default to Custom Shader - most materials made here are custom-shaded
+	newMaterialCustomModeCombo = 0; // default to Node Graph
 	sceneView = NULL;
 	nextSceneDocId = 1;
 	sharedAudio = NULL;
@@ -279,6 +280,10 @@ void Editor::Init()
 	
 	tabLog = new TabLog("Log", &showingLog);
 	tabProperties = new PropertiesTab(&showingTabProperties);
+	// Material properties take the panel over from the scene selection
+	// whenever a material document has focus - see
+	// DrawActiveMaterialProperties().
+	tabProperties->SetOverrideDrawer([this]() { return DrawActiveMaterialProperties(); });
 	tabTools = new ToolsTab(&showingTabTools);
 	// Editor Log panel is the only sink — no OS terminal spam. Everything
 	// includes Info so Lua print() shows up.
@@ -382,9 +387,44 @@ MaterialEditorDocument* Editor::AgentOpenMaterial(const std::string& pathArg, st
 	return FindMaterialDocumentByPath(abs);
 }
 
+MaterialEditorDocument* Editor::LoadMaterialQuietly(const std::string& pathArg, std::string& errOut)
+{
+	if (pathArg.empty()) { errOut = "'path' is required"; return NULL; }
+	if (!project.IsOpen()) { errOut = "no project open"; return NULL; }
+	std::string abs = pathArg;
+	if (pathArg[0] != '/' && !(pathArg.size() >= 2 && pathArg[1] == ':'))
+		abs = project.AbsolutePath(pathArg);
+
+	// Already loaded somewhere (an open tab, or a previous quiet load) -
+	// reuse it as-is, touching neither its tab visibility nor focus.
+	if (MaterialEditorDocument* existing = FindMaterialDocumentByPath(abs))
+		return existing;
+
+	MaterialEditorDocument* doc = new MaterialEditorDocument();
+	doc->id = nextMaterialDocId++;
+	doc->hiddenFromTabs = true;
+	if (!MaterialEditor::LoadFromFile(*doc, abs, project.GetProjectPath(), UseDeferredGBuffer()))
+	{
+		delete doc;
+		errOut = "could not open material: " + pathArg;
+		return NULL;
+	}
+	// Kept in materialDocs (not drawn - see DrawMaterialEditorWindows'
+	// hiddenFromTabs check) purely so it stays alive for as long as
+	// whatever gets assigned this material still points at its compiled
+	// Shader (CustomShaderMaterial::SetShader doesn't take ownership - the
+	// doc's compiledShader unique_ptr is the real owner).
+	materialDocs.push_back(doc);
+	return doc;
+}
+
 bool Editor::AssignMaterialAsset(const std::string& objectName, int submeshIndex, const std::string& materialPath, std::string& errOut)
 {
-	MaterialEditorDocument* doc = AgentOpenMaterial(materialPath, errOut);
+	// Quiet load - picking a material from the Properties panel's list (or
+	// the assign_material agent command) should just attach it, not pop
+	// open a Material Editor tab the way explicitly opening one for editing
+	// does (see LoadMaterialQuietly).
+	MaterialEditorDocument* doc = LoadMaterialQuietly(materialPath, errOut);
 	if (!doc) return false;
 	if (!doc->currentMaterial) { errOut = "material has no constructed instance yet"; return false; }
 	if (!sceneView) { errOut = "no scene open"; return false; }
@@ -1957,7 +1997,7 @@ void Editor::DrawMaterialEditorWindows()
 	for (size_t i = 0; i < materialDocs.size(); ++i)
 	{
 		MaterialEditorDocument* doc = materialDocs[i];
-		if (!doc) continue;
+		if (!doc || doc->hiddenFromTabs) continue;
 
 		char title[512];
 		snprintf(title, sizeof(title), u8" %s###material_win_%u", doc->displayName.c_str(), doc->id);
@@ -2001,6 +2041,25 @@ void Editor::DrawMaterialEditorWindows()
 	}
 	for (size_t i = 0; i < closeIds.size(); ++i)
 		CloseMaterialDocument(closeIds[i]);
+}
+
+bool Editor::DrawActiveMaterialProperties()
+{
+	// Only when a material document is the focused document. Clicking
+	// inside Properties itself never changes lastFocusedDocKind (only the
+	// Scene View / Scene Tree and the material windows set it), so editing
+	// these controls does not pull the panel out from under itself.
+	if (lastFocusedDocKind != FocusedDocKind::Material)
+		return false;
+	// activeMaterialDoc is cleared by CloseMaterialDocument()/
+	// CloseAllMaterialDocuments(), so it cannot dangle here.
+	MaterialEditorDocument* doc = activeMaterialDoc;
+	if (!doc || doc->hiddenFromTabs || !doc->currentMaterial)
+		return false;
+	// Drawn after DrawMaterialEditorWindows() in DrawUI(), so
+	// activeMaterialDoc already reflects this frame's focus.
+	MaterialEditor::DrawProperties(*doc, project.GetProjectPath());
+	return true;
 }
 
 void Editor::DrawSceneViewWindow()
@@ -2126,6 +2185,18 @@ void Editor::DrawAssetsWindow()
 		static const char* kindLabels[] = { "Generic Shader", "Custom Shader" };
 		ImGui::SetNextItemWidth(280.f);
 		ImGui::Combo("Type", &newMaterialKindCombo, kindLabels, IM_ARRAYSIZE(kindLabels));
+		if (newMaterialKindCombo == 1)
+		{
+			// Text and Node Graph are two separate, INCOMPATIBLE
+			// representations of a Custom material - neither one converts
+			// to the other, so this has to be picked up front rather than
+			// defaulted and switched later (switching modes in the Material
+			// Editor's own Type combo throws away whichever one you're
+			// leaving - see MaterialEditor::CreateNewMaterial).
+			static const char* customModeLabels[] = { "Node Graph", "Text (GLSL)" };
+			ImGui::SetNextItemWidth(280.f);
+			ImGui::Combo("Editing Mode", &newMaterialCustomModeCombo, customModeLabels, IM_ARRAYSIZE(customModeLabels));
+		}
 		if (!newMaterialError.empty())
 			ImGui::TextColored(ImVec4(1.f, 0.45f, 0.4f, 1.f), "%s", newMaterialError.c_str());
 		ImGui::Spacing();
@@ -2134,7 +2205,8 @@ void Editor::DrawAssetsWindow()
 			std::string abs;
 			std::string err;
 			MaterialAssetKind kind = (newMaterialKindCombo == 1) ? MaterialAssetKind::Custom : MaterialAssetKind::Generic;
-			if (project.CreateMaterial(newMaterialName, kind, abs, &err))
+			const bool useTextMode = (newMaterialKindCombo == 1) && (newMaterialCustomModeCombo == 1);
+			if (project.CreateMaterial(newMaterialName, kind, abs, &err, useTextMode))
 			{
 				echo("SUCCESS: Created material " + abs);
 				selectedAssetRel = project.RelativePath(abs);
@@ -2684,6 +2756,7 @@ bool Editor::OpenMaterialDocument(const std::string& absPath)
 	if (absPath.empty() || !project.IsOpen()) return false;
 	if (MaterialEditorDocument* existing = FindMaterialDocumentByPath(absPath))
 	{
+		existing->hiddenFromTabs = false; // explicitly opening it now, even if it was only loaded silently for an assignment before
 		activeMaterialDoc = existing;
 		pendingSelectMaterialDocId = existing->id;
 		return true;
@@ -2713,6 +2786,7 @@ MaterialEditorDocument* Editor::EditMaterialInline(std::shared_ptr<IMaterial> ma
 	{
 		if (materialDocs[i] && materialDocs[i]->currentMaterial.get() == mat.get())
 		{
+			materialDocs[i]->hiddenFromTabs = false;
 			activeMaterialDoc = materialDocs[i];
 			pendingSelectMaterialDocId = materialDocs[i]->id;
 			return materialDocs[i];

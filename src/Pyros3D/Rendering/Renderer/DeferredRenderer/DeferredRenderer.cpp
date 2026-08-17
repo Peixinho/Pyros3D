@@ -1375,70 +1375,77 @@ namespace p3d {
 
 		lastPassFBO->UnBind();
 
-		ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
-		ClearDepthBuffer();
-		ClearScreen();
+		// See SetSkipRenderToScreen()'s comment: this whole block re-draws
+		// the already-finished composite (colorTexture, untouched by
+		// skipping this) as one more full-screen pass unconditionally
+		// targeting framebuffer 0 - real output only for a DeferredRenderer
+		// that IS the application's whole direct output, actively harmful
+		// for any caller (every editor use today) that only ever reads
+		// GetColorTexture() and may have another such caller also drawing
+		// to framebuffer 0 in the same frame.
+		if (!skipRenderToScreen) {
+			ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
+			ClearDepthBuffer();
+			ClearScreen();
 
-		InitRender();
+			InitRender();
 
-		// deferredLastPass's material-aware SSR needs tDepth/tNormal/
-		// tMetallicRoughness/tDiffuse again - already unbound above
-		// (restoring texture-unit bookkeeping to a clean state), so
-		// re-bound here in a fresh, self-contained sequence just for this
-		// draw rather than reordering the unbind above (which other code
-		// relies on running where it already does). Units 0-5 in binding
-		// order below match deferredLastPass's tDepth/tNormal/
-		// tMetallicRoughness/tColor/tPreviousFrameColor/tDiffuse uniform
-		// values set in the constructor.
-		GetGBufferAttachment(FrameBufferAttachmentFormat::Depth_Attachment)->Bind();
-		GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment2)->Bind();
-		GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment3)->Bind();
-		colorTexture->Bind();
-		previousFrameColorTexture->Bind();
-		GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment0)->Bind();
-		// Real mip count of previousFrameColorTexture at the current
-		// size - see lastPass.glsl's uMaxReflectionLod/textureLod()
-		// comment. Recomputed every frame rather than cached/only on
-		// resize - log2() on two ints is free next to everything else
-		// in this function, and this keeps it correct without having to
-		// remember to also update it in Resize().
-		f32 maxReflectionLod = log2f((f32)(Width > Height ? Width : Height));
-		lastPassMaxReflectionLodHandle->SetValue(&maxReflectionLod);
-		// Feed this draw with what's still *last* frame's real camera -
-		// ssrPrvViewMatrix/ssrPrvProjectionMatrix aren't updated to this
-		// frame's Camera/projection until after the draw below (see that
-		// update's comment). See DeferredRenderer.h's comment on these
-		// members for why this is dedicated state instead of IRenderer's
-		// shared Prv* (which PreRender() clobbers before this point).
-		lastPassPrvViewMatrixHandle->SetValue(&ssrPrvViewMatrix);
-		lastPassPrvProjectionMatrixHandle->SetValue(&ssrPrvProjectionMatrix);
-		// Re-poke SSR uniforms every frame so EnableSSR()/SetSSRDistances()
-		// values are definitely in the UBO scratch (Other uniforms are only
-		// copied from Uniform::Value during CaptureExtraUniform).
-		lastPassSSREnabledHandle->SetValue(&ssrEnabled);
-		lastPassSSRStepDistanceHandle->SetValue(&ssrStepDistance);
-		lastPassSSRMaxDistanceHandle->SetValue(&ssrMaxDistance);
-		lastPassSSRDebugHandle->SetValue(&ssrDebugMode);
-		// Render to Screen
-		{
-			GameObject go = GameObject();
-			RenderObject(directionalLight->GetMeshes()[0], &go, deferredLastPass);
+			// deferredLastPass's material-aware SSR needs tDepth/tNormal/
+			// tMetallicRoughness/tDiffuse again - already unbound above
+			// (restoring texture-unit bookkeeping to a clean state), so
+			// re-bound here in a fresh, self-contained sequence just for this
+			// draw rather than reordering the unbind above (which other code
+			// relies on running where it already does). Units 0-5 in binding
+			// order below match deferredLastPass's tDepth/tNormal/
+			// tMetallicRoughness/tColor/tPreviousFrameColor/tDiffuse uniform
+			// values set in the constructor.
+			GetGBufferAttachment(FrameBufferAttachmentFormat::Depth_Attachment)->Bind();
+			GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment2)->Bind();
+			GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment3)->Bind();
+			colorTexture->Bind();
+			previousFrameColorTexture->Bind();
+			GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment0)->Bind();
+			// Real mip count of previousFrameColorTexture at the current
+			// size - see lastPass.glsl's uMaxReflectionLod/textureLod()
+			// comment. Recomputed every frame rather than cached/only on
+			// resize - log2() on two ints is free next to everything else
+			// in this function, and this keeps it correct without having to
+			// remember to also update it in Resize().
+			f32 maxReflectionLod = log2f((f32)(Width > Height ? Width : Height));
+			lastPassMaxReflectionLodHandle->SetValue(&maxReflectionLod);
+			// Feed this draw with what's still *last* frame's real camera -
+			// ssrPrvViewMatrix/ssrPrvProjectionMatrix aren't updated to this
+			// frame's Camera/projection until after the draw below (see that
+			// update's comment). See DeferredRenderer.h's comment on these
+			// members for why this is dedicated state instead of IRenderer's
+			// shared Prv* (which PreRender() clobbers before this point).
+			lastPassPrvViewMatrixHandle->SetValue(&ssrPrvViewMatrix);
+			lastPassPrvProjectionMatrixHandle->SetValue(&ssrPrvProjectionMatrix);
+			// Re-poke SSR uniforms every frame so EnableSSR()/SetSSRDistances()
+			// values are definitely in the UBO scratch (Other uniforms are only
+			// copied from Uniform::Value during CaptureExtraUniform).
+			lastPassSSREnabledHandle->SetValue(&ssrEnabled);
+			lastPassSSRStepDistanceHandle->SetValue(&ssrStepDistance);
+			lastPassSSRMaxDistanceHandle->SetValue(&ssrMaxDistance);
+			lastPassSSRDebugHandle->SetValue(&ssrDebugMode);
+			// Render to Screen
+			{
+				GameObject go = GameObject();
+				RenderObject(directionalLight->GetMeshes()[0], &go, deferredLastPass);
+			}
+			GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment0)->Unbind();
+			previousFrameColorTexture->Unbind();
+			colorTexture->Unbind();
+			GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment3)->Unbind();
+			GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment2)->Unbind();
+			GetGBufferAttachment(FrameBufferAttachmentFormat::Depth_Attachment)->Unbind();
 		}
-		// Now that this frame's draw has consumed the real previous-frame
-		// values above, capture this frame's own camera for *next* frame's
-		// reprojection - straight from RenderScene()'s own Camera/projection
-		// arguments, not the shared ViewMatrix/ProjectionMatrix scratch
-		// members (which shadow sub-passes inside PreRender() may have
-		// repeatedly repurposed and never guaranteed to still hold the main
-		// camera's values by this point).
+		// Next frame's SSR reprojection needs this frame's real camera
+		// regardless of whether the screen draw above ran - kept outside
+		// the block above (was previously sandwiched inside it, right after
+		// the draw it doesn't actually depend on).
 		ssrPrvViewMatrix = Camera->GetWorldTransformation().Inverse();
 		ssrPrvProjectionMatrix = projection.m;
-		GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment0)->Unbind();
-		previousFrameColorTexture->Unbind();
-		colorTexture->Unbind();
-		GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment3)->Unbind();
-		GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment2)->Unbind();
-		GetGBufferAttachment(FrameBufferAttachmentFormat::Depth_Attachment)->Unbind();
 
 		// No "restore the caller's FBO" replay needed here (unlike this
 		// block's old position before the lastPass draw, which genuinely

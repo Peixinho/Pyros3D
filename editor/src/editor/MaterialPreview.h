@@ -21,6 +21,8 @@
 #include <memory>
 #include <string>
 
+namespace p3d { class RenderingComponent; }
+
 struct MaterialPreview {
 	// Lazily built once, on the first EnsureInit() call.
 	p3d::IRenderer* renderer = nullptr;      // Forward- or DeferredRenderer, owned
@@ -39,17 +41,25 @@ struct MaterialPreview {
 	p3d::Texture* gbufferMatRough = nullptr;
 	p3d::FrameBuffer* gbufferFBO = nullptr;
 	std::shared_ptr<p3d::GameObject> sphereGO;
+	// Non-owning - cached at CreateSphere() time purely so SyncFromDoc's
+	// Generic-kind branch can update the sphere's material every call
+	// without re-deriving it from sphereGO's component list each frame.
+	p3d::RenderingComponent* sphereRC = nullptr;
 	std::shared_ptr<p3d::GameObject> cameraGO;
 	// The key light's GameObject. The "Lights" toggle in DrawAndUpdate()
 	// Add()/Removes() it from the preview scene (see that method's comment
 	// on why Enable()/Disable() alone wouldn't switch the light off).
 	std::shared_ptr<p3d::GameObject> lightGO;
 	bool lightsEnabled = true;
-	// Own copy of the doc's compiled material, deliberately NOT the doc's
-	// own currentMaterial (a distinct instance, own CustomShaderMaterial -
-	// see SyncFromDoc()), so this isolated offscreen render never aliases
-	// whatever the live scene/other preview is doing with the same shader.
-	std::shared_ptr<p3d::CustomShaderMaterial> previewMaterial;
+	// Custom kind: own copy of the doc's compiled material, deliberately NOT
+	// the doc's own currentMaterial (a distinct CustomShaderMaterial
+	// instance - see SyncFromDoc()), so this isolated offscreen render never
+	// aliases whatever the live scene/other preview is doing with the same
+	// shader. Generic kind needs no such isolation (no compile step, no
+	// texture/uniform staging) - SyncFromDoc points this straight at the
+	// doc's own GenericShaderMaterial instance instead, so slider edits in
+	// the Inspector tab show up immediately. IMaterial-typed to hold either.
+	std::shared_ptr<p3d::IMaterial> previewMaterial;
 
 	// Kept small - this renders as a floating overlay in the corner of the
 	// node graph/text editor (see MaterialEditor::DrawWindow), not a full
@@ -61,6 +71,11 @@ struct MaterialPreview {
 	p3d::Vec3 panTarget = p3d::Vec3(0, 0, 0);
 
 	uint32_t lastSeenApplyGeneration = 0; // see SyncFromDoc
+	// See DrawAndUpdate() - toggled every call, renders on alternating
+	// calls only. Starts true so the very first call (flips to false)
+	// actually renders immediately instead of showing an empty/garbage
+	// texture for one frame.
+	bool skipRenderThisCall = true;
 
 	// Frees scene/camera/light/sphere first, then the FBO-backed
 	// renderer/effects (their color texture is what a frame's ImGui draw

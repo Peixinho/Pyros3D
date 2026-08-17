@@ -65,6 +65,31 @@ void DeserializeNodes(const json& arr, std::vector<MaterialNode>& outNodes, uint
 	}
 }
 
+json SerializeTextTextures(const std::vector<MaterialTextureInput>& textures) {
+	json arr = json::array();
+	for (const auto& t : textures) {
+		json jt;
+		jt["id"] = t.id;
+		jt["name"] = t.name;
+		jt["texturePath"] = t.texturePath;
+		arr.push_back(jt);
+	}
+	return arr;
+}
+
+void DeserializeTextTextures(const json& arr, std::vector<MaterialTextureInput>& out, uint32_t& outNextId) {
+	out.clear();
+	outNextId = 1;
+	for (const auto& jt : arr) {
+		MaterialTextureInput t;
+		t.id = jt.value("id", 0u);
+		t.name = jt.value("name", std::string("uTexture"));
+		t.texturePath = jt.value("texturePath", std::string());
+		out.push_back(t);
+		if (t.id >= outNextId) outNextId = t.id + 1;
+	}
+}
+
 void DeserializeConnections(const json& arr, std::vector<MaterialConnection>& outConnections) {
 	outConnections.clear();
 	for (const auto& jc : arr) {
@@ -106,6 +131,15 @@ MaterialEditorDocument::~MaterialEditorDocument() {
 	delete codeDoc;
 	codeDoc = nullptr;
 	ClearNodes();
+	ClearTextTextures();
+}
+
+void MaterialEditorDocument::ClearTextTextures() {
+	for (auto& t : textTextures) {
+		delete t.previewTex;
+		t.previewTex = nullptr;
+	}
+	textTextures.clear();
 }
 
 uint32_t MaterialEditorDocument::CreateNode(MaterialNode::Type type, const std::string& name, ImVec2 pos) {
@@ -180,6 +214,7 @@ bool MaterialEditorDocument::LoadFromFile(const std::string& path) {
 		: MaterialEditMode::Inspector;
 
 	ClearNodes();
+	ClearTextTextures();
 
 	if (kind == "generic") {
 		editKind = MaterialEditKind::Generic;
@@ -205,6 +240,8 @@ bool MaterialEditorDocument::LoadFromFile(const std::string& path) {
 			DeserializeNodes(j["nodes"], nodes, nextNodeId);
 		if (j.find("connections") != j.end())
 			DeserializeConnections(j["connections"], connections);
+		if (j.find("textTextures") != j.end())
+			DeserializeTextTextures(j["textTextures"], textTextures, nextTextureInputId);
 		// Placeholder - MaterialEditor::LoadFromFile compiles the real shader
 		// (from generatedGlslPath or freshly codegen'd) right after this call.
 		auto mat = std::make_shared<CustomShaderMaterial>(std::string());
@@ -246,6 +283,7 @@ bool MaterialEditorDocument::SaveToFile(const std::string& path) {
 		j["customShaderText"] = simpleShaderText;
 		j["nodes"] = SerializeNodes(nodes);
 		j["connections"] = SerializeConnections(connections);
+		j["textTextures"] = SerializeTextTextures(textTextures);
 	}
 
 	ApplyCommonMaterialSettings(currentMaterial.get(), j);

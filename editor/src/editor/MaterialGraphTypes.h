@@ -134,6 +134,17 @@ struct MaterialNode {
 	static bool TypeFromString(const std::string& s, Type& outType);
 };
 
+// Named texture uniform declared from Text mode (see MaterialEditor's
+// "Textures" list on the Text tab) - the node-graph equivalent of a Texture
+// node, but since Text mode has no nodes to hang a texturePath off of, the
+// document keeps its own flat list of these instead.
+struct MaterialTextureInput {
+	uint32_t id = 0;
+	std::string name = "uTexture";     // GLSL uniform sampler2D name, referenced directly in the user's snippet
+	std::string texturePath;           // path to loaded texture, relative to assets/textures
+	p3d::Texture* previewTex = nullptr; // cached preview texture for display
+};
+
 struct PinPosition {
 	uint32_t nodeId = 0;
 	int pinIndex = 0;

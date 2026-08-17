@@ -144,9 +144,12 @@ public:
 
 	// name → assets/materials/<name>.mat, seeded with a minimal starter
 	// document (Custom kind gets a small starter node graph so the Node
-	// Graph tab isn't empty on first open).
+	// Graph tab isn't empty on first open). useTextMode selects which of
+	// Custom's two INCOMPATIBLE representations (see MaterialCodegen.h -
+	// Text mode never gets parsed back into nodes or vice versa) the
+	// material opens into; ignored for Generic kind.
 	bool CreateMaterial(const std::string& name, MaterialAssetKind kind, std::string& outAbsolute,
-		std::string* errorOut = NULL);
+		std::string* errorOut = NULL, bool useTextMode = false);
 
 	// Absolute path of the companion script for a scene .json (…/Foo.json → …/Foo.lua).
 	static std::string SceneScriptPathForSceneJson(const std::string& sceneJsonAbsolute);
