@@ -425,8 +425,24 @@ private:
 	bool RenderModelPreviewToRGBA8(const std::string& p3dmPath, std::vector<unsigned char>& outRGBA,
 		uint32& outW, uint32& outH);
 	std::string TreeLabel(SceneObject* obj) const;
+	// One clickable viewport billboard (light bulb, camera, ...) exactly as
+	// it was last drawn: screen-space rect in ImGui coordinates, plus the
+	// scene object it selects and how far from the eye it sits (used to
+	// resolve overlapping icons - nearest wins).
+	struct ViewportIcon
+	{
+		ImVec2 min, max;
+		uint32 sceneObjectId;
+		f32 viewDepth;
+	};
 	void DrawSceneViewportIcons(const ImVec2& imgMin, const ImVec2& imgSize, GameObject* viewCam);
-	bool TryPickViewportIcon(const Vec2& viewportMouse, uint32& outSceneObjectId);
+	bool TryPickViewportIcon(const Vec2& viewportMouse, uint32& outSceneObjectId) const;
+	// Filled by DrawSceneViewportIcons every frame it draws, consumed by
+	// TryPickViewportIcon. Deliberately one shared list rather than each
+	// side projecting world positions itself: when the two did that
+	// independently they drifted, and an icon's clickable area stopped
+	// matching the glyph the user was aiming at.
+	std::vector<ViewportIcon> viewportIcons;
 	void OpenAddFormOnGameObject(uint32 goId, uint32 formType);
 	void AddQuickLightOnGameObject(uint32 goId, uint32 formType);
 	void ShowAddComponentMenu(uint32 goId);

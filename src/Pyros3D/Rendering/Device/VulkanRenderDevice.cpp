@@ -4708,6 +4708,29 @@ namespace p3d {
 			return;
 		TextureRecord &tex = texIt->second;
 
+		// Whatever produced the image being read may still be sitting
+		// unsubmitted in the offscreen command buffer: UnBindFramebuffer()
+		// deliberately does NOT flush while a swapchain frame is in progress
+		// (that mid-frame stall is a measured performance regression - see
+		// its comment). The copy below submits its own command buffer and
+		// waits on its own fence, so without forcing the render out first it
+		// wins the race and reads the image as it was *before* the render the
+		// caller is asking about.
+		//
+		// This is what made PainterPick unusable inside the editor while
+		// looking fine in the standalone demo: the demo picks a static scene
+		// where every pick renders a byte-identical buffer, so reading one
+		// submit late is invisible; the editor picks a scene that has moved
+		// since, so it selected whatever used to be under the cursor - or, on
+		// the first pick of a session, nothing at all.
+		//
+		// A readback is a full CPU/GPU sync by construction (see the fence
+		// wait at the end of this function), so there is no throughput left
+		// to protect here.
+		if (offscreenCommandBufferRecording)
+			FlushOffscreenCommandBuffer();
+		WaitOffscreenSubmitIfPending();
+
 		// `target` selects which cube face to read (GL reads it straight
 		// out of glGetTexImage's target); it was ignored entirely here, so
 		// every face of a cubemap read back as face 0 - and a depth

@@ -204,6 +204,20 @@ namespace p3d {
 		// already sRGB-authored and wash out on an SRGB target.
 		virtual bool NeedsManualDisplayGamma() const { return false; }
 
+		// Where row 0 of a render target lives. GL puts the framebuffer
+		// origin at the BOTTOM-left, so glGetTexImage/glReadPixels hand back
+		// the image bottom-up and a caller indexing by screen Y has to flip
+		// (height - y). Vulkan and Metal both put it at the TOP-left, and
+		// their readback is top-down - already the same direction as a mouse
+		// coordinate, so flipping there reads the mirrored row.
+		//
+		// This is the same split the editor's viewport already encodes by
+		// hand in its ImGui::Image UVs; anything that reads a rendered image
+		// back on the CPU (PainterPick's colour-id buffer, screenshots,
+		// pixel-level tests) needs it too, so it lives here rather than as
+		// another _SDL2VULKAN/_SDL2METAL #if at each call site.
+		virtual bool RenderTargetOriginIsTopLeft() const { return false; }
+
 		// Clearing - TranslateBufferBit() has no side effects (pure
 		// translation, cached by the caller); Clear() issues the actual
 		// clear using a previously-translated mask.

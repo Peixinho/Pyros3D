@@ -467,6 +467,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		grid->Add(rGrid);
 		RenderingMesh* rGridMesh = rGrid->GetMeshes()[0];
 		rGridMesh->drawingType = DrawingType::Lines;
+		// Editor chrome, not scene content - keep it out of the pick buffer
+		// entirely instead of picking it and then filtering the result.
+		rGridMesh->Clickable = false;
 
 		_leftMouse = _middleMouse = _rightMouse = _mousePanned = false;
 
@@ -1043,13 +1046,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				{
                     if ((*i).second->GetID() != draggin_id) {
                         ImGuiTreeNodeFlags gameobject_flags = base_flags;
-#ifdef LUA_BINDINGS
+						// Not Lua-only: ViewportPickAtMouse() uses this too, to
+						// reveal a component it just selected in the viewport
+						// (clicking a light's billboard selects the light
+						// component, which is invisible while its GameObject is
+						// collapsed - the selection looked like it had failed).
 						if (hierarchyForceOpenId != 0 && (*i).second->GetID() == hierarchyForceOpenId)
 						{
 							ImGui::SetNextItemOpen(true, ImGuiCond_Always);
 							hierarchyForceOpenId = 0;
 						}
-#endif
                         node_open = ImGui::TreeNodeEx((void*)(intptr_t)(*i).second->GetID(), gameobject_flags, "%s", label.c_str());
                     } else {
                         node_open = false;
@@ -1382,14 +1388,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::DrawSceneViewportIcons(const ImVec2& imgMin, const ImVec2& imgSize, GameObject* viewCam)
 	{
+		viewportIcons.clear();
 		if (!viewCam || imgSize.x < 1.f || imgSize.y < 1.f) return;
 
 		ImDrawList* dl = ImGui::GetWindowDrawList();
 		const Matrix viewM = viewCam->GetWorldTransformation().Inverse();
 		const Matrix projM = (isPerspective ? projection : projectionOrtho).GetProjectionMatrix();
 
-		auto projectToImage = [&](const Vec3& wp, ImVec2& out) -> bool {
-			Vec4 clip = projM * (viewM * Vec4(wp.x, wp.y, wp.z, 1.f));
+		// outDepth is view-space distance in front of the eye, kept so
+		// overlapping icons can be resolved nearest-first when picking.
+		auto projectToImage = [&](const Vec3& wp, ImVec2& out, f32& outDepth) -> bool {
+			const Vec4 viewP = viewM * Vec4(wp.x, wp.y, wp.z, 1.f);
+			Vec4 clip = projM * viewP;
 			if (clip.w <= 0.0001f) return false;
 			const f32 ndcX = clip.x / clip.w;
 			const f32 ndcY = clip.y / clip.w;
@@ -1399,15 +1409,35 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			const f32 v = 1.f - (ndcY * 0.5f + 0.5f);
 			out.x = imgMin.x + u * imgSize.x;
 			out.y = imgMin.y + v * imgSize.y;
+			outDepth = -viewP.z; // view space looks down -Z
 			return true;
 		};
 
-		auto drawIconAt = [&](const char* icon, const Vec3& wp, ImU32 color, f32 pxSize) {
+		// Draws the glyph AND registers its on-screen rect as clickable, in
+		// one place - see ViewportIcon's comment on why this is not split.
+		auto drawIconAt = [&](const char* icon, const Vec3& wp, ImU32 color, f32 pxSize, uint32 sceneObjectId) {
 			ImVec2 p;
-			if (!projectToImage(wp, p)) return;
-			ImVec2 sz = ImGui::CalcTextSize(icon);
+			f32 depth = 0.f;
+			if (!projectToImage(wp, p, depth)) return;
+			const ImVec2 sz = ImGui::CalcTextSize(icon);
 			const f32 scale = pxSize / (sz.y > 0.f ? sz.y : 1.f);
-			dl->AddText(NULL, pxSize, ImVec2(p.x - (sz.x * scale) * 0.5f, p.y - (sz.y * scale) * 0.5f), color, icon);
+			const ImVec2 topLeft(p.x - (sz.x * scale) * 0.5f, p.y - (sz.y * scale) * 0.5f);
+			dl->AddText(NULL, pxSize, topLeft, color, icon);
+
+			if (sceneObjectId == 0) return;
+			// Glyphs are narrow and the rendered ink is narrower still, so a
+			// tight advance-box target is genuinely hard to hit. Pad out to
+			// at least a square of the icon's height, which is what the eye
+			// reads as "the icon" anyway.
+			const f32 drawnW = sz.x * scale, drawnH = sz.y * scale;
+			const f32 halfW = (drawnW < drawnH ? drawnH : drawnW) * 0.5f + 2.f;
+			const f32 halfH = drawnH * 0.5f + 2.f;
+			ViewportIcon hit;
+			hit.min = ImVec2(p.x - halfW, p.y - halfH);
+			hit.max = ImVec2(p.x + halfW, p.y + halfH);
+			hit.sceneObjectId = sceneObjectId;
+			hit.viewDepth = depth;
+			viewportIcons.push_back(hit);
 		};
 
 		std::vector<std::shared_ptr<GameObject>>& all = scene->GetAllGameObjectList();
@@ -1418,17 +1448,23 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 			uint32 goId = sceneObjects->GetSceneObjectID(go);
 			if (IsSceneCamera(goId) && go != viewCam && editorDebugDraw->IsCameraOn(go))
-				drawIconAt(u8"\uf030", go->GetWorldPosition(), IM_COL32(0, 255, 255, 255), 22.f);
+				drawIconAt(u8"\uf030", go->GetWorldPosition(), IM_COL32(0, 255, 255, 255), 22.f, goId);
 
 			const std::vector<std::shared_ptr<IComponent>>& comps = go->GetComponents();
 			for (std::vector<std::shared_ptr<IComponent>>::const_iterator ci = comps.begin(); ci != comps.end(); ++ci)
 			{
 				IComponent* c = (*ci).get();
 				if (!c || !editorDebugDraw->IsOn(c)) continue;
+				// Select the light component itself when it is registered as
+				// its own scene object, so the Properties panel opens on the
+				// light rather than on its host GameObject; fall back to the
+				// GameObject when it is not.
+				uint32 pickId = sceneObjects->GetSceneObjectID(c);
+				if (pickId == 0) pickId = goId;
 				if (dynamic_cast<DirectionalLight*>(c))
-					drawIconAt(u8"\uf185", go->GetWorldPosition(), IM_COL32(255, 220, 0, 255), 18.f);
+					drawIconAt(u8"\uf185", go->GetWorldPosition(), IM_COL32(255, 220, 0, 255), 18.f, pickId);
 				else if (dynamic_cast<PointLight*>(c) || dynamic_cast<SpotLight*>(c))
-					drawIconAt(u8"\uf0eb", go->GetWorldPosition(), IM_COL32(255, 220, 0, 255), 18.f);
+					drawIconAt(u8"\uf0eb", go->GetWorldPosition(), IM_COL32(255, 220, 0, 255), 18.f, pickId);
 			}
 		}
 	}
@@ -2389,86 +2425,38 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 	}
 
-	bool SceneEditor::TryPickViewportIcon(const Vec2& viewportMouse, uint32& outSceneObjectId)
+	bool SceneEditor::TryPickViewportIcon(const Vec2& viewportMouse, uint32& outSceneObjectId) const
 	{
 		outSceneObjectId = 0;
-		if (!viewportOverlayValid || viewportImgSize.x < 1.f || viewportImgSize.y < 1.f || dim.x < 1.f || dim.y < 1.f)
+		if (!viewportOverlayValid || viewportImgSize.x < 1.f || viewportImgSize.y < 1.f
+			|| dim.x < 1.f || dim.y < 1.f || viewportIcons.empty())
 			return false;
 
-		GameObject* viewCam = GetViewCameraGO();
-		if (!viewCam) return false;
-
-		const Matrix viewM = viewCam->GetWorldTransformation().Inverse();
-		const Matrix projM = (isPerspective ? projection : projectionOrtho).GetProjectionMatrix();
-
-		auto projectToImage = [&](const Vec3& wp, ImVec2& out) -> bool {
-			Vec4 clip = projM * (viewM * Vec4(wp.x, wp.y, wp.z, 1.f));
-			if (clip.w <= 0.0001f) return false;
-			const f32 ndcX = clip.x / clip.w;
-			const f32 ndcY = clip.y / clip.w;
-			const f32 ndcZ = clip.z / clip.w;
-			if (ndcZ < -1.f || ndcZ > 1.f) return false;
-			const f32 u = ndcX * 0.5f + 0.5f;
-			const f32 v = 1.f - (ndcY * 0.5f + 0.5f);
-			out.x = viewportImgMin.x + u * viewportImgSize.x;
-			out.y = viewportImgMin.y + v * viewportImgSize.y;
-			return true;
-		};
-
+		// viewportMouse is in render-target pixels; the icon rects recorded
+		// by DrawSceneViewportIcons are in ImGui screen space. Same mapping
+		// UpdateViewportMouse() inverts to produce viewportMouse in the first
+		// place, so the two agree even when the image is displayed at a
+		// different scale than it was rendered at.
 		const ImVec2 mouseScreen(
 			viewportImgMin.x + (viewportMouse.x / dim.x) * viewportImgSize.x,
 			viewportImgMin.y + (viewportMouse.y / dim.y) * viewportImgSize.y);
 
-		auto hitIcon = [&](const char* icon, const Vec3& wp, f32 pxSize) -> bool {
-			ImVec2 p;
-			if (!projectToImage(wp, p)) return false;
-			ImVec2 sz = ImGui::CalcTextSize(icon);
-			const f32 scale = pxSize / (sz.y > 0.f ? sz.y : 1.f);
-			const f32 hw = (sz.x * scale) * 0.5f;
-			const f32 hh = (sz.y * scale) * 0.5f;
-			return mouseScreen.x >= p.x - hw && mouseScreen.x <= p.x + hw
-				&& mouseScreen.y >= p.y - hh && mouseScreen.y <= p.y + hh;
-		};
-
-		std::vector<std::shared_ptr<GameObject>>& all = scene->GetAllGameObjectList();
-		for (std::vector<std::shared_ptr<GameObject>>::iterator it = all.begin(); it != all.end(); ++it)
+		// Nearest icon wins where several overlap, rather than whichever
+		// happened to be visited first by the scene walk.
+		bool found = false;
+		f32 bestDepth = 0.f;
+		for (std::vector<ViewportIcon>::const_iterator i = viewportIcons.begin(); i != viewportIcons.end(); ++i)
 		{
-			GameObject* go = (*it).get();
-			if (!go || IsInternalGameObject(go)) continue;
-			const uint32 goId = sceneObjects->GetSceneObjectID(go);
-			const Vec3 pos = go->GetWorldPosition();
-
-			if (IsSceneCamera(goId) && go != viewCam && editorDebugDraw->IsCameraOn(go))
-			{
-				if (hitIcon(u8"\uf030", pos, 22.f))
-				{
-					outSceneObjectId = goId;
-					return true;
-				}
-			}
-
-			const std::vector<std::shared_ptr<IComponent>>& comps = go->GetComponents();
-			for (std::vector<std::shared_ptr<IComponent>>::const_iterator ci = comps.begin(); ci != comps.end(); ++ci)
-			{
-				IComponent* c = (*ci).get();
-				if (!c || !editorDebugDraw->IsOn(c)) continue;
-				const char* icon = NULL;
-				uint32 compType = 0;
-				if (dynamic_cast<DirectionalLight*>(c)) { icon = u8"\uf185"; compType = SceneObjectTypes::DIRECTIONALLIGHT_COMPONENT; }
-				else if (dynamic_cast<PointLight*>(c)) { icon = u8"\uf0eb"; compType = SceneObjectTypes::POINTLIGHT_COMPONENT; }
-				else if (dynamic_cast<SpotLight*>(c)) { icon = u8"\uf0eb"; compType = SceneObjectTypes::SPOTLIGHT_COMPONENT; }
-				if (!icon) continue;
-				if (hitIcon(icon, pos, 18.f))
-				{
-					outSceneObjectId = sceneObjects->GetSceneObjectID(c);
-					if (outSceneObjectId == 0)
-						outSceneObjectId = goId;
-					return true;
-				}
-				(void)compType;
-			}
+			if (mouseScreen.x < i->min.x || mouseScreen.x > i->max.x
+				|| mouseScreen.y < i->min.y || mouseScreen.y > i->max.y)
+				continue;
+			if (found && i->viewDepth >= bestDepth)
+				continue;
+			bestDepth = i->viewDepth;
+			outSceneObjectId = i->sceneObjectId;
+			found = true;
 		}
-		return false;
+		return found;
 	}
 
 	void SceneEditor::ShowViewOptions()
@@ -3334,63 +3322,77 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::ViewportPickAtMouse()
 	{
-		char pickDbg[256];
-		snprintf(pickDbg, sizeof(pickDbg),
-			"DEBUG PICK: ViewportPickAtMouse called, mouse (%.1f, %.1f), dim %dx%d",
-			viewportMouse.x, viewportMouse.y, dim.x, dim.y);
-		echo(pickDbg);
-
+		// Icons first: a light or a camera has no geometry of its own, so its
+		// billboard is the only thing there is to click. They are drawn on top
+		// of the scene, so picking them on top of it matches what is on screen.
 		uint32 iconPickId = 0;
 		if (TryPickViewportIcon(viewportMouse, iconPickId))
 		{
-			snprintf(pickDbg, sizeof(pickDbg), "DEBUG PICK: icon hit id %u", iconPickId);
-			echo(pickDbg);
 			DeselectMesh();
-			SelectSceneObject(sceneObjects->GetSceneObject(iconPickId));
+			SceneObject* iconSO = sceneObjects->GetSceneObject(iconPickId);
+			SelectSceneObject(iconSO);
 			node_clicked = iconPickId;
+			// A light icon selects the light *component*, which lives under
+			// its GameObject in the tree - open that node so the selection is
+			// actually visible instead of hidden inside a collapsed parent.
+			if (iconSO != NULL && iconSO->GetParentID() != 0)
+				hierarchyForceOpenId = iconSO->GetParentID();
 			return;
 		}
 
-		Picking->Resize(dim.x, dim.y);
+		Picking->Resize((uint32)dim.x, (uint32)dim.y);
 		Picking->ResetViewPort();
-		Picking->SetViewPort(0, 0, dim.x, dim.y);
+		Picking->SetViewPort(0, 0, (uint32)dim.x, (uint32)dim.y);
 		RenderingMesh* rm = Picking->PickObject(viewportMouse.x, viewportMouse.y,
 			(isPerspective ? projection : projectionOrtho), GetViewCameraGO(), scene);
 
-		if (rm == NULL)
+		if (rm == NULL || rm->renderingComponent == NULL)
 		{
-			echo("DEBUG PICK: PickObject returned NULL (no mesh under cursor)");
-		}
-		else if (rm->renderingComponent == rGrid.get())
-		{
-			echo("DEBUG PICK: hit the grid - rejected");
+			// Empty space - clear the selection, the way every other editor
+			// does. Leaving the previous object selected made a missed click
+			// indistinguishable from a click that did nothing.
+			DeselectMesh();
+			DeselectSceneObject();
+			selection.clear();
+			node_clicked = -1;
+			return;
 		}
 
-		if (rm != NULL && rm->renderingComponent != rGrid.get())
+		// A helper (the clickable stand-in body drawn for a light, sound
+		// emitter or empty GameObject) selects whatever it stands in for.
+		bool helper = false;
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
+			i != sceneObjects->GetList().end(); i++)
 		{
-			bool helper = false;
-			for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
-				i != sceneObjects->GetList().end(); i++)
+			if ((*i).second->Helper)
 			{
-				if ((*i).second->Helper)
+				if ((*i).second->Helper.get() == rm->renderingComponent->GetOwner())
 				{
-					if ((*i).second->Helper.get() == rm->renderingComponent->GetOwner())
-					{
-						node_clicked = sceneObjects->GetSceneObjectID(((IHelper*)(*i).second->Helper.get())->owner);
-						helper = true;
-						break;
-					}
+					node_clicked = sceneObjects->GetSceneObjectID(((IHelper*)(*i).second->Helper.get())->owner);
+					helper = true;
+					break;
 				}
 			}
-
-			if (!helper)
-				node_clicked = sceneObjects->GetSceneObjectID(rm->renderingComponent->GetOwner());
-
-			snprintf(pickDbg, sizeof(pickDbg), "DEBUG PICK: selected id %u (helper=%d)", node_clicked, helper);
-			echo(pickDbg);
-			DeselectMesh();
-			SelectSceneObject(sceneObjects->GetSceneObject(node_clicked));
 		}
+
+		if (!helper)
+			node_clicked = sceneObjects->GetSceneObjectID(rm->renderingComponent->GetOwner());
+
+		SceneObject* pickedSO = sceneObjects->GetSceneObject(node_clicked);
+		if (pickedSO == NULL)
+		{
+			// A mesh under the cursor was picked, but its owner is not a
+			// registered scene object - report it rather than silently doing
+			// nothing, which reads as "picking is broken".
+			char pickWarn[256];
+			snprintf(pickWarn, sizeof(pickWarn),
+				"WARNING: picked mesh owner %p is not a registered scene object (node id %u) - nothing selected",
+				(void*)rm->renderingComponent->GetOwner(), (unsigned)node_clicked);
+			echo(pickWarn);
+		}
+
+		DeselectMesh();
+		SelectSceneObject(pickedSO);
 	}
 
 	void SceneEditor::HandleViewportGizmoInput(GameObject* viewCam)

@@ -93,6 +93,7 @@ namespace p3d {
 		void WaitIdle();
 		bool IsVulkan() const { return false; }
 		bool NeedsManualDisplayGamma() const { return !presentAsLinear; }
+		bool RenderTargetOriginIsTopLeft() const { return true; }
 
 		// Minimal "hello window" frame loop - acquires the next drawable,
 		// clears it to clearColor, and presents. Not part of IRenderDevice,

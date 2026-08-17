@@ -93,6 +93,7 @@ namespace p3d {
 		void WaitIdle();
 		bool IsVulkan() const { return true; }
 		bool NeedsManualDisplayGamma() const { return true; }
+		bool RenderTargetOriginIsTopLeft() const { return true; }
 
 		// Real fix for a real, reported bug: under a tiling window
 		// manager, the OS resizes the window via the Accessibility API,
