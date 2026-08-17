@@ -47,13 +47,27 @@ namespace p3d {
 
 			Vec3 zAxis = (eye - center).normalize();
 			Vec3 xAxis = up.cross(zAxis).normalize();
-			Vec3 yAxis = zAxis.cross(xAxis);
 
+			// xAxis comes out zero-length whenever up is parallel to zAxis,
+			// and also when eye == center (an object told to look at its own
+			// position), which makes zAxis itself zero. Nudging zAxis and
+			// recomputing xAxis was already here - but yAxis used to be
+			// computed BEFORE this block, from the degenerate xAxis, and was
+			// never recomputed afterwards. That left yAxis = zAxis x 0 = 0,
+			// i.e. a basis with an all-zero Y row, so the matrix was singular
+			// and every Inverse() of it (GameObject::UpdateTransformation
+			// inverts the LookAt result) logged "determinant is 0" and
+			// silently fell back to identity. Computing yAxis after the
+			// fix-up is the whole repair; zAxis is re-normalized because the
+			// nudge changes its length.
 			if (xAxis.magnitude() == 0)
 			{
 				zAxis.x = 0.0001f;
+				zAxis = zAxis.normalize();
 				xAxis = up.cross(zAxis).normalize();
 			}
+
+			Vec3 yAxis = zAxis.cross(xAxis);
 
 			m[0] = xAxis.x;                  m[1] = yAxis.x;                      m[2] = zAxis.x;                  m[3] = 0;
 			m[4] = xAxis.y;                  m[5] = yAxis.y;                      m[6] = zAxis.y;                  m[7] = 0;

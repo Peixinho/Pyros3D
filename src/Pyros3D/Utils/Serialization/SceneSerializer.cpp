@@ -405,6 +405,32 @@ namespace p3d {
 				m["kind"] = "custom";
 				if (!cm->GetShaderFile().empty()) m["shaderFile"] = cm->GetShaderFile();
 				else m["shaderSource"] = cm->GetShaderObject()->GetShaderText();
+
+				// The shader alone is not the whole material: every texture
+				// bound through AddSampler() used to be dropped here, so a
+				// Material Editor material that samples e.g. uAlbedoTex came
+				// back from a saved scene with that sampler unbound. In
+				// Forward the per-fragment lighting still varied, which
+				// disguised it; in Deferred the object shader only writes
+				// albedo/normal to the G-buffer, so a constant albedo made
+				// the whole mesh render as one flat colour.
+				const std::vector<std::string> &names = cm->GetSamplerNames();
+				if (!names.empty())
+				{
+					json samplers = json::array();
+					for (size_t s = 0; s < names.size() && s < cm->textures.size(); s++)
+					{
+						json entry;
+						entry["name"] = names[s];
+						SerializeTextureRef(entry, "texture", cm->textures[s].get());
+						// Skip a sampler whose texture has neither a file nor
+						// raw data - nothing to restore, and an entry with
+						// only a name would rebind unit indices on load.
+						if (entry.find("texture") == entry.end() && entry.find("textureData") == entry.end()) continue;
+						samplers.push_back(entry);
+					}
+					if (!samplers.empty()) m["samplers"] = samplers;
+				}
 			}
 		}
 		else
@@ -1254,24 +1280,33 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 	// regenerate them from. Anything applied since records a shaderFile and
 	// is recompiled from that instead. The pattern is text MaterialCodegen
 	// emitted verbatim, so this either matches wholesale or does nothing.
+	// This used to rewrite the layout below in the OPPOSITE direction,
+	// moving emissive out of the albedo channel and into the alphas alone.
+	// That packing does not work: measured on a pure-emissive material
+	// (Albedo 0, Emissive 0.8), the alpha-only form renders nothing at all
+	// in Deferred, while the albedo-channel form matches Forward to within
+	// a pixel value (204 vs 204.7). So the rewrite now runs the other way,
+	// repairing any scene that was saved while the broken codegen was
+	// live - those bakes are otherwise permanently emissive-less, since a
+	// baked shaderSource has no .mat left to regenerate it from.
 	static std::string UpgradeGeneratedGBufferWrite(const std::string &src)
 	{
-		static const std::string kOld =
-			"\tvec3 color = albedo * occlusion + emissive;\n"
-			"\tFragData_r = vec4(color, color.x * uAmbientLight.x);\n"
-			"\tFragData_g = vec4(1.0, 1.0, 1.0, color.y * uAmbientLight.y);\n"
-			"\tFragData_b = vec4(normalOut, color.z * uAmbientLight.z);\n";
-		static const std::string kNew =
+		static const std::string kBroken =
 			"\tvec3 litAlbedo = albedo * occlusion;\n"
 			"\tvec3 addTerm = litAlbedo * uAmbientLight.rgb + emissive;\n"
 			"\tFragData_r = vec4(litAlbedo, addTerm.x);\n"
 			"\tFragData_g = vec4(1.0, 1.0, 1.0, addTerm.y);\n"
 			"\tFragData_b = vec4(normalOut, addTerm.z);\n";
-		const size_t at = src.find(kOld);
+		static const std::string kWorking =
+			"\tvec3 color = albedo * occlusion + emissive;\n"
+			"\tFragData_r = vec4(color, color.x * uAmbientLight.x);\n"
+			"\tFragData_g = vec4(1.0, 1.0, 1.0, color.y * uAmbientLight.y);\n"
+			"\tFragData_b = vec4(normalOut, color.z * uAmbientLight.z);\n";
+		const size_t at = src.find(kBroken);
 		if (at == std::string::npos) return src;
 		std::string out = src;
-		out.replace(at, kOld.size(), kNew);
-		echo("SceneSerializer: upgraded a baked custom shader to the current G-buffer emissive layout");
+		out.replace(at, kBroken.size(), kWorking);
+		echo("SceneSerializer: repaired a baked custom shader whose emissive was lost in the Deferred G-buffer");
 		return out;
 	}
 
@@ -1372,6 +1407,21 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			cm->AddUniform(Uniform("uTime", Uniforms::DataUsage::Timer));
 			cm->AddUniform(Uniform("uLights", Uniforms::DataUsage::Lights));
 			cm->AddUniform(Uniform("uNumberOfLights", Uniforms::DataUsage::NumberOfLights));
+
+			// Rebind the samplers saved alongside the shader. Order matters:
+			// AddSampler hands out unit indices sequentially, so these have
+			// to go back in the order they were written.
+			if (j.find("samplers") != j.end() && j["samplers"].is_array())
+			{
+				for (auto &sj : j["samplers"])
+				{
+					const std::string name = sj.value("name", std::string());
+					if (name.empty()) continue;
+					if (std::shared_ptr<Texture> t = DeserializeTextureRef(sj, "texture", textureCache, outAssets))
+						cm->AddSampler(name, t);
+				}
+			}
+
 			ApplyCommonMaterialFields(cm.get(), j);
 			return cm;
 		}

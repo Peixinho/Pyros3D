@@ -54,6 +54,15 @@ namespace p3d
 
 		std::vector<std::shared_ptr<Texture>> textures;
 
+		// The uniform name AddSampler() bound each entry of `textures` to,
+		// parallel to it and in the same order (sampler units are handed out
+		// sequentially). Without this the name survives only inside
+		// UserUniforms as an opaque Int holding a unit index, with no way to
+		// map it back to a texture - which is why scene serialization used to
+		// drop a custom material's textures entirely: it wrote the shader and
+		// nothing else, so a reloaded scene sampled an unbound sampler2D.
+		const std::vector<std::string>& GetSamplerNames() const { return samplerNames; }
+
 		// Empty when constructed from a raw Shader* - that path has no
 		// recoverable source, callers (e.g. scene serialization) must
 		// treat an empty string as "can't be saved/reconstructed".
@@ -120,6 +129,9 @@ namespace p3d
 	protected:
 
 		std::string ShaderFilePath;
+
+		// Parallel to `textures` - see GetSamplerNames().
+		std::vector<std::string> samplerNames;
 
 		// Generic Vulkan auto-fix hookup - see IRenderDevice::
 		// GetAutoUniformBlockLayout()'s comment. Called from every place

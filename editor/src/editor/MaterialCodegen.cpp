@@ -463,26 +463,22 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
 	else
 		out << "\tvec3 normalOut = normalize(vNormal);\n";
 	out <<
-		// Emissive is NOT folded into the albedo channel. Whatever goes
-		// there is what the light passes multiply by N.L, so an emissive
-		// term packed into it gets attenuated - which is why an
-		// emissive-heavy material used to look bright under the forward
-		// renderer (where the branch below adds it after lighting) and
-		// dark under deferred. It rides in the three alpha channels
-		// instead: those carry one finished additive term that
-		// secondpassAmbient.glsl outputs as-is, so anything added here
-		// lands after lighting, matching forward. The ambient part gets
-		// albedo and (1-metallic) applied on this side for the same
-		// reason (see that shader's comment).
-		// Caveat worth knowing: the albedo and specular G-buffer targets
-		// are 8-bit UNORM, so emissive clamps at 1.0 in the R and G
-		// channels. Only B (on the RGBA32F normal target) keeps HDR
-		// range.
-		"\tvec3 litAlbedo = albedo * occlusion;\n"
-		"\tvec3 addTerm = litAlbedo * uAmbientLight.rgb + emissive;\n"
-		"\tFragData_r = vec4(litAlbedo, addTerm.x);\n"
-		"\tFragData_g = vec4(1.0, 1.0, 1.0, addTerm.y);\n"
-		"\tFragData_b = vec4(normalOut, addTerm.z);\n"
+		// Emissive goes into the albedo channel, and the three alphas
+		// carry that same value scaled by uAmbientLight.
+		//
+		// A previous attempt moved emissive out of the albedo channel and
+		// into the alphas alone, on the theory that anything in albedo
+		// gets attenuated by N.L in the light passes. Measured, that
+		// theory is wrong about where deferred actually reads emissive
+		// from: a pure-emissive material (Albedo 0, Emissive 0.8) renders
+		// at 204/255 in Forward and, with this write, 204/255 in
+		// Deferred - but with the alpha-only packing it disappeared
+		// completely, not one lit pixel. The alphas alone do not get
+		// emissive to the screen. Keep it here.
+		"\tvec3 color = albedo * occlusion + emissive;\n"
+		"\tFragData_r = vec4(color, color.x * uAmbientLight.x);\n"
+		"\tFragData_g = vec4(1.0, 1.0, 1.0, color.y * uAmbientLight.y);\n"
+		"\tFragData_b = vec4(normalOut, color.z * uAmbientLight.z);\n"
 		"\tFragData_pbr = vec4(roughness, metallic, 0.0, 0.0);\n"
 		"#else\n";
 	if (normalConnected)

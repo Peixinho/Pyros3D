@@ -250,12 +250,14 @@ namespace p3d
 	{
 		int32 imgID = (int32)textures.size();
 		textures.push_back(tex);
+		samplerNames.push_back(uniformName);
 		AddUniform(Uniform(uniformName, Uniforms::DataType::Int, &imgID));
 	}
 
 	void CustomShaderMaterial::ClearSamplers()
 	{
 		textures.clear();
+		samplerNames.clear();
 		UserUniforms.clear();
 	}
 }
