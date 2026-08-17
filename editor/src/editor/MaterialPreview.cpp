@@ -237,6 +237,21 @@ void MaterialPreview::RenderFrame() {
 	// offscreen render interleaved into the same frame as the main
 	// viewport" pattern in this codebase.
 	p3d::IRenderer::InvalidateSharedUniformCaches();
+	// DeferredRenderer::Resize() only resizes its own internal FBOs, never
+	// this class's externally-owned gbufferFBO - identical split to
+	// SceneEditor::ShowViewport()'s. It matters now that the caller sizes
+	// the preview to fit the Material Editor's panel (see
+	// MaterialEditor::DrawWindow) rather than always handing it 220x220.
+	if (usingDeferred && gbufferFBO
+		&& ((uint32)width != gbufferAlbedo->GetWidth() || (uint32)height != gbufferAlbedo->GetHeight()))
+	{
+		gbufferDepth->Resize((uint32)width, (uint32)height);
+		gbufferAlbedo->Resize((uint32)width, (uint32)height);
+		gbufferSpecular->Resize((uint32)width, (uint32)height);
+		gbufferNormal->Resize((uint32)width, (uint32)height);
+		gbufferMatRough->Resize((uint32)width, (uint32)height);
+		gbufferFBO->Resize((uint32)width, (uint32)height);
+	}
 	renderer->Resize((uint32)width, (uint32)height);
 	effects->Resize((uint32)width, (uint32)height);
 	effects->ProcessPostEffects(&proj);

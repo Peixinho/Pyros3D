@@ -258,6 +258,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		sceneRootSelected = false;
 		viewportMouseValid = false;
 		viewportHovered = false;
+		viewportInputAllowed = false;
 	}
 
 	void SceneEditor::OnResize(const uint32 width, const uint32 height)
@@ -673,7 +674,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		if (dim.x < 1.f || dim.y < 1.f)
 		{
-			viewportOverlayValid = false;
+			NotifyViewportNotDrawn();
 			if (showingAddFrom) ShowAddForm();
 			else if (!playMode) editorDisabled = false;
 			return;
@@ -901,6 +902,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		ImGui::InvisibleButton("##scene_viewport_capture", imgSize,
 			ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
 		viewportHovered = ImGui::IsItemHovered();
+		// See viewportInputAllowed's declaration. IsItemActive() keeps a
+		// drag alive once it has started here, so orbit/pan don't stop the
+		// moment the cursor crosses out of the image.
+		viewportInputAllowed = viewportHovered || ImGui::IsItemActive();
 		if (ImGui::BeginDragDropTarget())
 		{
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_REL"))
@@ -2682,11 +2687,25 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		obj->ScaleTransform.ForceScale(_scale);
 	}
 
+	void SceneEditor::NotifyViewportNotDrawn()
+	{
+		viewportOverlayValid = false;
+		viewportInputAllowed = false;
+		viewportMouseValid = false;
+		viewportHovered = false;
+	}
+
 	void SceneEditor::UpdateViewportMouse()
 	{
 		viewportMouseValid = false;
 		viewportHovered = false;
-		if (!viewportOverlayValid || dim.x < 1.f || dim.y < 1.f
+		// viewportInputAllowed is what stops this from claiming events that
+		// belong to whatever ImGui window is currently over the viewport -
+		// see its declaration in SceneEditor.h. It is one frame old when
+		// this runs from an InputManager callback (those fire between
+		// frames, before the ImGui frame that would refresh it), which is
+		// the same staleness viewportImgMin/Size have always had here.
+		if (!viewportOverlayValid || !viewportInputAllowed || dim.x < 1.f || dim.y < 1.f
 			|| viewportImgSize.x < 1.f || viewportImgSize.y < 1.f)
 			return;
 

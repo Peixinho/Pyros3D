@@ -1423,6 +1423,7 @@ void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& 
 	// it has actually been drawn.
 	const ImVec2 contentTopLeft = ImGui::GetCursorScreenPos();
 	const float contentWidth = ImGui::GetContentRegionAvail().x;
+	const float contentHeight = ImGui::GetContentRegionAvail().y;
 
 	switch (doc.editMode) {
 		case MaterialEditMode::Inspector: DrawInspectorTab(doc, projectRoot); break;
@@ -1470,30 +1471,75 @@ void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& 
 	// AlwaysAutoResize (rather than a hand-computed fixed height) means the
 	// "Lights" checkbox row below the image can never end up clipped by a
 	// height guess that didn't leave quite enough room.
-	if (doc.editKind == MaterialEditKind::Custom) {
+	if (doc.currentMaterial) {
 		if (!doc.preview) doc.preview = std::make_unique<MaterialPreview>();
+		// Matches the project's actual renderer (Editor::UseDeferredGBuffer)
+		// so the preview's lighting - including Deferred-only effects like
+		// SSR - matches what the material really looks like in-game. Safe
+		// now that MaterialPreview::EnsureInit() sets
+		// DeferredRenderer::SetSkipRenderToScreen(true) on its own renderer:
+		// the actual engine-level bug (RenderScene()'s final composite pass
+		// unconditionally re-drawing to the literal screen framebuffer, so
+		// two DeferredRenderer instances - this preview's and the main
+		// viewport's - stomped each other whenever both rendered in the
+		// same frame) is fixed at the source instead of dodged by avoiding
+		// Deferred here.
 		doc.preview->EnsureInit(deferredGBuffer);
 		doc.preview->SyncFromDoc(doc, projectRoot);
 
+		// Fit the overlay to the space the Material Editor's own content
+		// area actually has, instead of drawing a fixed 220x220 wherever
+		// the top-right corner happens to be. It is a real top-level ImGui
+		// window (see the comment above for why it has to be) held at the
+		// display front every frame, so nothing clips it to its parent:
+		// once the editor's panel got smaller than the preview - shrinking
+		// the app, or dragging a dock splitter - the overlay simply carried
+		// on drawing past the panel's edges, over the Log/Assets panel
+		// below it and whatever else it reached. AlwaysAutoResize made that
+		// strictly worse: the window sized itself to its content, so a
+		// too-small panel could never push back on it.
 		const float margin = 8.f;
-		const float pw = (float)doc.preview->width;
-		ImGui::SetNextWindowPos(ImVec2(contentTopLeft.x + std::max(0.f, contentWidth - pw) - margin, contentTopLeft.y + margin), ImGuiCond_Always);
-		ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
-			| ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoSavedSettings
-			| ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoNav
-			| ImGuiWindowFlags_AlwaysAutoResize;
-		ImGui::Begin("##MaterialPreviewFloat", nullptr, flags);
-		// Being a real window (see the comment above) only fixes hover
-		// ownership if it's actually topmost - being freshly Begin()'d
-		// doesn't raise it in the display/hit-test order on its own, and
-		// this window is never "appearing" (NoFocusOnAppearing, same ID
-		// every frame) or clicked-to-focus (nothing here calls
-		// SetWindowFocus, which would steal keyboard focus from the
-		// node/text editor every single frame). BringWindowToDisplayFront
-		// reorders it for rendering/hit-testing only, every frame,
-		// independent of focus - exactly what's needed here.
-		ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
-		doc.preview->DrawAndUpdate();
-		ImGui::End();
+		const ImGuiStyle& style = ImGui::GetStyle();
+		// Room the image itself can take: the panel, less the margin on
+		// each side, less this window's own padding and the "Lights"
+		// checkbox row that sits under the image.
+		const float chromeX = style.WindowPadding.x * 2.f;
+		const float chromeY = style.WindowPadding.y * 2.f + ImGui::GetFrameHeight() + style.ItemSpacing.y;
+		const float maxImgW = contentWidth - 2.f * margin - chromeX;
+		const float maxImgH = contentHeight - 2.f * margin - chromeY;
+		// Quantized so a splitter drag doesn't rebuild the preview's FBOs
+		// on every single pixel of movement (MaterialPreview::RenderFrame
+		// resizes its renderer/effects to width/height every render).
+		int side = (int)std::min({ 220.f, maxImgW, maxImgH });
+		side -= side % 8;
+		// Below this there is nothing useful left to look at, and forcing
+		// it in would put us back to overflowing the panel - drop the
+		// overlay for as long as the panel stays that small.
+		if (side >= 64)
+		{
+			doc.preview->width = doc.preview->height = side;
+			const float winW = (float)side + chromeX;
+			const float winH = (float)side + chromeY;
+			ImGui::SetNextWindowPos(ImVec2(
+				contentTopLeft.x + std::max(margin, contentWidth - winW - margin),
+				contentTopLeft.y + margin), ImGuiCond_Always);
+			ImGui::SetNextWindowSize(ImVec2(winW, winH), ImGuiCond_Always);
+			ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
+				| ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoSavedSettings
+				| ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoNav;
+			ImGui::Begin("##MaterialPreviewFloat", nullptr, flags);
+			// Being a real window (see the comment above) only fixes hover
+			// ownership if it's actually topmost - being freshly Begin()'d
+			// doesn't raise it in the display/hit-test order on its own, and
+			// this window is never "appearing" (NoFocusOnAppearing, same ID
+			// every frame) or clicked-to-focus (nothing here calls
+			// SetWindowFocus, which would steal keyboard focus from the
+			// node/text editor every single frame). BringWindowToDisplayFront
+			// reorders it for rendering/hit-testing only, every frame,
+			// independent of focus - exactly what's needed here.
+			ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+			doc.preview->DrawAndUpdate();
+			ImGui::End();
+		}
 	}
 }

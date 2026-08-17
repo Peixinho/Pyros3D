@@ -1077,14 +1077,29 @@ void Editor::DrawUI()
 		sceneView->DrawUnsavedChangesModal();
 	}
 
+	// Run BEFORE the main viewport pass, same reasoning as ShowViewport()'s
+	// own RenderCameraPreview call ("run it before the viewport pass so
+	// PreRender below restores that state"): the Material Editor's live
+	// preview is a second offscreen render sharing the same GlobalMatrices
+	// UBO (and, when the project's renderer is Deferred, the same
+	// composite-always-targets-framebuffer-0 quirk - see
+	// DeferredRenderer.h's GetColorTexture() comment) as the main viewport.
+	// Rendering it first means DrawSceneViewWindow()'s own
+	// ResetViewPort()/SetViewPort()/PreRender() sequence unconditionally
+	// restores the correct camera/viewport state afterward, instead of the
+	// preview's leftover state bleeding into the main viewport, its gizmo,
+	// or its grid for the rest of this frame.
+	DrawMaterialEditorWindows();
+
 	if (showingSceneTree)
 		DrawSceneTreeWindow();
 
 	if (showingSceneView)
 		DrawSceneViewWindow();
+	else if (sceneView)
+		sceneView->NotifyViewportNotDrawn(); // panel closed entirely - same reasoning
 
 	DrawScriptEditorWindows();
-	DrawMaterialEditorWindows();
 
 	if (showingLog)
 		tabLog->Show();
@@ -1994,6 +2009,13 @@ void Editor::DrawSceneViewWindow()
 
 	if (!ImGui::Begin("Scene View", &showingSceneView, flags))
 	{
+		// Collapsed, or a background tab (the Material Editor docks into
+		// this same tab bar, so that happens constantly) - ShowViewport()
+		// will not run this frame, so the cached viewport rect the raw-SDL
+		// mouse handlers gate on is about to describe whatever window took
+		// the viewport's place. See SceneEditor::NotifyViewportNotDrawn().
+		if (sceneView)
+			sceneView->NotifyViewportNotDrawn();
 		ImGui::End();
 		return;
 	}

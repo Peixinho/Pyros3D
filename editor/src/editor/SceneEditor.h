@@ -103,6 +103,15 @@ class SceneEditor : public IUInterface {
 	virtual void Update(const f64 time);
 	virtual void Show();
 	void ShowViewport();
+	// Call for any frame in which ShowViewport() will NOT run - the Scene
+	// View panel is closed, collapsed, or a background tab (the Material
+	// Editor docks into the same tab bar, so this is the common case, not
+	// an edge one). ShowViewport() is the only thing that refreshes the
+	// cached viewport rect the raw-SDL mouse handlers gate on; left alone,
+	// that rect keeps describing where the viewport *used to be* - which is
+	// exactly where the window that replaced it now is - so scrolling or
+	// dragging inside the Material Editor kept driving the editor camera.
+	void NotifyViewportNotDrawn();
 	void ShowHierarchy();
 	virtual void ShowProperties();
 	virtual void ShowMenubarOptions();
@@ -465,6 +474,19 @@ private:
 	Vec2 viewportMouse;
 	bool viewportMouseValid;
 	bool viewportHovered;
+	// Whether Dear ImGui currently considers the viewport image itself the
+	// mouse's owner. The camera/gizmo/picking handlers below run off raw
+	// InputManager (SDL) events, which know nothing about ImGui's window
+	// stack, so without this they act on any event whose *coordinates* land
+	// in the cached viewportImgMin/Size rect - including events that ImGui
+	// has already routed to a window sitting on top of the viewport (the
+	// Material Editor and its floating preview overlay being the usual
+	// offenders: right-drag-panning the preview sphere also panned the
+	// editor camera, and the wheel zoomed both). Set once per frame from
+	// the viewport's own InvisibleButton, and IsItemActive() is folded in
+	// deliberately so a drag that *started* on the viewport keeps steering
+	// the camera after the cursor leaves it.
+	bool viewportInputAllowed;
 
         virtual void MouseWheel(Event::Input::Info e);
         virtual void MouseLeftRelease(Event::Input::Info e);

@@ -2728,15 +2728,55 @@ namespace p3d {
 			{
 				if (!IsPerObjectDynamicBinding(*bIt))
 					continue;
-				std::map<uint32, DeviceHandle>::iterator bufHandleIt = uniformBufferByBindingPoint.find(*bIt);
-				if (bufHandleIt == uniformBufferByBindingPoint.end())
-					continue;
-				std::map<DeviceHandle, BufferRecord>::iterator bufRecIt = buffers.find(bufHandleIt->second);
-				if (bufRecIt == buffers.end())
-					continue;
 				if (dynamicOffsetCount >= 16)
 					break;
-				dynamicOffsets[dynamicOffsetCount++] = (uint32_t)((VkDeviceSize)bufRecIt->second.currentSlot * bufRecIt->second.alignedSlotSize);
+				// The slot has to come from the buffer THIS program's
+				// descriptor was actually written against
+				// (writtenBindings, recorded by BindUniformBlockIfPresent),
+				// not from the global uniformBufferByBindingPoint registry.
+				// They are the same buffer only while one instance of a
+				// material type is alive. The moment a second one exists -
+				// the Material Editor's live preview building its own
+				// DeferredRenderer, whose CreateUniformBuffer() calls take
+				// over the registry entries for bindings 27/32/37 - the
+				// registry names the preview's buffer while the descriptor
+				// still (correctly, since 9e136c9) points at the Scene
+				// View's. Every Scene View draw then read its own buffer at
+				// the *preview's* current slot. The preview renders on
+				// alternating frames and not at all while its tab is in the
+				// background, so that slot index sits frozen, pinning the
+				// read to whatever was written there long ago - in practice
+				// the viewport size captured at startup. uScreenDimensions
+				// lives in those blocks, and
+				//     Texcoord = gl_FragCoord.xy / uScreenDimensions
+				// then runs past 1.0 everywhere beyond the stale size,
+				// where clamp-to-edge smears the last row/column over the
+				// rest of the viewport - the same visible failure as
+				// 9e136c9's descriptor collision, reached through the
+				// offset instead of the descriptor, and why that fix alone
+				// left it reappearing after any resize.
+				DeviceHandle bufHandle = 0;
+				std::map<uint32, DeviceHandle>::iterator writtenIt = progIt->second.writtenBindings.find(*bIt);
+				if (writtenIt != progIt->second.writtenBindings.end())
+					bufHandle = writtenIt->second;
+				else
+				{
+					// Never bound through BindUniformBlockIfPresent (the
+					// engine's genuinely shared UBOs go through the
+					// registry) - fall back to it.
+					std::map<uint32, DeviceHandle>::iterator bufHandleIt = uniformBufferByBindingPoint.find(*bIt);
+					if (bufHandleIt != uniformBufferByBindingPoint.end())
+						bufHandle = bufHandleIt->second;
+				}
+				// Always emit an entry, even when nothing resolves.
+				// pDynamicOffsets is matched positionally against the
+				// layout's dynamic descriptors, so skipping one shifts
+				// every later binding's offset onto the wrong block - a
+				// second, quieter corruption than the one above.
+				std::map<DeviceHandle, BufferRecord>::iterator bufRecIt = buffers.find(bufHandle);
+				dynamicOffsets[dynamicOffsetCount++] = (bufRecIt == buffers.end())
+					? 0u
+					: (uint32_t)((VkDeviceSize)bufRecIt->second.currentSlot * bufRecIt->second.alignedSlotSize);
 			}
 			vkCmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet,
 				dynamicOffsetCount, dynamicOffsetCount > 0 ? dynamicOffsets : NULL);
