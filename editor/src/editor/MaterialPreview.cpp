@@ -69,11 +69,21 @@ void MaterialPreview::BuildGBuffer(uint32_t w, uint32_t h) {
 	gbufferDepth->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 	gbufferAlbedo = new Texture();
-	gbufferAlbedo->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, w, h, false);
+	// RGBA16F, not RGBA8. These two carry the additive ambient+emissive
+	// term in their alpha channels (see secondpassAmbient.glsl), and an
+	// 8-bit UNORM alpha clamps that at 1.0 - which silently flattened
+	// the brightest parts of any emissive material. The normal target
+	// was already float for the same kind of reason.
+	gbufferAlbedo->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, w, h, false);
 	gbufferAlbedo->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 	gbufferSpecular = new Texture();
-	gbufferSpecular->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, w, h, false);
+	// RGBA16F, not RGBA8. These two carry the additive ambient+emissive
+	// term in their alpha channels (see secondpassAmbient.glsl), and an
+	// 8-bit UNORM alpha clamps that at 1.0 - which silently flattened
+	// the brightest parts of any emissive material. The normal target
+	// was already float for the same kind of reason.
+	gbufferSpecular->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, w, h, false);
 	gbufferSpecular->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 	gbufferNormal = new Texture();
@@ -236,6 +246,19 @@ void MaterialPreview::SyncFromDoc(const MaterialEditorDocument& doc, const std::
 	previewMaterial->AddUniform(p3d::Uniform("uTime", p3d::Uniforms::DataUsage::Timer));
 	previewMaterial->AddUniform(p3d::Uniform("uLights", p3d::Uniforms::DataUsage::Lights));
 	previewMaterial->AddUniform(p3d::Uniform("uNumberOfLights", p3d::Uniforms::DataUsage::NumberOfLights));
+	previewMaterial->AddUniform(p3d::Uniform("uDirectionalShadowMaps", p3d::Uniforms::DataUsage::DirectionalShadowMap));
+	previewMaterial->AddUniform(p3d::Uniform("uDirectionalDepthsMVP", p3d::Uniforms::DataUsage::DirectionalShadowMatrix));
+	previewMaterial->AddUniform(p3d::Uniform("uDirectionalShadowFar", p3d::Uniforms::DataUsage::DirectionalShadowFar));
+	previewMaterial->AddUniform(p3d::Uniform("uNumberOfDirectionalShadows", p3d::Uniforms::DataUsage::NumberOfDirectionalShadows));
+	previewMaterial->AddUniform(p3d::Uniform("uPointShadowMaps", p3d::Uniforms::DataUsage::PointShadowMap));
+	previewMaterial->AddUniform(p3d::Uniform("uPointDepthsMVP", p3d::Uniforms::DataUsage::PointShadowMatrix));
+	previewMaterial->AddUniform(p3d::Uniform("uNumberOfPointShadows", p3d::Uniforms::DataUsage::NumberOfPointShadows));
+	previewMaterial->AddUniform(p3d::Uniform("uSpotShadowMaps", p3d::Uniforms::DataUsage::SpotShadowMap));
+	previewMaterial->AddUniform(p3d::Uniform("uSpotDepthsMVP", p3d::Uniforms::DataUsage::SpotShadowMatrix));
+	previewMaterial->AddUniform(p3d::Uniform("uNumberOfSpotShadows", p3d::Uniforms::DataUsage::NumberOfSpotShadows));
+	// See the same call in ApplyGraphOrTextToLiveMaterial - this is the
+	// receive-side gate for BindShadowMaps(), not a casting flag.
+	previewMaterial->EnableCastingShadows();
 
 	// Sampler wiring - same source split as the live-apply path
 	// (MaterialEditor::ApplyGraphOrTextToLiveMaterial): NodeGraph mode walks

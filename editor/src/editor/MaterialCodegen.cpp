@@ -246,8 +246,15 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
 		"varying_out vec3 vNormal;\n"      // view-space - deferred G-buffer convention
 		"varying_out vec3 vNormalWorld;\n" // world-space - forward lighting convention
 		"varying_out vec4 vWorldPos;\n"
+		// View-space position, which is what the shadow matrices
+		// (uDirectionalDepthsMVP) are built to consume - see
+		// lighting.glsl's header note and PyrosShader.glsl's identical
+		// vWorldPositionShadow, whose name this keeps despite holding
+		// view space, so the two stay comparable.
+		"varying_out vec4 vWorldPositionShadow;\n"
 		"void main() {\n"
 		"\tvTexcoord = aTexcoord;\n"
+		"\tvWorldPositionShadow = uViewMatrix * uModelMatrix * vec4(aPosition, 1.0);\n"
 		"\tvNormal = (uViewMatrix * uModelMatrix * vec4(aNormal, 0.0)).xyz;\n"
 		"\tvNormalWorld = (uModelMatrix * vec4(aNormal, 0.0)).xyz;\n"
 		"\tvWorldPos = uModelMatrix * vec4(aPosition, 1.0);\n"
@@ -266,6 +273,25 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
 		"#ifndef DEFERRED_GBUFFER\n"
 		"uniform mat4 uLights[MAX_LIGHTS];\n"
 		"uniform int uNumberOfLights;\n"
+		// Directional shadow receiving. Forward only: under Deferred the
+		// light passes do their own PCF against the G-buffer
+		// (lighting.glsl / secondpass*.glsl), so a G-buffer-writing
+		// material gets shadows without knowing anything about them.
+		// Declared as plain uniforms rather than PyrosShader.glsl's
+		// UBO_BINDING/SAMPLER_BINDING blocks to match how uLights above
+		// is already declared here - IRenderer feeds all four through the
+		// per-material Uniforms::DataUsage path.
+		"uniform sampler2DShadow uDirectionalShadowMaps;\n"
+		"uniform mat4 uDirectionalDepthsMVP[4];\n"
+		"uniform vec4 uDirectionalShadowFar[4];\n"
+		"uniform int uNumberOfDirectionalShadows;\n"
+		"uniform samplerCube uPointShadowMaps[4];\n"
+		"uniform mat4 uPointDepthsMVP[8];\n"
+		"uniform int uNumberOfPointShadows;\n"
+		"uniform sampler2DShadow uSpotShadowMaps[4];\n"
+		"uniform mat4 uSpotDepthsMVP[4];\n"
+		"uniform int uNumberOfSpotShadows;\n"
+		"varying_in vec4 vWorldPositionShadow;\n"
 		"#endif\n"
 		"varying_in vec2 vTexcoord;\n"
 		"varying_in vec3 vNormal;\n"
@@ -280,7 +306,7 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
 		"#else\n"
 		"out vec4 FragColor;\n"
 		"\n"
-		"struct LIGHT { vec4 Color; vec3 Direction; vec3 Position; float Radius; vec2 Cones; float Type; };\n"
+		"struct LIGHT { vec4 Color; vec3 Direction; vec3 Position; float Radius; vec2 Cones; float Type; bool HaveShadowMap; float PCFTexelSize; int ShadowMap; };\n"
 		"void buildLightFromMatrix(mat4 Light, inout LIGHT L) {\n"
 		"\tL.Color = Light[0];\n"
 		"\tL.Position = vec3(Light[1][0], Light[1][1], Light[1][2]);\n"
@@ -288,7 +314,85 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
 		"\tL.Radius = Light[2][2];\n"
 		"\tL.Cones = vec2(Light[2][3], Light[3][0]);\n"
 		"\tL.Type = Light[3][1];\n"
+		// Same packing IRenderer writes and lighting.glsl reads: a
+		// negative shadow-map slot means this light has none.
+		"\tL.HaveShadowMap = (Light[3][3] >= 0.0);\n"
+		"\tL.PCFTexelSize = Light[3][2];\n"
+		// Which shadow map this light owns - point and spot only;
+		// directional has a single map and ignores it.
+		"\tL.ShadowMap = int(Light[3][3]);\n"
 		"}\n"
+		"#ifndef DEFERRED_GBUFFER\n"
+		// 4x4 PCF over the cascade, straight from PyrosShader.glsl's
+		// own PCFDIRECTIONAL - the modern (non-GLLEGACY) form, where
+		// texture() on a sampler2DShadow already returns the compared
+		// result.
+		"float PCFDirectional(mat4 sMatrix, float offX, float offY, float scale, vec4 pos, bool moreThanOneCascade) {\n"
+		"\tvec4 coord = sMatrix * pos;\n"
+		"\tif (moreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(offX, offY);\n"
+		"\tfloat shadow = 0.0;\n"
+		"\tfor (float y = -1.5; y <= 1.5; y += 1.0)\n"
+		"\t\tfor (float x = -1.5; x <= 1.5; x += 1.0)\n"
+		"\t\t\tshadow += texture(uDirectionalShadowMaps, coord.xyz + vec3(vec2(x, y) * scale, 0.0));\n"
+		"\treturn shadow / 16.0;\n"
+		"}\n"
+		// Cascade selection by view depth, mirroring PyrosShader.glsl's
+		// chain: uDirectionalShadowFar[0] is a single vec4 of the four
+		// cascade far distances, not a 4-element array.
+		"float DirectionalShadowFactor(LIGHT L) {\n"
+		"\tif (!L.HaveShadowMap || uNumberOfDirectionalShadows <= 0) return 1.0;\n"
+		"\tbool multi = (uDirectionalShadowFar[0].y > 0.0);\n"
+		"\tif (gl_FragCoord.z < uDirectionalShadowFar[0].x) return PCFDirectional(uDirectionalDepthsMVP[0], 0.0, 0.0, L.PCFTexelSize, vWorldPositionShadow, multi);\n"
+		"\telse if (gl_FragCoord.z < uDirectionalShadowFar[0].y) return PCFDirectional(uDirectionalDepthsMVP[1], 0.5, 0.0, L.PCFTexelSize, vWorldPositionShadow, multi);\n"
+		"\telse if (gl_FragCoord.z < uDirectionalShadowFar[0].z) return PCFDirectional(uDirectionalDepthsMVP[2], 0.0, 0.5, L.PCFTexelSize, vWorldPositionShadow, multi);\n"
+		"\telse if (gl_FragCoord.z < uDirectionalShadowFar[0].w) return PCFDirectional(uDirectionalDepthsMVP[3], 0.5, 0.5, L.PCFTexelSize, vWorldPositionShadow, multi);\n"
+		"\treturn 1.0;\n"
+		"}\n"
+		// Point and spot both sample element [0] of their sampler array
+		// and index only the *matrix* by the light's slot. That mirrors
+		// PyrosShader.glsl exactly, and is not an oversight worth
+		// "fixing" here: indexing a sampler array by a value that varies
+		// with the light loop is not a constant expression, which core
+		// GLSL 3.30 does not allow. Diverging would also make a custom
+		// material shadow differently from a Generic one.
+		"float PCFPoint(mat4 m1, mat4 m2, float scale, vec4 pos) {\n"
+		"\tvec4 position_ls = m2 * pos;\n"
+		"\tposition_ls.xyz /= position_ls.w;\n"
+		"\tvec4 abs_position = abs(position_ls);\n"
+		"\tfloat fs_z = -max(abs_position.x, max(abs_position.y, abs_position.z));\n"
+		"\tvec4 clip = m1 * vec4(0.0, 0.0, fs_z, 1.0);\n"
+		// m1 already carries the device's shadow-bias/projection remap,
+		// so no extra *0.5+0.5 here - see PyrosShader.glsl's PCFPOINT,
+		// where re-applying it double-transformed Vulkan's Z.
+		"\tfloat depth = clip.z / clip.w;\n"
+		"\tfloat shadow = 0.0;\n"
+		"\tfor (float y = -1.5; y <= 1.5; y += 1.0)\n"
+		"\t\tfor (float x = -1.5; x <= 1.5; x += 1.0)\n"
+		"\t\t\tshadow += (texture(uPointShadowMaps[0], position_ls.xyz + vec3(vec2(x, y) * scale, 0.0)).r >= depth) ? 1.0 : 0.0;\n"
+		"\treturn shadow / 16.0;\n"
+		"}\n"
+		// Single tap, matching PyrosShader.glsl's PCFSPOT - its 4x4 loop
+		// is commented out there, and widening it here would make spot
+		// shadows softer on custom materials than on Generic ones.
+		"float PCFSpot(mat4 sMatrix, float scale, vec4 pos) {\n"
+		"\tvec4 coord = sMatrix * pos;\n"
+		"\tcoord.xyz /= coord.w;\n"
+		"\treturn texture(uSpotShadowMaps[0], coord.xyz);\n"
+		"}\n"
+		// Slot clamped before use: nothing validates the packed index,
+		// and an out-of-range read of uPointDepthsMVP/uSpotDepthsMVP is
+		// undefined rather than merely wrong.
+		"float PointShadowFactor(LIGHT L) {\n"
+		"\tif (!L.HaveShadowMap || uNumberOfPointShadows <= 0) return 1.0;\n"
+		"\tint slot = clamp(L.ShadowMap, 0, 3);\n"
+		"\treturn PCFPoint(uPointDepthsMVP[slot * 2], uPointDepthsMVP[slot * 2 + 1], L.PCFTexelSize, vWorldPositionShadow);\n"
+		"}\n"
+		"float SpotShadowFactor(LIGHT L) {\n"
+		"\tif (!L.HaveShadowMap || uNumberOfSpotShadows <= 0) return 1.0;\n"
+		"\tint slot = clamp(L.ShadowMap, 0, 3);\n"
+		"\treturn PCFSpot(uSpotDepthsMVP[slot], L.PCFTexelSize, vWorldPositionShadow);\n"
+		"}\n"
+		"#endif\n"
 		"float Attenuation(vec3 Vertex, vec3 LightPosition, float Radius) {\n"
 		"\tif (Radius > 0.0) {\n"
 		"\t\tfloat d = distance(Vertex, LightPosition);\n"
@@ -359,10 +463,26 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
 	else
 		out << "\tvec3 normalOut = normalize(vNormal);\n";
 	out <<
-		"\tvec3 color = albedo * occlusion + emissive;\n"
-		"\tFragData_r = vec4(color, color.x * uAmbientLight.x);\n"
-		"\tFragData_g = vec4(1.0, 1.0, 1.0, color.y * uAmbientLight.y);\n"
-		"\tFragData_b = vec4(normalOut, color.z * uAmbientLight.z);\n"
+		// Emissive is NOT folded into the albedo channel. Whatever goes
+		// there is what the light passes multiply by N.L, so an emissive
+		// term packed into it gets attenuated - which is why an
+		// emissive-heavy material used to look bright under the forward
+		// renderer (where the branch below adds it after lighting) and
+		// dark under deferred. It rides in the three alpha channels
+		// instead: those carry one finished additive term that
+		// secondpassAmbient.glsl outputs as-is, so anything added here
+		// lands after lighting, matching forward. The ambient part gets
+		// albedo and (1-metallic) applied on this side for the same
+		// reason (see that shader's comment).
+		// Caveat worth knowing: the albedo and specular G-buffer targets
+		// are 8-bit UNORM, so emissive clamps at 1.0 in the R and G
+		// channels. Only B (on the RGBA32F normal target) keeps HDR
+		// range.
+		"\tvec3 litAlbedo = albedo * occlusion;\n"
+		"\tvec3 addTerm = litAlbedo * uAmbientLight.rgb + emissive;\n"
+		"\tFragData_r = vec4(litAlbedo, addTerm.x);\n"
+		"\tFragData_g = vec4(1.0, 1.0, 1.0, addTerm.y);\n"
+		"\tFragData_b = vec4(normalOut, addTerm.z);\n"
 		"\tFragData_pbr = vec4(roughness, metallic, 0.0, 0.0);\n"
 		"#else\n";
 	if (normalConnected)
@@ -380,17 +500,25 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
 		"\t\t\tvec3 Ldir = vec3(0.0);\n"
 		"\t\t\tfloat atten = 1.0;\n"
 		"\t\t\tfloat spotEffect = 1.0;\n"
+		// 1.0 = fully lit. Set per light type below; all three casters
+		// are handled, each against its own shadow map.
+		"\t\t\tfloat shadowFactor = 1.0;\n"
 		"\t\t\tif (L.Type == 1.0) {\n"
 		"\t\t\t\tLdir = normalize(-L.Direction);\n"
+		"\t\t\t\tshadowFactor = DirectionalShadowFactor(L);\n"
 		"\t\t\t} else if (L.Type == 2.0) {\n"
 		"\t\t\t\tLdir = normalize(L.Position - Position);\n"
 		"\t\t\t\tatten = Attenuation(Position, L.Position, L.Radius);\n"
+		// Only worth a shadow lookup where the light actually reaches,
+		// same gate PyrosShader.glsl uses.
+		"\t\t\t\tif (atten > 0.0) shadowFactor = PointShadowFactor(L);\n"
 		"\t\t\t} else if (L.Type == 3.0) {\n"
 		"\t\t\t\tLdir = normalize(L.Position - Position);\n"
 		"\t\t\t\tatten = Attenuation(Position, L.Position, L.Radius);\n"
 		"\t\t\t\tspotEffect = 1.0 - DualConeSpotLight(Position, L.Position, L.Direction, L.Cones.x, L.Cones.y);\n"
+		"\t\t\t\tif (atten > 0.0 && spotEffect > 0.0) shadowFactor = SpotShadowFactor(L);\n"
 		"\t\t\t}\n"
-		"\t\t\tpbrColor += CalculatePBRLighting(N, V, Ldir, L.Color.rgb, albedo, metallic, roughness) * atten * spotEffect;\n"
+		"\t\t\tpbrColor += CalculatePBRLighting(N, V, Ldir, L.Color.rgb, albedo, metallic, roughness) * atten * spotEffect * shadowFactor;\n"
 		"\t\t}\n"
 		"\t}\n"
 		"\tvec3 ambientPBR = albedo * occlusion * (1.0 - metallic) * uAmbientLight.rgb;\n"

@@ -108,8 +108,29 @@ protected:
 	void DrawSceneTreeWindow();
 	void DrawSceneViewWindow();
 	void DrawSceneTabBar();
+	// What an Assets tile shows for a .mat. A material's kind and edit mode
+	// are fixed at creation but only recorded inside the file, so the panel
+	// has to read it; parsing every .mat's JSON every frame would be silly,
+	// so results are cached and only re-read when the file's mtime moves.
+	enum class AssetMaterialKind { Unknown, Generic, CustomText, CustomNodes };
+	struct AssetMaterialInfo { AssetMaterialKind kind; long long mtime; };
+	std::map<std::string, AssetMaterialInfo> assetMaterialKinds;
+	AssetMaterialKind GetAssetMaterialKind(const std::string& absPath);
+
 	void DrawScriptEditorWindows();
 	void DrawMaterialEditorWindows();
+	// Closing a script or material tab with unsaved edits parks its id in
+	// one of these and opens the shared prompt instead of closing outright -
+	// both kinds close through the same "x on the tab" path, and both used
+	// to discard silently. Exactly one is non-zero at a time (the prompt is
+	// modal, so a second close cannot be requested while one is pending);
+	// 0 means nothing pending. Resolved by DrawUnsavedDocumentModal().
+	uint32 pendingCloseScriptId;
+	uint32 pendingCloseMaterialId;
+	// Queues a close, prompting first when the document is dirty.
+	void RequestCloseScriptDocument(CodeEditorDocument* doc, std::vector<uint32_t>& closeIds);
+	void RequestCloseMaterialDocument(MaterialEditorDocument* doc, std::vector<uint32_t>& closeIds);
+	void DrawUnsavedDocumentModal();
 	// Fills the Properties panel with the focused material document's
 	// property sheet (textures / settings / Generic inspector - see
 	// MaterialEditor::DrawProperties), returning true when it did. False

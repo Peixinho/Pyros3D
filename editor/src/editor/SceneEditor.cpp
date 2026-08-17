@@ -290,11 +290,21 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		gbufferDepth->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 		gbufferAlbedo = new Texture();
-		gbufferAlbedo->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, width, height, false);
+		// RGBA16F, not RGBA8. These two carry the additive ambient+emissive
+		// term in their alpha channels (see secondpassAmbient.glsl), and an
+		// 8-bit UNORM alpha clamps that at 1.0 - which silently flattened
+		// the brightest parts of any emissive material. The normal target
+		// was already float for the same kind of reason.
+		gbufferAlbedo->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, width, height, false);
 		gbufferAlbedo->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 		gbufferSpecular = new Texture();
-		gbufferSpecular->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, width, height, false);
+		// RGBA16F, not RGBA8. These two carry the additive ambient+emissive
+		// term in their alpha channels (see secondpassAmbient.glsl), and an
+		// 8-bit UNORM alpha clamps that at 1.0 - which silently flattened
+		// the brightest parts of any emissive material. The normal target
+		// was already float for the same kind of reason.
+		gbufferSpecular->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, width, height, false);
 		gbufferSpecular->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 		gbufferNormal = new Texture();
@@ -3879,6 +3889,43 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 	}
 
+	int SceneEditor::RefreshMaterialsFromGeneratedGlsl(const std::string& generatedGlslRel, const std::string& projectRoot,
+	                                                    bool deferredGBuffer, const std::set<IMaterial*>& skipMaterials)
+	{
+		if (!scene || generatedGlslRel.empty()) return 0;
+		int refreshed = 0;
+		std::set<IMaterial*> visited;
+		for (auto& goPtr : scene->GetAllGameObjectList())
+		{
+			GameObject* go = goPtr.get();
+			if (!go) continue;
+			RenderingComponent* rc = NULL;
+			for (auto& c : go->GetComponents())
+				if ((rc = dynamic_cast<RenderingComponent*>(c.get()))) break;
+			if (!rc) continue;
+			for (RenderingMesh* mesh : rc->GetMeshes(0))
+			{
+				auto* cm = dynamic_cast<CustomShaderMaterial*>(mesh->Material.get());
+				if (!cm || skipMaterials.count(cm) || visited.count(cm)) continue;
+				visited.insert(cm);
+				// GetShaderFile() may be stored absolute or project-relative
+				// depending on which path created the material, so compare on
+				// the tail rather than requiring one form.
+				const std::string file = cm->GetShaderFile();
+				if (file.empty()) continue;
+				if (file.size() < generatedGlslRel.size()
+					|| file.compare(file.size() - generatedGlslRel.size(), generatedGlslRel.size(), generatedGlslRel) != 0)
+					continue;
+				std::string err;
+				if (MaterialEditor::RecompileFromDisk(cm, projectRoot, deferredGBuffer, &err))
+					refreshed++;
+				else
+					echo("WARNING: could not refresh scene material from " + generatedGlslRel + ": " + err);
+			}
+		}
+		return refreshed;
+	}
+
 	bool SceneEditor::LoadSceneFromFile(const std::string &path)
 	{
 		if (path.size() == 0) return false;
@@ -4846,10 +4893,34 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					for (size_t m = 0; m < meshes.size(); ++m)
 					{
 						ImGui::PushID((int)m);
-						ImGui::Text("Submesh %zu", m);
+
+						// One collapsible section per submesh. These blocks
+						// are long (Edit Material, the shared Material
+						// Settings tree, the assign combo, New Material) and
+						// used to run together as one flat list, so with more
+						// than one submesh there was nothing to tell you which
+						// submesh the controls under your cursor belonged to.
+						// Only the first is open by default; the header names
+						// the material so the collapsed ones stay readable.
+						const char* headMatName = "(no material)";
 						if (meshes[m]->Material)
 						{
-							ImGui::SameLine();
+							if (auto* headCm = dynamic_cast<CustomShaderMaterial*>(meshes[m]->Material.get()))
+								headMatName = headCm->GetShaderFile().empty() ? "Custom Shader" : headCm->GetShaderFile().c_str();
+							else
+								headMatName = "Generic Shader";
+						}
+						char submeshHeader[320];
+						snprintf(submeshHeader, sizeof(submeshHeader), "Submesh %zu - %s###submesh_%zu", m, headMatName, m);
+						if (m == 0)
+							ImGui::SetNextItemOpen(true, ImGuiCond_FirstUseEver);
+						if (!ImGui::TreeNodeEx(submeshHeader, ImGuiTreeNodeFlags_Framed))
+						{
+							ImGui::PopID();
+							continue;
+						}
+						if (meshes[m]->Material)
+						{
 							if (ImGui::SmallButton("Edit Material") && hostEditMaterialInline)
 								hostEditMaterialInline(meshes[m]->Material,
 									ownerName + " / Submesh " + std::to_string(m));
@@ -5073,6 +5144,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						if (!propertiesMaterialAssignError.empty())
 							ImGui::TextColored(ImVec4(1.f, 0.4f, 0.35f, 1.f), "%s", propertiesMaterialAssignError.c_str());
 
+						ImGui::TreePop();
 						ImGui::PopID();
 					}
 				}

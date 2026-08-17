@@ -1259,6 +1259,18 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         #endif
 
         #ifdef DEFERRED_GBUFFER
+		// The three alpha channels together carry one finished, additive
+		// term that secondpassAmbient.glsl outputs as-is: the ambient
+		// contribution, already multiplied by albedo and by (1-metallic)
+		// here. It used to store only albedo*ambient and let that pass
+		// multiply by albedo a *second* time, which made every deferred
+		// surface's ambient albedo-SQUARED - 5x too dark at albedo 0.2, and
+		// the main reason a deferred scene looked so much darker than the
+		// same scene in forward. Doing the whole product on this side also
+		// leaves the slot able to carry a genuinely post-lighting term,
+		// which is what the Material Editor's custom materials add their
+		// emissive to (see MaterialCodegen.cpp); a Generic material has no
+		// emissive input, so it contributes nothing extra here.
 		FragData_r=vec4(diffuse.xyz,diffuse.x*uAmbientLight.x);
 		// RGB is the second pass's F0 *tint*, not a Blinn-Phong specular
 		// colour any more (nothing ever read these three channels before -

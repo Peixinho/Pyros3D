@@ -157,6 +157,16 @@ public:
 	// otherwise keep rendering with a stale/wrong one.
 	void RecompileOrphanedCustomMaterials(const std::string& projectRoot, bool deferredGBuffer,
 	                                      const std::set<p3d::IMaterial*>& skipMaterials);
+	// Recompile just the scene materials generated from `generatedGlslRel`,
+	// so editing a material in the Material Editor immediately shows on the
+	// objects already using it. Without this an edit only reached the
+	// document's own material instance, and anything that got its own copy -
+	// notably every material rebuilt by SceneSerializer on scene load - kept
+	// the old shader until it was re-assigned to the mesh by hand. Matches
+	// on CustomShaderMaterial::GetShaderFile(), which is the only durable
+	// link back to the .mat that produced it. Returns how many it refreshed.
+	int RefreshMaterialsFromGeneratedGlsl(const std::string& generatedGlslRel, const std::string& projectRoot,
+	                                      bool deferredGBuffer, const std::set<p3d::IMaterial*>& skipMaterials);
 	const std::string &GetScenePath() const { return scenePath; }
 	bool IsSceneDirty() const { return sceneDirty; }
 	void MarkSceneDirty() { sceneDirty = true; }

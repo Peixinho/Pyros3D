@@ -134,6 +134,8 @@ Editor::Editor() : ClassName(1024,768,"PyrosBuilder",WindowType::Close | WindowT
 	activeMaterialDoc = NULL;
 	nextMaterialDocId = 1;
 	pendingSelectMaterialDocId = 0;
+	pendingCloseScriptId = 0;
+	pendingCloseMaterialId = 0;
 }
 
 #ifdef LUA_BINDINGS
@@ -1153,6 +1155,10 @@ void Editor::DrawUI()
 	if (showingAssets)
 		DrawAssetsWindow();
 
+	// After every document window, so the ids parked by their close buttons
+	// this frame are resolved while those documents are still alive.
+	DrawUnsavedDocumentModal();
+
     ImGui::EndFrame();
     ImGui::Render();
 	// On Vulkan and Metal the draw data is consumed inside the device's
@@ -1924,7 +1930,7 @@ void Editor::DrawScriptEditorWindows()
 		{
 			ImGui::End();
 			if (!open)
-				closeIds.push_back(doc->id);
+				RequestCloseScriptDocument(doc, closeIds);
 			continue;
 		}
 
@@ -1976,7 +1982,7 @@ void Editor::DrawScriptEditorWindows()
 		ImGui::End();
 
 		if (!open)
-			closeIds.push_back(doc->id);
+			RequestCloseScriptDocument(doc, closeIds);
 	}
 	for (size_t i = 0; i < closeIds.size(); ++i)
 		CloseLuaScriptDocument(closeIds[i]);
@@ -1997,7 +2003,35 @@ void Editor::DrawMaterialEditorWindows()
 	for (size_t i = 0; i < materialDocs.size(); ++i)
 	{
 		MaterialEditorDocument* doc = materialDocs[i];
-		if (!doc || doc->hiddenFromTabs) continue;
+		if (!doc) continue;
+
+		// Push a freshly applied shader out to the objects already using
+		// this material. Polled rather than called from the Apply sites,
+		// because Apply is reached from three of them (the toolbar's Save,
+		// the debounced auto-apply in DrawWindow, and the agent's
+		// apply_material) and none should have to know the scene exists -
+		// same reason MaterialPreview polls applyGeneration. Runs before the
+		// hiddenFromTabs skip below so a quietly-loaded document, which is
+		// exactly what an agent-driven or Assign-material flow produces,
+		// propagates too.
+		if (doc->applyGeneration != doc->sceneSyncedApplyGeneration)
+		{
+			doc->sceneSyncedApplyGeneration = doc->applyGeneration;
+			if (sceneView && !doc->generatedGlslPath.empty())
+			{
+				// The document's own material is already up to date - Apply
+				// swapped its shader in place - and recompiling it here
+				// would throw away doc.compiledShader's ownership.
+				std::set<IMaterial*> skip;
+				if (doc->currentMaterial) skip.insert(doc->currentMaterial.get());
+				const int n = sceneView->RefreshMaterialsFromGeneratedGlsl(
+					doc->generatedGlslPath, project.GetProjectPath(), UseDeferredGBuffer(), skip);
+				if (n > 0)
+					echo("Updated " + std::to_string(n) + " scene material(s) from " + doc->generatedGlslPath);
+			}
+		}
+
+		if (doc->hiddenFromTabs) continue;
 
 		char title[512];
 		snprintf(title, sizeof(title), u8" %s###material_win_%u", doc->displayName.c_str(), doc->id);
@@ -2020,7 +2054,7 @@ void Editor::DrawMaterialEditorWindows()
 		{
 			ImGui::End();
 			if (!open)
-				closeIds.push_back(doc->id);
+				RequestCloseMaterialDocument(doc, closeIds);
 			continue;
 		}
 
@@ -2037,10 +2071,161 @@ void Editor::DrawMaterialEditorWindows()
 		ImGui::End();
 
 		if (!open)
-			closeIds.push_back(doc->id);
+			RequestCloseMaterialDocument(doc, closeIds);
 	}
 	for (size_t i = 0; i < closeIds.size(); ++i)
 		CloseMaterialDocument(closeIds[i]);
+}
+
+Editor::AssetMaterialKind Editor::GetAssetMaterialKind(const std::string& absPath)
+{
+	long long mtime = 0;
+	std::error_code ec;
+	const fs::file_time_type ft = fs::last_write_time(absPath, ec);
+	if (!ec)
+		mtime = (long long)ft.time_since_epoch().count();
+
+	std::map<std::string, AssetMaterialInfo>::iterator it = assetMaterialKinds.find(absPath);
+	if (it != assetMaterialKinds.end() && it->second.mtime == mtime)
+		return it->second.kind;
+
+	AssetMaterialInfo info;
+	info.mtime = mtime;
+	info.kind = AssetMaterialKind::Unknown;
+	try
+	{
+		std::ifstream f(absPath);
+		if (f)
+		{
+			nlohmann::json j;
+			f >> j;
+			const std::string kind = j.value("kind", std::string());
+			if (kind == "generic")
+				info.kind = AssetMaterialKind::Generic;
+			else if (kind == "custom")
+				info.kind = (j.value("editMode", std::string()) == "text")
+					? AssetMaterialKind::CustomText : AssetMaterialKind::CustomNodes;
+		}
+	}
+	catch (...)
+	{
+		// A malformed or half-written .mat just shows the neutral icon -
+		// the Assets panel is not the place to report parse errors.
+	}
+	assetMaterialKinds[absPath] = info;
+	return info.kind;
+}
+
+void Editor::RequestCloseScriptDocument(CodeEditorDocument* doc, std::vector<uint32_t>& closeIds)
+{
+	if (!doc) return;
+	if (!doc->dirty) { closeIds.push_back(doc->id); return; }
+	pendingCloseScriptId = doc->id;
+	ImGui::OpenPopup("Unsaved Document");
+}
+
+void Editor::RequestCloseMaterialDocument(MaterialEditorDocument* doc, std::vector<uint32_t>& closeIds)
+{
+	if (!doc) return;
+	if (!doc->dirty) { closeIds.push_back(doc->id); return; }
+	pendingCloseMaterialId = doc->id;
+	ImGui::OpenPopup("Unsaved Document");
+}
+
+// Shared Save / Don't Save / Cancel prompt for a dirty script or material tab
+// being closed. Modelled on SceneEditor::DrawUnsavedChangesModal(), which
+// already guards the scene the same way - closing a *document* was the one
+// path left that threw edits away without asking.
+void Editor::DrawUnsavedDocumentModal()
+{
+	if (pendingCloseScriptId == 0 && pendingCloseMaterialId == 0)
+		return;
+
+	// Resolve the pending id to a live document every frame rather than
+	// caching a pointer: this prompt spans frames, and anything that closes
+	// documents underneath it (project close, quit) would leave that pointer
+	// dangling. A document that vanished simply cancels the prompt.
+	CodeEditorDocument* script = NULL;
+	MaterialEditorDocument* material = NULL;
+	if (pendingCloseScriptId != 0)
+		for (size_t i = 0; i < scriptDocs.size(); ++i)
+			if (scriptDocs[i] && scriptDocs[i]->id == pendingCloseScriptId) { script = scriptDocs[i]; break; }
+	if (pendingCloseMaterialId != 0)
+		for (size_t i = 0; i < materialDocs.size(); ++i)
+			if (materialDocs[i] && materialDocs[i]->id == pendingCloseMaterialId) { material = materialDocs[i]; break; }
+	if (!script && !material)
+	{
+		pendingCloseScriptId = 0;
+		pendingCloseMaterialId = 0;
+		return;
+	}
+
+	ImGuiViewport* vp = ImGui::GetMainViewport();
+	if (vp)
+		ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+	if (ImGui::BeginPopupModal("Unsaved Document", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		const std::string name = script ? script->displayName : material->displayName;
+		ImGui::Text("Save changes to '%s' before closing?", name.c_str());
+		ImGui::TextDisabled("%s", script ? "Script has unsaved edits." : "Material has unsaved edits.");
+		ImGui::Spacing();
+
+		if (ImGui::Button("Save", ImVec2(110, 0)))
+		{
+			bool saved = false;
+			if (script)
+			{
+				saved = script->SaveToFile();
+				if (saved)
+				{
+					script->dirty = false;
+					echo("SUCCESS: Saved " + script->absolutePath);
+				}
+				else
+					echo("ERROR: Failed to save " + script->absolutePath);
+			}
+			else
+			{
+				// Same fallback DrawToolbar's own Save button uses for a
+				// material that has never been written anywhere yet.
+				std::string path = material->absolutePath;
+				if (path.empty())
+					path = project.AbsolutePath("assets/materials/" + material->materialName + ".mat");
+				saved = MaterialEditor::SaveToFile(*material, path, project.GetProjectPath(), UseDeferredGBuffer());
+				if (!saved)
+					material->lastApplyError = "Could not save to " + path;
+			}
+
+			// Only close once the edits are actually on disk - a failed save
+			// leaves the document open rather than discarding what it holds.
+			if (saved)
+			{
+				if (script) CloseLuaScriptDocument(pendingCloseScriptId);
+				else CloseMaterialDocument(pendingCloseMaterialId);
+				pendingCloseScriptId = 0;
+				pendingCloseMaterialId = 0;
+				ImGui::CloseCurrentPopup();
+			}
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Don't Save", ImVec2(110, 0)))
+		{
+			if (script) CloseLuaScriptDocument(pendingCloseScriptId);
+			else CloseMaterialDocument(pendingCloseMaterialId);
+			pendingCloseScriptId = 0;
+			pendingCloseMaterialId = 0;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", ImVec2(110, 0)))
+		{
+			pendingCloseScriptId = 0;
+			pendingCloseMaterialId = 0;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
 }
 
 bool Editor::DrawActiveMaterialProperties()
@@ -2305,13 +2490,29 @@ void Editor::DrawAssetsWindow()
 		const bool isMat = ProjectManager::IsMaterialExtension(e.relativePath);
 		const bool selected = (selectedAssetRel == e.relativePath);
 
+		// Materials get an icon per kind, plus a corner badge below - the
+		// glyph alone reads as "some material" at 28px, and which authoring
+		// mode a material uses is fixed at creation and cannot be told apart
+		// any other way without opening it.
+		// One palette icon for every material - the kind is carried by the
+		// badge below, not by the glyph, so materials stay visually one
+		// family in the grid.
+		const AssetMaterialKind matKind = isMat ? GetAssetMaterialKind(abs) : AssetMaterialKind::Unknown;
+		const char* matBadge = NULL;
+		if (isMat)
+		{
+			if (matKind == AssetMaterialKind::CustomText) matBadge = "GLSL";
+			else if (matKind == AssetMaterialKind::CustomNodes) matBadge = "NODES";
+			else if (matKind == AssetMaterialKind::Generic) matBadge = "GENERIC";
+		}
+
 		const char* typeIcon = isScene ? u8"\uf1c0"
 			: (isModel ? u8"\uf1b2"
 			: (isSound ? u8"\uf028"
 			: (isTex ? u8"\uf03e"
 			: (isLua ? u8"\uf121"
 			: (ProjectManager::IsShaderExtension(e.relativePath) ? u8"\uf0eb"
-			: (ProjectManager::IsMaterialExtension(e.relativePath) ? u8"\uf53f"
+			: (isMat ? u8"\uf53f"
 			: u8"\uf15b"))))));
 
 		if (col > 0)
@@ -2378,6 +2579,28 @@ void Editor::DrawAssetsWindow()
 				ImVec2(thumbMin.x + (thumbMax.x - thumbMin.x - isz.x) * 0.5f,
 					thumbMin.y + (thumbMax.y - thumbMin.y - isz.y) * 0.5f),
 				ImGui::GetColorU32(ImGuiCol_Text), typeIcon);
+
+			// Kind badge along the bottom of the thumb area. Spelled out
+			// rather than relying on the glyph alone, which is the whole
+			// point - telling a node-graph material from a text one at a
+			// glance.
+			if (matBadge)
+			{
+				const float badgeH = 12.f;
+				const ImVec2 bsz = font->CalcTextSizeA(badgeH, FLT_MAX, 0.f, matBadge);
+				const ImVec2 bpos(thumbMin.x + (thumbMax.x - thumbMin.x - bsz.x) * 0.5f,
+					thumbMax.y - badgeH - 1.f);
+				dl->AddRectFilled(ImVec2(bpos.x - 3.f, bpos.y - 1.f),
+					ImVec2(bpos.x + bsz.x + 3.f, bpos.y + badgeH + 1.f),
+					ImGui::GetColorU32(ImVec4(0.f, 0.f, 0.f, 0.55f)), 3.f);
+				dl->AddText(font, badgeH, bpos,
+					ImGui::GetColorU32(matKind == AssetMaterialKind::Generic
+						? ImVec4(0.75f, 0.85f, 1.f, 1.f)
+						: (matKind == AssetMaterialKind::CustomText
+							? ImVec4(1.f, 0.85f, 0.5f, 1.f)
+							: ImVec4(0.6f, 1.f, 0.75f, 1.f))),
+					matBadge);
+			}
 		}
 
 		const char* name = e.name.c_str();

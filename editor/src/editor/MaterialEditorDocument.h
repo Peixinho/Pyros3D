@@ -143,6 +143,13 @@ struct MaterialEditorDocument {
 	// MaterialPreview polls it to lazily recompile its own Forward-only
 	// copy of the shader (no callback/hook needed at the Apply call sites).
 	uint32_t applyGeneration = 0;
+	// Last applyGeneration already pushed out to the objects in the open
+	// scene that use this material - see Editor::DrawMaterialEditorWindows.
+	// Polled the same way MaterialPreview polls applyGeneration, and for the
+	// same reason: Apply is reached from the toolbar's Save, the debounced
+	// auto-apply and the agent command, and none of them should have to know
+	// the scene exists.
+	uint32_t sceneSyncedApplyGeneration = 0;
 
 	// Live sphere preview (Custom kind only), lazily constructed by
 	// MaterialEditor::DrawWindow. Forward-declared here; complete type

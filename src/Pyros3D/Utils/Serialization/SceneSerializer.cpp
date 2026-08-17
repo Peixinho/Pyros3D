@@ -1239,6 +1239,42 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		else mat->DisableDethBias();
 	}
 
+	// Material-Editor-generated shaders written before emissive was moved out
+	// of the G-buffer's albedo channel. The old form packed `albedo + emissive`
+	// into FragData_r.rgb - which the deferred light passes then multiply by
+	// N.L - and derived the ambient alphas from that same sum, so a material's
+	// *emissive* ended up scaled by the scene's ambient colour. Turning the
+	// ambient red made such a material's glow go red under Deferred while
+	// Forward, which adds emissive after lighting, did not budge; that
+	// mismatch is exactly what this removes.
+	//
+	// Only reachable for materials with no recoverable .mat - those are the
+	// ones a scene bakes a copy of the generated GLSL into (see the
+	// shaderFile vs shaderSource branch below), and there is nothing left to
+	// regenerate them from. Anything applied since records a shaderFile and
+	// is recompiled from that instead. The pattern is text MaterialCodegen
+	// emitted verbatim, so this either matches wholesale or does nothing.
+	static std::string UpgradeGeneratedGBufferWrite(const std::string &src)
+	{
+		static const std::string kOld =
+			"\tvec3 color = albedo * occlusion + emissive;\n"
+			"\tFragData_r = vec4(color, color.x * uAmbientLight.x);\n"
+			"\tFragData_g = vec4(1.0, 1.0, 1.0, color.y * uAmbientLight.y);\n"
+			"\tFragData_b = vec4(normalOut, color.z * uAmbientLight.z);\n";
+		static const std::string kNew =
+			"\tvec3 litAlbedo = albedo * occlusion;\n"
+			"\tvec3 addTerm = litAlbedo * uAmbientLight.rgb + emissive;\n"
+			"\tFragData_r = vec4(litAlbedo, addTerm.x);\n"
+			"\tFragData_g = vec4(1.0, 1.0, 1.0, addTerm.y);\n"
+			"\tFragData_b = vec4(normalOut, addTerm.z);\n";
+		const size_t at = src.find(kOld);
+		if (at == std::string::npos) return src;
+		std::string out = src;
+		out.replace(at, kOld.size(), kNew);
+		echo("SceneSerializer: upgraded a baked custom shader to the current G-buffer emissive layout");
+		return out;
+	}
+
 	static std::shared_ptr<IMaterial> BuildMaterial(const json &j, std::map<std::string, std::shared_ptr<Texture>> &textureCache, LoadedSceneAssets* outAssets)
 	{
 		std::string kind = j.value("kind", "unsupported");
@@ -1298,7 +1334,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 #if defined(EMSCRIPTEN)
 				define += std::string("#define EMSCRIPTEN\n");
 #endif
-				s->LoadShaderText(j["shaderSource"].get<std::string>());
+				s->LoadShaderText(UpgradeGeneratedGBufferWrite(j["shaderSource"].get<std::string>()));
 				s->CompileShader(ShaderType::VertexShader, std::string("#define VERTEX\n") + define);
 				s->CompileShader(ShaderType::FragmentShader, std::string("#define FRAGMENT\n") + define);
 				s->LinkProgram();

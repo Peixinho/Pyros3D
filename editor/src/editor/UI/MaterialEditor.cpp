@@ -450,6 +450,15 @@ bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc,
 	cm->SetShader(newShader.get());
 	doc.compiledShader = std::move(newShader);
 	cm->MarkShaderBranch(deferredGBuffer);
+	// Record where this shader came from. The material is compiled here, not
+	// by CustomShaderMaterial's file constructor, so ShaderFilePath would
+	// otherwise stay empty and SceneSerializer would fall back to embedding a
+	// snapshot of the shader text (see its `shaderFile` vs `shaderSource`
+	// branch). That snapshot is exactly why a saved scene stopped tracking
+	// later edits to the .mat: its objects kept recompiling their frozen
+	// copy, and the material had to be re-assigned by hand to pick anything
+	// up. Project-relative, so the scene stays portable.
+	cm->SetShaderFile(doc.generatedGlslPath);
 
 	// Fixed uniform set, always (re-)issued. SendUniform silently skips any
 	// name the active shader doesn't declare (GetUniformLocation returns -1
@@ -465,6 +474,26 @@ bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc,
 	// GetUniformLocation()==-1 guard skips them).
 	cm->AddUniform(Uniform("uLights", Uniforms::DataUsage::Lights));
 	cm->AddUniform(Uniform("uNumberOfLights", Uniforms::DataUsage::NumberOfLights));
+	// Directional shadow receiving (Forward branch of the generated shader).
+	// SendUniform skips names the active program does not declare, so these
+	// are harmless under Deferred, where the light passes shadow the
+	// G-buffer themselves.
+	cm->AddUniform(Uniform("uDirectionalShadowMaps", Uniforms::DataUsage::DirectionalShadowMap));
+	cm->AddUniform(Uniform("uDirectionalDepthsMVP", Uniforms::DataUsage::DirectionalShadowMatrix));
+	cm->AddUniform(Uniform("uDirectionalShadowFar", Uniforms::DataUsage::DirectionalShadowFar));
+	cm->AddUniform(Uniform("uNumberOfDirectionalShadows", Uniforms::DataUsage::NumberOfDirectionalShadows));
+	cm->AddUniform(Uniform("uPointShadowMaps", Uniforms::DataUsage::PointShadowMap));
+	cm->AddUniform(Uniform("uPointDepthsMVP", Uniforms::DataUsage::PointShadowMatrix));
+	cm->AddUniform(Uniform("uNumberOfPointShadows", Uniforms::DataUsage::NumberOfPointShadows));
+	cm->AddUniform(Uniform("uSpotShadowMaps", Uniforms::DataUsage::SpotShadowMap));
+	cm->AddUniform(Uniform("uSpotDepthsMVP", Uniforms::DataUsage::SpotShadowMatrix));
+	cm->AddUniform(Uniform("uNumberOfSpotShadows", Uniforms::DataUsage::NumberOfSpotShadows));
+	// Misleadingly named: IMaterial's flag is what gates
+	// IRenderer::BindShadowMaps(), i.e. whether this draw gets the shadow
+	// maps bound at all. Without it the samplers above are never given a
+	// unit and the lookup reads nothing. Casting is decided per object by
+	// RenderingComponent::EnableCastShadows(), not here.
+	cm->EnableCastingShadows();
 
 	WireSamplers(cm, samplerList, projectRoot);
 
@@ -714,7 +743,17 @@ static void DrawGenericMaterialInspector(MaterialEditorDocument& doc, const std:
 	CHK(EnvMap, "Env Map");
 	CHK(Refraction, "Refract");
 	ImGui::Separator();
-	CHK(CastShadows, "Cast Shadows");
+	// ShaderUsage::CastShadows is deliberately NOT offered here. It is not
+	// "this material casts shadows" - it selects the shadow-*depth* program,
+	// whose fragment path ends at `diffuse = vec4(gl_FragCoord.z,0,0,1)`
+	// (PyrosShader.glsl's CASTSHADOWS branch), so setting it on a surface
+	// material just makes it render its own depth as red. The engine builds
+	// its own materials with that flag (IRenderer's constructor) and
+	// PickShadowMaterial() substitutes them for casters; a user material
+	// never wants it. What decides whether an object casts is
+	// RenderingComponent::EnableCastShadows(), per object, not per material.
+	// The three below are the receive side and do belong here - they add the
+	// PCF lookup to this material's lighting.
 	CHK(DirectionalShadow, "Dir Shadow");
 	CHK(PointShadow, "Point Shadow");
 	CHK(SpotShadow, "Spot Shadow");
@@ -1026,6 +1065,15 @@ static void DrawTextEditorTab(MaterialEditorDocument& doc, const std::string& pr
 		SetupGlslEditor(doc.codeDoc);
 		doc.codeDoc->editor.SetText(doc.simpleShaderText.empty() ? kDefaultSimpleShaderText : doc.simpleShaderText);
 	}
+
+	// Same vim toggle + mode indicator the Lua script editor puts above its
+	// own buffer (Editor::DrawScriptEditorWindows). Both editors are the
+	// same CodeEditorDocument driven the same way, so leaving this out here
+	// just meant the material's GLSL buffer was silently in whatever mode
+	// vimEnabled happened to default to, with no way to see it or change it.
+	ImGui::Checkbox("Vim", &doc.codeDoc->vimEnabled);
+	ImGui::SameLine();
+	doc.codeDoc->DrawVimStatus();
 
 	// No manual Save Shader button - MaterialEditor::DrawWindow debounce-
 	// applies this text to the live material automatically as it changes.
@@ -1526,18 +1574,31 @@ void MaterialEditor::DrawProperties(MaterialEditorDocument& doc, const std::stri
 	ImGui::TextDisabled("%s", doc.editKind == MaterialEditKind::Generic ? "Generic Shader" : "Custom Shader");
 	ImGui::Separator();
 
+	// Each section gets its own ID scope. These sections were written as
+	// separate panels and independently use some of the same widget labels -
+	// "Cast Shadows" is both a ShaderUsage permutation flag under Shader
+	// Options and the material's own runtime flag under Rendering - which,
+	// now that they share one window, is two visible items with the same
+	// ImGui ID. That is not just a debug warning: same ID means they share
+	// hover/active state, so clicking one can drive the other.
 	if (doc.editKind == MaterialEditKind::Generic) {
+		ImGui::PushID("generic_inspector");
 		DrawGenericMaterialInspector(doc, projectRoot);
+		ImGui::PopID();
 		ImGui::Separator();
 	} else if (doc.editMode == MaterialEditMode::Text) {
 		// Node Graph mode deliberately has no equivalent section: its
 		// textures are Texture *nodes* on the canvas, wired into the graph,
 		// not a flat list of named sampler inputs.
+		ImGui::PushID("text_textures");
 		DrawTextTextureInputs(doc, projectRoot);
+		ImGui::PopID();
 		ImGui::Separator();
 	}
 
+	ImGui::PushID("material_settings");
 	DrawCommonMaterialSettings(doc, doc.currentMaterial.get());
+	ImGui::PopID();
 }
 
 void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer) {

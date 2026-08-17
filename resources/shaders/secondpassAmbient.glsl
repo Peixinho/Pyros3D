@@ -66,11 +66,20 @@ void main() {
 	ambient.y = texture_2D(tSpecular, vec2(Texcoord.x,Texcoord.y)).w;
 	ambient.z = texture_2D(tNormal, vec2(Texcoord.x,Texcoord.y)).w;
 
-	vec3 color = texture_2D(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
-	// Metals get no ambient diffuse response - matches PyrosShader.glsl's
-	// forward-path ambientPBR placeholder (kD's (1-metallic) scaling).
+	// The alpha channels already hold albedo * uAmbientLight (each
+	// G-buffer writer multiplies its own albedo in). Applying `* color`
+	// on top of that - which this did - made deferred ambient come out
+	// albedo-SQUARED: 5x too dark at albedo 0.2, and most of why a
+	// deferred scene looked so much darker than the same scene in
+	// forward. Only that second multiply is dropped; (1-metallic) stays
+	// here, which deliberately keeps the *existing* packing valid - any
+	// shader already generated or embedded in a saved scene keeps
+	// meaning exactly what it did, it just stops being squared.
+	// Custom materials additionally fold their emissive into these
+	// channels (see MaterialCodegen.cpp), which is what gets emissive
+	// ADDED after lighting here rather than packed into albedo and then
+	// attenuated by N.L the way it used to be.
 	float metallic = texture_2D(tMetallicRoughness, vec2(Texcoord.x,Texcoord.y)).g;
-
-	FragColor=vec4(ambient * color * (1.0 - metallic), 1.0);
+	FragColor=vec4(ambient * (1.0 - metallic), 1.0);
 }
 #endif

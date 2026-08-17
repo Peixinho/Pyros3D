@@ -59,6 +59,16 @@ namespace p3d
 		// treat an empty string as "can't be saved/reconstructed".
 		const std::string &GetShaderFile() const { return ShaderFilePath; }
 
+		// Records where the shader source lives for a material whose Shader*
+		// was compiled by the caller rather than by the file constructor -
+		// the Material Editor, which compiles its generated GLSL itself and
+		// hands over the linked program. Without this such a material looks
+		// path-less, so SceneSerializer embeds a *copy* of the shader text in
+		// the scene, and from then on every edit of the .mat stops reaching
+		// the objects using it: they keep recompiling their frozen copy.
+		// Store it project-relative so the scene stays portable.
+		void SetShaderFile(const std::string &path) { ShaderFilePath = path; }
+
 		// The underlying Shader* itself - needed so a path-less material
 		// (built from a raw Shader*) can still fall back to embedding
 		// Shader::GetShaderText()'s real cached source.

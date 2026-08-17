@@ -371,6 +371,16 @@ bool ProjectManager::IsInternalAssetPath(const std::string& relativePath)
 	if (rel.find("assets/models/") == 0 && !IsP3dm(rel))
 		return true;
 
+	// The Material Editor's codegen output. <name>.generated.glsl sits beside
+	// the .mat that produced it, is rewritten wholesale on every Apply, and
+	// nothing in the editor can open it - so it is an artifact of the
+	// material, not an asset in its own right, and listing it only showed
+	// every material twice. Deliberately scoped to assets/materials/: a
+	// hand-written shader imported into assets/shaders/ is a real asset and
+	// still shows.
+	if (rel.find("assets/materials/") == 0 && IsShaderExtension(rel))
+		return true;
+
 	return false;
 }
 
