@@ -557,6 +557,31 @@ namespace p3d {
 
 	void DeferredRenderer::Resize(const uint32 &Width, const uint32 &Height)
 	{
+		// Nothing below has anything to do when the size has not actually
+		// changed, and all of it is expensive: a full device->WaitIdle()
+		// stall, a bind+clear of previousFrameFBO, and a mip-chain
+		// regeneration. That matters because this is not only called on a
+		// real resize - SceneEditor::ShowViewport() calls it every single
+		// frame (unconditionally, the same way it calls ResetViewPort()/
+		// SetViewPort()), so the editor paid all three every frame at a
+		// measured median of ~7-8ms, about half a 60Hz frame budget. Worse
+		// than the stall, the unconditional clear below threw away
+		// previousFrameColorTexture - the previous frame's composite, which
+		// is exactly what SSR reprojects from - so the editor's Deferred
+		// viewport could never accumulate a frame of SSR history at all.
+		//
+		// IRenderer::Resize() still runs on every call: it is pure CPU
+		// bookkeeping (Width/Height, the non-custom viewport extent) plus
+		// Reset()'s depth-state defaults, and the per-frame caller has
+		// always got that side effect - ForwardRenderer, which does not
+		// override this, gets it on every frame too. Only the GPU work
+		// below is gated.
+		if (this->Width == Width && this->Height == Height)
+		{
+			IRenderer::Resize(Width, Height);
+			return;
+		}
+
 		// Must run before ANY of the resource-destroying resizes below,
 		// not just before the offscreen clear that follows them. A resize
 		// can be delivered between frames while the previous frame's GPU
