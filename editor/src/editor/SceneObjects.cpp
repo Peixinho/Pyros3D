@@ -3,6 +3,7 @@
 #include "Helpers/LightHelper.h"
 #include "Helpers/GameObjectHelper.h"
 #include "Helpers/SoundHelper.h"
+#include "Helpers/ParticleHelper.h"
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Physics/Physics.h>
 #include <Pyros3D/Physics/Components/Box/PhysicsBox.h>
@@ -137,6 +138,7 @@ namespace {
 			case ComponentType::SpotLight:           type = SceneObjectTypes::SPOTLIGHT_COMPONENT;      cname = "Spot Light";        break;
 			case ComponentType::Physics:             type = SceneObjectTypes::PHYSICS_COMPONENT;        cname = "Physics";           break;
 			case ComponentType::AudioSource:         type = SceneObjectTypes::AUDIO_SOURCE_COMPONENT;  cname = "Sound";             break;
+			case ComponentType::ParticleSystem:      type = SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT; cname = "Particles";     break;
 #ifdef LUA_BINDINGS
 			case ComponentType::LuaComponent:
 			{
@@ -147,9 +149,9 @@ namespace {
 			}
 #endif
 			default:
-				// Particles, vehicles: the engine round-trips them, but
-				// this editor has no UI for them, so they stay attached to
-				// their GameObject and simply aren't listed.
+				// Vehicles: the engine round-trips them, but this editor has
+				// no UI for them, so they stay attached to their GameObject
+				// and simply aren't listed.
 				continue;
 			}
 			uint32 cid = ++_ID;
@@ -463,6 +465,21 @@ namespace {
 		return obj;
 	}
 
+	SceneObject* SceneObjects::CreateParticleSystem(GameObject *go, const ParticleSystemDesc &desc)
+	{
+		if (go == NULL) return NULL;
+
+		uint32 id = ++_ID;
+		std::shared_ptr<ParticleSystem> particles = std::make_shared<ParticleSystem>(desc);
+		go->Add(particles);
+
+		SceneObject* obj = new SceneObject("Particles", particles.get(), id, SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT);
+		listObjects[id] = obj;
+		obj->SetParentID(GetSceneObjectID(go));
+		SetName(id, "Particles");
+		return obj;
+	}
+
 #ifdef LUA_BINDINGS
 	SceneObject* SceneObjects::CreateLuaComponent(GameObject *go, const std::shared_ptr<LuaComponent> &comp)
 	{
@@ -744,6 +761,24 @@ namespace {
 						dst->SetDelay(srcAudio->GetDelaySeconds(), srcAudio->GetDelayDecay(), srcAudio->GetDelayWet(), srcAudio->GetDelayDry());
 					std::shared_ptr<SoundHelper> h = std::make_shared<SoundHelper>(dupGo);
 					soundObj->Helper = h;
+					Scene->Add(h);
+				}
+				break;
+			}
+			case ComponentType::ParticleSystem:
+			{
+				// GetDesc() is the whole configuration (that is what it
+				// exists for - see ParticleSystem.h), so the copy needs
+				// nothing beyond it. The live particles are deliberately not
+				// copied: the duplicate starts its own emission.
+				ParticleSystem* srcPs = (ParticleSystem*)(*c).get();
+				SceneObject* psObj = CreateParticleSystem(dupGo, srcPs->GetDesc());
+				if (psObj)
+				{
+					if (!srcPs->IsPlaying())
+						((ParticleSystem*)psObj->GetPTR())->Stop();
+					std::shared_ptr<ParticleHelper> h = std::make_shared<ParticleHelper>(dupGo);
+					psObj->Helper = h;
 					Scene->Add(h);
 				}
 				break;

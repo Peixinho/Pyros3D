@@ -168,7 +168,7 @@ IRenderer::IRenderer() : UsesSharedUBOs(false), device(new GLRenderDevice()) { R
 // borrow that instead of creating a second, broken GLRenderDevice - a
 // Vulkan-only process has no real GL context, so every glad function
 // pointer in that second device would be NULL, crashing on first real use
-// (confirmed live in MotionBlurExample/PickingPainterMethod). Only when
+// (confirmed live in MotionBlurExample). Only when
 // none of the above apply does this fall back to constructing a fresh,
 // owned GLRenderDevice, exactly as before this existed - every GL-only
 // example's very first `new ForwardRenderer(Width, Height)` call still

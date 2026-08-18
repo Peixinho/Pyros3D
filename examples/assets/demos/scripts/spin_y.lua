@@ -5,6 +5,7 @@
 -- fine - require_file() caches the class, not the instance, so each
 -- attach gets its own independent `self`.
 local SpinY = class('SpinY')
+local dTime = 0
 
 function SpinY:initialize()
 end
@@ -15,7 +16,8 @@ end
 
 function SpinY:update(time)
 	local r = self.owner:getRotation()
-	self.owner:setRotation(Vec3.new(r.x, time, r.z))
+  dTime=dTime + time
+	self.owner:setRotation(Vec3.new(r.x, dTime, r.z))
 end
 
 -- No real state to persist (the owner reference is re-derived by init()

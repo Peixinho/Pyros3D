@@ -549,6 +549,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		AddForm_spatialized = true;
 		AddForm_volume = 1.0f;
 		AddForm_soundPath.clear();
+		AddForm_particleTexturePath.clear();
+		AddForm_particleMax = 200;
+		AddForm_particlePreset = 0;
+		propertiesParticleTexturePath.clear();
+		propertiesParticleMax = 200;
+		propertiesParticleSeededId = 0;
+		particlePreviewSelectionId = 0;
+		particlePreviewSynced = false;
 
 		SelectedMeshMaterial = std::make_shared<SelectedMaterial>();
 		SelectedMeshMaterial->EnableDepthTest(DepthTest::LEqual);
@@ -1112,6 +1120,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						node_open = false;
 					break;
 				}
+				case SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT:
+				{
+					ImGuiTreeNodeFlags particles_flags = base_flags | ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+					if ((*i).second->GetID() != draggin_id)
+						node_open = ImGui::TreeNodeEx((void*)(intptr_t)(*i).second->GetID(), particles_flags, "%s", label.c_str());
+					else
+						node_open = false;
+					break;
+				}
 				case SceneObjectTypes::LUA_COMPONENT:
 				{
 					ImGuiTreeNodeFlags lua_flags = base_flags | ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
@@ -1202,6 +1219,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					const bool leafNoPush =
 						nodeType == SceneObjectTypes::PHYSICS_COMPONENT
 						|| nodeType == SceneObjectTypes::AUDIO_SOURCE_COMPONENT
+						|| nodeType == SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT
 						|| nodeType == SceneObjectTypes::LUA_COMPONENT
 						|| nodeType == SceneObjectTypes::DIRECTIONALLIGHT_COMPONENT
 						|| nodeType == SceneObjectTypes::POINTLIGHT_COMPONENT
@@ -1849,6 +1867,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		case SceneObjectTypes::SPOTLIGHT_COMPONENT:
 		case SceneObjectTypes::PHYSICS_COMPONENT:
 		case SceneObjectTypes::AUDIO_SOURCE_COMPONENT:
+		case SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT:
 		case SceneObjectTypes::LUA_COMPONENT:
 		{
 			IComponent* c = (IComponent*)SelectedSceneObject->GetPTR();
@@ -2446,6 +2465,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				OpenAddFormOnGameObject(goId, 19);
 				ImGui::CloseCurrentPopup();
 			}
+			if (ImGui::MenuItem("Particle System"))
+			{
+				AddForm_particleTexturePath.clear();
+				AddForm_particleMax = 200;
+				AddForm_particlePreset = 0;
+				OpenAddFormOnGameObject(goId, 20);
+				ImGui::CloseCurrentPopup();
+			}
 			ImGui::Separator();
 			if (ImGui::MenuItem("Directional Light")) { AddQuickLightOnGameObject(goId, 10); ImGui::CloseCurrentPopup(); }
 			if (ImGui::MenuItem("Point Light")) { AddQuickLightOnGameObject(goId, 11); ImGui::CloseCurrentPopup(); }
@@ -2751,6 +2778,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (playMode)
 			physics->Update(time, 10);
 
+		// Outside Play, only the selected emitter simulates - see
+		// UpdateParticlePreview(). Cheap: it early-outs unless the selection
+		// actually changed.
+		if (!playMode)
+			UpdateParticlePreview();
+
 		// Update Light / Sound / empty-GO Helpers (editor chrome only).
 		GameObject* viewCam = GetViewCameraGO();
 		if (!playMode)
@@ -2761,6 +2794,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				{
 					IHelper* helper = (IHelper*)(*i).second->Helper.get();
 					if (helper->type == HELPER_TYPE::LIGHT || helper->type == HELPER_TYPE::SOUND
+						|| helper->type == HELPER_TYPE::PARTICLES
 						|| GameObjectShowsEmptyHelper(helper->owner))
 					{
 						helper->rcomp->Enable();
@@ -2881,6 +2915,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				break;
 			case SceneObjectTypes::PHYSICS_COMPONENT:
 			case SceneObjectTypes::AUDIO_SOURCE_COMPONENT:
+			// A ParticleSystem is a RenderingComponent, but its particles live
+			// in world space, decoupled from the owner - the owner's bounding
+			// box says nothing about where they are.
+			case SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT:
 #ifdef LUA_BINDINGS
 			case SceneObjectTypes::LUA_COMPONENT:
 #endif
@@ -3032,6 +3070,55 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (asrc && asrc->IsLoaded())
 				asrc->Stop();
 		}
+
+		void ForEachParticleSystemOnGameObject(GameObject* go,
+			void (*fn)(ParticleSystem*, void*), void* ctx)
+		{
+			if (!go) return;
+			const std::vector<std::shared_ptr<IComponent>> &comps = go->GetComponents();
+			for (std::vector<std::shared_ptr<IComponent>>::const_iterator c = comps.begin();
+				c != comps.end(); ++c)
+			{
+				ParticleSystem* ps = dynamic_cast<ParticleSystem*>((*c).get());
+				if (ps) fn(ps, ctx);
+			}
+			const std::vector<std::shared_ptr<GameObject>> &children = go->GetChildren();
+			for (std::vector<std::shared_ptr<GameObject>>::const_iterator ch = children.begin();
+				ch != children.end(); ++ch)
+				ForEachParticleSystemOnGameObject((*ch).get(), fn, ctx);
+		}
+
+		void ForEachParticleSystemInScene(SceneGraph* sceneGraph,
+			void (*fn)(ParticleSystem*, void*), void* ctx)
+		{
+			if (!sceneGraph) return;
+			const std::vector<std::shared_ptr<GameObject>> roots = sceneGraph->GetAllGameObjectList();
+			for (std::vector<std::shared_ptr<GameObject>>::const_iterator i = roots.begin();
+				i != roots.end(); ++i)
+				ForEachParticleSystemOnGameObject((*i).get(), fn, ctx);
+		}
+
+		// Emitters run in the editor viewport too (that is the whole point of
+		// authoring one), so entering play mode has to discard whatever the
+		// preview left lying around and start the effect from nothing - and,
+		// for a one-shot burst, is what actually fires it.
+		void StartParticleSystemForPlayMode(ParticleSystem* ps, void*)
+		{
+			if (!ps) return;
+			ps->Clear();
+			ps->Play();
+		}
+
+		// Leaving Play returns every emitter to the edit-mode default:
+		// idle. UpdateParticlePreview() immediately restarts whichever one
+		// the current selection asks for, so a selected emitter keeps
+		// previewing and everything else goes quiet.
+		void StopParticleSystemForPlayMode(ParticleSystem* ps, void*)
+		{
+			if (!ps) return;
+			ps->Stop();
+			ps->Clear();
+		}
 	}
 
 	void SceneEditor::SetAsActiveAudioDevice()
@@ -3064,6 +3151,178 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return ResolveSoundPath(path);
 	}
 
+	std::string SceneEditor::ResolveAssetPath(const std::string& path) const
+	{
+		return ResolveSoundPath(path);
+	}
+
+	std::shared_ptr<Texture> SceneEditor::LoadParticleTexture(const std::string& path)
+	{
+		std::shared_ptr<Texture> tex = std::make_shared<Texture>();
+		if (!path.empty() && tex->LoadTexture(ResolveAssetPath(path), TextureType::Texture))
+			return tex;
+
+		if (!path.empty())
+			echo("WARNING: could not load particle sprite '" + path + "', using the default one");
+		// Ships with the editor, so it always exists - but a scene saved with
+		// it references an editor path no exported game would have, hence the
+		// import into the project below whenever there is one.
+		tex = std::make_shared<Texture>();
+		if (tex->LoadTexture("assets/particle_default.png", TextureType::Texture))
+			return tex;
+		echo("ERROR: could not load the default particle sprite (assets/particle_default.png)");
+		return std::shared_ptr<Texture>();
+	}
+
+	std::string SceneEditor::ImportParticleTexture(const std::string& path)
+	{
+		const std::string source = path.empty() ? std::string("assets/particle_default.png") : path;
+		if (!project || !project->IsOpen())
+			return source;
+
+		const std::string absolute = ResolveAssetPath(source);
+		// RelativePath() is empty for anything outside the project, so a
+		// non-empty result means the sprite already lives there (picked from
+		// the Assets panel, or re-used from another emitter) - copying it
+		// again would just fork it.
+		const std::string alreadyInProject = project->RelativePath(absolute);
+		if (!alreadyInProject.empty())
+			return alreadyInProject;
+
+		std::string imported, err;
+		if (project->ImportAssetFile(absolute, imported, &err))
+			return project->RelativePath(imported);
+		echo("WARNING: could not import particle sprite into the project (" + err + "), referencing it in place");
+		return source;
+	}
+
+	void SceneEditor::ApplyParticlePreset(ParticleSystemDesc& desc, int32 preset)
+	{
+		switch (preset)
+		{
+		case 1: // Fire - fast, short-lived, shrinking, additive embers
+			desc.looping = true;
+			desc.emissionRate = 60.f;
+			desc.burstCount = 1;
+			desc.minLifetime = 0.6f; desc.maxLifetime = 1.2f;
+			desc.direction = Vec3(0.f, 1.f, 0.f);
+			desc.spreadAngle = (f32)DEGTORAD(20.0);
+			desc.minSpeed = 1.2f; desc.maxSpeed = 2.4f;
+			desc.gravity = Vec3(0.f, 0.6f, 0.f);
+			desc.damping = 0.8f;
+			desc.startSize = 0.7f; desc.endSize = 0.15f;
+			desc.startColor = Vec4(1.f, 0.75f, 0.25f, 1.f);
+			desc.endColor = Vec4(0.9f, 0.15f, 0.05f, 0.f);
+			desc.fadeInFraction = 0.08f; desc.fadeOutFraction = 0.45f;
+			desc.blendMode = ParticleBlendMode::Additive;
+			break;
+		case 2: // Smoke - slow, long-lived, growing, drifting
+			desc.looping = true;
+			desc.emissionRate = 12.f;
+			desc.burstCount = 1;
+			desc.minLifetime = 3.f; desc.maxLifetime = 6.f;
+			desc.direction = Vec3(0.f, 1.f, 0.f);
+			desc.spreadAngle = (f32)DEGTORAD(25.0);
+			desc.minSpeed = 0.3f; desc.maxSpeed = 0.8f;
+			desc.gravity = Vec3(0.f, 0.15f, 0.f);
+			desc.damping = 0.3f;
+			desc.startSize = 0.6f; desc.endSize = 2.5f;
+			desc.startColor = Vec4(0.5f, 0.5f, 0.55f, 0.5f);
+			desc.endColor = Vec4(0.25f, 0.25f, 0.3f, 0.f);
+			desc.fadeInFraction = 0.2f; desc.fadeOutFraction = 0.4f;
+			desc.minRotationSpeed = -0.4f; desc.maxRotationSpeed = 0.4f;
+			desc.blendMode = ParticleBlendMode::AlphaBlend;
+			break;
+		case 3: // Explosion - a one-shot burst in every direction
+			desc.looping = false;
+			desc.burstCount = 80;
+			desc.minLifetime = 0.5f; desc.maxLifetime = 1.4f;
+			desc.direction = Vec3(0.f, 1.f, 0.f);
+			desc.spreadAngle = (f32)DEGTORAD(180.0);
+			desc.minSpeed = 3.f; desc.maxSpeed = 8.f;
+			desc.gravity = Vec3(0.f, -4.f, 0.f);
+			desc.damping = 1.6f;
+			desc.startSize = 0.8f; desc.endSize = 0.2f;
+			desc.startColor = Vec4(1.f, 0.9f, 0.6f, 1.f);
+			desc.endColor = Vec4(1.f, 0.3f, 0.05f, 0.f);
+			desc.fadeInFraction = 0.02f; desc.fadeOutFraction = 0.35f;
+			desc.blendMode = ParticleBlendMode::Additive;
+			break;
+		default:
+			// ParticleSystemDesc()'s own defaults, deliberately left alone.
+			break;
+		}
+	}
+
+	SceneObject* SceneEditor::AttachParticleSystem(GameObject* go, const ParticleSystemDesc& desc)
+	{
+		if (go == NULL) return NULL;
+		SceneObject* obj = sceneObjects->CreateParticleSystem(go, desc);
+		if (obj == NULL) return NULL;
+		std::shared_ptr<ParticleHelper> h = std::make_shared<ParticleHelper>(go);
+		obj->Helper = h;
+		scene->Add(h);
+		// A ParticleSystem constructs itself playing. Outside Play that is
+		// the wrong default (see UpdateParticlePreview) - hand it over idle
+		// and let the preview rule decide, which for a just-added emitter
+		// means it starts previewing as soon as its owner is selected.
+		if (!playMode)
+		{
+			ParticleSystem* ps = (ParticleSystem*)obj->GetPTR();
+			ps->Stop();
+			ps->Clear();
+			particlePreviewSynced = false;
+		}
+		return obj;
+	}
+
+	bool SceneEditor::ParticleSystemPreviewsForSelection(ParticleSystem* ps) const
+	{
+		if (ps == NULL || SelectedSceneObject == NULL) return false;
+		if (SelectedSceneObject->GetType() == SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT)
+			return SelectedSceneObject->GetPTR() == (void*)ps;
+		// Selecting the GameObject counts too - that is what a user clicks
+		// when they drag an emitter around, and having it go dark exactly
+		// then would be the wrong way round.
+		if (SelectedSceneObject->GetType() == SceneObjectTypes::GAMEOBJECT)
+			return ps->GetOwner() == (GameObject*)SelectedSceneObject->GetPTR();
+		return false;
+	}
+
+	void SceneEditor::UpdateParticlePreview()
+	{
+		const uint32 selectionId = (SelectedSceneObject != NULL) ? SelectedSceneObject->GetID() : 0;
+		if (particlePreviewSynced && selectionId == particlePreviewSelectionId) return;
+		particlePreviewSelectionId = selectionId;
+		particlePreviewSynced = true;
+
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
+			i != sceneObjects->GetList().end(); ++i)
+		{
+			if (!i->second || i->second->GetType() != SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT) continue;
+			ParticleSystem* ps = (ParticleSystem*)i->second->GetPTR();
+			if (!ps) continue;
+			if (ParticleSystemPreviewsForSelection(ps))
+			{
+				// Clear first so a one-shot burst actually fires on select
+				// rather than adding to whatever the last preview left.
+				ps->Clear();
+				ps->Play();
+			}
+			else
+			{
+				ps->Stop();
+				ps->Clear();
+			}
+		}
+	}
+
+	void SceneEditor::ResetParticlePreview()
+	{
+		ForEachParticleSystemInScene(scene, StopParticleSystemForPlayMode, NULL);
+		particlePreviewSynced = false;
+	}
+
 	void SceneEditor::SetEditorChromeVisible(bool visible)
 	{
 		if (rGrid)
@@ -3081,6 +3340,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (visible)
 			{
 				if (helper->type == HELPER_TYPE::LIGHT || helper->type == HELPER_TYPE::SOUND
+					|| helper->type == HELPER_TYPE::PARTICLES
 					|| GameObjectShowsEmptyHelper(helper->owner))
 					helper->rcomp->Enable();
 				else
@@ -3280,6 +3540,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			echo("ERROR: Play mode - no sounds could play (files missing or audio device unavailable)");
 		else if (audioCtx.started > 0)
 			echo("SUCCESS: Play mode started " + std::to_string(audioCtx.started) + " sound(s)");
+		ForEachParticleSystemInScene(scene, StartParticleSystemForPlayMode, NULL);
 		lastListenerTime = -1.0;
 		gizmoDragging = false;
 		_leftMouse = false;
@@ -3316,6 +3577,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		LuaComponent::SetUpdatesEnabled(false);
 		ResetSceneMainScriptLifecycle();
 		ResetLuaComponentsLifecycle();
+		// Before releasing the mouse below, not after: a script's Input
+		// handlers outlive its destroy() (the bridge is a Lua-owned
+		// userdata, freed whenever the GC gets to it - see
+		// LuaInputBridge::ClearAllCallbacks), and a fly-camera's still-live
+		// mouse-move handler re-warping the cursor to the window centre is
+		// exactly what made Stop look like it never released the mouse.
+		LuaInputBridge::ClearAllCallbacks();
 		if (sharedLua)
 		{
 			(*sharedLua)["editorAutoCapture"] = false;
@@ -3327,6 +3595,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 #endif
 		ForEachAudioSourceInScene(scene, StopAudioSourceForPlayMode, NULL);
+		// Every emitter goes idle; the next UpdateParticlePreview() restarts
+		// whichever one the restored selection asks for.
+		ForEachParticleSystemInScene(scene, StopParticleSystemForPlayMode, NULL);
+		particlePreviewSynced = false;
 		for (std::map<uint32, PlayModeObjectSnapshot>::iterator i = playModeSnapshots.begin();
 			i != playModeSnapshots.end(); ++i)
 		{
@@ -3924,7 +4196,20 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				obj->Helper = h;
 				scene->Add(h);
 			}
+			else if (obj->GetType() == SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT)
+			{
+				IComponent* c = (IComponent*)obj->GetPTR();
+				if (c == NULL || c->GetOwner() == NULL) continue;
+				std::shared_ptr<ParticleHelper> h = std::make_shared<ParticleHelper>(c->GetOwner());
+				obj->Helper = h;
+				scene->Add(h);
+			}
 		}
+		// A scene full of freshly-deserialized emitters arrives playing (the
+		// ParticleSystem constructor's default) - outside Play they should
+		// all be idle until selected.
+		if (!playMode)
+			ResetParticlePreview();
 	}
 
 	void SceneEditor::NewScene(bool applyProjectDefaults)
@@ -5793,6 +6078,268 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					}
 				}
 				break;
+				case SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT:
+				{
+					ParticleSystem* ps = (ParticleSystem*)SelectedSceneObject->GetPTR();
+					if (ps == NULL) break;
+					const uint32 psId = SelectedSceneObject->GetID();
+					// Read straight from the live desc every frame - the two
+					// draft fields below are the only cached state, seeded
+					// once per selection.
+					const ParticleSystemDesc& d = ps->GetDesc();
+					if (propertiesParticleSeededId != psId)
+					{
+						propertiesParticleSeededId = psId;
+						propertiesParticleTexturePath = d.texture ? d.texture->GetFilename() : std::string();
+						propertiesParticleMax = (int32)d.maxParticles;
+					}
+					// Undo commit for a drag/type gesture on any of the
+					// widgets below: they apply live (so the viewport follows
+					// the drag), and this fires once at the end of the gesture
+					// with the whole before/after desc - see PushParticleDescCommand.
+					auto commitParticleEdit = [this, psId, ps](const char* label) {
+						const std::string name(label);
+						UndoValueEdit<ParticleSystemDesc>(undoBaselineParticleDesc, ps->GetDesc(),
+							[this, psId, name](const ParticleSystemDesc& before, const ParticleSystemDesc& after) {
+								PushParticleDescCommand(psId, before, after, name);
+							});
+					};
+
+					ImGui::Text("%u / %u particles alive", ps->GetLiveParticleCount(), d.maxParticles);
+					ImGui::TextDisabled("Previewing because this is selected - emitters only run in Play, or while selected here");
+					// Playback is preview state, not scene data (it is not
+					// serialized) - deliberately no undo entry and no dirty flag.
+					if (ImGui::Button(ps->IsPlaying() ? "Stop" : "Play"))
+					{
+						if (ps->IsPlaying()) ps->Stop();
+						else ps->Play();
+					}
+					ImGui::SameLine();
+					if (ImGui::Button("Restart"))
+					{
+						// Clear before Play: for a one-shot burst Play() emits
+						// a fresh burst, and without the clear the previous
+						// one's survivors would still be in the way.
+						ps->Clear();
+						ps->Play();
+					}
+					ImGui::SameLine();
+					if (ImGui::Button("Clear"))
+						ps->Clear();
+					if (!d.looping)
+						ImGui::TextDisabled("One-shot burst - Restart to fire it again");
+
+					ImGui::Separator();
+					ImGui::Text("Emission");
+					{
+						// Discrete widgets (checkbox/combo/button) don't go
+						// through UndoValueEdit: there is no drag gesture to
+						// bracket, so the command is pushed on the spot from a
+						// copy of the desc taken before the change.
+						bool looping = d.looping;
+						if (ImGui::Checkbox("Looping", &looping))
+						{
+							ParticleSystemDesc after = d;
+							after.looping = looping;
+							PushParticleDescCommand(psId, d, after, "Toggle Particle Looping");
+						}
+					}
+					if (d.looping)
+					{
+						f32 rate = d.emissionRate;
+						if (ImGui::DragFloat("Rate (per second)", &rate, 0.5f, 0.f, 10000.f))
+						{
+							ps->SetEmissionRate(rate);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Emission Rate");
+					}
+					{
+						int32 burst = (int32)d.burstCount;
+						const char* label = d.looping ? "Particles per Tick" : "Burst Count";
+						if (ImGui::DragInt(label, &burst, 1, 1, 100000))
+						{
+							ps->SetBurstCount((uint32)(burst < 1 ? 1 : burst));
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Burst Count");
+					}
+					{
+						f32 life[2] = { d.minLifetime, d.maxLifetime };
+						if (ImGui::DragFloat2("Lifetime (min/max)", life, 0.01f, 0.01f, 1000.f))
+						{
+							if (life[1] < life[0]) life[1] = life[0];
+							ps->SetLifetime(life[0], life[1]);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Lifetime");
+					}
+
+					ImGui::Separator();
+					ImGui::Text("Shape");
+					{
+						Vec3 dir = d.direction;
+						if (ImGui::DragFloat3("Direction", (float*)&dir, 0.01f, -1.f, 1.f))
+						{
+							// A zero direction has no axis to build the
+							// emission cone around - normalize() would divide
+							// by zero and every particle would spawn NaN.
+							if (dir.magnitude() < 1e-4f) dir = Vec3(0.f, 1.f, 0.f);
+							ps->SetDirection(dir);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Direction");
+						ImGui::TextDisabled("World space - not rotated by the emitter");
+					}
+					{
+						f32 spreadDeg = (f32)RADTODEG(d.spreadAngle);
+						if (ImGui::DragFloat("Spread (deg)", &spreadDeg, 0.5f, 0.f, 180.f))
+						{
+							ps->SetSpread((f32)DEGTORAD(spreadDeg));
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Spread");
+					}
+					{
+						f32 speed[2] = { d.minSpeed, d.maxSpeed };
+						if (ImGui::DragFloat2("Speed (min/max)", speed, 0.01f, 0.f, 1000.f))
+						{
+							if (speed[1] < speed[0]) speed[1] = speed[0];
+							ps->SetSpeed(speed[0], speed[1]);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Speed");
+					}
+
+					ImGui::Separator();
+					ImGui::Text("Motion");
+					{
+						Vec3 gravity = d.gravity;
+						if (ImGui::DragFloat3("Gravity", (float*)&gravity, 0.05f, -100.f, 100.f))
+						{
+							ps->SetGravity(gravity);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Gravity");
+					}
+					{
+						f32 damping = d.damping;
+						if (ImGui::DragFloat("Damping", &damping, 0.01f, 0.f, 20.f))
+						{
+							ps->SetDamping(damping);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Damping");
+					}
+					{
+						f32 rot[2] = { d.minRotationSpeed, d.maxRotationSpeed };
+						if (ImGui::DragFloat2("Spin rad/s (min/max)", rot, 0.01f, -50.f, 50.f))
+						{
+							if (rot[1] < rot[0]) rot[1] = rot[0];
+							ps->SetRotationSpeed(rot[0], rot[1]);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Spin");
+					}
+
+					ImGui::Separator();
+					ImGui::Text("Appearance");
+					{
+						Vec4 startColor = d.startColor;
+						if (ImGui::ColorEdit4("Start Color", (float*)&startColor))
+						{
+							ps->SetColors(startColor, d.endColor);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Start Color");
+						Vec4 endColor = d.endColor;
+						if (ImGui::ColorEdit4("End Color", (float*)&endColor))
+						{
+							ps->SetColors(d.startColor, endColor);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle End Color");
+					}
+					{
+						f32 startSize = d.startSize;
+						if (ImGui::DragFloat("Start Size", &startSize, 0.01f, 0.f, 1000.f))
+						{
+							ps->SetSizes(startSize, d.endSize, d.sizeRandomJitter);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Start Size");
+						f32 endSize = d.endSize;
+						if (ImGui::DragFloat("End Size", &endSize, 0.01f, 0.f, 1000.f))
+						{
+							ps->SetSizes(d.startSize, endSize, d.sizeRandomJitter);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle End Size");
+						f32 jitter = d.sizeRandomJitter;
+						if (ImGui::DragFloat("Size Jitter", &jitter, 0.01f, 0.f, 1.f))
+						{
+							ps->SetSizes(d.startSize, d.endSize, jitter);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Size Jitter");
+					}
+					{
+						f32 fadeIn = d.fadeInFraction;
+						if (ImGui::DragFloat("Fade In (fraction)", &fadeIn, 0.01f, 0.f, 1.f))
+						{
+							ps->SetFade(fadeIn, d.fadeOutFraction);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Fade In");
+						f32 fadeOut = d.fadeOutFraction;
+						if (ImGui::DragFloat("Fade Out (fraction)", &fadeOut, 0.01f, 0.f, 1.f))
+						{
+							ps->SetFade(d.fadeInFraction, fadeOut);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Fade Out");
+					}
+					{
+						int32 blend = (int32)d.blendMode;
+						const char* blendModes[] = { "Alpha Blend", "Additive" };
+						if (ImGui::Combo("Blend Mode", &blend, blendModes, 2))
+						{
+							ParticleSystemDesc after = d;
+							after.blendMode = (uint32)blend;
+							PushParticleDescCommand(psId, d, after, "Set Particle Blend Mode");
+						}
+					}
+
+					ImGui::Separator();
+					ImGui::Text("Sprite");
+					ImGui::FilePath("Texture", "", "png,jpg,jpeg,tga,bmp,dds", &propertiesParticleTexturePath, 1024, &showDir);
+					if (ImGui::Button("Apply Sprite"))
+					{
+						const std::string spritePath = ImportParticleTexture(propertiesParticleTexturePath);
+						if (std::shared_ptr<Texture> tex = LoadParticleTexture(spritePath))
+						{
+							// The desc carries the shared_ptr itself, so undo
+							// puts the previous sprite back without reloading it.
+							ParticleSystemDesc after = d;
+							after.texture = tex;
+							PushParticleDescCommand(psId, d, after, "Set Particle Sprite");
+						}
+					}
+
+					ImGui::Separator();
+					// Not applied live: the capacity is the one setting whose
+					// every intermediate drag value would reallocate the GPU
+					// buffer and kill every live particle.
+					ImGui::DragInt("Max Particles", &propertiesParticleMax, 1, 1, 100000);
+					ImGui::SameLine();
+					if (ImGui::Button("Apply"))
+					{
+						ParticleSystemDesc after = d;
+						after.maxParticles = (uint32)(propertiesParticleMax < 1 ? 1 : propertiesParticleMax);
+						PushParticleDescCommand(psId, d, after, "Set Particle Max Particles");
+					}
+				}
+				break;
 			default:
 
 				break;
@@ -5976,6 +6523,23 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				ImGui::TextDisabled("(3D positional)");
 				ImGui::DragFloat("Volume", &AddForm_volume, 0.01f, 0.0f, 4.0f);
 				break;
+			case 20:
+			{
+				// Only the three things that are awkward to change afterwards
+				// are asked for here - everything else in ParticleSystemDesc
+				// is live-editable in the Properties panel.
+				ImGui::Text("Particle System");
+				const char* presets[] = { "Default", "Fire", "Smoke", "Explosion (burst)" };
+				ImGui::Combo("Preset", &AddForm_particlePreset, presets, 4);
+				ImGui::FilePath("Sprite", "", "png,jpg,jpeg,tga,bmp,dds", &AddForm_particleTexturePath, 1024, &showDir);
+				if (AddForm_particleTexturePath.empty())
+					ImGui::TextDisabled("Leave empty for the default soft round sprite");
+				else if (project && project->IsOpen())
+					ImGui::TextDisabled("Copied into assets/textures/");
+				ImGui::DragInt("Max Particles", &AddForm_particleMax, 1, 1, 100000);
+				ImGui::TextDisabled("Fixed capacity - spawns past it are dropped");
+			}
+				break;
 			default:
 				break;
 			}
@@ -6039,7 +6603,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// Mesh / light / physics / sound components need a GameObject parent.
 		// Creating a light while a light (or other component) is selected used
 		// to cast the component pointer to GameObject* and segfault.
-		const bool needsOwner = (showingAddFormType >= 1 && showingAddFormType <= 19);
+		const bool needsOwner = (showingAddFormType >= 1 && showingAddFormType <= 20);
 		if (needsOwner && ownerGO == NULL)
 		{
 			echo("ERROR: Select a GameObject (or one of its components) before adding.");
@@ -6232,6 +6796,20 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 		}
 			break;
+		case 20:
+		{
+			// Particle System
+			ParticleSystemDesc desc;
+			ApplyParticlePreset(desc, AddForm_particlePreset);
+			desc.maxParticles = (uint32)(AddForm_particleMax < 1 ? 1 : AddForm_particleMax);
+			// Import first: the desc keeps the loaded Texture, but the scene
+			// file records where it came from, so it has to be a path the
+			// project (and an exported game) can still resolve.
+			const std::string spritePath = ImportParticleTexture(AddForm_particleTexturePath);
+			desc.texture = LoadParticleTexture(spritePath);
+			AttachParticleSystem(ownerGO, desc);
+		}
+			break;
 		default:
 			break;
 		}
@@ -6393,6 +6971,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				AddForm_loop = false;
 				AddForm_spatialized = true;
 				AddForm_volume = 1.0f;
+				AddForm_cgo = false;
+				AddForm_go = "";
+			}
+			if (ImGui::MenuItem("Particle System", ""))
+			{
+				showingAddFrom = true;
+				openAddFormTrigger = true;
+				showingAddFormType = 20;
+				AddForm_particleTexturePath.clear();
+				AddForm_particleMax = 200;
+				AddForm_particlePreset = 0;
 				AddForm_cgo = false;
 				AddForm_go = "";
 			}
@@ -6592,6 +7181,35 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			if (!c) return json();
 			json j;
+			// Before the RenderingComponent test - a ParticleSystem is one
+			// (via IRenderingInstancedComponent), and would otherwise be
+			// reported as a mesh with no renderable.
+			if (ParticleSystem* ps = dynamic_cast<ParticleSystem*>(c))
+			{
+				const ParticleSystemDesc& d = ps->GetDesc();
+				j["type"] = "ParticleSystem";
+				j["maxParticles"] = d.maxParticles;
+				j["liveParticles"] = ps->GetLiveParticleCount();
+				j["playing"] = ps->IsPlaying();
+				j["looping"] = d.looping;
+				j["emissionRate"] = (double)d.emissionRate;
+				j["burstCount"] = d.burstCount;
+				j["blendMode"] = d.blendMode;
+				// The sprite is the one part of an emitter that silently
+				// produces "nothing visible at all" when it goes missing
+				// (an unbound sampler under additive blending draws black
+				// on black), so it is worth reporting explicitly.
+				j["texture"] = d.texture ? d.texture->GetFilename() : std::string();
+				j["textureWidth"] = d.texture ? d.texture->GetWidth() : 0;
+				j["instances"] = ps->NumberOfInstances();
+				j["meshes"] = (uint32)ps->GetMeshes(0).size();
+				if (ps->GetOwner())
+				{
+					const Vec3 wp = ps->GetOwner()->GetWorldPosition();
+					j["ownerWorldPos"] = { (double)wp.x, (double)wp.y, (double)wp.z };
+				}
+				return j;
+			}
 			if (RenderingComponent* rc = dynamic_cast<RenderingComponent*>(c))
 			{
 				j["type"] = "RenderingComponent";
@@ -6880,6 +7498,98 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return true;
 	}
 
+	bool SceneEditor::AgentAddParticles(const std::string& name, const json& p,
+		const std::string& parentName, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* parent = NULL;
+		if (!parentName.empty())
+		{
+			parent = AgentFindGameObjectByName(sceneObjects, parentName);
+			if (!parent) { errOut = "parent '" + parentName + "' not found"; return false; }
+		}
+
+		auto F = [&p](const char* key, f32 dflt) -> f32 { return p.is_object() ? (f32)p.value(key, (double)dflt) : dflt; };
+		auto B = [&p](const char* key, bool dflt) -> bool { return p.is_object() ? p.value(key, dflt) : dflt; };
+		auto U = [&p](const char* key, uint32 dflt) -> uint32 { return p.is_object() ? p.value(key, dflt) : dflt; };
+		auto V3 = [&p](const char* key, const Vec3& dflt) -> Vec3 {
+			if (!p.is_object() || !p.contains(key) || !p[key].is_array() || p[key].size() < 3) return dflt;
+			return Vec3((f32)p[key][0].get<double>(), (f32)p[key][1].get<double>(), (f32)p[key][2].get<double>());
+		};
+		auto V4 = [&p](const char* key, const Vec4& dflt) -> Vec4 {
+			if (!p.is_object() || !p.contains(key) || !p[key].is_array() || p[key].size() < 4) return dflt;
+			return Vec4((f32)p[key][0].get<double>(), (f32)p[key][1].get<double>(),
+				(f32)p[key][2].get<double>(), (f32)p[key][3].get<double>());
+		};
+
+		ParticleSystemDesc desc;
+		// Same presets the Add form offers, by name, applied before the
+		// individual overrides below so a caller can say "fire, but slower".
+		const std::string preset = p.is_object() ? p.value("preset", std::string()) : std::string();
+		if (preset == "fire") ApplyParticlePreset(desc, 1);
+		else if (preset == "smoke") ApplyParticlePreset(desc, 2);
+		else if (preset == "explosion") ApplyParticlePreset(desc, 3);
+		else if (!preset.empty() && preset != "default")
+			{ errOut = "unknown preset '" + preset + "' (default, fire, smoke, explosion)"; return false; }
+
+		desc.maxParticles = U("maxParticles", desc.maxParticles);
+		desc.looping = B("looping", desc.looping);
+		desc.emissionRate = F("emissionRate", desc.emissionRate);
+		desc.burstCount = U("burstCount", desc.burstCount);
+		desc.minLifetime = F("minLifetime", desc.minLifetime);
+		desc.maxLifetime = F("maxLifetime", desc.maxLifetime);
+		desc.direction = V3("direction", desc.direction);
+		desc.spreadAngle = (f32)DEGTORAD(F("spreadAngleDegrees", (f32)RADTODEG(desc.spreadAngle)));
+		desc.minSpeed = F("minSpeed", desc.minSpeed);
+		desc.maxSpeed = F("maxSpeed", desc.maxSpeed);
+		desc.gravity = V3("gravity", desc.gravity);
+		desc.damping = F("damping", desc.damping);
+		desc.startSize = F("startSize", desc.startSize);
+		desc.endSize = F("endSize", desc.endSize);
+		desc.sizeRandomJitter = F("sizeRandomJitter", desc.sizeRandomJitter);
+		desc.startColor = V4("startColor", desc.startColor);
+		desc.endColor = V4("endColor", desc.endColor);
+		desc.fadeInFraction = F("fadeInFraction", desc.fadeInFraction);
+		desc.fadeOutFraction = F("fadeOutFraction", desc.fadeOutFraction);
+		desc.minRotationSpeed = F("minRotationSpeed", desc.minRotationSpeed);
+		desc.maxRotationSpeed = F("maxRotationSpeed", desc.maxRotationSpeed);
+		if (p.is_object() && p.contains("blendMode"))
+		{
+			const std::string blend = p.value("blendMode", std::string("alpha"));
+			if (blend == "additive") desc.blendMode = ParticleBlendMode::Additive;
+			else if (blend == "alpha") desc.blendMode = ParticleBlendMode::AlphaBlend;
+			else { errOut = "unknown blendMode '" + blend + "' (alpha, additive)"; return false; }
+		}
+
+		const std::string texture = p.is_object() ? p.value("texture", std::string()) : std::string();
+		desc.texture = LoadParticleTexture(ImportParticleTexture(texture));
+
+		SceneObject* obj = sceneObjects->CreateGameObject(name.empty() ? "Particles" : name);
+		if (!obj) { errOut = "failed to create game object"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+
+		// Placed before the component is attached: particles spawn at the
+		// owner's world position from the very first frame, so an emitter
+		// moved after the fact would puff out a stray burst at the origin.
+		AgentApplyTransform(go,
+			p.is_object() && p.contains("position") && p["position"].is_array() ? std::vector<f32>{ (f32)p["position"][0].get<double>(), (f32)p["position"][1].get<double>(), (f32)p["position"][2].get<double>() } : std::vector<f32>(),
+			p.is_object() && p.contains("rotation") && p["rotation"].is_array() ? std::vector<f32>{ (f32)p["rotation"][0].get<double>(), (f32)p["rotation"][1].get<double>(), (f32)p["rotation"][2].get<double>() } : std::vector<f32>(),
+			std::vector<f32>());
+
+		if (!AttachParticleSystem(go, desc))
+		{
+			errOut = "failed to create particle system";
+			sceneObjects->DestroySceneObject(obj->GetID());
+			return false;
+		}
+
+		if (parent)
+			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
+		MarkSceneDirty();
+		PushAddCommand(obj);
+		return true;
+	}
+
 	bool SceneEditor::AgentAddPhysics(const std::string& name, const json& p, const std::string& parentName, std::string& errOut)
 	{
 		if (playMode) { errOut = "editor is in play mode"; return false; }
@@ -7143,6 +7853,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			case SceneObjectTypes::SPOTLIGHT_COMPONENT: typeStr = "SpotLight"; break;
 			case SceneObjectTypes::PHYSICS_COMPONENT: typeStr = "Physics"; break;
 			case SceneObjectTypes::AUDIO_SOURCE_COMPONENT: typeStr = "AudioSource"; break;
+			case SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT: typeStr = "ParticleSystem"; break;
 #ifdef LUA_BINDINGS
 			case SceneObjectTypes::LUA_COMPONENT: typeStr = "LuaComponent"; break;
 #endif

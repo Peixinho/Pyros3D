@@ -27,6 +27,7 @@ falling back to these file operations when the editor is closed.
 
 import base64
 import json
+import math
 import os
 import shutil
 import socket
@@ -1398,6 +1399,145 @@ def add_light(project_path: str, scene_name: str, name: str, light_type: str = "
                               params.get("radius", 10.0), params.get("direction"), intensity,
                               params.get("inner_cone", 30.0), params.get("outer_cone", 45.0))
     return _fail(f"Invalid light type '{light_type}'. Use DirectionalLight, PointLight or SpotLight.")
+
+
+PARTICLE_PRESETS = {
+    "default": {},
+    "fire": {
+        "looping": True, "emissionRate": 60.0, "burstCount": 1,
+        "minLifetime": 0.6, "maxLifetime": 1.2,
+        "direction": [0.0, 1.0, 0.0], "spreadAngle": math.radians(20.0),
+        "minSpeed": 1.2, "maxSpeed": 2.4,
+        "gravity": [0.0, 0.6, 0.0], "damping": 0.8,
+        "startSize": 0.7, "endSize": 0.15,
+        "startColor": [1.0, 0.75, 0.25, 1.0], "endColor": [0.9, 0.15, 0.05, 0.0],
+        "fadeInFraction": 0.08, "fadeOutFraction": 0.45, "blendMode": 1,
+    },
+    "smoke": {
+        "looping": True, "emissionRate": 12.0, "burstCount": 1,
+        "minLifetime": 3.0, "maxLifetime": 6.0,
+        "direction": [0.0, 1.0, 0.0], "spreadAngle": math.radians(25.0),
+        "minSpeed": 0.3, "maxSpeed": 0.8,
+        "gravity": [0.0, 0.15, 0.0], "damping": 0.3,
+        "startSize": 0.6, "endSize": 2.5,
+        "startColor": [0.5, 0.5, 0.55, 0.5], "endColor": [0.25, 0.25, 0.3, 0.0],
+        "fadeInFraction": 0.2, "fadeOutFraction": 0.4,
+        "minRotationSpeed": -0.4, "maxRotationSpeed": 0.4, "blendMode": 0,
+    },
+    "explosion": {
+        "looping": False, "burstCount": 80,
+        "minLifetime": 0.5, "maxLifetime": 1.4,
+        "direction": [0.0, 1.0, 0.0], "spreadAngle": math.radians(180.0),
+        "minSpeed": 3.0, "maxSpeed": 8.0,
+        "gravity": [0.0, -4.0, 0.0], "damping": 1.6,
+        "startSize": 0.8, "endSize": 0.2,
+        "startColor": [1.0, 0.9, 0.6, 1.0], "endColor": [1.0, 0.3, 0.05, 0.0],
+        "fadeInFraction": 0.02, "fadeOutFraction": 0.35, "blendMode": 1,
+    },
+}
+
+# ParticleSystemDesc()'s own defaults, mirrored here so the file-writing path
+# below produces the same component the engine would have built itself.
+PARTICLE_DEFAULTS = {
+    "maxParticles": 200, "looping": True, "emissionRate": 20.0, "burstCount": 1,
+    "minLifetime": 2.0, "maxLifetime": 4.0,
+    "direction": [0.0, 1.0, 0.0], "spreadAngle": math.radians(15.0),
+    "minSpeed": 1.0, "maxSpeed": 2.0,
+    "gravity": [0.0, 0.0, 0.0], "damping": 0.0,
+    "startSize": 1.0, "endSize": 2.0, "sizeRandomJitter": 0.2,
+    "startColor": [1.0, 1.0, 1.0, 1.0], "endColor": [1.0, 1.0, 1.0, 0.0],
+    "fadeInFraction": 0.1, "fadeOutFraction": 0.6,
+    "minRotationSpeed": -1.0, "maxRotationSpeed": 1.0,
+    "blendMode": 0, "boundingSphereRadius": 0.0,
+}
+
+
+@mcp.tool()
+def add_particle_system(project_path: str, scene_name: str, name: str | None = None,
+                        parent_name: str | None = None, position: list[float] | None = None,
+                        preset: str = "default", texture: str | None = None,
+                        max_particles: int | None = None, overrides: dict | None = None) -> str:
+    """Add a particle emitter (editor: Add > Particle System).
+
+    preset: default, fire, smoke or explosion — the same four the editor's Add
+    form offers. `overrides` applies on top, using ParticleSystemDesc field
+    names (looping, emissionRate, burstCount, minLifetime, maxLifetime,
+    direction, spreadAngle in RADIANS, minSpeed, maxSpeed, gravity, damping,
+    startSize, endSize, sizeRandomJitter, startColor, endColor,
+    fadeInFraction, fadeOutFraction, minRotationSpeed, maxRotationSpeed,
+    blendMode 0=alpha 1=additive).
+
+    texture: the particle sprite — a project asset path ('assets/textures/x.png')
+    or an absolute path; files outside the project are imported into it first.
+    Omit it for the editor's default soft round sprite.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    s_err = _scene_error(scene_file)
+    if s_err:
+        return _fail(s_err)
+
+    if preset not in PARTICLE_PRESETS:
+        return _fail(f"Unknown preset '{preset}'. Use: {', '.join(PARTICLE_PRESETS)}")
+
+    tex_rel = None
+    tex_src = None
+    if texture:
+        src = Path(texture) if os.path.isabs(texture) else proj / texture
+        if not src.exists() and not os.path.isabs(texture):
+            src = ROOT / texture
+        if not src.exists():
+            return _fail(f"Texture file not found: {texture}")
+        tex_src = src
+        if proj in src.parents:
+            tex_rel = src.relative_to(proj).as_posix()
+        else:
+            if src.suffix.lower() not in TEXTURE_EXTS:
+                return _fail(f"Unsupported texture format: {src.suffix}")
+            dst = proj / "assets" / "textures"
+            dst.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst / src.name)
+            tex_rel = f"assets/textures/{src.name}"
+
+    final = name or "Particles"
+    live_args = {"name": final, "parent": parent_name or "", "position": position,
+                 "preset": preset}
+    if tex_src is not None:
+        live_args["texture"] = str(tex_src)
+    if max_particles is not None:
+        live_args["maxParticles"] = int(max_particles)
+    # The editor takes the cone half-angle in degrees for readability; the
+    # scene file (and `overrides` here) use radians, like the engine struct.
+    for key, value in (overrides or {}).items():
+        live_args["spreadAngleDegrees" if key == "spreadAngle" else key] = (
+            math.degrees(value) if key == "spreadAngle" else value)
+
+    live = _live_or_none("add_particles", live_args, scene_file)
+    if live is not None:
+        return _fail(live) if isinstance(live, str) else f"Added ParticleSystem '{final}' (live editor)"
+
+    data = _load_scene(scene_file)
+    final_name = _unique_scene_name(data, final)
+    obj = _new_game_object(final_name, position, None, None)
+    comp = {"type": "ParticleSystem"}
+    comp.update(PARTICLE_DEFAULTS)
+    comp.update(PARTICLE_PRESETS[preset])
+    if max_particles is not None:
+        comp["maxParticles"] = int(max_particles)
+    comp.update(overrides or {})
+    # No texture key at all means the emitter draws untextured squares, so a
+    # file-written one without a sprite is worth flagging rather than shipping.
+    if tex_rel:
+        comp["texture"] = tex_rel
+    obj["components"].append(comp)
+    a_err = _add_to_scene(data, obj, parent_name)
+    if a_err:
+        return _fail(a_err)
+    _save_scene(scene_file, data)
+    note = "" if tex_rel else " (no sprite set - pass `texture` or set one in the editor)"
+    return f"Added ParticleSystem '{final_name}' [{preset}] to scene {scene_name}{note}"
 
 
 @mcp.tool()

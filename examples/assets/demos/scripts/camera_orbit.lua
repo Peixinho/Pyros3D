@@ -1,5 +1,6 @@
 -- Automatic orbit camera (SSRTest). Sets global `camera` to this owner.
 local CameraOrbit = class('CameraOrbit')
+local dTime = 0
 
 function CameraOrbit:initialize()
 	self.radius = 18.0
@@ -16,9 +17,10 @@ function CameraOrbit:init(owner)
 end
 
 function CameraOrbit:update(time)
-	local orbitAngle = time * self.yawSpeed
+  dTime = time + dTime
+	local orbitAngle = dTime * self.yawSpeed
 	local rad = math.rad(orbitAngle)
-	local pitchDeg = self.basePitch + self.pitchAmp * math.sin(time * self.pitchFreq)
+	local pitchDeg = self.basePitch + self.pitchAmp * math.sin(dTime * self.pitchFreq)
 	self.owner:setPosition(Vec3.new(math.sin(rad) * self.radius, self.height, math.cos(rad) * self.radius))
 	self.owner:setRotation(Vec3.new(math.rad(pitchDeg), math.rad(orbitAngle), 0))
 	-- Scene::Update calls InternalUpdate after components, but keep the

@@ -134,11 +134,9 @@ function CameraFly:init(owner)
 	end)
 end
 
-function CameraFly:update(time)
-	if self.lastTime == nil then self.lastTime = time end
-	local dt = time - self.lastTime
-	self.lastTime = time
-
+-- `dt` is already the frame delta in seconds - subtracting a stored previous
+-- value gives a delta of a delta (~0), and the camera never moves.
+function CameraFly:update(dt)
 	if not self.captured and allowMouseCapture ~= false then return end
 
 	local speed = dt * 20.0
@@ -157,6 +155,17 @@ function CameraFly:update(time)
 end
 
 function CameraFly:destroy()
+	-- Release the mouse explicitly: the Input bridge's handlers outlive this
+	-- call (Lua GC decides when), and with self.captured still true they keep
+	-- re-warping the cursor to the window centre after the session ended.
+	self.captured = false
+	self.moveFront = false
+	self.moveBack = false
+	self.strafeLeft = false
+	self.strafeRight = false
+	self.lastMouseX = nil
+	self.lastMouseY = nil
+	if setMouseCaptured then setMouseCaptured(false) end
 	self.input = nil
 	if camera == self.owner then camera = nil end
 end

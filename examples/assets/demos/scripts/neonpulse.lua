@@ -3,6 +3,7 @@
 -- the host's scene/renderer/camera/projection globals (see main.lua's
 -- hosted path). No custom C++ - SwitchDemo LoadScene + LuaComponent only.
 local NeonPulse = class('NeonPulse')
+local dTime = 0
 
 function NeonPulse:initialize()
 	self.lastTime = nil
@@ -41,10 +42,9 @@ function NeonPulse:init(owner)
 	self.lastTime = nil
 end
 
-function NeonPulse:update(time)
-	local dt = 0.016
-	if self.lastTime then dt = time - self.lastTime end
-	self.lastTime = time
+-- `dt` arrives as the frame delta already - see WireLuaComponentLifecycle.
+function NeonPulse:update(dt)
+  dTime = dt + dTime
 
 	local w, h = getWindowSize()
 	if w ~= self.screenW or h ~= self.screenH then
@@ -53,7 +53,7 @@ function NeonPulse:update(time)
 		if self.gameResize then self.gameResize(w, h) end
 	end
 
-	self.gameUpdate(time, dt)
+	self.gameUpdate(dTime, dt)
 end
 
 function NeonPulse:destroy()

@@ -336,7 +336,7 @@ namespace p3d {
 		// glBindBufferBase(..., 0, ownUBO) in their own constructor would
 		// mean the most-recently-constructed instance silently steals
 		// binding point 0 (etc.) from every earlier one - which happens for
-		// real whenever two renderers coexist, e.g. PickingPainterMethod's
+		// real whenever two renderers coexist, e.g. an example's
 		// ForwardRenderer + PainterPick. Reference-counted: created when
 		// the first instance is constructed, destroyed when the last one
 		// (of any IRenderer-derived type) is destroyed.

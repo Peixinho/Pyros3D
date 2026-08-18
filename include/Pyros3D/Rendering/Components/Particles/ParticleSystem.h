@@ -170,6 +170,20 @@ namespace p3d {
 		void SetFade(const f32 fadeInFraction, const f32 fadeOutFraction);
 		void SetRotationSpeed(const f32 minRotationSpeed, const f32 maxRotationSpeed) { desc.minRotationSpeed = minRotationSpeed; desc.maxRotationSpeed = maxRotationSpeed; }
 		void SetBlendMode(const uint32 blendMode);
+		// Switching to a one-shot burst stops the continuous emission
+		// immediately; switching back to looping resumes it. Neither
+		// touches particles already alive.
+		void SetLooping(const bool looping) { desc.looping = looping; }
+		// The sprite lives on the material, not in a uniform, so unlike
+		// every setter above this one can't just write into `desc`.
+		void SetTexture(const std::shared_ptr<Texture> &texture);
+
+		// Re-allocates the fixed capacity. Unlike the setters above this is
+		// NOT free (it reallocates the GPU buffer - see the class comment on
+		// why capacity is otherwise chosen once) and it drops every live
+		// particle, since slot indices don't survive the resize. Meant for
+		// an authoring tool retuning an emitter, not for per-frame use.
+		void SetMaxParticles(const uint32 maxParticles);
 
 	private:
 

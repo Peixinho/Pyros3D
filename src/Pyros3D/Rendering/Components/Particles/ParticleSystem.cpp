@@ -257,6 +257,39 @@ namespace p3d {
 		material->SetBlendMode(blendMode);
 	}
 
+	void ParticleSystem::SetTexture(const std::shared_ptr<Texture> &texture)
+	{
+		desc.texture = texture;
+		// The material's constructor pushes the sprite straight into
+		// `textures` (not via AddSampler) and binds uTex0 to unit 0 - so
+		// replacing entry 0 is all a swap needs, and dropping the entry
+		// entirely leaves uTex0 pointing at an unbound unit, exactly as a
+		// texture-less desc did from the start.
+		material->textures.clear();
+		if (texture)
+			material->textures.push_back(texture);
+	}
+
+	void ParticleSystem::SetMaxParticles(const uint32 maxParticles)
+	{
+		uint32 capacity = (maxParticles == 0) ? 1 : maxParticles;
+		if (capacity == desc.maxParticles) return;
+
+		desc.maxParticles = capacity;
+		// Every live particle goes: cpuState[i] and gpuState[i] describe the
+		// same particle only for as long as neither vector is reallocated,
+		// and nothing here has a particle identity that outlives its slot.
+		liveCount = 0;
+		emissionAccumulator = 0.0f;
+		cpuState.assign(capacity, ParticleCPU());
+		gpuState.assign(capacity, ParticleGPU());
+		SetNumberInstances(0);
+		// The one legitimate reallocation besides the constructor's - see the
+		// class comment on why every per-frame Update() instead reuploads
+		// this same (now new) fixed byte length.
+		particleBuffer->Buffer->Update(&gpuState[0], (uint32)(gpuState.size() * sizeof(ParticleGPU)));
+	}
+
 	void ParticleSystem::SpawnParticle(const f64 time)
 	{
 		if (liveCount >= desc.maxParticles)

@@ -2,6 +2,7 @@
 -- velocity-map post effect is obvious. The velocity pass itself is owned by
 -- RenderHost when manifest effects includes "motionblur".
 local MotionBlurSetup = class('MotionBlurSetup')
+local dTime = 0
 
 function MotionBlurSetup:initialize()
 	self.owned = {}
@@ -103,14 +104,15 @@ function MotionBlurSetup:init(owner)
 end
 
 function MotionBlurSetup:update(time)
+  dTime = time + dTime
 	for _, m in ipairs(self.movers) do
-		local a = time * m.speed + m.phase
+		local a = dTime * m.speed + m.phase
 		m.go:setPosition(Vec3.new(
 			math.sin(a) * m.radius,
 			m.height + math.cos(a * 1.7) * 8,
 			math.cos(a) * m.radius
 		))
-		m.go:setRotation(Vec3.new(time * m.spin * 0.4, time * m.spin, time * m.spin * 0.25))
+		m.go:setRotation(Vec3.new(dTime * m.spin * 0.4, dTime * m.spin, dTime * m.spin * 0.25))
 	end
 end
 

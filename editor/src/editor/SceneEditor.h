@@ -48,6 +48,7 @@ using json = nlohmann::json;
 #include "Helpers/LightHelper.h"
 #include "Helpers/GameObjectHelper.h"
 #include "Helpers/SoundHelper.h"
+#include "Helpers/ParticleHelper.h"
 #include "SelectedMaterial.h"
 #include "UI/OpenDir.h"
 #include "ProjectManager.h"
@@ -213,6 +214,8 @@ public:
 		const std::string& parentName, std::string& errOut);
 	bool AgentAddAudio(const std::string& name, const std::string& file, const json& p,
 		const std::string& parentName, std::string& errOut);
+	bool AgentAddParticles(const std::string& name, const json& p,
+		const std::string& parentName, std::string& errOut);
 	bool AgentAddPhysics(const std::string& name, const json& p, const std::string& parentName, std::string& errOut);
 	bool AgentAddModel(const std::string& name, const std::string& modelFile, const std::string& parentName, std::string& errOut);
 	bool AgentAddCamera(const std::string& name, const std::vector<f32>& position,
@@ -300,6 +303,16 @@ public:
 	void ApplyLightRadius(uint32 lightId, f32 radius);
 	void ApplyLightInnerCone(uint32 lightId, f32 innerCone);
 	void ApplyLightOuterCone(uint32 lightId, f32 outerCone);
+	// Same role for a ParticleSystem, but the whole ParticleSystemDesc at
+	// once rather than one field per method: every emitter setting lives in
+	// that one struct, so a single before/after pair of descs undoes any of
+	// them (including the sprite and the capacity) without a per-field
+	// Apply* method each.
+	void ApplyParticleDesc(uint32 psId, const ParticleSystemDesc& desc);
+	// Applies `after` and pushes the pair as one undo command. Both descs are
+	// by value, not by reference - see the .cpp for why that matters.
+	void PushParticleDescCommand(uint32 psId, const ParticleSystemDesc before,
+		const ParticleSystemDesc after, const std::string& label);
 	// Captures `created`'s current subtree and pushes one
 	// AddGameObjectCommand - shared tail of every "a new GameObject now
 	// fully exists" flow (AgentAdd*, AddFormSubmit, PlaceAssetInScene,
@@ -333,6 +346,9 @@ public:
 #endif
 	void SetAsActiveAudioDevice();
 	std::string ResolveSoundPath(const std::string& path) const;
+	// Same project-relative-then-cwd lookup as ResolveSoundPath(), for a
+	// particle sprite (or any other loose asset referenced by path).
+	std::string ResolveAssetPath(const std::string& path) const;
 	// Drawn by Editor::DrawUI() unconditionally rather than from Show(), so
 	// the modal survives the Scene View panel being closed.
 	void DrawSceneFileDialog();
@@ -375,6 +391,10 @@ private:
 	Vec4 undoBaselineLightColor;
 	Vec3 undoBaselineLightDirection;
 	f32 undoBaselineLightRadius, undoBaselineLightInnerCone, undoBaselineLightOuterCone;
+	// One baseline for the whole particle Properties panel rather than one
+	// per widget: UndoValueEdit() only ever has a single active widget to
+	// track at a time, and the command is a whole-desc pair anyway.
+	ParticleSystemDesc undoBaselineParticleDesc;
 	// Scene-level ambient colour - see SceneMeta::ambientLight. Kept in
 	// sync with Renderer->SetGlobalLight() any time it changes (edited in
 	// Properties), a scene loads, or SwitchRenderer() replaces Renderer
@@ -731,6 +751,51 @@ private:
 	bool ShowShadowProperties(ILightComponent* light, bool directional);
 	void SeedShadowProperties(ILightComponent* light);
 
+	// Edit-mode particle preview. An emitter left running in the viewport is
+	// a permanent distraction (and a permanent cost) on a scene that may hold
+	// dozens, so outside Play the only one that simulates is the one the user
+	// is actually looking at: the selected emitter, or every emitter on the
+	// selected GameObject. Edge-triggered on selection change rather than
+	// forced every frame, so the Properties panel's own Play/Stop buttons
+	// still mean something while the selection sits still.
+	void UpdateParticlePreview();
+	bool ParticleSystemPreviewsForSelection(ParticleSystem* ps) const;
+	// Stops and clears every emitter in the scene, and makes the next
+	// UpdateParticlePreview() re-evaluate from scratch. Used wherever the
+	// world changes underneath the preview (scene load, leaving Play).
+	void ResetParticlePreview();
+	uint32 particlePreviewSelectionId;
+	bool particlePreviewSynced;
+
+	// Properties-panel draft state for the selected ParticleSystem: the two
+	// fields that are applied on a button press rather than live (a sprite
+	// path being typed, and a capacity whose every intermediate value would
+	// otherwise reallocate the GPU buffer). Reseeded from the component
+	// whenever the selection changes, tracked by propertiesParticleSeededId.
+	std::string propertiesParticleTexturePath;
+	int32 propertiesParticleMax;
+	uint32 propertiesParticleSeededId;
+
+	// Particle System helpers, shared by the Add form and the Properties
+	// panel's "change the sprite" button.
+	//
+	// Loads `path` (project-relative or absolute) as a particle sprite,
+	// falling back to the editor's own assets/particle_default.png when the
+	// path is empty or won't load - a ParticleSystem with no texture samples
+	// an unbound unit and draws as untextured squares, which reads as a bug
+	// rather than as "you forgot to pick a sprite".
+	std::shared_ptr<Texture> LoadParticleTexture(const std::string& path);
+	// Copies a sprite chosen from anywhere on disk into the open project's
+	// assets/textures (so the scene stays portable), and returns the path
+	// that should actually be loaded. A no-op passthrough with no project open.
+	std::string ImportParticleTexture(const std::string& path);
+	// Creates the component, registers it in the tree, and gives it a
+	// viewport icon - the three things every caller wants together.
+	SceneObject* AttachParticleSystem(GameObject* go, const ParticleSystemDesc& desc);
+	// Seeds `desc` from AddForm_particlePreset (0 = Default/plain, 1 = Fire,
+	// 2 = Smoke, 3 = Explosion/one-shot burst).
+	static void ApplyParticlePreset(ParticleSystemDesc& desc, int32 preset);
+
 	// Add Form
 	void AddFormSubmit();
 	f32 AddForm_w, AddForm_h, AddForm_d, AddForm_p, AddForm_q, AddForm_oc, AddForm_ic;
@@ -751,6 +816,14 @@ private:
 	uint32 showingAddFormType;
 	string AddForm_modelPath;
 	string AddForm_soundPath;
+	// Particle System. Everything else in ParticleSystemDesc is left at its
+	// default here and tuned live in the Properties panel afterwards - only
+	// the sprite, the capacity and the emission style are awkward (or, for
+	// the sprite, impossible) to change after the fact, so those are what
+	// the creation form asks for. `AddForm_particlePreset` seeds the rest.
+	string AddForm_particleTexturePath;
+	int32 AddForm_particleMax;
+	int32 AddForm_particlePreset;
 #ifdef LUA_BINDINGS
 	// Draft paths for Properties panel InputText (not menus of script names).
 	std::string propertiesScriptAttachPath;

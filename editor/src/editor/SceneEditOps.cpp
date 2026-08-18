@@ -135,6 +135,16 @@ SceneObject* SceneEditor::RawInsertSubtree(const std::string& subtreeJson, uint3
 					scene->Add(h);
 				}
 			}
+			else if (o->GetType() == SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT)
+			{
+				IComponent* c = (IComponent*)o->GetPTR();
+				if (c && c->GetOwner())
+				{
+					std::shared_ptr<ParticleHelper> h = std::make_shared<ParticleHelper>(c->GetOwner());
+					o->Helper = h;
+					scene->Add(h);
+				}
+			}
 		}
 	}
 	if (wasCamera && obj)
@@ -394,4 +404,56 @@ void SceneEditor::ApplyLightOuterCone(uint32 lightId, f32 outerCone)
 	l->SetLightOutterCone(outerCone);
 	if (SelectedSceneObject == obj) PropertiesLightOutterCone = outerCone;
 	MarkSceneDirty();
+}
+
+void SceneEditor::ApplyParticleDesc(uint32 psId, const ParticleSystemDesc& desc)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(psId);
+	if (!obj) return;
+	ParticleSystem* ps = dynamic_cast<ParticleSystem*>((IComponent*)obj->GetPTR());
+	if (!ps) return;
+
+	// SetMaxParticles() first, and only when it actually differs - it is the
+	// one setter that throws away every live particle, so re-applying an
+	// unchanged capacity on any other field's undo would visibly wipe the
+	// effect (SetMaxParticles' own early-out is what makes this safe).
+	ps->SetMaxParticles(desc.maxParticles);
+	ps->SetTexture(desc.texture);
+	ps->SetLooping(desc.looping);
+	ps->SetEmissionRate(desc.emissionRate);
+	ps->SetBurstCount(desc.burstCount);
+	ps->SetLifetime(desc.minLifetime, desc.maxLifetime);
+	ps->SetDirection(desc.direction);
+	ps->SetSpread(desc.spreadAngle);
+	ps->SetSpeed(desc.minSpeed, desc.maxSpeed);
+	ps->SetGravity(desc.gravity);
+	ps->SetDamping(desc.damping);
+	ps->SetSizes(desc.startSize, desc.endSize, desc.sizeRandomJitter);
+	ps->SetColors(desc.startColor, desc.endColor);
+	ps->SetFade(desc.fadeInFraction, desc.fadeOutFraction);
+	ps->SetRotationSpeed(desc.minRotationSpeed, desc.maxRotationSpeed);
+	ps->SetBlendMode(desc.blendMode);
+
+	// The panel's own draft fields are the only state that doesn't re-read
+	// the desc every frame - see propertiesParticle* in SceneEditor.h.
+	if (SelectedSceneObject == obj)
+	{
+		propertiesParticleTexturePath = desc.texture ? desc.texture->GetFilename() : std::string();
+		propertiesParticleMax = (int32)desc.maxParticles;
+	}
+	MarkSceneDirty();
+}
+
+// Both descs are taken BY VALUE on purpose: callers routinely pass the
+// component's own live desc as `before` (via ParticleSystem::GetDesc()'s
+// reference), and the ApplyParticleDesc() call below overwrites exactly
+// that - by-reference parameters would leave `before` already mutated by
+// the time the undo closure captured it.
+void SceneEditor::PushParticleDescCommand(uint32 psId, const ParticleSystemDesc before,
+	const ParticleSystemDesc after, const std::string& label)
+{
+	ApplyParticleDesc(psId, after);
+	sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+		[this, psId, before]() { ApplyParticleDesc(psId, before); },
+		[this, psId, after]() { ApplyParticleDesc(psId, after); }, label));
 }

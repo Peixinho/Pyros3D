@@ -7,6 +7,7 @@
 #include <Pyros3D/Rendering/Components/Lights/SpotLight/SpotLight.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Audio/AudioSource.h>
+#include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
 #include "SceneObjects.h"
 
 namespace EditorIcons {
@@ -16,6 +17,9 @@ inline std::string ForComponent(p3d::IComponent* c)
 	if (dynamic_cast<p3d::DirectionalLight*>(c)) return u8"\uf185 ";
 	if (dynamic_cast<p3d::PointLight*>(c)) return u8"\uf0eb ";
 	if (dynamic_cast<p3d::SpotLight*>(c)) return u8"\uf0eb ";
+	// Before RenderingComponent: a ParticleSystem *is* one (via
+	// IRenderingInstancedComponent), so the broader test would swallow it.
+	if (dynamic_cast<p3d::ParticleSystem*>(c)) return u8"\uf0d0 ";
 	if (dynamic_cast<p3d::RenderingComponent*>(c)) return u8"\uf1b2 ";
 	if (dynamic_cast<p3d::AudioSource*>(c)) return u8"\uf028 ";
 	return u8"\uf0ad ";
@@ -41,6 +45,8 @@ inline std::string ForSceneObject(SceneObject* obj, bool isCamera)
 		return u8"\uf028 ";
 	case SceneObjectTypes::LUA_COMPONENT:
 		return u8"\uf121 ";
+	case SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT:
+		return u8"\uf0d0 ";
 	default:
 		return u8"\uf111 ";
 	}

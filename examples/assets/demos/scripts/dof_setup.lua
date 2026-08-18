@@ -4,7 +4,7 @@ local DOFSetup = class('DOFSetup')
 function DOFSetup:initialize()
 	self.owned = {}
 	self.keep = {}
-	self.lastTime = nil
+	self.spin = 0
 end
 
 function DOFSetup:init(owner)
@@ -34,10 +34,12 @@ function DOFSetup:init(owner)
 	end
 end
 
-function DOFSetup:update(time)
-	if self.lastTime == nil then self.lastTime = time end
+-- `dt` is the frame delta, so the spin angle has to be accumulated here -
+-- using the argument directly as an angle just pins them at ~0.016 rad.
+function DOFSetup:update(dt)
+	self.spin = (self.spin or 0) + dt
 	for _, go in ipairs(self.owned) do
-		go:setRotation(Vec3.new(0, time, 0))
+		go:setRotation(Vec3.new(0, self.spin, 0))
 	end
 end
 

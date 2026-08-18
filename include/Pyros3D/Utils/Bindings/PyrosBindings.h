@@ -510,10 +510,15 @@ namespace p3d {
     // passed into init() (in addition to self) so a script can reach
     // its own GameObject/sibling components (e.g.
     // owner:getComponent("RenderingComponent")) without a separate
-    // binding - update()/destroy() only ever need `self`. `time` is the
-    // same absolute simulation time every other Update(time) call in
-    // this engine already passes (SceneGraph::Update(GetTime()), etc),
-    // not a per-frame delta.
+    // binding - update()/destroy() only ever need `self`.
+    //
+    // update(self, dt) receives the FRAME DELTA in seconds, not the
+    // absolute simulation time the rest of the engine's Update(time)
+    // calls pass around - LuaComponent::Update() does that conversion for
+    // every script (see its comment for why). A script that wants elapsed
+    // time accumulates it itself (`self.t = self.t + dt`); one that
+    // subtracts its own previous argument is computing a delta of a delta
+    // and will get ~0 every frame.
     inline void WireLuaComponentLifecycle(LuaComponent* comp)
     {
         sol::table instance = comp->data;
@@ -599,6 +604,7 @@ namespace p3d {
 
 		LuaInputBridge()
 		{
+			LiveBridges().push_back(this);
 			for (uint32 i = 0; i < Event::Input::Keyboard::Count; i++)
 			{
 				InputManager::AddEvent(Event::Type::OnPress, i, this, &LuaInputBridge::OnKeyPress);
@@ -629,12 +635,10 @@ namespace p3d {
 			}
 			InputManager::RemoveEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &LuaInputBridge::OnMouseMove);
 			InputManager::RemoveEvent(Event::Type::OnMove, Event::Input::Mouse::Wheel, this, &LuaInputBridge::OnMouseWheel);
-			keyPressCallbacks.clear();
-			keyReleaseCallbacks.clear();
-			mousePressCallbacks.clear();
-			mouseReleaseCallbacks.clear();
-			mouseMoveCallbacks.clear();
-			mouseWheelCallbacks.clear();
+			ClearCallbacks();
+			std::vector<LuaInputBridge*> &live = LiveBridges();
+			for (std::vector<LuaInputBridge*>::iterator i = live.begin(); i != live.end(); ++i)
+				if (*i == this) { live.erase(i); break; }
 		}
 
 		// Lua-facing registration API
@@ -645,7 +649,51 @@ namespace p3d {
 		void OnMouseMoved(sol::function callback) { mouseMoveCallbacks.push_back(callback); }
 		void OnMouseWheelMoved(sol::function callback) { mouseWheelCallbacks.push_back(callback); }
 
+		// Drops every Lua closure this bridge is holding, so it stops firing
+		// immediately - without waiting for the destructor.
+		void ClearCallbacks()
+		{
+			keyPressCallbacks.clear();
+			keyReleaseCallbacks.clear();
+			mousePressCallbacks.clear();
+			mouseReleaseCallbacks.clear();
+			mouseMoveCallbacks.clear();
+			mouseWheelCallbacks.clear();
+		}
+
+		// Silences EVERY live bridge at once. This exists because a bridge is
+		// a Lua-owned userdata (`Input.new()`), so the only thing that
+		// unregisters it is its destructor - and that runs whenever Lua's GC
+		// decides to, not when the script that made it is torn down. A host
+		// that ends a script session (the editor's Stop Play) therefore had
+		// no way to stop a dead script's handlers from still receiving input:
+		// they kept firing into a stale `self` for an arbitrary number of
+		// frames afterwards - a camera script left "self.captured = true"
+		// would go on warping the mouse to the window centre as if play had
+		// never stopped, and once the closures' state was actually collected
+		// the next event dispatched straight into freed memory.
+		//
+		// Bridges are NOT unregistered or destroyed here - they stay valid
+		// and reusable; they simply have nothing left to call. Scripts
+		// re-register their handlers in init() on the next play session.
+		static void ClearAllCallbacks()
+		{
+			std::vector<LuaInputBridge*> &live = LiveBridges();
+			for (std::vector<LuaInputBridge*>::iterator i = live.begin(); i != live.end(); ++i)
+				if (*i != NULL) (*i)->ClearCallbacks();
+		}
+
 	private:
+
+		// Function-local static, not a class static: this header is included
+		// from several translation units and the list has to exist before the
+		// first bridge's constructor runs, whatever the static init order is.
+		static std::vector<LuaInputBridge*> &LiveBridges()
+		{
+			static std::vector<LuaInputBridge*> bridges;
+			return bridges;
+		}
+
 
 		// Real trampolines - one registration per code, dispatch by
 		// Info.Input to whichever Lua closures were registered for it.

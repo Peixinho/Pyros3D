@@ -47,6 +47,7 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/GameObjectHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/LightHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/SoundHelper.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/ParticleHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/IUInterface.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/OpenDir.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/MaterialEditor.cpp

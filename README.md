@@ -68,7 +68,6 @@ See [otherplatforms/android/README.md](otherplatforms/android/README.md).
 ![Rotating Textured Cube](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/RotatingTexturedCube/RotatingTexturedCube.png)
 ![Deferred Rendering](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/DeferredRendering/DeferredRendering.png)
 ![Island Demo](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/IslandDemo/IslandDemo.png)
-![Picking](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/PickingPainterMethod/Picking%20With%20Painter%20Method.png)
 ![Shadows](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/RotatingCubeWithLightingAndShadow/Rotating%20Cube%20With%20Lighting%20And%20Shadows.png)
 ![Physics](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/SimplePhysics/Simple%20Physics%20Example.png)
 ![Skeleton Animation](https://raw.githubusercontent.com/Peixinho/Pyros3D/master/examples/SkeletonAnimationExample/SkeletonAnimation.png)

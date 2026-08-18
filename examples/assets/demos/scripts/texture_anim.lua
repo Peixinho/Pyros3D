@@ -3,6 +3,7 @@
 -- the original RotatingTextureAnimatedCube C++ demo did manually. Also
 -- spins the owner on Y (spin_y.lua's job) so one attach covers both.
 local TextureAnim = class('TextureAnim')
+local dTime = 0
 
 function TextureAnim:initialize()
 end
@@ -34,8 +35,9 @@ function TextureAnim:init(owner)
 end
 
 function TextureAnim:update(time)
+    dTime = time + dTime
 	if self.anim then
-		self.anim:update(time)
+		self.anim:update(dTime)
 	end
 	if self.instance and self.material then
 		local tex = self.instance:getTexture()
@@ -45,7 +47,7 @@ function TextureAnim:update(time)
 	end
 	if self.owner then
 		local r = self.owner:getRotation()
-		self.owner:setRotation(Vec3.new(r.x, time, r.z))
+		self.owner:setRotation(Vec3.new(r.x, dTime, r.z))
 	end
 end
 

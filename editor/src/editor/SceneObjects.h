@@ -20,6 +20,7 @@
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
 #include <Pyros3D/Rendering/Components/Lights/SpotLight/SpotLight.h>
 #include <Pyros3D/Audio/AudioSource.h>
+#include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <memory>
 
@@ -40,7 +41,8 @@ namespace SceneObjectTypes {
 		SPOTLIGHT_COMPONENT,
 		PHYSICS_COMPONENT,
 		AUDIO_SOURCE_COMPONENT,
-		LUA_COMPONENT
+		LUA_COMPONENT,
+		PARTICLE_SYSTEM_COMPONENT
 	};
 };
 
@@ -127,6 +129,7 @@ class SceneObjects
 		SceneObject* CreateSpotLight(GameObject *go, const f32 radius, const Vec3 &direction, const f32 outter, const f32 inner, const Vec4 &color);
 		SceneObject* CreateAudioSource(GameObject *go, const std::string &path, bool stream = false,
 			bool looping = false, bool spatialized = true, f32 volume = 1.f);
+		SceneObject* CreateParticleSystem(GameObject *go, const ParticleSystemDesc &desc);
 #ifdef LUA_BINDINGS
 		// Registers an already-built LuaComponent (from LuaComponent_FromFile /
 		// load) as a tree node under `go`.

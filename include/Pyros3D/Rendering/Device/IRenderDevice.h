@@ -895,7 +895,7 @@ namespace p3d {
 	// `new GLRenderDevice()` in a Vulkan-only process (no real GL context
 	// ever created, so every glad function pointer is NULL) crashes the
 	// instant it makes any real GL call - confirmed via live crashes in
-	// MotionBlurExample/PickingPainterMethod
+	// MotionBlurExample
 	// (EXC_BAD_ACCESS in GLRenderDevice::CreateTextureObject, address 0x0).
 	// IsActiveRenderDeviceSet() lets IRenderer's constructor distinguish
 	// "nothing registered yet, `new GLRenderDevice()` really is correct"
