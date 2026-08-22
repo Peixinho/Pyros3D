@@ -106,6 +106,9 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/PhysicsEngines/Box3D/Box3DPhysics.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/PhysicsEngines/IPhysics.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Resources/Resources.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/AnimationManager/Components/IKComponent.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/AnimationManager/IKSolver.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/AnimationManager/RigAsset.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/AnimationManager/SkeletonAnimation.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/AnimationManager/TextureAnimation.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Font/Font.cpp
