@@ -579,10 +579,34 @@ void AnimationPreview::PrepareGizmo(int boneId, const Matrix& view, const Matrix
 		? instance->GetBoneGlobalTransform(parent) : Matrix();
 	gizmoAnchorWorld = gizmoParentWorld * gizmoBoneLocal;
 
+	// What SetGlobalTransform has to be for a BONE, which is not what the
+	// name suggests.
+	//
+	// CGizmoTransformRotate::Rotate1Axe's local branch builds its rotation as
+	//     newLocal = R(inverse(globalTransform) * m_Axis, angle) * oldLocal
+	// and m_Axis is GetVector(id) - a RAW coordinate axis, not the world-space
+	// vector its comment claims. Feeding the parent's world matrix (the
+	// obvious reading, and what SceneEditor does for a child GameObject)
+	// therefore conjugates a local axis through an unrelated frame, and the
+	// bone turns about a skewed axis: measured 0.72 alignment with any
+	// coordinate axis on a single-ring drag, where a correct one is 1.00. It
+	// only looks right for SceneEditor's root objects, where the parent is
+	// identity and the conjugation does nothing.
+	//
+	// Rotating the bone about its OWN axis e_i means
+	//     newWorld = R_world(rot(parentWorld*local) * e_i, angle) * parentWorld * local
+	// which reduces to needing the conjugated axis to equal rot(local) * e_i,
+	// i.e. inverse(globalTransform) == rot(local). Hence the inverse of the
+	// bone's local rotation, with translation stripped so only the rotation
+	// takes part.
+	Matrix boneRotationOnly = gizmoBoneLocal;
+	boneRotationOnly.Translate(Vec3(0, 0, 0));
+	gizmoAxisFrame = boneRotationOnly.Inverse();
+
 	gizmo->SetDisplayScale(0.15f);
 	gizmo->SetScreenDimension(width, height, true, gizmoOrthoL, gizmoOrthoR, gizmoOrthoB, gizmoOrthoT);
 	gizmo->SetLocalTransform((float*)&gizmoAnchorWorld.m);
-	gizmo->SetGlobalTransform((float*)&gizmoParentWorld.m);
+	gizmo->SetGlobalTransform((float*)&gizmoAxisFrame.m);
 	gizmo->SetEditMatrix((float*)&gizmoBoneLocal.m);
 	gizmo->SetCameraMatrix(view.m, proj.m);
 }

@@ -144,6 +144,9 @@ struct AnimationPreview {
 	// Anchor/parent matrices handed to the gizmo each frame; members for
 	// the same lifetime reason as gizmoBoneLocal.
 	p3d::Math::Matrix gizmoAnchorWorld, gizmoParentWorld;
+	// Frame handed to IGizmo::SetGlobalTransform so its axis conjugation
+	// lands on the bone's own axes - see PrepareGizmo for the derivation.
+	p3d::Math::Matrix gizmoAxisFrame;
 	// Orthographic frustum bounds handed to both the hit-test ray and
 	// IGizmo::SetScreenDimension - they must describe the same space (see
 	// DrawAndUpdate). Refreshed each frame before the gizmo is fed.
