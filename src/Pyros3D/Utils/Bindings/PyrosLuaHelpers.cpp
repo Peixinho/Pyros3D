@@ -6,6 +6,7 @@
 #ifdef LUA_BINDINGS
 
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
+#include <Pyros3D/AnimationManager/Components/IKComponent.h>
 
 namespace p3d {
 
@@ -874,6 +875,95 @@ namespace p3d {
 		*intersection = finalIntersection;
 		*normal = _normal;
 		return true;
+	}
+
+	namespace {
+		// Finds a GameObject's IK component and the constraint driving `chain`.
+		IKConstraint* FindIKConstraint(GameObject* go, const std::string &chain)
+		{
+			if (!go) return NULL;
+			const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+			for (size_t i = 0; i < comps.size(); i++)
+			{
+				if (!comps[i] || comps[i]->GetComponentType() != ComponentType::IK) continue;
+				IKComponent* ik = static_cast<IKComponent*>(comps[i].get());
+				for (uint32 k = 0; k < ik->GetNumberConstraints(); k++)
+					if (ik->GetConstraint(k).ChainName == chain) return &ik->GetConstraint(k);
+			}
+			return NULL;
+		}
+	}
+
+	// Free functions rather than an IKComponent usertype: getComponent() pushes
+	// a shared_ptr, which sol2 hands back as an unregistered userdata unless the
+	// type is plumbed through the same LUA_* subclass dance RenderingComponent
+	// needs. Two setters do not justify that.
+	bool SetIKConstraintEnabled(GameObject* go, const std::string &chain, bool enabled)
+	{
+		IKConstraint* c = FindIKConstraint(go, chain);
+		if (!c) return false;
+		c->Enabled = enabled;
+		return true;
+	}
+
+	// 0 leaves the animated pose alone, 1 fully honours the target, between
+	// blends - which is how a foot plant fades in as the foot lands rather
+	// than snapping.
+	bool SetIKConstraintWeight(GameObject* go, const std::string &chain, float weight)
+	{
+		IKConstraint* c = FindIKConstraint(go, chain);
+		if (!c) return false;
+		c->Weight = weight;
+		return true;
+	}
+
+	bool WorldToScreen(float winW, float winH, GameObject* camera, Projection* projection,
+		const Vec3 &worldPos, float* outX, float* outY)
+	{
+		if (!camera || !projection || !outX || !outY) return false;
+
+		const Matrix view = camera->GetWorldTransformation().Inverse();
+		const Vec4 clip = projection->GetProjectionMatrix() * view * Vec4(worldPos.x, worldPos.y, worldPos.z, 1.f);
+		// w is the view-space depth; behind the camera it is <= 0 and the
+		// divide below would mirror the point back onto the screen.
+		if (clip.w <= 0.0001f) return false;
+
+		const float ndcX = clip.x / clip.w;
+		const float ndcY = clip.y / clip.w;
+		*outX = (ndcX * 0.5f + 0.5f) * winW;
+		// Y is flipped: NDC is +up, window coordinates are +down.
+		*outY = (1.f - (ndcY * 0.5f + 0.5f)) * winH;
+		return true;
+	}
+
+	Vec3 ScreenToWorldAtDepth(float winW, float winH, float mouseX, float mouseY,
+		GameObject* camera, Projection* projection, const Vec3 &refWorldPos)
+	{
+		if (!camera || !projection) return refWorldPos;
+
+		const Matrix camWorld = camera->GetWorldTransformation();
+		Mouse3D mouse;
+		mouse.GenerateRay(winW, winH, mouseX, mouseY, Matrix(), camWorld.Inverse(),
+			projection->GetProjectionMatrix());
+
+		const Vec3 origin = mouse.GetOrigin();
+		const Vec3 dir = mouse.GetDirection();
+
+		// Plane through refWorldPos whose normal is the camera's forward axis.
+		// Column 2 of the camera's world matrix is its local +Z, which points
+		// BACKWARDS out of the screen in this engine's convention (LookAt
+		// builds a view matrix, and its inverse is the camera world matrix),
+		// so the sign does not matter here - a plane and its flip are the same
+		// plane.
+		const Vec3 fwd = Vec3(camWorld.m[8], camWorld.m[9], camWorld.m[10]).normalize();
+		const float denom = dir.dotProduct(fwd);
+		// Ray parallel to the plane: nothing sensible to return, so hold
+		// position rather than shooting the object off to infinity.
+		if (fabs(denom) < 1e-6f) return refWorldPos;
+
+		const float t = (refWorldPos - origin).dotProduct(fwd) / denom;
+		if (t < 0.f) return refWorldPos;
+		return origin + dir * t;
 	}
 
 	// Port of examples/Decals::CreateDecal for DemoLauncher scene Lua.

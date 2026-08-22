@@ -85,6 +85,18 @@ namespace p3d {
 			return std::make_tuple(p.x, p.y);
 		});
 		lua->set_function("placeDecalAtCursor", &PlaceDecalAtCursor);
+
+		// Returns x, y, visible - multiple returns rather than a table so the
+		// common "local x, y = worldToScreen(...)" reads naturally.
+		lua->set_function("worldToScreen", [](float winW, float winH, GameObject* camera,
+			Projection* projection, const Vec3 &worldPos) {
+			float x = 0.f, y = 0.f;
+			const bool ok = WorldToScreen(winW, winH, camera, projection, worldPos, &x, &y);
+			return std::make_tuple(x, y, ok);
+		});
+		lua->set_function("screenToWorldAtDepth", &ScreenToWorldAtDepth);
+		lua->set_function("setIKConstraintEnabled", &SetIKConstraintEnabled);
+		lua->set_function("setIKConstraintWeight", &SetIKConstraintWeight);
 	}
 
 } // namespace p3d

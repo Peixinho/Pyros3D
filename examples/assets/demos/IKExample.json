@@ -1,0 +1,511 @@
+{
+  "materials": [
+    {
+      "blendDFactor": 0,
+      "blendEquation": 0,
+      "blendSFactor": 0,
+      "blending": false,
+      "castingShadows": false,
+      "color": [
+        0.600000023841858,
+        0.600000023841858,
+        0.600000023841858,
+        1.0
+      ],
+      "colorMap": "test_m.png",
+      "cullFace": 0,
+      "depthBias": false,
+      "depthBiasFactor": 0.0,
+      "depthBiasUnits": 0.0,
+      "depthTest": true,
+      "depthWrite": true,
+      "displacementHeight": 0.0500000007450581,
+      "id": 0,
+      "kind": "generic",
+      "metallic": 0.0,
+      "opacity": 1.0,
+      "options": 279075,
+      "reflectivity": 0.0,
+      "roughness": 0.0,
+      "shininess": 50.0,
+      "specular": [
+        0.899999976158142,
+        0.899999976158142,
+        0.899999976158142,
+        1.0
+      ],
+      "ssrEnabled": false,
+      "transparent": false,
+      "wireframe": false
+    },
+    {
+      "blendDFactor": 0,
+      "blendEquation": 0,
+      "blendSFactor": 0,
+      "blending": false,
+      "castingShadows": false,
+      "color": [
+        0.2,
+        1.0,
+        0.3,
+        1.0
+      ],
+      "cullFace": 0,
+      "depthBias": false,
+      "depthBiasFactor": 0.0,
+      "depthBiasUnits": 0.0,
+      "depthTest": true,
+      "depthWrite": true,
+      "displacementHeight": 0.05,
+      "id": 1,
+      "kind": "generic",
+      "metallic": 0.0,
+      "opacity": 1.0,
+      "options": 16385,
+      "reflectivity": 0.0,
+      "roughness": 0.0,
+      "shininess": 50,
+      "specular": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "ssrEnabled": false,
+      "transparent": false,
+      "wireframe": false
+    },
+    {
+      "blendDFactor": 0,
+      "blendEquation": 0,
+      "blendSFactor": 0,
+      "blending": false,
+      "castingShadows": false,
+      "color": [
+        1.0,
+        0.4,
+        0.2,
+        1.0
+      ],
+      "cullFace": 0,
+      "depthBias": false,
+      "depthBiasFactor": 0.0,
+      "depthBiasUnits": 0.0,
+      "depthTest": true,
+      "depthWrite": true,
+      "displacementHeight": 0.05,
+      "id": 2,
+      "kind": "generic",
+      "metallic": 0.0,
+      "opacity": 1.0,
+      "options": 16385,
+      "reflectivity": 0.0,
+      "roughness": 0.0,
+      "shininess": 50,
+      "specular": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "ssrEnabled": false,
+      "transparent": false,
+      "wireframe": false
+    },
+    {
+      "blendDFactor": 0,
+      "blendEquation": 0,
+      "blendSFactor": 0,
+      "blending": false,
+      "castingShadows": false,
+      "color": [
+        0.3,
+        0.7,
+        1.0,
+        1.0
+      ],
+      "cullFace": 0,
+      "depthBias": false,
+      "depthBiasFactor": 0.0,
+      "depthBiasUnits": 0.0,
+      "depthTest": true,
+      "depthWrite": true,
+      "displacementHeight": 0.05,
+      "id": 3,
+      "kind": "generic",
+      "metallic": 0.0,
+      "opacity": 1.0,
+      "options": 16385,
+      "reflectivity": 0.0,
+      "roughness": 0.0,
+      "shininess": 50,
+      "specular": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "ssrEnabled": false,
+      "transparent": false,
+      "wireframe": false
+    },
+    {
+      "blendDFactor": 0,
+      "blendEquation": 0,
+      "blendSFactor": 0,
+      "blending": false,
+      "castingShadows": false,
+      "color": [
+        1.0,
+        0.9,
+        0.2,
+        1.0
+      ],
+      "cullFace": 0,
+      "depthBias": false,
+      "depthBiasFactor": 0.0,
+      "depthBiasUnits": 0.0,
+      "depthTest": true,
+      "depthWrite": true,
+      "displacementHeight": 0.05,
+      "id": 4,
+      "kind": "generic",
+      "metallic": 0.0,
+      "opacity": 1.0,
+      "options": 16385,
+      "reflectivity": 0.0,
+      "roughness": 0.0,
+      "shininess": 50,
+      "specular": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "ssrEnabled": false,
+      "transparent": false,
+      "wireframe": false
+    }
+  ],
+  "roots": [
+    {
+      "children": [],
+      "components": [
+        {
+          "data": {
+            "pitch": 0,
+            "yaw": 0
+          },
+          "scriptFile": "demos/scripts/camera_fly.lua",
+          "type": "LuaComponent"
+        }
+      ],
+      "name": "Camera",
+      "position": [
+        -10,
+        16,
+        52
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "static": false,
+      "tags": [
+        "Camera"
+      ]
+    },
+    {
+      "children": [],
+      "components": [
+        {
+          "castingShadows": false,
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "direction": [
+            -1.0,
+            -1.0,
+            -1.0
+          ],
+          "intensity": 3.14159,
+          "type": "DirectionalLight"
+        }
+      ],
+      "name": "",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "static": true,
+      "tags": []
+    },
+    {
+      "children": [],
+      "components": [
+        {
+          "castingShadows": false,
+          "cullTest": false,
+          "material": 0,
+          "renderable": {
+            "kind": "model",
+            "mergeMeshes": false,
+            "path": "human.p3dm"
+          },
+          "skeletonAnimation": {
+            "layers": [],
+            "path": "walk.p3da",
+            "paths": [
+              "walk.p3da"
+            ],
+            "playing": [
+              {
+                "currentTime": 0.0,
+                "guid": "",
+                "id": 0,
+                "name": "walk",
+                "paused": false,
+                "repeat": -1.0,
+                "scale": 1.0,
+                "speed": 1.0,
+                "startTimeProgress": 0.0
+              }
+            ]
+          },
+          "type": "RenderingComponent"
+        },
+        {
+          "constraints": [
+            {
+              "chain": "LeftLeg",
+              "enabled": true,
+              "target": "Handle L Foot",
+              "weight": 1.0
+            },
+            {
+              "chain": "RightLeg",
+              "enabled": true,
+              "target": "Handle R Foot",
+              "weight": 1.0
+            },
+            {
+              "chain": "LeftArm",
+              "enabled": true,
+              "target": "Handle L Hand",
+              "weight": 1.0
+            },
+            {
+              "chain": "RightArm",
+              "enabled": true,
+              "target": "Handle R Hand",
+              "weight": 1.0
+            }
+          ],
+          "iterations": 10,
+          "rig": "human.p3dm",
+          "type": "IK"
+        },
+        {
+          "data": {},
+          "scriptFile": "demos/scripts/ik_handles.lua",
+          "type": "LuaComponent"
+        }
+      ],
+      "name": "Walker",
+      "position": [
+        -10.0,
+        0.0,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        2.0,
+        2.0,
+        2.0
+      ],
+      "static": false,
+      "tags": []
+    },
+    {
+      "children": [],
+      "components": [
+        {
+          "castingShadows": false,
+          "cullTest": false,
+          "material": 1,
+          "renderable": {
+            "depth": 1.0,
+            "flip": false,
+            "height": 1.0,
+            "kind": "primitive",
+            "shape": "Cube",
+            "smooth": false,
+            "tangentBitangent": false,
+            "width": 1.0
+          },
+          "type": "RenderingComponent"
+        }
+      ],
+      "name": "Handle L Foot",
+      "position": [
+        -8.26,
+        2.36,
+        4.08
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.6,
+        1.6,
+        1.6
+      ],
+      "static": false,
+      "tags": []
+    },
+    {
+      "children": [],
+      "components": [
+        {
+          "castingShadows": false,
+          "cullTest": false,
+          "material": 2,
+          "renderable": {
+            "depth": 1.0,
+            "flip": false,
+            "height": 1.0,
+            "kind": "primitive",
+            "shape": "Cube",
+            "smooth": false,
+            "tangentBitangent": false,
+            "width": 1.0
+          },
+          "type": "RenderingComponent"
+        }
+      ],
+      "name": "Handle R Foot",
+      "position": [
+        -12.24,
+        2.96,
+        -7.98
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.6,
+        1.6,
+        1.6
+      ],
+      "static": false,
+      "tags": []
+    },
+    {
+      "children": [],
+      "components": [
+        {
+          "castingShadows": false,
+          "cullTest": false,
+          "material": 3,
+          "renderable": {
+            "depth": 1.0,
+            "flip": false,
+            "height": 1.0,
+            "kind": "primitive",
+            "shape": "Cube",
+            "smooth": false,
+            "tangentBitangent": false,
+            "width": 1.0
+          },
+          "type": "RenderingComponent"
+        }
+      ],
+      "name": "Handle L Hand",
+      "position": [
+        -4.42,
+        18.7,
+        -2.34
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.6,
+        1.6,
+        1.6
+      ],
+      "static": false,
+      "tags": []
+    },
+    {
+      "children": [],
+      "components": [
+        {
+          "castingShadows": false,
+          "cullTest": false,
+          "material": 4,
+          "renderable": {
+            "depth": 1.0,
+            "flip": false,
+            "height": 1.0,
+            "kind": "primitive",
+            "shape": "Cube",
+            "smooth": false,
+            "tangentBitangent": false,
+            "width": 1.0
+          },
+          "type": "RenderingComponent"
+        }
+      ],
+      "name": "Handle R Hand",
+      "position": [
+        -15.62,
+        18.26,
+        1.98
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.6,
+        1.6,
+        1.6
+      ],
+      "static": false,
+      "tags": []
+    }
+  ],
+  "version": 1
+}

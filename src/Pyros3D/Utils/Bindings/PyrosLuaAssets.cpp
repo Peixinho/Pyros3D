@@ -6,6 +6,7 @@
 #ifdef LUA_BINDINGS
 
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
+#include <Pyros3D/AnimationManager/Components/IKComponent.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
 
 namespace p3d {
@@ -199,6 +200,23 @@ namespace p3d {
 			lua->new_usertype<SkeletonAnimationInstance>("SekeletonAnimationInstance",
 				con,
 				"getOwner", &SkeletonAnimationInstance::GetOwner,
+				// Bone queries. The pose API existed in C++ (the editor and
+				// IKSolver use it) but nothing was exposed to script, so a
+				// scene could not ask where a hand actually is - which is
+				// exactly what an IK handle needs in order to sit on it.
+				"getNumberBones", &SkeletonAnimationInstance::GetNumberBones,
+				"getBoneIdByName", [](SkeletonAnimationInstance& self, const std::string& name) -> int32 {
+					const std::vector<Bone>& bones = self.GetSkeletonBones();
+					for (size_t i = 0; i < bones.size(); i++)
+						if (bones[i].name == name) return bones[i].self;
+					return -1;
+				},
+				// MODEL space - multiply by the owning GameObject's world
+				// matrix for world space.
+				"getBonePosition", [](SkeletonAnimationInstance& self, int32 boneId) -> Vec3 {
+					if (boneId < 0 || (uint32)boneId >= self.GetNumberBones()) return Vec3();
+					return self.GetBoneGlobalTransform(boneId).GetTranslation();
+				},
 				"play", &SkeletonAnimationInstance::Play,
 				"changeProperties", &SkeletonAnimationInstance::ChangeProperties,
 				"pause", &SkeletonAnimationInstance::Pause,

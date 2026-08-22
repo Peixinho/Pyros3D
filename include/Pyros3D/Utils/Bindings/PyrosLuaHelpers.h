@@ -147,6 +147,25 @@ std::shared_ptr<LUA_RenderingComponent> LuaNewRenderingComponent(sol::object ren
 std::shared_ptr<LUA_RenderingComponent> LuaNewRenderingComponentDist(sol::object renderableObj, sol::object materialOrOptions, float distance);
 bool PlaceDecalAtCursor(float winW, float winH, float mouseX, float mouseY, GameObject* camera, Projection* projection, SceneGraph* scene, sol::object materialObj, const Vec3 &dimensions);
 
+// Screen <-> world for scene Lua. The engine already had the Mouse3D
+// machinery for this but only ever used it internally (PlaceDecalAtCursor),
+// so a script that wanted to drag something in 3D had no way to ask where the
+// cursor is pointing.
+//
+// Projects a world point to pixels. Returns false when the point is behind the
+// camera, in which case the coordinates are meaningless rather than merely
+// off-screen.
+bool SetIKConstraintEnabled(GameObject* go, const std::string &chain, bool enabled);
+bool SetIKConstraintWeight(GameObject* go, const std::string &chain, float weight);
+bool WorldToScreen(float winW, float winH, GameObject* camera, Projection* projection,
+	const Vec3 &worldPos, float* outX, float* outY);
+// Inverse, resolved onto the plane through `refWorldPos` parallel to the
+// screen - i.e. "where would the cursor be if it kept this thing's distance
+// from the camera". That is the natural behaviour for dragging an object:
+// depth stays put, only the screen-parallel position follows the mouse.
+Vec3 ScreenToWorldAtDepth(float winW, float winH, float mouseX, float mouseY,
+	GameObject* camera, Projection* projection, const Vec3 &refWorldPos);
+
 } // namespace p3d
 
 #endif

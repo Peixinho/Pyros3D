@@ -1,0 +1,109 @@
+{
+	"_comment": "Rig data for the .p3dm beside this file. Keyed by bone name, so models sharing a skeleton can share this file. Joint limit angles are DEGREES.",
+	"boneMasks": [],
+	"ikChains": [
+		{
+			"effector": "Bip01_L_Foot",
+			"name": "LeftLeg",
+			"pole": [
+				0.0,
+				6.0,
+				30.0
+			],
+			"root": "Bip01_L_Thigh",
+			"usePole": true
+		},
+		{
+			"effector": "Bip01_R_Foot",
+			"name": "RightLeg",
+			"pole": [
+				0.0,
+				6.0,
+				30.0
+			],
+			"root": "Bip01_R_Thigh",
+			"usePole": true
+		},
+		{
+			"effector": "Bip01_L_Hand",
+			"name": "LeftArm",
+			"pole": [
+				0.0,
+				-10.0,
+				-20.0
+			],
+			"root": "Bip01_L_UpperArm",
+			"usePole": true
+		},
+		{
+			"effector": "Bip01_R_Hand",
+			"name": "RightArm",
+			"pole": [
+				0.0,
+				-10.0,
+				-20.0
+			],
+			"root": "Bip01_R_UpperArm",
+			"usePole": true
+		}
+	],
+	"jointLimits": [
+		{
+			"bone": "Bip01_L_Calf",
+			"enabled": true,
+			"maxDeg": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"minDeg": [
+				0.0,
+				0.0,
+				-150.0
+			]
+		},
+		{
+			"bone": "Bip01_L_Forearm",
+			"enabled": true,
+			"maxDeg": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"minDeg": [
+				0.0,
+				0.0,
+				-150.0
+			]
+		},
+		{
+			"bone": "Bip01_R_Calf",
+			"enabled": true,
+			"maxDeg": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"minDeg": [
+				0.0,
+				0.0,
+				-150.0
+			]
+		},
+		{
+			"bone": "Bip01_R_Forearm",
+			"enabled": true,
+			"maxDeg": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"minDeg": [
+				0.0,
+				0.0,
+				-150.0
+			]
+		}
+	],
+	"version": 1
+}
