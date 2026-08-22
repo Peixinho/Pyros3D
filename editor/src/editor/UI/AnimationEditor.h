@@ -36,6 +36,11 @@ struct FrameRequests {
 	// binding into project.json and calls BindMesh.
 	bool meshChanged = false;
 	std::string newMeshPath;
+	// Sticky "copied" acknowledgement for the Blend tab's Copy Lua button.
+	bool copiedLua = false;
+	// Set when the blend configuration changed, so the host can persist it
+	// into project.json alongside the rig binding.
+	bool blendChanged = false;
 };
 
 // Draws the whole document window (already inside Begin/End - the host owns

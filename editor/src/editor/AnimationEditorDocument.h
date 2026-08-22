@@ -21,6 +21,7 @@
 
 #include "UndoStack.h"
 #include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/AnimationLoader.h>
+#include <Pyros3D/Utils/Json/json.hpp>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -51,6 +52,54 @@ struct AnimKeyRef {
 		if (channel != o.channel) return channel < o.channel;
 		return time < o.time - kAnimKeyEpsilon;
 	}
+};
+
+// Converts the animator-facing "how much of this clip do I see" weight into
+// the engine's Play()/ChangeProperties() `scale` argument, which is not the
+// same thing.
+//
+// SkeletonAnimation::Update blends by walking the playing list in REVERSE and
+// doing trafo = SCALE(thisClipsPose, accumulatedSoFar, scale), where SCALE
+// lerps from the first argument towards the second. So scale 0 shows this
+// clip fully and scale 1 discards it in favour of everything blended before
+// it - the engine's `scale` is the weight of the OTHER clips, not of this
+// one. (The stock skeleton_anim.lua demo shows the same inversion: it feeds
+// `1 - t` and `t` to the two clips it crossfades.)
+//
+// Kept as one function so the preview and the generated Lua can never
+// disagree about the direction.
+inline float BlendWeightToScale(float weight)
+{
+	if (weight < 0.f) weight = 0.f;
+	if (weight > 1.f) weight = 1.f;
+	return 1.f - weight;
+}
+
+// One clip playing inside a blend, i.e. one Play() call on the preview rig.
+struct AnimationBlendEntry {
+	int clip = 0;
+	// 0..1, shown to the user as "how much of this clip you see". The engine's
+	// own Play()/ChangeProperties() `scale` argument does NOT mean that (see
+	// AnimationPreview::RebuildBlend, which converts) - this is the value an
+	// animator expects, and the conversion is kept in one place.
+	float weight = 1.f;
+	float speed = 1.f;
+	// -1 repeats forever, matching Play()'s convention.
+	float repetition = -1.f;
+	// Empty = the base layer, i.e. the whole skeleton. Otherwise the name of
+	// an entry in AnimationEditorDocument::blendLayers, restricting this clip
+	// to that layer's bones (upper body waving over a walk, say).
+	std::string layer;
+	// Order returned by Play() - the handle ChangeProperties() needs. -1 when
+	// not currently playing.
+	int playOrder = -1;
+};
+
+// A named bone subset, the editor-side mirror of
+// SkeletonAnimationInstance::CreateLayer + AddBone.
+struct AnimationBlendLayer {
+	std::string name;
+	std::vector<std::string> bones;
 };
 
 struct AnimationEditorDocument {
@@ -109,6 +158,33 @@ struct AnimationEditorDocument {
 	// Write a key as soon as a bone gizmo drag ends, instead of leaving the
 	// pose pending until the user presses Key.
 	bool autoKey = false;
+
+	// ---- blending ----------------------------------------------------
+	// Blend mode plays several clips at once through the engine's real
+	// playback path (Play/ChangeProperties/Update on the preview instance)
+	// instead of the timeline's direct posing, so what you see is exactly
+	// what the runtime does with the same calls. Timeline mode is the
+	// authoring surface; blend mode is for tuning how authored clips mix.
+	bool blendMode = false;
+	std::vector<AnimationBlendEntry> blendEntries;
+	std::vector<AnimationBlendLayer> blendLayers;
+	// Clock handed to SkeletonAnimation::Update(). It counts up from the
+	// first frame of blend playback - the engine derives each clip's
+	// position by subtracting the time it first saw, so this must never be
+	// reset mid-playback or every clip restarts.
+	float blendClock = 0.f;
+	bool blendPlaying = true;
+	// Bumped by any edit to the entries/layers above; the preview compares
+	// it against its own copy and rebuilds the Play() set when they differ,
+	// rather than every caller having to remember to ask for a rebuild.
+	uint32_t blendRevision = 1;
+	void TouchBlend() { blendRevision++; }
+	// Bumped whenever the clips themselves change. Blend mode plays the
+	// document's in-memory clips (SkeletonAnimation::SetAnimations), so the
+	// preview has to re-hand them over after an edit or it keeps blending
+	// the pre-edit version. Bumped by every path that mutates clips:
+	// PushSnapshotEdit, EndInteractiveEdit, Restore and LoadFromFile.
+	uint32_t clipsRevision = 1;
 
 	// Per-document undo/redo history, same contract as SceneEditor's and
 	// MaterialEditorDocument's.
@@ -182,6 +258,23 @@ struct AnimationEditorDocument {
 	// Snaps to the nearest 1/snapFps when snapping is on, and always clamps
 	// into [0, duration] of the active clip.
 	float SnapTime(float time) const;
+
+	// ---- blend helpers -------------------------------------------------
+	AnimationBlendLayer* FindBlendLayer(const std::string& name);
+	const AnimationBlendLayer* FindBlendLayer(const std::string& name) const;
+	// Adds the layer if absent; returns it either way.
+	AnimationBlendLayer& EnsureBlendLayer(const std::string& name);
+	// Drops the layer and clears it off any entry that referenced it, so no
+	// entry can name a layer that no longer exists.
+	void RemoveBlendLayer(const std::string& name);
+	// The Lua an equivalent runtime setup would need - the Play()/
+	// CreateLayer()/AddBone() calls this blend corresponds to, ready to paste
+	// into a scene script. This is how a blend leaves the editor: the .p3da
+	// has nowhere to store one, and the runtime configures blends in code.
+	std::string BuildBlendLuaSnippet(const std::string& animationAssetPath) const;
+	// JSON round-trip for project.json (see ProjectSettings::animationBlends).
+	nlohmann::json BlendToJson() const;
+	void BlendFromJson(const nlohmann::json& j);
 
 	// ---- undo helpers -------------------------------------------------
 	// The whole clip list. Coarse on purpose, exactly like

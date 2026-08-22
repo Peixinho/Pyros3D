@@ -1568,6 +1568,8 @@ bool ProjectManager::WriteProjectJson(std::string* errorOut) const
 		settingsJ["aiAssistant"] = settings.aiAssistant;
 	if (settings.animationBindings.is_object() && !settings.animationBindings.empty())
 		settingsJ["animationBindings"] = settings.animationBindings;
+	if (settings.animationBlends.is_object() && !settings.animationBlends.empty())
+		settingsJ["animationBlends"] = settings.animationBlends;
 	root["settings"] = settingsJ;
 
 	std::vector<std::string> scenes;
@@ -1624,6 +1626,8 @@ bool ProjectManager::LoadProjectJson(const std::string& jsonPath, std::string* e
 			settings.aiAssistant = s["aiAssistant"];
 		if (s.contains("animationBindings") && s["animationBindings"].is_object())
 			settings.animationBindings = s["animationBindings"];
+		if (s.contains("animationBlends") && s["animationBlends"].is_object())
+			settings.animationBlends = s["animationBlends"];
 	}
 
 	std::error_code ec;

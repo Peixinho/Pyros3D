@@ -147,6 +147,16 @@ struct AnimationPreview {
 	// AnimationEditor::SyncPose.
 	std::map<int, p3d::Math::Matrix> poseOverrides;
 
+	// blendRevision the current Play() set was built from, so SyncPose can
+	// tell a weight tweak (cheap: ApplyBlendWeights) from a structural change
+	// (needs a full RebuildBlend).
+	uint32_t blendBuiltRevision = 0;
+	// Clips the container was last handed. The preview plays the document's
+	// in-memory clips through SkeletonAnimation::SetAnimations, so this has
+	// to be refreshed whenever the clips themselves change.
+	uint32_t blendBuiltClipsRevision = 0;
+	bool blendActive = false;
+
 	// Screen-space position of each bone from the last render, in viewport
 	// pixels, used for click-to-select. Rebuilt every DrawAndUpdate;
 	// parallel to bone ids (index == bone id), z < 0 meaning "behind the
@@ -171,10 +181,22 @@ struct AnimationPreview {
 	void ClearMesh();
 	bool HasSkeleton() const { return instance != nullptr && instance->GetNumberBones() > 0; }
 
-	// Poses the rig for `doc` at its current playhead: samples the active
-	// clip, then lays any poseOverrides on top. Call once per frame before
-	// rendering.
-	void SyncPose(const AnimationEditorDocument& doc);
+	// Poses the rig for `doc`: in timeline mode by sampling the active clip
+	// at the playhead and laying any poseOverrides on top; in blend mode by
+	// ticking the engine's own playback. Call once per frame before
+	// rendering. `dt` advances blend playback and is ignored otherwise.
+	void SyncPose(AnimationEditorDocument& doc, float dt = 0.f);
+
+	// Tears down and rebuilds the instance's Play() set from doc's blend
+	// entries and layers. Called automatically by SyncPose when doc's
+	// blendRevision moves, so callers only have to edit the document.
+	void RebuildBlend(AnimationEditorDocument& doc);
+	// Pushes current weights/speeds onto the already-playing entries without
+	// restarting them, so dragging a weight slider crossfades rather than
+	// snapping every clip back to its first frame.
+	void ApplyBlendWeights(AnimationEditorDocument& doc);
+	// Drops all playback and returns the rig to the timeline path.
+	void StopBlend();
 
 	// Resolves a bone name to its id in the loaded skeleton, or -1.
 	int FindBone(const std::string& name) const;

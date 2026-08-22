@@ -253,9 +253,34 @@ std::string AnimationPreview::BoneName(int boneId) const
 	return instance->GetSkeletonBones()[boneId].name;
 }
 
-void AnimationPreview::SyncPose(const AnimationEditorDocument& doc)
+void AnimationPreview::SyncPose(AnimationEditorDocument& doc, float dt)
 {
 	if (!instance) return;
+
+	if (doc.blendMode)
+	{
+		// Structural change (entries added/removed, layers edited, clips
+		// edited) needs the whole Play() set rebuilt; a weight tweak only
+		// needs the values pushed, or every clip would snap back to frame 0
+		// mid-drag.
+		if (blendBuiltRevision != doc.blendRevision || blendBuiltClipsRevision != doc.clipsRevision || !blendActive)
+			RebuildBlend(doc);
+		else
+			ApplyBlendWeights(doc);
+
+		if (doc.blendPlaying)
+		{
+			// SkeletonAnimation::Update wants a clock counting up from the
+			// first call - it derives each clip's position by subtracting
+			// the time it first saw one - so this accumulates and is never
+			// rewound while playing.
+			doc.blendClock += dt;
+		}
+		if (animOwner) animOwner->Update(doc.blendClock);
+		return;
+	}
+
+	if (blendActive) StopBlend();
 
 	const Animation* clip = doc.ActiveClip();
 	if (clip)
@@ -272,6 +297,72 @@ void AnimationPreview::SyncPose(const AnimationEditorDocument& doc)
 		}
 		// One hierarchy walk for the whole batch rather than per bone.
 		instance->RefreshSkinning();
+	}
+}
+
+void AnimationPreview::StopBlend()
+{
+	if (instance) instance->Stop();
+	blendActive = false;
+	blendBuiltRevision = 0;
+	blendBuiltClipsRevision = 0;
+}
+
+void AnimationPreview::RebuildBlend(AnimationEditorDocument& doc)
+{
+	if (!instance || !animOwner) return;
+
+	// Hand the container the document's CURRENT clips, including unsaved
+	// edits - the whole point of previewing a blend here rather than in the
+	// game. SetAnimations stops every playing entry, since Play() holds raw
+	// pointers into the vector being replaced.
+	animOwner->SetAnimations(doc.clips);
+	instance->Stop();
+
+	// Layers must exist before any Play() names one: Play() looks the layer
+	// up immediately and would otherwise store a null Layer pointer that
+	// Update() then dereferences.
+	for (size_t i = 0; i < doc.blendLayers.size(); i++)
+	{
+		const AnimationBlendLayer& layer = doc.blendLayers[i];
+		if (layer.name.empty()) continue;
+		bool used = false;
+		for (size_t e = 0; e < doc.blendEntries.size(); e++)
+			if (doc.blendEntries[e].layer == layer.name) { used = true; break; }
+		if (!used) continue;
+
+		instance->CreateLayer(layer.name);
+		for (size_t b = 0; b < layer.bones.size(); b++)
+			instance->AddBone(layer.name, layer.bones[b]);
+	}
+
+	for (size_t i = 0; i < doc.blendEntries.size(); i++)
+	{
+		AnimationBlendEntry& e = doc.blendEntries[i];
+		e.playOrder = -1;
+		if (e.clip < 0 || e.clip >= (int)doc.clips.size()) continue;
+		e.playOrder = instance->Play((uint32)e.clip, 0.f, e.repetition, e.speed,
+			BlendWeightToScale(e.weight), e.layer);
+	}
+
+	blendBuiltRevision = doc.blendRevision;
+	blendBuiltClipsRevision = doc.clipsRevision;
+	blendActive = true;
+}
+
+void AnimationPreview::ApplyBlendWeights(AnimationEditorDocument& doc)
+{
+	if (!instance) return;
+	for (size_t i = 0; i < doc.blendEntries.size(); i++)
+	{
+		const AnimationBlendEntry& e = doc.blendEntries[i];
+		if (e.playOrder < 0 || e.playOrder >= (int)instance->GetNumberPlayingAnimations()) continue;
+		// Feeding back the clip's own current progress keeps it where it is
+		// instead of restarting - the same thing the skeleton_anim demo does
+		// when it re-weights two clips every frame.
+		const f32 progress = instance->GetAnimationCurrentProgress((uint32)e.playOrder);
+		instance->ChangeProperties((uint32)e.playOrder, progress, e.repetition, e.speed,
+			BlendWeightToScale(e.weight));
 	}
 }
 
@@ -631,17 +722,26 @@ bool AnimationPreview::DrawAndUpdate(AnimationEditorDocument& doc, bool& outDrag
 			mray.GetDirection().x, mray.GetDirection().y, mray.GetDirection().z);
 		gizmoOrthoL = gl; gizmoOrthoR = gr; gizmoOrthoB = gb; gizmoOrthoT = gt;
 
+		// Clamped into the image, exactly as SceneEditor does - libgizmo
+		// indexes its own screen-space buffers with these.
+		const unsigned gx = (unsigned)std::min(std::max(0.f, localMouse.x), (float)width - 1.f);
+		const unsigned gy = (unsigned)std::min(std::max(0.f, localMouse.y), (float)height - 1.f);
+
 		if (hovered && inside && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 		{
 			gizmoBoneLocal = instance->GetBoneLocalTransform(doc.selectedBone);
 			PrepareGizmo(doc.selectedBone, viewMat, projMat);
-			if (gizmo->OnMouseDown((unsigned int)localMouse.x, (unsigned int)localMouse.y))
+			// OnMouseMove before OnMouseDown: libgizmo decides which axis is
+			// grabbed from the axis its LAST move call highlighted, so a
+			// click with no preceding move grabs nothing.
+			gizmo->OnMouseMove(gx, gy);
+			if (gizmo->OnMouseDown(gx, gy))
 				gizmoDragging = true;
 		}
 		else if (gizmoDragging && ImGui::IsMouseDown(ImGuiMouseButton_Left))
 		{
 			PrepareGizmo(doc.selectedBone, viewMat, projMat);
-			gizmo->OnMouseMove((unsigned int)localMouse.x, (unsigned int)localMouse.y);
+			gizmo->OnMouseMove(gx, gy);
 			// gizmoBoneLocal now holds the dragged local transform - stash
 			// it as a pending override so SyncPose keeps showing it instead
 			// of the clip's own sampled value.
@@ -652,10 +752,20 @@ bool AnimationPreview::DrawAndUpdate(AnimationEditorDocument& doc, bool& outDrag
 		}
 		else if (gizmoDragging && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
 		{
-			gizmo->OnMouseUp((unsigned int)localMouse.x, (unsigned int)localMouse.y);
+			gizmo->OnMouseUp(gx, gy);
 			gizmoDragging = false;
 			outDragEnded = true;
 			poseChanged = true;
+		}
+		else if (hovered && inside)
+		{
+			// Axis hover highlight while not dragging. libgizmo only lights
+			// up the axis under the cursor in response to a move call, so
+			// without this the gizmo looks inert until you actually click -
+			// there is no feedback telling you which ring you are about to
+			// grab.
+			PrepareGizmo(doc.selectedBone, viewMat, projMat);
+			gizmo->OnMouseMove(gx, gy);
 		}
 	}
 

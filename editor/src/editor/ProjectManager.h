@@ -40,6 +40,11 @@ struct ProjectSettings {
 	// settings. Object, keyed by project-relative path; empty when nothing
 	// has been bound.
 	nlohmann::json animationBindings;
+	// Blend setups authored in the Animation Editor's Blend tab, keyed the
+	// same way. A blend is preview/authoring state: the .p3da has no format
+	// for one and the runtime configures blends in code (see the tab's Copy
+	// Lua), so it is kept here rather than invented into the asset.
+	nlohmann::json animationBlends;
 };
 
 enum class LuaScriptKind {

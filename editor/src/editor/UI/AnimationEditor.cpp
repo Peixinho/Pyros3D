@@ -454,6 +454,226 @@ void DrawBonePanel(AnimationEditorDocument& doc)
 	ImGui::EndChild();
 }
 
+void DrawBlendPanel(AnimationEditorDocument& doc, FrameRequests& requests)
+{
+	AnimationPreview* pv = doc.preview.get();
+
+	// Scrolled: entries, a layer per expandable node with a bone list inside,
+	// and the export row add up to more than the panel's height as soon as
+	// there is anything real in the blend - without this the layer editor and
+	// Copy Lua are simply unreachable.
+	ImGui::BeginChild("##blendscroll", ImVec2(0, 0), false);
+
+	ImGui::TextWrapped(
+		"Plays several clips at once through the engine's own Play()/ChangeProperties() "
+		"path, so this previews exactly what the runtime does. The game drives the weights "
+		"from gameplay state - use Copy Lua below to take this setup with you.");
+	ImGui::Separator();
+
+	// ---- transport ---------------------------------------------------
+	if (ImGui::Button(doc.blendPlaying ? "Pause##blend" : "Play##blend"))
+		doc.blendPlaying = !doc.blendPlaying;
+	ImGui::SameLine();
+	if (ImGui::Button("Restart##blend"))
+	{
+		// Rebuilding restarts every clip from its first frame - the clock
+		// itself must keep counting up (the engine subtracts the time it
+		// first saw a clip), so it is the Play() set that is remade, not the
+		// clock that is rewound.
+		doc.TouchBlend();
+	}
+	ImGui::SameLine();
+	ImGui::TextDisabled("clock %.2fs", doc.blendClock);
+
+	ImGui::Spacing();
+
+	// ---- clips in the blend ------------------------------------------
+	ImGui::TextUnformatted("Clips in this blend");
+	if (doc.blendEntries.empty())
+		ImGui::TextDisabled("None yet - add one below.");
+
+	int removeEntry = -1;
+	for (size_t i = 0; i < doc.blendEntries.size(); i++)
+	{
+		AnimationBlendEntry& e = doc.blendEntries[i];
+		ImGui::PushID((int)i);
+		ImGui::Separator();
+
+		// Clip picker.
+		const std::string label = (e.clip >= 0 && e.clip < (int)doc.clips.size())
+			? ("[" + std::to_string(e.clip) + "] " + doc.clips[e.clip].AnimationName)
+			: std::string("(missing clip)");
+		ImGui::SetNextItemWidth(200.f);
+		if (ImGui::BeginCombo("##clip", label.c_str()))
+		{
+			for (size_t c = 0; c < doc.clips.size(); c++)
+			{
+				const bool sel = ((int)c == e.clip);
+				const std::string l = "[" + std::to_string(c) + "] " + doc.clips[c].AnimationName;
+				if (ImGui::Selectable(l.c_str(), sel)) { e.clip = (int)c; doc.TouchBlend(); }
+			}
+			ImGui::EndCombo();
+		}
+
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(160.f);
+		// Weight changes do NOT bump blendRevision: they are applied to the
+		// already-playing entries (ApplyBlendWeights) so a drag crossfades
+		// instead of restarting every clip each frame.
+		ImGui::SliderFloat("weight", &e.weight, 0.f, 1.f, "%.2f");
+
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(90.f);
+		if (ImGui::DragFloat("speed", &e.speed, 0.01f, -4.f, 4.f, "%.2fx")) { /* live, like weight */ }
+
+		ImGui::SameLine();
+		// Layer picker.
+		ImGui::SetNextItemWidth(130.f);
+		const std::string layerLabel = e.layer.empty() ? std::string("(whole body)") : e.layer;
+		if (ImGui::BeginCombo("layer", layerLabel.c_str()))
+		{
+			if (ImGui::Selectable("(whole body)", e.layer.empty())) { e.layer.clear(); doc.TouchBlend(); }
+			for (size_t l = 0; l < doc.blendLayers.size(); l++)
+			{
+				const bool sel = (doc.blendLayers[l].name == e.layer);
+				if (ImGui::Selectable(doc.blendLayers[l].name.c_str(), sel))
+				{
+					e.layer = doc.blendLayers[l].name;
+					doc.TouchBlend();
+				}
+			}
+			ImGui::EndCombo();
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Remove")) removeEntry = (int)i;
+		ImGui::PopID();
+	}
+	if (removeEntry >= 0)
+	{
+		doc.blendEntries.erase(doc.blendEntries.begin() + removeEntry);
+		doc.TouchBlend();
+	}
+
+	ImGui::Separator();
+	if (ImGui::Button("+ Add Clip to Blend") && !doc.clips.empty())
+	{
+		AnimationBlendEntry e;
+		e.clip = (doc.activeClip >= 0 ? doc.activeClip : 0);
+		// A second clip added at full weight would completely hide the first
+		// (scale 0 wins outright), which reads as "adding a clip broke it".
+		// Half weight makes the blend visible immediately.
+		e.weight = doc.blendEntries.empty() ? 1.f : 0.5f;
+		doc.blendEntries.push_back(e);
+		doc.TouchBlend();
+	}
+
+	// ---- layers -------------------------------------------------------
+	ImGui::Spacing();
+	ImGui::Separator();
+	ImGui::TextUnformatted("Layers (bone masks)");
+	ImGui::TextDisabled("A layer restricts a clip to part of the skeleton -\nupper body waving over a full-body walk, say.");
+
+	static char newLayerName[64] = "UpperBody";
+	ImGui::SetNextItemWidth(160.f);
+	ImGui::InputText("##newlayer", newLayerName, sizeof(newLayerName));
+	ImGui::SameLine();
+	if (ImGui::Button("+ Layer") && newLayerName[0])
+	{
+		doc.EnsureBlendLayer(newLayerName);
+		doc.TouchBlend();
+	}
+
+	std::string removeLayer;
+	for (size_t i = 0; i < doc.blendLayers.size(); i++)
+	{
+		AnimationBlendLayer& layer = doc.blendLayers[i];
+		ImGui::PushID((int)(1000 + i));
+		if (ImGui::TreeNode(layer.name.c_str(), "%s  (%d bones)", layer.name.c_str(), (int)layer.bones.size()))
+		{
+			const bool haveSel = (pv && pv->instance && doc.selectedBone >= 0);
+			if (!haveSel)
+				ImGui::TextDisabled("Select a bone to add it to this layer.");
+			else
+			{
+				ImGui::Text("Selected: %s", doc.selectedBoneName.c_str());
+				if (ImGui::Button("Add Bone"))
+				{
+					const std::string n = doc.selectedBoneName;
+					if (std::find(layer.bones.begin(), layer.bones.end(), n) == layer.bones.end())
+					{
+						layer.bones.push_back(n);
+						doc.TouchBlend();
+					}
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Add Bone + Children"))
+				{
+					// Mirrors SkeletonAnimationInstance::AddBoneAndChilds, but
+					// resolved here so the layer's bone list is explicit -
+					// what gets written to project.json and emitted as Lua is
+					// the actual set, not a rule that might resolve
+					// differently against another rig.
+					const std::vector<Bone>& bones = pv->instance->GetSkeletonBones();
+					for (size_t b = 0; b < bones.size(); b++)
+					{
+						int p = bones[b].parent, guard = 0;
+						bool desc = ((int)bones[b].self == doc.selectedBone);
+						while (!desc && p >= 0 && p < (int)bones.size() && guard++ < (int)bones.size())
+						{
+							if (p == doc.selectedBone) desc = true;
+							p = bones[p].parent;
+						}
+						if (!desc) continue;
+						if (std::find(layer.bones.begin(), layer.bones.end(), bones[b].name) == layer.bones.end())
+							layer.bones.push_back(bones[b].name);
+					}
+					doc.TouchBlend();
+				}
+			}
+
+			int removeBone = -1;
+			for (size_t b = 0; b < layer.bones.size(); b++)
+			{
+				ImGui::PushID((int)b);
+				ImGui::BulletText("%s", layer.bones[b].c_str());
+				ImGui::SameLine();
+				if (ImGui::SmallButton("x")) removeBone = (int)b;
+				ImGui::PopID();
+			}
+			if (removeBone >= 0)
+			{
+				layer.bones.erase(layer.bones.begin() + removeBone);
+				doc.TouchBlend();
+			}
+
+			if (ImGui::Button("Delete Layer")) removeLayer = layer.name;
+			ImGui::TreePop();
+		}
+		ImGui::PopID();
+	}
+	if (!removeLayer.empty()) doc.RemoveBlendLayer(removeLayer);
+
+	// ---- export -------------------------------------------------------
+	ImGui::Spacing();
+	ImGui::Separator();
+	if (ImGui::Button("Copy Lua"))
+	{
+		ImGui::SetClipboardText(doc.BuildBlendLuaSnippet(
+			doc.absolutePath.empty() ? std::string() : doc.displayName + ".p3da").c_str());
+		requests.copiedLua = true;
+	}
+	ImGui::SameLine();
+	ImGui::TextDisabled("Play()/createLayer()/addBone() calls for a scene script.");
+	if (requests.copiedLua)
+	{
+		ImGui::SameLine();
+		ImGui::TextColored(ImVec4(0.5f, 1.f, 0.5f, 1.f), "copied");
+	}
+
+	ImGui::EndChild();
+}
+
 void DrawTransport(AnimationEditorDocument& doc, float dt)
 {
 	AnimationPreview* pv = doc.preview.get();
@@ -841,7 +1061,7 @@ void DrawWindow(AnimationEditorDocument& doc, const std::vector<AnimationMeshCho
 		ImGui::TextDisabled("(MMB orbit, RMB pan, wheel zoom)");
 
 		// Pose the rig for this frame before it is drawn.
-		pv->SyncPose(doc);
+		pv->SyncPose(doc, dt);
 
 		bool dragEnded = false;
 		const bool posed = pv->DrawAndUpdate(doc, dragEnded);
@@ -853,13 +1073,45 @@ void DrawWindow(AnimationEditorDocument& doc, const std::vector<AnimationMeshCho
 	ImGui::EndChild();
 
 	ImGui::Separator();
-	DrawTransport(doc, dt);
-	DrawTimeline(doc);
+
+	// Timeline vs Blend. Two different jobs on the same rig: authoring a
+	// single clip's keys, versus tuning how several finished clips mix. They
+	// share the viewport above and swap the panel below.
+	if (ImGui::RadioButton("Timeline", !doc.blendMode) && doc.blendMode)
+	{
+		doc.blendMode = false;
+	}
+	ImGui::SameLine();
+	if (ImGui::RadioButton("Blend", doc.blendMode) && !doc.blendMode)
+	{
+		doc.blendMode = true;
+		// Force a rebuild on entry so the blend starts from a known state
+		// rather than whatever was playing when it was last left.
+		doc.TouchBlend();
+	}
+	ImGui::SameLine();
+	ImGui::TextDisabled(doc.blendMode
+		? "| previewing the engine's real blend - weights are driven by script in game"
+		: "| scrub and key one clip");
+	ImGui::Separator();
+
+	if (doc.blendMode)
+	{
+		const uint32_t before = doc.blendRevision;
+		DrawBlendPanel(doc, requests);
+		if (doc.blendRevision != before) requests.blendChanged = true;
+	}
+	else
+	{
+		DrawTransport(doc, dt);
+		DrawTimeline(doc);
+	}
 
 	// Delete key removes the selected key columns, but only while this
 	// window has focus - otherwise it would fire while the user is typing a
 	// clip name or working in another panel.
-	if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+	if (!doc.blendMode
+		&& ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
 		&& !ImGui::GetIO().WantTextInput
 		&& ImGui::IsKeyPressed(ImGuiKey_Delete))
 		DeleteSelectedKeys(doc);

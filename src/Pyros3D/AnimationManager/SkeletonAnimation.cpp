@@ -625,6 +625,18 @@ namespace p3d {
 		}
 	}
 
+	void SkeletonAnimation::SetAnimations(const std::vector<Animation> &clips)
+	{
+		// Stop first: every playing entry holds a raw Animation* into the
+		// vector about to be replaced.
+		for (std::vector<SkeletonAnimationInstance*>::iterator i = Instances.begin(); i != Instances.end(); i++)
+			(*i)->Stop();
+
+		animations = clips;
+		Path.clear();
+		Paths.clear();
+	}
+
 	const std::vector<Animation> SkeletonAnimation::GetAnimations() const
 	{
 		return animations;

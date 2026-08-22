@@ -3755,5 +3755,123 @@ def animation_undo_redo(action: str = "undo", animation: str | None = None) -> s
             f"{'redo available' if res.get('canRedo') else 'no redo'}.")
 
 
+# ---- blending -------------------------------------------------------------
+#
+# Blending is a RUNTIME feature: the engine plays several clips at once and the
+# game drives their weights from gameplay state each frame
+# (SkeletonAnimationInstance::ChangeProperties). What the editor owns is the
+# setup and the preview - seeing what a mix looks like, and authoring the bone
+# masks ("layers") that restrict a clip to part of the skeleton. The output is
+# the Lua that reproduces the setup, via get_animation_blend_lua.
+
+
+def _blend_report(res: dict) -> str:
+    lines = [f"Blend mode: {'on' if res.get('blendMode') else 'off'}  "
+             f"clock {res.get('clock', 0):.2f}s  "
+             f"{'playing' if res.get('playing') else 'paused'}"]
+    entries = res.get("entries", [])
+    if entries:
+        lines.append("Clips:")
+        for e in entries:
+            layer = e.get("layer") or "(whole body)"
+            lines.append(f"  [{e['index']}] clip {e['clip']} '{e.get('clipName','')}'  "
+                         f"weight {e['weight']:.2f}  speed {e['speed']:.2f}x  layer {layer}")
+    else:
+        lines.append("No clips in the blend yet.")
+    layers = res.get("layers", [])
+    if layers:
+        lines.append("Layers:")
+        for l in layers:
+            bones = l.get("bones", [])
+            preview = ", ".join(bones[:4]) + (f", ... (+{len(bones)-4})" if len(bones) > 4 else "")
+            lines.append(f"  {l['name']}: {len(bones)} bones  [{preview}]")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def animation_blend(action: str = "state", clip: str | None = None, index: int | None = None,
+                    weight: float | None = None, speed: float | None = None,
+                    layer: str | None = None, enabled: bool | None = None,
+                    animation: str | None = None) -> str:
+    """Configure and preview a multi-clip blend on the open animation document.
+
+    action:
+      'state'  - just report the current blend (default)
+      'mode'   - turn blend preview on/off with enabled=
+      'add'    - add clip= to the blend, optionally weight=/speed=/layer=
+      'set'    - change index='s weight=/speed=/layer=
+      'remove' - drop entry index=
+      'clear'  - remove every entry and layer
+
+    weight is 0..1 and means what you expect ("how much of this clip you see").
+    The engine's own Play() argument is inverted from that; the editor converts.
+
+    Requires a running editor with an animation open. Weights are previewed
+    here but driven by your game code at runtime - see get_animation_blend_lua.
+    """
+    args: dict[str, Any] = {"action": action}
+    if clip is not None:
+        args["clip"] = int(clip) if str(clip).isdigit() else clip
+    if index is not None:
+        args["index"] = index
+    if weight is not None:
+        args["weight"] = weight
+    if speed is not None:
+        args["speed"] = speed
+    if layer is not None:
+        args["layer"] = layer
+    if enabled is not None:
+        args["enabled"] = enabled
+    if animation:
+        args["path"] = animation
+
+    ok, res = _editor_call("animation_blend", args)
+    if not ok:
+        return _fail(f"Blend {action} failed: {res}")
+    return _blend_report(res)
+
+
+@mcp.tool()
+def animation_blend_layer(layer: str, bone: str | None = None, children: bool = True,
+                          animation: str | None = None) -> str:
+    """Create a blend layer (bone mask) and add bones to it.
+
+    layer:    layer name, created if it doesn't exist.
+    bone:     bone to add; omit to just create an empty layer.
+    children: also add every bone below it in the hierarchy (default true) -
+              'Spine1' with children is the usual way to get an upper body.
+
+    A layer restricts a clip to those bones, so the upper body can play one
+    clip while the legs play another. This is the tedious part to hand-write:
+    the runtime wants an explicit addBone() call per bone.
+    """
+    args: dict[str, Any] = {"action": "layer", "layer": layer, "children": children}
+    if bone:
+        args["bone"] = bone
+    if animation:
+        args["path"] = animation
+    ok, res = _editor_call("animation_blend", args)
+    if not ok:
+        return _fail(f"Layer edit failed: {res}")
+    return _blend_report(res)
+
+
+@mcp.tool()
+def get_animation_blend_lua(animation: str | None = None) -> str:
+    """Get the Lua that reproduces the current blend setup at runtime.
+
+    Emits the createLayer/addBone/play calls the preview is making, ready to
+    save as a GameObject script and attach to the rig. The weight-driving code
+    is left as a commented example, since that is the part your game decides.
+    """
+    args = {"action": "lua"}
+    if animation:
+        args["path"] = animation
+    ok, res = _editor_call("animation_blend", args)
+    if not ok:
+        return _fail(f"Could not build the snippet: {res}")
+    return res.get("lua", "")
+
+
 if __name__ == "__main__":
     mcp.run()

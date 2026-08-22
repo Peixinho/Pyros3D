@@ -292,6 +292,20 @@ namespace p3d {
 		// Loads and Adds Animations to List
 		void LoadAnimation(const std::string& AnimationFile);
 
+		// Replaces the clip list with one held in memory. LoadAnimation() was
+		// the only way to populate a SkeletonAnimation, which makes it
+		// impossible to play clips that are not (yet) a file on disk - the
+		// case for anything being authored in the editor, where the whole
+		// point is to see unsaved edits play. Paths are cleared, since these
+		// clips did not come from one; a caller that wants the serializer to
+		// be able to rebuild the container must save first.
+		//
+		// Stops every instance before swapping: Play() stores a raw
+		// Animation* into `animations`, so reallocating that vector under a
+		// playing instance leaves dangling pointers - the same hazard
+		// Play()'s own range check guards against.
+		void SetAnimations(const std::vector<Animation> &clips);
+
 		// Get Number of Animations
 		const uint32 GetNumberAnimations() const;
 

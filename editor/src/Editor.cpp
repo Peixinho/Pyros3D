@@ -652,7 +652,8 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		|| name == "delete_animation_keyframe" || name == "set_animation_pose"
 		|| name == "add_animation_clip" || name == "remove_animation_clip"
 		|| name == "rename_animation_clip" || name == "set_animation_clip_duration"
-		|| name == "select_animation_bone" || name == "undo_animation" || name == "redo_animation")
+		|| name == "select_animation_bone" || name == "undo_animation" || name == "redo_animation"
+		|| name == "animation_blend")
 	{
 		if (name == "list_animations")
 		{
@@ -798,6 +799,18 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 
 		if (name == "open_animation" || name == "animation_state")
 		{
+			// Selecting the clip the timeline shows - the UI's clip combo,
+			// reachable from an agent.
+			if (a.is_object() && a.contains("clip"))
+			{
+				const int want = clipIndexArg("clip");
+				if (want >= 0 && want < (int)doc->clips.size())
+				{
+					doc->activeClip = want;
+					doc->selectedKeys.clear();
+					AnimationEditor::SetPlayhead(*doc, 0.f);
+				}
+			}
 			// Binding a rig is part of opening as far as an agent is
 			// concerned - it has no other way to say "preview this on that".
 			const std::string meshArg = A("mesh");
@@ -1103,6 +1116,136 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			nlohmann::json r;
 			r["playing"] = doc->playing;
 			r["playhead"] = doc->playhead;
+			return r;
+		}
+
+		if (name == "animation_blend")
+		{
+			const std::string action = A("action");
+			if (action == "mode")
+			{
+				doc->blendMode = a.value("enabled", true);
+				doc->TouchBlend();
+			}
+			else if (action == "add")
+			{
+				AnimationBlendEntry e;
+				e.clip = clipIndexArg("clip");
+				if (a.is_object() && a.contains("weight") && a["weight"].is_number())
+					e.weight = (float)a["weight"].get<double>();
+				if (a.is_object() && a.contains("speed") && a["speed"].is_number())
+					e.speed = (float)a["speed"].get<double>();
+				e.layer = A("layer");
+				doc->blendEntries.push_back(e);
+				doc->blendMode = true;
+				doc->TouchBlend();
+			}
+			else if (action == "set")
+			{
+				const int idx = a.value("index", 0);
+				if (idx < 0 || idx >= (int)doc->blendEntries.size())
+					throw std::runtime_error("blend entry index out of range");
+				if (a.contains("weight") && a["weight"].is_number())
+					doc->blendEntries[idx].weight = (float)a["weight"].get<double>();
+				if (a.contains("speed") && a["speed"].is_number())
+					doc->blendEntries[idx].speed = (float)a["speed"].get<double>();
+				if (a.contains("layer")) doc->blendEntries[idx].layer = A("layer"), doc->TouchBlend();
+			}
+			else if (action == "remove")
+			{
+				const int idx = a.value("index", 0);
+				if (idx < 0 || idx >= (int)doc->blendEntries.size())
+					throw std::runtime_error("blend entry index out of range");
+				doc->blendEntries.erase(doc->blendEntries.begin() + idx);
+				doc->TouchBlend();
+			}
+			else if (action == "clear")
+			{
+				doc->blendEntries.clear();
+				doc->blendLayers.clear();
+				doc->TouchBlend();
+			}
+			else if (action == "layer")
+			{
+				const std::string layerName = A("layer");
+				if (layerName.empty()) throw std::runtime_error("layer name required");
+				AnimationBlendLayer& layer = doc->EnsureBlendLayer(layerName);
+				const std::string boneName = A("bone");
+				if (!boneName.empty())
+				{
+					if (!pv || !pv->instance) throw std::runtime_error("no rig bound");
+					const int boneId = pv->FindBone(boneName);
+					if (boneId < 0) throw std::runtime_error("unknown bone '" + boneName + "'");
+					const bool withChildren = a.value("children", false);
+					const std::vector<Bone>& bones = pv->instance->GetSkeletonBones();
+					for (size_t b = 0; b < bones.size(); b++)
+					{
+						bool take = ((int)bones[b].self == boneId);
+						if (!take && withChildren)
+						{
+							int p = bones[b].parent, guard = 0;
+							while (p >= 0 && p < (int)bones.size() && guard++ < (int)bones.size())
+							{
+								if (p == boneId) { take = true; break; }
+								p = bones[p].parent;
+							}
+						}
+						if (!take) continue;
+						if (std::find(layer.bones.begin(), layer.bones.end(), bones[b].name) == layer.bones.end())
+							layer.bones.push_back(bones[b].name);
+					}
+				}
+				doc->TouchBlend();
+			}
+			else if (action == "lua")
+			{
+				nlohmann::json r;
+				r["lua"] = doc->BuildBlendLuaSnippet(doc->displayName + ".p3da");
+				return r;
+			}
+			else if (action == "tick")
+			{
+				// Advance the blend clock deterministically, for tests and for
+				// agents that want a specific moment rather than whatever the
+				// UI happens to have reached.
+				if (a.contains("time") && a["time"].is_number())
+					doc->blendClock = (float)a["time"].get<double>();
+				doc->blendPlaying = a.value("playing", doc->blendPlaying);
+			}
+			else if (!action.empty() && action != "state")
+				throw std::runtime_error("action must be mode, add, set, remove, clear, layer, lua, tick or state");
+
+			StoreAnimationBlend(*doc);
+
+			nlohmann::json r;
+			r["blendMode"] = doc->blendMode;
+			r["clock"] = doc->blendClock;
+			r["playing"] = doc->blendPlaying;
+			nlohmann::json entries = nlohmann::json::array();
+			for (size_t i = 0; i < doc->blendEntries.size(); i++)
+			{
+				const AnimationBlendEntry& e = doc->blendEntries[i];
+				nlohmann::json j;
+				j["index"] = (int)i;
+				j["clip"] = e.clip;
+				j["clipName"] = (e.clip >= 0 && e.clip < (int)doc->clips.size())
+					? doc->clips[e.clip].AnimationName : std::string();
+				j["weight"] = e.weight;
+				j["speed"] = e.speed;
+				j["layer"] = e.layer;
+				j["playOrder"] = e.playOrder;
+				entries.push_back(j);
+			}
+			r["entries"] = std::move(entries);
+			nlohmann::json layers = nlohmann::json::array();
+			for (size_t i = 0; i < doc->blendLayers.size(); i++)
+			{
+				nlohmann::json j;
+				j["name"] = doc->blendLayers[i].name;
+				j["bones"] = doc->blendLayers[i].bones;
+				layers.push_back(j);
+			}
+			r["layers"] = std::move(layers);
 			return r;
 		}
 
@@ -2941,6 +3084,32 @@ void Editor::StoreAnimationMeshBinding(const std::string& animAbsPath, const std
 	project.Save();
 }
 
+void Editor::LoadAnimationBlend(AnimationEditorDocument& doc) const
+{
+	if (!project.IsOpen() || doc.absolutePath.empty()) return;
+	const nlohmann::json& blends = project.GetSettings().animationBlends;
+	if (!blends.is_object()) return;
+	const std::string rel = project.RelativePath(doc.absolutePath);
+	if (rel.empty()) return;
+	auto it = blends.find(rel);
+	if (it == blends.end() || !it->is_object()) return;
+	doc.BlendFromJson(*it);
+}
+
+void Editor::StoreAnimationBlend(const AnimationEditorDocument& doc)
+{
+	if (!project.IsOpen() || doc.absolutePath.empty()) return;
+	const std::string rel = project.RelativePath(doc.absolutePath);
+	if (rel.empty()) return;
+
+	nlohmann::json& blends = project.GetSettingsMutable().animationBlends;
+	if (!blends.is_object()) blends = nlohmann::json::object();
+	if (doc.blendEntries.empty() && doc.blendLayers.empty()) blends.erase(rel);
+	else blends[rel] = doc.BlendToJson();
+	project.MarkDirty();
+	project.Save();
+}
+
 void Editor::BuildAnimationMeshChoices(std::vector<AnimationMeshChoice>& out) const
 {
 	out.clear();
@@ -3067,6 +3236,8 @@ bool Editor::OpenAnimationDocument(const std::string& absPath)
 			StoreAnimationMeshBinding(absPath, doc->meshPath);
 		}
 	}
+
+	LoadAnimationBlend(*doc);
 
 	animationDocs.push_back(doc);
 	pendingSelectAnimationDocId = doc->id;
@@ -3222,6 +3393,7 @@ void Editor::DrawAnimationEditorWindows()
 			saveAnimationAsError.clear();
 			saveAnimationAsThenClose = false;
 		}
+		if (req.blendChanged) StoreAnimationBlend(*doc);
 		if (req.close) RequestCloseAnimationDocument(doc, closeIds);
 		if (!open) RequestCloseAnimationDocument(doc, closeIds);
 	}

@@ -208,6 +208,9 @@ protected:
 	// project.json's animationBindings map (see ProjectSettings).
 	std::string LookupAnimationMeshBinding(const std::string& animAbsPath) const;
 	void StoreAnimationMeshBinding(const std::string& animAbsPath, const std::string& meshAbsPath);
+	// Blend setup persistence, keyed the same way as the rig binding.
+	void LoadAnimationBlend(AnimationEditorDocument& doc) const;
+	void StoreAnimationBlend(const AnimationEditorDocument& doc);
 	// Picks the rig whose bone names best match a clip's channel names -
 	// used when a .p3da is opened with no stored binding, so the common
 	// case (one character, one animation folder) needs no manual pick.
