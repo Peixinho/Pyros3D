@@ -131,6 +131,15 @@ struct MaterialEditorDocument {
 	bool autoAppliedValid = false;
 	std::string pendingFingerprint;
 	double pendingFingerprintSince = 0.0;
+	// Text mode with vim on: the shader is rebuilt at the buffer's commit
+	// points (Escape out of insert, :w - see
+	// CodeEditorDocument::commitGeneration) instead of on the timer, so an
+	// expensive recompile+link never fires on a line the user is still
+	// halfway through typing. This is the last commit already acted on.
+	uint32_t appliedCommitGeneration = 0;
+	// Set by the Text tab's Apply button / Ctrl+S: compile right now,
+	// whatever the current gating rule would otherwise say.
+	bool applyRequested = false;
 
 	// Which branch compiledShader (if any) was last compiled with - set on
 	// every successful ApplyGraphOrTextToLiveMaterial. Lets a live
@@ -181,6 +190,12 @@ struct MaterialEditorDocument {
 	bool AgentSetGraph(const nlohmann::json& nodesArr, const nlohmann::json& connectionsArr, std::string& errOut);
 	// Agent/MCP bridge: serialize the current graph back to JSON for inspection.
 	nlohmann::json AgentGetGraph() const;
+
+	// Agent/MCP bridge: Text-mode (hand-written GLSL snippet) access.
+	// AgentSetText switches the document to Text mode; texturesArr may be
+	// null (keep existing inputs) or an array of {name, path} objects.
+	bool AgentSetText(const std::string& text, const nlohmann::json& texturesArr, std::string& errOut);
+	nlohmann::json AgentGetText() const;
 };
 
 // Reverses one discrete graph edit (a widget commit gesture, a node drag,

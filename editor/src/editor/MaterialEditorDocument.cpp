@@ -334,3 +334,68 @@ json MaterialEditorDocument::AgentGetGraph() const {
 	j["connections"] = SerializeConnections(connections);
 	return j;
 }
+
+bool MaterialEditorDocument::AgentSetText(const std::string& text, const json& texturesArr, std::string& errOut) {
+	if (editKind != MaterialEditKind::Custom)
+	{
+		errOut = "material is Generic kind - Text mode only applies to Custom Shader materials (create one with kind \"custom\")";
+		return false;
+	}
+	if (!texturesArr.is_null() && !texturesArr.is_array())
+	{
+		errOut = "'textures' must be null or an array of {name, path}";
+		return false;
+	}
+	simpleShaderText = text;
+	editMode = MaterialEditMode::Text;
+	// Keep the live code editor (if one is open) in sync with the new text,
+	// the same way the UI's Text tab mirrors simpleShaderText. SetText
+	// replaces the buffer, resets the undo stack, re-colorizes and scrolls
+	// to top - so an open Text tab shows the AI's edit immediately.
+	if (codeDoc)
+	{
+		codeDoc->editor.SetText(text);
+		codeDoc->dirty = false; // the dispatcher saves it right after
+	}
+	if (texturesArr.is_array())
+	{
+		ClearTextTextures();
+		uint32_t id = 1;
+		for (const auto& t : texturesArr)
+		{
+			if (!t.is_object())
+			{
+				errOut = "each texture entry must be an object with 'name' and 'path'";
+				return false;
+			}
+			MaterialTextureInput ti;
+			ti.id = id++;
+			ti.name = t.value("name", std::string("uTexture"));
+			ti.texturePath = t.value("path", std::string());
+			textTextures.push_back(std::move(ti));
+		}
+		nextTextureInputId = id;
+	}
+	dirty = true;
+	return true;
+}
+
+json MaterialEditorDocument::AgentGetText() const {
+	json j;
+	j["kind"] = (editKind == MaterialEditKind::Generic) ? "generic" : "custom";
+	j["editMode"] = (editMode == MaterialEditMode::Text) ? "text" : "nodegraph";
+	// Prefer the live editor buffer - it may hold user edits not yet
+	// mirrored back into simpleShaderText (that sync runs on the debounced
+	// auto-apply / save).
+	j["text"] = codeDoc ? codeDoc->editor.GetText() : simpleShaderText;
+	json texs;
+	for (const auto& t : textTextures)
+	{
+		json tj;
+		tj["name"] = t.name;
+		tj["path"] = t.texturePath;
+		texs.push_back(std::move(tj));
+	}
+	j["textures"] = std::move(texs);
+	return j;
+}

@@ -557,6 +557,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		propertiesParticleSeededId = 0;
 		particlePreviewSelectionId = 0;
 		particlePreviewSynced = false;
+		particlePreviewSystem = NULL;
 
 		SelectedMeshMaterial = std::make_shared<SelectedMaterial>();
 		SelectedMeshMaterial->EnableDepthTest(DepthTest::LEqual);
@@ -1431,6 +1432,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (!viewCam || imgSize.x < 1.f || imgSize.y < 1.f) return;
 
 		ImDrawList* dl = ImGui::GetWindowDrawList();
+		// Clip to the rendered image, not to the Scene View window. These
+		// glyphs are drawn in screen space from a 3D projection, so an object
+		// near the edge of the frustum lands a few pixels outside the image -
+		// and without a clip rect ImGui happily painted it over the toolbar
+		// above the viewport or the panel beside it, which is what made
+		// helper icons appear to escape the scene view. The hit rects
+		// registered below are clipped to the same box, so a glyph that is
+		// only half drawn can still only be clicked where it is visible.
+		const ImVec2 imgMax(imgMin.x + imgSize.x, imgMin.y + imgSize.y);
+		dl->PushClipRect(imgMin, imgMax, true);
 		const Matrix viewM = viewCam->GetWorldTransformation().Inverse();
 		const Matrix projM = (isPerspective ? projection : projectionOrtho).GetProjectionMatrix();
 
@@ -1458,6 +1469,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImVec2 p;
 			f32 depth = 0.f;
 			if (!projectToImage(wp, p, depth)) return;
+			// Centre outside the image: the whole icon belongs to a part of
+			// the scene that isn't on screen, so drop it rather than leave a
+			// clipped sliver (and a hit rect) pinned to the border.
+			if (p.x < imgMin.x || p.x > imgMax.x || p.y < imgMin.y || p.y > imgMax.y) return;
 			const ImVec2 sz = ImGui::CalcTextSize(icon);
 			const f32 scale = pxSize / (sz.y > 0.f ? sz.y : 1.f);
 			const ImVec2 topLeft(p.x - (sz.x * scale) * 0.5f, p.y - (sz.y * scale) * 0.5f);
@@ -1472,8 +1487,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			const f32 halfW = (drawnW < drawnH ? drawnH : drawnW) * 0.5f + 2.f;
 			const f32 halfH = drawnH * 0.5f + 2.f;
 			ViewportIcon hit;
-			hit.min = ImVec2(p.x - halfW, p.y - halfH);
-			hit.max = ImVec2(p.x + halfW, p.y + halfH);
+			hit.min = ImVec2(std::max(p.x - halfW, imgMin.x), std::max(p.y - halfH, imgMin.y));
+			hit.max = ImVec2(std::min(p.x + halfW, imgMax.x), std::min(p.y + halfH, imgMax.y));
+			if (hit.min.x >= hit.max.x || hit.min.y >= hit.max.y) return;
 			hit.sceneObjectId = sceneObjectId;
 			hit.viewDepth = depth;
 			viewportIcons.push_back(hit);
@@ -1506,6 +1522,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					drawIconAt(u8"\uf0eb", go->GetWorldPosition(), IM_COL32(255, 220, 0, 255), 18.f, pickId);
 			}
 		}
+
+		dl->PopClipRect();
 	}
 
 	void SceneEditor::CreateSceneCamera()
@@ -1733,7 +1751,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		if (!stbi_write_png(thumbPath.c_str(), (int)w, (int)h, 4, rgba.data(), (int)w * 4))
 		{
-			echo("ERROR: failed writing model thumbnail: " + thumbPath);
+			echo("ERROR: failed writing model thumbnail: " + DisplayPath(thumbPath));
 			return std::string();
 		}
 		return thumbPath;
@@ -1792,7 +1810,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			pendingModelThumbnailSet.erase(job.first);
 			const std::string path = EnsureModelThumbnail(job.first, job.second);
 			if (!path.empty())
-				echo("Thumbnail: " + path);
+				echo("Thumbnail: " + DisplayPath(path));
 			++done;
 		}
 	}
@@ -2010,7 +2028,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					echo(std::string("ERROR: Script runtime error: ") + err.what());
 				}
 				else
-					echo("ERROR: Script must return a middleclass class with :new() — " + absoluteScriptPath);
+					echo("ERROR: Script must return a middleclass class with :new() — " + DisplayPath(absoluteScriptPath));
 			}
 			return false;
 		}
@@ -2029,7 +2047,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		selection.push_back(goId);
 		node_clicked = -1;
 		hierarchyForceOpenId = goId;
-		echo("SUCCESS: Attached script " + absoluteScriptPath + " to " + goObj->GetName());
+		echo("SUCCESS: Attached script " + DisplayPath(absoluteScriptPath) + " to " + goObj->GetName());
 		if (!beforeSnapshot.empty())
 			PushReplaceCommand(goId, beforeSnapshot, "Attach Script");
 		return true;
@@ -2346,7 +2364,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		ImGui::TextUnformatted("Scene");
 		ImGui::Separator();
 		if (!scenePath.empty())
-			ImGui::TextWrapped("File: %s", scenePath.c_str());
+			ImGui::TextWrapped("File: %s", DisplayPath(scenePath).c_str());
 		else
 			ImGui::TextDisabled("File: (unsaved)");
 
@@ -2371,13 +2389,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 		else
 		{
-			const std::string companion = ProjectManager::SceneScriptPathForSceneJson(scenePath);
-			std::string rel = companion;
-			if (project && project->IsOpen())
-			{
-				const std::string r = project->RelativePath(companion);
-				if (!r.empty()) rel = r;
-			}
+			const std::string rel = DisplayPath(ProjectManager::SceneScriptPathForSceneJson(scenePath));
 			if (playMode)
 			{
 				ImGui::TextWrapped("%s", sceneMainScriptPath.empty() ? rel.c_str() : sceneMainScriptPath.c_str());
@@ -3279,22 +3291,41 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	bool SceneEditor::ParticleSystemPreviewsForSelection(ParticleSystem* ps) const
 	{
 		if (ps == NULL || SelectedSceneObject == NULL) return false;
+		// The emitter component itself, and nothing else. Selecting the host
+		// GameObject used to count too, which meant every emitter in the
+		// scene lit up as soon as its object was touched for an unrelated
+		// reason (moving it, renaming it, clicking it on the way to
+		// something else) and made the viewport look like particles were
+		// firing at random. Outside Play, a preview is something you ask for
+		// by selecting the emitter - the icon in the viewport selects it
+		// directly now (see ViewportPickAtMouse), so it is one click either
+		// way.
 		if (SelectedSceneObject->GetType() == SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT)
 			return SelectedSceneObject->GetPTR() == (void*)ps;
-		// Selecting the GameObject counts too - that is what a user clicks
-		// when they drag an emitter around, and having it go dark exactly
-		// then would be the wrong way round.
-		if (SelectedSceneObject->GetType() == SceneObjectTypes::GAMEOBJECT)
-			return ps->GetOwner() == (GameObject*)SelectedSceneObject->GetPTR();
 		return false;
 	}
 
 	void SceneEditor::UpdateParticlePreview()
 	{
 		const uint32 selectionId = (SelectedSceneObject != NULL) ? SelectedSceneObject->GetID() : 0;
-		if (particlePreviewSynced && selectionId == particlePreviewSelectionId) return;
+		if (particlePreviewSynced && selectionId == particlePreviewSelectionId)
+		{
+			// A one-shot emitter fires once and is then empty for as long as
+			// it stays selected, so its "preview" was a single burst you had
+			// to keep reselecting to see again. Re-fire it whenever it runs
+			// dry - a preview is meant to show what the emitter does, and a
+			// looping one already does exactly this on its own.
+			if (particlePreviewSystem != NULL
+				&& !particlePreviewSystem->GetDesc().looping
+				&& particlePreviewSystem->GetLiveParticleCount() == 0)
+			{
+				particlePreviewSystem->Play();
+			}
+			return;
+		}
 		particlePreviewSelectionId = selectionId;
 		particlePreviewSynced = true;
+		particlePreviewSystem = NULL;
 
 		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
 			i != sceneObjects->GetList().end(); ++i)
@@ -3308,6 +3339,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				// rather than adding to whatever the last preview left.
 				ps->Clear();
 				ps->Play();
+				particlePreviewSystem = ps;
 			}
 			else
 			{
@@ -3321,6 +3353,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	{
 		ForEachParticleSystemInScene(scene, StopParticleSystemForPlayMode, NULL);
 		particlePreviewSynced = false;
+		particlePreviewSystem = NULL;
 	}
 
 	void SceneEditor::SetEditorChromeVisible(bool visible)
@@ -3799,8 +3832,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 
 		// A helper (the clickable stand-in body drawn for a light, sound
-		// emitter or empty GameObject) selects whatever it stands in for.
+		// emitter, particle emitter or empty GameObject) selects the scene
+		// object it was created for - which is the map key here, and is the
+		// *component* for a light/sound/particle icon rather than the
+		// GameObject hosting it. Resolving via the helper's `owner` instead
+		// (which is only ever the host GameObject, because that is what the
+		// icon has to follow in space) collapsed every component icon onto
+		// its GameObject: clicking a particle emitter could not select the
+		// emitter, only the object it hangs off, which is also what the
+		// preview rule in ParticleSystemPreviewsForSelection() keys on.
 		bool helper = false;
+		uint32 helperSceneObjectId = 0;
 		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
 			i != sceneObjects->GetList().end(); i++)
 		{
@@ -3808,7 +3850,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			{
 				if ((*i).second->Helper.get() == rm->renderingComponent->GetOwner())
 				{
-					node_clicked = sceneObjects->GetSceneObjectID(((IHelper*)(*i).second->Helper.get())->owner);
+					node_clicked = (*i).first;
+					helperSceneObjectId = (*i).first;
 					helper = true;
 					break;
 				}
@@ -3833,6 +3876,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		DeselectMesh();
 		SelectSceneObject(pickedSO);
+		// A component icon lives under its GameObject in the tree - open that
+		// node so the new selection is actually visible rather than hidden
+		// inside a collapsed parent, same as the light/camera glyph path.
+		if (helperSceneObjectId != 0 && pickedSO != NULL && pickedSO->GetParentID() != 0)
+			hierarchyForceOpenId = pickedSO->GetParentID();
 	}
 
 	void SceneEditor::HandleViewportGizmoInput(GameObject* viewCam)
@@ -4165,6 +4213,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	// Gives every adopted GameObject and light its viewport icon, the way the
 	// Add form does for objects created through the UI.
+	std::string SceneEditor::DisplayPath(const std::string& path) const
+	{
+		if (!project || !project->IsOpen()) return path;
+		return project->DisplayPath(path);
+	}
+
 	void SceneEditor::RebuildHelpers()
 	{
 		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin(); i != sceneObjects->GetList().end(); i++)
@@ -4289,6 +4343,34 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return ok;
 	}
 
+	namespace {
+		// The RenderingComponent whose material is *project* data, if any.
+		//
+		// ParticleSystem is a RenderingComponent too (it draws instanced
+		// billboards) and its material is a CustomShaderMaterial - so both
+		// sweeps below used to pick it up and try to "recompile" it. Its
+		// shader is the engine's own shaders/particleSystem.glsl, resolved
+		// against the *editor's* working directory, not the project, so
+		// recompiling it against projectRoot always failed to find the file
+		// and left every emitter running the Material Editor's magenta error
+		// shader instead. That shader draws through uModelMatrix, which
+		// ParticleSystemMaterial never sets, so the quads collapsed to a
+		// degenerate point and the emitters simply vanished - a renderer
+		// switch or a project open was all it took, which is why particles
+		// only disappeared "sometimes".
+		RenderingComponent* FirstProjectRenderingComponent(GameObject* go)
+		{
+			if (!go) return NULL;
+			for (auto& c : go->GetComponents())
+			{
+				if (dynamic_cast<ParticleSystem*>(c.get())) continue;
+				RenderingComponent* rc = dynamic_cast<RenderingComponent*>(c.get());
+				if (rc) return rc;
+			}
+			return NULL;
+		}
+	}
+
 	void SceneEditor::RecompileOrphanedCustomMaterials(const std::string& projectRoot, bool deferredGBuffer,
 	                                                    const std::set<IMaterial*>& skipMaterials)
 	{
@@ -4298,9 +4380,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			GameObject* go = goPtr.get();
 			if (!go) continue;
-			RenderingComponent* rc = NULL;
-			for (auto& c : go->GetComponents())
-				if ((rc = dynamic_cast<RenderingComponent*>(c.get()))) break;
+			RenderingComponent* rc = FirstProjectRenderingComponent(go);
 			if (!rc) continue;
 			for (RenderingMesh* mesh : rc->GetMeshes(0))
 			{
@@ -4324,9 +4404,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			GameObject* go = goPtr.get();
 			if (!go) continue;
-			RenderingComponent* rc = NULL;
-			for (auto& c : go->GetComponents())
-				if ((rc = dynamic_cast<RenderingComponent*>(c.get()))) break;
+			RenderingComponent* rc = FirstProjectRenderingComponent(go);
 			if (!rc) continue;
 			for (RenderingMesh* mesh : rc->GetMeshes(0))
 			{
@@ -5328,10 +5406,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						// Only the first is open by default; the header names
 						// the material so the collapsed ones stay readable.
 						const char* headMatName = "(no material)";
+						std::string headMatShaderLabel;
 						if (meshes[m]->Material)
 						{
 							if (auto* headCm = dynamic_cast<CustomShaderMaterial*>(meshes[m]->Material.get()))
-								headMatName = headCm->GetShaderFile().empty() ? "Custom Shader" : headCm->GetShaderFile().c_str();
+							{
+								headMatShaderLabel = headCm->GetShaderFile().empty()
+									? std::string("Custom Shader") : DisplayPath(headCm->GetShaderFile());
+								headMatName = headMatShaderLabel.c_str();
+							}
 							else
 								headMatName = "Generic Shader";
 						}
@@ -5582,7 +5665,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					if (playMode)
 					{
 					if (lc && !lc->scriptFile.empty())
-						ImGui::TextWrapped("%s", lc->scriptFile.c_str());
+						ImGui::TextWrapped("%s", DisplayPath(lc->scriptFile).c_str());
 					else
 						ImGui::TextDisabled("(no script file)");
 					if (lc && !lc->scriptFile.empty() && hostOpenLuaScript
@@ -5592,7 +5675,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				else
 				{
 					if (lc && !lc->scriptFile.empty())
-						ImGui::TextWrapped("%s", lc->scriptFile.c_str());
+						ImGui::TextWrapped("%s", DisplayPath(lc->scriptFile).c_str());
 					if (lc && !lc->scriptFile.empty() && hostOpenLuaScript)
 					{
 						if (ImGui::Button("Open Script", ImVec2(140, 0)))
@@ -5871,7 +5954,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					AudioSource* asrc = (AudioSource*)SelectedSceneObject->GetPTR();
 					if (asrc && !asrc->IsLoaded())
 						asrc->EnsureLoaded();
-					ImGui::Text("File: %s", asrc->GetFile().c_str());
+					ImGui::Text("File: %s", DisplayPath(asrc->GetFile()).c_str());
 					if (!asrc->IsLoaded())
 						ImGui::TextColored(ImVec4(1.f, 0.4f, 0.3f, 1.f), "Not loaded (missing file or no audio device)");
 					else
@@ -7913,6 +7996,79 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return OpAssignMaterial(obj->GetID(), submeshIndex, mat, errOut);
 	}
 
+	void SceneEditor::RelativizeAgentAssetPaths(json& j) const
+	{
+		if (j.is_array())
+		{
+			for (auto& e : j) RelativizeAgentAssetPaths(e);
+			return;
+		}
+		if (!j.is_object()) return;
+		static const char* kPathKeys[] = { "path", "texture", "file", "scriptFile", "shaderFile" };
+		for (const char* key : kPathKeys)
+		{
+			auto it = j.find(key);
+			if (it != j.end() && it->is_string())
+			{
+				const std::string v = it->get<std::string>();
+				if (!v.empty()) *it = DisplayPath(v);
+			}
+		}
+		for (auto it = j.begin(); it != j.end(); ++it)
+			if (it->is_object() || it->is_array())
+				RelativizeAgentAssetPaths(*it);
+	}
+
+	bool SceneEditor::AgentGetObject(const std::string& name, json& outObject, std::string& errOut)
+	{
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		if (!go) { errOut = "object '" + name + "' has no game object"; return false; }
+
+		json j;
+		j["name"] = go->GetName();
+		const Vec3& p = go->GetPosition();
+		const Vec3& r = go->GetRotation();
+		const Vec3& s = go->GetScale();
+		j["position"] = { (double)p.x, (double)p.y, (double)p.z };
+		j["rotation"] = { (double)r.x, (double)r.y, (double)r.z };
+		j["scale"] = { (double)s.x, (double)s.y, (double)s.z };
+		const Vec3 wp = go->GetWorldPosition();
+		j["worldPosition"] = { (double)wp.x, (double)wp.y, (double)wp.z };
+		json tags = json::array();
+		for (auto& t : go->GetTags()) tags.push_back(t.second);
+		j["tags"] = std::move(tags);
+		json comps = json::array();
+		for (auto& c : go->GetComponents())
+		{
+			if (!c) continue;
+			json cj = AgentComponentToJson(c.get());
+			if (cj.is_null()) continue;
+			RelativizeAgentAssetPaths(cj);
+			comps.push_back(std::move(cj));
+		}
+		j["components"] = std::move(comps);
+		json kids = json::array();
+		for (auto& ch : go->GetChildren())
+			if (ch) kids.push_back(ch->GetName());
+		j["children"] = std::move(kids);
+		outObject = std::move(j);
+		return true;
+	}
+
+	bool SceneEditor::AgentSelectObject(const std::string& name, std::string& errOut)
+	{
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		DeselectMesh();
+		SelectSceneObject(obj);
+		node_clicked = obj->GetID();
+		if (obj->GetParentID() != 0)
+			hierarchyForceOpenId = obj->GetParentID();
+		return true;
+	}
+
 	json SceneEditor::AgentSceneState()
 	{
 		json out;
@@ -7954,7 +8110,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			{
 				if (!c) continue;
 				json cj = AgentComponentToJson(c.get());
-				if (cj.is_object()) comps.push_back(std::move(cj));
+				if (!cj.is_object()) continue;
+				RelativizeAgentAssetPaths(cj);
+				comps.push_back(std::move(cj));
 			}
 			j["components"] = std::move(comps);
 			nodeJson[i] = std::move(j);

@@ -142,6 +142,11 @@ class SceneEditor : public IUInterface {
 	void AttachEditorObjects(std::vector<std::shared_ptr<GameObject>> &saved);
 	void RebuildHelpers();
 
+	// Project-relative form of a path for anything the user reads (labels,
+	// log lines). Falls back to the path as given when there is no project
+	// open or the file lives outside it - see ProjectManager::DisplayPath.
+	std::string DisplayPath(const std::string& path) const;
+
 public:
 
 	void NewScene(bool applyProjectDefaults = true);
@@ -237,6 +242,19 @@ public:
 	// document) onto a submesh directly, replacing whatever it had.
 	bool AgentAssignMaterial(const std::string& objectName, int submeshIndex, std::shared_ptr<p3d::IMaterial> mat, std::string& errOut);
 	json  AgentSceneState();
+	// Rewrites every asset path inside an agent/AI component payload to its
+	// project-relative form. AgentComponentToJson and friends are free
+	// functions with no project handle, so this runs as a pass over what
+	// they produce rather than being threaded through all of them.
+	void RelativizeAgentAssetPaths(json& j) const;
+
+	// One object rather than the whole graph. scene_state on a real scene is
+	// tens of kilobytes of JSON, which is a lot of an assistant's context to
+	// spend when the question is "where is the player standing".
+	bool AgentGetObject(const std::string& name, json& outObject, std::string& errOut);
+	// Drives the editor's own selection, so the assistant can show the user
+	// what it is talking about instead of only describing it.
+	bool AgentSelectObject(const std::string& name, std::string& errOut);
 	bool AgentSave(std::string& errOut);
 	bool AgentSaveAs(const std::string& path, std::string& errOut);
 	bool AgentLoadScene(const std::string& path, std::string& errOut);
@@ -766,6 +784,11 @@ private:
 	void ResetParticlePreview();
 	uint32 particlePreviewSelectionId;
 	bool particlePreviewSynced;
+	// The emitter currently previewing, if any - kept so a one-shot burst can
+	// be re-fired once it empties out without walking every scene object
+	// again each frame. Never dereferenced without re-checking it against the
+	// live selection first (see UpdateParticlePreview).
+	ParticleSystem* particlePreviewSystem;
 
 	// Properties-panel draft state for the selected ParticleSystem: the two
 	// fields that are applied on a button press rather than live (a sprite

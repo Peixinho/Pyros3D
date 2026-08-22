@@ -87,6 +87,10 @@ namespace MaterialEditor {
 	// ownership goes through CustomShaderMaterial::AdoptShader instead.
 	// Returns false if neither a file nor a non-empty source text is
 	// available (nothing to recompile from).
+	// Project-relative form of a path for display/log text, or the path
+	// unchanged when it lives outside the project.
+	std::string DisplayPath(const std::string& path, const std::string& projectRoot);
+
 	bool RecompileFromDisk(p3d::CustomShaderMaterial* mat, const std::string& projectRoot,
 	                       bool deferredGBuffer, std::string* errorOut = nullptr);
 

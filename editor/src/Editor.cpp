@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <set>
+#include <sstream>
 
 using namespace p3d;
 namespace fs = std::filesystem;
@@ -287,6 +288,17 @@ void Editor::Init()
 	// DrawActiveMaterialProperties().
 	tabProperties->SetOverrideDrawer([this]() { return DrawActiveMaterialProperties(); });
 	tabTools = new ToolsTab(&showingTabTools);
+	tabAI = new AIAssistantTab(&showingTabAI);
+	// The model gets a live picture of the project, and its tool calls run
+	// through the same dispatcher the MCP bridge uses - HandleAgentCommand
+	// (pumped on the main thread by AIAssistantTab::Update()).
+	tabAI->SetContextProvider([this]() { return BuildAIContext(); });
+	tabAI->SetToolExecutor([this](const std::string& name, const nlohmann::json& args) -> nlohmann::json {
+		nlohmann::json cmd;
+		cmd["cmd"] = name;
+		cmd["args"] = args.is_null() ? nlohmann::json::object() : args;
+		return HandleAgentCommand(cmd);
+	});
 	// Editor Log panel is the only sink — no OS terminal spam. Everything
 	// includes Info so Lua print() shows up.
 	p3d::LOG::_LOG::SetMirrorStdout(false);
@@ -297,6 +309,7 @@ void Editor::Init()
 #endif
 	sceneView = CreateSceneDocument();
 	showingLog = showingSceneTree = showingSceneView = showingTabProperties = showingTabTools = true;
+	showingTabAI = true;
 	showingAssets = true;
 	PyrosFileDrop::SetHandler(&EditorOnOsFileDrop);
 	PyrosWindowClose::SetHandler(&Editor::EditorOnWindowClose);
@@ -327,6 +340,7 @@ void Editor::Init()
 void Editor::LoadDefaultLayout()
 {
 	showingLog = showingSceneTree = showingSceneView = showingTabProperties = showingTabTools = true;
+	showingTabAI = true;
 	showingAssets = true;
 	// The dock nodes can only be rebuilt while a frame is in flight, so
 	// just arm it here and let DrawUI() do the work.
@@ -344,15 +358,19 @@ void Editor::BuildDefaultLayout(const ImGuiID dockspaceID, const ImVec2 &size)
 	ImGuiID center = dockspaceID;
 	ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.28f, NULL, &center);
 	ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, NULL, &center);
-	ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.25f, NULL, &center);
-	ImGuiID rightBottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.5f, NULL, &right);
+	ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.34f, NULL, &center);
+	// The right column splits into Tools/Properties (left of the column)
+	// and the AI Assistant (right of Properties, as requested).
+	ImGuiID rightTools = ImGui::DockBuilderSplitNode(right, ImGuiDir_Left, 0.55f, NULL, &right);
+	ImGuiID rightBottom = ImGui::DockBuilderSplitNode(rightTools, ImGuiDir_Down, 0.5f, NULL, &rightTools);
 
 	ImGui::DockBuilderDockWindow("Scene Tree", left);
 	ImGui::DockBuilderDockWindow("Scene View", center);
 	ImGui::DockBuilderDockWindow("Assets", bottom);
 	ImGui::DockBuilderDockWindow("Log", bottom);
-	ImGui::DockBuilderDockWindow("Tools", right);
+	ImGui::DockBuilderDockWindow("Tools", rightTools);
 	ImGui::DockBuilderDockWindow("Properties", rightBottom);
+	ImGui::DockBuilderDockWindow("AI Assistant", right);
 	dockCenterId = center;
 
 	ImGui::DockBuilderFinish(dockspaceID);
@@ -362,6 +380,22 @@ void Editor::Update()
 {
 	// Drain agent commands first so the result is visible in this frame's draw.
 	agentServer.Process();
+	// Executes the AI Assistant's queued tool calls on this (main) thread -
+	// HandleAgentCommand touches the SceneGraph, so it must not run on the
+	// client's worker thread.
+	if (tabAI)
+	{
+		tabAI->Update(GetTime());
+		// AI Assistant settings (provider/model/key/...) are per-project -
+		// persist them into project.json when the user changes them.
+		if (tabAI->ConsumeDirtySettings() && project.IsOpen())
+		{
+			ProjectSettings s = project.GetSettings();
+			s.aiAssistant = tabAI->ToJson();
+			project.SetSettings(s); // marks the project dirty
+			project.Save();
+		}
+	}
 	ProcessPendingFileDrops();
 	FlushPendingSceneDocumentCloses();
 	for (size_t i = 0; i < sceneDocs.size(); ++i)
@@ -370,6 +404,61 @@ void Editor::Update()
 	// BeginFrame so Vulkan offscreen binds skip WaitAllFrameFences
 	// (that wait was freezing the editor: ShowViewport ran with
 	// !frameInProgress every tick and parked on MoltenVK fence waits).
+}
+
+std::string Editor::BuildAIContext()
+{
+	if (!project.IsOpen())
+		return "";
+	std::ostringstream os;
+	os << "Project: " << project.GetProjectName() << "\n";
+	if (sceneView)
+	{
+		os << "Active scene: " << sceneView->GetSceneDisplayName()
+		   << (sceneView->IsSceneDirty() ? " (unsaved changes)" : "") << "\n";
+		// An outline, not the scene. This used to inline up to 12 KB of
+		// AgentSceneState() JSON into the context of *every* message, which
+		// is most of a small model's budget spent restating something the
+		// assistant can ask for - and it went stale the moment it edited
+		// anything. Names are what it needs to address an object; scene_state
+		// and get_object give it the rest on demand.
+		try
+		{
+			const nlohmann::json state = sceneView->AgentSceneState();
+			if (state.contains("objects") && state["objects"].is_array())
+			{
+				const nlohmann::json& objs = state["objects"];
+				os << "Objects (" << objs.size() << "): ";
+				const size_t kMaxNamed = 60;
+				for (size_t i = 0; i < objs.size() && i < kMaxNamed; ++i)
+				{
+					if (i) os << ", ";
+					os << objs[i].value("name", std::string("?"));
+				}
+				if (objs.size() > kMaxNamed)
+					os << ", … (" << (objs.size() - kMaxNamed) << " more)";
+				os << "\n";
+			}
+		}
+		catch (...)
+		{
+			// The outline is a bonus - never fail the chat over it.
+		}
+		os << "Call scene_state for the full graph, or get_object for one object.\n";
+	}
+	return os.str();
+}
+
+std::string Editor::AgentScenePathArg(const std::string& pathArg) const
+{
+	// Scene paths come back out of this API project-relative, so they have to
+	// go back in that way too - an agent that reads "scenes/Level1.json" from
+	// save_scene and feeds it to load_scene should not get "file not found".
+	// Absolute is still accepted (a scene outside the project has no other
+	// form), matching the convention AgentOpenMaterial already uses.
+	if (pathArg.empty() || !project.IsOpen()) return pathArg;
+	if (pathArg[0] == '/' || (pathArg.size() >= 2 && pathArg[1] == ':')) return pathArg;
+	return project.AbsolutePath(pathArg);
 }
 
 MaterialEditorDocument* Editor::AgentOpenMaterial(const std::string& pathArg, std::string& errOut)
@@ -473,12 +562,17 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["agentServer"] = agentServer.IsRunning();
 		r["port"] = (int)agentServer.GetPort();
 		r["projectOpen"] = project.IsOpen();
+		// projectPath is the one absolute path in the agent API, and it is
+		// deliberate: it is the anchor every other path is relative to, and
+		// an out-of-process caller (the MCP bridge) has no other way to turn
+		// "scenes/Level1.json" into a file on disk. It is never shown in the
+		// editor's own UI. Everything else below is project-relative.
 		if (project.IsOpen())
 			r["projectPath"] = project.GetProjectPath();
 		if (sceneView)
 		{
 			r["scene"] = sceneView->GetSceneDisplayName();
-			r["scenePath"] = sceneView->GetScenePath();
+			r["scenePath"] = project.DisplayPath(sceneView->GetScenePath());
 			r["dirty"] = sceneView->IsSceneDirty();
 			r["playing"] = sceneView->IsPlaying();
 		}
@@ -495,6 +589,102 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 
+	if (name == "list_scenes")
+	{
+		if (!project.IsOpen())
+			throw std::runtime_error("no project open");
+		std::vector<std::string> scenes;
+		project.ListScenes(scenes);
+		nlohmann::json r;
+		r["scenes"] = scenes;
+		r["active"] = project.GetActiveSceneRel();
+		return r;
+	}
+
+	if (name == "list_assets")
+	{
+		if (!project.IsOpen())
+			throw std::runtime_error("no project open");
+		const std::string under = A("under");
+		const bool recursive = a.is_object() ? a.value("recursive", true) : true;
+		const std::string ext = A("extension");
+		std::vector<ProjectAssetEntry> entries;
+		project.ListAssets(under, entries, recursive);
+		nlohmann::json arr = nlohmann::json::array();
+		for (const ProjectAssetEntry& e : entries)
+		{
+			if (e.isDirectory) continue;
+			if (!ext.empty())
+			{
+				if (e.relativePath.size() < ext.size()) continue;
+				if (e.relativePath.compare(e.relativePath.size() - ext.size(), ext.size(), ext) != 0) continue;
+			}
+			arr.push_back(e.relativePath);
+		}
+		nlohmann::json r;
+		r["assets"] = std::move(arr);
+		return r;
+	}
+
+	if (name == "read_script" || name == "write_script" || name == "create_script")
+	{
+		if (!project.IsOpen())
+			throw std::runtime_error("no project open");
+
+		if (name == "create_script")
+		{
+			const std::string scriptName = A("name");
+			if (scriptName.empty())
+				throw std::runtime_error("create_script requires 'name'");
+			const std::string kindStr = a.is_object() ? a.value("kind", std::string("gameobject")) : std::string("gameobject");
+			const LuaScriptKind kind = (kindStr == "scene") ? LuaScriptKind::Scene : LuaScriptKind::GameObject;
+			std::string abs, cerr;
+			if (!project.CreateLuaScript(scriptName, abs, &cerr, kind))
+				throw std::runtime_error(cerr);
+			nlohmann::json r;
+			r["ok"] = true;
+			r["path"] = project.RelativePath(abs);
+			return r;
+		}
+
+		const std::string rel = A("path");
+		if (rel.empty())
+			throw std::runtime_error(name + " requires 'path' (project-relative, e.g. assets/lua/player.lua)");
+		// Project-relative only: a script tool that accepts absolute paths is
+		// a tool that can read and overwrite anything on the machine.
+		const std::string abs = project.AbsolutePath(rel);
+		if (project.RelativePath(abs).empty())
+			throw std::runtime_error("path must stay inside the project: " + rel);
+
+		if (name == "read_script")
+		{
+			std::ifstream in(abs);
+			if (!in)
+				throw std::runtime_error("could not read " + rel);
+			std::ostringstream ss;
+			ss << in.rdbuf();
+			nlohmann::json r;
+			r["path"] = rel;
+			r["text"] = ss.str();
+			return r;
+		}
+
+		if (!a.is_object() || !a.contains("text") || !a["text"].is_string())
+			throw std::runtime_error("write_script requires 'text'");
+		std::ofstream out(abs, std::ios::binary | std::ios::trunc);
+		if (!out)
+			throw std::runtime_error("could not write " + rel);
+		out << a["text"].get<std::string>();
+		out.close();
+		// An open document would otherwise keep showing (and later re-save)
+		// the pre-write text over the top of what was just written.
+		ReloadScriptDocumentFromDisk(abs);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["path"] = rel;
+		return r;
+	}
+
 	if (name == "open_project")
 	{
 		const std::string path = A("path");
@@ -506,10 +696,10 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 				? ("failed to open project: " + path) : projectDialogError);
 		nlohmann::json r;
 		r["ok"] = true;
-		r["projectPath"] = project.GetProjectPath();
+		r["projectPath"] = project.GetProjectPath(); // the anchor - see "status"
 		if (sceneView)
 		{
-			r["scenePath"] = sceneView->GetScenePath();
+			r["scenePath"] = project.DisplayPath(sceneView->GetScenePath());
 			r["scene"] = sceneView->GetSceneDisplayName();
 		}
 		return r;
@@ -597,6 +787,33 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	if (name == "get_material_text")
+	{
+		std::string aerr;
+		MaterialEditorDocument* doc = AgentOpenMaterial(A("path"), aerr);
+		if (!doc) throw std::runtime_error(aerr);
+		return doc->AgentGetText();
+	}
+	if (name == "set_material_text")
+	{
+		std::string aerr;
+		MaterialEditorDocument* doc = AgentOpenMaterial(A("path"), aerr);
+		if (!doc) throw std::runtime_error(aerr);
+		if (!a.is_object() || !a.contains("text"))
+			throw std::runtime_error("'text' (the GLSL snippet) is required");
+		std::string terr;
+		if (!doc->AgentSetText(a.value("text", std::string()),
+			a.contains("textures") ? a["textures"] : nlohmann::json(), terr))
+			throw std::runtime_error(terr);
+		if (!MaterialEditor::SaveToFile(*doc, doc->absolutePath, project.GetProjectPath(), UseDeferredGBuffer()))
+			throw std::runtime_error("failed to save material to " + doc->absolutePath);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["path"] = project.RelativePath(doc->absolutePath);
+		if (!doc->lastApplyError.empty())
+			r["applyWarning"] = doc->lastApplyError; // saved, but the compile failed
+		return r;
+	}
 
 	if (!sceneView)
 		throw std::runtime_error("no scene is open in the editor");
@@ -604,6 +821,23 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	std::string err;
 	if (name == "scene_state")
 		return sceneView->AgentSceneState();
+
+	if (name == "get_object")
+	{
+		nlohmann::json obj;
+		if (!sceneView->AgentGetObject(A("name"), obj, err))
+			throw std::runtime_error(err);
+		return obj;
+	}
+
+	if (name == "select_object")
+	{
+		if (!sceneView->AgentSelectObject(A("name"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 
 	if (name == "add_object")
 	{
@@ -784,25 +1018,25 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			throw std::runtime_error(err);
 		nlohmann::json r;
 		r["ok"] = true;
-		r["path"] = sceneView->GetScenePath();
+		r["path"] = project.DisplayPath(sceneView->GetScenePath());
 		return r;
 	}
 	if (name == "save_scene_as")
 	{
-		if (!sceneView->AgentSaveAs(A("path"), err))
+		if (!sceneView->AgentSaveAs(AgentScenePathArg(A("path")), err))
 			throw std::runtime_error(err);
 		nlohmann::json r;
 		r["ok"] = true;
-		r["path"] = sceneView->GetScenePath();
+		r["path"] = project.DisplayPath(sceneView->GetScenePath());
 		return r;
 	}
 	if (name == "load_scene")
 	{
-		if (!sceneView->AgentLoadScene(A("path"), err))
+		if (!sceneView->AgentLoadScene(AgentScenePathArg(A("path")), err))
 			throw std::runtime_error(err);
 		nlohmann::json r;
 		r["ok"] = true;
-		r["path"] = sceneView->GetScenePath();
+		r["path"] = project.DisplayPath(sceneView->GetScenePath());
 		return r;
 	}
 	if (name == "set_renderer")
@@ -1057,6 +1291,7 @@ void Editor::DrawUI()
                 if (ImGui::MenuItem("Log", "", &showingLog)) {}
                 if (ImGui::MenuItem("Properties", "", &showingTabProperties)) {}
                 if (ImGui::MenuItem("Tools", "", &showingTabTools)) {}
+                if (ImGui::MenuItem("AI Assistant", "", &showingTabAI)) {}
                 if (ImGui::MenuItem("Assets", "", &showingAssets)) {}
                 ImGui::EndMenu();
             }
@@ -1160,6 +1395,9 @@ void Editor::DrawUI()
 	if (showingTabProperties)
 		tabProperties->Show();
 
+	if (showingTabAI)
+		tabAI->Show();
+
 	if (showingAssets)
 		DrawAssetsWindow();
 
@@ -1207,6 +1445,8 @@ bool Editor::CreateNewProject(const std::string& parentDir, const std::string& n
 	AddRecentProject(project.GetProjectPath());
 	echo("SUCCESS: Created project: " + project.GetProjectPath());
 	UpdateWindowTitle();
+	tabAI->SetProjectOpen(true);
+	tabAI->LoadFrom(project.GetSettings().aiAssistant);
 	return true;
 }
 
@@ -1242,6 +1482,8 @@ bool Editor::OpenProjectFromPath(const std::string& path)
 	AddRecentProject(project.GetProjectPath());
 	echo("Opened project: " + project.GetProjectPath());
 	UpdateWindowTitle();
+	tabAI->SetProjectOpen(true);
+	tabAI->LoadFrom(project.GetSettings().aiAssistant);
 	return true;
 }
 
@@ -1257,6 +1499,7 @@ void Editor::CloseProjectImmediate()
 	sceneView = CreateSceneDocument();
 	project.Close();
 	projectUndo.Clear(); // its entries reference the project just closed
+	tabAI->SetProjectOpen(false);
 	UpdateWindowTitle();
 }
 
@@ -1954,10 +2197,10 @@ void Editor::DrawScriptEditorWindows()
 			{
 				doc->editor.SetText(doc->editor.GetText());
 				doc->dirty = false;
-				echo("SUCCESS: Saved " + doc->absolutePath);
+				echo("SUCCESS: Saved " + project.DisplayPath(doc->absolutePath));
 			}
 			else
-				echo("ERROR: Failed to save " + doc->absolutePath);
+				echo("ERROR: Failed to save " + project.DisplayPath(doc->absolutePath));
 		}
 		ImGui::SameLine();
 		ImGui::Checkbox("Vim", &doc->vimEnabled);
@@ -1974,12 +2217,16 @@ void Editor::DrawScriptEditorWindows()
 		ImGui::Separator();
 
 		const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-		if (focused || doc->completionOpen)
+		// Only the focused document reads the keyboard. An unfocused one used
+		// to keep running the completion handler purely because its list was
+		// still up, and ate the keys meant for whatever the user had clicked
+		// into instead.
+		if (focused)
 			doc->HandleEditorInput();
+		else if (doc->completionOpen)
+			doc->CloseCompletion();
 
-		const bool editorKeys = focused && !doc->completionOpen && !doc->completionBlockEditorKeys
-			&& (!doc->vimEnabled || doc->vimMode == CodeEditorDocument::VimMode::Insert);
-		doc->editor.SetHandleKeyboardInputs(editorKeys);
+		doc->editor.SetHandleKeyboardInputs(doc->WantsEditorKeys(focused));
 		const ImVec2 avail = ImGui::GetContentRegionAvail();
 		doc->editor.Render("##lua_editor", avail, true);
 		doc->editor.SetHandleKeyboardInputs(true);
@@ -2188,10 +2435,10 @@ void Editor::DrawUnsavedDocumentModal()
 				if (saved)
 				{
 					script->dirty = false;
-					echo("SUCCESS: Saved " + script->absolutePath);
+					echo("SUCCESS: Saved " + project.DisplayPath(script->absolutePath));
 				}
 				else
-					echo("ERROR: Failed to save " + script->absolutePath);
+					echo("ERROR: Failed to save " + project.DisplayPath(script->absolutePath));
 			}
 			else
 			{
@@ -2872,6 +3119,7 @@ void Editor::Shutdown()
 
 	delete tabProperties;
 	delete tabTools;
+	delete tabAI;
 	delete tabLog;
 
 #if defined(_SDL2VULKAN)
@@ -2938,15 +3186,32 @@ bool Editor::OpenLuaScriptDocument(const std::string& absPath)
 	doc->id = nextScriptDocId++;
 	if (!doc->LoadFromFile(absPath))
 	{
-		echo("ERROR: Could not open script " + absPath);
+		echo("ERROR: Could not open script " + project.DisplayPath(absPath));
 		delete doc;
 		return false;
 	}
 	scriptDocs.push_back(doc);
 	activeScriptDoc = doc;
 	pendingSelectScriptId = doc->id;
-	echo("SUCCESS: Opened script " + absPath);
+	echo("SUCCESS: Opened script " + project.DisplayPath(absPath));
 	return true;
+}
+
+void Editor::ReloadScriptDocumentFromDisk(const std::string& absPath)
+{
+	for (size_t i = 0; i < scriptDocs.size(); ++i)
+	{
+		CodeEditorDocument* doc = scriptDocs[i];
+		if (!doc || doc->absolutePath != absPath) continue;
+		std::ifstream in(absPath);
+		if (!in) return;
+		std::ostringstream ss;
+		ss << in.rdbuf();
+		doc->editor.SetText(ss.str());
+		doc->dirty = false;
+		doc->CloseCompletion();
+		return;
+	}
 }
 
 void Editor::CloseLuaScriptDocument(uint32_t id)
@@ -2997,14 +3262,14 @@ bool Editor::OpenMaterialDocument(const std::string& absPath)
 	doc->id = nextMaterialDocId++;
 	if (!MaterialEditor::LoadFromFile(*doc, absPath, project.GetProjectPath(), UseDeferredGBuffer()))
 	{
-		echo("ERROR: Could not open material " + absPath);
+		echo("ERROR: Could not open material " + project.DisplayPath(absPath));
 		delete doc;
 		return false;
 	}
 	materialDocs.push_back(doc);
 	activeMaterialDoc = doc;
 	pendingSelectMaterialDocId = doc->id;
-	echo("SUCCESS: Opened material " + absPath);
+	echo("SUCCESS: Opened material " + project.DisplayPath(absPath));
 	return true;
 }
 
@@ -3196,7 +3461,7 @@ bool Editor::OpenSceneDocument(const std::string& absPath)
 		DestroySceneDocument(doc);
 		if (sceneDocs.empty())
 			sceneView = CreateSceneDocument();
-		echo("ERROR: failed to open scene: " + absPath);
+		echo("ERROR: failed to open scene: " + project.DisplayPath(absPath));
 		return false;
 	}
 	GetActiveRenderDevice().WaitIdle();
@@ -3260,12 +3525,12 @@ bool Editor::SaveAllDirtyScripts()
 		if (doc->SaveToFile())
 		{
 			doc->dirty = false;
-			echo("SUCCESS: Saved " + doc->absolutePath);
+			echo("SUCCESS: Saved " + project.DisplayPath(doc->absolutePath));
 		}
 		else
 		{
 			allOk = false;
-			echo("ERROR: Failed to save " + doc->absolutePath);
+			echo("ERROR: Failed to save " + project.DisplayPath(doc->absolutePath));
 		}
 	}
 	return allOk;

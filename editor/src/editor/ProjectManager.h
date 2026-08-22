@@ -12,6 +12,8 @@
 #include <string>
 #include <vector>
 
+#include <Pyros3D/Utils/Json/json.hpp>
+
 struct ProjectAssetEntry {
 	std::string relativePath; // under project root, e.g. assets/models/foo.p3dm
 	std::string name;
@@ -24,6 +26,10 @@ struct ProjectSettings {
 	// Deprecated: scene scripts are scenes/<SceneName>.lua companions.
 	std::string defaultMainScript;
 	ProjectRendererType rendererType = ProjectRendererType::Forward;
+	// AI Assistant panel settings (provider, baseUrl, model, apiKey, ...).
+	// Opaque JSON on purpose - the panel owns the schema. Null when the
+	// project never set one (panel falls back to its defaults).
+	nlohmann::json aiAssistant;
 };
 
 enum class LuaScriptKind {
@@ -87,6 +93,14 @@ public:
 	std::string AbsolutePath(const std::string& relative) const;
 	// Empty if path is outside the project.
 	std::string RelativePath(const std::string& absolute) const;
+
+	// How a path should be *shown* to the user, and written into any message
+	// they read: project-relative whenever it is inside the project, the path
+	// as given otherwise (an asset that genuinely lives elsewhere still has
+	// to be identifiable, and the editor is usable with no project open).
+	// Unlike RelativePath() this never returns empty for a non-empty input,
+	// so it is safe to drop straight into a label or a log line.
+	std::string DisplayPath(const std::string& path) const;
 
 	void ListScenes(std::vector<std::string>& outSceneRelPaths) const;
 	void ListAssets(const std::string& underRelative, std::vector<ProjectAssetEntry>& out, bool recursive = true) const;

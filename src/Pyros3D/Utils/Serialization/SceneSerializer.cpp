@@ -97,6 +97,13 @@ namespace p3d {
 		return std::string();
 	}
 
+	static bool SceneAssetFileExists(const std::string &path)
+	{
+		if (path.empty()) return false;
+		std::ifstream in(path.c_str());
+		return in.good();
+	}
+
 	static std::string RelativizeSceneAssetPath(const std::string &path)
 	{
 		if (path.empty() || g_sceneAssetRoot.empty()) return path;
@@ -106,14 +113,31 @@ namespace p3d {
 		if (norm.size() >= rootNorm.size()
 			&& norm.compare(0, rootNorm.size(), rootNorm) == 0)
 			return norm.substr(rootNorm.size());
-		return path;
-	}
 
-	static bool SceneAssetFileExists(const std::string &path)
-	{
-		if (path.empty()) return false;
-		std::ifstream in(path.c_str());
-		return in.good();
+		// Not under this project's root, but still a project-shaped path -
+		// an asset recorded by another checkout, or by this one before the
+		// project folder moved. A literal prefix compare is the only thing
+		// this used to do, so such a path was copied straight back out with
+		// somebody's home directory baked into it, and the scene stayed
+		// pinned to one machine forever. Store it from the marker onward
+		// instead - but only once the marker-relative form actually resolves
+		// under the current root, because rewriting a path we cannot find
+		// would turn a working absolute reference into a broken relative one.
+		static const char* kMarkers[] = {
+			"assets/models/", "assets/textures/", "assets/sounds/",
+			"assets/shaders/", "assets/lua/", "assets/materials/",
+			"assets/", "scenes/"
+		};
+		for (size_t mi = 0; mi < sizeof(kMarkers) / sizeof(kMarkers[0]); ++mi)
+		{
+			const size_t pos = norm.find(kMarkers[mi]);
+			if (pos == std::string::npos) continue;
+			const std::string relative = norm.substr(pos);
+			if (SceneAssetFileExists(rootNorm + relative))
+				return relative;
+			break;
+		}
+		return path;
 	}
 
 	static std::string ResolveSceneAssetPath(const std::string &path)
@@ -898,7 +922,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		{
 			AudioSource* a = dynamic_cast<AudioSource*>(c);
 			j["type"] = "AudioSource";
-			j["file"] = a->GetFile();
+			// Same project-relative form every other asset reference is
+			// stored in (models, textures, particle sprites). This one field
+			// used to be written out as whatever absolute path the file was
+			// imported from, which pinned the scene to one machine's home
+			// directory and broke as soon as the project moved.
+			j["file"] = RelativizeSceneAssetPath(a->GetFile());
 			j["stream"] = a->IsStreamed();
 			j["playing"] = a->IsPlaying();
 			j["looping"] = a->IsLooping();
@@ -1701,7 +1730,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// The file path is the one field with no sensible default - without
 			// it there is nothing to construct, so skip rather than build a
 			// permanently-unloaded source.
-			const std::string file = j.value("file", std::string());
+			const std::string file = ResolveSceneAssetPath(j.value("file", std::string()));
 			if (!file.empty())
 			{
 				auto a = std::make_shared<AudioSource>(file, j.value("stream", false));

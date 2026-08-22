@@ -228,6 +228,13 @@ std::string ProjectManager::RelativePath(const std::string& absolute) const
 	return rel.generic_string();
 }
 
+std::string ProjectManager::DisplayPath(const std::string& path) const
+{
+	if (path.empty()) return path;
+	const std::string rel = RelativePath(path);
+	return rel.empty() ? path : rel;
+}
+
 void ProjectManager::ListScenes(std::vector<std::string>& outSceneRelPaths) const
 {
 	outSceneRelPaths.clear();
@@ -1444,6 +1451,10 @@ bool ProjectManager::WriteProjectJson(std::string* errorOut) const
 		settingsJ["rendererType"] = "deferred";
 	else
 		settingsJ["rendererType"] = "forward";
+	// AI Assistant panel settings (provider/model/key/...) - the panel
+	// owns the schema, the project just persists it per project.
+	if (!settings.aiAssistant.is_null())
+		settingsJ["aiAssistant"] = settings.aiAssistant;
 	root["settings"] = settingsJ;
 
 	std::vector<std::string> scenes;
@@ -1496,6 +1507,8 @@ bool ProjectManager::LoadProjectJson(const std::string& jsonPath, std::string* e
 		std::string rt = s.value("rendererType", "forward");
 		if (rt == "deferred") settings.rendererType = ProjectRendererType::Deferred;
 		else settings.rendererType = ProjectRendererType::Forward;
+		if (s.contains("aiAssistant") && s["aiAssistant"].is_object())
+			settings.aiAssistant = s["aiAssistant"];
 	}
 
 	std::error_code ec;

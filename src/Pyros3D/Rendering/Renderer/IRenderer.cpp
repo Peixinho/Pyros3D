@@ -983,6 +983,24 @@ static uint64 PipelineCacheKey(const uint32 shader, const uint32 targetFBO, cons
 	return ((uint64)shader << 32) | ((uint64)(cullFace & 0xFFu) << 24) | (uint64)(targetFBO & 0xFFFFFFu);
 }
 
+// The cull face a draw actually ends up using. When a pass substitutes its
+// own material for the mesh's (the shadow passes, PainterPick's flat-colour
+// id pass) the *mesh's* material still owns culling - RenderObject() has
+// always applied it that way via SetCullFaceMode. That call is a no-op on
+// Vulkan/Metal, where cull mode is baked into the pipeline instead, so the
+// pipeline has to be built and looked up under this same value or the
+// backends silently disagree: PainterPick's material is single-sided, so
+// every DoubleSided billboard (the light/sound/particle/empty-GameObject
+// helper icons) had both its triangles culled in the id pass and became
+// completely unpickable, while rendering normally in the main pass.
+static uint32 EffectiveCullFace(RenderingMesh* rmesh, IMaterial* Material)
+{
+	const uint32 cf = Material->GetCullFace();
+	if (rmesh->Material.get() != Material && rmesh->Material->GetCullFace() != cf)
+		return rmesh->Material->GetCullFace();
+	return cf;
+}
+
 void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material)
 {
 	// See the comment on CommandBufferHandle in IRenderDevice.h - GL ignores
@@ -1046,7 +1064,7 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 		// was current *before* this switch (or none at all), silently
 		// leaving the real descriptor unwritten
 		// (VUID-vkCmdDrawIndexed-None-08114 caught this the hard way).
-		device->BindPipeline(cmd, rmesh->PipelineCache[PipelineCacheKey(Material->GetShader(), device->GetCurrentRenderTarget(), Material->GetCullFace())]);
+		device->BindPipeline(cmd, rmesh->PipelineCache[PipelineCacheKey(Material->GetShader(), device->GetCurrentRenderTarget(), EffectiveCullFace(rmesh, Material))]);
 
 		// Material Stuff Pre Render
 		Material->PreRender();
@@ -1099,12 +1117,9 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 	// That is the whole "second render target never rasterizes" bug -
 	// found by reading setCullMode:Back on a 6-index quad in a Metal
 	// frame capture, after every CPU-side probe had come back clean.
-	uint32 effectiveCullFace = Material->GetCullFace();
-	if (rmesh->Material.get() != Material && rmesh->Material->GetCullFace() != effectiveCullFace)
-	{
-		effectiveCullFace = rmesh->Material->GetCullFace();
+	const uint32 effectiveCullFace = EffectiveCullFace(rmesh, Material);
+	if (effectiveCullFace != Material->GetCullFace())
 		cullFaceChanged = true;
-	}
 	if (LastMaterialPTR != Material || cullFaceChanged)
 	{
 		// Check if Material is DoubleSided
@@ -2522,7 +2537,8 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 	// unless BindPipeline() is also called, which RenderObject() only
 	// does at this exact same (mesh, shader) switch cadence, and
 	// GetCurrentRenderTarget() always returns 0 there.
-	uint64 pipelineKey = PipelineCacheKey(material->GetShader(), device->GetCurrentRenderTarget(), material->GetCullFace());
+	const uint32 pipelineCullFace = EffectiveCullFace(rmesh, material);
+	uint64 pipelineKey = PipelineCacheKey(material->GetShader(), device->GetCurrentRenderTarget(), pipelineCullFace);
 	if (rmesh->PipelineCache.find(pipelineKey) == rmesh->PipelineCache.end())
 	{
 		IRenderDevice::PipelineDesc pdesc;
@@ -2530,7 +2546,7 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		pdesc.depthTest = material->IsDepthTesting();
 		pdesc.depthTestMode = material->depthTestMode;
 		pdesc.depthWrite = material->IsDepthWritting();
-		pdesc.cullFace = material->GetCullFace();
+		pdesc.cullFace = pipelineCullFace;
 		pdesc.wireframe = material->IsWireFrame();
 		// Vulkan bakes primitive topology into the pipeline. The cache this
 		// feeds is per-RenderingMesh and drawingType is a per-mesh property,

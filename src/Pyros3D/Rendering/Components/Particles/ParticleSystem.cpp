@@ -164,6 +164,7 @@ namespace p3d {
 		, lastUpdateTime(0.0)
 		, hasUpdatedOnce(false)
 		, playing(true)
+		, pendingBurst(false)
 		, particleBuffer(NULL)
 		, material(g_pendingParticleMaterial)
 		, quad(NULL)
@@ -211,21 +212,28 @@ namespace p3d {
 	void ParticleSystem::Play()
 	{
 		playing = true;
+		// A one-shot burst is spawned by the next Update(), not here.
+		// Spawning now stamps every particle with `lastUpdateTime`, which is
+		// the clock of the emitter's *previous* frame - and 0.0 for an
+		// emitter that has never been updated at all (freshly deserialized,
+		// or just attached). Against a scene clock that is already seconds
+		// in, that made every particle in the burst older than its own
+		// lifetime the instant it was first aged, so the burst died on the
+		// same frame it was created and simply never appeared.
 		if (!desc.looping)
-		{
-			for (uint32 i = 0; i < desc.burstCount; i++)
-				SpawnParticle(lastUpdateTime);
-		}
+			pendingBurst = true;
 	}
 
 	void ParticleSystem::Stop()
 	{
 		playing = false;
+		pendingBurst = false;
 	}
 
 	void ParticleSystem::Clear()
 	{
 		liveCount = 0;
+		pendingBurst = false;
 		SetNumberInstances(0);
 	}
 
@@ -276,6 +284,7 @@ namespace p3d {
 		if (capacity == desc.maxParticles) return;
 
 		desc.maxParticles = capacity;
+		pendingBurst = false;
 		// Every live particle goes: cpuState[i] and gpuState[i] describe the
 		// same particle only for as long as neither vector is reallocated,
 		// and nothing here has a particle identity that outlives its slot.
@@ -347,6 +356,13 @@ namespace p3d {
 		if (dt > 0.1f) dt = 0.1f; // clamp - avoid a spawn/integration burst after a stall
 		lastUpdateTime = time;
 		hasUpdatedOnce = true;
+
+		if (pendingBurst)
+		{
+			pendingBurst = false;
+			for (uint32 i = 0; i < desc.burstCount; i++)
+				SpawnParticle(time);
+		}
 
 		if (playing && desc.looping && desc.emissionRate > 0.0f)
 		{

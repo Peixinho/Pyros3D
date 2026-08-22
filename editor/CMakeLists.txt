@@ -20,6 +20,11 @@ endif()
 # Editor.h/Editor.cpp); libgizmo is the one part still GL-only and is compiled
 # out elsewhere rather than blocking the build.
 set(PYROS_EDITOR_GL_CONTEXT OFF)
+
+# libcurl for the AI Assistant panel's HTTPS provider calls (OpenAI /
+# Anthropic / any OpenAI-compatible endpoint). The macOS SDK and the Windows
+# SDK both ship it; Linux needs libcurl dev packages.
+find_package(CURL REQUIRED)
 if (PYROS_CONTEXT STREQUAL "SDL2" OR PYROS_CONTEXT STREQUAL "SDL" OR PYROS_CONTEXT STREQUAL "SFML")
 	set(PYROS_EDITOR_GL_CONTEXT ON)
 endif()
@@ -53,6 +58,7 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/MaterialEditor.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Utils/ReadDirectory.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/UISettings.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AIAssistant.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/third_party/ImGuiColorTextEdit/TextEditor.cpp
 )
 
@@ -85,6 +91,7 @@ target_include_directories(PyrosBuilder PRIVATE
 	${SDL2_INCLUDE_DIRS}
 	${IMGUI_INCLUDE_DIRS}
 	${GLAD_INCLUDE_DIR}
+	${CURL_INCLUDE_DIRS}
 )
 
 target_link_libraries(PyrosBuilder PRIVATE
@@ -94,6 +101,7 @@ target_link_libraries(PyrosBuilder PRIVATE
 	${BOX3D_LIBRARIES}
 	${FREETYPE_LIBRARIES}
 	${LUA_LIBRARIES}
+	${CURL_LIBRARIES}
 )
 
 target_compile_definitions(PyrosBuilder PRIVATE ${PYROS_CONTEXT_DEFINITION})

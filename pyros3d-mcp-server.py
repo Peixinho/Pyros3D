@@ -225,12 +225,32 @@ def _editor_call(cmd: str, args: dict | None = None, timeout: float = 30.0):
             pass
 
 
+def _live_active_scene_path(res: dict) -> str:
+    """Absolute path of the scene the editor reports as active, or "".
+
+    The editor answers with a *project-relative* scenePath ("scenes/Foo.json")
+    and one absolute anchor, projectPath - so the two have to be recombined
+    here. A scene saved outside the project still comes back absolute (the
+    editor cannot relativize it), and an older editor build reported every
+    path absolute, so an already-absolute value is passed straight through.
+    """
+    active = str(res.get("scenePath", ""))
+    if not active:
+        return ""
+    if os.path.isabs(active):
+        return active
+    root = str(res.get("projectPath", ""))
+    if not root:
+        return ""
+    return os.path.join(root, active)
+
+
 def _live_scene_matches(scene_file: Path) -> bool:
     """True if a running editor has exactly this scene file open."""
     ok, res = _editor_call("status", {})
     if not ok:
         return False
-    active = str(res.get("scenePath", ""))
+    active = _live_active_scene_path(res)
     if not active:
         return False
     try:
@@ -2242,6 +2262,61 @@ def set_material_graph(project_path: str, material_path: str, nodes: list[dict],
     note = f"\nWARNING: saved, but the shader failed to compile: {res.get('applyWarning')}" \
         if res.get("applyWarning") else ""
     return f"Saved graph to {res.get('path')}{note}"
+
+
+@mcp.tool()
+def get_material_text(project_path: str, material_path: str) -> str:
+    """Read a Custom Shader material's Text-mode GLSL snippet (the hand-written
+    shader code, not the node graph) plus its named texture inputs, as JSON.
+
+    Returns: {"kind","editMode","text","textures":[{"name","path"},...]}.
+    Use this to see the current GLSL before editing it with set_material_text.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    live_err = _require_live_project(proj)
+    if live_err:
+        return _fail(live_err)
+    ok, res = _editor_call("get_material_text", {"path": material_path})
+    if not ok:
+        return _fail(str(res))
+    return json.dumps(res, indent=2)
+
+
+@mcp.tool()
+def set_material_text(project_path: str, material_path: str, text: str,
+                      textures: list[dict] | None = None) -> str:
+    """Write a Custom Shader material's Text-mode GLSL snippet (hand-written
+    shader code) and switch it to Text mode, then compile it.
+
+    This is the "Text" editing mode of the Material Editor: `text` is the
+    user snippet with assignments for the Output pins (Albedo / Normal /
+    Metallic / Roughness / Emissive / Occlusion). The editor wraps it in
+    boilerplate and generates the full GLSL, so you write only the body.
+
+    textures: optional list of named texture inputs [{"name": "uTexture",
+      "path": "brick.png"}] - each becomes a `uniform sampler2D <name>` you
+      can sample by name in the snippet. Omit to keep existing inputs.
+
+    Does NOT put the material on any object - use assign_material for that.
+    On a compile error the previous working shader is kept and the error is
+    returned.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    live_err = _require_live_project(proj)
+    if live_err:
+        return _fail(live_err)
+    ok, res = _editor_call("set_material_text", {
+        "path": material_path, "text": text, "textures": textures or [],
+    })
+    if not ok:
+        return _fail(str(res))
+    note = f"\nWARNING: saved, but the shader failed to compile: {res.get('applyWarning')}" \
+        if res.get("applyWarning") else ""
+    return f"Saved GLSL text to {res.get('path')}{note}"
 
 
 @mcp.tool()

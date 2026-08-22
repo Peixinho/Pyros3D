@@ -232,6 +232,9 @@ namespace p3d {
 		f64 lastUpdateTime;
 		bool hasUpdatedOnce;
 		bool playing;
+		// Play() on a one-shot emitter defers its burst to the next Update()
+		// instead of spawning immediately - see Play() in ParticleSystem.cpp.
+		bool pendingBurst;
 
 		AttributeBuffer* particleBuffer;
 		ParticleSystemMaterial* material;

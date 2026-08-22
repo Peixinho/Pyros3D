@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <filesystem>
 #include <functional>
 #include <sstream>
 
@@ -322,6 +323,19 @@ bool MaterialEditor::SaveToFile(MaterialEditorDocument& doc, const std::string& 
 // whenever a material's real shader fails to (re)compile for a branch
 // other than the one it's already running - see the callers below for why
 // leaving the old cross-branch program bound is worse than this.
+// Project-relative form for anything the user reads. MaterialEditor is a
+// free-function namespace with no ProjectManager handle of its own, so it
+// takes the root it was already being handed for every other path operation
+// rather than reaching for a global.
+std::string MaterialEditor::DisplayPath(const std::string& path, const std::string& projectRoot) {
+	if (path.empty() || projectRoot.empty()) return path;
+	std::error_code ec;
+	std::filesystem::path rel = std::filesystem::relative(
+		std::filesystem::absolute(path, ec), std::filesystem::absolute(projectRoot, ec), ec);
+	if (ec || rel.empty() || *rel.begin() == "..") return path;
+	return rel.generic_string();
+}
+
 static std::string BuildErrorFallbackShaderGLSL(bool deferredGBuffer) {
 	std::ostringstream out;
 	out <<
@@ -589,6 +603,20 @@ bool MaterialEditor::RecompileFromDisk(CustomShaderMaterial* mat, const std::str
 		const std::string shaderPath = mat->GetShaderFile();
 		const bool looksAbsolute = (shaderPath[0] == '/') || (shaderPath.size() >= 2 && shaderPath[1] == ':');
 		const std::string glslAbsPath = looksAbsolute ? shaderPath : JoinPath(projectRoot, shaderPath);
+		// A path that resolves to nothing is not a broken shader, it is a
+		// material whose source does not live under this project at all
+		// (an engine-owned material, or one whose file moved). Recompiling
+		// is simply not something we can do for it - say so and leave the
+		// material's working shader exactly where it is, rather than falling
+		// through to the branch-mismatch handling below and replacing it
+		// with the magenta error shader.
+		std::ifstream probe(glslAbsPath.c_str());
+		if (!probe.good())
+		{
+			if (errorOut) *errorOut = "shader source not found: " + glslAbsPath;
+			return false;
+		}
+		probe.close();
 		compiledOk = CompileMaterialShaderFile(glslAbsPath, deferredGBuffer, &newShader, errorOut);
 	}
 	else if (mat->GetShaderObject() && !mat->GetShaderObject()->GetShaderText().empty())
@@ -684,11 +712,11 @@ static void DrawToolbar(MaterialEditorDocument& doc, const std::string& projectR
 		if (path.empty())
 			path = JoinPath(projectRoot, "assets/materials/" + doc.materialName + ".mat");
 		if (!MaterialEditor::SaveToFile(doc, path, projectRoot, deferredGBuffer))
-			doc.lastApplyError = "Could not save to " + path;
+			doc.lastApplyError = "Could not save to " + MaterialEditor::DisplayPath(path, projectRoot);
 	}
 	if (hasPath) {
 		ImGui::SameLine();
-		ImGui::TextDisabled("%s", doc.absolutePath.c_str());
+		ImGui::TextDisabled("%s", MaterialEditor::DisplayPath(doc.absolutePath, projectRoot).c_str());
 	}
 
 	if (!doc.lastApplyError.empty())
@@ -1075,9 +1103,28 @@ static void DrawTextEditorTab(MaterialEditorDocument& doc, const std::string& pr
 	ImGui::SameLine();
 	doc.codeDoc->DrawVimStatus();
 
-	// No manual Save Shader button - MaterialEditor::DrawWindow debounce-
-	// applies this text to the live material automatically as it changes.
-	ImGui::TextDisabled("Set Albedo/Normal/Metallic/Roughness/Emissive/Occlusion - applies automatically. F1/Ctrl+Space for suggestions.");
+	// The shader is compiled for you (see DrawWindow's auto-apply block),
+	// but *when* depends on the mode, so say which rule is in force rather
+	// than leaving the user to work out why nothing recompiled - and give
+	// them a way to force it either way.
+	const bool unapplied = doc.autoAppliedValid && doc.pendingFingerprint != doc.autoAppliedFingerprint;
+	ImGui::SameLine();
+	if (unapplied)
+		ImGui::TextColored(ImVec4(1.f, 0.8f, 0.35f, 1.f), "  not compiled yet");
+	else
+		ImGui::TextDisabled("  compiled");
+	ImGui::SameLine();
+	if (ImGui::SmallButton("Apply now"))
+		doc.applyRequested = true;
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("Compile and apply this shader immediately (Ctrl+S)");
+	if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+		&& ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S))
+		doc.applyRequested = true;
+
+	ImGui::TextDisabled(doc.codeDoc->vimEnabled
+		? "Set Albedo/Normal/Metallic/Roughness/Emissive/Occlusion - compiles when you leave insert mode (Esc) or :w."
+		: "Set Albedo/Normal/Metallic/Roughness/Emissive/Occlusion - compiles once you stop typing. F1/Ctrl+Space for suggestions.");
 	ImGui::TextDisabled("Sample a texture by the name it was given in Properties, e.g. Albedo = texture_2D(uAlbedoTex, vTexcoord).rgb;");
 	if (!doc.lastApplyError.empty())
 		ImGui::TextColored(ImVec4(1.f, 0.4f, 0.35f, 1.f), "%s", doc.lastApplyError.c_str());
@@ -1090,12 +1137,12 @@ static void DrawTextEditorTab(MaterialEditorDocument& doc, const std::string& pr
 	// their behavior actually diverges.
 	CodeEditorDocument* cd = doc.codeDoc;
 	const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-	if (focused || cd->completionOpen)
+	if (focused)
 		cd->HandleEditorInput();
+	else if (cd->completionOpen)
+		cd->CloseCompletion();
 
-	const bool editorKeys = focused && !cd->completionOpen && !cd->completionBlockEditorKeys
-		&& (!cd->vimEnabled || cd->vimMode == CodeEditorDocument::VimMode::Insert);
-	cd->editor.SetHandleKeyboardInputs(editorKeys);
+	cd->editor.SetHandleKeyboardInputs(cd->WantsEditorKeys(focused));
 	ImVec2 avail = ImGui::GetContentRegionAvail();
 	cd->editor.Render("##material_shader_editor", avail, true);
 	cd->editor.SetHandleKeyboardInputs(true);
@@ -1683,9 +1730,49 @@ void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& 
 			doc.pendingFingerprint = liveFingerprint;
 			doc.pendingFingerprintSince = ImGui::GetTime();
 		}
-		constexpr double kAutoApplyDebounceSeconds = 0.35;
-		const bool settled = (ImGui::GetTime() - doc.pendingFingerprintSince) > kAutoApplyDebounceSeconds;
-		if (settled && (!doc.autoAppliedValid || doc.pendingFingerprint != doc.autoAppliedFingerprint)) {
+		// When to actually compile. A node graph is always structurally
+		// valid, so a short settle timer is right for it. Hand-written GLSL
+		// is not: every intermediate keystroke is a syntax error, and a
+		// timer means the editor spends the whole session compiling and
+		// failing on half-finished lines. So Text mode asks the buffer when
+		// the edit is *finished* instead of guessing from a clock.
+		const bool textMode = (doc.editMode == MaterialEditMode::Text);
+		CodeEditorDocument* cd = textMode ? doc.codeDoc : nullptr;
+		const bool vimCommits = cd && cd->vimEnabled;
+
+		// A forced compile happens even when the content is byte-identical -
+		// which is the only way to retry after one that failed, since a
+		// failed attempt still records its fingerprint.
+		bool forceApply = doc.applyRequested;
+		if (cd && cd->commitGeneration != doc.appliedCommitGeneration)
+			forceApply = true; // :w, or Escape back out of insert mode
+		doc.applyRequested = false;
+		if (cd) doc.appliedCommitGeneration = cd->commitGeneration;
+
+		bool wantApply;
+		if (!doc.autoAppliedValid || forceApply) {
+			// Nothing on the GPU for this document yet - the first compile
+			// is not something to make the user ask for.
+			wantApply = true;
+		} else if (vimCommits) {
+			// The only thing being held back is a line still being typed:
+			// any change made *outside* insert mode is already a finished
+			// edit (u, dd, p, x all produce one) and compiles straight away.
+			// Escape needs no case of its own - it simply stops being insert
+			// mode.
+			wantApply = (cd->vimMode != CodeEditorDocument::VimMode::Insert);
+		} else {
+			// No vim, so there is no explicit "done" signal to wait for -
+			// fall back to settling, but give hand-written GLSL a much
+			// longer window than the node graph, since a pause mid-line is
+			// normal typing rather than a finished thought.
+			const double debounce = textMode ? 1.2 : 0.35;
+			wantApply = (ImGui::GetTime() - doc.pendingFingerprintSince) > debounce;
+		}
+
+		const bool contentChanged = !doc.autoAppliedValid
+			|| doc.pendingFingerprint != doc.autoAppliedFingerprint;
+		if (wantApply && (contentChanged || forceApply)) {
 			std::string err;
 			MaterialEditor::ApplyGraphOrTextToLiveMaterial(doc, projectRoot, deferredGBuffer, &err);
 			doc.lastApplyError = err;

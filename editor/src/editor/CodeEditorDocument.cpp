@@ -109,6 +109,21 @@ bool CodeEditorDocument::CanEditText() const
 	return vimMode == VimMode::Insert;
 }
 
+bool CodeEditorDocument::WantsEditorKeys(bool windowFocused) const
+{
+	// Note what is NOT in here: completionOpen. The popup used to switch
+	// TextEditor's keyboard off wholesale and re-implement typing itself,
+	// which meant that while it was up, Space, Left/Right, Home/End, Delete,
+	// undo and clipboard all did nothing, and Enter could only ever accept an
+	// item instead of breaking the line. Now TextEditor keeps the keyboard
+	// and the popup asks for a single-frame block (completionBlockEditorKeys)
+	// only for the keys it actually claims.
+	if (!windowFocused) return false;
+	if (completionBlockEditorKeys) return false;
+	if (!vimEnabled) return true;
+	return vimMode == VimMode::Insert;
+}
+
 bool CodeEditorDocument::WantOpenCompletionChord() const
 {
 	ImGuiIO& io = ImGui::GetIO();
@@ -132,6 +147,7 @@ void CodeEditorDocument::OpenCompletion()
 	if (vimEnabled && vimMode != VimMode::Insert)
 		VimEnterInsert(false);
 	completionOpen = true;
+	completionOpenedByChord = true;
 	completionOpenAfterType = false;
 	completionIndex = 0;
 	completionScroll = 0;
@@ -147,6 +163,7 @@ void CodeEditorDocument::OpenCompletion()
 void CodeEditorDocument::CloseCompletion()
 {
 	completionOpen = false;
+	completionOpenedByChord = false;
 	completionOpenAfterType = false;
 	completionPrefix.clear();
 	completionReceiver.clear();
@@ -550,6 +567,12 @@ void CodeEditorDocument::HandleVimKeys()
 		}
 		else
 		{
+			// Escape out of insert is the moment the edit is "done" - that
+			// is what commitGeneration reports. Escape pressed in normal
+			// mode is not a commit, it is a no-op, so only the transition
+			// counts.
+			if (vimMode == VimMode::Insert)
+				++commitGeneration;
 			vimMode = VimMode::Normal;
 			vimCount = 0;
 			vimOp = 0;
@@ -570,7 +593,15 @@ void CodeEditorDocument::HandleVimKeys()
 			else if (vimCmdKind == ':')
 			{
 				if (vimCmdLine == "w" || vimCmdLine == "wq")
+				{
+					// SaveToFile() is a no-op for a buffer with no file of
+					// its own (the Material Editor's shader snippet lives
+					// inside the .mat), but :w still means "commit this" -
+					// so the counter moves either way and the host gets to
+					// decide what that means for it.
 					SaveToFile();
+					++commitGeneration;
+				}
 				// :q ignored here — window close is host UI
 			}
 			vimMode = VimMode::Normal;
@@ -617,6 +648,38 @@ void CodeEditorDocument::HandleVimKeys()
 		return;
 	}
 
+	// TextEditor is not handling the keyboard at all in these modes (see
+	// WantsEditorKeys), so every non-character motion has to be driven from
+	// here or it simply does nothing - which is what made normal mode feel
+	// dead beyond hjkl. In Visual mode the same keys extend the selection,
+	// the way shift+motion does elsewhere.
+	const bool sel = (vimMode == VimMode::Visual);
+	const int motionReps = vimCount > 0 ? vimCount : 1;
+	const int page = std::max(1, (int)(ImGui::GetWindowHeight() / std::max(1.f, editor.GetLineHeight())) - 4);
+	bool motion = true;
+	if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))       editor.MoveLeft(motionReps, sel, io.KeyCtrl);
+	else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) editor.MoveRight(motionReps, sel, io.KeyCtrl);
+	else if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))    editor.MoveUp(motionReps, sel);
+	else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))  editor.MoveDown(motionReps, sel);
+	else if (ImGui::IsKeyPressed(ImGuiKey_Home))       editor.MoveHome(sel);
+	else if (ImGui::IsKeyPressed(ImGuiKey_End))        editor.MoveEnd(sel);
+	else if (ImGui::IsKeyPressed(ImGuiKey_PageUp))     editor.MoveUp(page, sel);
+	else if (ImGui::IsKeyPressed(ImGuiKey_PageDown))   editor.MoveDown(page, sel);
+	else if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))
+	{
+		editor.MoveDown(motionReps, sel);
+		editor.MoveHome(sel);
+	}
+	else if (ImGui::IsKeyPressed(ImGuiKey_Backspace))  editor.MoveLeft(motionReps, sel);
+	else if (ImGui::IsKeyPressed(ImGuiKey_Delete))
+	{
+		for (int i = 0; i < motionReps; ++i) editor.Delete();
+		dirty = true;
+	}
+	else motion = false;
+	if (motion)
+		vimCount = 0;
+
 	for (int i = 0; i < io.InputQueueCharacters.Size; ++i)
 	{
 		ImWchar c = io.InputQueueCharacters[i];
@@ -626,111 +689,112 @@ void CodeEditorDocument::HandleVimKeys()
 	io.InputQueueCharacters.resize(0);
 }
 
-void CodeEditorDocument::HandleCompletionKeys()
+bool CodeEditorDocument::HandleCompletionKeys()
 {
 	ImGuiIO& io = ImGui::GetIO();
-	if (!completionOpen) return;
+	if (!completionOpen) return false;
 
-	// Strip leftover Space from open-chords; do NOT block typing/filter.
-	const int age = ImGui::GetFrameCount() - completionOpenedFrame;
-	if (age <= 2 && ImGui::IsKeyDown(ImGuiKey_Space) && !io.InputQueueCharacters.empty())
+	// Ctrl/Cmd+Space can leave a stray ' ' queued behind the chord. Drop that
+	// one, and only in the couple of frames right after a chord-triggered
+	// open. The old form of this ("swallow ' ' whenever the space key is
+	// down") ran for as long as the popup was up, so *every* space typed
+	// while completing was eaten - which is what made it impossible to type
+	// past the first word once the list appeared.
+	if (completionOpenedByChord && ImGui::GetFrameCount() - completionOpenedFrame <= 2
+		&& !io.InputQueueCharacters.empty())
 	{
 		ImVector<ImWchar> kept;
 		for (int i = 0; i < io.InputQueueCharacters.Size; ++i)
-		{
-			const ImWchar c = io.InputQueueCharacters[i];
-			if (c != ' ')
-				kept.push_back(c);
-		}
+			if (io.InputQueueCharacters[i] != ' ')
+				kept.push_back(io.InputQueueCharacters[i]);
 		io.InputQueueCharacters.swap(kept);
 	}
 
+	// Only the keys below belong to the popup. Everything else - printable
+	// characters, Backspace, Left/Right, Home/End, Delete, clipboard, undo -
+	// is left to TextEditor, and SyncCompletionToCaret() re-derives the
+	// prefix afterwards from wherever the caret actually ended up.
 	if (ImGui::IsKeyPressed(ImGuiKey_Escape))
 	{
 		CloseCompletion();
-		return;
+		completionBlockEditorKeys = true;
+		return true;
 	}
 	if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
 	{
 		if (completionIndex > 0) --completionIndex;
 		EnsureCompletionVisible();
-		return;
+		completionBlockEditorKeys = true;
+		return true;
 	}
 	if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))
 	{
-		if (completionIndex + 1 < (int)completionItems.size())
-			++completionIndex;
+		if (completionIndex + 1 < (int)completionItems.size()) ++completionIndex;
 		EnsureCompletionVisible();
-		return;
+		completionBlockEditorKeys = true;
+		return true;
 	}
 	if (ImGui::IsKeyPressed(ImGuiKey_PageUp))
 	{
 		completionIndex = std::max(0, completionIndex - kCompletionVisible);
 		EnsureCompletionVisible();
-		return;
+		completionBlockEditorKeys = true;
+		return true;
 	}
 	if (ImGui::IsKeyPressed(ImGuiKey_PageDown))
 	{
 		completionIndex = std::min((int)completionItems.size() - 1, completionIndex + kCompletionVisible);
 		if (completionIndex < 0) completionIndex = 0;
 		EnsureCompletionVisible();
-		return;
+		completionBlockEditorKeys = true;
+		return true;
 	}
 	if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)
 		|| ImGui::IsKeyPressed(ImGuiKey_Tab))
 	{
-		if (!completionItems.empty())
-			ApplyCompletion(completionItems[(size_t)completionIndex].text);
-		else
+		// With nothing to accept, Enter still has to break the line and Tab
+		// still has to indent - close the list and let TextEditor have the
+		// key rather than swallowing it into a no-op.
+		if (completionItems.empty())
+		{
 			CloseCompletion();
-		// Stop TextEditor from inserting '\n' / tab on this same keypress.
+			return false;
+		}
+		ApplyCompletion(completionItems[(size_t)completionIndex].text);
 		completionBlockEditorKeys = true;
 		io.InputQueueCharacters.resize(0);
-		return;
+		return true;
 	}
-	if (ImGui::IsKeyPressed(ImGuiKey_Backspace))
-	{
-		editor.MoveLeft(1, true);
-		if (editor.HasSelection()) editor.Delete();
-		dirty = true;
-		editor.GetCompletionContext(completionReceiver, completionPrefix);
-		completionIndex = 0;
-		RefreshCompletionList();
-		// Keep open after "self." (empty member prefix); close only with no context.
-		if (completionPrefix.empty() && completionReceiver.empty())
-			CloseCompletion();
-		return;
-	}
+	return false;
+}
 
-	if (io.InputQueueCharacters.empty()) return;
-	for (int i = 0; i < io.InputQueueCharacters.Size; ++i)
+// Re-reads the completion context from the caret after TextEditor has had its
+// turn at the keyboard, so the filtered list follows typing, Backspace, the
+// arrow keys and mouse clicks without any of them having to be special-cased.
+void CodeEditorDocument::SyncCompletionToCaret()
+{
+	if (!completionOpen) return;
+
+	std::string receiver, prefix;
+	editor.GetCompletionContext(receiver, prefix);
+	// No identifier and no receiver under the caret: the user typed past the
+	// word (a space, a paren, a newline) or moved away entirely.
+	if (prefix.empty() && receiver.empty())
 	{
-		const ImWchar c = io.InputQueueCharacters[i];
-		if (c == 0 || c == '\n' || c == '\r') continue;
-		if (c == ' ' && ImGui::IsKeyDown(ImGuiKey_Space))
-			continue;
-		// Member access: stay open and switch to member list.
-		if (c == '.' || c == ':')
-		{
-			InsertUtf8Char((unsigned int)c);
-			editor.GetCompletionContext(completionReceiver, completionPrefix);
-			completionIndex = 0;
-			RefreshCompletionList();
-			completionDebug = "member";
-			continue;
-		}
-		if (!IsIdentChar((unsigned int)c))
-		{
-			InsertUtf8Char((unsigned int)c);
-			CloseCompletion();
-			break;
-		}
-		InsertUtf8Char((unsigned int)c);
-		editor.GetCompletionContext(completionReceiver, completionPrefix);
-		completionIndex = 0;
-		RefreshCompletionList();
+		CloseCompletion();
+		return;
 	}
-	io.InputQueueCharacters.resize(0);
+	if (receiver == completionReceiver && prefix == completionPrefix)
+		return;
+
+	// Typing anything at all means the chord's stray space is long gone.
+	completionOpenedByChord = false;
+	completionReceiver = receiver;
+	completionPrefix = prefix;
+	completionIndex = 0;
+	completionScroll = 0;
+	RefreshCompletionList();
+	completionDebug = completionReceiver.empty() ? "typed" : "member";
 }
 
 void CodeEditorDocument::HandleEditorInput()
@@ -744,11 +808,11 @@ void CodeEditorDocument::HandleEditorInput()
 		return;
 	}
 
-	if (completionOpen)
-	{
-		HandleCompletionKeys();
+	// The popup gets first refusal on its own navigation keys; anything it
+	// does not claim falls through, so vim still sees Escape-to-normal and
+	// TextEditor still sees ordinary typing.
+	if (completionOpen && HandleCompletionKeys())
 		return;
-	}
 
 	if (vimEnabled)
 		HandleVimKeys();
@@ -770,16 +834,24 @@ void CodeEditorDocument::HandleEditorInput()
 
 void CodeEditorDocument::AfterEditorRender()
 {
+	// An open list follows the caret; TextEditor has just applied this
+	// frame's edits, so this is the only place the prefix is ever derived.
+	if (completionOpen)
+	{
+		completionOpenAfterType = false;
+		SyncCompletionToCaret();
+		return;
+	}
+
 	if (!completionOpenAfterType)
 		return;
 	completionOpenAfterType = false;
-	if (completionOpen)
-		return;
 	editor.GetCompletionContext(completionReceiver, completionPrefix);
 	// Open for "self." (empty prefix but has receiver) or any non-empty prefix.
 	if (completionPrefix.empty() && completionReceiver.empty())
 		return;
 	completionOpen = true;
+	completionOpenedByChord = false;
 	completionIndex = 0;
 	completionScroll = 0;
 	completionOpenedFrame = ImGui::GetFrameCount();
@@ -810,7 +882,10 @@ void CodeEditorDocument::DrawVimStatus()
 void CodeEditorDocument::DrawCompletionPopup()
 {
 	if (!completionOpen) return;
-	RefreshCompletionList();
+	// The list is rebuilt by SyncCompletionToCaret()/OpenCompletion() when
+	// the context actually changes - re-collecting candidates here every
+	// frame re-read the whole buffer for member completion for nothing.
+	EnsureCompletionVisible();
 
 	ImVec2 pos(80.f, 80.f);
 	if (editor.HasCursorScreenPos())

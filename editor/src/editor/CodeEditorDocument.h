@@ -23,7 +23,15 @@ struct CodeEditorDocument
 	// Inline completion — list near caret (F1 / Ctrl+N / typing).
 	bool completionOpen = false;
 	bool completionOpenAfterType = false; // open after TextEditor consumes this frame's chars
-	bool completionBlockEditorKeys = false; // true the frame Enter/Tab accepted an item
+	// Set for exactly one frame when the popup claimed a key that TextEditor
+	// would otherwise act on too (Up/Down/PageUp/PageDown/Tab/Enter/Escape).
+	// Everything else - printable characters, Backspace, the arrow keys that
+	// move the caret, clipboard, undo - is left to TextEditor, which is the
+	// only thing that edits the buffer. See HandleCompletionKeys().
+	bool completionBlockEditorKeys = false;
+	// The popup was opened by the F1 / Ctrl+Space chord rather than by
+	// typing, so a stray ' ' from that chord may still be queued.
+	bool completionOpenedByChord = false;
 	int completionIndex = 0;
 	int completionScroll = 0; // first visible row
 	int completionOpenedFrame = -999;
@@ -39,6 +47,12 @@ struct CodeEditorDocument
 	// agnostic (see CodeEditorDocument.cpp), so this one flag is the whole
 	// diff between a Lua script window and the Material Editor's Text mode.
 	bool completionUseGlsl = false;
+
+	// Bumped every time the user signals "this edit is finished": leaving
+	// vim's insert mode, or :w. A host that compiles the buffer (the
+	// Material Editor's Text tab) watches this instead of running a
+	// keystroke timer, so a shader is never rebuilt from a half-typed line.
+	uint32_t commitGeneration = 0;
 
 	// Vim (on by default)
 	enum class VimMode { Normal, Insert, Visual, Command };
@@ -89,10 +103,17 @@ struct CodeEditorDocument
 	void EnsureCompletionVisible();
 	void InsertUtf8Char(unsigned int c);
 	bool CanEditText() const;
+	// Whether TextEditor should be handling the keyboard this frame. Kept
+	// here rather than duplicated at each host window (Lua scripts and the
+	// Material Editor's Text tab both drive the same document the same way).
+	bool WantsEditorKeys(bool windowFocused) const;
 	bool WantOpenCompletionChord() const;
 
 private:
-	void HandleCompletionKeys();
+	// Returns true when the popup consumed the keypress, so nothing further
+	// (vim, TextEditor) should also act on it this frame.
+	bool HandleCompletionKeys();
+	void SyncCompletionToCaret();
 	void HandleVimKeys();
 	void VimEnterInsert(bool afterCursor);
 	void VimYankSelection(bool cut);

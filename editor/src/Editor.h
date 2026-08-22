@@ -43,6 +43,7 @@
 #include "editor/ProjectManager.h"
 #include "editor/CodeEditorDocument.h"
 #include "editor/AgentServer.h"
+#include "editor/AIAssistant.h"
 #include "editor/UndoStack.h"
 #include <Pyros3D/Utils/Json/json.hpp>
 
@@ -154,7 +155,16 @@ protected:
 	// (the Apply/Save buttons); it's the G-buffer FBO rebuild that stays
 	// deferred to the next ShowViewport, not the shader recompilation.
 	void RecompileCustomMaterialsForRenderer(bool useDeferred);
+	// Resolves a scene 'path' argument from the agent/AI API: project-relative
+	// (the form this API hands out) or absolute, either way to something the
+	// scene loader can open.
+	std::string AgentScenePathArg(const std::string& pathArg) const;
+
 	bool OpenLuaScriptDocument(const std::string& absPath);
+	// Re-reads an already-open script window from disk. Called after a tool
+	// writes the file, so the editor is not sitting on stale text it would
+	// happily save back over the change.
+	void ReloadScriptDocumentFromDisk(const std::string& absPath);
 	void CloseLuaScriptDocument(uint32_t id);
 	void CloseAllLuaScriptDocuments();
 	CodeEditorDocument* FindLuaScriptDocument(const std::string& absPath);
@@ -240,6 +250,14 @@ private:
 
 	PropertiesTab* tabProperties;
 	ToolsTab* tabTools;
+	// AI Assistant panel - chats with LLM providers and executes the model's
+	// tool calls through HandleAgentCommand (the same dispatcher the MCP
+	// bridge drives). Tool execution is pumped on the main thread from
+	// Update(); the HTTP work runs on the client's worker thread.
+	AIAssistantTab* tabAI;
+	// Short text summary of the open project/scene, sent to the model as
+	// context when the user opts in. "" when no project is open.
+	std::string BuildAIContext();
 	// Set by LoadDefaultLayout(); consumed by the next DrawUI().
 	bool resetLayout;
 
@@ -289,6 +307,7 @@ private:
 	std::vector<std::string> recentProjects;
 
 	bool showingSceneView, showingTabTools, showingTabProperties, showingLog, showingSceneTree;
+	bool showingTabAI;
 	bool showingAssets;
 	bool assetsWindowHovered;
 
