@@ -759,10 +759,55 @@ def _p3da_read_str(buf: bytes, pos: int) -> tuple[str, int]:
     return buf[pos:pos + n].decode("utf-8", "replace"), pos + n
 
 
+_P3DA_MAGIC = b"P3DA"
+_P3DA_VERSION = 1
+
+# Per-key interpolation, mirroring p3d::InterpolationMode in
+# include/Pyros3D/Utils/ModelLoaders/MultiModelLoader/AnimationLoader.h.
+_P3DA_INTERP = ["linear", "step", "ease_in", "ease_out", "ease_both", "bezier"]
+
+# Clip flags, mirroring p3d::AnimationFlags in the same header.
+_P3DA_FLAG_LOOP = 1 << 0
+_P3DA_FLAG_APPLY_SCALE = 1 << 1
+
+
+def _p3da_read_u32(buf: bytes, pos: int) -> tuple[int, int]:
+    return struct.unpack_from("<I", buf, pos)[0], pos + 4
+
+
+def _p3da_read_key_interp(buf: bytes, pos: int, version: int) -> tuple[dict, int]:
+    """Read the mode/tangent triple every key carries in v1+.
+
+    v0 files have no such fields, and the defaults returned here are exactly
+    the linear sampling those files were authored against.
+    """
+    if version < 1:
+        return {"interp": "linear", "in_tangent": 1.0, "out_tangent": 1.0}, pos
+    mode = buf[pos]
+    pos += 1
+    in_t, pos = _p3da_read_f32(buf, pos)
+    out_t, pos = _p3da_read_f32(buf, pos)
+    name = _P3DA_INTERP[mode] if mode < len(_P3DA_INTERP) else "linear"
+    return {"interp": name, "in_tangent": in_t, "out_tangent": out_t}, pos
+
+
 def _read_p3da(path: Path) -> list[dict]:
     """Parse a .p3da into a list of clip dicts. Raises ValueError if malformed."""
     buf = path.read_bytes()
     pos = 0
+
+    # Version sniff. A v0 file opens directly with its clip count, so the
+    # first four bytes are a small positive int32 and cannot spell "P3DA".
+    version = 0
+    if buf[:4] == _P3DA_MAGIC:
+        pos = 4
+        version, pos = _p3da_read_u32(buf, pos)
+        if version > _P3DA_VERSION:
+            raise ValueError(
+                f"'{path.name}' is .p3da version {version}; this server understands "
+                f"up to {_P3DA_VERSION}"
+            )
+
     clip_count, pos = _p3da_read_i32(buf, pos)
     if clip_count < 0 or clip_count > 100000:
         raise ValueError("corrupt .p3da (implausible clip count)")
@@ -770,6 +815,16 @@ def _read_p3da(path: Path) -> list[dict]:
     clips = []
     for _ in range(clip_count):
         name, pos = _p3da_read_str(buf, pos)
+
+        guid = ""
+        flags = 0
+        authored_fps = 0.0
+        if version >= 1:
+            guid = buf[pos:pos + 16].hex()
+            pos += 16
+            flags, pos = _p3da_read_u32(buf, pos)
+            authored_fps, pos = _p3da_read_f32(buf, pos)
+
         channel_count, pos = _p3da_read_i32(buf, pos)
         duration, pos = _p3da_read_f32(buf, pos)
         tps, pos = _p3da_read_f32(buf, pos)
@@ -787,7 +842,8 @@ def _read_p3da(path: Path) -> list[dict]:
                 x, pos = _p3da_read_f32(buf, pos)
                 y, pos = _p3da_read_f32(buf, pos)
                 z, pos = _p3da_read_f32(buf, pos)
-                positions.append({"time": t / tps, "value": [x, y, z]})
+                interp, pos = _p3da_read_key_interp(buf, pos, version)
+                positions.append({"time": t / tps, "value": [x, y, z], **interp})
 
             n, pos = _p3da_read_i32(buf, pos)
             rotations = []
@@ -797,7 +853,8 @@ def _read_p3da(path: Path) -> list[dict]:
                 x, pos = _p3da_read_f32(buf, pos)
                 y, pos = _p3da_read_f32(buf, pos)
                 z, pos = _p3da_read_f32(buf, pos)
-                rotations.append({"time": t / tps, "value": [x, y, z, w]})
+                interp, pos = _p3da_read_key_interp(buf, pos, version)
+                rotations.append({"time": t / tps, "value": [x, y, z, w], **interp})
 
             n, pos = _p3da_read_i32(buf, pos)
             scales = []
@@ -806,7 +863,8 @@ def _read_p3da(path: Path) -> list[dict]:
                 x, pos = _p3da_read_f32(buf, pos)
                 y, pos = _p3da_read_f32(buf, pos)
                 z, pos = _p3da_read_f32(buf, pos)
-                scales.append({"time": t / tps, "value": [x, y, z]})
+                interp, pos = _p3da_read_key_interp(buf, pos, version)
+                scales.append({"time": t / tps, "value": [x, y, z], **interp})
 
             channels.append({
                 "bone": node,
@@ -817,6 +875,10 @@ def _read_p3da(path: Path) -> list[dict]:
 
         clips.append({
             "name": name,
+            "guid": guid,
+            "loop": bool(flags & _P3DA_FLAG_LOOP),
+            "apply_scale": bool(flags & _P3DA_FLAG_APPLY_SCALE),
+            "authored_fps": authored_fps,
             "duration": duration / tps,
             "channels": channels,
         })
@@ -824,11 +886,19 @@ def _read_p3da(path: Path) -> list[dict]:
 
 
 def _write_p3da(path: Path, clips: list[dict]) -> None:
-    """Write clips back out in the layout AnimationLoader::Load expects."""
+    """Write clips back out in the layout AnimationLoader::Load expects.
+
+    Always writes the current version. Round-trips a v0 file that was read by
+    _read_p3da into an equivalent v1 one - clips that had no guid are minted
+    one here, which is what gives them a stable identity for scenes to save.
+    """
     out = bytearray()
 
     def put_i32(v: int) -> None:
         out.extend(_P3DA_STRUCT_I.pack(int(v)))
+
+    def put_u32(v: int) -> None:
+        out.extend(struct.pack("<I", int(v)))
 
     def put_f32(v: float) -> None:
         out.extend(_P3DA_STRUCT_F.pack(float(v)))
@@ -838,9 +908,37 @@ def _write_p3da(path: Path, clips: list[dict]) -> None:
         put_i32(len(enc))
         out.extend(enc)
 
+    def put_key_interp(k: dict) -> None:
+        name = str(k.get("interp", "linear"))
+        mode = _P3DA_INTERP.index(name) if name in _P3DA_INTERP else 0
+        out.append(mode)
+        put_f32(k.get("in_tangent", 1.0))
+        put_f32(k.get("out_tangent", 1.0))
+
+    out.extend(_P3DA_MAGIC)
+    put_u32(_P3DA_VERSION)
+
     put_i32(len(clips))
     for clip in clips:
         put_str(str(clip.get("name", "Clip")))
+
+        guid = clip.get("guid") or ""
+        try:
+            raw = bytes.fromhex(guid)
+        except ValueError:
+            raw = b""
+        if len(raw) != 16:
+            raw = os.urandom(16)
+        out.extend(raw)
+
+        flags = 0
+        if clip.get("loop"):
+            flags |= _P3DA_FLAG_LOOP
+        if clip.get("apply_scale"):
+            flags |= _P3DA_FLAG_APPLY_SCALE
+        put_u32(flags)
+        put_f32(clip.get("authored_fps", 0.0))
+
         channels = clip.get("channels", [])
         put_i32(len(channels))
         put_f32(clip.get("duration", 1.0))
@@ -854,6 +952,7 @@ def _write_p3da(path: Path, clips: list[dict]) -> None:
                 put_f32(k["time"])
                 v = k["value"]
                 put_f32(v[0]); put_f32(v[1]); put_f32(v[2])
+                put_key_interp(k)
 
             rotations = ch.get("rotations", [])
             put_i32(len(rotations))
@@ -861,6 +960,7 @@ def _write_p3da(path: Path, clips: list[dict]) -> None:
                 put_f32(k["time"])
                 v = k["value"]  # [x, y, z, w] at this boundary
                 put_f32(v[3]); put_f32(v[0]); put_f32(v[1]); put_f32(v[2])
+                put_key_interp(k)
 
             scales = ch.get("scales", [])
             put_i32(len(scales))
@@ -868,6 +968,7 @@ def _write_p3da(path: Path, clips: list[dict]) -> None:
                 put_f32(k["time"])
                 v = k["value"]
                 put_f32(v[0]); put_f32(v[1]); put_f32(v[2])
+                put_key_interp(k)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(bytes(out))
@@ -3455,14 +3556,16 @@ def add_animation_clip(project_path: str, animation: str, name: str,
 def remove_animation_clip(project_path: str, animation: str, clip: str) -> str:
     """Delete a clip from an animation file.
 
-    WARNING: clip ids are indices, so removing one shifts every later clip
-    down by one - any scene that plays those ids will play a different clip.
+    Later clips shift down one id, but scenes save each clip's guid and
+    resolve through SkeletonAnimation::ResolveAnimationID, so they follow the
+    move. Only scenes that referenced THIS clip are affected, and those warn
+    on load rather than silently playing something else.
     """
     def apply(clips):
         idx = _find_clip(clips, clip)
         removed = clips.pop(idx)
         tail = "" if idx == len(clips) else \
-            f" Clips after it shifted down one id - check any scene that plays this file."
+            " Later clips shifted id; scenes resolve by guid, so they follow."
         return f"Removed clip [{idx}] '{removed['name']}'.{tail}"
     return _mutate_animation(project_path, animation, apply)
 
@@ -3854,6 +3957,165 @@ def animation_blend_layer(layer: str, bone: str | None = None, children: bool = 
     if not ok:
         return _fail(f"Layer edit failed: {res}")
     return _blend_report(res)
+
+
+# ---- rig sidecar ----------------------------------------------------------
+# <model>.rig.json beside the .p3dm. Second implementation of the same schema
+# as p3d::RigAsset (include/Pyros3D/AnimationManager/RigAsset.h) - keep the two
+# in lockstep, a divergence here shows up as silently missing joint limits
+# rather than a load error.
+#
+# Joint limit angles are DEGREES on disk and radians only inside the engine.
+
+
+def _model_file(proj: Path, model_name: str) -> Path:
+    """Resolve a model argument to a file under the project, like _animation_file."""
+    name = model_name.strip()
+    if os.path.isabs(name):
+        return Path(name)
+    if not name.endswith(".p3dm"):
+        name += ".p3dm"
+    if "/" in name:
+        return proj / name
+    return proj / "assets" / "models" / name
+
+
+def _rig_path_for(model_path: Path) -> Path:
+    """model.p3dm -> model.rig.json, matching RigAsset::SidecarPathFor."""
+    return model_path.with_suffix(".rig.json")
+
+
+def _read_rig(path: Path) -> dict:
+    """Missing file is an empty rig, not an error - same as RigAsset::Load."""
+    if not path.exists():
+        return {"version": 1, "boneMasks": [], "jointLimits": [], "ikChains": []}
+    with path.open() as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict):
+        raise ValueError(f"{path.name} is not a JSON object")
+    data.setdefault("boneMasks", [])
+    data.setdefault("jointLimits", [])
+    data.setdefault("ikChains", [])
+    return data
+
+
+def _write_rig(path: Path, rig: dict) -> None:
+    rig["version"] = 1
+    rig["_comment"] = ("Rig data for the .p3dm beside this file. Keyed by bone name, "
+                       "so models sharing a skeleton can share this file. "
+                       "Joint limit angles are DEGREES.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as fh:
+        json.dump(rig, fh, indent="\t", sort_keys=True)
+        fh.write("\n")
+
+
+@mcp.tool()
+def get_rig(project_path: str, model: str) -> str:
+    """Read a model's rig sidecar - bone masks, joint limits, IK chains.
+
+    model: path to the .p3dm, project-relative or absolute. The rig is read
+           from <model>.rig.json beside it.
+
+    Rig data describes the SKELETON, not any one clip: an 'UpperBody' mask and
+    a knee's limit mean the same thing for every animation played on that rig,
+    and the file is shareable between models that share a skeleton.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    rig_path = _rig_path_for(_model_file(proj, model))
+    try:
+        rig = _read_rig(rig_path)
+    except (ValueError, json.JSONDecodeError) as exc:
+        return _fail(f"Could not read {rig_path.name}: {exc}")
+
+    lines = [f"Rig: {rig_path.name}" + ("" if rig_path.exists() else "  (does not exist yet)")]
+    lines.append(f"  bone masks : {len(rig['boneMasks'])}")
+    for m in rig["boneMasks"]:
+        lines.append(f"    {m.get('name','?')} ({len(m.get('bones', []))} bones)")
+    lines.append(f"  joint limits: {len(rig['jointLimits'])}")
+    for l in rig["jointLimits"]:
+        state = "" if l.get("enabled", True) else "  (disabled)"
+        lines.append(f"    {l.get('bone','?')}  min {l.get('minDeg')}  max {l.get('maxDeg')}{state}")
+    lines.append(f"  ik chains  : {len(rig['ikChains'])}")
+    for c in rig["ikChains"]:
+        pole = f"  pole {c['pole']}" if c.get("usePole") else ""
+        lines.append(f"    {c.get('name','?')}: {c.get('root','?')} -> {c.get('effector','?')}{pole}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def set_joint_limit(project_path: str, model: str, bone: str,
+                    min_deg: list[float] | None = None,
+                    max_deg: list[float] | None = None,
+                    enabled: bool = True) -> str:
+    """Set a bone's rotation limit in the model's rig sidecar.
+
+    bone:    bone name, e.g. 'Bip01_L_Calf'.
+    min_deg: [x, y, z] lower bounds in DEGREES. Defaults to fully open.
+    max_deg: [x, y, z] upper bounds in DEGREES. Defaults to fully open.
+
+    Limits are what stop an IK solver bending a knee backwards - both
+    solutions reach the target, and without a limit nothing prefers the
+    anatomically possible one. A knee is typically min [0,0,0] max [150,0,0]:
+    it bends about one axis only.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    rig_path = _rig_path_for(_model_file(proj, model))
+    try:
+        rig = _read_rig(rig_path)
+    except (ValueError, json.JSONDecodeError) as exc:
+        return _fail(f"Could not read {rig_path.name}: {exc}")
+
+    lo = list(min_deg) if min_deg else [-180.0, -180.0, -180.0]
+    hi = list(max_deg) if max_deg else [180.0, 180.0, 180.0]
+    if len(lo) != 3 or len(hi) != 3:
+        return _fail("min_deg and max_deg must each be three numbers [x, y, z]")
+    for axis in range(3):
+        if lo[axis] > hi[axis]:
+            return _fail(f"min_deg[{axis}] ({lo[axis]}) is above max_deg[{axis}] ({hi[axis]})")
+
+    rig["jointLimits"] = [l for l in rig["jointLimits"] if l.get("bone") != bone]
+    rig["jointLimits"].append({"bone": bone, "minDeg": lo, "maxDeg": hi, "enabled": enabled})
+    _write_rig(rig_path, rig)
+    return f"Set joint limit on '{bone}' in {rig_path.name}: min {lo} max {hi} deg."
+
+
+@mcp.tool()
+def set_ik_chain(project_path: str, model: str, name: str, root: str, effector: str,
+                 pole: list[float] | None = None) -> str:
+    """Define an IK chain in the model's rig sidecar.
+
+    root/effector: bone names. The effector must descend from the root - a
+                   three-bone chain (thigh/calf/foot) gets the exact
+                   closed-form two-bone solve, longer chains use FABRIK.
+    pole:          optional [x, y, z] model-space hint for which way the
+                   knee or elbow points. It only steers the bend direction;
+                   it cannot move the effector off the target.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    rig_path = _rig_path_for(_model_file(proj, model))
+    try:
+        rig = _read_rig(rig_path)
+    except (ValueError, json.JSONDecodeError) as exc:
+        return _fail(f"Could not read {rig_path.name}: {exc}")
+
+    entry: dict[str, Any] = {"name": name, "root": root, "effector": effector,
+                             "usePole": bool(pole)}
+    if pole:
+        if len(pole) != 3:
+            return _fail("pole must be three numbers [x, y, z]")
+        entry["pole"] = list(pole)
+
+    rig["ikChains"] = [c for c in rig["ikChains"] if c.get("name") != name]
+    rig["ikChains"].append(entry)
+    _write_rig(rig_path, rig)
+    return f"Set IK chain '{name}' in {rig_path.name}: {root} -> {effector}."
 
 
 @mcp.tool()

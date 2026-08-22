@@ -217,57 +217,19 @@ namespace p3d {
 
 	bool AssimpAnimationImporter::ConvertToPyrosFormat(const std::string &Filename)
 	{
-		BinaryFile* bin = new BinaryFile();
-		if (bin->Open(Filename.c_str(), 'w'))
-		{
-
-			int32 animationsSize = animations.size();
-			bin->Write(&animationsSize, sizeof(int32));
-			for (int32 i = 0; i < animationsSize; i++)
-			{
-				// Animation Name
-				int32 nameSize = animations[i].AnimationName.size();
-				bin->Write(&nameSize, sizeof(int32));
-				bin->Write(animations[i].AnimationName.c_str(), sizeof(char)*nameSize);
-
-				// Channels
-				int32 channelsSize = animations[i].Channels.size();
-				bin->Write(&channelsSize, sizeof(int32));
-
-				// Duration
-				bin->Write(&animations[i].Duration, sizeof(f32));
-				// Ticks Per Second
-				bin->Write(&animations[i].TicksPerSecond, sizeof(f32));
-
-				for (int32 k = 0; k < channelsSize; k++)
-				{
-					// Node Name
-					int32 channelNameSize = animations[i].Channels[k].NodeName.size();
-					bin->Write(&channelNameSize, sizeof(int32));
-					bin->Write(animations[i].Channels[k].NodeName.c_str(), sizeof(char)*channelNameSize);
-
-					// Positions
-					int32 positionSize = animations[i].Channels[k].positions.size();
-					bin->Write(&positionSize, sizeof(int32));
-					bin->Write(&animations[i].Channels[k].positions[0], sizeof(PositionData)*positionSize);
-
-					// Rotations
-					int32 rotationSize = animations[i].Channels[k].rotations.size();
-					bin->Write(&rotationSize, sizeof(int32));
-					bin->Write(&animations[i].Channels[k].rotations[0], sizeof(RotationData)*rotationSize);
-
-					// Scales
-					int32 scalingSize = animations[i].Channels[k].scales.size();
-					bin->Write(&scalingSize, sizeof(int32));
-					bin->Write(&animations[i].Channels[k].scales[0], sizeof(ScalingData)*scalingSize);
-				}
-			}
-
-			bin->Close();
-			delete bin;
-			return true;
-
-		}
-		else return false;
+		// Delegates to the engine's writer rather than repeating the layout.
+		// This used to be a second, independent implementation that blitted
+		// PositionData/RotationData/ScalingData straight out of their vectors
+		// - which only ever worked because those structs happened to be
+		// tightly packed, and stopped being true the moment per-key
+		// interpolation fields were added. It also indexed &keys[0]
+		// unconditionally, undefined behaviour on a channel with no keys of
+		// some component.
+		//
+		// Keeping one writer is the point: the format has three readers and
+		// two writers across this repo and a Python one in the MCP server,
+		// and every divergence between them shows up as plausible-looking
+		// wrong animation rather than a load error.
+		return AnimationLoader::Save(Filename, animations);
 	}
 }

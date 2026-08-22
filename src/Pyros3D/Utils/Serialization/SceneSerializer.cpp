@@ -16,6 +16,7 @@
 #include <Pyros3D/Audio/AudioManager.h>
 #include <Pyros3D/Audio/AudioSource.h>
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
+#include <Pyros3D/AnimationManager/Components/IKComponent.h>
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
@@ -102,6 +103,98 @@ namespace p3d {
 		if (path.empty()) return false;
 		std::ifstream in(path.c_str());
 		return in.good();
+	}
+
+	// Animation clip guids are 16 RAW bytes, which are not valid UTF-8 and
+	// cannot go into a JSON string as-is - nlohmann throws on serializing
+	// them. Hex is the boundary encoding; the engine only ever compares
+	// guids, so the representation just has to survive the round trip.
+	// IK constraints name other GameObjects as targets, and those objects may
+	// not exist yet when the component is deserialized (they can appear later
+	// in the file, or be a sibling in a subtree still being built). The
+	// bindings are parked here and resolved once the whole scene is in.
+	//
+	// Nothing else in this serializer needed a second pass before, which is
+	// why there is no general mechanism to reuse.
+	struct PendingIKTarget {
+		IKComponent* component;
+		uint32 constraintIndex;
+		std::string targetName;
+		std::string poleName;
+	};
+	static std::vector<PendingIKTarget> g_pendingIKTargets;
+
+	// Resolves everything parked above against the finished scene. Anything
+	// still unresolved is reported rather than silently left disabled - an IK
+	// setup that quietly does nothing is very hard to diagnose from the
+	// symptom (a foot that just plays its animation).
+	static void ResolvePendingIKTargets(SceneGraph* scene)
+	{
+		if (g_pendingIKTargets.empty()) return;
+
+		std::map<std::string, GameObject*> byName;
+		std::vector<std::shared_ptr<GameObject>> &all = scene->GetAllGameObjectList();
+		for (size_t i = 0; i < all.size(); i++)
+			if (all[i]) byName[all[i]->GetName()] = all[i].get();
+
+		for (size_t i = 0; i < g_pendingIKTargets.size(); i++)
+		{
+			PendingIKTarget &p = g_pendingIKTargets[i];
+			if (!p.component || p.constraintIndex >= p.component->GetNumberConstraints()) continue;
+			IKConstraint &con = p.component->GetConstraint(p.constraintIndex);
+
+			if (!p.targetName.empty())
+			{
+				std::map<std::string, GameObject*>::iterator it = byName.find(p.targetName);
+				if (it != byName.end()) con.Target = it->second;
+				else echo("WARNING: SceneSerializer - IK constraint '" + con.ChainName
+					+ "' targets a GameObject named '" + p.targetName + "' that is not in this scene");
+			}
+			if (!p.poleName.empty())
+			{
+				std::map<std::string, GameObject*>::iterator it = byName.find(p.poleName);
+				if (it != byName.end()) con.Pole = it->second;
+				else echo("WARNING: SceneSerializer - IK constraint '" + con.ChainName
+					+ "' names a pole object '" + p.poleName + "' that is not in this scene");
+			}
+		}
+		g_pendingIKTargets.clear();
+	}
+
+	static std::string BytesToHex(const std::string &bytes)
+	{
+		static const char *digits = "0123456789abcdef";
+		std::string hex;
+		hex.reserve(bytes.size() * 2);
+		for (size_t i = 0; i < bytes.size(); i++)
+		{
+			const unsigned char b = (unsigned char)bytes[i];
+			hex.push_back(digits[b >> 4]);
+			hex.push_back(digits[b & 0x0F]);
+		}
+		return hex;
+	}
+
+	static std::string HexToBytes(const std::string &hex)
+	{
+		// Anything malformed becomes the empty string, which
+		// ResolveAnimationID() reads as "no identity recorded" and falls
+		// through to the name/index lookups.
+		if (hex.size() % 2 != 0) return std::string();
+		std::string bytes;
+		bytes.reserve(hex.size() / 2);
+		for (size_t i = 0; i + 1 < hex.size(); i += 2)
+		{
+			int hi = -1, lo = -1;
+			for (int k = 0; k < 16; k++)
+			{
+				if ("0123456789abcdef"[k] == hex[i]) hi = k;
+				if ("0123456789abcdef"[k] == hex[i + 1]) lo = k;
+			}
+			if (hi < 0 || lo < 0) return std::string();
+			bytes.push_back((char)((hi << 4) | lo));
+		}
+		return bytes;
 	}
 
 	static std::string RelativizeSceneAssetPath(const std::string &path)
@@ -843,7 +936,18 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				for (uint32 order = 0; order < inst->GetNumberPlayingAnimations(); order++)
 				{
 					json pj;
-					pj["id"] = inst->GetAnimationID(order);
+					const uint32 clipID = inst->GetAnimationID(order);
+					pj["id"] = clipID;
+					// Save the clip's stable identity alongside the index.
+					// The index alone is positional - deleting a clip from
+					// the .p3da renumbers every later one, and this scene
+					// would then quietly play the wrong animation. "id" stays
+					// for scenes read by older builds and as the last-resort
+					// fallback on load.
+					const std::string &clipGuid = inst->GetOwner()->GetAnimationGuid(clipID);
+					if (!clipGuid.empty()) pj["guid"] = BytesToHex(clipGuid);
+					const std::string &clipName = inst->GetOwner()->GetAnimationName(clipID);
+					if (!clipName.empty()) pj["name"] = clipName;
 					pj["startTimeProgress"] = inst->GetAnimationStartTimeProgress(order);
 					pj["currentTime"] = inst->GetAnimationCurrentTime(order);
 					pj["speed"] = inst->GetAnimationSpeed(order);
@@ -936,6 +1040,39 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["maxRotationSpeed"] = d.maxRotationSpeed;
 			j["blendMode"] = d.blendMode;
 			j["boundingSphereRadius"] = d.boundingSphereRadius;
+			return j;
+		}
+		case ComponentType::IK:
+		{
+			IKComponent* ik = dynamic_cast<IKComponent*>(c);
+			j["type"] = "IK";
+			j["iterations"] = ik->GetIterations();
+			// The rig itself is NOT inlined - only the model whose sidecar
+			// holds it, so chain definitions and joint limits stay in one
+			// place and editing them does not require re-saving every scene
+			// that uses the rig.
+			if (!ik->GetRigModelPath().empty())
+				j["rig"] = RelativizeSceneAssetPath(ik->GetRigModelPath());
+			// Unlike blend layers, an IK setup genuinely IS per-object scene
+			// state: which prop this hand holds is a property of this object
+			// in this scene, not of the skeleton. The chain definitions and
+			// joint limits it refers to still live in the rig sidecar.
+			json cons = json::array();
+			for (uint32 i = 0; i < ik->GetNumberConstraints(); i++)
+			{
+				const IKConstraint &con = ik->GetConstraint(i);
+				json cj;
+				cj["chain"] = con.ChainName;
+				cj["weight"] = con.Weight;
+				cj["enabled"] = con.Enabled;
+				// Targets are other GameObjects, so they are stored by name
+				// and resolved after every object exists - see
+				// g_pendingIKTargets.
+				if (con.Target) cj["target"] = con.Target->GetName();
+				if (con.Pole) cj["pole"] = con.Pole->GetName();
+				cons.push_back(cj);
+			}
+			j["constraints"] = cons;
 			return j;
 		}
 		case ComponentType::AudioSource:
@@ -1691,7 +1828,21 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					{
 						for (auto &pj : sa["playing"])
 						{
-							uint32 id = pj.value("id", 0u);
+							// Most stable key first: guid, then name, then
+							// the saved index. A scene written before guids
+							// existed has neither of the first two and lands
+							// on the index, exactly as it did before.
+							const int32 id = anim->ResolveAnimationID(
+								HexToBytes(pj.value("guid", std::string())),
+								pj.value("name", std::string()),
+								(int32)pj.value("id", 0u));
+							if (id < 0)
+							{
+								echo("WARNING: SceneSerializer - scene references an animation clip that is no longer in "
+									+ path + " (guid " + pj.value("guid", std::string())
+									+ ", name '" + pj.value("name", std::string()) + "'); not playing it");
+								continue;
+							}
 							std::string layer = pj.value("layer", std::string());
 							// Play() has no way to seek to an exact mid-playback
 							// _currentTime (no setter exists) - restores the
@@ -1701,7 +1852,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 							// -1 (loop forever) as the default, not 1: every
 							// looping animation restored as a single pass
 							// played once and then froze.
-							int32 order = inst->Play(id, pj.value("startTimeProgress", 0.0f), pj.value("repeat", -1.0f), pj.value("speed", 1.0f), pj.value("scale", 1.0f), layer);
+							int32 order = inst->Play((uint32)id, pj.value("startTimeProgress", 0.0f), pj.value("repeat", -1.0f), pj.value("speed", 1.0f), pj.value("scale", 1.0f), layer);
 							if (order >= 0)
 							{
 								if (pj.value("paused", false)) inst->PauseAnimation((uint32)order);
@@ -1761,6 +1912,39 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			d.blendMode = j.value("blendMode", d.blendMode);
 			d.boundingSphereRadius = j.value("boundingSphereRadius", d.boundingSphereRadius);
 			go->AddComponent(std::make_shared<ParticleSystem>(d));
+		}
+		else if (type == "IK")
+		{
+			std::shared_ptr<IKComponent> ik = std::make_shared<IKComponent>();
+			ik->SetIterations(j.value("iterations", 10u));
+
+			// The rig comes from the model this object renders, which is
+			// resolved by the RenderingComponent - so it is loaded here from
+			// the same model path rather than stored again in the scene.
+			const std::string modelPath = j.value("rig", std::string());
+			if (!modelPath.empty()) ik->LoadRigForModel(ResolveSceneAssetPath(modelPath));
+
+			if (j.contains("constraints") && j["constraints"].is_array())
+			{
+				for (const auto &cj : j["constraints"])
+				{
+					IKConstraint con;
+					con.ChainName = cj.value("chain", std::string());
+					if (con.ChainName.empty()) continue;
+					con.Weight = cj.value("weight", 1.f);
+					con.Enabled = cj.value("enabled", true);
+					ik->AddConstraint(con);
+
+					PendingIKTarget pending;
+					pending.component = ik.get();
+					pending.constraintIndex = ik->GetNumberConstraints() - 1;
+					pending.targetName = cj.value("target", std::string());
+					pending.poleName = cj.value("pole", std::string());
+					if (!pending.targetName.empty() || !pending.poleName.empty())
+						g_pendingIKTargets.push_back(pending);
+				}
+			}
+			go->AddComponent(ik);
 		}
 		else if (type == "AudioSource")
 		{
@@ -2134,6 +2318,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				}
 				scene->Add(DeserializeGameObject(rj, materialsById, textureCache, physics, lua, outAssets));
 			}
+
+		// Every object exists now, so IK targets can finally be bound.
+		ResolvePendingIKTargets(scene);
 
 		g_sceneAssetRoot.clear();
 		return true;
