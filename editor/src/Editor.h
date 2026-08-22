@@ -37,7 +37,9 @@
 #include "editor/UI/PropertiesTab.h"
 #include "editor/UI/ToolsTab.h"
 	#include "editor/UI/MaterialEditor.h"
+	#include "editor/UI/AnimationEditor.h"
 	#include "editor/MaterialEditorDocument.h"
+	#include "editor/AnimationEditorDocument.h"
 	#include "editor/MaterialPreview.h"
 	#include "editor/SceneEditor.h"
 #include "editor/ProjectManager.h"
@@ -120,6 +122,13 @@ protected:
 
 	void DrawScriptEditorWindows();
 	void DrawMaterialEditorWindows();
+	void DrawAnimationEditorWindows();
+	// "Save As" for an animation that has no path yet (File > New Animation)
+	// or that the user explicitly re-targets. A name field rather than a
+	// native file dialog, matching how every other asset is created here
+	// (New Script / New Material) - the destination folder is always
+	// assets/animations.
+	void DrawSaveAnimationAsModal();
 	// Closing a script or material tab with unsaved edits parks its id in
 	// one of these and opens the shared prompt instead of closing outright -
 	// both kinds close through the same "x on the tab" path, and both used
@@ -128,9 +137,11 @@ protected:
 	// 0 means nothing pending. Resolved by DrawUnsavedDocumentModal().
 	uint32 pendingCloseScriptId;
 	uint32 pendingCloseMaterialId;
+	uint32 pendingCloseAnimationId;
 	// Queues a close, prompting first when the document is dirty.
 	void RequestCloseScriptDocument(CodeEditorDocument* doc, std::vector<uint32_t>& closeIds);
 	void RequestCloseMaterialDocument(MaterialEditorDocument* doc, std::vector<uint32_t>& closeIds);
+	void RequestCloseAnimationDocument(AnimationEditorDocument* doc, std::vector<uint32_t>& closeIds);
 	void DrawUnsavedDocumentModal();
 	// Fills the Properties panel with the focused material document's
 	// property sheet (textures / settings / Generic inspector - see
@@ -177,6 +188,30 @@ protected:
 	void CloseMaterialDocument(uint32_t id);
 	void CloseAllMaterialDocuments();
 	MaterialEditorDocument* FindMaterialDocumentByPath(const std::string& absPath) const;
+
+	// Opens (or focuses) a .p3da as an Animation Editor window. Also
+	// accepts a .p3dm: that opens an empty, unsaved animation document
+	// already bound to that rig, which is how you start authoring for a
+	// character that has no clips yet.
+	bool OpenAnimationDocument(const std::string& absPath);
+	// Empty document, no file. `meshPath` may be empty.
+	AnimationEditorDocument* NewAnimationDocument(const std::string& meshPath);
+	void CloseAnimationDocument(uint32_t id);
+	void CloseAllAnimationDocuments();
+	AnimationEditorDocument* FindAnimationDocumentByPath(const std::string& absPath) const;
+	// Writes the document to `absPath` (its own path when empty) and
+	// registers the rig binding. Returns false and logs on failure.
+	bool SaveAnimationDocument(AnimationEditorDocument* doc, const std::string& absPath);
+	// Every skinned .p3dm in the project, as (label, absolute path), for the
+	// Animation Editor's rig picker.
+	void BuildAnimationMeshChoices(std::vector<AnimationMeshChoice>& out) const;
+	// project.json's animationBindings map (see ProjectSettings).
+	std::string LookupAnimationMeshBinding(const std::string& animAbsPath) const;
+	void StoreAnimationMeshBinding(const std::string& animAbsPath, const std::string& meshAbsPath);
+	// Picks the rig whose bone names best match a clip's channel names -
+	// used when a .p3da is opened with no stored binding, so the common
+	// case (one character, one animation folder) needs no manual pick.
+	std::string GuessAnimationMesh(const AnimationEditorDocument& doc) const;
 	bool CreateNewProject(const std::string& parentDir, const std::string& name);
 	bool OpenProjectFromPath(const std::string& path);
 	void CloseProject();
@@ -211,7 +246,7 @@ private:
 	// own tracking: it only ever gets focus while a scene document is
 	// already the last-focused kind). Defaults to Scene so undo works
 	// immediately in the common case of a single scene document open.
-	enum class FocusedDocKind { Scene, Material };
+	enum class FocusedDocKind { Scene, Material, Animation };
 	FocusedDocKind lastFocusedDocKind = FocusedDocKind::Scene;
 	// Project-wide settings (name, renderer type) aren't "a document" the
 	// way a scene/material tab is, so they get their own small stack rather
@@ -280,6 +315,42 @@ private:
 	std::vector<MaterialEditorDocument*> materialDocs;
 	MaterialEditorDocument* activeMaterialDoc;
 	uint32 nextMaterialDocId;
+
+	// Animation editors, same top-level-dock-window convention as material
+	// and script documents.
+	std::vector<AnimationEditorDocument*> animationDocs;
+	AnimationEditorDocument* activeAnimationDoc;
+	uint32 nextAnimationDocId;
+	uint32 pendingSelectAnimationDocId;
+	// Save As modal state (see DrawSaveAnimationAsModal).
+	bool openSaveAnimationAsModal;
+	uint32 saveAnimationAsDocId;
+	std::string saveAnimationAsName;
+	std::string saveAnimationAsError;
+	// Set when the Save As was triggered by closing a dirty document, so a
+	// successful save also closes it.
+	bool saveAnimationAsThenClose;
+	// Closed animation documents, destroyed after the frame's ImGui
+	// rasterization rather than mid-frame: each owns an AnimationPreview
+	// whose FBO color texture is still referenced by this frame's draw list
+	// (same hazard as deferredDestroyPreviewRenderers).
+	std::vector<AnimationEditorDocument*> deferredDestroyAnimationDocs;
+	void FlushDeferredAnimationDocs();
+	// New Animation modal (File menu) - just a rig choice, since the clips
+	// start empty and the file is only written on Save.
+	bool openNewAnimationModal;
+	std::string newAnimationMeshPath;
+	// Import Animation modal (File menu): converts an fbx/dae/... into
+	// assets/animations/<name>.p3da through AssimpImporter's --animation
+	// mode. Separate from the model import path on purpose - the same
+	// source file usually holds both, and which one you meant is not
+	// something the extension can tell us.
+	bool openImportAnimationModal;
+	bool openImportAnimationBrowse;
+	std::string importAnimationSource;
+	std::string importAnimationName;
+	std::string importAnimationError;
+	void DrawAnimationAssetModals();
 	// Forces focus on a material window after OpenMaterialDocument()/EditMaterialInline().
 	uint32 pendingSelectMaterialDocId;
 

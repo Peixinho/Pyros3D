@@ -30,6 +30,16 @@ struct ProjectSettings {
 	// Opaque JSON on purpose - the panel owns the schema. Null when the
 	// project never set one (panel falls back to its defaults).
 	nlohmann::json aiAssistant;
+	// Which rig each animation asset is previewed on, as
+	// { "assets/animations/walk.p3da": "assets/models/human/human.p3dm" }.
+	// A .p3da has nowhere to record this (the format is clips and nothing
+	// else, and adding a field would break every existing file and the
+	// runtime loader), and it is genuinely project-scoped rather than
+	// per-user - two people opening the same clip should get the same rig -
+	// so it lives here rather than in a sidecar or in the editor's UI
+	// settings. Object, keyed by project-relative path; empty when nothing
+	// has been bound.
+	nlohmann::json animationBindings;
 };
 
 enum class LuaScriptKind {
@@ -88,6 +98,7 @@ public:
 	std::string ShadersPath() const;
 	std::string LuaPath() const;
 	std::string MaterialsPath() const;
+	std::string AnimationsPath() const;
 	std::string ScenesPath() const;
 
 	std::string AbsolutePath(const std::string& relative) const;
@@ -104,6 +115,16 @@ public:
 
 	void ListScenes(std::vector<std::string>& outSceneRelPaths) const;
 	void ListAssets(const std::string& underRelative, std::vector<ProjectAssetEntry>& out, bool recursive = true) const;
+
+	// Convert a source file's animation tracks → assets/animations/<name>.p3da
+	// via AssimpImporter's --animation mode. A .p3da source is simply copied.
+	// `name` overrides the output stem when non-empty. Note the importer
+	// writes *every* clip the source contains into the one file, in source
+	// order - which is what fixes each clip's runtime id (see
+	// AnimationEditorDocument::clips).
+	bool ImportAnimation(const std::string& sourcePath, const std::string& name,
+		std::string& outP3daAbsolute, std::string* errorOut = NULL,
+		std::string* outTrashedExisting = NULL);
 
 	// Convert source model → assets/models/<stem>/<stem>.p3dm via AssimpImporter,
 	// packaging textures and companion files into that folder.
@@ -183,6 +204,7 @@ public:
 	static bool IsShaderExtension(const std::string& path);
 	static bool IsLuaExtension(const std::string& path);
 	static bool IsMaterialExtension(const std::string& path);
+	static bool IsAnimationExtension(const std::string& path); // .p3da
 	static bool IsSceneExtension(const std::string& path);
 	static bool IsModelCompanionExtension(const std::string& path);
 	// True for files that belong inside a model package (textures/, .thumbnails/,

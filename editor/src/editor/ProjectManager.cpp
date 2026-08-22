@@ -202,6 +202,7 @@ bool ProjectManager::Save(std::string* errorOut)
 
 std::string ProjectManager::AssetsPath() const { return AbsolutePath("assets"); }
 std::string ProjectManager::ModelsPath() const { return AbsolutePath("assets/models"); }
+std::string ProjectManager::AnimationsPath() const { return AbsolutePath("assets/animations"); }
 std::string ProjectManager::SoundsPath() const { return AbsolutePath("assets/sounds"); }
 std::string ProjectManager::TexturesPath() const { return AbsolutePath("assets/textures"); }
 std::string ProjectManager::ShadersPath() const { return AbsolutePath("assets/shaders"); }
@@ -342,6 +343,11 @@ bool ProjectManager::IsMaterialExtension(const std::string& path)
 bool ProjectManager::IsSceneExtension(const std::string& path)
 {
 	return ExtensionLower(path) == "json";
+}
+
+bool ProjectManager::IsAnimationExtension(const std::string& path)
+{
+	return ExtensionLower(path) == "p3da";
 }
 
 bool ProjectManager::IsModelSourceExtension(const std::string& path)
@@ -756,7 +762,8 @@ bool ProjectManager::ImportAssetFile(const std::string& sourcePath, std::string&
 		return ImportModel(sourcePath, outAbsolute, errorOut, outTrashedExisting);
 
 	std::string destDir;
-	if (IsTextureExtension(sourcePath)) destDir = TexturesPath();
+	if (IsAnimationExtension(sourcePath)) destDir = AnimationsPath();
+	else if (IsTextureExtension(sourcePath)) destDir = TexturesPath();
 	else if (IsSoundExtension(sourcePath)) destDir = SoundsPath();
 	else if (IsShaderExtension(sourcePath)) destDir = ShadersPath();
 	else if (IsLuaExtension(sourcePath)) destDir = LuaPath();
@@ -1256,6 +1263,109 @@ std::string ProjectManager::FindAssimpImporterBinary()
 	return std::string();
 }
 
+bool ProjectManager::ImportAnimation(const std::string& sourcePath, const std::string& name,
+	std::string& outP3daAbsolute, std::string* errorOut, std::string* outTrashedExisting)
+{
+	outP3daAbsolute.clear();
+	if (outTrashedExisting) outTrashedExisting->clear();
+	if (!IsOpen())
+	{
+		if (errorOut) *errorOut = "Open a project before importing animations";
+		return false;
+	}
+	if (sourcePath.empty() || !fs::exists(sourcePath))
+	{
+		if (errorOut) *errorOut = "Source animation not found";
+		return false;
+	}
+
+	std::error_code ec;
+	std::string stem = name.empty() ? fs::path(sourcePath).stem().string() : name;
+	if (stem.empty())
+	{
+		if (errorOut) *errorOut = "Invalid animation filename";
+		return false;
+	}
+	// Accept a name given with the extension already on it.
+	if (stem.size() > 5 && stem.compare(stem.size() - 5, 5, ".p3da") == 0)
+		stem = stem.substr(0, stem.size() - 5);
+
+	fs::create_directories(AnimationsPath(), ec);
+	const fs::path dest = fs::path(AnimationsPath()) / (stem + ".p3da");
+
+	// Re-importing a .p3da that already lives in assets/animations is a
+	// no-op, same guard ImportModel has for an in-place .p3dm - without it
+	// the trash step below would move the file out from under the copy that
+	// is about to read it.
+	if (IsAnimationExtension(sourcePath))
+	{
+		const std::string alreadyRel = RelativePath(sourcePath);
+		if (!alreadyRel.empty() && alreadyRel.find("assets/animations/") == 0)
+		{
+			outP3daAbsolute = sourcePath;
+			return true;
+		}
+	}
+
+	if (fs::exists(dest, ec))
+	{
+		const std::string trashRel = MoveToTrash(dest.string(), errorOut);
+		if (trashRel.empty())
+			return false;
+		if (outTrashedExisting) *outTrashedExisting = trashRel;
+	}
+
+	if (IsAnimationExtension(sourcePath))
+	{
+		fs::copy_file(sourcePath, dest, fs::copy_options::overwrite_existing, ec);
+		if (ec)
+		{
+			if (errorOut) *errorOut = "Failed to copy .p3da into project: " + ec.message();
+			return false;
+		}
+		outP3daAbsolute = dest.string();
+		projectDirty = true;
+		return true;
+	}
+
+	if (!IsModelSourceExtension(sourcePath))
+	{
+		if (errorOut) *errorOut = "Unsupported animation format";
+		return false;
+	}
+
+	const std::string importer = FindAssimpImporterBinary();
+	if (importer.empty())
+	{
+		if (errorOut) *errorOut = "AssimpImporter not found (build with -DBUILD_CONVERTER=ON)";
+		return false;
+	}
+
+	// The converter appends the extension itself (see the tool's
+	// MainProgram.cpp), so it is handed the path without one.
+	const fs::path outBase = fs::path(AnimationsPath()) / stem;
+	std::ostringstream cmd;
+	cmd << ShellQuote(importer) << " --animation " << ShellQuote(sourcePath) << " " << ShellQuote(outBase.string());
+	if (!RunProcess(cmd.str(), errorOut))
+		return false;
+
+	if (!fs::exists(dest, ec))
+	{
+		// The importer prints "Failed to Convert" and still exits 0 when the
+		// source has no animation tracks at all, which is the common case
+		// for someone pointing this at a static mesh - so a missing output
+		// is the only reliable signal, and it deserves the likely reason
+		// rather than a bare "output missing".
+		if (errorOut) *errorOut = "No animation written - does '"
+			+ fs::path(sourcePath).filename().string() + "' actually contain animation tracks?";
+		return false;
+	}
+
+	outP3daAbsolute = dest.string();
+	projectDirty = true;
+	return true;
+}
+
 bool ProjectManager::ImportModel(const std::string& sourcePath, std::string& outP3dmAbsolute, std::string* errorOut,
 	std::string* outTrashedPackageDir)
 {
@@ -1400,6 +1510,7 @@ bool ProjectManager::EnsureDirectories(std::string* errorOut) const
 		"assets/shaders",
 		"assets/lua",
 		"assets/materials",
+		"assets/animations",
 		"scenes"
 	};
 	for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); ++i)
@@ -1455,6 +1566,8 @@ bool ProjectManager::WriteProjectJson(std::string* errorOut) const
 	// owns the schema, the project just persists it per project.
 	if (!settings.aiAssistant.is_null())
 		settingsJ["aiAssistant"] = settings.aiAssistant;
+	if (settings.animationBindings.is_object() && !settings.animationBindings.empty())
+		settingsJ["animationBindings"] = settings.animationBindings;
 	root["settings"] = settingsJ;
 
 	std::vector<std::string> scenes;
@@ -1509,6 +1622,8 @@ bool ProjectManager::LoadProjectJson(const std::string& jsonPath, std::string* e
 		else settings.rendererType = ProjectRendererType::Forward;
 		if (s.contains("aiAssistant") && s["aiAssistant"].is_object())
 			settings.aiAssistant = s["aiAssistant"];
+		if (s.contains("animationBindings") && s["animationBindings"].is_object())
+			settings.animationBindings = s["animationBindings"];
 	}
 
 	std::error_code ec;

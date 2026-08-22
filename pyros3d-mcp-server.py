@@ -710,6 +710,262 @@ def _convert_model(source: Path, model_dir: Path) -> tuple[Path | None, str]:
 # TOOLS — project level
 # --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
+# Animation (.p3da) helpers
+# --------------------------------------------------------------------------
+#
+# A .p3da is a small binary of animation clips - the format AnimationLoader
+# reads and (since the Animation Editor) writes:
+#
+#   int32 clipCount
+#     int32 nameLen, char[nameLen] name
+#     int32 channelCount
+#     f32   duration
+#     f32   ticksPerSecond
+#     channelCount x:
+#       int32 nodeNameLen, char[nodeNameLen] nodeName
+#       int32 posCount,   posCount   x (f32 time, f32 x,y,z)
+#       int32 rotCount,   rotCount   x (f32 time, f32 x,y,z,w)   <- Quaternion
+#       int32 scaleCount, scaleCount x (f32 time, f32 x,y,z)
+#
+# Reading and writing it here (rather than only through the editor) is what
+# lets these tools work with no editor running, the same way the scene tools
+# work directly on scene JSON. The loader divides every time by
+# ticksPerSecond and then reports it as 1, so anything written back out uses
+# ticksPerSecond 1 and times already in seconds - see AnimationLoader::Save.
+#
+# Quaternion field order note: p3d::Quaternion declares `f32 w, x, y, z` in
+# that order, so a raw struct write puts w FIRST. Everything below keeps the
+# file's own w,x,y,z order and only reorders at the tool boundary, where
+# rotations are exposed as [x, y, z, w] to match how quaternions are usually
+# written down.
+
+_P3DA_STRUCT_F = struct.Struct("<f")
+_P3DA_STRUCT_I = struct.Struct("<i")
+
+
+def _p3da_read_i32(buf: bytes, pos: int) -> tuple[int, int]:
+    return _P3DA_STRUCT_I.unpack_from(buf, pos)[0], pos + 4
+
+
+def _p3da_read_f32(buf: bytes, pos: int) -> tuple[float, int]:
+    return _P3DA_STRUCT_F.unpack_from(buf, pos)[0], pos + 4
+
+
+def _p3da_read_str(buf: bytes, pos: int) -> tuple[str, int]:
+    n, pos = _p3da_read_i32(buf, pos)
+    if n < 0 or pos + n > len(buf):
+        raise ValueError("corrupt .p3da (bad string length)")
+    return buf[pos:pos + n].decode("utf-8", "replace"), pos + n
+
+
+def _read_p3da(path: Path) -> list[dict]:
+    """Parse a .p3da into a list of clip dicts. Raises ValueError if malformed."""
+    buf = path.read_bytes()
+    pos = 0
+    clip_count, pos = _p3da_read_i32(buf, pos)
+    if clip_count < 0 or clip_count > 100000:
+        raise ValueError("corrupt .p3da (implausible clip count)")
+
+    clips = []
+    for _ in range(clip_count):
+        name, pos = _p3da_read_str(buf, pos)
+        channel_count, pos = _p3da_read_i32(buf, pos)
+        duration, pos = _p3da_read_f32(buf, pos)
+        tps, pos = _p3da_read_f32(buf, pos)
+        if tps == 0:
+            tps = 1.0
+
+        channels = []
+        for _ in range(channel_count):
+            node, pos = _p3da_read_str(buf, pos)
+
+            n, pos = _p3da_read_i32(buf, pos)
+            positions = []
+            for _ in range(n):
+                t, pos = _p3da_read_f32(buf, pos)
+                x, pos = _p3da_read_f32(buf, pos)
+                y, pos = _p3da_read_f32(buf, pos)
+                z, pos = _p3da_read_f32(buf, pos)
+                positions.append({"time": t / tps, "value": [x, y, z]})
+
+            n, pos = _p3da_read_i32(buf, pos)
+            rotations = []
+            for _ in range(n):
+                t, pos = _p3da_read_f32(buf, pos)
+                w, pos = _p3da_read_f32(buf, pos)
+                x, pos = _p3da_read_f32(buf, pos)
+                y, pos = _p3da_read_f32(buf, pos)
+                z, pos = _p3da_read_f32(buf, pos)
+                rotations.append({"time": t / tps, "value": [x, y, z, w]})
+
+            n, pos = _p3da_read_i32(buf, pos)
+            scales = []
+            for _ in range(n):
+                t, pos = _p3da_read_f32(buf, pos)
+                x, pos = _p3da_read_f32(buf, pos)
+                y, pos = _p3da_read_f32(buf, pos)
+                z, pos = _p3da_read_f32(buf, pos)
+                scales.append({"time": t / tps, "value": [x, y, z]})
+
+            channels.append({
+                "bone": node,
+                "positions": positions,
+                "rotations": rotations,
+                "scales": scales,
+            })
+
+        clips.append({
+            "name": name,
+            "duration": duration / tps,
+            "channels": channels,
+        })
+    return clips
+
+
+def _write_p3da(path: Path, clips: list[dict]) -> None:
+    """Write clips back out in the layout AnimationLoader::Load expects."""
+    out = bytearray()
+
+    def put_i32(v: int) -> None:
+        out.extend(_P3DA_STRUCT_I.pack(int(v)))
+
+    def put_f32(v: float) -> None:
+        out.extend(_P3DA_STRUCT_F.pack(float(v)))
+
+    def put_str(v: str) -> None:
+        enc = v.encode("utf-8")
+        put_i32(len(enc))
+        out.extend(enc)
+
+    put_i32(len(clips))
+    for clip in clips:
+        put_str(str(clip.get("name", "Clip")))
+        channels = clip.get("channels", [])
+        put_i32(len(channels))
+        put_f32(clip.get("duration", 1.0))
+        put_f32(1.0)  # ticksPerSecond - times below are already seconds
+        for ch in channels:
+            put_str(str(ch.get("bone", "")))
+
+            positions = ch.get("positions", [])
+            put_i32(len(positions))
+            for k in positions:
+                put_f32(k["time"])
+                v = k["value"]
+                put_f32(v[0]); put_f32(v[1]); put_f32(v[2])
+
+            rotations = ch.get("rotations", [])
+            put_i32(len(rotations))
+            for k in rotations:
+                put_f32(k["time"])
+                v = k["value"]  # [x, y, z, w] at this boundary
+                put_f32(v[3]); put_f32(v[0]); put_f32(v[1]); put_f32(v[2])
+
+            scales = ch.get("scales", [])
+            put_i32(len(scales))
+            for k in scales:
+                put_f32(k["time"])
+                v = k["value"]
+                put_f32(v[0]); put_f32(v[1]); put_f32(v[2])
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(bytes(out))
+
+
+def _animation_file(proj: Path, animation_name: str) -> Path:
+    """Resolve an animation argument to a file under the project."""
+    name = animation_name.strip()
+    if os.path.isabs(name):
+        return Path(name)
+    if not name.endswith(".p3da"):
+        name += ".p3da"
+    if "/" in name:
+        return proj / name
+    return proj / "assets" / "animations" / name
+
+
+def _live_animation_open(anim_file: Path) -> bool:
+    """True when the running editor has this .p3da open in an Animation Editor tab.
+
+    Edits must go through the editor in that case: it holds the clips in
+    memory and would write its own copy over anything changed on disk the
+    moment the user pressed Save.
+
+    Deliberately answered from list_animations' openDocuments, NOT by probing
+    animation_state with a path: that command *opens* the file when it is not
+    already open (which is what an agent naming a file usually wants), so
+    using it as a test both answered "yes" every time and popped a tab open
+    as a side effect of asking.
+    """
+    ok, res = _editor_call("list_animations", {})
+    if not ok:
+        return False
+    try:
+        target = os.path.realpath(str(anim_file))
+    except Exception:
+        target = str(anim_file)
+    for doc in res.get("openDocuments", []):
+        abs_path = doc.get("absolutePath", "")
+        if not abs_path:
+            continue
+        try:
+            if os.path.realpath(abs_path) == target:
+                return True
+        except Exception:
+            if abs_path == str(anim_file):
+                return True
+    return False
+
+
+def _euler_to_quat_xyzw(euler_degrees: list[float]) -> list[float]:
+    """Euler XYZ in degrees -> [x, y, z, w], matching Quaternion::SetRotationFromEuler."""
+    rx, ry, rz = (math.radians(v) for v in euler_degrees)
+    cx, sx = math.cos(rx * 0.5), math.sin(rx * 0.5)
+    cy, sy = math.cos(ry * 0.5), math.sin(ry * 0.5)
+    cz, sz = math.cos(rz * 0.5), math.sin(rz * 0.5)
+    return [
+        sx * cy * cz - cx * sy * sz,
+        cx * sy * cz + sx * cy * sz,
+        cx * cy * sz - sx * sy * cz,
+        cx * cy * cz + sx * sy * sz,
+    ]
+
+
+def _find_clip(clips: list[dict], clip: str | int | None) -> int:
+    """Resolve a clip argument (index, name, or None -> 0) to an index."""
+    if not clips:
+        raise ValueError("this animation has no clips")
+    if clip is None:
+        return 0
+    if isinstance(clip, int):
+        if 0 <= clip < len(clips):
+            return clip
+        raise ValueError(f"clip index {clip} out of range (0..{len(clips) - 1})")
+    text = str(clip).strip()
+    if text.isdigit():
+        idx = int(text)
+        if 0 <= idx < len(clips):
+            return idx
+        raise ValueError(f"clip index {idx} out of range (0..{len(clips) - 1})")
+    for i, c in enumerate(clips):
+        if c.get("name") == text:
+            return i
+    raise ValueError(f"no clip named '{text}' (have: {', '.join(str(c.get('name')) for c in clips)})")
+
+
+def _key_times(channel: dict) -> list[float]:
+    times = [k["time"] for k in channel.get("positions", [])]
+    times += [k["time"] for k in channel.get("rotations", [])]
+    times += [k["time"] for k in channel.get("scales", [])]
+    times.sort()
+    uniq: list[float] = []
+    for t in times:
+        if not uniq or abs(t - uniq[-1]) > 0.001:
+            uniq.append(t)
+    return uniq
+
+
 @mcp.tool()
 def list_projects() -> str:
     """List all Pyros3D projects in the workspace (dirs containing project.json)."""
@@ -2953,6 +3209,550 @@ def undo_redo(action: str = "undo") -> str:
     if not ok:
         return _fail(f"{cmd.capitalize()} failed: {res}")
     return f"{cmd.capitalize()} ok"
+
+
+# --------------------------------------------------------------------------
+# Animation tools
+# --------------------------------------------------------------------------
+#
+# The clip-editing tools work on the .p3da file directly, so they function
+# with no editor running - except when the running editor already has that
+# very file open in an Animation Editor tab, in which case they are routed
+# through the editor instead. That is not a nicety: the editor holds the
+# clips in memory and writes its whole copy on Save, so a file edited behind
+# its back would be silently reverted by the next Ctrl+S.
+#
+# The posing/playback/skeleton tools are live-only by nature - a pose exists
+# in a running viewport, not in a file.
+
+
+def _animation_target(project_path: str, animation: str) -> tuple[Path | None, Path | None, str]:
+    proj, err = _resolve_project(project_path)
+    if not proj:
+        return None, None, _fail(err)
+    anim = _animation_file(proj, animation)
+    if not anim.exists():
+        return None, None, _fail(f"Animation not found: {_rel(anim)}")
+    return proj, anim, ""
+
+
+@mcp.tool()
+def list_animations(project_path: str) -> str:
+    """List the animation clips (.p3da files) in a project.
+
+    Shows each file, the clips inside it with their runtime ids, durations
+    and key counts, and which rig (model) the editor previews it on.
+    """
+    proj, err = _resolve_project(project_path)
+    if not proj:
+        return _fail(err)
+
+    bindings = {}
+    proj_json = _project_json(proj)
+    if proj_json.exists():
+        try:
+            data = json.loads(proj_json.read_text())
+            bindings = (data.get("settings") or {}).get("animationBindings") or {}
+        except Exception:
+            bindings = {}
+
+    files = sorted(proj.glob("assets/**/*.p3da"))
+    if not files:
+        return "No animations in this project. Use import_animation to convert an fbx/dae, " \
+               "or create_animation to start an empty one."
+
+    lines = [f"Animations in {_rel(proj)}:"]
+    for f in files:
+        rel = f.relative_to(proj).as_posix()
+        try:
+            clips = _read_p3da(f)
+        except Exception as e:
+            lines.append(f"  {rel}  (unreadable: {e})")
+            continue
+        rig = bindings.get(rel, "")
+        lines.append(f"  {rel}{'  [rig: ' + rig + ']' if rig else ''}")
+        for i, c in enumerate(clips):
+            keys = sum(len(ch['positions']) + len(ch['rotations']) + len(ch['scales'])
+                       for ch in c["channels"])
+            lines.append(f"    [{i}] {c['name']}  {c['duration']:.3f}s  "
+                         f"{len(c['channels'])} bones, {keys} keys")
+    lines.append("\nClip id is the index shown - that is what Play(id) refers to at runtime.")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def get_animation_info(project_path: str, animation: str, clip: str | None = None,
+                       bone: str | None = None) -> str:
+    """Inspect one animation file: its clips, animated bones and keyframe times.
+
+    animation: file name ('walk'), project-relative path, or absolute path.
+    clip:      clip name or index; omitted means all clips.
+    bone:      restrict the per-bone listing to one bone (and show its key values).
+
+    Reads the file on disk. If the editor has this animation open with unsaved
+    edits, those are NOT reflected here - use open_animation / list_animations
+    to see the live document's state, or save_animation first.
+    """
+    proj, anim, err = _animation_target(project_path, animation)
+    if err:
+        return err
+
+    try:
+        clips = _read_p3da(anim)
+    except Exception as e:
+        return _fail(f"Could not read {_rel(anim)}: {e}")
+
+    if clip is not None:
+        try:
+            indices = [_find_clip(clips, clip)]
+        except ValueError as e:
+            return _fail(str(e))
+    else:
+        indices = list(range(len(clips)))
+
+    lines = [f"{_rel(anim)} - {len(clips)} clip(s)"]
+    for i in indices:
+        c = clips[i]
+        lines.append(f"\n[{i}] '{c['name']}'  duration {c['duration']:.4f}s  "
+                     f"{len(c['channels'])} animated bone(s)")
+        for ch in c["channels"]:
+            if bone and ch["bone"] != bone:
+                continue
+            times = _key_times(ch)
+            lines.append(f"  {ch['bone']}: {len(ch['positions'])} pos, "
+                         f"{len(ch['rotations'])} rot, {len(ch['scales'])} scale keys")
+            if bone:
+                for t in times:
+                    parts = []
+                    for k in ch["positions"]:
+                        if abs(k["time"] - t) < 0.001:
+                            parts.append("pos(%.4f, %.4f, %.4f)" % tuple(k["value"]))
+                    for k in ch["rotations"]:
+                        if abs(k["time"] - t) < 0.001:
+                            parts.append("rot(x=%.4f, y=%.4f, z=%.4f, w=%.4f)" % tuple(k["value"]))
+                    lines.append(f"    t={t:.4f}s  {'  '.join(parts)}")
+            elif times:
+                shown = ", ".join(f"{t:.3f}" for t in times[:12])
+                more = "" if len(times) <= 12 else f", ... (+{len(times) - 12})"
+                lines.append(f"    key times: {shown}{more}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def import_animation(project_path: str, source_file: str, name: str | None = None,
+                     open_in_editor: bool = True) -> str:
+    """Convert a source file's animation tracks into assets/animations/<name>.p3da.
+
+    source_file: fbx / dae / gltf / blend / ... (anything Assimp reads), or an
+                 existing .p3da to copy in.
+    name:        output file stem; defaults to the source's.
+
+    Note the converter writes EVERY clip the source contains into the one
+    .p3da, in source order - and that order fixes each clip's runtime id.
+    Requires a running editor (the converter is invoked by it).
+    """
+    proj, err = _resolve_project(project_path)
+    if not proj:
+        return _fail(err)
+    note = _live_open_project(proj)
+
+    src = source_file if os.path.isabs(source_file) else str((ROOT / source_file).resolve())
+    if not os.path.exists(src):
+        return _fail(f"Source file not found: {source_file}")
+
+    ok, res = _editor_call("import_animation",
+                           {"source": src, "name": name or "", "open": open_in_editor},
+                           timeout=180.0)
+    if not ok:
+        return _fail(f"Import failed: {res}")
+
+    out = res.get("path", "")
+    lines = [f"Imported animation: {out}"]
+    if open_in_editor and res.get("opened"):
+        lines.append("Opened in the Animation Editor.")
+    lines.append(note.strip() if note.strip() else "")
+    return "\n".join(l for l in lines if l)
+
+
+@mcp.tool()
+def create_animation(project_path: str, name: str, clip_name: str = "Clip",
+                     duration: float = 1.0) -> str:
+    """Create an empty animation file with one empty clip.
+
+    Writes assets/animations/<name>.p3da directly - no editor needed. Add
+    keys with set_animation_keyframe, or open it in the editor and pose the
+    rig by hand.
+    """
+    proj, err = _resolve_project(project_path)
+    if not proj:
+        return _fail(err)
+
+    anim = _animation_file(proj, name)
+    if anim.exists():
+        return _fail(f"Already exists: {_rel(anim)}")
+    if duration <= 0:
+        return _fail("duration must be positive")
+
+    try:
+        _write_p3da(anim, [{"name": clip_name, "duration": duration, "channels": []}])
+    except Exception as e:
+        return _fail(f"Could not write {_rel(anim)}: {e}")
+    return (f"Created {anim.relative_to(proj).as_posix()} with clip [0] '{clip_name}' "
+            f"({duration:.3f}s, no keys yet).")
+
+
+def _mutate_animation(project_path: str, animation: str, fn) -> str:
+    """Load a .p3da, apply fn(clips) -> str, write it back.
+
+    Refuses when a running editor has the file open, since the editor's
+    in-memory copy would overwrite the change on its next save. The message
+    points at the live tool that does work in that case.
+    """
+    proj, anim, err = _animation_target(project_path, animation)
+    if err:
+        return err
+
+    if _live_animation_open(anim):
+        return _fail(
+            f"{_rel(anim)} is open in the running editor - editing the file behind it would be "
+            f"overwritten on its next save. Use the live tools (pose_animation_bone, "
+            f"key_animation_pose, animation_keyframe_live) or close that tab first.")
+
+    try:
+        clips = _read_p3da(anim)
+    except Exception as e:
+        return _fail(f"Could not read {_rel(anim)}: {e}")
+
+    try:
+        message = fn(clips)
+    except ValueError as e:
+        return _fail(str(e))
+
+    try:
+        _write_p3da(anim, clips)
+    except Exception as e:
+        return _fail(f"Could not write {_rel(anim)}: {e}")
+    return message
+
+
+@mcp.tool()
+def add_animation_clip(project_path: str, animation: str, name: str,
+                       duration: float = 1.0) -> str:
+    """Append a new empty clip to an animation file.
+
+    The new clip's runtime id is its index, i.e. the number of clips that
+    were already there.
+    """
+    def apply(clips):
+        if any(c.get("name") == name for c in clips):
+            raise ValueError(f"a clip named '{name}' already exists")
+        clips.append({"name": name, "duration": max(0.05, duration), "channels": []})
+        return f"Added clip [{len(clips) - 1}] '{name}' ({duration:.3f}s)."
+    return _mutate_animation(project_path, animation, apply)
+
+
+@mcp.tool()
+def remove_animation_clip(project_path: str, animation: str, clip: str) -> str:
+    """Delete a clip from an animation file.
+
+    WARNING: clip ids are indices, so removing one shifts every later clip
+    down by one - any scene that plays those ids will play a different clip.
+    """
+    def apply(clips):
+        idx = _find_clip(clips, clip)
+        removed = clips.pop(idx)
+        tail = "" if idx == len(clips) else \
+            f" Clips after it shifted down one id - check any scene that plays this file."
+        return f"Removed clip [{idx}] '{removed['name']}'.{tail}"
+    return _mutate_animation(project_path, animation, apply)
+
+
+@mcp.tool()
+def rename_animation_clip(project_path: str, animation: str, clip: str, new_name: str) -> str:
+    """Rename a clip. Its id (index) is unchanged, so scenes keep working."""
+    def apply(clips):
+        idx = _find_clip(clips, clip)
+        old = clips[idx]["name"]
+        clips[idx]["name"] = new_name
+        return f"Renamed clip [{idx}] '{old}' -> '{new_name}'."
+    return _mutate_animation(project_path, animation, apply)
+
+
+@mcp.tool()
+def set_animation_clip_duration(project_path: str, animation: str, clip: str,
+                                duration: float) -> str:
+    """Set a clip's length in seconds. Keys past the new end stop being reached."""
+    def apply(clips):
+        idx = _find_clip(clips, clip)
+        if duration <= 0:
+            raise ValueError("duration must be positive")
+        clips[idx]["duration"] = duration
+        lost = 0
+        for ch in clips[idx]["channels"]:
+            lost += sum(1 for t in _key_times(ch) if t > duration)
+        note = f" ({lost} key column(s) now sit past the end)" if lost else ""
+        return f"Clip [{idx}] '{clips[idx]['name']}' duration -> {duration:.3f}s.{note}"
+    return _mutate_animation(project_path, animation, apply)
+
+
+@mcp.tool()
+def set_animation_keyframe(project_path: str, animation: str, bone: str, time: float,
+                           clip: str | None = None,
+                           position: list[float] | None = None,
+                           rotation_euler: list[float] | None = None) -> str:
+    """Write a keyframe for one bone at one time, directly into the .p3da.
+
+    bone:           bone name exactly as the rig spells it (see
+                    get_animation_skeleton against a live editor, or
+                    get_animation_info for bones the clip already drives).
+    time:           seconds from the clip's start.
+    position:       [x, y, z] bone-LOCAL translation. Omit to leave the
+                    position track alone.
+    rotation_euler: [x, y, z] degrees, bone-LOCAL. Omit to leave rotation alone.
+
+    Both are local to the bone's parent, which is what the format stores -
+    the runtime composes the parent chain itself.
+    """
+    def apply(clips):
+        idx = _find_clip(clips, clip)
+        c = clips[idx]
+        if position is None and rotation_euler is None:
+            raise ValueError("pass position and/or rotation_euler")
+        if time < 0:
+            raise ValueError("time must be >= 0")
+
+        ch = next((x for x in c["channels"] if x["bone"] == bone), None)
+        if ch is None:
+            ch = {"bone": bone, "positions": [], "rotations": [], "scales": []}
+            c["channels"].append(ch)
+
+        wrote = []
+        if position is not None:
+            if len(position) != 3:
+                raise ValueError("position must be [x, y, z]")
+            ch["positions"] = [k for k in ch["positions"] if abs(k["time"] - time) > 0.001]
+            ch["positions"].append({"time": time, "value": [float(v) for v in position]})
+            ch["positions"].sort(key=lambda k: k["time"])
+            wrote.append("position")
+        if rotation_euler is not None:
+            if len(rotation_euler) != 3:
+                raise ValueError("rotation_euler must be [x, y, z] in degrees")
+            quat = _euler_to_quat_xyzw([float(v) for v in rotation_euler])
+            ch["rotations"] = [k for k in ch["rotations"] if abs(k["time"] - time) > 0.001]
+            ch["rotations"].append({"time": time, "value": quat})
+            ch["rotations"].sort(key=lambda k: k["time"])
+            wrote.append("rotation")
+
+        # A key past the end would never be reached at playback, so the clip
+        # grows to fit - same behaviour as the editor's own key action.
+        grew = ""
+        if time > c["duration"]:
+            c["duration"] = time
+            grew = f" Clip extended to {time:.3f}s."
+        return f"Keyed {' + '.join(wrote)} for '{bone}' at {time:.3f}s in clip [{idx}] '{c['name']}'.{grew}"
+    return _mutate_animation(project_path, animation, apply)
+
+
+@mcp.tool()
+def delete_animation_keyframe(project_path: str, animation: str, bone: str, time: float,
+                              clip: str | None = None) -> str:
+    """Remove every key (position/rotation/scale) for one bone at one time."""
+    def apply(clips):
+        idx = _find_clip(clips, clip)
+        c = clips[idx]
+        ch = next((x for x in c["channels"] if x["bone"] == bone), None)
+        if ch is None:
+            raise ValueError(f"clip [{idx}] has no keys for bone '{bone}'")
+        before = len(ch["positions"]) + len(ch["rotations"]) + len(ch["scales"])
+        for comp in ("positions", "rotations", "scales"):
+            ch[comp] = [k for k in ch[comp] if abs(k["time"] - time) > 0.001]
+        after = len(ch["positions"]) + len(ch["rotations"]) + len(ch["scales"])
+        if before == after:
+            raise ValueError(f"no key for '{bone}' at {time:.3f}s")
+        if after == 0:
+            c["channels"] = [x for x in c["channels"] if x is not ch]
+        return f"Removed {before - after} key(s) for '{bone}' at {time:.3f}s."
+    return _mutate_animation(project_path, animation, apply)
+
+
+# ---- live editor tools ----------------------------------------------------
+
+@mcp.tool()
+def open_animation_editor(project_path: str, animation: str, mesh: str | None = None) -> str:
+    """Open a .p3da (or a .p3dm, for a fresh clip) in the editor's Animation Editor.
+
+    mesh: project-relative .p3dm to preview the clips on. Omitted, the editor
+    keeps whatever rig is remembered for this file in project.json, or matches
+    one by bone names.
+
+    Requires a running editor.
+    """
+    proj, err = _resolve_project(project_path)
+    if not proj:
+        return _fail(err)
+    note = _live_open_project(proj)
+
+    target = animation
+    if not os.path.isabs(target):
+        if target.endswith(".p3dm"):
+            target = str(proj / target) if "/" in target else target
+        else:
+            target = str(_animation_file(proj, target))
+
+    args = {"path": target}
+    if mesh:
+        args["mesh"] = mesh
+    ok, res = _editor_call("open_animation", args, timeout=120.0)
+    if not ok:
+        return _fail(f"Could not open animation: {res}")
+
+    lines = [f"Animation Editor: {res.get('path')}"]
+    if res.get("mesh"):
+        lines.append(f"  rig: {res['mesh']} ({res.get('bones', 0)} bones)")
+    elif res.get("meshError"):
+        lines.append(f"  rig error: {res['meshError']}")
+    else:
+        lines.append("  no rig bound - pass mesh= to preview and pose it")
+    for c in res.get("clips", []):
+        lines.append(f"  [{c['id']}] {c['name']}  {c['duration']:.3f}s  "
+                     f"{c['channels']} bones, {c['keys']} keys")
+    if note.strip():
+        lines.append(note.strip())
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def get_animation_skeleton(animation: str | None = None) -> str:
+    """List the bones of the rig bound to the open animation document.
+
+    Shows each bone's id, parent and whether the active clip animates it.
+    This is the reliable way to learn exact bone names before keying.
+    Requires a running editor with an animation open.
+    """
+    args = {"path": animation} if animation else {}
+    ok, res = _editor_call("animation_skeleton", args)
+    if not ok:
+        return _fail(f"Could not read skeleton: {res}")
+    bones = res.get("bones", [])
+    if not bones:
+        return "The bound rig has no bones."
+    lines = [f"{len(bones)} bones:"]
+    for b in bones:
+        mark = "*" if b.get("animated") else " "
+        lines.append(f" {mark} [{b['id']:>3}] {b['name']}  (parent {b['parent']})")
+    lines.append("\n* = animated by the active clip")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def pose_animation_bone(bone: str, position: list[float] | None = None,
+                        rotation_euler: list[float] | None = None,
+                        key: bool = False, animation: str | None = None) -> str:
+    """Pose one bone in the live Animation Editor viewport.
+
+    Values are bone-local; anything omitted keeps the bone's current value,
+    so rotation can be set without disturbing position. The pose is visible
+    immediately but not saved into the clip unless key=True (or you later
+    call key_animation_pose) - scrubbing the playhead discards it, exactly
+    like dragging the bone gizmo by hand.
+    """
+    args: dict[str, Any] = {"bone": bone, "key": key}
+    if position is not None:
+        args["position"] = position
+    if rotation_euler is not None:
+        args["rotation"] = rotation_euler
+    if animation:
+        args["path"] = animation
+    ok, res = _editor_call("set_animation_pose", args)
+    if not ok:
+        return _fail(f"Pose failed: {res}")
+    pos = res.get("position", [])
+    rot = res.get("rotation", [])
+    tail = f" and keyed at {res.get('time', 0):.3f}s" if res.get("keyed") else " (not keyed)"
+    return (f"Posed '{bone}' to position ({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f}), "
+            f"rotation ({rot[0]:.2f}, {rot[1]:.2f}, {rot[2]:.2f}) degrees{tail}.")
+
+
+@mcp.tool()
+def key_animation_pose(time: float | None = None, all_bones: bool = False,
+                       animation: str | None = None) -> str:
+    """Commit the live viewport's current pose into the active clip as keys.
+
+    time:      seconds; defaults to where the playhead already is.
+    all_bones: key every bone in the skeleton (blocking out a full pose)
+               rather than only the bones posed since the last key.
+    """
+    args: dict[str, Any] = {"allBones": all_bones}
+    if time is not None:
+        args["time"] = time
+    if animation:
+        args["path"] = animation
+    ok, res = _editor_call("key_animation_pose", args)
+    if not ok:
+        return _fail(f"Key failed: {res}")
+    n = res.get("keyed", 0)
+    if not n:
+        return "Nothing keyed - no bones were posed. Pose one first, or pass all_bones=True."
+    return f"Keyed {n} bone(s) at {res.get('time', 0):.3f}s."
+
+
+@mcp.tool()
+def animation_playback(action: str = "scrub", time: float | None = None,
+                       loop: bool | None = None, speed: float | None = None,
+                       animation: str | None = None) -> str:
+    """Drive the Animation Editor's transport.
+
+    action: 'play', 'pause', 'stop' or 'scrub' (with time=seconds).
+    Scrubbing re-poses the rig from the clip, which is how you check what a
+    keyed pose actually looks like at a given moment.
+    """
+    args: dict[str, Any] = {"action": action}
+    if time is not None:
+        args["time"] = time
+    if loop is not None:
+        args["loop"] = loop
+    if speed is not None:
+        args["speed"] = speed
+    if animation:
+        args["path"] = animation
+    ok, res = _editor_call("animation_playback", args)
+    if not ok:
+        return _fail(f"Playback failed: {res}")
+    return f"Playhead at {res.get('playhead', 0):.3f}s, {'playing' if res.get('playing') else 'paused'}."
+
+
+@mcp.tool()
+def save_animation(save_as: str | None = None, animation: str | None = None) -> str:
+    """Save the open animation document to its .p3da.
+
+    save_as: write to assets/animations/<save_as>.p3da instead. Required for a
+    document created with 'New Animation', which has no file yet.
+    """
+    args: dict[str, Any] = {}
+    if save_as:
+        args["as"] = save_as
+    if animation:
+        args["path"] = animation
+    ok, res = _editor_call("save_animation", args)
+    if not ok:
+        return _fail(f"Save failed: {res}")
+    return f"Saved {res.get('saved')}"
+
+
+@mcp.tool()
+def animation_undo_redo(action: str = "undo", animation: str | None = None) -> str:
+    """Undo or redo the last edit in the open Animation Editor document.
+
+    Each document has its own history (keys, poses, clip changes) - separate
+    from the scene's and the material editor's.
+    """
+    cmd = "undo_animation" if action == "undo" else "redo_animation"
+    ok, res = _editor_call(cmd, {"path": animation} if animation else {})
+    if not ok:
+        return _fail(f"{action} failed: {res}")
+    return (f"{action} ok. "
+            f"{'more undo available' if res.get('canUndo') else 'nothing left to undo'}, "
+            f"{'redo available' if res.get('canRedo') else 'no redo'}.")
 
 
 if __name__ == "__main__":

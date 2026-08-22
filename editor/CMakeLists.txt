@@ -49,6 +49,9 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/MaterialCodegen.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/MaterialEditorDocument.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/MaterialPreview.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AnimationEditorDocument.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AnimationPreview.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/AnimationEditor.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/GameObjectHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/LightHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/SoundHelper.cpp

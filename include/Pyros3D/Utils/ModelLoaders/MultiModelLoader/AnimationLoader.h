@@ -80,6 +80,25 @@ namespace p3d {
 		virtual ~AnimationLoader();
 		virtual bool Load(const std::string &Filename);
 
+		// Writes clips back out in exactly the layout Load() reads. Until
+		// now the only writer of a .p3da lived in the offline AssimpImporter
+		// tool (AssimpAnimationImporter::ConvertToPyrosFormat), so nothing
+		// in the engine or the editor could produce or re-save one - which
+		// is what the Animation Editor needs in order to author a clip at
+		// all.
+		//
+		// Round-trip note: Load() divides every key time (and Duration) by
+		// TicksPerSecond and then stores TicksPerSecond as 1, so times in a
+		// loaded Animation are already seconds. Save() therefore writes
+		// times verbatim with TicksPerSecond 1 and the next Load() divides
+		// by 1 - lossless. A caller building an Animation by hand should do
+		// the same: seconds, TicksPerSecond 1.
+		//
+		// Unlike the importer's version this tolerates empty key vectors
+		// (that one does &keys[0] unconditionally, which is UB on an empty
+		// clip) - an editor-authored channel commonly keys rotation only.
+		static bool Save(const std::string &Filename, const std::vector<Animation> &animations);
+
 		// animations
 		std::vector<Animation> animations;
 	};

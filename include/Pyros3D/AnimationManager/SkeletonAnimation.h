@@ -139,6 +139,72 @@ namespace p3d {
 		// for serialization; Owner was already stored, just never exposed.
 		SkeletonAnimation* GetOwner() const { return Owner; }
 
+		// ---- Direct pose access (editor / IK / ragdoll) --------------
+		// Everything below reads or writes the same per-bone local
+		// transform array Update() drives (boneTransformation), so a
+		// caller can pose a skeleton without any clip playing at all -
+		// which is exactly what the Animation Editor does when it scrubs
+		// or when the user drags a bone gizmo. None of it existed before:
+		// the only way to move a bone was to Play() a clip and let
+		// Update() sample it, and the resulting matrices were all
+		// protected.
+
+		// Number of bones, i.e. the valid range of every `boneId` below.
+		uint32 GetNumberBones() const { return (uint32)skeleton.size(); }
+		// Bone records in id order (skeleton[i].self == i), so a caller can
+		// walk names/parents to draw or list the hierarchy. The
+		// RenderingComponent's own GetSkeleton() is a map keyed by StringID
+		// and is not ordered by bone id, which makes it useless for
+		// parent-child traversal without rebuilding this exact vector.
+		const std::vector<Bone> &GetSkeletonBones() const { return skeleton; }
+		// Bone's local bind transform (Bone::bindPoseMat), the neutral pose
+		// a clip's keys replace.
+		const Matrix &GetBindPoseLocal(const int32 boneId) const { return bindPose[boneId]; }
+		// Current local transform of one bone - what a keyframe stores.
+		const Matrix &GetBoneLocalTransform(const int32 boneId) const { return boneTransformation[boneId]; }
+		// Current *model space* transform (local composed with every
+		// parent), which is what you need to draw a bone or place a gizmo
+		// on it. Multiply by the owning GameObject's world matrix for world
+		// space. GetBoneMatrix() computed this already but was protected.
+		const Matrix &GetBoneGlobalTransform(const int32 boneId) const { return Bones[boneId]; }
+
+		// Writes one bone's local transform. Does NOT recompute the
+		// hierarchy or the skinning matrices - call RefreshSkinning() once
+		// after a batch of these, rather than paying for a full skeleton
+		// walk per bone while dragging a gizmo.
+		void SetBoneLocalTransform(const int32 boneId, const Matrix &local) { boneTransformation[boneId] = local; }
+		// Whole-pose version; `localTransforms` must be GetNumberBones()
+		// long. Recomputes and uploads (no separate RefreshSkinning()
+		// needed).
+		void ApplyPose(const std::vector<Matrix> &localTransforms);
+		// Copies the current pose out, sized GetNumberBones().
+		void CapturePose(std::vector<Matrix> &out) const { out = boneTransformation; }
+		// Re-composes Bones[] from boneTransformation[] through the parent
+		// chain and pushes the result into every mesh's SkinningBones -
+		// the tail of Update(), factored out so a poser can reuse it.
+		void RefreshSkinning();
+		// Puts every bone back to its bind transform and uploads. Note this
+		// is NOT the same as "no animation playing": an instance with no
+		// clip playing sits at identity per bone, not at bindPose (see the
+		// constructor), which is the pose the mesh was authored in only
+		// when bindPoseMat is identity.
+		void ResetToBindPose();
+		// Poses the skeleton from `anim` sampled at `time` seconds and
+		// uploads, without touching playback state (no Play(), no clock,
+		// no AnimationsToPlay entry). Bones the clip has no channel for are
+		// left at identity, matching what a lone Play() of that clip would
+		// show. This is the editor's scrub.
+		void ApplyAnimationAtTime(const Animation &anim, const f32 time);
+
+		// Local transform a single channel produces at `time`, i.e. one
+		// bone's keyframe interpolation. Extracted verbatim from
+		// SkeletonAnimation::Update()'s inner loop (which now calls it) so
+		// the editor's scrubbing and the runtime's playback can never drift
+		// apart. Empty key lists yield the identity component rather than
+		// indexing out of bounds - authored clips routinely carry channels
+		// with rotation keys and nothing else.
+		static Matrix SampleChannel(const Channel &ch, const f32 time);
+
 		// Layers
 		uint32 CreateLayer(const std::string &name);
 		// Add Bone

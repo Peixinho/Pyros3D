@@ -536,74 +536,14 @@ namespace p3d {
 					// Transform bones from animation
 					for (uint32 a = 0; a<Anim.Channels.size(); a++)
 					{
-						Channel ch = Anim.Channels[a];
-						Vec3 curPosition, curScale;
-						Quaternion curRotation;
-
-						size_t posIndex = 0;
-						size_t posIndexNext = 0;
-						while (1)
-						{
-							if (posIndex + 1 >= ch.positions.size() || ch.positions[posIndex + 1].Time > currentTime)
-								break;
-							posIndex++;
-						}
-						curPosition = ch.positions[posIndex].Pos;
-
-						// Position Interpolation
-						if (posIndex + 1 < ch.positions.size())
-						{
-							posIndexNext = posIndex + 1;
-							f32 slerp_delta = (currentTime - ch.positions[posIndex].Time) / (ch.positions[posIndexNext].Time - ch.positions[posIndex].Time);
-							//slerp_delta = 1 - (ch.positions[posIndexNext].Time - currentTime);
-							curPosition = curPosition.Lerp(ch.positions[posIndexNext].Pos, slerp_delta);
-						}
-
-						size_t rotIndex = 0;
-						size_t rotIndexNext = 0;
-						while (1)
-						{
-							if (rotIndex + 1 >= ch.rotations.size() || ch.rotations[rotIndex + 1].Time > currentTime)
-								break;
-							rotIndex++;
-						}
-						curRotation = ch.rotations[rotIndex].Rot;
-
-						// Rotation Interpolation
-						if (rotIndex + 1 < ch.rotations.size())
-						{
-							rotIndexNext = rotIndex + 1;
-							f32 slerp_delta = (currentTime - ch.rotations[rotIndex].Time) / (ch.rotations[rotIndexNext].Time - ch.rotations[rotIndex].Time);
-							//slerp_delta = 1 - (ch.rotations[rotIndexNext].Time - currentTime);
-							curRotation = curRotation.Slerp(ch.rotations[rotIndexNext].Rot, slerp_delta);
-						}
-
-						size_t scaleIndex = 0;
-						size_t scaleIndexNext = 0;
-						while (1)
-						{
-							if (scaleIndex + 1 >= ch.scales.size() || ch.scales[scaleIndex + 1].Time > currentTime)
-								break;
-							scaleIndex++;
-						}
-						curScale = ch.scales[scaleIndex].Scale;
-
-						// Rotation Interpolation
-						if (scaleIndex + 1 < ch.scales.size())
-						{
-							scaleIndexNext = scaleIndex + 1;
-							f32 slerp_delta = (currentTime - ch.scales[scaleIndex].Time) / (ch.scales[scaleIndexNext].Time - ch.scales[scaleIndex].Time);
-							//slerp_delta = 1 - (ch.scales[scaleIndexNext].Time - currentTime);
-							curScale = curScale.Lerp(ch.scales[scaleIndexNext].Scale, slerp_delta);
-						}
-
-						Matrix trafo = curRotation.ConvertToMatrix();
-						trafo.Translate(curPosition);
-						//trafo.Scale(curScale);
+						// Interpolation moved to SampleChannel() so the
+						// editor can evaluate a clip at an arbitrary time
+						// (scrubbing a timeline) through the exact same code
+						// the runtime plays it with.
+						Matrix trafo = SkeletonAnimationInstance::SampleChannel(Anim.Channels[a], currentTime);
 
 						if ((*i)->ChannelBoneIDCache[a] == -1)
 						{
-							uint32 idBone = 0;
 							for (std::vector<Bone>::iterator b = (*i)->skeleton.begin(); b != (*i)->skeleton.end(); b++)
 							{
 								if ((*b).name.compare(Anim.Channels[a].NodeName) == 0)
@@ -614,7 +554,16 @@ namespace p3d {
 							}
 						}
 
-						(*_Anim).boneTransformationPerAnimation[(*i)->ChannelBoneIDCache[a]] = trafo;
+						// A channel naming a node that is not a bone of this
+						// skeleton leaves the cache at -1, and indexing the
+						// pose vector with that is an out-of-bounds *write*.
+						// Assimp-exported clips routinely carry channels for
+						// armature/helper nodes, and the Animation Editor
+						// makes it easy to point a clip at a mesh it wasn't
+						// authored for, so this has to be survivable rather
+						// than merely unlikely.
+						if ((*i)->ChannelBoneIDCache[a] >= 0)
+							(*_Anim).boneTransformationPerAnimation[(*i)->ChannelBoneIDCache[a]] = trafo;
 					}
 				}
 			}
@@ -706,6 +655,160 @@ namespace p3d {
 	Matrix SkeletonAnimationInstance::GetBoneMatrix(const int32 id)
 	{
 		return Bones[skeleton[id].self];
+	}
+
+
+	// ---- Direct pose access ------------------------------------------------
+
+	Matrix SkeletonAnimationInstance::SampleChannel(const Channel &ch, const f32 time)
+	{
+		Vec3 curPosition, curScale;
+		Quaternion curRotation;
+
+		// Empty key lists were never possible for clips coming out of the
+		// Assimp importer (it writes a key per channel per component), but
+		// an editor-authored clip only carries the components the user
+		// actually keyed, so each of the three blocks below has to cope
+		// with having nothing to sample.
+		if (!ch.positions.empty())
+		{
+			size_t posIndex = 0;
+			while (1)
+			{
+				if (posIndex + 1 >= ch.positions.size() || ch.positions[posIndex + 1].Time > time)
+					break;
+				posIndex++;
+			}
+			curPosition = ch.positions[posIndex].Pos;
+
+			// Position Interpolation
+			if (posIndex + 1 < ch.positions.size())
+			{
+				const size_t posIndexNext = posIndex + 1;
+				const f32 span = ch.positions[posIndexNext].Time - ch.positions[posIndex].Time;
+				// Two keys at the same time is a divide by zero (NaN
+				// position, and from there a NaN bone matrix that silently
+				// collapses the whole mesh) - reachable in the editor by
+				// dropping a key onto an existing one.
+				const f32 slerp_delta = (span > 0.f ? (time - ch.positions[posIndex].Time) / span : 0.f);
+				curPosition = curPosition.Lerp(ch.positions[posIndexNext].Pos, slerp_delta);
+			}
+		}
+
+		if (!ch.rotations.empty())
+		{
+			size_t rotIndex = 0;
+			while (1)
+			{
+				if (rotIndex + 1 >= ch.rotations.size() || ch.rotations[rotIndex + 1].Time > time)
+					break;
+				rotIndex++;
+			}
+			curRotation = ch.rotations[rotIndex].Rot;
+
+			// Rotation Interpolation
+			if (rotIndex + 1 < ch.rotations.size())
+			{
+				const size_t rotIndexNext = rotIndex + 1;
+				const f32 span = ch.rotations[rotIndexNext].Time - ch.rotations[rotIndex].Time;
+				const f32 slerp_delta = (span > 0.f ? (time - ch.rotations[rotIndex].Time) / span : 0.f);
+				curRotation = curRotation.Slerp(ch.rotations[rotIndexNext].Rot, slerp_delta);
+			}
+		}
+
+		if (!ch.scales.empty())
+		{
+			size_t scaleIndex = 0;
+			while (1)
+			{
+				if (scaleIndex + 1 >= ch.scales.size() || ch.scales[scaleIndex + 1].Time > time)
+					break;
+				scaleIndex++;
+			}
+			curScale = ch.scales[scaleIndex].Scale;
+
+			// Scale Interpolation
+			if (scaleIndex + 1 < ch.scales.size())
+			{
+				const size_t scaleIndexNext = scaleIndex + 1;
+				const f32 span = ch.scales[scaleIndexNext].Time - ch.scales[scaleIndex].Time;
+				const f32 slerp_delta = (span > 0.f ? (time - ch.scales[scaleIndex].Time) / span : 0.f);
+				curScale = curScale.Lerp(ch.scales[scaleIndexNext].Scale, slerp_delta);
+			}
+		}
+
+		Matrix trafo = curRotation.ConvertToMatrix();
+		trafo.Translate(curPosition);
+		// Scale stays deliberately unapplied, exactly as playback has
+		// always done it (the .Scale() call was already commented out in
+		// Update()); keying scale in the editor therefore round-trips
+		// through the file but does not deform the mesh. Left as-is rather
+		// than "fixed" here: turning it on would change how every existing
+		// clip in every project renders.
+		return trafo;
+	}
+
+	void SkeletonAnimationInstance::RefreshSkinning()
+	{
+		// Multiply bones with its parent - Tree
+		for (std::vector<Bone>::iterator a = skeleton.begin(); a != skeleton.end(); a++)
+			Bones[(*a).self] = GetParentMatrix((*a).parent, boneTransformation) * boneTransformation[(*a).self];
+
+		// Send SubMesh Bones to Material
+		for (std::vector<RenderingMesh*>::iterator j = rcomp->GetMeshes().begin(); j != rcomp->GetMeshes().end(); j++)
+		{
+			for (std::map<int32, int32>::iterator k = (*j)->MapBoneIDs.begin(); k != (*j)->MapBoneIDs.end(); k++)
+				(*j)->SkinningBones[(*k).second] = (Bones[(*k).first] * (*j)->BoneOffsetMatrix[(*k).first]);
+		}
+	}
+
+	void SkeletonAnimationInstance::ApplyPose(const std::vector<Matrix> &localTransforms)
+	{
+		if (localTransforms.size() != boneTransformation.size())
+		{
+			echo("ERROR: SkeletonAnimationInstance::ApplyPose - pose has " + std::to_string(localTransforms.size()) + " bones, skeleton has " + std::to_string(boneTransformation.size()));
+			return;
+		}
+		boneTransformation = localTransforms;
+		RefreshSkinning();
+	}
+
+	void SkeletonAnimationInstance::ResetToBindPose()
+	{
+		boneTransformation = bindPose;
+		RefreshSkinning();
+	}
+
+	void SkeletonAnimationInstance::ApplyAnimationAtTime(const Animation &anim, const f32 time)
+	{
+		// Bones this clip has no channel for keep their BIND transform, not
+		// identity - that is what a single Play() of the same clip produces,
+		// because Play() seeds boneTransformationPerAnimation with bindPose
+		// and Update() only overwrites the entries a channel actually
+		// drives. Matching that exactly is the whole point: the editor's
+		// scrub has to look like the runtime's playback, and seeding
+		// identity here (as this first did) collapsed every unkeyed bone to
+		// the origin - which reads as a folded-up heap for a fresh clip and
+		// silently disagreed with what the game would show.
+		std::vector<Matrix> pose = bindPose;
+
+		for (uint32 a = 0; a < anim.Channels.size(); a++)
+		{
+			int32 boneId = -1;
+			for (std::vector<Bone>::const_iterator b = skeleton.begin(); b != skeleton.end(); b++)
+			{
+				if ((*b).name.compare(anim.Channels[a].NodeName) == 0)
+				{
+					boneId = (*b).self;
+					break;
+				}
+			}
+			if (boneId < 0) continue; // channel for a node this skeleton doesn't have
+
+			pose[boneId] = SampleChannel(anim.Channels[a], time);
+		}
+
+		ApplyPose(pose);
 	}
 
 	Matrix SkeletonAnimation::SCALE(const Matrix &in, const Matrix &prev, const f32 s)

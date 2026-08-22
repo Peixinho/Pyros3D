@@ -7,6 +7,10 @@
 //============================================================================
 
 #include "Editor.h"
+#include <Pyros3D/Assets/Renderable/Models/Model.h>
+// The agent bridge reaches into an animation document's live rig (bone
+// names, current pose) - AnimationEditorDocument only forward-declares it.
+#include "editor/AnimationPreview.h"
 #include "editor/UI/OpenDir.h"
 #include "editor/FileDropQueue.h"
 #include "editor/AssetCommands.h"
@@ -137,6 +141,16 @@ Editor::Editor() : ClassName(1024,768,"PyrosBuilder",WindowType::Close | WindowT
 	pendingSelectMaterialDocId = 0;
 	pendingCloseScriptId = 0;
 	pendingCloseMaterialId = 0;
+	pendingCloseAnimationId = 0;
+	activeAnimationDoc = NULL;
+	nextAnimationDocId = 1;
+	pendingSelectAnimationDocId = 0;
+	openSaveAnimationAsModal = false;
+	saveAnimationAsDocId = 0;
+	saveAnimationAsThenClose = false;
+	openNewAnimationModal = false;
+	openImportAnimationModal = false;
+	openImportAnimationBrowse = false;
 }
 
 #ifdef LUA_BINDINGS
@@ -624,6 +638,521 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		nlohmann::json r;
 		r["assets"] = std::move(arr);
 		return r;
+	}
+
+	// ---- Animation Editor ------------------------------------------------
+	// Every command below drives the same document/AnimationEditor
+	// operations the panel's own buttons do, so an agent and a human editing
+	// the same clip cannot diverge. Each resolves its target document from
+	// an optional "path" (project-relative or absolute .p3da) and otherwise
+	// falls back to whichever animation window last had focus.
+	if (name.rfind("animation", 0) == 0 || name == "list_animations"
+		|| name == "import_animation" || name == "open_animation" || name == "save_animation"
+		|| name == "key_animation_pose" || name == "set_animation_keyframe"
+		|| name == "delete_animation_keyframe" || name == "set_animation_pose"
+		|| name == "add_animation_clip" || name == "remove_animation_clip"
+		|| name == "rename_animation_clip" || name == "set_animation_clip_duration"
+		|| name == "select_animation_bone" || name == "undo_animation" || name == "redo_animation")
+	{
+		if (name == "list_animations")
+		{
+			if (!project.IsOpen()) throw std::runtime_error("no project open");
+			std::vector<ProjectAssetEntry> entries;
+			project.ListAssets("assets", entries, true);
+			nlohmann::json arr = nlohmann::json::array();
+			for (const ProjectAssetEntry& e : entries)
+			{
+				if (e.isDirectory || !ProjectManager::IsAnimationExtension(e.relativePath)) continue;
+				nlohmann::json j;
+				j["path"] = e.relativePath;
+				const std::string abs = project.AbsolutePath(e.relativePath);
+				const std::string bound = LookupAnimationMeshBinding(abs);
+				if (!bound.empty()) j["mesh"] = project.DisplayPath(bound);
+				// Whether an Animation Editor tab currently holds this file.
+				// An out-of-process tool has to know before it edits the file
+				// on disk, because this editor would write its own in-memory
+				// copy over that edit on the next save - and asking must not
+				// itself open anything, which is why this lives here rather
+				// than being probed with animation_state (that one opens the
+				// document on demand, by design).
+				j["open"] = (FindAnimationDocumentByPath(abs) != NULL);
+				arr.push_back(j);
+			}
+			nlohmann::json r;
+			r["animations"] = std::move(arr);
+			// Open documents including ones never saved (no path yet), which
+			// the asset walk above cannot see at all.
+			nlohmann::json open = nlohmann::json::array();
+			for (size_t i = 0; i < animationDocs.size(); i++)
+			{
+				if (!animationDocs[i]) continue;
+				nlohmann::json d;
+				d["name"] = animationDocs[i]->displayName;
+				d["path"] = animationDocs[i]->absolutePath.empty()
+					? std::string() : project.DisplayPath(animationDocs[i]->absolutePath);
+				d["absolutePath"] = animationDocs[i]->absolutePath;
+				d["dirty"] = animationDocs[i]->dirty;
+				open.push_back(d);
+			}
+			r["openDocuments"] = std::move(open);
+			return r;
+		}
+
+		if (name == "import_animation")
+		{
+			if (!project.IsOpen()) throw std::runtime_error("no project open");
+			const std::string src = A("source");
+			if (src.empty()) throw std::runtime_error("source required");
+			std::string out, err;
+			if (!project.ImportAnimation(src, A("name"), out, &err))
+				throw std::runtime_error(err.empty() ? "import failed" : err);
+			project.Save();
+			nlohmann::json r;
+			r["path"] = project.DisplayPath(out);
+			if (a.value("open", false)) r["opened"] = OpenAnimationDocument(out);
+			return r;
+		}
+
+		// Resolve the target document for everything else.
+		AnimationEditorDocument* doc = NULL;
+		const std::string pathArg = A("path");
+		if (!pathArg.empty())
+		{
+			const std::string abs = (pathArg.find('/') == 0 || pathArg.find(':') != std::string::npos)
+				? pathArg : project.AbsolutePath(pathArg);
+			doc = FindAnimationDocumentByPath(abs);
+			if (!doc && name == "open_animation")
+			{
+				if (!OpenAnimationDocument(abs))
+					throw std::runtime_error("could not open " + pathArg);
+				doc = FindAnimationDocumentByPath(abs);
+				// A .p3dm opens an unsaved document, which has no path to
+				// find it by - it is the newest document instead.
+				if (!doc && !animationDocs.empty()) doc = animationDocs.back();
+			}
+			if (!doc)
+			{
+				// Opening on demand is what an agent means by naming a file.
+				if (!OpenAnimationDocument(abs))
+					throw std::runtime_error("could not open " + pathArg);
+				doc = FindAnimationDocumentByPath(abs);
+			}
+		}
+		else doc = activeAnimationDoc;
+
+		if (!doc)
+			throw std::runtime_error("no animation document open (pass \"path\")");
+
+		// Everything below needs the rig loaded for bone lookups, and the
+		// panel only builds the preview when it draws. A background window
+		// would otherwise report "unknown bone" for every bone it has.
+		AnimationEditor::EnsurePreview(*doc);
+		AnimationPreview* pv = doc->preview.get();
+
+		auto clipIndexArg = [&](const char* key) -> int {
+			if (!a.is_object() || !a.contains(key)) return doc->activeClip;
+			if (a[key].is_number()) return (int)a[key].get<int>();
+			if (a[key].is_string())
+			{
+				const std::string want = a[key].get<std::string>();
+				for (size_t i = 0; i < doc->clips.size(); i++)
+					if (doc->clips[i].AnimationName == want) return (int)i;
+				throw std::runtime_error("no clip named '" + want + "'");
+			}
+			return doc->activeClip;
+		};
+
+		auto describe = [&]() -> nlohmann::json {
+			nlohmann::json r;
+			r["path"] = doc->absolutePath.empty() ? std::string("(unsaved)") : project.DisplayPath(doc->absolutePath);
+			r["name"] = doc->displayName;
+			r["dirty"] = doc->dirty;
+			r["mesh"] = doc->meshPath.empty() ? std::string() : project.DisplayPath(doc->meshPath);
+			r["activeClip"] = doc->activeClip;
+			r["playhead"] = doc->playhead;
+			r["playing"] = doc->playing;
+			r["selectedBone"] = doc->selectedBoneName;
+			r["canUndo"] = doc->undo.CanUndo();
+			r["canRedo"] = doc->undo.CanRedo();
+			nlohmann::json clips = nlohmann::json::array();
+			for (size_t i = 0; i < doc->clips.size(); i++)
+			{
+				nlohmann::json c;
+				c["id"] = (int)i;
+				c["name"] = doc->clips[i].AnimationName;
+				c["duration"] = doc->clips[i].Duration;
+				c["channels"] = (int)doc->clips[i].Channels.size();
+				int keys = 0;
+				for (size_t ch = 0; ch < doc->clips[i].Channels.size(); ch++)
+					keys += (int)(doc->clips[i].Channels[ch].positions.size()
+						+ doc->clips[i].Channels[ch].rotations.size()
+						+ doc->clips[i].Channels[ch].scales.size());
+				c["keys"] = keys;
+				clips.push_back(c);
+			}
+			r["clips"] = std::move(clips);
+			if (pv && pv->instance) r["bones"] = (int)pv->instance->GetNumberBones();
+			if (pv && !pv->loadError.empty()) r["meshError"] = pv->loadError;
+			return r;
+		};
+
+		if (name == "open_animation" || name == "animation_state")
+		{
+			// Binding a rig is part of opening as far as an agent is
+			// concerned - it has no other way to say "preview this on that".
+			const std::string meshArg = A("mesh");
+			if (!meshArg.empty())
+			{
+				const std::string meshAbs = (meshArg.find('/') == 0) ? meshArg : project.AbsolutePath(meshArg);
+				doc->meshPath = meshAbs;
+				AnimationEditor::EnsurePreview(*doc);
+				pv = doc->preview.get();
+				if (!doc->absolutePath.empty()) StoreAnimationMeshBinding(doc->absolutePath, meshAbs);
+			}
+			return describe();
+		}
+
+		if (name == "animation_skeleton")
+		{
+			if (!pv || !pv->instance) throw std::runtime_error("no rig bound - pass \"mesh\"");
+			nlohmann::json arr = nlohmann::json::array();
+			const std::vector<Bone>& bones = pv->instance->GetSkeletonBones();
+			for (size_t i = 0; i < bones.size(); i++)
+			{
+				nlohmann::json b;
+				b["id"] = bones[i].self;
+				b["name"] = bones[i].name;
+				b["parent"] = bones[i].parent;
+				b["animated"] = doc->FindChannel(doc->activeClip, bones[i].name) >= 0;
+				const Vec3 wp = pv->instance->GetBoneGlobalTransform(bones[i].self).GetTranslation();
+				b["position"] = { wp.x, wp.y, wp.z };
+				// Where this joint last projected inside the viewport image,
+				// in pixels from its top-left. Exposed so a caller driving the
+				// editor (the agent harness, a UI test) can click a specific
+				// joint instead of guessing at coordinates off a screenshot.
+				// z <= 0 means the joint is behind the camera and not
+				// clickable this frame.
+				if (bones[i].self >= 0 && bones[i].self < (int)pv->boneScreenPos.size())
+				{
+					const Vec3 sp = pv->boneScreenPos[bones[i].self];
+					b["screen"] = { sp.x, sp.y, sp.z };
+				}
+				arr.push_back(b);
+			}
+			nlohmann::json r;
+			r["bones"] = std::move(arr);
+			r["viewport"] = { pv->width, pv->height };
+			// Desktop position of the viewport image's top-left corner; add a
+			// bone's "screen" to it to get a clickable point.
+			r["viewportScreenOrigin"] = { pv->imageScreenX, pv->imageScreenY };
+			return r;
+		}
+
+		if (name == "animation_keys")
+		{
+			const int clip = clipIndexArg("clip");
+			if (clip < 0 || clip >= (int)doc->clips.size()) throw std::runtime_error("clip out of range");
+			const std::string boneArg = A("bone");
+			nlohmann::json arr = nlohmann::json::array();
+			for (size_t ch = 0; ch < doc->clips[clip].Channels.size(); ch++)
+			{
+				const Channel& c = doc->clips[clip].Channels[ch];
+				if (!boneArg.empty() && c.NodeName != boneArg) continue;
+				std::vector<float> times;
+				doc->CollectKeyTimes(clip, (int)ch, times);
+				nlohmann::json j;
+				j["bone"] = c.NodeName;
+				j["times"] = times;
+				j["positionKeys"] = (int)c.positions.size();
+				j["rotationKeys"] = (int)c.rotations.size();
+				j["scaleKeys"] = (int)c.scales.size();
+				arr.push_back(j);
+			}
+			nlohmann::json r;
+			r["clip"] = clip;
+			r["channels"] = std::move(arr);
+			return r;
+		}
+
+		if (name == "save_animation")
+		{
+			std::string target = A("as");
+			if (!target.empty())
+			{
+				if (target.size() < 5 || target.compare(target.size() - 5, 5, ".p3da") != 0) target += ".p3da";
+				if (target.find('/') == std::string::npos) target = "assets/animations/" + target;
+				target = project.AbsolutePath(target);
+			}
+			else target = doc->absolutePath;
+			if (target.empty())
+				throw std::runtime_error("this animation has never been saved - pass \"as\"");
+			if (!SaveAnimationDocument(doc, target))
+				throw std::runtime_error("save failed - see the editor log");
+			nlohmann::json r;
+			r["saved"] = project.DisplayPath(target);
+			return r;
+		}
+
+		if (name == "add_animation_clip")
+		{
+			const std::string clipName = A("name");
+			const float dur = a.is_object() && a.contains("duration") && a["duration"].is_number()
+				? (float)a["duration"].get<double>() : 1.f;
+			int created = -1;
+			doc->PushSnapshotEdit("Add clip", [&]() {
+				created = doc->AddClip(clipName.empty() ? "Clip" : clipName, dur);
+			});
+			doc->activeClip = created;
+			nlohmann::json r;
+			r["clip"] = created;
+			r["name"] = doc->clips[created].AnimationName;
+			return r;
+		}
+
+		if (name == "remove_animation_clip")
+		{
+			const int clip = clipIndexArg("clip");
+			if (clip < 0 || clip >= (int)doc->clips.size()) throw std::runtime_error("clip out of range");
+			doc->PushSnapshotEdit("Delete clip", [&]() { doc->RemoveClip(clip); });
+			nlohmann::json r;
+			r["removed"] = clip;
+			r["remaining"] = (int)doc->clips.size();
+			// Removing a clip renumbers the ones after it, and those ids are
+			// what scenes Play(). Say so rather than leaving it implicit.
+			r["warning"] = "clip ids after the removed one shifted down by 1";
+			return r;
+		}
+
+		if (name == "rename_animation_clip")
+		{
+			const int clip = clipIndexArg("clip");
+			const std::string newName = A("name");
+			if (newName.empty()) throw std::runtime_error("name required");
+			if (clip < 0 || clip >= (int)doc->clips.size()) throw std::runtime_error("clip out of range");
+			doc->PushSnapshotEdit("Rename clip", [&]() { doc->RenameClip(clip, newName); });
+			nlohmann::json r;
+			r["clip"] = clip;
+			r["name"] = newName;
+			return r;
+		}
+
+		if (name == "set_animation_clip_duration")
+		{
+			const int clip = clipIndexArg("clip");
+			if (clip < 0 || clip >= (int)doc->clips.size()) throw std::runtime_error("clip out of range");
+			if (!a.is_object() || !a.contains("duration") || !a["duration"].is_number())
+				throw std::runtime_error("duration required");
+			const float dur = (float)a["duration"].get<double>();
+			doc->PushSnapshotEdit("Change clip length", [&]() { doc->SetClipDuration(clip, dur); });
+			nlohmann::json r;
+			r["clip"] = clip;
+			r["duration"] = doc->clips[clip].Duration;
+			return r;
+		}
+
+		if (name == "set_animation_pose")
+		{
+			if (!pv || !pv->instance) throw std::runtime_error("no rig bound - pass \"mesh\"");
+			const std::string boneName = A("bone");
+			const int boneId = pv->FindBone(boneName);
+			if (boneId < 0) throw std::runtime_error("unknown bone '" + boneName + "'");
+
+			// Start from what the bone is showing right now, so an agent can
+			// set rotation alone without flattening the position it already
+			// has (and vice versa).
+			// Rotations cross this API in DEGREES - that is what the tool
+			// documentation promises and what anyone typing an angle
+			// means - while the engine's Euler conversions
+			// (SetRotationFromEuler / GetEulerFromRotationMatrix) are
+			// radians throughout. Converting at the boundary is the whole
+			// of the difference; getting it wrong is silent, since 75
+			// radians is a perfectly valid rotation (it just isn't 75
+			// degrees - it wraps to about -23).
+			Matrix local = pv->instance->GetBoneLocalTransform(boneId);
+			Vec3 pos = local.GetTranslation();
+			const Vec3 eulerRad = local.GetEulerFromRotationMatrix();
+			Vec3 eulerDeg((f32)RADTODEG(eulerRad.x), (f32)RADTODEG(eulerRad.y), (f32)RADTODEG(eulerRad.z));
+			const std::vector<f32> pArg = AV("position");
+			const std::vector<f32> rArg = AV("rotation");
+			if (pArg.size() == 3) pos = Vec3(pArg[0], pArg[1], pArg[2]);
+			if (rArg.size() == 3) eulerDeg = Vec3(rArg[0], rArg[1], rArg[2]);
+
+			Quaternion q;
+			q.SetRotationFromEuler(Vec3((f32)DEGTORAD(eulerDeg.x), (f32)DEGTORAD(eulerDeg.y), (f32)DEGTORAD(eulerDeg.z)));
+			Matrix m = q.ConvertToMatrix();
+			m.Translate(pos);
+
+			pv->poseOverrides[boneId] = m;
+			pv->instance->SetBoneLocalTransform(boneId, m);
+			pv->instance->RefreshSkinning();
+			doc->selectedBone = boneId;
+			doc->selectedBoneName = boneName;
+
+			nlohmann::json r;
+			r["bone"] = boneName;
+			r["position"] = { pos.x, pos.y, pos.z };
+			r["rotation"] = { eulerDeg.x, eulerDeg.y, eulerDeg.z };
+			r["keyed"] = false;
+			if (a.value("key", false))
+			{
+				const float t = doc->SnapTime(doc->playhead);
+				doc->PushSnapshotEdit("Key bone '" + boneName + "'", [&]() {
+					AnimationEditor::KeyBoneAtTime(*doc, boneId, t);
+				});
+				pv->poseOverrides.erase(boneId);
+				r["keyed"] = true;
+				r["time"] = t;
+			}
+			return r;
+		}
+
+		if (name == "set_animation_keyframe")
+		{
+			if (!pv || !pv->instance) throw std::runtime_error("no rig bound - pass \"mesh\"");
+			const int clip = clipIndexArg("clip");
+			if (clip < 0 || clip >= (int)doc->clips.size()) throw std::runtime_error("clip out of range");
+			const std::string boneName = A("bone");
+			if (pv->FindBone(boneName) < 0) throw std::runtime_error("unknown bone '" + boneName + "'");
+			const float time = a.is_object() && a.contains("time") && a["time"].is_number()
+				? (float)a["time"].get<double>() : doc->playhead;
+
+			// Values default to whatever the bone is posed at, so
+			// "key this bone here" needs no numbers at all.
+			const int boneId = pv->FindBone(boneName);
+			Matrix local = pv->instance->GetBoneLocalTransform(boneId);
+			Vec3 pos = local.GetTranslation();
+			const Vec3 eulerRad = local.GetEulerFromRotationMatrix();
+			// Degrees across the API, radians inside - see set_animation_pose.
+			Vec3 eulerDeg((f32)RADTODEG(eulerRad.x), (f32)RADTODEG(eulerRad.y), (f32)RADTODEG(eulerRad.z));
+			const std::vector<f32> pArg = AV("position");
+			const std::vector<f32> rArg = AV("rotation");
+			if (pArg.size() == 3) pos = Vec3(pArg[0], pArg[1], pArg[2]);
+			if (rArg.size() == 3) eulerDeg = Vec3(rArg[0], rArg[1], rArg[2]);
+			Quaternion q;
+			q.SetRotationFromEuler(Vec3((f32)DEGTORAD(eulerDeg.x), (f32)DEGTORAD(eulerDeg.y), (f32)DEGTORAD(eulerDeg.z)));
+
+			const bool doPos = a.value("keyPosition", true);
+			const bool doRot = a.value("keyRotation", true);
+			doc->PushSnapshotEdit("Key bone '" + boneName + "'", [&]() {
+				const int ch = doc->FindOrCreateChannel(clip, boneName);
+				doc->SetKey(clip, ch, time, pos, q, Vec3(1, 1, 1), doPos, doRot, false);
+			});
+			nlohmann::json r;
+			r["clip"] = clip;
+			r["bone"] = boneName;
+			r["time"] = time;
+			return r;
+		}
+
+		if (name == "delete_animation_keyframe")
+		{
+			const int clip = clipIndexArg("clip");
+			if (clip < 0 || clip >= (int)doc->clips.size()) throw std::runtime_error("clip out of range");
+			const std::string boneName = A("bone");
+			const int ch = doc->FindChannel(clip, boneName);
+			if (ch < 0) throw std::runtime_error("clip has no keys for bone '" + boneName + "'");
+			if (!a.is_object() || !a.contains("time") || !a["time"].is_number())
+				throw std::runtime_error("time required");
+			const float time = (float)a["time"].get<double>();
+			bool removed = false;
+			doc->PushSnapshotEdit("Delete key", [&]() {
+				removed = doc->DeleteKeysAtTime(clip, ch, time);
+				doc->PruneEmptyChannels(clip);
+			});
+			if (!removed) throw std::runtime_error("no key at that time");
+			nlohmann::json r;
+			r["removed"] = true;
+			return r;
+		}
+
+		if (name == "key_animation_pose")
+		{
+			const float time = a.is_object() && a.contains("time") && a["time"].is_number()
+				? (float)a["time"].get<double>() : doc->playhead;
+			int keyed = 0;
+			if (a.value("allBones", false)) keyed = AnimationEditor::KeyWholeSkeleton(*doc, time);
+			else
+			{
+				// Keep the pending pose across the move - it is the thing
+				// being keyed.
+				AnimationEditor::SetPlayhead(*doc, time, /*keepPendingPose=*/true);
+				keyed = AnimationEditor::KeyPendingPose(*doc);
+			}
+			nlohmann::json r;
+			r["keyed"] = keyed;
+			r["time"] = doc->SnapTime(time);
+			return r;
+		}
+
+		if (name == "animation_playback")
+		{
+			const std::string action = A("action");
+			if (action == "play") doc->playing = true;
+			else if (action == "pause") doc->playing = false;
+			else if (action == "stop") { doc->playing = false; AnimationEditor::SetPlayhead(*doc, 0.f); }
+			else if (action == "scrub" || action.empty())
+			{
+				if (a.is_object() && a.contains("time") && a["time"].is_number())
+					AnimationEditor::SetPlayhead(*doc, (float)a["time"].get<double>());
+			}
+			else throw std::runtime_error("action must be play, pause, stop or scrub");
+			if (a.is_object() && a.contains("loop") && a["loop"].is_boolean())
+				doc->looping = a["loop"].get<bool>();
+			if (a.is_object() && a.contains("speed") && a["speed"].is_number())
+				doc->playSpeed = (float)a["speed"].get<double>();
+			nlohmann::json r;
+			r["playing"] = doc->playing;
+			r["playhead"] = doc->playhead;
+			return r;
+		}
+
+		if (name == "select_animation_bone")
+		{
+			if (!pv || !pv->instance) throw std::runtime_error("no rig bound - pass \"mesh\"");
+			const std::string boneName = A("bone");
+			const int boneId = pv->FindBone(boneName);
+			if (boneId < 0) throw std::runtime_error("unknown bone '" + boneName + "'");
+			doc->selectedBone = boneId;
+			doc->selectedBoneName = boneName;
+			nlohmann::json r;
+			r["bone"] = boneName;
+			r["id"] = boneId;
+			// Model-space position of this bone and of every descendant, so a
+			// caller (and the editor's own tests) can confirm that posing a
+			// parent actually carries its children.
+			nlohmann::json chain = nlohmann::json::array();
+			const std::vector<Bone>& sb = pv->instance->GetSkeletonBones();
+			for (size_t i = 0; i < sb.size(); i++)
+			{
+				int p = sb[i].parent, guard = 0;
+				bool desc = ((int)sb[i].self == boneId);
+				while (!desc && p >= 0 && p < (int)sb.size() && guard++ < (int)sb.size())
+				{
+					if (p == boneId) desc = true;
+					p = sb[p].parent;
+				}
+				if (!desc) continue;
+				const Vec3 wp = pv->instance->GetBoneGlobalTransform(sb[i].self).GetTranslation();
+				nlohmann::json e;
+				e["bone"] = sb[i].name;
+				e["pos"] = { wp.x, wp.y, wp.z };
+				chain.push_back(e);
+			}
+			r["chain"] = std::move(chain);
+			return r;
+		}
+
+		if (name == "undo_animation" || name == "redo_animation")
+		{
+			if (name == "undo_animation") doc->undo.Undo(); else doc->undo.Redo();
+			nlohmann::json r;
+			r["canUndo"] = doc->undo.CanUndo();
+			r["canRedo"] = doc->undo.CanRedo();
+			r["description"] = doc->undo.UndoDescription();
+			return r;
+		}
+
+		throw std::runtime_error("unknown animation command: " + name);
 	}
 
 	if (name == "read_script" || name == "write_script" || name == "create_script")
@@ -1205,6 +1734,15 @@ void Editor::DrawUI()
 			else if (!shift && ImGui::IsKeyPressed(ImGuiKey_Y))
 				activeMaterialDoc->undo.Redo();
 		}
+		else if (lastFocusedDocKind == FocusedDocKind::Animation && activeAnimationDoc)
+		{
+			if (ImGui::IsKeyPressed(ImGuiKey_Z))
+			{
+				if (shift) activeAnimationDoc->undo.Redo(); else activeAnimationDoc->undo.Undo();
+			}
+			else if (!shift && ImGui::IsKeyPressed(ImGuiKey_Y))
+				activeAnimationDoc->undo.Redo();
+		}
 	}
 
     // Menu bar
@@ -1227,6 +1765,19 @@ void Editor::DrawUI()
 					openOpenProjectModal = true;
 					projectDialogError.clear();
 				}
+			}
+            if (ImGui::MenuItem("New Animation...", NULL, false, project.IsOpen()))
+			{
+				openNewAnimationModal = true;
+			}
+            if (ImGui::MenuItem("Import Animation...", NULL, false, project.IsOpen()))
+			{
+				// Reuses the same browse-and-import path a dropped file
+				// takes; the queue is drained in ProcessPendingFileDrops.
+				openImportAnimationModal = true;
+				importAnimationSource.clear();
+				importAnimationName.clear();
+				importAnimationError.clear();
 			}
             if (ImGui::MenuItem("Save Project", "CTRL+S", false, project.IsOpen()))
 			{
@@ -1265,16 +1816,23 @@ void Editor::DrawUI()
 				canUndo = activeMaterialDoc->undo.CanUndo(); canRedo = activeMaterialDoc->undo.CanRedo();
 				undoDesc = activeMaterialDoc->undo.UndoDescription(); redoDesc = activeMaterialDoc->undo.RedoDescription();
 			}
+			else if (lastFocusedDocKind == FocusedDocKind::Animation && activeAnimationDoc)
+			{
+				canUndo = activeAnimationDoc->undo.CanUndo(); canRedo = activeAnimationDoc->undo.CanRedo();
+				undoDesc = activeAnimationDoc->undo.UndoDescription(); redoDesc = activeAnimationDoc->undo.RedoDescription();
+			}
 			const std::string undoLabel = canUndo ? ("Undo " + undoDesc) : "Undo";
 			const std::string redoLabel = canRedo ? ("Redo " + redoDesc) : "Redo";
 			if (ImGui::MenuItem(undoLabel.c_str(), "CTRL+Z", false, canUndo))
 			{
 				if (lastFocusedDocKind == FocusedDocKind::Scene && sceneView) sceneView->Undo();
+				else if (lastFocusedDocKind == FocusedDocKind::Animation && activeAnimationDoc) activeAnimationDoc->undo.Undo();
 				else if (activeMaterialDoc) activeMaterialDoc->undo.Undo();
 			}
 			if (ImGui::MenuItem(redoLabel.c_str(), "CTRL+SHIFT+Z", false, canRedo))
 			{
 				if (lastFocusedDocKind == FocusedDocKind::Scene && sceneView) sceneView->Redo();
+				else if (lastFocusedDocKind == FocusedDocKind::Animation && activeAnimationDoc) activeAnimationDoc->undo.Redo();
 				else if (activeMaterialDoc) activeMaterialDoc->undo.Redo();
 			}
 			ImGui::EndMenu();
@@ -1375,6 +1933,7 @@ void Editor::DrawUI()
 	// preview's leftover state bleeding into the main viewport, its gizmo,
 	// or its grid for the rest of this frame.
 	DrawMaterialEditorWindows();
+	DrawAnimationEditorWindows();
 
 	if (showingSceneTree)
 		DrawSceneTreeWindow();
@@ -1404,6 +1963,8 @@ void Editor::DrawUI()
 	// After every document window, so the ids parked by their close buttons
 	// this frame are resolved while those documents are still alive.
 	DrawUnsavedDocumentModal();
+	DrawSaveAnimationAsModal();
+	DrawAnimationAssetModals();
 
     ImGui::EndFrame();
     ImGui::Render();
@@ -1434,6 +1995,7 @@ bool Editor::CreateNewProject(const std::string& parentDir, const std::string& n
 	selectedAssetRel.clear();
 	CloseAllLuaScriptDocuments();
 	CloseAllMaterialDocuments();
+	CloseAllAnimationDocuments();
 	CloseAllSceneDocuments();
 	sceneView = CreateSceneDocument();
 	const std::string sceneAbs = project.AbsolutePath(project.GetActiveSceneRel());
@@ -1463,6 +2025,7 @@ bool Editor::OpenProjectFromPath(const std::string& path)
 	selectedAssetRel.clear();
 	CloseAllLuaScriptDocuments();
 	CloseAllMaterialDocuments();
+	CloseAllAnimationDocuments();
 	CloseAllSceneDocuments();
 	sceneView = CreateSceneDocument();
 	const std::string sceneAbs = project.AbsolutePath(project.GetActiveSceneRel());
@@ -1495,6 +2058,7 @@ void Editor::CloseProjectImmediate()
 	selectedAssetRel.clear();
 	CloseAllLuaScriptDocuments();
 	CloseAllMaterialDocuments();
+	CloseAllAnimationDocuments();
 	CloseAllSceneDocuments();
 	sceneView = CreateSceneDocument();
 	project.Close();
@@ -2332,6 +2896,534 @@ void Editor::DrawMaterialEditorWindows()
 		CloseMaterialDocument(closeIds[i]);
 }
 
+// ---- Animation documents ---------------------------------------------------
+
+AnimationEditorDocument* Editor::FindAnimationDocumentByPath(const std::string& absPath) const
+{
+	if (absPath.empty()) return NULL;
+	for (size_t i = 0; i < animationDocs.size(); ++i)
+		if (animationDocs[i] && animationDocs[i]->absolutePath == absPath) return animationDocs[i];
+	return NULL;
+}
+
+std::string Editor::LookupAnimationMeshBinding(const std::string& animAbsPath) const
+{
+	if (!project.IsOpen() || animAbsPath.empty()) return std::string();
+	const nlohmann::json& bindings = project.GetSettings().animationBindings;
+	if (!bindings.is_object()) return std::string();
+	const std::string rel = project.RelativePath(animAbsPath);
+	if (rel.empty()) return std::string();
+	auto it = bindings.find(rel);
+	if (it == bindings.end() || !it->is_string()) return std::string();
+	const std::string meshRel = it->get<std::string>();
+	if (meshRel.empty()) return std::string();
+	const std::string meshAbs = project.AbsolutePath(meshRel);
+	// A binding to a model that has since been deleted or renamed should
+	// fall back to guessing rather than handing the preview a path that
+	// fails to load.
+	std::error_code ec;
+	if (!fs::exists(meshAbs, ec)) return std::string();
+	return meshAbs;
+}
+
+void Editor::StoreAnimationMeshBinding(const std::string& animAbsPath, const std::string& meshAbsPath)
+{
+	if (!project.IsOpen() || animAbsPath.empty()) return;
+	const std::string rel = project.RelativePath(animAbsPath);
+	if (rel.empty()) return; // animation outside the project - nothing to key on
+
+	nlohmann::json& bindings = project.GetSettingsMutable().animationBindings;
+	if (!bindings.is_object()) bindings = nlohmann::json::object();
+	const std::string meshRel = project.RelativePath(meshAbsPath);
+	if (meshAbsPath.empty()) bindings.erase(rel);
+	else bindings[rel] = meshRel.empty() ? meshAbsPath : meshRel;
+	project.MarkDirty();
+	project.Save();
+}
+
+void Editor::BuildAnimationMeshChoices(std::vector<AnimationMeshChoice>& out) const
+{
+	out.clear();
+	if (!project.IsOpen()) return;
+	std::vector<ProjectAssetEntry> assets;
+	project.ListAssets("assets/models", assets, true);
+	for (size_t i = 0; i < assets.size(); ++i)
+	{
+		if (assets[i].isDirectory) continue;
+		if (!ProjectManager::IsP3dm(assets[i].relativePath)) continue;
+		if (ProjectManager::IsInternalAssetPath(assets[i].relativePath)) continue;
+		out.push_back(AnimationMeshChoice(assets[i].relativePath, project.AbsolutePath(assets[i].relativePath)));
+	}
+}
+
+std::string Editor::GuessAnimationMesh(const AnimationEditorDocument& doc) const
+{
+	// Score each candidate rig by how many of the clip's channel names it
+	// actually has bones for. A clip authored for a given character matches
+	// it near-perfectly and matches anything else hardly at all, so the top
+	// score is unambiguous in practice - and requiring a real majority
+	// (below) means "no good match" stays "no match" rather than binding a
+	// random model.
+	if (doc.clips.empty()) return std::string();
+
+	std::set<std::string> channelNames;
+	for (size_t c = 0; c < doc.clips.size(); ++c)
+		for (size_t ch = 0; ch < doc.clips[c].Channels.size(); ++ch)
+			channelNames.insert(doc.clips[c].Channels[ch].NodeName);
+	if (channelNames.empty()) return std::string();
+
+	std::vector<AnimationMeshChoice> meshes;
+	BuildAnimationMeshChoices(meshes);
+
+	std::string best;
+	size_t bestHits = 0;
+	for (size_t i = 0; i < meshes.size(); ++i)
+	{
+		// Loading a Model just to read its bone names is not cheap, but this
+		// runs once per animation-document open, not per frame, and the
+		// alternative (parsing .p3dm's binary skeleton block here) would be
+		// a second reader of that format to keep in sync.
+		std::shared_ptr<Renderable> mesh;
+		try { mesh = std::make_shared<Model>(meshes[i].second, true); }
+		catch (...) { continue; }
+		if (!mesh) continue;
+		RenderingComponent probe(mesh, ShaderUsage::Diffuse);
+		if (!probe.HasBones()) continue;
+
+		size_t hits = 0;
+		const std::map<StringID, Bone>& skel = probe.GetSkeleton();
+		for (std::map<StringID, Bone>::const_iterator b = skel.begin(); b != skel.end(); ++b)
+			if (channelNames.count(b->second.name) > 0) hits++;
+
+		if (hits > bestHits) { bestHits = hits; best = meshes[i].second; }
+	}
+
+	if (bestHits * 2 < channelNames.size()) return std::string();
+	return best;
+}
+
+AnimationEditorDocument* Editor::NewAnimationDocument(const std::string& meshPath)
+{
+	AnimationEditorDocument* doc = new AnimationEditorDocument();
+	doc->id = nextAnimationDocId++;
+	doc->displayName = "NewAnimation";
+	doc->meshPath = meshPath;
+	// A brand new document with no clip has nothing to key into, so it
+	// starts with one rather than making "+ Clip" a mandatory first step.
+	doc->activeClip = doc->AddClip("Clip", 1.f);
+	doc->dirty = true;
+	animationDocs.push_back(doc);
+	pendingSelectAnimationDocId = doc->id;
+	activeAnimationDoc = doc;
+	lastFocusedDocKind = FocusedDocKind::Animation;
+	return doc;
+}
+
+bool Editor::OpenAnimationDocument(const std::string& absPath)
+{
+	if (absPath.empty()) return false;
+
+	// A .p3dm opens a new, unsaved animation for that rig - "animate this
+	// character" is the natural thing to want from a model, and there is no
+	// clip file to open yet.
+	if (ProjectManager::IsP3dm(absPath))
+	{
+		AnimationEditorDocument* doc = NewAnimationDocument(absPath);
+		echo("New animation for " + project.DisplayPath(absPath));
+		return doc != NULL;
+	}
+
+	if (!ProjectManager::IsAnimationExtension(absPath))
+	{
+		echo("ERROR: Not an animation file: " + project.DisplayPath(absPath));
+		return false;
+	}
+
+	if (AnimationEditorDocument* existing = FindAnimationDocumentByPath(absPath))
+	{
+		pendingSelectAnimationDocId = existing->id;
+		activeAnimationDoc = existing;
+		lastFocusedDocKind = FocusedDocKind::Animation;
+		return true;
+	}
+
+	AnimationEditorDocument* doc = new AnimationEditorDocument();
+	doc->id = nextAnimationDocId++;
+	std::string err;
+	if (!doc->LoadFromFile(absPath, err))
+	{
+		echo("ERROR: " + err);
+		delete doc;
+		return false;
+	}
+
+	doc->meshPath = LookupAnimationMeshBinding(absPath);
+	if (doc->meshPath.empty())
+	{
+		doc->meshPath = GuessAnimationMesh(*doc);
+		if (!doc->meshPath.empty())
+		{
+			echo("Animation: matched rig " + project.DisplayPath(doc->meshPath) + " by bone names");
+			StoreAnimationMeshBinding(absPath, doc->meshPath);
+		}
+	}
+
+	animationDocs.push_back(doc);
+	pendingSelectAnimationDocId = doc->id;
+	activeAnimationDoc = doc;
+	lastFocusedDocKind = FocusedDocKind::Animation;
+	echo("Opened animation " + project.DisplayPath(absPath) + " ("
+		+ std::to_string(doc->clips.size()) + " clip(s))");
+	return true;
+}
+
+bool Editor::SaveAnimationDocument(AnimationEditorDocument* doc, const std::string& absPath)
+{
+	if (!doc) return false;
+	const std::string target = absPath.empty() ? doc->absolutePath : absPath;
+	if (target.empty()) return false;
+
+	std::error_code ec;
+	fs::create_directories(fs::path(target).parent_path(), ec);
+
+	std::string err;
+	if (!doc->SaveToFile(target, err))
+	{
+		echo("ERROR: " + err);
+		return false;
+	}
+	StoreAnimationMeshBinding(target, doc->meshPath);
+	echo("SUCCESS: Saved " + project.DisplayPath(target) + " ("
+		+ std::to_string(doc->clips.size()) + " clip(s))");
+	return true;
+}
+
+void Editor::CloseAnimationDocument(uint32_t id)
+{
+	for (size_t i = 0; i < animationDocs.size(); ++i)
+	{
+		if (!animationDocs[i] || animationDocs[i]->id != id) continue;
+		AnimationEditorDocument* doc = animationDocs[i];
+		if (activeAnimationDoc == doc) activeAnimationDoc = NULL;
+		animationDocs.erase(animationDocs.begin() + i);
+		// The document owns an AnimationPreview holding an FBO-backed
+		// renderer whose color texture this frame's ImGui draw list may
+		// still reference - the same mid-frame-free hazard the material
+		// previews are queued around. Deleting here is safe only because
+		// document closes are processed at the END of
+		// DrawAnimationEditorWindows(), after that window's ImGui::End(),
+		// and the image it submitted is not sampled again until the next
+		// frame's render... which is exactly the assumption that bit the
+		// material path. Defer it the same way instead of re-litigating it.
+		deferredDestroyAnimationDocs.push_back(doc);
+		return;
+	}
+}
+
+void Editor::CloseAllAnimationDocuments()
+{
+	for (size_t i = 0; i < animationDocs.size(); ++i)
+		delete animationDocs[i];
+	animationDocs.clear();
+	activeAnimationDoc = NULL;
+	pendingSelectAnimationDocId = 0;
+	pendingCloseAnimationId = 0;
+}
+
+void Editor::RequestCloseAnimationDocument(AnimationEditorDocument* doc, std::vector<uint32_t>& closeIds)
+{
+	if (!doc) return;
+	if (doc->dirty)
+	{
+		pendingCloseAnimationId = doc->id;
+		ImGui::OpenPopup("Unsaved Document");
+		return;
+	}
+	closeIds.push_back(doc->id);
+}
+
+void Editor::DrawAnimationEditorWindows()
+{
+	if (animationDocs.empty()) return;
+
+	// Same live dock-node retargeting the script/material windows do.
+	if (ImGuiWindow* sv = ImGui::FindWindowByName("Scene View"))
+	{
+		if (sv->DockId != 0) dockCenterId = sv->DockId;
+	}
+
+	std::vector<AnimationMeshChoice> meshes;
+	BuildAnimationMeshChoices(meshes);
+
+	const float dt = ImGui::GetIO().DeltaTime;
+	std::vector<uint32_t> closeIds;
+
+	for (size_t i = 0; i < animationDocs.size(); ++i)
+	{
+		AnimationEditorDocument* doc = animationDocs[i];
+		if (!doc) continue;
+
+		char title[512];
+		snprintf(title, sizeof(title), u8" %s###animation_win_%u", doc->displayName.c_str(), doc->id);
+
+		const bool forceDock = (pendingSelectAnimationDocId == doc->id);
+		if (dockCenterId != 0)
+			ImGui::SetNextWindowDockID(dockCenterId, forceDock ? ImGuiCond_Always : ImGuiCond_FirstUseEver);
+		if (forceDock) ImGui::SetNextWindowFocus();
+		ImGui::SetNextWindowSize(ImVec2(1100, 720), ImGuiCond_FirstUseEver);
+
+		bool open = true;
+		ImGuiWindowFlags wflags = ImGuiWindowFlags_None;
+		if (doc->dirty) wflags |= ImGuiWindowFlags_UnsavedDocument;
+
+		if (!ImGui::Begin(title, &open, wflags))
+		{
+			ImGui::End();
+			if (!open) RequestCloseAnimationDocument(doc, closeIds);
+			continue;
+		}
+
+		if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+		{
+			activeAnimationDoc = doc;
+			lastFocusedDocKind = FocusedDocKind::Animation;
+		}
+		if (pendingSelectAnimationDocId == doc->id) pendingSelectAnimationDocId = 0;
+
+		AnimationEditor::FrameRequests req;
+		AnimationEditor::DrawWindow(*doc, meshes, dt, req);
+
+		ImGui::End();
+
+		if (req.meshChanged)
+		{
+			doc->meshPath = req.newMeshPath;
+			doc->selectedBone = -1;
+			if (!doc->absolutePath.empty())
+				StoreAnimationMeshBinding(doc->absolutePath, doc->meshPath);
+		}
+		if (req.save)
+		{
+			if (doc->absolutePath.empty())
+			{
+				openSaveAnimationAsModal = true;
+				saveAnimationAsDocId = doc->id;
+				saveAnimationAsName = doc->displayName;
+				saveAnimationAsError.clear();
+				saveAnimationAsThenClose = false;
+			}
+			else SaveAnimationDocument(doc, doc->absolutePath);
+		}
+		if (req.saveAs)
+		{
+			openSaveAnimationAsModal = true;
+			saveAnimationAsDocId = doc->id;
+			saveAnimationAsName = doc->displayName;
+			saveAnimationAsError.clear();
+			saveAnimationAsThenClose = false;
+		}
+		if (req.close) RequestCloseAnimationDocument(doc, closeIds);
+		if (!open) RequestCloseAnimationDocument(doc, closeIds);
+	}
+
+	for (size_t i = 0; i < closeIds.size(); ++i)
+		CloseAnimationDocument(closeIds[i]);
+}
+
+void Editor::DrawSaveAnimationAsModal()
+{
+	if (openSaveAnimationAsModal)
+	{
+		ImGui::OpenPopup("Save Animation As");
+		openSaveAnimationAsModal = false;
+	}
+
+	ImGuiViewport* vp = ImGui::GetMainViewport();
+	if (vp) ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+	if (!ImGui::BeginPopupModal("Save Animation As", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+		return;
+
+	AnimationEditorDocument* doc = NULL;
+	for (size_t i = 0; i < animationDocs.size(); ++i)
+		if (animationDocs[i] && animationDocs[i]->id == saveAnimationAsDocId) { doc = animationDocs[i]; break; }
+	if (!doc)
+	{
+		// The document went away underneath the prompt (project close, quit).
+		saveAnimationAsDocId = 0;
+		ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
+		return;
+	}
+
+	ImGui::TextUnformatted("Save into assets/animations/");
+	ImGui::SetNextItemWidth(320.f);
+	ImGui::InputText("##animname", &saveAnimationAsName);
+	ImGui::SameLine();
+	ImGui::TextDisabled(".p3da");
+	if (!saveAnimationAsError.empty())
+		ImGui::TextColored(ImVec4(1.f, 0.45f, 0.4f, 1.f), "%s", saveAnimationAsError.c_str());
+
+	ImGui::Spacing();
+	if (ImGui::Button("Save", ImVec2(120, 0)))
+	{
+		if (saveAnimationAsName.empty()) saveAnimationAsError = "Name required";
+		else if (!project.IsOpen()) saveAnimationAsError = "No project open";
+		else
+		{
+			std::string name = saveAnimationAsName;
+			if (name.size() > 5 && name.compare(name.size() - 5, 5, ".p3da") == 0)
+				name = name.substr(0, name.size() - 5);
+			const std::string abs = project.AbsolutePath("assets/animations/" + name + ".p3da");
+			if (SaveAnimationDocument(doc, abs))
+			{
+				const bool closeAfter = saveAnimationAsThenClose;
+				const uint32_t docId = doc->id;
+				saveAnimationAsDocId = 0;
+				saveAnimationAsThenClose = false;
+				ImGui::CloseCurrentPopup();
+				if (closeAfter)
+				{
+					pendingCloseAnimationId = 0;
+					CloseAnimationDocument(docId);
+				}
+			}
+			else saveAnimationAsError = "Could not write the file - see the log";
+		}
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Cancel", ImVec2(120, 0)))
+	{
+		saveAnimationAsDocId = 0;
+		saveAnimationAsThenClose = false;
+		ImGui::CloseCurrentPopup();
+	}
+	ImGui::EndPopup();
+}
+
+void Editor::DrawAnimationAssetModals()
+{
+	if (openNewAnimationModal)
+	{
+		ImGui::OpenPopup("New Animation");
+		openNewAnimationModal = false;
+		newAnimationMeshPath.clear();
+	}
+	if (openImportAnimationModal)
+	{
+		ImGui::OpenPopup("Import Animation");
+		openImportAnimationModal = false;
+	}
+
+	ImGuiViewport* vp = ImGui::GetMainViewport();
+	if (vp) ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+	if (ImGui::BeginPopupModal("New Animation", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		ImGui::TextUnformatted("Rig to animate");
+		std::vector<AnimationMeshChoice> meshes;
+		BuildAnimationMeshChoices(meshes);
+
+		std::string label = "(none)";
+		for (size_t i = 0; i < meshes.size(); ++i)
+			if (meshes[i].second == newAnimationMeshPath) { label = meshes[i].first; break; }
+		ImGui::SetNextItemWidth(360.f);
+		if (ImGui::BeginCombo("##newanimrig", label.c_str()))
+		{
+			if (ImGui::Selectable("(none)", newAnimationMeshPath.empty()))
+				newAnimationMeshPath.clear();
+			for (size_t i = 0; i < meshes.size(); ++i)
+				if (ImGui::Selectable(meshes[i].first.c_str(), meshes[i].second == newAnimationMeshPath))
+					newAnimationMeshPath = meshes[i].second;
+			ImGui::EndCombo();
+		}
+		if (meshes.empty())
+			ImGui::TextDisabled("No models in this project yet - import one first.");
+		ImGui::TextDisabled("The file is written when you save.");
+
+		ImGui::Spacing();
+		if (ImGui::Button("Create", ImVec2(120, 0)))
+		{
+			NewAnimationDocument(newAnimationMeshPath);
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", ImVec2(120, 0)))
+			ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
+	}
+
+	if (vp) ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+	if (ImGui::BeginPopupModal("Import Animation", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		ImGui::TextUnformatted("Source file (fbx, dae, gltf, blend, ... or an existing .p3da)");
+		ImGui::SetNextItemWidth(420.f);
+		ImGui::InputText("##animsrc", &importAnimationSource);
+		ImGui::SameLine();
+		if (ImGui::Button("Browse##animsrc"))
+			ImGui::_priv::OpenLocation(importAnimationSource.empty() ? std::string() : fs::path(importAnimationSource).parent_path().string(),
+				"p3da,fbx,dae,gltf,glb,blend,3ds,x,smd,md5anim", &openImportAnimationBrowse);
+		if (openImportAnimationBrowse)
+		{
+			std::string picked;
+			if (ImGui::FilePath("##animsrcbrowse", "", "p3da,fbx,dae,gltf,glb,blend,3ds,x,smd,md5anim",
+				&picked, 1024, &openImportAnimationBrowse))
+			{
+				if (!picked.empty()) importAnimationSource = picked;
+			}
+		}
+
+		ImGui::TextUnformatted("Save as");
+		ImGui::SetNextItemWidth(300.f);
+		ImGui::InputText("##animimportname", &importAnimationName);
+		ImGui::SameLine();
+		ImGui::TextDisabled(".p3da  (blank = source filename)");
+
+		if (!importAnimationError.empty())
+			ImGui::TextColored(ImVec4(1.f, 0.45f, 0.4f, 1.f), "%s", importAnimationError.c_str());
+
+		ImGui::Spacing();
+		if (ImGui::Button("Import", ImVec2(120, 0)))
+		{
+			std::string out, err, trashed;
+			if (importAnimationSource.empty())
+				importAnimationError = "Pick a source file";
+			else if (project.ImportAnimation(importAnimationSource, importAnimationName, out, &err, &trashed))
+			{
+				const std::string rel = project.RelativePath(out);
+				echo("Imported animation: " + (rel.empty() ? out : rel));
+				if (sceneView && !trashed.empty() && !rel.empty())
+					sceneView->PushUndoCommand(std::make_unique<ImportOverwriteCommand>(&project, rel, trashed,
+						"Import (overwrite) '" + rel + "'"));
+				selectedAssetRel = rel;
+				project.Save();
+				OpenAnimationDocument(out);
+				importAnimationError.clear();
+				ImGui::CloseCurrentPopup();
+			}
+			else
+			{
+				importAnimationError = err;
+				echo("ERROR: " + err);
+			}
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", ImVec2(120, 0)))
+		{
+			importAnimationError.clear();
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
+}
+
+void Editor::FlushDeferredAnimationDocs()
+{
+	for (size_t i = 0; i < deferredDestroyAnimationDocs.size(); ++i)
+		delete deferredDestroyAnimationDocs[i];
+	deferredDestroyAnimationDocs.clear();
+}
+
 Editor::AssetMaterialKind Editor::GetAssetMaterialKind(const std::string& absPath)
 {
 	long long mtime = 0;
@@ -2393,7 +3485,7 @@ void Editor::RequestCloseMaterialDocument(MaterialEditorDocument* doc, std::vect
 // path left that threw edits away without asking.
 void Editor::DrawUnsavedDocumentModal()
 {
-	if (pendingCloseScriptId == 0 && pendingCloseMaterialId == 0)
+	if (pendingCloseScriptId == 0 && pendingCloseMaterialId == 0 && pendingCloseAnimationId == 0)
 		return;
 
 	// Resolve the pending id to a live document every frame rather than
@@ -2402,16 +3494,21 @@ void Editor::DrawUnsavedDocumentModal()
 	// dangling. A document that vanished simply cancels the prompt.
 	CodeEditorDocument* script = NULL;
 	MaterialEditorDocument* material = NULL;
+	AnimationEditorDocument* animation = NULL;
 	if (pendingCloseScriptId != 0)
 		for (size_t i = 0; i < scriptDocs.size(); ++i)
 			if (scriptDocs[i] && scriptDocs[i]->id == pendingCloseScriptId) { script = scriptDocs[i]; break; }
 	if (pendingCloseMaterialId != 0)
 		for (size_t i = 0; i < materialDocs.size(); ++i)
 			if (materialDocs[i] && materialDocs[i]->id == pendingCloseMaterialId) { material = materialDocs[i]; break; }
-	if (!script && !material)
+	if (pendingCloseAnimationId != 0)
+		for (size_t i = 0; i < animationDocs.size(); ++i)
+			if (animationDocs[i] && animationDocs[i]->id == pendingCloseAnimationId) { animation = animationDocs[i]; break; }
+	if (!script && !material && !animation)
 	{
 		pendingCloseScriptId = 0;
 		pendingCloseMaterialId = 0;
+		pendingCloseAnimationId = 0;
 		return;
 	}
 
@@ -2421,15 +3518,36 @@ void Editor::DrawUnsavedDocumentModal()
 
 	if (ImGui::BeginPopupModal("Unsaved Document", NULL, ImGuiWindowFlags_AlwaysAutoResize))
 	{
-		const std::string name = script ? script->displayName : material->displayName;
+		const std::string name = script ? script->displayName
+			: (material ? material->displayName : animation->displayName);
 		ImGui::Text("Save changes to '%s' before closing?", name.c_str());
-		ImGui::TextDisabled("%s", script ? "Script has unsaved edits." : "Material has unsaved edits.");
+		ImGui::TextDisabled("%s", script ? "Script has unsaved edits."
+			: (material ? "Material has unsaved edits." : "Animation has unsaved edits."));
 		ImGui::Spacing();
 
 		if (ImGui::Button("Save", ImVec2(110, 0)))
 		{
 			bool saved = false;
-			if (script)
+			if (animation)
+			{
+				// Never saved anywhere: hand it to the Save As prompt
+				// instead of inventing a path, and let that prompt finish
+				// the close (saveAnimationAsThenClose).
+				if (animation->absolutePath.empty())
+				{
+					openSaveAnimationAsModal = true;
+					saveAnimationAsDocId = animation->id;
+					saveAnimationAsName = animation->displayName;
+					saveAnimationAsError.clear();
+					saveAnimationAsThenClose = true;
+					pendingCloseAnimationId = 0;
+					ImGui::CloseCurrentPopup();
+					ImGui::EndPopup();
+					return;
+				}
+				saved = SaveAnimationDocument(animation, animation->absolutePath);
+			}
+			else if (script)
 			{
 				saved = script->SaveToFile();
 				if (saved)
@@ -2457,9 +3575,11 @@ void Editor::DrawUnsavedDocumentModal()
 			if (saved)
 			{
 				if (script) CloseLuaScriptDocument(pendingCloseScriptId);
-				else CloseMaterialDocument(pendingCloseMaterialId);
+				else if (material) CloseMaterialDocument(pendingCloseMaterialId);
+				else CloseAnimationDocument(pendingCloseAnimationId);
 				pendingCloseScriptId = 0;
 				pendingCloseMaterialId = 0;
+				pendingCloseAnimationId = 0;
 				ImGui::CloseCurrentPopup();
 			}
 		}
@@ -2467,9 +3587,11 @@ void Editor::DrawUnsavedDocumentModal()
 		if (ImGui::Button("Don't Save", ImVec2(110, 0)))
 		{
 			if (script) CloseLuaScriptDocument(pendingCloseScriptId);
-			else CloseMaterialDocument(pendingCloseMaterialId);
+			else if (material) CloseMaterialDocument(pendingCloseMaterialId);
+			else CloseAnimationDocument(pendingCloseAnimationId);
 			pendingCloseScriptId = 0;
 			pendingCloseMaterialId = 0;
+			pendingCloseAnimationId = 0;
 			ImGui::CloseCurrentPopup();
 		}
 		ImGui::SameLine();
@@ -2477,6 +3599,7 @@ void Editor::DrawUnsavedDocumentModal()
 		{
 			pendingCloseScriptId = 0;
 			pendingCloseMaterialId = 0;
+			pendingCloseAnimationId = 0;
 			ImGui::CloseCurrentPopup();
 		}
 		ImGui::EndPopup();
@@ -2743,6 +3866,7 @@ void Editor::DrawAssetsWindow()
 		const bool isSound = ProjectManager::IsSoundExtension(e.relativePath);
 		const bool isTex = ProjectManager::IsTextureExtension(e.relativePath);
 		const bool isMat = ProjectManager::IsMaterialExtension(e.relativePath);
+		const bool isAnim = ProjectManager::IsAnimationExtension(e.relativePath);
 		const bool selected = (selectedAssetRel == e.relativePath);
 
 		// Materials get an icon per kind, plus a corner badge below - the
@@ -2910,6 +4034,8 @@ void Editor::DrawAssetsWindow()
 				OpenLuaScriptDocument(abs);
 			else if (isMat)
 				OpenMaterialDocument(abs);
+			else if (isAnim)
+				OpenAnimationDocument(abs);
 			else if (isSound)
 			{
 				// Double-click sound also previews (same as play button).
@@ -2969,6 +4095,12 @@ void Editor::DrawAssetsWindow()
 				OpenLuaScriptDocument(abs);
 			if (isMat && ImGui::MenuItem("Open Material"))
 				OpenMaterialDocument(abs);
+			if (isAnim && ImGui::MenuItem("Open Animation"))
+				OpenAnimationDocument(abs);
+			// A model is the other way into the Animation Editor: it opens
+			// a new, empty clip already bound to that rig.
+			if (isModel && ImGui::MenuItem("Animate This Model"))
+				OpenAnimationDocument(abs);
 			if ((isModel || isSound) && ImGui::MenuItem("Place in Scene") && sceneView)
 				sceneView->PlaceAssetInScene(abs);
 			ImGui::EndPopup();
@@ -3082,6 +4214,7 @@ void Editor::Draw()
 	// After ImGui has consumed texture IDs from this frame's draw list.
 	FlushDeferredPreviewDestroy();
 	FlushDeferredPreviewRenderers();
+	FlushDeferredAnimationDocs();
 }
 
 void Editor::MouseMove(Event::Input::Info e)
@@ -3103,11 +4236,28 @@ void Editor::Shutdown()
 		welcomeLogo = NULL;
 	}
 
+	// Animation previews FIRST, before the scene documents go. Each one
+	// owns a PostEffectsManager whose device pointer is *borrowed* from the
+	// process-wide active render device (see ResolvePostEffectsDevice), and
+	// ~PostEffectsManager's very first statement is device->WaitIdle().
+	// Tearing down the scene documents clears/destroys that device - measured
+	// directly: at this point after CloseAllSceneDocuments(),
+	// IsActiveRenderDeviceSet() is already false - so destroying a preview
+	// afterwards dereferences a freed device and segfaults on every clean
+	// exit that had an animation tab open. Same latent hazard IRenderer's
+	// ResolveInitialDevice() comment describes for renderers outliving their
+	// device; the fix here is simply to go first, while it is still alive.
+	CloseAllAnimationDocuments();
+	FlushDeferredAnimationDocs();
+
 	CloseAllSceneDocuments();
 	CloseAllLuaScriptDocuments();
 	CloseAllMaterialDocuments();
 	// CloseAllMaterialDocuments() queued any live previews above - finish
-	// them now (no more frames coming on the shutdown path).
+	// them now (no more frames coming on the shutdown path). NOTE: a
+	// MaterialPreview holds a PostEffectsManager too, so this has the same
+	// dangling-device exposure the animation previews were moved above to
+	// avoid; it just needs a material tab open at quit to show it.
 	FlushDeferredPreviewRenderers();
 	sceneView = NULL;
 
@@ -3590,6 +4740,7 @@ Editor::~Editor()
 	// Belt and braces for shutdown paths that delete the editor without a
 	// full Shutdown() (queued material previews must not leak).
 	FlushDeferredPreviewRenderers();
+	FlushDeferredAnimationDocs();
 	if (instance == this) {
 		instance = NULL;
 	}
