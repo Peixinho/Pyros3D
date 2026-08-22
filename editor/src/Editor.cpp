@@ -653,7 +653,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		|| name == "add_animation_clip" || name == "remove_animation_clip"
 		|| name == "rename_animation_clip" || name == "set_animation_clip_duration"
 		|| name == "select_animation_bone" || name == "undo_animation" || name == "redo_animation"
-		|| name == "animation_blend")
+		|| name == "animation_blend" || name == "animation_ik" || name == "animation_joint_limit")
 	{
 		if (name == "list_animations")
 		{
@@ -1292,6 +1292,203 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			r["canUndo"] = doc->undo.CanUndo();
 			r["canRedo"] = doc->undo.CanRedo();
 			r["description"] = doc->undo.UndoDescription();
+			return r;
+		}
+
+		if (name == "animation_ik")
+		{
+			if (!pv || !pv->instance) throw std::runtime_error("no rig bound - pass \"mesh\" to open_animation");
+			const std::string action = A("action").empty() ? std::string("list") : A("action");
+
+			// Chains are addressed by name, matching the rig sidecar. Index
+			// would be the obvious alternative and is exactly the mistake
+			// clip ids used to make.
+			const std::string chainName = A("name");
+			int idx = -1;
+			for (size_t i = 0; i < doc->ikHandles.size(); i++)
+				if (doc->ikHandles[i].name == chainName) { idx = (int)i; break; }
+
+			auto describe = [&]() {
+				nlohmann::json r;
+				nlohmann::json arr = nlohmann::json::array();
+				for (size_t i = 0; i < doc->ikHandles.size(); i++)
+				{
+					const AnimationEditorDocument::IKHandle& h = doc->ikHandles[i];
+					nlohmann::json c;
+					c["name"] = h.name;
+					c["root"] = h.rootBone;
+					c["effector"] = h.effectorBone;
+					c["target"] = { h.target.x, h.target.y, h.target.z };
+					c["usePole"] = h.usePole;
+					if (h.usePole) c["pole"] = { h.pole.x, h.pole.y, h.pole.z };
+					// Resolution is the one thing that can silently be wrong,
+					// so it is always reported rather than left to be guessed.
+					const int rootId = pv->BoneIdByName(h.rootBone);
+					const int effId = pv->BoneIdByName(h.effectorBone);
+					if (rootId < 0 || effId < 0) c["resolved"] = false;
+					else
+					{
+						const std::vector<int32> chain = IKSolver::BuildChain(pv->instance, rootId, effId);
+						c["resolved"] = !chain.empty();
+						c["boneCount"] = (int)chain.size();
+						c["solver"] = chain.size() == 3 ? "two-bone (exact)" : "FABRIK";
+						nlohmann::json names = nlohmann::json::array();
+						for (size_t k = 0; k < chain.size(); k++) names.push_back(pv->BoneName((int)chain[k]));
+						c["bones"] = names;
+					}
+					arr.push_back(c);
+				}
+				r["chains"] = arr;
+				r["rigPath"] = doc->rigPath;
+				r["rigDirty"] = doc->rigDirty;
+				r["canUndo"] = doc->undo.CanUndo();
+				r["canRedo"] = doc->undo.CanRedo();
+				return r;
+			};
+
+			if (action == "list") return describe();
+
+			if (action == "add")
+			{
+				if (chainName.empty()) throw std::runtime_error("\"name\" is required");
+				if (idx >= 0) throw std::runtime_error("a chain named '" + chainName + "' already exists");
+				AnimationEditorDocument::IKHandle h;
+				h.name = chainName;
+				h.rootBone = A("root");
+				h.effectorBone = A("effector");
+				if (a.contains("target") && a["target"].is_array() && a["target"].size() == 3)
+					h.target = Vec3(a["target"][0].get<f32>(), a["target"][1].get<f32>(), a["target"][2].get<f32>());
+				else if (!h.effectorBone.empty())
+				{
+					const int e = pv->BoneIdByName(h.effectorBone);
+					if (e >= 0) h.target = pv->instance->GetBoneGlobalTransform(e).GetTranslation();
+				}
+				if (a.contains("pole") && a["pole"].is_array() && a["pole"].size() == 3)
+				{
+					h.pole = Vec3(a["pole"][0].get<f32>(), a["pole"][1].get<f32>(), a["pole"][2].get<f32>());
+					h.usePole = true;
+				}
+				doc->PushSnapshotEdit("Add IK chain '" + chainName + "'", [&]() {
+					doc->ikHandles.push_back(h);
+					doc->activeIK = (int)doc->ikHandles.size() - 1;
+				});
+				return describe();
+			}
+
+			if (idx < 0) throw std::runtime_error("no IK chain named '" + chainName + "'");
+
+			if (action == "remove")
+			{
+				doc->PushSnapshotEdit("Remove IK chain '" + chainName + "'", [&]() {
+					doc->ikHandles.erase(doc->ikHandles.begin() + idx);
+					doc->activeIK = doc->ikHandles.empty() ? -1 : 0;
+				});
+				return describe();
+			}
+
+			if (action == "set")
+			{
+				doc->PushSnapshotEdit("Edit IK chain '" + chainName + "'", [&]() {
+					AnimationEditorDocument::IKHandle& h = doc->ikHandles[idx];
+					if (!A("root").empty()) h.rootBone = A("root");
+					if (!A("effector").empty()) h.effectorBone = A("effector");
+					if (a.contains("target") && a["target"].is_array() && a["target"].size() == 3)
+						h.target = Vec3(a["target"][0].get<f32>(), a["target"][1].get<f32>(), a["target"][2].get<f32>());
+					if (a.contains("pole") && a["pole"].is_array() && a["pole"].size() == 3)
+					{
+						h.pole = Vec3(a["pole"][0].get<f32>(), a["pole"][1].get<f32>(), a["pole"][2].get<f32>());
+						h.usePole = true;
+					}
+					if (a.contains("usePole")) h.usePole = a["usePole"].get<bool>();
+				});
+				doc->activeIK = idx;
+				return describe();
+			}
+
+			if (action == "solve" || action == "key" || action == "bake")
+			{
+				doc->activeIK = idx;
+				nlohmann::json r = describe();
+				const AnimationEditorDocument::IKHandle& h = doc->ikHandles[idx];
+
+				if (action == "bake")
+				{
+					const f32 from = a.value("from", 0.f);
+					const f32 to = a.value("to", doc->HasActiveClip() ? doc->clips[doc->activeClip].Duration : 0.f);
+					r["keyed"] = AnimationEditor::BakeIKOverRange(*doc, h, from, to);
+					r["from"] = from;
+					r["to"] = to;
+				}
+				else
+				{
+					if (const Animation* clip = doc->ActiveClip())
+						pv->instance->ApplyAnimationAtTime(*clip, doc->playhead);
+					if (!AnimationEditor::ApplyIK(*doc, h))
+						throw std::runtime_error("chain '" + chainName + "' could not be solved - check root/effector");
+					if (action == "key")
+						doc->PushSnapshotEdit("Key IK '" + chainName + "'", [&]() {
+							r["keyed"] = AnimationEditor::KeyIKChain(*doc, h, doc->SnapTime(doc->playhead));
+						});
+					// Where the effector actually landed, so a caller can
+					// check the solve rather than trust it.
+					const int e = pv->BoneIdByName(h.effectorBone);
+					if (e >= 0)
+					{
+						const Vec3 got = pv->instance->GetBoneGlobalTransform(e).GetTranslation();
+						r["effectorPosition"] = { got.x, got.y, got.z };
+						r["targetError"] = (got - h.target).magnitude();
+					}
+				}
+				r["canUndo"] = doc->undo.CanUndo();
+				return r;
+			}
+
+			throw std::runtime_error("unknown animation_ik action '" + action + "' (list/add/remove/set/solve/key/bake)");
+		}
+
+		if (name == "animation_joint_limit")
+		{
+			if (!pv || !pv->instance) throw std::runtime_error("no rig bound - pass \"mesh\" to open_animation");
+
+			// Degrees at this boundary, like the rig file and the bone
+			// inspector - radians are an engine-internal detail.
+			const std::string bone = A("bone");
+			if (!bone.empty() && (a.contains("minDeg") || a.contains("maxDeg") || a.contains("enabled")))
+			{
+				doc->PushSnapshotEdit("Set joint limit on '" + bone + "'", [&]() {
+					JointLimit& lim = doc->rig.JointLimits[bone];
+					lim.Enabled = a.value("enabled", true);
+					if (a.contains("minDeg") && a["minDeg"].is_array() && a["minDeg"].size() == 3)
+						lim.Min = Vec3((f32)DEGTORAD(a["minDeg"][0].get<f32>()),
+							(f32)DEGTORAD(a["minDeg"][1].get<f32>()),
+							(f32)DEGTORAD(a["minDeg"][2].get<f32>()));
+					if (a.contains("maxDeg") && a["maxDeg"].is_array() && a["maxDeg"].size() == 3)
+						lim.Max = Vec3((f32)DEGTORAD(a["maxDeg"][0].get<f32>()),
+							(f32)DEGTORAD(a["maxDeg"][1].get<f32>()),
+							(f32)DEGTORAD(a["maxDeg"][2].get<f32>()));
+				});
+				doc->rigDirty = true;
+			}
+
+			if (a.value("save", false) && !doc->SaveRig())
+				throw std::runtime_error("could not write " + doc->rigPath);
+
+			nlohmann::json r;
+			nlohmann::json arr = nlohmann::json::array();
+			for (std::map<std::string, JointLimit>::const_iterator it = doc->rig.JointLimits.begin();
+				it != doc->rig.JointLimits.end(); ++it)
+			{
+				nlohmann::json l;
+				l["bone"] = it->first;
+				l["enabled"] = it->second.Enabled;
+				l["minDeg"] = { (f32)RADTODEG(it->second.Min.x), (f32)RADTODEG(it->second.Min.y), (f32)RADTODEG(it->second.Min.z) };
+				l["maxDeg"] = { (f32)RADTODEG(it->second.Max.x), (f32)RADTODEG(it->second.Max.y), (f32)RADTODEG(it->second.Max.z) };
+				arr.push_back(l);
+			}
+			r["jointLimits"] = arr;
+			r["rigPath"] = doc->rigPath;
+			r["rigDirty"] = doc->rigDirty;
+			r["canUndo"] = doc->undo.CanUndo();
 			return r;
 		}
 

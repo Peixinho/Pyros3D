@@ -18,7 +18,10 @@
 #include <utility>
 #include <vector>
 
-struct AnimationEditorDocument;
+// Included rather than forward-declared: the IK helpers below take
+// AnimationEditorDocument::IKHandle, a nested type that needs the full
+// definition. No cycle - the document header does not include this one.
+#include "../AnimationEditorDocument.h"
 
 // One selectable mesh in the rig picker: display label + absolute path.
 typedef std::pair<std::string, std::string> AnimationMeshChoice;
@@ -74,6 +77,21 @@ int KeyWholeSkeleton(AnimationEditorDocument& doc, float time);
 // Deletes every currently selected key column. Wrapped in one undo command.
 // Returns how many columns were removed.
 int DeleteSelectedKeys(AnimationEditorDocument& doc);
+
+// ---- inverse kinematics ---------------------------------------------------
+// Shared by the IK panel and the agent socket, so a scripted solve and a
+// clicked one go through exactly the same code - the same reason the runtime
+// and the editor share IKSolver rather than each having their own.
+
+// Solves `h` against whatever pose is currently on the rig. False if the
+// chain's bones do not resolve against the bound mesh.
+bool ApplyIK(AnimationEditorDocument& doc, const AnimationEditorDocument::IKHandle& h);
+// Keys every bone of the chain at `time`. Assumes ApplyIK has just run.
+int KeyIKChain(AnimationEditorDocument& doc, const AnimationEditorDocument::IKHandle& h, float time);
+// Re-samples the clip and solves once per frame across the range, keying each
+// result. Pushes one undo entry for the whole bake.
+int BakeIKOverRange(AnimationEditorDocument& doc, const AnimationEditorDocument::IKHandle& h,
+	float startTime, float endTime);
 
 // Sets the playhead, clearing any uncommitted pose (see poseOverrides) so
 // scrubbing always shows what the clip actually contains.

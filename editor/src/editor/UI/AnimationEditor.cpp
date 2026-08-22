@@ -7,6 +7,8 @@
 #include "../AnimationEditorDocument.h"
 #include "../AnimationPreview.h"
 
+#include <Pyros3D/AnimationManager/IKSolver.h>
+
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -105,6 +107,9 @@ void EnsurePreview(AnimationEditorDocument& doc)
 	{
 		doc.preview->LoadMesh(doc.meshPath);
 		ResolveSelectedBone(doc);
+		// Bone masks, joint limits and IK chains belong to the skeleton, so
+		// they arrive with it rather than with the clip.
+		doc.LoadRigForMesh();
 	}
 	else if (doc.meshPath.empty() && !doc.preview->loadedMeshPath.empty())
 	{
@@ -174,6 +179,88 @@ int KeyWholeSkeleton(AnimationEditorDocument& doc, float time)
 		for (uint32 i = 0; i < count; i++)
 			if (KeyBoneAtTime(doc, (int)i, t)) keyed++;
 	});
+	pv->poseOverrides.clear();
+	return keyed;
+}
+
+// Resolves an IK handle's bone names against the currently bound mesh.
+// Returns false if either end is missing, which happens routinely when a
+// handle authored for one rig is looked at with another mesh bound.
+bool ResolveIK(AnimationEditorDocument& doc, const AnimationEditorDocument::IKHandle& h,
+	int& outRoot, int& outEffector)
+{
+	AnimationPreview* pv = doc.preview.get();
+	if (!pv || !pv->instance) return false;
+	outRoot = pv->BoneIdByName(h.rootBone);
+	outEffector = pv->BoneIdByName(h.effectorBone);
+	return outRoot >= 0 && outEffector >= 0;
+}
+
+// Solves one handle against the pose currently on the rig.
+bool ApplyIK(AnimationEditorDocument& doc, const AnimationEditorDocument::IKHandle& h)
+{
+	AnimationPreview* pv = doc.preview.get();
+	int root = -1, effector = -1;
+	if (!ResolveIK(doc, h, root, effector)) return false;
+
+	// Without limits a knee bends backwards: both solutions reach the target
+	// and nothing in the maths prefers the anatomically possible one.
+	// Resolved per solve rather than cached, since editing a limit has to
+	// take effect on the very next solve for the UI to feel connected.
+	const std::map<p3d::int32, p3d::JointLimit> limits = doc.rig.ResolveLimits(pv->instance);
+	return p3d::IKSolver::Solve(pv->instance, root, effector, h.target,
+		h.usePole ? h.pole : p3d::Vec3(0.f, 0.f, 0.f), 10,
+		limits.empty() ? NULL : &limits);
+}
+
+// Keys every bone of a chain at `time`. The solver has already written the
+// chain's local transforms, so this is the same path a hand-posed bone takes -
+// which is the whole point: nothing downstream can tell the keys came from IK.
+int KeyIKChain(AnimationEditorDocument& doc, const AnimationEditorDocument::IKHandle& h, float time)
+{
+	AnimationPreview* pv = doc.preview.get();
+	int root = -1, effector = -1;
+	if (!ResolveIK(doc, h, root, effector)) return 0;
+
+	const std::vector<p3d::int32> chain = p3d::IKSolver::BuildChain(pv->instance, root, effector);
+	int keyed = 0;
+	for (size_t i = 0; i < chain.size(); i++)
+		if (KeyBoneAtTime(doc, (int)chain[i], time)) keyed++;
+	return keyed;
+}
+
+// Solves and keys across a frame range - "bake over range". This is the
+// feature IK exists for in an authoring tool: a foot planted on the ground
+// while the hips move is not something anyone keys by hand.
+//
+// Each frame re-establishes the pose from the clip BEFORE solving, so the
+// bake is a pure function of (clip time, target) exactly as IKSolver::Solve
+// documents. Carrying the previous frame's solved pose into the next would
+// make the result depend on which direction the range was walked.
+int BakeIKOverRange(AnimationEditorDocument& doc, const AnimationEditorDocument::IKHandle& h,
+	float startTime, float endTime)
+{
+	AnimationPreview* pv = doc.preview.get();
+	if (!pv || !pv->instance || !doc.HasActiveClip()) return 0;
+
+	const float fps = (doc.snapFps > 0.f ? doc.snapFps : 30.f);
+	const float step = 1.f / fps;
+	if (endTime < startTime) std::swap(startTime, endTime);
+
+	const p3d::Animation* clip = doc.ActiveClip();
+	int keyed = 0;
+	doc.PushSnapshotEdit("Bake IK: " + h.name, [&]() {
+		for (float t = startTime; t <= endTime + step * 0.5f; t += step)
+		{
+			const float snapped = doc.SnapTime(t);
+			// Re-pose from the clip first - see the determinism note above.
+			if (clip) pv->instance->ApplyAnimationAtTime(*clip, snapped);
+			else      pv->instance->ResetToBindPose();
+			if (!ApplyIK(doc, h)) break;
+			keyed += KeyIKChain(doc, h, snapped);
+		}
+	});
+
 	pv->poseOverrides.clear();
 	return keyed;
 }
@@ -291,12 +378,13 @@ void DrawToolbar(AnimationEditorDocument& doc, const std::vector<AnimationMeshCh
 	if (ImGui::BeginPopup("##delclip"))
 	{
 		ImGui::TextUnformatted("Delete this clip?");
-		// Removing a clip shifts every later clip's id down by one, and
-		// those ids are what scenes play by. Saying so beats a silent
-		// renumber that breaks a scene the user isn't looking at.
+		// The old warning here said later clips shift id and scenes playing
+		// them would break. Scenes now save a clip's guid and resolve
+		// through SkeletonAnimation::ResolveAnimationID, so a renumber is
+		// no longer silently destructive - only scenes that referenced THIS
+		// clip are affected, and those warn on load.
 		if (doc.activeClip < (int)doc.clips.size() - 1)
-			ImGui::TextColored(ImVec4(1.f, 0.75f, 0.3f, 1.f),
-				"Clips after it shift down one id.\nScenes playing those ids will play the wrong clip.");
+			ImGui::TextDisabled("Later clips shift id; scenes resolve by guid, so they follow.");
 		if (ImGui::Button("Delete"))
 		{
 			const int idx = doc.activeClip;
@@ -342,6 +430,53 @@ void DrawToolbar(AnimationEditorDocument& doc, const std::vector<AnimationMeshCh
 		}
 		if (ImGui::IsItemActivated()) doc.BeginInteractiveEdit();
 		if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndInteractiveEdit("Change clip length");
+
+		// Clip-level switches live behind a popup rather than inline - the
+		// toolbar is already a single long row, and these are set once per
+		// clip rather than adjusted constantly.
+		ImGui::SameLine();
+		if (ImGui::Button("Clip Settings")) ImGui::OpenPopup("##clipflags");
+		if (ImGui::BeginPopup("##clipflags"))
+		{
+			bool loop = clip.HasFlag(p3d::ANIM_FLAG_LOOP);
+			if (ImGui::Checkbox("Loop", &loop))
+			{
+				doc.PushSnapshotEdit(loop ? "Enable looping" : "Disable looping", [&]() {
+					if (loop) clip.Flags |= p3d::ANIM_FLAG_LOOP;
+					else      clip.Flags &= ~(uint32_t)p3d::ANIM_FLAG_LOOP;
+				});
+			}
+			ImGui::SetItemTooltip("Records that this clip is meant to cycle.\n"
+				"Play()'s repetition argument still drives actual looping.");
+
+			bool applyScale = clip.HasFlag(p3d::ANIM_FLAG_APPLY_SCALE);
+			if (ImGui::Checkbox("Apply scale keys", &applyScale))
+			{
+				doc.PushSnapshotEdit(applyScale ? "Enable scale keys" : "Disable scale keys", [&]() {
+					if (applyScale) clip.Flags |= p3d::ANIM_FLAG_APPLY_SCALE;
+					else            clip.Flags &= ~(uint32_t)p3d::ANIM_FLAG_APPLY_SCALE;
+				});
+				doc.clipsRevision++;
+			}
+			ImGui::SetItemTooltip("Scale keys have always been stored but never applied to the mesh.\n"
+				"Turning this on changes how THIS clip deforms - other clips are untouched.");
+
+			ImGui::Separator();
+			ImGui::SetNextItemWidth(90.f);
+			float fps = clip.AuthoredFps > 0.f ? clip.AuthoredFps : doc.snapFps;
+			if (ImGui::DragFloat("Authored fps", &fps, 1.f, 1.f, 240.f, "%.0f"))
+			{
+				clip.AuthoredFps = fps;
+				// The snap grid follows the clip's own frame rate, which is
+				// the whole point of recording it - reopening a 24fps clip
+				// used to silently snap it to the editor's default 30.
+				doc.snapFps = fps;
+				doc.dirty = true;
+			}
+			if (ImGui::IsItemActivated()) doc.BeginInteractiveEdit();
+			if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndInteractiveEdit("Change authored fps");
+			ImGui::EndPopup();
+		}
 	}
 
 	ImGui::SameLine();
@@ -674,6 +809,303 @@ void DrawBlendPanel(AnimationEditorDocument& doc, FrameRequests& requests)
 	ImGui::EndChild();
 }
 
+void DrawIKPanel(AnimationEditorDocument& doc)
+{
+	AnimationPreview* pv = doc.preview.get();
+	if (!pv || !pv->instance)
+	{
+		ImGui::TextDisabled("Bind a mesh to set up IK chains.");
+		return;
+	}
+	if (!doc.HasActiveClip())
+	{
+		ImGui::TextDisabled("IK writes ordinary keys, so it needs an active clip.");
+		return;
+	}
+
+	const std::vector<Bone>& bones = pv->instance->GetSkeletonBones();
+
+	// ---- chain list ----------------------------------------------------
+	ImGui::SetNextItemWidth(200.f);
+	const std::string label = doc.HasActiveIK() ? doc.ikHandles[doc.activeIK].name : std::string("(no chains)");
+	if (ImGui::BeginCombo("##ikchain", label.c_str()))
+	{
+		for (size_t i = 0; i < doc.ikHandles.size(); i++)
+			if (ImGui::Selectable(doc.ikHandles[i].name.c_str(), (int)i == doc.activeIK))
+				doc.activeIK = (int)i;
+		ImGui::EndCombo();
+	}
+
+	ImGui::SameLine();
+	if (ImGui::Button("+ Chain"))
+	{
+		doc.BeginInteractiveEdit();
+		AnimationEditorDocument::IKHandle h;
+		h.name = "Chain " + std::to_string(doc.ikHandles.size() + 1);
+		// Seed from the selected bone and its grandparent, which is the
+		// two-bone case (thigh/calf/foot) more often than not.
+		if (doc.selectedBone >= 0)
+		{
+			h.effectorBone = pv->BoneName(doc.selectedBone);
+			const int parent = bones[doc.selectedBone].parent;
+			if (parent >= 0 && bones[parent].parent >= 0)
+				h.rootBone = pv->BoneName(bones[parent].parent);
+		}
+		h.target = pv->instance->GetBoneGlobalTransform(
+			doc.selectedBone >= 0 ? doc.selectedBone : 0).GetTranslation();
+		doc.ikHandles.push_back(h);
+		doc.activeIK = (int)doc.ikHandles.size() - 1;
+		doc.EndInteractiveEdit("Add IK chain");
+	}
+	if (doc.HasActiveIK())
+	{
+		ImGui::SameLine();
+		if (ImGui::Button("Remove Chain"))
+		{
+			const int idx = doc.activeIK;
+			doc.PushSnapshotEdit("Remove IK chain", [&]() {
+				doc.ikHandles.erase(doc.ikHandles.begin() + idx);
+				doc.activeIK = doc.ikHandles.empty() ? -1 : 0;
+			});
+		}
+	}
+
+	if (!doc.HasActiveIK()) return;
+	AnimationEditorDocument::IKHandle& h = doc.ikHandles[doc.activeIK];
+
+	ImGui::Separator();
+	ImGui::SetNextItemWidth(200.f);
+	ImGui::InputText("Name", &h.name);
+	// Same per-keystroke reasoning as the clip name field: one undo entry per
+	// character typed would be useless.
+	if (ImGui::IsItemActivated()) doc.BeginInteractiveEdit();
+	if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndInteractiveEdit("Rename IK chain");
+
+	// ---- endpoints -----------------------------------------------------
+	// Bone pickers rather than free text: a typo'd bone name is a chain
+	// that silently never solves.
+	const char* ends[2] = { "Root", "Effector" };
+	std::string* target[2] = { &h.rootBone, &h.effectorBone };
+	for (int e = 0; e < 2; e++)
+	{
+		ImGui::SetNextItemWidth(200.f);
+		if (ImGui::BeginCombo(ends[e], target[e]->c_str()))
+		{
+			for (size_t i = 0; i < bones.size(); i++)
+				if (ImGui::Selectable(bones[i].name.c_str(), bones[i].name == *target[e]))
+				{
+					const std::string picked = bones[i].name;
+					std::string* slot = target[e];
+					doc.PushSnapshotEdit(e == 0 ? "Set IK root" : "Set IK effector",
+						[&]() { *slot = picked; });
+				}
+			ImGui::EndCombo();
+		}
+		if (e == 0)
+		{
+			ImGui::SameLine();
+			if (ImGui::Button("Use selected##root") && doc.selectedBone >= 0)
+				doc.PushSnapshotEdit("Set IK root", [&]() { h.rootBone = pv->BoneName(doc.selectedBone); });
+		}
+		else
+		{
+			ImGui::SameLine();
+			if (ImGui::Button("Use selected##eff") && doc.selectedBone >= 0)
+				doc.PushSnapshotEdit("Set IK effector", [&]() { h.effectorBone = pv->BoneName(doc.selectedBone); });
+		}
+	}
+
+	// Report the resolved chain, since "root and effector are not on the
+	// same parent chain" is the one way setup can be wrong and otherwise
+	// shows up only as nothing happening.
+	int root = -1, effector = -1;
+	const bool resolved = ResolveIK(doc, h, root, effector);
+	std::vector<p3d::int32> chain;
+	if (resolved) chain = p3d::IKSolver::BuildChain(pv->instance, root, effector);
+
+	if (!resolved)
+		ImGui::TextColored(ImVec4(1.f, 0.5f, 0.4f, 1.f), "Root or effector is not a bone of this mesh.");
+	else if (chain.empty())
+		ImGui::TextColored(ImVec4(1.f, 0.5f, 0.4f, 1.f), "Not on the same parent chain - the effector must descend from the root.");
+	else
+	{
+		std::string desc;
+		for (size_t i = 0; i < chain.size(); i++)
+			desc += (i ? " -> " : "") + pv->BoneName((int)chain[i]);
+		ImGui::TextDisabled("%zu bones (%s): %s", chain.size(),
+			chain.size() == 3 ? "exact two-bone solve" : "FABRIK", desc.c_str());
+	}
+
+	// ---- target --------------------------------------------------------
+	ImGui::Separator();
+	float t[3] = { h.target.x, h.target.y, h.target.z };
+	if (ImGui::DragFloat3("Target", t, 0.05f))
+		h.target = p3d::Vec3(t[0], t[1], t[2]);
+	if (ImGui::IsItemActivated()) doc.BeginInteractiveEdit();
+	if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndInteractiveEdit("Move IK target");
+	ImGui::SameLine();
+	if (ImGui::Button("Snap to effector") && effector >= 0)
+		doc.PushSnapshotEdit("Snap IK target to effector",
+			[&]() { h.target = pv->instance->GetBoneGlobalTransform(effector).GetTranslation(); });
+
+	if (ImGui::Checkbox("Pole", &h.usePole))
+	{
+		// Checkbox already flipped the value, so the snapshot has to bracket
+		// the flip rather than repeat it - push a no-op edit around the state
+		// as it now stands.
+		const bool now = h.usePole;
+		h.usePole = !now;
+		doc.PushSnapshotEdit(now ? "Enable IK pole" : "Disable IK pole", [&]() { h.usePole = now; });
+	}
+	if (h.usePole)
+	{
+		ImGui::SameLine();
+		float pl[3] = { h.pole.x, h.pole.y, h.pole.z };
+		ImGui::SetNextItemWidth(220.f);
+		if (ImGui::DragFloat3("##pole", pl, 0.05f))
+			h.pole = p3d::Vec3(pl[0], pl[1], pl[2]);
+		if (ImGui::IsItemActivated()) doc.BeginInteractiveEdit();
+		if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndInteractiveEdit("Move IK pole");
+		ImGui::SetItemTooltip("Which way the knee/elbow points. Only affects the bend direction -\n"
+			"it cannot move the effector off the target.");
+	}
+
+	// ---- solve and key --------------------------------------------------
+	ImGui::Separator();
+	const bool solvable = resolved && !chain.empty();
+	ImGui::BeginDisabled(!solvable);
+
+	if (ImGui::Button("Solve at playhead"))
+	{
+		if (const p3d::Animation* clip = doc.ActiveClip())
+			pv->instance->ApplyAnimationAtTime(*clip, doc.playhead);
+		if (ApplyIK(doc, h))
+			for (size_t i = 0; i < chain.size(); i++)
+				pv->poseOverrides[(int)chain[i]] = pv->instance->GetBoneLocalTransform(chain[i]);
+	}
+	ImGui::SetItemTooltip("Poses the chain without keying, so you can look before committing.");
+
+	ImGui::SameLine();
+	if (ImGui::Button("Key at playhead"))
+	{
+		const float time = doc.SnapTime(doc.playhead);
+		if (const p3d::Animation* clip = doc.ActiveClip())
+			pv->instance->ApplyAnimationAtTime(*clip, time);
+		if (ApplyIK(doc, h))
+		{
+			doc.PushSnapshotEdit("Key IK: " + h.name, [&]() { KeyIKChain(doc, h, time); });
+			pv->poseOverrides.clear();
+		}
+	}
+
+	ImGui::Separator();
+	ImGui::TextDisabled("Bake over range");
+	ImGui::SetNextItemWidth(90.f);
+	ImGui::DragFloat("From", &doc.ikBakeStart, 0.02f, 0.f, doc.clips[doc.activeClip].Duration, "%.2fs");
+	ImGui::SameLine();
+	ImGui::SetNextItemWidth(90.f);
+	ImGui::DragFloat("To", &doc.ikBakeEnd, 0.02f, 0.f, doc.clips[doc.activeClip].Duration, "%.2fs");
+	ImGui::SameLine();
+	if (ImGui::Button("Whole clip"))
+	{
+		doc.ikBakeStart = 0.f;
+		doc.ikBakeEnd = doc.clips[doc.activeClip].Duration;
+	}
+
+	if (ImGui::Button("Bake"))
+	{
+		const int keyed = BakeIKOverRange(doc, h, doc.ikBakeStart, doc.ikBakeEnd);
+		echo("Animation Editor: baked " + std::to_string(keyed) + " IK keys for '" + h.name + "'");
+	}
+	ImGui::SetItemTooltip("Solves every frame across the range at the clip's authored fps\n"
+		"and stores the result as ordinary rotation keys.\n"
+		"The clip is re-sampled before each solve, so the bake does not depend\n"
+		"on which direction the range is walked.");
+	ImGui::EndDisabled();
+
+	// ---- joint limits ---------------------------------------------------
+	// Per bone of this chain, since that is the only place they matter and
+	// hunting for a bone in a 45-entry list to clamp a knee is worse than
+	// showing the three that can actually bend.
+	ImGui::Separator();
+	if (ImGui::CollapsingHeader("Joint limits"))
+	{
+		ImGui::TextDisabled("Degrees. Stops a knee bending backwards - without a limit both\n"
+			"solutions reach the target and the solver has no reason to prefer one.");
+
+		for (size_t i = 0; i < chain.size(); i++)
+		{
+			const std::string boneName = pv->BoneName((int)chain[i]);
+			if (boneName.empty()) continue;
+			ImGui::PushID((int)i);
+
+			std::map<std::string, p3d::JointLimit>::iterator it = doc.rig.JointLimits.find(boneName);
+			bool enabled = (it != doc.rig.JointLimits.end() && it->second.Enabled);
+			if (ImGui::Checkbox(boneName.c_str(), &enabled))
+			{
+				doc.BeginInteractiveEdit();
+				if (enabled)
+				{
+					// A fresh limit starts fully open, so ticking the box
+					// cannot itself move the bone - the user then closes it
+					// down to taste.
+					if (it == doc.rig.JointLimits.end())
+					{
+						p3d::JointLimit fresh;
+						fresh.Enabled = true;
+						doc.rig.JointLimits[boneName] = fresh;
+					}
+					else it->second.Enabled = true;
+				}
+				else if (it != doc.rig.JointLimits.end()) it->second.Enabled = false;
+				doc.rigDirty = true;
+				doc.EndInteractiveEdit(enabled ? "Enable joint limit" : "Disable joint limit");
+			}
+
+			it = doc.rig.JointLimits.find(boneName);
+			if (it != doc.rig.JointLimits.end() && it->second.Enabled)
+			{
+				p3d::JointLimit& lim = it->second;
+				float mn[3] = { (float)RADTODEG(lim.Min.x), (float)RADTODEG(lim.Min.y), (float)RADTODEG(lim.Min.z) };
+				float mx[3] = { (float)RADTODEG(lim.Max.x), (float)RADTODEG(lim.Max.y), (float)RADTODEG(lim.Max.z) };
+				ImGui::SetNextItemWidth(220.f);
+				if (ImGui::DragFloat3("min", mn, 1.f, -180.f, 180.f, "%.0f"))
+				{
+					lim.Min = p3d::Vec3((f32)DEGTORAD(mn[0]), (f32)DEGTORAD(mn[1]), (f32)DEGTORAD(mn[2]));
+					doc.rigDirty = true;
+				}
+				if (ImGui::IsItemActivated()) doc.BeginInteractiveEdit();
+				if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndInteractiveEdit("Change joint limit");
+				ImGui::SetNextItemWidth(220.f);
+				if (ImGui::DragFloat3("max", mx, 1.f, -180.f, 180.f, "%.0f"))
+				{
+					lim.Max = p3d::Vec3((f32)DEGTORAD(mx[0]), (f32)DEGTORAD(mx[1]), (f32)DEGTORAD(mx[2]));
+					doc.rigDirty = true;
+				}
+				if (ImGui::IsItemActivated()) doc.BeginInteractiveEdit();
+				if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndInteractiveEdit("Change joint limit");
+			}
+			ImGui::PopID();
+		}
+	}
+
+	// ---- the sidecar itself ---------------------------------------------
+	ImGui::Separator();
+	if (doc.rigPath.empty())
+		ImGui::TextDisabled("Bind a mesh to give the rig somewhere to live.");
+	else
+	{
+		if (ImGui::Button("Save Rig"))
+		{
+			if (doc.SaveRig()) echo("Animation Editor: wrote " + doc.rigPath);
+		}
+		ImGui::SameLine();
+		// The path is worth showing plainly: it is a file the user is meant
+		// to be able to open, hand-edit and share between models.
+		ImGui::TextDisabled("%s%s", doc.rigPath.c_str(), doc.rigDirty ? " *" : "");
+	}
+}
+
 void DrawTransport(AnimationEditorDocument& doc, float dt)
 {
 	AnimationPreview* pv = doc.preview.get();
@@ -995,7 +1427,9 @@ void DrawTimeline(AnimationEditorDocument& doc)
 		}
 	}
 
-	// Right-click a key: delete it (and any other selected ones).
+	// Right-click a key: open the key menu on it (and any other selected
+	// ones). This used to delete immediately, which left nowhere to put
+	// per-key interpolation - and made a mis-aimed right-click destructive.
 	if (canvasHovered && hoveredKey && ImGui::IsMouseClicked(ImGuiMouseButton_Right) && hoveredTrack >= 0)
 	{
 		AnimKeyRef ref;
@@ -1006,12 +1440,92 @@ void DrawTimeline(AnimationEditorDocument& doc)
 			doc.selectedKeys.clear();
 			doc.selectedKeys.insert(ref);
 		}
-		DeleteSelectedKeys(doc);
+		ImGui::OpenPopup("##keymenu");
 	}
 
-	if (canvasHovered && hoveredKey)
-		ImGui::SetTooltip("%s @ %s\nDrag to retime, right-click to delete",
-			tracks[hoveredTrack].boneName.c_str(), FormatTime(hoveredTime).c_str());
+	if (ImGui::BeginPopup("##keymenu"))
+	{
+		const int keyCount = (int)doc.selectedKeys.size();
+		ImGui::TextDisabled(keyCount == 1 ? "1 key" : "%d keys", keyCount);
+		ImGui::Separator();
+
+		// Interpolation of the first selected key, shown as the current
+		// state. A mixed selection just displays the first one's mode -
+		// picking any entry applies it to all of them, which is the useful
+		// operation regardless of what they started as.
+		int mode = p3d::INTERP_LINEAR;
+		float inTan = 1.f, outTan = 1.f;
+		if (!doc.selectedKeys.empty())
+		{
+			const AnimKeyRef& first = *doc.selectedKeys.begin();
+			doc.GetKeyInterpolation(doc.activeClip, first.channel, first.time, mode, inTan, outTan);
+		}
+
+		if (ImGui::BeginMenu("Interpolation"))
+		{
+			// Order and labels follow p3d::InterpolationMode.
+			static const char* kModeNames[] = {
+				"Linear", "Step (hold)", "Ease In", "Ease Out", "Ease In/Out", "Bezier"
+			};
+			for (int m = 0; m < IM_ARRAYSIZE(kModeNames); m++)
+			{
+				if (ImGui::MenuItem(kModeNames[m], NULL, mode == m))
+				{
+					std::vector<AnimKeyRef> targets(doc.selectedKeys.begin(), doc.selectedKeys.end());
+					doc.PushSnapshotEdit(std::string("Set interpolation: ") + kModeNames[m], [&]() {
+						for (size_t i = 0; i < targets.size(); i++)
+							doc.SetKeyInterpolation(doc.activeClip, targets[i].channel, targets[i].time,
+								m, inTan, outTan);
+					});
+					mode = m;
+				}
+			}
+			ImGui::EndMenu();
+		}
+
+		// Tangents only mean anything for Bezier, so they are only offered
+		// there rather than sitting inert next to every other mode.
+		if (mode == p3d::INTERP_BEZIER)
+		{
+			ImGui::Separator();
+			ImGui::TextDisabled("Bezier tangents");
+			ImGui::SetNextItemWidth(120.f);
+			const bool a = ImGui::SliderFloat("Out", &outTan, 0.f, 3.f, "%.2f");
+			if (ImGui::IsItemActivated()) doc.BeginInteractiveEdit();
+			if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndInteractiveEdit("Change out tangent");
+			ImGui::SetNextItemWidth(120.f);
+			const bool b = ImGui::SliderFloat("In", &inTan, 0.f, 3.f, "%.2f");
+			if (ImGui::IsItemActivated()) doc.BeginInteractiveEdit();
+			if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndInteractiveEdit("Change in tangent");
+			if (a || b)
+			{
+				// Applied live so the curve can be felt against the preview;
+				// the undo entry is the interactive one bracketing the drag,
+				// so a whole drag collapses to a single Ctrl+Z rather than
+				// one entry per mouse-move.
+				for (std::set<AnimKeyRef>::const_iterator it = doc.selectedKeys.begin(); it != doc.selectedKeys.end(); ++it)
+					doc.SetKeyInterpolation(doc.activeClip, it->channel, it->time, mode, inTan, outTan);
+				doc.clipsRevision++;
+				doc.dirty = true;
+			}
+		}
+
+		ImGui::Separator();
+		if (ImGui::MenuItem(keyCount == 1 ? "Delete key" : "Delete keys"))
+			DeleteSelectedKeys(doc);
+		ImGui::EndPopup();
+	}
+
+	if (canvasHovered && hoveredKey && !ImGui::IsPopupOpen("##keymenu"))
+	{
+		int mode = p3d::INTERP_LINEAR;
+		float inTan = 1.f, outTan = 1.f;
+		static const char* kShortNames[] = { "Linear", "Step", "Ease In", "Ease Out", "Ease In/Out", "Bezier" };
+		const bool have = doc.GetKeyInterpolation(doc.activeClip, tracks[hoveredTrack].channel, hoveredTime, mode, inTan, outTan);
+		ImGui::SetTooltip("%s @ %s\nInterpolation: %s\nDrag to retime, right-click for options",
+			tracks[hoveredTrack].boneName.c_str(), FormatTime(hoveredTime).c_str(),
+			have && mode >= 0 && mode < IM_ARRAYSIZE(kShortNames) ? kShortNames[mode] : "Linear");
+	}
 
 	ImGui::EndChild();
 }
@@ -1085,22 +1599,32 @@ void DrawWindow(AnimationEditorDocument& doc, const std::vector<AnimationMeshCho
 	// Timeline vs Blend. Two different jobs on the same rig: authoring a
 	// single clip's keys, versus tuning how several finished clips mix. They
 	// share the viewport above and swap the panel below.
-	if (ImGui::RadioButton("Timeline", !doc.blendMode) && doc.blendMode)
+	if (ImGui::RadioButton("Timeline", !doc.blendMode && !doc.ikMode))
 	{
 		doc.blendMode = false;
+		doc.ikMode = false;
 	}
 	ImGui::SameLine();
 	if (ImGui::RadioButton("Blend", doc.blendMode) && !doc.blendMode)
 	{
 		doc.blendMode = true;
+		doc.ikMode = false;
 		// Force a rebuild on entry so the blend starts from a known state
 		// rather than whatever was playing when it was last left.
 		doc.TouchBlend();
 	}
 	ImGui::SameLine();
+	if (ImGui::RadioButton("IK", doc.ikMode) && !doc.ikMode)
+	{
+		doc.ikMode = true;
+		doc.blendMode = false;
+	}
+	ImGui::SameLine();
 	ImGui::TextDisabled(doc.blendMode
 		? "| previewing the engine's real blend - weights are driven by script in game"
-		: "| scrub and key one clip");
+		: (doc.ikMode
+			? "| solve a chain onto a target and bake the result as ordinary keys"
+			: "| scrub and key one clip"));
 	ImGui::Separator();
 
 	if (doc.blendMode)
@@ -1108,6 +1632,13 @@ void DrawWindow(AnimationEditorDocument& doc, const std::vector<AnimationMeshCho
 		const uint32_t before = doc.blendRevision;
 		DrawBlendPanel(doc, requests);
 		if (doc.blendRevision != before) requests.blendChanged = true;
+	}
+	else if (doc.ikMode)
+	{
+		// Transport stays available: the playhead is what "solve at
+		// playhead" and the bake range are relative to.
+		DrawTransport(doc, dt);
+		DrawIKPanel(doc);
 	}
 	else
 	{

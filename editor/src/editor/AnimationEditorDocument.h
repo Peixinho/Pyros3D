@@ -21,6 +21,7 @@
 
 #include "UndoStack.h"
 #include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/AnimationLoader.h>
+#include <Pyros3D/AnimationManager/RigAsset.h>
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <cstdint>
 #include <functional>
@@ -159,6 +160,64 @@ struct AnimationEditorDocument {
 	// pose pending until the user presses Key.
 	bool autoKey = false;
 
+	// ---- inverse kinematics ------------------------------------------
+	// An authoring aid, not a runtime feature: the solver poses the chain,
+	// and Key stores the result as ordinary rotation keys. Nothing about IK
+	// is written into the .p3da - by the time the clip is saved it is
+	// indistinguishable from a hand-posed one.
+	//
+	// Chains are held by BONE NAME rather than id for the same reason the
+	// selected bone is: ids are only meaningful against the currently bound
+	// mesh and go stale the moment it is swapped.
+	struct IKHandle {
+		std::string name;
+		std::string rootBone;
+		std::string effectorBone;
+		// Model-space target the effector is dragged to.
+		p3d::Math::Vec3 target;
+		// Optional model-space bend hint. Zero means "keep the plane the
+		// chain is already in".
+		p3d::Math::Vec3 pole;
+		bool usePole = false;
+		bool enabled = true;
+	};
+	std::vector<IKHandle> ikHandles;
+	int activeIK = -1;
+
+	// ---- rig sidecar -------------------------------------------------
+	// <model>.rig.json beside the bound .p3dm. Holds what belongs to the
+	// SKELETON rather than to this clip: bone masks, joint limits, IK
+	// chains. Loaded when a mesh is bound, written back when any of the
+	// three change.
+	//
+	// The document's own blendLayers and ikHandles are the working copies -
+	// SyncRigFromDocument/SyncDocumentFromRig move between them - because
+	// both are edited through UI that predates the rig file and would
+	// otherwise have to be rewritten against a different container.
+	p3d::RigAsset rig;
+	std::string rigPath;
+	bool rigDirty = false;
+	// Copies blendLayers + ikHandles into `rig` and writes it out. No-op
+	// without a bound mesh, since the sidecar's location is derived from it.
+	bool SaveRig();
+	// Pulls bone masks and IK chains out of `rig` into the working copies.
+	void SyncDocumentFromRig();
+	// Loads the sidecar for `meshPath` and syncs. Called on mesh bind.
+	void LoadRigForMesh();
+	// Third panel mode alongside timeline and blend. Kept as its own flag
+	// rather than folding blendMode into an enum, because blendMode is
+	// tested in a dozen places that all mean "is the engine's real playback
+	// driving the rig right now" - and IK mode, like timeline mode, poses
+	// the rig directly instead.
+	bool ikMode = false;
+	bool HasActiveIK() const { return activeIK >= 0 && activeIK < (int)ikHandles.size(); }
+
+	// Bake range, in seconds. Solving every frame across a range is the
+	// feature this exists for - a foot staying planted while the hips move
+	// is not something you can key by hand.
+	float ikBakeStart = 0.f;
+	float ikBakeEnd = 0.f;
+
 	// ---- blending ----------------------------------------------------
 	// Blend mode plays several clips at once through the engine's real
 	// playback path (Play/ChangeProperties/Update on the preview instance)
@@ -240,6 +299,19 @@ struct AnimationEditorDocument {
 	void SetKey(int clipIndex, int channel, float time,
 		const p3d::Math::Vec3& pos, const p3d::Math::Quaternion& rot, const p3d::Math::Vec3& scale,
 		bool doPos, bool doRot, bool doScale);
+	// Sets the interpolation carried by every key at `time` in this channel
+	// (all three components together - see AnimKeyRef, the dope sheet edits
+	// key columns, not individual component tracks). `mode` is a
+	// p3d::InterpolationMode; the tangents are only read back for
+	// INTERP_BEZIER, and 1/1 reproduces INTERP_LINEAR exactly. Returns how
+	// many keys were changed.
+	int SetKeyInterpolation(int clipIndex, int channel, float time,
+		int mode, float inTangent = 1.f, float outTangent = 1.f);
+	// Reads the interpolation of the key column at `time`. False when there
+	// is no key there.
+	bool GetKeyInterpolation(int clipIndex, int channel, float time,
+		int& outMode, float& outIn, float& outOut) const;
+
 	// Removes every key within kAnimKeyEpsilon of `time` from all three
 	// component lists. Returns true if anything was removed.
 	bool DeleteKeysAtTime(int clipIndex, int channel, float time);
@@ -283,9 +355,19 @@ struct AnimationEditorDocument {
 	// immune to the aliasing bugs that fine-grained inverse operations on a
 	// shared keyframe list invite. MemoryCost() below reports the real size
 	// so UndoStack's byte cap governs how many are retained.
+	// Named for the clips because that is the bulk of it, but it covers
+	// everything an undoable edit can touch. IK chains and joint limits are
+	// in here too: they live in ikHandles/rig rather than in clips, so a
+	// snapshot of clips alone would let Ctrl+Z silently skip over "delete
+	// chain" or "clamp this knee" while appearing to work.
 	struct ClipsSnapshot {
 		std::vector<p3d::Animation> clips;
 		int activeClip = -1;
+		// Rig authoring state. Cheap to copy compared to the clips - a rig
+		// has tens of chains and limits, a clip has thousands of keys.
+		std::vector<IKHandle> ikHandles;
+		int activeIK = -1;
+		p3d::RigAsset rig;
 		size_t ByteSize() const;
 	};
 	ClipsSnapshot Snapshot() const;

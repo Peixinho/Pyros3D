@@ -122,6 +122,16 @@ size_t AnimationEditorDocument::ClipsSnapshot::ByteSize() const
 				+ channel.scales.size() * sizeof(ScalingData);
 		}
 	}
+
+	// Rig side. Small next to the clips, but counted so UndoStack's byte cap
+	// still reflects reality rather than quietly under-reporting.
+	bytes += ikHandles.size() * sizeof(IKHandle);
+	for (size_t i = 0; i < ikHandles.size(); i++)
+		bytes += ikHandles[i].name.capacity() + ikHandles[i].rootBone.capacity()
+			+ ikHandles[i].effectorBone.capacity();
+	bytes += rig.BoneMasks.size() * sizeof(p3d::BoneMask)
+		+ rig.IKChains.size() * sizeof(p3d::IKChainDef)
+		+ rig.JointLimits.size() * (sizeof(p3d::JointLimit) + sizeof(std::string));
 	return bytes;
 }
 
@@ -130,6 +140,9 @@ AnimationEditorDocument::ClipsSnapshot AnimationEditorDocument::Snapshot() const
 	ClipsSnapshot snap;
 	snap.clips = clips;
 	snap.activeClip = activeClip;
+	snap.ikHandles = ikHandles;
+	snap.activeIK = activeIK;
+	snap.rig = rig;
 	return snap;
 }
 
@@ -142,6 +155,16 @@ void AnimationEditorDocument::Restore(const ClipsSnapshot& snap)
 	// would draw a highlight over empty space and Delete would act on
 	// nothing.
 	selectedKeys.clear();
+
+	ikHandles = snap.ikHandles;
+	activeIK = snap.activeIK;
+	if (activeIK >= (int)ikHandles.size()) activeIK = (int)ikHandles.size() - 1;
+	rig = snap.rig;
+	// The sidecar on disk no longer matches what is in memory. Not written
+	// here - undo should not touch the filesystem - but the UI has to stop
+	// claiming the rig is saved.
+	rigDirty = true;
+
 	clipsRevision++;
 	dirty = true;
 }
@@ -231,6 +254,13 @@ bool AnimationEditorDocument::LoadFromFile(const std::string& absPath, std::stri
 	activeClip = clips.empty() ? -1 : 0;
 	absolutePath = absPath;
 
+	// Adopt the first clip's authored frame rate as the snap grid. The
+	// editor used to snap at a hard-coded 30 and record nothing, so a clip
+	// authored at 24 came back on a grid its keys did not sit on and every
+	// subsequent edit quietly nudged them onto 30ths.
+	if (!clips.empty() && clips[0].AuthoredFps > 0.f)
+		snapFps = clips[0].AuthoredFps;
+
 	const size_t slash = absPath.find_last_of("/\\");
 	std::string base = (slash == std::string::npos ? absPath : absPath.substr(slash + 1));
 	const size_t dot = base.find_last_of('.');
@@ -291,6 +321,14 @@ int AnimationEditorDocument::AddClip(const std::string& name, float duration)
 	// authored clip that wrote anything else here would be rescaled by the
 	// loader on the next open.
 	clip.TicksPerSecond = 1.f;
+	// A new clip is born on whatever grid the editor is currently snapping
+	// to, so reopening it lands back on the same one.
+	clip.AuthoredFps = snapFps;
+	// Mint the identity here rather than at save time: a scene can reference
+	// a clip that has never been written to disk (blend preview plays the
+	// document's in-memory clips), and a clip whose guid appeared later
+	// would resolve differently before and after the first save.
+	clip.Guid = AnimationLoader::GenerateGuid();
 	clips.push_back(clip);
 	return (int)clips.size() - 1;
 }
@@ -401,6 +439,71 @@ void AnimationEditorDocument::SetKey(int clipIndex, int channel, float time,
 	// Duration), so growing the clip to fit is the only non-surprising
 	// behaviour - the alternative is silently discarding the user's key.
 	if (time > clip.Duration) clip.Duration = time;
+}
+
+namespace {
+
+// Applies `fn` to every key within kAnimKeyEpsilon of `time` across all three
+// component lists of a channel. The dope sheet edits key *columns* - one
+// diamond stands for whatever position/rotation/scale keys share that instant -
+// so interpolation has to be set on all of them together or the components
+// would drift into different curve shapes behind a single piece of UI.
+template<typename Fn>
+int ForEachKeyAtTime(p3d::Channel& ch, float time, Fn fn)
+{
+	int touched = 0;
+	for (size_t i = 0; i < ch.positions.size(); i++)
+		if (SameTime(ch.positions[i].Time, time))
+		{ fn(ch.positions[i].Mode, ch.positions[i].InTangent, ch.positions[i].OutTangent); touched++; }
+	for (size_t i = 0; i < ch.rotations.size(); i++)
+		if (SameTime(ch.rotations[i].Time, time))
+		{ fn(ch.rotations[i].Mode, ch.rotations[i].InTangent, ch.rotations[i].OutTangent); touched++; }
+	for (size_t i = 0; i < ch.scales.size(); i++)
+		if (SameTime(ch.scales[i].Time, time))
+		{ fn(ch.scales[i].Mode, ch.scales[i].InTangent, ch.scales[i].OutTangent); touched++; }
+	return touched;
+}
+
+} // namespace
+
+int AnimationEditorDocument::SetKeyInterpolation(int clipIndex, int channel, float time,
+	int mode, float inTangent, float outTangent)
+{
+	if (clipIndex < 0 || clipIndex >= (int)clips.size()) return 0;
+	Animation& clip = clips[clipIndex];
+	if (channel < 0 || channel >= (int)clip.Channels.size()) return 0;
+
+	return ForEachKeyAtTime(clip.Channels[channel], time,
+		[&](uchar& m, float& in, float& out)
+		{
+			m = (uchar)mode;
+			in = inTangent;
+			out = outTangent;
+		});
+}
+
+bool AnimationEditorDocument::GetKeyInterpolation(int clipIndex, int channel, float time,
+	int& outMode, float& outIn, float& outOut) const
+{
+	if (clipIndex < 0 || clipIndex >= (int)clips.size()) return false;
+	const Animation& clip = clips[clipIndex];
+	if (channel < 0 || channel >= (int)clip.Channels.size()) return false;
+	const Channel& ch = clip.Channels[channel];
+
+	// First key found at this instant wins. SetKeyInterpolation writes all
+	// three components together, so they only disagree for a clip authored
+	// before this existed - reporting one of them is still the right thing
+	// to show, and editing it re-syncs them.
+	for (size_t i = 0; i < ch.positions.size(); i++)
+		if (SameTime(ch.positions[i].Time, time))
+		{ outMode = ch.positions[i].Mode; outIn = ch.positions[i].InTangent; outOut = ch.positions[i].OutTangent; return true; }
+	for (size_t i = 0; i < ch.rotations.size(); i++)
+		if (SameTime(ch.rotations[i].Time, time))
+		{ outMode = ch.rotations[i].Mode; outIn = ch.rotations[i].InTangent; outOut = ch.rotations[i].OutTangent; return true; }
+	for (size_t i = 0; i < ch.scales.size(); i++)
+		if (SameTime(ch.scales[i].Time, time))
+		{ outMode = ch.scales[i].Mode; outIn = ch.scales[i].InTangent; outOut = ch.scales[i].OutTangent; return true; }
+	return false;
 }
 
 bool AnimationEditorDocument::DeleteKeysAtTime(int clipIndex, int channel, float time)
@@ -579,6 +682,110 @@ std::string AnimationEditorDocument::BuildBlendLuaSnippet(const std::string& ani
 	return out;
 }
 
+void AnimationEditorDocument::LoadRigForMesh()
+{
+	rig = p3d::RigAsset();
+	rigPath.clear();
+	rigDirty = false;
+	if (meshPath.empty()) return;
+
+	rigPath = p3d::RigAsset::SidecarPathFor(meshPath);
+	// A missing sidecar loads as empty and is not an error - most models
+	// have no authored rig data, and the file appears the first time
+	// something is saved into it.
+	rig.Load(rigPath);
+
+	// Layers that came from project.json but are not in the sidecar yet are
+	// a pending migration - flag the rig dirty so the UI shows there is
+	// something unsaved rather than leaving it to be noticed later.
+	for (size_t i = 0; i < blendLayers.size(); i++)
+		if (!rig.FindMask(blendLayers[i].name)) { rigDirty = true; break; }
+
+	SyncDocumentFromRig();
+}
+
+void AnimationEditorDocument::SyncDocumentFromRig()
+{
+	// Bone masks become the document's blend layers. These used to live in
+	// project.json keyed by ANIMATION path, which meant one copy per clip
+	// and no way to reuse "UpperBody" across a rig's clips; a mask is a
+	// property of the skeleton, so the rig file is its real home.
+	//
+	// Anything already in blendLayers that the rig does not name is kept -
+	// that is a layer authored before the migration, and dropping it would
+	// silently discard the user's work.
+	for (size_t i = 0; i < rig.BoneMasks.size(); i++)
+	{
+		const p3d::BoneMask& mask = rig.BoneMasks[i];
+		AnimationBlendLayer* existing = FindBlendLayer(mask.Name);
+		if (existing) existing->bones = mask.Bones;
+		else
+		{
+			AnimationBlendLayer layer;
+			layer.name = mask.Name;
+			layer.bones = mask.Bones;
+			blendLayers.push_back(layer);
+		}
+	}
+
+	for (size_t i = 0; i < rig.IKChains.size(); i++)
+	{
+		const p3d::IKChainDef& def = rig.IKChains[i];
+		bool found = false;
+		for (size_t k = 0; k < ikHandles.size(); k++)
+			if (ikHandles[k].name == def.Name) { found = true; break; }
+		if (found) continue;
+
+		IKHandle h;
+		h.name = def.Name;
+		h.rootBone = def.RootBone;
+		h.effectorBone = def.EffectorBone;
+		h.pole = def.Pole;
+		h.usePole = def.UsePole;
+		ikHandles.push_back(h);
+	}
+	if (activeIK < 0 && !ikHandles.empty()) activeIK = 0;
+
+	TouchBlend();
+}
+
+bool AnimationEditorDocument::SaveRig()
+{
+	// The sidecar's path is derived from the mesh, so with no mesh bound
+	// there is nowhere to put it.
+	if (rigPath.empty()) return false;
+
+	rig.BoneMasks.clear();
+	for (size_t i = 0; i < blendLayers.size(); i++)
+	{
+		p3d::BoneMask mask;
+		mask.Name = blendLayers[i].name;
+		mask.Bones = blendLayers[i].bones;
+		rig.BoneMasks.push_back(mask);
+	}
+
+	rig.IKChains.clear();
+	for (size_t i = 0; i < ikHandles.size(); i++)
+	{
+		// A half-finished chain would come back as an unresolvable one, so
+		// it is not worth persisting.
+		if (ikHandles[i].rootBone.empty() || ikHandles[i].effectorBone.empty()) continue;
+		p3d::IKChainDef def;
+		def.Name = ikHandles[i].name;
+		def.RootBone = ikHandles[i].rootBone;
+		def.EffectorBone = ikHandles[i].effectorBone;
+		def.Pole = ikHandles[i].pole;
+		def.UsePole = ikHandles[i].usePole;
+		rig.IKChains.push_back(def);
+	}
+
+	// Joint limits are edited directly on `rig` (they have no working copy -
+	// nothing else in the document needs them), so they are already current.
+	const bool ok = rig.Save(rigPath);
+	if (ok) rigDirty = false;
+	return ok;
+}
+
 nlohmann::json AnimationEditorDocument::BlendToJson() const
 {
 	nlohmann::json j;
@@ -595,15 +802,30 @@ nlohmann::json AnimationEditorDocument::BlendToJson() const
 	}
 	j["entries"] = std::move(entries);
 
-	nlohmann::json layers = nlohmann::json::array();
-	for (size_t i = 0; i < blendLayers.size(); i++)
+	// Layers are NOT written here when a rig sidecar owns them.
+	//
+	// A bone mask is a property of the skeleton, not of one clip: keeping it
+	// in project.json keyed by animation path meant a separate copy of
+	// "UpperBody" per clip, all of which had to be edited together and none
+	// of which survived a rename. <model>.rig.json is its real home.
+	//
+	// They are still written when no mesh is bound, because then there is no
+	// sidecar to write to and dropping them here would lose them outright.
+	// That makes this a one-way migration: a legacy project's layers are read
+	// below, land in the rig on the next Save Rig, and stop being written
+	// here from then on.
+	if (rigPath.empty())
 	{
-		nlohmann::json l;
-		l["name"] = blendLayers[i].name;
-		l["bones"] = blendLayers[i].bones;
-		layers.push_back(l);
+		nlohmann::json layers = nlohmann::json::array();
+		for (size_t i = 0; i < blendLayers.size(); i++)
+		{
+			nlohmann::json l;
+			l["name"] = blendLayers[i].name;
+			l["bones"] = blendLayers[i].bones;
+			layers.push_back(l);
+		}
+		j["layers"] = std::move(layers);
 	}
-	j["layers"] = std::move(layers);
 	return j;
 }
 
@@ -613,6 +835,9 @@ void AnimationEditorDocument::BlendFromJson(const nlohmann::json& j)
 	blendLayers.clear();
 	if (!j.is_object()) { TouchBlend(); return; }
 
+	// Still read, for projects written before the rig sidecar existed.
+	// SyncDocumentFromRig() merges the sidecar's masks on top of whatever
+	// lands here, preferring the sidecar when both name the same layer.
 	if (j.contains("layers") && j["layers"].is_array())
 	{
 		for (const auto& l : j["layers"])

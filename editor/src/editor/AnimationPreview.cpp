@@ -253,6 +253,15 @@ std::string AnimationPreview::BoneName(int boneId) const
 	return instance->GetSkeletonBones()[boneId].name;
 }
 
+int AnimationPreview::BoneIdByName(const std::string& name) const
+{
+	if (!instance || name.empty()) return -1;
+	const std::vector<Bone>& bones = instance->GetSkeletonBones();
+	for (size_t i = 0; i < bones.size(); i++)
+		if (bones[i].name == name) return bones[i].self;
+	return -1;
+}
+
 void AnimationPreview::SyncPose(AnimationEditorDocument& doc, float dt)
 {
 	if (!instance) return;

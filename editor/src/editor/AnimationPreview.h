@@ -213,6 +213,9 @@ struct AnimationPreview {
 	// Resolves a bone name to its id in the loaded skeleton, or -1.
 	int FindBone(const std::string& name) const;
 	std::string BoneName(int boneId) const;
+	// Inverse of BoneName. -1 when this skeleton has no such bone, which is
+	// the normal answer for anything held by name across a mesh swap.
+	int BoneIdByName(const std::string& name) const;
 
 	// Renders the frame and draws it as an ImGui::Image at the current
 	// cursor, then handles camera navigation, bone picking and the bone
