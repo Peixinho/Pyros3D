@@ -39,7 +39,8 @@ namespace p3d {
 			Physics,
 			Vehicle,
 			LuaComponent,
-			AudioSource
+			AudioSource,
+			IK
 		};
 	}
 
