@@ -38,6 +38,17 @@ namespace p3d {
 			skeleton[(*a).second.self] = (*a).second;
 		}
 
+		// Start at the BIND pose, not at identity. boneTransformation is the
+		// per-bone LOCAL transform array; leaving it default-constructed made
+		// Bones[] identity, so every SkinningBones entry below came out as a
+		// bare BoneOffsetMatrix - the inverse of the bone's global bind
+		// transform - and the mesh rendered inside-out until something
+		// happened to call Play(). The bind local composed up the parent chain
+		// is exactly the inverse of BoneOffsetMatrix, so seeding it here makes
+		// the product identity and the rig sits in the pose it was modelled
+		// in, which is what "no animation playing" should look like.
+		boneTransformation = bindPose;
+
 		// Multiply bones with its parent
 		for (std::vector<Bone>::iterator a = skeleton.begin(); a != skeleton.end(); a++)
 		{
@@ -159,24 +170,43 @@ namespace p3d {
 	}
 	void SkeletonAnimationInstance::StopAnimation(const uint32 animationOrder)
 	{
-		// Mark Layer as NOT being used by this
-		AnimationsToPlay[animationOrder].Layer->usingLayer--;
+		if (animationOrder >= AnimationsToPlay.size()) return;
 
-		// Insert Removed Bones if there isn't any Layer
-		if (AnimationsToPlay[animationOrder].Layer->usingLayer == 0)
+		// Play() leaves Layer NULL for a clip started without a layer name,
+		// which is the common case - dereferencing it unconditionally here
+		// crashed on stopping any ordinary clip.
+		_SkeletonAnimation::AnimationLayer* Layer = AnimationsToPlay[animationOrder].Layer;
+		if (Layer)
 		{
-			for (std::vector<int32>::iterator i = AnimationsToPlay[animationOrder].Layer->boneIDs.begin(); i != AnimationsToPlay[animationOrder].Layer->boneIDs.end(); i++)
-				if ((*i) == 1)
-					boneIDs[i - AnimationsToPlay[animationOrder].Layer->boneIDs.begin()] = 1;
+			// Mark Layer as NOT being used by this
+			Layer->usingLayer--;
+
+			// Insert Removed Bones if there isn't any Layer
+			if (Layer->usingLayer == 0)
+			{
+				for (std::vector<int32>::iterator i = Layer->boneIDs.begin(); i != Layer->boneIDs.end(); i++)
+					if ((*i) == 1)
+						boneIDs[i - Layer->boneIDs.begin()] = 1;
+			}
 		}
 
 		// Remove Layer if Any
 		AnimationsToPlay.erase(AnimationsToPlay.begin() + animationOrder);
+
+		// Same reasoning as Stop(): Update() skips an instance with nothing
+		// left playing, so the last clip's final pose would stick otherwise.
+		if (AnimationsToPlay.empty())
+			ResetToBindPose();
 	}
 
 	void SkeletonAnimationInstance::Stop()
 	{
 		AnimationsToPlay.clear();
+		// Update() no longer touches an instance with nothing playing, so
+		// without this the rig would freeze in whatever pose the last clip
+		// left it in. "Stopped" should read as neutral, and neutral is the
+		// bind pose - the same thing a freshly constructed instance shows.
+		ResetToBindPose();
 	}
 
 	void SkeletonAnimationInstance::PauseAnimation(const uint32 animationOrder)
@@ -426,6 +456,48 @@ namespace p3d {
 		return -1;
 	}
 
+	const int32 SkeletonAnimation::GetAnimationIDByGuid(const std::string &guid) const
+	{
+		// An empty guid is "no identity recorded", not a clip to match - v0
+		// clips all carry one, so matching on it would return clip 0 for
+		// every lookup.
+		if (guid.empty()) return -1;
+		for (uint32 i = 0; i < animations.size(); i++)
+		{
+			if (animations[i].Guid.compare(guid) == 0) return i;
+		}
+		return -1;
+	}
+
+	const std::string &SkeletonAnimation::GetAnimationGuid(const uint32 id) const
+	{
+		static const std::string empty;
+		return (id < animations.size() ? animations[id].Guid : empty);
+	}
+
+	const std::string &SkeletonAnimation::GetAnimationName(const uint32 id) const
+	{
+		static const std::string empty;
+		return (id < animations.size() ? animations[id].AnimationName : empty);
+	}
+
+	const int32 SkeletonAnimation::ResolveAnimationID(const std::string &guid, const std::string &name, const int32 fallbackIndex) const
+	{
+		const int32 byGuid = GetAnimationIDByGuid(guid);
+		if (byGuid >= 0) return byGuid;
+
+		if (!name.empty())
+		{
+			const int32 byName = GetAnimationIDByName(name);
+			if (byName >= 0) return byName;
+		}
+
+		if (fallbackIndex >= 0 && (uint32)fallbackIndex < animations.size())
+			return fallbackIndex;
+
+		return -1;
+	}
+
 	SkeletonAnimationInstance* SkeletonAnimation::CreateInstance(RenderingComponent* Component)
 	{
 		SkeletonAnimationInstance* i = new SkeletonAnimationInstance(this, Component);
@@ -452,6 +524,30 @@ namespace p3d {
 	{
 		for (std::vector<SkeletonAnimationInstance*>::iterator i = Instances.begin(); i != Instances.end(); i++)
 		{
+			// Nothing playing and nothing to modify: leave the pose alone.
+			//
+			// The "Multiply Bones" loop below derives each bone's local
+			// transform from the playing list, so with an empty list it fell
+			// through to `trafo = Matrix()` and rewrote every bone to IDENTITY
+			// on every single frame. That did two bad things: it collapsed a
+			// skinned mesh that simply had no clip playing (identity local
+			// instead of the bind local), and it stomped any pose written from
+			// outside - SetBoneLocalTransform/ApplyPose - the very next tick,
+			// which is why an IK solver or the editor's posing could never
+			// hold on an instance owned by a running scene.
+			//
+			// Pose modifiers still run with nothing playing, though: a
+			// character standing on uneven ground wants its feet planted
+			// whether or not a clip happens to be driving it.
+			if ((*i)->AnimationsToPlay.empty())
+			{
+				if (!(*i)->poseModifiers.empty())
+				{
+					(*i)->RunPoseModifiers();
+					(*i)->RefreshSkinning();
+				}
+				continue;
+			}
 
 			for (std::vector<_SkeletonAnimation::SkeletonAnimation>::iterator _Anim = (*i)->AnimationsToPlay.begin(); _Anim != (*i)->AnimationsToPlay.end(); _Anim++)
 			{
@@ -540,7 +636,7 @@ namespace p3d {
 						// editor can evaluate a clip at an arbitrary time
 						// (scrubbing a timeline) through the exact same code
 						// the runtime plays it with.
-						Matrix trafo = SkeletonAnimationInstance::SampleChannel(Anim.Channels[a], currentTime);
+						Matrix trafo = SkeletonAnimationInstance::SampleChannel(Anim.Channels[a], currentTime, Anim.HasFlag(ANIM_FLAG_APPLY_SCALE));
 
 						if ((*i)->ChannelBoneIDCache[a] == -1)
 						{
@@ -613,6 +709,12 @@ namespace p3d {
 				(*i)->Bones[(*a).self] = (*i)->GetParentMatrix((*a).parent, (*i)->boneTransformation) * (*i)->boneTransformation[(*a).self];
 			}
 
+			// Runtime IK and friends run HERE - after the clips have written
+			// the pose and the hierarchy is composed, before the result is
+			// uploaded. See AddPoseModifier: doing this from a component tick
+			// instead would be correct only by accident of update order.
+			(*i)->RunPoseModifiers();
+
 			// Send SubMesh Bones to Material
 			for (std::vector<RenderingMesh*>::iterator j = (*i)->rcomp->GetMeshes().begin(); j != (*i)->rcomp->GetMeshes().end(); j++)
 			{
@@ -672,9 +774,73 @@ namespace p3d {
 
 	// ---- Direct pose access ------------------------------------------------
 
-	Matrix SkeletonAnimationInstance::SampleChannel(const Channel &ch, const f32 time)
+	namespace {
+		// Remaps the normalised span parameter t according to the mode stored
+		// on the key the span starts at. Returning a reshaped t rather than a
+		// reshaped value is what lets rotations keep using Slerp: the arc is
+		// still the shortest one, only the speed along it changes.
+		f32 RemapSpan(const f32 t, const uchar mode, const f32 outTangent, const f32 nextInTangent)
+		{
+			switch (mode)
+			{
+			case INTERP_STEP:
+				return 0.f;                       // hold until the next key
+			case INTERP_EASE_IN:
+				return t * t;
+			case INTERP_EASE_OUT:
+				return t * (2.f - t);
+			case INTERP_EASE_BOTH:
+				return t * t * (3.f - 2.f * t);   // smoothstep
+			case INTERP_BEZIER:
+			{
+				// Cubic Hermite on the parameter itself, from (0,0) to (1,1)
+				// with the two authored slopes. Both tangents at 1 reduces to
+				// h00*0 + h10*1 + h01*1 + h11*1 == t, i.e. exactly LINEAR,
+				// which is why 1/1 is the default a key is born with.
+				const f32 t2 = t * t;
+				const f32 t3 = t2 * t;
+				const f32 h10 = t3 - 2.f * t2 + t;
+				const f32 h01 = -2.f * t3 + 3.f * t2;
+				const f32 h11 = t3 - t2;
+				return h10 * outTangent + h01 + h11 * nextInTangent;
+			}
+			case INTERP_LINEAR:
+			default:
+				return t;
+			}
+		}
+
+		// Index of the last key at or before `time`, for a key vector already
+		// sorted by time. Linear scan, matching what this did inline before -
+		// channels carry tens of keys, not thousands.
+		template<typename T>
+		size_t KeyIndexAt(const std::vector<T> &keys, const f32 time)
+		{
+			size_t index = 0;
+			while (index + 1 < keys.size() && keys[index + 1].Time <= time)
+				index++;
+			return index;
+		}
+
+		// Normalised, mode-remapped position within the span starting at
+		// `index`. Zero when `index` is the last key.
+		template<typename T>
+		f32 SpanDelta(const std::vector<T> &keys, const size_t index, const f32 time)
+		{
+			if (index + 1 >= keys.size()) return 0.f;
+			const f32 span = keys[index + 1].Time - keys[index].Time;
+			// Two keys at the same time is a divide by zero (NaN value, and
+			// from there a NaN bone matrix that silently collapses the whole
+			// mesh) - reachable in the editor by dropping a key onto an
+			// existing one.
+			const f32 t = (span > 0.f ? (time - keys[index].Time) / span : 0.f);
+			return RemapSpan(t, keys[index].Mode, keys[index].OutTangent, keys[index + 1].InTangent);
+		}
+	}
+
+	Matrix SkeletonAnimationInstance::SampleChannel(const Channel &ch, const f32 time, const bool applyScale)
 	{
-		Vec3 curPosition, curScale;
+		Vec3 curPosition, curScale(1.f, 1.f, 1.f);
 		Quaternion curRotation;
 
 		// Empty key lists were never possible for clips coming out of the
@@ -684,87 +850,98 @@ namespace p3d {
 		// with having nothing to sample.
 		if (!ch.positions.empty())
 		{
-			size_t posIndex = 0;
-			while (1)
-			{
-				if (posIndex + 1 >= ch.positions.size() || ch.positions[posIndex + 1].Time > time)
-					break;
-				posIndex++;
-			}
+			const size_t posIndex = KeyIndexAt(ch.positions, time);
 			curPosition = ch.positions[posIndex].Pos;
-
-			// Position Interpolation
 			if (posIndex + 1 < ch.positions.size())
-			{
-				const size_t posIndexNext = posIndex + 1;
-				const f32 span = ch.positions[posIndexNext].Time - ch.positions[posIndex].Time;
-				// Two keys at the same time is a divide by zero (NaN
-				// position, and from there a NaN bone matrix that silently
-				// collapses the whole mesh) - reachable in the editor by
-				// dropping a key onto an existing one.
-				const f32 slerp_delta = (span > 0.f ? (time - ch.positions[posIndex].Time) / span : 0.f);
-				curPosition = curPosition.Lerp(ch.positions[posIndexNext].Pos, slerp_delta);
-			}
+				curPosition = curPosition.Lerp(ch.positions[posIndex + 1].Pos, SpanDelta(ch.positions, posIndex, time));
 		}
 
 		if (!ch.rotations.empty())
 		{
-			size_t rotIndex = 0;
-			while (1)
-			{
-				if (rotIndex + 1 >= ch.rotations.size() || ch.rotations[rotIndex + 1].Time > time)
-					break;
-				rotIndex++;
-			}
+			const size_t rotIndex = KeyIndexAt(ch.rotations, time);
 			curRotation = ch.rotations[rotIndex].Rot;
-
-			// Rotation Interpolation
 			if (rotIndex + 1 < ch.rotations.size())
-			{
-				const size_t rotIndexNext = rotIndex + 1;
-				const f32 span = ch.rotations[rotIndexNext].Time - ch.rotations[rotIndex].Time;
-				const f32 slerp_delta = (span > 0.f ? (time - ch.rotations[rotIndex].Time) / span : 0.f);
-				curRotation = curRotation.Slerp(ch.rotations[rotIndexNext].Rot, slerp_delta);
-			}
+				curRotation = curRotation.Slerp(ch.rotations[rotIndex + 1].Rot, SpanDelta(ch.rotations, rotIndex, time));
 		}
 
 		if (!ch.scales.empty())
 		{
-			size_t scaleIndex = 0;
-			while (1)
-			{
-				if (scaleIndex + 1 >= ch.scales.size() || ch.scales[scaleIndex + 1].Time > time)
-					break;
-				scaleIndex++;
-			}
+			const size_t scaleIndex = KeyIndexAt(ch.scales, time);
 			curScale = ch.scales[scaleIndex].Scale;
-
-			// Scale Interpolation
 			if (scaleIndex + 1 < ch.scales.size())
-			{
-				const size_t scaleIndexNext = scaleIndex + 1;
-				const f32 span = ch.scales[scaleIndexNext].Time - ch.scales[scaleIndex].Time;
-				const f32 slerp_delta = (span > 0.f ? (time - ch.scales[scaleIndex].Time) / span : 0.f);
-				curScale = curScale.Lerp(ch.scales[scaleIndexNext].Scale, slerp_delta);
-			}
+				curScale = curScale.Lerp(ch.scales[scaleIndex + 1].Scale, SpanDelta(ch.scales, scaleIndex, time));
 		}
 
 		Matrix trafo = curRotation.ConvertToMatrix();
+		// Scale before the translation is written, since Matrix::Scale()
+		// multiplies the diagonal (which would also scale a translation
+		// already sitting in the last column) while Matrix::Translate()
+		// overwrites that column outright.
+		//
+		// Off by default and opted into per clip via ANIM_FLAG_APPLY_SCALE.
+		// Scale keys have always round-tripped through the file while the
+		// sampler dropped them, so any clip authored since then may carry
+		// scale keys nobody ever saw applied; turning this on globally would
+		// change how those clips deform with no way to tell which.
+		if (applyScale)
+			trafo.Scale(curScale);
 		trafo.Translate(curPosition);
-		// Scale stays deliberately unapplied, exactly as playback has
-		// always done it (the .Scale() call was already commented out in
-		// Update()); keying scale in the editor therefore round-trips
-		// through the file but does not deform the mesh. Left as-is rather
-		// than "fixed" here: turning it on would change how every existing
-		// clip in every project renders.
 		return trafo;
 	}
 
-	void SkeletonAnimationInstance::RefreshSkinning()
+	void SkeletonAnimationInstance::AddPoseModifier(PoseModifier fn, void* userData)
+	{
+		if (!fn) return;
+		for (size_t i = 0; i < poseModifiers.size(); i++)
+		{
+			if (poseModifiers[i].userData == userData)
+			{
+				poseModifiers[i].fn = fn;
+				return;
+			}
+		}
+		PoseModifierEntry e;
+		e.fn = fn;
+		e.userData = userData;
+		poseModifiers.push_back(e);
+	}
+
+	void SkeletonAnimationInstance::RemovePoseModifier(void* userData)
+	{
+		for (size_t i = 0; i < poseModifiers.size(); i++)
+		{
+			if (poseModifiers[i].userData == userData)
+			{
+				poseModifiers.erase(poseModifiers.begin() + i);
+				return;
+			}
+		}
+	}
+
+	void SkeletonAnimationInstance::RunPoseModifiers()
+	{
+		if (poseModifiers.empty()) return;
+
+		// Each modifier expects composed model-space transforms to read from,
+		// and a previous modifier may have invalidated them.
+		RefreshHierarchy();
+		for (size_t i = 0; i < poseModifiers.size(); i++)
+		{
+			poseModifiers[i].fn(this, poseModifiers[i].userData);
+			RefreshHierarchy();
+		}
+	}
+
+	void SkeletonAnimationInstance::RefreshHierarchy()
 	{
 		// Multiply bones with its parent - Tree
 		for (std::vector<Bone>::iterator a = skeleton.begin(); a != skeleton.end(); a++)
 			Bones[(*a).self] = GetParentMatrix((*a).parent, boneTransformation) * boneTransformation[(*a).self];
+	}
+
+	void SkeletonAnimationInstance::RefreshSkinning()
+	{
+		RefreshHierarchy();
 
 		// Send SubMesh Bones to Material
 		for (std::vector<RenderingMesh*>::iterator j = rcomp->GetMeshes().begin(); j != rcomp->GetMeshes().end(); j++)
@@ -817,7 +994,7 @@ namespace p3d {
 			}
 			if (boneId < 0) continue; // channel for a node this skeleton doesn't have
 
-			pose[boneId] = SampleChannel(anim.Channels[a], time);
+			pose[boneId] = SampleChannel(anim.Channels[a], time, anim.HasFlag(ANIM_FLAG_APPLY_SCALE));
 		}
 
 		ApplyPose(pose);

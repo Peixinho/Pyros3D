@@ -183,11 +183,42 @@ namespace p3d {
 		// chain and pushes the result into every mesh's SkinningBones -
 		// the tail of Update(), factored out so a poser can reuse it.
 		void RefreshSkinning();
-		// Puts every bone back to its bind transform and uploads. Note this
-		// is NOT the same as "no animation playing": an instance with no
-		// clip playing sits at identity per bone, not at bindPose (see the
-		// constructor), which is the pose the mesh was authored in only
-		// when bindPoseMat is identity.
+		// The first half of RefreshSkinning only: recomposes the model-space
+		// Bones[] without touching the meshes' SkinningBones. An IK solver
+		// rotates one bone, reads the resulting model-space position of the
+		// next, and repeats - so it needs the hierarchy recomposed many times
+		// per solve but the skinning matrices uploaded only once at the end.
+		void RefreshHierarchy();
+
+		// ---- post-pose modifiers (runtime IK, ragdoll, look-at) -------
+		// Called from inside SkeletonAnimation::Update(), after the playing
+		// clips have written the pose and the hierarchy has been composed,
+		// but BEFORE the skinning matrices are uploaded. So a modifier sees
+		// final model-space bone transforms and anything it writes is what
+		// gets drawn.
+		//
+		// This exists because ordering here cannot be left to convention.
+		// Update() overwrites the whole pose every frame, so a solver that
+		// runs from an ordinary component tick is correct or not depending
+		// on whether that component happens to update after the script that
+		// calls Update() - which nothing enforces and which changes when
+		// objects are reordered. Hanging the solver off Update() itself
+		// makes the order structural: there is no way to run it too early.
+		typedef void(*PoseModifier)(SkeletonAnimationInstance* instance, void* userData);
+		// userData identifies the registration; adding twice with the same
+		// userData replaces rather than duplicates.
+		void AddPoseModifier(PoseModifier fn, void* userData);
+		void RemovePoseModifier(void* userData);
+		// Runs every registered modifier then recomposes. Called by Update();
+		// exposed so a caller posing by hand can get the same treatment.
+		void RunPoseModifiers();
+		// Puts every bone back to its bind transform and uploads. This IS
+		// what "no animation playing" now looks like: the constructor seeds
+		// boneTransformation from bindPose, Stop()/StopAnimation() return to
+		// it, and SkeletonAnimation::Update() skips instances with nothing
+		// playing rather than rewriting them to identity. (It used to do all
+		// three at identity, which rendered a skinned mesh through a bare
+		// inverse-bind matrix and silently stomped externally posed bones.)
 		void ResetToBindPose();
 		// Poses the skeleton from `anim` sampled at `time` seconds and
 		// uploads, without touching playback state (no Play(), no clock,
@@ -197,13 +228,19 @@ namespace p3d {
 		void ApplyAnimationAtTime(const Animation &anim, const f32 time);
 
 		// Local transform a single channel produces at `time`, i.e. one
-		// bone's keyframe interpolation. Extracted verbatim from
+		// bone's keyframe interpolation. Extracted from
 		// SkeletonAnimation::Update()'s inner loop (which now calls it) so
 		// the editor's scrubbing and the runtime's playback can never drift
 		// apart. Empty key lists yield the identity component rather than
 		// indexing out of bounds - authored clips routinely carry channels
 		// with rotation keys and nothing else.
-		static Matrix SampleChannel(const Channel &ch, const f32 time);
+		//
+		// Each key's InterpolationMode reshapes the span parameter, so
+		// rotations still Slerp along the shortest arc and only their speed
+		// along it changes. `applyScale` comes from the owning clip's
+		// ANIM_FLAG_APPLY_SCALE - pass Animation::HasFlag() rather than a
+		// literal, or a clip will sample differently here than it plays.
+		static Matrix SampleChannel(const Channel &ch, const f32 time, const bool applyScale = false);
 
 		// Layers
 		uint32 CreateLayer(const std::string &name);
@@ -260,6 +297,13 @@ namespace p3d {
 
 		// Cache
 		std::vector<int32> ChannelBoneIDCache;
+
+		// Post-pose modifiers, in registration order.
+		struct PoseModifierEntry {
+			PoseModifier fn;
+			void* userData;
+		};
+		std::vector<PoseModifierEntry> poseModifiers;
 
 	};
 
@@ -323,6 +367,26 @@ namespace p3d {
 
 		// Get Animation ID By Name
 		const int32 GetAnimationIDByName(const std::string &name) const;
+
+		// Stable identity of a clip, as stored in the .p3da. Empty for clips
+		// that came from a v0 file and have not been re-saved since.
+		const int32 GetAnimationIDByGuid(const std::string &guid) const;
+		const std::string &GetAnimationGuid(const uint32 id) const;
+		const std::string &GetAnimationName(const uint32 id) const;
+
+		// Resolves a saved reference to a clip back to a runtime id, most
+		// stable key first: guid, then name, then the raw index.
+		//
+		// The index alone used to be the ONLY key, and a clip's index is just
+		// its position in this vector - so deleting a clip renumbered every
+		// later one and any scene that had saved "play clip 2" silently
+		// started playing a different animation. The fallbacks are what keeps
+		// scenes saved before guids existed working: those have no guid and
+		// no name recorded, and land on the index exactly as before.
+		//
+		// Returns -1 if nothing matches, which callers must treat as "do not
+		// play" rather than passing on to Play().
+		const int32 ResolveAnimationID(const std::string &guid, const std::string &name, const int32 fallbackIndex) const;
 
 		// Source file path - not stored before this, LoadAnimation()'s
 		// argument was used once then discarded. This is the path of the

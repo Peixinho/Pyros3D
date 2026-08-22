@@ -487,5 +487,22 @@
                 "tonemap"
             ]
         }
+    },
+    {
+        "name": "Inverse Kinematics",
+        "description": "Grab any limb and drag it. Four IK handles drive both legs (exact two-bone solve) and both arms (FABRIK) while the walk clip keeps playing - the solve runs inside SkeletonAnimation::update, so the constraint survives the clip rewriting the pose every frame. Left-drag a handle, SPACE pauses the walk.",
+        "scene": "IKExample.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.12,
+                0.12,
+                0.14,
+                1
+            ],
+            "effects": [
+                "tonemap"
+            ]
+        }
     }
 ]
