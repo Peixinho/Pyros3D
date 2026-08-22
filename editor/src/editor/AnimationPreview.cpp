@@ -402,6 +402,62 @@ Vec3 AnimationPreview::ComputeEye() const
 	return panTarget + offset;
 }
 
+void AnimationPreview::DrawBoneOctahedron(const Vec3& head, const Vec3& tail,
+	const Matrix& orient, const Vec4& color)
+{
+	if (!debug) return;
+
+	Vec3 dir = tail - head;
+	const float len = dir.magnitude();
+	if (len < 1e-5f)
+	{
+		// Coincident joints (a helper node parented at its parent's origin)
+		// have no direction to build a shape from.
+		debug->drawPoint(head, 5.f, color);
+		return;
+	}
+	dir = dir / len;
+
+	// Square the waist to the joint's own local X/Z, orthogonalised against
+	// the bone direction - this is what makes roll readable. A joint whose
+	// local X happens to run along the bone gives a degenerate cross product,
+	// so fall back to any perpendicular in that case.
+	Vec3 ax(orient.m[0], orient.m[1], orient.m[2]);
+	ax = ax - dir * ax.dotProduct(dir);
+	if (ax.magnitudeSQR() < 1e-8f)
+	{
+		Vec3 seed(orient.m[8], orient.m[9], orient.m[10]);
+		ax = seed - dir * seed.dotProduct(dir);
+	}
+	if (ax.magnitudeSQR() < 1e-8f)
+	{
+		const Vec3 seed = (std::fabs(dir.y) < 0.9f) ? Vec3(0, 1, 0) : Vec3(1, 0, 0);
+		ax = seed - dir * seed.dotProduct(dir);
+	}
+	ax.normalizeSelf();
+	const Vec3 az = dir.cross(ax).normalize();
+
+	// Blender's proportions: the waist sits ~15% along and is ~10% of the
+	// length across, which keeps a long bone slim and a short one still
+	// visible.
+	const float waistDist = len * 0.15f;
+	const float w = len * 0.10f;
+	const Vec3 waist = head + dir * waistDist;
+	const Vec3 v[4] = {
+		waist + ax * w,
+		waist + az * w,
+		waist - ax * w,
+		waist - az * w
+	};
+
+	for (int i = 0; i < 4; i++)
+	{
+		debug->drawLine(head, v[i], color);          // head fan
+		debug->drawLine(v[i], v[(i + 1) % 4], color); // waist ring
+		debug->drawLine(v[i], tail, color);           // tail fan
+	}
+}
+
 void AnimationPreview::DrawSkeleton(int selectedBone)
 {
 	if (!debug || !instance) return;
@@ -439,17 +495,29 @@ void AnimationPreview::DrawSkeleton(int selectedBone)
 		const bool isSelected = (id == selectedBone);
 		const Vec4 color = ColorForBone(isSelected, onChain[i]);
 
-		// Bone body: a line from the parent's origin to this bone's origin.
-		// A bone with no parent has nothing to draw a body to, so it gets
-		// only its joint marker and axes.
+		// Bone body: the segment from the parent's origin (head) to this
+		// bone's origin (tail) - a joint hierarchy has no explicit bone
+		// lengths, so the body between two joints is the bone. A root has
+		// nothing to draw a body to and gets only its joint marker.
 		float boneLength = 0.f;
 		if (bones[i].parent >= 0 && bones[i].parent < (int)bones.size())
 		{
-			const Vec3 parentHead = instance->GetBoneGlobalTransform(bones[i].parent).GetTranslation();
-			debug->drawLine(parentHead, head, color);
+			const Matrix parentXform = instance->GetBoneGlobalTransform(bones[i].parent);
+			const Vec3 parentHead = parentXform.GetTranslation();
 			boneLength = (head - parentHead).magnitude();
+
+			if (boneStyle == BoneDrawStyle::Octahedral)
+			{
+				// Oriented by the PARENT's axes: this segment is the parent
+				// joint's bone, and rotating that joint is what rolls it.
+				DrawBoneOctahedron(parentHead, head, parentXform, color);
+			}
+			else debug->drawLine(parentHead, head, color);
 		}
 
+		// Joint marker, always drawn: it is the thing you actually click, and
+		// on a leaf bone (a fingertip, with no child to form a body toward)
+		// it is the only mark there is.
 		debug->drawPoint(head, isSelected ? 9.f : 5.f, color);
 
 		// Local axes, so the animator can see which way a rotation will go.

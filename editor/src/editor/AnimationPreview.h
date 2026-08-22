@@ -119,6 +119,15 @@ struct AnimationPreview {
 	bool skipRenderThisCall = true;
 
 	// ---- display toggles ---------------------------------------------
+	// How the skeleton is drawn. Octahedral is Blender's shape and the
+	// default for the same reason: a plain line between two joints shows
+	// where a bone is but not which way it is ROLLED, and roll is exactly
+	// what you need to predict where a rotation will take the limb. The
+	// octahedron's cross-section is built from the joint's own local axes,
+	// so it turns with them. Stick stays available because a dense rig
+	// (hands, fingers) reads better as lines.
+	enum class BoneDrawStyle { Octahedral, Stick };
+	BoneDrawStyle boneStyle = BoneDrawStyle::Octahedral;
 	bool showBones = true;
 	bool showBoneNames = false;
 	bool showMesh = true;
@@ -223,6 +232,14 @@ private:
 	// world space here (the model GO sits at the origin), so bone globals
 	// go in unmodified.
 	void DrawSkeleton(int selectedBone);
+	// One bone body as a wireframe octahedron from head to tail: a fan to the
+	// head, a square "waist" a short way along, and a fan to the tail. `orient`
+	// supplies the local axes the waist is squared to - that is what makes the
+	// roll visible. Wireframe rather than solid because DebugRenderer draws
+	// with depth testing off (so gizmos stay on top), and filled bones would
+	// paint over the mesh they are supposed to be inside.
+	void DrawBoneOctahedron(const p3d::Math::Vec3& head, const p3d::Math::Vec3& tail,
+		const p3d::Math::Matrix& orient, const p3d::Math::Vec4& color);
 	void EnsureGizmo();
 	// AABB over the current posed bone positions (model space). Returns
 	// false when there is no skeleton, in which case the caller falls back

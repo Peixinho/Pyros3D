@@ -1054,6 +1054,14 @@ void DrawWindow(AnimationEditorDocument& doc, const std::vector<AnimationMeshCho
 		ImGui::SameLine();
 		ImGui::Checkbox("Bones", &pv->showBones);
 		ImGui::SameLine();
+		ImGui::SetNextItemWidth(110.f);
+		int styleIdx = (pv->boneStyle == AnimationPreview::BoneDrawStyle::Octahedral) ? 0 : 1;
+		if (ImGui::Combo("##bonestyle", &styleIdx, "Octahedral\0Stick\0"))
+			pv->boneStyle = (styleIdx == 0) ? AnimationPreview::BoneDrawStyle::Octahedral
+			                                : AnimationPreview::BoneDrawStyle::Stick;
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Octahedral bones show which way a joint is rolled;\nStick is easier to read on dense rigs like fingers.");
+		ImGui::SameLine();
 		ImGui::Checkbox("Mesh", &pv->showMesh);
 		ImGui::SameLine();
 		ImGui::Checkbox("Grid", &pv->showGrid);
