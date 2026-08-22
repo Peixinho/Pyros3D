@@ -15,6 +15,13 @@ function SkeletonAnimBlend:initialize()
 	self.animationPos = 0
 	self.animationPos2 = 1
 	self.mouseX = nil
+	-- SkeletonAnimation:update() wants a clock that counts up from the
+	-- first call - it derives each clip's position by subtracting the time
+	-- it first saw. Scripts are handed the frame delta (see
+	-- LuaComponent::Update), so the clock is accumulated here. Per instance,
+	-- not a file-local: two animated objects sharing this script would
+	-- otherwise both add into the same counter and run at double speed.
+	self.clock = 0
 end
 
 function SkeletonAnimBlend:init(owner)
@@ -32,9 +39,10 @@ function SkeletonAnimBlend:init(owner)
 	end)
 end
 
-function SkeletonAnimBlend:update(time)
+function SkeletonAnimBlend:update(dt)
+	self.clock = self.clock + dt
 	if self.anim then
-		self.anim:update(time)
+		self.anim:update(self.clock)
 	end
 
 	if self.instance and self.mouseX then
@@ -58,8 +66,11 @@ end
 
 function SkeletonAnimBlend.deserialize(data)
 	local inst = SkeletonAnimBlend:new()
-	inst.animationPos = data.animationPos
-	inst.animationPos2 = data.animationPos2
+	-- The engine's bindings take these as integers; math.tointeger keeps
+	-- that true even for a scene saved before the serializer preserved
+	-- Lua's integer subtype (they come back as 0.0/1.0 there).
+	inst.animationPos = math.tointeger(data.animationPos) or 0
+	inst.animationPos2 = math.tointeger(data.animationPos2) or 1
 	return inst
 end
 

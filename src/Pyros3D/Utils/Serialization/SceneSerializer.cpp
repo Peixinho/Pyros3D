@@ -228,7 +228,15 @@ namespace p3d {
 		switch (obj.get_type())
 		{
 		case sol::type::string: return obj.as<std::string>();
-		case sol::type::number: return obj.as<double>();
+		// Lua 5.3+ has a real integer subtype and sol2's typed bindings
+		// enforce it: a script field that comes back as 1.0 rather than 1
+		// is rejected outright by any binding taking an integer ("number
+		// has significant decimals"). Writing every number as a double
+		// turned every integer a script serialized into a float on reload,
+		// which is what stopped skeleton_anim.lua being able to pass its
+		// own animation indices back into the engine.
+		case sol::type::number:
+			return obj.is<int64_t>() ? json(obj.as<int64_t>()) : json(obj.as<double>());
 		case sol::type::boolean: return obj.as<bool>();
 		case sol::type::table: return LuaTableToJson(obj.as<sol::table>());
 		default: return json();
@@ -278,7 +286,19 @@ namespace p3d {
 	{
 		if (j.is_string()) return sol::make_object(lua, j.get<std::string>());
 		if (j.is_boolean()) return sol::make_object(lua, j.get<bool>());
-		if (j.is_number()) return sol::make_object(lua, j.get<double>());
+		// Integers stay integers - see LuaValueToJson. A JSON float with no
+		// fractional part is treated as one too: JSON has a single number
+		// type, scenes written before that distinction was kept store these
+		// as 0.0/1.0, and Lua arithmetic on an integer promotes to float
+		// whenever a script actually wants one.
+		if (j.is_number_integer()) return sol::make_object(lua, j.get<int64_t>());
+		if (j.is_number())
+		{
+			const double d = j.get<double>();
+			if (d == (double)(int64_t)d)
+				return sol::make_object(lua, (int64_t)d);
+			return sol::make_object(lua, d);
+		}
 		if (j.is_array())
 		{
 			sol::table t = lua.create_table();
@@ -1600,7 +1620,24 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				// sampler; Vulkan: validation/segfault). Shadows still work
 				// via EnableCastShadows + lights; the material picks up
 				// Texture/Specular from the .p3dm in BuildMaterials.
-				const uint32 opts = ShaderUsage::Diffuse;
+				//
+				// Plus Skinning for a model that carries a skeleton. The
+				// serialized material's own options are deliberately dropped
+				// for a Model (per-submesh materials are rebuilt from the
+				// .p3dm instead, so package textures survive a reload), and
+				// Skinning went with them - so a skinned model loaded from a
+				// scene file compiled the *non*-skinned shader variant and
+				// ignored its bone palette entirely. The animation still ran,
+				// the bones still updated, and the mesh still drew: in its
+				// unskinned bone-local layout, which reads as a motionless
+				// heap of body parts. Only the scene path was affected; the
+				// C++ demos passed Skinning explicitly and always worked.
+				// BuildMaterials() masks this straight back off for any
+				// submesh whose geometry has no bone data, so a rigid prop
+				// inside an animated model is unaffected.
+				uint32 opts = ShaderUsage::Diffuse;
+				if (j.find("skeletonAnimation") != j.end())
+					opts |= ShaderUsage::Skinning;
 #ifdef LUA_BINDINGS
 				rc = lua
 					? std::static_pointer_cast<RenderingComponent>(std::make_shared<LUA_RenderingComponent>(renderable, opts))
