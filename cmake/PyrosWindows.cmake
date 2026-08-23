@@ -28,6 +28,15 @@ if (MSVC)
 	# Sources are UTF-8 (imgui's and the editor's string literals included);
 	# without this MSVC reads them in the system codepage.
 	add_compile_options(/utf-8)
+
+	# Symbols even in Release. A Windows crash without a .pdb gives you a
+	# bare address and nothing else - which is exactly the position an
+	# access violation on startup left us in, with no console output to
+	# narrow it down either. /DEBUG turns off the linker's folding by
+	# default, so restore it explicitly: this keeps the optimised build
+	# byte-for-byte the same and only adds the symbol file beside it.
+	add_compile_options(/Zi)
+	add_link_options(/DEBUG /OPT:REF /OPT:ICF)
 endif()
 
 # Deliberately NOT setting CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS.

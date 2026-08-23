@@ -244,6 +244,16 @@ jobs:
           Copy-Item "$($redist.FullName)\*.dll" "$out\demolauncher" -Force
           Copy-Item "$($redist.FullName)\*.dll" "$out\editor"       -Force
 
+          # Symbols alongside the binaries: an access violation without a
+          # .pdb gives a bare address, on a user's desktop as much as here.
+          Copy-Item "build\examples\*.pdb" "$out\demolauncher" -Force -ErrorAction SilentlyContinue
+          Copy-Item "build\editor\*.pdb"   "$out\editor"       -Force -ErrorAction SilentlyContinue
+          Copy-Item "build\*.pdb"           "$out\lib"          -Force -ErrorAction SilentlyContinue
+          if ("${{ matrix.static }}" -eq "OFF") {
+            Copy-Item "build\PyrosEngine.pdb" "$out\demolauncher" -Force -ErrorAction SilentlyContinue
+            Copy-Item "build\PyrosEngine.pdb" "$out\editor"       -Force -ErrorAction SilentlyContinue
+          }
+
           # shaderc_shared.dll comes from the SDK, not vcpkg.
           if ("${{ matrix.spirv }}" -eq "ON") {
             Copy-Item "$env:VULKAN_SDK\Bin\shaderc_shared.dll" "$out\demolauncher" -ErrorAction SilentlyContinue
@@ -335,6 +345,27 @@ jobs:
           $dir = "$pwd\package\demolauncher"
           $exe = "$dir\CppApiDemo.exe"
           Write-Host "--- launching $exe from $dir ---"
+          # An exit code of -1073741819 (0xC0000005, access violation) with
+          # empty stdout/stderr says only "it crashed before it logged
+          # anything". Run it under cdb when the SDK debugger is on the
+          # image, so we get the faulting frame instead.
+          $cdb = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if ($cdb) {
+            Write-Host "--- running under $($cdb.FullName) ---"
+            # Commands run at the initial breakpoint: g continues to the
+            # fault, then .lastevent/!analyze/kb describe it. No -g, which
+            # would skip past that breakpoint and the -c list with it.
+            # Push-Location because the app resolves assets\ and shaders\
+            # against the working directory, and cdb inherits ours.
+            Push-Location $dir
+            & $cdb.FullName -G -c '.symfix; .reload; g; .lastevent; !analyze -v; kb; q' $exe 2>&1 |
+              Select-Object -First 200
+            Pop-Location
+          } else {
+            Write-Host "--- cdb not on this image, exit code only ---"
+          }
+
           $p = Start-Process -FilePath $exe -WorkingDirectory $dir -PassThru `
                  -RedirectStandardOutput "$pwd\smoke-out.txt" `
                  -RedirectStandardError  "$pwd\smoke-err.txt"
