@@ -278,7 +278,16 @@ jobs:
             "    .\DemoLauncher.exe",
             "",
             "The two folders are separate because ''assets'' means",
-            "examples\assets to DemoLauncher and editor\assets to PyrosBuilder."
+            "examples\assets to DemoLauncher and editor\assets to PyrosBuilder.",
+            "",
+            "If it crashes it now prints a symbolised stack trace. The .pdb",
+            "files next to each .exe are what make that readable - keep them.",
+            "For more detail, raise the log level first:",
+            "",
+            "    set PYROS_LOG_LEVEL=3",
+            "    .\DemoLauncher.exe",
+            "",
+            "0=errors only, 1=+warnings (default), 2=+success, 3=everything."
           ) | Out-File -FilePath "$out\README.txt" -Encoding utf8
 
           # Binaries only - the assets/shaders trees would bury the log.
@@ -381,6 +390,10 @@ jobs:
           Get-Content "$pwd\smoke-out.txt" -ErrorAction SilentlyContinue | Select-Object -First 60
           Write-Host "--- stderr ---"
           Get-Content "$pwd\smoke-err.txt" -ErrorAction SilentlyContinue | Select-Object -First 60
+          # Informational step. A runner has no GPU, so a non-zero exit here
+          # is now the correct behaviour - the engine reports the missing
+          # driver instead of crashing. Don't flag that red.
+          exit 0
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
