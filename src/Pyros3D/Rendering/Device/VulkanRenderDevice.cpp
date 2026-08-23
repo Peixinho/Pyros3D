@@ -123,8 +123,20 @@ namespace p3d {
 		// the tradeoff is VK.Submit includes Vulkan→Metal encode time.
 		setenv("MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", "1", 1);
 #endif
+		// volkInitialize() fails when there is no Vulkan loader to dlopen -
+		// no vulkan-1.dll on Windows, no libvulkan on Linux, no ICD
+		// installed. This used to be a bare `return` out of the
+		// constructor, which left every vk* function pointer null and the
+		// object half-built, and said nothing: the process then either
+		// jumped to address 0 on the first vk call or exited without a
+		// word. Report it, and leave `instance` VK_NULL_HANDLE so the
+		// caller's existing check still sees the failure.
 		if (volkInitialize() != VK_SUCCESS)
+		{
+			echo("ERROR: no Vulkan loader found (vulkan-1.dll / libvulkan). "
+			     "Install a Vulkan-capable graphics driver, or use an OpenGL build.");
 			return;
+		}
 
 		VkApplicationInfo appInfo = {};
 		appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;

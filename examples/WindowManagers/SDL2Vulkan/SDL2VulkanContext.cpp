@@ -22,6 +22,7 @@
 #include <objc/message.h>
 #include <objc/runtime.h>
 #include <SDL2/SDL_syswm.h>
+#include <cstdlib>
 
 namespace {
 
@@ -183,7 +184,11 @@ namespace p3d {
         CreateKeyboardMap();
 
         // Initialize SDL2
-        SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
+        if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0)
+        {
+            echo(std::string("ERROR: SDL_Init failed: ") + SDL_GetError());
+            exit(EXIT_FAILURE);
+        }
 
         uint32 type = 0;
 
@@ -205,6 +210,17 @@ namespace p3d {
             height,
             type
         );
+
+        // SDL_CreateWindow with SDL_WINDOW_VULKAN fails outright when SDL
+        // cannot load the Vulkan loader, which is the normal outcome on a
+        // machine with no Vulkan-capable driver. Going on from here with a
+        // NULL window is what turned that into a silent exit.
+        if (!rview)
+        {
+            echo(std::string("ERROR: SDL_CreateWindow (Vulkan) failed: ") + SDL_GetError());
+            echo("ERROR: this usually means no Vulkan driver is installed - try an OpenGL build.");
+            exit(EXIT_FAILURE);
+        }
 
         // If the window manager silently clamps the requested size (a
         // real thing SDL_CreateWindow() can't report through its return
@@ -251,11 +267,14 @@ namespace p3d {
             !CreateSurface(vulkanDevice->GetInstance(), &surface) ||
             !vulkanDevice->InitializeSwapchain(surface, Width, Height))
         {
-            // Matches this constructor's existing no-error-handling style
-            // (SDL_CreateWindow() above isn't checked either) - a NULL
-            // rview/unusable vulkanDevice will surface loudly the first
-            // time anything tries to use it, same as today.
-            fprintf(stderr, "SDL2VulkanContext: failed to initialize VulkanRenderDevice/swapchain\n");
+            // This used to fprintf and carry on, on the reasoning that an
+            // unusable device would "surface loudly the first time anything
+            // tries to use it". It does not: the first use is a call through
+            // a null volk function pointer, which is an execute access
+            // violation with no output at all. Stop here instead, where
+            // there is still something useful to say.
+            echo("ERROR: failed to initialize the Vulkan device or swapchain.");
+            exit(EXIT_FAILURE);
         }
 #if defined(__APPLE__)
         else
@@ -272,9 +291,20 @@ namespace p3d {
     std::vector<const char*> SDL2VulkanContext::GetRequiredInstanceExtensions() const
     {
         uint32_t count = 0;
-        SDL_Vulkan_GetInstanceExtensions(rview, &count, NULL);
+        // Returns SDL_FALSE without touching count when SDL has no Vulkan
+        // loader, so a bare `extensions(count)` would size from whatever
+        // was on the stack.
+        if (SDL_Vulkan_GetInstanceExtensions(rview, &count, NULL) != SDL_TRUE)
+        {
+            echo(std::string("ERROR: SDL_Vulkan_GetInstanceExtensions failed: ") + SDL_GetError());
+            return std::vector<const char*>();
+        }
         std::vector<const char*> extensions(count);
-        SDL_Vulkan_GetInstanceExtensions(rview, &count, extensions.data());
+        if (SDL_Vulkan_GetInstanceExtensions(rview, &count, extensions.data()) != SDL_TRUE)
+        {
+            echo(std::string("ERROR: SDL_Vulkan_GetInstanceExtensions failed: ") + SDL_GetError());
+            return std::vector<const char*>();
+        }
         return extensions;
     }
 
