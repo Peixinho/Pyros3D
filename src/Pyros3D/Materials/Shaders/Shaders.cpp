@@ -40,7 +40,16 @@ namespace p3d {
 		std::string str;
 
 		if (t.fail()) {
-			echo("ERROR: Shader File does not exist or you don't have permission to open it.");
+			// Name the file, and say what it was resolved against. Shader
+			// paths are RELATIVE ("shaders/PyrosShader.glsl"), so the usual
+			// cause of this is a working directory without a shaders/ folder
+			// next to it - running the binary from the source tree instead of
+			// its build directory, say. Without the path in the message the
+			// only symptom is that every draw quietly uses a program that
+			// failed to build, which in a debug build surfaces as an abort
+			// inside glUseProgram with nothing pointing back to here.
+			echo(std::string("ERROR: Could not open shader file '") + filename
+				+ "' (relative paths resolve against the working directory).");
 			return std::string("\n\n/*\n * SHADER ERROR\n * COULDN'T OPEN/INCLUDE FILE ")+filename+std::string("\n *\n */\n\n");
 		}
 
