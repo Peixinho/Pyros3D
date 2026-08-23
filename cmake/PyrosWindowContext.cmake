@@ -100,4 +100,15 @@ else()
 	message(FATAL_ERROR "Unknown PYROS_CONTEXT='${PYROS_CONTEXT}' (expected SDL2, SDL2Vulkan, SDL2Metal, SDL, or SFML)")
 endif()
 
+# On Windows, SDL_main.h does `#define main SDL_main`, so the application's
+# int main() is compiled under a different name and the real entry point has
+# to come from SDL2main - otherwise the link fails with LNK2019 "unresolved
+# external symbol main referenced in __scrt_common_main_seh". It has to
+# precede SDL2 in link order, hence INSERT rather than APPEND. Covers every
+# SDL2-based context above; the TARGET guard skips the legacy SDL/SFML ones.
+if (WIN32 AND TARGET SDL2::SDL2main)
+	list(INSERT PYROS_CONTEXT_LIB 0 SDL2::SDL2main)
+	message(STATUS "  SDL2main            = linked (Windows entry point)")
+endif()
+
 message(STATUS "  Window manager      = ${PYROS_CONTEXT} → ${PYROS_WINDOW_MANAGER}")
