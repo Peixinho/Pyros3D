@@ -438,7 +438,13 @@ void SceneEditor::ApplyParticleDesc(uint32 psId, const ParticleSystemDesc& desc)
 	// the desc every frame - see propertiesParticle* in SceneEditor.h.
 	if (SelectedSceneObject == obj)
 	{
-		propertiesParticleTexturePath = desc.texture ? desc.texture->GetFilename() : std::string();
+		// Project-relative, same reason as the other seeding site in
+		// SceneEditor.cpp: the Texture remembers the absolute path it was
+		// loaded from, which is not what belongs in the inspector.
+		propertiesParticleTexturePath = desc.texture
+			? (project ? project->DisplayPath(desc.texture->GetFilename())
+				: desc.texture->GetFilename())
+			: std::string();
 		propertiesParticleMax = (int32)desc.maxParticles;
 	}
 	MarkSceneDirty();

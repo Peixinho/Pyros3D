@@ -6196,7 +6196,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					if (propertiesParticleSeededId != psId)
 					{
 						propertiesParticleSeededId = psId;
-						propertiesParticleTexturePath = d.texture ? d.texture->GetFilename() : std::string();
+						// DisplayPath, not the Texture's own filename: the
+						// texture was loaded through ResolveAssetPath, so it
+						// remembers the ABSOLUTE path it came from, and
+						// showing that put a machine-specific
+						// /Users/... string in the inspector. What the desc
+						// actually stores (and what gets serialized) is the
+						// project-relative path, so that is what belongs on
+						// screen. Falls back to the raw name with no project
+						// open, where there is nothing to be relative to.
+						propertiesParticleTexturePath = d.texture
+							? (project ? project->DisplayPath(d.texture->GetFilename())
+								: d.texture->GetFilename())
+							: std::string();
 						propertiesParticleMax = (int32)d.maxParticles;
 					}
 					// Undo commit for a drag/type gesture on any of the
@@ -7307,7 +7319,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			return json();
 		}
 
-		json AgentComponentToJson(IComponent* c)
+		// `project` only to report asset paths project-relative; NULL is
+		// fine and falls back to whatever the asset itself remembers.
+		json AgentComponentToJson(IComponent* c, const ProjectManager* project)
 		{
 			if (!c) return json();
 			json j;
@@ -7329,7 +7343,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				// produces "nothing visible at all" when it goes missing
 				// (an unbound sampler under additive blending draws black
 				// on black), so it is worth reporting explicitly.
-				j["texture"] = d.texture ? d.texture->GetFilename() : std::string();
+				// Project-relative, matching every other path this API
+				// reports - see the inspector's seeding above for why the
+				// Texture's own filename is absolute.
+				j["texture"] = d.texture
+					? (project ? project->DisplayPath(d.texture->GetFilename())
+						: d.texture->GetFilename())
+					: std::string();
 				j["textureWidth"] = d.texture ? d.texture->GetWidth() : 0;
 				j["instances"] = ps->NumberOfInstances();
 				j["meshes"] = (uint32)ps->GetMeshes(0).size();
@@ -8121,7 +8141,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		for (auto& c : go->GetComponents())
 		{
 			if (!c) continue;
-			json cj = AgentComponentToJson(c.get());
+			json cj = AgentComponentToJson(c.get(), project);
 			if (cj.is_null()) continue;
 			RelativizeAgentAssetPaths(cj);
 			comps.push_back(std::move(cj));
@@ -8187,7 +8207,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			for (auto& c : go->GetComponents())
 			{
 				if (!c) continue;
-				json cj = AgentComponentToJson(c.get());
+				json cj = AgentComponentToJson(c.get(), project);
 				if (!cj.is_object()) continue;
 				RelativizeAgentAssetPaths(cj);
 				comps.push_back(std::move(cj));
