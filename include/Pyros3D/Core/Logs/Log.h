@@ -11,6 +11,7 @@
 
 #include <Pyros3D/Other/Export.h>
 #include <string>
+#include <cstdlib>
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -157,6 +158,18 @@ namespace p3d {
 				if (!_initiated)
 				{
 					_initiated = true;
+					// PYROS_LOG_LEVEL=0..3 (Error/Warning/Success/Info)
+					// raises _threshold before the first line is emitted.
+					// The default drops everything below Warning, which is
+					// right for normal use and useless when a downloaded
+					// build is failing on a machine you cannot attach to -
+					// this is the only knob such a user has.
+					if (const char *lvl = getenv("PYROS_LOG_LEVEL"))
+					{
+						const int parsed = atoi(lvl);
+						if (parsed >= Level::Error && parsed <= Level::Info)
+							_threshold = parsed;
+					}
 					_message("=== Pyros3D Start ===");
 				}
 

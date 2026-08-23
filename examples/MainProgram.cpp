@@ -9,6 +9,7 @@
 #include "includes.h"
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
+#include <Pyros3D/Utils/CrashHandler/CrashHandler.h>
 #if defined(__EMSCRIPTEN__) || defined(EMSCRIPTEN)
 #include <emscripten.h>
 #define PYROS_EMSCRIPTEN 1
@@ -61,6 +62,11 @@ void mainloop()
 }
 
 int main(int argc, char** argv) {
+
+	// Before anything else: a Windows access violation otherwise kills the
+	// process with no output at all, which is what "it just opens and closes"
+	// looks like from the outside.
+	InstallCrashHandler();
 
 	initialized = false;
 

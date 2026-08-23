@@ -7,6 +7,7 @@
 //============================================================================
 
 #include "Editor.h"
+#include <Pyros3D/Utils/CrashHandler/CrashHandler.h>
 #if defined(EMSCRIPTEN)
 	#include <emscripten.h>
 #endif
@@ -47,6 +48,10 @@ void mainloop()
 }
 
 int main(int argc, char** argv) {
+
+	// See MainProgram.cpp - a silent access violation is what
+	// "it opens and closes" looks like without this.
+	InstallCrashHandler();
 
 	initialized = false;
 
