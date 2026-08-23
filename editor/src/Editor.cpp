@@ -133,6 +133,117 @@ void Editor::ShowAssetCreateMenuItems()
 	}
 }
 
+// The editor's palette. These are the same values DrawWelcomeScreen() has
+// always used for the splash - the warm slate ground, the ember accent, the
+// brown headers - lifted out so the whole editor wears them instead of the
+// splash being the one warm screen in a stock-blue application.
+namespace
+{
+	inline ImVec4 PyrosCol(int r, int g, int b, float a = 1.f)
+	{
+		return ImVec4((float)r / 255.f, (float)g / 255.f, (float)b / 255.f, a);
+	}
+}
+
+void Editor::ApplyPyrosTheme()
+{
+	ImGuiStyle& style = ImGui::GetStyle();
+	ImVec4* c = style.Colors;
+
+	// Grounds, darkest to lightest. The welcome screen's gradient runs
+	// (42,38,40) -> (58,36,30); windows sit on the first, raised surfaces
+	// (frames, headers) on warmer steps above it.
+	const ImVec4 bgDeep    = PyrosCol(30, 27, 28);
+	const ImVec4 bgWindow  = PyrosCol(42, 38, 40);
+	const ImVec4 bgPanel   = PyrosCol(56, 48, 46);
+	const ImVec4 bgRaised  = PyrosCol(72, 60, 55);
+
+	// Ember accent, straight off the splash's primary button.
+	const ImVec4 accent       = PyrosCol(224, 82, 41);
+	const ImVec4 accentHover  = PyrosCol(245, 107, 51);
+	const ImVec4 accentActive = PyrosCol(191, 61, 31);
+
+	// Brown header ramp, straight off the splash's recent-projects list.
+	const ImVec4 header       = PyrosCol(92, 61, 46);
+	const ImVec4 headerHover  = PyrosCol(140, 77, 46);
+	const ImVec4 headerActive = PyrosCol(179, 87, 41);
+
+	const ImVec4 text     = PyrosCol(250, 240, 230);
+	const ImVec4 textDim  = PyrosCol(158, 138, 128);
+	const ImVec4 border   = PyrosCol(120, 84, 66, 0.60f);
+
+	c[ImGuiCol_Text]                  = text;
+	c[ImGuiCol_TextDisabled]          = textDim;
+	c[ImGuiCol_WindowBg]              = bgWindow;
+	c[ImGuiCol_ChildBg]               = ImVec4(0, 0, 0, 0);
+	c[ImGuiCol_PopupBg]               = PyrosCol(38, 33, 34, 0.98f);
+	c[ImGuiCol_Border]                = border;
+	c[ImGuiCol_BorderShadow]          = ImVec4(0, 0, 0, 0);
+	c[ImGuiCol_FrameBg]               = bgPanel;
+	c[ImGuiCol_FrameBgHovered]        = bgRaised;
+	c[ImGuiCol_FrameBgActive]         = header;
+	c[ImGuiCol_TitleBg]               = bgDeep;
+	c[ImGuiCol_TitleBgActive]         = header;
+	c[ImGuiCol_TitleBgCollapsed]      = PyrosCol(30, 27, 28, 0.75f);
+	c[ImGuiCol_MenuBarBg]             = bgDeep;
+	c[ImGuiCol_ScrollbarBg]           = PyrosCol(24, 21, 22, 0.60f);
+	c[ImGuiCol_ScrollbarGrab]         = bgRaised;
+	c[ImGuiCol_ScrollbarGrabHovered]  = header;
+	c[ImGuiCol_ScrollbarGrabActive]   = headerHover;
+	c[ImGuiCol_CheckMark]             = accentHover;
+	c[ImGuiCol_SliderGrab]            = accent;
+	c[ImGuiCol_SliderGrabActive]      = accentHover;
+	c[ImGuiCol_Button]                = bgRaised;
+	c[ImGuiCol_ButtonHovered]         = headerHover;
+	c[ImGuiCol_ButtonActive]          = accentActive;
+	c[ImGuiCol_Header]                = header;
+	c[ImGuiCol_HeaderHovered]         = headerHover;
+	c[ImGuiCol_HeaderActive]          = headerActive;
+	c[ImGuiCol_Separator]             = border;
+	c[ImGuiCol_SeparatorHovered]      = headerHover;
+	c[ImGuiCol_SeparatorActive]       = accent;
+	c[ImGuiCol_ResizeGrip]            = PyrosCol(120, 84, 66, 0.40f);
+	c[ImGuiCol_ResizeGripHovered]     = headerHover;
+	c[ImGuiCol_ResizeGripActive]      = accent;
+	c[ImGuiCol_Tab]                   = PyrosCol(48, 41, 40);
+	c[ImGuiCol_TabHovered]            = headerHover;
+	c[ImGuiCol_TabSelected]           = header;
+	c[ImGuiCol_TabSelectedOverline]   = accent;
+	c[ImGuiCol_TabDimmed]             = bgDeep;
+	c[ImGuiCol_TabDimmedSelected]     = PyrosCol(64, 46, 38);
+	c[ImGuiCol_TabDimmedSelectedOverline] = PyrosCol(120, 84, 66, 0.60f);
+	c[ImGuiCol_DockingPreview]        = ImVec4(accent.x, accent.y, accent.z, 0.55f);
+	c[ImGuiCol_DockingEmptyBg]        = bgDeep;
+	c[ImGuiCol_PlotLines]             = PyrosCol(214, 175, 150);
+	c[ImGuiCol_PlotLinesHovered]      = accentHover;
+	c[ImGuiCol_PlotHistogram]         = accent;
+	c[ImGuiCol_PlotHistogramHovered]  = accentHover;
+	c[ImGuiCol_TableHeaderBg]         = header;
+	c[ImGuiCol_TableBorderStrong]     = PyrosCol(96, 70, 58);
+	c[ImGuiCol_TableBorderLight]      = PyrosCol(64, 52, 48);
+	c[ImGuiCol_TableRowBg]            = ImVec4(0, 0, 0, 0);
+	c[ImGuiCol_TableRowBgAlt]         = ImVec4(1.f, 1.f, 1.f, 0.03f);
+	c[ImGuiCol_TextSelectedBg]        = ImVec4(accent.x, accent.y, accent.z, 0.40f);
+	c[ImGuiCol_DragDropTarget]        = accentHover;
+	c[ImGuiCol_NavCursor]             = accentHover;
+	c[ImGuiCol_NavWindowingHighlight] = text;
+	c[ImGuiCol_NavWindowingDimBg]     = ImVec4(0.f, 0.f, 0.f, 0.55f);
+	c[ImGuiCol_ModalWindowDimBg]      = ImVec4(0.f, 0.f, 0.f, 0.55f);
+
+	// Geometry to match: the splash rounds its buttons and its recent list,
+	// so the rest of the editor should not be all hard corners.
+	style.WindowRounding    = 4.f;
+	style.ChildRounding     = 4.f;
+	style.FrameRounding     = 4.f;
+	style.PopupRounding     = 4.f;
+	style.ScrollbarRounding = 6.f;
+	style.GrabRounding      = 4.f;
+	style.TabRounding       = 4.f;
+	style.WindowBorderSize  = 1.f;
+	style.FrameBorderSize   = 0.f;
+	style.WindowTitleAlign  = ImVec2(0.5f, 0.5f);
+}
+
 Editor* Editor::instance= NULL;
 
 Editor* Editor::getInstance()
@@ -284,6 +395,7 @@ void Editor::Init()
 
 	// Setup Dear ImGui style
 	ImGui::StyleColorsDark();
+	ApplyPyrosTheme();
 
 	ImFontConfig defaultCfg;
 	defaultCfg.SizePixels = 15.0f;

@@ -406,6 +406,8 @@ private:
 	std::string selectedAssetRel;
 	std::string pendingDeleteAssetRel;
 	bool openDeleteAssetModal;
+	// Warm ember palette shared with DrawWelcomeScreen - see its definition.
+	static void ApplyPyrosTheme();
 	void ShowAssetCreateMenuItems();
 	bool openNewScriptModal;
 	std::string newScriptName;
