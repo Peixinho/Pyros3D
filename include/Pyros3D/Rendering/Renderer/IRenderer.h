@@ -405,7 +405,8 @@ namespace p3d {
 		// (DebugRenderer) overwrites MaterialUniformsUBO - forces the next
 		// SendUserUniforms() upload even if LastMesh/Material are unchanged.
 		static bool MaterialUniformsNeedsReupload;
-		static Matrix CachedProjectionMatrix, CachedViewMatrix;
+		static Matrix CachedProjectionMatrix;
+		static Matrix CachedViewMatrix;
 		// Part of the same dirty-check as CachedProjectionMatrix/
 		// CachedViewMatrix above - RenderingPointShadowFace changes which
 		// *translation* of an otherwise-possibly-identical ProjectionMatrix
@@ -438,7 +439,8 @@ namespace p3d {
 		static bool AmbientLightUniformsUBOValid;
 		static Vec4 CachedGlobalLight;
 		static bool VelocityFrameUniformsUBOValid;
-		static Matrix CachedPrvProjectionMatrix, CachedPrvViewMatrix;
+		static Matrix CachedPrvProjectionMatrix;
+		static Matrix CachedPrvViewMatrix;
 
 		// Universal Uniforms Cache
 		Matrix

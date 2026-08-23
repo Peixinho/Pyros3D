@@ -151,11 +151,13 @@ namespace p3d {
 
 		// Thread and User Properties
 		Matrix _LocalMatrixUserEntered;
-		Matrix _WorldMatrix, _PrvWorldMatrix;
+		Matrix _WorldMatrix;
+		Matrix _PrvWorldMatrix;
 		bool _IsDirty, _IsUsingCustomMatrix;
 
 		// Local Transformation Matrix
-		Matrix _LocalMatrix, _PrvLocalMatrix;
+		Matrix _LocalMatrix;
+		Matrix _PrvLocalMatrix;
 
 		// Looking At
 		bool _IsLookingAtGameObject, _IsLookingAtPosition;
@@ -198,10 +200,12 @@ namespace p3d {
 		// Bounds of the Component
 		f32 BoundingSphereRadius;
 		Vec3 BoundingSphereCenter;
-		Vec3 maxBounds, minBounds;
+		Vec3 maxBounds;
+		Vec3 minBounds;
 
 		f32 BoundingSphereRadiusWorldSpace;
-		Vec3 maxBoundsWorldSpace, minBoundsWorldSpace;
+		Vec3 maxBoundsWorldSpace;
+		Vec3 minBoundsWorldSpace;
 	};
 
 };

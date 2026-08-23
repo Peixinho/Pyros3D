@@ -286,7 +286,8 @@ namespace p3d {
 		// frame color blit path and any future temporal reuse. lastPass
 		// currently samples same-frame tColor at the ray hit UV (see
 		// lastPass.glsl) so pitch smear from broken prv reprojection is gone.
-		Matrix ssrPrvViewMatrix, ssrPrvProjectionMatrix;
+		Matrix ssrPrvViewMatrix;
+		Matrix ssrPrvProjectionMatrix;
 		Uniform *lastPassPrvViewMatrixHandle, *lastPassPrvProjectionMatrixHandle;
 	};
 

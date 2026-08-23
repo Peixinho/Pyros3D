@@ -86,7 +86,8 @@ namespace p3d {
 		// Time
 		f64 timer;
 
-		Vec3 minBounds, maxBounds;
+		Vec3 minBounds;
+		Vec3 maxBounds;
 	};
 
 };

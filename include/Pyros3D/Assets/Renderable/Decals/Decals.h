@@ -73,8 +73,13 @@ namespace p3d {
 	private:
 
 		f32 size;
-		Matrix targetTransformation, CubeMatrix, iCubeMatrix;
-		Vec3 position, rotation, dimensions, check;
+		Matrix targetTransformation;
+		Matrix CubeMatrix;
+		Matrix iCubeMatrix;
+		Vec3 position;
+		Vec3 rotation;
+		Vec3 dimensions;
+		Vec3 check;
 		RenderingMesh* mesh;
 		Renderable* decal;
 		bool haveBones;

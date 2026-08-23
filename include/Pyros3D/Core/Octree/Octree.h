@@ -41,7 +41,8 @@ namespace p3d {
 	public:
 		float size;
 
-		Vec3 Max, Min;
+		Vec3 Max;
+		Vec3 Min;
 
 		std::vector<GameObject*> Members;
 

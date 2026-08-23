@@ -123,7 +123,9 @@ namespace p3d {
 		// Oriented Box Center
 		Vec3 center;
 		// Direction Vectors
-		Vec3  vx, vy, vz;
+		Vec3 vx;
+		Vec3 vy;
+		Vec3 vz;
 	};
 
 	class PYROS3D_API Culling {

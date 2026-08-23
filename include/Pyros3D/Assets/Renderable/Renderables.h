@@ -322,7 +322,8 @@ namespace p3d {
 
 		f32 BoundingSphereRadius;
 		Vec3 BoundingSphereCenter;
-		Vec3 maxBounds, minBounds;
+		Vec3 maxBounds;
+		Vec3 minBounds;
 
 		// Internal ID
 		static uint32 _InternalID;
@@ -388,7 +389,8 @@ namespace p3d {
 		// Bounds of the Whole Model
 		f32 BoundingSphereRadius;
 		Vec3 BoundingSphereCenter;
-		Vec3 maxBounds, minBounds;
+		Vec3 maxBounds;
+		Vec3 minBounds;
 
 		// Skeleton
 		std::map<StringID, Bone> skeleton;
