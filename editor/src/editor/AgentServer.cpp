@@ -21,6 +21,11 @@
 	#include <process.h>
 	#pragma comment(lib, "ws2_32.lib")
 	typedef SOCKET sock_t;
+	// MSVC has no ssize_t, and Winsock's send()/recv() return int rather
+	// than the POSIX ssize_t anyway. Own name, same reasoning as sock_t
+	// above, so this cannot collide with a ssize_t some other header
+	// decides to provide.
+	typedef int agent_ssize_t;
 	#define AGENT_INVALID_SOCKET INVALID_SOCKET
 	#define AGENT_CLOSESOCKET(s) closesocket(s)
 	#define AGENT_EWOULDBLOCK WSAEWOULDBLOCK
@@ -36,6 +41,7 @@
 	#include <sys/stat.h>
 	#include <unistd.h>
 	typedef int sock_t;
+	typedef ssize_t agent_ssize_t;
 	#define AGENT_INVALID_SOCKET (-1)
 	#define AGENT_CLOSESOCKET(s) ::close(s)
 	#define AGENT_EWOULDBLOCK (EWOULDBLOCK)
@@ -331,7 +337,7 @@ bool AgentServer::SendAll(intptr_t fd, const std::string& data)
 #ifdef _WIN32
 		const int n = (int)send(s, data.data() + sent, (int)(data.size() - sent), 0);
 #else
-		const ssize_t n = send(s, data.data() + sent, data.size() - sent, 0);
+		const agent_ssize_t n = send(s, data.data() + sent, data.size() - sent, 0);
 #endif
 		if (n <= 0)
 			return false;
@@ -364,7 +370,7 @@ void AgentServer::Process()
 #ifdef _WIN32
 				const int n = (int)recv(s, buf, sizeof(buf), 0);
 #else
-				const ssize_t n = recv(s, buf, sizeof(buf), 0);
+				const agent_ssize_t n = recv(s, buf, sizeof(buf), 0);
 #endif
 				if (n <= 0)
 				{

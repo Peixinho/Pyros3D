@@ -62,40 +62,45 @@ namespace __READFILES {
 
 #ifdef _WIN32 // Windows
 
-			std::string path = Path + "*";
-			WIN32_FIND_DATA data;
-			std::wstring wPath(path.begin(), path.end());
+			// Explicitly the ANSI entry points. Everything here is
+			// std::string, and FindFirstFile/WIN32_FIND_DATA are macros that
+			// follow UNICODE - this used to widen the pattern into a
+			// std::wstring and hand it to whichever variant the macro picked,
+			// which does not compile with UNICODE undefined (the pattern is
+			// wchar_t*, FindFirstFileA wants char*) and would have been the
+			// wrong conversion anyway.
+			std::string pattern = Path;
+			if (!pattern.empty() && pattern.back() != '\\' && pattern.back() != '/')
+				pattern += "\\";
+			pattern += "*";
+
 			DWORD attr(::GetFileAttributesA(Path.c_str()));
 			if (attr != 0xFFFFFFFF)
 			{
-				HANDLE hFile = FindFirstFile(wPath.c_str(), &data);
+				WIN32_FIND_DATAA data;
+				HANDLE hFile = ::FindFirstFileA(pattern.c_str(), &data);
 
-				while (FindNextFile(hFile, &data)) {
-#ifdef UNICODE
-					std::wstring wresult = data.cFileName;
-					_FileInfo f;
-					f.Name = std::string(wresult.begin(), wresult.end());
-					f.isFolder = false;
-					if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) f.isFolder = true;
+				if (hFile != INVALID_HANDLE_VALUE)
+				{
+					// do/while, not while: FindFirstFileA has already
+					// produced the first entry, and the old loop threw it
+					// away by calling FindNextFile straight off.
+					do {
+						_FileInfo f;
+						f.Name = data.cFileName;
+						// & rather than ==: a directory that is also hidden
+						// or read-only carries more than one attribute bit.
+						f.isFolder = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
 
-#else
-					std::string result = data.cFileName;
-					_FileInfo f;
-					f.Name = result;
-					f.isFolder = false;
-					if (data.dwFileAttributes == FILE_ATTRIBUTE_DIRECTORY) f.isFolder = true;
+						f.NameLowered = f.Name;
+						std::transform(f.NameLowered.begin(), f.NameLowered.end(), f.NameLowered.begin(), ::tolower);
+						f.NamePrefix = (f.isFolder ? "[D]" : "[F]") + f.Name;
+						if (!f.isFolder || (f.isFolder && ShowFolders))
+							Contents.push_back(f);
+					} while (::FindNextFileA(hFile, &data));
 
-#endif
-
-					f.NameLowered = f.Name;
-					std::transform(f.NameLowered.begin(), f.NameLowered.end(), f.NameLowered.begin(), ::tolower);
-					f.NamePrefix = (f.isFolder ? "[D]" : "[F]") + f.Name;
-					if (!f.isFolder || (f.isFolder && ShowFolders))
-						Contents.push_back(f);
+					::FindClose(hFile);
 				}
-
-				FindClose(hFile);
-
 			}
 
 #else   // Mac OSX and Linux
