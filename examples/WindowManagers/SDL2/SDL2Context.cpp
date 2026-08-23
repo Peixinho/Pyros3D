@@ -12,6 +12,8 @@
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include "../FileDropHook.h"
 #include "../CloseHook.h"
+#include <cstdlib>
+#include <sstream>
 
 namespace p3d {
 
@@ -128,7 +130,11 @@ namespace p3d {
         CreateKeyboardMap();
 
         // Initialize SDL2
-		SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
+		if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0)
+		{
+			echo(std::string("ERROR: SDL_Init failed: ") + SDL_GetError());
+			exit(EXIT_FAILURE);
+		}
 
 #if defined(GLES2)
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
@@ -182,10 +188,20 @@ namespace p3d {
     		type
 		);
 
+		if (!rview)
+		{
+			echo(std::string("ERROR: SDL_CreateWindow failed: ") + SDL_GetError());
+			exit(EXIT_FAILURE);
+		}
+
 		mainGLContext = SDL_GL_CreateContext(rview);
 		if (!mainGLContext)
 		{
+			// Was a bare echo() that then carried on regardless, which is
+			// how a failure here reached glad and the shader compiler as a
+			// call through a null function pointer instead of a message.
 			echo(std::string("ERROR: SDL_GL_CreateContext failed: ") + SDL_GetError());
+			exit(EXIT_FAILURE);
 		}
 
 		// See SDL2VulkanContext's identical fix/comment - the window
@@ -207,9 +223,50 @@ namespace p3d {
 		Height = (uint32)actualHeight;
 
 #if !defined(GLES2) && !defined(GLES3)
-		gladLoadGL();
+		// glad returns 0 when it cannot resolve the core entry points, and
+		// GLVersion tells us what it did manage to load. Ignoring both is
+		// how a machine without a usable GL driver got all the way to
+		// Shader::CompileShader() and jumped to address 0: Windows falls
+		// back to its own software OPENGL32.DLL, which is GL 1.1, so the
+		// context is created successfully and every function above 1.1 -
+		// glCreateShader included - is left null.
+		const int gladOk = gladLoadGL();
+
+	#if defined(GL42)
+		const int requiredMajor = 4, requiredMinor = 2;
+	#elif defined(GL41)
+		const int requiredMajor = 4, requiredMinor = 1;
+	#else
+		const int requiredMajor = 4, requiredMinor = 5;
+	#endif
+
+		if (!gladOk ||
+			GLVersion.major < requiredMajor ||
+			(GLVersion.major == requiredMajor && GLVersion.minor < requiredMinor))
+		{
+			// glGetString is GL 1.0, so it is present even in the fallback
+			// case - which is exactly when naming the driver is useful.
+			const char *glVersionStr = (const char*)glGetString(GL_VERSION);
+			const char *glRenderer = (const char*)glGetString(GL_RENDERER);
+			const char *glVendor = (const char*)glGetString(GL_VENDOR);
+
+			std::stringstream err;
+			err << "ERROR: this build needs OpenGL " << requiredMajor << "." << requiredMinor
+				<< ", but the context provides "
+				<< (glVersionStr ? glVersionStr : "an unknown version")
+				<< " (renderer: " << (glRenderer ? glRenderer : "unknown")
+				<< ", vendor: " << (glVendor ? glVendor : "unknown") << ")."
+				<< " Update the graphics driver, or rebuild with -DOPENGL_VERSION"
+				<< " set to a profile this machine supports.";
+			echo(err.str());
+			exit(EXIT_FAILURE);
+		}
 #elif defined(DESKTOP) || defined(EMSCRIPTEN)
-		gladLoadGLES2Loader((GLADloadproc)SDL_GL_GetProcAddress);
+		if (!gladLoadGLES2Loader((GLADloadproc)SDL_GL_GetProcAddress))
+		{
+			echo("ERROR: failed to load OpenGL ES entry points via SDL_GL_GetProcAddress.");
+			exit(EXIT_FAILURE);
+		}
 #endif
 		// Set OpenGL Major and Minor Versions
 		SDL_GL_GetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,(int*)&glMajor);
