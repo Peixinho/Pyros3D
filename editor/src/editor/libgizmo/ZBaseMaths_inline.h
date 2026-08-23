@@ -1244,7 +1244,12 @@ inline void tmatrix::Identity()
 		0,0,1,0,
 		0,0,0,1);
 }
-#ifdef WIN32
+// MSVC supports __asm blocks on x86 only - it dropped inline assembly
+// entirely for x64, where the block below is parsed as C++ and every
+// register name comes back as an undeclared identifier. Nothing calls this:
+// both call sites in tmatrix::Multiply() are commented out in favour of
+// FPU_MatrixF_x_MatrixF() just below, so 64-bit simply goes without it.
+#if defined(WIN32) && !defined(_WIN64)
 inline void SSE_MatrixF_x_MatrixF(const float *matA, const float *matB, float *result)
 {
 	__asm

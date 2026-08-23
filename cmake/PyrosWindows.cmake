@@ -30,9 +30,18 @@ if (MSVC)
 	add_compile_options(/utf-8)
 endif()
 
-# PYROS3D_API (include/Pyros3D/Other/Export.h) is applied class-by-class and
-# does not cover every symbol the editor and the demos pull out of the DLL.
-# Let CMake generate a .def exporting everything as well, so a SHARED build
-# links without having to annotate the entire engine first. Harmless for
-# STATIC builds - CMake ignores it there.
-set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON CACHE BOOL "Auto-export all DLL symbols on Windows")
+# Deliberately NOT setting CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS.
+#
+# It looks like the easy way to get a SHARED build linking without
+# annotating the whole engine, but `cmake -E __create_def` then emits a .def
+# naming every symbol in the library - and with sol2's templates
+# instantiated throughout the Lua bindings that is far past the 65535-member
+# ceiling of the import library format, so the DLL fails to link outright
+# with LNK1189. There is no /bigobj equivalent for import libraries.
+#
+# The engine already has the mechanism it needs: PYROS3D_API
+# (include/Pyros3D/Other/Export.h) resolves to dllexport under _EXPORT for
+# the engine and dllimport under _IMPORT for its consumers, both of which
+# the root CMakeLists and each consumer already define. Anything missing
+# from the DLL's interface should get PYROS3D_API on its declaration rather
+# than be papered over by exporting everything.
