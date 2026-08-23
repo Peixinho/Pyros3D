@@ -168,7 +168,12 @@ jobs:
           # --- engine library + import lib / static lib -------------------
           Copy-Item "build\*.dll" "$out\lib" -ErrorAction SilentlyContinue
           Copy-Item "build\*.lib" "$out\lib" -ErrorAction SilentlyContinue
-          Copy-Item "build\_deps\box3d\*.lib" "$out\lib" -ErrorAction SilentlyContinue
+          # Recursive: box3d lands in _deps\box3d\src\, not _deps\box3d\,
+          # and a STATIC PyrosEngine.lib is unusable without it (and without
+          # volk.lib on Vulkan) - a consumer linking the static engine has to
+          # link its dependencies too.
+          Get-ChildItem -Path "build\_deps" -Recurse -Filter "*.lib" -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item $_.FullName "$out\lib" -Force }
 
           # --- DemoLauncher ----------------------------------------------
           Copy-Item "build\examples\DemoLauncher.exe" "$out\demolauncher"
@@ -207,6 +212,27 @@ jobs:
             Copy-Item "$env:VULKAN_SDK\Bin\shaderc_shared.dll" "$out\demolauncher" -ErrorAction SilentlyContinue
             Copy-Item "$env:VULKAN_SDK\Bin\shaderc_shared.dll" "$out\editor"       -ErrorAction SilentlyContinue
           }
+
+          # Both executables resolve "assets/..." and "shaders/..." against the
+          # working directory, so they have to be started from their own
+          # folder. Worth saying so in the artifact rather than letting it
+          # present as a missing-shader error.
+          @(
+            "Pyros3D - Windows ${{ matrix.name }}",
+            "",
+            "  demolauncher\  DemoLauncher.exe, CppApiDemo.exe",
+            "  editor\        PyrosBuilder.exe, AssimpImporter.exe",
+            "  lib\           engine library + import/static libs",
+            "",
+            "Run each executable from inside its own folder - both load",
+            "assets\ and shaders\ relative to the current directory:",
+            "",
+            "    cd demolauncher",
+            "    .\DemoLauncher.exe",
+            "",
+            "The two folders are separate because ''assets'' means",
+            "examples\assets to DemoLauncher and editor\assets to PyrosBuilder."
+          ) | Out-File -FilePath "$out\README.txt" -Encoding utf8
 
           # Binaries only - the assets/shaders trees would bury the log.
           Get-ChildItem -Recurse $out -Include *.exe, *.dll, *.lib |
