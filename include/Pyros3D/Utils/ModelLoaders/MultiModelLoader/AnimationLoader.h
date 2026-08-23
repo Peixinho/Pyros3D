@@ -13,27 +13,15 @@
 #include <Pyros3D/Core/Math/Quaternion.h>
 #include <Pyros3D/Core/Math/Matrix.h>
 #include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Core/Math/Easing.h>
 #include <Pyros3D/Utils/Binary/BinaryFile.h>
 
 namespace p3d {
 
-	// How the curve leaves a key on its way to the next one. Stored per key
-	// and honoured by SkeletonAnimationInstance::SampleChannel(), which is the
-	// single sampler both runtime playback and the editor's scrub go through.
-	//
-	// Every mode is expressed as a remap of the normalised span parameter
-	// t in [0,1] rather than as a different way of combining the two values.
-	// That matters for rotations: the remapped t still feeds Slerp, so eased
-	// rotation stays a proper shortest-arc interpolation instead of degrading
-	// into a component-wise blend the way a per-channel Bezier would.
-	enum InterpolationMode {
-		INTERP_LINEAR = 0,   // constant velocity across the span (the v0 behaviour)
-		INTERP_STEP = 1,     // hold this key's value until the next key
-		INTERP_EASE_IN = 2,  // start slow
-		INTERP_EASE_OUT = 3, // end slow
-		INTERP_EASE_BOTH = 4,// slow at both ends
-		INTERP_BEZIER = 5    // Hermite on t using OutTangent / the next key's InTangent
-	};
+	// InterpolationMode and the curves themselves live in
+	// Core/Math/Easing.h - keyframes are one of two consumers (particle
+	// ramps are the other), and the editor draws its curve preview from the
+	// same Ease() so a preview cannot disagree with what plays.
 
 	// Every key carries the three fields below. InTangent/OutTangent are
 	// slopes of the parameter curve and are only read for INTERP_BEZIER; 1.0

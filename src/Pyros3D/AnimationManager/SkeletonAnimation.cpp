@@ -775,41 +775,6 @@ namespace p3d {
 	// ---- Direct pose access ------------------------------------------------
 
 	namespace {
-		// Remaps the normalised span parameter t according to the mode stored
-		// on the key the span starts at. Returning a reshaped t rather than a
-		// reshaped value is what lets rotations keep using Slerp: the arc is
-		// still the shortest one, only the speed along it changes.
-		f32 RemapSpan(const f32 t, const uchar mode, const f32 outTangent, const f32 nextInTangent)
-		{
-			switch (mode)
-			{
-			case INTERP_STEP:
-				return 0.f;                       // hold until the next key
-			case INTERP_EASE_IN:
-				return t * t;
-			case INTERP_EASE_OUT:
-				return t * (2.f - t);
-			case INTERP_EASE_BOTH:
-				return t * t * (3.f - 2.f * t);   // smoothstep
-			case INTERP_BEZIER:
-			{
-				// Cubic Hermite on the parameter itself, from (0,0) to (1,1)
-				// with the two authored slopes. Both tangents at 1 reduces to
-				// h00*0 + h10*1 + h01*1 + h11*1 == t, i.e. exactly LINEAR,
-				// which is why 1/1 is the default a key is born with.
-				const f32 t2 = t * t;
-				const f32 t3 = t2 * t;
-				const f32 h10 = t3 - 2.f * t2 + t;
-				const f32 h01 = -2.f * t3 + 3.f * t2;
-				const f32 h11 = t3 - t2;
-				return h10 * outTangent + h01 + h11 * nextInTangent;
-			}
-			case INTERP_LINEAR:
-			default:
-				return t;
-			}
-		}
-
 		// Index of the last key at or before `time`, for a key vector already
 		// sorted by time. Linear scan, matching what this did inline before -
 		// channels carry tens of keys, not thousands.
@@ -834,7 +799,7 @@ namespace p3d {
 			// mesh) - reachable in the editor by dropping a key onto an
 			// existing one.
 			const f32 t = (span > 0.f ? (time - keys[index].Time) / span : 0.f);
-			return RemapSpan(t, keys[index].Mode, keys[index].OutTangent, keys[index + 1].InTangent);
+			return Ease(t, keys[index].Mode, keys[index].OutTangent, keys[index + 1].InTangent);
 		}
 	}
 

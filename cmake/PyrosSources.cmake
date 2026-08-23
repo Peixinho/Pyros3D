@@ -75,6 +75,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/InputManager/InputManager.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Math/Matrix.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Math/Math.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Math/Easing.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Math/Vec4.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Math/Quaternion.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Math/Vec2.cpp
