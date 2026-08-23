@@ -32,10 +32,12 @@ OpenGL and Vulkan, DLL or static. Dependencies come from
 [vcpkg](https://vcpkg.io); Vulkan additionally needs the LunarG SDK, which
 also supplies the shaderc + SPIRV-Cross that `BUILD_SPIRV_TOOLING` looks for.
 
-```powershell
-vcpkg install sdl2:x64-windows freetype:x64-windows lua:x64-windows `
-              curl:x64-windows assimp:x64-windows
+`vcpkg.json` at the repo root declares the dependency set, so the toolchain
+installs them for you — no separate `vcpkg install` needed. It pins Lua to
+5.4.x on purpose: the current port is 5.5, which the vendored `sol.hpp` does
+not support.
 
+```powershell
 cmake -S . -B build -G Ninja `
   -DCMAKE_BUILD_TYPE=Release `
   -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `

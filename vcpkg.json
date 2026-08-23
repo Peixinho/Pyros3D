@@ -1,0 +1,22 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "pyros3d",
+  "version-string": "0.1.0",
+  "description": "Windows dependency set for Pyros3D (MSVC). Ignored unless you configure with vcpkg's toolchain file, so macOS/Linux Homebrew and apt builds are unaffected.",
+  "dependencies": [
+    "sdl2",
+    "freetype",
+    "lua",
+    "curl",
+    "assimp"
+  ],
+  "builtin-baseline": "d87340acc46bdeda386037b38aca30136e667e47",
+  "overrides": [
+    {
+      "name": "lua",
+      "version": "5.4.8"
+    }
+  ],
+  "$comment-lua": "Pinned to 5.4.x deliberately: the current lua port is 5.5, which the vendored sol.hpp does not support and which PyrosDependencies.cmake rejects (it accepts LUA_VERSION_NUM 501-504 only).",
+  "$comment-baseline": "Baseline is deliberately a few weeks behind master so the commit is already present in CI images' vcpkg clones and does not have to be fetched."
+}

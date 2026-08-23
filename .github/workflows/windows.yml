@@ -62,20 +62,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install dependencies (vcpkg)
-        shell: pwsh
-        run: |
-          # assimp is what turns BUILD_CONVERTER on (PyrosOptions.cmake
-          # auto-enables it for BUILD_EDITOR when assimp is findable), which
-          # is what lets the editor's Import Model accept .obj/.dae/.fbx
-          # rather than .p3dm only.
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install `
-            sdl2:x64-windows `
-            freetype:x64-windows `
-            lua:x64-windows `
-            curl:x64-windows `
-            assimp:x64-windows
-
       - name: Install Vulkan SDK
         if: matrix.vulkan == 'ON'
         shell: pwsh
@@ -130,12 +116,17 @@ jobs:
       - name: Setup Ninja
         uses: seanmiddleditch/gha-setup-ninja@v5
 
-      - name: Configure
+      - name: Configure (vcpkg installs dependencies here)
         shell: pwsh
         run: |
           $vcpkgToolchain = "$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
-          $prefix = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows"
-          if ("${{ matrix.vulkan }}" -eq "ON") { $prefix = "$prefix;$env:VULKAN_SDK" }
+          # vcpkg.json at the repo root puts this in manifest mode, so the
+          # toolchain builds and installs the dependency set as part of this
+          # step - there is no separate install step. The manifest pins Lua
+          # to 5.4.8: the current port is 5.5, which sol.hpp does not support
+          # and which PyrosDependencies.cmake rejects outright.
+          $prefix = ""
+          if ("${{ matrix.vulkan }}" -eq "ON") { $prefix = "$env:VULKAN_SDK" }
 
           # PYROS_ASSET_ROOT=. makes DemoLauncher and PyrosBuilder resolve
           # their Lua assets relative to the working directory instead of
