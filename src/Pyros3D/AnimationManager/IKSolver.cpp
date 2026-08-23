@@ -151,14 +151,41 @@ namespace p3d {
 		// representation here precisely because a joint limit is stated per
 		// axis ("the knee bends 0..150 about X and nowhere else"), which a
 		// quaternion cannot express directly.
-		Vec3 euler = local.GetEulerFromRotationMatrix();
+		//
+		// Measured as a DELTA FROM THE BIND POSE, not as an absolute local
+		// rotation. A limit says how far a joint may travel from rest, and a
+		// bone's rest orientation is almost never the identity - so clamping
+		// the absolute Euler dragged the bone's own bind orientation into
+		// the limit box along with the solver's work. With min = max = 0 on
+		// the two axes a hinge does not turn about, which is exactly how a
+		// knee is written, that zeroed the calf's rest orientation outright:
+		// the effector missed a target it was already standing on by 0.23
+		// units, and a limit wide enough to constrain nothing still moved
+		// the joint.
+		Matrix bindRot = inst->GetBindPoseLocal(boneId);
+		bindRot.Translate(Vec3(0.f, 0.f, 0.f));
+		Matrix currentRot = local;
+		currentRot.Translate(Vec3(0.f, 0.f, 0.f));
+
+		Vec3 euler = (bindRot.Inverse() * currentRot).GetEulerFromRotationMatrix();
+		const Vec3 wanted = euler;
 		euler.x = Clamp(euler.x, lim.Min.x, lim.Max.x);
 		euler.y = Clamp(euler.y, lim.Min.y, lim.Max.y);
 		euler.z = Clamp(euler.z, lim.Min.z, lim.Max.z);
 
+		// Already within the limit: leave the bone exactly as the solver
+		// posed it. Writing it back unconditionally round-tripped every
+		// limited joint through Euler on every solve, and
+		// SetRotationFromEuler(GetEulerFromRotationMatrix(m)) does not
+		// reproduce m - so a joint the limit never actually constrained
+		// still drifted a little each time it was touched.
+		if (std::fabs(euler.x - wanted.x) < kEpsilon
+			&& std::fabs(euler.y - wanted.y) < kEpsilon
+			&& std::fabs(euler.z - wanted.z) < kEpsilon) return;
+
 		Quaternion q;
 		q.SetRotationFromEuler(euler);
-		Matrix clamped = q.ConvertToMatrix();
+		Matrix clamped = bindRot * q.ConvertToMatrix();
 		clamped.Translate(translation);
 		inst->SetBoneLocalTransform(boneId, clamped);
 		inst->RefreshHierarchy();
