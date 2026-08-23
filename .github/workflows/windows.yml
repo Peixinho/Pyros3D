@@ -272,9 +272,12 @@ jobs:
           $dumpbin = (Get-ChildItem "$env:VCToolsInstallDir\bin\Hostx64\x64\dumpbin.exe" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
           if (-not $dumpbin) { $dumpbin = "dumpbin.exe" }
 
-          # Anything the OS or the VC redistributable provides. Everything
-          # else has to be sitting in the folder next to the executable.
-          $systemOk = '^(api-ms-win-|ext-ms-win-|kernel32|user32|gdi32|advapi32|shell32|ole32|oleaut32|comdlg32|winmm|ws2_32|opengl32|glu32|imm32|version|setupapi|cfgmgr32|crypt32|bcrypt|ncrypt|secur32|iphlpapi|dbghelp|shlwapi|rpcrt4|msvcrt|msvcp\d*|vcruntime\d*|ucrtbase|concrt\d*|dwmapi|uxtheme|hid|wldap32|normaliz|d3d\d+|dxgi|vulkan-1|mfplat|mf|winhttp|dnsapi|powrprof)'
+          # Genuinely OS-provided only. The MSVC runtime (vcruntime140,
+          # msvcp140) is deliberately NOT here: it comes from the Visual C++
+          # Redistributable, not Windows, so it has to be bundled and this
+          # check should fail if it is not. api-ms-win-crt-* and ucrtbase are
+          # the Universal CRT, which is part of Windows 10/11.
+          $systemOk = '^(api-ms-win-|ext-ms-win-|kernel32|user32|gdi32|advapi32|shell32|ole32|oleaut32|comdlg32|winmm|ws2_32|opengl32|glu32|imm32|version|setupapi|cfgmgr32|crypt32|bcrypt|ncrypt|secur32|iphlpapi|dbghelp|shlwapi|rpcrt4|msvcrt|ucrtbase|dwmapi|uxtheme|hid|wldap32|normaliz|d3d\d+|dxgi|vulkan-1|mfplat|mf|winhttp|dnsapi|powrprof)'
 
           $failed = $false
           foreach ($dir in @("package\demolauncher", "package\editor")) {
