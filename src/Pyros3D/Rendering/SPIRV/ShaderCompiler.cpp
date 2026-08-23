@@ -16,12 +16,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <errno.h>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <mutex>
 #include <regex>
 #include <sstream>
-#include <sys/stat.h>
+#include <system_error>
 
 namespace p3d {
 
@@ -46,28 +47,32 @@ namespace p3d {
 			const char *xdg = getenv("XDG_CACHE_HOME");
 			if (xdg && xdg[0])
 				return std::string(xdg) + "/pyros3d/spirv";
+#ifdef _WIN32
+			// Windows has no HOME; LOCALAPPDATA is the equivalent of
+			// ~/.cache for machine-local, non-roaming derived data.
+			const char *appdata = getenv("LOCALAPPDATA");
+			if (appdata && appdata[0])
+				return std::string(appdata) + "/pyros3d/spirv";
+#endif
 			const char *home = getenv("HOME");
 			if (home && home[0])
 				return std::string(home) + "/.cache/pyros3d/spirv";
 			return std::string(".cache/pyros3d/spirv");
 		}
 
+		// std::filesystem rather than mkdir(2): MSVC's <sys/stat.h> has
+		// neither the two-argument mkdir nor S_ISDIR.
 		bool EnsureDir(const std::string &path)
 		{
 			if (path.empty())
 				return false;
-			struct stat st;
-			if (stat(path.c_str(), &st) == 0)
-				return S_ISDIR(st.st_mode);
-			size_t slash = path.find_last_of('/');
-			if (slash != std::string::npos && slash > 0)
-			{
-				if (!EnsureDir(path.substr(0, slash)))
-					return false;
-			}
-			if (mkdir(path.c_str(), 0755) != 0 && errno != EEXIST)
-				return false;
-			return true;
+			std::error_code ec;
+			if (std::filesystem::is_directory(path, ec))
+				return true;
+			std::filesystem::create_directories(path, ec);
+			// create_directories reports false+no-error when another thread
+			// won the race, so re-test rather than trusting its return.
+			return std::filesystem::is_directory(path, ec);
 		}
 
 		std::string SpirvCachePath(uint64 key)

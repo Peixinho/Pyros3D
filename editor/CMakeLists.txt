@@ -111,7 +111,7 @@ target_compile_definitions(PyrosBuilder PRIVATE ${PYROS_CONTEXT_DEFINITION})
 
 # Same EXAMPLES_PATH trick DemoLauncher uses — middleclass.lua + demo scripts.
 target_compile_definitions(PyrosBuilder PRIVATE
-	PYROS_EXAMPLES_PATH=${CMAKE_SOURCE_DIR}/examples
+	PYROS_EXAMPLES_PATH=${PYROS_ASSET_ROOT}
 )
 
 # DebugRenderer now follows the same pipeline + UBO path as Forward/
@@ -129,14 +129,10 @@ if (WIN32 AND LIB_TYPE STREQUAL "SHARED")
 endif()
 
 # The editor loads "assets/..." and the engine loads "shaders/..." relative
-# to the working directory — symlink both next to the binary (same trick as
+# to the working directory — stage both next to the binary (same trick as
 # examples/, so edits to either are picked up without a rebuild).
-if (NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/assets)
-	file(CREATE_LINK ${CMAKE_CURRENT_SOURCE_DIR}/assets ${CMAKE_CURRENT_BINARY_DIR}/assets SYMBOLIC)
-endif()
-if (NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/shaders)
-	file(CREATE_LINK ${CMAKE_SOURCE_DIR}/resources/shaders ${CMAKE_CURRENT_BINARY_DIR}/shaders SYMBOLIC)
-endif()
+pyros_stage_dir(${CMAKE_CURRENT_SOURCE_DIR}/assets ${CMAKE_CURRENT_BINARY_DIR}/assets)
+pyros_stage_dir(${CMAKE_SOURCE_DIR}/resources/shaders ${CMAKE_CURRENT_BINARY_DIR}/shaders)
 
 # Ship AssimpImporter next to PyrosBuilder so Import Model can find it.
 if (TARGET AssimpImporter)

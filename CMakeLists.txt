@@ -6,6 +6,15 @@ set(CMAKE_CXX_STANDARD 17)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
+# Windows/MSVC-wide defines and flags. Must come before anything that adds a
+# target (box3d via PyrosDependencies, the vendored Ext sources) - a
+# no-op everywhere else.
+include(PyrosWindows)
+
+# pyros_stage_dir() - shaders/assets next to the built binaries. Defined at
+# root scope so examples/ and editor/ both see it.
+include(PyrosStageAssets)
+
 # Options → dependencies → GL/Vulkan/ImGui → engine sources
 include(PyrosOptions)
 include(PyrosDependencies)

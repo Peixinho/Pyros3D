@@ -14,7 +14,9 @@ endif()
 
 include(${CMAKE_SOURCE_DIR}/cmake/PyrosWindowContext.cmake)
 
-set(EXAMPLES_PATH ${CMAKE_SOURCE_DIR}/examples)
+# See PYROS_ASSET_ROOT in cmake/PyrosOptions.cmake - absolute source
+# path for a local build, "." for a relocatable one.
+set(EXAMPLES_PATH ${PYROS_ASSET_ROOT})
 
 # freebsd legacy search path
 if (EXISTS "/usr/local/lib")
@@ -177,8 +179,9 @@ else()
 	message(STATUS "DemoLauncher skipped (HAVE_LUA_BINDINGS=OFF)")
 endif()
 
-# Symlink resources/shaders into the examples build dir (live edits).
+# Stage resources/shaders into the examples build dir (a symlink, so edits
+# are live; a copy on Windows - see pyros_stage_dir).
 # Skip under Emscripten — shaders are --preload-file'd into the VFS instead.
-if (NOT EMSCRIPTEN AND NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/shaders)
-	file(CREATE_LINK ${CMAKE_SOURCE_DIR}/resources/shaders ${CMAKE_CURRENT_BINARY_DIR}/shaders SYMBOLIC)
+if (NOT EMSCRIPTEN)
+	pyros_stage_dir(${CMAKE_SOURCE_DIR}/resources/shaders ${CMAKE_CURRENT_BINARY_DIR}/shaders)
 endif()

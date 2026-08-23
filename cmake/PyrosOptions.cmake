@@ -82,6 +82,19 @@ option(BUILD_CONVERTER "Build Assimp model converter tool" OFF)
 option(BUILD_DEMOS "Build DemoLauncher / CppApiDemo" OFF)
 option(BUILD_EDITOR "Build the PyrosBuilder scene editor (needs an OpenGL context)" OFF)
 
+# ---------------------------------------------------------------------------
+# Asset root baked into DemoLauncher (EXAMPLES_PATH) and PyrosBuilder
+# (PYROS_EXAMPLES_PATH) - middleclass.lua, the demo manifest and the demo
+# scenes are all looked up under it.
+#
+# Absolute source path by default, so a local build finds them wherever the
+# working directory happens to be. Set it to "." for a redistributable build
+# (CI artifacts): the lookups then resolve relative to the working directory
+# and the assets ship next to the binary.
+# ---------------------------------------------------------------------------
+set(PYROS_ASSET_ROOT "${CMAKE_SOURCE_DIR}/examples" CACHE STRING
+	"Root the demo/editor Lua assets are loaded from ('.' for a relocatable build)")
+
 # Prefer enabling the converter with the editor when Assimp is available.
 if (BUILD_EDITOR AND NOT BUILD_CONVERTER)
 	find_package(assimp QUIET)
@@ -161,6 +174,7 @@ message(STATUS "  BUILD_DEMOS          = ${BUILD_DEMOS}")
 message(STATUS "  BUILD_EDITOR         = ${BUILD_EDITOR}")
 message(STATUS "  HAVE_LUA_BINDINGS    = ${HAVE_LUA_BINDINGS}")
 message(STATUS "  LIB_TYPE             = ${LIB_TYPE}")
+message(STATUS "  PYROS_ASSET_ROOT     = ${PYROS_ASSET_ROOT}")
 if (EMSCRIPTEN)
 	message(STATUS "  EMSCRIPTEN           = ON (WebGL2)")
 endif()

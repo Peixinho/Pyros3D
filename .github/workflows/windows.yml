@@ -1,0 +1,214 @@
+name: Windows
+
+on:
+  push:
+    branches: [main, master, editor, vulkan-backend]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Must match the volk pin in cmake/PyrosBackend.cmake (GIT_TAG
+  # vulkan-sdk-...): volk.c references entry points declared in the Vulkan
+  # headers of its own release, so the SDK must not be older than volk.
+  VULKAN_SDK_VERSION: "1.4.357.0"
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: windows-2022
+
+    strategy:
+      # One backend/link-type failing shouldn't hide the state of the other
+      # three - the point of this workflow is a full picture per push.
+      fail-fast: false
+      matrix:
+        include:
+          - name: OpenGL / DLL
+            graphics: OpenGL
+            context: SDL2
+            static: "OFF"
+            vulkan: "OFF"
+            spirv: "OFF"
+            artifact: Pyros3D-windows-opengl-dll
+          - name: OpenGL / static
+            graphics: OpenGL
+            context: SDL2
+            static: "ON"
+            vulkan: "OFF"
+            spirv: "OFF"
+            artifact: Pyros3D-windows-opengl-static
+          - name: Vulkan / DLL
+            graphics: Vulkan
+            context: SDL2Vulkan
+            static: "OFF"
+            vulkan: "ON"
+            spirv: "ON"
+            artifact: Pyros3D-windows-vulkan-dll
+          - name: Vulkan / static
+            graphics: Vulkan
+            context: SDL2Vulkan
+            static: "ON"
+            vulkan: "ON"
+            spirv: "ON"
+            artifact: Pyros3D-windows-vulkan-static
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies (vcpkg)
+        shell: pwsh
+        run: |
+          # assimp is what turns BUILD_CONVERTER on (PyrosOptions.cmake
+          # auto-enables it for BUILD_EDITOR when assimp is findable), which
+          # is what lets the editor's Import Model accept .obj/.dae/.fbx
+          # rather than .p3dm only.
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install `
+            sdl2:x64-windows `
+            freetype:x64-windows `
+            lua:x64-windows `
+            curl:x64-windows `
+            assimp:x64-windows
+
+      - name: Install Vulkan SDK
+        if: matrix.vulkan == 'ON'
+        shell: pwsh
+        run: |
+          # The LunarG Windows SDK carries the loader *and* shaderc +
+          # SPIRV-Cross, which is everything BUILD_SPIRV_TOOLING looks for -
+          # building those through vcpkg instead costs ~20 minutes of
+          # glslang/SPIRV-Tools compilation per cold cache.
+          $ver = $env:VULKAN_SDK_VERSION
+          $url = "https://sdk.lunarg.com/sdk/download/$ver/windows/VulkanSDK-$ver-Installer.exe"
+          Write-Host "Downloading $url"
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\vulkan-sdk.exe"
+          $installDir = "C:\VulkanSDK\$ver"
+          # Qt Installer Framework flags - the default component set already
+          # includes the loader, shaderc and SPIRV-Cross.
+          Start-Process -FilePath "$env:RUNNER_TEMP\vulkan-sdk.exe" -Wait -ArgumentList `
+            "--root", $installDir, `
+            "--accept-licenses", "--default-answer", "--confirm-command", "install"
+          echo "VULKAN_SDK=$installDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          echo "$installDir\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Show Vulkan SDK contents
+        if: matrix.vulkan == 'ON'
+        shell: pwsh
+        run: |
+          # Cheap insurance: if LunarG moves shaderc/SPIRV-Cross out of the
+          # default install, PyrosBackend.cmake only emits a *warning* and
+          # silently drops SPIRV_TOOLING, and the failure resurfaces much
+          # later as a runtime "cannot compile shader". Print the evidence.
+          Get-ChildItem "$env:VULKAN_SDK\Lib" -Filter "shaderc*"     | Select-Object Name
+          Get-ChildItem "$env:VULKAN_SDK\Lib" -Filter "spirv-cross*" | Select-Object Name
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Setup Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          $vcpkgToolchain = "$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
+          $prefix = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows"
+          if ("${{ matrix.vulkan }}" -eq "ON") { $prefix = "$prefix;$env:VULKAN_SDK" }
+
+          # PYROS_ASSET_ROOT=. makes DemoLauncher and PyrosBuilder resolve
+          # their Lua assets relative to the working directory instead of
+          # baking in this runner's checkout path - see the Package step.
+          cmake -S . -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchain" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DCMAKE_PREFIX_PATH="$prefix" `
+            -DPYROS_GRAPHICS=${{ matrix.graphics }} `
+            -DCONTEXT=${{ matrix.context }} `
+            -DOPENGL_VERSION=GL41 `
+            -DSTATIC_LIB=${{ matrix.static }} `
+            -DBUILD_VULKAN_BACKEND=${{ matrix.vulkan }} `
+            -DBUILD_SPIRV_TOOLING=${{ matrix.spirv }} `
+            -DBUILD_DEMOS=ON `
+            -DBUILD_EDITOR=ON `
+            -DBUILD_CONVERTER=ON `
+            -DPYROS_ASSET_ROOT=.
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build --parallel
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $out = "package"
+          # DemoLauncher and PyrosBuilder each want their own "assets"
+          # directory (examples/assets vs editor/assets) at the working
+          # directory, so they cannot share one folder.
+          New-Item -ItemType Directory -Force -Path "$out\demolauncher" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$out\editor"       | Out-Null
+          New-Item -ItemType Directory -Force -Path "$out\lib"          | Out-Null
+
+          # --- engine library + import lib / static lib -------------------
+          Copy-Item "build\*.dll" "$out\lib" -ErrorAction SilentlyContinue
+          Copy-Item "build\*.lib" "$out\lib" -ErrorAction SilentlyContinue
+          Copy-Item "build\_deps\box3d\*.lib" "$out\lib" -ErrorAction SilentlyContinue
+
+          # --- DemoLauncher ----------------------------------------------
+          Copy-Item "build\examples\DemoLauncher.exe" "$out\demolauncher"
+          Copy-Item "build\examples\CppApiDemo.exe"   "$out\demolauncher"
+          Copy-Item "build\examples\*.dll"            "$out\demolauncher" -ErrorAction SilentlyContinue
+          Copy-Item "examples\assets"                 "$out\demolauncher\assets" -Recurse
+          Copy-Item "resources\shaders"               "$out\demolauncher\shaders" -Recurse
+
+          # --- PyrosBuilder ----------------------------------------------
+          Copy-Item "build\editor\PyrosBuilder.exe" "$out\editor"
+          # editor/CMakeLists.txt copies AssimpImporter next to PyrosBuilder
+          # so Import Model can shell out to it - keep them together here too.
+          Copy-Item "build\editor\AssimpImporter.exe" "$out\editor"
+          # vcpkg's applocal deployment runs per-executable, so assimp's DLL
+          # landed next to AssimpImporter's *own* build output - PyrosBuilder
+          # does not link assimp and so never had it copied into build\editor.
+          Copy-Item "build\tools\AssimpImporter\*.dll" "$out\editor" -ErrorAction SilentlyContinue
+          Copy-Item "build\editor\*.dll"            "$out\editor" -ErrorAction SilentlyContinue
+          Copy-Item "editor\assets"                 "$out\editor\assets" -Recurse
+          Copy-Item "resources\shaders"             "$out\editor\shaders" -Recurse
+          # Editor.cpp loads "<PYROS_ASSET_ROOT>/assets/middleclass.lua", and
+          # with PYROS_ASSET_ROOT=. that resolves into the editor's own
+          # assets folder - which is not where middleclass.lua lives.
+          Copy-Item "examples\assets\middleclass.lua" "$out\editor\assets"
+
+          # PyrosEngine.dll is emitted at the build root, not next to either
+          # executable (single Ninja output dir per target directory).
+          if ("${{ matrix.static }}" -eq "OFF") {
+            Copy-Item "build\PyrosEngine.dll" "$out\demolauncher"
+            Copy-Item "build\PyrosEngine.dll" "$out\editor"
+          }
+
+          # vcpkg's applocal deployment already dropped SDL2/freetype/lua/
+          # curl next to each .exe; shaderc_shared.dll comes from the SDK.
+          if ("${{ matrix.spirv }}" -eq "ON") {
+            Copy-Item "$env:VULKAN_SDK\Bin\shaderc_shared.dll" "$out\demolauncher" -ErrorAction SilentlyContinue
+            Copy-Item "$env:VULKAN_SDK\Bin\shaderc_shared.dll" "$out\editor"       -ErrorAction SilentlyContinue
+          }
+
+          # Binaries only - the assets/shaders trees would bury the log.
+          Get-ChildItem -Recurse $out -Include *.exe, *.dll, *.lib |
+            Select-Object @{n="File";e={$_.FullName.Replace("$pwd\\","")}}, Length |
+            Format-Table -AutoSize
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: package/
+          if-no-files-found: error

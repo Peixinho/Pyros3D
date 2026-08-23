@@ -26,6 +26,36 @@ cmake -S . -B build -G Ninja \
 cmake --build build -j
 ```
 
+## Windows (MSVC)
+
+OpenGL and Vulkan, DLL or static. Dependencies come from
+[vcpkg](https://vcpkg.io); Vulkan additionally needs the LunarG SDK, which
+also supplies the shaderc + SPIRV-Cross that `BUILD_SPIRV_TOOLING` looks for.
+
+```powershell
+vcpkg install sdl2:x64-windows freetype:x64-windows lua:x64-windows `
+              curl:x64-windows assimp:x64-windows
+
+cmake -S . -B build -G Ninja `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
+  -DPYROS_GRAPHICS=Vulkan -DCONTEXT=SDL2Vulkan `
+  -DBUILD_DEMOS=ON -DBUILD_EDITOR=ON
+cmake --build build --parallel
+```
+
+Keep the installed Vulkan SDK at or above the `volk` tag pinned in
+`cmake/PyrosBackend.cmake` — volk references entry points declared in the
+Vulkan headers of its own release.
+
+`PYROS_ASSET_ROOT` controls where DemoLauncher and PyrosBuilder look for
+their Lua assets. It defaults to the absolute source path, which is right
+for a local build; pass `-DPYROS_ASSET_ROOT=.` for a redistributable one and
+ship `assets/` and `shaders/` next to the executable.
+
+Prebuilt artifacts for all four combinations are produced by
+[`.github/workflows/windows.yml`](.github/workflows/windows.yml) on every push.
+
 ## Emscripten / WebGL2
 
 Use **emcmake** (GLES3 + SDL2 + **Box3D**). Init submodules first. The old Premake/GLES2 tree was removed.
