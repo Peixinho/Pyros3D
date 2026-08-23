@@ -727,7 +727,11 @@ namespace p3d {
 		std::vector<sol::function> mouseWheelCallbacks;
 	};
 
-	void GenerateBindings(sol::state* lua);
+	// PYROS3D_API because this is the one entry point into the bindings that
+	// lives outside the DLL's callers: DemoLauncher and the editor both call
+	// it to populate their sol::state. The LUA_* classes above are already
+	// annotated; this free function was the only thing left unexported.
+	PYROS3D_API void GenerateBindings(sol::state* lua);
 
 };
 #endif /* PYROSBINDINGS_H */
