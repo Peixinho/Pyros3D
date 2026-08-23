@@ -507,6 +507,7 @@ MaterialEditorDocument* Editor::LoadMaterialQuietly(const std::string& pathArg, 
 
 	MaterialEditorDocument* doc = new MaterialEditorDocument();
 	doc->id = nextMaterialDocId++;
+	BindUndoRouting(doc);
 	doc->hiddenFromTabs = true;
 	if (!MaterialEditor::LoadFromFile(*doc, abs, project.GetProjectPath(), UseDeferredGBuffer()))
 	{
@@ -1129,6 +1130,10 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			}
 			else if (action == "add")
 			{
+				// Every mutating action here goes through PushBlendEdit for
+				// the same reason the panel's do: an agent edit that cannot
+				// be undone is worse than one made by hand, since there was
+				// nobody watching it happen.
 				AnimationBlendEntry e;
 				e.clip = clipIndexArg("clip");
 				if (a.is_object() && a.contains("weight") && a["weight"].is_number())
@@ -1136,47 +1141,58 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 				if (a.is_object() && a.contains("speed") && a["speed"].is_number())
 					e.speed = (float)a["speed"].get<double>();
 				e.layer = A("layer");
-				doc->blendEntries.push_back(e);
-				doc->blendMode = true;
-				doc->TouchBlend();
+				doc->PushBlendEdit("Add clip to blend", [&]() {
+					doc->blendEntries.push_back(e);
+					doc->blendMode = true;
+				});
 			}
 			else if (action == "set")
 			{
 				const int idx = a.value("index", 0);
 				if (idx < 0 || idx >= (int)doc->blendEntries.size())
 					throw std::runtime_error("blend entry index out of range");
-				if (a.contains("weight") && a["weight"].is_number())
-					doc->blendEntries[idx].weight = (float)a["weight"].get<double>();
-				if (a.contains("speed") && a["speed"].is_number())
-					doc->blendEntries[idx].speed = (float)a["speed"].get<double>();
-				if (a.contains("layer")) doc->blendEntries[idx].layer = A("layer"), doc->TouchBlend();
+				doc->PushBlendEdit("Edit blend entry", [&]() {
+					if (a.contains("weight") && a["weight"].is_number())
+						doc->blendEntries[idx].weight = (float)a["weight"].get<double>();
+					if (a.contains("speed") && a["speed"].is_number())
+						doc->blendEntries[idx].speed = (float)a["speed"].get<double>();
+					if (a.contains("layer")) doc->blendEntries[idx].layer = A("layer");
+				});
 			}
 			else if (action == "remove")
 			{
 				const int idx = a.value("index", 0);
 				if (idx < 0 || idx >= (int)doc->blendEntries.size())
 					throw std::runtime_error("blend entry index out of range");
-				doc->blendEntries.erase(doc->blendEntries.begin() + idx);
-				doc->TouchBlend();
+				doc->PushBlendEdit("Remove clip from blend", [&]() {
+					doc->blendEntries.erase(doc->blendEntries.begin() + idx);
+				});
 			}
 			else if (action == "clear")
 			{
-				doc->blendEntries.clear();
-				doc->blendLayers.clear();
-				doc->TouchBlend();
+				doc->PushBlendEdit("Clear blend", [&]() {
+					doc->blendEntries.clear();
+					doc->blendLayers.clear();
+				});
 			}
 			else if (action == "layer")
 			{
 				const std::string layerName = A("layer");
 				if (layerName.empty()) throw std::runtime_error("layer name required");
-				AnimationBlendLayer& layer = doc->EnsureBlendLayer(layerName);
 				const std::string boneName = A("bone");
+				// Resolved before the edit so a bad bone name throws without
+				// having already created the layer as a side effect.
+				int boneId = -1;
 				if (!boneName.empty())
 				{
 					if (!pv || !pv->instance) throw std::runtime_error("no rig bound");
-					const int boneId = pv->FindBone(boneName);
+					boneId = pv->FindBone(boneName);
 					if (boneId < 0) throw std::runtime_error("unknown bone '" + boneName + "'");
-					const bool withChildren = a.value("children", false);
+				}
+				const bool withChildren = a.value("children", false);
+				doc->PushBlendEdit("Edit layer '" + layerName + "'", [&]() {
+					AnimationBlendLayer& layer = doc->EnsureBlendLayer(layerName);
+					if (boneId < 0) return;
 					const std::vector<Bone>& bones = pv->instance->GetSkeletonBones();
 					for (size_t b = 0; b < bones.size(); b++)
 					{
@@ -1194,8 +1210,8 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 						if (std::find(layer.bones.begin(), layer.bones.end(), bones[b].name) == layer.bones.end())
 							layer.bones.push_back(bones[b].name);
 					}
-				}
-				doc->TouchBlend();
+				});
+				doc->rigDirty = true;
 			}
 			else if (action == "lua")
 			{
@@ -1348,6 +1364,18 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 
 			if (action == "list") return describe();
 
+			// Mirrors animation_blend's "mode": the IK target handle is only
+			// live in IK mode, so anything driving the editor from outside
+			// needs a way in without clicking the radio button.
+			if (action == "mode")
+			{
+				doc->ikMode = a.value("enabled", true);
+				if (doc->ikMode) doc->blendMode = false;
+				nlohmann::json r = describe();
+				r["ikMode"] = doc->ikMode;
+				return r;
+			}
+
 			if (action == "add")
 			{
 				if (chainName.empty()) throw std::runtime_error("\"name\" is required");
@@ -1357,11 +1385,18 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 				h.rootBone = A("root");
 				h.effectorBone = A("effector");
 				if (a.contains("target") && a["target"].is_array() && a["target"].size() == 3)
+				{
 					h.target = Vec3(a["target"][0].get<f32>(), a["target"][1].get<f32>(), a["target"][2].get<f32>());
+					h.targetSet = true;
+				}
 				else if (!h.effectorBone.empty())
 				{
 					const int e = pv->BoneIdByName(h.effectorBone);
-					if (e >= 0) h.target = pv->instance->GetBoneGlobalTransform(e).GetTranslation();
+					if (e >= 0)
+					{
+						h.target = pv->instance->GetBoneGlobalTransform(e).GetTranslation();
+						h.targetSet = true;
+					}
 				}
 				if (a.contains("pole") && a["pole"].is_array() && a["pole"].size() == 3)
 				{
@@ -1393,7 +1428,10 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 					if (!A("root").empty()) h.rootBone = A("root");
 					if (!A("effector").empty()) h.effectorBone = A("effector");
 					if (a.contains("target") && a["target"].is_array() && a["target"].size() == 3)
+					{
 						h.target = Vec3(a["target"][0].get<f32>(), a["target"][1].get<f32>(), a["target"][2].get<f32>());
+						h.targetSet = true;
+					}
 					if (a.contains("pole") && a["pole"].is_array() && a["pole"].size() == 3)
 					{
 						h.pole = Vec3(a["pole"][0].get<f32>(), a["pole"][1].get<f32>(), a["pole"][2].get<f32>());
@@ -1443,7 +1481,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 				return r;
 			}
 
-			throw std::runtime_error("unknown animation_ik action '" + action + "' (list/add/remove/set/solve/key/bake)");
+			throw std::runtime_error("unknown animation_ik action '" + action + "' (list/mode/add/remove/set/solve/key/bake)");
 		}
 
 		if (name == "animation_joint_limit")
@@ -3372,6 +3410,7 @@ AnimationEditorDocument* Editor::NewAnimationDocument(const std::string& meshPat
 {
 	AnimationEditorDocument* doc = new AnimationEditorDocument();
 	doc->id = nextAnimationDocId++;
+	BindUndoRouting(doc);
 	doc->displayName = "NewAnimation";
 	doc->meshPath = meshPath;
 	// A brand new document with no clip has nothing to key into, so it
@@ -3415,6 +3454,7 @@ bool Editor::OpenAnimationDocument(const std::string& absPath)
 
 	AnimationEditorDocument* doc = new AnimationEditorDocument();
 	doc->id = nextAnimationDocId++;
+	BindUndoRouting(doc);
 	std::string err;
 	if (!doc->LoadFromFile(absPath, err))
 	{
@@ -4652,9 +4692,36 @@ void Editor::Shutdown()
 	ImGui::DestroyContext();
 }
 
+void Editor::BindUndoRouting(SceneEditor* doc)
+{
+	if (!doc) return;
+	doc->SetUndoPushHook([this]() { lastFocusedDocKind = FocusedDocKind::Scene; });
+}
+
+void Editor::BindUndoRouting(MaterialEditorDocument* doc)
+{
+	if (!doc) return;
+	// Capturing doc is safe: the stack is a member of the document, so the
+	// callback cannot outlive what it captures.
+	doc->undo.onPush = [this, doc]() {
+		lastFocusedDocKind = FocusedDocKind::Material;
+		activeMaterialDoc = doc;
+	};
+}
+
+void Editor::BindUndoRouting(AnimationEditorDocument* doc)
+{
+	if (!doc) return;
+	doc->undo.onPush = [this, doc]() {
+		lastFocusedDocKind = FocusedDocKind::Animation;
+		activeAnimationDoc = doc;
+	};
+}
+
 SceneEditor* Editor::CreateSceneDocument()
 {
 	SceneEditor* doc = new SceneEditor(nextSceneDocId++);
+	BindUndoRouting(doc);
 	doc->SetSharedAudioManager(sharedAudio);
 #ifdef LUA_BINDINGS
 	if (luaReady)
@@ -4779,6 +4846,7 @@ bool Editor::OpenMaterialDocument(const std::string& absPath)
 
 	MaterialEditorDocument* doc = new MaterialEditorDocument();
 	doc->id = nextMaterialDocId++;
+	BindUndoRouting(doc);
 	if (!MaterialEditor::LoadFromFile(*doc, absPath, project.GetProjectPath(), UseDeferredGBuffer()))
 	{
 		echo("ERROR: Could not open material " + project.DisplayPath(absPath));
@@ -4810,6 +4878,7 @@ MaterialEditorDocument* Editor::EditMaterialInline(std::shared_ptr<IMaterial> ma
 
 	MaterialEditorDocument* doc = new MaterialEditorDocument();
 	doc->id = nextMaterialDocId++;
+	BindUndoRouting(doc);
 	doc->currentMaterial = mat;
 	doc->materialName = ownerLabel;
 	doc->displayName = ownerLabel;

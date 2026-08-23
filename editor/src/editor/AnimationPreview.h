@@ -147,6 +147,35 @@ struct AnimationPreview {
 	// Frame handed to IGizmo::SetGlobalTransform so its axis conjugation
 	// lands on the bone's own axes - see PrepareGizmo for the derivation.
 	p3d::Math::Matrix gizmoAxisFrame;
+
+	// ---- IK target handle -------------------------------------------
+	IGizmo* ikGizmo = nullptr;
+	bool ikGizmoDragging = false;
+	// The matrix libgizmo writes the dragged target into, and the identity
+	// frame handed to it as both parent and axis basis: the previewed model
+	// sits at the origin, so model space (which is what an IK target is
+	// expressed in) and world space are the same thing here. Members for the
+	// same lifetime reason as gizmoBoneLocal.
+	p3d::Math::Matrix ikTargetWorld, ikGizmoIdentity;
+	// Free drag: grab the target anywhere near it and move it in the plane
+	// facing the camera, no axis to pick first. This is the gesture that
+	// makes a handle feel like a 3D mouse rather than a set of sliders - the
+	// axis arrows stay for when a move has to be constrained to one axis.
+	bool ikFreeDragging = false;
+	// Point the drag plane passes through, captured at grab time so the
+	// target slides in a fixed plane instead of one that follows it.
+	p3d::Math::Vec3 ikDragPlanePoint;
+	// Offset from the grab point to the target, so the target does not jump
+	// to the cursor the instant it is grabbed off-centre.
+	p3d::Math::Vec3 ikDragGrabOffset;
+	// World position under the cursor on the drag plane, or false when the
+	// ray is parallel to it.
+	bool RayToDragPlane(const p3d::Math::Matrix& view, const p3d::Math::Matrix& proj,
+		float mouseX, float mouseY, const p3d::Math::Vec3& planePoint,
+		p3d::Math::Vec3& outHit) const;
+	// Where `world` lands in viewport pixels; z<=0 means behind the camera.
+	p3d::Math::Vec3 WorldToScreen(const p3d::Math::Matrix& view,
+		const p3d::Math::Matrix& proj, const p3d::Math::Vec3& world) const;
 	// Orthographic frustum bounds handed to both the hit-test ray and
 	// IGizmo::SetScreenDimension - they must describe the same space (see
 	// DrawAndUpdate). Refreshed each frame before the gizmo is fed.
@@ -217,13 +246,37 @@ struct AnimationPreview {
 	// the normal answer for anything held by name across a mesh swap.
 	int BoneIdByName(const std::string& name) const;
 
+	// What one frame of viewport interaction produced. A struct rather than
+	// a return value plus out-params because IK mode added a second draggable
+	// thing to the same viewport, and "did something move" and "which thing
+	// was released" are now four separate answers.
+	struct Interaction {
+		// A bone pose changed this frame, so the document is dirty and there
+		// is a pending pose worth keying.
+		bool posed = false;
+		// The frame a bone gizmo drag was released - when auto-key fires.
+		bool boneDragEnded = false;
+		// The frame the IK target handle was grabbed, before it has moved
+		// anything. This is when the undo baseline has to be taken: by the
+		// time ikTargetMoved is first true, the target already holds one
+		// mouse-delta of the drag, and undo would rewind to that instead of
+		// to where the target started.
+		bool ikDragStarted = false;
+		// The IK target handle moved this frame; the chain wants re-solving.
+		// The solve itself lives in the UI layer (AnimationEditor::ApplyIK),
+		// which owns the solver's editor-side policy - the preview only
+		// reports that the target moved.
+		bool ikTargetMoved = false;
+		// The frame the IK target handle was released, i.e. when the whole
+		// drag becomes one undo entry.
+		bool ikDragEnded = false;
+	};
+
 	// Renders the frame and draws it as an ImGui::Image at the current
-	// cursor, then handles camera navigation, bone picking and the bone
-	// gizmo for whatever is selected in `doc`. Returns true when the user's
-	// interaction changed the bone pose this frame (so the caller can mark
-	// the document dirty / auto-key). `outDragEnded` is set on the frame a
-	// gizmo drag is released, which is when auto-key fires.
-	bool DrawAndUpdate(AnimationEditorDocument& doc, bool& outDragEnded);
+	// cursor, then handles camera navigation, bone picking, the bone gizmo
+	// for whatever is selected in `doc`, and - in IK mode - the active
+	// chain's target handle.
+	Interaction DrawAndUpdate(AnimationEditorDocument& doc);
 
 	// Points the camera at the whole model again, refitting to the pose the
 	// rig is currently in.
@@ -247,6 +300,22 @@ private:
 	void DrawBoneOctahedron(const p3d::Math::Vec3& head, const p3d::Math::Vec3& tail,
 		const p3d::Math::Matrix& orient, const p3d::Math::Vec4& color);
 	void EnsureGizmo();
+	// The IK target handle. A second gizmo rather than reusing `gizmo`:
+	// that one follows the bone pose mode (rotate, normally) and edits a
+	// bone's LOCAL transform, while a target is a bare point that is only
+	// ever translated, in world space.
+	void EnsureIKGizmo();
+	// A crosshair at the target plus a line to the effector it is pulling.
+	// The line is the honest readout of the solve: when the chain cannot
+	// reach, it is the visible gap, which no numeric field conveys. Takes
+	// loose fields rather than the IKHandle itself - AnimationEditorDocument
+	// is only forward-declared here, so its nested types are unavailable.
+	void DrawIKTargetMarker(const p3d::Math::Vec3& target, const std::string& effectorBone,
+		bool usePole, const p3d::Math::Vec3& pole);
+	// Feeds the IK gizmo this frame's camera/screen/matrices, with the
+	// handle sitting at `target`.
+	void PrepareIKGizmo(const p3d::Math::Vec3& target,
+		const p3d::Math::Matrix& view, const p3d::Math::Matrix& proj);
 	// AABB over the current posed bone positions (model space). Returns
 	// false when there is no skeleton, in which case the caller falls back
 	// to the renderable's vertex bounds.

@@ -183,6 +183,45 @@ int KeyWholeSkeleton(AnimationEditorDocument& doc, float time)
 	return keyed;
 }
 
+// True when `boneId` is `rootId` or sits anywhere beneath it. Bones store a
+// parent id rather than a child list, so descent is tested by walking up -
+// the guard is against a malformed rig with a parent cycle, which would
+// otherwise hang the UI thread rather than just drawing something wrong.
+bool IsBoneInSubtree(const std::vector<Bone>& bones, int boneId, int rootId)
+{
+	int p = boneId, guard = 0;
+	while (p >= 0 && p < (int)bones.size() && guard++ <= (int)bones.size())
+	{
+		if (p == rootId) return true;
+		p = bones[p].parent;
+	}
+	return false;
+}
+
+// Gives every chain that has never had its target placed one at its own
+// effector, so it starts out solved and still rather than dragging the limb
+// to the world origin. Runs each frame because the rig can be bound after the
+// chains are (a chain loaded from the sidecar has no rig to measure against
+// until the mesh finishes loading).
+void SeedUnplacedIKTargets(AnimationEditorDocument& doc)
+{
+	AnimationPreview* pv = doc.preview.get();
+	if (!pv || !pv->instance) return;
+	for (size_t i = 0; i < doc.ikHandles.size(); i++)
+	{
+		AnimationEditorDocument::IKHandle& h = doc.ikHandles[i];
+		if (h.targetSet) continue;
+		const int eff = pv->BoneIdByName(h.effectorBone);
+		if (eff < 0) continue;
+		h.target = pv->instance->GetBoneGlobalTransform(eff).GetTranslation();
+		h.targetSet = true;
+		// Deliberately not an undo entry: this is the chain's initial
+		// placement, not an edit the user made, and pushing it would put a
+		// command on the stack that Ctrl+Z could rewind into the broken
+		// origin-target state it exists to avoid.
+	}
+}
+
 // Resolves an IK handle's bone names against the currently bound mesh.
 // Returns false if either end is missing, which happens routinely when a
 // handle authored for one rig is looked at with another mesh bound.
@@ -645,7 +684,8 @@ void DrawBlendPanel(AnimationEditorDocument& doc, FrameRequests& requests)
 			{
 				const bool sel = ((int)c == e.clip);
 				const std::string l = "[" + std::to_string(c) + "] " + doc.clips[c].AnimationName;
-				if (ImGui::Selectable(l.c_str(), sel)) { e.clip = (int)c; doc.TouchBlend(); }
+				if (ImGui::Selectable(l.c_str(), sel))
+					doc.PushBlendEdit("Change blend clip", [&]() { e.clip = (int)c; });
 			}
 			ImGui::EndCombo();
 		}
@@ -654,12 +694,17 @@ void DrawBlendPanel(AnimationEditorDocument& doc, FrameRequests& requests)
 		ImGui::SetNextItemWidth(160.f);
 		// Weight changes do NOT bump blendRevision: they are applied to the
 		// already-playing entries (ApplyBlendWeights) so a drag crossfades
-		// instead of restarting every clip each frame.
+		// instead of restarting every clip each frame. The whole drag is one
+		// undo entry, and ends without a rebuild for the same reason.
 		ImGui::SliderFloat("weight", &e.weight, 0.f, 1.f, "%.2f");
+		if (ImGui::IsItemActivated()) doc.BeginBlendEdit();
+		if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndBlendEdit("Change blend weight", false);
 
 		ImGui::SameLine();
 		ImGui::SetNextItemWidth(90.f);
-		if (ImGui::DragFloat("speed", &e.speed, 0.01f, -4.f, 4.f, "%.2fx")) { /* live, like weight */ }
+		ImGui::DragFloat("speed", &e.speed, 0.01f, -4.f, 4.f, "%.2fx"); // live, like weight
+		if (ImGui::IsItemActivated()) doc.BeginBlendEdit();
+		if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndBlendEdit("Change blend speed", false);
 
 		ImGui::SameLine();
 		// Layer picker.
@@ -667,14 +712,15 @@ void DrawBlendPanel(AnimationEditorDocument& doc, FrameRequests& requests)
 		const std::string layerLabel = e.layer.empty() ? std::string("(whole body)") : e.layer;
 		if (ImGui::BeginCombo("layer", layerLabel.c_str()))
 		{
-			if (ImGui::Selectable("(whole body)", e.layer.empty())) { e.layer.clear(); doc.TouchBlend(); }
+			if (ImGui::Selectable("(whole body)", e.layer.empty()))
+				doc.PushBlendEdit("Clear blend layer", [&]() { e.layer.clear(); });
 			for (size_t l = 0; l < doc.blendLayers.size(); l++)
 			{
 				const bool sel = (doc.blendLayers[l].name == e.layer);
 				if (ImGui::Selectable(doc.blendLayers[l].name.c_str(), sel))
 				{
-					e.layer = doc.blendLayers[l].name;
-					doc.TouchBlend();
+					const std::string picked = doc.blendLayers[l].name;
+					doc.PushBlendEdit("Set blend layer", [&]() { e.layer = picked; });
 				}
 			}
 			ImGui::EndCombo();
@@ -685,10 +731,9 @@ void DrawBlendPanel(AnimationEditorDocument& doc, FrameRequests& requests)
 		ImGui::PopID();
 	}
 	if (removeEntry >= 0)
-	{
-		doc.blendEntries.erase(doc.blendEntries.begin() + removeEntry);
-		doc.TouchBlend();
-	}
+		doc.PushBlendEdit("Remove clip from blend", [&]() {
+			doc.blendEntries.erase(doc.blendEntries.begin() + removeEntry);
+		});
 
 	ImGui::Separator();
 	if (ImGui::Button("+ Add Clip to Blend") && !doc.clips.empty())
@@ -699,95 +744,174 @@ void DrawBlendPanel(AnimationEditorDocument& doc, FrameRequests& requests)
 		// (scale 0 wins outright), which reads as "adding a clip broke it".
 		// Half weight makes the blend visible immediately.
 		e.weight = doc.blendEntries.empty() ? 1.f : 0.5f;
-		doc.blendEntries.push_back(e);
-		doc.TouchBlend();
+		doc.PushBlendEdit("Add clip to blend", [&]() { doc.blendEntries.push_back(e); });
 	}
 
 	// ---- layers -------------------------------------------------------
 	ImGui::Spacing();
 	ImGui::Separator();
 	ImGui::TextUnformatted("Layers (bone masks)");
-	ImGui::TextDisabled("A layer restricts a clip to part of the skeleton -\nupper body waving over a full-body walk, say.");
+	ImGui::TextDisabled("A layer restricts a clip to part of the skeleton -\n"
+		"upper body waving over a full-body walk, say.");
 
-	static char newLayerName[64] = "UpperBody";
-	ImGui::SetNextItemWidth(160.f);
-	ImGui::InputText("##newlayer", newLayerName, sizeof(newLayerName));
-	ImGui::SameLine();
-	if (ImGui::Button("+ Layer") && newLayerName[0])
+	// A layer is created ready to use and renamed in place. Requiring a name
+	// to be typed into a separate box BEFORE the layer existed made naming a
+	// mandatory first step for a thing whose name barely matters until it is
+	// referenced by an entry.
+	if (ImGui::Button("+ New Layer"))
 	{
-		doc.EnsureBlendLayer(newLayerName);
-		doc.TouchBlend();
+		std::string base = "Layer " + std::to_string(doc.blendLayers.size() + 1);
+		int suffix = 2;
+		while (doc.FindBlendLayer(base))
+			base = "Layer " + std::to_string(doc.blendLayers.size() + suffix++);
+		doc.PushBlendEdit("Add layer '" + base + "'",
+			[&]() { doc.EnsureBlendLayer(base); });
+		doc.rigDirty = true;
 	}
+
+	if (doc.blendLayers.empty())
+		ImGui::TextDisabled("No layers yet.");
+
+	// Membership is edited by clicking bones, so it needs the skeleton.
+	const std::vector<Bone>* layerBones = (pv && pv->instance)
+		? &pv->instance->GetSkeletonBones() : NULL;
+
+	// Whether a click carries the whole subtree with it. One shared toggle
+	// rather than two buttons per bone: "this bone and everything under it"
+	// is the normal case (a whole arm, a whole spine), and having it as a
+	// mode means a single click builds a limb instead of one click per bone.
+	static bool includeChildren = true;
 
 	std::string removeLayer;
 	for (size_t i = 0; i < doc.blendLayers.size(); i++)
 	{
 		AnimationBlendLayer& layer = doc.blendLayers[i];
 		ImGui::PushID((int)(1000 + i));
-		if (ImGui::TreeNode(layer.name.c_str(), "%s  (%d bones)", layer.name.c_str(), (int)layer.bones.size()))
+		if (ImGui::TreeNode(layer.name.c_str(), "%s  (%d bones)",
+			layer.name.c_str(), (int)layer.bones.size()))
 		{
-			const bool haveSel = (pv && pv->instance && doc.selectedBone >= 0);
-			if (!haveSel)
-				ImGui::TextDisabled("Select a bone to add it to this layer.");
+			// Rename in place.
+			char nameBuf[64];
+			std::snprintf(nameBuf, sizeof(nameBuf), "%s", layer.name.c_str());
+			ImGui::SetNextItemWidth(200.f);
+			if (ImGui::InputText("name", nameBuf, sizeof(nameBuf)))
+				layer.name = nameBuf;
+			// InputText writes straight into layer.name, so the name it had
+			// when the edit began has to be remembered separately - comparing
+			// entries against layer.name at the end would compare them
+			// against the NEW name and match nothing.
+			static std::string renameFrom;
+			if (ImGui::IsItemActivated())
+			{
+				doc.BeginBlendEdit();
+				renameFrom = layer.name;
+			}
+			if (ImGui::IsItemDeactivatedAfterEdit())
+			{
+				// Entries point at the layer BY NAME, so a rename has to
+				// carry them with it or they silently fall back to the whole
+				// body - which looks like the layer stopped working.
+				for (size_t e = 0; e < doc.blendEntries.size(); e++)
+					if (doc.blendEntries[e].layer == renameFrom)
+						doc.blendEntries[e].layer = layer.name;
+				doc.EndBlendEdit("Rename layer");
+				doc.rigDirty = true;
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Delete Layer")) removeLayer = layer.name;
+
+			if (!layerBones)
+				ImGui::TextDisabled("Bind a rig to pick bones.");
 			else
 			{
-				ImGui::Text("Selected: %s", doc.selectedBoneName.c_str());
-				if (ImGui::Button("Add Bone"))
-				{
-					const std::string n = doc.selectedBoneName;
-					if (std::find(layer.bones.begin(), layer.bones.end(), n) == layer.bones.end())
-					{
-						layer.bones.push_back(n);
-						doc.TouchBlend();
-					}
-				}
+				ImGui::Checkbox("include children", &includeChildren);
 				ImGui::SameLine();
-				if (ImGui::Button("Add Bone + Children"))
+				ImGui::TextDisabled("(?)");
+				ImGui::SetItemTooltip("On: clicking a bone adds or removes that bone and\n"
+					"everything below it in the hierarchy. Off: just that bone.");
+
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Clear"))
+					doc.PushBlendEdit("Clear layer '" + layer.name + "'",
+						[&]() { layer.bones.clear(); });
+				ImGui::SameLine();
+				if (ImGui::SmallButton("All"))
+					doc.PushBlendEdit("Fill layer '" + layer.name + "'", [&]() {
+						layer.bones.clear();
+						for (size_t b = 0; b < layerBones->size(); b++)
+							layer.bones.push_back((*layerBones)[b].name);
+					});
+
+				const std::vector<Bone>& bones = *layerBones;
+				ImGui::BeginChild("##layerbones", ImVec2(0, 220.f), true);
+				for (size_t b = 0; b < bones.size(); b++)
 				{
-					// Mirrors SkeletonAnimationInstance::AddBoneAndChilds, but
-					// resolved here so the layer's bone list is explicit -
-					// what gets written to project.json and emitted as Lua is
-					// the actual set, not a rule that might resolve
-					// differently against another rig.
-					const std::vector<Bone>& bones = pv->instance->GetSkeletonBones();
-					for (size_t b = 0; b < bones.size(); b++)
+					int depth = 0, p = bones[b].parent, guard = 0;
+					while (p >= 0 && p < (int)bones.size() && guard++ < (int)bones.size())
 					{
-						int p = bones[b].parent, guard = 0;
-						bool desc = ((int)bones[b].self == doc.selectedBone);
-						while (!desc && p >= 0 && p < (int)bones.size() && guard++ < (int)bones.size())
-						{
-							if (p == doc.selectedBone) desc = true;
-							p = bones[p].parent;
-						}
-						if (!desc) continue;
-						if (std::find(layer.bones.begin(), layer.bones.end(), bones[b].name) == layer.bones.end())
-							layer.bones.push_back(bones[b].name);
+						depth++;
+						p = bones[p].parent;
 					}
-					doc.TouchBlend();
+
+					ImGui::PushID((int)b);
+					if (depth > 0) ImGui::Indent(depth * 10.f);
+
+					bool member = std::find(layer.bones.begin(), layer.bones.end(),
+						bones[b].name) != layer.bones.end();
+					if (ImGui::Checkbox("##member", &member))
+					{
+						// `member` now holds the state the user asked for;
+						// the whole subtree is driven to it in one undo entry.
+						const bool add = member;
+						const int rootId = (int)bones[b].self;
+						doc.PushBlendEdit(
+							(add ? "Add bones to '" : "Remove bones from '") + layer.name + "'",
+							[&]() {
+								for (size_t k = 0; k < bones.size(); k++)
+								{
+									if (!includeChildren && (int)bones[k].self != rootId) continue;
+									if (includeChildren && !IsBoneInSubtree(bones, (int)bones[k].self, rootId))
+										continue;
+									std::vector<std::string>::iterator it = std::find(
+										layer.bones.begin(), layer.bones.end(), bones[k].name);
+									if (add && it == layer.bones.end())
+										layer.bones.push_back(bones[k].name);
+									else if (!add && it != layer.bones.end())
+										layer.bones.erase(it);
+								}
+							});
+						doc.rigDirty = true;
+					}
+
+					ImGui::SameLine();
+					// Clicking the NAME selects the bone (and highlights it in
+					// the viewport) without changing membership, so the two
+					// gestures never fight each other.
+					const bool selected = (doc.selectedBone == bones[b].self);
+					if (!member) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.62f, 1.f));
+					if (ImGui::Selectable(bones[b].name.c_str(), selected))
+					{
+						doc.selectedBone = bones[b].self;
+						doc.selectedBoneName = bones[b].name;
+					}
+					if (!member) ImGui::PopStyleColor();
+
+					if (depth > 0) ImGui::Unindent(depth * 10.f);
+					ImGui::PopID();
 				}
+				ImGui::EndChild();
 			}
 
-			int removeBone = -1;
-			for (size_t b = 0; b < layer.bones.size(); b++)
-			{
-				ImGui::PushID((int)b);
-				ImGui::BulletText("%s", layer.bones[b].c_str());
-				ImGui::SameLine();
-				if (ImGui::SmallButton("x")) removeBone = (int)b;
-				ImGui::PopID();
-			}
-			if (removeBone >= 0)
-			{
-				layer.bones.erase(layer.bones.begin() + removeBone);
-				doc.TouchBlend();
-			}
-
-			if (ImGui::Button("Delete Layer")) removeLayer = layer.name;
 			ImGui::TreePop();
 		}
 		ImGui::PopID();
 	}
-	if (!removeLayer.empty()) doc.RemoveBlendLayer(removeLayer);
+	if (!removeLayer.empty())
+	{
+		doc.PushBlendEdit("Delete layer '" + removeLayer + "'",
+			[&]() { doc.RemoveBlendLayer(removeLayer); });
+		doc.rigDirty = true;
+	}
 
 	// ---- export -------------------------------------------------------
 	ImGui::Spacing();
@@ -853,6 +977,7 @@ void DrawIKPanel(AnimationEditorDocument& doc)
 		}
 		h.target = pv->instance->GetBoneGlobalTransform(
 			doc.selectedBone >= 0 ? doc.selectedBone : 0).GetTranslation();
+		h.targetSet = true;
 		doc.ikHandles.push_back(h);
 		doc.activeIK = (int)doc.ikHandles.size() - 1;
 		doc.EndInteractiveEdit("Add IK chain");
@@ -946,7 +1071,10 @@ void DrawIKPanel(AnimationEditorDocument& doc)
 	ImGui::SameLine();
 	if (ImGui::Button("Snap to effector") && effector >= 0)
 		doc.PushSnapshotEdit("Snap IK target to effector",
-			[&]() { h.target = pv->instance->GetBoneGlobalTransform(effector).GetTranslation(); });
+			[&]() {
+				h.target = pv->instance->GetBoneGlobalTransform(effector).GetTranslation();
+				h.targetSet = true;
+			});
 
 	if (ImGui::Checkbox("Pole", &h.usePole))
 	{
@@ -1584,12 +1712,52 @@ void DrawWindow(AnimationEditorDocument& doc, const std::vector<AnimationMeshCho
 
 		// Pose the rig for this frame before it is drawn.
 		pv->SyncPose(doc, dt);
+		SeedUnplacedIKTargets(doc);
 
-		bool dragEnded = false;
-		const bool posed = pv->DrawAndUpdate(doc, dragEnded);
-		if (posed) doc.selectedBoneName = pv->BoneName(doc.selectedBone);
-		if (dragEnded && doc.autoKey)
+		const AnimationPreview::Interaction act = pv->DrawAndUpdate(doc);
+		if (act.posed) doc.selectedBoneName = pv->BoneName(doc.selectedBone);
+		if (act.boneDragEnded && doc.autoKey)
 			KeyPendingPose(doc);
+
+		// Dragging the IK target re-solves the chain every frame, so the rig
+		// follows the handle instead of only catching up when a button is
+		// pressed. The whole drag is one undo entry: BeginInteractiveEdit
+		// captures the target as it was at mouse-down, and the release
+		// pushes a single "Move IK target".
+		// Taken on the grab frame, not the first move frame - see
+		// Interaction::ikDragStarted.
+		if (act.ikDragStarted) doc.BeginInteractiveEdit();
+		if (act.ikTargetMoved && doc.HasActiveIK())
+		{
+			const AnimationEditorDocument::IKHandle& h = doc.ikHandles[doc.activeIK];
+			// Re-pose from the clip first: the solve has to start from this
+			// frame's animated pose, not from the pose the previous solve
+			// left behind, or repeated drags accumulate on themselves.
+			if (const Animation* clip = doc.ActiveClip())
+				pv->instance->ApplyAnimationAtTime(*clip, doc.playhead);
+			if (ApplyIK(doc, h))
+			{
+				int root = -1, effector = -1;
+				if (ResolveIK(doc, h, root, effector))
+				{
+					const std::vector<int32> chain = IKSolver::BuildChain(pv->instance, root, effector);
+					for (size_t i = 0; i < chain.size(); i++)
+						pv->poseOverrides[(int)chain[i]] = pv->instance->GetBoneLocalTransform(chain[i]);
+				}
+			}
+		}
+		if (act.ikDragEnded)
+		{
+			doc.EndInteractiveEdit("Move IK target");
+			if (doc.autoKey && doc.HasActiveIK())
+			{
+				const AnimationEditorDocument::IKHandle& h = doc.ikHandles[doc.activeIK];
+				doc.PushSnapshotEdit("Key IK: " + h.name, [&]() {
+					KeyIKChain(doc, h, doc.SnapTime(doc.playhead));
+				});
+				pv->poseOverrides.clear();
+			}
+		}
 	}
 	ImGui::EndChild();
 	ImGui::EndChild();
@@ -1629,9 +1797,13 @@ void DrawWindow(AnimationEditorDocument& doc, const std::vector<AnimationMeshCho
 
 	if (doc.blendMode)
 	{
-		const uint32_t before = doc.blendRevision;
+		// Either counter moving means the stored blend is stale - see
+		// blendDataRevision for why a rebuild is not the same question.
+		const uint32_t beforeRev = doc.blendRevision;
+		const uint32_t beforeData = doc.blendDataRevision;
 		DrawBlendPanel(doc, requests);
-		if (doc.blendRevision != before) requests.blendChanged = true;
+		if (doc.blendRevision != beforeRev || doc.blendDataRevision != beforeData)
+			requests.blendChanged = true;
 	}
 	else if (doc.ikMode)
 	{

@@ -132,7 +132,122 @@ size_t AnimationEditorDocument::ClipsSnapshot::ByteSize() const
 	bytes += rig.BoneMasks.size() * sizeof(p3d::BoneMask)
 		+ rig.IKChains.size() * sizeof(p3d::IKChainDef)
 		+ rig.JointLimits.size() * (sizeof(p3d::JointLimit) + sizeof(std::string));
+
+	bytes += blendEntries.size() * sizeof(AnimationBlendEntry);
+	for (size_t i = 0; i < blendEntries.size(); i++)
+		bytes += blendEntries[i].layer.capacity();
+	bytes += blendLayers.size() * sizeof(AnimationBlendLayer);
+	for (size_t i = 0; i < blendLayers.size(); i++)
+	{
+		bytes += blendLayers[i].name.capacity();
+		for (size_t b = 0; b < blendLayers[i].bones.size(); b++)
+			bytes += blendLayers[i].bones[b].capacity() + sizeof(std::string);
+	}
 	return bytes;
+}
+
+namespace {
+
+bool SameVec3(const p3d::Math::Vec3& a, const p3d::Math::Vec3& b)
+{
+	return a.x == b.x && a.y == b.y && a.z == b.z;
+}
+
+bool SameJointLimits(const std::map<std::string, p3d::JointLimit>& A,
+	const std::map<std::string, p3d::JointLimit>& B)
+{
+	if (A.size() != B.size()) return false;
+	std::map<std::string, p3d::JointLimit>::const_iterator ia = A.begin(), ib = B.begin();
+	for (; ia != A.end(); ++ia, ++ib)
+	{
+		if (ia->first != ib->first) return false;
+		if (ia->second.Enabled != ib->second.Enabled) return false;
+		if (!SameVec3(ia->second.Min, ib->second.Min)) return false;
+		if (!SameVec3(ia->second.Max, ib->second.Max)) return false;
+	}
+	return true;
+}
+
+} // namespace
+
+bool AnimationEditorDocument::ClipsSnapshot::Equals(const ClipsSnapshot& o) const
+{
+	if (activeClip != o.activeClip || activeIK != o.activeIK) return false;
+
+	// ---- clips ----
+	if (clips.size() != o.clips.size()) return false;
+	for (size_t c = 0; c < clips.size(); c++)
+	{
+		const p3d::Animation& A = clips[c];
+		const p3d::Animation& B = o.clips[c];
+		if (A.AnimationName != B.AnimationName || A.Duration != B.Duration
+			|| A.Channels.size() != B.Channels.size()) return false;
+		for (size_t ch = 0; ch < A.Channels.size(); ch++)
+		{
+			const p3d::Channel& CA = A.Channels[ch];
+			const p3d::Channel& CB = B.Channels[ch];
+			if (CA.NodeName != CB.NodeName
+				|| CA.positions.size() != CB.positions.size()
+				|| CA.rotations.size() != CB.rotations.size()
+				|| CA.scales.size() != CB.scales.size()) return false;
+			for (size_t k = 0; k < CA.positions.size(); k++)
+				if (CA.positions[k].Time != CB.positions[k].Time
+					|| !SameVec3(CA.positions[k].Pos, CB.positions[k].Pos)) return false;
+			for (size_t k = 0; k < CA.rotations.size(); k++)
+				if (CA.rotations[k].Time != CB.rotations[k].Time
+					|| CA.rotations[k].Rot.x != CB.rotations[k].Rot.x
+					|| CA.rotations[k].Rot.y != CB.rotations[k].Rot.y
+					|| CA.rotations[k].Rot.z != CB.rotations[k].Rot.z
+					|| CA.rotations[k].Rot.w != CB.rotations[k].Rot.w) return false;
+			for (size_t k = 0; k < CA.scales.size(); k++)
+				if (CA.scales[k].Time != CB.scales[k].Time
+					|| !SameVec3(CA.scales[k].Scale, CB.scales[k].Scale)) return false;
+		}
+	}
+
+	// ---- IK chains ----
+	if (ikHandles.size() != o.ikHandles.size()) return false;
+	for (size_t i = 0; i < ikHandles.size(); i++)
+	{
+		const IKHandle& A = ikHandles[i];
+		const IKHandle& B = o.ikHandles[i];
+		if (A.name != B.name || A.rootBone != B.rootBone || A.effectorBone != B.effectorBone
+			|| A.usePole != B.usePole || A.enabled != B.enabled || A.targetSet != B.targetSet
+			|| !SameVec3(A.target, B.target) || !SameVec3(A.pole, B.pole)) return false;
+	}
+
+	// ---- rig sidecar ----
+	if (rig.BoneMasks.size() != o.rig.BoneMasks.size()) return false;
+	for (size_t i = 0; i < rig.BoneMasks.size(); i++)
+		if (rig.BoneMasks[i].Name != o.rig.BoneMasks[i].Name
+			|| rig.BoneMasks[i].Bones != o.rig.BoneMasks[i].Bones) return false;
+	if (rig.IKChains.size() != o.rig.IKChains.size()) return false;
+	for (size_t i = 0; i < rig.IKChains.size(); i++)
+	{
+		const p3d::IKChainDef& A = rig.IKChains[i];
+		const p3d::IKChainDef& B = o.rig.IKChains[i];
+		if (A.Name != B.Name || A.RootBone != B.RootBone || A.EffectorBone != B.EffectorBone
+			|| A.UsePole != B.UsePole || !SameVec3(A.Pole, B.Pole)) return false;
+	}
+	if (!SameJointLimits(rig.JointLimits, o.rig.JointLimits)) return false;
+
+	// ---- blend ----
+	// playOrder is deliberately not compared: it is a preview handle, not
+	// document state, and it changes every time the blend is rebuilt.
+	if (blendEntries.size() != o.blendEntries.size()) return false;
+	for (size_t i = 0; i < blendEntries.size(); i++)
+	{
+		const AnimationBlendEntry& A = blendEntries[i];
+		const AnimationBlendEntry& B = o.blendEntries[i];
+		if (A.clip != B.clip || A.weight != B.weight || A.speed != B.speed
+			|| A.repetition != B.repetition || A.layer != B.layer) return false;
+	}
+	if (blendLayers.size() != o.blendLayers.size()) return false;
+	for (size_t i = 0; i < blendLayers.size(); i++)
+		if (blendLayers[i].name != o.blendLayers[i].name
+			|| blendLayers[i].bones != o.blendLayers[i].bones) return false;
+
+	return true;
 }
 
 AnimationEditorDocument::ClipsSnapshot AnimationEditorDocument::Snapshot() const
@@ -143,6 +258,8 @@ AnimationEditorDocument::ClipsSnapshot AnimationEditorDocument::Snapshot() const
 	snap.ikHandles = ikHandles;
 	snap.activeIK = activeIK;
 	snap.rig = rig;
+	snap.blendEntries = blendEntries;
+	snap.blendLayers = blendLayers;
 	return snap;
 }
 
@@ -165,6 +282,18 @@ void AnimationEditorDocument::Restore(const ClipsSnapshot& snap)
 	// claiming the rig is saved.
 	rigDirty = true;
 
+	blendEntries = snap.blendEntries;
+	blendLayers = snap.blendLayers;
+	// playOrder is a handle into the preview's currently-playing set, not
+	// document state: the restored entries were captured while a different
+	// set was playing, so the handles are stale. Clearing them forces
+	// RebuildBlend to re-Play() from scratch rather than calling
+	// ChangeProperties() on a handle that now means another clip.
+	for (size_t i = 0; i < blendEntries.size(); i++)
+		blendEntries[i].playOrder = -1;
+	blendDataRevision++;
+	TouchBlend();
+
 	clipsRevision++;
 	dirty = true;
 }
@@ -178,6 +307,42 @@ void AnimationEditorDocument::PushSnapshotEdit(const std::string& description, c
 		new AnimationSnapshotCommand(this, before, after, description)));
 	clipsRevision++;
 	dirty = true;
+}
+
+void AnimationEditorDocument::PushBlendEdit(const std::string& description,
+	const std::function<void()>& edit, bool rebuild)
+{
+	ClipsSnapshot before = Snapshot();
+	edit();
+	ClipsSnapshot after = Snapshot();
+	if (after.Equals(before)) return;
+	undo.Push(std::unique_ptr<IUndoableCommand>(
+		new AnimationSnapshotCommand(this, before, after, description)));
+	blendDataRevision++;
+	if (rebuild) TouchBlend();
+}
+
+void AnimationEditorDocument::BeginBlendEdit()
+{
+	// Shares interactiveBefore with BeginInteractiveEdit: the two can never
+	// be open at once (one is a blend-panel drag, the other a timeline or
+	// gizmo drag, and the panels are mutually exclusive modes).
+	if (interactiveEditActive) return;
+	interactiveBefore = Snapshot();
+	interactiveEditActive = true;
+}
+
+void AnimationEditorDocument::EndBlendEdit(const std::string& description, bool rebuild)
+{
+	if (!interactiveEditActive) return;
+	interactiveEditActive = false;
+
+	ClipsSnapshot after = Snapshot();
+	if (after.Equals(interactiveBefore)) return;
+	undo.Push(std::unique_ptr<IUndoableCommand>(
+		new AnimationSnapshotCommand(this, interactiveBefore, after, description)));
+	blendDataRevision++;
+	if (rebuild) TouchBlend();
 }
 
 void AnimationEditorDocument::BeginInteractiveEdit()
@@ -196,43 +361,7 @@ void AnimationEditorDocument::EndInteractiveEdit(const std::string& description)
 	// A drag that ended where it started (or a click that only selected)
 	// leaves the data untouched - pushing that would make Ctrl+Z appear
 	// broken, since undoing it would visibly do nothing.
-	if (after.clips.size() == interactiveBefore.clips.size())
-	{
-		bool identical = true;
-		for (size_t c = 0; c < after.clips.size() && identical; c++)
-		{
-			const p3d::Animation& A = interactiveBefore.clips[c];
-			const p3d::Animation& B = after.clips[c];
-			if (A.AnimationName != B.AnimationName || A.Duration != B.Duration
-				|| A.Channels.size() != B.Channels.size()) { identical = false; break; }
-			for (size_t ch = 0; ch < A.Channels.size() && identical; ch++)
-			{
-				const p3d::Channel& CA = A.Channels[ch];
-				const p3d::Channel& CB = B.Channels[ch];
-				if (CA.NodeName != CB.NodeName
-					|| CA.positions.size() != CB.positions.size()
-					|| CA.rotations.size() != CB.rotations.size()
-					|| CA.scales.size() != CB.scales.size()) { identical = false; break; }
-				for (size_t k = 0; k < CA.positions.size(); k++)
-					if (CA.positions[k].Time != CB.positions[k].Time
-						|| CA.positions[k].Pos.x != CB.positions[k].Pos.x
-						|| CA.positions[k].Pos.y != CB.positions[k].Pos.y
-						|| CA.positions[k].Pos.z != CB.positions[k].Pos.z) { identical = false; break; }
-				for (size_t k = 0; k < CA.rotations.size() && identical; k++)
-					if (CA.rotations[k].Time != CB.rotations[k].Time
-						|| CA.rotations[k].Rot.x != CB.rotations[k].Rot.x
-						|| CA.rotations[k].Rot.y != CB.rotations[k].Rot.y
-						|| CA.rotations[k].Rot.z != CB.rotations[k].Rot.z
-						|| CA.rotations[k].Rot.w != CB.rotations[k].Rot.w) { identical = false; break; }
-				for (size_t k = 0; k < CA.scales.size() && identical; k++)
-					if (CA.scales[k].Time != CB.scales[k].Time
-						|| CA.scales[k].Scale.x != CB.scales[k].Scale.x
-						|| CA.scales[k].Scale.y != CB.scales[k].Scale.y
-						|| CA.scales[k].Scale.z != CB.scales[k].Scale.z) { identical = false; break; }
-			}
-		}
-		if (identical) return;
-	}
+	if (after.Equals(interactiveBefore)) return;
 
 	undo.Push(std::unique_ptr<IUndoableCommand>(
 		new AnimationSnapshotCommand(this, interactiveBefore, after, description)));

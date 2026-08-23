@@ -4770,16 +4770,32 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (SelectedSceneObject && SelectedSceneObject->GetType() == SceneObjectTypes::GAMEOBJECT)
 			parentGo = (GameObject*)SelectedSceneObject->GetPTR();
 
-		// A new top-level GameObject is only created (and undo-tracked) when
-		// nothing was already selected to drop the model/sound onto -
-		// dropping onto an existing selection instead attaches a component
-		// to it (AttachComponent territory - not yet undoable).
+		// Two different edits share this tail. With nothing selected a new
+		// top-level GameObject is created and pushed as an Add; dropping onto
+		// an existing selection instead attaches a renderer/audio source to
+		// it, which is a Replace of that object's subtree. Both are undoable -
+		// the attach case used to push nothing at all, so Ctrl+Z after
+		// dropping a model onto a selected object silently undid whatever
+		// unrelated edit happened to be on top of the stack.
 		const bool createdNewObject = (parentGo == NULL);
+		uint32 attachOwnerId = 0;
+		std::string attachBeforeSnapshot;
 		if (!parentGo)
 		{
 			CreateGameObject(name.empty() ? (isSound ? "Sound" : "Model") : name);
 			if (!SelectedSceneObject) return false;
 			parentGo = (GameObject*)SelectedSceneObject->GetPTR();
+		}
+		else
+		{
+			// Captured before the component exists, so Undo() restores the
+			// object exactly as it was - same pattern as Attach Component.
+			attachOwnerId = sceneObjects->GetSceneObjectID(parentGo);
+#ifdef LUA_BINDINGS
+			attachBeforeSnapshot = SceneSerializer::SerializeSubtree(parentGo, scenePath, sharedLua);
+#else
+			attachBeforeSnapshot = SceneSerializer::SerializeSubtree(parentGo, scenePath, NULL);
+#endif
 		}
 
 		if (isModel)
@@ -4788,6 +4804,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			MarkSceneDirty();
 			if (createdNewObject)
 				PushAddCommand(SelectedSceneObject);
+			else
+				PushReplaceCommand(attachOwnerId, attachBeforeSnapshot,
+					"Add Model '" + name + "'");
 			echo("Placed model: " + absolutePath);
 			return true;
 		}
@@ -4801,6 +4820,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			MarkSceneDirty();
 			if (createdNewObject)
 				PushAddCommand(SelectedSceneObject);
+			else
+				PushReplaceCommand(attachOwnerId, attachBeforeSnapshot,
+					"Add Sound '" + name + "'");
 			echo("Placed sound: " + absolutePath);
 			return true;
 		}

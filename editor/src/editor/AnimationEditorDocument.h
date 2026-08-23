@@ -180,6 +180,14 @@ struct AnimationEditorDocument {
 		p3d::Math::Vec3 pole;
 		bool usePole = false;
 		bool enabled = true;
+		// False until the target has been put somewhere deliberately. The rig
+		// sidecar stores a chain's bones but NOT its target - a target is
+		// animation state, not skeleton state - so a chain loaded from disk
+		// arrives with target at (0,0,0). Solving against that snaps the limb
+		// to the world origin, which looks like the solver is broken. The
+		// editor seeds an unplaced target from the effector's current
+		// position instead; see SeedUnplacedIKTargets.
+		bool targetSet = false;
 	};
 	std::vector<IKHandle> ikHandles;
 	int activeIK = -1;
@@ -238,6 +246,14 @@ struct AnimationEditorDocument {
 	// rather than every caller having to remember to ask for a rebuild.
 	uint32_t blendRevision = 1;
 	void TouchBlend() { blendRevision++; }
+	// Bumped by any edit to the blend DATA, whether or not the preview has
+	// to rebuild. Separate from blendRevision because the two answer
+	// different questions: blendRevision means "re-Play() the set", while
+	// this means "what is on disk is stale". A weight drag is exactly the
+	// case that splits them - it must not restart the clips, but it does
+	// have to be written back to project.json, which it previously never
+	// was, so every weight tweak was lost when the document closed.
+	uint32_t blendDataRevision = 1;
 	// Bumped whenever the clips themselves change. Blend mode plays the
 	// document's in-memory clips (SkeletonAnimation::SetAnimations), so the
 	// preview has to re-hand them over after an edit or it keeps blending
@@ -368,7 +384,19 @@ struct AnimationEditorDocument {
 		std::vector<IKHandle> ikHandles;
 		int activeIK = -1;
 		p3d::RigAsset rig;
+		// Blend authoring state. Layers and entries are edited through the
+		// Blend panel, which used to mutate them directly and push nothing -
+		// so Ctrl+Z skipped straight over "delete layer" as if it had never
+		// happened. They are part of the document like everything else here.
+		std::vector<AnimationBlendEntry> blendEntries;
+		std::vector<AnimationBlendLayer> blendLayers;
 		size_t ByteSize() const;
+		// Whole-snapshot equality, used to drop interactive edits that ended
+		// where they started. Must cover every field above: comparing only
+		// the clips silently discarded any edit that touched the rig or the
+		// blend instead (adding an IK chain, dragging its target), because
+		// those leave the clips byte-identical.
+		bool Equals(const ClipsSnapshot& o) const;
 	};
 	ClipsSnapshot Snapshot() const;
 	void Restore(const ClipsSnapshot& snap);
@@ -386,6 +414,22 @@ struct AnimationEditorDocument {
 	// per mouse-move. Begin is idempotent while a drag is already open (a
 	// drag that starts twice without ending would otherwise lose its
 	// original baseline).
+	// Blend-only variants of the three above. The blend (entries + layers)
+	// lives in project.json and the rig sidecar, NOT in the .p3da, so these
+	// deliberately leave `dirty` and clipsRevision alone: tweaking a weight
+	// must not make the clip file look unsaved. They bump blendRevision
+	// instead, so the preview rebuilds. Undo still goes through the same
+	// snapshot command, which is why ClipsSnapshot carries the blend state.
+	//
+	// `rebuild` controls whether the preview's Play() set is remade. Weight
+	// and speed are applied to the already-playing entries so a drag
+	// crossfades smoothly; rebuilding those would restart every clip from
+	// frame 0 the instant the mouse came up.
+	void PushBlendEdit(const std::string& description, const std::function<void()>& edit,
+		bool rebuild = true);
+	void BeginBlendEdit();
+	void EndBlendEdit(const std::string& description, bool rebuild = true);
+
 	void BeginInteractiveEdit();
 	// No-op (and pushes nothing) if the clips are byte-identical to the
 	// captured baseline, so a click that selects a key without moving it

@@ -28,6 +28,11 @@ namespace {
 // finger joint doesn't get the same 30-unit tripod as the pelvis.
 const float kAxisFraction = 0.35f;
 
+// How close to an IK target's on-screen position a click counts as grabbing
+// it for a free move. Generous on purpose: the target is a small crosshair,
+// and the whole point of the free drag is that it does not demand precision.
+const float kIKGrabRadiusPx = 26.f;
+
 Vec4 ColorForBone(bool selected, bool onSelectedChain)
 {
 	if (selected) return Vec4(1.f, 0.75f, 0.1f, 1.f);
@@ -41,6 +46,7 @@ AnimationPreview::~AnimationPreview()
 {
 	ClearMesh();
 	if (gizmo) { delete gizmo; gizmo = nullptr; }
+	if (ikGizmo) { delete ikGizmo; ikGizmo = nullptr; }
 	cameraGO.reset();
 	lightGO.reset();
 	delete scene; scene = nullptr;
@@ -394,6 +400,70 @@ void AnimationPreview::EnsureGizmo()
 	gizmo->SetLocation(IGizmo::LOCATE_LOCAL);
 }
 
+void AnimationPreview::DrawIKTargetMarker(const Vec3& target, const std::string& effectorBone,
+	bool usePole, const Vec3& pole)
+{
+	if (!debug || !instance) return;
+
+	// Sized off the framed rig rather than fixed, for the same reason the
+	// gizmo's ortho bounds are: a crosshair sized for a 1-unit character is
+	// invisible on a 30-unit one.
+	const float r = std::max(0.01f, distance * 0.02f);
+	const Vec4 targetColor(0.2f, 1.f, 0.5f, 1.f);
+	debug->drawLine(target - Vec3(r, 0, 0), target + Vec3(r, 0, 0), targetColor);
+	debug->drawLine(target - Vec3(0, r, 0), target + Vec3(0, r, 0), targetColor);
+	debug->drawLine(target - Vec3(0, 0, r), target + Vec3(0, 0, r), targetColor);
+	debug->drawPoint(target, 7.f, targetColor);
+
+	const int eff = BoneIdByName(effectorBone);
+	if (eff < 0) return;
+	const Vec3 tip = instance->GetBoneGlobalTransform(eff).GetTranslation();
+	// Green while the effector is essentially on the target, red as it
+	// falls short - the chain is out of reach, or a joint limit is holding
+	// it back.
+	const float err = (tip - target).magnitude();
+	const Vec4 lineColor = (err <= r * 0.5f)
+		? Vec4(0.2f, 1.f, 0.5f, 0.6f) : Vec4(1.f, 0.35f, 0.25f, 0.9f);
+	debug->drawLine(tip, target, lineColor);
+
+	if (usePole)
+	{
+		const Vec4 poleColor(0.6f, 0.5f, 1.f, 0.8f);
+		debug->drawPoint(pole, 5.f, poleColor);
+		debug->drawLine(tip, pole, poleColor);
+	}
+}
+
+void AnimationPreview::EnsureIKGizmo()
+{
+	if (ikGizmo) return;
+	ikGizmo = CreateMoveGizmo();
+	// World axes, not local: a target is a point in the rig's space with no
+	// orientation of its own, so there is no "local" frame to move it in.
+	ikGizmo->SetLocation(IGizmo::LOCATE_WORLD);
+}
+
+void AnimationPreview::PrepareIKGizmo(const Vec3& target, const Matrix& view, const Matrix& proj)
+{
+	if (!ikGizmo) return;
+
+	// The edit matrix IS the handle's world transform - a pure translation.
+	// libgizmo writes the dragged position straight back into it, so the
+	// caller reads the new target out of its translation component.
+	ikTargetWorld = Matrix();
+	ikTargetWorld.Translate(target);
+	ikGizmoIdentity = Matrix();
+
+	ikGizmo->SetDisplayScale(0.15f);
+	ikGizmo->SetScreenDimension(width, height, true, gizmoOrthoL, gizmoOrthoR, gizmoOrthoB, gizmoOrthoT);
+	ikGizmo->SetLocalTransform((float*)&ikTargetWorld.m);
+	// Identity for both: with no parent and no local frame, the anchor and
+	// the axis basis are just world space.
+	ikGizmo->SetGlobalTransform((float*)&ikGizmoIdentity.m);
+	ikGizmo->SetEditMatrix((float*)&ikTargetWorld.m);
+	ikGizmo->SetCameraMatrix(view.m, proj.m);
+}
+
 Vec3 AnimationPreview::ComputeEye() const
 {
 	// Orbit around frameUp rather than around world +Y, so yaw circles the
@@ -571,6 +641,44 @@ void AnimationPreview::ProjectBones(const Matrix& view, const Matrix& proj)
 	}
 }
 
+Vec3 AnimationPreview::WorldToScreen(const Matrix& view, const Matrix& proj, const Vec3& world) const
+{
+	const Matrix viewProj = proj * view;
+	const Vec4 clip = viewProj * Vec4(world.x, world.y, world.z, 1.f);
+	if (clip.w <= 0.0001f) return Vec3(0, 0, -1);
+	const float ndcX = clip.x / clip.w;
+	const float ndcY = clip.y / clip.w;
+	return Vec3((ndcX * 0.5f + 0.5f) * (float)width,
+		(1.f - (ndcY * 0.5f + 0.5f)) * (float)height,
+		clip.w);
+}
+
+bool AnimationPreview::RayToDragPlane(const Matrix& view, const Matrix& proj,
+	float mouseX, float mouseY, const Vec3& planePoint, Vec3& outHit) const
+{
+	// The plane faces the camera, so a screen-space drag maps to an equal
+	// world-space slide whichever way the view is turned. Its normal is the
+	// camera's forward axis, which is the third row of the view matrix (the
+	// view matrix holds the inverse rotation, so its rows are the camera's
+	// world axes).
+	const Vec3 normal = Vec3(view.m[2], view.m[6], view.m[10]).normalize();
+
+	Mouse3D ray;
+	ray.GenerateRay((f32)width, (f32)height, mouseX, mouseY, Matrix(), view, proj);
+	const Vec3 origin = ray.GetOrigin();
+	const Vec3 dir = ray.GetDirection().normalize();
+
+	const float denom = normal.dotProduct(dir);
+	// Edge-on: every point on the ray is equidistant, so there is no single
+	// answer and the drag is left where it was rather than flung to infinity.
+	if (std::fabs(denom) < 1e-6f) return false;
+
+	const float t = normal.dotProduct(planePoint - origin) / denom;
+	if (t <= 0.f) return false; // behind the camera
+	outHit = origin + dir * t;
+	return true;
+}
+
 void AnimationPreview::PrepareGizmo(int boneId, const Matrix& view, const Matrix& proj)
 {
 	if (!gizmo || !instance || boneId < 0 || boneId >= (int)instance->GetNumberBones()) return;
@@ -695,23 +803,26 @@ void AnimationPreview::RenderFrame()
 	IRenderer::InvalidateSharedUniformCaches();
 }
 
-bool AnimationPreview::DrawAndUpdate(AnimationEditorDocument& doc, bool& outDragEnded)
+AnimationPreview::Interaction AnimationPreview::DrawAndUpdate(AnimationEditorDocument& doc)
 {
-	outDragEnded = false;
+	Interaction result;
 	EnsureInit();
 
 	if (!loadError.empty())
 	{
 		ImGui::TextColored(ImVec4(1.f, 0.5f, 0.4f, 1.f), "%s", loadError.c_str());
-		return false;
+		return result;
 	}
 	if (loadedMeshPath.empty())
 	{
 		ImGui::TextDisabled("No mesh bound. Pick a .p3dm above to preview these clips on a rig.");
-		return false;
+		return result;
 	}
 
-	bool poseChanged = false;
+	// IK mode replaces the bone gizmo with the active chain's target handle:
+	// both are grabbed with the left button in the same viewport, so showing
+	// them together would just make each one steal the other's clicks.
+	const bool ikHandleLive = doc.ikMode && doc.HasActiveIK() && instance != nullptr;
 
 	// Camera matrices for this frame - needed by the gizmo and by bone
 	// picking whether or not we actually render this frame.
@@ -746,7 +857,15 @@ bool AnimationPreview::DrawAndUpdate(AnimationEditorDocument& doc, bool& outDrag
 		// Submit the skeleton (with the right selection colouring) and the
 		// gizmo into the debug batch, then render.
 		if (showBones) DrawSkeleton(doc.selectedBone);
-		if (doc.selectedBone >= 0 && instance)
+		if (ikHandleLive)
+		{
+			const AnimationEditorDocument::IKHandle& h = doc.ikHandles[doc.activeIK];
+			EnsureIKGizmo();
+			PrepareIKGizmo(h.target, viewMat, projMat);
+			ikGizmo->Draw();
+			DrawIKTargetMarker(h.target, h.effectorBone, h.usePole, h.pole);
+		}
+		else if (doc.selectedBone >= 0 && instance)
 		{
 			EnsureGizmo();
 			gizmoBoneLocal = instance->GetBoneLocalTransform(doc.selectedBone);
@@ -761,13 +880,13 @@ bool AnimationPreview::DrawAndUpdate(AnimationEditorDocument& doc, bool& outDrag
 	if (!color)
 	{
 		ImGui::TextDisabled("No preview texture");
-		return false;
+		return result;
 	}
 	void* tid = GetActiveRenderDevice().GetImGuiTextureID(color->GetBindID(), color->GetTextureType());
 	if (!tid)
 	{
 		ImGui::TextDisabled("[preview texture unavailable]");
-		return false;
+		return result;
 	}
 
 	// OpenGL's render targets are bottom-up, so the viewport texture has to
@@ -795,46 +914,136 @@ bool AnimationPreview::DrawAndUpdate(AnimationEditorDocument& doc, bool& outDrag
 
 	// ---- gizmo interaction ------------------------------------------
 	// Runs before camera navigation so dragging an axis never also orbits.
-	if (gizmo && doc.selectedBone >= 0 && instance)
-	{
-		// The ortho ray libgizmo wants for its hit tests, same setup
-		// SceneEditor::ShowViewport/PrepareGizmoForDraw builds: SYMMETRIC,
-		// aspect-corrected ortho bounds, and the very same l/r/b/t handed to
-		// SetScreenDimension below. Passing 0..width/0..height (as this
-		// first did) describes a completely different space from the ortho
-		// projection the ray is unprojected through, so every hit test
-		// missed and the gizmo could not be grabbed.
-		float gl, gr, gb, gt;
-		// Scaled to the framed model rather than SceneEditor's fixed 5: the
-		// bounds set the world-units-per-screen-unit the gizmo converts drag
-		// deltas with, so a rig 30 units away needs proportionally larger
-		// ones.
-		const float zoomOrtho = std::max(0.001f, distance * 0.2f);
-		if (width > height)      { gr = zoomOrtho; gl = -gr; gt = (f32)height * zoomOrtho / (f32)width; gb = -gt; }
-		else if (width < height) { gr = (f32)width * zoomOrtho / (f32)height; gl = -gr; gt = zoomOrtho; gb = -gt; }
-		else                     { gr = zoomOrtho; gl = -gr; gt = zoomOrtho; gb = -gt; }
+	//
+	// The ortho ray libgizmo wants for its hit tests, same setup
+	// SceneEditor::ShowViewport/PrepareGizmoForDraw builds: SYMMETRIC,
+	// aspect-corrected ortho bounds, and the very same l/r/b/t handed to
+	// SetScreenDimension. Passing 0..width/0..height (as this first did)
+	// describes a completely different space from the ortho projection the
+	// ray is unprojected through, so every hit test missed and the gizmo
+	// could not be grabbed. Built once here because the bone gizmo and the
+	// IK target handle both need it.
+	float gl, gr, gb, gt;
+	// Scaled to the framed model rather than SceneEditor's fixed 5: the
+	// bounds set the world-units-per-screen-unit the gizmo converts drag
+	// deltas with, so a rig 30 units away needs proportionally larger ones.
+	const float zoomOrtho = std::max(0.001f, distance * 0.2f);
+	if (width > height)      { gr = zoomOrtho; gl = -gr; gt = (f32)height * zoomOrtho / (f32)width; gb = -gt; }
+	else if (width < height) { gr = (f32)width * zoomOrtho / (f32)height; gl = -gr; gt = zoomOrtho; gb = -gt; }
+	else                     { gr = zoomOrtho; gl = -gr; gt = zoomOrtho; gb = -gt; }
 
-		Projection orthoProj;
-		orthoProj.Ortho(gl, gr, gb, gt, 0.1f, 100000.f);
-		Mouse3D mray;
-		mray.GenerateRay((f32)width, (f32)height, localMouse.x, localMouse.y, Matrix(),
-			viewMat, orthoProj.GetProjectionMatrix());
+	Projection orthoProj;
+	orthoProj.Ortho(gl, gr, gb, gt, 0.1f, 100000.f);
+	Mouse3D mray;
+	mray.GenerateRay((f32)width, (f32)height, localMouse.x, localMouse.y, Matrix(),
+		viewMat, orthoProj.GetProjectionMatrix());
+	gizmoOrthoL = gl; gizmoOrthoR = gr; gizmoOrthoB = gb; gizmoOrthoT = gt;
+
+	// Clamped into the image, exactly as SceneEditor does - libgizmo indexes
+	// its own screen-space buffers with these.
+	const unsigned gx = (unsigned)std::min(std::max(0.f, localMouse.x), (float)width - 1.f);
+	const unsigned gy = (unsigned)std::min(std::max(0.f, localMouse.y), (float)height - 1.f);
+
+	if (ikHandleLive)
+	{
+		AnimationEditorDocument::IKHandle& h = doc.ikHandles[doc.activeIK];
+		EnsureIKGizmo();
+		ikGizmo->SetOrthoMouse(mray.GetOrigin().x, mray.GetOrigin().y, mray.GetOrigin().z,
+			mray.GetDirection().x, mray.GetDirection().y, mray.GetDirection().z);
+
+		if (hovered && inside && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+		{
+			// The free grab is tried FIRST, and it owns everything within
+			// kIKGrabRadiusPx of the target. libgizmo blankets the handle's
+			// centre with its own plane-drag quads (the translucent squares
+			// between the arrows), so as a fallback the free grab was
+			// unreachable in practice: a click near the target always landed
+			// on a world-axis plane instead, which is the sliders-in-disguise
+			// behaviour this is here to replace. Grabbing the middle now
+			// means "move it", and the arrows - which extend well past this
+			// radius - still mean "move it along one axis".
+			const Vec3 sp = WorldToScreen(viewMat, projMat, h.target);
+			const float dx = sp.x - localMouse.x;
+			const float dy = sp.y - localMouse.y;
+			const bool nearTarget = (sp.z > 0.f
+				&& std::sqrt(dx * dx + dy * dy) <= kIKGrabRadiusPx);
+
+			if (nearTarget)
+			{
+				Vec3 hit;
+				if (RayToDragPlane(viewMat, projMat, localMouse.x, localMouse.y, h.target, hit))
+				{
+					ikFreeDragging = true;
+					ikDragPlanePoint = h.target;
+					// Grabbing off-centre must not teleport the target onto
+					// the cursor - the offset is held for the drag.
+					ikDragGrabOffset = h.target - hit;
+					result.ikDragStarted = true;
+				}
+			}
+
+			if (!ikFreeDragging)
+			{
+				PrepareIKGizmo(h.target, viewMat, projMat);
+				// OnMouseMove before OnMouseDown: libgizmo decides which axis
+				// is grabbed from the axis its LAST move call highlighted, so
+				// a click with no preceding move grabs nothing.
+				ikGizmo->OnMouseMove(gx, gy);
+				if (ikGizmo->OnMouseDown(gx, gy))
+				{
+					ikGizmoDragging = true;
+					result.ikDragStarted = true;
+				}
+			}
+		}
+		else if (ikFreeDragging && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+		{
+			Vec3 hit;
+			if (RayToDragPlane(viewMat, projMat, localMouse.x, localMouse.y, ikDragPlanePoint, hit))
+			{
+				h.target = hit + ikDragGrabOffset;
+				result.ikTargetMoved = true;
+			}
+		}
+		else if (ikFreeDragging && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+		{
+			ikFreeDragging = false;
+			result.ikDragEnded = true;
+		}
+		else if (ikGizmoDragging && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+		{
+			PrepareIKGizmo(h.target, viewMat, projMat);
+			ikGizmo->OnMouseMove(gx, gy);
+			// ikTargetWorld now holds the dragged handle - its translation is
+			// the new target. Written straight back onto the handle so the
+			// panel's Target field tracks the drag live.
+			h.target = ikTargetWorld.GetTranslation();
+			result.ikTargetMoved = true;
+		}
+		else if (ikGizmoDragging && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+		{
+			ikGizmo->OnMouseUp(gx, gy);
+			ikGizmoDragging = false;
+			result.ikDragEnded = true;
+		}
+		else if (hovered && inside)
+		{
+			// Axis hover highlight while not dragging - without it the handle
+			// looks inert until you actually click.
+			PrepareIKGizmo(h.target, viewMat, projMat);
+			ikGizmo->OnMouseMove(gx, gy);
+		}
+	}
+	else if (gizmo && doc.selectedBone >= 0 && instance)
+	{
 		gizmo->SetOrthoMouse(mray.GetOrigin().x, mray.GetOrigin().y, mray.GetOrigin().z,
 			mray.GetDirection().x, mray.GetDirection().y, mray.GetDirection().z);
-		gizmoOrthoL = gl; gizmoOrthoR = gr; gizmoOrthoB = gb; gizmoOrthoT = gt;
-
-		// Clamped into the image, exactly as SceneEditor does - libgizmo
-		// indexes its own screen-space buffers with these.
-		const unsigned gx = (unsigned)std::min(std::max(0.f, localMouse.x), (float)width - 1.f);
-		const unsigned gy = (unsigned)std::min(std::max(0.f, localMouse.y), (float)height - 1.f);
 
 		if (hovered && inside && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 		{
 			gizmoBoneLocal = instance->GetBoneLocalTransform(doc.selectedBone);
 			PrepareGizmo(doc.selectedBone, viewMat, projMat);
-			// OnMouseMove before OnMouseDown: libgizmo decides which axis is
-			// grabbed from the axis its LAST move call highlighted, so a
-			// click with no preceding move grabs nothing.
+			// OnMouseMove before OnMouseDown: see the IK branch above.
 			gizmo->OnMouseMove(gx, gy);
 			if (gizmo->OnMouseDown(gx, gy))
 				gizmoDragging = true;
@@ -849,14 +1058,14 @@ bool AnimationPreview::DrawAndUpdate(AnimationEditorDocument& doc, bool& outDrag
 			poseOverrides[doc.selectedBone] = gizmoBoneLocal;
 			instance->SetBoneLocalTransform(doc.selectedBone, gizmoBoneLocal);
 			instance->RefreshSkinning();
-			poseChanged = true;
+			result.posed = true;
 		}
 		else if (gizmoDragging && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
 		{
 			gizmo->OnMouseUp(gx, gy);
 			gizmoDragging = false;
-			outDragEnded = true;
-			poseChanged = true;
+			result.boneDragEnded = true;
+			result.posed = true;
 		}
 		else if (hovered && inside)
 		{
@@ -870,10 +1079,13 @@ bool AnimationPreview::DrawAndUpdate(AnimationEditorDocument& doc, bool& outDrag
 		}
 	}
 
-	if (!hovered || gizmoDragging) return poseChanged;
+	if (!hovered || gizmoDragging || ikGizmoDragging || ikFreeDragging) return result;
 
 	// ---- bone picking -------------------------------------------------
-	if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && inside && instance)
+	// Suppressed in IK mode: a click there is aimed at the target handle,
+	// and re-selecting a bone under it would fight the chain the user is
+	// actually driving.
+	if (!ikHandleLive && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && inside && instance)
 	{
 		int best = -1;
 		float bestDist = 14.f; // pixels
@@ -916,5 +1128,5 @@ bool AnimationPreview::DrawAndUpdate(AnimationEditorDocument& doc, bool& outDrag
 		panTarget += (right * (-io.MouseDelta.x * panSpeed)) + (up * (io.MouseDelta.y * panSpeed));
 	}
 
-	return poseChanged;
+	return result;
 }

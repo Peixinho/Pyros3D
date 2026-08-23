@@ -47,6 +47,16 @@ public:
 	// own destructor.
 	void Push(std::unique_ptr<IUndoableCommand> cmd);
 
+	// Called at the end of every Push() that actually stored a command.
+	// The host uses this to point Ctrl+Z at whichever document was last
+	// EDITED, which is not the same as the one whose window last had focus:
+	// an ImGui drag-drop target is never focused by the drop, so dragging a
+	// model from the Assets browser into the viewport left focus on Assets
+	// and sent the undo to whatever document happened to be focused before
+	// it - an open Animation Editor, typically, which then silently undid an
+	// unrelated animation edit while the model stayed in the scene.
+	std::function<void()> onPush;
+
 	bool CanUndo() const { return !undoStack_.empty(); }
 	bool CanRedo() const { return !redoStack_.empty(); }
 	void Undo(); // no-op if CanUndo() is false

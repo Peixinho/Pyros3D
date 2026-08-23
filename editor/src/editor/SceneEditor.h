@@ -284,6 +284,9 @@ public:
 	// belonging to any one document, so they're routed onto the active
 	// scene document's stack, same as everything else here.
 	void PushUndoCommand(std::unique_ptr<IUndoableCommand> cmd) { sceneUndo.Push(std::move(cmd)); }
+	// Lets the host route Ctrl+Z to this document whenever it is edited -
+	// see UndoStack::onPush for why window focus alone is not enough.
+	void SetUndoPushHook(std::function<void()> fn) { sceneUndo.onPush = std::move(fn); }
 	SceneObjects* GetSceneObjects() const { return sceneObjects; }
 	// Selects `obj` (NULL clears selection) and focuses it in the hierarchy
 	// tree - used by undo/redo commands to restore selection the same way

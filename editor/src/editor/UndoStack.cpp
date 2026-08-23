@@ -15,6 +15,7 @@ void UndoStack::Push(std::unique_ptr<IUndoableCommand> cmd)
 	redoStack_.clear();
 	undoStack_.push_back(std::move(cmd));
 	EnforceLimits();
+	if (onPush) onPush();
 }
 
 void UndoStack::Undo()

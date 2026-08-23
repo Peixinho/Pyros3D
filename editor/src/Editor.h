@@ -358,6 +358,13 @@ private:
 	uint32 pendingSelectMaterialDocId;
 
 	SceneEditor* CreateSceneDocument();
+
+	// Points Ctrl+Z at whichever document was last EDITED. Called once per
+	// document at construction; see UndoStack::onPush for why tracking
+	// window focus alone sent undos to the wrong document.
+	void BindUndoRouting(SceneEditor* doc);
+	void BindUndoRouting(MaterialEditorDocument* doc);
+	void BindUndoRouting(AnimationEditorDocument* doc);
 	void DestroySceneDocument(SceneEditor* doc);
 	void CloseAllSceneDocuments();
 	void SetActiveSceneDocument(SceneEditor* doc);
