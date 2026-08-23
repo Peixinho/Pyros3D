@@ -128,9 +128,11 @@ jobs:
           $prefix = ""
           if ("${{ matrix.vulkan }}" -eq "ON") { $prefix = "$env:VULKAN_SDK" }
 
-          # PYROS_ASSET_ROOT=. makes DemoLauncher and PyrosBuilder resolve
-          # their Lua assets relative to the working directory instead of
-          # baking in this runner's checkout path - see the Package step.
+          # PYROS_RELOCATABLE_ASSETS makes DemoLauncher and PyrosBuilder
+          # resolve their Lua assets relative to the working directory
+          # instead of baking in this runner's checkout path - see Package.
+          # It is a boolean rather than -DPYROS_ASSET_ROOT=. because a bare
+          # "." does not survive PowerShell's native-argument parsing.
           cmake -S . -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchain" `
@@ -145,7 +147,7 @@ jobs:
             -DBUILD_DEMOS=ON `
             -DBUILD_EDITOR=ON `
             -DBUILD_CONVERTER=ON `
-            -DPYROS_ASSET_ROOT=.
+            -DPYROS_RELOCATABLE_ASSETS=ON
 
       - name: Build
         shell: pwsh

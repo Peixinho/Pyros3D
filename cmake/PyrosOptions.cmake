@@ -88,12 +88,36 @@ option(BUILD_EDITOR "Build the PyrosBuilder scene editor (needs an OpenGL contex
 # scenes are all looked up under it.
 #
 # Absolute source path by default, so a local build finds them wherever the
-# working directory happens to be. Set it to "." for a redistributable build
-# (CI artifacts): the lookups then resolve relative to the working directory
-# and the assets ship next to the binary.
+# working directory happens to be. PYROS_RELOCATABLE_ASSETS=ON switches them
+# to "." for a redistributable build (CI artifacts): the lookups then resolve
+# relative to the working directory and the assets ship next to the binary.
 # ---------------------------------------------------------------------------
-set(PYROS_ASSET_ROOT "${CMAKE_SOURCE_DIR}/examples" CACHE STRING
-	"Root the demo/editor Lua assets are loaded from ('.' for a relocatable build)")
+# Prefer the boolean over passing -DPYROS_ASSET_ROOT=. by hand: a bare "."
+# does not survive PowerShell's native-argument parsing, which silently
+# produced -DEXAMPLES_PATH="" and a run of baffling preprocessor errors in
+# DemoLauncher rather than anything pointing at the real cause.
+option(PYROS_RELOCATABLE_ASSETS
+	"Resolve demo/editor assets relative to the working directory, for a redistributable build" OFF)
+
+if (PYROS_RELOCATABLE_ASSETS)
+	set(_pyros_asset_root_default ".")
+else()
+	set(_pyros_asset_root_default "${CMAKE_SOURCE_DIR}/examples")
+endif()
+
+set(PYROS_ASSET_ROOT "${_pyros_asset_root_default}" CACHE STRING
+	"Root the demo/editor Lua assets are loaded from (see PYROS_RELOCATABLE_ASSETS)")
+unset(_pyros_asset_root_default)
+
+# EXAMPLES_PATH/PYROS_EXAMPLES_PATH are stringified by the preprocessor
+# (STR()/STR_EX()), so an empty value expands to nothing at all rather than
+# to "" - turning `lua["X"] = STR(EXAMPLES_PATH);` into `lua["X"] = ;`. Fail
+# here, where the cause is legible, instead of in the middle of the build.
+if (PYROS_ASSET_ROOT STREQUAL "")
+	message(FATAL_ERROR
+		"PYROS_ASSET_ROOT is empty. Use -DPYROS_RELOCATABLE_ASSETS=ON for a "
+		"relocatable build, or give it a real path.")
+endif()
 
 # Prefer enabling the converter with the editor when Assimp is available.
 if (BUILD_EDITOR AND NOT BUILD_CONVERTER)

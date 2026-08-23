@@ -52,8 +52,8 @@ Vulkan headers of its own release.
 
 `PYROS_ASSET_ROOT` controls where DemoLauncher and PyrosBuilder look for
 their Lua assets. It defaults to the absolute source path, which is right
-for a local build; pass `-DPYROS_ASSET_ROOT=.` for a redistributable one and
-ship `assets/` and `shaders/` next to the executable.
+for a local build; pass `-DPYROS_RELOCATABLE_ASSETS=ON` for a redistributable
+one and ship `assets/` and `shaders/` next to the executable.
 
 Prebuilt artifacts for all four combinations are produced by
 [`.github/workflows/windows.yml`](.github/workflows/windows.yml) on every push.
