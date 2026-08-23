@@ -87,8 +87,50 @@ void Editor::HostOpenProject()
 {
 	Editor* ed = Editor::getInstance();
 	if (!ed) return;
-	ed->openOpenProjectModal = true;
 	ed->projectDialogError.clear();
+	// A recent-project pick that was queued behind the unsaved-work prompt
+	// resumes as that same pick, not as a file browser.
+	if (!ed->pendingRecentProjectPath.empty())
+	{
+		const std::string path = ed->pendingRecentProjectPath;
+		ed->pendingRecentProjectPath.clear();
+		ed->OpenProjectFromPath(path);
+		return;
+	}
+	ed->openOpenProjectModal = true;
+}
+
+// The asset New/Import entries, shared by the Assets menu in the menu bar and
+// by both Assets-panel context menus. They were three different lists before,
+// and only the panel ones were discoverable at all.
+void Editor::ShowAssetCreateMenuItems()
+{
+	// No icons: fa-solid-900 has no glyph for the old u8"\uf0f6" and drew a
+	// tofu box, and nothing else in any editor menu is iconised anyway.
+	if (ImGui::MenuItem("New Script..."))
+	{
+		openNewScriptModal = true;
+		newScriptName = "NewScript";
+		newScriptError.clear();
+	}
+	if (ImGui::MenuItem("New Material..."))
+	{
+		openNewMaterialModal = true;
+		newMaterialName = "NewMaterial";
+		newMaterialError.clear();
+	}
+	if (ImGui::MenuItem("New Animation..."))
+		openNewAnimationModal = true;
+	ImGui::Separator();
+	if (ImGui::MenuItem("Import Animation..."))
+	{
+		// Reuses the same browse-and-import path a dropped file takes; the
+		// queue is drained in ProcessPendingFileDrops.
+		openImportAnimationModal = true;
+		importAnimationSource.clear();
+		importAnimationName.clear();
+		importAnimationError.clear();
+	}
 }
 
 Editor* Editor::instance= NULL;
@@ -2123,56 +2165,87 @@ void Editor::DrawUI()
 		}
 	}
 
-    // Menu bar
+	// Menu bar. Each File action is requested here and performed once below,
+	// so the accelerator and the menu item share a single code path - the
+	// menu item alone cannot serve as that path, since its body only runs
+	// while the menu is actually open.
+	bool reqNewProject = false, reqOpenProject = false, reqSaveProject = false, reqQuit = false;
+	{
+		const bool ctrl = ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift
+			&& !ImGui::GetIO().KeyAlt && !ImGui::GetIO().WantTextInput;
+		if (ctrl && ImGui::IsKeyPressed(ImGuiKey_N)) reqNewProject = true;
+		if (ctrl && ImGui::IsKeyPressed(ImGuiKey_O)) reqOpenProject = true;
+		if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S) && project.IsOpen()) reqSaveProject = true;
+	}
+
     if (ImGui::BeginMainMenuBar())
     {
         if (ImGui::BeginMenu("File"))
         {
-            if (ImGui::MenuItem("New Project", "CTRL+N"))
+            if (ImGui::MenuItem("New Project...", "Ctrl+N"))
+				reqNewProject = true;
+            if (ImGui::MenuItem("Open Project...", "Ctrl+O"))
+				reqOpenProject = true;
+			// Recents were only reachable from the welcome splash, which is
+			// gone the moment a project opens.
+			if (ImGui::BeginMenu("Open Recent", !recentProjects.empty()))
 			{
-				if (sceneView->ConfirmUnsavedThen(SceneEditor::UnsavedNewProject))
+				int shown = 0;
+				for (size_t i = 0; i < recentProjects.size(); ++i)
 				{
-					openNewProjectModal = true;
-					projectDialogError.clear();
+					const std::string& p = recentProjects[i];
+					std::error_code ec;
+					if (!fs::exists(p, ec))
+						continue;
+					ImGui::PushID((int)i);
+					if (ImGui::MenuItem(fs::path(p).filename().string().c_str()))
+					{
+						// Deferred through the same unsaved-work gate as
+						// "Open Project..."; HostOpenProject picks the path
+						// back up instead of raising the browse dialog.
+						pendingRecentProjectPath = p;
+						if (!sceneView || sceneView->ConfirmUnsavedThen(SceneEditor::UnsavedOpenProject))
+						{
+							pendingRecentProjectPath.clear();
+							OpenProjectFromPath(p);
+						}
+					}
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("%s", p.c_str());
+					ImGui::PopID();
+					++shown;
 				}
-			}
-            if (ImGui::MenuItem("Open Project...", "CTRL+O"))
-			{
-				if (sceneView->ConfirmUnsavedThen(SceneEditor::UnsavedOpenProject))
+				if (shown == 0)
+					ImGui::TextDisabled("No recent projects on disk");
+				else
 				{
-					openOpenProjectModal = true;
-					projectDialogError.clear();
+					ImGui::Separator();
+					if (ImGui::MenuItem("Clear Recent"))
+					{
+						recentProjects.clear();
+						SaveRecentProjects();
+					}
 				}
+				ImGui::EndMenu();
 			}
-            if (ImGui::MenuItem("New Animation...", NULL, false, project.IsOpen()))
+
+			// Scene New/Open/Save used to live in a "Scene" menu of their
+			// own, one menu away from the project's - so half the editor's
+			// file operations were somewhere other than File.
+			if (project.IsOpen() && sceneView)
 			{
-				openNewAnimationModal = true;
+				ImGui::Separator();
+				sceneView->ShowFileMenuItems();
 			}
-            if (ImGui::MenuItem("Import Animation...", NULL, false, project.IsOpen()))
-			{
-				// Reuses the same browse-and-import path a dropped file
-				// takes; the queue is drained in ProcessPendingFileDrops.
-				openImportAnimationModal = true;
-				importAnimationSource.clear();
-				importAnimationName.clear();
-				importAnimationError.clear();
-			}
-            if (ImGui::MenuItem("Save Project", "CTRL+S", false, project.IsOpen()))
-			{
-				if (sceneView->IsSceneDirty())
-					sceneView->TrySaveCurrentScene();
-				std::string err;
-				if (!project.Save(&err))
-					echo("ERROR: " + err);
-			}
-			if (ImGui::MenuItem("Project Settings...", NULL, false, project.IsOpen()))
-			{
-				openProjectSettingsModal = true;
-				projectSettingsName = project.GetProjectName();
-				projectDialogError.clear();
-			}
+
+			ImGui::Separator();
+            if (ImGui::MenuItem("Save Project", "Ctrl+S", false, project.IsOpen()))
+				reqSaveProject = true;
+			ImGui::Separator();
 			if (ImGui::MenuItem("Close Project", NULL, false, project.IsOpen()))
 				CloseProject();
+			if (ImGui::MenuItem("Quit"))
+				reqQuit = true;
             ImGui::EndMenu();
         }
 
@@ -2201,18 +2274,49 @@ void Editor::DrawUI()
 			}
 			const std::string undoLabel = canUndo ? ("Undo " + undoDesc) : "Undo";
 			const std::string redoLabel = canRedo ? ("Redo " + redoDesc) : "Redo";
-			if (ImGui::MenuItem(undoLabel.c_str(), "CTRL+Z", false, canUndo))
+			if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, canUndo))
 			{
 				if (lastFocusedDocKind == FocusedDocKind::Scene && sceneView) sceneView->Undo();
 				else if (lastFocusedDocKind == FocusedDocKind::Animation && activeAnimationDoc) activeAnimationDoc->undo.Undo();
 				else if (activeMaterialDoc) activeMaterialDoc->undo.Undo();
 			}
-			if (ImGui::MenuItem(redoLabel.c_str(), "CTRL+SHIFT+Z", false, canRedo))
+			if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Shift+Z", false, canRedo))
 			{
 				if (lastFocusedDocKind == FocusedDocKind::Scene && sceneView) sceneView->Redo();
 				else if (lastFocusedDocKind == FocusedDocKind::Animation && activeAnimationDoc) activeAnimationDoc->undo.Redo();
 				else if (activeMaterialDoc) activeMaterialDoc->undo.Redo();
 			}
+
+			// Same document scoping as Undo/Redo: only the scene has a
+			// selection to act on. Both already had keyboard shortcuts that
+			// no menu ever advertised.
+			ImGui::Separator();
+			const bool sceneSel = lastFocusedDocKind == FocusedDocKind::Scene
+				&& sceneView && !sceneView->IsPlaying() && sceneView->HasSelection();
+			if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, sceneSel))
+				sceneView->DuplicateSelection();
+			if (ImGui::MenuItem("Delete", "Del", false, sceneSel))
+				sceneView->DeleteSelection();
+
+			// Project-wide preferences, next to the other things that edit
+			// state rather than open/save it.
+			ImGui::Separator();
+			if (ImGui::MenuItem("Project Settings...", NULL, false, project.IsOpen()))
+			{
+				openProjectSettingsModal = true;
+				projectSettingsName = project.GetProjectName();
+				projectDialogError.clear();
+			}
+			ImGui::EndMenu();
+		}
+
+		// Everything that creates or imports a project asset. New Animation /
+		// Import Animation used to sit in File between the project entries,
+		// and New Script / New Material were reachable only by right-clicking
+		// inside the Assets panel.
+		if (project.IsOpen() && ImGui::BeginMenu("Assets"))
+		{
+			ShowAssetCreateMenuItems();
 			ImGui::EndMenu();
 		}
 
@@ -2224,22 +2328,53 @@ void Editor::DrawUI()
             if (ImGui::BeginMenu("Windows", "")) {
 				if (ImGui::MenuItem("Scene Tree", "", &showingSceneTree)) {}
 				if (ImGui::MenuItem("Scene View", "", &showingSceneView)) {}
-                if (ImGui::MenuItem("Log", "", &showingLog)) {}
                 if (ImGui::MenuItem("Properties", "", &showingTabProperties)) {}
                 if (ImGui::MenuItem("Tools", "", &showingTabTools)) {}
-                if (ImGui::MenuItem("AI Assistant", "", &showingTabAI)) {}
                 if (ImGui::MenuItem("Assets", "", &showingAssets)) {}
+                if (ImGui::MenuItem("Log", "", &showingLog)) {}
+                if (ImGui::MenuItem("AI Assistant", "", &showingTabAI)) {}
                 ImGui::EndMenu();
             }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Default Layout", "")) { LoadDefaultLayout(); }
+			// Viewport overlays: their own group. They used to trail off the
+			// end of the menu directly under "Default Layout", which reads
+			// like part of the layout controls.
 			if (project.IsOpen() && sceneView)
+			{
+				ImGui::Separator();
 				sceneView->ShowViewOptions();
+			}
+            ImGui::Separator();
+            if (ImGui::MenuItem("Reset Layout", "")) { LoadDefaultLayout(); }
             ImGui::EndMenu();
         }
 
         ImGui::EndMainMenuBar();
     }
+
+	if (reqNewProject && sceneView->ConfirmUnsavedThen(SceneEditor::UnsavedNewProject))
+	{
+		openNewProjectModal = true;
+		projectDialogError.clear();
+	}
+	if (reqOpenProject)
+	{
+		pendingRecentProjectPath.clear();
+		if (sceneView->ConfirmUnsavedThen(SceneEditor::UnsavedOpenProject))
+		{
+			openOpenProjectModal = true;
+			projectDialogError.clear();
+		}
+	}
+	if (reqSaveProject && project.IsOpen())
+	{
+		if (sceneView->IsSceneDirty())
+			sceneView->TrySaveCurrentScene();
+		std::string err;
+		if (!project.Save(&err))
+			echo("ERROR: " + err);
+	}
+	if (reqQuit && EditorAllowWindowClose())
+		Close();
 
 	// No project: skip the dock host entirely — empty dock nodes / the
 	// fullscreen "Main" window were painting over the welcome splash.
@@ -4480,24 +4615,9 @@ void Editor::DrawAssetsWindow()
 		if (ImGui::BeginPopupContextItem("##assetctx"))
 		{
 			selectedAssetRel = e.relativePath;
-			if (ImGui::MenuItem(u8"\uf0f6 New Script"))
-			{
-				openNewScriptModal = true;
-				newScriptName = "NewScript";
-				newScriptError.clear();
-			}
-			if (ImGui::MenuItem(u8"\uf53f New Material"))
-			{
-				openNewMaterialModal = true;
-				newMaterialName = "NewMaterial";
-				newMaterialError.clear();
-			}
-			ImGui::Separator();
-			if (ImGui::MenuItem("Delete"))
-			{
-				pendingDeleteAssetRel = e.relativePath;
-				openDeleteAssetModal = true;
-			}
+			// What you right-clicked comes first, then what you can do with
+			// it, then the create-new entries that belong to the folder
+			// rather than to this tile, and Delete last.
 			if (isScene && ImGui::MenuItem("Open Scene"))
 				OpenSceneDocument(abs);
 			if (isLua && ImGui::MenuItem("Open Script"))
@@ -4512,6 +4632,15 @@ void Editor::DrawAssetsWindow()
 				OpenAnimationDocument(abs);
 			if ((isModel || isSound) && ImGui::MenuItem("Place in Scene") && sceneView)
 				sceneView->PlaceAssetInScene(abs);
+			if (isScene || isLua || isMat || isAnim || isModel || isSound)
+				ImGui::Separator();
+			ShowAssetCreateMenuItems();
+			ImGui::Separator();
+			if (ImGui::MenuItem("Delete"))
+			{
+				pendingDeleteAssetRel = e.relativePath;
+				openDeleteAssetModal = true;
+			}
 			ImGui::EndPopup();
 		}
 
@@ -4525,18 +4654,7 @@ void Editor::DrawAssetsWindow()
 	if (ImGui::BeginPopupContextWindow("##assets_bg_ctx",
 		ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
 	{
-		if (ImGui::MenuItem(u8"\uf0f6 New Script"))
-		{
-			openNewScriptModal = true;
-			newScriptName = "NewScript";
-			newScriptError.clear();
-		}
-		if (ImGui::MenuItem(u8"\uf53f New Material"))
-		{
-			openNewMaterialModal = true;
-			newMaterialName = "NewMaterial";
-			newMaterialError.clear();
-		}
+		ShowAssetCreateMenuItems();
 		ImGui::EndPopup();
 	}
 

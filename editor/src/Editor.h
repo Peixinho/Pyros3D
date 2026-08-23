@@ -393,6 +393,9 @@ private:
 	bool assetsWindowHovered;
 
 	bool openNewProjectModal, openOpenProjectModal;
+	// Set when "Open Recent" had to defer past the unsaved-work prompt, so
+	// HostOpenProject reopens that project instead of the browse dialog.
+	std::string pendingRecentProjectPath;
 	bool openProjectSettingsModal;
 	std::string newProjectDir, newProjectName, openProjectPath;
 	std::string projectSettingsName;
@@ -403,6 +406,7 @@ private:
 	std::string selectedAssetRel;
 	std::string pendingDeleteAssetRel;
 	bool openDeleteAssetModal;
+	void ShowAssetCreateMenuItems();
 	bool openNewScriptModal;
 	std::string newScriptName;
 	std::string newScriptError;

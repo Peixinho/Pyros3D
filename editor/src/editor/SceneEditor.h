@@ -115,7 +115,10 @@ class SceneEditor : public IUInterface {
 	void NotifyViewportNotDrawn();
 	void ShowHierarchy();
 	virtual void ShowProperties();
+	// GameObject + Scene menus. The scene's own New/Open/Save live in the
+	// host's File menu instead - see ShowFileMenuItems.
 	virtual void ShowMenubarOptions();
+	void ShowFileMenuItems();
 	void ShowViewOptions();
 	virtual void ShowTools();
 	virtual void Shutdown();
@@ -129,6 +132,7 @@ class SceneEditor : public IUInterface {
     private:
 
 	void ShowRightMenu();
+	void ShowAddObjectMenuItems();
 	ImTextureID IconsTextureID() const;
 
 	void SetObjectProperties(const Vec3 &Translation, const Vec3 &Rotation, const Vec3 &Scale);
@@ -272,6 +276,12 @@ public:
 	// ------------------------------------------------------------------------
 
 	// ---- Undo/Redo ---------------------------------------------------------
+	// For the host's Edit menu, which owns Duplicate/Delete now that they are
+	// no longer buried in the scene-tree right-click alone.
+	bool HasSelection() const { return SelectedSceneObject != NULL; }
+	void DuplicateSelection() { DuplicateSelected(); }
+	void DeleteSelection() { DeleteSelected(); }
+
 	bool CanUndo() const { return sceneUndo.CanUndo(); }
 	bool CanRedo() const { return sceneUndo.CanRedo(); }
 	std::string UndoDescription() const { return sceneUndo.UndoDescription(); }

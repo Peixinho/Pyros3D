@@ -642,9 +642,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			StopPlayMode();
 		if (scene_focused && !playMode)
 		{
-			if (ImGui::IsKeyPressed(ImGuiKey_T)) UseTranslationManipulator();
-			if (ImGui::IsKeyPressed(ImGuiKey_R)) UseRotationManipulator();
-			if (ImGui::IsKeyPressed(ImGuiKey_S)) UseScaleManipulator();
+			// Unmodified only: Ctrl+S is Save Project in the menu bar, and
+			// letting it also swap the gizmo made one keystroke do two things.
+			const bool plainKey = !ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeySuper
+				&& !ImGui::GetIO().KeyAlt;
+			if (plainKey && ImGui::IsKeyPressed(ImGuiKey_T)) UseTranslationManipulator();
+			if (plainKey && ImGui::IsKeyPressed(ImGuiKey_R)) UseRotationManipulator();
+			if (plainKey && ImGui::IsKeyPressed(ImGuiKey_S)) UseScaleManipulator();
 			if ((ImGui::IsKeyPressed(ImGuiKey_Delete) || ImGui::IsKeyPressed(ImGuiKey_Backspace)) && !ImGui::GetIO().WantTextInput)
 				DeleteSelected();
 			if (ImGui::IsKeyPressed(ImGuiKey_D) && ImGui::GetIO().KeyCtrl)
@@ -2447,14 +2451,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			{
 				if (ImGui::MenuItem("Cube")) { OpenAddFormOnGameObject(goId, 1); ImGui::CloseCurrentPopup(); }
 				if (ImGui::MenuItem("Sphere")) { OpenAddFormOnGameObject(goId, 2); ImGui::CloseCurrentPopup(); }
-				if (ImGui::MenuItem("Plane")) { OpenAddFormOnGameObject(goId, 4); ImGui::CloseCurrentPopup(); }
-				if (ImGui::MenuItem("Cone")) { OpenAddFormOnGameObject(goId, 5); ImGui::CloseCurrentPopup(); }
-				if (ImGui::MenuItem("Cylinder")) { OpenAddFormOnGameObject(goId, 6); ImGui::CloseCurrentPopup(); }
-				if (ImGui::MenuItem("Torus")) { OpenAddFormOnGameObject(goId, 7); ImGui::CloseCurrentPopup(); }
 				if (ImGui::MenuItem("Capsule")) { OpenAddFormOnGameObject(goId, 3); ImGui::CloseCurrentPopup(); }
+				if (ImGui::MenuItem("Cylinder")) { OpenAddFormOnGameObject(goId, 6); ImGui::CloseCurrentPopup(); }
+				if (ImGui::MenuItem("Cone")) { OpenAddFormOnGameObject(goId, 5); ImGui::CloseCurrentPopup(); }
+				if (ImGui::MenuItem("Plane")) { OpenAddFormOnGameObject(goId, 4); ImGui::CloseCurrentPopup(); }
+				if (ImGui::MenuItem("Torus")) { OpenAddFormOnGameObject(goId, 7); ImGui::CloseCurrentPopup(); }
 				if (ImGui::MenuItem("Torus Knot")) { OpenAddFormOnGameObject(goId, 8); ImGui::CloseCurrentPopup(); }
 				ImGui::Separator();
-				if (ImGui::MenuItem("Import Model")) { OpenAddFormOnGameObject(goId, 9); ImGui::CloseCurrentPopup(); }
+				if (ImGui::MenuItem("Import Model...")) { OpenAddFormOnGameObject(goId, 9); ImGui::CloseCurrentPopup(); }
 				ImGui::EndMenu();
 			}
 			if (ImGui::BeginMenu("Physics"))
@@ -2462,13 +2466,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				if (ImGui::MenuItem("Box")) { OpenAddFormOnGameObject(goId, 13); ImGui::CloseCurrentPopup(); }
 				if (ImGui::MenuItem("Sphere")) { OpenAddFormOnGameObject(goId, 17); ImGui::CloseCurrentPopup(); }
 				if (ImGui::MenuItem("Capsule")) { OpenAddFormOnGameObject(goId, 14); ImGui::CloseCurrentPopup(); }
-				if (ImGui::MenuItem("Cone")) { OpenAddFormOnGameObject(goId, 15); ImGui::CloseCurrentPopup(); }
 				if (ImGui::MenuItem("Cylinder")) { OpenAddFormOnGameObject(goId, 16); ImGui::CloseCurrentPopup(); }
+				if (ImGui::MenuItem("Cone")) { OpenAddFormOnGameObject(goId, 15); ImGui::CloseCurrentPopup(); }
 				if (ImGui::MenuItem("Static Plane")) { OpenAddFormOnGameObject(goId, 18); ImGui::CloseCurrentPopup(); }
 				ImGui::EndMenu();
 			}
 			ImGui::Separator();
-			if (ImGui::MenuItem("Sound"))
+			if (ImGui::MenuItem("Audio Source"))
 			{
 				AddForm_soundPath.clear();
 				AddForm_stream = false;
@@ -2487,9 +2491,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				ImGui::CloseCurrentPopup();
 			}
 			ImGui::Separator();
-			if (ImGui::MenuItem("Directional Light")) { AddQuickLightOnGameObject(goId, 10); ImGui::CloseCurrentPopup(); }
-			if (ImGui::MenuItem("Point Light")) { AddQuickLightOnGameObject(goId, 11); ImGui::CloseCurrentPopup(); }
-			if (ImGui::MenuItem("Spot Light")) { AddQuickLightOnGameObject(goId, 12); ImGui::CloseCurrentPopup(); }
+			// Lights skip the add form entirely (AddQuickLight...), but they are
+			// grouped and named exactly as in ShowAddObjectMenuItems so the two
+			// menus stay readable side by side.
+			if (ImGui::BeginMenu("Lights"))
+			{
+				if (ImGui::MenuItem("Directional")) { AddQuickLightOnGameObject(goId, 10); ImGui::CloseCurrentPopup(); }
+				if (ImGui::MenuItem("Point")) { AddQuickLightOnGameObject(goId, 11); ImGui::CloseCurrentPopup(); }
+				if (ImGui::MenuItem("Spot")) { AddQuickLightOnGameObject(goId, 12); ImGui::CloseCurrentPopup(); }
+				ImGui::EndMenu();
+			}
 			ImGui::EndMenu();
 		}
 	}
@@ -6969,72 +6980,104 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			PushReplaceCommand(attachOwnerId, attachBeforeSnapshot, "Attach Component");
 	}
 
-	void SceneEditor::ShowMenubarOptions()
+	// Scene document entries for the host's File menu. Every New/Open/Save in
+	// the editor - project or scene - now lives in that one menu; these are
+	// pushed in from here rather than written inline by the host because the
+	// state they drive (scenePath, the scene file dialog) is private to this
+	// document.
+	void SceneEditor::ShowFileMenuItems()
 	{
-		if (ImGui::BeginMenu("Scene", ""))
+		if (ImGui::MenuItem("New Scene", ""))
 		{
-			if (ImGui::MenuItem("New Scene", ""))
+			if (hostNewSceneDocument)
+				hostNewSceneDocument();
+			else if (ConfirmUnsavedThen(UnsavedNewScene))
 			{
-				if (hostNewSceneDocument)
-					hostNewSceneDocument();
-				else if (ConfirmUnsavedThen(UnsavedNewScene))
-				{
-					NewScene();
-					if (project && project->IsOpen())
-					{
-						showingSceneDialog = true;
-						sceneDialogIsSave = true;
-						sceneDialogPath = "NewScene.json";
-						sceneDialogError.clear();
-					}
-				}
-			}
-
-			if (ImGui::MenuItem("Open Scene", ""))
-			{
-				if (hostOpenSceneDocument)
-				{
-					showingSceneDialog = true;
-					sceneDialogIsSave = false;
-					sceneDialogPath = scenePath;
-					sceneDialogError.clear();
-				}
-				else if (ConfirmUnsavedThen(UnsavedOpenDialog))
-				{
-					showingSceneDialog = true;
-					sceneDialogIsSave = false;
-					sceneDialogPath = scenePath;
-					sceneDialogError.clear();
-				}
-			}
-
-			// Saves straight over the current file once there is one; the
-			// first save has nowhere to go, so it falls through to Save As.
-			if (ImGui::MenuItem("Save Scene", ""))
-			{
-				if (scenePath.size() > 0)
-					SaveSceneToFile(scenePath);
-				else
+				NewScene();
+				if (project && project->IsOpen())
 				{
 					showingSceneDialog = true;
 					sceneDialogIsSave = true;
-					sceneDialogPath = (project && project->IsOpen()) ? std::string("Untitled.json") : std::string("scene.json");
+					sceneDialogPath = "NewScene.json";
 					sceneDialogError.clear();
 				}
 			}
+		}
 
-			if (ImGui::MenuItem("Save Scene As...", ""))
+		if (ImGui::MenuItem("Open Scene...", ""))
+		{
+			if (hostOpenSceneDocument)
+			{
+				showingSceneDialog = true;
+				sceneDialogIsSave = false;
+				sceneDialogPath = scenePath;
+				sceneDialogError.clear();
+			}
+			else if (ConfirmUnsavedThen(UnsavedOpenDialog))
+			{
+				showingSceneDialog = true;
+				sceneDialogIsSave = false;
+				sceneDialogPath = scenePath;
+				sceneDialogError.clear();
+			}
+		}
+
+		ImGui::Separator();
+
+		// Saves straight over the current file once there is one; the
+		// first save has nowhere to go, so it falls through to Save As.
+		if (ImGui::MenuItem("Save Scene", ""))
+		{
+			if (scenePath.size() > 0)
+				SaveSceneToFile(scenePath);
+			else
 			{
 				showingSceneDialog = true;
 				sceneDialogIsSave = true;
-				if (scenePath.size() > 0)
-					sceneDialogPath = scenePath;
-				else if (project && project->IsOpen())
-					sceneDialogPath = "Untitled.json";
-				else
-					sceneDialogPath = "scene.json";
+				sceneDialogPath = (project && project->IsOpen()) ? std::string("Untitled.json") : std::string("scene.json");
 				sceneDialogError.clear();
 			}
+		}
+
+		if (ImGui::MenuItem("Save Scene As...", ""))
+		{
+			showingSceneDialog = true;
+			sceneDialogIsSave = true;
+			if (scenePath.size() > 0)
+				sceneDialogPath = scenePath;
+			else if (project && project->IsOpen())
+				sceneDialogPath = "Untitled.json";
+			else
+				sceneDialogPath = "scene.json";
+			sceneDialogError.clear();
+		}
+	}
+
+	void SceneEditor::ShowMenubarOptions()
+	{
+		// Creation only, mirroring the per-object "Add Component" menu. The
+		// scene's file operations sit in File and its selection operations in
+		// Edit, so nothing here needs a selection to be useful.
+		if (ImGui::BeginMenu("GameObject"))
+		{
+			if (playMode)
+				ImGui::TextDisabled("Stop play mode to edit");
+			else
+				ShowAddObjectMenuItems();
+			ImGui::EndMenu();
+		}
+
+		// What acts on the scene as a whole, as opposed to on one object.
+		if (ImGui::BeginMenu("Scene"))
+		{
+			if (playMode)
+			{
+				if (ImGui::MenuItem("Stop Playing", "Esc"))
+					StopPlayMode();
+			}
+			else if (ImGui::MenuItem("Play"))
+				EnterPlayMode();
+
 			ImGui::Separator();
 
 			if (ImGui::MenuItem("Open Scene Script", NULL, false, !scenePath.empty() && !playMode))
@@ -7044,89 +7087,85 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					hostOpenLuaScript(sceneMainScriptPath);
 			}
 
-			ImGui::Separator();
-
-			if (playMode)
-			{
-				if (ImGui::MenuItem("Stop Play", "Esc"))
-					StopPlayMode();
-			}
-			else if (ImGui::MenuItem("Play"))
-				EnterPlayMode();
-
-			ShowRightMenu();
-
 			ImGui::EndMenu();
 		}
 	}
 
+	// Context-menu form of the GameObject menu. Same entries, wrapped in an
+	// "Add" submenu because the popups this appears in carry other items too.
 	void SceneEditor::ShowRightMenu()
 	{
 		if (playMode) return;
 		if (ImGui::BeginMenu("Add", ""))
 		{
-            if (ImGui::MenuItem("Game Object", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 0; AddForm_go = "GameObject"; }
-            if (ImGui::MenuItem("Camera", "")) CreateSceneCamera();
+			ShowAddObjectMenuItems();
+			ImGui::EndMenu();
+		}
+	}
+
+	// Ordered to match ShowAddComponentMenu - same submenus, same names, same
+	// order within them - so that adding a thing as a new object and adding it
+	// to an existing one read as the same menu.
+	void SceneEditor::ShowAddObjectMenuItems()
+	{
+		if (ImGui::MenuItem("Empty GameObject", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 0; AddForm_go = "GameObject"; }
+		if (ImGui::MenuItem("Camera", "")) CreateSceneCamera();
+		ImGui::Separator();
+		if (ImGui::BeginMenu("Mesh", ""))
+		{
+			if (ImGui::MenuItem("Cube", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 1; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_d = 1.0; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+			if (ImGui::MenuItem("Sphere", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 2; AddForm_w = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_cgo = false; AddForm_hs = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+			if (ImGui::MenuItem("Capsule", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 3; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_r = 8.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+			if (ImGui::MenuItem("Cylinder", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 6; AddForm_w = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_oe = false; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+			if (ImGui::MenuItem("Cone", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 5; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_oe = false; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+			if (ImGui::MenuItem("Plane", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 4; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+			if (ImGui::MenuItem("Torus", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 7; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+			if (ImGui::MenuItem("Torus Knot", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 8; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_p = 1.0; AddForm_q = 1.0; AddForm_hscale = 1.0; AddForm_cgo = false; AddForm_go.clear(); AddForm_sn = false; AddForm_fn = false; }
 			ImGui::Separator();
-			if (ImGui::BeginMenu("Mesh", ""))
-			{
-				if (ImGui::BeginMenu("Primitives"))
-				{
-                    if (ImGui::MenuItem("Cube", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 1; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_d = 1.0; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-                    if (ImGui::MenuItem("Sphere", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 2; AddForm_w = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_cgo = false; AddForm_hs = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-                    if (ImGui::MenuItem("Capsule", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 3; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_r = 8.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-                    if (ImGui::MenuItem("Plane", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 4; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-                    if (ImGui::MenuItem("Cone", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 5; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_oe = false; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-                    if (ImGui::MenuItem("Cylinder", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 6; AddForm_w = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_oe = false; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-                    if (ImGui::MenuItem("Torus", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 7; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-					if (ImGui::MenuItem("Torus Knot", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 8; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_sw = 8.0; AddForm_sh = 6.0; AddForm_p = 1.0; AddForm_q = 1.0; AddForm_hscale = 1.0; AddForm_cgo = false; AddForm_go.clear(); AddForm_sn = false; AddForm_fn = false; }
-					ImGui::EndMenu();
-				}
-				ImGui::Separator();
-                if (ImGui::MenuItem("Import Model")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 9; AddForm_modelPath.clear(); AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; AddForm_cgo = false; }
-				ImGui::EndMenu();
-			}
-			if (ImGui::BeginMenu("Lights", ""))
-			{
-                if (ImGui::MenuItem("Directional", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 10; AddForm_color = Vec4(1, 1, 1, 1); AddForm_dir = Vec3(0, -1, 0); AddForm_cs = false; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-                if (ImGui::MenuItem("Point", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 11; AddForm_w = 10.0; AddForm_color = Vec4(1, 1, 1, 1); AddForm_cs = false; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-                if (ImGui::MenuItem("Spot", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 12; AddForm_w = 10.0; AddForm_color = Vec4(1, 1, 1, 1); AddForm_dir = Vec3(0, -1, 0); AddForm_cs = false; AddForm_oc = 45.f; AddForm_ic = 30.f; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
-				ImGui::EndMenu();
-			}
-			if (ImGui::BeginMenu("Physics", ""))
-			{
-				if (ImGui::MenuItem("Box", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 13; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_d = 1.0; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
-				if (ImGui::MenuItem("Capsule", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 14; AddForm_w = 0.5f; AddForm_h = 1.0; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
-				if (ImGui::MenuItem("Cone", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 15; AddForm_w = 0.5f; AddForm_h = 1.0; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
-				if (ImGui::MenuItem("Cylinder", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 16; AddForm_w = 0.5f; AddForm_h = 1.0; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
-				if (ImGui::MenuItem("Sphere", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 17; AddForm_w = 0.5f; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
-				if (ImGui::MenuItem("Static Plane", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 18; AddForm_dir = Vec3(0, 1, 0); AddForm_w = 0.0f; AddForm_mass = 0.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
-				ImGui::EndMenu();
-			}
-			if (ImGui::MenuItem("Sound", ""))
-			{
-				showingAddFrom = true;
-				openAddFormTrigger = true;
-				showingAddFormType = 19;
-				AddForm_soundPath.clear();
-				AddForm_stream = false;
-				AddForm_loop = false;
-				AddForm_spatialized = true;
-				AddForm_volume = 1.0f;
-				AddForm_cgo = false;
-				AddForm_go = "";
-			}
-			if (ImGui::MenuItem("Particle System", ""))
-			{
-				showingAddFrom = true;
-				openAddFormTrigger = true;
-				showingAddFormType = 20;
-				AddForm_particleTexturePath.clear();
-				AddForm_particleMax = 200;
-				AddForm_particlePreset = 0;
-				AddForm_cgo = false;
-				AddForm_go = "";
-			}
+			if (ImGui::MenuItem("Import Model...")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 9; AddForm_modelPath.clear(); AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; AddForm_cgo = false; }
+			ImGui::EndMenu();
+		}
+		if (ImGui::BeginMenu("Physics", ""))
+		{
+			if (ImGui::MenuItem("Box", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 13; AddForm_w = 1.0; AddForm_h = 1.0; AddForm_d = 1.0; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
+			if (ImGui::MenuItem("Sphere", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 17; AddForm_w = 0.5f; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
+			if (ImGui::MenuItem("Capsule", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 14; AddForm_w = 0.5f; AddForm_h = 1.0; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
+			if (ImGui::MenuItem("Cylinder", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 16; AddForm_w = 0.5f; AddForm_h = 1.0; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
+			if (ImGui::MenuItem("Cone", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 15; AddForm_w = 0.5f; AddForm_h = 1.0; AddForm_mass = 1.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
+			if (ImGui::MenuItem("Static Plane", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 18; AddForm_dir = Vec3(0, 1, 0); AddForm_w = 0.0f; AddForm_mass = 0.0f; AddForm_ghost = false; AddForm_cgo = false; AddForm_go = ""; }
+			ImGui::EndMenu();
+		}
+		ImGui::Separator();
+		if (ImGui::MenuItem("Audio Source", ""))
+		{
+			showingAddFrom = true;
+			openAddFormTrigger = true;
+			showingAddFormType = 19;
+			AddForm_soundPath.clear();
+			AddForm_stream = false;
+			AddForm_loop = false;
+			AddForm_spatialized = true;
+			AddForm_volume = 1.0f;
+			AddForm_cgo = false;
+			AddForm_go = "";
+		}
+		if (ImGui::MenuItem("Particle System", ""))
+		{
+			showingAddFrom = true;
+			openAddFormTrigger = true;
+			showingAddFormType = 20;
+			AddForm_particleTexturePath.clear();
+			AddForm_particleMax = 200;
+			AddForm_particlePreset = 0;
+			AddForm_cgo = false;
+			AddForm_go = "";
+		}
+		ImGui::Separator();
+		if (ImGui::BeginMenu("Lights", ""))
+		{
+			if (ImGui::MenuItem("Directional", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 10; AddForm_color = Vec4(1, 1, 1, 1); AddForm_dir = Vec3(0, -1, 0); AddForm_cs = false; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+			if (ImGui::MenuItem("Point", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 11; AddForm_w = 10.0; AddForm_color = Vec4(1, 1, 1, 1); AddForm_cs = false; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
+			if (ImGui::MenuItem("Spot", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 12; AddForm_w = 10.0; AddForm_color = Vec4(1, 1, 1, 1); AddForm_dir = Vec3(0, -1, 0); AddForm_cs = false; AddForm_oc = 45.f; AddForm_ic = 30.f; AddForm_cgo = false; AddForm_go = ""; AddForm_sn = false; AddForm_fn = false; }
 			ImGui::EndMenu();
 		}
 	}
