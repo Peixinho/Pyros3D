@@ -229,6 +229,21 @@ jobs:
             Copy-Item "$vcpkgBin\*.dll" "$out\editor"       -Force
           }
 
+          # The MSVC C++ runtime (VCRUNTIME140, VCRUNTIME140_1, MSVCP140) is
+          # NOT part of Windows - it ships in the Visual C++ Redistributable,
+          # which a clean machine does not have, and every executable here
+          # imports it. Only the api-ms-win-crt-* forwarders and ucrtbase are
+          # OS components. Microsoft supports app-local deployment, so ship it
+          # and let the artifact run on a machine with nothing installed.
+          $redist = Get-ChildItem "$env:VCToolsRedistDir\x64" -Filter "Microsoft.VC*.CRT" -Directory -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $redist) {
+            throw "Could not locate the MSVC redistributable under $env:VCToolsRedistDir\x64"
+          }
+          Write-Host "Bundling MSVC runtime from $($redist.FullName)"
+          Copy-Item "$($redist.FullName)\*.dll" "$out\demolauncher" -Force
+          Copy-Item "$($redist.FullName)\*.dll" "$out\editor"       -Force
+
           # shaderc_shared.dll comes from the SDK, not vcpkg.
           if ("${{ matrix.spirv }}" -eq "ON") {
             Copy-Item "$env:VULKAN_SDK\Bin\shaderc_shared.dll" "$out\demolauncher" -ErrorAction SilentlyContinue
