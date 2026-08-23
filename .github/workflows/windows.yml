@@ -168,12 +168,21 @@ jobs:
           # --- engine library + import lib / static lib -------------------
           Copy-Item "build\*.dll" "$out\lib" -ErrorAction SilentlyContinue
           Copy-Item "build\*.lib" "$out\lib" -ErrorAction SilentlyContinue
-          # Recursive: box3d lands in _deps\box3d\src\, not _deps\box3d\,
-          # and a STATIC PyrosEngine.lib is unusable without it (and without
-          # volk.lib on Vulkan) - a consumer linking the static engine has to
-          # link its dependencies too.
-          Get-ChildItem -Path "build\_deps" -Recurse -Filter "*.lib" -ErrorAction SilentlyContinue |
-            ForEach-Object { Copy-Item $_.FullName "$out\lib" -Force }
+          # A STATIC PyrosEngine.lib does not absorb its dependencies, so
+          # anything linking it needs box3d, and volk on Vulkan, alongside.
+          # They land in two different places: box3d under
+          # build\_deps\box3d\src\, but volk under .fetchcontent-cache\,
+          # because box3d's own CMakeLists points FETCHCONTENT_BASE_DIR at
+          # the source tree so downloads survive a clean rebuild - and that
+          # applies to every FetchContent after it, volk included. Everything
+          # else the engine links (freetype, lua, the Vulkan loader, shaderc)
+          # comes from vcpkg or the SDK, which a consumer supplies itself.
+          @("build\_deps", ".fetchcontent-cache") | ForEach-Object {
+            if (Test-Path $_) {
+              Get-ChildItem -Path $_ -Recurse -Filter "*.lib" -ErrorAction SilentlyContinue |
+                ForEach-Object { Copy-Item $_.FullName "$out\lib" -Force }
+            }
+          }
 
           # --- DemoLauncher ----------------------------------------------
           Copy-Item "build\examples\DemoLauncher.exe" "$out\demolauncher"
