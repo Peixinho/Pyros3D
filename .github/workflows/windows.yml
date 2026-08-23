@@ -305,6 +305,34 @@ jobs:
           }
           if ($failed) { throw "Packaged binaries have unresolved DLL dependencies" }
 
+      # Diagnostic only - never fails the job. A GitHub runner has no GPU,
+      # so a GL 4.1 / Vulkan context may legitimately not come up here; the
+      # point is to capture what the binary prints on startup (the engine
+      # logs through echo() to the console by default) so a startup failure
+      # is visible in CI rather than only on a user's desktop.
+      - name: Smoke run (diagnostic)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $dir = "$pwd\package\demolauncher"
+          $exe = "$dir\CppApiDemo.exe"
+          Write-Host "--- launching $exe from $dir ---"
+          $p = Start-Process -FilePath $exe -WorkingDirectory $dir -PassThru `
+                 -RedirectStandardOutput "$pwd\smoke-out.txt" `
+                 -RedirectStandardError  "$pwd\smoke-err.txt"
+          if ($p.WaitForExit(25000)) {
+            Write-Host "--- exited on its own with code $($p.ExitCode) ---"
+          } else {
+            # Still running after 25s is the good outcome: it got a window up
+            # and stayed in its loop.
+            Write-Host "--- still running after 25s, killing ---"
+            $p.Kill()
+          }
+          Write-Host "--- stdout ---"
+          Get-Content "$pwd\smoke-out.txt" -ErrorAction SilentlyContinue | Select-Object -First 60
+          Write-Host "--- stderr ---"
+          Get-Content "$pwd\smoke-err.txt" -ErrorAction SilentlyContinue | Select-Object -First 60
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
