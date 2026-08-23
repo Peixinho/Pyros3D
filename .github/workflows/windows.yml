@@ -215,8 +215,21 @@ jobs:
             Copy-Item "build\PyrosEngine.dll" "$out\editor"
           }
 
-          # vcpkg's applocal deployment already dropped SDL2/freetype/lua/
-          # curl next to each .exe; shaderc_shared.dll comes from the SDK.
+          # vcpkg's applocal deployment walks each executable's own import
+          # table, and in a SHARED build the executables import PyrosEngine.dll
+          # rather than freetype/png/brotli/bz2/z directly - those are linked
+          # into the engine. applocal will not introspect PyrosEngine.dll,
+          # because it is our build output rather than a vcpkg DLL, so that
+          # whole chain went missing and the .exe died on startup with
+          # "freetype.dll not found". Copy vcpkg's runtime DLLs wholesale
+          # instead of relying on applocal having found the right ones.
+          $vcpkgBin = "build\vcpkg_installed\x64-windows\bin"
+          if (Test-Path $vcpkgBin) {
+            Copy-Item "$vcpkgBin\*.dll" "$out\demolauncher" -Force
+            Copy-Item "$vcpkgBin\*.dll" "$out\editor"       -Force
+          }
+
+          # shaderc_shared.dll comes from the SDK, not vcpkg.
           if ("${{ matrix.spirv }}" -eq "ON") {
             Copy-Item "$env:VULKAN_SDK\Bin\shaderc_shared.dll" "$out\demolauncher" -ErrorAction SilentlyContinue
             Copy-Item "$env:VULKAN_SDK\Bin\shaderc_shared.dll" "$out\editor"       -ErrorAction SilentlyContinue
@@ -247,6 +260,50 @@ jobs:
           Get-ChildItem -Recurse $out -Include *.exe, *.dll, *.lib |
             Select-Object @{n="File";e={$_.FullName.Replace("$pwd\\","")}}, Length |
             Format-Table -AutoSize
+
+      # Compile+link success says nothing about whether the packaged folder
+      # actually has everything it needs at runtime - the SHARED build
+      # shipped without freetype.dll and died on startup while CI stayed
+      # green. Walk each executable's import graph and fail here instead.
+      - name: Verify dependency closure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dumpbin = (Get-ChildItem "$env:VCToolsInstallDir\bin\Hostx64\x64\dumpbin.exe" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          if (-not $dumpbin) { $dumpbin = "dumpbin.exe" }
+
+          # Anything the OS or the VC redistributable provides. Everything
+          # else has to be sitting in the folder next to the executable.
+          $systemOk = '^(api-ms-win-|ext-ms-win-|kernel32|user32|gdi32|advapi32|shell32|ole32|oleaut32|comdlg32|winmm|ws2_32|opengl32|glu32|imm32|version|setupapi|cfgmgr32|crypt32|bcrypt|ncrypt|secur32|iphlpapi|dbghelp|shlwapi|rpcrt4|msvcrt|msvcp\d*|vcruntime\d*|ucrtbase|concrt\d*|dwmapi|uxtheme|hid|wldap32|normaliz|d3d\d+|dxgi|vulkan-1|mfplat|mf|winhttp|dnsapi|powrprof)'
+
+          $failed = $false
+          foreach ($dir in @("package\demolauncher", "package\editor")) {
+            $present = @{}
+            Get-ChildItem "$dir\*.dll" -ErrorAction SilentlyContinue | ForEach-Object { $present[$_.Name.ToLower()] = $true }
+
+            $queue = [System.Collections.Queue]::new()
+            Get-ChildItem "$dir\*.exe" | ForEach-Object { $queue.Enqueue($_.FullName) }
+            Get-ChildItem "$dir\*.dll" -ErrorAction SilentlyContinue | ForEach-Object { $queue.Enqueue($_.FullName) }
+            $seen = @{}
+
+            while ($queue.Count -gt 0) {
+              $bin = $queue.Dequeue()
+              if ($seen[$bin]) { continue }
+              $seen[$bin] = $true
+              $deps = & $dumpbin /dependents $bin 2>$null |
+                Select-String -Pattern '^\s{4}(\S+\.dll)$' |
+                ForEach-Object { $_.Matches[0].Groups[1].Value }
+              foreach ($d in $deps) {
+                $dl = $d.ToLower()
+                if ($dl -match $systemOk) { continue }
+                if ($present[$dl]) { continue }
+                Write-Host "::error::$dir - $(Split-Path $bin -Leaf) needs $d, which is not in the package"
+                $failed = $true
+              }
+            }
+            Write-Host "$dir - checked $($seen.Count) binaries against $($present.Count) bundled DLLs"
+          }
+          if ($failed) { throw "Packaged binaries have unresolved DLL dependencies" }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
