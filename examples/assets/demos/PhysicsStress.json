@@ -97,7 +97,7 @@
                         -1,
                         -0.35
                     ],
-                    "intensity": 3.14159,
+                    "intensity": 1.0,
                     "castingShadows": true,
                     "cascades": 1,
                     "fov": 70.0,

@@ -89,7 +89,7 @@
                         -1.0,
                         -1.0
                     ],
-                    "intensity": 3.14159,
+                    "intensity": 1.0,
                     "type": "DirectionalLight"
                 }
             ],

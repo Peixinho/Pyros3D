@@ -91,7 +91,7 @@
                         0.0
                     ],
                     "fov": 69.9999969482422,
-                    "intensity": 3.14159,
+                    "intensity": 1.0,
                     "shadowBiasFactor": 1.0,
                     "shadowBiasUnits": 3.0,
                     "shadowFar": 500.0,

@@ -442,8 +442,14 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
 		"\tvec3 specularTerm = numerator / denom;\n"
 		"\tvec3 kS = F;\n"
 		"\tvec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);\n"
+		// radiance * PI: the engine's light colour is irradiance/PI, not
+		// irradiance - see resources/shaders/PyrosShader.glsl's identical
+		// comment. Without it a graph material lit through this BRDF was
+		// exactly PI (3.14x) darker than a Generic Diffuse material under
+		// the same light, which has no 1/PI at all.
+		"\tvec3 irradiance = radiance * PBR_PI;\n"
 		"\tfloat NdotL = max(dot(N, L), 0.0);\n"
-		"\treturn (kD * albedo / PBR_PI + specularTerm) * radiance * NdotL;\n"
+		"\treturn (kD * albedo / PBR_PI + specularTerm) * irradiance * NdotL;\n"
 		"}\n"
 		"#endif\n"
 		"\n"

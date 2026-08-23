@@ -223,8 +223,15 @@ vec3 CalculatePBRLighting(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 albedo, fl
 	vec3 kS = F * specTint;
 	vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
 
+	// The engine's light colour is irradiance/PI, not irradiance - see
+	// PyrosShader.glsl's identical comment. Recovering it here is what keeps
+	// a deferred surface as bright as the same material under the same light
+	// in the classic forward path, which has no 1/PI at all; without it every
+	// deferred pixel came out exactly PI (3.14x) too dark.
+	vec3 irradiance = radiance * PBR_PI;
+
 	float NdotL = max(dot(N, L), 0.0);
-	return (kD * albedo / PBR_PI + specularTerm) * radiance * NdotL;
+	return (kD * albedo / PBR_PI + specularTerm) * irradiance * NdotL;
 }
 
 SAMPLER_BINDING(0) uniform sampler2D tDiffuse;

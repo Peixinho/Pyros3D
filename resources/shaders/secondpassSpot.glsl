@@ -163,8 +163,15 @@ vec3 CalculatePBRLighting(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 albedo, fl
 	vec3 kS = F * specTint;
 	vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
 
+	// The engine's light colour is irradiance/PI, not irradiance - see
+	// PyrosShader.glsl's identical comment. Recovering it here is what keeps
+	// a deferred surface as bright as the same material under the same light
+	// in the classic forward path, which has no 1/PI at all; without it every
+	// deferred pixel came out exactly PI (3.14x) too dark.
+	vec3 irradiance = radiance * PBR_PI;
+
 	float NdotL = max(dot(N, L), 0.0);
-	return (kD * albedo / PBR_PI + specularTerm) * radiance * NdotL;
+	return (kD * albedo / PBR_PI + specularTerm) * irradiance * NdotL;
 }
 
 SAMPLER_BINDING(0) uniform sampler2D tDiffuse;
@@ -264,11 +271,23 @@ void main() {
 	vec3 lightPosition = uLightPosition;
 	vec4 lightColor = uLightColor;
 
-	vec3 lightDirection = normalize(-uLightDirection);
+	// The cone axis as authored (light -> lit direction), NOT negated.
+	// DualConeSpotLight negates the surface->light vector itself, so handing
+	// it a pre-negated axis cancelled out: dot() came back as -cos(theta),
+	// which the falloff below always clamps to 0, and every spot lit its
+	// whole radius uniformly - a deferred spot was a point light wearing a
+	// cone's parameters. PyrosShader.glsl's own spot branch passes
+	// L.Direction here unnegated.
+	vec3 spotAxis = normalize(uLightDirection);
 	float attenuation = Attenuation(v1, lightPosition, lightRadius);
-	float innerCone = uInnerCone;
-	float outterCone = uOutterCone;
-	float spotEffect = 1.0 - DualConeSpotLight(v1, lightPosition, lightDirection, outterCone, innerCone);
+	// Cone arguments crossed on purpose: PyrosShader.glsl's spot branch
+	// calls this same function as DualConeSpotLight(..., L.Cones.x,
+	// L.Cones.y) = (cosInner, cosOuter) into parameters named (cosOutter,
+	// cosInner), and the leading `1.0 -` is what turns that inside-out
+	// result back into a normal 1-inside/0-outside cone. Passing them
+	// uncrossed here, as this did, inverted the falloff on top of the axis
+	// bug above. Same crossing in the volumetric march below.
+	float spotEffect = 1.0 - DualConeSpotLight(v1, lightPosition, spotAxis, uInnerCone, uOutterCone);
 
 	float pcf = 1.0;
 	vec4 worldPos = vec4(v1, 1.0);
@@ -282,7 +301,12 @@ void main() {
 
 	vec3 N = vViewNormal;
 	vec3 V = normalize(-v1);
-	vec3 L = lightDirection;
+	// Surface -> light, the same vector PyrosShader.glsl's spot branch
+	// builds (`LightDir = normalize(L.Position - Position)`) and the same
+	// one secondpassPoint.glsl already uses. This was the cone axis, so
+	// N.L and the highlight were constant over the whole lit area no
+	// matter where the surface sat relative to the light.
+	vec3 L = normalize(lightPosition - v1);
 	vec3 pbrColor = CalculatePBRLighting(N, V, L, lightColor.xyz, color, metallic, roughness, specTint);
 
 	vec3 lit = pbrColor * spotEffect * attenuation * pcf;
@@ -351,7 +375,7 @@ void main() {
 				float sAtt = Attenuation(p, lightPosition, lightRadius);
 				if (sAtt <= 0.0)
 					continue;
-				float sCone = 1.0 - DualConeSpotLight(p, lightPosition, lightDirection, outterCone, innerCone);
+				float sCone = 1.0 - DualConeSpotLight(p, lightPosition, spotAxis, uInnerCone, uOutterCone);
 				if (sCone <= 0.0)
 					continue;
 

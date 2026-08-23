@@ -652,8 +652,25 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 vec3 kS = F;
                 vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
 
+                // The engine's light colour is not irradiance. Forward's
+                // classic Blinn-Phong path defines it as "the radiance a
+                // white Lambertian surface reflects at N.L == 1" - see
+                // `_diffuse += lightIntensity * L.Color` below, which has no
+                // 1/PI anywhere - so a light colour of 1.0 already means
+                // irradiance/PI. Feeding that straight into a normalised
+                // BRDF, which divides by PI a second time, made every PBR
+                // and every deferred surface exactly PI (3.14x) darker than
+                // the identical material under the identical light in the
+                // classic forward path: measured 41/255 vs 128/255 on a
+                // 0.5-albedo wall under one intensity-1 white directional
+                // light. Recovering the irradiance here rather than just
+                // dropping the diffuse 1/PI keeps the BRDF internally
+                // consistent - the specular lobe scales with the diffuse one
+                // instead of ending up PI times weaker relative to it.
+                vec3 irradiance = radiance * PBR_PI;
+
                 float NdotL = max(dot(N, L), 0.0);
-                return (kD * albedo / PBR_PI + specularTerm) * radiance * NdotL;
+                return (kD * albedo / PBR_PI + specularTerm) * irradiance * NdotL;
             }
         #endif
 
