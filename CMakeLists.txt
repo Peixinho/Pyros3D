@@ -71,6 +71,36 @@ endif()
 # PYROS3D_API (Export.h): dllexport when building the shared DLL on Windows.
 if (WIN32 AND LIB_TYPE STREQUAL "SHARED")
 	target_compile_definitions(PyrosEngine PRIVATE _EXPORT)
+
+	# ImGui and glad are compiled into the engine but carry no PYROS3D_API -
+	# they have export macros of their own instead. The demos and the editor
+	# call both directly (the ImGui backends, and BaseExample/SDL2Context's
+	# GL calls), so without this a SHARED build fails with LNK2001/LNK2019 on
+	# every ImGui:: and glad_gl* symbol.
+	#
+	# PRIVATE vs INTERFACE is what splits export from import: PRIVATE reaches
+	# only the engine's own translation units, INTERFACE only what links it.
+	target_compile_definitions(PyrosEngine
+		PRIVATE   "IMGUI_API=__declspec(dllexport)"
+		INTERFACE "IMGUI_API=__declspec(dllimport)"
+
+		# The ImGui *backends* straddle the boundary: the engine builds
+		# imgui_impl_vulkan/metal, and each consumer builds imgui_impl_sdl2 +
+		# imgui_impl_opengl3 (see PyrosWindowContext.cmake). Every one of them
+		# is defined and called on the same side of the DLL, so their entry
+		# points stay plain - IMGUI_IMPL_API defaults to IMGUI_API, and
+		# leaving that to become dllimport in the consumer would reject the
+		# definitions the consumer compiles itself (C2491).
+		PUBLIC    "IMGUI_IMPL_API="
+
+		# glad's equivalent, already wired through GLAPI in glad.h. Both sides
+		# need GLAD_GLAPI_EXPORT; only the engine adds _BUILD, which is what
+		# turns dllimport into dllexport. These are data symbols (the
+		# glad_gl* function pointers), so the consumer genuinely needs
+		# dllimport rather than merely benefiting from it.
+		PUBLIC    GLAD_GLAPI_EXPORT
+		PRIVATE   GLAD_GLAPI_EXPORT_BUILD
+	)
 endif()
 
 if (EMSCRIPTEN)
