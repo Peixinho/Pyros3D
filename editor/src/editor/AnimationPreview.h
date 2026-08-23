@@ -297,6 +297,19 @@ private:
 	// roll visible. Wireframe rather than solid because DebugRenderer draws
 	// with depth testing off (so gizmos stay on top), and filled bones would
 	// paint over the mesh they are supposed to be inside.
+	// A joint marker as three short crossed lines rather than a GL point.
+	// DebugRenderer's point path cannot be sized: the shared debug shader
+	// deliberately omits gl_PointSize (see PyrosShader.glsl - declaring the
+	// aSize attribute without a matching vertex-input binding breaks
+	// CreatePipeline on Vulkan), and PointsSizeBF is filled but never bound
+	// to the VAO. That left points at the driver default - a 1px dot on GL,
+	// and on Metal an *undefined* size, which rasterised every joint as a
+	// screen-filling square and buried the whole skeleton.
+	//
+	// `pixels` keeps the old drawPoint() call sites readable; it is scaled
+	// against the framed distance so a marker stays proportionate as you
+	// zoom, the same way the per-bone axes already do.
+	void DrawJointMarker(const p3d::Math::Vec3& pos, float pixels, const p3d::Math::Vec4& color);
 	void DrawBoneOctahedron(const p3d::Math::Vec3& head, const p3d::Math::Vec3& tail,
 		const p3d::Math::Matrix& orient, const p3d::Math::Vec4& color);
 	void EnsureGizmo();

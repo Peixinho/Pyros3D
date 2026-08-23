@@ -60,6 +60,8 @@ namespace p3d {
 		std::vector<f32> pointsSize;
 
 		// Buffers
+		// One-shot guard for the drawPoint() notice in Render().
+		bool warnedPointsUnsupported = false;
 		GeometryBuffer* VertexLinesBF = nullptr;
 		GeometryBuffer* ColorLinesBF = nullptr;
 		GeometryBuffer* VertexTrianglesBF = nullptr;

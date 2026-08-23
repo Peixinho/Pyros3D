@@ -352,17 +352,27 @@ namespace p3d {
 			}
 		}
 
-		if (hasPoints && pointsVaoBuilt)
+		// Points are deliberately not drawn. The shared debug shader writes
+		// no gl_PointSize (PyrosShader.glsl explains why: declaring aSize
+		// without a matching vertex-input binding breaks CreatePipeline on
+		// Vulkan, and a PointSize output in a line/triangle pipeline is a
+		// MoltenVK compile failure), and PointsSizeBF is filled but never
+		// bound to the points VAO - so the size is whatever the driver
+		// defaults to. On GL that is a 1px dot, which merely looked
+		// unremarkable; on Metal it is *undefined*, and the editor's 48
+		// skeleton joint markers each rasterised as a screen-filling square
+		// that buried the entire animation preview.
+		//
+		// Say so once rather than silently dropping the geometry, so the
+		// next caller of drawPoint() finds out here instead of from a blank
+		// viewport. Draw markers from lines instead - see
+		// AnimationPreview::DrawJointMarker(), which is what the editor's
+		// own joint dots became.
+		if (hasPoints && !warnedPointsUnsupported)
 		{
-			DeviceHandle pipeline = EnsurePipeline(DrawingType::Points);
-			if (pipeline != 0)
-			{
-				device->BindVertexArray(cmd, pointsVao);
-				device->BindPipeline(cmd, pipeline);
-				device->DrawArrays(device->TranslateDrawType(DrawingType::Points), 0, (uint32)points.size());
-			}
+			warnedPointsUnsupported = true;
+			echo("WARNING: DebugRenderer::drawPoint() is not drawn - the debug shader cannot size points. Use lines instead.");
 		}
-
 		device->EndCommandBuffer(cmd);
 
 		ClearBuffers();

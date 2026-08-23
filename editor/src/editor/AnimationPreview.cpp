@@ -413,7 +413,7 @@ void AnimationPreview::DrawIKTargetMarker(const Vec3& target, const std::string&
 	debug->drawLine(target - Vec3(r, 0, 0), target + Vec3(r, 0, 0), targetColor);
 	debug->drawLine(target - Vec3(0, r, 0), target + Vec3(0, r, 0), targetColor);
 	debug->drawLine(target - Vec3(0, 0, r), target + Vec3(0, 0, r), targetColor);
-	debug->drawPoint(target, 7.f, targetColor);
+	DrawJointMarker(target, 7.f, targetColor);
 
 	const int eff = BoneIdByName(effectorBone);
 	if (eff < 0) return;
@@ -429,7 +429,7 @@ void AnimationPreview::DrawIKTargetMarker(const Vec3& target, const std::string&
 	if (usePole)
 	{
 		const Vec4 poleColor(0.6f, 0.5f, 1.f, 0.8f);
-		debug->drawPoint(pole, 5.f, poleColor);
+		DrawJointMarker(pole, 5.f, poleColor);
 		debug->drawLine(tip, pole, poleColor);
 	}
 }
@@ -481,6 +481,18 @@ Vec3 AnimationPreview::ComputeEye() const
 	return panTarget + offset;
 }
 
+void AnimationPreview::DrawJointMarker(const Vec3& pos, float pixels, const Vec4& color)
+{
+	if (!debug) return;
+	// 5px was the old default; keep that as the unit so the call sites read
+	// the same. framedDistance is what every other size in this preview is
+	// relative to.
+	const float s = std::max(1e-4f, framedDistance * 0.010f * (pixels / 5.f));
+	debug->drawLine(pos - Vec3(s, 0, 0), pos + Vec3(s, 0, 0), color);
+	debug->drawLine(pos - Vec3(0, s, 0), pos + Vec3(0, s, 0), color);
+	debug->drawLine(pos - Vec3(0, 0, s), pos + Vec3(0, 0, s), color);
+}
+
 void AnimationPreview::DrawBoneOctahedron(const Vec3& head, const Vec3& tail,
 	const Matrix& orient, const Vec4& color)
 {
@@ -492,7 +504,7 @@ void AnimationPreview::DrawBoneOctahedron(const Vec3& head, const Vec3& tail,
 	{
 		// Coincident joints (a helper node parented at its parent's origin)
 		// have no direction to build a shape from.
-		debug->drawPoint(head, 5.f, color);
+		DrawJointMarker(head, 5.f, color);
 		return;
 	}
 	dir = dir / len;
@@ -597,7 +609,7 @@ void AnimationPreview::DrawSkeleton(int selectedBone)
 		// Joint marker, always drawn: it is the thing you actually click, and
 		// on a leaf bone (a fingertip, with no child to form a body toward)
 		// it is the only mark there is.
-		debug->drawPoint(head, isSelected ? 9.f : 5.f, color);
+		DrawJointMarker(head, isSelected ? 9.f : 5.f, color);
 
 		// Local axes, so the animator can see which way a rotation will go.
 		// Length follows the bone so a hand's fingers don't each sprout a
