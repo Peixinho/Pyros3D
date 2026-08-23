@@ -1351,6 +1351,16 @@ namespace p3d {
 		case 18: // BIND_ObjectMatrixUniforms
 		case 19: // BIND_BoneMatrices
 		case 20: // BIND_VelocityObjectUniforms
+		case 21: // BIND_AmbientLightUniforms - see VulkanRenderDevice.h's own
+		         // case 21 for the full account. Every IRenderer instance
+		         // drawing in one frame (main viewport, AxisHelper's gizmo,
+		         // camera/thumbnail previews) shares this one buffer, so
+		         // without a per-draw slot whichever instance rendered last
+		         // silently won the binding for every draw already recorded
+		         // that frame. Vulkan grew this case; this list was copied
+		         // from that one before it did, and the omission is why the
+		         // Metal editor's meshes dropped their light contribution
+		         // for a frame at a time.
 		case 22: // BIND_MaterialUniforms
 		case 23: // BIND_ObjectLightCounts
 		case 27: case 32: case 33: case 34: case 37: case 38: case 39:

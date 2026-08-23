@@ -19,6 +19,13 @@ AxisHelper::AxisHelper()
 
 	// Initialize Renderer
 	Renderer = new ForwardRenderer(100, 100);
+	// Same guard SceneEditor already puts on its preview/thumbnail renderers
+	// (see their construction) - every other secondary IRenderer in the
+	// editor sets it and this one did not. Its scene is three unlit axis
+	// meshes and a label: no lights, nothing to shadow, so PreRender()'s
+	// shadow sub-passes only cost FBO rebinds and shared-uniform-cache
+	// churn every frame.
+	Renderer->SetSkipShadowMaps(true);
 	// This gizmo is a fixed-size navigation overlay, not scene geometry -
 	// it must always look the same regardless of the real scene's ambient
 	// light. Render() re-asserts a fixed ambient every frame (see its own
