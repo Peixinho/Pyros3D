@@ -8,6 +8,7 @@
 #include "../AnimationPreview.h"
 
 #include <Pyros3D/AnimationManager/IKSolver.h>
+#include "EasingPreview.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -1591,25 +1592,32 @@ void DrawTimeline(AnimationEditorDocument& doc)
 
 		if (ImGui::BeginMenu("Interpolation"))
 		{
-			// Order and labels follow p3d::InterpolationMode.
-			static const char* kModeNames[] = {
-				"Linear", "Step (hold)", "Ease In", "Ease Out", "Ease In/Out", "Bezier"
-			};
-			for (int m = 0; m < IM_ARRAYSIZE(kModeNames); m++)
+			// Names come from p3d::InterpolationModeName so this menu, the
+			// particle inspector and the curve thumbnail cannot disagree
+			// about what a mode is called.
+			for (unsigned m = 0; m < p3d::kInterpolationModeCount; m++)
 			{
-				if (ImGui::MenuItem(kModeNames[m], NULL, mode == m))
+				const char* label = p3d::InterpolationModeName((uchar)m);
+				if (ImGui::MenuItem(label, NULL, mode == (int)m))
 				{
 					std::vector<AnimKeyRef> targets(doc.selectedKeys.begin(), doc.selectedKeys.end());
-					doc.PushSnapshotEdit(std::string("Set interpolation: ") + kModeNames[m], [&]() {
+					doc.PushSnapshotEdit(std::string("Set interpolation: ") + label, [&]() {
 						for (size_t i = 0; i < targets.size(); i++)
 							doc.SetKeyInterpolation(doc.activeClip, targets[i].channel, targets[i].time,
-								m, inTan, outTan);
+								(int)m, inTan, outTan);
 					});
-					mode = m;
+					mode = (int)m;
 				}
 			}
 			ImGui::EndMenu();
 		}
+
+		// Drawn from p3d::Ease(), the same function the sampler runs, so
+		// what is pictured is what the clip will do. Sits under the menu
+		// rather than inside it so it stays visible while the tangent
+		// sliders below are dragged.
+		ImGui::TextDisabled("%s", p3d::InterpolationModeName((uchar)mode));
+		EasingUI::Curve((uchar)mode, outTan, inTan);
 
 		// Tangents only mean anything for Bezier, so they are only offered
 		// there rather than sitting inert next to every other mode.
