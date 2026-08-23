@@ -13,6 +13,7 @@
 #include <algorithm>
 
 #include "SceneEditor.h"
+#include "UI/EasingPreview.h"
 #include "SceneCommands.h"
 #include "AssetCommands.h"
 #include "UndoValueEdit.h"
@@ -6389,6 +6390,30 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						commitParticleEdit("Set Particle Size Jitter");
 					}
 					{
+						// How each ramp travels between its two ends. Bezier
+						// is withheld: it reads an incoming tangent from the
+						// next key, and a ramp has no next key.
+						uchar sizeEase = d.sizeEase;
+						if (EasingUI::Picker("Size Ramp", sizeEase, /*allowBezier=*/false))
+						{
+							ps->SetEasing(sizeEase, d.colorEase);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Size Ramp");
+						ImGui::SameLine();
+						EasingUI::Curve(d.sizeEase);
+
+						uchar colorEase = d.colorEase;
+						if (EasingUI::Picker("Colour Ramp", colorEase, /*allowBezier=*/false))
+						{
+							ps->SetEasing(d.sizeEase, colorEase);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Colour Ramp");
+						ImGui::SameLine();
+						EasingUI::Curve(d.colorEase);
+					}
+					{
 						f32 fadeIn = d.fadeInFraction;
 						if (ImGui::DragFloat("Fade In (fraction)", &fadeIn, 0.01f, 0.f, 1.f))
 						{
@@ -7654,6 +7679,37 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		desc.sizeRandomJitter = F("sizeRandomJitter", desc.sizeRandomJitter);
 		desc.startColor = V4("startColor", desc.startColor);
 		desc.endColor = V4("endColor", desc.endColor);
+		// Ramp curves, by name rather than by number - "easeIn" is what
+		// someone writing this by hand means, and the enum's numbering is an
+		// internal detail. Bezier is not offered: a ramp has two ends and no
+		// next key to take an incoming tangent from.
+		{
+			auto easeArg = [&](const char* key, uchar dflt, bool &bad) -> uchar {
+				if (!p.is_object() || !p.contains(key)) return dflt;
+				const std::string v = p.value(key, std::string());
+				for (unsigned m = 0; m + 1 < p3d::kInterpolationModeCount; m++)
+				{
+					std::string name = InterpolationModeName((uchar)m);
+					std::string flat;
+					for (size_t i = 0; i < name.size(); i++)
+						if (name[i] != ' ' && name[i] != '/') flat += (char)tolower(name[i]);
+					std::string want;
+					for (size_t i = 0; i < v.size(); i++)
+						if (v[i] != ' ' && v[i] != '/') want += (char)tolower(v[i]);
+					if (flat == want) return (uchar)m;
+				}
+				bad = true;
+				return dflt;
+			};
+			bool bad = false;
+			desc.sizeEase = easeArg("sizeEase", desc.sizeEase, bad);
+			desc.colorEase = easeArg("colorEase", desc.colorEase, bad);
+			if (bad)
+			{
+				errOut = "unknown ease (linear, step, easein, easeout, easeinout)";
+				return false;
+			}
+		}
 		desc.fadeInFraction = F("fadeInFraction", desc.fadeInFraction);
 		desc.fadeOutFraction = F("fadeOutFraction", desc.fadeOutFraction);
 		desc.minRotationSpeed = F("minRotationSpeed", desc.minRotationSpeed);

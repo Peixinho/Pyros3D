@@ -1039,6 +1039,10 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["minRotationSpeed"] = d.minRotationSpeed;
 			j["maxRotationSpeed"] = d.maxRotationSpeed;
 			j["blendMode"] = d.blendMode;
+			// Omitted by anything written before easing existed; the reader
+			// defaults them to linear, which is what those scenes played.
+			j["sizeEase"] = (int)d.sizeEase;
+			j["colorEase"] = (int)d.colorEase;
 			j["boundingSphereRadius"] = d.boundingSphereRadius;
 			return j;
 		}
@@ -1910,6 +1914,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			d.minRotationSpeed = j.value("minRotationSpeed", d.minRotationSpeed);
 			d.maxRotationSpeed = j.value("maxRotationSpeed", d.maxRotationSpeed);
 			d.blendMode = j.value("blendMode", d.blendMode);
+			d.sizeEase = (uchar)j.value("sizeEase", (int)d.sizeEase);
+			d.colorEase = (uchar)j.value("colorEase", (int)d.colorEase);
 			d.boundingSphereRadius = j.value("boundingSphereRadius", d.boundingSphereRadius);
 			go->AddComponent(std::make_shared<ParticleSystem>(d));
 		}

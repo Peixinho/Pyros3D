@@ -10,6 +10,7 @@
 #define	PARTICLESYSTEM_H
 
 #include <Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.h>
+#include <Pyros3D/Core/Math/Easing.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <Pyros3D/Core/Math/Random.h>
 #include <Pyros3D/Other/Export.h>
@@ -66,10 +67,21 @@ namespace p3d {
 		Vec3 gravity;        // world-space acceleration, applied every frame
 		f32 damping;         // velocity *= (1 - damping*dt) every frame, 0 = none
 
-		f32 startSize, endSize;     // world-space diameter, lerped over normalized age
+		f32 startSize, endSize;     // world-space diameter, ramped over normalized age
 		f32 sizeRandomJitter;        // +/- fraction of size, randomized per particle
 
-		Vec4 startColor, endColor;   // lerped over normalized age, multiplies the texture
+		Vec4 startColor, endColor;   // ramped over normalized age, multiplies the texture
+
+		// How each ramp travels from start to end - InterpolationMode from
+		// Core/Math/Easing.h, the same enum keyframes use. Linear (the v1
+		// behaviour) is the default, so an existing system is unchanged.
+		//
+		// A ramp has two ends rather than a series of keys, so INTERP_BEZIER
+		// has no second key to take its incoming tangent from and is treated
+		// as linear; the editor does not offer it here. INTERP_STEP holds the
+		// start value for the particle's whole life, which is the useful
+		// reading of "no interpolation" for a ramp.
+		uchar sizeEase, colorEase;
 
 		// Alpha fades in over [0,fadeInFraction] and out over
 		// [fadeOutFraction,1] of normalized age.
@@ -167,6 +179,8 @@ namespace p3d {
 		void SetDamping(const f32 damping) { desc.damping = damping; }
 		void SetSizes(const f32 startSize, const f32 endSize, const f32 sizeRandomJitter);
 		void SetColors(const Vec4 &startColor, const Vec4 &endColor);
+		// Curve each ramp follows across a particle's life. See sizeEase.
+		void SetEasing(const uchar sizeEase, const uchar colorEase);
 		void SetFade(const f32 fadeInFraction, const f32 fadeOutFraction);
 		void SetRotationSpeed(const f32 minRotationSpeed, const f32 maxRotationSpeed) { desc.minRotationSpeed = minRotationSpeed; desc.maxRotationSpeed = maxRotationSpeed; }
 		void SetBlendMode(const uint32 blendMode);

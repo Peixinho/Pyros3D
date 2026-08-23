@@ -38,6 +38,8 @@ namespace p3d {
 		fadeOutFraction = 0.6f;
 		minRotationSpeed = -1.0f;
 		maxRotationSpeed = 1.0f;
+		sizeEase = INTERP_LINEAR;
+		colorEase = INTERP_LINEAR;
 		blendMode = ParticleBlendMode::AlphaBlend;
 		boundingSphereRadius = 0.0f;
 	}
@@ -67,6 +69,11 @@ namespace p3d {
 			sizeJitterHandle = AddUniform(Uniform("uSizeRandomJitter", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 			fadeInHandle = AddUniform(Uniform("uFadeInFraction", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 			fadeOutHandle = AddUniform(Uniform("uFadeOutFraction", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+			// Passed as floats, not ints: the mode is compared against
+			// thresholds in the shader, and a float uniform needs no
+			// integer-uniform support from either backend's auto-fix path.
+			sizeEaseHandle = AddUniform(Uniform("uSizeEase", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+			colorEaseHandle = AddUniform(Uniform("uColorEase", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 
 			SetTransparencyFlag(true);
 			// A spherical billboard's winding isn't guaranteed consistent
@@ -88,6 +95,12 @@ namespace p3d {
 			endSizeHandle->SetValue(&end);
 			sizeJitterHandle->SetValue(&jitter);
 		}
+		void SetEasing(uchar sizeEase, uchar colorEase)
+		{
+			f32 s = (f32)sizeEase, c = (f32)colorEase;
+			sizeEaseHandle->SetValue(&s);
+			colorEaseHandle->SetValue(&c);
+		}
 		void SetFade(f32 fadeIn, f32 fadeOut)
 		{
 			fadeInHandle->SetValue(&fadeIn);
@@ -102,6 +115,7 @@ namespace p3d {
 		}
 
 	private:
+		Uniform *sizeEaseHandle, *colorEaseHandle;
 		Uniform *startColorHandle, *endColorHandle;
 		Uniform *startSizeHandle, *endSizeHandle, *sizeJitterHandle;
 		Uniform *fadeInHandle, *fadeOutHandle;
@@ -132,6 +146,7 @@ namespace p3d {
 			mat->SetColors(desc.startColor, desc.endColor);
 			mat->SetSizes(desc.startSize, desc.endSize, desc.sizeRandomJitter);
 			mat->SetFade(desc.fadeInFraction, desc.fadeOutFraction);
+			mat->SetEasing(desc.sizeEase, desc.colorEase);
 			mat->SetBlendMode(desc.blendMode);
 			g_pendingParticleMaterial = mat.get();
 			return mat;
@@ -257,6 +272,14 @@ namespace p3d {
 		desc.fadeInFraction = fadeInFraction;
 		desc.fadeOutFraction = fadeOutFraction;
 		material->SetFade(fadeInFraction, fadeOutFraction);
+	}
+
+	void ParticleSystem::SetEasing(const uchar sizeEase, const uchar colorEase)
+	{
+		desc.sizeEase = sizeEase;
+		desc.colorEase = colorEase;
+		if (!material) return;
+		material->SetEasing(sizeEase, colorEase);
 	}
 
 	void ParticleSystem::SetBlendMode(const uint32 blendMode)

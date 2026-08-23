@@ -34,6 +34,22 @@ uniform mat4 uViewMatrix;
 uniform float uStartSize;
 uniform float uEndSize;
 uniform float uSizeRandomJitter;
+uniform float uSizeEase;
+
+// Mirror of p3d::Ease() from Core/Math/Easing.h - same curves, same mode
+// numbering. Compared against thresholds because the mode arrives as a float
+// uniform. INTERP_BEZIER (5) needs a second key's incoming tangent, which a
+// two-ended ramp does not have, so it falls through to linear here and the
+// editor does not offer it for particles.
+float p3d_ease(float t, float mode)
+{
+	if (mode < 0.5) return t;                        // LINEAR
+	if (mode < 1.5) return 0.0;                      // STEP - hold the start value
+	if (mode < 2.5) return t * t;                    // EASE_IN
+	if (mode < 3.5) return t * (2.0 - t);            // EASE_OUT
+	if (mode < 4.5) return t * t * (3.0 - 2.0 * t);  // EASE_BOTH (smoothstep)
+	return t;
+}
 
 out vec2 vTexcoord;
 out float vAge;
@@ -43,7 +59,7 @@ void main()
 	vTexcoord = aTexcoord;
 	vAge = clamp(aParticleData0.w, 0.0, 1.0);
 
-	float size = mix(uStartSize, uEndSize, vAge);
+	float size = mix(uStartSize, uEndSize, p3d_ease(vAge, uSizeEase));
 	size *= 1.0 + (aParticleData1.y - 0.5) * 2.0 * uSizeRandomJitter;
 
 	float rotation = aParticleData1.x;
@@ -71,6 +87,22 @@ uniform vec4 uStartColor;
 uniform vec4 uEndColor;
 uniform float uFadeInFraction;
 uniform float uFadeOutFraction;
+uniform float uColorEase;
+
+// Mirror of p3d::Ease() from Core/Math/Easing.h - same curves, same mode
+// numbering. Compared against thresholds because the mode arrives as a float
+// uniform. INTERP_BEZIER (5) needs a second key's incoming tangent, which a
+// two-ended ramp does not have, so it falls through to linear here and the
+// editor does not offer it for particles.
+float p3d_ease(float t, float mode)
+{
+	if (mode < 0.5) return t;                        // LINEAR
+	if (mode < 1.5) return 0.0;                      // STEP - hold the start value
+	if (mode < 2.5) return t * t;                    // EASE_IN
+	if (mode < 3.5) return t * (2.0 - t);            // EASE_OUT
+	if (mode < 4.5) return t * t * (3.0 - 2.0 * t);  // EASE_BOTH (smoothstep)
+	return t;
+}
 
 in vec2 vTexcoord;
 in float vAge;
@@ -80,7 +112,7 @@ out vec4 FragColor;
 void main()
 {
 	vec4 tex = texture(uTex0, vTexcoord);
-	vec4 color = mix(uStartColor, uEndColor, vAge);
+	vec4 color = mix(uStartColor, uEndColor, p3d_ease(vAge, uColorEase));
 
 	float fadeIn = smoothstep(0.0, uFadeInFraction, vAge);
 	float fadeOut = 1.0 - smoothstep(uFadeOutFraction, 1.0, vAge);
