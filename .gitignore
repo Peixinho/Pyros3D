@@ -17,6 +17,7 @@ tags
 VULKAN_ROADMAP.md
 
 # Build/run artifacts that kept showing up as untracked noise
+__pycache__/
 CMakeFiles/
 compile_commands.json
 imgui.ini

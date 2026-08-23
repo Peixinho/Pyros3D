@@ -218,7 +218,13 @@ namespace p3d {
         if (!rview)
         {
             echo(std::string("ERROR: SDL_CreateWindow (Vulkan) failed: ") + SDL_GetError());
-            echo("ERROR: this usually means no Vulkan driver is installed - try an OpenGL build.");
+            // SDL reports a missing loader, a driver without VK_KHR_surface,
+            // and an SDL built without Vulkan support through this same
+            // call - the text above is what distinguishes them. An earlier
+            // version guessed "no Vulkan driver is installed" here, which
+            // was wrong (SDL itself lacked Vulkan) and sent someone after
+            // their drivers over a packaging defect. Don't guess.
+            echo("ERROR: SDL's message above is the specific reason. An OpenGL build avoids Vulkan entirely.");
             exit(EXIT_FAILURE);
         }
 

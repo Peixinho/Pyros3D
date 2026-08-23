@@ -158,6 +158,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $out = "package"
+          $sym = "symbols"
           # DemoLauncher and PyrosBuilder each want their own "assets"
           # directory (examples/assets vs editor/assets) at the working
           # directory, so they cannot share one folder.
@@ -244,14 +245,20 @@ jobs:
           Copy-Item "$($redist.FullName)\*.dll" "$out\demolauncher" -Force
           Copy-Item "$($redist.FullName)\*.dll" "$out\editor"       -Force
 
-          # Symbols alongside the binaries: an access violation without a
-          # .pdb gives a bare address, on a user's desktop as much as here.
-          Copy-Item "build\examples\*.pdb" "$out\demolauncher" -Force -ErrorAction SilentlyContinue
-          Copy-Item "build\editor\*.pdb"   "$out\editor"       -Force -ErrorAction SilentlyContinue
-          Copy-Item "build\*.pdb"           "$out\lib"          -Force -ErrorAction SilentlyContinue
+          # Symbols go to their own artifact, mirroring the package layout so
+          # they can be dropped straight back in. They tripled the download
+          # (55MB -> 150MB) and most people never need them - but the crash
+          # handler resolves names from a .pdb sitting next to the .exe, so
+          # anyone chasing a crash wants them merged back over the package.
+          New-Item -ItemType Directory -Force -Path "$sym\demolauncher" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$sym\editor"       | Out-Null
+          New-Item -ItemType Directory -Force -Path "$sym\lib"          | Out-Null
+          Copy-Item "build\examples\*.pdb" "$sym\demolauncher" -Force -ErrorAction SilentlyContinue
+          Copy-Item "build\editor\*.pdb"   "$sym\editor"       -Force -ErrorAction SilentlyContinue
+          Copy-Item "build\*.pdb"           "$sym\lib"          -Force -ErrorAction SilentlyContinue
           if ("${{ matrix.static }}" -eq "OFF") {
-            Copy-Item "build\PyrosEngine.pdb" "$out\demolauncher" -Force -ErrorAction SilentlyContinue
-            Copy-Item "build\PyrosEngine.pdb" "$out\editor"       -Force -ErrorAction SilentlyContinue
+            Copy-Item "build\PyrosEngine.pdb" "$sym\demolauncher" -Force -ErrorAction SilentlyContinue
+            Copy-Item "build\PyrosEngine.pdb" "$sym\editor"       -Force -ErrorAction SilentlyContinue
           }
 
           # shaderc_shared.dll comes from the SDK, not vcpkg.
@@ -280,8 +287,10 @@ jobs:
             "The two folders are separate because ''assets'' means",
             "examples\assets to DemoLauncher and editor\assets to PyrosBuilder.",
             "",
-            "If it crashes it now prints a symbolised stack trace. The .pdb",
-            "files next to each .exe are what make that readable - keep them.",
+            "If it crashes it prints a stack trace. To get names and line",
+            "numbers in it, download the matching -symbols artifact and copy",
+            "its folders over this one, so each .pdb sits beside its .exe.",
+            "",
             "For more detail, raise the log level first:",
             "",
             "    set PYROS_LOG_LEVEL=3",
@@ -347,8 +356,12 @@ jobs:
       # point is to capture what the binary prints on startup (the engine
       # logs through echo() to the console by default) so a startup failure
       # is visible in CI rather than only on a user's desktop.
-      - name: Smoke run (diagnostic)
-        continue-on-error: true
+      # Not merely diagnostic any more: a clean non-zero exit is fine here
+      # (no GPU on a runner), but an unhandled exception is a real defect.
+      # Every crash this session - null glad pointer, null volk pointer,
+      # volk vs vulkan-1 symbol clash - shipped with CI green because
+      # nothing checked how the process died.
+      - name: Smoke run
         shell: pwsh
         run: |
           $dir = "$pwd\package\demolauncher"
@@ -378,8 +391,20 @@ jobs:
           $p = Start-Process -FilePath $exe -WorkingDirectory $dir -PassThru `
                  -RedirectStandardOutput "$pwd\smoke-out.txt" `
                  -RedirectStandardError  "$pwd\smoke-err.txt"
+          $crashed = $false
           if ($p.WaitForExit(25000)) {
-            Write-Host "--- exited on its own with code $($p.ExitCode) ---"
+            $code = $p.ExitCode
+            Write-Host "--- exited on its own with code $code ---"
+            # Every Windows termination via an unhandled exception reports an
+            # NTSTATUS, which is negative as a signed exit code (0xC0000005
+            # access violation = -1073741819). A deliberate exit(EXIT_FAILURE)
+            # is 1. So: negative means it crashed, positive means it failed
+            # cleanly and said why - and only the former is a bug here, since
+            # a runner has no GPU and is *expected* to fail.
+            if ($code -lt 0) {
+              Write-Host ("::error::CppApiDemo terminated on an unhandled exception (0x{0:X8}) instead of reporting a failure. See the stack above." -f $code)
+              $crashed = $true
+            }
           } else {
             # Still running after 25s is the good outcome: it got a window up
             # and stayed in its loop.
@@ -390,9 +415,7 @@ jobs:
           Get-Content "$pwd\smoke-out.txt" -ErrorAction SilentlyContinue | Select-Object -First 60
           Write-Host "--- stderr ---"
           Get-Content "$pwd\smoke-err.txt" -ErrorAction SilentlyContinue | Select-Object -First 60
-          # Informational step. A runner has no GPU, so a non-zero exit here
-          # is now the correct behaviour - the engine reports the missing
-          # driver instead of crashing. Don't flag that red.
+          if ($crashed) { exit 1 }
           exit 0
 
       - name: Upload artifact
@@ -400,4 +423,11 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: package/
+          if-no-files-found: error
+
+      - name: Upload symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-symbols
+          path: symbols/
           if-no-files-found: error
