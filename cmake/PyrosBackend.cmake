@@ -179,7 +179,23 @@ if (BUILD_VULKAN_BACKEND)
 			${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/VulkanImGuiBackend.cpp
 			${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp
 		)
-		set(VULKAN_BACKEND_LIBS Vulkan::Vulkan volk::volk GPUOpen::VulkanMemoryAllocator)
+		# Vulkan::Headers, NOT Vulkan::Vulkan. volk dlopen's the loader
+		# itself and owns the vk* symbols as writable globals; linking
+		# vulkan-1 alongside it puts the loader's import thunks in the
+		# binary under the same names, which volk's README calls out
+		# directly ("it's also important to make sure that vulkan-1 is not
+		# linked into the application, as this results in symbol name
+		# conflicts"). On Windows the thunk wins, so volkInitialize()'s
+		# `vkGetInstanceProcAddr = ...` writes into .text and takes an
+		# access violation on the very first Vulkan call.
+		if (TARGET Vulkan::Headers)
+			set(VULKAN_BACKEND_LIBS Vulkan::Headers volk::volk GPUOpen::VulkanMemoryAllocator)
+		else()
+			# CMake < 3.21 has no Headers target; use the include dir alone
+			# and still keep the loader off the link line.
+			set(VULKAN_BACKEND_LIBS volk::volk GPUOpen::VulkanMemoryAllocator)
+			set(SPIRV_TOOLING_INCLUDE_DIRS ${SPIRV_TOOLING_INCLUDE_DIRS} ${Vulkan_INCLUDE_DIRS})
+		endif()
 		message(STATUS "Vulkan backend: Vulkan=${Vulkan_LIBRARY}, volk+VMA via FetchContent")
 	else()
 		message(WARNING "Vulkan SDK not found — Vulkan backend disabled. Install LunarG SDK or: brew install vulkan-headers vulkan-loader")

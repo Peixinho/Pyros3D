@@ -41,9 +41,11 @@ elseif (PYROS_CONTEXT STREQUAL "SDL2Vulkan")
 	find_package(SDL2 REQUIRED)
 	set(PYROS_WINDOW_MANAGER ${CMAKE_SOURCE_DIR}/examples/WindowManagers/SDL2Vulkan/SDL2VulkanContext.cpp)
 	if (TARGET SDL2::SDL2)
-		set(PYROS_CONTEXT_LIB SDL2::SDL2 Vulkan::Vulkan volk::volk GPUOpen::VulkanMemoryAllocator)
+		# See PyrosBackend.cmake - vulkan-1 must stay off the link line
+		# wherever volk is used, not just in the engine.
+		set(PYROS_CONTEXT_LIB SDL2::SDL2 ${VULKAN_BACKEND_LIBS})
 	else()
-		set(PYROS_CONTEXT_LIB ${SDL2_LIBRARIES} Vulkan::Vulkan volk::volk GPUOpen::VulkanMemoryAllocator)
+		set(PYROS_CONTEXT_LIB ${SDL2_LIBRARIES} ${VULKAN_BACKEND_LIBS})
 	endif()
 	set(PYROS_CONTEXT_DEFINITION _SDL2VULKAN)
 	# OpenGL ImGui backend must stay out of Vulkan builds.
