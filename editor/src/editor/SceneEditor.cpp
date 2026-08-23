@@ -381,7 +381,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (usingDeferredRenderer)
 		{
 			BuildGBuffer(Width, Height);
-			Renderer = new DeferredRenderer(Width, Height, gbufferFBO);
+			DeferredRenderer* deferred = new DeferredRenderer(Width, Height, gbufferFBO);
+			// The viewport reads this renderer's output through
+			// GetColorTexture() and composites it into an ImGui::Image, so
+			// RenderScene()'s extra "Render to Screen" pass has no consumer -
+			// it just blits the bare scene over framebuffer 0 every frame,
+			// racing whatever else targets the drawable. See
+			// SetSkipRenderToScreen()'s comment; MaterialPreview already
+			// does this and SceneEditor was the other caller it names.
+			deferred->SetSkipRenderToScreen(true);
+			Renderer = deferred;
 		}
 		else
 		{
@@ -423,7 +432,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (usingDeferredRenderer)
 		{
 			BuildGBuffer(Width, Height);
-			Renderer = new DeferredRenderer(Width, Height, gbufferFBO);
+			DeferredRenderer* deferred = new DeferredRenderer(Width, Height, gbufferFBO);
+			// The viewport reads this renderer's output through
+			// GetColorTexture() and composites it into an ImGui::Image, so
+			// RenderScene()'s extra "Render to Screen" pass has no consumer -
+			// it just blits the bare scene over framebuffer 0 every frame,
+			// racing whatever else targets the drawable. See
+			// SetSkipRenderToScreen()'s comment; MaterialPreview already
+			// does this and SceneEditor was the other caller it names.
+			deferred->SetSkipRenderToScreen(true);
+			Renderer = deferred;
 		}
 		else
 		{
