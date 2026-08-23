@@ -4,7 +4,12 @@
   "version-string": "0.1.0",
   "description": "Windows dependency set for Pyros3D (MSVC). Ignored unless you configure with vcpkg's toolchain file, so macOS/Linux Homebrew and apt builds are unaffected.",
   "dependencies": [
-    "sdl2",
+    {
+      "name": "sdl2",
+      "features": [
+        "vulkan"
+      ]
+    },
     "freetype",
     "lua",
     "curl",
@@ -18,5 +23,6 @@
     }
   ],
   "$comment-lua": "Pinned to 5.4.x deliberately: the current lua port is 5.5, which the vendored sol.hpp does not support and which PyrosDependencies.cmake rejects (it accepts LUA_VERSION_NUM 501-504 only).",
-  "$comment-baseline": "Baseline is deliberately a few weeks behind master so the commit is already present in CI images' vcpkg clones and does not have to be fetched."
+  "$comment-baseline": "Baseline is deliberately a few weeks behind master so the commit is already present in CI images' vcpkg clones and does not have to be fetched.",
+  "$comment-sdl2": "sdl2[vulkan] explicitly: vcpkg's sdl2 default-features are all linux-only, so a plain \"sdl2\" builds with Vulkan compiled out and SDL_CreateWindow(SDL_WINDOW_VULKAN) fails with 'Vulkan support is either not configured in SDL', regardless of the machine's driver."
 }

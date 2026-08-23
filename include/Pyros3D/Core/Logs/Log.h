@@ -120,7 +120,10 @@ namespace p3d {
 				}
 			}
 
-			static void _message(const std::string &Message)
+			// mirrorToConsole=false when the caller has already written this
+			// line to a console stream itself - see _echo(), which writes to
+			// std::cerr and would otherwise have every message appear twice.
+			static void _message(const std::string &Message, const bool mirrorToConsole = true)
 			{
 				if (_classify(Message) > _threshold)
 					return;
@@ -139,7 +142,7 @@ namespace p3d {
 				(void)Message;
 
 #elif defined(LOG_TO_CONSOLE) || defined(_DEBUG)
-				if (_mirrorStdout)
+				if (_mirrorStdout && mirrorToConsole)
 				{
 #if defined(ANDROID)
 					__android_log_print(ANDROID_LOG_DEBUG, "Pyros3D", "%s", Message.c_str());
@@ -165,11 +168,18 @@ namespace p3d {
 				// the panel stays verbose). Ignoring _mirrorStdout here was
 				// the whole reason turning it off didn't actually silence
 				// the console - this path never checked it.
+				bool wroteToConsole = false;
 #if !defined(ANDROID) && !defined(LOG_DISABLE)
 				if (_mirrorStdout && _classify(Message) <= _threshold)
+				{
 					std::cerr << Message << std::endl;
+					wroteToConsole = true;
+				}
 #endif
-				_message(Message);
+				// Skip _message()'s own std::cout mirror when the stderr
+				// write above already put this on the console. Android still
+				// passes true, so __android_log_print() keeps running.
+				_message(Message, !wroteToConsole);
 
 			}
 		};
