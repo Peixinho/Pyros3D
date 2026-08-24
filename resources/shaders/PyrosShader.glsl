@@ -830,6 +830,20 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         #ifdef POINTSHADOW
             // See secondpassPoint.glsl's PCFPOINT for why this is a plain
             // samplerCube compared by hand rather than hardware PCF.
+            //
+            // Same constant, and needed for the same reason: a point light's
+            // cube map is an R32F *colour* attachment, so the polygon offset
+            // ILightComponent::SetShadowBias configures never reaches it and
+            // a lit surface sits one rounding error from shadowing itself.
+            // This copy had no bias at all, which showed as horizontal
+            // stripes across a face pointed straight at the light - measured
+            // on the top of a box under a point light, striped on Vulkan and
+            // Metal and clean on GL, purely because the two sides of the
+            // comparison round the same tie differently per backend. See
+            // secondpassPoint.glsl for why this is a constant in projected
+            // depth and what that costs.
+            const float POINT_SHADOW_BIAS = 0.0003;
+
             float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos)
             {
                 vec4 position_ls = Matrix2 * pos;
@@ -853,7 +867,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
                 for (y = -1.5 ; y <=1.5 ; y+=1.0)
                     for (x = -1.5 ; x <=1.5 ; x+=1.0)
-                        shadow += (texture(shadowMap, position_ls.xyz + vec3(vec2(x,y) * scale, 0.0)).r >= depth) ? 1.0 : 0.0;
+                        shadow += (texture(shadowMap, position_ls.xyz + vec3(vec2(x,y) * scale, 0.0)).r + POINT_SHADOW_BIAS >= depth) ? 1.0 : 0.0;
                 shadow /= 16.0;
                 return shadow;
             }
