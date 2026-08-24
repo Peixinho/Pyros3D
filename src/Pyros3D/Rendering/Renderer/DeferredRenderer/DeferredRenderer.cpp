@@ -1038,7 +1038,19 @@ namespace p3d {
 					if (p->IsCastingShadows())
 					{
 						p->GetShadowMapTexture()->Unbind();
-						numberPoint++;
+						// Two matrices per light, not one: IRenderer.cpp's
+						// point block pushes the light's projection and then
+						// its view, and the read above is
+						// PointShadowMatrix[numberPoint] and [numberPoint+1].
+						// Advancing by 1 gave the *second* shadow-casting
+						// point light the first light's view matrix as its
+						// projection and its own projection as its view -
+						// every lookup nonsense, everything occluded, the
+						// light black. Invisible with a single point light,
+						// which is all any demo had. The forward path indexes
+						// the same array as ShadowMap*2 / ShadowMap*2+1 and
+						// was always right.
+						numberPoint += 2;
 					}
 					else
 					{
