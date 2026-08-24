@@ -13,6 +13,10 @@ namespace p3d {
 
 	ForwardRenderer::ForwardRenderer(const uint32 Width, const uint32 Height, IRenderDevice* externalDevice) : IRenderer(Width, Height, externalDevice)
 	{
+		// See IRenderer::ShadowMapsAreArrayIndexed - this renderer shades
+		// every light in one pass, so it can only reach the shadow maps
+		// PyrosShader.glsl's fixed arrays declare.
+		ShadowMapsAreArrayIndexed = true;
 		echo("SUCCESS: Forward Renderer Created");
 
 		ActivateCulling(CullingMode::FrustumCulling);
@@ -37,6 +41,7 @@ namespace p3d {
 		{
 			uint32 pointCounter = 0;
 			uint32 spotCounter = 0;
+			uint32 directionalShadowCounter = 0;
 			for (std::vector<IComponent*>::iterator i = lcomps.begin(); i != lcomps.end(); i++)
 			{
 				switch (((ILightComponent*)(*i))->GetLightType())
@@ -58,7 +63,23 @@ namespace p3d {
 					directionalLight.m[4] = position.x;      directionalLight.m[5] = position.y;          directionalLight.m[6] = position.z;
 					directionalLight.m[7] = direction.x;     directionalLight.m[8] = direction.y;         directionalLight.m[9] = direction.z;
 					directionalLight.m[10] = 0.0f;			 directionalLight.m[11] = 0.0f;				  directionalLight.m[12] = 0.0f;
-					directionalLight.m[13] = (f32)type;	  	 directionalLight.m[14] = d->GetShadowPCFTexelSize();  directionalLight.m[15] = (d->IsCastingShadows() ? 1.f : -1.f);
+					// m[15] is a flag here, not an index like point and spot
+					// below, and that is honest: PyrosShader.glsl has one
+					// uDirectionalShadowMaps sampler, and its
+					// uDirectionalDepthsMVP[4] holds four *cascades* of one
+					// light. There is nowhere to put a second one.
+					//
+					// So only the first shadow-casting directional light
+					// claims it. Letting them all claim it meant every one of
+					// them sampled the first light's map through its own
+					// matrices, which reported the whole scene occluded and
+					// dropped it to ambient - two suns and the image goes
+					// black. Now the extras light the scene and simply cast
+					// no shadow, which is a limit a content author can see
+					// rather than a failure.
+					bool dirCanCastHere = d->IsCastingShadows() && directionalShadowCounter < MaxDirectionalShadowLights;
+					if (dirCanCastHere) directionalShadowCounter++;
+					directionalLight.m[13] = (f32)type;	  	 directionalLight.m[14] = d->GetShadowPCFTexelSize();  directionalLight.m[15] = (dirCanCastHere ? 1.f : -1.f);
 
 					_Lights.push_back(directionalLight);
 					// NumberOfDirectionalShadows is already set in PreRender
@@ -90,7 +111,15 @@ namespace p3d {
 					pointLight.m[10] = attenuation;  pointLight.m[11] = p->GetShadowBiasScale(); pointLight.m[12] = 0.f;
 					pointLight.m[13] = (f32)type;	 pointLight.m[14] = p->GetShadowPCFTexelSize(); pointLight.m[15] = -1.f;
 
-					if (p->IsCastingShadows())
+					// Clamped: this counter runs over every shadow-casting
+					// point light in the scene, before per-object culling and
+					// before the MAX_LIGHTS cap further down, so it is not
+					// bounded by anything the shader can address. Light five
+					// was handing over ShadowMap=4, and PCFPOINT reads
+					// uPointDepthsMVP[ShadowMap*2] out of a mat4[8] - one past
+					// the end. Past the limit the light still lights, it just
+					// casts no shadow.
+					if (p->IsCastingShadows() && pointCounter < IRenderer::MaxPointShadowLights)
 					{
 						pointLight.m[14] = p->GetShadowPCFTexelSize();
 						pointLight.m[15] = (f32)pointCounter++;
@@ -119,7 +148,9 @@ namespace p3d {
 					spotLight.m[10] = attenuation;	 spotLight.m[11] = cones.x;			  spotLight.m[12] = cones.y;
 					spotLight.m[13] = (f32)type;	 spotLight.m[15] = -1.f;
 
-					if (s->IsCastingShadows())
+					// Clamped for the same reason as the point counter above -
+					// uSpotDepthsMVP is a mat4[4].
+					if (s->IsCastingShadows() && spotCounter < IRenderer::MaxSpotShadowLights)
 					{
 						spotLight.m[14] = s->GetShadowPCFTexelSize();
 						spotLight.m[15] = (f32)spotCounter++;

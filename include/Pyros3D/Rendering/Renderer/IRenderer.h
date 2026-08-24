@@ -354,10 +354,39 @@ namespace p3d {
 		// entries - keep in sync with PyrosShader.glsl's own MAX_LIGHTS.
 		static uint32 LightsUBO;
 
+		// How many shadow-casting lights of each type the forward path can
+		// actually address, which is fixed by PyrosShader.glsl's array
+		// declarations: uPointShadowMaps[4]/uPointDepthsMVP[8] (two matrices
+		// per light), uSpotShadowMaps[4]/uSpotDepthsMVP[4], and a lone
+		// uDirectionalShadowMaps whose uDirectionalDepthsMVP[4] is four
+		// *cascades* of one light, not four lights.
+		//
+		// Public and here rather than a #define in IRenderer.cpp because
+		// ForwardRenderer has to clamp the per-light shadow index it packs
+		// against them: those counters run over every shadow-casting light in
+		// the scene, before culling and before the MAX_LIGHTS cap, so a fifth
+		// shadow-casting point light was handing the shader ShadowMap=4 and
+		// having it read uPointDepthsMVP[8] - one past the end. Duplicating
+		// the numbers into ForwardRenderer.cpp would be the same
+		// drifting-constant trap that produced most of the shadow bugs in
+		// this file's history.
+		// True for a renderer that addresses shadow maps through those fixed
+		// shader arrays - i.e. ForwardRenderer, which shades every light in
+		// one pass and so can only reach what the arrays declare. False for
+		// DeferredRenderer, which draws a separate pass per light with that
+		// light's own map bound and has no such limit; PreRender() must not
+		// stop rendering shadow maps it can still use.
+		bool ShadowMapsAreArrayIndexed;
+
+		static const uint32 MaxDirectionalShadowLights = 1;
+		static const uint32 MaxPointShadowLights = 4;
+		static const uint32 MaxSpotShadowLights = 4;
+
 		// Same idea for the shadow-casting matrix arrays (DirectionalShadowBlock/
 		// PointShadowBlock/SpotShadowBlock, binding points 2/3/4). Each is
 		// sized to match its shader-side array declaration exactly - see
-		// the PYROS_MAX_*_SHADOWS #defines in IRenderer.cpp.
+		// the PYROS_MAX_*_SHADOWS #defines in IRenderer.cpp, which are these
+		// same limits expressed as matrix counts.
 		static uint32 DirectionalShadowUBO;
 		static uint32 PointShadowUBO;
 		static uint32 SpotShadowUBO;

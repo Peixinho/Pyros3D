@@ -153,7 +153,7 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 // SendGlobalUniforms(), so it doesn't touch the shared UBOs at all - in
 // particular it must NOT bump SharedUBORefCount, since it will never
 // decrement it on destruction either (see ~IRenderer()).
-IRenderer::IRenderer() : UsesSharedUBOs(false), device(new GLRenderDevice()) { RenderingPointShadowFace = false; }
+IRenderer::IRenderer() : ShadowMapsAreArrayIndexed(false), UsesSharedUBOs(false), device(new GLRenderDevice()) { RenderingPointShadowFace = false; }
 
 // Resolves what IRenderer(Width, Height, externalDevice)'s device member
 // should use, and whether it should *own* (delete on destruction) or just
@@ -199,6 +199,8 @@ static ResolvedDevice ResolveInitialDevice(IRenderDevice* externalDevice)
 
 IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* externalDevice)
 {
+	// See the member's comment - only ForwardRenderer turns this on.
+	ShadowMapsAreArrayIndexed = false;
 	ResolvedDevice resolved = ResolveInitialDevice(externalDevice);
 	device = MaybeOwningDevicePtr(resolved.ptr, MaybeOwningDeviceDeleter{resolved.owns});
 
@@ -549,7 +551,23 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 				Vec3 direction = (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize();
 
 				// Shadows
-				if (!skipShadowMaps && d->IsCastingShadows())
+				//
+				// Capped at MaxDirectionalShadowLights, which is 1: PyrosShader.glsl
+				// has a single uDirectionalShadowMaps sampler and its
+				// uDirectionalDepthsMVP[4] is four *cascades* of one light.
+				// Rendering a second light's map anyway meant two maps were
+				// bound to that one sampler and each backend picked a
+				// different one - on two suns in forward, GL sampled the
+				// second light's map through the first light's matrices and
+				// reported the first light fully occluded (its whole
+				// contribution gone, floor lit only by the other), while
+				// Vulkan happened to pick the other way round. Skipping the
+				// pass entirely for the extras leaves exactly one map to
+				// bind, so both backends agree and the extra lights simply
+				// don't cast. ForwardRenderer clamps the flag it packs to
+				// match - see its comment on m[15].
+				if (!skipShadowMaps && d->IsCastingShadows()
+					&& (!ShadowMapsAreArrayIndexed || NumberOfDirectionalShadows < MaxDirectionalShadowLights))
 				{
 					// Increase Number of Shadows
 					NumberOfDirectionalShadows++;
@@ -663,8 +681,11 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 			{
 				PointLight* p = ((PointLight*)(*i));
 
-				// Shadows
-				if (!skipShadowMaps && p->IsCastingShadows())
+				// Shadows. See the directional block's comment on the cap -
+				// same reason, same forward-only condition; uPointShadowMaps
+				// is a samplerCube[4].
+				if (!skipShadowMaps && p->IsCastingShadows()
+					&& (!ShadowMapsAreArrayIndexed || NumberOfPointShadows < MaxPointShadowLights))
 				{
 					// Increase Number of Shadows
 					NumberOfPointShadows++;
@@ -834,8 +855,10 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 			{
 				SpotLight* s = ((SpotLight*)(*i));
 
-				// Shadows
-				if (!skipShadowMaps && s->IsCastingShadows())
+				// Shadows. See the directional block's comment on the cap -
+				// uSpotShadowMaps is a sampler2DShadow[4].
+				if (!skipShadowMaps && s->IsCastingShadows()
+					&& (!ShadowMapsAreArrayIndexed || NumberOfSpotShadows < MaxSpotShadowLights))
 				{
 
 					Vec3 direction = (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.f)).xyz().normalize();
