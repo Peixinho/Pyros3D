@@ -245,6 +245,14 @@ namespace p3d {
 				"onInit", &LUA_DirectionalLight::on_init,
 				"onDestroy", &LUA_DirectionalLight::on_destroy,
 				"setShadowPCFTexelSize", &LUA_DirectionalLight::SetShadowPCFTexelSize,
+				// Shadow depth bias. Lights built from Lua defaulted to
+				// 0/0 (ILightComponent's constructor), which is shadow
+				// acne on every one of them, and there was no way to set
+				// it without going through the scene serializer - so a
+				// Lua-authored shadow-casting light could only ever be
+				// biased by editing C++. Same factor/units pair
+				// SceneSerializer reads.
+				"setShadowBias", &LUA_DirectionalLight::SetShadowBias,
 				sol::base_classes, sol::bases<IComponent>()
 				);
 		}
@@ -271,6 +279,14 @@ namespace p3d {
 				"onInit", &LUA_PointLight::on_init,
 				"onDestroy", &LUA_PointLight::on_destroy,
 				"setShadowPCFTexelSize", &LUA_PointLight::SetShadowPCFTexelSize,
+				// Shadow depth bias. Lights built from Lua defaulted to
+				// 0/0 (ILightComponent's constructor), which is shadow
+				// acne on every one of them, and there was no way to set
+				// it without going through the scene serializer - so a
+				// Lua-authored shadow-casting light could only ever be
+				// biased by editing C++. Same factor/units pair
+				// SceneSerializer reads.
+				"setShadowBias", &LUA_PointLight::SetShadowBias,
 				sol::base_classes, sol::bases<IComponent>()
 				);
 		}
@@ -309,6 +325,14 @@ namespace p3d {
 				"getLightIntensity", &LUA_SpotLight::GetLightIntensity,
 				"setLightIntensity", &LUA_SpotLight::SetLightIntensity,
 				"setShadowPCFTexelSize", &LUA_SpotLight::SetShadowPCFTexelSize,
+				// Shadow depth bias. Lights built from Lua defaulted to
+				// 0/0 (ILightComponent's constructor), which is shadow
+				// acne on every one of them, and there was no way to set
+				// it without going through the scene serializer - so a
+				// Lua-authored shadow-casting light could only ever be
+				// biased by editing C++. Same factor/units pair
+				// SceneSerializer reads.
+				"setShadowBias", &LUA_SpotLight::SetShadowBias,
 				"onUpdate", &LUA_SpotLight::on_update,
 				"onInit", &LUA_SpotLight::on_init,
 				"onDestroy", &LUA_SpotLight::on_destroy,
