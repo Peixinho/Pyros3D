@@ -2235,11 +2235,27 @@ namespace p3d {
 			samplerSetAllocInfo.descriptorPool = descriptorPool;
 			samplerSetAllocInfo.descriptorSetCount = 1;
 			samplerSetAllocInfo.pSetLayouts = &progIt->second.samplerSetLayout;
-			VkDescriptorSet samplerSet = VK_NULL_HANDLE;
-			if (vkAllocateDescriptorSets(device, &samplerSetAllocInfo, &samplerSet) == VK_SUCCESS)
-				pipelineSamplerSets[handle] = samplerSet;
-			else
-				fprintf(stderr, "VulkanRenderDevice::CreatePipeline: vkAllocateDescriptorSets (sampler set) failed for pipeline %u\n", handle);
+			// The whole ring at once - see pipelineSamplerRing's comment for
+			// why it is a ring and why it is allocated here rather than
+			// lazily at draw time.
+			std::vector<VkDescriptorSet> ring;
+			for (uint32 r = 0; r < kSamplerRingSize; r++)
+			{
+				VkDescriptorSet samplerSet = VK_NULL_HANDLE;
+				if (vkAllocateDescriptorSets(device, &samplerSetAllocInfo, &samplerSet) != VK_SUCCESS)
+				{
+					if (r == 0)
+						fprintf(stderr, "VulkanRenderDevice::CreatePipeline: vkAllocateDescriptorSets (sampler set) failed for pipeline %u\n", handle);
+					break; // a short ring is survivable - it just wraps sooner
+				}
+				ring.push_back(samplerSet);
+			}
+			if (!ring.empty())
+			{
+				pipelineSamplerSets[handle] = ring[0];
+				pipelineSamplerRing[handle] = ring;
+				pipelineSamplerRingUsed[handle] = 0;
+			}
 		}
 
 		return handle;
@@ -2260,6 +2276,11 @@ namespace p3d {
 		// vkDestroyDescriptorPool (the device destructor) - just drop the
 		// bookkeeping entry here.
 		pipelineSamplerSets.erase(pipeline);
+		pipelineSamplerRing.erase(pipeline);
+		pipelineSamplerRingUsed.erase(pipeline);
+		pendingSamplerState.erase(pipeline);
+		for (uint32 r = 0; r < kSamplerRingSize; r++)
+			pipelineSamplerRingCombo.erase(std::pair<DeviceHandle, uint32>(pipeline, r));
 	}
 
 	void VulkanRenderDevice::BindPipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline)
@@ -2816,15 +2837,88 @@ namespace p3d {
 			vkCmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet,
 				dynamicOffsetCount, dynamicOffsetCount > 0 ? dynamicOffsets : NULL);
 		}
-		std::map<DeviceHandle, VkDescriptorSet>::iterator samplerSetIt = pipelineSamplerSets.find(currentPipeline);
-		if (samplerSetIt != pipelineSamplerSets.end() && samplerSetIt->second != VK_NULL_HANDLE)
+		if (pipelineSamplerRing.find(currentPipeline) != pipelineSamplerRing.end())
 		{
-			// Last chance to make this set valid - every material uniform
+			// Last chance to complete the snapshot - every material uniform
 			// for this draw has been sent by now, so anything still
 			// unwritten is a sampler nothing is ever going to bind.
-			FillUnwrittenSamplerDescriptors(progIt->second, samplerSetIt->second);
-			vkCmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 1, 1, &samplerSetIt->second, 0, NULL);
+			FillUnwrittenSamplerDescriptors(progIt->second, VK_NULL_HANDLE);
+			VkDescriptorSet samplerSet = ResolveSamplerSetForCurrentState(progIt->second, currentPipeline);
+			if (samplerSet != VK_NULL_HANDLE)
+				vkCmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 1, 1, &samplerSet, 0, NULL);
 		}
+	}
+
+	// Returns the ring slot holding this pipeline's current sampler state.
+	// Searches *every* written slot for a match and only writes a new one when
+	// none holds it, so a set is never rewritten while a recorded draw might
+	// still read it - see rule 2 on pipelineSamplerRing. A pipeline drawn a
+	// thousand times with one set of textures stays on one slot; a pipeline
+	// drawn once per light gets a slot each and keeps them across frames.
+	VkDescriptorSet VulkanRenderDevice::ResolveSamplerSetForCurrentState(ProgramRecord &prog, const DeviceHandle pipeline)
+	{
+		std::map<DeviceHandle, std::vector<VkDescriptorSet> >::iterator ringIt = pipelineSamplerRing.find(pipeline);
+		if (ringIt == pipelineSamplerRing.end() || ringIt->second.empty())
+			return VK_NULL_HANDLE;
+		const uint32 ringSize = (uint32)ringIt->second.size();
+
+		std::map<DeviceHandle, std::map<uint32, VkDescriptorImageInfo> >::iterator stIt = pendingSamplerState.find(pipeline);
+		if (stIt == pendingSamplerState.end() || stIt->second.empty())
+			return ringIt->second[0]; // no samplers ever bound - nothing to distinguish
+
+		// Key on the raw handles; std::map fixes the binding order.
+		std::vector<uint64> combo;
+		combo.reserve(stIt->second.size() * 3);
+		for (std::map<uint32, VkDescriptorImageInfo>::const_iterator i = stIt->second.begin(); i != stIt->second.end(); i++)
+		{
+			combo.push_back((uint64)i->first);
+			combo.push_back((uint64)(uintptr_t)i->second.imageView);
+			combo.push_back((uint64)(uintptr_t)i->second.sampler);
+		}
+
+		uint32 used = pipelineSamplerRingUsed[pipeline];
+		for (uint32 slot = 0; slot < used; slot++)
+		{
+			std::map<std::pair<DeviceHandle, uint32>, std::vector<uint64> >::iterator c =
+				pipelineSamplerRingCombo.find(std::pair<DeviceHandle, uint32>(pipeline, slot));
+			if (c != pipelineSamplerRingCombo.end() && c->second == combo)
+				return ringIt->second[slot];
+		}
+
+		// Nothing holds it. Take the next unwritten slot; once the ring is
+		// full this overwrites slot (used % ringSize), which is the old
+		// one-set-per-pipeline hazard again and only reached by a pipeline
+		// with more live texture combinations than the ring has slots.
+		uint32 slot = used % ringSize;
+		pipelineSamplerRingUsed[pipeline] = used + 1 > ringSize ? ringSize : used + 1;
+		VkDescriptorSet set = ringIt->second[slot];
+
+		// One write per binding, each filling every element of a shader-
+		// declared array (e.g. `uPointShadowMaps[4]`) with the same
+		// descriptor: the PCF helpers only read index 0 with a literal
+		// constant, but Vulkan requires every element the *type* declares to
+		// be valid the moment any element is dynamically accessed
+		// (VUID-vkCmdDrawIndexed-None-08114).
+		for (std::map<uint32, VkDescriptorImageInfo>::const_iterator i = stIt->second.begin(); i != stIt->second.end(); i++)
+		{
+			uint32 arraySize = 1;
+			std::map<uint32, uint32>::iterator arrIt = prog.samplerArraySizes.find(i->first);
+			if (arrIt != prog.samplerArraySizes.end())
+				arraySize = arrIt->second;
+			std::vector<VkDescriptorImageInfo> imageInfos(arraySize, i->second);
+
+			VkWriteDescriptorSet write = {};
+			write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			write.dstSet = set;
+			write.dstBinding = i->first;
+			write.dstArrayElement = 0;
+			write.descriptorCount = arraySize;
+			write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			write.pImageInfo = imageInfos.data();
+			vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
+		}
+		pipelineSamplerRingCombo[std::pair<DeviceHandle, uint32>(pipeline, slot)] = combo;
+		return set;
 	}
 
 	DeviceHandle VulkanRenderDevice::CreateUniformBuffer(const uint32 sizeBytes, const uint32 bindingPoint)
@@ -3754,9 +3848,8 @@ namespace p3d {
 		if (texIt == textures.end() || texIt->second.view == VK_NULL_HANDLE)
 			return; // texture handle stale, or UploadTexture2D() never ran (no image yet)
 
-		std::map<DeviceHandle, VkDescriptorSet>::iterator setIt = pipelineSamplerSets.find(currentPipeline);
-		if (setIt == pipelineSamplerSets.end() || setIt->second == VK_NULL_HANDLE)
-			return; // no current pipeline / it has no sampler set (CreatePipeline() failed, or descriptorPool wasn't ready yet)
+		if (pipelineSamplerRing.find(currentPipeline) == pipelineSamplerRing.end())
+			return; // no current pipeline / it has no sampler ring (CreatePipeline() failed, or descriptorPool wasn't ready yet)
 
 		if (!RebuildSamplerIfDirty(texIt->second))
 			return;
@@ -3779,45 +3872,17 @@ namespace p3d {
 
 		EnsureSampledLayout(texIt->second);
 
-		// See lastWrittenSamplerView's comment - skip the
-		// vkUpdateDescriptorSets() call entirely if this exact texture is
-		// already what's written at this (pipeline, binding) slot.
-		std::pair<DeviceHandle, uint32> dirtyKey(currentPipeline, (uint32)handle);
-		std::map<std::pair<DeviceHandle, uint32>, VkImageView>::iterator dirtyIt = lastWrittenSamplerView.find(dirtyKey);
-		if (dirtyIt != lastWrittenSamplerView.end() && dirtyIt->second == texIt->second.view)
-			return;
-
+		// Recorded, not written: which ring slot this belongs in isn't known
+		// until the draw, because it depends on every other sampler this
+		// pipeline has bound too. See pendingSamplerState.
 		VkDescriptorImageInfo imageInfo = {};
 		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		imageInfo.imageView = texIt->second.view;
 		imageInfo.sampler = texIt->second.sampler;
-
-		// If this binding is a shader-declared array (e.g.
-		// `uPointShadowMaps[4]` - see ProgramRecord::samplerArraySizes'
-		// comment), write the same descriptor into every element, not
-		// just element 0: PyrosShader.glsl's PCF helpers only ever read
-		// index 0 with a literal constant, but Vulkan still requires
-		// every element the *type* declares to be a valid descriptor the
-		// moment any element is dynamically accessed
-		// (VUID-vkCmdDrawIndexed-None-08114) - leaving elements 1..N-1
-		// never-written means they're never valid.
-		uint32 arraySize = 1;
-		std::map<uint32, uint32>::iterator arrIt = progIt->second.samplerArraySizes.find((uint32)handle);
-		if (arrIt != progIt->second.samplerArraySizes.end())
-			arraySize = arrIt->second;
-
-		std::vector<VkDescriptorImageInfo> imageInfos(arraySize, imageInfo);
-
-		VkWriteDescriptorSet write = {};
-		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		write.dstSet = setIt->second;
-		write.dstBinding = (uint32)handle;
-		write.dstArrayElement = 0;
-		write.descriptorCount = arraySize;
-		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		write.pImageInfo = imageInfos.data();
-		vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
-		lastWrittenSamplerView[dirtyKey] = texIt->second.view;
+		pendingSamplerState[currentPipeline][(uint32)handle] = imageInfo;
+		// Still tracked, purely so FillUnwrittenSamplerDescriptors() knows
+		// this slot has a real texture and shouldn't get a fallback.
+		lastWrittenSamplerView[std::pair<DeviceHandle, uint32>(currentPipeline, (uint32)handle)] = texIt->second.view;
 	}
 	void VulkanRenderDevice::SendUniformFloat(const int32 handle, const f32 *data, const uint32 count) {}
 	void VulkanRenderDevice::SendUniformVec2(const int32 handle, const f32 *data, const uint32 count) {}
@@ -6042,9 +6107,15 @@ namespace p3d {
 	// reaches it (VUID-vkCmdDrawIndexed-None-08114). Anything a material
 	// actually bound has already been written by SendUniformInt(); this
 	// fills in whatever is left with a type-matching fallback.
+	// Completes pendingSamplerState rather than writing a set - see that
+	// member's comment. Every sampler binding the program declares has to end
+	// up in the snapshot, or the ring slot built from it leaves a descriptor
+	// invalid the moment the shader statically references it
+	// (VUID-vkCmdDraw-None-08600).
 	void VulkanRenderDevice::FillUnwrittenSamplerDescriptors(ProgramRecord &prog, const VkDescriptorSet samplerSet)
 	{
-		if (samplerSet == VK_NULL_HANDLE)
+		(void)samplerSet;
+		if (currentPipeline == 0)
 			return;
 		for (std::set<uint32>::iterator bIt = prog.reflectedSamplerBindings.begin(); bIt != prog.reflectedSamplerBindings.end(); bIt++)
 		{
@@ -6077,22 +6148,7 @@ namespace p3d {
 			imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 			imageInfo.imageView = texIt->second.view;
 			imageInfo.sampler = texIt->second.sampler;
-
-			uint32 arraySize = 1;
-			std::map<uint32, uint32>::iterator arrIt = prog.samplerArraySizes.find(binding);
-			if (arrIt != prog.samplerArraySizes.end())
-				arraySize = arrIt->second;
-			std::vector<VkDescriptorImageInfo> imageInfos(arraySize, imageInfo);
-
-			VkWriteDescriptorSet write = {};
-			write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			write.dstSet = samplerSet;
-			write.dstBinding = binding;
-			write.dstArrayElement = 0;
-			write.descriptorCount = arraySize;
-			write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			write.pImageInfo = imageInfos.data();
-			vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
+			pendingSamplerState[currentPipeline][binding] = imageInfo;
 			lastWrittenSamplerView[key] = texIt->second.view;
 		}
 	}

@@ -1442,6 +1442,53 @@ namespace p3d {
 		// these SendUniformInt() should target.
 		std::map<DeviceHandle, VkDescriptorSet> pipelineSamplerSets;
 
+		// One set per pipeline is not enough. The comment on
+		// ProgramRecord::samplerSetLayout justifies per-pipeline sets with
+		// "pipelines are already effectively per-(mesh,shader)";
+		// DeferredRenderer's lighting passes break that outright, drawing the
+		// SAME proxy mesh with the SAME material once per light and changing
+		// only which shadow map is bound. Every light then shared one set,
+		// and since vkUpdateDescriptorSets mutates a set in place while the
+		// GPU reads it when it *executes* the draw rather than when the draw
+		// was recorded, the last texture written won for all of them: with
+		// two point lights the first sampled the second's cube map, and with
+		// only the first casting, the dummy cube bound for the second blacked
+		// it out entirely. GL and Metal bind textures per draw and are both
+		// correct - measured, GL/Metal agree to 0.007% where Vulkan sits
+		// 0.39% from both.
+		//
+		// So each pipeline gets a small ring of sets, and two rules that both
+		// matter (each was violated by one of two earlier attempts at this,
+		// and each failure looked like an unrelated mystery):
+		//
+		//   1. The ring is allocated up front in CreatePipeline(). Nothing
+		//      asks the descriptor pool for memory mid-recording.
+		//   2. A draw takes the slot already holding its exact sampler
+		//      combination if one exists, and only writes a slot when no slot
+		//      matches. A set is therefore never rewritten while a recorded
+		//      draw - this frame's or the previous frame's, which is still in
+		//      flight - might still read it. Comparing against only the
+		//      *current* slot is not enough: two lights alternating A,B,A,B
+		//      advance the slot every draw and wrap onto a live set.
+		//
+		// More distinct combinations in flight than kSamplerRingSize wraps and
+		// is the old behaviour for the excess, so size it past the number of
+		// lights a pipeline is redrawn for times MAX_FRAMES_IN_FLIGHT.
+		static const uint32 kSamplerRingSize = 8;
+		std::map<DeviceHandle, std::vector<VkDescriptorSet> > pipelineSamplerRing;
+		// Per ring slot, the sampler combination it currently holds, and how
+		// many slots of the ring have been written at all.
+		std::map<std::pair<DeviceHandle, uint32>, std::vector<uint64> > pipelineSamplerRingCombo;
+		std::map<DeviceHandle, uint32> pipelineSamplerRingUsed;
+		// The sampler state a draw *wants*, accumulated per pipeline as
+		// SendUniformInt() reports each texture unit and snapshotted into a
+		// ring slot at draw time. Sticky across draws, exactly as the
+		// descriptor writes it replaces were.
+		std::map<DeviceHandle, std::map<uint32, VkDescriptorImageInfo> > pendingSamplerState;
+		// Picks (and writes only if no slot already holds it) the ring slot
+		// for `pipeline`'s current pendingSamplerState.
+		VkDescriptorSet ResolveSamplerSetForCurrentState(ProgramRecord &prog, const DeviceHandle pipeline);
+
 		// Fallback ("dummy") images for sampler bindings a pipeline
 		// declares but nothing ever binds a real texture to. GL tolerates
 		// that - an unbound sampler just reads black - so materials have
