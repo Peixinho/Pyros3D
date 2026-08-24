@@ -375,6 +375,7 @@ namespace p3d {
 		pointShadowPCFTexelHandle = deferredMaterialPoint->AddUniform(Uniform("uPCFTexelSize", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		pointShadowDepthsMVPHandle = deferredMaterialPoint->AddUniform(Uniform("uPointDepthsMVP", Uniforms::DataUsage::Other, Uniforms::DataType::Matrix));
 		pointHaveShadowHandle = deferredMaterialPoint->AddUniform(Uniform("uHaveShadowmap", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		pointShadowBiasHandle = deferredMaterialPoint->AddUniform(Uniform("uShadowBias", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		pointVolumetricHandle = deferredMaterialPoint->AddUniform(Uniform("uVolumetricParams", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		deferredMaterialPoint->AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
 		deferredMaterialPoint->AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
@@ -427,7 +428,10 @@ namespace p3d {
 		deferredMaterialPoint->extraUniforms[1].offsets["uPointDepthsMVP"] = 64;
 		deferredMaterialPoint->extraUniforms[1].offsets["uPCFTexelSize"] = 192;
 		deferredMaterialPoint->extraUniforms[1].offsets["uHaveShadowmap"] = 196;
-		// vec4 -> next 16-byte boundary after 200.
+		// Fills the float std140 already left free here by the vec4's
+		// alignment below, so the block size is unchanged.
+		deferredMaterialPoint->extraUniforms[1].offsets["uShadowBias"] = 200;
+		// vec4 -> next 16-byte boundary after 204.
 		deferredMaterialPoint->extraUniforms[1].offsets["uVolumetricParams"] = 208;
 
 		// FrontFace on BOTH backends - culling the light volume's *near*
@@ -963,10 +967,12 @@ namespace p3d {
 					if (p->IsCastingShadows())
 					{
 						f32 txl = p->GetShadowPCFTexelSize();
+						f32 bias = p->GetShadowBiasScale();
 						Matrix mvp[2];
 						mvp[0] = PointShadowMatrix[numberPoint];
 						mvp[1] = PointShadowMatrix[numberPoint+1];
 						pointShadowPCFTexelHandle->SetValue((void*)&txl);
+						pointShadowBiasHandle->SetValue((void*)&bias);
 						pointShadowDepthsMVPHandle->SetValue(&mvp, 2);
 						p->GetShadowMapTexture()->Bind();
 						shadowUnit = Texture::GetLastBindedUnit();

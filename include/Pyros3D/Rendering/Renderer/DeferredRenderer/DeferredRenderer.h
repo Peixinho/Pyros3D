@@ -226,7 +226,7 @@ namespace p3d {
 		std::shared_ptr<Renderable> quadHandle;
 
 		// Uniform Handlers
-		Uniform *pointPosHandle, *pointRadiusHandle, *pointColorHandle, *pointShadowHandle, *pointShadowDepthsMVPHandle, *pointShadowPCFTexelHandle, *pointHaveShadowHandle;
+		Uniform *pointPosHandle, *pointRadiusHandle, *pointColorHandle, *pointShadowHandle, *pointShadowDepthsMVPHandle, *pointShadowPCFTexelHandle, *pointHaveShadowHandle, *pointShadowBiasHandle;
 		Uniform *dirDirHandle, *dirColorHandle, *dirShadowHandle, *dirShadowPCFTexelHandle, *dirShadowDepthsMVPHandle, *dirShadowFarHandle, *dirHaveShadowHandle;
 		Uniform *spotPosHandle, *spotDirHandle, *spotRadiusHandle, *spotOutterHandle, *spotInnerHandle, *spotColorHandle, *spotShadowHandle, *spotShadowDepthsMVPHandle, *spotShadowPCFTexelHandle, *spotHaveShadowHandle;
 

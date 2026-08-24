@@ -1183,6 +1183,10 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				// spot lights, since deferred point shadows didn't render.
 				j["shadowBiasFactor"] = l->GetShadowBiasFactor();
 				j["shadowBiasUnits"] = l->GetShadowBiasUnits();
+				// The one a point light actually reacts to - the two above
+				// configure polygon offset, which never reaches an R32F
+				// colour cube map. See PointLight::SetShadowBiasScale().
+				j["shadowBiasScale"] = l->GetShadowBiasScale();
 			}
 			// Outside the castingShadows block - volumetric scattering
 			// works with or without a shadow map (unshadowed just means the
@@ -2013,6 +2017,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				// serialize side's comment on why point/spot were missing it.
 				if ((j.find("shadowBiasFactor") != j.end()) || (j.find("shadowBiasUnits") != j.end()))
 					l->SetShadowBias(j.value("shadowBiasFactor", 1.0f), j.value("shadowBiasUnits", 1.0f));
+				// Point lights only, and the one that actually does anything
+				// for them - see PointLight::SetShadowBiasScale(), and note
+				// SetShadowBias()'s polygon offset is a no-op here because
+				// the cube map is a colour attachment.
+				if (j.find("shadowBiasScale") != j.end())
+					l->SetShadowBiasScale(j.value("shadowBiasScale", 0.02f));
 			}
 			ReadVolumetric(j, l.get());
 			go->AddComponent(l);

@@ -14,6 +14,7 @@ namespace p3d {
 	{
 		Color = color;
 		Radius = radius;
+		ShadowBiasScale = 0.02f;
 
 		// Bounding
 		minBounds = Vec3(-radius*.5f, -radius*.5f, -radius*.5f);

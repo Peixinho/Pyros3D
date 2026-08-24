@@ -78,50 +78,32 @@ void main() {
 // hardware path. It does mean the cube shadow map must NOT have compare
 // mode enabled (see PointLight::EnableCastShadows) - a compare-mode
 // texture read by a non-comparison sampler is undefined.
-// Constant offset in stored-depth units, applied to the comparison below.
+// The depth comparison below needs slack, and it cannot come from polygon
+// offset: the cube map moved from a depth attachment to an R32F *colour* one
+// (see PointLight::EnableCastShadows), and polygon offset - what
+// ILightComponent::SetShadowBias configures - biases the depth buffer only.
+// Without any, every lit surface sits one rounding error from shadowing
+// itself (measured as the fraction of floor pixels PCFPOINT reports occluded,
+// with no bias: GL 26.8%, Vulkan 47.6%, both far above the true shadow area).
 //
-// Needed because the cube map moved from a depth attachment to an R32F
-// colour one (see PointLight::EnableCastShadows): polygon offset - what
-// ILightComponent::SetShadowBias configures - biases the *depth buffer*
-// only, and does not touch the colour the shadow shader writes. So the
-// acne protection the depth attachment got for free disappeared with the
-// conversion, and without this every lit surface sits one rounding error
-// from shadowing itself (measured as the fraction of floor pixels PCFPOINT
-// reports occluded, with no bias: GL 26.8%, Vulkan 47.6%, both far above
-// the true shadow area).
-//
-// TUNING: this file is loaded at runtime from resources/shaders (the build
-// trees symlink to it), so changing this value only needs the demo
-// relaunched - no rebuild. Too large and a real occluder stops registering.
-//
-// Raised from 0.00002 once all three backends finally stored the same cube
-// map (see VulkanRenderDevice::CreatePipeline()'s front-face comment - until
-// then Vulkan's own margins were measured against a cube map holding the far
-// side of every occluder, and the note this replaces, that 0.0005 "erases
-// Vulkan's shadow entirely", was measured against that). 0.00002 was too
-// small to cover even the arithmetic: on a receiver close to the light the
-// stored depth and PCFPOINT's reconstructed reference disagree by up to
-// 2.1e-4 on GL (probed on the ceiling 5 units above the lamp in
-// RotatingCubeWithLightingAndShadow, where they are the same surface and
-// should tie), which self-shadowed the whole square of ceiling the +Y face
-// covers - a hard-edged dark patch with dithered corners, GL only. Vulkan
-// and Metal tied exactly there and so happened to survive it. At 0.0003 the
-// patch is gone on GL and the cube's real shadow is unchanged on all three.
-//
-// The margin is this tight only near the light: the bias is a constant in
-// *projected* depth, and d(depth)/d(distance) is A*near/distance^2, so
-// 0.0003 buys 0.075 units of slack at distance 5 and 4.8 at distance 40. A
-// receiver much closer to a light than this demo's will need it larger
-// again - or the comparison moved into distance units, which is the real
-// fix and a bigger change than this.
-const float SHADOW_BIAS = 0.0003;
+// It arrives per light as uShadowBias (PointLight::SetShadowBiasScale) rather
+// than as the constant it used to be, and it is a *fraction of the receiver's
+// distance to the light*, applied by pulling the receiver that much closer
+// before projecting. See SetShadowBiasScale()'s comment for why a fraction:
+// the old constant lived in projected depth, where it bought 0.075 world
+// units of slack at distance 5 and 4.8 at distance 40.
 
-float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos)
+float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, float bias, vec4 pos)
 {
 	vec4 position_ls = Matrix2 * pos;
 	position_ls.xyz/=position_ls.w;
 	vec4 abs_position = abs(position_ls);
 	float fs_z = -max(abs_position.x, max(abs_position.y, abs_position.z));
+	// fs_z is negative, so scaling it down moves the reference *toward* the
+	// light - exactly `bias` of the way there. Applied before the projection
+	// rather than after it so the slack stays a fixed distance ratio instead
+	// of a fixed step in a non-linear depth.
+	fs_z *= (1.0 - bias);
 	vec4 clip = Matrix1 * vec4(0.0, 0.0, fs_z, 1.0);
 	// Matrix1 (uPointDepthsMVP, IRenderer.cpp) already includes the
 	// device's own shadow-bias remap (device->TranslateShadowBiasMatrix() *
@@ -151,7 +133,7 @@ float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, v
 			// existed to hide the double remap this used to do. Real depth
 			// bias comes from the shadow pass's polygon offset
 			// (ILightComponent::SetShadowBias).
-			shadow += (texture(shadowMap, position_ls.xyz + vec3(vec2(x,y) * scale, 0.0)).r + SHADOW_BIAS >= depth) ? 1.0 : 0.0;
+			shadow += (texture(shadowMap, position_ls.xyz + vec3(vec2(x,y) * scale, 0.0)).r >= depth) ? 1.0 : 0.0;
 	shadow /= 16.0;
 	return shadow;
 }
@@ -160,15 +142,16 @@ float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, v
 // ShadowSpotSingle() for why the march doesn't use the 4x4 kernel. Same
 // manual comparison and bias as PCFPOINT above, since this reads the same
 // R32F colour cube map.
-float ShadowPointSingle(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, vec4 pos)
+float ShadowPointSingle(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float bias, vec4 pos)
 {
 	vec4 position_ls = Matrix2 * pos;
 	position_ls.xyz /= position_ls.w;
 	vec4 abs_position = abs(position_ls);
 	float fs_z = -max(abs_position.x, max(abs_position.y, abs_position.z));
+	fs_z *= (1.0 - bias);
 	vec4 clip = Matrix1 * vec4(0.0, 0.0, fs_z, 1.0);
 	float depth = clip.z / clip.w;
-	return (texture(shadowMap, position_ls.xyz).r + SHADOW_BIAS >= depth) ? 1.0 : 0.0;
+	return (texture(shadowMap, position_ls.xyz).r >= depth) ? 1.0 : 0.0;
 }
 
 float Attenuation(vec3 Vertex, vec3 LightPosition, float Radius)
@@ -268,6 +251,10 @@ UBO_BINDING(38) uniform PointFragParams {
 	mat4 uPointDepthsMVP[2];
 	float uPCFTexelSize;
 	float uHaveShadowmap;
+	// PointLight::SetShadowBiasScale(). Lands in the float std140 already
+	// left free at offset 200 by uVolumetricParams' vec4 alignment, so the
+	// block's size is unchanged.
+	float uShadowBias;
 	// See secondpassSpot.glsl's identical member - x = density (0 = off,
 	// the default), y = Henyey-Greenstein g, z = step count.
 	vec4 uVolumetricParams;
@@ -339,7 +326,7 @@ void main() {
 	vec4 worldPos = vec4(v1, 1.0);
 
 	if (uHaveShadowmap>0.0)
-		pcf = PCFPOINT(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], uPCFTexelSize, worldPos);
+		pcf = PCFPOINT(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], uPCFTexelSize, uShadowBias, worldPos);
 
 	vec3 vViewNormal = normalize(texture(tNormal, Texcoord).xyz);
 	vec3 color = texture(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
@@ -448,7 +435,7 @@ void main() {
 
 				float sShadow = 1.0;
 				if (uHaveShadowmap > 0.0)
-					sShadow = ShadowPointSingle(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], vec4(p, 1.0));
+					sShadow = ShadowPointSingle(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], uShadowBias, vec4(p, 1.0));
 
 				vec3 toLight = normalize(lightPosition - p);
 				float cosTheta = dot(rayDir, -toLight);

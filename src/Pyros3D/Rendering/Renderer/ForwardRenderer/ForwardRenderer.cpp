@@ -82,7 +82,12 @@ namespace p3d {
 					pointLight.m[0] = color.x;       pointLight.m[1] = color.y;           pointLight.m[2] = color.z;           pointLight.m[3] = color.w;
 					pointLight.m[4] = position.x;    pointLight.m[5] = position.y;        pointLight.m[6] = position.z;
 					pointLight.m[7] = direction.x;   pointLight.m[8] = direction.y;       pointLight.m[9] = direction.z;
-					pointLight.m[10] = attenuation;  pointLight.m[11] = 0.f;			  pointLight.m[12] = 0.f;
+					// m[11] is Light[2][3], which buildLightFromMatrix() reads
+					// as Cones.x for a spot light and PyrosShader.glsl's point
+					// branch reads as ShadowBiasScale. Nothing reads cones for
+					// a point light, so the slot is free - the packed light
+					// mat4 has no spare element otherwise.
+					pointLight.m[10] = attenuation;  pointLight.m[11] = p->GetShadowBiasScale(); pointLight.m[12] = 0.f;
 					pointLight.m[13] = (f32)type;	 pointLight.m[14] = p->GetShadowPCFTexelSize(); pointLight.m[15] = -1.f;
 
 					if (p->IsCastingShadows())

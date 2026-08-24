@@ -287,6 +287,10 @@ namespace p3d {
 				// biased by editing C++. Same factor/units pair
 				// SceneSerializer reads.
 				"setShadowBias", &LUA_PointLight::SetShadowBias,
+				// Point lights only. setShadowBias above configures polygon
+				// offset, which does nothing for a point light - its cube map
+				// is an R32F colour attachment. This is the knob that works.
+				"setShadowBiasScale", &LUA_PointLight::SetShadowBiasScale,
 				sol::base_classes, sol::bases<IComponent>()
 				);
 		}

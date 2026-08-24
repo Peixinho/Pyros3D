@@ -551,6 +551,10 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             bool HaveShadowMap;
             int ShadowMap;
             float PCFTexelSize;
+            // Point lights only - PointLight::SetShadowBiasScale(). Shares
+            // the slot a spot light uses for Cones.x, which ForwardRenderer
+            // writes as zero for a point light and nothing reads there.
+            float ShadowBiasScale;
         };
         void buildLightFromMatrix(mat4 Light, inout LIGHT L)
         {
@@ -559,6 +563,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             L.Direction = vec3(Light[1][3],Light[2][0],Light[2][1]);
             L.Radius = Light[2][2];
             L.Cones = vec2(Light[2][3],Light[3][0]);
+            L.ShadowBiasScale = Light[2][3];
             L.Type = Light[3][1];
             L.HaveShadowMap = (Light[3][3]>=0.0? true : false);
             if (L.HaveShadowMap) {
@@ -831,25 +836,25 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             // See secondpassPoint.glsl's PCFPOINT for why this is a plain
             // samplerCube compared by hand rather than hardware PCF.
             //
-            // Same constant, and needed for the same reason: a point light's
-            // cube map is an R32F *colour* attachment, so the polygon offset
+            // `bias` is needed for the same reason: a point light's cube map
+            // is an R32F *colour* attachment, so the polygon offset
             // ILightComponent::SetShadowBias configures never reaches it and
             // a lit surface sits one rounding error from shadowing itself.
-            // This copy had no bias at all, which showed as horizontal
-            // stripes across a face pointed straight at the light - measured
-            // on the top of a box under a point light, striped on Vulkan and
-            // Metal and clean on GL, purely because the two sides of the
+            // This copy had none at all, which showed as horizontal stripes
+            // across a face pointed straight at the light - striped on Vulkan
+            // and Metal, clean on GL, purely because the two sides of the
             // comparison round the same tie differently per backend. See
-            // secondpassPoint.glsl for why this is a constant in projected
-            // depth and what that costs.
-            const float POINT_SHADOW_BIAS = 0.0003;
-
-            float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos)
+            // PointLight::SetShadowBiasScale() for what the value means.
+            float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, float bias, vec4 pos)
             {
                 vec4 position_ls = Matrix2 * pos;
                 position_ls.xyz/=position_ls.w;
                 vec4 abs_position = abs(position_ls);
                 float fs_z = -max(abs_position.x, max(abs_position.y, abs_position.z));
+                // See secondpassPoint.glsl's identical line - fs_z is
+                // negative, so this moves the reference `bias` of the way
+                // toward the light, before the projection rather than after.
+                fs_z *= (1.0 - bias);
                 vec4 clip = Matrix1 * vec4(0.0, 0.0, fs_z, 1.0);
                 // Matrix1 (uPointDepthsMVP, IRenderer.cpp) already includes
                 // the device's own shadow-bias remap (device->
@@ -867,7 +872,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
                 for (y = -1.5 ; y <=1.5 ; y+=1.0)
                     for (x = -1.5 ; x <=1.5 ; x+=1.0)
-                        shadow += (texture(shadowMap, position_ls.xyz + vec3(vec2(x,y) * scale, 0.0)).r + POINT_SHADOW_BIAS >= depth) ? 1.0 : 0.0;
+                        shadow += (texture(shadowMap, position_ls.xyz + vec3(vec2(x,y) * scale, 0.0)).r >= depth) ? 1.0 : 0.0;
                 shadow /= 16.0;
                 return shadow;
             }
@@ -1186,7 +1191,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                             if (attenuation>0.0 && L.HaveShadowMap)
                             {
                                 PointShadow = 0.0;
-                                PointShadow+=PCFPOINT(uPointShadowMaps[0],uPointDepthsMVP[(L.ShadowMap*2)],uPointDepthsMVP[(L.ShadowMap*2+1)],L.PCFTexelSize,vWorldPositionShadow);
+                                PointShadow+=PCFPOINT(uPointShadowMaps[0],uPointDepthsMVP[(L.ShadowMap*2)],uPointDepthsMVP[(L.ShadowMap*2+1)],L.PCFTexelSize,L.ShadowBiasScale,vWorldPositionShadow);
                             }
                             _diffuse += vec4(lightIntensity * L.Color.xyz * attenuation * PointShadow, lightIntensity * L.Color.w);
                             _specular += vec4(specularPower * L.Color.xyz * attenuation * specular.xyz * PointShadow, specularPower * L.Color.w * specular.w);
