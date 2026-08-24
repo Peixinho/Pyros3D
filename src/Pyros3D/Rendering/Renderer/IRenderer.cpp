@@ -669,6 +669,22 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					// Increase Number of Shadows
 					NumberOfPointShadows++;
 
+					// See IRenderer.h's comment on RenderingPointShadowFace -
+					// SendGlobalUniforms() (called from each face's
+					// RenderObject() below) reads this to skip Vulkan's
+					// clip-space Y-flip specifically for these 6 draws.
+					// Set before the Bind(), not after: on Vulkan a Bind()
+					// of an already-built FBO re-begins its render pass
+					// there and then, and the device flag has to be in
+					// place for everything that pass covers.
+					RenderingPointShadowFace = true;
+					// The other half of that same Y-flip skip: it reverses
+					// the winding the rasterizer sees, so a backend that
+					// negates Y in every *other* pass has to invert its
+					// front-face rule here or face culling keeps the far
+					// side of each occluder. No-op on GL.
+					device->SetPointShadowCubeFacePass(true);
+
 					// Bind FBO
 					p->GetShadowFBO()->Bind();
 
@@ -677,12 +693,6 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					Projection ShadowProjection;
 					ShadowProjection.Perspective(90.f, 1.f, p->GetShadowNear(), p->GetShadowFar());
 					ProjectionMatrix = ShadowProjection.m;
-
-					// See IRenderer.h's comment on RenderingPointShadowFace -
-					// SendGlobalUniforms() (called from each face's
-					// RenderObject() below) reads this to skip Vulkan's
-					// clip-space Y-flip specifically for these 6 draws.
-					RenderingPointShadowFace = true;
 
 					// Get Lights Shadow Map Texture
 					for (int32 i = 0; i < 6; i++)
@@ -784,6 +794,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					// light, the eventual main camera pass) needs the
 					// normal Y-flip again.
 					RenderingPointShadowFace = false;
+					device->SetPointShadowCubeFacePass(false);
 
 					// Set Light Projection
 					// PCFPOINT() (PyrosShader.glsl) reconstructs a reference

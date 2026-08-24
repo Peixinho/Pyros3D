@@ -502,6 +502,23 @@ namespace p3d {
 		// (its translation is already a no-op).
 		virtual Matrix TranslateProjectionMatrix(const Matrix &projectionMatrix, const bool skipYFlip = false) = 0;
 
+		// Set for the whole of a point light's six cube-face shadow draws
+		// (IRenderer::PreRender()'s POINT block), cleared straight after.
+		// Companion to TranslateProjectionMatrix()'s skipYFlip: a backend
+		// whose cube-face pass uses the *opposite* clip-space Y sign from
+		// its normal pass has every triangle mirrored vertically there,
+		// which reverses the winding the rasterizer sees. Front-face
+		// culling then keeps exactly the wrong surface - a closed
+		// occluder's far side instead of its near one - so the cube map
+		// records the depth of the back of every object and no shadow
+		// survives the comparison. GL never changes Y and so ignores this
+		// entirely, exactly as it ignores skipYFlip; Vulkan and Metal both
+		// flip their front-face winding while it is set. Culling is not
+		// simply disabled for the shadow pass instead because a caster's
+		// own material decides it (IRenderer's EffectiveCullFace()) and a
+		// single-sided caster depends on it.
+		virtual void SetPointShadowCubeFacePass(const bool enabled) = 0;
+
 		// Matrix::BIAS (Matrix.h) is the classic GL shadow-lookup bias:
 		// remaps X, Y, *and* Z from clip-space [-1,1] to UV/depth-compare
 		// [0,1] - correct standalone, but a shadow-lookup matrix is

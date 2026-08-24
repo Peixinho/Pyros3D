@@ -83,6 +83,10 @@ namespace p3d {
 		virtual void BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint, const DeviceHandle bufferHandle = 0);
 
 		virtual Matrix TranslateProjectionMatrix(const Matrix &projectionMatrix, const bool skipYFlip = false);
+		// No-op: GL's TranslateProjectionMatrix() never touches Y, so a
+		// cube-face pass rasterizes with exactly the winding every other
+		// pass does.
+		virtual void SetPointShadowCubeFacePass(const bool) {}
 		virtual Matrix TranslateShadowBiasMatrix();
 
 		virtual uint32 TranslateDrawType(const uint32 engineDrawType);

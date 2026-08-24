@@ -255,6 +255,7 @@ namespace p3d {
 		virtual void BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint, const DeviceHandle bufferHandle = 0);
 
 		virtual Matrix TranslateProjectionMatrix(const Matrix &projectionMatrix, const bool skipYFlip = false);
+		virtual void SetPointShadowCubeFacePass(const bool enabled);
 		virtual Matrix TranslateShadowBiasMatrix();
 
 		virtual uint32 TranslateDrawType(const uint32 engineDrawType);
@@ -777,6 +778,16 @@ namespace p3d {
 		// with this one, so a pipeline built against this template can
 		// validly be used within any of them.
 		VkRenderPass shadowPipelineRenderPass;
+
+		// See IRenderDevice::SetPointShadowCubeFacePass(). While set, a
+		// pipeline is built with VK_FRONT_FACE_CLOCKWISE instead of the
+		// usual COUNTER_CLOCKWISE, because those six draws are the one
+		// pass whose projection matrix does not negate clip-space Y
+		// (TranslateProjectionMatrix()'s skipYFlip). Baking it into the
+		// pipeline is safe because the pipeline cache is keyed on the
+		// bound render target (IRenderer::PipelineCacheKey()) and a point
+		// light's cube-map FBO is drawn into by nothing else.
+		bool pointShadowCubeFacePass;
 
 		// Lazily builds fbo.renderPass (depth-only, LOAD_OP_CLEAR,
 		// STORE_OP_STORE so the shadow map survives to be sampled in the

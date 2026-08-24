@@ -97,7 +97,7 @@ namespace p3d {
 		  offscreenSlotIndex(0), offscreenChainSemaphore(VK_NULL_HANDLE),
 		  hostMappedBuffersSafeThisFrame(false),
 		  currentBoundFBO(0), currentReadFBO(0),
-		  nextFBOHandle(1), shadowPipelineRenderPass(VK_NULL_HANDLE),
+		  nextFBOHandle(1), shadowPipelineRenderPass(VK_NULL_HANDLE), pointShadowCubeFacePass(false),
 		  nextVaoHandle(1), currentVao(0), currentPipeline(0),
 		  allocator(VK_NULL_HANDLE), descriptorPool(VK_NULL_HANDLE),
 		  nextBufferHandle(1), minUniformBufferOffsetAlignment(256), nextShaderStageHandle(1), nextAutoUboBinding(kFirstAutoUboBinding), nextProgramHandle(1), currentProgram(0), nextPipelineHandle(1),
@@ -2055,7 +2055,19 @@ namespace p3d {
 		// swept through 8 rotation angles): VK_FRONT_FACE_COUNTER_CLOCKWISE
 		// gives an exact match to GL at every angle; CLOCKWISE does not.
 		// Trust that measurement over the paper derivation.
-		rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+		// ...except while rendering a point light's cube faces, the one
+		// pass whose projection leaves clip-space Y unnegated (see
+		// TranslateProjectionMatrix()'s skipYFlip). That mirrors every
+		// triangle vertically relative to every other Vulkan pass, which
+		// reverses the winding the rasterizer sees, so the same
+		// COUNTER_CLOCKWISE rule would call a caster's outward faces
+		// back-facing and cull them - leaving the cube map holding the
+		// depth of the *far* side of every occluder. Measured on
+		// RotatingCubeWithLightingAndShadow's ceiling, 5 units above the
+		// lamp and 10 units thick: GL stored 0.980981 (its near face, at
+		// distance 5) and Vulkan 0.994328 (its far face, at 15), and no
+		// point light cast any shadow at all.
+		rasterizer.frontFace = pointShadowCubeFacePass ? VK_FRONT_FACE_CLOCKWISE : VK_FRONT_FACE_COUNTER_CLOCKWISE;
 		rasterizer.lineWidth = 1.0f;
 		rasterizer.depthBiasEnable = VK_TRUE;
 
@@ -2548,6 +2560,12 @@ namespace p3d {
 		);
 		return (skipYFlip ? clipCorrectionNoYFlip : clipCorrection) * projectionMatrix;
 	}
+
+	// See IRenderDevice::SetPointShadowCubeFacePass(). Only new pipelines
+	// pick this up, which is all that is needed: the pipeline cache is
+	// keyed on the bound render target and a point light's cube-map FBO is
+	// never drawn into outside these six faces.
+	void VulkanRenderDevice::SetPointShadowCubeFacePass(const bool enabled) { pointShadowCubeFacePass = enabled; }
 
 	// See the comment on this method in IRenderDevice.h - X/Y remapped
 	// clip[-1,1]->[0,1] exactly like Matrix::BIAS, but Z passes through

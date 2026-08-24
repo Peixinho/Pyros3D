@@ -92,11 +92,29 @@ void main() {
 //
 // TUNING: this file is loaded at runtime from resources/shaders (the build
 // trees symlink to it), so changing this value only needs the demo
-// relaunched - no rebuild. Too large and a real occluder stops registering,
-// and Vulkan's usable window is narrower than GL's because its stored/
-// reference margins come out smaller for the same geometry: 0.0005 gives GL
-// a correct shadow but erases Vulkan's entirely.
-const float SHADOW_BIAS = 0.00002;
+// relaunched - no rebuild. Too large and a real occluder stops registering.
+//
+// Raised from 0.00002 once all three backends finally stored the same cube
+// map (see VulkanRenderDevice::CreatePipeline()'s front-face comment - until
+// then Vulkan's own margins were measured against a cube map holding the far
+// side of every occluder, and the note this replaces, that 0.0005 "erases
+// Vulkan's shadow entirely", was measured against that). 0.00002 was too
+// small to cover even the arithmetic: on a receiver close to the light the
+// stored depth and PCFPOINT's reconstructed reference disagree by up to
+// 2.1e-4 on GL (probed on the ceiling 5 units above the lamp in
+// RotatingCubeWithLightingAndShadow, where they are the same surface and
+// should tie), which self-shadowed the whole square of ceiling the +Y face
+// covers - a hard-edged dark patch with dithered corners, GL only. Vulkan
+// and Metal tied exactly there and so happened to survive it. At 0.0003 the
+// patch is gone on GL and the cube's real shadow is unchanged on all three.
+//
+// The margin is this tight only near the light: the bias is a constant in
+// *projected* depth, and d(depth)/d(distance) is A*near/distance^2, so
+// 0.0003 buys 0.075 units of slack at distance 5 and 4.8 at distance 40. A
+// receiver much closer to a light than this demo's will need it larger
+// again - or the comparison moved into distance units, which is the real
+// fix and a bigger change than this.
+const float SHADOW_BIAS = 0.0003;
 
 float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, vec4 pos)
 {

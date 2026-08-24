@@ -248,6 +248,18 @@ namespace p3d {
 		// today). Likely close to a copy of VulkanRenderDevice's
 		// implementation, not a new derivation.
 		virtual Matrix TranslateProjectionMatrix(const Matrix &projectionMatrix, const bool skipYFlip = false);
+		// No-op, and measured rather than assumed: Metal's cube-face pass
+		// does negate clip-space Y where its normal pass does not (see
+		// TranslateProjectionMatrix()'s skipYFlip), which is what forces
+		// Vulkan to invert its front-face winding here - but Metal's
+		// render targets are top-origin, so its rasterizer already sees
+		// one vertical mirror that GL and Vulkan's bottom-origin ones do
+		// not, and the two cancel. Building the same six faces of
+		// RotatingCubeWithLightingAndShadow's shadow cube with
+		// MTLWindingClockwise and with MTLWindingCounterClockwise gave
+		// float-identical contents on every face (+Y flat at 0.980981,
+		// -Y 0.994328..0.998499), matching GL exactly either way.
+		virtual void SetPointShadowCubeFacePass(const bool) {}
 		virtual Matrix TranslateShadowBiasMatrix();
 
 		virtual uint32 TranslateDrawType(const uint32 engineDrawType);
