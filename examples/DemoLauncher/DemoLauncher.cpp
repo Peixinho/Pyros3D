@@ -151,6 +151,43 @@ void DemoLauncher::Init()
 		dl->AddCircle(aim, 2.5f, outline, 12, 2.0f);
 		dl->AddCircle(aim, 2.5f, col, 12, 1.0f);
 	};
+
+	// Foreground draw-list primitives, in screen pixels. text()/separator()
+	// above only work inside the launcher's own ImGui window, which is the
+	// wrong surface for a game HUD; these draw over everything and need no
+	// Begin/End, so a demo can lay out a real overlay at absolute
+	// coordinates. Colours are 0..1 floats to match the rest of the Lua
+	// bindings rather than ImGui's 0..255.
+	imgui["displaySize"] = []() {
+		ImGuiIO &io = ImGui::GetIO();
+		return std::make_tuple(io.DisplaySize.x, io.DisplaySize.y);
+	};
+	imgui["rectFilled"] = [](float x0, float y0, float x1, float y1,
+		float r, float g, float b, float a) {
+		ImGui::GetForegroundDrawList()->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1),
+			IM_COL32((int)(r * 255), (int)(g * 255), (int)(b * 255), (int)(a * 255)));
+	};
+	imgui["rect"] = [](float x0, float y0, float x1, float y1,
+		float r, float g, float b, float a, float thickness) {
+		ImGui::GetForegroundDrawList()->AddRect(ImVec2(x0, y0), ImVec2(x1, y1),
+			IM_COL32((int)(r * 255), (int)(g * 255), (int)(b * 255), (int)(a * 255)),
+			0.0f, 0, thickness);
+	};
+	// Drawn twice, offset by a pixel, because a HUD over a dark station
+	// still has to stay readable when it crosses a muzzle flash.
+	imgui["textAt"] = [](float x, float y, float r, float g, float b, float a,
+		const std::string &s) {
+		ImDrawList *dl = ImGui::GetForegroundDrawList();
+		dl->AddText(ImVec2(x + 1, y + 1), IM_COL32(0, 0, 0, (int)(a * 160)), s.c_str());
+		dl->AddText(ImVec2(x, y),
+			IM_COL32((int)(r * 255), (int)(g * 255), (int)(b * 255), (int)(a * 255)),
+			s.c_str());
+	};
+	imgui["textSize"] = [](const std::string &s) {
+		ImVec2 sz = ImGui::CalcTextSize(s.c_str());
+		return std::make_tuple(sz.x, sz.y);
+	};
+
 	lua["imgui"] = imgui;
 
 	lua["scene"] = Scene;

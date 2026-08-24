@@ -1,0 +1,169 @@
+{
+    "ambientLight": [
+        0.03,
+        0.032,
+        0.042
+    ],
+    "materials": [],
+    "roots": [
+        {
+            "children": [],
+            "components": [
+                {
+                    "data": {},
+                    "scriptFile": "demos/scripts/camera_none.lua",
+                    "type": "LuaComponent"
+                }
+            ],
+            "name": "Camera",
+            "position": [
+                0.0,
+                2.75,
+                0.0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "tags": [
+                "Camera"
+            ]
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "color": [
+                        1.0,
+                        0.88,
+                        0.66,
+                        1.0
+                    ],
+                    "direction": [
+                        0.0,
+                        -1.0,
+                        0.0
+                    ],
+                    "innerCone": 13.0,
+                    "intensity": 1.5,
+                    "outterCone": 32.0,
+                    "radius": 15.0,
+                    "shadowBiasFactor": 4.0,
+                    "shadowBiasUnits": 5.0,
+                    "shadowHeight": 768,
+                    "shadowNear": 4.0,
+                    "shadowWidth": 768,
+                    "type": "SpotLight",
+                    "volumetricAnisotropy": 0.7,
+                    "volumetricScattering": 0.011,
+                    "volumetricSteps": 24
+                }
+            ],
+            "name": "StationLamp_W",
+            "position": [
+                -20.25,
+                6.8999999999999995,
+                0.0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "castingShadows": true,
+                    "color": [
+                        1.0,
+                        0.88,
+                        0.66,
+                        1.0
+                    ],
+                    "direction": [
+                        0.0,
+                        -1.0,
+                        0.0
+                    ],
+                    "innerCone": 13.0,
+                    "intensity": 1.5,
+                    "outterCone": 32.0,
+                    "radius": 15.0,
+                    "shadowBiasFactor": 4.0,
+                    "shadowBiasUnits": 5.0,
+                    "shadowHeight": 768,
+                    "shadowNear": 4.0,
+                    "shadowWidth": 768,
+                    "type": "SpotLight",
+                    "volumetricAnisotropy": 0.7,
+                    "volumetricScattering": 0.011,
+                    "volumetricSteps": 24
+                }
+            ],
+            "name": "StationLamp_E",
+            "position": [
+                20.25,
+                6.8999999999999995,
+                0.0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "tags": []
+        },
+        {
+            "children": [],
+            "components": [
+                {
+                    "data": {},
+                    "scriptFile": "demos/scripts/metro.lua",
+                    "type": "LuaComponent"
+                }
+            ],
+            "name": "Metro",
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0,
+                0,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ],
+            "static": false,
+            "tags": []
+        }
+    ],
+    "version": 1
+}

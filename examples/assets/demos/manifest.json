@@ -504,5 +504,27 @@
                 "tonemap"
             ]
         }
+    },
+    {
+        "name": "Metro (FPS)",
+        "description": "A first-person survival shooter in an abandoned metro station: deferred lighting with a flashlight, failing sodium lamps, volumetric shafts and per-shot muzzle flashes. TAB to capture the mouse.",
+        "scene": "Metro.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.03,
+                0.032,
+                0.042,
+                1
+            ],
+            "effects": [
+                "tonemap"
+            ],
+            "projection": {
+                "fov": 70,
+                "near": 0.08,
+                "far": 260
+            }
+        }
     }
 ]
