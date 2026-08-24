@@ -526,5 +526,89 @@
                 "far": 260
             }
         }
+    },
+    {
+        "name": "Shadow Matrix (forward)",
+        "description": "Three shadow-casting lights at once, one per channel: red directional, green point, blue spot. Every shadow is attributable to its light by colour, so the same scene renders comparably in forward and deferred and across backends.",
+        "scene": "ShadowMatrix.json",
+        "render": {
+            "type": "forward",
+            "globalLight": [
+                0.05,
+                0.05,
+                0.06,
+                1
+            ]
+        }
+    },
+    {
+        "name": "Shadow Matrix (deferred)",
+        "description": "Three shadow-casting lights at once, one per channel: red directional, green point, blue spot. Every shadow is attributable to its light by colour, so the same scene renders comparably in forward and deferred and across backends.",
+        "scene": "ShadowMatrix.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.05,
+                0.05,
+                0.06,
+                1
+            ]
+        }
+    },
+    {
+        "name": "Two Point Shadows (forward)",
+        "description": "Two shadow-casting point lights, green and magenta, one over each box - exercises the per-light cube map indexing.",
+        "scene": "ShadowTwoPoint.json",
+        "render": {
+            "type": "forward",
+            "globalLight": [
+                0.05,
+                0.05,
+                0.06,
+                1
+            ]
+        }
+    },
+    {
+        "name": "Two Point Shadows (deferred)",
+        "description": "Two shadow-casting point lights, green and magenta, one over each box - exercises the per-light cube map indexing.",
+        "scene": "ShadowTwoPoint.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.05,
+                0.05,
+                0.06,
+                1
+            ]
+        }
+    },
+    {
+        "name": "Two Directional Shadows (forward)",
+        "description": "Two shadow-casting directional lights, the red one with 3 cascades and the blue with 1 - exercises the per-cascade matrix indexing.",
+        "scene": "ShadowTwoDirectional.json",
+        "render": {
+            "type": "forward",
+            "globalLight": [
+                0.05,
+                0.05,
+                0.06,
+                1
+            ]
+        }
+    },
+    {
+        "name": "Two Directional Shadows (deferred)",
+        "description": "Two shadow-casting directional lights, the red one with 3 cascades and the blue with 1 - exercises the per-cascade matrix indexing.",
+        "scene": "ShadowTwoDirectional.json",
+        "render": {
+            "type": "deferred",
+            "globalLight": [
+                0.05,
+                0.05,
+                0.06,
+                1
+            ]
+        }
     }
 ]

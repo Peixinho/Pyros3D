@@ -1,0 +1,368 @@
+{
+ "materials": [
+  {
+   "blendDFactor": 0,
+   "blendEquation": 0,
+   "blendSFactor": 0,
+   "blending": false,
+   "castingShadows": true,
+   "color": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "cullFace": 0,
+   "depthBias": false,
+   "depthBiasFactor": 0.0,
+   "depthBiasUnits": 0.0,
+   "depthTest": true,
+   "depthWrite": true,
+   "displacementHeight": 0.0500000007450581,
+   "id": 0,
+   "kind": "generic",
+   "metallic": 0.0,
+   "opacity": 1.0,
+   "options": 23553,
+   "reflectivity": 0.0,
+   "roughness": 0.0,
+   "shininess": 50.0,
+   "specular": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "ssrEnabled": false,
+   "transparent": false,
+   "wireframe": false
+  }
+ ],
+ "version": 1,
+ "roots": [
+  {
+   "name": "Camera",
+   "tags": [
+    "Camera"
+   ],
+   "static": false,
+   "children": [],
+   "position": [
+    0,
+    40,
+    110
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "components": [
+    {
+     "type": "LuaComponent",
+     "scriptFile": "demos/scripts/camera_fly.lua",
+     "data": {
+      "yaw": 0,
+      "pitch": -16
+     }
+    }
+   ]
+  },
+  {
+   "name": "Sun",
+   "tags": [],
+   "static": true,
+   "children": [],
+   "position": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "components": [
+    {
+     "type": "DirectionalLight",
+     "color": [
+      1.0,
+      0.15,
+      0.15,
+      1.0
+     ],
+     "intensity": 0.3,
+     "direction": [
+      -0.35,
+      -1.0,
+      -0.25
+     ],
+     "cascades": 1,
+     "aspect": 1.7777778,
+     "fov": 70.0,
+     "castingShadows": true,
+     "shadowWidth": 1024,
+     "shadowHeight": 1024,
+     "shadowNear": 0.1,
+     "shadowFar": 300.0,
+     "shadowBiasFactor": 2.0,
+     "shadowBiasUnits": 1.0
+    }
+   ]
+  },
+  {
+   "name": "Lamp",
+   "tags": [],
+   "static": true,
+   "children": [],
+   "position": [
+    0.0,
+    22.0,
+    14.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "components": [
+    {
+     "type": "PointLight",
+     "color": [
+      0.15,
+      1.0,
+      0.15,
+      1.0
+     ],
+     "intensity": 0.45,
+     "radius": 90.0,
+     "castingShadows": true,
+     "shadowWidth": 512,
+     "shadowHeight": 512,
+     "shadowNear": 0.1,
+     "shadowBiasFactor": 2.0,
+     "shadowBiasUnits": 1.0
+    }
+   ]
+  },
+  {
+   "name": "Spot",
+   "tags": [],
+   "static": true,
+   "children": [],
+   "position": [
+    40.0,
+    34.0,
+    10.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "components": [
+    {
+     "type": "SpotLight",
+     "color": [
+      0.3,
+      0.3,
+      1.0,
+      1.0
+     ],
+     "intensity": 4.0,
+     "radius": 60.0,
+     "direction": [
+      0.0,
+      -1.0,
+      -0.18
+     ],
+     "innerCone": 13.0,
+     "outterCone": 26.0,
+     "castingShadows": true,
+     "shadowWidth": 1024,
+     "shadowHeight": 1024,
+     "shadowNear": 6.0,
+     "shadowBiasFactor": 40.0,
+     "shadowBiasUnits": 64.0
+    }
+   ]
+  },
+  {
+   "name": "Floor",
+   "tags": [],
+   "static": true,
+   "children": [],
+   "position": [
+    0.0,
+    -12.0,
+    -10.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "material": 0,
+     "cullTest": true,
+     "castingShadows": true,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cube",
+      "width": 90.0,
+      "height": 2.0,
+      "depth": 60.0,
+      "flip": false,
+      "smooth": false,
+      "tangentBitangent": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "BoxLeft",
+   "tags": [],
+   "static": true,
+   "children": [],
+   "position": [
+    -40.0,
+    -2.0,
+    0.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "material": 0,
+     "cullTest": true,
+     "castingShadows": true,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cube",
+      "width": 4.0,
+      "height": 4.0,
+      "depth": 4.0,
+      "flip": false,
+      "smooth": false,
+      "tangentBitangent": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "BoxMiddle",
+   "tags": [],
+   "static": true,
+   "children": [],
+   "position": [
+    0.0,
+    -2.0,
+    0.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "material": 0,
+     "cullTest": true,
+     "castingShadows": true,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cube",
+      "width": 4.0,
+      "height": 4.0,
+      "depth": 4.0,
+      "flip": false,
+      "smooth": false,
+      "tangentBitangent": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "BoxRight",
+   "tags": [],
+   "static": true,
+   "children": [],
+   "position": [
+    40.0,
+    -2.0,
+    0.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "material": 0,
+     "cullTest": true,
+     "castingShadows": true,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cube",
+      "width": 4.0,
+      "height": 4.0,
+      "depth": 4.0,
+      "flip": false,
+      "smooth": false,
+      "tangentBitangent": false
+     }
+    }
+   ]
+  }
+ ]
+}
