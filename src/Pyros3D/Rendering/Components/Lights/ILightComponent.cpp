@@ -18,7 +18,14 @@ namespace p3d {
 	{
 		LightType = type;
 		isCastingShadows = false;
-		ShadowBiasFactor = ShadowBiasUnits = 0.f;
+		// 2/1, not 0/0. Zero is solid shadow acne, and it was what every
+		// light built from C++ or Lua got - only a scene carrying explicit
+		// shadowBiasFactor/shadowBiasUnits keys ever escaped it. These are
+		// the values the demos' directional lights have always used and
+		// render clean with; a spot light's frustum needs far more, and
+		// SpotLight's own constructor raises it (see there).
+		ShadowBiasFactor = 2.f;
+		ShadowBiasUnits = 1.f;
 		// Off by default - see SetVolumetricScattering().
 		volumetricDensity = 0.f;
 		volumetricAnisotropy = 0.6f;

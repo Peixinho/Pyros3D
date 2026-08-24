@@ -12,6 +12,19 @@ namespace p3d {
 
 	SpotLight::SpotLight(const Vec4 &color, const f32 radius, const Vec3 &direction, const f32 OutterCone, const f32 InnerCone) : ILightComponent(LIGHT_TYPE::SPOT)
 	{
+		// Far more polygon offset than a directional light's 2/1, and
+		// measured rather than guessed. A spot's shadow map is a
+		// *perspective* projection, so a constant offset in depth units
+		// buys almost no world-space slack away from the near plane - where
+		// a directional light's orthographic map gives the same slack
+		// everywhere. On the Shadow Matrix scene, a shadow-casting floor
+		// under a spot at 2/1 self-shadowed and blacked out the light's
+		// entire lit cone on Vulkan and Metal while looking perfect on GL;
+		// 12/16 cleared the floor but still self-shadowed a box top; 40/64
+		// brought all three backends to within 0.05% of each other. A scene
+		// that wants less can still say so - SceneSerializer only calls
+		// SetShadowBias() when the keys are present.
+		SetShadowBias(40.f, 64.f);
 		Color = color;
 		Radius = radius;
 		innerCone = InnerCone;

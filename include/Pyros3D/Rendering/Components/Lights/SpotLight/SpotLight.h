@@ -17,7 +17,9 @@ namespace p3d {
 
 	public:
 
-		SpotLight() : ILightComponent(LIGHT_TYPE::SPOT) { Color = Vec4(1, 1, 1, 1); Radius = 1.f; }
+		// SetShadowBias(40, 64), not ILightComponent's 2/1 - see the
+		// constructor in SpotLight.cpp for the measurement.
+		SpotLight() : ILightComponent(LIGHT_TYPE::SPOT) { Color = Vec4(1, 1, 1, 1); Radius = 1.f; SetShadowBias(40.f, 64.f); }
 
 		SpotLight(const Vec4 &color, const f32 radius, const Vec3 &direction, const f32 OutterCone, const f32 InnerCone);
 
