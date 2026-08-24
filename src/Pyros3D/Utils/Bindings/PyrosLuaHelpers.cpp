@@ -831,7 +831,21 @@ namespace p3d {
 	}
 
 	// Keeps DecalGeometry (owner of GetDecal() mesh) alive for the process.
-	static std::vector<std::unique_ptr<DecalGeometry> > g_LuaDecalGeometries;
+	//
+	// Deliberately allocated and never freed, rather than held in a static
+	// vector. A static vector is destroyed from __cxa_finalize during
+	// exit(), which is long after the render device has been torn down:
+	// ~DecalGeometry runs ~Model -> IGeometry::Dispose ->
+	// GeometryBuffer::~GeometryBuffer -> RenderDevice::DestroyBuffer, and
+	// that dereferences the dead device and segfaults. Any run that placed
+	// a single decal crashed on the way out, with a stack that pointed at
+	// the vector's destructor rather than at anything the frame did.
+	static std::vector<std::unique_ptr<DecalGeometry> > &LuaDecalGeometries()
+	{
+		static std::vector<std::unique_ptr<DecalGeometry> > *v =
+			new std::vector<std::unique_ptr<DecalGeometry> >();
+		return *v;
+	}
 
 	static bool LuaGetIntersectedTriangle(RenderingComponent* rcomp, const Mouse3D &mouse, GameObject* camera, Vec3* intersection, Vec3* normal)
 	{
@@ -1033,7 +1047,7 @@ namespace p3d {
 		std::shared_ptr<Renderable> renderable(decalMesh, [](Renderable*) {});
 		auto rc = std::make_shared<LUA_RenderingComponent>(renderable, material);
 		bestGo->AddComponent(rc);
-		g_LuaDecalGeometries.push_back(std::move(geom));
+		LuaDecalGeometries().push_back(std::move(geom));
 		return true;
 	}
 	// ******************************* OVERLOADS *******************************
