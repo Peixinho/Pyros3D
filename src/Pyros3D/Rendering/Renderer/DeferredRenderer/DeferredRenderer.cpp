@@ -1069,7 +1069,19 @@ namespace p3d {
 					if (s->IsCastingShadows())
 					{
 						f32 txl = s->GetShadowPCFTexelSize();
-						Matrix mvp = SpotShadowMatrix[numberDir];
+						// numberSpot, not numberDir. This indexed the spot
+						// shadow matrices with the *directional* light
+						// counter while incrementing numberSpot below and
+						// never reading it, so with no directional light in
+						// the scene every shadow-casting spot sampled
+						// SpotShadowMatrix[0] - each spot binding its own
+						// shadow map but projecting it through the first
+						// spot's view. One spot looked correct and the rest
+						// threw hard-edged shadows at wrong angles in places
+						// nothing was occluding, with no shadow where one
+						// belonged. The point and directional cases above
+						// and below both index with their own counter.
+						Matrix mvp = SpotShadowMatrix[numberSpot];
 						spotShadowPCFTexelHandle->SetValue(&txl);
 						spotShadowDepthsMVPHandle->SetValue(&mvp);
 						s->GetShadowMapTexture()->Bind();
@@ -1171,7 +1183,18 @@ namespace p3d {
 					if (d->IsCastingShadows())
 					{
 						d->GetShadowMapTexture()->Unbind();
-						numberDir++;
+						// One matrix per *cascade*, not one per light: the
+						// shadow pass pushes inside its
+						// `for i < GetNumberCascades()` loop (IRenderer.cpp),
+						// and the read above is DirectionalShadowMatrix
+						// [numberDir + j] for j over the cascades. Advancing
+						// by 1 here meant a second shadow-casting
+						// directional light started reading at cascade 1 of
+						// the first light's block instead of at its own -
+						// every cascade after the first light misaligned by
+						// numberCascades-1. Invisible with a single
+						// directional light, which is why it survived.
+						numberDir += d->GetNumberCascades();
 					}
 					else
 					{

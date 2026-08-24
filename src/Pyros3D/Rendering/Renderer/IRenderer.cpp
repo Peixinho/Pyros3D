@@ -848,7 +848,17 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 
 					// Get Light Projection
 					Projection ShadowProjection;
-					ShadowProjection.Perspective(2 * s->GetLightOutterCone(), 1.0, s->GetShadowNear(), s->GetShadowFar());
+					// 2.5x the cone half-angle, not 2x. Perspective()'s first
+					// argument is the full vertical FOV, so 2 * outterCone
+					// makes the shadow frustum's half-angle exactly equal to
+					// the lit cone's: the circle of light reaches the edge of
+					// its own shadow map, and every lookup past that rim
+					// leaves [0,1] and gets ClampToEdge's border texel back,
+					// which reads as occluded. Measured with a probe in
+					// secondpassSpot.glsl - the outer third of the lit cone
+					// classified as "uv outside [0,1]" at 2x and stopped
+					// doing so here. Costs a little shadow resolution.
+					ShadowProjection.Perspective(2.5f * s->GetLightOutterCone(), 1.0, s->GetShadowNear(), s->GetShadowFar());
 					ProjectionMatrix = ShadowProjection.m;
 
 					// Clean View Matrix
