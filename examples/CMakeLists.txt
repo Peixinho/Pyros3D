@@ -164,7 +164,16 @@ if (EMSCRIPTEN)
 		COMMAND ${CMAKE_COMMAND} -E copy
 			${CMAKE_SOURCE_DIR}/examples/assets/smoke.png
 			$<TARGET_FILE_DIR:Pyros3D>/web/assets/smoke.png
-		COMMENT "Copy examples/web (+ HTTP assets) into build output"
+		# The module next to the page that loads it. web/ is what gets zipped
+		# up and served, so it has to stand on its own: index.html asks for
+		# ./Pyros3D.js, and Emscripten then resolves the .wasm/.data beside
+		# it. These are link outputs, so they already exist by POST_BUILD.
+		COMMAND ${CMAKE_COMMAND} -E copy
+			$<TARGET_FILE_DIR:Pyros3D>/Pyros3D.js
+			$<TARGET_FILE_DIR:Pyros3D>/Pyros3D.wasm
+			$<TARGET_FILE_DIR:Pyros3D>/Pyros3D.data
+			$<TARGET_FILE_DIR:Pyros3D>/web/
+		COMMENT "Copy examples/web (+ HTTP assets + the module) into build output"
 	)
 endif()
 

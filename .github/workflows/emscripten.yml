@@ -40,21 +40,43 @@ jobs:
         run: cmake --build build_web --parallel "$(nproc)" --target Pyros3D
 
       - name: Check artifacts
+        # web/ is what ships, so check web/ - the page and the module it loads
+        # have to be in the same directory or serving that folder 404s.
         run: |
-          ls -lh build_web/examples/Pyros3D.js \
-                build_web/examples/Pyros3D.wasm \
-                build_web/examples/Pyros3D.data \
+          ls -lh build_web/examples/web/Pyros3D.js \
+                build_web/examples/web/Pyros3D.wasm \
+                build_web/examples/web/Pyros3D.data \
                 build_web/examples/web/index.html \
                 build_web/examples/web/main.js \
                 build_web/examples/web/neonpulse/main.js
+
+      - name: Smoke-test the module
+        # Actually instantiate the wasm and check the page's entry points are
+        # registered, rather than only checking the files exist. Catches a
+        # module that builds and uploads but aborts the moment a browser
+        # loads it - which is otherwise only discovered by a human.
+        working-directory: build_web/examples/web
+        run: |
+          node -e '
+            const create = require("./Pyros3D.js");
+            create({ locateFile: p => "./" + p }).then(P => {
+              const need = ["Application", "WindowType_Close", "WindowType_Resize"];
+              const missing = need.filter(k => P[k] === undefined);
+              if (missing.length) {
+                console.error("missing exports: " + missing.join(", "));
+                process.exit(1);
+              }
+              console.log("module OK - embind exports present");
+              process.exit(0);
+            }).catch(e => { console.error("init failed: " + e); process.exit(1); });
+          '
 
       - name: Upload web artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Pyros3D-web
-          path: |
-            build_web/examples/Pyros3D.js
-            build_web/examples/Pyros3D.wasm
-            build_web/examples/Pyros3D.data
-            build_web/examples/web/
+          # Just web/, which now carries the module too. The artifact unzips to
+          # a directory that can be served directly, or dropped in as a site
+          # root, with no step that moves files around first.
+          path: build_web/examples/web/
           if-no-files-found: error

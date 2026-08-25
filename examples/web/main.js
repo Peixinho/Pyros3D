@@ -17,10 +17,12 @@ async function main() {
   }
 
   setStatus("Initializing WebAssembly…");
-  const P = await createPyros3D({
-    canvas,
-    locateFile: (path) => `../${path}`,
-  });
+  // No locateFile override: Emscripten resolves Pyros3D.wasm/.data relative
+  // to the directory Pyros3D.js was loaded from, which is this one. Pointing
+  // it at the parent (as this used to) meant the page only worked when served
+  // from one directory above itself - serving this folder, or publishing it as
+  // a site root, made "../" escape the root and 404.
+  const P = await createPyros3D({ canvas });
   installPyrosAssets(P);
 
   const app = new P.Application(
