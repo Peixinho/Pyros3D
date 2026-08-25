@@ -56,6 +56,10 @@ struct PlayerManifest
 	int width = 1280;
 	int height = 720;
 	bool fullscreen = false;
+	// What the frame clears to. Black unless game.json overrides it - the
+	// editor viewport's own grey is editor chrome, not scene content, so a
+	// build deliberately does not inherit it.
+	Vec4 background = Vec4(0.f, 0.f, 0.f, 1.f);
 	// Directory game.json was found in - everything else resolves against
 	// it, so the game folder can be moved or renamed freely.
 	std::string root;
@@ -102,6 +106,13 @@ private:
 	// DeferredRenderer renders into a G-buffer its caller owns.
 	void BuildGBuffer(uint32 width, uint32 height);
 	void DestroyGBuffer();
+
+	// Window resizes are recorded by OnResize() and applied here, at the top
+	// of a frame. See OnResize() for why reallocating GPU images from inside
+	// the event callback is not safe.
+	void ApplyPendingResizeIfAny();
+	uint32 pendingResizeWidth, pendingResizeHeight;
+	bool resizePending;
 
 	// Scene switches requested by a script (loadScene("Level2")) are queued,
 	// not immediate: the caller is running inside a component owned by the

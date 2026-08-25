@@ -1905,6 +1905,9 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 	manifest["width"] = opts.width;
 	manifest["height"] = opts.height;
 	manifest["fullscreen"] = opts.fullscreen;
+	// Written explicitly so a build never depends on the player's built-in
+	// default, and so it is an obvious thing to edit by hand.
+	manifest["background"] = { 0.0, 0.0, 0.0, 1.0 };
 
 	std::ofstream mf((out / "game.json").string().c_str());
 	if (!mf) { r.error = "Could not write game.json"; return r; }

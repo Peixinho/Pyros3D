@@ -4492,16 +4492,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 #else
 			ok = SceneSerializer::SaveScene(scene, path, NULL, &meta);
 #endif
+			// Before AttachEditorObjects() because the collapse pass matches
+			// roots by position in GetAllGameObjectList(), so that list must
+			// still hold exactly what SaveScene wrote - user content only.
+			// Inside the try for a blunter reason: it reads and rewrites a
+			// file, and anything it threw would skip the re-attach below and
+			// leave the editor's own grid, cameras and helper icons detached
+			// from the scene for the rest of the session.
+			if (ok) CollapseSceneFileAfterSave(path);
 		}
 		catch (const std::exception &e) { echo(std::string("ERROR: scene save threw: ") + e.what()); ok = false; }
 
-		// Runs while the editor's own objects are still detached: the
-		// collapse pass matches roots by position in GetAllGameObjectList(),
-		// and that list must still hold exactly what SaveScene wrote.
-		// this sits here: the collapse pass matches roots by position in
-		// GetAllGameObjectList(), and that list must still hold exactly what
-		// SaveScene wrote - user content only.
-		if (ok) CollapseSceneFileAfterSave(path);
 		AttachEditorObjects(furniture);
 
 		if (ok) scenePath = path;

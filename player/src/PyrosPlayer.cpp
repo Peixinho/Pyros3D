@@ -91,6 +91,9 @@ namespace {
 		m.width = j.value("width", m.width);
 		m.height = j.value("height", m.height);
 		m.fullscreen = j.value("fullscreen", false);
+		if (j.contains("background") && j["background"].is_array() && j["background"].size() >= 3)
+			m.background = Vec4(j["background"][0].get<f32>(), j["background"][1].get<f32>(),
+				j["background"][2].get<f32>(), j["background"].size() > 3 ? j["background"][3].get<f32>() : 1.f);
 
 		if (m.startupScene.empty())
 		{
@@ -128,6 +131,8 @@ PyrosPlayer::PyrosPlayer()
 	gbufferFBO = NULL;
 	gbufferDepth = gbufferAlbedo = gbufferSpecular = gbufferNormal = gbufferMatRough = NULL;
 	activeCamera = NULL;
+	resizePending = false;
+	pendingResizeWidth = pendingResizeHeight = 0;
 	cameraFov = 70.f;
 	cameraNear = 0.1f;
 	cameraFar = 2000.f;
@@ -227,6 +232,13 @@ void PyrosPlayer::Init()
 	else
 		renderer = new ForwardRenderer(Width, Height);
 	renderer->SetViewPort(0, 0, Width, Height);
+	// Asserted explicitly, never left to the default. The clear colour is
+	// device-global state that outlives any one renderer (see
+	// IRenderer::DrawBackground), so "whatever it happened to be" is not a
+	// value - it is whichever renderer wrote it last. The editor sets its own
+	// 0.2 grey for exactly this reason; a game gets black unless game.json
+	// says otherwise.
+	renderer->SetBackground(m.background);
 
 #ifdef LUA_BINDINGS
 	GenerateBindings(&lua);
@@ -563,6 +575,9 @@ void PyrosPlayer::Update()
 {
 	if (!sceneLoaded) return;
 
+	// At the top of the frame, before anything renders - see OnResize().
+	ApplyPendingResizeIfAny();
+
 	const f64 time = GetTime();
 	const f64 dt = GetTimeInterval();
 
@@ -596,18 +611,54 @@ void PyrosPlayer::Update()
 void PyrosPlayer::OnResize(const uint32 width, const uint32 height)
 {
 	ClassName::OnResize(width, height);
-	// The G-buffer targets are window-sized; leaving them behind means the
-	// deferred passes sample a differently-sized buffer than they render to.
-	if (gbufferFBO)
+	// Recorded, not applied. This runs from SDL event handling, which is not
+	// a safe place to destroy and recreate GPU images: the previous frame is
+	// routinely still executing (the frame fence is only waited on at the
+	// top of the next BeginFrame), and Texture::Resize()/FrameBuffer::
+	// Resize() do no synchronisation of their own - they reallocate
+	// immediately. Doing it here meant the GPU carried on reading G-buffer
+	// attachments that had just been freed and reallocated underneath it,
+	// which is exactly what the blocks of white and tiled colour noise after
+	// a window resize were: undefined image memory, sampled.
+	//
+	// A drag-resize also delivers a stream of these events, so applying each
+	// one would reallocate five images and an FBO per event rather than once
+	// at the size the user settled on.
+	pendingResizeWidth = width;
+	pendingResizeHeight = height;
+	resizePending = true;
+}
+
+void PyrosPlayer::ApplyPendingResizeIfAny()
+{
+	if (!resizePending) return;
+	resizePending = false;
+
+	const uint32 w = pendingResizeWidth, h = pendingResizeHeight;
+	if (w == 0 || h == 0) return; // minimised
+
+	// Guarded on a real size change, like SceneEditor's own G-buffer resize:
+	// everything below is expensive and none of it has anything to do when
+	// the extent is unchanged.
+	if (gbufferFBO && (w != gbufferAlbedo->GetWidth() || h != gbufferAlbedo->GetHeight()))
 	{
-		gbufferDepth->Resize(width, height);
-		gbufferAlbedo->Resize(width, height);
-		gbufferSpecular->Resize(width, height);
-		gbufferNormal->Resize(width, height);
-		gbufferMatRough->Resize(width, height);
-		gbufferFBO->Resize(width, height);
+		// The one piece of synchronisation that makes the rest safe. Same
+		// reason DeferredRenderer::Resize() and SceneSerializer::
+		// UnloadScene() open with one: nothing else here waits, and the
+		// resources about to be reallocated may still be referenced by an
+		// in-flight command buffer.
+		if (IsActiveRenderDeviceSet())
+			GetActiveRenderDevice().WaitIdle();
+
+		gbufferDepth->Resize(w, h);
+		gbufferAlbedo->Resize(w, h);
+		gbufferSpecular->Resize(w, h);
+		gbufferNormal->Resize(w, h);
+		gbufferMatRough->Resize(w, h);
+		gbufferFBO->Resize(w, h);
 	}
-	if (renderer) renderer->Resize(width, height);
+
+	if (renderer) renderer->Resize(w, h);
 	ApplyProjection();
 }
 
