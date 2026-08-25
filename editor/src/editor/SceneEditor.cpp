@@ -449,6 +449,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 		Renderer->SetViewPort(0, 0, Width, Height);
 		Renderer->SetBackground(Vec4(0.2, 0.2, 0.2, 1.0));
+		// Mirrors the renderer-switch path, which has always done this: a
+		// freshly constructed renderer starts on IRenderer's own hardcoded
+		// ambient default, and the value that actually reaches the shader
+		// lives in a process-wide UBO shared by every IRenderer in the
+		// process (see IRenderer's static AmbientLightUniformsUBO /
+		// CachedGlobalLight). Init never asserted its own value, so this
+		// document rendered with whatever the last renderer to touch that
+		// UBO had left in it - which on Vulkan+Deferred came out red.
+		Renderer->SetGlobalLight(ambientLightColor);
 
 		// Projection
 		isPerspective = true;
@@ -800,6 +809,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		Renderer->SetViewPort(0, 0, viewW, viewH);
 		Renderer->PreRender(viewCam, scene);
 		Renderer->ApplyBackgroundClearColor();
+		// Same reason ApplyBackgroundClearColor() is re-asserted every frame
+		// rather than set once: both the clear colour and the ambient term
+		// are process-wide state that any other IRenderer can overwrite, and
+		// this editor runs several (preview, thumbnail, axis helper, the
+		// other scene tabs). AxisHelper::Render() re-asserts its own ambient
+		// every frame for exactly this reason; whoever renders last wins, so
+		// the viewport has to state its value rather than assume it survived.
+		Renderer->SetGlobalLight(ambientLightColor);
 		EffectsManager->CaptureFrame();
 		if (isPerspective)
 			Renderer->RenderScene(projection, viewCam, scene);
