@@ -160,6 +160,10 @@ if (EMSCRIPTEN)
 		COMMAND ${CMAKE_COMMAND} -E copy_directory
 			${CMAKE_CURRENT_SOURCE_DIR}/web
 			$<TARGET_FILE_DIR:Pyros3D>/web
+		# web/native is the C++ that produced the module, not part of what is
+		# served. The staged folder is the deliverable now, so it should not
+		# carry sources no browser will ever ask for.
+		COMMAND ${CMAKE_COMMAND} -E remove_directory $<TARGET_FILE_DIR:Pyros3D>/web/native
 		COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:Pyros3D>/web/assets
 		COMMAND ${CMAKE_COMMAND} -E copy
 			${CMAKE_SOURCE_DIR}/examples/assets/smoke.png
