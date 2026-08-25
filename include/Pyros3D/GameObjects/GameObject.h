@@ -191,6 +191,16 @@ namespace p3d {
 		// Register and Unregister
 		void RegisterComponents(SceneGraph* Scene);
 		void UnregisterComponents(SceneGraph* Scene);
+		// Same, for this object and every descendant. A child is never in
+		// the scene's own object lists - only roots are - so detaching or
+		// removing a subtree has to walk it to take its components back out
+		// of the scene's registries, or they keep being rendered and updated
+		// after the objects owning them are gone.
+		void UnregisterComponentsTree(SceneGraph* Scene);
+		// The SceneGraph this object belongs to, directly or through its
+		// parents. Only roots carry the Scene pointer, so a child has to ask
+		// upwards.
+		SceneGraph* FindScene();
 		// Scene Pointer
 		SceneGraph* Scene;
 

@@ -57,6 +57,18 @@ namespace p3d {
 		const Vec3 &GetMinBounds() const;
 		const Vec3 &GetMaxBounds() const;
 
+	private:
+
+		// One object's per-frame step, then the same for its children.
+		// Children are not in any of the scene's lists (only roots are), so
+		// without this walk their components were never registered and never
+		// updated - a child GameObject simply did not render. Runs after the
+		// parent's own InternalUpdate() because a child's world transform is
+		// relative to the matrix that call has just refreshed.
+		void UpdateObjectTree(GameObject* go, bool callUpdate);
+
+	public:
+
 		// Rendering bookkeeping - owned by the scene instance instead of a
 		// global map keyed by SceneGraph*, so it can't outlive (or collide
 		// with a reused address of) the scene it belongs to.

@@ -265,10 +265,13 @@ namespace prefab {
 	// prefabs that could not be read (those entries are left untouched - see
 	// the note at the top).
 	//
-	// Roots only, deliberately: an instance nested as a child of another
-	// object would not render anyway (SceneGraph::Add registers only the
-	// object passed to it, not its descendants), so supporting it here would
-	// be machinery for a case the engine cannot honour.
+	// Roots only, for now. The original reason - that a nested instance
+	// would not render, because SceneGraph::Add registered only the object
+	// passed to it - no longer holds: the scene traversal walks into
+	// children, so a child's components register and update like any
+	// other's. What is left is purely local: CollapseScene() below matches
+	// instances by position in "roots", so nesting needs it to walk the tree
+	// and key off the "prefab" marker each expanded node already carries.
 	inline void ExpandScene(json& scene, const LoadFn& load,
 		std::vector<Link>& outLinks, std::vector<std::string>& outErrors)
 	{

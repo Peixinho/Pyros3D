@@ -416,6 +416,13 @@ namespace p3d {
 			if (found) echo("ERROR: GameObject Already Added");
 			else {
 				_Childs.push_back(Child);
+				// The scene registers components lazily, only when this flag
+				// is set (see RegisterComponents). An object that was already
+				// registered somewhere else has it cleared, so without this a
+				// re-parented subtree would never re-register and would stop
+				// rendering. Costs nothing for the common case of a child
+				// that has just been built.
+				Child->_ComponentsChanged = true;
 				echo("SUCCESS: GameObject added as a Child");
 			}
 		}
@@ -436,6 +443,12 @@ namespace p3d {
 		}
 		if (Child->_HaveOwner)
 		{
+			// Before the parent link goes: FindScene() walks upwards, so
+			// once _Owner is cleared there is no way left to reach the scene
+			// this subtree was registered with.
+			if (SceneGraph* owningScene = FindScene())
+				Child->UnregisterComponentsTree(owningScene);
+
 			Child->_Owner = NULL;
 			Child->_HaveOwner = false;
 
@@ -475,6 +488,20 @@ namespace p3d {
 		{
 			(*i)->Unregister(Scene);
 		}
+	}
+
+	void GameObject::UnregisterComponentsTree(SceneGraph* Scene)
+	{
+		UnregisterComponents(Scene);
+		for (std::vector<std::shared_ptr<GameObject>>::iterator i = _Childs.begin(); i != _Childs.end(); i++)
+			if (*i) (*i)->UnregisterComponentsTree(Scene);
+	}
+
+	SceneGraph* GameObject::FindScene()
+	{
+		for (GameObject* go = this; go != NULL; go = go->_Owner)
+			if (go->Scene != NULL) return go->Scene;
+		return NULL;
 	}
 
 	void GameObject::AddTag(const std::string &tag)

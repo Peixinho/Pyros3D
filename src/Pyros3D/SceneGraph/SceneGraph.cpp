@@ -93,7 +93,7 @@ namespace p3d {
 			if ((*i).get() == GO)
 			{
 				// Unregister Components
-				(*i)->UnregisterComponents(this);
+				(*i)->UnregisterComponentsTree(this);
 				// Erase From List
 				vec->erase(i);
 				// Erase Scene Pointer
@@ -111,7 +111,7 @@ namespace p3d {
 				if ((*i).get() == GO)
 				{
 					// Unregister Components
-					(*i)->UnregisterComponents(this);
+					(*i)->UnregisterComponentsTree(this);
 					// Erase From List
 					vec->erase(i);
 					// Erase Scene Pointer
@@ -144,6 +144,33 @@ namespace p3d {
 			Remove(*i);
 	}
 
+	void SceneGraph::UpdateObjectTree(GameObject* go, bool callUpdate)
+	{
+		if (!go) return;
+
+		if (callUpdate) go->Update(timer);
+		go->RegisterComponents(this);
+		go->UpdateComponents(timer);
+		go->InternalUpdate();
+
+		Vec3 _min = go->GetBoundingMinValue();
+		Vec3 _max = go->GetBoundingMaxValue();
+		if (_min.x < minBounds.x) minBounds.x = _min.x;
+		if (_min.y < minBounds.y) minBounds.y = _min.y;
+		if (_min.z < minBounds.z) minBounds.z = _min.z;
+		if (_max.x > maxBounds.x) maxBounds.x = _max.x;
+		if (_max.y > maxBounds.y) maxBounds.y = _max.y;
+		if (_max.z > maxBounds.z) maxBounds.z = _max.z;
+
+		// Children after the parent, deliberately: InternalUpdate() above has
+		// just refreshed this object's world matrix, and a child's transform
+		// is relative to it. Copied because a component's Update() may add or
+		// remove children while this walk is in progress.
+		const std::vector<std::shared_ptr<GameObject>> kids = go->GetChildren();
+		for (size_t i = 0; i < kids.size(); i++)
+			UpdateObjectTree(kids[i].get(), callUpdate);
+	}
+
 	void SceneGraph::Update(const f64 &Timer)
 	{
 		PYROS_PROFILE_SCOPE("SceneGraph.Update");
@@ -163,21 +190,7 @@ namespace p3d {
 			for (const std::shared_ptr<GameObject> &go : dynamicSnapshot)
 			{
 				if (!go || go->Scene != this) continue;
-
-				go->Update(timer);
-				go->RegisterComponents(this);
-				go->UpdateComponents(timer);
-				go->InternalUpdate();
-
-				Vec3 _min = go->GetBoundingMinValue();
-				Vec3 _max = go->GetBoundingMaxValue();
-
-				if (_min.x < minBounds.x) minBounds.x = _min.x;
-				if (_min.y < minBounds.y) minBounds.y = _min.y;
-				if (_min.z < minBounds.z) minBounds.z = _min.z;
-				if (_max.x > maxBounds.x) maxBounds.x = _max.x;
-				if (_max.y > maxBounds.y) maxBounds.y = _max.y;
-				if (_max.z > maxBounds.z) maxBounds.z = _max.z;
+				UpdateObjectTree(go.get(), true);
 			}
 		}
 
@@ -187,20 +200,7 @@ namespace p3d {
 			for (const std::shared_ptr<GameObject> &go : staticAfterSnapshot)
 			{
 				if (!go || go->Scene != this) continue;
-
-				go->RegisterComponents(this);
-				go->UpdateComponents(timer);
-				go->InternalUpdate();
-
-				Vec3 _min = go->GetBoundingMinValue();
-				Vec3 _max = go->GetBoundingMaxValue();
-
-				if (_min.x < minBounds.x) minBounds.x = _min.x;
-				if (_min.y < minBounds.y) minBounds.y = _min.y;
-				if (_min.z < minBounds.z) minBounds.z = _min.z;
-				if (_max.x > maxBounds.x) maxBounds.x = _max.x;
-				if (_max.y > maxBounds.y) maxBounds.y = _max.y;
-				if (_max.z > maxBounds.z) maxBounds.z = _max.z;
+				UpdateObjectTree(go.get(), false);
 			}
 		}
 
@@ -208,20 +208,7 @@ namespace p3d {
 			PYROS_PROFILE_SCOPE("Scene.StaticInit");
 			for (std::vector<std::shared_ptr<GameObject>>::iterator i = _GameObjectListStaticPrevious.begin(); i != _GameObjectListStaticPrevious.end(); i++)
 			{
-				(*i)->Update(timer);
-				(*i)->RegisterComponents(this);
-				(*i)->UpdateComponents(timer);
-				(*i)->InternalUpdate();
-
-				Vec3 _min = (*i)->GetBoundingMinValue();
-				Vec3 _max = (*i)->GetBoundingMaxValue();
-
-				if (_min.x < minBounds.x) minBounds.x = _min.x;
-				if (_min.y < minBounds.y) minBounds.y = _min.y;
-				if (_min.z < minBounds.z) minBounds.z = _min.z;
-				if (_max.x > maxBounds.x) maxBounds.x = _max.x;
-				if (_max.y > maxBounds.y) maxBounds.y = _max.y;
-				if (_max.z > maxBounds.z) maxBounds.z = _max.z;
+				UpdateObjectTree((*i).get(), true);
 
 				_GameObjectListStaticAfter.push_back((*i));
 				i = _GameObjectListStaticPrevious.erase(i);
