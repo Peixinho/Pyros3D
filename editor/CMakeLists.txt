@@ -91,6 +91,9 @@ target_include_directories(PyrosBuilder PRIVATE
 	# WindowManagers/ (not .../SDL2) so Editor.h's "SDL2/SDL2Context.h"
 	# resolves to the same context the examples use.
 	${CMAKE_SOURCE_DIR}/examples/WindowManagers
+	# Prefab resolution, shared with the player and deliberately outside
+	# the engine (see shared/PrefabResolver.h).
+	${CMAKE_SOURCE_DIR}/shared
 	${SDL2_INCLUDE_DIRS}
 	${IMGUI_INCLUDE_DIRS}
 	${GLAD_INCLUDE_DIR}

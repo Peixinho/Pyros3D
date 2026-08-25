@@ -58,6 +58,7 @@
 #endif
 
 #include <fstream>
+#include <sstream>
 #include <map>
 #include <filesystem>
 
@@ -2219,17 +2220,26 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			echo("ERROR: SceneSerializer::LoadScene - couldn't open file: " + filePath);
 			return false;
 		}
+		std::stringstream buffer;
+		buffer << in.rdbuf();
+		in.close();
+		return LoadSceneFromText(scene, buffer.str(), filePath, physics, lua, outAssets, outMeta);
+	}
+
+	bool SceneSerializer::LoadSceneFromText(SceneGraph* scene, const std::string &jsonText, const std::string &scenePathForAssetRoot,
+		IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets, SceneMeta* outMeta)
+	{
+		const std::string &filePath = scenePathForAssetRoot;
 		json root;
 		try
 		{
-			in >> root;
+			root = json::parse(jsonText);
 		}
 		catch (const std::exception&)
 		{
 			echo("ERROR: SceneSerializer::LoadScene - invalid JSON in file: " + filePath);
 			return false;
 		}
-		in.close();
 
 		// Parsed as JSON, but that does not make it a scene. Every lookup
 		// below assumes an object - root.value("version", ...) on a JSON

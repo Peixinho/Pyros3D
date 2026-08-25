@@ -208,6 +208,7 @@ std::string ProjectManager::TexturesPath() const { return AbsolutePath("assets/t
 std::string ProjectManager::ShadersPath() const { return AbsolutePath("assets/shaders"); }
 std::string ProjectManager::LuaPath() const { return AbsolutePath("assets/lua"); }
 std::string ProjectManager::MaterialsPath() const { return AbsolutePath("assets/materials"); }
+std::string ProjectManager::PrefabsPath() const { return AbsolutePath("assets/prefabs"); }
 std::string ProjectManager::ScenesPath() const { return AbsolutePath("scenes"); }
 
 std::string ProjectManager::AbsolutePath(const std::string& relative) const
@@ -348,6 +349,11 @@ bool ProjectManager::IsSceneExtension(const std::string& path)
 bool ProjectManager::IsAnimationExtension(const std::string& path)
 {
 	return ExtensionLower(path) == "p3da";
+}
+
+bool ProjectManager::IsPrefabExtension(const std::string& path)
+{
+	return ExtensionLower(path) == "prefab";
 }
 
 bool ProjectManager::IsModelSourceExtension(const std::string& path)
@@ -1511,6 +1517,7 @@ bool ProjectManager::EnsureDirectories(std::string* errorOut) const
 		"assets/lua",
 		"assets/materials",
 		"assets/animations",
+		"assets/prefabs",
 		"scenes"
 	};
 	for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); ++i)
@@ -1644,4 +1651,268 @@ bool ProjectManager::LoadProjectJson(const std::string& jsonPath, std::string* e
 void ProjectManager::RefreshSceneListInJson()
 {
 	// WriteProjectJson already re-lists scenes from disk.
+}
+
+// ================================ Build ================================
+//
+// A build is a folder, not an installer: the player binary, the engine's
+// shaders, middleclass.lua, the project's scenes and assets, and a
+// game.json tying them together. The player resolves everything relative to
+// that folder (see PyrosPlayer's FindManifestDir), so it can be zipped,
+// moved or renamed and still run.
+//
+// What this does NOT do, and says so in the dialog rather than pretending
+// otherwise: gather the *system* libraries the player links (SDL2, Lua,
+// FreeType, Box3D). Those still have to be present on the machine that
+// runs it. Making a build self-contained is a per-platform packaging job -
+// otool/install_name_tool rewriting on macOS, a DLL sweep on Windows -
+// worth doing, but not worth pretending to have done.
+
+std::string ProjectManager::FindPlayerBinary()
+{
+	std::error_code ec;
+	std::vector<fs::path> candidates;
+	const fs::path cwd = fs::current_path(ec);
+
+#ifdef _WIN32
+	const std::string exe = "PyrosPlayer.exe";
+#else
+	const std::string exe = "PyrosPlayer";
+#endif
+
+	// The editor and the player are built into the same tree, so the editor's
+	// own working directory is the first and usual answer.
+	candidates.push_back(cwd / exe);
+	candidates.push_back(cwd / "player" / exe);
+	candidates.push_back(cwd / ".." / "player" / exe);
+	candidates.push_back(cwd.parent_path() / "player" / exe);
+
+	for (size_t i = 0; i < candidates.size(); ++i)
+	{
+		fs::path p = fs::weakly_canonical(candidates[i], ec);
+		if (!ec && fs::exists(p, ec) && fs::is_regular_file(p, ec)) return p.string();
+	}
+	return std::string();
+}
+
+std::string ProjectManager::FindEngineShadersDir()
+{
+	std::error_code ec;
+	const fs::path cwd = fs::current_path(ec);
+	// pyros_stage_dir() puts resources/shaders next to the binaries as
+	// shaders/ (a symlink in a dev build, a copy on Windows) - which is
+	// also exactly where the engine loads them from at run time
+	// ("shaders/PyrosShader.glsl", relative to the working directory).
+	std::vector<fs::path> candidates = {
+		cwd / "shaders",
+		cwd / ".." / "shaders",
+		cwd / ".." / ".." / "resources" / "shaders",
+		cwd.parent_path() / "resources" / "shaders"
+	};
+	for (size_t i = 0; i < candidates.size(); ++i)
+	{
+		fs::path p = fs::weakly_canonical(candidates[i], ec);
+		if (!ec && fs::exists(p, ec) && fs::is_directory(p, ec)) return p.string();
+	}
+	return std::string();
+}
+
+std::string ProjectManager::FindMiddleclassLua()
+{
+	std::error_code ec;
+	const fs::path cwd = fs::current_path(ec);
+	std::vector<fs::path> candidates = {
+		cwd / "assets" / "middleclass.lua",
+		cwd / ".." / "examples" / "assets" / "middleclass.lua",
+		cwd / ".." / ".." / "examples" / "assets" / "middleclass.lua",
+		cwd.parent_path() / "examples" / "assets" / "middleclass.lua"
+	};
+	for (size_t i = 0; i < candidates.size(); ++i)
+	{
+		fs::path p = fs::weakly_canonical(candidates[i], ec);
+		if (!ec && fs::exists(p, ec) && fs::is_regular_file(p, ec)) return p.string();
+	}
+	return std::string();
+}
+
+namespace {
+
+	// Recursive copy that skips what a shipped game has no use for: the
+	// editor's trash, thumbnail caches, and the staged source models kept
+	// beside a .p3dm for re-import.
+	bool CopyGameTree(const fs::path& from, const fs::path& to, size_t& copied, std::string& errorOut)
+	{
+		std::error_code ec;
+		if (!fs::exists(from, ec)) return true;
+
+		fs::create_directories(to, ec);
+		for (fs::recursive_directory_iterator it(from, fs::directory_options::skip_permission_denied, ec), end;
+			it != end; it.increment(ec))
+		{
+			if (ec) { ec.clear(); continue; }
+			const fs::path& src = it->path();
+			const std::string name = src.filename().string();
+
+			if (name == ".trash" || name == ".thumbnails" || name == ".DS_Store")
+			{
+				if (it->is_directory(ec)) it.disable_recursion_pending();
+				continue;
+			}
+
+			const fs::path rel = fs::relative(src, from, ec);
+			if (ec) { ec.clear(); continue; }
+			const fs::path dst = to / rel;
+
+			if (it->is_directory(ec))
+			{
+				fs::create_directories(dst, ec);
+				continue;
+			}
+			fs::create_directories(dst.parent_path(), ec);
+			fs::copy_file(src, dst, fs::copy_options::overwrite_existing, ec);
+			if (ec)
+			{
+				errorOut = "Failed to copy " + src.string() + ": " + ec.message();
+				return false;
+			}
+			++copied;
+		}
+		return true;
+	}
+
+} // namespace
+
+ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) const
+{
+	BuildResult r;
+	std::error_code ec;
+
+	if (!IsOpen()) { r.error = "No project open"; return r; }
+	if (opts.outputDir.empty()) { r.error = "Choose an output folder"; return r; }
+
+	const std::string sceneRel = opts.startupSceneRel.empty() ? activeSceneRel : opts.startupSceneRel;
+	if (sceneRel.empty()) { r.error = "No startup scene - open or save a scene first"; return r; }
+	if (!fs::exists(AbsolutePath(sceneRel), ec))
+	{
+		r.error = "Startup scene does not exist: " + sceneRel;
+		return r;
+	}
+
+	// Refusing to build *into* the project is not pedantry: the copy below
+	// would recurse into its own output, and "assets/" would grow a copy of
+	// itself on every build.
+	const fs::path out = fs::weakly_canonical(fs::path(opts.outputDir), ec);
+	const fs::path projectRoot = fs::weakly_canonical(fs::path(projectPath), ec);
+	if (!out.string().empty() && out.string().compare(0, projectRoot.string().size(), projectRoot.string()) == 0)
+	{
+		r.error = "Choose an output folder outside the project";
+		return r;
+	}
+
+	const std::string player = FindPlayerBinary();
+	if (player.empty())
+	{
+		r.error = "PyrosPlayer not found. Build it first (-DBUILD_PLAYER=ON) - "
+			"it is the runtime the game ships with.";
+		return r;
+	}
+
+	fs::create_directories(out, ec);
+	if (ec) { r.error = "Could not create " + out.string() + ": " + ec.message(); return r; }
+
+	// ---- the runtime ----
+	const fs::path playerDst = out / fs::path(player).filename();
+	fs::copy_file(player, playerDst, fs::copy_options::overwrite_existing, ec);
+	if (ec) { r.error = "Could not copy the player: " + ec.message(); return r; }
+	fs::permissions(playerDst, fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec,
+		fs::perm_options::add, ec);
+	++r.filesCopied;
+
+	// The engine is a shared library in every configuration that builds the
+	// editor, and the player looks for it beside itself (its rpath carries
+	// @executable_path/$ORIGIN for exactly this). Without this copy a built
+	// game launches only on the machine that produced it, and only while the
+	// build tree is still there - which is the kind of thing that is not
+	// noticed until someone else tries to run it.
+	//
+	// Searched in the player's own directory *and its parent*: a CMake build
+	// tree puts the executable in player/ and the library at the top level,
+	// so looking only beside the binary finds nothing.
+	bool engineCopied = false;
+	const fs::path playerDir = fs::path(player).parent_path();
+	const fs::path searchDirs[] = { playerDir, playerDir.parent_path(), fs::current_path(ec) };
+	for (size_t d = 0; d < sizeof(searchDirs) / sizeof(searchDirs[0]) && !engineCopied; ++d)
+	{
+		ec.clear();
+		if (searchDirs[d].empty() || !fs::is_directory(searchDirs[d], ec)) continue;
+		for (fs::directory_iterator it(searchDirs[d], ec), end; it != end && !ec; it.increment(ec))
+		{
+			const std::string name = it->path().filename().string();
+			if (name.find("PyrosEngine") == std::string::npos) continue;
+			if (!it->is_regular_file(ec)) continue;
+			// .dylib / .so / .dll / .so.1 - but never the import library or
+			// a static archive, which a game does not need at run time.
+			const std::string extension = it->path().extension().string();
+			if (extension == ".a" || extension == ".lib") continue;
+			fs::copy_file(it->path(), out / name, fs::copy_options::overwrite_existing, ec);
+			if (!ec) { ++r.filesCopied; engineCopied = true; }
+			ec.clear();
+		}
+	}
+	ec.clear();
+	if (!engineCopied)
+		r.warnings.push_back("The engine library was not found next to the player - if this build "
+			"does not launch elsewhere, copy libPyrosEngine beside the executable.");
+
+	// ---- engine shaders ----
+	const std::string shaders = FindEngineShadersDir();
+	if (shaders.empty())
+		r.warnings.push_back("Engine shaders not found - the game will render nothing. "
+			"Run the editor from its build folder, where shaders/ is staged.");
+	else if (!CopyGameTree(shaders, out / "shaders", r.filesCopied, r.error))
+		return r;
+
+	// ---- middleclass.lua ----
+	const std::string middleclass = FindMiddleclassLua();
+	if (middleclass.empty())
+		r.warnings.push_back("middleclass.lua not found - scripts will not load. "
+			"It ships in examples/assets/.");
+	else
+	{
+		fs::create_directories(out / "lua", ec);
+		fs::copy_file(middleclass, out / "lua" / "middleclass.lua", fs::copy_options::overwrite_existing, ec);
+		if (!ec) ++r.filesCopied;
+		ec.clear();
+	}
+
+	// ---- project content ----
+	// scenes/ wholesale, sidecars included: <scene>.json.editor.json is
+	// where the active camera and its fov/near/far live, and without it the
+	// player has nothing to render from (the scene format itself has no
+	// concept of a camera).
+	if (!CopyGameTree(ScenesPath(), out / "scenes", r.filesCopied, r.error)) return r;
+	if (!CopyGameTree(AssetsPath(), out / "assets", r.filesCopied, r.error)) return r;
+
+	if (!fs::exists(AbsolutePath(sceneRel) + ".editor.json", ec))
+		r.warnings.push_back("The startup scene has no camera sidecar - the player will fall back "
+			"to a default camera. Set an active camera in the editor and save the scene.");
+
+	// ---- manifest ----
+	nlohmann::json manifest;
+	manifest["title"] = opts.title.empty() ? projectName : opts.title;
+	manifest["startupScene"] = sceneRel;
+	manifest["renderer"] = opts.deferred ? "deferred" : "forward";
+	manifest["width"] = opts.width;
+	manifest["height"] = opts.height;
+	manifest["fullscreen"] = opts.fullscreen;
+
+	std::ofstream mf((out / "game.json").string().c_str());
+	if (!mf) { r.error = "Could not write game.json"; return r; }
+	mf << manifest.dump(4);
+	mf.close();
+	++r.filesCopied;
+
+	r.ok = true;
+	r.outputDir = out.string();
+	return r;
 }

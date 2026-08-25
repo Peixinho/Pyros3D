@@ -121,3 +121,7 @@ endif()
 if (BUILD_EDITOR)
 	add_subdirectory(${CMAKE_SOURCE_DIR}/editor)
 endif()
+
+if (BUILD_PLAYER)
+	add_subdirectory(${CMAKE_SOURCE_DIR}/player)
+endif()

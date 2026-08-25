@@ -2360,6 +2360,271 @@ def duplicate_object(project_path: str, scene_name: str, name: str, new_name: st
     return f"Duplicated '{name}' as '{final_name}'"
 
 
+# ---------------------------------------------------------------------------
+# Prefabs
+#
+# A .prefab is one GameObject subtree saved as a reusable asset; a scene
+# stores instances of it as a reference plus that instance's own name,
+# transform and tags, so editing the prefab updates every instance. Neither
+# the engine nor this server invents the format - it is what
+# SceneSerializer::SerializeSubtree() writes, and shared/PrefabResolver.h is
+# what resolves it on both sides.
+#
+# Create and instantiate work with or without a running editor. Apply,
+# revert, unpack and state need the live editor: they depend on which live
+# object is linked to what, which is editor-side state (SceneObject::
+# prefabSource) with no representation in the file.
+# ---------------------------------------------------------------------------
+
+
+def _prefab_rel(proj: Path, path: Path) -> str:
+    """Project-relative, which is what a scene file stores (_rel is relative
+    to the repo root, and would write a path the engine cannot resolve)."""
+    return path.resolve().relative_to(proj.resolve()).as_posix()
+
+
+def _prefab_path(proj: Path, prefab_name: str) -> Path:
+    stem = prefab_name[:-7] if prefab_name.endswith(".prefab") else prefab_name
+    stem = Path(stem).name
+    return proj / "assets" / "prefabs" / f"{stem}.prefab"
+
+
+def _material_ids_in(node) -> list:
+    """Every material-pool index the subtree references, in first-seen order."""
+    found = []
+
+    def walk(n):
+        if isinstance(n, dict):
+            if isinstance(n.get("material"), int) and n["material"] not in found:
+                found.append(n["material"])
+            for v in n.values():
+                walk(v)
+        elif isinstance(n, list):
+            for v in n:
+                walk(v)
+
+    walk(node)
+    return found
+
+
+def _renumber_materials(node, remap: dict) -> None:
+    if isinstance(node, dict):
+        if isinstance(node.get("material"), int) and node["material"] in remap:
+            node["material"] = remap[node["material"]]
+        for v in node.values():
+            _renumber_materials(v, remap)
+    elif isinstance(node, list):
+        for v in node:
+            _renumber_materials(v, remap)
+
+
+@mcp.tool()
+def create_prefab(project_path: str, scene_name: str, name: str, prefab_name: str | None = None) -> str:
+    """Save a game object and its children as a reusable .prefab; the object becomes the first instance of it.
+
+    Editing the prefab afterwards updates every instance of it in every scene.
+    """
+    import copy as _copy
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    s_err = _scene_error(scene_file)
+    if s_err:
+        return _fail(s_err)
+
+    live = _live_or_none("create_prefab", {"name": name, "prefabName": prefab_name or ""}, scene_file)
+    if live is not None:
+        if isinstance(live, str):
+            return _fail(live)
+        return f"Created prefab {live.get('path', '')} from '{name}' (live editor)"
+
+    data = _load_scene(scene_file)
+    roots = data.get("roots", [])
+    index = next((i for i, r in enumerate(roots) if r.get("name") == name), None)
+    if index is None:
+        return _fail(f"Object '{name}' not found at the root of scene {scene_name} "
+                     "(prefab instances are scene roots)")
+
+    out = _prefab_path(proj, prefab_name or name)
+    if out.exists():
+        return _fail(f"{_prefab_rel(proj, out)} already exists - pick another name, "
+                     "or apply_prefab to update it")
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    root = _copy.deepcopy(roots[index])
+    root.pop("prefab", None)
+    used = _material_ids_in(root)
+    pool = data.get("materials", [])
+    _renumber_materials(root, {old: i for i, old in enumerate(used)})
+    out.write_text(json.dumps({
+        "version": 1,
+        "prefabVersion": 1,
+        "root": root,
+        "materials": [pool[m] for m in used if m < len(pool)],
+    }, indent=4))
+
+    ref = {"prefab": _prefab_rel(proj, out), "name": roots[index].get("name", name)}
+    for field in ("position", "rotation", "scale", "tags"):
+        if field in roots[index]:
+            ref[field] = roots[index][field]
+    roots[index] = ref
+    _save_scene(scene_file, data)
+    return f"Created prefab {_prefab_rel(proj, out)}; '{name}' is now an instance of it"
+
+
+@mcp.tool()
+def instantiate_prefab(project_path: str, scene_name: str, prefab_path: str,
+                       name: str | None = None, position: list[float] | None = None) -> str:
+    """Add an instance of a .prefab to a scene."""
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    s_err = _scene_error(scene_file)
+    if s_err:
+        return _fail(s_err)
+
+    rel = (prefab_path if prefab_path.startswith("assets/")
+           else _prefab_rel(proj, _prefab_path(proj, prefab_path)))
+    if not (proj / rel).exists():
+        return _fail(f"Prefab not found: {rel}")
+
+    live = _live_or_none("instantiate_prefab", {
+        "path": rel, "position": position or [0.0, 0.0, 0.0],
+    }, scene_file)
+    if live is not None:
+        if isinstance(live, str):
+            return _fail(live)
+        return f"Instantiated {rel} as '{live.get('name', '')}' (live editor)"
+
+    data = _load_scene(scene_file)
+    prefab = json.loads((proj / rel).read_text())
+    final_name = _unique_scene_name(data, name or prefab.get("root", {}).get("name", "Prefab"))
+    ref = {"prefab": rel, "name": final_name, "position": position or [0.0, 0.0, 0.0]}
+    data.setdefault("roots", []).append(ref)
+    _save_scene(scene_file, data)
+    return f"Instantiated {rel} as '{final_name}' in scene {scene_name}"
+
+
+@mcp.tool()
+def prefab_state(project_path: str, scene_name: str) -> str:
+    """List the prefab instances in the open scene and which of them have local changes.
+
+    Needs a running editor with this scene open: whether an instance still
+    matches its prefab is answered against the live objects.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+
+    live = _live_or_none("prefab_state", {}, scene_file)
+    if live is None:
+        # Without the editor, the file still says which roots are references.
+        data = _load_scene(scene_file)
+        refs = [r for r in data.get("roots", []) if "prefab" in r]
+        if not refs:
+            return f"No prefab instances in scene {scene_name}"
+        lines = [f"{r.get('name', '?')} → {r['prefab']}" for r in refs]
+        return ("Prefab instances (from the scene file; open the scene in the editor "
+                "to see which have local changes):\n" + "\n".join(lines))
+    if isinstance(live, str):
+        return _fail(live)
+
+    instances = live.get("instances", [])
+    if not instances:
+        return f"No prefab instances in scene {scene_name}"
+    lines = [f"{i.get('name', '?')} → {i.get('prefab', '?')}"
+             f"{'  [modified]' if i.get('modified') else ''}" for i in instances]
+    return "Prefab instances:\n" + "\n".join(lines)
+
+
+def _live_prefab_op(cmd: str, project_path: str, scene_name: str, name: str, done: str) -> str:
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    live = _live_or_none(cmd, {"name": name}, scene_file)
+    if live is None:
+        return _fail(f"{cmd} needs the editor open on scene {scene_name} - it acts on the "
+                     "live objects and their link to the prefab")
+    if isinstance(live, str):
+        return _fail(live)
+    return done.format(name=name)
+
+
+@mcp.tool()
+def apply_prefab(project_path: str, scene_name: str, name: str) -> str:
+    """Write an instance's current state back over its prefab, updating every instance that had no changes of its own.
+
+    Not undoable: it rewrites a project asset that other scenes reference.
+    """
+    return _live_prefab_op("apply_prefab", project_path, scene_name, name,
+                           "Applied '{name}' to its prefab")
+
+
+@mcp.tool()
+def revert_prefab(project_path: str, scene_name: str, name: str) -> str:
+    """Discard an instance's local changes and rebuild it from its prefab, keeping its name, transform and tags."""
+    return _live_prefab_op("revert_prefab", project_path, scene_name, name,
+                           "Reverted '{name}' to its prefab")
+
+
+@mcp.tool()
+def unpack_prefab(project_path: str, scene_name: str, name: str) -> str:
+    """Break an instance's link to its prefab. The objects stay; future prefab edits no longer reach them."""
+    return _live_prefab_op("unpack_prefab", project_path, scene_name, name,
+                           "Unpacked '{name}' from its prefab")
+
+
+@mcp.tool()
+def list_prefabs(project_path: str) -> str:
+    """List the .prefab assets in a project."""
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    folder = proj / "assets" / "prefabs"
+    if not folder.is_dir():
+        return "No prefabs yet (assets/prefabs/ does not exist)"
+    found = sorted(p for p in folder.glob("*.prefab"))
+    if not found:
+        return "No prefabs yet"
+    return "Prefabs:\n" + "\n".join(_prefab_rel(proj, p) for p in found)
+
+
+@mcp.tool()
+def build_game(project_path: str, output_dir: str, startup_scene: str | None = None,
+               title: str | None = None, width: int = 1280, height: int = 720,
+               fullscreen: bool = False) -> str:
+    """Export a runnable game folder: the player binary, engine shaders, and the project's scenes and assets.
+
+    Needs a running editor with this project open - the build locates the
+    player binary and the staged shaders relative to the running editor.
+    Note that system libraries the player links (SDL2, Lua, FreeType) are not
+    gathered; they must be present on whatever machine runs the build.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    if not _live_project_matches(proj):
+        return _fail("build_game needs the editor open on this project")
+
+    args = {"outputDir": output_dir, "width": width, "height": height, "fullscreen": fullscreen}
+    if startup_scene:
+        args["startupScene"] = startup_scene if startup_scene.startswith("scenes/") \
+            else f"scenes/{startup_scene}.json"
+    if title:
+        args["title"] = title
+
+    ok, res = _editor_call("build_game", args, timeout=120.0)
+    if not ok:
+        return _fail(str(res))
+    lines = [f"Built {res.get('files', 0)} file(s) into {res.get('outputDir', output_dir)}"]
+    lines += [f"  ! {w}" for w in res.get("warnings", [])]
+    return "\n".join(lines)
+
+
 @mcp.tool()
 def remove_game_object(project_path: str, scene_name: str, name: str) -> str:
     """Remove a game object (and its children) from a scene."""

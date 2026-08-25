@@ -7,6 +7,7 @@
 //============================================================================
 
 #include "Editor.h"
+#include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
 // The agent bridge reaches into an animation document's live rig (bone
 // names, current pose) - AnimationEditorDocument only forward-declares it.
@@ -317,6 +318,36 @@ void Editor::InitLuaHost()
 		// scenes) - assign the return value or every attach/load fails/wedges.
 		sol::object classMod = lua.require_file("class", middleclass);
 		lua["class"] = classMod;
+
+		// Prefab spawning, for scripts running in play mode. Registered by
+		// the host rather than by the engine's bindings, because a prefab is
+		// a tooling concept - what the engine offers is DeserializeSubtree(),
+		// and this is that pointed at a .prefab file. Deliberately identical
+		// in name and behaviour to the binding PyrosPlayer registers: a
+		// script that spawns enemies in play mode has to do the same thing
+		// in a build, and two different APIs for it is how that stops being
+		// true.
+		{
+			sol::table prefabTable = lua.create_table();
+			Editor* self = this;
+			prefabTable["instantiate"] = [self](const std::string& path) -> std::shared_ptr<LUA_GameObject> {
+				const std::string abs = (self->project.IsOpen() && !path.empty()
+					&& path.find(':') == std::string::npos && path[0] != '/')
+					? self->project.AbsolutePath(path) : path;
+				const nlohmann::json j = prefab::ReadPrefabFile(abs);
+				if (!j.is_object())
+				{
+					echo("ERROR: Prefab.instantiate - could not read " + path);
+					return nullptr;
+				}
+				SceneEditor* view = self->sceneView;
+				return std::static_pointer_cast<LUA_GameObject>(
+					SceneSerializer::DeserializeSubtree(j.dump(),
+						view ? view->GetScenePath() : std::string(),
+						view ? view->GetPhysics() : NULL, &self->lua, NULL));
+			};
+			lua["Prefab"] = prefabTable;
+		}
 
 		// Route Lua print(...) into the editor Log panel (not the OS terminal).
 		lua.set_function("__pyros_log", [](const std::string& msg) {
@@ -2098,6 +2129,86 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		nlohmann::json r;
 		r["ok"] = true;
 		r["path"] = project.DisplayPath(sceneView->GetScenePath());
+		return r;
+	}
+	if (name == "create_prefab")
+	{
+		std::string rel;
+		if (!sceneView->AgentCreatePrefab(A("name"), a.value("prefabName", std::string()), rel, err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["path"] = rel;
+		return r;
+	}
+	if (name == "instantiate_prefab")
+	{
+		Vec3 pos(0.f, 0.f, 0.f);
+		if (a.contains("position") && a["position"].is_array() && a["position"].size() >= 3)
+			pos = Vec3(a["position"][0].get<f32>(), a["position"][1].get<f32>(), a["position"][2].get<f32>());
+		std::string created;
+		if (!sceneView->AgentInstantiatePrefab(A("path"), pos, created, err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["name"] = created;
+		return r;
+	}
+	if (name == "apply_prefab")
+	{
+		if (!sceneView->AgentApplyPrefab(A("name"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "revert_prefab")
+	{
+		if (!sceneView->AgentRevertPrefab(A("name"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "unpack_prefab")
+	{
+		if (!sceneView->AgentUnpackPrefab(A("name"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "prefab_state")
+	{
+		nlohmann::json r;
+		r["ok"] = true;
+		r["instances"] = sceneView->AgentPrefabState();
+		return r;
+	}
+	if (name == "build_game")
+	{
+		if (!project.IsOpen()) throw std::runtime_error("no project open");
+		// Saved first, deliberately: the build copies files off disk, so an
+		// unsaved edit would silently not be in what ships.
+		if (!sceneView->GetScenePath().empty())
+			sceneView->SaveSceneToFile(sceneView->GetScenePath());
+
+		ProjectManager::BuildOptions opts;
+		opts.outputDir = A("outputDir");
+		opts.startupSceneRel = a.value("startupScene", std::string());
+		opts.title = a.value("title", std::string());
+		opts.width = a.value("width", 1280);
+		opts.height = a.value("height", 720);
+		opts.fullscreen = a.value("fullscreen", false);
+		opts.deferred = (project.GetSettings().rendererType == ProjectRendererType::Deferred);
+
+		ProjectManager::BuildResult br = project.BuildGame(opts);
+		if (!br.ok) throw std::runtime_error(br.error);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["outputDir"] = br.outputDir;
+		r["files"] = br.filesCopied;
+		r["warnings"] = br.warnings;
 		return r;
 	}
 	if (name == "set_renderer")

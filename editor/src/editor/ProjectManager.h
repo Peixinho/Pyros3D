@@ -104,6 +104,7 @@ public:
 	std::string LuaPath() const;
 	std::string MaterialsPath() const;
 	std::string AnimationsPath() const;
+	std::string PrefabsPath() const;
 	std::string ScenesPath() const;
 
 	std::string AbsolutePath(const std::string& relative) const;
@@ -210,6 +211,41 @@ public:
 	static bool IsLuaExtension(const std::string& path);
 	static bool IsMaterialExtension(const std::string& path);
 	static bool IsAnimationExtension(const std::string& path); // .p3da
+	static bool IsPrefabExtension(const std::string& path);    // .prefab
+
+	// ------------------------------ Build --------------------------------
+	// Stages a runnable game: the PyrosPlayer binary, the engine's shaders,
+	// and the project's scenes and assets, next to a game.json the player
+	// reads on startup. The result is a folder that runs by launching the
+	// binary inside it.
+	struct BuildOptions {
+		std::string outputDir;
+		std::string startupSceneRel; // empty → the project's active scene
+		std::string title;           // empty → the project name
+		int width = 1280;
+		int height = 720;
+		bool fullscreen = false;
+		bool deferred = false;       // set from ProjectSettings by the caller
+	};
+	struct BuildResult {
+		bool ok = false;
+		std::string error;
+		std::string outputDir;
+		// Things that did not stop the build but will bite at run time - a
+		// scene with no camera sidecar, a missing middleclass.lua. Shown in
+		// the build dialog rather than only logged.
+		std::vector<std::string> warnings;
+		size_t filesCopied = 0;
+	};
+	BuildResult BuildGame(const BuildOptions& opts) const;
+
+	// The three things a build needs that live outside the project: the
+	// player binary, the engine's staged shaders/ folder, and middleclass.lua.
+	// All three are searched relative to the running editor, so a build works
+	// out of a build tree without any configuration. Empty when not found.
+	static std::string FindPlayerBinary();
+	static std::string FindEngineShadersDir();
+	static std::string FindMiddleclassLua();
 	static bool IsSceneExtension(const std::string& path);
 	static bool IsModelCompanionExtension(const std::string& path);
 	// True for files that belong inside a model package (textures/, .thumbnails/,

@@ -1064,6 +1064,133 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		if (showingAddFrom) ShowAddForm();
 		else if (!playMode) editorDisabled = false;
+
+		// Drawn here rather than inside the menus that raise them: a
+		// BeginPopupModal nested in a BeginPopupContextItem (or in a
+		// BeginMenu) closes with its parent popup the moment the item is
+		// clicked.
+		DrawPrefabModals();
+		DrawBuildModal();
+	}
+
+	// The prefab entries of a GameObject's context menu. Two different menus
+	// depending on what the object is: an ordinary object can become a
+	// prefab, an instance can be pushed back to / rebuilt from / detached
+	// from its own.
+	void SceneEditor::ShowPrefabMenu(uint32 goId)
+	{
+		SceneObject* obj = sceneObjects->GetSceneObject(goId);
+		if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) return;
+		GameObject* go = (GameObject*)obj->GetPTR();
+		if (!go) return;
+
+		ImGui::Separator();
+
+		if (obj->prefabSource.empty())
+		{
+			if (ImGui::MenuItem("Create Prefab…"))
+			{
+				prefabModalTargetId = goId;
+				prefabModalName = go->GetName();
+				prefabModalError.clear();
+				openCreatePrefabModal = true;
+			}
+			return;
+		}
+
+		const std::string src = obj->prefabSource;
+		const bool clean = !PrefabInstanceIsModified(goId);
+
+		if (ImGui::BeginMenu("Prefab"))
+		{
+			ImGui::TextDisabled("%s", src.c_str());
+			ImGui::TextDisabled("%s", clean ? "In sync" : "Modified");
+			ImGui::Separator();
+
+			// Only offered when there is something to push: applying an
+			// unmodified instance would rewrite the file with what it
+			// already contains, and invite the "why did my undo history
+			// vanish?" question for no gain.
+			if (ImGui::MenuItem("Apply to Prefab…", NULL, false, !clean))
+			{
+				prefabModalTargetId = goId;
+				prefabModalError.clear();
+				openApplyPrefabModal = true;
+			}
+			if (ImGui::MenuItem("Revert to Prefab", NULL, false, !clean))
+			{
+				std::string err;
+				if (!OpRevertPrefab(goId, err)) echo("ERROR: Revert to Prefab - " + err);
+			}
+			if (ImGui::MenuItem("Unpack Prefab"))
+			{
+				std::string err;
+				if (!OpUnpackPrefab(goId, err)) echo("ERROR: Unpack Prefab - " + err);
+			}
+			ImGui::EndMenu();
+		}
+	}
+
+	void SceneEditor::DrawPrefabModals()
+	{
+		if (openCreatePrefabModal)
+		{
+			ImGui::SetNextWindowFocus();
+			ImGui::OpenPopup("Create Prefab");
+			openCreatePrefabModal = false;
+		}
+		if (ImGui::BeginPopupModal("Create Prefab", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			ImGui::TextUnformatted("Saves this object and its children to assets/prefabs/<name>.prefab.");
+			ImGui::TextDisabled("The object becomes the first instance of it.");
+			ImGui::SetNextItemWidth(280.f);
+			ImGui::InputText("Name", &prefabModalName);
+			if (!prefabModalError.empty())
+				ImGui::TextColored(ImVec4(1.f, 0.45f, 0.4f, 1.f), "%s", prefabModalError.c_str());
+			ImGui::Spacing();
+			if (ImGui::Button("Create", ImVec2(120, 0)))
+			{
+				std::string rel;
+				if (OpCreatePrefab(prefabModalTargetId, prefabModalName, rel, prefabModalError))
+					ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+		}
+
+		if (openApplyPrefabModal)
+		{
+			ImGui::SetNextWindowFocus();
+			ImGui::OpenPopup("Apply to Prefab");
+			openApplyPrefabModal = false;
+		}
+		if (ImGui::BeginPopupModal("Apply to Prefab", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			const std::string src = PrefabPathOf(prefabModalTargetId);
+
+			ImGui::Text("Overwrite %s with this object's current state?", src.c_str());
+			ImGui::Spacing();
+			ImGui::TextUnformatted("Every instance of this prefab that has no changes of its own");
+			ImGui::TextUnformatted("will be rebuilt - in this scene, and in any other scene that");
+			ImGui::TextUnformatted("uses it, the next time that scene is opened.");
+			ImGui::Spacing();
+			// The one destructive part worth naming outright, because it is
+			// the part a user cannot reason their way back from.
+			ImGui::TextColored(ImVec4(1.f, 0.75f, 0.35f, 1.f),
+				"This writes a project asset and clears the undo history.");
+			if (!prefabModalError.empty())
+				ImGui::TextColored(ImVec4(1.f, 0.45f, 0.4f, 1.f), "%s", prefabModalError.c_str());
+			ImGui::Spacing();
+			if (ImGui::Button("Apply", ImVec2(120, 0)))
+			{
+				if (OpApplyPrefab(prefabModalTargetId, prefabModalError))
+					ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+		}
 	}
 
 	void SceneEditor::DrawNodes(uint32 parentID, uint32 depth)
@@ -1581,6 +1708,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 		}
 #endif
+		// Prefab instances are marked in the tree, because "editing this
+		// object edits every copy of it" is not something to discover by
+		// accident. Deliberately only the glyph, with no in-sync/modified
+		// indicator: answering that means re-serializing the subtree and
+		// re-reading the prefab file (PrefabInstanceMatchesSource), and this
+		// runs for every object in the tree every frame. The context menu
+		// computes it once, on demand, where one click pays for it.
+		if (obj->GetType() == SceneObjectTypes::GAMEOBJECT && !obj->prefabSource.empty())
+			label += u8"  \uf1b3";
 		return label;
 	}
 
@@ -2018,7 +2154,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// Captured before attaching so a successful attach can be pushed as
 		// one ReplaceGameObjectCommand (same mechanism as AddFormSubmit's
 		// attach-to-existing-GameObject path / DeleteComponentById).
-		std::string beforeSnapshot = SceneSerializer::SerializeSubtree(go, scenePath, sharedLua);
+		std::string beforeSnapshot = SnapshotSubtree(goId);
 
 		PushLuaHostGlobals();
 		std::shared_ptr<LuaComponent> comp;
@@ -2608,6 +2744,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					SelectSceneObject(obj);
 					DuplicateSelected();
 				}
+				if (go && !IsInternalGameObject(go))
+					ShowPrefabMenu(obj->GetID());
 			}
 			else
 			{
@@ -4010,12 +4148,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		std::string beforeSnapshot;
 		if (ownerObj && ownerObj->GetType() == SceneObjectTypes::GAMEOBJECT)
 		{
-			GameObject* ownerGo = (GameObject*)ownerObj->GetPTR();
-#ifdef LUA_BINDINGS
-			beforeSnapshot = SceneSerializer::SerializeSubtree(ownerGo, scenePath, sharedLua);
-#else
-			beforeSnapshot = SceneSerializer::SerializeSubtree(ownerGo, scenePath, NULL);
-#endif
+			beforeSnapshot = SnapshotSubtree(ownerId);
 		}
 
 		editorDebugDraw->ForgetComponent((IComponent*)obj->GetPTR());
@@ -4361,6 +4494,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 #endif
 		}
 		catch (const std::exception &e) { echo(std::string("ERROR: scene save threw: ") + e.what()); ok = false; }
+
+		// Runs while the editor's own objects are still detached: the
+		// collapse pass matches roots by position in GetAllGameObjectList(),
+		// and that list must still hold exactly what SaveScene wrote.
+		// this sits here: the collapse pass matches roots by position in
+		// GetAllGameObjectList(), and that list must still hold exactly what
+		// SaveScene wrote - user content only.
+		if (ok) CollapseSceneFileAfterSave(path);
 		AttachEditorObjects(furniture);
 
 		if (ok) scenePath = path;
@@ -4480,11 +4621,32 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		bool ok = false;
 		SceneMeta meta;
 		try {
+		// Prefab references are resolved here, not by the engine - it is
+		// handed a scene whose roots are all written out in full. An empty
+		// string means the file could not be read at all; the engine's own
+		// call below reports that.
+		const std::string expanded = ExpandSceneFileForLoad(path);
+		std::vector<std::string> rootPrefabPaths;
+		if (!expanded.empty())
+		{
+			try
+			{
+				const nlohmann::json j = nlohmann::json::parse(expanded);
+				if (j.is_object() && j.find("roots") != j.end() && j["roots"].is_array())
+					for (size_t i = 0; i < j["roots"].size(); ++i)
+						rootPrefabPaths.push_back(prefab::LinkOf(j["roots"][i]));
+			}
+			catch (const std::exception&) { rootPrefabPaths.clear(); }
+		}
+
 #ifdef LUA_BINDINGS
 			PushLuaHostGlobals();
-			ok = SceneSerializer::LoadScene(scene, path, physics, sharedLua, NULL, &meta);
+			ok = expanded.empty()
+				? SceneSerializer::LoadScene(scene, path, physics, sharedLua, NULL, &meta)
+				: SceneSerializer::LoadSceneFromText(scene, expanded, path, physics, sharedLua, NULL, &meta);
 			if (ok)
 			{
+				RelinkPrefabInstancesAfterLoad(rootPrefabPaths);
 				scenePath = path;
 				// Prefer companion scenes/<Name>.lua; create if missing.
 				std::string companion;
@@ -4501,7 +4663,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				RebuildSceneMainScriptInstance();
 			}
 #else
-			ok = SceneSerializer::LoadScene(scene, path, physics, NULL, NULL, &meta);
+			ok = expanded.empty()
+				? SceneSerializer::LoadScene(scene, path, physics, NULL, NULL, &meta)
+				: SceneSerializer::LoadSceneFromText(scene, expanded, path, physics, NULL, NULL, &meta);
+			if (ok) RelinkPrefabInstancesAfterLoad(rootPrefabPaths);
 #endif
 		}
 		catch (const std::exception &e) { echo(std::string("ERROR: scene load threw: ") + e.what()); ok = false; }
@@ -4749,6 +4914,35 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				|| (project && !project->RelativePath(absolutePath).empty()
 					&& project->RelativePath(absolutePath).find("scenes/") == 0));
 
+		// Prefabs are checked before everything else: instantiating one is
+		// the whole point of the asset, so a double-click or a drop into
+		// the viewport means "put one here" with no further qualification.
+		if (ProjectManager::IsPrefabExtension(absolutePath))
+		{
+			if (!project || !project->IsOpen())
+			{
+				echo("ERROR: Open a project before instantiating a prefab");
+				return false;
+			}
+			const std::string rel = project->RelativePath(absolutePath);
+			if (rel.empty())
+			{
+				echo("ERROR: Prefab lives outside the project: " + absolutePath);
+				return false;
+			}
+			std::string err;
+			// At the origin rather than under the cursor: PlaceAssetInScene
+			// has no viewport hit position to work from (models land the
+			// same way), and the object is selected on arrival so it can be
+			// dragged straight into place.
+			if (!OpInstantiatePrefab(rel, Vec3(0.f, 0.f, 0.f), err))
+			{
+				echo("ERROR: Instantiate prefab - " + err);
+				return false;
+			}
+			return true;
+		}
+
 		if (isScene)
 		{
 			if (ConfirmUnsavedThen(UnsavedLoadPath, absolutePath))
@@ -4821,11 +5015,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// Captured before the component exists, so Undo() restores the
 			// object exactly as it was - same pattern as Attach Component.
 			attachOwnerId = sceneObjects->GetSceneObjectID(parentGo);
-#ifdef LUA_BINDINGS
-			attachBeforeSnapshot = SceneSerializer::SerializeSubtree(parentGo, scenePath, sharedLua);
-#else
-			attachBeforeSnapshot = SceneSerializer::SerializeSubtree(parentGo, scenePath, NULL);
-#endif
+			attachBeforeSnapshot = SnapshotSubtree(attachOwnerId);
 		}
 
 		if (isModel)
@@ -6791,11 +6981,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			attachOwnerId = sceneObjects->GetSceneObjectID(ownerGO);
 			if (attachOwnerId != 0)
-#ifdef LUA_BINDINGS
-				attachBeforeSnapshot = SceneSerializer::SerializeSubtree(ownerGO, scenePath, sharedLua);
-#else
-				attachBeforeSnapshot = SceneSerializer::SerializeSubtree(ownerGO, scenePath, NULL);
-#endif
+				attachBeforeSnapshot = SnapshotSubtree(attachOwnerId);
 		}
 
 		switch (showingAddFormType)
@@ -7069,6 +7255,111 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				sceneDialogPath = "scene.json";
 			sceneDialogError.clear();
 		}
+
+		ImGui::Separator();
+
+		if (ImGui::MenuItem("Build Game...", "", false, project && project->IsOpen() && !playMode))
+		{
+			buildDialogError.clear();
+			buildDialogResult.clear();
+			buildDialogWarnings.clear();
+			if (buildDialogOutputDir.empty() && project)
+			{
+				// Beside the project, not inside it - BuildGame refuses to
+				// build into the project folder, and offering a path it will
+				// reject is a worse first impression than a sensible default.
+				buildDialogOutputDir = (std::filesystem::path(project->GetProjectPath()).parent_path()
+					/ (project->GetProjectName() + "_Build")).string();
+			}
+			if (buildDialogTitle.empty() && project) buildDialogTitle = project->GetProjectName();
+			if (buildDialogSceneRel.empty())
+				buildDialogSceneRel = !scenePath.empty() && project
+					? project->RelativePath(scenePath) : (project ? project->GetActiveSceneRel() : std::string());
+			openBuildModal = true;
+		}
+	}
+
+	void SceneEditor::DrawBuildModal()
+	{
+		if (openBuildModal)
+		{
+			ImGui::SetNextWindowFocus();
+			ImGui::OpenPopup("Build Game");
+			openBuildModal = false;
+		}
+		if (!ImGui::BeginPopupModal("Build Game", NULL, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+		ImGui::TextUnformatted("Stages a runnable game folder: the player, the engine shaders,");
+		ImGui::TextUnformatted("and this project's scenes and assets, with a game.json beside them.");
+		ImGui::Spacing();
+
+		ImGui::SetNextItemWidth(420.f);
+		ImGui::InputText("Output folder", &buildDialogOutputDir);
+		ImGui::SetNextItemWidth(420.f);
+		ImGui::InputText("Window title", &buildDialogTitle);
+
+		// Every scene in the project, so the one the game starts on is a
+		// choice rather than whatever happened to be open.
+		if (project)
+		{
+			std::vector<std::string> scenes;
+			project->ListScenes(scenes);
+			if (ImGui::BeginCombo("Startup scene", buildDialogSceneRel.c_str()))
+			{
+				for (size_t i = 0; i < scenes.size(); ++i)
+					if (ImGui::Selectable(scenes[i].c_str(), scenes[i] == buildDialogSceneRel))
+						buildDialogSceneRel = scenes[i];
+				ImGui::EndCombo();
+			}
+		}
+
+		ImGui::SetNextItemWidth(120.f);
+		ImGui::InputInt("Width", &buildDialogWidth);
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(120.f);
+		ImGui::InputInt("Height", &buildDialogHeight);
+		ImGui::Checkbox("Fullscreen", &buildDialogFullscreen);
+
+		ImGui::Spacing();
+		ImGui::TextDisabled("Renderer: %s (from Project Settings)",
+			project && project->GetSettings().rendererType == ProjectRendererType::Deferred ? "deferred" : "forward");
+
+		if (!buildDialogError.empty())
+			ImGui::TextColored(ImVec4(1.f, 0.45f, 0.4f, 1.f), "%s", buildDialogError.c_str());
+		if (!buildDialogResult.empty())
+			ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.f), "%s", buildDialogResult.c_str());
+		for (size_t i = 0; i < buildDialogWarnings.size(); ++i)
+			ImGui::TextColored(ImVec4(1.f, 0.75f, 0.35f, 1.f), "! %s", buildDialogWarnings[i].c_str());
+
+		ImGui::Spacing();
+		if (ImGui::Button("Build", ImVec2(120, 0)) && project)
+		{
+			// The scene in the editor may have unsaved edits, and the build
+			// copies files off disk - so what ships would silently be the
+			// last saved version. Save first rather than explain that later.
+			if (sceneDirty && !scenePath.empty()) SaveSceneToFile(scenePath);
+
+			ProjectManager::BuildOptions opts;
+			opts.outputDir = buildDialogOutputDir;
+			opts.startupSceneRel = buildDialogSceneRel;
+			opts.title = buildDialogTitle;
+			opts.width = buildDialogWidth;
+			opts.height = buildDialogHeight;
+			opts.fullscreen = buildDialogFullscreen;
+			opts.deferred = (project->GetSettings().rendererType == ProjectRendererType::Deferred);
+
+			ProjectManager::BuildResult r = project->BuildGame(opts);
+			buildDialogError = r.error;
+			buildDialogWarnings = r.warnings;
+			buildDialogResult = r.ok
+				? ("Built " + std::to_string(r.filesCopied) + " file(s) into " + r.outputDir)
+				: std::string();
+			if (r.ok) echo("SUCCESS: Build Game - " + r.outputDir);
+			else echo("ERROR: Build Game - " + r.error);
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Close", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
 	}
 
 	void SceneEditor::ShowMenubarOptions()
@@ -8029,6 +8320,78 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			parentId = parent->GetID();
 		}
 		return OpReparentGameObject(child->GetID(), parentId, errOut);
+	}
+
+	// ---------------------- prefabs over the agent API -------------------------
+	//
+	// Same chokepoint rule as every other Agent* method: these do no work of
+	// their own, they resolve a name and call the Op* the context menu calls, so
+	// the MCP bridge, the AI assistant and the menus can never drift apart.
+
+	bool SceneEditor::AgentCreatePrefab(const std::string& name, const std::string& prefabName,
+		std::string& outRelPath, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		return OpCreatePrefab(obj->GetID(), prefabName, outRelPath, errOut);
+	}
+
+	bool SceneEditor::AgentInstantiatePrefab(const std::string& relPath, const Vec3& position,
+		std::string& outName, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		const uint32 id = OpInstantiatePrefab(relPath, position, errOut);
+		if (!id) return false;
+		SceneObject* obj = sceneObjects->GetSceneObject(id);
+		outName = obj ? obj->GetName() : std::string();
+		return true;
+	}
+
+	bool SceneEditor::AgentApplyPrefab(const std::string& name, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		return OpApplyPrefab(obj->GetID(), errOut);
+	}
+
+	bool SceneEditor::AgentRevertPrefab(const std::string& name, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		return OpRevertPrefab(obj->GetID(), errOut);
+	}
+
+	bool SceneEditor::AgentUnpackPrefab(const std::string& name, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		return OpUnpackPrefab(obj->GetID(), errOut);
+	}
+
+	// Every instance in the open scene, with the state Apply and Revert care
+	// about. Reported per-instance rather than per-file because "which of these
+	// has local changes" is the question worth asking before touching a prefab.
+	nlohmann::json SceneEditor::AgentPrefabState()
+	{
+		nlohmann::json out = nlohmann::json::array();
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
+			i != sceneObjects->GetList().end(); ++i)
+		{
+			SceneObject* o = i->second;
+			if (!o || o->GetType() != SceneObjectTypes::GAMEOBJECT || o->prefabSource.empty()) continue;
+			GameObject* go = (GameObject*)o->GetPTR();
+			if (!go || IsInternalGameObject(go)) continue;
+			nlohmann::json e;
+			e["name"] = o->GetName();
+			e["prefab"] = o->prefabSource;
+			e["modified"] = PrefabInstanceIsModified(o->GetID());
+			out.push_back(e);
+		}
+		return out;
 	}
 
 	bool SceneEditor::AgentDuplicate(const std::string& name, std::string& errOut)

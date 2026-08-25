@@ -7,6 +7,10 @@
 #include "SceneEditor.h"
 #include "SceneCommands.h"
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
+#include "PrefabResolver.h"
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 
 void SceneEditor::SelectAndFocusSceneObject(SceneObject* obj)
 {
@@ -85,6 +89,19 @@ SceneObject* SceneEditor::RawInsertSubtree(const std::string& subtreeJson, uint3
 	SceneObject* obj = sceneObjects->Adopt(go.get(), parentId);
 	if (obj)
 	{
+		// A subtree that came from a prefab instance carries which one in
+		// its root (SnapshotSubtree writes it; the engine neither writes nor
+		// reads it). Recovering it here is what keeps an instance an
+		// instance across undo, redo, delete-and-restore and duplicate,
+		// without any of those needing to know prefabs exist.
+		try
+		{
+			const nlohmann::json parsed = nlohmann::json::parse(subtreeJson);
+			if (parsed.is_object() && parsed.find("root") != parsed.end())
+				obj->prefabSource = prefab::LinkOf(parsed["root"]);
+		}
+		catch (const std::exception&) { /* not our concern - the load above already succeeded */ }
+
 		// Give icon helpers to the just-reinserted subtree only (self +
 		// descendants) - the same per-object rule RebuildHelpers() applies
 		// after a full scene load, but scoped here so it doesn't
@@ -178,11 +195,7 @@ void SceneEditor::PushAddCommand(SceneObject* created)
 	const bool wasCamera = IsSceneCamera(created->GetID());
 	EditorCameraSettings camSettings = wasCamera ? sceneCameras[created->GetID()] : EditorCameraSettings();
 	const bool hadHelper = (created->Helper != nullptr);
-#ifdef LUA_BINDINGS
-	std::string snapshot = SceneSerializer::SerializeSubtree(go, scenePath, sharedLua);
-#else
-	std::string snapshot = SceneSerializer::SerializeSubtree(go, scenePath, NULL);
-#endif
+	std::string snapshot = SnapshotSubtree(created->GetID());
 	sceneUndo.Push(std::make_unique<AddGameObjectCommand>(this, created->GetParentID(), snapshot,
 		wasCamera, camSettings, hadHelper, created->GetName(), created->GetID()));
 }
@@ -196,11 +209,7 @@ void SceneEditor::PushReplaceCommand(uint32 ownerId, const std::string& beforeSn
 	const bool wasCamera = IsSceneCamera(ownerId);
 	EditorCameraSettings camSettings = wasCamera ? sceneCameras[ownerId] : EditorCameraSettings();
 	const bool hadHelper = (owner->Helper != nullptr);
-#ifdef LUA_BINDINGS
-	std::string afterSnapshot = SceneSerializer::SerializeSubtree(go, scenePath, sharedLua);
-#else
-	std::string afterSnapshot = SceneSerializer::SerializeSubtree(go, scenePath, NULL);
-#endif
+	std::string afterSnapshot = SnapshotSubtree(ownerId);
 	sceneUndo.Push(std::make_unique<ReplaceGameObjectCommand>(this, owner->GetParentID(),
 		beforeSnapshot, afterSnapshot, wasCamera, camSettings, hadHelper, ownerId, description));
 }
@@ -217,11 +226,7 @@ bool SceneEditor::OpDeleteGameObject(uint32 objId, std::string& errOut)
 	EditorCameraSettings camSettings = wasCamera ? sceneCameras[objId] : EditorCameraSettings();
 	const bool hadHelper = (obj->Helper != nullptr);
 	const std::string name = obj->GetName();
-#ifdef LUA_BINDINGS
-	std::string snapshot = SceneSerializer::SerializeSubtree(go, scenePath, sharedLua);
-#else
-	std::string snapshot = SceneSerializer::SerializeSubtree(go, scenePath, NULL);
-#endif
+	std::string snapshot = SnapshotSubtree(objId);
 
 	RawDeleteSubtree(objId);
 
@@ -462,4 +467,376 @@ void SceneEditor::PushParticleDescCommand(uint32 psId, const ParticleSystemDesc 
 	sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
 		[this, psId, before]() { ApplyParticleDesc(psId, before); },
 		[this, psId, after]() { ApplyParticleDesc(psId, after); }, label));
+}
+
+// ============================ Prefabs ==================================
+//
+// The reference/expand/collapse machinery is shared/PrefabResolver.h, which
+// knows nothing about the editor, and the engine knows nothing about any of
+// it. What lives here is the editor-side bookkeeping: which live object is
+// an instance of what (SceneObject::prefabSource), keeping that link alive
+// across undo, and the four operations the context menu offers.
+
+std::string SceneEditor::PrefabPathOf(uint32 objId) const
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(objId);
+	return obj ? obj->prefabSource : std::string();
+}
+
+// SerializeSubtree() with the instance link written into the root.
+//
+// Every undo command stores a subtree as text and rebuilds from it, and the
+// engine neither writes nor reads this key - so without it an instance would
+// silently stop being one after a single Ctrl+Z. RawInsertSubtree() reads it
+// back on the way in, which is what makes the link survive undo, redo,
+// delete-and-restore and duplicate without any of those knowing it exists.
+std::string SceneEditor::SnapshotSubtree(uint32 objId)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(objId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) return std::string();
+	GameObject* go = (GameObject*)obj->GetPTR();
+	if (!go) return std::string();
+
+#ifdef LUA_BINDINGS
+	const std::string text = SceneSerializer::SerializeSubtree(go, scenePath, sharedLua);
+#else
+	const std::string text = SceneSerializer::SerializeSubtree(go, scenePath, NULL);
+#endif
+	if (obj->prefabSource.empty() || text.empty()) return text;
+
+	try
+	{
+		nlohmann::json j = nlohmann::json::parse(text);
+		j["root"]["prefab"] = obj->prefabSource;
+		return j.dump();
+	}
+	catch (const std::exception&) { return text; }
+}
+
+nlohmann::json SceneEditor::LoadPrefabJson(const std::string& relPath) const
+{
+	if (!project || !project->IsOpen()) return nlohmann::json();
+	return prefab::ReadPrefabFile(project->AbsolutePath(relPath));
+}
+
+bool SceneEditor::OpCreatePrefab(uint32 objId, const std::string& name, std::string& outRelPath, std::string& errOut)
+{
+	if (playMode || editorDisabled) { errOut = "not while playing"; return false; }
+	if (!project || !project->IsOpen()) { errOut = "no project open"; return false; }
+
+	SceneObject* obj = sceneObjects->GetSceneObject(objId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "object not found"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+	if (IsInternalGameObject(go)) { errOut = "cannot make a prefab from an editor object"; return false; }
+
+	namespace fs = std::filesystem;
+	std::error_code ec;
+	fs::create_directories(project->PrefabsPath(), ec);
+
+	std::string stem = name.empty() ? go->GetName() : name;
+	if (stem.empty()) stem = "Prefab";
+	// Never overwrite an existing prefab implicitly: a second "Create
+	// Prefab" on a same-named object would otherwise silently redefine
+	// every instance of the first one.
+	std::string rel = "assets/prefabs/" + stem + ".prefab";
+	for (int n = 2; fs::exists(project->AbsolutePath(rel), ec); ++n)
+		rel = "assets/prefabs/" + stem + "_" + std::to_string(n) + ".prefab";
+
+	const std::string before = SnapshotSubtree(objId);
+	nlohmann::json subtree;
+	try { subtree = nlohmann::json::parse(before); }
+	catch (const std::exception&) { errOut = "could not capture the object"; return false; }
+
+	if (!prefab::WritePrefabFile(subtree, project->AbsolutePath(rel)))
+	{
+		errOut = "could not write " + rel;
+		return false;
+	}
+
+	obj->prefabSource = rel;
+	// The scene-side half (this object becoming an instance) is undoable;
+	// the .prefab it wrote is not removed by that undo, the same way undoing
+	// a material assignment does not delete the .mat. The file is inert
+	// until something references it.
+	PushReplaceCommand(objId, before, "Create Prefab '" + stem + "'");
+	MarkSceneDirty();
+	outRelPath = rel;
+	echo("SUCCESS: Created prefab " + rel);
+	return true;
+}
+
+uint32 SceneEditor::OpInstantiatePrefab(const std::string& relPath, const Vec3& position, std::string& errOut)
+{
+	if (playMode || editorDisabled) { errOut = "not while playing"; return 0; }
+	if (!project || !project->IsOpen()) { errOut = "no project open"; return 0; }
+
+	nlohmann::json subtree = LoadPrefabJson(relPath);
+	if (!subtree.is_object()) { errOut = "could not read " + relPath; return 0; }
+
+	// A .prefab file is exactly the shape RawInsertSubtree already takes
+	// (SerializeSubtree's {"root", "materials"}), so instantiating one is
+	// the insert path the undo system uses, with two fields written in.
+	subtree["root"]["position"] = { position.x, position.y, position.z };
+	subtree["root"]["prefab"] = relPath;
+
+	SceneObject* created = RawInsertSubtree(subtree.dump(), 0, false, EditorCameraSettings(), true);
+	if (!created) { errOut = "could not instantiate " + relPath; return 0; }
+
+	SelectAndFocusSceneObject(created);
+	PushAddCommand(created);
+	MarkSceneDirty();
+	echo("SUCCESS: Instantiated " + relPath);
+	return created->GetID();
+}
+
+uint32 SceneEditor::RawRebuildPrefabInstance(uint32 objId, const std::string& relPath)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(objId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) return 0;
+	GameObject* go = (GameObject*)obj->GetPTR();
+
+	const uint32 parentId = obj->GetParentID();
+	const bool wasCamera = IsSceneCamera(objId);
+	const EditorCameraSettings camSettings = wasCamera ? sceneCameras[objId] : EditorCameraSettings();
+	const bool hadHelper = (obj->Helper != nullptr);
+
+	nlohmann::json subtree = LoadPrefabJson(relPath);
+	if (!subtree.is_object()) return 0;
+
+	// The instance keeps its own name, transform and tags - reverting an
+	// object is not the same as moving it back to where the prefab was
+	// authored.
+	nlohmann::json overrides;
+	overrides["name"] = go->GetName();
+	overrides["position"] = { go->GetPosition().x, go->GetPosition().y, go->GetPosition().z };
+	overrides["rotation"] = { go->GetRotation().x, go->GetRotation().y, go->GetRotation().z };
+	overrides["scale"] = { go->GetScale().x, go->GetScale().y, go->GetScale().z };
+	nlohmann::json tags = nlohmann::json::array();
+	const std::map<uint32, std::string>& tagsMap = go->GetTags();
+	for (std::map<uint32, std::string>::const_iterator i = tagsMap.begin(); i != tagsMap.end(); ++i)
+		tags.push_back(i->second);
+	overrides["tags"] = tags;
+	prefab::detail::ApplyOverrides(subtree["root"], overrides);
+	subtree["root"]["prefab"] = relPath;
+
+	RawDeleteSubtree(objId);
+	SceneObject* rebuilt = RawInsertSubtree(subtree.dump(), parentId, wasCamera, camSettings, hadHelper);
+	return rebuilt ? rebuilt->GetID() : 0;
+}
+
+bool SceneEditor::OpRevertPrefab(uint32 objId, std::string& errOut)
+{
+	if (playMode || editorDisabled) { errOut = "not while playing"; return false; }
+
+	SceneObject* obj = sceneObjects->GetSceneObject(objId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "object not found"; return false; }
+	if (obj->prefabSource.empty()) { errOut = "not a prefab instance"; return false; }
+
+	const std::string rel = obj->prefabSource;
+	const uint32 parentId = obj->GetParentID();
+	const bool wasCamera = IsSceneCamera(objId);
+	const EditorCameraSettings camSettings = wasCamera ? sceneCameras[objId] : EditorCameraSettings();
+	const bool hadHelper = (obj->Helper != nullptr);
+	const std::string before = SnapshotSubtree(objId);
+
+	const uint32 newId = RawRebuildPrefabInstance(objId, rel);
+	if (!newId) { errOut = "could not read " + rel; return false; }
+
+	sceneUndo.Push(std::make_unique<ReplaceGameObjectCommand>(this, parentId, before, SnapshotSubtree(newId),
+		wasCamera, camSettings, hadHelper, newId, "Revert to Prefab"));
+
+	SelectAndFocusSceneObject(sceneObjects->GetSceneObject(newId));
+	MarkSceneDirty();
+	echo("SUCCESS: Reverted to " + rel);
+	return true;
+}
+
+bool SceneEditor::OpUnpackPrefab(uint32 objId, std::string& errOut)
+{
+	if (playMode || editorDisabled) { errOut = "not while playing"; return false; }
+
+	SceneObject* obj = sceneObjects->GetSceneObject(objId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "object not found"; return false; }
+	if (obj->prefabSource.empty()) { errOut = "not a prefab instance"; return false; }
+
+	const std::string rel = obj->prefabSource;
+	const std::string before = SnapshotSubtree(objId);
+
+	// Nothing about the objects changes - only that the scene will now store
+	// them in full and stop tracking the prefab.
+	obj->prefabSource.clear();
+
+	PushReplaceCommand(objId, before, "Unpack Prefab");
+	MarkSceneDirty();
+	echo("SUCCESS: Unpacked from " + rel);
+	return true;
+}
+
+bool SceneEditor::PrefabInstanceIsModified(uint32 objId)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(objId);
+	if (!obj || obj->prefabSource.empty()) return false;
+
+	const nlohmann::json prefabJson = LoadPrefabJson(obj->prefabSource);
+	if (!prefabJson.is_object()) return false;
+	try
+	{
+		const nlohmann::json subtree = nlohmann::json::parse(SnapshotSubtree(objId));
+		return !prefab::MatchesPrefab(subtree["root"], subtree.value("materials", nlohmann::json::array()), prefabJson);
+	}
+	catch (const std::exception&) { return false; }
+}
+
+std::vector<uint32> SceneEditor::FindPrefabInstances(const std::string& relPath, uint32 skipId, bool modified)
+{
+	std::vector<uint32> out;
+	for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
+		i != sceneObjects->GetList().end(); ++i)
+	{
+		SceneObject* o = i->second;
+		if (!o || o->GetType() != SceneObjectTypes::GAMEOBJECT || o->GetID() == skipId) continue;
+		if (o->prefabSource != relPath) continue;
+		GameObject* go = (GameObject*)o->GetPTR();
+		if (!go || IsInternalGameObject(go)) continue;
+		if (PrefabInstanceIsModified(o->GetID()) != modified) continue;
+		out.push_back(o->GetID());
+	}
+	return out;
+}
+
+bool SceneEditor::OpApplyPrefab(uint32 objId, std::string& errOut)
+{
+	if (playMode || editorDisabled) { errOut = "not while playing"; return false; }
+	if (!project || !project->IsOpen()) { errOut = "no project open"; return false; }
+
+	SceneObject* obj = sceneObjects->GetSceneObject(objId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "object not found"; return false; }
+	if (obj->prefabSource.empty()) { errOut = "not a prefab instance"; return false; }
+
+	const std::string rel = obj->prefabSource;
+
+	// Which instances to carry along, decided BEFORE the file changes:
+	// afterwards every instance differs from it, so there would be no way
+	// left to tell "was in sync" from "had local changes of its own" - and
+	// silently discarding somebody's local changes is exactly what Apply
+	// must not do.
+	const std::vector<uint32> inSync = FindPrefabInstances(rel, objId, false);
+
+	nlohmann::json subtree;
+	try { subtree = nlohmann::json::parse(SnapshotSubtree(objId)); }
+	catch (const std::exception&) { errOut = "could not capture the object"; return false; }
+
+	if (!prefab::WritePrefabFile(subtree, project->AbsolutePath(rel)))
+	{
+		errOut = "could not write " + rel;
+		return false;
+	}
+
+	int refreshed = 0;
+	for (size_t i = 0; i < inSync.size(); ++i)
+		if (RawRebuildPrefabInstance(inSync[i], rel)) ++refreshed;
+
+	// Deliberately outside the undo stack: this wrote a project asset that
+	// other scenes reference, and an undo that silently rewrote a file those
+	// scenes are already using would be a worse surprise than not offering
+	// one. The confirmation at the call site says so.
+	sceneUndo.Clear();
+	MarkSceneDirty();
+	echo("SUCCESS: Applied to " + rel + " (" + std::to_string(refreshed)
+		+ " other instance(s) in this scene updated)");
+	return true;
+}
+
+// ------------------- prefab references in the scene file -------------------
+//
+// The engine reads and writes scenes whose roots are written out in full.
+// These two wrap its calls so that what is stored on disk is references, and
+// what the engine ever sees is not.
+
+std::string SceneEditor::ExpandSceneFileForLoad(const std::string& path)
+{
+	std::ifstream in(path.c_str());
+	if (!in.is_open()) return std::string();
+	std::stringstream buffer;
+	buffer << in.rdbuf();
+	in.close();
+
+	if (!project || !project->IsOpen()) return buffer.str();
+
+	nlohmann::json sceneJson;
+	try { sceneJson = nlohmann::json::parse(buffer.str()); }
+	catch (const std::exception&) { return buffer.str(); } // the engine reports it
+
+	std::vector<prefab::Link> links;
+	std::vector<std::string> errors;
+	ProjectManager* proj = project;
+	prefab::ExpandScene(sceneJson,
+		[proj](const std::string& rel) { return prefab::ReadPrefabFile(proj->AbsolutePath(rel)); },
+		links, errors);
+
+	for (size_t i = 0; i < errors.size(); ++i)
+		echo("ERROR: prefab not found, its objects are missing from this scene: " + errors[i]);
+
+	if (links.empty()) return buffer.str();
+	return sceneJson.dump();
+}
+
+void SceneEditor::RelinkPrefabInstancesAfterLoad(const std::vector<std::string>& rootPrefabPaths)
+{
+	// Root order is load order: LoadScene walks "roots" in file order and
+	// Scene->Add()s each one, and GetAllGameObjectList() is a vector pushed
+	// in that same order. Must run before any editor furniture is attached,
+	// or the indices no longer line up.
+	std::vector<std::shared_ptr<GameObject>>& all = scene->GetAllGameObjectList();
+	for (size_t i = 0; i < all.size() && i < rootPrefabPaths.size(); ++i)
+	{
+		if (rootPrefabPaths[i].empty()) continue;
+		const uint32 id = sceneObjects->GetSceneObjectID(all[i].get());
+		if (SceneObject* obj = sceneObjects->GetSceneObject(id))
+			obj->prefabSource = rootPrefabPaths[i];
+	}
+}
+
+void SceneEditor::CollapseSceneFileAfterSave(const std::string& path)
+{
+	if (!project || !project->IsOpen()) return;
+
+	// Which root is an instance of what, in the order SaveScene just wrote
+	// them (GetAllGameObjectList()). Editor furniture is detached around the
+	// save, so this list is user content only - the same list the file has.
+	std::vector<std::string> rootPrefabPaths;
+	bool anyLinked = false;
+	std::vector<std::shared_ptr<GameObject>>& all = scene->GetAllGameObjectList();
+	for (size_t i = 0; i < all.size(); ++i)
+	{
+		const uint32 id = sceneObjects->GetSceneObjectID(all[i].get());
+		SceneObject* obj = sceneObjects->GetSceneObject(id);
+		rootPrefabPaths.push_back(obj ? obj->prefabSource : std::string());
+		if (obj && !obj->prefabSource.empty()) anyLinked = true;
+	}
+	if (!anyLinked) return;
+
+	nlohmann::json sceneJson;
+	{
+		std::ifstream in(path.c_str());
+		if (!in.is_open()) return;
+		try { in >> sceneJson; }
+		catch (const std::exception&) { return; }
+	}
+
+	std::vector<std::string> modified, missing;
+	ProjectManager* proj = project;
+	prefab::CollapseScene(sceneJson, rootPrefabPaths,
+		[proj](const std::string& rel) { return prefab::ReadPrefabFile(proj->AbsolutePath(rel)); },
+		modified, missing);
+
+	for (size_t i = 0; i < modified.size(); ++i)
+		echo("WARNING: prefab instance has local changes, stored in full: " + modified[i]
+			+ " (Apply pushes them to every instance, Revert discards them, Unpack drops the link)");
+	for (size_t i = 0; i < missing.size(); ++i)
+		echo("WARNING: prefab missing, instance stored in full and unlinked: " + missing[i]);
+
+	std::ofstream out(path.c_str());
+	if (!out.is_open()) return;
+	out << sceneJson.dump(4);
 }

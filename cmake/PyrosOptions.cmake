@@ -81,6 +81,19 @@ option(BUILD_SPIRV_TOOLING "GLSL→SPIR-V tooling (shaderc + spirv-cross)" ON)
 option(BUILD_CONVERTER "Build Assimp model converter tool" OFF)
 option(BUILD_DEMOS "Build DemoLauncher / CppApiDemo" OFF)
 option(BUILD_EDITOR "Build the PyrosBuilder scene editor (needs an OpenGL context)" OFF)
+# The runtime a built game ships with. Defaults ON alongside the editor,
+# because the editor's Build Game needs a player binary to copy - an editor
+# that can export a game only to report there is nothing to export with is
+# the wrong default.
+option(BUILD_PLAYER "Build the PyrosPlayer standalone game runtime" OFF)
+if (BUILD_EDITOR AND NOT BUILD_PLAYER)
+	set(BUILD_PLAYER ON CACHE BOOL "Build the PyrosPlayer standalone game runtime" FORCE)
+endif()
+# Scripting is not optional for a player: a game's behaviour lives in Lua.
+if (BUILD_PLAYER AND NOT HAVE_LUA_BINDINGS)
+	message(STATUS "BUILD_PLAYER requested without Lua bindings - the player would run no scripts, skipping")
+	set(BUILD_PLAYER OFF CACHE BOOL "Build the PyrosPlayer standalone game runtime" FORCE)
+endif()
 
 # ---------------------------------------------------------------------------
 # Asset root baked into DemoLauncher (EXAMPLES_PATH) and PyrosBuilder
@@ -196,6 +209,7 @@ message(STATUS "  BUILD_METAL_BACKEND  = ${BUILD_METAL_BACKEND}")
 message(STATUS "  BUILD_SPIRV_TOOLING  = ${BUILD_SPIRV_TOOLING}")
 message(STATUS "  BUILD_DEMOS          = ${BUILD_DEMOS}")
 message(STATUS "  BUILD_EDITOR         = ${BUILD_EDITOR}")
+message(STATUS "  BUILD_PLAYER         = ${BUILD_PLAYER}")
 message(STATUS "  HAVE_LUA_BINDINGS    = ${HAVE_LUA_BINDINGS}")
 message(STATUS "  LIB_TYPE             = ${LIB_TYPE}")
 message(STATUS "  PYROS_ASSET_ROOT     = ${PYROS_ASSET_ROOT}")

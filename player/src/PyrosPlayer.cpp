@@ -1,0 +1,630 @@
+//============================================================================
+// Name        : PyrosPlayer.cpp
+// Author      : Duarte Peixinho
+// Version     :
+// Copyright   : ;)
+// Description : See PyrosPlayer.h.
+//============================================================================
+
+#include "PyrosPlayer.h"
+
+#include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/Audio/AudioManager.h>
+#include <Pyros3D/Audio/AudioSource.h>
+#include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
+#include <Pyros3D/Physics/PhysicsEngines/Box3D/Box3DPhysics.h>
+#include <Pyros3D/Rendering/Device/IRenderDevice.h>
+#include <Pyros3D/Core/Buffers/FrameBuffer.h>
+#include <Pyros3D/Assets/Texture/Texture.h>
+#include "PrefabResolver.h"
+
+#include <SDL2/SDL.h>
+#include <filesystem>
+#include <fstream>
+#include <set>
+
+using json = nlohmann::json;
+namespace fs = std::filesystem;
+
+// ============================== manifest ===============================
+
+namespace {
+
+	// Where the game lives. The manifest sits next to the executable in a
+	// built game, but running the player from a project folder during
+	// development is useful enough to be worth supporting - so the current
+	// directory is tried first, and the executable's own directory second.
+	std::string FindManifestDir()
+	{
+		std::error_code ec;
+		if (fs::exists("game.json", ec)) return ".";
+
+		// SDL knows where the binary is even when the working directory is
+		// somewhere else entirely (double-clicked .app, shortcut, launcher).
+		char* base = SDL_GetBasePath();
+		if (base)
+		{
+			const std::string dir(base);
+			SDL_free(base);
+			if (fs::exists(fs::path(dir) / "game.json", ec)) return dir;
+			// macOS .app bundles put the binary in Contents/MacOS/ and the
+			// game data in Contents/Resources/.
+			const fs::path resources = fs::path(dir) / ".." / "Resources";
+			if (fs::exists(resources / "game.json", ec))
+				return fs::weakly_canonical(resources, ec).string();
+		}
+		return std::string();
+	}
+
+	PlayerManifest LoadManifest()
+	{
+		PlayerManifest m;
+		m.root = FindManifestDir();
+		if (m.root.empty())
+		{
+			echo("ERROR: game.json not found - the player must run from a built game folder");
+			return m;
+		}
+
+		// The engine loads its shaders from "shaders/PyrosShader.glsl" -
+		// relative to the *working directory*, not to the executable - and
+		// scene files reference their assets project-relative. Making the
+		// game folder the working directory is what lets both resolve when
+		// the game is launched from anywhere (Finder, a shortcut, a
+		// launcher), which is every way a player will actually start it.
+		std::error_code chdirEc;
+		m.root = fs::weakly_canonical(fs::path(m.root), chdirEc).string();
+		fs::current_path(m.root, chdirEc);
+
+		std::ifstream in((fs::path(m.root) / "game.json").string().c_str());
+		json j;
+		try { in >> j; }
+		catch (const std::exception& e)
+		{
+			echo(std::string("ERROR: game.json is not valid JSON - ") + e.what());
+			return m;
+		}
+
+		m.title = j.value("title", m.title);
+		m.startupScene = j.value("startupScene", std::string());
+		m.deferred = (j.value("renderer", std::string("forward")) == "deferred");
+		m.width = j.value("width", m.width);
+		m.height = j.value("height", m.height);
+		m.fullscreen = j.value("fullscreen", false);
+
+		if (m.startupScene.empty())
+		{
+			echo("ERROR: game.json has no \"startupScene\"");
+			return m;
+		}
+		m.valid = true;
+		return m;
+	}
+
+} // namespace
+
+const PlayerManifest& PlayerManifestInstance()
+{
+	// Function-local static, not a global: this is read from the
+	// constructor's initialiser list (the window's size and title come from
+	// it), and a global would be racing static init order to get there.
+	static PlayerManifest manifest = LoadManifest();
+	return manifest;
+}
+
+// ================================ player ================================
+
+PyrosPlayer::PyrosPlayer()
+	: ClassName(PlayerManifestInstance().width, PlayerManifestInstance().height,
+		PlayerManifestInstance().title,
+		PlayerManifestInstance().fullscreen
+			? (WindowType::Fullscreen | WindowType::Close)
+			: (WindowType::Close | WindowType::Resize))
+{
+	scene = NULL;
+	physics = NULL;
+	renderer = NULL;
+	audio = NULL;
+	gbufferFBO = NULL;
+	gbufferDepth = gbufferAlbedo = gbufferSpecular = gbufferNormal = gbufferMatRough = NULL;
+	activeCamera = NULL;
+	cameraFov = 70.f;
+	cameraNear = 0.1f;
+	cameraFar = 2000.f;
+	sceneLoaded = false;
+}
+
+PyrosPlayer::~PyrosPlayer() {}
+
+std::string PyrosPlayer::ResolvePath(const std::string& relative) const
+{
+	const PlayerManifest& m = PlayerManifestInstance();
+	if (relative.empty()) return relative;
+	if (fs::path(relative).is_absolute()) return relative;
+	return (fs::path(m.root) / relative).string();
+}
+
+// The deferred renderer renders into a G-buffer the caller owns - it does
+// not build one. Same five attachments, same formats, as the editor's
+// viewport (SceneEditor::BuildGBuffer): the two RGBA16F targets carry the
+// additive ambient+emissive term in their alpha, which an 8-bit UNORM would
+// clamp at 1.0 and silently flatten every emissive material.
+void PyrosPlayer::BuildGBuffer(uint32 width, uint32 height)
+{
+	gbufferDepth = new Texture();
+	gbufferDepth->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, width, height, false);
+	gbufferDepth->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+	gbufferAlbedo = new Texture();
+	gbufferAlbedo->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, width, height, false);
+	gbufferAlbedo->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+	gbufferSpecular = new Texture();
+	gbufferSpecular->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, width, height, false);
+	gbufferSpecular->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+	gbufferNormal = new Texture();
+	gbufferNormal->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F, width, height, false);
+	gbufferNormal->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+	gbufferMatRough = new Texture();
+	gbufferMatRough->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, width, height, false);
+	gbufferMatRough->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+
+	gbufferFBO = new FrameBuffer();
+	gbufferFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, gbufferDepth);
+	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, gbufferAlbedo);
+	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment1, TextureType::Texture, gbufferSpecular);
+	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment2, TextureType::Texture, gbufferNormal);
+	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment3, TextureType::Texture, gbufferMatRough);
+}
+
+void PyrosPlayer::DestroyGBuffer()
+{
+	delete gbufferFBO; gbufferFBO = NULL;
+	delete gbufferDepth; gbufferDepth = NULL;
+	delete gbufferAlbedo; gbufferAlbedo = NULL;
+	delete gbufferSpecular; gbufferSpecular = NULL;
+	delete gbufferNormal; gbufferNormal = NULL;
+	delete gbufferMatRough; gbufferMatRough = NULL;
+}
+
+void PyrosPlayer::Init()
+{
+	ClassName::Init();
+
+	const PlayerManifest& m = PlayerManifestInstance();
+	if (!m.valid)
+	{
+		// Nothing to run. Closing immediately beats a black window that
+		// looks like a hung game - the log above says why.
+		Close();
+		return;
+	}
+
+	scene = new SceneGraph();
+
+	physics = new Physics();
+	physics->InitPhysics();
+	// The editor leaves simulation off while editing and turns it on when
+	// entering play mode; a player is only ever "in play mode".
+	static_cast<Box3DPhysics*>(static_cast<IPhysics*>(physics))->SetSimulationEnabled(true);
+
+	// Audio has to exist before the scene loads: AudioSource::EnsureLoaded()
+	// checks for an active AudioManager and quietly loads nothing without
+	// one, so a game built with sound would come up silent.
+	audio = new AudioManager();
+	if (audio->IsInitialized())
+		AudioManager::MakeActive(audio);
+	else
+		echo("WARNING: no audio device - the game will run silent");
+
+	if (m.deferred)
+	{
+		BuildGBuffer(Width, Height);
+		renderer = new DeferredRenderer(Width, Height, gbufferFBO);
+	}
+	else
+		renderer = new ForwardRenderer(Width, Height);
+	renderer->SetViewPort(0, 0, Width, Height);
+
+#ifdef LUA_BINDINGS
+	GenerateBindings(&lua);
+	// Behaviour scripts call class('Name') as a global. require_file caches
+	// the module but does not set _G.class, so the assignment matters - same
+	// as Editor::InitLuaHost and DemoLauncher.
+	try
+	{
+		sol::object classMod = lua.require_file("class", ResolvePath("lua/middleclass.lua"));
+		lua["class"] = classMod;
+	}
+	catch (const std::exception& e)
+	{
+		echo(std::string("ERROR: could not load lua/middleclass.lua - scripts will not run: ") + e.what());
+	}
+
+	// print() goes to the engine log, which on a player build is the
+	// console/stdout - a shipped game has no log panel to route it to.
+	lua.set_function("__pyros_log", [](const std::string& msg) { echo(msg); });
+	lua.script(R"LUA(
+function print(...)
+	local n = select("#", ...)
+	local parts = {}
+	for i = 1, n do parts[i] = tostring(select(i, ...)) end
+	__pyros_log(table.concat(parts, "\t"))
+end
+)LUA");
+
+	// The mouse-capture trio every first-person scene script expects. Same
+	// names and behaviour as DemoLauncher's, minus the ImGui bookkeeping -
+	// there is no ImGui in a player build to keep in sync.
+	lua.set_function("setMouseCaptured", [this](bool captured) {
+		if (captured)
+		{
+			SDL_WarpMouseInWindow(GetSDLWindow(), (int)(Width / 2), (int)(Height / 2));
+			SDL_SetRelativeMouseMode(SDL_TRUE);
+			SDL_ShowCursor(SDL_DISABLE);
+		}
+		else
+		{
+			SDL_SetRelativeMouseMode(SDL_FALSE);
+			SDL_ShowCursor(SDL_ENABLE);
+		}
+	});
+	lua.set_function("isMouseCaptured", []() { return SDL_GetRelativeMouseMode() == SDL_TRUE; });
+	lua.set_function("warpMouseToCenter", [this]() {
+		SDL_WarpMouseInWindow(GetSDLWindow(), (int)(Width / 2), (int)(Height / 2));
+	});
+	lua.set_function("getWindowSize", [this]() { return std::make_tuple((int)Width, (int)Height); });
+	lua.set_function("quitGame", [this]() { Close(); });
+
+	// Runtime spawning. Registered here rather than in the engine's
+	// bindings because a prefab is a tooling concept - what the engine
+	// offers is DeserializeSubtree(), and this is that pointed at a
+	// .prefab file:
+	//
+	//   local e = Prefab.instantiate("assets/prefabs/Enemy.prefab")
+	//   e:setPosition(Vec3.new(x, 0, z))
+	//   scene:add(e)
+	//
+	// The returned object is not in the scene yet (same contract as
+	// GameObject.new()) - keep it and scene:add() it, or it is collected.
+	{
+		sol::table prefabTable = lua.create_table();
+		PyrosPlayer* self = this;
+		prefabTable["instantiate"] = [self](const std::string& path) -> std::shared_ptr<LUA_GameObject> {
+			const json j = prefab::ReadPrefabFile(self->ResolvePath(path));
+			if (!j.is_object())
+			{
+				echo("ERROR: Prefab.instantiate - could not read " + path);
+				return nullptr;
+			}
+			// Its own materials each time: sharing them across spawns would
+			// mean holding engine resources alive in a cache across scene
+			// unloads, which is not a trade worth making for something that
+			// happens a few times a second.
+			return std::static_pointer_cast<LUA_GameObject>(
+				SceneSerializer::DeserializeSubtree(j.dump(), self->SceneAnchorPath(),
+					self->physics, &self->lua, NULL));
+		};
+		lua["Prefab"] = prefabTable;
+	}
+
+	LuaComponent::SetUpdatesEnabled(true);
+#endif
+
+	if (!LoadGameScene(m.startupScene))
+	{
+		echo("ERROR: could not load startup scene " + m.startupScene);
+		Close();
+		return;
+	}
+}
+
+std::string PyrosPlayer::ExpandSceneFile(const std::string& absPath)
+{
+	std::ifstream in(absPath.c_str());
+	if (!in.is_open()) return std::string();
+	std::stringstream buffer;
+	buffer << in.rdbuf();
+	in.close();
+
+	json sceneJson;
+	try { sceneJson = json::parse(buffer.str()); }
+	catch (const std::exception&) { return std::string(); } // the engine reports it
+
+	std::vector<prefab::Link> links;
+	std::vector<std::string> errors;
+	PyrosPlayer* self = this;
+	prefab::ExpandScene(sceneJson,
+		[self](const std::string& rel) { return prefab::ReadPrefabFile(self->ResolvePath(rel)); },
+		links, errors);
+
+	for (size_t i = 0; i < errors.size(); ++i)
+		echo("ERROR: prefab not found, its objects are missing from this scene: " + errors[i]);
+
+	if (links.empty()) return std::string();
+	return sceneJson.dump();
+}
+
+bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
+{
+	UnloadGameScene();
+
+	const std::string abs = ResolvePath(sceneRel);
+	SceneMeta meta;
+#ifdef LUA_BINDINGS
+	sol::state* luaPtr = &lua;
+#else
+	sol::state* luaPtr = NULL;
+#endif
+
+	// Prefab references are resolved here rather than by the engine, which
+	// knows nothing about them - the same pass the editor runs, from the
+	// same header (shared/PrefabResolver.h). A built game therefore ships
+	// scenes that still reference their prefabs, so a prefab edit reaches
+	// every instance in the build exactly as it does in the editor.
+	const std::string expanded = ExpandSceneFile(abs);
+	const bool loaded = expanded.empty()
+		? SceneSerializer::LoadScene(scene, abs, physics, luaPtr, &sceneAssets, &meta)
+		: SceneSerializer::LoadSceneFromText(scene, expanded, abs, physics, luaPtr, &sceneAssets, &meta);
+	if (!loaded) return false;
+
+	currentSceneRel = sceneRel;
+	sceneLoaded = true;
+
+	renderer->SetGlobalLight(meta.ambientLight);
+	ResolveCamera(abs);
+	ApplyProjection();
+
+#ifdef LUA_BINDINGS
+	PushLuaHostGlobals();
+#endif
+
+	// Sounds and emitters authored in the scene start with the scene, the
+	// same way entering play mode starts them in the editor. Anything a
+	// script wants to control instead can stop it on its first update.
+	int soundsStarted = 0, soundsMissing = 0;
+	std::vector<std::shared_ptr<GameObject>>& all = scene->GetAllGameObjectList();
+	for (size_t i = 0; i < all.size(); ++i)
+	{
+		const std::vector<std::shared_ptr<IComponent>>& comps = all[i]->GetComponents();
+		for (size_t c = 0; c < comps.size(); ++c)
+		{
+			if (AudioSource* asrc = dynamic_cast<AudioSource*>(comps[c].get()))
+			{
+				if (!asrc->EnsureLoaded()) { ++soundsMissing; continue; }
+				asrc->ResetVelocityTracking();
+				asrc->Play();
+				++soundsStarted;
+			}
+			else if (ParticleSystem* ps = dynamic_cast<ParticleSystem*>(comps[c].get()))
+			{
+				ps->Clear();
+				ps->Play();
+			}
+		}
+	}
+	if (soundsMissing > 0)
+		echo("WARNING: " + std::to_string(soundsMissing) + " sound(s) could not be loaded");
+
+#ifdef LUA_BINDINGS
+	// One update before the first frame so components spawned during load
+	// register with the scene graph, matching DemoLauncher's own priming
+	// update - without it a script that creates objects in its init sees
+	// them appear a frame late.
+	scene->Update(GetTime());
+
+	if (!meta.mainScript.empty())
+	{
+		try
+		{
+			sceneMainScript = LuaComponent_FromFile(lua, meta.mainScript);
+			if (sceneMainScript) sceneMainScript->Init();
+		}
+		catch (const std::exception& e)
+		{
+			echo(std::string("ERROR: scene main script - ") + e.what());
+		}
+	}
+#endif
+
+	echo("SUCCESS: loaded " + sceneRel);
+	return true;
+}
+
+void PyrosPlayer::UnloadGameScene()
+{
+	if (!sceneLoaded) return;
+#ifdef LUA_BINDINGS
+	sceneMainScript.reset();
+#endif
+	activeCamera = NULL;
+	SceneSerializer::UnloadScene(scene, sceneAssets);
+	sceneAssets = LoadedSceneAssets();
+	sceneLoaded = false;
+}
+
+void PyrosPlayer::ResolveCamera(const std::string& sceneAbsPath)
+{
+	activeCamera = NULL;
+	cameraFov = 70.f;
+	cameraNear = 0.1f;
+	cameraFar = 2000.f;
+
+	// Which GameObject is a camera, and which one is active, is recorded by
+	// the editor in <scene>.json.editor.json - the scene file itself has no
+	// notion of a camera, so without this sidecar a built game would have
+	// nothing to render from. Build Game ships it for exactly this reason.
+	std::string activeName;
+	std::map<std::string, Vec3> cameraSettings; // name -> (fov, near, far)
+	std::ifstream in((sceneAbsPath + ".editor.json").c_str());
+	if (in)
+	{
+		try
+		{
+			json j;
+			in >> j;
+			if (j.contains("activeCamera") && j["activeCamera"].is_string())
+				activeName = j["activeCamera"].get<std::string>();
+			if (j.contains("cameras") && j["cameras"].is_object())
+				for (json::iterator it = j["cameras"].begin(); it != j["cameras"].end(); ++it)
+					cameraSettings[it.key()] = Vec3(
+						it.value().value("fov", 70.f),
+						it.value().value("near", 0.1f),
+						it.value().value("far", 2000.f));
+		}
+		catch (const std::exception&) { /* falls through to the defaults below */ }
+	}
+
+	std::vector<std::shared_ptr<GameObject>>& all = scene->GetAllGameObjectList();
+	GameObject* firstKnownCamera = NULL;
+	for (size_t i = 0; i < all.size(); ++i)
+	{
+		std::map<std::string, Vec3>::const_iterator s = cameraSettings.find(all[i]->GetName());
+		if (s == cameraSettings.end()) continue;
+		if (!firstKnownCamera) firstKnownCamera = all[i].get();
+		if (all[i]->GetName() == activeName)
+		{
+			activeCamera = all[i].get();
+			cameraFov = s->second.x;
+			cameraNear = s->second.y;
+			cameraFar = s->second.z;
+			return;
+		}
+	}
+
+	if (firstKnownCamera)
+	{
+		activeCamera = firstKnownCamera;
+		std::map<std::string, Vec3>::const_iterator s = cameraSettings.find(activeCamera->GetName());
+		if (s != cameraSettings.end())
+		{
+			cameraFov = s->second.x;
+			cameraNear = s->second.y;
+			cameraFar = s->second.z;
+		}
+		echo("WARNING: no active camera set for this scene - using '" + activeCamera->GetName() + "'");
+		return;
+	}
+
+	// Nothing usable. A camera at the origin renders *something*, which is
+	// far easier to diagnose from than a black window.
+	if (!fallbackCamera) fallbackCamera = std::make_shared<GameObject>();
+	fallbackCamera->SetPosition(Vec3(0.f, 2.f, 10.f));
+	scene->Add(fallbackCamera);
+	activeCamera = fallbackCamera.get();
+	echo("WARNING: this scene has no camera - rendering from a default one at the origin."
+		" Add a camera in the editor and set it active.");
+}
+
+void PyrosPlayer::ApplyProjection()
+{
+	const f32 aspect = (Height > 0) ? ((f32)Width / (f32)Height) : 1.f;
+	projection.Perspective(cameraFov, aspect, cameraNear, cameraFar);
+}
+
+#ifdef LUA_BINDINGS
+void PyrosPlayer::PushLuaHostGlobals()
+{
+	lua["physics"] = static_cast<IPhysics*>(physics);
+	lua["scene"] = scene;
+	lua["camera"] = activeCamera;
+	// Accepted and ignored: in the editor this redirects the *viewport* to a
+	// different camera, and a script written against play mode will call it.
+	// Here the render camera is whatever the scene says, so honouring it is
+	// exactly right - it is the same thing.
+	lua["setRenderCamera"] = [this](GameObject* go) { if (go) activeCamera = go; };
+	lua["loadScene"] = [this](const std::string& name) { pendingLoadSceneName = name; };
+	lua["currentScene"] = [this]() { return fs::path(currentSceneRel).stem().string(); };
+	lua["echo"] = [](const std::string& msg) { p3d::LOG::_LOG::_echo(msg); };
+	lua["editorRendererType"] = PlayerManifestInstance().deferred ? std::string("deferred") : std::string("forward");
+	lua["ASSETS_PATH"] = (fs::path(PlayerManifestInstance().root) / "assets").string() + "/";
+}
+
+void PyrosPlayer::ApplyPendingSceneLoadIfAny()
+{
+	if (pendingLoadSceneName.empty()) return;
+	const std::string requested = pendingLoadSceneName;
+	pendingLoadSceneName.clear();
+
+	// A bare name ("Level2") or an explicit project-relative path, same as
+	// the editor's loadScene().
+	std::string rel = requested;
+	if (rel.find('/') == std::string::npos && rel.find('\\') == std::string::npos)
+		rel = "scenes/" + rel + ".json";
+
+	if (!LoadGameScene(rel))
+		echo("ERROR: loadScene(\"" + requested + "\") failed");
+}
+#endif
+
+void PyrosPlayer::Update()
+{
+	if (!sceneLoaded) return;
+
+	const f64 time = GetTime();
+	const f64 dt = GetTimeInterval();
+
+	physics->Update(dt, 10);
+	scene->Update(time);
+
+#ifdef LUA_BINDINGS
+	if (sceneMainScript)
+	{
+		try { sceneMainScript->Update(time); }
+		catch (const std::exception& e) { echo(std::string("ERROR: scene main script update - ") + e.what()); }
+	}
+#endif
+
+	if (AudioManager* audio = AudioManager::GetActive())
+		if (activeCamera) audio->SetListenerFromGameObject(activeCamera, dt);
+
+	renderer->ResetViewPort();
+	renderer->SetViewPort(0, 0, Width, Height);
+	renderer->PreRender(activeCamera, scene);
+	renderer->ApplyBackgroundClearColor();
+	renderer->RenderScene(projection, activeCamera, scene);
+
+#ifdef LUA_BINDINGS
+	// Between frames, never inside one: the script that asked for the
+	// switch is owned by the scene graph the switch tears down.
+	ApplyPendingSceneLoadIfAny();
+#endif
+}
+
+void PyrosPlayer::OnResize(const uint32 width, const uint32 height)
+{
+	ClassName::OnResize(width, height);
+	// The G-buffer targets are window-sized; leaving them behind means the
+	// deferred passes sample a differently-sized buffer than they render to.
+	if (gbufferFBO)
+	{
+		gbufferDepth->Resize(width, height);
+		gbufferAlbedo->Resize(width, height);
+		gbufferSpecular->Resize(width, height);
+		gbufferNormal->Resize(width, height);
+		gbufferMatRough->Resize(width, height);
+		gbufferFBO->Resize(width, height);
+	}
+	if (renderer) renderer->Resize(width, height);
+	ApplyProjection();
+}
+
+void PyrosPlayer::Shutdown()
+{
+	// The last submitted frame is routinely still executing here - the same
+	// reason SceneSerializer::UnloadScene waits before freeing anything.
+	if (IsActiveRenderDeviceSet())
+		GetActiveRenderDevice().WaitIdle();
+
+	UnloadGameScene();
+
+	delete renderer; renderer = NULL;
+	DestroyGBuffer();
+	delete physics; physics = NULL;
+	delete scene; scene = NULL;
+	delete audio; audio = NULL;
+
+	ClassName::Shutdown();
+}

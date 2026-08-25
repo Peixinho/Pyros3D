@@ -70,6 +70,14 @@ class SceneObject {
 		const std::string &GetName() const { return Name; }
 		const uint32 GetID() const { return ID; }
 		Matrix ScaleTransform, LocalTransform, globalRotation;
+
+		// The .prefab this object is an instance of, project-relative, or
+		// empty. Editor-side state on purpose: a prefab is an authoring
+		// concept, and the engine's GameObject has no business carrying one
+		// (see shared/PrefabResolver.h). Only ever set on the root of an
+		// instance - the objects below it belong to the prefab's subtree.
+		std::string prefabSource;
+
 		void SetParentID(const uint32 id) { ParentID = id; }
 		const uint32 &GetParentID() const { return ParentID; }
 		const uint32 &GetType() const;

@@ -52,6 +52,9 @@ using json = nlohmann::json;
 #include "SelectedMaterial.h"
 #include "UI/OpenDir.h"
 #include "ProjectManager.h"
+// Prefab references in a scene file, resolved outside the engine - shared
+// with the player (shared/PrefabResolver.h).
+#include "PrefabResolver.h"
 #include "UndoStack.h"
 #include <ctime>
 #include <map>
@@ -178,6 +181,9 @@ public:
 	int RefreshMaterialsFromGeneratedGlsl(const std::string& generatedGlslRel, const std::string& projectRoot,
 	                                      bool deferredGBuffer, const std::set<p3d::IMaterial*>& skipMaterials);
 	const std::string &GetScenePath() const { return scenePath; }
+	// For a host that has to hand the physics world to something loading
+	// objects into this document (Prefab.instantiate in the Lua host).
+	p3d::Physics* GetPhysics() const { return physics; }
 	bool IsSceneDirty() const { return sceneDirty; }
 	void MarkSceneDirty() { sceneDirty = true; }
 	void ClearSceneDirty() { sceneDirty = false; }
@@ -234,6 +240,16 @@ public:
 	bool AgentRename(const std::string& name, const std::string& newName, std::string& errOut);
 	bool AgentReparent(const std::string& name, const std::string& newParentName, std::string& errOut);
 	bool AgentDuplicate(const std::string& name, std::string& errOut);
+	// Prefabs - thin name-resolving wrappers over the Op* methods, so the
+	// MCP bridge and the AI assistant reach exactly what the menus do.
+	bool AgentCreatePrefab(const std::string& name, const std::string& prefabName,
+		std::string& outRelPath, std::string& errOut);
+	bool AgentInstantiatePrefab(const std::string& relPath, const Vec3& position,
+		std::string& outName, std::string& errOut);
+	bool AgentApplyPrefab(const std::string& name, std::string& errOut);
+	bool AgentRevertPrefab(const std::string& name, std::string& errOut);
+	bool AgentUnpackPrefab(const std::string& name, std::string& errOut);
+	json AgentPrefabState();
 	bool AgentDeleteObject(const std::string& name, std::string& errOut);
 	bool AgentAttachScript(const std::string& name, const std::string& scriptFile, const json& data, std::string& errOut);
 	// Detaches the first component of `componentType` (matching the "type"
@@ -315,6 +331,58 @@ public:
 	bool OpRenameGameObject(uint32 objId, const std::string& newName, std::string& errOut);
 	bool OpSetTransform(uint32 objId, const Vec3& pos, const Vec3& rot, const Vec3& scale, std::string& errOut);
 	bool OpAssignMaterial(uint32 goId, int submeshIndex, std::shared_ptr<p3d::IMaterial> mat, std::string& errOut);
+
+	// ---- Prefabs (SceneEditOps.cpp) ------------------------------------
+	// A .prefab is one GameObject subtree saved as a reusable asset; a scene
+	// stores instances of it as a reference plus their own name/transform/
+	// tags, so editing the prefab updates every instance. See
+	// SceneSerializer.h's prefab section for the file format and the
+	// override rules.
+
+	// Saves `objId`'s subtree to assets/prefabs/<name>.prefab (uniquified)
+	// and turns that object into the first instance of it. `outRelPath`
+	// receives the project-relative path written.
+	bool OpCreatePrefab(uint32 objId, const std::string& name, std::string& outRelPath, std::string& errOut);
+	// Instantiates `relPath` as a new scene root. Returns the new object's
+	// id, 0 on failure.
+	uint32 OpInstantiatePrefab(const std::string& relPath, const Vec3& position, std::string& errOut);
+	// Rebuilds `objId` from its prefab, discarding local changes but keeping
+	// its name/transform/tags.
+	bool OpRevertPrefab(uint32 objId, std::string& errOut);
+	// Breaks the link: the objects stay, the scene stores them in full, and
+	// future edits to the prefab no longer reach them.
+	bool OpUnpackPrefab(uint32 objId, std::string& errOut);
+	// Writes `objId`'s current state back over its prefab, then rebuilds the
+	// other instances in this scene that had no local changes of their own.
+	// NOT undoable, and says so at the call site: it edits a project asset
+	// that scenes other than this one may reference, the same way saving a
+	// material does.
+	bool OpApplyPrefab(uint32 objId, std::string& errOut);
+	// Instances of `relPath` in this scene, excluding `skipId`, whose
+	// modified state is `modified`. Used by Apply.
+	std::vector<uint32> FindPrefabInstances(const std::string& relPath, uint32 skipId, bool modified);
+	// Whether this instance still matches its source, ignoring the
+	// overridable fields. Re-serializes the subtree and re-reads the prefab,
+	// so it is a per-click question, not a per-frame one.
+	bool PrefabInstanceIsModified(uint32 objId);
+	// The prefab `objId` is an instance of, or empty.
+	std::string PrefabPathOf(uint32 objId) const;
+	json LoadPrefabJson(const std::string& relPath) const;
+	// SerializeSubtree() with the instance link written into the root, so
+	// the link survives every undo command. See the .cpp.
+	std::string SnapshotSubtree(uint32 objId);
+	// Resolves prefab references in a scene file on the way in, and writes
+	// them back on the way out. Both wrap the engine calls, which know
+	// nothing about any of this.
+	std::string ExpandSceneFileForLoad(const std::string& path);
+	void CollapseSceneFileAfterSave(const std::string& path);
+	// Re-attaches instance links to the just-loaded objects, by root order.
+	void RelinkPrefabInstancesAfterLoad(const std::vector<std::string>& rootPrefabPaths);
+	// Shared tail of Revert and Apply's refresh: swaps `objId`'s subtree for
+	// a fresh instantiation of `relPath` carrying the live object's
+	// overrides. Returns the new object's id (0 on failure). No undo
+	// bookkeeping - callers own that.
+	uint32 RawRebuildPrefabInstance(uint32 objId, const std::string& relPath);
 
 	// Low-level primitives shared by the Op* methods above and by
 	// SceneCommands' Undo()/Redo() implementations - no undo bookkeeping,
@@ -516,6 +584,29 @@ private:
 	void OpenAddFormOnGameObject(uint32 goId, uint32 formType);
 	void AddQuickLightOnGameObject(uint32 goId, uint32 formType);
 	void ShowAddComponentMenu(uint32 goId);
+	// Prefab entries of a GameObject's context menu, and the modals they
+	// raise (drawn from ShowHierarchy, not from inside the popup - see
+	// DrawPrefabModals).
+	void ShowPrefabMenu(uint32 goId);
+	void DrawPrefabModals();
+	// Build Game dialog (File menu). Same deferred-open pattern as the
+	// prefab modals - see DrawPrefabModals.
+	void DrawBuildModal();
+	bool openBuildModal = false;
+	std::string buildDialogOutputDir;
+	std::string buildDialogTitle;
+	std::string buildDialogSceneRel;
+	std::string buildDialogError;
+	std::string buildDialogResult;
+	std::vector<std::string> buildDialogWarnings;
+	int32 buildDialogWidth = 1280;
+	int32 buildDialogHeight = 720;
+	bool buildDialogFullscreen = false;
+	bool openCreatePrefabModal = false;
+	bool openApplyPrefabModal = false;
+	uint32 prefabModalTargetId = 0;
+	std::string prefabModalName;
+	std::string prefabModalError;
 	void DeleteGameObjectById(uint32 objId);
 	void DeleteComponentById(uint32 objId);
 	void DeleteSelected();

@@ -118,6 +118,21 @@ namespace p3d {
 		// `outMeta`, if non-NULL, receives scene-level fields (mainScript).
 		static bool LoadScene(SceneGraph* scene, const std::string &filePath, IPhysics* physics = NULL, sol::state* lua = NULL, LoadedSceneAssets* outAssets = NULL, SceneMeta* outMeta = NULL);
 
+		// LoadScene() with the scene's JSON supplied directly instead of
+		// read from disk. `scenePathForAssetRoot` is the path the text
+		// *would* have been read from - asset references inside resolve
+		// against it exactly as they do for LoadScene(), so this is not
+		// merely a convenience: passing the real path is what keeps a
+		// scene's models and textures findable.
+		//
+		// Exists for callers that transform a scene before it reaches the
+		// engine. The editor and the player both resolve prefab references
+		// that way (see shared/PrefabResolver.h) - the engine deliberately
+		// knows nothing about that, and this API says nothing about it
+		// either; it is just "load a scene I already have in hand".
+		static bool LoadSceneFromText(SceneGraph* scene, const std::string &jsonText, const std::string &scenePathForAssetRoot,
+			IPhysics* physics = NULL, sol::state* lua = NULL, LoadedSceneAssets* outAssets = NULL, SceneMeta* outMeta = NULL);
+
 		// Frees exactly what one LoadScene() call recorded into
 		// `assets`: detach GameObjects from `scene`, then drop every
 		// shared_ptr vector (GOs/components/materials/textures/renderables/
