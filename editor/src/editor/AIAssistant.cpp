@@ -200,7 +200,8 @@ static const AIToolDef kAITools[] = {
 		{ { "type", "string", "forward or deferred", true } } },
 	{ "play",           "Start play mode (run the game).", {} },
 	{ "stop_play",      "Stop play mode.", {} },
-	{ "screenshot",     "Capture the scene viewport (returns base64 PNG).", {} },
+	{ "screenshot",     "Capture the scene viewport (returns base64 PNG).",
+		{ { "live", "boolean", "Read back what the Scene View is actually showing, using the project's own renderer (Deferred included), instead of re-rendering through the offscreen forward preview", false } } },
 	{ "reload",         "Reload the active scene from disk if the file changed.", {} },
 };
 const size_t kAIToolCount = sizeof(kAITools) / sizeof(kAITools[0]);

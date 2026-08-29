@@ -2240,7 +2240,8 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	}
 	if (name == "screenshot")
 	{
-		const std::string b64 = sceneView->AgentScreenshot();
+		const bool live = a.is_object() && a.value("live", false);
+		const std::string b64 = sceneView->AgentScreenshot(live);
 		if (b64.empty())
 			throw std::runtime_error("screenshot failed (viewport not ready?)");
 		nlohmann::json r;

@@ -8765,8 +8765,66 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return true;
 	}
 
-	std::string SceneEditor::AgentScreenshot()
+	// Reads back the exact texture ShowViewport() hands to ImGui: for
+	// Deferred that is the renderer's own composite (its final pass targets
+	// framebuffer 0, so EffectsManager's capture holds only the overlay -
+	// see ShowViewport()'s comment on the same two lines), for Forward the
+	// captured viewport colour. Nothing is re-rendered, so this reports what
+	// is on screen rather than what a second renderer would have drawn.
+	//
+	// The GL caveat on the offscreen path applies here too - reading the
+	// live target is what crashes macOS's GLImage pixel processor - so this
+	// waits for the device to go idle first and is only offered on the
+	// explicit `live` opt-in.
+	std::string SceneEditor::AgentScreenshotLiveViewport()
 	{
+		try
+		{
+			if (!EffectsManager || !Renderer) return std::string();
+
+			GetActiveRenderDevice().WaitIdle();
+
+			Texture* src = usingDeferredRenderer
+				? static_cast<DeferredRenderer*>(Renderer)->GetColorTexture()
+				: EffectsManager->GetViewportColor();
+			if (!src) return std::string();
+			const uint32 w = src->GetWidth();
+			const uint32 h = src->GetHeight();
+			if (w == 0 || h == 0) return std::string();
+
+			std::vector<uchar> pixels = src->GetTextureData();
+			std::vector<unsigned char> rgba;
+			if (!ConvertPreviewPixelsToRGBA8(pixels, src->GetDataType(), w, h, rgba))
+				return std::string();
+#if !defined(_SDL2VULKAN) && !defined(_SDL2METAL)
+			FlipRGBA8Vertically(rgba, w, h);
+#endif
+			int len = 0;
+			unsigned char* png = stbi_write_png_to_mem(rgba.data(), (int)(w * 4), (int)w, (int)h, 4, &len);
+			if (!png || len <= 0)
+			{
+				if (png) STBIW_FREE(png);
+				return std::string();
+			}
+			std::string b64 = AgentServer::Base64Encode(png, (size_t)len);
+			STBIW_FREE(png);
+			return b64;
+		}
+		catch (const std::exception& e)
+		{
+			echo(std::string("AGENT: live screenshot failed: ") + e.what());
+			return std::string();
+		}
+		catch (...)
+		{
+			return std::string();
+		}
+	}
+
+	std::string SceneEditor::AgentScreenshot(bool liveViewport)
+	{
+		if (liveViewport)
+			return AgentScreenshotLiveViewport();
 		try
 		{
 			// Render the current view into the dedicated offscreen preview

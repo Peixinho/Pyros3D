@@ -281,7 +281,14 @@ public:
 	bool AgentPlay(std::string& errOut);
 	bool AgentStopPlay(std::string& errOut);
 	// Base64 PNG of the current viewport; empty string on failure.
-	std::string AgentScreenshot();
+	// liveViewport reads back the texture the Scene View is actually
+	// showing this frame - the project's own renderer, Deferred
+	// included. The default path re-renders through previewRenderer,
+	// which is a ForwardRenderer, so it cannot show a Deferred-only
+	// problem (and quietly disagreed with the screen whenever there
+	// was one).
+	std::string AgentScreenshot(bool liveViewport = false);
+	std::string AgentScreenshotLiveViewport();
 	// Last `maxLines` entries of the editor log ring ("" if none).
 	static std::string AgentLogTail(int maxLines);
 	// File modification time, or 0 if it cannot be determined.
