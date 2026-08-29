@@ -588,6 +588,36 @@ void UIExample::RunVerification()
 		(ui > 0 && world > 0) ? "PASS" : "FAIL", ui, world);
 	if (!(ui > 0 && world > 0)) failures++;
 
+	// ---- restyling, live ----
+	// Every visual property is component state, not geometry and not a
+	// shader variant, so a skin is something that can be applied to an
+	// already-built tree. This is the mechanism a .uistyle asset would sit
+	// on top of; checking it here keeps that claim honest.
+	{
+		UIImage* row = rowBackgrounds[1].get();
+		UIText* label = rowLabels[1].get();
+		const size_t vertsBefore = row->GetRenderable()->Geometries[0]->GetVertexData().size();
+		const f32 widthBefore = static_cast<Text*>(label->GetRenderable())->GetAdvanceWidth();
+
+		row->SetTint(Vec4(0.9f, 0.3f, 0.2f, 1.f));
+		row->SetBorder(Vec4(0.f, 0.f, 0.f, 0.f));   // 9-slice off
+		row->SetTexture(std::shared_ptr<Texture>()); // back to flat colour
+		label->SetSize(52.f);
+		label->SetColor(Vec4(1.f, 1.f, 1.f, 1.f));
+		label->SetAlignment(UIAlign::Center, UIVerticalAlign::Middle);
+
+		// A restyle has to survive a re-solve, which is what a running game
+		// would do on the very next frame.
+		menuCanvas->Solve(W, H);
+
+		const size_t vertsAfter = row->GetRenderable()->Geometries[0]->GetVertexData().size();
+		const f32 widthAfter = static_cast<Text*>(label->GetRenderable())->GetAdvanceWidth();
+		const bool restyled = (vertsBefore == 36 && vertsAfter == 4) && (widthAfter > widthBefore * 1.3f);
+		printf("%s  a built element restyles live (%zu verts -> %zu, text %.0f -> %.0f wide)\n",
+			restyled ? "PASS" : "FAIL", vertsBefore, vertsAfter, widthBefore, widthAfter);
+		if (!restyled) failures++;
+	}
+
 	printf("\n%s (%d failure(s))\n", failures ? "FAILED" : "ALL PASSED", failures);
 	fflush(stdout);
 }
