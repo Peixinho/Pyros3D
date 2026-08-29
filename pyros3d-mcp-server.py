@@ -3498,13 +3498,19 @@ def editor_status() -> str:
 
 
 @mcp.tool()
-def editor_screenshot(save_path: str | None = None) -> str:
+def editor_screenshot(save_path: str | None = None, live: bool = False) -> str:
     """Capture the editor's 3D viewport as a PNG image.
 
     Returns the path to the saved PNG. If save_path is omitted, saves to a
     temp file named pyros3d-screenshot.png.
+
+    By default this re-renders the view through an offscreen forward
+    renderer, which is stable but is NOT what a deferred project actually
+    looks like. Pass live=True to read back the texture the Scene View is
+    really showing, including canvas mode - that is the one to use when the
+    question is "what is on screen".
     """
-    ok, res = _editor_call("screenshot", {})
+    ok, res = _editor_call("screenshot", {"live": bool(live)})
     if not ok:
         return _fail(f"Screenshot failed: {res}")
     b64 = res.get("pngBase64", "")
@@ -4398,6 +4404,348 @@ def get_animation_blend_lua(animation: str | None = None) -> str:
     if not ok:
         return _fail(f"Could not build the snippet: {res}")
     return res.get("lua", "")
+
+
+# ---------------------------------------------------------------------------
+# Screen-space UI
+#
+# UI elements are ordinary GameObjects carrying UI components, so the offline
+# path here is the same scene-JSON editing every other tool does. The two
+# style tools are live-only: resolving a .uistyle means reading the palette,
+# resolving "@name" colours and importing textures, and a second
+# implementation of that in Python would be a second thing to disagree with
+# the editor about.
+# ---------------------------------------------------------------------------
+
+UI_DEFAULT_RECT = {
+    "type": "UIRect",
+    "anchorMin": [0.5, 0.5], "anchorMax": [0.5, 0.5],
+    "offsetMin": [-160.0, -48.0], "offsetMax": [160.0, 48.0],
+    "pivot": [0.5, 0.5],
+}
+
+
+def _ui_find_font(proj: Path) -> str | None:
+    """First .ttf/.otf already in the project, as a project-relative path.
+
+    Same rule the editor uses. It does not import one here - a tool that
+    silently copies files into a project is a surprise; the editor does that
+    because a person asked it to add a Text and is watching.
+    """
+    assets = proj / "assets"
+    if not assets.is_dir():
+        return None
+    for f in sorted(assets.rglob("*")):
+        if f.suffix.lower() in (".ttf", ".otf"):
+            # Project-relative, which is what a scene file stores.
+            return f.relative_to(proj).as_posix()
+    return None
+
+
+def _ui_components(node: dict) -> list:
+    return node.setdefault("components", [])
+
+
+def _ui_has(node: dict, type_name: str) -> bool:
+    return any(c.get("type") == type_name for c in node.get("components", []))
+
+
+@mcp.tool()
+def add_ui(project_path: str, scene_name: str, object_name: str, kind: str,
+           font: str | None = None) -> str:
+    """Add a screen-space UI component to an object.
+
+    kind: canvas | rect | image | text | button. Image, text and button add a
+    rect if the object has none; button also adds an image. A canvas is the
+    root of a UI tree - put elements under it as children.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    s_err = _scene_error(scene_file)
+    if s_err:
+        return _fail(s_err)
+
+    k = (kind or "").strip().lower()
+    if k not in ("canvas", "rect", "image", "text", "button"):
+        return _fail(f"Invalid kind '{kind}'. Use canvas, rect, image, text or button.")
+
+    live = _live_or_none("add_ui", {"object": object_name, "kind": k, "font": font or ""}, scene_file)
+    if live is not None:
+        return _fail(live) if isinstance(live, str) else f"Added UI {k} to '{object_name}' (live editor)"
+
+    data = _load_scene(scene_file)
+    node = _find_object(data, object_name)
+    if node is None:
+        return _fail(f"Object '{object_name}' not found in scene '{scene_name}'")
+    comps = _ui_components(node)
+
+    if k == "canvas":
+        if _ui_has(node, "UICanvas"):
+            return _fail(f"'{object_name}' already has a UICanvas")
+        comps.append({"type": "UICanvas", "referenceWidth": 1920.0, "referenceHeight": 1080.0,
+                      "scaleMode": "MatchWidth", "sortOrder": 0})
+    else:
+        if not _ui_has(node, "UIRect"):
+            comps.append(dict(UI_DEFAULT_RECT))
+        if k in ("image", "button") and not _ui_has(node, "UIImage"):
+            tint = [0.16, 0.19, 0.25, 0.95] if k == "button" else [0.14, 0.16, 0.21, 0.92]
+            comps.append({"type": "UIImage", "tint": tint, "border": [0.0, 0.0, 0.0, 0.0]})
+        if k == "text":
+            font_rel = font or _ui_find_font(proj)
+            if not font_rel:
+                return _fail("No font in this project. Pass font=<project-relative .ttf>, "
+                             "or add the component in the editor, which imports one for you.")
+            comps.append({"type": "UIText", "font": font_rel, "fontSize": 32.0, "size": 40.0,
+                          "text": "Text", "color": [0.95, 0.96, 1.0, 1.0],
+                          "align": "Center", "verticalAlign": "Middle"})
+        if k == "button":
+            comps.append({"type": "UIButton", "interactable": True, "transition": 0.12,
+                          "states": {
+                              "Hover": {"tint": [0.24, 0.30, 0.40, 0.98]},
+                              "Pressed": {"tint": [0.22, 0.74, 0.98, 1.0], "offset": [0.0, 2.0]},
+                              "Disabled": {"tint": [0.14, 0.15, 0.18, 0.6]},
+                          }})
+
+    _save_scene(scene_file, data)
+    return f"Added UI {k} to '{object_name}'"
+
+
+# Which component each property belongs to. Shared by the offline writer below
+# and by the error message, so an unknown key is rejected the same way the
+# editor rejects it rather than silently doing nothing.
+UI_PROPERTY_OWNER = {
+    "anchorMin": "UIRect", "anchorMax": "UIRect", "offsetMin": "UIRect",
+    "offsetMax": "UIRect", "pivot": "UIRect",
+    "tint": "UIImage", "border": "UIImage", "texture": "UIImage",
+    "text": "UIText", "size": "UIText", "color": "UIText",
+    "align": "UIText", "verticalAlign": "UIText",
+    "referenceWidth": "UICanvas", "referenceHeight": "UICanvas",
+    "scaleMode": "UICanvas", "sortOrder": "UICanvas",
+    "interactable": "UIButton", "transition": "UIButton", "onClick": "UIButton",
+}
+UI_BUTTON_STATE_PROPERTIES = {
+    "hoverTint": ("Hover", "tint"), "pressedTint": ("Pressed", "tint"),
+    "disabledTint": ("Disabled", "tint"),
+    "hoverTextColor": ("Hover", "textColor"), "pressedTextColor": ("Pressed", "textColor"),
+    "disabledTextColor": ("Disabled", "textColor"),
+    "pressedOffset": ("Pressed", "offset"),
+}
+
+
+@mcp.tool()
+def set_ui(project_path: str, scene_name: str, object_name: str, properties: dict) -> str:
+    """Set properties on an object's UI components, in one undoable edit.
+
+    Rect: anchorMin/anchorMax/offsetMin/offsetMax/pivot ([x,y]).
+    Image: tint/border ([r,g,b,a] / [left,top,right,bottom]), texture (path).
+    Text: text, size, color, align, verticalAlign.
+    Canvas: referenceWidth/referenceHeight, scaleMode, sortOrder.
+    Button: interactable, transition, onClick, hoverTint/pressedTint/
+    disabledTint, hoverTextColor/pressedTextColor/disabledTextColor,
+    pressedOffset.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    s_err = _scene_error(scene_file)
+    if s_err:
+        return _fail(s_err)
+    if not isinstance(properties, dict) or not properties:
+        return _fail("properties must be a non-empty object")
+
+    live = _live_or_none("set_ui", {"object": object_name, "properties": properties}, scene_file)
+    if live is not None:
+        return _fail(live) if isinstance(live, str) else \
+            f"Set {len(properties)} propert{'y' if len(properties) == 1 else 'ies'} on '{object_name}' (live editor)"
+
+    data = _load_scene(scene_file)
+    node = _find_object(data, object_name)
+    if node is None:
+        return _fail(f"Object '{object_name}' not found in scene '{scene_name}'")
+    comps = _ui_components(node)
+    by_type = {c.get("type"): c for c in comps}
+
+    for key, value in properties.items():
+        if key in UI_BUTTON_STATE_PROPERTIES:
+            comp = by_type.get("UIButton")
+            if comp is None:
+                return _fail(f"'{object_name}' has no UIButton, so '{key}' has nowhere to go")
+            state, field = UI_BUTTON_STATE_PROPERTIES[key]
+            comp.setdefault("states", {}).setdefault(state, {})[field] = value
+            continue
+        owner = UI_PROPERTY_OWNER.get(key)
+        if owner is None:
+            return _fail(f"'{key}' is not a UI property")
+        comp = by_type.get(owner)
+        if comp is None:
+            return _fail(f"'{object_name}' has no {owner}, so '{key}' has nowhere to go")
+        comp[key] = value
+
+    _save_scene(scene_file, data)
+    return f"Set {len(properties)} propert{'y' if len(properties) == 1 else 'ies'} on '{object_name}'"
+
+
+@mcp.tool()
+def canvas_drag(project_path: str, scene_name: str, object_name: str, handle: int,
+                delta: list[float]) -> str:
+    """Move or resize a UI element, the same edit dragging its handle makes.
+
+    handle is row*3+column over the rect's handles: 0 top-left, 2 top-right,
+    4 the body (moves it without resizing), 6 bottom-left, 8 bottom-right.
+    delta is [x, y] in canvas units.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    s_err = _scene_error(scene_file)
+    if s_err:
+        return _fail(s_err)
+    if not isinstance(handle, int) or not 0 <= handle <= 8:
+        return _fail("handle must be 0..8 (row*3+column, 4 = the body)")
+    if not isinstance(delta, (list, tuple)) or len(delta) != 2:
+        return _fail("delta must be [x, y] in canvas units")
+
+    live = _live_or_none("canvas_drag", {"object": object_name, "handle": handle,
+                                         "delta": list(delta)}, scene_file)
+    if live is not None:
+        return _fail(live) if isinstance(live, str) else f"Moved '{object_name}' (live editor)"
+
+    data = _load_scene(scene_file)
+    node = _find_object(data, object_name)
+    if node is None:
+        return _fail(f"Object '{object_name}' not found in scene '{scene_name}'")
+    rect = next((c for c in node.get("components", []) if c.get("type") == "UIRect"), None)
+    if rect is None:
+        return _fail(f"'{object_name}' has no UIRect")
+
+    # rect.x is anchorX0 + offsetMin.x and rect.right is anchorX1 + offsetMax.x,
+    # so each edge maps to exactly one offset component - the same four lines
+    # the editor applies.
+    hx, hy, body = handle % 3, handle // 3, handle == 4
+    o_min = list(rect.get("offsetMin", [0.0, 0.0]))
+    o_max = list(rect.get("offsetMax", [0.0, 0.0]))
+    if body or hx == 0: o_min[0] += float(delta[0])
+    if body or hx == 2: o_max[0] += float(delta[0])
+    if body or hy == 0: o_min[1] += float(delta[1])
+    if body or hy == 2: o_max[1] += float(delta[1])
+    rect["offsetMin"], rect["offsetMax"] = o_min, o_max
+    _save_scene(scene_file, data)
+    return f"Moved '{object_name}': offsetMin={o_min}, offsetMax={o_max}"
+
+
+@mcp.tool()
+def apply_ui_style(object_name: str, style: str) -> str:
+    """Apply a .uistyle to a UI element and record the link (live editor only).
+
+    The link is what makes later edits to the style - or a palette swap -
+    reach this element on the next load. Styles carry look only, never text
+    or layout.
+    """
+    ok, res = _editor_call("apply_ui_style", {"object": object_name, "style": style})
+    if not ok:
+        return _fail(f"Could not apply the style: {res}")
+    return f"Applied '{style}' to '{object_name}'"
+
+
+@mcp.tool()
+def extract_ui_style(object_name: str, name: str | None = None) -> str:
+    """Write a .uistyle from an element's current look (live editor only).
+
+    Saves into assets/ui and links the element to it. Colours that match a
+    palette entry are written back as @names, so extracting from a themed
+    element does not bake the theme into the style.
+    """
+    ok, res = _editor_call("extract_ui_style", {"object": object_name, "name": name or ""})
+    if not ok:
+        return _fail(f"Could not extract a style: {res}")
+    return f"Wrote {res.get('path', 'the style')} from '{object_name}' and linked it"
+
+
+@mcp.tool()
+def canvas_mode(on: bool = True) -> str:
+    """Switch the editor viewport between the 3D scene and 2D canvas editing.
+
+    Canvas mode hides the world, the floor grid and the axis widget, and
+    shows the canvas bounds, a canvas-unit grid and the selected element's
+    rect with its handles.
+    """
+    ok, res = _editor_call("canvas_mode", {"on": bool(on)})
+    if not ok:
+        return _fail(f"Could not switch canvas mode: {res}")
+    return "Canvas (2D) mode on" if on else "Back to the 3D scene view"
+
+
+@mcp.tool()
+def select_object(name: str = "") -> str:
+    """Select a game object in the running editor (empty name deselects).
+
+    Selection is what the transform gizmo, the Properties panel and the
+    canvas overlay all act on, so this is the prerequisite for anything that
+    edits "the selected object".
+    """
+    ok, res = _editor_call("select", {"name": name})
+    if not ok:
+        return _fail(f"Could not select: {res}")
+    return f"Selected '{name}'" if name else "Selection cleared"
+
+
+@mcp.tool()
+def set_camera(project_path: str, scene_name: str, name: str,
+               projection: str | None = None, fov: float | None = None,
+               size: float | None = None, near: float | None = None,
+               far: float | None = None, active: bool | None = None) -> str:
+    """Change an existing scene camera. Only the fields given are touched.
+
+    projection: 'perspective' or 'orthographic'. fov applies to perspective;
+    size is half the view height in world units and applies to orthographic.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    s_err = _scene_error(scene_file)
+    if s_err:
+        return _fail(s_err)
+
+    args: dict = {"name": name}
+    for key, value in (("projection", projection), ("fov", fov), ("size", size),
+                       ("near", near), ("far", far), ("active", active)):
+        if value is not None:
+            args[key] = value
+    if len(args) == 1:
+        return _fail("Nothing to set - pass at least one of projection, fov, size, near, far, active")
+
+    live = _live_or_none("set_camera", args, scene_file)
+    if live is not None:
+        return _fail(live) if isinstance(live, str) else f"Updated camera '{name}' (live editor)"
+
+    # Offline: camera settings live in the .editor.json sidecar, which is also
+    # what the player reads.
+    sidecar = _read_sidecar(scene_file)
+    cams = sidecar.setdefault("cameras", {})
+    if name not in cams:
+        return _fail(f"'{name}' is not a camera in scene '{scene_name}'")
+    cam = cams[name]
+    if projection is not None:
+        p = projection.strip().lower()
+        if p in ("orthographic", "ortho"):
+            cam["orthographic"] = True
+        elif p == "perspective":
+            cam["orthographic"] = False
+        else:
+            return _fail("projection must be 'perspective' or 'orthographic'")
+    if fov is not None: cam["fov"] = float(fov)
+    if size is not None: cam["orthoSize"] = float(size)
+    if near is not None: cam["near"] = float(near)
+    if far is not None: cam["far"] = float(far)
+    if active:
+        sidecar["activeCamera"] = name
+    _write_sidecar(scene_file, sidecar)
+    return f"Updated camera '{name}'"
 
 
 if __name__ == "__main__":
