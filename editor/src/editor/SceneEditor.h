@@ -128,6 +128,12 @@ class SceneEditor : public IUInterface {
 	virtual void ShowMenubarOptions();
 	void ShowFileMenuItems();
 	void ShowViewOptions();
+	// The canvas being authored: the one owning the selection, else the
+	// scene's first. NULL when the scene has none.
+	UICanvas* GetEditingCanvas() const;
+	// Canvas bounds, canvas-unit grid and the selected element's rect,
+	// drawn through the debug renderer in canvas space.
+	void DrawCanvasOverlay(UICanvas* canvas, const Vec2& viewSize);
 	virtual void ShowTools();
 	virtual void Shutdown();
 
@@ -240,6 +246,8 @@ public:
 		const std::string& parentName, std::string& errOut);
 	bool AgentAddPhysics(const std::string& name, const json& p, const std::string& parentName, std::string& errOut);
 	bool AgentAddModel(const std::string& name, const std::string& modelFile, const std::string& parentName, std::string& errOut);
+	bool AgentSelect(const std::string& name, std::string& errOut);
+	bool AgentSetCanvasMode(bool on, std::string& errOut);
 	bool AgentSetCamera(const std::string& name, const json& p, std::string& errOut);
 	bool AgentAddCamera(const std::string& name, const std::vector<f32>& position,
 		f32 fov, f32 nearPlane, f32 farPlane, bool active, std::string& errOut);
@@ -815,6 +823,14 @@ private:
 	};
 	bool playMode;
 	bool showPhysicsDebug;
+	// Canvas edit mode. A screen-space UI has nothing to do with the 3D
+	// scene it is drawn over, so authoring it through a perspective
+	// viewport with a floor grid shows the layout at a size and a shape it
+	// will never actually have. In this mode the world pass is suppressed,
+	// the floor grid and axis widget go away, and the viewport becomes the
+	// canvas: its bounds, a grid in canvas units, and the selected
+	// element's own rect.
+	bool uiEditMode;
 	std::map<uint32, PlayModeObjectSnapshot> playModeSnapshots;
 	// Edit-mode active camera restored when leaving play mode.
 	uint32 playModeSavedCameraId;

@@ -1931,6 +1931,24 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 
+	if (name == "select")
+	{
+		if (!sceneView->AgentSelect(A("name"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "canvas_mode")
+	{
+		const bool on = a.is_object() ? a.value("on", true) : true;
+		if (!sceneView->AgentSetCanvasMode(on, err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["on"] = on;
+		return r;
+	}
 	if (name == "set_camera")
 	{
 		if (!sceneView->AgentSetCamera(A("name"), a.is_object() ? a : nlohmann::json::object(), err))

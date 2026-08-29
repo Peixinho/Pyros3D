@@ -991,6 +991,8 @@ namespace p3d {
 			// buffers, and every per-frame-constant UBO) leaves them at
 			// their default/unused values.
 			bool isDynamicUniform;
+			// One exhaustion report per buffer - see where it is raised.
+			bool warnedExhausted = false;
 			// `size` above rounded up to a multiple of
 			// minUniformBufferOffsetAlignment - the actual byte stride
 			// between consecutive slots (VkDescriptorBufferInfo::range

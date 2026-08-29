@@ -520,6 +520,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		playMode = false;
 		playModeSavedCameraId = 0;
 		showPhysicsDebug = true;
+		uiEditMode = false;
 
 		// Null GameObject
 		SelectedSceneObject = NULL;
@@ -820,6 +821,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			gbufferMatRough->Resize(viewW, viewH);
 			gbufferFBO->Resize(viewW, viewH);
 		}
+		// Canvas mode: the 3D scene is not what is being edited, so it is
+		// not drawn. Done by pointing the renderer at the UI layer - where
+		// it finds nothing, because UIRenderer is what draws that - rather
+		// than by skipping RenderScene(), which is also what clears the
+		// target and leaves the depth and device state everything below
+		// expects. It has to be set before PreRender(), which is where the
+		// draw list is actually built.
+		UICanvas* editingCanvas = uiEditMode ? GetEditingCanvas() : NULL;
+		const uint32 restoreLayer = Renderer->GetRenderLayer();
+		if (editingCanvas) Renderer->SetRenderLayer(RenderLayer::UI);
+
 		Renderer->Resize(viewW, viewH);
 		Renderer->ResetViewPort();
 		Renderer->SetViewPort(0, 0, viewW, viewH);
@@ -838,6 +850,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			Renderer->RenderScene(projection, viewCam, scene);
 		else
 			Renderer->RenderScene(projectionOrtho, viewCam, scene);
+		if (editingCanvas) Renderer->SetRenderLayer(restoreLayer);
 
 		// Debug/gizmo/grid/axis-helper below draw into whatever framebuffer
 		// is currently bound - for Deferred, DeferredRenderer::RenderScene()
@@ -886,7 +899,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		GetActiveRenderDevice().SetViewport(0, 0, viewW, viewH);
 
 		// Gizmo must submit into DebugRenderer before the flush below.
-		if (!playMode)
+		//
+		// Canvas mode takes the debug pass over completely: everything in
+		// this block is a 3D tool (a translate gizmo on a screen-space rect
+		// is meaningless, and so are physics shapes and camera frustums),
+		// and - more concretely - DebugRenderer::Render() opens its own
+		// command buffer and rewrites the shared matrices UBO, so it must
+		// happen exactly once per frame. Submitting canvas lines and calling
+		// Render() a second time is what blacked the whole viewport.
+		if (!playMode && editingCanvas)
+		{
+			DrawCanvasOverlay(editingCanvas, dim);
+		}
+		else if (!playMode)
 		{
 			PrepareGizmoForDraw(viewCam);
 			if (SelectedSceneObject != NULL && SelectedSceneObject->GetType() == SceneObjectTypes::GAMEOBJECT && gizmo != NULL)
@@ -2786,6 +2811,107 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			editorDebugDraw->ToggleCameraFrustum(!frustum);
 		if (ImGui::MenuItem("Show Physics Debug", NULL, showPhysicsDebug))
 			showPhysicsDebug = !showPhysicsDebug;
+		ImGui::Separator();
+		const bool haveCanvas = (GetEditingCanvas() != NULL);
+		if (ImGui::MenuItem("Canvas (2D) Mode", "", uiEditMode, haveCanvas))
+			uiEditMode = !uiEditMode;
+		if (!haveCanvas && ImGui::IsItemHovered())
+			ImGui::SetTooltip("This scene has no UICanvas yet.");
+	}
+
+	UICanvas* SceneEditor::GetEditingCanvas() const
+	{
+		// The canvas that owns the selection, so editing an element puts you
+		// in its canvas rather than in whichever one happens to be first.
+		if (SelectedSceneObject != NULL && SelectedSceneObject->GetType() == SceneObjectTypes::GAMEOBJECT)
+		{
+			for (GameObject* go = (GameObject*)SelectedSceneObject->GetPTR(); go != NULL; go = go->GetParent())
+			{
+				const std::vector<std::shared_ptr<IComponent> >& cs = go->GetComponents();
+				for (size_t i = 0; i < cs.size(); i++)
+					if (cs[i] && cs[i]->GetComponentType() == ComponentType::UICanvas)
+						return static_cast<UICanvas*>(cs[i].get());
+			}
+		}
+		std::vector<UICanvas*> all = UICanvas::GetCanvasesOnScene(scene);
+		return all.empty() ? NULL : all[0];
+	}
+
+	void SceneEditor::DrawCanvasOverlay(UICanvas* canvas, const Vec2& viewSize)
+	{
+		if (!canvas || !debugRenderer) return;
+		const UIRectValue& c = canvas->GetCanvasRect();
+		if (c.width <= 0.f || c.height <= 0.f) return;
+
+		// Canvas space is y-down with its origin top-left, and the canvas
+		// GameObject holds point (x, y) at (x, -y) - see UIRect.h. Drawing
+		// through the same mapping puts these lines exactly on top of the
+		// elements they describe.
+		struct L {
+			DebugRenderer* d;
+			void line(const f32 x0, const f32 y0, const f32 x1, const f32 y1, const Vec4& col) const
+			{
+				d->drawLine(Vec3(x0, -y0, 0.f), Vec3(x1, -y1, 0.f), col);
+			}
+			void rect(const UIRectValue& r, const Vec4& col) const
+			{
+				line(r.x, r.y, r.Right(), r.y, col);
+				line(r.Right(), r.y, r.Right(), r.Bottom(), col);
+				line(r.Right(), r.Bottom(), r.x, r.Bottom(), col);
+				line(r.x, r.Bottom(), r.x, r.y, col);
+			}
+		} L{ debugRenderer };
+
+		// A grid in canvas units, so distances on screen mean something.
+		// Spaced to stay readable rather than fixed: at a 1920-wide canvas
+		// this is 80 units minor, 480 major.
+		const f32 minor = c.width / 24.f;
+		const Vec4 minorCol(1.f, 1.f, 1.f, 0.06f), majorCol(1.f, 1.f, 1.f, 0.14f);
+		for (int i = 1; i * minor < c.width; i++)
+			L.line(i * minor, 0.f, i * minor, c.height, (i % 6) ? minorCol : majorCol);
+		for (int i = 1; i * minor < c.height; i++)
+			L.line(0.f, i * minor, c.width, i * minor, (i % 6) ? minorCol : majorCol);
+
+		// The canvas bounds themselves - the one edge that actually exists.
+		L.rect(c, Vec4(0.30f, 0.80f, 1.f, 0.9f));
+
+		// And the selected element's solved rect, with corner ticks. This is
+		// the thing being edited, so it gets the strongest colour.
+		if (SelectedSceneObject != NULL && SelectedSceneObject->GetType() == SceneObjectTypes::GAMEOBJECT)
+		{
+			GameObject* go = (GameObject*)SelectedSceneObject->GetPTR();
+			const std::vector<std::shared_ptr<IComponent> >& cs = go->GetComponents();
+			for (size_t i = 0; i < cs.size(); i++)
+			{
+				if (!cs[i] || cs[i]->GetComponentType() != ComponentType::UIRect) continue;
+				const UIRectValue& r = static_cast<UIRect*>(cs[i].get())->GetRect();
+				const Vec4 sel(1.f, 0.78f, 0.20f, 1.f);
+				L.rect(r, sel);
+				const f32 t = c.width / 90.f;
+				const f32 xs[3] = { r.x, r.x + r.width * 0.5f, r.Right() };
+				const f32 ys[3] = { r.y, r.y + r.height * 0.5f, r.Bottom() };
+				for (int hx = 0; hx < 3; hx++)
+					for (int hy = 0; hy < 3; hy++)
+					{
+						if (hx == 1 && hy == 1) continue;
+						L.line(xs[hx] - t, ys[hy] - t, xs[hx] + t, ys[hy] - t, sel);
+						L.line(xs[hx] + t, ys[hy] - t, xs[hx] + t, ys[hy] + t, sel);
+						L.line(xs[hx] + t, ys[hy] + t, xs[hx] - t, ys[hy] + t, sel);
+						L.line(xs[hx] - t, ys[hy] + t, xs[hx] - t, ys[hy] - t, sel);
+					}
+				break;
+			}
+		}
+
+		// Drawn with the canvas's own projection, not the scene camera's:
+		// the same ortho box UIRenderer uses, so a line at canvas x lands on
+		// the pixel the element at canvas x was drawn to.
+		Projection canvasProj;
+		canvasProj.Ortho(0.f, c.width, -c.height, 0.f, -1000.f, 1000.f);
+		Matrix identity;
+		identity.identity();
+		debugRenderer->Render(identity, canvasProj.GetProjectionMatrix());
+		(void)viewSize;
 	}
 
 	void SceneEditor::DrawTreeNodeWidgets(SceneObject* obj, bool node_open)
@@ -8372,6 +8498,26 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	// Changes an existing scene camera. Only the keys present are touched,
 	// so this can flip a camera to orthographic without also having to
 	// restate its clip planes.
+	// Selection is editor state the agent could not reach at all before -
+	// which meant nothing driven through the socket could exercise anything
+	// that acts on the selection (the transform gizmo, the Properties panel,
+	// the canvas overlay's element outline).
+	bool SceneEditor::AgentSelect(const std::string& name, std::string& errOut)
+	{
+		if (name.empty()) { DeselectSceneObject(); return true; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		SelectAndFocusSceneObject(obj);
+		return true;
+	}
+
+	bool SceneEditor::AgentSetCanvasMode(bool on, std::string& errOut)
+	{
+		if (on && GetEditingCanvas() == NULL) { errOut = "this scene has no UICanvas"; return false; }
+		uiEditMode = on;
+		return true;
+	}
+
 	bool SceneEditor::AgentSetCamera(const std::string& name, const json& p, std::string& errOut)
 	{
 		if (playMode) { errOut = "editor is in play mode"; return false; }

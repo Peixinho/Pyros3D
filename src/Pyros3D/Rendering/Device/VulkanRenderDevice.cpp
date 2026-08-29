@@ -3035,12 +3035,15 @@ namespace p3d {
 			// crumbling" under high draw counts).
 			if (it->second.writesThisFrame >= it->second.slotCount)
 			{
-				static bool warned = false;
-				if (!warned)
+				// Reported once per buffer rather than once per process:
+				// which UBO is being hammered is the entire diagnosis, and a
+				// single global flag hid that. Still once, because at this
+				// point it is happening thousands of times a frame.
+				if (!it->second.warnedExhausted)
 				{
-					fprintf(stderr, "VulkanRenderDevice: dynamic UBO ring exhausted mid-frame (%u slots) - increase DYNAMIC_UBO_SLOT_COUNT\n",
-						it->second.slotCount);
-					warned = true;
+					it->second.warnedExhausted = true;
+					fprintf(stderr, "VulkanRenderDevice: dynamic UBO ring exhausted mid-frame - buffer %llu, %u writes into %u slots. Every draw after this point reads another draw's uniforms.\n",
+						(unsigned long long)buffer, it->second.writesThisFrame, it->second.slotCount);
 				}
 			}
 			it->second.currentSlot = (it->second.currentSlot + 1) % it->second.slotCount;
