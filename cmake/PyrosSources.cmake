@@ -29,6 +29,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaPostFX.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaAudio.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaMisc.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaUI.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Serialization/SceneSerializer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Geometry/Geometry.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/FPS/FPS.cpp
@@ -67,6 +68,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UICanvas.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UIImage.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UIText.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UIButton.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.cpp

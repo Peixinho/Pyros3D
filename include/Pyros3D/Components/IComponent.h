@@ -49,7 +49,8 @@ namespace p3d {
 			UICanvas,
 			UIRect,
 			UIImage,
-			UIText
+			UIText,
+			UIButton
 		};
 	}
 

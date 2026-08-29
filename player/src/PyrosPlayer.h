@@ -29,6 +29,9 @@
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
+#include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.h>
+#include <Pyros3D/Rendering/Components/UI/UICanvas.h>
+#include <Pyros3D/Rendering/Components/UI/UIButton.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <Pyros3D/Audio/AudioManager.h>
@@ -142,7 +145,13 @@ public:
 private:
 
 	SceneGraph* scene;
+	void DispatchUIInput();
+
 	IRenderer* renderer;
+	// Screen-space UI, composited over the finished 3D frame. Independent of
+	// the Forward/Deferred choice above - it draws into whatever target the
+	// frame is already using.
+	UIRenderer* uiRenderer;
 	AudioManager* audio;
 	Projection projection;
 

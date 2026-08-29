@@ -100,6 +100,13 @@ namespace p3d {
 		// rect: the write is a delta from it, not an absolute.
 		void Solve(const UIRectValue &parent, const Vec2 &parentOrigin);
 
+		// A transient nudge added to the solved rect, in canvas units - what
+		// a button's pressed state uses. Deliberately separate from the
+		// offsets: it is applied on top of them and never serialized, so a
+		// press cannot leak into the saved layout.
+		void SetStateOffset(const Vec2 &o) { stateOffset = o; }
+		const Vec2 &GetStateOffset() const { return stateOffset; }
+
 		// This element's pivot point in canvas units - what its own children
 		// are solved against. Valid after Solve().
 		const Vec2 &GetOriginInCanvas() const { return origin; }
@@ -109,6 +116,8 @@ namespace p3d {
 		Vec2 anchorMin, anchorMax;
 		Vec2 offsetMin, offsetMax;
 		Vec2 pivot;
+
+		Vec2 stateOffset;
 
 		UIRectValue rect;
 		Vec2 origin;

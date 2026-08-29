@@ -84,6 +84,17 @@ namespace p3d {
 		// why the UI pass does no sorting at all.
 		const std::vector<RenderingMesh*> &GetDrawList() const { return drawList; }
 
+		// Feeds a pointer to whatever is under it. Call once a frame, after
+		// Solve(), with the pointer in canvas units (ScreenToCanvas below)
+		// and whether its button is held. Returns the GameObject whose
+		// UIButton completed a click this frame, or NULL.
+		//
+		// The canvas drives this rather than each button polling input,
+		// because only the canvas knows what is on top: two overlapping
+		// buttons must not both light up, and the one underneath must not
+		// receive the click.
+		GameObject* UpdateInput(const Vec2 &canvasPoint, const bool pointerDown, const bool pointerInside = true);
+
 		// The element whose solved rect contains this canvas-space point,
 		// topmost first (so the reverse of draw order). NULL if none.
 		GameObject* HitTest(const Vec2 &canvasPoint) const;
@@ -107,6 +118,11 @@ namespace p3d {
 		// Parallel to draw order, for hit testing: every node that solved a
 		// rect this frame, with the rect it solved.
 		std::vector<std::pair<GameObject*, UIRectValue> > hitList;
+
+		// Every UIButton reached by the last Solve(), with the rect it
+		// solved to, so input can be resolved without walking the tree
+		// again.
+		std::vector<std::pair<GameObject*, UIRectValue> > buttonList;
 
 		SceneGraph* registeredScene;
 

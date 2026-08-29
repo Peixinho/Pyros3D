@@ -25,6 +25,7 @@
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 #include <Pyros3D/Rendering/Components/UI/UIText.h>
+#include <Pyros3D/Rendering/Components/UI/UIButton.h>
 
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
@@ -447,6 +448,26 @@ namespace p3d {
 		if (n == "Stretch")       return UIScaleMode::Stretch;
 		return UIScaleMode::MatchWidth;
 	}
+	static const char* UIStateName(const uint32 st)
+	{
+		switch (st)
+		{
+		case UIState::Hover:    return "Hover";
+		case UIState::Pressed:  return "Pressed";
+		case UIState::Disabled: return "Disabled";
+		case UIState::Focused:  return "Focused";
+		default:                return "Normal";
+		}
+	}
+	static uint32 UIStateFromName(const std::string &n)
+	{
+		if (n == "Hover")    return UIState::Hover;
+		if (n == "Pressed")  return UIState::Pressed;
+		if (n == "Disabled") return UIState::Disabled;
+		if (n == "Focused")  return UIState::Focused;
+		return UIState::Normal;
+	}
+
 	static const char* UIAlignName(const uint32 a)
 	{
 		switch (a)
@@ -1370,6 +1391,31 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			return j;
 		}
 #ifdef LUA_BINDINGS
+		case ComponentType::UIButton:
+		{
+			UIButton* b = dynamic_cast<UIButton*>(c);
+			j["type"] = "UIButton";
+			j["interactable"] = b->IsInteractable();
+			j["transition"] = b->GetTransition();
+			if (!b->GetOnClick().empty()) j["onClick"] = b->GetOnClick();
+			// Only states that actually override something, so a button
+			// using the defaults stays a four-line entry instead of a
+			// five-state table of values equal to Normal.
+			json st = json::object();
+			for (uint32 i = 0; i < UIState::Count; i++)
+			{
+				const UIStateStyle &ss = b->GetState(i);
+				const bool hasOffset = (ss.offset.x != 0.f || ss.offset.y != 0.f);
+				if (!ss.hasTint && !ss.hasTextColor && !hasOffset) continue;
+				json e;
+				if (ss.hasTint) e["tint"] = ToJson(ss.tint);
+				if (ss.hasTextColor) e["textColor"] = ToJson(ss.textColor);
+				if (hasOffset) e["offset"] = ToJson(ss.offset);
+				st[UIStateName(i)] = e;
+			}
+			if (!st.empty()) j["states"] = st;
+			return j;
+		}
 		case ComponentType::LuaComponent:
 		{
 			LuaComponent* lc = dynamic_cast<LuaComponent*>(c);
@@ -2253,6 +2299,29 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			t->SetAlignment(UIAlignFromName(j.value("align", std::string("Left"))),
 				UIVerticalAlignFromName(j.value("verticalAlign", std::string("Top"))));
 			go->Add(std::static_pointer_cast<IComponent>(t));
+		}
+		else if (type == "UIButton")
+		{
+			std::shared_ptr<UIButton> b = std::make_shared<UIButton>();
+			b->SetInteractable(j.value("interactable", true));
+			b->SetTransition(j.value("transition", 0.12f));
+			b->SetOnClick(j.value("onClick", std::string()));
+			if (j.find("states") != j.end() && j["states"].is_object())
+			{
+				// A state present in the file but empty still clears the
+				// defaults for that state, which is how "no press nudge" is
+				// expressed.
+				for (uint32 i = 0; i < UIState::Count; i++) b->State(i) = UIStateStyle();
+				for (json::const_iterator it = j["states"].begin(); it != j["states"].end(); ++it)
+				{
+					UIStateStyle &ss = b->State(UIStateFromName(it.key()));
+					const json &e = it.value();
+					if (e.find("tint") != e.end()) { ss.hasTint = true; ss.tint = Vec4FromJson(e["tint"]); }
+					if (e.find("textColor") != e.end()) { ss.hasTextColor = true; ss.textColor = Vec4FromJson(e["textColor"]); }
+					if (e.find("offset") != e.end()) ss.offset = Vec2FromJson(e["offset"]);
+				}
+			}
+			go->Add(std::static_pointer_cast<IComponent>(b));
 		}
 		else if (type == "LuaComponent")
 		{

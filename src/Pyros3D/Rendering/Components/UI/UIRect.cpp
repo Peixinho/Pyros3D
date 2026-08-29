@@ -21,6 +21,7 @@ namespace p3d {
 		offsetMin = Vec2(0.f, 0.f);
 		offsetMax = Vec2(0.f, 0.f);
 		pivot = Vec2(0.5f, 0.5f);
+		stateOffset = Vec2(0.f, 0.f);
 	}
 
 	UIRect::~UIRect() {}
@@ -44,10 +45,12 @@ namespace p3d {
 		// Offsets are insets from that rect. When an axis is pinned
 		// (ax0 == ax1) this degenerates to (position, position + size),
 		// which is exactly what SetAnchoredPosition() writes.
-		const f32 x0 = ax0 + offsetMin.x;
-		const f32 y0 = ay0 + offsetMin.y;
-		const f32 x1 = ax1 + offsetMax.x;
-		const f32 y1 = ay1 + offsetMax.y;
+		// stateOffset shifts the whole rect without resizing it - see its
+		// comment. Zero unless a UIButton is driving this element.
+		const f32 x0 = ax0 + offsetMin.x + stateOffset.x;
+		const f32 y0 = ay0 + offsetMin.y + stateOffset.y;
+		const f32 x1 = ax1 + offsetMax.x + stateOffset.x;
+		const f32 y1 = ay1 + offsetMax.y + stateOffset.y;
 
 		rect = UIRectValue(x0, y0, x1 - x0, y1 - y0);
 		origin = Vec2(rect.x + pivot.x * rect.width, rect.y + pivot.y * rect.height);

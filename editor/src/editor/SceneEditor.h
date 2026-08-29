@@ -27,6 +27,7 @@ using json = nlohmann::json;
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 #include <Pyros3D/Rendering/Components/UI/UIText.h>
+#include <Pyros3D/Rendering/Components/UI/UIButton.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
@@ -652,6 +653,7 @@ private:
 	// Canvas mode's equivalent: click to select an element, drag its rect or
 	// one of its eight handles. The 3D gizmo is not used here - it moves a
 	// transform, and a UI element's transform is output, not input.
+	void DispatchPlayModeUIInput();
 	void HandleCanvasInput(UICanvas* canvas);
 	static void ApplyCanvasDrag(UIRect* rect, int handle, const Vec2& delta);
 	// Viewport mouse in canvas units, using the same mapping UIRenderer's

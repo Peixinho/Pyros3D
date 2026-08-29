@@ -902,6 +902,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			uiRenderer->Resize(viewW, viewH);
 			uiRenderer->RenderUI(scene);
+			// Buttons only respond in play mode. In edit mode a click in the
+			// viewport is a selection or a drag, and a UI that reacted to
+			// being authored would be unusable.
+			if (playMode) DispatchPlayModeUIInput();
 		}
 
 		// The gizmo/grid/debug overlay below never sets a viewport of its own
@@ -2425,7 +2429,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (!comps[i]) continue;
 			const uint32 type = comps[i]->GetComponentType();
 			if (type != ComponentType::UICanvas && type != ComponentType::UIRect
-				&& type != ComponentType::UIImage && type != ComponentType::UIText)
+				&& type != ComponentType::UIImage && type != ComponentType::UIText
+				&& type != ComponentType::UIButton)
 				continue;
 
 			ImGui::PushID((int)i);
@@ -2561,6 +2566,70 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					}
 				}
 				else ImGui::TextDisabled("No texture - a flat tinted rectangle.");
+			}
+			else if (type == ComponentType::UIButton)
+			{
+				UIButton* b = static_cast<UIButton*>(comps[i].get());
+				ImGui::Text("UI Button");
+
+				bool inter = b->IsInteractable();
+				if (ImGui::Checkbox("Interactable", &inter))
+				{
+					const json ub = CaptureUIProperties(go);
+					b->SetInteractable(inter);
+					MarkSceneDirty();
+					PushUIPropertyUndo(goId, ub, CaptureUIProperties(go), "Set Button Interactable");
+				}
+
+				std::string handler = b->GetOnClick();
+				if (ImGui::InputText("On Click", &handler)) { b->SetOnClick(handler); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Button Handler");
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Name of a global Lua function, called with this object's\nname when the button is clicked. Scripts can also poll\nui.wasClicked(element) instead.");
+
+				f32 tr = b->GetTransition();
+				if (ImGui::DragFloat("Transition", &tr, 0.01f, 0.f, 2.f, "%.2f s")) { b->SetTransition(tr); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Button Transition");
+
+				// One row per state, and only the states that are not just
+				// "same as Normal" - which is what an unset tint means.
+				const char* stateNames[3] = { "Hover", "Pressed", "Disabled" };
+				const uint32 stateIds[3] = { UIState::Hover, UIState::Pressed, UIState::Disabled };
+				for (int st = 0; st < 3; st++)
+				{
+					ImGui::PushID(st);
+					UIStateStyle &ss = b->State(stateIds[st]);
+					bool on = ss.hasTint;
+					if (ImGui::Checkbox("##tinton", &on))
+					{
+						const json ub = CaptureUIProperties(go);
+						ss.hasTint = on;
+						MarkSceneDirty();
+						PushUIPropertyUndo(goId, ub, CaptureUIProperties(go), "Set Button State");
+					}
+					ImGui::SameLine();
+					if (!ss.hasTint) ImGui::BeginDisabled();
+					if (ImGui::ColorEdit4(stateNames[st], (float*)&ss.tint)) MarkSceneDirty();
+					BeginUIUndo(goId); EndUIUndo(goId, "Set Button State Tint");
+					if (!ss.hasTint) ImGui::EndDisabled();
+					ImGui::PopID();
+				}
+				if (ImGui::DragFloat2("Press Nudge", (float*)&b->State(UIState::Pressed).offset, 0.5f, -64.f, 64.f))
+					MarkSceneDirty();
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Button Press Nudge");
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Canvas units the element shifts while held. Applied on top\nof the layout, never saved into it.");
+
+				const char* cur = "Normal";
+				switch (b->GetCurrentState())
+				{
+				case UIState::Hover: cur = "Hover"; break;
+				case UIState::Pressed: cur = "Pressed"; break;
+				case UIState::Disabled: cur = "Disabled"; break;
+				case UIState::Focused: cur = "Focused"; break;
+				default: break;
+				}
+				ImGui::TextDisabled("Current state: %s", cur);
 			}
 			else if (type == ComponentType::UIText)
 			{
@@ -2972,14 +3041,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// default, and the Properties panel is where they get tuned.
 			if (ImGui::BeginMenu("UI"))
 			{
-				const char* kinds[] = { "Canvas", "Rect", "Image", "Text" };
+				const char* kinds[] = { "Canvas", "Rect", "Image", "Text", "Button" };
 				const char* tips[] = {
 					"Root of a screen-space UI tree. Add elements as children.",
 					"Anchored rectangle - the layout half of an element.",
 					"Tinted, optionally 9-sliced quad. Adds a Rect if missing.",
-					"A line of text aligned in its rect. Adds a Rect if missing."
+					"A line of text aligned in its rect. Adds a Rect if missing.",
+					"Clickable, with hover/pressed/disabled states. Adds a Rect\nand an Image if missing; put a Text child on it for a label."
 				};
-				for (int i = 0; i < 4; i++)
+				for (int i = 0; i < 5; i++)
 				{
 					if (ImGui::MenuItem(kinds[i]))
 					{
@@ -4520,6 +4590,44 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// stays correct at any window size or scale mode.
 		out = Vec2(viewportMouse.x / dim.x * c.width, viewportMouse.y / dim.y * c.height);
 		return true;
+	}
+
+	// Mirrors PyrosPlayer::DispatchUIInput - the editor's play mode has to
+	// behave the same way as the game or it is not a preview.
+	void SceneEditor::DispatchPlayModeUIInput()
+	{
+		std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(scene);
+		if (canvases.empty()) return;
+		const bool down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+
+		for (size_t i = canvases.size(); i > 0; i--)
+		{
+			UICanvas* c = canvases[i - 1];
+			const UIRectValue &r = c->GetCanvasRect();
+			if (r.width <= 0.f || r.height <= 0.f || dim.x < 1.f || dim.y < 1.f) continue;
+			const Vec2 p(viewportMouse.x / dim.x * r.width, viewportMouse.y / dim.y * r.height);
+			GameObject* clicked = c->UpdateInput(p, down, viewportMouseValid);
+			if (!clicked) continue;
+#ifdef LUA_BINDINGS
+			const std::vector<std::shared_ptr<IComponent> > &cs = clicked->GetComponents();
+			for (size_t j = 0; j < cs.size(); j++)
+			{
+				if (!cs[j] || cs[j]->GetComponentType() != ComponentType::UIButton) continue;
+				const std::string &handler = static_cast<UIButton*>(cs[j].get())->GetOnClick();
+				if (handler.empty() || !sharedLua) break;
+				sol::protected_function fn = (*sharedLua)[handler];
+				if (!fn.valid())
+				{
+					echo("WARNING: UIButton on '" + clicked->GetName() + "' wants '" + handler + "', which is not a global function");
+					break;
+				}
+				sol::protected_function_result res = fn(clicked->GetName());
+				if (!res.valid()) { sol::error e = res; echo(std::string("ERROR: UIButton handler '") + handler + "' - " + e.what()); }
+				break;
+			}
+#endif
+			return;
+		}
 	}
 
 	void SceneEditor::HandleCanvasInput(UICanvas* canvas)

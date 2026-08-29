@@ -30,6 +30,7 @@ namespace p3d {
 		RegisterLuaAssetsLate(lua);
 		RegisterLuaAudio(lua);
 		RegisterLuaMisc(lua);
+		RegisterLuaUI(lua);
 	}
 
 } // namespace p3d

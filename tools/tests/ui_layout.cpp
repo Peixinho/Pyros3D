@@ -14,6 +14,7 @@
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
+#include <Pyros3D/Rendering/Components/UI/UIButton.h>
 
 #include <cstdio>
 #include <cmath>
@@ -131,6 +132,72 @@ int main()
 	check(UICanvas::GetCanvasesOnScene(&scene).size() == 1, "the canvas is registered with its scene");
 	scene.Remove(canvasGO);
 	check(UICanvas::GetCanvasesOnScene(&scene).empty(), "removing the object unregisters the canvas");
+
+	// -------- buttons --------
+	// Pure state machine plus the canvas's decision about what is on top;
+	// neither needs a GPU, which is the whole reason it is testable here.
+	{
+		SceneGraph bs;
+		std::shared_ptr<GameObject> cgo = std::make_shared<GameObject>();
+		std::shared_ptr<UICanvas> bc = std::make_shared<UICanvas>(1000.f, 1000.f);
+		bc->SetScaleMode(UIScaleMode::Stretch);
+		cgo->Add(std::static_pointer_cast<IComponent>(bc));
+		bs.Add(cgo);
+
+		auto makeButton = [&](const char* name, const Vec2 &pos, const Vec2 &size) {
+			std::shared_ptr<GameObject> go = std::make_shared<GameObject>();
+			go->SetName(name);
+			std::shared_ptr<UIRect> r = std::make_shared<UIRect>();
+			r->SetAnchoredPosition(Vec2(0.f, 0.f), pos, size);
+			r->SetPivot(Vec2(0.f, 0.f));
+			go->Add(std::static_pointer_cast<IComponent>(r));
+			std::shared_ptr<UIButton> b = std::make_shared<UIButton>();
+			go->Add(std::static_pointer_cast<IComponent>(b));
+			cgo->Add(go);
+			return std::make_pair(go, b);
+		};
+
+		auto lower = makeButton("Lower", Vec2(100.f, 100.f), Vec2(300.f, 200.f));
+		auto upper = makeButton("Upper", Vec2(200.f, 150.f), Vec2(300.f, 200.f));
+		bs.Update(0.0);
+		bc->Solve(1000, 1000);
+
+		// A point inside both. Later siblings paint over earlier ones, so
+		// the later one is the one that gets it - and the other must be told
+		// it does not, or a stale hover sticks.
+		const Vec2 overlap(250.f, 200.f);
+		bc->UpdateInput(overlap, false);
+		check(upper.second->GetCurrentState() == UIState::Hover, "the topmost overlapping button takes the hover");
+		check(lower.second->GetCurrentState() == UIState::Normal, "the one underneath does not");
+
+		// Press and release, both inside: one click, once.
+		bc->UpdateInput(overlap, true);
+		check(upper.second->GetCurrentState() == UIState::Pressed, "pressing inside enters the pressed state");
+		GameObject* clicked = bc->UpdateInput(overlap, false);
+		check(clicked == upper.first.get(), "releasing inside reports the click");
+		check(upper.second->ConsumeClicked(), "and the button records it once");
+		check(!upper.second->ConsumeClicked(), "reading it clears it");
+
+		// Press, drag off, release: no click, which is what makes a
+		// mis-aimed press recoverable.
+		bc->UpdateInput(overlap, true);
+		bc->UpdateInput(Vec2(900.f, 900.f), true);
+		check(upper.second->GetCurrentState() == UIState::Normal, "dragging off a pressed button drops the highlight");
+		check(bc->UpdateInput(Vec2(900.f, 900.f), false) == NULL, "releasing off the button does not click it");
+		check(!upper.second->ConsumeClicked(), "and nothing was recorded");
+
+		// And the reverse: a press that started elsewhere must not arm a
+		// button the pointer merely arrives at.
+		bc->UpdateInput(Vec2(900.f, 900.f), true);
+		bc->UpdateInput(overlap, true);
+		check(bc->UpdateInput(overlap, false) == NULL, "dragging onto a button and releasing does not click it");
+
+		// Disabled buttons are inert but still say so.
+		upper.second->SetInteractable(false);
+		bc->UpdateInput(overlap, true);
+		check(upper.second->GetCurrentState() == UIState::Disabled, "a disabled button stays disabled under the pointer");
+		check(bc->UpdateInput(overlap, false) == NULL, "and cannot be clicked");
+	}
 
 	printf("\n%s (%d failure(s))\n", failures ? "FAILED" : "ALL PASSED", failures);
 	return failures ? 1 : 0;

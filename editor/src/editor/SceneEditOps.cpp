@@ -982,9 +982,38 @@ bool SceneEditor::OpAddUIComponent(uint32 goId, const std::string& kind, const s
 		t->SetAlignment(UIAlign::Center, UIVerticalAlign::Middle);
 		go->Add(std::static_pointer_cast<IComponent>(t));
 	}
+	else if (k == "button")
+	{
+		// A button is an image you can click, so it brings one - a button
+		// with nothing to show is a button nobody can find.
+		if (!HasUIRect(go))
+		{
+			std::shared_ptr<UIRect> r = std::make_shared<UIRect>();
+			r->SetAnchoredPosition(Vec2(0.5f, 0.5f), Vec2(-160.f, -36.f), Vec2(320.f, 72.f));
+			go->Add(std::static_pointer_cast<IComponent>(r));
+		}
+		bool hasImage = false;
+		const std::vector<std::shared_ptr<IComponent> >& existing = go->GetComponents();
+		for (size_t i = 0; i < existing.size(); i++)
+			if (existing[i] && existing[i]->GetComponentType() == ComponentType::UIImage) hasImage = true;
+		if (!hasImage)
+			go->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.16f, 0.19f, 0.25f, 0.95f))));
+
+		std::shared_ptr<UIButton> b = std::make_shared<UIButton>();
+		// Defaults you can see: without a hover and a press that visibly
+		// differ, a new button looks broken even when it works.
+		b->State(UIState::Hover).hasTint = true;
+		b->State(UIState::Hover).tint = Vec4(0.24f, 0.30f, 0.40f, 0.98f);
+		b->State(UIState::Pressed).hasTint = true;
+		b->State(UIState::Pressed).tint = Vec4(0.22f, 0.74f, 0.98f, 1.f);
+		b->State(UIState::Pressed).offset = Vec2(0.f, 2.f);
+		b->State(UIState::Disabled).hasTint = true;
+		b->State(UIState::Disabled).tint = Vec4(0.14f, 0.15f, 0.18f, 0.6f);
+		go->Add(std::static_pointer_cast<IComponent>(b));
+	}
 	else
 	{
-		errOut = "unknown UI component '" + kind + "' (canvas, rect, image or text)";
+		errOut = "unknown UI component '" + kind + "' (canvas, rect, image, text or button)";
 		return false;
 	}
 
@@ -1054,6 +1083,26 @@ json SceneEditor::CaptureUIProperties(GameObject* go)
 				? DisplayPath(img->GetTexture()->GetFilename()) : std::string();
 			break;
 		}
+		case ComponentType::UIButton:
+		{
+			UIButton* b = static_cast<UIButton*>(cs[i].get());
+			out["interactable"] = b->IsInteractable();
+			out["transition"] = b->GetTransition();
+			out["onClick"] = b->GetOnClick();
+			// Flat, prefixed keys rather than a nested table: the bag is a
+			// flat namespace everywhere else, and "hoverTint" reads better
+			// in a call than states.Hover.tint.
+			const char* names[3] = { "hover", "pressed", "disabled" };
+			const uint32 ids[3] = { UIState::Hover, UIState::Pressed, UIState::Disabled };
+			for (int k = 0; k < 3; k++)
+			{
+				const UIStateStyle &ss = b->GetState(ids[k]);
+				if (ss.hasTint) out[std::string(names[k]) + "Tint"] = json::array({ ss.tint.x, ss.tint.y, ss.tint.z, ss.tint.w });
+				if (ss.hasTextColor) out[std::string(names[k]) + "TextColor"] = json::array({ ss.textColor.x, ss.textColor.y, ss.textColor.z, ss.textColor.w });
+			}
+			out["pressedOffset"] = json::array({ b->GetState(UIState::Pressed).offset.x, b->GetState(UIState::Pressed).offset.y });
+			break;
+		}
 		case ComponentType::UIText:
 		{
 			UIText* t = static_cast<UIText*>(cs[i].get());
@@ -1082,7 +1131,7 @@ bool SceneEditor::RawSetUIProperties(uint32 goId, const json& p, std::string& er
 	if (!go) { errOut = "object not found"; return false; }
 	if (!p.is_object()) { errOut = "expected an object of properties"; return false; }
 
-	UICanvas* canvas = NULL; UIRect* rect = NULL; UIImage* image = NULL; UIText* text = NULL;
+	UICanvas* canvas = NULL; UIRect* rect = NULL; UIImage* image = NULL; UIText* text = NULL; UIButton* button = NULL;
 	const std::vector<std::shared_ptr<IComponent> >& cs = go->GetComponents();
 	for (size_t i = 0; i < cs.size(); i++)
 	{
@@ -1093,10 +1142,11 @@ bool SceneEditor::RawSetUIProperties(uint32 goId, const json& p, std::string& er
 		case ComponentType::UIRect:   rect   = static_cast<UIRect*>(cs[i].get());   break;
 		case ComponentType::UIImage:  image  = static_cast<UIImage*>(cs[i].get());  break;
 		case ComponentType::UIText:   text   = static_cast<UIText*>(cs[i].get());   break;
+		case ComponentType::UIButton: button = static_cast<UIButton*>(cs[i].get()); break;
 		default: break;
 		}
 	}
-	if (!canvas && !rect && !image && !text) { errOut = "'" + obj->GetName() + "' has no UI components"; return false; }
+	if (!canvas && !rect && !image && !text && !button) { errOut = "'" + obj->GetName() + "' has no UI components"; return false; }
 
 	bool touched = false;
 	// Unknown keys are an error rather than a silent no-op: a caller that
@@ -1204,6 +1254,38 @@ bool SceneEditor::RawSetUIProperties(uint32 goId, const json& p, std::string& er
 		{
 			if (!v.is_number()) { errOut = "sortOrder must be a number"; return false; }
 			canvas->SetSortOrder(v.get<int32>()); touched = true;
+		}
+		else if (button && k == "interactable")
+		{
+			if (!v.is_boolean()) { errOut = "interactable must be true or false"; return false; }
+			button->SetInteractable(v.get<bool>()); touched = true;
+		}
+		else if (button && k == "transition")
+		{
+			if (!v.is_number()) { errOut = "transition must be a number of seconds"; return false; }
+			button->SetTransition(v.get<f32>()); touched = true;
+		}
+		else if (button && k == "onClick")
+		{
+			if (!v.is_string()) { errOut = "onClick must be a handler name"; return false; }
+			button->SetOnClick(v.get<std::string>()); touched = true;
+		}
+		else if (button && k == "pressedOffset")
+		{
+			if (!isVec2) { errOut = "pressedOffset must be [x, y]"; return false; }
+			button->State(UIState::Pressed).offset = v2; touched = true;
+		}
+		else if (button && (k == "hoverTint" || k == "pressedTint" || k == "disabledTint"))
+		{
+			if (!isVec4) { errOut = k + " must be [r, g, b, a]"; return false; }
+			const uint32 st = (k[0] == 'h') ? UIState::Hover : (k[0] == 'p') ? UIState::Pressed : UIState::Disabled;
+			button->State(st).hasTint = true; button->State(st).tint = v4; touched = true;
+		}
+		else if (button && (k == "hoverTextColor" || k == "pressedTextColor" || k == "disabledTextColor"))
+		{
+			if (!isVec4) { errOut = k + " must be [r, g, b, a]"; return false; }
+			const uint32 st = (k[0] == 'h') ? UIState::Hover : (k[0] == 'p') ? UIState::Pressed : UIState::Disabled;
+			button->State(st).hasTextColor = true; button->State(st).textColor = v4; touched = true;
 		}
 		else
 		{

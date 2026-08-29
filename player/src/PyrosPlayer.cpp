@@ -127,6 +127,7 @@ PyrosPlayer::PyrosPlayer()
 	scene = NULL;
 	physics = NULL;
 	renderer = NULL;
+	uiRenderer = NULL;
 	audio = NULL;
 	gbufferFBO = NULL;
 	gbufferDepth = gbufferAlbedo = gbufferSpecular = gbufferNormal = gbufferMatRough = NULL;
@@ -233,6 +234,11 @@ void PyrosPlayer::Init()
 	}
 	else
 		renderer = new ForwardRenderer(Width, Height);
+
+	// Independent of that choice: it composites over whatever the frame
+	// already drew.
+	uiRenderer = new UIRenderer(Width, Height);
+
 	renderer->SetViewPort(0, 0, Width, Height);
 	// Asserted explicitly, never left to the default. The clear colour is
 	// device-global state that outlives any one renderer (see
@@ -624,11 +630,72 @@ void PyrosPlayer::Update()
 	renderer->ApplyBackgroundClearColor();
 	renderer->RenderScene(projection, activeCamera, scene);
 
+	// UI last, over the finished frame, and input fed to it right before -
+	// so a click is resolved against the layout the player is looking at,
+	// not the one from the previous frame.
+	if (uiRenderer)
+	{
+		uiRenderer->Resize(Width, Height);
+		uiRenderer->RenderUI(scene);
+		DispatchUIInput();
+	}
+
 #ifdef LUA_BINDINGS
 	// Between frames, never inside one: the script that asked for the
 	// switch is owned by the scene graph the switch tears down.
 	ApplyPendingSceneLoadIfAny();
 #endif
+}
+
+// Feeds the pointer to every canvas and routes a completed click to the Lua
+// handler the button names. The canvas decides what is under the pointer -
+// only it knows the draw order - and this only has to turn the answer into a
+// call.
+void PyrosPlayer::DispatchUIInput()
+{
+	std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(scene);
+	if (canvases.empty()) return;
+
+	int mx = 0, my = 0;
+	const Uint32 buttons = SDL_GetMouseState(&mx, &my);
+	const bool down = (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+	const bool insideWindow = (mx >= 0 && my >= 0 && (uint32)mx < Width && (uint32)my < Height);
+
+	// Topmost canvas first: a pause menu over a HUD must swallow the click
+	// rather than let both act on it.
+	for (size_t i = canvases.size(); i > 0; i--)
+	{
+		UICanvas* c = canvases[i - 1];
+		const UIRectValue &r = c->GetCanvasRect();
+		if (r.width <= 0.f || r.height <= 0.f) continue;
+		const Vec2 p((f32)mx / (f32)Width * r.width, (f32)my / (f32)Height * r.height);
+		if (GameObject* clicked = c->UpdateInput(p, down, insideWindow))
+		{
+#ifdef LUA_BINDINGS
+			const std::vector<std::shared_ptr<IComponent> > &cs = clicked->GetComponents();
+			for (size_t j = 0; j < cs.size(); j++)
+			{
+				if (!cs[j] || cs[j]->GetComponentType() != ComponentType::UIButton) continue;
+				const std::string &handler = static_cast<UIButton*>(cs[j].get())->GetOnClick();
+				if (handler.empty()) break;
+				sol::protected_function fn = lua[handler];
+				if (!fn.valid())
+				{
+					echo("WARNING: UIButton on '" + clicked->GetName() + "' wants '" + handler + "', which is not a global function");
+					break;
+				}
+				sol::protected_function_result res = fn(clicked->GetName());
+				if (!res.valid())
+				{
+					sol::error err = res;
+					echo(std::string("ERROR: UIButton handler '") + handler + "' - " + err.what());
+				}
+				break;
+			}
+#endif
+			return;
+		}
+	}
 }
 
 void PyrosPlayer::OnResize(const uint32 width, const uint32 height)
@@ -694,6 +761,7 @@ void PyrosPlayer::Shutdown()
 
 	UnloadGameScene();
 
+	delete uiRenderer; uiRenderer = NULL;
 	delete renderer; renderer = NULL;
 	DestroyGBuffer();
 	delete physics; physics = NULL;

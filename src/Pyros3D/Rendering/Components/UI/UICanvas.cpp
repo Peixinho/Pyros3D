@@ -9,6 +9,7 @@
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 #include <Pyros3D/Rendering/Components/UI/UIText.h>
+#include <Pyros3D/Rendering/Components/UI/UIButton.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 
 namespace p3d {
@@ -106,6 +107,7 @@ namespace p3d {
 
 		drawList.clear();
 		hitList.clear();
+		buttonList.clear();
 
 		if (GetOwner() == NULL) return;
 
@@ -142,6 +144,9 @@ namespace p3d {
 		}
 
 		hitList.push_back(std::make_pair(node, rect));
+		for (size_t i = 0; i < comps.size(); i++)
+			if (comps[i] && comps[i]->GetComponentType() == ComponentType::UIButton)
+			{ buttonList.push_back(std::make_pair(node, rect)); break; }
 
 		for (size_t i = 0; i < comps.size(); i++)
 		{
@@ -170,6 +175,32 @@ namespace p3d {
 		const std::vector<std::shared_ptr<GameObject> > &kids = node->GetChildren();
 		for (size_t i = 0; i < kids.size(); i++)
 			if (kids[i]) SolveNode(kids[i].get(), rect, origin);
+	}
+
+	GameObject* UICanvas::UpdateInput(const Vec2 &canvasPoint, const bool pointerDown, const bool pointerInside)
+	{
+		// Topmost first, so exactly one button can be under the pointer even
+		// where several overlap - the rest are told they are not, which is
+		// what clears a stale hover when one moves over another.
+		GameObject* over = NULL;
+		if (pointerInside)
+			for (size_t i = buttonList.size(); i > 0 && !over; i--)
+				if (buttonList[i - 1].second.Contains(canvasPoint))
+					over = buttonList[i - 1].first;
+
+		GameObject* clicked = NULL;
+		for (size_t i = 0; i < buttonList.size(); i++)
+		{
+			GameObject* go = buttonList[i].first;
+			const std::vector<std::shared_ptr<IComponent> > &cs = go->GetComponents();
+			for (size_t j = 0; j < cs.size(); j++)
+			{
+				if (!cs[j] || cs[j]->GetComponentType() != ComponentType::UIButton) continue;
+				UIButton* b = static_cast<UIButton*>(cs[j].get());
+				if (b->OnPointer(go == over, pointerDown)) clicked = go;
+			}
+		}
+		return clicked;
 	}
 
 	Vec2 UICanvas::ScreenToCanvas(const Vec2 &screenPoint) const
