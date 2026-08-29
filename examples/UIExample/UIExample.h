@@ -64,6 +64,7 @@ private:
 		const std::shared_ptr<Font> &font, const std::string &text, const f32 size,
 		const Vec4 &color, const uint32 h, const uint32 v);
 	static UIRect* RectOf(const std::shared_ptr<GameObject> &go);
+	static UIRect* FindRect(const std::shared_ptr<GameObject> &root, const std::string &name);
 
 	void BakeTextures();
 	void BuildBackdrop();

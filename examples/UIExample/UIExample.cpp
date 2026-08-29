@@ -9,6 +9,7 @@
 #include "UIExample.h"
 
 #include <Pyros3D/Core/Buffers/FrameBuffer.h>
+#include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <Pyros3D/Ext/stb/stb_image_write.h>
@@ -156,6 +157,18 @@ std::shared_ptr<GameObject> UIExample::Element(const std::shared_ptr<GameObject>
 	elements.push_back(go);
 	components.push_back(std::static_pointer_cast<IComponent>(rect));
 	return go;
+}
+
+// Depth-first by name. Only used by the verification below, where the
+// point is to compare the same element across two separately built trees.
+UIRect* UIExample::FindRect(const std::shared_ptr<GameObject> &root, const std::string &name)
+{
+	if (!root) return NULL;
+	if (root->GetName() == name) return RectOf(root);
+	const std::vector<std::shared_ptr<GameObject> > &kids = root->GetChildren();
+	for (size_t i = 0; i < kids.size(); i++)
+		if (UIRect* r = FindRect(kids[i], name)) return r;
+	return NULL;
 }
 
 UIRect* UIExample::RectOf(const std::shared_ptr<GameObject> &go)
@@ -616,6 +629,110 @@ void UIExample::RunVerification()
 		printf("%s  a built element restyles live (%zu verts -> %zu, text %.0f -> %.0f wide)\n",
 			restyled ? "PASS" : "FAIL", vertsBefore, vertsAfter, widthBefore, widthAfter);
 		if (!restyled) failures++;
+	}
+
+	// ---- serialization, and therefore prefabs ----
+	// A canvas is an ordinary GameObject subtree carrying ordinary
+	// components, so it goes through the same serializer as everything
+	// else - which means SerializeSubtree/DeserializeSubtree, the exact
+	// pair the editor's Create Prefab and Instantiate Prefab are built on,
+	// work on a menu with no changes to the prefab layer at all. That is
+	// the claim; this checks it.
+	{
+		const std::string prefab = SceneSerializer::SerializeSubtree(menuObj.get(), std::string());
+		const bool mentions =
+			prefab.find("\"UICanvas\"") != std::string::npos &&
+			prefab.find("\"UIRect\"") != std::string::npos &&
+			prefab.find("\"UIImage\"") != std::string::npos &&
+			prefab.find("\"UIText\"") != std::string::npos;
+		printf("%s  the menu serializes to a prefab carrying all four component types (%zu bytes)\n",
+			mentions ? "PASS" : "FAIL", prefab.size());
+		if (!mentions) failures++;
+
+		SceneGraph clonedScene;
+		LoadedSceneAssets cloneAssets;
+		std::shared_ptr<GameObject> clone =
+			SceneSerializer::DeserializeSubtree(prefab, std::string(), NULL, NULL, &cloneAssets);
+		if (!clone)
+		{
+			printf("FAIL  the prefab reloads\n");
+			failures++;
+		}
+		else
+		{
+			clonedScene.Add(clone);
+			clonedScene.Update(0.0);
+
+			std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(&clonedScene);
+			bool ok = (canvases.size() == 1);
+			if (ok)
+			{
+				canvases[0]->Solve(W, H);
+				ok = ok && canvases[0]->GetSortOrder() == menuCanvas->GetSortOrder()
+					&& canvases[0]->GetScaleMode() == menuCanvas->GetScaleMode()
+					&& fabsf(canvases[0]->GetCanvasRect().width - menuCanvas->GetCanvasRect().width) < 0.5f;
+
+				// And the layout it solves to has to match the original,
+				// element for element - a prefab that loads but lands
+				// somewhere else is not a prefab. Matched by name rather
+				// than by index, so this compares the same element in both
+				// trees even as the demo's layout changes.
+				UIRect* original = FindRect(menuObj, "RowResume");
+				UIRect* copy = FindRect(clone, "RowResume");
+				ok = ok && original && copy
+					&& fabsf(original->GetRect().width - copy->GetRect().width) < 0.5f
+					&& fabsf(original->GetRect().height - copy->GetRect().height) < 0.5f
+					&& fabsf(original->GetRect().x - copy->GetRect().x) < 0.5f
+					&& fabsf(original->GetRect().y - copy->GetRect().y) < 0.5f;
+				if (original && copy)
+					printf("      first element: original %.0fx%.0f at %.0f,%.0f  reloaded %.0fx%.0f at %.0f,%.0f\n",
+						original->GetRect().width, original->GetRect().height, original->GetRect().x, original->GetRect().y,
+						copy->GetRect().width, copy->GetRect().height, copy->GetRect().x, copy->GetRect().y);
+			}
+			printf("%s  the reloaded prefab solves to the same layout\n", ok ? "PASS" : "FAIL");
+			if (!ok) failures++;
+
+			SceneSerializer::UnloadScene(&clonedScene, cloneAssets);
+		}
+	}
+
+	// ---- and the same thing as a whole scene ----
+	// The subtree path above and this one share DeserializeComponent, but
+	// only this one goes through SaveScene's root walk and the material
+	// pool, which is what the editor and the player actually call.
+	{
+		const std::string path = "ui_roundtrip.scene.json";
+		const bool saved = SceneSerializer::SaveScene(Scene, path);
+		SceneGraph reloaded;
+		LoadedSceneAssets reloadedAssets;
+		const bool loaded = saved && SceneSerializer::LoadScene(&reloaded, path, NULL, NULL, &reloadedAssets);
+		bool ok = loaded;
+		if (loaded)
+		{
+			reloaded.Update(0.0);
+			std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(&reloaded);
+			ok = (canvases.size() == 2);
+			for (size_t i = 0; i < canvases.size(); i++) canvases[i]->Solve(W, H);
+
+			UIRect* original = FindRect(menuObj, "RowResume");
+			UIRect* copy = NULL;
+			// Found by name, the same way anything else in a reloaded scene
+			// would be.
+			for (size_t i = 0; i < reloadedAssets.gameObjects.size() && !copy; i++)
+				if (reloadedAssets.gameObjects[i]->GetName() == "RowResume")
+					copy = RectOf(reloadedAssets.gameObjects[i]);
+			ok = ok && original && copy
+				&& fabsf(original->GetRect().x - copy->GetRect().x) < 0.5f
+				&& fabsf(original->GetRect().y - copy->GetRect().y) < 0.5f
+				&& fabsf(original->GetRect().width - copy->GetRect().width) < 0.5f;
+			if (copy)
+				printf("      reloaded RowResume %.0fx%.0f at %.0f,%.0f\n",
+					copy->GetRect().width, copy->GetRect().height, copy->GetRect().x, copy->GetRect().y);
+			SceneSerializer::UnloadScene(&reloaded, reloadedAssets);
+		}
+		printf("%s  both canvases survive a whole-scene save and reload\n", ok ? "PASS" : "FAIL");
+		if (!ok) failures++;
+		remove(path.c_str());
 	}
 
 	printf("\n%s (%d failure(s))\n", failures ? "FAILED" : "ALL PASSED", failures);

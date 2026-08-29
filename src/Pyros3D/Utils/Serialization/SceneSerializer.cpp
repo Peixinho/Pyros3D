@@ -21,6 +21,10 @@
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
 #include <Pyros3D/Rendering/Components/Lights/SpotLight/SpotLight.h>
+#include <Pyros3D/Rendering/Components/UI/UICanvas.h>
+#include <Pyros3D/Rendering/Components/UI/UIRect.h>
+#include <Pyros3D/Rendering/Components/UI/UIImage.h>
+#include <Pyros3D/Rendering/Components/UI/UIText.h>
 
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
@@ -416,10 +420,63 @@ namespace p3d {
 	}
 #endif
 
+	static json ToJson(const Vec2 &v) { return json::array({ v.x, v.y }); }
 	static json ToJson(const Vec3 &v) { return json::array({ v.x, v.y, v.z }); }
 	static json ToJson(const Vec4 &v) { return json::array({ v.x, v.y, v.z, v.w }); }
+	static Vec2 Vec2FromJson(const json &j) { return Vec2(j[0].get<f32>(), j[1].get<f32>()); }
 	static Vec3 Vec3FromJson(const json &j) { return Vec3(j[0].get<f32>(), j[1].get<f32>(), j[2].get<f32>()); }
 	static Vec4 Vec4FromJson(const json &j) { return Vec4(j[0].get<f32>(), j[1].get<f32>(), j[2].get<f32>(), j[3].get<f32>()); }
+
+	// UI enums travel as names, not numbers: a scene file is edited by
+	// hand often enough that "MatchWidth" beats 1, and appending to an
+	// enum can never silently change what an existing scene means.
+	static const char* UIScaleModeName(const uint32 m)
+	{
+		switch (m)
+		{
+		case UIScaleMode::ConstantPixel: return "ConstantPixel";
+		case UIScaleMode::MatchHeight:   return "MatchHeight";
+		case UIScaleMode::Stretch:       return "Stretch";
+		default:                         return "MatchWidth";
+		}
+	}
+	static uint32 UIScaleModeFromName(const std::string &n)
+	{
+		if (n == "ConstantPixel") return UIScaleMode::ConstantPixel;
+		if (n == "MatchHeight")   return UIScaleMode::MatchHeight;
+		if (n == "Stretch")       return UIScaleMode::Stretch;
+		return UIScaleMode::MatchWidth;
+	}
+	static const char* UIAlignName(const uint32 a)
+	{
+		switch (a)
+		{
+		case UIAlign::Center: return "Center";
+		case UIAlign::Right:  return "Right";
+		default:              return "Left";
+		}
+	}
+	static uint32 UIAlignFromName(const std::string &n)
+	{
+		if (n == "Center") return UIAlign::Center;
+		if (n == "Right")  return UIAlign::Right;
+		return UIAlign::Left;
+	}
+	static const char* UIVerticalAlignName(const uint32 a)
+	{
+		switch (a)
+		{
+		case UIVerticalAlign::Middle: return "Middle";
+		case UIVerticalAlign::Bottom: return "Bottom";
+		default:                      return "Top";
+		}
+	}
+	static uint32 UIVerticalAlignFromName(const std::string &n)
+	{
+		if (n == "Middle") return UIVerticalAlign::Middle;
+		if (n == "Bottom") return UIVerticalAlign::Bottom;
+		return UIVerticalAlign::Top;
+	}
 
 	// Self-contained base64 - the vendored nlohmann::json 2.1.1 predates
 	// that library's binary/base64 support (added in 3.8+), used to embed
@@ -1252,6 +1309,66 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["wheels"] = wheels;
 			return j;
 		}
+		case ComponentType::UICanvas:
+		{
+			UICanvas* c2 = dynamic_cast<UICanvas*>(c);
+			j["type"] = "UICanvas";
+			j["referenceWidth"] = c2->GetReferenceResolution().x;
+			j["referenceHeight"] = c2->GetReferenceResolution().y;
+			j["scaleMode"] = UIScaleModeName(c2->GetScaleMode());
+			j["sortOrder"] = c2->GetSortOrder();
+			return j;
+		}
+		case ComponentType::UIRect:
+		{
+			UIRect* r = dynamic_cast<UIRect*>(c);
+			j["type"] = "UIRect";
+			j["anchorMin"] = ToJson(r->GetAnchorMin());
+			j["anchorMax"] = ToJson(r->GetAnchorMax());
+			j["offsetMin"] = ToJson(r->GetOffsetMin());
+			j["offsetMax"] = ToJson(r->GetOffsetMax());
+			j["pivot"] = ToJson(r->GetPivot());
+			// The solved rect is deliberately NOT saved: it is derived from
+			// these five values and the viewport, and storing it would let a
+			// scene file disagree with its own layout.
+			return j;
+		}
+		case ComponentType::UIImage:
+		{
+			UIImage* img = dynamic_cast<UIImage*>(c);
+			j["type"] = "UIImage";
+			j["tint"] = ToJson(img->GetTint());
+			j["border"] = ToJson(img->GetBorder());
+			// Skips a texture with no recoverable source, exactly like a
+			// material's maps do - which is the right answer for the shared
+			// default white, and also for anything generated at runtime
+			// (CreateEmptyTexture + UpdateData leaves no path and no
+			// RawData). Such an image reloads as a flat tinted quad.
+			SerializeTextureRef(j, "texture", img->GetTexture().get());
+			return j;
+		}
+		case ComponentType::UIText:
+		{
+			UIText* t = dynamic_cast<UIText*>(c);
+			if (!t->GetFont() || t->GetFont()->GetPath().empty())
+			{
+				echo("WARNING: SceneSerializer - skipping a UIText with no recoverable font path");
+				return json();
+			}
+			j["type"] = "UIText";
+			j["font"] = RelativizeSceneAssetPath(t->GetFont()->GetPath());
+			// Two different sizes, and both are needed: fontSize is the
+			// resolution the glyph atlas was baked at, size is how big the
+			// text is drawn in canvas units. They are usually close, and
+			// they are not the same thing.
+			j["fontSize"] = t->GetFont()->GetFontSize();
+			j["size"] = t->GetSize();
+			j["text"] = t->GetText();
+			j["color"] = ToJson(t->GetColor());
+			j["align"] = UIAlignName(t->GetHorizontalAlignment());
+			j["verticalAlign"] = UIVerticalAlignName(t->GetVerticalAlignment());
+			return j;
+		}
 #ifdef LUA_BINDINGS
 		case ComponentType::LuaComponent:
 		{
@@ -1741,7 +1858,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		return nullptr;
 	}
 
-	static void DeserializeComponent(GameObject* go, const json &j, const std::vector<std::shared_ptr<IMaterial>> &materialsById, std::map<std::string, std::shared_ptr<Texture>> &textureCache, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets)
+	static void DeserializeComponent(GameObject* go, const json &j, const std::vector<std::shared_ptr<IMaterial>> &materialsById, std::map<std::string, std::shared_ptr<Texture>> &textureCache, std::map<std::string, std::shared_ptr<Font>> &fontCache, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets)
 	{
 		std::string type = j.value("type", "");
 
@@ -2078,6 +2195,65 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			go->AddComponent(vc);
 		}
 #ifdef LUA_BINDINGS
+		else if (type == "UICanvas")
+		{
+			std::shared_ptr<UICanvas> c = std::make_shared<UICanvas>(
+				j.value("referenceWidth", 1920.0f), j.value("referenceHeight", 1080.0f));
+			c->SetScaleMode(UIScaleModeFromName(j.value("scaleMode", std::string("MatchWidth"))));
+			c->SetSortOrder(j.value("sortOrder", 0));
+			go->Add(std::static_pointer_cast<IComponent>(c));
+		}
+		else if (type == "UIRect")
+		{
+			std::shared_ptr<UIRect> r = std::make_shared<UIRect>();
+			if (j.find("anchorMin") != j.end() && j.find("anchorMax") != j.end())
+				r->SetAnchors(Vec2FromJson(j["anchorMin"]), Vec2FromJson(j["anchorMax"]));
+			if (j.find("offsetMin") != j.end() && j.find("offsetMax") != j.end())
+				r->SetOffsets(Vec2FromJson(j["offsetMin"]), Vec2FromJson(j["offsetMax"]));
+			if (j.find("pivot") != j.end()) r->SetPivot(Vec2FromJson(j["pivot"]));
+			go->Add(std::static_pointer_cast<IComponent>(r));
+		}
+		else if (type == "UIImage")
+		{
+			Vec4 tint = (j.find("tint") != j.end()) ? Vec4FromJson(j["tint"]) : Vec4(1, 1, 1, 1);
+			std::shared_ptr<UIImage> img = std::make_shared<UIImage>(tint);
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "texture", textureCache, outAssets))
+				img->SetTexture(t);
+			if (j.find("border") != j.end()) img->SetBorder(Vec4FromJson(j["border"]));
+			go->Add(std::static_pointer_cast<IComponent>(img));
+		}
+		else if (type == "UIText")
+		{
+			const std::string fontPath = ResolveSceneAssetPath(j.value("font", std::string()));
+			const f32 fontSize = j.value("fontSize", 32.0f);
+			if (fontPath.empty())
+			{
+				echo("WARNING: SceneSerializer - skipping a UIText with no font path");
+				return;
+			}
+			// Pooled by (path, size) - see fontCache's comment at the load
+			// entry points.
+			char key[64];
+			snprintf(key, sizeof(key), "|%g", fontSize);
+			const std::string cacheKey = fontPath + key;
+			std::shared_ptr<Font> font;
+			std::map<std::string, std::shared_ptr<Font>>::iterator it = fontCache.find(cacheKey);
+			if (it != fontCache.end()) font = it->second;
+			else
+			{
+				font = std::make_shared<Font>(fontPath, fontSize);
+				fontCache[cacheKey] = font;
+			}
+
+			// Text's constructor bakes the string's glyphs into the atlas
+			// itself, so nothing extra is needed here.
+			const std::string text = j.value("text", std::string());
+			Vec4 color = (j.find("color") != j.end()) ? Vec4FromJson(j["color"]) : Vec4(1, 1, 1, 1);
+			std::shared_ptr<UIText> t = std::make_shared<UIText>(font, text, j.value("size", 32.0f), color);
+			t->SetAlignment(UIAlignFromName(j.value("align", std::string("Left"))),
+				UIVerticalAlignFromName(j.value("verticalAlign", std::string("Top"))));
+			go->Add(std::static_pointer_cast<IComponent>(t));
+		}
 		else if (type == "LuaComponent")
 		{
 			std::string scriptFile = ResolveSceneAssetPath(j.value("scriptFile", std::string()));
@@ -2171,7 +2347,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 #endif
 	}
 
-	static std::shared_ptr<GameObject> DeserializeGameObject(const json &j, const std::vector<std::shared_ptr<IMaterial>> &materialsById, std::map<std::string, std::shared_ptr<Texture>> &textureCache, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets)
+	static std::shared_ptr<GameObject> DeserializeGameObject(const json &j, const std::vector<std::shared_ptr<IMaterial>> &materialsById, std::map<std::string, std::shared_ptr<Texture>> &textureCache, std::map<std::string, std::shared_ptr<Font>> &fontCache, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets)
 	{
 		// LUA_GameObject when lua != NULL, not plain GameObject - IComponent::
 		// GetOwner() (used by WireLuaComponentLifecycle to pass a script its
@@ -2200,12 +2376,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		if ((j.find("scale") != j.end())) go->SetScale(Vec3FromJson(j["scale"]));
 		if ((j.find("tags") != j.end())) for (auto &t : j["tags"]) go->AddTag(t.get<std::string>());
 
-		if ((j.find("components") != j.end())) for (auto &cj : j["components"]) DeserializeComponent(go.get(), cj, materialsById, textureCache, physics, lua, outAssets);
+		if ((j.find("components") != j.end())) for (auto &cj : j["components"]) DeserializeComponent(go.get(), cj, materialsById, textureCache, fontCache, physics, lua, outAssets);
 
 		if ((j.find("children") != j.end()))
 			for (auto &cj : j["children"])
 			{
-				std::shared_ptr<GameObject> child = DeserializeGameObject(cj, materialsById, textureCache, physics, lua, outAssets);
+				std::shared_ptr<GameObject> child = DeserializeGameObject(cj, materialsById, textureCache, fontCache, physics, lua, outAssets);
 				go->Add(child);
 			}
 
@@ -2303,6 +2479,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		}
 
 		std::map<std::string, std::shared_ptr<Texture>> textureCache;
+		// Fonts are pooled by (path, size) for the length of one load. A
+		// glyph atlas is a megabyte of texture (Font.h's MAP_SIZE), so a
+		// menu with twenty labels sharing one font must not build twenty
+		// of them - which is exactly what the older Text path does, one
+		// raw `new Font` per Text.
+		std::map<std::string, std::shared_ptr<Font>> fontCache;
 		std::vector<std::shared_ptr<IMaterial>> materialsById;
 		if ((root.find("materials") != root.end()))
 			for (auto &mj : root["materials"])
@@ -2338,11 +2520,11 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					for (auto &inst : rj["instances"])
 					{
 						if (inst.is_array() && inst.size() >= 3) tmpl["position"] = inst;
-						scene->Add(DeserializeGameObject(tmpl, materialsById, textureCache, physics, lua, outAssets));
+						scene->Add(DeserializeGameObject(tmpl, materialsById, textureCache, fontCache, physics, lua, outAssets));
 					}
 					continue;
 				}
-				scene->Add(DeserializeGameObject(rj, materialsById, textureCache, physics, lua, outAssets));
+				scene->Add(DeserializeGameObject(rj, materialsById, textureCache, fontCache, physics, lua, outAssets));
 			}
 
 		// Every object exists now, so IK targets can finally be bound.
@@ -2374,6 +2556,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		g_sceneAssetRoot = InferAssetRootFromScenePath(scenePathForAssetRoot);
 
 		std::map<std::string, std::shared_ptr<Texture>> textureCache;
+		// Fonts are pooled by (path, size) for the length of one load. A
+		// glyph atlas is a megabyte of texture (Font.h's MAP_SIZE), so a
+		// menu with twenty labels sharing one font must not build twenty
+		// of them - which is exactly what the older Text path does, one
+		// raw `new Font` per Text.
+		std::map<std::string, std::shared_ptr<Font>> fontCache;
 		std::vector<std::shared_ptr<IMaterial>> materialsById;
 		if (subtree.find("materials") != subtree.end())
 			for (auto &mj : subtree["materials"])
@@ -2383,7 +2571,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				if (mat && outAssets) outAssets->materials.push_back(mat);
 			}
 
-		std::shared_ptr<GameObject> result = DeserializeGameObject(subtree["root"], materialsById, textureCache, physics, lua, outAssets);
+		std::shared_ptr<GameObject> result = DeserializeGameObject(subtree["root"], materialsById, textureCache, fontCache, physics, lua, outAssets);
 
 		g_sceneAssetRoot.clear();
 		return result;
