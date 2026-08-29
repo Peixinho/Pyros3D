@@ -247,6 +247,7 @@ public:
 	bool AgentAddPhysics(const std::string& name, const json& p, const std::string& parentName, std::string& errOut);
 	bool AgentAddModel(const std::string& name, const std::string& modelFile, const std::string& parentName, std::string& errOut);
 	bool AgentSetUI(const std::string& objectName, const json& p, std::string& errOut);
+	bool AgentCanvasDrag(const std::string& objectName, int handle, const std::vector<f32>& delta, std::string& errOut);
 	bool AgentSelect(const std::string& name, std::string& errOut);
 	bool AgentSetCanvasMode(bool on, std::string& errOut);
 	bool AgentSetCamera(const std::string& name, const json& p, std::string& errOut);
@@ -614,6 +615,9 @@ private:
 	// Screen-space UI. See SceneEditOps.cpp.
 	bool OpAddUIComponent(uint32 goId, const std::string& kind, const std::string& fontPath, std::string& errOut);
 	bool OpSetUIProperties(uint32 goId, const json& p, std::string& errOut);
+	bool RawSetUIProperties(uint32 goId, const json& p, std::string& errOut);
+	json CaptureUIProperties(GameObject* go);
+	void PushUIPropertyUndo(uint32 goId, const json& before, const json& after, const char* what);
 	std::string ResolveUIFontPath(const std::string& requested, std::string& errOut);
 	static bool HasUIRect(GameObject* go);
 	// Prefab entries of a GameObject's context menu, and the modals they
@@ -645,6 +649,20 @@ private:
 	uint32 DuplicateSelected();
 	void PrepareGizmoForDraw(GameObject* viewCam);
 	void HandleViewportGizmoInput(GameObject* viewCam);
+	// Canvas mode's equivalent: click to select an element, drag its rect or
+	// one of its eight handles. The 3D gizmo is not used here - it moves a
+	// transform, and a UI element's transform is output, not input.
+	void HandleCanvasInput(UICanvas* canvas);
+	static void ApplyCanvasDrag(UIRect* rect, int handle, const Vec2& delta);
+	// Viewport mouse in canvas units, using the same mapping UIRenderer's
+	// ortho does. Returns false when the pointer is outside the viewport.
+	bool ViewportMouseInCanvas(UICanvas* canvas, Vec2& out) const;
+	// -1 none, 0..8 as hy*3+hx over the rect's corners/edges, 4 meaning the
+	// body.
+	int canvasDragHandle;
+	Vec2 canvasDragLast;
+	uint32 canvasDragGoId;
+	json canvasDragBefore;
 	Matrix LocalizeWorldRotation(const Matrix &worldDelta);
 	void ApplyGizmoTransformToObject();
 	void ViewportPickAtMouse();
@@ -795,7 +813,7 @@ private:
 	void DrawUIComponentProperties(GameObject* go, uint32 goId);
 	void BeginUIUndo(uint32 goId);
 	void EndUIUndo(uint32 goId, const char* what);
-	std::string uiUndoSnapshot;
+	json uiUndoBefore;
 	std::string uiTexturePickerPath;
 #endif
 	bool sceneRootSelected;

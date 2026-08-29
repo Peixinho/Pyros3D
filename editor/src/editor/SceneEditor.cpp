@@ -521,6 +521,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		playModeSavedCameraId = 0;
 		showPhysicsDebug = true;
 		uiEditMode = false;
+		canvasDragHandle = -1;
+		canvasDragGoId = 0;
 
 		// Null GameObject
 		SelectedSceneObject = NULL;
@@ -790,7 +792,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		viewportImgMin = ImGui::GetCursorScreenPos();
 		viewportImgSize = ImVec2(dim.x, dim.y);
 		UpdateViewportMouse();
-		HandleViewportGizmoInput(viewCam);
+		// Canvas mode has its own input model - see HandleCanvasInput. The
+		// 3D gizmo moves a transform, and a UI element's transform is
+		// output: the layout writes it every frame, so anything the gizmo
+		// put there is gone by the next solve.
+		UICanvas* editingCanvas = uiEditMode ? GetEditingCanvas() : NULL;
+		if (editingCanvas)
+			HandleCanvasInput(editingCanvas);
+		else
+			HandleViewportGizmoInput(viewCam);
 
 		const uint32 viewW = (uint32)dim.x;
 		const uint32 viewH = (uint32)dim.y;
@@ -832,7 +842,6 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// world pass draw the canvas a second time, through the scene
 		// camera's perspective projection - which put a copy of every
 		// element somewhere else entirely on screen.
-		UICanvas* editingCanvas = uiEditMode ? GetEditingCanvas() : NULL;
 		const uint32 restoreLayer = Renderer->GetRenderLayer();
 		if (editingCanvas) Renderer->SetRenderLayer(RenderLayer::None);
 
@@ -2391,17 +2400,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	// all of them, including the ones that rebuild geometry.
 	void SceneEditor::BeginUIUndo(uint32 goId)
 	{
-		if (ImGui::IsItemActivated())
-			uiUndoSnapshot = SnapshotSubtree(goId);
+		if (!ImGui::IsItemActivated()) return;
+		SceneObject* obj = sceneObjects->GetSceneObject(goId);
+		if (obj && obj->GetType() == SceneObjectTypes::GAMEOBJECT)
+			uiUndoBefore = CaptureUIProperties((GameObject*)obj->GetPTR());
 	}
 
 	void SceneEditor::EndUIUndo(uint32 goId, const char* what)
 	{
-		if (ImGui::IsItemDeactivatedAfterEdit() && !uiUndoSnapshot.empty())
-		{
-			PushReplaceCommand(goId, uiUndoSnapshot, what);
-			uiUndoSnapshot.clear();
-		}
+		if (!ImGui::IsItemDeactivatedAfterEdit() || uiUndoBefore.empty()) return;
+		SceneObject* obj = sceneObjects->GetSceneObject(goId);
+		if (obj && obj->GetType() == SceneObjectTypes::GAMEOBJECT)
+			PushUIPropertyUndo(goId, uiUndoBefore, CaptureUIProperties((GameObject*)obj->GetPTR()), what);
+		uiUndoBefore = json();
 	}
 
 	void SceneEditor::DrawUIComponentProperties(GameObject* go, uint32 goId)
@@ -2436,10 +2447,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				const char* modes[] = { "Constant Pixel", "Match Width", "Match Height", "Stretch" };
 				if (ImGui::Combo("Scale Mode", &mode, modes, 4))
 				{
-					const std::string before = SnapshotSubtree(goId);
+					const json uiBefore = CaptureUIProperties(go);
 					c->SetScaleMode((uint32)mode);
 					MarkSceneDirty();
-					PushReplaceCommand(goId, before, "Set Canvas Scale Mode");
+					PushUIPropertyUndo(goId, uiBefore, CaptureUIProperties(go), "Set Canvas Scale Mode");
 				}
 				if (ImGui::IsItemHovered())
 					ImGui::SetTooltip("How canvas units map to screen pixels. Match Width keeps the\nauthored width exactly and lets height follow the real aspect.");
@@ -2470,13 +2481,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				// from raw anchors is the part of this model people get
 				// wrong. Each one only rewrites the anchors, leaving the
 				// offsets to be read in their new meaning.
-				if (ImGui::Button("Top Left")) { const std::string b = SnapshotSubtree(goId); r->SetAnchors(Vec2(0,0), Vec2(0,0)); MarkSceneDirty(); PushReplaceCommand(goId, b, "Set Anchors"); }
+				if (ImGui::Button("Top Left")) { const json b = CaptureUIProperties(go); r->SetAnchors(Vec2(0,0), Vec2(0,0)); MarkSceneDirty(); PushUIPropertyUndo(goId, b, CaptureUIProperties(go), "Set Anchors"); }
 				ImGui::SameLine();
-				if (ImGui::Button("Center")) { const std::string b = SnapshotSubtree(goId); r->SetAnchors(Vec2(0.5f,0.5f), Vec2(0.5f,0.5f)); MarkSceneDirty(); PushReplaceCommand(goId, b, "Set Anchors"); }
+				if (ImGui::Button("Center")) { const json b = CaptureUIProperties(go); r->SetAnchors(Vec2(0.5f,0.5f), Vec2(0.5f,0.5f)); MarkSceneDirty(); PushUIPropertyUndo(goId, b, CaptureUIProperties(go), "Set Anchors"); }
 				ImGui::SameLine();
-				if (ImGui::Button("Stretch X")) { const std::string b = SnapshotSubtree(goId); r->SetAnchors(Vec2(0,aMin.y), Vec2(1,aMax.y)); MarkSceneDirty(); PushReplaceCommand(goId, b, "Set Anchors"); }
+				if (ImGui::Button("Stretch X")) { const json b = CaptureUIProperties(go); r->SetAnchors(Vec2(0,aMin.y), Vec2(1,aMax.y)); MarkSceneDirty(); PushUIPropertyUndo(goId, b, CaptureUIProperties(go), "Set Anchors"); }
 				ImGui::SameLine();
-				if (ImGui::Button("Fill")) { const std::string b = SnapshotSubtree(goId); r->SetAnchors(Vec2(0,0), Vec2(1,1)); MarkSceneDirty(); PushReplaceCommand(goId, b, "Set Anchors"); }
+				if (ImGui::Button("Fill")) { const json b = CaptureUIProperties(go); r->SetAnchors(Vec2(0,0), Vec2(1,1)); MarkSceneDirty(); PushUIPropertyUndo(goId, b, CaptureUIProperties(go), "Set Anchors"); }
 
 				bool changed = false;
 				changed |= ImGui::DragFloat2("Anchor Min", (float*)&aMin, 0.01f, 0.f, 1.f);
@@ -2524,7 +2535,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				ImGui::FilePath("Texture", "", "png,jpg,jpeg,tga,bmp", &uiTexturePickerPath, 1024, &showDir);
 				if (uiTexturePickerPath != texPath && !uiTexturePickerPath.empty())
 				{
-					const std::string b = SnapshotSubtree(goId);
+					const json b = CaptureUIProperties(go);
 					const std::string rel = ImportParticleTexture(uiTexturePickerPath);
 					std::shared_ptr<Texture> t = std::make_shared<Texture>();
 					if (t->LoadTexture(ResolveAssetPath(rel), TextureType::Texture))
@@ -2533,7 +2544,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						t->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 						img->SetTexture(t);
 						MarkSceneDirty();
-						PushReplaceCommand(goId, b, "Set Image Texture");
+						PushUIPropertyUndo(goId, b, CaptureUIProperties(go), "Set Image Texture");
 					}
 					else echo("WARNING: could not load " + rel);
 					uiTexturePickerPath.clear();
@@ -2543,10 +2554,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					ImGui::TextDisabled("%s", DisplayPath(img->GetTexture()->GetFilename()).c_str());
 					if (ImGui::Button("Clear Texture"))
 					{
-						const std::string b = SnapshotSubtree(goId);
+						const json b = CaptureUIProperties(go);
 						img->SetTexture(std::shared_ptr<Texture>());
 						MarkSceneDirty();
-						PushReplaceCommand(goId, b, "Clear Image Texture");
+						PushUIPropertyUndo(goId, b, CaptureUIProperties(go), "Clear Image Texture");
 					}
 				}
 				else ImGui::TextDisabled("No texture - a flat tinted rectangle.");
@@ -2574,19 +2585,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				const char* hNames[] = { "Left", "Center", "Right" };
 				if (ImGui::Combo("Align", &h, hNames, 3))
 				{
-					const std::string b = SnapshotSubtree(goId);
+					const json b = CaptureUIProperties(go);
 					t->SetAlignment((uint32)h, t->GetVerticalAlignment());
 					MarkSceneDirty();
-					PushReplaceCommand(goId, b, "Set Text Align");
+					PushUIPropertyUndo(goId, b, CaptureUIProperties(go), "Set Text Align");
 				}
 				int v = (int)t->GetVerticalAlignment();
 				const char* vNames[] = { "Top", "Middle", "Bottom" };
 				if (ImGui::Combo("Vertical", &v, vNames, 3))
 				{
-					const std::string b = SnapshotSubtree(goId);
+					const json b = CaptureUIProperties(go);
 					t->SetAlignment(t->GetHorizontalAlignment(), (uint32)v);
 					MarkSceneDirty();
-					PushReplaceCommand(goId, b, "Set Text Vertical Align");
+					PushUIPropertyUndo(goId, b, CaptureUIProperties(go), "Set Text Vertical Align");
 				}
 				if (t->GetFont())
 					ImGui::TextDisabled("%s @ %.0fpx atlas", DisplayPath(t->GetFont()->GetPath()).c_str(), t->GetFont()->GetFontSize());
@@ -4478,6 +4489,136 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// inside a collapsed parent, same as the light/camera glyph path.
 		if (helperSceneObjectId != 0 && pickedSO != NULL && pickedSO->GetParentID() != 0)
 			hierarchyForceOpenId = pickedSO->GetParentID();
+	}
+
+	// The whole of what dragging a rect means. rect.x is anchorX0 +
+	// offsetMin.x and rect.right is anchorX1 + offsetMax.x, so each edge maps
+	// to exactly one offset component - and identically whether that axis is
+	// pinned or stretched, which is why there is no special case for either.
+	// handle is hy*3+hx over the corners and edges; 4 is the body, which
+	// moves both sides of both axes and so preserves the size.
+	void SceneEditor::ApplyCanvasDrag(UIRect* rect, int handle, const Vec2& delta)
+	{
+		if (!rect || handle < 0 || handle > 8) return;
+		Vec2 oMin = rect->GetOffsetMin(), oMax = rect->GetOffsetMax();
+		const int hx = handle % 3, hy = handle / 3;
+		const bool body = (handle == 4);
+		if (body || hx == 0) oMin.x += delta.x;
+		if (body || hx == 2) oMax.x += delta.x;
+		if (body || hy == 0) oMin.y += delta.y;
+		if (body || hy == 2) oMax.y += delta.y;
+		rect->SetOffsets(oMin, oMax);
+	}
+
+	bool SceneEditor::ViewportMouseInCanvas(UICanvas* canvas, Vec2& out) const
+	{
+		if (!canvas || !viewportMouseValid || dim.x < 1.f || dim.y < 1.f) return false;
+		const UIRectValue& c = canvas->GetCanvasRect();
+		if (c.width <= 0.f || c.height <= 0.f) return false;
+		// The canvas fills the viewport exactly - that is what UIRenderer's
+		// ortho box says - so this is a straight proportional map, and it
+		// stays correct at any window size or scale mode.
+		out = Vec2(viewportMouse.x / dim.x * c.width, viewportMouse.y / dim.y * c.height);
+		return true;
+	}
+
+	void SceneEditor::HandleCanvasInput(UICanvas* canvas)
+	{
+		if (playMode || editorDisabled || !canvas) return;
+
+		Vec2 m;
+		const bool haveMouse = ViewportMouseInCanvas(canvas, m);
+		const UIRectValue& c = canvas->GetCanvasRect();
+
+		// Finish a drag wherever the pointer ended up, including outside the
+		// viewport - a drag that silently cancels when you leave the window
+		// loses the edit.
+		if (canvasDragHandle >= 0 && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+		{
+			SceneObject* dragged = sceneObjects->GetSceneObject(canvasDragGoId);
+			if (!canvasDragBefore.empty() && dragged && dragged->GetType() == SceneObjectTypes::GAMEOBJECT)
+				PushUIPropertyUndo(canvasDragGoId, canvasDragBefore,
+					CaptureUIProperties((GameObject*)dragged->GetPTR()), "Move UI Element");
+			canvasDragBefore = json();
+			canvasDragHandle = -1;
+			return;
+		}
+
+		UIRect* rect = NULL;
+		uint32 selectedId = 0;
+		if (SelectedSceneObject != NULL && SelectedSceneObject->GetType() == SceneObjectTypes::GAMEOBJECT)
+		{
+			selectedId = SelectedSceneObject->GetID();
+			const std::vector<std::shared_ptr<IComponent> >& cs = ((GameObject*)SelectedSceneObject->GetPTR())->GetComponents();
+			for (size_t i = 0; i < cs.size(); i++)
+				if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect)
+				{ rect = static_cast<UIRect*>(cs[i].get()); break; }
+		}
+
+		if (canvasDragHandle >= 0 && rect && haveMouse)
+		{
+			Vec2 d(m.x - canvasDragLast.x, m.y - canvasDragLast.y);
+			// Whole canvas units by default, and the visible grid with Ctrl
+			// held - a layout built on fractional units is a layout nobody
+			// can reproduce by typing numbers into the inspector.
+			const f32 step = ImGui::GetIO().KeyCtrl ? (c.width / 24.f) : 1.f;
+			d.x = floorf(d.x / step + 0.5f) * step;
+			d.y = floorf(d.y / step + 0.5f) * step;
+			if (d.x != 0.f || d.y != 0.f)
+			{
+				ApplyCanvasDrag(rect, canvasDragHandle, d);
+				MarkSceneDirty();
+				canvasDragLast = Vec2(canvasDragLast.x + d.x, canvasDragLast.y + d.y);
+			}
+			return;
+		}
+
+		if (!haveMouse || !ImGui::IsMouseClicked(ImGuiMouseButton_Left)) return;
+
+		// A handle of the current selection wins over picking something else,
+		// so grabbing a corner that overlaps a sibling does what it looks
+		// like it does.
+		if (rect)
+		{
+			const UIRectValue& r = rect->GetRect();
+			const f32 grab = c.width / 60.f;
+			const f32 xs[3] = { r.x, r.x + r.width * 0.5f, r.Right() };
+			const f32 ys[3] = { r.y, r.y + r.height * 0.5f, r.Bottom() };
+			for (int hy = 0; hy < 3; hy++)
+				for (int hx = 0; hx < 3; hx++)
+				{
+					if (hx == 1 && hy == 1) continue;
+					if (fabsf(m.x - xs[hx]) > grab || fabsf(m.y - ys[hy]) > grab) continue;
+					canvasDragHandle = hy * 3 + hx;
+					canvasDragLast = m;
+					canvasDragGoId = selectedId;
+					canvasDragBefore = CaptureUIProperties((GameObject*)SelectedSceneObject->GetPTR());
+					return;
+				}
+			if (r.Contains(m))
+			{
+				canvasDragHandle = 4;
+				canvasDragLast = m;
+				canvasDragGoId = selectedId;
+				canvasDragBefore = CaptureUIProperties((GameObject*)SelectedSceneObject->GetPTR());
+				return;
+			}
+		}
+
+		// Otherwise this is a pick. Canvas-space rect containment, not the
+		// 3D painter pick - screen-space quads have no depth to sort by, and
+		// the canvas already knows what is on top.
+		if (GameObject* hit = canvas->HitTest(m))
+		{
+			const uint32 id = sceneObjects->GetSceneObjectID(hit);
+			if (id != 0)
+			{
+				SceneObject* obj = sceneObjects->GetSceneObject(id);
+				if (obj) SelectAndFocusSceneObject(obj);
+			}
+		}
+		else
+			DeselectSceneObject();
 	}
 
 	void SceneEditor::HandleViewportGizmoInput(GameObject* viewCam)
@@ -8724,6 +8865,28 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	// which meant nothing driven through the socket could exercise anything
 	// that acts on the selection (the transform gizmo, the Properties panel,
 	// the canvas overlay's element outline).
+	bool SceneEditor::AgentCanvasDrag(const std::string& objectName, int handle,
+		const std::vector<f32>& delta, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		if (handle < 0 || handle > 8) { errOut = "handle must be 0..8 (row*3+column, 4 = the body)"; return false; }
+		if (delta.size() != 2) { errOut = "delta must be [x, y] in canvas units"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
+		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
+		UIRect* rect = NULL;
+		const std::vector<std::shared_ptr<IComponent> >& cs = ((GameObject*)obj->GetPTR())->GetComponents();
+		for (size_t i = 0; i < cs.size(); i++)
+			if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect)
+			{ rect = static_cast<UIRect*>(cs[i].get()); break; }
+		if (!rect) { errOut = "'" + objectName + "' has no UIRect"; return false; }
+
+		const json before = CaptureUIProperties((GameObject*)obj->GetPTR());
+		ApplyCanvasDrag(rect, handle, Vec2(delta[0], delta[1]));
+		PushUIPropertyUndo(obj->GetID(), before, CaptureUIProperties((GameObject*)obj->GetPTR()), "Move UI Element");
+		MarkSceneDirty();
+		return true;
+	}
+
 	bool SceneEditor::AgentSetUI(const std::string& objectName, const json& p, std::string& errOut)
 	{
 		if (playMode) { errOut = "editor is in play mode"; return false; }

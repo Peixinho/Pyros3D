@@ -1002,12 +1002,79 @@ bool SceneEditor::HasUIRect(GameObject* go)
 	return false;
 }
 
-// Sets any subset of a UI component's properties in one edit. A bag rather
-// than one Op per field because these are all "assign this value to that
-// component", and because a caller building a menu wants to set eight things
-// at once and undo them as one step - which is also what the Properties
-// panel does when a drag is released.
-bool SceneEditor::OpSetUIProperties(uint32 goId, const json& p, std::string& errOut)
+// Every UI property of every UI component on this object, as one flat bag.
+// Small - fifteen or so numbers - and it is what undo stores instead of a
+// serialized subtree. That matters: replacing a subtree re-creates it with a
+// fresh SceneObject id, which orphans every older undo entry pointing at the
+// old one, so a second undo did nothing. Values have no such problem.
+json SceneEditor::CaptureUIProperties(GameObject* go)
+{
+	json out = json::object();
+	if (!go) return out;
+	const std::vector<std::shared_ptr<IComponent> >& cs = go->GetComponents();
+	for (size_t i = 0; i < cs.size(); i++)
+	{
+		if (!cs[i]) continue;
+		switch (cs[i]->GetComponentType())
+		{
+		case ComponentType::UICanvas:
+		{
+			UICanvas* c = static_cast<UICanvas*>(cs[i].get());
+			out["referenceWidth"] = c->GetReferenceResolution().x;
+			out["referenceHeight"] = c->GetReferenceResolution().y;
+			switch (c->GetScaleMode())
+			{
+			case UIScaleMode::ConstantPixel: out["scaleMode"] = "ConstantPixel"; break;
+			case UIScaleMode::MatchHeight:   out["scaleMode"] = "MatchHeight"; break;
+			case UIScaleMode::Stretch:       out["scaleMode"] = "Stretch"; break;
+			default:                         out["scaleMode"] = "MatchWidth"; break;
+			}
+			out["sortOrder"] = c->GetSortOrder();
+			break;
+		}
+		case ComponentType::UIRect:
+		{
+			UIRect* r = static_cast<UIRect*>(cs[i].get());
+			out["anchorMin"] = json::array({ r->GetAnchorMin().x, r->GetAnchorMin().y });
+			out["anchorMax"] = json::array({ r->GetAnchorMax().x, r->GetAnchorMax().y });
+			out["offsetMin"] = json::array({ r->GetOffsetMin().x, r->GetOffsetMin().y });
+			out["offsetMax"] = json::array({ r->GetOffsetMax().x, r->GetOffsetMax().y });
+			out["pivot"] = json::array({ r->GetPivot().x, r->GetPivot().y });
+			break;
+		}
+		case ComponentType::UIImage:
+		{
+			UIImage* img = static_cast<UIImage*>(cs[i].get());
+			out["tint"] = json::array({ img->GetTint().x, img->GetTint().y, img->GetTint().z, img->GetTint().w });
+			out["border"] = json::array({ img->GetBorder().x, img->GetBorder().y, img->GetBorder().z, img->GetBorder().w });
+			// The path, not the Texture - a path reloads, and an image with
+			// no recoverable source (the shared default white, anything
+			// generated at runtime) correctly restores as untextured.
+			out["texture"] = (img->GetTexture() && !img->GetTexture()->GetFilename().empty())
+				? DisplayPath(img->GetTexture()->GetFilename()) : std::string();
+			break;
+		}
+		case ComponentType::UIText:
+		{
+			UIText* t = static_cast<UIText*>(cs[i].get());
+			out["text"] = t->GetText();
+			out["size"] = t->GetSize();
+			out["color"] = json::array({ t->GetColor().x, t->GetColor().y, t->GetColor().z, t->GetColor().w });
+			out["align"] = (t->GetHorizontalAlignment() == UIAlign::Center) ? "Center"
+				: (t->GetHorizontalAlignment() == UIAlign::Right) ? "Right" : "Left";
+			out["verticalAlign"] = (t->GetVerticalAlignment() == UIVerticalAlign::Middle) ? "Middle"
+				: (t->GetVerticalAlignment() == UIVerticalAlign::Bottom) ? "Bottom" : "Top";
+			break;
+		}
+		default: break;
+		}
+	}
+	return out;
+}
+
+// Applies a bag of UI properties. No undo entry - callers that want one wrap
+// this in a pair of bags (see OpSetUIProperties and the Properties panel).
+bool SceneEditor::RawSetUIProperties(uint32 goId, const json& p, std::string& errOut)
 {
 	SceneObject* obj = sceneObjects->GetSceneObject(goId);
 	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "object not found"; return false; }
@@ -1031,52 +1098,47 @@ bool SceneEditor::OpSetUIProperties(uint32 goId, const json& p, std::string& err
 	}
 	if (!canvas && !rect && !image && !text) { errOut = "'" + obj->GetName() + "' has no UI components"; return false; }
 
-	const std::string before = SnapshotSubtree(goId);
 	bool touched = false;
-
 	// Unknown keys are an error rather than a silent no-op: a caller that
 	// misspells "tint" should hear about it, not wonder why nothing changed.
 	for (json::const_iterator it = p.begin(); it != p.end(); ++it)
 	{
 		const std::string k = it.key();
 		const json& v = it.value();
-		auto vec2 = [&](Vec2& out) -> bool {
-			if (!v.is_array() || v.size() != 2) return false;
-			out = Vec2(v[0].get<f32>(), v[1].get<f32>()); return true;
-		};
-		auto vec4 = [&](Vec4& out) -> bool {
-			if (!v.is_array() || v.size() != 4) return false;
-			out = Vec4(v[0].get<f32>(), v[1].get<f32>(), v[2].get<f32>(), v[3].get<f32>()); return true;
-		};
+		Vec2 v2; Vec4 v4;
+		const bool isVec2 = v.is_array() && v.size() == 2;
+		const bool isVec4 = v.is_array() && v.size() == 4;
+		if (isVec2) v2 = Vec2(v[0].get<f32>(), v[1].get<f32>());
+		if (isVec4) v4 = Vec4(v[0].get<f32>(), v[1].get<f32>(), v[2].get<f32>(), v[3].get<f32>());
 
 		if (rect && (k == "anchorMin" || k == "anchorMax"))
 		{
-			Vec2 a; if (!vec2(a)) { errOut = k + " must be [x, y]"; return false; }
-			if (k == "anchorMin") rect->SetAnchors(a, rect->GetAnchorMax());
-			else rect->SetAnchors(rect->GetAnchorMin(), a);
+			if (!isVec2) { errOut = k + " must be [x, y]"; return false; }
+			if (k == "anchorMin") rect->SetAnchors(v2, rect->GetAnchorMax());
+			else rect->SetAnchors(rect->GetAnchorMin(), v2);
 			touched = true;
 		}
 		else if (rect && (k == "offsetMin" || k == "offsetMax"))
 		{
-			Vec2 o; if (!vec2(o)) { errOut = k + " must be [x, y]"; return false; }
-			if (k == "offsetMin") rect->SetOffsets(o, rect->GetOffsetMax());
-			else rect->SetOffsets(rect->GetOffsetMin(), o);
+			if (!isVec2) { errOut = k + " must be [x, y]"; return false; }
+			if (k == "offsetMin") rect->SetOffsets(v2, rect->GetOffsetMax());
+			else rect->SetOffsets(rect->GetOffsetMin(), v2);
 			touched = true;
 		}
 		else if (rect && k == "pivot")
 		{
-			Vec2 pv; if (!vec2(pv)) { errOut = "pivot must be [x, y]"; return false; }
-			rect->SetPivot(pv); touched = true;
+			if (!isVec2) { errOut = "pivot must be [x, y]"; return false; }
+			rect->SetPivot(v2); touched = true;
 		}
 		else if (image && k == "tint")
 		{
-			Vec4 c; if (!vec4(c)) { errOut = "tint must be [r, g, b, a]"; return false; }
-			image->SetTint(c); touched = true;
+			if (!isVec4) { errOut = "tint must be [r, g, b, a]"; return false; }
+			image->SetTint(v4); touched = true;
 		}
 		else if (image && k == "border")
 		{
-			Vec4 b; if (!vec4(b)) { errOut = "border must be [left, top, right, bottom]"; return false; }
-			image->SetBorder(b); touched = true;
+			if (!isVec4) { errOut = "border must be [left, top, right, bottom]"; return false; }
+			image->SetBorder(v4); touched = true;
 		}
 		else if (image && k == "texture")
 		{
@@ -1105,8 +1167,8 @@ bool SceneEditor::OpSetUIProperties(uint32 goId, const json& p, std::string& err
 		}
 		else if (text && k == "color")
 		{
-			Vec4 c; if (!vec4(c)) { errOut = "color must be [r, g, b, a]"; return false; }
-			text->SetColor(c); touched = true;
+			if (!isVec4) { errOut = "color must be [r, g, b, a]"; return false; }
+			text->SetColor(v4); touched = true;
 		}
 		else if (text && (k == "align" || k == "verticalAlign"))
 		{
@@ -1151,7 +1213,36 @@ bool SceneEditor::OpSetUIProperties(uint32 goId, const json& p, std::string& err
 	}
 
 	if (!touched) { errOut = "nothing to set"; return false; }
-	PushReplaceCommand(goId, before, "Set UI Properties");
 	MarkSceneDirty();
+	return true;
+}
+
+// Applies a bag and records the reverse, so any number of consecutive edits
+// to the same element undo one at a time.
+void SceneEditor::PushUIPropertyUndo(uint32 goId, const json& before, const json& after, const char* what)
+{
+	if (before == after) return;
+	sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+		[this, goId, before]() { std::string e; RawSetUIProperties(goId, before, e); },
+		[this, goId, after]()  { std::string e; RawSetUIProperties(goId, after, e); },
+		what));
+}
+
+bool SceneEditor::OpSetUIProperties(uint32 goId, const json& p, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "object not found"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+
+	// Only the keys being set, so undoing one edit does not quietly revert
+	// an unrelated property somebody changed in between.
+	const json all = CaptureUIProperties(go);
+	json before = json::object();
+	if (p.is_object())
+		for (json::const_iterator it = p.begin(); it != p.end(); ++it)
+			if (all.find(it.key()) != all.end()) before[it.key()] = all[it.key()];
+
+	if (!RawSetUIProperties(goId, p, errOut)) return false;
+	PushUIPropertyUndo(goId, before, p, "Set UI Properties");
 	return true;
 }

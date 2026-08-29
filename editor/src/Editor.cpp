@@ -1957,6 +1957,15 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	if (name == "canvas_drag")
+	{
+		const int handle = a.is_object() ? a.value("handle", 4) : 4;
+		if (!sceneView->AgentCanvasDrag(A("object"), handle, AV("delta"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "set_ui")
 	{
 		nlohmann::json props = (a.is_object() && a.contains("properties")) ? a["properties"] : nlohmann::json::object();
