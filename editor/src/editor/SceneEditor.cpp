@@ -204,6 +204,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		thumbRenderer = NULL;
 		thumbEffects = NULL;
 		Renderer = NULL;
+		uiRenderer = NULL;
 		usingDeferredRenderer = false;
 		pendingUseDeferredRenderer = false;
 		gbufferDepth = gbufferAlbedo = gbufferSpecular = gbufferNormal = gbufferMatRough = NULL;
@@ -543,6 +544,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// frame like any normal draw), so left at the default there.
 		if (usingDeferredRenderer)
 			GetActiveRenderDevice().SetFramebufferPreserveDepth(EffectsManager->GetExternalFrameBuffer()->GetBindID(), true);
+		// Independent of the Forward/Deferred switch: it composites into
+		// whatever target the viewport is already assembling, so it is built
+		// here once and SwitchRenderer() leaves it alone.
+		uiRenderer = new UIRenderer(Width, Height);
+
 		previewRenderer = new ForwardRenderer(previewWidth, previewHeight);
 		previewRenderer->SetSkipShadowMaps(true);
 		previewEffects = new PostEffectsManager(previewWidth, previewHeight);
@@ -847,6 +853,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				EffectsManager->GetDepth()->GetBindID(), viewW, viewH);
 			GetActiveRenderDevice().SetClearColor(Vec4(0.f, 0.f, 0.f, 0.f));
 			EffectsManager->CaptureFrame();
+		}
+
+		// Scene UI, over the finished 3D frame and under the editor's own
+		// gizmo/grid/axis overlay - which is the right order while
+		// authoring: a canvas must not swallow the handles used to edit it.
+		// Targets whatever is bound here, which is EffectsManager's capture
+		// for Forward (the viewport image itself) and its transparent
+		// overlay layer for Deferred - both end up composited over the
+		// scene by the ImGui::Image pair below.
+		if (uiRenderer)
+		{
+			uiRenderer->Resize(viewW, viewH);
+			uiRenderer->RenderUI(scene);
 		}
 
 		// The gizmo/grid/debug overlay below never sets a viewport of its own
@@ -2670,6 +2689,32 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				if (ImGui::MenuItem("Directional")) { AddQuickLightOnGameObject(goId, 10); ImGui::CloseCurrentPopup(); }
 				if (ImGui::MenuItem("Point")) { AddQuickLightOnGameObject(goId, 11); ImGui::CloseCurrentPopup(); }
 				if (ImGui::MenuItem("Spot")) { AddQuickLightOnGameObject(goId, 12); ImGui::CloseCurrentPopup(); }
+				ImGui::EndMenu();
+			}
+			// Screen-space UI. No add form: every one of these has a usable
+			// default, and the Properties panel is where they get tuned.
+			if (ImGui::BeginMenu("UI"))
+			{
+				const char* kinds[] = { "Canvas", "Rect", "Image", "Text" };
+				const char* tips[] = {
+					"Root of a screen-space UI tree. Add elements as children.",
+					"Anchored rectangle - the layout half of an element.",
+					"Tinted, optionally 9-sliced quad. Adds a Rect if missing.",
+					"A line of text aligned in its rect. Adds a Rect if missing."
+				};
+				for (int i = 0; i < 4; i++)
+				{
+					if (ImGui::MenuItem(kinds[i]))
+					{
+						std::string err;
+						std::string kind = kinds[i];
+						for (size_t c = 0; c < kind.size(); c++) kind[c] = (char)tolower((unsigned char)kind[c]);
+						if (!OpAddUIComponent(goId, kind, std::string(), err))
+							echo(std::string("ERROR: ") + err);
+						ImGui::CloseCurrentPopup();
+					}
+					if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tips[i]);
+				}
 				ImGui::EndMenu();
 			}
 			ImGui::EndMenu();
@@ -5159,6 +5204,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		previewRenderer = NULL;
 		delete EffectsManager;
 		EffectsManager = NULL;
+		delete uiRenderer;
+		uiRenderer = NULL;
 		delete Picking;
 		Picking = NULL;
 		delete axisHelper;
@@ -7821,6 +7868,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		MarkSceneDirty();
 		PushAddCommand(obj);
 		return true;
+	}
+
+	bool SceneEditor::AgentAddUI(const std::string& objectName, const std::string& kind,
+		const std::string& fontPath, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
+		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
+		return OpAddUIComponent(obj->GetID(), kind, fontPath, errOut);
 	}
 
 	bool SceneEditor::AgentAddPrimitive(const std::string& name, const std::string& shape, const json& p,

@@ -1931,6 +1931,14 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 
+	if (name == "add_ui")
+	{
+		if (!sceneView->AgentAddUI(A("object"), A("kind"), A("font"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "add_object")
 	{
 		if (!sceneView->AgentAddObject(A("name"), A("parent"), AV("position"), AV("rotation"), AV("scale"), err))

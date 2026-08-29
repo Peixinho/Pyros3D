@@ -555,12 +555,28 @@ namespace {
         return 0;
     }
 
+	// Searches the whole hierarchy, not just the scene's root list. A child
+	// is deliberately not in that list (SceneGraph::DetachRoot - being in
+	// both is what used to duplicate a re-parented subtree on save), so a
+	// root-only search could not find the owning shared_ptr for anything
+	// nested. Re-parenting onto an object that was itself already a child
+	// then failed silently and left the dragged object at top level.
+	static std::shared_ptr<GameObject> FindSharedInSubtree(const std::shared_ptr<GameObject>& node, GameObject* go)
+	{
+		if (!node) return std::shared_ptr<GameObject>();
+		if (node.get() == go) return node;
+		const std::vector<std::shared_ptr<GameObject>>& kids = node->GetChildren();
+		for (size_t i = 0; i < kids.size(); i++)
+			if (std::shared_ptr<GameObject> found = FindSharedInSubtree(kids[i], go)) return found;
+		return std::shared_ptr<GameObject>();
+	}
+
 	std::shared_ptr<GameObject> SceneObjects::FindSharedGameObject(SceneGraph* scene, GameObject* go)
 	{
 		if (!scene || !go) return std::shared_ptr<GameObject>();
 		std::vector<std::shared_ptr<GameObject>>& all = scene->GetAllGameObjectList();
 		for (std::vector<std::shared_ptr<GameObject>>::iterator i = all.begin(); i != all.end(); ++i)
-			if ((*i).get() == go) return *i;
+			if (std::shared_ptr<GameObject> found = FindSharedInSubtree(*i, go)) return found;
 		return std::shared_ptr<GameObject>();
 	}
 

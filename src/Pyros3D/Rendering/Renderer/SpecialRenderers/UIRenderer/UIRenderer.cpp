@@ -32,6 +32,14 @@ namespace p3d {
 	void UIRenderer::Resize(const uint32 &Width, const uint32 &Height)
 	{
 		IRenderer::Resize(Width, Height);
+		// And the viewport with it. RenderUI() only falls back to
+		// Width/Height while these are still zero, so without this a
+		// renderer that was resized once kept drawing every canvas at the
+		// size it was first used at - which for an editor viewport is every
+		// size but the current one.
+		viewPortStartX = viewPortStartY = 0;
+		viewPortEndX = Width;
+		viewPortEndY = Height;
 	}
 
 	void UIRenderer::RenderUI(SceneGraph* Scene)

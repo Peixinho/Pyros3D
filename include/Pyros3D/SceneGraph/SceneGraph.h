@@ -51,6 +51,15 @@ namespace p3d {
 		void RemoveGameObject(GameObject* GO);
 
 		std::vector<std::shared_ptr<GameObject>> &GetAllGameObjectList();
+
+		// Takes a GameObject out of this scene's ROOT lists without
+		// unregistering anything, because the object is not leaving the
+		// scene - it is becoming somebody's child, and the traversal will
+		// reach it through its parent from now on. Called by
+		// GameObject::Add(), which is the only place that transition
+		// happens. Remove() is the other half: that one is for an object
+		// genuinely leaving, and it does unregister.
+		void DetachRoot(GameObject* GO);
 		std::vector<std::shared_ptr<GameObject>> &GetStaticGameObjectList();
 		std::vector<std::shared_ptr<GameObject>> &GetDynamicGameObjectList();
 

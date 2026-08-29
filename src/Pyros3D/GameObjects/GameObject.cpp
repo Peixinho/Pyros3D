@@ -408,6 +408,23 @@ namespace p3d {
 		}
 		if (!Child->_HaveOwner)
 		{
+			// A child must not also be a scene root. It used to stay in the
+			// scene's root lists after being re-parented, so the traversal
+			// reached it twice (once directly, once through its new parent)
+			// and SaveScene - which writes every entry in that list as a
+			// root - wrote the whole subtree a second time at top level.
+			// Reloading such a scene produced duplicates of everything that
+			// had ever been dragged onto a parent.
+			if (SceneGraph* wasRoot = Child->Scene)
+			{
+				// Where the subtree ends up: the same scene if this object
+				// is in one, in which case nothing needs unregistering - it
+				// is still in the scene, just reached through us now.
+				SceneGraph* nowIn = FindScene();
+				wasRoot->DetachRoot(Child.get());
+				if (nowIn != wasRoot) Child->UnregisterComponentsTree(wasRoot);
+			}
+
 			Child->_Owner = this;
 			Child->_HaveOwner = true;
 

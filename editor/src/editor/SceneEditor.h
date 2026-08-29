@@ -22,6 +22,11 @@ using json = nlohmann::json;
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
+#include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.h>
+#include <Pyros3D/Rendering/Components/UI/UICanvas.h>
+#include <Pyros3D/Rendering/Components/UI/UIRect.h>
+#include <Pyros3D/Rendering/Components/UI/UIImage.h>
+#include <Pyros3D/Rendering/Components/UI/UIText.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
@@ -220,6 +225,8 @@ public:
 	// Each mutation mirrors what the corresponding UI menu action does, and
 	// marks the scene dirty like the UI does. All return true on success;
 	// on failure `errOut` carries a human-readable message.
+	// Screen-space UI - the Op it calls lives in SceneEditOps.cpp.
+	bool AgentAddUI(const std::string& objectName, const std::string& kind, const std::string& fontPath, std::string& errOut);
 	bool AgentAddObject(const std::string& name, const std::string& parentName,
 		const std::vector<f32>& position, const std::vector<f32>& rotation,
 		const std::vector<f32>& scale, std::string& errOut);
@@ -591,6 +598,11 @@ private:
 	void OpenAddFormOnGameObject(uint32 goId, uint32 formType);
 	void AddQuickLightOnGameObject(uint32 goId, uint32 formType);
 	void ShowAddComponentMenu(uint32 goId);
+
+	// Screen-space UI. See SceneEditOps.cpp.
+	bool OpAddUIComponent(uint32 goId, const std::string& kind, const std::string& fontPath, std::string& errOut);
+	std::string ResolveUIFontPath(const std::string& requested, std::string& errOut);
+	static bool HasUIRect(GameObject* go);
 	// Prefab entries of a GameObject's context menu, and the modals they
 	// raise (drawn from ShowHierarchy, not from inside the popup - see
 	// DrawPrefabModals).
@@ -694,6 +706,11 @@ private:
 	// and gets ShaderUsage::DeferredRenderer_Gbuffer added to its material
 	// when Deferred is active (see Init()).
 	IRenderer* Renderer;
+	// Draws the scene's UICanvases over the finished 3D frame. Independent
+	// of the Forward/Deferred switch - it composites into whatever target
+	// the viewport is already assembling, so SwitchRenderer() never touches
+	// it.
+	UIRenderer* uiRenderer;
 	bool usingDeferredRenderer;
 	bool pendingUseDeferredRenderer; // set via SetUseDeferredRenderer() before Init() runs
 	// Live post-Init() switch, queued by SwitchRenderer() and consumed by

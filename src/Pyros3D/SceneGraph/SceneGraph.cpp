@@ -135,6 +135,26 @@ namespace p3d {
 		}
 	}
 
+	void SceneGraph::DetachRoot(GameObject* GO)
+	{
+		if (!GO) return;
+
+		// Both the static lists, because an object can be sitting in either
+		// depending on whether it has been through an update yet.
+		std::vector<std::shared_ptr<GameObject>>* lists[3] = {
+			&_GameObjectListDynamic, &_GameObjectListStaticAfter, &_GameObjectListStaticPrevious };
+		for (int l = 0; l < 3; l++)
+			for (std::vector<std::shared_ptr<GameObject>>::iterator i = lists[l]->begin(); i != lists[l]->end(); i++)
+				if ((*i).get() == GO) { lists[l]->erase(i); break; }
+
+		std::vector<std::shared_ptr<GameObject>>::iterator all_it = std::find_if(
+			_GameObjectListALL.begin(), _GameObjectListALL.end(),
+			[GO](const std::shared_ptr<GameObject> &p) { return p.get() == GO; });
+		if (all_it != _GameObjectListALL.end()) _GameObjectListALL.erase(all_it);
+
+		GO->Scene = NULL;
+	}
+
 	void SceneGraph::RemoveAll()
 	{
 		// Copy first - Remove() mutates _GameObjectListALL, so iterating

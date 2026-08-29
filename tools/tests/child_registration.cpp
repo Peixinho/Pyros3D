@@ -84,6 +84,26 @@ int main()
 	scene.Update(0.048);
 	check(lightsOn(&scene) == 3, "and adding it back registers it again");
 
+	// -------- a child is not also a root --------
+	// SceneGraph::Add() puts an object in the scene's root lists, and
+	// SaveScene writes every entry there as a root - so an object that
+	// stayed in those lists after being re-parented was traversed twice and
+	// written to the scene file twice, once nested and once at top level.
+	{
+		SceneGraph s2;
+		std::shared_ptr<GameObject> a = std::make_shared<GameObject>();
+		std::shared_ptr<GameObject> b = std::make_shared<GameObject>();
+		std::shared_ptr<PointLight> bl = std::make_shared<PointLight>(Vec4(1, 1, 1, 1), 10.f);
+		b->Add(std::static_pointer_cast<IComponent>(bl));
+		s2.Add(a);
+		s2.Add(b);
+		check(s2.GetAllGameObjectList().size() == 2, "two roots before re-parenting");
+		a->Add(b);
+		check(s2.GetAllGameObjectList().size() == 1, "re-parenting takes the child out of the scene's root list");
+		s2.Update(0.0);
+		check(lightsOn(&s2) == 1, "and its components stay registered exactly once");
+	}
+
 	// -------- removing the root removes everything --------
 	scene.Remove(root);
 	check(lightsOn(&scene) == 0, "removing the root unregistered the whole tree");

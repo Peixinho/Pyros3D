@@ -840,3 +840,148 @@ void SceneEditor::CollapseSceneFileAfterSave(const std::string& path)
 	if (!out.is_open()) return;
 	out << sceneJson.dump(4);
 }
+
+// ============================================================================
+// UI components
+//
+// Screen-space UI is authored the same way everything else is: UICanvas /
+// UIRect / UIImage / UIText are ordinary components on ordinary GameObjects,
+// so they land in the hierarchy, in the scene file and in prefabs with no
+// special casing anywhere. These Ops exist for the same reason all the
+// others do - so the menu, the agent and the AI assistant apply the exact
+// same edit.
+// ============================================================================
+
+// A UIText needs a real font file, and a scene that references the editor's
+// own bundled font would break the moment it is opened by the player. So:
+// an explicitly requested font wins; otherwise the first .ttf already in the
+// project is reused; otherwise the editor's font is imported INTO the
+// project, which is what makes "Add Text" work on a fresh project instead of
+// producing a label that cannot be saved.
+std::string SceneEditor::ResolveUIFontPath(const std::string& requested, std::string& errOut)
+{
+	namespace fs = std::filesystem;
+	std::error_code ec;
+
+	if (!requested.empty())
+	{
+		std::string abs = (project && project->IsOpen()) ? project->AbsolutePath(requested) : requested;
+		if (fs::exists(abs, ec)) return abs;
+		if (fs::exists(requested, ec)) return requested;
+		errOut = "font not found: " + requested;
+		return std::string();
+	}
+
+	if (project && project->IsOpen())
+	{
+		const std::string assets = project->AssetsPath();
+		if (fs::exists(assets, ec))
+		{
+			std::string best;
+			for (fs::recursive_directory_iterator it(assets, ec), end; it != end && !ec; it.increment(ec))
+			{
+				if (!it->is_regular_file(ec)) continue;
+				std::string ext = it->path().extension().string();
+				for (size_t i = 0; i < ext.size(); i++) ext[i] = (char)tolower((unsigned char)ext[i]);
+				if (ext == ".ttf" || ext == ".otf") { best = it->path().string(); break; }
+			}
+			if (!best.empty()) return best;
+		}
+
+		// Nothing in the project yet - bring the editor's own font in, so
+		// the resulting scene is self-contained.
+		const std::string editorFont = "assets/arialbd.ttf";
+		if (fs::exists(editorFont, ec))
+		{
+			std::string imported, importErr;
+			if (project->ImportAssetFile(editorFont, imported, &importErr) && !imported.empty())
+			{
+				echo("Imported the editor's default font into this project for UIText");
+				return imported;
+			}
+		}
+		errOut = "no font in the project, and the editor's default could not be imported";
+		return std::string();
+	}
+
+	// No project open (a bare scene) - the editor's own font is all there
+	// is, and a scene like that is not portable anyway.
+	if (fs::exists("assets/arialbd.ttf", ec)) return "assets/arialbd.ttf";
+	errOut = "no font available";
+	return std::string();
+}
+
+bool SceneEditor::OpAddUIComponent(uint32 goId, const std::string& kind, const std::string& fontPath, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "object not found"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+	if (!go) { errOut = "object not found"; return false; }
+
+	std::string k = kind;
+	for (size_t i = 0; i < k.size(); i++) k[i] = (char)tolower((unsigned char)k[i]);
+
+	// Snapshot before the edit, replace after - the same undo pairing every
+	// other component add uses, and it works here only because these
+	// components serialize.
+	const std::string before = SnapshotSubtree(goId);
+
+	if (k == "canvas")
+	{
+		go->Add(std::static_pointer_cast<IComponent>(std::make_shared<UICanvas>(1920.f, 1080.f)));
+	}
+	else if (k == "rect")
+	{
+		// A visible default rather than the component's own zero-size one:
+		// an element you cannot see is an element you cannot select.
+		std::shared_ptr<UIRect> r = std::make_shared<UIRect>();
+		r->SetAnchoredPosition(Vec2(0.5f, 0.5f), Vec2(-160.f, -48.f), Vec2(320.f, 96.f));
+		go->Add(std::static_pointer_cast<IComponent>(r));
+	}
+	else if (k == "image")
+	{
+		if (!HasUIRect(go))
+		{
+			std::shared_ptr<UIRect> r = std::make_shared<UIRect>();
+			r->SetAnchoredPosition(Vec2(0.5f, 0.5f), Vec2(-160.f, -48.f), Vec2(320.f, 96.f));
+			go->Add(std::static_pointer_cast<IComponent>(r));
+		}
+		// A dark panel rather than white: the very next thing anyone does
+		// is put a label on it, and white-on-white is not a default, it is
+		// a bug report.
+		go->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.14f, 0.16f, 0.21f, 0.92f))));
+	}
+	else if (k == "text")
+	{
+		const std::string font = ResolveUIFontPath(fontPath, errOut);
+		if (font.empty()) return false;
+		if (!HasUIRect(go))
+		{
+			std::shared_ptr<UIRect> r = std::make_shared<UIRect>();
+			r->SetAnchoredPosition(Vec2(0.5f, 0.5f), Vec2(-160.f, -32.f), Vec2(320.f, 64.f));
+			go->Add(std::static_pointer_cast<IComponent>(r));
+		}
+		std::shared_ptr<Font> f = std::make_shared<Font>(font, 32.f);
+		std::shared_ptr<UIText> t = std::make_shared<UIText>(f, "Text", 40.f, Vec4(0.95f, 0.96f, 1.f, 1.f));
+		t->SetAlignment(UIAlign::Center, UIVerticalAlign::Middle);
+		go->Add(std::static_pointer_cast<IComponent>(t));
+	}
+	else
+	{
+		errOut = "unknown UI component '" + kind + "' (canvas, rect, image or text)";
+		return false;
+	}
+
+	PushReplaceCommand(goId, before, std::string("Add UI ") + k);
+	MarkSceneDirty();
+	return true;
+}
+
+bool SceneEditor::HasUIRect(GameObject* go)
+{
+	if (!go) return false;
+	const std::vector<std::shared_ptr<IComponent> >& cs = go->GetComponents();
+	for (size_t i = 0; i < cs.size(); i++)
+		if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect) return true;
+	return false;
+}
