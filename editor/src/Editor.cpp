@@ -1966,6 +1966,24 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	if (name == "apply_ui_style")
+	{
+		if (!sceneView->AgentApplyUIStyle(A("object"), A("style"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "extract_ui_style")
+	{
+		std::string outPath;
+		if (!sceneView->AgentExtractUIStyle(A("object"), A("name"), outPath, err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["path"] = outPath;
+		return r;
+	}
 	if (name == "set_ui")
 	{
 		nlohmann::json props = (a.is_object() && a.contains("properties")) ? a["properties"] : nlohmann::json::object();

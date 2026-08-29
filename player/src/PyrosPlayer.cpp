@@ -17,6 +17,9 @@
 #include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include "PrefabResolver.h"
+// UI style/palette files, resolved by the same header the editor uses
+// (shared/UIStyleResolver.h) so a themed UI looks identical in both.
+#include "UIStyleResolver.h"
 
 #include <SDL2/SDL.h>
 #include <filesystem>
@@ -392,6 +395,23 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 
 	currentSceneRel = sceneRel;
 	sceneLoaded = true;
+
+	// Styles are re-applied here rather than baked into the scene at build
+	// time, so shipping a different theme.palette re-skins the whole game
+	// without rebuilding a single scene.
+	{
+		std::string styleErr;
+		const std::string root = PlayerManifestInstance().root;
+		const int styled = uistyle::ApplyToScene(scene, root,
+			ResolvePath("assets/ui/theme.palette"), styleErr);
+		if (!styleErr.empty()) echo("WARNING: UI styles - " + styleErr);
+		if (styled > 0)
+		{
+			char buf[64];
+			snprintf(buf, sizeof(buf), "Applied UI styles to %d element(s)", styled);
+			echo(buf);
+		}
+	}
 
 	renderer->SetGlobalLight(meta.ambientLight);
 	ResolveCamera(abs);

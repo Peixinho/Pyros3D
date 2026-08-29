@@ -12,6 +12,7 @@
 #include <Pyros3D/Components/IComponent.h>
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Other/Export.h>
+#include <string>
 
 namespace p3d {
 
@@ -100,6 +101,15 @@ namespace p3d {
 		// rect: the write is a delta from it, not an absolute.
 		void Solve(const UIRectValue &parent, const Vec2 &parentOrigin);
 
+		// An opaque reference to whatever styled this element - a
+		// .uistyle path, as far as anything here is concerned. The engine
+		// stores it and serializes it and never once looks inside it:
+		// reading style files, resolving palette names and applying the
+		// result is done outside, by code the editor and the player share
+		// (shared/UIStyleResolver.h), exactly as prefab references are.
+		void SetStyleRef(const std::string &ref) { styleRef = ref; }
+		const std::string &GetStyleRef() const { return styleRef; }
+
 		// A transient nudge added to the solved rect, in canvas units - what
 		// a button's pressed state uses. Deliberately separate from the
 		// offsets: it is applied on top of them and never serialized, so a
@@ -118,6 +128,7 @@ namespace p3d {
 		Vec2 pivot;
 
 		Vec2 stateOffset;
+		std::string styleRef;
 
 		UIRectValue rect;
 		Vec2 origin;

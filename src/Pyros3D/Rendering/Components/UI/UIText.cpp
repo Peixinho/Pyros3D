@@ -39,6 +39,7 @@ namespace p3d {
 		this->font = font;
 		this->text = text;
 		this->color = color;
+		this->displayColor = color;
 		this->size = size;
 		this->align = UIAlign::Left;
 		this->verticalAlign = UIVerticalAlign::Top;
@@ -67,8 +68,14 @@ namespace p3d {
 	void UIText::SetColor(const Vec4 &color)
 	{
 		this->color = color;
-		// Text carries colour per vertex, so this rebuilds the mesh; its
-		// early-out tests the colour as well as the string.
+		SetDisplayColor(color);
+	}
+
+	void UIText::SetDisplayColor(const Vec4 &color)
+	{
+		displayColor = color;
+		// Text carries colour per vertex, so this rebuilds the mesh; the
+		// early-out in UpdateText tests the colour as well as the string.
 		static_cast<Text*>(GetRenderable())->UpdateText(text, color);
 		Realign();
 	}

@@ -57,7 +57,10 @@ namespace p3d {
 		const std::string &GetText() const { return text; }
 
 		void SetColor(const Vec4 &color);
+		// Authored, not displayed - see UIImage::GetTint for why the two are
+		// separate.
 		const Vec4 &GetColor() const { return color; }
+		void SetDisplayColor(const Vec4 &color);
 
 		void SetSize(const f32 size);
 		f32 GetSize() const { return size; }
@@ -81,6 +84,7 @@ namespace p3d {
 		std::shared_ptr<Font> font;
 		std::string text;
 		Vec4 color;
+		Vec4 displayColor;
 		f32 size;
 		uint32 align, verticalAlign;
 

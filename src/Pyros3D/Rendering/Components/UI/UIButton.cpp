@@ -187,8 +187,10 @@ namespace p3d {
 		}
 		lastTime = time;
 
-		if (image) image->SetTint(blendTint);
-		if (text) text->SetColor(blendTextColor);
+		// Display, not authored: a state transition must not become what the
+		// scene saves or what a style extracted from this element promotes.
+		if (image) image->SetDisplayTint(blendTint);
+		if (text) text->SetDisplayColor(blendTextColor);
 		if (rect)
 		{
 			// Applied on top of the authored offsets rather than into them,

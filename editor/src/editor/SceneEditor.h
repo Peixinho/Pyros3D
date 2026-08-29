@@ -61,6 +61,9 @@ using json = nlohmann::json;
 // Prefab references in a scene file, resolved outside the engine - shared
 // with the player (shared/PrefabResolver.h).
 #include "PrefabResolver.h"
+// UI style/palette files, likewise resolved outside the engine and shared
+// with the player (shared/UIStyleResolver.h).
+#include "UIStyleResolver.h"
 #include "UndoStack.h"
 #include <ctime>
 #include <map>
@@ -247,6 +250,8 @@ public:
 		const std::string& parentName, std::string& errOut);
 	bool AgentAddPhysics(const std::string& name, const json& p, const std::string& parentName, std::string& errOut);
 	bool AgentAddModel(const std::string& name, const std::string& modelFile, const std::string& parentName, std::string& errOut);
+	bool AgentApplyUIStyle(const std::string& objectName, const std::string& stylePath, std::string& errOut);
+	bool AgentExtractUIStyle(const std::string& objectName, const std::string& name, std::string& outPath, std::string& errOut);
 	bool AgentSetUI(const std::string& objectName, const json& p, std::string& errOut);
 	bool AgentCanvasDrag(const std::string& objectName, int handle, const std::vector<f32>& delta, std::string& errOut);
 	bool AgentSelect(const std::string& name, std::string& errOut);
@@ -618,6 +623,14 @@ private:
 	bool OpSetUIProperties(uint32 goId, const json& p, std::string& errOut);
 	bool RawSetUIProperties(uint32 goId, const json& p, std::string& errOut);
 	json CaptureUIProperties(GameObject* go);
+	// UI styles - see shared/UIStyleResolver.h.
+	bool OpApplyUIStyle(uint32 goId, const std::string& stylePath, std::string& errOut);
+	bool OpExtractUIStyle(uint32 goId, const std::string& name, std::string& outPath, std::string& errOut);
+	void RawSetUIStyleRef(uint32 goId, const std::string& ref);
+	std::string UIStylePalettePath() const;
+	// Re-applies every element's style after a load, so editing a style file
+	// or swapping the palette reaches scenes that were saved before it.
+	int ReapplyUIStyles();
 	void PushUIPropertyUndo(uint32 goId, const json& before, const json& after, const char* what);
 	std::string ResolveUIFontPath(const std::string& requested, std::string& errOut);
 	static bool HasUIRect(GameObject* go);

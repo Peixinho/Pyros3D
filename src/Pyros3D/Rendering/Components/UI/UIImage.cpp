@@ -159,6 +159,7 @@ namespace p3d {
 		: RenderingComponent(std::make_shared<UIQuad>(), MakeUIMaterial(tint))
 	{
 		this->tint = tint;
+		this->displayTint = tint;
 		this->border = Vec4(0.f, 0.f, 0.f, 0.f);
 		this->texture = WhiteTexture();
 		builtWidth = builtHeight = 0.f;
@@ -178,7 +179,16 @@ namespace p3d {
 
 	void UIImage::SetTint(const Vec4 &tint)
 	{
+		// Authored and displayed move together here - this is the value an
+		// author set, so it is also what should be on screen until something
+		// (a button state) says otherwise.
 		this->tint = tint;
+		SetDisplayTint(tint);
+	}
+
+	void UIImage::SetDisplayTint(const Vec4 &tint)
+	{
+		displayTint = tint;
 		std::vector<RenderingMesh*> &meshes = GetMeshes();
 		for (size_t i = 0; i < meshes.size(); i++)
 			if (meshes[i]->Material)

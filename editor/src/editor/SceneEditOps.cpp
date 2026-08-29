@@ -1328,3 +1328,120 @@ bool SceneEditor::OpSetUIProperties(uint32 goId, const json& p, std::string& err
 	PushUIPropertyUndo(goId, before, p, "Set UI Properties");
 	return true;
 }
+
+// ============================================================================
+// UI styles
+//
+// See shared/UIStyleResolver.h for why the format lives outside the engine.
+// These are the editor's three verbs over it: apply one to an element, write
+// one out from an element, and re-apply everything after a load.
+// ============================================================================
+
+std::string SceneEditor::UIStylePalettePath() const
+{
+	// One palette per project, at a fixed path. A style names "@accent" and
+	// something has to say what that is; making it discoverable beats making
+	// it configurable, since a project with two palettes has a theme problem
+	// rather than a path problem.
+	if (!project || !project->IsOpen()) return std::string();
+	return project->AbsolutePath("assets/ui/theme.palette");
+}
+
+bool SceneEditor::OpApplyUIStyle(uint32 goId, const std::string& stylePath, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "object not found"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+
+	UIRect* rect = NULL;
+	const std::vector<std::shared_ptr<IComponent> >& cs = go->GetComponents();
+	for (size_t i = 0; i < cs.size(); i++)
+		if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect)
+		{ rect = static_cast<UIRect*>(cs[i].get()); break; }
+	if (!rect) { errOut = "'" + obj->GetName() + "' is not a UI element"; return false; }
+
+	const std::string abs = (project && project->IsOpen()) ? project->AbsolutePath(stylePath) : stylePath;
+	nlohmann::json style;
+	if (!uistyle::ReadJsonFile(abs, style)) { errOut = "could not read " + stylePath; return false; }
+
+	nlohmann::json bag;
+	const uistyle::Palette palette = uistyle::LoadPalette(UIStylePalettePath());
+	if (!uistyle::Resolve(style, palette, bag, errOut)) return false;
+
+	const json before = CaptureUIProperties(go);
+	const std::string beforeRef = rect->GetStyleRef();
+	const std::string assetRoot = (project && project->IsOpen()) ? project->GetProjectPath() : std::string();
+	if (!uistyle::ApplyProperties(go, bag, assetRoot, errOut)) return false;
+
+	// The reference is what makes the next edit of the style file reach this
+	// element - without it, applying a style is a one-off paste.
+	const std::string afterRef = stylePath;
+	rect->SetStyleRef(afterRef);
+	const json after = CaptureUIProperties(go);
+
+	sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+		[this, goId, before, beforeRef]() {
+			std::string e; RawSetUIProperties(goId, before, e); RawSetUIStyleRef(goId, beforeRef);
+		},
+		[this, goId, after, afterRef]() {
+			std::string e; RawSetUIProperties(goId, after, e); RawSetUIStyleRef(goId, afterRef);
+		},
+		"Apply UI Style"));
+	MarkSceneDirty();
+	return true;
+}
+
+void SceneEditor::RawSetUIStyleRef(uint32 goId, const std::string& ref)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) return;
+	const std::vector<std::shared_ptr<IComponent> >& cs = ((GameObject*)obj->GetPTR())->GetComponents();
+	for (size_t i = 0; i < cs.size(); i++)
+		if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect)
+		{ static_cast<UIRect*>(cs[i].get())->SetStyleRef(ref); return; }
+}
+
+bool SceneEditor::OpExtractUIStyle(uint32 goId, const std::string& name, std::string& outPath, std::string& errOut)
+{
+	if (!project || !project->IsOpen()) { errOut = "open a project first"; return false; }
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "object not found"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+
+	std::string stem = name.empty() ? obj->GetName() : name;
+	if (stem.empty()) stem = "Style";
+
+	namespace fs = std::filesystem;
+	std::error_code ec;
+	const std::string dir = project->AbsolutePath("assets/ui");
+	fs::create_directories(dir, ec);
+	const std::string abs = dir + "/" + stem + ".uistyle";
+
+	const uistyle::Palette palette = uistyle::LoadPalette(UIStylePalettePath());
+	const nlohmann::json style = uistyle::ExtractFromElement(go, palette);
+	if (!uistyle::WriteJsonFile(abs, style)) { errOut = "could not write " + abs; return false; }
+
+	outPath = project->RelativePath(abs);
+	// The element it came from adopts it, so promoting a hand-authored
+	// button immediately makes that button one of the style's users rather
+	// than an unmanaged copy of it.
+	std::string applyErr;
+	OpApplyUIStyle(goId, outPath, applyErr);
+	return true;
+}
+
+int SceneEditor::ReapplyUIStyles()
+{
+	if (!scene) return 0;
+	const std::string assetRoot = (project && project->IsOpen()) ? project->GetProjectPath() : std::string();
+	std::string err;
+	const int n = uistyle::ApplyToScene(scene, assetRoot, UIStylePalettePath(), err);
+	if (!err.empty()) echo("WARNING: UI styles - " + err);
+	if (n > 0)
+	{
+		char buf[80];
+		snprintf(buf, sizeof(buf), "Applied UI styles to %d element(s)", n);
+		echo(buf);
+	}
+	return n;
+}

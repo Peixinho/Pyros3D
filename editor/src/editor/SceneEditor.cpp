@@ -5381,6 +5381,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		AttachEditorObjects(furniture);
 		if (ok) RebuildHelpers();
+		// After the helpers, so the walk sees the finished tree: every
+		// element naming a style gets it re-applied, which is what makes
+		// editing a style file - or swapping the palette - reach scenes that
+		// were saved before the change.
+		if (ok) ReapplyUIStyles();
 		return ok;
 	}
 
@@ -8993,6 +8998,23 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		PushUIPropertyUndo(obj->GetID(), before, CaptureUIProperties((GameObject*)obj->GetPTR()), "Move UI Element");
 		MarkSceneDirty();
 		return true;
+	}
+
+	bool SceneEditor::AgentApplyUIStyle(const std::string& objectName, const std::string& stylePath, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
+		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
+		return OpApplyUIStyle(obj->GetID(), stylePath, errOut);
+	}
+
+	bool SceneEditor::AgentExtractUIStyle(const std::string& objectName, const std::string& name,
+		std::string& outPath, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
+		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
+		return OpExtractUIStyle(obj->GetID(), name, outPath, errOut);
 	}
 
 	bool SceneEditor::AgentSetUI(const std::string& objectName, const json& p, std::string& errOut)

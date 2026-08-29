@@ -51,7 +51,18 @@ namespace p3d {
 		// solid rectangle of this colour, which is what makes panels and
 		// bars work without any art at all.
 		void SetTint(const Vec4 &tint);
+		// The AUTHORED tint - what serialization, the inspector and style
+		// extraction all read. Deliberately not what is on screen: a
+		// UIButton drives its states through SetDisplayTint below, and if
+		// that wrote here then saving a scene would capture whatever frame
+		// of a hover fade the button happened to be in, and "extract a style
+		// from this element" would promote it.
 		const Vec4 &GetTint() const { return tint; }
+
+		// Transient, never serialized. Same split as UIRect::SetStateOffset,
+		// and for the same reason.
+		void SetDisplayTint(const Vec4 &tint);
+		const Vec4 &GetDisplayTint() const { return displayTint; }
 
 		// NULL clears back to the shared 1x1 white texture, so the material
 		// keeps a single shader variant either way - swapping between
@@ -76,6 +87,7 @@ namespace p3d {
 
 		std::shared_ptr<Texture> texture;
 		Vec4 tint;
+		Vec4 displayTint;
 		Vec4 border;
 
 		// What the mesh currently reflects, so a canvas solving every frame
