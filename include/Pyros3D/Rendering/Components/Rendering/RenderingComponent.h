@@ -51,7 +51,13 @@ namespace p3d {
 	{
 		enum {
 			World = 0,
-			UI = 1
+			UI = 1,
+			// Nothing is ever assigned this. It exists so a renderer can be
+			// pointed at an empty layer to draw nothing at all - which is
+			// not the same as pointing it at another real layer, where it
+			// would happily draw somebody else's meshes with its own
+			// projection.
+			None = 2
 		};
 	}
 

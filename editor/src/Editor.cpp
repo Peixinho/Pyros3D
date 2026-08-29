@@ -1957,6 +1957,15 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	if (name == "set_ui")
+	{
+		nlohmann::json props = (a.is_object() && a.contains("properties")) ? a["properties"] : nlohmann::json::object();
+		if (!sceneView->AgentSetUI(A("object"), props, err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "add_ui")
 	{
 		if (!sceneView->AgentAddUI(A("object"), A("kind"), A("font"), err))

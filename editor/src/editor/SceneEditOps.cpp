@@ -1001,3 +1001,157 @@ bool SceneEditor::HasUIRect(GameObject* go)
 		if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect) return true;
 	return false;
 }
+
+// Sets any subset of a UI component's properties in one edit. A bag rather
+// than one Op per field because these are all "assign this value to that
+// component", and because a caller building a menu wants to set eight things
+// at once and undo them as one step - which is also what the Properties
+// panel does when a drag is released.
+bool SceneEditor::OpSetUIProperties(uint32 goId, const json& p, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "object not found"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+	if (!go) { errOut = "object not found"; return false; }
+	if (!p.is_object()) { errOut = "expected an object of properties"; return false; }
+
+	UICanvas* canvas = NULL; UIRect* rect = NULL; UIImage* image = NULL; UIText* text = NULL;
+	const std::vector<std::shared_ptr<IComponent> >& cs = go->GetComponents();
+	for (size_t i = 0; i < cs.size(); i++)
+	{
+		if (!cs[i]) continue;
+		switch (cs[i]->GetComponentType())
+		{
+		case ComponentType::UICanvas: canvas = static_cast<UICanvas*>(cs[i].get()); break;
+		case ComponentType::UIRect:   rect   = static_cast<UIRect*>(cs[i].get());   break;
+		case ComponentType::UIImage:  image  = static_cast<UIImage*>(cs[i].get());  break;
+		case ComponentType::UIText:   text   = static_cast<UIText*>(cs[i].get());   break;
+		default: break;
+		}
+	}
+	if (!canvas && !rect && !image && !text) { errOut = "'" + obj->GetName() + "' has no UI components"; return false; }
+
+	const std::string before = SnapshotSubtree(goId);
+	bool touched = false;
+
+	// Unknown keys are an error rather than a silent no-op: a caller that
+	// misspells "tint" should hear about it, not wonder why nothing changed.
+	for (json::const_iterator it = p.begin(); it != p.end(); ++it)
+	{
+		const std::string k = it.key();
+		const json& v = it.value();
+		auto vec2 = [&](Vec2& out) -> bool {
+			if (!v.is_array() || v.size() != 2) return false;
+			out = Vec2(v[0].get<f32>(), v[1].get<f32>()); return true;
+		};
+		auto vec4 = [&](Vec4& out) -> bool {
+			if (!v.is_array() || v.size() != 4) return false;
+			out = Vec4(v[0].get<f32>(), v[1].get<f32>(), v[2].get<f32>(), v[3].get<f32>()); return true;
+		};
+
+		if (rect && (k == "anchorMin" || k == "anchorMax"))
+		{
+			Vec2 a; if (!vec2(a)) { errOut = k + " must be [x, y]"; return false; }
+			if (k == "anchorMin") rect->SetAnchors(a, rect->GetAnchorMax());
+			else rect->SetAnchors(rect->GetAnchorMin(), a);
+			touched = true;
+		}
+		else if (rect && (k == "offsetMin" || k == "offsetMax"))
+		{
+			Vec2 o; if (!vec2(o)) { errOut = k + " must be [x, y]"; return false; }
+			if (k == "offsetMin") rect->SetOffsets(o, rect->GetOffsetMax());
+			else rect->SetOffsets(rect->GetOffsetMin(), o);
+			touched = true;
+		}
+		else if (rect && k == "pivot")
+		{
+			Vec2 pv; if (!vec2(pv)) { errOut = "pivot must be [x, y]"; return false; }
+			rect->SetPivot(pv); touched = true;
+		}
+		else if (image && k == "tint")
+		{
+			Vec4 c; if (!vec4(c)) { errOut = "tint must be [r, g, b, a]"; return false; }
+			image->SetTint(c); touched = true;
+		}
+		else if (image && k == "border")
+		{
+			Vec4 b; if (!vec4(b)) { errOut = "border must be [left, top, right, bottom]"; return false; }
+			image->SetBorder(b); touched = true;
+		}
+		else if (image && k == "texture")
+		{
+			if (!v.is_string()) { errOut = "texture must be a path"; return false; }
+			const std::string rel = v.get<std::string>();
+			if (rel.empty()) image->SetTexture(std::shared_ptr<Texture>());
+			else
+			{
+				std::shared_ptr<Texture> t = std::make_shared<Texture>();
+				if (!t->LoadTexture(ResolveAssetPath(rel), TextureType::Texture)) { errOut = "could not load " + rel; return false; }
+				t->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+				t->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+				image->SetTexture(t);
+			}
+			touched = true;
+		}
+		else if (text && k == "text")
+		{
+			if (!v.is_string()) { errOut = "text must be a string"; return false; }
+			text->SetText(v.get<std::string>()); touched = true;
+		}
+		else if (text && k == "size")
+		{
+			if (!v.is_number()) { errOut = "size must be a number"; return false; }
+			text->SetSize(v.get<f32>()); touched = true;
+		}
+		else if (text && k == "color")
+		{
+			Vec4 c; if (!vec4(c)) { errOut = "color must be [r, g, b, a]"; return false; }
+			text->SetColor(c); touched = true;
+		}
+		else if (text && (k == "align" || k == "verticalAlign"))
+		{
+			if (!v.is_string()) { errOut = k + " must be a string"; return false; }
+			const std::string n = v.get<std::string>();
+			uint32 h = text->GetHorizontalAlignment(), vt = text->GetVerticalAlignment();
+			if (k == "align")
+				h = (n == "Center" || n == "center") ? UIAlign::Center : (n == "Right" || n == "right") ? UIAlign::Right : UIAlign::Left;
+			else
+				vt = (n == "Middle" || n == "middle") ? UIVerticalAlign::Middle : (n == "Bottom" || n == "bottom") ? UIVerticalAlign::Bottom : UIVerticalAlign::Top;
+			text->SetAlignment(h, vt); touched = true;
+		}
+		else if (canvas && (k == "referenceWidth" || k == "referenceHeight"))
+		{
+			if (!v.is_number()) { errOut = k + " must be a number"; return false; }
+			const Vec2 r = canvas->GetReferenceResolution();
+			canvas->SetReferenceResolution(k == "referenceWidth" ? v.get<f32>() : r.x,
+				k == "referenceHeight" ? v.get<f32>() : r.y);
+			touched = true;
+		}
+		else if (canvas && k == "scaleMode")
+		{
+			if (!v.is_string()) { errOut = "scaleMode must be a string"; return false; }
+			const std::string n = v.get<std::string>();
+			if (n == "ConstantPixel") canvas->SetScaleMode(UIScaleMode::ConstantPixel);
+			else if (n == "MatchHeight") canvas->SetScaleMode(UIScaleMode::MatchHeight);
+			else if (n == "Stretch") canvas->SetScaleMode(UIScaleMode::Stretch);
+			else if (n == "MatchWidth") canvas->SetScaleMode(UIScaleMode::MatchWidth);
+			else { errOut = "scaleMode must be ConstantPixel, MatchWidth, MatchHeight or Stretch"; return false; }
+			touched = true;
+		}
+		else if (canvas && k == "sortOrder")
+		{
+			if (!v.is_number()) { errOut = "sortOrder must be a number"; return false; }
+			canvas->SetSortOrder(v.get<int32>()); touched = true;
+		}
+		else
+		{
+			errOut = "'" + k + "' is not a property of this object's UI components";
+			return false;
+		}
+	}
+
+	if (!touched) { errOut = "nothing to set"; return false; }
+	PushReplaceCommand(goId, before, "Set UI Properties");
+	MarkSceneDirty();
+	return true;
+}

@@ -822,15 +822,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			gbufferFBO->Resize(viewW, viewH);
 		}
 		// Canvas mode: the 3D scene is not what is being edited, so it is
-		// not drawn. Done by pointing the renderer at the UI layer - where
-		// it finds nothing, because UIRenderer is what draws that - rather
+		// not drawn. Done by pointing the renderer at the empty layer rather
 		// than by skipping RenderScene(), which is also what clears the
 		// target and leaves the depth and device state everything below
 		// expects. It has to be set before PreRender(), which is where the
 		// draw list is actually built.
+		//
+		// RenderLayer::None, not ::UI: aiming it at the UI layer made the
+		// world pass draw the canvas a second time, through the scene
+		// camera's perspective projection - which put a copy of every
+		// element somewhere else entirely on screen.
 		UICanvas* editingCanvas = uiEditMode ? GetEditingCanvas() : NULL;
 		const uint32 restoreLayer = Renderer->GetRenderLayer();
-		if (editingCanvas) Renderer->SetRenderLayer(RenderLayer::UI);
+		if (editingCanvas) Renderer->SetRenderLayer(RenderLayer::None);
 
 		Renderer->Resize(viewW, viewH);
 		Renderer->ResetViewPort();
@@ -2376,6 +2380,219 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					pathBuf = rel;
 			}
 			ImGui::EndDragDropTarget();
+		}
+	}
+
+	// Every UI field edits live and undoes as one snapshot/replace pair -
+	// the same mechanism the add-component ops use. Per-field Apply* ops
+	// would be a dozen near-identical functions for properties that are all
+	// just "set this value on that component"; snapshotting the subtree when
+	// a widget is grabbed and pushing the replace when it is released covers
+	// all of them, including the ones that rebuild geometry.
+	void SceneEditor::BeginUIUndo(uint32 goId)
+	{
+		if (ImGui::IsItemActivated())
+			uiUndoSnapshot = SnapshotSubtree(goId);
+	}
+
+	void SceneEditor::EndUIUndo(uint32 goId, const char* what)
+	{
+		if (ImGui::IsItemDeactivatedAfterEdit() && !uiUndoSnapshot.empty())
+		{
+			PushReplaceCommand(goId, uiUndoSnapshot, what);
+			uiUndoSnapshot.clear();
+		}
+	}
+
+	void SceneEditor::DrawUIComponentProperties(GameObject* go, uint32 goId)
+	{
+		if (!go) return;
+		const std::vector<std::shared_ptr<IComponent> >& comps = go->GetComponents();
+
+		for (size_t i = 0; i < comps.size(); i++)
+		{
+			if (!comps[i]) continue;
+			const uint32 type = comps[i]->GetComponentType();
+			if (type != ComponentType::UICanvas && type != ComponentType::UIRect
+				&& type != ComponentType::UIImage && type != ComponentType::UIText)
+				continue;
+
+			ImGui::PushID((int)i);
+			ImGui::Separator();
+
+			if (type == ComponentType::UICanvas)
+			{
+				UICanvas* c = static_cast<UICanvas*>(comps[i].get());
+				ImGui::Text("UI Canvas");
+				Vec2 ref = c->GetReferenceResolution();
+				if (ImGui::DragFloat2("Reference", (float*)&ref, 1.f, 1.f, 16384.f))
+				{
+					c->SetReferenceResolution(ref.x, ref.y);
+					MarkSceneDirty();
+				}
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Canvas Reference");
+
+				int mode = (int)c->GetScaleMode();
+				const char* modes[] = { "Constant Pixel", "Match Width", "Match Height", "Stretch" };
+				if (ImGui::Combo("Scale Mode", &mode, modes, 4))
+				{
+					const std::string before = SnapshotSubtree(goId);
+					c->SetScaleMode((uint32)mode);
+					MarkSceneDirty();
+					PushReplaceCommand(goId, before, "Set Canvas Scale Mode");
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("How canvas units map to screen pixels. Match Width keeps the\nauthored width exactly and lets height follow the real aspect.");
+
+				int order = c->GetSortOrder();
+				if (ImGui::DragInt("Sort Order", &order, 1.f, -1000, 1000))
+				{
+					c->SetSortOrder(order);
+					MarkSceneDirty();
+				}
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Canvas Sort Order");
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Canvases are drawn in ascending order, so a pause overlay above\na HUD is one number rather than a hierarchy edit.");
+
+				const UIRectValue& solved = c->GetCanvasRect();
+				ImGui::TextDisabled("Solved: %.0f x %.0f units", solved.width, solved.height);
+			}
+			else if (type == ComponentType::UIRect)
+			{
+				UIRect* r = static_cast<UIRect*>(comps[i].get());
+				ImGui::Text("UI Rect");
+
+				Vec2 aMin = r->GetAnchorMin(), aMax = r->GetAnchorMax();
+				Vec2 oMin = r->GetOffsetMin(), oMax = r->GetOffsetMax();
+				Vec2 pivot = r->GetPivot();
+
+				// The four common cases spelled out, because deriving them
+				// from raw anchors is the part of this model people get
+				// wrong. Each one only rewrites the anchors, leaving the
+				// offsets to be read in their new meaning.
+				if (ImGui::Button("Top Left")) { const std::string b = SnapshotSubtree(goId); r->SetAnchors(Vec2(0,0), Vec2(0,0)); MarkSceneDirty(); PushReplaceCommand(goId, b, "Set Anchors"); }
+				ImGui::SameLine();
+				if (ImGui::Button("Center")) { const std::string b = SnapshotSubtree(goId); r->SetAnchors(Vec2(0.5f,0.5f), Vec2(0.5f,0.5f)); MarkSceneDirty(); PushReplaceCommand(goId, b, "Set Anchors"); }
+				ImGui::SameLine();
+				if (ImGui::Button("Stretch X")) { const std::string b = SnapshotSubtree(goId); r->SetAnchors(Vec2(0,aMin.y), Vec2(1,aMax.y)); MarkSceneDirty(); PushReplaceCommand(goId, b, "Set Anchors"); }
+				ImGui::SameLine();
+				if (ImGui::Button("Fill")) { const std::string b = SnapshotSubtree(goId); r->SetAnchors(Vec2(0,0), Vec2(1,1)); MarkSceneDirty(); PushReplaceCommand(goId, b, "Set Anchors"); }
+
+				bool changed = false;
+				changed |= ImGui::DragFloat2("Anchor Min", (float*)&aMin, 0.01f, 0.f, 1.f);
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Anchor Min");
+				changed |= ImGui::DragFloat2("Anchor Max", (float*)&aMax, 0.01f, 0.f, 1.f);
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Anchor Max");
+				const bool pinnedX = (aMin.x == aMax.x), pinnedY = (aMin.y == aMax.y);
+				changed |= ImGui::DragFloat2(pinnedX && pinnedY ? "Position" : "Offset Min", (float*)&oMin, 1.f);
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Offset Min");
+				changed |= ImGui::DragFloat2(pinnedX && pinnedY ? "Size" : "Offset Max", (float*)&oMax, 1.f);
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Offset Max");
+				changed |= ImGui::DragFloat2("Pivot", (float*)&pivot, 0.01f, 0.f, 1.f);
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Pivot");
+
+				if (changed)
+				{
+					r->SetAnchors(aMin, aMax);
+					r->SetOffsets(oMin, oMax);
+					r->SetPivot(pivot);
+					MarkSceneDirty();
+				}
+				ImGui::TextDisabled(pinnedX && pinnedY
+					? "Pinned: offsets read as position and size."
+					: "Stretched: offsets read as insets from the anchor edges.");
+				const UIRectValue& solved = r->GetRect();
+				ImGui::TextDisabled("Solved: %.0f, %.0f  %.0f x %.0f", solved.x, solved.y, solved.width, solved.height);
+			}
+			else if (type == ComponentType::UIImage)
+			{
+				UIImage* img = static_cast<UIImage*>(comps[i].get());
+				ImGui::Text("UI Image");
+
+				Vec4 tint = img->GetTint();
+				if (ImGui::ColorEdit4("Tint", (float*)&tint)) { img->SetTint(tint); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Image Tint");
+
+				Vec4 border = img->GetBorder();
+				if (ImGui::DragFloat4("9-Slice", (float*)&border, 1.f, 0.f, 4096.f)) { img->SetBorder(border); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Image Border");
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Left, top, right, bottom, in source pixels. Corners keep their\nsize at any element size; only the edges stretch. All zero is a\nplain quad.");
+
+				bool showDir = false;
+				std::string texPath = uiTexturePickerPath;
+				ImGui::FilePath("Texture", "", "png,jpg,jpeg,tga,bmp", &uiTexturePickerPath, 1024, &showDir);
+				if (uiTexturePickerPath != texPath && !uiTexturePickerPath.empty())
+				{
+					const std::string b = SnapshotSubtree(goId);
+					const std::string rel = ImportParticleTexture(uiTexturePickerPath);
+					std::shared_ptr<Texture> t = std::make_shared<Texture>();
+					if (t->LoadTexture(ResolveAssetPath(rel), TextureType::Texture))
+					{
+						t->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+						t->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+						img->SetTexture(t);
+						MarkSceneDirty();
+						PushReplaceCommand(goId, b, "Set Image Texture");
+					}
+					else echo("WARNING: could not load " + rel);
+					uiTexturePickerPath.clear();
+				}
+				if (img->GetTexture() && !img->GetTexture()->GetFilename().empty())
+				{
+					ImGui::TextDisabled("%s", DisplayPath(img->GetTexture()->GetFilename()).c_str());
+					if (ImGui::Button("Clear Texture"))
+					{
+						const std::string b = SnapshotSubtree(goId);
+						img->SetTexture(std::shared_ptr<Texture>());
+						MarkSceneDirty();
+						PushReplaceCommand(goId, b, "Clear Image Texture");
+					}
+				}
+				else ImGui::TextDisabled("No texture - a flat tinted rectangle.");
+			}
+			else if (type == ComponentType::UIText)
+			{
+				UIText* t = static_cast<UIText*>(comps[i].get());
+				ImGui::Text("UI Text");
+
+				std::string text = t->GetText();
+				if (ImGui::InputText("Text", &text)) { t->SetText(text); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Text");
+
+				f32 size = t->GetSize();
+				if (ImGui::DragFloat("Size", &size, 0.5f, 1.f, 1024.f)) { t->SetSize(size); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Text Size");
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Glyph height in canvas units. The font's atlas is baked at a\nfixed pixel size, so text far from it goes soft.");
+
+				Vec4 color = t->GetColor();
+				if (ImGui::ColorEdit4("Color", (float*)&color)) { t->SetColor(color); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Text Color");
+
+				int h = (int)t->GetHorizontalAlignment();
+				const char* hNames[] = { "Left", "Center", "Right" };
+				if (ImGui::Combo("Align", &h, hNames, 3))
+				{
+					const std::string b = SnapshotSubtree(goId);
+					t->SetAlignment((uint32)h, t->GetVerticalAlignment());
+					MarkSceneDirty();
+					PushReplaceCommand(goId, b, "Set Text Align");
+				}
+				int v = (int)t->GetVerticalAlignment();
+				const char* vNames[] = { "Top", "Middle", "Bottom" };
+				if (ImGui::Combo("Vertical", &v, vNames, 3))
+				{
+					const std::string b = SnapshotSubtree(goId);
+					t->SetAlignment(t->GetHorizontalAlignment(), (uint32)v);
+					MarkSceneDirty();
+					PushReplaceCommand(goId, b, "Set Text Vertical Align");
+				}
+				if (t->GetFont())
+					ImGui::TextDisabled("%s @ %.0fpx atlas", DisplayPath(t->GetFont()->GetPath()).c_str(), t->GetFont()->GetFontSize());
+			}
+
+			ImGui::PopID();
 		}
 	}
 
@@ -5861,6 +6078,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 							}
 						}
 					}
+					// Screen-space UI, inspected on the GameObject that
+					// carries it rather than as separate hierarchy rows: an
+					// element is a rect plus what fills it, and splitting
+					// those across three nodes to edit one button is busywork.
+					DrawUIComponentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 #ifdef LUA_BINDINGS
 					DrawGameObjectScriptProperties(SelectedSceneObject->GetID());
 #endif
@@ -8502,6 +8724,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	// which meant nothing driven through the socket could exercise anything
 	// that acts on the selection (the transform gizmo, the Properties panel,
 	// the canvas overlay's element outline).
+	bool SceneEditor::AgentSetUI(const std::string& objectName, const json& p, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
+		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
+		return OpSetUIProperties(obj->GetID(), p, errOut);
+	}
+
 	bool SceneEditor::AgentSelect(const std::string& name, std::string& errOut)
 	{
 		if (name.empty()) { DeselectSceneObject(); return true; }

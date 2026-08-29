@@ -246,6 +246,7 @@ public:
 		const std::string& parentName, std::string& errOut);
 	bool AgentAddPhysics(const std::string& name, const json& p, const std::string& parentName, std::string& errOut);
 	bool AgentAddModel(const std::string& name, const std::string& modelFile, const std::string& parentName, std::string& errOut);
+	bool AgentSetUI(const std::string& objectName, const json& p, std::string& errOut);
 	bool AgentSelect(const std::string& name, std::string& errOut);
 	bool AgentSetCanvasMode(bool on, std::string& errOut);
 	bool AgentSetCamera(const std::string& name, const json& p, std::string& errOut);
@@ -612,6 +613,7 @@ private:
 
 	// Screen-space UI. See SceneEditOps.cpp.
 	bool OpAddUIComponent(uint32 goId, const std::string& kind, const std::string& fontPath, std::string& errOut);
+	bool OpSetUIProperties(uint32 goId, const json& p, std::string& errOut);
 	std::string ResolveUIFontPath(const std::string& requested, std::string& errOut);
 	static bool HasUIRect(GameObject* go);
 	// Prefab entries of a GameObject's context menu, and the modals they
@@ -789,6 +791,12 @@ private:
 	void DrawGameObjectScriptProperties(uint32 goId);
 	// Combo of assets/lua scripts only (not scenes/*.lua) + ASSET_REL drag-drop.
 	void DrawScriptAssetPicker(const char* id, std::string& pathBuf);
+	// Screen-space UI, inspected on the GameObject that carries it.
+	void DrawUIComponentProperties(GameObject* go, uint32 goId);
+	void BeginUIUndo(uint32 goId);
+	void EndUIUndo(uint32 goId, const char* what);
+	std::string uiUndoSnapshot;
+	std::string uiTexturePickerPath;
 #endif
 	bool sceneRootSelected;
 	f64 lastListenerTime;
