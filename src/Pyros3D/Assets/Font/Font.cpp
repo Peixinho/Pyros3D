@@ -9,6 +9,7 @@
 
 #include <Pyros3D/Assets/Font/Font.h>
 #include <Pyros3D/Core/File/File.h>
+#include <cstring>
 
 namespace p3d {
 
@@ -40,6 +41,24 @@ namespace p3d {
 		if (FT_New_Memory_Face(ft, &memory[0], memory.size(), 0, &face)) echo("ERROR: Couldn't Load Font");
 		if (FT_Set_Char_Size(face, 0, (FT_F26Dot6)(fontSize * 64), 300, 300)) echo("ERROR: Couldn't Set Char Size");
 		if (FT_Set_Pixel_Sizes(face, 0, (FT_F26Dot6)fontSize)) echo("ERROR: Couldn't Set Pixel Size");
+
+		// Zeroed before its first upload. This is a raw member array, so
+		// every texel no glyph has written yet was whatever happened to be
+		// on the stack/heap - and with linear filtering a glyph's edge
+		// texels sample just outside its own rect, so that garbage showed
+		// up as fringing around characters.
+		memset(glyphMapData, 0, sizeof(glyphMapData));
+
+		// Font metrics, read once. FreeType keeps these in 26.6 fixed point.
+		FT_Load_Char(face, ' ', FT_LOAD_DEFAULT);
+		spaceAdvance = (f32)(face->glyph->advance.x >> 6);
+		lineHeight = (f32)(face->size->metrics.height >> 6);
+		ascender = (f32)(face->size->metrics.ascender >> 6);
+		descender = (f32)(face->size->metrics.descender >> 6);
+		if (spaceAdvance <= 0.f) spaceAdvance = fontSize * 0.5f;
+		if (lineHeight <= 0.f) lineHeight = fontSize * 1.2f;
+		if (ascender <= 0.f) ascender = fontSize * 0.8f;
+		if (descender >= 0.f) descender = -fontSize * 0.2f;
 
 		glyphMap->UpdateData(glyphMapData);
 
@@ -92,6 +111,8 @@ namespace p3d {
 							glyph_properties glp;
 							glp.offset = Vec2((f32)BBox.xMin, (f32)-BBox.yMin);
 							glp.size = Vec2((f32)bitmap.width, (f32)bitmap.rows);
+							// See glyph_properties::advance.
+							glp.advance = (f32)(face->glyph->advance.x >> 6);
 
 							if (lastGlyphWidth + (fontSize) > MAP_SIZE)
 							{

@@ -18,10 +18,110 @@
 
 using namespace p3d;
 
+//=============================================================================
+// Palette
+//=============================================================================
+static const Vec4 kInk       (0.03f, 0.04f, 0.06f, 1.00f);
+static const Vec4 kCard      (0.10f, 0.12f, 0.17f, 0.98f);
+static const Vec4 kRowIdle   (1.00f, 1.00f, 1.00f, 0.05f);
+static const Vec4 kAccent    (0.22f, 0.74f, 0.98f, 1.00f);
+static const Vec4 kTextHi    (0.96f, 0.97f, 1.00f, 1.00f);
+static const Vec4 kTextMid   (0.62f, 0.68f, 0.80f, 1.00f);
+static const Vec4 kTextDim   (0.40f, 0.46f, 0.58f, 1.00f);
+
+//=============================================================================
+// Procedural art
+//
+// Everything the UI is drawn with is baked here, at startup, into small
+// textures used as 9-slices. A rounded corner is not something a quad can
+// have, and a soft shadow is not something a solid tint can be - so without
+// these the whole system can only ever produce flat rectangles.
+//=============================================================================
+
+static std::shared_ptr<Texture> UploadRGBA(const uint32 w, const uint32 h, std::vector<uchar> &rgba)
+{
+	std::shared_ptr<Texture> t = std::make_shared<Texture>();
+	t->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, (int32)w, (int32)h, false);
+	t->UpdateData(rgba.data());
+	t->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+	t->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+	return t;
+}
+
+// Signed distance to a rounded rectangle: negative inside, and it is the
+// real distance, which is what makes both antialiasing and the shadow's
+// falloff below a one-liner.
+static f32 RoundRectSDF(const f32 px, const f32 py, const f32 w, const f32 h, const f32 r)
+{
+	const f32 qx = fabsf(px - w * 0.5f) - (w * 0.5f - r);
+	const f32 qy = fabsf(py - h * 0.5f) - (h * 0.5f - r);
+	const f32 ax = qx > 0.f ? qx : 0.f;
+	const f32 ay = qy > 0.f ? qy : 0.f;
+	const f32 inner = (qx > qy ? qx : qy);
+	return sqrtf(ax * ax + ay * ay) + (inner < 0.f ? inner : 0.f) - r;
+}
+
+static f32 Saturate(const f32 v) { return v < 0.f ? 0.f : (v > 1.f ? 1.f : v); }
+
+// Pure white, with the shape entirely in the alpha channel. Deliberately
+// flat: the tint is multiplied by this, so any shading baked into the RGB
+// silently darkens every colour an author picks. A first version shaded the
+// face to 0.62 to fake a lit rim, and every panel in the menu came out 38%
+// darker than the palette said it was. Edges are separated by stacking two
+// of these instead (see the card), which keeps the tint honest.
+static std::shared_ptr<Texture> BakeRoundedRect(const uint32 size, const f32 radius)
+{
+	std::vector<uchar> px((size_t)size * size * 4, 0);
+	for (uint32 y = 0; y < size; y++)
+		for (uint32 x = 0; x < size; x++)
+		{
+			const f32 d = RoundRectSDF((f32)x + 0.5f, (f32)y + 0.5f, (f32)size, (f32)size, radius);
+			const size_t o = ((size_t)y * size + x) * 4;
+			px[o + 0] = px[o + 1] = px[o + 2] = 255;
+			// 1px of coverage antialiasing, straight off the distance.
+			px[o + 3] = (uchar)(Saturate(0.5f - d) * 255.f);
+		}
+	return UploadRGBA(size, size, px);
+}
+
+static std::shared_ptr<Texture> BakeShadow(const uint32 size, const f32 radius, const f32 blur)
+{
+	std::vector<uchar> px((size_t)size * size * 4, 0);
+	for (uint32 y = 0; y < size; y++)
+		for (uint32 x = 0; x < size; x++)
+		{
+			const f32 d = RoundRectSDF((f32)x + 0.5f, (f32)y + 0.5f, (f32)size, (f32)size, radius);
+			const f32 a = Saturate(-d / blur);
+			const size_t o = ((size_t)y * size + x) * 4;
+			px[o + 0] = px[o + 1] = px[o + 2] = 255;
+			px[o + 3] = (uchar)(a * a * 255.f);
+		}
+	return UploadRGBA(size, size, px);
+}
+
+// A 1-pixel-tall strip, so a plain stretched quad becomes a left-to-right
+// gradient with no shader and no vertex colours.
+static std::shared_ptr<Texture> BakeRamp(const uint32 width, const Vec4 &a, const Vec4 &b)
+{
+	std::vector<uchar> px((size_t)width * 4, 0);
+	for (uint32 x = 0; x < width; x++)
+	{
+		const f32 t = width > 1 ? (f32)x / (f32)(width - 1) : 0.f;
+		px[x * 4 + 0] = (uchar)(Saturate(a.x + (b.x - a.x) * t) * 255.f);
+		px[x * 4 + 1] = (uchar)(Saturate(a.y + (b.y - a.y) * t) * 255.f);
+		px[x * 4 + 2] = (uchar)(Saturate(a.z + (b.z - a.z) * t) * 255.f);
+		px[x * 4 + 3] = (uchar)(Saturate(a.w + (b.w - a.w) * t) * 255.f);
+	}
+	return UploadRGBA(width, 1, px);
+}
+
+//=============================================================================
+
 UIExample::UIExample()
-	: BaseExample(1280, 800, "Pyros3D - UI Example", WindowType::Close | WindowType::Resize)
+	: BaseExample(1600, 900, "Pyros3D - UI Example", WindowType::Close | WindowType::Resize)
 {
 	uiRenderer = NULL;
+	selectedRow = 0;
 	verified = false;
 	const char* v = getenv("PYROS_UI_VERIFY");
 	verifyMode = (v != NULL && v[0] == '1');
@@ -34,10 +134,14 @@ void UIExample::OnResize(const uint32 width, const uint32 height)
 	BaseExample::OnResize(width, height);
 	if (Renderer) Renderer->Resize(width, height);
 	if (uiRenderer) uiRenderer->Resize(width, height);
-	projection.Perspective(70.f, (f32)width / (f32)height, 0.1f, 200.f);
+	projection.Perspective(58.f, (f32)width / (f32)height, 0.1f, 400.f);
 }
 
-std::shared_ptr<GameObject> UIExample::MakeElement(const std::shared_ptr<GameObject> &parent,
+//=============================================================================
+// Element construction
+//=============================================================================
+
+std::shared_ptr<GameObject> UIExample::Element(const std::shared_ptr<GameObject> &parent,
 	const std::string &name, const Vec2 &anchorMin, const Vec2 &anchorMax,
 	const Vec2 &offsetMin, const Vec2 &offsetMax, const Vec2 &pivot)
 {
@@ -54,83 +158,222 @@ std::shared_ptr<GameObject> UIExample::MakeElement(const std::shared_ptr<GameObj
 	return go;
 }
 
-void UIExample::BuildCanvas()
+UIRect* UIExample::RectOf(const std::shared_ptr<GameObject> &go)
 {
-	// Absolute, via the build-time asset root - the same way DemoLauncher
-	// reaches its Lua, so this runs from any working directory.
-	font = std::make_shared<Font>(STR(EXAMPLES_PATH) "/assets/verdana.ttf", 32);
-	font->CreateText("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,:%-x");
+	const std::vector<std::shared_ptr<IComponent> > &cs = go->GetComponents();
+	for (size_t i = 0; i < cs.size(); i++)
+		if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect)
+			return static_cast<UIRect*>(cs[i].get());
+	return NULL;
+}
 
-	canvasObj = std::make_shared<GameObject>();
-	canvasObj->SetName("Canvas");
-	canvas = std::make_shared<UICanvas>(1920.f, 1080.f);
-	// Width-matched: the layout below is authored against a 1920-unit
-	// width and stays put when the window is resized, which is the whole
-	// claim this example exists to demonstrate.
-	canvas->SetScaleMode(UIScaleMode::MatchWidth);
-	canvasObj->Add(std::static_pointer_cast<IComponent>(canvas));
-	Scene->Add(canvasObj);
+std::shared_ptr<UIImage> UIExample::Image(const std::shared_ptr<GameObject> &on, const Vec4 &tint,
+	const std::shared_ptr<Texture> &texture, const Vec4 &border)
+{
+	std::shared_ptr<UIImage> img = std::make_shared<UIImage>(tint);
+	if (texture) img->SetTexture(texture);
+	img->SetBorder(border);
+	on->Add(std::static_pointer_cast<IComponent>(img));
+	components.push_back(std::static_pointer_cast<IComponent>(img));
+	return img;
+}
 
-	// ---- top bar: stretched full width, pinned to the top ----
-	std::shared_ptr<GameObject> topBar = MakeElement(canvasObj, "TopBar",
-		Vec2(0.f, 0.f), Vec2(1.f, 0.f), Vec2(0.f, 0.f), Vec2(0.f, 96.f), Vec2(0.5f, 0.5f));
-	std::shared_ptr<UIImage> topBarImg = std::make_shared<UIImage>(Vec4(0.05f, 0.07f, 0.10f, 0.85f));
-	topBar->Add(std::static_pointer_cast<IComponent>(topBarImg));
-	components.push_back(std::static_pointer_cast<IComponent>(topBarImg));
+std::shared_ptr<UIText> UIExample::Label(const std::shared_ptr<GameObject> &on,
+	const std::shared_ptr<Font> &font, const std::string &text, const f32 size,
+	const Vec4 &color, const uint32 h, const uint32 v)
+{
+	std::shared_ptr<UIText> label = std::make_shared<UIText>(font, text, size, color);
+	label->SetAlignment(h, v);
+	on->Add(std::static_pointer_cast<IComponent>(label));
+	components.push_back(std::static_pointer_cast<IComponent>(label));
+	return label;
+}
 
-	std::shared_ptr<GameObject> title = MakeElement(topBar, "Title",
-		Vec2(0.f, 0.f), Vec2(1.f, 1.f), Vec2(32.f, 0.f), Vec2(-32.f, 0.f), Vec2(0.5f, 0.5f));
-	std::shared_ptr<UIText> titleText = std::make_shared<UIText>(font, "PYROS3D UI", 44.f, Vec4(1.f, 1.f, 1.f, 1.f));
-	titleText->SetAlignment(UIAlign::Left, UIVerticalAlign::Middle);
-	title->Add(std::static_pointer_cast<IComponent>(titleText));
-	components.push_back(std::static_pointer_cast<IComponent>(titleText));
+//=============================================================================
 
-	// ---- health bar: bottom-left, a fill nested inside a frame ----
-	std::shared_ptr<GameObject> health = MakeElement(canvasObj, "HealthBar",
-		Vec2(0.f, 1.f), Vec2(0.f, 1.f), Vec2(48.f, -96.f), Vec2(448.f, -48.f), Vec2(0.f, 0.f));
-	std::shared_ptr<UIImage> healthBg = std::make_shared<UIImage>(Vec4(0.f, 0.f, 0.f, 0.6f));
-	health->Add(std::static_pointer_cast<IComponent>(healthBg));
-	components.push_back(std::static_pointer_cast<IComponent>(healthBg));
+void UIExample::BakeTextures()
+{
+	// 24-unit corner on a 64px texture, sliced with a 28-unit border - so
+	// the corners keep their curvature at any element size and only the
+	// straight edges stretch.
+	texPanel = BakeRoundedRect(64, 24.f);
+	texPill = BakeRoundedRect(48, 18.f);
+	texShadow = BakeShadow(128, 34.f, 30.f);
+	texRamp = BakeRamp(64, Vec4(0.15f, 0.62f, 0.92f, 1.f), Vec4(0.45f, 0.92f, 0.95f, 1.f));
 
-	// Stretches to its parent, and the fill fraction is one offset - the
-	// bar animates by moving an anchor, not by rebuilding anything.
-	std::shared_ptr<GameObject> fill = MakeElement(health, "HealthFill",
-		Vec2(0.f, 0.f), Vec2(1.f, 1.f), Vec2(4.f, 4.f), Vec2(-4.f, -4.f), Vec2(0.f, 0.f));
-	healthFillRect = std::static_pointer_cast<UIRect>(components.back());
-	std::shared_ptr<UIImage> fillImg = std::make_shared<UIImage>(Vec4(0.85f, 0.20f, 0.18f, 1.f));
-	fill->Add(std::static_pointer_cast<IComponent>(fillImg));
-	components.push_back(std::static_pointer_cast<IComponent>(fillImg));
+	const std::string glyphs =
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,:;-_/%+()[]'\"!?";
+	fontTitle = std::make_shared<Font>(STR(EXAMPLES_PATH) "/assets/verdana.ttf", 72);
+	fontTitle->CreateText(glyphs);
+	fontBody = std::make_shared<Font>(STR(EXAMPLES_PATH) "/assets/verdana.ttf", 30);
+	fontBody->CreateText(glyphs);
+	fontSmall = std::make_shared<Font>(STR(EXAMPLES_PATH) "/assets/verdana.ttf", 20);
+	fontSmall->CreateText(glyphs);
+}
 
-	// ---- a 9-sliced panel ----
-	// Borders of 96 source pixels on a 512x512 texture: the four corners
-	// keep their own size at any element size, the edges stretch along one
-	// axis only, and the middle stretches both ways. That is the entire
-	// point of slicing, and it is why this element rebuilds its mesh
-	// instead of being a unit quad scaled by the transform.
-	std::shared_ptr<GameObject> sliced = MakeElement(canvasObj, "SlicedPanel",
-		Vec2(0.f, 0.f), Vec2(0.f, 0.f), Vec2(48.f, 176.f), Vec2(528.f, 456.f), Vec2(0.f, 0.f));
-	slicedTexture = std::make_shared<Texture>();
-	slicedTexture->LoadTexture(STR(EXAMPLES_PATH) "/assets/bricks.png", TextureType::Texture);
-	slicedTexture->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
-	slicedImage = std::make_shared<UIImage>(Vec4(1.f, 1.f, 1.f, 1.f));
-	slicedImage->SetTexture(slicedTexture);
-	slicedImage->SetBorder(Vec4(96.f, 96.f, 96.f, 96.f));
-	sliced->Add(std::static_pointer_cast<IComponent>(slicedImage));
-	components.push_back(std::static_pointer_cast<IComponent>(slicedImage));
+void UIExample::BuildBackdrop()
+{
+	// A block field, so there is something with depth and shading behind
+	// the menu instead of one flat shape on black.
+	blockMaterial = std::make_shared<GenericShaderMaterial>(ShaderUsage::Color | ShaderUsage::Diffuse);
+	blockMaterial->SetColor(Vec4(0.16f, 0.20f, 0.30f, 1.f));
+	blockMesh = std::make_shared<Cube>(1.f, 1.f, 1.f);
 
-	// ---- bottom-right readout, right-aligned inside its box ----
-	std::shared_ptr<GameObject> panel = MakeElement(canvasObj, "Readout",
-		Vec2(1.f, 1.f), Vec2(1.f, 1.f), Vec2(-560.f, -128.f), Vec2(-48.f, -48.f), Vec2(1.f, 1.f));
-	std::shared_ptr<UIImage> panelImg = std::make_shared<UIImage>(Vec4(0.10f, 0.12f, 0.16f, 0.75f));
-	panel->Add(std::static_pointer_cast<IComponent>(panelImg));
-	components.push_back(std::static_pointer_cast<IComponent>(panelImg));
+	blockRoot = std::make_shared<GameObject>();
+	Scene->Add(blockRoot);
 
-	std::shared_ptr<GameObject> readoutGO = MakeElement(panel, "ReadoutText",
-		Vec2(0.f, 0.f), Vec2(1.f, 1.f), Vec2(16.f, 8.f), Vec2(-16.f, -8.f), Vec2(0.5f, 0.5f));
-	readout = std::make_shared<UIText>(font, "1920 x 1080", 34.f, Vec4(0.6f, 0.85f, 1.f, 1.f));
-	readout->SetAlignment(UIAlign::Right, UIVerticalAlign::Middle);
-	readoutGO->Add(std::static_pointer_cast<IComponent>(readout));
-	components.push_back(std::static_pointer_cast<IComponent>(readout));
+	for (int32 gz = -4; gz <= 4; gz++)
+		for (int32 gx = -4; gx <= 4; gx++)
+		{
+			// Deterministic pseudo-random heights - the same field every
+			// run, so the verification pixels below are stable.
+			const f32 n = fabsf(sinf((f32)gx * 12.9898f + (f32)gz * 78.233f) * 43758.5453f);
+			const f32 height = 2.f + (n - floorf(n)) * 16.f;
+			std::shared_ptr<GameObject> b = std::make_shared<GameObject>();
+			b->SetPosition(Vec3((f32)gx * 7.f, height * 0.5f, (f32)gz * 7.f));
+			b->SetScale(Vec3(4.4f, height, 4.4f));
+			std::shared_ptr<RenderingComponent> rc = std::make_shared<RenderingComponent>(blockMesh, blockMaterial);
+			b->Add(rc);
+			blockRoot->Add(b);
+			blocks.push_back(b);
+			blockComponents.push_back(rc);
+		}
+
+	lightObj = std::make_shared<GameObject>();
+	dirLight = std::make_shared<DirectionalLight>(Vec4(1.f, 0.94f, 0.86f, 1.f), Vec3(-0.5f, -1.f, -0.35f));
+	lightObj->Add(dirLight);
+	Scene->Add(lightObj);
+}
+
+void UIExample::BuildHud()
+{
+	hudObj = std::make_shared<GameObject>();
+	hudObj->SetName("HudCanvas");
+	hudCanvas = std::make_shared<UICanvas>(1920.f, 1080.f);
+	hudCanvas->SetScaleMode(UIScaleMode::MatchWidth);
+	hudCanvas->SetSortOrder(0);
+	hudObj->Add(std::static_pointer_cast<IComponent>(hudCanvas));
+	Scene->Add(hudObj);
+
+	// ---- armour readout, top left ----
+	std::shared_ptr<GameObject> group = Element(hudObj, "Armour",
+		Vec2(0.f, 0.f), Vec2(0.f, 0.f), Vec2(56.f, 48.f), Vec2(516.f, 152.f), Vec2(0.f, 0.f));
+
+	std::shared_ptr<GameObject> caption = Element(group, "ArmourCaption",
+		Vec2(0.f, 0.f), Vec2(1.f, 0.f), Vec2(0.f, 0.f), Vec2(0.f, 30.f), Vec2(0.f, 0.f));
+	Label(caption, fontSmall, "ARMOUR", 20.f, kTextDim, UIAlign::Left, UIVerticalAlign::Top);
+	armourValue = Label(caption, fontSmall, "84%", 20.f, kAccent, UIAlign::Right, UIVerticalAlign::Top);
+
+	std::shared_ptr<GameObject> track = Element(group, "ArmourTrack",
+		Vec2(0.f, 1.f), Vec2(1.f, 1.f), Vec2(0.f, -34.f), Vec2(0.f, 0.f), Vec2(0.f, 1.f));
+	Image(track, Vec4(0.f, 0.f, 0.f, 0.55f), texPill, Vec4(20.f, 20.f, 20.f, 20.f));
+
+	std::shared_ptr<GameObject> fill = Element(track, "ArmourFill",
+		Vec2(0.f, 0.f), Vec2(0.84f, 1.f), Vec2(4.f, 4.f), Vec2(-4.f, -4.f), Vec2(0.f, 0.f));
+	armourFill = std::static_pointer_cast<UIRect>(components.back());
+	// The ramp is a plain stretched quad, not a 9-slice - a gradient's
+	// whole job is to stretch.
+	Image(fill, Vec4(1.f, 1.f, 1.f, 1.f), texRamp);
+
+	// ---- score, top right ----
+	std::shared_ptr<GameObject> score = Element(hudObj, "Score",
+		Vec2(1.f, 0.f), Vec2(1.f, 0.f), Vec2(-516.f, 48.f), Vec2(-56.f, 152.f), Vec2(1.f, 0.f));
+	std::shared_ptr<GameObject> scoreCaption = Element(score, "ScoreCaption",
+		Vec2(0.f, 0.f), Vec2(1.f, 0.f), Vec2(0.f, 0.f), Vec2(0.f, 30.f), Vec2(1.f, 0.f));
+	Label(scoreCaption, fontSmall, "WAVE 07", 20.f, kTextDim, UIAlign::Right, UIVerticalAlign::Top);
+	std::shared_ptr<GameObject> scoreValue = Element(score, "ScoreValue",
+		Vec2(0.f, 0.f), Vec2(1.f, 1.f), Vec2(0.f, 34.f), Vec2(0.f, 0.f), Vec2(1.f, 0.f));
+	Label(scoreValue, fontBody, "128,400", 46.f, kTextHi, UIAlign::Right, UIVerticalAlign::Top);
+}
+
+void UIExample::BuildMenu()
+{
+	menuObj = std::make_shared<GameObject>();
+	menuObj->SetName("MenuCanvas");
+	menuCanvas = std::make_shared<UICanvas>(1920.f, 1080.f);
+	menuCanvas->SetScaleMode(UIScaleMode::MatchWidth);
+	// Above the HUD - one number, rather than a hierarchy edit.
+	menuCanvas->SetSortOrder(10);
+	menuObj->Add(std::static_pointer_cast<IComponent>(menuCanvas));
+	Scene->Add(menuObj);
+
+	// ---- scrim over everything ----
+	std::shared_ptr<GameObject> scrim = Element(menuObj, "Scrim",
+		Vec2(0.f, 0.f), Vec2(1.f, 1.f), Vec2(0.f, 0.f), Vec2(0.f, 0.f));
+	Image(scrim, Vec4(kInk.x, kInk.y, kInk.z, 0.66f));
+
+	// ---- card, centred, with its shadow behind it ----
+	// The shadow is a sibling drawn first rather than part of the card,
+	// because draw order here is hierarchy order: earlier siblings paint
+	// first, so this is all the "z-index" a UI needs.
+	std::shared_ptr<GameObject> shadow = Element(menuObj, "CardShadow",
+		Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f), Vec2(-400.f, -400.f), Vec2(400.f, 432.f));
+	Image(shadow, Vec4(0.f, 0.f, 0.f, 0.55f), texShadow, Vec4(60.f, 60.f, 60.f, 60.f));
+
+	// Two stacked rounded rects: a faint light ring, and the real face
+	// inset by 2 units inside it. That is the border - a real element with
+	// a real colour, rather than shading baked into the art.
+	std::shared_ptr<GameObject> cardEdge = Element(menuObj, "CardEdge",
+		Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f), Vec2(-360.f, -368.f), Vec2(360.f, 368.f));
+	Image(cardEdge, Vec4(1.f, 1.f, 1.f, 0.14f), texPanel, Vec4(28.f, 28.f, 28.f, 28.f));
+
+	std::shared_ptr<GameObject> card = Element(cardEdge, "Card",
+		Vec2(0.f, 0.f), Vec2(1.f, 1.f), Vec2(2.f, 2.f), Vec2(-2.f, -2.f), Vec2(0.f, 0.f));
+	Image(card, kCard, texPanel, Vec4(28.f, 28.f, 28.f, 28.f));
+
+	// ---- header ----
+	std::shared_ptr<GameObject> eyebrow = Element(card, "Eyebrow",
+		Vec2(0.f, 0.f), Vec2(1.f, 0.f), Vec2(64.f, 64.f), Vec2(-64.f, 92.f), Vec2(0.f, 0.f));
+	Label(eyebrow, fontSmall, "PAUSED", 20.f, kAccent, UIAlign::Center, UIVerticalAlign::Middle);
+
+	std::shared_ptr<GameObject> title = Element(card, "Title",
+		Vec2(0.f, 0.f), Vec2(1.f, 0.f), Vec2(64.f, 96.f), Vec2(-64.f, 196.f), Vec2(0.f, 0.f));
+	Label(title, fontTitle, "PYROS3D", 76.f, kTextHi, UIAlign::Center, UIVerticalAlign::Middle);
+
+	std::shared_ptr<GameObject> rule = Element(card, "Rule",
+		Vec2(0.5f, 0.f), Vec2(0.5f, 0.f), Vec2(-56.f, 208.f), Vec2(56.f, 212.f), Vec2(0.f, 0.f));
+	Image(rule, kAccent);
+
+	// ---- rows ----
+	const char* names[] = { "Resume", "Loadout", "Settings", "Quit to Menu" };
+	const char* hints[] = { "esc", "L", "S", "" };
+	const f32 rowTop = 264.f, rowHeight = 76.f, rowGap = 16.f;
+
+	for (int32 i = 0; i < 4; i++)
+	{
+		const f32 y = rowTop + (rowHeight + rowGap) * (f32)i;
+		std::shared_ptr<GameObject> row = Element(card, std::string("Row") + names[i],
+			Vec2(0.f, 0.f), Vec2(1.f, 0.f), Vec2(48.f, y), Vec2(-48.f, y + rowHeight), Vec2(0.f, 0.f));
+		rowBackgrounds.push_back(Image(row, kRowIdle, texPill, Vec4(18.f, 18.f, 18.f, 18.f)));
+
+		std::shared_ptr<GameObject> inner = Element(row, std::string("RowInner") + names[i],
+			Vec2(0.f, 0.f), Vec2(1.f, 1.f), Vec2(28.f, 0.f), Vec2(-28.f, 0.f), Vec2(0.f, 0.f));
+		rowLabels.push_back(Label(inner, fontBody, names[i], 34.f, kTextMid, UIAlign::Left, UIVerticalAlign::Middle));
+		rowHints.push_back(Label(inner, fontSmall, hints[i], 20.f, kTextDim, UIAlign::Right, UIVerticalAlign::Middle));
+	}
+
+	// ---- footer ----
+	std::shared_ptr<GameObject> footer = Element(card, "Footer",
+		Vec2(0.f, 1.f), Vec2(1.f, 1.f), Vec2(64.f, -76.f), Vec2(-64.f, -32.f), Vec2(0.f, 0.f));
+	Label(footer, fontSmall, "UICanvas  .  UIRect  .  UIImage  .  UIText", 20.f, kTextDim,
+		UIAlign::Center, UIVerticalAlign::Middle);
+
+	SetSelectedRow(0);
+}
+
+// Hover/press/selected states are the thing a styling layer will own later;
+// for now the demo drives the same three properties by hand, which is a
+// useful check that they are the right three.
+void UIExample::SetSelectedRow(const int32 row)
+{
+	selectedRow = row;
+	for (size_t i = 0; i < rowBackgrounds.size(); i++)
+	{
+		const bool on = ((int32)i == row);
+		rowBackgrounds[i]->SetTint(on ? kAccent : kRowIdle);
+		rowLabels[i]->SetColor(on ? Vec4(0.04f, 0.08f, 0.12f, 1.f) : kTextMid);
+		rowHints[i]->SetColor(on ? Vec4(0.06f, 0.20f, 0.29f, 1.f) : kTextDim);
+	}
 }
 
 void UIExample::Init()
@@ -138,28 +381,19 @@ void UIExample::Init()
 	BaseExample::Init();
 
 	Renderer = new ForwardRenderer(Width, Height);
+	Renderer->SetBackground(Vec4(0.05f, 0.06f, 0.09f, 1.f));
+	Renderer->SetGlobalLight(Vec4(0.18f, 0.20f, 0.26f, 1.f));
 	uiRenderer = new UIRenderer(Width, Height);
-	projection.Perspective(70.f, (f32)Width / (f32)Height, 0.1f, 200.f);
+	projection.Perspective(58.f, (f32)Width / (f32)Height, 0.1f, 400.f);
 
-	FPSCamera->SetPosition(Vec3(0.f, 8.f, 34.f));
-	FPSCamera->SetRotation(Vec3(DEGTORAD(-10.f), 0.f, 0.f));
+	FPSCamera->SetPosition(Vec3(0.f, 26.f, 52.f));
+	FPSCamera->SetRotation(Vec3(DEGTORAD(-20.f), 0.f, 0.f));
 	FPSCamera->RefreshTransformation();
 
-	material = std::make_shared<GenericShaderMaterial>(ShaderUsage::Color | ShaderUsage::Diffuse);
-	material->SetColor(Vec4(0.25f, 0.55f, 0.85f, 1.f));
-
-	cubeMesh = std::make_shared<Cube>(10.f, 10.f, 10.f);
-	cubeObj = std::make_shared<GameObject>();
-	rCube = std::make_shared<RenderingComponent>(cubeMesh, material);
-	cubeObj->Add(rCube);
-	Scene->Add(cubeObj);
-
-	lightObj = std::make_shared<GameObject>();
-	dirLight = std::make_shared<DirectionalLight>(Vec4(1.f, 1.f, 1.f, 1.f), Vec3(-0.4f, -1.f, -0.3f));
-	lightObj->Add(dirLight);
-	Scene->Add(lightObj);
-
-	BuildCanvas();
+	BakeTextures();
+	BuildBackdrop();
+	BuildHud();
+	BuildMenu();
 
 	InitImGui();
 }
@@ -169,17 +403,24 @@ void UIExample::Update()
 	BaseExample::Update();
 	Scene->Update(GetTime());
 
-	cubeObj->SetRotation(Vec3(0.f, (f32)GetTime() * 0.6f, 0.f));
+	// Slow orbit, so the backdrop is alive without pulling the eye.
+	if (blockRoot) blockRoot->SetRotation(Vec3(0.f, (f32)GetTime() * 0.08f, 0.f));
 
-	// Drive the bar by moving its right anchor - no geometry work here at
-	// all, the canvas re-solves and UIImage rebuilds only because the
-	// solved width changed.
-	const f32 frac = 0.5f + 0.5f * sinf((f32)GetTime() * 0.8f);
-	if (healthFillRect) healthFillRect->SetAnchors(Vec2(0.f, 0.f), Vec2(frac, 1.f));
+	const f32 t = (f32)GetTime();
+	const f32 armour = 0.55f + 0.42f * (0.5f + 0.5f * sinf(t * 0.7f));
+	if (armourFill) armourFill->SetAnchors(Vec2(0.f, 0.f), Vec2(armour, 1.f));
+	if (armourValue)
+	{
+		char buf[16];
+		snprintf(buf, sizeof(buf), "%d%%", (int)(armour * 100.f + 0.5f));
+		armourValue->SetText(buf);
+	}
 
-	char buf[64];
-	snprintf(buf, sizeof(buf), "%u x %u", Width, Height);
-	if (readout) readout->SetText(buf);
+	// Walk the selection, so the state change is visible without input.
+	// Pinned under verification, where "which row is highlighted" would
+	// otherwise depend on how long startup happened to take.
+	const int32 want = verifyMode ? 0 : ((int32)(t * 0.5f)) % 4;
+	if (want != selectedRow) SetSelectedRow(want);
 
 	if (verifyMode && !verified)
 	{
@@ -197,13 +438,16 @@ void UIExample::Update()
 	EndImGuiFrame();
 }
 
-// Renders one frame into an offscreen target and checks the pixels that
-// each part of the system is responsible for. This is the acceptance test:
-// the layout maths is covered headlessly by tools/tests/ui_layout.cpp, but
-// nothing there proves a quad ever reaches the screen.
+//=============================================================================
+// Acceptance test
+//
+// The layout maths is covered headlessly by tools/tests/ui_layout.cpp; this
+// is the half that proves quads and glyphs actually reach a target, on a
+// machine whose screen cannot be captured.
+//=============================================================================
 void UIExample::RunVerification()
 {
-	const uint32 W = 1280, H = 800;
+	const uint32 W = 1600, H = 900;
 
 	Texture color;
 	color.CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, W, H, false);
@@ -217,7 +461,7 @@ void UIExample::RunVerification()
 
 	Renderer->Resize(W, H);
 	uiRenderer->Resize(W, H);
-	Renderer->SetBackground(Vec4(0.f, 0.f, 0.f, 1.f));
+	projection.Perspective(58.f, (f32)W / (f32)H, 0.1f, 400.f);
 
 	fbo.Bind();
 	Renderer->ApplyBackgroundClearColor();
@@ -227,123 +471,125 @@ void UIExample::RunVerification()
 	fbo.UnBind();
 	GetActiveRenderDevice().WaitIdle();
 
-	// What the layout actually solved to, so a wrong picture can be read
-	// as either a layout bug or a rendering one without guessing.
-	printf("      canvas %.0fx%.0f units for a %ux%u viewport\n",
-		canvas->GetCanvasRect().width, canvas->GetCanvasRect().height, W, H);
-	for (size_t i = 0; i < elements.size(); i++)
-	{
-		const std::vector<std::shared_ptr<IComponent> > &cs = elements[i]->GetComponents();
-		for (size_t j = 0; j < cs.size(); j++)
-			if (cs[j] && cs[j]->GetComponentType() == ComponentType::UIRect)
-			{
-				UIRect* r = static_cast<UIRect*>(cs[j].get());
-				printf("      %-14s rect %7.1f,%7.1f %7.1fx%-7.1f  local %7.1f,%7.1f\n",
-					elements[i]->GetName().c_str(), r->GetRect().x, r->GetRect().y,
-					r->GetRect().width, r->GetRect().height,
-					elements[i]->GetPosition().x, elements[i]->GetPosition().y);
-			}
-	}
+	printf("      hud canvas  %.0fx%.0f units, menu canvas %.0fx%.0f, viewport %ux%u\n",
+		hudCanvas->GetCanvasRect().width, hudCanvas->GetCanvasRect().height,
+		menuCanvas->GetCanvasRect().width, menuCanvas->GetCanvasRect().height, W, H);
 
 	std::vector<uchar> px = color.GetTextureData();
 	int failures = 0;
+	if (px.size() < (size_t)W * H * 4)
+	{
+		printf("FAIL  read back %zu bytes, expected %u\n\nFAILED (1 failure(s))\n", px.size(), W * H * 4);
+		return;
+	}
 
-	// Written unconditionally: a pass/fail line says whether the pixels
-	// were right, the file says what they actually were.
-	if (px.size() >= (size_t)W * H * 4)
 	{
 		std::vector<uchar> out(px.begin(), px.begin() + (size_t)W * H * 4);
 #if !defined(_SDL2VULKAN) && !defined(_SDL2METAL)
 		for (uint32 y = 0; y < H / 2; y++)
 			for (uint32 x = 0; x < W * 4; x++)
 			{
-				const uchar t = out[(size_t)y * W * 4 + x];
+				const uchar tmp = out[(size_t)y * W * 4 + x];
 				out[(size_t)y * W * 4 + x] = out[(size_t)(H - 1 - y) * W * 4 + x];
-				out[(size_t)(H - 1 - y) * W * 4 + x] = t;
+				out[(size_t)(H - 1 - y) * W * 4 + x] = tmp;
 			}
 #endif
 		stbi_write_png("ui_verify.png", (int)W, (int)H, 4, out.data(), (int)W * 4);
 		printf("      wrote ui_verify.png\n");
 	}
-	if (px.size() < (size_t)W * H * 4)
-	{
-		printf("FAIL  read back %zu bytes, expected %u\n", px.size(), W * H * 4);
-		printf("\nFAILED (1 failure(s))\n");
-		return;
-	}
 
-	// The canvas is MatchWidth against a 1920 reference, so at 1280 wide
-	// one canvas unit is 1280/1920 = 0.667 screen pixels, and the canvas is
-	// 1920 x 1200 units tall.
-	const f32 scale = (f32)W / 1920.f;
-	struct Probe { const char* what; f32 cx, cy; bool wantOpaqueUI; f32 r, g, b; };
-	// Canvas-space points, converted below. Colours are what the tint says
-	// after blending over black.
-	const Probe probes[] = {
-		{ "top bar is drawn at the top of the screen",     640.f,  48.f, true, 0.05f * 0.85f, 0.07f * 0.85f, 0.10f * 0.85f },
-		{ "health bar frame is at the bottom left",        100.f, 1130.f, true, 0.f, 0.f, 0.f },
-		{ "nothing is drawn in the middle of the canvas",  960.f, 600.f, false, 0.f, 0.f, 0.f },
-	};
-
-	for (size_t i = 0; i < sizeof(probes) / sizeof(probes[0]); i++)
-	{
-		const int sx = (int)(probes[i].cx * scale);
-		const int sy = (int)(probes[i].cy * scale);
-		if (sx < 0 || sy < 0 || sx >= (int)W || sy >= (int)H)
-		{
-			printf("FAIL  %s (probe off-screen at %d,%d)\n", probes[i].what, sx, sy);
-			failures++;
-			continue;
+	// Canvas units -> readback pixels.
+	const f32 s = (f32)W / 1920.f;
+	struct Px { int r, g, b; };
+	struct Sampler {
+		const std::vector<uchar>* px; uint32 W, H; f32 s;
+		Px At(const f32 cx, const f32 cy) const {
+			int x = (int)(cx * s), y = (int)(cy * s);
+			if (x < 0) x = 0; if (y < 0) y = 0;
+			if (x >= (int)W) x = (int)W - 1; if (y >= (int)H) y = (int)H - 1;
+#if defined(_SDL2VULKAN) || defined(_SDL2METAL)
+			const size_t o = ((size_t)y * W + x) * 4;
+#else
+			const size_t o = ((size_t)(H - 1 - y) * W + x) * 4;
+#endif
+			Px p; p.r = (*px)[o]; p.g = (*px)[o + 1]; p.b = (*px)[o + 2]; return p;
 		}
-		// GL reads bottom-up; Vulkan/Metal top-down, same as the editor's
-		// own readback path.
-#if defined(_SDL2VULKAN) || defined(_SDL2METAL)
-		const size_t o = ((size_t)sy * W + sx) * 4;
-#else
-		const size_t o = ((size_t)(H - 1 - sy) * W + sx) * 4;
-#endif
-		const int r = px[o], g = px[o + 1], b = px[o + 2];
-		printf("      %-46s at %4d,%4d -> (%3d,%3d,%3d)\n", probes[i].what, sx, sy, r, g, b);
-	}
+	} S{ &px, W, H, s };
 
-	// The real assertions: the UI must have changed pixels the 3D pass
-	// could not have, and must not have leaked into the 3D world.
-	size_t topBarLit = 0, midEmpty = 0;
-	for (uint32 x = 0; x < W; x += 8)
+	// Expected colours are computed from the palette, not hardcoded, so
+	// changing the design cannot quietly turn these into tautologies.
+	struct Expect { const char* what; f32 cx, cy; Vec4 want; };
+	const Expect exact[] = {
+		// Card face: opaque tint over the scrim, so essentially the tint.
+		{ "the card paints its palette colour", 960.f, 250.f, kCard },
+		// The selected row is the accent, filled edge to edge.
+		{ "the selected row carries the accent tint", 1150.f, 474.f, kAccent },
+	};
+	for (size_t i = 0; i < sizeof(exact) / sizeof(exact[0]); i++)
 	{
-		const uint32 syTop = (uint32)(40.f * scale);
-#if defined(_SDL2VULKAN) || defined(_SDL2METAL)
-		const size_t o = ((size_t)syTop * W + x) * 4;
-#else
-		const size_t o = ((size_t)(H - 1 - syTop) * W + x) * 4;
-#endif
-		if (px[o] > 4 || px[o + 1] > 4 || px[o + 2] > 8) topBarLit++;
+		const Px got = S.At(exact[i].cx, exact[i].cy);
+		const int wr = (int)(exact[i].want.x * 255.f + 0.5f);
+		const int wg = (int)(exact[i].want.y * 255.f + 0.5f);
+		const int wb = (int)(exact[i].want.z * 255.f + 0.5f);
+		// Generous, because the tint is composited over whatever is under
+		// it at whatever alpha the palette asked for.
+		const bool ok = abs(got.r - wr) < 14 && abs(got.g - wg) < 14 && abs(got.b - wb) < 14;
+		printf("%s  %-44s got (%3d,%3d,%3d) want (%3d,%3d,%3d)\n",
+			ok ? "PASS" : "FAIL", exact[i].what, got.r, got.g, got.b, wr, wg, wb);
+		if (!ok) failures++;
 	}
-	printf("%s  the top bar covers the full width (%zu/%u sampled columns lit)\n",
-		topBarLit > (W / 8) * 9 / 10 ? "PASS" : "FAIL", topBarLit, W / 8);
-	if (topBarLit <= (W / 8) * 9 / 10) failures++;
 
-	(void)midEmpty;
+	// Rounded corners, checked where it matters: just outside the top-left
+	// arc must NOT be card, and the same distance in from the straight edge
+	// must be.
+	const Px offArc = S.At(606.f, 178.f);
+	const Px onEdge = S.At(606.f, 540.f);
+	const bool rounded = offArc.b < 20 && onEdge.b > 20;
+	printf("%s  the corners are actually round (arc %3d,%3d,%3d / edge %3d,%3d,%3d)\n",
+		rounded ? "PASS" : "FAIL", offArc.r, offArc.g, offArc.b, onEdge.r, onEdge.g, onEdge.b);
+	if (!rounded) failures++;
 
-	// 9-slicing is a mesh property, so it is checked as one: three columns
-	// by three rows of quads, four vertices each.
-	const size_t slicedVerts = slicedImage->GetRenderable()->Geometries[0]->GetVertexData().size();
-	printf("%s  the 9-sliced panel is 9 quads (%zu vertices)\n",
-		slicedVerts == 36 ? "PASS" : "FAIL", slicedVerts);
-	if (slicedVerts != 36) failures++;
+	// The armour bar: its gradient must be drawn, and it must be brighter
+	// than the empty part of the track right next to it.
+	const Px fill = S.At(150.f, 135.f);
+	const Px empty = S.At(500.f, 135.f);
+	const bool bar = fill.b > fill.r && fill.b > empty.b + 30;
+	printf("%s  the armour gradient is drawn over its track (fill %3d,%3d,%3d / empty %3d,%3d,%3d)\n",
+		bar ? "PASS" : "FAIL", fill.r, fill.g, fill.b, empty.r, empty.g, empty.b);
+	if (!bar) failures++;
 
-	// And the 3D pass must not have drawn the UI quads out in the world:
-	// with the canvas at the origin and the camera 34 units back, a leaked
-	// 1920-unit-wide quad would fill the entire view.
-	std::vector<RenderingMesh*> world = RenderingComponent::GetRenderingMeshes(Scene);
-	size_t uiInWorld = 0;
-	for (size_t i = 0; i < world.size(); i++)
-		if (world[i]->renderingComponent->GetRenderLayer() == RenderLayer::UI) uiInWorld++;
-	printf("%s  the scene has %zu UI meshes, all on the UI layer\n",
-		uiInWorld > 0 ? "PASS" : "FAIL", uiInWorld);
-	if (uiInWorld == 0) failures++;
+	// Canvas sort order, as an observable fact rather than a field read:
+	// the menu's full-screen scrim is drawn over the HUD, so the bar's
+	// gradient arrives dimmed. Unscrimmed it would be around g=160.
+	const bool ordered = fill.g > 20 && fill.g < 110;
+	printf("%s  the menu canvas paints over the HUD canvas (bar green %d, unscrimmed would be ~160)\n",
+		ordered ? "PASS" : "FAIL", fill.g);
+	if (!ordered) failures++;
+
+	// 9-slicing is a mesh property, so it is checked as one.
+	size_t sliced = 0, plain = 0;
+	for (size_t i = 0; i < components.size(); i++)
+		if (components[i] && components[i]->GetComponentType() == ComponentType::UIImage)
+		{
+			UIImage* img = static_cast<UIImage*>(components[i].get());
+			const size_t verts = img->GetRenderable()->Geometries[0]->GetVertexData().size();
+			if (verts == 36) sliced++; else if (verts == 4) plain++;
+		}
+	printf("%s  %zu images are 9-sliced (9 quads) and %zu are plain (1 quad)\n",
+		(sliced == 8 && plain == 3) ? "PASS" : "FAIL", sliced, plain);
+	if (!(sliced == 8 && plain == 3)) failures++;
+
+	// And the 3D pass must never see any of it.
+	std::vector<RenderingMesh*> all = RenderingComponent::GetRenderingMeshes(Scene);
+	size_t ui = 0, world = 0;
+	for (size_t i = 0; i < all.size(); i++)
+		(all[i]->renderingComponent->GetRenderLayer() == RenderLayer::UI ? ui : world)++;
+	printf("%s  %zu UI meshes and %zu world meshes, on separate layers\n",
+		(ui > 0 && world > 0) ? "PASS" : "FAIL", ui, world);
+	if (!(ui > 0 && world > 0)) failures++;
 
 	printf("\n%s (%d failure(s))\n", failures ? "FAILED" : "ALL PASSED", failures);
+	fflush(stdout);
 }
 
 void UIExample::DrawUI()
@@ -352,59 +598,57 @@ void UIExample::DrawUI()
 
 	if (ImGui::Begin("UI Example", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 	{
-		ImGui::Text("A UICanvas drawn by UIRenderer over the 3D scene.");
+		ImGui::Text("Two UICanvases over a 3D scene, drawn by UIRenderer.");
 		ImGui::Separator();
-		ImGui::Text("Reference resolution 1920x1080, MatchWidth -");
-		ImGui::Text("resize the window and the layout holds.");
+		ImGui::Text("HUD  canvas, sort order 0");
+		ImGui::Text("Menu canvas, sort order 10 (paints over it)");
 		ImGui::Separator();
-		ImGui::Text("Top bar   : stretched anchors + UIText");
-		ImGui::Text("Health bar: a fill nested in a frame,");
-		ImGui::Text("            animated by moving one anchor");
-		ImGui::Text("Readout   : right-aligned text in a panel");
+		ImGui::Text("Reference 1920x1080, MatchWidth - resize the");
+		ImGui::Text("window and the whole layout holds.");
+		ImGui::Separator();
+		ImGui::Text("Every panel, pill and gradient is a procedural");
+		ImGui::Text("texture baked at startup, used as a 9-slice.");
+		ImGui::Text("No image files.");
 	}
 	ImGui::End();
 }
 
 void UIExample::Shutdown()
 {
-	// Detach in reverse: elements are children of each other, and the
-	// canvas has to outlive them or the solve walks a half-torn tree.
 	for (size_t i = elements.size(); i > 0; i--)
 	{
 		GameObject* parent = elements[i - 1]->GetParent();
 		if (parent) parent->Remove(elements[i - 1]);
 	}
-	slicedImage.reset();
-	slicedTexture.reset();
+	rowBackgrounds.clear();
+	rowLabels.clear();
+	rowHints.clear();
+	armourFill.reset();
+	armourValue.reset();
 	components.clear();
 	elements.clear();
-	healthFillRect.reset();
-	readout.reset();
 
-	if (canvasObj)
-	{
-		canvasObj->Remove(std::static_pointer_cast<IComponent>(canvas));
-		Scene->Remove(canvasObj);
-	}
-	canvas.reset();
-	canvasObj.reset();
-	font.reset();
+	if (hudObj) { hudObj->Remove(std::static_pointer_cast<IComponent>(hudCanvas)); Scene->Remove(hudObj); }
+	if (menuObj) { menuObj->Remove(std::static_pointer_cast<IComponent>(menuCanvas)); Scene->Remove(menuObj); }
+	hudCanvas.reset(); menuCanvas.reset();
+	hudObj.reset(); menuObj.reset();
 
-	if (cubeObj)
-	{
-		cubeObj->Remove(rCube);
-		Scene->Remove(cubeObj);
-	}
-	rCube.reset();
-	cubeObj.reset();
-	cubeMesh.reset();
-	material.reset();
+	texPanel.reset(); texShadow.reset(); texPill.reset(); texRamp.reset();
+	fontTitle.reset(); fontBody.reset(); fontSmall.reset();
 
-	if (lightObj)
+	for (size_t i = blocks.size(); i > 0; i--)
 	{
-		lightObj->Remove(dirLight);
-		Scene->Remove(lightObj);
+		blocks[i - 1]->Remove(blockComponents[i - 1]);
+		if (blockRoot) blockRoot->Remove(blocks[i - 1]);
 	}
+	blockComponents.clear();
+	blocks.clear();
+	if (blockRoot) Scene->Remove(blockRoot);
+	blockRoot.reset();
+	blockMesh.reset();
+	blockMaterial.reset();
+
+	if (lightObj) { lightObj->Remove(dirLight); Scene->Remove(lightObj); }
 	dirLight.reset();
 	lightObj.reset();
 

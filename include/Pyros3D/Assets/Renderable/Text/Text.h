@@ -30,6 +30,12 @@ namespace p3d {
 			// Calculate Bounding Sphere Radius
 			CalculateBounding();
 
+			// An empty string is a legitimate label ("", or a value that
+			// has not arrived yet), and it produces no quads at all -
+			// at which point &tVertex[0] below is indexing an empty
+			// vector, which crashed outright.
+			if (tVertex.empty()) return;
+
 			AttributeArray* Vertex;
 
 			// Create and Set Attribute Buffer
@@ -128,6 +134,13 @@ namespace p3d {
 		// serialization to read a Text object's actual current state.
 		Font* GetFont() const { return font; }
 		const std::string &GetText() const { return text; }
+		// The typeset width of the widest line and how many lines there
+		// are, both in the same units as the mesh. Measured from the pen,
+		// not from the ink - so a leading space or a glyph with a wide
+		// bearing still reports the width the text actually occupies,
+		// which is what alignment has to use.
+		f32 GetAdvanceWidth() const { return advanceWidth; }
+		uint32 GetLineCount() const { return lineCount; }
 		f32 GetCharWidth() const { return charWidth; }
 		f32 GetCharHeight() const { return charHeight; }
 		// Valid when charColors is empty (i.e. the single-color
@@ -151,6 +164,10 @@ namespace p3d {
 		// always reflect the most recent call's color argument(s).
 		Vec4 color;
 		std::vector<Vec4> charColors;
+
+		// See GetAdvanceWidth()/GetLineCount().
+		f32 advanceWidth = 0.f;
+		uint32 lineCount = 1;
 
 		// Initialized Flag
 		bool Initialized;

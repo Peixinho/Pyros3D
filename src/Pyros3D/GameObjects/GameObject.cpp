@@ -343,8 +343,15 @@ namespace p3d {
 				// Fire the Mothafucka!
 				Component->Owner = NULL;
 
-				// Unregister Component
-				Component->Unregister(Scene);
+				// Unregister Component. FindScene(), not this object's own
+				// Scene member: only roots carry that, so on a child it is
+				// NULL - and a child's components are registered now, so
+				// Unregister() would reach a real `if (Registered)` branch
+				// and dereference the null scene (RenderingComponent's
+				// Scene->GetRenderingMeshes(), straight to a segfault).
+				// Still NULL for an object genuinely outside any scene,
+				// where Registered is false and nothing dereferences it.
+				Component->Unregister(FindScene());
 
 				// Erase it!
 				Components.erase(i);

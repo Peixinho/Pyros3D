@@ -47,9 +47,10 @@ namespace p3d {
 		if (this->charWidth == charWidth && this->charHeight == charHeight) return;
 		this->charWidth = charWidth;
 		this->charHeight = charHeight;
-		// Both UpdateText() overloads early-out when the string is
-		// unchanged, so the cached copy has to be cleared for the rebuild
-		// at the new size to actually happen.
+		// Both UpdateText() overloads early-out when nothing they can see
+		// has changed, and neither of them can see charWidth/charHeight -
+		// so the cached string has to be cleared for the rebuild at the
+		// new size to actually happen.
 		const std::string current = text;
 		text.clear();
 		if (charColors.empty()) UpdateText(current, color);
@@ -58,11 +59,15 @@ namespace p3d {
 
 	void Text::UpdateText(const std::string &text, const Vec4 &color)
 	{
-		// Set unconditionally, even if the text-unchanged early-out below
-		// skips a real rebuild - see Text.h's GetColor() comment.
+		// Colour is per-vertex here (it rides in the normal attribute, see
+		// below), so a colour change is a mesh change - the early-out has
+		// to test for it too. It did not, so recolouring text in place
+		// silently did nothing unless the string happened to change with
+		// it, and callers worked around that by blanking the text first.
+		const bool changed = (this->text != text) || (this->color != color) || !this->charColors.empty();
 		this->color = color;
 		this->charColors.clear();
-		if (this->text != text)
+		if (changed)
 		{
 			this->text = text;
 
@@ -84,19 +89,20 @@ namespace p3d {
 			f32 offsetY = 0;
 
 			uint32 quads = 0;
-			f32 lineSize = 0.0f;
 
 			for (uint32 i = 0; i<text.size(); i++)
 			{
 				switch (text[i])
 				{
 				case '\n':
-					// Build Quads in the bottom
-					offsetY -= lineSize*1.5f;
+					// The font's designed leading, not 1.5x the tallest
+					// glyph seen so far - that made line spacing depend on
+					// which characters happened to appear above.
+					offsetY -= font->GetLineHeight();
 					offsetX = 0.0f;
 					break;
 				case ' ':
-					offsetX += font->GetFontSize() / 2;
+					offsetX += font->GetSpaceAdvance();
 					break;
 				default:
 
@@ -106,12 +112,18 @@ namespace p3d {
 					// Build Quads to the right
 					f32 w2 = width; f32 h2 = height;
 
-					if (height + glp.offset.y >lineSize) lineSize = height + glp.offset.y;
 
-					Vec3 a = Vec3(offsetX, offsetY - glp.offset.y, 0);
-					Vec3 b = Vec3(w2 + offsetX, offsetY - glp.offset.y, 0);
-					Vec3 c = Vec3(w2 + offsetX, h2 + offsetY - glp.offset.y, 0);
-					Vec3 d = Vec3(offsetX, h2 + offsetY - glp.offset.y, 0);
+					// The left side bearing positions the ink; it is not
+					// part of the step to the next glyph. Adding it to the
+					// advance instead (which is what this did) turned every
+					// bearing into a gap on the wrong side of its own
+					// character, so text came out uniformly too loose and
+					// letters with an unusual bearing sat visibly wrong.
+					const f32 penX = offsetX + glp.offset.x;
+					Vec3 a = Vec3(penX, offsetY - glp.offset.y, 0);
+					Vec3 b = Vec3(w2 + penX, offsetY - glp.offset.y, 0);
+					Vec3 c = Vec3(w2 + penX, h2 + offsetY - glp.offset.y, 0);
+					Vec3 d = Vec3(penX, h2 + offsetY - glp.offset.y, 0);
 
 					// Apply Dimensions
 					a.x = charWidth * a.x / font->GetFontSize();
@@ -146,12 +158,16 @@ namespace p3d {
 					geometry->index.push_back(quads * 4 + 3);
 					geometry->index.push_back(quads * 4 + 0);
 
-					offsetX += width + glp.offset.x;
+					offsetX += glp.advance;
 					quads++;
 
 					break;
 				}
 			}
+
+			if (offsetX > advanceWidth) advanceWidth = offsetX;
+			// Reported in the mesh's own units, like everything else here.
+			advanceWidth *= charWidth / font->GetFontSize();
 
 			// Build and Send Buffers
 			Build();
@@ -161,8 +177,9 @@ namespace p3d {
 	void Text::UpdateText(const std::string &text, const std::vector<Vec4> &colors)
 	{
 		// See the single-color overload's identical comment.
+		const bool changed = (this->text != text) || (this->charColors != colors);
 		this->charColors = colors;
-		if (this->text != text)
+		if (changed)
 		{
 			this->text = text;
 
@@ -184,19 +201,20 @@ namespace p3d {
 			f32 offsetY = 0;
 
 			uint32 quads = 0;
-			f32 lineSize = 0.0f;
 
 			for (uint32 i = 0; i<text.size(); i++)
 			{
 				switch (text[i])
 				{
 				case '\n':
-					// Build Quads in the bottom
-					offsetY -= lineSize*1.5f;
+					// The font's designed leading, not 1.5x the tallest
+					// glyph seen so far - that made line spacing depend on
+					// which characters happened to appear above.
+					offsetY -= font->GetLineHeight();
 					offsetX = 0.0f;
 					break;
 				case ' ':
-					offsetX += font->GetFontSize() / 2;
+					offsetX += font->GetSpaceAdvance();
 					break;
 				default:
 
@@ -206,12 +224,18 @@ namespace p3d {
 					// Build Quads to the right
 					f32 w2 = width; f32 h2 = height;
 
-					if (height + glp.offset.y >lineSize) lineSize = height + glp.offset.y;
 
-					Vec3 a = Vec3(offsetX, offsetY - glp.offset.y, 0);
-					Vec3 b = Vec3(w2 + offsetX, offsetY - glp.offset.y, 0);
-					Vec3 c = Vec3(w2 + offsetX, h2 + offsetY - glp.offset.y, 0);
-					Vec3 d = Vec3(offsetX, h2 + offsetY - glp.offset.y, 0);
+					// The left side bearing positions the ink; it is not
+					// part of the step to the next glyph. Adding it to the
+					// advance instead (which is what this did) turned every
+					// bearing into a gap on the wrong side of its own
+					// character, so text came out uniformly too loose and
+					// letters with an unusual bearing sat visibly wrong.
+					const f32 penX = offsetX + glp.offset.x;
+					Vec3 a = Vec3(penX, offsetY - glp.offset.y, 0);
+					Vec3 b = Vec3(w2 + penX, offsetY - glp.offset.y, 0);
+					Vec3 c = Vec3(w2 + penX, h2 + offsetY - glp.offset.y, 0);
+					Vec3 d = Vec3(penX, h2 + offsetY - glp.offset.y, 0);
 
 					// Apply Dimensions
 					a.x = charWidth * a.x / font->GetFontSize();
@@ -247,12 +271,16 @@ namespace p3d {
 					geometry->index.push_back(quads * 4 + 3);
 					geometry->index.push_back(quads * 4 + 0);
 
-					offsetX += width + glp.offset.x;
+					offsetX += glp.advance;
 					quads++;
 
 					break;
 				}
 			}
+
+			if (offsetX > advanceWidth) advanceWidth = offsetX;
+			// Reported in the mesh's own units, like everything else here.
+			advanceWidth *= charWidth / font->GetFontSize();
 
 			// ReBuild and Send Buffers (VBOS)
 			Build();

@@ -74,6 +74,16 @@ int main()
 	scene.Update(0.032);
 	check(lightsOn(&scene) == 3, "re-parenting re-registers the subtree");
 
+	// -------- and removing a component from a child unregisters it --------
+	// Not the same path as detaching the object: GameObject::Remove(
+	// IComponent*) has to find the scene by walking up, because a child
+	// never holds a Scene pointer of its own.
+	child->Remove(std::static_pointer_cast<IComponent>(childLight));
+	check(lightsOn(&scene) == 2, "removing a component from a child unregisters just that one");
+	child->Add(std::static_pointer_cast<IComponent>(childLight));
+	scene.Update(0.048);
+	check(lightsOn(&scene) == 3, "and adding it back registers it again");
+
 	// -------- removing the root removes everything --------
 	scene.Remove(root);
 	check(lightsOn(&scene) == 0, "removing the root unregistered the whole tree");

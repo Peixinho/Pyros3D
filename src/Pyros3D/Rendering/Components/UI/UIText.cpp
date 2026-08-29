@@ -67,14 +67,9 @@ namespace p3d {
 	void UIText::SetColor(const Vec4 &color)
 	{
 		this->color = color;
-		// Text carries per-character colour in the normal attribute (see
-		// Text::UpdateText), so a colour change is a mesh rebuild - and
-		// UpdateText early-outs when the string is unchanged, so the text
-		// has to be cleared first for the new colour to take.
-		Text* t = static_cast<Text*>(GetRenderable());
-		t->UpdateText(std::string(), color);
-		font->CreateText(text);
-		t->UpdateText(text, color);
+		// Text carries colour per vertex, so this rebuilds the mesh; its
+		// early-out tests the colour as well as the string.
+		static_cast<Text*>(GetRenderable())->UpdateText(text, color);
 		Realign();
 	}
 
@@ -107,9 +102,7 @@ namespace p3d {
 		std::vector<RenderingMesh*> &meshes = GetMeshes();
 		if (meshes.empty()) return;
 
-		Renderable* r = GetRenderable();
-		const Vec3 minB = r->GetBoundingMinValue();
-		const Vec3 maxB = r->GetBoundingMaxValue();
+		Text* t = static_cast<Text*>(GetRenderable());
 
 		// The rect, in the element's own local space: the owner sits at the
 		// rect's pivot, and local y is up while canvas y is down.
@@ -118,18 +111,30 @@ namespace p3d {
 		const f32 top = lastPivot.y * lastRect.height;
 		const f32 bottom = top - lastRect.height;
 
+		// Aligned by the font's designed box, not by the ink. Text's mesh
+		// puts the first line's baseline at y = 0, so the block runs from
+		// +ascender down through however many lines there are to
+		// -descender - independent of whether this particular string
+		// happens to contain a capital or a descender, which is what stops
+		// neighbouring labels sitting at different heights.
+		const f32 scale = size / t->GetFont()->GetFontSize();
+		const f32 blockTop = t->GetFont()->GetAscender() * scale;
+		const f32 blockBottom = -(t->GetFont()->GetDescender() * -1.f * scale)
+			- t->GetFont()->GetLineHeight() * scale * (f32)(t->GetLineCount() - 1);
+		const f32 blockWidth = t->GetAdvanceWidth();
+
 		f32 dx = 0.f, dy = 0.f;
 		switch (align)
 		{
-		case UIAlign::Center: dx = (left + right) * 0.5f - (minB.x + maxB.x) * 0.5f; break;
-		case UIAlign::Right:  dx = right - maxB.x; break;
-		default:              dx = left - minB.x; break;
+		case UIAlign::Center: dx = (left + right) * 0.5f - blockWidth * 0.5f; break;
+		case UIAlign::Right:  dx = right - blockWidth; break;
+		default:              dx = left; break;
 		}
 		switch (verticalAlign)
 		{
-		case UIVerticalAlign::Middle: dy = (top + bottom) * 0.5f - (minB.y + maxB.y) * 0.5f; break;
-		case UIVerticalAlign::Bottom: dy = bottom - minB.y; break;
-		default:                      dy = top - maxB.y; break;
+		case UIVerticalAlign::Middle: dy = (top + bottom) * 0.5f - (blockTop + blockBottom) * 0.5f; break;
+		case UIVerticalAlign::Bottom: dy = bottom - blockBottom; break;
+		default:                      dy = top - blockTop; break;
 		}
 
 		// Alignment rides on the mesh Pivot rather than the owner's

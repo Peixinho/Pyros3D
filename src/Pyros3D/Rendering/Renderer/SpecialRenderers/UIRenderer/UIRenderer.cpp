@@ -91,6 +91,9 @@ namespace p3d {
 				if (!m->renderingComponent->IsActive() || !m->Active) continue;
 				if (m->renderingComponent->GetOwner() == NULL) continue;
 				if (!m->Material) continue;
+				// An empty label builds a real mesh with no quads in it.
+				// Nothing to draw, and nothing sane to bind either.
+				if (m->Geometry == NULL || m->Geometry->GetIndexData().empty()) continue;
 				RenderObject(m, m->renderingComponent->GetOwner(), m->Material.get());
 			}
 		}
