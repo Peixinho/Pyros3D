@@ -77,6 +77,15 @@ pyros_add_example(CppApiDemo
 		${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
 )
 
+# Screen-space UI: UICanvas / UIRect / UIImage / UIText + UIRenderer over a
+# normal 3D scene. Doubles as the system's acceptance test - see UIExample.h.
+pyros_add_example(UIExample
+	DEMO_DEFINE _UIExample
+	SOURCES
+		${CMAKE_CURRENT_SOURCE_DIR}/UIExample/UIExample.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
+)
+
 # Metal backend's first-light smoke test (see MetalHelloWindow.h) - a
 # bespoke target, not pyros_add_example(): that helper always links the
 # *build-wide* ${PYROS_WINDOW_MANAGER} (one window context per configure,

@@ -113,6 +113,13 @@ namespace p3d {
 		void UpdateText(const std::string &text, const Vec4 &color = Vec4(1, 1, 1, 1));
 		void UpdateText(const std::string &text, const std::vector<Vec4> &color);
 
+		// Resize the glyph quads in place. charWidth/charHeight were
+		// constructor-only, so changing a text's size meant throwing the
+		// whole Renderable away and rebuilding every RenderingComponent
+		// pointing at it - fine for a one-off, useless for a UI label whose
+		// size is a style property.
+		void SetCharSize(const f32 charWidth, const f32 charHeight);
+
 		// Real getters - neither constructor nor either UpdateText()
 		// overload stored any of this before (the color arg(s) only ever
 		// fed per-vertex mesh-build math, then were discarded - same

@@ -43,6 +43,8 @@ namespace p3d {
 
 		isInstanced = false;
 
+		renderLayer = RenderLayer::World;
+
 		// By Default Is Casting Shadows
 		isCastingShadows = true;
 
@@ -99,6 +101,8 @@ namespace p3d {
 	{
 
 		isInstanced = false;
+
+		renderLayer = RenderLayer::World;
 
 		this->renderable = renderable;
 

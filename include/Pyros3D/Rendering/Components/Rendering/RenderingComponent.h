@@ -36,6 +36,25 @@ namespace p3d {
 		};
 	}
 
+	// Which pass a component belongs to. The renderer picks one layer and
+	// draws only that, which is the piece tag filtering could never do:
+	// GroupAndSortAssets()'s Tag filter is include-only (keep meshes that
+	// HAVE the tag), so there was no way to say "everything except the UI"
+	// and a screen-space canvas would otherwise be drawn a second time out
+	// in the 3D world by the main pass.
+	//
+	// Deliberately a layer number on the component rather than a tag on the
+	// GameObject: tags are user data that serialize into the scene file and
+	// are matched by name, so borrowing one for engine bookkeeping would put
+	// a reserved name into every project's tag list.
+	namespace RenderLayer
+	{
+		enum {
+			World = 0,
+			UI = 1
+		};
+	}
+
 	// Circular Dependency
 	class PYROS3D_API RenderingComponent;
 
@@ -226,6 +245,10 @@ namespace p3d {
 
 		virtual uint32 GetComponentType() const { return ComponentType::RenderingComponent; }
 
+		// See RenderLayer above. World unless something moves it.
+		void SetRenderLayer(const uint32 layer) { renderLayer = layer; }
+		uint32 GetRenderLayer() const { return renderLayer; }
+
 		void SetCullingGeometry(const uint32 Geometry);
 		void EnableCullTest() { cullTest = true; }
 		void DisableCullTest() { cullTest = false; }
@@ -360,6 +383,9 @@ namespace p3d {
 
 		// Instacing Flag
 		bool isInstanced;
+
+		// Render layer, see RenderLayer above.
+		uint32 renderLayer;
 	};
 
 };

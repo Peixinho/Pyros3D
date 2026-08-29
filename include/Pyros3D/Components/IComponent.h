@@ -40,7 +40,16 @@ namespace p3d {
 			Vehicle,
 			LuaComponent,
 			AudioSource,
-			IK
+			IK,
+			// Screen-space UI. UIRect is the layout half (anchors, pivot,
+			// offsets); UIImage/UIText are RenderingComponents, so they
+			// reach the GPU through the machinery that already exists and
+			// are kept out of the 3D pass by RenderLayer::UI rather than by
+			// anything the world renderer has to know about.
+			UICanvas,
+			UIRect,
+			UIImage,
+			UIText
 		};
 	}
 

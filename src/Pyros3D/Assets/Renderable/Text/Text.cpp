@@ -42,6 +42,20 @@ namespace p3d {
 		UpdateText(text, colors);
 	}
 
+	void Text::SetCharSize(const f32 charWidth, const f32 charHeight)
+	{
+		if (this->charWidth == charWidth && this->charHeight == charHeight) return;
+		this->charWidth = charWidth;
+		this->charHeight = charHeight;
+		// Both UpdateText() overloads early-out when the string is
+		// unchanged, so the cached copy has to be cleared for the rebuild
+		// at the new size to actually happen.
+		const std::string current = text;
+		text.clear();
+		if (charColors.empty()) UpdateText(current, color);
+		else UpdateText(current, charColors);
+	}
+
 	void Text::UpdateText(const std::string &text, const Vec4 &color)
 	{
 		// Set unconditionally, even if the text-unchanged early-out below

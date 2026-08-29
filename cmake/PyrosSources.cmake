@@ -62,6 +62,11 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/DepthOfFieldEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/CubemapRenderer/CubemapRenderer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/VelocityRenderer/VelocityRenderer.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UIRect.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UICanvas.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UIImage.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UIText.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.cpp

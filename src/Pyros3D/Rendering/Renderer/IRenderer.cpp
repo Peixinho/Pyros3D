@@ -113,6 +113,19 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 	// Get Meshes
 	std::vector<RenderingMesh*> rmeshes(RenderingComponent::GetRenderingMeshes(Scene));
 
+	// Layer first, and unconditionally - unlike the Tag filter below this
+	// is not opt-in. A mesh belongs to exactly one pass, and the default
+	// (World on both sides) keeps every existing renderer seeing exactly
+	// what it saw before. Without this the main pass would draw a canvas's
+	// quads a second time, out in the 3D world, because the Tag filter is
+	// include-only and cannot express "everything except".
+	for (std::vector<RenderingMesh*>::iterator k = rmeshes.begin(); k != rmeshes.end();)
+	{
+		if ((*k)->renderingComponent->GetRenderLayer() != renderLayer)
+			k = rmeshes.erase(k);
+		else ++k;
+	}
+
 	if (Tag != 0)
 	{
 		for (std::vector<RenderingMesh*>::iterator k = rmeshes.begin(); k != rmeshes.end();)
@@ -153,7 +166,7 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 // SendGlobalUniforms(), so it doesn't touch the shared UBOs at all - in
 // particular it must NOT bump SharedUBORefCount, since it will never
 // decrement it on destruction either (see ~IRenderer()).
-IRenderer::IRenderer() : ShadowMapsAreArrayIndexed(false), UsesSharedUBOs(false), device(new GLRenderDevice()) { RenderingPointShadowFace = false; }
+IRenderer::IRenderer() : ShadowMapsAreArrayIndexed(false), UsesSharedUBOs(false), device(new GLRenderDevice()) { RenderingPointShadowFace = false; renderLayer = RenderLayer::World; }
 
 // Resolves what IRenderer(Width, Height, externalDevice)'s device member
 // should use, and whether it should *own* (delete on destruction) or just
@@ -201,6 +214,10 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* ext
 {
 	// See the member's comment - only ForwardRenderer turns this on.
 	ShadowMapsAreArrayIndexed = false;
+
+	// See SetRenderLayer() - UIRenderer is the only thing that moves off
+	// World, so every other renderer sees the same meshes it always did.
+	renderLayer = RenderLayer::World;
 	ResolvedDevice resolved = ResolveInitialDevice(externalDevice);
 	device = MaybeOwningDevicePtr(resolved.ptr, MaybeOwningDeviceDeleter{resolved.owns});
 

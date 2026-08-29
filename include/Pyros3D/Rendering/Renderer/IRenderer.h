@@ -100,6 +100,13 @@ namespace p3d {
 		void SetGlobalLight(const Vec4 &Light);
 		void EnableDepthBias(const Vec2 &Bias);
 		void DisableDepthBias();
+		// Which RenderLayer this renderer draws, see RenderLayer in
+		// RenderingComponent.h. World by default, so every existing
+		// renderer keeps seeing exactly the meshes it always did;
+		// UIRenderer is the only thing that moves off it.
+		void SetRenderLayer(const uint32 layer) { renderLayer = layer; }
+		uint32 GetRenderLayer() const { return renderLayer; }
+
 		void SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY);
 		void ResetViewPort() { _viewPortStartX = _viewPortStartY = _viewPortEndX = _viewPortEndY = 0; } // Usefull for some shady stuff like rendering from different libs
 
@@ -670,6 +677,11 @@ namespace p3d {
 			_viewPortEndX;
 		static uint32
 			_viewPortEndY;
+
+		// See SetRenderLayer(). Per-renderer, not static: the whole point
+		// is that two renderers alive at the same time draw different
+		// halves of one scene.
+		uint32 renderLayer;
 	};
 
 };
