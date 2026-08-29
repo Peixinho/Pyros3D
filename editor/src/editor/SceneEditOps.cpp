@@ -340,6 +340,22 @@ void SceneEditor::ApplyCameraFov(uint32 goId, f32 fov)
 	it->second.fov = fov;
 }
 
+void SceneEditor::ApplyCameraOrthographic(uint32 goId, bool orthographic)
+{
+	std::map<uint32, EditorCameraSettings>::iterator it = sceneCameras.find(goId);
+	if (it == sceneCameras.end()) return;
+	it->second.orthographic = orthographic;
+	MarkSceneDirty();
+}
+
+void SceneEditor::ApplyCameraOrthoSize(uint32 goId, f32 orthoSize)
+{
+	std::map<uint32, EditorCameraSettings>::iterator it = sceneCameras.find(goId);
+	if (it == sceneCameras.end()) return;
+	it->second.orthoSize = orthoSize > 0.001f ? orthoSize : 0.001f;
+	MarkSceneDirty();
+}
+
 void SceneEditor::ApplyCameraNear(uint32 goId, f32 nearPlane)
 {
 	std::map<uint32, EditorCameraSettings>::iterator it = sceneCameras.find(goId);

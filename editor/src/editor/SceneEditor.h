@@ -240,6 +240,7 @@ public:
 		const std::string& parentName, std::string& errOut);
 	bool AgentAddPhysics(const std::string& name, const json& p, const std::string& parentName, std::string& errOut);
 	bool AgentAddModel(const std::string& name, const std::string& modelFile, const std::string& parentName, std::string& errOut);
+	bool AgentSetCamera(const std::string& name, const json& p, std::string& errOut);
 	bool AgentAddCamera(const std::string& name, const std::vector<f32>& position,
 		f32 fov, f32 nearPlane, f32 farPlane, bool active, std::string& errOut);
 	bool AgentSetTransform(const std::string& name, const json& t, std::string& errOut);
@@ -409,6 +410,8 @@ public:
 	// field each - used both by the live widget in ShowProperties() and by
 	// the ApplyClosureCommand it pushes on commit (see UndoValueEdit.h).
 	void ApplyCameraFov(uint32 goId, f32 fov);
+	void ApplyCameraOrthographic(uint32 goId, bool orthographic);
+	void ApplyCameraOrthoSize(uint32 goId, f32 orthoSize);
 	void ApplyCameraNear(uint32 goId, f32 nearPlane);
 	void ApplyCameraFar(uint32 goId, f32 farPlane);
 	void ApplyLightColor(uint32 lightId, const Vec4& color);
@@ -500,7 +503,7 @@ private:
 	// Commit-boundary baselines for camera FOV/Near/Far and light color/
 	// direction/radius/cone-angle widgets - see the UndoValueEdit call
 	// sites in ShowProperties() for which one backs which widget.
-	f32 undoBaselineFov, undoBaselineNear, undoBaselineFar;
+	f32 undoBaselineFov, undoBaselineNear, undoBaselineFar, undoBaselineOrthoSize;
 	Vec4 undoBaselineLightColor;
 	Vec3 undoBaselineLightDirection;
 	f32 undoBaselineLightRadius, undoBaselineLightInnerCone, undoBaselineLightOuterCone;

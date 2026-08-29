@@ -80,17 +80,30 @@ static bool shouldSkipGO(GameObject* go, GameObject* skipA, GameObject* skipB, G
 }
 
 static void drawFrustum(DebugRenderer* dbg, const Vec3& pos, const Vec3& forward, const Vec3& upHint,
-	float fovDeg, float aspect, float n, float f, const Vec4& color)
+	float fovDeg, float aspect, float n, float f, const Vec4& color,
+	bool orthographic = false, float orthoSize = 10.f)
 {
 	Vec3 fwd = forward.normalize();
 	Vec3 right = (fwd.cross(upHint)).normalize();
 	Vec3 up = (right.cross(fwd)).normalize();
 
-	float fov = (float)DEGTORAD(fovDeg);
-	float nh = tanf(fov * 0.5f) * n;
-	float nw = nh * aspect;
-	float fh = tanf(fov * 0.5f) * f;
-	float fw = fh * aspect;
+	// An orthographic camera's volume is a box, not a pyramid: the near and
+	// far faces are the same size. Drawing it as a frustum anyway would
+	// show the wrong shape for the projection the camera actually uses.
+	float nh, nw, fh, fw;
+	if (orthographic)
+	{
+		nh = fh = orthoSize;
+		nw = fw = orthoSize * aspect;
+	}
+	else
+	{
+		float fov = (float)DEGTORAD(fovDeg);
+		nh = tanf(fov * 0.5f) * n;
+		nw = nh * aspect;
+		fh = tanf(fov * 0.5f) * f;
+		fw = fh * aspect;
+	}
 
 	Vec3 nc = pos + fwd * n;
 	Vec3 fc = pos + fwd * f;
@@ -145,7 +158,8 @@ void EditorDebugDraw::drawLightGizmos(DebugRenderer* dbg, GameObject* viewCam, f
 			Vec3 forward = (camGO->GetDirection() * -1.0f);
 			const Vec4& c = ci->isViewCamera ? kActiveCameraFrustumColor : kCameraOverlayColor;
 			drawFrustum(dbg, pos, forward, Vec3(0, 1, 0), ci->settings.fov, aspect,
-				ci->settings.nearPlane, ci->settings.farPlane, c);
+				ci->settings.nearPlane, ci->settings.farPlane, c,
+				ci->settings.orthographic, ci->settings.orthoSize);
 		}
 	}
 

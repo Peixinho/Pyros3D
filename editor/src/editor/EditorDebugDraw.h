@@ -12,7 +12,16 @@ class SceneGraph;
 }
 
 struct EditorCameraSettings {
+	// Perspective by default - every scene camera that existed before this
+	// was one, and a missing "orthographic" key in an older .editor.json
+	// therefore reads back as exactly what it used to mean.
+	bool orthographic = false;
 	float fov = 70.f;
+	// Half-height of the ortho view volume, in world units - the usual way
+	// to size one, and the reason it is not derived from fov: an ortho
+	// camera has no field of view, so reusing that number would mean
+	// switching projection silently changed how much you could see.
+	float orthoSize = 10.f;
 	float nearPlane = 0.1f;
 	float farPlane = 2000.f;
 };

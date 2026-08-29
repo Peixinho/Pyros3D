@@ -744,12 +744,22 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		GameObject* viewCam = GetViewCameraGO();
 		const f32 viewFov = GetViewFovDeg();
-		const f32 viewNear = (activeSceneCameraId != 0 && sceneCameras.count(activeSceneCameraId))
-			? sceneCameras[activeSceneCameraId].nearPlane : 0.1f;
-		const f32 viewFar = (activeSceneCameraId != 0 && sceneCameras.count(activeSceneCameraId))
-			? sceneCameras[activeSceneCameraId].farPlane : 100000.f;
+		const bool haveSceneCam = (activeSceneCameraId != 0 && sceneCameras.count(activeSceneCameraId) > 0);
+		const f32 viewNear = haveSceneCam ? sceneCameras[activeSceneCameraId].nearPlane : 0.1f;
+		const f32 viewFar = haveSceneCam ? sceneCameras[activeSceneCameraId].farPlane : 100000.f;
 
-		projection.Perspective(viewFov, (f32)dim.x / (f32)dim.y, viewNear, viewFar);
+		// Looking through a scene camera means looking through ITS
+		// projection, orthographic included - otherwise the viewport shows a
+		// perspective view of a game that will not render that way, which is
+		// worse than showing nothing.
+		if (haveSceneCam && sceneCameras[activeSceneCameraId].orthographic)
+		{
+			const f32 halfH = sceneCameras[activeSceneCameraId].orthoSize;
+			const f32 halfW = halfH * ((f32)dim.x / (f32)dim.y);
+			projection.Ortho(-halfW, halfW, -halfH, halfH, viewNear, viewFar);
+		}
+		else
+			projection.Perspective(viewFov, (f32)dim.x / (f32)dim.y, viewNear, viewFar);
 
 		{
 			if (dim.x > dim.y)
@@ -1557,7 +1567,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			SceneObject* so = sceneObjects->GetSceneObject(i->first);
 			if (so == NULL) continue;
 			cams[so->GetName()] = {
+				{"orthographic", i->second.orthographic},
 				{"fov", i->second.fov},
+				{"orthoSize", i->second.orthoSize},
 				{"near", i->second.nearPlane},
 				{"far", i->second.farPlane}
 			};
@@ -1595,7 +1607,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			{
 				const std::string name = it.key();
 				EditorCameraSettings s;
+				// Defaults chosen so a sidecar written before orthographic
+				// cameras existed reads back as the perspective camera it
+				// has always been.
+				s.orthographic = it.value().value("orthographic", false);
 				s.fov = it.value().value("fov", 70.f);
+				s.orthoSize = it.value().value("orthoSize", 10.f);
 				s.nearPlane = it.value().value("near", 0.1f);
 				s.farPlane = it.value().value("far", 2000.f);
 				for (std::map<uint32, SceneObject*>::const_iterator o = sceneObjects->GetList().begin(); o != sceneObjects->GetList().end(); ++o)
@@ -2020,7 +2037,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		EditorCameraSettings& s = sceneCameras[id];
 		Projection p;
-		p.Perspective(s.fov, (f32)previewWidth / (f32)previewHeight, s.nearPlane, s.farPlane);
+		if (s.orthographic)
+		{
+			const f32 halfH = s.orthoSize;
+			const f32 halfW = halfH * ((f32)previewWidth / (f32)previewHeight);
+			p.Ortho(-halfW, halfW, -halfH, halfH, s.nearPlane, s.farPlane);
+		}
+		else
+			p.Perspective(s.fov, (f32)previewWidth / (f32)previewHeight, s.nearPlane, s.farPlane);
 
 		// Hide editor chrome without SceneGraph::Remove — that UnregisterComponents
 		// every ImGui frame (helpers/grid/editor cameras) and left shared renderer
@@ -5638,12 +5662,46 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						const uint32 camGoId = SelectedSceneObject->GetID();
 						ImGui::Separator();
 						ImGui::Text("Camera");
-						ImGui::DragFloat("FOV", &cam.fov, 0.5f, 10.f, 170.f);
-						UndoValueEdit<f32>(undoBaselineFov, cam.fov, [this, camGoId](const f32& before, const f32& after) {
-							sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
-								[this, camGoId, before]() { ApplyCameraFov(camGoId, before); },
-								[this, camGoId, after]() { ApplyCameraFov(camGoId, after); }, "Set Camera FOV"));
-						});
+						// Projection first: it decides which of the two size
+						// controls below is even meaningful, so showing both
+						// at once would just invite editing the dead one.
+						{
+							int projIndex = cam.orthographic ? 1 : 0;
+							const char* projNames[] = { "Perspective", "Orthographic" };
+							if (ImGui::Combo("Projection", &projIndex, projNames, 2))
+							{
+								const bool wasOrtho = cam.orthographic;
+								const bool nowOrtho = (projIndex == 1);
+								if (wasOrtho != nowOrtho)
+								{
+									ApplyCameraOrthographic(camGoId, nowOrtho);
+									sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+										[this, camGoId, wasOrtho]() { ApplyCameraOrthographic(camGoId, wasOrtho); },
+										[this, camGoId, nowOrtho]() { ApplyCameraOrthographic(camGoId, nowOrtho); },
+										"Set Camera Projection"));
+								}
+							}
+						}
+						if (cam.orthographic)
+						{
+							ImGui::DragFloat("Size", &cam.orthoSize, 0.1f, 0.01f, 100000.f);
+							if (ImGui::IsItemHovered())
+								ImGui::SetTooltip("Half the height of the view, in world units.");
+							UndoValueEdit<f32>(undoBaselineOrthoSize, cam.orthoSize, [this, camGoId](const f32& before, const f32& after) {
+								sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+									[this, camGoId, before]() { ApplyCameraOrthoSize(camGoId, before); },
+									[this, camGoId, after]() { ApplyCameraOrthoSize(camGoId, after); }, "Set Camera Size"));
+							});
+						}
+						else
+						{
+							ImGui::DragFloat("FOV", &cam.fov, 0.5f, 10.f, 170.f);
+							UndoValueEdit<f32>(undoBaselineFov, cam.fov, [this, camGoId](const f32& before, const f32& after) {
+								sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+									[this, camGoId, before]() { ApplyCameraFov(camGoId, before); },
+									[this, camGoId, after]() { ApplyCameraFov(camGoId, after); }, "Set Camera FOV"));
+							});
+						}
 						ImGui::DragFloat("Near", &cam.nearPlane, 0.01f, 0.001f, 100.f);
 						UndoValueEdit<f32>(undoBaselineNear, cam.nearPlane, [this, camGoId](const f32& before, const f32& after) {
 							sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
@@ -8308,6 +8366,39 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
 		MarkSceneDirty();
 		PushAddCommand(obj);
+		return true;
+	}
+
+	// Changes an existing scene camera. Only the keys present are touched,
+	// so this can flip a camera to orthographic without also having to
+	// restate its clip planes.
+	bool SceneEditor::AgentSetCamera(const std::string& name, const json& p, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		if (!IsSceneCamera(obj->GetID())) { errOut = "'" + name + "' is not a scene camera"; return false; }
+		const uint32 id = obj->GetID();
+
+		if (p.is_object() && p.find("projection") != p.end() && p["projection"].is_string())
+		{
+			const std::string proj = p["projection"].get<std::string>();
+			if (proj == "orthographic" || proj == "ortho") ApplyCameraOrthographic(id, true);
+			else if (proj == "perspective") ApplyCameraOrthographic(id, false);
+			else { errOut = "projection must be 'perspective' or 'orthographic'"; return false; }
+		}
+		if (p.is_object() && p.find("fov") != p.end() && p["fov"].is_number())
+			ApplyCameraFov(id, p["fov"].get<f32>());
+		if (p.is_object() && p.find("size") != p.end() && p["size"].is_number())
+			ApplyCameraOrthoSize(id, p["size"].get<f32>());
+		if (p.is_object() && p.find("near") != p.end() && p["near"].is_number())
+			ApplyCameraNear(id, p["near"].get<f32>());
+		if (p.is_object() && p.find("far") != p.end() && p["far"].is_number())
+			ApplyCameraFar(id, p["far"].get<f32>());
+		if (p.is_object() && p.find("active") != p.end() && p["active"].is_boolean() && p["active"].get<bool>())
+			SetActiveSceneCamera(id);
+
+		MarkSceneDirty();
 		return true;
 	}
 

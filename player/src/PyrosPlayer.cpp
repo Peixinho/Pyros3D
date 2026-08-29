@@ -136,6 +136,8 @@ PyrosPlayer::PyrosPlayer()
 	cameraFov = 70.f;
 	cameraNear = 0.1f;
 	cameraFar = 2000.f;
+	cameraOrthographic = false;
+	cameraOrthoSize = 10.f;
 	sceneLoaded = false;
 }
 
@@ -468,8 +470,11 @@ void PyrosPlayer::ResolveCamera(const std::string& sceneAbsPath)
 	// the editor in <scene>.json.editor.json - the scene file itself has no
 	// notion of a camera, so without this sidecar a built game would have
 	// nothing to render from. Build Game ships it for exactly this reason.
+	// A camera's projection is part of what the editor records here, so it
+	// outgrew the Vec3 this used to be.
+	struct CameraSidecar { bool orthographic; f32 fov, orthoSize, nearPlane, farPlane; };
 	std::string activeName;
-	std::map<std::string, Vec3> cameraSettings; // name -> (fov, near, far)
+	std::map<std::string, CameraSidecar> cameraSettings;
 	std::ifstream in((sceneAbsPath + ".editor.json").c_str());
 	if (in)
 	{
@@ -481,10 +486,17 @@ void PyrosPlayer::ResolveCamera(const std::string& sceneAbsPath)
 				activeName = j["activeCamera"].get<std::string>();
 			if (j.contains("cameras") && j["cameras"].is_object())
 				for (json::iterator it = j["cameras"].begin(); it != j["cameras"].end(); ++it)
-					cameraSettings[it.key()] = Vec3(
-						it.value().value("fov", 70.f),
-						it.value().value("near", 0.1f),
-						it.value().value("far", 2000.f));
+				{
+					CameraSidecar c;
+					// Defaults match a sidecar written before orthographic
+					// cameras existed - which is to say, perspective.
+					c.orthographic = it.value().value("orthographic", false);
+					c.fov = it.value().value("fov", 70.f);
+					c.orthoSize = it.value().value("orthoSize", 10.f);
+					c.nearPlane = it.value().value("near", 0.1f);
+					c.farPlane = it.value().value("far", 2000.f);
+					cameraSettings[it.key()] = c;
+				}
 		}
 		catch (const std::exception&) { /* falls through to the defaults below */ }
 	}
@@ -493,15 +505,17 @@ void PyrosPlayer::ResolveCamera(const std::string& sceneAbsPath)
 	GameObject* firstKnownCamera = NULL;
 	for (size_t i = 0; i < all.size(); ++i)
 	{
-		std::map<std::string, Vec3>::const_iterator s = cameraSettings.find(all[i]->GetName());
+		std::map<std::string, CameraSidecar>::const_iterator s = cameraSettings.find(all[i]->GetName());
 		if (s == cameraSettings.end()) continue;
 		if (!firstKnownCamera) firstKnownCamera = all[i].get();
 		if (all[i]->GetName() == activeName)
 		{
 			activeCamera = all[i].get();
-			cameraFov = s->second.x;
-			cameraNear = s->second.y;
-			cameraFar = s->second.z;
+			cameraOrthographic = s->second.orthographic;
+			cameraFov = s->second.fov;
+			cameraOrthoSize = s->second.orthoSize;
+			cameraNear = s->second.nearPlane;
+			cameraFar = s->second.farPlane;
 			return;
 		}
 	}
@@ -509,12 +523,14 @@ void PyrosPlayer::ResolveCamera(const std::string& sceneAbsPath)
 	if (firstKnownCamera)
 	{
 		activeCamera = firstKnownCamera;
-		std::map<std::string, Vec3>::const_iterator s = cameraSettings.find(activeCamera->GetName());
+		std::map<std::string, CameraSidecar>::const_iterator s = cameraSettings.find(activeCamera->GetName());
 		if (s != cameraSettings.end())
 		{
-			cameraFov = s->second.x;
-			cameraNear = s->second.y;
-			cameraFar = s->second.z;
+			cameraOrthographic = s->second.orthographic;
+			cameraFov = s->second.fov;
+			cameraOrthoSize = s->second.orthoSize;
+			cameraNear = s->second.nearPlane;
+			cameraFar = s->second.farPlane;
 		}
 		echo("WARNING: no active camera set for this scene - using '" + activeCamera->GetName() + "'");
 		return;
@@ -533,7 +549,14 @@ void PyrosPlayer::ResolveCamera(const std::string& sceneAbsPath)
 void PyrosPlayer::ApplyProjection()
 {
 	const f32 aspect = (Height > 0) ? ((f32)Width / (f32)Height) : 1.f;
-	projection.Perspective(cameraFov, aspect, cameraNear, cameraFar);
+	if (cameraOrthographic)
+	{
+		const f32 halfH = cameraOrthoSize;
+		const f32 halfW = halfH * aspect;
+		projection.Ortho(-halfW, halfW, -halfH, halfH, cameraNear, cameraFar);
+	}
+	else
+		projection.Perspective(cameraFov, aspect, cameraNear, cameraFar);
 }
 
 #ifdef LUA_BINDINGS

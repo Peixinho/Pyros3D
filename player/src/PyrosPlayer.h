@@ -154,6 +154,10 @@ private:
 	std::shared_ptr<GameObject> fallbackCamera;
 	GameObject* activeCamera;
 	f32 cameraFov, cameraNear, cameraFar;
+	// See ApplyProjection(). Half-height of the ortho view volume, matching
+	// the editor's own EditorCameraSettings::orthoSize.
+	bool cameraOrthographic;
+	f32 cameraOrthoSize;
 
 	// Everything the current scene allocated, so a scene switch frees
 	// exactly that (see SceneSerializer::UnloadScene).
