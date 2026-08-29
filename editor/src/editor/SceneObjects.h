@@ -99,7 +99,15 @@ class SceneObjects
 		// directly in the SceneGraph and knows nothing about the editor's
 		// parallel id/name/parent bookkeeping, so a loaded scene is invisible
 		// to the tree, selection and gizmos until it has been adopted.
-		SceneObject* Adopt(GameObject* go, const uint32 parentID = 0);
+		// preferredIds, when given, are consumed in the order Adopt() walks
+		// the subtree (see CollectAdoptOrderIds) and reused where still
+		// free - which is how a subtree survives undo's delete-and-reinsert
+		// with the ids other undo entries are still holding.
+		SceneObject* Adopt(GameObject* go, const uint32 parentID = 0,
+			const std::vector<uint32>* preferredIds = NULL, size_t* cursorOpt = NULL);
+		// The ids of a live subtree, in exactly that order.
+		void CollectAdoptOrderIds(GameObject* go, std::vector<uint32>& out);
+		static bool RegistryTypeForComponent(IComponent* c, uint32& type, std::string& name);
 
 		// Removes every registered object, leaving the registry empty. Used
 		// by File > New and before loading over the current scene.
@@ -153,4 +161,5 @@ class SceneObjects
 	private:
 		SceneObject* DuplicateGameObjectUnder(const uint32 id, const uint32 newParentId, Physics* physicsEngine);
 		uint32 _ID;
+		uint32 NextId(const std::vector<uint32>* preferred, size_t& cursor);
 };

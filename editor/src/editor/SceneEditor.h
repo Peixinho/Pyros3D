@@ -419,7 +419,8 @@ public:
 	// SceneCommands' Undo()/Redo() implementations - no undo bookkeeping,
 	// callers own that.
 	void RawDeleteSubtree(uint32 objId);
-	SceneObject* RawInsertSubtree(const std::string& subtreeJson, uint32 parentId, bool wasCamera, const EditorCameraSettings& camSettings, bool hadHelper);
+	SceneObject* RawInsertSubtree(const std::string& subtreeJson, uint32 parentId, bool wasCamera, const EditorCameraSettings& camSettings, bool hadHelper, const std::vector<uint32>* preferredIds = NULL);
+	std::vector<uint32> RawCollectSubtreeIds(uint32 objId);
 	void ApplyTransform(uint32 objId, const Vec3& pos, const Vec3& rot, const Vec3& scale);
 	void RawAssignMaterial(uint32 goId, int submeshIndex, std::shared_ptr<p3d::IMaterial> mat);
 	// Setter + PropertiesLight*/sceneCameras resync + MarkSceneDirty for one

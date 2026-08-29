@@ -15,13 +15,19 @@ AddGameObjectCommand::AddGameObjectCommand(SceneEditor* editor, uint32 parentId,
 void AddGameObjectCommand::Undo()
 {
 	if (liveId_ != 0)
+	{
+		// Recorded before the delete so Redo can put the subtree back under
+		// the same ids - other entries in the stack are still holding them.
+		subtreeIds_ = editor_->RawCollectSubtreeIds(liveId_);
 		editor_->RawDeleteSubtree(liveId_);
+	}
 	liveId_ = 0;
 }
 
 void AddGameObjectCommand::Redo()
 {
-	SceneObject* obj = editor_->RawInsertSubtree(snapshot_, parentId_, wasCamera_, camSettings_, hadHelper_);
+	SceneObject* obj = editor_->RawInsertSubtree(snapshot_, parentId_, wasCamera_, camSettings_, hadHelper_,
+		subtreeIds_.empty() ? NULL : &subtreeIds_);
 	liveId_ = obj ? obj->GetID() : 0;
 	editor_->SelectAndFocusSceneObject(obj);
 }
@@ -44,7 +50,8 @@ DeleteGameObjectCommand::DeleteGameObjectCommand(SceneEditor* editor, uint32 par
 
 void DeleteGameObjectCommand::Undo()
 {
-	SceneObject* obj = editor_->RawInsertSubtree(snapshot_, parentId_, wasCamera_, camSettings_, hadHelper_);
+	SceneObject* obj = editor_->RawInsertSubtree(snapshot_, parentId_, wasCamera_, camSettings_, hadHelper_,
+		subtreeIds_.empty() ? NULL : &subtreeIds_);
 	liveId_ = obj ? obj->GetID() : 0;
 	editor_->SelectAndFocusSceneObject(obj);
 }
@@ -158,11 +165,19 @@ ReplaceGameObjectCommand::ReplaceGameObjectCommand(SceneEditor* editor, uint32 p
 {
 }
 
+// Both halves keep the subtree's ids. Without this, undoing a replace gave the
+// object a brand new id, and every OLDER entry in the stack - which still
+// referred to the previous one - then found nothing to act on: a second undo
+// of the same object silently did nothing at all.
 void ReplaceGameObjectCommand::Undo()
 {
 	if (liveId_ != 0)
+	{
+		subtreeIds_ = editor_->RawCollectSubtreeIds(liveId_);
 		editor_->RawDeleteSubtree(liveId_);
-	SceneObject* obj = editor_->RawInsertSubtree(beforeSnapshot_, parentId_, wasCamera_, camSettings_, hadHelper_);
+	}
+	SceneObject* obj = editor_->RawInsertSubtree(beforeSnapshot_, parentId_, wasCamera_, camSettings_, hadHelper_,
+		subtreeIds_.empty() ? NULL : &subtreeIds_);
 	liveId_ = obj ? obj->GetID() : 0;
 	editor_->SelectAndFocusSceneObject(obj);
 }
@@ -170,8 +185,12 @@ void ReplaceGameObjectCommand::Undo()
 void ReplaceGameObjectCommand::Redo()
 {
 	if (liveId_ != 0)
+	{
+		subtreeIds_ = editor_->RawCollectSubtreeIds(liveId_);
 		editor_->RawDeleteSubtree(liveId_);
-	SceneObject* obj = editor_->RawInsertSubtree(afterSnapshot_, parentId_, wasCamera_, camSettings_, hadHelper_);
+	}
+	SceneObject* obj = editor_->RawInsertSubtree(afterSnapshot_, parentId_, wasCamera_, camSettings_, hadHelper_,
+		subtreeIds_.empty() ? NULL : &subtreeIds_);
 	liveId_ = obj ? obj->GetID() : 0;
 	editor_->SelectAndFocusSceneObject(obj);
 }

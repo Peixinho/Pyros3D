@@ -76,7 +76,20 @@ void SceneEditor::RawDeleteSubtree(uint32 objId)
 	MarkSceneDirty();
 }
 
-SceneObject* SceneEditor::RawInsertSubtree(const std::string& subtreeJson, uint32 parentId, bool wasCamera, const EditorCameraSettings& camSettings, bool hadHelper)
+// Every registry id in a live subtree, in the order Adopt() will re-create
+// them. Taken immediately before an undo/redo deletes the subtree, and handed
+// back to the re-insert, so the object comes back as the same id every other
+// undo entry is still holding.
+std::vector<uint32> SceneEditor::RawCollectSubtreeIds(uint32 objId)
+{
+	std::vector<uint32> ids;
+	SceneObject* obj = sceneObjects->GetSceneObject(objId);
+	if (obj && obj->GetType() == SceneObjectTypes::GAMEOBJECT)
+		sceneObjects->CollectAdoptOrderIds((GameObject*)obj->GetPTR(), ids);
+	return ids;
+}
+
+SceneObject* SceneEditor::RawInsertSubtree(const std::string& subtreeJson, uint32 parentId, bool wasCamera, const EditorCameraSettings& camSettings, bool hadHelper, const std::vector<uint32>* preferredIds)
 {
 	if (subtreeJson.empty()) return NULL;
 #ifdef LUA_BINDINGS
@@ -86,7 +99,8 @@ SceneObject* SceneEditor::RawInsertSubtree(const std::string& subtreeJson, uint3
 #endif
 	if (!go) return NULL;
 	scene->Add(go);
-	SceneObject* obj = sceneObjects->Adopt(go.get(), parentId);
+	size_t idCursor = 0;
+	SceneObject* obj = sceneObjects->Adopt(go.get(), parentId, preferredIds, &idCursor);
 	if (obj)
 	{
 		// A subtree that came from a prefab instance carries which one in

@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 using namespace p3d;
 
@@ -38,6 +39,9 @@ private:
 	uint32 parentId_;
 	std::string snapshot_;
 	uint32 liveId_; // id of the currently-live instance, 0 if undone away
+	// The subtree's registry ids, captured before a delete and reused on the
+	// next insert - see the Undo bodies.
+	std::vector<uint32> subtreeIds_;
 	bool wasCamera_;
 	EditorCameraSettings camSettings_;
 	bool hadHelper_;
@@ -62,6 +66,9 @@ private:
 	uint32 parentId_;
 	std::string snapshot_;
 	uint32 liveId_; // 0 until Undo() reinserts it
+	// The subtree's registry ids, captured before a delete and reused on the
+	// next insert - see the Undo bodies.
+	std::vector<uint32> subtreeIds_;
 	bool wasCamera_;
 	EditorCameraSettings camSettings_;
 	bool hadHelper_;
@@ -148,6 +155,9 @@ private:
 	uint32 parentId_;
 	std::string beforeSnapshot_, afterSnapshot_;
 	uint32 liveId_;
+	// The subtree's registry ids, captured before a delete and reused on the
+	// next insert - see the Undo bodies.
+	std::vector<uint32> subtreeIds_;
 	bool wasCamera_;
 	EditorCameraSettings camSettings_;
 	bool hadHelper_;

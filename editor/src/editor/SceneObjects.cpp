@@ -112,11 +112,86 @@ namespace {
 			return NULL;
 		}
 	}
-	SceneObject* SceneObjects::Adopt(GameObject* go, const uint32 parentID)
+	// The registry entry a component gets, if any. Factored out of Adopt()
+	// so CollectAdoptOrderIds() below can walk a live subtree in exactly the
+	// order Adopt() will re-create it - which is what lets ids survive the
+	// delete-and-reinsert that undo does.
+	bool SceneObjects::RegistryTypeForComponent(IComponent* c, uint32& type, std::string& name)
+	{
+		if (c == NULL) return false;
+		switch (c->GetComponentType())
+		{
+		case ComponentType::RenderingComponent:  type = SceneObjectTypes::RENDERING_COMPONENT;        name = "Mesh";              return true;
+		case ComponentType::DirectionalLight:    type = SceneObjectTypes::DIRECTIONALLIGHT_COMPONENT; name = "Directional Light"; return true;
+		case ComponentType::PointLight:          type = SceneObjectTypes::POINTLIGHT_COMPONENT;       name = "Point Light";       return true;
+		case ComponentType::SpotLight:           type = SceneObjectTypes::SPOTLIGHT_COMPONENT;        name = "Spot Light";        return true;
+		case ComponentType::Physics:             type = SceneObjectTypes::PHYSICS_COMPONENT;          name = "Physics";           return true;
+		case ComponentType::AudioSource:         type = SceneObjectTypes::AUDIO_SOURCE_COMPONENT;     name = "Sound";             return true;
+		case ComponentType::ParticleSystem:      type = SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT;  name = "Particles";         return true;
+#ifdef LUA_BINDINGS
+		case ComponentType::LuaComponent:
+		{
+			type = SceneObjectTypes::LUA_COMPONENT;
+			LuaComponent* lc = dynamic_cast<LuaComponent*>(c);
+			name = lc ? ScriptStemName(lc->scriptFile) : "Script";
+			return true;
+		}
+#endif
+		default:
+			// Vehicles and the UI components: the engine round-trips them,
+			// but they have no registry entry of their own - UI is inspected
+			// on the GameObject that carries it - so they are simply not
+			// listed. Deliberately not an error.
+			return false;
+		}
+	}
+
+	void SceneObjects::CollectAdoptOrderIds(GameObject* go, std::vector<uint32>& out)
+	{
+		if (go == NULL) return;
+		out.push_back(GetSceneObjectID(go));
+		const std::vector<std::shared_ptr<IComponent>>& components = go->GetComponents();
+		for (size_t i = 0; i < components.size(); i++)
+		{
+			uint32 type; std::string cname;
+			if (!RegistryTypeForComponent(components[i].get(), type, cname)) continue;
+			out.push_back(GetSceneObjectID(components[i].get()));
+		}
+		const std::vector<std::shared_ptr<GameObject>>& children = go->GetChildren();
+		for (size_t i = 0; i < children.size(); i++)
+			CollectAdoptOrderIds(children[i].get(), out);
+	}
+
+	// Takes the next preferred id when there is one and it is free, so a
+	// subtree deleted and re-inserted by undo comes back with the same ids it
+	// had. Without that, every other entry in the undo stack still points at
+	// the ids from before, and a second undo of the same object does nothing
+	// at all.
+	uint32 SceneObjects::NextId(const std::vector<uint32>* preferred, size_t& cursor)
+	{
+		if (preferred != NULL && cursor < preferred->size())
+		{
+			const uint32 want = (*preferred)[cursor++];
+			if (want != 0 && listObjects.find(want) == listObjects.end())
+			{
+				// Keep the allocator ahead of anything reused, or a later
+				// fresh id would collide with one restored here.
+				if (want > _ID) _ID = want;
+				return want;
+			}
+		}
+		return ++_ID;
+	}
+
+	SceneObject* SceneObjects::Adopt(GameObject* go, const uint32 parentID,
+		const std::vector<uint32>* preferredIds, size_t* cursorOpt)
 	{
 		if (go == NULL) return NULL;
 
-		uint32 id = ++_ID;
+		size_t localCursor = 0;
+		size_t& cursor = cursorOpt ? *cursorOpt : localCursor;
+
+		uint32 id = NextId(preferredIds, cursor);
 		std::string name = go->GetName().size() > 0 ? go->GetName() : std::string("GameObject");
 		SceneObject* obj = new SceneObject(name, go, id, SceneObjectTypes::GAMEOBJECT);
 		listObjects[id] = obj;
@@ -130,31 +205,8 @@ namespace {
 		{
 			uint32 type;
 			std::string cname;
-			switch ((*c)->GetComponentType())
-			{
-			case ComponentType::RenderingComponent:  type = SceneObjectTypes::RENDERING_COMPONENT;      cname = "Mesh";              break;
-			case ComponentType::DirectionalLight:    type = SceneObjectTypes::DIRECTIONALLIGHT_COMPONENT; cname = "Directional Light"; break;
-			case ComponentType::PointLight:          type = SceneObjectTypes::POINTLIGHT_COMPONENT;     cname = "Point Light";       break;
-			case ComponentType::SpotLight:           type = SceneObjectTypes::SPOTLIGHT_COMPONENT;      cname = "Spot Light";        break;
-			case ComponentType::Physics:             type = SceneObjectTypes::PHYSICS_COMPONENT;        cname = "Physics";           break;
-			case ComponentType::AudioSource:         type = SceneObjectTypes::AUDIO_SOURCE_COMPONENT;  cname = "Sound";             break;
-			case ComponentType::ParticleSystem:      type = SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT; cname = "Particles";     break;
-#ifdef LUA_BINDINGS
-			case ComponentType::LuaComponent:
-			{
-				type = SceneObjectTypes::LUA_COMPONENT;
-				LuaComponent* lc = dynamic_cast<LuaComponent*>((*c).get());
-				cname = lc ? ScriptStemName(lc->scriptFile) : "Script";
-				break;
-			}
-#endif
-			default:
-				// Vehicles: the engine round-trips them, but this editor has
-				// no UI for them, so they stay attached to their GameObject
-				// and simply aren't listed.
-				continue;
-			}
-			uint32 cid = ++_ID;
+			if (!RegistryTypeForComponent((*c).get(), type, cname)) continue;
+			uint32 cid = NextId(preferredIds, cursor);
 			SceneObject* cobj = new SceneObject(cname, (*c).get(), cid, type);
 			listObjects[cid] = cobj;
 			cobj->SetParentID(id);
@@ -163,7 +215,7 @@ namespace {
 
 		const std::vector<std::shared_ptr<GameObject>> &children = go->GetChildren();
 		for (std::vector<std::shared_ptr<GameObject>>::const_iterator k = children.begin(); k != children.end(); k++)
-			Adopt((*k).get(), id);
+			Adopt((*k).get(), id, preferredIds, &cursor);
 
 		return obj;
 	}
@@ -522,7 +574,18 @@ namespace {
 			if (entry == listObjects.end() || entry->second == NULL) return;
 
 			if (listObjects[idToRemove]->GetType()==SceneObjectTypes::GAMEOBJECT)
-				Scene->Remove((GameObject*)listObjects[idToRemove]->GetPTR());
+			{
+				// A child is not in the scene's root lists at all (see
+				// SceneGraph::DetachRoot), so Scene->Remove() would find
+				// nothing and leave it attached to its parent - which showed
+				// up as undo duplicating an object instead of replacing it.
+				// Detach from whoever actually holds it.
+				GameObject* victim = (GameObject*)listObjects[idToRemove]->GetPTR();
+				if (victim != NULL && victim->HaveParent() && victim->GetParent() != NULL)
+					victim->GetParent()->Remove(victim);
+				else
+					Scene->Remove(victim);
+			}
 
 			else
 			{
