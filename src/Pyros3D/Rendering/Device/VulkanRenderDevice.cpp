@@ -1409,6 +1409,35 @@ namespace p3d {
 				return;
 		}
 
+		// The previous frame's GPU work is now complete - that is exactly
+		// what the wait above establishes - so every dynamic UBO slot is
+		// free to be written again. Reset here rather than after the
+		// acquire below, because the acquire has two early-return paths
+		// (OUT_OF_DATE, which fires constantly during a window resize, and
+		// any other failure) and neither of them reset anything.
+		//
+		// That was the bug: on a skipped frame the counters kept climbing
+		// while the application carried on issuing draws into its own
+		// framebuffers - the editor's viewport, previews and thumbnails all
+		// render offscreen and do not care whether a swapchain image was
+		// acquired. A few thousand skipped frames later the ring wrapped
+		// mid-frame and every draw from that point on read another draw's
+		// uniforms, which is what "the viewport came up white, or red, or
+		// black after a resize" actually was. Resetting on every attempt
+		// costs one map walk and cannot be unsafe, because the fence says
+		// the GPU is done with all of it.
+		for (std::map<DeviceHandle, BufferRecord>::iterator it = buffers.begin(); it != buffers.end(); ++it)
+		{
+			if (it->second.isDynamicUniform)
+			{
+				it->second.writesThisFrame = 0;
+				// Re-arm the report too: a wrap that happens once during a
+				// pathological resize and never again should not silence
+				// the warning for the rest of the process.
+				it->second.warnedExhausted = false;
+			}
+		}
+
 		// Do *not* reset frameFence until we know this frame is actually
 		// going to submit and re-signal it (right before
 		// vkResetCommandBuffer below, once acquire has already
@@ -1458,14 +1487,6 @@ namespace p3d {
 		currentImageIndex = imageIndex;
 		currentVao = 0;
 		currentPipeline = 0;
-
-		// Previous frame's GPU work is done (fence wait above) - dynamic
-		// UBO slots may be reused from the start of the ring again.
-		for (std::map<DeviceHandle, BufferRecord>::iterator it = buffers.begin(); it != buffers.end(); ++it)
-		{
-			if (it->second.isDynamicUniform)
-				it->second.writesThisFrame = 0;
-		}
 
 		vkResetCommandBuffer(frameCommandBuffer, 0);
 
