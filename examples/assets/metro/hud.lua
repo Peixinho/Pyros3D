@@ -1,138 +1,158 @@
 -- ****************************************************************
 -- METRO - the HUD.
 --
--- Drawn from the component's drawOverlay hook through the launcher's
--- foreground draw list, so it sits over the 3D view at absolute pixel
--- coordinates rather than inside the launcher's control panel.
+-- Real UI now, not immediate-mode drawing: the elements live in
+-- Metro.json as a UICanvas of UIImage/UIText components, authored
+-- where they can be seen and edited, and this file only pushes state
+-- into them. That is the whole difference from the previous version,
+-- which drew the HUD every frame into ImGui's foreground draw list at
+-- absolute pixel coordinates and was therefore correct at exactly one
+-- window size, invisible to the editor, and impossible to save.
 --
--- Laid out from the screen corners: the run at top-left, vitals at
--- bottom-left, the weapon at bottom-right, and anything the player has
--- to read *now* (wave banners, damage, low battery) across the middle.
+-- Anchors do the layout, so nothing here computes a position. The two
+-- bars are a track with a fill inside it, and ui.setFill moves one
+-- anchor - "0.62 of the way across my parent" - which is why the
+-- vitals need no arithmetic either.
 -- ****************************************************************
 
 local C = import("config")
 
 local H = {}
 
--- The DemoLauncher's own control window occupies the left edge, and the
--- foreground draw list this HUD uses paints straight over it. Left-hand
--- readouts start clear of it rather than on top of the demo list.
-local LEFT = 300
+-- Resolved once. ui.find walks every canvas in the scene by name, and
+-- doing that for twenty elements every frame would be the one wasteful
+-- thing in an otherwise free HUD.
+local E = nil
 
-local function bar(x, y, w, h, frac, r, g, b, alpha)
-	frac = math.max(0, math.min(1, frac))
-	imgui.rectFilled(x, y, x + w, y + h, 0, 0, 0, 0.45 * alpha)
-	if frac > 0 then
-		imgui.rectFilled(x + 1, y + 1, x + 1 + (w - 2) * frac, y + h - 1, r, g, b, alpha)
+local function bind()
+	local names = {
+		"HitFlash", "EdgeTop", "EdgeBottom",
+		"Wave", "Score", "Contacts",
+		"HealthLabel", "HealthBar", "HealthBarFill", "HealthValue",
+		"BatteryLabel", "BatteryBar", "BatteryBarFill", "BatteryValue",
+		"WeaponName", "Ammo", "ReloadBar", "ReloadBarFill",
+		"Message", "Submessage", "Prompt", "Notice", "BatteryWarn",
+		"Controls1", "Controls2", "Controls3",
+	}
+	local t = {}
+	for _, n in ipairs(names) do
+		local e = ui.find(scene, n)
+		if not e then return nil end
+		t[n] = e
 	end
-	imgui.rect(x, y, x + w, y + h, r * 0.6, g * 0.6, b * 0.6, 0.8 * alpha, 1.0)
+	return t
 end
 
-local function centered(text, y, r, g, b, a)
-	local w, h = imgui.displaySize()
-	local tw = imgui.textSize(text)
-	imgui.textAt((w - tw) * 0.5, y, r, g, b, a, text)
-	return h
+-- A text element with nothing to say is hidden rather than set to "":
+-- an empty string still costs a mesh rebuild every time it changes.
+local function say(el, s)
+	if s and s ~= "" then
+		ui.setVisible(el, true)
+		ui.setText(el, s)
+	else
+		ui.setVisible(el, false)
+	end
+end
+
+local function wash(el, r, g, b, a)
+	if a and a > 0.001 then
+		ui.setVisible(el, true)
+		ui.setTint(el, Vec4.new(r, g, b, a))
+	else
+		ui.setVisible(el, false)
+	end
 end
 
 function H.draw(P, W, Game, time)
-	if not imgui or not imgui.displaySize then return end
+	if not ui or not ui.find then return end
+	if not E then
+		E = bind()
+		if not E then return end   -- scene has no HUD canvas
+	end
 
-	local sw, sh = imgui.displaySize()
-	imgui.drawCrosshair()
+	if imgui and imgui.drawCrosshair then imgui.drawCrosshair() end
 
 	-- ======================= full-screen states =======================
 
-	-- Damage vignette: a red wash that spikes on a hit and fades. This is
-	-- the only feedback that a crawler behind you is landing hits, since
-	-- there is no view-kick on damage.
-	if P.hitFlash and P.hitFlash > 0 then
-		local a = P.hitFlash * 0.32
-		imgui.rectFilled(0, 0, sw, sh, 0.55, 0.02, 0.02, a)
-	end
+	-- Damage vignette: the only feedback that something behind you is
+	-- landing hits, since there is no view-kick on damage.
+	wash(E.HitFlash, 0.55, 0.02, 0.02, (P.hitFlash or 0) * 0.32)
 
-	-- Health also tints the edges permanently once the player is hurt
-	-- badly enough, so a low-health run reads at a glance.
 	local hpFrac = P.health / C.player.maxHealth
+	local edge = 0
 	if hpFrac < 0.35 then
 		local pulse = 0.5 + 0.5 * math.sin(time * 4.0)
-		local a = (0.35 - hpFrac) / 0.35 * 0.30 * (0.6 + 0.4 * pulse)
-		imgui.rectFilled(0, 0, sw, 90, 0.5, 0.0, 0.0, a)
-		imgui.rectFilled(0, sh - 90, sw, sh, 0.5, 0.0, 0.0, a)
+		edge = (0.35 - hpFrac) / 0.35 * 0.30 * (0.6 + 0.4 * pulse)
 	end
+	wash(E.EdgeTop, 0.5, 0.0, 0.0, edge)
+	wash(E.EdgeBottom, 0.5, 0.0, 0.0, edge)
 
 	-- ============================ the run =============================
 
-	imgui.textAt(LEFT, 22, 0.80, 0.84, 0.90, 0.95,
-		string.format("WAVE %d", Game.wave))
-	imgui.textAt(LEFT, 40, 0.55, 0.58, 0.64, 0.9,
-		string.format("SCORE %d      KILLS %d", Game.score, Game.kills))
-
+	say(E.Wave, string.format("WAVE %d", Game.wave))
+	say(E.Score, string.format("SCORE %d      KILLS %d", Game.score, Game.kills))
 	if Game.state == "wave" then
 		local left = math.max(0, Game.waveTotal - Game.waveKilled)
-		imgui.textAt(LEFT, 58, 0.85, 0.40, 0.35, 0.9,
-			string.format("CONTACTS %d / %d", left, Game.waveTotal))
+		say(E.Contacts, string.format("CONTACTS %d / %d", left, Game.waveTotal))
+	else
+		say(E.Contacts, nil)
 	end
 
 	-- ============================= vitals =============================
 
-	local by = sh - 78
-	imgui.textAt(LEFT, by, 0.62, 0.66, 0.72, 0.9, "HEALTH")
-	bar(LEFT, by + 18, 220, 12, hpFrac,
-		hpFrac > 0.5 and 0.35 or 0.85, hpFrac > 0.5 and 0.85 or 0.25, 0.40, 0.9)
-	imgui.textAt(LEFT + 228, by + 17, 0.75, 0.78, 0.82, 0.9,
-		tostring(math.floor(P.health + 0.5)))
+	ui.setFill(E.HealthBarFill, hpFrac)
+	ui.setTint(E.HealthBarFill, hpFrac > 0.5
+		and Vec4.new(0.35, 0.85, 0.40, 0.9)
+		or  Vec4.new(0.85, 0.25, 0.40, 0.9))
+	say(E.HealthValue, tostring(math.floor(P.health + 0.5)))
 
 	local batFrac = P.battery / C.flashlight.battery
-	imgui.textAt(LEFT, by + 38, 0.62, 0.66, 0.72, 0.9,
-		P.flashOn and "FLASHLIGHT" or "FLASHLIGHT  (OFF)")
-	bar(LEFT, by + 56, 220, 8, batFrac, 0.35, 0.72, 1.00, 0.9)
-	imgui.textAt(LEFT + 228, by + 52, 0.75, 0.78, 0.82, 0.9,
-		string.format("%d%%", math.floor(P.battery + 0.5)))
+	ui.setFill(E.BatteryBarFill, batFrac)
+	say(E.BatteryLabel, P.flashOn and "FLASHLIGHT" or "FLASHLIGHT  (OFF)")
+	say(E.BatteryValue, string.format("%d%%", math.floor(P.battery + 0.5)))
 
 	-- ============================= weapon =============================
 
-	local ammo
+	say(E.WeaponName, C.weapon.name)
 	if W.reloading then
-		ammo = "RELOADING"
+		say(E.Ammo, "RELOADING")
+		ui.setTextColor(E.Ammo, Vec4.new(0.85, 0.88, 0.92, 0.95))
+		ui.setVisible(E.ReloadBar, true)
+		ui.setFill(E.ReloadBarFill, 1 - (W.reloadEnd - time) / C.weapon.reloadTime)
 	else
-		ammo = string.format("%d / %d", W.mag, W.reserve)
-	end
-	local aw = imgui.textSize(ammo)
-	local lowMag = (not W.reloading) and W.mag <= 5
-	imgui.textAt(sw - 28 - aw, sh - 52,
-		lowMag and 0.95 or 0.85, lowMag and 0.35 or 0.88, lowMag and 0.25 or 0.92, 0.95, ammo)
-
-	local nw = imgui.textSize(C.weapon.name)
-	imgui.textAt(sw - 28 - nw, sh - 72, 0.55, 0.58, 0.64, 0.85, C.weapon.name)
-
-	if W.reloading then
-		local frac = 1 - (W.reloadEnd - time) / C.weapon.reloadTime
-		bar(sw - 168, sh - 32, 140, 6, frac, 0.85, 0.75, 0.35, 0.9)
+		say(E.Ammo, string.format("%d / %d", W.mag, W.reserve))
+		local low = W.mag <= 5
+		ui.setTextColor(E.Ammo, low
+			and Vec4.new(0.95, 0.35, 0.25, 0.95)
+			or  Vec4.new(0.85, 0.88, 0.92, 0.95))
+		ui.setVisible(E.ReloadBar, false)
 	end
 
 	-- ========================== centre banners ========================
 
-	if Game.state == "briefing" or Game.state == "rest" or Game.state == "dead" then
+	local banner = (Game.state == "briefing" or Game.state == "rest" or Game.state == "dead")
+	if banner then
 		local dead = (Game.state == "dead")
-		centered(Game.message, sh * 0.36,
-			dead and 0.90 or 0.85, dead and 0.20 or 0.88, dead and 0.18 or 0.92, 0.95)
-		centered(Game.submessage, sh * 0.36 + 22, 0.60, 0.62, 0.68, 0.85)
-		if dead then
-			centered("[ENTER] to go back down", sh * 0.36 + 52, 0.75, 0.78, 0.82, 0.9)
-		end
+		say(E.Message, Game.message)
+		ui.setTextColor(E.Message, dead
+			and Vec4.new(0.90, 0.20, 0.18, 0.95)
+			or  Vec4.new(0.85, 0.88, 0.92, 0.95))
+		say(E.Submessage, Game.submessage)
+		say(E.Prompt, dead and "[ENTER] to go back down" or nil)
+	else
+		say(E.Message, nil); say(E.Submessage, nil); say(E.Prompt, nil)
 	end
 
-	if Game.notice then
-		centered(Game.notice, sh * 0.62, 0.85, 0.85, 0.60, 0.9)
-	end
+	say(E.Notice, Game.notice)
 
 	if P.battery <= 0 then
-		centered("BATTERY DEAD", sh * 0.68, 0.85, 0.35, 0.30, 0.9)
-	elseif P.battery < C.flashlight.lowAt and P.flashOn then
-		if math.sin(time * 5.0) > 0 then
-			centered("BATTERY LOW", sh * 0.68, 0.85, 0.65, 0.25, 0.8)
-		end
+		say(E.BatteryWarn, "BATTERY DEAD")
+		ui.setTextColor(E.BatteryWarn, Vec4.new(0.85, 0.35, 0.30, 0.9))
+	elseif P.battery < C.flashlight.lowAt and P.flashOn and math.sin(time * 5.0) > 0 then
+		say(E.BatteryWarn, "BATTERY LOW")
+		ui.setTextColor(E.BatteryWarn, Vec4.new(0.85, 0.65, 0.25, 0.9))
+	else
+		say(E.BatteryWarn, nil)
 	end
 
 	-- ============================= controls ===========================
@@ -140,14 +160,11 @@ function H.draw(P, W, Game, time)
 	-- and does not need the key list burned into the middle of the frame.
 
 	if not P.captured then
-		local lines = {
-			"[TAB] capture the mouse and play",
-			"WASD move   SHIFT sprint   CTRL crouch   SPACE jump",
-			"LMB fire   RMB aim   R reload   F flashlight",
-		}
-		for i, s in ipairs(lines) do
-			centered(s, sh * 0.78 + (i - 1) * 18, 0.70, 0.72, 0.78, 0.85)
-		end
+		say(E.Controls1, "[TAB] capture the mouse and play")
+		say(E.Controls2, "WASD move   SHIFT sprint   CTRL crouch   SPACE jump")
+		say(E.Controls3, "LMB fire   RMB aim   R reload   F flashlight")
+	else
+		say(E.Controls1, nil); say(E.Controls2, nil); say(E.Controls3, nil)
 	end
 end
 

@@ -66,6 +66,7 @@ using json = nlohmann::json;
 #include "UIStyleResolver.h"
 #include "UndoStack.h"
 #include <ctime>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <set>
@@ -632,6 +633,11 @@ private:
 	// Re-applies every element's style after a load, so editing a style file
 	// or swapping the palette reaches scenes that were saved before it.
 	int ReapplyUIStyles();
+	// Polls the style files an open scene references and restyles when one
+	// changes - see the implementation for why polling.
+	void PollUIStyleFiles(const f64 time);
+	std::map<std::string, std::filesystem::file_time_type> uiStyleMTimes;
+	f64 lastUIStylePoll = 0.0;
 	void PushUIPropertyUndo(uint32 goId, const json& before, const json& after, const char* what);
 	std::string ResolveUIFontPath(const std::string& requested, std::string& errOut);
 	static bool HasUIRect(GameObject* go);

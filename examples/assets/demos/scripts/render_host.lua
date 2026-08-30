@@ -14,6 +14,7 @@ local state = {
 	fbo = nil,
 	effectManager = nil,
 	effectCount = 0,
+	uiRenderer = nil,
 	projFov = 70,
 	projNear = 0.1,
 	projFar = 2000,
@@ -46,6 +47,9 @@ local function clear()
 	state.effectCount = 0
 	state.motionBlur = false
 	state.lastDrawTime = nil
+	-- Before the renderer below, same ordering rule as everything else here:
+	-- it holds GPU state and must not outlive the device teardown.
+	state.uiRenderer = nil
 	collectgarbage()
 	collectgarbage()
 
@@ -187,10 +191,24 @@ function RenderHost.resize(width, height)
 	if state.onResize then state.onResize(width, height) end
 end
 
+-- Screen-space UI, last and over everything. Built lazily because most demos
+-- have no canvas and there is no reason to hold a renderer for them; once one
+-- exists it costs a scan of an empty canvas list.
+local function drawUI(scene)
+	if not state.uiRenderer then
+		state.uiRenderer = UIRenderer.new(state.width, state.height)
+	end
+	state.uiRenderer:resize(state.width, state.height)
+	state.uiRenderer:renderUI(scene)
+end
+
 function RenderHost.draw(camera, scene, projection)
 	if not renderer or not camera or not scene or not projection then return end
 	if state.drawOverride then
 		state.drawOverride(camera, scene, projection)
+		-- A demo that owns its draw still gets its UI composited: overriding
+		-- the 3D pass is not a statement about the HUD.
+		drawUI(scene)
 		return
 	end
 
@@ -225,6 +243,8 @@ function RenderHost.draw(camera, scene, projection)
 		renderer:preRender(camera, scene)
 		renderer:renderScene(projection, camera, scene)
 	end
+
+	drawUI(scene)
 end
 
 function RenderHost.destroy()

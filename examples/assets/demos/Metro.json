@@ -1,169 +1,1789 @@
 {
-    "ambientLight": [
-        0.03,
-        0.032,
-        0.042
-    ],
-    "materials": [],
-    "roots": [
+ "ambientLight": [
+  0.03,
+  0.032,
+  0.042
+ ],
+ "materials": [],
+ "roots": [
+  {
+   "children": [],
+   "components": [
+    {
+     "data": {},
+     "scriptFile": "demos/scripts/camera_none.lua",
+     "type": "LuaComponent"
+    }
+   ],
+   "name": "Camera",
+   "position": [
+    0.0,
+    2.75,
+    0.0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": false,
+   "tags": [
+    "Camera"
+   ]
+  },
+  {
+   "children": [],
+   "components": [
+    {
+     "castingShadows": true,
+     "color": [
+      1.0,
+      0.88,
+      0.66,
+      1.0
+     ],
+     "direction": [
+      0.0,
+      -1.0,
+      0.0
+     ],
+     "innerCone": 13.0,
+     "intensity": 1.5,
+     "outterCone": 32.0,
+     "radius": 15.0,
+     "shadowBiasFactor": 4.0,
+     "shadowBiasUnits": 5.0,
+     "shadowHeight": 768,
+     "shadowNear": 4.0,
+     "shadowWidth": 768,
+     "type": "SpotLight",
+     "volumetricAnisotropy": 0.7,
+     "volumetricScattering": 0.011,
+     "volumetricSteps": 24
+    }
+   ],
+   "name": "StationLamp_W",
+   "position": [
+    -20.25,
+    6.8999999999999995,
+    0.0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": false,
+   "tags": []
+  },
+  {
+   "children": [],
+   "components": [
+    {
+     "castingShadows": true,
+     "color": [
+      1.0,
+      0.88,
+      0.66,
+      1.0
+     ],
+     "direction": [
+      0.0,
+      -1.0,
+      0.0
+     ],
+     "innerCone": 13.0,
+     "intensity": 1.5,
+     "outterCone": 32.0,
+     "radius": 15.0,
+     "shadowBiasFactor": 4.0,
+     "shadowBiasUnits": 5.0,
+     "shadowHeight": 768,
+     "shadowNear": 4.0,
+     "shadowWidth": 768,
+     "type": "SpotLight",
+     "volumetricAnisotropy": 0.7,
+     "volumetricScattering": 0.011,
+     "volumetricSteps": 24
+    }
+   ],
+   "name": "StationLamp_E",
+   "position": [
+    20.25,
+    6.8999999999999995,
+    0.0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": false,
+   "tags": []
+  },
+  {
+   "children": [],
+   "components": [
+    {
+     "data": {},
+     "scriptFile": "demos/scripts/metro.lua",
+     "type": "LuaComponent"
+    }
+   ],
+   "name": "Metro",
+   "position": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": false,
+   "tags": []
+  },
+  {
+   "name": "HUD",
+   "static": false,
+   "position": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "tags": [],
+   "components": [
+    {
+     "type": "UICanvas",
+     "referenceWidth": 1920.0,
+     "referenceHeight": 1080.0,
+     "scaleMode": "MatchWidth",
+     "sortOrder": 0
+    }
+   ],
+   "children": [
+    {
+     "name": "HitFlash",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        0
+       ],
+       "anchorMax": [
+        1,
+        1
+       ],
+       "offsetMin": [
+        0,
+        0
+       ],
+       "offsetMax": [
+        0,
+        0
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIImage",
+       "tint": [
+        0.55,
+        0.02,
+        0.02,
+        0.0
+       ],
+       "border": [
+        0,
+        0,
+        0,
+        0
+       ]
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "EdgeTop",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        0
+       ],
+       "anchorMax": [
+        1,
+        0
+       ],
+       "offsetMin": [
+        0,
+        0
+       ],
+       "offsetMax": [
+        0,
+        120
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIImage",
+       "tint": [
+        0.5,
+        0.0,
+        0.0,
+        0.0
+       ],
+       "border": [
+        0,
+        0,
+        0,
+        0
+       ]
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "EdgeBottom",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        1
+       ],
+       "anchorMax": [
+        1,
+        1
+       ],
+       "offsetMin": [
+        0,
+        -120
+       ],
+       "offsetMax": [
+        0,
+        0
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIImage",
+       "tint": [
+        0.5,
+        0.0,
+        0.0,
+        0.0
+       ],
+       "border": [
+        0,
+        0,
+        0,
+        0
+       ]
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "Wave",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        0
+       ],
+       "anchorMax": [
+        1,
+        0
+       ],
+       "offsetMin": [
+        56,
+        28
+       ],
+       "offsetMax": [
+        -56,
+        72
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIText",
+       "font": "verdana.ttf",
+       "fontSize": 32.0,
+       "size": 30.0,
+       "text": "WAVE 1",
+       "color": [
+        0.8,
+        0.84,
+        0.9,
+        0.95
+       ],
+       "align": "Left",
+       "verticalAlign": "Top"
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "Score",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        0
+       ],
+       "anchorMax": [
+        1,
+        0
+       ],
+       "offsetMin": [
+        56,
+        78
+       ],
+       "offsetMax": [
+        -56,
+        112
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIText",
+       "font": "verdana.ttf",
+       "fontSize": 32.0,
+       "size": 24.0,
+       "text": "SCORE 0      KILLS 0",
+       "color": [
+        0.55,
+        0.58,
+        0.64,
+        0.9
+       ],
+       "align": "Left",
+       "verticalAlign": "Top"
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "Contacts",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        0
+       ],
+       "anchorMax": [
+        1,
+        0
+       ],
+       "offsetMin": [
+        56,
+        118
+       ],
+       "offsetMax": [
+        -56,
+        152
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIText",
+       "font": "verdana.ttf",
+       "fontSize": 32.0,
+       "size": 24.0,
+       "text": "",
+       "color": [
+        0.85,
+        0.4,
+        0.35,
+        0.9
+       ],
+       "align": "Left",
+       "verticalAlign": "Top"
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "HealthLabel",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        1
+       ],
+       "anchorMax": [
+        0,
+        1
+       ],
+       "offsetMin": [
+        56,
+        -180
+       ],
+       "offsetMax": [
+        436,
+        -146
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIText",
+       "font": "verdana.ttf",
+       "fontSize": 32.0,
+       "size": 24.0,
+       "text": "HEALTH",
+       "color": [
+        0.62,
+        0.66,
+        0.72,
+        0.9
+       ],
+       "align": "Left",
+       "verticalAlign": "Top"
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "HealthBar",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        1
+       ],
+       "anchorMax": [
+        0,
+        1
+       ],
+       "offsetMin": [
+        56,
+        -142
+       ],
+       "offsetMax": [
+        436,
+        -120
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIImage",
+       "tint": [
+        0.0,
+        0.0,
+        0.0,
+        0.45
+       ],
+       "border": [
+        0,
+        0,
+        0,
+        0
+       ]
+      }
+     ],
+     "children": [
+      {
+       "name": "HealthBarFill",
+       "static": false,
+       "position": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "tags": [],
+       "components": [
         {
-            "children": [],
-            "components": [
-                {
-                    "data": {},
-                    "scriptFile": "demos/scripts/camera_none.lua",
-                    "type": "LuaComponent"
-                }
-            ],
-            "name": "Camera",
-            "position": [
-                0.0,
-                2.75,
-                0.0
-            ],
-            "rotation": [
-                0,
-                0,
-                0
-            ],
-            "scale": [
-                1,
-                1,
-                1
-            ],
-            "static": false,
-            "tags": [
-                "Camera"
-            ]
+         "type": "UIRect",
+         "anchorMin": [
+          0,
+          0
+         ],
+         "anchorMax": [
+          1,
+          1
+         ],
+         "offsetMin": [
+          2,
+          2
+         ],
+         "offsetMax": [
+          -2,
+          -2
+         ],
+         "pivot": [
+          0.0,
+          0.0
+         ]
         },
         {
-            "children": [],
-            "components": [
-                {
-                    "castingShadows": true,
-                    "color": [
-                        1.0,
-                        0.88,
-                        0.66,
-                        1.0
-                    ],
-                    "direction": [
-                        0.0,
-                        -1.0,
-                        0.0
-                    ],
-                    "innerCone": 13.0,
-                    "intensity": 1.5,
-                    "outterCone": 32.0,
-                    "radius": 15.0,
-                    "shadowBiasFactor": 4.0,
-                    "shadowBiasUnits": 5.0,
-                    "shadowHeight": 768,
-                    "shadowNear": 4.0,
-                    "shadowWidth": 768,
-                    "type": "SpotLight",
-                    "volumetricAnisotropy": 0.7,
-                    "volumetricScattering": 0.011,
-                    "volumetricSteps": 24
-                }
-            ],
-            "name": "StationLamp_W",
-            "position": [
-                -20.25,
-                6.8999999999999995,
-                0.0
-            ],
-            "rotation": [
-                0,
-                0,
-                0
-            ],
-            "scale": [
-                1,
-                1,
-                1
-            ],
-            "static": false,
-            "tags": []
-        },
-        {
-            "children": [],
-            "components": [
-                {
-                    "castingShadows": true,
-                    "color": [
-                        1.0,
-                        0.88,
-                        0.66,
-                        1.0
-                    ],
-                    "direction": [
-                        0.0,
-                        -1.0,
-                        0.0
-                    ],
-                    "innerCone": 13.0,
-                    "intensity": 1.5,
-                    "outterCone": 32.0,
-                    "radius": 15.0,
-                    "shadowBiasFactor": 4.0,
-                    "shadowBiasUnits": 5.0,
-                    "shadowHeight": 768,
-                    "shadowNear": 4.0,
-                    "shadowWidth": 768,
-                    "type": "SpotLight",
-                    "volumetricAnisotropy": 0.7,
-                    "volumetricScattering": 0.011,
-                    "volumetricSteps": 24
-                }
-            ],
-            "name": "StationLamp_E",
-            "position": [
-                20.25,
-                6.8999999999999995,
-                0.0
-            ],
-            "rotation": [
-                0,
-                0,
-                0
-            ],
-            "scale": [
-                1,
-                1,
-                1
-            ],
-            "static": false,
-            "tags": []
-        },
-        {
-            "children": [],
-            "components": [
-                {
-                    "data": {},
-                    "scriptFile": "demos/scripts/metro.lua",
-                    "type": "LuaComponent"
-                }
-            ],
-            "name": "Metro",
-            "position": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "rotation": [
-                0,
-                0,
-                0
-            ],
-            "scale": [
-                1,
-                1,
-                1
-            ],
-            "static": false,
-            "tags": []
+         "type": "UIImage",
+         "tint": [
+          0.35,
+          0.85,
+          0.4,
+          0.9
+         ],
+         "border": [
+          0,
+          0,
+          0,
+          0
+         ]
         }
-    ],
-    "version": 1
+       ],
+       "children": []
+      }
+     ]
+    },
+    {
+     "name": "HealthValue",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        1
+       ],
+       "anchorMax": [
+        0,
+        1
+       ],
+       "offsetMin": [
+        448,
+        -146
+       ],
+       "offsetMax": [
+        640,
+        -112
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIText",
+       "font": "verdana.ttf",
+       "fontSize": 32.0,
+       "size": 24.0,
+       "text": "100",
+       "color": [
+        0.75,
+        0.78,
+        0.82,
+        0.9
+       ],
+       "align": "Left",
+       "verticalAlign": "Top"
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "BatteryLabel",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        1
+       ],
+       "anchorMax": [
+        0,
+        1
+       ],
+       "offsetMin": [
+        56,
+        -108
+       ],
+       "offsetMax": [
+        436,
+        -74
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIText",
+       "font": "verdana.ttf",
+       "fontSize": 32.0,
+       "size": 24.0,
+       "text": "FLASHLIGHT",
+       "color": [
+        0.62,
+        0.66,
+        0.72,
+        0.9
+       ],
+       "align": "Left",
+       "verticalAlign": "Top"
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "BatteryBar",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        1
+       ],
+       "anchorMax": [
+        0,
+        1
+       ],
+       "offsetMin": [
+        56,
+        -70
+       ],
+       "offsetMax": [
+        436,
+        -54
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIImage",
+       "tint": [
+        0.0,
+        0.0,
+        0.0,
+        0.45
+       ],
+       "border": [
+        0,
+        0,
+        0,
+        0
+       ]
+      }
+     ],
+     "children": [
+      {
+       "name": "BatteryBarFill",
+       "static": false,
+       "position": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "tags": [],
+       "components": [
+        {
+         "type": "UIRect",
+         "anchorMin": [
+          0,
+          0
+         ],
+         "anchorMax": [
+          1,
+          1
+         ],
+         "offsetMin": [
+          2,
+          2
+         ],
+         "offsetMax": [
+          -2,
+          -2
+         ],
+         "pivot": [
+          0.0,
+          0.0
+         ]
+        },
+        {
+         "type": "UIImage",
+         "tint": [
+          0.35,
+          0.72,
+          1.0,
+          0.9
+         ],
+         "border": [
+          0,
+          0,
+          0,
+          0
+         ]
+        }
+       ],
+       "children": []
+      }
+     ]
+    },
+    {
+     "name": "BatteryValue",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        1
+       ],
+       "anchorMax": [
+        0,
+        1
+       ],
+       "offsetMin": [
+        448,
+        -76
+       ],
+       "offsetMax": [
+        640,
+        -42
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIText",
+       "font": "verdana.ttf",
+       "fontSize": 32.0,
+       "size": 24.0,
+       "text": "100%",
+       "color": [
+        0.75,
+        0.78,
+        0.82,
+        0.9
+       ],
+       "align": "Left",
+       "verticalAlign": "Top"
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "WeaponName",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        1,
+        1
+       ],
+       "anchorMax": [
+        1,
+        1
+       ],
+       "offsetMin": [
+        -640,
+        -150
+       ],
+       "offsetMax": [
+        -56,
+        -116
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIText",
+       "font": "verdana.ttf",
+       "fontSize": 32.0,
+       "size": 24.0,
+       "text": "",
+       "color": [
+        0.55,
+        0.58,
+        0.64,
+        0.9
+       ],
+       "align": "Right",
+       "verticalAlign": "Top"
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "Ammo",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        1,
+        1
+       ],
+       "anchorMax": [
+        1,
+        1
+       ],
+       "offsetMin": [
+        -640,
+        -112
+       ],
+       "offsetMax": [
+        -56,
+        -60
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIText",
+       "font": "verdana.ttf",
+       "fontSize": 32.0,
+       "size": 34.0,
+       "text": "0 / 0",
+       "color": [
+        0.85,
+        0.88,
+        0.92,
+        0.95
+       ],
+       "align": "Right",
+       "verticalAlign": "Top"
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "ReloadBar",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        1,
+        1
+       ],
+       "anchorMax": [
+        1,
+        1
+       ],
+       "offsetMin": [
+        -320,
+        -46
+       ],
+       "offsetMax": [
+        -56,
+        -34
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIImage",
+       "tint": [
+        0.0,
+        0.0,
+        0.0,
+        0.45
+       ],
+       "border": [
+        0,
+        0,
+        0,
+        0
+       ]
+      }
+     ],
+     "children": [
+      {
+       "name": "ReloadBarFill",
+       "static": false,
+       "position": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "tags": [],
+       "components": [
+        {
+         "type": "UIRect",
+         "anchorMin": [
+          0,
+          0
+         ],
+         "anchorMax": [
+          1,
+          1
+         ],
+         "offsetMin": [
+          2,
+          2
+         ],
+         "offsetMax": [
+          -2,
+          -2
+         ],
+         "pivot": [
+          0.0,
+          0.0
+         ]
+        },
+        {
+         "type": "UIImage",
+         "tint": [
+          0.85,
+          0.75,
+          0.35,
+          0.9
+         ],
+         "border": [
+          0,
+          0,
+          0,
+          0
+         ]
+        }
+       ],
+       "children": []
+      }
+     ]
+    },
+    {
+     "name": "Message",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        0.36
+       ],
+       "anchorMax": [
+        1,
+        0.36
+       ],
+       "offsetMin": [
+        0,
+        0
+       ],
+       "offsetMax": [
+        0,
+        70.4
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIText",
+       "font": "verdana.ttf",
+       "fontSize": 32.0,
+       "size": 44.0,
+       "text": "",
+       "color": [
+        0.85,
+        0.88,
+        0.92,
+        0.95
+       ],
+       "align": "Center",
+       "verticalAlign": "Middle"
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "Submessage",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        0.42
+       ],
+       "anchorMax": [
+        1,
+        0.42
+       ],
+       "offsetMin": [
+        0,
+        0
+       ],
+       "offsetMax": [
+        0,
+        41.6
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIText",
+       "font": "verdana.ttf",
+       "fontSize": 32.0,
+       "size": 26.0,
+       "text": "",
+       "color": [
+        0.6,
+        0.62,
+        0.68,
+        0.85
+       ],
+       "align": "Center",
+       "verticalAlign": "Middle"
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "Prompt",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        0.47
+       ],
+       "anchorMax": [
+        1,
+        0.47
+       ],
+       "offsetMin": [
+        0,
+        0
+       ],
+       "offsetMax": [
+        0,
+        41.6
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIText",
+       "font": "verdana.ttf",
+       "fontSize": 32.0,
+       "size": 26.0,
+       "text": "",
+       "color": [
+        0.75,
+        0.78,
+        0.82,
+        0.9
+       ],
+       "align": "Center",
+       "verticalAlign": "Middle"
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "Notice",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        0.62
+       ],
+       "anchorMax": [
+        1,
+        0.62
+       ],
+       "offsetMin": [
+        0,
+        0
+       ],
+       "offsetMax": [
+        0,
+        48.0
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIText",
+       "font": "verdana.ttf",
+       "fontSize": 32.0,
+       "size": 30.0,
+       "text": "",
+       "color": [
+        0.85,
+        0.85,
+        0.6,
+        0.9
+       ],
+       "align": "Center",
+       "verticalAlign": "Middle"
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "BatteryWarn",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        0.68
+       ],
+       "anchorMax": [
+        1,
+        0.68
+       ],
+       "offsetMin": [
+        0,
+        0
+       ],
+       "offsetMax": [
+        0,
+        48.0
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIText",
+       "font": "verdana.ttf",
+       "fontSize": 32.0,
+       "size": 30.0,
+       "text": "",
+       "color": [
+        0.85,
+        0.35,
+        0.3,
+        0.9
+       ],
+       "align": "Center",
+       "verticalAlign": "Middle"
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "Controls1",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        0.78
+       ],
+       "anchorMax": [
+        1,
+        0.78
+       ],
+       "offsetMin": [
+        0,
+        0
+       ],
+       "offsetMax": [
+        0,
+        38.400000000000006
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIText",
+       "font": "verdana.ttf",
+       "fontSize": 32.0,
+       "size": 24.0,
+       "text": "",
+       "color": [
+        0.7,
+        0.72,
+        0.78,
+        0.85
+       ],
+       "align": "Center",
+       "verticalAlign": "Middle"
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "Controls2",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        0.82
+       ],
+       "anchorMax": [
+        1,
+        0.82
+       ],
+       "offsetMin": [
+        0,
+        0
+       ],
+       "offsetMax": [
+        0,
+        38.400000000000006
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIText",
+       "font": "verdana.ttf",
+       "fontSize": 32.0,
+       "size": 24.0,
+       "text": "",
+       "color": [
+        0.7,
+        0.72,
+        0.78,
+        0.85
+       ],
+       "align": "Center",
+       "verticalAlign": "Middle"
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "Controls3",
+     "static": false,
+     "position": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotation": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tags": [],
+     "components": [
+      {
+       "type": "UIRect",
+       "anchorMin": [
+        0,
+        0.86
+       ],
+       "anchorMax": [
+        1,
+        0.86
+       ],
+       "offsetMin": [
+        0,
+        0
+       ],
+       "offsetMax": [
+        0,
+        38.400000000000006
+       ],
+       "pivot": [
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "type": "UIText",
+       "font": "verdana.ttf",
+       "fontSize": 32.0,
+       "size": 24.0,
+       "text": "",
+       "color": [
+        0.7,
+        0.72,
+        0.78,
+        0.85
+       ],
+       "align": "Center",
+       "verticalAlign": "Middle"
+      }
+     ],
+     "children": []
+    }
+   ]
+  }
+ ],
+ "version": 1
 }

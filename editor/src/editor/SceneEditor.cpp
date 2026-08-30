@@ -3464,6 +3464,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	void SceneEditor::Update(const f64 time)
 	{
 		UpdateViewportMouse();
+		PollUIStyleFiles(time);
 
 		if (playMode)
 			physics->Update(time, 10);

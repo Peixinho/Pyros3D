@@ -1444,6 +1444,69 @@ bool SceneEditor::OpExtractUIStyle(uint32 goId, const std::string& name, std::st
 	return true;
 }
 
+// Re-applies styles when a .uistyle or the palette changes on disk. Polled
+// rather than watched: there is no file watcher in this editor, the set of
+// files is tiny (one palette plus whatever styles the open scene references),
+// and half a second of latency is invisible next to alt-tabbing back from an
+// editor. Without it, styling is edit-file, reload-scene, look - which is
+// exactly the loop a style asset exists to avoid.
+void SceneEditor::PollUIStyleFiles(const f64 time)
+{
+	if (!project || !project->IsOpen() || playMode) return;
+	if (time - lastUIStylePoll < 0.5) return;
+	lastUIStylePoll = time;
+
+	namespace fs = std::filesystem;
+	std::error_code ec;
+
+	// Which files matter is derived from the scene each time, so a style
+	// that stops being referenced stops being watched.
+	std::vector<std::string> paths;
+	paths.push_back(UIStylePalettePath());
+	std::vector<std::shared_ptr<GameObject> > &roots = scene->GetAllGameObjectList();
+	std::vector<GameObject*> stack;
+	for (size_t i = 0; i < roots.size(); i++) stack.push_back(roots[i].get());
+	while (!stack.empty())
+	{
+		GameObject* go = stack.back(); stack.pop_back();
+		if (!go) continue;
+		const std::vector<std::shared_ptr<IComponent> >& cs = go->GetComponents();
+		for (size_t i = 0; i < cs.size(); i++)
+			if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect)
+			{
+				const std::string ref = static_cast<UIRect*>(cs[i].get())->GetStyleRef();
+				if (!ref.empty()) paths.push_back(project->AbsolutePath(ref));
+				break;
+			}
+		const std::vector<std::shared_ptr<GameObject> >& kids = go->GetChildren();
+		for (size_t i = 0; i < kids.size(); i++) stack.push_back(kids[i].get());
+	}
+
+	bool changed = false;
+	for (size_t i = 0; i < paths.size(); i++)
+	{
+		if (paths[i].empty()) continue;
+		const fs::file_time_type t = fs::last_write_time(paths[i], ec);
+		if (ec) { ec.clear(); continue; }
+		std::map<std::string, fs::file_time_type>::iterator seen = uiStyleMTimes.find(paths[i]);
+		if (seen == uiStyleMTimes.end()) uiStyleMTimes[paths[i]] = t;
+		else if (seen->second != t) { seen->second = t; changed = true; }
+	}
+	if (!changed) return;
+
+	const int n = ReapplyUIStyles();
+	// Deliberately not marking the scene dirty: nothing the user did changed,
+	// and a style edit should not turn every open scene into unsaved work.
+	// Saving later will of course write the new values, which is correct -
+	// they are the values the scene now has.
+	if (n > 0)
+	{
+		char buf[80];
+		snprintf(buf, sizeof(buf), "UI style changed - restyled %d element(s)", n);
+		echo(buf);
+	}
+}
+
 int SceneEditor::ReapplyUIStyles()
 {
 	if (!scene) return 0;

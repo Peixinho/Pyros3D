@@ -18,6 +18,7 @@
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 #include <Pyros3D/Rendering/Components/UI/UIText.h>
 #include <Pyros3D/Rendering/Components/UI/UIButton.h>
+#include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.h>
 
 namespace p3d {
 
@@ -119,9 +120,53 @@ namespace p3d {
 		}
 	}
 
+	namespace {
+		// Pointer-in, name-out. Lua has no use for a GameObject* it cannot do
+		// anything with, and the name is what a script already thinks in.
+		std::string UI_UpdateInput(SceneGraph* scene, const f32 x, const f32 y, const bool down)
+		{
+			if (!scene) return std::string();
+			std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(scene);
+			// Topmost canvas first, so a menu over a HUD swallows the click
+			// rather than both acting on it.
+			for (size_t i = canvases.size(); i > 0; i--)
+			{
+				const UIRectValue &r = canvases[i - 1]->GetCanvasRect();
+				if (r.width <= 0.f || r.height <= 0.f) continue;
+				if (GameObject* hit = canvases[i - 1]->UpdateInput(Vec2(x, y), down))
+					return hit->GetName();
+			}
+			return std::string();
+		}
+
+		Vec2 UI_ScreenToCanvas(SceneGraph* scene, const f32 x, const f32 y,
+			const f32 screenWidth, const f32 screenHeight)
+		{
+			if (!scene || screenWidth <= 0.f || screenHeight <= 0.f) return Vec2(x, y);
+			std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(scene);
+			if (canvases.empty()) return Vec2(x, y);
+			const UIRectValue &r = canvases.back()->GetCanvasRect();
+			return Vec2(x / screenWidth * r.width, y / screenHeight * r.height);
+		}
+	}
+
 	void RegisterLuaUI(sol::state* lua)
 	{
+		// The pass itself, so a Lua-driven host (the DemoLauncher's
+		// render_host) can composite UI the same way the editor and the
+		// player do. Nothing else in the engine needs to be told about it -
+		// it draws whatever canvases the scene has.
+		{
+			sol::constructors<sol::types<uint32, uint32>> con;
+			lua->new_usertype<UIRenderer>("UIRenderer",
+				con,
+				"resize", &UIRenderer::Resize,
+				"renderUI", &UIRenderer::RenderUI);
+		}
+
 		sol::table ui = lua->create_named_table("ui");
+		ui.set_function("updateInput", &UI_UpdateInput);
+		ui.set_function("screenToCanvas", &UI_ScreenToCanvas);
 		ui.set_function("find", &UI_Find);
 		ui.set_function("setText", &UI_SetText);
 		ui.set_function("getText", &UI_GetText);
