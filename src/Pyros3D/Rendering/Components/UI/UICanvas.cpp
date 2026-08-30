@@ -290,6 +290,22 @@ namespace p3d {
 	bool UICanvas::UpdateKey(const uint32 key)
 	{
 		events.clear();
+
+		// Anything asking for keys without focus gets first refusal,
+		// topmost first - see UIWidget::WantsKeysWhileUnfocused. An open
+		// menu is the only thing that does, and Escape has to shut it
+		// rather than being swallowed by whatever had focus under it.
+		for (size_t i = widgetList.size(); i > 0; i--)
+		{
+			UIWidget* candidate = widgetList[i - 1].widget;
+			if (candidate == WidgetOn(focused) || !candidate->WantsKeysWhileUnfocused()) continue;
+			bool grabbed = false;
+			const uint32 f = candidate->OnKey(key, grabbed);
+			if (f != UIEventFlag::None)
+				events.push_back(WidgetEvent(widgetList[i - 1].node, candidate, f));
+			if (grabbed) return true;
+		}
+
 		UIWidget* w = WidgetOn(focused);
 		if (!w || !w->IsInteractable()) return false;
 		bool claimed = false;

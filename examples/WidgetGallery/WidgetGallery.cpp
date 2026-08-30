@@ -85,6 +85,16 @@ std::shared_ptr<GameObject> WidgetGallery::Element(const std::shared_ptr<GameObj
 	return go;
 }
 
+UIRect* WidgetGallery::RectOn(GameObject* go)
+{
+	if (!go) return NULL;
+	const std::vector<std::shared_ptr<IComponent> > &cs = go->GetComponents();
+	for (size_t i = 0; i < cs.size(); i++)
+		if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect)
+			return static_cast<UIRect*>(cs[i].get());
+	return NULL;
+}
+
 std::shared_ptr<UIImage> WidgetGallery::Image(const std::shared_ptr<GameObject> &on)
 {
 	// White and untextured until a style says otherwise, which it always
@@ -273,6 +283,86 @@ std::shared_ptr<UIDropdown> WidgetGallery::Dropdown(const std::shared_ptr<GameOb
 
 //=============================================================================
 
+std::shared_ptr<UIMenuItem> WidgetGallery::MenuEntry(const std::shared_ptr<GameObject> &parent,
+	const std::string &name, const Vec2 &offsetMin, const Vec2 &offsetMax,
+	const std::string &text, const bool centred)
+{
+	std::shared_ptr<GameObject> go = Element(parent, name, Vec2(0.f, 0.f), Vec2(0.f, 0.f),
+		offsetMin, offsetMax, "menuItem");
+	Image(go);
+	std::shared_ptr<GameObject> label = Element(go, name + "Label", Vec2(0.f, 0.f), Vec2(1.f, 1.f),
+		Vec2(centred ? 0.f : 14.f, 0.f), Vec2(centred ? 0.f : -14.f, 0.f), "label");
+	std::shared_ptr<UIText> t = Label(label, text);
+	if (centred) t->SetAlignment(UIAlign::Center, UIVerticalAlign::Middle);
+	std::shared_ptr<UIMenuItem> item = std::make_shared<UIMenuItem>();
+	go->Add(std::static_pointer_cast<IComponent>(item));
+	return item;
+}
+
+// A menu bar with two menus, one of which nests. Built from the same
+// elements as everything else here - a menu is a tree of entries, not a
+// special kind of thing.
+void WidgetGallery::BuildMenuBar(const std::shared_ptr<GameObject> &parent)
+{
+	std::shared_ptr<GameObject> barGO = Element(parent, "MenuBar", Vec2(0.f, 0.f), Vec2(1.f, 0.f),
+		Vec2(0.f, 0.f), Vec2(0.f, 30.f), "menuBar");
+	Image(barGO);
+	std::shared_ptr<UIMenu> menu = std::make_shared<UIMenu>();
+	barGO->Add(std::static_pointer_cast<IComponent>(menu));
+
+	const f32 rowHeight = 28.f;
+	const char* titles[2] = { "File", "View" };
+	const char* entries[2][3] = { { "New Scene", "Open...", "Recent" }, { "Wireframe", "Statistics", "Fullscreen" } };
+
+	for (int m = 0; m < 2; m++)
+	{
+		std::shared_ptr<UIMenuItem> title = MenuEntry(barGO, titles[m],
+			Vec2(8.f + (f32)m * 84.f, 0.f), Vec2(8.f + (f32)(m + 1) * 84.f - 4.f, 30.f), titles[m], true);
+		std::shared_ptr<GameObject> titleGO = title->GetOwner()->GetChildren().empty()
+			? std::shared_ptr<GameObject>() : std::shared_ptr<GameObject>();
+		(void)titleGO;
+
+		// The panel this title opens, parented to the title so it travels
+		// with it, and hidden until it is opened.
+		std::shared_ptr<GameObject> ownerGO;
+		{
+			const std::vector<std::shared_ptr<GameObject> > &kids = barGO->GetChildren();
+			for (size_t i = 0; i < kids.size(); i++)
+				if (kids[i].get() == title->GetOwner()) ownerGO = kids[i];
+		}
+		std::shared_ptr<GameObject> panel = Element(ownerGO, std::string(titles[m]) + "Menu",
+			Vec2(0.f, 1.f), Vec2(0.f, 1.f), Vec2(0.f, 2.f), Vec2(210.f, 2.f + rowHeight * 3.f), "menuPanel");
+		Image(panel);
+		if (UIRect* r = RectOn(panel.get())) r->SetVisible(false);
+		title->SetSubmenu(panel->GetName());
+
+		for (int e = 0; e < 3; e++)
+		{
+			std::shared_ptr<UIMenuItem> entry = MenuEntry(panel, std::string(titles[m]) + entries[m][e],
+				Vec2(0.f, (f32)e * rowHeight), Vec2(210.f, (f32)(e + 1) * rowHeight), entries[m][e], false);
+
+			// One nested submenu, so the nesting is visible rather than
+			// described.
+			if (m == 0 && e == 2)
+			{
+				std::shared_ptr<GameObject> entryGO;
+				{
+					const std::vector<std::shared_ptr<GameObject> > &kids = panel->GetChildren();
+					for (size_t i = 0; i < kids.size(); i++)
+						if (kids[i].get() == entry->GetOwner()) entryGO = kids[i];
+				}
+				std::shared_ptr<GameObject> sub = Element(entryGO, "RecentMenu",
+					Vec2(1.f, 0.f), Vec2(1.f, 0.f), Vec2(0.f, 0.f), Vec2(210.f, rowHeight * 2.f), "menuPanel");
+				Image(sub);
+				if (UIRect* r = RectOn(sub.get())) r->SetVisible(false);
+				entry->SetSubmenu(sub->GetName());
+				MenuEntry(sub, "RecentA", Vec2(0.f, 0.f), Vec2(210.f, rowHeight), "arena.scene", false);
+				MenuEntry(sub, "RecentB", Vec2(0.f, rowHeight), Vec2(210.f, rowHeight * 2.f), "lobby.scene", false);
+			}
+		}
+	}
+}
+
 void WidgetGallery::ApplyTheme(const uint32 index)
 {
 	theme = index % (uint32)themes.size();
@@ -313,7 +403,7 @@ void WidgetGallery::Init()
 	Image(back);
 
 	std::shared_ptr<GameObject> titleGO = Element(canvasGO, "Title", Vec2(0.f, 0.f), Vec2(0.f, 0.f),
-		Vec2(40.f, 28.f), Vec2(600.f, 76.f), "title");
+		Vec2(40.f, 34.f), Vec2(600.f, 82.f), "title");
 	std::shared_ptr<UIText> title = std::make_shared<UIText>(fontTitle, "Widget Gallery", 34.f, Vec4(1, 1, 1, 1));
 	title->SetAlignment(UIAlign::Left, UIVerticalAlign::Middle);
 	titleGO->Add(std::static_pointer_cast<IComponent>(title));
@@ -445,6 +535,11 @@ void WidgetGallery::Init()
 	themePicker = Dropdown(right, "Theme", Vec2(24.f, 356.f), Vec2(376.f, 400.f));
 	themePicker->SetOptions(themes);
 	themePicker->SetSelected(0);
+
+	// The menu bar last, deliberately: siblings paint in order, and an open
+	// menu has to be over everything, including the panels its popups hang
+	// across.
+	BuildMenuBar(canvasGO);
 
 	// One solve before the first style application, so every element has a
 	// rect - the styles only touch look, but the canvas has to have run.
@@ -669,17 +764,41 @@ void WidgetGallery::RunShowcase()
 	}
 	shot("show_3_used.png");
 
-	// 4. The dropdown open over everything, which is the case that needs
+	// 4. The File menu open, with its Recent submenu hovered open inside
+	//    it - a menu bar follows the pointer once it is armed, so this is
+	//    one click and two moves.
+	{
+		GameObject* file = findByName("File");
+		point(centre(file), false);
+		point(centre(file), true);
+		point(centre(file), false);
+		uiScene->Update(clock);
+		canvas->Solve(1280.f, 720.f);
+		if (GameObject* recent = findByName("FileRecent"))
+		{
+			point(centre(recent), false);
+			uiScene->Update(clock);
+			canvas->Solve(1280.f, 720.f);
+			point(centre(recent), false);
+		}
+		shot("show_4_menu.png");
+		// Dismissed the way a menu is: a press anywhere else.
+		point(Vec2(640.f, 640.f), false);
+		point(Vec2(640.f, 640.f), true);
+		point(Vec2(640.f, 640.f), false);
+	}
+
+	// 5. The dropdown open over everything, which is the case that needs
 	//    paint order and clipping to both be right.
 	{
 		const Vec2 t = centre(themePicker->GetOwner());
 		point(t, false); point(t, true); point(t, false);
 	}
-	shot("show_4_dropdown.png");
+	shot("show_5_dropdown.png");
 
-	// 5. The same screen, same state, amber - the theme is a file swap.
+	// 6. The same screen, same state, amber - the theme is a file swap.
 	ApplyTheme(1);
-	shot("show_5_amber.png");
+	shot("show_6_amber.png");
 }
 
 //=============================================================================
@@ -761,6 +880,31 @@ void WidgetGallery::RunVerification()
 			if (kids[i] && kids[i]->GetName() == name) return kids[i].get();
 		return NULL;
 	};
+	auto findByName = [&](const std::string &name) -> GameObject* {
+		std::vector<GameObject*> stack;
+		stack.push_back(canvasGO.get());
+		while (!stack.empty())
+		{
+			GameObject* go = stack.back(); stack.pop_back();
+			if (go->GetName() == name) return go;
+			const std::vector<std::shared_ptr<GameObject> > &kids = go->GetChildren();
+			for (size_t i = 0; i < kids.size(); i++) if (kids[i]) stack.push_back(kids[i].get());
+		}
+		return NULL;
+	};
+	auto visible = [&](GameObject* go) -> bool {
+		if (!go) return false;
+		const std::vector<std::shared_ptr<IComponent> > &cs = go->GetComponents();
+		for (size_t i = 0; i < cs.size(); i++)
+			if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect)
+				return static_cast<UIRect*>(cs[i].get())->IsVisible();
+		return false;
+	};
+	auto centreOf = [&](GameObject* go) -> Vec2 {
+		const UIRectValue r = rectOf(go);
+		return Vec2(r.x + r.width * 0.5f, r.y + r.height * 0.5f);
+	};
+
 	// A point inside an element, given in fractions of its rect.
 	auto inside = [&](GameObject* go, const f32 fx, const f32 fy) -> Vec4 {
 		const UIRectValue r = rectOf(go);
@@ -850,6 +994,57 @@ void WidgetGallery::RunVerification()
 	check(!differs(popupWas, panel), "a closed dropdown paints no popup");
 	check(differs(popupOpen, popupWas), "opening it paints one");
 	check(themePicker->IsExpanded(), "and it knows it is open");
+
+
+	// ---- the menu bar ----
+	// Opening File, then hovering an entry inside it: the entry has to
+	// light up, and hovering the one with a submenu has to open it without
+	// another click.
+	{
+		GameObject* file = findByName("File");
+		const Vec2 onFile = centreOf(file);
+		canvas->UpdateInput(onFile, false);
+		canvas->UpdateInput(onFile, true);
+		canvas->UpdateInput(onFile, false);
+		uiScene->Update(0.0);
+		canvas->Solve((f32)W, (f32)H);
+		frame();
+
+		GameObject* newScene = findByName("FileNew Scene");
+		const UIRectValue entryRect = rectOf(newScene);
+		const Vec4 panelBehind = at(entryRect.x + entryRect.width - 6.f, entryRect.y + entryRect.height * 0.5f);
+		printf("      menu opened, entry rect %.0f,%.0f %.0fx%.0f\n",
+			entryRect.x, entryRect.y, entryRect.width, entryRect.height);
+		check(entryRect.width > 1.f && entryRect.height > 1.f, "clicking a title opens its menu");
+
+		// Hover it, let the state fade land, and look at it.
+		const Vec2 onEntry = centreOf(newScene);
+		for (int i = 0; i < 12; i++) { canvas->UpdateInput(onEntry, false); uiScene->Update(0.05 * (i + 1)); }
+		frame();
+		const Vec4 hovered = at(onEntry.x, onEntry.y);
+		printf("      hovered entry (%d,%d,%d) vs the panel behind it (%d,%d,%d)\n",
+			(int)hovered.x, (int)hovered.y, (int)hovered.z,
+			(int)panelBehind.x, (int)panelBehind.y, (int)panelBehind.z);
+		check(differs(hovered, panelBehind), "an entry lights up under the pointer");
+
+		// Hovering the entry that has a submenu opens it, no click.
+		GameObject* recent = findByName("FileRecent");
+		const Vec2 onRecent = centreOf(recent);
+		for (int i = 0; i < 4; i++) { canvas->UpdateInput(onRecent, false); uiScene->Update(0.6 + 0.05 * i); }
+		canvas->Solve((f32)W, (f32)H);
+		check(visible(findByName("RecentMenu")), "hovering an entry with a submenu opens it");
+
+		// A press anywhere else puts it all away.
+		canvas->UpdateInput(Vec2(640.f, 660.f), false);
+		canvas->UpdateInput(Vec2(640.f, 660.f), true);
+		canvas->UpdateInput(Vec2(640.f, 660.f), false);
+		uiScene->Update(1.0);
+		canvas->Solve((f32)W, (f32)H);
+		// Visibility, not the rect: a hidden element is never solved again,
+		// so it keeps whatever rect it had when it was last on screen.
+		check(!visible(findByName("FileMenu")) && !visible(findByName("RecentMenu")),
+			"a press outside closes the whole menu");
+	}
 
 	// ---- the theme is a file swap ----
 	std::vector<uchar> midnight = px;

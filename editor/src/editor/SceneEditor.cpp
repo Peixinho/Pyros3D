@@ -2648,14 +2648,27 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				}
 				else ImGui::TextDisabled("No texture - a flat tinted rectangle.");
 			}
-			else if (type == ComponentType::UIButton || type == ComponentType::UIToggle)
+			else if (type == ComponentType::UIButton || type == ComponentType::UIToggle
+				|| type == ComponentType::UIMenuItem)
 			{
 				// A toggle is a button (see UIToggle), so it gets the same
 				// panel - states, transition, click handler - with its own
 				// value and grouping on top.
 				UIButton* b = static_cast<UIButton*>(comps[i].get());
 				UIToggle* tg = (type == ComponentType::UIToggle) ? static_cast<UIToggle*>(comps[i].get()) : NULL;
-				ImGui::Text(tg ? "UI Toggle" : "UI Button");
+				UIMenuItem* mi = (type == ComponentType::UIMenuItem) ? static_cast<UIMenuItem*>(comps[i].get()) : NULL;
+				ImGui::Text(tg ? "UI Toggle" : mi ? "UI Menu Item" : "UI Button");
+
+				if (mi)
+				{
+					std::string sub = mi->GetSubmenu();
+					if (ImGui::InputText("Submenu", &sub)) { mi->SetSubmenu(sub); MarkSceneDirty(); }
+					BeginUIUndo(goId); EndUIUndo(goId, "Set Submenu");
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("Child element shown while this entry is open, by name.\nEmpty makes it a leaf: clicking it runs its handler and\ncloses the whole menu.");
+					ImGui::TextDisabled(mi->IsOpen() ? "Open" : (mi->HasSubmenu() ? "Closed" : "Leaf"));
+					ImGui::Separator();
+				}
 
 				if (tg)
 				{
@@ -3363,7 +3376,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (ImGui::BeginMenu("UI"))
 			{
 				const char* kinds[] = { "Canvas", "Rect", "Image", "Text", "Button",
-					"Toggle", "Slider", "Input", "List", "Dropdown" };
+					"Toggle", "Slider", "Input", "List", "Dropdown", "Menu" };
 				const char* tips[] = {
 					"Root of a screen-space UI tree. Add elements as children.",
 					"Anchored rectangle - the layout half of an element.",
@@ -3374,9 +3387,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					"A value dragged along a track. Comes with the Fill and\nHandle children it drives.",
 					"A single-line text field, with its label, placeholder and\ncaret elements.",
 					"A scrolling list. Comes with four rows, which are recycled\nas it scrolls - enough to cover the viewport is enough for\na list of any length.",
-					"A closed list that opens to be picked from. Comes with its\nlabel and a popup containing a list."
+					"A closed list that opens to be picked from. Comes with its\nlabel and a popup containing a list.",
+					"A menu bar with two menus and a submenu inside one of them.\nOnce open it follows the pointer: hovering the next title\nopens it without a second click."
 				};
-				for (int i = 0; i < 10; i++)
+				for (int i = 0; i < 11; i++)
 				{
 					if (ImGui::MenuItem(kinds[i]))
 					{
@@ -8918,19 +8932,33 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 			case ComponentType::UIButton:
 			case ComponentType::UIToggle:
+			case ComponentType::UIMenuItem:
 			{
 				UIButton* b = static_cast<UIButton*>(c);
-				const bool isToggle = (c->GetComponentType() == ComponentType::UIToggle);
-				j["type"] = isToggle ? "UIToggle" : "UIButton";
+				const uint32 kind = c->GetComponentType();
+				j["type"] = kind == ComponentType::UIToggle ? "UIToggle"
+					: kind == ComponentType::UIMenuItem ? "UIMenuItem" : "UIButton";
 				j["interactable"] = b->IsInteractable();
 				j["onClick"] = b->GetOnClick();
-				if (isToggle)
+				if (kind == ComponentType::UIToggle)
 				{
 					UIToggle* t = static_cast<UIToggle*>(c);
 					j["value"] = t->GetValue();
 					j["group"] = t->GetGroup();
 					j["check"] = t->GetCheckElement();
 				}
+				else if (kind == ComponentType::UIMenuItem)
+				{
+					UIMenuItem* m = static_cast<UIMenuItem*>(c);
+					j["submenu"] = m->GetSubmenu();
+					j["open"] = m->IsOpen();
+				}
+				return j;
+			}
+			case ComponentType::UIMenu:
+			{
+				j["type"] = "UIMenu";
+				j["active"] = static_cast<UIMenu*>(c)->IsActive();
 				return j;
 			}
 			case ComponentType::UISlider:

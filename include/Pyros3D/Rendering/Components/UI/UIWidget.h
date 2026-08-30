@@ -85,6 +85,13 @@ namespace p3d {
 		// because typing has to go somewhere.
 		virtual bool TakesFocusOnPress() const { return false; }
 
+		// Whether this widget should be offered keys even when something
+		// else has focus. False for almost everything - keys belong to the
+		// focused element. An open menu is the exception: it is on top of
+		// whatever had focus, and Escape has to shut it rather than being
+		// swallowed by a text field underneath.
+		virtual bool WantsKeysWhileUnfocused() const { return false; }
+
 		virtual void SetWidgetFocused(const bool on) { widgetFocused = on; }
 		bool IsWidgetFocused() const { return widgetFocused; }
 

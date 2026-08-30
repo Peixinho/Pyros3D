@@ -31,6 +31,7 @@
 #include <Pyros3D/Rendering/Components/UI/UIInput.h>
 #include <Pyros3D/Rendering/Components/UI/UIList.h>
 #include <Pyros3D/Rendering/Components/UI/UIDropdown.h>
+#include <Pyros3D/Rendering/Components/UI/UIMenu.h>
 
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
@@ -1543,6 +1544,26 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (!d->GetOnChange().empty()) j["onChange"] = d->GetOnChange();
 			return j;
 		}
+		case ComponentType::UIMenu:
+		{
+			j["type"] = "UIMenu";
+			// Nothing else: what is open is where the pointer has been, not
+			// what the scene is, and a menu that loaded with File hanging
+			// open would be a menu nobody authored.
+			return j;
+		}
+		case ComponentType::UIMenuItem:
+		{
+			UIMenuItem* m = dynamic_cast<UIMenuItem*>(c);
+			j["type"] = "UIMenuItem";
+			j["interactable"] = m->IsInteractable();
+			j["transition"] = m->GetTransition();
+			if (!m->GetOnClick().empty()) j["onClick"] = m->GetOnClick();
+			if (!m->GetSubmenu().empty()) j["submenu"] = m->GetSubmenu();
+			const json st = UIStatesToJson(m);
+			if (!st.empty()) j["states"] = st;
+			return j;
+		}
 		case ComponentType::LuaComponent:
 		{
 			LuaComponent* lc = dynamic_cast<LuaComponent*>(c);
@@ -2536,6 +2557,20 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			}
 			d->SetSelected(j.value("selected", -1));
 			go->Add(std::static_pointer_cast<IComponent>(d));
+		}
+		else if (type == "UIMenu")
+		{
+			go->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIMenu>()));
+		}
+		else if (type == "UIMenuItem")
+		{
+			std::shared_ptr<UIMenuItem> m = std::make_shared<UIMenuItem>();
+			m->SetInteractable(j.value("interactable", true));
+			m->SetTransition(j.value("transition", 0.12f));
+			m->SetOnClick(j.value("onClick", std::string()));
+			m->SetSubmenu(j.value("submenu", std::string()));
+			UIStatesFromJson(m.get(), j);
+			go->Add(std::static_pointer_cast<IComponent>(m));
 		}
 		else if (type == "LuaComponent")
 		{

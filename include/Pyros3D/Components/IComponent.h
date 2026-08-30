@@ -59,7 +59,12 @@ namespace p3d {
 			UISlider,
 			UIInput,
 			UIList,
-			UIDropdown
+			UIDropdown,
+			// A menu is a tree of items rather than one control: UIMenu owns
+			// the chain that is currently open, UIMenuItem is an entry in it
+			// and may point at a submenu element of its own.
+			UIMenu,
+			UIMenuItem
 		};
 	}
 

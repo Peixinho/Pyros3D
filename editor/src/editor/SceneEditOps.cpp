@@ -1025,14 +1025,15 @@ bool SceneEditor::OpAddUIComponent(uint32 goId, const std::string& kind, const s
 		b->State(UIState::Disabled).tint = Vec4(0.14f, 0.15f, 0.18f, 0.6f);
 		go->Add(std::static_pointer_cast<IComponent>(b));
 	}
-	else if (k == "toggle" || k == "slider" || k == "input" || k == "list" || k == "dropdown")
+	else if (k == "toggle" || k == "slider" || k == "input" || k == "list"
+		|| k == "dropdown" || k == "menu")
 	{
 		if (!AddUIWidget(go, goId, k, fontPath, errOut)) return false;
 	}
 	else
 	{
 		errOut = "unknown UI component '" + kind +
-			"' (canvas, rect, image, text, button, toggle, slider, input, list or dropdown)";
+			"' (canvas, rect, image, text, button, toggle, slider, input, list, dropdown or menu)";
 		return false;
 	}
 
@@ -1078,17 +1079,42 @@ bool SceneEditor::AddUIWidget(GameObject* go, uint32 goId, const std::string& ki
 	};
 	Builder build; build.editor = this; build.parentId = goId;
 
+	// The rect a just-built child carries, for the few places the template
+	// has to reach back into one (hiding a menu panel, say).
+	struct Local {
+		static UIRect* RectOf(GameObject* go)
+		{
+			if (!go) return NULL;
+			const std::vector<std::shared_ptr<IComponent> >& cs = go->GetComponents();
+			for (size_t i = 0; i < cs.size(); i++)
+				if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect)
+					return static_cast<UIRect*>(cs[i].get());
+			return NULL;
+		}
+	};
+
 	if (!HasUIRect(go))
 	{
 		std::shared_ptr<UIRect> r = std::make_shared<UIRect>();
-		const bool tall = (kind == "list" || kind == "dropdown");
-		r->SetAnchoredPosition(Vec2(0.5f, 0.5f), Vec2(-160.f, tall ? -120.f : -24.f),
-			Vec2(320.f, tall ? 240.f : 48.f));
+		if (kind == "menu")
+		{
+			// A strip across the top, which is where a menu bar goes and
+			// what makes the titles line up without being moved first.
+			r->SetAnchors(Vec2(0.f, 0.f), Vec2(1.f, 0.f));
+			r->SetOffsets(Vec2(0.f, 0.f), Vec2(0.f, 32.f));
+			r->SetPivot(Vec2(0.5f, 0.5f));
+		}
+		else
+		{
+			const bool tall = (kind == "list" || kind == "dropdown");
+			r->SetAnchoredPosition(Vec2(0.5f, 0.5f), Vec2(-160.f, tall ? -120.f : -24.f),
+				Vec2(320.f, tall ? 240.f : 48.f));
+		}
 		go->Add(std::static_pointer_cast<IComponent>(r));
 	}
 
 	// The frame every one of them sits in.
-	const bool wantsFrame = (kind != "toggle");
+	const bool wantsFrame = (kind != "toggle" && kind != "menu");
 	if (wantsFrame)
 		go->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.12f, 0.14f, 0.18f, 0.95f))));
 
@@ -1212,6 +1238,103 @@ bool SceneEditor::AddUIWidget(GameObject* go, uint32 goId, const std::string& ki
 		}
 	}
 
+	else if (kind == "menu")
+	{
+		// A bar with two menus, one of which has a submenu: the shape is
+		// the documentation. Anything else is copy, paste and rename.
+		std::shared_ptr<UIMenu> menu = std::make_shared<UIMenu>();
+		go->Add(std::static_pointer_cast<IComponent>(menu));
+
+		const f32 titleWidth = 90.f;
+		const f32 rowHeight = 28.f;
+		const char* titles[2] = { "File", "Edit" };
+		const char* entries[2][3] = { { "New", "Open", "Recent" }, { "Undo", "Redo", "Preferences" } };
+
+		for (int m = 0; m < 2; m++)
+		{
+			uint32 titleId = 0;
+			GameObject* title = build.MakeChild(go, goId, titles[m], Vec2(0.f, 0.f), Vec2(0.f, 1.f),
+				Vec2((f32)m * titleWidth, 0.f), Vec2((f32)(m + 1) * titleWidth, 0.f), titleId);
+			title->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.16f, 0.19f, 0.25f, 0.f))));
+
+			uint32 partId = 0;
+			GameObject* titleLabel = build.MakeChild(title, titleId, "Label", Vec2(0.f, 0.f), Vec2(1.f, 1.f),
+				Vec2(0.f, 0.f), Vec2(0.f, 0.f), partId);
+			std::shared_ptr<UIText> tl = std::make_shared<UIText>(f, titles[m], 20.f, Vec4(0.92f, 0.94f, 0.99f, 1.f));
+			tl->SetAlignment(UIAlign::Center, UIVerticalAlign::Middle);
+			titleLabel->Add(std::static_pointer_cast<IComponent>(tl));
+
+			// The panel this title opens, hidden until it does.
+			uint32 panelId = 0;
+			GameObject* panel = build.MakeChild(title, titleId, (std::string(titles[m]) + "Menu").c_str(),
+				Vec2(0.f, 1.f), Vec2(0.f, 1.f), Vec2(0.f, 2.f), Vec2(200.f, 2.f + rowHeight * 3.f), panelId);
+			panel->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.10f, 0.12f, 0.16f, 0.98f))));
+			if (UIRect* pr = Local::RectOf(panel)) pr->SetVisible(false);
+
+			std::shared_ptr<UIMenuItem> titleItem = std::make_shared<UIMenuItem>();
+			titleItem->SetSubmenu(panel->GetName());
+			titleItem->State(UIState::Hover).hasTint = true;
+			titleItem->State(UIState::Hover).tint = Vec4(0.24f, 0.30f, 0.40f, 1.f);
+			// A menu title does not sink when pressed - it opens.
+			titleItem->State(UIState::Pressed) = titleItem->GetState(UIState::Hover);
+			title->Add(std::static_pointer_cast<IComponent>(titleItem));
+
+			for (int e = 0; e < 3; e++)
+			{
+				uint32 entryId = 0;
+				GameObject* entry = build.MakeChild(panel, panelId, entries[m][e], Vec2(0.f, 0.f), Vec2(1.f, 0.f),
+					Vec2(0.f, (f32)e * rowHeight), Vec2(0.f, (f32)(e + 1) * rowHeight), entryId);
+				entry->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.16f, 0.19f, 0.25f, 0.f))));
+
+				uint32 labelId = 0;
+				GameObject* entryLabel = build.MakeChild(entry, entryId, "Label", Vec2(0.f, 0.f), Vec2(1.f, 1.f),
+					Vec2(14.f, 0.f), Vec2(-14.f, 0.f), labelId);
+				std::shared_ptr<UIText> el = std::make_shared<UIText>(f, entries[m][e], 19.f, Vec4(0.90f, 0.92f, 0.98f, 1.f));
+				el->SetAlignment(UIAlign::Left, UIVerticalAlign::Middle);
+				entryLabel->Add(std::static_pointer_cast<IComponent>(el));
+
+				std::shared_ptr<UIMenuItem> item = std::make_shared<UIMenuItem>();
+				item->State(UIState::Hover).hasTint = true;
+				item->State(UIState::Hover).tint = Vec4(0.22f, 0.74f, 0.98f, 0.85f);
+				item->State(UIState::Pressed) = item->GetState(UIState::Hover);
+
+				// The last entry of the first menu opens a submenu, so the
+				// nesting is there to look at rather than described.
+				if (m == 0 && e == 2)
+				{
+					uint32 subId = 0;
+					GameObject* sub = build.MakeChild(entry, entryId, "RecentMenu",
+						Vec2(1.f, 0.f), Vec2(1.f, 0.f), Vec2(0.f, 0.f), Vec2(200.f, rowHeight * 2.f), subId);
+					sub->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.10f, 0.12f, 0.16f, 0.98f))));
+					if (UIRect* sr = Local::RectOf(sub)) sr->SetVisible(false);
+					item->SetSubmenu(sub->GetName());
+
+					for (int r = 0; r < 2; r++)
+					{
+						uint32 rowId = 0;
+						char rowName[32];
+						snprintf(rowName, sizeof(rowName), "Recent%d", r + 1);
+						GameObject* row = build.MakeChild(sub, subId, rowName, Vec2(0.f, 0.f), Vec2(1.f, 0.f),
+							Vec2(0.f, (f32)r * rowHeight), Vec2(0.f, (f32)(r + 1) * rowHeight), rowId);
+						row->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.16f, 0.19f, 0.25f, 0.f))));
+						uint32 rowLabelId = 0;
+						GameObject* rowLabel = build.MakeChild(row, rowId, "Label", Vec2(0.f, 0.f), Vec2(1.f, 1.f),
+							Vec2(14.f, 0.f), Vec2(-14.f, 0.f), rowLabelId);
+						std::shared_ptr<UIText> rl = std::make_shared<UIText>(f, rowName, 19.f, Vec4(0.90f, 0.92f, 0.98f, 1.f));
+						rl->SetAlignment(UIAlign::Left, UIVerticalAlign::Middle);
+						rowLabel->Add(std::static_pointer_cast<IComponent>(rl));
+						std::shared_ptr<UIMenuItem> rowItem = std::make_shared<UIMenuItem>();
+						rowItem->State(UIState::Hover).hasTint = true;
+						rowItem->State(UIState::Hover).tint = Vec4(0.22f, 0.74f, 0.98f, 0.85f);
+						rowItem->State(UIState::Pressed) = rowItem->GetState(UIState::Hover);
+						row->Add(std::static_pointer_cast<IComponent>(rowItem));
+					}
+				}
+
+				entry->Add(std::static_pointer_cast<IComponent>(item));
+			}
+		}
+	}
 	return true;
 }
 
@@ -1294,6 +1417,15 @@ json SceneEditor::CaptureUIProperties(GameObject* go)
 				if (ss.hasTextColor) out[std::string(names[k]) + "TextColor"] = json::array({ ss.textColor.x, ss.textColor.y, ss.textColor.z, ss.textColor.w });
 			}
 			out["pressedOffset"] = json::array({ b->GetState(UIState::Pressed).offset.x, b->GetState(UIState::Pressed).offset.y });
+			break;
+		}
+		case ComponentType::UIMenuItem:
+		{
+			UIMenuItem* m = static_cast<UIMenuItem*>(cs[i].get());
+			out["submenu"] = m->GetSubmenu();
+			out["interactable"] = m->IsInteractable();
+			out["transition"] = m->GetTransition();
+			out["onClick"] = m->GetOnClick();
 			break;
 		}
 		case ComponentType::UIToggle:
@@ -1402,7 +1534,7 @@ bool SceneEditor::RawSetUIProperties(uint32 goId, const json& p, std::string& er
 
 	UICanvas* canvas = NULL; UIRect* rect = NULL; UIImage* image = NULL; UIText* text = NULL; UIButton* button = NULL;
 	UIToggle* toggle = NULL; UISlider* slider = NULL; UIInput* input = NULL;
-	UIList* list = NULL; UIDropdown* dropdown = NULL;
+	UIList* list = NULL; UIDropdown* dropdown = NULL; UIMenuItem* menuItem = NULL;
 	// Whatever interactive component is on this object, for the handful of
 	// keys every widget has.
 	UIWidget* widget = NULL;
@@ -1422,6 +1554,11 @@ bool SceneEditor::RawSetUIProperties(uint32 goId, const json& p, std::string& er
 			// the states, the transition, the click handler.
 			toggle = static_cast<UIToggle*>(cs[i].get());
 			button = toggle;
+			break;
+		case ComponentType::UIMenuItem:
+			// And so is a menu entry.
+			menuItem = static_cast<UIMenuItem*>(cs[i].get());
+			button = menuItem;
 			break;
 		case ComponentType::UISlider:   slider   = static_cast<UISlider*>(cs[i].get());   break;
 		case ComponentType::UIInput:    input    = static_cast<UIInput*>(cs[i].get());    break;
@@ -1596,6 +1733,11 @@ bool SceneEditor::RawSetUIProperties(uint32 goId, const json& p, std::string& er
 		{
 			if (!v.is_boolean()) { errOut = "value must be true or false"; return false; }
 			toggle->SetValue(v.get<bool>()); touched = true;
+		}
+		else if (menuItem && k == "submenu")
+		{
+			if (!v.is_string()) { errOut = "submenu must be an element name"; return false; }
+			menuItem->SetSubmenu(v.get<std::string>()); touched = true;
 		}
 		else if (toggle && k == "check")
 		{

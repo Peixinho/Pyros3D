@@ -19,6 +19,7 @@
 #include <Pyros3D/Rendering/Components/UI/UIInput.h>
 #include <Pyros3D/Rendering/Components/UI/UIList.h>
 #include <Pyros3D/Rendering/Components/UI/UIDropdown.h>
+#include <Pyros3D/Rendering/Components/UI/UIMenu.h>
 
 #include <cstdio>
 #include <cmath>
@@ -459,6 +460,120 @@ int main()
 	canvas->UpdateInput(Vec2(30.f, 290.f), false);
 	scene.Update(0.0);
 	check(!dd->IsExpanded(), "pressing away from it closes it");
+
+
+	// ---- menus and submenus ----
+	// A bar with two menus, one of which has a submenu inside it. The
+	// shapes are what an author would build: an entry, a panel it opens,
+	// and entries inside that panel.
+	{
+		std::shared_ptr<GameObject> barGO = Element(canvasGO, "Bar", 0.f, 0.f, 400.f, 24.f);
+		std::shared_ptr<UIMenu> menu = std::make_shared<UIMenu>();
+		barGO->Add(std::static_pointer_cast<IComponent>(menu));
+
+		// "File", with a panel of three entries, the last of which opens a
+		// submenu of its own.
+		std::shared_ptr<GameObject> fileGO = Element(barGO, "File", 0.f, 0.f, 60.f, 24.f);
+		std::shared_ptr<UIMenuItem> file = std::make_shared<UIMenuItem>();
+		file->SetSubmenu("FileMenu");
+		fileGO->Add(std::static_pointer_cast<IComponent>(file));
+
+		std::shared_ptr<GameObject> fileMenu = Element(fileGO, "FileMenu", 0.f, 24.f, 160.f, 90.f);
+		RectOn(fileMenu.get())->SetVisible(false);
+		std::shared_ptr<GameObject> newGO = Element(fileMenu, "New", 0.f, 0.f, 160.f, 30.f);
+		std::shared_ptr<UIMenuItem> newItem = std::make_shared<UIMenuItem>();
+		newGO->Add(std::static_pointer_cast<IComponent>(newItem));
+
+		std::shared_ptr<GameObject> recentGO = Element(fileMenu, "Recent", 0.f, 30.f, 160.f, 30.f);
+		std::shared_ptr<UIMenuItem> recent = std::make_shared<UIMenuItem>();
+		recent->SetSubmenu("RecentMenu");
+		recentGO->Add(std::static_pointer_cast<IComponent>(recent));
+		std::shared_ptr<GameObject> recentMenu = Element(recentGO, "RecentMenu", 160.f, 0.f, 160.f, 60.f);
+		RectOn(recentMenu.get())->SetVisible(false);
+		std::shared_ptr<GameObject> lastGO = Element(recentMenu, "LastFile", 0.f, 0.f, 160.f, 30.f);
+		std::shared_ptr<UIMenuItem> lastFile = std::make_shared<UIMenuItem>();
+		lastGO->Add(std::static_pointer_cast<IComponent>(lastFile));
+
+		// "Edit", with its own panel.
+		std::shared_ptr<GameObject> editGO = Element(barGO, "Edit", 60.f, 0.f, 60.f, 24.f);
+		std::shared_ptr<UIMenuItem> edit = std::make_shared<UIMenuItem>();
+		edit->SetSubmenu("EditMenu");
+		editGO->Add(std::static_pointer_cast<IComponent>(edit));
+		std::shared_ptr<GameObject> editMenu = Element(editGO, "EditMenu", 0.f, 24.f, 160.f, 60.f);
+		RectOn(editMenu.get())->SetVisible(false);
+
+		canvas->Solve(400.f, 300.f);
+		scene.Update(0.0);
+
+		check(!file->IsOpen() && !edit->IsOpen(), "a menu starts closed");
+
+		// Clicking a title opens it and arms the bar.
+		Click(scene, canvas, Vec2(30.f, 12.f));
+		canvas->Solve(400.f, 300.f);
+		check(file->IsOpen(), "clicking a title opens its menu");
+		check(menu->IsActive(), "and arms the bar");
+
+		// Armed, moving across to the next title opens that one instead -
+		// no second click. That is the whole difference between a menu bar
+		// and a row of dropdowns.
+		canvas->UpdateInput(Vec2(90.f, 12.f), false);
+		scene.Update(0.0);
+		canvas->Solve(400.f, 300.f);
+		check(edit->IsOpen(), "hovering the next title opens it");
+		check(!file->IsOpen(), "and closes the one before it");
+
+		// Back to File, then into it: hovering a branch entry opens the
+		// submenu without a click.
+		canvas->UpdateInput(Vec2(30.f, 12.f), false);
+		scene.Update(0.0);
+		canvas->Solve(400.f, 300.f);
+		canvas->UpdateInput(Vec2(80.f, 69.f), false);   // "Recent"
+		scene.Update(0.0);
+		canvas->Solve(400.f, 300.f);
+		check(recent->IsOpen(), "hovering an entry with a submenu opens it");
+
+		// Escape backs out one level, not all of them.
+		canvas->UpdateKey(UIKey::Escape);
+		scene.Update(0.0);
+		canvas->Solve(400.f, 300.f);
+		check(!recent->IsOpen(), "escape closes the submenu");
+		check(file->IsOpen(), "and leaves the menu it came from open");
+
+		// Picking a leaf finishes the menu.
+		canvas->UpdateInput(Vec2(80.f, 39.f), false);   // "New"
+		scene.Update(0.0);
+		Click(scene, canvas, Vec2(80.f, 39.f));
+		canvas->Solve(400.f, 300.f);
+		check(newItem->ConsumeClicked(), "picking an entry reports the click");
+		check(!file->IsOpen() && !menu->IsActive(), "and closes the whole menu");
+
+		// A press outside dismisses it - the one thing on a canvas that has
+		// to react to being ignored.
+		Click(scene, canvas, Vec2(30.f, 12.f));
+		canvas->Solve(400.f, 300.f);
+		check(file->IsOpen(), "opened again");
+		canvas->UpdateInput(Vec2(350.f, 280.f), false);
+		canvas->UpdateInput(Vec2(350.f, 280.f), true);
+		scene.Update(0.0);
+		canvas->Solve(400.f, 300.f);
+		check(!file->IsOpen(), "a press outside closes it");
+		canvas->UpdateInput(Vec2(350.f, 280.f), false);
+
+		// And a click inside an open submenu is not "outside", even though
+		// it is well outside the bar.
+		Click(scene, canvas, Vec2(30.f, 12.f));
+		canvas->Solve(400.f, 300.f);
+		canvas->UpdateInput(Vec2(80.f, 69.f), false);
+		scene.Update(0.0);
+		canvas->Solve(400.f, 300.f);
+		check(recent->IsOpen(), "submenu open");
+		canvas->UpdateInput(Vec2(240.f, 75.f), false);
+		canvas->UpdateInput(Vec2(240.f, 75.f), true);
+		scene.Update(0.0);
+		canvas->Solve(400.f, 300.f);
+		check(file->IsOpen() && recent->IsOpen(), "a press inside a submenu is not a press outside");
+		canvas->UpdateInput(Vec2(240.f, 75.f), false);
+	}
 
 	printf("\n%s (%d failure(s))\n", failures ? "FAILED" : "ALL PASSED", failures);
 	return failures ? 1 : 0;

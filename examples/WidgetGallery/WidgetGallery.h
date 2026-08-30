@@ -42,6 +42,7 @@
 #include <Pyros3D/Rendering/Components/UI/UIInput.h>
 #include <Pyros3D/Rendering/Components/UI/UIList.h>
 #include <Pyros3D/Rendering/Components/UI/UIDropdown.h>
+#include <Pyros3D/Rendering/Components/UI/UIMenu.h>
 #include <Pyros3D/Assets/Font/Font.h>
 #include <memory>
 #include <string>
@@ -75,7 +76,11 @@ private:
 	std::shared_ptr<GameObject> Element(const std::shared_ptr<GameObject> &parent,
 		const std::string &name, const Vec2 &anchorMin, const Vec2 &anchorMax,
 		const Vec2 &offsetMin, const Vec2 &offsetMax, const std::string &style = std::string());
+	static UIRect* RectOn(GameObject* go);
 	std::shared_ptr<UIImage> Image(const std::shared_ptr<GameObject> &on);
+	std::shared_ptr<UIMenuItem> MenuEntry(const std::shared_ptr<GameObject> &parent, const std::string &name,
+		const Vec2 &offsetMin, const Vec2 &offsetMax, const std::string &text, const bool centred);
+	void BuildMenuBar(const std::shared_ptr<GameObject> &parent);
 	std::shared_ptr<UIText> Label(const std::shared_ptr<GameObject> &on, const std::string &text);
 
 	// ---- the widgets ----

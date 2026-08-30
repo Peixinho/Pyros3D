@@ -209,13 +209,12 @@ namespace uistyle {
 			case ComponentType::UIRect:   rect   = static_cast<UIRect*>(cs[i].get());   break;
 			case ComponentType::UIImage:  image  = static_cast<UIImage*>(cs[i].get());  break;
 			case ComponentType::UIText:   text   = static_cast<UIText*>(cs[i].get());   break;
-			case ComponentType::UIButton: button = static_cast<UIButton*>(cs[i].get()); break;
-			// A checkbox is a button (see UIToggle) and carries the same
-			// state styling, so a style that skins buttons skins these too -
-			// which is what stops a themed screen having one control that
-			// stayed the old colour.
-			case ComponentType::UIToggle: button = static_cast<UIToggle*>(cs[i].get()); break;
-			default: break;
+			// Buttons are matched by what they are rather than by type id:
+			// a checkbox and a menu entry are both UIButtons and carry the
+			// same state styling, and enumerating the ids meant every new
+			// kind of button silently kept the old theme's colours until
+			// someone remembered to add it here.
+			default: if (UIButton* b = dynamic_cast<UIButton*>(cs[i].get())) button = b; break;
 			}
 		}
 		// A copy with the hand-edited keys removed, so the rest of this

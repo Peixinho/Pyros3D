@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "image": { "tint": [0, 0, 0, 0] },
+  "button": {
+    "transition": 0.06,
+    "hover":   { "tint": "@accent" },
+    "pressed": { "tint": "@accent" },
+    "disabled": { "tint": [0, 0, 0, 0] }
+  }
+}
