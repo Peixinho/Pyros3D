@@ -23,6 +23,7 @@ namespace p3d {
 		pivot = Vec2(0.5f, 0.5f);
 		stateOffset = Vec2(0.f, 0.f);
 		visible = true;
+		clipChildren = false;
 	}
 
 	UIRect::~UIRect() {}

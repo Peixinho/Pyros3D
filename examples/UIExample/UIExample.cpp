@@ -957,6 +957,85 @@ void UIExample::RunVerification()
 		probe.Remove(canvasGO);
 	}
 
+	// ---- clipping ----
+	// A child twice the height of the element that clips it. Everything
+	// inside the clip is painted and nothing outside it is - which is the
+	// whole of what a scrolling list depends on, and is scissor state, so
+	// it is exactly the kind of thing that works on one backend and not the
+	// next.
+	{
+		const uint32 W2 = 200, H2 = 200;
+		Texture c2; c2.CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, W2, H2, false);
+		c2.SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		Texture d2; d2.CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, W2, H2, false);
+		FrameBuffer fbo2;
+		fbo2.Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, &d2);
+		fbo2.AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, &c2);
+
+		SceneGraph probe;
+		std::shared_ptr<GameObject> canvasGO = std::make_shared<GameObject>();
+		std::shared_ptr<UICanvas> canvas = std::make_shared<UICanvas>((f32)W2, (f32)H2);
+		canvas->SetScaleMode(UIScaleMode::ConstantPixel);
+		canvasGO->Add(std::static_pointer_cast<IComponent>(canvas));
+		probe.Add(canvasGO);
+
+		// The clipping element: the middle 100x60 of the canvas.
+		std::shared_ptr<GameObject> clipGO = std::make_shared<GameObject>();
+		std::shared_ptr<UIRect> clipRect = std::make_shared<UIRect>();
+		clipRect->SetAnchors(Vec2(0.f, 0.f), Vec2(0.f, 0.f));
+		clipRect->SetPivot(Vec2(0.f, 0.f));
+		clipRect->SetOffsets(Vec2(50.f, 70.f), Vec2(150.f, 130.f));
+		clipRect->SetClipChildren(true);
+		clipGO->Add(std::static_pointer_cast<IComponent>(clipRect));
+		canvasGO->Add(clipGO);
+
+		// The child, overflowing it by 40 units above and below.
+		std::shared_ptr<GameObject> bigGO = std::make_shared<GameObject>();
+		std::shared_ptr<UIRect> bigRect = std::make_shared<UIRect>();
+		bigRect->SetAnchors(Vec2(0.f, 0.f), Vec2(0.f, 0.f));
+		bigRect->SetPivot(Vec2(0.f, 0.f));
+		bigRect->SetOffsets(Vec2(-40.f, -40.f), Vec2(140.f, 100.f));
+		bigGO->Add(std::static_pointer_cast<IComponent>(bigRect));
+		std::shared_ptr<UIImage> bigImg = std::make_shared<UIImage>(Vec4(1.f, 1.f, 1.f, 1.f));
+		bigGO->Add(std::static_pointer_cast<IComponent>(bigImg));
+		clipGO->Add(bigGO);
+
+		probe.Update(0.0);
+
+		UIRenderer probeRenderer(W2, H2);
+		probeRenderer.Resize(W2, H2);
+		fbo2.Bind();
+		IRenderDevice &dev = GetActiveRenderDevice();
+		dev.SetClearColor(Vec4(0.f, 0.f, 0.f, 1.f));
+		dev.Clear(dev.TranslateBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth));
+		probeRenderer.RenderUI(&probe);
+		fbo2.UnBind();
+		dev.WaitIdle();
+
+		std::vector<uchar> px = c2.GetTextureData();
+		// Canvas y grows downwards; the readback does too on Vulkan and
+		// Metal and does not on GL - the same flip every probe here needs.
+		auto sample = [&](const uint32 x, const uint32 y) -> int {
+#if defined(_SDL2VULKAN) || defined(_SDL2METAL)
+			const size_t o = ((size_t)y * W2 + x) * 4;
+#else
+			const size_t o = ((size_t)(H2 - 1 - y) * W2 + x) * 4;
+#endif
+			return px.size() > o ? (int)px[o] : -1;
+		};
+
+		const int inside = sample(100, 100);   // middle of the clip
+		const int above = sample(100, 50);     // child's area, above the clip
+		const int below = sample(100, 145);    // child's area, below the clip
+		const int left = sample(30, 100);      // child's area, left of it
+		printf("      inside %d, above %d, below %d, left %d\n", inside, above, below, left);
+		const bool clipped = inside > 200 && above < 20 && below < 20 && left < 20;
+		printf("%s  a clipping element paints inside itself and nowhere else\n", clipped ? "PASS" : "FAIL");
+		if (!clipped) failures++;
+
+		probe.Remove(canvasGO);
+	}
+
 	// ---- the SDF flag survives a save/load ----
 	// Two labels asking for the same file at the same size, one crisp and one
 	// not, have to come back as two different atlases: the serializer's font

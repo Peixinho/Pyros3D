@@ -91,6 +91,14 @@ namespace p3d {
 		void SetVisible(const bool on) { visible = on; }
 		bool IsVisible() const { return visible; }
 
+		// Clips this element's children to its own rect. What makes a
+		// scrollable list possible at all: the rows outside the viewport
+		// have to stop existing visually rather than draw over whatever is
+		// around them. Nested clips intersect, so a list inside a panel is
+		// bounded by both.
+		void SetClipChildren(const bool on) { clipChildren = on; }
+		bool IsClipChildren() const { return clipChildren; }
+
 		void SetPivot(const Vec2 &p) { pivot = p; }
 		const Vec2 &GetPivot() const { return pivot; }
 
@@ -151,6 +159,7 @@ namespace p3d {
 		Vec2 anchorMin, anchorMax;
 		Vec2 offsetMin, offsetMax;
 		bool visible;
+		bool clipChildren;
 		Vec2 pivot;
 
 		Vec2 stateOffset;

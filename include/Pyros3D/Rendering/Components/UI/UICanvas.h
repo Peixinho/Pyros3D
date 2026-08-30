@@ -86,6 +86,21 @@ namespace p3d {
 		// why the UI pass does no sorting at all.
 		const std::vector<RenderingMesh*> &GetDrawList() const { return drawList; }
 
+		// Parallel to the draw list: the rect each entry is clipped to, in
+		// canvas units. Equal to the whole canvas for anything not inside a
+		// clipping element, so the renderer can scissor unconditionally
+		// rather than branching per element.
+		const std::vector<UIRectValue> &GetDrawClips() const { return drawClips; }
+		// And the same for the batched list, which is what the UI pass
+		// actually draws - a batch can only merge elements that share a
+		// clip, since the scissor is per draw call.
+		const std::vector<UIRectValue> &GetBatchedDrawClips() const;
+
+		// Screen pixels per canvas unit, from the last Solve(). One under
+		// ConstantPixel; whatever the reference resolution implies
+		// otherwise. What converts a clip rect into a scissor.
+		f32 GetPixelsPerUnit() const { return pixelsPerUnit; }
+
 		// The same list with neighbours that share a texture or a font
 		// merged into single meshes - what the UI pass actually draws. Same
 		// pixels, fewer draw calls; see UIBatcher. Falls back to the raw
@@ -173,7 +188,7 @@ namespace p3d {
 
 	private:
 
-		void SolveNode(GameObject* node, const UIRectValue &parentRect, const Vec2 &parentOrigin);
+		void SolveNode(GameObject* node, const UIRectValue &parentRect, const Vec2 &parentOrigin, const UIRectValue &clip);
 
 		f32 referenceWidth, referenceHeight;
 		uint32 scaleMode;
@@ -183,6 +198,7 @@ namespace p3d {
 		f32 pixelsPerUnit;
 
 		std::vector<RenderingMesh*> drawList;
+		std::vector<UIRectValue> drawClips;
 		UIBatcher batcher;
 		bool batching;
 		// Parallel to draw order, for hit testing: every node that solved a

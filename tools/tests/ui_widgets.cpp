@@ -17,6 +17,8 @@
 #include <Pyros3D/Rendering/Components/UI/UIToggle.h>
 #include <Pyros3D/Rendering/Components/UI/UISlider.h>
 #include <Pyros3D/Rendering/Components/UI/UIInput.h>
+#include <Pyros3D/Rendering/Components/UI/UIList.h>
+#include <Pyros3D/Rendering/Components/UI/UIDropdown.h>
 
 #include <cstdio>
 #include <cmath>
@@ -297,6 +299,151 @@ int main()
 	field->SetPassword(true);
 	field->SetText("secret");
 	check(field->GetText() == "secret", "masking does not change the value");
+
+
+	// ---- list ----
+	// Four rows over twenty items: a list only ever needs enough rows to
+	// cover what is visible, and recycles them as it scrolls.
+	std::shared_ptr<GameObject> listGO = Element(canvasGO, "List", 220.f, 10.f, 160.f, 100.f);
+	std::shared_ptr<UIList> list = std::make_shared<UIList>();
+	list->SetItemHeight(25.f);
+	listGO->Add(std::static_pointer_cast<IComponent>(list));
+	UIRect* rowRects[4];
+	for (int i = 0; i < 4; i++)
+	{
+		char name[16];
+		snprintf(name, sizeof(name), "Row%d", i);
+		std::shared_ptr<GameObject> rowGO = Element(listGO, name, 0.f, 0.f, 160.f, 25.f);
+		rowRects[i] = RectOn(rowGO.get());
+		// The element shown only on the selected row.
+		Element(rowGO, "Highlight", 0.f, 0.f, 160.f, 25.f);
+	}
+	{
+		std::vector<std::string> items;
+		for (int i = 0; i < 20; i++)
+		{
+			char v[16];
+			snprintf(v, sizeof(v), "Item %d", i);
+			items.push_back(v);
+		}
+		list->SetItems(items);
+	}
+	canvas->Solve(400.f, 300.f);
+	scene.Update(0.0);
+	canvas->Solve(400.f, 300.f);
+
+	check(list->GetSelected() == -1, "a list starts with nothing selected");
+	check(list->GetVisibleRows() == 4, "and fills every row it has");
+
+	// Row 1 of the list starts 25 units down from its top edge at y=10.
+	Click(scene, canvas, Vec2(300.f, 45.f));
+	check(list->GetSelected() == 1, "clicking a row selects it");
+	check(list->GetSelectedItem() == "Item 1", "and that is the item it holds");
+
+	// A second click on the row already selected is the double-click every
+	// file list has, without a clock deciding what counts as double.
+	canvas->UpdateInput(Vec2(300.f, 45.f), false);
+	canvas->UpdateInput(Vec2(300.f, 45.f), true);
+	bool listSubmitted = false;
+	for (size_t i = 0; i < canvas->GetEvents().size(); i++)
+		if (canvas->GetEvents()[i].flags & UIEventFlag::Submitted) listSubmitted = true;
+	check(listSubmitted, "clicking the selected row again activates it");
+	canvas->UpdateInput(Vec2(300.f, 45.f), false);
+	scene.Update(0.0);
+
+	// The wheel scrolls by rows, and the rows recycle rather than multiply.
+	canvas->UpdateScroll(Vec2(300.f, 50.f), -2.f);
+	scene.Update(0.0);
+	check(near(list->GetScroll(), 50.f), "the wheel scrolls by whole rows");
+	check(list->GetVisibleRows() == 4, "and the same four rows are reused");
+
+	// Clicking now hits a different item, because the rows moved.
+	Click(scene, canvas, Vec2(300.f, 20.f));
+	check(list->GetSelected() == 2, "a row's item follows the scroll");
+
+	// Scrolling stops where the content does, in both directions.
+	canvas->UpdateScroll(Vec2(300.f, 50.f), 99.f);
+	scene.Update(0.0);
+	check(near(list->GetScroll(), 0.f), "it does not scroll above the first item");
+	canvas->UpdateScroll(Vec2(300.f, 50.f), -99.f);
+	scene.Update(0.0);
+	check(near(list->GetScroll(), 20.f * 25.f - 100.f), "nor past the last one");
+
+	// Keyboard selection follows the selection back into view.
+	canvas->SetFocus(listGO.get());
+	list->SetSelected(0);
+	canvas->UpdateKey(UIKey::Down);
+	scene.Update(0.0);
+	check(list->GetSelected() == 1, "arrow keys walk the rows");
+	// It was scrolled to the bottom, and the selection is now far above
+	// that: the row comes back into view at the top of the viewport.
+	check(near(list->GetScroll(), 25.f), "and scroll back to what they selected");
+
+	// A list clips its own rows: they have to stop existing at its edge
+	// rather than draw over whatever is around it.
+	check(RectOn(listGO.get())->IsClipChildren(), "a list clips its rows to itself");
+
+	// ---- dropdown ----
+	std::shared_ptr<GameObject> ddGO = Element(canvasGO, "Dropdown", 220.f, 120.f, 160.f, 30.f);
+	std::shared_ptr<UIDropdown> dd = std::make_shared<UIDropdown>();
+	ddGO->Add(std::static_pointer_cast<IComponent>(dd));
+	// The popup hangs below the dropdown, as one does, and holds a list.
+	std::shared_ptr<GameObject> popupGO = Element(ddGO, "Popup", 0.f, 30.f, 160.f, 75.f);
+	std::shared_ptr<UIList> popupList = std::make_shared<UIList>();
+	popupList->SetItemHeight(25.f);
+	popupGO->Add(std::static_pointer_cast<IComponent>(popupList));
+	for (int i = 0; i < 3; i++)
+	{
+		char name[16];
+		snprintf(name, sizeof(name), "Row%d", i);
+		Element(popupGO, name, 0.f, 0.f, 160.f, 25.f);
+	}
+	{
+		std::vector<std::string> opts;
+		opts.push_back("Low");
+		opts.push_back("Medium");
+		opts.push_back("High");
+		dd->SetOptions(opts);
+	}
+	scene.Update(0.0);
+	canvas->Solve(400.f, 300.f);
+	scene.Update(0.0);
+
+	check(!dd->IsExpanded(), "a dropdown starts closed");
+	check(!RectOn(popupGO.get())->IsVisible(), "with its popup hidden");
+	check(dd->GetSelected() == -1, "and nothing picked");
+
+	Press(scene, canvas, Vec2(300.f, 130.f));
+	canvas->UpdateInput(Vec2(300.f, 130.f), false);
+	scene.Update(0.0);
+	canvas->Solve(400.f, 300.f);
+	check(dd->IsExpanded(), "clicking it opens the popup");
+	check(RectOn(popupGO.get())->IsVisible(), "which is now visible");
+
+	// The popup's second row: 160 down the canvas is 25 into the popup.
+	scene.Update(0.0);
+	Click(scene, canvas, Vec2(300.f, 180.f));
+	scene.Update(0.0);
+	check(dd->GetSelected() == 1, "picking a row picks the option");
+	check(dd->GetSelectedOption() == "Medium", "and that is the option it holds");
+	check(!dd->IsExpanded(), "and the popup closes behind it");
+
+	// Closed, the arrows step through the options without opening it.
+	canvas->Solve(400.f, 300.f);
+	canvas->SetFocus(ddGO.get());
+	check(canvas->UpdateKey(UIKey::Down), "a closed dropdown claims the arrows");
+	check(dd->GetSelected() == 2, "and steps through its options");
+	scene.Update(0.0);
+	check(!dd->IsExpanded(), "still without opening");
+
+	// A press anywhere else closes it.
+	dd->SetExpanded(true);
+	scene.Update(0.0);
+	canvas->Solve(400.f, 300.f);
+	Press(scene, canvas, Vec2(30.f, 290.f));
+	canvas->UpdateInput(Vec2(30.f, 290.f), false);
+	scene.Update(0.0);
+	check(!dd->IsExpanded(), "pressing away from it closes it");
 
 	printf("\n%s (%d failure(s))\n", failures ? "FAILED" : "ALL PASSED", failures);
 	return failures ? 1 : 0;

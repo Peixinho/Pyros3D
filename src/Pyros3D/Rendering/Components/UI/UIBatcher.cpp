@@ -119,6 +119,7 @@ namespace p3d {
 			uint32 kind;
 			void* key;
 			Vec4 tint;
+			UIRectValue clip;
 			std::vector<Vec3> vertex;
 			f32 x0, y0, x1, y1;
 			Item() : mesh(NULL), kind(KIND_NONE), key(NULL), x0(0.f), y0(0.f), x1(0.f), y1(0.f) {}
@@ -130,11 +131,12 @@ namespace p3d {
 		struct Group {
 			uint32 kind;
 			void* key;
+			UIRectValue clip;
 			f32 x0, y0, x1, y1;
 			std::vector<size_t> items;
 
 			Group(const uint32 kind, void* key, const Item &first, const size_t index)
-				: kind(kind), key(key), x0(first.x0), y0(first.y0), x1(first.x1), y1(first.y1)
+				: kind(kind), key(key), clip(first.clip), x0(first.x0), y0(first.y0), x1(first.x1), y1(first.y1)
 			{
 				items.push_back(index);
 			}
@@ -242,7 +244,8 @@ namespace p3d {
 
 	}
 
-	const std::vector<RenderingMesh*> &UIBatcher::Build(const std::vector<RenderingMesh*> &source)
+	const std::vector<RenderingMesh*> &UIBatcher::Build(const std::vector<RenderingMesh*> &source,
+		const std::vector<UIRectValue> &clips)
 	{
 		// ---- has anything changed? ----
 		std::vector<Signature> now;
@@ -255,6 +258,11 @@ namespace p3d {
 			s.mesh = m;
 			s.kind = KindOf(m, s.key, s.tint);
 			s.revision = (m && m->Geometry) ? m->Geometry->buffersRevision : 0;
+			if (i < clips.size())
+			{
+				s.clip[0] = clips[i].x; s.clip[1] = clips[i].y;
+				s.clip[2] = clips[i].width; s.clip[3] = clips[i].height;
+			}
 			if (m && m->renderingComponent && m->renderingComponent->GetOwner())
 			{
 				const Matrix model = m->renderingComponent->GetOwner()->GetWorldTransformation() * m->Pivot;
@@ -282,6 +290,7 @@ namespace p3d {
 			Item &it = items[i];
 			it.mesh = source[i];
 			it.kind = KindOf(source[i], it.key, it.tint);
+			if (i < clips.size()) it.clip = clips[i];
 			it.x0 = it.y0 = 1e30f;
 			it.x1 = it.y1 = -1e30f;
 			if (it.kind == KIND_NONE) continue;
@@ -332,7 +341,10 @@ namespace p3d {
 			int join = -1;
 			for (int b = (int)groups.size() - 1; b >= 0; b--)
 			{
-				if (groups[b].kind == it.kind && groups[b].key == it.key) { join = b; break; }
+				if (groups[b].kind == it.kind && groups[b].key == it.key &&
+					groups[b].clip.x == it.clip.x && groups[b].clip.y == it.clip.y &&
+					groups[b].clip.width == it.clip.width && groups[b].clip.height == it.clip.height)
+				{ join = b; break; }
 				// Something between here and there covers the same pixels
 				// and is painted after this element would be.
 				if (groups[b].Overlaps(it, items)) break;
@@ -344,6 +356,7 @@ namespace p3d {
 
 		// ---- build ----
 		result.clear();
+		resultClips.clear();
 		batchCount = 0;
 
 		for (size_t gi = 0; gi < groups.size(); gi++)
@@ -354,6 +367,7 @@ namespace p3d {
 			if (g.items.size() < 2)
 			{
 				result.push_back(items[g.items[0]].mesh);
+				resultClips.push_back(items[g.items[0]].clip);
 				continue;
 			}
 
@@ -394,6 +408,7 @@ namespace p3d {
 			{
 				meshes[m]->Material = mat;
 				result.push_back(meshes[m]);
+				resultClips.push_back(g.clip);
 			}
 			batchCount++;
 		}

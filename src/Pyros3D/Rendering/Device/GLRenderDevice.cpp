@@ -212,7 +212,9 @@ namespace p3d {
 
 	void GLRenderDevice::SetScissorRect(const f32 x, const f32 y, const f32 width, const f32 height)
 	{
-		GLCHECKER(glScissor((GLint)x, (GLint)y, (GLsizei)width, (GLsizei)height));
+		// Top-left in, bottom-left out - see IRenderDevice's declaration.
+		const f32 flipped = (f32)(lastViewport[1] + lastViewport[3]) - (y + height);
+		GLCHECKER(glScissor((GLint)x, (GLint)flipped, (GLsizei)width, (GLsizei)height));
 	}
 
 	void GLRenderDevice::SetScissorTestEnabled(const bool enabled)
@@ -414,6 +416,7 @@ namespace p3d {
 
 	void GLRenderDevice::SetViewport(const uint32 x, const uint32 y, const uint32 width, const uint32 height)
 	{
+		lastViewport[0] = x; lastViewport[1] = y; lastViewport[2] = width; lastViewport[3] = height;
 		GLCHECKER(glViewport(x, y, width, height));
 	}
 

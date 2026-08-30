@@ -245,7 +245,13 @@ namespace p3d {
 		virtual void SetStencilFunction(const uint32 func, const uint32 ref, const uint32 mask) = 0;
 		virtual void SetStencilOperation(const uint32 sfail, const uint32 dpfail, const uint32 dppass) = 0;
 
-		// Scissor
+		// Scissor. Pixels, and the origin is the TOP-LEFT of the current
+		// render target on every backend - GL flips internally against the
+		// viewport it was last given, because a UI that had to know which
+		// backend it was drawing through would get it wrong on two of the
+		// three. Disabling restores the full viewport rather than leaving
+		// the last rect in place: Vulkan and Metal have no scissor test to
+		// switch off, only a rect that is always in effect.
 		virtual void SetScissorRect(const f32 x, const f32 y, const f32 width, const f32 height) = 0;
 		virtual void SetScissorTestEnabled(const bool enabled) = 0;
 
@@ -856,6 +862,11 @@ namespace p3d {
 		// applying it, so the getter needs no per-backend implementation.
 		// Initialised to the value the backends themselves start at.
 		Vec4 lastClearColor = Vec4(0.f, 0.f, 0.f, 1.f);
+
+		// The last viewport handed to SetViewport(), which every backend
+		// needs for scissoring: GL to flip the y, Vulkan and Metal to
+		// restore a full-target rect when the scissor is turned off.
+		uint32 lastViewport[4] = { 0, 0, 0, 0 };
 	};
 
 	// Texture/FrameBuffer/GeometryBuffer/Shader/RenderingComponent (the

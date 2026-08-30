@@ -92,6 +92,12 @@ namespace p3d {
 			// Straight down the canvas's own list, in order, no sorting -
 			// see the class comment.
 			const std::vector<RenderingMesh*> &list = canvas->GetBatchedDrawList();
+			const std::vector<UIRectValue> &clips = canvas->GetBatchedDrawClips();
+			const f32 ppu = canvas->GetPixelsPerUnit();
+			// Only when it changes: most of a canvas is unclipped, and the
+			// scissor is device state, not per-draw data.
+			bool scissorOn = false;
+			UIRectValue lastClip;
 			for (size_t i = 0; i < list.size(); i++)
 			{
 				RenderingMesh* m = list[i];
@@ -102,9 +108,44 @@ namespace p3d {
 				// An empty label builds a real mesh with no quads in it.
 				// Nothing to draw, and nothing sane to bind either.
 				if (m->Geometry == NULL || m->Geometry->GetIndexData().empty()) continue;
+
+				if (i < clips.size())
+				{
+					const UIRectValue &c = clips[i];
+					// The whole canvas means no clipping, which is what
+					// almost everything gets - and turning the scissor off
+					// costs less than a scissor covering everything.
+					const bool needed = !(c.x <= 0.f && c.y <= 0.f &&
+						c.width >= rect.width && c.height >= rect.height);
+					if (!needed)
+					{
+						if (scissorOn) { GetActiveRenderDevice().SetScissorTestEnabled(false); scissorOn = false; }
+					}
+					else if (!scissorOn || c.x != lastClip.x || c.y != lastClip.y ||
+						c.width != lastClip.width || c.height != lastClip.height)
+					{
+						// Canvas units to pixels, top-left origin, which is
+						// what IRenderDevice::SetScissorRect takes on every
+						// backend.
+						GetActiveRenderDevice().SetScissorRect(
+							(f32)viewPortStartX + c.x * ppu, (f32)viewPortStartY + c.y * ppu,
+							c.width * ppu, c.height * ppu);
+						GetActiveRenderDevice().SetScissorTestEnabled(true);
+						scissorOn = true;
+						lastClip = c;
+					}
+					// Nothing survives an empty clip, so skip the draw
+					// outright rather than asking the GPU to discard it.
+					if (needed && (c.width <= 0.f || c.height <= 0.f)) continue;
+				}
+
 				RenderObject(m, m->renderingComponent->GetOwner(), m->Material.get());
 			}
 		}
+
+		// Never leave the scissor narrowed: the next pass through this
+		// device knows nothing about this canvas's clipping.
+		GetActiveRenderDevice().SetScissorTestEnabled(false);
 
 		EndRender();
 	}

@@ -1773,8 +1773,29 @@ namespace p3d {
 	void VulkanRenderDevice::SetStencilFunction(const uint32 func, const uint32 ref, const uint32 mask) {}
 	void VulkanRenderDevice::SetStencilOperation(const uint32 sfail, const uint32 dpfail, const uint32 dppass) {}
 
-	void VulkanRenderDevice::SetScissorRect(const f32 x, const f32 y, const f32 width, const f32 height) {}
-	void VulkanRenderDevice::SetScissorTestEnabled(const bool enabled) {}
+	// Every pipeline declares VK_DYNAMIC_STATE_SCISSOR already (see
+	// CreatePipeline's dynamicStates), and SetViewport() sets a full-target
+	// one, so this is only ever narrowing what is already in effect.
+	void VulkanRenderDevice::SetScissorRect(const f32 x, const f32 y, const f32 width, const f32 height)
+	{
+		if (activeCommandBuffer == VK_NULL_HANDLE) return;
+		// Negative extents are not representable, and a clip rect that has
+		// been intersected down to nothing legitimately produces them.
+		const f32 w = width > 0.f ? width : 0.f;
+		const f32 h = height > 0.f ? height : 0.f;
+		VkRect2D scissor = { { (int32_t)x, (int32_t)y }, { (uint32_t)w, (uint32_t)h } };
+		vkCmdSetScissor(activeCommandBuffer, 0, 1, &scissor);
+	}
+
+	// There is no scissor test to switch off here - the rect is always in
+	// effect - so "off" means the whole viewport.
+	void VulkanRenderDevice::SetScissorTestEnabled(const bool enabled)
+	{
+		if (enabled || activeCommandBuffer == VK_NULL_HANDLE) return;
+		VkRect2D scissor = { { (int32_t)lastViewport[0], (int32_t)lastViewport[1] },
+			{ lastViewport[2], lastViewport[3] } };
+		vkCmdSetScissor(activeCommandBuffer, 0, 1, &scissor);
+	}
 
 	void VulkanRenderDevice::SetWireFrame(const bool enabled) {}
 
@@ -2352,6 +2373,7 @@ namespace p3d {
 		EnsureFrameCommandBufferForSwapchainDraw();
 		if (!(frameInProgress || offscreenPassOpen) || activeCommandBuffer == VK_NULL_HANDLE)
 			return;
+		lastViewport[0] = x; lastViewport[1] = y; lastViewport[2] = width; lastViewport[3] = height;
 		VkViewport viewport = { (f32)x, (f32)y, (f32)width, (f32)height, 0.0f, 1.0f };
 		VkRect2D scissor = { { (int32_t)x, (int32_t)y }, { width, height } };
 		vkCmdSetViewport(activeCommandBuffer, 0, 1, &viewport);

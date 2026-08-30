@@ -662,14 +662,33 @@ namespace p3d {
 		{
 			id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)currentRenderEncoder;
 			MTLScissorRect rect;
-			rect.x = (NSUInteger)x;
-			rect.y = (NSUInteger)y;
-			rect.width = (NSUInteger)width;
-			rect.height = (NSUInteger)height;
+			// Metal validates a scissor against the render target and
+			// aborts on one that leaves it, which a clip rect intersected
+			// down to nothing otherwise would.
+			rect.x = (NSUInteger)(x > 0.f ? x : 0.f);
+			rect.y = (NSUInteger)(y > 0.f ? y : 0.f);
+			rect.width = (NSUInteger)(width > 0.f ? width : 0.f);
+			rect.height = (NSUInteger)(height > 0.f ? height : 0.f);
 			[encoder setScissorRect:rect];
 		}
 	}
-	void MetalRenderDevice::SetScissorTestEnabled(const bool enabled) { (void)enabled; }
+
+	// As on Vulkan: no test to switch off, only a rect, so "off" is the
+	// whole viewport.
+	void MetalRenderDevice::SetScissorTestEnabled(const bool enabled)
+	{
+		if (enabled || currentRenderEncoder == NULL) return;
+		@autoreleasepool
+		{
+			id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)currentRenderEncoder;
+			MTLScissorRect rect;
+			rect.x = lastViewport[0];
+			rect.y = lastViewport[1];
+			rect.width = lastViewport[2];
+			rect.height = lastViewport[3];
+			[encoder setScissorRect:rect];
+		}
+	}
 
 	void MetalRenderDevice::SetWireFrame(const bool enabled)
 	{
@@ -998,6 +1017,7 @@ namespace p3d {
 		@autoreleasepool
 		{
 			id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)currentRenderEncoder;
+			lastViewport[0] = x; lastViewport[1] = y; lastViewport[2] = width; lastViewport[3] = height;
 			MTLViewport viewport = { (double)x, (double)y, (double)width, (double)height, 0.0, 1.0 };
 			[encoder setViewport:viewport];
 		}

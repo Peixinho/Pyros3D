@@ -29,6 +29,8 @@
 #include <Pyros3D/Rendering/Components/UI/UIToggle.h>
 #include <Pyros3D/Rendering/Components/UI/UISlider.h>
 #include <Pyros3D/Rendering/Components/UI/UIInput.h>
+#include <Pyros3D/Rendering/Components/UI/UIList.h>
+#include <Pyros3D/Rendering/Components/UI/UIDropdown.h>
 
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
@@ -1391,6 +1393,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["pivot"] = ToJson(r->GetPivot());
 			// Only when hidden: visible is what almost every element is.
 			if (!r->IsVisible()) j["visible"] = false;
+			if (r->IsClipChildren()) j["clip"] = true;
 			// Opaque here by design - see UIRect::SetStyleRef.
 			if (!r->GetStyleRef().empty()) j["styleRef"] = r->GetStyleRef();
 			if (!r->GetStyleOverrides().empty())
@@ -1502,6 +1505,42 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (in->GetTextElement() != "Text") j["textElement"] = in->GetTextElement();
 			if (in->GetPlaceholderElement() != "Placeholder") j["placeholderElement"] = in->GetPlaceholderElement();
 			if (in->GetCaretElement() != "Caret") j["caretElement"] = in->GetCaretElement();
+			return j;
+		}
+		case ComponentType::UIList:
+		{
+			UIList* l = dynamic_cast<UIList*>(c);
+			j["type"] = "UIList";
+			j["interactable"] = l->IsInteractable();
+			j["itemHeight"] = l->GetItemHeight();
+			j["selected"] = l->GetSelected();
+			json arr = json::array();
+			for (size_t k = 0; k < l->GetItems().size(); k++) arr.push_back(l->GetItems()[k]);
+			j["items"] = arr;
+			// The scroll is deliberately not saved: it is where the user
+			// happened to be looking, not what the scene is.
+			if (l->GetRowPrefix() != "Row") j["rowPrefix"] = l->GetRowPrefix();
+			if (l->GetLabelElement() != "Label") j["labelElement"] = l->GetLabelElement();
+			if (l->GetHighlightElement() != "Highlight") j["highlightElement"] = l->GetHighlightElement();
+			if (!l->GetOnChange().empty()) j["onChange"] = l->GetOnChange();
+			if (!l->GetOnSubmit().empty()) j["onSubmit"] = l->GetOnSubmit();
+			return j;
+		}
+		case ComponentType::UIDropdown:
+		{
+			UIDropdown* d = dynamic_cast<UIDropdown*>(c);
+			j["type"] = "UIDropdown";
+			j["interactable"] = d->IsInteractable();
+			j["selected"] = d->GetSelected();
+			json arr = json::array();
+			for (size_t k = 0; k < d->GetOptions().size(); k++) arr.push_back(d->GetOptions()[k]);
+			j["options"] = arr;
+			// Expanded is not saved either: a scene that loaded with its
+			// dropdown hanging open would be a scene nobody authored.
+			if (!d->GetPlaceholder().empty()) j["placeholder"] = d->GetPlaceholder();
+			if (d->GetPopupElement() != "Popup") j["popupElement"] = d->GetPopupElement();
+			if (d->GetLabelElement() != "Label") j["labelElement"] = d->GetLabelElement();
+			if (!d->GetOnChange().empty()) j["onChange"] = d->GetOnChange();
 			return j;
 		}
 		case ComponentType::LuaComponent:
@@ -2346,6 +2385,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				r->SetOffsets(Vec2FromJson(j["offsetMin"]), Vec2FromJson(j["offsetMax"]));
 			if (j.find("pivot") != j.end()) r->SetPivot(Vec2FromJson(j["pivot"]));
 			r->SetVisible(j.value("visible", true));
+			r->SetClipChildren(j.value("clip", false));
 			r->SetStyleRef(j.value("styleRef", std::string()));
 			if (j.find("styleOverrides") != j.end() && j["styleOverrides"].is_array())
 			{
@@ -2459,6 +2499,43 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// Last: the maximum length and the filter both apply to it.
 			in->SetText(j.value("text", std::string()));
 			go->Add(std::static_pointer_cast<IComponent>(in));
+		}
+		else if (type == "UIList")
+		{
+			std::shared_ptr<UIList> l = std::make_shared<UIList>();
+			l->SetInteractable(j.value("interactable", true));
+			l->SetItemHeight(j.value("itemHeight", 24.f));
+			l->SetRowPrefix(j.value("rowPrefix", std::string("Row")));
+			l->SetLabelElement(j.value("labelElement", std::string("Label")));
+			l->SetHighlightElement(j.value("highlightElement", std::string("Highlight")));
+			l->SetOnChange(j.value("onChange", std::string()));
+			l->SetOnSubmit(j.value("onSubmit", std::string()));
+			if (j.find("items") != j.end() && j["items"].is_array())
+			{
+				std::vector<std::string> items;
+				for (auto &k : j["items"]) if (k.is_string()) items.push_back(k.get<std::string>());
+				l->SetItems(items);
+			}
+			// After the items: a selection is an index into them.
+			l->SetSelected(j.value("selected", -1));
+			go->Add(std::static_pointer_cast<IComponent>(l));
+		}
+		else if (type == "UIDropdown")
+		{
+			std::shared_ptr<UIDropdown> d = std::make_shared<UIDropdown>();
+			d->SetInteractable(j.value("interactable", true));
+			d->SetPlaceholder(j.value("placeholder", std::string()));
+			d->SetPopupElement(j.value("popupElement", std::string("Popup")));
+			d->SetLabelElement(j.value("labelElement", std::string("Label")));
+			d->SetOnChange(j.value("onChange", std::string()));
+			if (j.find("options") != j.end() && j["options"].is_array())
+			{
+				std::vector<std::string> options;
+				for (auto &k : j["options"]) if (k.is_string()) options.push_back(k.get<std::string>());
+				d->SetOptions(options);
+			}
+			d->SetSelected(j.value("selected", -1));
+			go->Add(std::static_pointer_cast<IComponent>(d));
 		}
 		else if (type == "LuaComponent")
 		{

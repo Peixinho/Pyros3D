@@ -11,6 +11,7 @@
 
 #include <Pyros3D/Assets/Renderable/Primitives/Primitive.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Rendering/Components/UI/UIRect.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Other/Export.h>
 #include <memory>
@@ -69,7 +70,14 @@ namespace p3d {
 		// Rebuilds only when something actually changed - the signature of
 		// every source mesh is compared against the last call's, which is
 		// cheap scalar work next to the draws it saves.
-		const std::vector<RenderingMesh*> &Build(const std::vector<RenderingMesh*> &source);
+		// `clips` is parallel to `source`: the rect each element is clipped
+		// to. Two elements can only share a draw if they share a clip, the
+		// scissor being per draw call.
+		const std::vector<RenderingMesh*> &Build(const std::vector<RenderingMesh*> &source,
+			const std::vector<UIRectValue> &clips);
+
+		// Parallel to what Build() returned.
+		const std::vector<UIRectValue> &GetClips() const { return resultClips; }
 
 		// How many of the last Build()'s draws were merged batches rather
 		// than pass-through meshes. For tests and for the editor's stats.
@@ -93,10 +101,12 @@ namespace p3d {
 			uint32 kind;
 			f32 matrix[16];
 			Vec4 tint;
+			f32 clip[4];
 		};
 
 		std::vector<UIBatch*> pool;
 		std::vector<RenderingMesh*> result;
+		std::vector<UIRectValue> resultClips;
 		std::vector<Signature> signatures;
 		uint32 batchCount;
 		uint32 rebuildCount;

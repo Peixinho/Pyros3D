@@ -31,6 +31,11 @@ namespace p3d {
 
 	UICanvas::~UICanvas() {}
 
+	const std::vector<UIRectValue> &UICanvas::GetBatchedDrawClips() const
+	{
+		return batching ? batcher.GetClips() : drawClips;
+	}
+
 	const std::vector<RenderingMesh*> &UICanvas::GetBatchedDrawList()
 	{
 		if (!batching)
@@ -40,7 +45,7 @@ namespace p3d {
 			batcher.Invalidate();
 			return drawList;
 		}
-		return batcher.Build(drawList);
+		return batcher.Build(drawList, drawClips);
 	}
 
 	void UICanvas::Register(SceneGraph* Scene)
@@ -121,6 +126,7 @@ namespace p3d {
 		pixelsPerUnit = sw / cw;
 
 		drawList.clear();
+		drawClips.clear();
 		hitList.clear();
 		widgetList.clear();
 
@@ -131,11 +137,24 @@ namespace p3d {
 		// top-left corner.
 		const std::vector<std::shared_ptr<GameObject> > &kids = GetOwner()->GetChildren();
 		for (size_t i = 0; i < kids.size(); i++)
-			if (kids[i]) SolveNode(kids[i].get(), canvasRect, Vec2(0.f, 0.f));
+			if (kids[i]) SolveNode(kids[i].get(), canvasRect, Vec2(0.f, 0.f), canvasRect);
 	}
 
-	void UICanvas::SolveNode(GameObject* node, const UIRectValue &parentRect, const Vec2 &parentOrigin)
+	// Overlap of two canvas rects, or an empty one where they do not meet -
+	// a rect with no area clips everything away, which is exactly right for
+	// a row scrolled fully out of its list.
+	static UIRectValue Intersect(const UIRectValue &a, const UIRectValue &b)
 	{
+		const f32 x0 = a.x > b.x ? a.x : b.x;
+		const f32 y0 = a.y > b.y ? a.y : b.y;
+		const f32 x1 = (a.x + a.width) < (b.x + b.width) ? (a.x + a.width) : (b.x + b.width);
+		const f32 y1 = (a.y + a.height) < (b.y + b.height) ? (a.y + a.height) : (b.y + b.height);
+		return UIRectValue(x0, y0, x1 > x0 ? x1 - x0 : 0.f, y1 > y0 ? y1 - y0 : 0.f);
+	}
+
+	void UICanvas::SolveNode(GameObject* node, const UIRectValue &parentRect, const Vec2 &parentOrigin, const UIRectValue &clip)
+	{
+		UIRectValue childClip = clip;
 		UIRectValue rect = parentRect;
 		Vec2 origin = parentOrigin;
 		Vec2 pivot(0.5f, 0.5f);
@@ -157,6 +176,10 @@ namespace p3d {
 				rect = r->GetRect();
 				origin = r->GetOriginInCanvas();
 				pivot = r->GetPivot();
+				// The element itself is clipped by its parent's rect; only
+				// its children are clipped by its own. Nested clips
+				// intersect, so a list inside a panel is bounded by both.
+				if (r->IsClipChildren()) childClip = Intersect(clip, rect);
 				break;
 			}
 		}
@@ -181,7 +204,7 @@ namespace p3d {
 				img->OnRectSolved(rect, pivot);
 				std::vector<RenderingMesh*> &meshes = img->GetMeshes();
 				for (size_t m = 0; m < meshes.size(); m++)
-					if (meshes[m]->Active) drawList.push_back(meshes[m]);
+					if (meshes[m]->Active) { drawList.push_back(meshes[m]); drawClips.push_back(clip); }
 			}
 			else if (type == ComponentType::UIText)
 			{
@@ -189,7 +212,7 @@ namespace p3d {
 				txt->OnRectSolved(rect, pivot);
 				std::vector<RenderingMesh*> &meshes = txt->GetMeshes();
 				for (size_t m = 0; m < meshes.size(); m++)
-					if (meshes[m]->Active) drawList.push_back(meshes[m]);
+					if (meshes[m]->Active) { drawList.push_back(meshes[m]); drawClips.push_back(clip); }
 			}
 		}
 
@@ -197,7 +220,7 @@ namespace p3d {
 		// paints over an earlier one - the whole draw order.
 		const std::vector<std::shared_ptr<GameObject> > &kids = node->GetChildren();
 		for (size_t i = 0; i < kids.size(); i++)
-			if (kids[i]) SolveNode(kids[i].get(), rect, origin);
+			if (kids[i]) SolveNode(kids[i].get(), rect, origin, childClip);
 	}
 
 	GameObject* UICanvas::UpdateInput(const Vec2 &canvasPoint, const bool pointerDown, const bool pointerInside)
