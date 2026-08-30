@@ -13,6 +13,7 @@
 #include <Pyros3D/Core/Math/Math.h>
 #include <vector>
 #include <memory>
+#include <functional>
 
 namespace p3d {
 
@@ -101,6 +102,19 @@ namespace p3d {
 		// collision on the way - but it is what a respawn is.
 		void SetTransform(const Vec2 &position, const f32 angle);
 		void Wake();
+
+		// --- Collision ------------------------------------------------------
+		// Plain std::function fields, not virtuals or a registration call:
+		// sol2 auto-converts an assigned Lua closure straight into one, which
+		// is the same pattern IPhysicsComponent uses for its 3D equivalents
+		// and needs no extra binding plumbing. The argument is the other body.
+		//
+		// Dispatched by Physics2DWorld::Step after the solver has run, so a
+		// handler sees the positions the collision resolved to rather than
+		// the ones that caused it, and can safely apply forces - the next
+		// step has not started.
+		std::function<void(Physics2D*)> OnCollisionEnter;
+		std::function<void(Physics2D*)> OnCollisionExit;
 
 		// Opaque b2BodyId, owned by whichever Physics2DWorld built it. Stored
 		// as two ints so this header does not drag box2d in - the world casts

@@ -129,9 +129,16 @@ namespace p3d {
 			bd.position.y = pos.y;
 			// v3 expresses this as a per-axis motion lock rather than one flag.
 			bd.motionLocks.angularZ = p->IsFixedRotation();
+			// What lets a contact event find its way back to a component:
+			// events carry shape ids, a shape knows its body, and a body
+			// carries this.
+			bd.userData = p;
 			b2BodyId body = b2CreateBody(world, &bd);
 
 			b2ShapeDef sd = b2DefaultShapeDef();
+			// Off by default in v3; without it the contact event buffers stay
+			// empty and OnCollisionEnter/Exit simply never fire.
+			sd.enableContactEvents = true;
 			sd.density = p->GetDensity();
 			sd.material.friction = p->GetFriction();
 			sd.material.restitution = p->GetRestitution();
@@ -164,6 +171,41 @@ namespace p3d {
 		tracked = found;
 	}
 
+	void Physics2DWorld::DispatchContacts(const void* worldHandle)
+	{
+		const b2WorldId world = *(const b2WorldId*)worldHandle;
+		const b2ContactEvents events = b2World_GetContactEvents(world);
+
+		// Both sides get told, because "did I hit something" is the question
+		// a script actually asks and neither body is privileged.
+		for (int i = 0; i < events.beginCount; i++)
+		{
+			Physics2D* a = ComponentForShape(&events.beginEvents[i].shapeIdA);
+			Physics2D* b = ComponentForShape(&events.beginEvents[i].shapeIdB);
+			if (a && a->OnCollisionEnter) a->OnCollisionEnter(b);
+			if (b && b->OnCollisionEnter) b->OnCollisionEnter(a);
+		}
+		for (int i = 0; i < events.endCount; i++)
+		{
+			// An end event can name a shape that has since been destroyed -
+			// b2Shape_IsValid is the documented guard and skipping it turns a
+			// body deleted mid-collision into a crash.
+			Physics2D* a = b2Shape_IsValid(events.endEvents[i].shapeIdA)
+				? ComponentForShape(&events.endEvents[i].shapeIdA) : NULL;
+			Physics2D* b = b2Shape_IsValid(events.endEvents[i].shapeIdB)
+				? ComponentForShape(&events.endEvents[i].shapeIdB) : NULL;
+			if (a && a->OnCollisionExit) a->OnCollisionExit(b);
+			if (b && b->OnCollisionExit) b->OnCollisionExit(a);
+		}
+	}
+
+	Physics2D* Physics2DWorld::ComponentForShape(const void* shapeHandle)
+	{
+		const b2ShapeId shape = *(const b2ShapeId*)shapeHandle;
+		const b2BodyId body = b2Shape_GetBody(shape);
+		return (Physics2D*)b2Body_GetUserData(body);
+	}
+
 	void Physics2DWorld::Step(const f64 dt, SceneGraph* Scene)
 	{
 		if (!live) return;
@@ -184,6 +226,8 @@ namespace p3d {
 			steps++;
 		}
 		if (steps == 8) accumulator = 0.0;
+
+		DispatchContacts(&world);
 
 		// Write the solved transforms back. Only x/y and the z rotation: z
 		// itself is draw order and belongs to whoever authored the scene.

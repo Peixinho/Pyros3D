@@ -56,6 +56,10 @@ namespace p3d {
 	private:
 
 		void DestroyBodyFor(Physics2D* p);
+		// void* rather than b2WorldId/b2ShapeId so this header stays
+		// box2d-free, same as the split handles below.
+		void DispatchContacts(const void* worldHandle);
+		static Physics2D* ComponentForShape(const void* shapeHandle);
 
 		// b2WorldId, split so this header stays box2d-free (same reasoning as
 		// Physics2D's body handle).

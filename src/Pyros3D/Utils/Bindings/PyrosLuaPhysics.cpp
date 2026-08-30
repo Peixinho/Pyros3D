@@ -62,6 +62,11 @@ namespace p3d {
 			"getRestitution", &Physics2D::GetRestitution,
 			"isFixedRotation", &Physics2D::IsFixedRotation,
 			"haveBody", &Physics2D::HaveBody,
+			// Plain fields, like IPhysicsComponent's above - assign a Lua
+			// closure and sol2 converts it. The argument is the other body,
+			// which may be nil if it was destroyed before the end event.
+			"onCollisionEnter", &Physics2D::OnCollisionEnter,
+			"onCollisionExit", &Physics2D::OnCollisionExit,
 			sol::base_classes, sol::bases<IComponent>()
 			);
 
