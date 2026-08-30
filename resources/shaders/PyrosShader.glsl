@@ -1048,11 +1048,30 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         #endif
 
         #ifdef TEXTRENDERING
+            // Normal carries the per-character colour here - see Text.cpp,
+            // which packs it into the normal attribute rather than adding a
+            // colour stream.
+            #ifdef TEXTSDF
+                // The atlas holds a distance, 0.5 at the glyph edge. The
+                // threshold width comes from the pixel's own rate of change,
+                // which is what makes one bake stay sharp at any size: zoom
+                // in and the field changes slowly across a pixel, so the edge
+                // stays one pixel wide instead of blurring with the texture.
+                float sdfDist = texture_2D(uFontmap,Texcoord).r;
+                float sdfWidth = fwidth(sdfDist);
+                // Never zero: a perfectly flat neighbourhood (a glyph scaled
+                // so far down that a pixel spans the whole field) would
+                // otherwise make smoothstep a hard step and alias badly.
+                sdfWidth = max(sdfWidth, 0.0001);
+                float textCoverage = smoothstep(0.5 - sdfWidth, 0.5 + sdfWidth, sdfDist);
+            #else
+                float textCoverage = texture_2D(uFontmap,Texcoord).r;
+            #endif
             if (!diffuseIsSet)
             {
-                diffuse=vec4(Normal*texture_2D(uFontmap,Texcoord).r,texture_2D(uFontmap,Texcoord).r);
+                diffuse=vec4(Normal*textCoverage,textCoverage);
                 diffuseIsSet=true;
-            } else diffuse *= vec4(Normal*texture_2D(uFontmap,Texcoord).r,texture_2D(uFontmap,Texcoord).r);
+            } else diffuse *= vec4(Normal*textCoverage,textCoverage);
         #endif
 
         #if defined(ENVMAP) || defined(REFRACTION)

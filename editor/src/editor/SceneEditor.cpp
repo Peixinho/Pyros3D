@@ -2731,6 +2731,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				if (ImGui::ColorEdit4("Color", (float*)&color)) { t->SetColor(color); MarkSceneDirty(); }
 				BeginUIUndo(goId); EndUIUndo(goId, "Set Text Color");
 
+				bool sdfFont = t->IsFontSDF();
+				if (ImGui::Checkbox("Crisp (SDF)", &sdfFont))
+				{
+					const json ub = CaptureUIProperties(go);
+					t->SetFontSDF(sdfFont);
+					MarkSceneDirty();
+					PushUIPropertyUndo(goId, ub, CaptureUIProperties(go), "Set Crisp Text");
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Re-bakes the font as a signed distance field. One bake then\nstays sharp at any size, where a normal atlas is only sharp at\nthe size it was baked. Costs a wider atlas cell per glyph.");
+
 				bool wrap = t->IsWordWrap();
 				if (ImGui::Checkbox("Word Wrap", &wrap))
 				{

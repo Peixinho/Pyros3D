@@ -68,6 +68,13 @@ namespace p3d {
 		// Wraps at word boundaries to the element's own rect width. Off by
 		// default: a HUD readout that silently became two lines because a
 		// value grew is worse than one that overflows visibly.
+		// Re-bakes this label's font as a signed distance field (or back).
+		// A property of the atlas rather than of the text, but exposed here
+		// because the element is what an author has in front of them - see
+		// Font's sdf flag for what it buys.
+		void SetFontSDF(bool on);
+		bool IsFontSDF() const { return font && font->IsSDF(); }
+
 		void SetWordWrap(bool on);
 		bool IsWordWrap() const { return wordWrap; }
 

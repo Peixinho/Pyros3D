@@ -131,6 +131,12 @@ namespace p3d {
 		// Zero, the default, means no wrapping at all - explicit newlines
 		// only, which is exactly what this did before.
 		void SetWrapWidth(const f32 width);
+
+		// Re-lays the text against a different Font. The glyph metrics and
+		// the atlas both come from it, so this is a full rebuild - which is
+		// why it exists at all rather than callers throwing the Renderable
+		// away: everything pointing at this mesh keeps pointing at it.
+		void SetFont(Font* newFont);
 		f32 GetWrapWidth() const { return wrapWidth; }
 
 		// Real getters - neither constructor nor either UpdateText()

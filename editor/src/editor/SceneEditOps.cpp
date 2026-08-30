@@ -1124,6 +1124,7 @@ json SceneEditor::CaptureUIProperties(GameObject* go)
 			out["size"] = t->GetSize();
 			out["color"] = json::array({ t->GetColor().x, t->GetColor().y, t->GetColor().z, t->GetColor().w });
 			out["wrap"] = t->IsWordWrap();
+			out["sdf"] = t->IsFontSDF();
 			out["align"] = (t->GetHorizontalAlignment() == UIAlign::Center) ? "Center"
 				: (t->GetHorizontalAlignment() == UIAlign::Right) ? "Right" : "Left";
 			out["verticalAlign"] = (t->GetVerticalAlignment() == UIVerticalAlign::Middle) ? "Middle"
@@ -1234,6 +1235,11 @@ bool SceneEditor::RawSetUIProperties(uint32 goId, const json& p, std::string& er
 		{
 			if (!isVec4) { errOut = "color must be [r, g, b, a]"; return false; }
 			text->SetColor(v4); touched = true;
+		}
+		else if (text && k == "sdf")
+		{
+			if (!v.is_boolean()) { errOut = "sdf must be true or false"; return false; }
+			text->SetFontSDF(v.get<bool>()); touched = true;
 		}
 		else if (text && k == "wrap")
 		{

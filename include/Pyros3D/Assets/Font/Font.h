@@ -17,6 +17,8 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_GLYPH_H
+// FT_Property_Set, for the sdf module's spread - see Font's constructor.
+#include FT_MODULE_H
 #undef generic
 
 #define MAP_SIZE 1024
@@ -71,14 +73,24 @@ namespace p3d {
 		std::vector<uchar> memory;
 
 		// See GetSpaceAdvance()/GetLineHeight()/GetAscender().
+		bool isSDF;
+		uint32 sdfSpread;
 		f32 spaceAdvance;
 		f32 lineHeight;
 		f32 ascender, descender;
 
 	public:
 
-		// Create Font
-		Font(const std::string &font, const f32 size);
+		// sdf bakes a signed distance field instead of a coverage bitmap.
+		// The atlas is then resolution independent: one bake looks sharp at
+		// any size, where a coverage atlas is only crisp at the size it was
+		// baked and softens either side of it. Costs a wider cell per glyph
+		// (the field needs room to spread past the ink) and a shader that
+		// knows to threshold it - see ShaderUsage::TextSDF.
+		Font(const std::string &font, const f32 size, bool sdf = false);
+		bool IsSDF() const { return isSDF; }
+		// Pixels the field extends beyond the glyph's ink on every side.
+		f32 GetSDFSpread() const { return (f32)sdfSpread; }
 
 		// Create Text
 		// It adds each char to the texture

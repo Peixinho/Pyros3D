@@ -631,6 +631,160 @@ void UIExample::RunVerification()
 		if (!restyled) failures++;
 	}
 
+	// ---- SDF text ----
+	// The claim is that one SDF bake stays sharp at any size, where a
+	// coverage bake is only sharp at the size it was baked. Measured as edge
+	// sharpness: scan a row across the glyphs and count pixels that are
+	// neither background nor solid. A crisp edge spends a pixel or two in
+	// transition; a blurry one smears over many.
+	//
+	// In its own scene and its own canvas, at ConstantPixel scale so canvas
+	// units are pixels. The first version of this rendered into the demo's
+	// own canvas and dutifully measured the pause menu's scrim.
+	{
+		const uint32 W2 = 512, H2 = 160;
+		Texture c2; c2.CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, W2, H2, false);
+		c2.SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		Texture d2; d2.CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, W2, H2, false);
+		FrameBuffer fbo2;
+		fbo2.Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, &d2);
+		fbo2.AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, &c2);
+
+		SceneGraph probeScene;
+		std::shared_ptr<GameObject> probeCanvasGO = std::make_shared<GameObject>();
+		std::shared_ptr<UICanvas> probeCanvas = std::make_shared<UICanvas>((f32)W2, (f32)H2);
+		probeCanvas->SetScaleMode(UIScaleMode::ConstantPixel);
+		probeCanvasGO->Add(std::static_pointer_cast<IComponent>(probeCanvas));
+		probeScene.Add(probeCanvasGO);
+
+		std::shared_ptr<GameObject> probeGO = std::make_shared<GameObject>();
+		std::shared_ptr<UIRect> pr = std::make_shared<UIRect>();
+		pr->SetAnchors(Vec2(0.f, 0.f), Vec2(1.f, 1.f));
+		pr->SetOffsets(Vec2(0.f, 0.f), Vec2(0.f, 0.f));
+		probeGO->Add(std::static_pointer_cast<IComponent>(pr));
+		probeCanvasGO->Add(probeGO);
+		probeScene.Update(0.0);
+
+		// Both baked small and drawn large - the case an SDF exists for.
+		std::shared_ptr<Font> bmp = std::make_shared<Font>(STR(EXAMPLES_PATH) "/assets/verdana.ttf", 16, false);
+		std::shared_ptr<Font> sdf = std::make_shared<Font>(STR(EXAMPLES_PATH) "/assets/verdana.ttf", 16, true);
+		bmp->CreateText("HI"); sdf->CreateText("HI");
+
+		UIRenderer probeRenderer(W2, H2);
+
+		auto transitionPixels = [&](const std::shared_ptr<Font> &font, const char* tag, int &solidOut) -> int {
+			std::shared_ptr<UIText> probe = std::make_shared<UIText>(font, "HI", 110.f, Vec4(1, 1, 1, 1));
+			probe->SetAlignment(UIAlign::Center, UIVerticalAlign::Middle);
+			probeGO->Add(std::static_pointer_cast<IComponent>(probe));
+			probeScene.Update(0.0);
+
+			fbo2.Bind();
+			GetActiveRenderDevice().SetClearColor(Vec4(0.f, 0.f, 0.f, 1.f));
+			// UIRenderer never clears - it is meant to draw over the world -
+			// so the second pass here would otherwise composite onto the
+			// first. Vulkan hid that: its render pass clears on bind, while
+			// GL keeps whatever the FBO already held, and the SDF row came
+			// back measuring the bitmap glyphs underneath it.
+			// ClearBufferBit() only records the bits for DrawBackground(),
+			// which UIRenderer never runs - the clear has to be asked of the
+			// device.
+			IRenderDevice &dev = GetActiveRenderDevice();
+			dev.Clear(dev.TranslateBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth));
+			probeRenderer.Resize(W2, H2);
+			probeRenderer.RenderUI(&probeScene);
+			fbo2.UnBind();
+			GetActiveRenderDevice().WaitIdle();
+
+			std::vector<uchar> px2 = c2.GetTextureData();
+			int transitions = 0, solid = 0;
+			if (px2.size() >= (size_t)W2 * H2 * 4)
+				for (uint32 x = 0; x < W2; x++)
+				{
+					const uint32 y = H2 / 2;
+#if defined(_SDL2VULKAN) || defined(_SDL2METAL)
+					const size_t o = ((size_t)y * W2 + x) * 4;
+#else
+					const size_t o = ((size_t)(H2 - 1 - y) * W2 + x) * 4;
+#endif
+					const int v = px2[o];
+					if (v > 24 && v < 230) transitions++;
+					else if (v >= 230) solid++;
+				}
+			printf("      %-6s %3d partly-covered, %3d solid pixels across the row\n", tag, transitions, solid);
+			solidOut = solid;
+			probeGO->Remove(std::static_pointer_cast<IComponent>(probe));
+			return transitions;
+		};
+
+		int bmpSolid = 0, sdfSolid = 0;
+		const int bmpEdge = transitionPixels(bmp, "bitmap", bmpSolid);
+		const int sdfEdge = transitionPixels(sdf, "sdf", sdfSolid);
+		// Solid pixels on both sides first: without that, a variant that
+		// draws nothing at all has the tightest edge of any of them.
+		const bool sharper = (bmpEdge > 0) && (bmpSolid > 0) && (sdfSolid > 0)
+			&& (sdfEdge * 2 <= bmpEdge);
+		printf("%s  a 16px atlas drawn at 110px: the SDF edge is at least twice as tight\n",
+			sharper ? "PASS" : "FAIL");
+		if (!sharper) failures++;
+
+		probeCanvasGO->Remove(probeGO);
+		probeScene.Remove(probeCanvasGO);
+	}
+
+	// ---- the SDF flag survives a save/load ----
+	// Two labels asking for the same file at the same size, one crisp and one
+	// not, have to come back as two different atlases: the serializer's font
+	// cache keys on path+size+mode, and if the mode is left out of the key
+	// whichever label loads second silently inherits the other's bake.
+	{
+		std::shared_ptr<GameObject> src = std::make_shared<GameObject>();
+		std::shared_ptr<UICanvas> srcCanvas = std::make_shared<UICanvas>(320.f, 200.f);
+		src->Add(std::static_pointer_cast<IComponent>(srcCanvas));
+		const char* fontPath = STR(EXAMPLES_PATH) "/assets/verdana.ttf";
+		const char* names[2] = { "Plain", "Crisp" };
+		for (int i = 0; i < 2; i++)
+		{
+			std::shared_ptr<GameObject> child = std::make_shared<GameObject>();
+			child->SetName(names[i]);
+			child->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIRect>()));
+			std::shared_ptr<Font> f = std::make_shared<Font>(fontPath, 18, i == 1);
+			f->CreateText("Ag");
+			child->Add(std::static_pointer_cast<IComponent>(
+				std::make_shared<UIText>(f, "Ag", 18.f, Vec4(1, 1, 1, 1))));
+			src->Add(child);
+		}
+
+		const std::string subtree = SceneSerializer::SerializeSubtree(src.get(), "");
+		LoadedSceneAssets loaded;
+		std::shared_ptr<GameObject> back = SceneSerializer::DeserializeSubtree(subtree, "", NULL, NULL, &loaded);
+
+		bool ok = back != NULL;
+		Font* fonts[2] = { NULL, NULL };
+		if (ok)
+		{
+			const std::vector<std::shared_ptr<GameObject>> &kids = back->GetChildren();
+			ok = kids.size() == 2;
+			for (size_t k = 0; ok && k < kids.size(); k++)
+			{
+				UIText* t = NULL;
+				const std::vector<std::shared_ptr<IComponent>> &comps = kids[k]->GetComponents();
+				for (size_t c = 0; c < comps.size(); c++)
+					if (UIText* cast = dynamic_cast<UIText*>(comps[c].get())) t = cast;
+				if (!t) { ok = false; break; }
+				const int want = kids[k]->GetName() == "Crisp" ? 1 : 0;
+				fonts[want] = t->GetFont().get();
+				if (t->IsFontSDF() != (want == 1)) ok = false;
+			}
+		}
+		const bool distinct = fonts[0] && fonts[1] && fonts[0] != fonts[1];
+		printf("%s  the crisp flag round-trips, and the two bakes stay separate\n",
+			(ok && distinct) ? "PASS" : "FAIL");
+		if (!(ok && distinct)) failures++;
+
+		SceneGraph tmpScene;
+		SceneSerializer::UnloadScene(&tmpScene, loaded);
+	}
+
 	// ---- word wrap ----
 	// The claim is that a long string breaks at word boundaries to fit the
 	// element's rect, and that narrowing the rect re-wraps it. Both are

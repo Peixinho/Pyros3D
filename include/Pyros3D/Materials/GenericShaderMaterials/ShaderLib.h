@@ -64,7 +64,13 @@ namespace p3d
 			// Displaces vertices above the mesh's local origin along a
 			// travelling wave, phase-offset per instance, so a field of
 			// instanced cards doesn't move in lockstep.
-			VertexWind = 0x4000000
+			VertexWind = 0x4000000,
+			// Text whose atlas holds a signed distance field rather than
+			// coverage (Font's sdf flag). Thresholded in the shader against
+			// the pixel's own rate of change, so one bake stays sharp at any
+			// size - which is the entire point of an SDF atlas. Used
+			// alongside TextRendering, never instead of it.
+			TextSDF = 0x8000000
 		};
 	};
 }

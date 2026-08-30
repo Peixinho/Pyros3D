@@ -143,6 +143,20 @@ namespace p3d {
 		return out;
 	}
 
+	void Text::SetFont(Font* newFont)
+	{
+		if (!newFont || newFont == font) return;
+		font = newFont;
+		// The new atlas has none of this string's glyphs yet.
+		font->CreateText(text);
+		// Same forced rebuild the other setters use - UpdateText's early-out
+		// cannot see a font change.
+		const std::string current = text;
+		text.clear();
+		if (charColors.empty()) UpdateText(current, color);
+		else UpdateText(current, charColors);
+	}
+
 	void Text::SetWrapWidth(const f32 width)
 	{
 		if (this->wrapWidth == width) return;

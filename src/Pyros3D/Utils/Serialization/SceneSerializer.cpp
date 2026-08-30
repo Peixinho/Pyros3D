@@ -1391,6 +1391,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// text is drawn in canvas units. They are usually close, and
 			// they are not the same thing.
 			j["fontSize"] = t->GetFont()->GetFontSize();
+			if (t->GetFont()->IsSDF()) j["fontSDF"] = true;
 			j["size"] = t->GetSize();
 			j["text"] = t->GetText();
 			j["color"] = ToJson(t->GetColor());
@@ -2295,15 +2296,19 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			}
 			// Pooled by (path, size) - see fontCache's comment at the load
 			// entry points.
+			// The bake mode is part of the identity: two labels asking for
+			// the same file at the same size, one crisp and one not, need
+			// two atlases.
+			const bool wantSDF = j.value("fontSDF", false);
 			char key[64];
-			snprintf(key, sizeof(key), "|%g", fontSize);
+			snprintf(key, sizeof(key), "|%g|%d", fontSize, wantSDF ? 1 : 0);
 			const std::string cacheKey = fontPath + key;
 			std::shared_ptr<Font> font;
 			std::map<std::string, std::shared_ptr<Font>>::iterator it = fontCache.find(cacheKey);
 			if (it != fontCache.end()) font = it->second;
 			else
 			{
-				font = std::make_shared<Font>(fontPath, fontSize);
+				font = std::make_shared<Font>(fontPath, fontSize, wantSDF);
 				fontCache[cacheKey] = font;
 			}
 

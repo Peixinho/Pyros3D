@@ -15,7 +15,13 @@ namespace p3d {
 	// the renderable and the material before UIText's own body can run.
 	static std::shared_ptr<IMaterial> MakeUITextMaterial(Font* font)
 	{
-		GenericShaderMaterial* mat = new GenericShaderMaterial(ShaderUsage::TextRendering);
+		// The variant has to match how the atlas was baked - an SDF sampled
+		// as coverage is a grey smear, and coverage thresholded as a
+		// distance is a hard-edged mess. Font knows which it is, so nothing
+		// above here has to.
+		const uint32 usage = ShaderUsage::TextRendering
+			| ((font && font->IsSDF()) ? ShaderUsage::TextSDF : 0);
+		GenericShaderMaterial* mat = new GenericShaderMaterial(usage);
 		mat->SetTextFont(font);
 		// Same screen-space contract as UIImage's material - see there.
 		// Glyph atlases are single-channel coverage, so blending is not
@@ -86,6 +92,24 @@ namespace p3d {
 		if (this->size == size) return;
 		this->size = size;
 		static_cast<Text*>(GetRenderable())->SetCharSize(size, size);
+		Realign();
+	}
+
+	void UIText::SetFontSDF(bool on)
+	{
+		if (!font || font->IsSDF() == on) return;
+		// A new Font, because the atlas is baked once at construction. The
+		// old one dies with the last reference, which is this.
+		std::shared_ptr<Font> rebuilt = std::make_shared<Font>(font->GetPath(), font->GetFontSize(), on);
+		rebuilt->CreateText(text);
+		font = rebuilt;
+		static_cast<Text*>(GetRenderable())->SetFont(font.get());
+
+		// And the material with it: the shader variant has to match how the
+		// atlas was baked, or the glyphs come out as a smear or as nothing.
+		std::shared_ptr<IMaterial> mat = MakeUITextMaterial(font.get());
+		std::vector<RenderingMesh*> &meshes = GetMeshes();
+		for (size_t i = 0; i < meshes.size(); i++) meshes[i]->Material = mat;
 		Realign();
 	}
 
