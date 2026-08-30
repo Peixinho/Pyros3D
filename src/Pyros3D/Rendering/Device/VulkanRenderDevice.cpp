@@ -94,7 +94,7 @@ namespace p3d {
 		  captureRequested(false), capturedWidth(0), capturedHeight(0), capturedRedByteOffset(0), capturedFrameValid(false),
 		  frameInProgress(false), currentImageIndex(0), imguiVulkanBackendActive(false),
 		  activeCommandBuffer(VK_NULL_HANDLE), offscreenCommandBuffer(VK_NULL_HANDLE), offscreenPassOpen(false), offscreenCommandBufferRecording(false),
-		  offscreenSlotIndex(0), offscreenChainSemaphore(VK_NULL_HANDLE),
+		  offscreenSlotIndex(0), offscreenChainSemaphore(VK_NULL_HANDLE), offscreenPrevSemaphore(VK_NULL_HANDLE),
 		  hostMappedBuffersSafeThisFrame(false),
 		  currentBoundFBO(0), currentReadFBO(0),
 		  nextFBOHandle(1), shadowPipelineRenderPass(VK_NULL_HANDLE), pointShadowCubeFacePass(false),
@@ -322,6 +322,7 @@ namespace p3d {
 			{
 				if (offscreenSlots[i].fence != VK_NULL_HANDLE) vkDestroyFence(device, offscreenSlots[i].fence, NULL);
 				if (offscreenSlots[i].done != VK_NULL_HANDLE) vkDestroySemaphore(device, offscreenSlots[i].done, NULL);
+				if (offscreenSlots[i].doneForOffscreen != VK_NULL_HANDLE) vkDestroySemaphore(device, offscreenSlots[i].doneForOffscreen, NULL);
 				offscreenSlots[i] = OffscreenSlot();
 			}
 			offscreenChainSemaphore = VK_NULL_HANDLE;
@@ -951,6 +952,7 @@ namespace p3d {
 		{
 			if (vkCreateFence(device, &fenceInfo, NULL, &offscreenSlots[i].fence) != VK_SUCCESS) return false;
 			if (vkCreateSemaphore(device, &semInfo, NULL, &offscreenSlots[i].done) != VK_SUCCESS) return false;
+			if (vkCreateSemaphore(device, &semInfo, NULL, &offscreenSlots[i].doneForOffscreen) != VK_SUCCESS) return false;
 			offscreenSlots[i].fenceInFlight = false;
 		}
 		offscreenChainSemaphore = VK_NULL_HANDLE;
@@ -3855,6 +3857,37 @@ namespace p3d {
 				it++;
 			}
 		}
+
+		// The ring-slot combos are handle-keyed too, and dropping them was
+		// missing - which is the same hazard this function exists for, just on
+		// the other map. ResolveSamplerSetForCurrentState() reuses a slot whose
+		// cached combo compares equal *without rewriting the descriptor*, and
+		// Vulkan recycles VkImageView handles: after a resize destroys this
+		// view and a new one lands on the same handle value, the stale combo
+		// matched and the descriptor set was left pointing at the destroyed
+		// object. Symptom was a deferred frame reading its G-buffer back as
+		// garbage after a window resize - a built game blowing out to white on
+		// ~12% of starts, always and only at a resized window size.
+		// Combos are flat (binding, view, sampler) triples - see that function.
+		std::map<std::pair<DeviceHandle, uint32>, std::vector<uint64> >::iterator c = pipelineSamplerRingCombo.begin();
+		while (c != pipelineSamplerRingCombo.end())
+		{
+			bool namesView = false;
+			for (size_t i = 1; i < c->second.size(); i += 3)
+			{
+				if (c->second[i] == (uint64)(uintptr_t)view) { namesView = true; break; }
+			}
+			if (namesView)
+			{
+				std::map<std::pair<DeviceHandle, uint32>, std::vector<uint64> >::iterator dead = c;
+				c++;
+				pipelineSamplerRingCombo.erase(dead);
+			}
+			else
+			{
+				c++;
+			}
+		}
 	}
 
 	void VulkanRenderDevice::SendUniformInt(const int32 handle, const int32 *data, const uint32 count)
@@ -5998,8 +6031,38 @@ namespace p3d {
 			}
 			offscreenChainSemaphore = VK_NULL_HANDLE;
 		}
+		if (offscreenPrevSemaphore == slot.doneForOffscreen)
+		{
+			VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+			VkSubmitInfo consume = {};
+			consume.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+			consume.waitSemaphoreCount = 1;
+			consume.pWaitSemaphores = &slot.doneForOffscreen;
+			consume.pWaitDstStageMask = &stage;
+			VkFenceCreateInfo fi = {};
+			fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+			VkFence cf = VK_NULL_HANDLE;
+			if (vkCreateFence(device, &fi, NULL, &cf) == VK_SUCCESS)
+			{
+				SubmitGraphics(1, &consume, cf);
+				vkWaitForFences(device, 1, &cf, VK_TRUE, UINT64_MAX);
+				vkDestroyFence(device, cf, NULL);
+			}
+			else { SubmitGraphics(1, &consume, VK_NULL_HANDLE); vkQueueWaitIdle(graphicsQueue); }
+			offscreenPrevSemaphore = VK_NULL_HANDLE;
+		}
 
 		slot.fenceInFlight = false;
+	}
+
+	void VulkanRenderDevice::WaitOffscreenWork()
+	{
+		WaitOffscreenSubmitIfPending();
+	}
+
+	void VulkanRenderDevice::FlushOffscreenWork()
+	{
+		FlushOffscreenCommandBuffer();
 	}
 
 	void VulkanRenderDevice::WaitOffscreenSubmitIfPending()
@@ -6355,29 +6418,33 @@ namespace p3d {
 		// recorded even though the CPU no longer blocks between them - a
 		// G-buffer written by one session and sampled by the next used to
 		// be ordered by that CPU fence wait, and this is what replaces it.
-		VkPipelineStageFlags chainStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+		VkPipelineStageFlags chainStages[2] = { VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT };
+		VkSemaphore waitSems[2];
+		uint32 chainWaits = 0;
+		if (offscreenPrevSemaphore != VK_NULL_HANDLE) waitSems[chainWaits++] = offscreenPrevSemaphore;
+		if (offscreenChainSemaphore != VK_NULL_HANDLE) waitSems[chainWaits++] = offscreenChainSemaphore;
+		VkSemaphore signalSems[2] = { slot.done, slot.doneForOffscreen };
 		VkSubmitInfo submitInfo = {};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		if (offscreenChainSemaphore != VK_NULL_HANDLE)
-		{
-			submitInfo.waitSemaphoreCount = 1;
-			submitInfo.pWaitSemaphores = &offscreenChainSemaphore;
-			submitInfo.pWaitDstStageMask = &chainStage;
-		}
+		submitInfo.waitSemaphoreCount = chainWaits;
+		submitInfo.pWaitSemaphores = chainWaits ? waitSems : NULL;
+		submitInfo.pWaitDstStageMask = chainWaits ? chainStages : NULL;
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &slot.cmd;
-		submitInfo.signalSemaphoreCount = 1;
-		submitInfo.pSignalSemaphores = &slot.done;
+		submitInfo.signalSemaphoreCount = 2;
+		submitInfo.pSignalSemaphores = signalSems;
 		if (SubmitGraphics(1, &submitInfo, slot.fence) != VK_SUCCESS)
 		{
 			vkQueueWaitIdle(graphicsQueue);
 			slot.fenceInFlight = false;
 			offscreenChainSemaphore = VK_NULL_HANDLE;
+			offscreenPrevSemaphore = VK_NULL_HANDLE;
 		}
 		else
 		{
 			slot.fenceInFlight = true;
 			offscreenChainSemaphore = slot.done;
+			offscreenPrevSemaphore = slot.doneForOffscreen;
 		}
 
 		offscreenCommandBufferRecording = false;

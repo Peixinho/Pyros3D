@@ -620,11 +620,15 @@ namespace p3d {
 			VkCommandBuffer cmd;
 			VkFence fence;
 			VkSemaphore done;
+			// Second signal, dedicated to the next offscreen submit. `done`
+			// cannot serve both: EndFrame takes it every frame, which left the
+			// next offscreen submit waiting on nothing.
+			VkSemaphore doneForOffscreen;
 			// Submitted, fence not yet waited on the CPU. Its command
 			// buffer must not be reset and its fence must not be reset
 			// while this is set.
 			bool fenceInFlight;
-			OffscreenSlot() : cmd(VK_NULL_HANDLE), fence(VK_NULL_HANDLE), done(VK_NULL_HANDLE), fenceInFlight(false) {}
+			OffscreenSlot() : cmd(VK_NULL_HANDLE), fence(VK_NULL_HANDLE), done(VK_NULL_HANDLE), doneForOffscreen(VK_NULL_HANDLE), fenceInFlight(false) {}
 		};
 		OffscreenSlot offscreenSlots[OFFSCREEN_SLOTS];
 		// Slot currently recording, or most recently submitted.
@@ -638,6 +642,9 @@ namespace p3d {
 		// before its slot is reused; WaitOffscreenSlot() does that with an
 		// empty submit when it has to.
 		VkSemaphore offscreenChainSemaphore;
+		// The offscreen->offscreen edge, which is what orders a G-buffer write
+		// against the next session's read of it.
+		VkSemaphore offscreenPrevSemaphore;
 		// Cleared each BeginFrame; set after EnsureHostMappedBufferWritable
 		// so multiple STREAM buffer updates in one tick share one wait.
 		bool hostMappedBuffersSafeThisFrame;
@@ -866,6 +873,8 @@ namespace p3d {
 		// GPU work is outstanding. Not for the record path: that only
 		// needs the one slot it is about to reuse, via WaitOffscreenSlot.
 		void WaitOffscreenSubmitIfPending();
+		virtual void FlushOffscreenWork();
+		virtual void WaitOffscreenWork();
 		void WaitOffscreenSlot(OffscreenSlot &slot);
 		void WaitAllFrameFences();
 		// Wait in-flight frame/offscreen work before destroying or

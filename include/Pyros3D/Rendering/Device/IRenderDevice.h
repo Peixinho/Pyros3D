@@ -190,6 +190,21 @@ namespace p3d {
 		// GPU work had actually finished first.
 		virtual void WaitIdle() = 0;
 
+		// Close the current offscreen recording session and submit it, without
+		// blocking the CPU. Lets a renderer put a hard submission boundary
+		// between a pass that writes an offscreen target and a later pass that
+		// samples it, so the backend's own submit-ordering applies. No-op where
+		// there is no separate offscreen submission queue.
+		virtual void FlushOffscreenWork() {}
+
+		// Narrower than WaitIdle(): blocks only until previously-submitted
+		// *offscreen* sessions have completed, leaving frame/present work
+		// alone. Exists because DeferredRenderer needs its G-buffer pass to
+		// have landed before the lighting pass samples it, and paying a full
+		// device idle for that stalls far more than the hazard needs. No-op
+		// on backends with no offscreen submission queue of their own.
+		virtual void WaitOffscreenWork() {}
+
 		// Real, needed backend branch - not every GL/Vulkan difference is
 		// hideable behind a shared abstraction. DeferredRenderer's
 		// point/spot light-volume Sphere primitive (reversed winding vs

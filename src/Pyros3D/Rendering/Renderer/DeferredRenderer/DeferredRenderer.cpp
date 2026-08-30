@@ -907,6 +907,89 @@ namespace p3d {
 		// copy, while its own attachment set gets forwardDepthTexture).
 		device->CopyDepthTexture(FBO->GetAttachments()[0]->TexturePTR->GetBindID(), forwardDepthTexture->GetBindID(), Width, Height);
 
+		// Drain before the lighting pass samples what the G-buffer pass above
+		// just wrote. Without this, on macOS/Vulkan (MoltenVK) roughly 44% of
+		// cold starts had the second pass read the G-buffer back as the clear
+		// colour (0.2) or NaN instead of what was rendered into it. Every
+		// secondpass*.glsl rejects sky with `if (tDepth >= 1.0) discard`, so
+		// neither value discards anything: the ambient pass and every light
+		// shaded the whole screen and this RGBA16F target saturated to a white
+		// viewport. Measured 7 bad in 16 cold starts without, 0 in 48 with.
+		// The state latches in the first frames and then sticks for the life
+		// of the renderer, which is why recreating it (a Forward<->Deferred
+		// toggle) or a viewport resize appeared to "fix" it.
+		//
+		// Cost, measured settled on the editor's E2E viewport in 300-frame
+		// blocks: the wait is 2.2-3.1ms and the frame interval goes 8.75ms ->
+		// ~10.1ms. Real, but both are inside the 16.7ms budget and macOS
+		// presents at a hard 60Hz through CAMetalLayer regardless (see
+		// WaitAllFrameFences()'s notes), so presented pacing does not change.
+		//
+		// CONTAINMENT, not a root-cause fix - the root cause is still open,
+		// and everything below was tried and left the failure rate unchanged,
+		// so do not re-try them:
+		//   - it is not the descriptors: a good and a bad run trace identical
+		//     binding/unit/VkImageView through SendUniformInt;
+		//   - it is not the sampler ring wrapping onto a live set (zero wraps,
+		//     zero short rings measured), nor the FBO's preserveDepth flag;
+		//   - it is not the depth *format*. This looks exactly like the
+		//     MoltenVK depth-sampling defect PointLight::EnableCastShadows()
+		//     documents, but moving the sky test off tDepth entirely (onto
+		//     length(tNormal.xyz)) still gave 9 bad in 16 - tNormal is equally
+		//     unreliable, so the whole G-buffer read is, not one attachment;
+		//   - it is not intra-command-buffer ordering: the G-buffer pass and
+		//     this one are in the same command buffer and the same submission,
+		//     and explicit barriers at the end of the offscreen render pass and
+		//     on CopyDepthTexture's under-declared source masks both did
+		//     nothing (that second one is a genuine defect worth fixing on its
+		//     own merits, just not this);
+		//   - it is not the offscreen semaphore chain, though that IS broken
+		//     independently: EndFrame consumes offscreenChainSemaphore every
+		//     frame, so by the next flush it is always VK_NULL_HANDLE and each
+		//     offscreen submit goes out with no wait at all, contradicting the
+		//     ordering its own header comment promises. Giving each slot a
+		//     second semaphore so both consumers get one fixes that gap - and
+		//     still left 10 bad in 16 here.
+		// A drain at the *top* of RenderScene does not help either (9 bad in
+		// 16); it only works in this position.
+		// Hard submission boundary between the G-buffer pass above and the
+		// lighting pass below. Both were being recorded into one offscreen
+		// command buffer and submitted together, and on macOS/Vulkan
+		// (MoltenVK) roughly 44% of cold editor starts - and ~12% of player
+		// starts - then had the lighting pass read the G-buffer back as the
+		// clear colour (0.2) or NaN instead of what had just been rendered
+		// into it. Every secondpass*.glsl rejects sky with
+		// `if (tDepth >= 1.0) discard`, so neither value discards anything:
+		// the ambient pass and every light shaded the whole screen and this
+		// RGBA16F target saturated to a white viewport. Splitting the
+		// submission lets the backend's own submit ordering apply, which is
+		// what the sampled read needed and what no in-command-buffer barrier
+		// could provide.
+		//
+		// Depends on VulkanRenderDevice's offscreen semaphore chain actually
+		// chaining - it did not until the doneForOffscreen semaphore was added
+		// alongside it (EndFrame consumed the only signal every frame, so
+		// every offscreen submit went out with no wait at all). The two go
+		// together: neither fixes this alone.
+		//
+		// Measured on the editor's E2E viewport, 300-frame blocks, settled:
+		// 0.10ms per call and a frame interval of 8.53-8.56ms against
+		// 8.64-8.85ms unfixed - i.e. free. The first fix found for this was a
+		// device->WaitIdle() here, which also works but costs 1.6-2.4ms and
+		// pushes the frame interval to ~10.1ms because it drains the previous
+		// frame and destroys CPU/GPU pipelining. Do not go back to it.
+		//
+		// What is *below* this is still unexplained: with both passes in one
+		// submission, the descriptors, the sampler ring, the FBO layouts and
+		// explicit barriers all measured identical between a good and a bad
+		// run. Ruled out, do not re-test: the depth *format* (moving the sky
+		// test onto tNormal reproduces just the same, so it is not the
+		// MoltenVK depth-sampling defect PointLight::EnableCastShadows
+		// documents), CopyDepthTexture's under-declared source masks, and a
+		// warm-up-only drain (clean at 16/16, then 1 bad in 20 - it only
+		// lowers the rate).
+		device->FlushOffscreenWork();
+
 		lastPassFBO->Bind();
 		ClearBufferBit(Buffer_Bit::Color);
 		ClearScreen();
