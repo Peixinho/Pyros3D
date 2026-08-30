@@ -25,9 +25,22 @@ namespace p3d {
 		pixelsPerUnit = 1.f;
 		focused = NULL;
 		registeredScene = NULL;
+		batching = true;
 	}
 
 	UICanvas::~UICanvas() {}
+
+	const std::vector<RenderingMesh*> &UICanvas::GetBatchedDrawList()
+	{
+		if (!batching)
+		{
+			// So that turning batching back on rebuilds rather than
+			// handing back whatever the last batched frame produced.
+			batcher.Invalidate();
+			return drawList;
+		}
+		return batcher.Build(drawList);
+	}
 
 	void UICanvas::Register(SceneGraph* Scene)
 	{

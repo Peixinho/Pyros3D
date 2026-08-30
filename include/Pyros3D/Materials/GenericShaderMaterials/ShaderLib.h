@@ -70,7 +70,13 @@ namespace p3d
 			// the pixel's own rate of change, so one bake stays sharp at any
 			// size - which is the entire point of an SDF atlas. Used
 			// alongside TextRendering, never instead of it.
-			TextSDF = 0x8000000
+			TextSDF = 0x8000000,
+			// Tint carried on the aColor vertex attribute instead of the
+			// uColor uniform. What lets the UI batcher merge elements that
+			// differ only by tint into a single draw - a uniform is per
+			// draw call, so anything that varies per element and stays a
+			// uniform is a draw call.
+			VertexColor = 0x10000000
 		};
 	};
 }

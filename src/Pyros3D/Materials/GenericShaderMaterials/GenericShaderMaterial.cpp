@@ -33,6 +33,8 @@ namespace p3d
 			define += std::string("#define TEXTRENDERING\n");
 		if (options & ShaderUsage::TextSDF)
 			define += std::string("#define TEXTSDF\n");
+		if (options & ShaderUsage::VertexColor)
+			define += std::string("#define VERTEXCOLOR\n");
 		if (options & ShaderUsage::DirectionalShadow)
 			define += std::string("#define DIRECTIONALSHADOW\n");
 		if (options & ShaderUsage::PointShadow)

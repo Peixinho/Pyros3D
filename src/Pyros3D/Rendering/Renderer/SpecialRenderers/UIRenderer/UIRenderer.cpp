@@ -91,7 +91,7 @@ namespace p3d {
 
 			// Straight down the canvas's own list, in order, no sorting -
 			// see the class comment.
-			const std::vector<RenderingMesh*> &list = canvas->GetDrawList();
+			const std::vector<RenderingMesh*> &list = canvas->GetBatchedDrawList();
 			for (size_t i = 0; i < list.size(); i++)
 			{
 				RenderingMesh* m = list[i];

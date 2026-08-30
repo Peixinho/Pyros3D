@@ -72,6 +72,9 @@ private:
 	void BuildMenu();
 	void SetSelectedRow(const int32 row);
 	void RunVerification();
+	// PYROS_UI_BENCH=<element count>: times RenderUI() on a canvas of that
+	// many elements, offscreen so nothing waits on vsync.
+	void RunBench(const int elements);
 
 	Projection projection;
 	UIRenderer* uiRenderer;
@@ -110,6 +113,7 @@ private:
 	int32 selectedRow;
 
 	bool verifyMode;
+	int benchElements;
 	bool verified;
 };
 

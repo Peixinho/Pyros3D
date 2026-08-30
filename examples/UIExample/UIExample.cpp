@@ -126,6 +126,8 @@ UIExample::UIExample()
 	verified = false;
 	const char* v = getenv("PYROS_UI_VERIFY");
 	verifyMode = (v != NULL && v[0] == '1');
+	const char* b = getenv("PYROS_UI_BENCH");
+	benchElements = b ? atoi(b) : 0;
 }
 
 UIExample::~UIExample() {}
@@ -435,6 +437,14 @@ void UIExample::Update()
 	const int32 want = verifyMode ? 0 : ((int32)(t * 0.5f)) % 4;
 	if (want != selectedRow) SetSelectedRow(want);
 
+	if (benchElements > 0 && !verified)
+	{
+		RunBench(benchElements);
+		verified = true;
+		Close();
+		return;
+	}
+
 	if (verifyMode && !verified)
 	{
 		RunVerification();
@@ -458,6 +468,100 @@ void UIExample::Update()
 // is the half that proves quads and glyphs actually reach a target, on a
 // machine whose screen cannot be captured.
 //=============================================================================
+//=============================================================================
+// Cost of a UI frame
+//
+// One element is one material and one draw call today. This measures what
+// that costs before any batching work, offscreen and without a present so
+// nothing is capped at the display's refresh rate.
+//=============================================================================
+void UIExample::RunBench(const int elements)
+{
+	const uint32 W = 1600, H = 900;
+
+	Texture color;
+	color.CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, W, H, false);
+	color.SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+	Texture depth;
+	depth.CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, W, H, false);
+	FrameBuffer fbo;
+	fbo.Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, &depth);
+	fbo.AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, &color);
+
+	SceneGraph bench;
+	std::shared_ptr<GameObject> canvasGO = std::make_shared<GameObject>();
+	std::shared_ptr<UICanvas> canvas = std::make_shared<UICanvas>((f32)W, (f32)H);
+	canvas->SetScaleMode(UIScaleMode::ConstantPixel);
+	canvasGO->Add(std::static_pointer_cast<IComponent>(canvas));
+	bench.Add(canvasGO);
+
+	// A grid of elements over the whole canvas, cycling through three
+	// textures and a label every eighth - close enough to a busy HUD that
+	// the mix of state changes is representative.
+	const int cols = 32;
+	const f32 cw = (f32)W / (f32)cols;
+	const int rows = (elements + cols - 1) / cols;
+	const f32 ch = (f32)H / (f32)(rows > 0 ? rows : 1);
+	std::shared_ptr<Texture> tex[3] = { texPanel, texPill, UIImage::WhiteTexture() };
+	std::shared_ptr<Font> benchFont = std::make_shared<Font>(STR(EXAMPLES_PATH) "/assets/verdana.ttf", 14);
+	benchFont->CreateText("0123456789 HUD");
+
+	int images = 0, labels = 0;
+	for (int i = 0; i < elements; i++)
+	{
+		std::shared_ptr<GameObject> go = std::make_shared<GameObject>();
+		std::shared_ptr<UIRect> r = std::make_shared<UIRect>();
+		r->SetAnchors(Vec2(0.f, 0.f), Vec2(0.f, 0.f));
+		r->SetPivot(Vec2(0.f, 0.f));
+		r->SetOffsets(Vec2((i % cols) * cw, (i / cols) * ch),
+			Vec2((i % cols) * cw + cw - 2.f, (i / cols) * ch + ch - 2.f));
+		go->Add(std::static_pointer_cast<IComponent>(r));
+
+		if (i % 8 == 7)
+		{
+			std::shared_ptr<UIText> t = std::make_shared<UIText>(benchFont, "HUD 42", 14.f, Vec4(1, 1, 1, 1));
+			go->Add(std::static_pointer_cast<IComponent>(t));
+			labels++;
+		}
+		else
+		{
+			std::shared_ptr<UIImage> img = std::make_shared<UIImage>(Vec4(0.2f, 0.5f, 0.9f, 0.8f));
+			img->SetTexture(tex[i % 3]);
+			if (i % 3 == 0) img->SetBorder(Vec4(24, 24, 24, 24));
+			go->Add(std::static_pointer_cast<IComponent>(img));
+			images++;
+		}
+		canvasGO->Add(go);
+	}
+	bench.Update(0.0);
+
+	// PYROS_UI_BENCH_NOBATCH=1 measures the same frame with every element
+	// on its own, which is the number the batched one is worth comparing to.
+	canvas->SetBatching(getenv("PYROS_UI_BENCH_NOBATCH") == NULL);
+
+	UIRenderer benchRenderer(W, H);
+	benchRenderer.Resize(W, H);
+
+	const int warmup = 20, iters = 200;
+	f64 total = 0.0;
+	for (int f = 0; f < warmup + iters; f++)
+	{
+		const f64 t0 = (f64)clock() / (f64)CLOCKS_PER_SEC;
+		fbo.Bind();
+		benchRenderer.RenderUI(&bench);
+		fbo.UnBind();
+		GetActiveRenderDevice().WaitIdle();
+		const f64 dt = (f64)clock() / (f64)CLOCKS_PER_SEC - t0;
+		if (f >= warmup) total += dt;
+	}
+
+	const size_t draws = canvas->GetBatchedDrawList().size();
+	printf("      %d elements (%d images, %d labels): %d draws (%d merged), %.3f ms/frame\n",
+		elements, images, labels, (int)draws, (int)canvas->GetBatchCount(), total * 1000.0 / iters);
+
+	bench.Remove(canvasGO);
+}
+
 void UIExample::RunVerification()
 {
 	const uint32 W = 1600, H = 900;
@@ -729,6 +833,127 @@ void UIExample::RunVerification()
 
 		probeCanvasGO->Remove(probeGO);
 		probeScene.Remove(probeCanvasGO);
+	}
+
+	// ---- batching draws the same pixels ----
+	// The whole point is that this is invisible: fewer draw calls, same
+	// frame. Renders the demo's own two canvases both ways into the same
+	// target and compares. Any difference at all here is a bug in the
+	// batcher, not a tolerance to widen.
+	{
+		std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(Scene);
+		std::vector<uchar> before, after;
+		uint32 drawsUnbatched = 0, drawsBatched = 0;
+
+		for (int pass = 0; pass < 2; pass++)
+		{
+			for (size_t c = 0; c < canvases.size(); c++) canvases[c]->SetBatching(pass == 1);
+
+			fbo.Bind();
+			IRenderDevice &dev = GetActiveRenderDevice();
+			dev.SetClearColor(Vec4(0.f, 0.f, 0.f, 1.f));
+			dev.Clear(dev.TranslateBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth));
+			uiRenderer->Resize(W, H);
+			uiRenderer->RenderUI(Scene);
+			fbo.UnBind();
+			dev.WaitIdle();
+
+			uint32 draws = 0;
+			for (size_t c = 0; c < canvases.size(); c++) draws += (uint32)canvases[c]->GetBatchedDrawList().size();
+			(pass == 0 ? drawsUnbatched : drawsBatched) = draws;
+			(pass == 0 ? before : after) = color.GetTextureData();
+		}
+
+		size_t differing = 0;
+		int worst = 0;
+		if (before.size() == after.size() && !before.empty())
+			for (size_t i = 0; i < before.size(); i++)
+			{
+				const int d = abs((int)before[i] - (int)after[i]);
+				if (d > 0) { differing++; if (d > worst) worst = d; }
+			}
+		else differing = 1;
+
+		const bool identical = (differing == 0);
+		const bool fewer = drawsBatched < drawsUnbatched;
+		if (!identical && before.size() == after.size())
+		{
+			// Something to look at rather than reason about: this failing
+			// means elements moved, and where they moved to is the answer.
+			stbi_write_png("ui_batch_off.png", (int)W, (int)H, 4, before.data(), (int)W * 4);
+			stbi_write_png("ui_batch_on.png", (int)W, (int)H, 4, after.data(), (int)W * 4);
+			printf("      wrote ui_batch_off.png / ui_batch_on.png\n");
+		}
+		printf("      %u draws unbatched -> %u batched, %zu differing channels (worst %d)\n",
+			drawsUnbatched, drawsBatched, differing, worst);
+		printf("%s  batching draws the same pixels in fewer calls\n",
+			(identical && fewer) ? "PASS" : "FAIL");
+		if (!(identical && fewer)) failures++;
+	}
+
+	// ---- batching never reorders what overlaps ----
+	// Three stacked elements: red, then green, then red again, with the
+	// two reds sharing a texture. Merging them would draw the second red
+	// underneath the green - the one case where "same texture, so batch
+	// them" is wrong, and the reason an element may only move earlier past
+	// things it does not touch.
+	{
+		const uint32 W2 = 128, H2 = 128;
+		Texture c2; c2.CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, W2, H2, false);
+		c2.SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		Texture d2; d2.CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, W2, H2, false);
+		FrameBuffer fbo2;
+		fbo2.Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, &d2);
+		fbo2.AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, &c2);
+
+		SceneGraph probe;
+		std::shared_ptr<GameObject> canvasGO = std::make_shared<GameObject>();
+		std::shared_ptr<UICanvas> canvas = std::make_shared<UICanvas>((f32)W2, (f32)H2);
+		canvas->SetScaleMode(UIScaleMode::ConstantPixel);
+		canvasGO->Add(std::static_pointer_cast<IComponent>(canvas));
+		probe.Add(canvasGO);
+
+		// texPill for the two reds, texPanel for the green, so "same
+		// texture" and "same colour" cannot be confused for one another.
+		const Vec4 tints[3] = { Vec4(1,0,0,1), Vec4(0,1,0,1), Vec4(1,0,0,1) };
+		for (int i = 0; i < 3; i++)
+		{
+			std::shared_ptr<GameObject> go = std::make_shared<GameObject>();
+			std::shared_ptr<UIRect> r = std::make_shared<UIRect>();
+			r->SetAnchors(Vec2(0.f, 0.f), Vec2(0.f, 0.f));
+			r->SetPivot(Vec2(0.f, 0.f));
+			r->SetOffsets(Vec2(16.f, 16.f), Vec2(112.f, 112.f));
+			go->Add(std::static_pointer_cast<IComponent>(r));
+			std::shared_ptr<UIImage> img = std::make_shared<UIImage>(tints[i]);
+			img->SetTexture(i == 1 ? texPanel : texPill);
+			go->Add(std::static_pointer_cast<IComponent>(img));
+			canvasGO->Add(go);
+		}
+		probe.Update(0.0);
+
+		UIRenderer probeRenderer(W2, H2);
+		probeRenderer.Resize(W2, H2);
+		fbo2.Bind();
+		IRenderDevice &dev = GetActiveRenderDevice();
+		dev.SetClearColor(Vec4(0.f, 0.f, 0.f, 1.f));
+		dev.Clear(dev.TranslateBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth));
+		probeRenderer.RenderUI(&probe);
+		fbo2.UnBind();
+		dev.WaitIdle();
+
+		std::vector<uchar> px = c2.GetTextureData();
+		const size_t o = ((size_t)(H2 / 2) * W2 + W2 / 2) * 4;
+		const int red = px.size() > o + 2 ? px[o] : 0;
+		const int green = px.size() > o + 2 ? px[o + 1] : 0;
+		const bool topWins = red > 200 && green < 60;
+		const bool didNotMerge = canvas->GetBatchCount() == 0;
+		printf("      stacked red/green/red: centre (%d,%d,%d), %u batches\n",
+			red, green, px.size() > o + 2 ? px[o + 2] : 0, canvas->GetBatchCount());
+		printf("%s  an element only moves earlier past what it does not overlap\n",
+			(topWins && didNotMerge) ? "PASS" : "FAIL");
+		if (!(topWins && didNotMerge)) failures++;
+
+		probe.Remove(canvasGO);
 	}
 
 	// ---- the SDF flag survives a save/load ----

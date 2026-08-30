@@ -11,6 +11,7 @@
 
 #include <Pyros3D/Components/IComponent.h>
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
+#include <Pyros3D/Rendering/Components/UI/UIBatcher.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Other/Export.h>
 #include <vector>
@@ -84,6 +85,19 @@ namespace p3d {
 		// why the UI pass does no sorting at all.
 		const std::vector<RenderingMesh*> &GetDrawList() const { return drawList; }
 
+		// The same list with neighbours that share a texture or a font
+		// merged into single meshes - what the UI pass actually draws. Same
+		// pixels, fewer draw calls; see UIBatcher. Falls back to the raw
+		// list when batching is off, which is what makes the two directly
+		// comparable in a test.
+		const std::vector<RenderingMesh*> &GetBatchedDrawList();
+
+		// On by default. Off draws every element on its own, which is
+		// slower but is the reference the batched path has to match.
+		void SetBatching(const bool on) { batching = on; }
+		bool IsBatching() const { return batching; }
+		uint32 GetBatchCount() const { return batcher.GetBatchCount(); }
+
 		// Feeds a pointer to whatever is under it. Call once a frame, after
 		// Solve(), with the pointer in canvas units (ScreenToCanvas below)
 		// and whether its button is held. Returns the GameObject whose
@@ -135,6 +149,8 @@ namespace p3d {
 		f32 pixelsPerUnit;
 
 		std::vector<RenderingMesh*> drawList;
+		UIBatcher batcher;
+		bool batching;
 		// Parallel to draw order, for hit testing: every node that solved a
 		// rect this frame, with the rect it solved.
 		std::vector<std::pair<GameObject*, UIRectValue> > hitList;

@@ -206,6 +206,16 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
 #ifdef VERTEX
 
+    // Per-vertex tint. The UI batcher bakes each element's tint into its
+    // vertices so a run of elements sharing a texture collapses into one
+    // draw - the tint cannot stay a per-object uniform if the objects are
+    // no longer drawn one at a time. Mutually exclusive with
+    // DEBUGRENDERING, which declares the same attribute for itself.
+    #if defined(VERTEXCOLOR) && !defined(DEBUGRENDERING)
+        IO_LOCATION(LOC_aColor) attribute_in vec4 aColor;
+        IO_LOCATION(LOC_vColor) varying_out vec4 vColor;
+    #endif
+
     #ifdef DEBUGRENDERING
         IO_LOCATION(LOC_aColor) attribute_in vec4 aColor;
         // aSize / gl_PointSize omitted: DebugRenderer's point path is
@@ -399,7 +409,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             vViewMatrix = uViewMatrix;
         #endif
 
-        #ifdef DEBUGRENDERING
+        #if defined(DEBUGRENDERING) || defined(VERTEXCOLOR)
             vColor = aColor;
         #endif
 
@@ -744,6 +754,10 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     #if defined(INSTANCED_RENDERING) && defined(INSTANCED_COLOR)
         IO_LOCATION(LOC_vInstanceColor) varying_in vec4 vInstanceColor;
     #endif
+    #if defined(VERTEXCOLOR) && !defined(DEBUGRENDERING)
+        IO_LOCATION(LOC_vColor) varying_in vec4 vColor;
+    #endif
+
     #ifdef DEBUGRENDERING
         IO_LOCATION(LOC_vColor) varying_in vec4 vColor;
     #endif
@@ -1033,6 +1047,14 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 diffuse=texture_2D(uColormap,Texcoord);
                 diffuseIsSet=true;
             } else diffuse *= texture_2D(uColormap,Texcoord);
+        #endif
+
+        #if defined(VERTEXCOLOR) && !defined(DEBUGRENDERING)
+            if (!diffuseIsSet)
+            {
+                diffuse=vColor;
+                diffuseIsSet=true;
+            } else diffuse *= vColor;
         #endif
 
         #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
