@@ -17,6 +17,7 @@ namespace p3d {
 	class SceneGraph;
 	class GameObject;
 	class Physics2D;
+	class DebugRenderer;
 
 	// The Box2D world for one scene.
 	//
@@ -45,6 +46,25 @@ namespace p3d {
 		// variable step makes a 2D solver visibly jittery, and the whole point
 		// of a 2D game is that a jump arc is the same every time.
 		void Step(const f64 dt, SceneGraph* Scene);
+
+		// Draws every collider through the engine's DebugRenderer, at the z
+		// the layer sits on. Colliders are otherwise invisible, so a collider
+		// that does not match the sprite it belongs to is silent - which is
+		// the single most common way a 2D scene "does not land where it looks
+		// like it should".
+		//
+		// Takes the renderer rather than owning one: the editor viewport and
+		// the player each already have theirs, and a second would draw into
+		// the wrong target.
+		void DebugDraw(DebugRenderer* debug, const f32 z = 0.f);
+
+		// The inverse of Step()'s write-back: pushes each GameObject's authored
+		// transform onto its body. For an editor, where the scene is being
+		// laid out rather than simulated - Sync() only builds bodies for
+		// components that lack one, so without this a collider outline would
+		// stay wherever its object was when the body was first created and
+		// drift away as the object is dragged.
+		void PullTransforms();
 
 		void SetGravity(const Vec2 &g);
 		const Vec2 &GetGravity() const { return gravity; }

@@ -85,6 +85,7 @@ using json = nlohmann::json;
 
 #ifdef LUA_BINDINGS
 #include <Pyros3D/Utils/Bindings/PyrosBindings.h>
+#include <Pyros3D/Physics/Physics2D/Physics2DWorld.h>
 #endif
 
 using namespace p3d;
@@ -927,6 +928,9 @@ private:
 	};
 	bool playMode;
 	bool showPhysicsDebug;
+	// Built so 2D colliders can be *drawn*; never stepped in edit mode, the
+	// same way the Box3D world has its simulation disabled there.
+	Physics2DWorld* physics2D;
 	// Canvas edit mode. A screen-space UI has nothing to do with the 3D
 	// scene it is drawn over, so authoring it through a perspective
 	// viewport with a floor grid shows the layout at a size and a shape it

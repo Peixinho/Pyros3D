@@ -523,6 +523,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		playMode = false;
 		playModeSavedCameraId = 0;
 		showPhysicsDebug = true;
+		physics2D = new Physics2DWorld();
 		uiEditMode = false;
 		sceneIsTwoD = false;
 		canvasDragHandle = -1;
@@ -940,6 +941,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 			if (showPhysicsDebug && physics)
 				physics->RenderDebugDraw((isPerspective ? projection : projectionOrtho), viewCam);
+
+			// 2D colliders. Synced and pulled onto the authored transforms
+			// every frame but never stepped - this is a view of what the
+			// shapes are, not a simulation of them.
+			if (showPhysicsDebug && physics2D && debugRenderer)
+			{
+				physics2D->Sync(scene);
+				physics2D->PullTransforms();
+				physics2D->DebugDraw(debugRenderer);
+			}
 
 			// The grid is an editor-only helper, not scene content - it's
 			// deliberately NOT a SceneGraph object, so it never goes through
@@ -6492,6 +6503,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		icons = NULL;
 		delete scene;
 		scene = NULL;
+		delete physics2D; physics2D = NULL;
 		delete physics;
 		physics = NULL;
 		StopAssetSoundPreview();

@@ -10,6 +10,7 @@
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
+#include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
 #include <box2d/box2d.h>
 #include <cmath>
 #include <cstdlib>
@@ -67,6 +68,134 @@ namespace p3d {
 			b2DestroyWorld(MakeWorldId(worldIndex, worldGeneration));
 			live = false;
 		}
+	}
+
+	namespace {
+		// Box2D hands colours as packed 0xRRGGBB.
+		Vec4 FromHex(const unsigned int hex)
+		{
+			return Vec4(((hex >> 16) & 0xFF) / 255.f,
+				((hex >> 8) & 0xFF) / 255.f,
+				(hex & 0xFF) / 255.f, 1.f);
+		}
+
+		// Everything Box2D draws arrives through these C callbacks, which get
+		// the renderer and the z plane through `context`.
+		struct DebugCtx { DebugRenderer* debug; f32 z; };
+
+		Vec3 At(const DebugCtx* c, const float x, const float y) { return Vec3(x, y, c->z); }
+
+		// A shape's vertices are in body space; the transform puts them in the
+		// world. Applying it here rather than asking Box2D for world-space
+		// vertices keeps this the same shape as the callbacks it implements.
+		Vec3 Xf(const DebugCtx* c, const b2WorldTransform &t, const b2Vec2 &v)
+		{
+			const float x = (float)t.p.x + (t.q.c * v.x - t.q.s * v.y);
+			const float y = (float)t.p.y + (t.q.s * v.x + t.q.c * v.y);
+			return At(c, x, y);
+		}
+
+		void DrawPoly(b2WorldTransform t, const b2Vec2* verts, int count, b2HexColor color, void* ctx)
+		{
+			DebugCtx* c = (DebugCtx*)ctx;
+			const Vec4 col = FromHex((unsigned int)color);
+			for (int i = 0; i < count; i++)
+				c->debug->drawLine(Xf(c, t, verts[i]), Xf(c, t, verts[(i + 1) % count]), col);
+		}
+		void DrawSolidPoly(b2WorldTransform t, const b2Vec2* verts, int count, float, b2HexColor color, void* ctx)
+		{
+			// Outline only - a filled collider would hide the sprite it is
+			// meant to be checked against, which is the entire use for this.
+			DrawPoly(t, verts, count, color, ctx);
+		}
+		void DrawCircleAt(DebugCtx* c, const float cx, const float cy, const float r, const Vec4 &col)
+		{
+			static const int SEGMENTS = 16;
+			for (int i = 0; i < SEGMENTS; i++)
+			{
+				const float a0 = (float)i / SEGMENTS * 6.2831853f;
+				const float a1 = (float)(i + 1) / SEGMENTS * 6.2831853f;
+				c->debug->drawLine(At(c, cx + cosf(a0) * r, cy + sinf(a0) * r),
+					At(c, cx + cosf(a1) * r, cy + sinf(a1) * r), col);
+			}
+		}
+		void DrawCircle(b2Pos center, float radius, b2HexColor color, void* ctx)
+		{
+			DebugCtx* c = (DebugCtx*)ctx;
+			DrawCircleAt(c, (float)center.x, (float)center.y, radius, FromHex((unsigned int)color));
+		}
+		void DrawSolidCircle(b2WorldTransform t, b2Vec2 center, float radius, b2HexColor color, void* ctx)
+		{
+			DebugCtx* c = (DebugCtx*)ctx;
+			const Vec3 p = Xf(c, t, center);
+			DrawCircleAt(c, p.x, p.y, radius, FromHex((unsigned int)color));
+		}
+		void DrawSolidCapsule(b2Pos p1, b2Pos p2, float radius, b2HexColor color, void* ctx)
+		{
+			DebugCtx* c = (DebugCtx*)ctx;
+			const Vec4 col = FromHex((unsigned int)color);
+			DrawCircleAt(c, (float)p1.x, (float)p1.y, radius, col);
+			DrawCircleAt(c, (float)p2.x, (float)p2.y, radius, col);
+			c->debug->drawLine(At(c, (float)p1.x, (float)p1.y), At(c, (float)p2.x, (float)p2.y), col);
+		}
+		void DrawLine2D(b2Pos p1, b2Pos p2, b2HexColor color, void* ctx)
+		{
+			DebugCtx* c = (DebugCtx*)ctx;
+			c->debug->drawLine(At(c, (float)p1.x, (float)p1.y), At(c, (float)p2.x, (float)p2.y),
+				FromHex((unsigned int)color));
+		}
+		void DrawTransform2D(b2WorldTransform t, void* ctx)
+		{
+			DebugCtx* c = (DebugCtx*)ctx;
+			const float L = 0.25f;
+			const Vec3 o = Xf(c, t, b2Vec2{ 0.f, 0.f });
+			c->debug->drawLine(o, Xf(c, t, b2Vec2{ L, 0.f }), Vec4(1.f, 0.f, 0.f, 1.f));
+			c->debug->drawLine(o, Xf(c, t, b2Vec2{ 0.f, L }), Vec4(0.f, 1.f, 0.f, 1.f));
+		}
+		void DrawPoint2D(b2Pos p, float size, b2HexColor color, void* ctx)
+		{
+			DebugCtx* c = (DebugCtx*)ctx;
+			const float r = size * 0.02f;
+			DrawCircleAt(c, (float)p.x, (float)p.y, r, FromHex((unsigned int)color));
+		}
+		void DrawString2D(b2Pos, const char*, b2HexColor, void*) {}
+	}
+
+	void Physics2DWorld::PullTransforms()
+	{
+		if (!live) return;
+		for (size_t i = 0; i < tracked.size(); i++)
+		{
+			Physics2D* p = tracked[i];
+			if (!p || !p->HaveBody() || p->GetOwner() == NULL) continue;
+			const Vec3 pos = p->GetOwner()->GetWorldPosition();
+			const Vec3 rot = p->GetOwner()->GetRotation();
+			p->SetTransform(Vec2(pos.x, pos.y), rot.z);
+		}
+	}
+
+	void Physics2DWorld::DebugDraw(DebugRenderer* debug, const f32 z)
+	{
+		if (!live || debug == NULL) return;
+
+		DebugCtx ctx;
+		ctx.debug = debug;
+		ctx.z = z;
+
+		b2DebugDraw d = b2DefaultDebugDraw();
+		d.DrawPolygonFcn = &DrawPoly;
+		d.DrawSolidPolygonFcn = &DrawSolidPoly;
+		d.DrawCircleFcn = &DrawCircle;
+		d.DrawSolidCircleFcn = &DrawSolidCircle;
+		d.DrawSolidCapsuleFcn = &DrawSolidCapsule;
+		d.DrawLineFcn = &DrawLine2D;
+		d.DrawTransformFcn = &DrawTransform2D;
+		d.DrawPointFcn = &DrawPoint2D;
+		d.DrawStringFcn = &DrawString2D;
+		d.drawShapes = true;
+		d.context = &ctx;
+
+		b2World_Draw(MakeWorldId(worldIndex, worldGeneration), &d);
 	}
 
 	void Physics2DWorld::SetGravity(const Vec2 &g)
