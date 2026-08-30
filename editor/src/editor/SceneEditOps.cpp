@@ -12,6 +12,7 @@
 #include <fstream>
 #include <sstream>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
+#include <Pyros3D/Rendering/Components/UI/UIImage.h>
 
 void SceneEditor::SelectAndFocusSceneObject(SceneObject* obj)
 {
@@ -994,11 +995,16 @@ bool SceneEditor::OpAddSprite(uint32 goId, const std::string& texturePath, std::
 	// uColormap at all - SetColorMap() only registers the uniform, it does not
 	// turn the sampling on, so a material given a texture without this flag
 	// renders flat and looks like a texture that failed to load.
-	uint32 usage = ShaderUsage::Color | ShaderUsage::Diffuse;
-	if (tex) usage |= ShaderUsage::Texture;
-	std::shared_ptr<GenericShaderMaterial> mat = std::make_shared<GenericShaderMaterial>(usage);
+	//
+	// Always set, even for a sprite created without one, and backed by a 1x1
+	// white texture until a real one is assigned. The options are fixed when
+	// the material is constructed, so a sprite built without the flag could
+	// never be given a working texture afterwards - which is exactly what the
+	// Add > Sprite menu item creates.
+	std::shared_ptr<GenericShaderMaterial> mat = std::make_shared<GenericShaderMaterial>(
+		ShaderUsage::Color | ShaderUsage::Diffuse | ShaderUsage::Texture);
 	mat->SetColor(Vec4(1.f, 1.f, 1.f, 1.f));
-	if (tex) mat->SetColorMap(tex);
+	mat->SetColorMap(tex ? tex : UIImage::WhiteTexture());
 	// Cut-out sprites are the normal case and a quad has no meaningful back
 	// face - both of which are wrong defaults for a 3D mesh and right here.
 	mat->EnableBlending();
@@ -1049,11 +1055,10 @@ bool SceneEditor::OpMakeSprite2DLit(uint32 goId, std::string& errOut)
 	// shader file - see that flag's comment. This serializes completely and
 	// therefore survives a scene reload, which the custom-material version
 	// did not.
-	uint32 usage2d = ShaderUsage::Color | ShaderUsage::Diffuse | ShaderUsage::Lighting2D;
-	if (existing) usage2d |= ShaderUsage::Texture;
-	std::shared_ptr<GenericShaderMaterial> mat = std::make_shared<GenericShaderMaterial>(usage2d);
+	std::shared_ptr<GenericShaderMaterial> mat = std::make_shared<GenericShaderMaterial>(
+		ShaderUsage::Color | ShaderUsage::Diffuse | ShaderUsage::Texture | ShaderUsage::Lighting2D);
 	mat->SetColor(Vec4(1.f, 1.f, 1.f, 1.f));
-	if (existing) mat->SetColorMap(existing);
+	mat->SetColorMap(existing ? existing : UIImage::WhiteTexture());
 	mat->EnableBlending();
 	mat->BlendingEquation(BlendEq::Add);
 	mat->BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);

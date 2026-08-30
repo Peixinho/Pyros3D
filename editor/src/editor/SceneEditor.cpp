@@ -7023,6 +7023,29 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 								IMaterial* mat = matPtr.get();
 								ImGui::TextDisabled("Shared material - affects everything using it");
 
+								// 2D lighting. A button rather than a checkbox
+								// because ShaderUsage is fixed when a
+								// GenericShaderMaterial is constructed - turning
+								// this on rebuilds the material rather than
+								// flipping a bit on it (OpMakeSprite2DLit), and
+								// a checkbox would imply otherwise.
+								{
+									GenericShaderMaterial* gsm = dynamic_cast<GenericShaderMaterial*>(mat);
+									const bool is2D = gsm && (gsm->GetOptions() & ShaderUsage::Lighting2D);
+									if (is2D)
+									{
+										ImGui::TextDisabled("2D lighting: on (distance falloff, no N.L)");
+									}
+									else if (gsm && ImGui::SmallButton("Use 2D Lighting"))
+									{
+										std::string lerr;
+										if (!ownerGO || !OpMakeSprite2DLit(ownerGO->GetID(), lerr))
+											echo("WARNING: could not switch to 2D lighting: " + lerr);
+									}
+									if (!is2D && gsm && ImGui::IsItemHovered())
+										ImGui::SetTooltip("Lights this by distance alone, with no N.L term.\nWhat a flat sprite wants: a light lying in the sprite's\nown plane is at grazing incidence and leaves it unlit\notherwise. Rebuilds the material.");
+								}
+
 								#define MAT_TOGGLE(before, EnableCall, DisableCall) \
 									sceneUndo.Push(std::make_unique<ApplyClosureCommand>( \
 										[matPtr, before]() { if (before) matPtr->EnableCall; else matPtr->DisableCall; }, \
