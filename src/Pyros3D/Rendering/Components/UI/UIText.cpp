@@ -43,6 +43,7 @@ namespace p3d {
 		this->size = size;
 		this->align = UIAlign::Left;
 		this->verticalAlign = UIVerticalAlign::Top;
+		this->wordWrap = false;
 		this->solved = false;
 		this->lastPivot = Vec2(0.5f, 0.5f);
 
@@ -88,6 +89,17 @@ namespace p3d {
 		Realign();
 	}
 
+	void UIText::SetWordWrap(bool on)
+	{
+		if (wordWrap == on) return;
+		wordWrap = on;
+		// Zero turns wrapping off in Text; the rect width turns it on. The
+		// width is re-asserted on every solve below, so this only has to get
+		// the current frame right.
+		static_cast<Text*>(GetRenderable())->SetWrapWidth(on ? lastRect.width : 0.f);
+		Realign();
+	}
+
 	void UIText::SetAlignment(const uint32 horizontal, const uint32 vertical)
 	{
 		align = horizontal;
@@ -100,6 +112,11 @@ namespace p3d {
 		lastRect = rect;
 		lastPivot = pivot;
 		solved = true;
+		// Wrapping is a function of the rect, so a resized element re-wraps.
+		// SetWrapWidth early-outs when the width has not moved, so this is
+		// free on the frames where nothing changed.
+		if (wordWrap)
+			static_cast<Text*>(GetRenderable())->SetWrapWidth(rect.width);
 		Realign();
 	}
 

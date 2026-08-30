@@ -4520,7 +4520,7 @@ UI_PROPERTY_OWNER = {
     "offsetMax": "UIRect", "pivot": "UIRect",
     "tint": "UIImage", "border": "UIImage", "texture": "UIImage",
     "text": "UIText", "size": "UIText", "color": "UIText",
-    "align": "UIText", "verticalAlign": "UIText",
+    "align": "UIText", "verticalAlign": "UIText", "wrap": "UIText",
     "referenceWidth": "UICanvas", "referenceHeight": "UICanvas",
     "scaleMode": "UICanvas", "sortOrder": "UICanvas",
     "interactable": "UIButton", "transition": "UIButton", "onClick": "UIButton",
@@ -4540,7 +4540,7 @@ def set_ui(project_path: str, scene_name: str, object_name: str, properties: dic
 
     Rect: anchorMin/anchorMax/offsetMin/offsetMax/pivot ([x,y]).
     Image: tint/border ([r,g,b,a] / [left,top,right,bottom]), texture (path).
-    Text: text, size, color, align, verticalAlign.
+    Text: text, size, color, align, verticalAlign, wrap.
     Canvas: referenceWidth/referenceHeight, scaleMode, sortOrder.
     Button: interactable, transition, onClick, hoverTint/pressedTint/
     disabledTint, hoverTextColor/pressedTextColor/disabledTextColor,

@@ -116,7 +116,7 @@ static const AIToolDef kAITools[] = {
 	{ "extract_ui_style", "Write a .uistyle from an element's current look into assets/ui, and link the element to it. Colours matching a palette entry are written back as @names.",
 		{ { "object", "string", "Object name", true },
 		  { "name", "string", "Style name (defaults to the object's)", false } } },
-	{ "set_ui",         "Set properties on an object's UI components. Rect: anchorMin/anchorMax/offsetMin/offsetMax/pivot ([x,y]). Image: tint/border ([r,g,b,a] / [l,t,r,b]), texture (path). Text: text, size, color, align, verticalAlign. Canvas: referenceWidth/referenceHeight, scaleMode, sortOrder. Button: interactable, transition, onClick, hoverTint/pressedTint/disabledTint, hoverTextColor/pressedTextColor/disabledTextColor, pressedOffset.",
+	{ "set_ui",         "Set properties on an object's UI components. Rect: anchorMin/anchorMax/offsetMin/offsetMax/pivot ([x,y]). Image: tint/border ([r,g,b,a] / [l,t,r,b]), texture (path). Text: text, size, color, align, verticalAlign, wrap. Canvas: referenceWidth/referenceHeight, scaleMode, sortOrder. Button: interactable, transition, onClick, hoverTint/pressedTint/disabledTint, hoverTextColor/pressedTextColor/disabledTextColor, pressedOffset.",
 		{ { "object", "string", "Object name", true },
 		  { "properties", "object", "The properties to set; unknown keys are rejected", true } } },
 	{ "add_ui",         "Add a screen-space UI component to an object: canvas, rect, image, text or button. Image, text and button add a rect if the object has none; a button also adds an image.",

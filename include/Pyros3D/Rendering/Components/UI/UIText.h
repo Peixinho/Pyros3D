@@ -65,6 +65,12 @@ namespace p3d {
 		void SetSize(const f32 size);
 		f32 GetSize() const { return size; }
 
+		// Wraps at word boundaries to the element's own rect width. Off by
+		// default: a HUD readout that silently became two lines because a
+		// value grew is worse than one that overflows visibly.
+		void SetWordWrap(bool on);
+		bool IsWordWrap() const { return wordWrap; }
+
 		void SetAlignment(const uint32 horizontal, const uint32 vertical);
 		uint32 GetHorizontalAlignment() const { return align; }
 		uint32 GetVerticalAlignment() const { return verticalAlign; }
@@ -87,6 +93,7 @@ namespace p3d {
 		Vec4 displayColor;
 		f32 size;
 		uint32 align, verticalAlign;
+		bool wordWrap;
 
 		UIRectValue lastRect;
 		Vec2 lastPivot;

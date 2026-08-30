@@ -1390,6 +1390,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["color"] = ToJson(t->GetColor());
 			j["align"] = UIAlignName(t->GetHorizontalAlignment());
 			j["verticalAlign"] = UIVerticalAlignName(t->GetVerticalAlignment());
+			if (t->IsWordWrap()) j["wrap"] = true;
 			return j;
 		}
 #ifdef LUA_BINDINGS
@@ -2301,6 +2302,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			std::shared_ptr<UIText> t = std::make_shared<UIText>(font, text, j.value("size", 32.0f), color);
 			t->SetAlignment(UIAlignFromName(j.value("align", std::string("Left"))),
 				UIVerticalAlignFromName(j.value("verticalAlign", std::string("Top"))));
+			t->SetWordWrap(j.value("wrap", false));
 			go->Add(std::static_pointer_cast<IComponent>(t));
 		}
 		else if (type == "UIButton")

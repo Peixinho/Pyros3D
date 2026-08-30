@@ -2706,6 +2706,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				if (ImGui::ColorEdit4("Color", (float*)&color)) { t->SetColor(color); MarkSceneDirty(); }
 				BeginUIUndo(goId); EndUIUndo(goId, "Set Text Color");
 
+				bool wrap = t->IsWordWrap();
+				if (ImGui::Checkbox("Word Wrap", &wrap))
+				{
+					const json ub = CaptureUIProperties(go);
+					t->SetWordWrap(wrap);
+					MarkSceneDirty();
+					PushUIPropertyUndo(goId, ub, CaptureUIProperties(go), "Set Word Wrap");
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Breaks lines to fit the element's rect. Off by default: a\nreadout that silently became two lines because a value grew\nis worse than one that overflows visibly.");
+
 				int h = (int)t->GetHorizontalAlignment();
 				const char* hNames[] = { "Left", "Center", "Right" };
 				if (ImGui::Combo("Align", &h, hNames, 3))

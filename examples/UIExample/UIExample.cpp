@@ -631,6 +631,50 @@ void UIExample::RunVerification()
 		if (!restyled) failures++;
 	}
 
+	// ---- word wrap ----
+	// The claim is that a long string breaks at word boundaries to fit the
+	// element's rect, and that narrowing the rect re-wraps it. Both are
+	// measurable: line count from the mesh, and the widest line never wider
+	// than the rect.
+	{
+		std::shared_ptr<Font> f = fontBody;
+		std::shared_ptr<GameObject> go = std::make_shared<GameObject>();
+		go->SetName("WrapProbe");
+		std::shared_ptr<UIRect> r = std::make_shared<UIRect>();
+		r->SetAnchoredPosition(Vec2(0.f, 0.f), Vec2(0.f, 0.f), Vec2(600.f, 400.f));
+		go->Add(std::static_pointer_cast<IComponent>(r));
+		const std::string sentence = "the quick brown fox jumps over the lazy dog again and again";
+		f->CreateText(sentence);
+		std::shared_ptr<UIText> t = std::make_shared<UIText>(f, sentence, 30.f, Vec4(1, 1, 1, 1));
+		go->Add(std::static_pointer_cast<IComponent>(t));
+		menuObj->Add(go);
+
+		Text* mesh = static_cast<Text*>(t->GetRenderable());
+		t->OnRectSolved(UIRectValue(0.f, 0.f, 600.f, 400.f), Vec2(0.f, 0.f));
+		const uint32 unwrapped = mesh->GetLineCount();
+		const f32 unwrappedWidth = mesh->GetAdvanceWidth();
+
+		t->SetWordWrap(true);
+		t->OnRectSolved(UIRectValue(0.f, 0.f, 600.f, 400.f), Vec2(0.f, 0.f));
+		const uint32 wide = mesh->GetLineCount();
+		const f32 wideWidth = mesh->GetAdvanceWidth();
+
+		t->OnRectSolved(UIRectValue(0.f, 0.f, 300.f, 400.f), Vec2(0.f, 0.f));
+		const uint32 narrow = mesh->GetLineCount();
+		const f32 narrowWidth = mesh->GetAdvanceWidth();
+
+		printf("      unwrapped %u line(s) %.0f wide; wrapped to 600 -> %u line(s) %.0f; to 300 -> %u line(s) %.0f\n",
+			unwrapped, unwrappedWidth, wide, wideWidth, narrow, narrowWidth);
+
+		const bool ok = (unwrapped == 1) && (wide > 1) && (narrow > wide)
+			&& (wideWidth <= 600.f) && (narrowWidth <= 300.f)
+			&& (t->GetText() == sentence);
+		printf("%s  word wrap breaks to fit and re-wraps when the rect narrows\n", ok ? "PASS" : "FAIL");
+		if (!ok) failures++;
+
+		menuObj->Remove(go);
+	}
+
 	// ---- serialization, and therefore prefabs ----
 	// A canvas is an ordinary GameObject subtree carrying ordinary
 	// components, so it goes through the same serializer as everything

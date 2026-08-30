@@ -126,6 +126,13 @@ namespace p3d {
 		// size is a style property.
 		void SetCharSize(const f32 charWidth, const f32 charHeight);
 
+		// Break lines at word boundaries so the text fits this width, in the
+		// same units the mesh is built in (so: canvas units for a UIText).
+		// Zero, the default, means no wrapping at all - explicit newlines
+		// only, which is exactly what this did before.
+		void SetWrapWidth(const f32 width);
+		f32 GetWrapWidth() const { return wrapWidth; }
+
 		// Real getters - neither constructor nor either UpdateText()
 		// overload stored any of this before (the color arg(s) only ever
 		// fed per-vertex mesh-build math, then were discarded - same
@@ -168,6 +175,9 @@ namespace p3d {
 		// See GetAdvanceWidth()/GetLineCount().
 		f32 advanceWidth = 0.f;
 		uint32 lineCount = 1;
+
+		// See SetWrapWidth().
+		f32 wrapWidth = 0.f;
 
 		// Initialized Flag
 		bool Initialized;
