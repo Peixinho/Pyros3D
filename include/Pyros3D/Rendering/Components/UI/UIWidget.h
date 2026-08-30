@@ -92,6 +92,12 @@ namespace p3d {
 		// swallowed by a text field underneath.
 		virtual bool WantsKeysWhileUnfocused() const { return false; }
 
+		// Whether this widget is currently blocking everything outside its
+		// own subtree - a dialog that is open. The canvas dispatches only
+		// inside the topmost one of these, which is what makes a modal
+		// modal rather than merely on top.
+		virtual bool IsModalActive() const { return false; }
+
 		virtual void SetWidgetFocused(const bool on) { widgetFocused = on; }
 		bool IsWidgetFocused() const { return widgetFocused; }
 

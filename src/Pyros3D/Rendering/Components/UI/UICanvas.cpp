@@ -223,9 +223,36 @@ namespace p3d {
 			if (kids[i]) SolveNode(kids[i].get(), rect, origin, childClip);
 	}
 
+	namespace {
+		// Whether `node` is inside `root`'s subtree - a dialog blocks
+		// everything that is not part of it.
+		bool InsideSubtree(GameObject* node, GameObject* root)
+		{
+			for (GameObject* go = node; go != NULL; go = go->GetParent())
+				if (go == root) return true;
+			return false;
+		}
+	}
+
+	GameObject* UICanvas::ModalRoot() const
+	{
+		// Topmost first: a dialog opened from a dialog blocks the one that
+		// opened it, same as it blocks everything else.
+		for (size_t i = widgetList.size(); i > 0; i--)
+			if (widgetList[i - 1].widget->IsModalActive()) return widgetList[i - 1].node;
+		return NULL;
+	}
+
 	GameObject* UICanvas::UpdateInput(const Vec2 &canvasPoint, const bool pointerDown, const bool pointerInside)
 	{
 		events.clear();
+
+		// While a dialog is open, nothing outside it exists as far as the
+		// pointer is concerned. Blocked widgets are told the pointer is
+		// away and released rather than skipped, so a button left mid-hover
+		// or mid-press when the dialog opened settles back to normal
+		// instead of staying lit under it.
+		GameObject* modal = ModalRoot();
 
 		// Topmost first, so exactly one widget can be under the pointer even
 		// where several overlap - the rest are told they are not, which is
@@ -235,8 +262,11 @@ namespace p3d {
 		// than letting it fall through to whatever it is covering.
 		GameObject* over = NULL;
 		for (size_t i = widgetList.size(); i > 0 && !over && pointerInside; i--)
+		{
+			if (modal && !InsideSubtree(widgetList[i - 1].node, modal)) continue;
 			if (widgetList[i - 1].rect.Contains(canvasPoint))
 				over = widgetList[i - 1].node;
+		}
 
 		// Pressing something focuses it, which is what makes clicking a text
 		// field put the caret in it. Only on the press itself: a drag that
@@ -252,7 +282,10 @@ namespace p3d {
 		for (size_t i = 0; i < widgetList.size(); i++)
 		{
 			WidgetEntry &e = widgetList[i];
-			const uint32 flags = e.widget->OnPointer(e.node == over, pointerDown, canvasPoint, e.rect);
+			const bool blocked = modal && !InsideSubtree(e.node, modal);
+			const uint32 flags = blocked
+				? e.widget->OnPointer(false, false, canvasPoint, e.rect)
+				: e.widget->OnPointer(e.node == over, pointerDown, canvasPoint, e.rect);
 			if (flags == UIEventFlag::None) continue;
 			events.push_back(WidgetEvent(e.node, e.widget, flags));
 			if (flags & UIEventFlag::Clicked) clicked = e.node;
@@ -267,9 +300,11 @@ namespace p3d {
 
 		// Innermost first: a list inside a scrolling panel takes the wheel
 		// while the pointer is over it, and the panel takes it otherwise.
+		GameObject* modal = ModalRoot();
 		for (size_t i = widgetList.size(); i > 0; i--)
 		{
 			WidgetEntry &e = widgetList[i - 1];
+			if (modal && !InsideSubtree(e.node, modal)) continue;
 			if (!e.widget->IsInteractable() || !e.rect.Contains(canvasPoint)) continue;
 			const uint32 flags = e.widget->OnScroll(delta);
 			if (flags == UIEventFlag::None) continue;
@@ -350,9 +385,11 @@ namespace p3d {
 
 	GameObject* UICanvas::FocusFirst()
 	{
+		GameObject* modal = ModalRoot();
 		for (size_t i = 0; i < widgetList.size(); i++)
 		{
 			if (!widgetList[i].widget->IsFocusable()) continue;
+			if (modal && !InsideSubtree(widgetList[i].node, modal)) continue;
 			ClearFocus();
 			focused = widgetList[i].node;
 			widgetList[i].widget->SetWidgetFocused(true);
@@ -382,11 +419,14 @@ namespace p3d {
 		GameObject* best = NULL;
 		UIWidget* bestWidget = NULL;
 		f32 bestScore = 0.f;
+		GameObject* modalRoot = ModalRoot();
 		for (size_t i = 0; i < widgetList.size(); i++)
 		{
 			GameObject* candidate = widgetList[i].node;
 			if (candidate == focused) continue;
 			if (!widgetList[i].widget->IsFocusable()) continue;
+			// Focus cannot walk out of an open dialog.
+			if (modalRoot && !InsideSubtree(candidate, modalRoot)) continue;
 
 			const Vec2 to = widgetList[i].rect.Center();
 			const Vec2 delta(to.x - from.x, to.y - from.y);

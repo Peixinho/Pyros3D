@@ -64,7 +64,10 @@ namespace p3d {
 			// the chain that is currently open, UIMenuItem is an entry in it
 			// and may point at a submenu element of its own.
 			UIMenu,
-			UIMenuItem
+			UIMenuItem,
+			// A dialog: shown over everything and, while it is, the only
+			// thing that can be interacted with.
+			UIPopup
 		};
 	}
 

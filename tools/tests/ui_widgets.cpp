@@ -20,6 +20,7 @@
 #include <Pyros3D/Rendering/Components/UI/UIList.h>
 #include <Pyros3D/Rendering/Components/UI/UIDropdown.h>
 #include <Pyros3D/Rendering/Components/UI/UIMenu.h>
+#include <Pyros3D/Rendering/Components/UI/UIPopup.h>
 
 #include <cstdio>
 #include <cmath>
@@ -573,6 +574,90 @@ int main()
 		canvas->Solve(400.f, 300.f);
 		check(file->IsOpen() && recent->IsOpen(), "a press inside a submenu is not a press outside");
 		canvas->UpdateInput(Vec2(240.f, 75.f), false);
+	}
+
+
+	// ---- dialogs ----
+	// A full-canvas root holding a scrim and a panel. What makes it a
+	// dialog rather than a panel that happens to be visible is that
+	// nothing under it can be touched while it is up.
+	{
+		std::shared_ptr<GameObject> popupGO = Element(canvasGO, "Popup", 0.f, 0.f, 400.f, 300.f);
+		std::shared_ptr<UIPopup> popup = std::make_shared<UIPopup>();
+		popupGO->Add(std::static_pointer_cast<IComponent>(popup));
+		Element(popupGO, "Scrim", 0.f, 0.f, 400.f, 300.f);
+		std::shared_ptr<GameObject> dialogGO = Element(popupGO, "Dialog", 100.f, 90.f, 200.f, 120.f);
+		// Offsets are relative to the parent: inside the dialog, not at its
+		// canvas coordinates.
+		std::shared_ptr<GameObject> okGO = Element(dialogGO, "OK", 60.f, 70.f, 80.f, 30.f);
+		std::shared_ptr<UIButton> ok = std::make_shared<UIButton>();
+		okGO->Add(std::static_pointer_cast<IComponent>(ok));
+
+		// Something underneath, to be blocked.
+		std::shared_ptr<GameObject> behindGO = Element(canvasGO, "Behind", 300.f, 10.f, 90.f, 30.f);
+		std::shared_ptr<UIButton> behind = std::make_shared<UIButton>();
+		behindGO->Add(std::static_pointer_cast<IComponent>(behind));
+
+		canvas->Solve(400.f, 300.f);
+		scene.Update(0.0);
+		check(!RectOn(popupGO.get())->IsVisible(), "a dialog starts closed");
+
+		// Closed, what is underneath works normally.
+		Click(scene, canvas, Vec2(345.f, 25.f));
+		check(behind->ConsumeClicked(), "with it closed, what is under it can be clicked");
+
+		popup->Open();
+		scene.Update(0.0);
+		canvas->Solve(400.f, 300.f);
+		check(RectOn(popupGO.get())->IsVisible(), "opening it shows it");
+
+		// The same click now does nothing: it is behind a modal. Dismissal
+		// is off for this part, or the press being tested would close the
+		// dialog it is meant to be blocked by.
+		popup->SetCloseOnOutside(false);
+		Click(scene, canvas, Vec2(345.f, 25.f));
+		check(!behind->ConsumeClicked(), "with it open, what is under it is inert");
+		check(behind->GetCurrentState() == UIState::Normal, "and does not even light up");
+		popup->SetCloseOnOutside(true);
+
+		// What is inside it still works. The OK button sits at 60,70 inside
+		// a dialog at 100,90.
+		Click(scene, canvas, Vec2(200.f, 175.f));
+		check(ok->ConsumeClicked(), "what is inside it still works");
+		check(popup->IsOpen(), "and clicking inside does not dismiss it");
+
+		// A press on the scrim - outside the dialog, inside the popup - is
+		// the press that dismisses it.
+		canvas->UpdateInput(Vec2(20.f, 20.f), false);
+		canvas->UpdateInput(Vec2(20.f, 20.f), true);
+		scene.Update(0.0);
+		canvas->Solve(400.f, 300.f);
+		check(!popup->IsOpen(), "a press on the scrim closes it");
+		canvas->UpdateInput(Vec2(20.f, 20.f), false);
+
+		// Escape closes it too, and reaches it without focus.
+		popup->Open();
+		scene.Update(0.0);
+		canvas->Solve(400.f, 300.f);
+		check(canvas->UpdateKey(UIKey::Escape), "escape is claimed by an open dialog");
+		scene.Update(0.0);
+		check(!popup->IsOpen(), "and closes it");
+
+		// A dialog that must be answered ignores both.
+		popup->SetCloseOnOutside(false);
+		popup->SetCloseOnEscape(false);
+		popup->Open();
+		scene.Update(0.0);
+		canvas->Solve(400.f, 300.f);
+		canvas->UpdateInput(Vec2(20.f, 20.f), false);
+		canvas->UpdateInput(Vec2(20.f, 20.f), true);
+		canvas->UpdateKey(UIKey::Escape);
+		scene.Update(0.0);
+		check(popup->IsOpen(), "a dialog that must be answered stays up");
+		canvas->UpdateInput(Vec2(20.f, 20.f), false);
+		popup->Close();
+		scene.Update(0.0);
+		canvas->Solve(400.f, 300.f);
 	}
 
 	printf("\n%s (%d failure(s))\n", failures ? "FAILED" : "ALL PASSED", failures);

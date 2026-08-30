@@ -221,6 +221,9 @@ namespace p3d {
 		bool pointerWasDown;
 
 		UIWidget* WidgetOn(GameObject* go) const;
+		// The element of the topmost open modal, or NULL. Everything
+		// outside its subtree is inert while it is up.
+		GameObject* ModalRoot() const;
 
 		// Not owning, and revalidated against widgetList every solve - an
 		// element can be deleted or hidden between frames.

@@ -1026,14 +1026,14 @@ bool SceneEditor::OpAddUIComponent(uint32 goId, const std::string& kind, const s
 		go->Add(std::static_pointer_cast<IComponent>(b));
 	}
 	else if (k == "toggle" || k == "slider" || k == "input" || k == "list"
-		|| k == "dropdown" || k == "menu")
+		|| k == "dropdown" || k == "menu" || k == "popup")
 	{
 		if (!AddUIWidget(go, goId, k, fontPath, errOut)) return false;
 	}
 	else
 	{
 		errOut = "unknown UI component '" + kind +
-			"' (canvas, rect, image, text, button, toggle, slider, input, list, dropdown or menu)";
+			"' (canvas, rect, image, text, button, toggle, slider, input, list, dropdown, menu or popup)";
 		return false;
 	}
 
@@ -1096,7 +1096,15 @@ bool SceneEditor::AddUIWidget(GameObject* go, uint32 goId, const std::string& ki
 	if (!HasUIRect(go))
 	{
 		std::shared_ptr<UIRect> r = std::make_shared<UIRect>();
-		if (kind == "menu")
+		if (kind == "popup")
+		{
+			// The root covers the canvas: the scrim has to reach the edges,
+			// and "clicked outside the dialog" is measured against a child.
+			r->SetAnchors(Vec2(0.f, 0.f), Vec2(1.f, 1.f));
+			r->SetOffsets(Vec2(0.f, 0.f), Vec2(0.f, 0.f));
+			r->SetPivot(Vec2(0.5f, 0.5f));
+		}
+		else if (kind == "menu")
 		{
 			// A strip across the top, which is where a menu bar goes and
 			// what makes the titles line up without being moved first.
@@ -1114,7 +1122,7 @@ bool SceneEditor::AddUIWidget(GameObject* go, uint32 goId, const std::string& ki
 	}
 
 	// The frame every one of them sits in.
-	const bool wantsFrame = (kind != "toggle" && kind != "menu");
+	const bool wantsFrame = (kind != "toggle" && kind != "menu" && kind != "popup");
 	if (wantsFrame)
 		go->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.12f, 0.14f, 0.18f, 0.95f))));
 
@@ -1335,6 +1343,69 @@ bool SceneEditor::AddUIWidget(GameObject* go, uint32 goId, const std::string& ki
 			}
 		}
 	}
+	else if (kind == "popup")
+	{
+		// A dialog is three things: a full-canvas root that is shown and
+		// hidden as one, a scrim over everything under it, and the panel
+		// itself. Handing over only the component would leave all three to
+		// be worked out.
+		std::shared_ptr<UIPopup> popup = std::make_shared<UIPopup>();
+		go->Add(std::static_pointer_cast<IComponent>(popup));
+
+		uint32 scrimId = 0;
+		GameObject* scrim = build.MakeChild(go, goId, "Scrim", Vec2(0.f, 0.f), Vec2(1.f, 1.f),
+			Vec2(0.f, 0.f), Vec2(0.f, 0.f), scrimId);
+		scrim->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.f, 0.f, 0.f, 0.55f))));
+
+		uint32 dialogId = 0;
+		GameObject* dialog = build.MakeChild(go, goId, "Dialog", Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f),
+			Vec2(-220.f, -140.f), Vec2(220.f, 140.f), dialogId);
+		dialog->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.12f, 0.14f, 0.18f, 1.f))));
+
+		uint32 partId = 0;
+		GameObject* titleGO = build.MakeChild(dialog, dialogId, "Title", Vec2(0.f, 0.f), Vec2(1.f, 0.f),
+			Vec2(24.f, 20.f), Vec2(-24.f, 60.f), partId);
+		std::shared_ptr<UIText> title = std::make_shared<UIText>(f, "Are you sure?", 24.f, Vec4(0.95f, 0.96f, 1.f, 1.f));
+		title->SetAlignment(UIAlign::Left, UIVerticalAlign::Middle);
+		titleGO->Add(std::static_pointer_cast<IComponent>(title));
+
+		GameObject* bodyGO = build.MakeChild(dialog, dialogId, "Body", Vec2(0.f, 0.f), Vec2(1.f, 0.f),
+			Vec2(24.f, 68.f), Vec2(-24.f, 150.f), partId);
+		std::shared_ptr<UIText> body = std::make_shared<UIText>(f, "This cannot be undone.", 20.f, Vec4(0.62f, 0.66f, 0.75f, 1.f));
+		body->SetAlignment(UIAlign::Left, UIVerticalAlign::Top);
+		body->SetWordWrap(true);
+		bodyGO->Add(std::static_pointer_cast<IComponent>(body));
+
+		// Two buttons, because a dialog with one is a message and a dialog
+		// with none is a decoration.
+		const char* names[2] = { "Cancel", "Confirm" };
+		const Vec4 tints[2] = { Vec4(0.16f, 0.19f, 0.25f, 1.f), Vec4(0.22f, 0.74f, 0.98f, 1.f) };
+		for (int b = 0; b < 2; b++)
+		{
+			uint32 buttonId = 0;
+			GameObject* button = build.MakeChild(dialog, dialogId, names[b], Vec2(1.f, 1.f), Vec2(1.f, 1.f),
+				Vec2(b == 0 ? -300.f : -150.f, -70.f), Vec2(b == 0 ? -160.f : -20.f, -24.f), buttonId);
+			button->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(tints[b])));
+			std::shared_ptr<UIButton> ub = std::make_shared<UIButton>();
+			ub->State(UIState::Hover).hasTint = true;
+			ub->State(UIState::Hover).tint = Vec4(tints[b].x * 1.3f, tints[b].y * 1.3f, tints[b].z * 1.3f, 1.f);
+			ub->State(UIState::Pressed).hasTint = true;
+			ub->State(UIState::Pressed).tint = Vec4(tints[b].x * 0.8f, tints[b].y * 0.8f, tints[b].z * 0.8f, 1.f);
+			ub->State(UIState::Pressed).offset = Vec2(0.f, 2.f);
+			button->Add(std::static_pointer_cast<IComponent>(ub));
+
+			uint32 labelId = 0;
+			GameObject* label = build.MakeChild(button, buttonId, "Label", Vec2(0.f, 0.f), Vec2(1.f, 1.f),
+				Vec2(0.f, 0.f), Vec2(0.f, 0.f), labelId);
+			std::shared_ptr<UIText> lt = std::make_shared<UIText>(f, names[b], 20.f, Vec4(0.95f, 0.96f, 1.f, 1.f));
+			lt->SetAlignment(UIAlign::Center, UIVerticalAlign::Middle);
+			label->Add(std::static_pointer_cast<IComponent>(lt));
+		}
+
+		// Authored open, so it can be laid out. Closing it is one checkbox
+		// in the inspector, and a script or a menu entry opens it.
+		popup->SetOpen(true);
+	}
 	return true;
 }
 
@@ -1417,6 +1488,17 @@ json SceneEditor::CaptureUIProperties(GameObject* go)
 				if (ss.hasTextColor) out[std::string(names[k]) + "TextColor"] = json::array({ ss.textColor.x, ss.textColor.y, ss.textColor.z, ss.textColor.w });
 			}
 			out["pressedOffset"] = json::array({ b->GetState(UIState::Pressed).offset.x, b->GetState(UIState::Pressed).offset.y });
+			break;
+		}
+		case ComponentType::UIPopup:
+		{
+			UIPopup* p = static_cast<UIPopup*>(cs[i].get());
+			out["open"] = p->IsOpen();
+			out["modal"] = p->IsModalPopup();
+			out["closeOnEscape"] = p->ClosesOnEscape();
+			out["closeOnOutside"] = p->ClosesOnOutside();
+			out["dialogElement"] = p->GetDialogElement();
+			out["onClose"] = p->GetOnClose();
 			break;
 		}
 		case ComponentType::UIMenuItem:
@@ -1535,6 +1617,7 @@ bool SceneEditor::RawSetUIProperties(uint32 goId, const json& p, std::string& er
 	UICanvas* canvas = NULL; UIRect* rect = NULL; UIImage* image = NULL; UIText* text = NULL; UIButton* button = NULL;
 	UIToggle* toggle = NULL; UISlider* slider = NULL; UIInput* input = NULL;
 	UIList* list = NULL; UIDropdown* dropdown = NULL; UIMenuItem* menuItem = NULL;
+	UIPopup* popup = NULL;
 	// Whatever interactive component is on this object, for the handful of
 	// keys every widget has.
 	UIWidget* widget = NULL;
@@ -1560,6 +1643,7 @@ bool SceneEditor::RawSetUIProperties(uint32 goId, const json& p, std::string& er
 			menuItem = static_cast<UIMenuItem*>(cs[i].get());
 			button = menuItem;
 			break;
+		case ComponentType::UIPopup:  popup = static_cast<UIPopup*>(cs[i].get()); break;
 		case ComponentType::UISlider:   slider   = static_cast<UISlider*>(cs[i].get());   break;
 		case ComponentType::UIInput:    input    = static_cast<UIInput*>(cs[i].get());    break;
 		case ComponentType::UIList:     list     = static_cast<UIList*>(cs[i].get());     break;
@@ -1733,6 +1817,36 @@ bool SceneEditor::RawSetUIProperties(uint32 goId, const json& p, std::string& er
 		{
 			if (!v.is_boolean()) { errOut = "value must be true or false"; return false; }
 			toggle->SetValue(v.get<bool>()); touched = true;
+		}
+		else if (popup && k == "open")
+		{
+			if (!v.is_boolean()) { errOut = "open must be true or false"; return false; }
+			popup->SetOpen(v.get<bool>()); touched = true;
+		}
+		else if (popup && k == "modal")
+		{
+			if (!v.is_boolean()) { errOut = "modal must be true or false"; return false; }
+			popup->SetModal(v.get<bool>()); touched = true;
+		}
+		else if (popup && k == "closeOnEscape")
+		{
+			if (!v.is_boolean()) { errOut = "closeOnEscape must be true or false"; return false; }
+			popup->SetCloseOnEscape(v.get<bool>()); touched = true;
+		}
+		else if (popup && k == "closeOnOutside")
+		{
+			if (!v.is_boolean()) { errOut = "closeOnOutside must be true or false"; return false; }
+			popup->SetCloseOnOutside(v.get<bool>()); touched = true;
+		}
+		else if (popup && k == "dialogElement")
+		{
+			if (!v.is_string()) { errOut = "dialogElement must be an element name"; return false; }
+			popup->SetDialogElement(v.get<std::string>()); touched = true;
+		}
+		else if (popup && k == "onClose")
+		{
+			if (!v.is_string()) { errOut = "onClose must be a handler name"; return false; }
+			popup->SetOnClose(v.get<std::string>()); touched = true;
 		}
 		else if (menuItem && k == "submenu")
 		{

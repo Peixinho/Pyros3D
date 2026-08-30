@@ -34,6 +34,7 @@ using json = nlohmann::json;
 #include <Pyros3D/Rendering/Components/UI/UIList.h>
 #include <Pyros3D/Rendering/Components/UI/UIDropdown.h>
 #include <Pyros3D/Rendering/Components/UI/UIMenu.h>
+#include <Pyros3D/Rendering/Components/UI/UIPopup.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>

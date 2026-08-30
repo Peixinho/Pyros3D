@@ -4456,7 +4456,7 @@ def add_ui(project_path: str, scene_name: str, object_name: str, kind: str,
     """Add a screen-space UI component to an object.
 
     kind: canvas | rect | image | text | button | toggle | slider | input |
-    list | dropdown | menu. Image, text and button add a rect if the object has none;
+    list | dropdown | menu | popup. Image, text and button add a rect if the object has none;
     button also adds an image. A canvas is the root of a UI tree - put
     elements under it as children.
 
@@ -4474,10 +4474,10 @@ def add_ui(project_path: str, scene_name: str, object_name: str, kind: str,
         return _fail(s_err)
 
     k = (kind or "").strip().lower()
-    widget_kinds = ("toggle", "slider", "input", "list", "dropdown", "menu")
+    widget_kinds = ("toggle", "slider", "input", "list", "dropdown", "menu", "popup")
     if k not in ("canvas", "rect", "image", "text", "button") + widget_kinds:
         return _fail(f"Invalid kind '{kind}'. Use canvas, rect, image, text, button, "
-                     "toggle, slider, input, list, dropdown or menu.")
+                     "toggle, slider, input, list, dropdown, menu or popup.")
 
     live = _live_or_none("add_ui", {"object": object_name, "kind": k, "font": font or ""}, scene_file)
     if live is not None:
@@ -4549,6 +4549,8 @@ UI_PROPERTY_OWNER = {
     "items": "UIList", "itemHeight": "UIList", "selected": "UIList/UIDropdown",
     "options": "UIDropdown", "onChange": "any widget",
     "submenu": "UIMenuItem",
+    "open": "UIPopup", "modal": "UIPopup", "closeOnEscape": "UIPopup",
+    "closeOnOutside": "UIPopup", "dialogElement": "UIPopup", "onClose": "UIPopup",
 }
 UI_BUTTON_STATE_PROPERTIES = {
     "hoverTint": ("Hover", "tint"), "pressedTint": ("Pressed", "tint"),
@@ -4577,6 +4579,8 @@ def set_ui(project_path: str, scene_name: str, object_name: str, properties: dic
     List: items, selected, itemHeight, onSubmit.
     Dropdown: options, selected, placeholder.
     Menu item: submenu, plus every button property.
+    Popup: open, modal, closeOnEscape, closeOnOutside, dialogElement,
+    onClose.
     Any widget: interactable, onChange.
     """
     proj, err = _resolve_project(project_path)

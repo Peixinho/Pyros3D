@@ -76,6 +76,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UIList.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UIDropdown.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UIMenu.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UIPopup.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.cpp

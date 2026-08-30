@@ -32,6 +32,7 @@
 #include <Pyros3D/Rendering/Components/UI/UIList.h>
 #include <Pyros3D/Rendering/Components/UI/UIDropdown.h>
 #include <Pyros3D/Rendering/Components/UI/UIMenu.h>
+#include <Pyros3D/Rendering/Components/UI/UIPopup.h>
 
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
@@ -1564,6 +1565,20 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (!st.empty()) j["states"] = st;
 			return j;
 		}
+		case ComponentType::UIPopup:
+		{
+			UIPopup* p = dynamic_cast<UIPopup*>(c);
+			j["type"] = "UIPopup";
+			// Open is saved: a dialog that is part of the scene as authored
+			// (a title screen's menu) is a legitimate thing to ship open.
+			j["open"] = p->IsOpen();
+			j["modal"] = p->IsModalPopup();
+			j["closeOnEscape"] = p->ClosesOnEscape();
+			j["closeOnOutside"] = p->ClosesOnOutside();
+			if (p->GetDialogElement() != "Dialog") j["dialogElement"] = p->GetDialogElement();
+			if (!p->GetOnClose().empty()) j["onClose"] = p->GetOnClose();
+			return j;
+		}
 		case ComponentType::LuaComponent:
 		{
 			LuaComponent* lc = dynamic_cast<LuaComponent*>(c);
@@ -2571,6 +2586,17 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			m->SetSubmenu(j.value("submenu", std::string()));
 			UIStatesFromJson(m.get(), j);
 			go->Add(std::static_pointer_cast<IComponent>(m));
+		}
+		else if (type == "UIPopup")
+		{
+			std::shared_ptr<UIPopup> p = std::make_shared<UIPopup>();
+			p->SetModal(j.value("modal", true));
+			p->SetCloseOnEscape(j.value("closeOnEscape", true));
+			p->SetCloseOnOutside(j.value("closeOnOutside", true));
+			p->SetDialogElement(j.value("dialogElement", std::string("Dialog")));
+			p->SetOnClose(j.value("onClose", std::string()));
+			p->SetOpen(j.value("open", false));
+			go->Add(std::static_pointer_cast<IComponent>(p));
 		}
 		else if (type == "LuaComponent")
 		{

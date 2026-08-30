@@ -2758,6 +2758,62 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				}
 				ImGui::TextDisabled("Current state: %s", cur);
 			}
+			else if (type == ComponentType::UIPopup)
+			{
+				UIPopup* pp = static_cast<UIPopup*>(comps[i].get());
+				ImGui::Text("UI Popup");
+
+				bool isOpen = pp->IsOpen();
+				if (ImGui::Checkbox("Open", &isOpen))
+				{
+					const json ub = CaptureUIProperties(go);
+					pp->SetOpen(isOpen);
+					MarkSceneDirty();
+					PushUIPropertyUndo(goId, ub, CaptureUIProperties(go), "Set Popup Open");
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Authored open so it can be laid out. Uncheck it before\nshipping, and let a script or a menu entry open it.");
+
+				bool isModal = pp->IsModalPopup();
+				if (ImGui::Checkbox("Modal", &isModal))
+				{
+					const json ub = CaptureUIProperties(go);
+					pp->SetModal(isModal);
+					MarkSceneDirty();
+					PushUIPropertyUndo(goId, ub, CaptureUIProperties(go), "Set Popup Modal");
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("While open, nothing outside this element can be clicked,\nhovered or focused. Off makes it a floating panel.");
+
+				bool esc = pp->ClosesOnEscape();
+				if (ImGui::Checkbox("Close on Escape", &esc))
+				{
+					const json ub = CaptureUIProperties(go);
+					pp->SetCloseOnEscape(esc);
+					MarkSceneDirty();
+					PushUIPropertyUndo(goId, ub, CaptureUIProperties(go), "Set Popup Escape");
+				}
+				bool outside = pp->ClosesOnOutside();
+				if (ImGui::Checkbox("Close on Click Outside", &outside))
+				{
+					const json ub = CaptureUIProperties(go);
+					pp->SetCloseOnOutside(outside);
+					MarkSceneDirty();
+					PushUIPropertyUndo(goId, ub, CaptureUIProperties(go), "Set Popup Outside");
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Both off for something the user has to answer rather than\ndismiss.");
+
+				std::string dlg = pp->GetDialogElement();
+				if (ImGui::InputText("Dialog Element", &dlg)) { pp->SetDialogElement(dlg); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Popup Dialog");
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("The child that counts as the dialog for \"clicked outside\" -\nthis element covers the whole canvas, so it cannot be the\nthing being clicked outside of.");
+
+				std::string onClose = pp->GetOnClose();
+				if (ImGui::InputText("On Close", &onClose)) { pp->SetOnClose(onClose); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Popup Handler");
+			}
 			else if (type == ComponentType::UISlider)
 			{
 				UISlider* sl = static_cast<UISlider*>(comps[i].get());
@@ -3376,7 +3432,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (ImGui::BeginMenu("UI"))
 			{
 				const char* kinds[] = { "Canvas", "Rect", "Image", "Text", "Button",
-					"Toggle", "Slider", "Input", "List", "Dropdown", "Menu" };
+					"Toggle", "Slider", "Input", "List", "Dropdown", "Menu", "Popup" };
 				const char* tips[] = {
 					"Root of a screen-space UI tree. Add elements as children.",
 					"Anchored rectangle - the layout half of an element.",
@@ -3388,9 +3444,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					"A single-line text field, with its label, placeholder and\ncaret elements.",
 					"A scrolling list. Comes with four rows, which are recycled\nas it scrolls - enough to cover the viewport is enough for\na list of any length.",
 					"A closed list that opens to be picked from. Comes with its\nlabel and a popup containing a list.",
-					"A menu bar with two menus and a submenu inside one of them.\nOnce open it follows the pointer: hovering the next title\nopens it without a second click."
+					"A menu bar with two menus and a submenu inside one of them.\nOnce open it follows the pointer: hovering the next title\nopens it without a second click.",
+					"A dialog: a scrim, a panel and two buttons. While it is open\nnothing underneath it can be clicked, hovered or focused."
 				};
-				for (int i = 0; i < 11; i++)
+				for (int i = 0; i < 12; i++)
 				{
 					if (ImGui::MenuItem(kinds[i]))
 					{
@@ -8953,6 +9010,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					j["submenu"] = m->GetSubmenu();
 					j["open"] = m->IsOpen();
 				}
+				return j;
+			}
+			case ComponentType::UIPopup:
+			{
+				UIPopup* p = static_cast<UIPopup*>(c);
+				j["type"] = "UIPopup";
+				j["open"] = p->IsOpen();
+				j["modal"] = p->IsModalPopup();
+				j["closeOnEscape"] = p->ClosesOnEscape();
+				j["closeOnOutside"] = p->ClosesOnOutside();
+				j["dialogElement"] = p->GetDialogElement();
 				return j;
 			}
 			case ComponentType::UIMenu:
