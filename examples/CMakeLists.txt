@@ -34,6 +34,9 @@ function(pyros_add_example target_name)
 	)
 	target_include_directories(${target_name} PRIVATE
 		${CMAKE_SOURCE_DIR}/include
+		# shared/ holds the file formats that live outside the engine - the
+		# prefab and .uistyle resolvers the editor and the player also use.
+		${CMAKE_SOURCE_DIR}/shared
 		${CMAKE_CURRENT_SOURCE_DIR}
 		${SDL2_INCLUDE_DIRS}
 		${IMGUI_INCLUDE_DIRS}
@@ -83,6 +86,15 @@ pyros_add_example(UIExample
 	DEMO_DEFINE _UIExample
 	SOURCES
 		${CMAKE_CURRENT_SOURCE_DIR}/UIExample/UIExample.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
+)
+
+# Every widget the UI has, under three interchangeable skins loaded from
+# files - see WidgetGallery.h. Doubles as the acceptance test for styles.
+pyros_add_example(WidgetGallery
+	DEMO_DEFINE _WidgetGallery
+	SOURCES
+		${CMAKE_CURRENT_SOURCE_DIR}/WidgetGallery/WidgetGallery.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
 )
 

@@ -1,0 +1,4 @@
+{
+  "version": 1,
+  "image": { "tint": "@accent", "texture": "ui/pill.png", "border": [23, 23, 23, 23] }
+}

@@ -53,6 +53,23 @@ namespace p3d {
 		this->Camera = uiCamera.get();
 		Timer = Scene->GetTime();
 
+		// A UI-only application has no 3D pass to open the frame for it, and
+		// on Vulkan no frame means no swapchain acquire and - the part that
+		// bites - no reset of the per-frame dynamic uniform ring, which runs
+		// out after a few seconds of drawing and starts handing every draw
+		// another draw's uniforms. So open one, but only when nobody else
+		// has and only for the swapchain: an offscreen target (the editor's
+		// viewport, a test's FBO) is somebody else's frame already.
+		IRenderDevice &dev = GetActiveRenderDevice();
+		const bool ownFrame = (dev.GetCurrentRenderTarget() == 0) && !dev.IsFrameInProgress();
+		if (ownFrame)
+		{
+			// Before BeginFrame(), which bakes the clear into the render
+			// pass on Vulkan - the same ordering ForwardRenderer uses.
+			DrawBackground();
+			dev.BeginFrame();
+		}
+
 		InitRender();
 
 		if (viewPortEndX == 0 || viewPortEndY == 0)
@@ -145,9 +162,11 @@ namespace p3d {
 
 		// Never leave the scissor narrowed: the next pass through this
 		// device knows nothing about this canvas's clipping.
-		GetActiveRenderDevice().SetScissorTestEnabled(false);
+		dev.SetScissorTestEnabled(false);
 
 		EndRender();
+
+		if (ownFrame) dev.EndFrame();
 	}
 
 };

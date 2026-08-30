@@ -169,6 +169,12 @@ namespace p3d {
 		// shadows).
 		virtual void BeginFrame() = 0;
 		virtual void EndFrame() = 0;
+		// Whether BeginFrame() has run and EndFrame() has not. Lets a pass
+		// that may or may not be the only one in an app open its own frame
+		// without opening a second one over somebody else's - see
+		// UIRenderer::RenderUI(). Always false on GL, where both are
+		// genuine no-ops and a second call would cost nothing anyway.
+		virtual bool IsFrameInProgress() const { return false; }
 
 		// Blocks until all previously-submitted GPU work has completed.
 		// Vulkan-real (wraps vkDeviceWaitIdle - was already implemented,

@@ -33,6 +33,7 @@
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 #include <Pyros3D/Rendering/Components/UI/UIText.h>
 #include <Pyros3D/Rendering/Components/UI/UIButton.h>
+#include <Pyros3D/Rendering/Components/UI/UIToggle.h>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -209,6 +210,11 @@ namespace uistyle {
 			case ComponentType::UIImage:  image  = static_cast<UIImage*>(cs[i].get());  break;
 			case ComponentType::UIText:   text   = static_cast<UIText*>(cs[i].get());   break;
 			case ComponentType::UIButton: button = static_cast<UIButton*>(cs[i].get()); break;
+			// A checkbox is a button (see UIToggle) and carries the same
+			// state styling, so a style that skins buttons skins these too -
+			// which is what stops a themed screen having one control that
+			// stayed the old colour.
+			case ComponentType::UIToggle: button = static_cast<UIToggle*>(cs[i].get()); break;
 			default: break;
 			}
 		}

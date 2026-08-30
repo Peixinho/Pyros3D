@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "image": { "tint": "@raised", "texture": "ui/panel.png", "border": [14, 14, 14, 14] },
+  "button": {
+    "transition": 0.08,
+    "hover":    { "tint": "@raisedHot" },
+    "pressed":  { "tint": "@accentDim" },
+    "disabled": { "tint": "@line" }
+  }
+}

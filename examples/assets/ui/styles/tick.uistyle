@@ -1,0 +1,4 @@
+{
+  "version": 1,
+  "image": { "tint": "@accent", "texture": "ui/check.png" }
+}

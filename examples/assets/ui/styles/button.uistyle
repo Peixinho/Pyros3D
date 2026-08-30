@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "image": { "tint": "@raised", "texture": "ui/pill.png", "border": [23, 23, 23, 23] },
+  "button": {
+    "transition": 0.10,
+    "hover":    { "tint": "@raisedHot" },
+    "pressed":  { "tint": "@accent", "offset": [0, 2] },
+    "disabled": { "tint": "@line" }
+  }
+}

@@ -126,6 +126,7 @@ namespace p3d {
 		virtual CommandBufferHandle BeginCommandBuffer();
 		virtual void EndCommandBuffer(const CommandBufferHandle cmd);
 		virtual void BeginFrame();
+		virtual bool IsFrameInProgress() const { return frameInProgress; }
 		virtual void EndFrame();
 
 		virtual uint32 TranslateBufferBit(const uint32 bufferBits);

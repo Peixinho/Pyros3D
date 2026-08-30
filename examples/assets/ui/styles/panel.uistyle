@@ -1,0 +1,4 @@
+{
+  "version": 1,
+  "image": { "tint": "@panel", "texture": "ui/panel.png", "border": [14, 14, 14, 14] }
+}

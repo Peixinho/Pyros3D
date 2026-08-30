@@ -1,0 +1,4 @@
+{
+  "version": 1,
+  "text": { "color": "@textDim", "size": 19, "align": "Left", "verticalAlign": "Middle" }
+}
