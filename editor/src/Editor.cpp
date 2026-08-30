@@ -1974,6 +1974,20 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	if (name == "list_ui_styles")
+	{
+		nlohmann::json r;
+		r["styles"] = sceneView->ListUIStyles();
+		return r;
+	}
+	if (name == "clear_ui_style")
+	{
+		if (!sceneView->AgentClearUIStyle(A("object"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "extract_ui_style")
 	{
 		std::string outPath;

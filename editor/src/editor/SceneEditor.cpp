@@ -2519,6 +2519,62 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					: "Stretched: offsets read as insets from the anchor edges.");
 				const UIRectValue& solved = r->GetRect();
 				ImGui::TextDisabled("Solved: %.0f, %.0f  %.0f x %.0f", solved.x, solved.y, solved.width, solved.height);
+
+				// ---- style ----
+				// On the rect because that is where the reference lives, and
+				// because every element has one - an image and a text on the
+				// same object share a style rather than arguing over two.
+				ImGui::Spacing();
+				const std::string currentRef = r->GetStyleRef();
+				std::string currentLabel = currentRef.empty() ? std::string("(none)")
+					: std::filesystem::path(currentRef).stem().string();
+				if (ImGui::BeginCombo("Style", currentLabel.c_str()))
+				{
+					const std::vector<std::string> styles = ListUIStyles();
+					if (styles.empty())
+						ImGui::TextDisabled("No .uistyle in assets/ui yet");
+					for (size_t sIdx = 0; sIdx < styles.size(); sIdx++)
+					{
+						const std::string stem = std::filesystem::path(styles[sIdx]).stem().string();
+						if (ImGui::Selectable(stem.c_str(), styles[sIdx] == currentRef))
+						{
+							std::string err;
+							if (!OpApplyUIStyle(goId, styles[sIdx], err))
+								echo("ERROR: " + err);
+						}
+					}
+					ImGui::EndCombo();
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Applies the style's look and remembers the link, so later\nedits to the file - or a palette swap - reach this element.\nStyles never carry text or layout.");
+
+				if (!currentRef.empty())
+				{
+					ImGui::SameLine();
+					if (ImGui::SmallButton("Unlink"))
+					{
+						std::string err;
+						if (!OpClearUIStyle(goId, err)) echo("ERROR: " + err);
+					}
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("Keeps the look, stops following the file.");
+				}
+
+				ImGui::SetNextItemWidth(140.f);
+				ImGui::InputTextWithHint("##stylename", "new style name", &uiStyleNameBuf);
+				ImGui::SameLine();
+				if (ImGui::Button("Extract"))
+				{
+					std::string outPath, err;
+					if (OpExtractUIStyle(goId, uiStyleNameBuf, outPath, err))
+					{
+						echo("Wrote " + outPath + " and linked '" + go->GetName() + "' to it");
+						uiStyleNameBuf.clear();
+					}
+					else echo("ERROR: " + err);
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Promotes this element's current look into assets/ui and links\nit. Colours matching a palette entry are written back as @names.");
 			}
 			else if (type == ComponentType::UIImage)
 			{
@@ -9016,6 +9072,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
 		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
 		return OpExtractUIStyle(obj->GetID(), name, outPath, errOut);
+	}
+
+	bool SceneEditor::AgentClearUIStyle(const std::string& objectName, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
+		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
+		return OpClearUIStyle(obj->GetID(), errOut);
 	}
 
 	bool SceneEditor::AgentSetUI(const std::string& objectName, const json& p, std::string& errOut)

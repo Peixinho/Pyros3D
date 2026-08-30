@@ -4652,6 +4652,35 @@ def apply_ui_style(object_name: str, style: str) -> str:
 
 
 @mcp.tool()
+def list_ui_styles() -> str:
+    """List the .uistyle assets in the open project (live editor only).
+
+    Worth calling before apply_ui_style: the names are whatever the project
+    happens to use, not a convention to guess at.
+    """
+    ok, res = _editor_call("list_ui_styles", {})
+    if not ok:
+        return _fail(f"Could not list styles: {res}")
+    styles = res.get("styles", [])
+    if not styles:
+        return "No .uistyle assets yet - extract_ui_style makes the first one."
+    return "\n".join(styles)
+
+
+@mcp.tool()
+def clear_ui_style(object_name: str) -> str:
+    """Unlink a UI element from its style (live editor only).
+
+    The element keeps the look it has and simply stops following the file,
+    so this is 'stop tracking', not 'revert'.
+    """
+    ok, res = _editor_call("clear_ui_style", {"object": object_name})
+    if not ok:
+        return _fail(f"Could not unlink: {res}")
+    return f"'{object_name}' no longer follows a style"
+
+
+@mcp.tool()
 def extract_ui_style(object_name: str, name: str | None = None) -> str:
     """Write a .uistyle from an element's current look (live editor only).
 

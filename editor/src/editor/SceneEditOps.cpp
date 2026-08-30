@@ -1522,3 +1522,52 @@ int SceneEditor::ReapplyUIStyles()
 	}
 	return n;
 }
+
+// Every .uistyle in the project, as project-relative paths. Scanned on
+// demand rather than cached: there are a handful of them, the Properties
+// panel only asks while its combo is open, and a cache would need
+// invalidating on every file the user creates outside the editor.
+std::vector<std::string> SceneEditor::ListUIStyles() const
+{
+	std::vector<std::string> out;
+	if (!project || !project->IsOpen()) return out;
+	namespace fs = std::filesystem;
+	std::error_code ec;
+	const std::string dir = project->AbsolutePath("assets/ui");
+	if (!fs::exists(dir, ec)) return out;
+	for (fs::directory_iterator it(dir, ec), end; it != end && !ec; it.increment(ec))
+	{
+		if (!it->is_regular_file(ec)) continue;
+		if (it->path().extension().string() != ".uistyle") continue;
+		out.push_back(project->RelativePath(it->path().string()));
+	}
+	std::sort(out.begin(), out.end());
+	return out;
+}
+
+bool SceneEditor::OpClearUIStyle(uint32 goId, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "object not found"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+
+	UIRect* rect = NULL;
+	const std::vector<std::shared_ptr<IComponent> >& cs = go->GetComponents();
+	for (size_t i = 0; i < cs.size(); i++)
+		if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect)
+		{ rect = static_cast<UIRect*>(cs[i].get()); break; }
+	if (!rect) { errOut = "'" + obj->GetName() + "' is not a UI element"; return false; }
+	if (rect->GetStyleRef().empty()) { errOut = "'" + obj->GetName() + "' has no style"; return false; }
+
+	// Only the link goes. The values the style put there stay, which is what
+	// "unlink" should mean - the element keeps the look it has and simply
+	// stops following the file.
+	const std::string before = rect->GetStyleRef();
+	rect->SetStyleRef(std::string());
+	sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+		[this, goId, before]() { RawSetUIStyleRef(goId, before); },
+		[this, goId]() { RawSetUIStyleRef(goId, std::string()); },
+		"Clear UI Style"));
+	MarkSceneDirty();
+	return true;
+}
