@@ -67,6 +67,33 @@ set(BOX3D_LIBRARIES box3d)
 message(STATUS "Box3D: submodule ${BOX3D_DIR}")
 
 # ---------------------------------------------------------------------------
+# Box2D (submodule: src/Pyros3D/Ext/box2d @ v3.1.1)
+#
+# Alongside Box3D, not instead of it: a 2D scene wants a solver that works in
+# the plane, and projecting a 3D solver onto one gives neither the behaviour
+# nor the performance of a real 2D one. Same wiring as Box3D above so a build
+# that has one has the other on the same terms.
+# ---------------------------------------------------------------------------
+set(BOX2D_DIR ${CMAKE_SOURCE_DIR}/src/Pyros3D/Ext/box2d)
+if (NOT EXISTS "${BOX2D_DIR}/CMakeLists.txt")
+	message(FATAL_ERROR
+		"Box2D submodule missing at ${BOX2D_DIR}. "
+		"Run: git submodule update --init --recursive")
+endif()
+set(BOX2D_SAMPLES OFF CACHE BOOL "" FORCE)
+set(BOX2D_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+set(BOX2D_BENCHMARKS OFF CACHE BOOL "" FORCE)
+set(BOX2D_DOCS OFF CACHE BOOL "" FORCE)
+set(BOX2D_VALIDATE OFF CACHE BOOL "" FORCE)
+if (EMSCRIPTEN)
+	set(BOX2D_DISABLE_SIMD ON CACHE BOOL "" FORCE)
+endif()
+add_subdirectory(${BOX2D_DIR} ${CMAKE_BINARY_DIR}/_deps/box2d)
+set(BOX2D_INCLUDE_DIRS ${BOX2D_DIR}/include)
+set(BOX2D_LIBRARIES box2d)
+message(STATUS "Box2D: submodule ${BOX2D_DIR}")
+
+# ---------------------------------------------------------------------------
 # Lua (optional)
 # ---------------------------------------------------------------------------
 if (HAVE_LUA_BINDINGS)

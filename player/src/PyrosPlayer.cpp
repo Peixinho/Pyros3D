@@ -132,6 +132,7 @@ PyrosPlayer::PyrosPlayer()
 {
 	scene = NULL;
 	overlayScene = NULL;
+	physics2D = new Physics2DWorld();
 	pendingOverlayHide = false;
 	sceneIs2D = false;
 	physics = NULL;
@@ -775,6 +776,14 @@ void PyrosPlayer::Update()
 	const f64 dt = GetTimeInterval();
 
 	physics->Update(dt, 10);
+	// 2D bodies, after the 3D world and before the scene solves its
+	// transforms - Step() writes positions onto GameObjects and they have to
+	// be in place before anything reads them this frame.
+	if (physics2D)
+	{
+		physics2D->Sync(scene);
+		physics2D->Step(dt, scene);
+	}
 	// Parallax, before the scene solves its transforms: every Layer2D root is
 	// repositioned for where the camera is now. Driven by the camera rather
 	// than a separate scroll value so there is only one thing that says where
@@ -1140,6 +1149,7 @@ void PyrosPlayer::Shutdown()
 	delete renderer; renderer = NULL;
 	DestroyGBuffer();
 	delete physics; physics = NULL;
+	delete physics2D; physics2D = NULL;
 	delete overlayScene; overlayScene = NULL;
 	delete scene; scene = NULL;
 	delete audio; audio = NULL;

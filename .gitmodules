@@ -5,3 +5,6 @@
 [submodule "src/Pyros3D/Ext/box3d"]
 	path = src/Pyros3D/Ext/box3d
 	url = https://github.com/erincatto/box3d.git
+[submodule "src/Pyros3D/Ext/box2d"]
+	path = src/Pyros3D/Ext/box2d
+	url = https://github.com/erincatto/box2d.git

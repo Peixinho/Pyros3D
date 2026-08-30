@@ -23,6 +23,7 @@
 #include <Pyros3D/Rendering/Components/Lights/SpotLight/SpotLight.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
+#include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 #include <Pyros3D/Rendering/Components/UI/UIText.h>
@@ -1385,6 +1386,19 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["sortOrder"] = c2->GetSortOrder();
 			return j;
 		}
+		case ComponentType::Physics2D:
+		{
+			Physics2D* ph = dynamic_cast<Physics2D*>(c);
+			j["type"] = "Physics2D";
+			j["bodyType"] = (int)ph->GetBodyType();
+			j["shape"] = (int)ph->GetShapeType();
+			j["size"] = ToJson(ph->GetSize());
+			j["density"] = ph->GetDensity();
+			j["friction"] = ph->GetFriction();
+			j["restitution"] = ph->GetRestitution();
+			j["fixedRotation"] = ph->IsFixedRotation();
+			return j;
+		}
 		case ComponentType::Layer2D:
 		{
 			Layer2D* l = dynamic_cast<Layer2D*>(c);
@@ -2417,7 +2431,20 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			go->AddComponent(vc);
 		}
 #ifdef LUA_BINDINGS
-		else if (type == "Layer2D")
+		else if (type == "Physics2D")
+		{
+			std::shared_ptr<Physics2D> ph = std::make_shared<Physics2D>(
+				(uint32)j.value("bodyType", (int)Body2DType::Dynamic),
+				(uint32)j.value("shape", (int)Shape2DType::Box),
+				j.contains("size") ? Vec2FromJson(j["size"]) : Vec2(0.5f, 0.5f));
+			ph->SetDensity(j.value("density", 1.f));
+			ph->SetFriction(j.value("friction", 0.3f));
+			ph->SetRestitution(j.value("restitution", 0.f));
+			ph->SetFixedRotation(j.value("fixedRotation", false));
+			go->Add(ph);
+			return;
+		}
+				else if (type == "Layer2D")
 		{
 			std::shared_ptr<Layer2D> l = std::make_shared<Layer2D>(
 				j.contains("parallax") ? Vec2FromJson(j["parallax"]) : Vec2(1.f, 1.f));

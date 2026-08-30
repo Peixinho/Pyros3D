@@ -50,6 +50,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <Pyros3D/Physics/Physics2D/Physics2DWorld.h>
 
 using namespace p3d;
 
@@ -126,6 +127,9 @@ private:
 	void ApplyLayerParallax();
 	static void SetSubtreeRenderingEnabled(GameObject* go, const bool on);
 
+	// Box2D, beside the Box3D world rather than instead of it. Created lazily
+	// by its own Sync(), so a scene with no Physics2D never makes one.
+	Physics2DWorld* physics2D;
 	SceneGraph* overlayScene;
 	std::string overlaySceneRel;
 	// Deferred to a frame boundary, exactly like pendingLoadSceneName: the

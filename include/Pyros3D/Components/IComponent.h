@@ -73,7 +73,12 @@ namespace p3d {
 			// fast it scrolls relative to the camera. See Layer2D.h for why
 			// it carries so little - membership, filtering and ordering all
 			// already existed.
-			Layer2D
+			Layer2D,
+			// A Box2D rigid body. Not a Physics (Box3D) component behind
+			// IPhysics: that interface is 3D throughout, and driving a 2D
+			// solver through it would project every call in and back out
+			// again. See Physics2D.h.
+			Physics2D
 		};
 	}
 
