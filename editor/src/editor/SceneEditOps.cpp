@@ -13,6 +13,7 @@
 #include <sstream>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
+#include <Pyros3D/Physics/Physics2D/Physics2D.h>
 
 void SceneEditor::SelectAndFocusSceneObject(SceneObject* obj)
 {
@@ -1079,6 +1080,22 @@ bool SceneEditor::OpMakeSprite2DLit(uint32 goId, std::string& errOut)
 		}
 	}
 	if (!any) { errOut = "no RenderingComponent to convert"; return false; }
+	MarkSceneDirty();
+	return true;
+}
+
+// A Box2D rigid body. Defaults to a dynamic half-unit box, which is the shape
+// a sprite created next to it already has.
+bool SceneEditor::OpAddPhysics2D(uint32 goId, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT)
+	{
+		errOut = "not a game object";
+		return false;
+	}
+	GameObject* go = (GameObject*)obj->GetPTR();
+	go->Add(std::make_shared<Physics2D>());
 	MarkSceneDirty();
 	return true;
 }

@@ -38,6 +38,7 @@
 #include <Pyros3D/Core/InputManager/InputManager.h>
 #include <Pyros3D/Physics/Components/IPhysicsComponent.h>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
+#include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <fstream>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -2439,7 +2440,45 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::PushID((int)i);
 			ImGui::Separator();
 
-			if (type == ComponentType::Layer2D)
+			if (type == ComponentType::Physics2D)
+			{
+				Physics2D* ph = static_cast<Physics2D*>(comps[i].get());
+				ImGui::Text("Physics 2D");
+
+				int bt = (int)ph->GetBodyType();
+				const char* bodyTypes[] = { "Static", "Kinematic", "Dynamic" };
+				if (ImGui::Combo("Body", &bt, bodyTypes, 3)) { ph->SetBodyType((uint32)bt); MarkSceneDirty(); }
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Static never moves (the ground). Kinematic is moved by\nscript and pushes others but ignores forces. Dynamic is\nmoved by the solver.");
+
+				int sh = (int)ph->GetShapeType();
+				const char* shapes[] = { "Box", "Circle" };
+				if (ImGui::Combo("Shape", &sh, shapes, 2)) { ph->SetShapeType((uint32)sh); MarkSceneDirty(); }
+
+				Vec2 sz = ph->GetSize();
+				if (ImGui::DragFloat2("Half Extents", (float*)&sz, 0.01f, 0.001f, 1000.f))
+				{
+					ph->SetSize(sz);
+					MarkSceneDirty();
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Half-extents, because that is what Box2D takes - a 1x1\nbox is 0.5, 0.5. For a circle only X is used, as the\nradius.");
+
+				f32 d = ph->GetDensity();
+				if (ImGui::DragFloat("Density", &d, 0.05f, 0.f, 100.f)) { ph->SetDensity(d); MarkSceneDirty(); }
+				f32 fr = ph->GetFriction();
+				if (ImGui::DragFloat("Friction", &fr, 0.01f, 0.f, 1.f)) { ph->SetFriction(fr); MarkSceneDirty(); }
+				f32 re = ph->GetRestitution();
+				if (ImGui::DragFloat("Bounciness", &re, 0.01f, 0.f, 1.f)) { ph->SetRestitution(re); MarkSceneDirty(); }
+
+				bool fx = ph->IsFixedRotation();
+				if (ImGui::Checkbox("Fixed Rotation", &fx)) { ph->SetFixedRotation(fx); MarkSceneDirty(); }
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Stops the body tipping over - what almost every\nplatformer character wants.");
+
+				ImGui::TextDisabled("Edits apply on the next play; the body is built then.");
+			}
+			else if (type == ComponentType::Layer2D)
 			{
 				Layer2D* l = static_cast<Layer2D*>(comps[i].get());
 				ImGui::Text("Layer 2D");
@@ -3448,6 +3487,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("A textured, alpha-blended quad. Assign its texture in\nProperties - it starts white and square.");
+
+			if (ImGui::MenuItem("Physics 2D"))
+			{
+				std::string perr;
+				if (!OpAddPhysics2D(goId, perr))
+					echo("WARNING: could not add Physics2D: " + perr);
+				ImGui::CloseCurrentPopup();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("A Box2D rigid body. Its (x, y) and rotation about z\nare driven by the solver; z is left alone because that\nis draw order.");
 
 			// A 2D scene layer. One click, no form: the useful defaults are
 			// parallax 1 and visible, and both are edited in Properties.

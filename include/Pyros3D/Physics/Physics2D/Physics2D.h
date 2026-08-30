@@ -86,6 +86,22 @@ namespace p3d {
 		bool IsFixedRotation() const { return fixedRotation; }
 		void SetFixedRotation(const bool f) { fixedRotation = f; }
 
+		// --- Runtime, once a body exists -----------------------------------
+		// These reach Box2D directly from the .cpp by rebuilding the body id
+		// from the fields below, so they need no pointer back to the world.
+		// All are no-ops before the first Sync() has built the body, which is
+		// what a script calling one in init() will hit.
+		void SetLinearVelocity(const Vec2 &v);
+		Vec2 GetLinearVelocity() const;
+		void ApplyForce(const Vec2 &force);
+		void ApplyImpulse(const Vec2 &impulse);
+		void SetAngularVelocity(const f32 radiansPerSecond);
+		f32 GetAngularVelocity() const;
+		// Teleports. Not what you want for ordinary movement - it ignores
+		// collision on the way - but it is what a respawn is.
+		void SetTransform(const Vec2 &position, const f32 angle);
+		void Wake();
+
 		// Opaque b2BodyId, owned by whichever Physics2DWorld built it. Stored
 		// as two ints so this header does not drag box2d in - the world casts
 		// it back. Zeroed when no body exists.

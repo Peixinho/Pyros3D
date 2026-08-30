@@ -7,6 +7,7 @@
 
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
 #include <Pyros3D/AnimationManager/Components/IKComponent.h>
+#include <Pyros3D/Physics/Physics2D/Physics2D.h>
 
 namespace p3d {
 
@@ -472,6 +473,11 @@ namespace p3d {
 			}
 			if (typeName == "ParticleSystem" && c->GetComponentType() == ComponentType::ParticleSystem)
 				return sol::make_object(lua, std::static_pointer_cast<ParticleSystem>(c));
+			// Box2D body. No LUA_ subclass needed - Physics2D is itself the
+			// registered usertype, so the shared_ptr pushes with the right
+			// metatable directly.
+			if (typeName == "Physics2D" && c->GetComponentType() == ComponentType::Physics2D)
+				return sol::make_object(lua, std::static_pointer_cast<Physics2D>(c));
 		}
 		return sol::lua_nil;
 	}

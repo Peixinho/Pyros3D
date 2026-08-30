@@ -1,6 +1,7 @@
 //============================================================================
 // Name        : PyrosLuaPhysics.cpp
-// Description : Box3DPhysics / IPhysics / RayCastHit / PhysicsVehicle.
+// Description : Box3DPhysics / IPhysics / RayCastHit / PhysicsVehicle,
+//               plus Box2D's Physics2D.
 //============================================================================
 
 #ifdef LUA_BINDINGS
@@ -40,6 +41,29 @@ namespace p3d {
 			sol::base_classes, sol::bases<IComponent>()
 			);
 
+
+		// Box2D. A separate type from IPhysicsComponent on purpose - see
+		// Physics2D.h - so its API is in the plane: Vec2 everywhere, and one
+		// scalar for rotation about z rather than a Vec3 of Euler angles two
+		// thirds of which mean nothing here.
+		lua->new_usertype<Physics2D>("Physics2D",
+			"setLinearVelocity", &Physics2D::SetLinearVelocity,
+			"getLinearVelocity", &Physics2D::GetLinearVelocity,
+			"applyForce", &Physics2D::ApplyForce,
+			"applyImpulse", &Physics2D::ApplyImpulse,
+			"setAngularVelocity", &Physics2D::SetAngularVelocity,
+			"getAngularVelocity", &Physics2D::GetAngularVelocity,
+			"setTransform", &Physics2D::SetTransform,
+			"wake", &Physics2D::Wake,
+			"getBodyType", &Physics2D::GetBodyType,
+			"setBodyType", &Physics2D::SetBodyType,
+			"getDensity", &Physics2D::GetDensity,
+			"getFriction", &Physics2D::GetFriction,
+			"getRestitution", &Physics2D::GetRestitution,
+			"isFixedRotation", &Physics2D::IsFixedRotation,
+			"haveBody", &Physics2D::HaveBody,
+			sol::base_classes, sol::bases<IComponent>()
+			);
 
 		// Drive API for Box3D vehicles (createVehicle returns this type).
 		lua->new_usertype<PhysicsVehicle>("PhysicsVehicle",

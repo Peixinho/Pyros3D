@@ -7,6 +7,7 @@
 #define PYROSLUABINDINGS_H
 
 #include <Pyros3D/Utils/Bindings/PyrosBindings.h>
+#include <Pyros3D/Physics/Physics2D/Physics2D.h>
 
 namespace p3d {
 

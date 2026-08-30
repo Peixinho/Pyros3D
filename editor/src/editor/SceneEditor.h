@@ -642,6 +642,8 @@ private:
 	// Screen-space UI. See SceneEditOps.cpp.
 	// Attaches a Layer2D to a GameObject, making its subtree one 2D layer.
 	bool OpAddLayer2D(uint32 goId, std::string& errOut);
+	// Attaches a Box2D rigid body.
+	bool OpAddPhysics2D(uint32 goId, std::string& errOut);
 	// Opt a sprite into 2D lighting (distance falloff, no N.L).
 	bool OpMakeSprite2DLit(uint32 goId, std::string& errOut);
 
