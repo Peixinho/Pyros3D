@@ -4455,9 +4455,15 @@ def add_ui(project_path: str, scene_name: str, object_name: str, kind: str,
            font: str | None = None) -> str:
     """Add a screen-space UI component to an object.
 
-    kind: canvas | rect | image | text | button. Image, text and button add a
-    rect if the object has none; button also adds an image. A canvas is the
-    root of a UI tree - put elements under it as children.
+    kind: canvas | rect | image | text | button | toggle | slider | input |
+    list | dropdown. Image, text and button add a rect if the object has none;
+    button also adds an image. A canvas is the root of a UI tree - put
+    elements under it as children.
+
+    The five widget kinds build child elements too (a checkbox's tick, a
+    slider's fill and handle, a list's rows), so they need the live editor -
+    writing the scene file directly would mean a second copy of those
+    templates here, drifting from the editor's.
     """
     proj, err = _resolve_project(project_path)
     if err:
@@ -4468,12 +4474,18 @@ def add_ui(project_path: str, scene_name: str, object_name: str, kind: str,
         return _fail(s_err)
 
     k = (kind or "").strip().lower()
-    if k not in ("canvas", "rect", "image", "text", "button"):
-        return _fail(f"Invalid kind '{kind}'. Use canvas, rect, image, text or button.")
+    widget_kinds = ("toggle", "slider", "input", "list", "dropdown")
+    if k not in ("canvas", "rect", "image", "text", "button") + widget_kinds:
+        return _fail(f"Invalid kind '{kind}'. Use canvas, rect, image, text, button, "
+                     "toggle, slider, input, list or dropdown.")
 
     live = _live_or_none("add_ui", {"object": object_name, "kind": k, "font": font or ""}, scene_file)
     if live is not None:
         return _fail(live) if isinstance(live, str) else f"Added UI {k} to '{object_name}' (live editor)"
+
+    if k in widget_kinds:
+        return _fail(f"A UI {k} is a component plus the child elements it drives, so it needs "
+                     "the live editor - open the project there and try again.")
 
     data = _load_scene(scene_file)
     node = _find_object(data, object_name)
@@ -4525,6 +4537,17 @@ UI_PROPERTY_OWNER = {
     "referenceWidth": "UICanvas", "referenceHeight": "UICanvas",
     "scaleMode": "UICanvas", "sortOrder": "UICanvas",
     "interactable": "UIButton", "transition": "UIButton", "onClick": "UIButton",
+    # The rest of the widget set. A node carries one widget, so "value",
+    # "selected" and "text" never compete: an input's label and a list's rows
+    # are children, not siblings of the component that drives them.
+    "value": "UIToggle/UISlider", "check": "UIToggle", "group": "UIToggle",
+    "min": "UISlider", "max": "UISlider", "step": "UISlider",
+    "vertical": "UISlider", "fill": "UISlider", "handle": "UISlider",
+    "placeholder": "UIInput/UIDropdown", "maxLength": "UIInput",
+    "password": "UIInput", "readOnly": "UIInput", "filter": "UIInput",
+    "blinkRate": "UIInput", "onSubmit": "UIInput/UIList",
+    "items": "UIList", "itemHeight": "UIList", "selected": "UIList/UIDropdown",
+    "options": "UIDropdown", "onChange": "any widget",
 }
 UI_BUTTON_STATE_PROPERTIES = {
     "hoverTint": ("Hover", "tint"), "pressedTint": ("Pressed", "tint"),
@@ -4546,6 +4569,13 @@ def set_ui(project_path: str, scene_name: str, object_name: str, properties: dic
     Button: interactable, transition, onClick, hoverTint/pressedTint/
     disabledTint, hoverTextColor/pressedTextColor/disabledTextColor,
     pressedOffset.
+    Toggle: value, check, group, plus every button property.
+    Slider: value, min, max, step, vertical, fill, handle.
+    Input: text, placeholder, maxLength, password, readOnly, filter,
+    blinkRate, onSubmit.
+    List: items, selected, itemHeight, onSubmit.
+    Dropdown: options, selected, placeholder.
+    Any widget: interactable, onChange.
     """
     proj, err = _resolve_project(project_path)
     if err:

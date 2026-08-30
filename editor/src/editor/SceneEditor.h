@@ -28,6 +28,11 @@ using json = nlohmann::json;
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 #include <Pyros3D/Rendering/Components/UI/UIText.h>
 #include <Pyros3D/Rendering/Components/UI/UIButton.h>
+#include <Pyros3D/Rendering/Components/UI/UIToggle.h>
+#include <Pyros3D/Rendering/Components/UI/UISlider.h>
+#include <Pyros3D/Rendering/Components/UI/UIInput.h>
+#include <Pyros3D/Rendering/Components/UI/UIList.h>
+#include <Pyros3D/Rendering/Components/UI/UIDropdown.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
@@ -650,6 +655,10 @@ private:
 	void PushUIPropertyUndo(uint32 goId, const json& before, const json& after, const char* what);
 	std::string ResolveUIFontPath(const std::string& requested, std::string& errOut);
 	static bool HasUIRect(GameObject* go);
+	// Builds a composite widget (its component plus the child elements it
+	// drives) onto an existing object. See its definition.
+	bool AddUIWidget(GameObject* go, uint32 goId, const std::string& kind,
+		const std::string& fontPath, std::string& errOut);
 	// Prefab entries of a GameObject's context menu, and the modals they
 	// raise (drawn from ShowHierarchy, not from inside the popup - see
 	// DrawPrefabModals).

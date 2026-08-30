@@ -105,6 +105,22 @@ namespace p3d {
 		std::string onChange;
 	};
 
+	// Whether a child element's name is the one a widget is looking for,
+	// ignoring the "(2)" the editor appends to keep names unique across a
+	// scene. Two checkboxes both want a child called Check, and the second
+	// one gets Check(1) - so an exact match would find nothing, and the
+	// second checkbox would be the one that quietly does not work.
+	inline bool UINameMatches(const std::string &actual, const std::string &wanted)
+	{
+		if (actual == wanted) return true;
+		if (actual.size() <= wanted.size() + 2) return false;
+		if (actual.compare(0, wanted.size(), wanted) != 0) return false;
+		if (actual[wanted.size()] != '(' || actual[actual.size() - 1] != ')') return false;
+		for (size_t i = wanted.size() + 1; i + 1 < actual.size(); i++)
+			if (actual[i] < '0' || actual[i] > '9') return false;
+		return actual.size() > wanted.size() + 2;
+	}
+
 	// Keys a widget can be sent. Deliberately a short list of the ones text
 	// editing and list navigation need, mapped by the host from whatever its
 	// window layer calls them, so the engine carries no keyboard enum of its

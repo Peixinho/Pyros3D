@@ -24,7 +24,7 @@ namespace p3d {
 		GameObject* FindIn(GameObject* root, const std::string &name)
 		{
 			if (!root || name.empty()) return NULL;
-			if (root->GetName() == name) return root;
+			if (UINameMatches(root->GetName(), name)) return root;
 			const std::vector<std::shared_ptr<GameObject> > &kids = root->GetChildren();
 			for (size_t i = 0; i < kids.size(); i++)
 			{

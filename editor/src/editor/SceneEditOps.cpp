@@ -1025,14 +1025,193 @@ bool SceneEditor::OpAddUIComponent(uint32 goId, const std::string& kind, const s
 		b->State(UIState::Disabled).tint = Vec4(0.14f, 0.15f, 0.18f, 0.6f);
 		go->Add(std::static_pointer_cast<IComponent>(b));
 	}
+	else if (k == "toggle" || k == "slider" || k == "input" || k == "list" || k == "dropdown")
+	{
+		if (!AddUIWidget(go, goId, k, fontPath, errOut)) return false;
+	}
 	else
 	{
-		errOut = "unknown UI component '" + kind + "' (canvas, rect, image, text or button)";
+		errOut = "unknown UI component '" + kind +
+			"' (canvas, rect, image, text, button, toggle, slider, input, list or dropdown)";
 		return false;
 	}
 
 	PushReplaceCommand(goId, before, std::string("Add UI ") + k);
 	MarkSceneDirty();
+	return true;
+}
+
+// Builds one of the composite widgets: the component plus the child elements
+// it drives. A checkbox with no tick, a slider with no handle or a list with
+// no rows is not something anyone would want to be handed and then have to
+// assemble - and the names these children are given are exactly the ones the
+// components look for by default.
+bool SceneEditor::AddUIWidget(GameObject* go, uint32 goId, const std::string& kind,
+	const std::string& fontPath, std::string& errOut)
+{
+	// Every one of these has a label of some kind, so the font is resolved
+	// once, up front, and a missing one fails before anything is built.
+	const std::string font = ResolveUIFontPath(fontPath, errOut);
+	if (font.empty()) return false;
+
+	// A child element: its own object, its own rect, adopted into the
+	// registry so it shows up in the tree like anything else the editor made.
+	struct Builder {
+		SceneEditor* editor;
+		uint32 parentId;
+		GameObject* MakeChild(GameObject* parent, uint32 parentRegistryId, const char* name,
+			const Vec2 &anchorMin, const Vec2 &anchorMax, const Vec2 &offsetMin, const Vec2 &offsetMax,
+			uint32 &outId)
+		{
+			std::shared_ptr<GameObject> child = std::make_shared<GameObject>();
+			child->SetName(name);
+			std::shared_ptr<UIRect> r = std::make_shared<UIRect>();
+			r->SetAnchors(anchorMin, anchorMax);
+			r->SetOffsets(offsetMin, offsetMax);
+			r->SetPivot(Vec2(0.5f, 0.5f));
+			child->Add(std::static_pointer_cast<IComponent>(r));
+			parent->Add(child);
+			SceneObject* obj = editor->sceneObjects->Adopt(child.get(), parentRegistryId);
+			outId = obj ? obj->GetID() : 0;
+			return child.get();
+		}
+	};
+	Builder build; build.editor = this; build.parentId = goId;
+
+	if (!HasUIRect(go))
+	{
+		std::shared_ptr<UIRect> r = std::make_shared<UIRect>();
+		const bool tall = (kind == "list" || kind == "dropdown");
+		r->SetAnchoredPosition(Vec2(0.5f, 0.5f), Vec2(-160.f, tall ? -120.f : -24.f),
+			Vec2(320.f, tall ? 240.f : 48.f));
+		go->Add(std::static_pointer_cast<IComponent>(r));
+	}
+
+	// The frame every one of them sits in.
+	const bool wantsFrame = (kind != "toggle");
+	if (wantsFrame)
+		go->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.12f, 0.14f, 0.18f, 0.95f))));
+
+	uint32 childId = 0;
+	std::shared_ptr<Font> f = std::make_shared<Font>(font, 24.f);
+
+	if (kind == "toggle")
+	{
+		// The box, and the tick inside it that the toggle shows and hides.
+		go->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.16f, 0.19f, 0.25f, 0.95f))));
+		GameObject* check = build.MakeChild(go, goId, "Check", Vec2(0.f, 0.f), Vec2(1.f, 1.f),
+			Vec2(6.f, 6.f), Vec2(-6.f, -6.f), childId);
+		check->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.22f, 0.74f, 0.98f, 1.f))));
+
+		std::shared_ptr<UIToggle> t = std::make_shared<UIToggle>();
+		t->State(UIState::Hover).hasTint = true;
+		t->State(UIState::Hover).tint = Vec4(0.24f, 0.30f, 0.40f, 0.98f);
+		t->State(UIState::Pressed).hasTint = true;
+		t->State(UIState::Pressed).tint = Vec4(0.30f, 0.38f, 0.50f, 1.f);
+		go->Add(std::static_pointer_cast<IComponent>(t));
+	}
+	else if (kind == "slider")
+	{
+		// Fill stretched across the track, handle pinned to a point on it -
+		// the two shapes UISlider writes anchors into.
+		GameObject* fill = build.MakeChild(go, goId, "Fill", Vec2(0.f, 0.f), Vec2(1.f, 1.f),
+			Vec2(2.f, 2.f), Vec2(-2.f, -2.f), childId);
+		fill->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.22f, 0.74f, 0.98f, 1.f))));
+		GameObject* handle = build.MakeChild(go, goId, "Handle", Vec2(0.f, 0.f), Vec2(0.f, 1.f),
+			Vec2(-10.f, -2.f), Vec2(10.f, 2.f), childId);
+		handle->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.92f, 0.94f, 1.f, 1.f))));
+
+		std::shared_ptr<UISlider> sl = std::make_shared<UISlider>();
+		sl->SetRange(0.f, 1.f);
+		sl->SetValue(0.5f);
+		go->Add(std::static_pointer_cast<IComponent>(sl));
+	}
+	else if (kind == "input")
+	{
+		GameObject* placeholder = build.MakeChild(go, goId, "Placeholder", Vec2(0.f, 0.f), Vec2(1.f, 1.f),
+			Vec2(10.f, 0.f), Vec2(-10.f, 0.f), childId);
+		std::shared_ptr<UIText> ph = std::make_shared<UIText>(f, "", 22.f, Vec4(0.5f, 0.55f, 0.65f, 1.f));
+		ph->SetAlignment(UIAlign::Left, UIVerticalAlign::Middle);
+		placeholder->Add(std::static_pointer_cast<IComponent>(ph));
+
+		GameObject* label = build.MakeChild(go, goId, "Text", Vec2(0.f, 0.f), Vec2(1.f, 1.f),
+			Vec2(10.f, 0.f), Vec2(-10.f, 0.f), childId);
+		std::shared_ptr<UIText> lt = std::make_shared<UIText>(f, "", 22.f, Vec4(0.95f, 0.96f, 1.f, 1.f));
+		lt->SetAlignment(UIAlign::Left, UIVerticalAlign::Middle);
+		label->Add(std::static_pointer_cast<IComponent>(lt));
+
+		GameObject* caret = build.MakeChild(go, goId, "Caret", Vec2(0.f, 0.f), Vec2(0.f, 1.f),
+			Vec2(10.f, 8.f), Vec2(12.f, -8.f), childId);
+		caret->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.22f, 0.74f, 0.98f, 1.f))));
+
+		std::shared_ptr<UIInput> in = std::make_shared<UIInput>();
+		in->SetPlaceholder("Type here");
+		go->Add(std::static_pointer_cast<IComponent>(in));
+	}
+	else if (kind == "list" || kind == "dropdown")
+	{
+		// A dropdown is a label plus a popup holding a list, so the list
+		// half is built into whichever node wants it.
+		GameObject* listOwner = go;
+		uint32 listOwnerId = goId;
+
+		if (kind == "dropdown")
+		{
+			GameObject* label = build.MakeChild(go, goId, "Label", Vec2(0.f, 0.f), Vec2(1.f, 0.f),
+				Vec2(12.f, 0.f), Vec2(-12.f, 40.f), childId);
+			std::shared_ptr<UIText> lt = std::make_shared<UIText>(f, "", 22.f, Vec4(0.95f, 0.96f, 1.f, 1.f));
+			lt->SetAlignment(UIAlign::Left, UIVerticalAlign::Middle);
+			label->Add(std::static_pointer_cast<IComponent>(lt));
+
+			// Below the closed dropdown, which is where a popup goes.
+			GameObject* popup = build.MakeChild(go, goId, "Popup", Vec2(0.f, 0.f), Vec2(1.f, 0.f),
+				Vec2(0.f, 42.f), Vec2(0.f, 162.f), childId);
+			popup->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.10f, 0.12f, 0.16f, 0.98f))));
+			listOwner = popup;
+			listOwnerId = childId;
+		}
+
+		// Four rows: enough to cover the viewport, which is all a list ever
+		// needs - see UIList's comment.
+		const f32 rowHeight = 30.f;
+		for (int i = 0; i < 4; i++)
+		{
+			char name[16];
+			snprintf(name, sizeof(name), "Row%d", i);
+			uint32 rowId = 0;
+			GameObject* row = build.MakeChild(listOwner, listOwnerId, name, Vec2(0.f, 0.f), Vec2(1.f, 0.f),
+				Vec2(0.f, (f32)i * rowHeight), Vec2(0.f, (f32)(i + 1) * rowHeight), rowId);
+
+			uint32 partId = 0;
+			GameObject* highlight = build.MakeChild(row, rowId, "Highlight", Vec2(0.f, 0.f), Vec2(1.f, 1.f),
+				Vec2(0.f, 0.f), Vec2(0.f, 0.f), partId);
+			highlight->Add(std::static_pointer_cast<IComponent>(std::make_shared<UIImage>(Vec4(0.22f, 0.74f, 0.98f, 0.35f))));
+
+			GameObject* rowLabel = build.MakeChild(row, rowId, "Label", Vec2(0.f, 0.f), Vec2(1.f, 1.f),
+				Vec2(12.f, 0.f), Vec2(-12.f, 0.f), partId);
+			std::shared_ptr<UIText> rt = std::make_shared<UIText>(f, "", 20.f, Vec4(0.90f, 0.92f, 0.98f, 1.f));
+			rt->SetAlignment(UIAlign::Left, UIVerticalAlign::Middle);
+			rowLabel->Add(std::static_pointer_cast<IComponent>(rt));
+		}
+
+		std::shared_ptr<UIList> list = std::make_shared<UIList>();
+		list->SetItemHeight(rowHeight);
+		std::vector<std::string> sample;
+		// Something in it, so a new list is visibly a list rather than an
+		// empty box that looks broken.
+		sample.push_back("First"); sample.push_back("Second"); sample.push_back("Third");
+		list->SetItems(sample);
+		listOwner->Add(std::static_pointer_cast<IComponent>(list));
+
+		if (kind == "dropdown")
+		{
+			std::shared_ptr<UIDropdown> dd = std::make_shared<UIDropdown>();
+			dd->SetOptions(sample);
+			dd->SetPlaceholder("Choose...");
+			go->Add(std::static_pointer_cast<IComponent>(dd));
+		}
+	}
+
 	return true;
 }
 
@@ -1117,6 +1296,80 @@ json SceneEditor::CaptureUIProperties(GameObject* go)
 			out["pressedOffset"] = json::array({ b->GetState(UIState::Pressed).offset.x, b->GetState(UIState::Pressed).offset.y });
 			break;
 		}
+		case ComponentType::UIToggle:
+		{
+			UIToggle* t = static_cast<UIToggle*>(cs[i].get());
+			out["value"] = t->GetValue();
+			out["interactable"] = t->IsInteractable();
+			out["transition"] = t->GetTransition();
+			out["onClick"] = t->GetOnClick();
+			out["onChange"] = t->GetOnChange();
+			out["check"] = t->GetCheckElement();
+			out["group"] = t->GetGroup();
+			const char* names[3] = { "hover", "pressed", "disabled" };
+			const uint32 ids[3] = { UIState::Hover, UIState::Pressed, UIState::Disabled };
+			for (int k = 0; k < 3; k++)
+			{
+				const UIStateStyle &ss = t->GetState(ids[k]);
+				if (ss.hasTint) out[std::string(names[k]) + "Tint"] = json::array({ ss.tint.x, ss.tint.y, ss.tint.z, ss.tint.w });
+				if (ss.hasTextColor) out[std::string(names[k]) + "TextColor"] = json::array({ ss.textColor.x, ss.textColor.y, ss.textColor.z, ss.textColor.w });
+			}
+			break;
+		}
+		case ComponentType::UISlider:
+		{
+			UISlider* sl = static_cast<UISlider*>(cs[i].get());
+			out["value"] = sl->GetValue();
+			out["min"] = sl->GetMin();
+			out["max"] = sl->GetMax();
+			out["step"] = sl->GetStep();
+			out["vertical"] = sl->IsVertical();
+			out["interactable"] = sl->IsInteractable();
+			out["onChange"] = sl->GetOnChange();
+			out["fill"] = sl->GetFillElement();
+			out["handle"] = sl->GetHandleElement();
+			break;
+		}
+		case ComponentType::UIInput:
+		{
+			UIInput* in = static_cast<UIInput*>(cs[i].get());
+			out["text"] = in->GetText();
+			out["placeholder"] = in->GetPlaceholder();
+			out["maxLength"] = in->GetMaxLength();
+			out["password"] = in->IsPassword();
+			out["readOnly"] = in->IsReadOnly();
+			out["filter"] = in->GetFilter();
+			out["blinkRate"] = in->GetBlinkRate();
+			out["interactable"] = in->IsInteractable();
+			out["onChange"] = in->GetOnChange();
+			out["onSubmit"] = in->GetOnSubmit();
+			break;
+		}
+		case ComponentType::UIList:
+		{
+			UIList* l = static_cast<UIList*>(cs[i].get());
+			json arr = json::array();
+			for (size_t k = 0; k < l->GetItems().size(); k++) arr.push_back(l->GetItems()[k]);
+			out["items"] = arr;
+			out["selected"] = l->GetSelected();
+			out["itemHeight"] = l->GetItemHeight();
+			out["interactable"] = l->IsInteractable();
+			out["onChange"] = l->GetOnChange();
+			out["onSubmit"] = l->GetOnSubmit();
+			break;
+		}
+		case ComponentType::UIDropdown:
+		{
+			UIDropdown* d = static_cast<UIDropdown*>(cs[i].get());
+			json arr = json::array();
+			for (size_t k = 0; k < d->GetOptions().size(); k++) arr.push_back(d->GetOptions()[k]);
+			out["options"] = arr;
+			out["selected"] = d->GetSelected();
+			out["placeholder"] = d->GetPlaceholder();
+			out["interactable"] = d->IsInteractable();
+			out["onChange"] = d->GetOnChange();
+			break;
+		}
 		case ComponentType::UIText:
 		{
 			UIText* t = static_cast<UIText*>(cs[i].get());
@@ -1148,6 +1401,11 @@ bool SceneEditor::RawSetUIProperties(uint32 goId, const json& p, std::string& er
 	if (!p.is_object()) { errOut = "expected an object of properties"; return false; }
 
 	UICanvas* canvas = NULL; UIRect* rect = NULL; UIImage* image = NULL; UIText* text = NULL; UIButton* button = NULL;
+	UIToggle* toggle = NULL; UISlider* slider = NULL; UIInput* input = NULL;
+	UIList* list = NULL; UIDropdown* dropdown = NULL;
+	// Whatever interactive component is on this object, for the handful of
+	// keys every widget has.
+	UIWidget* widget = NULL;
 	const std::vector<std::shared_ptr<IComponent> >& cs = go->GetComponents();
 	for (size_t i = 0; i < cs.size(); i++)
 	{
@@ -1159,10 +1417,21 @@ bool SceneEditor::RawSetUIProperties(uint32 goId, const json& p, std::string& er
 		case ComponentType::UIImage:  image  = static_cast<UIImage*>(cs[i].get());  break;
 		case ComponentType::UIText:   text   = static_cast<UIText*>(cs[i].get());   break;
 		case ComponentType::UIButton: button = static_cast<UIButton*>(cs[i].get()); break;
+		case ComponentType::UIToggle:
+			// A toggle is a button, so it answers the button keys too -
+			// the states, the transition, the click handler.
+			toggle = static_cast<UIToggle*>(cs[i].get());
+			button = toggle;
+			break;
+		case ComponentType::UISlider:   slider   = static_cast<UISlider*>(cs[i].get());   break;
+		case ComponentType::UIInput:    input    = static_cast<UIInput*>(cs[i].get());    break;
+		case ComponentType::UIList:     list     = static_cast<UIList*>(cs[i].get());     break;
+		case ComponentType::UIDropdown: dropdown = static_cast<UIDropdown*>(cs[i].get()); break;
 		default: break;
 		}
+		if (UIWidget* w = dynamic_cast<UIWidget*>(cs[i].get())) widget = w;
 	}
-	if (!canvas && !rect && !image && !text && !button) { errOut = "'" + obj->GetName() + "' has no UI components"; return false; }
+	if (!canvas && !rect && !image && !text && !widget) { errOut = "'" + obj->GetName() + "' has no UI components"; return false; }
 
 	bool touched = false;
 	// Unknown keys are an error rather than a silent no-op: a caller that
@@ -1172,8 +1441,14 @@ bool SceneEditor::RawSetUIProperties(uint32 goId, const json& p, std::string& er
 		const std::string k = it.key();
 		const json& v = it.value();
 		Vec2 v2; Vec4 v4;
-		const bool isVec2 = v.is_array() && v.size() == 2;
-		const bool isVec4 = v.is_array() && v.size() == 4;
+		// Numbers, not merely an array of the right length: a list of four
+		// items is an array of size 4, and reading it as a colour throws.
+		const bool allNumbers = v.is_array() && [&]() {
+			for (size_t n = 0; n < v.size(); n++) if (!v[n].is_number()) return false;
+			return true;
+		}();
+		const bool isVec2 = allNumbers && v.size() == 2;
+		const bool isVec4 = allNumbers && v.size() == 4;
 		if (isVec2) v2 = Vec2(v[0].get<f32>(), v[1].get<f32>());
 		if (isVec4) v4 = Vec4(v[0].get<f32>(), v[1].get<f32>(), v[2].get<f32>(), v[3].get<f32>());
 
@@ -1312,6 +1587,142 @@ bool SceneEditor::RawSetUIProperties(uint32 goId, const json& p, std::string& er
 			if (!isVec4) { errOut = k + " must be [r, g, b, a]"; return false; }
 			const uint32 st = (k[0] == 'h') ? UIState::Hover : (k[0] == 'p') ? UIState::Pressed : UIState::Disabled;
 			button->State(st).hasTextColor = true; button->State(st).textColor = v4; touched = true;
+		}
+		// ---- the rest of the widget set ----
+		// A node carries one widget, so these keys never compete: an input's
+		// label and a list's rows are children, not siblings of the
+		// component that drives them.
+		else if (toggle && k == "value")
+		{
+			if (!v.is_boolean()) { errOut = "value must be true or false"; return false; }
+			toggle->SetValue(v.get<bool>()); touched = true;
+		}
+		else if (toggle && k == "check")
+		{
+			if (!v.is_string()) { errOut = "check must be an element name"; return false; }
+			toggle->SetCheckElement(v.get<std::string>()); touched = true;
+		}
+		else if (toggle && k == "group")
+		{
+			if (!v.is_string()) { errOut = "group must be a name"; return false; }
+			toggle->SetGroup(v.get<std::string>()); touched = true;
+		}
+		else if (slider && k == "value")
+		{
+			if (!v.is_number()) { errOut = "value must be a number"; return false; }
+			slider->SetValue(v.get<f32>()); touched = true;
+		}
+		else if (slider && (k == "min" || k == "max"))
+		{
+			if (!v.is_number()) { errOut = k + " must be a number"; return false; }
+			if (k == "min") slider->SetRange(v.get<f32>(), slider->GetMax());
+			else slider->SetRange(slider->GetMin(), v.get<f32>());
+			touched = true;
+		}
+		else if (slider && k == "step")
+		{
+			if (!v.is_number()) { errOut = "step must be a number"; return false; }
+			slider->SetStep(v.get<f32>()); touched = true;
+		}
+		else if (slider && k == "vertical")
+		{
+			if (!v.is_boolean()) { errOut = "vertical must be true or false"; return false; }
+			slider->SetVertical(v.get<bool>()); touched = true;
+		}
+		else if (slider && k == "fill")
+		{
+			if (!v.is_string()) { errOut = "fill must be an element name"; return false; }
+			slider->SetFillElement(v.get<std::string>()); touched = true;
+		}
+		else if (slider && k == "handle")
+		{
+			if (!v.is_string()) { errOut = "handle must be an element name"; return false; }
+			slider->SetHandleElement(v.get<std::string>()); touched = true;
+		}
+		else if (input && k == "text")
+		{
+			if (!v.is_string()) { errOut = "text must be a string"; return false; }
+			input->SetText(v.get<std::string>()); touched = true;
+		}
+		else if (input && k == "placeholder")
+		{
+			if (!v.is_string()) { errOut = "placeholder must be a string"; return false; }
+			input->SetPlaceholder(v.get<std::string>()); touched = true;
+		}
+		else if (input && k == "maxLength")
+		{
+			if (!v.is_number()) { errOut = "maxLength must be a number"; return false; }
+			input->SetMaxLength((uint32)v.get<int>()); touched = true;
+		}
+		else if (input && k == "password")
+		{
+			if (!v.is_boolean()) { errOut = "password must be true or false"; return false; }
+			input->SetPassword(v.get<bool>()); touched = true;
+		}
+		else if (input && k == "readOnly")
+		{
+			if (!v.is_boolean()) { errOut = "readOnly must be true or false"; return false; }
+			input->SetReadOnly(v.get<bool>()); touched = true;
+		}
+		else if (input && k == "filter")
+		{
+			if (!v.is_string()) { errOut = "filter must be a string of allowed characters"; return false; }
+			input->SetFilter(v.get<std::string>()); touched = true;
+		}
+		else if (input && k == "blinkRate")
+		{
+			if (!v.is_number()) { errOut = "blinkRate must be a number"; return false; }
+			input->SetBlinkRate(v.get<f32>()); touched = true;
+		}
+		else if ((list || dropdown) && (k == "items" || k == "options"))
+		{
+			if (!v.is_array()) { errOut = k + " must be an array of strings"; return false; }
+			std::vector<std::string> values;
+			for (size_t n = 0; n < v.size(); n++)
+			{
+				if (!v[n].is_string()) { errOut = k + " must be an array of strings"; return false; }
+				values.push_back(v[n].get<std::string>());
+			}
+			if (list) list->SetItems(values);
+			if (dropdown) dropdown->SetOptions(values);
+			touched = true;
+		}
+		else if ((list || dropdown) && k == "selected")
+		{
+			if (!v.is_number()) { errOut = "selected must be an index, or -1"; return false; }
+			if (list) list->SetSelected(v.get<int>());
+			if (dropdown) dropdown->SetSelected(v.get<int>());
+			touched = true;
+		}
+		else if (list && k == "itemHeight")
+		{
+			if (!v.is_number()) { errOut = "itemHeight must be a number"; return false; }
+			list->SetItemHeight(v.get<f32>()); touched = true;
+		}
+		else if (dropdown && k == "placeholder")
+		{
+			if (!v.is_string()) { errOut = "placeholder must be a string"; return false; }
+			dropdown->SetPlaceholder(v.get<std::string>()); touched = true;
+		}
+		else if (widget && k == "interactable")
+		{
+			if (!v.is_boolean()) { errOut = "interactable must be true or false"; return false; }
+			widget->SetInteractable(v.get<bool>()); touched = true;
+		}
+		else if (widget && k == "onChange")
+		{
+			if (!v.is_string()) { errOut = "onChange must be a handler name"; return false; }
+			widget->SetOnChange(v.get<std::string>()); touched = true;
+		}
+		else if (input && k == "onSubmit")
+		{
+			if (!v.is_string()) { errOut = "onSubmit must be a handler name"; return false; }
+			input->SetOnSubmit(v.get<std::string>()); touched = true;
+		}
+		else if (list && k == "onSubmit")
+		{
+			if (!v.is_string()) { errOut = "onSubmit must be a handler name"; return false; }
+			list->SetOnSubmit(v.get<std::string>()); touched = true;
 		}
 		else
 		{

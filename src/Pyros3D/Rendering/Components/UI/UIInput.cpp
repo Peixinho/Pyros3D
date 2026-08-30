@@ -186,7 +186,7 @@ namespace p3d {
 			const std::vector<std::shared_ptr<GameObject> > &kids = GetOwner()->GetChildren();
 			for (size_t i = 0; i < kids.size() && !label; i++)
 			{
-				if (!kids[i] || kids[i]->GetName() != textName) continue;
+				if (!kids[i] || !UINameMatches(kids[i]->GetName(), textName)) continue;
 				const std::vector<std::shared_ptr<IComponent> > &cs = kids[i]->GetComponents();
 				for (size_t j = 0; j < cs.size(); j++)
 				{
@@ -250,9 +250,9 @@ namespace p3d {
 		for (size_t i = 0; i < kids.size(); i++)
 		{
 			if (!kids[i]) continue;
-			const bool isText = kids[i]->GetName() == textName;
-			const bool isPlaceholder = kids[i]->GetName() == placeholderName;
-			const bool isCaret = kids[i]->GetName() == caretName;
+			const bool isText = UINameMatches(kids[i]->GetName(), textName);
+			const bool isPlaceholder = UINameMatches(kids[i]->GetName(), placeholderName);
+			const bool isCaret = UINameMatches(kids[i]->GetName(), caretName);
 			if (!isText && !isPlaceholder && !isCaret) continue;
 
 			const std::vector<std::shared_ptr<IComponent> > &cs = kids[i]->GetComponents();

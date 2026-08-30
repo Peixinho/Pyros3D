@@ -2648,10 +2648,43 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				}
 				else ImGui::TextDisabled("No texture - a flat tinted rectangle.");
 			}
-			else if (type == ComponentType::UIButton)
+			else if (type == ComponentType::UIButton || type == ComponentType::UIToggle)
 			{
+				// A toggle is a button (see UIToggle), so it gets the same
+				// panel - states, transition, click handler - with its own
+				// value and grouping on top.
 				UIButton* b = static_cast<UIButton*>(comps[i].get());
-				ImGui::Text("UI Button");
+				UIToggle* tg = (type == ComponentType::UIToggle) ? static_cast<UIToggle*>(comps[i].get()) : NULL;
+				ImGui::Text(tg ? "UI Toggle" : "UI Button");
+
+				if (tg)
+				{
+					bool value = tg->GetValue();
+					if (ImGui::Checkbox("Value", &value))
+					{
+						const json ub = CaptureUIProperties(go);
+						tg->SetValue(value);
+						MarkSceneDirty();
+						PushUIPropertyUndo(goId, ub, CaptureUIProperties(go), "Set Toggle Value");
+					}
+
+					std::string check = tg->GetCheckElement();
+					if (ImGui::InputText("Check Element", &check)) { tg->SetCheckElement(check); MarkSceneDirty(); }
+					BeginUIUndo(goId); EndUIUndo(goId, "Set Toggle Check");
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("Child element shown while this is on, by name. Hiding it\nhides its whole subtree, so a tick made of several pieces\nworks as one.");
+
+					std::string group = tg->GetGroup();
+					if (ImGui::InputText("Group", &group)) { tg->SetGroup(group); MarkSceneDirty(); }
+					BeginUIUndo(goId); EndUIUndo(goId, "Set Toggle Group");
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("Toggles that share a group behave as radio buttons. Matched\namong siblings only, so two unrelated sets that happen to\nshare a name cannot fight.");
+
+					std::string onChange = tg->GetOnChange();
+					if (ImGui::InputText("On Change", &onChange)) { tg->SetOnChange(onChange); MarkSceneDirty(); }
+					BeginUIUndo(goId); EndUIUndo(goId, "Set Toggle Handler");
+					ImGui::Separator();
+				}
 
 				bool inter = b->IsInteractable();
 				if (ImGui::Checkbox("Interactable", &inter))
@@ -2711,6 +2744,191 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				default: break;
 				}
 				ImGui::TextDisabled("Current state: %s", cur);
+			}
+			else if (type == ComponentType::UISlider)
+			{
+				UISlider* sl = static_cast<UISlider*>(comps[i].get());
+				ImGui::Text("UI Slider");
+
+				bool inter = sl->IsInteractable();
+				if (ImGui::Checkbox("Interactable", &inter))
+				{
+					const json ub = CaptureUIProperties(go);
+					sl->SetInteractable(inter);
+					MarkSceneDirty();
+					PushUIPropertyUndo(goId, ub, CaptureUIProperties(go), "Set Slider Interactable");
+				}
+
+				f32 value = sl->GetValue();
+				if (ImGui::SliderFloat("Value", &value, sl->GetMin(), sl->GetMax())) { sl->SetValue(value); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Slider Value");
+
+				f32 range[2] = { sl->GetMin(), sl->GetMax() };
+				if (ImGui::DragFloat2("Range", range, 0.1f)) { sl->SetRange(range[0], range[1]); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Slider Range");
+
+				f32 step = sl->GetStep();
+				if (ImGui::DragFloat("Step", &step, 0.01f, 0.f, 1000.f)) { sl->SetStep(step); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Slider Step");
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("0 is continuous. Otherwise the value snaps to multiples of\nthis from the minimum, and the arrow keys move by one.");
+
+				bool vertical = sl->IsVertical();
+				if (ImGui::Checkbox("Vertical", &vertical))
+				{
+					const json ub = CaptureUIProperties(go);
+					sl->SetVertical(vertical);
+					MarkSceneDirty();
+					PushUIPropertyUndo(goId, ub, CaptureUIProperties(go), "Set Slider Vertical");
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Vertical sliders fill upwards: the minimum is at the bottom,\nwhich is what every volume fader does even though canvas y\ngrows downwards.");
+
+				std::string fill = sl->GetFillElement();
+				if (ImGui::InputText("Fill Element", &fill)) { sl->SetFillElement(fill); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Slider Fill");
+				std::string handle = sl->GetHandleElement();
+				if (ImGui::InputText("Handle Element", &handle)) { sl->SetHandleElement(handle); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Slider Handle");
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Child elements this slider drives, by name. It only ever\nwrites their anchors, so whatever padding or size they were\nauthored with survives every value.");
+
+				std::string handler = sl->GetOnChange();
+				if (ImGui::InputText("On Change", &handler)) { sl->SetOnChange(handler); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Slider Handler");
+			}
+			else if (type == ComponentType::UIInput)
+			{
+				UIInput* in = static_cast<UIInput*>(comps[i].get());
+				ImGui::Text("UI Input");
+
+				bool inter = in->IsInteractable();
+				if (ImGui::Checkbox("Interactable", &inter))
+				{
+					const json ub = CaptureUIProperties(go);
+					in->SetInteractable(inter);
+					MarkSceneDirty();
+					PushUIPropertyUndo(goId, ub, CaptureUIProperties(go), "Set Input Interactable");
+				}
+
+				std::string value = in->GetText();
+				if (ImGui::InputText("Text", &value)) { in->SetText(value); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Input Text");
+
+				std::string ph = in->GetPlaceholder();
+				if (ImGui::InputText("Placeholder", &ph)) { in->SetPlaceholder(ph); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Input Placeholder");
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Shown in the Placeholder child while the field is empty - a\nseparate element so it can be styled differently, which is\nthe only reason to have one.");
+
+				int maxLength = (int)in->GetMaxLength();
+				if (ImGui::DragInt("Max Length", &maxLength, 1.f, 0, 4096)) { in->SetMaxLength((uint32)(maxLength < 0 ? 0 : maxLength)); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Input Max Length");
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("0 is unlimited.");
+
+				std::string filter = in->GetFilter();
+				if (ImGui::InputText("Filter", &filter)) { in->SetFilter(filter); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Input Filter");
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Characters this field accepts. Empty allows everything\nprintable; a number field is 0123456789.-");
+
+				bool password = in->IsPassword();
+				if (ImGui::Checkbox("Password", &password))
+				{
+					const json ub = CaptureUIProperties(go);
+					in->SetPassword(password);
+					MarkSceneDirty();
+					PushUIPropertyUndo(goId, ub, CaptureUIProperties(go), "Set Input Password");
+				}
+				ImGui::SameLine();
+				bool readOnly = in->IsReadOnly();
+				if (ImGui::Checkbox("Read Only", &readOnly))
+				{
+					const json ub = CaptureUIProperties(go);
+					in->SetReadOnly(readOnly);
+					MarkSceneDirty();
+					PushUIPropertyUndo(goId, ub, CaptureUIProperties(go), "Set Input Read Only");
+				}
+
+				std::string onChange = in->GetOnChange();
+				if (ImGui::InputText("On Change", &onChange)) { in->SetOnChange(onChange); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Input Handler");
+				std::string onSubmit = in->GetOnSubmit();
+				if (ImGui::InputText("On Submit", &onSubmit)) { in->SetOnSubmit(onSubmit); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Input Submit Handler");
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Called when Enter is pressed in the field.");
+			}
+			else if (type == ComponentType::UIList || type == ComponentType::UIDropdown)
+			{
+				const bool isList = (type == ComponentType::UIList);
+				UIList* l = isList ? static_cast<UIList*>(comps[i].get()) : NULL;
+				UIDropdown* d = isList ? NULL : static_cast<UIDropdown*>(comps[i].get());
+				UIWidget* w = isList ? (UIWidget*)l : (UIWidget*)d;
+				ImGui::Text(isList ? "UI List" : "UI Dropdown");
+
+				bool inter = w->IsInteractable();
+				if (ImGui::Checkbox("Interactable", &inter))
+				{
+					const json ub = CaptureUIProperties(go);
+					w->SetInteractable(inter);
+					MarkSceneDirty();
+					PushUIPropertyUndo(goId, ub, CaptureUIProperties(go), "Set Interactable");
+				}
+
+				// One string per line: an array editor with add and remove
+				// buttons is a lot of UI for something every author would
+				// rather paste into.
+				const std::vector<std::string> &values = isList ? l->GetItems() : d->GetOptions();
+				std::string joined;
+				for (size_t k = 0; k < values.size(); k++) { joined += values[k]; if (k + 1 < values.size()) joined += "\n"; }
+				if (ImGui::InputTextMultiline(isList ? "Items" : "Options", &joined, ImVec2(0.f, 90.f)))
+				{
+					std::vector<std::string> parsed;
+					std::string line;
+					for (size_t k = 0; k <= joined.size(); k++)
+					{
+						if (k == joined.size() || joined[k] == '\n')
+						{
+							if (!line.empty()) parsed.push_back(line);
+							line.clear();
+						}
+						else line += joined[k];
+					}
+					if (isList) l->SetItems(parsed); else d->SetOptions(parsed);
+					MarkSceneDirty();
+				}
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Items");
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("One per line.");
+
+				int selected = isList ? l->GetSelected() : d->GetSelected();
+				if (ImGui::DragInt("Selected", &selected, 0.2f, -1, (int)values.size() - 1))
+				{
+					if (isList) l->SetSelected(selected); else d->SetSelected(selected);
+					MarkSceneDirty();
+				}
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Selection");
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("-1 is nothing selected, which is a real state.");
+
+				if (isList)
+				{
+					f32 itemHeight = l->GetItemHeight();
+					if (ImGui::DragFloat("Item Height", &itemHeight, 0.5f, 1.f, 512.f)) { l->SetItemHeight(itemHeight); MarkSceneDirty(); }
+					BeginUIUndo(goId); EndUIUndo(goId, "Set Item Height");
+					ImGui::TextDisabled("%u of %u rows in use", l->GetVisibleRows(), (uint32)values.size());
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("Rows are child elements named Row0, Row1... and are recycled\nas the list scrolls, so enough to cover the viewport is\nenough for a list of any length.");
+				}
+				else
+				{
+					std::string ph = d->GetPlaceholder();
+					if (ImGui::InputText("Placeholder", &ph)) { d->SetPlaceholder(ph); MarkSceneDirty(); }
+					BeginUIUndo(goId); EndUIUndo(goId, "Set Dropdown Placeholder");
+					ImGui::TextDisabled(d->IsExpanded() ? "Open" : "Closed");
+				}
+
+				std::string handler = w->GetOnChange();
+				if (ImGui::InputText("On Change", &handler)) { w->SetOnChange(handler); MarkSceneDirty(); }
+				BeginUIUndo(goId); EndUIUndo(goId, "Set Handler");
 			}
 			else if (type == ComponentType::UIText)
 			{
@@ -3144,15 +3362,21 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// default, and the Properties panel is where they get tuned.
 			if (ImGui::BeginMenu("UI"))
 			{
-				const char* kinds[] = { "Canvas", "Rect", "Image", "Text", "Button" };
+				const char* kinds[] = { "Canvas", "Rect", "Image", "Text", "Button",
+					"Toggle", "Slider", "Input", "List", "Dropdown" };
 				const char* tips[] = {
 					"Root of a screen-space UI tree. Add elements as children.",
 					"Anchored rectangle - the layout half of an element.",
 					"Tinted, optionally 9-sliced quad. Adds a Rect if missing.",
 					"A line of text aligned in its rect. Adds a Rect if missing.",
-					"Clickable, with hover/pressed/disabled states. Adds a Rect\nand an Image if missing; put a Text child on it for a label."
+					"Clickable, with hover/pressed/disabled states. Adds a Rect\nand an Image if missing; put a Text child on it for a label.",
+					"A checkbox: a button that remembers. Comes with the Check\nelement it shows and hides. Name a Group to make several\nof them behave as radio buttons.",
+					"A value dragged along a track. Comes with the Fill and\nHandle children it drives.",
+					"A single-line text field, with its label, placeholder and\ncaret elements.",
+					"A scrolling list. Comes with four rows, which are recycled\nas it scrolls - enough to cover the viewport is enough for\na list of any length.",
+					"A closed list that opens to be picked from. Comes with its\nlabel and a popup containing a list."
 				};
-				for (int i = 0; i < 5; i++)
+				for (int i = 0; i < 10; i++)
 				{
 					if (ImGui::MenuItem(kinds[i]))
 					{
@@ -8533,6 +8757,138 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			if (!c) return json();
 			json j;
+			// Screen-space UI. Reported before the RenderingComponent test
+			// for the same reason ParticleSystem is: UIImage and UIText are
+			// RenderingComponents, and would otherwise come back as
+			// anonymous meshes - which is what an agent asking "what is on
+			// this canvas" was being told until now.
+			switch (c->GetComponentType())
+			{
+			case ComponentType::UICanvas:
+			{
+				UICanvas* cv = static_cast<UICanvas*>(c);
+				j["type"] = "UICanvas";
+				j["referenceWidth"] = (double)cv->GetReferenceResolution().x;
+				j["referenceHeight"] = (double)cv->GetReferenceResolution().y;
+				j["sortOrder"] = cv->GetSortOrder();
+				return j;
+			}
+			case ComponentType::UIRect:
+			{
+				UIRect* r = static_cast<UIRect*>(c);
+				j["type"] = "UIRect";
+				j["anchorMin"] = { (double)r->GetAnchorMin().x, (double)r->GetAnchorMin().y };
+				j["anchorMax"] = { (double)r->GetAnchorMax().x, (double)r->GetAnchorMax().y };
+				j["offsetMin"] = { (double)r->GetOffsetMin().x, (double)r->GetOffsetMin().y };
+				j["offsetMax"] = { (double)r->GetOffsetMax().x, (double)r->GetOffsetMax().y };
+				j["pivot"] = { (double)r->GetPivot().x, (double)r->GetPivot().y };
+				if (!r->IsVisible()) j["visible"] = false;
+				if (r->IsClipChildren()) j["clip"] = true;
+				if (!r->GetStyleRef().empty()) j["styleRef"] = r->GetStyleRef();
+				return j;
+			}
+			case ComponentType::UIImage:
+			{
+				UIImage* img = static_cast<UIImage*>(c);
+				j["type"] = "UIImage";
+				j["tint"] = { (double)img->GetTint().x, (double)img->GetTint().y,
+					(double)img->GetTint().z, (double)img->GetTint().w };
+				j["border"] = { (double)img->GetBorder().x, (double)img->GetBorder().y,
+					(double)img->GetBorder().z, (double)img->GetBorder().w };
+				j["texture"] = (img->GetTexture() && !img->GetTexture()->GetFilename().empty())
+					? (project ? project->DisplayPath(img->GetTexture()->GetFilename())
+						: img->GetTexture()->GetFilename())
+					: std::string();
+				return j;
+			}
+			case ComponentType::UIText:
+			{
+				UIText* t = static_cast<UIText*>(c);
+				j["type"] = "UIText";
+				j["text"] = t->GetText();
+				j["size"] = (double)t->GetSize();
+				j["color"] = { (double)t->GetColor().x, (double)t->GetColor().y,
+					(double)t->GetColor().z, (double)t->GetColor().w };
+				j["wrap"] = t->IsWordWrap();
+				j["sdf"] = t->IsFontSDF();
+				return j;
+			}
+			case ComponentType::UIButton:
+			case ComponentType::UIToggle:
+			{
+				UIButton* b = static_cast<UIButton*>(c);
+				const bool isToggle = (c->GetComponentType() == ComponentType::UIToggle);
+				j["type"] = isToggle ? "UIToggle" : "UIButton";
+				j["interactable"] = b->IsInteractable();
+				j["onClick"] = b->GetOnClick();
+				if (isToggle)
+				{
+					UIToggle* t = static_cast<UIToggle*>(c);
+					j["value"] = t->GetValue();
+					j["group"] = t->GetGroup();
+					j["check"] = t->GetCheckElement();
+				}
+				return j;
+			}
+			case ComponentType::UISlider:
+			{
+				UISlider* s = static_cast<UISlider*>(c);
+				j["type"] = "UISlider";
+				j["value"] = (double)s->GetValue();
+				j["min"] = (double)s->GetMin();
+				j["max"] = (double)s->GetMax();
+				j["step"] = (double)s->GetStep();
+				j["vertical"] = s->IsVertical();
+				j["interactable"] = s->IsInteractable();
+				j["onChange"] = s->GetOnChange();
+				return j;
+			}
+			case ComponentType::UIInput:
+			{
+				UIInput* in = static_cast<UIInput*>(c);
+				j["type"] = "UIInput";
+				j["text"] = in->GetText();
+				j["placeholder"] = in->GetPlaceholder();
+				j["maxLength"] = in->GetMaxLength();
+				j["password"] = in->IsPassword();
+				j["readOnly"] = in->IsReadOnly();
+				j["filter"] = in->GetFilter();
+				j["interactable"] = in->IsInteractable();
+				j["onChange"] = in->GetOnChange();
+				j["onSubmit"] = in->GetOnSubmit();
+				return j;
+			}
+			case ComponentType::UIList:
+			{
+				UIList* l = static_cast<UIList*>(c);
+				j["type"] = "UIList";
+				json items = json::array();
+				for (size_t i = 0; i < l->GetItems().size(); i++) items.push_back(l->GetItems()[i]);
+				j["items"] = std::move(items);
+				j["selected"] = l->GetSelected();
+				j["itemHeight"] = (double)l->GetItemHeight();
+				j["interactable"] = l->IsInteractable();
+				j["onChange"] = l->GetOnChange();
+				j["onSubmit"] = l->GetOnSubmit();
+				return j;
+			}
+			case ComponentType::UIDropdown:
+			{
+				UIDropdown* d = static_cast<UIDropdown*>(c);
+				j["type"] = "UIDropdown";
+				json options = json::array();
+				for (size_t i = 0; i < d->GetOptions().size(); i++) options.push_back(d->GetOptions()[i]);
+				j["options"] = std::move(options);
+				j["selected"] = d->GetSelected();
+				j["placeholder"] = d->GetPlaceholder();
+				j["expanded"] = d->IsExpanded();
+				j["interactable"] = d->IsInteractable();
+				j["onChange"] = d->GetOnChange();
+				return j;
+			}
+			default: break;
+			}
+
 			// Before the RenderingComponent test - a ParticleSystem is one
 			// (via IRenderingInstancedComponent), and would otherwise be
 			// reported as a mesh with no renderable.

@@ -26,7 +26,7 @@ namespace p3d {
 			for (size_t i = 0; i < kids.size(); i++)
 			{
 				if (!kids[i]) continue;
-				if (kids[i]->GetName() == name) return kids[i].get();
+				if (UINameMatches(kids[i]->GetName(), name)) return kids[i].get();
 				if (GameObject* found = FindChild(kids[i].get(), name)) return found;
 			}
 			return NULL;

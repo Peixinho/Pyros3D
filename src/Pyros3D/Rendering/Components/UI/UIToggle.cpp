@@ -87,7 +87,7 @@ namespace p3d {
 		const std::vector<std::shared_ptr<GameObject> > &kids = GetOwner()->GetChildren();
 		for (size_t i = 0; i < kids.size(); i++)
 		{
-			if (!kids[i] || kids[i]->GetName() != checkName) continue;
+			if (!kids[i] || !UINameMatches(kids[i]->GetName(), checkName)) continue;
 			// Through the rect's own visibility, so a tick mark that is a
 			// small tree of its own hides as a whole - and so the canvas
 			// skips it outright rather than solving something invisible.

@@ -164,8 +164,8 @@ namespace p3d {
 		for (size_t i = 0; i < kids.size(); i++)
 		{
 			if (!kids[i]) continue;
-			const bool isFill = kids[i]->GetName() == fillName;
-			const bool isHandle = kids[i]->GetName() == handleName;
+			const bool isFill = UINameMatches(kids[i]->GetName(), fillName);
+			const bool isHandle = UINameMatches(kids[i]->GetName(), handleName);
 			if (!isFill && !isHandle) continue;
 
 			const std::vector<std::shared_ptr<IComponent> > &cs = kids[i]->GetComponents();

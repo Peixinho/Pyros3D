@@ -383,6 +383,21 @@ int main()
 	// rather than draw over whatever is around it.
 	check(RectOn(listGO.get())->IsClipChildren(), "a list clips its rows to itself");
 
+	// A second checkbox, whose Check child the editor had to rename to keep
+	// scene names unique: the lookup ignores that suffix, or the second one
+	// of anything would be the one that quietly does not work.
+	{
+		std::shared_ptr<GameObject> box2GO = Element(canvasGO, "Box2", 10.f, 55.f, 40.f, 40.f);
+		std::shared_ptr<UIToggle> box2 = std::make_shared<UIToggle>();
+		box2GO->Add(std::static_pointer_cast<IComponent>(box2));
+		std::shared_ptr<GameObject> tick2GO = Element(box2GO, "Check(1)", 0.f, 0.f, 40.f, 40.f);
+		UIRect* tick2 = RectOn(tick2GO.get());
+		canvas->Solve(400.f, 300.f);
+		scene.Update(0.0);
+		Click(scene, canvas, Vec2(30.f, 75.f));
+		check(box2->GetValue() && tick2->IsVisible(), "a renamed child element is still found");
+	}
+
 	// ---- dropdown ----
 	std::shared_ptr<GameObject> ddGO = Element(canvasGO, "Dropdown", 220.f, 120.f, 160.f, 30.f);
 	std::shared_ptr<UIDropdown> dd = std::make_shared<UIDropdown>();
