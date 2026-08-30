@@ -22,6 +22,7 @@
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
 #include <Pyros3D/Rendering/Components/Lights/SpotLight/SpotLight.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
+#include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 #include <Pyros3D/Rendering/Components/UI/UIText.h>
@@ -1384,6 +1385,14 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["sortOrder"] = c2->GetSortOrder();
 			return j;
 		}
+		case ComponentType::Layer2D:
+		{
+			Layer2D* l = dynamic_cast<Layer2D*>(c);
+			j["type"] = "Layer2D";
+			j["parallax"] = ToJson(l->GetParallax());
+			j["visible"] = l->IsVisible();
+			return j;
+		}
 		case ComponentType::UIRect:
 		{
 			UIRect* r = dynamic_cast<UIRect*>(c);
@@ -1653,6 +1662,10 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			root["mainScript"] = RelativizeSceneAssetPath(meta->mainScript);
 		if (meta)
 			root["ambientLight"] = json::array({ meta->ambientLight.x, meta->ambientLight.y, meta->ambientLight.z });
+			// Only written when true - keeps 3D scenes byte-identical to what
+			// they serialized to before this field existed.
+			if (meta->twoD)
+				root["twoD"] = true;
 
 		json materialsArray = json::array();
 		std::map<IMaterial*, uint32> materialIdMap;
@@ -2404,7 +2417,15 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			go->AddComponent(vc);
 		}
 #ifdef LUA_BINDINGS
-		else if (type == "UICanvas")
+		else if (type == "Layer2D")
+		{
+			std::shared_ptr<Layer2D> l = std::make_shared<Layer2D>(
+				j.contains("parallax") ? Vec2FromJson(j["parallax"]) : Vec2(1.f, 1.f));
+			l->SetVisible(j.value("visible", true));
+			go->Add(l);
+			return;
+		}
+				else if (type == "UICanvas")
 		{
 			std::shared_ptr<UICanvas> c = std::make_shared<UICanvas>(
 				j.value("referenceWidth", 1920.0f), j.value("referenceHeight", 1080.0f));
@@ -2815,7 +2836,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			}
 			// Left at SceneMeta's own default (matching IRenderer's
 			// constructor default) when the file predates this field.
-			if (root.contains("ambientLight") && root["ambientLight"].is_array() && root["ambientLight"].size() >= 3)
+			outMeta->twoD = (root.contains("twoD") && root["twoD"].is_boolean())
+				? root["twoD"].get<bool>() : false;
+						if (root.contains("ambientLight") && root["ambientLight"].is_array() && root["ambientLight"].size() >= 3)
 			{
 				const auto &al = root["ambientLight"];
 				outMeta->ambientLight = Vec4(al[0].get<f32>(), al[1].get<f32>(), al[2].get<f32>(), al[0].get<f32>());

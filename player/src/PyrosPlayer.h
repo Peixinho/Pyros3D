@@ -97,6 +97,40 @@ private:
 	// synced, audio sources and particle systems started, scripts allowed
 	// to run, scene main script initialised.
 	bool LoadGameScene(const std::string& sceneRel);
+
+	// --- 2D scenes and overlays -------------------------------------------
+	// A scene marked twoD (SceneMeta::twoD) is an ordinary scene seen through
+	// an orthographic camera - sprites are quads with materials, and the
+	// normal pass gives them transforms, culling, lights and sorting. It is
+	// NOT canvas content: UI (UICanvas + UIRenderer) is the separate,
+	// screen-space, batched thing that draws on top of whatever is beneath
+	// it, and stays pinned. The two share only the shape of their projection.
+	// Two shapes, same scene file either way:
+	//
+	//   * played on its own (a 2D game, or a menu built as UI): loadScene()
+	//     it and `sceneIs2D` defaults the camera to orthographic;
+	//   * shown *over* a running 3D scene on demand: showOverlay("Pause"),
+	//     which loads it into its own SceneGraph and composites it on top
+	//     without disturbing the scene underneath.
+	//
+	// The overlay is a second graph rather than objects merged into the main
+	// one so that hiding it cannot perturb the scene it was drawn over, and
+	// so one overlay scene can be authored once and shown above any level.
+	bool LoadOverlayScene(const std::string& sceneRel);
+	void ShowOverlayScene(const std::string& sceneRel);
+	void HideOverlayScene();
+	void ApplyPendingOverlayIfAny();
+	// Repositions every Layer2D root for the current camera - see Layer2D.h.
+	void ApplyLayerParallax();
+	static void SetSubtreeRenderingEnabled(GameObject* go, const bool on);
+
+	SceneGraph* overlayScene;
+	std::string overlaySceneRel;
+	// Deferred to a frame boundary, exactly like pendingLoadSceneName: the
+	// script asking for it is running inside the frame that is drawing.
+	std::string pendingOverlayName;
+	bool pendingOverlayHide;
+	bool sceneIs2D;
 	// The scene file with its prefab references resolved, ready for the
 	// engine. Empty when there was nothing to resolve (or nothing to read),
 	// in which case the ordinary file-path load is used.

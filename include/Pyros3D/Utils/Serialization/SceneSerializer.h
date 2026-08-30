@@ -87,6 +87,14 @@ namespace p3d {
 		// loads the same default too (LoadScene leaves it untouched when
 		// the JSON key is absent).
 		Vec4 ambientLight = Vec4(0.2f, 0.2f, 0.2f, 0.2f);
+
+		// A 2D scene: its content is UICanvas trees, not world geometry, so
+		// whoever renders it skips the 3D pass entirely and draws only the UI
+		// layer. Two uses, and they are the same scene either way - a menu or
+		// a whole 2D game played on its own, or a scene shown *over* a running
+		// 3D one (see PyrosPlayer::ShowOverlayScene). Absent from a scene file
+		// means false, so every existing scene keeps loading as a 3D one.
+		bool twoD = false;
 	};
 
 	class PYROS3D_API SceneSerializer {

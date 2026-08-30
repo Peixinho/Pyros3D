@@ -76,7 +76,23 @@ namespace p3d
 			// differ only by tint into a single draw - a uniform is per
 			// draw call, so anything that varies per element and stays a
 			// uniform is a draw call.
-			VertexColor = 0x10000000
+			VertexColor = 0x10000000,
+			// 2D lighting: distance-only falloff, no N.L term.
+			//
+			// A sprite is a flat quad with a single normal facing the camera,
+			// so N.L is degenerate for it - a light placed in the sprite's own
+			// plane, which is exactly where 2D authoring puts one, sits at
+			// grazing incidence and leaves the sprite unlit. Measured: a
+			// PointLight at a quad's own z rendered it black, and only lit it
+			// once pushed several units toward the camera.
+			//
+			// A ShaderUsage flag rather than a separate shader file, because
+			// a GenericShaderMaterial serializes completely - colour map,
+			// blending, cull face and these options - and gets the engine's
+			// uniform plumbing for free. A bespoke CustomShaderMaterial does
+			// not: SceneSerializer never restores SetExtraUniformBlock(), so
+			// one came back from a saved scene with its uniforms unwired.
+			Lighting2D = 0x20000000
 		};
 	};
 }

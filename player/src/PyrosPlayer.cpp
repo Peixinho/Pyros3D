@@ -27,6 +27,7 @@
 #include <filesystem>
 #include <fstream>
 #include <set>
+#include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
@@ -130,6 +131,9 @@ PyrosPlayer::PyrosPlayer()
 			: (WindowType::Close | WindowType::Resize))
 {
 	scene = NULL;
+	overlayScene = NULL;
+	pendingOverlayHide = false;
+	sceneIs2D = false;
 	physics = NULL;
 	wheelDelta = 0.f;
 	renderer = NULL;
@@ -406,6 +410,9 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 
 	currentSceneRel = sceneRel;
 	sceneLoaded = true;
+	// See PyrosPlayer.h - a 2D scene defaults its camera to orthographic.
+	sceneIs2D = meta.twoD;
+	if (sceneIs2D) cameraOrthographic = true;
 
 	// Styles are re-applied here rather than baked into the scene at build
 	// time, so shipping a different theme.palette re-skins the whole game
@@ -579,8 +586,13 @@ void PyrosPlayer::ResolveCamera(const std::string& sceneAbsPath)
 	fallbackCamera->SetPosition(Vec3(0.f, 2.f, 10.f));
 	scene->Add(fallbackCamera);
 	activeCamera = fallbackCamera.get();
-	echo("WARNING: this scene has no camera - rendering from a default one at the origin."
-		" Add a camera in the editor and set it active.");
+	// Not a warning for a 2D scene: its content is UICanvas trees drawn in
+	// screen space, the 3D pass is suppressed anyway, and a camera is exactly
+	// the thing it is not supposed to need. The fallback above still runs -
+	// RenderScene() wants a camera object even when it draws no world.
+	if (!sceneIs2D)
+		echo("WARNING: this scene has no camera - rendering from a default one at the origin."
+			" Add a camera in the editor and set it active.");
 }
 
 void PyrosPlayer::ApplyProjection()
@@ -608,10 +620,86 @@ void PyrosPlayer::PushLuaHostGlobals()
 	// exactly right - it is the same thing.
 	lua["setRenderCamera"] = [this](GameObject* go) { if (go) activeCamera = go; };
 	lua["loadScene"] = [this](const std::string& name) { pendingLoadSceneName = name; };
+	// Show a 2D scene over whatever is running, and take it down again. The
+	// scene shown is an ordinary scene file - usually one marked twoD - so a
+	// pause menu can also be opened on its own with loadScene().
+	lua["showOverlay"] = [this](const std::string& name) { ShowOverlayScene(name); };
+	lua["hideOverlay"] = [this]() { HideOverlayScene(); };
+	lua["overlayScene"] = [this]() { return fs::path(overlaySceneRel).stem().string(); };
 	lua["currentScene"] = [this]() { return fs::path(currentSceneRel).stem().string(); };
 	lua["echo"] = [](const std::string& msg) { p3d::LOG::_LOG::_echo(msg); };
 	lua["editorRendererType"] = PlayerManifestInstance().deferred ? std::string("deferred") : std::string("forward");
 	lua["ASSETS_PATH"] = (fs::path(PlayerManifestInstance().root) / "assets").string() + "/";
+}
+
+bool PyrosPlayer::LoadOverlayScene(const std::string& sceneRel)
+{
+	const std::string abs = (fs::path(PlayerManifestInstance().root) / sceneRel).string();
+	if (!fs::exists(abs))
+	{
+		echo("ERROR: overlay scene not found: " + sceneRel);
+		return false;
+	}
+
+	// Its own graph, never merged into the running scene - see the header.
+	// Physics is deliberately NULL: an overlay is UI, and giving it bodies
+	// would step them against the level's world.
+	delete overlayScene;
+	overlayScene = new SceneGraph();
+
+#ifdef LUA_BINDINGS
+	sol::state* luaPtr = &lua;
+#else
+	sol::state* luaPtr = NULL;
+#endif
+	SceneMeta overlayMeta;
+	const std::string expanded = ExpandSceneFile(abs);
+	const bool loaded = expanded.empty()
+		? SceneSerializer::LoadScene(overlayScene, abs, NULL, luaPtr, &sceneAssets, &overlayMeta)
+		: SceneSerializer::LoadSceneFromText(overlayScene, expanded, abs, NULL, luaPtr, &sceneAssets, &overlayMeta);
+	if (!loaded)
+	{
+		delete overlayScene;
+		overlayScene = NULL;
+		echo("ERROR: could not load overlay scene: " + sceneRel);
+		return false;
+	}
+	// Same reason LoadGameScene updates immediately after loading: components
+	// are not registered with the graph, and canvases therefore not findable,
+	// until an Update has run.
+	overlayScene->Update(GetTime());
+	overlaySceneRel = sceneRel;
+	return true;
+}
+
+void PyrosPlayer::ShowOverlayScene(const std::string& sceneRel)
+{
+	pendingOverlayName = sceneRel;
+	pendingOverlayHide = false;
+}
+
+void PyrosPlayer::HideOverlayScene()
+{
+	pendingOverlayHide = true;
+	pendingOverlayName.clear();
+}
+
+void PyrosPlayer::ApplyPendingOverlayIfAny()
+{
+	if (pendingOverlayHide)
+	{
+		pendingOverlayHide = false;
+		delete overlayScene;
+		overlayScene = NULL;
+		overlaySceneRel.clear();
+	}
+	if (pendingOverlayName.empty()) return;
+	std::string rel = pendingOverlayName;
+	pendingOverlayName.clear();
+	// Bare name or explicit project-relative path, same rule as loadScene().
+	if (rel.find('/') == std::string::npos && rel.find('\\') == std::string::npos)
+		rel = "scenes/" + rel + ".json";
+	LoadOverlayScene(rel);
 }
 
 void PyrosPlayer::ApplyPendingSceneLoadIfAny()
@@ -642,7 +730,18 @@ void PyrosPlayer::Update()
 	const f64 dt = GetTimeInterval();
 
 	physics->Update(dt, 10);
+	// Parallax, before the scene solves its transforms: every Layer2D root is
+	// repositioned for where the camera is now. Driven by the camera rather
+	// than a separate scroll value so there is only one thing that says where
+	// the view is - a layer at parallax 1 lands exactly where it was authored.
+	ApplyLayerParallax();
 	scene->Update(time);
+	// The overlay is a real SceneGraph and needs solving every frame like any
+	// other - its UI layout, animations and component registration all happen
+	// in Update(). Rendering it without this draws nothing at all:
+	// UICanvas::GetCanvasesOnScene() finds its canvases only once the
+	// components have registered, which is Update's job.
+	if (overlayScene) overlayScene->Update(time);
 
 #ifdef LUA_BINDINGS
 	if (sceneMainScript)
@@ -659,6 +758,13 @@ void PyrosPlayer::Update()
 	renderer->SetViewPort(0, 0, Width, Height);
 	renderer->PreRender(activeCamera, scene);
 	renderer->ApplyBackgroundClearColor();
+	// A 2D scene renders through the *normal* pass, not a suppressed one. Its
+	// content is ordinary world geometry - sprites are quads with materials -
+	// seen through an orthographic camera, so it wants everything the pass
+	// already does: transforms, culling, lights, sorting. An earlier version
+	// pointed the renderer at RenderLayer::None here on the assumption that a
+	// 2D scene was canvas-only; that is what UI is for, and it would have
+	// drawn nothing at all for a real 2D game.
 	renderer->RenderScene(projection, activeCamera, scene);
 
 	// UI last, over the finished frame, and input fed to it right before -
@@ -668,12 +774,20 @@ void PyrosPlayer::Update()
 	{
 		uiRenderer->Resize(Width, Height);
 		uiRenderer->RenderUI(scene);
+		// The overlay composites over the finished frame, including over the
+		// base scene's own UI - it is meant to be a pause menu or a dialog,
+		// so it belongs on top of the HUD, not under it.
+		if (overlayScene)
+			uiRenderer->RenderUI(overlayScene);
 		DispatchUIInput();
 	}
 
 #ifdef LUA_BINDINGS
 	// Between frames, never inside one: the script that asked for the
-	// switch is owned by the scene graph the switch tears down.
+	// switch is owned by the scene graph the switch tears down. The overlay
+	// has the same problem - a button in the overlay calling hideOverlay()
+	// is owned by the graph being deleted - so it is applied here too.
+	ApplyPendingOverlayIfAny();
 	ApplyPendingSceneLoadIfAny();
 #endif
 }
@@ -746,9 +860,58 @@ void PyrosPlayer::DispatchUIClick(GameObject* clicked)
 #endif
 }
 
+// A GameObject has no visibility of its own - "active" lives on components -
+// so hiding a layer means disabling the RenderingComponents under it. Walks
+// children rather than only the root, because a layer's content is its subtree.
+void PyrosPlayer::SetSubtreeRenderingEnabled(GameObject* go, const bool on)
+{
+	if (go == NULL) return;
+	const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+	for (size_t i = 0; i < comps.size(); i++)
+	{
+		if (!comps[i]) continue;
+		const uint32 t = comps[i]->GetComponentType();
+		if (t != ComponentType::RenderingComponent && t != ComponentType::RenderingInstancedComponent) continue;
+		if (on) comps[i]->Enable(); else comps[i]->Disable();
+	}
+	const std::vector<std::shared_ptr<GameObject> > &kids = go->GetChildren();
+	for (size_t i = 0; i < kids.size(); i++)
+		SetSubtreeRenderingEnabled(kids[i].get(), on);
+}
+
+void PyrosPlayer::ApplyLayerParallax()
+{
+	if (scene == NULL || activeCamera == NULL) return;
+	const Vec3 cam = activeCamera->GetWorldPosition();
+	const Vec2 scroll(cam.x, cam.y);
+
+	std::vector<std::shared_ptr<GameObject> > &all = scene->GetAllGameObjectList();
+	for (size_t i = 0; i < all.size(); i++)
+	{
+		if (!all[i]) continue;
+		const std::vector<std::shared_ptr<IComponent> > &comps = all[i]->GetComponents();
+		for (size_t c = 0; c < comps.size(); c++)
+		{
+			if (!comps[c] || comps[c]->GetComponentType() != ComponentType::Layer2D) continue;
+			Layer2D* layer = static_cast<Layer2D*>(comps[c].get());
+			// Hidden layers still get positioned: a layer toggled back on
+			// mid-scroll must appear where it belongs, not where it was when
+			// it was hidden.
+			SetSubtreeRenderingEnabled(all[i].get(), layer->IsVisible());
+			layer->ApplyParallax(scroll);
+		}
+	}
+}
+
 void PyrosPlayer::DispatchUIInput()
 {
-	std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(scene);
+	// While an overlay is up it takes input exclusively. A pause menu that
+	// let clicks through to the level under it would not be a pause menu, and
+	// this is also what keeps the base scene's focus/hover state frozen where
+	// the player left it rather than tracking a pointer it can no longer act
+	// on. Same reasoning as UICanvas modality within one scene, one level up.
+	std::vector<UICanvas*> canvases =
+		UICanvas::GetCanvasesOnScene(overlayScene ? overlayScene : scene);
 	if (canvases.empty()) return;
 
 	// Keyboard and gamepad navigation, edge-triggered: held keys must not
@@ -932,6 +1095,7 @@ void PyrosPlayer::Shutdown()
 	delete renderer; renderer = NULL;
 	DestroyGBuffer();
 	delete physics; physics = NULL;
+	delete overlayScene; overlayScene = NULL;
 	delete scene; scene = NULL;
 	delete audio; audio = NULL;
 

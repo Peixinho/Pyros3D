@@ -248,6 +248,14 @@ public:
 	bool AgentAddObject(const std::string& name, const std::string& parentName,
 		const std::vector<f32>& position, const std::vector<f32>& rotation,
 		const std::vector<f32>& scale, std::string& errOut);
+	bool AgentMakeSprite2DLit(const std::string& name, std::string& errOut);
+	// Viewport projection. A 2D scene is authored and judged through an
+	// orthographic view, so this is not a debug affordance - it is how you
+	// look at one.
+	void AgentSetViewportOrthographic(bool ortho) { isPerspective = !ortho; }
+	bool AgentIsViewportOrthographic() const { return !isPerspective; }
+	bool AgentAddSprite(const std::string& name, const std::string& texturePath,
+		const std::string& parentName, std::string& errOut);
 	bool AgentAddPrimitive(const std::string& name, const std::string& shape, const json& p,
 		const std::string& parentName, const json& color, std::string& errOut);
 	bool AgentAddLight(const std::string& name, const std::string& type, const json& p,
@@ -632,7 +640,29 @@ private:
 	void ShowAddComponentMenu(uint32 goId);
 
 	// Screen-space UI. See SceneEditOps.cpp.
+	// Attaches a Layer2D to a GameObject, making its subtree one 2D layer.
+	bool OpAddLayer2D(uint32 goId, std::string& errOut);
+	// Opt a sprite into 2D lighting (distance falloff, no N.L).
+	bool OpMakeSprite2DLit(uint32 goId, std::string& errOut);
+
+	// Textured quad with alpha blending - an authoring shortcut, not a type.
+	bool OpAddSprite(uint32 goId, const std::string& texturePath, std::string& errOut);
 	bool OpAddUIComponent(uint32 goId, const std::string& kind, const std::string& fontPath, std::string& errOut);
+	// Creates a "Canvas" GameObject with a UICanvas on it and selects it.
+	void CreateCanvasForEditing();
+
+public:
+	// Turns the (empty, just-created) scene into a 2D one: marks it twoD so
+	// the player skips the 3D pass, gives it the Canvas its content hangs
+	// off, and opens it in Canvas (2D) Mode. See SceneMeta::twoD.
+	void MakeTwoDScene();
+
+	bool IsTwoDScene() const { return sceneIsTwoD; }
+private:
+	// Round-trips through SceneMeta::twoD. A 2D scene is authored and played
+	// the same either way - on its own as a menu or a 2D game, or shown over
+	// a running 3D scene via the player's showOverlay().
+	bool sceneIsTwoD;
 	bool OpSetUIProperties(uint32 goId, const json& p, std::string& errOut);
 	bool RawSetUIProperties(uint32 goId, const json& p, std::string& errOut);
 	json CaptureUIProperties(GameObject* go);

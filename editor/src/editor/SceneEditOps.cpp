@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
 
 void SceneEditor::SelectAndFocusSceneObject(SceneObject* obj)
 {
@@ -939,6 +940,156 @@ std::string SceneEditor::ResolveUIFontPath(const std::string& requested, std::st
 	if (fs::exists("assets/arialbd.ttf", ec)) return "assets/arialbd.ttf";
 	errOut = "no font available";
 	return std::string();
+}
+
+// A sprite is a textured quad, not a new runtime concept - deliberately. The
+// data a sprite needs (a mesh, a material, a texture, a transform) is exactly
+// what RenderingComponent already carries, so this is an authoring shortcut
+// rather than a component type: it builds the plane, gives it its own material
+// so tinting one sprite does not tint every other, sizes it from the texture's
+// pixel aspect, and turns on the alpha blending a cut-out sprite needs and a
+// 3D mesh does not.
+bool SceneEditor::OpAddSprite(uint32 goId, const std::string& texturePath, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT)
+	{
+		errOut = "not a game object";
+		return false;
+	}
+	GameObject* go = (GameObject*)obj->GetPTR();
+
+	std::shared_ptr<Texture> tex;
+	f32 aspect = 1.f;
+	if (!texturePath.empty())
+	{
+		tex = std::make_shared<Texture>();
+		if (!tex->LoadTexture(ResolveAssetPath(texturePath), TextureType::Texture))
+		{
+			errOut = "could not load " + texturePath;
+			return false;
+		}
+		tex->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+		tex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		// Square by default; a wide texture gets a wide quad, so a sprite is
+		// not stretched the moment it is created.
+		if (tex->GetHeight() > 0)
+			aspect = (f32)tex->GetWidth() / (f32)tex->GetHeight();
+	}
+
+	// Plane takes half-extents (see its constructor), so this is a 2x2 quad
+	// scaled by the texture's aspect - a sensible size to then scale in the
+	// gizmo rather than a pixel-exact one, which would need a
+	// pixels-per-unit convention this engine does not have for world space.
+	std::shared_ptr<Renderable> mesh = std::make_shared<Plane>(aspect, 1.f);
+
+	// Its own material, not the shared GenericMaterial every primitive gets:
+	// a sprite is expected to carry its own texture and tint.
+	//
+	// Ordinary 3D lighting by default: a sprite created in a 3D scene should
+	// behave like everything around it, and 2D lighting is opt-in per sprite
+	// (OpMakeSprite2DLit below) because dropping N.L is only the right answer
+	// when the sprite really is lying in a 2D plane.
+	// ShaderUsage::Texture is what makes the generated shader sample
+	// uColormap at all - SetColorMap() only registers the uniform, it does not
+	// turn the sampling on, so a material given a texture without this flag
+	// renders flat and looks like a texture that failed to load.
+	uint32 usage = ShaderUsage::Color | ShaderUsage::Diffuse;
+	if (tex) usage |= ShaderUsage::Texture;
+	std::shared_ptr<GenericShaderMaterial> mat = std::make_shared<GenericShaderMaterial>(usage);
+	mat->SetColor(Vec4(1.f, 1.f, 1.f, 1.f));
+	if (tex) mat->SetColorMap(tex);
+	// Cut-out sprites are the normal case and a quad has no meaningful back
+	// face - both of which are wrong defaults for a 3D mesh and right here.
+	mat->EnableBlending();
+	mat->BlendingEquation(BlendEq::Add);
+	mat->BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
+	mat->SetCullFace(CullFace::DoubleSided);
+
+	go->Add(std::make_shared<RenderingComponent>(mesh, mat));
+	MarkSceneDirty();
+	return true;
+}
+
+// Swaps a sprite's material for the 2D-lit one: distance-only falloff, no
+// N.L. See ShaderUsage::Lighting2D for why - a flat quad has one normal, so a
+// light in its own plane is at grazing incidence and leaves it unlit, which is
+// exactly where 2D authoring puts lights.
+
+bool SceneEditor::OpMakeSprite2DLit(uint32 goId, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT)
+	{
+		errOut = "not a game object";
+		return false;
+	}
+	GameObject* go = (GameObject*)obj->GetPTR();
+
+	// The options are fixed at construction, and whether to sample a texture
+	// is one of them, so the existing colour map has to be found before the
+	// new material is built rather than copied onto it afterwards.
+	std::shared_ptr<Texture> existing;
+	{
+		const std::vector<std::shared_ptr<IComponent> > &pre = go->GetComponents();
+		for (size_t i = 0; i < pre.size() && !existing; i++)
+		{
+			if (!pre[i] || pre[i]->GetComponentType() != ComponentType::RenderingComponent) continue;
+			std::vector<RenderingMesh*> &ms = static_cast<RenderingComponent*>(pre[i].get())->GetMeshes();
+			for (size_t m = 0; m < ms.size() && !existing; m++)
+			{
+				GenericShaderMaterial* prev = ms[m]->Material
+					? dynamic_cast<GenericShaderMaterial*>(ms[m]->Material.get()) : NULL;
+				if (prev) existing = prev->GetColorMapShared();
+			}
+		}
+	}
+
+	// A GenericShaderMaterial with ShaderUsage::Lighting2D, not a bespoke
+	// shader file - see that flag's comment. This serializes completely and
+	// therefore survives a scene reload, which the custom-material version
+	// did not.
+	uint32 usage2d = ShaderUsage::Color | ShaderUsage::Diffuse | ShaderUsage::Lighting2D;
+	if (existing) usage2d |= ShaderUsage::Texture;
+	std::shared_ptr<GenericShaderMaterial> mat = std::make_shared<GenericShaderMaterial>(usage2d);
+	mat->SetColor(Vec4(1.f, 1.f, 1.f, 1.f));
+	if (existing) mat->SetColorMap(existing);
+	mat->EnableBlending();
+	mat->BlendingEquation(BlendEq::Add);
+	mat->BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
+	mat->SetCullFace(CullFace::DoubleSided);
+
+
+	bool any = false;
+	const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+	for (size_t i = 0; i < comps.size(); i++)
+	{
+		if (!comps[i] || comps[i]->GetComponentType() != ComponentType::RenderingComponent) continue;
+		RenderingComponent* rc = static_cast<RenderingComponent*>(comps[i].get());
+		std::vector<RenderingMesh*> &meshes = rc->GetMeshes();
+		for (size_t m = 0; m < meshes.size(); m++)
+		{
+			meshes[m]->Material = mat;
+			any = true;
+		}
+	}
+	if (!any) { errOut = "no RenderingComponent to convert"; return false; }
+	MarkSceneDirty();
+	return true;
+}
+
+bool SceneEditor::OpAddLayer2D(uint32 goId, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT)
+	{
+		errOut = "not a game object";
+		return false;
+	}
+	GameObject* go = (GameObject*)obj->GetPTR();
+	go->Add(std::make_shared<Layer2D>());
+	MarkSceneDirty();
+	return true;
 }
 
 bool SceneEditor::OpAddUIComponent(uint32 goId, const std::string& kind, const std::string& fontPath, std::string& errOut)

@@ -67,7 +67,13 @@ namespace p3d {
 			UIMenuItem,
 			// A dialog: shown over everything and, while it is, the only
 			// thing that can be interacted with.
-			UIPopup
+			UIPopup,
+			// A 2D scene layer: draw order (its root's z, which is what the
+			// orthographic camera a 2D scene uses sorts by anyway) and how
+			// fast it scrolls relative to the camera. See Layer2D.h for why
+			// it carries so little - membership, filtering and ordering all
+			// already existed.
+			Layer2D
 		};
 	}
 

@@ -87,25 +87,31 @@ bool CGizmoTransformMove::GetOpType(MOVETYPE &type, unsigned int x, unsigned int
 	// plan 1 : X/Z
 	df = RayTrace2(rayOrigin, rayDir, GetTransformedVector(1), mt, trss, false);
 
-	if ( ( df.x >= 0 ) && (df.x <= 1) && ( fabs(df.z) < 0.1f ) ) { type = MOVE_X; return true; }
-	else if ( ( df.z >= 0 ) && (df.z <= 1) && ( fabs(df.x) < 0.1f ) ){ type = MOVE_Z; return true; }
-	else if ( (df.x<0.5f) && (df.z<0.5f) && (df.x>0) && (df.z>0)) { type = MOVE_XZ; return true; }
+	// Same mask as the draw above - an axis that is not drawn must not be
+	// pickable, or the gizmo answers clicks with an axis the user cannot see.
+	const bool pickX = (mMask & AXIS_X) != 0;
+	const bool pickY = (mMask & AXIS_Y) != 0;
+	const bool pickZ = (mMask & AXIS_Z) != 0;
+
+	if ( pickX && ( df.x >= 0 ) && (df.x <= 1) && ( fabs(df.z) < 0.1f ) ) { type = MOVE_X; return true; }
+	else if ( pickZ && ( df.z >= 0 ) && (df.z <= 1) && ( fabs(df.x) < 0.1f ) ){ type = MOVE_Z; return true; }
+	else if ( pickX && pickZ && (df.x<0.5f) && (df.z<0.5f) && (df.x>0) && (df.z>0)) { type = MOVE_XZ; return true; }
 	else {
 
 		//plan 2 : X/Y
 		df = RayTrace2(rayOrigin, rayDir, GetTransformedVector(2), mt, trss, false);
 
-		if ( ( df.x >= 0 ) && (df.x <= 1) && ( fabs(df.y) < 0.1f ) ) { type = MOVE_X; return true; }
-		if ( ( df.y >= 0 ) && (df.y <= 1) && ( fabs(df.x) < 0.1f ) ) { type = MOVE_Y; return true; }
-		else if ( (df.x<0.5f) && (df.y<0.5f) && (df.x>0) && (df.y>0)) { type = MOVE_XY; return true; }
+		if ( pickX && ( df.x >= 0 ) && (df.x <= 1) && ( fabs(df.y) < 0.1f ) ) { type = MOVE_X; return true; }
+		if ( pickY && ( df.y >= 0 ) && (df.y <= 1) && ( fabs(df.x) < 0.1f ) ) { type = MOVE_Y; return true; }
+		else if ( pickX && pickY && (df.x<0.5f) && (df.y<0.5f) && (df.x>0) && (df.y>0)) { type = MOVE_XY; return true; }
 		else
 		{
 			//plan 3: Y/Z
 			df = RayTrace2(rayOrigin, rayDir, GetTransformedVector(0), mt, trss, false);
 
-			if ( ( df.y >= 0 ) && (df.y <= 1) && ( fabs(df.z) < 0.1f ) ) { type = MOVE_Y; return true; }
-			else if ( ( df.z >= 0 ) && (df.z <= 1) && ( fabs(df.y) < 0.1f ) ) { type = MOVE_Z; return true; }
-			else if ( (df.y<0.5f) && (df.z<0.5f) && (df.y>0) && (df.z>0)) { type = MOVE_YZ; return true; }
+			if ( pickY && ( df.y >= 0 ) && (df.y <= 1) && ( fabs(df.z) < 0.1f ) ) { type = MOVE_Y; return true; }
+			else if ( pickZ && ( df.z >= 0 ) && (df.z <= 1) && ( fabs(df.y) < 0.1f ) ) { type = MOVE_Z; return true; }
+			else if ( pickY && pickZ && (df.y<0.5f) && (df.z<0.5f) && (df.y>0) && (df.z>0)) { type = MOVE_YZ; return true; }
 
 		}
 	}
@@ -227,25 +233,40 @@ void CGizmoTransformMove::Draw()
 		    axeZ.Normalize();
         }
 
-		DrawQuad(orig, 0.5f*GetScreenFactor(), (m_MoveTypePredict == MOVE_XZ), axeX, axeZ,m_Proj,m_Model);
-		DrawQuad(orig, 0.5f*GetScreenFactor(), (m_MoveTypePredict == MOVE_XY), axeX, axeY,m_Proj,m_Model);
-		DrawQuad(orig, 0.5f*GetScreenFactor(), (m_MoveTypePredict == MOVE_YZ), axeY, axeZ,m_Proj,m_Model);
+		// SetAxisMask() was honoured by the rotate gizmo only. A 2D scene
+		// masks Z off (draw order is not something you drag), and without
+		// this the blue Z arrow still drew - pointing straight at an
+		// orthographic camera, so it rendered as a dot on the origin that
+		// still swallowed clicks meant for X or Y.
+		const bool useX = (mMask & AXIS_X) != 0;
+		const bool useY = (mMask & AXIS_Y) != 0;
+		const bool useZ = (mMask & AXIS_Z) != 0;
+
+		if (useX && useZ) DrawQuad(orig, 0.5f*GetScreenFactor(), (m_MoveTypePredict == MOVE_XZ), axeX, axeZ,m_Proj,m_Model);
+		if (useX && useY) DrawQuad(orig, 0.5f*GetScreenFactor(), (m_MoveTypePredict == MOVE_XY), axeX, axeY,m_Proj,m_Model);
+		if (useY && useZ) DrawQuad(orig, 0.5f*GetScreenFactor(), (m_MoveTypePredict == MOVE_YZ), axeY, axeZ,m_Proj,m_Model);
 
 		axeX*=GetScreenFactor();
 		axeY*=GetScreenFactor();
 		axeZ*=GetScreenFactor();
 
 		// plan1
+		if (useX) {
 		if (m_MoveTypePredict != MOVE_X) DrawAxis(orig,axeX,axeY,axeZ,0.05f,0.83f,vector4(1,0,0,1), m_Proj, m_Model);
 			else DrawAxis(orig,axeX,axeY,axeZ, 0.05f,0.83f,vector4(1,1,0,1), m_Proj, m_Model);
+		}
 
 		//plan2
+		if (useY) {
 		if (m_MoveTypePredict != MOVE_Y) DrawAxis(orig,axeY,axeX,axeZ, 0.05f,0.83f,vector4(0,1,0,1), m_Proj, m_Model);
 			else DrawAxis(orig,axeY,axeX,axeZ, 0.05f,0.83f,vector4(1,1,0,1), m_Proj, m_Model);
+		}
 
 		//plan3
+		if (useZ) {
 		if (m_MoveTypePredict != MOVE_Z) DrawAxis(orig,axeZ,axeX,axeY, 0.05f,0.83f,vector4(0,0,1,1), m_Proj, m_Model);
 			else DrawAxis(orig,axeZ,axeX,axeY, 0.05f,0.83f,vector4(1,1,0,1), m_Proj, m_Model);
+		}
 	}
 
 }

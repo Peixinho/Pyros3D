@@ -37,6 +37,7 @@
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <Pyros3D/Core/InputManager/InputManager.h>
 #include <Pyros3D/Physics/Components/IPhysicsComponent.h>
+#include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
 #include <fstream>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -522,6 +523,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		playModeSavedCameraId = 0;
 		showPhysicsDebug = true;
 		uiEditMode = false;
+		sceneIsTwoD = false;
 		canvasDragHandle = -1;
 		canvasDragGoId = 0;
 
@@ -2437,7 +2439,32 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::PushID((int)i);
 			ImGui::Separator();
 
-			if (type == ComponentType::UICanvas)
+			if (type == ComponentType::Layer2D)
+			{
+				Layer2D* l = static_cast<Layer2D*>(comps[i].get());
+				ImGui::Text("Layer 2D");
+
+				Vec2 par = l->GetParallax();
+				if (ImGui::DragFloat2("Parallax", (float*)&par, 0.01f, 0.f, 4.f))
+				{
+					l->SetParallax(par);
+					MarkSceneDirty();
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("1 = moves with the camera, 0 = pinned on screen,\n0.5 = half speed (further away). The two axes are\nindependent, so a sky can scroll sideways and stay\nput vertically.");
+
+				bool vis = l->IsVisible();
+				if (ImGui::Checkbox("Visible", &vis))
+				{
+					l->SetVisible(vis);
+					MarkSceneDirty();
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Hides every mesh under this layer without unparenting\nor deleting anything.");
+
+				ImGui::TextDisabled("Draw order is this object's Z.");
+			}
+			else if (type == ComponentType::UICanvas)
 			{
 				UICanvas* c = static_cast<UICanvas*>(comps[i].get());
 				ImGui::Text("UI Canvas");
@@ -3409,6 +3436,31 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				OpenAddFormOnGameObject(goId, 19);
 				ImGui::CloseCurrentPopup();
 			}
+			// 2D authoring shortcuts. Neither is a new component type - a
+			// sprite is a textured quad and a layer is a transform with a
+			// parallax factor, both built out of what already exists.
+			if (ImGui::MenuItem("Sprite"))
+			{
+				std::string serr;
+				if (!OpAddSprite(goId, std::string(), serr))
+					echo("WARNING: could not add Sprite: " + serr);
+				ImGui::CloseCurrentPopup();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("A textured, alpha-blended quad. Assign its texture in\nProperties - it starts white and square.");
+
+			// A 2D scene layer. One click, no form: the useful defaults are
+			// parallax 1 and visible, and both are edited in Properties.
+			if (ImGui::MenuItem("Layer 2D"))
+			{
+				std::string lerr;
+				if (!OpAddLayer2D(goId, lerr))
+					echo("WARNING: could not add Layer2D: " + lerr);
+				ImGui::CloseCurrentPopup();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Everything under this object becomes one 2D layer:\nits z is the draw order, and its parallax factor is how\nfast it scrolls relative to the camera.");
+
 			if (ImGui::MenuItem("Particle System"))
 			{
 				AddForm_particleTexturePath.clear();
@@ -3509,11 +3561,46 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (ImGui::MenuItem("Show Physics Debug", NULL, showPhysicsDebug))
 			showPhysicsDebug = !showPhysicsDebug;
 		ImGui::Separator();
+		// Always enabled, and it creates what it needs. It used to be greyed
+		// out until the scene already had a UICanvas, which made the one menu
+		// item named after 2D editing the one place that could not get you
+		// there - the canvas itself is only offered on a GameObject's own Add
+		// menu, so you had to know to make an object and right-click it first.
 		const bool haveCanvas = (GetEditingCanvas() != NULL);
-		if (ImGui::MenuItem("Canvas (2D) Mode", "", uiEditMode, haveCanvas))
+		if (ImGui::MenuItem("Canvas (2D) Mode", "", uiEditMode))
+		{
+			if (!uiEditMode && !haveCanvas)
+				CreateCanvasForEditing();
 			uiEditMode = !uiEditMode;
+		}
 		if (!haveCanvas && ImGui::IsItemHovered())
-			ImGui::SetTooltip("This scene has no UICanvas yet.");
+			ImGui::SetTooltip("Adds a UICanvas to this scene and edits it in 2D.");
+	}
+
+	// One Canvas, selected and ready to have elements added to it. Shared by
+	// the View menu's 2D toggle and by New 2D Scene.
+	void SceneEditor::MakeTwoDScene()
+	{
+		sceneIsTwoD = true;
+		if (GetEditingCanvas() == NULL)
+			CreateCanvasForEditing();
+		uiEditMode = true;
+		MarkSceneDirty();
+	}
+
+	void SceneEditor::CreateCanvasForEditing()
+	{
+		SceneObject* obj = sceneObjects->CreateGameObject("Canvas");
+		if (!obj) return;
+		std::string err;
+		if (!OpAddUIComponent(obj->GetID(), "Canvas", std::string(), err))
+		{
+			echo("WARNING: could not add UICanvas: " + err);
+			return;
+		}
+		MarkSceneDirty();
+		PushAddCommand(obj);
+		SelectedSceneObject = obj;
 	}
 
 	UICanvas* SceneEditor::GetEditingCanvas() const
@@ -4780,6 +4867,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			mray.GetDirection().x, mray.GetDirection().y, mray.GetDirection().z);
 		gizmo->SetScreenDimension(dim.x, dim.y, isPerspective, l, r, b, t);
 
+		// In a 2D scene, Z is draw order, not a thing you drag - and under the
+		// orthographic camera such a scene is viewed with, the Z arrow points
+		// straight at the viewer, so it drew as a dot sitting on the origin
+		// that still took clicks aimed at X and Y. Mask it off; rotation keeps
+		// Z, because rotating *in* the plane is the one rotation 2D wants and
+		// it is the Z axis that does it.
+		if (sceneIsTwoD)
+			gizmo->SetAxisMask(GizmoInUse == GizmoFunction::ROTATION
+				? (IGizmo::AXIS_Z | IGizmo::AXIS_SCREEN)
+				: (IGizmo::AXIS_X | IGizmo::AXIS_Y));
+		else
+			gizmo->SetAxisMask(IGizmo::AXIS_ALL);
+
 		if (GizmoInUse == GizmoFunction::SCALE) {
 			if (hasParent)
 				gizmo->SetLocalTransform((float*)&anchorWorld.m);
@@ -5664,6 +5764,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		try {
 			SceneMeta meta;
 			meta.ambientLight = ambientLightColor;
+			meta.twoD = sceneIsTwoD;
 #ifdef LUA_BINDINGS
 			PushLuaHostGlobals();
 			meta.mainScript = sceneMainScriptPath;
@@ -5840,6 +5941,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					sceneMainScriptPath = meta.mainScript;
 				else
 					sceneMainScriptPath = ProjectManager::SceneScriptPathForSceneJson(path);
+				sceneIsTwoD = meta.twoD;
 				RebuildSceneMainScriptInstance();
 			}
 #else
@@ -9197,6 +9299,32 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return OpAddUIComponent(obj->GetID(), kind, fontPath, errOut);
 	}
 
+	bool SceneEditor::AgentMakeSprite2DLit(const std::string& name, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		return OpMakeSprite2DLit(obj->GetID(), errOut);
+	}
+
+	bool SceneEditor::AgentAddSprite(const std::string& name, const std::string& texturePath,
+		const std::string& parentName, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* parent = NULL;
+		if (!parentName.empty())
+		{
+			parent = AgentFindGameObjectByName(sceneObjects, parentName);
+			if (!parent) { errOut = "parent '" + parentName + "' not found"; return false; }
+		}
+		SceneObject* obj = sceneObjects->CreateGameObject(name.empty() ? "Sprite" : name);
+		if (!obj) { errOut = "failed to create game object"; return false; }
+		if (!OpAddSprite(obj->GetID(), texturePath, errOut)) return false;
+		if (parent) sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
+		PushAddCommand(obj);
+		return true;
+	}
+
 	bool SceneEditor::AgentAddPrimitive(const std::string& name, const std::string& shape, const json& p,
 		const std::string& parentName, const json& color, std::string& errOut)
 	{
@@ -9710,7 +9838,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	bool SceneEditor::AgentSetCanvasMode(bool on, std::string& errOut)
 	{
-		if (on && GetEditingCanvas() == NULL) { errOut = "this scene has no UICanvas"; return false; }
+		// Creates the canvas rather than refusing, so this matches what the
+		// View menu's "Canvas (2D) Mode" item now does - the two used to
+		// disagree, and an agent could not get into 2D mode at all without
+		// knowing to add_object + add_ui Canvas first.
+		if (on && GetEditingCanvas() == NULL)
+		{
+			CreateCanvasForEditing();
+			if (GetEditingCanvas() == NULL) { errOut = "could not create a UICanvas"; return false; }
+		}
 		uiEditMode = on;
 		return true;
 	}

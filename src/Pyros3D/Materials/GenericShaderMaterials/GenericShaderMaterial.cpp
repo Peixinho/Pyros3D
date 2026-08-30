@@ -63,6 +63,8 @@ namespace p3d
 			define += std::string("#define DIFFUSE\n");
 		if (options & ShaderUsage::CellShading)
 			define += std::string("#define CELLSHADING\n");
+		if (options & ShaderUsage::Lighting2D)
+			define += std::string("#define LIGHTING2D\n");
 		if (options & ShaderUsage::ClipPlane)
 			define += std::string("#define CLIPSPACE\n");
 		if (options & ShaderUsage::DeferredRenderer_Gbuffer)

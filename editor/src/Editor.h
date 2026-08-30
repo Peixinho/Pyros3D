@@ -371,6 +371,8 @@ private:
 	SceneEditor* FindSceneDocumentByPath(const std::string& absPath) const;
 	bool OpenSceneDocument(const std::string& absPath);
 	bool OpenNewSceneDocument();
+	// Same, but the scene starts marked twoD with a Canvas, in 2D mode.
+	bool OpenNew2DSceneDocument();
 	void FlushPendingSceneDocumentCloses();
 	bool AnySceneHasUnsavedWork() const;
 	bool AnySceneDocumentHasUnsavedWork() const;

@@ -606,11 +606,29 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
         void CalculateLighting(vec3 LightVec, vec3 HalfVec, vec3 Normal, float Shininess, out float lightIntensity, out float specularPower)
         {
-
-            float specularLight = 0.0;
-            float diffuseLight = max(dot(LightVec,Normal),0.0);
-            lightIntensity = max(dot(LightVec,Normal),0.0);
-            specularPower = (lightIntensity>0.0?pow(max(dot(HalfVec,Normal),0.0), Shininess):0.0);
+            #ifdef LIGHTING2D
+                // 2D lighting: no N.L, no specular. A sprite is a flat quad
+                // with one normal facing the camera, so N.L is degenerate for
+                // it - a light in the sprite's own plane, which is exactly
+                // where 2D authoring puts one, is at grazing incidence and
+                // leaves it unlit. Measured: a PointLight at a quad's own z
+                // rendered it black.
+                //
+                // Dropping the term here rather than in each light branch
+                // means every light type inherits it: a point light becomes
+                // pure radial falloff (its Attenuation() is applied by the
+                // caller and is untouched), a spot keeps its cone, and a
+                // directional becomes the flat wash a 2D "sun" should be.
+                // Specular needs a real surface orientation to mean anything,
+                // so it goes to zero rather than to some arbitrary constant.
+                lightIntensity = 1.0;
+                specularPower = 0.0;
+            #else
+                float specularLight = 0.0;
+                float diffuseLight = max(dot(LightVec,Normal),0.0);
+                lightIntensity = max(dot(LightVec,Normal),0.0);
+                specularPower = (lightIntensity>0.0?pow(max(dot(HalfVec,Normal),0.0), Shininess):0.0);
+            #endif
         }
 
         #ifdef PBR

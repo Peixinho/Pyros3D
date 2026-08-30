@@ -2031,6 +2031,31 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	if (name == "set_viewport_projection")
+	{
+		const std::string proj = A("projection");
+		if (proj != "orthographic" && proj != "ortho" && proj != "perspective")
+			throw std::runtime_error("projection must be 'perspective' or 'orthographic'");
+		sceneView->AgentSetViewportOrthographic(proj != "perspective");
+		nlohmann::json r;
+		r["ok"] = true;
+		r["projection"] = sceneView->AgentIsViewportOrthographic() ? "orthographic" : "perspective";
+		return r;
+	}
+	if (name == "sprite_2d_lit")
+	{
+		if (!sceneView->AgentMakeSprite2DLit(A("name"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; return r;
+	}
+	if (name == "add_sprite")
+	{
+		if (!sceneView->AgentAddSprite(A("name"), A("texture"), A("parent"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "add_primitive")
 	{
 		if (!sceneView->AgentAddPrimitive(A("name"), A("shape"), a, A("parent"), a.contains("color") ? a["color"] : nlohmann::json(), err))
@@ -2552,6 +2577,13 @@ void Editor::DrawUI()
 			{
 				ImGui::Separator();
 				sceneView->ShowFileMenuItems();
+				// Next to New Scene deliberately: a 2D scene is an ordinary
+				// scene that happens to be marked twoD and start with a
+				// Canvas, not a separate kind of document. It plays on its
+				// own as a menu or a 2D game, and the player can also show it
+				// over a running 3D scene with showOverlay().
+				if (ImGui::MenuItem("New 2D Scene", ""))
+					OpenNew2DSceneDocument();
 			}
 
 			ImGui::Separator();
@@ -5502,6 +5534,15 @@ bool Editor::OpenNewSceneDocument()
 	if (!project.IsOpen()) return false;
 	SceneEditor* doc = CreateSceneDocument();
 	doc->NewScene();
+	return true;
+}
+
+bool Editor::OpenNew2DSceneDocument()
+{
+	if (!project.IsOpen()) return false;
+	SceneEditor* doc = CreateSceneDocument();
+	doc->NewScene();
+	doc->MakeTwoDScene();
 	return true;
 }
 
