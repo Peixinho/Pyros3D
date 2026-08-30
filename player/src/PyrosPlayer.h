@@ -97,6 +97,8 @@ private:
 	// synced, audio sources and particle systems started, scripts allowed
 	// to run, scene main script initialised.
 	bool LoadGameScene(const std::string& sceneRel);
+	// Peeks the startup scene's twoD flag before the renderer is built.
+	static bool StartupSceneIsTwoD(const PlayerManifest& m);
 
 	// --- 2D scenes and overlays -------------------------------------------
 	// A scene marked twoD (SceneMeta::twoD) is an ordinary scene seen through

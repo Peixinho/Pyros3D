@@ -245,7 +245,29 @@ void PyrosPlayer::Init()
 	else
 		echo("WARNING: no audio device - the game will run silent");
 
-	if (m.deferred)
+	// A 2D scene is always forward, whatever the manifest asked for.
+	//
+	// Not a preference - deferred cannot draw it. Sprites are alpha-blended
+	// quads and a deferred renderer cannot blend into a G-buffer at all
+	// (which is the entire reason ShaderUsage::AlphaTest exists), so a 2D
+	// scene rendered deferred loses its blending. And ShaderUsage::Lighting2D
+	// is a material flag compiled into the forward shader: the deferred
+	// lighting passes shade whatever is in the G-buffer with no idea which
+	// material wrote each pixel, so sprites would be lit with the N.L term
+	// that Lighting2D exists to remove and would come back dark. There is no
+	// spare G-buffer channel to mark them with either - FragData_pbr already
+	// carries roughness, metallic, SSR and reflectivity.
+	//
+	// Read before the renderer is built, which is before the scene is loaded,
+	// so this peeks at the startup scene's flag rather than waiting for it.
+	bool sceneWantsForward = false;
+	if (m.deferred && StartupSceneIsTwoD(m))
+	{
+		sceneWantsForward = true;
+		echo("Startup scene is 2D - using the forward renderer (deferred cannot blend sprites)");
+	}
+
+	if (m.deferred && !sceneWantsForward)
 	{
 		BuildGBuffer(Width, Height);
 		renderer = new DeferredRenderer(Width, Height, gbufferFBO);
@@ -383,6 +405,29 @@ std::string PyrosPlayer::ExpandSceneFile(const std::string& absPath)
 
 	if (links.empty()) return std::string();
 	return sceneJson.dump();
+}
+
+// Just the twoD flag, without loading anything. The renderer has to be chosen
+// before the scene is loaded, so the alternative would be building the wrong
+// one and swapping it a moment later.
+bool PyrosPlayer::StartupSceneIsTwoD(const PlayerManifest& m)
+{
+	if (m.startupScene.empty()) return false;
+	const std::string abs = (fs::path(m.root) / m.startupScene).string();
+	std::ifstream f(abs);
+	if (!f.good()) return false;
+	try
+	{
+		nlohmann::json j;
+		f >> j;
+		return j.value("twoD", false);
+	}
+	catch (...)
+	{
+		// A scene this cannot parse is one LoadGameScene is about to complain
+		// about properly; defaulting to the manifest's choice is right here.
+		return false;
+	}
 }
 
 bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
