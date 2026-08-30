@@ -26,6 +26,8 @@
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 #include <Pyros3D/Rendering/Components/UI/UIText.h>
 #include <Pyros3D/Rendering/Components/UI/UIButton.h>
+#include <Pyros3D/Rendering/Components/UI/UIToggle.h>
+#include <Pyros3D/Rendering/Components/UI/UISlider.h>
 
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
@@ -466,6 +468,43 @@ namespace p3d {
 		if (n == "Disabled") return UIState::Disabled;
 		if (n == "Focused")  return UIState::Focused;
 		return UIState::Normal;
+	}
+
+	// The five-state style table both a button and a checkbox carry. Only
+	// states that actually override something are written, so an element
+	// using the defaults stays a four-line entry rather than a table of
+	// five values all equal to Normal.
+	static json UIStatesToJson(UIButton* b)
+	{
+		json st = json::object();
+		for (uint32 i = 0; i < UIState::Count; i++)
+		{
+			const UIStateStyle &ss = b->GetState(i);
+			const bool hasOffset = (ss.offset.x != 0.f || ss.offset.y != 0.f);
+			if (!ss.hasTint && !ss.hasTextColor && !hasOffset) continue;
+			json e;
+			if (ss.hasTint) e["tint"] = ToJson(ss.tint);
+			if (ss.hasTextColor) e["textColor"] = ToJson(ss.textColor);
+			if (hasOffset) e["offset"] = ToJson(ss.offset);
+			st[UIStateName(i)] = e;
+		}
+		return st;
+	}
+
+	static void UIStatesFromJson(UIButton* b, const json &j)
+	{
+		if (j.find("states") == j.end() || !j["states"].is_object()) return;
+		// A state present in the file but empty still clears the defaults
+		// for that state, which is how "no press nudge" is expressed.
+		for (uint32 i = 0; i < UIState::Count; i++) b->State(i) = UIStateStyle();
+		for (json::const_iterator it = j["states"].begin(); it != j["states"].end(); ++it)
+		{
+			UIStateStyle &ss = b->State(UIStateFromName(it.key()));
+			const json &e = it.value();
+			if (e.find("tint") != e.end()) { ss.hasTint = true; ss.tint = Vec4FromJson(e["tint"]); }
+			if (e.find("textColor") != e.end()) { ss.hasTextColor = true; ss.textColor = Vec4FromJson(e["textColor"]); }
+			if (e.find("offset") != e.end()) ss.offset = Vec2FromJson(e["offset"]);
+		}
 	}
 
 	static const char* UIAlignName(const uint32 a)
@@ -1349,6 +1388,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["offsetMin"] = ToJson(r->GetOffsetMin());
 			j["offsetMax"] = ToJson(r->GetOffsetMax());
 			j["pivot"] = ToJson(r->GetPivot());
+			// Only when hidden: visible is what almost every element is.
+			if (!r->IsVisible()) j["visible"] = false;
 			// Opaque here by design - see UIRect::SetStyleRef.
 			if (!r->GetStyleRef().empty()) j["styleRef"] = r->GetStyleRef();
 			if (!r->GetStyleOverrides().empty())
@@ -1408,22 +1449,38 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["interactable"] = b->IsInteractable();
 			j["transition"] = b->GetTransition();
 			if (!b->GetOnClick().empty()) j["onClick"] = b->GetOnClick();
-			// Only states that actually override something, so a button
-			// using the defaults stays a four-line entry instead of a
-			// five-state table of values equal to Normal.
-			json st = json::object();
-			for (uint32 i = 0; i < UIState::Count; i++)
-			{
-				const UIStateStyle &ss = b->GetState(i);
-				const bool hasOffset = (ss.offset.x != 0.f || ss.offset.y != 0.f);
-				if (!ss.hasTint && !ss.hasTextColor && !hasOffset) continue;
-				json e;
-				if (ss.hasTint) e["tint"] = ToJson(ss.tint);
-				if (ss.hasTextColor) e["textColor"] = ToJson(ss.textColor);
-				if (hasOffset) e["offset"] = ToJson(ss.offset);
-				st[UIStateName(i)] = e;
-			}
+			const json st = UIStatesToJson(b);
 			if (!st.empty()) j["states"] = st;
+			return j;
+		}
+		case ComponentType::UIToggle:
+		{
+			UIToggle* t = dynamic_cast<UIToggle*>(c);
+			j["type"] = "UIToggle";
+			j["interactable"] = t->IsInteractable();
+			j["transition"] = t->GetTransition();
+			j["value"] = t->GetValue();
+			if (!t->GetOnClick().empty()) j["onClick"] = t->GetOnClick();
+			if (!t->GetOnChange().empty()) j["onChange"] = t->GetOnChange();
+			if (t->GetCheckElement() != "Check") j["check"] = t->GetCheckElement();
+			if (!t->GetGroup().empty()) j["group"] = t->GetGroup();
+			const json st = UIStatesToJson(t);
+			if (!st.empty()) j["states"] = st;
+			return j;
+		}
+		case ComponentType::UISlider:
+		{
+			UISlider* s = dynamic_cast<UISlider*>(c);
+			j["type"] = "UISlider";
+			j["interactable"] = s->IsInteractable();
+			j["value"] = s->GetValue();
+			j["min"] = s->GetMin();
+			j["max"] = s->GetMax();
+			if (s->GetStep() != 0.f) j["step"] = s->GetStep();
+			if (s->IsVertical()) j["vertical"] = true;
+			if (!s->GetOnChange().empty()) j["onChange"] = s->GetOnChange();
+			if (s->GetFillElement() != "Fill") j["fill"] = s->GetFillElement();
+			if (s->GetHandleElement() != "Handle") j["handle"] = s->GetHandleElement();
 			return j;
 		}
 		case ComponentType::LuaComponent:
@@ -2267,6 +2324,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (j.find("offsetMin") != j.end() && j.find("offsetMax") != j.end())
 				r->SetOffsets(Vec2FromJson(j["offsetMin"]), Vec2FromJson(j["offsetMax"]));
 			if (j.find("pivot") != j.end()) r->SetPivot(Vec2FromJson(j["pivot"]));
+			r->SetVisible(j.value("visible", true));
 			r->SetStyleRef(j.value("styleRef", std::string()));
 			if (j.find("styleOverrides") != j.end() && j["styleOverrides"].is_array())
 			{
@@ -2328,22 +2386,37 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			b->SetInteractable(j.value("interactable", true));
 			b->SetTransition(j.value("transition", 0.12f));
 			b->SetOnClick(j.value("onClick", std::string()));
-			if (j.find("states") != j.end() && j["states"].is_object())
-			{
-				// A state present in the file but empty still clears the
-				// defaults for that state, which is how "no press nudge" is
-				// expressed.
-				for (uint32 i = 0; i < UIState::Count; i++) b->State(i) = UIStateStyle();
-				for (json::const_iterator it = j["states"].begin(); it != j["states"].end(); ++it)
-				{
-					UIStateStyle &ss = b->State(UIStateFromName(it.key()));
-					const json &e = it.value();
-					if (e.find("tint") != e.end()) { ss.hasTint = true; ss.tint = Vec4FromJson(e["tint"]); }
-					if (e.find("textColor") != e.end()) { ss.hasTextColor = true; ss.textColor = Vec4FromJson(e["textColor"]); }
-					if (e.find("offset") != e.end()) ss.offset = Vec2FromJson(e["offset"]);
-				}
-			}
+			UIStatesFromJson(b.get(), j);
 			go->Add(std::static_pointer_cast<IComponent>(b));
+		}
+		else if (type == "UIToggle")
+		{
+			std::shared_ptr<UIToggle> t = std::make_shared<UIToggle>();
+			t->SetInteractable(j.value("interactable", true));
+			t->SetTransition(j.value("transition", 0.12f));
+			t->SetOnClick(j.value("onClick", std::string()));
+			t->SetOnChange(j.value("onChange", std::string()));
+			t->SetCheckElement(j.value("check", std::string("Check")));
+			t->SetGroup(j.value("group", std::string()));
+			UIStatesFromJson(t.get(), j);
+			// After the group, or a group of toggles saved with one on
+			// would clear itself as each of the others loaded.
+			t->SetValue(j.value("value", false));
+			go->Add(std::static_pointer_cast<IComponent>(t));
+		}
+		else if (type == "UISlider")
+		{
+			std::shared_ptr<UISlider> s = std::make_shared<UISlider>();
+			s->SetInteractable(j.value("interactable", true));
+			s->SetRange(j.value("min", 0.f), j.value("max", 1.f));
+			s->SetStep(j.value("step", 0.f));
+			s->SetVertical(j.value("vertical", false));
+			s->SetOnChange(j.value("onChange", std::string()));
+			s->SetFillElement(j.value("fill", std::string("Fill")));
+			s->SetHandleElement(j.value("handle", std::string("Handle")));
+			// Last: the range and the step both clamp it.
+			s->SetValue(j.value("value", 0.f));
+			go->Add(std::static_pointer_cast<IComponent>(s));
 		}
 		else if (type == "LuaComponent")
 		{

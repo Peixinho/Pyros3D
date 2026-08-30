@@ -15,7 +15,7 @@ namespace p3d {
 
 	std::vector<IComponent*> UIButton::Components;
 
-	UIButton::UIButton() : IComponent()
+	UIButton::UIButton() : UIWidget()
 	{
 		transition = 0.12f;
 		current = UIState::Normal;
@@ -62,7 +62,7 @@ namespace p3d {
 		return Components;
 	}
 
-	void UIButton::SetInteractable(bool on)
+	void UIButton::SetInteractable(const bool on)
 	{
 		interactable = on;
 		if (!on) { pressedInside = false; current = UIState::Disabled; }
@@ -117,11 +117,11 @@ namespace p3d {
 		current = focused ? UIState::Focused : UIState::Normal;
 	}
 
-	bool UIButton::Activate()
+	uint32 UIButton::Activate()
 	{
-		if (!interactable) return false;
+		if (!interactable) return UIEventFlag::None;
 		clicked = true;
-		return true;
+		return UIEventFlag::Clicked;
 	}
 
 	bool UIButton::ConsumeClicked()

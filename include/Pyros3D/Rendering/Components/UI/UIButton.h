@@ -10,7 +10,7 @@
 #define	UIBUTTON_H
 
 #include <Pyros3D/Components/IComponent.h>
-#include <Pyros3D/Rendering/Components/UI/UIRect.h>
+#include <Pyros3D/Rendering/Components/UI/UIWidget.h>
 #include <Pyros3D/Other/Export.h>
 #include <string>
 #include <vector>
@@ -53,7 +53,7 @@ namespace p3d {
 		Vec2 offset;
 	};
 
-	class PYROS3D_API UIButton : public IComponent {
+	class PYROS3D_API UIButton : public UIWidget {
 
 	public:
 
@@ -70,8 +70,7 @@ namespace p3d {
 
 		static std::vector<IComponent*> &GetComponents();
 
-		void SetInteractable(bool on);
-		bool IsInteractable() const { return interactable; }
+		virtual void SetInteractable(const bool on);
 
 		UIStateStyle &State(const uint32 state) { return states[state < UIState::Count ? state : 0]; }
 		const UIStateStyle &GetState(const uint32 state) const { return states[state < UIState::Count ? state : 0]; }
@@ -95,6 +94,15 @@ namespace p3d {
 		// cancel it the way every other UI does.
 		bool OnPointer(bool inside, bool down);
 
+		// The canvas's generic entry point (see UIWidget). A button needs
+		// neither the pointer position nor its own rect - whether the
+		// pointer is inside is the whole of it.
+		virtual uint32 OnPointer(const bool inside, const bool down,
+			const Vec2 &point, const UIRectValue &rect)
+		{
+			return OnPointer(inside, down) ? UIEventFlag::Clicked : UIEventFlag::None;
+		}
+
 		// Set when OnPointer() returns true and cleared once read, so a host
 		// polling once a frame cannot miss a click or see it twice.
 		bool ConsumeClicked();
@@ -105,11 +113,12 @@ namespace p3d {
 		// it is actually over something, and focus shows through otherwise.
 		void SetFocused(bool on);
 		bool IsFocused() const { return focused; }
+		virtual void SetWidgetFocused(const bool on) { SetFocused(on); }
 
 		// Presses this button as if clicked, for a host driving the UI from
 		// a key or a pad button rather than a pointer. Returns true so the
 		// caller can dispatch the handler exactly as it does for a click.
-		bool Activate();
+		virtual uint32 Activate();
 
 	private:
 
@@ -118,7 +127,6 @@ namespace p3d {
 		UIStateStyle states[UIState::Count];
 		f32 transition;
 		uint32 current;
-		bool interactable;
 		bool pressedInside;
 		bool focused;
 		bool wasDown;

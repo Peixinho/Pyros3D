@@ -50,7 +50,16 @@ namespace p3d {
 			UIRect,
 			UIImage,
 			UIText,
-			UIButton
+			UIButton,
+			// The rest of the widget set. All of them are UIWidgets (see
+			// UIWidget.h) and reach input through the canvas the same way a
+			// button does; what differs is what they do with it and which
+			// child elements they drive.
+			UIToggle,
+			UISlider,
+			UIInput,
+			UIList,
+			UIDropdown
 		};
 	}
 

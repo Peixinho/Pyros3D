@@ -22,6 +22,7 @@ namespace p3d {
 		offsetMax = Vec2(0.f, 0.f);
 		pivot = Vec2(0.5f, 0.5f);
 		stateOffset = Vec2(0.f, 0.f);
+		visible = true;
 	}
 
 	UIRect::~UIRect() {}

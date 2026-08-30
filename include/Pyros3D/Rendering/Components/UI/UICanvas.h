@@ -11,6 +11,7 @@
 
 #include <Pyros3D/Components/IComponent.h>
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
+#include <Pyros3D/Rendering/Components/UI/UIWidget.h>
 #include <Pyros3D/Rendering/Components/UI/UIBatcher.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Other/Export.h>
@@ -110,6 +111,36 @@ namespace p3d {
 		// receive the click.
 		GameObject* UpdateInput(const Vec2 &canvasPoint, const bool pointerDown, const bool pointerInside = true);
 
+		// What every widget reported during the last UpdateInput/UpdateText/
+		// UpdateKey/UpdateScroll call, as (element, UIEventFlag bits). A
+		// click is only one of the things a UI does: a slider dragged and a
+		// field typed into both need dispatching too, and neither is a
+		// return value UpdateInput could have had.
+		struct WidgetEvent {
+			GameObject* node;
+			UIWidget* widget;
+			uint32 flags;
+			WidgetEvent(GameObject* n, UIWidget* w, const uint32 f) : node(n), widget(w), flags(f) {}
+		};
+		const std::vector<WidgetEvent> &GetEvents() const { return events; }
+
+		// Wheel notches at a point, positive away from the user. Goes to
+		// the topmost widget under the pointer that does something with it.
+		void UpdateScroll(const Vec2 &canvasPoint, const f32 delta);
+
+		// Text the platform decoded from the keyboard (UTF-8, a character
+		// rather than a key) and non-printing keys (see UIKey). Both go to
+		// the focused widget only. UpdateKey returns true if the widget
+		// claimed the key, which is how the host knows not to also use it
+		// for menu navigation.
+		void UpdateText(const std::string &utf8);
+		bool UpdateKey(const uint32 key);
+
+		// The widget under a point, topmost first, or NULL. Lets a host ask
+		// "is the pointer over the UI" before handing the click to the
+		// world underneath.
+		UIWidget* WidgetAt(const Vec2 &canvasPoint) const;
+
 		// ---- keyboard / gamepad navigation ----
 		//
 		// The canvas owns focus for the same reason it owns pointer input:
@@ -126,6 +157,8 @@ namespace p3d {
 		// Focus the first focusable element, for opening a menu on a pad.
 		GameObject* FocusFirst();
 		void ClearFocus();
+		// Moves focus explicitly, ignoring anything that does not want it.
+		void SetFocus(GameObject* go);
 		GameObject* GetFocused() const { return focused; }
 		// Presses whatever has focus. Returns it if a button was there.
 		GameObject* ActivateFocused();
@@ -156,12 +189,24 @@ namespace p3d {
 		// rect this frame, with the rect it solved.
 		std::vector<std::pair<GameObject*, UIRectValue> > hitList;
 
-		// Every UIButton reached by the last Solve(), with the rect it
-		// solved to, so input can be resolved without walking the tree
-		// again.
-		std::vector<std::pair<GameObject*, UIRectValue> > buttonList;
+		// Every interactive element reached by the last Solve(), with the
+		// rect it solved to and the widget itself, so input can be resolved
+		// without walking the tree again. In draw order, which is also
+		// hit-test order read backwards.
+		struct WidgetEntry {
+			GameObject* node;
+			UIRectValue rect;
+			UIWidget* widget;
+			WidgetEntry(GameObject* n, const UIRectValue &r, UIWidget* w) : node(n), rect(r), widget(w) {}
+		};
+		std::vector<WidgetEntry> widgetList;
+		std::vector<WidgetEvent> events;
+		// Focus follows the press, not the drag - see UpdateInput().
+		bool pointerWasDown;
 
-		// Not owning, and revalidated against buttonList every solve - an
+		UIWidget* WidgetOn(GameObject* go) const;
+
+		// Not owning, and revalidated against widgetList every solve - an
 		// element can be deleted or hidden between frames.
 		GameObject* focused;
 

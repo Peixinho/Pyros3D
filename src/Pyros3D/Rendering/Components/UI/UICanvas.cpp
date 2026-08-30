@@ -26,6 +26,7 @@ namespace p3d {
 		focused = NULL;
 		registeredScene = NULL;
 		batching = true;
+		pointerWasDown = false;
 	}
 
 	UICanvas::~UICanvas() {}
@@ -121,7 +122,7 @@ namespace p3d {
 
 		drawList.clear();
 		hitList.clear();
-		buttonList.clear();
+		widgetList.clear();
 
 		if (GetOwner() == NULL) return;
 
@@ -149,6 +150,9 @@ namespace p3d {
 			if (comps[i] && comps[i]->GetComponentType() == ComponentType::UIRect)
 			{
 				UIRect* r = static_cast<UIRect*>(comps[i].get());
+				// Hidden takes the whole subtree with it, before anything is
+				// solved: nothing to draw, nothing to hit, nothing to focus.
+				if (!r->IsVisible()) return;
 				r->Solve(parentRect, parentOrigin);
 				rect = r->GetRect();
 				origin = r->GetOriginInCanvas();
@@ -158,9 +162,14 @@ namespace p3d {
 		}
 
 		hitList.push_back(std::make_pair(node, rect));
+		// Any interactive component, not just buttons - a checkbox, a
+		// slider and a text field all reach input the same way.
 		for (size_t i = 0; i < comps.size(); i++)
-			if (comps[i] && comps[i]->GetComponentType() == ComponentType::UIButton)
-			{ buttonList.push_back(std::make_pair(node, rect)); break; }
+		{
+			if (!comps[i] || !comps[i]->IsActive()) continue;
+			if (UIWidget* w = dynamic_cast<UIWidget*>(comps[i].get()))
+			{ widgetList.push_back(WidgetEntry(node, rect, w)); break; }
+		}
 
 		for (size_t i = 0; i < comps.size(); i++)
 		{
@@ -193,57 +202,121 @@ namespace p3d {
 
 	GameObject* UICanvas::UpdateInput(const Vec2 &canvasPoint, const bool pointerDown, const bool pointerInside)
 	{
-		// Topmost first, so exactly one button can be under the pointer even
+		events.clear();
+
+		// Topmost first, so exactly one widget can be under the pointer even
 		// where several overlap - the rest are told they are not, which is
 		// what clears a stale hover when one moves over another.
+		// A disabled widget still occludes what is under it - it is drawn
+		// there, so it takes the click and does nothing with it, rather
+		// than letting it fall through to whatever it is covering.
 		GameObject* over = NULL;
-		if (pointerInside)
-			for (size_t i = buttonList.size(); i > 0 && !over; i--)
-				if (buttonList[i - 1].second.Contains(canvasPoint))
-					over = buttonList[i - 1].first;
+		for (size_t i = widgetList.size(); i > 0 && !over && pointerInside; i--)
+			if (widgetList[i - 1].rect.Contains(canvasPoint))
+				over = widgetList[i - 1].node;
+
+		// Pressing something focuses it, which is what makes clicking a text
+		// field put the caret in it. Only on the press itself: a drag that
+		// wanders over other widgets must not walk the focus along with it.
+		if (pointerDown && !pointerWasDown && over != focused)
+		{
+			UIWidget* target = WidgetOn(over);
+			if (target && target->TakesFocusOnPress()) SetFocus(over);
+		}
+		pointerWasDown = pointerDown;
 
 		GameObject* clicked = NULL;
-		for (size_t i = 0; i < buttonList.size(); i++)
+		for (size_t i = 0; i < widgetList.size(); i++)
 		{
-			GameObject* go = buttonList[i].first;
-			const std::vector<std::shared_ptr<IComponent> > &cs = go->GetComponents();
-			for (size_t j = 0; j < cs.size(); j++)
-			{
-				if (!cs[j] || cs[j]->GetComponentType() != ComponentType::UIButton) continue;
-				UIButton* b = static_cast<UIButton*>(cs[j].get());
-				if (b->OnPointer(go == over, pointerDown)) clicked = go;
-			}
+			WidgetEntry &e = widgetList[i];
+			const uint32 flags = e.widget->OnPointer(e.node == over, pointerDown, canvasPoint, e.rect);
+			if (flags == UIEventFlag::None) continue;
+			events.push_back(WidgetEvent(e.node, e.widget, flags));
+			if (flags & UIEventFlag::Clicked) clicked = e.node;
 		}
 		return clicked;
 	}
 
-	namespace {
-		UIButton* ButtonOn(GameObject* go)
+	void UICanvas::UpdateScroll(const Vec2 &canvasPoint, const f32 delta)
+	{
+		events.clear();
+		if (delta == 0.f) return;
+
+		// Innermost first: a list inside a scrolling panel takes the wheel
+		// while the pointer is over it, and the panel takes it otherwise.
+		for (size_t i = widgetList.size(); i > 0; i--)
 		{
-			if (!go) return NULL;
-			const std::vector<std::shared_ptr<IComponent> > &cs = go->GetComponents();
-			for (size_t i = 0; i < cs.size(); i++)
-				if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIButton)
-					return static_cast<UIButton*>(cs[i].get());
-			return NULL;
+			WidgetEntry &e = widgetList[i - 1];
+			if (!e.widget->IsInteractable() || !e.rect.Contains(canvasPoint)) continue;
+			const uint32 flags = e.widget->OnScroll(delta);
+			if (flags == UIEventFlag::None) continue;
+			events.push_back(WidgetEvent(e.node, e.widget, flags));
+			return;
 		}
+	}
+
+	void UICanvas::UpdateText(const std::string &utf8)
+	{
+		events.clear();
+		UIWidget* w = WidgetOn(focused);
+		if (!w || !w->IsInteractable()) return;
+		const uint32 flags = w->OnText(utf8);
+		if (flags != UIEventFlag::None) events.push_back(WidgetEvent(focused, w, flags));
+	}
+
+	bool UICanvas::UpdateKey(const uint32 key)
+	{
+		events.clear();
+		UIWidget* w = WidgetOn(focused);
+		if (!w || !w->IsInteractable()) return false;
+		bool claimed = false;
+		const uint32 flags = w->OnKey(key, claimed);
+		if (flags != UIEventFlag::None) events.push_back(WidgetEvent(focused, w, flags));
+		return claimed;
+	}
+
+	UIWidget* UICanvas::WidgetAt(const Vec2 &canvasPoint) const
+	{
+		for (size_t i = widgetList.size(); i > 0; i--)
+			if (widgetList[i - 1].widget->IsInteractable() &&
+				widgetList[i - 1].rect.Contains(canvasPoint))
+				return widgetList[i - 1].widget;
+		return NULL;
+	}
+
+	UIWidget* UICanvas::WidgetOn(GameObject* go) const
+	{
+		if (!go) return NULL;
+		for (size_t i = 0; i < widgetList.size(); i++)
+			if (widgetList[i].node == go) return widgetList[i].widget;
+		return NULL;
+	}
+
+	void UICanvas::SetFocus(GameObject* go)
+	{
+		if (focused == go) return;
+		ClearFocus();
+		if (!go) return;
+		UIWidget* w = WidgetOn(go);
+		if (!w || !w->IsFocusable()) return;
+		focused = go;
+		w->SetWidgetFocused(true);
 	}
 
 	void UICanvas::ClearFocus()
 	{
-		if (UIButton* b = ButtonOn(focused)) b->SetFocused(false);
+		if (UIWidget* w = WidgetOn(focused)) w->SetWidgetFocused(false);
 		focused = NULL;
 	}
 
 	GameObject* UICanvas::FocusFirst()
 	{
-		for (size_t i = 0; i < buttonList.size(); i++)
+		for (size_t i = 0; i < widgetList.size(); i++)
 		{
-			UIButton* b = ButtonOn(buttonList[i].first);
-			if (!b || !b->IsInteractable()) continue;
+			if (!widgetList[i].widget->IsFocusable()) continue;
 			ClearFocus();
-			focused = buttonList[i].first;
-			b->SetFocused(true);
+			focused = widgetList[i].node;
+			widgetList[i].widget->SetWidgetFocused(true);
 			return focused;
 		}
 		return NULL;
@@ -251,16 +324,16 @@ namespace p3d {
 
 	GameObject* UICanvas::MoveFocus(const Vec2 &direction)
 	{
-		if (buttonList.empty()) return focused;
+		if (widgetList.empty()) return focused;
 		// Nothing focused yet, or what was focused is gone: start over.
 		bool stillThere = false;
-		for (size_t i = 0; i < buttonList.size() && !stillThere; i++)
-			if (buttonList[i].first == focused) stillThere = true;
+		for (size_t i = 0; i < widgetList.size() && !stillThere; i++)
+			if (widgetList[i].node == focused) stillThere = true;
 		if (!stillThere) { focused = NULL; return FocusFirst(); }
 
 		UIRectValue fromRect;
-		for (size_t i = 0; i < buttonList.size(); i++)
-			if (buttonList[i].first == focused) fromRect = buttonList[i].second;
+		for (size_t i = 0; i < widgetList.size(); i++)
+			if (widgetList[i].node == focused) fromRect = widgetList[i].rect;
 		const Vec2 from = fromRect.Center();
 
 		const f32 len = sqrtf(direction.x * direction.x + direction.y * direction.y);
@@ -268,15 +341,15 @@ namespace p3d {
 		const Vec2 dir(direction.x / len, direction.y / len);
 
 		GameObject* best = NULL;
+		UIWidget* bestWidget = NULL;
 		f32 bestScore = 0.f;
-		for (size_t i = 0; i < buttonList.size(); i++)
+		for (size_t i = 0; i < widgetList.size(); i++)
 		{
-			GameObject* candidate = buttonList[i].first;
+			GameObject* candidate = widgetList[i].node;
 			if (candidate == focused) continue;
-			UIButton* b = ButtonOn(candidate);
-			if (!b || !b->IsInteractable()) continue;
+			if (!widgetList[i].widget->IsFocusable()) continue;
 
-			const Vec2 to = buttonList[i].second.Center();
+			const Vec2 to = widgetList[i].rect.Center();
 			const Vec2 delta(to.x - from.x, to.y - from.y);
 			const f32 along = delta.x * dir.x + delta.y * dir.y;
 			// Strictly in front, or "left" from a row would also match the
@@ -294,21 +367,25 @@ namespace p3d {
 			// the candidate more directly in line wins among equals, which is
 			// what makes a grid navigate like a grid.
 			const f32 score = along + offAxis * 3.f;
-			if (!best || score < bestScore) { best = candidate; bestScore = score; }
+			if (!best || score < bestScore) { best = candidate; bestWidget = widgetList[i].widget; bestScore = score; }
 		}
 
 		if (!best) return focused;
 		ClearFocus();
 		focused = best;
-		if (UIButton* b = ButtonOn(focused)) b->SetFocused(true);
+		bestWidget->SetWidgetFocused(true);
 		return focused;
 	}
 
 	GameObject* UICanvas::ActivateFocused()
 	{
-		UIButton* b = ButtonOn(focused);
-		if (b && b->Activate()) return focused;
-		return NULL;
+		events.clear();
+		UIWidget* w = WidgetOn(focused);
+		if (!w) return NULL;
+		const uint32 flags = w->Activate();
+		if (flags == UIEventFlag::None) return NULL;
+		events.push_back(WidgetEvent(focused, w, flags));
+		return focused;
 	}
 
 	Vec2 UICanvas::ScreenToCanvas(const Vec2 &screenPoint) const

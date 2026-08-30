@@ -82,6 +82,15 @@ namespace p3d {
 
 		// Where inside its own rect the element's origin sits, 0..1 from
 		// the top-left. Centre by default, which is what a quad wants.
+		// Hiding a UI element is a layout decision, not a per-component
+		// one: an invisible node draws nothing, hit-tests as nothing and
+		// takes no input, and neither do its children - which is what
+		// "hide this panel" has to mean. The canvas skips the whole subtree
+		// (see UICanvas::SolveNode), so a hidden element costs nothing but
+		// the branch that skipped it.
+		void SetVisible(const bool on) { visible = on; }
+		bool IsVisible() const { return visible; }
+
 		void SetPivot(const Vec2 &p) { pivot = p; }
 		const Vec2 &GetPivot() const { return pivot; }
 
@@ -141,6 +150,7 @@ namespace p3d {
 
 		Vec2 anchorMin, anchorMax;
 		Vec2 offsetMin, offsetMax;
+		bool visible;
 		Vec2 pivot;
 
 		Vec2 stateOffset;
