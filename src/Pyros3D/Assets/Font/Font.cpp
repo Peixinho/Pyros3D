@@ -85,6 +85,18 @@ namespace p3d {
 		lastGlyphWidth = lastGlyphRow = 0;
 	}
 
+	f32 Font::MeasureAdvance(const std::string &text) const
+	{
+		f32 width = 0.f;
+		for (size_t i = 0; i < text.size(); i++)
+		{
+			if (text[i] == ' ') { width += spaceAdvance; continue; }
+			std::map<char, glyph_properties>::const_iterator g = glyphs.find(text[i]);
+			if (g != glyphs.end()) width += g->second.advance;
+		}
+		return width;
+	}
+
 	std::map<char, glyph_properties> Font::GetGlyphs()
 	{
 		return glyphs;

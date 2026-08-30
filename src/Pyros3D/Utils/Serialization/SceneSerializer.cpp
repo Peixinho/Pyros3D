@@ -28,6 +28,7 @@
 #include <Pyros3D/Rendering/Components/UI/UIButton.h>
 #include <Pyros3D/Rendering/Components/UI/UIToggle.h>
 #include <Pyros3D/Rendering/Components/UI/UISlider.h>
+#include <Pyros3D/Rendering/Components/UI/UIInput.h>
 
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
@@ -1483,6 +1484,26 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (s->GetHandleElement() != "Handle") j["handle"] = s->GetHandleElement();
 			return j;
 		}
+		case ComponentType::UIInput:
+		{
+			UIInput* in = dynamic_cast<UIInput*>(c);
+			j["type"] = "UIInput";
+			j["interactable"] = in->IsInteractable();
+			j["text"] = in->GetText();
+			if (!in->GetPlaceholder().empty()) j["placeholder"] = in->GetPlaceholder();
+			if (in->GetMaxLength() != 0) j["maxLength"] = in->GetMaxLength();
+			if (in->IsPassword()) j["password"] = true;
+			if (in->GetMaskChar() != '*') j["maskChar"] = std::string(1, in->GetMaskChar());
+			if (in->IsReadOnly()) j["readOnly"] = true;
+			if (!in->GetFilter().empty()) j["filter"] = in->GetFilter();
+			if (in->GetBlinkRate() != 0.5f) j["blinkRate"] = in->GetBlinkRate();
+			if (!in->GetOnChange().empty()) j["onChange"] = in->GetOnChange();
+			if (!in->GetOnSubmit().empty()) j["onSubmit"] = in->GetOnSubmit();
+			if (in->GetTextElement() != "Text") j["textElement"] = in->GetTextElement();
+			if (in->GetPlaceholderElement() != "Placeholder") j["placeholderElement"] = in->GetPlaceholderElement();
+			if (in->GetCaretElement() != "Caret") j["caretElement"] = in->GetCaretElement();
+			return j;
+		}
 		case ComponentType::LuaComponent:
 		{
 			LuaComponent* lc = dynamic_cast<LuaComponent*>(c);
@@ -2417,6 +2438,27 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// Last: the range and the step both clamp it.
 			s->SetValue(j.value("value", 0.f));
 			go->Add(std::static_pointer_cast<IComponent>(s));
+		}
+		else if (type == "UIInput")
+		{
+			std::shared_ptr<UIInput> in = std::make_shared<UIInput>();
+			in->SetInteractable(j.value("interactable", true));
+			in->SetPlaceholder(j.value("placeholder", std::string()));
+			in->SetMaxLength(j.value("maxLength", (uint32)0));
+			in->SetPassword(j.value("password", false));
+			const std::string mask = j.value("maskChar", std::string("*"));
+			in->SetMaskChar(mask.empty() ? '*' : mask[0]);
+			in->SetReadOnly(j.value("readOnly", false));
+			in->SetFilter(j.value("filter", std::string()));
+			in->SetBlinkRate(j.value("blinkRate", 0.5f));
+			in->SetOnChange(j.value("onChange", std::string()));
+			in->SetOnSubmit(j.value("onSubmit", std::string()));
+			in->SetTextElement(j.value("textElement", std::string("Text")));
+			in->SetPlaceholderElement(j.value("placeholderElement", std::string("Placeholder")));
+			in->SetCaretElement(j.value("caretElement", std::string("Caret")));
+			// Last: the maximum length and the filter both apply to it.
+			in->SetText(j.value("text", std::string()));
+			go->Add(std::static_pointer_cast<IComponent>(in));
 		}
 		else if (type == "LuaComponent")
 		{

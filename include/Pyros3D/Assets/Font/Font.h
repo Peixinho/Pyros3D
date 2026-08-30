@@ -126,6 +126,14 @@ namespace p3d {
 		f32 GetDescender() const { return descender; }
 
 		std::map<char, glyph_properties> GetGlyphs();
+
+		// How wide `text` is, at the size it was baked at - multiply by
+		// (drawn size / GetFontSize()) for anything else. Uses the same
+		// advances Text steps the pen by, including the space's, so a caret
+		// placed with this lands exactly between the glyphs rather than
+		// approximately: measuring and laying out have to agree or the
+		// caret drifts a pixel per character.
+		f32 MeasureAdvance(const std::string &text) const;
 	};
 
 };

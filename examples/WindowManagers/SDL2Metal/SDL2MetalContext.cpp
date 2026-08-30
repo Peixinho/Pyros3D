@@ -11,6 +11,7 @@
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "../FileDropHook.h"
+#include "../TextInputHook.h"
 #include "../CloseHook.h"
 
 #ifdef METAL_BACKEND
@@ -224,6 +225,12 @@ namespace p3d {
                 if (PyrosWindowClose::AllowClose())
                     Close();
             }
+
+            // Characters, separately from keys: which key produces which
+            // character is the platform's business (layouts, dead keys,
+            // IMEs), so a text field is fed decoded text and never keycodes.
+            if (sdl_event.type == SDL_TEXTINPUT)
+                PyrosTextInput::Notify(sdl_event.text.text);
 
             if (sdl_event.type == SDL_KEYDOWN)
                 KeyPressed(sdl_event.key.keysym.sym);

@@ -16,6 +16,7 @@
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
 #include <Pyros3D/Rendering/Components/UI/UIToggle.h>
 #include <Pyros3D/Rendering/Components/UI/UISlider.h>
+#include <Pyros3D/Rendering/Components/UI/UIInput.h>
 
 #include <cstdio>
 #include <cmath>
@@ -208,6 +209,94 @@ int main()
 		if (evs[i].node == sliderGO.get() && (evs[i].flags & UIEventFlag::Changed)) sliderChanged = true;
 	check(sliderChanged, "a drag reports a change against the element that changed");
 	canvas->UpdateInput(Vec2(300.f, 210.f), false);
+
+
+	// ---- text field ----
+	// No render device here, so the field has no label to drive: what is
+	// under test is the value, the caret and which keys it claims, all of
+	// which are the parts that would be wrong.
+	std::shared_ptr<GameObject> fieldGO = Element(canvasGO, "Field", 10.f, 250.f, 200.f, 30.f);
+	std::shared_ptr<UIInput> field = std::make_shared<UIInput>();
+	fieldGO->Add(std::static_pointer_cast<IComponent>(field));
+	canvas->Solve(400.f, 300.f);
+	scene.Update(0.0);
+
+	// Typing goes to whatever has focus, and nothing else.
+	canvas->UpdateText("hello");
+	check(field->GetText().empty(), "an unfocused field ignores typing");
+
+	Press(scene, canvas, Vec2(60.f, 260.f));
+	canvas->UpdateInput(Vec2(60.f, 260.f), false);
+	check(canvas->GetFocused() == fieldGO.get(), "clicking a field focuses it");
+
+	canvas->UpdateText("hello");
+	check(field->GetText() == "hello", "and then it takes what is typed");
+	check(field->GetCaret() == 5, "with the caret after it");
+
+	canvas->UpdateKey(UIKey::Left);
+	canvas->UpdateKey(UIKey::Left);
+	canvas->UpdateText("XY");
+	check(field->GetText() == "helXYlo", "typing inserts at the caret");
+
+	canvas->UpdateKey(UIKey::Backspace);
+	check(field->GetText() == "helXlo", "backspace deletes before the caret");
+	canvas->UpdateKey(UIKey::Delete);
+	check(field->GetText() == "helXo", "delete takes the one after it");
+
+	canvas->UpdateKey(UIKey::Home);
+	check(field->GetCaret() == 0, "home goes to the start");
+	check(canvas->UpdateKey(UIKey::Backspace), "backspace at the start is still the field's");
+	check(field->GetText() == "helXo", "and does nothing");
+	canvas->UpdateKey(UIKey::End);
+	check(field->GetCaret() == 5, "end goes to the end");
+
+	// Arrows belong to the field while it has focus, or editing the middle
+	// of a value would walk the focus away instead.
+	check(canvas->UpdateKey(UIKey::Left), "a field claims the arrow keys");
+	check(!canvas->UpdateKey(UIKey::Up), "but not the ones it has no use for");
+
+	// Enter submits without clearing.
+	canvas->UpdateKey(UIKey::Enter);
+	bool submitted = false;
+	for (size_t i = 0; i < canvas->GetEvents().size(); i++)
+		if (canvas->GetEvents()[i].flags & UIEventFlag::Submitted) submitted = true;
+	check(submitted, "enter submits");
+	check(field->GetText() == "helXo", "and leaves the value alone");
+
+	// Escape puts back what it held when it was focused - and after a
+	// submit, that is what was submitted.
+	canvas->UpdateText("!!");
+	canvas->UpdateKey(UIKey::Escape);
+	check(field->GetText() == "helXo", "escape reverts to what was there");
+
+	// A filter rejects as you type rather than after.
+	field->SetText("");
+	field->SetFilter("0123456789");
+	canvas->UpdateText("1a2b3");
+	check(field->GetText() == "123", "a filter drops what it does not allow");
+
+	// A limit refuses the whole insert: half of what you typed arriving is
+	// worse than none of it.
+	field->SetText("12");
+	field->SetMaxLength(4);
+	canvas->UpdateText("345");
+	check(field->GetText() == "12", "typing past the limit inserts nothing");
+	canvas->UpdateText("34");
+	check(field->GetText() == "1234", "what does fit still goes in");
+
+	field->SetFilter("");
+	field->SetMaxLength(0);
+	field->SetReadOnly(true);
+	field->SetText("locked");
+	canvas->UpdateText("x");
+	canvas->UpdateKey(UIKey::Backspace);
+	check(field->GetText() == "locked", "a read-only field cannot be typed into");
+	field->SetReadOnly(false);
+
+	// Password is a display concern only - the value is the value.
+	field->SetPassword(true);
+	field->SetText("secret");
+	check(field->GetText() == "secret", "masking does not change the value");
 
 	printf("\n%s (%d failure(s))\n", failures ? "FAILED" : "ALL PASSED", failures);
 	return failures ? 1 : 0;
