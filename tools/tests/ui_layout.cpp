@@ -199,6 +199,61 @@ int main()
 		check(bc->UpdateInput(overlap, false) == NULL, "and cannot be clicked");
 	}
 
+	// -------- keyboard / gamepad navigation --------
+	// A 2x2 grid, so "down" has to pick the one below rather than whichever
+	// happens to be nearest - which is the whole reason the score weights
+	// off-axis distance.
+	{
+		SceneGraph ns;
+		std::shared_ptr<GameObject> cgo = std::make_shared<GameObject>();
+		std::shared_ptr<UICanvas> nc = std::make_shared<UICanvas>(1000.f, 1000.f);
+		nc->SetScaleMode(UIScaleMode::Stretch);
+		cgo->Add(std::static_pointer_cast<IComponent>(nc));
+		ns.Add(cgo);
+
+		auto cell = [&](const char* name, const Vec2 &pos) {
+			std::shared_ptr<GameObject> go = std::make_shared<GameObject>();
+			go->SetName(name);
+			std::shared_ptr<UIRect> r = std::make_shared<UIRect>();
+			r->SetAnchoredPosition(Vec2(0.f, 0.f), pos, Vec2(200.f, 100.f));
+			r->SetPivot(Vec2(0.f, 0.f));
+			go->Add(std::static_pointer_cast<IComponent>(r));
+			std::shared_ptr<UIButton> b = std::make_shared<UIButton>();
+			go->Add(std::static_pointer_cast<IComponent>(b));
+			cgo->Add(go);
+			return std::make_pair(go, b);
+		};
+		auto tl = cell("TL", Vec2(100.f, 100.f));
+		auto tr = cell("TR", Vec2(500.f, 100.f));
+		auto bl = cell("BL", Vec2(100.f, 400.f));
+		auto br = cell("BR", Vec2(500.f, 400.f));
+		ns.Update(0.0);
+		nc->Solve(1000, 1000);
+
+		check(nc->FocusFirst() == tl.first.get(), "focus starts on the first focusable element");
+		check(tl.second->GetCurrentState() == UIState::Focused, "and that element reads as focused");
+		check(nc->MoveFocus(Vec2(1.f, 0.f)) == tr.first.get(), "right moves along the row");
+		check(nc->MoveFocus(Vec2(0.f, 1.f)) == br.first.get(), "down moves to the one below, not the nearest overall");
+		check(nc->MoveFocus(Vec2(-1.f, 0.f)) == bl.first.get(), "left moves back along the row");
+		check(nc->MoveFocus(Vec2(-1.f, 0.f)) == bl.first.get(), "and stops at the edge instead of wrapping");
+		check(tl.second->GetCurrentState() == UIState::Normal, "the element that lost focus went back to normal");
+
+		// Focus and hover are independent: a pointer over one element must
+		// not steal the highlight the pad put on another.
+		nc->UpdateInput(Vec2(600.f, 150.f), false);
+		check(tr.second->GetCurrentState() == UIState::Hover, "the pointer hovers what it is over");
+		check(bl.second->GetCurrentState() == UIState::Focused, "and the focused element keeps its own state");
+
+		check(nc->ActivateFocused() == bl.first.get(), "activate presses the focused element");
+		check(bl.second->ConsumeClicked(), "which records a click exactly like a pointer would");
+
+		// A disabled element is skipped rather than focused.
+		br.second->SetInteractable(false);
+		nc->MoveFocus(Vec2(0.f, -1.f));            // back to TL
+		nc->MoveFocus(Vec2(1.f, 0.f));             // TR
+		check(nc->MoveFocus(Vec2(0.f, 1.f)) == tr.first.get(), "navigation skips a disabled element");
+	}
+
 	printf("\n%s (%d failure(s))\n", failures ? "FAILED" : "ALL PASSED", failures);
 	return failures ? 1 : 0;
 }

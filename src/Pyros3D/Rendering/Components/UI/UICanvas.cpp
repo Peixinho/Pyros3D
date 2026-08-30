@@ -23,6 +23,7 @@ namespace p3d {
 		scaleMode = UIScaleMode::MatchWidth;
 		sortOrder = 0;
 		pixelsPerUnit = 1.f;
+		focused = NULL;
 		registeredScene = NULL;
 	}
 
@@ -201,6 +202,100 @@ namespace p3d {
 			}
 		}
 		return clicked;
+	}
+
+	namespace {
+		UIButton* ButtonOn(GameObject* go)
+		{
+			if (!go) return NULL;
+			const std::vector<std::shared_ptr<IComponent> > &cs = go->GetComponents();
+			for (size_t i = 0; i < cs.size(); i++)
+				if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIButton)
+					return static_cast<UIButton*>(cs[i].get());
+			return NULL;
+		}
+	}
+
+	void UICanvas::ClearFocus()
+	{
+		if (UIButton* b = ButtonOn(focused)) b->SetFocused(false);
+		focused = NULL;
+	}
+
+	GameObject* UICanvas::FocusFirst()
+	{
+		for (size_t i = 0; i < buttonList.size(); i++)
+		{
+			UIButton* b = ButtonOn(buttonList[i].first);
+			if (!b || !b->IsInteractable()) continue;
+			ClearFocus();
+			focused = buttonList[i].first;
+			b->SetFocused(true);
+			return focused;
+		}
+		return NULL;
+	}
+
+	GameObject* UICanvas::MoveFocus(const Vec2 &direction)
+	{
+		if (buttonList.empty()) return focused;
+		// Nothing focused yet, or what was focused is gone: start over.
+		bool stillThere = false;
+		for (size_t i = 0; i < buttonList.size() && !stillThere; i++)
+			if (buttonList[i].first == focused) stillThere = true;
+		if (!stillThere) { focused = NULL; return FocusFirst(); }
+
+		UIRectValue fromRect;
+		for (size_t i = 0; i < buttonList.size(); i++)
+			if (buttonList[i].first == focused) fromRect = buttonList[i].second;
+		const Vec2 from = fromRect.Center();
+
+		const f32 len = sqrtf(direction.x * direction.x + direction.y * direction.y);
+		if (len <= 0.0001f) return focused;
+		const Vec2 dir(direction.x / len, direction.y / len);
+
+		GameObject* best = NULL;
+		f32 bestScore = 0.f;
+		for (size_t i = 0; i < buttonList.size(); i++)
+		{
+			GameObject* candidate = buttonList[i].first;
+			if (candidate == focused) continue;
+			UIButton* b = ButtonOn(candidate);
+			if (!b || !b->IsInteractable()) continue;
+
+			const Vec2 to = buttonList[i].second.Center();
+			const Vec2 delta(to.x - from.x, to.y - from.y);
+			const f32 along = delta.x * dir.x + delta.y * dir.y;
+			// Strictly in front, or "left" from a row would also match the
+			// element you just came from.
+			if (along <= 0.5f) continue;
+			const f32 offAxis = fabsf(delta.x * dir.y - delta.y * dir.x);
+			// A 45-degree cone, not just "somewhere in front". Without it,
+			// pressing down at the bottom-right of a grid walks diagonally
+			// to the far side rather than doing nothing - the element was
+			// technically downwards, but no player reads it that way. The
+			// cost is that a layout staggered by more than 45 degrees needs
+			// two presses to reach; that is the better failure.
+			if (offAxis > along) continue;
+			// Within the cone, off-axis distance is still weighted heavily so
+			// the candidate more directly in line wins among equals, which is
+			// what makes a grid navigate like a grid.
+			const f32 score = along + offAxis * 3.f;
+			if (!best || score < bestScore) { best = candidate; bestScore = score; }
+		}
+
+		if (!best) return focused;
+		ClearFocus();
+		focused = best;
+		if (UIButton* b = ButtonOn(focused)) b->SetFocused(true);
+		return focused;
+	}
+
+	GameObject* UICanvas::ActivateFocused()
+	{
+		UIButton* b = ButtonOn(focused);
+		if (b && b->Activate()) return focused;
+		return NULL;
 	}
 
 	Vec2 UICanvas::ScreenToCanvas(const Vec2 &screenPoint) const

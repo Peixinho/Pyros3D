@@ -4649,6 +4649,33 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return true;
 	}
 
+	// One place a button's handler is called from, because a click and a key
+	// press must not be able to behave differently.
+	void SceneEditor::DispatchUIClick(GameObject* clicked)
+	{
+#ifdef LUA_BINDINGS
+		if (!clicked || !sharedLua) return;
+		const std::vector<std::shared_ptr<IComponent> > &cs = clicked->GetComponents();
+		for (size_t j = 0; j < cs.size(); j++)
+		{
+			if (!cs[j] || cs[j]->GetComponentType() != ComponentType::UIButton) continue;
+			const std::string &handler = static_cast<UIButton*>(cs[j].get())->GetOnClick();
+			if (handler.empty()) return;
+			sol::protected_function fn = (*sharedLua)[handler];
+			if (!fn.valid())
+			{
+				echo("WARNING: UIButton on '" + clicked->GetName() + "' wants '" + handler + "', which is not a global function");
+				return;
+			}
+			sol::protected_function_result res = fn(clicked->GetName());
+			if (!res.valid()) { sol::error e = res; echo(std::string("ERROR: UIButton handler '") + handler + "' - " + e.what()); }
+			return;
+		}
+#else
+		(void)clicked;
+#endif
+	}
+
 	// Mirrors PyrosPlayer::DispatchUIInput - the editor's play mode has to
 	// behave the same way as the game or it is not a preview.
 	void SceneEditor::DispatchPlayModeUIInput()
@@ -4656,6 +4683,27 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(scene);
 		if (canvases.empty()) return;
 		const bool down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+
+		// Same navigation the player gives a built game - ImGui's own
+		// key-repeat-free pressed test does the edge detection here.
+		struct Nav { ImGuiKey key; f32 dx, dy; };
+		static const Nav navs[] = {
+			{ ImGuiKey_LeftArrow, -1.f, 0.f }, { ImGuiKey_RightArrow, 1.f, 0.f },
+			{ ImGuiKey_UpArrow, 0.f, -1.f },   { ImGuiKey_DownArrow, 0.f, 1.f },
+		};
+		for (size_t n = 0; n < sizeof(navs) / sizeof(navs[0]); n++)
+		{
+			if (!ImGui::IsKeyPressed(navs[n].key, false)) continue;
+			for (size_t i = canvases.size(); i > 0; i--)
+				if (canvases[i - 1]->MoveFocus(Vec2(navs[n].dx, navs[n].dy))) break;
+		}
+		if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_Space, false))
+			for (size_t i = canvases.size(); i > 0; i--)
+				if (GameObject* go = canvases[i - 1]->ActivateFocused())
+				{
+					DispatchUIClick(go);
+					break;
+				}
 
 		for (size_t i = canvases.size(); i > 0; i--)
 		{
@@ -4665,24 +4713,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			const Vec2 p(viewportMouse.x / dim.x * r.width, viewportMouse.y / dim.y * r.height);
 			GameObject* clicked = c->UpdateInput(p, down, viewportMouseValid);
 			if (!clicked) continue;
-#ifdef LUA_BINDINGS
-			const std::vector<std::shared_ptr<IComponent> > &cs = clicked->GetComponents();
-			for (size_t j = 0; j < cs.size(); j++)
-			{
-				if (!cs[j] || cs[j]->GetComponentType() != ComponentType::UIButton) continue;
-				const std::string &handler = static_cast<UIButton*>(cs[j].get())->GetOnClick();
-				if (handler.empty() || !sharedLua) break;
-				sol::protected_function fn = (*sharedLua)[handler];
-				if (!fn.valid())
-				{
-					echo("WARNING: UIButton on '" + clicked->GetName() + "' wants '" + handler + "', which is not a global function");
-					break;
-				}
-				sol::protected_function_result res = fn(clicked->GetName());
-				if (!res.valid()) { sol::error e = res; echo(std::string("ERROR: UIButton handler '") + handler + "' - " + e.what()); }
-				break;
-			}
-#endif
+			DispatchUIClick(clicked);
 			return;
 		}
 	}

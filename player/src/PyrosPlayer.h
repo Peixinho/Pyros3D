@@ -146,6 +146,10 @@ private:
 
 	SceneGraph* scene;
 	void DispatchUIInput();
+	void DispatchUIClick(GameObject* clicked);
+	// Edge detection for menu navigation - see DispatchUIInput.
+	bool navKeyWasDown[4] = { false, false, false, false };
+	bool navActivateWasDown = false;
 
 	IRenderer* renderer;
 	// Screen-space UI, composited over the finished 3D frame. Independent of

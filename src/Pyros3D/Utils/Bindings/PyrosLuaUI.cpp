@@ -139,6 +139,47 @@ namespace p3d {
 			return std::string();
 		}
 
+		// Direction in canvas space: up is (0, -1). Returns the newly focused
+		// element's name, or "" when nothing moved.
+		std::string UI_MoveFocus(SceneGraph* scene, const f32 dx, const f32 dy)
+		{
+			if (!scene) return std::string();
+			std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(scene);
+			// Topmost canvas takes navigation, for the same reason it takes
+			// the pointer: a pause menu over a HUD owns the input.
+			for (size_t i = canvases.size(); i > 0; i--)
+				if (GameObject* go = canvases[i - 1]->MoveFocus(Vec2(dx, dy)))
+					return go->GetName();
+			return std::string();
+		}
+
+		std::string UI_FocusFirst(SceneGraph* scene)
+		{
+			if (!scene) return std::string();
+			std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(scene);
+			for (size_t i = canvases.size(); i > 0; i--)
+				if (GameObject* go = canvases[i - 1]->FocusFirst())
+					return go->GetName();
+			return std::string();
+		}
+
+		std::string UI_ActivateFocused(SceneGraph* scene)
+		{
+			if (!scene) return std::string();
+			std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(scene);
+			for (size_t i = canvases.size(); i > 0; i--)
+				if (GameObject* go = canvases[i - 1]->ActivateFocused())
+					return go->GetName();
+			return std::string();
+		}
+
+		void UI_ClearFocus(SceneGraph* scene)
+		{
+			if (!scene) return;
+			std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(scene);
+			for (size_t i = 0; i < canvases.size(); i++) canvases[i]->ClearFocus();
+		}
+
 		Vec2 UI_ScreenToCanvas(SceneGraph* scene, const f32 x, const f32 y,
 			const f32 screenWidth, const f32 screenHeight)
 		{
@@ -167,6 +208,10 @@ namespace p3d {
 		sol::table ui = lua->create_named_table("ui");
 		ui.set_function("updateInput", &UI_UpdateInput);
 		ui.set_function("screenToCanvas", &UI_ScreenToCanvas);
+		ui.set_function("moveFocus", &UI_MoveFocus);
+		ui.set_function("focusFirst", &UI_FocusFirst);
+		ui.set_function("activateFocused", &UI_ActivateFocused);
+		ui.set_function("clearFocus", &UI_ClearFocus);
 		ui.set_function("find", &UI_Find);
 		ui.set_function("setText", &UI_SetText);
 		ui.set_function("getText", &UI_GetText);

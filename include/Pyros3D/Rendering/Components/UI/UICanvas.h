@@ -95,6 +95,26 @@ namespace p3d {
 		// receive the click.
 		GameObject* UpdateInput(const Vec2 &canvasPoint, const bool pointerDown, const bool pointerInside = true);
 
+		// ---- keyboard / gamepad navigation ----
+		//
+		// The canvas owns focus for the same reason it owns pointer input:
+		// it is the only thing that knows what elements exist and where they
+		// are. Directions are in canvas space, so up is (0, -1).
+		//
+		// MoveFocus picks the nearest focusable element in that direction,
+		// scored by how far along the direction it is plus how far off-axis -
+		// which is what makes "down" from a row of buttons land on the one
+		// below rather than the one that happens to be closest overall.
+		// Returns the newly focused object, or the current one when there is
+		// nothing that way.
+		GameObject* MoveFocus(const Vec2 &direction);
+		// Focus the first focusable element, for opening a menu on a pad.
+		GameObject* FocusFirst();
+		void ClearFocus();
+		GameObject* GetFocused() const { return focused; }
+		// Presses whatever has focus. Returns it if a button was there.
+		GameObject* ActivateFocused();
+
 		// The element whose solved rect contains this canvas-space point,
 		// topmost first (so the reverse of draw order). NULL if none.
 		GameObject* HitTest(const Vec2 &canvasPoint) const;
@@ -123,6 +143,10 @@ namespace p3d {
 		// solved to, so input can be resolved without walking the tree
 		// again.
 		std::vector<std::pair<GameObject*, UIRectValue> > buttonList;
+
+		// Not owning, and revalidated against buttonList every solve - an
+		// element can be deleted or hidden between frames.
+		GameObject* focused;
 
 		SceneGraph* registeredScene;
 

@@ -21,6 +21,7 @@ namespace p3d {
 		current = UIState::Normal;
 		interactable = true;
 		pressedInside = false;
+		focused = false;
 		clicked = false;
 		blendInitialized = false;
 		// True, so the very first frame observed can never look like a
@@ -87,8 +88,9 @@ namespace p3d {
 			// held made it clickable - which is exactly the accident a
 			// press-and-drag-away is supposed to let you recover from.
 			if (!wasDown && inside) pressedInside = true;
-			current = pressedInside ? (inside ? UIState::Pressed : UIState::Normal)
-				: (inside ? UIState::Hover : UIState::Normal);
+			const uint32 idle = focused ? UIState::Focused : UIState::Normal;
+			current = pressedInside ? (inside ? UIState::Pressed : idle)
+				: (inside ? UIState::Hover : idle);
 		}
 		else
 		{
@@ -97,10 +99,29 @@ namespace p3d {
 			// and what makes a mis-aimed press recoverable.
 			if (pressedInside && inside) { fired = true; clicked = true; }
 			pressedInside = false;
-			current = inside ? UIState::Hover : UIState::Normal;
+			current = inside ? UIState::Hover : (focused ? UIState::Focused : UIState::Normal);
 		}
 		wasDown = down;
 		return fired;
+	}
+
+	void UIButton::SetFocused(bool on)
+	{
+		if (focused == on) return;
+		focused = on;
+		// Only touch the visual state when nothing more urgent owns it -
+		// losing focus must not cancel a press that is still held, and
+		// gaining it must not override a hover the pointer is providing.
+		if (!interactable) return;
+		if (current == UIState::Pressed || current == UIState::Hover) return;
+		current = focused ? UIState::Focused : UIState::Normal;
+	}
+
+	bool UIButton::Activate()
+	{
+		if (!interactable) return false;
+		clicked = true;
+		return true;
 	}
 
 	bool UIButton::ConsumeClicked()

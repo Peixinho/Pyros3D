@@ -680,6 +680,7 @@ private:
 	// one of its eight handles. The 3D gizmo is not used here - it moves a
 	// transform, and a UI element's transform is output, not input.
 	void DispatchPlayModeUIInput();
+	void DispatchUIClick(GameObject* clicked);
 	void HandleCanvasInput(UICanvas* canvas);
 	static void ApplyCanvasDrag(UIRect* rect, int handle, const Vec2& delta);
 	// Viewport mouse in canvas units, using the same mapping UIRenderer's

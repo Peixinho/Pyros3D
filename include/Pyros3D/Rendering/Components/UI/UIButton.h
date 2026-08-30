@@ -99,6 +99,18 @@ namespace p3d {
 		// polling once a frame cannot miss a click or see it twice.
 		bool ConsumeClicked();
 
+		// Keyboard/gamepad focus, set by the canvas. Kept separate from
+		// hover so a menu driven by a stick and a mouse at once does not
+		// have the two fighting over one highlight: the pointer wins while
+		// it is actually over something, and focus shows through otherwise.
+		void SetFocused(bool on);
+		bool IsFocused() const { return focused; }
+
+		// Presses this button as if clicked, for a host driving the UI from
+		// a key or a pad button rather than a pointer. Returns true so the
+		// caller can dispatch the handler exactly as it does for a click.
+		bool Activate();
+
 	private:
 
 		void ApplyState(const f64 time);
@@ -108,6 +120,7 @@ namespace p3d {
 		uint32 current;
 		bool interactable;
 		bool pressedInside;
+		bool focused;
 		bool wasDown;
 		bool clicked;
 		std::string onClick;

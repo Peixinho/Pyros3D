@@ -671,10 +671,73 @@ void PyrosPlayer::Update()
 // handler the button names. The canvas decides what is under the pointer -
 // only it knows the draw order - and this only has to turn the answer into a
 // call.
+// One place a button's handler is called from, because a click and a pad
+// press must not be able to behave differently.
+void PyrosPlayer::DispatchUIClick(GameObject* clicked)
+{
+#ifdef LUA_BINDINGS
+	if (!clicked) return;
+	const std::vector<std::shared_ptr<IComponent> > &cs = clicked->GetComponents();
+	for (size_t j = 0; j < cs.size(); j++)
+	{
+		if (!cs[j] || cs[j]->GetComponentType() != ComponentType::UIButton) continue;
+		const std::string &handler = static_cast<UIButton*>(cs[j].get())->GetOnClick();
+		if (handler.empty()) return;
+		sol::protected_function fn = lua[handler];
+		if (!fn.valid())
+		{
+			echo("WARNING: UIButton on '" + clicked->GetName() + "' wants '" + handler + "', which is not a global function");
+			return;
+		}
+		sol::protected_function_result res = fn(clicked->GetName());
+		if (!res.valid())
+		{
+			sol::error err = res;
+			echo(std::string("ERROR: UIButton handler '") + handler + "' - " + err.what());
+		}
+		return;
+	}
+#else
+	(void)clicked;
+#endif
+}
+
 void PyrosPlayer::DispatchUIInput()
 {
 	std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(scene);
 	if (canvases.empty()) return;
+
+	// Keyboard and gamepad navigation, edge-triggered: held keys must not
+	// walk the menu at the polling rate. A game that would rather drive this
+	// itself can - ui.moveFocus/activateFocused are bound - but a menu that
+	// needs a script before the arrow keys work is a menu that ships broken.
+	{
+		const Uint8* keys = SDL_GetKeyboardState(NULL);
+		struct Nav { int scan; f32 dx, dy; };
+		static const Nav navs[] = {
+			{ SDL_SCANCODE_LEFT,  -1.f,  0.f }, { SDL_SCANCODE_RIGHT, 1.f, 0.f },
+			{ SDL_SCANCODE_UP,     0.f, -1.f }, { SDL_SCANCODE_DOWN,  0.f, 1.f },
+		};
+		std::vector<UICanvas*> navCanvases = UICanvas::GetCanvasesOnScene(scene);
+		for (size_t n = 0; n < sizeof(navs) / sizeof(navs[0]); n++)
+		{
+			const bool downNow = keys[navs[n].scan] != 0;
+			if (downNow && !navKeyWasDown[n])
+				for (size_t i = navCanvases.size(); i > 0; i--)
+					if (navCanvases[i - 1]->MoveFocus(Vec2(navs[n].dx, navs[n].dy))) break;
+			navKeyWasDown[n] = downNow;
+		}
+		const bool activateNow = keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_KP_ENTER]
+			|| keys[SDL_SCANCODE_SPACE];
+		if (activateNow && !navActivateWasDown)
+			for (size_t i = navCanvases.size(); i > 0; i--)
+				if (GameObject* go = navCanvases[i - 1]->ActivateFocused())
+				{
+					DispatchUIClick(go);
+					break;
+				}
+		navActivateWasDown = activateNow;
+	}
 
 	int mx = 0, my = 0;
 	const Uint32 buttons = SDL_GetMouseState(&mx, &my);
@@ -691,28 +754,7 @@ void PyrosPlayer::DispatchUIInput()
 		const Vec2 p((f32)mx / (f32)Width * r.width, (f32)my / (f32)Height * r.height);
 		if (GameObject* clicked = c->UpdateInput(p, down, insideWindow))
 		{
-#ifdef LUA_BINDINGS
-			const std::vector<std::shared_ptr<IComponent> > &cs = clicked->GetComponents();
-			for (size_t j = 0; j < cs.size(); j++)
-			{
-				if (!cs[j] || cs[j]->GetComponentType() != ComponentType::UIButton) continue;
-				const std::string &handler = static_cast<UIButton*>(cs[j].get())->GetOnClick();
-				if (handler.empty()) break;
-				sol::protected_function fn = lua[handler];
-				if (!fn.valid())
-				{
-					echo("WARNING: UIButton on '" + clicked->GetName() + "' wants '" + handler + "', which is not a global function");
-					break;
-				}
-				sol::protected_function_result res = fn(clicked->GetName());
-				if (!res.valid())
-				{
-					sol::error err = res;
-					echo(std::string("ERROR: UIButton handler '") + handler + "' - " + err.what());
-				}
-				break;
-			}
-#endif
+			DispatchUIClick(clicked);
 			return;
 		}
 	}
