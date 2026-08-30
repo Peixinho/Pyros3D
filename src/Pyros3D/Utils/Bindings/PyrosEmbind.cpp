@@ -31,6 +31,7 @@ namespace p3d {
 	void PyrosEmbindPostFXForceLink();
 	void PyrosEmbindAudioForceLink();
 	void PyrosEmbindMiscForceLink();
+	void PyrosEmbindUIForceLink();
 
 	void EnsurePyrosEmbindLinked()
 	{
@@ -43,6 +44,7 @@ namespace p3d {
 		PyrosEmbindPostFXForceLink();
 		PyrosEmbindAudioForceLink();
 		PyrosEmbindMiscForceLink();
+		PyrosEmbindUIForceLink();
 	}
 }
 

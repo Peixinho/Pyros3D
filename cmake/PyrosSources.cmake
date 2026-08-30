@@ -166,5 +166,6 @@ if (EMSCRIPTEN)
 		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindPostFX.cpp
 		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindAudio.cpp
 		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindMisc.cpp
+		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindUI.cpp
 	)
 endif()
