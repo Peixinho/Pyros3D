@@ -32,6 +32,11 @@
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
 #include <Pyros3D/Rendering/Components/UI/UIButton.h>
+#include <Pyros3D/Rendering/Components/UI/UIToggle.h>
+#include <Pyros3D/Rendering/Components/UI/UISlider.h>
+#include <Pyros3D/Rendering/Components/UI/UIInput.h>
+#include <Pyros3D/Rendering/Components/UI/UIList.h>
+#include <Pyros3D/Rendering/Components/UI/UIDropdown.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <Pyros3D/Audio/AudioManager.h>
@@ -147,8 +152,22 @@ private:
 	SceneGraph* scene;
 	void DispatchUIInput();
 	void DispatchUIClick(GameObject* clicked);
+	// Everything else a canvas reported this frame - a value changed, a
+	// field submitted - to the handler named on the element.
+	void DispatchUIEvents(UICanvas* canvas);
+	// Typed characters arrive from the window layer, which knows nothing
+	// about this instance - see TextInputHook.h.
+	static void OnTextTyped(const char* utf8);
+	static PyrosPlayer* activePlayer;
+	// Wheel notches since the last frame. An event rather than a state the
+	// way the mouse position is, so it has to be accumulated as it arrives
+	// and spent once.
+	void OnMouseWheel(Event::Input::Info e);
+	f32 wheelDelta;
 	// Edge detection for menu navigation - see DispatchUIInput.
-	bool navKeyWasDown[4] = { false, false, false, false };
+	// One per entry in DispatchUIInput's key table - keys are edge-
+	// triggered, or a held one would repeat at the polling rate.
+	bool navKeyWasDown[10] = { false };
 	bool navActivateWasDown = false;
 
 	IRenderer* renderer;

@@ -4947,6 +4947,52 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 #endif
 	}
 
+	// Mirrors PyrosPlayer::DispatchUIEvents - a UI tested in play mode has
+	// to behave the way it will once it ships, and a click is only one of
+	// the things a UI does.
+	void SceneEditor::DispatchUIEvents(UICanvas* canvas)
+	{
+#ifdef LUA_BINDINGS
+		if (!canvas || !sharedLua) return;
+		const std::vector<UICanvas::WidgetEvent> events = canvas->GetEvents();
+		for (size_t i = 0; i < events.size(); i++)
+		{
+			GameObject* node = events[i].node;
+			UIWidget* widget = events[i].widget;
+			if (!node || !widget) continue;
+
+			if (events[i].flags & UIEventFlag::Clicked) DispatchUIClick(node);
+
+			std::string handler;
+			if (events[i].flags & UIEventFlag::Submitted)
+			{
+				if (UIInput* in = dynamic_cast<UIInput*>(widget)) handler = in->GetOnSubmit();
+				else if (UIList* l = dynamic_cast<UIList*>(widget)) handler = l->GetOnSubmit();
+			}
+			if (handler.empty() && (events[i].flags & (UIEventFlag::Changed | UIEventFlag::Submitted)))
+				handler = widget->GetOnChange();
+			if (handler.empty()) continue;
+
+			sol::protected_function fn = (*sharedLua)[handler];
+			if (!fn.valid())
+			{
+				echo("WARNING: UI element '" + node->GetName() + "' wants '" + handler + "', which is not a global function");
+				continue;
+			}
+			sol::protected_function_result res;
+			if (UISlider* s = dynamic_cast<UISlider*>(widget)) res = fn(node->GetName(), s->GetValue());
+			else if (UIToggle* t = dynamic_cast<UIToggle*>(widget)) res = fn(node->GetName(), t->GetValue());
+			else if (UIInput* in = dynamic_cast<UIInput*>(widget)) res = fn(node->GetName(), in->GetText());
+			else if (UIList* l = dynamic_cast<UIList*>(widget)) res = fn(node->GetName(), l->GetSelectedItem(), l->GetSelected());
+			else if (UIDropdown* d = dynamic_cast<UIDropdown*>(widget)) res = fn(node->GetName(), d->GetSelectedOption(), d->GetSelected());
+			else res = fn(node->GetName());
+			if (!res.valid()) { sol::error e = res; echo(std::string("ERROR: UI handler '") + handler + "' - " + e.what()); }
+		}
+#else
+		(void)canvas;
+#endif
+	}
+
 	// Mirrors PyrosPlayer::DispatchUIInput - the editor's play mode has to
 	// behave the same way as the game or it is not a preview.
 	void SceneEditor::DispatchPlayModeUIInput()
@@ -4956,25 +5002,81 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		const bool down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
 
 		// Same navigation the player gives a built game - ImGui's own
-		// key-repeat-free pressed test does the edge detection here.
-		struct Nav { ImGuiKey key; f32 dx, dy; };
-		static const Nav navs[] = {
-			{ ImGuiKey_LeftArrow, -1.f, 0.f }, { ImGuiKey_RightArrow, 1.f, 0.f },
-			{ ImGuiKey_UpArrow, 0.f, -1.f },   { ImGuiKey_DownArrow, 0.f, 1.f },
+		// The focused widget sees a key first and can claim it - the same
+		// rule the player uses, so testing a UI here behaves the way it
+		// will when it ships. Typing is ImGui's queued characters, which is
+		// the editor's equivalent of the window layer's text hook.
+		struct Key { ImGuiKey key; uint32 uiKey; f32 dx, dy; };
+		static const Key keyMap[] = {
+			{ ImGuiKey_LeftArrow,  UIKey::Left,      -1.f,  0.f },
+			{ ImGuiKey_RightArrow, UIKey::Right,      1.f,  0.f },
+			{ ImGuiKey_UpArrow,    UIKey::Up,         0.f, -1.f },
+			{ ImGuiKey_DownArrow,  UIKey::Down,       0.f,  1.f },
+			{ ImGuiKey_Backspace,  UIKey::Backspace,  0.f,  0.f },
+			{ ImGuiKey_Delete,     UIKey::Delete,     0.f,  0.f },
+			{ ImGuiKey_Home,       UIKey::Home,       0.f,  0.f },
+			{ ImGuiKey_End,        UIKey::End,        0.f,  0.f },
+			{ ImGuiKey_Escape,     UIKey::Escape,     0.f,  0.f },
 		};
-		for (size_t n = 0; n < sizeof(navs) / sizeof(navs[0]); n++)
+		for (size_t n = 0; n < sizeof(keyMap) / sizeof(keyMap[0]); n++)
 		{
-			if (!ImGui::IsKeyPressed(navs[n].key, false)) continue;
-			for (size_t i = canvases.size(); i > 0; i--)
-				if (canvases[i - 1]->MoveFocus(Vec2(navs[n].dx, navs[n].dy))) break;
+			if (!ImGui::IsKeyPressed(keyMap[n].key, false)) continue;
+			bool claimed = false;
+			for (size_t i = canvases.size(); i > 0 && !claimed; i--)
+			{
+				claimed = canvases[i - 1]->UpdateKey(keyMap[n].uiKey);
+				DispatchUIEvents(canvases[i - 1]);
+			}
+			if (!claimed && (keyMap[n].dx != 0.f || keyMap[n].dy != 0.f))
+				for (size_t i = canvases.size(); i > 0; i--)
+					if (canvases[i - 1]->MoveFocus(Vec2(keyMap[n].dx, keyMap[n].dy))) break;
 		}
-		if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_Space, false))
+
+		// Characters, from whatever ImGui decoded this frame.
+		const ImGuiIO &io = ImGui::GetIO();
+		for (int c = 0; c < io.InputQueueCharacters.Size; c++)
+		{
+			const ImWchar ch = io.InputQueueCharacters[c];
+			if (ch < 0x20 || ch > 0x7e) continue;
+			const std::string typed(1, (char)ch);
 			for (size_t i = canvases.size(); i > 0; i--)
-				if (GameObject* go = canvases[i - 1]->ActivateFocused())
-				{
-					DispatchUIClick(go);
-					break;
-				}
+			{
+				if (!canvases[i - 1]->GetFocused()) continue;
+				canvases[i - 1]->UpdateText(typed);
+				DispatchUIEvents(canvases[i - 1]);
+				break;
+			}
+		}
+
+		if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_Space, false))
+		{
+			bool claimed = false;
+			for (size_t i = canvases.size(); i > 0 && !claimed; i--)
+			{
+				claimed = canvases[i - 1]->UpdateKey(UIKey::Enter);
+				DispatchUIEvents(canvases[i - 1]);
+			}
+			if (!claimed)
+				for (size_t i = canvases.size(); i > 0; i--)
+					if (GameObject* go = canvases[i - 1]->ActivateFocused())
+					{
+						DispatchUIEvents(canvases[i - 1]);
+						DispatchUIClick(go);
+						break;
+					}
+		}
+
+		// The wheel, to whatever is under the pointer.
+		if (viewportMouseValid && io.MouseWheel != 0.f && dim.x >= 1.f && dim.y >= 1.f)
+			for (size_t i = canvases.size(); i > 0; i--)
+			{
+				const UIRectValue &r = canvases[i - 1]->GetCanvasRect();
+				if (r.width <= 0.f || r.height <= 0.f) continue;
+				canvases[i - 1]->UpdateScroll(
+					Vec2(viewportMouse.x / dim.x * r.width, viewportMouse.y / dim.y * r.height), io.MouseWheel);
+				DispatchUIEvents(canvases[i - 1]);
+				break;
+			}
 
 		for (size_t i = canvases.size(); i > 0; i--)
 		{
@@ -4983,9 +5085,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (r.width <= 0.f || r.height <= 0.f || dim.x < 1.f || dim.y < 1.f) continue;
 			const Vec2 p(viewportMouse.x / dim.x * r.width, viewportMouse.y / dim.y * r.height);
 			GameObject* clicked = c->UpdateInput(p, down, viewportMouseValid);
-			if (!clicked) continue;
-			DispatchUIClick(clicked);
-			return;
+			// Every event, not only the click - a slider dragged and a row
+			// picked have handlers too.
+			DispatchUIEvents(c);
+			if (clicked) { DispatchUIClick(clicked); return; }
 		}
 	}
 

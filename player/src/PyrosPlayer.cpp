@@ -7,6 +7,7 @@
 //============================================================================
 
 #include "PyrosPlayer.h"
+#include "../../examples/WindowManagers/TextInputHook.h"
 
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Audio/AudioManager.h>
@@ -129,6 +130,7 @@ PyrosPlayer::PyrosPlayer()
 {
 	scene = NULL;
 	physics = NULL;
+	wheelDelta = 0.f;
 	renderer = NULL;
 	uiRenderer = NULL;
 	audio = NULL;
@@ -200,9 +202,17 @@ void PyrosPlayer::DestroyGBuffer()
 	delete gbufferMatRough; gbufferMatRough = NULL;
 }
 
+PyrosPlayer* PyrosPlayer::activePlayer = NULL;
+
 void PyrosPlayer::Init()
 {
 	ClassName::Init();
+
+	// Wheel notches and typed characters both arrive as events rather than
+	// as state that can be polled, so they are collected as they come.
+	activePlayer = this;
+	InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Wheel, this, &PyrosPlayer::OnMouseWheel);
+	PyrosTextInput::SetHandler(&PyrosPlayer::OnTextTyped);
 
 	const PlayerManifest& m = PlayerManifestInstance();
 	if (!m.valid)
@@ -673,6 +683,82 @@ void PyrosPlayer::Update()
 // call.
 // One place a button's handler is called from, because a click and a pad
 // press must not be able to behave differently.
+// Every event a canvas reported this frame, to whatever named handler the
+// element carries. A click is only one of the things a UI does: a slider
+// dragged, a field typed into and a row picked all need dispatching, and
+// none of them is a click.
+void PyrosPlayer::DispatchUIEvents(UICanvas* canvas)
+{
+#ifdef LUA_BINDINGS
+	if (!canvas) return;
+	const std::vector<UICanvas::WidgetEvent> events = canvas->GetEvents();
+	for (size_t i = 0; i < events.size(); i++)
+	{
+		GameObject* node = events[i].node;
+		UIWidget* widget = events[i].widget;
+		if (!node || !widget) continue;
+
+		if (events[i].flags & UIEventFlag::Clicked) DispatchUIClick(node);
+
+		// The handler that matches what happened. A submit falls back to
+		// the change handler when there is no submit one, so a field with
+		// a single handler still hears Enter.
+		std::string handler;
+		if (events[i].flags & UIEventFlag::Submitted)
+		{
+			if (UIInput* in = dynamic_cast<UIInput*>(widget)) handler = in->GetOnSubmit();
+			else if (UIList* l = dynamic_cast<UIList*>(widget)) handler = l->GetOnSubmit();
+		}
+		if (handler.empty() && (events[i].flags & (UIEventFlag::Changed | UIEventFlag::Submitted)))
+			handler = widget->GetOnChange();
+		if (handler.empty()) continue;
+
+		sol::protected_function fn = lua[handler];
+		if (!fn.valid())
+		{
+			echo("WARNING: UI element '" + node->GetName() + "' wants '" + handler + "', which is not a global function");
+			continue;
+		}
+		// The element's name and its value, which is what a handler wants
+		// and what it would otherwise have to go and ask for.
+		sol::protected_function_result res;
+		if (UISlider* s = dynamic_cast<UISlider*>(widget)) res = fn(node->GetName(), s->GetValue());
+		else if (UIToggle* t = dynamic_cast<UIToggle*>(widget)) res = fn(node->GetName(), t->GetValue());
+		else if (UIInput* in = dynamic_cast<UIInput*>(widget)) res = fn(node->GetName(), in->GetText());
+		else if (UIList* l = dynamic_cast<UIList*>(widget)) res = fn(node->GetName(), l->GetSelectedItem(), l->GetSelected());
+		else if (UIDropdown* d = dynamic_cast<UIDropdown*>(widget)) res = fn(node->GetName(), d->GetSelectedOption(), d->GetSelected());
+		else res = fn(node->GetName());
+
+		if (!res.valid())
+		{
+			sol::error err = res;
+			echo(std::string("ERROR: UI handler '") + handler + "' - " + err.what());
+		}
+	}
+#endif
+}
+
+// Characters the platform decoded, to whichever canvas has focus. Static
+// because the window layer's hook is a plain function pointer - see
+// TextInputHook.h.
+void PyrosPlayer::OnTextTyped(const char* utf8)
+{
+	if (!activePlayer || !activePlayer->scene || !utf8) return;
+	std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(activePlayer->scene);
+	for (size_t i = canvases.size(); i > 0; i--)
+	{
+		if (!canvases[i - 1]->GetFocused()) continue;
+		canvases[i - 1]->UpdateText(utf8);
+		activePlayer->DispatchUIEvents(canvases[i - 1]);
+		return;
+	}
+}
+
+void PyrosPlayer::OnMouseWheel(Event::Input::Info e)
+{
+	wheelDelta += (f32)e.Value;
+}
+
 void PyrosPlayer::DispatchUIClick(GameObject* clicked)
 {
 #ifdef LUA_BINDINGS
@@ -713,29 +799,70 @@ void PyrosPlayer::DispatchUIInput()
 	// needs a script before the arrow keys work is a menu that ships broken.
 	{
 		const Uint8* keys = SDL_GetKeyboardState(NULL);
-		struct Nav { int scan; f32 dx, dy; };
-		static const Nav navs[] = {
-			{ SDL_SCANCODE_LEFT,  -1.f,  0.f }, { SDL_SCANCODE_RIGHT, 1.f, 0.f },
-			{ SDL_SCANCODE_UP,     0.f, -1.f }, { SDL_SCANCODE_DOWN,  0.f, 1.f },
-		};
 		std::vector<UICanvas*> navCanvases = UICanvas::GetCanvasesOnScene(scene);
-		for (size_t n = 0; n < sizeof(navs) / sizeof(navs[0]); n++)
+
+		// The focused widget sees the key first and can claim it. That is
+		// what keeps arrow keys inside a text field or a list instead of
+		// walking the focus out of them mid-edit, and it is the widget that
+		// decides - the player cannot know which is which.
+		struct Key { int scan; uint32 key; f32 dx, dy; };
+		static const Key keyMap[] = {
+			{ SDL_SCANCODE_LEFT,      UIKey::Left,      -1.f,  0.f },
+			{ SDL_SCANCODE_RIGHT,     UIKey::Right,      1.f,  0.f },
+			{ SDL_SCANCODE_UP,        UIKey::Up,         0.f, -1.f },
+			{ SDL_SCANCODE_DOWN,      UIKey::Down,       0.f,  1.f },
+			{ SDL_SCANCODE_BACKSPACE, UIKey::Backspace,  0.f,  0.f },
+			{ SDL_SCANCODE_DELETE,    UIKey::Delete,     0.f,  0.f },
+			{ SDL_SCANCODE_HOME,      UIKey::Home,       0.f,  0.f },
+			{ SDL_SCANCODE_END,       UIKey::End,        0.f,  0.f },
+			{ SDL_SCANCODE_ESCAPE,    UIKey::Escape,     0.f,  0.f },
+			{ SDL_SCANCODE_TAB,       UIKey::Tab,        0.f,  0.f },
+		};
+		for (size_t n = 0; n < sizeof(keyMap) / sizeof(keyMap[0]); n++)
 		{
-			const bool downNow = keys[navs[n].scan] != 0;
+			const bool downNow = keys[keyMap[n].scan] != 0;
 			if (downNow && !navKeyWasDown[n])
-				for (size_t i = navCanvases.size(); i > 0; i--)
-					if (navCanvases[i - 1]->MoveFocus(Vec2(navs[n].dx, navs[n].dy))) break;
+			{
+				bool claimed = false;
+				for (size_t i = navCanvases.size(); i > 0 && !claimed; i--)
+				{
+					claimed = navCanvases[i - 1]->UpdateKey(keyMap[n].key);
+					DispatchUIEvents(navCanvases[i - 1]);
+				}
+				// Unclaimed and it points somewhere: walk the focus.
+				if (!claimed && (keyMap[n].dx != 0.f || keyMap[n].dy != 0.f))
+					for (size_t i = navCanvases.size(); i > 0; i--)
+						if (navCanvases[i - 1]->MoveFocus(Vec2(keyMap[n].dx, keyMap[n].dy))) break;
+				// Tab walks forward through whatever is focusable.
+				if (!claimed && keyMap[n].key == UIKey::Tab)
+					for (size_t i = navCanvases.size(); i > 0; i--)
+						if (navCanvases[i - 1]->MoveFocus(Vec2(0.f, 1.f))) break;
+			}
 			navKeyWasDown[n] = downNow;
 		}
+
 		const bool activateNow = keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_KP_ENTER]
 			|| keys[SDL_SCANCODE_SPACE];
 		if (activateNow && !navActivateWasDown)
-			for (size_t i = navCanvases.size(); i > 0; i--)
-				if (GameObject* go = navCanvases[i - 1]->ActivateFocused())
-				{
-					DispatchUIClick(go);
-					break;
-				}
+		{
+			// Enter goes to the focused widget first, for the same reason:
+			// in a text field it submits rather than pressing a button
+			// somewhere else on the screen.
+			bool claimed = false;
+			for (size_t i = navCanvases.size(); i > 0 && !claimed; i--)
+			{
+				claimed = navCanvases[i - 1]->UpdateKey(UIKey::Enter);
+				DispatchUIEvents(navCanvases[i - 1]);
+			}
+			if (!claimed)
+				for (size_t i = navCanvases.size(); i > 0; i--)
+					if (GameObject* go = navCanvases[i - 1]->ActivateFocused())
+					{
+						DispatchUIEvents(navCanvases[i - 1]);
+						DispatchUIClick(go);
+						break;
+					}
+		}
 		navActivateWasDown = activateNow;
 	}
 
@@ -746,17 +873,33 @@ void PyrosPlayer::DispatchUIInput()
 
 	// Topmost canvas first: a pause menu over a HUD must swallow the click
 	// rather than let both act on it.
+	// The wheel goes to whatever is under the pointer, before the click
+	// does - a list scrolls without needing to be clicked first.
+	if (wheelDelta != 0.f)
+	{
+		for (size_t i = canvases.size(); i > 0; i--)
+		{
+			UICanvas* c = canvases[i - 1];
+			const UIRectValue &r = c->GetCanvasRect();
+			if (r.width <= 0.f || r.height <= 0.f) continue;
+			const Vec2 p((f32)mx / (f32)Width * r.width, (f32)my / (f32)Height * r.height);
+			c->UpdateScroll(p, wheelDelta);
+			DispatchUIEvents(c);
+		}
+		wheelDelta = 0.f;
+	}
+
 	for (size_t i = canvases.size(); i > 0; i--)
 	{
 		UICanvas* c = canvases[i - 1];
 		const UIRectValue &r = c->GetCanvasRect();
 		if (r.width <= 0.f || r.height <= 0.f) continue;
 		const Vec2 p((f32)mx / (f32)Width * r.width, (f32)my / (f32)Height * r.height);
-		if (GameObject* clicked = c->UpdateInput(p, down, insideWindow))
-		{
-			DispatchUIClick(clicked);
-			return;
-		}
+		GameObject* clicked = c->UpdateInput(p, down, insideWindow);
+		// Every event, not just the click: a slider dragged and a row
+		// picked are not clicks, and both have handlers.
+		DispatchUIEvents(c);
+		if (clicked) return;
 	}
 }
 
@@ -816,6 +959,10 @@ void PyrosPlayer::ApplyPendingResizeIfAny()
 
 void PyrosPlayer::Shutdown()
 {
+	PyrosTextInput::SetHandler(NULL);
+	InputManager::RemoveEvent(Event::Type::OnMove, Event::Input::Mouse::Wheel, this, &PyrosPlayer::OnMouseWheel);
+	activePlayer = NULL;
+
 	// The last submitted frame is routinely still executing here - the same
 	// reason SceneSerializer::UnloadScene waits before freeing anything.
 	if (IsActiveRenderDeviceSet())

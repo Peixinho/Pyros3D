@@ -693,6 +693,9 @@ private:
 	// transform, and a UI element's transform is output, not input.
 	void DispatchPlayModeUIInput();
 	void DispatchUIClick(GameObject* clicked);
+	// Everything else a canvas reported - a value changed, a field
+	// submitted - to the handler named on the element.
+	void DispatchUIEvents(UICanvas* canvas);
 	void HandleCanvasInput(UICanvas* canvas);
 	static void ApplyCanvasDrag(UIRect* rect, int handle, const Vec2& delta);
 	// Viewport mouse in canvas units, using the same mapping UIRenderer's
