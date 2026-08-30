@@ -92,7 +92,7 @@ namespace p3d {
 
 	UIBatch::~UIBatch() {}
 
-	UIBatcher::UIBatcher() { batchCount = 0; }
+	UIBatcher::UIBatcher() { batchCount = 0; rebuildCount = 0; }
 
 	UIBatcher::~UIBatcher()
 	{
@@ -268,6 +268,7 @@ namespace p3d {
 			return result;
 
 		signatures.swap(now);
+		rebuildCount++;
 
 		// ---- every element, in canvas space ----
 		//

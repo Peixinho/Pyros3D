@@ -75,6 +75,11 @@ namespace p3d {
 		// than pass-through meshes. For tests and for the editor's stats.
 		uint32 GetBatchCount() const { return batchCount; }
 
+		// How many times Build() has actually rebuilt rather than handing
+		// back the previous frame's meshes. A static canvas should stop at
+		// one; anything else means the change detection is being fooled.
+		uint32 GetRebuildCount() const { return rebuildCount; }
+
 		void Invalidate() { signatures.clear(); }
 
 	private:
@@ -94,6 +99,7 @@ namespace p3d {
 		std::vector<RenderingMesh*> result;
 		std::vector<Signature> signatures;
 		uint32 batchCount;
+		uint32 rebuildCount;
 
 		UIBatch* TakeBatch(const uint32 index);
 	};

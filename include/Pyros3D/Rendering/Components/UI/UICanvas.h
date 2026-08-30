@@ -97,6 +97,7 @@ namespace p3d {
 		void SetBatching(const bool on) { batching = on; }
 		bool IsBatching() const { return batching; }
 		uint32 GetBatchCount() const { return batcher.GetBatchCount(); }
+		uint32 GetBatchRebuildCount() const { return batcher.GetRebuildCount(); }
 
 		// Feeds a pointer to whatever is under it. Call once a frame, after
 		// Solve(), with the pointer in canvas units (ScreenToCanvas below)

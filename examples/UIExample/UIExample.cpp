@@ -556,8 +556,9 @@ void UIExample::RunBench(const int elements)
 	}
 
 	const size_t draws = canvas->GetBatchedDrawList().size();
-	printf("      %d elements (%d images, %d labels): %d draws (%d merged), %.3f ms/frame\n",
-		elements, images, labels, (int)draws, (int)canvas->GetBatchCount(), total * 1000.0 / iters);
+	printf("      %d elements (%d images, %d labels): %d draws (%d merged), %.3f ms/frame, %u rebuild(s) in %d frames\n",
+		elements, images, labels, (int)draws, (int)canvas->GetBatchCount(), total * 1000.0 / iters,
+		canvas->GetBatchRebuildCount(), warmup + iters);
 
 	bench.Remove(canvasGO);
 }
