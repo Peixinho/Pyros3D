@@ -96,6 +96,10 @@ private:
 	// only thing theme switching does.
 	void ApplyTheme(const uint32 index);
 	void RunVerification();
+	// PYROS_UI_SHOW=1: a few frames of the widgets being used, written out
+	// as images - for looking at, on a machine whose screen cannot be
+	// captured.
+	void RunShowcase();
 
 	std::string AssetRoot() const;
 

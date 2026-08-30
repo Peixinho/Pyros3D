@@ -455,6 +455,14 @@ void WidgetGallery::Init()
 
 void WidgetGallery::Update()
 {
+	if (getenv("PYROS_UI_SHOW") && !verified)
+	{
+		RunShowcase();
+		verified = true;
+		Close();
+		return;
+	}
+
 	if (verifyMode && !verified)
 	{
 		RunVerification();
@@ -540,6 +548,138 @@ void WidgetGallery::Shutdown()
 	if (uiRenderer) { delete uiRenderer; uiRenderer = NULL; }
 	if (uiScene) { delete uiScene; uiScene = NULL; }
 	BaseExample::Shutdown();
+}
+
+//=============================================================================
+// PYROS_UI_SHOW=1: a handful of frames with the widgets actually being used,
+// written out as images. The verification above proves things work; this is
+// for looking at them, on a machine whose screen cannot be captured.
+//=============================================================================
+void WidgetGallery::RunShowcase()
+{
+	const uint32 W = 1280, H = 720;
+
+	Texture color;
+	color.CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, W, H, false);
+	color.SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+	Texture depth;
+	depth.CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, W, H, false);
+	FrameBuffer fbo;
+	fbo.Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, &depth);
+	fbo.AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, &color);
+
+	// State transitions cross-fade over a duration, so a frame captured the
+	// instant after a press is still mid-fade. Time has to advance.
+	f64 clock = 0.0;
+	auto shot = [&](const char* file) {
+		for (int i = 0; i < 20; i++) { clock += 0.05; uiScene->Update(clock); }
+		// What Update() would have put in the readouts. Skipping it is what
+		// makes an offscreen capture quietly differ from the running app.
+		char buf[64];
+		snprintf(buf, sizeof(buf), "%d%%", (int)(volume->GetValue() + 0.5f));
+		volumeValue->SetText(buf);
+		snprintf(buf, sizeof(buf), "%.1f", brightness->GetValue());
+		brightnessValue->SetText(buf);
+		snprintf(buf, sizeof(buf), "%d%%", (int)(balance->GetValue() + 0.5f));
+		balanceValue->SetText(buf);
+		uiScene->Update(clock);
+		fbo.Bind();
+		IRenderDevice &dev = GetActiveRenderDevice();
+		dev.SetClearColor(Vec4(0.f, 0.f, 0.f, 1.f));
+		dev.Clear(dev.TranslateBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth));
+		uiRenderer->Resize(W, H);
+		uiRenderer->RenderUI(uiScene);
+		fbo.UnBind();
+		dev.WaitIdle();
+		std::vector<uchar> px = color.GetTextureData();
+		stbi_write_png(file, (int)W, (int)H, 4, px.data(), (int)W * 4);
+		printf("      wrote %s\n", file);
+	};
+	auto rectOf = [&](GameObject* go) -> UIRectValue {
+		if (!go) return UIRectValue(0.f, 0.f, 0.f, 0.f);
+		const std::vector<std::shared_ptr<IComponent> > &cs = go->GetComponents();
+		for (size_t i = 0; i < cs.size(); i++)
+			if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect)
+				return static_cast<UIRect*>(cs[i].get())->GetRect();
+		return UIRectValue(0.f, 0.f, 0.f, 0.f);
+	};
+	auto centre = [&](GameObject* go) -> Vec2 {
+		const UIRectValue r = rectOf(go);
+		return Vec2(r.x + r.width * 0.5f, r.y + r.height * 0.5f);
+	};
+	auto findByName = [&](const std::string &name) -> GameObject* {
+		std::vector<GameObject*> stack;
+		stack.push_back(canvasGO.get());
+		while (!stack.empty())
+		{
+			GameObject* go = stack.back(); stack.pop_back();
+			if (go->GetName() == name) return go;
+			const std::vector<std::shared_ptr<GameObject> > &kids = go->GetChildren();
+			for (size_t i = 0; i < kids.size(); i++) if (kids[i]) stack.push_back(kids[i].get());
+		}
+		return NULL;
+	};
+	// Pointer state for a frame, with a released frame first where a press
+	// is wanted - widgets arm on the up-to-down transition.
+	auto point = [&](const Vec2 &p, const bool down) {
+		canvas->UpdateInput(p, down, true);
+		uiScene->Update(clock);
+	};
+
+	// 1. Hovering the primary button, with the pointer resting on it.
+	point(centre(findByName("Apply")), false);
+	shot("show_1_hover.png");
+
+	// 2. Holding it down: the pressed tint and the two-pixel nudge.
+	point(centre(findByName("Apply")), true);
+	shot("show_2_pressed.png");
+	point(centre(findByName("Apply")), false);
+
+	// 3. A different quality picked (the radio group), the checkbox turned
+	//    off, and both sliders dragged somewhere else.
+	point(centre(findByName("QualityHigh")), false);
+	point(centre(findByName("QualityHigh")), true);
+	point(centre(findByName("QualityHigh")), false);
+	point(centre(findByName("Fullscreen")), false);
+	point(centre(findByName("Fullscreen")), true);
+	point(centre(findByName("Fullscreen")), false);
+	{
+		const UIRectValue v = rectOf(volume->GetOwner());
+		point(Vec2(v.x + v.width * 0.25f, v.y + v.height * 0.5f), false);
+		point(Vec2(v.x + v.width * 0.25f, v.y + v.height * 0.5f), true);
+		point(Vec2(v.x + v.width * 0.25f, v.y + v.height * 0.5f), false);
+		const UIRectValue b = rectOf(balance->GetOwner());
+		point(Vec2(b.x + b.width * 0.5f, b.y + b.height * 0.2f), false);
+		point(Vec2(b.x + b.width * 0.5f, b.y + b.height * 0.2f), true);
+		point(Vec2(b.x + b.width * 0.5f, b.y + b.height * 0.2f), false);
+	}
+	// Typing into the field, which also parks a caret in it.
+	{
+		const UIRectValue f = rectOf(nameField->GetOwner());
+		const Vec2 in(f.x + 30.f, f.y + f.height * 0.5f);
+		point(in, false); point(in, true); point(in, false);
+		canvas->UpdateText("Peixinho");
+	}
+	// The list scrolled down and a different level picked.
+	canvas->UpdateScroll(centre(levels->GetOwner()), -3.f);
+	{
+		const UIRectValue l = rectOf(levels->GetOwner());
+		const Vec2 row(l.x + 40.f, l.y + 100.f);
+		point(row, false); point(row, true); point(row, false);
+	}
+	shot("show_3_used.png");
+
+	// 4. The dropdown open over everything, which is the case that needs
+	//    paint order and clipping to both be right.
+	{
+		const Vec2 t = centre(themePicker->GetOwner());
+		point(t, false); point(t, true); point(t, false);
+	}
+	shot("show_4_dropdown.png");
+
+	// 5. The same screen, same state, amber - the theme is a file swap.
+	ApplyTheme(1);
+	shot("show_5_amber.png");
 }
 
 //=============================================================================
