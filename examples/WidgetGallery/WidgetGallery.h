@@ -43,6 +43,7 @@
 #include <Pyros3D/Rendering/Components/UI/UIList.h>
 #include <Pyros3D/Rendering/Components/UI/UIDropdown.h>
 #include <Pyros3D/Rendering/Components/UI/UIMenu.h>
+#include <Pyros3D/Rendering/Components/UI/UIPopup.h>
 #include <Pyros3D/Assets/Font/Font.h>
 #include <memory>
 #include <string>
@@ -81,6 +82,8 @@ private:
 	std::shared_ptr<UIMenuItem> MenuEntry(const std::shared_ptr<GameObject> &parent, const std::string &name,
 		const Vec2 &offsetMin, const Vec2 &offsetMax, const std::string &text, const bool centred);
 	void BuildMenuBar(const std::shared_ptr<GameObject> &parent);
+	void BuildDialog(const std::shared_ptr<GameObject> &parent);
+	static UIButton* ButtonOn(GameObject* go);
 	std::shared_ptr<UIText> Label(const std::shared_ptr<GameObject> &on, const std::string &text);
 
 	// ---- the widgets ----
@@ -121,6 +124,8 @@ private:
 	std::shared_ptr<UIDropdown> themePicker;
 	std::shared_ptr<UIToggle> fullscreen, invertY;
 	std::shared_ptr<UIText> volumeValue, brightnessValue, balanceValue, status;
+	std::shared_ptr<UIPopup> confirm;
+	std::shared_ptr<GameObject> resetButton, cancelButton, confirmButton;
 
 	std::vector<std::string> themes;
 	uint32 theme;

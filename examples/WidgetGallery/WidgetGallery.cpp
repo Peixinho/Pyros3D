@@ -85,6 +85,16 @@ std::shared_ptr<GameObject> WidgetGallery::Element(const std::shared_ptr<GameObj
 	return go;
 }
 
+UIButton* WidgetGallery::ButtonOn(GameObject* go)
+{
+	if (!go) return NULL;
+	const std::vector<std::shared_ptr<IComponent> > &cs = go->GetComponents();
+	for (size_t i = 0; i < cs.size(); i++)
+		if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIButton)
+			return static_cast<UIButton*>(cs[i].get());
+	return NULL;
+}
+
 UIRect* WidgetGallery::RectOn(GameObject* go)
 {
 	if (!go) return NULL;
@@ -363,6 +373,47 @@ void WidgetGallery::BuildMenuBar(const std::shared_ptr<GameObject> &parent)
 	}
 }
 
+// A confirmation dialog: a scrim over everything, a panel, and two buttons.
+// Opened by the Reset button and closed by either of its own, polled in
+// Update() - this example has no scripting, so it does by hand what a named
+// handler would do for it.
+void WidgetGallery::BuildDialog(const std::shared_ptr<GameObject> &parent)
+{
+	std::shared_ptr<GameObject> root = Element(parent, "Confirm", Vec2(0.f, 0.f), Vec2(1.f, 1.f),
+		Vec2(0.f, 0.f), Vec2(0.f, 0.f));
+	confirm = std::make_shared<UIPopup>();
+	root->Add(std::static_pointer_cast<IComponent>(confirm));
+
+	std::shared_ptr<GameObject> scrim = Element(root, "Scrim", Vec2(0.f, 0.f), Vec2(1.f, 1.f),
+		Vec2(0.f, 0.f), Vec2(0.f, 0.f), "scrim");
+	Image(scrim);
+
+	std::shared_ptr<GameObject> dialog = Element(root, "Dialog", Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f),
+		Vec2(-230.f, -120.f), Vec2(230.f, 120.f), "panel");
+	Image(dialog);
+
+	std::shared_ptr<GameObject> title = Element(dialog, "DialogTitle", Vec2(0.f, 0.f), Vec2(1.f, 0.f),
+		Vec2(28.f, 24.f), Vec2(-28.f, 66.f), "title");
+	std::shared_ptr<UIText> tt = std::make_shared<UIText>(fontTitle, "Reset settings?", 28.f, Vec4(1, 1, 1, 1));
+	tt->SetAlignment(UIAlign::Left, UIVerticalAlign::Middle);
+	title->Add(std::static_pointer_cast<IComponent>(tt));
+
+	std::shared_ptr<GameObject> body = Element(dialog, "DialogBody", Vec2(0.f, 0.f), Vec2(1.f, 0.f),
+		Vec2(28.f, 74.f), Vec2(-28.f, 140.f), "labelDim");
+	std::shared_ptr<UIText> bt = Label(body, "Everything on this screen goes back to its default. This cannot be undone.");
+	bt->SetWordWrap(true);
+	bt->SetAlignment(UIAlign::Left, UIVerticalAlign::Top);
+
+	cancelButton = Button(dialog, "Cancel", Vec2(-300.f, -76.f), Vec2(-160.f, -28.f), "Cancel", false);
+	confirmButton = Button(dialog, "Confirm", Vec2(-150.f, -76.f), Vec2(-10.f, -28.f), "Reset", true);
+	// Anchored to the dialog's bottom-right corner, so they stay in it.
+	for (int i = 0; i < 2; i++)
+	{
+		GameObject* b = (i == 0 ? cancelButton : confirmButton).get();
+		if (UIRect* r = RectOn(b)) r->SetAnchors(Vec2(1.f, 1.f), Vec2(1.f, 1.f));
+	}
+}
+
 void WidgetGallery::ApplyTheme(const uint32 index)
 {
 	theme = index % (uint32)themes.size();
@@ -439,7 +490,7 @@ void WidgetGallery::Init()
 	med->SetValue(true);
 
 	Button(left, "Apply", Vec2(24.f, 356.f), Vec2(160.f, 400.f), "Apply", true);
-	Button(left, "Reset", Vec2(176.f, 356.f), Vec2(312.f, 400.f), "Reset", false);
+	resetButton = Button(left, "Reset", Vec2(176.f, 356.f), Vec2(312.f, 400.f), "Reset", false);
 	std::shared_ptr<GameObject> disabled = Button(left, "Locked", Vec2(24.f, 412.f), Vec2(312.f, 456.f), "Unavailable", false);
 	{
 		const std::vector<std::shared_ptr<IComponent> > &cs = disabled->GetComponents();
@@ -536,10 +587,12 @@ void WidgetGallery::Init()
 	themePicker->SetOptions(themes);
 	themePicker->SetSelected(0);
 
-	// The menu bar last, deliberately: siblings paint in order, and an open
+	// The menu bar late, deliberately: siblings paint in order, and an open
 	// menu has to be over everything, including the panels its popups hang
-	// across.
+	// across. The dialog goes after even that - its scrim covers the menu
+	// bar too, which is what being modal looks like.
 	BuildMenuBar(canvasGO);
+	BuildDialog(canvasGO);
 
 	// One solve before the first style application, so every element has a
 	// rect - the styles only touch look, but the canvas has to have run.
@@ -611,6 +664,25 @@ void WidgetGallery::Update()
 	snprintf(buf, sizeof(buf), "%d%%", (int)(balance->GetValue() + 0.5f));
 	balanceValue->SetText(buf);
 
+	// What a named onClick would do, done by hand: this example has no
+	// scripting, and a dialog nothing can open is not a dialog.
+	if (UIButton* reset = ButtonOn(resetButton.get()))
+		if (reset->ConsumeClicked()) confirm->Open();
+	if (UIButton* cancel = ButtonOn(cancelButton.get()))
+		if (cancel->ConsumeClicked()) confirm->Close();
+	if (UIButton* ok = ButtonOn(confirmButton.get()))
+		if (ok->ConsumeClicked())
+		{
+			confirm->Close();
+			volume->SetValue(70.f);
+			brightness->SetValue(5.f);
+			balance->SetValue(40.f);
+			nameField->SetText("");
+			levels->SetSelected(1);
+			fullscreen->SetValue(true);
+			invertY->SetValue(false);
+		}
+
 	// The dropdown picking a theme is the whole demo: one call, and every
 	// element wearing a style repaints.
 	if (themePicker->GetSelected() >= 0 && (uint32)themePicker->GetSelected() != theme)
@@ -636,6 +708,7 @@ void WidgetGallery::Shutdown()
 	levels.reset(); themePicker.reset();
 	fullscreen.reset(); invertY.reset();
 	volumeValue.reset(); brightnessValue.reset(); balanceValue.reset(); status.reset();
+	confirm.reset(); resetButton.reset(); cancelButton.reset(); confirmButton.reset();
 	canvas.reset();
 	canvasGO.reset();
 	font.reset(); fontSmall.reset(); fontTitle.reset();
@@ -796,9 +869,26 @@ void WidgetGallery::RunShowcase()
 	}
 	shot("show_5_dropdown.png");
 
-	// 6. The same screen, same state, amber - the theme is a file swap.
+	// 6. The confirmation dialog, which is what a modal looks like: the
+	//    screen is still there and none of it can be touched.
+	{
+		const Vec2 onReset = centre(findByName("Reset"));
+		point(onReset, false);
+		point(onReset, true);
+		point(onReset, false);
+		if (UIButton* reset = ButtonOn(findByName("Reset")))
+			if (reset->ConsumeClicked()) confirm->Open();
+		uiScene->Update(clock);
+		canvas->Solve(1280.f, 720.f);
+		shot("show_6_dialog.png");
+		confirm->Close();
+		uiScene->Update(clock);
+		canvas->Solve(1280.f, 720.f);
+	}
+
+	// 7. The same screen, same state, amber - the theme is a file swap.
 	ApplyTheme(1);
-	shot("show_6_amber.png");
+	shot("show_7_amber.png");
 }
 
 //=============================================================================
@@ -1044,6 +1134,64 @@ void WidgetGallery::RunVerification()
 		// so it keeps whatever rect it had when it was last on screen.
 		check(!visible(findByName("FileMenu")) && !visible(findByName("RecentMenu")),
 			"a press outside closes the whole menu");
+	}
+
+
+	// ---- the dialog ----
+	// Opened by the Reset button, and while it is up nothing behind it can
+	// be touched - which is the only thing that distinguishes a dialog from
+	// a panel that happens to be visible.
+	{
+		const std::vector<uchar> beforeDialog = px;
+		const Vec2 onReset = centreOf(findByName("Reset"));
+		canvas->UpdateInput(onReset, false);
+		canvas->UpdateInput(onReset, true);
+		canvas->UpdateInput(onReset, false);
+		// The example polls the button in Update() rather than through a
+		// handler, so run what it would have run.
+		if (UIButton* reset = ButtonOn(findByName("Reset")))
+			if (reset->ConsumeClicked()) confirm->Open();
+		uiScene->Update(0.0);
+		canvas->Solve((f32)W, (f32)H);
+		frame();
+		check(confirm->IsOpen(), "the Reset button opens the dialog");
+
+		const Vec2 middleOfDialog = centreOf(findByName("Dialog"));
+		const Vec4 dialogPixel = at(middleOfDialog.x, middleOfDialog.y - 60.f);
+		check(dialogPixel.x >= 0.f, "and it is on screen");
+
+		// The scrim dims what is behind it: the same pixel, darker.
+		const Vec4 scrimmedNow = at(200.f, 640.f);
+		const Vec4 scrimmedWas = atIn(beforeDialog, 200.f, 640.f);
+		printf("      behind the scrim (%d,%d,%d) was (%d,%d,%d)\n",
+			(int)scrimmedNow.x, (int)scrimmedNow.y, (int)scrimmedNow.z,
+			(int)scrimmedWas.x, (int)scrimmedWas.y, (int)scrimmedWas.z);
+		check(scrimmedNow.x < scrimmedWas.x && scrimmedNow.y < scrimmedWas.y,
+			"and the scrim dims everything behind it");
+
+		// A click on a checkbox underneath does nothing at all.
+		const bool wasOn = invertY->GetValue();
+		const Vec2 onCheckbox = centreOf(invertY->GetOwner());
+		canvas->UpdateInput(onCheckbox, false);
+		canvas->UpdateInput(onCheckbox, true);
+		canvas->UpdateInput(onCheckbox, false);
+		uiScene->Update(0.0);
+		check(invertY->GetValue() == wasOn, "and a click behind it is swallowed");
+
+		// Its own buttons still work: Cancel closes it and leaves the
+		// screen exactly as it was.
+		const Vec2 onCancel = centreOf(findByName("Cancel"));
+		canvas->UpdateInput(onCancel, false);
+		canvas->UpdateInput(onCancel, true);
+		canvas->UpdateInput(onCancel, false);
+		if (UIButton* cancel = ButtonOn(findByName("Cancel")))
+			if (cancel->ConsumeClicked()) confirm->Close();
+		uiScene->Update(0.0);
+		canvas->Solve((f32)W, (f32)H);
+		frame();
+		check(!confirm->IsOpen(), "a button inside it still works");
+		const Vec4 restored = at(200.f, 640.f);
+		check(!differs(restored, scrimmedWas), "and closing it puts the screen back");
 	}
 
 	// ---- the theme is a file swap ----

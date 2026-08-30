@@ -13,6 +13,7 @@
 #include <algorithm>
 
 #include "SceneEditor.h"
+#include "UIDispatch.h"
 #include "UI/EasingPreview.h"
 #include "SceneCommands.h"
 #include "AssetCommands.h"
@@ -5018,47 +5019,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 #endif
 	}
 
-	// Mirrors PyrosPlayer::DispatchUIEvents - a UI tested in play mode has
-	// to behave the way it will once it ships, and a click is only one of
-	// the things a UI does.
+	// The same dispatch the player uses - see shared/UIDispatch.h. A UI
+	// tested in play mode has to behave the way it will once it ships, and
+	// two copies of "which handler does this event call" would not.
 	void SceneEditor::DispatchUIEvents(UICanvas* canvas)
 	{
 #ifdef LUA_BINDINGS
-		if (!canvas || !sharedLua) return;
-		const std::vector<UICanvas::WidgetEvent> events = canvas->GetEvents();
-		for (size_t i = 0; i < events.size(); i++)
-		{
-			GameObject* node = events[i].node;
-			UIWidget* widget = events[i].widget;
-			if (!node || !widget) continue;
-
-			if (events[i].flags & UIEventFlag::Clicked) DispatchUIClick(node);
-
-			std::string handler;
-			if (events[i].flags & UIEventFlag::Submitted)
-			{
-				if (UIInput* in = dynamic_cast<UIInput*>(widget)) handler = in->GetOnSubmit();
-				else if (UIList* l = dynamic_cast<UIList*>(widget)) handler = l->GetOnSubmit();
-			}
-			if (handler.empty() && (events[i].flags & (UIEventFlag::Changed | UIEventFlag::Submitted)))
-				handler = widget->GetOnChange();
-			if (handler.empty()) continue;
-
-			sol::protected_function fn = (*sharedLua)[handler];
-			if (!fn.valid())
-			{
-				echo("WARNING: UI element '" + node->GetName() + "' wants '" + handler + "', which is not a global function");
-				continue;
-			}
-			sol::protected_function_result res;
-			if (UISlider* s = dynamic_cast<UISlider*>(widget)) res = fn(node->GetName(), s->GetValue());
-			else if (UIToggle* t = dynamic_cast<UIToggle*>(widget)) res = fn(node->GetName(), t->GetValue());
-			else if (UIInput* in = dynamic_cast<UIInput*>(widget)) res = fn(node->GetName(), in->GetText());
-			else if (UIList* l = dynamic_cast<UIList*>(widget)) res = fn(node->GetName(), l->GetSelectedItem(), l->GetSelected());
-			else if (UIDropdown* d = dynamic_cast<UIDropdown*>(widget)) res = fn(node->GetName(), d->GetSelectedOption(), d->GetSelected());
-			else res = fn(node->GetName());
-			if (!res.valid()) { sol::error e = res; echo(std::string("ERROR: UI handler '") + handler + "' - " + e.what()); }
-		}
+		if (!sharedLua) return;
+		uidispatch::Dispatch(canvas, *sharedLua, [](const std::string &m, void*) { echo(m); }, NULL);
 #else
 		(void)canvas;
 #endif

@@ -8,6 +8,7 @@
 
 #include "PyrosPlayer.h"
 #include "../../examples/WindowManagers/TextInputHook.h"
+#include "UIDispatch.h"
 
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Audio/AudioManager.h>
@@ -684,57 +685,14 @@ void PyrosPlayer::Update()
 // One place a button's handler is called from, because a click and a pad
 // press must not be able to behave differently.
 // Every event a canvas reported this frame, to whatever named handler the
-// element carries. A click is only one of the things a UI does: a slider
-// dragged, a field typed into and a row picked all need dispatching, and
-// none of them is a click.
+// element carries - see shared/UIDispatch.h, which the editor's play mode
+// uses too so that a UI behaves the same in both.
 void PyrosPlayer::DispatchUIEvents(UICanvas* canvas)
 {
 #ifdef LUA_BINDINGS
-	if (!canvas) return;
-	const std::vector<UICanvas::WidgetEvent> events = canvas->GetEvents();
-	for (size_t i = 0; i < events.size(); i++)
-	{
-		GameObject* node = events[i].node;
-		UIWidget* widget = events[i].widget;
-		if (!node || !widget) continue;
-
-		if (events[i].flags & UIEventFlag::Clicked) DispatchUIClick(node);
-
-		// The handler that matches what happened. A submit falls back to
-		// the change handler when there is no submit one, so a field with
-		// a single handler still hears Enter.
-		std::string handler;
-		if (events[i].flags & UIEventFlag::Submitted)
-		{
-			if (UIInput* in = dynamic_cast<UIInput*>(widget)) handler = in->GetOnSubmit();
-			else if (UIList* l = dynamic_cast<UIList*>(widget)) handler = l->GetOnSubmit();
-		}
-		if (handler.empty() && (events[i].flags & (UIEventFlag::Changed | UIEventFlag::Submitted)))
-			handler = widget->GetOnChange();
-		if (handler.empty()) continue;
-
-		sol::protected_function fn = lua[handler];
-		if (!fn.valid())
-		{
-			echo("WARNING: UI element '" + node->GetName() + "' wants '" + handler + "', which is not a global function");
-			continue;
-		}
-		// The element's name and its value, which is what a handler wants
-		// and what it would otherwise have to go and ask for.
-		sol::protected_function_result res;
-		if (UISlider* s = dynamic_cast<UISlider*>(widget)) res = fn(node->GetName(), s->GetValue());
-		else if (UIToggle* t = dynamic_cast<UIToggle*>(widget)) res = fn(node->GetName(), t->GetValue());
-		else if (UIInput* in = dynamic_cast<UIInput*>(widget)) res = fn(node->GetName(), in->GetText());
-		else if (UIList* l = dynamic_cast<UIList*>(widget)) res = fn(node->GetName(), l->GetSelectedItem(), l->GetSelected());
-		else if (UIDropdown* d = dynamic_cast<UIDropdown*>(widget)) res = fn(node->GetName(), d->GetSelectedOption(), d->GetSelected());
-		else res = fn(node->GetName());
-
-		if (!res.valid())
-		{
-			sol::error err = res;
-			echo(std::string("ERROR: UI handler '") + handler + "' - " + err.what());
-		}
-	}
+	uidispatch::Dispatch(canvas, lua, [](const std::string &m, void*) { echo(m); }, NULL);
+#else
+	(void)canvas;
 #endif
 }
 
