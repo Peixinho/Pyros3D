@@ -188,8 +188,12 @@ namespace uistyle {
 	// say nothing about the states it cannot use.
 	// ------------------------------------------------------------------
 
+	// respectOverrides skips any key the element records as hand-edited (see
+	// UIRect::AddStyleOverride). On by default, because that is what every
+	// automatic re-apply wants; "revert this element to its style" is the
+	// one caller that passes false, after clearing the overrides.
 	inline bool ApplyProperties(p3d::GameObject* go, const json &bag,
-		const std::string &textureRoot, std::string &errOut)
+		const std::string &textureRoot, std::string &errOut, bool respectOverrides = true)
 	{
 		using namespace p3d;
 		if (!go || !bag.is_object()) { errOut = "nothing to apply"; return false; }
@@ -208,7 +212,13 @@ namespace uistyle {
 			default: break;
 			}
 		}
-		(void)rect;
+		// A copy with the hand-edited keys removed, so the rest of this
+		// function does not have to ask about every property it touches.
+		json effective = bag;
+		if (respectOverrides && rect)
+			for (size_t i = 0; i < rect->GetStyleOverrides().size(); i++)
+				effective.erase(rect->GetStyleOverrides()[i]);
+		const json &use = effective;
 
 		auto v4 = [](const json &v, Vec4 &out) -> bool {
 			if (!v.is_array() || v.size() != 4) return false;
@@ -219,11 +229,11 @@ namespace uistyle {
 		Vec4 c;
 		if (image)
 		{
-			if (bag.find("tint") != bag.end() && v4(bag["tint"], c)) image->SetTint(c);
-			if (bag.find("border") != bag.end() && v4(bag["border"], c)) image->SetBorder(c);
-			if (bag.find("texture") != bag.end() && bag["texture"].is_string())
+			if (use.find("tint") != use.end() && v4(use["tint"], c)) image->SetTint(c);
+			if (use.find("border") != use.end() && v4(use["border"], c)) image->SetBorder(c);
+			if (use.find("texture") != use.end() && use["texture"].is_string())
 			{
-				const std::string rel = bag["texture"].get<std::string>();
+				const std::string rel = use["texture"].get<std::string>();
 				if (rel.empty()) image->SetTexture(std::shared_ptr<Texture>());
 				else
 				{
@@ -241,36 +251,36 @@ namespace uistyle {
 		}
 		if (text)
 		{
-			if (bag.find("color") != bag.end() && v4(bag["color"], c)) text->SetColor(c);
-			if (bag.find("size") != bag.end() && bag["size"].is_number()) text->SetSize(bag["size"].get<f32>());
+			if (use.find("color") != use.end() && v4(use["color"], c)) text->SetColor(c);
+			if (use.find("size") != use.end() && use["size"].is_number()) text->SetSize(use["size"].get<f32>());
 			uint32 h = text->GetHorizontalAlignment(), v = text->GetVerticalAlignment();
-			if (bag.find("align") != bag.end() && bag["align"].is_string())
+			if (use.find("align") != use.end() && use["align"].is_string())
 			{
-				const std::string n = bag["align"].get<std::string>();
+				const std::string n = use["align"].get<std::string>();
 				h = (n == "Center") ? UIAlign::Center : (n == "Right") ? UIAlign::Right : UIAlign::Left;
 			}
-			if (bag.find("verticalAlign") != bag.end() && bag["verticalAlign"].is_string())
+			if (use.find("verticalAlign") != use.end() && use["verticalAlign"].is_string())
 			{
-				const std::string n = bag["verticalAlign"].get<std::string>();
+				const std::string n = use["verticalAlign"].get<std::string>();
 				v = (n == "Middle") ? UIVerticalAlign::Middle : (n == "Bottom") ? UIVerticalAlign::Bottom : UIVerticalAlign::Top;
 			}
 			text->SetAlignment(h, v);
 		}
 		if (button)
 		{
-			if (bag.find("transition") != bag.end() && bag["transition"].is_number())
-				button->SetTransition(bag["transition"].get<f32>());
+			if (use.find("transition") != use.end() && use["transition"].is_number())
+				button->SetTransition(use["transition"].get<f32>());
 			const char* names[3] = { "hover", "pressed", "disabled" };
 			const uint32 ids[3] = { UIState::Hover, UIState::Pressed, UIState::Disabled };
 			for (int i = 0; i < 3; i++)
 			{
 				const std::string tk = std::string(names[i]) + "Tint";
 				const std::string ck = std::string(names[i]) + "TextColor";
-				if (bag.find(tk) != bag.end() && v4(bag[tk], c)) { button->State(ids[i]).hasTint = true; button->State(ids[i]).tint = c; }
-				if (bag.find(ck) != bag.end() && v4(bag[ck], c)) { button->State(ids[i]).hasTextColor = true; button->State(ids[i]).textColor = c; }
+				if (use.find(tk) != use.end() && v4(bag[tk], c)) { button->State(ids[i]).hasTint = true; button->State(ids[i]).tint = c; }
+				if (use.find(ck) != use.end() && v4(bag[ck], c)) { button->State(ids[i]).hasTextColor = true; button->State(ids[i]).textColor = c; }
 			}
-			if (bag.find("pressedOffset") != bag.end() && bag["pressedOffset"].is_array() && bag["pressedOffset"].size() == 2)
-				button->State(UIState::Pressed).offset = Vec2(bag["pressedOffset"][0].get<f32>(), bag["pressedOffset"][1].get<f32>());
+			if (use.find("pressedOffset") != use.end() && use["pressedOffset"].is_array() && use["pressedOffset"].size() == 2)
+				button->State(UIState::Pressed).offset = Vec2(use["pressedOffset"][0].get<f32>(), use["pressedOffset"][1].get<f32>());
 		}
 		return true;
 	}

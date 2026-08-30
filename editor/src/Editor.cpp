@@ -1980,6 +1980,14 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["styles"] = sceneView->ListUIStyles();
 		return r;
 	}
+	if (name == "revert_ui_style")
+	{
+		if (!sceneView->AgentRevertUIStyle(A("object"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "clear_ui_style")
 	{
 		if (!sceneView->AgentClearUIStyle(A("object"), err))

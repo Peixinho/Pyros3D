@@ -2558,6 +2558,31 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					}
 					if (ImGui::IsItemHovered())
 						ImGui::SetTooltip("Keeps the look, stops following the file.");
+
+					// Anything hand-edited since the style was applied is
+					// held back from every re-apply, so it has to be visible
+					// - an element quietly ignoring half its style would be
+					// worse than one that never followed it.
+					const size_t nOverrides = r->GetStyleOverrides().size();
+					if (nOverrides > 0)
+					{
+						ImGui::TextDisabled("%zu propert%s overridden", nOverrides, nOverrides == 1 ? "y" : "ies");
+						if (ImGui::IsItemHovered())
+						{
+							std::string list;
+							for (size_t k = 0; k < r->GetStyleOverrides().size(); k++)
+								list += (k ? ", " : "") + r->GetStyleOverrides()[k];
+							ImGui::SetTooltip("Changed by hand, so the style no longer sets them:\n%s", list.c_str());
+						}
+						ImGui::SameLine();
+						if (ImGui::SmallButton("Revert"))
+						{
+							std::string err;
+							if (!OpRevertUIStyle(goId, err)) echo("ERROR: " + err);
+						}
+						if (ImGui::IsItemHovered())
+							ImGui::SetTooltip("Drops those edits and puts the element back under the style.");
+					}
 				}
 
 				ImGui::SetNextItemWidth(140.f);
@@ -9114,6 +9139,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
 		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
 		return OpExtractUIStyle(obj->GetID(), name, outPath, errOut);
+	}
+
+	bool SceneEditor::AgentRevertUIStyle(const std::string& objectName, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
+		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
+		return OpRevertUIStyle(obj->GetID(), errOut);
 	}
 
 	bool SceneEditor::AgentClearUIStyle(const std::string& objectName, std::string& errOut)

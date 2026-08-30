@@ -4668,6 +4668,20 @@ def list_ui_styles() -> str:
 
 
 @mcp.tool()
+def revert_ui_style(object_name: str) -> str:
+    """Put a UI element back under its style, dropping hand-edits (live editor).
+
+    Editing a property the style set marks it an override, and every later
+    re-apply - on load, or when the style file changes - skips it. This drops
+    those marks and re-applies in full.
+    """
+    ok, res = _editor_call("revert_ui_style", {"object": object_name})
+    if not ok:
+        return _fail(f"Could not revert: {res}")
+    return f"'{object_name}' is following its style again"
+
+
+@mcp.tool()
 def clear_ui_style(object_name: str) -> str:
     """Unlink a UI element from its style (live editor only).
 

@@ -252,6 +252,7 @@ public:
 	bool AgentAddPhysics(const std::string& name, const json& p, const std::string& parentName, std::string& errOut);
 	bool AgentAddModel(const std::string& name, const std::string& modelFile, const std::string& parentName, std::string& errOut);
 	bool AgentApplyUIStyle(const std::string& objectName, const std::string& stylePath, std::string& errOut);
+	bool AgentRevertUIStyle(const std::string& objectName, std::string& errOut);
 	bool AgentClearUIStyle(const std::string& objectName, std::string& errOut);
 	// Reachable from the agent dispatch, so public with its siblings.
 	std::vector<std::string> ListUIStyles() const;
@@ -634,6 +635,8 @@ private:
 	void RawSetUIStyleRef(uint32 goId, const std::string& ref);
 	std::string UIStylePalettePath() const;
 	bool OpClearUIStyle(uint32 goId, std::string& errOut);
+	bool OpRevertUIStyle(uint32 goId, std::string& errOut);
+	void RawSetUIStyleOverrides(uint32 goId, const std::vector<std::string>& keys);
 	// Scratch for the Properties panel's "extract a style called ..." field.
 	std::string uiStyleNameBuf;
 	// Re-applies every element's style after a load, so editing a style file

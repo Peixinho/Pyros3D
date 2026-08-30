@@ -1324,6 +1324,27 @@ bool SceneEditor::RawSetUIProperties(uint32 goId, const json& p, std::string& er
 void SceneEditor::PushUIPropertyUndo(uint32 goId, const json& before, const json& after, const char* what)
 {
 	if (before == after) return;
+
+	// This is the single place a hand-edit to a UI property lands, so it is
+	// also where an override is recorded. Applying a style does NOT come
+	// through here (it pushes its own command), which is exactly the
+	// distinction wanted: the style setting a tint is not an override of
+	// itself, and the user then changing that tint is.
+	if (SceneObject* obj = sceneObjects->GetSceneObject(goId))
+		if (obj->GetType() == SceneObjectTypes::GAMEOBJECT)
+		{
+			GameObject* go = (GameObject*)obj->GetPTR();
+			UIRect* rect = NULL;
+			const std::vector<std::shared_ptr<IComponent> >& cs = go->GetComponents();
+			for (size_t i = 0; i < cs.size(); i++)
+				if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect)
+				{ rect = static_cast<UIRect*>(cs[i].get()); break; }
+			if (rect && !rect->GetStyleRef().empty())
+				for (json::const_iterator it = after.begin(); it != after.end(); ++it)
+					if (before.find(it.key()) == before.end() || before[it.key()] != it.value())
+						rect->AddStyleOverride(it.key());
+		}
+
 	sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
 		[this, goId, before]() { std::string e; RawSetUIProperties(goId, before, e); },
 		[this, goId, after]()  { std::string e; RawSetUIProperties(goId, after, e); },
@@ -1397,14 +1418,20 @@ bool SceneEditor::OpApplyUIStyle(uint32 goId, const std::string& stylePath, std:
 	// element - without it, applying a style is a one-off paste.
 	const std::string afterRef = stylePath;
 	rect->SetStyleRef(afterRef);
+	// Applying a style is a fresh start - whatever was hand-edited relative
+	// to the PREVIOUS style has no meaning under this one.
+	const std::vector<std::string> beforeOverrides = rect->GetStyleOverrides();
+	rect->ClearStyleOverrides();
 	const json after = CaptureUIProperties(go);
 
 	sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
-		[this, goId, before, beforeRef]() {
+		[this, goId, before, beforeRef, beforeOverrides]() {
 			std::string e; RawSetUIProperties(goId, before, e); RawSetUIStyleRef(goId, beforeRef);
+			RawSetUIStyleOverrides(goId, beforeOverrides);
 		},
 		[this, goId, after, afterRef]() {
 			std::string e; RawSetUIProperties(goId, after, e); RawSetUIStyleRef(goId, afterRef);
+			RawSetUIStyleOverrides(goId, std::vector<std::string>());
 		},
 		"Apply UI Style"));
 	MarkSceneDirty();
@@ -1549,6 +1576,60 @@ std::vector<std::string> SceneEditor::ListUIStyles() const
 	}
 	std::sort(out.begin(), out.end());
 	return out;
+}
+
+// Puts an element back under its style's control: drop the record of what
+// was hand-edited, then re-apply ignoring overrides. The inverse of every
+// tweak made since the style was applied, and nothing else.
+bool SceneEditor::OpRevertUIStyle(uint32 goId, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "object not found"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+
+	UIRect* rect = NULL;
+	const std::vector<std::shared_ptr<IComponent> >& cs = go->GetComponents();
+	for (size_t i = 0; i < cs.size(); i++)
+		if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect)
+		{ rect = static_cast<UIRect*>(cs[i].get()); break; }
+	if (!rect) { errOut = "'" + obj->GetName() + "' is not a UI element"; return false; }
+	if (rect->GetStyleRef().empty()) { errOut = "'" + obj->GetName() + "' has no style to revert to"; return false; }
+
+	const std::string abs = (project && project->IsOpen())
+		? project->AbsolutePath(rect->GetStyleRef()) : rect->GetStyleRef();
+	nlohmann::json style;
+	if (!uistyle::ReadJsonFile(abs, style)) { errOut = "could not read " + rect->GetStyleRef(); return false; }
+	nlohmann::json bag;
+	const uistyle::Palette palette = uistyle::LoadPalette(UIStylePalettePath());
+	if (!uistyle::Resolve(style, palette, bag, errOut)) return false;
+
+	const json before = CaptureUIProperties(go);
+	const std::vector<std::string> beforeOverrides = rect->GetStyleOverrides();
+	rect->ClearStyleOverrides();
+	const std::string assetRoot = (project && project->IsOpen()) ? project->GetProjectPath() : std::string();
+	if (!uistyle::ApplyProperties(go, bag, assetRoot, errOut, false)) return false;
+	const json after = CaptureUIProperties(go);
+
+	sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+		[this, goId, before, beforeOverrides]() {
+			std::string e; RawSetUIProperties(goId, before, e); RawSetUIStyleOverrides(goId, beforeOverrides);
+		},
+		[this, goId, after]() {
+			std::string e; RawSetUIProperties(goId, after, e); RawSetUIStyleOverrides(goId, std::vector<std::string>());
+		},
+		"Revert to UI Style"));
+	MarkSceneDirty();
+	return true;
+}
+
+void SceneEditor::RawSetUIStyleOverrides(uint32 goId, const std::vector<std::string>& keys)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) return;
+	const std::vector<std::shared_ptr<IComponent> >& cs = ((GameObject*)obj->GetPTR())->GetComponents();
+	for (size_t i = 0; i < cs.size(); i++)
+		if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect)
+		{ static_cast<UIRect*>(cs[i].get())->SetStyleOverrides(keys); return; }
 }
 
 bool SceneEditor::OpClearUIStyle(uint32 goId, std::string& errOut)

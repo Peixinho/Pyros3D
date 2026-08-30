@@ -111,6 +111,8 @@ static const AIToolDef kAITools[] = {
 		{ { "object", "string", "Object name", true },
 		  { "style", "string", "Project-relative .uistyle path", true } } },
 	{ "list_ui_styles",  "List the .uistyle assets in this project. Ask before applying one - the names are the project's, not conventions.", {} },
+	{ "revert_ui_style", "Drop an element's hand-edited properties and put it back under its style. Editing a styled property makes it an override, which every later re-apply then skips.",
+		{ { "object", "string", "Object name", true } } },
 	{ "clear_ui_style",  "Unlink an element from its style. Keeps the look it has, stops following the file.",
 		{ { "object", "string", "Object name", true } } },
 	{ "extract_ui_style", "Write a .uistyle from an element's current look into assets/ui, and link the element to it. Colours matching a palette entry are written back as @names.",

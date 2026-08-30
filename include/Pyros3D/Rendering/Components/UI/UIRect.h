@@ -13,6 +13,7 @@
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Other/Export.h>
 #include <string>
+#include <vector>
 
 namespace p3d {
 
@@ -110,6 +111,21 @@ namespace p3d {
 		void SetStyleRef(const std::string &ref) { styleRef = ref; }
 		const std::string &GetStyleRef() const { return styleRef; }
 
+		// Which style-provided properties this element has since had changed
+		// by hand. Opaque strings here, exactly like styleRef: the engine
+		// stores and serializes them and never looks inside. Re-applying a
+		// style skips them, so a per-element tweak is not silently undone
+		// the next time the scene loads or the style file changes.
+		void SetStyleOverrides(const std::vector<std::string> &keys) { styleOverrides = keys; }
+		const std::vector<std::string> &GetStyleOverrides() const { return styleOverrides; }
+		void AddStyleOverride(const std::string &key)
+		{
+			for (size_t i = 0; i < styleOverrides.size(); i++)
+				if (styleOverrides[i] == key) return;
+			styleOverrides.push_back(key);
+		}
+		void ClearStyleOverrides() { styleOverrides.clear(); }
+
 		// A transient nudge added to the solved rect, in canvas units - what
 		// a button's pressed state uses. Deliberately separate from the
 		// offsets: it is applied on top of them and never serialized, so a
@@ -129,6 +145,7 @@ namespace p3d {
 
 		Vec2 stateOffset;
 		std::string styleRef;
+		std::vector<std::string> styleOverrides;
 
 		UIRectValue rect;
 		Vec2 origin;

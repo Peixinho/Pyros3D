@@ -1351,6 +1351,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["pivot"] = ToJson(r->GetPivot());
 			// Opaque here by design - see UIRect::SetStyleRef.
 			if (!r->GetStyleRef().empty()) j["styleRef"] = r->GetStyleRef();
+			if (!r->GetStyleOverrides().empty())
+			{
+				json ov = json::array();
+				for (size_t k = 0; k < r->GetStyleOverrides().size(); k++) ov.push_back(r->GetStyleOverrides()[k]);
+				j["styleOverrides"] = ov;
+			}
 			// The solved rect is deliberately NOT saved: it is derived from
 			// these five values and the viewport, and storing it would let a
 			// scene file disagree with its own layout.
@@ -2261,6 +2267,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				r->SetOffsets(Vec2FromJson(j["offsetMin"]), Vec2FromJson(j["offsetMax"]));
 			if (j.find("pivot") != j.end()) r->SetPivot(Vec2FromJson(j["pivot"]));
 			r->SetStyleRef(j.value("styleRef", std::string()));
+			if (j.find("styleOverrides") != j.end() && j["styleOverrides"].is_array())
+			{
+				std::vector<std::string> ov;
+				for (auto &k : j["styleOverrides"]) if (k.is_string()) ov.push_back(k.get<std::string>());
+				r->SetStyleOverrides(ov);
+			}
 			go->Add(std::static_pointer_cast<IComponent>(r));
 		}
 		else if (type == "UIImage")
