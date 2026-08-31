@@ -262,6 +262,19 @@ public:
 	// authoring tool wants. Z is the only rotation a 2D rig uses.
 	bool AgentPoseBone2D(const std::string& objName, const std::string& boneName,
 		const f32 degreesZ, std::string& errOut);
+	// Solves the chain from `rootBone` to `effectorBone` so the effector
+	// reaches `target` (XY, in the skeleton's model space).
+	//
+	// The pole is passed as ZERO, deliberately. A pole is a hint for which way
+	// a joint should bend, and the plane it defines contains the chain
+	// direction and the pole - so +Z, the obvious-looking choice for a 2D rig,
+	// defines a plane perpendicular to XY and bends the chain straight out of
+	// the plane it is supposed to live in. Measured: with +Z a target at
+	// (1,1), comfortably inside a reach of 2, was missed by 0.32; with a zero
+	// pole it is hit exactly. In the plane there is only one sensible bend, so
+	// letting the solver pick is both simpler and correct.
+	bool AgentIKSolve2D(const std::string& objName, const std::string& rootBone,
+		const std::string& effectorBone, const Vec2 &target, std::string& errOut);
 	bool AgentSetSpritePivot(const std::string& name, const Vec2 &norm, std::string& errOut);
 	bool AgentSliceSpritesheet(const std::string& name, const std::string& sheetPath,
 		int cols, int rows, f32 fps, bool loop, std::string& errOut);

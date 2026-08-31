@@ -2543,6 +2543,22 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 
+	// {"cmd":"ik_solve2d","args":{"object":"Rig","root":"Root","effector":"Lower","target":[1,1]}}
+	if (name == "ik_solve2d")
+	{
+		const std::string objName = A("object");
+		const std::string rootB = A("root");
+		const std::string effB = A("effector");
+		if (objName.empty() || rootB.empty() || effB.empty())
+			throw std::runtime_error("ik_solve2d: 'object', 'root' and 'effector' are required");
+		std::vector<f32> t = AV("target");
+		if (t.size() < 2) throw std::runtime_error("ik_solve2d: 'target' needs [x,y]");
+		if (!sceneView->AgentIKSolve2D(objName, rootB, effB, Vec2(t[0], t[1]), err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["target"] = { t[0], t[1] };
+		return r;
+	}
+
 	// {"cmd":"skeleton_state","args":{"object":"Rig"}}
 	if (name == "skeleton_state")
 	{

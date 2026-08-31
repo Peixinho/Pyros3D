@@ -13,6 +13,7 @@
 #include <algorithm>
 
 #include "SceneEditor.h"
+#include <Pyros3D/AnimationManager/IKSolver.h>
 #include "UIDispatch.h"
 #include "UI/EasingPreview.h"
 #include "SceneCommands.h"
@@ -9776,6 +9777,38 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		local.Translate(inst->GetBindPoseLocal(id).GetTranslation());
 		inst->SetBoneLocalTransform(id, local);
 		inst->RefreshSkinning();
+		MarkSceneDirty();
+		return true;
+	}
+
+	bool SceneEditor::AgentIKSolve2D(const std::string& objName, const std::string& rootBone,
+		const std::string& effectorBone, const Vec2 &target, std::string& errOut)
+	{
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
+		if (!obj) { errOut = "object '" + objName + "' not found"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		RenderingComponent* rc = FindRenderingComponent(go);
+		if (!rc) { errOut = "object has no RenderingComponent"; return false; }
+
+		SkeletonAnimationInstance* inst =
+			static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
+		if (!inst) inst = RebuildSkeletonInstance(rc);
+		if (!inst) { errOut = "object has no skeleton"; return false; }
+
+		const std::vector<Bone> &bones = inst->GetSkeletonBones();
+		int32 rootId = -1, effId = -1;
+		for (size_t i = 0; i < bones.size(); i++)
+		{
+			if (bones[i].name == rootBone) rootId = bones[i].self;
+			if (bones[i].name == effectorBone) effId = bones[i].self;
+		}
+		if (rootId < 0) { errOut = "bone '" + rootBone + "' not found"; return false; }
+		if (effId < 0) { errOut = "bone '" + effectorBone + "' not found"; return false; }
+
+		if (!IKSolver::Solve(inst, rootId, effId, Vec3(target.x, target.y, 0.f),
+			Vec3(0.f, 0.f, 0.f)))
+		{ errOut = "could not build a chain from '" + rootBone + "' to '" + effectorBone + "'"; return false; }
+
 		MarkSceneDirty();
 		return true;
 	}
