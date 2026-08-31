@@ -257,6 +257,8 @@ public:
 	bool AgentAddBone2D(const std::string& objName, const std::string& boneName,
 		const std::string& parentBone, const Vec2 &localPos, std::string& errOut);
 	bool AgentRemoveBone2D(const std::string& objName, const std::string& boneName, std::string& errOut);
+	bool AgentBindToBone2D(const std::string& objName, const std::string& boneName,
+		const Vec2 &offset, std::string& errOut);
 	json AgentSkeletonState(const std::string& objName, std::string& errOut);
 	// Rotation is DEGREES about Z here and converted on the way in - the
 	// engine's Euler angles are radians, and a degrees-in API is what an
@@ -739,6 +741,8 @@ private:
 	// reference remapped - dropping a bone without that would silently
 	// re-parent whatever happened to sit at the vacated index.
 	bool OpRemoveBone2D(uint32 goId, const std::string& boneName, std::string& errOut);
+	// Binds this object to a named bone on an ancestor's skeleton (cutout).
+	bool OpBindToBone2D(uint32 goId, const std::string& boneName, const Vec2 &offset, std::string& errOut);
 	SkeletonAnimationInstance* RebuildSkeletonInstance(RenderingComponent* rc);
 	// Draws every authored 2D skeleton in the scene through the editor's
 	// DebugRenderer: a tapered quad per bone from its own joint to each

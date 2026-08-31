@@ -9788,6 +9788,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	// Bone list with both the local rest transform and the composed global
 	// one, so a caller can tell whether posing a parent actually moved its
 	// children - which is the whole point of a hierarchy.
+	bool SceneEditor::AgentBindToBone2D(const std::string& objName, const std::string& boneName,
+		const Vec2 &offset, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
+		if (!obj) { errOut = "object '" + objName + "' not found"; return false; }
+		return OpBindToBone2D(obj->GetID(), boneName, offset, errOut);
+	}
+
 	bool SceneEditor::AgentRemoveBone2D(const std::string& objName, const std::string& boneName, std::string& errOut)
 	{
 		if (playMode) { errOut = "editor is in play mode"; return false; }

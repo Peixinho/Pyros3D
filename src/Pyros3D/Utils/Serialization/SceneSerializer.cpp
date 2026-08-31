@@ -23,6 +23,7 @@
 #include <Pyros3D/Rendering/Components/Lights/SpotLight/SpotLight.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
+#include <Pyros3D/Rendering/Components/BoneBind2D/BoneBind2D.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
@@ -1471,6 +1472,14 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["castsShadow"] = ph->CastsShadow();
 			return j;
 		}
+		case ComponentType::BoneBind2D:
+		{
+			BoneBind2D* b = dynamic_cast<BoneBind2D*>(c);
+			j["type"] = "BoneBind2D";
+			j["bone"] = b->GetBone();
+			j["offset"] = ToJson(b->GetOffset());
+			return j;
+		}
 		case ComponentType::Layer2D:
 		{
 			Layer2D* l = dynamic_cast<Layer2D*>(c);
@@ -2571,6 +2580,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			ph->SetFixedRotation(j.value("fixedRotation", false));
 			ph->SetCastsShadow(j.value("castsShadow", true));
 			go->Add(ph);
+			return;
+		}
+				else if (type == "BoneBind2D")
+		{
+			std::shared_ptr<BoneBind2D> b = std::make_shared<BoneBind2D>(j.value("bone", std::string()));
+			if (j.contains("offset")) b->SetOffset(Vec2FromJson(j["offset"]));
+			go->Add(b);
 			return;
 		}
 				else if (type == "Layer2D")

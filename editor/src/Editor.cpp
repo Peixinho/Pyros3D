@@ -2572,6 +2572,21 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 
+	// {"cmd":"bind_bone2d","args":{"object":"Arm","bone":"ArmU","offset":[0,0]}}
+	if (name == "bind_bone2d")
+	{
+		const std::string objName = A("object");
+		const std::string boneName = A("bone");
+		if (objName.empty() || boneName.empty())
+			throw std::runtime_error("bind_bone2d: 'object' and 'bone' are required");
+		std::vector<f32> o = AV("offset");
+		const Vec2 off(o.size() > 0 ? o[0] : 0.f, o.size() > 1 ? o[1] : 0.f);
+		if (!sceneView->AgentBindToBone2D(objName, boneName, off, err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["bone"] = boneName;
+		return r;
+	}
+
 	// {"cmd":"skeleton_state","args":{"object":"Rig"}}
 	if (name == "skeleton_state")
 	{

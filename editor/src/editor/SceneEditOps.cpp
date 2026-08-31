@@ -15,6 +15,7 @@
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
+#include <Pyros3D/Rendering/Components/BoneBind2D/BoneBind2D.h>
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
 #include <Pyros3D/Ext/stb/stb_image.h>
 #include <Pyros3D/Ext/stb/stb_image_write.h>
@@ -1067,6 +1068,53 @@ SkeletonAnimationInstance* SceneEditor::RebuildSkeletonInstance(RenderingCompone
 	SkeletonAnimationInstance* inst = anim->CreateInstance(rc);
 	if (inst) inst->ResetToBindPose();
 	return inst;
+}
+
+bool SceneEditor::OpBindToBone2D(uint32 goId, const std::string& boneName, const Vec2 &offset, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "not a game object"; return false; }
+	if (boneName.empty()) { errOut = "bind needs a bone name"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+
+	// Checked here rather than left to fail silently at update time: a binding
+	// to a bone that does not exist looks exactly like a binding that is not
+	// working, and this is the one place that knows the answer.
+	bool found = false;
+	for (GameObject* p = go->GetParent(); p != NULL && !found; p = p->GetParent())
+	{
+		RenderingComponent* rc = FindRenderingComponent(p);
+		if (!rc) continue;
+		const std::map<StringID, Bone> &sk = rc->GetSkeleton();
+		for (std::map<StringID, Bone>::const_iterator i = sk.begin(); i != sk.end(); ++i)
+			if ((*i).second.name == boneName) { found = true; break; }
+	}
+	if (!found) { errOut = "no ancestor has a bone named '" + boneName + "'"; return false; }
+
+	const std::string before = SnapshotSubtree(goId);
+	// Re-bind rather than stack a second binding: two BoneBind2D on one object
+	// would both write the transform and the last one to update would win.
+	BoneBind2D* existing = NULL;
+	{
+		const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+		for (size_t i = 0; i < comps.size(); i++)
+			if (comps[i] && comps[i]->GetComponentType() == ComponentType::BoneBind2D)
+				existing = static_cast<BoneBind2D*>(comps[i].get());
+	}
+	if (existing)
+	{
+		existing->SetBone(boneName);
+		existing->SetOffset(offset);
+	}
+	else
+	{
+		std::shared_ptr<BoneBind2D> b = std::make_shared<BoneBind2D>(boneName);
+		b->SetOffset(offset);
+		go->Add(b);
+	}
+	MarkSceneDirty();
+	PushReplaceCommand(goId, before, "Bind To Bone");
+	return true;
 }
 
 bool SceneEditor::OpRemoveBone2D(uint32 goId, const std::string& boneName, std::string& errOut)
