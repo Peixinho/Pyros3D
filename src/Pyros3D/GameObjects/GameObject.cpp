@@ -43,19 +43,29 @@ namespace p3d {
 		// Update Transformation
 		bool r = UpdateTransformation();
 
-		Vec3 _min = GetWorldTransformation()*minBounds;
-		Vec3 _max = GetWorldTransformation()*maxBounds;
+		// The eight corners of the LOCAL box, each transformed once.
+		//
+		// This used to pre-transform min/max and then transform the corners
+		// built from them again, applying the world matrix twice: the box
+		// came out at T + S*T with extents scaled by S*S. Harmless at the
+		// origin and at scale 1, which is why it survived - but the error
+		// grows with distance, and these bounds are what the renderers'
+		// frustum culling tests. A 0.6-scaled sprite at x=-14 got a box
+		// centred on x=-22.4, eight units from where it actually was, so it
+		// was culled and simply did not draw in the editor.
+		const Matrix &W = GetWorldTransformation();
+		const Vec3 &_min = minBounds;
+		const Vec3 &_max = maxBounds;
 
-		// Defining box vertex and Apply Transform
 		Vec3 v[8];
-		v[0] = GetWorldTransformation() * _min;
-		v[1] = GetWorldTransformation() * Vec3(_min.x, _min.y, _max.z);
-		v[2] = GetWorldTransformation() * Vec3(_min.x, _max.y, _max.z);
-		v[3] = GetWorldTransformation() * _max;
-		v[4] = GetWorldTransformation() * Vec3(_min.x, _max.y, _min.z);
-		v[5] = GetWorldTransformation() * Vec3(_max.x, _min.y, _min.z);
-		v[6] = GetWorldTransformation() * Vec3(_max.x, _max.y, _min.z);
-		v[7] = GetWorldTransformation() * Vec3(_max.x, _min.y, _max.z);
+		v[0] = W * _min;
+		v[1] = W * Vec3(_min.x, _min.y, _max.z);
+		v[2] = W * Vec3(_min.x, _max.y, _max.z);
+		v[3] = W * _max;
+		v[4] = W * Vec3(_min.x, _max.y, _min.z);
+		v[5] = W * Vec3(_max.x, _min.y, _min.z);
+		v[6] = W * Vec3(_max.x, _max.y, _min.z);
+		v[7] = W * Vec3(_max.x, _min.y, _max.z);
 
 		// Get new Min and Max
 		Vec3 min = v[0];
