@@ -520,6 +520,10 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 	// them appear a frame late.
 	scene->Update(GetTime());
 
+	// Clips marked autoplay start here, before the scene's own script, so the
+	// script can stop or replace one instead of racing it.
+	RenderingComponent::StartAutoPlayInScene(scene);
+
 	if (!meta.mainScript.empty())
 	{
 		try

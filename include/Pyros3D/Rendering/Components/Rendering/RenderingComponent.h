@@ -307,6 +307,21 @@ namespace p3d {
 		// `bones` must be in id order (bones[i].self == i), matching what the
 		// instance assumes when it indexes by Bone::self.
 		void SetSkeleton(const std::vector<Bone> &bones);
+
+		// A clip to start when the game starts. Stored here rather than acted
+		// on at load, because a scene being *authored* must not have its rig
+		// driven out from under the pose you are editing - the editor starts
+		// it at play, the player at startup, and both go through
+		// StartAutoPlayInScene() below.
+		const std::string &GetAutoPlayClip() const { return autoPlayClip; }
+		void SetAutoPlayClip(const std::string &c) { autoPlayClip = c; }
+		bool IsAutoPlayLooping() const { return autoPlayLoop; }
+		void SetAutoPlayLooping(const bool l) { autoPlayLoop = l; }
+
+		// Plays every autoplay clip in `scene`. Walks the hierarchy, not the
+		// flat list - a rig parented under a layer is a child, and the flat
+		// list has no children in it.
+		static void StartAutoPlayInScene(SceneGraph* scene);
 		bool HasBones() { return hasBones; }
 
 		// Get Model's Meshes
@@ -374,6 +389,9 @@ namespace p3d {
 		// Last frame index pushed onto the material, so the colormap is only
 		// swapped when the frame actually changes rather than every tick.
 		int32 lastAppliedTextureFrame = -1;
+
+		std::string autoPlayClip;
+		bool autoPlayLoop = true;
 
 		// Save Renderable Pointer
 		std::shared_ptr<Renderable> renderable;

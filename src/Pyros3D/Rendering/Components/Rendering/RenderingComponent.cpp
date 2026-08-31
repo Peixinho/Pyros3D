@@ -13,6 +13,7 @@
 // is a void* in the first place.
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
+#include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 
 namespace p3d {
@@ -400,6 +401,36 @@ namespace p3d {
 };
 
 namespace p3d {
+
+	void RenderingComponent::StartAutoPlayInScene(SceneGraph* scene)
+	{
+		if (scene == NULL) return;
+		std::vector<GameObject*> all;
+		scene->CollectGameObjectsRecursive(all);
+		for (size_t i = 0; i < all.size(); i++)
+		{
+			if (!all[i]) continue;
+			const std::vector<std::shared_ptr<IComponent> > &comps = all[i]->GetComponents();
+			for (size_t c = 0; c < comps.size(); c++)
+			{
+				if (!comps[c] || comps[c]->GetComponentType() != ComponentType::RenderingComponent) continue;
+				RenderingComponent* rc = static_cast<RenderingComponent*>(comps[c].get());
+				if (rc->autoPlayClip.empty()) continue;
+				SkeletonAnimationInstance* inst =
+					static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
+				if (!inst || !inst->GetOwner()) continue;
+				const std::vector<Animation> clips = inst->GetOwner()->GetAnimations();
+				for (size_t k = 0; k < clips.size(); k++)
+					if (clips[k].AnimationName == rc->autoPlayClip)
+					{
+						// -1 is the loop-forever sentinel; 0 would read as
+						// "no repetitions left" and stop on the final pose.
+						inst->Play((uint32)k, 0.f, rc->autoPlayLoop ? -1.f : 1.f);
+						break;
+					}
+			}
+		}
+	}
 
 	void RenderingComponent::SetSkeleton(const std::vector<Bone> &bones)
 	{

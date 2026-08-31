@@ -1129,6 +1129,11 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 								clipsArr.push_back(cj);
 							}
 							if (!clipsArr.empty()) j["clips2D"] = clipsArr;
+							if (!rc->GetAutoPlayClip().empty())
+							{
+								j["autoPlay2D"] = rc->GetAutoPlayClip();
+								j["autoPlay2DLoop"] = rc->IsAutoPlayLooping();
+							}
 						}
 					}
 					}
@@ -2459,6 +2464,14 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 
 					SkeletonAnimationInstance* si = sanim->CreateInstance(rc.get());
 					if (si) si->ResetToBindPose();
+
+					// Recorded, not started: play mode and the player start it,
+					// so authoring a scene does not fight the clip.
+					if (j.find("autoPlay2D") != j.end())
+					{
+						rc->SetAutoPlayClip(j.value("autoPlay2D", std::string()));
+						rc->SetAutoPlayLooping(j.value("autoPlay2DLoop", true));
+					}
 				}
 			}
 

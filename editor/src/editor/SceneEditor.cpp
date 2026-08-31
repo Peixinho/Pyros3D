@@ -2596,6 +2596,24 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					}
 					ImGui::SameLine();
 					ImGui::Checkbox("Show in viewport", &showSkeletons2D);
+
+					// Autoplay: recorded on the component, started at play
+					// rather than now, so it does not drive the rig while the
+					// pose is being authored.
+					std::string ap = rc->GetAutoPlayClip();
+					if (ImGui::InputText("Autoplay clip", &ap))
+					{
+						rc->SetAutoPlayClip(ap);
+						MarkSceneDirty();
+					}
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("Clip to start when the game runs. Empty for none.");
+					bool apLoop = rc->IsAutoPlayLooping();
+					if (ImGui::Checkbox("Autoplay loops", &apLoop))
+					{
+						rc->SetAutoPlayLooping(apLoop);
+						MarkSceneDirty();
+					}
 				}
 
 				Vec2 pv;
@@ -5146,6 +5164,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		InitSceneMainScript();
 		StartProjectMainScript();
 #endif
+		// After the scripts, so a script that wants to drive a rig itself can
+		// simply stop or replace the clip rather than race it.
+		RenderingComponent::StartAutoPlayInScene(scene);
 	}
 
 	void SceneEditor::StopPlayMode()
