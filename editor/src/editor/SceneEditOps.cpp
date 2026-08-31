@@ -1024,6 +1024,16 @@ bool SceneEditor::OpAddSprite(uint32 goId, const std::string& texturePath, std::
 	mat->EnableBlending();
 	mat->BlendingEquation(BlendEq::Add);
 	mat->BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
+	// EnableBlending() alone is not enough. It sets the blend state, but the
+	// DeferredRenderer picks its pass off IsTransparent(): a material without
+	// the flag is drawn into the G-buffer, and a G-buffer pass cannot blend -
+	// it writes one albedo/normal/depth per pixel, so a fully transparent
+	// texel is written out at full opacity. The symptom is a hard ring of the
+	// texture's invisible border colour around every sprite, which reads as a
+	// lighting or shadow bug and is not one. With the flag the sprite goes
+	// through the translucent pass, which is forward-lit (lights are gathered
+	// there) so it stays lit and shadowed exactly as before.
+	mat->SetTransparencyFlag(true);
 	mat->SetCullFace(CullFace::DoubleSided);
 
 	go->Add(std::make_shared<RenderingComponent>(mesh, mat));
@@ -1080,8 +1090,9 @@ bool SceneEditor::OpMakeSprite2DLit(uint32 goId, std::string& errOut)
 	mat->EnableBlending();
 	mat->BlendingEquation(BlendEq::Add);
 	mat->BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
+	// See OpAddSprite for why the flag is needed on top of EnableBlending().
+	mat->SetTransparencyFlag(true);
 	mat->SetCullFace(CullFace::DoubleSided);
-
 
 	bool any = false;
 	const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();

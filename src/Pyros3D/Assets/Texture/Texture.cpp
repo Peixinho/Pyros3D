@@ -13,6 +13,7 @@
 #include <Pyros3D/Resources/Resources.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include <Pyros3D/Ext/stb/stb_image.h>
+#include <cstdint>   // INT64_MAX, used by BleedTransparentEdges below
 
 namespace p3d {
 
@@ -118,6 +119,96 @@ namespace p3d {
 		return status;
 	}
 
+	// Fills the colour of fully-transparent texels with their nearest visible
+	// neighbour's colour, leaving alpha alone.
+	//
+	// Every PNG writer zeroes the RGB of a fully transparent pixel, so a
+	// sprite's transparent margin is (0,0,0,0). Nothing draws those texels -
+	// but the sampler still *reads* them: bilinear filtering (and every mip
+	// level) blends a border texel with its transparent neighbours, and the
+	// colour it blends toward is black. The result is a one-or-two pixel dark
+	// ring around every sprite with an alpha edge, on all four sides, which
+	// looks exactly like a lighting or shadow bug and is not one. Giving the
+	// invisible texels a sensible colour removes it, and cannot change any
+	// visible pixel because their alpha is still zero.
+	//
+	// Only texels that are BOTH fully transparent AND pure black are touched.
+	// That is precisely the case that haloes, and it leaves alone any texture
+	// that deliberately packs data into the colour of a zero-alpha texel.
+	//
+	// Two sweeps of nearest-source propagation rather than repeated dilation:
+	// dilation needs one pass per pixel of margin (a mostly-transparent atlas
+	// would need hundreds), this is O(w*h) whatever the margin looks like.
+	static void BleedTransparentEdges(std::vector<uchar> &pixels, const int32 w, const int32 h)
+	{
+		if (w <= 0 || h <= 0) return;
+		const size_t count = (size_t)w * (size_t)h;
+
+		std::vector<int32> src(count, -1);
+		size_t opaque = 0, needsFill = 0;
+		for (size_t i = 0; i < count; i++)
+		{
+			const uchar* p = &pixels[i * 4];
+			if (p[3] != 0) { src[i] = (int32)i; opaque++; }
+			else if (p[0] == 0 && p[1] == 0 && p[2] == 0) needsFill++;
+		}
+		// Nothing to bleed, or nothing to bleed *from*.
+		if (needsFill == 0 || opaque == 0) return;
+
+		// Squared distance from (x,y) to the candidate's source texel; -1
+		// sources never win because they are rejected before this is called.
+		struct L {
+			static int64 Dist2(const int32 s, const int32 x, const int32 y, const int32 w)
+			{
+				const int64 dx = (int64)(s % w) - x;
+				const int64 dy = (int64)(s / w) - y;
+				return dx * dx + dy * dy;
+			}
+		};
+
+		std::vector<int64> best(count, INT64_MAX);
+		for (size_t i = 0; i < count; i++)
+			if (src[i] >= 0) best[i] = 0;
+
+		const int32 fwd[4][2] = { { -1, 0 }, { 0, -1 }, { -1, -1 }, { 1, -1 } };
+		const int32 bwd[4][2] = { { 1, 0 }, { 0, 1 }, { 1, 1 }, { -1, 1 } };
+
+		for (int32 pass = 0; pass < 2; pass++)
+		{
+			const int32 (*off)[2] = (pass == 0) ? fwd : bwd;
+			for (int32 j = 0; j < h; j++)
+			{
+				const int32 y = (pass == 0) ? j : (h - 1 - j);
+				for (int32 i = 0; i < w; i++)
+				{
+					const int32 x = (pass == 0) ? i : (w - 1 - i);
+					const size_t idx = (size_t)y * w + x;
+					if (best[idx] == 0) continue;
+					for (int32 k = 0; k < 4; k++)
+					{
+						const int32 nx = x + off[k][0], ny = y + off[k][1];
+						if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+						const int32 cand = src[(size_t)ny * w + nx];
+						if (cand < 0) continue;
+						const int64 d = L::Dist2(cand, x, y, w);
+						if (d < best[idx]) { best[idx] = d; src[idx] = cand; }
+					}
+				}
+			}
+		}
+
+		for (size_t i = 0; i < count; i++)
+		{
+			uchar* p = &pixels[i * 4];
+			if (p[3] != 0) continue;
+			if (p[0] != 0 || p[1] != 0 || p[2] != 0) continue;
+			const int32 s = src[i];
+			if (s < 0) continue;
+			const uchar* q = &pixels[(size_t)s * 4];
+			p[0] = q[0]; p[1] = q[1]; p[2] = q[2];
+		}
+	}
+
 	bool Texture::LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type, bool Mipmapping, const uint32 level)
 	{
 		bool failed = false;
@@ -158,6 +249,9 @@ namespace p3d {
 		pixels.resize(w * h * 4 * sizeof(uchar));
 		memcpy(&pixels[0], imagePTR, w * h * 4 * sizeof(uchar));
 		stbi_image_free(imagePTR);
+
+		// Before upload, so mip generation sees the bled colours too.
+		BleedTransparentEdges(pixels, w, h);
 
 		if (this->Width.size() < level + 1)
 		{

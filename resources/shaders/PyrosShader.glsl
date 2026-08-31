@@ -1371,7 +1371,16 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 }
             }
             #if defined(DIFFUSE)
-                diffuse = _diffuse * diffuse + _specular * specular;
+                // .rgb, and the original alpha kept: lighting belongs to the
+                // colour, not to how opaque the surface is. Written as a
+                // whole-vec4 multiply, this folded the light through the
+                // alpha channel too - so a fully transparent texel came out
+                // with alpha = _specular.w * specular.w instead of 0, and
+                // every lit textured sprite drew its invisible border at
+                // whatever opacity the specular term happened to have. The
+                // PBR branch below already does exactly this; this one and
+                // CELLSHADING did not.
+                diffuse = vec4((_diffuse * diffuse + _specular * specular).rgb, diffuse.w);
             #elif defined(CELLSHADING)
                 float factor = 3.0;
                 if (lightIntensityCellShading > 0.95) factor = 3.0;
@@ -1379,7 +1388,10 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 else if (lightIntensityCellShading > 0.5) factor = 1.0;
                 else if (lightIntensityCellShading > 0.25) factor = 0.8;
                 else factor = 0.5;
-                diffuse = factor * diffuse;
+                // Same reasoning as DIFFUSE above - scaling alpha by the
+                // cel factor made an opaque surface 3x "opaque" or half
+                // transparent depending only on how lit it was.
+                diffuse = vec4((factor * diffuse).rgb, diffuse.w);
             #elif defined(PBR)
                 // Ambient placeholder (no IBL yet): dielectric-only ambient
                 // response, scaled by the same per-channel ambient uniform

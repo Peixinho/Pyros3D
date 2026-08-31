@@ -129,7 +129,16 @@ namespace p3d {
 		uint32 GetInternalID();
 
 		// Depth Test and Write
-		void EnableDepthTest(const uint32 test = 0) { forceDepthWrite = depthTest = true; depthTestMode = test; }
+		// Enabling the depth TEST says nothing about depth WRITING, and this
+		// used to set forceDepthWrite too. Two things fell out of that, both
+		// silent: IsDepthWritting()'s transparency rule below could never
+		// fire (so a transparent surface wrote depth and punched a hole in
+		// whatever was drawn behind it afterwards - a sprite's invisible
+		// border came out as the clear colour), and DisableDepthWrite()
+		// became a no-op on any material with depth testing on, which is
+		// nearly all of them and includes the calls UIBatcher already makes.
+		// depthWrite defaults to true, so opaque materials are unaffected.
+		void EnableDepthTest(const uint32 test = 0) { depthTest = true; depthTestMode = test; }
 		void DisableDepthTest() { forceDepthWrite = depthTest = false; }
 		void EnableDepthWrite() { depthWrite = true; }
 		void DisableDepthWrite() { depthWrite = false; }
