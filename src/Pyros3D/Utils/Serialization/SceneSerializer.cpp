@@ -1039,6 +1039,28 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["material"] = GetOrAddMaterial(mat, materialsArray, materialIdMap);
 			j["renderable"] = renderableJson;
 
+			// Pivot, normalized over the geometry's bounds. Stored normalized
+			// rather than as the matrix so it survives the geometry changing
+			// size - a sprite re-pointed at a taller texture keeps its
+			// "bottom edge" pivot instead of drifting into the middle.
+			{
+				std::vector<RenderingMesh*> &pmeshes = rc->GetMeshes();
+				Renderable* prnd = rc->GetRenderable();
+				if (!pmeshes.empty() && pmeshes[0] && prnd)
+				{
+					const Vec3 pmn = prnd->GetBoundingMinValue();
+					const Vec3 pmx = prnd->GetBoundingMaxValue();
+					const f32 pw = pmx.x - pmn.x, ph = pmx.y - pmn.y;
+					const Vec3 poff = pmeshes[0]->Pivot.GetTranslation();
+					if (pw > 0.0001f && ph > 0.0001f
+						&& (fabsf(poff.x) > 0.0001f || fabsf(poff.y) > 0.0001f))
+					{
+						j["pivot"] = { (double)(((-poff.x) - pmn.x) / pw),
+						               (double)(((-poff.y) - pmn.y) / ph) };
+					}
+				}
+			}
+
 			// Optional skeleton animation, only present if
 			// SetActiveSkeletonAnimation() was ever called for this
 			// component (automatic, from SkeletonAnimationInstance's own
@@ -2254,6 +2276,27 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					tinst->Play(ta.value("repeat", 1));
 					if (ta.value("paused", false)) tinst->Pause();
 					rc->SetActiveTextureAnimation(tinst);
+				}
+			}
+
+			// Pivot, rebuilt from the normalized value against this
+			// geometry's bounds (see the save side for why it is stored
+			// normalized rather than as the matrix).
+			if (j.find("pivot") != j.end() && j["pivot"].is_array() && j["pivot"].size() == 2)
+			{
+				std::vector<RenderingMesh*> &pmeshes = rc->GetMeshes();
+				Renderable* prnd = rc->GetRenderable();
+				if (!pmeshes.empty() && pmeshes[0] && prnd)
+				{
+					const Vec3 pmn = prnd->GetBoundingMinValue();
+					const Vec3 pmx = prnd->GetBoundingMaxValue();
+					const f32 nx = (f32)j["pivot"][0].get<double>();
+					const f32 ny = (f32)j["pivot"][1].get<double>();
+					Matrix pv;
+					pv.Translate(Vec3(-(pmn.x + nx * (pmx.x - pmn.x)),
+					                  -(pmn.y + ny * (pmx.y - pmn.y)), 0.f));
+					for (size_t pi = 0; pi < pmeshes.size(); pi++)
+						if (pmeshes[pi]) pmeshes[pi]->Pivot = pv;
 				}
 			}
 		}

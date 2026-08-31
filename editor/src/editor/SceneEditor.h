@@ -253,6 +253,7 @@ public:
 	bool AgentMakeSprite2DLit(const std::string& name, std::string& errOut);
 	// Attaches an Occluder2D by object name.
 	bool AgentAddOccluder2D(const std::string& name, std::string& errOut);
+	bool AgentSetSpritePivot(const std::string& name, const Vec2 &norm, std::string& errOut);
 	bool AgentSliceSpritesheet(const std::string& name, const std::string& sheetPath,
 		int cols, int rows, f32 fps, bool loop, std::string& errOut);
 	bool AgentAddLayer2D(const std::string& name, std::string& errOut);
@@ -692,6 +693,15 @@ private:
 	// every scene that used it.
 	bool OpSliceSpritesheet(uint32 goId, const std::string& sheetPath,
 		int cols, int rows, f32 fps, bool loop, std::string& errOut);
+
+	// Sprite pivot, as a normalized point over the geometry's own bounds:
+	// (0.5,0.5) is the middle, (0.5,0) the bottom edge. Stored as the mesh's
+	// Pivot matrix, which the renderer already composes as
+	// world * Pivot - so a pivot is just the geometry shifted the other way,
+	// putting the object's origin on the chosen point. That is what makes a
+	// cutout limb rotate about its joint instead of its middle.
+	static bool GetSpritePivot(RenderingComponent* rc, Vec2 &outNorm);
+	bool OpSetSpritePivot(uint32 goId, const Vec2 &norm, std::string& errOut);
 	bool OpAddUIComponent(uint32 goId, const std::string& kind, const std::string& fontPath, std::string& errOut);
 	// Creates a "Canvas" GameObject with a UICanvas on it and selects it.
 	void CreateCanvasForEditing();

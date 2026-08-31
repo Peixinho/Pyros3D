@@ -1045,6 +1045,66 @@ bool SceneEditor::OpAddSprite(uint32 goId, const std::string& texturePath, std::
 	return true;
 }
 
+// Reads the normalized pivot back out of the Pivot matrix. The matrix holds
+// the negated local offset, so this is the inverse of OpSetSpritePivot's map.
+bool SceneEditor::GetSpritePivot(RenderingComponent* rc, Vec2 &outNorm)
+{
+	if (!rc) return false;
+	// The Renderable's bounds, not RenderingMesh::Geometry's: Geometry is the
+	// submesh (IGeometry) and a primitive leaves its bounds at zero - only
+	// the Renderable itself runs CalculateBounding(). Reading the submesh
+	// gave a 0..0 box, so every normalized pivot mapped to the origin and
+	// setting one did nothing at all.
+	Renderable* rnd = rc->GetRenderable();
+	std::vector<RenderingMesh*> &meshes = rc->GetMeshes();
+	if (meshes.empty() || !meshes[0] || !rnd) return false;
+
+	const Vec3 mn = rnd->GetBoundingMinValue();
+	const Vec3 mx = rnd->GetBoundingMaxValue();
+	const f32 w = mx.x - mn.x, h = mx.y - mn.y;
+	if (w <= 0.0001f || h <= 0.0001f) return false;
+
+	const Vec3 off = meshes[0]->Pivot.GetTranslation();
+	outNorm.x = ((-off.x) - mn.x) / w;
+	outNorm.y = ((-off.y) - mn.y) / h;
+	return true;
+}
+
+// Normalized (0..1 over the geometry's bounds) to the mesh Pivot matrix.
+// Applied to every mesh of the component so a multi-submesh sprite keeps one
+// pivot rather than a different one per submesh.
+bool SceneEditor::OpSetSpritePivot(uint32 goId, const Vec2 &norm, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "not a game object"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+
+	RenderingComponent* rc = NULL;
+	const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+	for (size_t i = 0; i < comps.size(); i++)
+		if (comps[i] && comps[i]->GetComponentType() == ComponentType::RenderingComponent)
+			rc = static_cast<RenderingComponent*>(comps[i].get());
+	if (!rc) { errOut = "object has no RenderingComponent"; return false; }
+
+	// See GetSpritePivot for why this is the Renderable's box, not the
+	// submesh's.
+	Renderable* rnd = rc->GetRenderable();
+	std::vector<RenderingMesh*> &meshes = rc->GetMeshes();
+	if (meshes.empty() || !meshes[0] || !rnd) { errOut = "no geometry"; return false; }
+	const Vec3 mn = rnd->GetBoundingMinValue();
+	const Vec3 mx = rnd->GetBoundingMaxValue();
+
+	const f32 lx = mn.x + norm.x * (mx.x - mn.x);
+	const f32 ly = mn.y + norm.y * (mx.y - mn.y);
+
+	Matrix pv;
+	pv.Translate(Vec3(-lx, -ly, 0.f));
+	for (size_t i = 0; i < meshes.size(); i++)
+		if (meshes[i]) meshes[i]->Pivot = pv;
+	MarkSceneDirty();
+	return true;
+}
+
 // Slices a spritesheet into frames and plays them on the object's sprite.
 //
 // Row-major, left to right then top to bottom, which is how every sheet

@@ -2521,6 +2521,42 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (type == ComponentType::RenderingComponent)
 			{
 				RenderingComponent* rc = static_cast<RenderingComponent*>(comps[i].get());
+				Vec2 pv;
+				if (GetSpritePivot(rc, pv) && ImGui::CollapsingHeader("Pivot"))
+				{
+					// Normalized over the geometry's own bounds, so the
+					// numbers mean the same thing whatever the sprite's size
+					// or aspect: (0.5,0.5) middle, (0.5,0) bottom edge.
+					f32 v[2] = { pv.x, pv.y };
+					const std::string b = SnapshotSubtree(goId);
+					bool changed = ImGui::DragFloat2("Pivot", v, 0.01f, -1.f, 2.f);
+					if (changed)
+					{
+						std::string err;
+						OpSetSpritePivot(goId, Vec2(v[0], v[1]), err);
+					}
+					if (ImGui::IsItemDeactivatedAfterEdit())
+						PushReplaceCommand(goId, b, "Set Pivot");
+
+					// Bottom-centre first: it is what a standing character
+					// wants, and what makes a limb rotate about its joint.
+					struct P { const char* name; f32 x, y; };
+					static const P presets[] = {
+						{ "Bottom", 0.5f, 0.f }, { "Centre", 0.5f, 0.5f },
+						{ "Top", 0.5f, 1.f }, { "Left", 0.f, 0.5f }, { "Right", 1.f, 0.5f },
+					};
+					for (int pi = 0; pi < 5; pi++)
+					{
+						if (pi) ImGui::SameLine();
+						if (ImGui::SmallButton(presets[pi].name))
+						{
+							const std::string pb = SnapshotSubtree(goId);
+							std::string err;
+							if (OpSetSpritePivot(goId, Vec2(presets[pi].x, presets[pi].y), err))
+								PushReplaceCommand(goId, pb, "Set Pivot");
+						}
+					}
+				}
 				if (ImGui::CollapsingHeader("Sprite Animation"))
 				{
 					TextureAnimationInstance* inst =
@@ -9653,6 +9689,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			Camera->SetRotation(Vec3(0.f, 0.f, 0.f));
 			Camera->RefreshTransformation();
 		}
+	}
+
+	bool SceneEditor::AgentSetSpritePivot(const std::string& name, const Vec2 &norm, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		const std::string before = SnapshotSubtree(obj->GetID());
+		if (!OpSetSpritePivot(obj->GetID(), norm, errOut)) return false;
+		PushReplaceCommand(obj->GetID(), before, "Set Pivot");
+		return true;
 	}
 
 	bool SceneEditor::AgentSliceSpritesheet(const std::string& name, const std::string& sheetPath,

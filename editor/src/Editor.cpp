@@ -2511,6 +2511,20 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	// Cuts a spritesheet into frames and plays them on an object's sprite.
 	//   {"cmd":"slice_spritesheet","args":{"object":"Hero",
 	//    "sheet":"assets/textures/hero_run.png","cols":8,"rows":1,"fps":12}}
+	// {"cmd":"set_pivot","args":{"object":"Hero","pivot":[0.5,0.0]}}
+	// Normalized over the geometry's bounds: (0.5,0.5) middle, (0.5,0) bottom.
+	if (name == "set_pivot")
+	{
+		const std::string objName = A("object");
+		if (objName.empty()) throw std::runtime_error("set_pivot: 'object' is required");
+		std::vector<f32> pv = AV("pivot");
+		if (pv.size() < 2) throw std::runtime_error("set_pivot: 'pivot' needs [x,y]");
+		if (!sceneView->AgentSetSpritePivot(objName, Vec2(pv[0], pv[1]), err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["pivot"] = { pv[0], pv[1] };
+		return r;
+	}
+
 	if (name == "slice_spritesheet")
 	{
 		const std::string objName = A("object");
