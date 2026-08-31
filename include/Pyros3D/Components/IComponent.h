@@ -78,7 +78,11 @@ namespace p3d {
 			// IPhysics: that interface is 3D throughout, and driving a 2D
 			// solver through it would project every call in and back out
 			// again. See Physics2D.h.
-			Physics2D
+			Physics2D,
+			// Blocks 2D light. Separate from Physics2D because casting a
+			// shadow and being solid are different questions - see
+			// Occluder2D.h.
+			Occluder2D
 		};
 	}
 

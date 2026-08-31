@@ -86,6 +86,11 @@ namespace p3d {
 		// character wants, and fiddly to discover if it is not offered.
 		bool IsFixedRotation() const { return fixedRotation; }
 		void SetFixedRotation(const bool f) { fixedRotation = f; }
+		// Whether this body's shape blocks 2D light. On by default: a solid
+		// thing that does not cast is the surprising case, and a trigger or
+		// sensor is the one that has to say so.
+		bool CastsShadow() const { return castsShadow; }
+		void SetCastsShadow(const bool c) { castsShadow = c; }
 
 		// --- Runtime, once a body exists -----------------------------------
 		// These reach Box2D directly from the .cpp by rebuilding the body id
@@ -135,6 +140,7 @@ namespace p3d {
 		f32 friction;
 		f32 restitution;
 		bool fixedRotation;
+		bool castsShadow;
 
 		bool haveBody;
 		int32 bodyIndex;

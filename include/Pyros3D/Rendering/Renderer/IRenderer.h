@@ -98,6 +98,14 @@ namespace p3d {
 		// DrawBackground() inside RenderScene runs too late for that clear.
 		void ApplyBackgroundClearColor();
 		void SetGlobalLight(const Vec4 &Light);
+
+		// The occluder set for 2D shadows, in world space. Filled by whoever
+		// knows what casts - Physics2DWorld does it from its own bodies - and
+		// read by every ShaderUsage::Lighting2D material. Static because the
+		// set is per scene, not per renderer, and clearing it (an empty
+		// vector) turns 2D shadows off with no other state to unwind.
+		static void SetOccluders2D(const std::vector<Vec4> &segments);
+		static const std::vector<Vec4> &GetOccluders2D() { return Occluders2D; }
 		void EnableDepthBias(const Vec2 &Bias);
 		void DisableDepthBias();
 		// Which RenderLayer this renderer draws, see RenderLayer in
@@ -360,6 +368,11 @@ namespace p3d {
 		// to binding point 1). Sized/uploaded for up to PYROS_MAX_LIGHTS
 		// entries - keep in sync with PyrosShader.glsl's own MAX_LIGHTS.
 		static uint32 LightsUBO;
+		// 2D shadow occluders - line segments in world space, xy = one end,
+		// zw = the other. Shared like LightsUBO because they are a property of
+		// the scene, not of any one renderer, and every 2D-lit material in it
+		// wants the same set.
+		static uint32 Occluders2DUBO;
 
 		// How many shadow-casting lights of each type the forward path can
 		// actually address, which is fixed by PyrosShader.glsl's array
@@ -451,6 +464,8 @@ namespace p3d {
 		static bool CachedRenderingPointShadowFace;
 		static bool LightsUBOValid;
 		static std::vector<Matrix> CachedLights;
+		static std::vector<Vec4> Occluders2D;
+		static bool Occluders2DUBOValid;
 		static bool DirectionalShadowUBOValid;
 		static std::vector<Matrix> CachedDirectionalShadowMatrix;
 		static Vec4 CachedDirectionalShadowFar;

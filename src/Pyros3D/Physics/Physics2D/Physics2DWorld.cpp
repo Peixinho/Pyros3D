@@ -11,6 +11,7 @@
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
+#include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <box2d/box2d.h>
 #include <cmath>
 #include <cstdlib>

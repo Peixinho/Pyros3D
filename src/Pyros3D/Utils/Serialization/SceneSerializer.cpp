@@ -24,6 +24,7 @@
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
+#include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 #include <Pyros3D/Rendering/Components/UI/UIText.h>
@@ -1386,6 +1387,15 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["sortOrder"] = c2->GetSortOrder();
 			return j;
 		}
+		case ComponentType::Occluder2D:
+		{
+			Occluder2D* o = dynamic_cast<Occluder2D*>(c);
+			j["type"] = "Occluder2D";
+			j["shape"] = (int)o->GetShapeType();
+			j["size"] = ToJson(o->GetSize());
+			j["enabled"] = o->IsEnabled();
+			return j;
+		}
 		case ComponentType::Physics2D:
 		{
 			Physics2D* ph = dynamic_cast<Physics2D*>(c);
@@ -1397,6 +1407,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["friction"] = ph->GetFriction();
 			j["restitution"] = ph->GetRestitution();
 			j["fixedRotation"] = ph->IsFixedRotation();
+			j["castsShadow"] = ph->CastsShadow();
 			return j;
 		}
 		case ComponentType::Layer2D:
@@ -2431,7 +2442,16 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			go->AddComponent(vc);
 		}
 #ifdef LUA_BINDINGS
-		else if (type == "Physics2D")
+		else if (type == "Occluder2D")
+		{
+			std::shared_ptr<Occluder2D> o = std::make_shared<Occluder2D>(
+				(uint32)j.value("shape", (int)Occluder2DShape::Box),
+				j.contains("size") ? Vec2FromJson(j["size"]) : Vec2(0.5f, 0.5f));
+			o->SetEnabled(j.value("enabled", true));
+			go->Add(o);
+			return;
+		}
+				else if (type == "Physics2D")
 		{
 			std::shared_ptr<Physics2D> ph = std::make_shared<Physics2D>(
 				(uint32)j.value("bodyType", (int)Body2DType::Dynamic),
@@ -2441,6 +2461,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			ph->SetFriction(j.value("friction", 0.3f));
 			ph->SetRestitution(j.value("restitution", 0.f));
 			ph->SetFixedRotation(j.value("fixedRotation", false));
+			ph->SetCastsShadow(j.value("castsShadow", true));
 			go->Add(ph);
 			return;
 		}

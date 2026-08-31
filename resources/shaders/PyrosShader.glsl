@@ -144,6 +144,8 @@
 #define BIND_AmbientLightUniforms 21
 #define BIND_MaterialUniforms 22
 #define BIND_ObjectLightCounts 23
+#define BIND_Occluders2D 24
+#define MAX_OCCLUDERS_2D 32
 
 vec4 EncodeFloatRGBA( float v ) {
    vec4 enc = vec4(1.0, 255.0, 65025.0, 16581375.0) * v;
@@ -603,6 +605,54 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             }
             return 0.0;
         }
+
+        #ifdef LIGHTING2D
+            // 2D shadows. Occluders are world-space line segments; a fragment
+            // is in shadow from a light if the segment between them crosses
+            // one. Brute force over the set, which is why the set is capped -
+            // this is per fragment per light.
+            //
+            // No shadow *map* here on purpose: the 3D paths render depth from
+            // the light and sample it, which needs a render target per light
+            // and a projection that means something. In the plane the whole
+            // question is "does this line cross that line", and answering it
+            // directly is both simpler and exact - no bias, no acne, no
+            // resolution to pick.
+            UBO_BINDING(BIND_Occluders2D) uniform Occluders2DBlock {
+                vec4 uOccluders[MAX_OCCLUDERS_2D];
+                vec4 uOccluderCount;
+            };
+
+            float Cross2D(vec2 a, vec2 b) { return a.x * b.y - a.y * b.x; }
+
+            // Standard segment-segment intersection. Endpoints excluded by the
+            // epsilon so a fragment sitting exactly on its own occluder - every
+            // fragment of the caster itself - does not shadow itself, which
+            // would make every occluder solid black.
+            bool Segments2DCross(vec2 p, vec2 p2, vec2 q, vec2 q2)
+            {
+                vec2 r = p2 - p;
+                vec2 s = q2 - q;
+                float denom = Cross2D(r, s);
+                if (abs(denom) < 1e-6) return false;
+                float t = Cross2D(q - p, s) / denom;
+                float u = Cross2D(q - p, r) / denom;
+                const float E = 1e-3;
+                return (t > E && t < 1.0 - E && u > E && u < 1.0 - E);
+            }
+
+            float Shadow2D(vec2 fragPos, vec2 lightPos)
+            {
+                int count = int(uOccluderCount.x + 0.5);
+                for (int i = 0; i < MAX_OCCLUDERS_2D; i++)
+                {
+                    if (i >= count) break;
+                    if (Segments2DCross(fragPos, lightPos, uOccluders[i].xy, uOccluders[i].zw))
+                        return 0.0;
+                }
+                return 1.0;
+            }
+        #endif
 
         void CalculateLighting(vec3 LightVec, vec3 HalfVec, vec3 Normal, float Shininess, out float lightIntensity, out float specularPower)
         {
@@ -1242,6 +1292,12 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                         lightIntensity = specularPower = 0.0;
 
                         attenuation = Attenuation(Position, L.Position, L.Radius);
+                        #ifdef LIGHTING2D
+                            // Both are world space (Position is
+                            // vWorldPosition.xyz), which is the space the
+                            // occluder segments are given in.
+                            attenuation *= Shadow2D(Position.xy, L.Position.xy);
+                        #endif
 
                         CalculateLighting(LightVec, HalfVec, Normal, uShininess, lightIntensity, specularPower);
 
@@ -1278,6 +1334,12 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                         lightIntensity = specularPower = 0.0;
 
                         attenuation = Attenuation(Position, L.Position, L.Radius);
+                        #ifdef LIGHTING2D
+                            // Both are world space (Position is
+                            // vWorldPosition.xyz), which is the space the
+                            // occluder segments are given in.
+                            attenuation *= Shadow2D(Position.xy, L.Position.xy);
+                        #endif
                         spotEffect = 1.0 - DualConeSpotLight(Position, L.Position, L.Direction, L.Cones.x, L.Cones.y);
 
                         CalculateLighting(LightVec, HalfVec, Normal, uShininess, lightIntensity, specularPower);

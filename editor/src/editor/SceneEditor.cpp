@@ -39,6 +39,7 @@
 #include <Pyros3D/Physics/Components/IPhysicsComponent.h>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
+#include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
 #include <fstream>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -945,11 +946,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// 2D colliders. Synced and pulled onto the authored transforms
 			// every frame but never stepped - this is a view of what the
 			// shapes are, not a simulation of them.
-			if (showPhysicsDebug && physics2D && debugRenderer)
+			// Scene content, so published every frame regardless of the debug
+			// overlay - and regardless of whether the scene has physics.
+			Occluder2D::PublishSceneOccluders(scene);
+			if (physics2D)
 			{
 				physics2D->Sync(scene);
 				physics2D->PullTransforms();
-				physics2D->DebugDraw(debugRenderer);
+				if (showPhysicsDebug && debugRenderer)
+					physics2D->DebugDraw(debugRenderer);
 			}
 
 			// The grid is an editor-only helper, not scene content - it's
@@ -3498,6 +3503,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("A textured, alpha-blended quad. Assign its texture in\nProperties - it starts white and square.");
+
+			if (ImGui::MenuItem("Occluder 2D"))
+			{
+				std::string oerr;
+				if (!OpAddOccluder2D(goId, oerr))
+					echo("WARNING: could not add Occluder2D: " + oerr);
+				ImGui::CloseCurrentPopup();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Blocks 2D light. No physics needed - a painted wall\ncan cast without being solid to the simulation.");
 
 			if (ImGui::MenuItem("Physics 2D"))
 			{
@@ -9381,6 +9396,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
 		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
 		return OpAddUIComponent(obj->GetID(), kind, fontPath, errOut);
+	}
+
+	bool SceneEditor::AgentAddOccluder2D(const std::string& name, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		return OpAddOccluder2D(obj->GetID(), errOut);
 	}
 
 	bool SceneEditor::AgentMakeSprite2DLit(const std::string& name, std::string& errOut)

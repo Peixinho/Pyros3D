@@ -20,6 +20,7 @@ namespace p3d {
 		friction = 0.3f;
 		restitution = 0.f;
 		fixedRotation = false;
+		castsShadow = true;
 		haveBody = false;
 		bodyIndex = 0;
 		bodyWorld = 0;

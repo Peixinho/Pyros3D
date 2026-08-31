@@ -250,6 +250,8 @@ public:
 		const std::vector<f32>& position, const std::vector<f32>& rotation,
 		const std::vector<f32>& scale, std::string& errOut);
 	bool AgentMakeSprite2DLit(const std::string& name, std::string& errOut);
+	// Attaches an Occluder2D by object name.
+	bool AgentAddOccluder2D(const std::string& name, std::string& errOut);
 	// Viewport projection. A 2D scene is authored and judged through an
 	// orthographic view, so this is not a debug affordance - it is how you
 	// look at one.
@@ -645,6 +647,8 @@ private:
 	bool OpAddLayer2D(uint32 goId, std::string& errOut);
 	// Attaches a Box2D rigid body.
 	bool OpAddPhysics2D(uint32 goId, std::string& errOut);
+	// Marks a shape as blocking 2D light, with no physics involved.
+	bool OpAddOccluder2D(uint32 goId, std::string& errOut);
 	// Opt a sprite into 2D lighting (distance falloff, no N.L).
 	bool OpMakeSprite2DLit(uint32 goId, std::string& errOut);
 

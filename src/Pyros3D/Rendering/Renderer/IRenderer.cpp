@@ -15,6 +15,9 @@
 // Must match MAX_LIGHTS in resources/shaders/PyrosShader.glsl - sizes and
 // fills the LightsUBO backing that shader's uLights[MAX_LIGHTS] block.
 #define PYROS_MAX_LIGHTS 4
+// Kept small on purpose: the 2D shadow test is a loop per fragment per light,
+// so this is the budget that decides whether it is affordable at all.
+#define PYROS_MAX_OCCLUDERS_2D 32
 
 // Must match the array sizes declared in PyrosShader.glsl's
 // DirectionalShadowBlock/PointShadowBlock/SpotShadowBlock.
@@ -46,6 +49,7 @@ uint32 IRenderer::_viewPortEndY = 0;
 uint32 IRenderer::SharedUBORefCount = 0;
 uint32 IRenderer::GlobalMatricesUBO = 0;
 uint32 IRenderer::LightsUBO = 0;
+uint32 IRenderer::Occluders2DUBO = 0;
 uint32 IRenderer::DirectionalShadowUBO = 0;
 uint32 IRenderer::PointShadowUBO = 0;
 uint32 IRenderer::SpotShadowUBO = 0;
@@ -56,6 +60,8 @@ Matrix IRenderer::CachedViewMatrix;
 bool IRenderer::CachedRenderingPointShadowFace = false;
 bool IRenderer::LightsUBOValid = false;
 std::vector<Matrix> IRenderer::CachedLights;
+std::vector<Vec4> IRenderer::Occluders2D;
+bool IRenderer::Occluders2DUBOValid = false;
 bool IRenderer::DirectionalShadowUBOValid = false;
 std::vector<Matrix> IRenderer::CachedDirectionalShadowMatrix;
 Vec4 IRenderer::CachedDirectionalShadowFar;
@@ -362,6 +368,7 @@ void IRenderer::RetainSharedUniformBuffers(IRenderDevice* device)
 	{
 		GlobalMatricesUBO = device->CreateUniformBuffer(sizeof(Matrix) * 2, 0);
 		LightsUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_LIGHTS, 1);
+		Occluders2DUBO = device->CreateUniformBuffer(sizeof(Vec4) * (PYROS_MAX_OCCLUDERS_2D + 1), 24);
 		DirectionalShadowUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_DIRECTIONAL_SHADOW_CASCADES + sizeof(Vec4) * 4, 2);
 		PointShadowUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_POINT_SHADOW_MATRICES, 3);
 		SpotShadowUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_SPOT_SHADOW_MATRICES, 4);
@@ -387,6 +394,7 @@ void IRenderer::ReleaseSharedUniformBuffers(IRenderDevice* device)
 
 	device->DestroyUniformBuffer(GlobalMatricesUBO);
 	device->DestroyUniformBuffer(LightsUBO);
+	device->DestroyUniformBuffer(Occluders2DUBO);
 	device->DestroyUniformBuffer(DirectionalShadowUBO);
 	device->DestroyUniformBuffer(PointShadowUBO);
 	device->DestroyUniformBuffer(SpotShadowUBO);
@@ -1369,6 +1377,16 @@ void IRenderer::ClearScreen()
 	device->Clear(glBufferOptions);
 }
 
+void IRenderer::SetOccluders2D(const std::vector<Vec4>& segments)
+{
+	Occluders2D = segments;
+	if (Occluders2D.size() > PYROS_MAX_OCCLUDERS_2D)
+		Occluders2D.resize(PYROS_MAX_OCCLUDERS_2D);
+	// Upload happens on the next draw that needs it - see the dirty flag's
+	// use alongside LightsUBOValid.
+	Occluders2DUBOValid = false;
+}
+
 void IRenderer::SetGlobalLight(const Vec4& Light)
 {
 	GlobalLight = Light;
@@ -1674,6 +1692,20 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			CachedLights.assign(Lights.begin(), Lights.begin() + lightsToUpload);
 			LightsUBOValid = true;
 		}
+	}
+
+	// Occluder segments for 2D shadows. Its own block, not nested in the
+	// lights one: it is scene state rather than per-object, and a scene can
+	// have occluders published before any object with lights has been drawn.
+	if (!Occluders2DUBOValid)
+	{
+		Occluders2DUBOValid = true;
+		std::vector<Vec4> payload = Occluders2D;
+		payload.resize(PYROS_MAX_OCCLUDERS_2D, Vec4(0.f, 0.f, 0.f, 0.f));
+		// The count rides in the slot after the array - std140 would pad a
+		// lone int to 16 bytes anyway, so it costs nothing to make it a vec4.
+		payload.push_back(Vec4((f32)Occluders2D.size(), 0.f, 0.f, 0.f));
+		device->ReplaceUniformBuffer(Occluders2DUBO, sizeof(Vec4) * payload.size(), &payload[0]);
 	}
 
 	// Shadow matrices: computed once at the start of RenderScene() (not
@@ -2572,6 +2604,10 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		device->BindUniformBlockIfPresent(material->GetShader(), "ObjectMatrixUniforms", 18);
 		device->BindUniformBlockIfPresent(material->GetShader(), "BoneMatrices", 19);
 		device->BindUniformBlockIfPresent(material->GetShader(), "VelocityObjectUniforms", 20);
+		// 2D shadow occluders. A block a shader declares is not bound just by
+		// existing at a binding point - it has to be named here, which is why
+		// adding the UBO and the shader block was not enough on its own.
+		device->BindUniformBlockIfPresent(material->GetShader(), "Occluders2DBlock", 24);
 		device->BindUniformBlockIfPresent(material->GetShader(), "AmbientLightUniforms", 21);
 		device->BindUniformBlockIfPresent(material->GetShader(), "MaterialUniforms", 22);
 		device->BindUniformBlockIfPresent(material->GetShader(), "ObjectLightCounts", 23);
