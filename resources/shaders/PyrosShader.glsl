@@ -638,19 +638,56 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 float t = Cross2D(q - p, s) / denom;
                 float u = Cross2D(q - p, r) / denom;
                 const float E = 1e-3;
-                return (t > E && t < 1.0 - E && u > E && u < 1.0 - E);
+                // Half-open in u ([0,1) rather than an epsilon-shrunk
+                // interval), because Shadow2D() counts crossings and the
+                // count has to be exact. Excluding both endpoints meant a ray
+                // passing through a shared vertex was rejected by BOTH
+                // segments that meet there, so it scored 0 or 1 instead of 2
+                // and the fragment came out lit - a scatter of bright dots
+                // through the umbra, along the light direction. Half-open
+                // gives the vertex to exactly one of the two.
+                //
+                // t keeps its epsilon at both ends: that one is the fragment's
+                // own position and the light's, neither of which should count.
+                return (t > E && t < 1.0 - E && u >= 0.0 && u < 1.0);
             }
 
+            // Counts crossings rather than stopping at the first one, so that
+            // an occluder cannot shadow itself.
+            //
+            // Every occluder EmitShape() produces is a CLOSED convex outline
+            // (a box is 4 segments, a circle an inscribed octagon), so the
+            // number of crossings on the way to the light says where the
+            // fragment is:
+            //
+            //   outside, unobstructed          -> 0
+            //   outside, another shape blocks  -> 2  (in and out of it)
+            //   inside its own shape           -> 1  (just on the way out)
+            //   inside its own AND blocked     -> 3
+            //
+            // Returning at the first crossing therefore made every occluder
+            // shadow itself: the caster's own fragments each found the one
+            // exit crossing and went black. What that actually looked like
+            // was subtler and took a while to place - a hard ring of shadow
+            // hugging the sprite on all four sides including the lit one,
+            // plus a dashed streak across it running along the light
+            // direction where the ray grazed its own edge and the hit flicked
+            // on and off with floating point. Both vanish when the caster
+            // stops being an occluder, which is how this was pinned.
+            //
+            // >= 2 keeps real occlusion exact and costs nothing: the loop
+            // already visited every segment.
             float Shadow2D(vec2 fragPos, vec2 lightPos)
             {
                 int count = int(uOccluderCount.x + 0.5);
+                int crossings = 0;
                 for (int i = 0; i < MAX_OCCLUDERS_2D; i++)
                 {
                     if (i >= count) break;
                     if (Segments2DCross(fragPos, lightPos, uOccluders[i].xy, uOccluders[i].zw))
-                        return 0.0;
+                        crossings++;
                 }
-                return 1.0;
+                return (crossings >= 2) ? 0.0 : 1.0;
             }
         #endif
 
