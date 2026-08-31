@@ -12,6 +12,7 @@
 // them into the header would be circular - which is why activeTextureAnimation
 // is a void* in the first place.
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
+#include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 
 namespace p3d {
@@ -410,6 +411,19 @@ namespace p3d {
 
 	void RenderingComponent::Update(const f64 time)
 	{
+		// Skeleton animation. Nothing outside the editor's own animation
+		// preview ever called SkeletonAnimation::Update(), so a clip playing
+		// in a running game never advanced a frame - the same gap texture
+		// animation had. Safe to run with nothing playing: Update() leaves
+		// the pose alone when the playing list is empty, which is what lets
+		// the editor's posing and the IK solver hold.
+		if (activeSkeletonAnimation != NULL)
+		{
+			SkeletonAnimationInstance* si =
+				static_cast<SkeletonAnimationInstance*>(activeSkeletonAnimation);
+			if (si->GetOwner()) si->GetOwner()->Update((f32)time);
+		}
+
 		if (activeTextureAnimation == NULL) return;
 
 		TextureAnimationInstance* inst = static_cast<TextureAnimationInstance*>(activeTextureAnimation);

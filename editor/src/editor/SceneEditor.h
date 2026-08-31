@@ -268,6 +268,11 @@ public:
 	// Samples a clip onto the rig at `time`, i.e. scrubbing.
 	bool AgentScrubClip2D(const std::string& objName, const std::string& clipName,
 		const f32 time, std::string& errOut);
+	// Starts a clip playing on the rig. `repetition` is SkeletonAnimation's
+	// own convention: -1 loops forever, a positive count plays that many
+	// times. 0 means "no repetitions left" and stops on the final pose.
+	bool AgentPlayClip2D(const std::string& objName, const std::string& clipName,
+		const f32 repetition, const f32 speed, std::string& errOut);
 	json AgentSkeletonState(const std::string& objName, std::string& errOut);
 	// Rotation is DEGREES about Z here and converted on the way in - the
 	// engine's Euler angles are radians, and a degrees-in API is what an

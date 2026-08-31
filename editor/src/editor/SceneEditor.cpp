@@ -9909,6 +9909,29 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return false;
 	}
 
+	bool SceneEditor::AgentPlayClip2D(const std::string& objName, const std::string& clipName,
+		const f32 repetition, const f32 speed, std::string& errOut)
+	{
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
+		if (!obj) { errOut = "object '" + objName + "' not found"; return false; }
+		RenderingComponent* rc = FindRenderingComponent((GameObject*)obj->GetPTR());
+		if (!rc) { errOut = "object has no RenderingComponent"; return false; }
+		SkeletonAnimationInstance* inst =
+			static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
+		if (!inst || !inst->GetOwner()) { errOut = "object has no skeleton"; return false; }
+
+		const std::vector<Animation> clips = inst->GetOwner()->GetAnimations();
+		for (size_t i = 0; i < clips.size(); i++)
+			if (clips[i].AnimationName == clipName)
+			{
+				inst->Play((uint32)i, 0.f, repetition, speed);
+				MarkSceneDirty();
+				return true;
+			}
+		errOut = "clip '" + clipName + "' not found";
+		return false;
+	}
+
 	bool SceneEditor::AgentBindToBone2D(const std::string& objName, const std::string& boneName,
 		const Vec2 &offset, std::string& errOut)
 	{

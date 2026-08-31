@@ -2601,6 +2601,22 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 
+	// {"cmd":"play_clip2d","args":{"object":"Hero","clip":"Wave","loop":true,"speed":1}}
+	if (name == "play_clip2d")
+	{
+		const std::string objName = A("object"), clipName = A("clip");
+		if (objName.empty() || clipName.empty())
+			throw std::runtime_error("play_clip2d: 'object' and 'clip' are required");
+		const bool loop = a.is_object() ? a.value("loop", true) : true;
+		const float speed = a.is_object() ? a.value("speed", 1.0f) : 1.0f;
+		// -1 is SkeletonAnimation's loop-forever sentinel, not 0: 0 reads as
+		// "no repetitions left" and the clip stops on its final pose.
+		if (!sceneView->AgentPlayClip2D(objName, clipName, loop ? -1.f : 1.f, speed, err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["clip"] = clipName;
+		return r;
+	}
+
 	// {"cmd":"scrub_clip2d","args":{"object":"Hero","clip":"Wave","time":0.5}}
 	if (name == "scrub_clip2d")
 	{
