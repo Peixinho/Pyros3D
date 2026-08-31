@@ -9664,6 +9664,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::LookAtPlaneXY(const f32 x, const f32 y)
 	{
+		// Look through the EDITOR camera, not whatever scene camera happens to
+		// be active. Every 2D scene ships one (Cam2D, tagged
+		// PyrosEditor.Camera) and the viewport prefers it, so moving the
+		// editor camera while that was active reported success and changed
+		// nothing on screen - set_viewport_2d looked like it worked and did
+		// not, which is exactly the sort of silent no-op that invalidates a
+		// visual check. Detaching rather than moving the scene camera keeps
+		// this a view operation instead of an edit to authored data.
+		activeSceneCameraId = 0;
 		isPerspective = false;
 		// Through the orbit state, not by writing the pivot's position and
 		// rotation: the pivot's transform is recomposed from rotX/rotY/pos
