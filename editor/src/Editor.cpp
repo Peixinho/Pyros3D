@@ -2587,6 +2587,33 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 
+	// {"cmd":"key_bone2d","args":{"object":"Hero","clip":"Wave","bone":"ArmU","time":0,"rotation":0}}
+	if (name == "key_bone2d")
+	{
+		const std::string objName = A("object"), clipName = A("clip"), boneName = A("bone");
+		if (objName.empty() || clipName.empty() || boneName.empty())
+			throw std::runtime_error("key_bone2d: 'object', 'clip' and 'bone' are required");
+		const float t = a.is_object() ? a.value("time", 0.0f) : 0.0f;
+		const float deg = a.is_object() ? a.value("rotation", 0.0f) : 0.0f;
+		if (!sceneView->AgentKeyBone2D(objName, clipName, boneName, t, deg, err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["clip"] = clipName; r["time"] = t; r["rotation"] = deg;
+		return r;
+	}
+
+	// {"cmd":"scrub_clip2d","args":{"object":"Hero","clip":"Wave","time":0.5}}
+	if (name == "scrub_clip2d")
+	{
+		const std::string objName = A("object"), clipName = A("clip");
+		if (objName.empty() || clipName.empty())
+			throw std::runtime_error("scrub_clip2d: 'object' and 'clip' are required");
+		const float t = a.is_object() ? a.value("time", 0.0f) : 0.0f;
+		if (!sceneView->AgentScrubClip2D(objName, clipName, t, err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["time"] = t;
+		return r;
+	}
+
 	// {"cmd":"skeleton_state","args":{"object":"Rig"}}
 	if (name == "skeleton_state")
 	{

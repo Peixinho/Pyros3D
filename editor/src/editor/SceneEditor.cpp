@@ -9788,6 +9788,127 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	// Bone list with both the local rest transform and the composed global
 	// one, so a caller can tell whether posing a parent actually moved its
 	// children - which is the whole point of a hierarchy.
+	bool SceneEditor::AgentKeyBone2D(const std::string& objName, const std::string& clipName,
+		const std::string& boneName, const f32 time, const f32 degreesZ, std::string& errOut)
+	{
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
+		if (!obj) { errOut = "object '" + objName + "' not found"; return false; }
+		RenderingComponent* rc = FindRenderingComponent((GameObject*)obj->GetPTR());
+		if (!rc) { errOut = "object has no RenderingComponent"; return false; }
+		SkeletonAnimationInstance* inst =
+			static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
+		if (!inst) inst = RebuildSkeletonInstance(rc);
+		if (!inst || !inst->GetOwner()) { errOut = "object has no skeleton"; return false; }
+
+		const std::vector<Bone> &bones = inst->GetSkeletonBones();
+		bool haveBone = false;
+		for (size_t i = 0; i < bones.size(); i++)
+			if (bones[i].name == boneName) { haveBone = true; break; }
+		if (!haveBone) { errOut = "bone '" + boneName + "' not found"; return false; }
+
+		SkeletonAnimation* owner = inst->GetOwner();
+		std::vector<Animation> clips = owner->GetAnimations();
+
+		int clipIdx = -1;
+		for (size_t i = 0; i < clips.size(); i++)
+			if (clips[i].AnimationName == clipName) { clipIdx = (int)i; break; }
+		if (clipIdx < 0)
+		{
+			Animation a;
+			a.AnimationName = clipName;
+			a.Duration = 0.f;
+			// 1 tick per second, so clip times are plain seconds - a 2D
+			// authoring tool has no reason to inherit a modelling package's
+			// tick rate.
+			a.TicksPerSecond = 1.f;
+			a.Flags = 0;
+			clips.push_back(a);
+			clipIdx = (int)clips.size() - 1;
+		}
+
+		Animation &clip = clips[clipIdx];
+		int chIdx = -1;
+		for (size_t i = 0; i < clip.Channels.size(); i++)
+			if (clip.Channels[i].NodeName == boneName) { chIdx = (int)i; break; }
+		if (chIdx < 0)
+		{
+			Channel ch;
+			ch.NodeName = boneName;
+			clip.Channels.push_back(ch);
+			chIdx = (int)clip.Channels.size() - 1;
+		}
+
+		Quaternion q;
+		q.AxisToQuaternion(Vec3(0.f, 0.f, 1.f), DEGTORAD(degreesZ));
+
+		std::vector<RotationData> &rots = clip.Channels[chIdx].rotations;
+		bool replaced = false;
+		for (size_t i = 0; i < rots.size(); i++)
+			if (fabsf(rots[i].Time - time) < 1e-4f) { rots[i].Rot = q; replaced = true; break; }
+		if (!replaced)
+		{
+			rots.push_back(RotationData(time, q));
+			// Keys must be in time order - SampleChannel walks them assuming
+			// it, and an out-of-order key would sample as a jump backwards.
+			std::sort(rots.begin(), rots.end(),
+				[](const RotationData &a, const RotationData &b) { return a.Time < b.Time; });
+		}
+		// A position key alongside, at the bone's REST translation.
+		//
+		// Sampling a channel rebuilds the bone's whole local matrix, so a
+		// channel carrying only rotations resets the translation to zero and
+		// the bone collapses onto its parent - measured: keying ArmU alone
+		// moved it from (0,1) to (0,0) and dragged the arm with it, while the
+		// rotation itself interpolated perfectly. Writing the rest position
+		// makes the clip fully describe the pose, and gives anything that
+		// later wants to animate translation a key already in place.
+		std::vector<PositionData> &poss = clip.Channels[chIdx].positions;
+		bool haveP = false;
+		for (size_t i = 0; i < poss.size(); i++)
+			if (fabsf(poss[i].Time - time) < 1e-4f) { haveP = true; break; }
+		if (!haveP)
+		{
+			int32 bid = -1;
+			for (size_t i = 0; i < bones.size(); i++)
+				if (bones[i].name == boneName) { bid = bones[i].self; break; }
+			if (bid >= 0)
+			{
+				poss.push_back(PositionData(time, inst->GetBindPoseLocal(bid).GetTranslation()));
+				std::sort(poss.begin(), poss.end(),
+					[](const PositionData &a, const PositionData &b) { return a.Time < b.Time; });
+			}
+		}
+
+		if (time > clip.Duration) clip.Duration = time;
+
+		owner->SetAnimations(clips);
+		MarkSceneDirty();
+		return true;
+	}
+
+	bool SceneEditor::AgentScrubClip2D(const std::string& objName, const std::string& clipName,
+		const f32 time, std::string& errOut)
+	{
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
+		if (!obj) { errOut = "object '" + objName + "' not found"; return false; }
+		RenderingComponent* rc = FindRenderingComponent((GameObject*)obj->GetPTR());
+		if (!rc) { errOut = "object has no RenderingComponent"; return false; }
+		SkeletonAnimationInstance* inst =
+			static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
+		if (!inst || !inst->GetOwner()) { errOut = "object has no skeleton"; return false; }
+
+		const std::vector<Animation> clips = inst->GetOwner()->GetAnimations();
+		for (size_t i = 0; i < clips.size(); i++)
+			if (clips[i].AnimationName == clipName)
+			{
+				inst->ApplyAnimationAtTime(clips[i], time);
+				MarkSceneDirty();
+				return true;
+			}
+		errOut = "clip '" + clipName + "' not found";
+		return false;
+	}
+
 	bool SceneEditor::AgentBindToBone2D(const std::string& objName, const std::string& boneName,
 		const Vec2 &offset, std::string& errOut)
 	{

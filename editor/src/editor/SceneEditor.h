@@ -259,6 +259,15 @@ public:
 	bool AgentRemoveBone2D(const std::string& objName, const std::string& boneName, std::string& errOut);
 	bool AgentBindToBone2D(const std::string& objName, const std::string& boneName,
 		const Vec2 &offset, std::string& errOut);
+	// Records a bone's Z rotation into a named clip at `time` (seconds),
+	// creating the clip and the bone's channel on demand. Replaces any key
+	// already at that time rather than stacking a second one, so re-keying a
+	// pose is idempotent - which is what an authoring tool does constantly.
+	bool AgentKeyBone2D(const std::string& objName, const std::string& clipName,
+		const std::string& boneName, const f32 time, const f32 degreesZ, std::string& errOut);
+	// Samples a clip onto the rig at `time`, i.e. scrubbing.
+	bool AgentScrubClip2D(const std::string& objName, const std::string& clipName,
+		const f32 time, std::string& errOut);
 	json AgentSkeletonState(const std::string& objName, std::string& errOut);
 	// Rotation is DEGREES about Z here and converted on the way in - the
 	// engine's Euler angles are radians, and a degrees-in API is what an
