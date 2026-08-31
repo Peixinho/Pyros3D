@@ -57,6 +57,22 @@ namespace p3d {
 		accumulator = 0.0;
 	}
 
+	void Physics2DWorld::Clear()
+	{
+		if (live)
+		{
+			// The components may already be gone - this is called precisely
+			// when the scene is being replaced - so the handles are not
+			// cleared through them here. Destroying the world is enough; a
+			// component that outlives this has its handle cleared by Sync()
+			// when it fails to find a body.
+			b2DestroyWorld(MakeWorldId(worldIndex, worldGeneration));
+			live = false;
+		}
+		tracked.clear();
+		accumulator = 0.0;
+	}
+
 	Physics2DWorld::~Physics2DWorld()
 	{
 		if (live)
@@ -313,8 +329,12 @@ namespace p3d {
 		// a script actually asks and neither body is privileged.
 		for (int i = 0; i < events.beginCount; i++)
 		{
-			Physics2D* a = ComponentForShape(&events.beginEvents[i].shapeIdA);
-			Physics2D* b = ComponentForShape(&events.beginEvents[i].shapeIdB);
+			// Guarded like the end events below: a begin event can also name
+			// a shape destroyed later in the same step.
+			Physics2D* a = b2Shape_IsValid(events.beginEvents[i].shapeIdA)
+				? ComponentForShape(&events.beginEvents[i].shapeIdA) : NULL;
+			Physics2D* b = b2Shape_IsValid(events.beginEvents[i].shapeIdB)
+				? ComponentForShape(&events.beginEvents[i].shapeIdB) : NULL;
 			if (a && a->OnCollisionEnter) a->OnCollisionEnter(b);
 			if (b && b->OnCollisionEnter) b->OnCollisionEnter(a);
 		}

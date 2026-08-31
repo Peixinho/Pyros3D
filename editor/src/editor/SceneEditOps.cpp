@@ -1135,15 +1135,20 @@ bool SceneEditor::OpBindToBone2D(uint32 goId, const std::string& boneName, const
 			if (comps[i] && comps[i]->GetComponentType() == ComponentType::BoneBind2D)
 				existing = static_cast<BoneBind2D*>(comps[i].get());
 	}
+	// The sprite's authored scale is captured now, because Update() is about
+	// to start overwriting the transform with the bone's.
+	const Vec3 authored = go->GetScale();
 	if (existing)
 	{
 		existing->SetBone(boneName);
 		existing->SetOffset(offset);
+		existing->SetScale(Vec2(authored.x, authored.y));
 	}
 	else
 	{
 		std::shared_ptr<BoneBind2D> b = std::make_shared<BoneBind2D>(boneName);
 		b->SetOffset(offset);
+		b->SetScale(Vec2(authored.x, authored.y));
 		go->Add(b);
 	}
 	MarkSceneDirty();
@@ -1628,6 +1633,27 @@ bool SceneEditor::OpSliceSpritesheet(uint32 goId, const std::string& sheetPath,
 	inst->Play(loop ? -1 : 1);
 	rc->SetActiveTextureAnimation(inst);
 
+	// Re-proportion the sprite to ONE FRAME. A sprite created from the sheet
+	// has a quad the shape of the whole sheet - a 6-frame strip is 6:1 - and
+	// swapping in a single 1:1 frame left it stretched six times too wide.
+	// The quad's aspect is baked into its geometry, so this compensates with
+	// scale rather than rebuilding the mesh, keeping the authored height.
+	{
+		const f32 sheetAspect = (h > 0) ? (f32)w / (f32)h : 1.f;
+		const f32 cellAspect = (ch > 0) ? (f32)cw / (f32)ch : 1.f;
+		if (sheetAspect > 0.0001f && fabsf(cellAspect - sheetAspect) > 0.0001f)
+		{
+			const Vec3 sc = go->GetScale();
+			// Height is kept and width derived from it, so the frame ends up
+			// with the CELL's aspect on screen. Scaling the existing width by
+			// the aspect ratio instead is wrong: the quad is already the
+			// sheet's shape, so that only narrows a 6:1 quad to 6:1 again at
+			// a smaller size.
+			go->SetScale(Vec3(sc.y * cellAspect / sheetAspect, sc.y, sc.z));
+			go->RefreshTransformation();
+		}
+	}
+
 	MarkSceneDirty();
 	PushReplaceCommand(goId, before, "Slice Spritesheet");
 	return true;
@@ -1729,7 +1755,8 @@ bool SceneEditor::OpAddOccluder2D(uint32 goId, std::string& errOut)
 	return true;
 }
 
-bool SceneEditor::OpAddPhysics2D(uint32 goId, std::string& errOut)
+bool SceneEditor::OpAddPhysics2D(uint32 goId, std::string& errOut,
+	const uint32 bodyType, const Vec2 &size)
 {
 	SceneObject* obj = sceneObjects->GetSceneObject(goId);
 	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT)
@@ -1746,7 +1773,7 @@ bool SceneEditor::OpAddPhysics2D(uint32 goId, std::string& errOut)
 		return false;
 	}
 	const std::string before = SnapshotSubtree(goId);
-	go->Add(std::make_shared<Physics2D>());
+	go->Add(std::make_shared<Physics2D>(bodyType, Shape2DType::Box, size));
 	MarkSceneDirty();
 	PushReplaceCommand(goId, before, "Add Physics 2D");
 	return true;

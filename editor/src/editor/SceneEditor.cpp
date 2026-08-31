@@ -6205,6 +6205,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// objects are torn down just below, and anything still referenced
 		// stays alive on its own shared_ptr.
 		sceneAssets = LoadedSceneAssets();
+		// Before the objects below are torn down: the 2D world holds raw
+		// Physics2D* as body user data and dispatches contacts through them.
+		if (physics2D) physics2D->Clear();
 
 		// Drops every user GameObject/component (and its helper) - the
 		// SceneGraph holds the only strong references, so this frees them.
@@ -10478,12 +10481,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return OpAddLayer2D(obj->GetID(), errOut);
 	}
 
-	bool SceneEditor::AgentAddPhysics2D(const std::string& name, std::string& errOut)
+	bool SceneEditor::AgentAddPhysics2D(const std::string& name, std::string& errOut,
+		const uint32 bodyType, const Vec2 &size)
 	{
 		if (playMode) { errOut = "editor is in play mode"; return false; }
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
 		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
-		return OpAddPhysics2D(obj->GetID(), errOut);
+		return OpAddPhysics2D(obj->GetID(), errOut, bodyType, size);
 	}
 
 	bool SceneEditor::AgentAddOccluder2D(const std::string& name, std::string& errOut)

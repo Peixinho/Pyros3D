@@ -1539,6 +1539,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["type"] = "BoneBind2D";
 			j["bone"] = b->GetBone();
 			j["offset"] = ToJson(b->GetOffset());
+			j["scale"] = ToJson(b->GetScale());
 			return j;
 		}
 		case ComponentType::Layer2D:
@@ -2708,6 +2709,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		{
 			std::shared_ptr<BoneBind2D> b = std::make_shared<BoneBind2D>(j.value("bone", std::string()));
 			if (j.contains("offset")) b->SetOffset(Vec2FromJson(j["offset"]));
+			if (j.contains("scale")) b->SetScale(Vec2FromJson(j["scale"]));
 			go->Add(b);
 			return;
 		}

@@ -2094,11 +2094,24 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			throw std::runtime_error(err);
 		nlohmann::json r; r["ok"] = true; return r;
 	}
+	// {"cmd":"add_physics2d","args":{"name":"Ground","bodyType":"static","size":[6,1.2]}}
+	// bodyType defaults to dynamic, which is right for a crate and wrong for
+	// the floor - without a way to say "static" here, every body an agent
+	// created fell out of the world.
 	if (name == "add_physics2d")
 	{
-		if (!sceneView->AgentAddPhysics2D(A("name"), err))
+		uint32 bt = Body2DType::Dynamic;
+		std::string bts = A("bodyType");
+		for (size_t i = 0; i < bts.size(); i++) bts[i] = (char)tolower((unsigned char)bts[i]);
+		if (bts == "static") bt = Body2DType::Static;
+		else if (bts == "kinematic") bt = Body2DType::Kinematic;
+		else if (!bts.empty() && bts != "dynamic")
+			throw std::runtime_error("add_physics2d: bodyType must be static, kinematic or dynamic");
+		std::vector<f32> sz = AV("size");
+		const Vec2 size(sz.size() > 0 ? sz[0] : 0.5f, sz.size() > 1 ? sz[1] : 0.5f);
+		if (!sceneView->AgentAddPhysics2D(A("name"), err, bt, size))
 			throw std::runtime_error(err);
-		nlohmann::json r; r["ok"] = true; return r;
+		nlohmann::json r; r["ok"] = true; r["bodyType"] = bts.empty() ? "dynamic" : bts; return r;
 	}
 	if (name == "add_occluder2d")
 	{

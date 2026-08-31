@@ -66,6 +66,14 @@ namespace p3d {
 		// drift away as the object is dragged.
 		void PullTransforms();
 
+		// Throws the world away: every body, and every tracked component
+		// pointer. MUST be called when the scene those components belonged to
+		// is replaced - a body keeps a raw Physics2D* as its user data, and
+		// contact dispatch calls a std::function through it, so surviving a
+		// scene swap means calling a callback on freed memory. Play mode
+		// reloads the scene, which is exactly that.
+		void Clear();
+
 		void SetGravity(const Vec2 &g);
 		const Vec2 &GetGravity() const { return gravity; }
 

@@ -11,7 +11,7 @@
 namespace p3d {
 
 	BoneBind2D::BoneBind2D(const std::string &bone)
-		: boneName(bone), offset(0.f, 0.f)
+		: boneName(bone), offset(0.f, 0.f), scale(1.f, 1.f)
 	{
 	}
 
@@ -53,6 +53,14 @@ namespace p3d {
 			Matrix off;
 			off.Translate(Vec3(offset.x, offset.y, 0.f));
 			m = m * off;
+		}
+		// Scale last, so it sizes the artwork without moving the joint the
+		// bone put it on.
+		if (scale.x != 1.f || scale.y != 1.f)
+		{
+			Matrix sc;
+			sc.Scale(Vec3(scale.x, scale.y, 1.f));
+			m = m * sc;
 		}
 		owner->SetTransformationMatrix(m);
 	}

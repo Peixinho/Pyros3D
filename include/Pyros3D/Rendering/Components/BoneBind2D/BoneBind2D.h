@@ -47,6 +47,14 @@ namespace p3d {
 		const Vec2 &GetOffset() const { return offset; }
 		void SetOffset(const Vec2 &o) { offset = o; }
 
+		// The sprite's own scale, kept here because Update() overwrites the
+		// object's whole transform with the bone's - so a part sized in the
+		// editor lost that size the moment it was bound, and every limb
+		// snapped to its raw texture dimensions. Captured at bind time, so
+		// binding preserves how the sprite was already sized.
+		const Vec2 &GetScale() const { return scale; }
+		void SetScale(const Vec2 &s) { scale = s; }
+
 		virtual void Register(SceneGraph* Scene) {}
 		virtual void Init() {}
 		virtual void Update(const f64 time = 0);
@@ -59,6 +67,7 @@ namespace p3d {
 
 		std::string boneName;
 		Vec2 offset;
+		Vec2 scale;
 	};
 
 };

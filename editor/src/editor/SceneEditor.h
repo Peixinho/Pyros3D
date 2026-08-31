@@ -23,6 +23,7 @@ using json = nlohmann::json;
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>   // LoadedSceneAssets
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
+#include <Pyros3D/Physics/Physics2D/Physics2D.h>   // Body2DType/Shape2DType defaults
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
@@ -332,7 +333,8 @@ public:
 	bool AgentSliceSpritesheet(const std::string& name, const std::string& sheetPath,
 		int cols, int rows, f32 fps, bool loop, std::string& errOut);
 	bool AgentAddLayer2D(const std::string& name, std::string& errOut);
-	bool AgentAddPhysics2D(const std::string& name, std::string& errOut);
+	bool AgentAddPhysics2D(const std::string& name, std::string& errOut,
+		const uint32 bodyType = Body2DType::Dynamic, const Vec2 &size = Vec2(0.5f, 0.5f));
 	// Viewport projection. A 2D scene is authored and judged through an
 	// orthographic view, so this is not a debug affordance - it is how you
 	// look at one.
@@ -752,7 +754,12 @@ private:
 	// Attaches a Layer2D to a GameObject, making its subtree one 2D layer.
 	bool OpAddLayer2D(uint32 goId, std::string& errOut);
 	// Attaches a Box2D rigid body.
-	bool OpAddPhysics2D(uint32 goId, std::string& errOut);
+	// bodyType is Body2DType (Static/Kinematic/Dynamic) and size is the box
+	// half-extents. Defaulted so existing callers are unchanged, but exposed
+	// because a level needs STATIC ground and there was no way to ask for it
+	// outside the Properties panel - every agent-created body fell.
+	bool OpAddPhysics2D(uint32 goId, std::string& errOut,
+		const uint32 bodyType = Body2DType::Dynamic, const Vec2 &size = Vec2(0.5f, 0.5f));
 	// Marks a shape as blocking 2D light, with no physics involved.
 	bool OpAddOccluder2D(uint32 goId, std::string& errOut);
 	// Opt a sprite into 2D lighting (distance falloff, no N.L).
