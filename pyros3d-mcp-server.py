@@ -1565,6 +1565,141 @@ def add_primitive(project_path: str, scene_name: str, name: str, shape: str = "C
 
 
 @mcp.tool()
+def add_sprite(project_path: str, scene_name: str, name: str, texture: str | None = None,
+               parent_name: str | None = None) -> str:
+    """Add a 2D sprite - a textured, alpha-blended quad (editor: Add > Sprite).
+
+    A sprite is a RenderingComponent, not a component type of its own: the
+    shortcut is that it gets its own material with blending on, double-sided
+    culling, and a size taken from the texture's pixel aspect. Omit `texture`
+    for a white placeholder you can texture later.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    live = _live_or_none("add_sprite", {
+        "name": name, "texture": texture or "", "parent": parent_name or "",
+    }, scene_file)
+    if live is not None:
+        return _fail(live) if isinstance(live, str) else f"Added sprite '{name}' (live editor)"
+    return _fail("add_sprite needs the editor open on this scene - it builds a material, "
+                 "which the offline scene-file path does not do.")
+
+
+@mcp.tool()
+def sprite_2d_lit(project_path: str, scene_name: str, name: str) -> str:
+    """Switch a sprite to 2D lighting (editor: Material Settings > Use 2D Lighting).
+
+    Distance falloff with no N.L term. A sprite is a flat quad with one normal,
+    so a light lying in its own plane - which is where 2D authoring puts one -
+    is at grazing incidence and leaves it unlit otherwise. Rebuilds the
+    material, because ShaderUsage is fixed when a material is constructed.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    live = _live_or_none("sprite_2d_lit", {"name": name}, scene_file)
+    if live is not None:
+        return _fail(live) if isinstance(live, str) else f"'{name}' now uses 2D lighting (live editor)"
+    return _fail("sprite_2d_lit needs the editor open on this scene - it rebuilds a material.")
+
+
+def _add_simple_component(project_path: str, scene_name: str, name: str,
+                          cmd: str, component: dict, what: str) -> str:
+    """Shared body for the 2D components that are pure data: live if the editor
+    has the scene, otherwise appended straight to the scene file."""
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    live = _live_or_none(cmd, {"name": name}, scene_file)
+    if live is not None:
+        return _fail(live) if isinstance(live, str) else f"Added {what} to '{name}' (live editor)"
+
+    data = _load_scene(scene_file)
+    for root in data.get("roots", []):
+        if root.get("name") == name:
+            # One per object: a second Layer2D or Occluder2D is not a richer
+            # setup, it is one of them being silently ignored.
+            existing = root.setdefault("components", [])
+            if any(c.get("type") == component["type"] for c in existing):
+                return _fail(f"'{name}' already has a {component['type']}")
+            existing.append(component)
+            _save_scene(scene_file, data)
+            return f"Added {what} to '{name}' in scene {scene_name}"
+    return _fail(f"object '{name}' not found in scene {scene_name}")
+
+
+@mcp.tool()
+def add_layer2d(project_path: str, scene_name: str, name: str,
+                parallax: list[float] | None = None, visible: bool = True) -> str:
+    """Make an object's subtree a 2D layer (editor: Add > Layer 2D).
+
+    Ordering is the object's own z - under the orthographic camera a 2D scene
+    uses, z is draw order. parallax is [x, y]: 1 moves with the camera, 0 is
+    pinned, 0.5 is half speed. The axes are independent, so a sky can scroll
+    sideways and stay put vertically.
+    """
+    return _add_simple_component(project_path, scene_name, name, "add_layer2d", {
+        "type": "Layer2D",
+        "parallax": list(parallax) if parallax else [1.0, 1.0],
+        "visible": bool(visible),
+    }, "Layer2D")
+
+
+@mcp.tool()
+def add_physics2d(project_path: str, scene_name: str, name: str,
+                  body_type: str = "Dynamic", shape: str = "Box",
+                  size: list[float] | None = None, density: float = 1.0,
+                  friction: float = 0.3, restitution: float = 0.0,
+                  fixed_rotation: bool = False, casts_shadow: bool = True) -> str:
+    """Add a Box2D rigid body (editor: Add > Physics 2D).
+
+    body_type: Static (never moves), Kinematic (moved by script, ignores
+    forces), Dynamic (moved by the solver). shape: Box or Circle.
+    size is HALF-extents, matching Box2D - a 1x1 box is [0.5, 0.5]; for a
+    circle only the first value is used, as the radius.
+    """
+    bt = {"static": 0, "kinematic": 1, "dynamic": 2}.get(body_type.strip().lower())
+    if bt is None:
+        return _fail("body_type must be Static, Kinematic or Dynamic")
+    sh = {"box": 0, "circle": 1}.get(shape.strip().lower())
+    if sh is None:
+        return _fail("shape must be Box or Circle")
+    return _add_simple_component(project_path, scene_name, name, "add_physics2d", {
+        "type": "Physics2D", "bodyType": bt, "shape": sh,
+        "size": list(size) if size else [0.5, 0.5],
+        "density": density, "friction": friction, "restitution": restitution,
+        "fixedRotation": bool(fixed_rotation), "castsShadow": bool(casts_shadow),
+    }, "Physics2D")
+
+
+@mcp.tool()
+def add_occluder2d(project_path: str, scene_name: str, name: str,
+                   shape: str = "Box", size: list[float] | None = None,
+                   enabled: bool = True) -> str:
+    """Mark a shape as blocking 2D light (editor: Add > Occluder 2D).
+
+    No physics involved - a painted backdrop can cast a shadow without being
+    solid to the simulation, and a trigger volume can be solid without casting.
+    size is HALF-extents, as with add_physics2d.
+
+    Budget: 32 segments per scene, four to a box and eight to a circle.
+    Occluders past that cast nothing.
+    """
+    sh = {"box": 0, "circle": 1}.get(shape.strip().lower())
+    if sh is None:
+        return _fail("shape must be Box or Circle")
+    return _add_simple_component(project_path, scene_name, name, "add_occluder2d", {
+        "type": "Occluder2D", "shape": sh,
+        "size": list(size) if size else [0.5, 0.5],
+        "enabled": bool(enabled),
+    }, "Occluder2D")
+
+
+@mcp.tool()
 def add_model(project_path: str, scene_name: str, model_file: str, name: str | None = None,
               parent_name: str | None = None, position: list[float] | None = None,
               rotation: list[float] | None = None, scale: list[float] | None = None) -> str:

@@ -2425,6 +2425,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	// just "set this value on that component"; snapshotting the subtree when
 	// a widget is grabbed and pushing the replace when it is released covers
 	// all of them, including the ones that rebuild geometry.
+	void SceneEditor::BeginComponentUndo(uint32 goId)
+	{
+		if (!ImGui::IsItemActivated()) return;
+		componentUndoBefore = SnapshotSubtree(goId);
+	}
+
+	void SceneEditor::EndComponentUndo(uint32 goId, const char* what)
+	{
+		if (!ImGui::IsItemDeactivatedAfterEdit() || componentUndoBefore.empty()) return;
+		PushReplaceCommand(goId, componentUndoBefore, what);
+		componentUndoBefore.clear();
+	}
+
 	void SceneEditor::BeginUIUndo(uint32 goId)
 	{
 		if (!ImGui::IsItemActivated()) return;
@@ -2466,19 +2479,40 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 				int sh = (int)oc->GetShapeType();
 				const char* shapes[] = { "Box", "Circle" };
-				if (ImGui::Combo("Shape", &sh, shapes, 2)) { oc->SetShapeType((uint32)sh); MarkSceneDirty(); }
+				{
+					// Combos and checkboxes report once, so the snapshot is
+					// taken up front and pushed on the same frame; only drags
+					// need the Begin/End pairing below.
+					const std::string b = SnapshotSubtree(goId);
+					if (ImGui::Combo("Shape", &sh, shapes, 2))
+					{
+						oc->SetShapeType((uint32)sh);
+						MarkSceneDirty();
+						PushReplaceCommand(goId, b, "Set Occluder Shape");
+					}
+				}
 
 				Vec2 sz = oc->GetSize();
+				BeginComponentUndo(goId);
 				if (ImGui::DragFloat2("Half Extents", (float*)&sz, 0.01f, 0.001f, 1000.f))
 				{
 					oc->SetSize(sz);
 					MarkSceneDirty();
 				}
+				EndComponentUndo(goId, "Set Occluder Size");
 				if (ImGui::IsItemHovered())
 					ImGui::SetTooltip("Half-extents, matching Physics2D - a 1x1 box is 0.5,\n0.5. For a circle only X is used, as the radius.");
 
 				bool en = oc->IsEnabled();
-				if (ImGui::Checkbox("Enabled", &en)) { oc->SetEnabled(en); MarkSceneDirty(); }
+				{
+					const std::string b = SnapshotSubtree(goId);
+					if (ImGui::Checkbox("Enabled", &en))
+					{
+						oc->SetEnabled(en);
+						MarkSceneDirty();
+						PushReplaceCommand(goId, b, "Toggle Occluder");
+					}
+				}
 				if (ImGui::IsItemHovered())
 					ImGui::SetTooltip("Turns the shadow off without removing the component.");
 
@@ -2491,32 +2525,52 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 				int bt = (int)ph->GetBodyType();
 				const char* bodyTypes[] = { "Static", "Kinematic", "Dynamic" };
-				if (ImGui::Combo("Body", &bt, bodyTypes, 3)) { ph->SetBodyType((uint32)bt); MarkSceneDirty(); }
+				{
+					const std::string b = SnapshotSubtree(goId);
+					if (ImGui::Combo("Body", &bt, bodyTypes, 3))
+					{ ph->SetBodyType((uint32)bt); MarkSceneDirty(); PushReplaceCommand(goId, b, "Set Body Type"); }
+				}
 				if (ImGui::IsItemHovered())
 					ImGui::SetTooltip("Static never moves (the ground). Kinematic is moved by\nscript and pushes others but ignores forces. Dynamic is\nmoved by the solver.");
 
 				int sh = (int)ph->GetShapeType();
 				const char* shapes[] = { "Box", "Circle" };
-				if (ImGui::Combo("Shape", &sh, shapes, 2)) { ph->SetShapeType((uint32)sh); MarkSceneDirty(); }
+				{
+					const std::string b = SnapshotSubtree(goId);
+					if (ImGui::Combo("Shape", &sh, shapes, 2))
+					{ ph->SetShapeType((uint32)sh); MarkSceneDirty(); PushReplaceCommand(goId, b, "Set Body Shape"); }
+				}
 
 				Vec2 sz = ph->GetSize();
+				BeginComponentUndo(goId);
 				if (ImGui::DragFloat2("Half Extents", (float*)&sz, 0.01f, 0.001f, 1000.f))
 				{
 					ph->SetSize(sz);
 					MarkSceneDirty();
 				}
+				EndComponentUndo(goId, "Set Body Size");
 				if (ImGui::IsItemHovered())
 					ImGui::SetTooltip("Half-extents, because that is what Box2D takes - a 1x1\nbox is 0.5, 0.5. For a circle only X is used, as the\nradius.");
 
 				f32 d = ph->GetDensity();
+				BeginComponentUndo(goId);
 				if (ImGui::DragFloat("Density", &d, 0.05f, 0.f, 100.f)) { ph->SetDensity(d); MarkSceneDirty(); }
+				EndComponentUndo(goId, "Set Density");
 				f32 fr = ph->GetFriction();
+				BeginComponentUndo(goId);
 				if (ImGui::DragFloat("Friction", &fr, 0.01f, 0.f, 1.f)) { ph->SetFriction(fr); MarkSceneDirty(); }
+				EndComponentUndo(goId, "Set Friction");
 				f32 re = ph->GetRestitution();
+				BeginComponentUndo(goId);
 				if (ImGui::DragFloat("Bounciness", &re, 0.01f, 0.f, 1.f)) { ph->SetRestitution(re); MarkSceneDirty(); }
+				EndComponentUndo(goId, "Set Bounciness");
 
 				bool fx = ph->IsFixedRotation();
-				if (ImGui::Checkbox("Fixed Rotation", &fx)) { ph->SetFixedRotation(fx); MarkSceneDirty(); }
+				{
+					const std::string b = SnapshotSubtree(goId);
+					if (ImGui::Checkbox("Fixed Rotation", &fx))
+					{ ph->SetFixedRotation(fx); MarkSceneDirty(); PushReplaceCommand(goId, b, "Toggle Fixed Rotation"); }
+				}
 				if (ImGui::IsItemHovered())
 					ImGui::SetTooltip("Stops the body tipping over - what almost every\nplatformer character wants.");
 
@@ -2528,19 +2582,25 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				ImGui::Text("Layer 2D");
 
 				Vec2 par = l->GetParallax();
+				BeginComponentUndo(goId);
 				if (ImGui::DragFloat2("Parallax", (float*)&par, 0.01f, 0.f, 4.f))
 				{
 					l->SetParallax(par);
 					MarkSceneDirty();
 				}
+				EndComponentUndo(goId, "Set Parallax");
 				if (ImGui::IsItemHovered())
 					ImGui::SetTooltip("1 = moves with the camera, 0 = pinned on screen,\n0.5 = half speed (further away). The two axes are\nindependent, so a sky can scroll sideways and stay\nput vertically.");
 
 				bool vis = l->IsVisible();
-				if (ImGui::Checkbox("Visible", &vis))
 				{
-					l->SetVisible(vis);
-					MarkSceneDirty();
+					const std::string b = SnapshotSubtree(goId);
+					if (ImGui::Checkbox("Visible", &vis))
+					{
+						l->SetVisible(vis);
+						MarkSceneDirty();
+						PushReplaceCommand(goId, b, "Toggle Layer Visible");
+					}
 				}
 				if (ImGui::IsItemHovered())
 					ImGui::SetTooltip("Hides every mesh under this layer without unparenting\nor deleting anything.");
@@ -9424,6 +9484,22 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
 		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
 		return OpAddUIComponent(obj->GetID(), kind, fontPath, errOut);
+	}
+
+	bool SceneEditor::AgentAddLayer2D(const std::string& name, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		return OpAddLayer2D(obj->GetID(), errOut);
+	}
+
+	bool SceneEditor::AgentAddPhysics2D(const std::string& name, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		return OpAddPhysics2D(obj->GetID(), errOut);
 	}
 
 	bool SceneEditor::AgentAddOccluder2D(const std::string& name, std::string& errOut)

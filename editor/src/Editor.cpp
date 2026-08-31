@@ -2042,6 +2042,18 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["projection"] = sceneView->AgentIsViewportOrthographic() ? "orthographic" : "perspective";
 		return r;
 	}
+	if (name == "add_layer2d")
+	{
+		if (!sceneView->AgentAddLayer2D(A("name"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; return r;
+	}
+	if (name == "add_physics2d")
+	{
+		if (!sceneView->AgentAddPhysics2D(A("name"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; return r;
+	}
 	if (name == "add_occluder2d")
 	{
 		if (!sceneView->AgentAddOccluder2D(A("name"), err))

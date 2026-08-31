@@ -16,6 +16,17 @@
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
 
+// True when this object already carries a component of that type. These 2D
+// components are one-per-object by nature - a second Layer2D or Occluder2D on
+// one object is not a richer setup, it is one of them being silently ignored.
+static bool HasComponentOfType(GameObject* go, const uint32 type)
+{
+	const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+	for (size_t i = 0; i < comps.size(); i++)
+		if (comps[i] && comps[i]->GetComponentType() == type) return true;
+	return false;
+}
+
 void SceneEditor::SelectAndFocusSceneObject(SceneObject* obj)
 {
 	if (obj)
@@ -961,6 +972,7 @@ bool SceneEditor::OpAddSprite(uint32 goId, const std::string& texturePath, std::
 		return false;
 	}
 	GameObject* go = (GameObject*)obj->GetPTR();
+	const std::string before = SnapshotSubtree(goId);
 
 	std::shared_ptr<Texture> tex;
 	f32 aspect = 1.f;
@@ -1016,6 +1028,7 @@ bool SceneEditor::OpAddSprite(uint32 goId, const std::string& texturePath, std::
 
 	go->Add(std::make_shared<RenderingComponent>(mesh, mat));
 	MarkSceneDirty();
+	PushReplaceCommand(goId, before, "Add Sprite");
 	return true;
 }
 
@@ -1033,6 +1046,9 @@ bool SceneEditor::OpMakeSprite2DLit(uint32 goId, std::string& errOut)
 		return false;
 	}
 	GameObject* go = (GameObject*)obj->GetPTR();
+	// The material swap is a subtree change like any other - without this
+	// it was the one edit in the 2D set that could not be undone.
+	const std::string before = SnapshotSubtree(goId);
 
 	// The options are fixed at construction, and whether to sample a texture
 	// is one of them, so the existing colour map has to be found before the
@@ -1082,6 +1098,7 @@ bool SceneEditor::OpMakeSprite2DLit(uint32 goId, std::string& errOut)
 	}
 	if (!any) { errOut = "no RenderingComponent to convert"; return false; }
 	MarkSceneDirty();
+	PushReplaceCommand(goId, before, "Use 2D Lighting");
 	return true;
 }
 
@@ -1096,8 +1113,17 @@ bool SceneEditor::OpAddOccluder2D(uint32 goId, std::string& errOut)
 		return false;
 	}
 	GameObject* go = (GameObject*)obj->GetPTR();
+	// Snapshot before the edit, replace after - the same undo pairing
+	// every other component add uses.
+	if (HasComponentOfType(go, ComponentType::Occluder2D))
+	{
+		errOut = "this object already has an Occluder2D";
+		return false;
+	}
+	const std::string before = SnapshotSubtree(goId);
 	go->Add(std::make_shared<Occluder2D>());
 	MarkSceneDirty();
+	PushReplaceCommand(goId, before, "Add Occluder 2D");
 	return true;
 }
 
@@ -1110,8 +1136,17 @@ bool SceneEditor::OpAddPhysics2D(uint32 goId, std::string& errOut)
 		return false;
 	}
 	GameObject* go = (GameObject*)obj->GetPTR();
+	// Snapshot before the edit, replace after - the same undo pairing
+	// every other component add uses.
+	if (HasComponentOfType(go, ComponentType::Physics2D))
+	{
+		errOut = "this object already has a Physics2D";
+		return false;
+	}
+	const std::string before = SnapshotSubtree(goId);
 	go->Add(std::make_shared<Physics2D>());
 	MarkSceneDirty();
+	PushReplaceCommand(goId, before, "Add Physics 2D");
 	return true;
 }
 
@@ -1124,8 +1159,17 @@ bool SceneEditor::OpAddLayer2D(uint32 goId, std::string& errOut)
 		return false;
 	}
 	GameObject* go = (GameObject*)obj->GetPTR();
+	// Snapshot before the edit, replace after - the same undo pairing
+	// every other component add uses.
+	if (HasComponentOfType(go, ComponentType::Layer2D))
+	{
+		errOut = "this object already has a Layer2D";
+		return false;
+	}
+	const std::string before = SnapshotSubtree(goId);
 	go->Add(std::make_shared<Layer2D>());
 	MarkSceneDirty();
+	PushReplaceCommand(goId, before, "Add Layer 2D");
 	return true;
 }
 

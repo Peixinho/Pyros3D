@@ -252,6 +252,8 @@ public:
 	bool AgentMakeSprite2DLit(const std::string& name, std::string& errOut);
 	// Attaches an Occluder2D by object name.
 	bool AgentAddOccluder2D(const std::string& name, std::string& errOut);
+	bool AgentAddLayer2D(const std::string& name, std::string& errOut);
+	bool AgentAddPhysics2D(const std::string& name, std::string& errOut);
 	// Viewport projection. A 2D scene is authored and judged through an
 	// orthographic view, so this is not a debug affordance - it is how you
 	// look at one.
@@ -894,6 +896,13 @@ private:
 	void DrawScriptAssetPicker(const char* id, std::string& pathBuf);
 	// Screen-space UI, inspected on the GameObject that carries it.
 	void DrawUIComponentProperties(GameObject* go, uint32 goId);
+	// Snapshot-based undo for component property edits, for components whose
+	// state CaptureUIProperties() knows nothing about (Layer2D, Physics2D,
+	// Occluder2D). Begin on the frame a drag starts, End when it is released,
+	// so a drag is one undo entry rather than one per frame.
+	void BeginComponentUndo(uint32 goId);
+	void EndComponentUndo(uint32 goId, const char* what);
+	std::string componentUndoBefore;
 	void BeginUIUndo(uint32 goId);
 	void EndUIUndo(uint32 goId, const char* what);
 	json uiUndoBefore;

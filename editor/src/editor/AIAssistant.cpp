@@ -103,6 +103,20 @@ static const AIToolDef kAITools[] = {
 		  { "scale", "array", "Scale [x, y, z]", false },
 		  { "color", "array", "Color [r, g, b, a] 0..1", false },
 		  { "parent", "string", "Parent object name (omit for root)", false } } },
+	{ "add_sprite",     "Add a 2D sprite: a textured, alpha-blended quad sized from its texture's aspect.",
+		{ { "name", "string", "Object name", true },
+		  { "texture", "string", "Project-relative texture path (omit for a white placeholder)", false },
+		  { "parent", "string", "Parent object name (omit for root)", false } } },
+	{ "sprite_2d_lit",  "Switch a sprite to 2D lighting: distance falloff with no N.L, which is what a flat quad needs - a light in the sprite's own plane leaves it unlit otherwise.",
+		{ { "name", "string", "Object name", true } } },
+	{ "add_layer2d",    "Make an object's subtree a 2D layer: its z is the draw order and it carries a parallax factor.",
+		{ { "name", "string", "Object name", true } } },
+	{ "add_physics2d",  "Add a Box2D rigid body. Its x/y and rotation about z are driven by the solver; z is left alone.",
+		{ { "name", "string", "Object name", true } } },
+	{ "add_occluder2d", "Mark a shape as blocking 2D light. No physics needed - a painted wall can cast without being solid.",
+		{ { "name", "string", "Object name", true } } },
+	{ "set_viewport_projection", "Switch the viewport between perspective and orthographic. A 2D scene is judged through an orthographic view.",
+		{ { "projection", "string", "perspective or orthographic", true } } },
 	{ "canvas_drag",    "Move a UI element or resize it by one edge/corner, the same edit dragging its handle in canvas mode makes.",
 		{ { "object", "string", "Object name", true },
 		  { "handle", "integer", "row*3+column over the rect's handles: 0 top-left, 2 top-right, 4 the body (moves it), 6 bottom-left, 8 bottom-right", true },
@@ -351,6 +365,7 @@ static std::string BuildToolReference()
 	}
 	os << "\nMaterial workflow: create_material -> set_material_graph (node graph) or set_material_text (GLSL text) -> apply_material -> assign_material to put it on an object. ";
 	os << "Scene workflow: add_primitive/add_object/add_light -> set_transform/set_tags -> attach_script for behavior -> save_scene.\n";
+	os << "2D workflow: add_sprite -> sprite_2d_lit for lighting, add_occluder2d to cast shadows, add_physics2d for bodies, add_layer2d on a parent for parallax. Mark the scene 2D with New 2D Scene and look at it with set_viewport_projection orthographic.\n";
 	return os.str();
 }
 
