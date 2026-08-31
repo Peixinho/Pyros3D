@@ -258,6 +258,15 @@ public:
 	// orthographic view, so this is not a debug affordance - it is how you
 	// look at one.
 	void AgentSetViewportOrthographic(bool ortho) { isPerspective = !ortho; }
+	// Points the viewport camera straight down -Z at (x, y) and sets the
+	// orthographic half-width. What a 2D scene needs to be looked at at all:
+	// the default view is a 3D three-quarter angle at a fixed zoom, and
+	// framing a flat scene by selecting something in it does not work - a
+	// selection focus zooms to that object, not to the level.
+	void AgentSetViewport2D(f32 x, f32 y, f32 orthoHalfWidth);
+	// Points the editor camera straight at the XY plane, orthographic, with
+	// the orbit state reset so a later pan or orbit starts from here.
+	void LookAtPlaneXY(const f32 x, const f32 y);
 	bool AgentIsViewportOrthographic() const { return !isPerspective; }
 	bool AgentAddSprite(const std::string& name, const std::string& texturePath,
 		const std::string& parentName, std::string& errOut);
@@ -310,6 +319,9 @@ public:
 	// Assigns an already-constructed material (e.g. from a Material Editor
 	// document) onto a submesh directly, replacing whatever it had.
 	bool AgentAssignMaterial(const std::string& objectName, int submeshIndex, std::shared_ptr<p3d::IMaterial> mat, std::string& errOut);
+	// Viewport-image pixels to ImGui screen pixels, for injected mouse input.
+	// False when the viewport has not been laid out yet this session.
+	bool  AgentViewportToScreen(const f32 vx, const f32 vy, f32 &sx, f32 &sy) const;
 	json  AgentSceneState();
 	// Rewrites every asset path inside an agent/AI component payload to its
 	// project-relative form. AgentComponentToJson and friends are free
@@ -577,6 +589,9 @@ private:
 	void (*hostActivateDocument)(SceneEditor*);
 	void (*hostRequestCloseDocument)(SceneEditor*);
 	void (*hostNewSceneDocument)();
+	// Set instead of hostNewSceneDocument when the host can ask which kind of
+	// scene to create (3D / 2D / UI). Falls back to the plain one when null.
+	void (*hostNewSceneKind)();
 	void (*hostOpenSceneDocument)(const std::string&);
 	void (*hostOpenLuaScript)(const std::string&);
 	void (*hostEditMaterialInline)(std::shared_ptr<p3d::IMaterial>, const std::string&);
@@ -664,7 +679,10 @@ public:
 	// Turns the (empty, just-created) scene into a 2D one: marks it twoD so
 	// the player skips the 3D pass, gives it the Canvas its content hangs
 	// off, and opens it in Canvas (2D) Mode. See SceneMeta::twoD.
+	void SetHostNewSceneKind(void (*fn)()) { hostNewSceneKind = fn; }
 	void MakeTwoDScene();
+	// A UI screen: 2D, orthographic, with a Canvas and canvas edit mode on.
+	void MakeUIScene();
 
 	bool IsTwoDScene() const { return sceneIsTwoD; }
 private:
@@ -980,6 +998,15 @@ private:
 	Vec2 mPos; // Mouse Position
 
 	bool isPerspective;
+	// Whether the projection the viewport is ACTUALLY drawing with is
+	// orthographic, and that projection's half-extents. isPerspective alone
+	// does not answer this: it tracks the editor camera's own toggle, and
+	// says "perspective" while a scene camera marked orthographic - which is
+	// every 2D scene - is being looked through. The gizmo needs the real
+	// answer for both the ray it builds and the size it draws at, and got
+	// neither, which is why a 2D gizmo came out tiny and never highlighted.
+	bool viewIsOrtho;
+	f32 viewOrthoL, viewOrthoR, viewOrthoB, viewOrthoT;
 	AxisHelper* axisHelper;
 	f32 l, r, t, b;
 

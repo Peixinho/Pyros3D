@@ -12,6 +12,12 @@ using namespace p3d;
 
 AxisHelper::AxisHelper()
 {
+	// Matches the label the text object below is constructed with. Was left
+	// uninitialised, and Render() only refreshes the label when the flag
+	// changes - so on an uninitialised false the widget said "Perspective"
+	// while the view was orthographic, and went on saying it.
+	isPerspective = true;
+
 	// Initialization
 
 	// Initialize Scene

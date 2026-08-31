@@ -577,6 +577,19 @@ void Editor::BuildDefaultLayout(const ImGuiID dockspaceID, const ImVec2 &size)
 
 void Editor::Update()
 {
+	// Synthetic key releases from the "key" agent command, counted down in
+	// frames. A press and release in the same frame is invisible to a game
+	// that samples held state once per update, so a "tap" has to span some.
+	for (size_t i = 0; i < pendingKeyReleases.size(); )
+	{
+		if (--pendingKeyReleases[i].second <= 0)
+		{
+			SetKeyReleased(pendingKeyReleases[i].first);
+			pendingKeyReleases.erase(pendingKeyReleases.begin() + i);
+		}
+		else ++i;
+	}
+
 	// Drain agent commands first so the result is visible in this frame's draw.
 	agentServer.Process();
 	// Executes the AI Assistant's queued tool calls on this (main) thread -
@@ -730,6 +743,31 @@ std::string Editor::HostAssignMaterialAsset(const std::string& objectName, int s
 	if (!ed->AssignMaterialAsset(objectName, submeshIndex, materialPath, err))
 		return err;
 	return std::string();
+}
+
+// Key name to Event::Input::Keyboard code, for the "key" agent command.
+// Letters and digits are computed; everything else is named so a caller writes
+// "Space" rather than a number that would silently shift if the enum grew.
+static uint32 KeyNameToCode(const std::string &nameIn)
+{
+	std::string n = nameIn;
+	for (size_t i = 0; i < n.size(); i++) n[i] = (char)toupper((unsigned char)n[i]);
+
+	if (n.size() == 1 && n[0] >= 'A' && n[0] <= 'Z')
+		return Event::Input::Keyboard::A + (uint32)(n[0] - 'A');
+	if (n.size() == 1 && n[0] >= '0' && n[0] <= '9')
+		return Event::Input::Keyboard::Num0 + (uint32)(n[0] - '0');
+
+	if (n == "SPACE")     return Event::Input::Keyboard::Space;
+	if (n == "RETURN" || n == "ENTER") return Event::Input::Keyboard::Return;
+	if (n == "ESCAPE" || n == "ESC")   return Event::Input::Keyboard::Escape;
+	if (n == "LEFT")      return Event::Input::Keyboard::Left;
+	if (n == "RIGHT")     return Event::Input::Keyboard::Right;
+	if (n == "UP")        return Event::Input::Keyboard::Up;
+	if (n == "DOWN")      return Event::Input::Keyboard::Down;
+	if (n == "PAGEUP")    return Event::Input::Keyboard::PageUp;
+	if (n == "PAGEDOWN")  return Event::Input::Keyboard::PageDown;
+	return 0xFFFFFFFF;
 }
 
 nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
@@ -2042,6 +2080,14 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["projection"] = sceneView->AgentIsViewportOrthographic() ? "orthographic" : "perspective";
 		return r;
 	}
+	if (name == "set_viewport_2d")
+	{
+		std::vector<f32> c = AV("center");
+		f32 zoom = a.is_object() && a.contains("zoom") && a["zoom"].is_number()
+			? (f32)a["zoom"].get<double>() : 0.f;
+		sceneView->AgentSetViewport2D(c.size() > 0 ? c[0] : 0.f, c.size() > 1 ? c[1] : 0.f, zoom);
+		nlohmann::json r; r["ok"] = true; return r;
+	}
 	if (name == "add_layer2d")
 	{
 		if (!sceneView->AgentAddLayer2D(A("name"), err))
@@ -2357,6 +2403,111 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["rendererType"] = type;
 		return r;
 	}
+	// Synthetic keyboard, straight into InputManager - the same entry point
+	// Context::SetKeyPressed uses, so a script's Input handlers cannot tell
+	// the difference. Exists because there was no way to test game input at
+	// all from here: the socket could start play mode and screenshot it, but
+	// not press a key, and injecting through the OS needs Accessibility
+	// permission that a non-GUI shell does not have.
+	//
+	//   {"cmd":"key","args":{"key":"D","action":"press"}}     press | release | tap
+	//   {"cmd":"key","args":{"key":"Space","action":"tap","holdFrames":8}}
+	//
+	// "tap" presses now and releases after holdFrames viewport frames, which
+	// is what a held movement key looks like to a game that reads edges.
+	if (name == "key")
+	{
+		const std::string keyName = A("key");
+		if (keyName.empty())
+			throw std::runtime_error("key: 'key' is required");
+		const uint32 code = KeyNameToCode(keyName);
+		if (code == 0xFFFFFFFF)
+			throw std::runtime_error("key: unknown key '" + keyName + "'");
+		const std::string action = a.is_object() ? a.value("action", "tap") : "tap";
+
+		if (action == "press" || action == "tap")
+			SetKeyPressed(code);
+		if (action == "release")
+			SetKeyReleased(code);
+		if (action == "tap")
+		{
+			const int hold = a.is_object() ? a.value("holdFrames", 4) : 4;
+			pendingKeyReleases.push_back(std::make_pair(code, hold < 1 ? 1 : hold));
+		}
+		nlohmann::json r;
+		r["key"] = keyName;
+		r["code"] = code;
+		r["action"] = action;
+		return r;
+	}
+
+	// Synthetic mouse. Two paths on purpose, because the editor reads the
+	// mouse from two places: the viewport's picking and gizmo code takes its
+	// cursor from ImGui's io.MousePos (UpdateViewportMouse), while the
+	// press/release that starts a drag arrives as an InputManager callback.
+	// Feeding only one of them moves a cursor that cannot click, or clicks
+	// where the cursor is not.
+	//
+	//   {"cmd":"mouse","args":{"vx":268,"vy":220}}                  move, viewport px
+	//   {"cmd":"mouse","args":{"x":900,"y":500,"action":"press"}}   move, screen px
+	//
+	// Move and press in separate calls with a frame between them: ImGui only
+	// applies a queued position at the next NewFrame, so a press sent in the
+	// same call is evaluated against the previous cursor position.
+	if (name == "mouse")
+	{
+		if (!sceneView)
+			throw std::runtime_error("mouse: no scene view");
+		f32 sx = 0.f, sy = 0.f;
+		if (a.is_object() && a.contains("vx") && a.contains("vy"))
+		{
+			if (!sceneView->AgentViewportToScreen(a.value("vx", 0.f), a.value("vy", 0.f), sx, sy))
+				throw std::runtime_error("mouse: viewport has no size yet");
+		}
+		else if (a.is_object() && a.contains("x") && a.contains("y"))
+		{
+			sx = a.value("x", 0.f); sy = a.value("y", 0.f);
+		}
+		else throw std::runtime_error("mouse: needs x/y (screen) or vx/vy (viewport)");
+
+		if (ImGui::GetCurrentContext() != NULL)
+			ImGui::GetIO().AddMousePosEvent(sx, sy);
+		SetMouseMove(sx, sy);
+
+		const std::string action = a.is_object() ? a.value("action", "move") : "move";
+		if (action == "press" || action == "release")
+		{
+			const bool down = (action == "press");
+			if (ImGui::GetCurrentContext() != NULL)
+				ImGui::GetIO().AddMouseButtonEvent(0, down);
+			if (down) SetMouseButtonPressed(Event::Input::Mouse::Left);
+			else      SetMouseButtonReleased(Event::Input::Mouse::Left);
+		}
+		nlohmann::json r;
+		r["x"] = sx; r["y"] = sy; r["action"] = action;
+		return r;
+	}
+
+	// The three scene kinds the New Scene dialog offers, on the agent path so
+	// both go through the same document-creation calls.
+	//   {"cmd":"new_scene","args":{"kind":"3d"}}   3d | 2d | ui
+	if (name == "new_scene")
+	{
+		if (!project.IsOpen())
+			throw std::runtime_error("no project open");
+		std::string kind = a.is_object() ? a.value("kind", "3d") : "3d";
+		for (size_t i = 0; i < kind.size(); i++) kind[i] = (char)tolower((unsigned char)kind[i]);
+		bool ok = false;
+		if (kind == "3d")      ok = OpenNewSceneDocument();
+		else if (kind == "2d") ok = OpenNew2DSceneDocument();
+		else if (kind == "ui") ok = OpenNewUISceneDocument();
+		else throw std::runtime_error("new_scene: kind must be 3d, 2d or ui");
+		if (!ok) throw std::runtime_error("new_scene: could not create document");
+		nlohmann::json r;
+		r["kind"] = kind;
+		return r;
+	}
+
 	if (name == "play")
 	{
 		if (!sceneView->AgentPlay(err))
@@ -2595,13 +2746,6 @@ void Editor::DrawUI()
 			{
 				ImGui::Separator();
 				sceneView->ShowFileMenuItems();
-				// Next to New Scene deliberately: a 2D scene is an ordinary
-				// scene that happens to be marked twoD and start with a
-				// Canvas, not a separate kind of document. It plays on its
-				// own as a menu or a 2D game, and the player can also show it
-				// over a running 3D scene with showOverlay().
-				if (ImGui::MenuItem("New 2D Scene", ""))
-					OpenNew2DSceneDocument();
 			}
 
 			ImGui::Separator();
@@ -3344,6 +3488,49 @@ void Editor::DrawProjectDialogs()
 		ImGui::SetNextWindowFocus();
 		ImGui::OpenPopup("Project Settings");
 		openProjectSettingsModal = false;
+	}
+
+	if (openNewSceneKindModal)
+	{
+		ImGui::SetNextWindowFocus();
+		ImGui::OpenPopup("New Scene");
+		openNewSceneKindModal = false;
+	}
+
+	if (ImGui::BeginPopupModal("New Scene", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		ImGui::TextUnformatted("What kind of scene?");
+		ImGui::Separator();
+		ImGui::Spacing();
+
+		const ImVec2 sz(360, 0);
+		if (ImGui::Button("3D Scene", sz))
+		{
+			OpenNewSceneDocument();
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::TextDisabled("   Perspective view. Models, 3D lights, 3D physics.");
+		ImGui::Spacing();
+
+		if (ImGui::Button("2D Scene", sz))
+		{
+			OpenNew2DSceneDocument();
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::TextDisabled("   Orthographic, face-on. Sprites, layers, 2D lights, Box2D.");
+		ImGui::Spacing();
+
+		if (ImGui::Button("UI Screen", sz))
+		{
+			OpenNewUISceneDocument();
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::TextDisabled("   A Canvas in canvas edit mode. Menus, HUDs, dialogs.");
+		ImGui::Spacing();
+		ImGui::Separator();
+		if (ImGui::Button("Cancel", ImVec2(120, 0)))
+			ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
 	}
 
 	if (ImGui::BeginPopupModal("New Project", NULL, ImGuiWindowFlags_AlwaysAutoResize))
@@ -5226,6 +5413,7 @@ SceneEditor* Editor::CreateSceneDocument()
 		&Editor::HostOpenLuaScript,
 		&Editor::HostEditMaterialInline,
 		&Editor::HostAssignMaterialAsset);
+	doc->SetHostNewSceneKind(&Editor::HostNewSceneKind);
 	sceneDocs.push_back(doc);
 	SetActiveSceneDocument(doc);
 	return doc;
@@ -5562,6 +5750,21 @@ bool Editor::OpenNew2DSceneDocument()
 	doc->NewScene();
 	doc->MakeTwoDScene();
 	return true;
+}
+
+bool Editor::OpenNewUISceneDocument()
+{
+	if (!project.IsOpen()) return false;
+	SceneEditor* doc = CreateSceneDocument();
+	doc->NewScene();
+	doc->MakeUIScene();
+	return true;
+}
+
+void Editor::HostNewSceneKind()
+{
+	Editor* ed = Editor::getInstance();
+	if (ed) ed->openNewSceneKindModal = true;
 }
 
 void Editor::FlushPendingSceneDocumentCloses()

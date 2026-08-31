@@ -199,6 +199,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		hostActivateDocument = NULL;
 		hostRequestCloseDocument = NULL;
 		hostNewSceneDocument = NULL;
+		hostNewSceneKind = NULL;
 		hostOpenSceneDocument = NULL;
 		hostOpenLuaScript = NULL;
 		hostEditMaterialInline = NULL;
@@ -354,6 +355,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// hang that only happened with a lit object in the scene. Applying
 		// at the next ShowViewport() start guarantees no command buffer
 		// from a previous frame is still open.
+		// A 2D scene is always forward, whatever the project is set to.
+		// Deferred exists to make many lights cheap by shading from a
+		// G-buffer, and a G-buffer holds one opaque fragment per pixel - so
+		// it cannot blend, which is the one thing sprites need. A cut-out
+		// sprite rendered through it writes its fully transparent texels at
+		// full opacity, giving every sprite a hard ring of whatever colour
+		// its invisible border happens to be. There is nothing to gain in
+		// exchange: 2D lighting is a handful of lights on flat quads, which
+		// is exactly what forward is good at.
+		if (sceneIsTwoD)
+			useDeferred = false;
 		if (useDeferred == usingDeferredRenderer)
 			return;
 		queuedRendererSwitch = true;
@@ -466,6 +478,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		// Projection
 		isPerspective = true;
+		viewIsOrtho = false;
+		viewOrthoL = viewOrthoB = -5.f; viewOrthoR = viewOrthoT = 5.f;
 		zoomOrtho = 5;
 
 		// Physics
@@ -766,9 +780,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			const f32 halfH = sceneCameras[activeSceneCameraId].orthoSize;
 			const f32 halfW = halfH * ((f32)dim.x / (f32)dim.y);
 			projection.Ortho(-halfW, halfW, -halfH, halfH, viewNear, viewFar);
+			// Recorded for the gizmo: looking through an orthographic scene
+			// camera is an orthographic view, whatever the editor camera's
+			// own perspective toggle says.
+			viewIsOrtho = true;
+			viewOrthoR = halfW; viewOrthoL = -halfW;
+			viewOrthoT = halfH; viewOrthoB = -halfH;
 		}
 		else
+		{
 			projection.Perspective(viewFov, (f32)dim.x / (f32)dim.y, viewNear, viewFar);
+			viewIsOrtho = false;
+		}
 
 		{
 			if (dim.x > dim.y)
@@ -793,6 +816,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				b = -t;
 			}
 			projectionOrtho.Ortho(l, r, b, t, 0.1f, 100000.f);
+			// The editor camera's own ortho toggle. Takes precedence, because
+			// when it is on that projection is what actually gets drawn.
+			if (!isPerspective)
+			{
+				viewIsOrtho = true;
+				viewOrthoL = l; viewOrthoR = r; viewOrthoB = b; viewOrthoT = t;
+			}
 		}
 
 		viewportImgMin = ImGui::GetCursorScreenPos();
@@ -936,6 +966,25 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// command buffer and rewrites the shared matrices UBO, so it must
 		// happen exactly once per frame. Submitting canvas lines and calling
 		// Render() a second time is what blacked the whole viewport.
+		// 2D physics, in BOTH modes - deliberately outside the !playMode
+		// branch below. While authoring, the bodies follow the authored
+		// transforms and are never stepped: that is a view of what the shapes
+		// are, not a simulation of them. In play mode it has to be the other
+		// way round. It used to sit inside the editor-only branch, so play
+		// mode ran no 2D solver at all - no gravity, no collisions, no
+		// contact callbacks - and a script setting a velocity looked exactly
+		// like dead input when it was the solver that was never running.
+		if (physics2D)
+		{
+			physics2D->Sync(scene);
+			if (playMode)
+				physics2D->Step(ImGui::GetIO().DeltaTime, scene);
+			else
+				physics2D->PullTransforms();
+			if (showPhysicsDebug && debugRenderer && !playMode)
+				physics2D->DebugDraw(debugRenderer);
+		}
+
 		if (!playMode && editingCanvas)
 		{
 			DrawCanvasOverlay(editingCanvas, dim);
@@ -949,16 +998,6 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (showPhysicsDebug && physics)
 				physics->RenderDebugDraw((isPerspective ? projection : projectionOrtho), viewCam);
 
-			// 2D colliders. Synced and pulled onto the authored transforms
-			// every frame but never stepped - this is a view of what the
-			// shapes are, not a simulation of them.
-			if (physics2D)
-			{
-				physics2D->Sync(scene);
-				physics2D->PullTransforms();
-				if (showPhysicsDebug && debugRenderer)
-					physics2D->DebugDraw(debugRenderer);
-			}
 
 			// The grid is an editor-only helper, not scene content - it's
 			// deliberately NOT a SceneGraph object, so it never goes through
@@ -3740,11 +3779,34 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::SetTooltip("Adds a UICanvas to this scene and edits it in 2D.");
 	}
 
-	// One Canvas, selected and ready to have elements added to it. Shared by
-	// the View menu's 2D toggle and by New 2D Scene.
+	// A 2D *scene*: sprites, layers, 2D lights and bodies laid out in the XY
+	// plane, viewed orthographically. Deliberately does NOT create a Canvas
+	// or turn on uiEditMode - this used to do both, which meant "2D scene"
+	// and "UI screen" were the same thing and there was no way to ask for a
+	// 2D game without also getting a UI canvas you did not want. See
+	// MakeUIScene() for that one.
 	void SceneEditor::MakeTwoDScene()
 	{
 		sceneIsTwoD = true;
+		SwitchRenderer(false);
+		// A 2D scene opens looking at the XY plane through an orthographic
+		// view. It used to open in the default perspective three-quarter
+		// view, which is why every 2D scene needed the camera dragged into
+		// place by hand before it looked like a 2D scene at all - and why the
+		// gizmo's orthographic paths never ran even in a scene marked twoD.
+		LookAtPlaneXY(0.f, 0.f);
+		uiEditMode = false;
+		MarkSceneDirty();
+	}
+
+	// A UI screen: one Canvas, selected and ready to have elements added to
+	// it, in canvas edit mode. Also 2D and also orthographic - a UI screen is
+	// a 2D scene whose content happens to be widgets.
+	void SceneEditor::MakeUIScene()
+	{
+		sceneIsTwoD = true;
+		SwitchRenderer(false);
+		LookAtPlaneXY(0.f, 0.f);
 		if (GetEditingCanvas() == NULL)
 			CreateCanvasForEditing();
 		uiEditMode = true;
@@ -5021,14 +5083,24 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			: SelectedSceneObject->LocalTransform;
 		Matrix parentWorld = liveParentWorld;
 
-		gizmo->SetDisplayScale(isPerspective ? .15f : .22f);
+		// Everything below keys off the projection actually in use, not off
+		// isPerspective. Under an orthographic projection the gizmo's
+		// perspective branches are both wrong: ComputeScreenFactor() falls
+		// back to the clip w, which ortho pins at 1 - so the gizmo drew at a
+		// fixed 0.15 world units no matter how far out the view was zoomed -
+		// and BuildRay() unprojects through m_Proj[0][0], which for an ortho
+		// matrix is 1/halfWidth and yields a ray pointing nowhere near the
+		// cursor, so no axis ever highlighted.
+		Projection &viewProj = isPerspective ? projection : projectionOrtho;
+		gizmo->SetDisplayScale(viewIsOrtho ? .22f : .15f);
 
 		Mouse3D mray;
 		mray.GenerateRay(dim.x, dim.y, viewportMouse.x, viewportMouse.y, Matrix(),
-			viewCam->GetWorldTransformation().Inverse(), projectionOrtho.GetProjectionMatrix());
+			viewCam->GetWorldTransformation().Inverse(), viewProj.GetProjectionMatrix());
 		gizmo->SetOrthoMouse(mray.GetOrigin().x, mray.GetOrigin().y, mray.GetOrigin().z,
 			mray.GetDirection().x, mray.GetDirection().y, mray.GetDirection().z);
-		gizmo->SetScreenDimension(dim.x, dim.y, isPerspective, l, r, b, t);
+		gizmo->SetScreenDimension(dim.x, dim.y, !viewIsOrtho,
+			viewOrthoL, viewOrthoR, viewOrthoB, viewOrthoT);
 
 		// In a 2D scene, Z is draw order, not a thing you drag - and under the
 		// orthographic camera such a scene is viewed with, the Z arrow points
@@ -5072,7 +5144,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 
 		gizmo->SetCameraMatrix(viewCam->GetWorldTransformation().Inverse().m,
-			(isPerspective ? projection : projectionOrtho).GetProjectionMatrix().m);
+			viewProj.GetProjectionMatrix().m);
 	}
 
 	Matrix SceneEditor::LocalizeWorldRotation(const Matrix &worldDelta)
@@ -6105,6 +6177,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				else
 					sceneMainScriptPath = ProjectManager::SceneScriptPathForSceneJson(path);
 				sceneIsTwoD = meta.twoD;
+				if (sceneIsTwoD)
+				{
+					LookAtPlaneXY(0.f, 0.f);
+					// See SwitchRenderer(): 2D is forward, always.
+					SwitchRenderer(false);
+				}
 				RebuildSceneMainScriptInstance();
 			}
 #else
@@ -8706,9 +8784,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	// document.
 	void SceneEditor::ShowFileMenuItems()
 	{
-		if (ImGui::MenuItem("New Scene", ""))
+		// "New Scene..." rather than "New Scene": what comes up is a choice of
+		// 3D, 2D or UI. There is no sensible default - a 2D scene wants a
+		// different camera, a different gizmo and a different set of
+		// components from a 3D one - and the old arrangement made 3D the
+		// silent default with 2D hidden behind a second, differently named
+		// menu item further down the menu.
+		if (ImGui::MenuItem("New Scene...", ""))
 		{
-			if (hostNewSceneDocument)
+			if (hostNewSceneKind)
+				hostNewSceneKind();
+			else if (hostNewSceneDocument)
 				hostNewSceneDocument();
 			else if (ConfirmUnsavedThen(UnsavedNewScene))
 			{
@@ -9484,6 +9570,41 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
 		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
 		return OpAddUIComponent(obj->GetID(), kind, fontPath, errOut);
+	}
+
+	void SceneEditor::AgentSetViewport2D(f32 x, f32 y, f32 orthoHalfWidth)
+	{
+		if (orthoHalfWidth > 0.f) zoomOrtho = orthoHalfWidth;
+		LookAtPlaneXY(x, y);
+	}
+
+	void SceneEditor::LookAtPlaneXY(const f32 x, const f32 y)
+	{
+		isPerspective = false;
+		// Through the orbit state, not by writing the pivot's position and
+		// rotation: the pivot's transform is recomposed from rotX/rotY/pos
+		// every time the view is orbited or panned (see ShowViewport), so a
+		// SetPosition() here was overwritten by the next mouse move and the
+		// camera never actually went anywhere. That is why set_viewport_2d
+		// used to do nothing at all.
+		qX = qY = Quaternion();
+		rotX = rotY = Quaternion();
+		rotation = Quaternion();
+		pos = Vec3(x, y, 0.f);
+		if (CameraPivot)
+		{
+			Matrix m;
+			m.Translate(pos);
+			CameraPivot->SetTransformationMatrix(m);
+		}
+		if (Camera)
+		{
+			// Straight down -Z, no pitch: a 2D scene lies in the XY plane and
+			// any tilt at all shows it edge-on.
+			Camera->SetPosition(Vec3(0.f, 0.f, 20.f));
+			Camera->SetRotation(Vec3(0.f, 0.f, 0.f));
+			Camera->RefreshTransformation();
+		}
 	}
 
 	bool SceneEditor::AgentAddLayer2D(const std::string& name, std::string& errOut)
@@ -10442,6 +10563,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return true;
 	}
 
+	bool SceneEditor::AgentViewportToScreen(const f32 vx, const f32 vy, f32 &sx, f32 &sy) const
+	{
+		if (dim.x < 1.f || dim.y < 1.f || viewportImgSize.x < 1.f || viewportImgSize.y < 1.f)
+			return false;
+		// The inverse of UpdateViewportMouse(): it scales screen deltas into
+		// render-target pixels, so this scales back and re-adds the origin.
+		sx = viewportImgMin.x + vx * (viewportImgSize.x / dim.x);
+		sy = viewportImgMin.y + vy * (viewportImgSize.y / dim.y);
+		return true;
+	}
+
 	json SceneEditor::AgentSceneState()
 	{
 		json out;
@@ -10450,14 +10582,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		out["dirty"] = sceneDirty;
 		out["playing"] = playMode;
 
-		std::vector<std::shared_ptr<GameObject>>& all = scene->GetAllGameObjectList();
+		// Recursive: GetAllGameObjectList() holds only what was added to the
+		// scene, and a child attached with GameObject::Add() is not in it.
+		// The tree assembled below therefore reported every layer as empty -
+		// an agent or the MCP server looking at a 2D scene saw two layer
+		// roots and none of the objects inside them.
+		std::vector<GameObject*> all;
+		scene->CollectGameObjectsRecursive(all);
 
 		// Collect user objects (skip editor furniture).
 		std::vector<GameObject*> order;
 		std::map<GameObject*, size_t> idx;
-		for (auto& goPtr : all)
+		for (auto& go : all)
 		{
-			GameObject* go = goPtr.get();
 			if (!go || IsInternalGameObject(go)) continue;
 			idx[go] = order.size();
 			order.push_back(go);

@@ -265,6 +265,10 @@ private:
 	AgentServer agentServer;
 	// Dispatches one agent command (cmd + args) to the editor API. Runs on
 	// the main thread. Throws std::runtime_error on error.
+	// Pending synthetic key releases: (key code, frames remaining). See the
+	// "key" agent command in Editor.cpp.
+	std::vector<std::pair<uint32, int> > pendingKeyReleases;
+
 	nlohmann::json HandleAgentCommand(const nlohmann::json& cmd);
 	// Agent/MCP bridge helper: resolves a project-relative or absolute .mat
 	// path and finds-or-opens it as a live MaterialEditorDocument. Returns
@@ -373,6 +377,10 @@ private:
 	bool OpenNewSceneDocument();
 	// Same, but the scene starts marked twoD with a Canvas, in 2D mode.
 	bool OpenNew2DSceneDocument();
+	bool OpenNewUISceneDocument();
+	static void HostNewSceneKind();
+	// Set by the New Scene menu item; opens the 3D/2D/UI chooser next frame.
+	bool openNewSceneKindModal = false;
 	void FlushPendingSceneDocumentCloses();
 	bool AnySceneHasUnsavedWork() const;
 	bool AnySceneDocumentHasUnsavedWork() const;
