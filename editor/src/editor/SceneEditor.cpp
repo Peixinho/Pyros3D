@@ -14,6 +14,7 @@
 
 #include "SceneEditor.h"
 #include <Pyros3D/AnimationManager/IKSolver.h>
+#include <Pyros3D/Utils/Mouse3D/Mouse3D.h>
 #include "UIDispatch.h"
 #include "UI/EasingPreview.h"
 #include "SceneCommands.h"
@@ -5732,6 +5733,61 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (!hovered)
 			return;
 
+		// Bone joints are tested before anything else, so grabbing one wins
+		// over the gizmo and over picking the object underneath - a joint sits
+		// on top of the sprite it poses, and clicking it should pose rather
+		// than reselect.
+		if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !draggingBoneOwner)
+		{
+			GameObject* jointOwner = NULL; int32 jointId = -1;
+			if (TryPickBoneJoint(viewportMouse, jointOwner, jointId))
+			{
+				draggingBoneOwner = jointOwner;
+				draggingBoneId = jointId;
+			}
+		}
+
+		if (draggingBoneOwner)
+		{
+			if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+			{
+				Vec3 targetWorld;
+				RenderingComponent* rc = FindRenderingComponent(draggingBoneOwner);
+				SkeletonAnimationInstance* inst = rc
+					? static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation()) : NULL;
+				if (inst && ViewportCursorOnPlaneXY(viewportMouse, targetWorld))
+				{
+					// IKSolver works in the skeleton's model space, so the
+					// cursor has to come back out of world space through the
+					// owner's transform first.
+					const Vec3 targetModel =
+						draggingBoneOwner->GetWorldTransformation().Inverse() * targetWorld;
+
+					// Two bones up where the chain allows it, which is the
+					// classic elbow/knee case and what the closed-form
+					// two-bone solve is for; otherwise as far up as it goes.
+					const std::vector<Bone> &bones = inst->GetSkeletonBones();
+					int32 rootId = draggingBoneId;
+					for (int step = 0; step < 2; step++)
+					{
+						if (rootId < 0 || (size_t)rootId >= bones.size()) break;
+						const int32 p = bones[rootId].parent;
+						if (p < 0) break;
+						rootId = p;
+					}
+					if (rootId != draggingBoneId)
+					{
+						std::string ikErr;
+						IKSolver::Solve(inst, rootId, draggingBoneId, targetModel, Vec3(0.f, 0.f, 0.f));
+						MarkSceneDirty();
+					}
+				}
+				return;   // the drag owns the mouse while it lasts
+			}
+			draggingBoneOwner = NULL;
+			draggingBoneId = -1;
+		}
+
 		if (!SelectedSceneObject || SelectedSceneObject->GetType() != SceneObjectTypes::GAMEOBJECT || !gizmo)
 		{
 			if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
@@ -10015,6 +10071,76 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		inst->RefreshSkinning();
 		MarkSceneDirty();
 		return true;
+	}
+
+	bool SceneEditor::ViewportCursorOnPlaneXY(const Vec2& mouse, Vec3& outWorld) const
+	{
+		GameObject* cam = GetViewCameraGO();
+		if (!cam || dim.x < 1.f || dim.y < 1.f) return false;
+
+		Mouse3D ray;
+		Projection &proj = const_cast<SceneEditor*>(this)->isPerspective
+			? const_cast<SceneEditor*>(this)->projection
+			: const_cast<SceneEditor*>(this)->projectionOrtho;
+		if (!ray.GenerateRay(dim.x, dim.y, mouse.x, mouse.y, Matrix(),
+			cam->GetWorldTransformation().Inverse(), proj.GetProjectionMatrix()))
+			return false;
+
+		const Vec3 o = ray.GetOrigin();
+		const Vec3 d = ray.GetDirection();
+		if (fabsf(d.z) < 1e-6f) return false;   // parallel to the plane
+		const f32 t = -o.z / d.z;
+		outWorld = o + d * t;
+		return true;
+	}
+
+	bool SceneEditor::TryPickBoneJoint(const Vec2& mouse, GameObject*& outOwner, int32& outBoneId) const
+	{
+		outOwner = NULL; outBoneId = -1;
+		if (!showSkeletons2D || !scene || dim.x < 1.f || dim.y < 1.f) return false;
+
+		GameObject* cam = GetViewCameraGO();
+		if (!cam) return false;
+		const Matrix viewM = cam->GetWorldTransformation().Inverse();
+		const Matrix projM = (const_cast<SceneEditor*>(this)->isPerspective
+			? const_cast<SceneEditor*>(this)->projection
+			: const_cast<SceneEditor*>(this)->projectionOrtho).GetProjectionMatrix();
+
+		std::vector<GameObject*> all;
+		const_cast<SceneGraph*>(scene)->CollectGameObjectsRecursive(all);
+
+		// Nearest wins, so overlapping joints resolve to the one actually
+		// under the cursor rather than whichever the scene walk saw first.
+		f32 bestDistSQR = 14.f * 14.f;   // pixels
+		for (size_t i = 0; i < all.size(); i++)
+		{
+			GameObject* go = all[i];
+			if (!go) continue;
+			RenderingComponent* rc = FindRenderingComponent(go);
+			if (!rc || rc->GetSkeleton().empty()) continue;
+			SkeletonAnimationInstance* inst =
+				static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
+			if (!inst) continue;
+
+			const Matrix world = go->GetWorldTransformation();
+			const std::vector<Bone> &bones = inst->GetSkeletonBones();
+			for (size_t b = 0; b < bones.size(); b++)
+			{
+				const int32 id = bones[b].self;
+				if (id < 0 || (size_t)id >= bones.size()) continue;
+				const Vec3 wp = world * inst->GetBoneGlobalTransform(id).GetTranslation();
+
+				const Vec4 vp = viewM * Vec4(wp.x, wp.y, wp.z, 1.f);
+				Vec4 clip = projM * vp;
+				if (clip.w <= 0.0001f) continue;
+				const f32 sx = (clip.x / clip.w * 0.5f + 0.5f) * dim.x;
+				const f32 sy = (1.f - (clip.y / clip.w * 0.5f + 0.5f)) * dim.y;
+				const f32 dx = sx - mouse.x, dy = sy - mouse.y;
+				const f32 dsq = dx * dx + dy * dy;
+				if (dsq < bestDistSQR) { bestDistSQR = dsq; outOwner = go; outBoneId = id; }
+			}
+		}
+		return outOwner != NULL;
 	}
 
 	void SceneEditor::DrawSkeletons2D()

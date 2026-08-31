@@ -763,6 +763,16 @@ private:
 	// child's, plus a marker on the joint itself. Bones have no geometry of
 	// their own, so without this they cannot be seen, let alone picked.
 	void DrawSkeletons2D();
+	// Nearest bone joint to the cursor, within a pixel radius. Joints are
+	// points with no geometry, so they are picked in screen space rather than
+	// with a ray - the same reason helper icons are.
+	bool TryPickBoneJoint(const Vec2& mouse, GameObject*& outOwner, int32& outBoneId) const;
+	// Cursor on the z = 0 plane, in world space. A 2D scene lives there, so
+	// that is the only plane a drag can sensibly mean.
+	bool ViewportCursorOnPlaneXY(const Vec2& mouse, Vec3& outWorld) const;
+	// Drag state: which rig and which joint is being pulled.
+	GameObject* draggingBoneOwner = NULL;
+	int32 draggingBoneId = -1;
 	bool showSkeletons2D = true;
 	static RenderingComponent* FindRenderingComponent(GameObject* go);
 
