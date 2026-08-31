@@ -10143,6 +10143,142 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return outOwner != NULL;
 	}
 
+	void SceneEditor::ShowAnimation2DPanel()
+	{
+		RenderingComponent* rc = NULL; SkeletonAnimationInstance* inst = NULL;
+		if (!GetSelectedRig(rc, inst))
+		{
+			ImGui::TextDisabled("Select an object with a 2D skeleton.");
+			return;
+		}
+		const std::string objName = ((GameObject*)SelectedSceneObject->GetPTR())->GetName();
+		std::vector<Animation> clips = inst->GetOwner()->GetAnimations();
+
+		// --- clip selection ---
+		if (anim2DClip.empty() && !clips.empty()) anim2DClip = clips[0].AnimationName;
+		if (ImGui::BeginCombo("Clip", anim2DClip.c_str()))
+		{
+			for (size_t i = 0; i < clips.size(); i++)
+			{
+				const bool sel = (clips[i].AnimationName == anim2DClip);
+				if (ImGui::Selectable(clips[i].AnimationName.c_str(), sel))
+				{
+					anim2DClip = clips[i].AnimationName;
+					anim2DTime = 0.f;
+				}
+			}
+			ImGui::EndCombo();
+		}
+		ImGui::InputText("##newclip", &anim2DNewClipName);
+		ImGui::SameLine();
+		if (ImGui::Button("New Clip"))
+		{
+			std::string err;
+			if (!OpNewClip2D(anim2DNewClipName, err)) echo("ERROR: " + err);
+			else { anim2DClip = anim2DNewClipName; anim2DNewClipName.clear(); anim2DTime = 0.f; }
+		}
+		if (anim2DClip.empty()) { ImGui::TextDisabled("No clip yet - name one and press New Clip."); return; }
+
+		const Animation* clip = NULL;
+		for (size_t i = 0; i < clips.size(); i++)
+			if (clips[i].AnimationName == anim2DClip) clip = &clips[i];
+		if (!clip) { anim2DClip.clear(); return; }
+
+		// --- playhead ---
+		const f32 duration = clip->Duration > 0.01f ? clip->Duration : 1.f;
+		if (ImGui::SliderFloat("Time", &anim2DTime, 0.f, duration, "%.2f s"))
+		{
+			std::string err;
+			AgentScrubClip2D(objName, anim2DClip, anim2DTime, err);
+		}
+		if (ImGui::Button("Key Pose"))
+		{
+			std::string err;
+			if (!OpKeyPose2D(anim2DClip, anim2DTime, std::string(), err)) echo("ERROR: " + err);
+		}
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Records every bone's current rotation at the playhead.");
+		ImGui::SameLine();
+		if (ImGui::Button("Play"))
+		{
+			std::string err;
+			AgentPlayClip2D(objName, anim2DClip, -1.f, 1.f, err);
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Stop")) inst->Stop();
+
+		ImGui::Separator();
+
+		// --- tracks ---
+		// One row per bone. Keys are drawn straight onto the row rather than
+		// as widgets so they stay put when the row is scrolled or resized,
+		// and an invisible button over the strip catches the clicks.
+		const std::vector<Bone> bones = inst->GetSkeletonBones();
+		const f32 labelW = 90.f;
+		for (size_t b = 0; b < bones.size(); b++)
+		{
+			ImGui::PushID((int)b + 9000);
+			ImGui::Text("%s", bones[b].name.c_str());
+			ImGui::SameLine(labelW);
+
+			const ImVec2 p0 = ImGui::GetCursorScreenPos();
+			const f32 stripW = ImGui::GetContentRegionAvail().x - 70.f;
+			const f32 stripH = 18.f;
+			ImGui::InvisibleButton("##strip", ImVec2(stripW > 20.f ? stripW : 20.f, stripH));
+			const bool stripClicked = ImGui::IsItemClicked();
+
+			ImDrawList* dl = ImGui::GetWindowDrawList();
+			dl->AddRectFilled(p0, ImVec2(p0.x + stripW, p0.y + stripH), IM_COL32(30, 30, 34, 255));
+
+			// playhead
+			const f32 phx = p0.x + (anim2DTime / duration) * stripW;
+            dl->AddLine(ImVec2(phx, p0.y), ImVec2(phx, p0.y + stripH), IM_COL32(255, 200, 60, 200), 1.5f);
+
+			// keys
+			const Channel* ch = NULL;
+			for (size_t c = 0; c < clip->Channels.size(); c++)
+				if (clip->Channels[c].NodeName == bones[b].name) ch = &clip->Channels[c];
+			if (ch)
+			{
+				for (size_t k = 0; k < ch->rotations.size(); k++)
+				{
+					const f32 kx = p0.x + (ch->rotations[k].Time / duration) * stripW;
+					const f32 cy = p0.y + stripH * 0.5f;
+					const f32 r = 4.f;
+					const ImVec2 pts[4] = { ImVec2(kx, cy - r), ImVec2(kx + r, cy),
+					                        ImVec2(kx, cy + r), ImVec2(kx - r, cy) };
+					dl->AddConvexPolyFilled(pts, 4, IM_COL32(90, 200, 255, 255));
+				}
+			}
+
+			// Clicking the strip moves the playhead to that time and scrubs,
+			// which is the fastest way to land exactly on an existing key.
+			if (stripClicked && stripW > 1.f)
+			{
+				const f32 t = ((ImGui::GetIO().MousePos.x - p0.x) / stripW) * duration;
+				anim2DTime = t < 0.f ? 0.f : (t > duration ? duration : t);
+				std::string err;
+				AgentScrubClip2D(objName, anim2DClip, anim2DTime, err);
+			}
+
+			ImGui::SameLine();
+			if (ImGui::SmallButton("K"))
+			{
+				std::string err;
+				if (!OpKeyPose2D(anim2DClip, anim2DTime, bones[b].name, err)) echo("ERROR: " + err);
+			}
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Key just this bone at the playhead");
+			ImGui::SameLine();
+			if (ImGui::SmallButton("X"))
+			{
+				std::string err;
+				if (!OpDeleteKey2D(anim2DClip, bones[b].name, anim2DTime, err)) echo("ERROR: " + err);
+			}
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this bone's key at the playhead");
+			ImGui::PopID();
+		}
+	}
+
 	void SceneEditor::DrawSkeletons2D()
 	{
 		if (!showSkeletons2D || !debugRenderer || !scene) return;

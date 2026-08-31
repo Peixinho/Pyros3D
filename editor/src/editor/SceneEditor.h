@@ -273,6 +273,22 @@ public:
 	// times. 0 means "no repetitions left" and stops on the final pose.
 	bool AgentPlayClip2D(const std::string& objName, const std::string& clipName,
 		const f32 repetition, const f32 speed, std::string& errOut);
+
+	// --- 2D animation timeline -------------------------------------------
+	// Drawn by Editor's Animation 2D window; kept here because everything it
+	// needs (selection, the rig, the clips) is this document's state.
+	void ShowAnimation2DPanel();
+	// The selected object's rig, or nulls. Both out-params are set together.
+	bool GetSelectedRig(RenderingComponent*& outRc, SkeletonAnimationInstance*& outInst) const;
+	bool OpNewClip2D(const std::string& clipName, std::string& errOut);
+	// Records EVERY bone's current rotation at `time` - what "key the pose"
+	// means. Keying one bone at a time is available too, from the row buttons.
+	bool OpKeyPose2D(const std::string& clipName, const f32 time, const std::string& onlyBone, std::string& errOut);
+	bool OpDeleteKey2D(const std::string& clipName, const std::string& boneName, const f32 time, std::string& errOut);
+
+	std::string anim2DClip;
+	f32 anim2DTime = 0.f;
+	std::string anim2DNewClipName;
 	json AgentSkeletonState(const std::string& objName, std::string& errOut);
 	// Rotation is DEGREES about Z here and converted on the way in - the
 	// engine's Euler angles are radians, and a degrees-in API is what an

@@ -2617,6 +2617,23 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 
+	// {"cmd":"delete_key2d","args":{"object":"Hero","clip":"Wave","bone":"ArmU","time":1}}
+	// Selects the object first: the timeline ops work on the selection, which
+	// is what the panel has and an agent does not.
+	if (name == "delete_key2d")
+	{
+		const std::string objName = A("object"), clipName = A("clip"), boneName = A("bone");
+		if (objName.empty() || clipName.empty() || boneName.empty())
+			throw std::runtime_error("delete_key2d: 'object', 'clip' and 'bone' are required");
+		if (!sceneView->AgentSelectObject(objName, err))
+			throw std::runtime_error(err);
+		const float t = a.is_object() ? a.value("time", 0.0f) : 0.0f;
+		if (!sceneView->OpDeleteKey2D(clipName, boneName, t, err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["deleted"] = boneName; r["time"] = t;
+		return r;
+	}
+
 	// {"cmd":"scrub_clip2d","args":{"object":"Hero","clip":"Wave","time":0.5}}
 	if (name == "scrub_clip2d")
 	{
@@ -2998,6 +3015,7 @@ void Editor::DrawUI()
         {
             if (ImGui::BeginMenu("Windows", "")) {
 				if (ImGui::MenuItem("Scene Tree", "", &showingSceneTree)) {}
+				if (ImGui::MenuItem("Animation 2D", "", &showingAnimation2D)) {}
 				if (ImGui::MenuItem("Scene View", "", &showingSceneView)) {}
                 if (ImGui::MenuItem("Properties", "", &showingTabProperties)) {}
                 if (ImGui::MenuItem("Tools", "", &showingTabTools)) {}
@@ -3119,6 +3137,8 @@ void Editor::DrawUI()
 	DrawMaterialEditorWindows();
 	DrawAnimationEditorWindows();
 
+	if (showingAnimation2D)
+		DrawAnimation2DWindow();
 	if (showingSceneTree)
 		DrawSceneTreeWindow();
 
@@ -4909,6 +4929,18 @@ void Editor::DrawSceneViewWindow()
 		sceneView->ShowViewport();
 	else
 		ImGui::TextDisabled("No scene open");
+	ImGui::End();
+}
+
+void Editor::DrawAnimation2DWindow()
+{
+	if (!ImGui::Begin("Animation 2D", &showingAnimation2D))
+	{
+		ImGui::End();
+		return;
+	}
+	if (sceneView) sceneView->ShowAnimation2DPanel();
+	else ImGui::TextDisabled("No scene open");
 	ImGui::End();
 }
 

@@ -400,6 +400,10 @@ private:
 	bool showingSceneView, showingTabTools, showingTabProperties, showingLog, showingSceneTree;
 	bool showingTabAI;
 	bool showingAssets;
+	// 2D animation timeline window (View menu). Off by default: it is only
+	// meaningful for an object that has a 2D skeleton.
+	bool showingAnimation2D = false;
+	void DrawAnimation2DWindow();
 	bool assetsWindowHovered;
 
 	bool openNewProjectModal, openOpenProjectModal;

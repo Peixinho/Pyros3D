@@ -1128,6 +1128,97 @@ bool SceneEditor::OpBindToBone2D(uint32 goId, const std::string& boneName, const
 	return true;
 }
 
+bool SceneEditor::GetSelectedRig(RenderingComponent*& outRc, SkeletonAnimationInstance*& outInst) const
+{
+	outRc = NULL; outInst = NULL;
+	if (!SelectedSceneObject || SelectedSceneObject->GetType() != SceneObjectTypes::GAMEOBJECT) return false;
+	RenderingComponent* rc = FindRenderingComponent((GameObject*)SelectedSceneObject->GetPTR());
+	if (!rc || rc->GetSkeleton().empty()) return false;
+	SkeletonAnimationInstance* inst =
+		static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
+	if (!inst || !inst->GetOwner()) return false;
+	outRc = rc; outInst = inst;
+	return true;
+}
+
+bool SceneEditor::OpNewClip2D(const std::string& clipName, std::string& errOut)
+{
+	RenderingComponent* rc = NULL; SkeletonAnimationInstance* inst = NULL;
+	if (!GetSelectedRig(rc, inst)) { errOut = "select an object with a skeleton"; return false; }
+	if (clipName.empty()) { errOut = "clip needs a name"; return false; }
+
+	std::vector<Animation> clips = inst->GetOwner()->GetAnimations();
+	for (size_t i = 0; i < clips.size(); i++)
+		if (clips[i].AnimationName == clipName) { errOut = "a clip named '" + clipName + "' already exists"; return false; }
+
+	Animation a;
+	a.AnimationName = clipName;
+	a.Duration = 1.f;      // a zero-length clip has nothing to scrub
+	a.TicksPerSecond = 1.f;
+	a.Flags = 0;
+	clips.push_back(a);
+	inst->GetOwner()->SetAnimations(clips);
+	MarkSceneDirty();
+	return true;
+}
+
+bool SceneEditor::OpKeyPose2D(const std::string& clipName, const f32 time,
+	const std::string& onlyBone, std::string& errOut)
+{
+	RenderingComponent* rc = NULL; SkeletonAnimationInstance* inst = NULL;
+	if (!GetSelectedRig(rc, inst)) { errOut = "select an object with a skeleton"; return false; }
+	if (!SelectedSceneObject) { errOut = "nothing selected"; return false; }
+
+	const std::vector<Bone> bones = inst->GetSkeletonBones();
+	const std::string objName = ((GameObject*)SelectedSceneObject->GetPTR())->GetName();
+	bool any = false;
+	for (size_t i = 0; i < bones.size(); i++)
+	{
+		if (!onlyBone.empty() && bones[i].name != onlyBone) continue;
+		// Read the pose back out as degrees and re-key through the same path
+		// the agent command uses, so there is one implementation of what a
+		// key is rather than two that can drift.
+		Matrix local = inst->GetBoneLocalTransform(bones[i].self);
+		const f32 deg = RADTODEG(local.GetEulerFromRotationMatrix().z);
+		std::string e;
+		if (AgentKeyBone2D(objName, clipName, bones[i].name, time, deg, e)) any = true;
+		else errOut = e;
+	}
+	if (!any && errOut.empty()) errOut = "nothing keyed";
+	return any;
+}
+
+bool SceneEditor::OpDeleteKey2D(const std::string& clipName, const std::string& boneName,
+	const f32 time, std::string& errOut)
+{
+	RenderingComponent* rc = NULL; SkeletonAnimationInstance* inst = NULL;
+	if (!GetSelectedRig(rc, inst)) { errOut = "select an object with a skeleton"; return false; }
+
+	std::vector<Animation> clips = inst->GetOwner()->GetAnimations();
+	for (size_t i = 0; i < clips.size(); i++)
+	{
+		if (clips[i].AnimationName != clipName) continue;
+		for (size_t c = 0; c < clips[i].Channels.size(); c++)
+		{
+			if (clips[i].Channels[c].NodeName != boneName) continue;
+			std::vector<RotationData> &rots = clips[i].Channels[c].rotations;
+			std::vector<PositionData> &poss = clips[i].Channels[c].positions;
+			for (size_t k = 0; k < rots.size(); k++)
+				if (fabsf(rots[k].Time - time) < 1e-3f) { rots.erase(rots.begin() + k); break; }
+			// The position key written alongside it goes too, or the bone
+			// keeps a translation key with no rotation and the clip samples a
+			// pose nobody authored.
+			for (size_t k = 0; k < poss.size(); k++)
+				if (fabsf(poss[k].Time - time) < 1e-3f) { poss.erase(poss.begin() + k); break; }
+			inst->GetOwner()->SetAnimations(clips);
+			MarkSceneDirty();
+			return true;
+		}
+	}
+	errOut = "no key at that time";
+	return false;
+}
+
 bool SceneEditor::OpRemoveBone2D(uint32 goId, const std::string& boneName, std::string& errOut)
 {
 	SceneObject* obj = sceneObjects->GetSceneObject(goId);
