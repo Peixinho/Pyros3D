@@ -22,6 +22,7 @@ using json = nlohmann::json;
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>   // LoadedSceneAssets
+#include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
@@ -253,6 +254,14 @@ public:
 	bool AgentMakeSprite2DLit(const std::string& name, std::string& errOut);
 	// Attaches an Occluder2D by object name.
 	bool AgentAddOccluder2D(const std::string& name, std::string& errOut);
+	bool AgentAddBone2D(const std::string& objName, const std::string& boneName,
+		const std::string& parentBone, const Vec2 &localPos, std::string& errOut);
+	json AgentSkeletonState(const std::string& objName, std::string& errOut);
+	// Rotation is DEGREES about Z here and converted on the way in - the
+	// engine's Euler angles are radians, and a degrees-in API is what an
+	// authoring tool wants. Z is the only rotation a 2D rig uses.
+	bool AgentPoseBone2D(const std::string& objName, const std::string& boneName,
+		const f32 degreesZ, std::string& errOut);
 	bool AgentSetSpritePivot(const std::string& name, const Vec2 &norm, std::string& errOut);
 	bool AgentSliceSpritesheet(const std::string& name, const std::string& sheetPath,
 		int cols, int rows, f32 fps, bool loop, std::string& errOut);
@@ -700,6 +709,20 @@ private:
 	// world * Pivot - so a pivot is just the geometry shifted the other way,
 	// putting the object's origin on the chosen point. That is what makes a
 	// cutout limb rotate about its joint instead of its middle.
+	// --- 2D skeleton authoring -------------------------------------------
+	// A bone is appended to the object's RenderingComponent skeleton, which
+	// until now could only come from an imported rigged model. Positions are
+	// local to the parent bone and live in the XY plane; rotation about Z is
+	// the only one a 2D rig uses, and the existing pose/clip/IK machinery
+	// handles it unchanged.
+	bool OpAddBone2D(uint32 goId, const std::string& boneName,
+		const std::string& parentBone, const Vec2 &localPos, std::string& errOut);
+	// (Re)builds the SkeletonAnimation instance so it picks up the current
+	// skeleton. Kept in sceneAssets, which owns it - RenderingComponent holds
+	// only a raw back-pointer.
+	SkeletonAnimationInstance* RebuildSkeletonInstance(RenderingComponent* rc);
+	static RenderingComponent* FindRenderingComponent(GameObject* go);
+
 	static bool GetSpritePivot(RenderingComponent* rc, Vec2 &outNorm);
 	bool OpSetSpritePivot(uint32 goId, const Vec2 &norm, std::string& errOut);
 	bool OpAddUIComponent(uint32 goId, const std::string& kind, const std::string& fontPath, std::string& errOut);

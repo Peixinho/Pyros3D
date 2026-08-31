@@ -400,6 +400,14 @@ namespace p3d {
 
 namespace p3d {
 
+	void RenderingComponent::SetSkeleton(const std::vector<Bone> &bones)
+	{
+		skeleton.clear();
+		for (size_t i = 0; i < bones.size(); i++)
+			skeleton[MakeStringID(bones[i].name)] = bones[i];
+		hasBones = !skeleton.empty();
+	}
+
 	void RenderingComponent::Update(const f64 time)
 	{
 		if (activeTextureAnimation == NULL) return;

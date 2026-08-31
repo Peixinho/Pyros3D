@@ -1045,6 +1045,86 @@ bool SceneEditor::OpAddSprite(uint32 goId, const std::string& texturePath, std::
 	return true;
 }
 
+RenderingComponent* SceneEditor::FindRenderingComponent(GameObject* go)
+{
+	if (!go) return NULL;
+	RenderingComponent* rc = NULL;
+	const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+	for (size_t i = 0; i < comps.size(); i++)
+		if (comps[i] && comps[i]->GetComponentType() == ComponentType::RenderingComponent)
+			rc = static_cast<RenderingComponent*>(comps[i].get());
+	return rc;
+}
+
+SkeletonAnimationInstance* SceneEditor::RebuildSkeletonInstance(RenderingComponent* rc)
+{
+	if (!rc || rc->GetSkeleton().empty()) return NULL;
+	// A fresh SkeletonAnimation each time: an instance snapshots the skeleton
+	// in its constructor (sizes every pose array from it), so adding a bone
+	// means building a new one rather than mutating the old.
+	std::shared_ptr<SkeletonAnimation> anim = std::make_shared<SkeletonAnimation>();
+	sceneAssets.skeletonAnimations.push_back(anim);
+	SkeletonAnimationInstance* inst = anim->CreateInstance(rc);
+	if (inst) inst->ResetToBindPose();
+	return inst;
+}
+
+bool SceneEditor::OpAddBone2D(uint32 goId, const std::string& boneName,
+	const std::string& parentBone, const Vec2 &localPos, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "not a game object"; return false; }
+	if (boneName.empty()) { errOut = "bone needs a name"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+	RenderingComponent* rc = FindRenderingComponent(go);
+	if (!rc) { errOut = "object has no RenderingComponent to carry a skeleton"; return false; }
+
+	// Current bones in id order - Bone::self is the index every downstream
+	// array is keyed by, so the order has to be preserved exactly.
+	const std::map<StringID, Bone> &cur = rc->GetSkeleton();
+	std::vector<Bone> bones(cur.size());
+	for (std::map<StringID, Bone>::const_iterator i = cur.begin(); i != cur.end(); ++i)
+	{
+		if ((*i).second.self < 0 || (size_t)(*i).second.self >= bones.size())
+		{ errOut = "existing skeleton has out-of-range bone ids"; return false; }
+		bones[(*i).second.self] = (*i).second;
+	}
+
+	for (size_t i = 0; i < bones.size(); i++)
+		if (bones[i].name == boneName) { errOut = "a bone named '" + boneName + "' already exists"; return false; }
+
+	int32 parentId = -1;
+	if (!parentBone.empty())
+	{
+		for (size_t i = 0; i < bones.size(); i++)
+			if (bones[i].name == parentBone) { parentId = bones[i].self; break; }
+		if (parentId < 0) { errOut = "parent bone '" + parentBone + "' not found"; return false; }
+	}
+
+	Bone b;
+	b.name = boneName;
+	b.self = (int32)bones.size();
+	b.parent = parentId;
+	b.pos = Vec3(localPos.x, localPos.y, 0.f);
+	b.rot = Quaternion();
+	b.scale = Vec3(1.f, 1.f, 1.f);
+	// Local to the parent. The instance seeds its pose array from bindPoseMat
+	// and composes each bone through the parent chain, so this is the bone's
+	// rest transform, not a global one.
+	b.bindPoseMat = Matrix();
+	b.bindPoseMat.Translate(b.pos);
+	b.skinned = false;
+
+	const std::string before = SnapshotSubtree(goId);
+	bones.push_back(b);
+	rc->SetSkeleton(bones);
+	RebuildSkeletonInstance(rc);
+
+	MarkSceneDirty();
+	PushReplaceCommand(goId, before, "Add Bone");
+	return true;
+}
+
 // Reads the normalized pivot back out of the Pivot matrix. The matrix holds
 // the negated local offset, so this is the inverse of OpSetSpritePivot's map.
 bool SceneEditor::GetSpritePivot(RenderingComponent* rc, Vec2 &outNorm)

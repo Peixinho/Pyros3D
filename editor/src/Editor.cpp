@@ -2513,6 +2513,46 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	//    "sheet":"assets/textures/hero_run.png","cols":8,"rows":1,"fps":12}}
 	// {"cmd":"set_pivot","args":{"object":"Hero","pivot":[0.5,0.0]}}
 	// Normalized over the geometry's bounds: (0.5,0.5) middle, (0.5,0) bottom.
+	// Appends a bone to an object's skeleton, authored rather than imported.
+	//   {"cmd":"add_bone2d","args":{"object":"Rig","bone":"Upper","parent":"Root","pos":[0,1]}}
+	if (name == "add_bone2d")
+	{
+		const std::string objName = A("object");
+		const std::string boneName = A("bone");
+		if (objName.empty() || boneName.empty())
+			throw std::runtime_error("add_bone2d: 'object' and 'bone' are required");
+		std::vector<f32> p = AV("pos");
+		const Vec2 lp(p.size() > 0 ? p[0] : 0.f, p.size() > 1 ? p[1] : 0.f);
+		if (!sceneView->AgentAddBone2D(objName, boneName, A("parent"), lp, err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["bone"] = boneName;
+		return r;
+	}
+
+	// {"cmd":"pose_bone2d","args":{"object":"Rig","bone":"Root","rotation":90}}
+	if (name == "pose_bone2d")
+	{
+		const std::string objName = A("object");
+		const std::string boneName = A("bone");
+		if (objName.empty() || boneName.empty())
+			throw std::runtime_error("pose_bone2d: 'object' and 'bone' are required");
+		const float deg = a.is_object() ? a.value("rotation", 0.0f) : 0.0f;
+		if (!sceneView->AgentPoseBone2D(objName, boneName, deg, err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["bone"] = boneName; r["rotation"] = deg;
+		return r;
+	}
+
+	// {"cmd":"skeleton_state","args":{"object":"Rig"}}
+	if (name == "skeleton_state")
+	{
+		const std::string objName = A("object");
+		if (objName.empty()) throw std::runtime_error("skeleton_state: 'object' is required");
+		nlohmann::json r = sceneView->AgentSkeletonState(objName, err);
+		if (r.is_null() || r.empty()) throw std::runtime_error(err);
+		return r;
+	}
+
 	if (name == "set_pivot")
 	{
 		const std::string objName = A("object");

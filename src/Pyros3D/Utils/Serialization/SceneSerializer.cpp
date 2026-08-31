@@ -1039,6 +1039,45 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["material"] = GetOrAddMaterial(mat, materialsArray, materialIdMap);
 			j["renderable"] = renderableJson;
 
+			// An authored skeleton (see RenderingComponent::SetSkeleton). A
+			// skeleton that came from an imported model is rebuilt from the
+			// model on load and does not need storing; one built in the editor
+			// exists nowhere else, so without this it vanishes on save and the
+			// whole feature is unusable. Only written when no bone is skinned,
+			// which is exactly the authored/cutout case - a skinned rig
+			// belongs to its model file.
+			{
+				const std::map<StringID, Bone> &sk = rc->GetSkeleton();
+				bool anySkinned = false;
+				for (std::map<StringID, Bone>::const_iterator b = sk.begin(); b != sk.end(); ++b)
+					if ((*b).second.skinned) { anySkinned = true; break; }
+				if (!sk.empty() && !anySkinned)
+				{
+					std::vector<const Bone*> ordered(sk.size(), (const Bone*)NULL);
+					bool ok = true;
+					for (std::map<StringID, Bone>::const_iterator b = sk.begin(); b != sk.end(); ++b)
+					{
+						const int32 id = (*b).second.self;
+						if (id < 0 || (size_t)id >= ordered.size()) { ok = false; break; }
+						ordered[id] = &(*b).second;
+					}
+					if (ok)
+					{
+						json bonesArr = json::array();
+						for (size_t bi = 0; bi < ordered.size() && ok; bi++)
+						{
+							if (!ordered[bi]) { ok = false; break; }
+							json bj;
+							bj["name"] = ordered[bi]->name;
+							bj["parent"] = ordered[bi]->parent;
+							bj["pos"] = { (double)ordered[bi]->pos.x, (double)ordered[bi]->pos.y, (double)ordered[bi]->pos.z };
+							bonesArr.push_back(bj);
+						}
+						if (ok) j["bones2D"] = bonesArr;
+					}
+				}
+			}
+
 			// Pivot, normalized over the geometry's bounds. Stored normalized
 			// rather than as the matrix so it survives the geometry changing
 			// size - a sprite re-pointed at a taller texture keeps its
@@ -2277,6 +2316,32 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					if (ta.value("paused", false)) tinst->Pause();
 					rc->SetActiveTextureAnimation(tinst);
 				}
+			}
+
+			// Authored skeleton, in id order (index == Bone::self, which is
+			// what every pose array downstream is keyed by).
+			if (j.find("bones2D") != j.end() && j["bones2D"].is_array() && !j["bones2D"].empty())
+			{
+				std::vector<Bone> bones;
+				bones.reserve(j["bones2D"].size());
+				for (size_t bi = 0; bi < j["bones2D"].size(); bi++)
+				{
+					const json &bj = j["bones2D"][bi];
+					Bone b;
+					b.name = bj.value("name", std::string());
+					b.self = (int32)bi;
+					b.parent = bj.value("parent", -1);
+					if (bj.find("pos") != bj.end() && bj["pos"].is_array() && bj["pos"].size() == 3)
+						b.pos = Vec3((f32)bj["pos"][0].get<double>(), (f32)bj["pos"][1].get<double>(),
+						             (f32)bj["pos"][2].get<double>());
+					b.rot = Quaternion();
+					b.scale = Vec3(1.f, 1.f, 1.f);
+					b.bindPoseMat = Matrix();
+					b.bindPoseMat.Translate(b.pos);
+					b.skinned = false;
+					bones.push_back(b);
+				}
+				if (!bones.empty()) rc->SetSkeleton(bones);
 			}
 
 			// Pivot, rebuilt from the normalized value against this

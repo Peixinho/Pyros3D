@@ -293,6 +293,20 @@ namespace p3d {
 
 		// Get Model Skeleton
 		const std::map<StringID, Bone> &GetSkeleton() const { return skeleton; }
+
+		// Builds a skeleton on this component directly, instead of inheriting
+		// one from the Renderable at construction. That was the only way a rig
+		// could exist, so a skeleton required an imported rigged model - which
+		// makes authoring a 2D rig in the editor impossible, since there is no
+		// model to import. Everything downstream reads
+		// SkeletonAnimationInstance's copy of this map, so poses, clips,
+		// layers, blending and the IK solver all work from an authored
+		// skeleton exactly as from a loaded one. Bones with no vertex weights
+		// simply skin nothing, which is what a cutout 2D rig wants.
+		//
+		// `bones` must be in id order (bones[i].self == i), matching what the
+		// instance assumes when it indexes by Bone::self.
+		void SetSkeleton(const std::vector<Bone> &bones);
 		bool HasBones() { return hasBones; }
 
 		// Get Model's Meshes

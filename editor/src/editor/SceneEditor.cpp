@@ -9700,6 +9700,86 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 	}
 
+	bool SceneEditor::AgentAddBone2D(const std::string& objName, const std::string& boneName,
+		const std::string& parentBone, const Vec2 &localPos, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
+		if (!obj) { errOut = "object '" + objName + "' not found"; return false; }
+		return OpAddBone2D(obj->GetID(), boneName, parentBone, localPos, errOut);
+	}
+
+	// Bone list with both the local rest transform and the composed global
+	// one, so a caller can tell whether posing a parent actually moved its
+	// children - which is the whole point of a hierarchy.
+	json SceneEditor::AgentSkeletonState(const std::string& objName, std::string& errOut)
+	{
+		json out;
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
+		if (!obj) { errOut = "object '" + objName + "' not found"; return out; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		RenderingComponent* rc = FindRenderingComponent(go);
+		if (!rc) { errOut = "object has no RenderingComponent"; return out; }
+
+		SkeletonAnimationInstance* inst =
+			static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
+		if (!inst) inst = RebuildSkeletonInstance(rc);
+
+		out["object"] = objName;
+		out["bones"] = json::array();
+		if (!inst) { out["boneCount"] = 0; return out; }
+
+		const std::vector<Bone> &bones = inst->GetSkeletonBones();
+		out["boneCount"] = (int)bones.size();
+		for (size_t i = 0; i < bones.size(); i++)
+		{
+			const int32 id = bones[i].self;
+			if (id < 0 || (size_t)id >= bones.size()) continue;
+			const Vec3 lp = inst->GetBoneLocalTransform(id).GetTranslation();
+			const Vec3 gp = inst->GetBoneGlobalTransform(id).GetTranslation();
+			json bj;
+			bj["name"] = bones[i].name;
+			bj["id"] = id;
+			bj["parent"] = bones[i].parent;
+			bj["local"] = { (double)lp.x, (double)lp.y };
+			bj["global"] = { (double)gp.x, (double)gp.y };
+			out["bones"].push_back(bj);
+		}
+		return out;
+	}
+
+	bool SceneEditor::AgentPoseBone2D(const std::string& objName, const std::string& boneName,
+		const f32 degreesZ, std::string& errOut)
+	{
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
+		if (!obj) { errOut = "object '" + objName + "' not found"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		RenderingComponent* rc = FindRenderingComponent(go);
+		if (!rc) { errOut = "object has no RenderingComponent"; return false; }
+
+		SkeletonAnimationInstance* inst =
+			static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
+		if (!inst) inst = RebuildSkeletonInstance(rc);
+		if (!inst) { errOut = "object has no skeleton"; return false; }
+
+		const std::vector<Bone> &bones = inst->GetSkeletonBones();
+		int32 id = -1;
+		for (size_t i = 0; i < bones.size(); i++)
+			if (bones[i].name == boneName) { id = bones[i].self; break; }
+		if (id < 0) { errOut = "bone '" + boneName + "' not found"; return false; }
+
+		// Rebuilt from the bind local so a pose is absolute rather than
+		// accumulating on every call: keep the rest translation, replace the
+		// rotation.
+		Matrix local;
+		local.RotationZ(DEGTORAD(degreesZ));
+		local.Translate(inst->GetBindPoseLocal(id).GetTranslation());
+		inst->SetBoneLocalTransform(id, local);
+		inst->RefreshSkinning();
+		MarkSceneDirty();
+		return true;
+	}
+
 	bool SceneEditor::AgentSetSpritePivot(const std::string& name, const Vec2 &norm, std::string& errOut)
 	{
 		if (playMode) { errOut = "editor is in play mode"; return false; }
