@@ -1075,6 +1075,62 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 							bonesArr.push_back(bj);
 						}
 						if (ok) j["bones2D"] = bonesArr;
+
+					// Clips authored against that skeleton. An imported rig's
+					// clips live in its animation file and are reloaded from
+					// there; these exist nowhere else, so without this they
+					// vanish on save exactly as the bones would have.
+					if (ok)
+					{
+						SkeletonAnimationInstance* sinst =
+							static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
+						if (sinst && sinst->GetOwner())
+						{
+							const std::vector<Animation> clips = sinst->GetOwner()->GetAnimations();
+							json clipsArr = json::array();
+							for (size_t ci = 0; ci < clips.size(); ci++)
+							{
+								json cj;
+								cj["name"] = clips[ci].AnimationName;
+								cj["duration"] = (double)clips[ci].Duration;
+								cj["ticksPerSecond"] = (double)clips[ci].TicksPerSecond;
+								json chans = json::array();
+								for (size_t chi = 0; chi < clips[ci].Channels.size(); chi++)
+								{
+									const Channel &ch = clips[ci].Channels[chi];
+									json chj;
+									chj["bone"] = ch.NodeName;
+									json rots = json::array();
+									for (size_t ri = 0; ri < ch.rotations.size(); ri++)
+									{
+										// The full quaternion, not a Z angle:
+										// lossless, and it does not assume the
+										// clip will only ever be planar.
+										json rj;
+										rj["t"] = (double)ch.rotations[ri].Time;
+										rj["q"] = { (double)ch.rotations[ri].Rot.x, (double)ch.rotations[ri].Rot.y,
+										            (double)ch.rotations[ri].Rot.z, (double)ch.rotations[ri].Rot.w };
+										rots.push_back(rj);
+									}
+									json poss = json::array();
+									for (size_t pi = 0; pi < ch.positions.size(); pi++)
+									{
+										json pj2;
+										pj2["t"] = (double)ch.positions[pi].Time;
+										pj2["p"] = { (double)ch.positions[pi].Pos.x, (double)ch.positions[pi].Pos.y,
+										             (double)ch.positions[pi].Pos.z };
+										poss.push_back(pj2);
+									}
+									if (!rots.empty()) chj["rotations"] = rots;
+									if (!poss.empty()) chj["positions"] = poss;
+									chans.push_back(chj);
+								}
+								cj["channels"] = chans;
+								clipsArr.push_back(cj);
+							}
+							if (!clipsArr.empty()) j["clips2D"] = clipsArr;
+						}
+					}
 					}
 				}
 			}
@@ -2351,6 +2407,59 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					bones.push_back(b);
 				}
 				if (!bones.empty()) rc->SetSkeleton(bones);
+
+				// A live instance is created here rather than left to the
+				// editor to make lazily, because the clips have to be
+				// attached to something and the SkeletonAnimation is what
+				// owns them.
+				if (!bones.empty())
+				{
+					std::shared_ptr<SkeletonAnimation> sanim = std::make_shared<SkeletonAnimation>();
+					if (outAssets) outAssets->skeletonAnimations.push_back(sanim);
+
+					if (j.find("clips2D") != j.end() && j["clips2D"].is_array())
+					{
+						std::vector<Animation> clips;
+						for (size_t ci = 0; ci < j["clips2D"].size(); ci++)
+						{
+							const json &cj = j["clips2D"][ci];
+							Animation a;
+							a.AnimationName = cj.value("name", std::string());
+							a.Duration = (f32)cj.value("duration", 0.0);
+							a.TicksPerSecond = (f32)cj.value("ticksPerSecond", 1.0);
+							a.Flags = 0;
+							if (cj.find("channels") != cj.end())
+								for (size_t chi = 0; chi < cj["channels"].size(); chi++)
+								{
+									const json &chj = cj["channels"][chi];
+									Channel ch;
+									ch.NodeName = chj.value("bone", std::string());
+									if (chj.find("rotations") != chj.end())
+										for (auto &rj : chj["rotations"])
+										{
+											if (!rj.contains("q") || rj["q"].size() != 4) continue;
+											Quaternion q((f32)rj["q"][3].get<double>(), (f32)rj["q"][0].get<double>(),
+											             (f32)rj["q"][1].get<double>(), (f32)rj["q"][2].get<double>());
+											ch.rotations.push_back(RotationData((f32)rj.value("t", 0.0), q));
+										}
+									if (chj.find("positions") != chj.end())
+										for (auto &pj2 : chj["positions"])
+										{
+											if (!pj2.contains("p") || pj2["p"].size() != 3) continue;
+											ch.positions.push_back(PositionData((f32)pj2.value("t", 0.0),
+												Vec3((f32)pj2["p"][0].get<double>(), (f32)pj2["p"][1].get<double>(),
+												     (f32)pj2["p"][2].get<double>())));
+										}
+									a.Channels.push_back(ch);
+								}
+							clips.push_back(a);
+						}
+						if (!clips.empty()) sanim->SetAnimations(clips);
+					}
+
+					SkeletonAnimationInstance* si = sanim->CreateInstance(rc.get());
+					if (si) si->ResetToBindPose();
+				}
 			}
 
 			// Pivot, rebuilt from the normalized value against this

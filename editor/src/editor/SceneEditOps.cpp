@@ -1063,8 +1063,19 @@ SkeletonAnimationInstance* SceneEditor::RebuildSkeletonInstance(RenderingCompone
 	// A fresh SkeletonAnimation each time: an instance snapshots the skeleton
 	// in its constructor (sizes every pose array from it), so adding a bone
 	// means building a new one rather than mutating the old.
+	//
+	// Any clips already authored are carried across first. They live on the
+	// SkeletonAnimation, so replacing it would quietly throw away every key
+	// the moment another bone was added - the kind of loss that only shows up
+	// after the work is gone.
+	std::vector<Animation> existingClips;
+	if (SkeletonAnimationInstance* old =
+		static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation()))
+		if (old->GetOwner()) existingClips = old->GetOwner()->GetAnimations();
+
 	std::shared_ptr<SkeletonAnimation> anim = std::make_shared<SkeletonAnimation>();
 	sceneAssets.skeletonAnimations.push_back(anim);
+	if (!existingClips.empty()) anim->SetAnimations(existingClips);
 	SkeletonAnimationInstance* inst = anim->CreateInstance(rc);
 	if (inst) inst->ResetToBindPose();
 	return inst;
