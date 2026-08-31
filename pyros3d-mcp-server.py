@@ -1606,6 +1606,158 @@ def sprite_2d_lit(project_path: str, scene_name: str, name: str) -> str:
     return _fail("sprite_2d_lit needs the editor open on this scene - it rebuilds a material.")
 
 
+def _live_2d_anim(project_path: str, scene_name: str, cmd: str, args: dict, ok_msg: str) -> str:
+    """Shared body for the 2D animation tools.
+
+    All of these touch live runtime state - a skeleton instance, a pose, a clip
+    being played - which only exists inside a running editor. There is no
+    offline file path for them the way there is for adding a component, so they
+    say so plainly instead of silently doing nothing.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    live = _live_or_none(cmd, args, scene_file)
+    if live is None:
+        return _fail(f"{cmd} needs the editor open on this scene - it works on the live rig.")
+    if isinstance(live, str):
+        return _fail(live)
+    return ok_msg
+
+
+@mcp.tool()
+def slice_spritesheet(project_path: str, scene_name: str, name: str, sheet: str,
+                      cols: int = 1, rows: int = 1, fps: float = 12.0, loop: bool = True) -> str:
+    """Cut a spritesheet into frames and play them on an object's sprite.
+
+    Cells are taken row-major and written as real PNGs beside the sheet, so the
+    scene stores frame paths rather than embedding every frame.
+    """
+    return _live_2d_anim(project_path, scene_name, "slice_spritesheet",
+                         {"object": name, "sheet": sheet, "cols": cols, "rows": rows,
+                          "fps": fps, "loop": loop},
+                         f"sliced {sheet} into {cols * rows} frames on '{name}' at {fps} fps")
+
+
+@mcp.tool()
+def set_sprite_pivot(project_path: str, scene_name: str, name: str, x: float, y: float) -> str:
+    """Set a sprite's pivot, normalized over its own bounds.
+
+    (0.5, 0.5) is the middle, (0.5, 0) the bottom edge. The pivot is what a
+    cutout limb rotates about, so it matters before binding sprites to bones.
+    """
+    return _live_2d_anim(project_path, scene_name, "set_pivot",
+                         {"object": name, "pivot": [x, y]},
+                         f"'{name}' pivot set to ({x}, {y})")
+
+
+@mcp.tool()
+def add_bone2d(project_path: str, scene_name: str, name: str, bone: str,
+               parent: str = "", x: float = 0.0, y: float = 0.0) -> str:
+    """Append a bone to an object's 2D skeleton.
+
+    Position is local to the parent bone, in the XY plane. Leave `parent` empty
+    for a root bone. No imported model is needed - the skeleton is authored.
+    """
+    return _live_2d_anim(project_path, scene_name, "add_bone2d",
+                         {"object": name, "bone": bone, "parent": parent, "pos": [x, y]},
+                         f"added bone '{bone}' to '{name}'")
+
+
+@mcp.tool()
+def remove_bone2d(project_path: str, scene_name: str, name: str, bone: str) -> str:
+    """Remove a bone and everything below it from an object's 2D skeleton."""
+    return _live_2d_anim(project_path, scene_name, "remove_bone2d",
+                         {"object": name, "bone": bone},
+                         f"removed bone '{bone}' (and its descendants) from '{name}'")
+
+
+@mcp.tool()
+def skeleton_state(project_path: str, scene_name: str, name: str) -> str:
+    """List an object's 2D bones with their local and composed global positions."""
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    live = _live_or_none("skeleton_state", {"object": name}, scene_file)
+    if live is None:
+        return _fail("skeleton_state needs the editor open on this scene.")
+    if isinstance(live, str):
+        return _fail(live)
+    return json.dumps(live, indent=2)
+
+
+@mcp.tool()
+def pose_bone2d(project_path: str, scene_name: str, name: str, bone: str, rotation: float) -> str:
+    """Rotate a bone about Z, in DEGREES. Absolute, not relative."""
+    return _live_2d_anim(project_path, scene_name, "pose_bone2d",
+                         {"object": name, "bone": bone, "rotation": rotation},
+                         f"posed '{bone}' to {rotation} degrees")
+
+
+@mcp.tool()
+def ik_solve2d(project_path: str, scene_name: str, name: str, root: str, effector: str,
+               x: float, y: float) -> str:
+    """Pose a bone chain so `effector` reaches (x, y) in the rig's model space."""
+    return _live_2d_anim(project_path, scene_name, "ik_solve2d",
+                         {"object": name, "root": root, "effector": effector, "target": [x, y]},
+                         f"solved {root} -> {effector} to ({x}, {y})")
+
+
+@mcp.tool()
+def bind_sprite_to_bone(project_path: str, scene_name: str, name: str, bone: str,
+                        offset_x: float = 0.0, offset_y: float = 0.0) -> str:
+    """Make a sprite follow a bone on an ancestor's skeleton (cutout).
+
+    The offset is applied in bone space, so artwork that sits off its joint
+    rotates with the bone instead of sliding relative to it.
+    """
+    return _live_2d_anim(project_path, scene_name, "bind_bone2d",
+                         {"object": name, "bone": bone, "offset": [offset_x, offset_y]},
+                         f"bound '{name}' to bone '{bone}'")
+
+
+@mcp.tool()
+def key_bone2d(project_path: str, scene_name: str, name: str, clip: str, bone: str,
+               time: float, rotation: float) -> str:
+    """Record a bone's Z rotation (degrees) into a clip at `time` seconds.
+
+    Creates the clip and the bone's channel on demand, and replaces any key
+    already at that time rather than stacking a second one.
+    """
+    return _live_2d_anim(project_path, scene_name, "key_bone2d",
+                         {"object": name, "clip": clip, "bone": bone,
+                          "time": time, "rotation": rotation},
+                         f"keyed '{bone}' at t={time} to {rotation} degrees in '{clip}'")
+
+
+@mcp.tool()
+def delete_key2d(project_path: str, scene_name: str, name: str, clip: str,
+                 bone: str, time: float) -> str:
+    """Delete a bone's key at `time` from a clip."""
+    return _live_2d_anim(project_path, scene_name, "delete_key2d",
+                         {"object": name, "clip": clip, "bone": bone, "time": time},
+                         f"deleted '{bone}' key at t={time} from '{clip}'")
+
+
+@mcp.tool()
+def scrub_clip2d(project_path: str, scene_name: str, name: str, clip: str, time: float) -> str:
+    """Sample a clip onto the rig at `time` seconds, i.e. scrub to that frame."""
+    return _live_2d_anim(project_path, scene_name, "scrub_clip2d",
+                         {"object": name, "clip": clip, "time": time},
+                         f"scrubbed '{clip}' to t={time}")
+
+
+@mcp.tool()
+def play_clip2d(project_path: str, scene_name: str, name: str, clip: str,
+                loop: bool = True, speed: float = 1.0) -> str:
+    """Start a clip playing on the rig."""
+    return _live_2d_anim(project_path, scene_name, "play_clip2d",
+                         {"object": name, "clip": clip, "loop": loop, "speed": speed},
+                         f"playing '{clip}' on '{name}'")
+
+
 def _add_simple_component(project_path: str, scene_name: str, name: str,
                           cmd: str, component: dict, what: str) -> str:
     """Shared body for the 2D components that are pure data: live if the editor

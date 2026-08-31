@@ -1128,6 +1128,115 @@ bool SceneEditor::OpBindToBone2D(uint32 goId, const std::string& boneName, const
 	return true;
 }
 
+std::vector<Bone> SceneEditor::BonesOf(RenderingComponent* rc)
+{
+	std::vector<Bone> out;
+	if (!rc) return out;
+	const std::map<StringID, Bone> &sk = rc->GetSkeleton();
+	out.resize(sk.size());
+	for (std::map<StringID, Bone>::const_iterator i = sk.begin(); i != sk.end(); ++i)
+	{
+		const int32 id = (*i).second.self;
+		if (id < 0 || (size_t)id >= out.size()) return std::vector<Bone>();
+		out[id] = (*i).second;
+	}
+	return out;
+}
+
+void SceneEditor::PushSkeletonUndo(uint32 goId, const std::vector<Bone>& before, const std::string& description)
+{
+	SceneEditor* self = this;
+	auto apply = [self, goId](std::vector<Bone> bones) {
+		SceneObject* obj = self->sceneObjects->GetSceneObject(goId);
+		if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) return;
+		RenderingComponent* rc = FindRenderingComponent((GameObject*)obj->GetPTR());
+		if (!rc) return;
+		// Clips are carried across by RebuildSkeletonInstance, so undoing a
+		// bone edit does not take the animation with it.
+		rc->SetSkeleton(bones);
+		self->RebuildSkeletonInstance(rc);
+		self->MarkSceneDirty();
+	};
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	RenderingComponent* rc = (obj && obj->GetType() == SceneObjectTypes::GAMEOBJECT)
+		? FindRenderingComponent((GameObject*)obj->GetPTR()) : NULL;
+	const std::vector<Bone> after = BonesOf(rc);
+	sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+		[apply, before]() { apply(before); },
+		[apply, after]() { apply(after); },
+		description));
+}
+
+void SceneEditor::PushClipsUndo(uint32 goId, const std::vector<Animation>& before, const std::string& description)
+{
+	SceneEditor* self = this;
+	auto apply = [self, goId](std::vector<Animation> clips) {
+		SceneObject* obj = self->sceneObjects->GetSceneObject(goId);
+		if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) return;
+		RenderingComponent* rc = FindRenderingComponent((GameObject*)obj->GetPTR());
+		if (!rc) return;
+		SkeletonAnimationInstance* inst =
+			static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
+		if (!inst || !inst->GetOwner()) return;
+		inst->GetOwner()->SetAnimations(clips);
+		self->MarkSceneDirty();
+	};
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	RenderingComponent* rc = (obj && obj->GetType() == SceneObjectTypes::GAMEOBJECT)
+		? FindRenderingComponent((GameObject*)obj->GetPTR()) : NULL;
+	SkeletonAnimationInstance* inst = rc
+		? static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation()) : NULL;
+	if (!inst || !inst->GetOwner()) return;
+	const std::vector<Animation> after = inst->GetOwner()->GetAnimations();
+	sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+		[apply, before]() { apply(before); },
+		[apply, after]() { apply(after); },
+		description));
+}
+
+bool SceneEditor::CapturePoseFor(uint32 goId, std::vector<Matrix>& out) const
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) return false;
+	RenderingComponent* rc = FindRenderingComponent((GameObject*)obj->GetPTR());
+	if (!rc) return false;
+	SkeletonAnimationInstance* inst =
+		static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
+	if (!inst) return false;
+	inst->CapturePose(out);
+	return true;
+}
+
+void SceneEditor::PushPoseUndo(uint32 goId, const std::vector<Matrix>& before, const std::string& description)
+{
+	std::vector<Matrix> after;
+	if (!CapturePoseFor(goId, after)) return;
+	if (before.size() != after.size()) return;
+
+	bool changed = false;
+	for (size_t i = 0; i < before.size() && !changed; i++)
+		for (int k = 0; k < 16; k++)
+			if (fabsf(before[i].m[k] - after[i].m[k]) > 1e-6f) { changed = true; break; }
+	if (!changed) return;   // a drag that moved nothing is not an undo step
+
+	SceneEditor* self = this;
+	auto apply = [self, goId](std::vector<Matrix> pose) {
+		SceneObject* obj = self->sceneObjects->GetSceneObject(goId);
+		if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) return;
+		RenderingComponent* rc = FindRenderingComponent((GameObject*)obj->GetPTR());
+		if (!rc) return;
+		SkeletonAnimationInstance* inst =
+			static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
+		if (!inst || inst->GetNumberBones() != pose.size()) return;
+		inst->ApplyPose(pose);
+	};
+	sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+		[apply, before]() { apply(before); },
+		[apply, after]() { apply(after); },
+		description));
+	MarkSceneDirty();
+}
+
 bool SceneEditor::GetSelectedRig(RenderingComponent*& outRc, SkeletonAnimationInstance*& outInst) const
 {
 	outRc = NULL; outInst = NULL;
@@ -1156,9 +1265,11 @@ bool SceneEditor::OpNewClip2D(const std::string& clipName, std::string& errOut)
 	a.Duration = 1.f;      // a zero-length clip has nothing to scrub
 	a.TicksPerSecond = 1.f;
 	a.Flags = 0;
+	const std::vector<Animation> beforeClips = inst->GetOwner()->GetAnimations();
 	clips.push_back(a);
 	inst->GetOwner()->SetAnimations(clips);
 	MarkSceneDirty();
+	PushClipsUndo(SelectedSceneObject->GetID(), beforeClips, "New Clip");
 	return true;
 }
 
@@ -1171,6 +1282,7 @@ bool SceneEditor::OpKeyPose2D(const std::string& clipName, const f32 time,
 
 	const std::vector<Bone> bones = inst->GetSkeletonBones();
 	const std::string objName = ((GameObject*)SelectedSceneObject->GetPTR())->GetName();
+	const std::vector<Animation> beforeKey = inst->GetOwner()->GetAnimations();
 	bool any = false;
 	for (size_t i = 0; i < bones.size(); i++)
 	{
@@ -1185,6 +1297,8 @@ bool SceneEditor::OpKeyPose2D(const std::string& clipName, const f32 time,
 		else errOut = e;
 	}
 	if (!any && errOut.empty()) errOut = "nothing keyed";
+	if (any) PushClipsUndo(SelectedSceneObject->GetID(), beforeKey,
+		onlyBone.empty() ? "Key Pose" : "Key Bone");
 	return any;
 }
 
@@ -1194,6 +1308,7 @@ bool SceneEditor::OpDeleteKey2D(const std::string& clipName, const std::string& 
 	RenderingComponent* rc = NULL; SkeletonAnimationInstance* inst = NULL;
 	if (!GetSelectedRig(rc, inst)) { errOut = "select an object with a skeleton"; return false; }
 
+	const std::vector<Animation> beforeDel = inst->GetOwner()->GetAnimations();
 	std::vector<Animation> clips = inst->GetOwner()->GetAnimations();
 	for (size_t i = 0; i < clips.size(); i++)
 	{
@@ -1212,6 +1327,7 @@ bool SceneEditor::OpDeleteKey2D(const std::string& clipName, const std::string& 
 				if (fabsf(poss[k].Time - time) < 1e-3f) { poss.erase(poss.begin() + k); break; }
 			inst->GetOwner()->SetAnimations(clips);
 			MarkSceneDirty();
+			PushClipsUndo(SelectedSceneObject->GetID(), beforeDel, "Delete Key");
 			return true;
 		}
 	}
@@ -1264,11 +1380,11 @@ bool SceneEditor::OpRemoveBone2D(uint32 goId, const std::string& boneName, std::
 		kept[i].parent = (kept[i].parent >= 0) ? remap[kept[i].parent] : -1;
 	}
 
-	const std::string before = SnapshotSubtree(goId);
+	const std::vector<Bone> beforeBones = BonesOf(rc);
 	rc->SetSkeleton(kept);
 	RebuildSkeletonInstance(rc);
 	MarkSceneDirty();
-	PushReplaceCommand(goId, before, "Remove Bone");
+	PushSkeletonUndo(goId, beforeBones, "Remove Bone");
 	return true;
 }
 
@@ -1318,13 +1434,13 @@ bool SceneEditor::OpAddBone2D(uint32 goId, const std::string& boneName,
 	b.bindPoseMat.Translate(b.pos);
 	b.skinned = false;
 
-	const std::string before = SnapshotSubtree(goId);
+	const std::vector<Bone> beforeBones = BonesOf(rc);
 	bones.push_back(b);
 	rc->SetSkeleton(bones);
 	RebuildSkeletonInstance(rc);
 
 	MarkSceneDirty();
-	PushReplaceCommand(goId, before, "Add Bone");
+	PushSkeletonUndo(goId, beforeBones, "Add Bone");
 	return true;
 }
 

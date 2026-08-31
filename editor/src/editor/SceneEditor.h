@@ -280,6 +280,22 @@ public:
 	void ShowAnimation2DPanel();
 	// The selected object's rig, or nulls. Both out-params are set together.
 	bool GetSelectedRig(RenderingComponent*& outRc, SkeletonAnimationInstance*& outInst) const;
+	// Pose undo. A pose lives in the SkeletonAnimationInstance, not in the
+	// serialized subtree, so a snapshot cannot restore it - this captures the
+	// bone transform array either side and swaps it back. Re-resolves the rig
+	// from `goId` when it runs rather than capturing the instance pointer,
+	// which would dangle if the rig were rebuilt (adding a bone does exactly
+	// that).
+	void PushPoseUndo(uint32 goId, const std::vector<Matrix>& before, const std::string& description);
+	// Bones and clips live inside the RenderingComponent, not in the object
+	// tree, so restoring them through a subtree snapshot means rebuilding the
+	// whole object - which did not round-trip (after an undo the object could
+	// no longer be resolved). These restore just the field, which is both
+	// precise and cheap.
+	void PushSkeletonUndo(uint32 goId, const std::vector<Bone>& before, const std::string& description);
+	void PushClipsUndo(uint32 goId, const std::vector<Animation>& before, const std::string& description);
+	static std::vector<Bone> BonesOf(RenderingComponent* rc);
+	bool CapturePoseFor(uint32 goId, std::vector<Matrix>& out) const;
 	bool OpNewClip2D(const std::string& clipName, std::string& errOut);
 	// Records EVERY bone's current rotation at `time` - what "key the pose"
 	// means. Keying one bone at a time is available too, from the row buttons.
@@ -789,6 +805,10 @@ private:
 	// Drag state: which rig and which joint is being pulled.
 	GameObject* draggingBoneOwner = NULL;
 	int32 draggingBoneId = -1;
+	uint32 draggingBoneGoId = 0;
+	// Pose at the start of a drag or a slider edit, so the whole gesture is
+	// one undo step rather than one per frame.
+	std::vector<Matrix> dragPoseBefore;
 	bool showSkeletons2D = true;
 	static RenderingComponent* FindRenderingComponent(GameObject* go);
 

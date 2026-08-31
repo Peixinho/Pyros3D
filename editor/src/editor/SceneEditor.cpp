@@ -2556,6 +2556,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 							// non-const; the accessor hands back a const ref.
 							Matrix localNow = inst->GetBoneLocalTransform(id);
 							f32 deg = RADTODEG(localNow.GetEulerFromRotationMatrix().z);
+							if (ImGui::IsItemActivated()) CapturePoseFor(goId, dragPoseBefore);
 							if (ImGui::DragFloat("Rotation", &deg, 0.5f, -360.f, 360.f))
 							{
 								Matrix local;
@@ -2564,6 +2565,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 								inst->SetBoneLocalTransform(id, local);
 								inst->RefreshSkinning();
 								MarkSceneDirty();
+							}
+							if (ImGui::IsItemDeactivatedAfterEdit() && !dragPoseBefore.empty())
+							{
+								PushPoseUndo(goId, dragPoseBefore, "Pose Bone");
+								dragPoseBefore.clear();
 							}
 							ImGui::SameLine();
 							if (ImGui::SmallButton("Delete"))
@@ -5765,6 +5771,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			{
 				draggingBoneOwner = jointOwner;
 				draggingBoneId = jointId;
+				// Captured once at grab and pushed once at release, so a drag
+				// is a single undo step rather than one per mouse-move frame.
+				draggingBoneGoId = sceneObjects->GetSceneObjectID(jointOwner);
+				dragPoseBefore.clear();
+				CapturePoseFor(draggingBoneGoId, dragPoseBefore);
 			}
 		}
 
@@ -5805,6 +5816,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				}
 				return;   // the drag owns the mouse while it lasts
 			}
+			if (!dragPoseBefore.empty())
+				PushPoseUndo(draggingBoneGoId, dragPoseBefore, "Drag Joint");
+			dragPoseBefore.clear();
 			draggingBoneOwner = NULL;
 			draggingBoneId = -1;
 		}
@@ -10085,12 +10099,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// Rebuilt from the bind local so a pose is absolute rather than
 		// accumulating on every call: keep the rest translation, replace the
 		// rotation.
+		std::vector<Matrix> beforePose;
+		CapturePoseFor(obj->GetID(), beforePose);
+
 		Matrix local;
 		local.RotationZ(DEGTORAD(degreesZ));
 		local.Translate(inst->GetBindPoseLocal(id).GetTranslation());
 		inst->SetBoneLocalTransform(id, local);
 		inst->RefreshSkinning();
-		MarkSceneDirty();
+		PushPoseUndo(obj->GetID(), beforePose, "Pose Bone");
 		return true;
 	}
 
@@ -10391,11 +10408,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (rootId < 0) { errOut = "bone '" + rootBone + "' not found"; return false; }
 		if (effId < 0) { errOut = "bone '" + effectorBone + "' not found"; return false; }
 
+		std::vector<Matrix> beforePose;
+		CapturePoseFor(obj->GetID(), beforePose);
+
 		if (!IKSolver::Solve(inst, rootId, effId, Vec3(target.x, target.y, 0.f),
 			Vec3(0.f, 0.f, 0.f)))
 		{ errOut = "could not build a chain from '" + rootBone + "' to '" + effectorBone + "'"; return false; }
 
-		MarkSceneDirty();
+		PushPoseUndo(obj->GetID(), beforePose, "IK Solve");
 		return true;
 	}
 
