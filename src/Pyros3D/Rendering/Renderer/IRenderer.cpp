@@ -1381,7 +1381,22 @@ void IRenderer::SetOccluders2D(const std::vector<Vec4>& segments)
 {
 	Occluders2D = segments;
 	if (Occluders2D.size() > PYROS_MAX_OCCLUDERS_2D)
+	{
+		// Say so. Truncating silently loses the shadows of whichever
+		// occluders happened to be collected last, which looks like those
+		// particular objects being broken rather than like a budget.
+		// Once per overflowing count, not per frame - this runs every frame
+		// and the message is about the scene, not about this frame.
+		static size_t lastReported = 0;
+		if (segments.size() != lastReported)
+		{
+			lastReported = segments.size();
+			echo("WARNING: " + std::to_string(segments.size()) + " 2D occluder segments, but only "
+				+ std::to_string((int)PYROS_MAX_OCCLUDERS_2D) + " fit - the rest cast no shadow."
+				" Each box is 4 segments and each circle 8.");
+		}
 		Occluders2D.resize(PYROS_MAX_OCCLUDERS_2D);
+	}
 	// Upload happens on the next draw that needs it - see the dirty flag's
 	// use alongside LightsUBOValid.
 	Occluders2DUBOValid = false;

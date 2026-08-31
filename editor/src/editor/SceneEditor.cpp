@@ -854,6 +854,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		Renderer->Resize(viewW, viewH);
 		Renderer->ResetViewPort();
 		Renderer->SetViewPort(0, 0, viewW, viewH);
+		// 2D shadow occluders, before anything is drawn with them. Scene
+		// content, not a debug overlay, so this sits here rather than in the
+		// gizmo/debug block below - that block is skipped entirely in canvas
+		// mode, which would have silently turned shadows off there.
+		Occluder2D::PublishSceneOccluders(scene);
+
 		Renderer->PreRender(viewCam, scene);
 		Renderer->ApplyBackgroundClearColor();
 		// Same reason ApplyBackgroundClearColor() is re-asserted every frame
@@ -946,9 +952,6 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// 2D colliders. Synced and pulled onto the authored transforms
 			// every frame but never stepped - this is a view of what the
 			// shapes are, not a simulation of them.
-			// Scene content, so published every frame regardless of the debug
-			// overlay - and regardless of whether the scene has physics.
-			Occluder2D::PublishSceneOccluders(scene);
 			if (physics2D)
 			{
 				physics2D->Sync(scene);
@@ -2456,7 +2459,32 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::PushID((int)i);
 			ImGui::Separator();
 
-			if (type == ComponentType::Physics2D)
+			if (type == ComponentType::Occluder2D)
+			{
+				Occluder2D* oc = static_cast<Occluder2D*>(comps[i].get());
+				ImGui::Text("Occluder 2D");
+
+				int sh = (int)oc->GetShapeType();
+				const char* shapes[] = { "Box", "Circle" };
+				if (ImGui::Combo("Shape", &sh, shapes, 2)) { oc->SetShapeType((uint32)sh); MarkSceneDirty(); }
+
+				Vec2 sz = oc->GetSize();
+				if (ImGui::DragFloat2("Half Extents", (float*)&sz, 0.01f, 0.001f, 1000.f))
+				{
+					oc->SetSize(sz);
+					MarkSceneDirty();
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Half-extents, matching Physics2D - a 1x1 box is 0.5,\n0.5. For a circle only X is used, as the radius.");
+
+				bool en = oc->IsEnabled();
+				if (ImGui::Checkbox("Enabled", &en)) { oc->SetEnabled(en); MarkSceneDirty(); }
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Turns the shadow off without removing the component.");
+
+				ImGui::TextDisabled("Blocks 2D light. No physics involved.");
+			}
+			else if (type == ComponentType::Physics2D)
 			{
 				Physics2D* ph = static_cast<Physics2D*>(comps[i].get());
 				ImGui::Text("Physics 2D");
