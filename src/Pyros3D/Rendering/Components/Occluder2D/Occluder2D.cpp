@@ -61,7 +61,10 @@ namespace p3d {
 		std::vector<Vec4> segments;
 		if (Scene != NULL)
 		{
-			std::vector<std::shared_ptr<GameObject> > &all = Scene->GetAllGameObjectList();
+			// Recursive for the same reason Physics2DWorld::Sync is: an occluder
+		// inside a layer is a child, and the flat list has no children in it.
+		std::vector<GameObject*> all;
+		Scene->CollectGameObjectsRecursive(all);
 			for (size_t i = 0; i < all.size(); i++)
 			{
 				if (!all[i]) continue;

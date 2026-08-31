@@ -271,4 +271,21 @@ namespace p3d {
 		return _GameObjectListALL;
 	}
 
+	static void CollectSubtree(GameObject* go, std::vector<GameObject*> &out)
+	{
+		if (go == NULL) return;
+		for (size_t i = 0; i < out.size(); i++)
+			if (out[i] == go) return;
+		out.push_back(go);
+		const std::vector<std::shared_ptr<GameObject> > &kids = go->GetChildren();
+		for (size_t i = 0; i < kids.size(); i++)
+			CollectSubtree(kids[i].get(), out);
+	}
+
+	void SceneGraph::CollectGameObjectsRecursive(std::vector<GameObject*> &out)
+	{
+		for (size_t i = 0; i < _GameObjectListALL.size(); i++)
+			CollectSubtree(_GameObjectListALL[i].get(), out);
+	}
+
 };

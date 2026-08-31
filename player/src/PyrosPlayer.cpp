@@ -28,6 +28,7 @@
 #include <fstream>
 #include <set>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
+#include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
@@ -783,12 +784,17 @@ void PyrosPlayer::Update()
 	{
 		physics2D->Sync(scene);
 		physics2D->Step(dt, scene);
+
 	}
-	// Parallax, before the scene solves its transforms: every Layer2D root is
-	// repositioned for where the camera is now. Driven by the camera rather
-	// than a separate scroll value so there is only one thing that says where
-	// the view is - a layer at parallax 1 lands exactly where it was authored.
-	ApplyLayerParallax();
+	// After the step, so a frame's shadows match the positions it draws the
+	// casters at. Outside the physics guard on purpose - a scene with no
+	// physics still has occluders.
+	Occluder2D::PublishSceneOccluders(scene);
+	// Layer parallax is deliberately NOT applied here. It is three lines of
+	// Lua against Layer2D's factor, and doing it in the engine meant it
+	// worked in a built game but not in the editor's play mode, and that a
+	// script moving a layer would be fighting the engine for the same
+	// transform. The engine's job is the layer; what it does is the game's.
 	scene->Update(time);
 	// The overlay is a real SceneGraph and needs solving every frame like any
 	// other - its UI layout, animations and component registration all happen

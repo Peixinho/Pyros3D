@@ -8,6 +8,7 @@
 
 #include <Pyros3D/Utils/Bindings/PyrosBindings.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
+#include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
 
 namespace p3d {
 

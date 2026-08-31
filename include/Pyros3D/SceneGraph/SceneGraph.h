@@ -52,6 +52,15 @@ namespace p3d {
 
 		std::vector<std::shared_ptr<GameObject>> &GetAllGameObjectList();
 
+		// GetAllGameObjectList() is what was *added* to the scene, and a child
+		// attached with GameObject::Add() is not - Add() registers only the
+		// object it is handed. That was harmless while scenes were flat, and
+		// stopped being harmless when layers arrived: a Layer2D root is a
+		// subtree, so every object in a layered scene is a child and any
+		// scene-wide system iterating the flat list silently skips all of
+		// them. Walks roots and their descendants, deduplicated.
+		void CollectGameObjectsRecursive(std::vector<GameObject*> &out);
+
 		// Takes a GameObject out of this scene's ROOT lists without
 		// unregistering anything, because the object is not leaving the
 		// scene - it is becoming somebody's child, and the traversal will

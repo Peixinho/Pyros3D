@@ -9,6 +9,44 @@
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
 
 namespace p3d {
+	// Descending the hierarchy from a script. getParent() has always existed;
+	// its counterpart did not, which meant a script could walk up out of a
+	// subtree and never back down into one. That is fine while every object
+	// is a root, and stops being fine the moment layers exist - a Layer2D
+	// root *is* a subtree, so without this a script can find a layer and
+	// still not reach a single thing inside it.
+	//
+	// Returns a plain 1-based table rather than the vector so it is ipairs-able
+	// on the Lua side like scene:getAllGameObjects() already is.
+	static sol::table GameObject_GetChildren(GameObject* go, sol::this_state ts)
+	{
+		sol::state_view lua(ts);
+		sol::table out = lua.create_table();
+		if (go == NULL) return out;
+		const std::vector<std::shared_ptr<GameObject> > &kids = go->GetChildren();
+		for (uint32 i = 0; i < kids.size(); i++)
+			out[i + 1] = kids[i];
+		return out;
+	}
+
+	// Depth-first by name, this object's subtree, excluding itself. The lookup
+	// a script actually wants: the editor uniquifies names scene-wide, so an
+	// exact match is safe here even though it is not for widgets.
+	static sol::object GameObject_FindChild(GameObject* go, const std::string &name, sol::this_state ts)
+	{
+		sol::state_view lua(ts);
+		if (go == NULL) return sol::make_object(lua, sol::nil);
+		const std::vector<std::shared_ptr<GameObject> > &kids = go->GetChildren();
+		for (uint32 i = 0; i < kids.size(); i++)
+		{
+			if (kids[i] == NULL) continue;
+			if (kids[i]->GetName() == name) return sol::make_object(lua, kids[i]);
+			sol::object deep = GameObject_FindChild(kids[i].get(), name, ts);
+			if (deep.valid() && deep != sol::nil) return deep;
+		}
+		return sol::make_object(lua, sol::nil);
+	}
+
 
 	void RegisterLuaCore(sol::state* lua)
 	{
@@ -80,6 +118,8 @@ namespace p3d {
 				"addGameObject", &GameObject_AddGameObjectObj,
 				"removeGameObject", &GameObject_RemoveGameObjectObj,
 				"getParent", &LUA_GameObject::GetParent,
+				"getChildren", &GameObject_GetChildren,
+				"findChild", &GameObject_FindChild,
 				"haveParent", &LUA_GameObject::HaveParent,
 				"addTag", &LUA_GameObject::AddTag,
 				"removeTag", &LUA_GameObject::RemoveTag,
@@ -148,6 +188,8 @@ namespace p3d {
 				"addGameObject", &GameObject_AddGameObjectObj,
 				"removeGameObject", &GameObject_RemoveGameObjectObj,
 				"getParent", &GameObject::GetParent,
+				"getChildren", &GameObject_GetChildren,
+				"findChild", &GameObject_FindChild,
 				"haveParent", &GameObject::HaveParent,
 				"addTag", &GameObject::AddTag,
 				"removeTag", &GameObject::RemoveTag,

@@ -42,6 +42,21 @@ namespace p3d {
 			);
 
 
+		// A 2D layer. Bound because parallax is a game decision, not an engine
+		// one: the engine owes a scene grouping, draw order and a place to
+		// author the factor, and a script does the rest in three lines. It
+		// used to be driven inside PyrosPlayer, which meant it only worked in
+		// a built game and not in the editor's play mode - and that the
+		// engine and a script would have been writing the same transform.
+		lua->new_usertype<Layer2D>("Layer2D",
+			"getParallax", &Layer2D::GetParallax,
+			"setParallax", &Layer2D::SetParallax,
+			"isVisible", &Layer2D::IsVisible,
+			"setVisible", &Layer2D::SetVisible,
+			"getBasePosition", &Layer2D::GetBasePosition,
+			sol::base_classes, sol::bases<IComponent>()
+			);
+
 		// Box2D. A separate type from IPhysicsComponent on purpose - see
 		// Physics2D.h - so its API is in the plane: Vec2 everywhere, and one
 		// scalar for rotation about z rather than a Vec3 of Euler angles two

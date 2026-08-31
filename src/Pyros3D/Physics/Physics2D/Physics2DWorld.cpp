@@ -223,7 +223,10 @@ namespace p3d {
 		// Collect this frame's components first, so a scene with none never
 		// creates a world at all.
 		std::vector<Physics2D*> found;
-		std::vector<std::shared_ptr<GameObject> > &all = Scene->GetAllGameObjectList();
+		// Recursive, not GetAllGameObjectList(): a body parented under a
+		// Layer2D root is a child, and the flat list does not contain it.
+		std::vector<GameObject*> all;
+		Scene->CollectGameObjectsRecursive(all);
 		for (size_t i = 0; i < all.size(); i++)
 		{
 			if (!all[i]) continue;
