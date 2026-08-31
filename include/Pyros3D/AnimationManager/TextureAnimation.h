@@ -85,6 +85,10 @@ namespace p3d {
 		// repeat, direction) had a setter but no way to read it back,
 		// same class of gap fixed everywhere else for scene serialization.
 		f32 GetFrameSpeed() const { return FrameSpeed; }
+		// Frames per second, changeable while playing. The getter existed
+		// without a setter, so fps was fixed at CreateInstance() time and an
+		// editor could show it but not change it.
+		void SetFrameSpeed(const f32 fps) { if (fps > 0.f) FrameSpeed = fps; }
 		bool IsPaused() const { return isPaused; }
 		bool IsLooping() const { return isLooping; }
 		bool IsYoyo() const { return yoyo; }

@@ -21,6 +21,7 @@ using json = nlohmann::json;
 #include <Pyros3D/Core/InputManager/InputManager.h>
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
+#include <Pyros3D/Utils/Serialization/SceneSerializer.h>   // LoadedSceneAssets
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
@@ -252,6 +253,8 @@ public:
 	bool AgentMakeSprite2DLit(const std::string& name, std::string& errOut);
 	// Attaches an Occluder2D by object name.
 	bool AgentAddOccluder2D(const std::string& name, std::string& errOut);
+	bool AgentSliceSpritesheet(const std::string& name, const std::string& sheetPath,
+		int cols, int rows, f32 fps, bool loop, std::string& errOut);
 	bool AgentAddLayer2D(const std::string& name, std::string& errOut);
 	bool AgentAddPhysics2D(const std::string& name, std::string& errOut);
 	// Viewport projection. A 2D scene is authored and judged through an
@@ -322,6 +325,16 @@ public:
 	// Viewport-image pixels to ImGui screen pixels, for injected mouse input.
 	// False when the viewport has not been laid out yet this session.
 	bool  AgentViewportToScreen(const f32 vx, const f32 vy, f32 &sx, f32 &sy) const;
+	// Keeps alive what the loader creates but nothing else owns. Materials,
+	// textures and renderables are held by the objects that reference them,
+	// but skeleton and texture animations are reached only through a raw
+	// void* back-reference on RenderingComponent - so passing NULL here (what
+	// the editor did) let the loader's shared_ptr die at the end of the load
+	// and left that pointer dangling. Saving the scene reads it back
+	// (tinst->GetOwner()), which is a use-after-free. Traced with a print in
+	// ~TextureAnimation: it fired during the load itself.
+	LoadedSceneAssets sceneAssets;
+
 	json  AgentSceneState();
 	// Rewrites every asset path inside an agent/AI component payload to its
 	// project-relative form. AgentComponentToJson and friends are free
@@ -671,6 +684,14 @@ private:
 
 	// Textured quad with alpha blending - an authoring shortcut, not a type.
 	bool OpAddSprite(uint32 goId, const std::string& texturePath, std::string& errOut);
+	// Cuts `sheetPath` into cols x rows cells, writes them as real PNGs
+	// beside the sheet, and drives the object's sprite from them as a
+	// TextureAnimation. Writes files rather than keeping frames in memory
+	// because SerializeTextureRef() stores a path when a texture has one and
+	// embeds the whole image when it does not - slicing in memory would bloat
+	// every scene that used it.
+	bool OpSliceSpritesheet(uint32 goId, const std::string& sheetPath,
+		int cols, int rows, f32 fps, bool loop, std::string& errOut);
 	bool OpAddUIComponent(uint32 goId, const std::string& kind, const std::string& fontPath, std::string& errOut);
 	// Creates a "Canvas" GameObject with a UICanvas on it and selects it.
 	void CreateCanvasForEditing();
@@ -1090,6 +1111,13 @@ private:
 	// path being typed, and a capacity whose every intermediate value would
 	// otherwise reallocate the GPU buffer). Reseeded from the component
 	// whenever the selection changes, tracked by propertiesParticleSeededId.
+	// Sprite Animation section state (the sheet being sliced), same
+	// applied-on-a-button-press pattern as the particle sprite path above.
+	std::string propertiesSheetPath;
+	int propertiesSheetCols = 1;
+	int propertiesSheetRows = 1;
+	f32 propertiesSheetFps = 12.f;
+
 	std::string propertiesParticleTexturePath;
 	int32 propertiesParticleMax;
 	uint32 propertiesParticleSeededId;

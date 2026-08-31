@@ -15,6 +15,9 @@
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
+#include <Pyros3D/AnimationManager/TextureAnimation.h>
+#include <Pyros3D/Ext/stb/stb_image.h>
+#include <Pyros3D/Ext/stb/stb_image_write.h>
 
 // True when this object already carries a component of that type. These 2D
 // components are one-per-object by nature - a second Layer2D or Occluder2D on
@@ -1039,6 +1042,89 @@ bool SceneEditor::OpAddSprite(uint32 goId, const std::string& texturePath, std::
 	go->Add(std::make_shared<RenderingComponent>(mesh, mat));
 	MarkSceneDirty();
 	PushReplaceCommand(goId, before, "Add Sprite");
+	return true;
+}
+
+// Slices a spritesheet into frames and plays them on the object's sprite.
+//
+// Row-major, left to right then top to bottom, which is how every sheet
+// exporter lays them out. Cell size is the integer division of the sheet by
+// cols/rows: a sheet whose dimensions are not an exact multiple loses the
+// remainder rather than smearing half a pixel of the neighbouring cell into
+// every frame.
+bool SceneEditor::OpSliceSpritesheet(uint32 goId, const std::string& sheetPath,
+	int cols, int rows, f32 fps, bool loop, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "not a game object"; return false; }
+	if (cols < 1 || rows < 1) { errOut = "cols and rows must be at least 1"; return false; }
+	if (fps <= 0.f) { errOut = "fps must be positive"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+
+	RenderingComponent* rc = NULL;
+	const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+	for (size_t i = 0; i < comps.size(); i++)
+		if (comps[i] && comps[i]->GetComponentType() == ComponentType::RenderingComponent)
+			rc = static_cast<RenderingComponent*>(comps[i].get());
+	if (!rc) { errOut = "object has no RenderingComponent to animate"; return false; }
+
+	const std::string abs = ResolveAssetPath(sheetPath);
+	int w = 0, h = 0, bpp = 0;
+	uchar* img = stbi_load(abs.c_str(), &w, &h, &bpp, 4);
+	if (!img) { errOut = "could not read " + sheetPath; return false; }
+
+	const int cw = w / cols, ch = h / rows;
+	if (cw < 1 || ch < 1) { stbi_image_free(img); errOut = "cols/rows larger than the sheet"; return false; }
+
+	namespace fs = std::filesystem;
+	const fs::path sheetFile(abs);
+	const std::string stem = sheetFile.stem().string();
+	const fs::path outDir = sheetFile.parent_path() / (stem + "_frames");
+	std::error_code ec;
+	fs::create_directories(outDir, ec);
+
+	const std::string before = SnapshotSubtree(goId);
+
+	std::shared_ptr<TextureAnimation> anim = std::make_shared<TextureAnimation>();
+	std::vector<uchar> cell((size_t)cw * ch * 4);
+	bool ok = true;
+	for (int r = 0; r < rows && ok; r++)
+	{
+		for (int c = 0; c < cols && ok; c++)
+		{
+			for (int y = 0; y < ch; y++)
+				memcpy(&cell[(size_t)y * cw * 4],
+					img + (((size_t)(r * ch + y) * w) + (size_t)c * cw) * 4,
+					(size_t)cw * 4);
+
+			char name[64];
+			snprintf(name, sizeof(name), "frame_%02d.png", r * cols + c);
+			const std::string framePath = (outDir / name).string();
+			if (!stbi_write_png(framePath.c_str(), cw, ch, 4, cell.data(), cw * 4))
+			{
+				errOut = "could not write " + framePath; ok = false; break;
+			}
+
+			std::shared_ptr<Texture> t = std::make_shared<Texture>();
+			if (!t->LoadTexture(framePath, TextureType::Texture)) { errOut = "could not load " + framePath; ok = false; break; }
+			t->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+			t->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+			anim->AddFrame(t);
+		}
+	}
+	stbi_image_free(img);
+	if (!ok) return false;
+
+	// Kept alive here for the same reason the loader needs an out-assets
+	// list: RenderingComponent only holds a raw back-pointer.
+	sceneAssets.textureAnimations.push_back(anim);
+
+	TextureAnimationInstance* inst = anim->CreateInstance(fps);
+	inst->Play(loop ? -1 : 1);
+	rc->SetActiveTextureAnimation(inst);
+
+	MarkSceneDirty();
+	PushReplaceCommand(goId, before, "Slice Spritesheet");
 	return true;
 }
 

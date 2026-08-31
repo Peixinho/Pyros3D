@@ -8,6 +8,11 @@
 
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
+// In the .cpp only: the AnimationManager headers include this one, so pulling
+// them into the header would be circular - which is why activeTextureAnimation
+// is a void* in the first place.
+#include <Pyros3D/AnimationManager/TextureAnimation.h>
+#include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 
 namespace p3d {
 
@@ -391,4 +396,42 @@ namespace p3d {
 		// Clear Meshes List
 		Meshes.clear();
 	}
+};
+
+namespace p3d {
+
+	void RenderingComponent::Update(const f64 time)
+	{
+		if (activeTextureAnimation == NULL) return;
+
+		TextureAnimationInstance* inst = static_cast<TextureAnimationInstance*>(activeTextureAnimation);
+		TextureAnimation* owner = inst->GetOwner();
+		if (owner == NULL || owner->GetNumberFrames() == 0) return;
+
+		// Absolute time, not a delta: Update() derives the frame from
+		// (timer - timeStart), so feeding it the same value twice in one
+		// frame lands on the same frame rather than double-advancing.
+		owner->Update((f32)time);
+
+		const int32 frame = (int32)inst->GetFrame();
+		if (frame == lastAppliedTextureFrame) return;
+		lastAppliedTextureFrame = frame;
+
+		const std::shared_ptr<Texture> tex = inst->GetTextureShared();
+		if (!tex) return;
+		// Every LOD, not just LOD 0: a sprite has one, but a model that
+		// carries an animated texture would otherwise stop animating the
+		// moment it switched LOD.
+		for (std::map<uint32, std::vector<RenderingMesh*> >::iterator lod = Meshes.begin(); lod != Meshes.end(); ++lod)
+		{
+			std::vector<RenderingMesh*> &list = lod->second;
+			for (size_t i = 0; i < list.size(); i++)
+			{
+				if (!list[i] || !list[i]->Material) continue;
+				GenericShaderMaterial* gm = dynamic_cast<GenericShaderMaterial*>(list[i]->Material.get());
+				if (gm) gm->SetColorMap(tex);
+			}
+		}
+	}
+
 };

@@ -2508,6 +2508,26 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 
+	// Cuts a spritesheet into frames and plays them on an object's sprite.
+	//   {"cmd":"slice_spritesheet","args":{"object":"Hero",
+	//    "sheet":"assets/textures/hero_run.png","cols":8,"rows":1,"fps":12}}
+	if (name == "slice_spritesheet")
+	{
+		const std::string objName = A("object");
+		const std::string sheet = A("sheet");
+		if (objName.empty() || sheet.empty())
+			throw std::runtime_error("slice_spritesheet: 'object' and 'sheet' are required");
+		const int cols = a.is_object() ? a.value("cols", 1) : 1;
+		const int rows = a.is_object() ? a.value("rows", 1) : 1;
+		const float fps = a.is_object() ? a.value("fps", 12.0f) : 12.0f;
+		const bool loop = a.is_object() ? a.value("loop", true) : true;
+		if (!sceneView->AgentSliceSpritesheet(objName, sheet, cols, rows, fps, loop, err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true; r["frames"] = cols * rows; r["fps"] = fps;
+		return r;
+	}
+
 	if (name == "play")
 	{
 		if (!sceneView->AgentPlay(err))

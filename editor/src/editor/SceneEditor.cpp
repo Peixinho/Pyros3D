@@ -2503,15 +2503,59 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			if (!comps[i]) continue;
 			const uint32 type = comps[i]->GetComponentType();
+			// The 2D component branches below (Occluder2D, Physics2D,
+			// Layer2D) were written but unreachable: this filter let only UI
+			// types through and `continue`d before ever reaching them, so
+			// selecting a layer or a body showed an empty Properties panel.
+			// RenderingComponent is here for the Sprite Animation section.
 			if (type != ComponentType::UICanvas && type != ComponentType::UIRect
 				&& type != ComponentType::UIImage && type != ComponentType::UIText
-				&& type != ComponentType::UIButton)
+				&& type != ComponentType::UIButton
+				&& type != ComponentType::Occluder2D && type != ComponentType::Physics2D
+				&& type != ComponentType::Layer2D && type != ComponentType::RenderingComponent)
 				continue;
 
 			ImGui::PushID((int)i);
 			ImGui::Separator();
 
-			if (type == ComponentType::Occluder2D)
+			if (type == ComponentType::RenderingComponent)
+			{
+				RenderingComponent* rc = static_cast<RenderingComponent*>(comps[i].get());
+				if (ImGui::CollapsingHeader("Sprite Animation"))
+				{
+					TextureAnimationInstance* inst =
+						static_cast<TextureAnimationInstance*>(rc->GetActiveTextureAnimation());
+					if (inst && inst->GetOwner())
+					{
+						ImGui::Text("%u frames, frame %u", inst->GetOwner()->GetNumberFrames(), inst->GetFrame());
+						f32 fps = inst->GetFrameSpeed();
+						if (ImGui::DragFloat("FPS", &fps, 0.5f, 0.1f, 120.f))
+						{ inst->SetFrameSpeed(fps); MarkSceneDirty(); }
+						bool yo = inst->IsYoyo();
+						if (ImGui::Checkbox("Ping-pong", &yo)) { inst->YoYo(yo); MarkSceneDirty(); }
+						ImGui::SameLine();
+						if (inst->IsPaused()) { if (ImGui::Button("Resume")) inst->Play(inst->IsLooping() ? -1 : inst->GetRepeat()); }
+						else { if (ImGui::Button("Pause")) inst->Pause(); }
+					}
+					else ImGui::TextDisabled("No animation on this sprite yet.");
+
+					ImGui::Separator();
+					ImGui::InputText("Sheet", &propertiesSheetPath);
+					ImGui::DragInt("Columns", &propertiesSheetCols, 0.2f, 1, 64);
+					ImGui::DragInt("Rows", &propertiesSheetRows, 0.2f, 1, 64);
+					ImGui::DragFloat("Slice FPS", &propertiesSheetFps, 0.5f, 0.1f, 120.f);
+					if (ImGui::Button("Slice Spritesheet"))
+					{
+						std::string err;
+						if (!OpSliceSpritesheet(goId, propertiesSheetPath, propertiesSheetCols,
+							propertiesSheetRows, propertiesSheetFps, true, err))
+							echo("ERROR: " + err);
+					}
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("Cuts the sheet into cols x rows PNGs beside it and plays\nthem. Written as real files so the scene stores paths\nrather than embedding every frame.");
+				}
+			}
+			else if (type == ComponentType::Occluder2D)
 			{
 				Occluder2D* oc = static_cast<Occluder2D*>(comps[i].get());
 				ImGui::Text("Occluder 2D");
@@ -5954,6 +5998,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		DeselectSceneObject();
 		selection.clear();
 		node_clicked = -1;
+		// Released here rather than at load time: the outgoing scene's
+		// objects are torn down just below, and anything still referenced
+		// stays alive on its own shared_ptr.
+		sceneAssets = LoadedSceneAssets();
 
 		// Drops every user GameObject/component (and its helper) - the
 		// SceneGraph holds the only strong references, so this frees them.
@@ -6158,8 +6206,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 #ifdef LUA_BINDINGS
 			PushLuaHostGlobals();
 			ok = expanded.empty()
-				? SceneSerializer::LoadScene(scene, path, physics, sharedLua, NULL, &meta)
-				: SceneSerializer::LoadSceneFromText(scene, expanded, path, physics, sharedLua, NULL, &meta);
+				? SceneSerializer::LoadScene(scene, path, physics, sharedLua, &sceneAssets, &meta)
+				: SceneSerializer::LoadSceneFromText(scene, expanded, path, physics, sharedLua, &sceneAssets, &meta);
 			if (ok)
 			{
 				RelinkPrefabInstancesAfterLoad(rootPrefabPaths);
@@ -6187,8 +6235,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 #else
 			ok = expanded.empty()
-				? SceneSerializer::LoadScene(scene, path, physics, NULL, NULL, &meta)
-				: SceneSerializer::LoadSceneFromText(scene, expanded, path, physics, NULL, NULL, &meta);
+				? SceneSerializer::LoadScene(scene, path, physics, NULL, &sceneAssets, &meta)
+				: SceneSerializer::LoadSceneFromText(scene, expanded, path, physics, NULL, &sceneAssets, &meta);
 			if (ok) RelinkPrefabInstancesAfterLoad(rootPrefabPaths);
 #endif
 		}
@@ -9605,6 +9653,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			Camera->SetRotation(Vec3(0.f, 0.f, 0.f));
 			Camera->RefreshTransformation();
 		}
+	}
+
+	bool SceneEditor::AgentSliceSpritesheet(const std::string& name, const std::string& sheetPath,
+		int cols, int rows, f32 fps, bool loop, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		return OpSliceSpritesheet(obj->GetID(), sheetPath, cols, rows, fps, loop, errOut);
 	}
 
 	bool SceneEditor::AgentAddLayer2D(const std::string& name, std::string& errOut)

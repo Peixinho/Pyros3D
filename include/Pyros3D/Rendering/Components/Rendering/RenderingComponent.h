@@ -245,7 +245,14 @@ namespace p3d {
 
 		virtual void Register(SceneGraph* Scene);
 		virtual void Init() {}
-		virtual void Update(const f64 time = 0) {}
+		// Advances the active texture animation and puts its current frame on
+		// the material. Both halves were missing: TextureAnimation::Update()
+		// existed but nothing called it, and nothing applied the resulting
+		// frame anywhere - so a sprite animation held correct playback state
+		// and never actually animated. The timer is absolute (the scene's,
+		// not a delta), which is what TextureAnimation::Update() expects and
+		// is what makes calling it from several components idempotent.
+		virtual void Update(const f64 time = 0);
 		virtual void Destroy() {}
 		virtual void Unregister(SceneGraph* Scene);
 
@@ -349,6 +356,10 @@ namespace p3d {
 		// SkeletonAnimationInstance*/TextureAnimationInstance*.
 		void* activeSkeletonAnimation = NULL;
 		void* activeTextureAnimation = NULL;
+
+		// Last frame index pushed onto the material, so the colormap is only
+		// swapped when the frame actually changes rather than every tick.
+		int32 lastAppliedTextureFrame = -1;
 
 		// Save Renderable Pointer
 		std::shared_ptr<Renderable> renderable;
