@@ -256,6 +256,7 @@ public:
 	bool AgentAddOccluder2D(const std::string& name, std::string& errOut);
 	bool AgentAddBone2D(const std::string& objName, const std::string& boneName,
 		const std::string& parentBone, const Vec2 &localPos, std::string& errOut);
+	bool AgentRemoveBone2D(const std::string& objName, const std::string& boneName, std::string& errOut);
 	json AgentSkeletonState(const std::string& objName, std::string& errOut);
 	// Rotation is DEGREES about Z here and converted on the way in - the
 	// engine's Euler angles are radians, and a degrees-in API is what an
@@ -733,7 +734,18 @@ private:
 	// (Re)builds the SkeletonAnimation instance so it picks up the current
 	// skeleton. Kept in sceneAssets, which owns it - RenderingComponent holds
 	// only a raw back-pointer.
+	// Removes a bone and everything below it. Bone::self is an index that every
+	// pose array is keyed by, so the survivors are renumbered and each parent
+	// reference remapped - dropping a bone without that would silently
+	// re-parent whatever happened to sit at the vacated index.
+	bool OpRemoveBone2D(uint32 goId, const std::string& boneName, std::string& errOut);
 	SkeletonAnimationInstance* RebuildSkeletonInstance(RenderingComponent* rc);
+	// Draws every authored 2D skeleton in the scene through the editor's
+	// DebugRenderer: a tapered quad per bone from its own joint to each
+	// child's, plus a marker on the joint itself. Bones have no geometry of
+	// their own, so without this they cannot be seen, let alone picked.
+	void DrawSkeletons2D();
+	bool showSkeletons2D = true;
 	static RenderingComponent* FindRenderingComponent(GameObject* go);
 
 	static bool GetSpritePivot(RenderingComponent* rc, Vec2 &outNorm);
@@ -1159,6 +1171,12 @@ private:
 	// whenever the selection changes, tracked by propertiesParticleSeededId.
 	// Sprite Animation section state (the sheet being sliced), same
 	// applied-on-a-button-press pattern as the particle sprite path above.
+	// Skeleton section state - the bone being added, same
+	// applied-on-a-button-press pattern as the sheet path below.
+	std::string propertiesBoneName;
+	std::string propertiesBoneParent;
+	f32 propertiesBonePos[2] = { 0.f, 1.f };
+
 	std::string propertiesSheetPath;
 	int propertiesSheetCols = 1;
 	int propertiesSheetRows = 1;

@@ -2559,6 +2559,19 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 
+	// {"cmd":"remove_bone2d","args":{"object":"Rig","bone":"Spine"}}  - takes descendants too
+	if (name == "remove_bone2d")
+	{
+		const std::string objName = A("object");
+		const std::string boneName = A("bone");
+		if (objName.empty() || boneName.empty())
+			throw std::runtime_error("remove_bone2d: 'object' and 'bone' are required");
+		if (!sceneView->AgentRemoveBone2D(objName, boneName, err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["removed"] = boneName;
+		return r;
+	}
+
 	// {"cmd":"skeleton_state","args":{"object":"Rig"}}
 	if (name == "skeleton_state")
 	{

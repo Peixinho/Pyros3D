@@ -986,6 +986,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				physics2D->DebugDraw(debugRenderer);
 		}
 
+		// Outside the physics2D block: a rig does not need a physics world.
+		if (!playMode)
+		{
+			DrawSkeletons2D();
+		}
+
 		if (!playMode && editingCanvas)
 		{
 			DrawCanvasOverlay(editingCanvas, dim);
@@ -2522,6 +2528,75 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (type == ComponentType::RenderingComponent)
 			{
 				RenderingComponent* rc = static_cast<RenderingComponent*>(comps[i].get());
+				if (ImGui::CollapsingHeader("Skeleton (2D)"))
+				{
+					SkeletonAnimationInstance* inst =
+						static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
+					if (!inst && !rc->GetSkeleton().empty()) inst = RebuildSkeletonInstance(rc);
+
+					if (inst && inst->GetNumberBones() > 0)
+					{
+						const std::vector<Bone> bones = inst->GetSkeletonBones();
+						for (size_t bi = 0; bi < bones.size(); bi++)
+						{
+							ImGui::PushID((int)bi + 5000);
+							const int32 id = bones[bi].self;
+							const std::string parentName = (bones[bi].parent >= 0
+								&& (size_t)bones[bi].parent < bones.size())
+								? bones[bones[bi].parent].name : std::string("-");
+							ImGui::Text("%s", bones[bi].name.c_str());
+							ImGui::SameLine();
+							ImGui::TextDisabled("(parent: %s)", parentName.c_str());
+
+							// Live posing. Rotation only: in the plane a bone
+							// rotates about Z and nothing else, and the rest
+							// translation is the rig's shape, not its pose.
+							// Copied because GetEulerFromRotationMatrix() is
+							// non-const; the accessor hands back a const ref.
+							Matrix localNow = inst->GetBoneLocalTransform(id);
+							f32 deg = RADTODEG(localNow.GetEulerFromRotationMatrix().z);
+							if (ImGui::DragFloat("Rotation", &deg, 0.5f, -360.f, 360.f))
+							{
+								Matrix local;
+								local.RotationZ(DEGTORAD(deg));
+								local.Translate(inst->GetBindPoseLocal(id).GetTranslation());
+								inst->SetBoneLocalTransform(id, local);
+								inst->RefreshSkinning();
+								MarkSceneDirty();
+							}
+							ImGui::SameLine();
+							if (ImGui::SmallButton("Delete"))
+							{
+								std::string err;
+								if (!OpRemoveBone2D(goId, bones[bi].name, err)) echo("ERROR: " + err);
+								ImGui::PopID();
+								break;
+							}
+							ImGui::PopID();
+						}
+						ImGui::Separator();
+					}
+					else ImGui::TextDisabled("No bones yet.");
+
+					ImGui::InputText("Bone name", &propertiesBoneName);
+					ImGui::InputText("Parent", &propertiesBoneParent);
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("Leave empty for a root bone.");
+					ImGui::DragFloat2("Position", propertiesBonePos, 0.02f);
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("Local to the parent bone, in the XY plane.");
+					if (ImGui::Button("Add Bone"))
+					{
+						std::string err;
+						if (!OpAddBone2D(goId, propertiesBoneName, propertiesBoneParent,
+							Vec2(propertiesBonePos[0], propertiesBonePos[1]), err))
+							echo("ERROR: " + err);
+						else propertiesBoneName.clear();
+					}
+					ImGui::SameLine();
+					ImGui::Checkbox("Show in viewport", &showSkeletons2D);
+				}
+
 				Vec2 pv;
 				if (GetSpritePivot(rc, pv) && ImGui::CollapsingHeader("Pivot"))
 				{
@@ -9713,6 +9788,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	// Bone list with both the local rest transform and the composed global
 	// one, so a caller can tell whether posing a parent actually moved its
 	// children - which is the whole point of a hierarchy.
+	bool SceneEditor::AgentRemoveBone2D(const std::string& objName, const std::string& boneName, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
+		if (!obj) { errOut = "object '" + objName + "' not found"; return false; }
+		return OpRemoveBone2D(obj->GetID(), boneName, errOut);
+	}
+
 	json SceneEditor::AgentSkeletonState(const std::string& objName, std::string& errOut)
 	{
 		json out;
@@ -9779,6 +9862,73 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		inst->RefreshSkinning();
 		MarkSceneDirty();
 		return true;
+	}
+
+	void SceneEditor::DrawSkeletons2D()
+	{
+		if (!showSkeletons2D || !debugRenderer || !scene) return;
+
+		std::vector<GameObject*> all;
+		scene->CollectGameObjectsRecursive(all);
+
+		for (size_t i = 0; i < all.size(); i++)
+		{
+			GameObject* go = all[i];
+			if (!go) continue;
+			RenderingComponent* rc = FindRenderingComponent(go);
+			if (!rc || rc->GetSkeleton().empty()) continue;
+
+			SkeletonAnimationInstance* inst =
+				static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
+			if (!inst) continue;
+
+			// Bone transforms are model space - the owner's world matrix takes
+			// them the rest of the way, so a rig drawn here follows the object
+			// it belongs to.
+			const Matrix world = go->GetWorldTransformation();
+			const std::vector<Bone> &bones = inst->GetSkeletonBones();
+
+			for (size_t b = 0; b < bones.size(); b++)
+			{
+				const int32 id = bones[b].self;
+				if (id < 0 || (size_t)id >= bones.size()) continue;
+				const Vec3 p = world * inst->GetBoneGlobalTransform(id).GetTranslation();
+
+				// The joint itself, so a leaf bone (which owns no segment) is
+				// still visible and still has something to click on.
+				const f32 r = 0.06f;
+				const Vec4 joint(1.f, 0.75f, 0.1f, 1.f);
+				for (int k = 0; k < 8; k++)
+				{
+					const f32 a0 = (f32)k * (2.f * (f32)M_PI / 8.f);
+					const f32 a1 = (f32)(k + 1) * (2.f * (f32)M_PI / 8.f);
+					debugRenderer->drawLine(Vec3(p.x + cosf(a0) * r, p.y + sinf(a0) * r, p.z),
+						Vec3(p.x + cosf(a1) * r, p.y + sinf(a1) * r, p.z), joint);
+				}
+
+				// One segment per child rather than one per bone: a bone with
+				// several children (a hip) should show a limb to each of them.
+				for (size_t c = 0; c < bones.size(); c++)
+				{
+					if (bones[c].parent != id) continue;
+					const Vec3 cp = world * inst->GetBoneGlobalTransform(bones[c].self).GetTranslation();
+
+					// Tapered, so the bone reads as pointing from parent to
+					// child rather than as a bare line.
+					Vec3 d = cp - p;
+					const f32 len = d.magnitude();
+					if (len < 0.0001f) continue;
+					d = d / len;
+					const Vec3 n(-d.y, d.x, 0.f);
+					const f32 w = len * 0.12f;
+					const Vec3 a = p + n * w, bb = p - n * w;
+					const Vec4 col(0.35f, 0.8f, 1.f, 1.f);
+					debugRenderer->drawLine(a, cp, col);
+					debugRenderer->drawLine(bb, cp, col);
+					debugRenderer->drawLine(a, bb, col);
+				}
+			}
+		}
 	}
 
 	bool SceneEditor::AgentIKSolve2D(const std::string& objName, const std::string& rootBone,

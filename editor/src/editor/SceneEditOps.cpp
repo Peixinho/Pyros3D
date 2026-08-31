@@ -1069,6 +1069,59 @@ SkeletonAnimationInstance* SceneEditor::RebuildSkeletonInstance(RenderingCompone
 	return inst;
 }
 
+bool SceneEditor::OpRemoveBone2D(uint32 goId, const std::string& boneName, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "not a game object"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+	RenderingComponent* rc = FindRenderingComponent(go);
+	if (!rc) { errOut = "object has no RenderingComponent"; return false; }
+
+	const std::map<StringID, Bone> &cur = rc->GetSkeleton();
+	std::vector<Bone> bones(cur.size());
+	for (std::map<StringID, Bone>::const_iterator i = cur.begin(); i != cur.end(); ++i)
+	{
+		const int32 id = (*i).second.self;
+		if (id < 0 || (size_t)id >= bones.size()) { errOut = "skeleton has out-of-range bone ids"; return false; }
+		bones[id] = (*i).second;
+	}
+
+	int32 target = -1;
+	for (size_t i = 0; i < bones.size(); i++)
+		if (bones[i].name == boneName) { target = bones[i].self; break; }
+	if (target < 0) { errOut = "bone '" + boneName + "' not found"; return false; }
+
+	// Descendants go with it. Bones are appended parent-before-child, so a
+	// single forward sweep is enough to close the set.
+	std::vector<bool> doomed(bones.size(), false);
+	doomed[target] = true;
+	for (size_t i = 0; i < bones.size(); i++)
+		if (bones[i].parent >= 0 && doomed[bones[i].parent]) doomed[i] = true;
+
+	std::vector<int32> remap(bones.size(), -1);
+	std::vector<Bone> kept;
+	for (size_t i = 0; i < bones.size(); i++)
+	{
+		if (doomed[i]) continue;
+		remap[i] = (int32)kept.size();
+		kept.push_back(bones[i]);
+	}
+	if (kept.size() == bones.size()) { errOut = "nothing removed"; return false; }
+
+	for (size_t i = 0; i < kept.size(); i++)
+	{
+		kept[i].self = (int32)i;
+		kept[i].parent = (kept[i].parent >= 0) ? remap[kept[i].parent] : -1;
+	}
+
+	const std::string before = SnapshotSubtree(goId);
+	rc->SetSkeleton(kept);
+	RebuildSkeletonInstance(rc);
+	MarkSceneDirty();
+	PushReplaceCommand(goId, before, "Remove Bone");
+	return true;
+}
+
 bool SceneEditor::OpAddBone2D(uint32 goId, const std::string& boneName,
 	const std::string& parentBone, const Vec2 &localPos, std::string& errOut)
 {
