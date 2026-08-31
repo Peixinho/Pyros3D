@@ -1719,6 +1719,41 @@ def bind_sprite_to_bone(project_path: str, scene_name: str, name: str, bone: str
 
 
 @mcp.tool()
+def new_clip2d(project_path: str, scene_name: str, name: str, clip: str) -> str:
+    """Create an empty 2D animation clip on an object's rig."""
+    return _live_2d_anim(project_path, scene_name, "new_clip2d",
+                         {"object": name, "clip": clip},
+                         f"created clip '{clip}' on '{name}'")
+
+
+@mcp.tool()
+def key_pose2d(project_path: str, scene_name: str, name: str, clip: str,
+               time: float, bone: str = "") -> str:
+    """Record the CURRENT pose of every bone into a clip at `time` seconds.
+
+    Pass `bone` to key just one. This is the "key the pose" button: pose the
+    rig (pose_bone2d / ik_solve2d / dragging a joint), then record it.
+    """
+    return _live_2d_anim(project_path, scene_name, "key_pose2d",
+                         {"object": name, "clip": clip, "time": time, "bone": bone},
+                         f"keyed {'bone ' + bone if bone else 'the pose'} at t={time} in '{clip}'")
+
+
+@mcp.tool()
+def set_autoplay2d(project_path: str, scene_name: str, name: str,
+                   clip: str = "", loop: bool = True) -> str:
+    """Set the clip that starts automatically when the game runs.
+
+    Recorded on the object, not started now - play mode and the player start
+    it, so it does not drive the rig while you are authoring a pose. Pass an
+    empty clip to clear it.
+    """
+    return _live_2d_anim(project_path, scene_name, "set_autoplay2d",
+                         {"object": name, "clip": clip, "loop": loop},
+                         f"autoplay on '{name}' set to '{clip}'" if clip else f"autoplay cleared on '{name}'")
+
+
+@mcp.tool()
 def key_bone2d(project_path: str, scene_name: str, name: str, clip: str, bone: str,
                time: float, rotation: float) -> str:
     """Record a bone's Z rotation (degrees) into a clip at `time` seconds.

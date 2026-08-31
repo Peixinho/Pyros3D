@@ -257,6 +257,10 @@ public:
 	bool AgentAddBone2D(const std::string& objName, const std::string& boneName,
 		const std::string& parentBone, const Vec2 &localPos, std::string& errOut);
 	bool AgentRemoveBone2D(const std::string& objName, const std::string& boneName, std::string& errOut);
+	// Records the autoplay clip on the object's RenderingComponent. Starting
+	// it is play mode's job, not this one's.
+	bool AgentSetAutoPlay2D(const std::string& objName, const std::string& clipName,
+		const bool loop, std::string& errOut);
 	bool AgentBindToBone2D(const std::string& objName, const std::string& boneName,
 		const Vec2 &offset, std::string& errOut);
 	// Records a bone's Z rotation into a named clip at `time` (seconds),

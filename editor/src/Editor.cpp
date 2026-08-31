@@ -2647,6 +2647,48 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 
+	// {"cmd":"new_clip2d","args":{"object":"Hero","clip":"Walk"}}
+	// Selects the object first: the clip ops work on the selection, which the
+	// timeline panel has and an agent does not.
+	if (name == "new_clip2d")
+	{
+		const std::string objName = A("object"), clipName = A("clip");
+		if (objName.empty() || clipName.empty())
+			throw std::runtime_error("new_clip2d: 'object' and 'clip' are required");
+		if (!sceneView->AgentSelectObject(objName, err)) throw std::runtime_error(err);
+		if (!sceneView->OpNewClip2D(clipName, err)) throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["clip"] = clipName;
+		return r;
+	}
+
+	// {"cmd":"key_pose2d","args":{"object":"Hero","clip":"Walk","time":0.5}}
+	// Keys EVERY bone at once, which is what "key the pose" means; key_bone2d
+	// is the single-bone version.
+	if (name == "key_pose2d")
+	{
+		const std::string objName = A("object"), clipName = A("clip");
+		if (objName.empty() || clipName.empty())
+			throw std::runtime_error("key_pose2d: 'object' and 'clip' are required");
+		if (!sceneView->AgentSelectObject(objName, err)) throw std::runtime_error(err);
+		const float t = a.is_object() ? a.value("time", 0.0f) : 0.0f;
+		if (!sceneView->OpKeyPose2D(clipName, t, A("bone"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["clip"] = clipName; r["time"] = t;
+		return r;
+	}
+
+	// {"cmd":"set_autoplay2d","args":{"object":"Hero","clip":"Walk","loop":true}}
+	if (name == "set_autoplay2d")
+	{
+		const std::string objName = A("object");
+		if (objName.empty()) throw std::runtime_error("set_autoplay2d: 'object' is required");
+		const bool loop = a.is_object() ? a.value("loop", true) : true;
+		if (!sceneView->AgentSetAutoPlay2D(objName, A("clip"), loop, err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["clip"] = A("clip"); r["loop"] = loop;
+		return r;
+	}
+
 	// {"cmd":"skeleton_state","args":{"object":"Rig"}}
 	if (name == "skeleton_state")
 	{

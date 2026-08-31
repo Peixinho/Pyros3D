@@ -10032,6 +10032,37 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return OpBindToBone2D(obj->GetID(), boneName, offset, errOut);
 	}
 
+	bool SceneEditor::AgentSetAutoPlay2D(const std::string& objName, const std::string& clipName,
+		const bool loop, std::string& errOut)
+	{
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
+		if (!obj) { errOut = "object '" + objName + "' not found"; return false; }
+		RenderingComponent* rc = FindRenderingComponent((GameObject*)obj->GetPTR());
+		if (!rc) { errOut = "object has no RenderingComponent"; return false; }
+
+		const std::string beforeClip = rc->GetAutoPlayClip();
+		const bool beforeLoop = rc->IsAutoPlayLooping();
+		if (beforeClip == clipName && beforeLoop == loop) return true;
+
+		const uint32 goId = obj->GetID();
+		SceneEditor* self = this;
+		auto apply = [self, goId](std::string c, bool l) {
+			SceneObject* o = self->sceneObjects->GetSceneObject(goId);
+			if (!o || o->GetType() != SceneObjectTypes::GAMEOBJECT) return;
+			RenderingComponent* r = FindRenderingComponent((GameObject*)o->GetPTR());
+			if (!r) return;
+			r->SetAutoPlayClip(c);
+			r->SetAutoPlayLooping(l);
+			self->MarkSceneDirty();
+		};
+		apply(clipName, loop);
+		sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+			[apply, beforeClip, beforeLoop]() { apply(beforeClip, beforeLoop); },
+			[apply, clipName, loop]() { apply(clipName, loop); },
+			"Set Autoplay Clip"));
+		return true;
+	}
+
 	bool SceneEditor::AgentRemoveBone2D(const std::string& objName, const std::string& boneName, std::string& errOut)
 	{
 		if (playMode) { errOut = "editor is in play mode"; return false; }

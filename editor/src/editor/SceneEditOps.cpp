@@ -1069,15 +1069,38 @@ SkeletonAnimationInstance* SceneEditor::RebuildSkeletonInstance(RenderingCompone
 	// the moment another bone was added - the kind of loss that only shows up
 	// after the work is gone.
 	std::vector<Animation> existingClips;
+	std::vector<Matrix> existingPose;
 	if (SkeletonAnimationInstance* old =
 		static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation()))
+	{
 		if (old->GetOwner()) existingClips = old->GetOwner()->GetAnimations();
+		// The pose too. ResetToBindPose() below is right for a rig that has
+		// just appeared and wrong for one being rebuilt: anything that
+		// happened to rebuild the instance - selecting the object does -
+		// silently threw away whatever pose was being authored, so posing a
+		// bone and then keying it recorded the REST pose instead.
+		old->CapturePose(existingPose);
+	}
 
 	std::shared_ptr<SkeletonAnimation> anim = std::make_shared<SkeletonAnimation>();
 	sceneAssets.skeletonAnimations.push_back(anim);
 	if (!existingClips.empty()) anim->SetAnimations(existingClips);
 	SkeletonAnimationInstance* inst = anim->CreateInstance(rc);
-	if (inst) inst->ResetToBindPose();
+	if (inst)
+	{
+		inst->ResetToBindPose();
+		// Restore what survived. Matched by index because Bone::self is the
+		// index; a bone added on the end keeps its bind pose, and a rebuild
+		// after a removal only restores the bones still present.
+		if (!existingPose.empty())
+		{
+			std::vector<Matrix> pose;
+			inst->CapturePose(pose);
+			const size_t n = existingPose.size() < pose.size() ? existingPose.size() : pose.size();
+			for (size_t i = 0; i < n; i++) pose[i] = existingPose[i];
+			inst->ApplyPose(pose);
+		}
+	}
 	return inst;
 }
 
@@ -1283,18 +1306,41 @@ bool SceneEditor::OpKeyPose2D(const std::string& clipName, const f32 time,
 	const std::vector<Bone> bones = inst->GetSkeletonBones();
 	const std::string objName = ((GameObject*)SelectedSceneObject->GetPTR())->GetName();
 	const std::vector<Animation> beforeKey = inst->GetOwner()->GetAnimations();
+
+	// Every rotation is read BEFORE any of them is written. Writing a key goes
+	// through SkeletonAnimation::SetAnimations(), which stops every instance
+	// on the way past (it has to - Play() holds raw Animation* into the vector
+	// being replaced), and stopping resets the pose to bind. Reading and
+	// writing bone by bone therefore keyed the first bone correctly and every
+	// bone after it at zero, silently recording a rest pose.
+	std::vector<f32> degs(bones.size(), 0.f);
+	for (size_t i = 0; i < bones.size(); i++)
+	{
+		Matrix local = inst->GetBoneLocalTransform(bones[i].self);
+		degs[i] = RADTODEG(local.GetEulerFromRotationMatrix().z);
+	}
+	// And restored afterwards, so keying does not visibly snap the rig back to
+	// bind the moment you record a pose.
+	std::vector<Matrix> poseBefore;
+	inst->CapturePose(poseBefore);
+
 	bool any = false;
 	for (size_t i = 0; i < bones.size(); i++)
 	{
 		if (!onlyBone.empty() && bones[i].name != onlyBone) continue;
-		// Read the pose back out as degrees and re-key through the same path
-		// the agent command uses, so there is one implementation of what a
-		// key is rather than two that can drift.
-		Matrix local = inst->GetBoneLocalTransform(bones[i].self);
-		const f32 deg = RADTODEG(local.GetEulerFromRotationMatrix().z);
+		// Re-keyed through the same path the agent command uses, so there is
+		// one implementation of what a key is rather than two that can drift.
 		std::string e;
-		if (AgentKeyBone2D(objName, clipName, bones[i].name, time, deg, e)) any = true;
+		if (AgentKeyBone2D(objName, clipName, bones[i].name, time, degs[i], e)) any = true;
 		else errOut = e;
+	}
+
+	if (any)
+	{
+		RenderingComponent* rc2 = FindRenderingComponent((GameObject*)SelectedSceneObject->GetPTR());
+		SkeletonAnimationInstance* now = rc2
+			? static_cast<SkeletonAnimationInstance*>(rc2->GetActiveSkeletonAnimation()) : NULL;
+		if (now && now->GetNumberBones() == poseBefore.size()) now->ApplyPose(poseBefore);
 	}
 	if (!any && errOut.empty()) errOut = "nothing keyed";
 	if (any) PushClipsUndo(SelectedSceneObject->GetID(), beforeKey,
