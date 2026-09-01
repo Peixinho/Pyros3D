@@ -217,6 +217,17 @@ namespace p3d {
 					if (boneId < 0 || (uint32)boneId >= self.GetNumberBones()) return Vec3();
 					return self.GetBoneGlobalTransform(boneId).GetTranslation();
 				},
+				// IK from script. The solver already existed and was reachable
+				// only from C++ and the editor, so a game could not aim a
+				// hand or plant a foot - the two things IK is actually for.
+				// Target is model space (what getBonePosition returns);
+				// the pole is left to the solver, which is what a planar
+				// chain wants - see SceneEditor::AgentIKSolve2D.
+				"solveIK", [](SkeletonAnimationInstance& self, int32 rootBone,
+					int32 effectorBone, const Vec3& target) -> bool {
+					return IKSolver::Solve(&self, rootBone, effectorBone, target,
+						Vec3(0.f, 0.f, 0.f));
+				},
 				"play", &SkeletonAnimationInstance::Play,
 				"changeProperties", &SkeletonAnimationInstance::ChangeProperties,
 				"pause", &SkeletonAnimationInstance::Pause,
