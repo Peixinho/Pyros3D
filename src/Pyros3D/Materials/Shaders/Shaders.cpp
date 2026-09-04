@@ -9,8 +9,82 @@
 #include <Pyros3D/Materials/Shaders/Shaders.h>
 #include <stdlib.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
+#include <vector>
+#include <sstream>
 
 namespace p3d {
+
+	namespace {
+
+		// Pull the offending source line numbers out of a driver info log.
+		//
+		// Every backend writes the position as "<string index><sep><line>",
+		// only the separators differ: ANGLE and WebGL2 say "ERROR: 0:552:",
+		// NVIDIA says "0(552) :", Mesa says "0:552(13):". So: find a digit
+		// run, and if ':' or '(' follows with more digits, the second number
+		// is the line. Anything unrecognised yields nothing, and the caller
+		// falls back to printing the whole shader rather than printing less
+		// than it used to.
+		static std::vector<uint32> ShaderErrorLines(const std::string &log)
+		{
+			std::vector<uint32> lines;
+			for (size_t i = 0; i < log.size();)
+			{
+				if (!isdigit((unsigned char)log[i])) { ++i; continue; }
+				size_t a = i;
+				while (a < log.size() && isdigit((unsigned char)log[a])) ++a;
+				if (a < log.size() && (log[a] == ':' || log[a] == '('))
+				{
+					size_t b = a + 1, c = b;
+					while (c < log.size() && isdigit((unsigned char)log[c])) ++c;
+					if (c > b)
+					{
+						const uint32 line = (uint32)strtoul(log.substr(b, c - b).c_str(), NULL, 10);
+						bool seen = false;
+						for (size_t k = 0; k < lines.size(); ++k)
+							if (lines[k] == line) { seen = true; break; }
+						if (line > 0 && !seen && lines.size() < 10)
+							lines.push_back(line);
+						i = c;
+						continue;
+					}
+				}
+				i = a;
+			}
+			return lines;
+		}
+
+		// The named lines with one line of context either side, numbered, with
+		// the offending one marked. A shader is ~1600 lines and the whole dump
+		// buries the one line that matters.
+		static std::string ShaderSourceExcerpt(const std::string &source, const std::vector<uint32> &badLines)
+		{
+			std::vector<std::string> src;
+			{
+				std::istringstream in(source);
+				std::string l;
+				while (std::getline(in, l)) src.push_back(l);
+			}
+
+			std::ostringstream out;
+			uint32 lastPrinted = 0;
+			for (size_t k = 0; k < badLines.size(); ++k)
+			{
+				const uint32 hit = badLines[k];
+				if (hit > src.size()) continue;
+				const uint32 from = hit > 1 ? hit - 1 : 1;
+				const uint32 to = (hit + 1 <= src.size()) ? hit + 1 : (uint32)src.size();
+				if (lastPrinted && from > lastPrinted + 1) out << "        ...\n";
+				for (uint32 n = (lastPrinted && from <= lastPrinted) ? lastPrinted + 1 : from; n <= to; ++n)
+				{
+					out << (n == hit ? "  >> " : "     ") << n << " | " << src[n - 1] << "\n";
+					lastPrinted = n;
+				}
+			}
+			return out.str();
+		}
+
+	}
 
 	// Every Shader shares whichever backend is currently active (see
 	// GetActiveRenderDevice() in IRenderDevice.h) rather than each Shader
@@ -131,7 +205,15 @@ namespace p3d {
 			if (output != NULL)
 				*output = LOG;
 
-			echo(finalShaderString);
+			// The failing line(s) only. The full source is still printed when
+			// the log cannot be parsed, so nothing is ever lost - see
+			// ShaderErrorLines.
+			const std::vector<uint32> badLines = ShaderErrorLines(LOG);
+			const std::string excerpt = badLines.empty() ? std::string() : ShaderSourceExcerpt(finalShaderString, badLines);
+			if (!excerpt.empty())
+				echo(excerpt);
+			else
+				echo(finalShaderString);
 			return false;
 		}
 		if (!LOG.empty())

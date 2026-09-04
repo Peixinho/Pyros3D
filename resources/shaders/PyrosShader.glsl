@@ -536,17 +536,29 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 	// Was location 3 until FragData_pbr (PBR's metallic/roughness G-buffer
 	// output) claimed it - real collision risk once a 4th color attachment
 	// actually exists at that location, not just a cosmetic renumbering.
+	// Unconditional layout(location), NOT IO_LOCATION - which expands to
+	// nothing outside Vulkan. GLSL ES 3.00 refuses to auto-assign once a
+	// shader has more than one fragment output: with DEFERRED_GBUFFER the
+	// FragData_* below claim 0-3 explicitly and this one had no location at
+	// all, so WebGL2 failed the whole shader with "FragColor: When
+	// EXT_blend_func_extended is not enabled, must explicitly specify all
+	// locations when using multiple fragment outputs". Desktop GL assigns
+	// them itself and never complained.
+	//
+	// Safe on every backend: FragData_r/g/b/pbr have been declared this way
+	// unconditionally all along. The macOS GL 4.1 varying-budget problem the
+	// header warns about is about VARYINGS, not fragment outputs.
 	#ifdef VELOCITY_RENDERING
 		#ifdef DEFERRED_GBUFFER
-			IO_LOCATION(4) out vec4 FragColor;
+			layout(location = 4) out vec4 FragColor;
 		#else
-			IO_LOCATION(0) out vec4 FragColor;
+			layout(location = 0) out vec4 FragColor;
 		#endif
 	#else
 		#ifdef DEFERRED_GBUFFER
-			IO_LOCATION(4) out vec4 FragColor;
+			layout(location = 4) out vec4 FragColor;
 		#else
-			IO_LOCATION(0) out vec4 FragColor;
+			layout(location = 0) out vec4 FragColor;
 		#endif
 	#endif
 
@@ -1543,7 +1555,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 	#endif
 	// !defined(VELOCITY_RENDERING) && defined(DEFERRED_GBUFFER): no write
 	// here at all, on purpose - this branch's FragColor is declared at
-	// IO_LOCATION(4) above only because GL's own implicit-location
+	// location 4 above only because GL's own implicit-location
 	// assignment picks something past FragData_pbr's location 3 when both
 	// are declared together (see that comment), not because the G-buffer
 	// MRT pass actually has a 5th attachment for it to land in. Writing to
