@@ -107,6 +107,15 @@ namespace p3d {
 		// always still a silhouette.
 		Vec4 background = Vec4(0.10f, 0.11f, 0.13f, 1.f);
 
+		// Where the ambient comes from: 0 = the flat ambientLight colour above,
+		// 1 = a three-band gradient over the surface normal (sky above, ground
+		// below, equator around the horizon). Absent from a scene file means 0,
+		// so every existing scene keeps the flat colour it was authored with.
+		uint32 ambientMode = 0;
+		Vec4 ambientSky = Vec4(0.32f, 0.38f, 0.45f, 1.f);
+		Vec4 ambientEquator = Vec4(0.20f, 0.20f, 0.20f, 1.f);
+		Vec4 ambientGround = Vec4(0.10f, 0.09f, 0.08f, 1.f);
+
 		// A 2D scene: its content is UICanvas trees, not world geometry, so
 		// whoever renders it skips the 3D pass entirely and draws only the UI
 		// layer. Two uses, and they are the same scene either way - a menu or

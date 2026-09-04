@@ -489,6 +489,13 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 								  meta.ambientLight.z * meta.ambientIntensity,
 								  meta.ambientLight.w));
 	renderer->SetBackground(meta.background);
+	renderer->SetAmbientMode(meta.ambientMode);
+	{
+		const f32 k = meta.ambientIntensity;
+		renderer->SetAmbientGradient(Vec4(meta.ambientSky.x*k, meta.ambientSky.y*k, meta.ambientSky.z*k, 1.f),
+									 Vec4(meta.ambientEquator.x*k, meta.ambientEquator.y*k, meta.ambientEquator.z*k, 1.f),
+									 Vec4(meta.ambientGround.x*k, meta.ambientGround.y*k, meta.ambientGround.z*k, 1.f));
+	}
 	ResolveCamera(abs);
 	ApplyProjection();
 

@@ -356,6 +356,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 									  ambientLightColor.z * ambientIntensity,
 									  ambientLightColor.w));
 		Renderer->SetBackground(backgroundColor);
+		Renderer->SetAmbientMode((uint32)ambientMode);
+		const f32 k = ambientIntensity;
+		Renderer->SetAmbientGradient(Vec4(ambientSky.x*k, ambientSky.y*k, ambientSky.z*k, 1.f),
+									 Vec4(ambientEquator.x*k, ambientEquator.y*k, ambientEquator.z*k, 1.f),
+									 Vec4(ambientGround.x*k, ambientGround.y*k, ambientGround.z*k, 1.f));
 	}
 
 	void SceneEditor::SwitchRenderer(bool useDeferred)
@@ -3781,6 +3786,24 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ApplyEnvironment();
 			sceneDirty = true;
 		}
+		ImGui::TextUnformatted("Ambient Source");
+		if (ImGui::Combo("##ambient_source", &ambientMode, "Color\0Gradient\0"))
+		{
+			ApplyEnvironment();
+			sceneDirty = true;
+		}
+		if (ambientMode == 1)
+		{
+			// Sky above, ground below, equator around the horizon - blended
+			// by the surface normal's Y, so a floor picks up the ground
+			// colour and an upward face picks up the sky.
+			ImGui::TextUnformatted("Sky");
+			if (ImGui::ColorEdit3("##amb_sky", (float*)&ambientSky)) { ApplyEnvironment(); sceneDirty = true; }
+			ImGui::TextUnformatted("Equator");
+			if (ImGui::ColorEdit3("##amb_eq", (float*)&ambientEquator)) { ApplyEnvironment(); sceneDirty = true; }
+			ImGui::TextUnformatted("Ground");
+			if (ImGui::ColorEdit3("##amb_ground", (float*)&ambientGround)) { ApplyEnvironment(); sceneDirty = true; }
+		}
 
 		// ---- how a 2D scene is framed -----------------------------------
 		// Only for a 2D scene: a 3D one is framed by a camera object, which is
@@ -6585,6 +6608,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			meta.ambientLight = ambientLightColor;
 			meta.ambientIntensity = ambientIntensity;
 			meta.background = backgroundColor;
+			meta.ambientMode = (uint32)ambientMode;
+			meta.ambientSky = ambientSky;
+			meta.ambientEquator = ambientEquator;
+			meta.ambientGround = ambientGround;
 			meta.twoD = sceneIsTwoD;
 			meta.view2D = view2D;
 #ifdef LUA_BINDINGS
@@ -6793,6 +6820,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ambientLightColor = meta.ambientLight;
 			ambientIntensity = meta.ambientIntensity;
 			backgroundColor = meta.background;
+			ambientMode = (int)meta.ambientMode;
+			ambientSky = meta.ambientSky;
+			ambientEquator = meta.ambientEquator;
+			ambientGround = meta.ambientGround;
 			ApplyEnvironment();
 			ApplyEnvironment();
 		}

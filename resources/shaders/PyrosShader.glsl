@@ -1084,7 +1084,35 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
    #if defined(DIFFUSE) || defined(CELLSHADING) || defined(DEFERRED_GBUFFER) || defined(PBR)
        UBO_BINDING(BIND_AmbientLightUniforms) uniform AmbientLightUniforms {
            vec4 uAmbientLight;
+           // Environment lighting, gradient source: sky above, ground below,
+           // equator around the horizon. uAmbientParams.x is the mode -
+           // 0 uses uAmbientLight flat, which is what every material did
+           // before this block grew.
+           vec4 uAmbientSky;
+           vec4 uAmbientEquator;
+           vec4 uAmbientGround;
+           vec4 uAmbientParams;
        };
+
+       // The ambient term for THIS fragment. Normal-dependent in gradient
+       // mode, which is why it is a function and not a constant: the
+       // deferred path packs albedo*ambient into the G-buffer alphas per
+       // fragment (see FragData_r/g/b below), so a gradient computed here
+       // reaches the lighting pass without that pass knowing anything about
+       // it. Materials with no normal (an unlit Color-only G-buffer variant)
+       // fall through to the flat colour.
+       vec3 AmbientAt()
+       {
+       #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
+           if (uAmbientParams.x >= 0.5)
+           {
+               float y = clamp(normalize(vNormal).y, -1.0, 1.0);
+               return (y >= 0.0) ? mix(uAmbientEquator.rgb, uAmbientSky.rgb, y)
+                                 : mix(uAmbientEquator.rgb, uAmbientGround.rgb, -y);
+           }
+       #endif
+           return uAmbientLight.rgb;
+       }
    #endif
 
    #if defined(DEFERRED_GBUFFER) && (defined(PARALLAXMAPPING) || defined(BUMPMAPPING))
@@ -1269,7 +1297,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         // matters for a future DeferredRenderer_Gbuffer|PBR material.
         #if (defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)) && !defined(DEFERRED_GBUFFER)
             // Fragment Body
-            vec4 _diffuse = uAmbientLight;
+            vec4 _diffuse = vec4(AmbientAt(), uAmbientLight.a);
             vec4 _specular = vec4(0.0,0.0,0.0,1.0);
             #ifdef PBR
                 vec3 _pbrColor = vec3(0.0);
@@ -1446,7 +1474,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 // response, scaled by the same per-channel ambient uniform
                 // every other lighting path uses. Metals get none, matching
                 // kD's (1-metallic) scaling in CalculatePBRLighting above.
-                vec3 ambientPBR = diffuse.rgb * (1.0 - metallic) * uAmbientLight.rgb;
+                vec3 ambientPBR = diffuse.rgb * (1.0 - metallic) * AmbientAt();
                 diffuse = vec4(_pbrColor + ambientPBR, diffuse.w);
             #endif
         #endif
@@ -1489,7 +1517,8 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		// which is what the Material Editor's custom materials add their
 		// emissive to (see MaterialCodegen.cpp); a Generic material has no
 		// emissive input, so it contributes nothing extra here.
-		FragData_r=vec4(diffuse.xyz,diffuse.x*uAmbientLight.x);
+		vec3 _amb = AmbientAt();
+		FragData_r=vec4(diffuse.xyz,diffuse.x*_amb.x);
 		// RGB is the second pass's F0 *tint*, not a Blinn-Phong specular
 		// colour any more (nothing ever read these three channels before -
 		// secondpassPoint/Spot.glsl sampled them into a local that was then
@@ -1504,11 +1533,11 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		// comes from albedo/metallic instead, so it writes a neutral 1.0
 		// tint here and is left exactly as it was.
 		#ifdef PBR
-			FragData_g=vec4(1.0,1.0,1.0,diffuse.y*uAmbientLight.y);
+			FragData_g=vec4(1.0,1.0,1.0,diffuse.y*_amb.y);
 		#else
-			FragData_g=vec4(specular.xyz,diffuse.y*uAmbientLight.y);
+			FragData_g=vec4(specular.xyz,diffuse.y*_amb.y);
 		#endif
-		FragData_b=vec4(gbufferNormal.xyz,diffuse.z*uAmbientLight.z);
+		FragData_b=vec4(gbufferNormal.xyz,diffuse.z*_amb.z);
 		// Uses the already-resolved metallic/roughness locals (folds in
 		// uMetallicRoughnessmap sampling when PBRMAP is set too), not the
 		// raw uMetallic/uRoughness uniforms directly - see the #ifdef PBR

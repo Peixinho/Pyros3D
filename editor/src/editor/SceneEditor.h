@@ -618,6 +618,12 @@ private:
 	// background and disappeared into it.
 	f32 ambientIntensity = 1.f;
 	Vec4 backgroundColor = Vec4(0.10f, 0.11f, 0.13f, 1.f);
+	// Ambient source: 0 flat colour, 1 three-band gradient - see
+	// SceneMeta::ambientMode.
+	int ambientMode = 0;
+	Vec4 ambientSky = Vec4(0.32f, 0.38f, 0.45f, 1.f);
+	Vec4 ambientEquator = Vec4(0.20f, 0.20f, 0.20f, 1.f);
+	Vec4 ambientGround = Vec4(0.10f, 0.09f, 0.08f, 1.f);
 	// Pushes ambientLightColor*ambientIntensity and backgroundColor at the
 	// renderer. Called on load, on edit and after a renderer switch (a fresh
 	// IRenderer starts on its own hardcoded defaults).

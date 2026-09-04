@@ -121,6 +121,7 @@ bool IRenderer::CachedClipPlaneEnabled = false;
 Vec4 IRenderer::CachedClipPlane0;
 bool IRenderer::AmbientLightUniformsUBOValid = false;
 Vec4 IRenderer::CachedGlobalLight;
+Vec4 IRenderer::CachedAmbientEnv[5];
 bool IRenderer::VelocityFrameUniformsUBOValid = false;
 Matrix IRenderer::CachedPrvProjectionMatrix;
 Matrix IRenderer::CachedPrvViewMatrix;
@@ -420,7 +421,7 @@ void IRenderer::RetainSharedUniformBuffers(IRenderDevice* device)
 		ObjectMatrixUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix) + sizeof(Vec4), 18);
 		BoneMatricesUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_BONES, 19);
 		VelocityObjectUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix), 20);
-		AmbientLightUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4), 21);
+		AmbientLightUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 5, 21);
 		MaterialUniformsUBO = device->CreateUniformBuffer(80, 22);
 		ObjectLightCountsUBO = device->CreateUniformBuffer(16, 23);
 	}
@@ -1450,6 +1451,18 @@ void IRenderer::SetGlobalLight(const Vec4& Light)
 	GlobalLight = Light;
 }
 
+void IRenderer::SetAmbientGradient(const Vec4& Sky, const Vec4& Equator, const Vec4& Ground)
+{
+	AmbientSky = Sky;
+	AmbientEquator = Equator;
+	AmbientGround = Ground;
+}
+
+void IRenderer::SetAmbientMode(const uint32 Mode)
+{
+	AmbientMode = Mode;
+}
+
 void IRenderer::EnableDepthBias(const Vec2& Bias)
 {
 	if (!IsUsingDepthBias)
@@ -1843,11 +1856,23 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			CachedClipPlane0 = ClipPlanes[0];
 			VertexFrameUniformsUBOValid = true;
 		}
-		if (!AmbientLightUniformsUBOValid || memcmp(&CachedGlobalLight, &GlobalLight, sizeof(Vec4)) != 0)
 		{
-			device->ReplaceUniformBuffer(AmbientLightUniformsUBO, sizeof(Vec4), &GlobalLight);
-			CachedGlobalLight = GlobalLight;
-			AmbientLightUniformsUBOValid = true;
+			// std140: five consecutive vec4s, matching PyrosShader.glsl's
+			// AmbientLightUniforms block exactly - flat colour, the three
+			// gradient bands, then params.x = mode.
+			Vec4 env[5];
+			env[0] = GlobalLight;
+			env[1] = AmbientSky;
+			env[2] = AmbientEquator;
+			env[3] = AmbientGround;
+			env[4] = Vec4((f32)AmbientMode, 0.f, 0.f, 0.f);
+			if (!AmbientLightUniformsUBOValid || memcmp(CachedAmbientEnv, env, sizeof(env)) != 0)
+			{
+				device->ReplaceUniformBuffer(AmbientLightUniformsUBO, sizeof(env), env);
+				memcpy(CachedAmbientEnv, env, sizeof(env));
+				CachedGlobalLight = GlobalLight;
+				AmbientLightUniformsUBOValid = true;
+			}
 		}
 		if (!VelocityFrameUniformsUBOValid ||
 			memcmp(&CachedPrvProjectionMatrix, &PrvProjectionMatrix, sizeof(Matrix)) != 0 ||

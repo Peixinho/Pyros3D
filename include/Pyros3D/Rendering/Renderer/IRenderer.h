@@ -98,6 +98,11 @@ namespace p3d {
 		// DrawBackground() inside RenderScene runs too late for that clear.
 		void ApplyBackgroundClearColor();
 		void SetGlobalLight(const Vec4 &Light);
+		// Ambient as a three-band gradient over the world-space normal -
+		// sky above, ground below, equator around the horizon. Mode 0 keeps
+		// the flat GlobalLight colour.
+		void SetAmbientGradient(const Vec4 &Sky, const Vec4 &Equator, const Vec4 &Ground);
+		void SetAmbientMode(const uint32 Mode);
 
 		// The occluder set for 2D shadows, in world space. Filled by whoever
 		// knows what casts - Physics2DWorld does it from its own bodies - and
@@ -270,6 +275,13 @@ namespace p3d {
 			BackgroundColor;
 		Vec4
 			GlobalLight;
+		// Environment lighting, gradient source. Only consulted when
+		// AmbientMode is 1; in mode 0 the shader uses GlobalLight flat, which
+		// is what every scene predating this did.
+		Vec4
+			AmbientSky, AmbientEquator, AmbientGround;
+		uint32
+			AmbientMode = 0;
 
 		bool
 			scissorTest;
@@ -489,6 +501,7 @@ namespace p3d {
 		static Vec4 CachedClipPlane0;
 		static bool AmbientLightUniformsUBOValid;
 		static Vec4 CachedGlobalLight;
+		static Vec4 CachedAmbientEnv[5];
 		static bool VelocityFrameUniformsUBOValid;
 		static Matrix CachedPrvProjectionMatrix;
 		static Matrix CachedPrvViewMatrix;
