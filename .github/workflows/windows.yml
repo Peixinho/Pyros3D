@@ -114,7 +114,48 @@ jobs:
           arch: x64
 
       - name: Setup Ninja
-        uses: seanmiddleditch/gha-setup-ninja@v5
+        shell: pwsh
+        run: |
+          # Deliberately NOT seanmiddleditch/gha-setup-ninja@v5. That action
+          # reports success and then intermittently leaves nothing on PATH;
+          # when it does, CMake fails two steps later with "unable to find a
+          # build program corresponding to Ninja" followed by "CMAKE_C_COMPILER
+          # not set", which reads like a broken toolchain or broken code rather
+          # than a missing tool. It cost a CI round exactly that way.
+          #
+          # Visual Studio already ships ninja, so use that and only fall back
+          # to a download when it is genuinely absent.
+          $ErrorActionPreference = "Stop"
+
+          function Test-Ninja { $null -ne (Get-Command ninja -ErrorAction SilentlyContinue) }
+
+          if (-not (Test-Ninja)) {
+            $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+            if (Test-Path $vswhere) {
+              $vs = & $vswhere -latest -products * -property installationPath
+              $bundled = Join-Path $vs "Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja"
+              if (Test-Path (Join-Path $bundled "ninja.exe")) {
+                echo $bundled | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+                $env:PATH = "$bundled;$env:PATH"
+              }
+            }
+          }
+
+          if (-not (Test-Ninja)) {
+            $zip = "$env:RUNNER_TEMP\ninja.zip"
+            $dir = "$env:RUNNER_TEMP\ninja"
+            Invoke-WebRequest -Uri "https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-win.zip" -OutFile $zip
+            Expand-Archive -Path $zip -DestinationPath $dir -Force
+            echo $dir | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+            $env:PATH = "$dir;$env:PATH"
+          }
+
+          # Same reasoning as the Vulkan SDK check above: prove the tool is
+          # present here, where the message is unambiguous, rather than letting
+          # a later step report a symptom that points somewhere else.
+          if (-not (Test-Ninja)) { throw "ninja is still not on PATH after setup" }
+          Write-Host "ninja: $((Get-Command ninja).Source)"
+          ninja --version
 
       - name: Configure (vcpkg installs dependencies here)
         shell: pwsh
