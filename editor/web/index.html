@@ -30,10 +30,22 @@
     font-family: ui-monospace, monospace; font-size: 12px;
   }
   #fs:hover { background: #3a322cdd; }
+  #softkb {
+    position: fixed; left: 0; bottom: 0; width: 1px; height: 1px;
+    opacity: 0; border: 0; padding: 0; margin: 0; z-index: -1;
+    font-size: 16px; /* below 16px Safari zooms the page on focus */
+  }
 </style>
 </head>
 <body>
   <canvas id="canvas" tabindex="-1"></canvas>
+  <!-- The only reason a phone will show its keyboard: something focusable and
+       editable. Kept on-screen but invisible - iOS refuses to focus an element
+       that is display:none or visibility:hidden, so it is sized to nothing and
+       made transparent instead. 16px font because anything smaller makes
+       Safari zoom the page the moment it gains focus. -->
+  <input id="softkb" type="text" autocomplete="off" autocorrect="off"
+         autocapitalize="none" spellcheck="false" aria-hidden="true" />
   <button id="fs" title="Fullscreen (F11 also works)">⛶ Fullscreen</button>
   <div id="overlay"><div id="msg">Loading PyrosBuilder…</div><div id="bar"><i></i></div></div>
   <script src="./editor-shell.js"></script>

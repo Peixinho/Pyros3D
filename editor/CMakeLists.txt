@@ -65,6 +65,7 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Character2DDocument.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Character2DPreview.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/Character2DEditor.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/WebTextInput.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/GameObjectHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/LightHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/SoundHelper.cpp
@@ -157,6 +158,11 @@ if (EMSCRIPTEN)
 		# address. Costs a little speed; a browser build that crashes silently
 		# costs a lot more.
 		"SHELL:-sASSERTIONS=1"
+		# The page calls into the module for on-screen keyboard input
+		# (WebTextInput.cpp); without ccall/cwrap exported those calls are
+		# undefined at runtime, which shows up as a keyboard that appears and
+		# types nothing.
+		"SHELL:-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']"
 	)
 
 	# Diagnosing a wasm crash without this is reading addresses. -g2 keeps the
@@ -185,6 +191,12 @@ if (EMSCRIPTEN)
 			"SHELL:-sASSERTIONS=2"
 			"SHELL:-sSAFE_HEAP=1"
 			"SHELL:-sSTACK_OVERFLOW_CHECK=2"
+			# GL_ASSERTIONS validates every GL call and names what was wrong
+			# with it; GL_DEBUG logs the calls themselves. This is the
+			# instrument for "the calls all succeed and nothing appears",
+			# which no amount of reading the shader will answer.
+			"SHELL:-sGL_ASSERTIONS=1"
+			"SHELL:-sGL_DEBUG=1"
 		)
 		message(STATUS "  Editor(web): PYROS_WEB_DEBUG on - symbols + SAFE_HEAP (slow)")
 	endif()

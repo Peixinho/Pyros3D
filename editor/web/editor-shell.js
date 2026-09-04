@@ -15,8 +15,13 @@
   // which shows up as clicks landing next to the thing you clicked.
   function resize() {
     const dpr = window.devicePixelRatio || 1;
+    // The VISUAL viewport when there is one: with a soft keyboard up, the
+    // layout viewport still reports full height and the bottom of the editor
+    // would sit behind the keyboard.
+    const vv = window.visualViewport;
+    const cssH = vv ? Math.min(canvas.clientHeight, vv.height) : canvas.clientHeight;
     const w = Math.max(320, Math.floor(canvas.clientWidth * dpr));
-    const h = Math.max(240, Math.floor(canvas.clientHeight * dpr));
+    const h = Math.max(240, Math.floor(cssH * dpr));
     if (canvas.width === w && canvas.height === h) return;
     canvas.width = w;
     canvas.height = h;
@@ -58,6 +63,86 @@
   window.addEventListener('keydown', (e) => {
     if (e.key === 'F11') { e.preventDefault(); toggleFullscreen(); }
   }, true);
+
+  // ---- on-screen keyboard (phones/tablets) --------------------------------
+  // A canvas is not editable, so a touch device never offers a keyboard. The
+  // hidden input in index.html is what gets focused; everything below is the
+  // plumbing between it and the app. See editor/src/editor/WebTextInput.cpp.
+  const kb = document.getElementById('softkb');
+  const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+  let keys = null;   // ImGuiKey values, read from the module once it is up
+
+  function keyboardWanted() {
+    return !!(globalThis.Module && Module.pyrosWantsTextInput);
+  }
+
+  function showKeyboard() {
+    // focus() only raises the keyboard when called synchronously inside a user
+    // gesture. Called from a timer, a frame callback or an async continuation,
+    // iOS ignores it silently - which is the usual reason this "does not work".
+    kb.value = '';
+    kb.focus({ preventScroll: true });
+  }
+  function hideKeyboard() { kb.blur(); }
+
+  if (isTouch) {
+    // On touchEND, not start: iOS treats the gesture as complete there, and a
+    // focus during touchstart is undone by the scroll/zoom handling that
+    // follows. The app has already processed the previous frame, so
+    // pyrosWantsTextInput tells us whether the widget under the finger takes
+    // text - one frame late, which is why a first tap opens the keyboard and
+    // a second is not needed.
+    canvas.addEventListener('touchend', function () {
+      if (keyboardWanted()) showKeyboard(); else hideKeyboard();
+    }, { passive: true });
+
+    // The app can also stop wanting text (the field lost focus inside ImGui),
+    // and then the keyboard should go away on its own.
+    setInterval(function () {
+      if (document.activeElement === kb && !keyboardWanted()) hideKeyboard();
+    }, 250);
+
+    // Text, not keystrokes. An iOS soft keyboard does not emit usable keydown
+    // - it reports keyCode 229, or nothing at all - but it does emit `input`
+    // carrying what was typed, including autocorrect and dictation.
+    kb.addEventListener('input', function () {
+      const text = kb.value;
+      kb.value = '';
+      if (!text || !globalThis.Module || !Module.ccall) return;
+      Module.ccall('PyrosWebInputText', null, ['string'], [text]);
+    });
+
+    // The few that arrive as key events rather than as text.
+    kb.addEventListener('keydown', function (e) {
+      if (!globalThis.Module || !Module.ccall) return;
+      if (!keys) {
+        keys = {
+          Backspace: Module.ccall('PyrosWebKeyBackspace', 'number', [], []),
+          Enter:     Module.ccall('PyrosWebKeyEnter',     'number', [], []),
+          Tab:       Module.ccall('PyrosWebKeyTab',       'number', [], []),
+          ArrowLeft: Module.ccall('PyrosWebKeyLeft',      'number', [], []),
+          ArrowRight:Module.ccall('PyrosWebKeyRight',     'number', [], [])
+        };
+      }
+      const k = keys[e.key];
+      if (k === undefined) return;
+      e.preventDefault();
+      // Down and up together: ImGui reads these as edges, and a soft keyboard
+      // gives no keyup for backspace on iOS - the key would stay stuck down
+      // and repeat forever.
+      Module.ccall('PyrosWebInputKey', null, ['number', 'number'], [k, 1]);
+      setTimeout(function () {
+        Module.ccall('PyrosWebInputKey', null, ['number', 'number'], [k, 0]);
+      }, 0);
+    });
+
+    // The keyboard covers the bottom of the page. visualViewport reports what
+    // is left, so the canvas can shrink to it instead of the text field being
+    // hidden behind the very keyboard typing into it.
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', scheduleResize);
+    }
+  }
 
   var Module = {
     canvas: canvas,

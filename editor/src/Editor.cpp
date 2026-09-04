@@ -6586,6 +6586,9 @@ void Editor::DrawAssetsWindow()
 // Bind offscreen FBOs. With !frameInProgress those binds call
 // WaitAllFrameFences() (IslandDemo pre-frame sync) and the editor main
 // thread spent whole seconds in vkWaitForFences every tick after load.
+// Defined in editor/WebTextInput.cpp - see there for why the page needs this.
+void PyrosWebPublishTextInputState();
+
 void Editor::Draw()
 {
 #if defined(_SDL2VULKAN) || defined(_SDL2METAL)
@@ -6594,6 +6597,10 @@ void Editor::Draw()
 	if (sceneView)
 		sceneView->ProcessPendingModelThumbnails(1);
 	DrawUI();
+	// After DrawUI, so io.WantTextInput reflects the widget the user is
+	// actually in. The browser build's page reads this to decide whether the
+	// next touch should raise the on-screen keyboard; a no-op everywhere else.
+	PyrosWebPublishTextInputState();
 #if defined(_SDL2VULKAN) || defined(_SDL2METAL)
 	GetActiveRenderDevice().EndFrame();
 #endif
